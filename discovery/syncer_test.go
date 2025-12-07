@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"math"
 	"reflect"
 	"sort"
@@ -15,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/davecgh/go-spew/spew"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -86,13 +88,22 @@ func (m *mockChannelGraphTimeSeries) HighestChanID(_ context.Context,
 }
 
 func (m *mockChannelGraphTimeSeries) UpdatesInHorizon(chain chainhash.Hash,
-	startTime time.Time, endTime time.Time) ([]lnwire.Message, error) {
+	startTime, endTime time.Time) iter.Seq2[lnwire.Message, error] {
 
-	m.horizonReq <- horizonQuery{
-		chain, startTime, endTime,
+	return func(yield func(lnwire.Message, error) bool) {
+		m.horizonReq <- horizonQuery{
+			chain, startTime, endTime,
+		}
+
+		// We'll get the response from the channel, then yield it
+		// immediately.
+		msgs := <-m.horizonResp
+		for _, msg := range msgs {
+			if !yield(msg, nil) {
+				return
+			}
+		}
 	}
-
-	return <-m.horizonResp, nil
 }
 
 func (m *mockChannelGraphTimeSeries) FilterKnownChanIDs(chain chainhash.Hash,
@@ -200,13 +211,7 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 		noSyncChannels:         !syncChannels,
 		noReplyQueries:         !replyQueries,
 		noTimestampQueryOption: !timestamps,
-		sendToPeer: func(_ context.Context,
-			msgs ...lnwire.Message) error {
-
-			msgChan <- msgs
-			return nil
-		},
-		sendToPeerSync: func(_ context.Context,
+		sendMsg: func(_ context.Context, _ bool,
 			msgs ...lnwire.Message) error {
 
 			msgChan <- msgs
@@ -225,14 +230,116 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 
 	syncer := newGossipSyncer(cfg, syncerSema)
 
+	//nolint:forcetypeassert
 	return msgChan, syncer, cfg.channelSeries.(*mockChannelGraphTimeSeries)
+}
+
+// errorInjector provides thread-safe error injection for test syncers and
+// tracks the number of send attempts to detect endless loops.
+type errorInjector struct {
+	mu           sync.Mutex
+	err          error
+	attemptCount int
+}
+
+// setError sets the error that will be returned by sendMsg calls.
+func (ei *errorInjector) setError(err error) {
+	ei.mu.Lock()
+	defer ei.mu.Unlock()
+	ei.err = err
+}
+
+// getError retrieves the current error in a thread-safe manner and increments
+// the attempt counter.
+func (ei *errorInjector) getError() error {
+	ei.mu.Lock()
+	defer ei.mu.Unlock()
+	ei.attemptCount++
+
+	return ei.err
+}
+
+// getAttemptCount returns the number of times sendMsg was called.
+func (ei *errorInjector) getAttemptCount() int {
+	ei.mu.Lock()
+	defer ei.mu.Unlock()
+	return ei.attemptCount
+}
+
+// newErrorInjectingSyncer creates a GossipSyncer with controllable error
+// injection for testing error handling. The returned errorInjector can be used
+// to inject errors into sendMsg calls.
+func newErrorInjectingSyncer(hID lnwire.ShortChannelID, chunkSize int32) (
+	*GossipSyncer, *errorInjector, chan []lnwire.Message) {
+
+	ei := &errorInjector{}
+	msgChan := make(chan []lnwire.Message, 20)
+
+	cfg := gossipSyncerCfg{
+		channelSeries:          newMockChannelGraphTimeSeries(hID),
+		encodingType:           defaultEncoding,
+		chunkSize:              chunkSize,
+		batchSize:              chunkSize,
+		noSyncChannels:         false,
+		noReplyQueries:         true,
+		noTimestampQueryOption: false,
+		sendMsg: func(_ context.Context, _ bool,
+			msgs ...lnwire.Message) error {
+
+			// Check if we should inject an error.
+			if err := ei.getError(); err != nil {
+				return err
+			}
+
+			msgChan <- msgs
+			return nil
+		},
+		bestHeight: func() uint32 {
+			return latestKnownHeight
+		},
+		markGraphSynced:          func() {},
+		maxQueryChanRangeReplies: maxQueryChanRangeReplies,
+		timestampQueueSize:       10,
+	}
+
+	syncerSema := make(chan struct{}, 1)
+	syncerSema <- struct{}{}
+
+	syncer := newGossipSyncer(cfg, syncerSema)
+
+	return syncer, ei, msgChan
+}
+
+// assertSyncerExitsCleanly verifies that a syncer stops cleanly within the
+// given timeout. This is used to ensure error handling doesn't cause endless
+// loops.
+func assertSyncerExitsCleanly(t *testing.T, syncer *GossipSyncer,
+	timeout time.Duration) {
+
+	t.Helper()
+
+	stopChan := make(chan struct{})
+	go func() {
+		syncer.Stop()
+		close(stopChan)
+	}()
+
+	select {
+	case <-stopChan:
+		// Success - syncer stopped cleanly.
+	case <-time.After(timeout):
+		t.Fatal(
+			"syncer did not stop within timeout - possible " +
+				"endless loop",
+		)
+	}
 }
 
 // TestGossipSyncerFilterGossipMsgsNoHorizon tests that if the remote peer
 // doesn't have a horizon set, then we won't send any incoming messages to it.
 func TestGossipSyncerFilterGossipMsgsNoHorizon(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -245,10 +352,14 @@ func TestGossipSyncerFilterGossipMsgsNoHorizon(t *testing.T) {
 	// through the gossiper to the target peer.
 	msgs := []msgWithSenders{
 		{
-			msg: &lnwire.NodeAnnouncement{Timestamp: uint32(time.Now().Unix())},
+			msg: &lnwire.NodeAnnouncement1{
+				Timestamp: uint32(time.Now().Unix()),
+			},
 		},
 		{
-			msg: &lnwire.NodeAnnouncement{Timestamp: uint32(time.Now().Unix())},
+			msg: &lnwire.NodeAnnouncement1{
+				Timestamp: uint32(time.Now().Unix()),
+			},
 		},
 	}
 
@@ -278,7 +389,7 @@ func unixStamp(a int64) uint32 {
 // channel ann that already has a channel update on disk.
 func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -304,15 +415,21 @@ func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 	msgs := []msgWithSenders{
 		{
 			// Node ann above horizon.
-			msg: &lnwire.NodeAnnouncement{Timestamp: unixStamp(25001)},
+			msg: &lnwire.NodeAnnouncement1{
+				Timestamp: unixStamp(25001),
+			},
 		},
 		{
 			// Node ann below horizon.
-			msg: &lnwire.NodeAnnouncement{Timestamp: unixStamp(5)},
+			msg: &lnwire.NodeAnnouncement1{
+				Timestamp: unixStamp(5),
+			},
 		},
 		{
 			// Node ann above horizon.
-			msg: &lnwire.NodeAnnouncement{Timestamp: unixStamp(999999)},
+			msg: &lnwire.NodeAnnouncement1{
+				Timestamp: unixStamp(999999),
+			},
 		},
 		{
 			// Ann tuple below horizon.
@@ -392,16 +509,21 @@ func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 	// We'll then instruct the gossiper to filter this set of messages.
 	syncer.FilterGossipMsgs(ctx, msgs...)
 
-	// Out of all the messages we sent in, we should only get 2 of them
+	// Out of all the messages we sent in, we should only get 3 of them
 	// back.
-	select {
-	case <-time.After(time.Second * 15):
-		t.Fatalf("no msgs received")
+	msgReceived := make([]lnwire.Message, 0, 3)
+	for {
+		select {
+		case <-time.After(time.Second * 1):
+			t.Fatalf("timeout receiving msg, want 3 msgs, got %v "+
+				"messages: %v", len(msgReceived), msgReceived)
 
-	case msgs := <-msgChan:
-		if len(msgs) != 3 {
-			t.Fatalf("expected 3 messages instead got %v "+
-				"messages: %v", len(msgs), spew.Sdump(msgs))
+		case msgs := <-msgChan:
+			msgReceived = append(msgReceived, msgs...)
+		}
+
+		if len(msgReceived) == 3 {
+			break
 		}
 	}
 
@@ -421,7 +543,7 @@ func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 // messages which are within their desired time horizon.
 func TestGossipSyncerApplyNoHistoricalGossipFilter(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -473,7 +595,7 @@ func TestGossipSyncerApplyNoHistoricalGossipFilter(t *testing.T) {
 	// filter.
 	err := <-errChan
 	if err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 }
 
@@ -482,7 +604,7 @@ func TestGossipSyncerApplyNoHistoricalGossipFilter(t *testing.T) {
 // within their desired time horizon.
 func TestGossipSyncerApplyGossipFilter(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -602,7 +724,7 @@ func TestGossipSyncerApplyGossipFilter(t *testing.T) {
 // channels and complete=0.
 func TestGossipSyncerQueryChannelRangeWrongChainHash(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -655,7 +777,7 @@ func TestGossipSyncerQueryChannelRangeWrongChainHash(t *testing.T) {
 // complete=0.
 func TestGossipSyncerReplyShortChanIDsWrongChainHash(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -705,7 +827,7 @@ func TestGossipSyncerReplyShortChanIDsWrongChainHash(t *testing.T) {
 // announcements, as well as an ending ReplyShortChanIDsEnd message.
 func TestGossipSyncerReplyShortChanIDs(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -728,7 +850,7 @@ func TestGossipSyncerReplyShortChanIDs(t *testing.T) {
 			ShortChannelID: lnwire.NewShortChanIDFromInt(20),
 			Timestamp:      unixStamp(999999),
 		},
-		&lnwire.NodeAnnouncement{Timestamp: unixStamp(25001)},
+		&lnwire.NodeAnnouncement1{Timestamp: unixStamp(25001)},
 	}
 
 	// We'll then craft a reply to the upcoming query for all the matching
@@ -811,7 +933,7 @@ func TestGossipSyncerReplyShortChanIDs(t *testing.T) {
 // the remote peer.
 func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// We'll use a smaller chunk size so we can easily test all the edge
 	// cases.
@@ -983,7 +1105,7 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 // executed with the correct block range.
 func TestGossipSyncerReplyChanRangeQueryBlockRange(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First create our test gossip syncer that will handle and
 	// respond to the test queries
@@ -1097,7 +1219,7 @@ func TestGossipSyncerReplyChanRangeQueryBlockRange(t *testing.T) {
 // back a single response that signals completion.
 func TestGossipSyncerReplyChanRangeQueryNoNewChans(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// We'll now create our test gossip syncer that will shortly respond to
 	// our canned query.
@@ -1177,7 +1299,7 @@ func TestGossipSyncerReplyChanRangeQueryNoNewChans(t *testing.T) {
 // channel ID, we properly generate an correct initial channel range response.
 func TestGossipSyncerGenChanRangeQuery(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -1238,7 +1360,7 @@ func TestGossipSyncerProcessChanRangeReply(t *testing.T) {
 // each reply instead.
 func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -1499,7 +1621,8 @@ func TestGossipSyncerSynchronizeChanIDs(t *testing.T) {
 
 	for i := 0; i < chunkSize*2; i += 2 {
 		// With our set up complete, we'll request a sync of chan ID's.
-		done := syncer.synchronizeChanIDs(context.Background())
+		done, err := syncer.synchronizeChanIDs(t.Context())
+		require.NoError(t, err)
 
 		// At this point, we shouldn't yet be done as only 2 items
 		// should have been queried for.
@@ -1546,7 +1669,8 @@ func TestGossipSyncerSynchronizeChanIDs(t *testing.T) {
 	}
 
 	// If we issue another query, the syncer should tell us that it's done.
-	done := syncer.synchronizeChanIDs(context.Background())
+	done, err := syncer.synchronizeChanIDs(t.Context())
+	require.NoError(t, err)
 	if done {
 		t.Fatalf("syncer should be finished!")
 	}
@@ -2389,4 +2513,108 @@ func TestGossipSyncerMaxChannelRangeReplies(t *testing.T) {
 			},
 		},
 	}, nil))
+}
+
+// TestGossipSyncerStateHandlerErrors tests that errors in state handlers cause
+// the channelGraphSyncer goroutine to exit cleanly without endless retry loops.
+// This is a table-driven test covering various error types and states.
+func TestGossipSyncerStateHandlerErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		state       syncerState
+		setupState  func(*GossipSyncer)
+		chunkSize   int32
+		injectedErr error
+	}{
+		{
+			name:        "context cancel during syncingChans",
+			state:       syncingChans,
+			chunkSize:   defaultChunkSize,
+			injectedErr: context.Canceled,
+			setupState:  func(s *GossipSyncer) {},
+		},
+		{
+			name:        "peer exit during syncingChans",
+			state:       syncingChans,
+			chunkSize:   defaultChunkSize,
+			injectedErr: lnpeer.ErrPeerExiting,
+			setupState:  func(s *GossipSyncer) {},
+		},
+		{
+			name:        "context cancel during queryNewChannels",
+			state:       queryNewChannels,
+			chunkSize:   2,
+			injectedErr: context.Canceled,
+			setupState: func(s *GossipSyncer) {
+				s.newChansToQuery = []lnwire.ShortChannelID{
+					lnwire.NewShortChanIDFromInt(1),
+					lnwire.NewShortChanIDFromInt(2),
+					lnwire.NewShortChanIDFromInt(3),
+				}
+			},
+		},
+		{
+			name:        "network error during queryNewChannels",
+			state:       queryNewChannels,
+			chunkSize:   2,
+			injectedErr: errors.New("connection closed"),
+			setupState: func(s *GossipSyncer) {
+				s.newChansToQuery = []lnwire.ShortChannelID{
+					lnwire.NewShortChanIDFromInt(1),
+					lnwire.NewShortChanIDFromInt(2),
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Create syncer with error injection capability.
+			hID := lnwire.NewShortChanIDFromInt(10)
+			syncer, errInj, _ := newErrorInjectingSyncer(
+				hID, tt.chunkSize,
+			)
+
+			// Set up the initial state and any required state data.
+			syncer.setSyncState(tt.state)
+			tt.setupState(syncer)
+
+			// Inject the error that should cause the goroutine to
+			// exit.
+			errInj.setError(tt.injectedErr)
+
+			// Start the syncer which spawns the channelGraphSyncer
+			// goroutine.
+			syncer.Start()
+
+			// Wait long enough that an endless loop would
+			// accumulate many attempts. With the fix, we should
+			// only see 1-3 attempts. Without the fix, we'd see
+			// 50-100+ attempts.
+			time.Sleep(500 * time.Millisecond)
+
+			// Check how many send attempts were made. This verifies
+			// that the state handler doesn't loop endlessly.
+			attemptCount := errInj.getAttemptCount()
+			require.GreaterOrEqual(
+				t, attemptCount, 1,
+				"state handler was not called - test "+
+					"setup issue",
+			)
+			require.LessOrEqual(
+				t, attemptCount, 5,
+				"too many attempts (%d) - endless loop "+
+					"not fixed",
+				attemptCount,
+			)
+
+			// Verify the syncer exits cleanly without hanging.
+			assertSyncerExitsCleanly(t, syncer, 2*time.Second)
+		})
+	}
 }

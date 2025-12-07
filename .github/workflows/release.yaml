@@ -12,22 +12,9 @@ defaults:
 env:
   # If you change this please also update GO_VERSION in Makefile (then run
   # `make lint` to see where else it needs to be updated as well).
-  GO_VERSION: 1.23.12
+  GO_VERSION: 1.25.3
 
 jobs:
-  ########################
-  # Check release signing keys
-  ########################
-  pgp-key-expiration-check:
-    name: Check release signing key expirations
-    runs-on: ubuntu-latest
-    steps:
-      - name: Git checkout
-        uses: actions/checkout@v4
-
-      - name: Check PGP key expirations
-        run: scripts/check-pgp-expiry.sh
-
   ########################
   # Create release
   ########################
@@ -41,7 +28,7 @@ jobs:
           fetch-depth: 0
 
       - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache && mkdir -p /opt/hostedtoolcache/go
+        uses: ./.github/actions/cleanup-space
 
       - name: setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v5

@@ -20,7 +20,7 @@ var (
 // deduplicates the results of a set of AddrSource implementations.
 func TestMultiAddrSource(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var pk1 = newTestPubKey(t)
 

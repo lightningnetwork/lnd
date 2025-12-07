@@ -9,14 +9,13 @@ import (
 	"github.com/btcsuite/btcwallet/walletdb/walletdbtest"
 	"github.com/lightningnetwork/lnd/kvdb/sqlbase"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/context"
 )
 
 // TestInterface performs all interfaces tests for this database driver.
 func TestInterface(t *testing.T) {
 	// dbType is the database type name for this driver.
 	dir := t.TempDir()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	sqlbase.Init(0)
 

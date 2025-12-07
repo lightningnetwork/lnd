@@ -36,6 +36,8 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/funding"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	graphdbmig1 "github.com/lightningnetwork/lnd/graph/db/migration1"
+	graphmig1sqlc "github.com/lightningnetwork/lnd/graph/db/migration1/sqlc"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -70,6 +72,10 @@ const (
 	// invoiceMigration is the version of the migration that will be used to
 	// migrate invoices from the kvdb to the sql database.
 	invoiceMigration = 7
+
+	// graphMigration is the version number for the graph migration
+	// that migrates the KV graph to the native SQL schema.
+	graphMigration = 10
 )
 
 // GrpcRegistrar is an interface that must be satisfied by an external subserver
@@ -209,6 +215,11 @@ type AuxComponents struct {
 	// AuxContractResolver is an optional interface that can be used to
 	// modify the way contracts are resolved.
 	AuxContractResolver fn.Option[lnwallet.AuxContractResolver]
+
+	// AuxChannelNegotiator is an optional interface that allows aux channel
+	// implementations to inject and process custom records over channel
+	// related wire messages.
+	AuxChannelNegotiator fn.Option[lnwallet.AuxChannelNegotiator]
 }
 
 // DefaultWalletImpl is the default implementation of our normal, btcwallet
@@ -925,9 +936,9 @@ type DatabaseInstances struct {
 	// InvoiceDB is the database that stores information about invoices.
 	InvoiceDB invoices.InvoiceDB
 
-	// KVPaymentsDB is the database that stores all payment related
+	// PaymentsDB is the database that stores all payment related
 	// information.
-	KVPaymentsDB *paymentsdb.KVPaymentsDB
+	PaymentsDB paymentsdb.DB
 
 	// MacaroonDB is the database that stores macaroon root keys.
 	MacaroonDB kvdb.Backend
@@ -1091,6 +1102,11 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	if d.cfg.DB.UseNativeSQL {
 		migrations := sqldb.GetMigrations()
 
+		queryCfg := &d.cfg.DB.Sqlite.QueryConfig
+		if d.cfg.DB.Backend == lncfg.PostgresBackend {
+			queryCfg = &d.cfg.DB.Postgres.QueryConfig
+		}
+
 		// If the user has not explicitly disabled the SQL invoice
 		// migration, attach the custom migration function to invoice
 		// migration (version 7). Even if this custom migration is
@@ -1115,17 +1131,43 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 				d.logger.Debugf("Setting invoice bucket " +
 					"tombstone")
 
-				return dbs.ChanStateDB.SetInvoiceBucketTombstone() //nolint:ll
+				//nolint:ll
+				return dbs.ChanStateDB.SetInvoiceBucketTombstone()
+			}
+
+			graphMig := func(tx *sqlc.Queries) error {
+				cfg := &graphdbmig1.SQLStoreConfig{
+					//nolint:ll
+					ChainHash: *d.cfg.ActiveNetParams.GenesisHash,
+					QueryCfg:  queryCfg,
+				}
+				err := graphdbmig1.MigrateGraphToSQL(
+					ctx, cfg, dbs.ChanStateDB.Backend,
+					graphmig1sqlc.New(tx.GetTx()),
+				)
+				if err != nil {
+					return fmt.Errorf("failed to migrate "+
+						"graph to SQL: %w", err)
+				}
+
+				return nil
 			}
 
 			// Make sure we attach the custom migration function to
 			// the correct migration version.
 			for i := 0; i < len(migrations); i++ {
 				version := migrations[i].Version
-				if version == invoiceMigration {
+				switch version {
+				case invoiceMigration:
 					migrations[i].MigrationFn = invoiceMig
 
 					continue
+				case graphMigration:
+					migrations[i].MigrationFn = graphMig
+
+					continue
+
+				default:
 				}
 
 				migFn, ok := d.getSQLMigration(
@@ -1167,8 +1209,18 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 		dbs.InvoiceDB = sqlInvoiceDB
 
-		graphStore, err = d.getGraphStore(
-			baseDB, databaseBackends.GraphDB, graphDBOptions...,
+		graphExecutor := sqldb.NewTransactionExecutor(
+			baseDB, func(tx *sql.Tx) graphdb.SQLQueries {
+				return baseDB.WithTx(tx)
+			},
+		)
+
+		graphStore, err = graphdb.NewSQLStore(
+			&graphdb.SQLStoreConfig{
+				ChainHash: *d.cfg.ActiveNetParams.GenesisHash,
+				QueryCfg:  queryCfg,
+			},
+			graphExecutor, graphDBOptions...,
 		)
 		if err != nil {
 			err = fmt.Errorf("unable to get graph store: %w", err)
@@ -1225,7 +1277,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			cfg.KeepFailedPaymentAttempts,
 		),
 	}
-	kvPaymentsDB, err := paymentsdb.NewKVPaymentsDB(
+	kvPaymentsDB, err := paymentsdb.NewKVStore(
 		dbs.ChanStateDB,
 		paymentsDBOptions...,
 	)
@@ -1237,7 +1289,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 		return nil, nil, err
 	}
-	dbs.KVPaymentsDB = kvPaymentsDB
+	dbs.PaymentsDB = kvPaymentsDB
 
 	// Wrap the watchtower client DB and make sure we clean up.
 	if cfg.WtClient.Active {
@@ -1763,8 +1815,11 @@ func broadcastErrorMapper(err error) error {
 	// in the first place are rebroadcasted despite of their backend error.
 	// Mempool conditions change over time so it makes sense to retry
 	// publishing the transaction. Moreover we log the detailed error so the
-	// user can intervene and increase the size of his mempool.
-	case errors.Is(err, chain.ErrMempoolMinFeeNotMet):
+	// user can intervene and increase the size of his mempool or increase
+	// his min relay fee configuration.
+	case errors.Is(err, chain.ErrMempoolMinFeeNotMet),
+		errors.Is(err, chain.ErrMinRelayFeeNotMet):
+
 		ltndLog.Warnf("Error while broadcasting transaction: %v", err)
 
 		returnErr = &pushtx.BroadcastError{

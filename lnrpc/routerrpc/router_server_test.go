@@ -82,7 +82,7 @@ func TestTrackPaymentsReturnsOnCancelContext(t *testing.T) {
 	}
 	towerMock := makeControlTowerMock()
 
-	streamCtx, cancelStream := context.WithCancel(context.Background())
+	streamCtx, cancelStream := context.WithCancel(t.Context())
 	stream := makeStreamMock(streamCtx)
 
 	server := &Server{
@@ -110,7 +110,7 @@ func TestTrackPaymentsInflightUpdates(t *testing.T) {
 	}
 	towerMock := makeControlTowerMock()
 
-	streamCtx, cancelStream := context.WithCancel(context.Background())
+	streamCtx, cancelStream := context.WithCancel(t.Context())
 	stream := makeStreamMock(streamCtx)
 	defer cancelStream()
 
@@ -172,7 +172,7 @@ func TestTrackPaymentsNoInflightUpdates(t *testing.T) {
 	}
 	towerMock.queue.Start()
 
-	streamCtx, cancelStream := context.WithCancel(context.Background())
+	streamCtx, cancelStream := context.WithCancel(t.Context())
 	stream := makeStreamMock(streamCtx)
 	defer cancelStream()
 

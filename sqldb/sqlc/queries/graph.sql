@@ -21,6 +21,27 @@ WHERE graph_nodes.last_update IS NULL
     OR EXCLUDED.last_update > graph_nodes.last_update
 RETURNING id;
 
+-- We use a separate upsert for our own node since we want to be less strict
+-- about the last_update field. For our own node, we always want to
+-- update the record even if the last_update is the same as what we have.
+-- name: UpsertSourceNode :one
+INSERT INTO graph_nodes (
+    version, pub_key, alias, last_update, color, signature
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+)
+ON CONFLICT (pub_key, version)
+    -- Update the following fields if a conflict occurs on pub_key
+    -- and version.
+    DO UPDATE SET
+        alias = EXCLUDED.alias,
+        last_update = EXCLUDED.last_update,
+        color = EXCLUDED.color,
+        signature = EXCLUDED.signature
+WHERE graph_nodes.last_update IS NULL
+    OR EXCLUDED.last_update >= graph_nodes.last_update
+RETURNING id;
+
 -- name: GetNodesByIDs :many
 SELECT *
 FROM graph_nodes
@@ -105,7 +126,9 @@ INSERT INTO graph_node_features (
     node_id, feature_bit
 ) VALUES (
     $1, $2
-);
+) ON CONFLICT (node_id, feature_bit)
+    -- Do nothing if the feature already exists for the node.
+    DO NOTHING;
 
 -- name: GetNodeFeatures :many
 SELECT *
@@ -135,7 +158,7 @@ WHERE node_id = $1
    ───────────────────────────────────��─────────
 */
 
--- name: InsertNodeAddress :exec
+-- name: UpsertNodeAddress :exec
 INSERT INTO graph_node_addresses (
     node_id,
     type,
@@ -143,7 +166,8 @@ INSERT INTO graph_node_addresses (
     position
 ) VALUES (
     $1, $2, $3, $4
- );
+) ON CONFLICT (node_id, type, position)
+    DO UPDATE SET address = EXCLUDED.address;
 
 -- name: GetNodeAddresses :many
 SELECT type, address
@@ -161,7 +185,35 @@ ORDER BY node_id, type, position;
 SELECT *
 FROM graph_nodes
 WHERE last_update >= @start_time
-  AND last_update < @end_time;
+  AND last_update <= @end_time
+  -- Pagination: We use (last_update, pub_key) as a compound cursor.
+  -- This ensures stable ordering and allows us to resume from where we left off.
+  -- We use COALESCE with -1 as sentinel since timestamps are always positive.
+  AND (
+    -- Include rows with last_update greater than cursor (or all rows if cursor is -1)
+    last_update > COALESCE(sqlc.narg('last_update'), -1)
+    OR 
+    -- For rows with same last_update, use pub_key as tiebreaker
+    (last_update = COALESCE(sqlc.narg('last_update'), -1) 
+     AND pub_key > sqlc.narg('last_pub_key'))
+  )
+  -- Optional filter for public nodes only
+  AND (
+    -- If only_public is false or not provided, include all nodes
+    COALESCE(sqlc.narg('only_public'), FALSE) IS FALSE
+    OR 
+    -- For V1 protocol, a node is public if it has at least one public channel.
+    -- A public channel has bitcoin_1_signature set (channel announcement received).
+    EXISTS (
+      SELECT 1
+      FROM graph_channels c
+      WHERE c.version = 1
+        AND c.bitcoin_1_signature IS NOT NULL
+        AND (c.node_id_1 = graph_nodes.id OR c.node_id_2 = graph_nodes.id)
+    )
+  )
+ORDER BY last_update ASC, pub_key ASC
+LIMIT COALESCE(sqlc.narg('max_results'), 999999999);
 
 -- name: DeleteNodeAddresses :exec
 DELETE FROM graph_node_addresses
@@ -441,12 +493,30 @@ WHERE c.version = @version
        OR
        (cp2.last_update >= @start_time AND cp2.last_update < @end_time)
   )
+  -- Pagination using compound cursor (max_update_time, id).
+  -- We use COALESCE with -1 as sentinel since timestamps are always positive.
+  AND (
+       (CASE
+           WHEN COALESCE(cp1.last_update, 0) >= COALESCE(cp2.last_update, 0)
+               THEN COALESCE(cp1.last_update, 0)
+           ELSE COALESCE(cp2.last_update, 0)
+       END > COALESCE(sqlc.narg('last_update_time'), -1))
+       OR 
+       (CASE
+           WHEN COALESCE(cp1.last_update, 0) >= COALESCE(cp2.last_update, 0)
+               THEN COALESCE(cp1.last_update, 0)
+           ELSE COALESCE(cp2.last_update, 0)
+       END = COALESCE(sqlc.narg('last_update_time'), -1) 
+       AND c.id > COALESCE(sqlc.narg('last_id'), -1))
+  )
 ORDER BY
     CASE
         WHEN COALESCE(cp1.last_update, 0) >= COALESCE(cp2.last_update, 0)
             THEN COALESCE(cp1.last_update, 0)
         ELSE COALESCE(cp2.last_update, 0)
-        END ASC;
+    END ASC,
+    c.id ASC
+LIMIT COALESCE(sqlc.narg('max_results'), 999999999);
 
 -- name: GetChannelByOutpointWithPolicies :one
 SELECT
@@ -735,7 +805,9 @@ INSERT INTO graph_channel_features (
     channel_id, feature_bit
 ) VALUES (
     $1, $2
-);
+) ON CONFLICT (channel_id, feature_bit)
+    -- Do nothing if the channel_id and feature_bit already exist.
+    DO NOTHING;
 
 -- name: GetChannelFeaturesBatch :many
 SELECT
@@ -750,11 +822,14 @@ ORDER BY channel_id, feature_bit;
    ─────────────────────────────────────────────
 */
 
--- name: CreateChannelExtraType :exec
+-- name: UpsertChannelExtraType :exec
 INSERT INTO graph_channel_extra_types (
     channel_id, type, value
 )
-VALUES ($1, $2, $3);
+VALUES ($1, $2, $3)
+    ON CONFLICT (channel_id, type)
+    -- Update the value if a conflict occurs on channel_id and type.
+    DO UPDATE SET value = EXCLUDED.value;
 
 -- name: GetChannelExtrasBatch :many
 SELECT
@@ -861,11 +936,15 @@ WHERE c.scid = @scid
    ─────────────────────────────────────────────
 */
 
--- name: InsertChanPolicyExtraType :exec
+-- name: UpsertChanPolicyExtraType :exec
 INSERT INTO graph_channel_policy_extra_types (
     channel_policy_id, type, value
 )
-VALUES ($1, $2, $3);
+VALUES ($1, $2, $3)
+ON CONFLICT (channel_policy_id, type)
+    -- If a conflict occurs on channel_policy_id and type, then we update the
+    -- value.
+    DO UPDATE SET value = EXCLUDED.value;
 
 -- name: GetChannelPolicyExtraTypesBatch :many
 SELECT
@@ -995,3 +1074,98 @@ SELECT EXISTS (
 SELECT scid
 FROM graph_closed_scids
 WHERE scid IN (sqlc.slice('scids')/*SLICE:scids*/);
+
+/* ─────────────────────────────────────────────
+   Migration specific queries
+
+   NOTE: once sqldbv2 is in place, these queries can be contained to a package
+   dedicated to the migration that requires it, and so we can then remove
+   it from the main set of "live" queries that the code-base has access to.
+   ────────────────────────────────────────────-
+*/
+
+-- NOTE: This query is only meant to be used by the graph SQL migration since
+-- for that migration, in order to be retry-safe, we don't want to error out if
+-- we re-insert the same node (which would error if the normal UpsertNode query
+-- is used because of the constraint in that query that requires a node update
+-- to have a newer last_update than the existing node).
+-- name: InsertNodeMig :one
+INSERT INTO graph_nodes (
+    version, pub_key, alias, last_update, color, signature
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+)
+ON CONFLICT (pub_key, version)
+    -- If a conflict occurs, we have already migrated this node. However, we
+    -- still need to do an "UPDATE SET" here instead of "DO NOTHING" because
+    -- otherwise, the "RETURNING id" part does not work.
+    DO UPDATE SET
+        alias = EXCLUDED.alias,
+        last_update = EXCLUDED.last_update,
+        color = EXCLUDED.color,
+        signature = EXCLUDED.signature
+RETURNING id;
+
+-- NOTE: This query is only meant to be used by the graph SQL migration since
+-- for that migration, in order to be retry-safe, we don't want to error out if
+-- we re-insert the same channel again (which would error if the normal
+-- CreateChannel query is used because of the uniqueness constraint on the scid
+-- and version columns).
+-- name: InsertChannelMig :one
+INSERT INTO graph_channels (
+    version, scid, node_id_1, node_id_2,
+    outpoint, capacity, bitcoin_key_1, bitcoin_key_2,
+    node_1_signature, node_2_signature, bitcoin_1_signature,
+    bitcoin_2_signature
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+) ON CONFLICT (scid, version)
+    -- If a conflict occurs, we have already migrated this channel. However, we
+    -- still need to do an "UPDATE SET" here instead of "DO NOTHING" because
+    -- otherwise, the "RETURNING id" part does not work.
+    DO UPDATE SET
+        node_id_1 = EXCLUDED.node_id_1,
+        node_id_2 = EXCLUDED.node_id_2,
+        outpoint = EXCLUDED.outpoint,
+        capacity = EXCLUDED.capacity,
+        bitcoin_key_1 = EXCLUDED.bitcoin_key_1,
+        bitcoin_key_2 = EXCLUDED.bitcoin_key_2,
+        node_1_signature = EXCLUDED.node_1_signature,
+        node_2_signature = EXCLUDED.node_2_signature,
+        bitcoin_1_signature = EXCLUDED.bitcoin_1_signature,
+        bitcoin_2_signature = EXCLUDED.bitcoin_2_signature
+RETURNING id;
+
+-- NOTE: This query is only meant to be used by the graph SQL migration since
+-- for that migration, in order to be retry-safe, we don't want to error out if
+-- we re-insert the same policy (which would error if the normal
+-- UpsertEdgePolicy query is used because of the constraint in that query that
+-- requires a policy update to have a newer last_update than the existing one).
+-- name: InsertEdgePolicyMig :one
+INSERT INTO graph_channel_policies (
+    version, channel_id, node_id, timelock, fee_ppm,
+    base_fee_msat, min_htlc_msat, last_update, disabled,
+    max_htlc_msat, inbound_base_fee_msat,
+    inbound_fee_rate_milli_msat, message_flags, channel_flags,
+    signature
+) VALUES  (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+)
+ON CONFLICT (channel_id, node_id, version)
+    -- If a conflict occurs, we have already migrated this policy. However, we
+    -- still need to do an "UPDATE SET" here instead of "DO NOTHING" because
+    -- otherwise, the "RETURNING id" part does not work.
+    DO UPDATE SET
+        timelock = EXCLUDED.timelock,
+        fee_ppm = EXCLUDED.fee_ppm,
+        base_fee_msat = EXCLUDED.base_fee_msat,
+        min_htlc_msat = EXCLUDED.min_htlc_msat,
+        last_update = EXCLUDED.last_update,
+        disabled = EXCLUDED.disabled,
+        max_htlc_msat = EXCLUDED.max_htlc_msat,
+        inbound_base_fee_msat = EXCLUDED.inbound_base_fee_msat,
+        inbound_fee_rate_milli_msat = EXCLUDED.inbound_fee_rate_milli_msat,
+        message_flags = EXCLUDED.message_flags,
+        channel_flags = EXCLUDED.channel_flags,
+        signature = EXCLUDED.signature
+RETURNING id;

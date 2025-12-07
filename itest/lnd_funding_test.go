@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -1164,7 +1163,7 @@ func ensurePolicy(ht *lntest.HarnessTest, alice, peer *node.HarnessNode,
 
 	channel := ht.AssertChannelExists(peer, chanPoint)
 	policy, err := peer.RPC.LN.GetChanInfo(
-		context.Background(), &lnrpc.ChanInfoRequest{
+		ht.Context(), &lnrpc.ChanInfoRequest{
 			ChanId: channel.ChanId,
 		},
 	)

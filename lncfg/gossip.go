@@ -39,10 +39,13 @@ type Gossip struct {
 	MsgBurstBytes uint64 `long:"msg-burst-bytes" description:"The maximum burst of outbound gossip data, in bytes, that can be sent at once. This works in conjunction with gossip.msg-rate-bytes as part of a token bucket rate-limiting scheme. This value represents the size of the token bucket. It allows for short, high-speed bursts of traffic, with the long-term rate controlled by gossip.msg-rate-bytes. This value must be larger than the maximum lightning message size (~65KB) to allow sending large gossip messages."`
 
 	FilterConcurrency int `long:"filter-concurrency" description:"The maximum number of concurrent gossip filter applications that can be processed. If not set, defaults to 5."`
+
+	BanThreshold uint64 `long:"ban-threshold" description:"The score at which a peer is banned. A peer's ban score is incremented for each invalid gossip message. Invalid messages include those with bad signatures, stale timestamps, excessive updates, or invalid chain data. Once the score reaches this threshold, the peer is banned. Set to 0 to disable banning."`
+
+	PeerMsgRateBytes uint64 `long:"peer-msg-rate-bytes" description:"The peer-specific rate of outbound gossip messages, expressed in bytes per second. This setting controls the long-term average speed of gossip traffic sent from your node. The rate limit is applied to each peer. If the rate of outgoing messages exceeds this value, lnd will start to queue and delay messages sending to that peer to stay within the limit."`
 }
 
 // Parse the pubkeys for the pinned syncers.
-
 func (g *Gossip) Parse() error {
 	pinnedSyncers := make(discovery.PinnedSyncers)
 	for _, pubkeyStr := range g.PinnedSyncersRaw {
@@ -69,6 +72,17 @@ func (g *Gossip) Validate() error {
 	if g.MsgBurstBytes < lnwire.MaxSliceLength {
 		return fmt.Errorf("msg-burst-bytes=%v must be at least %v",
 			g.MsgBurstBytes, lnwire.MaxSliceLength)
+	}
+
+	if g.MsgBurstBytes <= g.MsgRateBytes {
+		return fmt.Errorf("msg-burst-bytes=%v must be greater than "+
+			"msg-rate-bytes=%v", g.MsgBurstBytes, g.MsgRateBytes)
+	}
+
+	if g.MsgRateBytes <= g.PeerMsgRateBytes {
+		return fmt.Errorf("msg-rate-bytes=%v must be greater than "+
+			"peer-msg-rate-bytes=%v", g.MsgRateBytes,
+			g.PeerMsgRateBytes)
 	}
 
 	return nil

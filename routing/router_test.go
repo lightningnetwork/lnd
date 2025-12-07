@@ -23,7 +23,6 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn/v2"
-	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -132,7 +131,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	)
 	require.NoError(t, err)
 
-	sourceNode, err := graphInstance.graph.SourceNode(context.Background())
+	sourceNode, err := graphInstance.graph.SourceNode(t.Context())
 	require.NoError(t, err)
 	sessionSource := &SessionSource{
 		GraphSessionFactory: graphInstance.graph,
@@ -183,7 +182,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	return ctx
 }
 
-func createTestNode() (*models.LightningNode, error) {
+func createTestNode() (*models.Node, error) {
 	updateTime := rand.Int63()
 
 	priv, err := btcec.NewPrivateKey()
@@ -192,16 +191,16 @@ func createTestNode() (*models.LightningNode, error) {
 	}
 
 	pub := priv.PubKey().SerializeCompressed()
-	n := &models.LightningNode{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           time.Unix(updateTime, 0),
-		Addresses:            testAddrs,
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "kek" + string(pub),
-		AuthSigBytes:         testSig.Serialize(),
-		Features:             testFeatures,
-	}
-	copy(n.PubKeyBytes[:], pub)
+	n := models.NewV1Node(
+		route.NewVertex(priv.PubKey()), &models.NodeV1Fields{
+			LastUpdate:   time.Unix(updateTime, 0),
+			Addresses:    testAddrs,
+			Color:        color.RGBA{1, 2, 3, 0},
+			Alias:        "kek" + string(pub),
+			AuthSigBytes: testSig.Serialize(),
+			Features:     testFeatures.RawFeatureVector,
+		},
+	)
 
 	return n, nil
 }
@@ -1202,7 +1201,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
 
-	sourceNode, err := ctx.graph.SourceNode(context.Background())
+	sourceNode, err := ctx.graph.SourceNode(t.Context())
 	require.NoError(t, err, "unable to fetch source node")
 
 	amt := lnwire.MilliSatoshi(100)
@@ -2706,7 +2705,7 @@ func TestNewRouteRequest(t *testing.T) {
 // announcements for the channel vertexes to be able to use the channel.
 func TestAddEdgeUnknownVertexes(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
@@ -2718,11 +2717,11 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	copy(pub2[:], priv2.PubKey().SerializeCompressed())
 
 	// The two nodes we are about to add should not exist yet.
-	_, exists1, err := ctx.graph.HasLightningNode(ctxb, pub1)
+	_, exists1, err := ctx.graph.HasNode(ctxb, pub1)
 	require.NoError(t, err, "unable to query graph")
 	require.False(t, exists1)
 
-	_, exists2, err := ctx.graph.HasLightningNode(ctxb, pub2)
+	_, exists2, err := ctx.graph.HasNode(ctxb, pub2)
 	require.NoError(t, err, "unable to query graph")
 	require.False(t, exists2)
 
@@ -2779,11 +2778,11 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// After adding the edge between the two previously unknown nodes, they
 	// should have been added to the graph.
-	_, exists1, err = ctx.graph.HasLightningNode(ctxb, pub1)
+	_, exists1, err = ctx.graph.HasNode(ctxb, pub1)
 	require.NoError(t, err, "unable to query graph")
 	require.True(t, exists1)
 
-	_, exists2, err = ctx.graph.HasLightningNode(ctxb, pub2)
+	_, exists2, err = ctx.graph.HasNode(ctxb, pub2)
 	require.NoError(t, err, "unable to query graph")
 	require.True(t, exists2)
 
@@ -2871,31 +2870,31 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// Now check that we can update the node info for the partial node
 	// without messing up the channel graph.
-	n1 := &models.LightningNode{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           time.Unix(123, 0),
-		Addresses:            testAddrs,
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "node11",
-		AuthSigBytes:         testSig.Serialize(),
-		Features:             testFeatures,
-	}
-	copy(n1.PubKeyBytes[:], priv1.PubKey().SerializeCompressed())
+	n1 := models.NewV1Node(
+		route.NewVertex(priv1.PubKey()), &models.NodeV1Fields{
+			LastUpdate:   time.Unix(123, 0),
+			Addresses:    testAddrs,
+			Color:        color.RGBA{1, 2, 3, 0},
+			Alias:        "node11",
+			AuthSigBytes: testSig.Serialize(),
+			Features:     testFeatures.RawFeatureVector,
+		},
+	)
 
-	require.NoError(t, ctx.graph.AddLightningNode(ctxb, n1))
+	require.NoError(t, ctx.graph.AddNode(ctxb, n1))
 
-	n2 := &models.LightningNode{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           time.Unix(123, 0),
-		Addresses:            testAddrs,
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "node22",
-		AuthSigBytes:         testSig.Serialize(),
-		Features:             testFeatures,
-	}
-	copy(n2.PubKeyBytes[:], priv2.PubKey().SerializeCompressed())
+	n2 := models.NewV1Node(
+		route.NewVertex(priv2.PubKey()), &models.NodeV1Fields{
+			LastUpdate:   time.Unix(123, 0),
+			Addresses:    testAddrs,
+			Color:        color.RGBA{1, 2, 3, 0},
+			Alias:        "node22",
+			AuthSigBytes: testSig.Serialize(),
+			Features:     testFeatures.RawFeatureVector,
+		},
+	)
 
-	require.NoError(t, ctx.graph.AddLightningNode(ctxb, n2))
+	require.NoError(t, ctx.graph.AddNode(ctxb, n2))
 
 	// Should still be able to find the route, and the info should be
 	// updated.
@@ -2908,12 +2907,12 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	_, _, err = ctx.router.FindRoute(req)
 	require.NoError(t, err, "unable to find any routes")
 
-	copy1, err := ctx.graph.FetchLightningNode(ctxb, pub1)
+	copy1, err := ctx.graph.FetchNode(ctxb, pub1)
 	require.NoError(t, err, "unable to fetch node")
 
 	require.Equal(t, n1.Alias, copy1.Alias)
 
-	copy2, err := ctx.graph.FetchLightningNode(ctxb, pub2)
+	copy2, err := ctx.graph.FetchNode(ctxb, pub2)
 	require.NoError(t, err, "unable to fetch node")
 
 	require.Equal(t, n2.Alias, copy2.Alias)
@@ -2941,7 +2940,7 @@ type mockGraphBuilder struct {
 	updateEdge   func(update *models.ChannelEdgePolicy) error
 }
 
-func newMockGraphBuilder(graph graph.DB) *mockGraphBuilder {
+func newMockGraphBuilder(graph *graphdb.ChannelGraph) *mockGraphBuilder {
 	return &mockGraphBuilder{
 		updateEdge: func(update *models.ChannelEdgePolicy) error {
 			return graph.UpdateEdgePolicy(

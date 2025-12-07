@@ -18,7 +18,7 @@ import (
 func TestExecuteBatchQuery(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	t.Run("empty input returns nil", func(t *testing.T) {
 		var (
@@ -245,7 +245,7 @@ func TestExecuteBatchQuery(t *testing.T) {
 // executing the query in pages.
 func TestSQLSliceQueries(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	db := NewTestDB(t)
 
@@ -327,7 +327,7 @@ func TestSQLSliceQueries(t *testing.T) {
 // page until all items are processed or an error occurs.
 func TestExecutePaginatedQuery(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	type testItem struct {
 		id   int64
@@ -944,7 +944,7 @@ func TestExecuteCollectAndBatchWithSharedDataQuery(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			cfg := &QueryConfig{
 				MaxPageSize: tt.maxPageSize,
 			}

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"image/color"
 	"math/big"
 	prand "math/rand"
 	"net"
@@ -60,6 +61,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -336,11 +338,9 @@ type server struct {
 
 	invoicesDB invoices.InvoiceDB
 
-	// kvPaymentsDB is the DB that contains all functions for managing
+	// paymentsDB is the DB that contains all functions for managing
 	// payments.
-	//
-	// TODO(ziggie): Replace with interface.
-	kvPaymentsDB *paymentsdb.KVPaymentsDB
+	paymentsDB paymentsdb.DB
 
 	aliasMgr *aliasmgr.Manager
 
@@ -402,7 +402,7 @@ type server struct {
 	// currentNodeAnn is the node announcement that has been broadcast to
 	// the network upon startup, if the attributes of the node (us) has
 	// changed since last start.
-	currentNodeAnn *lnwire.NodeAnnouncement
+	currentNodeAnn *lnwire.NodeAnnouncement1
 
 	// chansToRestore is the set of channels that upon starting, the server
 	// should attempt to restore/recover.
@@ -423,6 +423,8 @@ type server struct {
 	livenessMonitor *healthcheck.Monitor
 
 	customMessageServer *subscribe.Server
+
+	onionMessageServer *subscribe.Server
 
 	// txPublisher is a publisher with fee-bumping capability.
 	txPublisher *sweep.TxPublisher
@@ -601,9 +603,6 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		)
 	)
 
-	var serializedPubKey [33]byte
-	copy(serializedPubKey[:], nodeKeyDesc.PubKey.SerializeCompressed())
-
 	netParams := cfg.ActiveNetParams.Params
 
 	// Initialize the sphinx router.
@@ -686,7 +685,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		addrSource:     addrSource,
 		miscDB:         dbs.ChanStateDB,
 		invoicesDB:     dbs.InvoiceDB,
-		kvPaymentsDB:   dbs.KVPaymentsDB,
+		paymentsDB:     dbs.PaymentsDB,
 		cc:             cc,
 		sigPool:        lnwallet.NewSigPool(cfg.Workers.Sig, cc.Signer),
 		writePool:      writePool,
@@ -732,21 +731,12 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 		customMessageServer: subscribe.NewServer(),
 
+		onionMessageServer: subscribe.NewServer(),
+
 		tlsManager: tlsManager,
 
 		featureMgr: featureMgr,
 		quit:       make(chan struct{}),
-	}
-
-	// Start the low-level services once they are initialized.
-	//
-	// TODO(yy): break the server startup into four steps,
-	// 1. init the low-level services.
-	// 2. start the low-level services.
-	// 3. init the high-level services.
-	// 4. start the high-level services.
-	if err := s.startLowLevelServices(); err != nil {
-		return nil, err
 	}
 
 	currentHash, currentHeight, err := s.cc.ChainIO.GetBestBlock()
@@ -896,138 +886,12 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		}
 	}
 
-	// If we were requested to automatically configure port forwarding,
-	// we'll use the ports that the server will be listening on.
-	externalIPStrings := make([]string, len(cfg.ExternalIPs))
-	for idx, ip := range cfg.ExternalIPs {
-		externalIPStrings[idx] = ip.String()
-	}
-	if s.natTraversal != nil {
-		listenPorts := make([]uint16, 0, len(listenAddrs))
-		for _, listenAddr := range listenAddrs {
-			// At this point, the listen addresses should have
-			// already been normalized, so it's safe to ignore the
-			// errors.
-			_, portStr, _ := net.SplitHostPort(listenAddr.String())
-			port, _ := strconv.Atoi(portStr)
-
-			listenPorts = append(listenPorts, uint16(port))
-		}
-
-		ips, err := s.configurePortForwarding(listenPorts...)
-		if err != nil {
-			srvrLog.Errorf("Unable to automatically set up port "+
-				"forwarding using %s: %v",
-				s.natTraversal.Name(), err)
-		} else {
-			srvrLog.Infof("Automatically set up port forwarding "+
-				"using %s to advertise external IP",
-				s.natTraversal.Name())
-			externalIPStrings = append(externalIPStrings, ips...)
-		}
-	}
-
-	// If external IP addresses have been specified, add those to the list
-	// of this server's addresses.
-	externalIPs, err := lncfg.NormalizeAddresses(
-		externalIPStrings, strconv.Itoa(defaultPeerPort),
-		cfg.net.ResolveTCPAddr,
-	)
+	nodePubKey := route.NewVertex(nodeKeyDesc.PubKey)
+	// Set the self node which represents our node in the graph.
+	err = s.setSelfNode(ctx, nodePubKey, listenAddrs)
 	if err != nil {
 		return nil, err
 	}
-
-	selfAddrs := make([]net.Addr, 0, len(externalIPs))
-	selfAddrs = append(selfAddrs, externalIPs...)
-
-	// We'll now reconstruct a node announcement based on our current
-	// configuration so we can send it out as a sort of heart beat within
-	// the network.
-	//
-	// We'll start by parsing the node color from configuration.
-	color, err := lncfg.ParseHexColor(cfg.Color)
-	if err != nil {
-		srvrLog.Errorf("unable to parse color: %v\n", err)
-		return nil, err
-	}
-
-	// If no alias is provided, default to first 10 characters of public
-	// key.
-	alias := cfg.Alias
-	if alias == "" {
-		alias = hex.EncodeToString(serializedPubKey[:10])
-	}
-	nodeAlias, err := lnwire.NewNodeAlias(alias)
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO(elle): All previously persisted node announcement fields (ie,
-	//  not just LastUpdate) should be consulted here to ensure that we
-	//  aren't overwriting any fields that may have been set during the
-	//  last run of lnd.
-	nodeLastUpdate := time.Now()
-	srcNode, err := dbs.GraphDB.SourceNode(ctx)
-	switch {
-	// If we have a source node persisted in the DB already, then we just
-	// need to make sure that the new LastUpdate time is at least one
-	// second after the last update time.
-	case err == nil:
-		if srcNode.LastUpdate.Second() >= nodeLastUpdate.Second() {
-			nodeLastUpdate = srcNode.LastUpdate.Add(time.Second)
-		}
-
-	// If we don't have a source node persisted in the DB, then we'll
-	// create a new one with the current time as the LastUpdate.
-	case errors.Is(err, graphdb.ErrSourceNodeNotSet):
-
-	// If the above cases are not matched, then we have an unhandled non
-	// nil error.
-	default:
-		return nil, fmt.Errorf("unable to fetch source node: %w", err)
-	}
-
-	selfNode := &models.LightningNode{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           nodeLastUpdate,
-		Addresses:            selfAddrs,
-		Alias:                nodeAlias.String(),
-		Features:             s.featureMgr.Get(feature.SetNodeAnn),
-		Color:                color,
-	}
-	copy(selfNode.PubKeyBytes[:], nodeKeyDesc.PubKey.SerializeCompressed())
-
-	// Based on the disk representation of the node announcement generated
-	// above, we'll generate a node announcement that can go out on the
-	// network so we can properly sign it.
-	nodeAnn, err := selfNode.NodeAnnouncement(false)
-	if err != nil {
-		return nil, fmt.Errorf("unable to gen self node ann: %w", err)
-	}
-
-	// With the announcement generated, we'll sign it to properly
-	// authenticate the message on the network.
-	authSig, err := netann.SignAnnouncement(
-		s.nodeSigner, nodeKeyDesc.KeyLocator, nodeAnn,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to generate signature for "+
-			"self node announcement: %v", err)
-	}
-	selfNode.AuthSigBytes = authSig.Serialize()
-	nodeAnn.Signature, err = lnwire.NewSigFromECDSARawSignature(
-		selfNode.AuthSigBytes,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Finally, we'll update the representation on disk, and update our
-	// cached in-memory version as well.
-	if err := dbs.GraphDB.SetSourceNode(ctx, selfNode); err != nil {
-		return nil, fmt.Errorf("can't set self node: %w", err)
-	}
-	s.currentNodeAnn = nodeAnn
 
 	// The router will get access to the payment ID sequencer, such that it
 	// can generate unique payment IDs.
@@ -1096,7 +960,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.missionController, err = routing.NewMissionController(
-		dbs.ChanStateDB, selfNode.PubKeyBytes, mcCfg,
+		dbs.ChanStateDB, nodePubKey, mcCfg,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("can't create mission control "+
@@ -1136,13 +1000,13 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		PathFindingConfig:   pathFindingConfig,
 	}
 
-	s.controlTower = routing.NewControlTower(dbs.KVPaymentsDB)
+	s.controlTower = routing.NewControlTower(dbs.PaymentsDB)
 
 	strictPruning := cfg.Bitcoin.Node == "neutrino" ||
 		cfg.Routing.StrictZombiePruning
 
 	s.graphBuilder, err = graph.NewBuilder(&graph.Config{
-		SelfNode:            selfNode.PubKeyBytes,
+		SelfNode:            nodePubKey,
 		Graph:               dbs.GraphDB,
 		Chain:               cc.ChainIO,
 		ChainView:           cc.ChainView,
@@ -1159,7 +1023,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.chanRouter, err = routing.New(routing.Config{
-		SelfNode:           selfNode.PubKeyBytes,
+		SelfNode:           nodePubKey,
 		RoutingGraph:       dbs.GraphDB,
 		Chain:              cc.ChainIO,
 		Payer:              s.htlcSwitch,
@@ -1194,13 +1058,13 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		Graph:                 s.graphBuilder,
 		ChainIO:               s.cc.ChainIO,
 		Notifier:              s.cc.ChainNotifier,
-		ChainHash:             *s.cfg.ActiveNetParams.GenesisHash,
+		ChainParams:           s.cfg.ActiveNetParams.Params,
 		Broadcast:             s.BroadcastMessage,
 		ChanSeries:            chanSeries,
 		NotifyWhenOnline:      s.NotifyWhenOnline,
 		NotifyWhenOffline:     s.NotifyWhenOffline,
 		FetchSelfAnnouncement: s.getNodeAnnouncement,
-		UpdateSelfAnnouncement: func() (lnwire.NodeAnnouncement,
+		UpdateSelfAnnouncement: func() (lnwire.NodeAnnouncement1,
 			error) {
 
 			return s.genNodeAnnouncement(nil)
@@ -1233,6 +1097,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		MsgRateBytes:            cfg.Gossip.MsgRateBytes,
 		MsgBurstBytes:           cfg.Gossip.MsgBurstBytes,
 		FilterConcurrency:       cfg.Gossip.FilterConcurrency,
+		BanThreshold:            cfg.Gossip.BanThreshold,
+		PeerMsgRateBytes:        cfg.Gossip.PeerMsgRateBytes,
 	}, nodeKeyDesc)
 
 	accessCfg := &accessManConfig{
@@ -1580,6 +1446,15 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			devCfg, reservationTimeout, zombieSweeperInterval)
 	}
 
+	// Attempt to parse the provided upfront-shutdown address (if any).
+	script, err := chancloser.ParseUpfrontShutdownAddress(
+		cfg.UpfrontShutdownAddr, cfg.ActiveNetParams.Params,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing upfront shutdown: %w",
+			err)
+	}
+
 	//nolint:ll
 	s.fundingMgr, err = funding.NewFundingManager(funding.Config{
 		Dev:                devCfg,
@@ -1595,7 +1470,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		ChannelDB:    s.chanStateDB,
 		FeeEstimator: cc.FeeEstimator,
 		SignMessage:  cc.MsgSigner.SignMessage,
-		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement,
+		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement1,
 			error) {
 
 			return s.genNodeAnnouncement(nil)
@@ -1757,6 +1632,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		AuxFundingController: implCfg.AuxFundingController,
 		AuxSigner:            implCfg.AuxSigner,
 		AuxResolver:          implCfg.AuxContractResolver,
+		AuxChannelNegotiator: implCfg.AuxChannelNegotiator,
+		ShutdownScript:       peer.ChooseAddr(script),
 	})
 	if err != nil {
 		return nil, err
@@ -1924,7 +1801,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			AdvertisedIPs: advertisedIPs,
 			AnnounceNewIPs: netann.IPAnnouncer(
 				func(modifier ...netann.NodeAnnModifier) (
-					lnwire.NodeAnnouncement, error) {
+					lnwire.NodeAnnouncement1, error) {
 
 					return s.genNodeAnnouncement(
 						nil, modifier...,
@@ -2253,41 +2130,12 @@ func (c cleaner) run() {
 	}
 }
 
-// startLowLevelServices starts the low-level services of the server. These
-// services must be started successfully before running the main server. The
-// services are,
-// 1. the chain notifier.
-//
-// TODO(yy): identify and add more low-level services here.
-func (s *server) startLowLevelServices() error {
-	var startErr error
-
-	cleanup := cleaner{}
-
-	cleanup = cleanup.add(s.cc.ChainNotifier.Stop)
-	if err := s.cc.ChainNotifier.Start(); err != nil {
-		startErr = err
-	}
-
-	if startErr != nil {
-		cleanup.run()
-	}
-
-	return startErr
-}
-
 // Start starts the main daemon server, all requested listeners, and any helper
 // goroutines.
 // NOTE: This function is safe for concurrent access.
 //
 //nolint:funlen
 func (s *server) Start(ctx context.Context) error {
-	// Get the current blockbeat.
-	beat, err := s.getStartingBeat()
-	if err != nil {
-		return err
-	}
-
 	var startErr error
 
 	// If one sub system fails to start, the following code ensures that the
@@ -2298,6 +2146,12 @@ func (s *server) Start(ctx context.Context) error {
 	s.start.Do(func() {
 		cleanup = cleanup.add(s.customMessageServer.Stop)
 		if err := s.customMessageServer.Start(); err != nil {
+			startErr = err
+			return
+		}
+
+		cleanup = cleanup.add(s.onionMessageServer.Stop)
+		if err := s.onionMessageServer.Start(); err != nil {
 			startErr = err
 			return
 		}
@@ -2341,6 +2195,12 @@ func (s *server) Start(ctx context.Context) error {
 			return
 		}
 
+		cleanup = cleanup.add(s.cc.ChainNotifier.Stop)
+		if err := s.cc.ChainNotifier.Start(); err != nil {
+			startErr = err
+			return
+		}
+
 		cleanup = cleanup.add(s.cc.BestBlockTracker.Stop)
 		if err := s.cc.BestBlockTracker.Start(); err != nil {
 			startErr = err
@@ -2373,6 +2233,12 @@ func (s *server) Start(ctx context.Context) error {
 				startErr = err
 				return
 			}
+		}
+
+		beat, err := s.getStartingBeat()
+		if err != nil {
+			startErr = err
+			return
 		}
 
 		cleanup = cleanup.add(s.txPublisher.Stop)
@@ -3434,7 +3300,7 @@ func (s *server) createNewHiddenService(ctx context.Context) error {
 	// Now that the onion service has been created, we'll add the onion
 	// address it can be reached at to our list of advertised addresses.
 	newNodeAnn, err := s.genNodeAnnouncement(
-		nil, func(currentAnn *lnwire.NodeAnnouncement) {
+		nil, func(currentAnn *lnwire.NodeAnnouncement1) {
 			currentAnn.Addresses = append(currentAnn.Addresses, addr)
 		},
 	)
@@ -3445,18 +3311,17 @@ func (s *server) createNewHiddenService(ctx context.Context) error {
 
 	// Finally, we'll update the on-disk version of our announcement so it
 	// will eventually propagate to nodes in the network.
-	selfNode := &models.LightningNode{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           time.Unix(int64(newNodeAnn.Timestamp), 0),
-		Addresses:            newNodeAnn.Addresses,
-		Alias:                newNodeAnn.Alias.String(),
-		Features: lnwire.NewFeatureVector(
-			newNodeAnn.Features, lnwire.Features,
-		),
-		Color:        newNodeAnn.RGBColor,
-		AuthSigBytes: newNodeAnn.Signature.ToSignatureBytes(),
-	}
-	copy(selfNode.PubKeyBytes[:], s.identityECDH.PubKey().SerializeCompressed())
+	selfNode := models.NewV1Node(
+		route.NewVertex(s.identityECDH.PubKey()), &models.NodeV1Fields{
+			Addresses:    newNodeAnn.Addresses,
+			Features:     newNodeAnn.Features,
+			AuthSigBytes: newNodeAnn.Signature.ToSignatureBytes(),
+			Color:        newNodeAnn.RGBColor,
+			Alias:        newNodeAnn.Alias.String(),
+			LastUpdate:   time.Unix(int64(newNodeAnn.Timestamp), 0),
+		},
+	)
+
 	if err := s.graphDB.SetSourceNode(ctx, selfNode); err != nil {
 		return fmt.Errorf("can't set self node: %w", err)
 	}
@@ -3485,7 +3350,7 @@ func (s *server) findChannel(node *btcec.PublicKey, chanID lnwire.ChannelID) (
 }
 
 // getNodeAnnouncement fetches the current, fully signed node announcement.
-func (s *server) getNodeAnnouncement() lnwire.NodeAnnouncement {
+func (s *server) getNodeAnnouncement() lnwire.NodeAnnouncement1 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -3496,7 +3361,7 @@ func (s *server) getNodeAnnouncement() lnwire.NodeAnnouncement {
 // announcement. The time stamp of the announcement will be updated in order
 // to ensure it propagates through the network.
 func (s *server) genNodeAnnouncement(features *lnwire.RawFeatureVector,
-	modifiers ...netann.NodeAnnModifier) (lnwire.NodeAnnouncement, error) {
+	modifiers ...netann.NodeAnnModifier) (lnwire.NodeAnnouncement1, error) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -3514,7 +3379,7 @@ func (s *server) genNodeAnnouncement(features *lnwire.RawFeatureVector,
 		}
 		err := s.featureMgr.UpdateFeatureSets(proposedFeatures)
 		if err != nil {
-			return lnwire.NodeAnnouncement{}, err
+			return lnwire.NodeAnnouncement1{}, err
 		}
 
 		// If we could successfully update our feature manager, add
@@ -3534,12 +3399,24 @@ func (s *server) genNodeAnnouncement(features *lnwire.RawFeatureVector,
 		modifier(&newNodeAnn)
 	}
 
+	// The modifiers may have added duplicate addresses, so we need to
+	// de-duplicate them here.
+	uniqueAddrs := map[string]struct{}{}
+	dedupedAddrs := make([]net.Addr, 0)
+	for _, addr := range newNodeAnn.Addresses {
+		if _, ok := uniqueAddrs[addr.String()]; !ok {
+			uniqueAddrs[addr.String()] = struct{}{}
+			dedupedAddrs = append(dedupedAddrs, addr)
+		}
+	}
+	newNodeAnn.Addresses = dedupedAddrs
+
 	// Sign a new update after applying all of the passed modifiers.
 	err := netann.SignNodeAnnouncement(
 		s.nodeSigner, s.identityKeyLoc, &newNodeAnn,
 	)
 	if err != nil {
-		return lnwire.NodeAnnouncement{}, err
+		return lnwire.NodeAnnouncement1{}, err
 	}
 
 	// If signing succeeds, update the current announcement.
@@ -3570,12 +3447,11 @@ func (s *server) updateAndBroadcastSelfNode(ctx context.Context,
 		return fmt.Errorf("unable to get current source node: %w", err)
 	}
 
-	selfNode.HaveNodeAnnouncement = true
 	selfNode.LastUpdate = time.Unix(int64(newNodeAnn.Timestamp), 0)
 	selfNode.Addresses = newNodeAnn.Addresses
-	selfNode.Alias = newNodeAnn.Alias.String()
+	selfNode.Alias = fn.Some(newNodeAnn.Alias.String())
 	selfNode.Features = s.featureMgr.Get(feature.SetNodeAnn)
-	selfNode.Color = newNodeAnn.RGBColor
+	selfNode.Color = fn.Some(newNodeAnn.RGBColor)
 	selfNode.AuthSigBytes = newNodeAnn.Signature.ToSignatureBytes()
 
 	copy(selfNode.PubKeyBytes[:], s.identityECDH.PubKey().SerializeCompressed())
@@ -3629,12 +3505,12 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 
 	// After checking our previous connections for addresses to connect to,
 	// iterate through the nodes in our channel graph to find addresses
-	// that have been added via NodeAnnouncement messages.
+	// that have been added via NodeAnnouncement1 messages.
 	// TODO(roasbeef): instead iterate over link nodes and query graph for
 	// each of the nodes.
 	graphAddrs := make(map[string]*nodeAddresses)
 	forEachSrcNodeChan := func(chanPoint wire.OutPoint,
-		havePolicy bool, channelPeer *models.LightningNode) error {
+		havePolicy bool, channelPeer *models.Node) error {
 
 		// If the remote party has announced the channel to us, but we
 		// haven't yet, then we won't have a policy. However, we don't
@@ -4349,6 +4225,11 @@ func (s *server) SubscribeCustomMessages() (*subscribe.Client, error) {
 	return s.customMessageServer.Subscribe()
 }
 
+// SubscribeOnionMessages subscribes to a stream of incoming onion messages.
+func (s *server) SubscribeOnionMessages() (*subscribe.Client, error) {
+	return s.onionMessageServer.Subscribe()
+}
+
 // notifyOpenChannelPeerEvent updates the access manager's maps and then calls
 // the channelNotifier's NotifyOpenChannelEvent.
 func (s *server) notifyOpenChannelPeerEvent(op wire.OutPoint,
@@ -4521,8 +4402,9 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		HtlcNotifier:            s.htlcNotifier,
 		TowerClient:             towerClient,
 		DisconnectPeer:          s.DisconnectPeer,
+		OnionMessageServer:      s.onionMessageServer,
 		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
-			lnwire.NodeAnnouncement, error) {
+			lnwire.NodeAnnouncement1, error) {
 
 			return s.genNodeAnnouncement(nil)
 		},
@@ -4560,6 +4442,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		AuxChanCloser:          s.implCfg.AuxChanCloser,
 		AuxResolver:            s.implCfg.AuxContractResolver,
 		AuxTrafficShaper:       s.implCfg.TrafficShaper,
+		AuxChannelNegotiator:   s.implCfg.AuxChannelNegotiator,
 		ShouldFwdExpEndorsement: func() bool {
 			if s.cfg.ProtocolOptions.NoExperimentalEndorsement() {
 				return false
@@ -5337,7 +5220,7 @@ func (s *server) fetchNodeAdvertisedAddrs(ctx context.Context,
 		return nil, err
 	}
 
-	node, err := s.graphDB.FetchLightningNode(ctx, vertex)
+	node, err := s.graphDB.FetchNode(ctx, vertex)
 	if err != nil {
 		return nil, err
 	}
@@ -5402,27 +5285,60 @@ func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate1,
 
 // SendCustomMessage sends a custom message to the peer with the specified
 // pubkey.
-func (s *server) SendCustomMessage(peerPub [33]byte, msgType lnwire.MessageType,
-	data []byte) error {
+func (s *server) SendCustomMessage(ctx context.Context, peerPub [33]byte,
+	msgType lnwire.MessageType, data []byte) error {
 
 	peer, err := s.FindPeerByPubStr(string(peerPub[:]))
 	if err != nil {
 		return err
 	}
 
-	// We'll wait until the peer is active.
+	// We'll wait until the peer is active, but also listen for
+	// cancellation.
 	select {
 	case <-peer.ActiveSignal():
 	case <-peer.QuitSignal():
 		return fmt.Errorf("peer %x disconnected", peerPub)
 	case <-s.quit:
 		return ErrServerShuttingDown
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 
 	msg, err := lnwire.NewCustom(msgType, data)
 	if err != nil {
 		return err
 	}
+
+	// Send the message as low-priority. For now we assume that all
+	// application-defined message are low priority.
+	return peer.SendMessageLazy(true, msg)
+}
+
+// SendOnionMessage sends a custom message to the peer with the specified
+// pubkey.
+// TODO(gijs): change this message to include path finding.
+func (s *server) SendOnionMessage(ctx context.Context, peerPub [33]byte,
+	pathKey *btcec.PublicKey, onion []byte) error {
+
+	peer, err := s.FindPeerByPubStr(string(peerPub[:]))
+	if err != nil {
+		return err
+	}
+
+	// We'll wait until the peer is active, but also listen for
+	// cancellation.
+	select {
+	case <-peer.ActiveSignal():
+	case <-peer.QuitSignal():
+		return fmt.Errorf("peer %x disconnected", peerPub)
+	case <-s.quit:
+		return ErrServerShuttingDown
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	msg := lnwire.NewOnionMessage(pathKey, onion)
 
 	// Send the message as low-priority. For now we assume that all
 	// application-defined message are low priority.
@@ -5638,4 +5554,166 @@ func (s *server) AttemptRBFCloseUpdate(ctx context.Context,
 	}
 
 	return updates, nil
+}
+
+// setSelfNode configures and sets the server's self node. It sets the node
+// announcement, signs it, and updates the source node in the graph. When
+// determining values such as color and alias, the method prioritizes values
+// set in the config, then values previously persisted on disk, and finally
+// falls back to the defaults.
+func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
+	listenAddrs []net.Addr) error {
+
+	// If we were requested to automatically configure port forwarding,
+	// we'll use the ports that the server will be listening on.
+	externalIPStrings := make([]string, 0, len(s.cfg.ExternalIPs))
+	for _, ip := range s.cfg.ExternalIPs {
+		externalIPStrings = append(externalIPStrings, ip.String())
+	}
+	if s.natTraversal != nil {
+		listenPorts := make([]uint16, 0, len(listenAddrs))
+		for _, listenAddr := range listenAddrs {
+			// At this point, the listen addresses should have
+			// already been normalized, so it's safe to ignore the
+			// errors.
+			_, portStr, _ := net.SplitHostPort(listenAddr.String())
+			port, _ := strconv.Atoi(portStr)
+
+			listenPorts = append(listenPorts, uint16(port))
+		}
+
+		ips, err := s.configurePortForwarding(listenPorts...)
+		if err != nil {
+			srvrLog.Errorf("Unable to automatically set up port "+
+				"forwarding using %s: %v",
+				s.natTraversal.Name(), err)
+		} else {
+			srvrLog.Infof("Automatically set up port forwarding "+
+				"using %s to advertise external IP",
+				s.natTraversal.Name())
+			externalIPStrings = append(externalIPStrings, ips...)
+		}
+	}
+
+	// Normalize the external IP strings to net.Addr.
+	addrs, err := lncfg.NormalizeAddresses(
+		externalIPStrings, strconv.Itoa(defaultPeerPort),
+		s.cfg.net.ResolveTCPAddr,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to normalize addresses: %w", err)
+	}
+
+	// Parse the color from config. We will update this later if the config
+	// color is not changed from default (#3399FF) and we have a value in
+	// the source node.
+	nodeColor, err := lncfg.ParseHexColor(s.cfg.Color)
+	if err != nil {
+		return fmt.Errorf("unable to parse color: %w", err)
+	}
+
+	var (
+		alias          = s.cfg.Alias
+		nodeLastUpdate = time.Now()
+	)
+
+	srcNode, err := s.graphDB.SourceNode(ctx)
+	switch {
+	case err == nil:
+		// If we have a source node persisted in the DB already, then we
+		// just need to make sure that the new LastUpdate time is at
+		// least one second after the last update time.
+		if srcNode.LastUpdate.Second() >= nodeLastUpdate.Second() {
+			nodeLastUpdate = srcNode.LastUpdate.Add(time.Second)
+		}
+
+		// If the color is not changed from default, it means that we
+		// didn't specify a different color in the config. We'll use the
+		// source node's color.
+		if s.cfg.Color == defaultColor {
+			srcNode.Color.WhenSome(func(rgba color.RGBA) {
+				nodeColor = rgba
+			})
+		}
+
+		// If an alias is not specified in the config, we'll use the
+		// source node's alias.
+		if alias == "" {
+			srcNode.Alias.WhenSome(func(s string) {
+				alias = s
+			})
+		}
+
+		// If the `externalip` is not specified in the config, it means
+		// `addrs` will be empty, we'll use the source node's addresses.
+		if len(s.cfg.ExternalIPs) == 0 {
+			addrs = srcNode.Addresses
+		}
+
+	case errors.Is(err, graphdb.ErrSourceNodeNotSet):
+		// If an alias is not specified in the config, we'll use the
+		// default, which is the first 10 bytes of the serialized
+		// pubkey.
+		if alias == "" {
+			alias = hex.EncodeToString(nodePub[:10])
+		}
+
+	// If the above cases are not matched, then we have an unhandled non
+	// nil error.
+	default:
+		return fmt.Errorf("unable to fetch source node: %w", err)
+	}
+
+	nodeAlias, err := lnwire.NewNodeAlias(alias)
+	if err != nil {
+		return err
+	}
+
+	// TODO(abdulkbk): potentially find a way to use the source node's
+	// features in the self node.
+	selfNode := models.NewV1Node(
+		nodePub, &models.NodeV1Fields{
+			Alias:      nodeAlias.String(),
+			Color:      nodeColor,
+			LastUpdate: nodeLastUpdate,
+			Addresses:  addrs,
+			Features:   s.featureMgr.GetRaw(feature.SetNodeAnn),
+		},
+	)
+
+	// Based on the disk representation of the node announcement generated
+	// above, we'll generate a node announcement that can go out on the
+	// network so we can properly sign it.
+	nodeAnn, err := selfNode.NodeAnnouncement(false)
+	if err != nil {
+		return fmt.Errorf("unable to gen self node ann: %w", err)
+	}
+
+	// With the announcement generated, we'll sign it to properly
+	// authenticate the message on the network.
+	authSig, err := netann.SignAnnouncement(
+		s.nodeSigner, s.identityKeyLoc, nodeAnn,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to generate signature for self node "+
+			"announcement: %v", err)
+	}
+
+	selfNode.AuthSigBytes = authSig.Serialize()
+	nodeAnn.Signature, err = lnwire.NewSigFromECDSARawSignature(
+		selfNode.AuthSigBytes,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Finally, we'll update the representation on disk, and update our
+	// cached in-memory version as well.
+	if err := s.graphDB.SetSourceNode(ctx, selfNode); err != nil {
+		return fmt.Errorf("can't set self node: %w", err)
+	}
+
+	s.currentNodeAnn = nodeAnn
+
+	return nil
 }

@@ -565,7 +565,10 @@ func (t *TxPublisher) createRBFCompliantTx(
 
 		// If the error indicates the fees paid is not enough, we will
 		// ask the fee function to increase the fee rate and retry.
-		case errors.Is(err, lnwallet.ErrMempoolFee):
+		case errors.Is(err, lnwallet.ErrMempoolFee),
+			errors.Is(err, chain.ErrMinRelayFeeNotMet),
+			errors.Is(err, chain.ErrMempoolMinFeeNotMet):
+
 			// We should at least start with a feerate above the
 			// mempool min feerate, so if we get this error, it
 			// means something is wrong earlier in the pipeline.
@@ -574,7 +577,8 @@ func (t *TxPublisher) createRBFCompliantTx(
 
 			fallthrough
 
-		// We are not paying enough fees so we increase it.
+		// We are not paying enough fees to RBF a previous tx, so we
+		// increase it.
 		case errors.Is(err, chain.ErrInsufficientFee):
 			increased := false
 
@@ -1667,6 +1671,16 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 	if err != nil {
 		return 0, noChange, noLocktime, err
 	}
+
+	// We also add the extra change output to the change pk scripts.
+	//
+	// NOTE: The weight estimation will not be quite accurate because the
+	// witness data is greater when overlay channels are used. But that
+	// shouldn't be a problem since we will increase the fee rate
+	// incrementally via the fee function.
+	extraChangeOut.WhenSome(func(o SweepOutput) {
+		changePkScripts = append(changePkScripts, o.TxOut.PkScript)
+	})
 
 	// Creating a weight estimator with nil outputs and zero max fee rate.
 	// We don't allow adding customized outputs in the sweeping tx, and the

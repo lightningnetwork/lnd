@@ -30,7 +30,10 @@ var (
 	postgresSchemaReplacements = map[string]string{
 		"BLOB":                "BYTEA",
 		"INTEGER PRIMARY KEY": "BIGSERIAL PRIMARY KEY",
-		"TIMESTAMP":           "TIMESTAMP WITHOUT TIME ZONE",
+		// We need this space in front of the TIMESTAMP keyword to
+		// avoid replacing words which just have the word "TIMESTAMP" in
+		// them.
+		" TIMESTAMP": " TIMESTAMP WITHOUT TIME ZONE",
 	}
 
 	// Make sure PostgresStore implements the MigrationExecutor interface.

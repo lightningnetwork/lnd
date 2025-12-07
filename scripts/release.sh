@@ -22,6 +22,7 @@ BUILD_DATE_STAMP="202001010000.00"
 function reproducible_tar_gzip() {
   local dir=$1
   local tar_cmd=tar
+  local gzip_cmd=gzip
 
   # MacOS has a version of BSD tar which doesn't support setting the --mtime
   # flag. We need gnu-tar, or gtar for short to be installed for this script to
@@ -38,12 +39,27 @@ function reproducible_tar_gzip() {
     tar_cmd=gtar
   fi
 
+  # On MacOS, the default BSD gzip produces a different output than the GNU
+  # gzip on Linux. To ensure reproducible builds, we need to use GNU gzip.
+  gzip_version=$(gzip --version 2>&1 || true)
+  if [[ ! "$gzip_version" =~ "GNU" ]]; then
+    if ! command -v "ggzip" >/dev/null 2>&1; then
+      echo "GNU gzip is required but cannot be found!"
+      echo "On MacOS please run 'brew install gzip' to install ggzip."
+      exit 1
+    fi
+
+    # We have ggzip installed, use that instead.
+    gzip_cmd=ggzip
+  fi
+
   # Pin down the timestamp time zone.
   export TZ=UTC
 
   find "${dir}" -print0 | LC_ALL=C sort -r -z | $tar_cmd \
     "--mtime=${BUILD_DATE}" --no-recursion --null --mode=u+rw,go+r-w,a+X \
-    --owner=0 --group=0 --numeric-owner -c -T - | gzip -9n > "${dir}.tar.gz"
+    --owner=0 --group=0 --numeric-owner -c -T - | $gzip_cmd \
+    -9n > "${dir}.tar.gz"
 
   rm -r "${dir}"
 }
@@ -192,6 +208,9 @@ required Go version ($goversion)."
     env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/lnd
     env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/lncli
     popd
+
+    # Clear Go build cache to prevent disk space issues during multi-platform builds.
+    go clean -cache
 
     # Add the hashes for the individual binaries as well for easy verification
     # of a single installed binary.

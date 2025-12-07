@@ -34,7 +34,7 @@ func (m *mockEndpoint) SendMessage(ctx context.Context, msg PeerMsg) bool {
 // TestMessageRouterOperation tests the basic operation of the message router:
 // add new endpoints, route to them, remove, them, etc.
 func TestMessageRouterOperation(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	msgRouter := NewMultiMsgRouter()
 	msgRouter.Start(ctx)
 	defer msgRouter.Stop()

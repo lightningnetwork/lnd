@@ -257,6 +257,17 @@ func testListChannels(ht *lntest.HarnessTest) {
 	assertChannelConstraintsEqual(
 		ht, aliceChannel.RemoteConstraints, bobChannel.LocalConstraints,
 	)
+
+	// Finally we assert that the flap count is updated as expected.
+	resp := alice.RPC.ListPeers()
+
+	// Assert Alice only have one peer.
+	require.Len(ht, resp.Peers, 1)
+	for _, p := range resp.Peers {
+		// The channel open event resulted in an online event, so we
+		// expect the flap count to be 1.
+		require.EqualValues(ht, 1, p.FlapCount)
+	}
 }
 
 // testMaxPendingChannels checks that error is returned from remote peer if
@@ -1400,7 +1411,7 @@ func testGRPCNotFound(ht *lntest.HarnessTest) {
 // during a reorg. A reorg notification is produced after a reorg affects the
 // block which has produced a spending notification for this registration.
 func testReorgNotifications(ht *lntest.HarnessTest) {
-	ctxb := context.Background()
+	ctxb := ht.Context()
 	const timeout = wait.DefaultTimeout
 
 	alice := ht.NewNodeWithCoins("Alice", nil)
@@ -1599,7 +1610,7 @@ func testReorgNotifications(ht *lntest.HarnessTest) {
 func testEstimateFee(ht *lntest.HarnessTest) {
 	alice := ht.NewNode("Alice", nil)
 
-	ctx := context.Background()
+	ctx := ht.Context()
 
 	testCases := []struct {
 		name        string

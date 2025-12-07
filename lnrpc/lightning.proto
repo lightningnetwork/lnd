@@ -597,6 +597,18 @@ service Lightning {
     rpc SubscribeCustomMessages (SubscribeCustomMessagesRequest)
         returns (stream CustomMessage);
 
+    /* lncli: `sendonion`
+    SendOnionMessage sends an onion message to a peer.
+    */
+    rpc SendOnionMessage (SendOnionMessageRequest)
+        returns (SendOnionMessageResponse);
+
+    /* lncli: `subscribeonion`
+    SubscribeOnionMessages subscribes to a stream of incoming onion messages.
+    */
+    rpc SubscribeOnionMessages (SubscribeOnionMessagesRequest)
+        returns (stream OnionMessage);
+
     /* lncli: `listaliases`
     ListAliases returns the set of all aliases that have ever existed with
     their confirmed SCID (if it exists) and/or the base SCID (in the case of
@@ -642,7 +654,8 @@ message CustomMessage {
 }
 
 message SendCustomMessageRequest {
-    // Peer to send the message to
+    // Peer to which the message will be sent. Represented as a byte-encoded
+    // public key
     bytes peer = 1;
 
     // Message type. This value needs to be in the custom range (>= 32768).
@@ -657,6 +670,53 @@ message SendCustomMessageRequest {
 
 message SendCustomMessageResponse {
     // The status of the send operation.
+    string status = 1;
+}
+
+message SubscribeOnionMessagesRequest {
+}
+
+message OnionMessage {
+    // Peer from which this message originates. Represented as a byte-encoded
+    // public key.
+    bytes peer = 1;
+
+    // PathKey is used to derive the blinded node id by tweaking the hop's
+    // static public key. The hop uses the corresponding blinded private key
+    // together with the sender's ephemeral key to perform ECDH and obtain the
+    // shared secret for decrypting the onion payload. Separately, for
+    // decrypting `encrypted_recipient_data`, the recipient performs ECDH
+    // between its static node private key and the path_key to derive the
+    // decryption key.
+    bytes path_key = 2;
+
+    // Serialized Sphinx onion packet (BOLT 4) containing the layered, per-hop
+    // encrypted payloads and routing instructions used to forward this message
+    // along its designated path.
+    bytes onion = 3;
+}
+
+message SendOnionMessageRequest {
+    // Peer to send the message to
+    bytes peer = 1;
+
+    // PathKey is used to derive the blinded node id by tweaking the hop's
+    // static public key. The hop uses the corresponding blinded private key
+    // together with the sender's ephemeral key to perform ECDH and obtain the
+    // shared secret for decrypting the onion payload. Separately, for
+    // decrypting `encrypted_recipient_data`, the recipient performs ECDH
+    // between its static node private key and the path_key to derive the
+    // decryption key.
+    bytes path_key = 2;
+
+    // Serialized Sphinx onion packet (BOLT 4) containing the layered, per-hop
+    // encrypted payloads and routing instructions used to forward this message
+    // along its designated path.
+    bytes onion = 3;
+}
+
+message SendOnionMessageResponse {
+    // The status of the onion message send operation.
     string status = 1;
 }
 
@@ -1919,6 +1979,7 @@ message Peer {
     repeated TimestampedError errors = 12;
 
     /*
+    This field is populated when the peer has at least one channel with us.
     The number of times we have recorded this peer going offline or coming
     online, recorded across restarts. Note that this value is decreased over
     time if the peer has not recently flapped, so that we can forgive peers
@@ -1927,6 +1988,7 @@ message Peer {
     int32 flap_count = 13;
 
     /*
+    This field is populated when the peer has at least one channel with us.
     The timestamp of the last flap we observed for this peer. If this value is
     zero, we have not observed any flaps for this peer.
     */
@@ -2848,6 +2910,25 @@ message PendingChannelsResponse {
         // very likely canceled the funding and the channel will never become
         // fully operational.
         int32 funding_expiry_blocks = 3;
+
+        // The number of blocks remaining until the channel status changes from
+        // pending to active. A value of 0 indicates that the channel is now
+        // active.
+        //
+        // "Active" here means both channel peers have the channel marked OPEN
+        // and can immediately start using it. For public channels, this does
+        // not imply a channel_announcement has been gossiped. It only becomes
+        // public on the network after 6 on‐chain confirmations.
+        // See BOLT07 "Routing Gossip":
+        // https://github.com/lightning/bolts/blob/master/07-routing-gossip.md
+        //
+        // ZeroConf channels bypass the pending state entirely: they are marked
+        // active immediately upon creation, so they never show up as "pending".
+        uint32 confirmations_until_active = 7;
+
+        // The confirmation height records the block height at which the funding
+        // transaction was first confirmed.
+        uint32 confirmation_height = 8;
     }
 
     message WaitingCloseChannel {

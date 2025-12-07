@@ -13,9 +13,10 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/neutrino/cache"
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightningnetwork/lnd/batch"
@@ -193,14 +194,9 @@ type PinnedSyncers map[route.Vertex]struct{}
 // Config defines the configuration for the service. ALL elements within the
 // configuration MUST be non-nil for the service to carry out its duties.
 type Config struct {
-	// ChainHash is a hash that indicates which resident chain of the
-	// AuthenticatedGossiper. Any announcements that don't match this
-	// chain hash will be ignored.
-	//
-	// TODO(roasbeef): eventually make into map so can de-multiplex
-	// incoming announcements
-	//   * also need to do same for Notifier
-	ChainHash chainhash.Hash
+	// ChainParams holds the chain parameters for the active network this
+	// node is participating on.
+	ChainParams *chaincfg.Params
 
 	// Graph is the subsystem which is responsible for managing the
 	// topology of lightning network. After incoming channel, node, channel
@@ -248,11 +244,11 @@ type Config struct {
 	// FetchSelfAnnouncement retrieves our current node announcement, for
 	// use when determining whether we should update our peers about our
 	// presence in the network.
-	FetchSelfAnnouncement func() lnwire.NodeAnnouncement
+	FetchSelfAnnouncement func() lnwire.NodeAnnouncement1
 
 	// UpdateSelfAnnouncement produces a new announcement for our node with
 	// an updated timestamp which can be broadcast to our peers.
-	UpdateSelfAnnouncement func() (lnwire.NodeAnnouncement, error)
+	UpdateSelfAnnouncement func() (lnwire.NodeAnnouncement1, error)
 
 	// ProofMatureDelta the number of confirmations which is needed before
 	// exchange the channel announcement proofs.
@@ -403,6 +399,14 @@ type Config struct {
 	// FilterConcurrency is the maximum number of concurrent gossip filter
 	// applications that can be processed.
 	FilterConcurrency int
+
+	// BanThreshold is the score used to decide whether a given peer is
+	// banned or not.
+	BanThreshold uint64
+
+	// PeerMsgRateBytes is the rate limit for the number of bytes per second
+	// that we'll allocate to outbound gossip messages for a single peer.
+	PeerMsgRateBytes uint64
 }
 
 // processedNetworkMsg is a wrapper around networkMsg and a boolean. It is
@@ -433,15 +437,19 @@ func (c *cachedNetworkMsg) Size() (uint64, error) {
 // rejectCacheKey is the cache key that we'll use to track announcements we've
 // recently rejected.
 type rejectCacheKey struct {
-	pubkey [33]byte
-	chanID uint64
+	gossipVersion lnwire.GossipVersion
+	pubkey        [33]byte
+	chanID        uint64
 }
 
 // newRejectCacheKey returns a new cache key for the reject cache.
-func newRejectCacheKey(cid uint64, pub [33]byte) rejectCacheKey {
+func newRejectCacheKey(v lnwire.GossipVersion, cid uint64,
+	pub [33]byte) rejectCacheKey {
+
 	k := rejectCacheKey{
-		chanID: cid,
-		pubkey: pub,
+		gossipVersion: v,
+		chanID:        cid,
+		pubkey:        pub,
 	}
 
 	return k
@@ -586,13 +594,13 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 			maxRejectedUpdates,
 		),
 		chanUpdateRateLimiter: make(map[uint64][2]*rate.Limiter),
-		banman:                newBanman(),
+		banman:                newBanman(cfg.BanThreshold),
 	}
 
 	gossiper.vb = NewValidationBarrier(1000, gossiper.quit)
 
 	gossiper.syncMgr = newSyncManager(&SyncManagerCfg{
-		ChainHash:                cfg.ChainHash,
+		ChainHash:                *cfg.ChainParams.GenesisHash,
 		ChanSeries:               cfg.ChanSeries,
 		RotateTicker:             cfg.RotateTicker,
 		HistoricalSyncTicker:     cfg.HistoricalSyncTicker,
@@ -605,6 +613,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 		AllotedMsgBytesPerSecond: cfg.MsgRateBytes,
 		AllotedMsgBytesBurst:     cfg.MsgBurstBytes,
 		FilterConcurrency:        cfg.FilterConcurrency,
+		PeerMsgBytesPerSecond:    cfg.PeerMsgRateBytes,
 	})
 
 	gossiper.reliableSender = newReliableSender(&reliableSenderCfg{
@@ -1181,7 +1190,7 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 
 	// Node announcements are identified by the Vertex field.  Use the
 	// NodeID to create the corresponding Vertex.
-	case *lnwire.NodeAnnouncement:
+	case *lnwire.NodeAnnouncement1:
 		sender := route.NewVertex(message.source)
 		deDupKey := route.Vertex(msg.NodeID)
 
@@ -1190,7 +1199,8 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 		oldTimestamp := uint32(0)
 		mws, ok := d.nodeAnnouncements[deDupKey]
 		if ok {
-			oldTimestamp = mws.msg.(*lnwire.NodeAnnouncement).Timestamp
+			ann, _ := mws.msg.(*lnwire.NodeAnnouncement1)
+			oldTimestamp = ann.Timestamp
 		}
 
 		// Discard the message if it's old.
@@ -1641,7 +1651,7 @@ func (d *AuthenticatedGossiper) handleNetworkMessages(ctx context.Context,
 	if err != nil {
 		// Something is wrong if SignalDependents returns an error.
 		log.Errorf("SignalDependents returned error for msg=%v with "+
-			"JobID=%v", spew.Sdump(nMsg.msg), jobID)
+			"JobID=%v", lnutils.SpewLogClosure(nMsg.msg), jobID)
 
 		nMsg.err <- err
 
@@ -1682,8 +1692,15 @@ func (d *AuthenticatedGossiper) PruneSyncState(peer route.Vertex) {
 func (d *AuthenticatedGossiper) isRecentlyRejectedMsg(msg lnwire.Message,
 	peerPub [33]byte) bool {
 
+	// We only cache rejections for gossip messages. So if it is not
+	// a gossip message, we return false.
+	gMsg, ok := msg.(lnwire.GossipMessage)
+	if !ok {
+		return false
+	}
+
 	var scid uint64
-	switch m := msg.(type) {
+	switch m := gMsg.(type) {
 	case *lnwire.ChannelUpdate1:
 		scid = m.ShortChannelID.ToUint64()
 
@@ -1694,8 +1711,11 @@ func (d *AuthenticatedGossiper) isRecentlyRejectedMsg(msg lnwire.Message,
 		return false
 	}
 
-	_, err := d.recentRejects.Get(newRejectCacheKey(scid, peerPub))
-	return err != cache.ErrElementNotFound
+	_, err := d.recentRejects.Get(newRejectCacheKey(
+		gMsg.GossipVersion(), scid, peerPub,
+	))
+
+	return !errors.Is(err, cache.ErrElementNotFound)
 }
 
 // retransmitStaleAnns examines all outgoing channels that the source node is
@@ -1801,7 +1821,7 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(ctx context.Context,
 		return nil
 	}
 
-	// We'll also check that our NodeAnnouncement is not too old.
+	// We'll also check that our NodeAnnouncement1 is not too old.
 	currentNodeAnn := d.cfg.FetchSelfAnnouncement()
 	timestamp := time.Unix(int64(currentNodeAnn.Timestamp), 0)
 	timeElapsed := now.Sub(timestamp)
@@ -2029,16 +2049,35 @@ func (d *AuthenticatedGossiper) processRejectedEdge(_ context.Context,
 }
 
 // fetchPKScript fetches the output script for the given SCID.
-func (d *AuthenticatedGossiper) fetchPKScript(chanID *lnwire.ShortChannelID) (
-	[]byte, error) {
+func (d *AuthenticatedGossiper) fetchPKScript(chanID lnwire.ShortChannelID) (
+	txscript.ScriptClass, btcutil.Address, error) {
 
-	return lnwallet.FetchPKScriptWithQuit(d.cfg.ChainIO, chanID, d.quit)
+	pkScript, err := lnwallet.FetchPKScriptWithQuit(
+		d.cfg.ChainIO, chanID, d.quit,
+	)
+	if err != nil {
+		return txscript.WitnessUnknownTy, nil, err
+	}
+
+	scriptClass, addrs, _, err := txscript.ExtractPkScriptAddrs(
+		pkScript, d.cfg.ChainParams,
+	)
+	if err != nil {
+		return txscript.WitnessUnknownTy, nil, err
+	}
+
+	if len(addrs) != 1 {
+		return txscript.WitnessUnknownTy, nil, fmt.Errorf("expected "+
+			"1 address, got: %d", len(addrs))
+	}
+
+	return scriptClass, addrs[0], nil
 }
 
 // addNode processes the given node announcement, and adds it to our channel
 // graph.
 func (d *AuthenticatedGossiper) addNode(ctx context.Context,
-	msg *lnwire.NodeAnnouncement, op ...batch.SchedulerOption) error {
+	msg *lnwire.NodeAnnouncement1, op ...batch.SchedulerOption) error {
 
 	if err := netann.ValidateNodeAnn(msg); err != nil {
 		return fmt.Errorf("unable to validate node announcement: %w",
@@ -2129,7 +2168,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(ctx context.Context,
 	// A new node announcement has arrived which either presents new
 	// information about a node in one of the channels we know about, or a
 	// updating previously advertised information.
-	case *lnwire.NodeAnnouncement:
+	case *lnwire.NodeAnnouncement1:
 		return d.handleNodeAnnouncement(ctx, nMsg, msg, schedulerOp)
 
 	// A new channel announcement has arrived, this indicates the
@@ -2220,16 +2259,23 @@ func (d *AuthenticatedGossiper) processZombieUpdate(_ context.Context,
 }
 
 // fetchNodeAnn fetches the latest signed node announcement from our point of
-// view for the node with the given public key.
+// view for the node with the given public key. It also validates the node
+// announcement fields and returns an error if they are invalid to prevent
+// forwarding invalid node announcements to our peers.
 func (d *AuthenticatedGossiper) fetchNodeAnn(ctx context.Context,
-	pubKey [33]byte) (*lnwire.NodeAnnouncement, error) {
+	pubKey [33]byte) (*lnwire.NodeAnnouncement1, error) {
 
-	node, err := d.cfg.Graph.FetchLightningNode(ctx, pubKey)
+	node, err := d.cfg.Graph.FetchNode(ctx, pubKey)
 	if err != nil {
 		return nil, err
 	}
 
-	return node.NodeAnnouncement(true)
+	nodeAnn, err := node.NodeAnnouncement(true)
+	if err != nil {
+		return nil, err
+	}
+
+	return nodeAnn, netann.ValidateNodeAnnFields(nodeAnn)
 }
 
 // isMsgStale determines whether a message retrieved from the backing
@@ -2447,12 +2493,12 @@ func (d *AuthenticatedGossiper) latestHeight() uint32 {
 
 // handleNodeAnnouncement processes a new node announcement.
 func (d *AuthenticatedGossiper) handleNodeAnnouncement(ctx context.Context,
-	nMsg *networkMsg, nodeAnn *lnwire.NodeAnnouncement,
+	nMsg *networkMsg, nodeAnn *lnwire.NodeAnnouncement1,
 	ops []batch.SchedulerOption) ([]networkMsg, bool) {
 
 	timestamp := time.Unix(int64(nodeAnn.Timestamp), 0)
 
-	log.Debugf("Processing NodeAnnouncement: peer=%v, timestamp=%v, "+
+	log.Debugf("Processing NodeAnnouncement1: peer=%v, timestamp=%v, "+
 		"node=%x, source=%x", nMsg.peer, timestamp, nodeAnn.NodeID,
 		nMsg.source.SerializeCompressed())
 
@@ -2511,7 +2557,7 @@ func (d *AuthenticatedGossiper) handleNodeAnnouncement(ctx context.Context,
 	nMsg.err <- nil
 	// TODO(roasbeef): get rid of the above
 
-	log.Debugf("Processed NodeAnnouncement: peer=%v, timestamp=%v, "+
+	log.Debugf("Processed NodeAnnouncement1: peer=%v, timestamp=%v, "+
 		"node=%x, source=%x", nMsg.peer, timestamp, nodeAnn.NodeID,
 		nMsg.source.SerializeCompressed())
 
@@ -2526,19 +2572,20 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 	ops ...batch.SchedulerOption) ([]networkMsg, bool) {
 
 	scid := ann.ShortChannelID
+	chainHash := d.cfg.ChainParams.GenesisHash
 
 	log.Debugf("Processing ChannelAnnouncement1: peer=%v, short_chan_id=%v",
 		nMsg.peer, scid.ToUint64())
 
 	// We'll ignore any channel announcements that target any chain other
 	// than the set of chains we know of.
-	if !bytes.Equal(ann.ChainHash[:], d.cfg.ChainHash[:]) {
+	if !bytes.Equal(ann.ChainHash[:], chainHash[:]) {
 		err := fmt.Errorf("ignoring ChannelAnnouncement1 from chain=%v"+
-			", gossiper on chain=%v", ann.ChainHash,
-			d.cfg.ChainHash)
+			", gossiper on chain=%v", ann.ChainHash, chainHash)
 		log.Errorf(err.Error())
 
 		key := newRejectCacheKey(
+			ann.GossipVersion(),
 			scid.ToUint64(),
 			sourceToPub(nMsg.source),
 		)
@@ -2556,6 +2603,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 		log.Errorf(err.Error())
 
 		key := newRejectCacheKey(
+			ann.GossipVersion(),
 			scid.ToUint64(),
 			sourceToPub(nMsg.source),
 		)
@@ -2598,7 +2646,6 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 
 	if closed {
 		err = fmt.Errorf("ignoring closed channel %v", scid)
-		log.Error(err)
 
 		// If this is an announcement from us, we'll just ignore it.
 		if !nMsg.isRemote {
@@ -2606,23 +2653,14 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 			return nil, false
 		}
 
+		log.Warnf("Increasing ban score for peer=%v due to outdated "+
+			"channel announcement for channel %v", nMsg.peer, scid)
+
 		// Increment the peer's ban score if they are sending closed
 		// channel announcements.
-		d.banman.incrementBanScore(nMsg.peer.PubKey())
-
-		// If the peer is banned and not a channel peer, we'll
-		// disconnect them.
-		shouldDc, dcErr := d.ShouldDisconnect(nMsg.peer.IdentityKey())
+		dcErr := d.handleBadPeer(nMsg.peer)
 		if dcErr != nil {
-			log.Errorf("failed to check if we should disconnect "+
-				"peer: %v", dcErr)
-			nMsg.err <- dcErr
-
-			return nil, false
-		}
-
-		if shouldDc {
-			nMsg.peer.Disconnect(ErrPeerBanned)
+			err = dcErr
 		}
 
 		nMsg.err <- err
@@ -2640,6 +2678,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 				"%v", err)
 
 			key := newRejectCacheKey(
+				ann.GossipVersion(),
 				scid.ToUint64(),
 				sourceToPub(nMsg.source),
 			)
@@ -2707,7 +2746,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 	// ShortChannelID is an alias, then we'll skip validation as it will
 	// not map to a legitimate tx. This is not a DoS vector as only we can
 	// add an alias ChannelAnnouncement from the gossiper.
-	if !(d.cfg.AssumeChannelValid || d.cfg.IsAlias(scid)) { //nolint:nestif
+	if !(d.cfg.AssumeChannelValid || d.cfg.IsAlias(scid)) {
 		op, capacity, script, err := d.validateFundingTransaction(
 			ctx, ann, tapscriptRoot,
 		)
@@ -2719,6 +2758,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 				errors.Is(err, ErrInvalidFundingOutput):
 
 				key := newRejectCacheKey(
+					ann.GossipVersion(),
 					scid.ToUint64(),
 					sourceToPub(nMsg.source),
 				)
@@ -2726,17 +2766,9 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 					key, &cachedReject{},
 				)
 
-				// Increment the peer's ban score. We check
-				// isRemote so we don't actually ban the peer in
-				// case of a local bug.
-				if nMsg.isRemote {
-					d.banman.incrementBanScore(
-						nMsg.peer.PubKey(),
-					)
-				}
-
 			case errors.Is(err, ErrChannelSpent):
 				key := newRejectCacheKey(
+					ann.GossipVersion(),
 					scid.ToUint64(),
 					sourceToPub(nMsg.source),
 				)
@@ -2758,23 +2790,20 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 					return nil, false
 				}
 
-				// Increment the peer's ban score. We check
-				// isRemote so we don't accidentally ban
-				// ourselves in case of a bug.
-				if nMsg.isRemote {
-					d.banman.incrementBanScore(
-						nMsg.peer.PubKey(),
-					)
-				}
-
 			default:
 				// Otherwise, this is just a regular rejected
-				// edge.
+				// edge. We won't increase the ban score for the
+				// remote peer.
 				key := newRejectCacheKey(
+					ann.GossipVersion(),
 					scid.ToUint64(),
 					sourceToPub(nMsg.source),
 				)
 				_, _ = d.recentRejects.Put(key, &cachedReject{})
+
+				nMsg.err <- err
+
+				return nil, false
 			}
 
 			if !nMsg.isRemote {
@@ -2785,19 +2814,15 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 				return nil, false
 			}
 
-			shouldDc, dcErr := d.ShouldDisconnect(
-				nMsg.peer.IdentityKey(),
-			)
+			log.Warnf("Increasing ban score for peer=%v due to "+
+				"invalid channel announcement for channel %v",
+				nMsg.peer, scid)
+
+			// Increment the peer's ban score if they are sending
+			// us invalid channel announcements.
+			dcErr := d.handleBadPeer(nMsg.peer)
 			if dcErr != nil {
-				log.Errorf("failed to check if we should "+
-					"disconnect peer: %v", dcErr)
-				nMsg.err <- dcErr
-
-				return nil, false
-			}
-
-			if shouldDc {
-				nMsg.peer.Disconnect(ErrPeerBanned)
+				err = dcErr
 			}
 
 			nMsg.err <- err
@@ -2834,6 +2859,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 			anns, rErr := d.processRejectedEdge(ctx, ann, proof)
 			if rErr != nil {
 				key := newRejectCacheKey(
+					ann.GossipVersion(),
 					scid.ToUint64(),
 					sourceToPub(nMsg.source),
 				)
@@ -2861,6 +2887,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 
 		// Otherwise, this is just a regular rejected edge.
 		key := newRejectCacheKey(
+			ann.GossipVersion(),
 			scid.ToUint64(),
 			sourceToPub(nMsg.source),
 		)
@@ -2983,14 +3010,17 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 	log.Debugf("Processing ChannelUpdate: peer=%v, short_chan_id=%v, ",
 		nMsg.peer, upd.ShortChannelID.ToUint64())
 
+	chainHash := d.cfg.ChainParams.GenesisHash
+
 	// We'll ignore any channel updates that target any chain other than
 	// the set of chains we know of.
-	if !bytes.Equal(upd.ChainHash[:], d.cfg.ChainHash[:]) {
+	if !bytes.Equal(upd.ChainHash[:], chainHash[:]) {
 		err := fmt.Errorf("ignoring ChannelUpdate from chain=%v, "+
-			"gossiper on chain=%v", upd.ChainHash, d.cfg.ChainHash)
+			"gossiper on chain=%v", upd.ChainHash, chainHash)
 		log.Errorf(err.Error())
 
 		key := newRejectCacheKey(
+			upd.GossipVersion(),
 			upd.ShortChannelID.ToUint64(),
 			sourceToPub(nMsg.source),
 		)
@@ -3060,15 +3090,28 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 	// Check that the ChanUpdate is not too far into the future, this could
 	// reveal some faulty implementation therefore we log an error.
 	if time.Until(timestamp) > graph.DefaultChannelPruneExpiry {
-		log.Errorf("Skewed timestamp (%v) for edge policy of "+
-			"short_chan_id(%v), timestamp too far in the future: "+
-			"peer=%v, msg=%s, is_remote=%v", timestamp.Unix(),
-			shortChanID, nMsg.peer, nMsg.msg.MsgType(),
-			nMsg.isRemote,
-		)
-
-		nMsg.err <- fmt.Errorf("skewed timestamp of edge policy, "+
+		err := fmt.Errorf("skewed timestamp of edge policy, "+
 			"timestamp too far in the future: %v", timestamp.Unix())
+
+		// If this is a channel_update from us, we'll just ignore it.
+		if !nMsg.isRemote {
+			nMsg.err <- err
+			return nil, false
+		}
+
+		log.Errorf("Increasing ban score for peer=%v due to bad "+
+			"channel_update with short_chan_id(%v): timestamp(%v) "+
+			"too far in the future", nMsg.peer, shortChanID,
+			timestamp.Unix())
+
+		// Increment the peer's ban score if they are skewed channel
+		// updates.
+		dcErr := d.handleBadPeer(nMsg.peer)
+		if dcErr != nil {
+			err = dcErr
+		}
+
+		nMsg.err <- err
 
 		return nil, false
 	}
@@ -3158,6 +3201,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 		nMsg.err <- err
 
 		key := newRejectCacheKey(
+			upd.GossipVersion(),
 			upd.ShortChannelID.ToUint64(),
 			sourceToPub(nMsg.source),
 		)
@@ -3194,7 +3238,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 	if err != nil {
 		rErr := fmt.Errorf("unable to validate channel update "+
 			"announcement for short_chan_id=%v: %v",
-			spew.Sdump(upd.ShortChannelID), err)
+			lnutils.SpewLogClosure(upd.ShortChannelID), err)
 
 		log.Error(rErr)
 		nMsg.err <- rErr
@@ -3287,6 +3331,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 			// Since we know the stored SCID in the graph, we'll
 			// cache that SCID.
 			key := newRejectCacheKey(
+				upd.GossipVersion(),
 				chanInfo.ChannelID,
 				sourceToPub(nMsg.source),
 			)
@@ -3747,7 +3792,7 @@ func (d *AuthenticatedGossiper) validateFundingTransaction(_ context.Context,
 	// Before we can add the channel to the channel graph, we need to obtain
 	// the full funding outpoint that's encoded within the channel ID.
 	fundingTx, err := lnwallet.FetchFundingTxWrapper(
-		d.cfg.ChainIO, &scid, d.quit,
+		d.cfg.ChainIO, scid, d.quit,
 	)
 	if err != nil {
 		//nolint:ll
@@ -3839,6 +3884,29 @@ func (d *AuthenticatedGossiper) validateFundingTransaction(_ context.Context,
 
 	return *fundingPoint, btcutil.Amount(chanUtxo.Value), fundingPkScript,
 		nil
+}
+
+// handleBadPeer takes a misbehaving peer and increases its ban score. Once
+// increased, it will disconnect the peer if its ban score has reached
+// `banThreshold` and it doesn't have a channel with us.
+func (d *AuthenticatedGossiper) handleBadPeer(peer lnpeer.Peer) error {
+	// Increment the peer's ban score for misbehavior.
+	d.banman.incrementBanScore(peer.PubKey())
+
+	// If the peer is banned and not a channel peer, we'll disconnect them.
+	shouldDc, dcErr := d.ShouldDisconnect(peer.IdentityKey())
+	if dcErr != nil {
+		log.Errorf("failed to check if we should disconnect peer: %v",
+			dcErr)
+
+		return dcErr
+	}
+
+	if shouldDc {
+		peer.Disconnect(ErrPeerBanned)
+	}
+
+	return nil
 }
 
 // makeFundingScript is used to make the funding script for both segwit v0 and

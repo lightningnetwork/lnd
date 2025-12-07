@@ -9,46 +9,16 @@ import (
 	"github.com/lightningnetwork/lnd/queue"
 )
 
-// DBMPPayment is an interface derived from channeldb.MPPayment that is used by
-// the payment lifecycle.
-type DBMPPayment interface {
-	// GetState returns the current state of the payment.
-	GetState() *paymentsdb.MPPaymentState
-
-	// Terminated returns true if the payment is in a final state.
-	Terminated() bool
-
-	// GetStatus returns the current status of the payment.
-	GetStatus() paymentsdb.PaymentStatus
-
-	// NeedWaitAttempts specifies whether the payment needs to wait for the
-	// outcome of an attempt.
-	NeedWaitAttempts() (bool, error)
-
-	// GetHTLCs returns all HTLCs of this payment.
-	GetHTLCs() []paymentsdb.HTLCAttempt
-
-	// InFlightHTLCs returns all HTLCs that are in flight.
-	InFlightHTLCs() []paymentsdb.HTLCAttempt
-
-	// AllowMoreAttempts is used to decide whether we can safely attempt
-	// more HTLCs for a given payment state. Return an error if the payment
-	// is in an unexpected state.
-	AllowMoreAttempts() (bool, error)
-
-	// TerminalInfo returns the settled HTLC attempt or the payment's
-	// failure reason.
-	TerminalInfo() (*paymentsdb.HTLCAttempt, *paymentsdb.FailureReason)
-}
-
 // ControlTower tracks all outgoing payments made, whose primary purpose is to
 // prevent duplicate payments to the same payment hash. In production, a
 // persistent implementation is preferred so that tracking can survive across
 // restarts. Payments are transitioned through various payment states, and the
 // ControlTower interface provides access to driving the state transitions.
 type ControlTower interface {
-	// This method checks that no succeeded payment exist for this payment
-	// hash.
+	// InitPayment initializes a new payment with the given payment hash and
+	// also notifies subscribers of the payment creation.
+	//
+	// NOTE: Subscribers should be notified by the new state of the payment.
 	InitPayment(lntypes.Hash, *paymentsdb.PaymentCreationInfo) error
 
 	// DeleteFailedAttempts removes all failed HTLCs from the db. It should
@@ -57,6 +27,8 @@ type ControlTower interface {
 	DeleteFailedAttempts(lntypes.Hash) error
 
 	// RegisterAttempt atomically records the provided HTLCAttemptInfo.
+	//
+	// NOTE: Subscribers should be notified by the new state of the payment.
 	RegisterAttempt(lntypes.Hash, *paymentsdb.HTLCAttemptInfo) error
 
 	// SettleAttempt marks the given attempt settled with the preimage. If
@@ -67,16 +39,20 @@ type ControlTower interface {
 	// error to prevent us from making duplicate payments to the same
 	// payment hash. The provided preimage is atomically saved to the DB
 	// for record keeping.
+	//
+	// NOTE: Subscribers should be notified by the new state of the payment.
 	SettleAttempt(lntypes.Hash, uint64, *paymentsdb.HTLCSettleInfo) (
 		*paymentsdb.HTLCAttempt, error)
 
 	// FailAttempt marks the given payment attempt failed.
+	//
+	// NOTE: Subscribers should be notified by the new state of the payment.
 	FailAttempt(lntypes.Hash, uint64, *paymentsdb.HTLCFailInfo) (
 		*paymentsdb.HTLCAttempt, error)
 
 	// FetchPayment fetches the payment corresponding to the given payment
 	// hash.
-	FetchPayment(paymentHash lntypes.Hash) (DBMPPayment, error)
+	FetchPayment(paymentHash lntypes.Hash) (paymentsdb.DBMPPayment, error)
 
 	// FailPayment transitions a payment into the Failed state, and records
 	// the ultimate reason the payment failed. Note that this should only
@@ -84,6 +60,8 @@ type ControlTower interface {
 	// invoking this method, InitPayment should return nil on its next call
 	// for this payment hash, allowing the user to make a subsequent
 	// payment.
+	//
+	// NOTE: Subscribers should be notified by the new state of the payment.
 	FailPayment(lntypes.Hash, paymentsdb.FailureReason) error
 
 	// FetchInFlightPayments returns all payments with status InFlight.
@@ -151,7 +129,7 @@ func (s *controlTowerSubscriberImpl) Updates() <-chan interface{} {
 // controlTower is persistent implementation of ControlTower to restrict
 // double payment sending.
 type controlTower struct {
-	db *paymentsdb.KVPaymentsDB
+	db paymentsdb.DB
 
 	// subscriberIndex is used to provide a unique id for each subscriber
 	// to all payments. This is used to easily remove the subscriber when
@@ -168,7 +146,7 @@ type controlTower struct {
 }
 
 // NewControlTower creates a new instance of the controlTower.
-func NewControlTower(db *paymentsdb.KVPaymentsDB) ControlTower {
+func NewControlTower(db paymentsdb.DB) ControlTower {
 	return &controlTower{
 		db: db,
 		subscribersAllPayments: make(
@@ -273,7 +251,7 @@ func (p *controlTower) FailAttempt(paymentHash lntypes.Hash,
 
 // FetchPayment fetches the payment corresponding to the given payment hash.
 func (p *controlTower) FetchPayment(paymentHash lntypes.Hash) (
-	DBMPPayment, error) {
+	paymentsdb.DBMPPayment, error) {
 
 	return p.db.FetchPayment(paymentHash)
 }

@@ -89,8 +89,9 @@ func TestUpdateAdditionalEdge(t *testing.T) {
 
 	// Create a minimal test node using the private key priv1.
 	pub := priv1.PubKey().SerializeCompressed()
-	testNode := &models.LightningNode{}
-	copy(testNode.PubKeyBytes[:], pub)
+	var pubKey [33]byte
+	copy(pubKey[:], pub)
+	testNode := models.NewV1ShellNode(pubKey)
 
 	nodeID, err := testNode.PubKey()
 	require.NoError(t, err, "failed to get node id")

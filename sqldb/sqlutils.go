@@ -49,6 +49,10 @@ func SQLInt64[T constraints.Integer](num T) sql.NullInt64 {
 
 // SQLStr turns a string into the NullString that sql/sqlc uses when a string
 // can be permitted to be NULL.
+//
+// NOTE: If the input string is empty, it returns a NullString with Valid set to
+// false. If this is not the desired behavior, consider using SQLStrValid
+// instead.
 func SQLStr(s string) sql.NullString {
 	if s == "" {
 		return sql.NullString{}
@@ -57,6 +61,26 @@ func SQLStr(s string) sql.NullString {
 	return sql.NullString{
 		String: s,
 		Valid:  true,
+	}
+}
+
+// SQLStrValid turns a string into the NullString that sql/sqlc uses when a
+// string can be permitted to be NULL.
+//
+// NOTE: Valid is always set to true, even if the input string is empty.
+func SQLStrValid(s string) sql.NullString {
+	return sql.NullString{
+		String: s,
+		Valid:  true,
+	}
+}
+
+// SQLBool turns a boolean into the NullBool that sql/sqlc uses when a boolean
+// can be permitted to be NULL.
+func SQLBool(b bool) sql.NullBool {
+	return sql.NullBool{
+		Bool:  b,
+		Valid: true,
 	}
 }
 

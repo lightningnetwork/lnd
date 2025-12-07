@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"image/color"
 	"io"
 	"maps"
 	"math"
@@ -33,7 +34,6 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
-	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
@@ -71,6 +71,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/onionmessage"
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
@@ -571,6 +572,14 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Action: "write",
 		}},
 		"/lnrpc.Lightning/SubscribeCustomMessages": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/SendOnionMessage": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/SubscribeOnionMessages": {{
 			Entity: "offchain",
 			Action: "read",
 		}},
@@ -1526,7 +1535,8 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		}
 
 		rpcsLog.Debugf("Sweeping coins from wallet to addr=%v, "+
-			"with tx=%v", in.Addr, spew.Sdump(sweepTxPkg.SweepTx))
+			"with tx=%v", in.Addr,
+			lnutils.SpewLogClosure(sweepTxPkg.SweepTx))
 
 		// As our sweep transaction was created, successfully, we'll
 		// now attempt to publish it, cancelling the sweep pkg to
@@ -1612,7 +1622,7 @@ func (r *rpcServer) SendMany(ctx context.Context,
 	}
 
 	rpcsLog.Infof("[sendmany] outputs=%v, sat/kw=%v",
-		spew.Sdump(in.AddrToAmount), int64(feePerKw))
+		lnutils.SpewLogClosure(in.AddrToAmount), int64(feePerKw))
 
 	var txid *chainhash.Hash
 
@@ -1783,7 +1793,7 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 	//
 	// TODO(phlip9): Require valid nodes to have capital in active channels.
 	graph := r.server.graphDB
-	_, active, err := graph.HasLightningNode(ctx, pub)
+	_, active, err := graph.HasNode(ctx, pub)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query graph: %w", err)
 	}
@@ -3561,8 +3571,12 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 			flap, ts, err := r.server.chanEventStore.FlapCount(
 				vertex,
 			)
+
+			// Log the error if we cannot get the flap count instead
+			// of failing this RPC call.
 			if err != nil {
-				return nil, err
+				rpcsLog.Debugf("Failed to get flap count for "+
+					"peer %v", vertex)
 			}
 
 			// If our timestamp is non-nil, we have values for our
@@ -3889,6 +3903,37 @@ type (
 	waitingCloseChannels []*lnrpc.PendingChannelsResponse_WaitingCloseChannel
 )
 
+// calcRemainingConfs calculates how many more confirmations are needed for a
+// pending channel to be fully confirmed. It takes into account:
+// 1. The current blockchain height
+// 2. The block height at which the funding transaction was first confirmed
+// 3. The total number of confirmations required for the channel.
+func calcRemainingConfs(pendingChan *channeldb.OpenChannel,
+	currentHeight uint32) uint32 {
+
+	// If the funding transaction hasn't been confirmed yet,
+	// we need all the required confirmations.
+	if pendingChan.ConfirmationHeight == 0 {
+		return uint32(pendingChan.NumConfsRequired)
+	}
+
+	// Calculate the target height at which the channel will be fully
+	// confirmed. The -1 is because the confirmation height of the first
+	// confirmation has to be taken into account.
+	targetConfirmationHeight := pendingChan.ConfirmationHeight +
+		uint32(pendingChan.NumConfsRequired) - 1
+
+	// In case the current height is already past the target, return 0. This
+	// should never happen because the channel should already be moved from
+	// pending to open state but we handle this case in case of timing
+	// issues.
+	if currentHeight >= targetConfirmationHeight {
+		return 0
+	}
+
+	return targetConfirmationHeight - currentHeight
+}
+
 // fetchPendingOpenChannels queries the database for a list of channels that
 // have pending open state. The returned result is used in the response of the
 // PendingChannels RPC.
@@ -3948,6 +3993,15 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 			pendingChan.BroadcastHeight()
 		fundingExpiryBlocks := int32(maxFundingHeight) - currentHeight
 
+		// Calculate remainingConfs, the number of blocks left until the
+		// funding transaction reaches the required confirmation height.
+		//
+		// ZeroConf channels are marked OPEN immediately upon creation,
+		// so they never enter the "pending" state.
+		remainingConfs := calcRemainingConfs(
+			pendingChan, uint32(currentHeight),
+		)
+
 		customChanBytes, err := encodeCustomChanData(pendingChan)
 		if err != nil {
 			return nil, fmt.Errorf("unable to encode open chan "+
@@ -3969,11 +4023,14 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 				Memo:                 string(pendingChan.Memo),
 				CustomChannelData:    customChanBytes,
 			},
-			CommitWeight:        commitWeight,
-			CommitFee:           int64(localCommitment.CommitFee),
-			FeePerKw:            int64(localCommitment.FeePerKw),
-			FundingExpiryBlocks: fundingExpiryBlocks,
-			// TODO(roasbeef): need to track confirmation height
+			CommitWeight: commitWeight,
+			CommitFee:    int64(localCommitment.CommitFee),
+			FeePerKw: int64(localCommitment.
+				FeePerKw),
+			FundingExpiryBlocks:      fundingExpiryBlocks,
+			ConfirmationsUntilActive: remainingConfs,
+			ConfirmationHeight: pendingChan.
+				ConfirmationHeight,
 		}
 	}
 
@@ -5037,14 +5094,19 @@ func createRPCOpenChannel(ctx context.Context, r *rpcServer,
 	// being notified of it.
 	outpoint := dbChannel.FundingOutpoint
 	info, err := r.server.chanEventStore.GetChanInfo(outpoint, peer)
-	switch err {
+	switch {
+	// If the store does not know about the peer, we just log it.
+	case errors.Is(err, chanfitness.ErrPeerNotFound):
+		rpcsLog.Warnf("peer: %v not found by channel event store",
+			peer)
+
 	// If the store does not know about the channel, we just log it.
-	case chanfitness.ErrChannelNotFound:
-		rpcsLog.Infof("channel: %v not found by channel event store",
+	case errors.Is(err, chanfitness.ErrChannelNotFound):
+		rpcsLog.Warnf("channel: %v not found by channel event store",
 			outpoint)
 
 	// If we got our channel info, we further populate the channel.
-	case nil:
+	case err == nil:
 		channel.Uptime = int64(info.Uptime.Seconds())
 		channel.Lifetime = int64(info.Lifetime.Seconds())
 
@@ -5827,12 +5889,9 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 	}
 
 	// Unmarshal any custom destination features.
-	payIntent.destFeatures, err = routerrpc.UnmarshalFeatures(
+	payIntent.destFeatures = routerrpc.UnmarshalFeatures(
 		rpcPayReq.DestFeatures,
 	)
-	if err != nil {
-		return payIntent, err
-	}
 
 	return payIntent, nil
 }
@@ -6758,7 +6817,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	// First iterate through all the known nodes (connected or unconnected
 	// within the graph), collating their current state into the RPC
 	// response.
-	err := graph.ForEachNode(ctx, func(node *models.LightningNode) error {
+	err := graph.ForEachNode(ctx, func(node *models.Node) error {
 		lnNode := marshalNode(node)
 
 		resp.Nodes = append(resp.Nodes, lnNode)
@@ -7053,7 +7112,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	// With the public key decoded, attempt to fetch the node corresponding
 	// to this public key. If the node cannot be found, then an error will
 	// be returned.
-	node, err := graph.FetchLightningNode(ctx, pubKey)
+	node, err := graph.FetchNode(ctx, pubKey)
 	switch {
 	case errors.Is(err, graphdb.ErrGraphNodeNotFound):
 		return nil, status.Error(codes.NotFound, err.Error())
@@ -7114,7 +7173,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	}, nil
 }
 
-func marshalNode(node *models.LightningNode) *lnrpc.LightningNode {
+func marshalNode(node *models.Node) *lnrpc.LightningNode {
 	nodeAddrs := make([]*lnrpc.NodeAddress, len(node.Addresses))
 	for i, addr := range node.Addresses {
 		nodeAddr := &lnrpc.NodeAddress{
@@ -7129,11 +7188,13 @@ func marshalNode(node *models.LightningNode) *lnrpc.LightningNode {
 	customRecords := marshalExtraOpaqueData(node.ExtraOpaqueData)
 
 	return &lnrpc.LightningNode{
-		LastUpdate:    uint32(node.LastUpdate.Unix()),
-		PubKey:        hex.EncodeToString(node.PubKeyBytes[:]),
-		Addresses:     nodeAddrs,
-		Alias:         node.Alias,
-		Color:         graphdb.EncodeHexColor(node.Color),
+		LastUpdate: uint32(node.LastUpdate.Unix()),
+		PubKey:     hex.EncodeToString(node.PubKeyBytes[:]),
+		Addresses:  nodeAddrs,
+		Alias:      node.Alias.UnwrapOr(""),
+		Color: graphdb.EncodeHexColor(
+			node.Color.UnwrapOr(color.RGBA{}),
+		),
 		Features:      features,
 		CustomRecords: customRecords,
 	}
@@ -7244,7 +7305,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 		totalNetworkCapacity = 0
 		minChannelSize = math.MaxInt64
 		maxChannelSize = 0
-		allChans = nil
+		clear(allChans)
 		clear(seenChans)
 	})
 	if err != nil {
@@ -7523,13 +7584,18 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		CreationDateEnd:   int64(req.CreationDateEnd),
 	}
 
-	// If the maximum number of payments wasn't specified, then we'll
-	// default to return the maximal number of payments representable.
+	// If the maximum number of payments wasn't specified, we default to
+	// a reasonable number to prevent resource exhaustion. All of the
+	// payments are fetched into memory. Moreover we don't want our daemon
+	// to remain stable and do other stuff rather than serving payments.
+	//
+	// TODO(ziggie): Choose a more specific default value when results of
+	// performance testing are available.
 	if req.MaxPayments == 0 {
-		query.MaxPayments = math.MaxUint64
+		query.MaxPayments = paymentsdb.DefaultMaxPayments
 	}
 
-	paymentsQuerySlice, err := r.server.kvPaymentsDB.QueryPayments(
+	paymentsQuerySlice, err := r.server.paymentsDB.QueryPayments(
 		ctx, query,
 	)
 	if err != nil {
@@ -7612,7 +7678,7 @@ func (r *rpcServer) DeletePayment(ctx context.Context,
 	rpcsLog.Infof("[DeletePayment] payment_identifier=%v, "+
 		"failed_htlcs_only=%v", hash, req.FailedHtlcsOnly)
 
-	err = r.server.kvPaymentsDB.DeletePayment(hash, req.FailedHtlcsOnly)
+	err = r.server.paymentsDB.DeletePayment(hash, req.FailedHtlcsOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -7652,7 +7718,7 @@ func (r *rpcServer) DeleteAllPayments(ctx context.Context,
 		"failed_htlcs_only=%v", req.FailedPaymentsOnly,
 		req.FailedHtlcsOnly)
 
-	numDeletedPayments, err := r.server.kvPaymentsDB.DeletePayments(
+	numDeletedPayments, err := r.server.paymentsDB.DeletePayments(
 		req.FailedPaymentsOnly, req.FailedHtlcsOnly,
 	)
 	if err != nil {
@@ -7986,7 +8052,7 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		errMsg := "cannot set both FeeRate and FeeRatePpm at the " +
 			"same time"
 
-		return nil, status.Errorf(codes.InvalidArgument, errMsg)
+		return nil, status.Errorf(codes.InvalidArgument, "%v", errMsg)
 
 	// If the request is using fee_rate.
 	case req.FeeRate != 0:
@@ -8189,15 +8255,15 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 			return "", err
 		}
 
-		peer, err := r.server.graphDB.FetchLightningNode(ctx, vertex)
+		peer, err := r.server.graphDB.FetchNode(ctx, vertex)
 		if err != nil {
 			return "", err
 		}
 
 		// Cache the peer alias.
-		chanToPeerAlias[chanID] = peer.Alias
+		chanToPeerAlias[chanID] = peer.Alias.UnwrapOr("")
 
-		return peer.Alias, nil
+		return peer.Alias.UnwrapOr(""), nil
 	}
 
 	// TODO(roasbeef): add settlement latency?
@@ -9188,7 +9254,7 @@ func (r *rpcServer) RegisterRPCMiddleware(
 }
 
 // SendCustomMessage sends a custom peer message.
-func (r *rpcServer) SendCustomMessage(_ context.Context,
+func (r *rpcServer) SendCustomMessage(ctx context.Context,
 	req *lnrpc.SendCustomMessageRequest) (*lnrpc.SendCustomMessageResponse,
 	error) {
 
@@ -9198,7 +9264,7 @@ func (r *rpcServer) SendCustomMessage(_ context.Context,
 	}
 
 	err = r.server.SendCustomMessage(
-		peer, lnwire.MessageType(req.Type), req.Data,
+		ctx, peer, lnwire.MessageType(req.Type), req.Data,
 	)
 	switch {
 	case errors.Is(err, ErrPeerNotConnected):
@@ -9239,6 +9305,76 @@ func (r *rpcServer) SubscribeCustomMessages(
 				Peer: customMsg.Peer[:],
 				Data: customMsg.Msg.Data,
 				Type: uint32(customMsg.Msg.Type),
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// SendOnionMessage sends a custom peer message.
+func (r *rpcServer) SendOnionMessage(ctx context.Context,
+	req *lnrpc.SendOnionMessageRequest) (*lnrpc.SendOnionMessageResponse,
+	error) {
+
+	// First we'll validate the string passed in within the request to
+	// ensure that it's a valid hex-string, and also a valid compressed
+	// public key.
+	pathKey, err := btcec.ParsePubKey(req.PathKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode path key bytes: %w",
+			err)
+	}
+
+	peer, err := route.NewVertexFromBytes(req.Peer)
+	if err != nil {
+		return nil, err
+	}
+
+	err = r.server.SendOnionMessage(ctx, peer, pathKey, req.Onion)
+	switch {
+	case errors.Is(err, ErrPeerNotConnected):
+		return nil, status.Error(codes.NotFound, err.Error())
+	case err != nil:
+		return nil, err
+	}
+
+	return &lnrpc.SendOnionMessageResponse{
+		Status: "onion message sent successfully",
+	}, nil
+}
+
+// SubscribeOnionMessages subscribes to a stream of incoming onion messages.
+func (r *rpcServer) SubscribeOnionMessages(
+	_ *lnrpc.SubscribeOnionMessagesRequest,
+	server lnrpc.Lightning_SubscribeOnionMessagesServer) error {
+
+	client, err := r.server.SubscribeOnionMessages()
+	if err != nil {
+		return err
+	}
+	defer client.Cancel()
+
+	for {
+		select {
+		case <-client.Quit():
+			return errors.New("shutdown")
+
+		case <-server.Context().Done():
+			return server.Context().Err()
+
+		case update := <-client.Updates():
+			oMsg, ok := update.(*onionmessage.OnionMessageUpdate)
+			if !ok {
+				return fmt.Errorf("onion message update "+
+					"failed type assertion: %T", update)
+			}
+
+			err := server.Send(&lnrpc.OnionMessage{
+				Peer:    oMsg.Peer[:],
+				PathKey: oMsg.PathKey[:],
+				Onion:   oMsg.OnionBlob,
 			})
 			if err != nil {
 				return err

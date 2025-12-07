@@ -16,7 +16,6 @@ type Querier interface {
 	ClearKVInvoiceHashIndex(ctx context.Context) error
 	CountZombieChannels(ctx context.Context, version int16) (int64, error)
 	CreateChannel(ctx context.Context, arg CreateChannelParams) (int64, error)
-	CreateChannelExtraType(ctx context.Context, arg CreateChannelExtraTypeParams) error
 	DeleteCanceledInvoices(ctx context.Context) (sql.Result, error)
 	DeleteChannelPolicyExtraTypes(ctx context.Context, channelPolicyID int64) error
 	DeleteChannels(ctx context.Context, ids []int64) error
@@ -88,17 +87,33 @@ type Querier interface {
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 	InsertAMPSubInvoice(ctx context.Context, arg InsertAMPSubInvoiceParams) error
 	InsertAMPSubInvoiceHTLC(ctx context.Context, arg InsertAMPSubInvoiceHTLCParams) error
-	InsertChanPolicyExtraType(ctx context.Context, arg InsertChanPolicyExtraTypeParams) error
 	InsertChannelFeature(ctx context.Context, arg InsertChannelFeatureParams) error
+	// NOTE: This query is only meant to be used by the graph SQL migration since
+	// for that migration, in order to be retry-safe, we don't want to error out if
+	// we re-insert the same channel again (which would error if the normal
+	// CreateChannel query is used because of the uniqueness constraint on the scid
+	// and version columns).
+	InsertChannelMig(ctx context.Context, arg InsertChannelMigParams) (int64, error)
 	InsertClosedChannel(ctx context.Context, scid []byte) error
+	// NOTE: This query is only meant to be used by the graph SQL migration since
+	// for that migration, in order to be retry-safe, we don't want to error out if
+	// we re-insert the same policy (which would error if the normal
+	// UpsertEdgePolicy query is used because of the constraint in that query that
+	// requires a policy update to have a newer last_update than the existing one).
+	InsertEdgePolicyMig(ctx context.Context, arg InsertEdgePolicyMigParams) (int64, error)
 	InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int64, error)
 	InsertInvoiceFeature(ctx context.Context, arg InsertInvoiceFeatureParams) error
 	InsertInvoiceHTLC(ctx context.Context, arg InsertInvoiceHTLCParams) (int64, error)
 	InsertInvoiceHTLCCustomRecord(ctx context.Context, arg InsertInvoiceHTLCCustomRecordParams) error
 	InsertKVInvoiceKeyAndAddIndex(ctx context.Context, arg InsertKVInvoiceKeyAndAddIndexParams) error
 	InsertMigratedInvoice(ctx context.Context, arg InsertMigratedInvoiceParams) (int64, error)
-	InsertNodeAddress(ctx context.Context, arg InsertNodeAddressParams) error
 	InsertNodeFeature(ctx context.Context, arg InsertNodeFeatureParams) error
+	// NOTE: This query is only meant to be used by the graph SQL migration since
+	// for that migration, in order to be retry-safe, we don't want to error out if
+	// we re-insert the same node (which would error if the normal UpsertNode query
+	// is used because of the constraint in that query that requires a node update
+	// to have a newer last_update than the existing node).
+	InsertNodeMig(ctx context.Context, arg InsertNodeMigParams) (int64, error)
 	IsClosedChannel(ctx context.Context, scid []byte) (bool, error)
 	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
 	IsZombieChannel(ctx context.Context, arg IsZombieChannelParams) (bool, error)
@@ -125,10 +140,17 @@ type Querier interface {
 	UpdateInvoiceHTLCs(ctx context.Context, arg UpdateInvoiceHTLCsParams) error
 	UpdateInvoiceState(ctx context.Context, arg UpdateInvoiceStateParams) (sql.Result, error)
 	UpsertAMPSubInvoice(ctx context.Context, arg UpsertAMPSubInvoiceParams) (sql.Result, error)
+	UpsertChanPolicyExtraType(ctx context.Context, arg UpsertChanPolicyExtraTypeParams) error
+	UpsertChannelExtraType(ctx context.Context, arg UpsertChannelExtraTypeParams) error
 	UpsertEdgePolicy(ctx context.Context, arg UpsertEdgePolicyParams) (int64, error)
 	UpsertNode(ctx context.Context, arg UpsertNodeParams) (int64, error)
+	UpsertNodeAddress(ctx context.Context, arg UpsertNodeAddressParams) error
 	UpsertNodeExtraType(ctx context.Context, arg UpsertNodeExtraTypeParams) error
 	UpsertPruneLogEntry(ctx context.Context, arg UpsertPruneLogEntryParams) error
+	// We use a separate upsert for our own node since we want to be less strict
+	// about the last_update field. For our own node, we always want to
+	// update the record even if the last_update is the same as what we have.
+	UpsertSourceNode(ctx context.Context, arg UpsertSourceNodeParams) (int64, error)
 	UpsertZombieChannel(ctx context.Context, arg UpsertZombieChannelParams) error
 }
 

@@ -1,7 +1,6 @@
 package lntest
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -130,7 +129,7 @@ func (f *FeeService) handleRequest(w http.ResponseWriter, _ *http.Request) {
 
 // Stop stops the web server.
 func (f *FeeService) Stop() error {
-	err := f.srv.Shutdown(context.Background())
+	err := f.srv.Shutdown(f.Context())
 	require.NoError(f, err, "cannot stop fee api")
 
 	f.wg.Wait()

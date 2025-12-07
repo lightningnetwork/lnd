@@ -588,10 +588,10 @@ func newChainSet(chanState *channeldb.OpenChannel) (*chainSet, error) {
 
 	log.Tracef("ChannelPoint(%v): local_commit_type=%v, local_commit=%v",
 		chanState.FundingOutpoint, chanState.ChanType,
-		spew.Sdump(localCommit))
+		lnutils.SpewLogClosure(localCommit))
 	log.Tracef("ChannelPoint(%v): remote_commit_type=%v, remote_commit=%v",
 		chanState.FundingOutpoint, chanState.ChanType,
-		spew.Sdump(remoteCommit))
+		lnutils.SpewLogClosure(remoteCommit))
 
 	// Fetch the current known commit height for the remote party, and
 	// their pending commitment chain tip if it exists.
@@ -619,7 +619,7 @@ func newChainSet(chanState *channeldb.OpenChannel) (*chainSet, error) {
 		log.Tracef("ChannelPoint(%v): remote_pending_commit_type=%v, "+
 			"remote_pending_commit=%v", chanState.FundingOutpoint,
 			chanState.ChanType,
-			spew.Sdump(remoteChainTip.Commitment))
+			lnutils.SpewLogClosure(remoteChainTip.Commitment))
 
 		htlcs := remoteChainTip.Commitment.Htlcs
 		commitSet.HtlcSets[RemotePendingHtlcSet] = htlcs
@@ -995,7 +995,8 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 	broadcastTx := commitSpend.SpendingTx
 
 	log.Infof("Cooperative closure for ChannelPoint(%v): %v",
-		c.cfg.chanState.FundingOutpoint, spew.Sdump(broadcastTx))
+		c.cfg.chanState.FundingOutpoint,
+		lnutils.SpewLogClosure(broadcastTx))
 
 	// If the input *is* final, then we'll check to see which output is
 	// ours.
@@ -1060,7 +1061,8 @@ func (c *chainWatcher) dispatchLocalForceClose(
 		"detected", c.cfg.chanState.FundingOutpoint)
 
 	forceClose, err := lnwallet.NewLocalForceCloseSummary(
-		c.cfg.chanState, c.cfg.signer, commitSpend.SpendingTx, stateNum,
+		c.cfg.chanState, c.cfg.signer, commitSpend.SpendingTx,
+		uint32(commitSpend.SpendingHeight), stateNum,
 		c.cfg.auxLeafStore, c.cfg.auxResolver,
 	)
 	if err != nil {

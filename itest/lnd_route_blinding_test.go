@@ -335,7 +335,7 @@ type blindedForwardTest struct {
 func newBlindedForwardTest(ht *lntest.HarnessTest) (context.Context,
 	*blindedForwardTest) {
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ht.Context())
 
 	return ctx, &blindedForwardTest{
 		ht:       ht,
@@ -423,8 +423,6 @@ func (b *blindedForwardTest) cleanup() {
 
 // createRouteToBlinded queries for a route from alice to the blinded path
 // provided.
-//
-//nolint:gomnd
 func (b *blindedForwardTest) createRouteToBlinded(paymentAmt int64,
 	blindedPath *lnrpc.BlindedPaymentPath) *lnrpc.Route {
 

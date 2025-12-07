@@ -2,7 +2,6 @@ package routerrpc
 
 import (
 	"bytes"
-	"context"
 	"encoding/hex"
 	"testing"
 	"time"
@@ -264,7 +263,7 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 		backend.MaxTotalTimelock = 1000
 	}
 
-	resp, err := backend.QueryRoutes(context.Background(), request)
+	resp, err := backend.QueryRoutes(t.Context(), request)
 
 	// If we're using both OutgoingChanId and OutgoingChanIds, we should get
 	// an error.
@@ -881,6 +880,27 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 			},
 			valid:            false,
 			expectedErrorMsg: "self-payments not allowed",
+		},
+		{
+			name: "Required and optional feature bits set",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+				ShouldSetExpEndorsement: func() bool {
+					return false
+				},
+			},
+			sendReq: &SendPaymentRequest{
+				Dest:             destNodeBytes,
+				Amt:              int64(paymentAmount),
+				PaymentHash:      make([]byte, 32),
+				MaxParts:         10,
+				MaxShardSizeMsat: 30_000_000,
+				DestFeatures: []lnrpc.FeatureBit{
+					lnrpc.FeatureBit_GOSSIP_QUERIES_OPT,
+					lnrpc.FeatureBit_GOSSIP_QUERIES_REQ,
+				},
+			},
+			valid: true,
 		},
 		{
 			name: "Valid send req parameters, payment settled",

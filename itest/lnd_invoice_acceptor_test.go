@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"context"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -47,7 +46,7 @@ func testInvoiceHtlcModifierBasic(ht *lntest.HarnessTest) {
 	// Make sure we get an error if we try to register a second modifier and
 	// then try to use it (the error won't be returned on connect, only on
 	// the first _read_ interaction on the stream).
-	mod2, err := carol.RPC.Invoice.HtlcModifier(context.Background())
+	mod2, err := carol.RPC.Invoice.HtlcModifier(ht.Context())
 	require.NoError(ht, err)
 	_, err = mod2.Recv()
 	require.ErrorContains(

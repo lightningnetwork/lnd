@@ -261,6 +261,10 @@ type openChannelTlvData struct {
 	// customBlob is an optional TLV encoded blob of data representing
 	// custom channel funding information.
 	customBlob tlv.OptionalRecordT[tlv.TlvType7, tlv.Blob]
+
+	// confirmationHeight records the block height at which the funding
+	// transaction was first confirmed.
+	confirmationHeight tlv.RecordT[tlv.TlvType8, uint32]
 }
 
 // encode serializes the openChannelTlvData to the given io.Writer.
@@ -270,6 +274,7 @@ func (c *openChannelTlvData) encode(w io.Writer) error {
 		c.initialLocalBalance.Record(),
 		c.initialRemoteBalance.Record(),
 		c.realScid.Record(),
+		c.confirmationHeight.Record(),
 	}
 	c.memo.WhenSome(func(memo tlv.RecordT[tlv.TlvType5, []byte]) {
 		tlvRecords = append(tlvRecords, memo.Record())
@@ -282,6 +287,8 @@ func (c *openChannelTlvData) encode(w io.Writer) error {
 	c.customBlob.WhenSome(func(blob tlv.RecordT[tlv.TlvType7, tlv.Blob]) {
 		tlvRecords = append(tlvRecords, blob.Record())
 	})
+
+	tlv.SortRecords(tlvRecords)
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(tlvRecords...)
@@ -307,6 +314,7 @@ func (c *openChannelTlvData) decode(r io.Reader) error {
 		memo.Record(),
 		tapscriptRoot.Record(),
 		blob.Record(),
+		c.confirmationHeight.Record(),
 	)
 	if err != nil {
 		return err
@@ -906,6 +914,10 @@ type OpenChannel struct {
 	// been confirmed before a certain height.
 	FundingBroadcastHeight uint32
 
+	// ConfirmationHeight records the block height at which the funding
+	// transaction was first confirmed.
+	ConfirmationHeight uint32
+
 	// NumConfsRequired is the number of confirmations a channel's funding
 	// transaction must have received in order to be considered available
 	// for normal transactional use.
@@ -1207,6 +1219,7 @@ func (c *OpenChannel) amendTlvData(auxData openChannelTlvData) {
 		auxData.initialRemoteBalance.Val,
 	)
 	c.confirmedScid = auxData.realScid.Val
+	c.ConfirmationHeight = auxData.confirmationHeight.Val
 
 	auxData.memo.WhenSomeV(func(memo []byte) {
 		c.Memo = memo
@@ -1233,6 +1246,9 @@ func (c *OpenChannel) extractTlvData() openChannelTlvData {
 		),
 		realScid: tlv.NewRecordT[tlv.TlvType4](
 			c.confirmedScid,
+		),
+		confirmationHeight: tlv.NewPrimitiveRecord[tlv.TlvType8](
+			c.ConfirmationHeight,
 		),
 	}
 
@@ -1499,6 +1515,37 @@ func (c *OpenChannel) fullSync(tx kvdb.RwTx) error {
 	}
 
 	return putOpenChannel(chanBucket, c)
+}
+
+// MarkConfirmationHeight updates the channel's confirmation height once the
+// channel opening transaction receives one confirmation.
+func (c *OpenChannel) MarkConfirmationHeight(height uint32) error {
+	c.Lock()
+	defer c.Unlock()
+
+	if err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+		chanBucket, err := fetchChanBucketRw(
+			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
+		if err != nil {
+			return err
+		}
+
+		channel.ConfirmationHeight = height
+
+		return putOpenChannel(chanBucket, channel)
+	}, func() {}); err != nil {
+		return err
+	}
+
+	c.ConfirmationHeight = height
+
+	return nil
 }
 
 // MarkAsOpen marks a channel as fully open given a locator that uniquely

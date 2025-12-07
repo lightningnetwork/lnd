@@ -2964,7 +2964,7 @@ func getRealChannelID(chanIDIndexBkt kvdb.RBucket,
 	}
 
 	chanIDBytes := chanIDIndexBkt.Get(dbIDBytes)
-	if len(chanIDBytes) != 32 { //nolint:gomnd
+	if len(chanIDBytes) != 32 {
 		return nil, fmt.Errorf("channel ID not found")
 	}
 

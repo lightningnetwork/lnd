@@ -20,7 +20,7 @@ func TestContextGuard(t *testing.T) {
 	t.Run("Parent context is cancelled", func(t *testing.T) {
 		t.Parallel()
 		var (
-			ctx, cancel = context.WithCancel(context.Background())
+			ctx, cancel = context.WithCancel(t.Context())
 			g           = NewContextGuard()
 		)
 
@@ -42,7 +42,7 @@ func TestContextGuard(t *testing.T) {
 	t.Run("Derived context is cancelled", func(t *testing.T) {
 		t.Parallel()
 		var (
-			ctx = context.Background()
+			ctx = t.Context()
 			g   = NewContextGuard()
 		)
 
@@ -66,7 +66,7 @@ func TestContextGuard(t *testing.T) {
 		t.Parallel()
 
 		var (
-			ctx = context.Background()
+			ctx = t.Context()
 			g   = NewContextGuard()
 		)
 		ctxc, _ := g.Create(ctx)
@@ -87,7 +87,7 @@ func TestContextGuard(t *testing.T) {
 		t.Parallel()
 
 		var (
-			ctx, cancel = context.WithCancel(context.Background())
+			ctx, cancel = context.WithCancel(t.Context())
 			g           = NewContextGuard()
 		)
 		cancel()
@@ -107,7 +107,7 @@ func TestContextGuard(t *testing.T) {
 		t.Parallel()
 
 		var (
-			ctx = context.Background()
+			ctx = t.Context()
 			g   = NewContextGuard()
 		)
 
@@ -130,7 +130,7 @@ func TestContextGuard(t *testing.T) {
 		t.Parallel()
 
 		var (
-			ctx, cancel = context.WithCancel(context.Background())
+			ctx, cancel = context.WithCancel(t.Context())
 			g           = NewContextGuard()
 			task        = make(chan struct{})
 			done        = make(chan struct{})
@@ -172,7 +172,7 @@ func TestContextGuard(t *testing.T) {
 		t.Parallel()
 
 		var (
-			ctx  = context.Background()
+			ctx  = t.Context()
 			g    = NewContextGuard()
 			task = make(chan struct{})
 			done = make(chan struct{})
@@ -218,7 +218,7 @@ func TestContextGuard(t *testing.T) {
 		t.Parallel()
 
 		var (
-			ctx  = context.Background()
+			ctx  = t.Context()
 			g    = NewContextGuard()
 			task = make(chan struct{})
 			done = make(chan struct{})
@@ -316,7 +316,7 @@ func TestContextGuard(t *testing.T) {
 		t.Parallel()
 
 		var (
-			ctx     = context.Background()
+			ctx     = t.Context()
 			g       = NewContextGuard()
 			task    = make(chan struct{})
 			done    = make(chan struct{})
@@ -452,7 +452,7 @@ func TestContextGuardCountGoroutines(t *testing.T) {
 
 	g := NewContextGuard()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	// Count goroutines before contexts are created.
 	count1 := runtime.NumGoroutine()

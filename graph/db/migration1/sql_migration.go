@@ -1,4 +1,4 @@
-package graphdb
+package migration1
 
 import (
 	"bytes"
@@ -7,17 +7,18 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"image/color"
 	"net"
 	"slices"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/graph/db/migration1/models"
+	"github.com/lightningnetwork/lnd/graph/db/migration1/sqlc"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sqldb"
-	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 	"golang.org/x/time/rate"
 )
 
@@ -137,7 +138,7 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 	// fetch the corresponding node object in the SQL store, and it will
 	// then be compared against the original KVDB node object.
 	batch := make(
-		map[int64]*models.LightningNode, cfg.MaxBatchSize,
+		map[int64]*models.Node, cfg.MaxBatchSize,
 	)
 
 	// validateBatch validates that the batch of nodes in the 'batch' map
@@ -226,7 +227,7 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 
 		// Clear the batch map for the next iteration.
 		batch = make(
-			map[int64]*models.LightningNode, cfg.MaxBatchSize,
+			map[int64]*models.Node, cfg.MaxBatchSize,
 		)
 
 		return nil
@@ -235,7 +236,7 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 	// Loop through each node in the KV store and insert it into the SQL
 	// database.
 	err := forEachNode(kvBackend, func(_ kvdb.RTx,
-		node *models.LightningNode) error {
+		node *models.Node) error {
 
 		pub := node.PubKeyBytes
 
@@ -260,20 +261,19 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 				"opaque data for node %x: %w", pub, err)
 		}
 
+		if err = maybeOverrideNodeAddresses(node); err != nil {
+			skipped++
+			log.Warnf("Skipping migration of node %x with invalid "+
+				"address (%v): %v", pub, node.Addresses, err)
+
+			return nil
+		}
+
 		count++
 		chunk++
 
-		// TODO(elle): At this point, we should check the loaded node
-		// to see if we should extract any DNS addresses from its
-		// opaque type addresses. This is expected to be done in:
-		// https://github.com/lightningnetwork/lnd/pull/9455.
-		// This TODO is being tracked in
-		//  https://github.com/lightningnetwork/lnd/issues/9795 as this
-		// must be addressed before making this code path active in
-		// production.
-
 		// Write the node to the SQL database.
-		id, err := upsertNode(ctx, sqlDB, node)
+		id, err := insertNodeSQLMig(ctx, sqlDB, node)
 		if err != nil {
 			return fmt.Errorf("could not persist node(%x): %w", pub,
 				err)
@@ -303,8 +303,11 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 
 		return nil
 	}, func() {
-		// No reset is needed since if a retry occurs, the entire
-		// migration will be retried from the start.
+		count = 0
+		chunk = 0
+		skipped = 0
+		t0 = time.Now()
+		batch = make(map[int64]*models.Node, cfg.MaxBatchSize)
 	})
 	if err != nil {
 		return fmt.Errorf("could not migrate nodes: %w", err)
@@ -320,8 +323,78 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 	}
 
 	log.Infof("Migrated %d nodes from KV to SQL in %v (skipped %d nodes "+
-		"due to invalid TLV streams)", count, time.Since(totalTime),
+		"due to invalid TLV streams or invalid addresses)", count,
+		time.Since(totalTime),
+
 		skipped)
+
+	return nil
+}
+
+// maybeOverrideNodeAddresses checks if the node has any opaque addresses that
+// can be parsed. If so, it replaces the node's addresses with the parsed
+// addresses. If the address is unparseable, it returns an error.
+func maybeOverrideNodeAddresses(node *models.Node) error {
+	// In the majority of cases, the number of node addresses will remain
+	// unchanged, so we pre-allocate a slice of the same length.
+	addrs := make([]net.Addr, 0, len(node.Addresses))
+
+	// Iterate over each address in search of any opaque addresses that we
+	// can inspect.
+	for _, addr := range node.Addresses {
+		opaque, ok := addr.(*lnwire.OpaqueAddrs)
+		if !ok {
+			// Any non-opaque address is left unchanged.
+			addrs = append(addrs, addr)
+			continue
+		}
+
+		// For each opaque address, we'll now attempt to parse out any
+		// known addresses. We'll do this in a loop, as it's possible
+		// that there are several addresses encoded in a single opaque
+		// address.
+		payload := opaque.Payload
+		for len(payload) > 0 {
+			var (
+				r            = bytes.NewReader(payload)
+				numAddrBytes = uint16(len(payload))
+			)
+			byteRead, readAddr, err := lnwire.ReadAddress(
+				r, numAddrBytes,
+			)
+			if err != nil {
+				return err
+			}
+
+			// If we were able to read an address, we'll add it to
+			// our list of addresses.
+			if readAddr != nil {
+				addrs = append(addrs, readAddr)
+			}
+
+			// If the address we read was an opaque address, it
+			// means we've hit an unknown address type, and it has
+			// consumed the rest of the payload. We can break out
+			// of the loop.
+			if _, ok := readAddr.(*lnwire.OpaqueAddrs); ok {
+				break
+			}
+
+			// If we've read all the bytes, we can also break.
+			if byteRead >= numAddrBytes {
+				break
+			}
+
+			// Otherwise, we'll advance our payload slice and
+			// continue.
+			payload = payload[byteRead:]
+		}
+	}
+
+	// Override the node addresses if we have any.
+	if len(addrs) != 0 {
+		node.Addresses = addrs
+	}
 
 	return nil
 }
@@ -351,7 +424,7 @@ func migrateSourceNode(ctx context.Context, kvdb kvdb.Backend,
 	id, err := sqlDB.GetNodeIDByPubKey(
 		ctx, sqlc.GetNodeIDByPubKeyParams{
 			PubKey:  pub[:],
-			Version: int16(ProtocolV1),
+			Version: int16(lnwire.GossipVersion1),
 		},
 	)
 	if err != nil {
@@ -369,7 +442,9 @@ func migrateSourceNode(ctx context.Context, kvdb kvdb.Backend,
 	// from the SQL database and checking that the expected DB ID and
 	// pub key are returned. We don't need to do a whole node comparison
 	// here, as this was already done in the previous migration step.
-	srcNodes, err := sqlDB.GetSourceNodesByVersion(ctx, int16(ProtocolV1))
+	srcNodes, err := sqlDB.GetSourceNodesByVersion(
+		ctx, int16(lnwire.GossipVersion1),
+	)
 	if err != nil {
 		return fmt.Errorf("could not get source nodes from SQL "+
 			"store: %w", err)
@@ -437,7 +512,9 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 			Interval: 10 * time.Second,
 		}
 	)
-	migChanPolicy := func(policy *models.ChannelEdgePolicy) error {
+	migChanPolicy := func(dbChanInfo *dbChanInfo,
+		policy *models.ChannelEdgePolicy) error {
+
 		// If the policy is nil, we can skip it.
 		if policy == nil {
 			return nil
@@ -451,7 +528,7 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 
 		policyCount++
 
-		_, _, _, err := updateChanEdgePolicy(ctx, sqlDB, policy)
+		err := insertChanEdgePolicyMig(ctx, sqlDB, dbChanInfo, policy)
 		if err != nil {
 			return fmt.Errorf("could not migrate channel "+
 				"policy %d: %w", policy.ChannelID, err)
@@ -521,19 +598,19 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 		chunk++
 
 		// Migrate the channel info along with its policies.
-		dbChanInfo, err := insertChannel(ctx, sqlDB, channel)
+		dbChanInfo, err := insertChannelMig(ctx, sqlDB, channel)
 		if err != nil {
 			return fmt.Errorf("could not insert record for "+
 				"channel %d in SQL store: %w", scid, err)
 		}
 
 		// Now, migrate the two channel policies for the channel.
-		err = migChanPolicy(policy1)
+		err = migChanPolicy(dbChanInfo, policy1)
 		if err != nil {
 			return fmt.Errorf("could not migrate policy1(%d): %w",
 				scid, err)
 		}
-		err = migChanPolicy(policy2)
+		err = migChanPolicy(dbChanInfo, policy2)
 		if err != nil {
 			return fmt.Errorf("could not migrate policy2(%d): %w",
 				scid, err)
@@ -574,8 +651,13 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 
 		return nil
 	}, func() {
-		// No reset is needed since if a retry occurs, the entire
-		// migration will be retried from the start.
+		channelCount = 0
+		policyCount = 0
+		chunk = 0
+		skippedChanCount = 0
+		skippedPolicyCount = 0
+		t0 = time.Now()
+		batch = make(map[int64]*migChanInfo, cfg.QueryCfg.MaxBatchSize)
 	})
 	if err != nil {
 		return fmt.Errorf("could not migrate channels and policies: %w",
@@ -923,6 +1005,14 @@ func migratePruneLog(ctx context.Context, cfg *sqldb.QueryConfig,
 
 			return nil
 		},
+		func() {
+			count = 0
+			chunk = 0
+			t0 = time.Now()
+			batch = make(
+				map[uint32]chainhash.Hash, cfg.MaxBatchSize,
+			)
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("could not migrate prune log: %w", err)
@@ -975,7 +1065,7 @@ func migratePruneLog(ctx context.Context, cfg *sqldb.QueryConfig,
 // forEachPruneLogEntry iterates over each prune log entry in the KV
 // backend and calls the provided callback function for each entry.
 func forEachPruneLogEntry(db kvdb.Backend, cb func(height uint32,
-	hash *chainhash.Hash) error) error {
+	hash *chainhash.Hash) error, reset func()) error {
 
 	return kvdb.View(db, func(tx kvdb.RTx) error {
 		metaBucket := tx.ReadBucket(graphMetaBucket)
@@ -997,7 +1087,7 @@ func forEachPruneLogEntry(db kvdb.Backend, cb func(height uint32,
 
 			return cb(blockHeight, &blockHash)
 		})
-	}, func() {})
+	}, reset)
 }
 
 // migrateClosedSCIDIndex migrates the closed SCID index from the KV backend to
@@ -1091,7 +1181,14 @@ func migrateClosedSCIDIndex(ctx context.Context, cfg *sqldb.QueryConfig,
 		return nil
 	}
 
-	err := forEachClosedSCID(kvBackend, migrateSingleClosedSCID)
+	err := forEachClosedSCID(
+		kvBackend, migrateSingleClosedSCID, func() {
+			count = 0
+			chunk = 0
+			t0 = time.Now()
+			batch = make([][]byte, 0, cfg.MaxBatchSize)
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("could not migrate closed SCID index: %w",
 			err)
@@ -1157,7 +1254,7 @@ func migrateZombieIndex(ctx context.Context, cfg *sqldb.QueryConfig,
 		// Batch fetch all zombie channels from the database.
 		rows, err := sqlDB.GetZombieChannelsSCIDs(
 			ctx, sqlc.GetZombieChannelsSCIDsParams{
-				Version: int16(ProtocolV1),
+				Version: int16(lnwire.GossipVersion1),
 				Scids:   scids,
 			},
 		)
@@ -1233,7 +1330,7 @@ func migrateZombieIndex(ctx context.Context, cfg *sqldb.QueryConfig,
 
 		err = sqlDB.UpsertZombieChannel(
 			ctx, sqlc.UpsertZombieChannelParams{
-				Version:  int16(ProtocolV1),
+				Version:  int16(lnwire.GossipVersion1),
 				Scid:     chanIDB,
 				NodeKey1: pubKey1[:],
 				NodeKey2: pubKey2[:],
@@ -1270,6 +1367,11 @@ func migrateZombieIndex(ctx context.Context, cfg *sqldb.QueryConfig,
 		})
 
 		return nil
+	}, func() {
+		count = 0
+		chunk = 0
+		t0 = time.Now()
+		batch = make(map[uint64]*zombieEntry, cfg.MaxBatchSize)
 	})
 	if err != nil {
 		return fmt.Errorf("could not migrate zombie index: %w", err)
@@ -1293,7 +1395,7 @@ func migrateZombieIndex(ctx context.Context, cfg *sqldb.QueryConfig,
 // forEachZombieEntry iterates over each zombie channel entry in the
 // KV backend and calls the provided callback function for each entry.
 func forEachZombieEntry(db kvdb.Backend, cb func(chanID uint64, pubKey1,
-	pubKey2 [33]byte) error) error {
+	pubKey2 [33]byte) error, reset func()) error {
 
 	return kvdb.View(db, func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)
@@ -1312,13 +1414,13 @@ func forEachZombieEntry(db kvdb.Backend, cb func(chanID uint64, pubKey1,
 
 			return cb(byteOrder.Uint64(k), pubKey1, pubKey2)
 		})
-	}, func() {})
+	}, reset)
 }
 
 // forEachClosedSCID iterates over each closed SCID in the KV backend and calls
 // the provided callback function for each SCID.
 func forEachClosedSCID(db kvdb.Backend,
-	cb func(lnwire.ShortChannelID) error) error {
+	cb func(lnwire.ShortChannelID) error, reset func()) error {
 
 	return kvdb.View(db, func(tx kvdb.RTx) error {
 		closedScids := tx.ReadBucket(closedScidBucket)
@@ -1331,5 +1433,282 @@ func forEachClosedSCID(db kvdb.Backend,
 				byteOrder.Uint64(k),
 			))
 		})
-	}, func() {})
+	}, reset)
+}
+
+// insertNodeSQLMig inserts the node record into the database during the graph
+// SQL migration. No error is expected if the node already exists. Unlike the
+// main upsertNode function, this function does not require that a new node
+// update have a newer timestamp than the existing one. This is because we want
+// the migration to be idempotent and dont want to error out if we re-insert the
+// exact same node.
+func insertNodeSQLMig(ctx context.Context, db SQLQueries,
+	node *models.Node) (int64, error) {
+
+	params := sqlc.InsertNodeMigParams{
+		Version: int16(lnwire.GossipVersion1),
+		PubKey:  node.PubKeyBytes[:],
+	}
+
+	if node.HaveAnnouncement() {
+		params.LastUpdate = sqldb.SQLInt64(node.LastUpdate.Unix())
+		params.Color = sqldb.SQLStrValid(
+			EncodeHexColor(node.Color.UnwrapOr(color.RGBA{})),
+		)
+		params.Alias = sqldb.SQLStrValid(node.Alias.UnwrapOr(""))
+		params.Signature = node.AuthSigBytes
+	}
+
+	nodeID, err := db.InsertNodeMig(ctx, params)
+	if err != nil {
+		return 0, fmt.Errorf("upserting node(%x): %w", node.PubKeyBytes,
+			err)
+	}
+
+	// We can exit here if we don't have the announcement yet.
+	if !node.HaveAnnouncement() {
+		return nodeID, nil
+	}
+
+	// Insert the node's features.
+	for feature := range node.Features.Features() {
+		err = db.InsertNodeFeature(ctx, sqlc.InsertNodeFeatureParams{
+			NodeID:     nodeID,
+			FeatureBit: int32(feature),
+		})
+		if err != nil {
+			return 0, fmt.Errorf("unable to insert node(%d) "+
+				"feature(%v): %w", nodeID, feature, err)
+		}
+	}
+
+	// Update the node's addresses.
+	newAddresses, err := collectAddressRecords(node.Addresses)
+	if err != nil {
+		return 0, err
+	}
+
+	// Any remaining entries in newAddresses are new addresses that need to
+	// be added to the database for the first time.
+	for addrType, addrList := range newAddresses {
+		for position, addr := range addrList {
+			err := db.UpsertNodeAddress(
+				ctx, sqlc.UpsertNodeAddressParams{
+					NodeID:   nodeID,
+					Type:     int16(addrType),
+					Address:  addr,
+					Position: int32(position),
+				},
+			)
+			if err != nil {
+				return 0, fmt.Errorf("unable to insert "+
+					"node(%d) address(%v): %w", nodeID,
+					addr, err)
+			}
+		}
+	}
+
+	// Convert the flat extra opaque data into a map of TLV types to
+	// values.
+	extra, err := marshalExtraOpaqueData(node.ExtraOpaqueData)
+	if err != nil {
+		return 0, fmt.Errorf("unable to marshal extra opaque data: %w",
+			err)
+	}
+
+	// Insert the node's extra signed fields.
+	for tlvType, value := range extra {
+		err = db.UpsertNodeExtraType(
+			ctx, sqlc.UpsertNodeExtraTypeParams{
+				NodeID: nodeID,
+				Type:   int64(tlvType),
+				Value:  value,
+			},
+		)
+		if err != nil {
+			return 0, fmt.Errorf("unable to upsert node(%d) extra "+
+				"signed field(%v): %w", nodeID, tlvType, err)
+		}
+	}
+
+	return nodeID, nil
+}
+
+// dbChanInfo holds the DB level IDs of a channel and the nodes involved in the
+// channel.
+type dbChanInfo struct {
+	channelID int64
+	node1ID   int64
+	node2ID   int64
+}
+
+// insertChannelMig inserts a new channel record into the database during the
+// graph SQL migration.
+func insertChannelMig(ctx context.Context, db SQLQueries,
+	edge *models.ChannelEdgeInfo) (*dbChanInfo, error) {
+
+	// Make sure that at least a "shell" entry for each node is present in
+	// the nodes table.
+	//
+	// NOTE: we need this even during the SQL migration where nodes are
+	// migrated first because there are cases were some nodes may have
+	// been skipped due to invalid TLV data.
+	node1DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey1Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create shell node: %w", err)
+	}
+
+	node2DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey2Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create shell node: %w", err)
+	}
+
+	var capacity sql.NullInt64
+	if edge.Capacity != 0 {
+		capacity = sqldb.SQLInt64(int64(edge.Capacity))
+	}
+
+	createParams := sqlc.InsertChannelMigParams{
+		Version:     int16(lnwire.GossipVersion1),
+		Scid:        channelIDToBytes(edge.ChannelID),
+		NodeID1:     node1DBID,
+		NodeID2:     node2DBID,
+		Outpoint:    edge.ChannelPoint.String(),
+		Capacity:    capacity,
+		BitcoinKey1: edge.BitcoinKey1Bytes[:],
+		BitcoinKey2: edge.BitcoinKey2Bytes[:],
+	}
+
+	if edge.AuthProof != nil {
+		proof := edge.AuthProof
+
+		createParams.Node1Signature = proof.NodeSig1Bytes
+		createParams.Node2Signature = proof.NodeSig2Bytes
+		createParams.Bitcoin1Signature = proof.BitcoinSig1Bytes
+		createParams.Bitcoin2Signature = proof.BitcoinSig2Bytes
+	}
+
+	// Insert the new channel record.
+	dbChanID, err := db.InsertChannelMig(ctx, createParams)
+	if err != nil {
+		return nil, err
+	}
+
+	// Insert any channel features.
+	for feature := range edge.Features.Features() {
+		err = db.InsertChannelFeature(
+			ctx, sqlc.InsertChannelFeatureParams{
+				ChannelID:  dbChanID,
+				FeatureBit: int32(feature),
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to insert channel(%d) "+
+				"feature(%v): %w", dbChanID, feature, err)
+		}
+	}
+
+	// Finally, insert any extra TLV fields in the channel announcement.
+	extra, err := marshalExtraOpaqueData(edge.ExtraOpaqueData)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal extra opaque "+
+			"data: %w", err)
+	}
+
+	for tlvType, value := range extra {
+		err := db.UpsertChannelExtraType(
+			ctx, sqlc.UpsertChannelExtraTypeParams{
+				ChannelID: dbChanID,
+				Type:      int64(tlvType),
+				Value:     value,
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to upsert "+
+				"channel(%d) extra signed field(%v): %w",
+				edge.ChannelID, tlvType, err)
+		}
+	}
+
+	return &dbChanInfo{
+		channelID: dbChanID,
+		node1ID:   node1DBID,
+		node2ID:   node2DBID,
+	}, nil
+}
+
+// insertChanEdgePolicyMig inserts the channel policy info we have stored for
+// a channel we already know of. This is used during the SQL migration
+// process to insert channel policies.
+func insertChanEdgePolicyMig(ctx context.Context, tx SQLQueries,
+	dbChan *dbChanInfo, edge *models.ChannelEdgePolicy) error {
+
+	// Figure out which node this edge is from.
+	isNode1 := edge.ChannelFlags&lnwire.ChanUpdateDirection == 0
+	nodeID := dbChan.node1ID
+	if !isNode1 {
+		nodeID = dbChan.node2ID
+	}
+
+	var (
+		inboundBase sql.NullInt64
+		inboundRate sql.NullInt64
+	)
+	edge.InboundFee.WhenSome(func(fee lnwire.Fee) {
+		inboundRate = sqldb.SQLInt64(fee.FeeRate)
+		inboundBase = sqldb.SQLInt64(fee.BaseFee)
+	})
+
+	id, err := tx.InsertEdgePolicyMig(ctx, sqlc.InsertEdgePolicyMigParams{
+		Version:     int16(lnwire.GossipVersion1),
+		ChannelID:   dbChan.channelID,
+		NodeID:      nodeID,
+		Timelock:    int32(edge.TimeLockDelta),
+		FeePpm:      int64(edge.FeeProportionalMillionths),
+		BaseFeeMsat: int64(edge.FeeBaseMSat),
+		MinHtlcMsat: int64(edge.MinHTLC),
+		LastUpdate:  sqldb.SQLInt64(edge.LastUpdate.Unix()),
+		Disabled: sql.NullBool{
+			Valid: true,
+			Bool:  edge.IsDisabled(),
+		},
+		MaxHtlcMsat: sql.NullInt64{
+			Valid: edge.MessageFlags.HasMaxHtlc(),
+			Int64: int64(edge.MaxHTLC),
+		},
+		MessageFlags:            sqldb.SQLInt16(edge.MessageFlags),
+		ChannelFlags:            sqldb.SQLInt16(edge.ChannelFlags),
+		InboundBaseFeeMsat:      inboundBase,
+		InboundFeeRateMilliMsat: inboundRate,
+		Signature:               edge.SigBytes,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to upsert edge policy: %w", err)
+	}
+
+	// Convert the flat extra opaque data into a map of TLV types to
+	// values.
+	extra, err := marshalExtraOpaqueData(edge.ExtraOpaqueData)
+	if err != nil {
+		return fmt.Errorf("unable to marshal extra opaque data: %w",
+			err)
+	}
+
+	// Insert all new extra signed fields for the channel policy.
+	for tlvType, value := range extra {
+		err = tx.UpsertChanPolicyExtraType(
+			ctx, sqlc.UpsertChanPolicyExtraTypeParams{
+				ChannelPolicyID: id,
+				Type:            int64(tlvType),
+				Value:           value,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to insert "+
+				"channel_policy(%d) extra signed field(%v): %w",
+				id, tlvType, err)
+		}
+	}
+
+	return nil
 }

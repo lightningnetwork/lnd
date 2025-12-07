@@ -11,8 +11,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -443,7 +443,7 @@ func (a *Agent) controller(ctx context.Context) {
 			case *chanOpenUpdate:
 				log.Debugf("New channel successfully opened, "+
 					"updating state with: %v",
-					spew.Sdump(update.newChan))
+					lnutils.SpewLogClosure(update.newChan))
 
 				newChan := update.newChan
 				a.chanStateMtx.Lock()
@@ -460,7 +460,9 @@ func (a *Agent) controller(ctx context.Context) {
 			case *chanCloseUpdate:
 				log.Debugf("Applying closed channel "+
 					"updates: %v",
-					spew.Sdump(update.closedChans))
+					lnutils.SpewLogClosure(
+						update.closedChans),
+				)
 
 				a.chanStateMtx.Lock()
 				for _, closedChan := range update.closedChans {
@@ -515,7 +517,8 @@ func (a *Agent) controller(ctx context.Context) {
 		}
 
 		a.pendingMtx.Lock()
-		log.Debugf("Pending channels: %v", spew.Sdump(a.pendingOpens))
+		log.Debugf("Pending channels: %v",
+			lnutils.SpewLogClosure(a.pendingOpens))
 		a.pendingMtx.Unlock()
 
 		// With all the updates applied, we'll obtain a set of the
@@ -641,8 +644,8 @@ func (a *Agent) openChans(ctx context.Context, availableFunds btcutil.Amount,
 		nodes[nID] = struct{}{}
 		return nil
 	}, func() {
-		nodes = nil
-		addresses = nil
+		clear(nodes)
+		clear(addresses)
 	}); err != nil {
 		return fmt.Errorf("unable to get graph nodes: %w", err)
 	}
@@ -699,7 +702,7 @@ func (a *Agent) openChans(ctx context.Context, availableFunds btcutil.Amount,
 	}
 
 	log.Infof("Attempting to execute channel attachment "+
-		"directives: %v", spew.Sdump(chanCandidates))
+		"directives: %v", lnutils.SpewLogClosure(chanCandidates))
 
 	// Before proceeding, check to see if we have any slots
 	// available to open channels. If there are any, we will attempt

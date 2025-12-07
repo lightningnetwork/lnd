@@ -10,12 +10,11 @@ require (
 	github.com/lightningnetwork/lnd/healthcheck v1.2.4
 	github.com/lightningnetwork/lnd/sqldb v1.0.6
 	github.com/stretchr/testify v1.10.0
-	go.etcd.io/bbolt v1.3.11
+	go.etcd.io/bbolt v1.4.3
 	go.etcd.io/etcd/api/v3 v3.5.12
 	go.etcd.io/etcd/client/pkg/v3 v3.5.12
 	go.etcd.io/etcd/client/v3 v3.5.12
 	go.etcd.io/etcd/server/v3 v3.5.12
-	golang.org/x/net v0.39.0
 	modernc.org/sqlite v1.29.10
 )
 
@@ -41,7 +40,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-viper/mapstructure/v2 v2.3.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/golang-migrate/migrate/v4 v4.17.0 // indirect
@@ -92,7 +91,7 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/sirupsen/logrus v1.9.2 // indirect
 	github.com/soheilhy/cmux v0.1.5 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
@@ -118,6 +117,7 @@ require (
 	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/exp v0.0.0-20240325151524-a685a6edb6d8 // indirect
 	golang.org/x/mod v0.17.0 // indirect
+	golang.org/x/net v0.39.0 // indirect
 	golang.org/x/sync v0.13.0 // indirect
 	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
@@ -147,4 +147,4 @@ replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.11
 // https://deps.dev/advisory/OSV/GO-2021-0053?from=%2Fgo%2Fgithub.com%252Fgogo%252Fprotobuf%2Fv1.3.1
 replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 
-go 1.23.12
+go 1.24.9

@@ -356,11 +356,22 @@ func NewSpendRequest(op *wire.OutPoint, pkScript []byte) (SpendRequest, error) {
 
 // String returns the string representation of the SpendRequest.
 func (r SpendRequest) String() string {
-	if r.OutPoint != ZeroOutPoint {
-		return fmt.Sprintf("outpoint=%v, script=%v", r.OutPoint,
-			r.PkScript)
+	var (
+		outpointStr = fmt.Sprintf("%v", r.OutPoint)
+		scriptStr   = fmt.Sprintf("%v", r.PkScript)
+	)
+
+	if r.OutPoint == ZeroOutPoint {
+		outpointStr = "<zero>"
 	}
-	return fmt.Sprintf("outpoint=<zero>, script=%v", r.PkScript)
+
+	// If the pk script is all zeros, we blank the pk script.
+	// Currently we do not support taproot pk scripts for notifications.
+	if r.PkScript == ZeroTaprootPkScript {
+		scriptStr = "<zero> (taproot pk script not supported)"
+	}
+
+	return fmt.Sprintf("outpoint=%s, script=%s", outpointStr, scriptStr)
 }
 
 // MatchesTx determines whether the given transaction satisfies the spend
@@ -947,8 +958,12 @@ func (n *TxNotifier) dispatchConfDetails(
 
 		// We'll send a 0 value to the Updates channel,
 		// indicating that the transaction/output script has already
-		// been confirmed.
-		err := n.notifyNumConfsLeft(ntfn, 0)
+		// been confirmed, and include the block height at which the
+		// transaction was included.
+		err := n.notifyNumConfsLeft(ntfn, TxUpdateInfo{
+			NumConfsLeft: 0,
+			BlockHeight:  details.BlockHeight,
+		})
 		if err != nil {
 			return err
 		}
@@ -977,7 +992,10 @@ func (n *TxNotifier) dispatchConfDetails(
 		// confirmations are left for the transaction/output script to
 		// be confirmed.
 		numConfsLeft := confHeight - n.currentHeight
-		err := n.notifyNumConfsLeft(ntfn, numConfsLeft)
+		err := n.notifyNumConfsLeft(ntfn, TxUpdateInfo{
+			NumConfsLeft: numConfsLeft,
+			BlockHeight:  details.BlockHeight,
+		})
 		if err != nil {
 			return err
 		}
@@ -1731,7 +1749,10 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 		for confRequest := range confRequests {
 			confSet := n.confNotifications[confRequest]
 			for _, ntfn := range confSet.ntfns {
-				txConfHeight := confSet.details.BlockHeight +
+				// blockHeight is the height of the block which
+				// contains the transaction.
+				blockHeight := confSet.details.BlockHeight
+				txConfHeight := blockHeight +
 					ntfn.NumConfirmations - 1
 				numConfsLeft := txConfHeight - height
 
@@ -1744,7 +1765,10 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 					continue
 				}
 
-				err := n.notifyNumConfsLeft(ntfn, numConfsLeft)
+				err := n.notifyNumConfsLeft(ntfn, TxUpdateInfo{
+					NumConfsLeft: numConfsLeft,
+					BlockHeight:  blockHeight,
+				})
 				if err != nil {
 					return err
 				}
@@ -2011,6 +2035,20 @@ func (n *TxNotifier) dispatchConfReorg(ntfn *ConfNtfn,
 	if !ntfn.dispatched {
 		confHeight := heightDisconnected + ntfn.NumConfirmations - 1
 		ntfnSet, exists := n.ntfnsByConfirmHeight[confHeight]
+
+		// We also signal the reorg to the notifier in case the
+		// subscriber is also interested in the reorgs before the
+		// transaction received its required confirmation.
+		//
+		// Because as soon as a new block is connected which has the
+		// transaction included again we preemptively read the buffered
+		// channel.
+		select {
+		case ntfn.Event.NegativeConf <- int32(n.reorgDepth):
+		case <-n.quit:
+			return ErrTxNotifierExiting
+		}
+
 		if exists {
 			delete(ntfnSet, ntfn)
 		}
@@ -2099,25 +2137,28 @@ func (n *TxNotifier) TearDown() {
 }
 
 // notifyNumConfsLeft sends the number of confirmations left to the
-// notification subscriber through the Event.Updates channel.
+// notification subscriber through the Event.Updates channel, along with the
+// block height in which the transaction was included.
 //
 // NOTE: must be used with the TxNotifier's lock held.
-func (n *TxNotifier) notifyNumConfsLeft(ntfn *ConfNtfn, num uint32) error {
+func (n *TxNotifier) notifyNumConfsLeft(ntfn *ConfNtfn,
+	info TxUpdateInfo) error {
+
 	// If the number left is no less than the recorded value, we can skip
 	// sending it as it means this same value has already been sent before.
-	if num >= ntfn.numConfsLeft {
+	if info.NumConfsLeft >= ntfn.numConfsLeft {
 		Log.Debugf("Skipped dispatched update (numConfsLeft=%v) for "+
-			"request %v conf_id=%v", num, ntfn.ConfRequest,
-			ntfn.ConfID)
+			"request %v conf_id=%v", info.NumConfsLeft,
+			ntfn.ConfRequest, ntfn.ConfID)
 
 		return nil
 	}
 
 	// Update the number of confirmations left to the notification.
-	ntfn.numConfsLeft = num
+	ntfn.numConfsLeft = info.NumConfsLeft
 
 	select {
-	case ntfn.Event.Updates <- num:
+	case ntfn.Event.Updates <- info:
 	case <-n.quit:
 		return ErrTxNotifierExiting
 	}

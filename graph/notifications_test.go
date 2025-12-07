@@ -2,7 +2,6 @@ package graph
 
 import (
 	"bytes"
-	"context"
 	"encoding/hex"
 	"fmt"
 	"image/color"
@@ -77,29 +76,29 @@ var (
 	}
 )
 
-func createTestNode(t *testing.T) *models.LightningNode {
+func createTestNode(t *testing.T) *models.Node {
 	updateTime := prand.Int63()
 
 	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
 	pub := priv.PubKey().SerializeCompressed()
-	n := &models.LightningNode{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           time.Unix(updateTime, 0),
-		Addresses:            testAddrs,
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "kek" + hex.EncodeToString(pub),
-		AuthSigBytes:         testSig.Serialize(),
-		Features:             testFeatures,
-	}
-	copy(n.PubKeyBytes[:], pub)
+	n := models.NewV1Node(
+		route.NewVertex(priv.PubKey()), &models.NodeV1Fields{
+			LastUpdate:   time.Unix(updateTime, 0),
+			Addresses:    testAddrs,
+			Color:        color.RGBA{1, 2, 3, 0},
+			Alias:        "kek" + hex.EncodeToString(pub),
+			AuthSigBytes: testSig.Serialize(),
+			Features:     testFeatures.RawFeatureVector,
+		},
+	)
 
 	return n
 }
 
 func randEdgePolicy(chanID *lnwire.ShortChannelID,
-	node *models.LightningNode) (*models.ChannelEdgePolicy, error) {
+	node *models.Node) (*models.ChannelEdgePolicy, error) {
 
 	InboundFee := models.InboundFee{
 		Base: prand.Int31() * -1,
@@ -422,7 +421,7 @@ func (m *mockChainView) FilterBlock(blockHash *chainhash.Hash) (*chainview.Filte
 // a proper notification is sent of to all registered clients.
 func TestEdgeUpdateNotification(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	ctx := createTestCtxSingleNode(t, 0)
 
@@ -611,7 +610,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 // attributes with new data.
 func TestNodeUpdateNotification(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -677,7 +676,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
-	assertNodeNtfnCorrect := func(t *testing.T, ann *models.LightningNode,
+	assertNodeNtfnCorrect := func(t *testing.T, ann *models.Node,
 		nodeUpdate *graphdb.NetworkNodeUpdate) {
 
 		nodeKey, _ := ann.PubKey()
@@ -701,15 +700,12 @@ func TestNodeUpdateNotification(t *testing.T) {
 			t, testFeaturesBuf.Bytes(), featuresBuf.Bytes(),
 		)
 
-		if nodeUpdate.Alias != ann.Alias {
-			t.Fatalf("node alias doesn't match: expected %v, got %v",
-				ann.Alias, nodeUpdate.Alias)
-		}
-		if nodeUpdate.Color != graphdb.EncodeHexColor(ann.Color) {
-			t.Fatalf("node color doesn't match: expected %v, "+
-				"got %v", graphdb.EncodeHexColor(ann.Color),
-				nodeUpdate.Color)
-		}
+		require.Equal(t, nodeUpdate.Alias, ann.Alias.UnwrapOr(""))
+		require.Equal(
+			t, nodeUpdate.Color, graphdb.EncodeHexColor(
+				ann.Color.UnwrapOr(color.RGBA{}),
+			),
+		)
 	}
 
 	// Create lookup map for notifications we are intending to receive. Entries
@@ -795,7 +791,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 // when the client wishes to exit.
 func TestNotificationCancellation(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -879,7 +875,7 @@ func TestNotificationCancellation(t *testing.T) {
 // properly dispatched to all registered clients.
 func TestChannelCloseNotification(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -1067,7 +1063,7 @@ func createTestCtxSingleNode(t *testing.T,
 	sourceNode := createTestNode(t)
 
 	require.NoError(t,
-		graph.SetSourceNode(context.Background(), sourceNode),
+		graph.SetSourceNode(t.Context(), sourceNode),
 		"failed to set source node",
 	)
 
@@ -1083,7 +1079,7 @@ func createTestCtxSingleNode(t *testing.T,
 func (c *testCtx) RestartBuilder(t *testing.T) {
 	c.chainView.Reset()
 
-	selfNode, err := c.graph.SourceNode(context.Background())
+	selfNode, err := c.graph.SourceNode(t.Context())
 	require.NoError(t, err)
 
 	// With the chainView reset, we'll now re-create the builder itself, and
@@ -1156,7 +1152,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		ConfChan:  make(chan *chainntnfs.TxConfirmation),
 	}
 
-	selfnode, err := graphInstance.graph.SourceNode(context.Background())
+	selfnode, err := graphInstance.graph.SourceNode(t.Context())
 	require.NoError(t, err)
 
 	graphBuilder, err := NewBuilder(&Config{

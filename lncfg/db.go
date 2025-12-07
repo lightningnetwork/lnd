@@ -86,7 +86,7 @@ type DB struct {
 
 	Sqlite *sqldb.SqliteConfig `group:"sqlite" namespace:"sqlite" description:"Sqlite settings."`
 
-	UseNativeSQL bool `long:"use-native-sql" description:"If set to true, native SQL will be used instead of KV emulation for tables that support it. Subsystems which support native SQL tables: Invoices."`
+	UseNativeSQL bool `long:"use-native-sql" description:"If set to true, native SQL will be used instead of KV emulation for tables that support it. Subsystems which support native SQL tables: Invoices, Graph."`
 
 	SkipNativeSQLMigration bool `long:"skip-native-sql-migration" description:"If set to true, the KV to native SQL migration will be skipped. Note that this option is intended for users who experience non-resolvable migration errors. Enabling after there is a non-resolvable migration error that resulted in an incomplete migration will cause that partial migration to be abandoned and ignored and an empty database will be used instead. Since invoices are currently the only native SQL database used, our channels will still work but the invoice history will be forgotten. This option has no effect if native SQL is not in use (db.use-native-sql=false)."`
 
@@ -115,7 +115,15 @@ func DefaultDB() *DB {
 		},
 		Postgres: &sqldb.PostgresConfig{
 			MaxConnections: defaultPostgresMaxConnections,
-			QueryConfig:    *sqldb.DefaultPostgresConfig(),
+			// Normally we don't use a global lock for channeldb
+			// access, but if a user encounters huge concurrency
+			// issues, they can enable this to use a global lock.
+			ChannelDBWithGlobalLock: false,
+			// Default to true to maintain safe single-writer
+			// behavior until the wallet subsystem is upgraded to
+			// a native sql schema.
+			WalletDBWithGlobalLock: true,
+			QueryConfig:            *sqldb.DefaultPostgresConfig(),
 		},
 		Sqlite: &sqldb.SqliteConfig{
 			MaxConnections: defaultSqliteMaxConnections,
@@ -400,9 +408,15 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		// users to native SQL.
 		postgresConfig := GetPostgresConfigKVDB(db.Postgres)
 
+		// Create a separate config for channeldb with the global lock
+		// setting if configured.
+		postgresConfigChannelDB := GetPostgresConfigKVDB(db.Postgres)
+		postgresConfigChannelDB.WithGlobalLock = db.Postgres.
+			ChannelDBWithGlobalLock
+
 		postgresBackend, err := kvdb.Open(
 			kvdb.PostgresBackendName, ctx,
-			postgresConfig, NSChannelDB,
+			postgresConfigChannelDB, NSChannelDB,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error opening postgres graph "+
@@ -450,14 +464,11 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		}
 		closeFuncs[NSTowerServerDB] = postgresTowerServerBackend.Close
 
-		// The wallet subsystem is still not robust enough to run it
-		// without a single writer in postgres therefore we create a
-		// new config with the global lock enabled.
-		//
-		// NOTE: This is a temporary measure and should be removed as
-		// soon as the wallet code is more robust.
+		// Create a separate config for wallet with the global lock
+		// setting if configured.
 		postgresConfigWalletDB := GetPostgresConfigKVDB(db.Postgres)
-		postgresConfigWalletDB.WithGlobalLock = true
+		postgresConfigWalletDB.WithGlobalLock = db.Postgres.
+			WalletDBWithGlobalLock
 
 		postgresWalletBackend, err := kvdb.Open(
 			kvdb.PostgresBackendName, ctx,

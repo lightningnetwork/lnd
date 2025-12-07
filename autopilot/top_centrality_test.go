@@ -1,7 +1,6 @@
 package autopilot
 
 import (
-	"context"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -59,7 +58,7 @@ func testTopCentrality(t *testing.T, graph testGraph,
 		// Attempt to get centrality scores and expect
 		// that the result equals with the expected set.
 		scores, err := topCentrality.NodeScores(
-			context.Background(), graph, channels, chanSize, nodes,
+			t.Context(), graph, channels, chanSize, nodes,
 		)
 
 		require.NoError(t, err)

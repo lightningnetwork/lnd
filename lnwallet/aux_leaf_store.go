@@ -9,6 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -97,6 +98,10 @@ type AuxChanState struct {
 	// funding output.
 	TapscriptRoot fn.Option[chainhash.Hash]
 
+	// PeerPubKey is the peer pub key of the peer we've established this
+	// channel with.
+	PeerPubKey route.Vertex
+
 	// CustomBlob is an optional blob that can be used to store information
 	// specific to a custom channel type. This information is only created
 	// at channel funding time, and after wards is to be considered
@@ -106,6 +111,8 @@ type AuxChanState struct {
 
 // NewAuxChanState creates a new AuxChanState from the given channel state.
 func NewAuxChanState(chanState *channeldb.OpenChannel) AuxChanState {
+	peerPub := chanState.IdentityPub.SerializeCompressed()
+
 	return AuxChanState{
 		ChanType:        chanState.ChanType,
 		FundingOutpoint: chanState.FundingOutpoint,
@@ -116,6 +123,7 @@ func NewAuxChanState(chanState *channeldb.OpenChannel) AuxChanState {
 		RemoteChanCfg:   chanState.RemoteChanCfg,
 		ThawHeight:      chanState.ThawHeight,
 		TapscriptRoot:   chanState.TapscriptRoot,
+		PeerPubKey:      route.Vertex(peerPub),
 		CustomBlob:      chanState.CustomBlob,
 	}
 }

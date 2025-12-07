@@ -15,7 +15,7 @@ import (
 // backlog at a time using the atomic flag.
 func TestGossipSyncerSingleBacklogSend(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Track how many goroutines are actively sending.
 	var (
@@ -26,8 +26,13 @@ func TestGossipSyncerSingleBacklogSend(t *testing.T) {
 	// Create a blocking sendToPeerSync function. We'll use this to simulate
 	// sending a large backlog.
 	blockingSendChan := make(chan struct{})
-	sendToPeerSync := func(_ context.Context,
+	mockSendMsg := func(_ context.Context, sync bool,
 		msgs ...lnwire.Message) error {
+
+		// Sync is only true when calling `sendToPeerSync`.
+		if !sync {
+			return nil
+		}
 
 		// Track that we're in a send goroutine.
 		count := activeGoroutines.Add(1)
@@ -55,8 +60,8 @@ func TestGossipSyncerSingleBacklogSend(t *testing.T) {
 		defaultChunkSize, true, true, true,
 	)
 
-	// Override the sendToPeerSync to use our blocking version.
-	syncer.cfg.sendToPeerSync = sendToPeerSync
+	// Override the sendMsg to use our blocking version.
+	syncer.cfg.sendMsg = mockSendMsg
 	syncer.cfg.ignoreHistoricalFilters = false
 
 	syncer.Start()

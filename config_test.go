@@ -24,14 +24,16 @@ func TestConfigToFlatMap(t *testing.T) {
 	cfg.DB.Etcd.Pass = testPassword
 	cfg.DB.Postgres.Dsn = testPassword
 
-	// Set a deprecated field.
+	// Set deprecated fields.
 	cfg.Bitcoin.Active = true
+	cfg.Tor.V2 = true
 
 	result, deprecated, err := configToFlatMap(cfg)
 	require.NoError(t, err)
 
 	// Check that the deprecated option has been parsed out.
 	require.Contains(t, deprecated, "bitcoin.active")
+	require.Contains(t, deprecated, "tor.v2")
 
 	// Pick a couple of random values to check.
 	require.Equal(t, DefaultLndDir, result["lnddir"])

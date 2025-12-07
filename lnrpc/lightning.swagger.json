@@ -2264,6 +2264,71 @@
         ]
       }
     },
+    "/v1/onionmessage": {
+      "post": {
+        "summary": "lncli: `sendonion`\nSendOnionMessage sends an onion message to a peer.",
+        "operationId": "Lightning_SendOnionMessage",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendOnionMessageResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendOnionMessageRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/onionmessage/subscribe": {
+      "get": {
+        "summary": "lncli: `subscribeonion`\nSubscribeOnionMessages subscribes to a stream of incoming onion messages.",
+        "operationId": "Lightning_SubscribeOnionMessages",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/lnrpcOnionMessage"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of lnrpcOnionMessage"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/payment": {
       "delete": {
         "summary": "lncli: `deletepayments`\nDeletePayment deletes an outgoing payment from DB. Note that it will not\nattempt to delete an In-Flight payment, since that would be unsafe.",
@@ -3337,6 +3402,16 @@
           "type": "integer",
           "format": "int32",
           "description": "The number of blocks until the funding transaction is considered\nexpired. If this value gets close to zero, there is a risk that the\nchannel funding will be canceled by the channel responder. The\nchannel should be fee bumped using CPFP (see walletrpc.BumpFee) to\nensure that the channel confirms in time. Otherwise a force-close\nwill be necessary if the channel confirms after the funding\ntransaction expires. A negative value means the channel responder has\nvery likely canceled the funding and the channel will never become\nfully operational."
+        },
+        "confirmations_until_active": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of blocks remaining until the channel status changes from\npending to active. A value of 0 indicates that the channel is now\nactive.\n\n\"Active\" here means both channel peers have the channel marked OPEN\nand can immediately start using it. For public channels, this does\nnot imply a channel_announcement has been gossiped. It only becomes\npublic on the network after 6 on‐chain confirmations.\nSee BOLT07 \"Routing Gossip\":\nhttps://github.com/lightning/bolts/blob/master/07-routing-gossip.md\n\nZeroConf channels bypass the pending state entirely: they are marked\nactive immediately upon creation, so they never show up as \"pending\"."
+        },
+        "confirmation_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The confirmation height records the block height at which the funding\ntransaction was first confirmed."
         }
       }
     },
@@ -6467,6 +6542,26 @@
         }
       }
     },
+    "lnrpcOnionMessage": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "format": "byte",
+          "description": "Peer from which this message originates. Represented as a byte-encoded\npublic key."
+        },
+        "path_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "PathKey is used to derive the blinded node id by tweaking the hop's\nstatic public key. The hop uses the corresponding blinded private key\ntogether with the sender's ephemeral key to perform ECDH and obtain the\nshared secret for decrypting the onion payload. Separately, for\ndecrypting `encrypted_recipient_data`, the recipient performs ECDH\nbetween its static node private key and the path_key to derive the\ndecryption key."
+        },
+        "onion": {
+          "type": "string",
+          "format": "byte",
+          "description": "Serialized Sphinx onion packet (BOLT 4) containing the layered, per-hop\nencrypted payloads and routing instructions used to forward this message\nalong its designated path."
+        }
+      }
+    },
     "lnrpcOpenChannelRequest": {
       "type": "object",
       "properties": {
@@ -6916,12 +7011,12 @@
         "flap_count": {
           "type": "integer",
           "format": "int32",
-          "description": "The number of times we have recorded this peer going offline or coming\nonline, recorded across restarts. Note that this value is decreased over\ntime if the peer has not recently flapped, so that we can forgive peers\nwith historically high flap counts."
+          "description": "This field is populated when the peer has at least one channel with us.\nThe number of times we have recorded this peer going offline or coming\nonline, recorded across restarts. Note that this value is decreased over\ntime if the peer has not recently flapped, so that we can forgive peers\nwith historically high flap counts."
         },
         "last_flap_ns": {
           "type": "string",
           "format": "int64",
-          "description": "The timestamp of the last flap we observed for this peer. If this value is\nzero, we have not observed any flaps for this peer."
+          "description": "This field is populated when the peer has at least one channel with us.\nThe timestamp of the last flap we observed for this peer. If this value is\nzero, we have not observed any flaps for this peer."
         },
         "last_ping_payload": {
           "type": "string",
@@ -7505,7 +7600,7 @@
         "peer": {
           "type": "string",
           "format": "byte",
-          "title": "Peer to send the message to"
+          "title": "Peer to which the message will be sent. Represented as a byte-encoded\npublic key"
         },
         "type": {
           "type": "integer",
@@ -7579,6 +7674,35 @@
         "txid": {
           "type": "string",
           "title": "The id of the transaction"
+        }
+      }
+    },
+    "lnrpcSendOnionMessageRequest": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "format": "byte",
+          "title": "Peer to send the message to"
+        },
+        "path_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "PathKey is used to derive the blinded node id by tweaking the hop's\nstatic public key. The hop uses the corresponding blinded private key\ntogether with the sender's ephemeral key to perform ECDH and obtain the\nshared secret for decrypting the onion payload. Separately, for\ndecrypting `encrypted_recipient_data`, the recipient performs ECDH\nbetween its static node private key and the path_key to derive the\ndecryption key."
+        },
+        "onion": {
+          "type": "string",
+          "format": "byte",
+          "description": "Serialized Sphinx onion packet (BOLT 4) containing the layered, per-hop\nencrypted payloads and routing instructions used to forward this message\nalong its designated path."
+        }
+      }
+    },
+    "lnrpcSendOnionMessageResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the onion message send operation."
         }
       }
     },

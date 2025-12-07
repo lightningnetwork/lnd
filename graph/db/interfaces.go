@@ -2,6 +2,7 @@ package graphdb
 
 import (
 	"context"
+	"iter"
 	"net"
 	"time"
 
@@ -32,13 +33,13 @@ type NodeTraverser interface {
 type V1Store interface { //nolint:interfacebloat
 	NodeTraverser
 
-	// AddLightningNode adds a vertex/node to the graph database. If the
+	// AddNode adds a vertex/node to the graph database. If the
 	// node is not in the database from before, this will add a new,
 	// unconnected one to the graph. If it is present from before, this will
 	// update that node's information. Note that this method is expected to
 	// only be called to update an already present node from a node
 	// announcement, or to insert a node found in a channel update.
-	AddLightningNode(ctx context.Context, node *models.LightningNode,
+	AddNode(ctx context.Context, node *models.Node,
 		op ...batch.SchedulerOption) error
 
 	// AddrsForNode returns all known addresses for the target node public
@@ -53,7 +54,7 @@ type V1Store interface { //nolint:interfacebloat
 	// the channel and the channel peer's node information.
 	ForEachSourceNodeChannel(ctx context.Context,
 		cb func(chanPoint wire.OutPoint, havePolicy bool,
-			otherNode *models.LightningNode) error,
+			otherNode *models.Node) error,
 		reset func()) error
 
 	// ForEachNodeChannel iterates through all channels of the given node,
@@ -87,7 +88,7 @@ type V1Store interface { //nolint:interfacebloat
 	// graph, executing the passed callback with each node encountered. If
 	// the callback returns an error, then the transaction is aborted and
 	// the iteration stops early.
-	ForEachNode(ctx context.Context, cb func(*models.LightningNode) error,
+	ForEachNode(ctx context.Context, cb func(*models.Node) error,
 		reset func()) error
 
 	// ForEachNodeCacheable iterates through all the stored vertices/nodes
@@ -101,30 +102,29 @@ type V1Store interface { //nolint:interfacebloat
 	// node.
 	LookupAlias(ctx context.Context, pub *btcec.PublicKey) (string, error)
 
-	// DeleteLightningNode starts a new database transaction to remove a
+	// DeleteNode starts a new database transaction to remove a
 	// vertex/node from the database according to the node's public key.
-	DeleteLightningNode(ctx context.Context, nodePub route.Vertex) error
+	DeleteNode(ctx context.Context, nodePub route.Vertex) error
 
 	// NodeUpdatesInHorizon returns all the known lightning node which have
 	// an update timestamp within the passed range. This method can be used
 	// by two nodes to quickly determine if they have the same set of up to
 	// date node announcements.
-	NodeUpdatesInHorizon(startTime,
-		endTime time.Time) ([]models.LightningNode, error)
+	NodeUpdatesInHorizon(startTime, endTime time.Time,
+		opts ...IteratorOption) iter.Seq2[*models.Node, error]
 
-	// FetchLightningNode attempts to look up a target node by its identity
+	// FetchNode attempts to look up a target node by its identity
 	// public key. If the node isn't found in the database, then
 	// ErrGraphNodeNotFound is returned.
-	FetchLightningNode(ctx context.Context,
-		nodePub route.Vertex) (*models.LightningNode, error)
+	FetchNode(ctx context.Context, nodePub route.Vertex) (*models.Node,
+		error)
 
-	// HasLightningNode determines if the graph has a vertex identified by
+	// HasNode determines if the graph has a vertex identified by
 	// the target node identity public key. If the node exists in the
 	// database, a timestamp of when the data for the node was lasted
 	// updated is returned along with a true boolean. Otherwise, an empty
 	// time.Time is returned with a false boolean.
-	HasLightningNode(ctx context.Context, nodePub [33]byte) (time.Time,
-		bool, error)
+	HasNode(ctx context.Context, nodePub [33]byte) (time.Time, bool, error)
 
 	// IsPublicNode is a helper method that determines whether the node with
 	// the given public key is seen as a public node in the graph from the
@@ -220,8 +220,8 @@ type V1Store interface { //nolint:interfacebloat
 	// ChanUpdatesInHorizon returns all the known channel edges which have
 	// at least one edge that has an update timestamp within the specified
 	// horizon.
-	ChanUpdatesInHorizon(startTime, endTime time.Time) ([]ChannelEdge,
-		error)
+	ChanUpdatesInHorizon(startTime, endTime time.Time,
+		opts ...IteratorOption) iter.Seq2[ChannelEdge, error]
 
 	// FilterKnownChanIDs takes a set of channel IDs and return the subset
 	// of chan ID's that we don't know and are not known zombies of the
@@ -327,13 +327,13 @@ type V1Store interface { //nolint:interfacebloat
 	// treated as the center node within a star-graph. This method may be
 	// used to kick off a path finding algorithm in order to explore the
 	// reachability of another node based off the source node.
-	SourceNode(ctx context.Context) (*models.LightningNode, error)
+	SourceNode(ctx context.Context) (*models.Node, error)
 
 	// SetSourceNode sets the source node within the graph database. The
 	// source node is to be used as the center of a star-graph within path
 	// finding algorithms.
 	SetSourceNode(ctx context.Context,
-		node *models.LightningNode) error
+		node *models.Node) error
 
 	// PruneTip returns the block height and hash of the latest block that
 	// has been used to prune channels in the graph. Knowing the "prune tip"

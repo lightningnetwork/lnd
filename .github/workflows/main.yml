@@ -40,7 +40,7 @@ env:
 
   # If you change this please also update GO_VERSION in Makefile (then run
   # `make lint` to see where else it needs to be updated as well).
-  GO_VERSION: 1.23.12
+  GO_VERSION: 1.25.3
 
 jobs:
   static-checks:
@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # Needed for some checks.
           fetch-depth: 0
@@ -115,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -143,7 +143,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -179,7 +179,7 @@ jobs:
             sys: darwin-arm64 freebsd-arm linux-armv6 linux-armv7 linux-arm64 windows-arm
     steps:
       - name: Git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Clean up runner space
         uses: ./.github/actions/cleanup-space
@@ -216,7 +216,7 @@ jobs:
 
     steps:
       - name: Git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -228,7 +228,7 @@ jobs:
         uses: ./.github/actions/rebase
 
       - name: Git checkout fuzzing seeds
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: lightninglabs/lnd-fuzz
           path: lnd-fuzz
@@ -269,7 +269,6 @@ jobs:
   basic-integration-test:
     name: Run basic itests
     runs-on: ubuntu-latest
-    if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     strategy:
       # Allow other tests in the matrix to continue if one fails.
       fail-fast: false
@@ -285,35 +284,46 @@ jobs:
             args: backend=neutrino cover=1
     steps:
       - name: Git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
+      - name: Check for no-itest label
+        id: check-label
+        uses: ./.github/actions/check-label
+        with:
+          label: 'no-itest'
+          skip-message: "Tests auto-passed due to 'no-itest' label"
+
       - name: Clean up runner space
+        if: steps.check-label.outputs.skip != 'true'
         uses: ./.github/actions/cleanup-space
 
       - name: Fetch and rebase on ${{ github.base_ref }}
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.check-label.outputs.skip != 'true'
         uses: ./.github/actions/rebase
 
       - name: Setup go ${{ env.GO_VERSION }}
+        if: steps.check-label.outputs.skip != 'true'
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
           key-prefix: integration-test
 
       - name: Install bitcoind
+        if: steps.check-label.outputs.skip != 'true'
         run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
 
       - name: Run ${{ matrix.name }}
+        if: steps.check-label.outputs.skip != 'true'
         run: make itest-parallel tranches=${{ env.TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
 
       - name: Clean coverage
         run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt
-        if: ${{ contains(matrix.args, 'cover=1') }}
+        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' }}
 
       - name: Send coverage
-        if: ${{ contains(matrix.args, 'cover=1') }}
+        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' }}
         continue-on-error: true
         uses: coverallsapp/github-action@v2
         with:
@@ -323,13 +333,13 @@ jobs:
           parallel: true
 
       - name: Zip log files on failure
-        if: ${{ failure() }}
+        if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         timeout-minutes: 5 # timeout after 5 minute
         run: 7z a logs-itest-${{ matrix.name }}.zip itest/**/*.log itest/postgres.log
 
       - name: Upload log files on failure
         uses: actions/upload-artifact@v4
-        if: ${{ failure() }}
+        if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         with:
           name: logs-itest-${{ matrix.name }}
           path: logs-itest-${{ matrix.name }}.zip
@@ -341,7 +351,6 @@ jobs:
   integration-test:
     name: Run itests
     runs-on: ubuntu-latest
-    if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     strategy:
       # Allow other tests in the matrix to continue if one fails.
       fail-fast: false
@@ -365,35 +374,46 @@ jobs:
             args: backend=bitcoind dbbackend=postgres nativesql=true tags=test_native_sql
     steps:
       - name: Git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
+      - name: Check for no-itest label
+        id: check-label
+        uses: ./.github/actions/check-label
+        with:
+          label: 'no-itest'
+          skip-message: "Tests auto-passed due to 'no-itest' label"
+
       - name: Clean up runner space
+        if: steps.check-label.outputs.skip != 'true'
         uses: ./.github/actions/cleanup-space
 
       - name: Fetch and rebase on ${{ github.base_ref }}
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.check-label.outputs.skip != 'true'
         uses: ./.github/actions/rebase
 
       - name: Setup go ${{ env.GO_VERSION }}
+        if: steps.check-label.outputs.skip != 'true'
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
           key-prefix: integration-test
 
       - name: Install bitcoind
+        if: steps.check-label.outputs.skip != 'true'
         run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
 
       - name: Run ${{ matrix.name }}
+        if: steps.check-label.outputs.skip != 'true'
         run: make itest-parallel tranches=${{ env.SMALL_TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
 
       - name: Clean coverage
         run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt
-        if: ${{ contains(matrix.args, 'cover=1') }}
+        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' }}
 
       - name: Send coverage
-        if: ${{ contains(matrix.args, 'cover=1') }}
+        if: ${{ contains(matrix.args, 'cover=1') && steps.check-label.outputs.skip != 'true' }}
         continue-on-error: true
         uses: coverallsapp/github-action@v2
         with:
@@ -403,13 +423,13 @@ jobs:
           parallel: true
 
       - name: Zip log files on failure
-        if: ${{ failure() }}
+        if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         timeout-minutes: 5 # timeout after 5 minute
         run: 7z a logs-itest-${{ matrix.name }}.zip itest/**/*.log
 
       - name: Upload log files on failure
         uses: actions/upload-artifact@v4
-        if: ${{ failure() }}
+        if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         with:
           name: logs-itest-${{ matrix.name }}
           path: logs-itest-${{ matrix.name }}.zip
@@ -422,39 +442,47 @@ jobs:
   windows-integration-test:
     name: Run windows itest
     runs-on: windows-latest
-    if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     steps:
       - name: Git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
+      - name: Check for no-itest label
+        id: check-label
+        uses: ./.github/actions/check-label
+        with:
+          label: 'no-itest'
+          skip-message: "Tests auto-passed due to 'no-itest' label"
+
       - name: Fetch and rebase on ${{ github.base_ref }}
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.check-label.outputs.skip != 'true'
         uses: ./.github/actions/rebase
 
       - name: Setup go ${{ env.GO_VERSION }}
+        if: steps.check-label.outputs.skip != 'true'
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
           key-prefix: integration-test
 
       - name: Run itest
+        if: steps.check-label.outputs.skip != 'true'
         run: make itest-parallel tranches=${{ env.SMALL_TRANCHES }} windows=1 shuffleseed=${{ github.run_id }}
         
       - name: Kill any remaining lnd processes
-        if: ${{ failure() }}
+        if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         shell: powershell
         run: taskkill /IM lnd-itest.exe /T /F
 
       - name: Zip log files on failure
-        if: ${{ failure() }}
+        if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         timeout-minutes: 5 # timeout after 5 minute
         run: 7z a logs-itest-windows.zip itest/**/*.log
 
       - name: Upload log files on failure
         uses: actions/upload-artifact@v4
-        if: ${{ failure() }}
+        if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         with:
           name: logs-itest-windows
           path: logs-itest-windows.zip
@@ -466,34 +494,42 @@ jobs:
   macos-integration-test:
     name: Run macOS itest
     runs-on: macos-14
-    if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     steps:
       - name: Git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
+      - name: Check for no-itest label
+        id: check-label
+        uses: ./.github/actions/check-label
+        with:
+          label: 'no-itest'
+          skip-message: "Tests auto-passed due to 'no-itest' label"
+
       - name: Fetch and rebase on ${{ github.base_ref }}
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.check-label.outputs.skip != 'true'
         uses: ./.github/actions/rebase
 
       - name: Setup go ${{ env.GO_VERSION }}
+        if: steps.check-label.outputs.skip != 'true'
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
           key-prefix: integration-test
 
       - name: Run itest
+        if: steps.check-label.outputs.skip != 'true'
         run: make itest-parallel tranches=${{ env.SMALL_TRANCHES }} shuffleseed=${{ github.run_id }}
 
       - name: Zip log files on failure
-        if: ${{ failure() }}
+        if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         timeout-minutes: 5 # timeout after 5 minute
         run: 7z a logs-itest-macos.zip itest/**/*.log
 
       - name: Upload log files on failure
         uses: actions/upload-artifact@v4
-        if: ${{ failure() }}
+        if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         with:
           name: logs-itest-macos
           path: logs-itest-macos.zip
@@ -515,7 +551,7 @@ jobs:
 
     steps:
       - name: Git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Clean up runner space
         uses: ./.github/actions/cleanup-space
@@ -529,15 +565,23 @@ jobs:
   milestone-check:
     name: Check release notes updated
     runs-on: ubuntu-latest
-    if: '!contains(github.event.pull_request.labels.*.name, ''no-changelog'')'
     steps:
       - name: Git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Check for no-changelog label
+        id: check-label
+        uses: ./.github/actions/check-label
+        with:
+          label: 'no-changelog'
+          skip-message: "Changelog check auto-passed due to 'no-changelog' label"
 
       - name: Clean up runner space
+        if: steps.check-label.outputs.skip != 'true'
         uses: ./.github/actions/cleanup-space
 
       - name: Release notes check
+        if: steps.check-label.outputs.skip != 'true'
         run: scripts/check-release-notes.sh
 
   ########################
@@ -548,7 +592,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: 🐳 Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -569,7 +613,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Delete caches older than 12 hours
         continue-on-error: true

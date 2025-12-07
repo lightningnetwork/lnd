@@ -369,3 +369,92 @@ func newTestDirectory(t *testing.T) (string, string, string) {
 
 	return tempDir, certPath, keyPath
 }
+
+// TestGenerateCertPairWithPartialFiles tests that generateCertPair regenerates
+// a cert/key pair when only one file exists.
+func TestGenerateCertPairWithPartialFiles(t *testing.T) {
+	t.Parallel()
+
+	keyRing := &mock.SecretKeyRing{
+		RootKey: privKey,
+	}
+
+	testCases := []struct {
+		name  string
+		setup func(t *testing.T, certPath, keyPath string)
+	}{
+		{
+			name: "only key exists",
+			setup: func(t *testing.T, certPath, keyPath string) {
+				// Create only a key file. It simulates leftover
+				// from previous run.
+				_, keyBytes := genCertPair(t, false)
+				keyBuf := &bytes.Buffer{}
+				err := pem.Encode(
+					keyBuf, &pem.Block{
+						Type:  "EC PRIVATE KEY",
+						Bytes: keyBytes,
+					},
+				)
+				require.NoError(t, err)
+
+				err = os.WriteFile(
+					keyPath, keyBuf.Bytes(), 0600,
+				)
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "only cert exists",
+			setup: func(t *testing.T, certPath, keyPath string) {
+				// Create only a cert file. It simulates
+				// leftover from previous run.
+				certBytes, _ := genCertPair(t, false)
+				certBuf := &bytes.Buffer{}
+				err := pem.Encode(
+					certBuf, &pem.Block{
+						Type:  "CERTIFICATE",
+						Bytes: certBytes,
+					},
+				)
+				require.NoError(t, err)
+
+				err = os.WriteFile(
+					certPath, certBuf.Bytes(), 0644,
+				)
+				require.NoError(t, err)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tempDir := t.TempDir()
+			certPath := tempDir + "/tls.cert"
+			keyPath := tempDir + "/tls.key"
+
+			tc.setup(t, certPath, keyPath)
+
+			cfg := &TLSManagerCfg{
+				TLSCertPath:     certPath,
+				TLSKeyPath:      keyPath,
+				TLSCertDuration: testTLSCertDuration,
+			}
+			tlsManager := NewTLSManager(cfg)
+
+			err := tlsManager.generateCertPair(keyRing)
+			require.NoError(
+				t, err, "should generate new cert pair when %s",
+				tc.name,
+			)
+
+			_, _, err = cert.GetCertBytesFromPath(certPath, keyPath)
+			require.NoError(
+				t, err, "should be able to load cert pair",
+			)
+		})
+	}
+}

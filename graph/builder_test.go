@@ -2,7 +2,6 @@ package graph
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -44,7 +43,7 @@ const (
 // info was added to the database.
 func TestAddProof(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	ctx := createTestCtxSingleNode(t, 0)
 
@@ -98,18 +97,18 @@ func TestIgnoreNodeAnnouncement(t *testing.T) {
 	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
 
 	pub := priv1.PubKey()
-	node := &models.LightningNode{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           time.Unix(123, 0),
-		Addresses:            testAddrs,
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "node11",
-		AuthSigBytes:         testSig.Serialize(),
-		Features:             testFeatures,
-	}
-	copy(node.PubKeyBytes[:], pub.SerializeCompressed())
+	node := models.NewV1Node(
+		route.NewVertex(pub), &models.NodeV1Fields{
+			Addresses:    testAddrs,
+			AuthSigBytes: testSig.Serialize(),
+			Features:     testFeatures.RawFeatureVector,
+			LastUpdate:   time.Unix(123, 0),
+			Color:        color.RGBA{1, 2, 3, 0},
+			Alias:        "node11",
+		},
+	)
 
-	err := ctx.builder.AddNode(context.Background(), node)
+	err := ctx.builder.AddNode(t.Context(), node)
 	if !IsError(err, ErrIgnored) {
 		t.Fatalf("expected to get ErrIgnore, instead got: %v", err)
 	}
@@ -119,7 +118,7 @@ func TestIgnoreNodeAnnouncement(t *testing.T) {
 // ignore a channel policy for a channel not in the graph.
 func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	const startingBlockHeight = 101
 
@@ -194,7 +193,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 // confirmed on the stale chain, and resync to the main chain.
 func TestWakeUpOnStaleBranch(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -354,7 +353,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	// Give time to process new blocks.
 	time.Sleep(time.Millisecond * 500)
 
-	selfNode, err := ctx.graph.SourceNode(context.Background())
+	selfNode, err := ctx.graph.SourceNode(t.Context())
 	require.NoError(t, err)
 
 	// Create new router with same graph database.
@@ -408,7 +407,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 // it is active.
 func TestDisconnectedBlocks(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -609,7 +608,7 @@ func TestDisconnectedBlocks(t *testing.T) {
 // ChannelRouter, then the channels are properly pruned.
 func TestChansClosedOfflinePruneGraph(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -1037,7 +1036,7 @@ func testPruneChannelGraphDoubleDisabled(t *testing.T, assumeValid bool) {
 // node announcements.
 func TestIsStaleNode(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -1085,17 +1084,17 @@ func TestIsStaleNode(t *testing.T) {
 
 	// With the node stub in the database, we'll add the fully node
 	// announcement to the database.
-	n1 := &models.LightningNode{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           updateTimeStamp,
-		Addresses:            testAddrs,
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "node11",
-		AuthSigBytes:         testSig.Serialize(),
-		Features:             testFeatures,
-	}
-	copy(n1.PubKeyBytes[:], priv1.PubKey().SerializeCompressed())
-	if err := ctx.builder.AddNode(context.Background(), n1); err != nil {
+	n1 := models.NewV1Node(
+		route.NewVertex(priv1.PubKey()), &models.NodeV1Fields{
+			LastUpdate:   updateTimeStamp,
+			Addresses:    testAddrs,
+			Color:        color.RGBA{1, 2, 3, 0},
+			Alias:        "node11",
+			AuthSigBytes: testSig.Serialize(),
+			Features:     testFeatures.RawFeatureVector,
+		},
+	)
+	if err := ctx.builder.AddNode(t.Context(), n1); err != nil {
 		t.Fatalf("could not add node: %v", err)
 	}
 
@@ -1117,7 +1116,7 @@ func TestIsStaleNode(t *testing.T) {
 // channel announcements.
 func TestIsKnownEdge(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -1167,7 +1166,7 @@ func TestIsKnownEdge(t *testing.T) {
 // stale channel edge update announcements.
 func TestIsStaleEdgePolicy(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
@@ -1359,7 +1358,7 @@ func createTestCtxFromFile(t *testing.T,
 func parseTestGraph(t *testing.T, useCache bool, path string) (
 	*testGraphInstance, error) {
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	graphJSON, err := os.ReadFile(path)
 	if err != nil {
@@ -1393,7 +1392,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 	privKeyMap := make(map[string]*btcec.PrivateKey)
 	channelIDs := make(map[route.Vertex]map[route.Vertex]uint64)
 	links := make(map[lnwire.ShortChannelID]htlcswitch.ChannelLink)
-	var source *models.LightningNode
+	var source *models.Node
 
 	// First we insert all the nodes within the graph as vertexes.
 	for _, node := range g.Nodes {
@@ -1402,15 +1401,16 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			return nil, err
 		}
 
-		dbNode := &models.LightningNode{
-			HaveNodeAnnouncement: true,
-			AuthSigBytes:         testSig.Serialize(),
-			LastUpdate:           testTime,
-			Addresses:            testAddrs,
-			Alias:                node.Alias,
-			Features:             testFeatures,
-		}
-		copy(dbNode.PubKeyBytes[:], pubBytes)
+		pubKey, err := route.NewVertexFromBytes(pubBytes)
+		require.NoError(t, err)
+
+		dbNode := models.NewV1Node(pubKey, &models.NodeV1Fields{
+			AuthSigBytes: testSig.Serialize(),
+			LastUpdate:   testTime,
+			Addresses:    testAddrs,
+			Alias:        node.Alias,
+			Features:     testFeatures.RawFeatureVector,
+		})
 
 		// We require all aliases within the graph to be unique for our
 		// tests.
@@ -1476,7 +1476,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 
 		// With the node fully parsed, add it as a vertex within the
 		// graph.
-		if err := graph.AddLightningNode(ctx, dbNode); err != nil {
+		if err := graph.AddNode(ctx, dbNode); err != nil {
 			return nil, err
 		}
 	}
@@ -1751,7 +1751,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 	testChannels []*testChannel, source string) (*testGraphInstance,
 	error) {
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// We'll use this fake address for the IP address of all the nodes in
 	// our tests. This value isn't needed for path finding so it doesn't
@@ -1788,16 +1788,15 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			features = lnwire.EmptyFeatureVector()
 		}
 
-		dbNode := &models.LightningNode{
-			HaveNodeAnnouncement: true,
-			AuthSigBytes:         testSig.Serialize(),
-			LastUpdate:           testTime,
-			Addresses:            testAddrs,
-			Alias:                alias,
-			Features:             features,
-		}
-
-		copy(dbNode.PubKeyBytes[:], pubKey.SerializeCompressed())
+		dbNode := models.NewV1Node(
+			route.NewVertex(pubKey), &models.NodeV1Fields{
+				AuthSigBytes: testSig.Serialize(),
+				LastUpdate:   testTime,
+				Addresses:    testAddrs,
+				Alias:        alias,
+				Features:     features.RawFeatureVector,
+			},
+		)
 
 		privKeyMap[alias] = privKey
 
@@ -1807,7 +1806,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			err = graph.SetSourceNode(ctx, dbNode)
 			require.NoError(t, err)
 		} else {
-			err := graph.AddLightningNode(ctx, dbNode)
+			err := graph.AddNode(ctx, dbNode)
 			require.NoError(t, err)
 		}
 

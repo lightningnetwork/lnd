@@ -55,7 +55,7 @@ type Config struct {
 
 	// Graph is the channel graph that the ChannelRouter will use to gather
 	// metrics from and also to carry out path finding queries.
-	Graph DB
+	Graph *graphdb.ChannelGraph
 
 	// Chain is the router's source to the most up-to-date blockchain data.
 	// All incoming advertised channels will be checked against the chain
@@ -593,13 +593,14 @@ func (b *Builder) pruneZombieChans() error {
 
 	startTime := time.Unix(0, 0)
 	endTime := time.Now().Add(-1 * chanExpiry)
-	oldEdges, err := b.cfg.Graph.ChanUpdatesInHorizon(startTime, endTime)
-	if err != nil {
-		return fmt.Errorf("unable to fetch expired channel updates "+
-			"chans: %v", err)
-	}
+	oldEdgesIter := b.cfg.Graph.ChanUpdatesInHorizon(startTime, endTime)
 
-	for _, u := range oldEdges {
+	for u, err := range oldEdgesIter {
+		if err != nil {
+			return fmt.Errorf("unable to fetch expired "+
+				"channel updates chans: %v", err)
+		}
+
 		err = filterPruneChans(u.Info, u.Policy1, u.Policy2)
 		if err != nil {
 			return fmt.Errorf("error filtering channels to "+
@@ -619,7 +620,7 @@ func (b *Builder) pruneZombieChans() error {
 		toPrune = append(toPrune, chanID)
 		log.Tracef("Pruning zombie channel with ChannelID(%v)", chanID)
 	}
-	err = b.cfg.Graph.DeleteChannelEdges(
+	err := b.cfg.Graph.DeleteChannelEdges(
 		b.cfg.StrictZombiePruning, true, toPrune...,
 	)
 	if err != nil {
@@ -873,7 +874,7 @@ func (b *Builder) assertNodeAnnFreshness(ctx context.Context, node route.Vertex,
 	// node announcements, we will ignore such nodes. If we do know about
 	// this node, check that this update brings info newer than what we
 	// already have.
-	lastUpdate, exists, err := b.cfg.Graph.HasLightningNode(ctx, node)
+	lastUpdate, exists, err := b.cfg.Graph.HasNode(ctx, node)
 	if err != nil {
 		return fmt.Errorf("unable to query for the "+
 			"existence of node: %w", err)
@@ -975,7 +976,7 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 // be ignored.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) AddNode(ctx context.Context, node *models.LightningNode,
+func (b *Builder) AddNode(ctx context.Context, node *models.Node,
 	op ...batch.SchedulerOption) error {
 
 	err := b.addNode(ctx, node, op...)
@@ -988,11 +989,11 @@ func (b *Builder) AddNode(ctx context.Context, node *models.LightningNode,
 	return nil
 }
 
-// addNode does some basic checks on the given LightningNode against what we
+// addNode does some basic checks on the given Node against what we
 // currently have persisted in the graph, and then adds it to the graph. If we
 // already know about the node, then we only update our DB if the new update
 // has a newer timestamp than the last one we received.
-func (b *Builder) addNode(ctx context.Context, node *models.LightningNode,
+func (b *Builder) addNode(ctx context.Context, node *models.Node,
 	op ...batch.SchedulerOption) error {
 
 	// Before we add the node to the database, we'll check to see if the
@@ -1003,7 +1004,7 @@ func (b *Builder) addNode(ctx context.Context, node *models.LightningNode,
 		return err
 	}
 
-	if err := b.cfg.Graph.AddLightningNode(ctx, node, op...); err != nil {
+	if err := b.cfg.Graph.AddNode(ctx, node, op...); err != nil {
 		return fmt.Errorf("unable to add node %x to the "+
 			"graph: %w", node.PubKeyBytes, err)
 	}
@@ -1257,15 +1258,15 @@ func (b *Builder) GetChannelByID(chanID lnwire.ShortChannelID) (
 	return b.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
 }
 
-// FetchLightningNode attempts to look up a target node by its identity public
+// FetchNode attempts to look up a target node by its identity public
 // key. graphdb.ErrGraphNodeNotFound is returned if the node doesn't exist
 // within the graph.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) FetchLightningNode(ctx context.Context,
-	node route.Vertex) (*models.LightningNode, error) {
+func (b *Builder) FetchNode(ctx context.Context,
+	node route.Vertex) (*models.Node, error) {
 
-	return b.cfg.Graph.FetchLightningNode(ctx, node)
+	return b.cfg.Graph.FetchNode(ctx, node)
 }
 
 // ForAllOutgoingChannels is used to iterate over all outgoing channels owned by
@@ -1312,7 +1313,7 @@ func (b *Builder) IsStaleNode(ctx context.Context, node route.Vertex,
 	// then we know that this is actually a stale announcement.
 	err := b.assertNodeAnnFreshness(ctx, node, timestamp)
 	if err != nil {
-		log.Debugf("Checking stale node %x got %v", node, err)
+		log.Debugf("Checking stale node %s got %v", node, err)
 		return true
 	}
 

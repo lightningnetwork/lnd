@@ -169,7 +169,7 @@ func (a *ChannelUpdate1) Decode(r io.Reader, _ uint32) error {
 	var inboundFee = a.InboundFee.Zero()
 	typeMap, err := tlvRecords.ExtractRecords(&inboundFee)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrParsingExtraTLVBytes, err)
 	}
 
 	val, ok := typeMap[a.InboundFee.TlvType()]
@@ -361,6 +361,13 @@ func (a *ChannelUpdate1) ForwardingPolicy() *ForwardingPolicy {
 		HasMaxHTLC:    a.MessageFlags.HasMaxHtlc(),
 		MaxHTLC:       a.HtlcMaximumMsat,
 	}
+}
+
+// GossipVersion returns the gossip version that this message is part of.
+//
+// NOTE: this is part of the GossipMessage interface.
+func (a *ChannelUpdate1) GossipVersion() GossipVersion {
+	return GossipVersion1
 }
 
 // CmpAge can be used to determine if the update is older or newer than the

@@ -4,12 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
-	"math"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -93,7 +90,8 @@ type PaymentCreationInfo struct {
 
 	// FirstHopCustomRecords are the TLV records that are to be sent to the
 	// first hop of this payment. These records will be transmitted via the
-	// wire message only and therefore do not affect the onion payload size.
+	// wire message (UpdateAddHTLC) only and therefore do not affect the
+	// onion payload size.
 	FirstHopCustomRecords lnwire.CustomRecords
 }
 
@@ -176,6 +174,20 @@ func (h *HTLCAttemptInfo) SessionKey() *btcec.PrivateKey {
 	}
 
 	return h.cachedSessionKey
+}
+
+// setSessionKey sets the session key for the htlc attempt.
+//
+// NOTE: Only used for testing.
+//
+//nolint:unused
+func (h *HTLCAttemptInfo) setSessionKey(sessionKey *btcec.PrivateKey) {
+	h.cachedSessionKey = sessionKey
+
+	// Also set the session key as a raw bytes.
+	var scratch [btcec.PrivKeyBytesLen]byte
+	copy(scratch[:], sessionKey.Serialize())
+	h.sessionKey = scratch
 }
 
 // OnionBlob returns the onion blob created from the sphinx construction.
@@ -650,94 +662,6 @@ func (m *MPPayment) AllowMoreAttempts() (bool, error) {
 	return true, nil
 }
 
-// serializeHTLCSettleInfo serializes the details of a settled htlc.
-func serializeHTLCSettleInfo(w io.Writer, s *HTLCSettleInfo) error {
-	if _, err := w.Write(s.Preimage[:]); err != nil {
-		return err
-	}
-
-	if err := serializeTime(w, s.SettleTime); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// deserializeHTLCSettleInfo deserializes the details of a settled htlc.
-func deserializeHTLCSettleInfo(r io.Reader) (*HTLCSettleInfo, error) {
-	s := &HTLCSettleInfo{}
-	if _, err := io.ReadFull(r, s.Preimage[:]); err != nil {
-		return nil, err
-	}
-
-	var err error
-	s.SettleTime, err = deserializeTime(r)
-	if err != nil {
-		return nil, err
-	}
-
-	return s, nil
-}
-
-// serializeHTLCFailInfo serializes the details of a failed htlc including the
-// wire failure.
-func serializeHTLCFailInfo(w io.Writer, f *HTLCFailInfo) error {
-	if err := serializeTime(w, f.FailTime); err != nil {
-		return err
-	}
-
-	// Write failure. If there is no failure message, write an empty
-	// byte slice.
-	var messageBytes bytes.Buffer
-	if f.Message != nil {
-		err := lnwire.EncodeFailureMessage(&messageBytes, f.Message, 0)
-		if err != nil {
-			return err
-		}
-	}
-	if err := wire.WriteVarBytes(w, 0, messageBytes.Bytes()); err != nil {
-		return err
-	}
-
-	return WriteElements(w, byte(f.Reason), f.FailureSourceIndex)
-}
-
-// deserializeHTLCFailInfo deserializes the details of a failed htlc including
-// the wire failure.
-func deserializeHTLCFailInfo(r io.Reader) (*HTLCFailInfo, error) {
-	f := &HTLCFailInfo{}
-	var err error
-	f.FailTime, err = deserializeTime(r)
-	if err != nil {
-		return nil, err
-	}
-
-	// Read failure.
-	failureBytes, err := wire.ReadVarBytes(
-		r, 0, math.MaxUint16, "failure",
-	)
-	if err != nil {
-		return nil, err
-	}
-	if len(failureBytes) > 0 {
-		f.Message, err = lnwire.DecodeFailureMessage(
-			bytes.NewReader(failureBytes), 0,
-		)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	var reason byte
-	err = ReadElements(r, &reason, &f.FailureSourceIndex)
-	if err != nil {
-		return nil, err
-	}
-	f.Reason = HTLCFailReason(reason)
-
-	return f, nil
-}
-
 // generateSphinxPacket generates then encodes a sphinx packet which encodes
 // the onion route specified by the passed layer 3 route. The blob returned
 // from this function can immediately be included within an HTLC add packet to
@@ -802,4 +726,104 @@ func generateSphinxPacket(rt *route.Route, paymentHash []byte,
 		SessionKey:  sessionKey,
 		PaymentPath: sphinxPath.NodeKeys(),
 	}, nil
+}
+
+// verifyAttempt validates that a new HTLC attempt is compatible with the
+// existing payment and its in-flight HTLCs. This function checks:
+//  1. MPP (Multi-Path Payment) compatibility between attempts
+//  2. Blinded payment consistency
+//  3. Amount validation
+//  4. Total payment amount limits
+func verifyAttempt(payment *MPPayment, attempt *HTLCAttemptInfo) error {
+	// If the final hop has encrypted data, then we know this is a
+	// blinded payment. In blinded payments, MPP records are not set
+	// for split payments and the recipient is responsible for using
+	// a consistent PathID across the various encrypted data
+	// payloads that we received from them for this payment. All we
+	// need to check is that the total amount field for each HTLC
+	// in the split payment is correct.
+	isBlinded := len(attempt.Route.FinalHop().EncryptedData) != 0
+
+	// Make sure any existing shards match the new one with regards
+	// to MPP options.
+	mpp := attempt.Route.FinalHop().MPP
+
+	// MPP records should not be set for attempts to blinded paths.
+	if isBlinded && mpp != nil {
+		return ErrMPPRecordInBlindedPayment
+	}
+
+	for _, h := range payment.InFlightHTLCs() {
+		hMpp := h.Route.FinalHop().MPP
+		hBlinded := len(h.Route.FinalHop().EncryptedData) != 0
+
+		// If this is a blinded payment, then no existing HTLCs
+		// should have MPP records.
+		if isBlinded && hMpp != nil {
+			return ErrMPPRecordInBlindedPayment
+		}
+
+		// If the payment is blinded (previous attempts used blinded
+		// paths) and the attempt is not, or vice versa, return an
+		// error.
+		if isBlinded != hBlinded {
+			return ErrMixedBlindedAndNonBlindedPayments
+		}
+
+		// If this is a blinded payment, then we just need to
+		// check that the TotalAmtMsat field for this shard
+		// is equal to that of any other shard in the same
+		// payment.
+		if isBlinded {
+			if attempt.Route.FinalHop().TotalAmtMsat !=
+				h.Route.FinalHop().TotalAmtMsat {
+
+				return ErrBlindedPaymentTotalAmountMismatch
+			}
+
+			continue
+		}
+
+		switch {
+		// We tried to register a non-MPP attempt for a MPP
+		// payment.
+		case mpp == nil && hMpp != nil:
+			return ErrMPPayment
+
+		// We tried to register a MPP shard for a non-MPP
+		// payment.
+		case mpp != nil && hMpp == nil:
+			return ErrNonMPPayment
+
+		// Non-MPP payment, nothing more to validate.
+		case mpp == nil:
+			continue
+		}
+
+		// Check that MPP options match.
+		if mpp.PaymentAddr() != hMpp.PaymentAddr() {
+			return ErrMPPPaymentAddrMismatch
+		}
+
+		if mpp.TotalMsat() != hMpp.TotalMsat() {
+			return ErrMPPTotalAmountMismatch
+		}
+	}
+
+	// If this is a non-MPP attempt, it must match the total amount
+	// exactly. Note that a blinded payment is considered an MPP
+	// attempt.
+	amt := attempt.Route.ReceiverAmt()
+	if !isBlinded && mpp == nil && amt != payment.Info.Value {
+		return ErrValueMismatch
+	}
+
+	// Ensure we aren't sending more than the total payment amount.
+	sentAmt, _ := payment.SentAmt()
+	if sentAmt+amt > payment.Info.Value {
+		return fmt.Errorf("%w: attempted=%v, payment amount=%v",
+			ErrValueExceedsAmt, sentAmt+amt, payment.Info.Value)
+	}
+
+	return nil
 }

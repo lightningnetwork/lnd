@@ -1,7 +1,6 @@
 package lnd
 
 import (
-	"context"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -490,7 +489,7 @@ func TestAssignPeerPermsBypassExisting(t *testing.T) {
 func TestHasPeer(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create a testing accessMan.
 	a := &accessMan{
@@ -708,7 +707,7 @@ func TestAddPeerAccessOutbound(t *testing.T) {
 // accessman's internal state based on the peer's status.
 func TestRemovePeerAccess(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create a testing accessMan.
 	a := &accessMan{

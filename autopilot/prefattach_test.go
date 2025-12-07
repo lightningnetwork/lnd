@@ -76,7 +76,7 @@ var chanGraphs = []struct {
 // empty graph, the NodeSores function always returns a score of 0.
 func TestPrefAttachmentSelectEmptyGraph(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	prefAttach := NewPrefAttachment()
 
 	// Create a random public key, which we will query to get a score for.
@@ -116,7 +116,7 @@ func TestPrefAttachmentSelectEmptyGraph(t *testing.T) {
 // and the funds are appropriately allocated across each peer.
 func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	prand.Seed(time.Now().Unix())
 
@@ -203,7 +203,7 @@ func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 // allocate all funds to each vertex (up to the max channel size).
 func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	prand.Seed(time.Now().Unix())
 
@@ -316,7 +316,7 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 // of zero during scoring.
 func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	prand.Seed(time.Now().Unix())
 
@@ -403,7 +403,7 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 
 	ctx := context.Background()
 
-	fetchNode := func(pub *btcec.PublicKey) (*models.LightningNode, error) {
+	fetchNode := func(pub *btcec.PublicKey) (*models.Node, error) {
 		if pub != nil {
 			vertex, err := route.NewVertexFromBytes(
 				pub.SerializeCompressed(),
@@ -412,25 +412,27 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 				return nil, err
 			}
 
-			dbNode, err := d.db.FetchLightningNode(ctx, vertex)
+			dbNode, err := d.db.FetchNode(ctx, vertex)
 			switch {
 			case errors.Is(err, graphdb.ErrGraphNodeNotFound):
 				fallthrough
 			case errors.Is(err, graphdb.ErrGraphNotFound):
-				graphNode := &models.LightningNode{
-					HaveNodeAnnouncement: true,
-					Addresses: []net.Addr{&net.TCPAddr{
-						IP: bytes.Repeat(
-							[]byte("a"), 16,
-						),
-					}},
-					Features: lnwire.NewFeatureVector(
-						nil, lnwire.Features,
-					),
-					AuthSigBytes: testSig.Serialize(),
-				}
-				graphNode.AddPubKey(pub)
-				err := d.db.AddLightningNode(
+				//nolint:ll
+				graphNode := models.NewV1Node(
+					route.NewVertex(pub),
+					&models.NodeV1Fields{
+						Addresses: []net.Addr{&net.TCPAddr{
+							IP: bytes.Repeat(
+								[]byte("a"), 16,
+							),
+						}},
+						Features: lnwire.NewFeatureVector(
+							nil, lnwire.Features,
+						).RawFeatureVector,
+						AuthSigBytes: testSig.Serialize(),
+					},
+				)
+				err := d.db.AddNode(
 					context.Background(), graphNode,
 				)
 				if err != nil {
@@ -447,20 +449,19 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		if err != nil {
 			return nil, err
 		}
-		dbNode := &models.LightningNode{
-			HaveNodeAnnouncement: true,
-			Addresses: []net.Addr{
-				&net.TCPAddr{
+
+		dbNode := models.NewV1Node(
+			route.NewVertex(nodeKey), &models.NodeV1Fields{
+				Addresses: []net.Addr{&net.TCPAddr{
 					IP: bytes.Repeat([]byte("a"), 16),
-				},
+				}},
+				Features: lnwire.NewFeatureVector(
+					nil, lnwire.Features,
+				).RawFeatureVector,
+				AuthSigBytes: testSig.Serialize(),
 			},
-			Features: lnwire.NewFeatureVector(
-				nil, lnwire.Features,
-			),
-			AuthSigBytes: testSig.Serialize(),
-		}
-		dbNode.AddPubKey(nodeKey)
-		if err := d.db.AddLightningNode(
+		)
+		if err := d.db.AddNode(
 			context.Background(), dbNode,
 		); err != nil {
 			return nil, err
@@ -494,7 +495,11 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		Capacity:  capacity,
 		Features:  lnwire.EmptyFeatureVector(),
 	}
-	edge.AddNodeKeys(lnNode1, lnNode2, lnNode1, lnNode2)
+	copy(edge.NodeKey1Bytes[:], lnNode1.SerializeCompressed())
+	copy(edge.NodeKey2Bytes[:], lnNode2.SerializeCompressed())
+	copy(edge.BitcoinKey1Bytes[:], lnNode1.SerializeCompressed())
+	copy(edge.BitcoinKey2Bytes[:], lnNode2.SerializeCompressed())
+
 	if err := d.db.AddChannelEdge(ctx, edge); err != nil {
 		return nil, nil, err
 	}
@@ -548,20 +553,20 @@ func (d *testDBGraph) addRandNode() (*btcec.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	dbNode := &models.LightningNode{
-		HaveNodeAnnouncement: true,
-		Addresses: []net.Addr{
-			&net.TCPAddr{
-				IP: bytes.Repeat([]byte("a"), 16),
+	dbNode := models.NewV1Node(
+		route.NewVertex(nodeKey), &models.NodeV1Fields{
+			Addresses: []net.Addr{
+				&net.TCPAddr{
+					IP: bytes.Repeat([]byte("a"), 16),
+				},
 			},
+			Features: lnwire.NewFeatureVector(
+				nil, lnwire.Features,
+			).RawFeatureVector,
+			AuthSigBytes: testSig.Serialize(),
 		},
-		Features: lnwire.NewFeatureVector(
-			nil, lnwire.Features,
-		),
-		AuthSigBytes: testSig.Serialize(),
-	}
-	dbNode.AddPubKey(nodeKey)
-	err = d.db.AddLightningNode(context.Background(), dbNode)
+	)
+	err = d.db.AddNode(context.Background(), dbNode)
 	if err != nil {
 		return nil, err
 	}

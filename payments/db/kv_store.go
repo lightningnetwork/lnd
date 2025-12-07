@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -117,8 +118,8 @@ var (
 	paymentsIndexBucket = []byte("payments-index-bucket")
 )
 
-// KVPaymentsDB implements persistence for payments and payment attempts.
-type KVPaymentsDB struct {
+// KVStore implements persistence for payments and payment attempts.
+type KVStore struct {
 	// Sequence management for the kv store.
 	seqMu     sync.Mutex
 	currSeq   uint64
@@ -132,18 +133,14 @@ type KVPaymentsDB struct {
 	keepFailedPaymentAttempts bool
 }
 
-// defaultKVStoreOptions returns the default options for the KV store.
-func defaultKVStoreOptions() *StoreOptions {
-	return &StoreOptions{
-		KeepFailedPaymentAttempts: false,
-	}
-}
+// A compile-time constraint to ensure KVStore implements DB.
+var _ DB = (*KVStore)(nil)
 
-// NewKVPaymentsDB creates a new KVStore for payments.
-func NewKVPaymentsDB(db kvdb.Backend,
-	options ...OptionModifier) (*KVPaymentsDB, error) {
+// NewKVStore creates a new KVStore for payments.
+func NewKVStore(db kvdb.Backend,
+	options ...OptionModifier) (*KVStore, error) {
 
-	opts := defaultKVStoreOptions()
+	opts := DefaultOptions()
 	for _, applyOption := range options {
 		applyOption(opts)
 	}
@@ -154,7 +151,7 @@ func NewKVPaymentsDB(db kvdb.Backend,
 		}
 	}
 
-	return &KVPaymentsDB{
+	return &KVStore{
 		db:                        db,
 		keepFailedPaymentAttempts: opts.KeepFailedPaymentAttempts,
 	}, nil
@@ -189,7 +186,7 @@ func initKVStore(db kvdb.Backend) error {
 // making sure it does not already exist as an in-flight payment. When this
 // method returns successfully, the payment is guaranteed to be in the InFlight
 // state.
-func (p *KVPaymentsDB) InitPayment(paymentHash lntypes.Hash,
+func (p *KVStore) InitPayment(paymentHash lntypes.Hash,
 	info *PaymentCreationInfo) error {
 
 	// Obtain a new sequence number for this payment. This is used
@@ -292,8 +289,8 @@ func (p *KVPaymentsDB) InitPayment(paymentHash lntypes.Hash,
 }
 
 // DeleteFailedAttempts deletes all failed htlcs for a payment if configured
-// by the KVPaymentsDB db.
-func (p *KVPaymentsDB) DeleteFailedAttempts(hash lntypes.Hash) error {
+// by the KVStore db.
+func (p *KVStore) DeleteFailedAttempts(hash lntypes.Hash) error {
 	if !p.keepFailedPaymentAttempts {
 		const failedHtlcsOnly = true
 		err := p.DeletePayment(hash, failedHtlcsOnly)
@@ -360,7 +357,7 @@ func deserializePaymentIndex(r io.Reader) (lntypes.Hash, error) {
 
 // RegisterAttempt atomically records the provided HTLCAttemptInfo to the
 // DB.
-func (p *KVPaymentsDB) RegisterAttempt(paymentHash lntypes.Hash,
+func (p *KVStore) RegisterAttempt(paymentHash lntypes.Hash,
 	attempt *HTLCAttemptInfo) (*MPPayment, error) {
 
 	// Serialize the information before opening the db transaction.
@@ -392,88 +389,9 @@ func (p *KVPaymentsDB) RegisterAttempt(paymentHash lntypes.Hash,
 			return err
 		}
 
-		// If the final hop has encrypted data, then we know this is a
-		// blinded payment. In blinded payments, MPP records are not set
-		// for split payments and the recipient is responsible for using
-		// a consistent PathID across the various encrypted data
-		// payloads that we received from them for this payment. All we
-		// need to check is that the total amount field for each HTLC
-		// in the split payment is correct.
-		isBlinded := len(attempt.Route.FinalHop().EncryptedData) != 0
-
-		// Make sure any existing shards match the new one with regards
-		// to MPP options.
-		mpp := attempt.Route.FinalHop().MPP
-
-		// MPP records should not be set for attempts to blinded paths.
-		if isBlinded && mpp != nil {
-			return ErrMPPRecordInBlindedPayment
-		}
-
-		for _, h := range payment.InFlightHTLCs() {
-			hMpp := h.Route.FinalHop().MPP
-
-			// If this is a blinded payment, then no existing HTLCs
-			// should have MPP records.
-			if isBlinded && hMpp != nil {
-				return ErrMPPRecordInBlindedPayment
-			}
-
-			// If this is a blinded payment, then we just need to
-			// check that the TotalAmtMsat field for this shard
-			// is equal to that of any other shard in the same
-			// payment.
-			if isBlinded {
-				if attempt.Route.FinalHop().TotalAmtMsat !=
-					h.Route.FinalHop().TotalAmtMsat {
-
-					//nolint:ll
-					return ErrBlindedPaymentTotalAmountMismatch
-				}
-
-				continue
-			}
-
-			switch {
-			// We tried to register a non-MPP attempt for a MPP
-			// payment.
-			case mpp == nil && hMpp != nil:
-				return ErrMPPayment
-
-			// We tried to register a MPP shard for a non-MPP
-			// payment.
-			case mpp != nil && hMpp == nil:
-				return ErrNonMPPayment
-
-			// Non-MPP payment, nothing more to validate.
-			case mpp == nil:
-				continue
-			}
-
-			// Check that MPP options match.
-			if mpp.PaymentAddr() != hMpp.PaymentAddr() {
-				return ErrMPPPaymentAddrMismatch
-			}
-
-			if mpp.TotalMsat() != hMpp.TotalMsat() {
-				return ErrMPPTotalAmountMismatch
-			}
-		}
-
-		// If this is a non-MPP attempt, it must match the total amount
-		// exactly. Note that a blinded payment is considered an MPP
-		// attempt.
-		amt := attempt.Route.ReceiverAmt()
-		if !isBlinded && mpp == nil && amt != payment.Info.Value {
-			return ErrValueMismatch
-		}
-
-		// Ensure we aren't sending more than the total payment amount.
-		sentAmt, _ := payment.SentAmt()
-		if sentAmt+amt > payment.Info.Value {
-			return fmt.Errorf("%w: attempted=%v, payment amount="+
-				"%v", ErrValueExceedsAmt,
-				sentAmt+amt, payment.Info.Value)
+		// Verify the attempt is compatible with the existing payment.
+		if err := verifyAttempt(payment, attempt); err != nil {
+			return err
 		}
 
 		htlcsBucket, err := bucket.CreateBucketIfNotExists(
@@ -510,7 +428,7 @@ func (p *KVPaymentsDB) RegisterAttempt(paymentHash lntypes.Hash,
 // After invoking this method, InitPayment should always return an error to
 // prevent us from making duplicate payments to the same payment hash. The
 // provided preimage is atomically saved to the DB for record keeping.
-func (p *KVPaymentsDB) SettleAttempt(hash lntypes.Hash,
+func (p *KVStore) SettleAttempt(hash lntypes.Hash,
 	attemptID uint64, settleInfo *HTLCSettleInfo) (*MPPayment, error) {
 
 	var b bytes.Buffer
@@ -523,7 +441,7 @@ func (p *KVPaymentsDB) SettleAttempt(hash lntypes.Hash,
 }
 
 // FailAttempt marks the given payment attempt failed.
-func (p *KVPaymentsDB) FailAttempt(hash lntypes.Hash,
+func (p *KVStore) FailAttempt(hash lntypes.Hash,
 	attemptID uint64, failInfo *HTLCFailInfo) (*MPPayment, error) {
 
 	var b bytes.Buffer
@@ -536,7 +454,7 @@ func (p *KVPaymentsDB) FailAttempt(hash lntypes.Hash,
 }
 
 // updateHtlcKey updates a database key for the specified htlc.
-func (p *KVPaymentsDB) updateHtlcKey(paymentHash lntypes.Hash,
+func (p *KVStore) updateHtlcKey(paymentHash lntypes.Hash,
 	attemptID uint64, key, value []byte) (*MPPayment, error) {
 
 	aid := make([]byte, 8)
@@ -608,7 +526,7 @@ func (p *KVPaymentsDB) updateHtlcKey(paymentHash lntypes.Hash,
 // payment failed. After invoking this method, InitPayment should return nil on
 // its next call for this payment hash, allowing the switch to make a
 // subsequent payment.
-func (p *KVPaymentsDB) Fail(paymentHash lntypes.Hash,
+func (p *KVStore) Fail(paymentHash lntypes.Hash,
 	reason FailureReason) (*MPPayment, error) {
 
 	var (
@@ -632,7 +550,7 @@ func (p *KVPaymentsDB) Fail(paymentHash lntypes.Hash,
 
 		// We mark the payment as failed as long as it is known. This
 		// lets the last attempt to fail with a terminal write its
-		// failure to the KVPaymentsDB without synchronizing with
+		// failure to the KVStore without synchronizing with
 		// other attempts.
 		_, err = fetchPaymentStatus(bucket)
 		if errors.Is(err, ErrPaymentNotInitiated) {
@@ -665,7 +583,7 @@ func (p *KVPaymentsDB) Fail(paymentHash lntypes.Hash,
 }
 
 // FetchPayment returns information about a payment from the database.
-func (p *KVPaymentsDB) FetchPayment(paymentHash lntypes.Hash) (
+func (p *KVStore) FetchPayment(paymentHash lntypes.Hash) (
 	*MPPayment, error) {
 
 	var payment *MPPayment
@@ -760,7 +678,7 @@ func fetchPaymentBucketUpdate(tx kvdb.RwTx, paymentHash lntypes.Hash) (
 
 // nextPaymentSequence returns the next sequence number to store for a new
 // payment.
-func (p *KVPaymentsDB) nextPaymentSequence() ([]byte, error) {
+func (p *KVStore) nextPaymentSequence() ([]byte, error) {
 	p.seqMu.Lock()
 	defer p.seqMu.Unlock()
 
@@ -821,7 +739,7 @@ func fetchPaymentStatus(bucket kvdb.RBucket) (PaymentStatus, error) {
 }
 
 // FetchInFlightPayments returns all payments with status InFlight.
-func (p *KVPaymentsDB) FetchInFlightPayments() ([]*MPPayment, error) {
+func (p *KVStore) FetchInFlightPayments() ([]*MPPayment, error) {
 	var (
 		inFlights      []*MPPayment
 		start          = time.Now()
@@ -894,7 +812,7 @@ func htlcBucketKey(prefix, id []byte) []byte {
 }
 
 // FetchPayments returns all sent payments found in the DB.
-func (p *KVPaymentsDB) FetchPayments() ([]*MPPayment, error) {
+func (p *KVStore) FetchPayments() ([]*MPPayment, error) {
 	var payments []*MPPayment
 
 	err := kvdb.View(p.db, func(tx kvdb.RTx) error {
@@ -1134,7 +1052,7 @@ func fetchFailedHtlcKeys(bucket kvdb.RBucket) ([][]byte, error) {
 // QueryPayments is a query to the payments database which is restricted
 // to a subset of payments by the payments query, containing an offset
 // index and a maximum number of returned payments.
-func (p *KVPaymentsDB) QueryPayments(_ context.Context,
+func (p *KVStore) QueryPayments(_ context.Context,
 	query Query) (Response, error) {
 
 	var resp Response
@@ -1355,7 +1273,7 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 // DeletePayment deletes a payment from the DB given its payment hash. If
 // failedHtlcsOnly is set, only failed HTLC attempts of the payment will be
 // deleted.
-func (p *KVPaymentsDB) DeletePayment(paymentHash lntypes.Hash,
+func (p *KVStore) DeletePayment(paymentHash lntypes.Hash,
 	failedHtlcsOnly bool) error {
 
 	return kvdb.Update(p.db, func(tx kvdb.RwTx) error {
@@ -1452,7 +1370,7 @@ func (p *KVPaymentsDB) DeletePayment(paymentHash lntypes.Hash,
 // failedHtlcsOnly is set, the payment itself won't be deleted, only failed HTLC
 // attempts. The method returns the number of deleted payments, which is always
 // 0 if failedHtlcsOnly is set.
-func (p *KVPaymentsDB) DeletePayments(failedOnly,
+func (p *KVStore) DeletePayments(failedOnly,
 	failedHtlcsOnly bool) (int, error) {
 
 	var numPayments int
@@ -2106,4 +2024,102 @@ func DeserializeRoute(r io.Reader) (route.Route, error) {
 	// Any new/extra TLV data is decoded in deserializeHTLCAttemptInfo!
 
 	return rt, nil
+}
+
+// serializeHTLCSettleInfo serializes the details of a settled htlc.
+func serializeHTLCSettleInfo(w io.Writer, s *HTLCSettleInfo) error {
+	if _, err := w.Write(s.Preimage[:]); err != nil {
+		return err
+	}
+
+	if err := serializeTime(w, s.SettleTime); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// deserializeHTLCSettleInfo deserializes the details of a settled htlc.
+func deserializeHTLCSettleInfo(r io.Reader) (*HTLCSettleInfo, error) {
+	s := &HTLCSettleInfo{}
+	if _, err := io.ReadFull(r, s.Preimage[:]); err != nil {
+		return nil, err
+	}
+
+	var err error
+	s.SettleTime, err = deserializeTime(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return s, nil
+}
+
+// serializeHTLCFailInfo serializes the details of a failed htlc including the
+// wire failure.
+func serializeHTLCFailInfo(w io.Writer, f *HTLCFailInfo) error {
+	if err := serializeTime(w, f.FailTime); err != nil {
+		return err
+	}
+
+	// Write failure. If there is no failure message, write an empty
+	// byte slice.
+	var messageBytes bytes.Buffer
+	if f.Message != nil {
+		err := lnwire.EncodeFailureMessage(&messageBytes, f.Message, 0)
+		if err != nil {
+			return err
+		}
+	}
+	if err := wire.WriteVarBytes(w, 0, messageBytes.Bytes()); err != nil {
+		return err
+	}
+
+	return WriteElements(w, byte(f.Reason), f.FailureSourceIndex)
+}
+
+// deserializeHTLCFailInfo deserializes the details of a failed htlc including
+// the wire failure.
+func deserializeHTLCFailInfo(r io.Reader) (*HTLCFailInfo, error) {
+	f := &HTLCFailInfo{}
+	var err error
+	f.FailTime, err = deserializeTime(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Read failure.
+	failureBytes, err := wire.ReadVarBytes(
+		r, 0, math.MaxUint16, "failure",
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(failureBytes) > 0 {
+		f.Message, err = lnwire.DecodeFailureMessage(
+			bytes.NewReader(failureBytes), 0,
+		)
+		if err != nil &&
+			!errors.Is(err, lnwire.ErrParsingExtraTLVBytes) {
+
+			return nil, err
+		}
+
+		// In case we have an invalid TLV stream regarding the extra
+		// tlv data we still continue with the decoding of the
+		// HTLCFailInfo.
+		if errors.Is(err, lnwire.ErrParsingExtraTLVBytes) {
+			log.Warnf("Failed to decode extra TLV bytes for "+
+				"failure message: %v", err)
+		}
+	}
+
+	var reason byte
+	err = ReadElements(r, &reason, &f.FailureSourceIndex)
+	if err != nil {
+		return nil, err
+	}
+	f.Reason = HTLCFailReason(reason)
+
+	return f, nil
 }

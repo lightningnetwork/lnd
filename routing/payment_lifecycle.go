@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -130,7 +129,7 @@ const (
 // wait for results, the method will exit with `stepExit` such that the payment
 // lifecycle loop will terminate.
 func (p *paymentLifecycle) decideNextStep(
-	payment DBMPPayment) (stateStep, error) {
+	payment paymentsdb.DBMPPayment) (stateStep, error) {
 
 	// Check whether we could make new HTLC attempts.
 	allow, err := payment.AllowMoreAttempts()
@@ -301,7 +300,7 @@ lifecycle:
 			continue lifecycle
 		}
 
-		log.Tracef("Found route: %s", spew.Sdump(rt.Hops))
+		log.Tracef("Found route: %s", lnutils.SpewLogClosure(rt.Hops))
 
 		// We found a route to try, create a new HTLC attempt to try.
 		attempt, err := p.registerAttempt(rt, ps.RemainingAmt)
@@ -326,7 +325,9 @@ lifecycle:
 	// terminal condition. We either return the settled preimage or the
 	// payment's failure reason.
 	//
-	// Optionally delete the failed attempts from the database.
+	// Optionally delete the failed attempts from the database. Depends on
+	// the database options deleting attempts is not allowed so this will
+	// just be a no-op.
 	err = p.router.cfg.Control.DeleteFailedAttempts(p.identifier)
 	if err != nil {
 		log.Errorf("Error deleting failed htlc attempts for payment "+
@@ -765,7 +766,7 @@ func (p *paymentLifecycle) amendFirstHopData(rt *route.Route) error {
 
 			log.Debugf("Aux traffic shaper returned custom "+
 				"records %v and amount %d msat for HTLC",
-				spew.Sdump(newRecords), newAmt)
+				lnutils.SpewLogClosure(newRecords), newAmt)
 
 			return fn.Ok(extraDataRequest{
 				customRecords: fn.Some(newRecords),
@@ -1110,7 +1111,9 @@ func (p *paymentLifecycle) patchLegacyPaymentHash(
 // reloadInflightAttempts is called when the payment lifecycle is resumed after
 // a restart. It reloads all inflight attempts from the control tower and
 // collects the results of the attempts that have been sent before.
-func (p *paymentLifecycle) reloadInflightAttempts() (DBMPPayment, error) {
+func (p *paymentLifecycle) reloadInflightAttempts() (paymentsdb.DBMPPayment,
+	error) {
+
 	payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
 	if err != nil {
 		return nil, err
@@ -1133,7 +1136,7 @@ func (p *paymentLifecycle) reloadInflightAttempts() (DBMPPayment, error) {
 }
 
 // reloadPayment returns the latest payment found in the db (control tower).
-func (p *paymentLifecycle) reloadPayment() (DBMPPayment,
+func (p *paymentLifecycle) reloadPayment() (paymentsdb.DBMPPayment,
 	*paymentsdb.MPPaymentState, error) {
 
 	// Read the db to get the latest state of the payment.

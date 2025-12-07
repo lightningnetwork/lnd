@@ -6,15 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"path"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/batch"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/kvdb/postgres"
@@ -189,7 +188,7 @@ func sqlSQLite(t testing.TB, dbPath, file string) BatchedSQLQueries {
 // database for testing purposes.
 func kvdbPostgres(t testing.TB, dsn string) kvdb.Backend {
 	kvStore, err := kvdb.Open(
-		kvdb.PostgresBackendName, context.Background(),
+		kvdb.PostgresBackendName, t.Context(),
 		&postgres.Config{
 			Dsn:            dsn,
 			MaxConnections: testMaxPostgresConnections,
@@ -217,7 +216,7 @@ func connectKVDBPostgres(t testing.TB, dsn string) V1Store {
 func kvdbSqlite(t testing.TB, dbPath, fileName string) kvdb.Backend {
 	sqlbase.Init(testMaxSQLiteConnections)
 	kvStore, err := kvdb.Open(
-		kvdb.SqliteBackendName, context.Background(),
+		kvdb.SqliteBackendName, t.Context(),
 		&sqlite.Config{
 			BusyTimeout:    testSQLBusyTimeout,
 			MaxConnections: testMaxSQLiteConnections,
@@ -273,7 +272,7 @@ func newKVStore(t testing.TB, backend kvdb.Backend) V1Store {
 // provided sqldb.DB instance.
 func newSQLExecutor(t testing.TB, db sqldb.DB) BatchedSQLQueries {
 	err := db.ApplyAllMigrations(
-		context.Background(), sqldb.GetMigrations(),
+		t.Context(), sqldb.GetMigrations(),
 	)
 	require.NoError(t, err)
 
@@ -317,7 +316,7 @@ func newSQLStore(t testing.TB, cfg *sqldb.QueryConfig,
 //     very long to sync the graph.
 func TestPopulateDBs(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// NOTE: uncomment the line below to run this test locally, then provide
 	// the desired source database (and make sure the destination Postgres
@@ -350,7 +349,7 @@ func TestPopulateDBs(t *testing.T) {
 	countNodes := func(graph *ChannelGraph) int {
 		numNodes := 0
 		err := graph.ForEachNode(
-			ctx, func(node *models.LightningNode) error {
+			ctx, func(node *models.Node) error {
 				numNodes++
 
 				return nil
@@ -429,134 +428,10 @@ func TestPopulateDBs(t *testing.T) {
 	}
 }
 
-// TestPopulateViaMigration is a helper test that can be used to populate a
-// local native SQL graph from a kvdbgraph using the migration logic.
-//
-// NOTE: the testPostgres variable can be set to true to test with a
-// postgres backend instead of the kvdb-sqlite backend.
-//
-// NOTE: this is a helper test and is not run by default.
-func TestPopulateViaMigration(t *testing.T) {
-	// ======= STEP 0 ===========
-	// Comment out this SKipf line.
-	t.Skipf("Skipping local helper test")
-
-	const (
-		srcBBolt    = "kvdb-bbolt"
-		srcSQLite   = "kvdb-sqlite"
-		srcPostgres = "kvdb-postgres"
-	)
-
-	// ======= STEP 1 ===========
-	// Set your chosen SOURCE type by uncommenting the corresponding line
-	// below. By default, a kvdb-sqlite source is chosen.
-	srcDB := srcSQLite
-	// srcDB := srcBBolt
-	// srcDB := srcPostgres
-
-	// ======= STEP 2 ============
-	// Set this variable to the correct genesis hash of the source
-	// DB. By default, mainnet is assumed.
-	chain := *chaincfg.MainNetParams.GenesisHash
-
-	// ======= STEP 3 (ignore if source is postgres) ==============
-	// If your source destination is bbolt or sqlite, then set this to the
-	// path where your source database can be found.
-	const sourceDBPath = "testdata"
-
-	// ======= STEP 4 (only if source is bbolt!) ============
-	// If your source destination is bbolt, then set this to the name of
-	// the bbolt file that contains the channel graph data.
-	const sourceBBoltName = "channel.db"
-
-	// ======= STEP 5 (only if source is sqlite!) ============
-	// If your source destination is sqlite, then set this to the name of
-	// the sqlite file that contains the channel graph data.
-	const sourceSQLiteName = "channel.sqlite"
-
-	// ======= STEP 6 (only if source is postgres!) ============
-	// Set the DNS of your kvdb postgres instance below. This should be the
-	// same as what you have set in the config of the LND node that
-	// populated the instance (ie, whatever your --db.postgres.dsn is set
-	// to).
-	const kvdbPostgresDNS = "postgres://user@host/db_name"
-
-	// ======== STEP 7 ========================
-	// Finally, pick your destination DB! You can choose either SQLite or
-	// Postgres.
-	testSQLite := true
-
-	// ======== STEP 8 (only if destination is sqlite) ========
-	// Set the path where you want to create the destination SQLite
-	// database. This should be a directory that exists and is writable.
-	const destSQLitePath = "testdata"
-
-	// ======== STEP 9 (only if destination is sqlite) ========
-	// Pick a name for your destination SQLite database file.
-	// NOTE: if you run this test again, delete the previously created
-	// file first.
-	const destSQLiteFile = "lnd-graph-test.sqlite"
-
-	// ======== STEP 10 (only if destination is postgres) ========
-	// NB: this has some additional steps:
-	// 1. First, connect to your destination postgres instance: example:
-	//	 $ psql -U ellemouton -d postgres
-	// 2. Now, create the test database:
-	//	CREATE DATABASE graphtest;
-	// NOTE: if you restart this test for postgres, it helps to first drop
-	// the new database & recreate it.
-	// NOTE: the database name that you use above must be whatever you will
-	// use in the DNS you set below.
-	const sqlPostgresDNS = "postgres://user@host/graphtest"
-
-	// ======= YOUR WORK IS DONE =============
-
-	// Connect to source database.
-	var srcKVDB kvdb.Backend
-	switch srcDB {
-	case srcBBolt:
-		srcKVDB = kvdbBBolt(t, sourceDBPath, sourceBBoltName)
-	case srcSQLite:
-		srcKVDB = kvdbSqlite(t, sourceDBPath, sourceSQLiteName)
-	case srcPostgres:
-		srcKVDB = kvdbPostgres(t, kvdbPostgresDNS)
-	default:
-		t.Fatalf("Unsupported source database backend: %s", srcDB)
-	}
-
-	// Connect to destination database.
-	cfg := sqldb.DefaultSQLiteConfig()
-	dstSQL := sqlSQLite(t, destSQLitePath, destSQLiteFile)
-	if !testSQLite {
-		cfg = sqldb.DefaultPostgresConfig()
-		dstSQL = sqlPostgres(t, sqlPostgresDNS)
-	}
-
-	// Set up a logger so we can see the migration progress.
-	logger := btclog.NewDefaultHandler(os.Stdout)
-	UseLogger(btclog.NewSLogger(logger))
-	log.SetLevel(btclog.LevelDebug)
-
-	// Use the graph migration to populate the SQL graph from the
-	// kvdb graph.
-	ctx := context.Background()
-	err := dstSQL.ExecTx(
-		ctx, sqldb.WriteTxOpt(), func(queries SQLQueries) error {
-			return MigrateGraphToSQL(
-				ctx, &SQLStoreConfig{
-					QueryCfg:  cfg,
-					ChainHash: chain,
-				}, srcKVDB, queries,
-			)
-		}, func() {},
-	)
-	require.NoError(t, err)
-}
-
 // syncGraph synchronizes the source graph with the destination graph by
 // copying all nodes and channels from the source to the destination.
 func syncGraph(t *testing.T, src, dest *ChannelGraph) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var (
 		s = rate.Sometimes{
@@ -580,12 +455,12 @@ func syncGraph(t *testing.T, src, dest *ChannelGraph) {
 	}
 
 	var wgNodes sync.WaitGroup
-	err := src.ForEachNode(ctx, func(node *models.LightningNode) error {
+	err := src.ForEachNode(ctx, func(node *models.Node) error {
 		wgNodes.Add(1)
 		go func() {
 			defer wgNodes.Done()
 
-			err := dest.AddLightningNode(ctx, node, batch.LazyAdd())
+			err := dest.AddNode(ctx, node, batch.LazyAdd())
 			require.NoError(t, err)
 
 			mu.Lock()
@@ -683,7 +558,7 @@ func syncGraph(t *testing.T, src, dest *ChannelGraph) {
 // NOTE: the TestPopulateDBs test helper can be used to populate a set of test
 // DBs from a single source db.
 func BenchmarkCacheLoading(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 
 	tests := []dbConnection{
 		kvdbBBoltConn,
@@ -723,7 +598,7 @@ func BenchmarkCacheLoading(b *testing.B) {
 // NOTE: the TestPopulateDBs test helper can be used to populate a set of test
 // DBs from a single source db.
 func BenchmarkGraphReadMethods(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 
 	backends := []dbConnection{
 		kvdbBBoltConn,
@@ -746,7 +621,7 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 			fn: func(b testing.TB, store V1Store) {
 				err := store.ForEachNode(
 					ctx,
-					func(_ *models.LightningNode) error {
+					func(_ *models.Node) error {
 						// Increment the counter to
 						// ensure the callback is doing
 						// something.
@@ -781,9 +656,10 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 		{
 			name: "NodeUpdatesInHorizon",
 			fn: func(b testing.TB, store V1Store) {
-				_, err := store.NodeUpdatesInHorizon(
+				iter := store.NodeUpdatesInHorizon(
 					time.Unix(0, 0), time.Now(),
 				)
+				_, err := fn.CollectErr(iter)
 				require.NoError(b, err)
 			},
 		},
@@ -829,9 +705,10 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 		{
 			name: "ChanUpdatesInHorizon",
 			fn: func(b testing.TB, store V1Store) {
-				_, err := store.ChanUpdatesInHorizon(
+				iter := store.ChanUpdatesInHorizon(
 					time.Unix(0, 0), time.Now(),
 				)
+				_, err := fn.CollectErr(iter)
 				require.NoError(b, err)
 			},
 		},
@@ -900,7 +777,7 @@ func BenchmarkFindOptimalSQLQueryConfig(b *testing.B) {
 	for _, size := range testSizes {
 		b.Run(fmt.Sprintf("%s-%s-%d", configOption, dbName, size),
 			func(b *testing.B) {
-				ctx := context.Background()
+				ctx := b.Context()
 
 				cfg := sqldb.DefaultSQLiteConfig()
 				if testPostgres {
@@ -932,10 +809,9 @@ func BenchmarkFindOptimalSQLQueryConfig(b *testing.B) {
 						numChannels = 0
 					)
 
-					//nolint:ll
 					err := store.ForEachNode(
 						ctx,
-						func(_ *models.LightningNode) error {
+						func(_ *models.Node) error {
 							numNodes++
 
 							return nil

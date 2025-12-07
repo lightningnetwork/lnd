@@ -189,11 +189,11 @@ func TestStoreFlapCount(t *testing.T) {
 	// flush our tick count to disk.
 	testCtx.tickFlapCount()
 
-	// Since we just tracked a offline event, we expect a single flap for
-	// our peer.
+	// Since we just tracked an offline event, we expect two flaps for our
+	// peer because the channel opening also records an online event.
 	expectedUpdate := peerFlapCountMap{
 		pubkey: {
-			Count:    1,
+			Count:    2,
 			LastFlap: testCtx.clock.Now(),
 		},
 	}
@@ -210,9 +210,9 @@ func TestStoreFlapCount(t *testing.T) {
 	testCtx.tickFlapCount()
 
 	// Since we have processed 3 more events for our peer, we update our
-	// expected online map to have a flap count of 4 for this peer.
+	// expected online map to have a flap count of 5 for this peer.
 	expectedUpdate[pubkey] = &channeldb.FlapCount{
-		Count:    4,
+		Count:    5,
 		LastFlap: testCtx.clock.Now(),
 	}
 	testCtx.assertFlapCountUpdated()
@@ -234,13 +234,13 @@ func TestGetChanInfo(t *testing.T) {
 	peer, pk, channel := ctx.newChannel()
 
 	// Send an online event for our peer, although we do not yet have an
-	// open channel.
+	// open channel - this event will be ignored.
 	ctx.peerEvent(peer, true)
 
 	// Try to get info for a channel that has not been opened yet, we
 	// expect to get an error.
 	_, err := ctx.store.GetChanInfo(channel, peer)
-	require.Equal(t, ErrChannelNotFound, err)
+	require.ErrorIs(t, err, ErrPeerNotFound)
 
 	// Now we send our store a notification that a channel has been opened.
 	ctx.sendChannelOpenedUpdate(pk, channel)
@@ -310,9 +310,13 @@ func TestFlapCount(t *testing.T) {
 
 	ctx.start()
 
-	// Create test variables for a peer and channel, but do not add it to
-	// our store yet.
-	peer1 := route.Vertex{1, 2, 3}
+	// Create a valid public key for our peer.
+	priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	pubkeyBytes := priv.PubKey().SerializeCompressed()
+
+	var peer1 route.Vertex
+	copy(peer1[:], pubkeyBytes)
 
 	// First, query for a peer that we have no record of in memory or on
 	// disk and confirm that we indicate that the peer was not found.
@@ -320,10 +324,23 @@ func TestFlapCount(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, ts)
 
-	// Send an online event for our peer.
+	// Send an online event for our peer - given this peer doesn't have a
+	// channel with, this event will be ignored.
 	ctx.peerEvent(peer1, true)
 
-	// Assert that we now find a record of the peer with flap count = 1.
+	// Assert the event is ignored.
+	_, ts, err = ctx.store.FlapCount(peer1)
+	require.NoError(t, err)
+	require.Nil(t, ts)
+
+	// Create a channel for the peer so that it will be tracked by the
+	// store.
+	pk, err := btcec.ParsePubKey(peer1[:])
+	require.NoError(t, err)
+	ctx.sendChannelOpenedUpdate(pk, wire.OutPoint{Index: 9})
+
+	// Assert that we now find a record of the peer with flap count = 1,
+	// because the channel open fires an online event.
 	count, ts, err := ctx.store.FlapCount(peer1)
 	require.NoError(t, err)
 	require.Equal(t, lastFlap, *ts)

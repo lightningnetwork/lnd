@@ -1,7 +1,6 @@
 package channeldb
 
 import (
-	"context"
 	"image/color"
 	"math"
 	"math/rand"
@@ -20,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/stretchr/testify/require"
 )
@@ -181,7 +181,7 @@ func TestFetchClosedChannelForID(t *testing.T) {
 // channel db and graph db.
 func TestMultiSourceAddrsForNode(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
@@ -808,27 +808,28 @@ func TestFetchPermTempPeer(t *testing.T) {
 	)
 }
 
-func createLightningNode(priv *btcec.PrivateKey) *models.LightningNode {
+func createNode(priv *btcec.PrivateKey) *models.Node {
 	updateTime := rand.Int63()
 
 	pub := priv.PubKey().SerializeCompressed()
-	n := &models.LightningNode{
-		HaveNodeAnnouncement: true,
-		AuthSigBytes:         testSig.Serialize(),
-		LastUpdate:           time.Unix(updateTime, 0),
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "kek" + string(pub),
-		Features:             testFeatures,
-		Addresses:            testAddrs,
-	}
-	copy(n.PubKeyBytes[:], priv.PubKey().SerializeCompressed())
+	n := models.NewV1Node(
+		route.NewVertex(priv.PubKey()),
+		&models.NodeV1Fields{
+			AuthSigBytes: testSig.Serialize(),
+			LastUpdate:   time.Unix(updateTime, 0),
+			Color:        color.RGBA{1, 2, 3, 0},
+			Alias:        "kek" + string(pub),
+			Features:     testFeatures.RawFeatureVector,
+			Addresses:    testAddrs,
+		},
+	)
 
 	return n
 }
 
-func createTestVertex(t *testing.T) *models.LightningNode {
+func createTestVertex(t *testing.T) *models.Node {
 	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
-	return createLightningNode(priv)
+	return createNode(priv)
 }

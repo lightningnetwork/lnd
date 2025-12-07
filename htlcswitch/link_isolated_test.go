@@ -95,7 +95,7 @@ func (l *linkTestContext) receiveHtlcAliceToBob() {
 func (l *linkTestContext) sendCommitSigBobToAlice(expHtlcs int) {
 	l.t.Helper()
 
-	testQuit, testQuitFunc := context.WithCancel(context.Background())
+	testQuit, testQuitFunc := context.WithCancel(l.t.Context())
 	defer testQuitFunc()
 	sigs, err := l.bobChannel.SignNextCommitment(testQuit)
 	if err != nil {

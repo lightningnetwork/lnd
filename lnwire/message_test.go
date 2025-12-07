@@ -670,11 +670,11 @@ func newMsgChannelAnnouncement(t testing.TB,
 }
 
 func newMsgNodeAnnouncement(t testing.TB,
-	r *rand.Rand) *lnwire.NodeAnnouncement {
+	r *rand.Rand) *lnwire.NodeAnnouncement1 {
 
 	t.Helper()
 
-	msg := &lnwire.NodeAnnouncement{
+	msg := &lnwire.NodeAnnouncement1{
 		Features:  rawFeatureVector(),
 		Timestamp: uint32(r.Int31()),
 		Alias:     randAlias(r),
@@ -1000,13 +1000,32 @@ func randV3OnionAddr(t testing.TB, r *rand.Rand) *tor.OnionAddr {
 	return &tor.OnionAddr{OnionService: onionService, Port: addrPort}
 }
 
+// randDNSAddr generates a random DNS address for testing purposes.
+func randDNSAddr(t testing.TB, r *rand.Rand) *lnwire.DNSAddress {
+	t.Helper()
+
+	var domain [1]byte
+	_, err := r.Read(domain[:])
+	require.NoError(t, err)
+
+	var port [2]byte
+	_, err = r.Read(port[:])
+	require.NoError(t, err, "unable to read port")
+
+	return &lnwire.DNSAddress{
+		Hostname: string(domain[:]),
+		Port:     uint16(port[0]),
+	}
+}
+
 func randAddrs(t testing.TB, r *rand.Rand) []net.Addr {
 	tcp4Addr := randTCP4Addr(t, r)
 	tcp6Addr := randTCP6Addr(t, r)
 	v2OnionAddr := randV2OnionAddr(t, r)
 	v3OnionAddr := randV3OnionAddr(t, r)
+	dnsAddr := randDNSAddr(t, r)
 
-	return []net.Addr{tcp4Addr, tcp6Addr, v2OnionAddr, v3OnionAddr}
+	return []net.Addr{tcp4Addr, tcp6Addr, v2OnionAddr, v3OnionAddr, dnsAddr}
 }
 
 func randAlias(r *rand.Rand) lnwire.NodeAlias {

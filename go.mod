@@ -11,7 +11,7 @@ require (
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b
-	github.com/btcsuite/btcwallet v0.16.15-0.20250805011126-a3632ae48ab3
+	github.com/btcsuite/btcwallet v0.16.17
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.5
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.2
 	github.com/btcsuite/btcwallet/walletdb v1.5.1
@@ -35,11 +35,11 @@ require (
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240815225420-8b40adf04ab9
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
-	github.com/lightningnetwork/lnd/fn/v2 v2.0.8
+	github.com/lightningnetwork/lnd/fn/v2 v2.0.9
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6
 	github.com/lightningnetwork/lnd/kvdb v1.4.16
 	github.com/lightningnetwork/lnd/queue v1.1.1
-	github.com/lightningnetwork/lnd/sqldb v1.0.10
+	github.com/lightningnetwork/lnd/sqldb v1.0.11
 	github.com/lightningnetwork/lnd/ticker v1.1.1
 	github.com/lightningnetwork/lnd/tlv v1.3.2
 	github.com/lightningnetwork/lnd/tor v1.1.6
@@ -54,7 +54,6 @@ require (
 	golang.org/x/crypto v0.37.0
 	golang.org/x/exp v0.0.0-20240325151524-a685a6edb6d8
 	golang.org/x/mobile v0.0.0-20190719004257-d2bd2a29d028
-	golang.org/x/net v0.39.0
 	golang.org/x/sync v0.13.0
 	golang.org/x/term v0.31.0
 	golang.org/x/time v0.3.0
@@ -96,7 +95,7 @@ require (
 	github.com/fsnotify/fsnotify v1.5.4 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-viper/mapstructure/v2 v2.3.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/golang-migrate/migrate/v4 v4.17.0 // indirect
@@ -153,7 +152,7 @@ require (
 	github.com/shurcooL/sanitized_anchor_name v1.0.0 // indirect
 	github.com/sirupsen/logrus v1.9.2 // indirect
 	github.com/soheilhy/cmux v0.1.5 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802 // indirect
@@ -163,7 +162,7 @@ require (
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
 	gitlab.com/yawning/bsaes.git v0.0.0-20190805113838-0a714cd429ec // indirect
-	go.etcd.io/bbolt v1.3.11 // indirect
+	go.etcd.io/bbolt v1.4.3 // indirect
 	go.etcd.io/etcd/api/v3 v3.5.12 // indirect
 	go.etcd.io/etcd/client/v2 v2.305.12 // indirect
 	go.etcd.io/etcd/pkg/v3 v3.5.12 // indirect
@@ -182,6 +181,7 @@ require (
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.17.0 // indirect
 	golang.org/x/mod v0.17.0 // indirect
+	golang.org/x/net v0.39.0 // indirect
 	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
 	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
@@ -202,8 +202,7 @@ require (
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
 
-// TODO(elle): remove once all the schemas and queries for the graph
-// store have been included in a tagged sqldb version.
+// TODO(elle): remove once the gossip V2 sqldb changes have been made.
 replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 
 // This replace is for https://github.com/advisories/GHSA-25xm-hr59-7c27
@@ -220,6 +219,6 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 // If you change this please also update docs/INSTALL.md and GO_VERSION in
 // Makefile (then run `make lint` to see where else it needs to be updated as
 // well).
-go 1.23.12
+go 1.24.9
 
 retract v0.0.2

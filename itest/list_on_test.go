@@ -63,6 +63,14 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testFundingExpiryBlocksOnPending,
 	},
 	{
+		Name:     "pending channel confirmation until active",
+		TestFunc: testPendingChannelConfirmationUntilActive,
+	},
+	{
+		Name:     "pending channel reorg test",
+		TestFunc: testPendingChannelAfterReorg,
+	},
+	{
 		Name:     "list channels",
 		TestFunc: testListChannels,
 	},
@@ -171,6 +179,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testUpdateNodeAnnouncement,
 	},
 	{
+		Name:     "self node announcement persistence",
+		TestFunc: testSelfNodeAnnouncementPersistence,
+	},
+	{
 		Name:     "list payments",
 		TestFunc: testListPayments,
 	},
@@ -273,6 +285,10 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "open channel reorg test",
 		TestFunc: testOpenChannelAfterReorg,
+	},
+	{
+		Name:     "open channel with shutdown address",
+		TestFunc: testOpenChannelWithShutdownAddr,
 	},
 	{
 		Name:     "sign psbt",
@@ -518,6 +534,10 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "custom message",
 		TestFunc: testCustomMessage,
+	},
+	{
+		Name:     "onion message",
+		TestFunc: testOnionMessage,
 	},
 	{
 		Name:     "sign verify message with addr",

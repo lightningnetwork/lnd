@@ -184,7 +184,7 @@ func makeTestGraph(t *testing.T, useCache bool) (*graphdb.ChannelGraph,
 func parseTestGraph(t *testing.T, useCache bool, path string) (
 	*testGraphInstance, error) {
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	graphJSON, err := os.ReadFile(path)
 	if err != nil {
@@ -219,7 +219,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 	privKeyMap := make(map[string]*btcec.PrivateKey)
 	channelIDs := make(map[route.Vertex]map[route.Vertex]uint64)
 	links := make(map[lnwire.ShortChannelID]htlcswitch.ChannelLink)
-	var source *models.LightningNode
+	var source *models.Node
 
 	// First we insert all the nodes within the graph as vertexes.
 	for _, node := range g.Nodes {
@@ -228,15 +228,16 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			return nil, err
 		}
 
-		dbNode := &models.LightningNode{
-			HaveNodeAnnouncement: true,
-			AuthSigBytes:         testSig.Serialize(),
-			LastUpdate:           testTime,
-			Addresses:            testAddrs,
-			Alias:                node.Alias,
-			Features:             testFeatures,
-		}
-		copy(dbNode.PubKeyBytes[:], pubBytes)
+		pubKey, err := route.NewVertexFromBytes(pubBytes)
+		require.NoError(t, err)
+
+		dbNode := models.NewV1Node(pubKey, &models.NodeV1Fields{
+			AuthSigBytes: testSig.Serialize(),
+			LastUpdate:   testTime,
+			Addresses:    testAddrs,
+			Alias:        node.Alias,
+			Features:     testFeatures.RawFeatureVector,
+		})
 
 		// We require all aliases within the graph to be unique for our
 		// tests.
@@ -293,14 +294,14 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			source = dbNode
 
 			// If this is the source node, we don't have to call
-			// AddLightningNode below since we will call
+			// AddNode below since we will call
 			// SetSourceNode later.
 			continue
 		}
 
 		// With the node fully parsed, add it as a vertex within the
 		// graph.
-		if err := graph.AddLightningNode(ctx, dbNode); err != nil {
+		if err := graph.AddNode(ctx, dbNode); err != nil {
 			return nil, err
 		}
 	}
@@ -526,7 +527,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 	testChannels []*testChannel, source string,
 	sourceFeatureBits ...lnwire.FeatureBit) (*testGraphInstance, error) {
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// We'll use this fake address for the IP address of all the nodes in
 	// our tests. This value isn't needed for path finding so it doesn't
@@ -565,16 +566,15 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			features = lnwire.EmptyFeatureVector()
 		}
 
-		dbNode := &models.LightningNode{
-			HaveNodeAnnouncement: true,
-			AuthSigBytes:         testSig.Serialize(),
-			LastUpdate:           testTime,
-			Addresses:            testAddrs,
-			Alias:                alias,
-			Features:             features,
-		}
-
-		copy(dbNode.PubKeyBytes[:], pubKey.SerializeCompressed())
+		dbNode := models.NewV1Node(
+			route.NewVertex(pubKey), &models.NodeV1Fields{
+				AuthSigBytes: testSig.Serialize(),
+				LastUpdate:   testTime,
+				Addresses:    testAddrs,
+				Alias:        alias,
+				Features:     features.RawFeatureVector,
+			},
+		)
 
 		privKeyMap[alias] = privKey
 
@@ -584,7 +584,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			err = graph.SetSourceNode(ctx, dbNode)
 			require.NoError(t, err)
 		} else {
-			err := graph.AddLightningNode(ctx, dbNode)
+			err := graph.AddNode(ctx, dbNode)
 			require.NoError(t, err)
 		}
 
@@ -1090,7 +1090,7 @@ func runBasicGraphPathFinding(t *testing.T, useCache bool) {
 func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstance,
 	test *basicGraphPathFindingTestCase) {
 
-	ctx := context.Background()
+	ctx := t.Context()
 	aliases := graphInstance.aliasMap
 	expectedHops := test.expectedHops
 	expectedHopCount := len(expectedHops)
@@ -1235,7 +1235,7 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
@@ -1250,13 +1250,13 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	dogePubKeyHex := "03dd46ff29a6941b4a2607525b043ec9b020b3f318a1bf281536fd7011ec59c882"
 	dogePubKeyBytes, err := hex.DecodeString(dogePubKeyHex)
 	require.NoError(t, err, "unable to decode public key")
-	dogePubKey, err := btcec.ParsePubKey(dogePubKeyBytes)
-	require.NoError(t, err, "unable to parse public key from bytes")
 
-	doge := &models.LightningNode{}
-	doge.AddPubKey(dogePubKey)
-	doge.Alias = "doge"
-	copy(doge.PubKeyBytes[:], dogePubKeyBytes)
+	pubKey, err := route.NewVertexFromBytes(dogePubKeyBytes)
+	require.NoError(t, err)
+
+	doge := models.NewV1Node(pubKey, &models.NodeV1Fields{
+		Alias: "doge",
+	})
 	graph.aliasMap["doge"] = doge.PubKeyBytes
 
 	// Create the channel edge going from songoku to doge and include it in
@@ -1320,7 +1320,7 @@ func runPathFindingWithBlindedPathDuplicateHop(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
@@ -1807,7 +1807,7 @@ func runPathNotAvailable(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
@@ -1865,7 +1865,7 @@ func runDestTLVGraphFallback(t *testing.T, useCache bool) {
 
 	ctx := newPathFindingTestContext(t, useCache, testChannels, "roasbeef")
 
-	sourceNode, err := ctx.graph.SourceNode(context.Background())
+	sourceNode, err := ctx.graph.SourceNode(t.Context())
 	require.NoError(t, err, "unable to fetch source node")
 
 	find := func(r *RestrictParams,
@@ -2083,7 +2083,7 @@ func runPathInsufficientCapacity(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	ctx := context.Background()
+	ctx := t.Context()
 	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
@@ -2114,7 +2114,7 @@ func runRouteFailMinHTLC(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	ctx := context.Background()
+	ctx := t.Context()
 	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
@@ -2179,7 +2179,7 @@ func runRouteFailMaxHTLC(t *testing.T, useCache bool) {
 	midEdge.MessageFlags = 1
 	midEdge.MaxHTLC = payAmt - 1
 	midEdge.LastUpdate = midEdge.LastUpdate.Add(time.Second)
-	err = graph.UpdateEdgePolicy(context.Background(), midEdge)
+	err = graph.UpdateEdgePolicy(t.Context(), midEdge)
 	require.NoError(t, err)
 
 	// We'll now attempt to route through that edge with a payment above
@@ -2199,7 +2199,7 @@ func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	ctx := context.Background()
+	ctx := t.Context()
 	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
@@ -2268,7 +2268,7 @@ func runPathSourceEdgesBandwidth(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	ctx := context.Background()
+	ctx := t.Context()
 	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
@@ -3202,7 +3202,7 @@ func newPathFindingTestContext(t *testing.T, useCache bool,
 	require.NoError(t, err, "unable to create graph")
 
 	sourceNode, err := testGraphInstance.graph.SourceNode(
-		context.Background(),
+		t.Context(),
 	)
 	require.NoError(t, err, "unable to fetch source node")
 

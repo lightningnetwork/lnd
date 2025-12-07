@@ -1,7 +1,6 @@
 package sqldb
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"path/filepath"
@@ -75,7 +74,7 @@ func TestMigrations(t *testing.T) {
 // 2592000 seconds for AMP invoices.
 func testInvoiceExpiryMigration(t *testing.T, makeDB makeMigrationTestDB) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	// Create a new database that already has the first version of the
 	// native invoice schema.
@@ -276,7 +275,7 @@ func TestCustomMigration(t *testing.T) {
 		},
 	}
 
-	ctxb := context.Background()
+	ctxb := t.Context()
 	for _, test := range tests {
 		// checkSchemaVersion checks the database schema version against
 		// the expected version.
@@ -391,7 +390,7 @@ func TestCustomMigration(t *testing.T) {
 				"migrations", dbName)
 
 			_, err := fixture.db.ExecContext(
-				context.Background(), "CREATE DATABASE "+dbName,
+				t.Context(), "CREATE DATABASE "+dbName,
 			)
 			require.NoError(t, err)
 
@@ -490,7 +489,7 @@ func TestSchemaMigrationIdempotency(t *testing.T) {
 				)
 			})
 
-			ctxb := context.Background()
+			ctxb := t.Context()
 			require.NoError(
 				t, db.ApplyAllMigrations(ctxb, GetMigrations()),
 			)
@@ -536,7 +535,7 @@ func TestSchemaMigrationIdempotency(t *testing.T) {
 			"migrations", dbName)
 
 		_, err := fixture.db.ExecContext(
-			context.Background(), "CREATE DATABASE "+dbName,
+			t.Context(), "CREATE DATABASE "+dbName,
 		)
 		require.NoError(t, err)
 
@@ -550,7 +549,7 @@ func TestSchemaMigrationIdempotency(t *testing.T) {
 			db, err = NewPostgresStore(cfg)
 			require.NoError(t, err)
 
-			ctxb := context.Background()
+			ctxb := t.Context()
 			require.NoError(
 				t, db.ApplyAllMigrations(ctxb, GetMigrations()),
 			)
@@ -601,7 +600,7 @@ func TestMigrationSucceedsAfterDirtyStateMigrationFailure19RC1(t *testing.T) {
 		failingSchemaVersion        = 3
 	)
 
-	ctxb := context.Background()
+	ctxb := t.Context()
 	migrations := GetMigrations()
 	migrations = migrations[:maxSchemaVersionBefore19RC1]
 	lastMigration := migrations[len(migrations)-1]
@@ -692,7 +691,7 @@ func TestMigrationSucceedsAfterDirtyStateMigrationFailure19RC1(t *testing.T) {
 			"migrations", dbName)
 
 		_, err := fixture.db.ExecContext(
-			context.Background(), "CREATE DATABASE "+dbName,
+			t.Context(), "CREATE DATABASE "+dbName,
 		)
 		require.NoError(t, err)
 

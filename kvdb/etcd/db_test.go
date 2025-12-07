@@ -19,7 +19,7 @@ func TestDump(t *testing.T) {
 
 	f := NewEtcdTestFixture(t)
 
-	db, err := newEtcdBackend(context.Background(), f.BackendConfig())
+	db, err := newEtcdBackend(t.Context(), f.BackendConfig())
 	require.NoError(t, err)
 
 	err = db.Update(func(tx walletdb.ReadWriteTx) error {
@@ -53,7 +53,7 @@ func TestAbortContext(t *testing.T) {
 
 	f := NewEtcdTestFixture(t)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	config := f.BackendConfig()
 
@@ -83,7 +83,7 @@ func TestNewEtcdClient(t *testing.T) {
 	f := NewEtcdTestFixture(t)
 
 	client, ctx, cancel, err := NewEtcdClient(
-		context.Background(), f.BackendConfig(),
+		t.Context(), f.BackendConfig(),
 	)
 	require.NoError(t, err)
 	t.Cleanup(cancel)

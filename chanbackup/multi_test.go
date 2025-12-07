@@ -23,7 +23,7 @@ func TestMultiPackUnpack(t *testing.T) {
 		}
 
 		single := NewSingle(
-			channel, []net.Addr{addr1, addr2, addr3, addr4},
+			channel, []net.Addr{addr1, addr2, addr3, addr4, addr5},
 		)
 
 		originalSingles = append(originalSingles, single)

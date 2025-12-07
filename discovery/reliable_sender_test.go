@@ -71,7 +71,7 @@ func assertMsgsSent(t *testing.T, msgChan chan lnwire.Message,
 // a peer while taking into account its connection lifecycle works as expected.
 func TestReliableSenderFlow(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	reliableSender := newTestReliableSender(t)
 
@@ -188,7 +188,7 @@ func TestReliableSenderFlow(t *testing.T) {
 // them as stale.
 func TestReliableSenderStaleMessages(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	reliableSender := newTestReliableSender(t)
 

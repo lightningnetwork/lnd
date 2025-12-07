@@ -978,6 +978,73 @@ func TestChannelStateTransition(t *testing.T) {
 	require.Empty(t, fwdPkgs, "no forwarding packages should exist")
 }
 
+// TestOpeningChannelTxConfirmation verifies that calling MarkConfirmationHeight
+// correctly updates the confirmed state. It also ensures that calling Refresh
+// on a different OpenChannel updates its in-memory state to reflect the prior
+// MarkConfirmationHeight call.
+func TestOpeningChannelTxConfirmation(t *testing.T) {
+	t.Parallel()
+
+	fullDB, err := MakeTestDB(t)
+	require.NoError(t, err)
+
+	cdb := fullDB.ChannelStateDB()
+
+	// Create a pending channel that was broadcast at height 99.
+	const broadcastHeight = uint32(99)
+	channelState := createTestChannel(
+		t, cdb, pendingHeightOption(broadcastHeight),
+	)
+
+	// Fetch pending channels from the database.
+	pendingChannels, err := cdb.FetchPendingChannels()
+	require.NoError(t, err)
+	require.Len(t, pendingChannels, 1)
+
+	// Verify the broadcast height of the pending channel.
+	require.Equal(
+		t, broadcastHeight, pendingChannels[0].FundingBroadcastHeight,
+	)
+
+	confirmationHeight := broadcastHeight + 1
+
+	// Mark the channel's confirmation height.
+	err = pendingChannels[0].MarkConfirmationHeight(confirmationHeight)
+	require.NoError(t, err)
+
+	// Verify the ConfirmationHeight is updated correctly.
+	require.Equal(
+		t, confirmationHeight, pendingChannels[0].ConfirmationHeight,
+	)
+
+	// Re-fetch the pending channels to confirm persistence.
+	pendingChannels, err = cdb.FetchPendingChannels()
+	require.NoError(t, err)
+	require.Len(t, pendingChannels, 1)
+
+	// Validate the confirmation and broadcast height.
+	require.Equal(
+		t, confirmationHeight, pendingChannels[0].ConfirmationHeight,
+	)
+	require.Equal(
+		t, broadcastHeight, pendingChannels[0].FundingBroadcastHeight,
+	)
+
+	// Ensure the original channel state's confirmation height is not
+	// updated before refresh.
+	require.EqualValues(t, channelState.ConfirmationHeight, 0)
+
+	// Refresh the original channel state.
+	err = channelState.Refresh()
+	require.NoError(t, err)
+
+	// Verify that both channel states now have the same ConfirmationHeight.
+	require.Equal(
+		t, channelState.ConfirmationHeight,
+		pendingChannels[0].ConfirmationHeight,
+	)
+}
+
 func TestFetchPendingChannels(t *testing.T) {
 	t.Parallel()
 
@@ -1007,7 +1074,7 @@ func TestFetchPendingChannels(t *testing.T) {
 	}
 
 	chanOpenLoc := lnwire.ShortChannelID{
-		BlockHeight: 5,
+		BlockHeight: broadcastHeight + 1,
 		TxIndex:     10,
 		TxPosition:  15,
 	}

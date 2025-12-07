@@ -19,7 +19,8 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
-	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/aliasmgr"
+	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/buffer"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -46,6 +47,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/onionmessage"
 	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/protofsm"
 	"github.com/lightningnetwork/lnd/queue"
@@ -328,7 +330,7 @@ type Config struct {
 	// GenNodeAnnouncement is used to send our node announcement to the remote
 	// on startup.
 	GenNodeAnnouncement func(...netann.NodeAnnModifier) (
-		lnwire.NodeAnnouncement, error)
+		lnwire.NodeAnnouncement1, error)
 
 	// PrunePersistentPeerConnection is used to remove all internal state
 	// related to this peer in the server.
@@ -404,8 +406,8 @@ type Config struct {
 	RequestAlias func() (lnwire.ShortChannelID, error)
 
 	// AddLocalAlias persists an alias to an underlying alias store.
-	AddLocalAlias func(alias, base lnwire.ShortChannelID,
-		gossip, liveUpdate bool) error
+	AddLocalAlias func(alias, base lnwire.ShortChannelID, gossip,
+		liveUpdate bool, opts ...aliasmgr.AddLocalAliasOption) error
 
 	// AuxLeafStore is an optional store that can be used to store auxiliary
 	// leaves for certain custom channel types.
@@ -456,6 +458,15 @@ type Config struct {
 	// AuxChanCloser is an optional instance of an abstraction that can be
 	// used to modify the way the co-op close transaction is constructed.
 	AuxChanCloser fn.Option[chancloser.AuxChanCloser]
+
+	// AuxChannelNegotiator is an optional interface that allows aux channel
+	// implementations to inject and process custom records over channel
+	// related wire messages.
+	AuxChannelNegotiator fn.Option[lnwallet.AuxChannelNegotiator]
+
+	// OnionMessageServer is an instance of a message server that dispatches
+	// onion messages to subscribers.
+	OnionMessageServer *subscribe.Server
 
 	// ShouldFwdExpEndorsement is a closure that indicates whether
 	// experimental endorsement signals should be set.
@@ -892,6 +903,21 @@ func (p *Brontide) Start() error {
 		return fmt.Errorf("unable to load channels: %w", err)
 	}
 
+	onionMessageEndpoint := onionmessage.NewOnionEndpoint(
+		p.cfg.OnionMessageServer,
+	)
+
+	// We register the onion message endpoint with the message router.
+	err = fn.MapOptionZ(p.msgRouter, func(r msgmux.Router) error {
+		_ = r.UnregisterEndpoint(onionMessageEndpoint.Name())
+
+		return r.RegisterEndpoint(onionMessageEndpoint)
+	})
+	if err != nil {
+		return fmt.Errorf("unable to register endpoint for onion "+
+			"messaging: %w", err)
+	}
+
 	p.startTime = time.Now()
 
 	// Before launching the writeHandler goroutine, we send any channel
@@ -1230,7 +1256,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		}
 
 		p.log.Tracef("Using link policy of: %v",
-			spew.Sdump(forwardingPolicy))
+			lnutils.SpewLogClosure(forwardingPolicy))
 
 		// If the channel is pending, set the value to nil in the
 		// activeChannels map. This is done to signify that the channel
@@ -1455,8 +1481,9 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		ShouldFwdExpEndorsement: p.cfg.ShouldFwdExpEndorsement,
 		DisallowQuiescence: p.cfg.DisallowQuiescence ||
 			!p.remoteFeatures.HasFeature(lnwire.QuiescenceOptional),
-		AuxTrafficShaper:  p.cfg.AuxTrafficShaper,
-		QuiescenceTimeout: p.cfg.QuiescenceTimeout,
+		AuxTrafficShaper:     p.cfg.AuxTrafficShaper,
+		AuxChannelNegotiator: p.cfg.AuxChannelNegotiator,
+		QuiescenceTimeout:    p.cfg.QuiescenceTimeout,
 	}
 
 	// Before adding our new link, purge the switch of any pending or live
@@ -2085,7 +2112,7 @@ out:
 				idleTimer.Reset(idleTimeout)
 				continue
 
-			// If the NodeAnnouncement has an invalid alias, then
+			// If the NodeAnnouncement1 has an invalid alias, then
 			// we'll log that error above and continue so we can
 			// continue to read messages from the peer. We do not
 			// store this error because it is of little debugging
@@ -2206,7 +2233,7 @@ out:
 
 		case *lnwire.ChannelUpdate1,
 			*lnwire.ChannelAnnouncement1,
-			*lnwire.NodeAnnouncement,
+			*lnwire.NodeAnnouncement1,
 			*lnwire.AnnounceSignatures1,
 			*lnwire.GossipTimestampRange,
 			*lnwire.QueryShortChanIDs,
@@ -2487,7 +2514,7 @@ func messageSummary(msg lnwire.Message) string {
 			msg.ShortChannelID.ToUint64(), msg.MessageFlags,
 			msg.ChannelFlags, time.Unix(int64(msg.Timestamp), 0))
 
-	case *lnwire.NodeAnnouncement:
+	case *lnwire.NodeAnnouncement1:
 		return fmt.Sprintf("node=%x, update_time=%v",
 			msg.NodeID, time.Unix(int64(msg.Timestamp), 0))
 
@@ -2706,6 +2733,13 @@ out:
 				goto retry
 			}
 
+			// Message has either been successfully sent or an
+			// unrecoverable error occurred.  Either way, we can
+			// free the memory used to store the message.
+			if bConn, ok := p.cfg.Conn.(*brontide.Conn); ok {
+				bConn.ClearPendingSend()
+			}
+
 			// The write succeeded, reset the idle timer to prevent
 			// us from disconnecting the peer.
 			if !idleTimer.Stop() {
@@ -2839,7 +2873,7 @@ func (p *Brontide) queue(priority bool, msg lnwire.Message,
 	case p.outgoingQueue <- outgoingMsg{priority, msg, errChan}:
 	case <-p.cg.Done():
 		p.log.Tracef("Peer shutting down, could not enqueue msg: %v.",
-			spew.Sdump(msg))
+			lnutils.SpewLogClosure(msg))
 		if errChan != nil {
 			errChan <- lnpeer.ErrPeerExiting
 		}
@@ -3555,9 +3589,9 @@ func (p *Brontide) initNegotiateChanCloser(req *htlcswitch.ChanClose,
 	return nil
 }
 
-// chooseAddr returns the provided address if it is non-zero length, otherwise
+// ChooseAddr returns the provided address if it is non-zero length, otherwise
 // None.
-func chooseAddr(addr lnwire.DeliveryAddress) fn.Option[lnwire.DeliveryAddress] {
+func ChooseAddr(addr lnwire.DeliveryAddress) fn.Option[lnwire.DeliveryAddress] {
 	if len(addr) == 0 {
 		return fn.None[lnwire.DeliveryAddress]()
 	}
@@ -3896,10 +3930,10 @@ func (p *Brontide) initRbfChanCloser(
 		ChanType:       channel.ChanType(),
 		DefaultFeeRate: defaultFeePerKw.FeePerVByte(),
 		ThawHeight:     fn.Some(thawHeight),
-		RemoteUpfrontShutdown: chooseAddr(
+		RemoteUpfrontShutdown: ChooseAddr(
 			channel.RemoteUpfrontShutdownScript(),
 		),
-		LocalUpfrontShutdown: chooseAddr(
+		LocalUpfrontShutdown: ChooseAddr(
 			channel.LocalUpfrontShutdownScript(),
 		),
 		NewDeliveryScript: func() (lnwire.DeliveryAddress, error) {
@@ -4538,6 +4572,19 @@ func (p *Brontide) handleInitMsg(msg *lnwire.Init) error {
 		return fmt.Errorf("data loss protection required")
 	}
 
+	// If we have an AuxChannelNegotiator and the peer sent aux features,
+	// process them.
+	p.cfg.AuxChannelNegotiator.WhenSome(
+		func(acn lnwallet.AuxChannelNegotiator) {
+			err = acn.ProcessInitRecords(
+				p.cfg.PubKeyBytes, msg.CustomRecords.Copy(),
+			)
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("could not process init records: %w", err)
+	}
+
 	return nil
 }
 
@@ -4597,6 +4644,30 @@ func (p *Brontide) sendInitMsg(legacyChan bool) error {
 		legacyFeatures.RawFeatureVector,
 		features.RawFeatureVector,
 	)
+
+	var err error
+
+	// If we have an AuxChannelNegotiator, get custom feature bits to
+	// include in the init message.
+	p.cfg.AuxChannelNegotiator.WhenSome(
+		func(negotiator lnwallet.AuxChannelNegotiator) {
+			var auxRecords lnwire.CustomRecords
+			auxRecords, err = negotiator.GetInitRecords(
+				p.cfg.PubKeyBytes,
+			)
+			if err != nil {
+				p.log.Warnf("Failed to get aux init features: "+
+					"%v", err)
+				return
+			}
+
+			mergedRecs := msg.CustomRecords.MergedCopy(auxRecords)
+			msg.CustomRecords = mergedRecs
+		},
+	)
+	if err != nil {
+		return err
+	}
 
 	return p.writeMessage(msg)
 }

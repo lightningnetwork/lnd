@@ -339,7 +339,7 @@ type Config struct {
 	RawRPCListeners   []string `long:"rpclisten" description:"Add an interface/port/socket to listen for RPC connections"`
 	RawRESTListeners  []string `long:"restlisten" description:"Add an interface/port/socket to listen for REST connections"`
 	RawListeners      []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
-	RawExternalIPs    []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
+	RawExternalIPs    []string `long:"externalip" description:"Add an ip:port (local addresses we listen on) to advertise to the network (default port 9735 is used if port is not specified). Note: Removing this option does not clear previously advertised addresses; remove them with 'lncli peers updatenodeannouncement --address_remove=host:port'."`
 	ExternalHosts     []string `long:"externalhosts" description:"Add a hostname:port that should be periodically resolved to announce IPs for. If a port is not specified, the default (9735) will be used."`
 	RPCListeners      []net.Addr
 	RESTListeners     []net.Addr
@@ -537,6 +537,15 @@ type Config struct {
 	// NoDisconnectOnPongFailure controls if we'll disconnect if a peer
 	// doesn't respond to a pong in time.
 	NoDisconnectOnPongFailure bool `long:"no-disconnect-on-pong-failure" description:"If true, a peer will *not* be disconnected if a pong is not received in time or is mismatched. Defaults to false, meaning peers *will* be disconnected on pong failure."`
+
+	// UpfrontShutdownAddr specifies an address that our funds will be paid
+	// out to on cooperative channel close. This applies to all new channel
+	// opens unless overridden by an option in openchannel or by a channel
+	// acceptor.
+	// Note: If this field is set when opening a channel with a peer that
+	// does not advertise support for the upfront shutdown feature, the
+	// channel open will fail.
+	UpfrontShutdownAddr string `long:"upfront-shutdown-address" description:"The address to which funds will be paid out during a cooperative channel close. This applies to all channels opened after this option is set, unless overridden for a specific channel opening. Note: If this option is set, any channel opening will fail if the peer does not explicitly advertise support for the upfront-shutdown feature bit."`
 }
 
 // GRPCConfig holds the configuration options for the gRPC server.
@@ -720,6 +729,8 @@ func DefaultConfig() Config {
 			MsgRateBytes:          discovery.DefaultMsgBytesPerSecond,
 			MsgBurstBytes:         discovery.DefaultMsgBytesBurst,
 			FilterConcurrency:     discovery.DefaultFilterConcurrency,
+			BanThreshold:          discovery.DefaultBanThreshold,
+			PeerMsgRateBytes:      discovery.DefaultPeerMsgBytesPerSecond,
 		},
 		Invoices: &lncfg.Invoices{
 			HoldExpiryDelta: lncfg.DefaultHoldInvoiceExpiryDelta,

@@ -21,7 +21,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -2216,20 +2215,23 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 		// At this point, we'll check to see if we need any extra
 		// resolution data for this output.
+		//
+		//nolint:ll
 		resolveReq := ResolutionReq{
-			ChanPoint:      chanState.FundingOutpoint,
-			ChanType:       chanState.ChanType,
-			ShortChanID:    chanState.ShortChanID(),
-			Initiator:      chanState.IsInitiator,
-			FundingBlob:    chanState.CustomBlob,
-			Type:           input.TaprootRemoteCommitSpend,
-			CloseType:      Breach,
-			CommitTx:       spendTx,
-			SignDesc:       *br.LocalOutputSignDesc,
-			KeyRing:        keyRing,
-			CsvDelay:       ourDelay,
-			BreachCsvDelay: fn.Some(theirDelay),
-			CommitFee:      chanState.RemoteCommitment.CommitFee,
+			ChanPoint:           chanState.FundingOutpoint,
+			ChanType:            chanState.ChanType,
+			ShortChanID:         chanState.ShortChanID(),
+			Initiator:           chanState.IsInitiator,
+			FundingBlob:         chanState.CustomBlob,
+			Type:                input.TaprootRemoteCommitSpend,
+			CloseType:           Breach,
+			CommitTx:            spendTx,
+			CommitTxBlockHeight: breachHeight,
+			SignDesc:            *br.LocalOutputSignDesc,
+			KeyRing:             keyRing,
+			CsvDelay:            ourDelay,
+			BreachCsvDelay:      fn.Some(theirDelay),
+			CommitFee:           chanState.RemoteCommitment.CommitFee,
 		}
 		if revokedLog != nil {
 			resolveReq.CommitBlob = revokedLog.CustomBlob.ValOpt()
@@ -2296,20 +2298,23 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 		// At this point, we'll check to see if we need any extra
 		// resolution data for this output.
+		//
+		//nolint:ll
 		resolveReq := ResolutionReq{
-			ChanPoint:      chanState.FundingOutpoint,
-			ChanType:       chanState.ChanType,
-			ShortChanID:    chanState.ShortChanID(),
-			Initiator:      chanState.IsInitiator,
-			FundingBlob:    chanState.CustomBlob,
-			Type:           input.TaprootCommitmentRevoke,
-			CloseType:      Breach,
-			CommitTx:       spendTx,
-			SignDesc:       *br.RemoteOutputSignDesc,
-			KeyRing:        keyRing,
-			CsvDelay:       theirDelay,
-			BreachCsvDelay: fn.Some(theirDelay),
-			CommitFee:      chanState.RemoteCommitment.CommitFee,
+			ChanPoint:           chanState.FundingOutpoint,
+			ChanType:            chanState.ChanType,
+			ShortChanID:         chanState.ShortChanID(),
+			Initiator:           chanState.IsInitiator,
+			FundingBlob:         chanState.CustomBlob,
+			Type:                input.TaprootCommitmentRevoke,
+			CloseType:           Breach,
+			CommitTx:            spendTx,
+			CommitTxBlockHeight: breachHeight,
+			SignDesc:            *br.RemoteOutputSignDesc,
+			KeyRing:             keyRing,
+			CsvDelay:            theirDelay,
+			BreachCsvDelay:      fn.Some(theirDelay),
+			CommitFee:           chanState.RemoteCommitment.CommitFee,
 		}
 		if revokedLog != nil {
 			resolveReq.CommitBlob = revokedLog.CustomBlob.ValOpt()
@@ -2850,7 +2855,7 @@ func (lc *LightningChannel) fetchCommitmentView(
 		return nil, fmt.Errorf("height=%v, for ChannelPoint(%v) "+
 			"attempts to create commitment with feerate %v: %v",
 			nextHeight, lc.channelState.FundingOutpoint,
-			effFeeRate, spew.Sdump(commitTx))
+			effFeeRate, lnutils.SpewLogClosure(commitTx))
 	}
 
 	// Given the custom blob of the past state, and this new HTLC view,
@@ -6887,6 +6892,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, //nolint:funlen
 	// First, we'll generate the commitment point and the revocation point
 	// so we can re-construct the HTLC state and also our payment key.
 	commitType := lntypes.Remote
+	commitTxHeight := uint32(commitSpend.SpendingHeight)
 	keyRing := DeriveCommitmentKeys(
 		commitPoint, commitType, chanState.ChanType,
 		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
@@ -6921,8 +6927,9 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, //nolint:funlen
 		chainfee.SatPerKWeight(remoteCommit.FeePerKw), commitType,
 		signer, remoteCommit.Htlcs, keyRing, &chanState.LocalChanCfg,
 		&chanState.RemoteChanCfg, commitSpend.SpendingTx,
-		chanState.ChanType, isRemoteInitiator, leaseExpiry, chanState,
-		auxResult.AuxLeaves, auxResolver,
+		commitTxHeight, chanState.ChanType,
+		isRemoteInitiator, leaseExpiry, chanState, auxResult.AuxLeaves,
+		auxResolver,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create htlc resolutions: %w",
@@ -7010,21 +7017,24 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, //nolint:funlen
 
 		// At this point, we'll check to see if we need any extra
 		// resolution data for this output.
+		//
+		//nolint:ll
 		resolveReq := ResolutionReq{
-			ChanPoint:     chanState.FundingOutpoint,
-			ChanType:      chanState.ChanType,
-			ShortChanID:   chanState.ShortChanID(),
-			Initiator:     chanState.IsInitiator,
-			CommitBlob:    chanState.RemoteCommitment.CustomBlob,
-			FundingBlob:   chanState.CustomBlob,
-			Type:          input.TaprootRemoteCommitSpend,
-			CloseType:     RemoteForceClose,
-			CommitTx:      commitTxBroadcast,
-			ContractPoint: *selfPoint,
-			SignDesc:      commitResolution.SelfOutputSignDesc,
-			KeyRing:       keyRing,
-			CsvDelay:      maturityDelay,
-			CommitFee:     chanState.RemoteCommitment.CommitFee,
+			ChanPoint:           chanState.FundingOutpoint,
+			ChanType:            chanState.ChanType,
+			ShortChanID:         chanState.ShortChanID(),
+			Initiator:           chanState.IsInitiator,
+			CommitBlob:          chanState.RemoteCommitment.CustomBlob,
+			FundingBlob:         chanState.CustomBlob,
+			Type:                input.TaprootRemoteCommitSpend,
+			CloseType:           RemoteForceClose,
+			CommitTx:            commitTxBroadcast,
+			CommitTxBlockHeight: commitTxHeight,
+			ContractPoint:       *selfPoint,
+			SignDesc:            commitResolution.SelfOutputSignDesc,
+			KeyRing:             keyRing,
+			CsvDelay:            maturityDelay,
+			CommitFee:           chanState.RemoteCommitment.CommitFee,
 		}
 		resolveBlob := fn.MapOptionZ(
 			auxResolver,
@@ -7210,7 +7220,7 @@ type HtlcResolutions struct {
 // the remote party's commitment transaction.
 func newOutgoingHtlcResolution(signer input.Signer,
 	localChanCfg *channeldb.ChannelConfig, commitTx *wire.MsgTx,
-	htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
+	commitTxHeight uint32, htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
 	feePerKw chainfee.SatPerKWeight, csvDelay, leaseExpiry uint32,
 	whoseCommit lntypes.ChannelParty, isCommitFromInitiator bool,
 	chanType channeldb.ChannelType, chanState *channeldb.OpenChannel,
@@ -7286,24 +7296,26 @@ func newOutgoingHtlcResolution(signer input.Signer,
 			}
 		}
 
+		//nolint:ll
 		resReq := ResolutionReq{
-			ChanPoint:     chanState.FundingOutpoint,
-			ChanType:      chanType,
-			ShortChanID:   chanState.ShortChanID(),
-			Initiator:     chanState.IsInitiator,
-			CommitBlob:    chanState.RemoteCommitment.CustomBlob,
-			FundingBlob:   chanState.CustomBlob,
-			Type:          input.TaprootHtlcOfferedRemoteTimeout,
-			CloseType:     RemoteForceClose,
-			CommitTx:      commitTx,
-			ContractPoint: op,
-			SignDesc:      signDesc,
-			KeyRing:       keyRing,
-			CsvDelay:      htlcCsvDelay,
-			CltvDelay:     fn.Some(htlc.RefundTimeout),
-			CommitFee:     chanState.RemoteCommitment.CommitFee,
-			HtlcID:        fn.Some(htlc.HtlcIndex),
-			PayHash:       fn.Some(htlc.RHash),
+			ChanPoint:           chanState.FundingOutpoint,
+			ChanType:            chanType,
+			ShortChanID:         chanState.ShortChanID(),
+			Initiator:           chanState.IsInitiator,
+			CommitBlob:          chanState.RemoteCommitment.CustomBlob,
+			FundingBlob:         chanState.CustomBlob,
+			Type:                input.TaprootHtlcOfferedRemoteTimeout,
+			CloseType:           RemoteForceClose,
+			CommitTx:            commitTx,
+			CommitTxBlockHeight: commitTxHeight,
+			ContractPoint:       op,
+			SignDesc:            signDesc,
+			KeyRing:             keyRing,
+			CsvDelay:            htlcCsvDelay,
+			CltvDelay:           fn.Some(htlc.RefundTimeout),
+			CommitFee:           chanState.RemoteCommitment.CommitFee,
+			HtlcID:              fn.Some(htlc.HtlcIndex),
+			PayHash:             fn.Some(htlc.RHash),
 		}
 		resolveRes := fn.MapOptionZ(
 			auxResolver,
@@ -7514,31 +7526,33 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	// the sweeping sub-system.
 	resolveRes := fn.MapOptionZ(
 		auxResolver, func(a AuxContractResolver) fn.Result[tlv.Blob] {
+			//nolint:ll
 			resReq := ResolutionReq{
-				ChanPoint:      chanState.FundingOutpoint,
-				ChanType:       chanType,
-				ShortChanID:    chanState.ShortChanID(),
-				Initiator:      chanState.IsInitiator,
-				CommitBlob:     chanState.LocalCommitment.CustomBlob, //nolint:ll
-				FundingBlob:    chanState.CustomBlob,
-				Type:           input.TaprootHtlcLocalOfferedTimeout, //nolint:ll
-				CloseType:      LocalForceClose,
-				CommitTx:       commitTx,
-				ContractPoint:  op,
-				SignDesc:       sweepSignDesc,
-				KeyRing:        keyRing,
-				CsvDelay:       htlcCsvDelay,
-				HtlcAmt:        btcutil.Amount(txOut.Value),
-				CommitCsvDelay: csvDelay,
-				CltvDelay:      fn.Some(htlc.RefundTimeout),
-				CommitFee:      chanState.LocalCommitment.CommitFee, //nolint:ll
-				HtlcID:         fn.Some(htlc.HtlcIndex),
-				PayHash:        fn.Some(htlc.RHash),
+				ChanPoint:           chanState.FundingOutpoint,
+				ChanType:            chanType,
+				ShortChanID:         chanState.ShortChanID(),
+				Initiator:           chanState.IsInitiator,
+				CommitBlob:          chanState.LocalCommitment.CustomBlob,
+				FundingBlob:         chanState.CustomBlob,
+				Type:                input.TaprootHtlcLocalOfferedTimeout,
+				CloseType:           LocalForceClose,
+				CommitTx:            commitTx,
+				CommitTxBlockHeight: commitTxHeight,
+				ContractPoint:       op,
+				SignDesc:            sweepSignDesc,
+				KeyRing:             keyRing,
+				CsvDelay:            htlcCsvDelay,
+				HtlcAmt:             btcutil.Amount(txOut.Value),
+				CommitCsvDelay:      csvDelay,
+				CltvDelay:           fn.Some(htlc.RefundTimeout),
+				CommitFee:           chanState.LocalCommitment.CommitFee,
+				HtlcID:              fn.Some(htlc.HtlcIndex),
+				PayHash:             fn.Some(htlc.RHash),
 				AuxSigDesc: fn.Some(AuxSigDesc{
 					SignDetails: *txSignDetails,
 					AuxSig: func() []byte {
-						tlvType := htlcCustomSigType.TypeVal()     //nolint:ll
-						return htlc.CustomRecords[uint64(tlvType)] //nolint:ll
+						tlvType := htlcCustomSigType.TypeVal()
+						return htlc.CustomRecords[uint64(tlvType)]
 					}(),
 				}),
 			}
@@ -7574,7 +7588,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 // TODO(roasbeef) consolidate code with above func
 func newIncomingHtlcResolution(signer input.Signer,
 	localChanCfg *channeldb.ChannelConfig, commitTx *wire.MsgTx,
-	htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
+	commitTxHeight uint32, htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
 	feePerKw chainfee.SatPerKWeight, csvDelay, leaseExpiry uint32,
 	whoseCommit lntypes.ChannelParty, isCommitFromInitiator bool,
 	chanType channeldb.ChannelType, chanState *channeldb.OpenChannel,
@@ -7649,26 +7663,28 @@ func newIncomingHtlcResolution(signer input.Signer,
 			}
 		}
 
+		//nolint:ll
 		resReq := ResolutionReq{
-			ChanPoint:      chanState.FundingOutpoint,
-			ChanType:       chanType,
-			ShortChanID:    chanState.ShortChanID(),
-			Initiator:      chanState.IsInitiator,
-			CommitBlob:     chanState.RemoteCommitment.CustomBlob,
-			Type:           input.TaprootHtlcAcceptedRemoteSuccess,
-			FundingBlob:    chanState.CustomBlob,
-			CloseType:      RemoteForceClose,
-			CommitTx:       commitTx,
-			ContractPoint:  op,
-			SignDesc:       signDesc,
-			KeyRing:        keyRing,
-			HtlcID:         fn.Some(htlc.HtlcIndex),
-			CsvDelay:       htlcCsvDelay,
-			CltvDelay:      fn.Some(htlc.RefundTimeout),
-			CommitFee:      chanState.RemoteCommitment.CommitFee,
-			PayHash:        fn.Some(htlc.RHash),
-			CommitCsvDelay: csvDelay,
-			HtlcAmt:        htlc.Amt.ToSatoshis(),
+			ChanPoint:           chanState.FundingOutpoint,
+			ChanType:            chanType,
+			ShortChanID:         chanState.ShortChanID(),
+			Initiator:           chanState.IsInitiator,
+			CommitBlob:          chanState.RemoteCommitment.CustomBlob,
+			Type:                input.TaprootHtlcAcceptedRemoteSuccess,
+			FundingBlob:         chanState.CustomBlob,
+			CloseType:           RemoteForceClose,
+			CommitTx:            commitTx,
+			CommitTxBlockHeight: commitTxHeight,
+			ContractPoint:       op,
+			SignDesc:            signDesc,
+			KeyRing:             keyRing,
+			HtlcID:              fn.Some(htlc.HtlcIndex),
+			CsvDelay:            htlcCsvDelay,
+			CltvDelay:           fn.Some(htlc.RefundTimeout),
+			CommitFee:           chanState.RemoteCommitment.CommitFee,
+			PayHash:             fn.Some(htlc.RHash),
+			CommitCsvDelay:      csvDelay,
+			HtlcAmt:             htlc.Amt.ToSatoshis(),
 		}
 		resolveRes := fn.MapOptionZ(
 			auxResolver,
@@ -7868,28 +7884,30 @@ func newIncomingHtlcResolution(signer input.Signer,
 
 	resolveRes := fn.MapOptionZ(
 		auxResolver, func(a AuxContractResolver) fn.Result[tlv.Blob] {
+			//nolint:ll
 			resReq := ResolutionReq{
-				ChanPoint:     chanState.FundingOutpoint,
-				ChanType:      chanType,
-				ShortChanID:   chanState.ShortChanID(),
-				Initiator:     chanState.IsInitiator,
-				CommitBlob:    chanState.LocalCommitment.CustomBlob,  //nolint:ll
-				Type:          input.TaprootHtlcAcceptedLocalSuccess, //nolint:ll
-				FundingBlob:   chanState.CustomBlob,
-				CloseType:     LocalForceClose,
-				CommitTx:      commitTx,
-				ContractPoint: op,
-				SignDesc:      sweepSignDesc,
-				KeyRing:       keyRing,
-				HtlcID:        fn.Some(htlc.HtlcIndex),
-				CsvDelay:      htlcCsvDelay,
-				CommitFee:     chanState.LocalCommitment.CommitFee, //nolint:ll
-				PayHash:       fn.Some(htlc.RHash),
+				ChanPoint:           chanState.FundingOutpoint,
+				ChanType:            chanType,
+				ShortChanID:         chanState.ShortChanID(),
+				Initiator:           chanState.IsInitiator,
+				CommitBlob:          chanState.LocalCommitment.CustomBlob,
+				Type:                input.TaprootHtlcAcceptedLocalSuccess,
+				FundingBlob:         chanState.CustomBlob,
+				CloseType:           LocalForceClose,
+				CommitTx:            commitTx,
+				CommitTxBlockHeight: commitTxHeight,
+				ContractPoint:       op,
+				SignDesc:            sweepSignDesc,
+				KeyRing:             keyRing,
+				HtlcID:              fn.Some(htlc.HtlcIndex),
+				CsvDelay:            htlcCsvDelay,
+				CommitFee:           chanState.LocalCommitment.CommitFee,
+				PayHash:             fn.Some(htlc.RHash),
 				AuxSigDesc: fn.Some(AuxSigDesc{
 					SignDetails: *txSignDetails,
 					AuxSig: func() []byte {
-						tlvType := htlcCustomSigType.TypeVal()     //nolint:ll
-						return htlc.CustomRecords[uint64(tlvType)] //nolint:ll
+						tlvType := htlcCustomSigType.TypeVal()
+						return htlc.CustomRecords[uint64(tlvType)]
 					}(),
 				}),
 				CommitCsvDelay: csvDelay,
@@ -7950,9 +7968,10 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 	whoseCommit lntypes.ChannelParty, signer input.Signer,
 	htlcs []channeldb.HTLC, keyRing *CommitmentKeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
-	commitTx *wire.MsgTx, chanType channeldb.ChannelType,
-	isCommitFromInitiator bool, leaseExpiry uint32,
-	chanState *channeldb.OpenChannel, auxLeaves fn.Option[CommitAuxLeaves],
+	commitTx *wire.MsgTx, commitTxHeight uint32,
+	chanType channeldb.ChannelType, isCommitFromInitiator bool,
+	leaseExpiry uint32, chanState *channeldb.OpenChannel,
+	auxLeaves fn.Option[CommitAuxLeaves],
 	auxResolver fn.Option[AuxContractResolver]) (*HtlcResolutions, error) {
 
 	// TODO(roasbeef): don't need to swap csv delay?
@@ -7985,8 +8004,8 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 			// Otherwise, we'll create an incoming HTLC resolution
 			// as we can satisfy the contract.
 			ihr, err := newIncomingHtlcResolution(
-				signer, localChanCfg, commitTx, &htlc,
-				keyRing, feePerKw, uint32(csvDelay),
+				signer, localChanCfg, commitTx, commitTxHeight,
+				&htlc, keyRing, feePerKw, uint32(csvDelay),
 				leaseExpiry, whoseCommit, isCommitFromInitiator,
 				chanType, chanState, auxLeaves, auxResolver,
 			)
@@ -8000,10 +8019,10 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 		}
 
 		ohr, err := newOutgoingHtlcResolution(
-			signer, localChanCfg, commitTx, &htlc, keyRing,
-			feePerKw, uint32(csvDelay), leaseExpiry, whoseCommit,
-			isCommitFromInitiator, chanType, chanState, auxLeaves,
-			auxResolver,
+			signer, localChanCfg, commitTx, commitTxHeight, &htlc,
+			keyRing, feePerKw, uint32(csvDelay), leaseExpiry,
+			whoseCommit, isCommitFromInitiator, chanType, chanState,
+			auxLeaves, auxResolver,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("outgoing resolution "+
@@ -8149,7 +8168,8 @@ func (lc *LightningChannel) ForceClose(opts ...ForceCloseOpt) (
 	localCommitment := lc.channelState.LocalCommitment
 	summary, err := NewLocalForceCloseSummary(
 		lc.channelState, lc.Signer, commitTx,
-		localCommitment.CommitHeight, lc.leafStore, lc.auxResolver,
+		0, localCommitment.CommitHeight, lc.leafStore,
+		lc.auxResolver,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen force close "+
@@ -8163,11 +8183,11 @@ func (lc *LightningChannel) ForceClose(opts ...ForceCloseOpt) (
 }
 
 // NewLocalForceCloseSummary generates a LocalForceCloseSummary from the given
-// channel state.  The passed commitTx must be a fully signed commitment
+// channel state. The passed commitTx must be a fully signed commitment
 // transaction corresponding to localCommit.
 func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
-	signer input.Signer, commitTx *wire.MsgTx, stateNum uint64,
-	leafStore fn.Option[AuxLeafStore],
+	signer input.Signer, commitTx *wire.MsgTx, commitTxHeight uint32,
+	stateNum uint64, leafStore fn.Option[AuxLeafStore],
 	auxResolver fn.Option[AuxContractResolver]) (*LocalForceCloseSummary,
 	error) {
 
@@ -8302,20 +8322,21 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 			func(a AuxContractResolver) fn.Result[tlv.Blob] {
 				//nolint:ll
 				return a.ResolveContract(ResolutionReq{
-					ChanPoint:     chanState.FundingOutpoint, //nolint:ll
-					ChanType:      chanState.ChanType,
-					ShortChanID:   chanState.ShortChanID(),
-					Initiator:     chanState.IsInitiator,
-					CommitBlob:    chanState.LocalCommitment.CustomBlob,
-					FundingBlob:   chanState.CustomBlob,
-					Type:          input.TaprootLocalCommitSpend,
-					CloseType:     LocalForceClose,
-					CommitTx:      commitTx,
-					ContractPoint: commitResolution.SelfOutPoint,
-					SignDesc:      commitResolution.SelfOutputSignDesc,
-					KeyRing:       keyRing,
-					CsvDelay:      csvTimeout,
-					CommitFee:     chanState.LocalCommitment.CommitFee,
+					ChanPoint:           chanState.FundingOutpoint,
+					ChanType:            chanState.ChanType,
+					ShortChanID:         chanState.ShortChanID(),
+					Initiator:           chanState.IsInitiator,
+					CommitBlob:          chanState.LocalCommitment.CustomBlob,
+					FundingBlob:         chanState.CustomBlob,
+					Type:                input.TaprootLocalCommitSpend,
+					CloseType:           LocalForceClose,
+					CommitTx:            commitTx,
+					CommitTxBlockHeight: commitTxHeight,
+					ContractPoint:       commitResolution.SelfOutPoint,
+					SignDesc:            commitResolution.SelfOutputSignDesc,
+					KeyRing:             keyRing,
+					CsvDelay:            csvTimeout,
+					CommitFee:           chanState.LocalCommitment.CommitFee,
 				})
 			},
 		)
@@ -8335,9 +8356,9 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	htlcResolutions, err := extractHtlcResolutions(
 		chainfee.SatPerKWeight(localCommit.FeePerKw), lntypes.Local,
 		signer, localCommit.Htlcs, keyRing, &chanState.LocalChanCfg,
-		&chanState.RemoteChanCfg, commitTx, chanState.ChanType,
-		chanState.IsInitiator, leaseExpiry, chanState,
-		auxResult.AuxLeaves, auxResolver,
+		&chanState.RemoteChanCfg, commitTx, commitTxHeight,
+		chanState.ChanType, chanState.IsInitiator, leaseExpiry,
+		chanState, auxResult.AuxLeaves, auxResolver,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen htlc resolution: %w", err)

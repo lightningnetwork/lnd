@@ -1,12 +1,12 @@
 //go:build test_db_postgres || test_db_sqlite
 
-package graphdb
+package migration1
 
 import (
 	"bytes"
 	"cmp"
-	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"image/color"
@@ -17,27 +17,46 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
-	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/graph/db/migration1/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/kvdb/sqlbase"
 	"github.com/lightningnetwork/lnd/kvdb/sqlite"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sqldb"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
 
 var (
+	testPub = route.Vertex{2, 202, 4}
+
+	testRBytes, _ = hex.DecodeString(
+		"8ce2bc69281ce27da07e6683571319d18e949ddfa2965fb6caa1bf03" +
+			"14f882d7",
+	)
+	testSBytes, _ = hex.DecodeString(
+		"299105481d63e0f4bc2a88121167221b6700d72a0ead154c03be696a2" +
+			"92d24ae",
+	)
+	testRScalar = new(btcec.ModNScalar)
+	testSScalar = new(btcec.ModNScalar)
+	_           = testRScalar.SetByteSlice(testRBytes)
+	_           = testSScalar.SetByteSlice(testSBytes)
+	testSig     = ecdsa.NewSignature(testRScalar, testSScalar)
+
 	testChain         = *chaincfg.MainNetParams.GenesisHash
 	testColor         = color.RGBA{R: 1, G: 2, B: 3}
 	testTime          = time.Unix(11111, 0)
@@ -50,15 +69,146 @@ var (
 		BitcoinSig1Bytes: testSig.Serialize(),
 		BitcoinSig2Bytes: testSig.Serialize(),
 	}
+
+	// testOpaqueAddrWithEmbeddedDNSAddr is an opaque address that contains
+	// a single DNS address within it.
+	testOpaqueAddrWithEmbeddedDNSAddr = &lnwire.OpaqueAddrs{
+		Payload: []byte{
+			// The protocol level type for DNS addresses.
+			0x05,
+			// Hostname length: 11.
+			0x0b,
+			// The hostname itself.
+			'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+			// Port 8080 in big-endian.
+			0x1f, 0x90,
+		},
+	}
+
+	// testOpaqueAddrWithEmbeddedDNSAddrAndMore is an opaque address that
+	// contains a DNS address within it, along with some extra bytes that
+	// represent some other unknown address type.
+	testOpaqueAddrWithEmbeddedDNSAddrAndMore = &lnwire.OpaqueAddrs{
+		Payload: []byte{
+			// The protocol level type for DNS addresses.
+			0x05,
+			// Hostname length: 11.
+			0x0B,
+			// The hostname itself.
+			'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+			// port 8080 in big-endian.
+			0x1F, 0x90,
+			// Now we add more opaque bytes to represent more
+			// addresses that we don't know about yet.
+			// NOTE: the 0xff is an address type that we definitely
+			// don't know about yet
+			0xff, 0x02, 0x03, 0x04, 0x05, 0x06,
+		},
+	}
+
+	// testOpaqueAddrWithEmbeddedBadDNSAddr is an opaque address that
+	// contains an invalid DNS address within it.
+	testOpaqueAddrWithEmbeddedBadDNSAddr = &lnwire.OpaqueAddrs{
+		Payload: []byte{
+			// The protocol level type for DNS addresses.
+			0x05,
+			// Hostname length: We set this to a size that is
+			// incorrect in order to simulate the bad DNS address.
+			0xAA,
+			// The hostname itself.
+			'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+			// port 9735 in big-endian.
+			0x26, 0x07,
+		},
+	}
+
+	// testOpaqueAddrWithTwoEmbeddedDNSAddrs is an opaque address that
+	// contains two valid DNS addresses within it.
+	testOpaqueAddrWithTwoEmbeddedDNSAddrs = &lnwire.OpaqueAddrs{
+		Payload: []byte{
+			// The protocol level type for DNS addresses.
+			0x05,
+			// Hostname length: 11.
+			0x0B,
+			// The hostname itself.
+			'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+			// port 8080 in big-endian.
+			0x1F, 0x90,
+			// Another DNS address.
+			0x05,
+			0x0B,
+			'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+			0x1F, 0x90,
+		},
+	}
+
+	testIP4 = net.ParseIP("192.168.1.1").To4()
+	testIP6 = net.ParseIP("2001:0db8:0000:0000:0000:ff00:0042:8329")
+
+	testIPV4Addr = &net.TCPAddr{
+		IP:   testIP4,
+		Port: 12345,
+	}
+
+	testIPV6Addr = &net.TCPAddr{
+		IP:   testIP6,
+		Port: 65535,
+	}
+
+	testOnionV2Addr = &tor.OnionAddr{
+		OnionService: "3g2upl4pq6kufc4m.onion",
+		Port:         9735,
+	}
+
+	testOnionV3Addr = &tor.OnionAddr{
+		OnionService: "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd.onion", //nolint:ll
+		Port:         80,
+	}
+
+	testOpaqueAddr = &lnwire.OpaqueAddrs{
+		// NOTE: the first byte is a protocol level address type. So
+		// for we set it to 0xff to guarantee that we do not know this
+		// type yet.
+		Payload: []byte{0xff, 0x02, 0x03, 0x04, 0x05, 0x06},
+	}
+
+	testDNSAddr = &lnwire.DNSAddress{
+		Hostname: "example.com",
+		Port:     8080,
+	}
+
+	testAddr = &net.TCPAddr{IP: (net.IP)([]byte{0xA, 0x0, 0x0, 0x1}),
+		Port: 9000}
+	anotherAddr, _ = net.ResolveTCPAddr("tcp",
+		"[2001:db8:85a3:0:0:8a2e:370:7334]:80")
+	testAddrs = []net.Addr{testAddr, anotherAddr}
+
+	testFeatures = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(lnwire.GossipQueriesRequired),
+		lnwire.Features,
+	)
+
+	rev = [chainhash.HashSize]byte{
+		0x51, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
+		0x48, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
+		0x2d, 0xe7, 0x93, 0xe4,
+	}
 )
 
 // TestMigrateGraphToSQL tests various deterministic cases that we want to test
 // for to ensure that our migration from a graph store backed by a KV DB to a
 // SQL database works as expected. At the end of each test, the DBs are compared
 // and expected to have the exact same data in them.
+// This test also ensures that the migration is "retry-safe". This is needed
+// because the migration is hooked up to 2 dbs: the source DB and the
+// destination. The source DB is a db behind the kvdb.Backend interface and
+// the migration makes use of methods on this interface that may be retried
+// under the hood. The migration often does logic inside call-back functions
+// passed to the source DB methods which may be retried, and so we need to
+// ensure that the migration can handle this.
 func TestMigrateGraphToSQL(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	dbFixture := NewTestDBFixture(t)
 
@@ -67,8 +217,8 @@ func TestMigrateGraphToSQL(t *testing.T) {
 
 		var err error
 		switch obj := object.(type) {
-		case *models.LightningNode:
-			err = db.AddLightningNode(ctx, obj)
+		case *models.Node:
+			err = db.AddNode(ctx, obj)
 		case *models.ChannelEdgeInfo:
 			err = db.AddChannelEdge(ctx, obj)
 		case *models.ChannelEdgePolicy:
@@ -112,11 +262,11 @@ func TestMigrateGraphToSQL(t *testing.T) {
 				// A node with no node announcement.
 				makeTestShellNode(t),
 				// A node with an announcement but no addresses.
-				makeTestNode(t, func(n *models.LightningNode) {
+				makeTestNode(t, func(n *models.Node) {
 					n.Addresses = nil
 				}),
 				// A node with all types of addresses.
-				makeTestNode(t, func(n *models.LightningNode) {
+				makeTestNode(t, func(n *models.Node) {
 					n.Addresses = []net.Addr{
 						testAddr,
 						testIPV4Addr,
@@ -128,11 +278,11 @@ func TestMigrateGraphToSQL(t *testing.T) {
 					}
 				}),
 				// No extra opaque data.
-				makeTestNode(t, func(n *models.LightningNode) {
+				makeTestNode(t, func(n *models.Node) {
 					n.ExtraOpaqueData = nil
 				}),
 				// A node with no features.
-				makeTestNode(t, func(n *models.LightningNode) {
+				makeTestNode(t, func(n *models.Node) {
 					n.Features = lnwire.EmptyFeatureVector()
 				}),
 			},
@@ -143,7 +293,7 @@ func TestMigrateGraphToSQL(t *testing.T) {
 		{
 			name: "source node",
 			write: func(t *testing.T, db *KVStore, object any) {
-				node, ok := object.(*models.LightningNode)
+				node, ok := object.(*models.Node)
 				require.True(t, ok)
 
 				err := db.SetSourceNode(ctx, node)
@@ -158,6 +308,59 @@ func TestMigrateGraphToSQL(t *testing.T) {
 			},
 		},
 		{
+			name:  "channel with no policies",
+			write: writeUpdate,
+			objects: []any{
+				// A channel with unknown nodes. This will
+				// result in two shell nodes being created.
+				// 	- channel count += 1
+				// 	- node count += 2
+				makeTestChannel(t),
+
+				// Insert some nodes.
+				// 	- node count += 1
+				makeTestNode(t, func(n *models.Node) {
+					n.PubKeyBytes = node1
+				}),
+				// 	- node count += 1
+				makeTestNode(t, func(n *models.Node) {
+					n.PubKeyBytes = node2
+				}),
+
+				// A channel with known nodes.
+				// - channel count += 1
+				makeTestChannel(
+					t, func(c *models.ChannelEdgeInfo) {
+						c.ChannelID = chanID1
+
+						c.NodeKey1Bytes = node1
+						c.NodeKey2Bytes = node2
+					},
+				),
+
+				// Insert a channel with no auth proof, no
+				// extra opaque data, and empty features.
+				// Use known nodes.
+				// 	- channel count += 1
+				makeTestChannel(
+					t, func(c *models.ChannelEdgeInfo) {
+						c.ChannelID = chanID2
+
+						c.NodeKey1Bytes = node1
+						c.NodeKey2Bytes = node2
+
+						c.AuthProof = nil
+						c.ExtraOpaqueData = nil
+						c.Features = testEmptyFeatures
+					},
+				),
+			},
+			expGraphStats: graphStats{
+				numNodes:    4,
+				numChannels: 3,
+			},
+		},
+		{
 			name:  "channels and policies",
 			write: writeUpdate,
 			objects: []any{
@@ -169,11 +372,11 @@ func TestMigrateGraphToSQL(t *testing.T) {
 
 				// Insert some nodes.
 				// 	- node count += 1
-				makeTestNode(t, func(n *models.LightningNode) {
+				makeTestNode(t, func(n *models.Node) {
 					n.PubKeyBytes = node1
 				}),
 				// 	- node count += 1
-				makeTestNode(t, func(n *models.LightningNode) {
+				makeTestNode(t, func(n *models.Node) {
 					n.PubKeyBytes = node2
 				}),
 
@@ -237,7 +440,7 @@ func TestMigrateGraphToSQL(t *testing.T) {
 				require.NoError(t, err)
 
 				switch obj := object.(type) {
-				case *models.LightningNode:
+				case *models.Node:
 					err = db.SetSourceNode(ctx, obj)
 				default:
 					height, ok := obj.(uint32)
@@ -253,10 +456,7 @@ func TestMigrateGraphToSQL(t *testing.T) {
 				// The PruneGraph call requires that the source
 				// node be set. So that is the first object
 				// we will write.
-				&models.LightningNode{
-					HaveNodeAnnouncement: false,
-					PubKeyBytes:          testPub,
-				},
+				models.NewV1ShellNode(testPub),
 				// Now we add some block heights to prune
 				// the graph at.
 				uint32(1), uint32(2), uint32(20), uint32(3),
@@ -338,6 +538,12 @@ func TestMigrateGraphToSQL(t *testing.T) {
 
 			// Validate that the two databases are now in sync.
 			assertInSync(t, kvDB, sql, test.expGraphStats)
+
+			// The migration should be retry-safe, so running it
+			// again should not change the state of the databases.
+			err = MigrateGraphToSQL(ctx, sql.cfg, kvDB.db, sql.db)
+			require.NoError(t, err)
+			assertInSync(t, kvDB, sql, test.expGraphStats)
 		})
 	}
 }
@@ -390,14 +596,13 @@ func assertInSync(t *testing.T, kvDB *KVStore, sqlDB *SQLStore,
 
 // fetchAllNodes retrieves all nodes from the given store and returns them
 // sorted by their public key.
-func fetchAllNodes(t *testing.T, store V1Store) []*models.LightningNode {
-	nodes := make([]*models.LightningNode, 0)
+func fetchAllNodes(t *testing.T, store V1Store) []*models.Node {
+	nodes := make([]*models.Node, 0)
 
-	err := store.ForEachNode(context.Background(),
-		func(node *models.LightningNode) error {
-
-			// Call PubKey to ensure the objects cached pubkey is set so that
-			// the objects can be compared as a whole.
+	err := store.ForEachNode(t.Context(),
+		func(node *models.Node) error {
+			// Call PubKey to ensure the objects cached pubkey is
+			// set so that the objects can be compared as a whole.
 			_, err := node.PubKey()
 			require.NoError(t, err)
 
@@ -414,7 +619,7 @@ func fetchAllNodes(t *testing.T, store V1Store) []*models.LightningNode {
 	require.NoError(t, err)
 
 	// Sort the nodes by their public key to ensure a consistent order.
-	slices.SortFunc(nodes, func(i, j *models.LightningNode) int {
+	slices.SortFunc(nodes, func(i, j *models.Node) int {
 		return bytes.Compare(i.PubKeyBytes[:], j.PubKeyBytes[:])
 	})
 
@@ -422,8 +627,8 @@ func fetchAllNodes(t *testing.T, store V1Store) []*models.LightningNode {
 }
 
 // fetchSourceNode retrieves the source node from the given store.
-func fetchSourceNode(t *testing.T, store V1Store) *models.LightningNode {
-	node, err := store.SourceNode(context.Background())
+func fetchSourceNode(t *testing.T, store V1Store) *models.Node {
+	node, err := store.SourceNode(t.Context())
 	if errors.Is(err, ErrSourceNodeNotSet) {
 		return nil
 	} else {
@@ -461,7 +666,7 @@ func (c chanSet) CountPolicies() int {
 // fetchAllChannelsAndPolicies retrieves all channels and their policies
 // from the given store and returns them sorted by their channel ID.
 func fetchAllChannelsAndPolicies(t *testing.T, store V1Store) chanSet {
-	ctx := context.Background()
+	ctx := t.Context()
 	channels := make(chanSet, 0)
 	err := store.ForEachChannel(ctx, func(info *models.ChannelEdgeInfo,
 		p1 *models.ChannelEdgePolicy,
@@ -506,13 +711,14 @@ func checkKVPruneLogEntries(t *testing.T, kv *KVStore, sql *SQLStore,
 	err := forEachPruneLogEntry(
 		kv.db, func(height uint32, hash *chainhash.Hash) error {
 			sqlHash, err := sql.db.GetPruneHashByHeight(
-				context.Background(), int64(height),
+				t.Context(), int64(height),
 			)
 			require.NoError(t, err)
 			require.Equal(t, hash[:], sqlHash)
 
 			return nil
 		},
+		func() {},
 	)
 	require.NoError(t, err)
 
@@ -544,7 +750,7 @@ func checkClosedSCIDIndex(t *testing.T, kv kvdb.Backend, sql *SQLStore) {
 		require.True(t, closed)
 
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 }
 
@@ -576,7 +782,7 @@ func checkZombieIndex(t *testing.T, kv kvdb.Backend, sql *SQLStore) {
 		}
 
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 }
 
@@ -604,23 +810,21 @@ func genPubKey(t require.TestingT) route.Vertex {
 }
 
 // testNodeOpt defines a functional option type that can be used to
-// modify the attributes of a models.LightningNode crated by makeTestNode.
-type testNodeOpt func(*models.LightningNode)
+// modify the attributes of a models.Node crated by makeTestNode.
+type testNodeOpt func(*models.Node)
 
-// makeTestNode can be used to create a test models.LightningNode. The
+// makeTestNode can be used to create a test models.Node. The
 // functional options can be used to modify the node's attributes.
-func makeTestNode(t *testing.T, opts ...testNodeOpt) *models.LightningNode {
-	n := &models.LightningNode{
-		HaveNodeAnnouncement: true,
-		AuthSigBytes:         testSigBytes,
-		LastUpdate:           testTime,
-		Color:                testColor,
-		Alias:                "kek",
-		Features:             testFeatures,
-		Addresses:            testAddrs,
-		ExtraOpaqueData:      testExtraData,
-		PubKeyBytes:          genPubKey(t),
-	}
+func makeTestNode(t *testing.T, opts ...testNodeOpt) *models.Node {
+	n := models.NewV1Node(genPubKey(t), &models.NodeV1Fields{
+		AuthSigBytes:    testSigBytes,
+		LastUpdate:      testTime,
+		Color:           testColor,
+		Alias:           "kek",
+		Features:        testFeatures.RawFeatureVector,
+		Addresses:       testAddrs,
+		ExtraOpaqueData: testExtraData,
+	})
 
 	for _, opt := range opts {
 		opt(n)
@@ -634,17 +838,12 @@ func makeTestNode(t *testing.T, opts ...testNodeOpt) *models.LightningNode {
 	return n
 }
 
-// makeTestShellNode creates a minimal models.LightningNode
+// makeTestShellNode creates a minimal models.Node
 // that only contains the public key and no other attributes.
 func makeTestShellNode(t *testing.T,
-	opts ...testNodeOpt) *models.LightningNode {
+	opts ...testNodeOpt) *models.Node {
 
-	n := &models.LightningNode{
-		HaveNodeAnnouncement: false,
-		PubKeyBytes:          genPubKey(t),
-		Features:             testEmptyFeatures,
-		LastUpdate:           time.Unix(0, 0),
-	}
+	n := models.NewV1ShellNode(genPubKey(t))
 
 	for _, opt := range opts {
 		opt(n)
@@ -694,6 +893,20 @@ func makeTestChannel(t *testing.T,
 // attributes of a models.ChannelEdgePolicy created by makeTestPolicy.
 type testPolicyOpt func(*models.ChannelEdgePolicy)
 
+var (
+	updateTime   = prand.Int63()
+	updateTimeMu sync.Mutex
+)
+
+func nextUpdateTime() time.Time {
+	updateTimeMu.Lock()
+	defer updateTimeMu.Unlock()
+
+	updateTime++
+
+	return time.Unix(updateTime, 0)
+}
+
 // makeTestPolicy creates a test models.ChannelEdgePolicy. The functional
 // options can be used to modify the policy's attributes.
 func makeTestPolicy(chanID uint64, toNode route.Vertex, isNode1 bool,
@@ -716,6 +929,7 @@ func makeTestPolicy(chanID uint64, toNode route.Vertex, isNode1 bool,
 		FeeBaseMSat:               math.MaxUint64,
 		FeeProportionalMillionths: math.MaxUint64,
 		ToNode:                    toNode,
+		ExtraOpaqueData:           testExtraData,
 	}
 
 	for _, opt := range opts {
@@ -736,7 +950,7 @@ func makeTestPolicy(chanID uint64, toNode route.Vertex, isNode1 bool,
 // and set the "fileName" variable to the name of the channel database file you
 // want to use for the migration test.
 func TestMigrationWithChannelDB(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// NOTE: comment this line out to run the test.
 	t.Skipf("skipping test meant for local debugging only")
@@ -855,7 +1069,7 @@ func TestMigrationWithChannelDB(t *testing.T) {
 // will differ slightly.
 func TestSQLMigrationEdgeCases(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var invalidTLVData = []byte{0x01, 0x02, 0x03}
 
@@ -867,20 +1081,20 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 
 		// Make one valid node and one node with invalid TLV data.
 		n1 := makeTestNode(t)
-		n2 := makeTestNode(t, func(n *models.LightningNode) {
+		n2 := makeTestNode(t, func(n *models.Node) {
 			n.ExtraOpaqueData = invalidTLVData
 		})
 
 		populateKV := func(t *testing.T, db *KVStore) {
 			// Insert both nodes into the KV store.
-			require.NoError(t, db.AddLightningNode(ctx, n1))
-			require.NoError(t, db.AddLightningNode(ctx, n2))
+			require.NoError(t, db.AddNode(ctx, n1))
+			require.NoError(t, db.AddNode(ctx, n2))
 		}
 
 		runTestMigration(t, populateKV, dbState{
 			// We expect only the valid node to be present in the
 			// SQL db.
-			nodes: []*models.LightningNode{n1},
+			nodes: []*models.Node{n1},
 		})
 	})
 
@@ -912,8 +1126,8 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 
 		populateKV := func(t *testing.T, db *KVStore) {
 			// Insert both nodes into the KV store.
-			require.NoError(t, db.AddLightningNode(ctx, n1))
-			require.NoError(t, db.AddLightningNode(ctx, n2))
+			require.NoError(t, db.AddNode(ctx, n1))
+			require.NoError(t, db.AddNode(ctx, n2))
 
 			// Insert both channels into the KV store.
 			require.NoError(t, db.AddChannelEdge(ctx, c1))
@@ -928,7 +1142,7 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 
 		runTestMigration(t, populateKV, dbState{
 			// Both nodes will be present.
-			nodes: []*models.LightningNode{n1, n2},
+			nodes: []*models.Node{n1, n2},
 			// We only expect the first channel and its policy to
 			// be present in the SQL db.
 			chans: chanSet{{
@@ -966,8 +1180,8 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 
 		populateKV := func(t *testing.T, db *KVStore) {
 			// Insert both nodes into the KV store.
-			require.NoError(t, db.AddLightningNode(ctx, n1))
-			require.NoError(t, db.AddLightningNode(ctx, n2))
+			require.NoError(t, db.AddNode(ctx, n1))
+			require.NoError(t, db.AddNode(ctx, n2))
 
 			// Insert the channel into the KV store.
 			require.NoError(t, db.AddChannelEdge(ctx, c))
@@ -989,7 +1203,7 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 
 		runTestMigration(t, populateKV, dbState{
 			// Both nodes will be present.
-			nodes: []*models.LightningNode{n1, n2},
+			nodes: []*models.Node{n1, n2},
 			// The channel will be present, but only the
 			// valid policy will be included in the SQL db.
 			chans: chanSet{{
@@ -1047,8 +1261,8 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 
 		populateKV := func(t *testing.T, db *KVStore) {
 			// Insert both nodes into the KV store.
-			require.NoError(t, db.AddLightningNode(ctx, n1))
-			require.NoError(t, db.AddLightningNode(ctx, n2))
+			require.NoError(t, db.AddNode(ctx, n1))
+			require.NoError(t, db.AddNode(ctx, n2))
 
 			// Insert the channel into the KV store.
 			require.NoError(t, db.AddChannelEdge(ctx, c))
@@ -1065,7 +1279,7 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 
 		runTestMigration(t, populateKV, dbState{
 			// Both nodes will be present.
-			nodes: []*models.LightningNode{n1, n2},
+			nodes: []*models.Node{n1, n2},
 			// The channel will be present, but only the
 			// valid policy will be included in the SQL db.
 			chans: chanSet{{
@@ -1107,6 +1321,104 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 			zombies: []uint64{2},
 		})
 	})
+
+	// We have used this migration as a chance to also extract any DNS
+	// addresses that we previously may have wrapped in an opaque address.
+	// If we do encounter such a case, then the migrated node set will look
+	// slightly different from the original node set in the KV store, and so
+	// we test for that here.
+	t.Run("node with wrapped DNS address inside opaque addr",
+		func(t *testing.T) {
+			t.Parallel()
+
+			var expectedNodes []*models.Node
+
+			// Let the first node have an opaque address that we
+			// still don't understand. This node will remain the
+			// same in the SQL store.
+			n1 := makeTestNode(t, func(n *models.Node) {
+				n.Addresses = []net.Addr{
+					testOpaqueAddr,
+				}
+			})
+			expectedNodes = append(expectedNodes, n1)
+
+			// The second node will have a wrapped DNS address
+			// inside an opaque address. The opaque address will
+			// only contain a DNS address and so the migrated node
+			// will only contain a DNS address and no opaque
+			// address.
+			n2 := makeTestNode(t, func(n *models.Node) {
+				n.Addresses = []net.Addr{
+					testOpaqueAddrWithEmbeddedDNSAddr,
+				}
+			})
+			n2Expected := *n2
+			n2Expected.Addresses = []net.Addr{
+				testDNSAddr,
+			}
+			expectedNodes = append(expectedNodes, &n2Expected)
+
+			// The third node will have an opaque address that
+			// wraps a DNS address along with some other data.
+			// So the resulting migrated node should have both
+			// the DNS address and remaining opaque address data.
+			n3 := makeTestNode(t, func(n *models.Node) {
+				n.Addresses = []net.Addr{
+					//nolint:ll
+					testOpaqueAddrWithEmbeddedDNSAddrAndMore,
+				}
+			})
+			n3Expected := *n3
+			n3Expected.Addresses = []net.Addr{
+				testDNSAddr,
+				testOpaqueAddr,
+			}
+			expectedNodes = append(expectedNodes, &n3Expected)
+
+			// The fourth node will have an opaque address that
+			// wraps an invalid DNS address. Such a node will not be
+			// migrated since propagating an invalid DNS address
+			// is not allowed.
+			n4 := makeTestNode(t, func(n *models.Node) {
+				n.Addresses = []net.Addr{
+					testOpaqueAddrWithEmbeddedBadDNSAddr,
+				}
+			})
+			// NOTE: we don't add this node to the expected nodes
+			// slice.
+
+			// The fifth node will have 2 DNS addresses embedded
+			// in the opaque address. The migration will result
+			// in _both_ dns addresses being extracted. This is
+			// invalid at a protocol level, and so we should not
+			// propagate such addresses, but this is left to higher
+			// level gossip logic.
+			n5 := makeTestNode(t, func(n *models.Node) {
+				n.Addresses = []net.Addr{
+					testOpaqueAddrWithTwoEmbeddedDNSAddrs,
+				}
+			})
+			n5Expected := *n5
+			n5Expected.Addresses = []net.Addr{
+				testDNSAddr,
+				testDNSAddr,
+			}
+			expectedNodes = append(expectedNodes, &n5Expected)
+
+			populateKV := func(t *testing.T, db *KVStore) {
+				require.NoError(t, db.AddNode(ctx, n1))
+				require.NoError(t, db.AddNode(ctx, n2))
+				require.NoError(t, db.AddNode(ctx, n3))
+				require.NoError(t, db.AddNode(ctx, n4))
+				require.NoError(t, db.AddNode(ctx, n5))
+			}
+
+			runTestMigration(t, populateKV, dbState{
+				nodes: expectedNodes,
+			})
+		},
+	)
 }
 
 // runTestMigration is a helper function that sets up the KVStore and SQLStore,
@@ -1115,7 +1427,7 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 func runTestMigration(t *testing.T, populateKV func(t *testing.T, db *KVStore),
 	expState dbState) {
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Set up our source kvdb DB.
 	kvDB := setUpKVStore(t)
@@ -1138,7 +1450,7 @@ func runTestMigration(t *testing.T, populateKV func(t *testing.T, db *KVStore),
 
 // dbState describes the expected state of the SQLStore after a migration.
 type dbState struct {
-	nodes   []*models.LightningNode
+	nodes   []*models.Node
 	chans   chanSet
 	closed  []uint64
 	zombies []uint64
@@ -1205,10 +1517,12 @@ func TestMigrateGraphToSQLRapid(t *testing.T) {
 // SQL store, generates random nodes and channels, populates the KV store,
 // runs the migration, and asserts that the SQL store contains the expected
 // state.
+//
+// The migration is run twice in order to test idempotency and retry-safety.
 func testMigrateGraphToSQLRapidOnce(t *testing.T, rt *rapid.T,
 	dbFixture *sqldb.TestPgFixture, maxNumNodes, maxNumChannels int) {
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Set up our source kvdb DB.
 	kvDB := setUpKVStore(t)
@@ -1225,7 +1539,7 @@ func testMigrateGraphToSQLRapidOnce(t *testing.T, rt *rapid.T,
 	// Keep track of all nodes that should be in the database. We may expect
 	// more than just the ones we generated above if we have channels that
 	// point to shell nodes.
-	allNodes := make(map[route.Vertex]*models.LightningNode)
+	allNodes := make(map[route.Vertex]*models.Node)
 	var nodePubs []route.Vertex
 	for _, node := range nodes {
 		allNodes[node.PubKeyBytes] = node
@@ -1264,7 +1578,7 @@ func testMigrateGraphToSQLRapidOnce(t *testing.T, rt *rapid.T,
 			}
 
 			shellNode := makeTestShellNode(
-				t, func(node *models.LightningNode) {
+				t, func(node *models.Node) {
 					node.PubKeyBytes = n
 				},
 			)
@@ -1303,7 +1617,7 @@ func testMigrateGraphToSQLRapidOnce(t *testing.T, rt *rapid.T,
 
 	// Write the test objects to the kvdb store.
 	for _, node := range allNodes {
-		err := kvDB.AddLightningNode(ctx, node)
+		err := kvDB.AddNode(ctx, node)
 		require.NoError(t, err)
 	}
 	for _, channel := range channels {
@@ -1320,7 +1634,7 @@ func testMigrateGraphToSQLRapidOnce(t *testing.T, rt *rapid.T,
 	require.NoError(t, err)
 
 	// Create a slice of all nodes.
-	var nodesSlice []*models.LightningNode
+	var nodesSlice []*models.Node
 	for _, node := range allNodes {
 		nodesSlice = append(nodesSlice, node)
 	}
@@ -1351,6 +1665,15 @@ func testMigrateGraphToSQLRapidOnce(t *testing.T, rt *rapid.T,
 	}
 
 	// Validate that the sql database has the correct state.
+	assertResultState(t, sql, dbState{
+		nodes: nodesSlice,
+		chans: chanSetForState,
+	})
+
+	// The migration is expected to be idempotent and retry-safe. So running
+	// it again should yield the same result.
+	err = MigrateGraphToSQL(ctx, sql.cfg, kvDB.db, sql.db)
+	require.NoError(t, err)
 	assertResultState(t, sql, dbState{
 		nodes: nodesSlice,
 		chans: chanSetForState,
@@ -1525,7 +1848,7 @@ func sortAddrs(addrs []net.Addr) {
 }
 
 // genRandomNode is a rapid generator for creating random lightning nodes.
-func genRandomNode(t *rapid.T) *models.LightningNode {
+func genRandomNode(t *rapid.T) *models.Node {
 	// Generate a random alias that is valid.
 	alias := lnwire.RandNodeAlias(t)
 
@@ -1569,19 +1892,15 @@ func genRandomNode(t *rapid.T) *models.LightningNode {
 		extraOpaqueData = nil
 	}
 
-	node := &models.LightningNode{
-		HaveNodeAnnouncement: true,
-		AuthSigBytes:         sigBytes,
-		LastUpdate:           randTime,
-		Color:                randColor,
-		Alias:                alias.String(),
-		Features: lnwire.NewFeatureVector(
-			features, lnwire.Features,
-		),
+	node := models.NewV1Node(pubKeyBytes, &models.NodeV1Fields{
+		AuthSigBytes:    sigBytes,
+		LastUpdate:      randTime,
+		Color:           randColor,
+		Alias:           alias.String(),
+		Features:        features,
 		Addresses:       addrs,
 		ExtraOpaqueData: extraOpaqueData,
-		PubKeyBytes:     pubKeyBytes,
-	}
+	})
 
 	// We call this method so that the internal pubkey field is populated
 	// which then lets us to proper struct comparison later on.
@@ -1589,4 +1908,36 @@ func genRandomNode(t *rapid.T) *models.LightningNode {
 	require.NoError(t, err)
 
 	return node
+}
+
+// putSerializedPolicy is a helper function that writes a serialized
+// ChannelEdgePolicy to the edge bucket in the database.
+func putSerializedPolicy(t *testing.T, db kvdb.Backend, from []byte,
+	chanID uint64, b []byte) {
+
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+		edges := tx.ReadWriteBucket(edgeBucket)
+		require.NotNil(t, edges)
+
+		edgeIndex := edges.NestedReadWriteBucket(edgeIndexBucket)
+		require.NotNil(t, edgeIndex)
+
+		var edgeKey [33 + 8]byte
+		copy(edgeKey[:], from)
+		byteOrder.PutUint64(edgeKey[33:], chanID)
+
+		var scratch [8]byte
+		var indexKey [8 + 8]byte
+		copy(indexKey[:], scratch[:])
+		byteOrder.PutUint64(indexKey[8:], chanID)
+
+		updateIndex, err := edges.CreateBucketIfNotExists(
+			edgeUpdateIndexBucket,
+		)
+		require.NoError(t, err)
+		require.NoError(t, updateIndex.Put(indexKey[:], nil))
+
+		return edges.Put(edgeKey[:], b)
+	}, func() {})
+	require.NoError(t, err, "error writing db")
 }

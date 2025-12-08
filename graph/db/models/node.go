@@ -22,7 +22,6 @@ type Node struct {
 
 	// PubKeyBytes is the raw bytes of the public key of the target node.
 	PubKeyBytes [33]byte
-	pubKey      *btcec.PublicKey
 
 	// LastUpdate is the last time the vertex information for this node has
 	// been updated.
@@ -129,21 +128,8 @@ func (n *Node) HaveAnnouncement() bool {
 
 // PubKey is the node's long-term identity public key. This key will be used to
 // authenticated any advertisements/updates sent by the node.
-//
-// NOTE: By having this method to access an attribute, we ensure we only need
-// to fully deserialize the pubkey if absolutely necessary.
 func (n *Node) PubKey() (*btcec.PublicKey, error) {
-	if n.pubKey != nil {
-		return n.pubKey, nil
-	}
-
-	key, err := btcec.ParsePubKey(n.PubKeyBytes[:])
-	if err != nil {
-		return nil, err
-	}
-	n.pubKey = key
-
-	return key, nil
+	return btcec.ParsePubKey(n.PubKeyBytes[:])
 }
 
 // NodeAnnouncement retrieves the latest node announcement of the node.

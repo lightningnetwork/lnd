@@ -833,6 +833,14 @@ type LightningChannel struct {
 // is created.
 type ChannelOpt func(*channelOpts)
 
+// AuxHtlcValidator is a function that validates whether an HTLC can be added
+// to a custom channel. It is called during HTLC validation with the current
+// channel state and HTLC details. This allows external components (like the
+// traffic shaper) to perform final validation checks against the most
+// up-to-date channel state before the HTLC is committed.
+type AuxHtlcValidator func(amount, linkBandwidth lnwire.MilliSatoshi,
+	customRecords lnwire.CustomRecords, view AuxHtlcView) error
+
 // channelOpts is the set of options used to create a new channel.
 type channelOpts struct {
 	localNonce  *musig2.Nonces
@@ -841,6 +849,10 @@ type channelOpts struct {
 	leafStore   fn.Option[AuxLeafStore]
 	auxSigner   fn.Option[AuxSigner]
 	auxResolver fn.Option[AuxContractResolver]
+
+	// auxHtlcValidator is an optional validator that performs custom
+	// validation on HTLCs before they are added to the channel state.
+	auxHtlcValidator fn.Option[AuxHtlcValidator]
 
 	skipNonceInit bool
 }
@@ -891,6 +903,15 @@ func WithAuxSigner(signer AuxSigner) ChannelOpt {
 func WithAuxResolver(resolver AuxContractResolver) ChannelOpt {
 	return func(o *channelOpts) {
 		o.auxResolver = fn.Some[AuxContractResolver](resolver)
+	}
+}
+
+// WithAuxHtlcValidator is used to specify a custom HTLC validator for the
+// channel. This validator will be called during HTLC addition to perform
+// final validation checks against the most up-to-date channel state.
+func WithAuxHtlcValidator(validator AuxHtlcValidator) ChannelOpt {
+	return func(o *channelOpts) {
+		o.auxHtlcValidator = fn.Some(validator)
 	}
 }
 
@@ -6241,6 +6262,44 @@ func (lc *LightningChannel) validateAddHtlc(pd *paymentDescriptor,
 	)
 	if err != nil {
 		return err
+	}
+
+	// If an auxiliary HTLC validator is configured, call it now to perform
+	// custom validation checks against the current channel state. This is
+	// the final validation point before the HTLC is added to the update
+	// log, ensuring that the validator sees the most up-to-date state
+	// including all previously validated HTLCs in this batch.
+	//
+	// NOTE: This is called after the standard commitment sanity checks to
+	// ensure we only perform (potentially) expensive custom validation on
+	// HTLCs that have already passed the basic Lightning protocol
+	// constraints.
+	err = fn.MapOptionZ(
+		lc.opts.auxHtlcValidator,
+		func(validator AuxHtlcValidator) error {
+			// Fetch the current HTLC view which includes all
+			// pending HTLCs that haven't been committed yet. This
+			// provides the validator with the most accurate state.
+			view := lc.fetchHTLCView(
+				lc.updateLogs.Remote.logIndex,
+				lc.updateLogs.Local.logIndex,
+			)
+			auxView := newAuxHtlcView(view)
+
+			// Get the current available balance for the link
+			// bandwidth check. This is needed for the reserve
+			// validation in the traffic shaper. We use NoBuffer
+			// since this is the final check before adding the HTLC.
+			linkBandwidth, _ := lc.availableBalance(NoBuffer)
+
+			return validator(
+				pd.Amount, linkBandwidth, pd.CustomRecords,
+				auxView,
+			)
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("aux HTLC validation failed: %w", err)
 	}
 
 	return nil

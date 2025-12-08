@@ -212,6 +212,8 @@ jobs:
           - unit tags="test_db_sqlite"
           - unit tags="test_db_postgres"
           - unit-race
+          - unit-race tags="test_db_sqlite"
+          - unit-race tags="test_db_postgres"
           - unit-module
 
     steps:

@@ -81,6 +81,19 @@ SELECT EXISTS (
       AND n.pub_key = $1
 );
 
+-- name: IsPublicV2Node :one
+SELECT EXISTS (
+    SELECT 1
+    FROM graph_channels c
+             JOIN graph_nodes n ON n.id = c.node_id_1 OR n.id = c.node_id_2
+    -- NOTE: we hard-code the version here since the clauses
+    -- here that determine if a node is public is specific
+    -- to the V2 gossip protocol.
+    WHERE c.version = 2
+      AND c.signature IS NOT NULL
+      AND n.pub_key = $1
+);
+
 -- name: DeleteUnconnectedNodes :many
 DELETE FROM graph_nodes
 WHERE
@@ -280,6 +293,12 @@ SET node_1_signature = $2,
     bitcoin_2_signature = $5
 WHERE scid = $1
   AND version = 1;
+
+-- name: AddV2ChannelProof :execresult
+UPDATE graph_channels
+SET signature = $2
+WHERE scid = $1
+  AND version = 2;
 
 -- name: GetChannelsBySCIDRange :many
 SELECT sqlc.embed(c),

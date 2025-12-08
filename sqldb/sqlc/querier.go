@@ -13,6 +13,7 @@ import (
 type Querier interface {
 	AddSourceNode(ctx context.Context, nodeID int64) error
 	AddV1ChannelProof(ctx context.Context, arg AddV1ChannelProofParams) (sql.Result, error)
+	AddV2ChannelProof(ctx context.Context, arg AddV2ChannelProofParams) (sql.Result, error)
 	ClearKVInvoiceHashIndex(ctx context.Context) error
 	CountZombieChannels(ctx context.Context, version int16) (int64, error)
 	CreateChannel(ctx context.Context, arg CreateChannelParams) (int64, error)
@@ -116,6 +117,7 @@ type Querier interface {
 	InsertNodeMig(ctx context.Context, arg InsertNodeMigParams) (int64, error)
 	IsClosedChannel(ctx context.Context, scid []byte) (bool, error)
 	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
+	IsPublicV2Node(ctx context.Context, pubKey []byte) (bool, error)
 	IsZombieChannel(ctx context.Context, arg IsZombieChannelParams) (bool, error)
 	ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNodeIDParams) ([]ListChannelsByNodeIDRow, error)
 	ListChannelsForNodeIDs(ctx context.Context, arg ListChannelsForNodeIDsParams) ([]ListChannelsForNodeIDsRow, error)

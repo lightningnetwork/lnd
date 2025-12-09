@@ -50,6 +50,14 @@
 
 ## RPC Additions
 
+* [Added support for coordinator-based MuSig2 signing
+  patterns](https://github.com/lightningnetwork/lnd/pull/10436) with two new
+  RPCs: `MuSig2RegisterCombinedNonce` allows registering a pre-aggregated
+  combined nonce for a session (useful when a coordinator aggregates all nonces
+  externally), and `MuSig2GetCombinedNonce` retrieves the combined nonce after
+  it becomes available. These methods provide an alternative to the standard
+  `MuSig2RegisterNonces` workflow and are only supported in MuSig2 v1.0.0rc2.
+
 ## lncli Additions
 
 # Improvements

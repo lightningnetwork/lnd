@@ -42,6 +42,10 @@
   in the mission control store. Now we skip over potential errors and also
   delete them from the store.
 
+* [Fix potential sql tx exhaustion 
+  issue](https://github.com/lightningnetwork/lnd/pull/10428) in LND which might
+  happen when running postgres with a limited number of connections configured.
+
 # New Features
 
 ## Functional Enhancements

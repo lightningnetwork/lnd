@@ -33,6 +33,15 @@ var (
 	ErrAttemptResultPending = errors.New(
 		"attempt result not yet available",
 	)
+
+	// ErrAmbiguousAttemptInit is returned when any internal error (eg:
+	// with db read or write) occurs during an InitAttempt call that
+	// prevents a definitive outcome. This indicates that the state of the
+	// payment attempt's inititialization is unknown. Callers should retry
+	// the operation to resolve the ambiguity.
+	ErrAmbiguousAttemptInit = errors.New(
+		"ambiguous result for payment attempt registration",
+	)
 )
 
 const (
@@ -125,6 +134,11 @@ func newNetworkResultStore(db kvdb.Backend) *networkResultStore {
 // only one HTLC will be initialized and dispatched for a given attempt ID until
 // the ID is explicitly cleaned from attempt store.
 //
+// If any unexpected internal error occurs (such as a database read or write
+// failure), it will be wrapped in ErrAmbiguousAttemptInit. This signals
+// to the caller that the state of the registration is uncertain and that the
+// operation MUST be retried to resolve the ambiguity.
+//
 // NOTE: This is part of the AttemptStore interface. Subscribed clients do not
 // receive notice of this initialization.
 func (store *networkResultStore) InitAttempt(attemptID uint64) error {
@@ -197,7 +211,16 @@ func (store *networkResultStore) InitAttempt(attemptID uint64) error {
 	})
 
 	if err != nil {
-		return err
+		if errors.Is(err, ErrPaymentIDAlreadyExists) {
+			return ErrPaymentIDAlreadyExists
+		}
+
+		// If any unexpected internal error occurs (such as a database
+		// failure), it will be wrapped in ErrAmbiguousAttemptInit.
+		// This signals to the caller that the state of the attempt
+		// initialization is uncertain and that the operation MUST be
+		// retried to resolve the ambiguity.
+		return fmt.Errorf("%w: %w", ErrAmbiguousAttemptInit, err)
 	}
 
 	log.Debugf("Initialized attempt for local payment with attemptID=%v",

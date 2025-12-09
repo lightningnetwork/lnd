@@ -1001,18 +1001,12 @@ func newCloser(t *testing.T, cfg *harnessCfg) *rbfCloserTestHarness {
 	return chanCloser
 }
 
-// testInitiatorShutdownRecvOk is a helper function that tests the initiator
-// shutdown received scenario for both taproot and non-taproot channels in the
-// ShutdownPending state.
-func testInitiatorShutdownRecvOk(t *testing.T, ctx context.Context,
-	startingState *ShutdownPending, isTaproot bool) {
+// testInitiatorShutdownRecvOkNonTap tests the initiator shutdown received
+// scenario for non-taproot channels in the ShutdownPending state.
+func testInitiatorShutdownRecvOkNonTap(t *testing.T, ctx context.Context,
+	startingState *ShutdownPending) {
 
-	testName := "non_taproot"
-	if isTaproot {
-		testName = "taproot"
-	}
-
-	t.Run(testName, func(t *testing.T) {
+	t.Run("non_taproot", func(t *testing.T) {
 		firstState := *startingState
 		firstState.IdealFeeRate = fn.Some(
 			chainfee.FeePerKwFloor.FeePerVByte(),
@@ -1022,33 +1016,12 @@ func testInitiatorShutdownRecvOk(t *testing.T, ctx context.Context,
 			RemoteDeliveryScript: remoteAddr,
 		}
 
-		var mockLocalMusig, mockRemoteMusig *mockMusigSession
-		localCloseeNonce := lnwire.Musig2Nonce{1, 2, 3}
-		remoteCloseeNonce := lnwire.Musig2Nonce{4, 5, 6}
-
-		if isTaproot {
-			firstState.NonceState = NonceState{
-				LocalCloseeNonce:  fn.Some(localCloseeNonce),
-				RemoteCloseeNonce: fn.None[lnwire.Musig2Nonce](),
-			}
-			mockLocalMusig = newMockMusigSession()
-			mockRemoteMusig = newMockMusigSession()
-		}
-
 		cfg := &harnessCfg{
 			initialState: fn.Some[ProtocolState](
 				&firstState,
 			),
 			localUpfrontAddr:  fn.Some(localAddr),
 			remoteUpfrontAddr: fn.Some(remoteAddr),
-		}
-		if isTaproot {
-			cfg.localMusigSession = fn.Some[MusigSession](
-				mockLocalMusig,
-			)
-			cfg.remoteMusigSession = fn.Some[MusigSession](
-				mockRemoteMusig,
-			)
 		}
 
 		closeHarness := newCloser(t, cfg)
@@ -1059,14 +1032,88 @@ func testInitiatorShutdownRecvOk(t *testing.T, ctx context.Context,
 		closeHarness.expectFinalBalances(fn.None[ShutdownBalances]())
 		closeHarness.expectIncomingAddsDisabled()
 
-		// Create shutdown event, with nonce for taproot channels
+		// Create shutdown event.
 		shutdownEvent := &ShutdownReceived{
 			ShutdownScript: remoteAddr,
 		}
-		if isTaproot {
-			shutdownEvent.RemoteShutdownNonce = fn.Some(
+
+		// We'll send in a shutdown received event, with the expected
+		// co-op close addr.
+		closeHarness.chanCloser.SendEvent(ctx, shutdownEvent)
+
+		// We should transition to the channel flushing state.
+		closeHarness.assertStateTransitions(&ChannelFlushing{})
+
+		// Now we'll ensure that the flushing state has the proper
+		// co-op close state.
+		currentState := assertStateT[*ChannelFlushing](closeHarness)
+
+		require.Equal(
+			t, localAddr, currentState.LocalDeliveryScript,
+		)
+		require.Equal(
+			t, remoteAddr, currentState.RemoteDeliveryScript,
+		)
+		require.Equal(
+			t, firstState.IdealFeeRate, currentState.IdealFeeRate,
+		)
+	})
+}
+
+// testInitiatorShutdownRecvOkTaproot tests the initiator shutdown received
+// scenario for taproot channels in the ShutdownPending state.
+func testInitiatorShutdownRecvOkTaproot(t *testing.T, ctx context.Context,
+	startingState *ShutdownPending) {
+
+	t.Run("taproot", func(t *testing.T) {
+		firstState := *startingState
+		firstState.IdealFeeRate = fn.Some(
+			chainfee.FeePerKwFloor.FeePerVByte(),
+		)
+		firstState.ShutdownScripts = ShutdownScripts{
+			LocalDeliveryScript:  localAddr,
+			RemoteDeliveryScript: remoteAddr,
+		}
+
+		localCloseeNonce := lnwire.Musig2Nonce{1, 2, 3}
+		remoteCloseeNonce := lnwire.Musig2Nonce{4, 5, 6}
+
+		firstState.NonceState = NonceState{
+			LocalCloseeNonce:  fn.Some(localCloseeNonce),
+			RemoteCloseeNonce: fn.None[lnwire.Musig2Nonce](),
+		}
+
+		mockLocalMusig := newMockMusigSession()
+		mockRemoteMusig := newMockMusigSession()
+
+		cfg := &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				&firstState,
+			),
+			localUpfrontAddr:  fn.Some(localAddr),
+			remoteUpfrontAddr: fn.Some(remoteAddr),
+			localMusigSession: fn.Some[MusigSession](
+				mockLocalMusig,
+			),
+			remoteMusigSession: fn.Some[MusigSession](
+				mockRemoteMusig,
+			),
+		}
+
+		closeHarness := newCloser(t, cfg)
+		defer closeHarness.stopAndAssert()
+
+		// We should disable the outgoing adds for the channel at this
+		// point as well.
+		closeHarness.expectFinalBalances(fn.None[ShutdownBalances]())
+		closeHarness.expectIncomingAddsDisabled()
+
+		// Create shutdown event with nonce for taproot channel.
+		shutdownEvent := &ShutdownReceived{
+			ShutdownScript: remoteAddr,
+			RemoteShutdownNonce: fn.Some(
 				remoteCloseeNonce,
-			)
+			),
 		}
 
 		// We'll send in a shutdown received event, with the expected
@@ -1090,71 +1137,51 @@ func testInitiatorShutdownRecvOk(t *testing.T, ctx context.Context,
 			t, firstState.IdealFeeRate, currentState.IdealFeeRate,
 		)
 
-		if isTaproot {
-			// Verify nonce state was updated with remote's closee nonce.
-			require.True(
-				t, currentState.NonceState.RemoteCloseeNonce.IsSome(),
-			)
-			require.Equal(
-				t, remoteCloseeNonce,
-				currentState.NonceState.RemoteCloseeNonce.UnwrapOr(
-					lnwire.Musig2Nonce{},
-				),
-			)
+		// Verify nonce state was updated with remote's closee nonce.
+		require.True(
+			t, currentState.NonceState.RemoteCloseeNonce.IsSome(),
+		)
+		require.Equal(
+			t, remoteCloseeNonce,
+			currentState.NonceState.RemoteCloseeNonce.UnwrapOr(
+				lnwire.Musig2Nonce{},
+			),
+		)
 
-			// Verify musig sessions were set up.
-			require.NotNil(
-				t, closeHarness.env.LocalMusigSession,
-				"LocalMusigSession should not be nil",
-			)
-			require.NotNil(
-				t, closeHarness.env.RemoteMusigSession,
-				"RemoteMusigSession should not be nil",
-			)
+		// Verify musig sessions were set up.
+		require.NotNil(
+			t, closeHarness.env.LocalMusigSession,
+			"LocalMusigSession should not be nil",
+		)
+		require.NotNil(
+			t, closeHarness.env.RemoteMusigSession,
+			"RemoteMusigSession should not be nil",
+		)
 
-			// Verify InitRemoteNonce was called on
-			// LocalMusigSession with remote's nonce. This prepares
-			// the LocalMusigSession for when we act as closer.
-			require.True(
-				t, mockLocalMusig.remoteNonceInited,
-				"LocalMusigSession.InitRemoteNonce "+
-					"should have been called",
-			)
-			expectedRemoteNonce := musig2.Nonces{
-				PubNonce: remoteCloseeNonce,
-			}
-			require.Equal(
-				t, expectedRemoteNonce,
-				mockLocalMusig.remoteNonce,
-			)
+		// Verify InitRemoteNonce was called on LocalMusigSession with
+		// remote's nonce. This prepares the LocalMusigSession for when
+		// we act as closer.
+		require.True(
+			t, mockLocalMusig.remoteNonceInited,
+			"LocalMusigSession.InitRemoteNonce "+
+				"should have been called",
+		)
+		expectedRemoteNonce := musig2.Nonces{
+			PubNonce: remoteCloseeNonce,
 		}
+		require.Equal(
+			t, expectedRemoteNonce,
+			mockLocalMusig.remoteNonce,
+		)
 	})
 }
 
-// testRemoteInitiatedCloseOk is a helper function that tests the remote
-// initiated close scenario for both taproot and non-taproot channels.
-func testRemoteInitiatedCloseOk(t *testing.T, ctx context.Context, isTaproot bool) {
-	testName := "non_taproot"
-	if isTaproot {
-		testName = "taproot"
-	}
-
-	t.Run(testName, func(t *testing.T) {
-		var mockLocalMusig, mockRemoteMusig *mockMusigSession
-		remoteCloseeNonce := lnwire.Musig2Nonce{4, 5, 6}
-
+// testRemoteInitiatedCloseOkNonTap tests the remote initiated close scenario
+// for non-taproot channels.
+func testRemoteInitiatedCloseOkNonTap(t *testing.T, ctx context.Context) {
+	t.Run("non_taproot", func(t *testing.T) {
 		cfg := &harnessCfg{
 			localUpfrontAddr: fn.Some(localAddr),
-		}
-		if isTaproot {
-			mockLocalMusig = newMockMusigSession()
-			mockRemoteMusig = newMockMusigSession()
-			cfg.localMusigSession = fn.Some[MusigSession](
-				mockLocalMusig,
-			)
-			cfg.remoteMusigSession = fn.Some[MusigSession](
-				mockRemoteMusig,
-			)
 		}
 
 		closeHarness := newCloser(t, cfg)
@@ -1170,14 +1197,70 @@ func testRemoteInitiatedCloseOk(t *testing.T, ctx context.Context, isTaproot boo
 			recvShutdown: true,
 		})
 
-		// Create shutdown event, with nonce for taproot channels
+		// Create shutdown event.
 		shutdownEvent := &ShutdownReceived{
 			ShutdownScript: remoteAddr,
 		}
-		if isTaproot {
-			shutdownEvent.RemoteShutdownNonce = fn.Some(
+
+		// Next, we'll emit the recv event, with the addr of the remote
+		// party.
+		closeHarness.chanCloser.SendEvent(ctx, shutdownEvent)
+
+		// We should transition to the shutdown pending state.
+		closeHarness.assertStateTransitions(&ShutdownPending{})
+
+		currentState := assertStateT[*ShutdownPending](closeHarness)
+
+		// Both the local and remote shutdown scripts should be set.
+		require.Equal(
+			t, localAddr,
+			currentState.ShutdownScripts.LocalDeliveryScript,
+		)
+		require.Equal(
+			t, remoteAddr,
+			currentState.ShutdownScripts.RemoteDeliveryScript,
+		)
+	})
+}
+
+// testRemoteInitiatedCloseOkTaproot tests the remote initiated close scenario
+// for taproot channels.
+func testRemoteInitiatedCloseOkTaproot(t *testing.T, ctx context.Context) {
+	t.Run("taproot", func(t *testing.T) {
+		remoteCloseeNonce := lnwire.Musig2Nonce{4, 5, 6}
+
+		mockLocalMusig := newMockMusigSession()
+		mockRemoteMusig := newMockMusigSession()
+
+		cfg := &harnessCfg{
+			localUpfrontAddr: fn.Some(localAddr),
+			localMusigSession: fn.Some[MusigSession](
+				mockLocalMusig,
+			),
+			remoteMusigSession: fn.Some[MusigSession](
+				mockRemoteMusig,
+			),
+		}
+
+		closeHarness := newCloser(t, cfg)
+		defer closeHarness.stopAndAssert()
+
+		// We assert our shutdown events, and also that we eventually
+		// send a shutdown to the remote party. We'll hold back the
+		// send in this case though, as we should only send once the no
+		// updates are dangling.
+		closeHarness.expectShutdownEvents(shutdownExpect{
+			isInitiator:  false,
+			allowSend:    false,
+			recvShutdown: true,
+		})
+
+		// Create shutdown event with nonce for taproot channel.
+		shutdownEvent := &ShutdownReceived{
+			ShutdownScript: remoteAddr,
+			RemoteShutdownNonce: fn.Some(
 				remoteCloseeNonce,
-			)
+			),
 		}
 
 		// Next, we'll emit the recv event, with the addr of the remote
@@ -1199,37 +1282,31 @@ func testRemoteInitiatedCloseOk(t *testing.T, ctx context.Context, isTaproot boo
 			currentState.ShutdownScripts.RemoteDeliveryScript,
 		)
 
-		// For taproot channels, verify nonce handling
-		if isTaproot {
-			// Verify nonce state was set with remote's closee
-			// nonce.
-			require.True(
-				t, currentState.NonceState.RemoteCloseeNonce.IsSome(),
-			)
-			require.Equal(
-				t, remoteCloseeNonce,
-				currentState.NonceState.RemoteCloseeNonce.UnwrapOr(
-					lnwire.Musig2Nonce{},
-				),
-			)
+		// Verify nonce state was set with remote's closee nonce.
+		require.True(
+			t, currentState.NonceState.RemoteCloseeNonce.IsSome(),
+		)
+		require.Equal(
+			t, remoteCloseeNonce,
+			currentState.NonceState.RemoteCloseeNonce.UnwrapOr(
+				lnwire.Musig2Nonce{},
+			),
+		)
 
-			// Verify InitRemoteNonce was called on
-			// LocalMusigSession.
-			require.True(t, mockLocalMusig.remoteNonceInited)
-			expectedRemoteNonce := musig2.Nonces{
-				PubNonce: remoteCloseeNonce,
-			}
-			require.Equal(
-				t, expectedRemoteNonce,
-				mockLocalMusig.remoteNonce,
-			)
-
-			// Also verify we generated and stored our local closee
-			// nonce.
-			require.True(
-				t, currentState.NonceState.LocalCloseeNonce.IsSome(),
-			)
+		// Verify InitRemoteNonce was called on LocalMusigSession.
+		require.True(t, mockLocalMusig.remoteNonceInited)
+		expectedRemoteNonce := musig2.Nonces{
+			PubNonce: remoteCloseeNonce,
 		}
+		require.Equal(
+			t, expectedRemoteNonce,
+			mockLocalMusig.remoteNonce,
+		)
+
+		// Also verify we generated and stored our local closee nonce.
+		require.True(
+			t, currentState.NonceState.LocalCloseeNonce.IsSome(),
+		)
 	})
 }
 
@@ -1337,9 +1414,9 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 	// When we receive a shutdown, we should transition to the shutdown
 	// pending state, with the local+remote shutdown addrs known.
 	t.Run("remote_initiated_close_ok", func(t *testing.T) {
-		// Test both non-taproot and taproot channels
-		testRemoteInitiatedCloseOk(t, ctx, false)
-		testRemoteInitiatedCloseOk(t, ctx, true)
+		// Test both non-taproot and taproot channels.
+		testRemoteInitiatedCloseOkNonTap(t, ctx)
+		testRemoteInitiatedCloseOkTaproot(t, ctx)
 	})
 
 	// If the remote party sends a shutdown for a taproot channel without a
@@ -1433,9 +1510,9 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 	// Otherwise, if the shutdown is well composed, then we should
 	// transition to the ChannelFlushing state.
 	t.Run("initiator_shutdown_recv_ok", func(t *testing.T) {
-		// Test both non-taproot and taproot channels
-		testInitiatorShutdownRecvOk(t, ctx, startingState, false)
-		testInitiatorShutdownRecvOk(t, ctx, startingState, true)
+		// Test both non-taproot and taproot channels.
+		testInitiatorShutdownRecvOkNonTap(t, ctx, startingState)
+		testInitiatorShutdownRecvOkTaproot(t, ctx, startingState)
 	})
 
 	// If the remote party sends a shutdown for a taproot channel without

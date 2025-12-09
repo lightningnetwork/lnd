@@ -700,6 +700,23 @@ func (p *paymentLifecycle) sendAttempt(
 	// restart.
 	err = p.router.cfg.Payer.SendHTLC(firstHop, attempt.AttemptID, htlcAdd)
 	if err != nil {
+		// The dispatcher has confirmed that this attempt was already
+		// processed and is in-flight. Though this is unexpected, we can
+		// handle it gracefully by treating it as an acknowledgment of a
+		// successful dispatch and proceed to tracking the result.
+		if errors.Is(err, htlcswitch.ErrDuplicateAdd) {
+			log.Warnf("Attempt %v for payment %v already "+
+				"processed by dispatcher (duplicate). "+
+				"Proceeding to result collection.",
+				attempt.AttemptID, p.identifier)
+
+			return &attemptResult{
+				attempt: attempt,
+			}, nil
+		}
+
+		// If it's any other error, then it's a genuine failure that
+		// needs to be handled by the switch error handler.
 		log.Errorf("Failed sending attempt %d for payment %v to "+
 			"switch: %v", attempt.AttemptID, p.identifier, err)
 

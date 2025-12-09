@@ -1,12 +1,12 @@
 package routerrpc
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
@@ -220,12 +220,18 @@ func TestTrackPaymentsNoInflightUpdates(t *testing.T) {
 	require.Equal(t, lnrpc.Payment_SUCCEEDED, payment.Status)
 }
 
-// TestIsLsp tests the isLSP heuristic. Combinations of different route hints
-// with different fees and cltv deltas are tested to ensure that the heuristic
-// correctly identifies whether a route leads to an LSP or not.
+// TestIsLsp tests the isLSP heuristic. It validates all three LSP detection
+// rules:
+// Rule 1: Invoice target is public => not LSP.
+// Rule 2: All destination hop hints are private => not LSP (Boltz case).
+// Rule 3: At least one destination hop hint is public => LSP (Muun case).
 func TestIsLsp(t *testing.T) {
-	probeAmtMsat := lnwire.MilliSatoshi(1_000_000)
-
+	// Setup test nodes:
+	// - Alice: public node (in graph)
+	// - Bob: private node
+	// - Carol: private node
+	// - Dave: public node (in graph)
+	// - Eve: private node
 	alicePrivKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 	alicePubKey := alicePrivKey.PubKey()
@@ -242,216 +248,519 @@ func TestIsLsp(t *testing.T) {
 	require.NoError(t, err)
 	davePubKey := davePrivKey.PubKey()
 
-	var (
-		aliceHopHint = zpay32.HopHint{
-			NodeID:                    alicePubKey,
-			FeeBaseMSat:               100,
-			FeeProportionalMillionths: 1_000,
-			ChannelID:                 421337,
-		}
+	evePrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	evePubKey := evePrivKey.PubKey()
 
-		bobHopHint = zpay32.HopHint{
-			NodeID:                    bobPubKey,
-			FeeBaseMSat:               2_000,
-			FeeProportionalMillionths: 2_000,
-			CLTVExpiryDelta:           288,
-			ChannelID:                 815,
-		}
+	// Create hop hints for each node.
+	aliceHopHint := zpay32.HopHint{
+		NodeID:                    alicePubKey,
+		FeeBaseMSat:               100,
+		FeeProportionalMillionths: 1_000,
+		CLTVExpiryDelta:           40,
+		ChannelID:                 1,
+	}
 
-		carolHopHint = zpay32.HopHint{
-			NodeID:                    carolPubKey,
-			FeeBaseMSat:               2_000,
-			FeeProportionalMillionths: 2_000,
-			ChannelID:                 815,
-		}
+	bobHopHint := zpay32.HopHint{
+		NodeID:                    bobPubKey,
+		FeeBaseMSat:               2_000,
+		FeeProportionalMillionths: 2_000,
+		CLTVExpiryDelta:           144,
+		ChannelID:                 2,
+	}
 
-		daveHopHint = zpay32.HopHint{
-			NodeID:                    davePubKey,
-			FeeBaseMSat:               2_000,
-			FeeProportionalMillionths: 2_000,
-			ChannelID:                 815,
-		}
+	carolHopHint := zpay32.HopHint{
+		NodeID:                    carolPubKey,
+		FeeBaseMSat:               1_500,
+		FeeProportionalMillionths: 1_500,
+		CLTVExpiryDelta:           144,
+		ChannelID:                 3,
+	}
 
-		publicChannelID       = uint64(42)
-		daveHopHintPublicChan = zpay32.HopHint{
-			NodeID:                    davePubKey,
-			FeeBaseMSat:               2_000,
-			FeeProportionalMillionths: 2_000,
-			ChannelID:                 publicChannelID,
-		}
-	)
+	daveHopHint := zpay32.HopHint{
+		NodeID:                    davePubKey,
+		FeeBaseMSat:               3_000,
+		FeeProportionalMillionths: 3_000,
+		CLTVExpiryDelta:           288,
+		ChannelID:                 4,
+	}
 
-	bobExpensiveCopy := bobHopHint.Copy()
-	bobExpensiveCopy.FeeBaseMSat = 1_000_000
-	bobExpensiveCopy.FeeProportionalMillionths = 1_000_000
-	bobExpensiveCopy.CLTVExpiryDelta = bobHopHint.CLTVExpiryDelta - 1
+	eveHopHint := zpay32.HopHint{
+		NodeID:                    evePubKey,
+		FeeBaseMSat:               500,
+		FeeProportionalMillionths: 500,
+		CLTVExpiryDelta:           40,
+		ChannelID:                 5,
+	}
 
-	//nolint:ll
-	lspTestCases := []struct {
-		name           string
-		routeHints     [][]zpay32.HopHint
-		probeAmtMsat   lnwire.MilliSatoshi
-		isLsp          bool
-		expectedHints  [][]zpay32.HopHint
-		expectedLspHop *zpay32.HopHint
+	// Mock hasNode: returns true only for alice and dave.
+	hasNode := func(nodePub route.Vertex) (bool, error) {
+		aliceVertex := route.NewVertex(alicePubKey)
+		daveVertex := route.NewVertex(davePubKey)
+		return bytes.Equal(nodePub[:], aliceVertex[:]) ||
+			bytes.Equal(nodePub[:], daveVertex[:]), nil
+	}
+
+	tests := []struct {
+		name          string
+		routeHints    [][]zpay32.HopHint
+		invoiceTarget []byte
+		expectLSP     bool
 	}{
+		// Edge cases.
 		{
-			name:           "empty route hints",
-			routeHints:     [][]zpay32.HopHint{{}},
-			probeAmtMsat:   probeAmtMsat,
-			isLsp:          false,
-			expectedHints:  [][]zpay32.HopHint{},
-			expectedLspHop: nil,
+			name:          "no route hints",
+			routeHints:    [][]zpay32.HopHint{},
+			invoiceTarget: nil,
+			expectLSP:     false,
 		},
 		{
-			name:           "single route hint",
-			routeHints:     [][]zpay32.HopHint{{daveHopHint}},
-			probeAmtMsat:   probeAmtMsat,
-			isLsp:          true,
-			expectedHints:  [][]zpay32.HopHint{},
-			expectedLspHop: &daveHopHint,
+			name:          "empty route hint array",
+			routeHints:    [][]zpay32.HopHint{{}},
+			invoiceTarget: nil,
+			expectLSP:     false,
 		},
+
+		// Rule 1: Invoice target is public => NOT an LSP.
+		// Rationale: Can route directly to public target.
 		{
-			name: "single route, multiple hints",
-			routeHints: [][]zpay32.HopHint{{
-				aliceHopHint, bobHopHint,
-			}},
-			probeAmtMsat:   probeAmtMsat,
-			isLsp:          true,
-			expectedHints:  [][]zpay32.HopHint{{aliceHopHint}},
-			expectedLspHop: &bobHopHint,
-		},
-		{
-			name: "multiple routes, multiple hints",
+			name: "invoice target is public (alice)",
 			routeHints: [][]zpay32.HopHint{
-				{
-					aliceHopHint, bobHopHint,
-				},
-				{
-					carolHopHint, bobHopHint,
-				},
+				{bobHopHint, carolHopHint},
 			},
-			probeAmtMsat: probeAmtMsat,
-			isLsp:        true,
-			expectedHints: [][]zpay32.HopHint{
-				{aliceHopHint}, {carolHopHint},
-			},
-			expectedLspHop: &bobHopHint,
+			invoiceTarget: alicePubKey.SerializeCompressed(),
+			expectLSP:     false,
 		},
 		{
-			name: "multiple routes, multiple hints with min length",
+			name: "invoice target is public with public dest hop",
 			routeHints: [][]zpay32.HopHint{
-				{
-					bobHopHint,
-				},
-				{
-					carolHopHint, bobHopHint,
-				},
+				{bobHopHint, daveHopHint},
 			},
-			probeAmtMsat: probeAmtMsat,
-			isLsp:        true,
-			expectedHints: [][]zpay32.HopHint{
-				{carolHopHint},
-			},
-			expectedLspHop: &bobHopHint,
+			invoiceTarget: davePubKey.SerializeCompressed(),
+			expectLSP:     false,
 		},
 		{
-			name: "multiple routes, multiple hints, diff fees+cltv",
+			name: "invoice target is public with multiple routes",
 			routeHints: [][]zpay32.HopHint{
-				{
-					bobHopHint,
-				},
-				{
-					carolHopHint, bobExpensiveCopy,
-				},
+				{bobHopHint, carolHopHint},
+				{aliceHopHint, daveHopHint},
 			},
-			probeAmtMsat: probeAmtMsat,
-			isLsp:        true,
-			expectedHints: [][]zpay32.HopHint{
-				{carolHopHint},
+			invoiceTarget: alicePubKey.SerializeCompressed(),
+			expectLSP:     false,
+		},
+
+		// Rule 2: All destination hop hints are private => NOT an LSP.
+		// Rationale: The destination hop hint is private so it cannot
+		// be probed so we default to NOT an LSP.
+		{
+			name: "single route to private dest",
+			routeHints: [][]zpay32.HopHint{
+				{aliceHopHint, bobHopHint},
 			},
-			expectedLspHop: &zpay32.HopHint{
-				NodeID:                    bobHopHint.NodeID,
-				ChannelID:                 bobHopHint.ChannelID,
-				FeeBaseMSat:               bobExpensiveCopy.FeeBaseMSat,
-				FeeProportionalMillionths: bobExpensiveCopy.FeeProportionalMillionths,
-				CLTVExpiryDelta:           bobHopHint.CLTVExpiryDelta,
-			},
+			invoiceTarget: bobPubKey.SerializeCompressed(),
+			expectLSP:     false,
 		},
 		{
-			name: "multiple routes, different final hops",
+			name: "multiple routes, all to private dests",
 			routeHints: [][]zpay32.HopHint{
-				{
-					aliceHopHint, bobHopHint,
-				},
-				{
-					carolHopHint, daveHopHint,
-				},
+				{aliceHopHint, bobHopHint},
+				{daveHopHint, carolHopHint},
 			},
-			probeAmtMsat:   probeAmtMsat,
-			isLsp:          false,
-			expectedHints:  [][]zpay32.HopHint{},
-			expectedLspHop: nil,
+			invoiceTarget: nil,
+			expectLSP:     false,
 		},
 		{
-			name: "multiple routes, same public hops",
+			name: "single hop to private node",
 			routeHints: [][]zpay32.HopHint{
-				{
-					aliceHopHint, daveHopHintPublicChan,
-				},
-				{
-					carolHopHint, daveHopHintPublicChan,
-				},
+				{eveHopHint},
 			},
-			probeAmtMsat:   probeAmtMsat,
-			isLsp:          false,
-			expectedHints:  [][]zpay32.HopHint{},
-			expectedLspHop: nil,
+			invoiceTarget: evePubKey.SerializeCompressed(),
+			expectLSP:     false,
 		},
 		{
-			name: "multiple routes, same public hops",
+			name: "all routes to same private node",
 			routeHints: [][]zpay32.HopHint{
-				{
-					aliceHopHint, daveHopHint,
-				},
-				{
-					carolHopHint, daveHopHintPublicChan,
-				},
-				{
-					aliceHopHint, daveHopHintPublicChan,
-				},
+				{aliceHopHint, bobHopHint},
+				{daveHopHint, bobHopHint},
+				{carolHopHint, bobHopHint},
 			},
-			probeAmtMsat:   probeAmtMsat,
-			isLsp:          false,
-			expectedHints:  [][]zpay32.HopHint{},
-			expectedLspHop: nil,
+			invoiceTarget: nil,
+			expectLSP:     false,
+		},
+
+		// Rule 3: At least one destination hop is public => IS an LSP.
+		// Rationale: As long as there is at least one public
+		// destination route hint, it is an LSP setup and can be probed.
+		{
+			name: "single route to public dest (dave)",
+			routeHints: [][]zpay32.HopHint{
+				{bobHopHint, daveHopHint},
+			},
+			invoiceTarget: evePubKey.SerializeCompressed(),
+			expectLSP:     true,
+		},
+		{
+			name: "direct hop to public LSP (alice)",
+			routeHints: [][]zpay32.HopHint{
+				{aliceHopHint},
+			},
+			invoiceTarget: bobPubKey.SerializeCompressed(),
+			expectLSP:     true,
+		},
+		{
+			name: "multiple routes to same public LSP (dave)",
+			routeHints: [][]zpay32.HopHint{
+				{bobHopHint, daveHopHint},
+				{carolHopHint, daveHopHint},
+				{eveHopHint, daveHopHint},
+			},
+			invoiceTarget: nil,
+			expectLSP:     true,
+		},
+		{
+			name: "multiple routes to different public LSPs",
+			routeHints: [][]zpay32.HopHint{
+				{bobHopHint, aliceHopHint},
+				{carolHopHint, daveHopHint},
+			},
+			invoiceTarget: nil,
+			expectLSP:     true,
+		},
+		{
+			name: "mixed public and private dest hops",
+			routeHints: [][]zpay32.HopHint{
+				{aliceHopHint, bobHopHint},
+				{carolHopHint, daveHopHint},
+				{bobHopHint, eveHopHint},
+			},
+			invoiceTarget: nil,
+			expectLSP:     true,
+		},
+		{
+			name: "first route has public dest, rest private",
+			routeHints: [][]zpay32.HopHint{
+				{bobHopHint, aliceHopHint},
+				{carolHopHint, eveHopHint},
+			},
+			invoiceTarget: nil,
+			expectLSP:     true,
 		},
 	}
 
-	// Returns ErrEdgeNotFound for private channels.
-	fetchChannelEndpoints := func(chanID uint64) (route.Vertex,
-		route.Vertex, error) {
-
-		if chanID == publicChannelID {
-			return route.Vertex{}, route.Vertex{}, nil
-		}
-
-		return route.Vertex{}, route.Vertex{}, graphdb.ErrEdgeNotFound
-	}
-
-	for _, tc := range lspTestCases {
-		t.Run(tc.name, func(t *testing.T) {
-			isLsp := isLSP(tc.routeHints, fetchChannelEndpoints)
-			require.Equal(t, tc.isLsp, isLsp)
-			if !tc.isLsp {
-				return
-			}
-
-			adjustedHints, lspHint, _ := prepareLspRouteHints(
-				tc.routeHints, tc.probeAmtMsat,
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isLSP(
+				tt.routeHints, tt.invoiceTarget, hasNode,
 			)
-			require.Equal(t, tc.expectedHints, adjustedHints)
-			require.Equal(t, tc.expectedLspHop, lspHint)
+			require.Equal(t, tt.expectLSP, result)
 		})
 	}
+}
+
+// TestPrepareLspRouteHints tests the prepareLspRouteHints function to ensure
+// it correctly filters, groups, and calculates worst-case fees for LSP routes.
+func TestPrepareLspRouteHints(t *testing.T) {
+	// Setup test nodes:
+	// - Alice: public LSP node (in graph)
+	// - Bob: private node
+	// - Carol: private node
+	// - Dave: public LSP node (in graph)
+	// - Eve: private node
+	alicePrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	alicePubKey := alicePrivKey.PubKey()
+
+	bobPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	bobPubKey := bobPrivKey.PubKey()
+
+	carolPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	carolPubKey := carolPrivKey.PubKey()
+
+	davePrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	davePubKey := davePrivKey.PubKey()
+
+	evePrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	evePubKey := evePrivKey.PubKey()
+
+	// Create hop hints with varying fees and CLTV deltas.
+	aliceHopHint1 := zpay32.HopHint{
+		NodeID:                    alicePubKey,
+		FeeBaseMSat:               100,
+		FeeProportionalMillionths: 1_000,
+		CLTVExpiryDelta:           40,
+		ChannelID:                 1,
+	}
+
+	aliceHopHint2 := zpay32.HopHint{
+		NodeID:                    alicePubKey,
+		FeeBaseMSat:               200,
+		FeeProportionalMillionths: 2_000,
+		CLTVExpiryDelta:           80,
+		ChannelID:                 2,
+	}
+
+	bobHopHint := zpay32.HopHint{
+		NodeID:                    bobPubKey,
+		FeeBaseMSat:               500,
+		FeeProportionalMillionths: 500,
+		CLTVExpiryDelta:           144,
+		ChannelID:                 3,
+	}
+
+	carolHopHint := zpay32.HopHint{
+		NodeID:                    carolPubKey,
+		FeeBaseMSat:               300,
+		FeeProportionalMillionths: 300,
+		CLTVExpiryDelta:           40,
+		ChannelID:                 4,
+	}
+
+	daveHopHint1 := zpay32.HopHint{
+		NodeID:                    davePubKey,
+		FeeBaseMSat:               1_000,
+		FeeProportionalMillionths: 1_000,
+		CLTVExpiryDelta:           144,
+		ChannelID:                 5,
+	}
+
+	daveHopHint2 := zpay32.HopHint{
+		NodeID:                    davePubKey,
+		FeeBaseMSat:               2_000,
+		FeeProportionalMillionths: 500,
+		CLTVExpiryDelta:           288,
+		ChannelID:                 6,
+	}
+
+	eveHopHint := zpay32.HopHint{
+		NodeID:                    evePubKey,
+		FeeBaseMSat:               100,
+		FeeProportionalMillionths: 100,
+		CLTVExpiryDelta:           40,
+		ChannelID:                 7,
+	}
+
+	// Mock hasNode: returns true only for alice and dave.
+	hasNode := func(nodePub route.Vertex) (bool, error) {
+		aliceVertex := route.NewVertex(alicePubKey)
+		daveVertex := route.NewVertex(davePubKey)
+		return bytes.Equal(nodePub[:], aliceVertex[:]) ||
+			bytes.Equal(nodePub[:], daveVertex[:]), nil
+	}
+
+	amt := lnwire.MilliSatoshi(1_000_000)
+
+	tests := []struct {
+		name         string
+		routeHints   [][]zpay32.HopHint
+		expectedGrps int
+		validateFunc func(t *testing.T,
+			groups map[route.Vertex]*LspRouteGroup)
+	}{
+		{
+			name: "single public LSP with one route",
+			routeHints: [][]zpay32.HopHint{
+				{bobHopHint, aliceHopHint1},
+			},
+			expectedGrps: 1,
+			validateFunc: func(t *testing.T,
+				groups map[route.Vertex]*LspRouteGroup) {
+
+				require.Len(t, groups, 1)
+
+				// Find alice's group.
+				aliceKey := route.NewVertex(alicePubKey)
+				group, ok := groups[aliceKey]
+				require.True(t, ok, "alice group not found")
+
+				// Verify LSP hop hint.
+				require.Equal(t, aliceHopHint1.FeeBaseMSat,
+					group.LspHopHint.FeeBaseMSat)
+				require.Equal(t, aliceHopHint1.CLTVExpiryDelta,
+					group.LspHopHint.CLTVExpiryDelta)
+
+				// Verify adjusted route hints.
+				require.Len(t, group.AdjustedRouteHints, 1)
+				require.Len(t, group.AdjustedRouteHints[0], 1)
+				require.Equal(t, bobHopHint.NodeID,
+					group.AdjustedRouteHints[0][0].NodeID)
+			},
+		},
+		{
+			name: "single LSP with multiple routes, same fees",
+			routeHints: [][]zpay32.HopHint{
+				{bobHopHint, aliceHopHint1},
+				{carolHopHint, aliceHopHint1},
+			},
+			expectedGrps: 1,
+			validateFunc: func(t *testing.T,
+				groups map[route.Vertex]*LspRouteGroup) {
+
+				aliceKey := route.NewVertex(alicePubKey)
+				group, ok := groups[aliceKey]
+				require.True(t, ok, "alice group not found")
+
+				// Should have 2 adjusted route hints.
+				require.Len(t, group.AdjustedRouteHints, 2)
+
+				// Fees should match the single hop hint.
+				require.Equal(t, aliceHopHint1.FeeBaseMSat,
+					group.LspHopHint.FeeBaseMSat)
+				require.Equal(t, aliceHopHint1.CLTVExpiryDelta,
+					group.LspHopHint.CLTVExpiryDelta)
+			},
+		},
+		{
+			name: "single LSP with different fees, uses worst case",
+			routeHints: [][]zpay32.HopHint{
+				{bobHopHint, aliceHopHint1},
+				{carolHopHint, aliceHopHint2},
+			},
+			expectedGrps: 1,
+			validateFunc: func(t *testing.T,
+				groups map[route.Vertex]*LspRouteGroup) {
+
+				aliceKey := route.NewVertex(alicePubKey)
+				group, ok := groups[aliceKey]
+				require.True(t, ok, "alice group not found")
+
+				// Should use worst-case (higher) fees.
+				fee1 := aliceHopHint1.HopFee(amt)
+				fee2 := aliceHopHint2.HopFee(amt)
+				require.Greater(t, fee2, fee1,
+					"hint2 should have higher fees")
+
+				// Group should have hint2's fees.
+				require.Equal(t, aliceHopHint2.FeeBaseMSat,
+					group.LspHopHint.FeeBaseMSat)
+
+				//nolint:ll
+				require.Equal(t,
+					aliceHopHint2.FeeProportionalMillionths,
+					group.LspHopHint.FeeProportionalMillionths)
+
+				// Should use worst-case CLTV delta.
+				require.Equal(t, aliceHopHint2.CLTVExpiryDelta,
+					group.LspHopHint.CLTVExpiryDelta)
+			},
+		},
+		{
+			name: "multiple public LSPs",
+			routeHints: [][]zpay32.HopHint{
+				{bobHopHint, aliceHopHint1},
+				{carolHopHint, daveHopHint1},
+			},
+			expectedGrps: 2,
+			validateFunc: func(t *testing.T,
+				groups map[route.Vertex]*LspRouteGroup) {
+
+				require.Len(t, groups, 2)
+
+				aliceKey := route.NewVertex(alicePubKey)
+				daveKey := route.NewVertex(davePubKey)
+
+				_, hasAlice := groups[aliceKey]
+				_, hasDave := groups[daveKey]
+				require.True(t, hasAlice, "alice group missing")
+				require.True(t, hasDave, "dave group missing")
+			},
+		},
+		{
+			name: "filters out private dest hops",
+			routeHints: [][]zpay32.HopHint{
+				{aliceHopHint1, bobHopHint},
+				{carolHopHint, daveHopHint1},
+				{bobHopHint, eveHopHint},
+			},
+			expectedGrps: 1,
+			validateFunc: func(t *testing.T,
+				groups map[route.Vertex]*LspRouteGroup) {
+
+				require.Len(t, groups, 1)
+
+				daveKey := route.NewVertex(davePubKey)
+				group, ok := groups[daveKey]
+				require.True(t, ok, "dave group not found")
+
+				// Only one route hint should remain
+				require.Len(t, group.AdjustedRouteHints, 1)
+			},
+		},
+		{
+			name: "multiple routes to same LSP with varying CLTV",
+			routeHints: [][]zpay32.HopHint{
+				{bobHopHint, daveHopHint1},
+				{carolHopHint, daveHopHint2},
+			},
+			expectedGrps: 1,
+			validateFunc: func(t *testing.T,
+				groups map[route.Vertex]*LspRouteGroup) {
+
+				daveKey := route.NewVertex(davePubKey)
+				group, ok := groups[daveKey]
+				require.True(t, ok, "dave group not found")
+
+				// Should use maximum CLTV delta.
+				require.Equal(t, daveHopHint2.CLTVExpiryDelta,
+					group.LspHopHint.CLTVExpiryDelta)
+			},
+		},
+		{
+			name: "single hop to public LSP",
+			routeHints: [][]zpay32.HopHint{
+				{aliceHopHint1},
+			},
+			expectedGrps: 1,
+			validateFunc: func(t *testing.T,
+				groups map[route.Vertex]*LspRouteGroup) {
+
+				aliceKey := route.NewVertex(alicePubKey)
+				group, ok := groups[aliceKey]
+				require.True(t, ok, "alice group not found")
+
+				// No adjusted hints since it's a direct hop
+				require.Len(t, group.AdjustedRouteHints, 0)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			groups, err := prepareLspRouteHints(
+				tt.routeHints, amt, hasNode,
+			)
+			require.NoError(t, err)
+			require.Len(t, groups, tt.expectedGrps)
+
+			// Run custom validation if provided.
+			if tt.validateFunc != nil {
+				tt.validateFunc(t, groups)
+			}
+		})
+	}
+
+	// Error cases which in operation should never happen because we always
+	// call isLSP first to check if the route hints are an LSP setup.
+	t.Run("error: no route hints", func(t *testing.T) {
+		_, err := prepareLspRouteHints(
+			[][]zpay32.HopHint{}, amt, hasNode,
+		)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "no route hints")
+	})
+
+	t.Run("error: no public LSP nodes found", func(t *testing.T) {
+		// All private destination hops. If all destination hops are
+		// private we cannot probe any LSPs so we return an error.
+		routeHints := [][]zpay32.HopHint{
+			{aliceHopHint1, bobHopHint},
+			{daveHopHint1, carolHopHint},
+		}
+		_, err := prepareLspRouteHints(routeHints, amt, hasNode)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "no public LSP nodes found")
+	})
 }

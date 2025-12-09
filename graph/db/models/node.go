@@ -70,44 +70,44 @@ func (n *Node) PubKey() (*btcec.PublicKey, error) {
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the signature if absolutely necessary.
-func (l *Node) AuthSig() (*ecdsa.Signature, error) {
-	return ecdsa.ParseSignature(l.AuthSigBytes)
+func (n *Node) AuthSig() (*ecdsa.Signature, error) {
+	return ecdsa.ParseSignature(n.AuthSigBytes)
 }
 
 // AddPubKey is a setter-link method that can be used to swap out the public
 // key for a node.
-func (l *Node) AddPubKey(key *btcec.PublicKey) {
-	copy(l.PubKeyBytes[:], key.SerializeCompressed())
+func (n *Node) AddPubKey(key *btcec.PublicKey) {
+	copy(n.PubKeyBytes[:], key.SerializeCompressed())
 }
 
 // NodeAnnouncement retrieves the latest node announcement of the node.
-func (l *Node) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement1,
+func (n *Node) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement1,
 	error) {
 
-	if !l.HaveNodeAnnouncement {
+	if !n.HaveNodeAnnouncement {
 		return nil, fmt.Errorf("node does not have node announcement")
 	}
 
-	alias, err := lnwire.NewNodeAlias(l.Alias)
+	alias, err := lnwire.NewNodeAlias(n.Alias)
 	if err != nil {
 		return nil, err
 	}
 
 	nodeAnn := &lnwire.NodeAnnouncement1{
-		Features:        l.Features.RawFeatureVector,
-		NodeID:          l.PubKeyBytes,
-		RGBColor:        l.Color,
+		Features:        n.Features.RawFeatureVector,
+		NodeID:          n.PubKeyBytes,
+		RGBColor:        n.Color,
 		Alias:           alias,
-		Addresses:       l.Addresses,
-		Timestamp:       uint32(l.LastUpdate.Unix()),
-		ExtraOpaqueData: l.ExtraOpaqueData,
+		Addresses:       n.Addresses,
+		Timestamp:       uint32(n.LastUpdate.Unix()),
+		ExtraOpaqueData: n.ExtraOpaqueData,
 	}
 
 	if !signed {
 		return nodeAnn, nil
 	}
 
-	sig, err := lnwire.NewSigFromECDSARawSignature(l.AuthSigBytes)
+	sig, err := lnwire.NewSigFromECDSARawSignature(n.AuthSigBytes)
 	if err != nil {
 		return nil, err
 	}

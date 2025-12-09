@@ -302,3 +302,70 @@ func (m *MusigSessionManager) MuSig2RegisterNonces(sessionID MuSig2SessionID,
 
 	return session.HaveAllNonces, nil
 }
+
+// MuSig2RegisterCombinedNonce registers a pre-aggregated combined nonce for a
+// session identified by its ID. This is an alternative to MuSig2RegisterNonces
+// and is used when a coordinator has already aggregated all individual nonces
+// and wants to distribute the combined nonce to participants.
+//
+// NOTE: This method is mutually exclusive with MuSig2RegisterNonces for the
+// same session. Once this method is called, MuSig2RegisterNonces will return
+// an error if called later for the same session.
+func (m *MusigSessionManager) MuSig2RegisterCombinedNonce(
+	sessionID MuSig2SessionID,
+	combinedNonce [musig2.PubNonceSize]byte) error {
+
+	// Hold the lock during the whole operation.
+	m.sessionMtx.Lock(sessionID)
+	defer m.sessionMtx.Unlock(sessionID)
+
+	// Load the session.
+	session, ok := m.musig2Sessions.Load(sessionID)
+	if !ok {
+		return fmt.Errorf("session with ID %x not found", sessionID[:])
+	}
+
+	// Check if we already have all nonces.
+	if session.HaveAllNonces {
+		return fmt.Errorf("already have all nonces")
+	}
+
+	// Delegate to the version-specific implementation.
+	err := session.session.RegisterCombinedNonce(combinedNonce)
+	if err != nil {
+		return fmt.Errorf("error registering combined nonce: %w", err)
+	}
+
+	// Mark that we have all nonces now.
+	session.HaveAllNonces = true
+
+	return nil
+}
+
+// MuSig2GetCombinedNonce retrieves the combined nonce for a session identified
+// by its ID. This will be available after either all individual nonces have
+// been registered via MuSig2RegisterNonces, or a combined nonce has been
+// registered via MuSig2RegisterCombinedNonce.
+func (m *MusigSessionManager) MuSig2GetCombinedNonce(
+	sessionID MuSig2SessionID) ([musig2.PubNonceSize]byte, error) {
+
+	// Hold the lock during the operation.
+	m.sessionMtx.Lock(sessionID)
+	defer m.sessionMtx.Unlock(sessionID)
+
+	// Load the session.
+	session, ok := m.musig2Sessions.Load(sessionID)
+	if !ok {
+		return [musig2.PubNonceSize]byte{}, fmt.Errorf("session with "+
+			"ID %x not found", sessionID[:])
+	}
+
+	// Get the combined nonce from the session.
+	combinedNonce, err := session.session.CombinedNonce()
+	if err != nil {
+		return [musig2.PubNonceSize]byte{}, fmt.Errorf("error getting "+
+			"combined nonce: %w", err)
+	}
+
+	return combinedNonce, nil
+}

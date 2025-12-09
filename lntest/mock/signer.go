@@ -72,6 +72,22 @@ func (d *DummySigner) MuSig2RegisterNonces(input.MuSig2SessionID,
 	return false, nil
 }
 
+// MuSig2RegisterCombinedNonce registers a pre-aggregated combined nonce for a
+// session identified by its ID.
+func (d *DummySigner) MuSig2RegisterCombinedNonce(input.MuSig2SessionID,
+	[musig2.PubNonceSize]byte) error {
+
+	return nil
+}
+
+// MuSig2GetCombinedNonce retrieves the combined nonce for a session identified
+// by its ID.
+func (d *DummySigner) MuSig2GetCombinedNonce(input.MuSig2SessionID) (
+	[musig2.PubNonceSize]byte, error) {
+
+	return [musig2.PubNonceSize]byte{}, nil
+}
+
 // MuSig2Sign creates a partial signature using the local signing key
 // that was specified when the session was created. This can only be
 // called when all public nonces of all participants are known and have

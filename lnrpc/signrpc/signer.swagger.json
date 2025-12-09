@@ -186,6 +186,74 @@
         ]
       }
     },
+    "/v2/signer/musig2/getcombinednonce": {
+      "post": {
+        "summary": "MuSig2GetCombinedNonce (experimental!) retrieves the combined nonce for a\nsigning session. This will be available after either all individual nonces\nhave been registered via MuSig2RegisterNonces, or a combined nonce has been\nregistered via MuSig2RegisterCombinedNonce.",
+        "description": "NOTE: The MuSig2 BIP is not final yet and therefore this API must be\nconsidered to be HIGHLY EXPERIMENTAL and subject to change in upcoming\nreleases. Backward compatibility is not guaranteed!",
+        "operationId": "Signer_MuSig2GetCombinedNonce",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/signrpcMuSig2GetCombinedNonceResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/signrpcMuSig2GetCombinedNonceRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Signer"
+        ]
+      }
+    },
+    "/v2/signer/musig2/registercombinednonce": {
+      "post": {
+        "summary": "MuSig2RegisterCombinedNonce (experimental!) registers a pre-aggregated\ncombined nonce for a signing session. This is an alternative to\nMuSig2RegisterNonces and is used when a coordinator has already aggregated\nall individual nonces and wants to distribute the combined nonce to\nparticipants.",
+        "description": "NOTE: This method is mutually exclusive with MuSig2RegisterNonces for the\nsame session. The MuSig2 BIP is not final yet and therefore this API must\nbe considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming\nreleases. Backward compatibility is not guaranteed!",
+        "operationId": "Signer_MuSig2RegisterCombinedNonce",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/signrpcMuSig2RegisterCombinedNonceResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/signrpcMuSig2RegisterCombinedNonceRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Signer"
+        ]
+      }
+    },
     "/v2/signer/musig2/registernonces": {
       "post": {
         "summary": "MuSig2RegisterNonces (experimental!) registers one or more public nonces of\nother signing participants for a session identified by its ID. This RPC can\nbe called multiple times until all nonces are registered.",
@@ -571,6 +639,44 @@
           "description": "The final, full signature that is valid for the combined public key."
         }
       }
+    },
+    "signrpcMuSig2GetCombinedNonceRequest": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unique ID of the signing session to get the combined nonce for."
+        }
+      }
+    },
+    "signrpcMuSig2GetCombinedNonceResponse": {
+      "type": "object",
+      "properties": {
+        "combined_public_nonce": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 66-byte combined public nonce. This is a concatenation of two 33-byte\ncompressed public keys (R1 || R2)."
+        }
+      }
+    },
+    "signrpcMuSig2RegisterCombinedNonceRequest": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unique ID of the signing session the combined nonce should be registered\nwith."
+        },
+        "combined_public_nonce": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 66-byte combined public nonce that was aggregated externally. This is a\nconcatenation of two 33-byte compressed public keys (R1 || R2)."
+        }
+      }
+    },
+    "signrpcMuSig2RegisterCombinedNonceResponse": {
+      "type": "object"
     },
     "signrpcMuSig2RegisterNoncesRequest": {
       "type": "object",

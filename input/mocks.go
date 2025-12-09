@@ -258,6 +258,29 @@ func (m *MockInputSigner) MuSig2RegisterNonces(versio MuSig2SessionID,
 	return args.Bool(0), args.Error(1)
 }
 
+// MuSig2RegisterCombinedNonce registers a pre-aggregated combined nonce for a
+// session identified by its ID.
+func (m *MockInputSigner) MuSig2RegisterCombinedNonce(sessionID MuSig2SessionID,
+	combinedNonce [musig2.PubNonceSize]byte) error {
+
+	args := m.Called(sessionID, combinedNonce)
+
+	return args.Error(0)
+}
+
+// MuSig2GetCombinedNonce retrieves the combined nonce for a session identified
+// by its ID.
+func (m *MockInputSigner) MuSig2GetCombinedNonce(sessionID MuSig2SessionID) (
+	[musig2.PubNonceSize]byte, error) {
+
+	args := m.Called(sessionID)
+	if args.Get(0) == nil {
+		return [musig2.PubNonceSize]byte{}, args.Error(1)
+	}
+
+	return args.Get(0).([musig2.PubNonceSize]byte), args.Error(1)
+}
+
 // MuSig2Sign creates a partial signature using the local signing key that was
 // specified when the session was created.
 func (m *MockInputSigner) MuSig2Sign(sessionID MuSig2SessionID,

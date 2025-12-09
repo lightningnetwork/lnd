@@ -8,3 +8,17 @@ This corresponds to the [MuSig2 BIP specification version of
 
 We only keep this code here to allow implementing a backward compatible,
 versioned MuSig2 RPC.
+
+## Unsupported Methods
+
+The following methods from the newer MuSig2 specifications are not supported in
+this legacy v0.4.0 implementation and will return `ErrUnsupportedMethod` if
+called:
+
+- `CombinedNonce()`: Returns error instead of the combined nonce.
+- `RegisterCombinedNonce()`: Returns error instead of registering a
+  pre-aggregated combined nonce.
+
+These methods are only available when using MuSig2 v1.0.0rc2 or later. To use
+these features, create sessions with `MuSig2Version100RC2` instead of
+`MuSig2Version040`.

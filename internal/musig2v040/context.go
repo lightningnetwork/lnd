@@ -59,6 +59,11 @@ var (
 	// ErrNotEnoughSigners is returned if a caller attempts to obtain an
 	// early nonce when it wasn't specified
 	ErrNoEarlyNonce = fmt.Errorf("no early nonce available")
+
+	// ErrUnsupportedMethod is returned when calling methods that are not
+	// supported in the legacy v0.4.0 implementation.
+	ErrUnsupportedMethod = fmt.Errorf("method not supported in MuSig2 " +
+		"v0.4.0")
 )
 
 // Context is a managed signing context for musig2. It takes care of things
@@ -667,4 +672,16 @@ func (s *Session) CombineSig(sig *PartialSignature) (bool, error) {
 // FinalSig returns the final combined multi-signature, if present.
 func (s *Session) FinalSig() *schnorr.Signature {
 	return s.finalSig
+}
+
+// CombinedNonce is not supported in the legacy v0.4.0 implementation and will
+// always return an error.
+func (s *Session) CombinedNonce() ([PubNonceSize]byte, error) {
+	return [PubNonceSize]byte{}, ErrUnsupportedMethod
+}
+
+// RegisterCombinedNonce is not supported in the legacy v0.4.0 implementation
+// and will always return an error.
+func (s *Session) RegisterCombinedNonce(_ [PubNonceSize]byte) error {
+	return ErrUnsupportedMethod
 }

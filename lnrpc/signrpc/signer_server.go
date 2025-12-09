@@ -86,6 +86,14 @@ var (
 			Entity: "signer",
 			Action: "generate",
 		}},
+		"/signrpc.Signer/MuSig2RegisterCombinedNonce": {{
+			Entity: "signer",
+			Action: "generate",
+		}},
+		"/signrpc.Signer/MuSig2GetCombinedNonce": {{
+			Entity: "signer",
+			Action: "read",
+		}},
 		"/signrpc.Signer/MuSig2Sign": {{
 			Entity: "signer",
 			Action: "generate",
@@ -1078,6 +1086,62 @@ func (s *Server) MuSig2RegisterNonces(_ context.Context,
 	}
 
 	return &MuSig2RegisterNoncesResponse{HaveAllNonces: haveAllNonces}, nil
+}
+
+// MuSig2RegisterCombinedNonce registers a pre-aggregated combined nonce for a
+// session identified by its ID. This is an alternative to MuSig2RegisterNonces
+// and is used when a coordinator has already aggregated all individual nonces.
+func (s *Server) MuSig2RegisterCombinedNonce(_ context.Context,
+	in *MuSig2RegisterCombinedNonceRequest) (
+	*MuSig2RegisterCombinedNonceResponse, error) {
+
+	// Check session ID length.
+	sessionID, err := parseMuSig2SessionID(in.SessionId)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing session ID: %w", err)
+	}
+
+	// Validate the combined nonce length.
+	if len(in.CombinedPublicNonce) != musig2.PubNonceSize {
+		return nil, fmt.Errorf("invalid combined nonce length, got "+
+			"%d wanted %d", len(in.CombinedPublicNonce),
+			musig2.PubNonceSize)
+	}
+
+	// Convert to the expected fixed-size array.
+	var combinedNonce [musig2.PubNonceSize]byte
+	copy(combinedNonce[:], in.CombinedPublicNonce)
+
+	// Register the combined nonce.
+	err = s.cfg.Signer.MuSig2RegisterCombinedNonce(sessionID, combinedNonce)
+	if err != nil {
+		return nil, fmt.Errorf("error registering combined nonce: %w",
+			err)
+	}
+
+	return &MuSig2RegisterCombinedNonceResponse{}, nil
+}
+
+// MuSig2GetCombinedNonce retrieves the combined nonce for a signing session.
+func (s *Server) MuSig2GetCombinedNonce(_ context.Context,
+	in *MuSig2GetCombinedNonceRequest) (
+	*MuSig2GetCombinedNonceResponse, error) {
+
+	// Check session ID length.
+	sessionID, err := parseMuSig2SessionID(in.SessionId)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing session ID: %w", err)
+	}
+
+	// Get the combined nonce from the signer.
+	combinedNonce, err := s.cfg.Signer.MuSig2GetCombinedNonce(sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("error getting combined nonce: %w", err)
+	}
+
+	return &MuSig2GetCombinedNonceResponse{
+		CombinedPublicNonce: combinedNonce[:],
+	}, nil
 }
 
 // MuSig2Sign creates a partial signature using the local signing key that was

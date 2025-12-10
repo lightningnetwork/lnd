@@ -935,9 +935,14 @@ func (p *Brontide) Start() error {
 	// The onion message endpoint is used to handle incoming onion messages
 	// **from** this peer. This uses the message multiplexer to route
 	// messages to the endpoint for further processing.
+	resolver := &onionmessage.GraphNodeResolver{
+		Graph:  p.cfg.ChannelGraph,
+		OurPub: p.IdentityKey(),
+	}
 	onionMessageEndpoint, err := onionmessage.NewOnionEndpoint(
 		p.cfg.ActorSystem.Receptionist(),
 		p.cfg.SphinxRouterNoReplayLog,
+		resolver,
 		onionmessage.WithMessageServer(p.cfg.OnionMessageServer),
 	)
 	if err != nil {

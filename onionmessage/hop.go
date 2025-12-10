@@ -40,12 +40,18 @@ type deliverAction struct {
 
 type routingAction = fn.Either[forwardAction, deliverAction]
 
+// NodeIDResolver defines an interface to resolve a node public key from a short
+// channel ID.
+type NodeIDResolver interface {
+	RemotePubFromSCID(scid lnwire.ShortChannelID) (*btcec.PublicKey, error)
+}
+
 // processOnionMessage decodes and processes an onion message packet and its
 // contents. It assumes route blinding is used, so it also decrypts encrypted
 // recipient data, and derives the next path key. It returns a fn.Result type
 // containing a routingAction, which contains all the information required to
 // execute the next step in the routing process.
-func processOnionMessage(router *sphinx.Router,
+func processOnionMessage(router *sphinx.Router, resolver NodeIDResolver,
 	msg *lnwire.OnionMessage) fn.Result[routingAction] {
 
 	var onionPkt sphinx.OnionPacket
@@ -96,9 +102,7 @@ func processOnionMessage(router *sphinx.Router,
 		routeData.NextBlindingOverride)
 
 	action, err := createRoutingAction(
-		processedPkt,
-		&originalPayload,
-		routeData,
+		resolver, processedPkt, &originalPayload, routeData,
 		nextPathKey,
 	)
 	if err != nil {
@@ -110,28 +114,43 @@ func processOnionMessage(router *sphinx.Router,
 
 // createRoutingAction creates the routing action based on whether we are
 // forwarding or the receiver of the onion message.
-func createRoutingAction(packet *sphinx.ProcessedPacket,
-	payload *lnwire.OnionMessagePayload, routeData *record.BlindedRouteData,
+func createRoutingAction(resolver NodeIDResolver,
+	packet *sphinx.ProcessedPacket, payload *lnwire.OnionMessagePayload,
+	routeData *record.BlindedRouteData,
 	NextPathKey *btcec.PublicKey) (routingAction, error) {
 
 	if isForwarding(packet) {
-		nextNodeId, err := routeData.NextNodeID.UnwrapOrErr(
-			ErrNextNodeIdEmpty,
-		)
-
-		if err != nil {
-			return routingAction{}, err
+		var nextNodeID *btcec.PublicKey
+		if routeData.NextNodeID.IsSome() {
+			n, err := routeData.NextNodeID.UnwrapOrErr(
+				ErrNextNodeIdEmpty,
+			)
+			if err != nil {
+				return routingAction{}, err
+			}
+			nextNodeID = n.Val
+		} else {
+			scid, err := routeData.ShortChannelID.UnwrapOrErr(
+				ErrNextNodeIdEmpty,
+			)
+			if err != nil {
+				return routingAction{}, err
+			}
+			nextNodeID, err = resolver.RemotePubFromSCID(scid.Val)
+			if err != nil {
+				return routingAction{}, err
+			}
 		}
 
 		buf := new(bytes.Buffer)
-		err = packet.NextPacket.Encode(buf)
+		err := packet.NextPacket.Encode(buf)
 		if err != nil {
 			return routingAction{}, err
 		}
 		nextPacket := buf.Bytes()
 
 		return fn.NewLeft[forwardAction, deliverAction](forwardAction{
-			nextNodeID:  nextNodeId.Val,
+			nextNodeID:  nextNodeID,
 			nextPathKey: NextPathKey,
 			nextPacket:  nextPacket,
 			payload:     payload,

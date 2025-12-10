@@ -1,7 +1,6 @@
 package onionmessage
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -9,217 +8,152 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
-	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
+type processOnionMessageTest struct {
+	name             string
+	hopsToBlind      []*sphinx.HopInfo
+	isDeliver        bool
+	expectedNextNode *btcec.PublicKey
+	expectedOverride *btcec.PublicKey
+}
+
 func TestProcessOnionMessage(t *testing.T) {
+	// Helper to generate keys.
+	genKey := func() *btcec.PrivateKey {
+		k, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+		return k
+	}
+
 	// Setup the local node (router).
-	nodeKey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-	pubKey := nodeKey.PubKey()
+	nodeKeyA := genKey()
+	pubKeyA := nodeKeyA.PubKey()
 
 	router := sphinx.NewRouter(
-		&sphinx.PrivKeyECDH{PrivKey: nodeKey},
+		&sphinx.PrivKeyECDH{PrivKey: nodeKeyA},
 		sphinx.NewMemoryReplayLog(),
 	)
 	router.Start()
 	defer router.Stop()
 
-	t.Run("Forward Action Success", func(t *testing.T) {
-		// 1. Create the BlindedRouteData for this hop.
-		// Since we are forwarding, we must specify the NextNodeID.
-		nodeKeyB, err := btcec.NewPrivateKey()
+	resolver := newMockNodeIDResolver()
+
+	// Pre-generate keys for test cases.
+	nodeKeyB := genKey()
+	pubKeyB := nodeKeyB.PubKey()
+
+	overrideKey := genKey()
+	pubKeyOverride := overrideKey.PubKey()
+
+	// Helper to encode route data.
+	encodeData := func(data *record.BlindedRouteData) []byte {
+		b, err := record.EncodeBlindedRouteData(data)
 		require.NoError(t, err)
+		return b
+	}
 
-		pubKeyB := nodeKeyB.PubKey()
-		nextNode := fn.NewLeft[*btcec.PublicKey, lnwire.ShortChannelID](
-			pubKeyB,
-		)
+	// Case 1 Data: Forward Action Success.
+	nextNode1 := fn.NewLeft[*btcec.PublicKey, lnwire.ShortChannelID](
+		pubKeyB,
+	)
+	rd1A := record.NewNonFinalBlindedRouteDataOnionMessage(
+		nextNode1, nil, nil,
+	)
+	rd1B := &record.BlindedRouteData{}
+	hops1 := []*sphinx.HopInfo{
+		{NodePub: pubKeyA, PlainText: encodeData(rd1A)},
+		{NodePub: pubKeyB, PlainText: encodeData(rd1B)},
+	}
 
-		routeDataA := record.NewNonFinalBlindedRouteDataOnionMessage(
-			nextNode, nil, nil,
-		)
-		encodedRouteDataA, err := record.EncodeBlindedRouteData(
-			routeDataA,
-		)
-		require.NoError(t, err)
+	// Case 2 Data: Forward Action Path Key Override Success.
+	nextNode2 := fn.NewLeft[*btcec.PublicKey, lnwire.ShortChannelID](
+		pubKeyB,
+	)
+	rd2A := record.NewNonFinalBlindedRouteDataOnionMessage(
+		nextNode2, pubKeyOverride, nil,
+	)
+	rd2B := &record.BlindedRouteData{}
+	hops2 := []*sphinx.HopInfo{
+		{NodePub: pubKeyA, PlainText: encodeData(rd2A)},
+		{NodePub: pubKeyB, PlainText: encodeData(rd2B)},
+	}
 
-		routeDataB := &record.BlindedRouteData{}
+	// Case 3 Data: Forward Action Success with SCID resolution.
+	scid := lnwire.NewShortChanIDFromInt(12345)
+	resolver.addPeer(scid, pubKeyB)
 
-		encodedRouteDataB, err := record.EncodeBlindedRouteData(
-			routeDataB,
-		)
-		require.NoError(t, err)
+	nextNode3 := fn.NewRight[*btcec.PublicKey, lnwire.ShortChannelID](
+		scid,
+	)
+	rd3A := record.NewNonFinalBlindedRouteDataOnionMessage(
+		nextNode3, nil, nil,
+	)
+	rd3B := &record.BlindedRouteData{}
+	hops3 := []*sphinx.HopInfo{
+		{NodePub: pubKeyA, PlainText: encodeData(rd3A)},
+		{NodePub: pubKeyB, PlainText: encodeData(rd3B)},
+	}
 
-		// Create a set of 2 blinded hops for our path.
-		hopsToBlind := make([]*sphinx.HopInfo, 2)
+	// Case 4 Data: Deliver Action Success.
+	rd4 := &record.BlindedRouteData{}
+	hops4 := []*sphinx.HopInfo{
+		{NodePub: pubKeyA, PlainText: encodeData(rd4)},
+	}
 
-		// The first hop.
-		hopsToBlind[0] = &sphinx.HopInfo{
-			NodePub:   pubKey,
-			PlainText: encodedRouteDataA,
-		}
+	tests := []processOnionMessageTest{
+		{
+			name:             "Forward Action Success",
+			hopsToBlind:      hops1,
+			isDeliver:        false,
+			expectedNextNode: pubKeyB,
+			expectedOverride: nil, // No path key override.
+		},
+		{
+			name: "Forward Action Path Key Override " +
+				"Success",
+			hopsToBlind:      hops2,
+			isDeliver:        false,
+			expectedNextNode: pubKeyB,
+			expectedOverride: pubKeyOverride,
+		},
+		{
+			name: "Forward Action Success with SCID " +
+				"Resolution",
+			hopsToBlind:      hops3,
+			isDeliver:        false,
+			expectedNextNode: pubKeyB,
+			expectedOverride: nil,
+		},
+		{
+			name:        "Deliver Action Success",
+			hopsToBlind: hops4,
+			isDeliver:   true,
+		},
+	}
 
-		// The second hop.
-		hopsToBlind[1] = &sphinx.HopInfo{
-			NodePub:   pubKeyB,
-			PlainText: encodedRouteDataB,
-		}
-
-		// 2. Build blinded path.
-
-		// Create a session key for the blinded path. This is used to
-		// create the path keys.
-		sessionKeyA, err := btcec.NewPrivateKey()
-		require.NoError(t, err)
-
-		blindedPath, err := sphinx.BuildBlindedPath(
-			sessionKeyA, hopsToBlind,
-		)
-		require.NoError(t, err)
-
-		// 3. Create the final hop payload
-		finalHopPayload := &lnwire.FinalHopPayload{
-			TLVType: lnwire.InvoiceRequestNamespaceType,
-			Value:   []byte{1, 2, 3},
-		}
-
-		// 4. Convert that blinded path to a sphinx path and add a final
-		// payload.
-		sphinxPath, err := route.OnionMessageBlindedPathToSphinxPath(
-			blindedPath.Path, nil, []*lnwire.FinalHopPayload{
-				finalHopPayload,
-			},
-		)
-		require.NoError(t, err)
-
-		// 5. Create the Onion Packet.
-
-		// Create a session key for the onion packet encryption.
-		sessionKeyB, err := btcec.NewPrivateKey()
-		require.NoError(t, err)
-
-		onionPkt, err := sphinx.NewOnionPacket(
-			sphinxPath, sessionKeyB, nil,
-			sphinx.DeterministicPacketFiller,
-			sphinx.WithMaxPayloadSize(sphinx.MaxRoutingPayloadSize),
-		)
-		require.NoError(t, err, "new onion packet")
-
-		// Encode the onion packet to bytes.
-		var onionBlob bytes.Buffer
-		err = onionPkt.Encode(&onionBlob)
-		require.NoError(t, err)
-
-		// 6. Construct the OnionMessage.
-		msg := &lnwire.OnionMessage{
-			PathKey:   sessionKeyA.PubKey(),
-			OnionBlob: onionBlob.Bytes(),
-		}
-
-		// 7. Process the message.
-		result := processOnionMessage(router, msg)
-		require.True(t, result.IsOk())
-
-		expectedCypherText := blindedPath.Path.BlindedHops[0].CipherText
-
-		result.WhenOk(func(action routingAction) {
-			// Should be forwardAction
-			require.True(t, action.IsLeft())
-			action.WhenLeft(func(fwdAction forwardAction) {
-				require.Equal(t, pubKeyB, fwdAction.nextNodeID)
-				require.NotNil(t, fwdAction.nextPathKey)
-				require.NotEmpty(t, fwdAction.nextPacket)
-				require.NoError(t, err)
-				require.Equal(
-					t,
-					expectedCypherText,
-					fwdAction.payload.EncryptedData,
-				)
-			})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			testProcessOnionMessageCase(t, router, resolver, tc)
 		})
-	})
+	}
+}
 
-	t.Run("Deliver Action Success", func(t *testing.T) {
-		// 1. Create the BlindedRouteData for this hop.
-		// For Delivery (final node) empty route data is fine.
-		routeData := &record.BlindedRouteData{}
+func testProcessOnionMessageCase(t *testing.T, router *sphinx.Router,
+	resolver NodeIDResolver, tc processOnionMessageTest) {
 
-		encodedRouteData, err := record.EncodeBlindedRouteData(
-			routeData,
-		)
-		require.NoError(t, err)
+	msg, expectedCypherText := buildOnionMessage(t, tc.hopsToBlind)
 
-		// Create a set of 1 blinded hop for our path.
-		hopsToBlind := make([]*sphinx.HopInfo, 1)
+	// Process the message.
+	result := processOnionMessage(router, resolver, msg)
+	require.True(t, result.IsOk())
 
-		// The first hop.
-		hopsToBlind[0] = &sphinx.HopInfo{
-			NodePub:   pubKey,
-			PlainText: encodedRouteData,
-		}
-
-		// 2. Build blinded path.
-
-		// Create a session key for the blinded path. This is used to
-		// create the path keys.
-		sessionKeyA, err := btcec.NewPrivateKey()
-		require.NoError(t, err)
-
-		blindedPath, err := sphinx.BuildBlindedPath(
-			sessionKeyA, hopsToBlind,
-		)
-		require.NoError(t, err)
-
-		// 3. Create the final hop payload
-		finalHopPayload := &lnwire.FinalHopPayload{
-			TLVType: lnwire.InvoiceRequestNamespaceType,
-			Value:   []byte{1, 2, 3},
-		}
-
-		// 4. Convert that blinded path to a sphinx path and add a final
-		// payload.
-		sphinxPath, err := route.OnionMessageBlindedPathToSphinxPath(
-			blindedPath.Path, nil, []*lnwire.FinalHopPayload{
-				finalHopPayload,
-			},
-		)
-		require.NoError(t, err)
-
-		// 5. Create the Onion Packet.
-
-		// Create a session key for the onion packet encryption.
-		sessionKeyB, err := btcec.NewPrivateKey()
-		require.NoError(t, err)
-
-		onionPkt, err := sphinx.NewOnionPacket(
-			sphinxPath, sessionKeyB, nil,
-			sphinx.DeterministicPacketFiller,
-			sphinx.WithMaxPayloadSize(sphinx.MaxRoutingPayloadSize),
-		)
-		require.NoError(t, err, "new onion packet")
-
-		// Encode the onion packet to bytes.
-		var onionBlob bytes.Buffer
-		err = onionPkt.Encode(&onionBlob)
-		require.NoError(t, err)
-
-		// 6. Construct the OnionMessage.
-		msg := &lnwire.OnionMessage{
-			PathKey:   sessionKeyA.PubKey(),
-			OnionBlob: onionBlob.Bytes(),
-		}
-
-		// 7. Process the message.
-		result := processOnionMessage(router, msg)
-		require.True(t, result.IsOk())
-
-		expectedCypherText := blindedPath.Path.BlindedHops[0].CipherText
-
+	// Verify result.
+	if tc.isDeliver {
 		result.WhenOk(func(action routingAction) {
-			// Should be deliverAction
+			// Should be deliverAction.
 			require.True(t, action.IsRight())
 			action.WhenRight(func(dlvrAction deliverAction) {
 				require.Equal(
@@ -229,7 +163,34 @@ func TestProcessOnionMessage(t *testing.T) {
 				)
 			})
 		})
-	})
+	} else {
+		result.WhenOk(func(action routingAction) {
+			// Should be forwardAction.
+			require.True(t, action.IsLeft())
+			action.WhenLeft(func(fwdAction forwardAction) {
+				require.Equal(
+					t, tc.expectedNextNode,
+					fwdAction.nextNodeID,
+				)
+
+				if tc.expectedOverride != nil {
+					require.Equal(
+						t, tc.expectedOverride,
+						fwdAction.nextPathKey,
+					)
+				} else {
+					require.NotNil(t, fwdAction.nextPathKey)
+				}
+
+				require.NotEmpty(t, fwdAction.nextPacket)
+				require.Equal(
+					t,
+					expectedCypherText,
+					fwdAction.payload.EncryptedData,
+				)
+			})
+		})
+	}
 }
 
 // TestIsForwarding tests the isForwarding function.

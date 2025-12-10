@@ -68,6 +68,9 @@ type OnionEndpoint struct {
 	// router is the sphinx router used to process onion_message_packet
 	router *sphinx.Router
 
+	// resolver is used to resolve node public keys from short channel IDs.
+	resolver NodeIDResolver
+
 	// receptionist is the actor system receptionist used to look up peer
 	// onion actors.
 	receptionist *actor.Receptionist
@@ -79,18 +82,24 @@ var _ msgmux.Endpoint = (*OnionEndpoint)(nil)
 
 // NewOnionEndpoint creates a new OnionEndpoint with the given options.
 func NewOnionEndpoint(receptionist *actor.Receptionist, router *sphinx.Router,
-	opts ...OnionEndpointOption) (*OnionEndpoint, error) {
+	resolver NodeIDResolver, opts ...OnionEndpointOption) (*OnionEndpoint, error) {
 
 	if receptionist == nil {
 		return nil, ErrNilReceptionist
 	}
+
 	if router == nil {
 		return nil, ErrNilRouter
+	}
+
+	if resolver == nil {
+		return nil, ErrNilResolver
 	}
 
 	o := &OnionEndpoint{
 		receptionist: receptionist,
 		router:       router,
+		resolver:     resolver,
 	}
 	for _, opt := range opts {
 		opt(o)
@@ -132,7 +141,9 @@ func (o *OnionEndpoint) SendMessage(ctx context.Context,
 		btclog.HexN("onion_blob", onionMsg.OnionBlob, 10),
 		slog.Int("blob_length", len(onionMsg.OnionBlob)))
 
-	routingActionResult := processOnionMessage(o.router, onionMsg)
+	routingActionResult := processOnionMessage(
+		o.router, o.resolver, onionMsg,
+	)
 
 	routingAction, err := routingActionResult.Unpack()
 	if err != nil {

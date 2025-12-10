@@ -16,4 +16,7 @@ var (
 
 	// ErrNilRouter is returned when a nil router is provided.
 	ErrNilRouter = errors.New("router cannot be nil")
+
+	// ErrNilResolver is returned when a nil resolver is provided.
+	ErrNilResolver = errors.New("resolver cannot be nil")
 )

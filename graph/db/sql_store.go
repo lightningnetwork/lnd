@@ -2916,10 +2916,12 @@ func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
 			"height: %w", err)
 	}
 
+	s.cacheMu.Lock()
 	for _, channel := range removedChans {
 		s.rejectCache.remove(channel.ChannelID)
 		s.chanCache.remove(channel.ChannelID)
 	}
+	s.cacheMu.Unlock()
 
 	return removedChans, nil
 }

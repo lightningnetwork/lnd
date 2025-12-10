@@ -18,7 +18,6 @@ import (
 type Node struct {
 	// PubKeyBytes is the raw bytes of the public key of the target node.
 	PubKeyBytes [33]byte
-	pubKey      *btcec.PublicKey
 
 	// HaveNodeAnnouncement indicates whether we received a node
 	// announcement for this particular node. If true, the remaining fields
@@ -62,21 +61,8 @@ type Node struct {
 
 // PubKey is the node's long-term identity public key. This key will be used to
 // authenticated any advertisements/updates sent by the node.
-//
-// NOTE: By having this method to access an attribute, we ensure we only need
-// to fully deserialize the pubkey if absolutely necessary.
-func (l *Node) PubKey() (*btcec.PublicKey, error) {
-	if l.pubKey != nil {
-		return l.pubKey, nil
-	}
-
-	key, err := btcec.ParsePubKey(l.PubKeyBytes[:])
-	if err != nil {
-		return nil, err
-	}
-	l.pubKey = key
-
-	return key, nil
+func (n *Node) PubKey() (*btcec.PublicKey, error) {
+	return btcec.ParsePubKey(n.PubKeyBytes[:])
 }
 
 // AuthSig is a signature under the advertised public key which serves to
@@ -84,45 +70,44 @@ func (l *Node) PubKey() (*btcec.PublicKey, error) {
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the signature if absolutely necessary.
-func (l *Node) AuthSig() (*ecdsa.Signature, error) {
-	return ecdsa.ParseSignature(l.AuthSigBytes)
+func (n *Node) AuthSig() (*ecdsa.Signature, error) {
+	return ecdsa.ParseSignature(n.AuthSigBytes)
 }
 
 // AddPubKey is a setter-link method that can be used to swap out the public
 // key for a node.
-func (l *Node) AddPubKey(key *btcec.PublicKey) {
-	l.pubKey = key
-	copy(l.PubKeyBytes[:], key.SerializeCompressed())
+func (n *Node) AddPubKey(key *btcec.PublicKey) {
+	copy(n.PubKeyBytes[:], key.SerializeCompressed())
 }
 
 // NodeAnnouncement retrieves the latest node announcement of the node.
-func (l *Node) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement1,
+func (n *Node) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement1,
 	error) {
 
-	if !l.HaveNodeAnnouncement {
+	if !n.HaveNodeAnnouncement {
 		return nil, fmt.Errorf("node does not have node announcement")
 	}
 
-	alias, err := lnwire.NewNodeAlias(l.Alias)
+	alias, err := lnwire.NewNodeAlias(n.Alias)
 	if err != nil {
 		return nil, err
 	}
 
 	nodeAnn := &lnwire.NodeAnnouncement1{
-		Features:        l.Features.RawFeatureVector,
-		NodeID:          l.PubKeyBytes,
-		RGBColor:        l.Color,
+		Features:        n.Features.RawFeatureVector,
+		NodeID:          n.PubKeyBytes,
+		RGBColor:        n.Color,
 		Alias:           alias,
-		Addresses:       l.Addresses,
-		Timestamp:       uint32(l.LastUpdate.Unix()),
-		ExtraOpaqueData: l.ExtraOpaqueData,
+		Addresses:       n.Addresses,
+		Timestamp:       uint32(n.LastUpdate.Unix()),
+		ExtraOpaqueData: n.ExtraOpaqueData,
 	}
 
 	if !signed {
 		return nodeAnn, nil
 	}
 
-	sig, err := lnwire.NewSigFromECDSARawSignature(l.AuthSigBytes)
+	sig, err := lnwire.NewSigFromECDSARawSignature(n.AuthSigBytes)
 	if err != nil {
 		return nil, err
 	}

@@ -50,7 +50,7 @@ type Endpoint interface {
 	SendMessage(ctx context.Context, msg PeerMsg) bool
 }
 
-// MsgRouter is an interface that represents a message router, which is generic
+// Router is an interface that represents a message router, which is generic
 // sub-system capable of routing any incoming wire message to a set of
 // registered endpoints.
 type Router interface {

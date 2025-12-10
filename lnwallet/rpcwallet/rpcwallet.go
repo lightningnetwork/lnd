@@ -780,6 +780,59 @@ func (r *RPCKeyRing) MuSig2RegisterNonces(sessionID input.MuSig2SessionID,
 	return resp.HaveAllNonces, nil
 }
 
+// MuSig2RegisterCombinedNonce registers a pre-aggregated combined nonce for a
+// session identified by its ID. This is an alternative to MuSig2RegisterNonces
+// and is used when a coordinator has already aggregated all individual nonces.
+func (r *RPCKeyRing) MuSig2RegisterCombinedNonce(
+	sessionID input.MuSig2SessionID,
+	combinedNonce [musig2.PubNonceSize]byte) error {
+
+	req := &signrpc.MuSig2RegisterCombinedNonceRequest{
+		SessionId:           sessionID[:],
+		CombinedPublicNonce: combinedNonce[:],
+	}
+
+	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
+	defer cancel()
+
+	_, err := r.signerClient.MuSig2RegisterCombinedNonce(ctxt, req)
+	if err != nil {
+		considerShutdown(err)
+
+		return fmt.Errorf("error registering MuSig2 combined nonce "+
+			"in remote signer instance: %v", err)
+	}
+
+	return nil
+}
+
+// MuSig2GetCombinedNonce retrieves the combined nonce for a session identified
+// by its ID.
+func (r *RPCKeyRing) MuSig2GetCombinedNonce(sessionID input.MuSig2SessionID) (
+	[musig2.PubNonceSize]byte, error) {
+
+	req := &signrpc.MuSig2GetCombinedNonceRequest{
+		SessionId: sessionID[:],
+	}
+
+	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
+	defer cancel()
+
+	resp, err := r.signerClient.MuSig2GetCombinedNonce(ctxt, req)
+	if err != nil {
+		considerShutdown(err)
+
+		return [musig2.PubNonceSize]byte{}, fmt.Errorf("error getting "+
+			"MuSig2 combined nonce from remote signer instance: %v",
+			err)
+	}
+
+	var combinedNonce [musig2.PubNonceSize]byte
+	copy(combinedNonce[:], resp.CombinedPublicNonce)
+
+	return combinedNonce, nil
+}
+
 // MuSig2Sign creates a partial signature using the local signing key
 // that was specified when the session was created. This can only be
 // called when all public nonces of all participants are known and have

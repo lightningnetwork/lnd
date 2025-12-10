@@ -27,6 +27,12 @@ http:
     - selector: signrpc.Signer.MuSig2RegisterNonces
       post: "/v2/signer/musig2/registernonces"
       body: "*"
+    - selector: signrpc.Signer.MuSig2RegisterCombinedNonce
+      post: "/v2/signer/musig2/registercombinednonce"
+      body: "*"
+    - selector: signrpc.Signer.MuSig2GetCombinedNonce
+      post: "/v2/signer/musig2/getcombinednonce"
+      body: "*"
     - selector: signrpc.Signer.MuSig2Sign
       post: "/v2/signer/musig2/sign"
       body: "*"

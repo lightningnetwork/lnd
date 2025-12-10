@@ -90,6 +90,26 @@ type SignerClient interface {
 	// considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming
 	// releases. Backward compatibility is not guaranteed!
 	MuSig2RegisterNonces(ctx context.Context, in *MuSig2RegisterNoncesRequest, opts ...grpc.CallOption) (*MuSig2RegisterNoncesResponse, error)
+	// MuSig2RegisterCombinedNonce (experimental!) registers a pre-aggregated
+	// combined nonce for a signing session. This is an alternative to
+	// MuSig2RegisterNonces and is used when a coordinator has already aggregated
+	// all individual nonces and wants to distribute the combined nonce to
+	// participants.
+	//
+	// NOTE: This method is mutually exclusive with MuSig2RegisterNonces for the
+	// same session. The MuSig2 BIP is not final yet and therefore this API must
+	// be considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming
+	// releases. Backward compatibility is not guaranteed!
+	MuSig2RegisterCombinedNonce(ctx context.Context, in *MuSig2RegisterCombinedNonceRequest, opts ...grpc.CallOption) (*MuSig2RegisterCombinedNonceResponse, error)
+	// MuSig2GetCombinedNonce (experimental!) retrieves the combined nonce for a
+	// signing session. This will be available after either all individual nonces
+	// have been registered via MuSig2RegisterNonces, or a combined nonce has been
+	// registered via MuSig2RegisterCombinedNonce.
+	//
+	// NOTE: The MuSig2 BIP is not final yet and therefore this API must be
+	// considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming
+	// releases. Backward compatibility is not guaranteed!
+	MuSig2GetCombinedNonce(ctx context.Context, in *MuSig2GetCombinedNonceRequest, opts ...grpc.CallOption) (*MuSig2GetCombinedNonceResponse, error)
 	// MuSig2Sign (experimental!) creates a partial signature using the local
 	// signing key that was specified when the session was created. This can only
 	// be called when all public nonces of all participants are known and have been
@@ -200,6 +220,24 @@ func (c *signerClient) MuSig2RegisterNonces(ctx context.Context, in *MuSig2Regis
 	return out, nil
 }
 
+func (c *signerClient) MuSig2RegisterCombinedNonce(ctx context.Context, in *MuSig2RegisterCombinedNonceRequest, opts ...grpc.CallOption) (*MuSig2RegisterCombinedNonceResponse, error) {
+	out := new(MuSig2RegisterCombinedNonceResponse)
+	err := c.cc.Invoke(ctx, "/signrpc.Signer/MuSig2RegisterCombinedNonce", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *signerClient) MuSig2GetCombinedNonce(ctx context.Context, in *MuSig2GetCombinedNonceRequest, opts ...grpc.CallOption) (*MuSig2GetCombinedNonceResponse, error) {
+	out := new(MuSig2GetCombinedNonceResponse)
+	err := c.cc.Invoke(ctx, "/signrpc.Signer/MuSig2GetCombinedNonce", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *signerClient) MuSig2Sign(ctx context.Context, in *MuSig2SignRequest, opts ...grpc.CallOption) (*MuSig2SignResponse, error) {
 	out := new(MuSig2SignResponse)
 	err := c.cc.Invoke(ctx, "/signrpc.Signer/MuSig2Sign", in, out, opts...)
@@ -303,6 +341,26 @@ type SignerServer interface {
 	// considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming
 	// releases. Backward compatibility is not guaranteed!
 	MuSig2RegisterNonces(context.Context, *MuSig2RegisterNoncesRequest) (*MuSig2RegisterNoncesResponse, error)
+	// MuSig2RegisterCombinedNonce (experimental!) registers a pre-aggregated
+	// combined nonce for a signing session. This is an alternative to
+	// MuSig2RegisterNonces and is used when a coordinator has already aggregated
+	// all individual nonces and wants to distribute the combined nonce to
+	// participants.
+	//
+	// NOTE: This method is mutually exclusive with MuSig2RegisterNonces for the
+	// same session. The MuSig2 BIP is not final yet and therefore this API must
+	// be considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming
+	// releases. Backward compatibility is not guaranteed!
+	MuSig2RegisterCombinedNonce(context.Context, *MuSig2RegisterCombinedNonceRequest) (*MuSig2RegisterCombinedNonceResponse, error)
+	// MuSig2GetCombinedNonce (experimental!) retrieves the combined nonce for a
+	// signing session. This will be available after either all individual nonces
+	// have been registered via MuSig2RegisterNonces, or a combined nonce has been
+	// registered via MuSig2RegisterCombinedNonce.
+	//
+	// NOTE: The MuSig2 BIP is not final yet and therefore this API must be
+	// considered to be HIGHLY EXPERIMENTAL and subject to change in upcoming
+	// releases. Backward compatibility is not guaranteed!
+	MuSig2GetCombinedNonce(context.Context, *MuSig2GetCombinedNonceRequest) (*MuSig2GetCombinedNonceResponse, error)
 	// MuSig2Sign (experimental!) creates a partial signature using the local
 	// signing key that was specified when the session was created. This can only
 	// be called when all public nonces of all participants are known and have been
@@ -361,6 +419,12 @@ func (UnimplementedSignerServer) MuSig2CreateSession(context.Context, *MuSig2Ses
 }
 func (UnimplementedSignerServer) MuSig2RegisterNonces(context.Context, *MuSig2RegisterNoncesRequest) (*MuSig2RegisterNoncesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MuSig2RegisterNonces not implemented")
+}
+func (UnimplementedSignerServer) MuSig2RegisterCombinedNonce(context.Context, *MuSig2RegisterCombinedNonceRequest) (*MuSig2RegisterCombinedNonceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MuSig2RegisterCombinedNonce not implemented")
+}
+func (UnimplementedSignerServer) MuSig2GetCombinedNonce(context.Context, *MuSig2GetCombinedNonceRequest) (*MuSig2GetCombinedNonceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MuSig2GetCombinedNonce not implemented")
 }
 func (UnimplementedSignerServer) MuSig2Sign(context.Context, *MuSig2SignRequest) (*MuSig2SignResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MuSig2Sign not implemented")
@@ -528,6 +592,42 @@ func _Signer_MuSig2RegisterNonces_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Signer_MuSig2RegisterCombinedNonce_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MuSig2RegisterCombinedNonceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SignerServer).MuSig2RegisterCombinedNonce(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/signrpc.Signer/MuSig2RegisterCombinedNonce",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SignerServer).MuSig2RegisterCombinedNonce(ctx, req.(*MuSig2RegisterCombinedNonceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Signer_MuSig2GetCombinedNonce_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MuSig2GetCombinedNonceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SignerServer).MuSig2GetCombinedNonce(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/signrpc.Signer/MuSig2GetCombinedNonce",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SignerServer).MuSig2GetCombinedNonce(ctx, req.(*MuSig2GetCombinedNonceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Signer_MuSig2Sign_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(MuSig2SignRequest)
 	if err := dec(in); err != nil {
@@ -620,6 +720,14 @@ var Signer_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MuSig2RegisterNonces",
 			Handler:    _Signer_MuSig2RegisterNonces_Handler,
+		},
+		{
+			MethodName: "MuSig2RegisterCombinedNonce",
+			Handler:    _Signer_MuSig2RegisterCombinedNonce_Handler,
+		},
+		{
+			MethodName: "MuSig2GetCombinedNonce",
+			Handler:    _Signer_MuSig2GetCombinedNonce_Handler,
 		},
 		{
 			MethodName: "MuSig2Sign",

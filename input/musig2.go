@@ -64,6 +64,25 @@ type MuSig2Signer interface {
 	MuSig2RegisterNonces(MuSig2SessionID,
 		[][musig2.PubNonceSize]byte) (bool, error)
 
+	// MuSig2RegisterCombinedNonce registers a pre-aggregated combined nonce
+	// for a session identified by its ID. This is an alternative to
+	// MuSig2RegisterNonces and is used when a coordinator has already
+	// aggregated all individual nonces and wants to distribute the combined
+	// nonce to participants.
+	//
+	// NOTE: This method is mutually exclusive with MuSig2RegisterNonces for
+	// the same session. Once this method is called, MuSig2RegisterNonces
+	// will return an error if called later for the same session.
+	MuSig2RegisterCombinedNonce(MuSig2SessionID,
+		[musig2.PubNonceSize]byte) error
+
+	// MuSig2GetCombinedNonce retrieves the combined nonce for a session
+	// identified by its ID. This will be available after either all
+	// individual nonces have been registered via MuSig2RegisterNonces, or a
+	// combined nonce has been registered via MuSig2RegisterCombinedNonce.
+	MuSig2GetCombinedNonce(MuSig2SessionID) ([musig2.PubNonceSize]byte,
+		error)
+
 	// MuSig2Sign creates a partial signature using the local signing key
 	// that was specified when the session was created. This can only be
 	// called when all public nonces of all participants are known and have
@@ -130,6 +149,26 @@ type MuSig2Session interface {
 	// of signers. This method returns true once all the public nonces have
 	// been accounted for.
 	RegisterPubNonce(nonce [musig2.PubNonceSize]byte) (bool, error)
+
+	// CombinedNonce returns the combined/aggregated public nonce for the
+	// session. This will be available after either all individual nonces
+	// have been registered via RegisterPubNonce, or a combined nonce has
+	// been registered via RegisterCombinedNonce.
+	//
+	// If the combined nonce is not yet available, this method returns an
+	// error.
+	CombinedNonce() ([musig2.PubNonceSize]byte, error)
+
+	// RegisterCombinedNonce allows a caller to directly register a
+	// pre-aggregated nonce that was generated externally. This is useful
+	// in coordinator-based protocols where the coordinator aggregates all
+	// nonces and distributes the combined nonce to participants.
+	//
+	// NOTE: This method is mutually exclusive with RegisterPubNonce. Once
+	// this method is called, RegisterPubNonce will return an error if
+	// called later. Similarly, if RegisterPubNonce has already been called,
+	// this method will return an error.
+	RegisterCombinedNonce(combinedNonce [musig2.PubNonceSize]byte) error
 }
 
 // MuSig2SessionInfo is a struct for keeping track of a signing session

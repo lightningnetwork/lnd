@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -79,6 +80,7 @@ func testTaprootMuSig2(ht *lntest.HarnessTest) {
 		testTaprootMuSig2ScriptSpend(ht, alice, version)
 		testTaprootMuSig2CombinedLeafKeySpend(ht, alice, version)
 		testMuSig2CombineKey(ht, alice, version)
+		testTaprootMuSig2CombinedNonceCoordinator(ht, alice, version)
 	}
 }
 
@@ -2112,4 +2114,190 @@ func testMuSig2CombineKey(ht *lntest.HarnessTest, alice *node.HarnessNode,
 			ht, expectedPreTweakKey100, resp.TaprootInternalKey,
 		)
 	}
+}
+
+// testTaprootMuSig2CombinedNonceCoordinator tests the coordinator pattern where
+// a single party aggregates all nonces and distributes the combined nonce to
+// participants using MuSig2RegisterCombinedNonce.
+func testTaprootMuSig2CombinedNonceCoordinator(ht *lntest.HarnessTest,
+	alice *node.HarnessNode, version signrpc.MuSig2Version) {
+
+	// We're using a simple BIP-86 key spend only setup.
+	taprootTweak := &signrpc.TaprootTweakDesc{
+		KeySpendOnly: true,
+	}
+
+	// Derive signing keys for our three participants.
+	keyDesc1, keyDesc2, keyDesc3, allPubKeys := deriveSigningKeys(
+		ht, alice, version,
+	)
+
+	// Create three sessions WITHOUT exchanging nonces initially. This
+	// simulates the coordinator pattern where the coordinator collects
+	// nonces first, then aggregates them externally.
+	sessResp1 := alice.RPC.MuSig2CreateSession(
+		&signrpc.MuSig2SessionRequest{
+			KeyLoc:           keyDesc1.KeyLoc,
+			AllSignerPubkeys: allPubKeys,
+			TaprootTweak:     taprootTweak,
+			Version:          version,
+		},
+	)
+	require.Equal(ht, version, sessResp1.Version)
+	require.False(ht, sessResp1.HaveAllNonces)
+
+	sessResp2 := alice.RPC.MuSig2CreateSession(
+		&signrpc.MuSig2SessionRequest{
+			KeyLoc:           keyDesc2.KeyLoc,
+			AllSignerPubkeys: allPubKeys,
+			TaprootTweak:     taprootTweak,
+			Version:          version,
+		},
+	)
+	require.False(ht, sessResp2.HaveAllNonces)
+
+	sessResp3 := alice.RPC.MuSig2CreateSession(
+		&signrpc.MuSig2SessionRequest{
+			KeyLoc:           keyDesc3.KeyLoc,
+			AllSignerPubkeys: allPubKeys,
+			TaprootTweak:     taprootTweak,
+			Version:          version,
+		},
+	)
+	require.False(ht, sessResp3.HaveAllNonces)
+
+	// The coordinator collects all individual nonces.
+	allNonces := [][]byte{
+		sessResp1.LocalPublicNonces,
+		sessResp2.LocalPublicNonces,
+		sessResp3.LocalPublicNonces,
+	}
+
+	// For v0.4.0, both RegisterCombinedNonce and GetCombinedNonce should
+	// return unsupported errors.
+	if version == signrpc.MuSig2Version_MUSIG2_VERSION_V040 {
+		// Try to register a combined nonce - should fail with
+		// unsupported error.
+		var dummyNonce [66]byte
+		err := alice.RPC.MuSig2RegisterCombinedNonceErr(
+			&signrpc.MuSig2RegisterCombinedNonceRequest{
+				SessionId:           sessResp1.SessionId,
+				CombinedPublicNonce: dummyNonce[:],
+			},
+		)
+		require.ErrorContains(ht, err, "not supported")
+
+		// Try to get combined nonce - should also fail.
+		err = alice.RPC.MuSig2GetCombinedNonceErr(
+			&signrpc.MuSig2GetCombinedNonceRequest{
+				SessionId: sessResp1.SessionId,
+			},
+		)
+		require.ErrorContains(ht, err, "not supported")
+
+		// For v0.4.0, we can't proceed with the coordinator pattern,
+		// so we're done with this version.
+		return
+	}
+
+	// Copy the nonces over to slice of fixed byte arrays and then use the
+	// musig2 library to aggregate them.
+	var nonces [][musig2.PubNonceSize]byte
+	for _, nonce := range allNonces {
+		var n [musig2.PubNonceSize]byte
+		copy(n[:], nonce)
+		nonces = append(nonces, n)
+	}
+
+	combinedNonce, err := musig2.AggregateNonces(nonces)
+	require.NoError(ht, err)
+
+	// The coordinator now distributes the combined nonce to all
+	// participants.
+	alice.RPC.MuSig2RegisterCombinedNonce(
+		&signrpc.MuSig2RegisterCombinedNonceRequest{
+			SessionId:           sessResp1.SessionId,
+			CombinedPublicNonce: combinedNonce[:],
+		},
+	)
+
+	alice.RPC.MuSig2RegisterCombinedNonce(
+		&signrpc.MuSig2RegisterCombinedNonceRequest{
+			SessionId:           sessResp2.SessionId,
+			CombinedPublicNonce: combinedNonce[:],
+		},
+	)
+
+	alice.RPC.MuSig2RegisterCombinedNonce(
+		&signrpc.MuSig2RegisterCombinedNonceRequest{
+			SessionId:           sessResp3.SessionId,
+			CombinedPublicNonce: combinedNonce[:],
+		},
+	)
+
+	// Verify we can retrieve the combined nonce.
+	getNonceResp := alice.RPC.MuSig2GetCombinedNonce(
+		&signrpc.MuSig2GetCombinedNonceRequest{
+			SessionId: sessResp1.SessionId,
+		},
+	)
+	require.Equal(ht, combinedNonce[:], getNonceResp.CombinedPublicNonce)
+
+	// Test mutual exclusivity: trying to register individual nonces after
+	// combined nonce should fail.
+	err = alice.RPC.MuSig2RegisterNoncesErr(
+		&signrpc.MuSig2RegisterNoncesRequest{
+			SessionId: sessResp1.SessionId,
+			OtherSignerPublicNonces: [][]byte{
+				sessResp2.LocalPublicNonces,
+			},
+		},
+	)
+	require.ErrorContains(ht, err, "already have all nonces")
+
+	// Now complete a full signing flow to verify everything works.
+	combinedKey, err := schnorr.ParsePubKey(sessResp1.CombinedKey)
+	require.NoError(ht, err)
+
+	// Create a simple message to sign.
+	var msg [32]byte
+	copy(msg[:], []byte("test message for combined nonce"))
+
+	// All three participants sign the message.
+	signReq := &signrpc.MuSig2SignRequest{
+		SessionId:     sessResp1.SessionId,
+		MessageDigest: msg[:],
+	}
+	alice.RPC.MuSig2Sign(signReq)
+
+	signReq = &signrpc.MuSig2SignRequest{
+		SessionId:     sessResp2.SessionId,
+		MessageDigest: msg[:],
+		Cleanup:       true,
+	}
+	signResp2 := alice.RPC.MuSig2Sign(signReq)
+
+	signReq = &signrpc.MuSig2SignRequest{
+		SessionId:     sessResp3.SessionId,
+		MessageDigest: msg[:],
+		Cleanup:       true,
+	}
+	signResp3 := alice.RPC.MuSig2Sign(signReq)
+
+	// Combine the signatures.
+	combineReq := &signrpc.MuSig2CombineSigRequest{
+		SessionId: sessResp1.SessionId,
+		OtherPartialSignatures: [][]byte{
+			signResp2.LocalPartialSignature,
+			signResp3.LocalPartialSignature,
+		},
+	}
+	combineResp := alice.RPC.MuSig2CombineSig(combineReq)
+	require.True(ht, combineResp.HaveAllSignatures)
+	require.NotEmpty(ht, combineResp.FinalSignature)
+
+	// Verify the final signature is valid.
+	sig, err := schnorr.ParseSignature(combineResp.FinalSignature)
+	require.NoError(ht, err)
+	require.True(ht, sig.Verify(msg[:], combinedKey))
 }

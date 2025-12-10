@@ -54,6 +54,7 @@ func runRbfCoopCloseTest(st *lntest.HarnessTest, alice, bob *node.HarnessNode,
 	require.NoError(st, err)
 	alicePendingUpdate = aliceCloseUpdate.GetClosePending()
 	require.NotNil(st, aliceCloseUpdate)
+
 	// For taproot channels, due to different witness sizes, the fee per vbyte
 	// might be slightly different due to rounding when converting between
 	// absolute fee and fee per vbyte.
@@ -146,43 +147,39 @@ func testCoopCloseRbf(ht *lntest.HarnessTest) {
 		chanType := chanType
 		ht.Run(chanType.name, func(t1 *testing.T) {
 			st := ht.Subtest(t1)
-			// Set the fee estimate to 1sat/vbyte. This ensures that our manually
-			// initiated RBF attempts will always be successful.
+			// Set the fee estimate to 1sat/vbyte. This ensures that
+			// our manually initiated RBF attempts will always be
+			// successful.
 			st.SetFeeEstimate(250)
 			st.SetFeeEstimateWithConf(250, 6)
 
-			// Get the base node args for the commitment type and add RBF flag
+			// Build node config with commitment type args and RBF
+			// flag.
 			baseArgs := lntest.NodeArgsForCommitType(chanType.commitType)
-			aliceArgs := append(baseArgs, "--protocol.rbf-coop-close")
-			bobArgs := append(baseArgs, "--protocol.rbf-coop-close")
+			nodeArgs := append(baseArgs, "--protocol.rbf-coop-close")
+			cfgs := [][]string{nodeArgs, nodeArgs}
 
-			// Create new nodes with the appropriate flags
-			alice := st.NewNode("Alice", aliceArgs)
-			bob := st.NewNode("Bob", bobArgs)
+			// For taproot channels, we need to make them private.
+			isTaproot := chanType.commitType ==
+				lnrpc.CommitmentType_SIMPLE_TAPROOT
 
-			// Connect the nodes
-			st.ConnectNodes(alice, bob)
-
-			// Fund Alice
-			st.FundCoins(btcutil.SatoshiPerBitcoin, alice)
-
-			// For taproot channels, we need to make them private
-			privateChan := chanType.commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT
-
-			// Open channel between Alice and Bob
 			params := lntest.OpenChannelParams{
 				Amt:            btcutil.Amount(1000000),
 				PushAmt:        btcutil.Amount(1000000 / 2),
 				CommitmentType: chanType.commitType,
-				Private:        privateChan,
+				Private:        isTaproot,
 			}
-			chanPoint := st.OpenChannel(alice, bob, params)
 
-			// Run the RBF coop close test scenario
-			isTaproot := chanType.commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT
+			// Create network with Alice -> Bob channel, then use
+			// that to run the RBF coop close test.
+			chanPoints, nodes := st.CreateSimpleNetwork(
+				cfgs, params,
+			)
+			alice, bob := nodes[0], nodes[1]
+			chanPoint := chanPoints[0]
+
 			runRbfCoopCloseTest(st, alice, bob, chanPoint, isTaproot)
 
-			// Clean up the nodes
 			st.Shutdown(alice)
 			st.Shutdown(bob)
 		})

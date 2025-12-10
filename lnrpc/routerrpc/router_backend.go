@@ -122,9 +122,9 @@ type RouterBackend struct {
 	// channel data from the first hop of a route.
 	ParseCustomChannelData func(message proto.Message) error
 
-	// ShouldSetExpEndorsement returns a boolean indicating whether the
-	// experimental endorsement bit should be set.
-	ShouldSetExpEndorsement func() bool
+	// ShouldSetExpAccountability returns a boolean indicating whether the
+	// experimental accountability bit should be set.
+	ShouldSetExpAccountability func() bool
 
 	// Clock is the clock used to validate payment requests expiry.
 	// It is useful for testing.
@@ -947,19 +947,19 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	}
 	payIntent.FirstHopCustomRecords = firstHopRecords
 
-	// If the experimental endorsement signal is not already set, propagate
+	// If the experimental accountable signal is not already set, propagate
 	// a zero value field if configured to set this signal.
-	if r.ShouldSetExpEndorsement() {
+	if r.ShouldSetExpAccountability() {
 		if payIntent.FirstHopCustomRecords == nil {
 			payIntent.FirstHopCustomRecords = make(
 				map[uint64][]byte,
 			)
 		}
 
-		t := uint64(lnwire.ExperimentalEndorsementType)
+		t := uint64(lnwire.ExperimentalAccountableType)
 		if _, set := payIntent.FirstHopCustomRecords[t]; !set {
 			payIntent.FirstHopCustomRecords[t] = []byte{
-				lnwire.ExperimentalUnendorsed,
+				lnwire.ExperimentalUnaccountable,
 			}
 		}
 	}

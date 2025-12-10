@@ -3957,6 +3957,22 @@ func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel) error {
 
 	// Six confirmations have been reached. If this channel is public,
 	// we'll delete some of the alias mappings the gossiper uses.
+	//
+	// Tell the Switch to refresh the relevant ChannelLink so that forwards
+	// under the confirmed SCID are possible. We do this BEFORE updating the
+	// graph to avoid a race where other nodes learn about the confirmed
+	// SCID from gossip before our switch is ready to handle forwards using
+	// it. This is especially important for integration tests.
+	err = f.cfg.ReportShortChanID(c.FundingOutpoint)
+	if err != nil {
+		// This should only fail if the link is not found in the
+		// Switch's linkIndex map. If this is the case, then the peer
+		// has gone offline and the next time the link is loaded, it
+		// will have a refreshed state. Just log an error here.
+		log.Errorf("unable to report scid for zero-conf channel "+
+			"channel: %v", err)
+	}
+
 	isPublic := c.ChannelFlags&lnwire.FFAnnounceChannel != 0
 	if isPublic {
 		err = f.cfg.AliasManager.DeleteSixConfs(c.ShortChannelID)
@@ -3983,19 +3999,6 @@ func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel) error {
 			return fmt.Errorf("failed adding confirmed zero-conf "+
 				"SCID to graph: %v", err)
 		}
-	}
-
-	// Since we have now marked down the confirmed SCID, we'll also need to
-	// tell the Switch to refresh the relevant ChannelLink so that forwards
-	// under the confirmed SCID are possible if this is a public channel.
-	err = f.cfg.ReportShortChanID(c.FundingOutpoint)
-	if err != nil {
-		// This should only fail if the link is not found in the
-		// Switch's linkIndex map. If this is the case, then the peer
-		// has gone offline and the next time the link is loaded, it
-		// will have a refreshed state. Just log an error here.
-		log.Errorf("unable to report scid for zero-conf channel "+
-			"channel: %v", err)
 	}
 
 	// Update the confirmed transaction's label.

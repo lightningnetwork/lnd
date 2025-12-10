@@ -4726,14 +4726,9 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 	assertConfirmationHeight(t, alice, chanID, 1)
 	assertConfirmationHeight(t, bob, chanID, 1)
 
-	// For taproot channels, we don't expect them to be announced atm.
-	if !isTaprootChanType(chanType) {
-		assertChannelAnnouncements(
-			t, alice, bob, fundingAmt, nil, nil, nil, nil,
-		)
-	}
-
-	// Both Alice and Bob should send on reportScidChan.
+	// Both Alice and Bob should call ReportShortChanID first (before
+	// sending announcements) to avoid a race where other nodes learn about
+	// the confirmed SCID before the switch is ready.
 	select {
 	case <-alice.reportScidChan:
 	case <-time.After(time.Second * 5):
@@ -4744,6 +4739,13 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 	case <-bob.reportScidChan:
 	case <-time.After(time.Second * 5):
 		t.Fatalf("did not call ReportShortChanID in time")
+	}
+
+	// For taproot channels, we don't expect them to be announced atm.
+	if !isTaprootChanType(chanType) {
+		assertChannelAnnouncements(
+			t, alice, bob, fundingAmt, nil, nil, nil, nil,
+		)
 	}
 
 	// Send along the 6-confirmation channel so that announcement sigs can

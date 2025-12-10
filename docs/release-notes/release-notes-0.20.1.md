@@ -46,6 +46,11 @@
   issue](https://github.com/lightningnetwork/lnd/pull/10428) in LND which might
   happen when running postgres with a limited number of connections configured.
 
+* [Add missing payment address/secret when probing an 
+  invoice](https://github.com/lightningnetwork/lnd/pull/10439). This makes sure
+  the EstimateRouteFee API can probe Eclair and LDK nodes which enforce the
+  payment address/secret.
+
 # New Features
 
 ## Functional Enhancements

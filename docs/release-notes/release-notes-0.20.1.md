@@ -55,6 +55,10 @@
   has been removed from the public key parsing methods, and proper mutex
   protection has been added to the cache access in `DisconnectBlockAtHeight`.
 
+* [Fix potential sql tx exhaustion 
+  issue](https://github.com/lightningnetwork/lnd/pull/10428) in LND which might
+  happen when running postgres with a limited number of connections configured.
+
 # New Features
 
 ## Functional Enhancements

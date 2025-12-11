@@ -13,6 +13,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -385,6 +387,10 @@ func TestCreateEdgeLower(t *testing.T) {
 			Index: 0,
 		},
 	}
+
+	fundingScript, err := funding.MakeFundingScript(channel)
+	require.NoError(t, err)
+
 	expectedInfo := &models.ChannelEdgeInfo{
 		ChannelID:     8,
 		ChainHash:     channel.ChainHash,
@@ -399,6 +405,7 @@ func TestCreateEdgeLower(t *testing.T) {
 			remoteMultisigKey.SerializeCompressed()),
 		AuthProof:       nil,
 		ExtraOpaqueData: nil,
+		FundingScript:   fn.Some(fundingScript),
 	}
 	expectedEdge := &models.ChannelEdgePolicy{
 		ChannelID:                 8,
@@ -473,6 +480,10 @@ func TestCreateEdgeHigher(t *testing.T) {
 			Index: 0,
 		},
 	}
+
+	fundingScript, err := funding.MakeFundingScript(channel)
+	require.NoError(t, err)
+
 	expectedInfo := &models.ChannelEdgeInfo{
 		ChannelID:     8,
 		ChainHash:     channel.ChainHash,
@@ -487,6 +498,7 @@ func TestCreateEdgeHigher(t *testing.T) {
 			localMultisigKey.SerializeCompressed()),
 		AuthProof:       nil,
 		ExtraOpaqueData: nil,
+		FundingScript:   fn.Some(fundingScript),
 	}
 	expectedEdge := &models.ChannelEdgePolicy{
 		ChannelID:                 8,

@@ -423,6 +423,11 @@ type channelLink struct {
 	// allows contexts that either block or cancel on those depending on
 	// the use case.
 	cg *fn.ContextGuard
+
+	// cancel is the cancellation function for the context passed to
+	// htlcManager. It should be called when the link is stopped to clean up
+	// resources.
+	cancel context.CancelFunc
 }
 
 // hookMap is a data structure that is used to track the hooks that need to be
@@ -607,8 +612,13 @@ func (l *channelLink) Start() error {
 
 	l.updateFeeTimer = time.NewTimer(l.randomFeeUpdateTimeout())
 
+	// Create a background context that can be canceled when the link is
+	// stopped
+	ctx, cancel := context.WithCancel(context.Background())
+	l.cancel = cancel
+
 	l.cg.WgAdd(1)
-	go l.htlcManager(context.TODO())
+	go l.htlcManager(ctx)
 
 	return nil
 }
@@ -631,6 +641,11 @@ func (l *channelLink) Stop() {
 
 	if l.cfg.ChainEvents.Cancel != nil {
 		l.cfg.ChainEvents.Cancel()
+	}
+
+	// Cancel the context used by the htlcManager to clean up resources
+	if l.cancel != nil {
+		l.cancel()
 	}
 
 	// Ensure the channel for the timer is drained.

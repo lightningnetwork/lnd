@@ -1966,3 +1966,84 @@ func TestResumePaymentErrDuplicateAdd(t *testing.T) {
 	// ErrDuplicateAdd was handled as a success.
 	require.Equal(t, 1, m.collectResultsCount)
 }
+
+// TestResumePaymentErrAmbiguousAttemptInit tests that when the dispatcher
+// returns ErrAmbiguousAttemptInit, the router executes the "Halt and
+// Terminate" strategy, returning a critical error to the caller.
+//
+// NOTE: No parallel test because it overwrites global variables.
+//
+//nolint:paralleltest
+func TestResumePaymentErrAmbiguousAttemptInit(t *testing.T) {
+	// Create a test paymentLifecycle with the initial two calls mocked.
+	p, m := setupTestPaymentLifecycle(t)
+
+	// Create a dummy route that will be returned by `RequestRoute`.
+	paymentAmt := lnwire.MilliSatoshi(10000)
+	rt := createDummyRoute(t, paymentAmt)
+
+	// We now enter the payment lifecycle loop.
+	//
+	// 1. calls `FetchPayment` and return the payment.
+	m.control.On("FetchPayment", p.identifier).Return(m.payment, nil).Once()
+
+	// 2. calls `GetState` and return the state.
+	ps := &paymentsdb.MPPaymentState{
+		RemainingAmt: paymentAmt,
+	}
+	m.payment.On("GetState").Return(ps).Once()
+
+	// NOTE: GetStatus is only used to populate the logs which is
+	// not critical so we loosen the checks on how many times it's
+	// been called.
+	m.payment.On("GetStatus").Return(paymentsdb.StatusInFlight)
+
+	// 3. decideNextStep now returns stepProceed.
+	m.payment.On("AllowMoreAttempts").Return(true, nil).Once()
+
+	// 4. mock requestRoute to return an route.
+	m.paySession.On("RequestRoute",
+		paymentAmt, p.feeLimit, uint32(ps.NumAttemptsInFlight),
+		uint32(p.currentHeight), mock.Anything,
+	).Return(rt, nil).Once()
+
+	// 5. mock `registerAttempt` to return an attempt.
+	//
+	// Mock NextPaymentID to always return the attemptID.
+	attemptID := uint64(1)
+	p.router.cfg.NextPaymentID = func() (uint64, error) {
+		return attemptID, nil
+	}
+
+	// Mock shardTracker to return the mock shard.
+	m.shardTracker.On("NewShard",
+		attemptID, true,
+	).Return(m.shard, nil).Once()
+
+	// Mock the methods on the shard.
+	m.shard.On("MPP").Return(&record.MPP{}).Twice().
+		On("AMP").Return(nil).Once().
+		On("Hash").Return(p.identifier).Once()
+
+	// Mock the time and expect it to be called once.
+	m.clock.On("Now").Return(time.Now()).Once()
+
+	// We now register attempt and return no error.
+	m.control.On("RegisterAttempt",
+		p.identifier, mock.Anything,
+	).Return(nil).Once()
+
+	// 6. mock `sendAttempt` to return an ambiguous error.
+	m.payer.On("SendHTLC",
+		mock.Anything, attemptID, mock.Anything,
+	).Return(htlcswitch.ErrAmbiguousAttemptInit).Once()
+
+	// The above error should cause the payment lifecycle to terminate.
+	// We expect the returned error to wrap the original ambiguity error.
+	sendPaymentAndAssertError(t, t.Context(), p,
+		htlcswitch.ErrAmbiguousAttemptInit)
+
+	// Crucially, assert that no result collector was launched, as we are
+	// deferring resolution to the next restart.
+	require.Zero(t, m.collectResultsCount)
+}

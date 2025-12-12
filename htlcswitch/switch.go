@@ -255,12 +255,12 @@ type Switch struct {
 	// service was initialized with.
 	cfg *Config
 
-	// networkResults stores the results of payments initiated by the user.
+	// attemptStore stores the results of payments initiated by the user.
 	// The store is used to later look up the payments and notify the
 	// user of the result when they are complete. Each payment attempt
 	// should be given a unique integer ID when it is created, otherwise
 	// results might be overwritten.
-	networkResults *networkResultStore
+	attemptStore AttemptStore
 
 	// circuits is storage for payment circuits which are used to
 	// forward the settle/fail htlc updates back to the add htlc initiator.
@@ -380,7 +380,7 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		interfaceIndex:    make(map[[33]byte]map[lnwire.ChannelID]ChannelLink),
 		pendingLinkIndex:  make(map[lnwire.ChannelID]ChannelLink),
 		linkStopIndex:     make(map[lnwire.ChannelID]chan struct{}),
-		networkResults:    newNetworkResultStore(cfg.DB),
+		attemptStore:      newNetworkResultStore(cfg.DB),
 		htlcPlex:          make(chan *plexPacket),
 		chanCloseRequests: make(chan *ChanClose),
 		resolutionMsgs:    make(chan *resolutionMsg),
@@ -438,16 +438,21 @@ func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) erro
 // HasAttemptResult reads the network result store to fetch the specified
 // attempt. Returns true if the attempt result exists.
 func (s *Switch) HasAttemptResult(attemptID uint64) (bool, error) {
-	_, err := s.networkResults.getResult(attemptID)
+	_, err := s.attemptStore.GetResult(attemptID)
 	if err == nil {
 		return true, nil
 	}
 
-	if !errors.Is(err, ErrPaymentIDNotFound) {
-		return false, err
+	// If we have not heard of this attempt ID, or have dispatched the
+	// attempt but have not yet received the final (settle/fail) result,
+	// then we return a nil error.
+	if errors.Is(err, ErrPaymentIDNotFound) ||
+		errors.Is(err, ErrAttemptResultPending) {
+
+		return false, nil
 	}
 
-	return false, nil
+	return false, err
 }
 
 // GetAttemptResult returns the result of the HTLC attempt with the given
@@ -475,17 +480,33 @@ func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 	// is already available.
 	// Assumption: no one will add this attempt ID other than the caller.
 	if s.circuits.LookupCircuit(inKey) == nil {
-		res, err := s.networkResults.getResult(attemptID)
-		if err != nil {
+		res, err := s.attemptStore.GetResult(attemptID)
+		switch {
+		// We have a final result, we can send it immediately.
+		case err == nil:
+			c := make(chan *networkResult, 1)
+			c <- res
+			nChan = c
+
+		// The attempt is known, but the result is not yet available,
+		// so we fall through to subscribe.
+		case errors.Is(err, ErrAttemptResultPending):
+			log.Tracef("Attempt %d known, but result not yet "+
+				"available. Subscribing for result.", attemptID)
+
+		// If the error is anything else, we return it to the caller.
+		default:
 			return nil, err
 		}
-		c := make(chan *networkResult, 1)
-		c <- res
-		nChan = c
-	} else {
+	}
+
+	// If nChan is still nil, it means we need to subscribe. This happens
+	// if the circuit was found, or if GetResult told us the result is not
+	// yet available.
+	if nChan == nil {
 		// The HTLC was committed to the circuits, subscribe for a
 		// result.
-		nChan, err = s.networkResults.subscribeResult(attemptID)
+		nChan, err = s.attemptStore.SubscribeResult(attemptID)
 		if err != nil {
 			return nil, err
 		}
@@ -537,19 +558,89 @@ func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 // preiodically to let the switch clean up payment results that we have
 // handled.
 func (s *Switch) CleanStore(keepPids map[uint64]struct{}) error {
-	return s.networkResults.cleanStore(keepPids)
+	return s.attemptStore.CleanStore(keepPids)
 }
 
-// SendHTLC is used by other subsystems which aren't belong to htlc switch
-// package in order to send the htlc update. The attemptID used MUST be unique
-// for this HTLC, and MUST be used only once, otherwise the switch might reject
-// it.
+// SendHTLC is the idempotent, safe entry point for local subsystems to dispatch
+// a payment attempt. If a dispatch error occurs, the attempt is transitioned
+// to a terminal FAILED state before returning the error. This prevents the
+// attempt from being left pending and clarifies it is not in-flight. A return
+// of ErrDuplicateAdd indicates the dispatch for this attempt was already
+// acknowledged. The attempt may be in-flight, or it may already have a terminal
+// (settle or fail) result. The caller MUST use GetAttemptResult to determine
+// the definitive outcome. This allows callers to reliably resume their payment
+// lifecycle after ambiguous failures, such as a restart or network timeout.
 func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 	htlc *lnwire.UpdateAddHTLC) error {
 
-	// Generate and send new update packet, if error will be received on
-	// this stage it means that packet haven't left boundaries of our
-	// system and something wrong happened.
+	// First, we initialize the attempt in our persistent store. This serves
+	// as a durable record of our intent to send and gates the attempt id
+	// for concurrent callers, allowing them to safely retry.
+	err := s.attemptStore.InitAttempt(attemptID)
+	if err != nil {
+		if errors.Is(err, ErrPaymentIDAlreadyExists) {
+			// An existing record for this attempt ID was found. We
+			// return a distinct error to signal that dispatch is
+			// acknowledged and that the caller can safely proceed
+			// to track the result.
+			log.Debugf("Attempt id=%v already exists", attemptID)
+
+			return ErrDuplicateAdd
+		}
+
+		// If we receive an initialization error, we'll return the error
+		// directly to the caller so they can handle the ambiguity.
+		log.Errorf("unable to initialize attempt id=%d: %v",
+			attemptID, err)
+
+		return err
+	}
+
+	// With the attempt initialized, we now dispatch the HTLC.
+	dispatchErr := s.DispatchHTLC(firstHop, attemptID, htlc)
+
+	// If dispatch failed, the HTLC is not in-flight. We must ensure that
+	// the attempt, which was initialized via InitAttempt, does not remain
+	// in a pending state if it was never actually dispatched. To resolve
+	// this ambiguity, we fail the attempt, transitioning it to a terminal
+	// FAILED state. This prevents a caller from hanging on an initialized
+	// but un-dispatched attempt.
+	if dispatchErr != nil {
+		// For plain errors (fee exceeded, duplicate, etc.), we create a
+		// generic LinkError for the internal rollback.
+		var linkErrLocal *LinkError
+		if !errors.As(dispatchErr, &linkErrLocal) {
+			linkErrLocal = NewLinkError(
+				&lnwire.FailTemporaryNodeFailure{},
+			)
+		}
+
+		err = s.attemptStore.FailAttempt(attemptID, linkErrLocal)
+		if err != nil {
+			log.Errorf("Unable to store failure result for "+
+				"attempt %d: %v. Orphaned pending attempt may "+
+				"exist until next restart", attemptID, err)
+		}
+
+		// Return the original, more specific error to the caller.
+		return dispatchErr
+	}
+
+	return nil
+}
+
+// DispatchHTLC contains the core, non-idempotent dispatch logic. It serves as
+// the primary building block for safe, idempotent wrappers like SendHTLC (for
+// local subsystems) and remote handlers like the SendOnion gRPC endpoint.
+//
+// NOTE: This method must only be called by a safe wrapper that uses InitAttempt
+// to provide lifecycle-level idempotency. While this method relies on the
+// CircuitMap to prevent duplicate *in-flight* HTLCs, it does not prevent the
+// re-use of an attemptID after a payment has already resolved.
+func (s *Switch) DispatchHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
+	htlc *lnwire.UpdateAddHTLC) error {
+
+	// Create the packet that will be sent to the link.
 	packet := &htlcPacket{
 		incomingChanID: hop.Source,
 		incomingHTLCID: attemptID,
@@ -557,6 +648,30 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 		htlc:           htlc,
 		amount:         htlc.Amount,
 	}
+
+	// First, perform all local validation for the outgoing HTLC.
+	link, err := s.validateOutgoingHTLC(packet, htlc)
+	if err != nil {
+		return err
+	}
+
+	// With the link validated, commit the payment circuit. This provides a
+	// line of defense preventing duplicates for in-flight HTLCs.
+	if err := s.commitHTLCCircuit(packet, htlc); err != nil {
+		return err
+	}
+
+	// The circuit has now been committed. From this point on, any failures
+	// are handled by the switch's asynchronous resolution mechanisms.
+	// Deliver the packet to the outgoing link.
+	return link.handleSwitchPacket(packet)
+}
+
+// validateOutgoingHTLC performs local validation checks for an outgoing HTLC,
+// including link availability and dust/fee exposure checks. It returns the
+// target link if all validations pass.
+func (s *Switch) validateOutgoingHTLC(packet *htlcPacket,
+	htlc *lnwire.UpdateAddHTLC) (ChannelLink, error) {
 
 	// Attempt to fetch the target link before creating a circuit so that
 	// we don't leave dangling circuits. The getLocalLink method does not
@@ -577,7 +692,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 			false,
 		)
 
-		return linkErr
+		return nil, linkErr
 	}
 
 	// Evaluate whether this HTLC would bypass our fee exposure. If it
@@ -600,8 +715,17 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 			false,
 		)
 
-		return errFeeExposureExceeded
+		return nil, errFeeExposureExceeded
 	}
+
+	return link, nil
+}
+
+// commitHTLCCircuit creates and commits a payment circuit for the given HTLC.
+// It handles duplicate detection and attaches the circuit to the packet if
+// successful.
+func (s *Switch) commitHTLCCircuit(packet *htlcPacket,
+	htlc *lnwire.UpdateAddHTLC) error {
 
 	circuit := newPaymentCircuit(&htlc.PaymentHash, packet)
 	actions, err := s.circuits.CommitCircuits(circuit)
@@ -623,7 +747,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 	// canceled back if the mailbox timeout elapses.
 	packet.circuit = circuit
 
-	return link.handleSwitchPacket(packet)
+	return nil
 }
 
 // UpdateForwardingPolicies sends a message to the switch to update the
@@ -964,7 +1088,7 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 
 	// Store the result to the db. This will also notify subscribers about
 	// the result.
-	if err := s.networkResults.storeResult(attemptID, n); err != nil {
+	if err := s.attemptStore.StoreResult(attemptID, n); err != nil {
 		log.Errorf("Unable to store attempt result for pid=%v: %v",
 			attemptID, err)
 		return
@@ -1771,6 +1895,13 @@ func (s *Switch) Start() error {
 
 	log.Infof("HTLC Switch starting")
 
+	// Before starting the main event loop, we'll check for any orphaned
+	// HTLC attempts that may have been left behind by a previous crash.
+	if err := s.cleanupOrphanedAttempts(); err != nil {
+		return fmt.Errorf("failed to cleanup orphaned attempts: %w",
+			err)
+	}
+
 	blockEpochStream, err := s.cfg.Notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		return err
@@ -1791,6 +1922,86 @@ func (s *Switch) Start() error {
 		_ = s.Stop()
 		log.Errorf("unable to reforward resolutions: %v", err)
 		return err
+	}
+
+	return nil
+}
+
+// cleanupOrphanedAttempts is a helper function that is called on startup to
+// clean up any orphaned HTLC attempts. An orphaned attempt is one that has
+// been initialized in the attempt store but for which no corresponding circuit
+// exists in the circuit map. This can happen if the node crashes after
+// initializing an attempt but before committing the circuit.
+func (s *Switch) cleanupOrphanedAttempts() error {
+	pending, err := s.attemptStore.FetchPendingAttempts()
+	if err != nil {
+		return fmt.Errorf("failed to fetch pending attempts: %w", err)
+	}
+
+	if len(pending) == 0 {
+		return nil
+	}
+
+	log.Infof("Found %d pending HTLC attempts, checking for orphans",
+		len(pending))
+
+	for _, attemptID := range pending {
+		// For each pending attempt, we check if a corresponding circuit
+		// exists.
+		inKey := CircuitKey{
+			ChanID: hop.Source,
+			HtlcID: attemptID,
+		}
+		circuit := s.circuits.LookupCircuit(inKey)
+
+		// If no circuit exists, this is an orphan from a crash
+		// between InitAttempt and CommitCircuits. We'll fail it with
+		// a temporary node failure.
+		if circuit == nil {
+			log.Warnf("Found orphaned HTLC attempt with id %d "+
+				"(no circuit), failing", attemptID)
+
+			err := s.attemptStore.FailAttempt(attemptID,
+				NewLinkError(
+					&lnwire.FailTemporaryNodeFailure{},
+				),
+			)
+			if err != nil {
+				log.Errorf("Unable to fail orphaned attempt "+
+					"%d: %v", attemptID, err)
+			}
+
+			continue
+		}
+
+		// If a circuit *does* exist, we must perform a second check.
+		// If the circuit is still "half-open" (it has not been
+		// assigned a keystone by the outgoing link), then it's an
+		// orphan from a crash between CommitCircuits and the handoff
+		// to the link. We must also fail this to prevent a hang.
+		//
+		// TODO(calvin): cleanup of dangling circuits for locally
+		// initated payments as described here:
+		// https://github.com/lightningnetwork/lnd/issues/10423.
+		if !circuit.HasKeystone() {
+			log.Warnf("Found orphaned HTLC attempt with id %d "+
+				"(half-open circuit), failing", attemptID)
+
+			err := s.attemptStore.FailAttempt(attemptID,
+				NewLinkError(
+					&lnwire.FailTemporaryNodeFailure{},
+				),
+			)
+			if err != nil {
+				log.Errorf("Unable to fail orphaned attempt "+
+					"%d: %v", attemptID, err)
+			}
+
+			continue
+		}
+
+		// If the circuit exists and is fully open, it's a legitimate
+		// in-flight HTLC that will be resumed by the router.
 	}
 
 	return nil

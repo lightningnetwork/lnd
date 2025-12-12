@@ -700,6 +700,44 @@ func (p *paymentLifecycle) sendAttempt(
 	// restart.
 	err = p.router.cfg.Payer.SendHTLC(firstHop, attempt.AttemptID, htlcAdd)
 	if err != nil {
+		// The dispatcher has confirmed that this attempt was already
+		// processed and is in-flight. Though this is unexpected, we can
+		// handle it gracefully by treating it as an acknowledgment of a
+		// successful dispatch and proceed to tracking the result.
+		if errors.Is(err, htlcswitch.ErrDuplicateAdd) {
+			log.Warnf("Attempt %v for payment %v already "+
+				"processed by dispatcher (duplicate). "+
+				"Proceeding to result collection.",
+				attempt.AttemptID, p.identifier)
+
+			return &attemptResult{
+				attempt: attempt,
+			}, nil
+		}
+
+		// The dispatcher has encountered a persistent, unresolvable
+		// ambiguous error (e.g., a DB failure). The state of the
+		// attempt is unknown. We must prioritize safety over liveness
+		// by executing a "fail-safe shutdown" for this payment. The
+		// payment will remain in-flight in the database and will be
+		// correctly resumed after the next node restart.
+		// TODO(calvin): consider adding retries here to resolve without
+		// needing a restart.
+		if errors.Is(err, htlcswitch.ErrAmbiguousAttemptInit) {
+			log.Warnf("Ambiguous result for attempt %v on payment "+
+				"%v. Terminating payment lifecycle and "+
+				"deferring resolution to restart.",
+				attempt.AttemptID, p.identifier)
+
+			// Return a critical, payment-terminating error.
+			return nil, fmt.Errorf("unresolved ambiguity for "+
+				"attempt %v: %w", attempt.AttemptID,
+				htlcswitch.ErrAmbiguousAttemptInit)
+		}
+
+		// If it's any other error, then it's a genuine, definitive
+		// failure that needs to be handled by the switch error
+		// handler.
 		log.Errorf("Failed sending attempt %d for payment %v to "+
 			"switch: %v", attempt.AttemptID, p.identifier, err)
 

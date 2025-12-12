@@ -443,11 +443,16 @@ func (s *Switch) HasAttemptResult(attemptID uint64) (bool, error) {
 		return true, nil
 	}
 
-	if !errors.Is(err, ErrPaymentIDNotFound) {
-		return false, err
+	// If we have not heard of this attempt ID, or have dispatched the
+	// attempt but have not yet received the final (settle/fail) result,
+	// then we return a nil error.
+	if errors.Is(err, ErrPaymentIDNotFound) ||
+		errors.Is(err, ErrAttemptResultPending) {
+
+		return false, nil
 	}
 
-	return false, nil
+	return false, err
 }
 
 // GetAttemptResult returns the result of the HTLC attempt with the given
@@ -476,13 +481,29 @@ func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 	// Assumption: no one will add this attempt ID other than the caller.
 	if s.circuits.LookupCircuit(inKey) == nil {
 		res, err := s.attemptStore.GetResult(attemptID)
-		if err != nil {
+		switch {
+		// We have a final result, we can send it immediately.
+		case err == nil:
+			c := make(chan *networkResult, 1)
+			c <- res
+			nChan = c
+
+		// The attempt is known, but the result is not yet available,
+		// so we fall through to subscribe.
+		case errors.Is(err, ErrAttemptResultPending):
+			log.Tracef("Attempt %d known, but result not yet "+
+				"available. Subscribing for result.", attemptID)
+
+		// If the error is anything else, we return it to the caller.
+		default:
 			return nil, err
 		}
-		c := make(chan *networkResult, 1)
-		c <- res
-		nChan = c
-	} else {
+	}
+
+	// If nChan is still nil, it means we need to subscribe. This happens
+	// if the circuit was found, or if GetResult told us the result is not
+	// yet available.
+	if nChan == nil {
 		// The HTLC was committed to the circuits, subscribe for a
 		// result.
 		nChan, err = s.attemptStore.SubscribeResult(attemptID)

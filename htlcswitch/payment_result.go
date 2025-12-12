@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 
@@ -218,7 +219,19 @@ func (store *networkResultStore) StoreResult(attemptID uint64,
 
 	log.Debugf("Storing result for attemptID=%v", attemptID)
 
-	// Serialize the payment result.
+	if err := store.storeResult(attemptID, result); err != nil {
+		return err
+	}
+
+	store.notifySubscribers(attemptID, result)
+
+	return nil
+}
+
+// storeResult persists the given result to the database.
+func (store *networkResultStore) storeResult(attemptID uint64,
+	result *networkResult) error {
+
 	var b bytes.Buffer
 	if err := serializeNetworkResult(&b, result); err != nil {
 		return err
@@ -227,7 +240,7 @@ func (store *networkResultStore) StoreResult(attemptID uint64,
 	var attemptIDBytes [8]byte
 	binary.BigEndian.PutUint64(attemptIDBytes[:], attemptID)
 
-	err := kvdb.Batch(store.backend, func(tx kvdb.RwTx) error {
+	return kvdb.Batch(store.backend, func(tx kvdb.RwTx) error {
 		networkResults, err := tx.CreateTopLevelBucket(
 			networkResultStoreBucketKey,
 		)
@@ -237,20 +250,20 @@ func (store *networkResultStore) StoreResult(attemptID uint64,
 
 		return networkResults.Put(attemptIDBytes[:], b.Bytes())
 	})
-	if err != nil {
-		return err
-	}
+}
 
-	// Now that the result is stored in the database, we can notify any
-	// active subscribers.
+// notifySubscribers notifies any subscribers of the final result for the given
+// attempt ID.
+func (store *networkResultStore) notifySubscribers(attemptID uint64,
+	result *networkResult) {
+
 	store.resultsMtx.Lock()
 	for _, res := range store.results[attemptID] {
 		res <- result
 	}
+
 	delete(store.results, attemptID)
 	store.resultsMtx.Unlock()
-
-	return nil
 }
 
 // SubscribeResult is used to get the HTLC attempt result for the given attempt
@@ -423,4 +436,154 @@ func (store *networkResultStore) CleanStore(keep map[uint64]struct{}) error {
 
 		return nil
 	}, func() {})
+}
+
+// FetchPendingAttempts returns a list of all attempt IDs that are currently in
+// the pending state.
+//
+// NOTE: This function is NOT safe for concurrent access.
+func (store *networkResultStore) FetchPendingAttempts() ([]uint64, error) {
+	var pending []uint64
+	err := kvdb.View(store.backend, func(tx kvdb.RTx) error {
+		bucket := tx.ReadBucket(networkResultStoreBucketKey)
+		if bucket == nil {
+			return nil
+		}
+
+		return bucket.ForEach(func(k, v []byte) error {
+			// If the key is not 8 bytes, it's not a valid attempt
+			// ID.
+			if len(k) != 8 {
+				log.Warnf("Found invalid key of length %d in "+
+					"network result store", len(k))
+
+				return nil
+			}
+
+			// Deserialize the result to check its type.
+			r := bytes.NewReader(v)
+			result, err := deserializeNetworkResult(r)
+			if err != nil {
+				// If we can't deserialize, we'll log it and
+				// continue. The result will be removed by a
+				// call to CleanStore.
+				log.Warnf("Unable to deserialize result for "+
+					"key %x: %v", k, err)
+
+				return nil
+			}
+
+			// If the result is a pending result, add the attempt
+			// ID to our list.
+			if result.msg.MsgType() == pendingHtlcMsgType {
+				attemptID := binary.BigEndian.Uint64(k)
+				pending = append(pending, attemptID)
+			}
+
+			return nil
+		})
+	}, func() {
+		pending = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return pending, nil
+}
+
+// FailPendingAttempt transitions an initialized attempt from a `pending` to a
+// `failed` state, recording the provided reason. This ensures that attempts
+// which fail before being committed to the forwarding engine are properly
+// finalized. This transition unblocks any subscribers that might be waiting on
+// a final outcome for an initialized but un-dispatched attempt.
+//
+// NOTE: This method is specifically for attempts that have been initialized
+// via InitAttempt but fail *before* being dispatched to the network. Normal
+// failures (e.g., from an HTLC being failed on-chain or by a peer) are
+// recorded via the StoreResult method and should not use FailPendingAttempt.
+func (store *networkResultStore) FailPendingAttempt(attemptID uint64,
+	linkErr *LinkError) error {
+
+	// We get a mutex for this attempt ID to ensure consistency between the
+	// database state and the subscribers in case of concurrent calls.
+	store.attemptIDMtx.Lock(attemptID)
+	defer store.attemptIDMtx.Unlock(attemptID)
+
+	// First, create the failure result.
+	failureResult, err := newInternalFailureResult(linkErr)
+	if err != nil {
+		return fmt.Errorf("failed to create failure message for "+
+			"attempt %d: %w", attemptID, err)
+	}
+
+	var b bytes.Buffer
+	if err := serializeNetworkResult(&b, failureResult); err != nil {
+		return fmt.Errorf("failed to serialize failure result: %w", err)
+	}
+	serializedFailureResult := b.Bytes()
+
+	var attemptIDBytes [8]byte
+	binary.BigEndian.PutUint64(attemptIDBytes[:], attemptID)
+
+	err = kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
+		// Verify that the attempt exists and is in the pending
+		// state, otherwise we should not fail it.
+		existingResult, err := fetchResult(tx, attemptID)
+		if err != nil {
+			return err
+		}
+
+		if existingResult.msg.MsgType() != pendingHtlcMsgType {
+			return fmt.Errorf("attempt %d not in pending state",
+				attemptID)
+		}
+
+		// Write the failure result to the store to unblock any
+		// subscribers awaiting a final result.
+		bucket, err := tx.CreateTopLevelBucket(
+			networkResultStoreBucketKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		return bucket.Put(attemptIDBytes[:], serializedFailureResult)
+	}, func() {
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to fail pending attempt %d: %w",
+			attemptID, err)
+	}
+
+	// Lastly, update any subscribers which may be waiting on the result
+	// of this attempt.
+	store.notifySubscribers(attemptID, failureResult)
+
+	return nil
+}
+
+// newInternalFailureResult creates a networkResult representing a terminal,
+// internally generated failure.
+func newInternalFailureResult(linkErr *LinkError) (*networkResult, error) {
+	// First, we need to serialize the wire message from our link error
+	// into a byte slice. This is what the downstream parsers expect.
+	var reasonBytes bytes.Buffer
+	wireMsg := linkErr.WireMessage()
+	if err := lnwire.EncodeFailure(&reasonBytes, wireMsg, 0); err != nil {
+		return nil, err
+	}
+
+	// We'll create a synthetic UpdateFailHTLC to represent this internal
+	// failure, following the pattern used by the contract resolver.
+	failMsg := &lnwire.UpdateFailHTLC{
+		Reason: lnwire.OpaqueReason(reasonBytes.Bytes()),
+	}
+
+	return &networkResult{
+		msg: failMsg,
+		// This is a local failure.
+		unencrypted: true,
+	}, nil
 }

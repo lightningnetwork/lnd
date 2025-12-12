@@ -10,6 +10,7 @@
    1. [Code Review](#code-review)
    1. [Rework Code (if needed)](#rework-code-if-needed)
    1. [Acceptance](#acceptance)
+   1. [Backporting Changes](#backporting-changes)
    1. [Review Bot](#review-bot)
 7. [Contribution Standards](#contribution-standards)
    1. [Contribution Checklist](#contribution-checklist)
@@ -231,6 +232,23 @@ these signatures intact, we prefer using merge commits. PR proposers can use
 `git rebase --signoff` to sign and rebase at the same time as a final step.
 
 Rejoice as you will now be listed as a [contributor](https://github.com/lightningnetwork/lnd/graphs/contributors)!
+
+## Backporting Changes
+
+After a PR is merged to master, it may need to be backported to release branches
+(e.g., `v0.20.x-branch`) to include the fix or feature in upcoming patch releases.
+
+The project uses an **automated backport workflow** to simplify this process. Simply
+add a label like `backport-v0.20.x-branch` to your merged PR, and a GitHub Action
+will automatically create a backport PR for you.
+
+For complete documentation on the automated backport workflow, including:
+- How to use backport labels
+- Handling merge conflicts
+- Multiple backports
+- Troubleshooting
+
+See [backport-workflow.md](backport-workflow.md)
 
 ## Review Bot
 

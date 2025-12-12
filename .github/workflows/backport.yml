@@ -1,0 +1,121 @@
+name: Backport
+
+on:
+  pull_request_target:
+    types: [closed, labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+
+jobs:
+  backport:
+    name: Backport PR
+    runs-on: ubuntu-latest
+    # Only run on merged PRs with backport labels.
+    # Labels must match pattern: backport-v* (e.g., backport-v0.20.x-branch).
+    # This excludes labels like "backport candidate" or "backport-candidate".
+    if: |
+      github.event.pull_request.merged == true &&
+      contains(join(github.event.pull_request.labels.*.name, ','), 'backport-v')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.base.ref }}
+
+      - name: Validate target branches exist
+        id: validate
+        shell: bash
+        run: |
+          # Extract all backport labels
+          labels='${{ toJSON(github.event.pull_request.labels.*.name) }}'
+          echo "All labels: $labels"
+
+          # Parse labels and extract branch names
+          # Only match labels starting with "backport-v" to exclude labels like
+          # "backport candidate" or "backport-candidate"
+          backport_labels=$(echo "$labels" | jq -r '.[] | select(startswith("backport-v"))')
+
+          if [ -z "$backport_labels" ]; then
+            echo "::error::No valid backport labels found (must start with 'backport-v')"
+            exit 1
+          fi
+
+          echo "Found backport labels:"
+          echo "$backport_labels"
+
+          # Check each target branch exists
+          missing_branches=()
+          valid_branches=()
+          while IFS= read -r label; do
+            # Extract branch name (everything after "backport-")
+            branch_name="${label#backport-}"
+            echo "Checking if branch exists: $branch_name"
+
+            # Check if branch exists in remote
+            if ! git ls-remote --heads origin "$branch_name" | grep -q "$branch_name"; then
+              echo "::warning::Target branch '$branch_name' does not exist (from label '$label')"
+              missing_branches+=("$branch_name")
+            else
+              echo "✓ Branch '$branch_name' exists"
+              valid_branches+=("$branch_name")
+            fi
+          done <<< "$backport_labels"
+
+          # Report validation results
+          if [ ${#missing_branches[@]} -gt 0 ]; then
+            echo "::warning::The following target branches do not exist and will be skipped: ${missing_branches[*]}"
+            echo "::warning::Please check the branch names or create the branches before retrying"
+          fi
+
+          # Only fail if ALL branches are invalid
+          if [ ${#valid_branches[@]} -eq 0 ]; then
+            echo "::error::No valid target branches found. All backport labels reference non-existent branches."
+            exit 1
+          fi
+
+          echo "✓ Found ${#valid_branches[@]} valid target branch(es): ${valid_branches[*]}"
+          if [ ${#missing_branches[@]} -gt 0 ]; then
+            echo "⚠ Skipping ${#missing_branches[@]} invalid branch(es): ${missing_branches[*]}"
+          fi
+
+      - name: Create backport PRs
+        # Uses version v3.4, we pin to a hash here. For more details to 
+        # available versions, see: 
+        # https://github.com/korthout/backport-action/releases.
+        uses: korthout/backport-action@d07416681cab29bf2661702f925f020aaa962997
+        with:
+          # Automatically detect target branches from labels.
+          # Labels must be in format: backport-v0.20.x-branch (must start
+          # with "backport-v"). This excludes labels like "backport candidate" 
+          # or "backport-candidate". The pattern extracts everything after 
+          # "backport-" as the branch name.
+          label_pattern: '^backport-(v.+)$'
+
+          # GitHub token for creating PRs.
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+          # PR title format - shows it's a backport with original PR number.
+          pull_title: '[${target_branch}] Backport #${pull_number}: ${pull_title}'
+
+          # PR description template - links back to original PR.
+          pull_description: |-
+            Backport of #${pull_number}
+
+            ---
+
+            ${pull_description}
+
+          # Automatically add labels to backport PRs.
+          # The 'no-changelog' label skips the release notes check in CI.
+          labels: no-changelog
+
+          # Merge strategy - skip merge commits, use cherry-pick only.
+          merge_commits: skip
+
+          # If conflicts occur, create a draft PR with conflict markers.
+          experimental: '{"conflict_resolution": "draft_commit_conflicts"}'

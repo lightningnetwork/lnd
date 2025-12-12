@@ -538,20 +538,33 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 			}
 		}
 
-		bandwidth, ok := bandwidthHints.availableChanBandwidth(
+		bandwidth, err := bandwidthHints.availableChanBandwidth(
 			chanID, 0,
 		)
+		if err != nil {
+			// If the channel is not in our local channels map, use
+			// the channel capacity as a fallback. This can happen
+			// when a channel is added to the graph after we've
+			// already queried the bandwidth hints.
+			if errors.Is(err, ErrLocalChannelNotFound) {
+				log.Warnf("ShortChannelID=%v: not found in "+
+					"the local channels map, using "+
+					"channel capacity=%v as bandwidth",
+					shortID, bandwidth)
 
-		// If the bandwidth is not available, use the channel capacity.
-		// This can happen when a channel is added to the graph after
-		// we've already queried the bandwidth hints.
-		if !ok {
-			bandwidth = lnwire.NewMSatFromSatoshis(channel.Capacity)
+				bandwidth = lnwire.NewMSatFromSatoshis(
+					channel.Capacity,
+				)
+			} else {
+				// Channel is local but unusable (offline, HTLC
+				// limits, etc.). Don't assume any bandwidth is
+				// available.
+				log.Debugf("ShortChannelID=%v: channel "+
+					"unusable: %v, setting bandwidth to 0",
+					shortID, err)
 
-			log.Warnf("ShortChannelID=%v: not found in the local "+
-				"channels map of the bandwidth manager, "+
-				"using channel capacity=%v as bandwidth for "+
-				"this channel", shortID, bandwidth)
+				bandwidth = 0
+			}
 		}
 
 		if bandwidth > max {

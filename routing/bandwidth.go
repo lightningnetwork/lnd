@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -11,18 +12,29 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+var (
+	// ErrLocalChannelNotFound is returned when querying bandwidth for a
+	// channel that is not found in the local channels map.
+	ErrLocalChannelNotFound = errors.New("local channel not found")
+)
+
 // bandwidthHints provides hints about the currently available balance in our
 // channels.
 type bandwidthHints interface {
 	// availableChanBandwidth returns the total available bandwidth for a
-	// channel and a bool indicating whether the channel hint was found.
-	// The amount parameter is used to validate the outgoing htlc amount
-	// that we wish to add to the channel against its flow restrictions. If
-	// a zero amount is provided, the minimum htlc value for the channel
-	// will be used. If the channel is unavailable, a zero amount is
-	// returned.
+	// channel. The amount parameter is used to validate the outgoing htlc
+	// amount that we wish to add to the channel against its flow
+	// restrictions. If a zero amount is provided, the minimum htlc value
+	// for the channel will be used.
+	//
+	// Returns:
+	// - bandwidth: the available bandwidth if the channel is found and
+	//   usable, zero otherwise
+	// - error: ErrLocalChannelNotFound if not in local channels map, or
+	//   another error if the channel is found but cannot be used due to
+	//   restrictions (offline, HTLC limits, etc.)
 	availableChanBandwidth(channelID uint64,
-		amount lnwire.MilliSatoshi) (lnwire.MilliSatoshi, bool)
+		amount lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error)
 
 	// isCustomHTLCPayment returns true if this payment is a custom payment.
 	// For custom payments policy checks might not be needed.
@@ -184,27 +196,25 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 	return reportedBandwidth, nil
 }
 
-// availableChanBandwidth returns the total available bandwidth for a channel
-// and a bool indicating whether the channel hint was found. If the channel is
-// unavailable, a zero amount is returned.
+// availableChanBandwidth returns the total available bandwidth for a channel.
+// If the channel is not found or unavailable, a zero amount and an error are
+// returned.
 func (b *bandwidthManager) availableChanBandwidth(channelID uint64,
-	amount lnwire.MilliSatoshi) (lnwire.MilliSatoshi, bool) {
+	amount lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
 
 	shortID := lnwire.NewShortChanIDFromInt(channelID)
 	_, ok := b.localChans[shortID]
 	if !ok {
-		return 0, false
+		return 0, ErrLocalChannelNotFound
 	}
 
 	bandwidth, err := b.getBandwidth(shortID, amount)
 	if err != nil {
-		log.Warnf("failed to get bandwidth for channel %v: %v",
-			shortID, err)
-
-		return 0, true
+		return 0, fmt.Errorf("failed to get bandwidth for "+
+			"channel %v: %w", shortID, err)
 	}
 
-	return bandwidth, true
+	return bandwidth, nil
 }
 
 // isCustomHTLCPayment returns true if this payment is a custom payment.

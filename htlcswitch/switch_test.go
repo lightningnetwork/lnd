@@ -5554,3 +5554,55 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 
 	require.NoError(t, interceptSwitch.Stop())
 }
+
+// TestSwitchFailOrphanedAttempt demonstrates that a caller to GetAttemptResult
+// will hang if an attempt is orphaned in a state where it has been initialized
+// but not actually dispatched. We then verify that a this scenario is resolved
+// via FailPendingAttempt storing a final failed result, thereby unblocking the
+// GetAttemptResult subscriber.
+func TestSwitchFailOrphanedAttempt(t *testing.T) {
+	t.Parallel()
+
+	s, err := initSwitchWithTempDB(t, 0)
+	require.NoError(t, err)
+	require.NoError(t, s.Start())
+	t.Cleanup(func() { require.NoError(t, s.Stop()) })
+
+	// Manually initialize an attempt in the store. This simulates the "bad"
+	// state where an attempt is pending but has no corresponding circuit.
+	attemptID := uint64(1)
+	err = s.attemptStore.InitAttempt(attemptID)
+	require.NoError(t, err, "unable to initialize attempt")
+
+	// Now, call GetAttemptResult. This function returns a channel that will
+	// deliver the result.
+	resChan, err := s.GetAttemptResult(
+		attemptID, lntypes.Hash{}, nil,
+	)
+	require.NoError(t, err)
+
+	// We expect the call to hang. We'll use a timeout to verify that no
+	// result is received from the channel.
+	select {
+	case <-resChan:
+		t.Fatalf("received result unexpectedly, should have hung")
+	case <-time.After(100 * time.Millisecond):
+		// This is the expected path, the call has "hung" for 100ms.
+	}
+
+	// Now, simulate the fix by manually calling FailPendingAttempt.
+	err = s.attemptStore.FailPendingAttempt(attemptID, NewLinkError(
+		&lnwire.FailTemporaryNodeFailure{}),
+	)
+	require.NoError(t, err, "unable to fail attempt")
+
+	// The channel should now un-block and deliver the final failed
+	// result.
+	select {
+	case result := <-resChan:
+		// We expect a result with an error, indicating failure.
+		require.Error(t, result.Error, "expected a failed result")
+	case <-time.After(1 * time.Second):
+		t.Fatalf("did not receive result after manual failure")
+	}
+}

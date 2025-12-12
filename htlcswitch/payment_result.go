@@ -26,6 +26,18 @@ var (
 	// ErrPaymentIDAlreadyExists is returned if we try to write a pending
 	// payment whose paymentID already exists.
 	ErrPaymentIDAlreadyExists = errors.New("paymentID already exists")
+
+	// ErrAttemptResultPending is returned if we try to get a result
+	// for a pending payment whose result is not yet available.
+	ErrAttemptResultPending = errors.New(
+		"attempt result not yet available",
+	)
+)
+
+const (
+	// pendingHtlcMsgType is a custom message type used to represent a
+	// pending HTLC in the network result store.
+	pendingHtlcMsgType lnwire.MessageType = 32768
 )
 
 // PaymentResult wraps a decoded result received from the network after a
@@ -90,9 +102,10 @@ type networkResultStore struct {
 	results    map[uint64][]chan *networkResult
 	resultsMtx sync.Mutex
 
-	// attemptIDMtx is a multimutex used to make sure the database and
-	// result subscribers map is consistent for each attempt ID in case of
-	// concurrent callers.
+	// attemptIDMtx is a multimutex used to serialize operations for a
+	// given attempt ID. It ensures InitAttempt's idempotency by protecting
+	// its read-then-write sequence from concurrent calls, and it maintains
+	// consistency between the database state and result subscribers.
 	attemptIDMtx *multimutex.Mutex[uint64]
 }
 
@@ -102,6 +115,94 @@ func newNetworkResultStore(db kvdb.Backend) *networkResultStore {
 		results:      make(map[uint64][]chan *networkResult),
 		attemptIDMtx: multimutex.NewMutex[uint64](),
 	}
+}
+
+// InitAttempt initializes the payment attempt with the given attemptID.
+//
+// If any record (even a pending result placeholder) already exists in the
+// store, this method returns ErrPaymentIDAlreadyExists. This guarantees that
+// only one HTLC will be initialized and dispatched for a given attempt ID until
+// the ID is explicitly cleaned from attempt store.
+//
+// NOTE: This is part of the AttemptStore interface. Subscribed clients do not
+// receive notice of this initialization.
+func (store *networkResultStore) InitAttempt(attemptID uint64) error {
+	// We get a mutex for this attempt ID to serialize init, store, and
+	// subscribe operations. This is needed to ensure consistency between
+	// the database state and the subscribers in case of concurrent calls.
+	store.attemptIDMtx.Lock(attemptID)
+	defer store.attemptIDMtx.Unlock(attemptID)
+
+	err := kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
+		// Check if any attempt by this ID is already initialized or
+		// whether a result for the attempt exists in the store.
+		existingResult, err := fetchResult(tx, attemptID)
+		if err != nil && !errors.Is(err, ErrPaymentIDNotFound) {
+			return err
+		}
+
+		// If the result is already in-progress, return an error
+		// indicating that the attempt already exists.
+		if existingResult != nil {
+			log.Warnf("Already initialized attempt for ID=%v",
+				attemptID)
+
+			return ErrPaymentIDAlreadyExists
+		}
+
+		// Create an empty networkResult to serve as place holder until
+		// a result from the network is received.
+		//
+		// TODO(calvin): When migrating to native SQL storage, replace
+		// this custom message placeholder with a proper status enum or
+		// struct to represent the pending state of an attempt.
+		pendingMsg, err := lnwire.NewCustom(pendingHtlcMsgType, nil)
+		if err != nil {
+			// This should not happen with a static message type,
+			// but if it does, it's an internal error that prevents
+			// a definitive outcome, so we must treat it as
+			// ambiguous.
+			return err
+		}
+		inProgressResult := &networkResult{
+			msg:          pendingMsg,
+			unencrypted:  true,
+			isResolution: false,
+		}
+
+		var b bytes.Buffer
+		err = serializeNetworkResult(&b, inProgressResult)
+		if err != nil {
+			return err
+		}
+
+		var attemptIDBytes [8]byte
+		binary.BigEndian.PutUint64(attemptIDBytes[:], attemptID)
+
+		// Mark an attempt with this ID as having been seen by storing
+		// the pending placeholder. No network result is available yet,
+		// so we do not notify subscribers.
+		bucket, err := tx.CreateTopLevelBucket(
+			networkResultStoreBucketKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		return bucket.Put(attemptIDBytes[:], b.Bytes())
+	}, func() {
+		// No need to reset existingResult here as it's scoped to the
+		// transaction.
+	})
+
+	if err != nil {
+		return err
+	}
+
+	log.Debugf("Initialized attempt for local payment with attemptID=%v",
+		attemptID)
+
+	return nil
 }
 
 // StoreResult stores the networkResult for the given attemptID, and notifies
@@ -194,11 +295,21 @@ func (store *networkResultStore) SubscribeResult(attemptID uint64) (
 		return nil, err
 	}
 
-	// If the result was found, we can send it on the result channel
-	// imemdiately.
+	// If a result is back from the network, we can send it on the result
+	// channel immediately. If the result is still our initialized place
+	// holder, then treat it as not yet available.
 	if result != nil {
-		resultChan <- result
-		return resultChan, nil
+		if result.msg.MsgType() != pendingHtlcMsgType {
+			log.Debugf("Obtained full result for attemptID=%v",
+				attemptID)
+
+			resultChan <- result
+
+			return resultChan, nil
+		}
+
+		log.Debugf("Awaiting result (settle/fail) for attemptID=%v",
+			attemptID)
 	}
 
 	// Otherwise we store the result channel for when the result is
@@ -212,8 +323,13 @@ func (store *networkResultStore) SubscribeResult(attemptID uint64) (
 	return resultChan, nil
 }
 
-// getResult attempts to immediately fetch the result for the given pid from
-// the store. If no result is available, ErrPaymentIDNotFound is returned.
+// GetResult attempts to immediately fetch the *final* network result for the
+// given attempt ID from the store.
+//
+// NOTE: This method will return ErrAttemptResultPending for attempts
+// that have been initialized via InitAttempt but for which a final result
+// (settle/fail) has not yet been stored. ErrPaymentIDNotFound is returned
+// for attempts that are unknown.
 func (store *networkResultStore) GetResult(pid uint64) (
 	*networkResult, error) {
 
@@ -221,7 +337,18 @@ func (store *networkResultStore) GetResult(pid uint64) (
 	err := kvdb.View(store.backend, func(tx kvdb.RTx) error {
 		var err error
 		result, err = fetchResult(tx, pid)
-		return err
+		if err != nil {
+			return err
+		}
+
+		// If the attempt is still in-flight, treat it as not yet
+		// available to preserve existing expectation for the behavior
+		// of this method.
+		if result.msg.MsgType() == pendingHtlcMsgType {
+			return ErrAttemptResultPending
+		}
+
+		return nil
 	}, func() {
 		result = nil
 	})

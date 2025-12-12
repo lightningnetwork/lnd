@@ -50,6 +50,11 @@
   invoice](https://github.com/lightningnetwork/lnd/pull/10439). This makes sure
   the EstimateRouteFee API can probe Eclair and LDK nodes which enforce the
   payment address/secret.
+ 
+* Fix a bug where [missing edges for own channels could not be added to the
+  graph DB](https://github.com/lightningnetwork/lnd/pull/10410)
+  due to validation checks in the graph Builder that were resurfaced after the
+  graph refactor work.
 
 # New Features
 

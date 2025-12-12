@@ -1365,7 +1365,7 @@ func (f *Manager) advancePendingChannelState(channel *channeldb.OpenChannel,
 		}
 
 		txid := &channel.FundingOutpoint.Hash
-		fundingScript, err := makeFundingScript(channel)
+		fundingScript, err := MakeFundingScript(channel)
 		if err != nil {
 			log.Errorf("unable to create funding script for "+
 				"ChannelPoint(%v): %v",
@@ -3053,9 +3053,9 @@ func (f *Manager) waitForFundingWithTimeout(
 	}
 }
 
-// makeFundingScript re-creates the funding script for the funding transaction
+// MakeFundingScript re-creates the funding script for the funding transaction
 // of the target channel.
-func makeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
+func MakeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
 	localKey := channel.LocalChanCfg.MultiSigKey.PubKey
 	remoteKey := channel.RemoteChanCfg.MultiSigKey.PubKey
 
@@ -3102,7 +3102,7 @@ func (f *Manager) waitForFundingConfirmation(
 	// Register with the ChainNotifier for a notification once the funding
 	// transaction reaches `numConfs` confirmations.
 	txid := completeChan.FundingOutpoint.Hash
-	fundingScript, err := makeFundingScript(completeChan)
+	fundingScript, err := MakeFundingScript(completeChan)
 	if err != nil {
 		log.Errorf("unable to create funding script for "+
 			"ChannelPoint(%v): %v", completeChan.FundingOutpoint,
@@ -3818,7 +3818,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 			shortChanID.ToUint64(), completeChan.FundingOutpoint,
 			numConfs)
 
-		fundingScript, err := makeFundingScript(completeChan)
+		fundingScript, err := MakeFundingScript(completeChan)
 		if err != nil {
 			return fmt.Errorf("unable to create funding script "+
 				"for ChannelPoint(%v): %v",

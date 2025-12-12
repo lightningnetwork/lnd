@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"math/rand"
 	"reflect"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -200,4 +202,103 @@ func TestNetworkResultStore(t *testing.T) {
 			t.Fatalf("expected ErrPaymentIDNotFound, got %v", err)
 		}
 	}
+
+	t.Run("InitAttempt duplicate prevention", func(t *testing.T) {
+		var id uint64 = 100
+
+		// Fetch the result directly. We expect to observe
+		// ErrPaymentIDNotFound since we've not yet initialized this
+		// payment attempt.
+		_, err = store.GetResult(id)
+		require.ErrorIs(t, err, ErrPaymentIDNotFound,
+			"expected not found error for uninitialized attempt")
+
+		// First initialization should succeed.
+		err := store.InitAttempt(id)
+		require.NoError(t, err, "unexpected InitAttempt failure")
+
+		// Now, try fetching the result directly. We expect to observe
+		// ErrAttemptResultPending since it's initialized but not
+		// yet finalized.
+		_, err = store.GetResult(id)
+		require.ErrorIs(t, err, ErrAttemptResultPending,
+			"expected result unavailable error for pending attempt")
+
+		// Subscribe for the result following the initialization. No
+		// result should be received immediately as StoreResult has not
+		// yet updated the initialized attempt into a finalized attempt.
+		sub, err := store.SubscribeResult(id)
+		require.NoError(t, err, "unable to subscribe")
+		select {
+		case <-sub:
+			t.Fatalf("unexpected non-final result notification " +
+				"received")
+		case <-time.After(1 * time.Second):
+		}
+
+		// Second initialization should fail (already initialized).
+		// Try initializing an attempt with the same ID before a full
+		// settle or fail result is back from the network (simulated by
+		// StoreResult).
+		err = store.InitAttempt(id)
+		require.ErrorIs(t, err, ErrPaymentIDAlreadyExists,
+			"expected duplicate InitAttempt to fail")
+
+		// Store a result to simulate a full settle or fail HTLC result
+		// coming back from the network.
+		netResult := &networkResult{
+			msg:          &lnwire.UpdateFulfillHTLC{},
+			unencrypted:  true,
+			isResolution: true,
+		}
+		err = store.StoreResult(id, netResult)
+		require.NoError(t, err, "unable to store result after init")
+
+		// Try InitAttempt again — still should fail even after a full
+		// result is back from the network.
+		err = store.InitAttempt(id)
+		require.ErrorIs(t, err, ErrPaymentIDAlreadyExists,
+			"expected InitAttempt to fail after result stored")
+
+		// Now we confirm that the subscriber is notified of the final
+		// attempt result.
+		select {
+		case <-sub:
+		case <-time.After(1 * time.Second):
+			t.Fatalf("failed to receive final (settle/fail) result")
+		}
+
+		// Verify that ID can be re-used only after explicit deletion of
+		// attempts via CleanStore or a DeleteAttempts style method.
+		err = store.CleanStore(map[uint64]struct{}{})
+		require.NoError(t, err)
+
+		// Now InitAttempt should succeed again.
+		err = store.InitAttempt(id)
+		require.NoError(t, err, "InitAttempt should succeed after "+
+			"cleanup")
+	})
+
+	t.Run("Concurrent InitAttempt", func(t *testing.T) {
+		var (
+			id      uint64 = 999
+			wg      sync.WaitGroup
+			success atomic.Int32
+		)
+
+		// Launch 10 concurrent routines trying to init the same ID.
+		for range 10 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := store.InitAttempt(id); err == nil {
+					success.Add(1)
+				}
+			}()
+		}
+		wg.Wait()
+
+		// Only exactly one call should succeed.
+		require.EqualValues(t, 1, success.Load())
+	})
 }

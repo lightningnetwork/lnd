@@ -554,6 +554,26 @@ type AttemptStore interface {
 	// network.
 	StoreResult(attemptID uint64, result *networkResult) error
 
+	// FailPendingAttempt transitions an initialized attempt from an
+	// initialized to a failed state and records the provided reason. This
+	// is the synchronous rollback mechanism for attempts that fail before
+	// being committed to the forwarding engine. It returns an error if the
+	// underlying storage fails.
+	FailPendingAttempt(attemptID uint64, reason *LinkError) error
+
+	// FetchPendingAttempts returns a list of all attempt IDs that are
+	// currently in the pending state.
+	//
+	// NOTE: This function is primarily used by the Switch's startup logic
+	// to identify and clean up internally orphaned payment attempts. These
+	// occur when an attempt is initialized via InitAttempt but a crash
+	// prevents its full dispatch to the network (e.g., between InitAttempt
+	// and CommitCircuits). By fetching these pending attempts, the Switch
+	// can transition their state to FAILED, preventing external callers
+	// from indefinitely hanging on GetAttemptResult for an un-dispatched
+	// attempt.
+	FetchPendingAttempts() ([]uint64, error)
+
 	// GetResult returns the network result for the specified attempt ID if
 	// it's available.
 	//

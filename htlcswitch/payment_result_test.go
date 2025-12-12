@@ -302,3 +302,106 @@ func TestNetworkResultStore(t *testing.T) {
 		require.EqualValues(t, 1, success.Load())
 	})
 }
+
+// TestNetworkResultStoreFailAndFetch tests the FailPendingAttempt and
+// FetchPendingAttempts methods of the networkResultStore.
+func TestNetworkResultStoreFailAndFetch(t *testing.T) {
+	t.Parallel()
+
+	db := channeldb.OpenForTesting(t, t.TempDir())
+	store := newNetworkResultStore(db)
+
+	// Test FetchPendingAttempts on an empty store.
+	pending, err := store.FetchPendingAttempts()
+	require.NoError(t, err, "fetch on empty store failed")
+	require.Empty(t, pending, "expected no pending attempts on empty store")
+
+	// Initialize some attempts.
+	require.NoError(t, store.InitAttempt(1))
+	require.NoError(t, store.InitAttempt(2))
+	require.NoError(t, store.InitAttempt(3))
+
+	// Test FetchPendingAttempts with active pending attempts.
+	pending, err = store.FetchPendingAttempts()
+	require.NoError(t, err, "fetch with pending failed")
+	require.ElementsMatch(t, []uint64{1, 2, 3}, pending,
+		"unexpected pending attempts")
+
+	// Test FailPendingAttempt.
+	failReason := NewLinkError(&lnwire.FailTemporaryNodeFailure{})
+	err = store.FailPendingAttempt(2, failReason)
+	require.NoError(t, err, "FailPendingAttempt failed")
+
+	// Verify that the failed attempt is no longer pending.
+	pending, err = store.FetchPendingAttempts()
+	require.NoError(t, err, "fetch after fail failed")
+	require.ElementsMatch(t, []uint64{1, 3}, pending,
+		"failed attempt should not be pending")
+
+	// Verify that GetResult now returns the correct failure.
+	result, err := store.GetResult(2)
+	require.NoError(t, err, "GetResult for failed attempt failed")
+	require.NotNil(t, result, "result should not be nil")
+
+	failMsg, ok := result.msg.(*lnwire.UpdateFailHTLC)
+	require.True(t, ok, "expected an UpdateFailHTLC message")
+
+	// Decode the reason and check that it matches our original failure.
+	reason, err := lnwire.DecodeFailure(
+		bytes.NewReader(failMsg.Reason), 0,
+	)
+	require.NoError(t, err, "unable to decode failure reason")
+
+	_, ok = reason.(*lnwire.FailTemporaryNodeFailure)
+	require.True(t, ok, "expected temporary node failure")
+
+	// Test misuse of FailPendingAttempt.
+	t.Run("FailPendingAttempt misuse", func(t *testing.T) {
+		// Fail a non-existent attempt.
+		err := store.FailPendingAttempt(999,
+			NewLinkError(&lnwire.FailTemporaryNodeFailure{}),
+		)
+		require.Error(t, err,
+			"expected error when failing non-existent attempt")
+		require.Contains(t, err.Error(), "not found",
+			"expected not found error")
+
+		// Initialize and settle an attempt, then confirm that
+		// FailPendingAttempt cannot overwrite the successful result.
+		var id uint64 = 100
+		require.NoError(t, store.InitAttempt(id), "init attempt failed")
+		settleResult := &networkResult{
+			msg:         &lnwire.UpdateFulfillHTLC{},
+			unencrypted: true,
+		}
+		require.NoError(t, store.StoreResult(id, settleResult),
+			"store settle result failed")
+
+		err = store.FailPendingAttempt(id, NewLinkError(
+			&lnwire.FailTemporaryNodeFailure{}),
+		)
+		require.Error(t, err,
+			"expected error when failing settled attempt")
+
+		// Initialize and then store a HTLC failure result from the
+		// network. FailPendingAttempt should not overwrite the real
+		// failure reason.
+		var id2 uint64 = 101
+		require.NoError(t, store.InitAttempt(id2),
+			"init attempt 2 failed")
+
+		failResult := &networkResult{
+			msg:         &lnwire.UpdateFailHTLC{},
+			unencrypted: true,
+		}
+		require.NoError(t, store.StoreResult(id2, failResult),
+			"store fail result failed")
+
+		err = store.FailPendingAttempt(
+			id2,
+			NewLinkError(&lnwire.FailTemporaryNodeFailure{}),
+		)
+		require.Error(t, err,
+			"expected error when failing already failed attempt")
+	})
+}

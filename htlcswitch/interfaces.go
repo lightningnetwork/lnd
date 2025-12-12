@@ -540,6 +540,15 @@ type AuxTrafficShaper interface {
 // to avoid collisions of attemptIDs and ensure an unambiguous source of truth
 // for payment state. Concurrent usage by multiple dispatchers is NOT supported.
 type AttemptStore interface {
+	// InitAttempt persists the intent to dispatch a payment attempt,
+	// creating a durable record that serves as an idempotency key. This
+	// method should be called before the HTLC is dispatched to the network.
+	//
+	// NOTE: This method provides a guarantee that only one HTLC can be
+	// initialized for a given attempt ID until the ID is explicitly cleaned
+	// from the store.
+	InitAttempt(attemptID uint64) error
+
 	// StoreResult stores the result of a given payment attempt (identified
 	// by attemptID). This will be called when a result is received from the
 	// network.
@@ -547,11 +556,21 @@ type AttemptStore interface {
 
 	// GetResult returns the network result for the specified attempt ID if
 	// it's available.
+	//
+	// NOTE: This method should return ErrAttemptResultPending for attempts
+	// that have been initialized via InitAttempt but for which a final
+	// result (settle/fail) has not yet been stored. ErrPaymentIDNotFound is
+	// returned for attempts that are unknown.
 	GetResult(attemptID uint64) (*networkResult, error)
 
 	// SubscribeResult subscribes to be notified when a result for a
 	// specific attempt ID becomes available. It returns a channel that will
 	// receive the result.
+	//
+	// NOTE: For backwards compatibility, the returned channel should only
+	// receive a value for attempts that have a final result (settle/fail).
+	// Subscribers should *not* be notified of the initial pending state
+	// created by InitAttempt.
 	SubscribeResult(attemptID uint64) (<-chan *networkResult, error)
 
 	// CleanStore removes all attempt results from the store except for

@@ -150,52 +150,58 @@ probing.
 
 The heuristic examines the structure of route hints provided in the invoice to
 identify characteristic LSP patterns. The detection operates on the principle
-that LSPs typically maintain private channels to their users and appear as the
-penultimate hop in payment routing.
+that LSPs typically maintain private channels to their users and appear as
+public nodes in the network, while the final destination is private.
 
 ```mermaid
 flowchart TD
     Start([Route Hints Received]) --> Empty{Empty Hints?}
     Empty -->|Yes| NotLSP([Not LSP])
-    Empty -->|No| GetFirst[Get First Hint's Last Hop]
-    
-    GetFirst --> CheckPub1{Is Channel<br/>Public?}
-    CheckPub1 -->|Yes| NotLSP
-    CheckPub1 -->|No| SaveNode[Save Node ID]
-    
-    SaveNode --> MoreHints{More Hints?}
-    MoreHints -->|No| IsLSP([Detected as LSP])
+    Empty -->|No| CheckTarget{Invoice Target<br/>in Graph?}
+
+    CheckTarget -->|Yes| NotLSP
+    CheckTarget -->|No| GetFirstDest[Get First Hint's<br/>Destination Hop]
+
+    GetFirstDest --> CheckPub1{Destination Node<br/>in Graph?}
+    CheckPub1 -->|Yes| IsLSP([Detected as LSP])
+    CheckPub1 -->|No| MoreHints{More Hints?}
+
+    MoreHints -->|No| NotLSP
     MoreHints -->|Yes| NextHint[Check Next Hint]
-    
-    NextHint --> GetLast[Get Last Hop]
-    GetLast --> CheckPub2{Is Channel<br/>Public?}
-    CheckPub2 -->|Yes| NotLSP
-    CheckPub2 -->|No| SameNode{Same Node ID<br/>as First?}
-    
-    SameNode -->|No| NotLSP
-    SameNode -->|Yes| MoreHints
+
+    NextHint --> GetNextDest[Get Destination Hop]
+    GetNextDest --> CheckPub2{Destination Node<br/>in Graph?}
+    CheckPub2 -->|Yes| IsLSP
+    CheckPub2 -->|No| MoreHints
 ```
 
-The detection criteria are:
+The detection follows three simple rules applied sequentially:
 
-- **All route hints must terminate at the same node ID** - This indicates a
-  single destination behind potentially multiple LSP entry points
+**Rule 1: Public Invoice Target → NOT an LSP**
+- If the invoice target (destination) is a public node that exists in the
+  channel graph, the payment can be routed directly to it
+- This means it's not an LSP setup, regardless of what route hints are provided
+- Example: A well-connected merchant node with route hints for liquidity
+  signaling
 
-- **Final hop channels must be private** - The channels in the last hop of
-  each route hint must not exist in the public channel graph
+**Rule 2: Public Destination Hop → IS an LSP**
+- If at least one route hint has a destination hop (last hop in the route hint)
+  that is a public node in the graph, LSP detection is triggered
+- This indicates the destination hop is an LSP serving a private client
+- The private client is reached through the LSP's private channel
 
-- **No public channels in final hops** - If any route hint contains a public
-  channel in its final hop, LSP detection is disabled entirely
-
-- **Multiple route hints strengthen detection** - While not required,
-  multiple hints converging on the same destination strongly suggest an LSP
-  configuration
+**Rule 3: All Private Destination Hops → NOT an LSP**
+- If all destination hops in all route hints are private nodes (not in the
+  public graph), this is not treated as an LSP setup
+- The payment will be routed directly to the invoice destination using the
+  route hints as additional path information
+- This is the standard case for private channel payments
 
 This pattern effectively distinguishes LSP configurations from other routing
 scenarios. For instance, some Lightning implementations like CLN include route
 hints even for public nodes to signal liquidity availability or preferred
-routing paths. The heuristic correctly identifies these as non-LSP scenarios by
-detecting the presence of public channels.
+routing paths. The heuristic correctly identifies these as non-LSP scenarios
+by Rule 1 (detecting that the invoice target itself is public).
 
 ### How Probing Differs When an LSP is Detected
 
@@ -431,10 +437,6 @@ appropriately.
 
 The `EstimateRouteFee` implementation continues to evolve based on real-world
 usage patterns. Ongoing discussions in the LND community focus on:
-
-**Improved LSP Detection**: Developing more sophisticated heuristics that
-accurately identify LSP configurations while avoiding false positives for
-regular private channels.
 
 **Multi-Path Payment Support**: Extending fee estimation to support MPP
 scenarios where payments split across multiple routes.

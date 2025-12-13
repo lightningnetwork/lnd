@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -321,12 +322,19 @@ func (r *Manager) createEdge(channel *channeldb.OpenChannel,
 		shortChanID = channel.ZeroConfRealScid()
 	}
 
+	fundingScript, err := funding.MakeFundingScript(channel)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create funding "+
+			"script: %v", err)
+	}
+
 	info := &models.ChannelEdgeInfo{
-		ChannelID:    shortChanID.ToUint64(),
-		ChainHash:    channel.ChainHash,
-		Features:     lnwire.EmptyFeatureVector(),
-		Capacity:     channel.Capacity,
-		ChannelPoint: channel.FundingOutpoint,
+		ChannelID:     shortChanID.ToUint64(),
+		ChainHash:     channel.ChainHash,
+		Features:      lnwire.EmptyFeatureVector(),
+		Capacity:      channel.Capacity,
+		ChannelPoint:  channel.FundingOutpoint,
+		FundingScript: fn.Some(fundingScript),
 	}
 
 	copy(info.NodeKey1Bytes[:], nodeKey1Bytes)

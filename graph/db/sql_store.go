@@ -21,6 +21,8 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/neutrino/cache"
+	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -169,18 +171,32 @@ type SQLStore struct {
 	cfg *SQLStoreConfig
 	db  BatchedSQLQueries
 
-	// cacheMu guards all caches (rejectCache and chanCache). If
-	// this mutex will be acquired at the same time as the DB mutex then
-	// the cacheMu MUST be acquired first to prevent deadlock.
-	cacheMu     sync.RWMutex
-	rejectCache *rejectCache
-	chanCache   *channelCache
+	// cacheMu guards all caches (rejectCache, chanCache, and
+	// publicNodeCache). If this mutex will be acquired at the same time as
+	// the DB mutex then the cacheMu MUST be acquired first to prevent
+	// deadlock.
+	cacheMu         sync.RWMutex
+	rejectCache     *rejectCache
+	chanCache       *channelCache
+	publicNodeCache *lru.Cache[[33]byte, *cachedPublicNode]
 
 	chanScheduler batch.Scheduler[SQLQueries]
 	nodeScheduler batch.Scheduler[SQLQueries]
 
 	srcNodes  map[lnwire.GossipVersion]*srcNodeInfo
 	srcNodeMu sync.Mutex
+}
+
+// cachedPublicNode is a simple wrapper for a boolean value that can be
+// stored in an LRU cache. The LRU cache requires a Size() method.
+type cachedPublicNode struct {
+	isPublic bool
+}
+
+// Size returns the size of the cache entry. We return 1 as we just want to
+// limit the number of entries rather than their actual memory size.
+func (c *cachedPublicNode) Size() (uint64, error) {
+	return 1, nil
 }
 
 // A compile-time assertion to ensure that SQLStore implements the V1Store
@@ -217,7 +233,10 @@ func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries,
 		db:          db,
 		rejectCache: newRejectCache(opts.RejectCacheSize),
 		chanCache:   newChannelCache(opts.ChannelCacheSize),
-		srcNodes:    make(map[lnwire.GossipVersion]*srcNodeInfo),
+		publicNodeCache: lru.NewCache[[33]byte, *cachedPublicNode](
+			uint64(opts.PublicNodeCacheSize),
+		),
+		srcNodes: make(map[lnwire.GossipVersion]*srcNodeInfo),
 	}
 
 	s.chanScheduler = batch.NewTimeScheduler(
@@ -403,6 +422,10 @@ func (s *SQLStore) DeleteNode(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("unable to delete node: %w", err)
 	}
+
+	s.cacheMu.Lock()
+	s.removePublicNodeCache(pubKey)
+	s.cacheMu.Unlock()
 
 	return nil
 }
@@ -714,6 +737,10 @@ func (s *SQLStore) AddChannelEdge(ctx context.Context,
 			default:
 				s.rejectCache.remove(edge.ChannelID)
 				s.chanCache.remove(edge.ChannelID)
+				s.removePublicNodeCache(
+					edge.NodeKey1Bytes, edge.NodeKey2Bytes,
+				)
+
 				return nil
 			}
 		},
@@ -1730,6 +1757,7 @@ func (s *SQLStore) MarkEdgeZombie(chanID uint64,
 
 	s.rejectCache.remove(chanID)
 	s.chanCache.remove(chanID)
+	s.removePublicNodeCache(pubKey1, pubKey2)
 
 	return nil
 }
@@ -1956,6 +1984,14 @@ func (s *SQLStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 		s.rejectCache.remove(chanID)
 		s.chanCache.remove(chanID)
 	}
+
+	var pubkeys [][33]byte
+	for _, edge := range edges {
+		pubkeys = append(
+			pubkeys, edge.NodeKey1Bytes, edge.NodeKey2Bytes,
+		)
+	}
+	s.removePublicNodeCache(pubkeys...)
 
 	return edges, nil
 }
@@ -2292,8 +2328,27 @@ func (s *SQLStore) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
 func (s *SQLStore) IsPublicNode(pubKey [33]byte) (bool, error) {
 	ctx := context.TODO()
 
+	// Check the cache first with a read lock.
+	s.cacheMu.RLock()
+	cached, err := s.publicNodeCache.Get(pubKey)
+
+	switch {
+	case errors.Is(err, cache.ErrElementNotFound):
+		// Cache not found, so we'll need to fetch the node from the
+		// database.
+
+	case cached != nil:
+		s.cacheMu.RUnlock()
+		return cached.isPublic, nil
+
+	case err != nil:
+		log.Warnf("unable to check cache if node is public: %w", err)
+	}
+
+	s.cacheMu.RUnlock()
+
 	var isPublic bool
-	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+	err = s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		var err error
 		isPublic, err = db.IsPublicV1Node(ctx, pubKey[:])
 
@@ -2303,6 +2358,17 @@ func (s *SQLStore) IsPublicNode(pubKey [33]byte) (bool, error) {
 		return false, fmt.Errorf("unable to check if node is "+
 			"public: %w", err)
 	}
+
+	// Store the result in cache.
+	s.cacheMu.Lock()
+	_, err = s.publicNodeCache.Put(pubKey, &cachedPublicNode{
+		isPublic: isPublic,
+	})
+	if err != nil {
+		log.Warnf("unable to store node info in cache: %w", err)
+	}
+
+	s.cacheMu.Unlock()
 
 	return isPublic, nil
 }
@@ -2655,6 +2721,9 @@ func (s *SQLStore) PruneGraph(spentOutputs []*wire.OutPoint,
 	for _, channel := range closedChans {
 		s.rejectCache.remove(channel.ChannelID)
 		s.chanCache.remove(channel.ChannelID)
+		s.removePublicNodeCache(
+			channel.NodeKey1Bytes, channel.NodeKey2Bytes,
+		)
 	}
 
 	return closedChans, prunedNodes, nil
@@ -2923,6 +2992,9 @@ func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
 	for _, channel := range removedChans {
 		s.rejectCache.remove(channel.ChannelID)
 		s.chanCache.remove(channel.ChannelID)
+		s.removePublicNodeCache(
+			channel.NodeKey1Bytes, channel.NodeKey2Bytes,
+		)
 	}
 	s.cacheMu.Unlock()
 
@@ -5868,4 +5940,14 @@ func handleZombieMarking(ctx context.Context, db SQLQueries,
 			NodeKey2: nodeKey2[:],
 		},
 	)
+}
+
+// removePublicNodeCache takes in a list of public keys and removes the
+// corresponding nodes info from the cache if it exists.
+//
+// NOTE: This method must be called with cacheMu held.
+func (s *SQLStore) removePublicNodeCache(pubkeys ...[33]byte) {
+	for _, pubkey := range pubkeys {
+		s.publicNodeCache.Delete(pubkey)
+	}
 }

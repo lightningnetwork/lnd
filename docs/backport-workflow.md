@@ -482,7 +482,7 @@ Error: Please ensure the branch exists before adding the backport label
 2. **Check workflow configuration:**
    - Verify `.github/workflows/backport.yml` has:
      ```yaml
-     labels: no-changelog
+     add_labels: no-changelog
      ```
 
 3. **Re-run the workflow:**

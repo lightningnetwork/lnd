@@ -577,7 +577,7 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 
 	// If the heuristic indicates an LSP, we filter and group route hints by
 	// public LSP nodes, then probe each unique LSP separately and return
-	// the cheapest route.
+	// the route with the highest fee.
 	lspGroups, err := prepareLspRouteHints(
 		hints, *payReq.MilliSat, s.cfg.RouterBackend.HasNode,
 	)
@@ -802,7 +802,7 @@ func isLSP(routeHints [][]zpay32.HopHint, invoiceTarget []byte,
 
 // LspRouteGroup represents a group of route hints that share the same public
 // LSP destination node. This is needed when probing LSPs separately to find
-// the cheapest route.
+// the route with the highest fee.
 type LspRouteGroup struct {
 	// LspHopHint is the hop hint for the LSP node with worst-case fees and
 	// CLTV delta.

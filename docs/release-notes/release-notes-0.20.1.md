@@ -64,6 +64,11 @@
   due to validation checks in the graph Builder that were resurfaced after the
   graph refactor work.
 
+* [Add missing payment address/secret when probing an 
+  invoice](https://github.com/lightningnetwork/lnd/pull/10439). This makes sure
+  the EstimateRouteFee API can probe Eclair and LDK nodes which enforce the
+  payment address/secret.
+
 # New Features
 
 ## Functional Enhancements

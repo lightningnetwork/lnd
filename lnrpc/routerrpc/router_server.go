@@ -557,6 +557,7 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 	// If the payment addresses is specified, then we'll also populate that
 	// now as well.
 	payReq.PaymentAddr.WhenSome(func(addr [32]byte) {
+		probeRequest.PaymentAddr = make([]byte, lntypes.HashSize)
 		copy(probeRequest.PaymentAddr, addr[:])
 	})
 
@@ -624,6 +625,10 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 
 		// Copy the payment address if present.
 		if len(probeRequest.PaymentAddr) > 0 {
+			lspProbeRequest.PaymentAddr = make(
+				[]byte, lntypes.HashSize,
+			)
+
 			copy(
 				lspProbeRequest.PaymentAddr,
 				probeRequest.PaymentAddr,

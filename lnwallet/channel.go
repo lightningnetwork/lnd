@@ -6082,7 +6082,7 @@ func (lc *LightningChannel) addHTLC(htlc *lnwire.UpdateAddHTLC,
 	defer lc.Unlock()
 
 	pd := lc.htlcAddDescriptor(htlc, openKey)
-	if err := lc.validateAddHtlc(pd, buffer); err != nil {
+	if err := lc.validateAddHtlc(pd, buffer, true); err != nil {
 		return 0, err
 	}
 
@@ -6200,7 +6200,7 @@ func (lc *LightningChannel) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
 
 	// Enforce the FeeBuffer because we are evaluating whether we can add
 	// another htlc to the channel state.
-	if err := lc.validateAddHtlc(pd, FeeBuffer); err != nil {
+	if err := lc.validateAddHtlc(pd, FeeBuffer, false); err != nil {
 		lc.log.Debugf("May add outgoing htlc rejected: %v", err)
 		return err
 	}
@@ -6236,7 +6236,8 @@ func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
 // validateAddHtlc validates the addition of an outgoing htlc to our local and
 // remote commitments.
 func (lc *LightningChannel) validateAddHtlc(pd *paymentDescriptor,
-	buffer BufferType) error {
+	buffer BufferType, finalCheck bool) error {
+
 	// Make sure adding this HTLC won't violate any of the constraints we
 	// must keep on the commitment transactions.
 	remoteACKedIndex := lc.commitChains.Local.tail().messageIndices.Remote
@@ -6262,6 +6263,13 @@ func (lc *LightningChannel) validateAddHtlc(pd *paymentDescriptor,
 	)
 	if err != nil {
 		return err
+	}
+
+	// In order to avoid unnecessary validations of the aux bandwidth that
+	// may be costly to perform, let's skip unless this is the final check
+	// before adding the HTLC to the channel.
+	if !finalCheck {
+		return nil
 	}
 
 	// If an auxiliary HTLC validator is configured, call it now to perform

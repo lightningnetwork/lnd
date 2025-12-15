@@ -102,6 +102,13 @@
   to use `UNION ALL` instead of `OR` conditions in the `WHERE` clause, improving
   performance when checking for public nodes especially in large graphs when using `SQL` backends.
 
+* [Add caching for](https://github.com/lightningnetwork/lnd/pull/10363)
+`IsPublicNode` query which speedup calls to check for nodes visibility status.
+This reduces the amount of time lnd needs to query the db to determine if a node
+is public or not. Also added a new config `caches.public-node-cache-size` which
+controls the max number of entries that the cache can accommodate.
+**NOTE:** this improvement is only available for SQL backends.
+
 ## Deprecations
 
 # Technical and Architectural Updates

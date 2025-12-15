@@ -2605,40 +2605,6 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 	// forwarded.
 	availableBandwidth := l.Bandwidth()
 
-	auxBandwidth, externalErr := fn.MapOptionZ(
-		l.cfg.AuxTrafficShaper,
-		func(ts AuxTrafficShaper) fn.Result[OptionalBandwidth] {
-			var htlcBlob fn.Option[tlv.Blob]
-			blob, err := customRecords.Serialize()
-			if err != nil {
-				return fn.Err[OptionalBandwidth](
-					fmt.Errorf("unable to serialize "+
-						"custom records: %w", err))
-			}
-
-			if len(blob) > 0 {
-				htlcBlob = fn.Some(blob)
-			}
-
-			return l.AuxBandwidth(amt, originalScid, htlcBlob, ts)
-		},
-	).Unpack()
-	if externalErr != nil {
-		l.log.Errorf("Unable to determine aux bandwidth: %v",
-			externalErr)
-
-		return NewLinkError(&lnwire.FailTemporaryNodeFailure{})
-	}
-
-	if auxBandwidth.IsHandled && auxBandwidth.Bandwidth.IsSome() {
-		auxBandwidth.Bandwidth.WhenSome(
-			func(bandwidth lnwire.MilliSatoshi) {
-				availableBandwidth = bandwidth
-			},
-		)
-	}
-
-	// Check to see if there is enough balance in this channel.
 	if amt > availableBandwidth {
 		l.log.Warnf("insufficient bandwidth to route htlc: %v is "+
 			"larger than %v", amt, availableBandwidth)

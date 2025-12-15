@@ -112,7 +112,10 @@ jobs:
 
           # Automatically add labels to backport PRs.
           # The 'no-changelog' label skips the release notes check in CI.
-          labels: no-changelog
+          add_labels: no-changelog
+
+          # Copy milestone from original PR to backport PR.
+          copy_milestone: true
 
           # Merge strategy - skip merge commits, use cherry-pick only.
           merge_commits: skip

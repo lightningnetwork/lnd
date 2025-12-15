@@ -681,10 +681,16 @@ func (r *rbfCloserTestHarness) assertSingleRbfIteration(
 	r.assertLocalClosePending()
 }
 
+// assertSingleRemoteRbfIteration asserts that a single RBF iteration initiated
+// by the remote party completes successfully. The sendEvent callback controls
+// when the event that kicks off the process is sent, which is useful for tests
+// that need to set up mocks before the event is processed. The callback is
+// provided with the context and the initial offer event so most callers can
+// pass chanCloser.SendEvent directly.
 func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 	initEvent *OfferReceivedEvent, balanceAfterClose,
 	absoluteFee btcutil.Amount, sequence uint32, iteration bool,
-	sendInit bool) {
+	sendEvent func(context.Context, ProtocolEvent)) {
 
 	ctx := r.T.Context()
 
@@ -696,9 +702,7 @@ func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 		absoluteFee, balanceAfterClose, false,
 	)
 
-	if sendInit {
-		r.chanCloser.SendEvent(ctx, initEvent)
-	}
+	sendEvent(ctx, initEvent)
 
 	// Our outer state should transition to ClosingNegotiation state.
 	transitions := []RbfState{
@@ -1386,10 +1390,13 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 		// Now we'll send in the channel flushed event, and assert that
 		// this triggers a remote RBF iteration (we process their early
 		// offer and send our sig).
-		closeHarness.chanCloser.SendEvent(ctx, &flushEvent)
 		closeHarness.assertSingleRemoteRbfIteration(
 			remoteOffer, absoluteFee, absoluteFee, sequence, true,
-			false,
+			func(ctx context.Context, _ ProtocolEvent) {
+				closeHarness.chanCloser.SendEvent(
+					ctx, &flushEvent,
+				)
+			},
 		)
 	})
 
@@ -1857,7 +1864,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		// sig.
 		closeHarness.assertSingleRemoteRbfIteration(
 			feeOffer, balanceAfterClose, absoluteFee, sequence,
-			false, true,
+			false, closeHarness.chanCloser.SendEvent,
 		)
 
 		// Next, we'll receive an offer from the remote party, and drive
@@ -1867,7 +1874,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		absoluteFee = feeOffer.SigMsg.FeeSatoshis
 		closeHarness.assertSingleRemoteRbfIteration(
 			feeOffer, balanceAfterClose, absoluteFee, sequence,
-			true, true,
+			true, closeHarness.chanCloser.SendEvent,
 		)
 
 		closeHarness.assertNoStateTransitions()
@@ -1950,7 +1957,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		// sig.
 		closeHarness.assertSingleRemoteRbfIteration(
 			feeOffer, balanceAfterClose, absoluteFee, sequence,
-			false, true,
+			false, closeHarness.chanCloser.SendEvent,
 		)
 	})
 
@@ -2048,7 +2055,7 @@ func TestRbfCloseErr(t *testing.T) {
 		// sig.
 		closeHarness.assertSingleRemoteRbfIteration(
 			feeOffer, balanceAfterClose, absoluteFee, sequence,
-			true, true,
+			true, closeHarness.chanCloser.SendEvent,
 		)
 	})
 

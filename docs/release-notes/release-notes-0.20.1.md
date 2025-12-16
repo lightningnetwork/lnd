@@ -36,6 +36,12 @@
   condition](https://github.com/lightningnetwork/lnd/pull/10371) which could
   prevent a node from starting up if two goroutines attempt to update the 
   node's announcement at the same time.
+
+* [Fix timestamp comparison in source node
+  updates](https://github.com/lightningnetwork/lnd/pull/10449) that could still
+  cause "sql: no rows in result set" startup errors. The previous fix (#10371)
+  addressed concurrent updates with equal timestamps, but the seconds-only
+  comparison could still fail when restarting with different minute/hour values.
   
 * [Fix a startup issue in LND when encountering a 
   deserialization issue](https://github.com/lightningnetwork/lnd/pull/10383) 

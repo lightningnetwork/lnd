@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"sync"
 	"time"
 
@@ -821,71 +822,92 @@ func (b *Machine) WriteMessage(p []byte) error {
 //
 // NOTE: It is safe to call this method again iff a timeout error is returned.
 func (b *Machine) Flush(w io.Writer) (int, error) {
-	// First, write out the pending header bytes, if any exist. Any header
-	// bytes written will not count towards the total amount flushed.
-	if len(b.nextHeaderSend) > 0 {
-		// Write any remaining header bytes and shift the slice to point
-		// to the next segment of unwritten bytes. If an error is
-		// encountered, we can continue to write the header from where
-		// we left off on a subsequent call to Flush.
-		n, err := w.Write(b.nextHeaderSend)
-		b.nextHeaderSend = b.nextHeaderSend[n:]
-		if err != nil {
-			return 0, err
-		}
+	// If there's nothing to flush, return early.
+	if len(b.nextHeaderSend) == 0 && len(b.nextBodySend) == 0 {
+		return 0, nil
 	}
 
-	// Next, write the pending body bytes, if any exist. Only the number of
-	// bytes written that correspond to the ciphertext will be included in
-	// the total bytes written, bytes written as part of the MAC will not be
-	// counted.
-	var nn int
-	if len(b.nextBodySend) > 0 {
-		// Write out all bytes excluding the mac and shift the body
-		// slice depending on the number of actual bytes written.
-		n, err := w.Write(b.nextBodySend)
-		b.nextBodySend = b.nextBodySend[n:]
+	// Record the initial header length so we can calculate how much of each
+	// buffer was written in case of a partial write.
+	headerLen := len(b.nextHeaderSend)
 
-		// If we partially or fully wrote any of the body's MAC, we'll
-		// subtract that contribution from the total amount flushed to
-		// preserve the abstraction of returning the number of plaintext
-		// bytes written by the connection.
-		//
-		// There are three possible scenarios we must handle to ensure
-		// the returned value is correct. In the first case, the write
-		// straddles both payload and MAC bytes, and we must subtract
-		// the number of MAC bytes written from n. In the second, only
-		// payload bytes are written, thus we can return n unmodified.
-		// The final scenario pertains to the case where only MAC bytes
-		// are written, none of which count towards the total.
-		//
-		//                 |-----------Payload------------|----MAC----|
-		// Straddle:       S---------------------------------E--------0
-		// Payload-only:   S------------------------E-----------------0
-		// MAC-only:                                        S-------E-0
-		start, end := n+len(b.nextBodySend), len(b.nextBodySend)
+	// Use net.Buffers to perform a vectored write (writev syscall) that
+	// combines both header and body into a single TCP segment. This avoids
+	// the inefficiency of sending two separate TCP packets for each
+	// brontide message. The WriteTo method will use writev on supported
+	// platforms, falling back to sequential writes otherwise.
+	buffers := net.Buffers{b.nextHeaderSend, b.nextBodySend}
+	n64, err := buffers.WriteTo(w)
+
+	n := int(n64)
+
+	// Calculate how much was written from header vs body. The total bytes
+	// written (n) spans both buffers sequentially.
+	var headerWritten, bodyWritten int
+	switch {
+	// A partial write within the header only, with none of the body being
+	// written.
+	case n <= headerLen:
+		headerWritten = n
+		bodyWritten = 0
+
+	// All of header written, plus some (or all) of body.
+	default:
+		headerWritten = headerLen
+		bodyWritten = n - headerLen
+	}
+
+	// Update the slice offsets to allow resuming from where we left off on
+	// a subsequent call to Flush in case of a timeout error.
+	b.nextHeaderSend = b.nextHeaderSend[headerWritten:]
+	b.nextBodySend = b.nextBodySend[bodyWritten:]
+
+	// Calculate the number of plaintext bytes flushed, excluding MAC bytes.
+	// Only bytes written from the body count towards the return value, and
+	// we must exclude any MAC bytes that were written.
+	//
+	// There are three possible scenarios we must handle to ensure the
+	// returned value is correct. In the first case, the write straddles
+	// both payload and MAC bytes, and we must subtract the number of MAC
+	// bytes written. In the second, only payload bytes are written, thus we
+	// return bodyWritten unmodified. The final scenario pertains to the
+	// case where only MAC bytes are written, none of which count towards
+	// the total.
+	//
+	//                 |-----------Payload------------|----MAC----|
+	// Straddle:       S---------------------------------E--------0
+	// Payload-only:   S------------------------E-----------------0
+	// MAC-only:                                        S-------E-0
+	var nn int
+	if bodyWritten > 0 {
+		start := bodyWritten + len(b.nextBodySend)
+		end := len(b.nextBodySend)
 		switch {
 
 		// Straddles payload and MAC bytes, subtract number of MAC bytes
 		// written from the actual number written.
 		case start > macSize && end <= macSize:
-			nn = n - (macSize - end)
+			nn = bodyWritten - (macSize - end)
 
-		// Only payload bytes are written, return n directly.
+		// Only payload bytes are written, return bodyWritten directly.
 		case start > macSize && end > macSize:
-			nn = n
+			nn = bodyWritten
 
 		// Only MAC bytes are written, return 0 bytes written.
 		default:
 		}
+	}
 
-		if err != nil {
-			return nn, err
-		}
+	// If there was an error, return with what we've calculated so far. The
+	// caller can retry and we'll continue from where we left off.
+	if err != nil {
+		return nn, err
 	}
 
 	// If both header and body have been fully flushed, release the pooled
 	// buffers back to their pools.
+	//
+	// TODO(roasbeef): move above again?
 	if len(b.nextHeaderSend) == 0 && len(b.nextBodySend) == 0 {
 		b.releaseBuffers()
 	}

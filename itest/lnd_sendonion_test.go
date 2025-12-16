@@ -1,6 +1,8 @@
 package itest
 
 import (
+	"context"
+
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -9,9 +11,12 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/switchrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // testSendOnion tests the basic success case for the SendOnion RPC. It
@@ -178,13 +183,18 @@ func testSendOnionTwice(ht *lntest.HarnessTest) {
 	// While the first onion is still in-flight, we'll send the same onion
 	// again with the same attempt ID. This should error as our Switch will
 	// detect duplicate ADDs for *in-flight* HTLCs.
-	resp = alice.RPC.SendOnion(sendReq)
-	ht.Logf("SendOnion resp: %+v, code: %v", resp, resp.ErrorCode)
-	require.False(ht, resp.Success, "expected failure on onion send")
-	require.Equal(ht, resp.ErrorCode,
-		switchrpc.ErrorCode_DUPLICATE_HTLC,
+	ctxt, cancel := context.WithTimeout(context.Background(),
+		rpc.DefaultTimeout)
+	defer cancel()
+
+	_, err := alice.RPC.Switch.SendOnion(ctxt, sendReq)
+	require.Error(ht, err, "expected failure on onion send")
+
+	// Check that we get the expected gRPC error.
+	s, ok := status.FromError(err)
+	require.True(ht, ok, "expected gRPC status error")
+	require.Equal(ht, codes.AlreadyExists, s.Code(),
 		"unexpected error code")
-	require.Equal(ht, resp.ErrorMessage, htlcswitch.ErrDuplicateAdd.Error())
 
 	// Dave settles the invoice.
 	dave.RPC.SettleInvoice(preimage[:])

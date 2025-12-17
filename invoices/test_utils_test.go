@@ -255,7 +255,9 @@ func timeout() func() {
 
 	go func() {
 		select {
-		case <-time.After(10 * time.Second):
+		// Use a longer timeout to accommodate slow Postgres database
+		// setup and migrations when running tests in parallel.
+		case <-time.After(120 * time.Second):
 			err := pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
 			if err != nil {
 				panic(fmt.Sprintf("error writing to std out "+

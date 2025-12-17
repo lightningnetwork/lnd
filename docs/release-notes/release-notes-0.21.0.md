@@ -95,6 +95,27 @@
   avoid modifications to the existing flows for dispatching local payments,
   preserving the existing battle-tested logic.
 
+* Added a new [switchrpc RPC sub-system](https://github.com/lightningnetwork/lnd/pull/9489)
+  with `SendOnion`, `BuildOnion`, and `TrackOnion` endpoints. This allows the
+  daemon to offload path-finding, onion construction and payment life-cycle
+  management to an external entity and instead accept onion payments for direct
+  delivery to the network. The new gRPC server should be used with caution. It
+  is currently only safe to allow a *single* entity (either the local router or
+  *one* external router) to dispatch attempts via the Switch at any given time.
+  Running multiple controllers concurrently will lead to undefined behavior and
+  potential loss of funds. The compilation of the server is hidden behind the
+  non-default `switchrpc` build tag.
+
+* The `SendOnion` RPC is now fully [idempotent](
+  https://github.com/lightningnetwork/lnd/pull/10473), providing a critical
+  reliability improvement for external payment orchestrators (such as a remote
+  `ChannelRouter`). Callers can now safely retry a `SendOnion` request after a
+  network timeout or ambiguous error without risking a duplicate payment. If a
+  request with the same `attempt_id` has already been processed, the RPC will
+  now return a `DUPLICATE_HTLC` error, serving as a definitive acknowledgment
+  that the dispatch was received. This allows clients to build more resilient
+  payment-sending logic.
+
 ## RPC Additions
 
 * [Added support for coordinator-based MuSig2 signing
@@ -109,17 +130,6 @@
   selection](https://github.com/lightningnetwork/lnd/pull/10296). Users can
   specify a list of inputs to use as transaction inputs via the new
   `inputs` field in `EstimateFeeRequest`.
-
-* Added a new [switchrpc RPC sub-system](https://github.com/lightningnetwork/lnd/pull/9489)
-  with `SendOnion`, `BuildOnion`, and `TrackOnion` endpoints. This allows the
-  daemon to offload path-finding, onion construction and payment life-cycle
-  management to an external entity and instead accept onion payments for direct
-  delivery to the network. The new gRPC server should be used with caution. It
-  is currently only safe to allow a *single* entity (either the local router or
-  *one* external router) to dispatch attempts via the Switch at any given time.
-  Running multiple controllers concurrently will lead to undefined behavior and
-  potential loss of funds. The compilation of the server is hidden behind the
-  non-default `switchrpc` build tag.
 
 ## lncli Additions
 

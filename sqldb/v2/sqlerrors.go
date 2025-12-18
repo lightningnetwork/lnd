@@ -18,9 +18,9 @@ var (
 	// than the max allowed valued without a success.
 	ErrTxRetriesExceeded = errors.New("db tx retries exceeded")
 
-	// postgresErrMsgs are strings that signify retriable errors resulting
-	// from serialization failures.
-	postgresErrMsgs = []string{
+	// postgresRetriableErrMsgs are strings that signify retriable errors
+	// resulting from serialization failures.
+	postgresRetriableErrMsgs = []string{
 		"could not serialize access",
 		"current transaction is aborted",
 		"not enough elements in RWConflictPool",
@@ -51,7 +51,7 @@ func MapSQLError(err error) error {
 	// Sometimes the error won't be properly wrapped, so we'll need to
 	// inspect raw error itself to detect something we can wrap properly.
 	// This handles a postgres variant of the error.
-	for _, postgresErrMsg := range postgresErrMsgs {
+	for _, postgresErrMsg := range postgresRetriableErrMsgs {
 		if strings.Contains(err.Error(), postgresErrMsg) {
 			return &ErrSerializationError{
 				DBError: err,

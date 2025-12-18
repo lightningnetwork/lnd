@@ -14,9 +14,9 @@ import (
 )
 
 var (
-	// ErrRetriesExceeded is returned when a transaction is retried more
+	// ErrTxRetriesExceeded is returned when a transaction is retried more
 	// than the max allowed valued without a success.
-	ErrRetriesExceeded = errors.New("db tx retries exceeded")
+	ErrTxRetriesExceeded = errors.New("db tx retries exceeded")
 
 	// postgresErrMsgs are strings that signify retriable errors resulting
 	// from serialization failures.

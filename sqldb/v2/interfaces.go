@@ -368,7 +368,7 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 
 	// If we get to this point, then we weren't able to successfully commit
 	// a tx given the max number of retries.
-	return ErrRetriesExceeded
+	return ErrTxRetriesExceeded
 }
 
 // ExecTx is a wrapper for txBody to abstract the creation and commit of a db

@@ -11,9 +11,9 @@ import (
 )
 
 var (
-	// ErrRetriesExceeded is returned when a transaction is retried more
+	// ErrTxRetriesExceeded is returned when a transaction is retried more
 	// than the max allowed valued without a success.
-	ErrRetriesExceeded = errors.New("db tx retries exceeded")
+	ErrTxRetriesExceeded = errors.New("db tx retries exceeded")
 )
 
 // MapSQLError attempts to interpret a given error as a database agnostic SQL

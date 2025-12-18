@@ -5,9 +5,9 @@
 
 -- name: UpsertNode :one
 INSERT INTO graph_nodes (
-    version, pub_key, alias, last_update, color, signature
+    version, pub_key, alias, last_update, block_height, color, signature
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6, $7
 )
 ON CONFLICT (pub_key, version)
     -- Update the following fields if a conflict occurs on pub_key
@@ -15,10 +15,13 @@ ON CONFLICT (pub_key, version)
     DO UPDATE SET
         alias = EXCLUDED.alias,
         last_update = EXCLUDED.last_update,
+        block_height = EXCLUDED.block_height,
         color = EXCLUDED.color,
         signature = EXCLUDED.signature
-WHERE graph_nodes.last_update IS NULL
-    OR EXCLUDED.last_update > graph_nodes.last_update
+WHERE (graph_nodes.last_update IS NULL
+    OR EXCLUDED.last_update > graph_nodes.last_update)
+AND (graph_nodes.block_height IS NULL
+    OR EXCLUDED.block_height >= graph_nodes.block_height)
 RETURNING id;
 
 -- We use a separate upsert for our own node since we want to be less strict
@@ -26,9 +29,9 @@ RETURNING id;
 -- update the record even if the last_update is the same as what we have.
 -- name: UpsertSourceNode :one
 INSERT INTO graph_nodes (
-    version, pub_key, alias, last_update, color, signature
+    version, pub_key, alias, last_update, block_height, color, signature
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6, $7
 )
 ON CONFLICT (pub_key, version)
     -- Update the following fields if a conflict occurs on pub_key
@@ -36,10 +39,13 @@ ON CONFLICT (pub_key, version)
     DO UPDATE SET
         alias = EXCLUDED.alias,
         last_update = EXCLUDED.last_update,
+        block_height = EXCLUDED.block_height,
         color = EXCLUDED.color,
         signature = EXCLUDED.signature
 WHERE graph_nodes.last_update IS NULL
     OR EXCLUDED.last_update >= graph_nodes.last_update
+AND (graph_nodes.block_height IS NULL
+   OR EXCLUDED.block_height >= graph_nodes.block_height)
 RETURNING id;
 
 -- name: GetNodesByIDs :many
@@ -52,6 +58,14 @@ SELECT *
 FROM graph_nodes
 WHERE pub_key = $1
   AND version = $2;
+
+-- name: NodeExists :one
+SELECT EXISTS (
+    SELECT 1
+    FROM graph_nodes
+    WHERE pub_key = $1
+      AND version = $2
+) AS node_exists;
 
 -- name: GetNodeIDByPubKey :one
 SELECT id
@@ -276,9 +290,9 @@ INSERT INTO graph_channels (
     version, scid, node_id_1, node_id_2,
     outpoint, capacity, bitcoin_key_1, bitcoin_key_2,
     node_1_signature, node_2_signature, bitcoin_1_signature,
-    bitcoin_2_signature
+    bitcoin_2_signature, signature, funding_pk_script, merkle_root_hash
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 )
 RETURNING id;
 

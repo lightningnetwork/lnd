@@ -4,7 +4,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // TestChannelCache checks the behavior of the channelCache with respect to
@@ -99,9 +101,14 @@ func assertHasChanEntries(t *testing.T, c *channelCache, start, end uint64) {
 
 // channelForInt generates a unique ChannelEdge given an integer.
 func channelForInt(i uint64) ChannelEdge {
+	info, err := models.NewV1Channel(
+		i, chainhash.Hash{}, route.Vertex{}, route.Vertex{},
+		&models.ChannelV1Fields{},
+	)
+	if err != nil {
+		panic(err)
+	}
 	return ChannelEdge{
-		Info: &models.ChannelEdgeInfo{
-			ChannelID: i,
-		},
+		Info: info,
 	}
 }

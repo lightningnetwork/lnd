@@ -370,6 +370,11 @@ lint-config-check:
 #? lint: Run static code analysis
 lint: check-go-version lint-config-check lint-source 
 
+#? lint-module: Run static code analysis on all submodules (or specify module=<name> for a specific one)
+lint-module:
+	@$(call print, "Linting submodules.")
+	scripts/lint_modules.sh $(module)
+
 #? protolint: Lint proto files using protolint
 protolint:
 	@$(call print, "Linting proto files.")

@@ -5608,9 +5608,10 @@ func TestOnChainResolutionFailure(t *testing.T) {
 
 		require.NotNil(t, res.Error, "expected error for failed result")
 
-		// We expect the misclassified error which occurs when sending
-		// an empty encrypted failure reason to the de-obfuscator.
-		expectedErr := ErrUnreadableFailureMessage
+		expectedErr := NewDetailedLinkError(
+			&lnwire.FailPermanentChannelFailure{},
+			OutgoingFailureOnChainTimeout,
+		)
 		require.Equal(t, expectedErr, res.Error)
 
 	case <-time.After(1 * time.Second):

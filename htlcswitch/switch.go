@@ -255,12 +255,12 @@ type Switch struct {
 	// service was initialized with.
 	cfg *Config
 
-	// networkResults stores the results of payments initiated by the user.
+	// attemptStore stores the results of payments initiated by the user.
 	// The store is used to later look up the payments and notify the
 	// user of the result when they are complete. Each payment attempt
 	// should be given a unique integer ID when it is created, otherwise
 	// results might be overwritten.
-	networkResults *networkResultStore
+	attemptStore AttemptStore
 
 	// circuits is storage for payment circuits which are used to
 	// forward the settle/fail htlc updates back to the add htlc initiator.
@@ -380,7 +380,7 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		interfaceIndex:    make(map[[33]byte]map[lnwire.ChannelID]ChannelLink),
 		pendingLinkIndex:  make(map[lnwire.ChannelID]ChannelLink),
 		linkStopIndex:     make(map[lnwire.ChannelID]chan struct{}),
-		networkResults:    newNetworkResultStore(cfg.DB),
+		attemptStore:      newNetworkResultStore(cfg.DB),
 		htlcPlex:          make(chan *plexPacket),
 		chanCloseRequests: make(chan *ChanClose),
 		resolutionMsgs:    make(chan *resolutionMsg),
@@ -438,16 +438,21 @@ func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) erro
 // HasAttemptResult reads the network result store to fetch the specified
 // attempt. Returns true if the attempt result exists.
 func (s *Switch) HasAttemptResult(attemptID uint64) (bool, error) {
-	_, err := s.networkResults.getResult(attemptID)
+	_, err := s.attemptStore.GetResult(attemptID)
 	if err == nil {
 		return true, nil
 	}
 
-	if !errors.Is(err, ErrPaymentIDNotFound) {
-		return false, err
+	// If we have not heard of this attempt ID, or have dispatched the
+	// attempt but have not yet received the final (settle/fail) result,
+	// then we return a nil error.
+	if errors.Is(err, ErrPaymentIDNotFound) ||
+		errors.Is(err, ErrAttemptResultPending) {
+
+		return false, nil
 	}
 
-	return false, nil
+	return false, err
 }
 
 // GetAttemptResult returns the result of the HTLC attempt with the given
@@ -475,17 +480,33 @@ func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 	// is already available.
 	// Assumption: no one will add this attempt ID other than the caller.
 	if s.circuits.LookupCircuit(inKey) == nil {
-		res, err := s.networkResults.getResult(attemptID)
-		if err != nil {
+		res, err := s.attemptStore.GetResult(attemptID)
+		switch {
+		// We have a final result, we can send it immediately.
+		case err == nil:
+			c := make(chan *networkResult, 1)
+			c <- res
+			nChan = c
+
+		// The attempt is known, but the result is not yet available,
+		// so we fall through to subscribe.
+		case errors.Is(err, ErrAttemptResultPending):
+			log.Tracef("Attempt %d known, but result not yet "+
+				"available. Subscribing for result.", attemptID)
+
+		// If the error is anything else, we return it to the caller.
+		default:
 			return nil, err
 		}
-		c := make(chan *networkResult, 1)
-		c <- res
-		nChan = c
-	} else {
+	}
+
+	// If nChan is still nil, it means we need to subscribe. This happens
+	// if the circuit was found, or if GetResult told us the result is not
+	// yet available.
+	if nChan == nil {
 		// The HTLC was committed to the circuits, subscribe for a
 		// result.
-		nChan, err = s.networkResults.subscribeResult(attemptID)
+		nChan, err = s.attemptStore.SubscribeResult(attemptID)
 		if err != nil {
 			return nil, err
 		}
@@ -537,7 +558,7 @@ func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 // preiodically to let the switch clean up payment results that we have
 // handled.
 func (s *Switch) CleanStore(keepPids map[uint64]struct{}) error {
-	return s.networkResults.cleanStore(keepPids)
+	return s.attemptStore.CleanStore(keepPids)
 }
 
 // SendHTLC is used by other subsystems which aren't belong to htlc switch
@@ -964,7 +985,7 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 
 	// Store the result to the db. This will also notify subscribers about
 	// the result.
-	if err := s.networkResults.storeResult(attemptID, n); err != nil {
+	if err := s.attemptStore.StoreResult(attemptID, n); err != nil {
 		log.Errorf("Unable to store attempt result for pid=%v: %v",
 			attemptID, err)
 		return
@@ -1771,6 +1792,13 @@ func (s *Switch) Start() error {
 
 	log.Infof("HTLC Switch starting")
 
+	// Before starting the main event loop, we'll check for any orphaned
+	// HTLC attempts that may have been left behind by a previous crash.
+	if err := s.cleanupOrphanedAttempts(); err != nil {
+		return fmt.Errorf("failed to cleanup orphaned attempts: %w",
+			err)
+	}
+
 	blockEpochStream, err := s.cfg.Notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		return err
@@ -1791,6 +1819,88 @@ func (s *Switch) Start() error {
 		_ = s.Stop()
 		log.Errorf("unable to reforward resolutions: %v", err)
 		return err
+	}
+
+	return nil
+}
+
+// cleanupOrphanedAttempts is a helper function that is called on startup to
+// clean up any orphaned HTLC attempts. An orphaned attempt is one that has
+// been initialized in the attempt store but for which no corresponding circuit
+// exists in the circuit map. This can happen if the node crashes after
+// initializing an attempt but before committing the circuit.
+func (s *Switch) cleanupOrphanedAttempts() error {
+	pending, err := s.attemptStore.FetchPendingAttempts()
+	if err != nil {
+		return fmt.Errorf("failed to fetch pending attempts: %w", err)
+	}
+
+	if len(pending) == 0 {
+		return nil
+	}
+
+	log.Infof("Found %d pending HTLC attempts, checking for orphans",
+		len(pending))
+
+	for _, attemptID := range pending {
+		// For each pending attempt, we check if a corresponding circuit
+		// exists.
+		inKey := CircuitKey{
+			ChanID: hop.Source,
+			HtlcID: attemptID,
+		}
+		circuit := s.circuits.LookupCircuit(inKey)
+
+		// If no circuit exists, this is an orphan from a crash
+		// between InitAttempt and CommitCircuits. We'll fail it with
+		// a temporary node failure.
+		if circuit == nil {
+			log.Warnf("Found orphaned HTLC attempt with id %d "+
+				"(no circuit), failing", attemptID)
+
+			err := s.attemptStore.FailPendingAttempt(
+				attemptID,
+				NewLinkError(
+					&lnwire.FailTemporaryNodeFailure{},
+				),
+			)
+			if err != nil {
+				log.Errorf("Unable to fail orphaned attempt "+
+					"%d: %v", attemptID, err)
+			}
+
+			continue
+		}
+
+		// If a circuit *does* exist, we must perform a second check.
+		// If the circuit is still "half-open" (it has not been
+		// assigned a keystone by the outgoing link), then it's an
+		// orphan from a crash between CommitCircuits and the handoff
+		// to the link. We must also fail this to prevent a hang.
+		//
+		// TODO(calvin): cleanup of dangling circuits for locally
+		// initated payments as described here:
+		// https://github.com/lightningnetwork/lnd/issues/10423.
+		if !circuit.HasKeystone() {
+			log.Warnf("Found orphaned HTLC attempt with id %d "+
+				"(half-open circuit), failing", attemptID)
+
+			err := s.attemptStore.FailPendingAttempt(
+				attemptID,
+				NewLinkError(
+					&lnwire.FailTemporaryNodeFailure{},
+				),
+			)
+			if err != nil {
+				log.Errorf("Unable to fail orphaned attempt "+
+					"%d: %v", attemptID, err)
+			}
+
+			continue
+		}
+
+		// If the circuit exists and is fully open, it's a legitimate
+		// in-flight HTLC that will be resumed by the router.
 	}
 
 	return nil

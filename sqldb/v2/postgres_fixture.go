@@ -47,6 +47,7 @@ func NewTestPgFixture(t testing.TB, expiry time.Duration) *TestPgFixture {
 
 	// Pulls an image, creates a container based on it and runs it.
 	resource, err := pool.RunWithOptions(&dockertest.RunOptions{
+		Name:       t.Name() + "-postgresql-container",
 		Repository: "postgres",
 		Tag:        PostgresTag,
 		Env: []string{

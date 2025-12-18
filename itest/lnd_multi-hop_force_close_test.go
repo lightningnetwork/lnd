@@ -517,19 +517,25 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 	// Now that Bob has claimed his HTLCs, Alice should mark the two
 	// payments as failed.
 	//
-	// Alice will mark this payment as failed with no route as the only
-	// route she has is Alice->Bob->Carol. This won't be the case if she
-	// has a second route, as another attempt will be tried.
-	//
-	// TODO(yy): we should instead mark this payment as timed out if she has
-	// a second route to try this payment, which is the timeout set by Alice
-	// when sending the payment.
-	expectedReason := lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE
-	p := ht.AssertPaymentFailureReason(alice, preimage, expectedReason)
+	// Alice's payment can fail with either NO_ROUTE or TIMEOUT depending
+	// on timing. There's a race between:
+	// 1. The channel closure propagating to Alice's graph (-> NO_ROUTE)
+	// 2. The payment attempt timeout firing (-> TIMEOUT)
+	// Both failure reasons are correct.
+	p := ht.AssertPaymentFailureReasonAny(alice, preimage,
+		lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE,
+		lnrpc.PaymentFailureReason_FAILURE_REASON_TIMEOUT,
+	)
+
+	// The HTLC-level failure code should be PERMANENT_CHANNEL_FAILURE
+	// regardless of which payment-level failure reason we got.
 	require.Equal(ht, lnrpc.Failure_PERMANENT_CHANNEL_FAILURE,
 		p.Htlcs[0].Failure.Code)
 
-	p = ht.AssertPaymentFailureReason(alice, preimageDust, expectedReason)
+	p = ht.AssertPaymentFailureReasonAny(alice, preimageDust,
+		lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE,
+		lnrpc.PaymentFailureReason_FAILURE_REASON_TIMEOUT,
+	)
 	require.Equal(ht, lnrpc.Failure_PERMANENT_CHANNEL_FAILURE,
 		p.Htlcs[0].Failure.Code)
 }

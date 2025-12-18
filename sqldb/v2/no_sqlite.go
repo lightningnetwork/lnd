@@ -13,6 +13,11 @@ var (
 )
 
 // SqliteStore is a database store implementation that uses a sqlite backend.
+//
+// NOTE: This specific struct implementation does not implement a real sqlite
+// store, and only exists to ensure that build tag environments that do not
+// support sqlite database backends still contain a struct called SqliteStore,
+// to ensure that the build process doesn't error.
 type SqliteStore struct {
 	cfg *SqliteConfig
 

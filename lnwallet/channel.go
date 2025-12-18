@@ -2759,9 +2759,15 @@ func (lc *LightningChannel) FetchLatestAuxHTLCView() AuxHtlcView {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	return newAuxHtlcView(lc.fetchHTLCView(
+	nextHeight := lc.commitChains.Local.tip().height + 1
+
+	view := lc.fetchHTLCView(
 		lc.updateLogs.Remote.logIndex, lc.updateLogs.Local.logIndex,
-	))
+	)
+
+	view.NextHeight = nextHeight
+
+	return newAuxHtlcView(view)
 }
 
 // fetchHTLCView returns all the candidate HTLC updates which should be
@@ -6292,6 +6298,12 @@ func (lc *LightningChannel) validateAddHtlc(pd *paymentDescriptor,
 				lc.updateLogs.Remote.logIndex,
 				lc.updateLogs.Local.logIndex,
 			)
+
+			nextHeight := lc.commitChains.Local.tip().height + 1
+			view.NextHeight = nextHeight
+
+			lc.log.Infof("Setting view nextheight=%v", nextHeight)
+
 			auxView := newAuxHtlcView(view)
 
 			// Get the current available balance for the link

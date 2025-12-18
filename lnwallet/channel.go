@@ -2760,9 +2760,9 @@ func (lc *LightningChannel) FetchLatestAuxHTLCView() AuxHtlcView {
 	defer lc.RUnlock()
 
 	nextHeight := lc.commitChains.Local.tip().height + 1
-
+	remoteACKedIndex := lc.commitChains.Local.tail().messageIndices.Remote
 	view := lc.fetchHTLCView(
-		lc.updateLogs.Remote.logIndex, lc.updateLogs.Local.logIndex,
+		remoteACKedIndex, lc.updateLogs.Local.logIndex,
 	)
 
 	view.NextHeight = nextHeight
@@ -6294,8 +6294,10 @@ func (lc *LightningChannel) validateAddHtlc(pd *paymentDescriptor,
 			// Fetch the current HTLC view which includes all
 			// pending HTLCs that haven't been committed yet. This
 			// provides the validator with the most accurate state.
+			commitChain := lc.commitChains.Local
+			remoteIndex := commitChain.tail().messageIndices.Remote
 			view := lc.fetchHTLCView(
-				lc.updateLogs.Remote.logIndex,
+				remoteIndex,
 				lc.updateLogs.Local.logIndex,
 			)
 

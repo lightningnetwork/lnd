@@ -6397,6 +6397,13 @@ func TestOnChainResolutionFailure(t *testing.T) {
 	// ID).
 	rhash := lntypes.Hash{1}
 
+	// onChainTimeout is the error the resolution branch produces for an
+	// on-chain HTLC timeout.
+	onChainTimeout := NewDetailedLinkError(
+		&lnwire.FailPermanentChannelFailure{},
+		OutgoingFailureOnChainTimeout,
+	)
+
 	tests := []struct {
 		name         string
 		isResolution bool
@@ -6409,7 +6416,7 @@ func TestOnChainResolutionFailure(t *testing.T) {
 			name:         "on-chain resolution, empty reason",
 			isResolution: true,
 			reason:       nil,
-			wantErr:      ErrUnreadableFailureMessage,
+			wantErr:      onChainTimeout,
 		},
 
 		// A resolution carrying a real reason must still decrypt, so

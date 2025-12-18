@@ -106,6 +106,11 @@ func NewTestPgFixture(t testing.TB, expiry time.Duration) *TestPgFixture {
 	fixture.pool = pool
 	fixture.resource = resource
 
+	// Ensure that the fixture is torn down on the test cleanup.
+	t.Cleanup(func() {
+		fixture.TearDown(t)
+	})
+
 	return fixture
 }
 

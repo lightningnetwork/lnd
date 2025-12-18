@@ -9,9 +9,6 @@ import (
 // NewTestDB is a helper function that creates a Postgres database for testing.
 func NewTestDB(t *testing.T, streams []MigrationStream) *PostgresStore {
 	pgFixture := NewTestPgFixture(t, DefaultPostgresFixtureLifetime)
-	t.Cleanup(func() {
-		pgFixture.TearDown(t)
-	})
 
 	return NewTestPostgresDB(t, pgFixture, streams)
 }
@@ -22,9 +19,6 @@ func NewTestDBWithVersion(t *testing.T, version uint,
 	stream MigrationStream) *PostgresStore {
 
 	pgFixture := NewTestPgFixture(t, DefaultPostgresFixtureLifetime)
-	t.Cleanup(func() {
-		pgFixture.TearDown(t)
-	})
 
 	return NewTestPostgresDBWithVersion(t, pgFixture, stream, version)
 }

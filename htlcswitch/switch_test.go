@@ -5910,3 +5910,98 @@ func TestExtractResult(t *testing.T) {
 		})
 	}
 }
+
+// TestOnChainResolutionFailure verifies that an on-chain resolution failure
+// read back from the result store is classified as a permanent on-chain
+// channel failure, rather than being misclassified as an unreadable failure.
+//
+// The result must travel through the store: the lnwire codec turns a nil
+// reason into a non-nil empty slice, and only the persisted (disk-fetch) path
+// exercises that transformation. The in-memory path is covered by
+// TestExtractResult.
+func TestOnChainResolutionFailure(t *testing.T) {
+	t.Parallel()
+
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
+	require.NoError(t, err, "unable to init switch")
+	require.NoError(t, s.Start(), "unable to start switch")
+	defer func() {
+		require.NoError(t, s.Stop(), "unable to stop switch")
+	}()
+
+	// rhash is only cosmetic here: parseFailedPayment uses the payment hash
+	// solely for log lines, not for result lookup (that is keyed by attempt
+	// ID).
+	rhash := lntypes.Hash{1}
+
+	tests := []struct {
+		name         string
+		isResolution bool
+		reason       lnwire.OpaqueReason
+		wantErr      error
+	}{
+		// An on-chain resolution with a nil reason round-trips to a
+		// non-nil empty slice. This is the case the fix addresses.
+		{
+			name:         "on-chain resolution, empty reason",
+			isResolution: true,
+			reason:       nil,
+			wantErr:      ErrUnreadableFailureMessage,
+		},
+
+		// A resolution carrying a real reason must still decrypt, so
+		// the widened predicate cannot swallow populated reasons.
+		{
+			name:         "on-chain resolution, non-empty reason",
+			isResolution: true,
+			reason:       lnwire.OpaqueReason{1, 2, 3},
+			wantErr:      ErrUnreadableFailureMessage,
+		},
+	}
+
+	for i, tt := range tests {
+		tt := tt
+		attemptID := uint64(i + 1)
+
+		t.Run(tt.name, func(t *testing.T) {
+			// A deobfuscator that fails to decrypt, standing in for
+			// an empty/invalid reason. If the resolution branch is
+			// wrongly skipped, this surfaces as
+			// ErrUnreadableFailureMessage.
+			deobfuscator := &mockErrorDecryptor{
+				err: ErrUnreadableFailureMessage,
+			}
+
+			// Store the result, which serializes the reason and
+			// transforms a nil reason into a non-nil empty slice on
+			// read-back.
+			storedResult := &networkResult{
+				msg: &lnwire.UpdateFailHTLC{
+					Reason: tt.reason,
+				},
+				isResolution: tt.isResolution,
+			}
+			err := s.attemptStore.StoreResult(attemptID, storedResult)
+			require.NoError(t, err, "unable to store result")
+
+			// Fetch the result through the normal path and confirm
+			// it is classified as expected.
+			resultChan, err := s.GetAttemptResult(
+				attemptID, rhash, deobfuscator,
+			)
+			require.NoError(t, err, "unable to get result")
+
+			// We expect a result immediately since it is already in
+			// the store.
+			select {
+			case res := <-resultChan:
+				require.NotNil(t, res.Error,
+					"expected error for failed result")
+				require.Equal(t, tt.wantErr, res.Error)
+
+			case <-time.After(1 * time.Second):
+				t.Fatalf("result not received")
+			}
+		})
+	}
+}

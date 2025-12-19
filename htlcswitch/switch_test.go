@@ -5554,3 +5554,66 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 
 	require.NoError(t, interceptSwitch.Stop())
 }
+
+// TestOnChainResolutionFailure tests that an HTLC which is resolved on-chain
+// with no specific error reason is correctly handled and classified when read
+// directly from the result store.
+func TestOnChainResolutionFailure(t *testing.T) {
+	t.Parallel()
+
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
+	require.NoError(t, err, "unable to init switch")
+	if err := s.Start(); err != nil {
+		t.Fatalf("unable to start switch: %v", err)
+	}
+	defer func() { _ = s.Stop() }()
+
+	// Create a mock deobfuscator that which return a generic error when it
+	// receives an invalid (empty) reason.
+	mockDeobfuscator := &mockErrorDecryptor{
+		err: ErrUnreadableFailureMessage,
+	}
+
+	// Manually create and store a networkResult that simulates an on-chain
+	// resolution for a dust HTLC.
+	const onChainFailID = 456
+	rhash := lntypes.Hash{1}
+
+	onChainFailResult := &networkResult{
+		msg: &lnwire.UpdateFailHTLC{
+			// The Reason is initially nil, as it is for a
+			// contract court resolution.
+			Reason: nil,
+		},
+		isResolution: true,
+	}
+
+	// Store this result directly. This will trigger the serialization that
+	// transforms the nil reason into an empty byte slice.
+	err = s.networkResults.storeResult(onChainFailID, onChainFailResult)
+	require.NoError(t, err, "unable to store on-chain fail result")
+
+	// Observe the attempt result and confirm that we confirm that we
+	// receive the expected error signaling that the channel has permanently
+	// failed.
+	resultChan, err := s.GetAttemptResult(
+		onChainFailID, rhash, mockDeobfuscator,
+	)
+	require.NoError(t, err, "unable to get on-chain fail result")
+
+	// We expect to receive a result immediately because it was already in
+	// the store.
+	select {
+	case res := <-resultChan:
+
+		require.NotNil(t, res.Error, "expected error for failed result")
+
+		// We expect the misclassified error which occurs when sending
+		// an empty encrypted failure reason to the de-obfuscator.
+		expectedErr := ErrUnreadableFailureMessage
+		require.Equal(t, expectedErr, res.Error)
+
+	case <-time.After(1 * time.Second):
+		t.Fatalf("on-chain fail result not received")
+	}
+}

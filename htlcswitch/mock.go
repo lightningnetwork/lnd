@@ -1179,3 +1179,30 @@ func (h *mockHTLCNotifier) NotifyFinalHtlcEvent(key models.CircuitKey,
 	info channeldb.FinalHtlcInfo) {
 
 }
+
+// mockErrorDecryptor is a mock implementation of the ErrorDecrypter interface
+// that allows tests to control the outcome of a DecryptError call.
+type mockErrorDecryptor struct {
+	// result is the ForwardingError to be returned when the mock's
+	// DecryptError method is called.
+	result *ForwardingError
+
+	// err is the error to be returned when the mock's DecryptError method
+	// is called.
+	err error
+}
+
+// DecryptError is a mock implementation of the DecryptError method. It simply
+// returns the values that are configured in the mockErrorDecryptor struct,
+// allowing tests to simulate both successful and failed decryptions.
+//
+// NOTE: This is part of the ErrorDecrypter interface.
+func (m *mockErrorDecryptor) DecryptError(reason lnwire.OpaqueReason) (
+	*ForwardingError, error) {
+
+	if m.err != nil {
+		return nil, m.err
+	}
+
+	return m.result, nil
+}

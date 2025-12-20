@@ -1,6 +1,7 @@
 package brontide
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -81,34 +82,29 @@ func TestTieredBufferPoolTakeAndPut(t *testing.T) {
 	pool := newTieredBufferPool()
 
 	tests := []struct {
-		name           string
-		plaintextSize  int
-		expectedMinCap int
-		expectedMaxCap int
+		name          string
+		plaintextSize int
+		expectedCap   int
 	}{
 		{
-			name:           "tiny message gets 256B buffer",
-			plaintextSize:  50,
-			expectedMinCap: tier256Size,
-			expectedMaxCap: tier256Size,
+			name:          "tiny message gets 256B buffer",
+			plaintextSize: 50,
+			expectedCap:   tier256Size,
 		},
 		{
-			name:           "medium-small message gets 1KB buffer",
-			plaintextSize:  500,
-			expectedMinCap: tier1KSize,
-			expectedMaxCap: tier1KSize,
+			name:          "medium-small message gets 1KB buffer",
+			plaintextSize: 500,
+			expectedCap:   tier1KSize,
 		},
 		{
-			name:           "medium message gets 4KB buffer",
-			plaintextSize:  2000,
-			expectedMinCap: tier4KSize,
-			expectedMaxCap: tier4KSize,
+			name:          "medium message gets 4KB buffer",
+			plaintextSize: 2000,
+			expectedCap:   tier4KSize,
 		},
 		{
-			name:           "large message gets 64KB buffer",
-			plaintextSize:  50000,
-			expectedMinCap: tier64KSize,
-			expectedMaxCap: tier64KSize,
+			name:          "large message gets 64KB buffer",
+			plaintextSize: 50000,
+			expectedCap:   tier64KSize,
 		},
 	}
 
@@ -122,11 +118,9 @@ func TestTieredBufferPoolTakeAndPut(t *testing.T) {
 			require.Equal(t, 0, len(*buf),
 				"buffer should have zero length")
 
-			// Verify the buffer has appropriate capacity.
-			require.GreaterOrEqual(t, cap(*buf), tc.expectedMinCap,
-				"buffer capacity too small")
-			require.LessOrEqual(t, cap(*buf), tc.expectedMaxCap,
-				"buffer capacity too large")
+			// Verify the buffer has the expected tier capacity.
+			require.Equal(t, tc.expectedCap, cap(*buf),
+				"buffer capacity should match expected tier size")
 
 			// Simulate using the buffer.
 			*buf = append(*buf, make([]byte, tc.plaintextSize+macSize)...)
@@ -151,7 +145,7 @@ func TestTieredBufferPoolReuse(t *testing.T) {
 	require.Greater(t, len(*buf1), 0)
 
 	// Store the capacity for later comparison.
-	cap1 := cap(*buf1)
+	bufCap1 := cap(*buf1)
 
 	// Return the buffer.
 	pool.Put(buf1)
@@ -165,7 +159,7 @@ func TestTieredBufferPoolReuse(t *testing.T) {
 		"reused buffer should have zero length")
 
 	// The capacity should match the tier.
-	require.Equal(t, cap1, cap(*buf2),
+	require.Equal(t, bufCap1, cap(*buf2),
 		"reused buffer should have same capacity")
 }
 
@@ -190,7 +184,7 @@ func TestTieredBufferPoolConcurrency(t *testing.T) {
 		go func(id int) {
 			for j := 0; j < iterations; j++ {
 				// Vary the size to hit different tiers.
-				size := (id*j)%65535 + 1
+				size := (id*j)%math.MaxUint16 + 1
 				buf := pool.Take(size)
 
 				// Simulate some work.

@@ -119,15 +119,15 @@ func BenchmarkWriteMessageSizes(b *testing.B) {
 		name string
 		size int
 	}{
-		{"100B", 100},   // Tiny message (256B tier)
-		{"256B", 256},   // At 256B tier boundary
-		{"500B", 500},   // Small message (1KB tier)
-		{"1KB", 1024},   // At 1KB tier boundary
-		{"2KB", 2048},   // Medium message (4KB tier)
-		{"4KB", 4096},   // At 4KB tier boundary
-		{"8KB", 8192},   // Large message (64KB tier)
-		{"32KB", 32768}, // Large message
-		{"64KB", 65535}, // Max message size
+		{"100B", 100},            // Tiny message (256B tier)
+		{"256B", 256},            // At 256B tier boundary
+		{"500B", 500},            // Small message (1KB tier)
+		{"1KB", 1024},            // At 1KB tier boundary
+		{"2KB", 2048},            // Medium message (4KB tier)
+		{"4KB", 4096},            // At 4KB tier boundary
+		{"8KB", 8192},            // Large message (64KB tier)
+		{"32KB", 32768},          // Large message
+		{"64KB", math.MaxUint16}, // Max message size
 	}
 
 	for _, sz := range sizes {

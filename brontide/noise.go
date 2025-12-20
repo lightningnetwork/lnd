@@ -54,14 +54,23 @@ const (
 	// the MAC overhead (16 bytes), so the max plaintext for each tier is
 	// tierSize - macSize.
 	//
+	// tierBase256 is the base plaintext size for the smallest tier.
+	tierBase256 = 256
+
+	// tierBase1K is the base plaintext size for the 1KB tier.
+	tierBase1K = 1024
+
+	// tierBase4K is the base plaintext size for the 4KB tier.
+	tierBase4K = 4096
+
 	// tier256Size is the smallest tier, suitable for small messages.
-	tier256Size = 256 + macSize
+	tier256Size = tierBase256 + macSize
 
 	// tier1KSize is suitable for messages up to 1KB.
-	tier1KSize = 1024 + macSize
+	tier1KSize = tierBase1K + macSize
 
 	// tier4KSize is suitable for messages up to 4KB.
-	tier4KSize = 4096 + macSize
+	tier4KSize = tierBase4K + macSize
 
 	// tier64KSize is the largest tier, handling max-sized messages (65KB).
 	// This equals maxMessageSize.
@@ -122,47 +131,37 @@ type tieredBufferPool struct {
 // newTieredBufferPool creates a new tiered buffer pool with all four tiers
 // initialized with their respective buffer sizes.
 func newTieredBufferPool() *tieredBufferPool {
+	// newPool is a helper to create a sync.Pool with the given buffer size.
+	newPool := func(size int) sync.Pool {
+		return sync.Pool{
+			New: func() interface{} {
+				b := make([]byte, 0, size)
+				return &b
+			},
+		}
+	}
+
 	return &tieredBufferPool{
-		pool256: sync.Pool{
-			New: func() interface{} {
-				b := make([]byte, 0, tier256Size)
-				return &b
-			},
-		},
-		pool1K: sync.Pool{
-			New: func() interface{} {
-				b := make([]byte, 0, tier1KSize)
-				return &b
-			},
-		},
-		pool4K: sync.Pool{
-			New: func() interface{} {
-				b := make([]byte, 0, tier4KSize)
-				return &b
-			},
-		},
-		pool64K: sync.Pool{
-			New: func() interface{} {
-				b := make([]byte, 0, tier64KSize)
-				return &b
-			},
-		},
+		pool256: newPool(tier256Size),
+		pool1K:  newPool(tier1KSize),
+		pool4K:  newPool(tier4KSize),
+		pool64K: newPool(tier64KSize),
 	}
 }
 
 // tierForSize returns the appropriate pool tier constant for the given
-// plaintext size. The size should be the plaintext length; the MAC overhead
-// is accounted for in the tier sizes.
+// plaintext size.
 func tierForSize(size int) int {
-	encSize := size + macSize
-
 	switch {
-	case encSize <= tier256Size:
+	case size <= tierBase256:
 		return tier256Size
-	case encSize <= tier1KSize:
+
+	case size <= tierBase1K:
 		return tier1KSize
-	case encSize <= tier4KSize:
+
+	case size <= tierBase4K:
 		return tier4KSize
+
 	default:
 		return tier64KSize
 	}
@@ -178,10 +177,13 @@ func (t *tieredBufferPool) Take(plaintextSize int) *[]byte {
 	switch tier {
 	case tier256Size:
 		buf = t.pool256.Get()
+
 	case tier1KSize:
 		buf = t.pool1K.Get()
+
 	case tier4KSize:
 		buf = t.pool4K.Get()
+
 	default:
 		buf = t.pool64K.Get()
 	}
@@ -198,17 +200,23 @@ func (t *tieredBufferPool) Put(buf *[]byte) {
 	}
 
 	*buf = (*buf)[:0]
+	bufCap := cap(*buf)
 
-	cap := cap(*buf)
-
-	switch {
-	case cap <= tier256Size:
+	// Use exact capacity matching to prevent pool pollution. Only buffers
+	// with capacities matching the defined tier sizes are returned to the
+	// pools. Buffers with unexpected capacities are ignored and will be
+	// garbage collected.
+	switch bufCap {
+	case tier256Size:
 		t.pool256.Put(buf)
-	case cap <= tier1KSize:
+
+	case tier1KSize:
 		t.pool1K.Put(buf)
-	case cap <= tier4KSize:
+
+	case tier4KSize:
 		t.pool4K.Put(buf)
-	default:
+
+	case tier64KSize:
 		t.pool64K.Put(buf)
 	}
 }

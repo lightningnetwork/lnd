@@ -77,6 +77,12 @@
 
 ## Performance Improvements
 
+* [Implemented a tiered buffer pool for message
+  encryption](https://github.com/lightningnetwork/lnd/pull/10457) in the
+  brontide package, reducing memory overhead by allocating appropriately-sized
+  buffers (256B, 1KB, 4KB, 64KB) based on actual message size instead of always
+  using 64KB buffers.
+
 ## Deprecations
 
 ### ⚠️ **Warning:** The deprecated fee rate option `--sat_per_byte` will be removed in release version **0.22**

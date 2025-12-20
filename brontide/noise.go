@@ -199,14 +199,14 @@ func (t *tieredBufferPool) Put(buf *[]byte) {
 
 	*buf = (*buf)[:0]
 
-	cap := cap(*buf)
+	bufCap := cap(*buf)
 
 	switch {
-	case cap <= tier256Size:
+	case bufCap <= tier256Size:
 		t.pool256.Put(buf)
-	case cap <= tier1KSize:
+	case bufCap <= tier1KSize:
 		t.pool1K.Put(buf)
-	case cap <= tier4KSize:
+	case bufCap <= tier4KSize:
 		t.pool4K.Put(buf)
 	default:
 		t.pool64K.Put(buf)

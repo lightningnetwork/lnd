@@ -151,7 +151,7 @@ func TestTieredBufferPoolReuse(t *testing.T) {
 	require.Greater(t, len(*buf1), 0)
 
 	// Store the capacity for later comparison.
-	cap1 := cap(*buf1)
+	bufCap1 := cap(*buf1)
 
 	// Return the buffer.
 	pool.Put(buf1)
@@ -165,7 +165,7 @@ func TestTieredBufferPoolReuse(t *testing.T) {
 		"reused buffer should have zero length")
 
 	// The capacity should match the tier.
-	require.Equal(t, cap1, cap(*buf2),
+	require.Equal(t, bufCap1, cap(*buf2),
 		"reused buffer should have same capacity")
 }
 

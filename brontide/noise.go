@@ -49,6 +49,23 @@ const (
 	// the remote party fails to deliver the proper payload within this
 	// time frame, then we'll fail the connection.
 	handshakeReadTimeout = time.Second * 5
+
+	// Buffer tier sizes for the tiered buffer pool. These sizes include
+	// the MAC overhead (16 bytes), so the max plaintext for each tier is
+	// tierSize - macSize.
+	//
+	// tier256Size is the smallest tier, suitable for small messages.
+	tier256Size = 256 + macSize
+
+	// tier1KSize is suitable for messages up to 1KB.
+	tier1KSize = 1024 + macSize
+
+	// tier4KSize is suitable for messages up to 4KB.
+	tier4KSize = 4096 + macSize
+
+	// tier64KSize is the largest tier, handling max-sized messages (65KB).
+	// This equals maxMessageSize.
+	tier64KSize = maxMessageSize
 )
 
 var (
@@ -79,16 +96,122 @@ var (
 		},
 	}
 
-	// bodyBufferPool is a pool for encrypted message body buffers.
-	bodyBufferPool = &sync.Pool{
-		New: func() interface{} {
-			// Allocate max size to avoid reallocation.
-			// maxMessageSize already includes the MAC.
-			b := make([]byte, 0, maxMessageSize)
-			return &b
+	// tieredBodyPool is a tiered buffer pool for encrypted message body
+	// buffers. It provides appropriately sized buffers based on the actual
+	// message size needed, reducing memory overhead for smaller messages
+	// while maintaining the allocation reduction benefits of pooling.
+	tieredBodyPool = newTieredBufferPool()
+)
+
+// tieredBufferPool is a buffer pool that allocates appropriately sized buffers
+// based on the requested size. This reduces memory overhead compared to always
+// allocating max-sized buffers (65KB) for every message.
+//
+// The pool uses four tiers:
+//   - 256B (+MAC): for very small messages
+//   - 1KB (+MAC): for small messages
+//   - 4KB (+MAC): for medium messages
+//   - 64KB (+MAC): for large messages up to the max size
+type tieredBufferPool struct {
+	pool256 sync.Pool
+	pool1K  sync.Pool
+	pool4K  sync.Pool
+	pool64K sync.Pool
+}
+
+// newTieredBufferPool creates a new tiered buffer pool with all four tiers
+// initialized with their respective buffer sizes.
+func newTieredBufferPool() *tieredBufferPool {
+	return &tieredBufferPool{
+		pool256: sync.Pool{
+			New: func() interface{} {
+				b := make([]byte, 0, tier256Size)
+				return &b
+			},
+		},
+		pool1K: sync.Pool{
+			New: func() interface{} {
+				b := make([]byte, 0, tier1KSize)
+				return &b
+			},
+		},
+		pool4K: sync.Pool{
+			New: func() interface{} {
+				b := make([]byte, 0, tier4KSize)
+				return &b
+			},
+		},
+		pool64K: sync.Pool{
+			New: func() interface{} {
+				b := make([]byte, 0, tier64KSize)
+				return &b
+			},
 		},
 	}
-)
+}
+
+// tierForSize returns the appropriate pool tier constant for the given
+// plaintext size. The size should be the plaintext length; the MAC overhead
+// is accounted for in the tier sizes.
+func tierForSize(size int) int {
+	encSize := size + macSize
+
+	switch {
+	case encSize <= tier256Size:
+		return tier256Size
+	case encSize <= tier1KSize:
+		return tier1KSize
+	case encSize <= tier4KSize:
+		return tier4KSize
+	default:
+		return tier64KSize
+	}
+}
+
+// Take retrieves a buffer from the appropriate tier pool based on the
+// plaintext size. The returned buffer has zero length but sufficient capacity
+// for the encrypted message (plaintext + MAC).
+func (t *tieredBufferPool) Take(plaintextSize int) *[]byte {
+	tier := tierForSize(plaintextSize)
+
+	var buf interface{}
+	switch tier {
+	case tier256Size:
+		buf = t.pool256.Get()
+	case tier1KSize:
+		buf = t.pool1K.Get()
+	case tier4KSize:
+		buf = t.pool4K.Get()
+	default:
+		buf = t.pool64K.Get()
+	}
+
+	return buf.(*[]byte)
+}
+
+// Put returns a buffer to the appropriate tier pool based on the buffer's
+// capacity. The buffer is reset to zero length before being returned to the
+// pool.
+func (t *tieredBufferPool) Put(buf *[]byte) {
+	if buf == nil {
+		return
+	}
+
+	*buf = (*buf)[:0]
+
+	cap := cap(*buf)
+
+	switch {
+	case cap <= tier256Size:
+		t.pool256.Put(buf)
+	case cap <= tier1KSize:
+		t.pool1K.Put(buf)
+	case cap <= tier4KSize:
+		t.pool4K.Put(buf)
+	default:
+		t.pool64K.Put(buf)
+	}
+}
 
 // ecdh performs an ECDH operation between pub and priv. The returned value is
 // the sha256 of the compressed shared point.
@@ -790,14 +913,7 @@ func (b *Machine) WriteMessage(p []byte) error {
 	}
 	b.pooledHeaderBuf = headerBuf
 
-	bodyBufInterface := bodyBufferPool.Get()
-	bodyBuf, ok := bodyBufInterface.(*[]byte)
-	if !ok {
-		b.releaseBuffers()
-		return fmt.Errorf("bodyBufferPool returned unexpected "+
-			"type: %T", bodyBufInterface)
-	}
-	b.pooledBodyBuf = bodyBuf
+	b.pooledBodyBuf = tieredBodyPool.Take(len(p))
 
 	// First, generate the encrypted+MAC'd length prefix for the packet. We
 	// pass our pooled buffer as the cipherText (dst) parameter.
@@ -903,8 +1019,7 @@ func (b *Machine) releaseBuffers() {
 	}
 
 	if b.pooledBodyBuf != nil {
-		*b.pooledBodyBuf = (*b.pooledBodyBuf)[:0]
-		bodyBufferPool.Put(b.pooledBodyBuf)
+		tieredBodyPool.Put(b.pooledBodyBuf)
 		b.pooledBodyBuf = nil
 	}
 

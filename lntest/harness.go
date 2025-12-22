@@ -1619,8 +1619,9 @@ func (h *HarnessTest) CompletePaymentRequests(hn *node.HarnessNode,
 }
 
 // CompletePaymentRequestsNoWait sends payments from a node to complete all
-// payment requests without waiting for the results. Instead, it checks the
-// number of updates in the specified channel has increased.
+// payment requests without waiting for the results. Instead, it waits for
+// all HTLCs to be locked in on the sender's channel by checking the number
+// of pending HTLCs.
 func (h *HarnessTest) CompletePaymentRequestsNoWait(hn *node.HarnessNode,
 	paymentRequests []string, chanPoint *lnrpc.ChannelPoint) {
 
@@ -1629,31 +1630,50 @@ func (h *HarnessTest) CompletePaymentRequestsNoWait(hn *node.HarnessNode,
 	// we return.
 	oldResp := h.GetChannelByChanPoint(hn, chanPoint)
 
+	// countOutgoing counts the number of outgoing HTLCs in the given list.
+	countOutgoing := func(htlcs []*lnrpc.HTLC) int {
+		count := 0
+		for _, htlc := range htlcs {
+			if !htlc.Incoming {
+				count++
+			}
+		}
+
+		return count
+	}
+
+	// Count existing outgoing HTLCs before sending.
+	oldOutgoingCount := countOutgoing(oldResp.PendingHtlcs)
+
+	numPayments := len(paymentRequests)
+
 	// Send payments and assert they are in-flight.
 	h.completePaymentRequestsAssertStatus(
 		hn, paymentRequests, lnrpc.Payment_IN_FLIGHT,
 	)
 
-	// We are not waiting for feedback in the form of a response, but we
-	// should still wait long enough for the server to receive and handle
-	// the send before cancelling the request. We wait for the number of
-	// updates to one of our channels has increased before we return.
+	// Wait for all HTLCs to be locked in. We check that the number of
+	// outgoing pending HTLCs has increased by exactly the number of
+	// payments sent. This ensures all HTLCs are committed on the sender's
+	// side.
 	err := wait.NoError(func() error {
 		newResp := h.GetChannelByChanPoint(hn, chanPoint)
 
-		// If this channel has an increased number of updates, we
-		// assume the payments are committed, and we can return.
-		if newResp.NumUpdates > oldResp.NumUpdates {
+		// Count current outgoing HTLCs.
+		newOutgoingCount := countOutgoing(newResp.PendingHtlcs)
+
+		htlcsAdded := newOutgoingCount - oldOutgoingCount
+
+		// Verify all HTLCs are locked in.
+		if htlcsAdded == numPayments {
 			return nil
 		}
 
-		// Otherwise return an error as the NumUpdates are not
-		// increased.
-		return fmt.Errorf("%s: channel:%v not updated after sending "+
-			"payments, old updates: %v, new updates: %v", hn.Name(),
-			chanPoint, oldResp.NumUpdates, newResp.NumUpdates)
+		return fmt.Errorf("%s: channel:%v waiting for HTLCs, "+
+			"added: %d/%d", hn.Name(), chanPoint,
+			htlcsAdded, numPayments)
 	}, DefaultTimeout)
-	require.NoError(h, err, "timeout while checking for channel updates")
+	require.NoError(h, err, "timeout while waiting for HTLCs to lock in")
 }
 
 // OpenChannelPsbt attempts to open a channel between srcNode and destNode with

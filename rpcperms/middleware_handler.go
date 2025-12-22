@@ -12,11 +12,24 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
+	spb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"gopkg.in/macaroon.v2"
+)
+
+const (
+	// StatusTypeNameError is the type name used for plain error strings
+	// that are not gRPC status errors.
+	StatusTypeNameError = "error"
+
+	// StatusTypeNameStatus is the fully qualified name of the
+	// google.rpc.Status proto message that is used to represent rich gRPC
+	// errors with proper error codes and details.
+	StatusTypeNameStatus = "google.rpc.Status"
 )
 
 var (
@@ -276,9 +289,20 @@ func (h *MiddlewareHandler) sendInterceptRequests(errChan chan error,
 				// proto message?
 				response.replace = true
 				if requestInfo.request.IsError {
-					response.replacement = errors.New(
-						string(t.ReplacementSerialized),
+					// Check if the original error was a
+					// rich gRPC status error. If so, we
+					// need to parse the replacement as a
+					// Status proto and reconstruct the
+					// error with the proper gRPC code.
+					replacement, err := parseErrorReplacement(
+						requestInfo.request.ProtoTypeName,
+						t.ReplacementSerialized,
 					)
+					if err != nil {
+						response.err = err
+						break
+					}
+					response.replacement = replacement
 
 					break
 				}
@@ -432,9 +456,26 @@ func NewMessageInterceptionRequest(ctx context.Context,
 		req.ProtoTypeName = string(proto.MessageName(t))
 
 	case error:
-		req.ProtoSerialized = []byte(t.Error())
-		req.ProtoTypeName = "error"
 		req.IsError = true
+
+		// Check if the error is a gRPC status error. If so, we
+		// serialize the underlying Status proto to allow middleware to
+		// inspect and modify the full error details including the gRPC
+		// error code.
+		st, ok := status.FromError(t)
+		if ok {
+			req.ProtoSerialized, err = proto.Marshal(st.Proto())
+			if err != nil {
+				return nil, fmt.Errorf("cannot marshal "+
+					"status proto: %w", err)
+			}
+			req.ProtoTypeName = StatusTypeNameStatus
+		} else {
+			// Not a gRPC status error, fall back to plain error
+			// string serialization.
+			req.ProtoSerialized = []byte(t.Error())
+			req.ProtoTypeName = StatusTypeNameError
+		}
 
 	default:
 		return nil, fmt.Errorf("unsupported type for interception "+
@@ -580,6 +621,32 @@ func parseProto(typeName string, serialized []byte) (proto.Message, error) {
 	}
 
 	return msg.Interface(), nil
+}
+
+// parseErrorReplacement parses a replacement error from its serialized form.
+// If the original error was a rich gRPC status error (indicated by the
+// StatusTypeNameStatus type name), it will parse the replacement as a
+// google.rpc.Status proto and reconstruct a proper gRPC status error.
+// Otherwise, it treats the replacement as a plain error string.
+func parseErrorReplacement(typeName string, serialized []byte) (error, error) {
+	// If the original error was a rich gRPC status, parse the replacement
+	// as a Status proto and reconstruct the error with the proper gRPC
+	// code and details.
+	if typeName == StatusTypeNameStatus {
+		// Unmarshal directly into the google.rpc.Status proto type.
+		statusProto := &spb.Status{}
+		if err := proto.Unmarshal(serialized, statusProto); err != nil {
+			return nil, fmt.Errorf("cannot parse status proto: %w",
+				err)
+		}
+
+		// Convert the proto back to a gRPC status error.
+		st := status.FromProto(statusProto)
+		return st.Err(), nil
+	}
+
+	// For plain error strings, just create a new error from the bytes.
+	return errors.New(string(serialized)), nil
 }
 
 // replaceProtoMsg replaces the given target message with the content of the

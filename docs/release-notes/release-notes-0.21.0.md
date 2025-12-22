@@ -77,6 +77,11 @@
 
 ## Performance Improvements
 
+* [Zero-conf channels that are already confirmed no longer trigger historical
+  chain rescans](https://github.com/lightningnetwork/lnd/pull/10459) from the
+  broadcast height on restart. This significantly reduces bandwidth usage for
+  mobile and neutrino clients.
+
 ## Deprecations
 
 ### ⚠️ **Warning:** The deprecated fee rate option `--sat_per_byte` will be removed in release version **0.22**

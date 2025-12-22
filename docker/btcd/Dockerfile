@@ -19,7 +19,7 @@ RUN git clone https://github.com/btcsuite/btcd.git . \
     && go install -v . ./cmd/...
 
 # Start a new image
-FROM alpine:3.20 AS final
+FROM alpine:3.22 AS final
 
 # Expose mainnet ports (server, rpc)
 EXPOSE 8333 8334

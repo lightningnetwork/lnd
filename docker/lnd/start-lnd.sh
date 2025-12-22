@@ -60,7 +60,7 @@ HOSTNAME=$(hostname)
 # Also, setting --rpclisten to $HOSTNAME will cause it to listen on an IP
 # address that is reachable on the internal network. If you do this outside of
 # docker, this might be a security concern!
-# [:18555] is the default btcd RPC port in SIMNET network.
+# [:18556] is the default btcd RPC port in SIMNET network.
 
 if [ "$BACKEND" == "bitcoind" ]; then
     exec lnd \
@@ -83,10 +83,9 @@ elif [ "$BACKEND" == "btcd" ]; then
         "--$CHAIN.$NETWORK" \
         "--$CHAIN.node"="$BACKEND" \
         "--$BACKEND.rpccert"="$RPCCRTPATH" \
-        "--$BACKEND.rpchost"="$RPCHOST:18555" \
+        "--$BACKEND.rpchost"="$RPCHOST" \
         "--$BACKEND.rpcuser"="$RPCUSER" \
         "--$BACKEND.rpcpass"="$RPCPASS" \
-        "--rpclisten=127.0.0.1:10009" \
         "--rpclisten=localhost:10009" \
         --debuglevel="$DEBUG" \
         "$@"

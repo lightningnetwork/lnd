@@ -71,13 +71,13 @@ message SendOnionRequest {
 
     // The optional blinding point to use when constructing the HTLC.
     // If set, this will be used to blind the next hop in the route.
-    bytes blinding_point = 8;
+    optional bytes blinding_point = 8;
 
     // Optional custom TLV records to include in the UpdateAddHTLC message.
     map<uint64, bytes> custom_records = 9;
 
     // Optional opaque extra data to attach to the UpdateAddHTLC message.
-    bytes extra_data = 10;
+    optional bytes extra_data = 10;
 }
 
 message SendOnionResponse {
@@ -150,10 +150,12 @@ message TrackOnionRequest {
     // expect to track results for the payment via this attempt ID.
     uint64 attempt_id = 2;
 
-    // Optional: Session key used to generate the onion/sphinx packet.
-    bytes session_key = 3;
+    // Optional: The session key that was used to construct the onion packet.
+    // This is required by the server to decrypt any failure message.
+    optional bytes session_key = 3;
 
-    // Optional: Public keys of nodes along the route, used with session_key.
+    // Optional: The public keys of the nodes in the route, used with the
+    // session_key to decrypt any failure message.
     repeated bytes hop_pubkeys = 4;
 }
 
@@ -186,7 +188,7 @@ message BuildOnionRequest {
 
     // A session key for onion packet construction, if not provided, a new one
     // will be generated.
-    bytes session_key = 3;
+    optional bytes session_key = 3;
 }
 
 // BuildOnionResponse contains the constructed onion packet.

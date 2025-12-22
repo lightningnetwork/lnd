@@ -1,6 +1,7 @@
 # If you change this please also update GO_VERSION in Makefile (then run
 # `make lint` to see where else it needs to be updated as well).
-FROM golang:1.25.3-alpine as builder
+ARG GO_VERSION=1.25.5
+FROM golang:${GO_VERSION}-alpine AS builder
 
 LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
 
@@ -10,7 +11,7 @@ RUN apk add --no-cache git gcc musl-dev
 WORKDIR $GOPATH/src/github.com/btcsuite/btcd
 
 # Pin down btcd to a version that we know works with lnd.
-ARG BTCD_VERSION=v0.23.4
+ARG BTCD_VERSION=v0.25.0
 
 # Grab and install the latest version of of btcd and all related dependencies.
 RUN git clone https://github.com/btcsuite/btcd.git . \
@@ -18,7 +19,7 @@ RUN git clone https://github.com/btcsuite/btcd.git . \
     && go install -v . ./cmd/...
 
 # Start a new image
-FROM alpine as final
+FROM alpine:3.22 AS final
 
 # Expose mainnet ports (server, rpc)
 EXPOSE 8333 8334
@@ -29,7 +30,7 @@ EXPOSE 18333 18334
 # Expose simnet ports (server, rpc)
 EXPOSE 18555 18556
 
-# Expose segnet ports (server, rpc)
+# Expose signet ports (server, rpc)
 EXPOSE 28901 28902
 
 # Copy the compiled binaries from the builder image.
@@ -45,13 +46,13 @@ COPY "start-btcd.sh" .
 RUN apk add --no-cache \
     bash \
     ca-certificates \
-&&  mkdir "/rpc" "/root/.btcd" "/root/.btcctl" \
-&&  touch "/root/.btcd/btcd.conf" \
-&&  chmod +x start-btcctl.sh \
-&&  chmod +x start-btcd.sh \
-# Manually generate certificate and add all domains, it is needed to connect
-# "btcctl" and "lnd" to "btcd" over docker links.
-&& "/bin/gencerts" --host="*" --directory="/rpc" --force
+    && mkdir "/rpc" "/root/.btcd" "/root/.btcctl" \
+    && touch "/root/.btcd/btcd.conf" \
+    && chmod +x start-btcctl.sh \
+    && chmod +x start-btcd.sh \
+    # Manually generate certificate and add all domains, it is needed to connect
+    # "btcctl" and "lnd" to "btcd" over docker links.
+    && "/bin/gencerts" --host="*" --host="blockchain" --directory="/rpc" --force
 
 # Create a volume to house pregenerated RPC credentials. This will be
 # shared with any lnd, btcctl containers so they can securely query btcd's RPC
@@ -60,3 +61,7 @@ RUN apk add --no-cache \
 # Otherwise manually generated certificate will be overridden with shared
 # mounted volume! For more info read dockerfile "VOLUME" documentation.
 VOLUME ["/rpc"]
+
+# Health check to ensure btcd is running
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD pgrep btcd || exit 1

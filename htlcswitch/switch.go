@@ -229,6 +229,10 @@ type Config struct {
 
 	// IsAlias returns whether or not a given SCID is an alias.
 	IsAlias func(scid lnwire.ShortChannelID) bool
+
+	// RemoteRouter is a boolean that indicates whether the payment
+	// lifecycle is managed by a remote router.
+	RemoteRouter bool
 }
 
 // Switch is the central messaging bus for all incoming/outgoing HTLCs.
@@ -371,6 +375,13 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		return nil, err
 	}
 
+	networkResultStore, err := newNetworkResultStore(
+		cfg.DB, cfg.RemoteRouter,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	s := &Switch{
 		bestHeight:        currentHeight,
 		cfg:               &cfg,
@@ -380,7 +391,7 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		interfaceIndex:    make(map[[33]byte]map[lnwire.ChannelID]ChannelLink),
 		pendingLinkIndex:  make(map[lnwire.ChannelID]ChannelLink),
 		linkStopIndex:     make(map[lnwire.ChannelID]chan struct{}),
-		networkResults:    newNetworkResultStore(cfg.DB),
+		networkResults:    networkResultStore,
 		htlcPlex:          make(chan *plexPacket),
 		chanCloseRequests: make(chan *ChanClose),
 		resolutionMsgs:    make(chan *resolutionMsg),
@@ -538,6 +549,13 @@ func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 // handled.
 func (s *Switch) CleanStore(keepPids map[uint64]struct{}) error {
 	return s.networkResults.cleanStore(keepPids)
+}
+
+// DisableRemoteRouter calls the underlying result store, telling it to check
+// for in-flight payments and if none are found, to delete the remote router
+// marker from the database.
+func (s *Switch) DisableRemoteRouter() error {
+	return s.networkResults.DisableRemoteRouter()
 }
 
 // SendHTLC is used by other subsystems which aren't belong to htlc switch
@@ -1031,31 +1049,57 @@ func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
 	case *lnwire.UpdateFailHTLC:
 		// TODO(yy): construct deobfuscator here to avoid creating it
 		// in paymentLifecycle even for settled HTLCs.
-		paymentErr := s.parseFailedPayment(
+		paymentResult := s.parseFailedPayment(
 			deobfuscator, attemptID, paymentHash, n.unencrypted,
 			n.isResolution, htlc,
 		)
 
-		return &PaymentResult{
-			Error: paymentErr,
-		}, nil
+		// ElimEither allows us to safely handle both cases of the
+		// either.
+		result := fn.ElimEither(
+			paymentResult,
+			// If a decrypted error is present, we use that.
+			func(pErr error) *PaymentResult {
+				return &PaymentResult{
+					Error: pErr,
+				}
+			},
+			// If no decrypted error is present, we use the raw
+			// encrypted error.
+			func(encryptedErr []byte) *PaymentResult {
+				return &PaymentResult{
+					EncryptedError: encryptedErr,
+				}
+			},
+		)
 
+		return result, nil
 	default:
 		return nil, fmt.Errorf("received unknown response type: %T",
 			htlc)
 	}
 }
 
-// parseFailedPayment determines the appropriate failure message to return to
-// a user initiated payment. The three cases handled are:
-//  1. An unencrypted failure, which should already plaintext.
-//  2. A resolution from the chain arbitrator, which possibly has no failure
-//     reason attached.
-//  3. A failure from the remote party, which will need to be decrypted using
-//     the payment deobfuscator.
+// parseFailedPayment determines the appropriate failure message for a failed
+// user-initiated payment. It returns a mutually exclusive pair: either a raw,
+// encrypted error blob, or a decrypted error.
+//
+// The cases handled are:
+//  1. An unencrypted failure: This occurs when the payment fails locally before
+//     clearing the first link. The failure reason is already in plaintext.
+//  2. A resolution from the chain arbitrator: This occurs for on-chain
+//     timeouts, which may not have a specific failure reason.
+//  3. A failure from a remote hop: This is the standard case for a multi-hop
+//     payment failure.
+//     - If a deobfuscator is provided, this function will attempt to decrypt
+//     the failure reason.
+//     - If a deobfuscator is NOT provided, the function returns the raw,
+//     onion-encrypted failure blob. This blob is only fully decryptable by the
+//     entity which built the onion packet.
 func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 	attemptID uint64, paymentHash lntypes.Hash, unencrypted,
-	isResolution bool, htlc *lnwire.UpdateFailHTLC) error {
+	isResolution bool, htlc *lnwire.UpdateFailHTLC) fn.Either[error,
+	[]byte] {
 
 	switch {
 
@@ -1080,11 +1124,11 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 				linkError.FailureDetail.FailureString(),
 				paymentHash, attemptID, err)
 
-			return linkError
+			return fn.NewLeft[error, []byte](linkError)
 		}
 
 		// If we successfully decoded the failure reason, return it.
-		return NewLinkError(failureMsg)
+		return fn.NewLeft[error, []byte](NewLinkError(failureMsg))
 
 	// A payment had to be timed out on chain before it got past
 	// the first hop. In this case, we'll report a permanent
@@ -1100,11 +1144,17 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 			linkError.FailureDetail.FailureString(),
 			paymentHash, attemptID)
 
-		return linkError
+		return fn.NewLeft[error, []byte](linkError)
 
 	// A regular multi-hop payment error that we'll need to
 	// decrypt.
 	default:
+		// If we don't have a deobfuscator, we cannot proceed. Return
+		// the encrypted reason to the caller.
+		if deobfuscator == nil {
+			return fn.NewRight[error, []byte](htlc.Reason)
+		}
+
 		// We'll attempt to fully decrypt the onion encrypted
 		// error. If we're unable to then we'll bail early.
 		failure, err := deobfuscator.DecryptError(htlc.Reason)
@@ -1113,10 +1163,12 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 				"(hash=%v, pid=%d): %v",
 				paymentHash, attemptID, err)
 
-			return ErrUnreadableFailureMessage
+			return fn.NewLeft[error, []byte](
+				ErrUnreadableFailureMessage,
+			)
 		}
 
-		return failure
+		return fn.NewLeft[error, []byte](failure)
 	}
 }
 
@@ -2488,6 +2540,30 @@ func (s *Switch) GetLinksByInterface(hop [33]byte) ([]ChannelUpdateHandler,
 
 	// Range over the returned []ChannelLink to convert them into
 	// []ChannelUpdateHandler.
+	for _, link := range links {
+		handlers = append(handlers, link)
+	}
+
+	return handlers, nil
+}
+
+// GetLinksByPubkey fetches all the links connected to a particular node
+// identified by the serialized compressed form of its public key.
+func (s *Switch) GetLinksByPubkey(hopPubkey [33]byte) ([]ChannelInfoProvider,
+	error) {
+
+	s.indexMtx.RLock()
+	defer s.indexMtx.RUnlock()
+
+	links, err := s.getLinks(hopPubkey)
+	if err != nil {
+		return nil, err
+	}
+
+	handlers := make([]ChannelInfoProvider, 0, len(links))
+
+	// Range over the returned []ChannelLink to convert them into
+	// []ChannelInfoProvider.
 	for _, link := range links {
 		handlers = append(handlers, link)
 	}

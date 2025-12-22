@@ -139,12 +139,6 @@ var (
 	// TODO(roasbeef): add command line param to modify.
 	MaxFundingAmount = funding.MaxBtcFundingAmount
 
-	// EndorsementExperimentEnd is the time after which nodes should stop
-	// propagating experimental endorsement signals.
-	//
-	// Per blip04: January 1, 2026 12:00:00 AM UTC in unix seconds.
-	EndorsementExperimentEnd = time.Unix(1767225600, 0)
-
 	// ErrGossiperBan is one of the errors that can be returned when we
 	// attempt to finalize a connection to a remote peer.
 	ErrGossiperBan = errors.New("gossiper has banned remote's key")
@@ -641,22 +635,22 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 	//nolint:ll
 	featureMgr, err := feature.NewManager(feature.Config{
-		NoTLVOnion:                cfg.ProtocolOptions.LegacyOnion(),
-		NoStaticRemoteKey:         cfg.ProtocolOptions.NoStaticRemoteKey(),
-		NoAnchors:                 cfg.ProtocolOptions.NoAnchorCommitments(),
-		NoWumbo:                   !cfg.ProtocolOptions.Wumbo(),
-		NoScriptEnforcementLease:  cfg.ProtocolOptions.NoScriptEnforcementLease(),
-		NoKeysend:                 !cfg.AcceptKeySend,
-		NoOptionScidAlias:         !cfg.ProtocolOptions.ScidAlias(),
-		NoZeroConf:                !cfg.ProtocolOptions.ZeroConf(),
-		NoAnySegwit:               cfg.ProtocolOptions.NoAnySegwit(),
-		CustomFeatures:            cfg.ProtocolOptions.CustomFeatures(),
-		NoTaprootChans:            !cfg.ProtocolOptions.TaprootChans,
-		NoTaprootOverlay:          !cfg.ProtocolOptions.TaprootOverlayChans,
-		NoRouteBlinding:           cfg.ProtocolOptions.NoRouteBlinding(),
-		NoExperimentalEndorsement: cfg.ProtocolOptions.NoExperimentalEndorsement(),
-		NoQuiescence:              cfg.ProtocolOptions.NoQuiescence(),
-		NoRbfCoopClose:            !cfg.ProtocolOptions.RbfCoopClose,
+		NoTLVOnion:                   cfg.ProtocolOptions.LegacyOnion(),
+		NoStaticRemoteKey:            cfg.ProtocolOptions.NoStaticRemoteKey(),
+		NoAnchors:                    cfg.ProtocolOptions.NoAnchorCommitments(),
+		NoWumbo:                      !cfg.ProtocolOptions.Wumbo(),
+		NoScriptEnforcementLease:     cfg.ProtocolOptions.NoScriptEnforcementLease(),
+		NoKeysend:                    !cfg.AcceptKeySend,
+		NoOptionScidAlias:            !cfg.ProtocolOptions.ScidAlias(),
+		NoZeroConf:                   !cfg.ProtocolOptions.ZeroConf(),
+		NoAnySegwit:                  cfg.ProtocolOptions.NoAnySegwit(),
+		CustomFeatures:               cfg.ProtocolOptions.CustomFeatures(),
+		NoTaprootChans:               !cfg.ProtocolOptions.TaprootChans,
+		NoTaprootOverlay:             !cfg.ProtocolOptions.TaprootOverlayChans,
+		NoRouteBlinding:              cfg.ProtocolOptions.NoRouteBlinding(),
+		NoExperimentalAccountability: cfg.ProtocolOptions.NoExpAccountability(),
+		NoQuiescence:                 cfg.ProtocolOptions.NoQuiescence(),
+		NoRbfCoopClose:               !cfg.ProtocolOptions.RbfCoopClose,
 	})
 	if err != nil {
 		return nil, err
@@ -4443,14 +4437,8 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		AuxResolver:            s.implCfg.AuxContractResolver,
 		AuxTrafficShaper:       s.implCfg.TrafficShaper,
 		AuxChannelNegotiator:   s.implCfg.AuxChannelNegotiator,
-		ShouldFwdExpEndorsement: func() bool {
-			if s.cfg.ProtocolOptions.NoExperimentalEndorsement() {
-				return false
-			}
-
-			return clock.NewDefaultClock().Now().Before(
-				EndorsementExperimentEnd,
-			)
+		ShouldFwdExpAccountability: func() bool {
+			return !s.cfg.ProtocolOptions.NoExpAccountability()
 		},
 		NoDisconnectOnPongFailure: s.cfg.NoDisconnectOnPongFailure,
 	}

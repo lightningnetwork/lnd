@@ -102,9 +102,9 @@ func testInvoiceHtlcModifierBasic(ht *lntest.HarnessTest) {
 			ht, tc.sendAmountMsat, modifierRequest.ExitHtlcAmt,
 		)
 
-		// Expect custom records plus endorsement signal.
+		// Expect custom records plus accountable signal.
 		require.Equal(
-			ht, lntest.CustomRecordsWithUnendorsed(
+			ht, lntest.CustomRecordsWithUnaccountable(
 				tc.lastHopCustomRecords,
 			), modifierRequest.ExitHtlcWireCustomRecords,
 		)
@@ -152,7 +152,7 @@ func testInvoiceHtlcModifierBasic(ht *lntest.HarnessTest) {
 
 		require.Len(ht, updatedInvoice.Htlcs, 1)
 		require.Equal(
-			ht, lntest.CustomRecordsWithUnendorsed(
+			ht, lntest.CustomRecordsWithUnaccountable(
 				tc.lastHopCustomRecords,
 			), updatedInvoice.Htlcs[0].CustomRecords,
 		)

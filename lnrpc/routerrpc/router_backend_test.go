@@ -677,7 +677,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 		{
 			name: "Amount conflict, both sat and msat specified",
 			backend: &RouterBackend{
-				ShouldSetExpEndorsement: func() bool {
+				ShouldSetExpAccountability: func() bool {
 					return true
 				},
 			},
@@ -692,7 +692,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 		{
 			name: "Both dest and payment_request provided",
 			backend: &RouterBackend{
-				ShouldSetExpEndorsement: func() bool {
+				ShouldSetExpAccountability: func() bool {
 					return false
 				},
 			},
@@ -708,7 +708,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 		{
 			name: "Both payment_hash and payment_request provided",
 			backend: &RouterBackend{
-				ShouldSetExpEndorsement: func() bool {
+				ShouldSetExpAccountability: func() bool {
 					return false
 				},
 			},
@@ -725,7 +725,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 			name: "Both final_cltv_delta and payment_request " +
 				"provided",
 			backend: &RouterBackend{
-				ShouldSetExpEndorsement: func() bool {
+				ShouldSetExpAccountability: func() bool {
 					return false
 				},
 			},
@@ -741,7 +741,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 		{
 			name: "Invalid payment request length",
 			backend: &RouterBackend{
-				ShouldSetExpEndorsement: func() bool {
+				ShouldSetExpAccountability: func() bool {
 					return false
 				},
 				ActiveNetParams: &chaincfg.RegressionNetParams,
@@ -756,7 +756,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 		{
 			name: "Expired invoice payment request",
 			backend: &RouterBackend{
-				ShouldSetExpEndorsement: func() bool {
+				ShouldSetExpAccountability: func() bool {
 					return false
 				},
 				ActiveNetParams: &chaincfg.RegressionNetParams,
@@ -772,7 +772,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 		{
 			name: "Invoice missing payment address",
 			backend: &RouterBackend{
-				ShouldSetExpEndorsement: func() bool {
+				ShouldSetExpAccountability: func() bool {
 					return false
 				},
 				ActiveNetParams:  &chaincfg.RegressionNetParams,
@@ -789,7 +789,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 		{
 			name: "Invalid dest vertex length",
 			backend: &RouterBackend{
-				ShouldSetExpEndorsement: func() bool {
+				ShouldSetExpAccountability: func() bool {
 					return false
 				},
 			},
@@ -803,7 +803,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 		{
 			name: "Payment request with missing amount",
 			backend: &RouterBackend{
-				ShouldSetExpEndorsement: func() bool {
+				ShouldSetExpAccountability: func() bool {
 					return false
 				},
 			},
@@ -817,7 +817,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 		{
 			name: "Destination lacks AMP support",
 			backend: &RouterBackend{
-				ShouldSetExpEndorsement: func() bool {
+				ShouldSetExpAccountability: func() bool {
 					return false
 				},
 			},
@@ -834,7 +834,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 		{
 			name: "Invalid payment hash length",
 			backend: &RouterBackend{
-				ShouldSetExpEndorsement: func() bool {
+				ShouldSetExpAccountability: func() bool {
 					return false
 				},
 			},
@@ -849,7 +849,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 		{
 			name: "Payment amount exceeds maximum possible amount",
 			backend: &RouterBackend{
-				ShouldSetExpEndorsement: func() bool {
+				ShouldSetExpAccountability: func() bool {
 					return false
 				},
 			},
@@ -868,7 +868,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 			name: "Reject self-payments if not permitted",
 			backend: &RouterBackend{
 				MaxTotalTimelock: 1000,
-				ShouldSetExpEndorsement: func() bool {
+				ShouldSetExpAccountability: func() bool {
 					return false
 				},
 				SelfNode: target,
@@ -885,7 +885,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 			name: "Required and optional feature bits set",
 			backend: &RouterBackend{
 				MaxTotalTimelock: 1000,
-				ShouldSetExpEndorsement: func() bool {
+				ShouldSetExpAccountability: func() bool {
 					return false
 				},
 			},
@@ -906,7 +906,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 			name: "Valid send req parameters, payment settled",
 			backend: &RouterBackend{
 				MaxTotalTimelock: 1000,
-				ShouldSetExpEndorsement: func() bool {
+				ShouldSetExpAccountability: func() bool {
 					return false
 				},
 			},

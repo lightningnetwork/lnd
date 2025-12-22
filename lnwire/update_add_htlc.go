@@ -16,20 +16,21 @@ const (
 	// entire packet.
 	OnionPacketSize = 1366
 
-	// ExperimentalEndorsementType is the TLV type used for a custom
-	// record that sets an experimental endorsement value.
-	ExperimentalEndorsementType tlv.Type = 106823
+	// ExperimentalAccountableType is the TLV type used for a custom
+	// record that sets an experimental accountable value.
+	ExperimentalAccountableType tlv.Type = 106823
 
-	// ExperimentalUnendorsed is the value that the experimental endorsement
-	// field contains when a htlc is not endorsed.
-	ExperimentalUnendorsed = 0
+	// ExperimentalUnaccountable is the value that the experimental
+	// accountable field contains when a htlc is not accountable.
+	ExperimentalUnaccountable = 0
 
-	// ExperimentalEndorsed is the value that the experimental endorsement
-	// field contains when a htlc is endorsed. We're using a single byte
-	// to represent our endorsement value, but limit the value to using
-	// the first three bits (max value = 00000111). Interpreted as a uint8
-	// (an alias for byte in go), we can just define this constant as 7.
-	ExperimentalEndorsed = 7
+	// ExperimentalAccountable is the value that the experimental
+	// accountable field contains when a htlc is accountable. We're using a
+	// single byte to represent our accountable value, but limit the value
+	// to using the first three bits (max value = 00000111). Interpreted as
+	// a uint8 (an alias for byte in go), we can just define this constant
+	// as 7.
+	ExperimentalAccountable = 7
 )
 
 type (

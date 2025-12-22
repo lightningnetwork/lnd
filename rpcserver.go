@@ -781,14 +781,8 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 
 			return nil
 		},
-		ShouldSetExpEndorsement: func() bool {
-			if s.cfg.ProtocolOptions.NoExperimentalEndorsement() {
-				return false
-			}
-
-			return clock.NewDefaultClock().Now().Before(
-				EndorsementExperimentEnd,
-			)
+		ShouldSetExpAccountability: func() bool {
+			return !s.cfg.ProtocolOptions.NoExpAccountability()
 		},
 	}
 

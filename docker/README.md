@@ -1,18 +1,16 @@
-This document is written for people who are eager to do something with 
-the Lightning Network Daemon (`lnd`). This folder uses `docker-compose` to
-package `lnd` and `btcd` together to make deploying the two daemons as easy as
-typing a few commands. All configuration between `lnd` and `btcd` are handled
-automatically by their `docker-compose` config file.
+This document is intended for those looking to get started with 
+the Lightning Network Daemon (lnd). This folder uses docker to package lnd and 
+btcd together, making the deployment of both daemons as simple as running a 
+few commands. All configuration between lnd and btcd is handled automatically 
+by the docker-compose.yml file
 
 ### Prerequisites
 Name  | Version 
 --------|---------
-docker-compose | 1.9.0
-docker | 1.13.0
+docker | 20.10.13+
   
 ### Table of content
  * [Create lightning network cluster](#create-lightning-network-cluster)
- * [Connect to faucet lightning node](#connect-to-faucet-lightning-node)
  * [Building standalone docker images](#building-standalone-docker-images)
  * [Using bitcoind version](#using-bitcoind-version)
    * [Start Bitcoin Node with bitcoind using Docker Compose](#start-bitcoin-node-with-bitcoind-using-docker-compose)
@@ -29,10 +27,6 @@ to arrive in order to test channel related functionality. Additionally, it's
 possible to spin up an arbitrary number of `lnd` instances within containers to
 create a mini development cluster. All state is saved between instances using a
 shared volume.
-
-Current workflow is big because we recreate the whole network by ourselves,
-next versions will use the started `btcd` bitcoin node in `testnet` and
-`faucet` wallet from which you will get the bitcoins.
 
 In the workflow below, we describe the steps required to recreate the following
 topology, and send a payment from `Alice` to `Bob`.
@@ -62,6 +56,11 @@ topology, and send a payment from `Alice` to `Bob`.
  * Close the channel between `Alice` and `Bob`.
  * Check that on-chain `Bob` balance was changed.
 
+> [!IMPORTANT]
+> **Prerequisites:** This guide assumes you have **Docker** installed. If not, please follow the [official Docker installation guide](https://docs.docker.com/get-docker/). 
+>
+>All commands should be executed from the `lnd/docker/` directory. Depending on your system's configuration, you may need to prefix **docker** commands with **sudo**. For `Linux` users, we highly recommend following the official [Docker documentation to manage Docker as a non-root](https://docs.docker.com/engine/install/linux-postinstall/) user, which allows you to run commands without sudo safely
+
 Start `btcd`, and then create an address for `Alice` that we'll directly mine
 bitcoin into.
 ```shell
@@ -73,22 +72,19 @@ $  docker volume create simnet_lnd_alice
 $  docker volume create simnet_lnd_bob
 
 # Run the "Alice" container and log into it:
-$  docker-compose run -d --name alice --volume simnet_lnd_alice:/root/.lnd lnd
-$  docker exec -i -t alice bash
+$  docker compose run -d --name alice --volume simnet_lnd_alice:/root/.lnd lnd
+$  docker exec -it alice bash
 
-# Generate a new backward compatible nested p2sh address for Alice:
-alice $  lncli --network=simnet newaddress np2wkh 
+# Generate a new native SegWit (Bech32) address for Alice:
+alice $  lncli --network=simnet newaddress p2wkh
 
 # Recreate "btcd" node and set Alice's address as mining address:
 $  export MINING_ADDRESS=<alice_address>
-$  docker-compose up -d btcd
+$  docker compose up -d btcd
 
 # Generate 400 blocks (we need at least "100 >=" blocks because of coinbase 
 # block maturity and "300 ~=" in order to activate segwit):
 $  docker exec -it btcd /start-btcctl.sh generate 400
-
-# Check that segwit is active:
-$  docker exec -it btcd /start-btcctl.sh getblockchaininfo | grep -A 1 segwit
 ```
 
 Check `Alice` balance:
@@ -100,8 +96,8 @@ Connect `Bob` node to `Alice` node.
 
 ```shell
 # Run "Bob" node and log into it:
-$  docker-compose run -d --name bob --volume simnet_lnd_bob:/root/.lnd lnd
-$  docker exec -i -t bob bash
+$  docker compose run -d --name bob --volume simnet_lnd_bob:/root/.lnd lnd
+$  docker exec -it bob bash
 
 # Get the identity pubkey of "Bob" node:
 bob $  lncli --network=simnet getinfo
@@ -267,66 +263,6 @@ bob $  lncli --network=simnet walletbalance
 }
 ```
 
-### Connect to faucet lightning node
-In order to be more confident with `lnd` commands I suggest you to try 
-to create a mini lightning network cluster ([Create lightning network cluster](#create-lightning-network-cluster)).
-
-In this section we will try to connect our node to the faucet/hub node 
-which we will create a channel with and send some amount of 
-bitcoins. The schema will be following:
-
-```text
-+ ----- +                   + ------ +         (1)        + --- +
-| Alice | <--- channel ---> | Faucet |  <--- channel ---> | Bob |    
-+ ----- +                   + ------ +                    + --- +        
-    |                            |                           |           
-    |                            |                           |      <---  (2)         
-    + - - - -  - - - - - - - - - + - - - - - - - - - - - - - +            
-                                 |
-                       + --------------- +
-                       | Bitcoin network |  <---  (3)   
-                       + --------------- +        
-        
-        
- (1) You may connect an additional node "Bob" and make the multihop
- payment Alice->Faucet->Bob
-  
- (2) "Faucet", "Alice" and "Bob" are the lightning network daemons which 
- create channels to interact with each other using the Bitcoin network 
- as source of truth.
- 
- (3) In current scenario "Alice" and "Faucet" lightning network nodes 
- connect to different Bitcoin nodes. If you decide to connect "Bob"
- to "Faucet" then the already created "btcd" node would be sufficient.
-```
-
-First you need to run `btcd` node in `testnet` and wait for it to be 
-synced with test network (`May the Force and Patience be with you`).
-```shell
-# Init bitcoin network env variable:
-$  NETWORK="testnet" docker-compose up
-```
-
-After `btcd` synced, connect `Alice` to the `Faucet` node.
-
-The `Faucet` node address can be found at the [Faucet Lightning Community webpage](https://faucet.lightning.community).
-
-```shell
-# Run "Alice" container and log into it:
-$  docker-compose run -d --name alice lnd_btc; docker exec -i -t "alice" bash
-
-# Connect "Alice" to the "Faucet" node:
-alice $  lncli --network=testnet connect <faucet_identity_address>@<faucet_host>
-```
-
-After a connection is achieved, the `Faucet` node should create the channel
-and send some amount of bitcoins to `Alice`.
-
-**What you may do next?:**
-- Send some amount to `Faucet` node back.
-- Connect `Bob` node to the `Faucet` and make multihop payment (`Alice->Faucet->Bob`)
-- Close channel with `Faucet` and check the onchain balance.
-
 ### Building standalone docker images
 
 Instructions on how to build standalone docker images (for development or
@@ -339,7 +275,7 @@ If you are using the bitcoind version of the compose file i.e. `docker-compose-b
 #### Start Bitcoin Node with bitcoind using Docker Compose
 To launch the Bitcoin node using bitcoind in the regtest network using Docker Compose, use the following command:
 ```shell
-$  NETWORK="regtest" docker-compose -f docker-compose-bitcoind.yml up
+$  NETWORK="regtest" docker compose -f docker-compose-bitcoind.yml up
 ```
 
 #### Generating RPCAUTH
@@ -377,5 +313,5 @@ Note: The address `2N1NQzFjCy1NnpAH3cT4h4GoByrAAkiH7zu` is just a random example
 
 * How to see `alice` | `bob` | `btcd` | `lnd` | `bitcoind` logs?
 ```shell
-$  docker-compose logs <alice|bob|btcd|lnd|bitcoind>
+$  docker compose logs <alice|bob|btcd|lnd|bitcoind>
 ```

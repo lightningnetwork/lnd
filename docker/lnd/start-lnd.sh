@@ -54,7 +54,7 @@ RPCUSER=$(set_default "$RPCUSER" "devuser")
 RPCPASS=$(set_default "$RPCPASS" "devpass")
 DEBUG=$(set_default "$LND_DEBUG" "debug")
 CHAIN=$(set_default "$CHAIN" "bitcoin")
-HOSTNAME=$(hostname)
+HOSTNAME=$(set_default "$HOSTNAME" "localhost")
 
 # CAUTION: DO NOT use the --noseedback for production/mainnet setups, ever!
 # Also, setting --rpclisten to $HOSTNAME will cause it to listen on an IP
@@ -64,7 +64,6 @@ HOSTNAME=$(hostname)
 if [ "$BACKEND" == "bitcoind" ]; then
     exec lnd \
         --noseedbackup \
-        "--$CHAIN.active" \
         "--$CHAIN.$NETWORK" \
         "--$CHAIN.node"="$BACKEND" \
         "--$BACKEND.rpchost"="$RPCHOST" \
@@ -73,13 +72,11 @@ if [ "$BACKEND" == "bitcoind" ]; then
         "--$BACKEND.zmqpubrawblock"="tcp://$RPCHOST:28332" \
         "--$BACKEND.zmqpubrawtx"="tcp://$RPCHOST:28333" \
         "--rpclisten=$HOSTNAME:10009" \
-        "--rpclisten=localhost:10009" \
         --debuglevel="$DEBUG" \
         "$@"
 elif [ "$BACKEND" == "btcd" ]; then
     exec lnd \
         --noseedbackup \
-        "--$CHAIN.active" \
         "--$CHAIN.$NETWORK" \
         "--$CHAIN.node"="$BACKEND" \
         "--$BACKEND.rpccert"="$RPCCRTPATH" \
@@ -87,7 +84,6 @@ elif [ "$BACKEND" == "btcd" ]; then
         "--$BACKEND.rpcuser"="$RPCUSER" \
         "--$BACKEND.rpcpass"="$RPCPASS" \
         "--rpclisten=$HOSTNAME:10009" \
-        "--rpclisten=localhost:10009" \
         --debuglevel="$DEBUG" \
         "$@"
 else

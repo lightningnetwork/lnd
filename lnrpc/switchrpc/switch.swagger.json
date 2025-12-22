@@ -457,7 +457,7 @@
         "session_key": {
           "type": "string",
           "format": "byte",
-          "description": "Optional: Session key used to generate the onion/sphinx packet."
+          "description": "Optional: The session key that was used to construct the onion packet.\nThis is required by the server to decrypt any failure message."
         },
         "hop_pubkeys": {
           "type": "array",
@@ -465,7 +465,7 @@
             "type": "string",
             "format": "byte"
           },
-          "description": "Optional: Public keys of nodes along the route, used with session_key."
+          "description": "Optional: The public keys of the nodes in the route, used with the\nsession_key to decrypt any failure message."
         }
       }
     },

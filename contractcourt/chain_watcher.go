@@ -120,6 +120,15 @@ func (s spendConfirmationState) String() string {
 	}
 }
 
+// spendProcessResult holds the results of processing a detected spend.
+type spendProcessResult struct {
+	// pendingSpend is the spend to track (nil if fast-path was used).
+	pendingSpend *chainntnfs.SpendDetail
+
+	// confNtfn is the confirmation notification (nil if fast-path or error).
+	confNtfn *chainntnfs.ConfirmationEvent
+}
+
 // CommitSet is a collection of the set of known valid commitments at a given
 // instant. If ConfCommitKey is set, then the commitment identified by the
 // HtlcSetKey has hit the chain. This struct will be used to examine all live
@@ -735,57 +744,6 @@ func (c *chainWatcher) closeObserver() {
 	log.Infof("Close observer for ChannelPoint(%v) active",
 		c.cfg.chanState.FundingOutpoint)
 
-	// handleSpendDetection processes a newly detected spend by registering
-	// for confirmations. Returns the new confNtfn or error.
-	handleSpendDetection := func(
-		spend *chainntnfs.SpendDetail,
-	) (*chainntnfs.ConfirmationEvent, error) {
-
-		// If we already have a pending spend, check if it's the same
-		// transaction. This can happen if both the spend notification
-		// and blockbeat detect the same spend.
-		if pendingSpend != nil {
-			if *pendingSpend.SpenderTxHash == *spend.SpenderTxHash {
-				log.Debugf("ChannelPoint(%v): ignoring "+
-					"duplicate spend detection for tx %v",
-					c.cfg.chanState.FundingOutpoint,
-					spend.SpenderTxHash)
-
-				return confNtfn, nil
-			}
-
-			// Different spend detected. Cancel existing confNtfn
-			// and replace with new one.
-			log.Warnf("ChannelPoint(%v): detected different "+
-				"spend tx %v, replacing pending tx %v",
-				c.cfg.chanState.FundingOutpoint,
-				spend.SpenderTxHash,
-				pendingSpend.SpenderTxHash)
-
-			if confNtfn != nil {
-				confNtfn.Cancel()
-			}
-		}
-
-		numConfs := c.requiredConfsForSpend()
-		txid := spend.SpenderTxHash
-
-		newConfNtfn, err := c.cfg.notifier.RegisterConfirmationsNtfn(
-			txid, spend.SpendingTx.TxOut[0].PkScript,
-			numConfs, uint32(spend.SpendingHeight),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("register confirmations: %w",
-				err)
-		}
-
-		log.Infof("ChannelPoint(%v): waiting for %d confirmations "+
-			"of spend tx %v", c.cfg.chanState.FundingOutpoint,
-			numConfs, txid)
-
-		return newConfNtfn, nil
-	}
-
 	for {
 		// We only listen to confirmation channels when we have a
 		// pending spend. By setting these to nil when not needed, Go's
@@ -810,69 +768,25 @@ func (c *chainWatcher) closeObserver() {
 				continue
 			}
 
-			// FAST PATH: Check if we should dispatch immediately
-			// for single-confirmation scenarios.
-			if c.handleSpendDispatch(spend, "blockbeat") {
-				if confNtfn != nil {
-					confNtfn.Cancel()
-					confNtfn = nil
-				}
-				pendingSpend = nil
-				continue
-			}
+			result := c.processDetectedSpend(
+				spend, "blockbeat", pendingSpend, confNtfn,
+			)
 
-			// ASYNC PATH: Multiple confirmations (production).
-			// STATE TRANSITION: None -> Pending (from blockbeat).
-			// We've detected a spend, but don't process it yet.
-			// Instead, register for confirmations to protect
-			// against shallow reorgs.
-			log.Infof("ChannelPoint(%v): detected spend from "+
-				"blockbeat, transitioning to %v",
-				c.cfg.chanState.FundingOutpoint,
-				spendStatePending)
+			pendingSpend = result.pendingSpend
+			confNtfn = result.confNtfn
 
-			newConfNtfn, err := handleSpendDetection(spend)
-			if err != nil {
-				log.Errorf("Unable to handle spend "+
-					"detection: %v", err)
-				continue
-			}
-			pendingSpend = spend
-			confNtfn = newConfNtfn
-
-		// STATE TRANSITION: None -> Pending.
-		// We've detected a spend, but don't process it yet. Instead,
-		// register for confirmations to protect against shallow reorgs.
 		case spend, ok := <-spendNtfn.Spend:
 			if !ok {
 				return
 			}
 
-			// FAST PATH: Check if we should dispatch immediately
-			// for single-confirmation scenarios.
-			if c.handleSpendDispatch(spend, "spend notification") {
-				if confNtfn != nil {
-					confNtfn.Cancel()
-					confNtfn = nil
-				}
-				pendingSpend = nil
-				continue
-			}
+			result := c.processDetectedSpend(
+				spend, "spend notification", pendingSpend,
+				confNtfn,
+			)
 
-			// ASYNC PATH: Multiple confirmations (production).
-			log.Infof("ChannelPoint(%v): detected spend from "+
-				"notification, transitioning to %v",
-				c.cfg.chanState.FundingOutpoint,
-				spendStatePending)
-
-			newConfNtfn, err := handleSpendDetection(spend)
-			if err != nil {
-				log.Errorf("Unable to handle spend "+
-					"detection: %v", err)
-				continue
-			}
-			pendingSpend = spend
-			confNtfn = newConfNtfn
+			pendingSpend = result.pendingSpend
+			confNtfn = result.confNtfn
 
 		// STATE TRANSITION: Pending -> Confirmed
 		// The spend has reached required confirmations. It's now safe
@@ -1642,6 +1556,83 @@ func (c *chainWatcher) handleSpendDispatch(spend *chainntnfs.SpendDetail,
 	}
 
 	return false
+}
+
+// processDetectedSpend handles a newly detected spend from either blockbeat or
+// spend notification. It determines whether to use the fast-path (single conf)
+// or async-path (multiple confs), and returns the updated state.
+//
+// For single-confirmation mode (numConfs == 1), it immediately dispatches the
+// close event and returns empty result. For multi-confirmation mode, it
+// registers for confirmations and returns the new pending state.
+func (c *chainWatcher) processDetectedSpend(
+	spend *chainntnfs.SpendDetail, source string,
+	currentPendingSpend *chainntnfs.SpendDetail,
+	currentConfNtfn *chainntnfs.ConfirmationEvent) spendProcessResult {
+
+	// FAST PATH: Single confirmation mode dispatches immediately.
+	if c.handleSpendDispatch(spend, source) {
+		if currentConfNtfn != nil {
+			currentConfNtfn.Cancel()
+		}
+
+		return spendProcessResult{}
+	}
+
+	// ASYNC PATH: Multiple confirmations (production).
+	// STATE TRANSITION: None -> Pending.
+	log.Infof("ChannelPoint(%v): detected spend from %s, "+
+		"transitioning to %v", c.cfg.chanState.FundingOutpoint,
+		source, spendStatePending)
+
+	// Check for duplicate spend detection.
+	if currentPendingSpend != nil {
+		if *currentPendingSpend.SpenderTxHash == *spend.SpenderTxHash {
+			log.Debugf("ChannelPoint(%v): ignoring duplicate "+
+				"spend detection for tx %v",
+				c.cfg.chanState.FundingOutpoint,
+				spend.SpenderTxHash)
+
+			return spendProcessResult{
+				pendingSpend: currentPendingSpend,
+				confNtfn:     currentConfNtfn,
+			}
+		}
+
+		// Different spend detected. Cancel existing confNtfn.
+		log.Warnf("ChannelPoint(%v): detected different spend tx %v, "+
+			"replacing pending tx %v",
+			c.cfg.chanState.FundingOutpoint,
+			spend.SpenderTxHash, currentPendingSpend.SpenderTxHash)
+
+		if currentConfNtfn != nil {
+			currentConfNtfn.Cancel()
+		}
+	}
+
+	numConfs := c.requiredConfsForSpend()
+	txid := spend.SpenderTxHash
+
+	newConfNtfn, err := c.cfg.notifier.RegisterConfirmationsNtfn(
+		txid, spend.SpendingTx.TxOut[0].PkScript, numConfs,
+		uint32(spend.SpendingHeight),
+	)
+	if err != nil {
+		log.Errorf("Unable to register confirmations: %v", err)
+
+		return spendProcessResult{
+			pendingSpend: currentPendingSpend,
+			confNtfn:     currentConfNtfn,
+		}
+	}
+
+	log.Infof("ChannelPoint(%v): waiting for %d confirmations of "+
+		"spend tx %v", c.cfg.chanState.FundingOutpoint, numConfs, txid)
+
+	return spendProcessResult{
+		pendingSpend: spend,
+		confNtfn:     newConfNtfn,
+	}
 }
 
 // handleCommitSpend takes a spending tx of the funding output and handles the

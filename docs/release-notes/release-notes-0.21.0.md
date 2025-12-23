@@ -69,6 +69,17 @@
   it becomes available. These methods provide an alternative to the standard
   `MuSig2RegisterNonces` workflow and are only supported in MuSig2 v1.0.0rc2.
 
+* Added a new [switchrpc RPC sub-system](https://github.com/lightningnetwork/lnd/pull/9489)
+  with `SendOnion`, `BuildOnion`, and `TrackOnion` endpoints. This allows the
+  daemon to offload path-finding, onion construction and payment life-cycle
+  management to an external entity and instead accept onion payments for direct
+  delivery to the network. The new gRPC server should be used with caution. It
+  is currently only safe to allow a *single* entity (either the local router or
+  *one* external router) to dispatch attempts via the Switch at any given time.
+  Running multiple controllers concurrently will lead to undefined behavior and
+  potential loss of funds. The compilation of the server is hidden behind the
+  non-default `switchrpc` build tag.
+
 ## lncli Additions
 
 # Improvements

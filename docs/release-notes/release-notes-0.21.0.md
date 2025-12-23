@@ -41,7 +41,8 @@
 
 # New Features
 
-- Basic Support for [onion messaging forwarding](https://github.com/lightningnetwork/lnd/pull/9868) 
+- [Basic Support](https://github.com/lightningnetwork/lnd/pull/9868) for onion
+  [messaging forwarding] (https://github.com/lightningnetwork/lnd/pull/10089)
   consisting of a new message type, `OnionMessage`. This includes the message's
   definition, comprising a path key and an onion blob, along with the necessary
   serialization and deserialization logic for peer-to-peer communication.

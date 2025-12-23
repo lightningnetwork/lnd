@@ -91,3 +91,17 @@ func (m *mockAttemptStore) FailPendingAttempt(attemptID uint64,
 
 	return m.failErr
 }
+
+// mockErrorDecrypter is a mock implementation of htlcswitch.ErrorDecrypter.
+type mockErrorDecrypter struct {
+	decryptedErr htlcswitch.ForwardingError
+	receivedData lnwire.OpaqueReason
+}
+
+func (m *mockErrorDecrypter) DecryptError(
+	err lnwire.OpaqueReason) (*htlcswitch.ForwardingError, error) {
+
+	m.receivedData = err
+
+	return &m.decryptedErr, nil
+}

@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -221,8 +220,9 @@ func TestTrackOnion(t *testing.T) {
 		// call.
 		expectedErrCode codes.Code
 
-		// expectedResponse is the expected response from the RPC call.
-		expectedResponse *TrackOnionResponse
+		// checkResponse is a function that asserts the response from the
+		// RPC call.
+		checkResponse func(*testing.T, *TrackOnionResponse)
 	}{
 		{
 			name: "payment success",
@@ -234,8 +234,8 @@ func TestTrackOnion(t *testing.T) {
 				}
 			},
 			getCtx: t.Context,
-			expectedResponse: &TrackOnionResponse{
-				Preimage: preimageBytes,
+			checkResponse: func(t *testing.T, resp *TrackOnionResponse) {
+				require.Equal(t, preimageBytes, resp.GetPreimage())
 			},
 		},
 		{
@@ -248,9 +248,11 @@ func TestTrackOnion(t *testing.T) {
 				}
 			},
 			getCtx: t.Context,
-			expectedResponse: &TrackOnionResponse{
-				ErrorMessage: "test error",
-				ErrorCode:    ErrorCode_INTERNAL,
+			checkResponse: func(t *testing.T, resp *TrackOnionResponse) {
+				details := resp.GetFailureDetails()
+				require.NotNil(t, details)
+				require.Equal(t, ErrorCode_INTERNAL, details.ErrorCode)
+				require.Contains(t, details.ErrorMessage, "test error")
 			},
 		},
 		{
@@ -260,11 +262,8 @@ func TestTrackOnion(t *testing.T) {
 
 				m.getResultErr = htlcswitch.ErrPaymentIDNotFound
 			},
-			getCtx: t.Context,
-			expectedResponse: &TrackOnionResponse{
-				ErrorMessage: htlcswitch.ErrPaymentIDNotFound.Error(),
-				ErrorCode:    ErrorCode_PAYMENT_ID_NOT_FOUND,
-			},
+			getCtx:          t.Context,
+			expectedErrCode: codes.NotFound,
 		},
 		{
 			name: "invalid payment hash",
@@ -314,8 +313,11 @@ func TestTrackOnion(t *testing.T) {
 				}
 			},
 			getCtx: t.Context,
-			expectedResponse: &TrackOnionResponse{
-				EncryptedError: []byte("encrypted error"),
+			checkResponse: func(t *testing.T, resp *TrackOnionResponse) {
+				details := resp.GetFailureDetails()
+				require.NotNil(t, details)
+				require.Equal(t, []byte("encrypted error"),
+					details.GetEncryptedErrorData())
 			},
 		},
 		{
@@ -330,11 +332,8 @@ func TestTrackOnion(t *testing.T) {
 				close(closedChan)
 				m.resultChan = closedChan
 			},
-			getCtx: t.Context,
-			expectedResponse: &TrackOnionResponse{
-				ErrorMessage: htlcswitch.ErrSwitchExiting.Error(),
-				ErrorCode:    ErrorCode_SWITCH_EXITING,
-			},
+			getCtx:          t.Context,
+			expectedErrCode: codes.Unavailable,
 		},
 		{
 			name: "ambiguous result",
@@ -350,9 +349,12 @@ func TestTrackOnion(t *testing.T) {
 				}
 			},
 			getCtx: t.Context,
-			expectedResponse: &TrackOnionResponse{
-				ErrorMessage: ErrAmbiguousPaymentState.Error(),
-				ErrorCode:    ErrorCode_INTERNAL,
+			checkResponse: func(t *testing.T, resp *TrackOnionResponse) {
+				details := resp.GetFailureDetails()
+				require.NotNil(t, details)
+				require.Equal(t, ErrorCode_INTERNAL, details.ErrorCode)
+				require.Contains(t, details.ErrorMessage,
+					ErrAmbiguousPaymentState.Error())
 			},
 		},
 	}
@@ -391,7 +393,7 @@ func TestTrackOnion(t *testing.T) {
 
 			// If no gRPC error was expected, check the response.
 			require.NoError(t, err)
-			require.Equal(t, tc.expectedResponse, resp)
+			tc.checkResponse(t, resp)
 		})
 	}
 }
@@ -575,11 +577,7 @@ func TestBuildOnion(t *testing.T) {
 func TestTranslateErrorForRPC(t *testing.T) {
 	t.Parallel()
 
-	failureIndex := 1
 	mockWireMsg := lnwire.NewTemporaryChannelFailure(nil)
-	mockForwardingErr := htlcswitch.NewForwardingError(
-		mockWireMsg, failureIndex,
-	)
 	mockClearTextErr := htlcswitch.NewLinkError(mockWireMsg)
 
 	var buf bytes.Buffer
@@ -614,12 +612,6 @@ func TestTranslateErrorForRPC(t *testing.T) {
 			expectedCode: ErrorCode_SWITCH_EXITING,
 		},
 		{
-			name:         "ForwardingError",
-			err:          mockForwardingErr,
-			expectedMsg:  fmt.Sprintf("%d@%s", failureIndex, encodedMsg),
-			expectedCode: ErrorCode_FORWARDING_ERROR,
-		},
-		{
 			name:         "ClearTextError",
 			err:          mockClearTextErr,
 			expectedMsg:  encodedMsg,
@@ -642,87 +634,161 @@ func TestTranslateErrorForRPC(t *testing.T) {
 	}
 }
 
-// TestParseForwardingError tests the ParseForwardingError function.
-func TestParseForwardingError(t *testing.T) {
+// TestMarshallFailureDetails tests the conversion of internal errors types
+// produced by the Switch into the wire/rpc representation.
+func TestMarshallFailureDetails(t *testing.T) {
 	t.Parallel()
 
 	mockWireMsg := lnwire.NewTemporaryChannelFailure(nil)
+	mockLinkErr := htlcswitch.NewLinkError(mockWireMsg)
+	mockFwdErr := htlcswitch.NewForwardingError(mockWireMsg, 1)
 
-	var buf bytes.Buffer
-	err := lnwire.EncodeFailure(&buf, mockWireMsg, 0)
-	require.NoError(t, err)
-
-	encodedMsg := hex.EncodeToString(buf.Bytes())
-
-	tests := []struct {
-		name         string
-		errStr       string
-		expectedIdx  int
-		expectedWire lnwire.FailureMessage
-		expectsError bool
+	//nolint:ll
+	testCases := []struct {
+		name            string
+		err             error
+		expectedDetails *FailureDetails
 	}{
 		{
-			name:         "Valid ForwardingError",
-			errStr:       fmt.Sprintf("1@%s", encodedMsg),
-			expectedIdx:  1,
-			expectedWire: mockWireMsg,
-			expectsError: false,
+			name: "not found",
+			err:  htlcswitch.ErrPaymentIDNotFound,
+			expectedDetails: &FailureDetails{
+				ErrorCode:    ErrorCode_PAYMENT_ID_NOT_FOUND,
+				ErrorMessage: htlcswitch.ErrPaymentIDNotFound.Error(),
+			},
 		},
 		{
-			name:         "Invalid Format",
-			errStr:       "invalid_format",
-			expectsError: true,
+			name: "unreadable",
+			err:  htlcswitch.ErrUnreadableFailureMessage,
+			expectedDetails: &FailureDetails{
+				ErrorCode:    ErrorCode_UNREADABLE_FAILURE_MESSAGE,
+				ErrorMessage: htlcswitch.ErrUnreadableFailureMessage.Error(),
+			},
 		},
 		{
-			name:         "Invalid Index",
-			errStr:       "invalid@" + encodedMsg,
-			expectsError: true,
+			name: "clear text error",
+			err:  mockLinkErr,
+			expectedDetails: &FailureDetails{
+				ErrorMessage: mockLinkErr.Error(),
+				Failure: &FailureDetails_ClearTextFailure{
+					ClearTextFailure: &ClearTextFailure{},
+				},
+			},
 		},
 		{
-			name:         "Invalid Wire Message",
-			errStr:       "1@invalid",
-			expectsError: true,
+			name: "forwarding error",
+			err:  mockFwdErr,
+			expectedDetails: &FailureDetails{
+				ErrorMessage: mockFwdErr.Error(),
+				Failure: &FailureDetails_ForwardingFailure{
+					ForwardingFailure: &ForwardingFailure{
+						FailureSourceIndex: 1,
+					},
+				},
+			},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fwdErr, err := ParseForwardingError(tt.errStr)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			details := marshallFailureDetails(tc.err)
 
-			if tt.expectsError {
-				require.Error(t, err)
+			require.Equal(t, tc.expectedDetails.ErrorCode,
+				details.ErrorCode)
+			require.Contains(t, details.ErrorMessage,
+				tc.expectedDetails.ErrorMessage)
+
+			if tc.expectedDetails.Failure == nil {
+				require.Nil(t, details.Failure)
 				return
 			}
 
-			require.NoError(t, err)
-			require.Equal(
-				t, tt.expectedIdx, fwdErr.FailureSourceIdx,
-			)
-			require.Equal(t, tt.expectedWire, fwdErr.WireMessage())
+			// For clear text and forwarding errors, we expect the
+			// wire message to be encoded correctly.
+			switch failure := details.Failure.(type) {
+			case *FailureDetails_ForwardingFailure:
+				require.NotNil(t, failure.ForwardingFailure)
+				require.Equal(
+					t,
+					tc.expectedDetails.
+						GetForwardingFailure().
+						FailureSourceIndex,
+					failure.ForwardingFailure.
+						FailureSourceIndex,
+				)
+
+				decoded, err := UnmarshallFailureMessage(
+					failure.ForwardingFailure.WireMessage,
+				)
+				require.NoError(t, err)
+				require.Equal(t, mockWireMsg, decoded)
+
+			case *FailureDetails_ClearTextFailure:
+				require.NotNil(t, failure.ClearTextFailure)
+
+				decoded, err := UnmarshallFailureMessage(
+					failure.ClearTextFailure.WireMessage,
+				)
+				require.NoError(t, err)
+				require.Equal(t, mockWireMsg, decoded)
+
+			default:
+				t.Fatalf("unexpected failure type: %T",
+					details.Failure)
+			}
 		})
 	}
 }
 
-// TestForwardingErrorEncodeDecode tests the encoding and decoding of a
-// forwarding error.
-func TestForwardingErrorEncodeDecode(t *testing.T) {
+// TestUnmarshallFailureDetails tests the client helper for unmarshalling a
+// TrackOnion FailureDetails message. This is a round-trip test that ensures the
+// client helper can correctly decode the exact message that the server-side
+// logic produces.
+func TestUnmarshallFailureDetails(t *testing.T) {
 	t.Parallel()
 
-	mockWireMsg := lnwire.NewTemporaryChannelFailure(nil)
-	mockForwardingErr := htlcswitch.NewForwardingError(mockWireMsg, 1)
+	// Create mock errors to be marshalled.
+	wireMsg := lnwire.NewTemporaryChannelFailure(nil)
+	linkErr := htlcswitch.NewLinkError(wireMsg)
+	fwdErr := htlcswitch.NewForwardingError(wireMsg, 1)
+	exitErr := htlcswitch.ErrSwitchExiting
 
-	// Encode the forwarding error.
-	encodedError, _ := translateErrorForRPC(mockForwardingErr)
+	testCases := []struct {
+		name        string
+		originalErr error
+	}{
+		{
+			name:        "forwarding failure",
+			originalErr: fwdErr,
+		},
+		{
+			name:        "clear text failure",
+			originalErr: linkErr,
+		},
+		{
+			name:        "switch exiting",
+			originalErr: exitErr,
+		},
+	}
 
-	// Decode the forwarding error.
-	decodedError, err := ParseForwardingError(encodedError)
-	require.NoError(t, err, "decoding failed")
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Use the server-side helper to create the
+			// FailureDetails message.
+			details := marshallFailureDetails(tc.originalErr)
 
-	// Assert the decoded error matches the original.
-	require.Equal(t, mockForwardingErr.FailureSourceIdx,
-		decodedError.FailureSourceIdx)
-	require.Equal(t, mockForwardingErr.WireMessage(),
-		decodedError.WireMessage())
+			// Use the client-side helper to translate it back to a
+			// Go error.
+			translatedErr, err := UnmarshallFailureDetails(
+				details, nil,
+			)
+			require.NoError(t, err)
+
+			// Confirm that the final error is of the same type as
+			// the original.
+			require.IsType(t, tc.originalErr, translatedErr)
+		})
+	}
 }
 
 // TestBuildErrorDecryptor tests the buildErrorDecryptor function.

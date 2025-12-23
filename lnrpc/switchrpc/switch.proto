@@ -53,7 +53,24 @@ service Switch {
     RPC server.
 
     Once dispatch is confirmed, TrackOnion provides the mechanism to wait for
-    the result of the in-flight HTLC.
+    the result of the in-flight HTLC. A client must handle three distinct
+    categories of outcomes:
+
+    1. PAYMENT SUCCESS (gRPC code OK, preimage set): The payment settled
+    successfully. The response contains the payment preimage.
+
+    2. PAYMENT FAILURE (gRPC code OK, failure_details set): The payment failed
+    at the application level. The failure_details oneof describes the specific
+    failure type: a ForwardingFailure from a remote hop, a LocalFailure
+    from the local node, an UnreadableFailure if the error could not be
+    decoded, or a SwitchError for other switch-level failures. When
+    encrypted_error_data is populated, the client may perform its own
+    decryption.
+
+    3. QUERY FAILURE (gRPC error status): The query itself could not be
+    completed. NotFound indicates the payment ID is unknown. Unavailable
+    signals the switch is shutting down. Canceled or DeadlineExceeded
+    reflects client-side timeouts. These are safe to retry.
     */
     rpc TrackOnion (TrackOnionRequest) returns (TrackOnionResponse);
 
@@ -185,21 +202,88 @@ message TrackOnionRequest {
 }
 
 message TrackOnionResponse {
-    // The preimage obtained by making the payment. If this field is set,
-    // the payment succeeded.
-    bytes preimage = 1;
+    // The final result of the payment attempt, which is either a preimage
+    // (success) or detailed failure information.
+    oneof result {
+        // The preimage obtained by making the payment. If this field is set,
+        // the payment succeeded.
+        bytes preimage = 1;
 
-    // In case of failure, this field will provide more information about the
-    // error.
-    string error_message = 2;
+        // The application-level failure for the payment attempt. If this field
+        // is set, the payment attempt failed.
+        FailureDetails failure_details = 2;
+    }
+}
 
-    // A code representing the type of error that occurred. This can be used
-    // to programmatically distinguish between different kinds of errors.
-    ErrorCode error_code = 3;
+// FailureDetails provides structured information about why a payment attempt
+// failed on the network. This message is included in a successful
+// TrackOnionResponse when the queried attempt ultimately failed.
+message FailureDetails {
+    // A human-readable error_message for logging or display.
+    string error_message = 1;
 
-    // If the caller provides no means to decrypt the error, then we'll defer
-    // error decryption on the server and return the encrypted error blob.
-    bytes encrypted_error = 4;
+    // The failure contains specific, structured details about the error.
+    // Exactly one variant is set when this message is present.
+    oneof failure {
+        // local_failure is set when the failure originates at the local
+        // node (e.g. unable to forward due to insufficient balance,
+        // channel policy violations, or other link-level rejections). The
+        // wire message is available in plaintext without onion decryption.
+        LocalFailure local_failure = 2;
+
+        // forwarding_failure is set when the HTLC was forwarded into the
+        // network and a remote node returned an error. The onion error
+        // was successfully decrypted, yielding the failure source index.
+        // The wire_message may be empty if the inner failure could not
+        // be decoded.
+        ForwardingFailure forwarding_failure = 3;
+
+        // encrypted_error_data contains the raw onion-encrypted error
+        // blob. This is returned when no decryption keys were provided
+        // in the TrackOnionRequest (i.e. no session key or hop public
+        // keys), deferring decryption entirely to the client.
+        bytes encrypted_error_data = 4;
+
+        // unreadable_failure indicates that decryption keys were provided
+        // and decryption was attempted, but failed. The original error
+        // cannot be recovered.
+        UnreadableFailure unreadable_failure = 5;
+
+        // switch_error indicates an unexpected internal error that does
+        // not fall into any of the above categories.
+        SwitchError switch_error = 6;
+    }
+}
+
+// ForwardingFailure represents an HTLC failure that occurred at a remote node
+// in the payment route. The onion error was successfully decrypted, revealing
+// the failing hop.
+message ForwardingFailure {
+    // failure_source_index is the 0-based index of the node within the payment
+    // route that reported the failure. Index 0 refers to the local node.
+    uint32 failure_source_index = 1;
+
+    // The raw, serialized lnwire.FailureMessage reported by the failing node.
+    // This field may be empty if the failure message could not be decoded.
+    bytes wire_message = 2;
+}
+
+// LocalFailure represents a failure that originates at the local node. No
+// onion decryption is involved because the failure occurred before the HTLC
+// left our node.
+message LocalFailure {
+    // The raw, serialized `lnwire.FailureMessage`.
+    bytes wire_message = 1;
+}
+
+// SwitchError indicates that an error occurred within the switch subsystem.
+message SwitchError {
+}
+
+// UnreadableFailure indicates that decryption keys were provided and
+// decryption was attempted, but failed. The original failure information
+// cannot be recovered.
+message UnreadableFailure {
 }
 
 // BuildOnionRequest includes the necessary information to construct a Sphinx

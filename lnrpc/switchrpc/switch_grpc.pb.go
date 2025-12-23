@@ -58,7 +58,24 @@ type SwitchClient interface {
 	// RPC server.
 	//
 	// Once dispatch is confirmed, TrackOnion provides the mechanism to wait for
-	// the result of the in-flight HTLC.
+	// the result of the in-flight HTLC. A client must handle three distinct
+	// categories of outcomes:
+	//
+	// 1. PAYMENT SUCCESS (gRPC code OK, preimage set): The payment settled
+	// successfully. The response contains the payment preimage.
+	//
+	// 2. PAYMENT FAILURE (gRPC code OK, failure_details set): The payment failed
+	// at the application level. The failure_details oneof describes the specific
+	// failure type: a ForwardingFailure from a remote hop, a LocalFailure
+	// from the local node, an UnreadableFailure if the error could not be
+	// decoded, or a SwitchError for other switch-level failures. When
+	// encrypted_error_data is populated, the client may perform its own
+	// decryption.
+	//
+	// 3. QUERY FAILURE (gRPC error status): The query itself could not be
+	// completed. NotFound indicates the payment ID is unknown. Unavailable
+	// signals the switch is shutting down. Canceled or DeadlineExceeded
+	// reflects client-side timeouts. These are safe to retry.
 	TrackOnion(ctx context.Context, in *TrackOnionRequest, opts ...grpc.CallOption) (*TrackOnionResponse, error)
 	// BuildOnion attempts to build an onion packet for the specified route.
 	BuildOnion(ctx context.Context, in *BuildOnionRequest, opts ...grpc.CallOption) (*BuildOnionResponse, error)
@@ -143,7 +160,24 @@ type SwitchServer interface {
 	// RPC server.
 	//
 	// Once dispatch is confirmed, TrackOnion provides the mechanism to wait for
-	// the result of the in-flight HTLC.
+	// the result of the in-flight HTLC. A client must handle three distinct
+	// categories of outcomes:
+	//
+	// 1. PAYMENT SUCCESS (gRPC code OK, preimage set): The payment settled
+	// successfully. The response contains the payment preimage.
+	//
+	// 2. PAYMENT FAILURE (gRPC code OK, failure_details set): The payment failed
+	// at the application level. The failure_details oneof describes the specific
+	// failure type: a ForwardingFailure from a remote hop, a LocalFailure
+	// from the local node, an UnreadableFailure if the error could not be
+	// decoded, or a SwitchError for other switch-level failures. When
+	// encrypted_error_data is populated, the client may perform its own
+	// decryption.
+	//
+	// 3. QUERY FAILURE (gRPC error status): The query itself could not be
+	// completed. NotFound indicates the payment ID is unknown. Unavailable
+	// signals the switch is shutting down. Canceled or DeadlineExceeded
+	// reflects client-side timeouts. These are safe to retry.
 	TrackOnion(context.Context, *TrackOnionRequest) (*TrackOnionResponse, error)
 	// BuildOnion attempts to build an onion packet for the specified route.
 	BuildOnion(context.Context, *BuildOnionRequest) (*BuildOnionResponse, error)

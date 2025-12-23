@@ -87,7 +87,7 @@
     "/v2/switch/track": {
       "post": {
         "summary": "TrackOnion allows callers to query whether or not a payment dispatched via\nSendOnion succeeded or failed.",
-        "description": "This RPC is designed to be called after a successful dispatch has been\nexplicitly confirmed via the SendOnion RPC. It should not be used to\ndetermine whether an HTLC dispatch was received in an ambiguous network\nscenario. That ambiguity must be resolved by retrying the idempotent\nSendOnion RPC until a definitive acknowledgement is received from the Switch\nRPC server.\n\nOnce dispatch is confirmed, TrackOnion provides the mechanism to wait for\nthe result of the in-flight HTLC.",
+        "description": "This RPC is designed to be called after a successful dispatch has been\nexplicitly confirmed via the SendOnion RPC. It should not be used to\ndetermine whether an HTLC dispatch was received in an ambiguous network\nscenario. That ambiguity must be resolved by retrying the idempotent\nSendOnion RPC until a definitive acknowledgement is received from the Switch\nRPC server.\n\nOnce dispatch is confirmed, TrackOnion provides the mechanism to wait for\nthe result of the in-flight HTLC. A client must handle three distinct\ncategories of outcomes:\n\n1. PAYMENT SUCCESS (gRPC code OK, preimage set): The payment settled\nsuccessfully. The response contains the payment preimage.\n\n2. PAYMENT FAILURE (gRPC code OK, failure_details set): The payment failed\nat the application level. The failure_details oneof describes the specific\nfailure type: a ForwardingFailure from a remote hop, a LocalFailure\nfrom the local node, an UnreadableFailure if the error could not be\ndecoded, or a SwitchError for other switch-level failures. When\nencrypted_error_data is populated, the client may perform its own\ndecryption.\n\n3. QUERY FAILURE (gRPC error status): The query itself could not be\ncompleted. NotFound indicates the payment ID is unknown. Unavailable\nsignals the switch is shutting down. Canceled or DeadlineExceeded\nreflects client-side timeouts. These are safe to retry.",
         "operationId": "Switch_TrackOnion",
         "responses": {
           "200": {
@@ -367,6 +367,64 @@
       "default": "UNSPECIFIED",
       "description": " - UNSPECIFIED: Default value for unset errors.\n - PAYMENT_ID_NOT_FOUND: Payment ID was not found.\n - FORWARDING_ERROR: Error occurred during forwarding.\n - CLEAR_TEXT_ERROR: Clear text error.\n - UNREADABLE_FAILURE_MESSAGE: Failure message could not be read.\n - DUPLICATE_HTLC: An HTLC with same ID is already in flight.\n - NO_LINK: No link available for payment.\n - SWITCH_EXITING: HTLC switch is exiting.\n - INTERNAL: Opaque internal server error."
     },
+    "switchrpcFailureDetails": {
+      "type": "object",
+      "properties": {
+        "error_message": {
+          "type": "string",
+          "description": "A human-readable error_message for logging or display."
+        },
+        "local_failure": {
+          "$ref": "#/definitions/switchrpcLocalFailure",
+          "description": "local_failure is set when the failure originates at the local\nnode (e.g. unable to forward due to insufficient balance,\nchannel policy violations, or other link-level rejections). The\nwire message is available in plaintext without onion decryption."
+        },
+        "forwarding_failure": {
+          "$ref": "#/definitions/switchrpcForwardingFailure",
+          "description": "forwarding_failure is set when the HTLC was forwarded into the\nnetwork and a remote node returned an error. The onion error\nwas successfully decrypted, yielding the failure source index.\nThe wire_message may be empty if the inner failure could not\nbe decoded."
+        },
+        "encrypted_error_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "encrypted_error_data contains the raw onion-encrypted error\nblob. This is returned when no decryption keys were provided\nin the TrackOnionRequest (i.e. no session key or hop public\nkeys), deferring decryption entirely to the client."
+        },
+        "unreadable_failure": {
+          "$ref": "#/definitions/switchrpcUnreadableFailure",
+          "description": "unreadable_failure indicates that decryption keys were provided\nand decryption was attempted, but failed. The original error\ncannot be recovered."
+        },
+        "switch_error": {
+          "$ref": "#/definitions/switchrpcSwitchError",
+          "description": "switch_error indicates an unexpected internal error that does\nnot fall into any of the above categories."
+        }
+      },
+      "description": "FailureDetails provides structured information about why a payment attempt\nfailed on the network. This message is included in a successful\nTrackOnionResponse when the queried attempt ultimately failed."
+    },
+    "switchrpcForwardingFailure": {
+      "type": "object",
+      "properties": {
+        "failure_source_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "failure_source_index is the 0-based index of the node within the payment\nroute that reported the failure. Index 0 refers to the local node."
+        },
+        "wire_message": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw, serialized lnwire.FailureMessage reported by the failing node.\nThis field may be empty if the failure message could not be decoded."
+        }
+      },
+      "description": "ForwardingFailure represents an HTLC failure that occurred at a remote node\nin the payment route. The onion error was successfully decrypted, revealing\nthe failing hop."
+    },
+    "switchrpcLocalFailure": {
+      "type": "object",
+      "properties": {
+        "wire_message": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw, serialized `lnwire.FailureMessage`."
+        }
+      },
+      "description": "LocalFailure represents a failure that originates at the local node. No\nonion decryption is involved because the failure occurred before the HTLC\nleft our node."
+    },
     "switchrpcSendOnionRequest": {
       "type": "object",
       "properties": {
@@ -442,6 +500,10 @@
         }
       }
     },
+    "switchrpcSwitchError": {
+      "type": "object",
+      "description": "SwitchError indicates that an error occurred within the switch subsystem."
+    },
     "switchrpcTrackOnionRequest": {
       "type": "object",
       "properties": {
@@ -478,20 +540,15 @@
           "format": "byte",
           "description": "The preimage obtained by making the payment. If this field is set,\nthe payment succeeded."
         },
-        "error_message": {
-          "type": "string",
-          "description": "In case of failure, this field will provide more information about the\nerror."
-        },
-        "error_code": {
-          "$ref": "#/definitions/switchrpcErrorCode",
-          "description": "A code representing the type of error that occurred. This can be used\nto programmatically distinguish between different kinds of errors."
-        },
-        "encrypted_error": {
-          "type": "string",
-          "format": "byte",
-          "description": "If the caller provides no means to decrypt the error, then we'll defer\nerror decryption on the server and return the encrypted error blob."
+        "failure_details": {
+          "$ref": "#/definitions/switchrpcFailureDetails",
+          "description": "The application-level failure for the payment attempt. If this field\nis set, the payment attempt failed."
         }
       }
+    },
+    "switchrpcUnreadableFailure": {
+      "type": "object",
+      "description": "UnreadableFailure indicates that decryption keys were provided and\ndecryption was attempted, but failed. The original failure information\ncannot be recovered."
     }
   }
 }

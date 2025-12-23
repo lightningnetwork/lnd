@@ -12,8 +12,6 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -600,15 +598,19 @@ func (s *Server) TrackOnion(ctx context.Context,
 		req.AttemptId, hash, errorDecryptor,
 	)
 	if err != nil {
-		message, code := translateErrorForRPC(err)
-
 		log.Errorf("GetAttemptResult failed for attempt_id=%d of "+
-			" payment=%x: %v", req.AttemptId, hash, message)
+			" payment=%x: %v", req.AttemptId, hash, err)
 
-		return &TrackOnionResponse{
-			ErrorCode:    code,
-			ErrorMessage: message,
-		}, nil
+		// If the payment ID is not found, we return a NotFound error.
+		if errors.Is(err, htlcswitch.ErrPaymentIDNotFound) {
+			return nil, status.Errorf(codes.NotFound,
+				"payment with attempt ID %d not found",
+				req.AttemptId)
+		}
+
+		// For other errors, we return an internal error.
+		return nil, status.Errorf(codes.Internal,
+			"GetAttemptResult failed: %v", err)
 	}
 
 	// The switch knows about this payment, we'll wait for a result to be
@@ -621,12 +623,10 @@ func (s *Server) TrackOnion(ctx context.Context,
 	select {
 	case result, ok = <-resultChan:
 		if !ok {
-			// This channel is closed when the Switch shuts down.
-			return &TrackOnionResponse{
-				ErrorCode: ErrorCode_SWITCH_EXITING,
-				ErrorMessage: htlcswitch.ErrSwitchExiting.
-					Error(),
-			}, nil
+			// This channel is closed when the Switch shuts down. We
+			// return a gRPC error to the client.
+			return nil, status.Error(codes.Unavailable,
+				htlcswitch.ErrSwitchExiting.Error())
 		}
 
 	case <-ctx.Done():
@@ -635,44 +635,59 @@ func (s *Server) TrackOnion(ctx context.Context,
 		return nil, status.FromContextError(ctx.Err()).Err()
 	}
 
-	// The attempt result arrived so the HTLC is no longer in-flight.
+	// The attempt result arrived so the HTLC is no longer in-flight. If
+	// the payment failed, we build a structured response for the client.
 	if result.Error != nil {
-		message, code := translateErrorForRPC(result.Error)
+		log.Debugf("HTLC attempt %d failed for payment=%v: %v",
+			req.AttemptId, hash, result.Error)
 
-		log.Errorf("Payment via onion failed for payment=%v: %v",
-			hash, message)
+		details := marshallFailureDetails(result.Error)
 
 		return &TrackOnionResponse{
-			ErrorCode:    code,
-			ErrorMessage: message,
+			Result: &TrackOnionResponse_FailureDetails{
+				FailureDetails: details,
+			},
 		}, nil
 	}
 
+	// If no decryption keys were provided, the raw onion-encrypted error
+	// is returned as-is, deferring decryption to the client.
 	if len(result.EncryptedError) > 0 {
-		log.Errorf("Payment via onion failed for payment=%v", hash)
+		log.Debugf("HTLC attempt %d failed for payment=%v with "+
+			"encrypted error", req.AttemptId, hash)
+
+		details := &FailureDetails{
+			ErrorMessage: "payment attempt failed with encrypted " +
+				"error (client-side decryption required)",
+			Failure: &FailureDetails_EncryptedErrorData{
+				EncryptedErrorData: result.EncryptedError,
+			},
+		}
 
 		return &TrackOnionResponse{
-			EncryptedError: result.EncryptedError,
+			Result: &TrackOnionResponse_FailureDetails{
+				FailureDetails: details,
+			},
 		}, nil
 	}
 
 	// If we have reached this point, we expect a valid preimage for a
 	// successful payment.
 	if result.Preimage == (lntypes.Preimage{}) {
-		log.Errorf("Payment %v completed without a valid preimage or "+
-			"error", hash)
+		log.Errorf("Payment %v completed without a valid preimage "+
+			"or error", hash)
 
-		return &TrackOnionResponse{
-			ErrorCode:    ErrorCode_INTERNAL,
-			ErrorMessage: ErrAmbiguousPaymentState.Error(),
-		}, nil
+		return nil, status.Error(codes.Internal,
+			ErrAmbiguousPaymentState.Error())
 	}
 
 	log.Debugf("Received preimage via onion attempt_id=%d for payment=%v",
 		req.AttemptId, hash)
 
 	return &TrackOnionResponse{
-		Preimage: result.Preimage[:],
+		Result: &TrackOnionResponse_Preimage{
+			Preimage: result.Preimage[:],
+		},
 	}, nil
 }
 
@@ -827,7 +842,6 @@ func (s *Server) BuildOnion(_ context.Context,
 func translateErrorForRPC(err error) (string, ErrorCode) {
 	var (
 		clearTextErr htlcswitch.ClearTextError
-		fwdErr       *htlcswitch.ForwardingError
 	)
 
 	switch {
@@ -845,20 +859,6 @@ func translateErrorForRPC(err error) (string, ErrorCode) {
 		return err.Error(), ErrorCode_SWITCH_EXITING
 
 	case errors.As(err, &clearTextErr):
-		// If this is a forwarding error, we'll handle it specially.
-		if errors.As(err, &fwdErr) {
-			encodedError, encodeErr := encodeForwardingError(fwdErr)
-			if encodeErr != nil {
-				return fmt.Sprintf("failed to encode wire "+
-						"message: %v", encodeErr),
-					ErrorCode_INTERNAL
-			}
-
-			return encodedError,
-				ErrorCode_FORWARDING_ERROR
-		}
-
-		// Otherwise, we'll just encode the clear text error.
 		var buf bytes.Buffer
 		encodeErr := lnwire.EncodeFailure(
 			&buf, clearTextErr.WireMessage(), 0,
@@ -877,48 +877,173 @@ func translateErrorForRPC(err error) (string, ErrorCode) {
 	}
 }
 
-// encodeForwardingError converts a forwarding error from the switch to the
-// format we can package for delivery to SendOnion rpc clients. We preserve the
-// failure message from the wire as well as the index along the route where the
-// failure occurred.
-func encodeForwardingError(e *htlcswitch.ForwardingError) (string, error) {
-	var buf bytes.Buffer
-	err := lnwire.EncodeFailure(&buf, e.WireMessage(), 0)
-	if err != nil {
-		return "", fmt.Errorf("failed to encode wire message: %w", err)
+// marshallFailureDetails creates the FailureDetails message for the
+// TrackOnion response body.
+func marshallFailureDetails(err error) *FailureDetails {
+	var (
+		clearTextErr htlcswitch.ClearTextError
+		fwdErr       *htlcswitch.ForwardingError
+	)
+
+	details := &FailureDetails{
+		ErrorMessage: err.Error(),
 	}
 
-	return fmt.Sprintf("%d@%s", e.FailureSourceIdx,
-		hex.EncodeToString(buf.Bytes())), nil
+	switch {
+	// A forwarding error from an intermediate routing node. This is
+	// checked first because ForwardingError is more specific and also
+	// satisfies the ClearTextError interface.
+	case errors.As(err, &fwdErr):
+		fwdFailure := &ForwardingFailure{
+			FailureSourceIndex: uint32(
+				fwdErr.FailureSourceIdx,
+			),
+		}
+
+		// The wire message may be nil when the onion error was
+		// successfully decrypted but the inner failure message
+		// could not be decoded (NewUnknownForwardingError). In
+		// that case we still return the failure source index.
+		if fwdErr.WireMessage() != nil {
+			var buf bytes.Buffer
+
+			encodeErr := lnwire.EncodeFailure(
+				&buf, fwdErr.WireMessage(), 0,
+			)
+			if encodeErr != nil {
+				log.Errorf("Failed to encode wire "+
+					"message: %v", encodeErr)
+			} else {
+				fwdFailure.WireMessage = buf.Bytes()
+			}
+		}
+
+		details.Failure = &FailureDetails_ForwardingFailure{
+			ForwardingFailure: fwdFailure,
+		}
+
+	// A ClearTextError covers local failures (e.g. LinkError) where the
+	// wire message is available in plaintext without decryption.
+	case errors.As(err, &clearTextErr):
+		var buf bytes.Buffer
+
+		encodeErr := lnwire.EncodeFailure(
+			&buf, clearTextErr.WireMessage(), 0,
+		)
+		if encodeErr != nil {
+			log.Errorf("failed to encode wire message: %v",
+				encodeErr)
+			details.Failure = &FailureDetails_SwitchError{
+				SwitchError: &SwitchError{},
+			}
+
+			return details
+		}
+
+		details.Failure = &FailureDetails_LocalFailure{
+			LocalFailure: &LocalFailure{
+				WireMessage: buf.Bytes(),
+			},
+		}
+
+	// NOTE: ErrPaymentIDNotFound and ErrSwitchExiting are handled at
+	// the transport level and will not reach this function.
+	case errors.Is(err, htlcswitch.ErrUnreadableFailureMessage):
+		details.Failure = &FailureDetails_UnreadableFailure{
+			UnreadableFailure: &UnreadableFailure{},
+		}
+
+	// All other unexpected errors will be mapped to a generic internal
+	// error. The specific reason is still available in the top-level
+	// error_message.
+	default:
+		details.Failure = &FailureDetails_SwitchError{
+			SwitchError: &SwitchError{},
+		}
+	}
+
+	return details
 }
 
-// ParseForwardingError converts an error from the format in SendOnion rpc
-// protos to a forwarding error type.
-func ParseForwardingError(errStr string) (*htlcswitch.ForwardingError, error) {
-	parts := strings.SplitN(errStr, "@", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid forwarding error format: %s",
-			errStr)
+// UnmarshallFailureDetails translates a FailureDetails message from a
+// TrackOnion response into a concrete Go error. It handles all cases of the
+// 'oneof failure' field.
+func UnmarshallFailureDetails(details *FailureDetails,
+	deobfuscator htlcswitch.ErrorDecrypter) (error, error) {
+
+	if details == nil {
+		return nil, errors.New("cannot unmarshall nil FailureDetails")
 	}
 
-	idx, err := strconv.Atoi(parts[0])
+	// Use a type switch on the 'oneof failure' field to handle the primary
+	// structured error cases.
+	switch failure := details.Failure.(type) {
+	case *FailureDetails_ForwardingFailure:
+		return UnmarshallForwardingError(failure.ForwardingFailure)
+
+	case *FailureDetails_LocalFailure:
+		return UnmarshallLinkError(failure.LocalFailure)
+
+	case *FailureDetails_EncryptedErrorData:
+		if deobfuscator == nil {
+			return htlcswitch.ErrUnreadableFailureMessage, nil
+		}
+
+		// The client provides the decryption key/logic.
+		return deobfuscator.DecryptError(failure.EncryptedErrorData)
+
+	case *FailureDetails_UnreadableFailure:
+		return htlcswitch.ErrUnreadableFailureMessage, nil
+
+	case *FailureDetails_SwitchError:
+		// The specific reason is in the top-level message.
+		return errors.New(details.ErrorMessage), nil
+	}
+
+	// Fallback for safety, though the oneof should always be populated
+	// on a failure response.
+	return nil, fmt.Errorf("unknown or empty failure reason in "+
+		"response: %v", details.ErrorMessage)
+}
+
+// UnmarshallForwardingError converts a protobuf ForwardingFailure message into
+// an htlcswitch.ForwardingError.
+func UnmarshallForwardingError(f *ForwardingFailure) (
+	*htlcswitch.ForwardingError, error) {
+
+	if f == nil {
+		return nil, fmt.Errorf("cannot parse nil ForwardingFailure")
+	}
+
+	wireMsg, err := UnmarshallFailureMessage(f.WireMessage)
 	if err != nil {
-		return nil, fmt.Errorf("invalid forwarding error index: %s",
-			errStr)
+		return nil, fmt.Errorf("failed to decode wire message: %w", err)
 	}
 
-	wireMsgBytes, err := hex.DecodeString(parts[1])
+	return htlcswitch.NewForwardingError(
+		wireMsg, int(f.FailureSourceIndex),
+	), nil
+}
+
+// UnmarshallLinkError converts a protobuf LocalFailure message into an
+// htlcswitch.LinkError.
+func UnmarshallLinkError(f *LocalFailure) (*htlcswitch.LinkError, error) {
+	if f == nil {
+		return nil, fmt.Errorf("cannot parse nil LocalFailure")
+	}
+
+	wireMsg, err := UnmarshallFailureMessage(f.WireMessage)
 	if err != nil {
-		return nil, fmt.Errorf("invalid forwarding error wire "+
-			"message: %s", errStr)
+		return nil, fmt.Errorf("failed to decode wire message: %w", err)
 	}
 
-	r := bytes.NewReader(wireMsgBytes)
-	wireMsg, err := lnwire.DecodeFailure(r, 0)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode wire message: %w",
-			err)
-	}
+	return htlcswitch.NewLinkError(wireMsg), nil
+}
 
-	return htlcswitch.NewForwardingError(wireMsg, idx), nil
+// UnmarshallFailureMessage decodes a raw wire message byte slice into a rich
+// lnwire.FailureMessage object.
+func UnmarshallFailureMessage(wireMsg []byte) (lnwire.FailureMessage, error) {
+	r := bytes.NewReader(wireMsg)
+
+	return lnwire.DecodeFailure(r, 0)
 }

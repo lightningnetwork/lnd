@@ -1050,6 +1050,9 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 	chanGraphOpts := []graphdb.ChanGraphOption{
 		graphdb.WithUseGraphCache(!cfg.DB.NoGraphCache),
+		graphdb.WithAsyncGraphCachePopulation(
+			!cfg.DB.SyncGraphCacheLoad,
+		),
 	}
 
 	// We want to pre-allocate the channel graph cache according to what we

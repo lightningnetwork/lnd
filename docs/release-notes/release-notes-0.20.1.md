@@ -62,6 +62,11 @@
   due to validation checks in the graph Builder that were resurfaced after the
   graph refactor work.
 
+* A bug in the [implementation of
+  `FlatMap`](https://github.com/lightningnetwork/lnd/pull/10403) in the `fn`
+  package has been corrected by applying the provided function when the result
+  is `Ok` and propagate the error unchanged when it is `Err`.
+
 # New Features
 
 ## Functional Enhancements

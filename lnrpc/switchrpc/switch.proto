@@ -185,21 +185,75 @@ message TrackOnionRequest {
 }
 
 message TrackOnionResponse {
-    // The preimage obtained by making the payment. If this field is set,
-    // the payment succeeded.
-    bytes preimage = 1;
+    // The final result of the payment attempt, which is either a preimage
+    // (success) or detailed failure information.
+    oneof result {
+        // The preimage obtained by making the payment. If this field is set,
+        // the payment succeeded.
+        bytes preimage = 1;
 
-    // In case of failure, this field will provide more information about the
-    // error.
-    string error_message = 2;
+        // The application-level failure for the payment attempt. If this field
+        // is set, the payment attempt failed.
+        FailureDetails failure_details = 2;
+    }
+}
 
-    // A code representing the type of error that occurred. This can be used
-    // to programmatically distinguish between different kinds of errors.
-    ErrorCode error_code = 3;
+// FailureDetails provides structured information about why a payment attempt
+// failed on the network. This message is included in a successful
+// TrackOnionResponse when the queried attempt ultimately failed.
+message FailureDetails {
+    // A human-readable error_message for logging or display.
+    string error_message = 1;
 
-    // If the caller provides no means to decrypt the error, then we'll defer
-    // error decryption on the server and return the encrypted error blob.
-    bytes encrypted_error = 4;
+    // The failure contains specific, structured details about the error.
+    oneof failure {
+        // clear_text_failure is included when the failure originates locally
+        // (at our node) or is a fully decrypted, known failure from an upstream
+        // node. It contains the raw lnwire.FailureMessage.
+        ClearTextFailure clear_text_failure = 2;
+
+        // forwarding_failure is included when the HTLC fails at a remote node
+        // in the payment path and includes the index of the failing node.
+        ForwardingFailure forwarding_failure = 3;
+
+        // encrypted_error_data is returned when the server could not decrypt
+        // the onion error blob, deferring decryption to the client.
+        bytes encrypted_error_data = 4;
+
+        // The failure message from a remote peer could not be decrypted.
+        UnreadableFailure unreadable_failure = 5;
+
+        // An internal error occurred.
+        InternalError internal_error = 6;
+    }
+}
+
+// ForwardingFailure represents an HTLC failure that occurred at a specific
+// hop within the payment route.
+message ForwardingFailure {
+    // failure_source_index is the 0-based index of the node within the payment
+    // route that reported the failure. Index 0 refers to the local node.
+    uint32 failure_source_index = 1;
+
+    // The raw, serialized `lnwire.FailureMessage` reported by the failing node.
+    bytes wire_message = 2;
+}
+
+// ClearTextFailure is included when the failure originates locally or is a
+// fully decrypted, known failure from an upstream node. It contains the raw
+// lnwire.FailureMessage.
+message ClearTextFailure {
+    // The raw, serialized `lnwire.FailureMessage`.
+    bytes wire_message = 1;
+}
+
+// InternalError indicates that an unexpected internal error occurred.
+message InternalError {
+}
+
+// UnreadableFailure indicates that the failure message from the network was
+// malformed or otherwise unreadable.
+message UnreadableFailure {
 }
 
 // BuildOnionRequest includes the necessary information to construct a Sphinx

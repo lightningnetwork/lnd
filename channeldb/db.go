@@ -1363,11 +1363,7 @@ func (c *ChannelStateDB) FetchClosedChannelForID(cid lnwire.ChannelID) (
 // the pending funds in a channel that has been forcibly closed have been
 // swept.
 func (c *ChannelStateDB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
-	var (
-		openChannels  []*OpenChannel
-		pruneLinkNode *btcec.PublicKey
-	)
-	err := kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		var b bytes.Buffer
 		if err := graphdb.WriteOutpoint(&b, chanPoint); err != nil {
 			return err
@@ -1413,44 +1409,72 @@ func (c *ChannelStateDB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 		// other open channels with this peer. If we don't we'll
 		// garbage collect it to ensure we don't establish persistent
 		// connections to peers without open channels.
-		pruneLinkNode = chanSummary.RemotePub
-		openChannels, err = c.fetchOpenChannels(
-			tx, pruneLinkNode,
-		)
+		remotePub := chanSummary.RemotePub
+		openChannels, err := c.fetchOpenChannels(tx, remotePub)
 		if err != nil {
 			return fmt.Errorf("unable to fetch open channels for "+
 				"peer %x: %v",
-				pruneLinkNode.SerializeCompressed(), err)
+				remotePub.SerializeCompressed(), err)
+		}
+
+		if len(openChannels) > 0 {
+			return nil
+		}
+
+		// If there are no open channels with this peer, prune the
+		// link node. We do this within the same transaction to avoid
+		// a race condition where a new channel could be opened
+		// between this check and the deletion.
+		log.Infof("Pruning link node %x with zero open "+
+			"channels from database",
+			remotePub.SerializeCompressed())
+
+		err = deleteLinkNode(tx, remotePub)
+		if err != nil {
+			return fmt.Errorf("unable to delete link "+
+				"node: %w", err)
 		}
 
 		return nil
-	}, func() {
-		openChannels = nil
-		pruneLinkNode = nil
-	})
-	if err != nil {
-		return err
-	}
-
-	// Decide whether we want to remove the link node, based upon the number
-	// of still open channels.
-	return c.pruneLinkNode(openChannels, pruneLinkNode)
+	}, func() {})
 }
 
 // pruneLinkNode determines whether we should garbage collect a link node from
-// the database due to no longer having any open channels with it. If there are
-// any left, then this acts as a no-op.
-func (c *ChannelStateDB) pruneLinkNode(openChannels []*OpenChannel,
-	remotePub *btcec.PublicKey) error {
+// the database due to no longer having any open channels with it.
+//
+// NOTE: This function should be called after an initial check shows no open
+// channels exist. It will double-check within a write transaction to avoid a
+// race condition where a channel could be opened between the initial check
+// and the deletion.
+func (c *ChannelStateDB) pruneLinkNode(remotePub *btcec.PublicKey) error {
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		// Double-check for open channels to avoid deleting a link node
+		// if a channel was opened since the caller's initial check.
+		//
+		// NOTE: This avoids a race condition where a channel could be
+		// opened between the initial check and the deletion.
+		openChannels, err := c.fetchOpenChannels(tx, remotePub)
+		if err != nil {
+			return err
+		}
 
-	if len(openChannels) > 0 {
+		// If channels exist now, don't prune.
+		if len(openChannels) > 0 {
+			return nil
+		}
+
+		// No open channels, safe to prune the link node.
+		log.Infof("Pruning link node %x with zero open channels "+
+			"from database",
+			remotePub.SerializeCompressed())
+
+		err = deleteLinkNode(tx, remotePub)
+		if err != nil {
+			return fmt.Errorf("unable to prune link node: %w", err)
+		}
+
 		return nil
-	}
-
-	log.Infof("Pruning link node %x with zero open channels from database",
-		remotePub.SerializeCompressed())
-
-	return c.linkNodeDB.DeleteLinkNode(remotePub)
+	}, func() {})
 }
 
 // PruneLinkNodes attempts to prune all link nodes found within the database
@@ -1479,10 +1503,124 @@ func (c *ChannelStateDB) PruneLinkNodes() error {
 			return err
 		}
 
-		err = c.pruneLinkNode(openChannels, linkNode.IdentityPub)
+		if len(openChannels) > 0 {
+			continue
+		}
+
+		err = c.pruneLinkNode(linkNode.IdentityPub)
 		if err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// RepairLinkNodes scans all channels in the database and ensures that a
+// link node exists for each remote peer. This should be called on startup to
+// ensure that our database is consistent.
+//
+// NOTE: This function is designed to repair database inconsistencies that may
+// have occurred due to the race condition in link node pruning (where link
+// nodes could be incorrectly deleted while channels still existed). This can
+// be removed once we move to native sql.
+func (c *ChannelStateDB) RepairLinkNodes(network wire.BitcoinNet) error {
+	// We need to fetch channels directly from the openChannelBucket
+	// without relying on the nodeInfoBucket, since that's what we're
+	// trying to repair. We'll iterate over all node public keys in the
+	// openChannelBucket and fetch channels for each.
+	peerMap := make(map[string]*btcec.PublicKey)
+	var repairedCount int
+
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
+		openChanBucket := tx.ReadBucket(openChannelBucket)
+		if openChanBucket == nil {
+			return ErrNoActiveChannels
+		}
+
+		// Iterate over all node public keys in the open channel bucket.
+		return openChanBucket.ForEach(func(nodePubBytes,
+			_ []byte) error {
+
+			// Parse the node public key.
+			nodePub, err := btcec.ParsePubKey(nodePubBytes)
+			if err != nil {
+				return err
+			}
+
+			// Fetch channels for this node.
+			channels, err := c.fetchOpenChannels(tx, nodePub)
+			if err != nil {
+				return err
+			}
+
+			// If there are channels, add this peer to our map.
+			if len(channels) > 0 {
+				peerMap[string(nodePubBytes)] = nodePub
+			}
+
+			return nil
+		})
+	}, func() {
+		peerMap = make(map[string]*btcec.PublicKey)
+	})
+	if err != nil && !errors.Is(err, ErrNoActiveChannels) {
+		return fmt.Errorf("unable to fetch channels: %w", err)
+	}
+
+	// For each unique peer, check if a link node exists and create one
+	// if it doesn't.
+	for _, remotePub := range peerMap {
+		// Check if link node exists for this peer.
+		_, err := c.linkNodeDB.FetchLinkNode(remotePub)
+		if err == nil {
+			// Link node already exists, no repair needed.
+			continue
+		}
+
+		// If the error is something other than ErrNodeNotFound,
+		// return it.
+		if !errors.Is(err, ErrNodeNotFound) {
+			return fmt.Errorf("unable to fetch link node for "+
+				"peer %x: %w", remotePub.SerializeCompressed(),
+				err)
+		}
+
+		// Link node doesn't exist, so we need to create it.
+		// We create it within a transaction to ensure consistency.
+		err = kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+			nodeInfoBucket, err := tx.CreateTopLevelBucket(
+				nodeInfoBucket,
+			)
+			if err != nil {
+				return err
+			}
+
+			// Create a new link node with no addresses
+			// (we don't have address information available).
+			linkNode := NewLinkNode(
+				&LinkNodeDB{backend: c.backend},
+				network, remotePub,
+			)
+
+			log.Infof("Repairing missing link node for peer %x",
+				remotePub.SerializeCompressed())
+
+			return putLinkNode(nodeInfoBucket, linkNode)
+		}, func() {})
+
+		if err != nil {
+			return fmt.Errorf("unable to create link node for "+
+				"peer %x: %w",
+				remotePub.SerializeCompressed(), err)
+		}
+
+		repairedCount++
+	}
+
+	if repairedCount > 0 {
+		log.Infof("Repaired %d missing link nodes on startup",
+			repairedCount)
 	}
 
 	return nil

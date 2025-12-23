@@ -1640,6 +1640,8 @@ func TestGraphCacheTraversal(t *testing.T) {
 	require.Equal(t, numChannels*2*(numNodes-1), numNodeChans)
 }
 
+// fillTestGraph fills the graph with a given number of nodes and create a given
+// number of channels between each node.
 func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 	numChannels int) (map[uint64]struct{}, []*models.Node) {
 
@@ -3923,6 +3925,15 @@ func TestNodeIsPublic(t *testing.T) {
 	// participant to replicate real-world scenarios (private edges being in
 	// some graphs but not others, etc.).
 	aliceGraph := MakeTestGraph(t)
+
+	// SQL store caches public nodes and once a node is cached as public, it
+	// stays public until eviction/restart. This test asserts
+	// public<->private transitions, so it doesn't apply to SQL.
+	if _, ok := aliceGraph.V1Store.(*SQLStore); ok {
+		t.Skip("Skipping test because SQL backend uses public node " +
+			"cache, public status is sticky until eviction")
+	}
+
 	aliceNode := createTestVertex(t)
 	if err := aliceGraph.SetSourceNode(ctx, aliceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
@@ -4040,6 +4051,29 @@ func TestNodeIsPublic(t *testing.T) {
 		[]*ChannelGraph{aliceGraph, carolGraph},
 		false,
 	)
+}
+
+// BenchmarkIsPublicNode measures the performance of IsPublicNode when checking
+// a large number of nodes.
+func BenchmarkIsPublicNode(b *testing.B) {
+	graph := MakeTestGraph(b)
+
+	// Create a graph with a reasonable number of nodes and channels.
+	numNodes := 8000
+	numChans := 4
+	_, nodes := fillTestGraph(b, graph, numNodes, numChans)
+
+	// Pick any node to test with.
+	nodePub := nodes[len(nodes)/2].PubKeyBytes
+
+	// Reset the timer to exclude setup time especially since
+	// `fillTestGraph` can take a while.
+	b.ResetTimer()
+
+	for b.Loop() {
+		_, err := graph.IsPublicNode(nodePub)
+		require.NoError(b, err)
+	}
 }
 
 // TestDisabledChannelIDs ensures that the disabled channels within the

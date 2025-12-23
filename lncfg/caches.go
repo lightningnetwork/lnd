@@ -14,6 +14,10 @@ const (
 	// channeldb's channel cache. This amounts to roughly 2 MB when full.
 	MinChannelCacheSize = 1000
 
+	// MinPublicNodeCacheSize is a floor on the maximum capacity allowed for
+	// public node cache. This amount is roughly 500 KB when full.
+	MinPublicNodeCacheSize = 5000
+
 	// DefaultRPCGraphCacheDuration is the default interval that the RPC
 	// response to DescribeGraph should be cached for.
 	DefaultRPCGraphCacheDuration = time.Minute
@@ -37,6 +41,11 @@ type Caches struct {
 	// RPCGraphCacheDuration is used to control the flush interval of the
 	// channel graph cache.
 	RPCGraphCacheDuration time.Duration `long:"rpc-graph-cache-duration" description:"The period of time expressed as a duration (1s, 1m, 1h, etc) that the RPC response to DescribeGraph should be cached for."`
+
+	// PublicNodeCacheSize is the maximum number of entries stored in lnd's
+	// public node cache, which is used to speed up checks for nodes
+	// visibility. Memory usage is roughly 100b per entry.
+	PublicNodeCacheSize int `long:"public-node-cache-size" description:"Maximum number of entries contained in the public node cache, which is used to speed up checks for nodes visibility. Each entry requires roughly 100 bytes."`
 }
 
 // Validate checks the Caches configuration for values that are too small to be
@@ -49,6 +58,11 @@ func (c *Caches) Validate() error {
 	if c.ChannelCacheSize < MinChannelCacheSize {
 		return fmt.Errorf("channel cache size %d is less than min: %d",
 			c.ChannelCacheSize, MinChannelCacheSize)
+	}
+	if c.PublicNodeCacheSize < MinPublicNodeCacheSize {
+		return fmt.Errorf("public node cache size %d is less than "+
+			"min: %d", c.PublicNodeCacheSize,
+			MinPublicNodeCacheSize)
 	}
 
 	return nil

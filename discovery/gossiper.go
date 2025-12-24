@@ -586,7 +586,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 		futureMsgs:        newFutureMsgCache(maxFutureMessages),
 		quit:              make(chan struct{}),
 		chanPolicyUpdates: make(chan *chanPolicyUpdateRequest),
-		prematureChannelUpdates: lru.NewCache[uint64, *cachedNetworkMsg]( //nolint: ll
+		prematureChannelUpdates: lru.NewCache[uint64, *cachedNetworkMsg]( //nolint:ll
 			maxPrematureUpdates,
 		),
 		channelMtx: multimutex.NewMutex[uint64](),
@@ -1473,7 +1473,15 @@ func (d *AuthenticatedGossiper) networkHandler(ctx context.Context) {
 	d.cfg.RetransmitTicker.Resume()
 	defer d.cfg.RetransmitTicker.Stop()
 
-	trickleTimer := time.NewTicker(d.cfg.TrickleDelay)
+	trickleDelay := d.cfg.TrickleDelay
+	if trickleDelay <= 0 {
+		log.Infof("TrickleDelay is non-positive (%v), setting to 1ns",
+			trickleDelay)
+
+		trickleDelay = 1
+	}
+
+	trickleTimer := time.NewTicker(trickleDelay)
 	defer trickleTimer.Stop()
 
 	// To start, we'll first check to see if there are any stale channel or

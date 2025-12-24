@@ -1219,6 +1219,9 @@ message EstimateFeeRequest {
 
     // The strategy to use for selecting coins during fees estimation.
     CoinSelectionStrategy coin_selection_strategy = 5;
+
+    // A list of selected inputs for the transaction.
+    repeated OutPoint inputs = 6;
 }
 
 message EstimateFeeResponse {
@@ -1231,6 +1234,9 @@ message EstimateFeeResponse {
 
     // The fee rate in satoshi/vbyte.
     uint64 sat_per_vbyte = 3;
+
+    // A list of selected inputs for the transaction the estimate is for.
+    repeated OutPoint inputs = 4;
 }
 
 message SendManyRequest {

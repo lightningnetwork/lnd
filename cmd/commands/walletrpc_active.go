@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
@@ -330,7 +331,7 @@ func bumpFee(ctx *cli.Context) error {
 	}
 
 	// Validate and parse the relevant arguments/flags.
-	protoOutPoint, err := NewProtoOutPoint(ctx.Args().Get(0))
+	protoOutPoint, err := lnd.NewProtoOutPoint(ctx.Args().Get(0))
 	if err != nil {
 		return err
 	}
@@ -812,11 +813,11 @@ func removeTransaction(ctx *cli.Context) error {
 
 // utxoLease contains JSON annotations for a lease on an unspent output.
 type utxoLease struct {
-	ID         string   `json:"id"`
-	OutPoint   OutPoint `json:"outpoint"`
-	Expiration uint64   `json:"expiration"`
-	PkScript   []byte   `json:"pk_script"`
-	Value      uint64   `json:"value"`
+	ID         string       `json:"id"`
+	OutPoint   lnd.OutPoint `json:"outpoint"`
+	Expiration uint64       `json:"expiration"`
+	PkScript   []byte       `json:"pk_script"`
+	Value      uint64       `json:"value"`
 }
 
 // fundPsbtResponse is a struct that contains JSON annotations for nice result
@@ -1358,7 +1359,7 @@ func fundPsbt(ctx *cli.Context) error {
 			}
 
 			for idx, input := range inputs {
-				op, err := NewProtoOutPoint(input)
+				op, err := lnd.NewProtoOutPoint(input)
 				if err != nil {
 					return fmt.Errorf("error parsing "+
 						"UTXO outpoint %d: %v", idx,
@@ -1447,7 +1448,7 @@ func marshallLocks(lockedUtxos []*walletrpc.UtxoLease) []*utxoLease {
 	for idx, lock := range lockedUtxos {
 		jsonLocks[idx] = &utxoLease{
 			ID:         hex.EncodeToString(lock.Id),
-			OutPoint:   NewOutPointFromProto(lock.Outpoint),
+			OutPoint:   lnd.NewOutPointFromProto(lock.Outpoint),
 			Expiration: lock.Expiration,
 			PkScript:   lock.PkScript,
 			Value:      lock.Value,
@@ -1578,7 +1579,7 @@ func leaseOutput(ctx *cli.Context) error {
 	}
 
 	outpointStr := ctx.String("outpoint")
-	outpoint, err := NewProtoOutPoint(outpointStr)
+	outpoint, err := lnd.NewProtoOutPoint(outpointStr)
 	if err != nil {
 		return fmt.Errorf("error parsing outpoint: %w", err)
 	}
@@ -1663,7 +1664,7 @@ func releaseOutput(ctx *cli.Context) error {
 		return fmt.Errorf("outpoint argument missing")
 	}
 
-	outpoint, err := NewProtoOutPoint(outpointStr)
+	outpoint, err := lnd.NewProtoOutPoint(outpointStr)
 	if err != nil {
 		return fmt.Errorf("error parsing outpoint: %w", err)
 	}

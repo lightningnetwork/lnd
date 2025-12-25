@@ -295,6 +295,10 @@ type Config struct {
 	// TrafficShaper is an optional traffic shaper that can be used to
 	// control the outgoing channel of a payment.
 	TrafficShaper fn.Option[htlcswitch.AuxTrafficShaper]
+
+	// GcFailedPaymentsOnStartup is a flag that indicates whether to
+	// garbage collect failed payments on startup.
+	GcFailedPaymentsOnStartup bool
 }
 
 // EdgeLocator is a struct used to identify a specific edge.
@@ -353,6 +357,15 @@ func (r *ChannelRouter) Start() error {
 	}
 
 	log.Info("Channel Router starting")
+
+	// If the garbage collection flag is set, we'll delete the failed
+	// payments on startup.
+	if r.cfg.GcFailedPaymentsOnStartup {
+		if err := r.cfg.Control.DeleteFailedPayments(); err != nil {
+			log.Error("Failed to delete failed payments on startup")
+			return err
+		}
+	}
 
 	// If any payments are still in flight, we resume, to make sure their
 	// results are properly handled.

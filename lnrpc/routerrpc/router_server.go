@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -482,6 +483,7 @@ func (s *Server) probeDestination(dest []byte, amtSat int64) (*RouteFeeResponse,
 			CltvLimit:         s.cfg.RouterBackend.MaxTotalTimelock,
 			ProbabilitySource: mc.GetProbability,
 		}, nil, nil, nil, s.cfg.RouterBackend.DefaultFinalCltvDelta,
+		fn.None[[32]byte](), fn.None[*record.AMP](),
 	)
 	if err != nil {
 		return nil, err
@@ -1061,6 +1063,35 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 
 	if req.Route == nil {
 		return nil, fmt.Errorf("unable to send, no routes provided")
+	}
+
+	// Perform early validation on the route before attempting to send.
+	// Check that the final hop has either an MPP or AMP record.
+	if len(req.Route.Hops) > 0 {
+		finalHop := req.Route.Hops[len(req.Route.Hops)-1]
+
+		// Check if this is a blinded payment (blinded hops don't need
+		// MPP/AMP).
+		hasBlindingPoint := len(finalHop.BlindingPoint) > 0
+
+		if !hasBlindingPoint {
+			hasMPP := finalHop.MppRecord != nil
+			hasAMP := finalHop.AmpRecord != nil
+
+			// Require either MPP or AMP record.
+			if !hasMPP && !hasAMP {
+				return nil, errors.New("final hop must include " +
+					"either an MPP record (with payment_addr) " +
+					"or an AMP record as required by the " +
+					"Lightning Network specification")
+			}
+
+			// Cannot have both.
+			if hasMPP && hasAMP {
+				return nil, errors.New("final hop cannot have " +
+					"both MPP and AMP records")
+			}
+		}
 	}
 
 	route, err := s.cfg.RouterBackend.UnmarshallRoute(req.Route)
@@ -1678,6 +1709,33 @@ func (s *Server) BuildRoute(_ context.Context,
 
 		payAddr = fn.Some(backingPayAddr)
 	}
+
+	// TODO(user): Once protos are regenerated with amp_record field,
+	// uncomment the following code to add AMP support:
+	/*
+		var amp fn.Option[*record.AMP]
+		if req.AmpRecord != nil {
+			ampRec, err := UnmarshalAMP(req.AmpRecord)
+			if err != nil {
+				return nil, fmt.Errorf("invalid AMP record: %w", err)
+			}
+			amp = fn.Some(ampRec)
+		}
+
+		// Validate that payment_addr and amp_record are mutually exclusive.
+		if payAddr.IsSome() && amp.IsSome() {
+			return nil, errors.New("payment_addr and amp_record " +
+				"cannot both be set")
+		}
+
+		// Require either payment_addr or amp_record to be set as per
+		// Lightning Network specification.
+		if payAddr.IsNone() && amp.IsNone() {
+			return nil, errors.New("either payment_addr (for MPP) or " +
+				"amp_record (for AMP) must be provided as required " +
+				"by Lightning Network specification")
+		}
+	*/
 
 	if req.FinalCltvDelta == 0 {
 		req.FinalCltvDelta = int32(

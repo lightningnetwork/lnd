@@ -2377,7 +2377,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	const amt lnwire.MilliSatoshi = 4999999
 	req, err := NewRouteRequest(
 		bob, &carol, amt, 0, noRestrictions, nil, nil,
-		nil, MinCLTVDelta,
+		nil, MinCLTVDelta, fn.None[[32]byte](), fn.None[*record.AMP](),
 	)
 	require.NoError(t, err, "invalid route request")
 
@@ -2404,7 +2404,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// We'll now request a route from A -> B -> C.
 	req, err = NewRouteRequest(
 		alice, &carol, amt, 0, noRestrictions, nil, nil, nil,
-		MinCLTVDelta,
+		MinCLTVDelta, fn.None[[32]byte](), fn.None[*record.AMP](),
 	)
 	require.NoError(t, err, "invalid route request")
 

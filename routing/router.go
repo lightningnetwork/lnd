@@ -422,6 +422,15 @@ type RouteRequest struct {
 	// parameters used to reach a target node blinded paths. This field is
 	// mutually exclusive with the Target field.
 	BlindedPathSet *BlindedPaymentPathSet
+
+	// PaymentAddr is an optional payment address to include in the MPP
+	// record for the final hop. This is also known as the payment secret.
+	// If set, an MPP record will be attached to the final hop.
+	PaymentAddr fn.Option[[32]byte]
+
+	// AMPRecord is an optional AMP record to include in the final hop.
+	// This is mutually exclusive with PaymentAddr.
+	AMP fn.Option[*record.AMP]
 }
 
 // RouteHints is an alias type for a set of route hints, with the source node
@@ -436,7 +445,8 @@ func NewRouteRequest(source route.Vertex, target *route.Vertex,
 	amount lnwire.MilliSatoshi, timePref float64,
 	restrictions *RestrictParams, customRecords record.CustomSet,
 	routeHints RouteHints, blindedPathSet *BlindedPaymentPathSet,
-	finalExpiry uint16) (*RouteRequest, error) {
+	finalExpiry uint16, paymentAddr fn.Option[[32]byte],
+	amp fn.Option[*record.AMP]) (*RouteRequest, error) {
 
 	var (
 		// Assume that we're starting off with a regular payment.
@@ -473,6 +483,12 @@ func NewRouteRequest(source route.Vertex, target *route.Vertex,
 		return nil, err
 	}
 
+	// Validate that MPP and AMP are mutually exclusive.
+	if paymentAddr.IsSome() && amp.IsSome() {
+		return nil, errors.New("cannot set both payment_addr (MPP) " +
+			"and AMP record")
+	}
+
 	return &RouteRequest{
 		Source:         source,
 		Target:         requestTarget,
@@ -483,6 +499,8 @@ func NewRouteRequest(source route.Vertex, target *route.Vertex,
 		RouteHints:     requestHints,
 		FinalExpiry:    requestExpiry,
 		BlindedPathSet: blindedPathSet,
+		PaymentAddr:    paymentAddr,
+		AMP:            amp,
 	}, nil
 }
 
@@ -563,10 +581,12 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 	route, err := newRoute(
 		req.Source, path, uint32(currentHeight),
 		finalHopParams{
-			amt:       req.Amount,
-			totalAmt:  req.Amount,
-			cltvDelta: req.FinalExpiry,
-			records:   req.CustomRecords,
+			amt:         req.Amount,
+			totalAmt:    req.Amount,
+			cltvDelta:   req.FinalExpiry,
+			records:     req.CustomRecords,
+			paymentAddr: req.PaymentAddr,
+			amp:         req.AMP,
 		}, req.BlindedPathSet,
 	)
 	if err != nil {

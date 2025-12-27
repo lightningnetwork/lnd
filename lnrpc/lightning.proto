@@ -3291,6 +3291,22 @@ message QueryRoutesRequest {
     channel may be used.
     */
     repeated uint64 outgoing_chan_ids = 20;
+
+    /*
+    An optional payment address to be included in the MPP record for the final
+    hop. This field is also referred to as the "payment secret" in BOLT 11.
+    Including this in the query allows the returned route to be used directly
+    with SendToRoute. This field is now required per the Lightning Network
+    specification and should always be provided for standard payments.
+    */
+    bytes payment_addr = 21;
+
+    /*
+    An optional AMP record to use for AMP payments. If provided, this will be
+    included in the final hop of the route instead of an MPP record. The
+    payment_addr field should not be set if this is provided.
+    */
+    AMPRecord amp_record = 22;
 }
 
 message NodePair {

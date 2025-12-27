@@ -790,6 +790,7 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 				EndorsementExperimentEnd,
 			)
 		},
+		ForwardingLog: s.miscDB.ForwardingLog(),
 	}
 
 	genInvoiceFeatures := func() *lnwire.FeatureVector {

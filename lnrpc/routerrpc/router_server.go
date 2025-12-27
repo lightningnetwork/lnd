@@ -168,6 +168,10 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/routerrpc.Router/DeleteForwardingHistory": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
 	}
 
 	// DefaultRouterMacFilename is the default name of the router macaroon
@@ -1971,4 +1975,176 @@ func (s *Server) UpdateChanStatus(_ context.Context,
 		return nil, err
 	}
 	return &UpdateChanStatusResponse{}, nil
+}
+
+// DeleteForwardingHistory deletes forwarding history events older than a
+// specified time. This method is useful for implementing data retention
+// policies for privacy purposes.
+func (s *Server) DeleteForwardingHistory(ctx context.Context,
+	req *DeleteForwardingHistoryRequest) (*DeleteForwardingHistoryResponse,
+	error) {
+
+	// First, determine the delete-before time based on the request.
+	var deleteBeforeTime time.Time
+	switch timeSpec := req.TimeSpec.(type) {
+	case *DeleteForwardingHistoryRequest_DeleteBeforeTime:
+		deleteBeforeTime = time.Unix(
+			int64(timeSpec.DeleteBeforeTime), 0,
+		)
+
+	case *DeleteForwardingHistoryRequest_Duration:
+		// Parse duration using hybrid approach: try standard library
+		// first, fall back to custom units (d, w, M, y) if needed.
+		duration, err := parseDuration(timeSpec.Duration)
+		if err != nil {
+			return nil, fmt.Errorf("invalid duration format: %w", err)
+		}
+
+		// Calculate the absolute time by adding the duration (which
+		// should be negative) to now.
+		deleteBeforeTime = time.Now().Add(duration)
+
+	default:
+		return nil, fmt.Errorf("time specification required: either " +
+			"delete_before_time or duration must be provided")
+	}
+
+	// Security validation: prevent accidental deletion of very recent data.
+	// Require that the delete time is at least 1 second in the past. This
+	// provides a minimal safety check while allowing integration tests to
+	// work. In production, users typically delete much older data (days/
+	// weeks/months old).
+	//
+	// TODO(roasbeef): Consider making this configurable or using a longer
+	// duration (e.g., 1 hour) for production with a way to override for
+	// testing.
+	minimumAge := 1 * time.Second
+	if time.Since(deleteBeforeTime) < minimumAge {
+		return nil, fmt.Errorf("delete_before_time must be at "+
+			"least %v "+
+			"in the past to prevent accidental deletion of recent "+
+			"data (requested time: %v, current time: %v)",
+			minimumAge, deleteBeforeTime, time.Now())
+	}
+
+	// Set default batch size if not specified.
+	batchSize := int(req.BatchSize)
+	if batchSize == 0 {
+		batchSize = 10000
+	}
+
+	log.Infof("DeleteForwardingHistory: deleting events before %v with "+
+		"batch size %d", deleteBeforeTime, batchSize)
+
+	// Call the database deletion method.
+	stats, err := s.cfg.RouterBackend.ForwardingLog.DeleteForwardingEvents(
+		deleteBeforeTime, batchSize,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete forwarding events: %w",
+			err)
+	}
+
+	log.Infof("DeleteForwardingHistory: deleted %d events, total fees: "+
+		"%d msat", stats.NumEventsDeleted, stats.TotalFeeMsat)
+
+	return &DeleteForwardingHistoryResponse{
+		EventsDeleted: stats.NumEventsDeleted,
+		TotalFeeMsat:  stats.TotalFeeMsat,
+		Status: fmt.Sprintf("Successfully deleted %d forwarding events",
+			stats.NumEventsDeleted),
+	}, nil
+}
+
+// parseDuration parses a duration string using a hybrid approach. It first
+// attempts to use the standard library time.ParseDuration, which supports
+// ns, us, ms, s, m, h. If that fails, it falls back to custom parsing for
+// user-friendly units: d (days), w (weeks), M (months), y (years).
+//
+// Examples:
+//   - Standard Go: "-24h", "-1.5h", "-30m"
+//   - Custom units: "-1d", "-1w", "-1M", "-1y"
+//
+// All durations should be negative to indicate "time ago".
+func parseDuration(durationStr string) (time.Duration, error) {
+	// First, try the standard library parser.
+	duration, err := time.ParseDuration(durationStr)
+	if err == nil {
+		// Enforce negative durations to prevent confusion.
+		if duration >= 0 {
+			return 0, fmt.Errorf("duration must be negative to " +
+				"indicate time in the past (e.g., -1w, -24h)")
+		}
+		return duration, nil
+	}
+
+	// Fall back to custom parsing for d, w, M, y units.
+	if len(durationStr) < 2 {
+		return 0, fmt.Errorf("duration too short")
+	}
+
+	// Duration strings should start with a minus sign for "ago".
+	if durationStr[0] != '-' {
+		return 0, fmt.Errorf("duration must be " +
+			"negative (e.g., -1w, -24h)")
+	}
+
+	// Strip the minus sign.
+	durationStr = durationStr[1:]
+
+	// Find where the numeric part ends.
+	var (
+		numStr string
+		unit   string
+	)
+	for i, ch := range durationStr {
+		if ch < '0' || ch > '9' {
+			numStr = durationStr[:i]
+			unit = durationStr[i:]
+			break
+		}
+	}
+
+	if numStr == "" {
+		return 0, fmt.Errorf("no numeric value found")
+	}
+	if unit == "" {
+		return 0, fmt.Errorf("no unit specified")
+	}
+
+	var value int
+	_, parseErr := fmt.Sscanf(numStr, "%d", &value)
+	if parseErr != nil {
+		return 0, fmt.Errorf("invalid numeric value: %w", parseErr)
+	}
+
+	// Calculate the duration based on the custom unit.
+	var customDuration time.Duration
+	switch unit {
+	case "d":
+		customDuration = time.Duration(value) * 24 * time.Hour
+
+	case "w":
+		customDuration = time.Duration(value) * 7 * 24 * time.Hour
+
+	case "M":
+		// Average month = 30.44 days.
+		customDuration = time.Duration(
+			float64(value) * 30.44 * 24 * float64(time.Hour),
+		)
+
+	case "y":
+		// Average year = 365.25 days.
+		customDuration = time.Duration(
+			float64(value) * 365.25 * 24 * float64(time.Hour),
+		)
+
+	default:
+		// Not a custom unit we recognize, return the original error.
+		return 0, fmt.Errorf("unknown time unit: %s (supported: ns, "+
+			"us, ms, s, m, h, d, w, M, y)", unit)
+	}
+
+	// Return negative duration (going back in time).
+	return -customDuration, nil
 }

@@ -451,8 +451,8 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 	}
 
 	// Parse payment_addr for MPP or amp_record for AMP payments.
-	// These are mutually exclusive and at least one must be provided for
-	// non-blinded payments as per Lightning Network specification.
+	// These are mutually exclusive and will be required for non-blinded
+	// payments as per Lightning Network specification.
 	// TODO(user): Once protos are regenerated with payment_addr and
 	// amp_record fields, uncomment the following code:
 	/*
@@ -473,13 +473,18 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 			amp = fn.Some(ampRec)
 		}
 
-		// Validate that for non-blinded payments, either payment_addr or
-		// amp_record is provided.
+		// Log warning if neither payment_addr nor amp_record provided
+		// for non-blinded payments.
 		if blindedPathSet == nil {
 			if paymentAddr.IsNone() && amp.IsNone() {
-				return nil, errors.New("payment_addr or amp_record " +
-					"must be provided for standard payments as " +
-					"required by Lightning Network specification")
+				log.Warnf("QueryRoutes missing payment_addr or " +
+					"amp_record. This will be required in a " +
+					"future LND release as per Lightning " +
+					"Network specification.")
+				// TODO(v0.21.0): Uncomment to enforce validation.
+				// return nil, errors.New("payment_addr or amp_record " +
+				//	"must be provided for standard payments as " +
+				//	"required by Lightning Network specification")
 			}
 		}
 	*/
@@ -866,7 +871,7 @@ func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 	}
 
 	// Validate that the final hop contains either an MPP or AMP record.
-	// This is now required by the Lightning Network specification.
+	// This will be required by the Lightning Network specification.
 	if len(hops) > 0 {
 		finalHop := hops[len(hops)-1]
 
@@ -876,10 +881,16 @@ func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 		if !hasBlindingPoint {
 			// Final hop must have either MPP or AMP record.
 			if finalHop.MPP == nil && finalHop.AMP == nil {
-				return nil, errors.New("final hop must include " +
-					"either an MPP record (with payment_addr) or " +
-					"an AMP record as required by the Lightning " +
-					"Network specification")
+				log.Warnf("Route final hop missing MPP/AMP " +
+					"record. This will be required in a " +
+					"future LND release as per Lightning " +
+					"Network specification. Please update " +
+					"your client to include payment_addr or " +
+					"amp_record.")
+				// return nil, errors.New("final hop must include " +
+				//	"either an MPP record (with payment_addr) or " +
+				//	"an AMP record as required by the Lightning " +
+				//	"Network specification")
 			}
 
 			// Cannot have both MPP and AMP records.

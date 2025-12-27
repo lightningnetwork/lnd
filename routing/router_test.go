@@ -258,6 +258,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	req, err := NewRouteRequest(
 		ctx.router.cfg.SelfNode, &target, paymentAmt, 0,
 		restrictions, nil, nil, nil, MinCLTVDelta,
+		fn.None[[32]byte](), fn.None[*record.AMP](),
 	)
 	require.NoError(t, err, "invalid route request")
 
@@ -2683,6 +2684,7 @@ func TestNewRouteRequest(t *testing.T) {
 				source, testCase.target, 1000, 0, nil, nil,
 				testCase.routeHints, blindedPathInfo,
 				testCase.finalExpiry,
+				fn.None[[32]byte](), fn.None[*record.AMP](),
 			)
 			require.ErrorIs(t, err, testCase.err)
 
@@ -2863,6 +2865,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	req, err := NewRouteRequest(
 		ctx.router.cfg.SelfNode, &targetPubKeyBytes,
 		paymentAmt, 0, noRestrictions, nil, nil, nil, MinCLTVDelta,
+		fn.None[[32]byte](), fn.None[*record.AMP](),
 	)
 	require.NoError(t, err, "invalid route request")
 	_, _, err = ctx.router.FindRoute(req)
@@ -2901,6 +2904,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	req, err = NewRouteRequest(
 		ctx.router.cfg.SelfNode, &targetPubKeyBytes,
 		paymentAmt, 0, noRestrictions, nil, nil, nil, MinCLTVDelta,
+		fn.None[[32]byte](), fn.None[*record.AMP](),
 	)
 	require.NoError(t, err, "invalid route request")
 

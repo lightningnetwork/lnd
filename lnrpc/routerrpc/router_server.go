@@ -1078,12 +1078,18 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 			hasMPP := finalHop.MppRecord != nil
 			hasAMP := finalHop.AmpRecord != nil
 
-			// Require either MPP or AMP record.
+			// Log warning if neither MPP nor AMP record present.
 			if !hasMPP && !hasAMP {
-				return nil, errors.New("final hop must include " +
-					"either an MPP record (with payment_addr) " +
-					"or an AMP record as required by the " +
-					"Lightning Network specification")
+				log.Warnf("Route final hop missing MPP/AMP " +
+					"record. This will be required in a " +
+					"future LND release as per Lightning " +
+					"Network specification. Please update " +
+					"your client to include payment_addr or " +
+					"amp_record.")
+				// return nil, errors.New("final hop must include " +
+				//	"either an MPP record (with payment_addr) " +
+				//	"or an AMP record as required by the " +
+				//	"Lightning Network specification")
 			}
 
 			// Cannot have both.

@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1614,7 +1616,7 @@ func (d *AuthenticatedGossiper) handleNetworkMessages(ctx context.Context,
 	nMsg *networkMsg, deDuped *deDupedAnnouncements, jobID JobID) {
 
 	defer d.wg.Done()
-	defer d.vb.CompleteJob()
+	defer d.finalizeGossipProcessing(ctx, "processing", nMsg, &jobID)
 
 	// We should only broadcast this message forward if it originated from
 	// us or it wasn't received as part of our initial historical sync.
@@ -1667,6 +1669,83 @@ func (d *AuthenticatedGossiper) handleNetworkMessages(ctx context.Context,
 	} else if newAnns != nil {
 		log.Trace("Skipping broadcast of announcements received " +
 			"during initial graph sync")
+	}
+}
+
+// finalizeGossipProcessing handles cleanup for gossip message processing,
+// including job completion and panic recovery. It guards gossip goroutines
+// against panics to keep the daemon alive. On panic, it logs the error,
+// signals dependents, and reports back to the caller if possible.
+//
+// NOTE: This function MUST be called via defer to recover from panics.
+func (d *AuthenticatedGossiper) finalizeGossipProcessing(logCtx context.Context,
+	ctxStr string, nMsg *networkMsg, jobID *JobID) {
+
+	// Always complete the job when provided, regardless of panic state.
+	// This ensures job slots are returned even if callers forget or
+	// misordering occurs.
+	if jobID != nil {
+		d.vb.CompleteJob()
+	}
+
+	r := recover()
+	if r == nil {
+		return
+	}
+
+	msgType := "unknown"
+	if nMsg != nil && nMsg.msg != nil {
+		msgType = nMsg.msg.MsgType().String()
+	}
+
+	var peerPub string
+	if nMsg != nil && nMsg.peer != nil {
+		peerPub = route.NewVertex(nMsg.peer.IdentityKey()).String()
+	} else {
+		peerPub = "unknown"
+	}
+
+	log.ErrorS(logCtx, "Panic during gossip message processing",
+		fmt.Errorf("%v", r),
+		slog.String("context", ctxStr),
+		slog.String("msg_type", msgType),
+		slog.String("peer", peerPub),
+	)
+	// Truncate the stack trace to avoid filling up disk space if an
+	// attacker repeatedly triggers panics.
+	const maxStackSize = 8192
+	stack := debug.Stack()
+	if len(stack) > maxStackSize {
+		stack = stack[:maxStackSize]
+	}
+	log.DebugS(logCtx, "Panic stack trace",
+		slog.String("stack", string(stack)),
+	)
+
+	// Signal any dependents waiting on this message so they don't block
+	// forever.
+	if nMsg != nil && nMsg.msg != nil && jobID != nil {
+		if err := d.vb.SignalDependents(
+			nMsg.msg, *jobID,
+		); err != nil {
+			log.ErrorS(logCtx, "SignalDependents after panic failed",
+				err,
+				slog.String("msg_type", nMsg.msg.MsgType().String()),
+			)
+		}
+	}
+
+	// Send an error back to the caller if possible.
+	if nMsg != nil && nMsg.err != nil {
+		select {
+		case nMsg.err <- fmt.Errorf("panic while %s gossip "+
+			"message %s: %v", ctxStr, msgType, r):
+		default:
+			log.WarnS(logCtx, "Unable to send panic error, "+
+				"error channel blocked", nil,
+				slog.String("msg_type", msgType),
+			)
+		}
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1615,6 +1616,7 @@ func (d *AuthenticatedGossiper) handleNetworkMessages(ctx context.Context,
 
 	defer d.wg.Done()
 	defer d.vb.CompleteJob()
+	defer d.recoverGossipPanic("processing", nMsg, &jobID)
 
 	// We should only broadcast this message forward if it originated from
 	// us or it wasn't received as part of our initial historical sync.
@@ -1667,6 +1669,54 @@ func (d *AuthenticatedGossiper) handleNetworkMessages(ctx context.Context,
 	} else if newAnns != nil {
 		log.Trace("Skipping broadcast of announcements received " +
 			"during initial graph sync")
+	}
+}
+
+// recoverGossipPanic guards gossip goroutines against panics to keep the
+// daemon alive. It logs the panic, optionally signals dependents, and reports
+// back to the caller if possible.
+func (d *AuthenticatedGossiper) recoverGossipPanic(ctx string,
+	nMsg *networkMsg, jobID *JobID) {
+
+	r := recover()
+	if r == nil {
+		return
+	}
+
+	msgType := "unknown"
+	if nMsg != nil && nMsg.msg != nil {
+		msgType = nMsg.msg.MsgType().String()
+	}
+
+	var peerPub string
+	if nMsg != nil && nMsg.peer != nil {
+		peerPub = route.NewVertex(nMsg.peer.IdentityKey()).String()
+	} else {
+		peerPub = "unknown"
+	}
+
+	log.Errorf("Panic while %s gossip message %s from peer=%s: %v",
+		ctx, msgType, peerPub, r)
+	log.Debugf("Panic stack:\n%s", debug.Stack())
+
+	// Signal any dependents waiting on this message so they don't block
+	// forever.
+	if nMsg != nil && nMsg.msg != nil && jobID != nil {
+		if err := d.vb.SignalDependents(
+			nMsg.msg, *jobID,
+		); err != nil {
+			log.Errorf("SignalDependents after panic failed "+
+				"for msg=%v: %v", nMsg.msg.MsgType(), err)
+		}
+	}
+
+	// Send an error back to the caller if possible.
+	if nMsg != nil && nMsg.err != nil {
+		select {
+		case nMsg.err <- fmt.Errorf("panic while %s gossip "+
+			"message %s: %v", ctx, msgType, r):
+		default:
+		}
 	}
 }
 

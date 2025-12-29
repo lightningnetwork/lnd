@@ -1521,19 +1521,33 @@ func (d *AuthenticatedGossiper) networkHandler(ctx context.Context) {
 			// Channel announcement signatures are amongst the only
 			// messages that we'll process serially.
 			case *lnwire.AnnounceSignatures1:
-				emittedAnnouncements, _ := d.processNetworkAnnouncement(
-					ctx, announcement,
-				)
-				log.Debugf("Processed network message %s, "+
-					"returned len(announcements)=%v",
-					announcement.msg.MsgType(),
-					len(emittedAnnouncements))
-
-				if emittedAnnouncements != nil {
-					announcements.AddMsgs(
-						emittedAnnouncements...,
+				// Process in an anonymous function so we can
+				// recover from any panics without crashing the
+				// main networkHandler goroutine. We pass nil
+				// for jobID since AnnounceSignatures bypass the
+				// validation barrier.
+				func() {
+					defer d.finalizeGossipProcessing(
+						ctx, "processing",
+						announcement, nil,
 					)
-				}
+
+					//nolint:ll
+					emittedAnnouncements, _ := d.processNetworkAnnouncement(
+						ctx, announcement,
+					)
+					log.Debugf("Processed network "+
+						"message %s, returned "+
+						"len(announcements)=%v",
+						announcement.msg.MsgType(),
+						len(emittedAnnouncements))
+
+					if emittedAnnouncements != nil {
+						announcements.AddMsgs(
+							emittedAnnouncements...,
+						)
+					}
+				}()
 				continue
 			}
 

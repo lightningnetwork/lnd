@@ -112,6 +112,11 @@
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 
+* [Enforce non-zero timestamps](https://github.com/lightningnetwork/lnd/pull/10469)
+  for `channel_update` and `node_announcement` messages as required by BOLT 7.
+  Gossip messages with zero timestamps are now rejected, and remote peers sending
+  such invalid messages will have their ban score incremented.
+
 ## Testing
 
 * [Added unit tests for TLV length validation across multiple packages](https://github.com/lightningnetwork/lnd/pull/10249). 

@@ -112,7 +112,7 @@ func encodeVertex(w io.Writer, val interface{}, _ *[8]byte) error {
 }
 
 func decodeVertex(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
-	if b, ok := val.(*Vertex); ok {
+	if b, ok := val.(*Vertex); ok && l == VertexSize {
 		_, err := io.ReadFull(r, b[:])
 		return err
 	}

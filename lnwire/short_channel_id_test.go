@@ -62,3 +62,28 @@ func TestScidTypeEncodeDecode(t *testing.T) {
 	require.Contains(t, tlvs, AliasScidRecordType)
 	require.Equal(t, aliasScid, aliasScid2)
 }
+
+// TestScidTypeDecodeInvalidLength ensures that decoding a ShortChannelID TLV
+// with an invalid length (anything other than 8 bytes) fails with an error.
+func TestScidTypeDecodeInvalidLength(t *testing.T) {
+	t.Parallel()
+
+	aliasScid := ShortChannelID{
+		BlockHeight: 1, TxIndex: 1, TxPosition: 1,
+	}
+
+	var extraData ExtraOpaqueData
+	require.NoError(t, extraData.PackRecords(&aliasScid))
+
+	// Corrupt the TLV length field to simulate malformed input.
+	extraData[1] = 8 + 1
+
+	var out ShortChannelID
+	_, err := extraData.ExtractRecords(&out)
+	require.Error(t, err)
+
+	extraData[1] = 8 - 1
+
+	_, err = extraData.ExtractRecords(&out)
+	require.Error(t, err)
+}

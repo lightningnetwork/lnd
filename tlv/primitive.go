@@ -257,7 +257,7 @@ func EBytes33(w io.Writer, val interface{}, _ *[8]byte) error {
 // DBytes33 is a Decoder for 33-byte arrays. An error is returned if val is not
 // a *[33]byte.
 func DBytes33(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
-	if b, ok := val.(*[33]byte); ok {
+	if b, ok := val.(*[33]byte); ok && l == 33 {
 		_, err := io.ReadFull(r, b[:])
 		return err
 	}

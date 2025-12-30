@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/stretchr/testify/require"
 )
 
 var testPK, _ = btcec.ParsePubKey([]byte{0x02,
@@ -251,5 +252,91 @@ func TestPrimitiveEncodings(t *testing.T) {
 		t.Fatalf("primitive mismatch, "+
 			"expected: %v, got: %v",
 			prim, prim2)
+	}
+}
+
+// TestPrimitiveWrongLength asserts that fixed-size primitive decoders fail
+// with ErrTypeForDecoding when given an incorrect TLV length.
+func TestPrimitiveWrongLength(t *testing.T) {
+	prim := primitive{
+		u8:      0x01,
+		u16:     0x0201,
+		u32:     0x02000001,
+		u64:     0x0200000000000001,
+		b32:     [32]byte{0x02, 0x01},
+		b33:     [33]byte{0x03, 0x01},
+		b64:     [64]byte{0x02, 0x01},
+		pk:      testPK,
+		boolean: true,
+	}
+
+	type item struct {
+		enc fieldEncoder
+		dec fieldDecoder
+	}
+
+	items := []item{
+		{
+			fieldEncoder{&prim.u8, tlv.EUint8},
+			fieldDecoder{new(byte), tlv.DUint8, 1},
+		},
+		{
+			fieldEncoder{&prim.u16, tlv.EUint16},
+			fieldDecoder{new(uint16), tlv.DUint16, 2},
+		},
+		{
+			fieldEncoder{&prim.u32, tlv.EUint32},
+			fieldDecoder{new(uint32), tlv.DUint32, 4},
+		},
+		{
+			fieldEncoder{&prim.u64, tlv.EUint64},
+			fieldDecoder{new(uint64), tlv.DUint64, 8},
+		},
+		{
+			fieldEncoder{&prim.b32, tlv.EBytes32},
+			fieldDecoder{new([32]byte), tlv.DBytes32, 32},
+		},
+		{
+			fieldEncoder{&prim.b33, tlv.EBytes33},
+			fieldDecoder{new([33]byte), tlv.DBytes33, 33},
+		},
+		{
+			fieldEncoder{&prim.b64, tlv.EBytes64},
+			fieldDecoder{new([64]byte), tlv.DBytes64, 64},
+		},
+		{
+			fieldEncoder{&prim.pk, tlv.EPubKey},
+			fieldDecoder{new(*btcec.PublicKey), tlv.DPubKey, 33},
+		},
+		{
+			fieldEncoder{&prim.boolean, tlv.EBool},
+			fieldDecoder{new(bool), tlv.DBool, 1},
+		},
+	}
+
+	for _, it := range items {
+		var buf [8]byte
+		var b bytes.Buffer
+		err := it.enc.encoder(&b, it.enc.val, &buf)
+		require.NoError(t, err, "encode %T", it.enc.val)
+		data := b.Bytes()
+
+		// Generate two wrong lengths: expected-1 (if >0) and
+		// expected+1.
+		wrongs := []uint64{it.dec.size + 1}
+		if it.dec.size > 0 {
+			wrongs = append(wrongs, it.dec.size-1)
+		}
+
+		for _, l := range wrongs {
+			r := bytes.NewReader(data)
+			err := it.dec.decoder(r, it.dec.val, &buf, l)
+			require.ErrorAs(
+				t, err, &tlv.ErrTypeForDecoding{},
+				"decoder %T should reject wrong length "+
+					"%d (expected %d)",
+				it.dec.decoder, l, it.dec.size,
+			)
+		}
 	}
 }

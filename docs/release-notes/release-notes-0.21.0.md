@@ -39,6 +39,12 @@
   has been removed from the public key parsing methods, and proper mutex
   protection has been added to the cache access in `DisconnectBlockAtHeight`.
 
+- [Fixed TLV decoders to reject malformed records with incorrect lengths](https://github.com/lightningnetwork/lnd/pull/10249). 
+  TLV decoders now strictly enforce fixed-length requirements for Fee (8 bytes),
+  Musig2Nonce (66 bytes), ShortChannelID (8 bytes), Vertex (33 bytes), and
+  DBytes33 (33 bytes) records, preventing malformed TLV data from being
+  accepted.
+
 # New Features
 
 - Basic Support for [onion messaging forwarding](https://github.com/lightningnetwork/lnd/pull/9868) 
@@ -108,6 +114,11 @@
 
 ## Testing
 
+* [Added unit tests for TLV length validation across multiple packages](https://github.com/lightningnetwork/lnd/pull/10249). 
+  New tests  ensure that fixed-size TLV decoders reject malformed records with
+  invalid lengths, including roundtrip tests for Fee, Musig2Nonce,
+  ShortChannelID and Vertex records.
+
 ## Database
 
 * Freeze the [graph SQL migration 
@@ -122,6 +133,7 @@
 
 * Boris Nagaev
 * Elle Mouton
+* Erick Cestari
 * Mohamed Awnallah
 * Nishant Bansal
 * Pins

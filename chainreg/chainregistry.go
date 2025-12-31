@@ -721,6 +721,12 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			electrumClient, feeEstimatorCfg,
 		)
 
+		// Create the chain client for wallet integration.
+		chainClient := electrum.NewChainClient(
+			electrumClient, cfg.ActiveNetParams.Params,
+		)
+		cc.ChainSource = chainClient
+
 		// Health check verifies we can connect to the Electrum server.
 		cc.HealthCheck = func() error {
 			if !electrumClient.IsConnected() {
@@ -729,13 +735,11 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			return nil
 		}
 
-		// Note: Electrum backend does not provide a ChainSource
-		// (chain.Interface) implementation. This means wallet
-		// functionality that depends on ChainSource won't work with
-		// the Electrum backend. Users should be aware of this
-		// limitation.
-		log.Warn("Electrum backend does not provide full wallet " +
-			"chain source functionality")
+		// Note: Electrum backend has limitations compared to full
+		// nodes. Most notably, it cannot serve full block data.
+		// Operations requiring full blocks will fail.
+		log.Warn("Electrum backend does not support full block " +
+			"retrieval - some operations may be limited")
 
 	case "nochainbackend":
 		backend := &NoChainBackend{}

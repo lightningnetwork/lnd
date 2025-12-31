@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/cluster"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/electrum"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -214,6 +215,7 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	)
 
 	AddSubLogger(root, onionmessage.Subsystem, interceptor, onionmessage.UseLogger)
+	AddSubLogger(root, "ELEC", interceptor, electrum.UseLogger)
 }
 
 // AddSubLogger is a helper method to conveniently create and register the

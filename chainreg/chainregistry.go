@@ -21,8 +21,10 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
+	"github.com/lightningnetwork/lnd/chainntnfs/electrumnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/electrum"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
@@ -682,17 +684,58 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		}
 
 	case "electrum":
-		// TODO(electrum): Implement Electrum backend support.
-		//
-		// The Electrum backend will require:
-		// - ElectrumNotifier implementing chainntnfs.ChainNotifier
-		// - ElectrumFilteredChainView implementing chainview.FilteredChainView
-		// - Electrum chain client implementing chain.Interface
-		// - Electrum fee estimator implementing chainfee.Estimator
-		//
-		// For now, return an error indicating this is not yet implemented.
-		return nil, nil, fmt.Errorf("electrum backend is not yet " +
-			"fully implemented")
+		electrumMode := cfg.ElectrumMode
+
+		// Create the Electrum client configuration.
+		electrumClientCfg := electrum.NewClientConfigFromLncfg(
+			electrumMode,
+		)
+
+		// Create and start the Electrum client.
+		electrumClient := electrum.NewClient(electrumClientCfg)
+		if err := electrumClient.Start(); err != nil {
+			return nil, nil, fmt.Errorf("unable to start electrum "+
+				"client: %v", err)
+		}
+
+		// Create the chain notifier.
+		chainNotifier := electrumnotify.New(
+			electrumClient, cfg.ActiveNetParams.Params,
+			hintCache, hintCache, cfg.BlockCache,
+		)
+		cc.ChainNotifier = chainNotifier
+
+		// Create the filtered chain view using the adapter.
+		chainViewAdapter := electrum.NewChainViewAdapter(electrumClient)
+		cc.ChainView, err = chainview.NewElectrumFilteredChainView(
+			chainViewAdapter,
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to create "+
+				"electrum chain view: %v", err)
+		}
+
+		// Create the fee estimator.
+		feeEstimatorCfg := electrum.DefaultFeeEstimatorConfig()
+		cc.FeeEstimator = electrum.NewFeeEstimator(
+			electrumClient, feeEstimatorCfg,
+		)
+
+		// Health check verifies we can connect to the Electrum server.
+		cc.HealthCheck = func() error {
+			if !electrumClient.IsConnected() {
+				return fmt.Errorf("electrum client not connected")
+			}
+			return nil
+		}
+
+		// Note: Electrum backend does not provide a ChainSource
+		// (chain.Interface) implementation. This means wallet
+		// functionality that depends on ChainSource won't work with
+		// the Electrum backend. Users should be aware of this
+		// limitation.
+		log.Warn("Electrum backend does not provide full wallet " +
+			"chain source functionality")
 
 	case "nochainbackend":
 		backend := &NoChainBackend{}

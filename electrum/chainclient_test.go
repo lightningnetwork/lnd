@@ -457,3 +457,62 @@ func TestChainClientCacheHeader(t *testing.T) {
 	require.True(t, exists)
 	require.Equal(t, &hash, cachedHash)
 }
+
+// TestChainClientGetUtxo tests the GetUtxo method.
+func TestChainClientGetUtxo(t *testing.T) {
+	t.Parallel()
+
+	cfg := &ClientConfig{
+		Server:            "localhost:50001",
+		UseSSL:            false,
+		ReconnectInterval: 10 * time.Second,
+		RequestTimeout:    1 * time.Second,
+		PingInterval:      60 * time.Second,
+		MaxRetries:        0,
+	}
+	client := NewClient(cfg)
+
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+
+	// Create a test outpoint and pkScript.
+	testHash := chainhash.Hash{0x01, 0x02, 0x03}
+	op := &wire.OutPoint{
+		Hash:  testHash,
+		Index: 0,
+	}
+	pkScript := []byte{0x00, 0x14, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
+		0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+		0x11, 0x12, 0x13, 0x14}
+
+	// Without a connected client, GetUtxo should return an error.
+	cancel := make(chan struct{})
+	_, err := chainClient.GetUtxo(op, pkScript, 100, cancel)
+	require.Error(t, err)
+}
+
+// TestElectrumUtxoSourceInterface verifies that ChainClient implements the
+// ElectrumUtxoSource interface used by btcwallet.
+func TestElectrumUtxoSourceInterface(t *testing.T) {
+	t.Parallel()
+
+	cfg := &ClientConfig{
+		Server:            "localhost:50001",
+		UseSSL:            false,
+		ReconnectInterval: 10 * time.Second,
+		RequestTimeout:    30 * time.Second,
+		PingInterval:      60 * time.Second,
+		MaxRetries:        3,
+	}
+	client := NewClient(cfg)
+
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+
+	// Define the interface locally to test without importing btcwallet.
+	type UtxoSource interface {
+		GetUtxo(op *wire.OutPoint, pkScript []byte, heightHint uint32,
+			cancel <-chan struct{}) (*wire.TxOut, error)
+	}
+
+	// Verify ChainClient implements UtxoSource.
+	var _ UtxoSource = chainClient
+}

@@ -15,6 +15,16 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
+// ElectrumUtxoSource is an interface that wraps the GetUtxo method needed
+// from an Electrum chain client. This interface allows us to avoid import
+// cycles between the btcwallet and electrum packages.
+type ElectrumUtxoSource interface {
+	// GetUtxo returns the original output referenced by the passed
+	// outpoint if it is still unspent.
+	GetUtxo(op *wire.OutPoint, pkScript []byte, heightHint uint32,
+		cancel <-chan struct{}) (*wire.TxOut, error)
+}
+
 var (
 	// ErrOutputSpent is returned by the GetUtxo method if the target output
 	// for lookup has already been spent.
@@ -123,6 +133,13 @@ func (b *BtcWallet) GetUtxo(op *wire.OutPoint, pkScript []byte,
 		}, nil
 
 	default:
+		// Check if the backend implements ElectrumUtxoSource interface.
+		// This allows the Electrum chain client to be used without
+		// creating an import cycle.
+		if electrumBackend, ok := b.chain.(ElectrumUtxoSource); ok {
+			return electrumBackend.GetUtxo(op, pkScript, heightHint, cancel)
+		}
+
 		return nil, fmt.Errorf("unknown backend")
 	}
 }

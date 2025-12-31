@@ -39,6 +39,13 @@ var (
 	// Electrum.
 	ErrNotImplemented = errors.New("operation not implemented for " +
 		"electrum backend")
+
+	// ErrOutputSpent is returned when the requested output has been spent.
+	ErrOutputSpent = errors.New("output has been spent")
+
+	// ErrOutputNotFound is returned when the requested output cannot be
+	// found.
+	ErrOutputNotFound = errors.New("output not found")
 )
 
 // ChainClient is an implementation of chain.Interface that uses an Electrum
@@ -466,6 +473,59 @@ func (c *ChainClient) SendRawTransaction(tx *wire.MsgTx,
 	defer cancel()
 
 	return c.client.BroadcastTx(ctx, tx)
+}
+
+// GetUtxo returns the original output referenced by the passed outpoint if it
+// is still unspent. This uses Electrum's listunspent RPC to check if the
+// output exists.
+func (c *ChainClient) GetUtxo(op *wire.OutPoint, pkScript []byte,
+	heightHint uint32, cancel <-chan struct{}) (*wire.TxOut, error) {
+
+	// Convert the pkScript to a scripthash for Electrum query.
+	scripthash := ScripthashFromScript(pkScript)
+
+	ctx, ctxCancel := context.WithTimeout(
+		context.Background(), defaultRequestTimeout,
+	)
+	defer ctxCancel()
+
+	// Query unspent outputs for this scripthash.
+	unspent, err := c.client.ListUnspent(ctx, scripthash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list unspent: %w", err)
+	}
+
+	// Search for our specific outpoint in the unspent list.
+	for _, utxo := range unspent {
+		if utxo.Hash == op.Hash.String() &&
+			utxo.Position == op.Index {
+
+			// Found the UTXO - it's unspent.
+			return &wire.TxOut{
+				Value:    int64(utxo.Value),
+				PkScript: pkScript,
+			}, nil
+		}
+	}
+
+	// Not found in unspent list. Check if it exists at all by looking at
+	// the transaction history.
+	history, err := c.client.GetHistory(ctx, scripthash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get history: %w", err)
+	}
+
+	// Check if any transaction in history matches our outpoint's tx.
+	for _, histItem := range history {
+		if histItem.Hash == op.Hash.String() {
+			// The transaction exists but the output is not in the
+			// unspent list, meaning it has been spent.
+			return nil, ErrOutputSpent
+		}
+	}
+
+	// Output was never found.
+	return nil, ErrOutputNotFound
 }
 
 // Rescan rescans the chain for transactions paying to the given addresses.

@@ -123,21 +123,24 @@ func (c *ChainClient) Start() error {
 		return ErrNotConnected
 	}
 
-	// Subscribe to headers and get the current best block.
-	ctx, cancel := context.WithTimeout(context.Background(), defaultRequestTimeout)
-	defer cancel()
-
-	headerChan, err := c.client.SubscribeHeaders(ctx)
+	// Subscribe to headers using a background context that won't be
+	// cancelled when Start() returns. The subscription needs to live for
+	// the lifetime of the client.
+	headerChan, err := c.client.SubscribeHeaders(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to headers: %w", err)
 	}
 
-	// Get initial header.
+	// Get initial header with a timeout.
 	select {
 	case header := <-headerChan:
+		ctx, cancel := context.WithTimeout(
+			context.Background(), defaultRequestTimeout,
+		)
 		blockHeader, err := c.client.GetBlockHeader(
 			ctx, uint32(header.Height),
 		)
+		cancel()
 		if err != nil {
 			return fmt.Errorf("failed to get initial header: %w",
 				err)
@@ -162,6 +165,11 @@ func (c *ChainClient) Start() error {
 	// Start the notification handler.
 	c.wg.Add(1)
 	go c.notificationHandler(headerChan)
+
+	// Send ClientConnected notification first. This triggers the wallet to
+	// start the sync process by calling syncWithChain.
+	log.Infof("Sending ClientConnected notification to trigger wallet sync")
+	c.notificationChan <- chain.ClientConnected{}
 
 	// Send initial rescan finished notification.
 	c.bestBlockMtx.RLock()
@@ -311,12 +319,18 @@ func (c *ChainClient) GetBlockHeader(
 //
 // NOTE: This is part of the chain.Interface interface.
 func (c *ChainClient) IsCurrent() bool {
-	c.bestBlockMtx.RLock()
-	bestTime := c.bestBlock.Timestamp
-	c.bestBlockMtx.RUnlock()
+	bestHash, _, err := c.GetBestBlock()
+	if err != nil {
+		return false
+	}
+
+	bestHeader, err := c.GetBlockHeader(bestHash)
+	if err != nil {
+		return false
+	}
 
 	// Consider ourselves current if the best block is within 2 hours.
-	return time.Since(bestTime) < 2*time.Hour
+	return time.Since(bestHeader.Timestamp) < 2*time.Hour
 }
 
 // FilterBlocks scans the blocks contained in the FilterBlocksRequest for any
@@ -538,6 +552,11 @@ func (c *ChainClient) Rescan(startHash *chainhash.Hash,
 	log.Infof("Starting rescan from block %s with %d addresses and "+
 		"%d outpoints", startHash, len(addrs), len(outpoints))
 
+	// Log all addresses being watched for debugging.
+	for i, addr := range addrs {
+		log.Debugf("Rescan address %d: %s", i, addr.EncodeAddress())
+	}
+
 	// Store watched addresses and outpoints.
 	c.watchedAddrsMtx.Lock()
 	for _, addr := range addrs {
@@ -621,14 +640,25 @@ func (c *ChainClient) scanAddressHistory(ctx context.Context,
 
 	scripthash := ScripthashFromScript(pkScript)
 
+	log.Debugf("Scanning history for address %s (scripthash: %s) from height %d",
+		addr.EncodeAddress(), scripthash, startHeight)
+
 	history, err := c.client.GetHistory(ctx, scripthash)
 	if err != nil {
 		return err
 	}
 
+	log.Debugf("Found %d history items for address %s",
+		len(history), addr.EncodeAddress())
+
 	for _, histItem := range history {
+		log.Debugf("History item: txid=%s height=%d",
+			histItem.Hash, histItem.Height)
+
 		// Skip unconfirmed and historical transactions.
 		if histItem.Height <= 0 || int32(histItem.Height) < startHeight {
+			log.Debugf("Skipping tx %s: height=%d < startHeight=%d or unconfirmed",
+				histItem.Hash, histItem.Height, startHeight)
 			continue
 		}
 
@@ -653,7 +683,10 @@ func (c *ChainClient) scanAddressHistory(ctx context.Context,
 		}
 
 		// Send relevant transaction notification.
-		c.notificationChan <- &chain.RelevantTx{
+		log.Infof("scanAddressHistory: Sending RelevantTx for tx %s at height %d for address %s",
+			txHash, histItem.Height, addr.EncodeAddress())
+
+		c.notificationChan <- chain.RelevantTx{
 			TxRecord: &wtxmgr.TxRecord{
 				MsgTx:    *tx,
 				Hash:     *txHash,
@@ -666,20 +699,135 @@ func (c *ChainClient) scanAddressHistory(ctx context.Context,
 				},
 			},
 		}
+
+		log.Infof("scanAddressHistory: Successfully sent RelevantTx notification for tx %s", txHash)
 	}
 
 	return nil
 }
 
 // NotifyReceived marks the addresses to be monitored for incoming transactions.
+// It also scans for any existing transactions to these addresses and sends
+// notifications for them.
 //
 // NOTE: This is part of the chain.Interface interface.
 func (c *ChainClient) NotifyReceived(addrs []btcutil.Address) error {
-	c.watchedAddrsMtx.Lock()
-	defer c.watchedAddrsMtx.Unlock()
+	log.Infof("NotifyReceived called with %d addresses", len(addrs))
 
+	c.watchedAddrsMtx.Lock()
 	for _, addr := range addrs {
+		log.Debugf("Watching address: %s", addr.EncodeAddress())
 		c.watchedAddrs[addr.EncodeAddress()] = addr
+	}
+	c.watchedAddrsMtx.Unlock()
+
+	// Scan for existing activity on these addresses in a goroutine to avoid
+	// blocking. This ensures that if funds were already sent to an address,
+	// the wallet will be notified.
+	go func() {
+		log.Infof("Starting background scan for %d addresses", len(addrs))
+
+		ctx, cancel := context.WithTimeout(
+			context.Background(), 5*time.Minute,
+		)
+		defer cancel()
+
+		for _, addr := range addrs {
+			select {
+			case <-c.quit:
+				return
+			default:
+			}
+
+			log.Debugf("Scanning address %s for existing transactions",
+				addr.EncodeAddress())
+
+			if err := c.scanAddressForExistingTxs(ctx, addr); err != nil {
+				log.Debugf("Failed to scan address %s: %v",
+					addr.EncodeAddress(), err)
+			}
+		}
+
+		log.Infof("Finished background scan for %d addresses", len(addrs))
+	}()
+
+	return nil
+}
+
+// scanAddressForExistingTxs scans the blockchain for existing transactions
+// involving the given address and sends notifications for any found.
+func (c *ChainClient) scanAddressForExistingTxs(ctx context.Context,
+	addr btcutil.Address) error {
+
+	pkScript, err := scriptFromAddress(addr, c.chainParams)
+	if err != nil {
+		return err
+	}
+
+	scripthash := ScripthashFromScript(pkScript)
+
+	history, err := c.client.GetHistory(ctx, scripthash)
+	if err != nil {
+		return err
+	}
+
+	if len(history) == 0 {
+		log.Debugf("No history found for address %s", addr.EncodeAddress())
+		return nil
+	}
+
+	log.Infof("Found %d transactions for address %s",
+		len(history), addr.EncodeAddress())
+
+	for _, histItem := range history {
+		txHash, err := chainhash.NewHashFromStr(histItem.Hash)
+		if err != nil {
+			continue
+		}
+
+		tx, err := c.client.GetTransactionMsgTx(ctx, txHash)
+		if err != nil {
+			log.Warnf("Failed to get transaction %s: %v",
+				histItem.Hash, err)
+			continue
+		}
+
+		var block *wtxmgr.BlockMeta
+		if histItem.Height > 0 {
+			// Confirmed transaction.
+			blockHash, err := c.GetBlockHash(int64(histItem.Height))
+			if err != nil {
+				log.Warnf("Failed to get block hash for height %d: %v",
+					histItem.Height, err)
+				continue
+			}
+
+			block = &wtxmgr.BlockMeta{
+				Block: wtxmgr.Block{
+					Hash:   *blockHash,
+					Height: int32(histItem.Height),
+				},
+			}
+		}
+
+		// Send relevant transaction notification.
+		log.Infof("Sending RelevantTx notification for tx %s (height=%d) to address %s",
+			txHash, histItem.Height, addr.EncodeAddress())
+
+		select {
+		case c.notificationChan <- chain.RelevantTx{
+			TxRecord: &wtxmgr.TxRecord{
+				MsgTx:    *tx,
+				Hash:     *txHash,
+				Received: time.Now(),
+			},
+			Block: block,
+		}:
+		case <-c.quit:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 
 	return nil
@@ -829,35 +977,58 @@ func (c *ChainClient) checkWatchedAddresses(ctx context.Context,
 	}
 	c.watchedAddrsMtx.RUnlock()
 
+	log.Debugf("Checking %d watched addresses for block %d", len(addrs), height)
+
 	for _, addr := range addrs {
 		pkScript, err := scriptFromAddress(addr, c.chainParams)
 		if err != nil {
+			log.Warnf("Failed to get pkScript for address %s: %v",
+				addr.EncodeAddress(), err)
 			continue
 		}
 
 		scripthash := ScripthashFromScript(pkScript)
 
+		log.Tracef("Querying history for address %s (scripthash: %s)",
+			addr.EncodeAddress(), scripthash)
+
 		history, err := c.client.GetHistory(ctx, scripthash)
 		if err != nil {
+			log.Warnf("Failed to get history for address %s: %v",
+				addr.EncodeAddress(), err)
 			continue
 		}
 
+		log.Debugf("Address %s has %d history items",
+			addr.EncodeAddress(), len(history))
+
 		for _, histItem := range history {
+			log.Tracef("History item for %s: txid=%s height=%d (looking for height %d)",
+				addr.EncodeAddress(), histItem.Hash, histItem.Height, height)
+
 			if int32(histItem.Height) != height {
 				continue
 			}
 
+			log.Infof("Found relevant tx %s at height %d for address %s",
+				histItem.Hash, height, addr.EncodeAddress())
+
 			txHash, err := chainhash.NewHashFromStr(histItem.Hash)
 			if err != nil {
+				log.Warnf("Failed to parse tx hash %s: %v", histItem.Hash, err)
 				continue
 			}
 
 			tx, err := c.client.GetTransactionMsgTx(ctx, txHash)
 			if err != nil {
+				log.Warnf("Failed to get transaction %s: %v", histItem.Hash, err)
 				continue
 			}
 
-			c.notificationChan <- &chain.RelevantTx{
+			log.Infof("Sending RelevantTx notification for tx %s in block %d",
+				txHash, height)
+
+			c.notificationChan <- chain.RelevantTx{
 				TxRecord: &wtxmgr.TxRecord{
 					MsgTx:    *tx,
 					Hash:     *txHash,

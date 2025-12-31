@@ -686,26 +686,37 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	case "electrum":
 		electrumMode := cfg.ElectrumMode
 
+		log.Infof("Initializing Electrum backend, server=%s",
+			electrumMode.Server)
+
 		// Create the Electrum client configuration.
 		electrumClientCfg := electrum.NewClientConfigFromLncfg(
 			electrumMode,
 		)
 
+		log.Debug("Creating Electrum client")
+
 		// Create and start the Electrum client.
 		electrumClient := electrum.NewClient(electrumClientCfg)
+
+		log.Debug("Starting Electrum client")
 		if err := electrumClient.Start(); err != nil {
 			return nil, nil, fmt.Errorf("unable to start electrum "+
 				"client: %v", err)
 		}
+		log.Info("Electrum client started successfully")
 
 		// Create the chain notifier.
+		log.Debug("Creating Electrum chain notifier")
 		chainNotifier := electrumnotify.New(
 			electrumClient, cfg.ActiveNetParams.Params,
 			hintCache, hintCache, cfg.BlockCache,
 		)
 		cc.ChainNotifier = chainNotifier
+		log.Debug("Electrum chain notifier created")
 
 		// Create the filtered chain view using the adapter.
+		log.Debug("Creating Electrum filtered chain view")
 		chainViewAdapter := electrum.NewChainViewAdapter(electrumClient)
 		cc.ChainView, err = chainview.NewElectrumFilteredChainView(
 			chainViewAdapter,
@@ -714,18 +725,23 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			return nil, nil, fmt.Errorf("unable to create "+
 				"electrum chain view: %v", err)
 		}
+		log.Debug("Electrum filtered chain view created")
 
 		// Create the fee estimator.
+		log.Debug("Creating Electrum fee estimator")
 		feeEstimatorCfg := electrum.DefaultFeeEstimatorConfig()
 		cc.FeeEstimator = electrum.NewFeeEstimator(
 			electrumClient, feeEstimatorCfg,
 		)
+		log.Debug("Electrum fee estimator created")
 
 		// Create the chain client for wallet integration.
+		log.Debug("Creating Electrum chain client")
 		chainClient := electrum.NewChainClient(
 			electrumClient, cfg.ActiveNetParams.Params,
 		)
 		cc.ChainSource = chainClient
+		log.Debug("Electrum chain client created")
 
 		// Health check verifies we can connect to the Electrum server.
 		cc.HealthCheck = func() error {

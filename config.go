@@ -249,6 +249,7 @@ const (
 	bitcoindBackendName = "bitcoind"
 	btcdBackendName     = "btcd"
 	neutrinoBackendName = "neutrino"
+	electrumBackendName = "electrum"
 
 	defaultPrunedNodeMaxPeers = 4
 	defaultNeutrinoMaxPeers   = 8
@@ -379,6 +380,7 @@ type Config struct {
 	BtcdMode     *lncfg.Btcd     `group:"btcd" namespace:"btcd"`
 	BitcoindMode *lncfg.Bitcoind `group:"bitcoind" namespace:"bitcoind"`
 	NeutrinoMode *lncfg.Neutrino `group:"neutrino" namespace:"neutrino"`
+	ElectrumMode *lncfg.Electrum `group:"electrum" namespace:"electrum"`
 
 	BlockCacheSize uint64 `long:"blockcachesize" description:"The maximum capacity of the block cache"`
 
@@ -621,6 +623,7 @@ func DefaultConfig() Config {
 			UserAgentVersion: neutrino.UserAgentVersion,
 			MaxPeers:         defaultNeutrinoMaxPeers,
 		},
+		ElectrumMode:       lncfg.DefaultElectrumConfig(),
 		BlockCacheSize:     defaultBlockCacheSize,
 		MaxPendingChannels: lncfg.DefaultMaxPendingChannels,
 		NoSeedBackup:       defaultNoSeedBackup,
@@ -1343,12 +1346,19 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	case neutrinoBackendName:
 		// No need to get RPC parameters.
 
+	case electrumBackendName:
+		// Validate that an Electrum server address was provided.
+		if cfg.ElectrumMode.Server == "" {
+			return nil, mkErr("electrum.server must be set when " +
+				"using electrum mode")
+		}
+
 	case "nochainbackend":
 		// Nothing to configure, we're running without any chain
 		// backend whatsoever (pure signing mode).
 
 	default:
-		str := "only btcd, bitcoind, and neutrino mode " +
+		str := "only btcd, bitcoind, neutrino, and electrum mode " +
 			"supported for bitcoin at this time"
 
 		return nil, mkErr(str)

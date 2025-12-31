@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainntnfs/electrumnotify"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
@@ -216,6 +217,7 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 
 	AddSubLogger(root, onionmessage.Subsystem, interceptor, onionmessage.UseLogger)
 	AddSubLogger(root, "ELEC", interceptor, electrum.UseLogger)
+	AddSubLogger(root, "ELNF", interceptor, electrumnotify.UseLogger)
 }
 
 // AddSubLogger is a helper method to conveniently create and register the

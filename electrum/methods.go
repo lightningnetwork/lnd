@@ -11,6 +11,40 @@ import (
 	"github.com/checksum0/go-electrum/electrum"
 )
 
+// Re-export types from go-electrum for use by other packages without requiring
+// them to import the library directly.
+type (
+	// SubscribeHeadersResult is the result type for header subscriptions.
+	SubscribeHeadersResult = electrum.SubscribeHeadersResult
+
+	// GetBalanceResult is the result type for balance queries.
+	GetBalanceResult = electrum.GetBalanceResult
+
+	// GetMempoolResult is the result type for history/mempool queries.
+	GetMempoolResult = electrum.GetMempoolResult
+
+	// ListUnspentResult is the result type for unspent queries.
+	ListUnspentResult = electrum.ListUnspentResult
+
+	// GetTransactionResult is the result type for transaction queries.
+	GetTransactionResult = electrum.GetTransactionResult
+
+	// GetBlockHeaderResult is the result type for block header queries.
+	GetBlockHeaderResult = electrum.GetBlockHeaderResult
+
+	// GetMerkleProofResult is the result type for merkle proof queries.
+	GetMerkleProofResult = electrum.GetMerkleProofResult
+
+	// ServerFeaturesResult is the result type for server features queries.
+	ServerFeaturesResult = electrum.ServerFeaturesResult
+
+	// ScripthashSubscription is the type for scripthash subscriptions.
+	ScripthashSubscription = electrum.ScripthashSubscription
+
+	// SubscribeNotif is the notification type for scripthash subscriptions.
+	SubscribeNotif = electrum.SubscribeNotif
+)
+
 // GetBalance retrieves the confirmed and unconfirmed balance for a scripthash.
 // The scripthash is the SHA256 hash of the output script in reverse byte
 // order.

@@ -749,13 +749,38 @@ func (e *ElectrumNotifier) historicalSpendDetails(
 	spendRequest chainntnfs.SpendRequest,
 	startHeight, endHeight uint32) (*chainntnfs.SpendDetail, error) {
 
-	// Convert the output script to a scripthash for Electrum queries.
-	scripthash := electrum.ScripthashFromScript(
-		spendRequest.PkScript.Script(),
-	)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	// For taproot outputs, the PkScript is ZeroTaprootPkScript because we
+	// can't derive the script from the witness. We need to fetch the
+	// funding transaction to get the actual output script.
+	pkScript := spendRequest.PkScript.Script()
+	if spendRequest.PkScript == chainntnfs.ZeroTaprootPkScript {
+		// Fetch the funding transaction to get the actual pkScript.
+		fundingTx, err := e.client.GetTransactionMsgTx(
+			ctx, &spendRequest.OutPoint.Hash,
+		)
+		if err != nil {
+			log.Debugf("Failed to get funding tx for taproot "+
+				"spend lookup %v: %v", spendRequest.OutPoint, err)
+			return nil, nil
+		}
+
+		if int(spendRequest.OutPoint.Index) >= len(fundingTx.TxOut) {
+			log.Debugf("Invalid output index %d for funding tx %v",
+				spendRequest.OutPoint.Index,
+				spendRequest.OutPoint.Hash)
+			return nil, nil
+		}
+
+		pkScript = fundingTx.TxOut[spendRequest.OutPoint.Index].PkScript
+		log.Debugf("Fetched taproot pkScript for %v: %x",
+			spendRequest.OutPoint, pkScript)
+	}
+
+	// Convert the output script to a scripthash for Electrum queries.
+	scripthash := electrum.ScripthashFromScript(pkScript)
 
 	// Get the transaction history for this scripthash.
 	history, err := e.client.GetHistory(ctx, scripthash)

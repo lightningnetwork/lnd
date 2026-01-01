@@ -119,8 +119,10 @@ func (r *RESTClient) GetBlockTxIDs(ctx context.Context, blockHash string) ([]str
 	return txids, nil
 }
 
-// GetRawTransaction fetches the raw transaction hex from the REST API.
-func (r *RESTClient) GetRawTransaction(ctx context.Context, txid string) (string, error) {
+// getRawTransaction fetches the raw transaction hex from the REST API.
+// This is an internal method used by GetBlock. For fetching transactions,
+// use the Electrum protocol methods in methods.go instead.
+func (r *RESTClient) getRawTransaction(ctx context.Context, txid string) (string, error) {
 	url := fmt.Sprintf("%s/tx/%s/hex", r.baseURL, txid)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -147,9 +149,11 @@ func (r *RESTClient) GetRawTransaction(ctx context.Context, txid string) (string
 	return string(body), nil
 }
 
-// GetTransaction fetches a parsed transaction from the REST API.
-func (r *RESTClient) GetTransaction(ctx context.Context, txid string) (*wire.MsgTx, error) {
-	txHex, err := r.GetRawTransaction(ctx, txid)
+// getTransaction fetches a parsed transaction from the REST API.
+// This is an internal method used by GetBlock. For fetching transactions,
+// use the Electrum protocol methods in methods.go instead.
+func (r *RESTClient) getTransaction(ctx context.Context, txid string) (*wire.MsgTx, error) {
+	txHex, err := r.getRawTransaction(ctx, txid)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +197,7 @@ func (r *RESTClient) GetBlock(ctx context.Context, blockHash *chainhash.Hash) (*
 	// Fetch each transaction
 	transactions := make([]*wire.MsgTx, 0, len(txids))
 	for _, txid := range txids {
-		tx, err := r.GetTransaction(ctx, txid)
+		tx, err := r.getTransaction(ctx, txid)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get tx %s: %w", txid, err)
 		}

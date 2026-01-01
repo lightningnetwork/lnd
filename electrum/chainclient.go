@@ -239,9 +239,12 @@ func (c *ChainClient) GetBlockHash(height int64) (*chainhash.Hash, error) {
 	c.heightToHashMtx.RLock()
 	if hash, ok := c.heightToHash[int32(height)]; ok {
 		c.heightToHashMtx.RUnlock()
+		log.Tracef("GetBlockHash: height %d found in cache: %s", height, hash)
 		return hash, nil
 	}
 	c.heightToHashMtx.RUnlock()
+
+	log.Debugf("GetBlockHash: fetching height %d from server", height)
 
 	// Fetch from server.
 	ctx, cancel := context.WithTimeout(context.Background(), defaultRequestTimeout)
@@ -249,11 +252,13 @@ func (c *ChainClient) GetBlockHash(height int64) (*chainhash.Hash, error) {
 
 	header, err := c.client.GetBlockHeader(ctx, uint32(height))
 	if err != nil {
+		log.Errorf("GetBlockHash: failed to get header at height %d: %v", height, err)
 		return nil, fmt.Errorf("failed to get block header at "+
 			"height %d: %w", height, err)
 	}
 
 	hash := header.BlockHash()
+	log.Debugf("GetBlockHash: height %d -> hash %s", height, hash)
 
 	// Cache the result.
 	c.cacheHeader(int32(height), &hash, header)
@@ -902,67 +907,89 @@ func (c *ChainClient) notificationHandler(
 
 // handleNewHeader processes a new block header notification.
 func (c *ChainClient) handleNewHeader(header *SubscribeHeadersResult) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultRequestTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	blockHeader, err := c.client.GetBlockHeader(ctx, uint32(header.Height))
-	if err != nil {
-		log.Errorf("Failed to get block header at height %d: %v",
-			header.Height, err)
-		return
-	}
-
-	hash := blockHeader.BlockHash()
-
-	// Check for reorg.
+	// Get previous best height before updating.
 	c.bestBlockMtx.RLock()
 	prevHeight := c.bestBlock.Height
 	prevHash := c.bestBlock.Hash
 	c.bestBlockMtx.RUnlock()
 
-	if int32(header.Height) <= prevHeight && !hash.IsEqual(&prevHash) {
-		// Potential reorg - notify disconnected blocks.
-		for h := prevHeight; h >= int32(header.Height); h-- {
-			c.heightToHashMtx.RLock()
-			oldHash := c.heightToHash[h]
-			c.heightToHashMtx.RUnlock()
+	newHeight := int32(header.Height)
 
-			if oldHash != nil && c.notifyBlocks.Load() {
-				c.notificationChan <- chain.BlockDisconnected{
-					Block: wtxmgr.Block{
-						Hash:   *oldHash,
-						Height: h,
-					},
+	// Check for reorg first.
+	if newHeight <= prevHeight && !prevHash.IsEqual(&chainhash.Hash{}) {
+		// Fetch the header to check if it's actually a reorg.
+		blockHeader, err := c.client.GetBlockHeader(ctx, uint32(header.Height))
+		if err != nil {
+			log.Errorf("Failed to get block header at height %d: %v",
+				header.Height, err)
+			return
+		}
+		hash := blockHeader.BlockHash()
+
+		if !hash.IsEqual(&prevHash) {
+			// Potential reorg - notify disconnected blocks.
+			for h := prevHeight; h >= newHeight; h-- {
+				c.heightToHashMtx.RLock()
+				oldHash := c.heightToHash[h]
+				c.heightToHashMtx.RUnlock()
+
+				if oldHash != nil && c.notifyBlocks.Load() {
+					c.notificationChan <- chain.BlockDisconnected{
+						Block: wtxmgr.Block{
+							Hash:   *oldHash,
+							Height: h,
+						},
+					}
 				}
 			}
 		}
 	}
 
-	// Update best block.
-	c.bestBlockMtx.Lock()
-	c.bestBlock = waddrmgr.BlockStamp{
-		Height:    int32(header.Height),
-		Hash:      hash,
-		Timestamp: blockHeader.Timestamp,
+	// Process each block from prevHeight+1 to newHeight sequentially.
+	// This ensures the wallet receives BlockConnected for every block.
+	startHeight := prevHeight + 1
+	if startHeight < 1 {
+		startHeight = 1
 	}
-	c.bestBlockMtx.Unlock()
 
-	// Cache the header.
-	c.cacheHeader(int32(header.Height), &hash, blockHeader)
-
-	// Send block connected notification if requested.
-	if c.notifyBlocks.Load() {
-		c.notificationChan <- chain.BlockConnected{
-			Block: wtxmgr.Block{
-				Hash:   hash,
-				Height: int32(header.Height),
-			},
-			Time: blockHeader.Timestamp,
+	for h := startHeight; h <= newHeight; h++ {
+		blockHeader, err := c.client.GetBlockHeader(ctx, uint32(h))
+		if err != nil {
+			log.Errorf("Failed to get block header at height %d: %v", h, err)
+			continue
 		}
-	}
 
-	// Check watched addresses for new transactions.
-	c.checkWatchedAddresses(ctx, int32(header.Height), &hash)
+		hash := blockHeader.BlockHash()
+
+		// Cache the header first, before any notifications.
+		c.cacheHeader(h, &hash, blockHeader)
+
+		// Update best block.
+		c.bestBlockMtx.Lock()
+		c.bestBlock = waddrmgr.BlockStamp{
+			Height:    h,
+			Hash:      hash,
+			Timestamp: blockHeader.Timestamp,
+		}
+		c.bestBlockMtx.Unlock()
+
+		// Send block connected notification if requested.
+		if c.notifyBlocks.Load() {
+			c.notificationChan <- chain.BlockConnected{
+				Block: wtxmgr.Block{
+					Hash:   hash,
+					Height: h,
+				},
+				Time: blockHeader.Timestamp,
+			}
+		}
+
+		// Check watched addresses for new transactions in this block.
+		c.checkWatchedAddresses(ctx, h, &hash)
+	}
 }
 
 // checkWatchedAddresses checks if any watched addresses have new transactions

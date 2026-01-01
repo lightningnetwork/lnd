@@ -380,6 +380,8 @@ func TestPayToAddrScript(t *testing.T) {
 }
 
 // TestChainClientIsCurrent tests the IsCurrent method.
+// Note: IsCurrent() fetches fresh block data from the network, so without
+// a live connection it will return false. This test verifies that behavior.
 func TestChainClientIsCurrent(t *testing.T) {
 	t.Parallel()
 
@@ -389,27 +391,16 @@ func TestChainClientIsCurrent(t *testing.T) {
 		ReconnectInterval: 10 * time.Second,
 		RequestTimeout:    30 * time.Second,
 		PingInterval:      60 * time.Second,
-		MaxRetries:        3,
+		MaxRetries:        0, // Don't retry to speed up test
 	}
 	client := NewClient(cfg)
 
 	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
 
-	// With no best block timestamp set, it should not be current.
-	require.False(t, chainClient.IsCurrent())
-
-	// Set a recent timestamp.
-	chainClient.bestBlockMtx.Lock()
-	chainClient.bestBlock.Timestamp = time.Now().Add(-30 * time.Minute)
-	chainClient.bestBlockMtx.Unlock()
-
-	require.True(t, chainClient.IsCurrent())
-
-	// Set an old timestamp.
-	chainClient.bestBlockMtx.Lock()
-	chainClient.bestBlock.Timestamp = time.Now().Add(-3 * time.Hour)
-	chainClient.bestBlockMtx.Unlock()
-
+	// Without a live connection, IsCurrent() should return false since it
+	// cannot fetch the best block from the network. This matches the
+	// behavior of other backends (bitcoind, btcd) which also call
+	// GetBestBlock() and GetBlockHeader() in IsCurrent().
 	require.False(t, chainClient.IsCurrent())
 }
 

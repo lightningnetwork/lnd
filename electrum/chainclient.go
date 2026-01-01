@@ -693,7 +693,7 @@ func (c *ChainClient) scanAddressHistory(ctx context.Context,
 
 	scripthash := ScripthashFromScript(pkScript)
 
-	log.Debugf("Scanning history for address %s (scripthash: %s) from height %d",
+	log.Tracef("Scanning history for address %s (scripthash: %s) from height %d",
 		addr.EncodeAddress(), scripthash, startHeight)
 
 	history, err := c.client.GetHistory(ctx, scripthash)
@@ -701,16 +701,16 @@ func (c *ChainClient) scanAddressHistory(ctx context.Context,
 		return err
 	}
 
-	log.Debugf("Found %d history items for address %s",
+	log.Tracef("Found %d history items for address %s",
 		len(history), addr.EncodeAddress())
 
 	for _, histItem := range history {
-		log.Debugf("History item: txid=%s height=%d",
+		log.Tracef("History item: txid=%s height=%d",
 			histItem.Hash, histItem.Height)
 
 		// Skip unconfirmed and historical transactions.
 		if histItem.Height <= 0 || int32(histItem.Height) < startHeight {
-			log.Debugf("Skipping tx %s: height=%d < startHeight=%d or unconfirmed",
+			log.Tracef("Skipping tx %s: height=%d < startHeight=%d or unconfirmed",
 				histItem.Hash, histItem.Height, startHeight)
 			continue
 		}
@@ -736,8 +736,8 @@ func (c *ChainClient) scanAddressHistory(ctx context.Context,
 		}
 
 		// Send relevant transaction notification.
-		log.Infof("scanAddressHistory: Sending RelevantTx for tx %s at height %d for address %s",
-			txHash, histItem.Height, addr.EncodeAddress())
+		log.Debugf("scanAddressHistory: sending RelevantTx for tx %s at height %d",
+			txHash, histItem.Height)
 
 		c.notificationChan <- chain.RelevantTx{
 			TxRecord: &wtxmgr.TxRecord{
@@ -753,7 +753,6 @@ func (c *ChainClient) scanAddressHistory(ctx context.Context,
 			},
 		}
 
-		log.Infof("scanAddressHistory: Successfully sent RelevantTx notification for tx %s", txHash)
 	}
 
 	return nil
@@ -765,11 +764,11 @@ func (c *ChainClient) scanAddressHistory(ctx context.Context,
 //
 // NOTE: This is part of the chain.Interface interface.
 func (c *ChainClient) NotifyReceived(addrs []btcutil.Address) error {
-	log.Infof("NotifyReceived called with %d addresses", len(addrs))
+	log.Debugf("NotifyReceived called with %d addresses", len(addrs))
 
 	c.watchedAddrsMtx.Lock()
 	for _, addr := range addrs {
-		log.Debugf("Watching address: %s", addr.EncodeAddress())
+		log.Tracef("Watching address: %s", addr.EncodeAddress())
 		c.watchedAddrs[addr.EncodeAddress()] = addr
 	}
 	c.watchedAddrsMtx.Unlock()
@@ -778,7 +777,7 @@ func (c *ChainClient) NotifyReceived(addrs []btcutil.Address) error {
 	// blocking. This ensures that if funds were already sent to an address,
 	// the wallet will be notified.
 	go func() {
-		log.Infof("Starting background scan for %d addresses", len(addrs))
+		log.Debugf("Starting background scan for %d addresses", len(addrs))
 
 		ctx, cancel := context.WithTimeout(
 			context.Background(), 5*time.Minute,
@@ -792,16 +791,16 @@ func (c *ChainClient) NotifyReceived(addrs []btcutil.Address) error {
 			default:
 			}
 
-			log.Debugf("Scanning address %s for existing transactions",
+			log.Tracef("Scanning address %s for existing transactions",
 				addr.EncodeAddress())
 
 			if err := c.scanAddressForExistingTxs(ctx, addr); err != nil {
-				log.Debugf("Failed to scan address %s: %v",
+				log.Tracef("Failed to scan address %s: %v",
 					addr.EncodeAddress(), err)
 			}
 		}
 
-		log.Infof("Finished background scan for %d addresses", len(addrs))
+		log.Debugf("Finished background scan for %d addresses", len(addrs))
 	}()
 
 	return nil
@@ -825,11 +824,11 @@ func (c *ChainClient) scanAddressForExistingTxs(ctx context.Context,
 	}
 
 	if len(history) == 0 {
-		log.Debugf("No history found for address %s", addr.EncodeAddress())
+		log.Tracef("No history found for address %s", addr.EncodeAddress())
 		return nil
 	}
 
-	log.Infof("Found %d transactions for address %s",
+	log.Tracef("Found %d transactions for address %s",
 		len(history), addr.EncodeAddress())
 
 	for _, histItem := range history {
@@ -864,8 +863,8 @@ func (c *ChainClient) scanAddressForExistingTxs(ctx context.Context,
 		}
 
 		// Send relevant transaction notification.
-		log.Infof("Sending RelevantTx notification for tx %s (height=%d) to address %s",
-			txHash, histItem.Height, addr.EncodeAddress())
+		log.Debugf("Sending RelevantTx for tx %s (height=%d)",
+			txHash, histItem.Height)
 
 		select {
 		case c.notificationChan <- chain.RelevantTx{
@@ -1052,7 +1051,7 @@ func (c *ChainClient) checkWatchedAddresses(ctx context.Context,
 	}
 	c.watchedAddrsMtx.RUnlock()
 
-	log.Debugf("Checking %d watched addresses for block %d", len(addrs), height)
+	log.Tracef("Checking %d watched addresses for block %d", len(addrs), height)
 
 	for _, addr := range addrs {
 		pkScript, err := scriptFromAddress(addr, c.chainParams)
@@ -1074,7 +1073,7 @@ func (c *ChainClient) checkWatchedAddresses(ctx context.Context,
 			continue
 		}
 
-		log.Debugf("Address %s has %d history items",
+		log.Tracef("Address %s has %d history items",
 			addr.EncodeAddress(), len(history))
 
 		for _, histItem := range history {
@@ -1085,7 +1084,7 @@ func (c *ChainClient) checkWatchedAddresses(ctx context.Context,
 				continue
 			}
 
-			log.Infof("Found relevant tx %s at height %d for address %s",
+			log.Debugf("Found relevant tx %s at height %d for address %s",
 				histItem.Hash, height, addr.EncodeAddress())
 
 			txHash, err := chainhash.NewHashFromStr(histItem.Hash)
@@ -1100,7 +1099,7 @@ func (c *ChainClient) checkWatchedAddresses(ctx context.Context,
 				continue
 			}
 
-			log.Infof("Sending RelevantTx notification for tx %s in block %d",
+			log.Debugf("Sending RelevantTx for tx %s in block %d",
 				txHash, height)
 
 			c.notificationChan <- chain.RelevantTx{

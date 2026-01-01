@@ -164,14 +164,9 @@ func (r *RESTClient) getTransaction(ctx context.Context, txid string) (*wire.Msg
 	}
 
 	var msgTx wire.MsgTx
-	if err := msgTx.Deserialize(hex.NewDecoder(
-		&hexStringReader{s: txHex},
-	)); err != nil {
-		// Try direct bytes deserialization
-		reader := &byteReader{data: txBytes, pos: 0}
-		if err := msgTx.Deserialize(reader); err != nil {
-			return nil, fmt.Errorf("failed to deserialize tx: %w", err)
-		}
+	reader := &byteReader{data: txBytes, pos: 0}
+	if err := msgTx.Deserialize(reader); err != nil {
+		return nil, fmt.Errorf("failed to deserialize tx: %w", err)
 	}
 
 	return &msgTx, nil
@@ -317,21 +312,6 @@ func (r *RESTClient) GetBlockByHeight(ctx context.Context, height int64) (*btcut
 	}
 
 	return r.GetBlock(ctx, blockHash)
-}
-
-// hexStringReader is a helper for reading hex strings.
-type hexStringReader struct {
-	s   string
-	pos int
-}
-
-func (r *hexStringReader) Read(p []byte) (n int, err error) {
-	if r.pos >= len(r.s) {
-		return 0, io.EOF
-	}
-	n = copy(p, r.s[r.pos:])
-	r.pos += n
-	return n, nil
 }
 
 // byteReader is a helper for reading bytes.

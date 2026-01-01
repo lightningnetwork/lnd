@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -397,23 +398,8 @@ func isConnectionError(err error) bool {
 	// Check for common connection-related error messages.
 	errStr := err.Error()
 	return errors.Is(err, net.ErrClosed) ||
-		containsString(errStr, "connection refused") ||
-		containsString(errStr, "connection reset") ||
-		containsString(errStr, "broken pipe") ||
-		containsString(errStr, "EOF")
-}
-
-// containsString checks if s contains substr.
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && searchString(s, substr)
-}
-
-// searchString performs a simple substring search.
-func searchString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+		strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "connection reset") ||
+		strings.Contains(errStr, "broken pipe") ||
+		strings.Contains(errStr, "EOF")
 }

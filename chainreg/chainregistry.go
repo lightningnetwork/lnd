@@ -22,9 +22,11 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/electrumnotify"
+	"github.com/lightningnetwork/lnd/chainntnfs/esploranotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/electrum"
+	"github.com/lightningnetwork/lnd/esplora"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
@@ -60,6 +62,9 @@ type Config struct {
 
 	// ElectrumMode defines settings for connecting to an Electrum server.
 	ElectrumMode *lncfg.Electrum
+
+	// EsploraMode defines settings for connecting to an Esplora HTTP API.
+	EsploraMode *lncfg.Esplora
 
 	// HeightHintDB is a pointer to the database that stores the height
 	// hints.
@@ -749,6 +754,75 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		cc.HealthCheck = func() error {
 			if !electrumClient.IsConnected() {
 				return fmt.Errorf("electrum client not connected")
+			}
+			return nil
+		}
+
+	case "esplora":
+		esploraMode := cfg.EsploraMode
+
+		log.Infof("Initializing Esplora backend, url=%s", esploraMode.URL)
+
+		// Create the Esplora client configuration.
+		esploraClientCfg := &esplora.ClientConfig{
+			URL:            esploraMode.URL,
+			RequestTimeout: esploraMode.RequestTimeout,
+			MaxRetries:     esploraMode.MaxRetries,
+			PollInterval:   esploraMode.PollInterval,
+		}
+
+		log.Debug("Creating Esplora client")
+
+		// Create and start the Esplora client.
+		esploraClient := esplora.NewClient(esploraClientCfg)
+
+		log.Debug("Starting Esplora client")
+		if err := esploraClient.Start(); err != nil {
+			return nil, nil, fmt.Errorf("unable to start esplora "+
+				"client: %v", err)
+		}
+		log.Info("Esplora client started successfully")
+
+		// Create the chain notifier.
+		log.Debug("Creating Esplora chain notifier")
+		chainNotifier := esploranotify.New(
+			esploraClient, cfg.ActiveNetParams.Params,
+			hintCache, hintCache, cfg.BlockCache,
+		)
+		cc.ChainNotifier = chainNotifier
+		log.Debug("Esplora chain notifier created")
+
+		// Create the filtered chain view.
+		log.Debug("Creating Esplora filtered chain view")
+		cc.ChainView, err = chainview.NewEsploraFilteredChainView(
+			esploraClient,
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to create "+
+				"esplora chain view: %v", err)
+		}
+		log.Debug("Esplora filtered chain view created")
+
+		// Create the fee estimator.
+		log.Debug("Creating Esplora fee estimator")
+		feeEstimatorCfg := esplora.DefaultFeeEstimatorConfig()
+		cc.FeeEstimator = esplora.NewFeeEstimator(
+			esploraClient, feeEstimatorCfg,
+		)
+		log.Debug("Esplora fee estimator created")
+
+		// Create the chain client for wallet integration.
+		log.Debug("Creating Esplora chain client")
+		chainClient := esplora.NewChainClient(
+			esploraClient, cfg.ActiveNetParams.Params,
+		)
+		cc.ChainSource = chainClient
+		log.Debug("Esplora chain client created")
+
+		// Health check verifies we can connect to the Esplora API.
+		cc.HealthCheck = func() error {
+			if !esploraClient.IsConnected() {
+				return fmt.Errorf("esplora client not connected")
 			}
 			return nil
 		}

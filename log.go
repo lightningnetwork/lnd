@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/electrumnotify"
+	"github.com/lightningnetwork/lnd/chainntnfs/esploranotify"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
@@ -22,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/electrum"
+	"github.com/lightningnetwork/lnd/esplora"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -218,6 +220,8 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	AddSubLogger(root, onionmessage.Subsystem, interceptor, onionmessage.UseLogger)
 	AddSubLogger(root, "ELEC", interceptor, electrum.UseLogger)
 	AddSubLogger(root, "ELNF", interceptor, electrumnotify.UseLogger)
+	AddSubLogger(root, esplora.Subsystem, interceptor, esplora.UseLogger)
+	AddSubLogger(root, esploranotify.Subsystem, interceptor, esploranotify.UseLogger)
 }
 
 // AddSubLogger is a helper method to conveniently create and register the

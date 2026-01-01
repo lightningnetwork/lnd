@@ -21,11 +21,9 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
-	"github.com/lightningnetwork/lnd/chainntnfs/electrumnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/esploranotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/electrum"
 	"github.com/lightningnetwork/lnd/esplora"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -59,9 +57,6 @@ type Config struct {
 
 	// BtcdMode defines settings for connecting to a btcd node.
 	BtcdMode *lncfg.Btcd
-
-	// ElectrumMode defines settings for connecting to an Electrum server.
-	ElectrumMode *lncfg.Electrum
 
 	// EsploraMode defines settings for connecting to an Esplora HTTP API.
 	EsploraMode *lncfg.Esplora
@@ -686,76 +681,6 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			if err != nil {
 				return nil, nil, err
 			}
-		}
-
-	case "electrum":
-		electrumMode := cfg.ElectrumMode
-
-		log.Infof("Initializing Electrum backend, server=%s",
-			electrumMode.Server)
-
-		// Create the Electrum client configuration.
-		electrumClientCfg := electrum.NewClientConfigFromLncfg(
-			electrumMode,
-		)
-
-		log.Debug("Creating Electrum client")
-
-		// Create and start the Electrum client.
-		electrumClient := electrum.NewClient(electrumClientCfg)
-
-		log.Debug("Starting Electrum client")
-		if err := electrumClient.Start(); err != nil {
-			return nil, nil, fmt.Errorf("unable to start electrum "+
-				"client: %v", err)
-		}
-		log.Info("Electrum client started successfully")
-
-		// Create the chain notifier.
-		log.Debug("Creating Electrum chain notifier")
-		chainNotifier := electrumnotify.New(
-			electrumClient, cfg.ActiveNetParams.Params,
-			hintCache, hintCache, cfg.BlockCache,
-			electrumMode.RESTURL,
-		)
-		cc.ChainNotifier = chainNotifier
-		log.Debug("Electrum chain notifier created")
-
-		// Create the filtered chain view using the adapter.
-		log.Debug("Creating Electrum filtered chain view")
-		chainViewAdapter := electrum.NewChainViewAdapter(electrumClient)
-		cc.ChainView, err = chainview.NewElectrumFilteredChainView(
-			chainViewAdapter,
-		)
-		if err != nil {
-			return nil, nil, fmt.Errorf("unable to create "+
-				"electrum chain view: %v", err)
-		}
-		log.Debug("Electrum filtered chain view created")
-
-		// Create the fee estimator.
-		log.Debug("Creating Electrum fee estimator")
-		feeEstimatorCfg := electrum.DefaultFeeEstimatorConfig()
-		cc.FeeEstimator = electrum.NewFeeEstimator(
-			electrumClient, feeEstimatorCfg,
-		)
-		log.Debug("Electrum fee estimator created")
-
-		// Create the chain client for wallet integration.
-		log.Debug("Creating Electrum chain client")
-		chainClient := electrum.NewChainClient(
-			electrumClient, cfg.ActiveNetParams.Params,
-			electrumMode.RESTURL,
-		)
-		cc.ChainSource = chainClient
-		log.Debug("Electrum chain client created")
-
-		// Health check verifies we can connect to the Electrum server.
-		cc.HealthCheck = func() error {
-			if !electrumClient.IsConnected() {
-				return fmt.Errorf("electrum client not connected")
-			}
-			return nil
 		}
 
 	case "esplora":

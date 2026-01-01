@@ -1743,7 +1743,7 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 	defer n.Unlock()
 
 	// Update the current height if the provided height is greater. This is
-	// important for backends like Electrum that don't call ConnectTip but
+	// important for backends like Esplora that don't call ConnectTip but
 	// still need the txNotifier to track the current chain height.
 	if height > n.currentHeight {
 		n.currentHeight = height
@@ -2009,7 +2009,7 @@ func (n *TxNotifier) unconfirmedRequests() []ConfRequest {
 
 // UnconfirmedRequests returns the set of confirmation requests that are still
 // seen as unconfirmed by the TxNotifier. This is useful for backends like
-// Electrum that need to periodically check if pending confirmation requests
+// Esplora that need to periodically check if pending confirmation requests
 // have been satisfied.
 func (n *TxNotifier) UnconfirmedRequests() []ConfRequest {
 	n.Lock()
@@ -2040,7 +2040,7 @@ func (n *TxNotifier) unspentRequests() []SpendRequest {
 }
 
 // UnspentRequests returns the set of spend requests that are still seen as
-// unspent by the TxNotifier. This is useful for backends like Electrum that
+// unspent by the TxNotifier. This is useful for backends like Esplora that
 // need to periodically check if pending spend requests have been satisfied.
 func (n *TxNotifier) UnspentRequests() []SpendRequest {
 	n.Lock()

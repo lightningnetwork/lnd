@@ -249,7 +249,6 @@ const (
 	bitcoindBackendName = "bitcoind"
 	btcdBackendName     = "btcd"
 	neutrinoBackendName = "neutrino"
-	electrumBackendName = "electrum"
 	esploraBackendName  = "esplora"
 
 	defaultPrunedNodeMaxPeers = 4
@@ -381,7 +380,6 @@ type Config struct {
 	BtcdMode     *lncfg.Btcd     `group:"btcd" namespace:"btcd"`
 	BitcoindMode *lncfg.Bitcoind `group:"bitcoind" namespace:"bitcoind"`
 	NeutrinoMode *lncfg.Neutrino `group:"neutrino" namespace:"neutrino"`
-	ElectrumMode *lncfg.Electrum `group:"electrum" namespace:"electrum"`
 	EsploraMode  *lncfg.Esplora  `group:"esplora" namespace:"esplora"`
 
 	BlockCacheSize uint64 `long:"blockcachesize" description:"The maximum capacity of the block cache"`
@@ -625,7 +623,6 @@ func DefaultConfig() Config {
 			UserAgentVersion: neutrino.UserAgentVersion,
 			MaxPeers:         defaultNeutrinoMaxPeers,
 		},
-		ElectrumMode:       lncfg.DefaultElectrumConfig(),
 		EsploraMode:        lncfg.DefaultEsploraConfig(),
 		BlockCacheSize:     defaultBlockCacheSize,
 		MaxPendingChannels: lncfg.DefaultMaxPendingChannels,
@@ -1349,22 +1346,6 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	case neutrinoBackendName:
 		// No need to get RPC parameters.
 
-	case electrumBackendName:
-		// Validate that an Electrum server address was provided.
-		if cfg.ElectrumMode.Server == "" {
-			return nil, mkErr("electrum.server must be set when " +
-				"using electrum mode")
-		}
-
-		// Validate that a REST URL is provided. This is required for
-		// proper channel operations (funding tx validation, channel
-		// close detection, etc.).
-		if cfg.ElectrumMode.RESTURL == "" {
-			return nil, mkErr("electrum.resturl must be set when " +
-				"using electrum mode (e.g., " +
-				"http://localhost:3002 for mempool/electrs)")
-		}
-
 	case esploraBackendName:
 		// Validate that an Esplora URL was provided.
 		if cfg.EsploraMode.URL == "" {
@@ -1378,7 +1359,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		// backend whatsoever (pure signing mode).
 
 	default:
-		str := "only btcd, bitcoind, neutrino, electrum, and esplora " +
+		str := "only btcd, bitcoind, neutrino, and esplora " +
 			"mode supported for bitcoin at this time"
 
 		return nil, mkErr(str)

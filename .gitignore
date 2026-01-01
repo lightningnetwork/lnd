@@ -85,3 +85,7 @@ coverage.txt
 
 # All test data generated from rapid.
 */testdata
+test-electrum-e2e
+test-electrum-force-close
+test-esplora-e2e
+test-esplora-force-close

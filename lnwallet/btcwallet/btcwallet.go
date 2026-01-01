@@ -1149,10 +1149,10 @@ func mapRpcclientError(err error) error {
 // already published to the network (either in the mempool or chain) no error
 // will be returned.
 func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
-	// For neutrino and electrum backends there's no mempool access, so we
+	// For neutrino and esplora backends there's no mempool access, so we
 	// return early by publishing the transaction.
 	backEnd := b.chain.BackEnd()
-	if backEnd == "neutrino" || backEnd == "electrum" {
+	if backEnd == "neutrino" || backEnd == "esplora" {
 		err := b.wallet.PublishTransaction(tx, label)
 
 		return mapRpcclientError(err)
@@ -1822,10 +1822,10 @@ func (b *BtcWallet) RemoveDescendants(tx *wire.MsgTx) error {
 // CheckMempoolAcceptance is a wrapper around `TestMempoolAccept` which checks
 // the mempool acceptance of a transaction.
 func (b *BtcWallet) CheckMempoolAcceptance(tx *wire.MsgTx) error {
-	// For electrum backends there's no mempool access, so we
+	// For esplora backends there's no mempool access, so we
 	// skip the mempool acceptance check.
 	backEnd := b.chain.BackEnd()
-	if backEnd == "electrum" {
+	if backEnd == "esplora" {
 		return nil
 	}
 

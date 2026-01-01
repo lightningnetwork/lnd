@@ -158,6 +158,9 @@ func TestCheckMempoolAcceptance(t *testing.T) {
 		chain: mockChain,
 	}
 
+	// Mock BackEnd to return "bitcoind" so the mempool check runs.
+	mockChain.On("BackEnd").Return("bitcoind")
+
 	// Assert that when the chain backend doesn't support
 	// `TestMempoolAccept`, an error is returned.
 	//

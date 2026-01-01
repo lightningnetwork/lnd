@@ -326,20 +326,27 @@ func (e *ElectrumNotifier) handleBlockConnected(height int32,
 	// Update the txNotifier's height. Since we don't have full block data
 	// from Electrum, we use NotifyHeight instead of ConnectTip.
 	if e.txNotifier != nil {
+		// First update the height so currentHeight is correct when we
+		// check for pending confirmations/spends.
 		err := e.txNotifier.NotifyHeight(uint32(height))
 		if err != nil {
 			log.Errorf("Failed to notify height: %v", err)
 		}
 
-		// Check if any pending confirmation requests have been
-		// satisfied. This is necessary because Electrum doesn't provide
-		// full block data, so we need to periodically check pending
-		// confirmations.
-		e.checkPendingConfirmations(uint32(height))
-
-		// Check if any pending spend requests have been satisfied.
-		// This is critical for channel close detection.
-		e.checkPendingSpends(uint32(height))
+		// Check pending confirmations and spends in parallel AFTER
+		// notifying height. This ensures currentHeight is updated so
+		// UpdateConfDetails/UpdateSpendDetails can properly dispatch.
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			e.checkPendingConfirmations(uint32(height))
+		}()
+		go func() {
+			defer wg.Done()
+			e.checkPendingSpends(uint32(height))
+		}()
+		wg.Wait()
 	}
 }
 

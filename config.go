@@ -1353,6 +1353,15 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 				"using electrum mode")
 		}
 
+		// Validate that a REST URL is provided. This is required for
+		// proper channel operations (funding tx validation, channel
+		// close detection, etc.).
+		if cfg.ElectrumMode.RESTURL == "" {
+			return nil, mkErr("electrum.resturl must be set when " +
+				"using electrum mode (e.g., " +
+				"http://localhost:3002 for mempool/electrs)")
+		}
+
 	case "nochainbackend":
 		// Nothing to configure, we're running without any chain
 		// backend whatsoever (pure signing mode).

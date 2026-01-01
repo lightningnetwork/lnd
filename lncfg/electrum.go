@@ -38,6 +38,13 @@ type Electrum struct {
 	// Server is the host:port of the Electrum server to connect to.
 	Server string `long:"server" description:"The host:port of the Electrum server to connect to."`
 
+	// RESTURL is the URL for the mempool/electrs REST API. This is required
+	// for proper channel operations (funding tx validation, channel close
+	// detection, etc.) since the Electrum protocol doesn't support full
+	// block retrieval.
+	// Example: http://localhost:3002
+	RESTURL string `long:"resturl" description:"(Required) URL for mempool/electrs REST API (e.g., http://localhost:3002)"`
+
 	// UseSSL specifies whether to use SSL/TLS for the connection to the
 	// Electrum server.
 	UseSSL bool `long:"ssl" description:"Use SSL/TLS for the connection to the Electrum server."`

@@ -57,6 +57,10 @@ type ChainClient struct {
 
 	client *Client
 
+	// restClient is an optional REST API client for fetching full blocks
+	// from mempool/electrs. If nil, GetBlock will return an error.
+	restClient *RESTClient
+
 	chainParams *chaincfg.Params
 
 	// bestBlockMtx protects bestBlock.
@@ -93,11 +97,20 @@ type ChainClient struct {
 var _ chain.Interface = (*ChainClient)(nil)
 
 // NewChainClient creates a new Electrum chain client.
-func NewChainClient(client *Client,
-	chainParams *chaincfg.Params) *ChainClient {
+// If restURL is provided, the client will be able to fetch full blocks
+// via the mempool/electrs REST API.
+func NewChainClient(client *Client, chainParams *chaincfg.Params,
+	restURL string) *ChainClient {
+
+	var restClient *RESTClient
+	if restURL != "" {
+		restClient = NewRESTClient(restURL)
+		log.Infof("Electrum REST API enabled: %s", restURL)
+	}
 
 	return &ChainClient{
 		client:           client,
+		restClient:       restClient,
 		chainParams:      chainParams,
 		headerCache:      make(map[chainhash.Hash]*wire.BlockHeader),
 		heightToHash:     make(map[int32]*chainhash.Hash),
@@ -221,14 +234,49 @@ func (c *ChainClient) GetBestBlock() (*chainhash.Hash, int32, error) {
 
 // GetBlock returns the raw block from the server given its hash.
 //
-// NOTE: Electrum servers do not serve full blocks. This method will return
-// an error. Use GetBlockHeader for header-only queries.
+// NOTE: Electrum protocol does not support full blocks directly. If a REST
+// API URL was configured (for mempool/electrs), this method will use that
+// to fetch full blocks. Otherwise, it returns an error.
 //
 // NOTE: This is part of the chain.Interface interface.
 func (c *ChainClient) GetBlock(hash *chainhash.Hash) (*wire.MsgBlock, error) {
+	// If we have a REST client configured, use it to fetch the block.
+	if c.restClient != nil {
+		ctx, cancel := context.WithTimeout(
+			context.Background(), defaultRequestTimeout,
+		)
+		defer cancel()
+
+		block, err := c.restClient.GetBlock(ctx, hash)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch block via REST: %w", err)
+		}
+
+		return block.MsgBlock(), nil
+	}
+
 	// Electrum servers cannot serve full blocks. This is a fundamental
 	// limitation of the protocol.
 	return nil, ErrFullBlocksNotSupported
+}
+
+// GetTxIndex returns the index of a transaction within a block at the given height.
+// This is needed for constructing proper ShortChannelIDs.
+// Returns the TxIndex and the block hash.
+func (c *ChainClient) GetTxIndex(height int64, txid string) (uint32, string, error) {
+	if c.restClient == nil {
+		// Without REST API, we can't determine the TxIndex.
+		// Return 0 as a fallback (will cause validation failures for
+		// channels where the funding tx is not at index 0).
+		return 0, "", nil
+	}
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(), defaultRequestTimeout,
+	)
+	defer cancel()
+
+	return c.restClient.GetTxIndexByHeight(ctx, height, txid)
 }
 
 // GetBlockHash returns the hash of the block at the given height.

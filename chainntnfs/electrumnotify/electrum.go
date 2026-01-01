@@ -54,6 +54,10 @@ type ElectrumNotifier struct {
 	// client is the Electrum client used to communicate with the server.
 	client *electrum.Client
 
+	// restClient is an optional REST API client for mempool/electrs.
+	// Used to fetch TxIndex for channel validation.
+	restClient *electrum.RESTClient
+
 	// chainParams are the parameters of the chain we're connected to.
 	chainParams *chaincfg.Params
 
@@ -85,14 +89,23 @@ var _ chainntnfs.ChainNotifier = (*ElectrumNotifier)(nil)
 
 // New creates a new instance of the ElectrumNotifier. The Electrum client
 // should already be started and connected before being passed to this
-// function.
+// function. If restURL is provided, the notifier will use the mempool/electrs
+// REST API to fetch TxIndex for proper channel validation.
 func New(client *electrum.Client, chainParams *chaincfg.Params,
 	spendHintCache chainntnfs.SpendHintCache,
 	confirmHintCache chainntnfs.ConfirmHintCache,
-	blockCache *blockcache.BlockCache) *ElectrumNotifier {
+	blockCache *blockcache.BlockCache,
+	restURL string) *ElectrumNotifier {
+
+	var restClient *electrum.RESTClient
+	if restURL != "" {
+		restClient = electrum.NewRESTClient(restURL)
+		log.Infof("Electrum notifier REST API enabled: %s", restURL)
+	}
 
 	return &ElectrumNotifier{
 		client:      client,
+		restClient:  restClient,
 		chainParams: chainParams,
 
 		notificationCancels:  make(chan interface{}),
@@ -317,6 +330,95 @@ func (e *ElectrumNotifier) handleBlockConnected(height int32,
 		if err != nil {
 			log.Errorf("Failed to notify height: %v", err)
 		}
+
+		// Check if any pending confirmation requests have been
+		// satisfied. This is necessary because Electrum doesn't provide
+		// full block data, so we need to periodically check pending
+		// confirmations.
+		e.checkPendingConfirmations(uint32(height))
+
+		// Check if any pending spend requests have been satisfied.
+		// This is critical for channel close detection.
+		e.checkPendingSpends(uint32(height))
+	}
+}
+
+// checkPendingConfirmations queries the Electrum server to check if any
+// pending confirmation requests have been satisfied.
+func (e *ElectrumNotifier) checkPendingConfirmations(currentHeight uint32) {
+	unconfirmed := e.txNotifier.UnconfirmedRequests()
+	if len(unconfirmed) == 0 {
+		return
+	}
+
+	log.Debugf("Checking %d pending confirmation requests at height %d",
+		len(unconfirmed), currentHeight)
+
+	for _, confRequest := range unconfirmed {
+		// Try to get confirmation details for this request.
+		confDetails, err := e.historicalConfDetails(
+			confRequest, 0, currentHeight,
+		)
+		if err != nil {
+			log.Debugf("Error checking confirmation for %v: %v",
+				confRequest, err)
+			continue
+		}
+
+		if confDetails == nil {
+			// Still unconfirmed.
+			continue
+		}
+
+		log.Infof("Found confirmation for pending request %v at "+
+			"height %d", confRequest, confDetails.BlockHeight)
+
+		// Update the txNotifier with the confirmation details.
+		err = e.txNotifier.UpdateConfDetails(confRequest, confDetails)
+		if err != nil {
+			log.Errorf("Failed to update conf details for %v: %v",
+				confRequest, err)
+		}
+	}
+}
+
+// checkPendingSpends queries the Electrum server to check if any pending
+// spend requests have been satisfied. This is critical for proper channel
+// close detection.
+func (e *ElectrumNotifier) checkPendingSpends(currentHeight uint32) {
+	unspent := e.txNotifier.UnspentRequests()
+	if len(unspent) == 0 {
+		return
+	}
+
+	log.Debugf("Checking %d pending spend requests at height %d",
+		len(unspent), currentHeight)
+
+	for _, spendRequest := range unspent {
+		// Try to get spend details for this request.
+		spendDetails, err := e.historicalSpendDetails(
+			spendRequest, 0, currentHeight,
+		)
+		if err != nil {
+			log.Debugf("Error checking spend for %v: %v",
+				spendRequest, err)
+			continue
+		}
+
+		if spendDetails == nil {
+			// Still unspent.
+			continue
+		}
+
+		log.Infof("Found spend for pending request %v at height %d",
+			spendRequest, spendDetails.SpendingHeight)
+
+		// Update the txNotifier with the spend details.
+		err = e.txNotifier.UpdateSpendDetails(spendRequest, spendDetails)
+		if err != nil {
+			log.Errorf("Failed to update spend details for %v: %v",
+				spendRequest, err)
+		}
 	}
 }
 
@@ -460,6 +562,7 @@ func (e *ElectrumNotifier) historicalConfDetails(
 	startHeight, endHeight uint32) (*chainntnfs.TxConfirmation, error) {
 
 	// If we have a txid, try to get the transaction directly.
+	// First, try to get the transaction directly by txid if we have one.
 	if confRequest.TxID != chainntnfs.ZeroHash {
 		ctx, cancel := context.WithTimeout(
 			context.Background(), 30*time.Second,
@@ -469,14 +572,7 @@ func (e *ElectrumNotifier) historicalConfDetails(
 		txResult, err := e.client.GetTransaction(
 			ctx, confRequest.TxID.String(),
 		)
-		if err != nil {
-			// Transaction not found is okay, return nil.
-			log.Debugf("Transaction %v not found: %v",
-				confRequest.TxID, err)
-			return nil, nil
-		}
-
-		if txResult != nil && txResult.Confirmations > 0 {
+		if err == nil && txResult != nil && txResult.Confirmations > 0 {
 			// Transaction is confirmed.
 			blockHash, err := chainhash.NewHashFromStr(
 				txResult.Blockhash,
@@ -494,18 +590,67 @@ func (e *ElectrumNotifier) historicalConfDetails(
 			blockHeight := uint32(currentHeight) -
 				uint32(txResult.Confirmations) + 1
 
+			// Fetch the actual transaction to include in the
+			// confirmation details.
+			var msgTx *wire.MsgTx
+			txHex := txResult.Hex
+			if txHex != "" {
+				txBytes, decErr := hex.DecodeString(txHex)
+				if decErr == nil {
+					msgTx = &wire.MsgTx{}
+					if parseErr := msgTx.Deserialize(
+						bytes.NewReader(txBytes),
+					); parseErr != nil {
+						log.Debugf("Failed to parse tx: %v",
+							parseErr)
+						msgTx = nil
+					}
+				}
+			}
+
+			// Try to get the actual TxIndex via REST API if available.
+			var txIndex uint32
+			if e.restClient != nil {
+				txIdx, _, err := e.restClient.GetTxIndexByHeight(
+					ctx, int64(blockHeight),
+					confRequest.TxID.String(),
+				)
+				if err != nil {
+					log.Debugf("Failed to get TxIndex via REST: %v", err)
+				} else {
+					txIndex = txIdx
+					log.Debugf("Got TxIndex %d for tx %s via REST",
+						txIndex, confRequest.TxID)
+				}
+			}
+
 			return &chainntnfs.TxConfirmation{
 				BlockHash:   blockHash,
 				BlockHeight: blockHeight,
-				TxIndex:     0, // Electrum doesn't provide tx index.
+				TxIndex:     txIndex,
+				Tx:          msgTx,
 			}, nil
 		}
 
-		// Transaction is unconfirmed or not found.
+		// If GetTransaction failed or tx is unconfirmed, log and fall
+		// through to try scripthash lookup if we have a pkScript.
+		if err != nil {
+			log.Debugf("GetTransaction for %v failed: %v, trying "+
+				"scripthash lookup", confRequest.TxID, err)
+		} else {
+			log.Debugf("Transaction %v not confirmed yet, trying "+
+				"scripthash lookup", confRequest.TxID)
+		}
+	}
+
+	// If we don't have a pkScript, we can't do scripthash lookup.
+	if confRequest.PkScript.Script() == nil ||
+		len(confRequest.PkScript.Script()) == 0 {
+
 		return nil, nil
 	}
 
-	// If we only have a script, search by scripthash.
+	// Search by scripthash (address history).
 	scripthash := electrum.ScripthashFromScript(confRequest.PkScript.Script())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -516,26 +661,83 @@ func (e *ElectrumNotifier) historicalConfDetails(
 		return nil, fmt.Errorf("failed to get history: %w", err)
 	}
 
+	// Search through history for our target transaction.
+	targetTxID := confRequest.TxID.String()
 	for _, tx := range history {
-		if tx.Height > 0 && uint32(tx.Height) >= startHeight &&
-			uint32(tx.Height) <= endHeight {
+		if tx.Height <= 0 {
+			// Unconfirmed transaction.
+			continue
+		}
 
-			// Get the block header for this height.
-			header, err := e.client.GetBlockHeader(
-				ctx, uint32(tx.Height),
-			)
-			if err != nil {
+		// If we have a txid, only match that specific transaction.
+		// Otherwise, match any confirmed transaction in the range.
+		if confRequest.TxID != chainntnfs.ZeroHash {
+			if tx.Hash != targetTxID {
 				continue
 			}
-
-			blockHash := header.BlockHash()
-
-			return &chainntnfs.TxConfirmation{
-				BlockHash:   &blockHash,
-				BlockHeight: uint32(tx.Height),
-				TxIndex:     0,
-			}, nil
+		} else if uint32(tx.Height) < startHeight ||
+			uint32(tx.Height) > endHeight {
+			continue
 		}
+
+		// Get the block header for this height.
+		header, err := e.client.GetBlockHeader(
+			ctx, uint32(tx.Height),
+		)
+		if err != nil {
+			log.Debugf("Failed to get block header at height %d: %v",
+				tx.Height, err)
+			continue
+		}
+
+		blockHash := header.BlockHash()
+
+		log.Debugf("Found confirmed tx %s at height %d via scripthash",
+			tx.Hash, tx.Height)
+
+		// Fetch the actual transaction to include in the confirmation
+		// details. This is needed for channel funding validation.
+		var msgTx *wire.MsgTx
+		txHex, txErr := e.client.GetRawTransaction(ctx, tx.Hash)
+		if txErr == nil && txHex != "" {
+			txBytes, decErr := hex.DecodeString(txHex)
+			if decErr == nil {
+				msgTx = &wire.MsgTx{}
+				if parseErr := msgTx.Deserialize(
+					bytes.NewReader(txBytes),
+				); parseErr != nil {
+					log.Debugf("Failed to parse tx %s: %v",
+						tx.Hash, parseErr)
+					msgTx = nil
+				}
+			}
+		} else if txErr != nil {
+			log.Debugf("Failed to fetch raw tx %s: %v",
+				tx.Hash, txErr)
+		}
+
+		// Try to get the actual TxIndex via REST API if available.
+		var txIndex uint32
+		if e.restClient != nil {
+			blockHashStr := blockHash.String()
+			txIdx, err := e.restClient.GetTxIndex(
+				ctx, blockHashStr, tx.Hash,
+			)
+			if err != nil {
+				log.Debugf("Failed to get TxIndex via REST: %v", err)
+			} else {
+				txIndex = txIdx
+				log.Debugf("Got TxIndex %d for tx %s via REST",
+					txIndex, tx.Hash)
+			}
+		}
+
+		return &chainntnfs.TxConfirmation{
+			BlockHash:   &blockHash,
+			BlockHeight: uint32(tx.Height),
+			TxIndex:     txIndex,
+			Tx:          msgTx,
+		}, nil
 	}
 
 	return nil, nil

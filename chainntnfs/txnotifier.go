@@ -1742,6 +1742,13 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 	n.Lock()
 	defer n.Unlock()
 
+	// Update the current height if the provided height is greater. This is
+	// important for backends like Electrum that don't call ConnectTip but
+	// still need the txNotifier to track the current chain height.
+	if height > n.currentHeight {
+		n.currentHeight = height
+	}
+
 	// First, we'll dispatch an update to all of the notification clients
 	// for our watched requests with the number of confirmations left at
 	// this new height.
@@ -2000,6 +2007,17 @@ func (n *TxNotifier) unconfirmedRequests() []ConfRequest {
 	return unconfirmed
 }
 
+// UnconfirmedRequests returns the set of confirmation requests that are still
+// seen as unconfirmed by the TxNotifier. This is useful for backends like
+// Electrum that need to periodically check if pending confirmation requests
+// have been satisfied.
+func (n *TxNotifier) UnconfirmedRequests() []ConfRequest {
+	n.Lock()
+	defer n.Unlock()
+
+	return n.unconfirmedRequests()
+}
+
 // unspentRequests returns the set of spend requests that are still seen as
 // unspent by the TxNotifier.
 //
@@ -2019,6 +2037,16 @@ func (n *TxNotifier) unspentRequests() []SpendRequest {
 	}
 
 	return unspent
+}
+
+// UnspentRequests returns the set of spend requests that are still seen as
+// unspent by the TxNotifier. This is useful for backends like Electrum that
+// need to periodically check if pending spend requests have been satisfied.
+func (n *TxNotifier) UnspentRequests() []SpendRequest {
+	n.Lock()
+	defer n.Unlock()
+
+	return n.unspentRequests()
 }
 
 // dispatchConfReorg dispatches a reorg notification to the client if the

@@ -34,6 +34,11 @@ type ClientConfig struct {
 	// Server is the host:port of the Electrum server.
 	Server string
 
+	// RESTURL is the optional URL for the mempool/electrs REST API.
+	// If provided, this will be used to fetch full blocks and other data
+	// that the Electrum protocol doesn't support directly.
+	RESTURL string
+
 	// UseSSL indicates whether to use SSL/TLS for the connection.
 	UseSSL bool
 
@@ -61,6 +66,7 @@ type ClientConfig struct {
 func NewClientConfigFromLncfg(cfg *lncfg.Electrum) *ClientConfig {
 	return &ClientConfig{
 		Server:            cfg.Server,
+		RESTURL:           cfg.RESTURL,
 		UseSSL:            cfg.UseSSL,
 		TLSCertPath:       cfg.TLSCertPath,
 		TLSSkipVerify:     cfg.TLSSkipVerify,

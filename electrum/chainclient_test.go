@@ -119,7 +119,7 @@ func TestNewChainClient(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, "")
 
 	require.NotNil(t, chainClient)
 	require.NotNil(t, chainClient.client)
@@ -143,7 +143,7 @@ func TestChainClientBackEnd(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, "")
 
 	require.Equal(t, "electrum", chainClient.BackEnd())
 }
@@ -162,7 +162,7 @@ func TestChainClientGetBlockNotSupported(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, "")
 
 	hash := &chainhash.Hash{}
 	block, err := chainClient.GetBlock(hash)
@@ -186,7 +186,7 @@ func TestChainClientNotifications(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, "")
 
 	notifChan := chainClient.Notifications()
 	require.NotNil(t, notifChan)
@@ -206,7 +206,7 @@ func TestChainClientTestMempoolAccept(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, "")
 
 	tx := wire.NewMsgTx(wire.TxVersion)
 	results, err := chainClient.TestMempoolAccept([]*wire.MsgTx{tx}, 0.0)
@@ -230,7 +230,7 @@ func TestChainClientMapRPCErr(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, "")
 
 	testErr := ErrNotConnected
 	mappedErr := chainClient.MapRPCErr(testErr)
@@ -252,7 +252,7 @@ func TestChainClientNotifyBlocks(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, "")
 
 	err := chainClient.NotifyBlocks()
 	require.NoError(t, err)
@@ -273,7 +273,7 @@ func TestChainClientNotifyReceived(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, "")
 
 	// Create a test address.
 	pubKeyHash := make([]byte, 20)
@@ -395,7 +395,7 @@ func TestChainClientIsCurrent(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, "")
 
 	// Without a live connection, IsCurrent() should return false since it
 	// cannot fetch the best block from the network. This matches the
@@ -418,7 +418,7 @@ func TestChainClientCacheHeader(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, "")
 
 	// Create a test header.
 	header := &wire.BlockHeader{
@@ -463,7 +463,7 @@ func TestChainClientGetUtxo(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, "")
 
 	// Create a test outpoint and pkScript.
 	testHash := chainhash.Hash{0x01, 0x02, 0x03}
@@ -496,7 +496,7 @@ func TestElectrumUtxoSourceInterface(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, "")
 
 	// Define the interface locally to test without importing btcwallet.
 	type UtxoSource interface {

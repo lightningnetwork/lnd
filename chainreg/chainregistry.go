@@ -711,6 +711,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		chainNotifier := electrumnotify.New(
 			electrumClient, cfg.ActiveNetParams.Params,
 			hintCache, hintCache, cfg.BlockCache,
+			electrumMode.RESTURL,
 		)
 		cc.ChainNotifier = chainNotifier
 		log.Debug("Electrum chain notifier created")
@@ -739,6 +740,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		log.Debug("Creating Electrum chain client")
 		chainClient := electrum.NewChainClient(
 			electrumClient, cfg.ActiveNetParams.Params,
+			electrumMode.RESTURL,
 		)
 		cc.ChainSource = chainClient
 		log.Debug("Electrum chain client created")
@@ -750,12 +752,6 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			}
 			return nil
 		}
-
-		// Note: Electrum backend has limitations compared to full
-		// nodes. Most notably, it cannot serve full block data.
-		// Operations requiring full blocks will fail.
-		log.Warn("Electrum backend does not support full block " +
-			"retrieval - some operations may be limited")
 
 	case "nochainbackend":
 		backend := &NoChainBackend{}

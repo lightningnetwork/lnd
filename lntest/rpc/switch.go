@@ -54,3 +54,18 @@ func (h *HarnessRPC) BuildOnion(
 
 	return resp
 }
+
+// CleanStore makes a RPC call to CleanStore and asserts.
+//
+//nolint:lll
+func (h *HarnessRPC) CleanStore(
+	req *switchrpc.CleanStoreRequest) *switchrpc.CleanStoreResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.Switch.CleanStore(ctxt, req)
+	h.NoError(err, "CleanStore")
+
+	return resp
+}

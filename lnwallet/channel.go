@@ -64,8 +64,10 @@ var (
 
 	// ErrBelowChanReserve is returned when a proposed HTLC would cause
 	// one of the peer's funds to dip below the channel reserve limit.
-	ErrBelowChanReserve = fmt.Errorf("commitment transaction dips peer " +
-		"below chan reserve")
+	ErrBelowChanReserve = fmt.Errorf("cannot complete request: " +
+		"insufficient funds available to maintain required channel " +
+		"reserve (this reserve ensures both parties have skin in " +
+		"the game to discourage cheating)")
 
 	// ErrBelowMinHTLC is returned when a proposed HTLC has a value that
 	// is below the minimum HTLC value constraint for either us or our

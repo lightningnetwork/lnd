@@ -359,13 +359,20 @@ func (c *ChainClient) FilterBlocks(
 	defer cancel()
 
 	var (
-		relevantTxns  []*wire.MsgTx
-		batchIndex    uint32
-		foundRelevant bool
+		relevantTxns       []*wire.MsgTx
+		batchIndex         uint32
+		foundRelevant      bool
+		foundExternalAddrs = make(map[waddrmgr.KeyScope]map[uint32]struct{})
+		foundInternalAddrs = make(map[waddrmgr.KeyScope]map[uint32]struct{})
+		foundOutPoints     = make(map[wire.OutPoint]btcutil.Address)
 	)
 
-	// Check each watched address for activity in the requested blocks.
-	for _, addr := range req.ExternalAddrs {
+	log.Tracef("FilterBlocks called: %d external addrs, %d internal addrs, %d blocks",
+		len(req.ExternalAddrs), len(req.InternalAddrs), len(req.Blocks))
+
+	// Check each watched external address for activity in the requested blocks.
+	// req.ExternalAddrs is map[waddrmgr.ScopedIndex]btcutil.Address
+	for scopedIdx, addr := range req.ExternalAddrs {
 		txns, idx, err := c.filterAddressInBlocks(ctx, addr, req.Blocks)
 		if err != nil {
 			log.Warnf("Failed to filter address %s: %v", addr, err)
@@ -378,10 +385,41 @@ func (c *ChainClient) FilterBlocks(
 				batchIndex = idx
 			}
 			foundRelevant = true
+
+			// Record this address as found using the ScopedIndex
+			if foundExternalAddrs[scopedIdx.Scope] == nil {
+				foundExternalAddrs[scopedIdx.Scope] = make(map[uint32]struct{})
+			}
+			foundExternalAddrs[scopedIdx.Scope][scopedIdx.Index] = struct{}{}
+
+			// Record outpoints for this address from the transactions
+			for _, tx := range txns {
+				for i, txOut := range tx.TxOut {
+					_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+						txOut.PkScript, c.chainParams,
+					)
+					if err != nil {
+						continue
+					}
+					for _, a := range addrs {
+						if a.EncodeAddress() == addr.EncodeAddress() {
+							op := wire.OutPoint{
+								Hash:  tx.TxHash(),
+								Index: uint32(i),
+							}
+							foundOutPoints[op] = addr
+						}
+					}
+				}
+			}
+
+			log.Tracef("FilterBlocks: found %d txs for external addr %s (scope=%v, index=%d)",
+				len(txns), addr.EncodeAddress(), scopedIdx.Scope, scopedIdx.Index)
 		}
 	}
 
-	for _, addr := range req.InternalAddrs {
+	// Check each watched internal address for activity in the requested blocks.
+	for scopedIdx, addr := range req.InternalAddrs {
 		txns, idx, err := c.filterAddressInBlocks(ctx, addr, req.Blocks)
 		if err != nil {
 			log.Warnf("Failed to filter address %s: %v", addr, err)
@@ -394,6 +432,36 @@ func (c *ChainClient) FilterBlocks(
 				batchIndex = idx
 			}
 			foundRelevant = true
+
+			// Record this address as found using the ScopedIndex
+			if foundInternalAddrs[scopedIdx.Scope] == nil {
+				foundInternalAddrs[scopedIdx.Scope] = make(map[uint32]struct{})
+			}
+			foundInternalAddrs[scopedIdx.Scope][scopedIdx.Index] = struct{}{}
+
+			// Record outpoints for this address from the transactions
+			for _, tx := range txns {
+				for i, txOut := range tx.TxOut {
+					_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+						txOut.PkScript, c.chainParams,
+					)
+					if err != nil {
+						continue
+					}
+					for _, a := range addrs {
+						if a.EncodeAddress() == addr.EncodeAddress() {
+							op := wire.OutPoint{
+								Hash:  tx.TxHash(),
+								Index: uint32(i),
+							}
+							foundOutPoints[op] = addr
+						}
+					}
+				}
+			}
+
+			log.Tracef("FilterBlocks: found %d txs for internal addr %s (scope=%v, index=%d)",
+				len(txns), addr.EncodeAddress(), scopedIdx.Scope, scopedIdx.Index)
 		}
 	}
 
@@ -401,10 +469,16 @@ func (c *ChainClient) FilterBlocks(
 		return nil, nil
 	}
 
+	log.Debugf("FilterBlocks: found %d relevant txns at block height %d",
+		len(relevantTxns), req.Blocks[batchIndex].Height)
+
 	return &chain.FilterBlocksResponse{
-		BatchIndex:   batchIndex,
-		BlockMeta:    req.Blocks[batchIndex],
-		RelevantTxns: relevantTxns,
+		BatchIndex:         batchIndex,
+		BlockMeta:          req.Blocks[batchIndex],
+		FoundExternalAddrs: foundExternalAddrs,
+		FoundInternalAddrs: foundInternalAddrs,
+		FoundOutPoints:     foundOutPoints,
+		RelevantTxns:       relevantTxns,
 	}, nil
 }
 
@@ -425,25 +499,28 @@ func (c *ChainClient) filterAddressInBlocks(ctx context.Context,
 		batchIdx     uint32 = ^uint32(0)
 	)
 
+	// Build a map of block heights for quick lookup
+	blockHeights := make(map[int32]int)
+	for i, block := range blocks {
+		blockHeights[block.Height] = i
+	}
+
 	for _, txInfo := range txs {
 		if !txInfo.Status.Confirmed {
 			continue
 		}
 
 		// Check if this height falls within any of our blocks.
-		for i, block := range blocks {
-			if txInfo.Status.BlockHeight == int64(block.Height) {
-				// Fetch the full transaction.
-				tx, err := c.client.GetRawTransactionMsgTx(ctx, txInfo.TxID)
-				if err != nil {
-					continue
-				}
+		if idx, ok := blockHeights[int32(txInfo.Status.BlockHeight)]; ok {
+			// Fetch the full transaction.
+			tx, err := c.client.GetRawTransactionMsgTx(ctx, txInfo.TxID)
+			if err != nil {
+				continue
+			}
 
-				relevantTxns = append(relevantTxns, tx)
-				if uint32(i) < batchIdx {
-					batchIdx = uint32(i)
-				}
-				break
+			relevantTxns = append(relevantTxns, tx)
+			if uint32(idx) < batchIdx {
+				batchIdx = uint32(idx)
 			}
 		}
 	}

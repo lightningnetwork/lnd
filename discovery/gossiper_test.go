@@ -4925,7 +4925,8 @@ func TestRecoverGossipPanic(t *testing.T) {
 			panicked := make(chan struct{})
 			go func() {
 				defer ctx.gossiper.recoverGossipPanic(
-					"testing", nMsg, &jobID,
+					context.Background(), "testing",
+					nMsg, &jobID,
 				)
 				defer close(panicked)
 
@@ -5014,7 +5015,7 @@ func TestRecoverGossipPanicSignalsDependents(t *testing.T) {
 	panicked := make(chan struct{})
 	go func() {
 		defer ctx.gossiper.recoverGossipPanic(
-			"testing", nMsg, &parentJobID,
+			context.Background(), "testing", nMsg, &parentJobID,
 		)
 		defer close(panicked)
 
@@ -5082,7 +5083,9 @@ func TestRecoverGossipPanicNilJobID(t *testing.T) {
 	// AnnounceSignatures serial processing path).
 	panicked := make(chan struct{})
 	go func() {
-		defer ctx.gossiper.recoverGossipPanic("processing", nMsg, nil)
+		defer ctx.gossiper.recoverGossipPanic(
+			context.Background(), "processing", nMsg, nil,
+		)
 		defer close(panicked)
 
 		panic("announce signatures panic")

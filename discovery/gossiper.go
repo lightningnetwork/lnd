@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -1527,7 +1528,7 @@ func (d *AuthenticatedGossiper) networkHandler(ctx context.Context) {
 				// validation barrier.
 				func() {
 					defer d.recoverGossipPanic(
-						"processing", announcement, nil,
+						ctx, "processing", announcement, nil,
 					)
 
 					emittedAnnouncements, _ := d.processNetworkAnnouncement(
@@ -1627,7 +1628,7 @@ func (d *AuthenticatedGossiper) handleNetworkMessages(ctx context.Context,
 
 	defer d.wg.Done()
 	defer d.vb.CompleteJob()
-	defer d.recoverGossipPanic("processing", nMsg, &jobID)
+	defer d.recoverGossipPanic(ctx, "processing", nMsg, &jobID)
 
 	// We should only broadcast this message forward if it originated from
 	// us or it wasn't received as part of our initial historical sync.
@@ -1686,8 +1687,8 @@ func (d *AuthenticatedGossiper) handleNetworkMessages(ctx context.Context,
 // recoverGossipPanic guards gossip goroutines against panics to keep the
 // daemon alive. It logs the panic, optionally signals dependents, and reports
 // back to the caller if possible.
-func (d *AuthenticatedGossiper) recoverGossipPanic(ctx string,
-	nMsg *networkMsg, jobID *JobID) {
+func (d *AuthenticatedGossiper) recoverGossipPanic(logCtx context.Context,
+	ctxStr string, nMsg *networkMsg, jobID *JobID) {
 
 	r := recover()
 	if r == nil {
@@ -1706,9 +1707,15 @@ func (d *AuthenticatedGossiper) recoverGossipPanic(ctx string,
 		peerPub = "unknown"
 	}
 
-	log.Errorf("Panic while %s gossip message %s from peer=%s: %v",
-		ctx, msgType, peerPub, r)
-	log.Debugf("Panic stack:\n%s", debug.Stack())
+	log.ErrorS(logCtx, "Panic during gossip message processing",
+		fmt.Errorf("%v", r),
+		slog.String("context", ctxStr),
+		slog.String("msg_type", msgType),
+		slog.String("peer", peerPub),
+	)
+	log.DebugS(logCtx, "Panic stack trace",
+		slog.String("stack", string(debug.Stack())),
+	)
 
 	// Signal any dependents waiting on this message so they don't block
 	// forever.
@@ -1716,8 +1723,10 @@ func (d *AuthenticatedGossiper) recoverGossipPanic(ctx string,
 		if err := d.vb.SignalDependents(
 			nMsg.msg, *jobID,
 		); err != nil {
-			log.Errorf("SignalDependents after panic failed "+
-				"for msg=%v: %v", nMsg.msg.MsgType(), err)
+			log.ErrorS(logCtx, "SignalDependents after panic failed",
+				err,
+				slog.String("msg_type", nMsg.msg.MsgType().String()),
+			)
 		}
 	}
 
@@ -1725,7 +1734,7 @@ func (d *AuthenticatedGossiper) recoverGossipPanic(ctx string,
 	if nMsg != nil && nMsg.err != nil {
 		select {
 		case nMsg.err <- fmt.Errorf("panic while %s gossip "+
-			"message %s: %v", ctx, msgType, r):
+			"message %s: %v", ctxStr, msgType, r):
 		default:
 		}
 	}

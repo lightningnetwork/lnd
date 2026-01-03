@@ -322,21 +322,48 @@ For taproot channels:
 
 ### Implementation Notes for Nonce Handling
 
-The MuSig2 session's `InitRemoteNonce` method is called at two specific times:
-1. When processing the remote's `shutdown` message (to initialize with their
-   closee nonce)
+The MuSig2 session's `InitRemoteNonce` method is called at specific times
+depending on our role:
 
-2. After receiving a `closing_sig` message that contains a `NextCloseeNonce`
-   (for RBF iterations)
+**When we're the Closer (LocalMusigSession)**:
+1. During `ShutdownReceived`: Store their closee nonce in `NonceState.RemoteCloseeNonce`
+2. During `SendOfferEvent`: Call `initLocalMusigCloseeNonce` with stored closee nonce
+3. During `LocalSigReceived` (when receiving their ClosingSig):
+   - Use the CURRENT `NonceState.RemoteCloseeNonce` for signature verification
+   - AFTER verification succeeds, update with `NextCloseeNonce` for future RBF
+
+**When we're the Closee (RemoteMusigSession)**:
+1. Our closee nonce was sent in our `shutdown` message
+2. During `OfferReceivedEvent`: Receive their JIT closer nonce in `ClosingComplete`
+3. Call `initRemoteMusigCloserNonce` with their closer nonce before signing
+
+**Critical Ordering Requirement**: The `NextCloseeNonce` from `ClosingSig` must NOT
+be applied until AFTER the current signature verification completes. Premature
+rotation causes signature combination failure.
 
 The nonce from `PartialSigWithNonce` in `closing_complete` is stored but not
 immediately used with `InitRemoteNonce` - it's used when we need to sign as the
 closee in the next round.
 
+### Helper Function Reference
+
+The following helper functions manage nonce initialization:
+
+| Function | Session | Sets | Called When |
+|----------|---------|------|-------------|
+| `initLocalMusigCloseeNonce` | LocalMusigSession | Remote's closee nonce | We're closer, preparing to sign |
+| `initRemoteMusigCloserNonce` | RemoteMusigSession | Remote's closer nonce | We're closee, received ClosingComplete |
+
+Note: The function names now correctly reflect what nonce is being set:
+- `initLocalMusigCloseeNonce`: Sets remote's **closee** nonce (from their shutdown)
+- `initRemoteMusigCloserNonce`: Sets remote's **closer** nonce (from their JIT nonce in ClosingComplete)
+
 ## Implementation Notes
 
-- This state machine is implemented in the `peer.go` and `channel.go` files
-within the lnd codebase
+- This state machine is implemented in `rbf_coop_transitions.go` and
+  `rbf_coop_states.go` within the `lnwallet/chancloser` package
+- The `MusigChanCloser` adapter in `peer/musig_chan_closer.go` implements the
+  `MusigSession` interface for managing MuSig2 nonces
 - State transitions are logged at the debug level
 - The `ChanCloser` interface manages the state machine execution
 - Taproot support requires the `MusigSession` interface for nonce coordination

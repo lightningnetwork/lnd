@@ -58,9 +58,15 @@ func (r *RbfMsgMapper) MapMsg(wireMsg msgmux.PeerMsg) fn.Option[ProtocolEvent] {
 			return fn.None[ProtocolEvent]()
 		}
 
+		var remoteShutdownNonce fn.Option[lnwire.Musig2Nonce]
+		msg.ShutdownNonce.WhenSomeV(func(nonce lnwire.Musig2Nonce) {
+			remoteShutdownNonce = fn.Some(nonce)
+		})
+
 		return someEvent(&ShutdownReceived{
-			BlockHeight:    r.blockHeight,
-			ShutdownScript: msg.Address,
+			BlockHeight:         r.blockHeight,
+			ShutdownScript:      msg.Address,
+			RemoteShutdownNonce: remoteShutdownNonce,
 		})
 
 	case *lnwire.ClosingComplete:

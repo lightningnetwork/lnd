@@ -790,7 +790,8 @@ const (
 		TaprootHtlcOfferedRemoteTimeoutScriptSize + 1 +
 		TaprootBaseControlBlockWitnessSize + 32
 
-	// TaprootHtlcOfferedRemoteTimeoutWitnessSizeFinal: 174 bytes (production scripts)
+	// TaprootHtlcOfferedRemoteTimeoutWitnessSizeFinal: 174 bytes
+	// (production scripts).
 	TaprootHtlcOfferedRemoteTimeoutWitnessSizeFinal = 1 + 1 + 65 + 1 +
 		TaprootHtlcOfferedRemoteTimeoutScriptSizeFinal + 1 +
 		TaprootBaseControlBlockWitnessSize + 32
@@ -825,7 +826,8 @@ const (
 		TaprootHtlcOfferedLocalTimeoutScriptSize + 1 +
 		TaprootBaseControlBlockWitnessSize + 32
 
-	// TaprootOfferedLocalTimeoutWitnessSizeFinal: 235 bytes (production scripts)
+	// TaprootOfferedLocalTimeoutWitnessSizeFinal: 235 bytes
+	// (production scripts).
 	TaprootOfferedLocalTimeoutWitnessSizeFinal = 1 + 1 + 65 + 1 + 65 + 1 +
 		TaprootHtlcOfferedLocalTimeoutScriptSizeFinal + 1 +
 		TaprootBaseControlBlockWitnessSize + 32
@@ -916,9 +918,11 @@ const (
 		32 + 1 + TaprootHtlcAcceptedLocalSuccessScriptSize + 1 +
 		TaprootBaseControlBlockWitnessSize + 32
 
-	// TaprootHtlcAcceptedLocalSuccessWitnessSizeFinal: 271 bytes (production scripts)
-	TaprootHtlcAcceptedLocalSuccessWitnessSizeFinal = 1 + 1 + 65 + 1 + 65 + 1 +
-		32 + 1 + TaprootHtlcAcceptedLocalSuccessScriptSizeFinal + 1 +
+	// TaprootHtlcAcceptedLocalSuccessWitnessSizeFinal: 271
+	// bytes (production scripts).
+	TaprootHtlcAcceptedLocalSuccessWitnessSizeFinal = 1 + 1 +
+		65 + 1 + 65 + 1 + 32 + 1 +
+		TaprootHtlcAcceptedLocalSuccessScriptSizeFinal + 1 +
 		TaprootBaseControlBlockWitnessSize + 32
 )
 

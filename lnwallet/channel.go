@@ -918,11 +918,21 @@ func WithAuxResolver(resolver AuxContractResolver) ChannelOpt {
 	}
 }
 
+// WithCustomSigningRand is used to provide a custom random source for
+// generating deterministic JIT signing nonces in MuSig2 sessions. This should
+// only be used in tests that need reproducible MuSig2 signatures.
+func WithCustomSigningRand(rand io.Reader) ChannelOpt {
+	return func(o *channelOpts) {
+		o.customSigningRand = fn.Some[io.Reader](rand)
+	}
+}
+
 // WithAuxHtlcValidator is used to specify a custom HTLC validator for the
-// channel.
+// channel. This allows external components to perform additional validation on
+// HTLCs before they are added to the channel state.
 func WithAuxHtlcValidator(validator AuxHtlcValidator) ChannelOpt {
 	return func(o *channelOpts) {
-		o.auxHtlcValidator = fn.Some[AuxHtlcValidator](validator)
+		o.auxHtlcValidator = fn.Some(validator)
 	}
 }
 

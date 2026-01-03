@@ -256,39 +256,51 @@ const (
 	// revoked taproot commitment transaction.
 	TaprootCommitmentRevoke StandardWitnessType = 34
 
-	// TaprootLocalCommitSpendFinal is a witness type that allows us to spend
-	// our settled local commitment after a CSV delay when we force close
-	// a final taproot channel (using production scripts).
+	// TaprootLocalCommitSpendFinal is a witness type that
+	// allows us to spend our settled local commitment after
+	// a CSV delay when we force close a final taproot
+	// channel (using production scripts).
 	TaprootLocalCommitSpendFinal StandardWitnessType = 35
 
-	// TaprootRemoteCommitSpendFinal is a witness type that allows us to spend
-	// our settled remote commitment after a CSV delay when the remote party
-	// has force closed a final taproot channel (using production scripts).
+	// TaprootRemoteCommitSpendFinal is a witness type that
+	// allows us to spend our settled remote commitment
+	// after a CSV delay when the remote party has force
+	// closed a final taproot channel (using production
+	// scripts).
 	TaprootRemoteCommitSpendFinal StandardWitnessType = 36
 
-	// TaprootHtlcOfferedTimeoutSecondLevelFinal is a witness that allows us to
-	// timeout an HTLC we offered to the remote party on our commitment
-	// transaction for final taproot channels (using production scripts).
+	// TaprootHtlcOfferedTimeoutSecondLevelFinal is a
+	// witness that allows us to timeout an HTLC we offered
+	// to the remote party on our commitment transaction
+	// for final taproot channels (using production
+	// scripts).
 	TaprootHtlcOfferedTimeoutSecondLevelFinal StandardWitnessType = 37
 
-	// TaprootHtlcAcceptedSuccessSecondLevelFinal is a witness that allows us to
-	// sweep an HTLC we accepted on our commitment transaction after we go
-	// to the second level on chain for final taproot channels (using production scripts).
+	// TaprootHtlcAcceptedSuccessSecondLevelFinal is a
+	// witness that allows us to sweep an HTLC we accepted
+	// on our commitment transaction after we go to the
+	// second level on chain for final taproot channels
+	// (using production scripts).
 	TaprootHtlcAcceptedSuccessSecondLevelFinal StandardWitnessType = 38
 
-	// TaprootHtlcOfferedRemoteTimeoutFinal is a witness that allows us to sweep
-	// an HTLC we offered to the remote party that lies on the commitment
-	// transaction for the remote party for final taproot channels (using production scripts).
+	// TaprootHtlcOfferedRemoteTimeoutFinal is a witness
+	// that allows us to sweep an HTLC we offered to the
+	// remote party that lies on the commitment transaction
+	// for the remote party for final taproot channels
+	// (using production scripts).
 	TaprootHtlcOfferedRemoteTimeoutFinal StandardWitnessType = 39
 
-	// TaprootHtlcAcceptedRemoteSuccessFinal is a witness that allows us to
-	// sweep an HTLC that was offered to us by the remote party for final
-	// taproot channels (using production scripts).
+	// TaprootHtlcAcceptedRemoteSuccessFinal is a witness
+	// that allows us to sweep an HTLC that was offered to
+	// us by the remote party for final taproot channels
+	// (using production scripts).
 	TaprootHtlcAcceptedRemoteSuccessFinal StandardWitnessType = 40
 
-	// TaprootCommitmentRevokeFinal is a witness that allows us to sweep the
-	// settled output of a malicious counterparty's who broadcasts a
-	// revoked final taproot commitment transaction (using production scripts).
+	// TaprootCommitmentRevokeFinal is a witness that
+	// allows us to sweep the settled output of a malicious
+	// counterparty's who broadcasts a revoked final
+	// taproot commitment transaction (using production
+	// scripts).
 	TaprootCommitmentRevokeFinal StandardWitnessType = 41
 )
 

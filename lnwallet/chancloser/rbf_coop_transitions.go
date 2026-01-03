@@ -1261,37 +1261,43 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		ErrInvalidStateTransition, event)
 }
 
-// extractTaprootPartialSigWithNonce extracts the PartialSigWithNonce from
-// TaprootClosingSigs. It returns the partial sig, which field it was found in,
-// and whether it's a NoClosee case.
-func extractTaprootPartialSigWithNonce(sigs lnwire.TaprootClosingSigs) (
-	partialSig fn.Option[lnwire.PartialSigWithNonce], isNoClosee bool) {
+// selectTaprootPartialSigWithNonce selects the PartialSigWithNonce to use from
+// TaprootClosingSigs based on whether the closee output is omitted.
+func selectTaprootPartialSigWithNonce(
+	sigs lnwire.TaprootClosingSigs,
+	noClosee bool) (lnwire.PartialSigWithNonce, error) {
 
-	if sigs.CloserNoClosee.IsSome() {
-		var ps lnwire.PartialSigWithNonce
+	var ps lnwire.PartialSigWithNonce
+
+	if noClosee {
+		if sigs.CloserNoClosee.IsNone() {
+			return ps, ErrCloserNoClosee
+		}
+
 		sigs.CloserNoClosee.WhenSomeV(func(p lnwire.PartialSigWithNonce) {
 			ps = p
 		})
-		return fn.Some(ps), true
-	}
 
-	if sigs.NoCloserClosee.IsSome() {
-		var ps lnwire.PartialSigWithNonce
-		sigs.NoCloserClosee.WhenSomeV(func(p lnwire.PartialSigWithNonce) {
-			ps = p
-		})
-		return fn.Some(ps), false
+		return ps, nil
 	}
 
 	if sigs.CloserAndClosee.IsSome() {
-		var ps lnwire.PartialSigWithNonce
 		sigs.CloserAndClosee.WhenSomeV(func(p lnwire.PartialSigWithNonce) {
 			ps = p
 		})
-		return fn.Some(ps), false
+
+		return ps, nil
 	}
 
-	return fn.None[lnwire.PartialSigWithNonce](), false
+	if sigs.NoCloserClosee.IsSome() {
+		sigs.NoCloserClosee.WhenSomeV(func(p lnwire.PartialSigWithNonce) {
+			ps = p
+		})
+
+		return ps, nil
+	}
+
+	return ps, ErrNoSig
 }
 
 // createClosingSigMessage creates the ClosingSig message response for the
@@ -1581,22 +1587,20 @@ func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent, env *Environment,
 // taproot signature for the closee role. It extracts the partial sig with
 // nonce, initializes the musig session, and returns the remote signature.
 func processRemoteTaprootSig(env *Environment, msg lnwire.ClosingComplete,
-	jitNonce fn.Option[lnwire.Musig2Nonce]) (input.Signature, error) {
+	jitNonce fn.Option[lnwire.Musig2Nonce], noClosee bool) (input.Signature,
+	error) {
 
 	// Initialize the RemoteMusigSession with their JIT closer nonce. We
 	// already added our local nonce either during shutdown, or with our
 	// last ClosingSig message.
-	initRemoteMusigCloseeNonce(env, jitNonce)
+	initRemoteMusigCloserNonce(env, jitNonce)
 
-	partialSigOpt, _ := extractTaprootPartialSigWithNonce(msg.TaprootClosingSigs)
-	if partialSigOpt.IsNone() {
-		return nil, fmt.Errorf("no taproot partial sig found in message")
+	remotePartialSig, err := selectTaprootPartialSigWithNonce(
+		msg.TaprootClosingSigs, noClosee,
+	)
+	if err != nil {
+		return nil, err
 	}
-
-	var remotePartialSig lnwire.PartialSigWithNonce
-	partialSigOpt.WhenSome(func(ps lnwire.PartialSigWithNonce) {
-		remotePartialSig = ps
-	})
 
 	// Create a MusigPartialSig from the wire format The Nonce in
 	// PartialSigWithNonce is their next closee nonce for future RBF. We
@@ -1934,7 +1938,7 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 			// This must happen before ProposalClosingOpts() which
 			// requires the nonce to be set.
 			remoteSig, err = processRemoteTaprootSig(
-				env, msg.SigMsg, jitNonce,
+				env, msg.SigMsg, jitNonce, noClosee,
 			)
 			if err != nil {
 				return nil, err

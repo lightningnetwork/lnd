@@ -879,6 +879,62 @@ func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 	require.Equal(r.T, closeTx, pendingState.CloseTx)
 }
 
+// TestSelectTaprootPartialSigWithNonce tests the selection logic for taproot
+// partial signatures with nonces.
+func TestSelectTaprootPartialSigWithNonce(t *testing.T) {
+	var (
+		nonceNoClosee    lnwire.Musig2Nonce
+		nonceWithClosee  lnwire.Musig2Nonce
+		nonceNoCloser    lnwire.Musig2Nonce
+		emptyPartialSig  lnwire.PartialSig
+		closerNoCloseePS lnwire.PartialSigWithNonce
+		withCloseePS     lnwire.PartialSigWithNonce
+		noCloserPS       lnwire.PartialSigWithNonce
+	)
+
+	nonceNoClosee[0] = 0x01
+	nonceWithClosee[0] = 0x02
+	nonceNoCloser[0] = 0x03
+
+	closerNoCloseePS = lnwire.PartialSigWithNonce{
+		PartialSig: emptyPartialSig,
+		Nonce:      nonceNoClosee,
+	}
+	withCloseePS = lnwire.PartialSigWithNonce{
+		PartialSig: emptyPartialSig,
+		Nonce:      nonceWithClosee,
+	}
+	noCloserPS = lnwire.PartialSigWithNonce{
+		PartialSig: emptyPartialSig,
+		Nonce:      nonceNoCloser,
+	}
+
+	sigsBoth := lnwire.TaprootClosingSigs{
+		CloserNoClosee: newPartialSigWithNonceTlv[tlv.TlvType5](
+			closerNoCloseePS,
+		),
+		CloserAndClosee: newPartialSigWithNonceTlv[tlv.TlvType7](
+			withCloseePS,
+		),
+	}
+
+	selected, err := selectTaprootPartialSigWithNonce(sigsBoth, false)
+	require.NoError(t, err)
+	require.Equal(t, nonceWithClosee, selected.Nonce)
+
+	selected, err = selectTaprootPartialSigWithNonce(sigsBoth, true)
+	require.NoError(t, err)
+	require.Equal(t, nonceNoClosee, selected.Nonce)
+
+	sigsNoCloser := lnwire.TaprootClosingSigs{
+		NoCloserClosee: newPartialSigWithNonceTlv[tlv.TlvType6](noCloserPS),
+	}
+
+	selected, err = selectTaprootPartialSigWithNonce(sigsNoCloser, false)
+	require.NoError(t, err)
+	require.Equal(t, nonceNoCloser, selected.Nonce)
+}
+
 func assertStateT[T ProtocolState](h *rbfCloserTestHarness) T {
 	h.T.Helper()
 

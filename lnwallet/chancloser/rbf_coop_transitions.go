@@ -155,15 +155,17 @@ func initLocalMusigCloseeNonce(env *Environment,
 	}
 }
 
-// initRemoteMusigCloseeNonce initializes the RemoteMusigSession with our local
-// closee nonce. This is used when we act as the closee to sign counter offers.
-func initRemoteMusigCloseeNonce(env *Environment,
-	localCloseeNonce fn.Option[lnwire.Musig2Nonce]) {
+// initRemoteMusigCloserNonce initializes the RemoteMusigSession with the
+// remote party's closer nonce. This is called when we receive ClosingComplete
+// and we're acting as closee. The nonce passed in is the remote's JIT closer
+// nonce from their ClosingComplete message.
+func initRemoteMusigCloserNonce(env *Environment,
+	remoteCloserNonce fn.Option[lnwire.Musig2Nonce]) {
 
 	if env.RemoteMusigSession != nil {
-		localCloseeNonce.WhenSome(func(nonce lnwire.Musig2Nonce) {
-			localMusigNonce := musig2.Nonces{PubNonce: nonce}
-			env.RemoteMusigSession.InitRemoteNonce(&localMusigNonce)
+		remoteCloserNonce.WhenSome(func(nonce lnwire.Musig2Nonce) {
+			remoteMusigNonce := musig2.Nonces{PubNonce: nonce}
+			env.RemoteMusigSession.InitRemoteNonce(&remoteMusigNonce)
 		})
 	}
 }
@@ -942,17 +944,6 @@ func (c *ClosingNegotiation) updateAndValidateCloseTerms(event ProtocolEvent,
 			return err
 		}
 
-		// For taproot channels, extract the NextCloseeNonce from
-		// ClosingSig if present. This will be used for the next RBF
-		// iteration when we act as closer. This is their new closee
-		// nonce.
-		_, nextCloseeNonce := validateAndExtractSigAndNonce(
-			msg.SigMsg, isTaproot,
-		)
-		nextCloseeNonce.WhenSome(func(nonce lnwire.Musig2Nonce) {
-			c.NonceState.RemoteCloseeNonce = fn.Some(nonce)
-		})
-
 		return nil
 	}
 
@@ -1492,8 +1483,9 @@ func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent, env *Environment,
 	// validate the signature from the remote party. If valid, then we can
 	// broadcast the transaction, and transition to the ClosePending state.
 	case *LocalSigReceived:
-		// Extract and validate that only one sig field is set.
-		sigResult, _ := validateAndExtractSigAndNonce(
+		// Extract and validate that only one sig field is set. For
+		// taproot channels, we also extract the NextCloseeNonce.
+		sigResult, nextCloseeNonce := validateAndExtractSigAndNonce(
 			msg.SigMsg, env.IsTaproot(),
 		)
 		sig, err := sigResult.Unpack()
@@ -1507,15 +1499,28 @@ func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent, env *Environment,
 			lnwallet.WithCustomPayer(lntypes.Local),
 		)
 
-		// For taproot channels, we'll make sure to add the musig
-		// options before calling prepareClosingSignatures.
+		// For taproot channels, we need to initialize the remote's
+		// closee nonce BEFORE calling ProposalClosingOpts. We use the
+		// nonce from NonceState (set during shutdown or from prior
+		// ClosingSig's NextCloseeNonce).
 		if env.IsTaproot() {
+			// Initialize the remote nonce from our stored state.
+			// This is the nonce the remote party committed to in
+			// their shutdown message (or their previous ClosingSig).
+			initLocalMusigCloseeNonce(env, l.NonceState.RemoteCloseeNonce)
+
+			// Now that the nonce is initialized, we can safely get
+			// the musig closing options.
 			musigOpts, err := env.LocalMusigSession.ProposalClosingOpts()
 			if err != nil {
 				return nil, fmt.Errorf("failed to get musig "+
 					"closing opts: %w", err)
 			}
 			closeOpts = append(closeOpts, musigOpts...)
+
+			// Update NonceState with the new nonce from ClosingSig
+			// for potential future RBF iterations.
+			l.NonceState.RemoteCloseeNonce = nextCloseeNonce
 		}
 
 		localSig, remoteSig, err := prepareClosingSignatures(
@@ -1950,10 +1955,10 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 			}
 		}
 
-		chancloserLog.Infof("responding to close w/ local_addr=%x, "+
-			"remote_addr=%x, fee=%v",
+		chancloserLog.Infof("RemoteCloseStart: responding to close w/ "+
+			"local_addr=%x, remote_addr=%x, fee=%v, locktime=%v",
 			l.LocalDeliveryScript[:], l.RemoteDeliveryScript[:],
-			msg.SigMsg.FeeSatoshis)
+			msg.SigMsg.FeeSatoshis, msg.SigMsg.LockTime)
 
 		// Now that we have the remote sig, we'll sign the version they
 		// signed, then attempt to complete the cooperative close

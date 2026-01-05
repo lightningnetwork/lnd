@@ -1142,7 +1142,16 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			// channel reestablish message sent from the peer, but
 			// that's okay since the assumption is that we did when
 			// marking the channel borked.
-			chanSync, err := dbChan.ChanSyncMsg()
+			//
+			// We pass the peer's feature bits so that we use the
+			// correct nonce format based on whether they support
+			// the final or staging taproot channel feature bits.
+			nonceType := lnwire.DetermineTaprootNonceType(
+				p.remoteFeatures,
+			)
+			chanSync, err := dbChan.ChanSyncMsg(
+				channeldb.WithChanSyncNonceType(nonceType),
+			)
 			if err != nil {
 				p.log.Errorf("Unable to create channel "+
 					"reestablish message for channel %v: "+

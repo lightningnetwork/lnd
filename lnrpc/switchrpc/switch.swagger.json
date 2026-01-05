@@ -52,7 +52,8 @@
     },
     "/v2/switch/onion": {
       "post": {
-        "summary": "SendOnion attempts to make a payment via the specified onion. This\nmethod differs from SendPayment in that the instance need not be aware of\nthe full details of the payment route.",
+        "summary": "SendOnion provides an idempotent API for dispatching a pre-formed onion\npacket, which is the primary entry point for a remote router.",
+        "description": "To safely handle network failures, a client can and should retry this RPC\nafter a timeout or disconnection. Retries MUST use the exact same\nattempt_id to allow the server to correctly detect duplicate requests.\n\nA client interacting with this RPC must handle four distinct categories of\noutcomes, communicated via gRPC status codes:\n\n1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has\nbeen successfully dispatched. The client can proceed to track the\npayment's final result via the `TrackOnion` RPC.\n\n2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): A definitive\nacknowledgment that a request with the same attempt_id has already\nbeen successfully processed. A retrying client should interpret this\nas a success and proceed to tracking the payment's result.\n\n3. AMBIGUOUS FAILURE (gRPC code Unavailable or DeadlineExceeded): An\nambiguous error occurred (e.g., the server is shutting down or the\nclient timed out). The state of the HTLC dispatch is unknown. The\nclient MUST retry the exact same request to resolve the ambiguity.\n\n4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument, etc.):\nA definitive failure is a guarantee that the HTLC was not and will not be\ndispatched. The client should fail the attempt and may retry with a new\nroute and/or new attempt_id.",
         "operationId": "Switch_SendOnion",
         "responses": {
           "200": {

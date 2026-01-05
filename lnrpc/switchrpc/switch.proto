@@ -10,9 +10,34 @@ option go_package = "github.com/lightningnetwork/lnd/lnrpc/switchrpc";
 // subsystem of the daemon.
 service Switch {
     /*
-    SendOnion attempts to make a payment via the specified onion. This
-    method differs from SendPayment in that the instance need not be aware of
-    the full details of the payment route.
+    SendOnion provides an idempotent API for dispatching a pre-formed onion
+    packet, which is the primary entry point for a remote router.
+
+    To safely handle network failures, a client can and should retry this RPC
+    after a timeout or disconnection. Retries MUST use the exact same
+    attempt_id to allow the server to correctly detect duplicate requests.
+
+    A client interacting with this RPC must handle four distinct categories of
+    outcomes, communicated via gRPC status codes:
+
+    1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has
+    been successfully dispatched. The client can proceed to track the
+    payment's final result via the `TrackOnion` RPC.
+
+    2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): A definitive
+    acknowledgment that a request with the same attempt_id has already
+    been successfully processed. A retrying client should interpret this
+    as a success and proceed to tracking the payment's result.
+
+    3. AMBIGUOUS FAILURE (gRPC code Unavailable or DeadlineExceeded): An
+    ambiguous error occurred (e.g., the server is shutting down or the
+    client timed out). The state of the HTLC dispatch is unknown. The
+    client MUST retry the exact same request to resolve the ambiguity.
+
+    4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument, etc.):
+    A definitive failure is a guarantee that the HTLC was not and will not be
+    dispatched. The client should fail the attempt and may retry with a new
+    route and/or new attempt_id.
     */
     rpc SendOnion (SendOnionRequest) returns (SendOnionResponse);
 

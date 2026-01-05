@@ -57,12 +57,18 @@ func testEndorsement(ht *lntest.HarnessTest, aliceEndorse bool) {
 		FeeLimitMsat:   math.MaxInt64,
 	}
 
-	expectedValue := []byte{lnwire.ExperimentalUnendorsed}
-	if aliceEndorse {
-		expectedValue = []byte{lnwire.ExperimentalEndorsed}
-		t := uint64(lnwire.ExperimentalEndorsementType)
-		sendReq.FirstHopCustomRecords = map[uint64][]byte{
-			t: expectedValue,
+	var expectedValue []byte
+	hasEndorsement := lntest.ExperimentalEndorsementActive()
+
+	if hasEndorsement {
+		if aliceEndorse {
+			expectedValue = []byte{lnwire.ExperimentalEndorsed}
+			t := uint64(lnwire.ExperimentalEndorsementType)
+			sendReq.FirstHopCustomRecords = map[uint64][]byte{
+				t: expectedValue,
+			}
+		} else {
+			expectedValue = []byte{lnwire.ExperimentalUnendorsed}
 		}
 	}
 
@@ -70,8 +76,13 @@ func testEndorsement(ht *lntest.HarnessTest, aliceEndorse bool) {
 
 	// Validate that our signal (positive or zero) propagates until carol
 	// and then is dropped because she has disabled the feature.
-	validateEndorsedAndResume(ht, bobIntercept, true, expectedValue)
-	validateEndorsedAndResume(ht, carolIntercept, true, expectedValue)
+	// When the endorsement experiment is not active, no signal is sent.
+	validateEndorsedAndResume(
+		ht, bobIntercept, hasEndorsement, expectedValue,
+	)
+	validateEndorsedAndResume(
+		ht, carolIntercept, hasEndorsement, expectedValue,
+	)
 	validateEndorsedAndResume(ht, daveIntercept, false, nil)
 
 	var preimage lntypes.Preimage

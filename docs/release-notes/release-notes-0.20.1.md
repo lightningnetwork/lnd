@@ -111,6 +111,10 @@
   safe single-writer behavior until the wallet subsystem is fully 
   concurrent-safe.
 
+* [Modified the query for `IsPublicV1Node`](https://github.com/lightningnetwork/lnd/pull/10356)
+  to use `UNION ALL` instead of `OR` conditions in the `WHERE` clause, improving
+  performance when checking for public nodes especially in large graphs when using `SQL` backends.
+
 ## Deprecations
 
 # Technical and Architectural Updates
@@ -126,5 +130,6 @@
 
 # Contributors (Alphabetical Order)
 
+* Abdulkbk
 * bitromortac
 * Ziggie

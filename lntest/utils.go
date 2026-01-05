@@ -7,9 +7,11 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -288,11 +290,26 @@ func CalcStaticFeeBuffer(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
 func CustomRecordsWithUnendorsed(
 	originalRecords lnwire.CustomRecords) map[uint64][]byte {
 
+	if !ExperimentalEndorsementActive() {
+		// Return nil if there are no records, to match wire encoding.
+		if len(originalRecords) == 0 {
+			return nil
+		}
+
+		return originalRecords.Copy()
+	}
+
 	return originalRecords.MergedCopy(map[uint64][]byte{
 		uint64(lnwire.ExperimentalEndorsementType): {
 			lnwire.ExperimentalUnendorsed,
 		}},
 	)
+}
+
+// ExperimentalEndorsementActive returns true if the experimental endorsement
+// window is still open.
+func ExperimentalEndorsementActive() bool {
+	return time.Now().Before(lnd.EndorsementExperimentEnd)
 }
 
 // LnrpcOutpointToStr returns a string representation of an lnrpc.OutPoint.

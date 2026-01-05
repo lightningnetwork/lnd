@@ -434,14 +434,25 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 	// We should get another notification about the held HTLC.
 	packet = ht.ReceiveHtlcInterceptor(bobInterceptor)
 
-	require.Len(ht, packet.InWireCustomRecords, 2)
+	// Check the expected number of custom records based on whether the
+	// endorsement experiment is still active.
+	expectedLen := 1
+	if lntest.ExperimentalEndorsementActive() {
+		expectedLen = 2
+	}
+	require.Len(ht, packet.InWireCustomRecords, expectedLen)
 	require.Equal(ht, lntest.CustomRecordsWithUnendorsed(customRecords),
 		packet.InWireCustomRecords)
 
 	// And now we forward the payment at Carol, expecting only an
-	// endorsement signal in our incoming custom records.
+	// endorsement signal in our incoming custom records (if the experiment
+	// is still active).
 	packet = ht.ReceiveHtlcInterceptor(carolInterceptor)
-	require.Len(ht, packet.InWireCustomRecords, 1)
+	expectedCarolLen := 0
+	if lntest.ExperimentalEndorsementActive() {
+		expectedCarolLen = 1
+	}
+	require.Len(ht, packet.InWireCustomRecords, expectedCarolLen)
 	err = carolInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
 		IncomingCircuitKey: packet.IncomingCircuitKey,
 		Action:             actionResume,

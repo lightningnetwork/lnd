@@ -8,6 +8,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
@@ -49,6 +50,7 @@ func genChannelType(t *rapid.T) channeldb.ChannelType {
 		channeldb.ScidAliasFeatureBit,
 		channeldb.SimpleTaprootFeatureBit,
 		channeldb.TapscriptRootBit,
+		channeldb.ZeroFeeCommitmentsBit,
 	}
 
 	// Helper to bias towards setting specific bits more frequently.
@@ -174,7 +176,15 @@ func TestCoopCloseBalance(tt *testing.T) {
 		initialTotal += commitFee
 
 		if chanType.HasAnchors() {
-			initialTotal += 2 * AnchorSize
+			if chanType.HasZeroFeeCommitments() {
+				// Zero-fee channels have a single P2A anchor,
+				// max 240 sats.
+				initialTotal += P2AAnchorMaxAmount
+			} else {
+				// Traditional anchor channels have two
+				// per-party anchors.
+				initialTotal += 2 * AnchorSize
+			}
 		}
 
 		finalTotal := ourFinal + theirFinal + coopCloseFee
@@ -207,8 +217,16 @@ func TestCoopCloseBalance(tt *testing.T) {
 		// balance factors in the anchor amount.
 		if chanType.HasAnchors() {
 			// The initiator delta is the commit fee plus anchor
-			// amount.
-			initiatorDelta := commitFee + 2*AnchorSize
+			// amount. Zero-fee channels use a single P2A anchor
+			// (max 240 sats), while traditional anchor channels
+			// have two per-party anchors (660 sats total).
+			var anchorAmount btcutil.Amount
+			if chanType.HasZeroFeeCommitments() {
+				anchorAmount = P2AAnchorMaxAmount
+			} else {
+				anchorAmount = 2 * AnchorSize
+			}
+			initiatorDelta := commitFee + anchorAmount
 
 			// Default to initiator paying unless explicitly
 			// specified.
@@ -238,4 +256,94 @@ func TestCoopCloseBalance(tt *testing.T) {
 			}
 		}
 	})
+}
+
+// TestCalculateSharedAnchorAmount tests the calculation of the shared anchor
+// output amount for v3 zero-fee commitment transactions.
+func TestCalculateSharedAnchorAmount(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name           string
+		trimmedValue   btcutil.Amount
+		roundedMsats   lnwire.MilliSatoshi
+		expectedAmount btcutil.Amount
+	}{
+		{
+			name:           "no trimmed outputs",
+			trimmedValue:   0,
+			roundedMsats:   0,
+			expectedAmount: 0,
+		},
+		{
+			name:           "small trimmed value",
+			trimmedValue:   100,
+			roundedMsats:   0,
+			expectedAmount: 100,
+		},
+		{
+			// 50000 msats = 50 sats when truncated.
+			name:           "small rounded msats",
+			trimmedValue:   0,
+			roundedMsats:   50000,
+			expectedAmount: 50,
+		},
+		{
+			// 50000 msats = 50 sats.
+			name:           "combined under max",
+			trimmedValue:   100,
+			roundedMsats:   50000,
+			expectedAmount: 150,
+		},
+		{
+			// 40000 msats = 40 sats, 200 + 40 = 240.
+			name:           "exactly at max",
+			trimmedValue:   200,
+			roundedMsats:   40000,
+			expectedAmount: P2AAnchorMaxAmount,
+		},
+		{
+			name:           "trimmed exceeds max",
+			trimmedValue:   300,
+			roundedMsats:   0,
+			expectedAmount: P2AAnchorMaxAmount,
+		},
+		{
+			// 100000 msats = 100 sats, 200 + 100 = 300 > 240.
+			name:           "combined exceeds max",
+			trimmedValue:   200,
+			roundedMsats:   100000,
+			expectedAmount: P2AAnchorMaxAmount,
+		},
+		{
+			// 500000 msats = 500 sats, 1000 + 500 = 1500 > 240.
+			name:           "large values capped at max",
+			trimmedValue:   1000,
+			roundedMsats:   500000,
+			expectedAmount: P2AAnchorMaxAmount,
+		},
+		{
+			// Msats less than 1000 truncate to 0.
+			name:           "msats under 1 sat truncates",
+			trimmedValue:   0,
+			roundedMsats:   999,
+			expectedAmount: 0,
+		},
+		{
+			// 1500 msats truncates to 1 sat.
+			name:           "msats partial sat truncates",
+			trimmedValue:   10,
+			roundedMsats:   1500,
+			expectedAmount: 11,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := CalculateSharedAnchorAmount(
+				tc.trimmedValue, tc.roundedMsats,
+			)
+			require.Equal(t, tc.expectedAmount, result)
+		})
+	}
 }

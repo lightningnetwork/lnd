@@ -4786,6 +4786,9 @@ func rpcCommitmentType(chanType channeldb.ChannelType) lnrpc.CommitmentType {
 	case chanType.IsTaproot():
 		return lnrpc.CommitmentType_SIMPLE_TAPROOT
 
+	case chanType.HasZeroFeeCommitments():
+		return lnrpc.CommitmentType_ZERO_FEE
+
 	case chanType.HasLeaseExpiration():
 		return lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE
 

@@ -99,6 +99,11 @@ func TestRpcCommitmentType(t *testing.T) {
 			want:     lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
 		},
 		{
+			name:     "zero fee",
+			chanType: channeldb.ZeroFeeCommitmentsBit,
+			want:     lnrpc.CommitmentType_ZERO_FEE,
+		},
+		{
 			name:     "anchors",
 			chanType: channeldb.AnchorOutputsBit,
 			want:     lnrpc.CommitmentType_ANCHORS,

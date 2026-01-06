@@ -220,6 +220,12 @@ func (c *anchorResolver) Launch() error {
 		witnessType = input.TaprootAnchorSweepSpend
 	}
 
+	// For zero-fee commitment channels, the anchor is a P2A output that
+	// can be spent with an empty witness.
+	if c.chanType.HasZeroFeeCommitments() {
+		witnessType = input.ZeroFeeAnchorSpend
+	}
+
 	anchorInput := input.MakeBaseInput(
 		&c.anchor, witnessType, &c.anchorSignDescriptor,
 		c.broadcastHeight, nil,

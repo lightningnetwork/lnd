@@ -375,6 +375,82 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 
 		return lnwallet.CommitmentTypeSimpleTaprootOverlay, nil
 
+	// Zero-fee v3 commitment channels with zero conf and scid alias.
+	case channelFeatures.OnlyContains(
+		lnwire.ZeroFeeCommitmentsRequired,
+		lnwire.StaticRemoteKeyRequired,
+		lnwire.ZeroConfRequired,
+		lnwire.ScidAliasRequired,
+	):
+
+		if !hasFeatures(
+			local, remote,
+			lnwire.ZeroFeeCommitmentsOptional,
+			lnwire.StaticRemoteKeyOptional,
+			lnwire.ZeroConfOptional,
+			lnwire.ScidAliasOptional,
+		) {
+
+			return 0, errUnsupportedChannelType
+		}
+
+		return lnwallet.CommitmentTypeZeroFee, nil
+
+	// Zero-fee v3 commitment channels with zero conf only.
+	case channelFeatures.OnlyContains(
+		lnwire.ZeroFeeCommitmentsRequired,
+		lnwire.StaticRemoteKeyRequired,
+		lnwire.ZeroConfRequired,
+	):
+
+		if !hasFeatures(
+			local, remote,
+			lnwire.ZeroFeeCommitmentsOptional,
+			lnwire.StaticRemoteKeyOptional,
+			lnwire.ZeroConfOptional,
+		) {
+
+			return 0, errUnsupportedChannelType
+		}
+
+		return lnwallet.CommitmentTypeZeroFee, nil
+
+	// Zero-fee v3 commitment channels with scid alias only.
+	case channelFeatures.OnlyContains(
+		lnwire.ZeroFeeCommitmentsRequired,
+		lnwire.StaticRemoteKeyRequired,
+		lnwire.ScidAliasRequired,
+	):
+
+		if !hasFeatures(
+			local, remote,
+			lnwire.ZeroFeeCommitmentsOptional,
+			lnwire.StaticRemoteKeyOptional,
+			lnwire.ScidAliasOptional,
+		) {
+
+			return 0, errUnsupportedChannelType
+		}
+
+		return lnwallet.CommitmentTypeZeroFee, nil
+
+	// Zero-fee v3 commitment channels only.
+	case channelFeatures.OnlyContains(
+		lnwire.ZeroFeeCommitmentsRequired,
+		lnwire.StaticRemoteKeyRequired,
+	):
+
+		if !hasFeatures(
+			local, remote,
+			lnwire.ZeroFeeCommitmentsOptional,
+			lnwire.StaticRemoteKeyOptional,
+		) {
+
+			return 0, errUnsupportedChannelType
+		}
+
+		return lnwallet.CommitmentTypeZeroFee, nil
+
 	// No features, use legacy commitment type.
 	case channelFeatures.IsEmpty():
 		return lnwallet.CommitmentTypeLegacy, nil
@@ -390,6 +466,18 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 func implicitNegotiateCommitmentType(local,
 	remote *lnwire.FeatureVector) (*lnwire.ChannelType,
 	lnwallet.CommitmentType) {
+
+	// If both peers are signalling support for v3 zero-fee commitments,
+	// we'll use this type. This is the most preferred channel type when
+	// explicitly enabled.
+	if hasFeatures(local, remote, lnwire.ZeroFeeCommitmentsOptional) {
+		chanType := lnwire.ChannelType(*lnwire.NewRawFeatureVector(
+			lnwire.ZeroFeeCommitmentsRequired,
+			lnwire.StaticRemoteKeyRequired,
+		))
+
+		return &chanType, lnwallet.CommitmentTypeZeroFee
+	}
 
 	// If both peers are signalling support for anchor commitments with
 	// zero-fee HTLC transactions, we'll use this type.

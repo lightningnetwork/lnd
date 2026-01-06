@@ -75,6 +75,10 @@
   This applies to both funders and fundees, with the ability to override the
   value during channel opening or acceptance.
 
+* Rename [experimental endorsement signal](https://github.com/lightning/blips/blob/a833e7b49f224e1240b5d669e78fa950160f5a06/blip-0004.md)
+  to [accountable](https://github.com/lightningnetwork/lnd/pull/10367) to match
+  the latest [proposal](https://github.com/lightning/blips/pull/67).
+
 ## RPC Updates
 
 ## lncli Updates

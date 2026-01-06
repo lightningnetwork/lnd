@@ -387,7 +387,7 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 	// all intercepted packets. These packets are held to simulate a
 	// pending payment.
 	packet := ht.ReceiveHtlcInterceptor(bobInterceptor)
-	require.Equal(ht, lntest.CustomRecordsWithUnendorsed(
+	require.Equal(ht, lntest.CustomRecordsWithUnaccountable(
 		customRecords,
 	), packet.InWireCustomRecords)
 
@@ -432,25 +432,14 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 	// We should get another notification about the held HTLC.
 	packet = ht.ReceiveHtlcInterceptor(bobInterceptor)
 
-	// Check the expected number of custom records based on whether the
-	// endorsement experiment is still active.
-	expectedLen := 1
-	if lntest.ExperimentalEndorsementActive() {
-		expectedLen = 2
-	}
-	require.Len(ht, packet.InWireCustomRecords, expectedLen)
-	require.Equal(ht, lntest.CustomRecordsWithUnendorsed(customRecords),
+	require.Len(ht, packet.InWireCustomRecords, 2)
+	require.Equal(ht, lntest.CustomRecordsWithUnaccountable(customRecords),
 		packet.InWireCustomRecords)
 
 	// And now we forward the payment at Carol, expecting only an
-	// endorsement signal in our incoming custom records (if the experiment
-	// is still active).
+	// accountability signal in our incoming custom records.
 	packet = ht.ReceiveHtlcInterceptor(carolInterceptor)
-	expectedCarolLen := 0
-	if lntest.ExperimentalEndorsementActive() {
-		expectedCarolLen = 1
-	}
-	require.Len(ht, packet.InWireCustomRecords, expectedCarolLen)
+	require.Len(ht, packet.InWireCustomRecords, 1)
 	err = carolInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
 		IncomingCircuitKey: packet.IncomingCircuitKey,
 		Action:             actionResume,
@@ -462,7 +451,7 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 		alice, preimage.Hash(), lnrpc.Payment_SUCCEEDED,
 		func(p *lnrpc.Payment) error {
 			recordsEqual := reflect.DeepEqual(
-				lntest.CustomRecordsWithUnendorsed(
+				lntest.CustomRecordsWithUnaccountable(
 					sendReq.FirstHopCustomRecords,
 				), p.FirstHopCustomRecords,
 			)

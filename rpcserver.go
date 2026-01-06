@@ -695,8 +695,6 @@ func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
 // addDeps populates all dependencies needed by the RPC server, and any
 // of the sub-servers that it maintains. When this is done, the RPC server can
 // be started, and start accepting RPC calls.
-//
-//nolint:funlen
 func (r *rpcServer) addDeps(ctx context.Context, s *server,
 	macService *macaroons.Service,
 	subServerCgs *subRPCServerConfigs, atpl *autopilot.Manager,
@@ -781,14 +779,8 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 
 			return nil
 		},
-		ShouldSetExpEndorsement: func() bool {
-			if s.cfg.ProtocolOptions.NoExperimentalEndorsement() {
-				return false
-			}
-
-			return clock.NewDefaultClock().Now().Before(
-				EndorsementExperimentEnd,
-			)
+		ShouldSetExpAccountability: func() bool {
+			return !s.cfg.ProtocolOptions.NoExpAccountability()
 		},
 	}
 

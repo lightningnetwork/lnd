@@ -420,6 +420,11 @@ const (
 	// level tapscript commitment. This MUST be set along with the
 	// SimpleTaprootFeatureBit.
 	TapscriptRootBit ChannelType = 1 << 11
+
+	// ZeroFeeCommitmentsBit indicates that the channel uses v3 transactions
+	// with zero-fee commitment and HTLC transactions. Fee bumping is done
+	// via CPFP on the P2A (pay-to-anchor) output.
+	ZeroFeeCommitmentsBit ChannelType = 1 << 12
 )
 
 // IsSingleFunder returns true if the channel type if one of the known single
@@ -494,6 +499,12 @@ func (c ChannelType) IsTaproot() bool {
 // root commitment.
 func (c ChannelType) HasTapscriptRoot() bool {
 	return c&TapscriptRootBit == TapscriptRootBit
+}
+
+// HasZeroFeeCommitments returns true if the channel uses v3 transactions with
+// zero-fee commitment and HTLC transactions.
+func (c ChannelType) HasZeroFeeCommitments() bool {
+	return c&ZeroFeeCommitmentsBit == ZeroFeeCommitmentsBit
 }
 
 // ChannelStateBounds are the parameters from OpenChannel and AcceptChannel

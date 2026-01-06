@@ -1506,6 +1506,14 @@ enum CommitmentType {
     leaves for the scripts in a channel.
     */
     SIMPLE_TAPROOT_OVERLAY = 6;
+
+    /*
+    A channel that uses v3 transactions with zero-fee commitment and HTLC
+    transactions. Fee bumping is done via CPFP on the shared P2A (pay-to-anchor)
+    output. This commitment type follows the zero_fee_commitments feature as
+    defined in BOLT PR #1228.
+    */
+    ZERO_FEE = 7;
 }
 
 message ChannelConstraints {

@@ -57,6 +57,11 @@ const (
 	// time, or that an update has been sent/received while the channel is
 	// quiesced.
 	ErrStfuViolation
+
+	// ErrUpdateFeeNotAllowed indicates that an update_fee message was
+	// received for a zero-fee commitment channel, which does not use
+	// update_fee messages.
+	ErrUpdateFeeNotAllowed
 )
 
 // LinkFailureAction is an enum-like type that describes the action that should
@@ -130,6 +135,8 @@ func (e LinkFailureError) Error() string {
 		return "non-fatal circuit map error"
 	case ErrStfuViolation:
 		return "quiescence protocol executed improperly"
+	case ErrUpdateFeeNotAllowed:
+		return "update_fee not allowed for zero-fee channel"
 	default:
 		return "unknown error"
 	}

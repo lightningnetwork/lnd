@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -15,10 +12,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
-	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/fn/v2"
-	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -46,19 +41,32 @@ var (
 
 type HarnessMiner struct {
 	*testing.T
+
+	// backend is the underlying miner backend implementation (btcd or
+	// bitcoind). This is always set.
+	backend MinerBackend
+
+	// Harness is the btcd-specific harness. This is only set when using
+	// the btcd backend, and is nil when using bitcoind.
 	*rpctest.Harness
+
+	// ActiveNet is the miner network parameters used by lntest.
+	//
+	// This field exists for backwards compatibility with existing itests
+	// that reference `ht.Miner().ActiveNet`. When using the bitcoind miner
+	// backend, the embedded btcd rpctest harness is nil, but callers still
+	// expect this value to be set.
+	ActiveNet *chaincfg.Params
 
 	// runCtx is a context with cancel method. It's used to signal when the
 	// node needs to quit, and used as the parent context when spawning
 	// children contexts for RPC requests.
-	runCtx context.Context //nolint:containedctx
+	//
+	// NOTE: The backend owns lifecycle management; these fields are kept
+	// for compatibility with existing patterns in lntest.
+	//nolint:containedctx
+	runCtx context.Context
 	cancel context.CancelFunc
-
-	// logPath is the directory path of the miner's logs.
-	logPath string
-
-	// logFilename is the saved log filename of the miner node.
-	logFilename string
 }
 
 // NewMiner creates a new miner using btcd backend with the default log file
@@ -78,77 +86,166 @@ func NewTempMiner(ctxt context.Context, t *testing.T,
 	return newMiner(ctxt, t, tempDir, tempLogFilename)
 }
 
+// NewBitcoindMiner creates a new miner using bitcoind backend with the
+// default log file dir and name.
+func NewBitcoindMiner(ctxt context.Context, t *testing.T) *HarnessMiner {
+	t.Helper()
+	return newBitcoindMiner(
+		ctxt, t, minerLogDir, "output_bitcoind_miner.log",
+	)
+}
+
+// NewBitcoindTempMiner creates a new miner using bitcoind backend with the
+// specified log file dir and name.
+func NewBitcoindTempMiner(ctxt context.Context, t *testing.T,
+	tempDir, tempLogFilename string) *HarnessMiner {
+
+	t.Helper()
+	return newBitcoindMiner(ctxt, t, tempDir, tempLogFilename)
+}
+
+// NewMinerWithConfig creates a new miner with the specified configuration.
+// The Backend field in the config determines which backend to use ("btcd" or
+// "bitcoind").
+func NewMinerWithConfig(ctxt context.Context, t *testing.T,
+	config *MinerConfig) *HarnessMiner {
+
+	t.Helper()
+
+	// Set defaults if not specified.
+	logDir := config.LogDir
+	if logDir == "" {
+		logDir = minerLogDir
+	}
+
+	logFilename := config.LogFilename
+	if logFilename == "" {
+		if config.Backend == "bitcoind" {
+			logFilename = "output_bitcoind_miner.log"
+		} else {
+			logFilename = minerLogFilename
+		}
+	}
+
+	// Choose backend based on config.
+	switch config.Backend {
+	case "bitcoind":
+		return newBitcoindMinerWithConfig(ctxt, t, config, logDir,
+			logFilename)
+	case "btcd", "":
+		// Default to btcd for backward compatibility.
+		return newBtcdMinerWithConfig(ctxt, t, config, logDir,
+			logFilename)
+	default:
+		require.Failf(t, "unknown backend",
+			"backend %s not supported", config.Backend)
+		return nil
+	}
+}
+
 // newMiner creates a new miner using btcd's rpctest.
 func newMiner(ctxb context.Context, t *testing.T, minerDirName,
 	logFilename string) *HarnessMiner {
 
 	t.Helper()
 
-	handler := &rpcclient.NotificationHandlers{}
-	btcdBinary := node.GetBtcdBinary()
-	baseLogPath := fmt.Sprintf("%s/%s", node.GetLogDir(), minerDirName)
-
-	args := []string{
-		"--rejectnonstd",
-		"--txindex",
-		"--nowinservice",
-		"--nobanning",
-		"--debuglevel=debug",
-		"--logdir=" + baseLogPath,
-		"--trickleinterval=100ms",
-		// Don't disconnect if a reply takes too long.
-		"--nostalldetect",
+	config := &MinerConfig{
+		Backend:     "btcd",
+		LogDir:      minerDirName,
+		LogFilename: logFilename,
 	}
 
-	miner, err := rpctest.New(HarnessNetParams, handler, args, btcdBinary)
-	require.NoError(t, err, "unable to create mining node")
+	return newBtcdMinerWithConfig(ctxb, t, config, minerDirName,
+		logFilename)
+}
 
-	ctxt, cancel := context.WithCancel(ctxb)
+// newBitcoindMiner creates a new miner using bitcoind.
+func newBitcoindMiner(ctxb context.Context, t *testing.T, minerDirName,
+	logFilename string) *HarnessMiner {
+
+	t.Helper()
+
+	config := &MinerConfig{
+		Backend:     "bitcoind",
+		LogDir:      minerDirName,
+		LogFilename: logFilename,
+	}
+
+	return newBitcoindMinerWithConfig(ctxb, t, config, minerDirName,
+		logFilename)
+}
+
+// newBtcdMinerWithConfig creates a new miner using btcd with the given config.
+func newBtcdMinerWithConfig(ctxb context.Context, t *testing.T,
+	config *MinerConfig, minerDirName, logFilename string) *HarnessMiner {
+
+	t.Helper()
+
+	// Create the btcd backend wrapper. Note that we don't start the backend
+	// here, as callers (lntest harness) often tweak harness settings (e.g.
+	// connection retries) before calling SetUp/Start.
+	btcdBackend := NewBtcdMinerBackend(ctxb, t, &MinerConfig{
+		Backend:     "btcd",
+		LogDir:      minerDirName,
+		LogFilename: logFilename,
+		ExtraArgs:   config.ExtraArgs,
+	})
 
 	return &HarnessMiner{
-		T:           t,
-		Harness:     miner,
-		runCtx:      ctxt,
-		cancel:      cancel,
-		logPath:     baseLogPath,
-		logFilename: logFilename,
+		T:         t,
+		backend:   btcdBackend,
+		Harness:   btcdBackend.Harness,
+		ActiveNet: HarnessNetParams,
+		runCtx:    btcdBackend.runCtx,
+		cancel:    btcdBackend.cancel,
 	}
 }
 
-// saveLogs copies the node logs and save it to the file specified by
-// h.logFilename.
-func (h *HarnessMiner) saveLogs() {
-	// After shutting down the miner, we'll make a copy of the log files
-	// before deleting the temporary log dir.
-	path := fmt.Sprintf("%s/%s", h.logPath, HarnessNetParams.Name)
-	files, err := os.ReadDir(path)
-	require.NoError(h, err, "unable to read log directory")
+// newBitcoindMinerWithConfig creates a new miner using bitcoind with the
+// given config.
+func newBitcoindMinerWithConfig(ctxb context.Context, t *testing.T,
+	config *MinerConfig, minerDirName, logFilename string) *HarnessMiner {
 
-	for _, file := range files {
-		newFilename := strings.Replace(
-			file.Name(), "btcd.log", h.logFilename, 1,
-		)
-		copyPath := fmt.Sprintf("%s/../%s", h.logPath, newFilename)
+	t.Helper()
 
-		logFile := fmt.Sprintf("%s/%s", path, file.Name())
-		err := node.CopyFile(filepath.Clean(copyPath), logFile)
-		require.NoError(h, err, "unable to copy file")
+	// Create the bitcoind backend.
+	bitcoindBackend := NewBitcoindMinerBackend(ctxb, t, &MinerConfig{
+		Backend:     "bitcoind",
+		LogDir:      minerDirName,
+		LogFilename: logFilename,
+		ExtraArgs:   config.ExtraArgs,
+	})
+
+	return &HarnessMiner{
+		T:       t,
+		backend: bitcoindBackend,
+		// No btcd harness when using bitcoind.
+		Harness:   nil,
+		ActiveNet: HarnessNetParams,
+		runCtx:    bitcoindBackend.runCtx,
+		cancel:    bitcoindBackend.cancel,
 	}
+}
 
-	err = os.RemoveAll(h.logPath)
-	require.NoErrorf(h, err, "cannot remove dir %s", h.logPath)
+// Start starts the miner backend.
+func (h *HarnessMiner) Start(setupChain bool, numMatureOutputs uint32) error {
+	return h.backend.Start(setupChain, numMatureOutputs)
+}
+
+// NotifyNewTransactions registers for new transaction notifications.
+func (h *HarnessMiner) NotifyNewTransactions(verbose bool) error {
+	return h.backend.NotifyNewTransactions(verbose)
 }
 
 // Stop shuts down the miner and saves its logs.
 func (h *HarnessMiner) Stop() {
-	h.cancel()
-	require.NoError(h, h.TearDown(), "tear down miner got error")
-	h.saveLogs()
+	err := h.backend.Stop()
+	require.NoError(h, err, "failed to stop miner backend")
 }
 
 // GetBestBlock makes a RPC request to miner and asserts.
 func (h *HarnessMiner) GetBestBlock() (*chainhash.Hash, int32) {
-	blockHash, height, err := h.Client.GetBestBlock()
+	blockHash, height, err := h.backend.GetBestBlock()
 	require.NoError(h, err, "failed to GetBestBlock")
 
 	return blockHash, height
@@ -157,7 +254,7 @@ func (h *HarnessMiner) GetBestBlock() (*chainhash.Hash, int32) {
 // GetRawMempool makes a RPC call to the miner's GetRawMempool and
 // asserts.
 func (h *HarnessMiner) GetRawMempool() []chainhash.Hash {
-	mempool, err := h.Client.GetRawMempool()
+	mempool, err := h.backend.GetRawMempool()
 	require.NoError(h, err, "unable to get mempool")
 
 	txns := make([]chainhash.Hash, 0, len(mempool))
@@ -170,7 +267,7 @@ func (h *HarnessMiner) GetRawMempool() []chainhash.Hash {
 
 // GenerateBlocks mine 'num' of blocks and returns them.
 func (h *HarnessMiner) GenerateBlocks(num uint32) []*chainhash.Hash {
-	blockHashes, err := h.Client.Generate(num)
+	blockHashes, err := h.backend.Generate(num)
 	require.NoError(h, err, "unable to generate blocks")
 	require.Len(h, blockHashes, int(num), "wrong num of blocks generated")
 
@@ -179,7 +276,7 @@ func (h *HarnessMiner) GenerateBlocks(num uint32) []*chainhash.Hash {
 
 // GetBlock gets a block using its block hash.
 func (h *HarnessMiner) GetBlock(blockHash *chainhash.Hash) *wire.MsgBlock {
-	block, err := h.Client.GetBlock(blockHash)
+	block, err := h.backend.GetBlock(blockHash)
 	require.NoError(h, err, "unable to get block")
 
 	return block
@@ -270,15 +367,36 @@ func (h *HarnessMiner) MineBlocksAndAssertNumTxes(num uint32,
 // GetRawTransaction makes a RPC call to the miner's GetRawTransaction and
 // asserts.
 func (h *HarnessMiner) GetRawTransaction(txid chainhash.Hash) *btcutil.Tx {
-	tx, err := h.Client.GetRawTransaction(&txid)
+	tx, err := h.backend.GetRawTransaction(&txid)
 	require.NoErrorf(h, err, "failed to get raw tx: %v", txid)
 	return tx
+}
+
+// GetRawTransactionNoAssert makes a RPC call to the miner's GetRawTransaction
+// and returns the error to the caller.
+func (h *HarnessMiner) GetRawTransactionNoAssert(
+	txid chainhash.Hash) (*btcutil.Tx, error) {
+
+	return h.backend.GetRawTransaction(&txid)
+}
+
+// InvalidateBlock marks a block as invalid, triggering a reorg.
+func (h *HarnessMiner) InvalidateBlock(blockHash *chainhash.Hash) error {
+	return h.backend.InvalidateBlock(blockHash)
 }
 
 // GetRawTransactionVerbose makes a RPC call to the miner's
 // GetRawTransactionVerbose and asserts.
 func (h *HarnessMiner) GetRawTransactionVerbose(
 	txid chainhash.Hash) *btcjson.TxRawResult {
+
+	// This method is only supported for btcd backend currently.
+	// For bitcoind, callers should use GetRawTransaction instead.
+	if h.Harness == nil {
+		require.Fail(h, "GetRawTransactionVerbose not supported for "+
+			"this backend, use GetRawTransaction instead")
+		return nil
+	}
 
 	tx, err := h.Client.GetRawTransactionVerbose(&txid)
 	require.NoErrorf(h, err, "failed to get raw tx verbose: %v", txid)
@@ -370,9 +488,7 @@ func (h *HarnessMiner) AssertTxNotInMempool(txid chainhash.Hash) {
 func (h *HarnessMiner) SendOutputsWithoutChange(outputs []*wire.TxOut,
 	feeRate btcutil.Amount) *chainhash.Hash {
 
-	txid, err := h.Harness.SendOutputsWithoutChange(
-		outputs, feeRate,
-	)
+	txid, err := h.backend.SendOutputsWithoutChange(outputs, feeRate)
 	require.NoErrorf(h, err, "failed to send output")
 
 	return txid
@@ -383,7 +499,7 @@ func (h *HarnessMiner) SendOutputsWithoutChange(outputs []*wire.TxOut,
 func (h *HarnessMiner) CreateTransaction(outputs []*wire.TxOut,
 	feeRate btcutil.Amount) *wire.MsgTx {
 
-	tx, err := h.Harness.CreateTransaction(outputs, feeRate, false)
+	tx, err := h.backend.CreateTransaction(outputs, feeRate)
 	require.NoErrorf(h, err, "failed to create transaction")
 
 	return tx
@@ -394,7 +510,7 @@ func (h *HarnessMiner) CreateTransaction(outputs []*wire.TxOut,
 func (h *HarnessMiner) SendOutput(newOutput *wire.TxOut,
 	feeRate btcutil.Amount) *chainhash.Hash {
 
-	hash, err := h.Harness.SendOutputs([]*wire.TxOut{newOutput}, feeRate)
+	hash, err := h.backend.SendOutputs([]*wire.TxOut{newOutput}, feeRate)
 	require.NoErrorf(h, err, "failed to send outputs")
 
 	return hash
@@ -414,7 +530,7 @@ func (h *HarnessMiner) MineBlocksSlow(num uint32) []*wire.MsgBlock {
 	}
 
 	for i, blockHash := range blockHashes {
-		block, err := h.Client.GetBlock(blockHash)
+		block, err := h.backend.GetBlock(blockHash)
 		require.NoError(h, err, "get blocks")
 
 		blocks[i] = block
@@ -444,7 +560,7 @@ func (h *HarnessMiner) AssertOutpointInMempool(op wire.OutPoint) *wire.MsgTx {
 			// found. For instance, the aggregation logic used in
 			// sweeping HTLC outputs will update the mempool by
 			// replacing the HTLC spending txes with a single one.
-			tx, err := h.Client.GetRawTransaction(&txid)
+			tx, err := h.backend.GetRawTransaction(&txid)
 			if err != nil {
 				return err
 			}
@@ -481,7 +597,7 @@ func (h *HarnessMiner) GetNumTxsFromMempool(n int) []*wire.MsgTx {
 
 // NewMinerAddress creates a new address for the miner and asserts.
 func (h *HarnessMiner) NewMinerAddress() btcutil.Address {
-	addr, err := h.NewAddress()
+	addr, err := h.backend.NewAddress()
 	require.NoError(h, err, "failed to create new miner address")
 	return addr
 }
@@ -492,10 +608,10 @@ func (h *HarnessMiner) MineBlockWithTxes(txes []*btcutil.Tx) *wire.MsgBlock {
 	var emptyTime time.Time
 
 	// Generate a block.
-	b, err := h.GenerateAndSubmitBlock(txes, -1, emptyTime)
+	b, err := h.backend.GenerateAndSubmitBlock(txes, -1, emptyTime)
 	require.NoError(h, err, "unable to mine block")
 
-	block, err := h.Client.GetBlock(b.Hash())
+	block, err := h.backend.GetBlock(b.Hash())
 	require.NoError(h, err, "unable to get block")
 
 	// Make sure the mempool has been updated.
@@ -513,10 +629,10 @@ func (h *HarnessMiner) MineBlockWithTx(tx *wire.MsgTx) *wire.MsgBlock {
 	txes := []*btcutil.Tx{btcutil.NewTx(tx)}
 
 	// Generate a block.
-	b, err := h.GenerateAndSubmitBlock(txes, -1, emptyTime)
+	b, err := h.backend.GenerateAndSubmitBlock(txes, -1, emptyTime)
 	require.NoError(h, err, "unable to mine block")
 
-	block, err := h.Client.GetBlock(b.Hash())
+	block, err := h.backend.GetBlock(b.Hash())
 	require.NoError(h, err, "unable to get block")
 
 	// Make sure the mempool has been updated.
@@ -532,7 +648,7 @@ func (h *HarnessMiner) MineEmptyBlocks(num int) []*wire.MsgBlock {
 	blocks := make([]*wire.MsgBlock, num)
 	for i := 0; i < num; i++ {
 		// Generate an empty block.
-		b, err := h.GenerateAndSubmitBlock(nil, -1, emptyTime)
+		b, err := h.backend.GenerateAndSubmitBlock(nil, -1, emptyTime)
 		require.NoError(h, err, "unable to mine empty block")
 
 		block := h.GetBlock(b.Hash())
@@ -551,29 +667,45 @@ func (h *HarnessMiner) SpawnTempMiner() *HarnessMiner {
 	// Setup a temp miner.
 	tempLogDir := ".tempminerlogs"
 	logFilename := "output-temp_miner.log"
-	tempMiner := NewTempMiner(h.runCtx, h.T, tempLogDir, logFilename)
+	var tempMiner *HarnessMiner
+	switch h.BackendName() {
+	case "bitcoind":
+		tempMiner = NewBitcoindTempMiner(
+			h.runCtx, h.T, tempLogDir, logFilename,
+		)
+	case "btcd":
+		tempMiner = NewTempMiner(h.runCtx, h.T, tempLogDir, logFilename)
+	default:
+		require.Failf("unknown miner backend",
+			"backend %s not supported", h.BackendName())
+		return nil
+	}
 
 	// Make sure to clean the miner when the test ends.
 	h.T.Cleanup(tempMiner.Stop)
 
-	// Setup the miner.
-	require.NoError(tempMiner.SetUp(false, 0), "unable to setup miner")
+	// Start the miner.
+	require.NoError(tempMiner.Start(false, 0), "unable to start miner")
 
 	// Connect the temp miner to the original miner.
-	err := h.Client.Node(btcjson.NConnect, tempMiner.P2PAddress(), &Temp)
+	err := h.backend.ConnectMiner(tempMiner.P2PAddress())
 	require.NoError(err, "unable to connect node")
 
 	// Sync the blocks.
-	nodeSlice := []*rpctest.Harness{h.Harness, tempMiner.Harness}
-	err = rpctest.JoinNodes(nodeSlice, rpctest.Blocks)
-	require.NoError(err, "unable to join node on blocks")
+	if h.Harness != nil && tempMiner.Harness != nil {
+		nodeSlice := []*rpctest.Harness{h.Harness, tempMiner.Harness}
+		err = rpctest.JoinNodes(nodeSlice, rpctest.Blocks)
+		require.NoError(err, "unable to join node on blocks")
+	} else {
+		h.AssertMinerBlockHeightDelta(tempMiner, 0)
+	}
 
 	// The two miners should be on the same block height.
 	h.AssertMinerBlockHeightDelta(tempMiner, 0)
 
 	// Once synced, we now disconnect the temp miner so it'll be
 	// independent from the original miner.
-	err = h.Client.Node(btcjson.NDisconnect, tempMiner.P2PAddress(), &Temp)
+	err = h.backend.DisconnectMiner(tempMiner.P2PAddress())
 	require.NoError(err, "unable to disconnect miners")
 
 	return tempMiner
@@ -584,17 +716,21 @@ func (h *HarnessMiner) ConnectMiner(tempMiner *HarnessMiner) {
 	require := require.New(h.T)
 
 	// Connect the current miner to the temporary miner.
-	err := h.Client.Node(btcjson.NConnect, tempMiner.P2PAddress(), &Temp)
+	err := h.backend.ConnectMiner(tempMiner.P2PAddress())
 	require.NoError(err, "unable to connect temp miner")
 
-	nodes := []*rpctest.Harness{tempMiner.Harness, h.Harness}
-	err = rpctest.JoinNodes(nodes, rpctest.Blocks)
-	require.NoError(err, "unable to join node on blocks")
+	if h.Harness != nil && tempMiner.Harness != nil {
+		nodes := []*rpctest.Harness{tempMiner.Harness, h.Harness}
+		err = rpctest.JoinNodes(nodes, rpctest.Blocks)
+		require.NoError(err, "unable to join node on blocks")
+	} else {
+		h.AssertMinerBlockHeightDelta(tempMiner, 0)
+	}
 }
 
 // DisconnectMiner disconnects the miner from the temp miner.
 func (h *HarnessMiner) DisconnectMiner(tempMiner *HarnessMiner) {
-	err := h.Client.Node(btcjson.NDisconnect, tempMiner.P2PAddress(), &Temp)
+	err := h.backend.DisconnectMiner(tempMiner.P2PAddress())
 	require.NoError(h.T, err, "unable to disconnect temp miner")
 }
 
@@ -605,13 +741,13 @@ func (h *HarnessMiner) AssertMinerBlockHeightDelta(tempMiner *HarnessMiner,
 
 	// Ensure the chain lengths are what we expect.
 	err := wait.NoError(func() error {
-		_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
+		_, tempMinerHeight, err := tempMiner.backend.GetBestBlock()
 		if err != nil {
 			return fmt.Errorf("unable to get current "+
 				"blockheight %v", err)
 		}
 
-		_, minerHeight, err := h.Client.GetBestBlock()
+		_, minerHeight, err := h.backend.GetBestBlock()
 		if err != nil {
 			return fmt.Errorf("unable to get current "+
 				"blockheight %v", err)
@@ -626,4 +762,21 @@ func (h *HarnessMiner) AssertMinerBlockHeightDelta(tempMiner *HarnessMiner,
 		return nil
 	}, wait.DefaultTimeout)
 	require.NoError(h.T, err, "failed to assert block height delta")
+}
+
+// P2PAddress returns the P2P address of the miner.
+func (h *HarnessMiner) P2PAddress() string {
+	return h.backend.P2PAddress()
+}
+
+// BackendName returns the name of the backend implementation.
+func (h *HarnessMiner) BackendName() string {
+	return h.backend.Name()
+}
+
+// SendRawTransaction sends a raw transaction with optional high fee allowance.
+func (h *HarnessMiner) SendRawTransaction(tx *wire.MsgTx,
+	allowHighFees bool) (*chainhash.Hash, error) {
+
+	return h.backend.SendRawTransaction(tx, allowHighFees)
 }

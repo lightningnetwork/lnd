@@ -40,6 +40,9 @@ itest/btcd-itest
 itest/.logs-*
 itest/cover
 
+# Local lntest miner logs (dev artifacts)
+lntest/miner/*.log
+
 cmd/cmd
 *.key
 *.hex

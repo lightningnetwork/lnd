@@ -22,6 +22,18 @@ import (
 func SetupHarness(t *testing.T, binaryPath, dbBackendName string,
 	nativeSQL bool, feeService WebFeeService) *HarnessTest {
 
+	return SetupHarnessWithMinerConfig(
+		t, binaryPath, dbBackendName, nativeSQL, feeService, nil,
+	)
+}
+
+// SetupHarnessWithMinerConfig is identical to SetupHarness, but allows callers
+// to supply a miner configuration. This can be used to select alternative miner
+// backends (e.g. bitcoind) without relying on environment variables.
+func SetupHarnessWithMinerConfig(t *testing.T, binaryPath,
+	dbBackendName string, nativeSQL bool, feeService WebFeeService,
+	minerCfg *miner.MinerConfig) *HarnessTest {
+
 	t.Log("Setting up HarnessTest...")
 
 	// Parse testing flags that influence our test execution.
@@ -36,7 +48,7 @@ func SetupHarness(t *testing.T, binaryPath, dbBackendName string,
 
 	// Init the miner.
 	t.Log("Prepare the miner and mine blocks to activate segwit...")
-	miner := prepareMiner(ht.runCtx, ht.T)
+	miner := prepareMiner(ht.runCtx, ht.T, minerCfg)
 
 	// Start a chain backend.
 	chainBackend, cleanUp := prepareChainBackend(t, miner.P2PAddress())
@@ -59,27 +71,40 @@ func SetupHarness(t *testing.T, binaryPath, dbBackendName string,
 	return ht
 }
 
-// prepareMiner creates an instance of the btcd's rpctest.Harness that will act
-// as the miner for all tests. This will be used to fund the wallets of the
-// nodes within the test network and to drive blockchain related events within
-// the network. Revert the default setting of accepting non-standard
-// transactions on simnet to reject them. Transactions on the lightning network
-// should always be standard to get better guarantees of getting included in to
-// blocks.
-func prepareMiner(ctxt context.Context, t *testing.T) *miner.HarnessMiner {
-	m := miner.NewMiner(ctxt, t)
+// prepareMiner creates an instance of the miner that will act as the miner
+// for all tests. This will be used to fund the wallets of the nodes within
+// the test network and to drive blockchain related events within the network.
+func prepareMiner(ctxt context.Context, t *testing.T,
+	minerCfg *miner.MinerConfig) *miner.HarnessMiner {
 
-	// Before we start anything, we want to overwrite some of the
-	// connection settings to make the tests more robust. We might need to
-	// restart the miner while there are already blocks present, which will
-	// take a bit longer than the 1 second the default settings amount to.
-	// Doubling both values will give us retries up to 4 seconds.
-	m.MaxConnRetries = rpctest.DefaultMaxConnectionRetries * 2
-	m.ConnectionRetryTimeout = rpctest.DefaultConnectionRetryTimeout * 2
+	var m *miner.HarnessMiner
+	switch {
+	case minerCfg != nil:
+		t.Logf("Using miner backend=%s", minerCfg.Backend)
+		m = miner.NewMinerWithConfig(ctxt, t, minerCfg)
 
-	// Set up miner and connect chain backend to it.
-	require.NoError(t, m.SetUp(true, 50))
-	require.NoError(t, m.Client.NotifyNewTransactions(false))
+	default:
+		// Default to btcd for backward compatibility.
+		t.Log("Using miner backend=btcd")
+		m = miner.NewMiner(ctxt, t)
+	}
+
+	// For btcd, we can optimize connection settings.
+	//
+	// Before we start anything, we want to overwrite some of the connection
+	// settings to make the tests more robust. We might need to restart the
+	// miner while there are already blocks present, which will take a bit
+	// longer than the 1 second the default settings amount to. Doubling
+	// both values will give us retries up to 4 seconds.
+	if m.Harness != nil {
+		m.MaxConnRetries = rpctest.DefaultMaxConnectionRetries * 2
+		m.ConnectionRetryTimeout =
+			rpctest.DefaultConnectionRetryTimeout * 2
+	}
+
+	// Start the miner.
+	require.NoError(t, m.Start(true, 50))
+	require.NoError(t, m.NotifyNewTransactions(false))
 
 	// Next mine enough blocks in order for segwit and the CSV package
 	// soft-fork to activate on SimNet.

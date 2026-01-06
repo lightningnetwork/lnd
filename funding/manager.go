@@ -1583,6 +1583,18 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		return
 	}
 
+	// For zero-fee commitment channels, validate that the feerate is zero
+	// as per BOLT#2: "The receiving node MUST fail the channel if:
+	// channel_type includes zero_fee_commitments and feerate_per_kw is not
+	// 0."
+	if commitType.HasZeroFeeCommitments() && msg.FeePerKiloWeight != 0 {
+		err := fmt.Errorf("zero_fee_commitments requires "+
+			"feerate_per_kw=0, got %d", msg.FeePerKiloWeight)
+		log.Errorf("Invalid feerate for zero-fee channel: %v", err)
+		f.failFundingFlow(peer, cid, err)
+		return
+	}
+
 	var scidFeatureVal bool
 	if hasFeatures(
 		peer.LocalFeatures(), peer.RemoteFeatures(),
@@ -4951,6 +4963,13 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		commitFeePerKw = f.cfg.MaxAnchorsCommitFeeRate
 	}
 
+	// For zero-fee commitment channels, the feerate must be zero as per
+	// BOLT#2: "if channel_type includes zero_fee_commitments: MUST set
+	// feerate_per_kw to 0."
+	if commitType.HasZeroFeeCommitments() {
+		commitFeePerKw = 0
+	}
+
 	var scidFeatureVal bool
 	if hasFeatures(
 		msg.Peer.LocalFeatures(), msg.Peer.RemoteFeatures(),
@@ -5144,7 +5163,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		CsvDelay:  remoteCsvDelay,
 	}
 	err = lnwallet.VerifyConstraints(
-		bounds, commitParams, resCtx.maxLocalCsv, capacity,
+		bounds, commitParams, resCtx.maxLocalCsv, capacity, commitType,
 	)
 	if err != nil {
 		_, reserveErr := f.cancelReservationCtx(peerKey, chanID, false)

@@ -3834,6 +3834,13 @@ func (l *channelLink) handleUpdateFee(ctx context.Context) error {
 		return nil
 	}
 
+	// For zero-fee commitment channels, we must not send update_fee since
+	// fees are always zero and paid via CPFP on the P2A anchor. Per BOLT#2:
+	// "When using zero_fee_commitments, nodes: MUST NOT send update_fee."
+	if l.channel.State().ChanType.HasZeroFeeCommitments() {
+		return nil
+	}
+
 	// If we are the initiator, then we'll sample the current fee rate to
 	// get into the chain within 3 blocks.
 	netFee, err := l.sampleNetworkFee()
@@ -4512,6 +4519,22 @@ func (l *channelLink) processRemoteRevokeAndAck(ctx context.Context,
 // processRemoteUpdateFee takes an `UpdateFee` msg sent from the remote and
 // processes it.
 func (l *channelLink) processRemoteUpdateFee(msg *lnwire.UpdateFee) error {
+	// For zero-fee commitment channels, update_fee is not allowed. Per
+	// BOLT#2: "if zero_fee_commitments is used: MUST ignore the message.
+	// SHOULD send a warning and disconnect."
+	if l.channel.State().ChanType.HasZeroFeeCommitments() {
+		l.log.Warnf("received update_fee for zero-fee commitment " +
+			"channel, ignoring and disconnecting")
+		l.failf(LinkFailureError{
+			code:             ErrUpdateFeeNotAllowed,
+			FailureAction:    LinkFailureDisconnect,
+			PermanentFailure: false,
+			Warning:          true,
+		}, "update_fee not allowed for zero-fee commitment channel")
+
+		return nil
+	}
+
 	// Check and see if their proposed fee-rate would make us exceed the fee
 	// threshold.
 	fee := chainfee.SatPerKWeight(msg.FeePerKw)

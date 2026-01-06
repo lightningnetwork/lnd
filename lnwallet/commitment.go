@@ -21,10 +21,34 @@ import (
 // AnchorSize is the constant anchor output size.
 const AnchorSize = btcutil.Amount(330)
 
+// P2AAnchorMaxAmount is the maximum amount for the shared P2A (pay-to-anchor)
+// output in v3 zero-fee commitment transactions. Per the spec, the anchor
+// amount is capped at 240 satoshis.
+const P2AAnchorMaxAmount = btcutil.Amount(240)
+
 // DefaultAnchorsCommitMaxFeeRateSatPerVByte is the default max fee rate in
 // sat/vbyte the initiator will use for anchor channels. This should be enough
 // to ensure propagation before anchoring down the commitment transaction.
 const DefaultAnchorsCommitMaxFeeRateSatPerVByte = 10
+
+// CalculateSharedAnchorAmount computes the anchor output value for v3 zero-fee
+// commitment channels per BOLT spec. The anchor amount is the minimum of:
+// - The sum of trimmed HTLC values plus rounded-down millisatoshis
+// - P2AAnchorMaxAmount (240 satoshis)
+//
+// This function returns 0 if there are no trimmed outputs or rounded msats.
+func CalculateSharedAnchorAmount(
+	trimmedValue btcutil.Amount,
+	roundedMsats lnwire.MilliSatoshi,
+) btcutil.Amount {
+
+	// Convert rounded millisatoshis to satoshis (truncating).
+	total := trimmedValue + btcutil.Amount(roundedMsats/1000)
+	if total > P2AAnchorMaxAmount {
+		return P2AAnchorMaxAmount
+	}
+	return total
+}
 
 // CommitmentKeyRing holds all derived keys needed to construct commitment and
 // HTLC transactions. The keys are derived differently depending whether the
@@ -394,6 +418,14 @@ func HtlcSignDetails(chanType channeldb.ChannelType, signDesc input.SignDescript
 // HtlcSecondLevelInputSequence dictates the sequence number we must use on the
 // input to a second level HTLC transaction.
 func HtlcSecondLevelInputSequence(chanType channeldb.ChannelType) uint32 {
+	// For zero-fee commitment channels, there is no 1-block CSV delay on
+	// second-level HTLC transactions. This allows using the commitment
+	// outputs to CPFP without waiting for the 1-block delay.
+	if chanType.HasZeroFeeCommitments() {
+		return 0
+	}
+
+	// For traditional anchor channels, we use a 1-block CSV delay.
 	if chanType.HasAnchors() {
 		return 1
 	}
@@ -476,6 +508,12 @@ func CommitWeight(chanType channeldb.ChannelType) lntypes.WeightUnit {
 	switch {
 	case chanType.IsTaproot():
 		return input.TaprootCommitWeight
+
+	// For zero-fee commitment channels, the weight is similar to anchor
+	// channels but with a single shared P2A anchor instead of two
+	// per-party anchors.
+	case chanType.HasZeroFeeCommitments():
+		return input.ZeroFeeCommitWeight
 
 	// If this commitment has anchors, it will be slightly heavier.
 	case chanType.HasAnchors():
@@ -702,12 +740,17 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	}
 
 	numHTLCs := int64(0)
+	var trimmedAmount btcutil.Amount
 	for _, htlc := range filteredHTLCView.Updates.Local {
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
 		) {
-
+			// For zero-fee commitment channels, track trimmed
+			// amounts to add to the shared anchor.
+			if cb.chanState.ChanType.HasZeroFeeCommitments() {
+				trimmedAmount += htlc.Amount.ToSatoshis()
+			}
 			continue
 		}
 
@@ -718,7 +761,11 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			cb.chanState.ChanType, true, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
 		) {
-
+			// For zero-fee commitment channels, track trimmed
+			// amounts to add to the shared anchor.
+			if cb.chanState.ChanType.HasZeroFeeCommitments() {
+				trimmedAmount += htlc.Amount.ToSatoshis()
+			}
 			continue
 		}
 
@@ -788,7 +835,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			&cb.chanState.LocalChanCfg, &cb.chanState.RemoteChanCfg,
 			ourBalance.ToSatoshis(), theirBalance.ToSatoshis(),
 			numHTLCs, cb.chanState.IsInitiator, leaseExpiry,
-			auxResult.AuxLeaves,
+			auxResult.AuxLeaves, trimmedAmount,
 		)
 	} else {
 		commitTx, err = CreateCommitTx(
@@ -796,7 +843,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			&cb.chanState.RemoteChanCfg, &cb.chanState.LocalChanCfg,
 			theirBalance.ToSatoshis(), ourBalance.ToSatoshis(),
 			numHTLCs, !cb.chanState.IsInitiator, leaseExpiry,
-			auxResult.AuxLeaves,
+			auxResult.AuxLeaves, trimmedAmount,
 		)
 	}
 	if err != nil {
@@ -945,7 +992,8 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
 	amountToLocal, amountToRemote btcutil.Amount,
 	numHTLCs int64, initiator bool, leaseExpiry uint32,
-	auxLeaves fn.Option[CommitAuxLeaves]) (*wire.MsgTx, error) {
+	auxLeaves fn.Option[CommitAuxLeaves],
+	trimmedAmount btcutil.Amount) (*wire.MsgTx, error) {
 
 	// First, we create the script for the delayed "pay-to-self" output.
 	// This output has 2 main redemption clauses: either we can redeem the
@@ -978,8 +1026,13 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 
 	// Now that both output scripts have been created, we can finally create
 	// the transaction itself. We use a transaction version of 2 since CSV
-	// will fail unless the tx version is >= 2.
-	commitTx := wire.NewMsgTx(2)
+	// will fail unless the tx version is >= 2. For zero-fee commitment
+	// channels, we use version 3 (TRUC transactions per BIP-431).
+	var txVersion int32 = 2
+	if chanType.HasZeroFeeCommitments() {
+		txVersion = 3
+	}
+	commitTx := wire.NewMsgTx(txVersion)
 	commitTx.AddTxIn(&fundingOutput)
 
 	// Avoid creating dust outputs within the commitment transaction.
@@ -1001,29 +1054,61 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 
 	// If this channel type has anchors, we'll also add those.
 	if chanType.HasAnchors() {
-		localAnchor, remoteAnchor, err := CommitScriptAnchors(
-			chanType, localChanCfg, remoteChanCfg, keyRing,
-		)
-		if err != nil {
-			return nil, err
-		}
+		// For zero-fee commitment channels, we use a single shared P2A
+		// (pay-to-anchor) output instead of two per-party anchor
+		// outputs.
+		if chanType.HasZeroFeeCommitments() {
+			// The P2A anchor output is added if there's any output
+			// or HTLCs on the commitment transaction. The amount
+			// is calculated based on trimmed outputs and rounded
+			// millisatoshis, capped at P2AAnchorMaxAmount (240 sats).
+			if localOutput || remoteOutput || numHTLCs > 0 {
+				// Calculate the anchor amount from trimmed outputs.
+				// For channels without trimmed HTLCs, this will
+				// return 0. The anchor amount is capped at 240 sats.
+				anchorAmount := CalculateSharedAnchorAmount(
+					trimmedAmount, 0,
+				)
 
-		// Add local anchor output only if we have a commitment output
-		// or there are HTLCs.
-		if localOutput || numHTLCs > 0 {
-			commitTx.AddTxOut(&wire.TxOut{
-				PkScript: localAnchor.PkScript(),
-				Value:    int64(AnchorSize),
-			})
-		}
+				// If there are no trimmed outputs, use the max
+				// amount (240 sats) to ensure we always have an
+				// anchor for fee bumping.
+				if anchorAmount == 0 {
+					anchorAmount = P2AAnchorMaxAmount
+				}
 
-		// Add anchor output to remote only if they have a commitment
-		// output or there are HTLCs.
-		if remoteOutput || numHTLCs > 0 {
-			commitTx.AddTxOut(&wire.TxOut{
-				PkScript: remoteAnchor.PkScript(),
-				Value:    int64(AnchorSize),
-			})
+				commitTx.AddTxOut(&wire.TxOut{
+					PkScript: txscript.PayToAnchorScript,
+					Value:    int64(anchorAmount),
+				})
+			}
+		} else {
+			// For non-zero-fee anchor channels, use the traditional
+			// per-party anchor outputs.
+			localAnchor, remoteAnchor, err := CommitScriptAnchors(
+				chanType, localChanCfg, remoteChanCfg, keyRing,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			// Add local anchor output only if we have a commitment
+			// output or there are HTLCs.
+			if localOutput || numHTLCs > 0 {
+				commitTx.AddTxOut(&wire.TxOut{
+					PkScript: localAnchor.PkScript(),
+					Value:    int64(AnchorSize),
+				})
+			}
+
+			// Add anchor output to remote only if they have a
+			// commitment output or there are HTLCs.
+			if remoteOutput || numHTLCs > 0 {
+				commitTx.AddTxOut(&wire.TxOut{
+					PkScript: remoteAnchor.PkScript(),
+					Value:    int64(AnchorSize),
+				})
+			}
 		}
 	}
 
@@ -1044,7 +1129,15 @@ func CoopCloseBalance(chanType channeldb.ChannelType, isInitiator bool,
 	// Since the initiator's balance also is stored after subtracting the
 	// anchor values, add that back in case this was an anchor commitment.
 	if chanType.HasAnchors() {
-		initiatorDelta += 2 * AnchorSize
+		if chanType.HasZeroFeeCommitments() {
+			// Zero-fee commitment channels have a single shared
+			// P2A anchor, capped at 240 sats.
+			initiatorDelta += P2AAnchorMaxAmount
+		} else {
+			// Traditional anchor channels have two per-party
+			// anchors, 330 sats each.
+			initiatorDelta += 2 * AnchorSize
+		}
 	}
 
 	// To start with, we'll add the anchor and/or commitment fee to the

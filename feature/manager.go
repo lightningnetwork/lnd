@@ -77,6 +77,11 @@ type Config struct {
 	// coop close.
 	NoRbfCoopClose bool
 
+	// NoZeroFeeCommitments unsets any bits signaling support for v3
+	// zero-fee commitment channels with P2A anchor outputs. This is the
+	// default since zero-fee commitments must be explicitly enabled.
+	NoZeroFeeCommitments bool
+
 	// CustomFeatures is a set of custom features to advertise in each
 	// set.
 	CustomFeatures map[Set][]lnwire.FeatureBit
@@ -220,6 +225,10 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		if cfg.NoRbfCoopClose {
 			raw.Unset(lnwire.RbfCoopCloseOptionalStaging)
 			raw.Unset(lnwire.RbfCoopCloseOptional)
+		}
+		if cfg.NoZeroFeeCommitments {
+			raw.Unset(lnwire.ZeroFeeCommitmentsOptional)
+			raw.Unset(lnwire.ZeroFeeCommitmentsRequired)
 		}
 
 		for _, custom := range cfg.CustomFeatures[set] {

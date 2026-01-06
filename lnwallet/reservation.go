@@ -56,6 +56,13 @@ const (
 	// CommitmentTypeSimpleTaproot type but layers on a special overlay
 	// protocol.
 	CommitmentTypeSimpleTaprootOverlay
+
+	// CommitmentTypeZeroFee is a commitment type that uses v3 transactions
+	// with zero-fee commitment and HTLC transactions. Fee bumping is done
+	// via CPFP on the P2A (pay-to-anchor) output. This type uses a single
+	// shared anchor instead of two per-party anchors, and does not require
+	// a 1-block CSV delay on main outputs.
+	CommitmentTypeZeroFee
 )
 
 // HasStaticRemoteKey returns whether the commitment type supports remote
@@ -66,7 +73,8 @@ func (c CommitmentType) HasStaticRemoteKey() bool {
 		CommitmentTypeAnchorsZeroFeeHtlcTx,
 		CommitmentTypeScriptEnforcedLease,
 		CommitmentTypeSimpleTaproot,
-		CommitmentTypeSimpleTaprootOverlay:
+		CommitmentTypeSimpleTaprootOverlay,
+		CommitmentTypeZeroFee:
 
 		return true
 
@@ -81,13 +89,20 @@ func (c CommitmentType) HasAnchors() bool {
 	case CommitmentTypeAnchorsZeroFeeHtlcTx,
 		CommitmentTypeScriptEnforcedLease,
 		CommitmentTypeSimpleTaproot,
-		CommitmentTypeSimpleTaprootOverlay:
+		CommitmentTypeSimpleTaprootOverlay,
+		CommitmentTypeZeroFee:
 
 		return true
 
 	default:
 		return false
 	}
+}
+
+// HasZeroFeeCommitments returns whether the commitment type uses zero-fee
+// commitment and HTLC transactions with P2A anchor outputs.
+func (c CommitmentType) HasZeroFeeCommitments() bool {
+	return c == CommitmentTypeZeroFee
 }
 
 // IsTaproot returns true if the channel type is a taproot channel.
@@ -111,6 +126,8 @@ func (c CommitmentType) String() string {
 		return "simple-taproot"
 	case CommitmentTypeSimpleTaprootOverlay:
 		return "simple-taproot-overlay"
+	case CommitmentTypeZeroFee:
+		return "zero-fee-v3"
 	default:
 		return "invalid"
 	}
@@ -263,6 +280,9 @@ type ChannelReservation struct {
 	musigSessions *MusigPairSession
 
 	state ReservationState
+
+	// commitType is the commitment type negotiated for this channel.
+	commitType CommitmentType
 }
 
 // NewChannelReservation creates a new channel reservation. This function is
@@ -508,6 +528,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		wallet:        wallet,
 		chanFunder:    req.ChanFunder,
 		state:         WaitingToSend,
+		commitType:    req.CommitType,
 	}, nil
 }
 
@@ -583,6 +604,7 @@ func (r *ChannelReservation) CommitConstraints(
 	// First, verify the sanity of the channel constraints.
 	err := VerifyConstraints(
 		bounds, commitParams, maxLocalCSVDelay, r.partialState.Capacity,
+		r.commitType,
 	)
 	if err != nil {
 		return err
@@ -921,10 +943,11 @@ func (r *ChannelReservation) CommitmentKeyRings() lntypes.Dual[CommitmentKeyRing
 }
 
 // VerifyConstraints is a helper function that can be used to check the sanity
-// of various channel constraints.
+// of various channel constraints. The commitType parameter indicates the
+// commitment type, which affects the max HTLC limit (114 for zero-fee vs 483).
 func VerifyConstraints(bounds *channeldb.ChannelStateBounds,
 	commitParams *channeldb.CommitmentParams, maxLocalCSVDelay uint16,
-	channelCapacity btcutil.Amount) error {
+	channelCapacity btcutil.Amount, commitType CommitmentType) error {
 
 	// Fail if the csv delay for our funds exceeds our maximum.
 	if commitParams.CsvDelay > maxLocalCSVDelay {
@@ -969,11 +992,18 @@ func VerifyConstraints(bounds *channeldb.ChannelStateBounds,
 		)
 	}
 
-	// Fail if maxHtlcs is above the maximum allowed number of 483.  This
-	// number is specified in BOLT-02.
-	if bounds.MaxAcceptedHtlcs > uint16(input.MaxHTLCNumber/2) {
+	// Fail if maxHtlcs is above the maximum allowed number. For zero-fee
+	// commitment channels, the limit is 114 (due to v3 10kvB limit). For
+	// other channels, the limit is 483. Per BOLT-02: "The receiving node
+	// MUST fail the channel if: channel_type includes zero_fee_commitments
+	// and max_accepted_htlcs is greater than 114."
+	maxHtlcs := uint16(input.MaxHTLCNumber / 2)
+	if commitType.HasZeroFeeCommitments() {
+		maxHtlcs = uint16(input.MaxHTLCNumberV3 / 2)
+	}
+	if bounds.MaxAcceptedHtlcs > maxHtlcs {
 		return ErrMaxHtlcNumTooLarge(
-			bounds.MaxAcceptedHtlcs, uint16(input.MaxHTLCNumber/2),
+			bounds.MaxAcceptedHtlcs, maxHtlcs,
 		)
 	}
 

@@ -55,8 +55,13 @@ func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
 	auxLeaf input.AuxTapLeaf) (*wire.MsgTx, error) {
 
 	// Create a version two transaction (as the success version of this
-	// spends an output with a CSV timeout).
-	successTx := wire.NewMsgTx(2)
+	// spends an output with a CSV timeout). For zero-fee commitment
+	// channels, we use version 3 (TRUC transactions per BIP-431).
+	var txVersion int32 = 2
+	if chanType.HasZeroFeeCommitments() {
+		txVersion = 3
+	}
+	successTx := wire.NewMsgTx(txVersion)
 
 	// The input to the transaction is the outpoint that creates the
 	// original HTLC on the sender's commitment transaction. Set the
@@ -116,8 +121,13 @@ func CreateHtlcTimeoutTx(chanType channeldb.ChannelType, initiator bool,
 
 	// Create a version two transaction (as the success version of this
 	// spends an output with a CSV timeout), and set the lock-time to the
-	// specified absolute lock-time in blocks.
-	timeoutTx := wire.NewMsgTx(2)
+	// specified absolute lock-time in blocks. For zero-fee commitment
+	// channels, we use version 3 (TRUC transactions per BIP-431).
+	var txVersion int32 = 2
+	if chanType.HasZeroFeeCommitments() {
+		txVersion = 3
+	}
+	timeoutTx := wire.NewMsgTx(txVersion)
 	timeoutTx.LockTime = cltvExpiry
 
 	// The input to the transaction is the outpoint that creates the

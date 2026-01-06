@@ -266,6 +266,18 @@ const (
 	TaprootCommitWeight = (BaseTaprootCommitmentTxWeight +
 		WitnessHeaderSize + TaprootKeyPathWitnessSize)
 
+	// ZeroFeeCommitWeight is the weight of a zero-fee commitment transaction
+	// which uses a single shared P2A anchor output instead of two per-party
+	// anchor outputs. The P2A output is 43 bytes (8 value + 1 var_int + 34
+	// P2WSH of OP_1 <0x4e73>). This saves one anchor output compared to
+	// traditional anchor channels.
+	// Base: 4 (version) + 1 (input count) + 41 (input) + 3 (output count) +
+	//       2*43 (to_local/to_remote) + 43 (P2A anchor) + 4 (locktime) = 182
+	// Witness: same as anchor = 400
+	// Total: 182*4 + 400 = 1128 weight
+	// NOTE: This is an approximation; actual weight depends on output scripts.
+	ZeroFeeCommitWeight = AnchorCommitWeight - (P2WSHOutputSize * witnessScaleFactor)
+
 	// HTLCWeight 172 weight.
 	HTLCWeight = witnessScaleFactor * HTLCSize
 
@@ -314,6 +326,12 @@ const (
 	// all the HTLC's yet still remain below the widely used standard
 	// weight limits.
 	MaxHTLCNumber = 966
+
+	// MaxHTLCNumberV3 is the maximum number of HTLCs which can be included
+	// in a v3 (zero-fee) commitment transaction. This is lower than the
+	// standard MaxHTLCNumber due to v3 transactions being limited to 10kvB
+	// (10,000 vbytes) per BIP-431. The limit is 228 total (114 per party).
+	MaxHTLCNumberV3 = 228
 
 	// ToLocalScriptSize 79 bytes
 	//      - OP_IF: 1 byte

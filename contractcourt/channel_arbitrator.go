@@ -3167,8 +3167,15 @@ func (c *ChannelArbitrator) createSweepRequest(
 	if txscript.IsPayToTaproot(
 		anchor.AnchorSignDescriptor.Output.PkScript,
 	) {
-
 		witnessType = input.TaprootAnchorSweepSpend
+	}
+
+	// For zero-fee commitment channels, the anchor is a P2A output that
+	// can be spent with an empty witness.
+	if txscript.IsPayToAnchorScript(
+		anchor.AnchorSignDescriptor.Output.PkScript,
+	) {
+		witnessType = input.ZeroFeeAnchorSpend
 	}
 
 	// Prepare anchor output for sweeping.
@@ -3194,11 +3201,15 @@ func (c *ChannelArbitrator) createSweepRequest(
 
 	// Calculate the budget based on the value under protection, which is
 	// the sum of all HTLCs on this commitment subtracted by their budgets.
-	// The anchor output in itself has a small output value of 330 sats so
-	// we also include it in the budget to pay for the cpfp transaction.
+	// The anchor output value is also included in the budget to pay for
+	// the cpfp transaction. For legacy anchors this is 330 sats, for
+	// zero-fee P2A anchors it's typically 240 sats or less.
+	anchorValue := btcutil.Amount(
+		anchor.AnchorSignDescriptor.Output.Value,
+	)
 	budget := calculateBudget(
 		value, c.cfg.Budget.AnchorCPFPRatio, c.cfg.Budget.AnchorCPFP,
-	) + AnchorOutputValue
+	) + anchorValue
 
 	log.Infof("ChannelArbitrator(%v): offering anchor from %s commitment "+
 		"%v to sweeper with deadline=%v, budget=%v", c.cfg.ChanPoint,

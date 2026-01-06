@@ -2924,6 +2924,60 @@ func TestUpdateFeeReceiverSendsUpdate(t *testing.T) {
 	}
 }
 
+// TestUpdateFeeZeroFeeCommitmentRejected tests that update_fee is rejected
+// for zero-fee commitment channels. Per BOLT#2, nodes using zero_fee_commitments
+// MUST NOT send update_fee and MUST ignore/disconnect if received.
+func TestUpdateFeeZeroFeeCommitmentRejected(t *testing.T) {
+	t.Parallel()
+
+	// Create a zero-fee commitment channel.
+	aliceChannel, bobChannel, err := CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit|
+			channeldb.AnchorOutputsBit|
+			channeldb.ZeroHtlcTxFeeBit|
+			channeldb.ZeroFeeCommitmentsBit,
+	)
+	require.NoError(t, err, "unable to create test channels")
+
+	// Verify both channels have zero-fee commitments.
+	require.True(
+		t, aliceChannel.channelState.ChanType.HasZeroFeeCommitments(),
+		"alice should have zero-fee commitments",
+	)
+	require.True(
+		t, bobChannel.channelState.ChanType.HasZeroFeeCommitments(),
+		"bob should have zero-fee commitments",
+	)
+
+	// Alice is the initiator, so normally she could send fee updates.
+	// But for zero-fee channels, this should fail.
+	fee := chainfee.SatPerKWeight(333)
+	err = aliceChannel.UpdateFee(fee)
+	require.ErrorIs(
+		t, err, ErrUpdateFeeNotAllowed,
+		"alice should fail to send update_fee on zero-fee channel",
+	)
+
+	// Similarly, Bob (non-initiator) receiving fee update should also fail.
+	err = bobChannel.ReceiveUpdateFee(fee)
+	require.ErrorIs(
+		t, err, ErrUpdateFeeNotAllowed,
+		"bob should fail to receive update_fee on zero-fee channel",
+	)
+
+	// Alice receiving an update_fee should also fail (double check the
+	// initiator receiving case).
+	err = aliceChannel.ReceiveUpdateFee(fee)
+	require.ErrorIs(
+		t, err, ErrUpdateFeeNotAllowed,
+		"alice should fail to receive update_fee on zero-fee channel",
+	)
+
+	// Note: The initial fee rate set during channel creation is a separate
+	// concern from update_fee. The key test is that update_fee operations
+	// are rejected for zero-fee commitment channels.
+}
+
 // Test that if multiple update fee messages are sent consecutively, then the
 // last one is the one that is being committed to.
 func TestUpdateFeeMultipleUpdates(t *testing.T) {

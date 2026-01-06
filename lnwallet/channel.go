@@ -82,6 +82,13 @@ var (
 	// not positive.
 	ErrInvalidHTLCAmt = fmt.Errorf("proposed HTLC value must be positive")
 
+	// ErrUpdateFeeNotAllowed is returned when an update_fee message is
+	// sent or received for a zero-fee commitment channel. Zero-fee channels
+	// do not use update_fee since fees are always zero and paid via CPFP
+	// on the P2A anchor output.
+	ErrUpdateFeeNotAllowed = fmt.Errorf("update_fee not allowed for " +
+		"zero-fee commitment channels")
+
 	// ErrCannotSyncCommitChains is returned if, upon receiving a ChanSync
 	// message, the state machine deems that is unable to properly
 	// synchronize states with the remote peer. In this case we should fail
@@ -9213,6 +9220,12 @@ func (lc *LightningChannel) UpdateFee(feePerKw chainfee.SatPerKWeight) error {
 	lc.Lock()
 	defer lc.Unlock()
 
+	// For zero-fee commitment channels, update_fee is not allowed since
+	// fees are always zero and paid via CPFP on the P2A anchor.
+	if lc.channelState.ChanType.HasZeroFeeCommitments() {
+		return ErrUpdateFeeNotAllowed
+	}
+
 	// Only initiator can send fee update, so trying to send one as
 	// non-initiator will fail.
 	if !lc.channelState.IsInitiator {
@@ -9289,6 +9302,12 @@ func (lc *LightningChannel) CommitFeeTotalAt(
 func (lc *LightningChannel) ReceiveUpdateFee(feePerKw chainfee.SatPerKWeight) error {
 	lc.Lock()
 	defer lc.Unlock()
+
+	// For zero-fee commitment channels, update_fee is not allowed since
+	// fees are always zero and paid via CPFP on the P2A anchor.
+	if lc.channelState.ChanType.HasZeroFeeCommitments() {
+		return ErrUpdateFeeNotAllowed
+	}
 
 	// Only initiator can send fee update, and we must fail if we receive
 	// fee update as initiator

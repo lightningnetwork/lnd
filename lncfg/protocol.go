@@ -39,6 +39,10 @@ type ProtocolOptions struct {
 	// the new experimental RBF coop close feature.
 	RbfCoopClose bool `long:"rbf-coop-close" description:"if set, then lnd will signal that it supports the new RBF based coop close protocol, taproot channels are not supported"`
 
+	// ZeroFeeCommitments should be set if we want to enable support for v3
+	// zero-fee commitment channels with P2A anchor outputs.
+	ZeroFeeCommitments bool `long:"zero-fee-commitments" description:"if set, then lnd will create and accept requests for channels using v3 zero-fee commitment transactions with P2A anchor outputs"`
+
 	// NoAnchors should be set if we don't want to support opening or accepting
 	// channels having the anchor commitment type.
 	NoAnchors bool `long:"no-anchors" description:"disable support for anchor commitments"`
@@ -148,6 +152,12 @@ func (l *ProtocolOptions) NoExperimentalEndorsement() bool {
 // NoQuiescence returns true if quiescence is disabled.
 func (l *ProtocolOptions) NoQuiescence() bool {
 	return false
+}
+
+// ZeroFeeCommitmentsEnabled returns true if we want to enable support for v3
+// zero-fee commitment channels with P2A anchor outputs.
+func (l *ProtocolOptions) ZeroFeeCommitmentsEnabled() bool {
+	return l.ZeroFeeCommitments
 }
 
 // CustomMessageOverrides returns the set of protocol messages that we override

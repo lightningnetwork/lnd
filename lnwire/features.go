@@ -181,6 +181,18 @@ const (
 	// quiescence protocol.
 	QuiescenceOptional FeatureBit = 35
 
+	// ZeroFeeCommitmentsRequired is a required feature bit that signals
+	// that the node requires channels to use v3 transactions with zero-fee
+	// commitment and HTLC transactions, using P2A (pay-to-anchor) outputs
+	// for fee bumping via CPFP.
+	ZeroFeeCommitmentsRequired FeatureBit = 40
+
+	// ZeroFeeCommitmentsOptional is an optional feature bit that signals
+	// that the node supports channels using v3 transactions with zero-fee
+	// commitment and HTLC transactions, using P2A (pay-to-anchor) outputs
+	// for fee bumping via CPFP.
+	ZeroFeeCommitmentsOptional FeatureBit = 41
+
 	// ExplicitChannelTypeRequired is a required bit that denotes that a
 	// connection established with this node is to use explicit channel
 	// commitment types for negotiation instead of the existing implicit
@@ -363,6 +375,8 @@ var Features = map[FeatureBit]string{
 	AMPOptional:                          "amp",
 	QuiescenceRequired:                   "quiescence",
 	QuiescenceOptional:                   "quiescence",
+	ZeroFeeCommitmentsRequired:           "zero-fee-commitments",
+	ZeroFeeCommitmentsOptional:           "zero-fee-commitments",
 	PaymentMetadataOptional:              "payment-metadata",
 	PaymentMetadataRequired:              "payment-metadata",
 	ExplicitChannelTypeOptional:          "explicit-commitment-type",

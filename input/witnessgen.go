@@ -255,6 +255,12 @@ const (
 	// settled output of a malicious counterparty's who broadcasts a
 	// revoked taproot commitment transaction.
 	TaprootCommitmentRevoke StandardWitnessType = 34
+
+	// ZeroFeeAnchorSpend is a witness type that allows us to spend the P2A
+	// (pay-to-anchor) output on a v3 zero-fee commitment transaction. The
+	// P2A output script is OP_1 <0x4e73> and can be spent with an empty
+	// witness, making it trivially anyone-can-spend for CPFP purposes.
+	ZeroFeeAnchorSpend StandardWitnessType = 35
 )
 
 // String returns a human readable version of the target WitnessType.
@@ -366,6 +372,9 @@ func (wt StandardWitnessType) String() string {
 
 	case TaprootCommitmentRevoke:
 		return "TaprootCommitmentRevoke"
+
+	case ZeroFeeAnchorSpend:
+		return "ZeroFeeAnchorSpend"
 
 	default:
 		return fmt.Sprintf("Unknown WitnessType: %v", uint32(wt))
@@ -715,6 +724,14 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 				Witness: witness,
 			}, nil
 
+		case ZeroFeeAnchorSpend:
+			// P2A (pay-to-anchor) outputs are spent with an empty
+			// witness. The script is OP_1 <0x4e73> which is a
+			// witness v1 program that can be spent by anyone.
+			return &Script{
+				Witness: wire.TxWitness{},
+			}, nil
+
 		default:
 			return nil, fmt.Errorf("unknown witness type: %v", wt)
 		}
@@ -869,6 +886,10 @@ func (wt StandardWitnessType) SizeUpperBound() (lntypes.WeightUnit,
 
 	case TaprootCommitmentRevoke:
 		return TaprootToLocalRevokeWitnessSize, false, nil
+
+	// P2A anchor outputs are spent with an empty witness (0 elements).
+	case ZeroFeeAnchorSpend:
+		return 1, false, nil
 	}
 
 	return 0, false, fmt.Errorf("unexpected witness type: %v", wt)

@@ -111,4 +111,8 @@ var defaultSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
+	lnwire.ZeroFeeCommitmentsOptional: {
+		SetInit:    {}, // I
+		SetNodeAnn: {}, // N
+	},
 }

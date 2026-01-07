@@ -2,6 +2,8 @@ package channeldb
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"time"
@@ -132,6 +134,95 @@ func putLinkNode(nodeMetaBucket kvdb.RwBucket, l *LinkNode) error {
 // LinkNodeDB is a database that keeps track of all link nodes.
 type LinkNodeDB struct {
 	backend kvdb.Backend
+}
+
+// FindMissingLinkNodes checks which of the provided public keys do not have
+// corresponding link nodes in the database. If tx is nil, a new read
+// transaction will be created. Otherwise, the provided transaction is used,
+// allowing this to be part of a larger batch operation.
+func (l *LinkNodeDB) FindMissingLinkNodes(tx kvdb.RTx,
+	pubKeys []*btcec.PublicKey) ([]*btcec.PublicKey, error) {
+
+	var missing []*btcec.PublicKey
+
+	findMissing := func(readTx kvdb.RTx) error {
+		nodeMetaBucket := readTx.ReadBucket(nodeInfoBucket)
+		if nodeMetaBucket == nil {
+			// If the bucket doesn't exist, all peers are missing.
+			missing = pubKeys
+			return nil
+		}
+
+		for _, pubKey := range pubKeys {
+			_, err := fetchLinkNode(readTx, pubKey)
+			if err == nil {
+				// Link node exists.
+				continue
+			}
+
+			if !errors.Is(err, ErrNodeNotFound) {
+				return fmt.Errorf("unable to check link node "+
+					"for peer %x: %w",
+					pubKey.SerializeCompressed(), err)
+			}
+
+			// Link node doesn't exist.
+			missing = append(missing, pubKey)
+		}
+
+		return nil
+	}
+
+	// If no transaction provided, create our own.
+	if tx == nil {
+		err := kvdb.View(l.backend, findMissing, func() {
+			missing = nil
+		})
+
+		return missing, err
+	}
+
+	// Use the provided transaction.
+	err := findMissing(tx)
+
+	return missing, err
+}
+
+// CreateLinkNodes creates multiple link nodes. If tx is nil, a new write
+// transaction will be created. Otherwise, the provided transaction is used,
+// allowing this to be part of a larger batch operation.
+func (l *LinkNodeDB) CreateLinkNodes(tx kvdb.RwTx,
+	linkNodes []*LinkNode) error {
+
+	createNodes := func(writeTx kvdb.RwTx) error {
+		nodeMetaBucket, err := writeTx.CreateTopLevelBucket(
+			nodeInfoBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		for _, linkNode := range linkNodes {
+			err := putLinkNode(nodeMetaBucket, linkNode)
+			if err != nil {
+				pubKey := linkNode.IdentityPub.
+					SerializeCompressed()
+
+				return fmt.Errorf("unable to create link "+
+					"node for peer %x: %w", pubKey, err)
+			}
+		}
+
+		return nil
+	}
+
+	// If no transaction provided, create our own.
+	if tx == nil {
+		return kvdb.Update(l.backend, createNodes, func() {})
+	}
+
+	// Use the provided transaction.
+	return createNodes(tx)
 }
 
 // DeleteLinkNode removes the link node with the given identity from the

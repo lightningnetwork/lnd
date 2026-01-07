@@ -1516,6 +1516,93 @@ func (c *ChannelStateDB) PruneLinkNodes() error {
 	return nil
 }
 
+// RepairLinkNodes scans all channels in the database and ensures that a
+// link node exists for each remote peer. This should be called on startup to
+// ensure that our database is consistent.
+//
+// NOTE: This function is designed to repair database inconsistencies that may
+// have occurred due to the race condition in link node pruning (where link
+// nodes could be incorrectly deleted while channels still existed). This can
+// be removed once we move to native sql.
+func (c *ChannelStateDB) RepairLinkNodes(network wire.BitcoinNet) error {
+	// In a single read transaction, build a list of all peers with open
+	// channels and check which ones are missing link nodes.
+	var missingPeers []*btcec.PublicKey
+
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
+		openChanBucket := tx.ReadBucket(openChannelBucket)
+		if openChanBucket == nil {
+			return ErrNoActiveChannels
+		}
+
+		var peersWithChannels []*btcec.PublicKey
+
+		err := openChanBucket.ForEach(func(nodePubBytes,
+			_ []byte) error {
+
+			nodePub, err := btcec.ParsePubKey(nodePubBytes)
+			if err != nil {
+				return err
+			}
+
+			channels, err := c.fetchOpenChannels(tx, nodePub)
+			if err != nil {
+				return err
+			}
+
+			if len(channels) > 0 {
+				peersWithChannels = append(
+					peersWithChannels, nodePub,
+				)
+			}
+
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+
+		// Now check which peers are missing link nodes within the
+		// same transaction.
+		missingPeers, err = c.linkNodeDB.FindMissingLinkNodes(
+			tx, peersWithChannels,
+		)
+
+		return err
+	}, func() {
+		missingPeers = nil
+	})
+	if err != nil && !errors.Is(err, ErrNoActiveChannels) {
+		return fmt.Errorf("unable to fetch channels: %w", err)
+	}
+
+	// Early exit if no repairs needed.
+	if len(missingPeers) == 0 {
+		return nil
+	}
+
+	// Create all missing link nodes in a single write transaction
+	// using the LinkNodeDB abstraction.
+	linkNodesToCreate := make([]*LinkNode, 0, len(missingPeers))
+	for _, remotePub := range missingPeers {
+		linkNode := NewLinkNode(c.linkNodeDB, network, remotePub)
+		linkNodesToCreate = append(linkNodesToCreate, linkNode)
+
+		log.Infof("Repairing missing link node for peer %x",
+			remotePub.SerializeCompressed())
+	}
+
+	err = c.linkNodeDB.CreateLinkNodes(nil, linkNodesToCreate)
+	if err != nil {
+		return err
+	}
+
+	log.Infof("Repaired %d missing link nodes on startup",
+		len(missingPeers))
+
+	return nil
+}
+
 // ChannelShell is a shell of a channel that is meant to be used for channel
 // recovery purposes. It contains a minimal OpenChannel instance along with
 // addresses for that target node.

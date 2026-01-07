@@ -2128,6 +2128,21 @@ func (s *server) Start(ctx context.Context) error {
 	cleanup := cleaner{}
 
 	s.start.Do(func() {
+		// Before starting any subsystems, repair any link nodes that
+		// may have been incorrectly pruned due to the race condition
+		// that was fixed in the link node pruning logic. This must
+		// happen before the chain arbitrator and other subsystems load
+		// channels, to ensure the invariant "link node exists iff
+		// channels exist" is maintained.
+		err := s.chanStateDB.RepairLinkNodes(s.cfg.ActiveNetParams.Net)
+		if err != nil {
+			srvrLog.Errorf("Failed to repair link nodes: %v", err)
+
+			startErr = err
+
+			return
+		}
+
 		cleanup = cleanup.add(s.customMessageServer.Stop)
 		if err := s.customMessageServer.Start(); err != nil {
 			startErr = err
@@ -2451,9 +2466,8 @@ func (s *server) Start(ctx context.Context) error {
 		// With all the relevant sub-systems started, we'll now attempt
 		// to establish persistent connections to our direct channel
 		// collaborators within the network. Before doing so however,
-		// we'll prune our set of link nodes found within the database
-		// to ensure we don't reconnect to any nodes we no longer have
-		// open channels with.
+		// we'll prune our set of link nodes to ensure we don't
+		// reconnect to any nodes we no longer have open channels with.
 		if err := s.chanStateDB.PruneLinkNodes(); err != nil {
 			srvrLog.Errorf("Failed to prune link nodes: %v", err)
 

@@ -109,6 +109,17 @@
 
 ## RPC Updates
 
+* The `switchrpc.TrackOnion` RPC has been
+  [overhauled](https://github.com/lightningnetwork/lnd/pull/10472) to provide a
+  more robust and type-safe error handling mechanism. The `TrackOnionResponse`
+  message now uses a top-level `oneof` to enforce a compile-time guarantee that
+  a response contains either a `preimage` (for success) or structured
+  `FailureDetails` (for a payment failure). This replaces the previous
+  string-based error reporting. Application-level payment failures are now
+  clearly separated from RPC-level failures (e.g., attempt not found), which are
+  communicated via standard gRPC status codes. This is a **breaking change** for
+  any clients of the `TrackOnion` RPC.
+
 ## lncli Updates
 
 ## Breaking Changes

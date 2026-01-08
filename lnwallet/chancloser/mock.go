@@ -197,3 +197,28 @@ func (m *mockCloseSigner) CompleteCooperativeClose(localSig,
 	return args.Get(0).(*wire.MsgTx), args.Get(1).(btcutil.Amount),
 		args.Error(2)
 }
+
+type mockAuxChanCloser struct {
+	mock.Mock
+}
+
+func (m *mockAuxChanCloser) ShutdownBlob(req AuxShutdownReq) (
+	fn.Option[lnwire.CustomRecords], error) {
+
+	args := m.Called(req)
+	return args.Get(0).(fn.Option[lnwire.CustomRecords]), args.Error(1)
+}
+
+func (m *mockAuxChanCloser) AuxCloseOutputs(desc AuxCloseDesc) (
+	fn.Option[AuxCloseOutputs], error) {
+
+	args := m.Called(desc)
+	return args.Get(0).(fn.Option[AuxCloseOutputs]), args.Error(1)
+}
+
+func (m *mockAuxChanCloser) FinalizeClose(desc AuxCloseDesc,
+	tx *wire.MsgTx) error {
+
+	args := m.Called(desc, tx)
+	return args.Error(0)
+}

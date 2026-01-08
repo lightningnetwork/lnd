@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -635,4 +636,96 @@ func TestTaprootFastClose(t *testing.T) {
 	tx, _ = bobCloser.ClosingTx()
 	require.NotNil(t, tx)
 	require.True(t, oClosingSigned.IsNone())
+}
+
+// mockChannelTrackingCoopBroadcast extends mockChannel with call tracking for
+// MarkCoopBroadcasted.
+type mockChannelTrackingCoopBroadcast struct {
+	mockChannel
+	markCoopCalls []*wire.MsgTx
+}
+
+func (m *mockChannelTrackingCoopBroadcast) MarkCoopBroadcasted(
+	tx *wire.MsgTx, _ lntypes.ChannelParty) error {
+
+	m.markCoopCalls = append(m.markCoopCalls, tx)
+	return nil
+}
+
+// TestAuxFinalizeCloseFailurePreservesTx verifies that if aux.FinalizeClose
+// fails, the closing tx has already been persisted via MarkCoopBroadcasted.
+// This ensures restart recovery can re-broadcast the close tx even when the
+// aux closer (e.g., taproot-assets) fails during broadcast.
+func TestAuxFinalizeCloseFailurePreservesTx(t *testing.T) {
+	t.Parallel()
+
+	// Use a taproot channel to simplify signature mocking.
+	baseChan := newMockTaprootChan(t, true)
+	channel := &mockChannelTrackingCoopBroadcast{
+		mockChannel: *baseChan,
+	}
+
+	// Mock aux closer that fails FinalizeClose.
+	auxCloser := &mockAuxChanCloser{}
+	auxCloser.On(
+		"AuxCloseOutputs", mock.Anything,
+	).Return(fn.None[AuxCloseOutputs](), nil)
+	auxCloser.On(
+		"FinalizeClose", mock.Anything, mock.Anything,
+	).Return(fmt.Errorf("broadcast failed: min relay fee not met"))
+
+	const idealFee = chainfee.SatPerKWeight(253)
+	const absoluteFee = btcutil.Amount(1000)
+
+	closeCfg := ChanCloseCfg{
+		Channel:      channel,
+		MusigSession: newMockMusigSession(),
+		FeeEstimator: &mockCoopFeeEstimator{
+			targetFee: absoluteFee,
+		},
+		AuxCloser: fn.Some[AuxChanCloser](auxCloser),
+		BroadcastTx: func(*wire.MsgTx, string) error {
+			return nil
+		},
+		DisableChannel: func(wire.OutPoint) error {
+			return nil
+		},
+	}
+
+	chanCloser := NewChanCloser(
+		closeCfg, DeliveryAddrWithKey{}, idealFee, 0, nil,
+		lntypes.Local,
+	)
+	chanCloser.initFeeBaseline()
+
+	// Set up state as if we've completed fee negotiation and have a
+	// matching offer from the remote party. For taproot, we need a
+	// PartialSig in the prior offer.
+	chanCloser.state = closeFeeNegotiation
+	chanCloser.priorFeeOffers[absoluteFee] = &lnwire.ClosingSigned{
+		FeeSatoshis: absoluteFee,
+		PartialSig:  lnwire.SomePartialSig(lnwire.PartialSig{}),
+	}
+
+	// Receive matching ClosingSigned from remote with PartialSig - this
+	// triggers the finalization flow for taproot channels.
+	_, err := chanCloser.ReceiveClosingSigned(lnwire.ClosingSigned{
+		FeeSatoshis: absoluteFee,
+		PartialSig:  lnwire.SomePartialSig(lnwire.PartialSig{}),
+	})
+
+	// Expect error from aux.FinalizeClose.
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "min relay fee not met")
+
+	// Key assertion: MarkCoopBroadcasted was called with the closeTx
+	// BEFORE FinalizeClose failed. This is the bug fix we're testing.
+	require.GreaterOrEqual(t, len(channel.markCoopCalls), 1,
+		"MarkCoopBroadcasted should have been called")
+
+	// The last call should have a non-nil tx (the close tx).
+	lastCall := channel.markCoopCalls[len(channel.markCoopCalls)-1]
+	require.NotNil(t, lastCall,
+		"MarkCoopBroadcasted should be called with closeTx before "+
+			"FinalizeClose fails")
 }

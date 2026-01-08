@@ -976,9 +976,37 @@ func (c *ChanCloser) ReceiveClosingSigned( //nolint:funlen
 
 		// Before publishing the closing tx, we persist it to the
 		// database, such that it can be republished if something goes
-		// wrong.
+		// wrong. We do this before calling FinalizeClose on the aux
+		// closer, as that may attempt to broadcast the tx and fail,
+		// leaving us without a stored tx for restart recovery.
 		err = c.cfg.Channel.MarkCoopBroadcasted(
 			closeTx, c.closer,
+		)
+		if err != nil {
+			return noClosing, err
+		}
+
+		// If there's an aux chan closer, then we'll finalize with it.
+		err = fn.MapOptionZ(
+			c.cfg.AuxCloser, func(aux AuxChanCloser) error {
+				channel := c.cfg.Channel
+				//nolint:ll
+				req := AuxShutdownReq{
+					ChanPoint:   c.chanPoint,
+					ShortChanID: c.cfg.Channel.ShortChanID(),
+					InternalKey: c.localInternalKey,
+					Initiator:   channel.IsInitiator(),
+					CommitBlob:  channel.LocalCommitmentBlob(),
+					FundingBlob: channel.FundingBlob(),
+				}
+				desc := AuxCloseDesc{
+					AuxShutdownReq:    req,
+					LocalCloseOutput:  c.localCloseOutput,
+					RemoteCloseOutput: c.remoteCloseOutput,
+				}
+
+				return aux.FinalizeClose(desc, closeTx)
+			},
 		)
 		if err != nil {
 			return noClosing, err

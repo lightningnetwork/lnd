@@ -17,6 +17,12 @@ type mockPayer struct {
 	getResultResult *htlcswitch.PaymentResult
 	getResultErr    error
 	resultChan      chan *htlcswitch.PaymentResult
+
+	// cleanStoreErr is the error to return from CleanStore.
+	cleanStoreErr error
+
+	// keptPids stores the IDs passed to CleanStore.
+	keptPids map[uint64]struct{}
 }
 
 // SendHTLC is a mock implementation of the SendHTLC method.
@@ -56,7 +62,9 @@ func (m *mockPayer) HasAttemptResult(attemptID uint64) (bool, error) {
 
 // CleanStore is a mock implementation of the CleanStore method.
 func (m *mockPayer) CleanStore(keepPids map[uint64]struct{}) error {
-	return nil
+	m.keptPids = keepPids
+
+	return m.cleanStoreErr
 }
 
 // mockRouteProcessor is a mock implementation of the routing.RouteProcessor

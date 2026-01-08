@@ -810,3 +810,90 @@ func TestBuildErrorDecryptor(t *testing.T) {
 		})
 	}
 }
+
+// TestCleanStore verifies the behavior of the CleanStore RPC handler. It
+// ensures that the RPC correctly processes cleanup requests by accurately
+// passing the set of IDs to keep to the underlying Switch.
+func TestCleanStore(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+
+		// setup is a function that modifies the server or request for a
+		// specific test case.
+		setup func(*testing.T, *mockPayer, *CleanStoreRequest)
+
+		// expectedKeepSet is the set of IDs we expect to be passed to
+		// the mock payer.
+		expectedKeepSet map[uint64]struct{}
+
+		// expectedErrCode is the gRPC error code we expect from the
+		// call.
+		expectedErrCode codes.Code
+	}{
+		{
+			name: "clean with keep set",
+			setup: func(t *testing.T, m *mockPayer,
+				req *CleanStoreRequest) {
+
+				req.KeepAttemptIds = []uint64{1, 3, 5}
+			},
+			expectedKeepSet: map[uint64]struct{}{
+				1: {},
+				3: {},
+				5: {},
+			},
+		},
+		{
+			name:            "clean with empty keep set",
+			setup:           nil,
+			expectedKeepSet: map[uint64]struct{}{},
+		},
+		{
+			name: "underlying store fails",
+			setup: func(t *testing.T, m *mockPayer,
+				req *CleanStoreRequest) {
+
+				m.cleanStoreErr = errors.New("db is down")
+			},
+			expectedErrCode: codes.Internal,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mockPayer := &mockPayer{}
+			server, _, err := New(&Config{
+				HtlcDispatcher: mockPayer,
+			})
+			require.NoError(t, err)
+
+			req := &CleanStoreRequest{}
+
+			if tc.setup != nil {
+				tc.setup(t, mockPayer, req)
+			}
+
+			_, err = server.CleanStore(t.Context(), req)
+
+			// Check for gRPC level errors.
+			if tc.expectedErrCode != codes.OK {
+				require.Error(t, err)
+				s, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, tc.expectedErrCode, s.Code())
+
+				return
+			}
+
+			// If no error was expected, assert success and check
+			// the passed keepSet.
+			require.NoError(t, err)
+			require.Equal(t, tc.expectedKeepSet, mockPayer.keptPids)
+		})
+	}
+}

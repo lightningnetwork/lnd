@@ -86,6 +86,16 @@
   potential loss of funds. The compilation of the server is hidden behind the
   non-default `switchrpc` build tag.
 
+* Added a new [`CleanStore` RPC](https://github.com/lightningnetwork/lnd/pull/10484)
+  to the `switchrpc` sub-system. This new endpoint allows remote entities
+  responsible for payment lifecycle management to perform cleanup of HTLC
+  attempt information. The `CleanStore` method deletes all stored attempts
+  except for a specified `keepSet` of IDs. **IMPORTANT**: As with other
+  `switchrpc` endpoints, it is currently only safe to allow a *single* entity to
+  dispatch attempts and manage the store via the Switch at any given time. Using
+  `CleanStore` in an uncoordinated, multi-controller environment can lead to
+  lead to stuck payment attempts, failures, and potential loss of funds.
+
 ## lncli Additions
 
 # Improvements

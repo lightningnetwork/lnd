@@ -45,15 +45,21 @@
   has been removed from the public key parsing methods, and proper mutex
   protection has been added to the cache access in `DisconnectBlockAtHeight`.
 
-- [Fixed TLV decoders to reject malformed records with incorrect lengths](https://github.com/lightningnetwork/lnd/pull/10249). 
+- [Fixed TLV decoders to reject malformed records with incorrect lengths](https://github.com/lightningnetwork/lnd/pull/10249).
   TLV decoders now strictly enforce fixed-length requirements for Fee (8 bytes),
   Musig2Nonce (66 bytes), ShortChannelID (8 bytes), Vertex (33 bytes), and
   DBytes33 (33 bytes) records, preventing malformed TLV data from being
   accepted.
 
+- [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10487) that could
+  cause co-op aux channel closures to become stuck if the aux closer failed to
+  broadcast the closing transaction (e.g., due to low fees). The closing
+  transaction is now persisted before the aux closer attempts to broadcast,
+  ensuring it can be re-broadcast on restart.
+
 # New Features
 
-- Basic Support for [onion messaging forwarding](https://github.com/lightningnetwork/lnd/pull/9868) 
+- Basic Support for [onion messaging forwarding](https://github.com/lightningnetwork/lnd/pull/9868)
   consisting of a new message type, `OnionMessage`. This includes the message's
   definition, comprising a path key and an onion blob, along with the necessary
   serialization and deserialization logic for peer-to-peer communication.
@@ -110,18 +116,18 @@
   ([PR#4704](https://github.com/lightningnetwork/lnd/pull/4704)). Users should
   migrate to the `--sat_per_vbyte` option, which correctly represents fee rates
   in terms of virtual bytes (vbytes).
-  
+
   Internally `--sat_per_byte` was treated as sat/vbyte, this meant the option
-  name was misleading and could result in unintended fee calculations. To avoid 
+  name was misleading and could result in unintended fee calculations. To avoid
   further confusion and to align with ecosystem terminology, the option will be
   removed.
 
   The following RPCs will be impacted:
 
-  | RPC Method | Messages | Removed Option | 
+  | RPC Method | Messages | Removed Option |
   |----------------------|----------------|-------------|
 | [`lnrpc.CloseChannel`](https://lightning.engineering/api-docs/api/lnd/lightning/close-channel/) | [`lnrpc.CloseChannelRequest`](https://lightning.engineering/api-docs/api/lnd/lightning/close-channel/#lnrpcclosechannelrequest) | sat_per_byte
-| [`lnrpc.OpenChannelSync`](https://lightning.engineering/api-docs/api/lnd/lightning/open-channel-sync/) | [`lnrpc.OpenChannelRequest`](https://lightning.engineering/api-docs/api/lnd/lightning/open-channel-sync/#lnrpcopenchannelrequest) | sat_per_byte 
+| [`lnrpc.OpenChannelSync`](https://lightning.engineering/api-docs/api/lnd/lightning/open-channel-sync/) | [`lnrpc.OpenChannelRequest`](https://lightning.engineering/api-docs/api/lnd/lightning/open-channel-sync/#lnrpcopenchannelrequest) | sat_per_byte
 | [`lnrpc.OpenChannel`](https://lightning.engineering/api-docs/api/lnd/lightning/open-channel/) | [`lnrpc.OpenChannelRequest`](https://lightning.engineering/api-docs/api/lnd/lightning/open-channel/#lnrpcopenchannelrequest) | sat_per_byte
 | [`lnrpc.SendCoins`](https://lightning.engineering/api-docs/api/lnd/lightning/send-coins/) | [`lnrpc.SendCoinsRequest`](https://lightning.engineering/api-docs/api/lnd/lightning/send-coins/#lnrpcsendcoinsrequest) | sat_per_byte
 | [`lnrpc.SendMany`](https://lightning.engineering/api-docs/api/lnd/lightning/send-many/) | [`lnrpc.SendManyRequest`](https://lightning.engineering/api-docs/api/lnd/lightning/send-many/#lnrpcsendmanyrequest) | sat_per_byte
@@ -132,16 +138,16 @@
 
 ## Testing
 
-* [Added unit tests for TLV length validation across multiple packages](https://github.com/lightningnetwork/lnd/pull/10249). 
+* [Added unit tests for TLV length validation across multiple packages](https://github.com/lightningnetwork/lnd/pull/10249).
   New tests  ensure that fixed-size TLV decoders reject malformed records with
   invalid lengths, including roundtrip tests for Fee, Musig2Nonce,
   ShortChannelID and Vertex records.
 
 ## Database
 
-* Freeze the [graph SQL migration 
-  code](https://github.com/lightningnetwork/lnd/pull/10338) to prevent the 
-  need for maintenance as the sqlc code evolves. 
+* Freeze the [graph SQL migration
+  code](https://github.com/lightningnetwork/lnd/pull/10338) to prevent the
+  need for maintenance as the sqlc code evolves.
 
 ## Code Health
 

@@ -479,6 +479,53 @@ func (q *Queries) FetchPayment(ctx context.Context, paymentIdentifier []byte) (F
 	return i, err
 }
 
+const fetchPaymentDuplicates = `-- name: FetchPaymentDuplicates :many
+SELECT
+    id,
+    payment_id,
+    amount_msat,
+    created_at,
+    fail_reason,
+    settle_preimage,
+    settle_time
+FROM payment_duplicates
+WHERE payment_id = $1
+ORDER BY id ASC
+`
+
+// Fetch all duplicate payment records from the payment_duplicates table for
+// a given payment ID.
+func (q *Queries) FetchPaymentDuplicates(ctx context.Context, paymentID int64) ([]PaymentDuplicate, error) {
+	rows, err := q.db.QueryContext(ctx, fetchPaymentDuplicates, paymentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PaymentDuplicate
+	for rows.Next() {
+		var i PaymentDuplicate
+		if err := rows.Scan(
+			&i.ID,
+			&i.PaymentID,
+			&i.AmountMsat,
+			&i.CreatedAt,
+			&i.FailReason,
+			&i.SettlePreimage,
+			&i.SettleTime,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fetchPaymentLevelFirstHopCustomRecords = `-- name: FetchPaymentLevelFirstHopCustomRecords :many
 SELECT
     l.id,
@@ -975,6 +1022,51 @@ type InsertPaymentAttemptFirstHopCustomRecordParams struct {
 func (q *Queries) InsertPaymentAttemptFirstHopCustomRecord(ctx context.Context, arg InsertPaymentAttemptFirstHopCustomRecordParams) error {
 	_, err := q.db.ExecContext(ctx, insertPaymentAttemptFirstHopCustomRecord, arg.HtlcAttemptIndex, arg.Key, arg.Value)
 	return err
+}
+
+const insertPaymentDuplicateMig = `-- name: InsertPaymentDuplicateMig :one
+INSERT INTO payment_duplicates (
+    payment_id,
+    amount_msat,
+    created_at,
+    fail_reason,
+    settle_preimage,
+    settle_time
+)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6
+)
+RETURNING id
+`
+
+type InsertPaymentDuplicateMigParams struct {
+	PaymentID      int64
+	AmountMsat     int64
+	CreatedAt      time.Time
+	FailReason     sql.NullInt32
+	SettlePreimage []byte
+	SettleTime     sql.NullTime
+}
+
+// Insert a duplicate payment record into the payment_duplicates table and
+// return its ID.
+func (q *Queries) InsertPaymentDuplicateMig(ctx context.Context, arg InsertPaymentDuplicateMigParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertPaymentDuplicateMig,
+		arg.PaymentID,
+		arg.AmountMsat,
+		arg.CreatedAt,
+		arg.FailReason,
+		arg.SettlePreimage,
+		arg.SettleTime,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertPaymentFirstHopCustomRecord = `-- name: InsertPaymentFirstHopCustomRecord :exec

@@ -597,6 +597,72 @@ func (q *Queries) FetchPaymentsByIDs(ctx context.Context, paymentIds []int64) ([
 	return items, nil
 }
 
+const fetchPaymentsByIDsMig = `-- name: FetchPaymentsByIDsMig :many
+SELECT
+    p.id,
+    p.amount_msat,
+    p.created_at,
+    p.payment_identifier,
+    p.fail_reason,
+    COUNT(ha.id) AS htlc_attempt_count
+FROM payments p
+LEFT JOIN payment_htlc_attempts ha ON ha.payment_id = p.id
+WHERE p.id IN (/*SLICE:payment_ids*/?)
+GROUP BY p.id, p.amount_msat, p.created_at, p.payment_identifier, p.fail_reason
+ORDER BY p.id ASC
+`
+
+type FetchPaymentsByIDsMigRow struct {
+	ID                int64
+	AmountMsat        int64
+	CreatedAt         time.Time
+	PaymentIdentifier []byte
+	FailReason        sql.NullInt32
+	HtlcAttemptCount  int64
+}
+
+// Migration-specific batch fetch that returns payment data along with HTLC
+// attempt counts for structural validation during KV to SQL migration.
+func (q *Queries) FetchPaymentsByIDsMig(ctx context.Context, paymentIds []int64) ([]FetchPaymentsByIDsMigRow, error) {
+	query := fetchPaymentsByIDsMig
+	var queryParams []interface{}
+	if len(paymentIds) > 0 {
+		for _, v := range paymentIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:payment_ids*/?", makeQueryParams(len(queryParams), len(paymentIds)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:payment_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchPaymentsByIDsMigRow
+	for rows.Next() {
+		var i FetchPaymentsByIDsMigRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AmountMsat,
+			&i.CreatedAt,
+			&i.PaymentIdentifier,
+			&i.FailReason,
+			&i.HtlcAttemptCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fetchRouteLevelFirstHopCustomRecords = `-- name: FetchRouteLevelFirstHopCustomRecords :many
 SELECT
     l.id,
@@ -981,6 +1047,51 @@ type InsertPaymentIntentParams struct {
 // Insert a payment intent for a given payment and return its ID.
 func (q *Queries) InsertPaymentIntent(ctx context.Context, arg InsertPaymentIntentParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, insertPaymentIntent, arg.PaymentID, arg.IntentType, arg.IntentPayload)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertPaymentMig = `-- name: InsertPaymentMig :one
+/* ─────────────────────────────────────────────
+   Migration-specific queries
+
+   These queries are used ONLY for the one-time migration from KV to SQL.
+   ─────────────────────────────────────────────
+*/
+
+INSERT INTO payments (
+    amount_msat,
+    created_at,
+    payment_identifier,
+    fail_reason)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4
+)
+RETURNING id
+`
+
+type InsertPaymentMigParams struct {
+	AmountMsat        int64
+	CreatedAt         time.Time
+	PaymentIdentifier []byte
+	FailReason        sql.NullInt32
+}
+
+// Migration-specific payment insert that allows setting fail_reason.
+// Normal InsertPayment forces fail_reason to NULL since new payments
+// aren't failed yet. During migration, we're inserting historical data
+// that may already be failed.
+func (q *Queries) InsertPaymentMig(ctx context.Context, arg InsertPaymentMigParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertPaymentMig,
+		arg.AmountMsat,
+		arg.CreatedAt,
+		arg.PaymentIdentifier,
+		arg.FailReason,
+	)
 	var id int64
 	err := row.Scan(&id)
 	return id, err

@@ -479,6 +479,54 @@ func (q *Queries) FetchPayment(ctx context.Context, paymentIdentifier []byte) (F
 	return i, err
 }
 
+const fetchPaymentDuplicates = `-- name: FetchPaymentDuplicates :many
+SELECT
+    id,
+    payment_id,
+    payment_identifier,
+    amount_msat,
+    created_at,
+    fail_reason,
+    settle_preimage,
+    settle_time
+FROM payment_duplicates
+WHERE payment_id = $1
+ORDER BY id ASC
+`
+
+// Fetch all duplicate payment records from the payment_duplicates table.
+func (q *Queries) FetchPaymentDuplicates(ctx context.Context, paymentID int64) ([]PaymentDuplicate, error) {
+	rows, err := q.db.QueryContext(ctx, fetchPaymentDuplicates, paymentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PaymentDuplicate
+	for rows.Next() {
+		var i PaymentDuplicate
+		if err := rows.Scan(
+			&i.ID,
+			&i.PaymentID,
+			&i.PaymentIdentifier,
+			&i.AmountMsat,
+			&i.CreatedAt,
+			&i.FailReason,
+			&i.SettlePreimage,
+			&i.SettleTime,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fetchPaymentLevelFirstHopCustomRecords = `-- name: FetchPaymentLevelFirstHopCustomRecords :many
 SELECT
     l.id,

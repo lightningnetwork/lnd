@@ -56,6 +56,8 @@ type SQLQueries interface {
 	FetchAllInflightAttempts(ctx context.Context, arg sqlc.FetchAllInflightAttemptsParams) ([]sqlc.PaymentHtlcAttempt, error)
 	FetchHopsForAttempts(ctx context.Context, htlcAttemptIndices []int64) ([]sqlc.FetchHopsForAttemptsRow, error)
 
+	FetchPaymentDuplicates(ctx context.Context, paymentID int64) ([]sqlc.PaymentDuplicate, error)
+
 	FetchPaymentLevelFirstHopCustomRecords(ctx context.Context, paymentIDs []int64) ([]sqlc.PaymentFirstHopCustomRecord, error)
 	FetchRouteLevelFirstHopCustomRecords(ctx context.Context, htlcAttemptIndices []int64) ([]sqlc.PaymentAttemptFirstHopCustomRecord, error)
 	FetchHopLevelCustomRecords(ctx context.Context, hopIDs []int64) ([]sqlc.PaymentHopCustomRecord, error)
@@ -98,6 +100,9 @@ type SQLQueries interface {
 	// allows setting fail_reason when inserting historical payments.
 	InsertPaymentMig(ctx context.Context, arg sqlc.InsertPaymentMigParams) (int64, error)
 
+	// InsertPaymentDuplicateMig inserts a duplicate payment record during
+	// migration.
+	InsertPaymentDuplicateMig(ctx context.Context, arg sqlc.InsertPaymentDuplicateMigParams) (int64, error)
 }
 
 // BatchedSQLQueries is a version of the SQLQueries that's capable

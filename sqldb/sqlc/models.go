@@ -218,6 +218,17 @@ type PaymentAttemptFirstHopCustomRecord struct {
 	Value            []byte
 }
 
+type PaymentDuplicate struct {
+	ID                int64
+	PaymentID         int64
+	PaymentIdentifier []byte
+	AmountMsat        int64
+	CreatedAt         time.Time
+	FailReason        sql.NullInt32
+	SettlePreimage    []byte
+	SettleTime        sql.NullTime
+}
+
 type PaymentFirstHopCustomRecord struct {
 	ID        int64
 	PaymentID int64

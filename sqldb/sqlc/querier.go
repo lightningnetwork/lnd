@@ -48,6 +48,8 @@ type Querier interface {
 	FetchHtlcAttemptResolutionsForPayments(ctx context.Context, paymentIds []int64) ([]FetchHtlcAttemptResolutionsForPaymentsRow, error)
 	FetchHtlcAttemptsForPayments(ctx context.Context, paymentIds []int64) ([]FetchHtlcAttemptsForPaymentsRow, error)
 	FetchPayment(ctx context.Context, paymentIdentifier []byte) (FetchPaymentRow, error)
+	// Fetch all duplicate payment records from the payment_duplicates table.
+	FetchPaymentDuplicates(ctx context.Context, paymentID int64) ([]PaymentDuplicate, error)
 	FetchPaymentLevelFirstHopCustomRecords(ctx context.Context, paymentIds []int64) ([]PaymentFirstHopCustomRecord, error)
 	// Batch fetch payment and intent data for a set of payment IDs.
 	// Used to avoid fetching redundant payment data when processing multiple
@@ -145,6 +147,9 @@ type Querier interface {
 	// payment process.
 	InsertPayment(ctx context.Context, arg InsertPaymentParams) (int64, error)
 	InsertPaymentAttemptFirstHopCustomRecord(ctx context.Context, arg InsertPaymentAttemptFirstHopCustomRecordParams) error
+	// Insert a duplicate payment record into the payment_duplicates table and
+	// return its ID.
+	InsertPaymentDuplicateMig(ctx context.Context, arg InsertPaymentDuplicateMigParams) (int64, error)
 	InsertPaymentFirstHopCustomRecord(ctx context.Context, arg InsertPaymentFirstHopCustomRecordParams) error
 	InsertPaymentHopCustomRecord(ctx context.Context, arg InsertPaymentHopCustomRecordParams) error
 	// Insert a payment intent for a given payment and return its ID.

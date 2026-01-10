@@ -51,6 +51,8 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/msgmux"
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
+	paymentsmig1 "github.com/lightningnetwork/lnd/payments/db/migration1"
+	paymentsmig1sqlc "github.com/lightningnetwork/lnd/payments/db/migration1/sqlc"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sqldb"
@@ -76,6 +78,10 @@ const (
 	// graphMigration is the version number for the graph migration
 	// that migrates the KV graph to the native SQL schema.
 	graphMigration = 10
+
+	// paymentMigration is the version number for the payments migration
+	// that migrates KV payments to the native SQL schema.
+	paymentMigration = 12
 )
 
 // GrpcRegistrar is an interface that must be satisfied by an external subserver
@@ -1153,6 +1159,32 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 				return nil
 			}
 
+			paymentMig := func(tx *sqlc.Queries) error {
+				var err error
+				err = paymentsmig1.MigratePaymentsKVToSQL(
+					ctx,
+					dbs.ChanStateDB.Backend,
+					paymentsmig1sqlc.New(tx.GetTx()),
+					&paymentsmig1.SQLStoreConfig{
+						QueryCfg: queryCfg,
+					},
+				)
+				if err != nil {
+					return fmt.Errorf("failed to migrate "+
+						"payments to SQL: %w", err)
+				}
+
+				// Set the payments bucket tombstone to
+				// indicate that the migration has been
+				// completed.
+				d.logger.Debugf("Setting payments bucket " +
+					"tombstone")
+
+				return paymentsdb.SetPaymentsBucketTombstone(
+					dbs.ChanStateDB.Backend,
+				)
+			}
+
 			// Make sure we attach the custom migration function to
 			// the correct migration version.
 			for i := 0; i < len(migrations); i++ {
@@ -1162,8 +1194,14 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 					migrations[i].MigrationFn = invoiceMig
 
 					continue
+
 				case graphMigration:
 					migrations[i].MigrationFn = graphMig
+
+					continue
+
+				case paymentMigration:
+					migrations[i].MigrationFn = paymentMig
 
 					continue
 
@@ -1259,6 +1297,27 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		}
 		if ripInvoices {
 			err = fmt.Errorf("invoices bucket tombstoned, please " +
+				"switch back to native SQL")
+			d.logger.Error(err)
+
+			return nil, nil, err
+		}
+
+		// Check if the payments bucket tombstone is set. If it is, we
+		// need to return and ask the user switch back to using the
+		// native SQL store.
+		ripPayments, err := paymentsdb.GetPaymentsBucketTombstone(
+			dbs.ChanStateDB.Backend,
+		)
+		if err != nil {
+			err = fmt.Errorf("unable to check payments bucket "+
+				"tombstone: %w", err)
+			d.logger.Error(err)
+
+			return nil, nil, err
+		}
+		if ripPayments {
+			err = fmt.Errorf("payments bucket tombstoned, please " +
 				"switch back to native SQL")
 			d.logger.Error(err)
 

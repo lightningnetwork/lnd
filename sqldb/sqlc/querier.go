@@ -54,6 +54,9 @@ type Querier interface {
 	// Used to avoid fetching redundant payment data when processing multiple
 	// attempts for the same payment.
 	FetchPaymentsByIDs(ctx context.Context, paymentIds []int64) ([]FetchPaymentsByIDsRow, error)
+	// Migration-specific batch fetch that returns payment data along with HTLC
+	// attempt counts for structural validation during KV to SQL migration.
+	FetchPaymentsByIDsMig(ctx context.Context, paymentIds []int64) ([]FetchPaymentsByIDsMigRow, error)
 	FetchRouteLevelFirstHopCustomRecords(ctx context.Context, htlcAttemptIndices []int64) ([]PaymentAttemptFirstHopCustomRecord, error)
 	FetchSettledAMPSubInvoices(ctx context.Context, arg FetchSettledAMPSubInvoicesParams) ([]FetchSettledAMPSubInvoicesRow, error)
 	FilterInvoices(ctx context.Context, arg FilterInvoicesParams) ([]Invoice, error)
@@ -151,6 +154,11 @@ type Querier interface {
 	InsertPaymentHopCustomRecord(ctx context.Context, arg InsertPaymentHopCustomRecordParams) error
 	// Insert a payment intent for a given payment and return its ID.
 	InsertPaymentIntent(ctx context.Context, arg InsertPaymentIntentParams) (int64, error)
+	// Migration-specific payment insert that allows setting fail_reason.
+	// Normal InsertPayment forces fail_reason to NULL since new payments
+	// aren't failed yet. During migration, we're inserting historical data
+	// that may already be failed.
+	InsertPaymentMig(ctx context.Context, arg InsertPaymentMigParams) (int64, error)
 	InsertRouteHop(ctx context.Context, arg InsertRouteHopParams) (int64, error)
 	InsertRouteHopAmp(ctx context.Context, arg InsertRouteHopAmpParams) error
 	InsertRouteHopBlinded(ctx context.Context, arg InsertRouteHopBlindedParams) error

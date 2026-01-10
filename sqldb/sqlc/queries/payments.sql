@@ -384,3 +384,44 @@ VALUES (
 
 -- name: FailPayment :execresult
 UPDATE payments SET fail_reason = $1 WHERE payment_identifier = $2;
+
+/* ─────────────────────────────────────────────
+   Migration-specific queries
+
+   These queries are used ONLY for the one-time migration from KV to SQL.
+   ─────────────────────────────────────────────
+*/
+
+-- name: InsertPaymentMig :one
+-- Migration-specific payment insert that allows setting fail_reason.
+-- Normal InsertPayment forces fail_reason to NULL since new payments
+-- aren't failed yet. During migration, we're inserting historical data
+-- that may already be failed.
+INSERT INTO payments (
+    amount_msat,
+    created_at,
+    payment_identifier,
+    fail_reason)
+VALUES (
+    @amount_msat,
+    @created_at,
+    @payment_identifier,
+    @fail_reason
+)
+RETURNING id;
+
+-- name: FetchPaymentsByIDsMig :many
+-- Migration-specific batch fetch that returns payment data along with HTLC
+-- attempt counts for structural validation during KV to SQL migration.
+SELECT
+    p.id,
+    p.amount_msat,
+    p.created_at,
+    p.payment_identifier,
+    p.fail_reason,
+    COUNT(ha.id) AS htlc_attempt_count
+FROM payments p
+LEFT JOIN payment_htlc_attempts ha ON ha.payment_id = p.id
+WHERE p.id IN (sqlc.slice('payment_ids')/*SLICE:payment_ids*/)
+GROUP BY p.id, p.amount_msat, p.created_at, p.payment_identifier, p.fail_reason
+ORDER BY p.id ASC;

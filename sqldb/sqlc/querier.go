@@ -150,6 +150,11 @@ type Querier interface {
 	InsertPaymentHopCustomRecord(ctx context.Context, arg InsertPaymentHopCustomRecordParams) error
 	// Insert a payment intent for a given payment and return its ID.
 	InsertPaymentIntent(ctx context.Context, arg InsertPaymentIntentParams) (int64, error)
+	// Migration-specific payment insert that allows setting fail_reason.
+	// Normal InsertPayment forces fail_reason to NULL since new payments
+	// aren't failed yet. During migration, we're inserting historical data
+	// that may already be failed.
+	InsertPaymentMig(ctx context.Context, arg InsertPaymentMigParams) (int64, error)
 	InsertRouteHop(ctx context.Context, arg InsertRouteHopParams) (int64, error)
 	InsertRouteHopAmp(ctx context.Context, arg InsertRouteHopAmpParams) error
 	InsertRouteHopBlinded(ctx context.Context, arg InsertRouteHopBlindedParams) error

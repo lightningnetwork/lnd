@@ -87,6 +87,20 @@ type SQLQueries interface {
 	// DeleteFailedAttempts removes all failed HTLCs from the db for a
 	// given payment.
 	DeleteFailedAttempts(ctx context.Context, paymentID int64) error
+
+	/*
+		Migration specific queries.
+
+		These queries are used ONLY for the one-time migration from KV
+		to SQL.
+	*/
+
+	// InsertPaymentMig is a migration-only variant of InsertPayment that
+	// allows setting fail_reason when inserting historical payments, since
+	// for real payments they have not failed at creation time and so no
+	// failure reason would exist yet.
+	InsertPaymentMig(ctx context.Context, arg sqlc.InsertPaymentMigParams) (int64, error)
+
 }
 
 // BatchedSQLQueries is a version of the SQLQueries that's capable

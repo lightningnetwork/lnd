@@ -3,6 +3,7 @@ package paymentsdb
 import (
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/build"
+	paymentsmig1 "github.com/lightningnetwork/lnd/payments/db/migration1"
 )
 
 // log is a logger that is initialized with no output filters.  This
@@ -29,4 +30,5 @@ func DisableLog() {
 // using btclog.
 func UseLogger(logger btclog.Logger) {
 	log = logger
+	paymentsmig1.UseLogger(logger)
 }

@@ -56,6 +56,21 @@ FROM payments p
 LEFT JOIN payment_intents i ON i.payment_id = p.id
 WHERE p.payment_identifier = $1;
 
+-- name: FetchPaymentDuplicates :many
+-- Fetch all duplicate payment records from the payment_duplicates table for
+-- a given payment ID.
+SELECT
+    id,
+    payment_id,
+    amount_msat,
+    created_at,
+    fail_reason,
+    settle_preimage,
+    settle_time
+FROM payment_duplicates
+WHERE payment_id = $1
+ORDER BY id ASC;
+
 -- name: CountPayments :one
 SELECT COUNT(*) FROM payments;
 
@@ -410,3 +425,23 @@ VALUES (
 )
 RETURNING id;
 
+-- name: InsertPaymentDuplicateMig :one
+-- Insert a duplicate payment record into the payment_duplicates table and 
+-- return its ID.
+INSERT INTO payment_duplicates (
+    payment_id,
+    amount_msat,
+    created_at,
+    fail_reason,
+    settle_preimage,
+    settle_time
+)
+VALUES (
+    @payment_id,
+    @amount_msat,
+    @created_at,
+    @fail_reason,
+    @settle_preimage,
+    @settle_time
+)
+RETURNING id;

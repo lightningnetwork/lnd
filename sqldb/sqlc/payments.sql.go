@@ -843,6 +843,55 @@ func (q *Queries) InsertPaymentAttemptFirstHopCustomRecord(ctx context.Context, 
 	return err
 }
 
+const insertPaymentDuplicateMig = `-- name: InsertPaymentDuplicateMig :one
+INSERT INTO payment_duplicates (
+    payment_id,
+    payment_identifier,
+    amount_msat,
+    created_at,
+    fail_reason,
+    settle_preimage,
+    settle_time
+)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7
+)
+RETURNING id
+`
+
+type InsertPaymentDuplicateMigParams struct {
+	PaymentID         int64
+	PaymentIdentifier []byte
+	AmountMsat        int64
+	CreatedAt         time.Time
+	FailReason        sql.NullInt32
+	SettlePreimage    []byte
+	SettleTime        sql.NullTime
+}
+
+// Insert a duplicate payment record into the payment_duplicates table and
+// return its ID.
+func (q *Queries) InsertPaymentDuplicateMig(ctx context.Context, arg InsertPaymentDuplicateMigParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertPaymentDuplicateMig,
+		arg.PaymentID,
+		arg.PaymentIdentifier,
+		arg.AmountMsat,
+		arg.CreatedAt,
+		arg.FailReason,
+		arg.SettlePreimage,
+		arg.SettleTime,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertPaymentFirstHopCustomRecord = `-- name: InsertPaymentFirstHopCustomRecord :exec
 INSERT INTO payment_first_hop_custom_records (
     payment_id,
@@ -913,6 +962,52 @@ type InsertPaymentIntentParams struct {
 // Insert a payment intent for a given payment and return its ID.
 func (q *Queries) InsertPaymentIntent(ctx context.Context, arg InsertPaymentIntentParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, insertPaymentIntent, arg.PaymentID, arg.IntentType, arg.IntentPayload)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertPaymentMig = `-- name: InsertPaymentMig :one
+/* ─────────────────────────────────────────────
+   Migration-specific queries
+
+   These queries are used ONLY for the one-time migration from KV to SQL.
+   They are optimized for bulk historical data import, not runtime usage.
+   ─────────────────────────────────────────────
+*/
+
+INSERT INTO payments (
+    amount_msat,
+    created_at,
+    payment_identifier,
+    fail_reason)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4
+)
+RETURNING id
+`
+
+type InsertPaymentMigParams struct {
+	AmountMsat        int64
+	CreatedAt         time.Time
+	PaymentIdentifier []byte
+	FailReason        sql.NullInt32
+}
+
+// Migration-specific payment insert that allows setting fail_reason.
+// Normal InsertPayment forces fail_reason to NULL since new payments
+// aren't failed yet. During migration, we're inserting historical data
+// that may already be failed.
+func (q *Queries) InsertPaymentMig(ctx context.Context, arg InsertPaymentMigParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertPaymentMig,
+		arg.AmountMsat,
+		arg.CreatedAt,
+		arg.PaymentIdentifier,
+		arg.FailReason,
+	)
 	var id int64
 	err := row.Scan(&id)
 	return id, err

@@ -384,3 +384,29 @@ VALUES (
 
 -- name: FailPayment :execresult
 UPDATE payments SET fail_reason = $1 WHERE payment_identifier = $2;
+
+/* ─────────────────────────────────────────────
+   Migration-specific queries
+
+   These queries are used ONLY for the one-time migration from KV to SQL.
+   ─────────────────────────────────────────────
+*/
+
+-- name: InsertPaymentMig :one
+-- Migration-specific payment insert that allows setting fail_reason.
+-- Normal InsertPayment forces fail_reason to NULL since new payments
+-- aren't failed yet. During migration, we're inserting historical data
+-- that may already be failed.
+INSERT INTO payments (
+    amount_msat,
+    created_at,
+    payment_identifier,
+    fail_reason)
+VALUES (
+    @amount_msat,
+    @created_at,
+    @payment_identifier,
+    @fail_reason
+)
+RETURNING id;
+

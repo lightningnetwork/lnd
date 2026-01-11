@@ -128,6 +128,10 @@ var _ DB = (*SQLStore)(nil)
 type SQLStoreConfig struct {
 	// QueryConfig holds configuration values for SQL queries.
 	QueryCfg *sqldb.QueryConfig
+
+	// SkipMigrationValidation disables in-migration validation checks.
+	// This is intended for large databases where validation is too slow.
+	SkipMigrationValidation bool
 }
 
 // NewSQLStore creates a new SQLStore instance given an open

@@ -1799,7 +1799,7 @@ func (r *RouterBackend) MarshallPayment(payment *paymentsdb.MPPayment) (
 	paymentID := payment.Info.PaymentIdentifier
 	creationTimeNS := MarshalTimeNano(payment.Info.CreationTime)
 
-	failureReason, err := marshallPaymentFailureReason(
+	failureReason, err := MarshallPaymentFailureReason(
 		payment.FailureReason,
 	)
 	if err != nil {
@@ -1856,9 +1856,9 @@ func convertPaymentStatus(dbStatus paymentsdb.PaymentStatus, useInit bool) (
 	}
 }
 
-// marshallPaymentFailureReason marshalls the failure reason to the corresponding rpc
-// type.
-func marshallPaymentFailureReason(reason *paymentsdb.FailureReason) (
+// MarshallPaymentFailureReason marshalls the failure reason to the
+// corresponding rpc type.
+func MarshallPaymentFailureReason(reason *paymentsdb.FailureReason) (
 	lnrpc.PaymentFailureReason, error) {
 
 	if reason == nil {

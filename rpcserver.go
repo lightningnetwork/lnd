@@ -477,6 +477,14 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/ListPaymentDuplicates": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/ListAllPaymentDuplicates": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 		"/lnrpc.Lightning/DeletePayment": {{
 			Entity: "offchain",
 			Action: "write",
@@ -7661,6 +7669,118 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 	}
 
 	return paymentsResp, nil
+}
+
+// ListPaymentDuplicates returns duplicate payment records for a single payment
+// hash. This is only supported by the SQL payments backend.
+func (r *rpcServer) ListPaymentDuplicates(ctx context.Context,
+	req *lnrpc.ListPaymentDuplicatesRequest) (
+	*lnrpc.ListPaymentDuplicatesResponse, error) {
+
+	if len(req.PaymentHash) == 0 {
+		return nil, status.Error(codes.InvalidArgument,
+			"payment hash is required")
+	}
+
+	paymentHash, err := lntypes.MakeHash(req.PaymentHash)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	fetcher, ok := r.server.paymentsDB.(paymentsdb.DuplicatePaymentsReader)
+	if !ok {
+		return nil, status.Error(codes.Unimplemented,
+			"duplicate payment records are only available for "+
+				"SQL-based payment backends")
+	}
+
+	duplicates, err := fetcher.FetchDuplicatePayments(ctx, paymentHash)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &lnrpc.ListPaymentDuplicatesResponse{
+		Duplicates: make([]*lnrpc.PaymentDuplicate, 0, len(duplicates)),
+	}
+	for _, dup := range duplicates {
+		rpcDup, err := paymentDuplicateToRPC(dup)
+		if err != nil {
+			return nil, err
+		}
+
+		resp.Duplicates = append(resp.Duplicates, rpcDup)
+	}
+
+	return resp, nil
+}
+
+// ListAllPaymentDuplicates returns duplicate payment records across all
+// payments. This is only supported by the SQL payments backend.
+func (r *rpcServer) ListAllPaymentDuplicates(ctx context.Context,
+	req *lnrpc.ListAllPaymentDuplicatesRequest) (
+	*lnrpc.ListAllPaymentDuplicatesResponse, error) {
+
+	fetcher, ok := r.server.paymentsDB.(paymentsdb.DuplicatePaymentsReader)
+	if !ok {
+		return nil, status.Error(codes.Unimplemented,
+			"duplicate payment records are only available for "+
+				"SQL-based payment backends")
+	}
+
+	duplicates, err := fetcher.FetchAllDuplicatePayments(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &lnrpc.ListAllPaymentDuplicatesResponse{
+		Duplicates: make([]*lnrpc.PaymentDuplicate, 0, len(duplicates)),
+	}
+	for _, dup := range duplicates {
+		rpcDup, err := paymentDuplicateToRPC(dup)
+		if err != nil {
+			return nil, err
+		}
+
+		resp.Duplicates = append(resp.Duplicates, rpcDup)
+	}
+
+	return resp, nil
+}
+
+func paymentDuplicateToRPC(dup *paymentsdb.DuplicatePayment) (
+	*lnrpc.PaymentDuplicate, error) {
+
+	if dup == nil {
+		return nil, fmt.Errorf("duplicate payment is nil")
+	}
+
+	failureReason, err := routerrpc.MarshallPaymentFailureReason(
+		dup.FailureReason,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcDup := &lnrpc.PaymentDuplicate{
+		PaymentHash:     dup.PaymentIdentifier[:],
+		ValueMsat:       int64(dup.Amount),
+		CreationTimeNs:  dup.CreationTime.UnixNano(),
+		FailureReason:   failureReason,
+		PaymentPreimage: nil,
+		SettleTimeNs:    0,
+	}
+
+	if dup.Settle != nil {
+		rpcDup.PaymentPreimage = dup.Settle.Preimage[:]
+		rpcDup.SettleTimeNs = dup.Settle.SettleTime.UnixNano()
+	}
+
+	if dup.FailureReason == nil && dup.Settle == nil {
+		return nil, fmt.Errorf("duplicate payment missing " +
+			"failure reason and settlement")
+	}
+
+	return rpcDup, nil
 }
 
 // DeleteCanceledInvoice remove a canceled invoice from the database.

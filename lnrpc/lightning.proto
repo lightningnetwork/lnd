@@ -360,6 +360,20 @@ service Lightning {
     */
     rpc ListPayments (ListPaymentsRequest) returns (ListPaymentsResponse);
 
+    /* lncli: `listpaymentduplicates`
+    ListPaymentDuplicates returns duplicate payment records for the given
+    payment hash. This RPC is only supported by the SQL payments backend.
+    */
+    rpc ListPaymentDuplicates (ListPaymentDuplicatesRequest)
+        returns (ListPaymentDuplicatesResponse);
+
+    /* lncli: `listallpaymentduplicates`
+    ListAllPaymentDuplicates returns duplicate payment records across all
+    payments. This RPC is only supported by the SQL payments backend.
+    */
+    rpc ListAllPaymentDuplicates (ListAllPaymentDuplicatesRequest)
+        returns (ListAllPaymentDuplicatesResponse);
+
     /* lncli: `deletepayments`
     DeletePayment deletes an outgoing payment from DB. Note that it will not
     attempt to delete an In-Flight payment, since that would be unsafe.
@@ -4552,6 +4566,44 @@ message ListPaymentsResponse {
     database.
     */
     uint64 total_num_payments = 4;
+}
+
+message ListPaymentDuplicatesRequest {
+    // The payment hash whose duplicates should be returned.
+    bytes payment_hash = 1;
+}
+
+message ListPaymentDuplicatesResponse {
+    // The list of duplicate payment records for the given payment.
+    repeated PaymentDuplicate duplicates = 1;
+}
+
+message ListAllPaymentDuplicatesRequest {
+}
+
+message ListAllPaymentDuplicatesResponse {
+    // The list of duplicate payment records across all payments.
+    repeated PaymentDuplicate duplicates = 1;
+}
+
+message PaymentDuplicate {
+    // The payment hash for the duplicate payment.
+    bytes payment_hash = 1;
+
+    // The value of the duplicate payment in milli-satoshis.
+    int64 value_msat = 2;
+
+    // The time in UNIX nanoseconds at which the duplicate was created.
+    int64 creation_time_ns = 3;
+
+    // The failure reason for failed duplicates.
+    PaymentFailureReason failure_reason = 4;
+
+    // The payment preimage for settled duplicates.
+    bytes payment_preimage = 5;
+
+    // The time in UNIX nanoseconds at which the duplicate was settled.
+    int64 settle_time_ns = 6;
 }
 
 message DeletePaymentRequest {

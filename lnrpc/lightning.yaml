@@ -103,6 +103,11 @@ http:
       delete: "/v1/payment"
     - selector: lnrpc.Lightning.ListPayments
       get: "/v1/payments"
+    - selector: lnrpc.Lightning.ListPaymentDuplicates
+      post: "/v1/payments/duplicates"
+      body: "*"
+    - selector: lnrpc.Lightning.ListAllPaymentDuplicates
+      get: "/v1/payments/duplicates"
     - selector: lnrpc.Lightning.DeleteAllPayments
       delete: "/v1/payments"
     - selector: lnrpc.Lightning.DescribeGraph

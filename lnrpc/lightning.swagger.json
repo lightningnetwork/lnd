@@ -2491,6 +2491,60 @@
         ]
       }
     },
+    "/v1/payments/duplicates": {
+      "get": {
+        "summary": "lncli: `listallpaymentduplicates`\nListAllPaymentDuplicates returns duplicate payment records across all\npayments. This RPC is only supported by the SQL payments backend.",
+        "operationId": "Lightning_ListAllPaymentDuplicates",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcListAllPaymentDuplicatesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      },
+      "post": {
+        "summary": "lncli: `listpaymentduplicates`\nListPaymentDuplicates returns duplicate payment records for the given\npayment hash. This RPC is only supported by the SQL payments backend.",
+        "operationId": "Lightning_ListPaymentDuplicates",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcListPaymentDuplicatesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcListPaymentDuplicatesRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/payreq/{pay_req}": {
       "get": {
         "summary": "lncli: `decodepayreq`\nDecodePayReq takes an encoded payment request string and attempts to decode\nit, returning a full description of the conditions encoded within the\npayment request.",
@@ -6162,6 +6216,19 @@
         }
       }
     },
+    "lnrpcListAllPaymentDuplicatesResponse": {
+      "type": "object",
+      "properties": {
+        "duplicates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/lnrpcPaymentDuplicate"
+          },
+          "description": "The list of duplicate payment records across all payments."
+        }
+      }
+    },
     "lnrpcListChannelsResponse": {
       "type": "object",
       "properties": {
@@ -6208,6 +6275,29 @@
             "format": "uint64"
           },
           "description": "The list of root key IDs that are in use."
+        }
+      }
+    },
+    "lnrpcListPaymentDuplicatesRequest": {
+      "type": "object",
+      "properties": {
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment hash whose duplicates should be returned."
+        }
+      }
+    },
+    "lnrpcListPaymentDuplicatesResponse": {
+      "type": "object",
+      "properties": {
+        "duplicates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/lnrpcPaymentDuplicate"
+          },
+          "description": "The list of duplicate payment records for the given payment."
         }
       }
     },
@@ -6940,6 +7030,40 @@
             "format": "byte"
           },
           "description": "The custom TLV records that were sent to the first hop as part of the HTLC\nwire message for this payment."
+        }
+      }
+    },
+    "lnrpcPaymentDuplicate": {
+      "type": "object",
+      "properties": {
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment hash for the duplicate payment."
+        },
+        "value_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The value of the duplicate payment in milli-satoshis."
+        },
+        "creation_time_ns": {
+          "type": "string",
+          "format": "int64",
+          "description": "The time in UNIX nanoseconds at which the duplicate was created."
+        },
+        "failure_reason": {
+          "$ref": "#/definitions/lnrpcPaymentFailureReason",
+          "description": "The failure reason for failed duplicates."
+        },
+        "payment_preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment preimage for settled duplicates."
+        },
+        "settle_time_ns": {
+          "type": "string",
+          "format": "int64",
+          "description": "The time in UNIX nanoseconds at which the duplicate was settled."
         }
       }
     },

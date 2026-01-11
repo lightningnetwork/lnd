@@ -39,12 +39,21 @@ type MigrationStats struct {
 func MigratePaymentsKVToSQL(ctx context.Context, kvBackend kvdb.Backend,
 	sqlDB SQLQueries, cfg *SQLStoreConfig) error {
 
-	if cfg == nil || cfg.QueryCfg == nil {
-		return fmt.Errorf("missing SQL store config for validation")
+	if cfg == nil {
+		return fmt.Errorf("missing SQL store config for migration")
 	}
 
-	if cfg.QueryCfg.MaxBatchSize == 0 {
-		return fmt.Errorf("invalid max batch size for validation")
+	validateMigration := !cfg.SkipMigrationValidation
+	if validateMigration {
+		if cfg.QueryCfg == nil {
+			return fmt.Errorf("missing SQL store config for " +
+				"validation")
+		}
+
+		if cfg.QueryCfg.MaxBatchSize == 0 {
+			return fmt.Errorf("invalid max batch size for " +
+				"validation")
+		}
 	}
 
 	stats := &MigrationStats{}
@@ -178,38 +187,41 @@ func MigratePaymentsKVToSQL(ctx context.Context, kvBackend kvdb.Backend,
 				}
 			}
 
-			// Add the payment to the validation batch.
-			validationBatch = append(
-				validationBatch, migratedPaymentRef{
-					Hash:      paymentHash,
-					PaymentID: paymentID,
-				},
-			)
-			if uint32(len(validationBatch)) >=
-				cfg.QueryCfg.MaxBatchSize {
-
-				err := validateMigratedPaymentBatch(
-					ctx, kvBackend, sqlDB,
-					cfg,
-					validationBatch,
+			if validateMigration {
+				// Add the payment to the validation batch.
+				validationBatch = append(
+					validationBatch, migratedPaymentRef{
+						Hash:      paymentHash,
+						PaymentID: paymentID,
+					},
 				)
-				if err != nil {
-					return err
-				}
+				if uint32(len(validationBatch)) >=
+					cfg.QueryCfg.MaxBatchSize {
 
-				validatedPayments += int64(
-					len(validationBatch),
-				)
-
-				// Log validation progress periodically.
-				validationInterval.Do(func() {
-					log.Infof("Validated %d/%d payments",
-						validatedPayments,
-						stats.TotalPayments,
+					err := validateMigratedPaymentBatch(
+						ctx, kvBackend, sqlDB,
+						cfg,
+						validationBatch,
 					)
-				})
+					if err != nil {
+						return err
+					}
 
-				validationBatch = validationBatch[:0]
+					validatedPayments += int64(
+						len(validationBatch),
+					)
+
+					// Log validation progress periodically.
+					validationInterval.Do(func() {
+						log.Infof("Validated %d/%d "+
+							"payments",
+							validatedPayments,
+							stats.TotalPayments,
+						)
+					})
+
+					validationBatch = validationBatch[:0]
+				}
 			}
 
 			return nil
@@ -221,7 +233,7 @@ func MigratePaymentsKVToSQL(ctx context.Context, kvBackend kvdb.Backend,
 	}
 
 	// Validate any remaining payments in the batch.
-	if len(validationBatch) > 0 {
+	if validateMigration && len(validationBatch) > 0 {
 		if err := validateMigratedPaymentBatch(
 			ctx, kvBackend, sqlDB, cfg, validationBatch,
 		); err != nil {
@@ -234,10 +246,12 @@ func MigratePaymentsKVToSQL(ctx context.Context, kvBackend kvdb.Backend,
 	}
 
 	// Validate the total number of payments as an additional sanity check.
-	if err := validatePaymentCounts(
-		ctx, sqlDB, stats.TotalPayments,
-	); err != nil {
-		return err
+	if validateMigration {
+		if err := validatePaymentCounts(
+			ctx, sqlDB, stats.TotalPayments,
+		); err != nil {
+			return err
+		}
 	}
 
 	stats.MigrationDuration = time.Since(startTime)

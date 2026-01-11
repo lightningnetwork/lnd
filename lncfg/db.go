@@ -90,6 +90,8 @@ type DB struct {
 
 	SkipNativeSQLMigration bool `long:"skip-native-sql-migration" description:"If set to true, the KV to native SQL migration will be skipped. Note that this option is intended for users who experience non-resolvable migration errors. Enabling after there is a non-resolvable migration error that resulted in an incomplete migration will cause that partial migration to be abandoned and ignored and an empty database will be used instead. Since invoices are currently the only native SQL database used, our channels will still work but the invoice history will be forgotten. This option has no effect if native SQL is not in use (db.use-native-sql=false)."`
 
+	SkipPaymentsMigrationValidation bool `long:"skip-payments-migration-validation" description:"If set to true, the KV to native SQL payments migration will skip its in-migration validation step. This can be used if validation is too slow for large databases."`
+
 	NoGraphCache bool `long:"no-graph-cache" description:"Don't use the in-memory graph cache for path finding. Much slower but uses less RAM. Can only be used with a bolt database backend."`
 
 	PruneRevocation bool `long:"prune-revocation" description:"Run the optional migration that prunes the revocation logs to save disk space."`
@@ -130,8 +132,9 @@ func DefaultDB() *DB {
 			BusyTimeout:    defaultSqliteBusyTimeout,
 			QueryConfig:    *sqldb.DefaultSQLiteConfig(),
 		},
-		UseNativeSQL:           false,
-		SkipNativeSQLMigration: false,
+		UseNativeSQL:                    false,
+		SkipNativeSQLMigration:          false,
+		SkipPaymentsMigrationValidation: false,
 	}
 }
 

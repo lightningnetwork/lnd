@@ -59,6 +59,9 @@ mobile/*_generated.go
 *.hex
 *.db
 *.bin
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 
 vendor
 *.idea

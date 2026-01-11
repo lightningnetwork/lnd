@@ -1525,6 +1525,71 @@ func listPayments(ctx *cli.Context) error {
 	return nil
 }
 
+var listPaymentDuplicatesCommand = cli.Command{
+	Name:     "listpaymentduplicates",
+	Category: "Payments",
+	Usage:    "List duplicate payments for a given payment hash.",
+	Hidden:   true,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "payment_hash",
+			Usage: "hex-encoded payment hash to query",
+		},
+	},
+	Action: actionDecorator(listPaymentDuplicates),
+}
+
+func listPaymentDuplicates(ctx *cli.Context) error {
+	if !ctx.IsSet("payment_hash") {
+		return fmt.Errorf("payment_hash is required")
+	}
+
+	hashBytes, err := hex.DecodeString(ctx.String("payment_hash"))
+	if err != nil {
+		return fmt.Errorf("error decoding payment_hash: %w", err)
+	}
+
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	req := &lnrpc.ListPaymentDuplicatesRequest{
+		PaymentHash: hashBytes,
+	}
+
+	resp, err := client.ListPaymentDuplicates(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var listAllPaymentDuplicatesCommand = cli.Command{
+	Name:     "listallpaymentduplicates",
+	Category: "Payments",
+	Usage:    "List duplicate payments across all payments.",
+	Hidden:   true,
+	Action:   actionDecorator(listAllPaymentDuplicates),
+}
+
+func listAllPaymentDuplicates(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	req := &lnrpc.ListAllPaymentDuplicatesRequest{}
+
+	resp, err := client.ListAllPaymentDuplicates(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
 var forwardingHistoryCommand = cli.Command{
 	Name:     "fwdinghistory",
 	Category: "Payments",

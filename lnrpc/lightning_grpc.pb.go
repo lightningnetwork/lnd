@@ -255,6 +255,14 @@ type LightningClient interface {
 	// lncli: `listpayments`
 	// ListPayments returns a list of all outgoing payments.
 	ListPayments(ctx context.Context, in *ListPaymentsRequest, opts ...grpc.CallOption) (*ListPaymentsResponse, error)
+	// lncli: `listpaymentduplicates`
+	// ListPaymentDuplicates returns duplicate payment records for the given
+	// payment hash. This RPC is only supported by the SQL payments backend.
+	ListPaymentDuplicates(ctx context.Context, in *ListPaymentDuplicatesRequest, opts ...grpc.CallOption) (*ListPaymentDuplicatesResponse, error)
+	// lncli: `listallpaymentduplicates`
+	// ListAllPaymentDuplicates returns duplicate payment records across all
+	// payments. This RPC is only supported by the SQL payments backend.
+	ListAllPaymentDuplicates(ctx context.Context, in *ListAllPaymentDuplicatesRequest, opts ...grpc.CallOption) (*ListAllPaymentDuplicatesResponse, error)
 	// lncli: `deletepayments`
 	// DeletePayment deletes an outgoing payment from DB. Note that it will not
 	// attempt to delete an In-Flight payment, since that would be unsafe.
@@ -1010,6 +1018,24 @@ func (c *lightningClient) ListPayments(ctx context.Context, in *ListPaymentsRequ
 	return out, nil
 }
 
+func (c *lightningClient) ListPaymentDuplicates(ctx context.Context, in *ListPaymentDuplicatesRequest, opts ...grpc.CallOption) (*ListPaymentDuplicatesResponse, error) {
+	out := new(ListPaymentDuplicatesResponse)
+	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/ListPaymentDuplicates", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lightningClient) ListAllPaymentDuplicates(ctx context.Context, in *ListAllPaymentDuplicatesRequest, opts ...grpc.CallOption) (*ListAllPaymentDuplicatesResponse, error) {
+	out := new(ListAllPaymentDuplicatesResponse)
+	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/ListAllPaymentDuplicates", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *lightningClient) DeletePayment(ctx context.Context, in *DeletePaymentRequest, opts ...grpc.CallOption) (*DeletePaymentResponse, error) {
 	out := new(DeletePaymentResponse)
 	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/DeletePayment", in, out, opts...)
@@ -1644,6 +1670,14 @@ type LightningServer interface {
 	// lncli: `listpayments`
 	// ListPayments returns a list of all outgoing payments.
 	ListPayments(context.Context, *ListPaymentsRequest) (*ListPaymentsResponse, error)
+	// lncli: `listpaymentduplicates`
+	// ListPaymentDuplicates returns duplicate payment records for the given
+	// payment hash. This RPC is only supported by the SQL payments backend.
+	ListPaymentDuplicates(context.Context, *ListPaymentDuplicatesRequest) (*ListPaymentDuplicatesResponse, error)
+	// lncli: `listallpaymentduplicates`
+	// ListAllPaymentDuplicates returns duplicate payment records across all
+	// payments. This RPC is only supported by the SQL payments backend.
+	ListAllPaymentDuplicates(context.Context, *ListAllPaymentDuplicatesRequest) (*ListAllPaymentDuplicatesResponse, error)
 	// lncli: `deletepayments`
 	// DeletePayment deletes an outgoing payment from DB. Note that it will not
 	// attempt to delete an In-Flight payment, since that would be unsafe.
@@ -1947,6 +1981,12 @@ func (UnimplementedLightningServer) DecodePayReq(context.Context, *PayReqString)
 }
 func (UnimplementedLightningServer) ListPayments(context.Context, *ListPaymentsRequest) (*ListPaymentsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListPayments not implemented")
+}
+func (UnimplementedLightningServer) ListPaymentDuplicates(context.Context, *ListPaymentDuplicatesRequest) (*ListPaymentDuplicatesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListPaymentDuplicates not implemented")
+}
+func (UnimplementedLightningServer) ListAllPaymentDuplicates(context.Context, *ListAllPaymentDuplicatesRequest) (*ListAllPaymentDuplicatesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListAllPaymentDuplicates not implemented")
 }
 func (UnimplementedLightningServer) DeletePayment(context.Context, *DeletePaymentRequest) (*DeletePaymentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeletePayment not implemented")
@@ -2816,6 +2856,42 @@ func _Lightning_ListPayments_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Lightning_ListPaymentDuplicates_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListPaymentDuplicatesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).ListPaymentDuplicates(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/ListPaymentDuplicates",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).ListPaymentDuplicates(ctx, req.(*ListPaymentDuplicatesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Lightning_ListAllPaymentDuplicates_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAllPaymentDuplicatesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).ListAllPaymentDuplicates(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/ListAllPaymentDuplicates",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).ListAllPaymentDuplicates(ctx, req.(*ListAllPaymentDuplicatesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Lightning_DeletePayment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeletePaymentRequest)
 	if err := dec(in); err != nil {
@@ -3524,6 +3600,14 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListPayments",
 			Handler:    _Lightning_ListPayments_Handler,
+		},
+		{
+			MethodName: "ListPaymentDuplicates",
+			Handler:    _Lightning_ListPaymentDuplicates_Handler,
+		},
+		{
+			MethodName: "ListAllPaymentDuplicates",
+			Handler:    _Lightning_ListAllPaymentDuplicates_Handler,
 		},
 		{
 			MethodName: "DeletePayment",

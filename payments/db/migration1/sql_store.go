@@ -1,4 +1,4 @@
-package paymentsdb
+package migration1
 
 import (
 	"bytes"
@@ -12,9 +12,9 @@ import (
 
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/payments/db/migration1/sqlc"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sqldb"
-	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
 // PaymentIntentType represents the type of payment intent.
@@ -56,8 +56,6 @@ type SQLQueries interface {
 	FetchAllInflightAttempts(ctx context.Context, arg sqlc.FetchAllInflightAttemptsParams) ([]sqlc.PaymentHtlcAttempt, error)
 	FetchHopsForAttempts(ctx context.Context, htlcAttemptIndices []int64) ([]sqlc.FetchHopsForAttemptsRow, error)
 
-	FetchAllPaymentDuplicates(ctx context.Context,
-		arg sqlc.FetchAllPaymentDuplicatesParams) ([]sqlc.PaymentDuplicate, error)
 	FetchPaymentDuplicates(ctx context.Context, paymentID int64) ([]sqlc.PaymentDuplicate, error)
 
 	FetchPaymentLevelFirstHopCustomRecords(ctx context.Context, paymentIDs []int64) ([]sqlc.PaymentFirstHopCustomRecord, error)
@@ -962,93 +960,6 @@ func (s *SQLStore) FetchPayment(ctx context.Context,
 	}
 
 	return mpPayment, nil
-}
-
-// FetchDuplicatePayments retrieves duplicate payment records for a payment
-// hash from the SQL store.
-func (s *SQLStore) FetchDuplicatePayments(ctx context.Context,
-	paymentHash lntypes.Hash) ([]*DuplicatePayment, error) {
-
-	var duplicates []*DuplicatePayment
-
-	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		dbPayment, err := fetchPaymentByHash(ctx, db, paymentHash)
-		if err != nil {
-			return err
-		}
-
-		rows, err := db.FetchPaymentDuplicates(
-			ctx, dbPayment.Payment.ID,
-		)
-		if err != nil {
-			return err
-		}
-
-		duplicates, err = dbDuplicatePaymentsToDuplicatePayments(rows)
-		return err
-	}, sqldb.NoOpReset)
-	if err != nil {
-		return nil, err
-	}
-
-	return duplicates, nil
-}
-
-// FetchAllDuplicatePayments retrieves duplicate payment records ordered by
-// payment_id and id using cursor-based pagination.
-func (s *SQLStore) FetchAllDuplicatePayments(ctx context.Context) (
-	[]*DuplicatePayment, error) {
-
-	type duplicateCursor struct {
-		paymentID int64
-		id        int64
-	}
-
-	var (
-		rows []sqlc.PaymentDuplicate
-	)
-
-	//nolint:ll
-	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		return sqldb.ExecutePaginatedQuery(
-			ctx, s.cfg.QueryCfg, duplicateCursor{},
-			func(ctx context.Context, cursor duplicateCursor,
-				pageSize int32) ([]sqlc.PaymentDuplicate,
-				error) {
-
-				return db.FetchAllPaymentDuplicates(
-					ctx,
-					sqlc.FetchAllPaymentDuplicatesParams{
-						AfterPaymentID: cursor.paymentID,
-						AfterID:        cursor.id,
-						NumLimit:       pageSize,
-					},
-				)
-			},
-			func(row sqlc.PaymentDuplicate) duplicateCursor {
-				return duplicateCursor{
-					paymentID: row.PaymentID,
-					id:        row.ID,
-				}
-			},
-			func(_ context.Context,
-				row sqlc.PaymentDuplicate) error {
-
-				rows = append(rows, row)
-				return nil
-			},
-		)
-	}, sqldb.NoOpReset)
-	if err != nil {
-		return nil, err
-	}
-
-	duplicates, err := dbDuplicatePaymentsToDuplicatePayments(rows)
-	if err != nil {
-		return nil, err
-	}
-
-	return duplicates, nil
 }
 
 // FetchInFlightPayments retrieves all payments that have HTLC attempts

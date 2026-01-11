@@ -40,6 +40,40 @@ FROM payments p
 LEFT JOIN payment_intents i ON i.payment_id = p.id
 WHERE p.payment_identifier = $1;
 
+-- name: FetchPaymentDuplicates :many
+-- Fetch all duplicate payment records from the payment_duplicates table.
+SELECT
+    id,
+    payment_id,
+    payment_identifier,
+    amount_msat,
+    created_at,
+    fail_reason,
+    settle_preimage,
+    settle_time
+FROM payment_duplicates
+WHERE payment_id = $1
+ORDER BY id ASC;
+
+-- name: FetchAllPaymentDuplicates :many
+-- Fetch duplicate payment records ordered by payment_id and id.
+SELECT
+    id,
+    payment_id,
+    payment_identifier,
+    amount_msat,
+    created_at,
+    fail_reason,
+    settle_preimage,
+    settle_time
+FROM payment_duplicates
+WHERE (
+    payment_id > @after_payment_id OR
+    (payment_id = @after_payment_id AND id > @after_id)
+)
+ORDER BY payment_id ASC, id ASC
+LIMIT @num_limit;
+
 -- name: CountPayments :one
 SELECT COUNT(*) FROM payments;
 
@@ -368,3 +402,52 @@ VALUES (
 
 -- name: FailPayment :execresult
 UPDATE payments SET fail_reason = $1 WHERE payment_identifier = $2;
+
+/* ─────────────────────────────────────────────
+   Migration-specific queries
+
+   These queries are used ONLY for the one-time migration from KV to SQL.
+   They are optimized for bulk historical data import, not runtime usage.
+   ─────────────────────────────────────────────
+*/
+
+-- name: InsertPaymentMig :one
+-- Migration-specific payment insert that allows setting fail_reason.
+-- Normal InsertPayment forces fail_reason to NULL since new payments
+-- aren't failed yet. During migration, we're inserting historical data
+-- that may already be failed.
+INSERT INTO payments (
+    amount_msat,
+    created_at,
+    payment_identifier,
+    fail_reason)
+VALUES (
+    @amount_msat,
+    @created_at,
+    @payment_identifier,
+    @fail_reason
+)
+RETURNING id;
+
+-- name: InsertPaymentDuplicateMig :one
+-- Insert a duplicate payment record into the payment_duplicates table and 
+-- return its ID.
+INSERT INTO payment_duplicates (
+    payment_id,
+    payment_identifier,
+    amount_msat,
+    created_at,
+    fail_reason,
+    settle_preimage,
+    settle_time
+)
+VALUES (
+    @payment_id,
+    @payment_identifier,
+    @amount_msat,
+    @created_at,
+    @fail_reason,
+    @settle_preimage,
+    @settle_time
+)
+RETURNING id;

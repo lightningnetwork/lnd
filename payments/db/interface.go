@@ -28,6 +28,21 @@ type PaymentReader interface {
 	FetchInFlightPayments(ctx context.Context) ([]*MPPayment, error)
 }
 
+// DuplicatePaymentsReader provides access to legacy duplicate payment records.
+// This is only supported by the SQL payments backend, so callers should use a
+// type assertion and handle unsupported backends.
+type DuplicatePaymentsReader interface {
+	// FetchDuplicatePayments returns duplicate payment records for a single
+	// payment hash.
+	FetchDuplicatePayments(ctx context.Context,
+		paymentHash lntypes.Hash) ([]*DuplicatePayment, error)
+
+	// FetchAllDuplicatePayments returns duplicate payment records across
+	// all payments.
+	FetchAllDuplicatePayments(ctx context.Context) (
+		[]*DuplicatePayment, error)
+}
+
 // PaymentWriter represents the interface to write operations to the payments
 // database.
 type PaymentWriter interface {

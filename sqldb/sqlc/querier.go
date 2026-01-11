@@ -40,6 +40,8 @@ type Querier interface {
 	// Fetch all inflight attempts with their payment data using pagination.
 	// Returns attempt data joined with payment and intent data to avoid separate queries.
 	FetchAllInflightAttempts(ctx context.Context, arg FetchAllInflightAttemptsParams) ([]PaymentHtlcAttempt, error)
+	// Fetch duplicate payment records ordered by payment_id and id.
+	FetchAllPaymentDuplicates(ctx context.Context, arg FetchAllPaymentDuplicatesParams) ([]PaymentDuplicate, error)
 	FetchHopLevelCustomRecords(ctx context.Context, hopIds []int64) ([]PaymentHopCustomRecord, error)
 	FetchHopsForAttempts(ctx context.Context, htlcAttemptIndices []int64) ([]FetchHopsForAttemptsRow, error)
 	// Batch query to fetch only HTLC resolution status for multiple payments.

@@ -273,3 +273,60 @@ func dbDataToRoute(hops []sqlc.FetchHopsForAttemptsRow,
 
 	return route, nil
 }
+
+// dbDuplicatePaymentsToDuplicatePayments converts SQL duplicate rows into
+// domain records.
+func dbDuplicatePaymentsToDuplicatePayments(rows []sqlc.PaymentDuplicate) (
+	[]*DuplicatePayment, error) {
+
+	if len(rows) == 0 {
+		return []*DuplicatePayment{}, nil
+	}
+
+	duplicates := make([]*DuplicatePayment, 0, len(rows))
+	for _, row := range rows {
+		var paymentHash lntypes.Hash
+		if len(row.PaymentIdentifier) != len(paymentHash) {
+			return nil, fmt.Errorf("invalid payment identifier "+
+				"length: %d", len(row.PaymentIdentifier))
+		}
+		copy(paymentHash[:], row.PaymentIdentifier)
+
+		var failureReason *FailureReason
+		if row.FailReason.Valid {
+			reason := FailureReason(row.FailReason.Int32)
+			failureReason = &reason
+		}
+
+		var settleInfo *HTLCSettleInfo
+		if len(row.SettlePreimage) > 0 || row.SettleTime.Valid {
+			var preimage lntypes.Preimage
+			switch len(row.SettlePreimage) {
+			case 0:
+			case lntypes.PreimageSize:
+				copy(preimage[:], row.SettlePreimage)
+			default:
+				return nil, fmt.Errorf("invalid settle "+
+					"preimage length: %d",
+					len(row.SettlePreimage))
+			}
+
+			settleInfo = &HTLCSettleInfo{
+				Preimage: preimage,
+			}
+			if row.SettleTime.Valid {
+				settleInfo.SettleTime = row.SettleTime.Time
+			}
+		}
+
+		duplicates = append(duplicates, &DuplicatePayment{
+			PaymentIdentifier: paymentHash,
+			Amount:            lnwire.MilliSatoshi(row.AmountMsat),
+			CreationTime:      row.CreatedAt,
+			FailureReason:     failureReason,
+			Settle:            settleInfo,
+		})
+	}
+
+	return duplicates, nil
+}

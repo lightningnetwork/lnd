@@ -55,6 +55,25 @@ FROM payment_duplicates
 WHERE payment_id = $1
 ORDER BY id ASC;
 
+-- name: FetchAllPaymentDuplicates :many
+-- Fetch duplicate payment records ordered by payment_id and id.
+SELECT
+    id,
+    payment_id,
+    payment_identifier,
+    amount_msat,
+    created_at,
+    fail_reason,
+    settle_preimage,
+    settle_time
+FROM payment_duplicates
+WHERE (
+    payment_id > @after_payment_id OR
+    (payment_id = @after_payment_id AND id > @after_id)
+)
+ORDER BY payment_id ASC, id ASC
+LIMIT @num_limit;
+
 -- name: CountPayments :one
 SELECT COUNT(*) FROM payments;
 

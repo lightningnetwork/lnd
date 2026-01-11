@@ -359,6 +359,16 @@ type MPPayment struct {
 	State *MPPaymentState
 }
 
+// DuplicatePayment represents a legacy duplicate payment record stored
+// separately from the primary payment.
+type DuplicatePayment struct {
+	PaymentIdentifier lntypes.Hash
+	Amount            lnwire.MilliSatoshi
+	CreationTime      time.Time
+	FailureReason     *FailureReason
+	Settle            *HTLCSettleInfo
+}
+
 // Terminated returns a bool to specify whether the payment is in a terminal
 // state.
 func (m *MPPayment) Terminated() bool {

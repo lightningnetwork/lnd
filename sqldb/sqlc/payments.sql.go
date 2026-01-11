@@ -161,6 +161,64 @@ func (q *Queries) FetchAllInflightAttempts(ctx context.Context, arg FetchAllInfl
 	return items, nil
 }
 
+const fetchAllPaymentDuplicates = `-- name: FetchAllPaymentDuplicates :many
+SELECT
+    id,
+    payment_id,
+    payment_identifier,
+    amount_msat,
+    created_at,
+    fail_reason,
+    settle_preimage,
+    settle_time
+FROM payment_duplicates
+WHERE (
+    payment_id > $1 OR
+    (payment_id = $1 AND id > $2)
+)
+ORDER BY payment_id ASC, id ASC
+LIMIT $3
+`
+
+type FetchAllPaymentDuplicatesParams struct {
+	AfterPaymentID int64
+	AfterID        int64
+	NumLimit       int32
+}
+
+// Fetch duplicate payment records ordered by payment_id and id.
+func (q *Queries) FetchAllPaymentDuplicates(ctx context.Context, arg FetchAllPaymentDuplicatesParams) ([]PaymentDuplicate, error) {
+	rows, err := q.db.QueryContext(ctx, fetchAllPaymentDuplicates, arg.AfterPaymentID, arg.AfterID, arg.NumLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PaymentDuplicate
+	for rows.Next() {
+		var i PaymentDuplicate
+		if err := rows.Scan(
+			&i.ID,
+			&i.PaymentID,
+			&i.PaymentIdentifier,
+			&i.AmountMsat,
+			&i.CreatedAt,
+			&i.FailReason,
+			&i.SettlePreimage,
+			&i.SettleTime,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fetchHopLevelCustomRecords = `-- name: FetchHopLevelCustomRecords :many
 SELECT
     l.id,

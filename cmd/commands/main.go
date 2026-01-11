@@ -482,6 +482,8 @@ func Main() {
 		ListChannelsCommand,
 		closedChannelsCommand,
 		listPaymentsCommand,
+		listPaymentDuplicatesCommand,
+		listAllPaymentDuplicatesCommand,
 		describeGraphCommand,
 		getNodeMetricsCommand,
 		getChanInfoCommand,

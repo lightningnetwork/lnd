@@ -1159,6 +1159,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 				return nil
 			}
 
+			//nolint:ll
 			paymentMig := func(tx *sqlc.Queries) error {
 				err := paymentsmig1.MigratePaymentsKVToSQL(
 					ctx,
@@ -1166,6 +1167,8 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 					paymentsmig1sqlc.New(tx.GetTx()),
 					&paymentsmig1.SQLStoreConfig{
 						QueryCfg: queryCfg,
+						SkipMigrationValidation: cfg.DB.
+							SkipPaymentsMigrationValidation,
 					},
 				)
 				if err != nil {

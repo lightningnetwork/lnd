@@ -290,6 +290,7 @@ func makeAllMessages(t testing.TB, r *rand.Rand) []lnwire.Message {
 	msgAll = append(msgAll, newMsgGossipTimestampRange(t, r))
 	msgAll = append(msgAll, newMsgQueryShortChanIDsZlib(t, r))
 	msgAll = append(msgAll, newMsgReplyChannelRangeZlib(t, r))
+	msgAll = append(msgAll, newMsgOnionMessage(t, r))
 
 	return msgAll
 }
@@ -881,6 +882,19 @@ func newMsgGossipTimestampRange(t testing.TB,
 	require.NoError(t, err, "unable to read chain hash")
 
 	return msg
+}
+
+// newMsgOnionMessage creates a testing OnionMessage message.
+func newMsgOnionMessage(t testing.TB, r *rand.Rand) *lnwire.OnionMessage {
+	t.Helper()
+
+	// Generate a random onion blob (typical size ~1366 bytes).
+	onionBlobSize := r.Intn(1366) + 1
+	onionBlob := make([]byte, onionBlobSize)
+	_, err := r.Read(onionBlob)
+	require.NoError(t, err, "unable to read onion blob")
+
+	return lnwire.NewOnionMessage(randPubKey(t), onionBlob)
 }
 
 func randRawKey(t testing.TB) [33]byte {

@@ -2502,6 +2502,22 @@ func (d *AuthenticatedGossiper) handleNodeAnnouncement(ctx context.Context,
 		"node=%x, source=%x", nMsg.peer, timestamp, nodeAnn.NodeID,
 		nMsg.source.SerializeCompressed())
 
+	// Although not explicitly required by BOLT 7 for node announcements
+	// (unlike channel updates), we still enforce non-zero timestamps as a
+	// sanity check. A timestamp of zero is likely indicative of a bug or
+	// uninitialized message.
+	if nodeAnn.Timestamp == 0 {
+		err := fmt.Errorf("rejecting node announcement with zero "+
+			"timestamp for node %x", nodeAnn.NodeID)
+
+		log.Warnf("Rejecting node announcement from peer=%v: %v",
+			nMsg.peer, err)
+
+		nMsg.err <- err
+
+		return nil, false
+	}
+
 	// We'll quickly ask the router if it already has a newer update for
 	// this node so we can skip validating signatures if not required.
 	if d.cfg.Graph.IsStaleNode(ctx, nodeAnn.NodeID, timestamp) {
@@ -3055,6 +3071,27 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 	// whether this update is stale or is for a zombie channel in order to
 	// quickly reject it.
 	timestamp := time.Unix(int64(upd.Timestamp), 0)
+
+	// Per BOLT 7, the timestamp MUST be greater than 0.
+	if upd.Timestamp == 0 {
+		err := fmt.Errorf("rejecting channel update with zero "+
+			"timestamp for short_chan_id(%v)", shortChanID)
+
+		// Only increase ban score for remote peers.
+		if nMsg.isRemote {
+			log.Warnf("Increasing ban score for peer=%v: %v",
+				nMsg.peer, err)
+
+			dcErr := d.handleBadPeer(nMsg.peer)
+			if dcErr != nil {
+				err = dcErr
+			}
+		}
+
+		nMsg.err <- err
+
+		return nil, false
+	}
 
 	// Fetch the SCID we should be using to lock the channelMtx and make
 	// graph queries with.

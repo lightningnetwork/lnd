@@ -2930,6 +2930,78 @@ func TestExtraDataNodeAnnouncementValidation(t *testing.T) {
 	require.NoError(t, err, "unable to process announcement")
 }
 
+// TestZeroTimestampNodeAnnouncementRejection tests that a NodeAnnouncement with
+// a zero timestamp is rejected per BOLT 7.
+func TestZeroTimestampNodeAnnouncementRejection(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	tCtx, err := createTestCtx(t, 0, false)
+	require.NoError(t, err, "can't create context")
+
+	remotePeer := &mockPeer{
+		remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{},
+	}
+
+	// Create a node announcement with a zero timestamp.
+	nodeAnn, err := createNodeAnnouncement(remoteKeyPriv1, 0)
+	require.NoError(t, err, "can't create node announcement")
+
+	// Processing the announcement should fail with a zero timestamp error.
+	select {
+	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+		ctx, nodeAnn, remotePeer,
+	):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "zero timestamp")
+}
+
+// TestZeroTimestampChannelUpdateRejection tests that a ChannelUpdate with a
+// zero timestamp is rejected per BOLT 7.
+func TestZeroTimestampChannelUpdateRejection(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	tCtx, err := createTestCtx(t, 0, false)
+	require.NoError(t, err, "can't create context")
+
+	remotePeer := &mockPeer{
+		remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{},
+	}
+
+	// First, we need to process a channel announcement so that the channel
+	// update has a valid channel to refer to.
+	chanAnn, err := tCtx.createRemoteChannelAnnouncement(0)
+	require.NoError(t, err, "unable to create chan ann")
+
+	select {
+	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+		ctx, chanAnn, remotePeer,
+	):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	require.NoError(t, err, "unable to process chan ann")
+
+	// Now create a channel update with a zero timestamp.
+	chanUpdAnn, err := createUpdateAnnouncement(0, 0, remoteKeyPriv1, 0)
+	require.NoError(t, err, "unable to create chan update")
+
+	// Processing the update should fail with a zero timestamp error.
+	select {
+	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+		ctx, chanUpdAnn, remotePeer,
+	):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "zero timestamp")
+}
+
 // assertBroadcast checks that num messages are being broadcasted from the
 // gossiper. The broadcasted messages are returned.
 func assertBroadcast(t *testing.T, ctx *testCtx, num int) []lnwire.Message {

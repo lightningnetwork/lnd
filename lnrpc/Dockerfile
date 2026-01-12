@@ -1,6 +1,6 @@
 # If you change this please also update GO_VERSION in Makefile (then run
 # `make lint` to see where else it needs to be updated as well).
-FROM golang:1.25.3-bookworm
+FROM golang:1.25.5-bookworm
 
 RUN apt-get update && apt-get install -y \
   git \

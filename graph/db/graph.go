@@ -371,7 +371,8 @@ func (c *ChannelGraph) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 	chanIDs ...uint64) error {
 
 	infos, err := c.db.DeleteChannelEdges(
-		strictZombiePruning, markZombie, chanIDs...,
+		lnwire.GossipVersion1, strictZombiePruning, markZombie,
+		chanIDs...,
 	)
 	if err != nil {
 		return err
@@ -636,7 +637,7 @@ func (c *ChannelGraph) HasV1Node(ctx context.Context,
 
 // IsPublicNode determines whether the node is seen as public in the graph.
 func (c *ChannelGraph) IsPublicNode(pubKey [33]byte) (bool, error) {
-	return c.db.IsPublicNode(pubKey)
+	return c.db.IsPublicNode(lnwire.GossipVersion1, pubKey)
 }
 
 // ForEachChannel iterates through all channel edges stored within the graph.
@@ -710,7 +711,9 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
-	return c.db.FetchChannelEdgesByOutpoint(op)
+	return c.db.FetchChannelEdgesByOutpoint(
+		lnwire.GossipVersion1, op,
+	)
 }
 
 // FetchChannelEdgesByID attempts to lookup directed edges by channel ID.
@@ -718,7 +721,9 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (
 	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
-	return c.db.FetchChannelEdgesByID(chanID)
+	return c.db.FetchChannelEdgesByID(
+		lnwire.GossipVersion1, chanID,
+	)
 }
 
 // ChannelView returns the verifiable edge information for each active channel.
@@ -730,7 +735,7 @@ func (c *ChannelGraph) ChannelView() ([]EdgePoint, error) {
 func (c *ChannelGraph) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte,
 	error) {
 
-	return c.db.IsZombieEdge(chanID)
+	return c.db.IsZombieEdge(lnwire.GossipVersion1, chanID)
 }
 
 // NumZombies returns the current number of zombie channels in the graph.
@@ -784,6 +789,30 @@ func (c *VersionedGraph) FetchNode(ctx context.Context,
 	return c.db.FetchNode(ctx, c.v, nodePub)
 }
 
+// FetchChannelEdgesByID attempts to lookup directed edges by channel ID.
+func (c *VersionedGraph) FetchChannelEdgesByID(chanID uint64) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	return c.db.FetchChannelEdgesByID(c.v, chanID)
+}
+
+// FetchChannelEdgesByOutpoint attempts to lookup directed edges by funding
+// outpoint.
+func (c *VersionedGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	return c.db.FetchChannelEdgesByOutpoint(c.v, op)
+}
+
+// IsZombieEdge returns whether the edge is considered zombie for this version.
+func (c *VersionedGraph) IsZombieEdge(chanID uint64) (bool, [33]byte,
+	[33]byte, error) {
+
+	return c.db.IsZombieEdge(c.v, chanID)
+}
+
 // AddrsForNode returns all known addresses for the target node public key.
 func (c *VersionedGraph) AddrsForNode(ctx context.Context,
 	nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
@@ -828,6 +857,41 @@ func (c *VersionedGraph) SourceNode(ctx context.Context) (*models.Node,
 	error) {
 
 	return c.db.SourceNode(ctx, c.v)
+}
+
+// DeleteChannelEdges removes edges with the given channel IDs from the
+// database and marks them as zombies. This ensures that we're unable to re-add
+// it to our database once again. If an edge does not exist within the
+// database, then ErrEdgeNotFound will be returned. If strictZombiePruning is
+// true, then when we mark these edges as zombies, we'll set up the keys such
+// that we require the node that failed to send the fresh update to be the one
+// that resurrects the channel from its zombie state. The markZombie bool
+// denotes whether to mark the channel as a zombie.
+func (c *VersionedGraph) DeleteChannelEdges(strictZombiePruning,
+	markZombie bool, chanIDs ...uint64) error {
+
+	infos, err := c.db.DeleteChannelEdges(
+		c.v, strictZombiePruning, markZombie, chanIDs...,
+	)
+	if err != nil {
+		return err
+	}
+
+	if c.graphCache != nil {
+		for _, info := range infos {
+			c.graphCache.RemoveChannel(
+				info.NodeKey1Bytes, info.NodeKey2Bytes,
+				info.ChannelID,
+			)
+		}
+	}
+
+	return err
+}
+
+// IsPublicNode determines whether the node is seen as public in the graph.
+func (c *VersionedGraph) IsPublicNode(pubKey [33]byte) (bool, error) {
+	return c.db.IsPublicNode(c.v, pubKey)
 }
 
 // MakeTestGraph creates a new instance of the ChannelGraph for testing

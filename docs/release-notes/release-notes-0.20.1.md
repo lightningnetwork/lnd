@@ -73,6 +73,13 @@
 # Improvements
 ## Functional Updates
 
+* [Added panic recovery](https://github.com/lightningnetwork/lnd/pull/10470) to
+  the gossiper's message processing goroutines. This increases the robustness
+  of the gossiper subsystem by allowing it to continue operating even if a
+  logic error causes a panic during message processing. The recovery mechanism
+  ensures dependencies are properly freed and logs the panic trace for
+  debugging.
+
 ## RPC Updates
 
  * The `EstimateRouteFee` RPC now implements an [LSP detection 

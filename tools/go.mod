@@ -1,6 +1,6 @@
 module github.com/lightningnetwork/lnd/tools
 
-go 1.24.9
+go 1.24.11
 
 require (
 	4d63.com/gocheckcompilerdirectives v1.3.0 // indirect

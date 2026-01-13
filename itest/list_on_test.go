@@ -568,6 +568,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testChannelFundMaxAnchorReserve,
 	},
 	{
+		Name:     "channel fundmax maxchansize",
+		TestFunc: testChannelFundMaxMaxChanSize,
+	},
+	{
 		Name:     "htlc timeout resolver extract preimage remote",
 		TestFunc: testHtlcTimeoutResolverExtractPreimageRemote,
 	},

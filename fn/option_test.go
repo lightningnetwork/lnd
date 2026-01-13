@@ -20,11 +20,11 @@ func TestSomeToOk(t *testing.T) {
 }
 
 func TestSomeToOkf(t *testing.T) {
-	errStr := "err"
-	require.Equal(t, Some(1).SomeToOkf(errStr), Ok(1))
+	const errFmt = "missing value: %s"
+	require.Equal(t, Some(1).SomeToOkf(errFmt, "test"), Ok(1))
 	require.Equal(
-		t, None[uint8]().SomeToOkf(errStr),
-		Err[uint8](fmt.Errorf(errStr)),
+		t, None[uint8]().SomeToOkf(errFmt, "test"),
+		Err[uint8](fmt.Errorf(errFmt, "test")),
 	)
 }
 

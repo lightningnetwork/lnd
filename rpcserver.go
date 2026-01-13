@@ -2152,15 +2152,26 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 			"the channel opening")
 	}
 
+	// Fetch our own feature set and determine wumbo support early, as it's
+	// needed for both FundMax and explicit amount validation.
+	globalFeatureSet := r.server.featureMgr.Get(feature.SetNodeAnn)
+	wumboEnabled := globalFeatureSet.HasFeature(
+		lnwire.WumboChannelsOptional,
+	)
+
 	// If the FundMax flag is set, ensure that the acceptable minimum local
 	// amount adheres to the amount to be pushed to the remote, and to
-	// current rules, while also respecting the settings for the maximum
+	// current rules, while also respecting the protocol-level maximum
 	// channel size.
 	var minFundAmt, fundUpToMaxAmt btcutil.Amount
 	if in.FundMax {
-		// We assume the configured maximum channel size to be the upper
-		// bound of our "maxed" out funding attempt.
-		fundUpToMaxAmt = btcutil.Amount(r.cfg.MaxChanSize)
+		// Use the protocol-level maximum as the upper bound for our
+		// funding attempt.
+		if wumboEnabled {
+			fundUpToMaxAmt = funding.MaxBtcFundingAmountWumbo
+		} else {
+			fundUpToMaxAmt = MaxFundingAmount
+		}
 
 		// Since the standard non-fundmax flow requires the minimum
 		// funding amount to be at least in the amount of the initial
@@ -2186,8 +2197,6 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	maxHtlcs := uint16(in.RemoteMaxHtlcs)
 	remoteChanReserve := btcutil.Amount(in.RemoteChanReserveSat)
 
-	globalFeatureSet := r.server.featureMgr.Get(feature.SetNodeAnn)
-
 	// Determine if the user provided channel fees
 	// and if so pass them on to the funding workflow.
 	var channelBaseFee, channelFeeRate *uint64
@@ -2212,9 +2221,6 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// in the wallet hence we do not check it here against the maximum
 	// funding amount. Only if the localFundingAmt is specified we can check
 	// if it exceeds the maximum funding amount.
-	wumboEnabled := globalFeatureSet.HasFeature(
-		lnwire.WumboChannelsOptional,
-	)
 	if !in.FundMax && !wumboEnabled && localFundingAmt > MaxFundingAmount {
 		return nil, fmt.Errorf("funding amount is too large, the max "+
 			"channel size is: %v", MaxFundingAmount)

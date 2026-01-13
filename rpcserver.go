@@ -69,6 +69,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
+	"github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/onionmessage"
@@ -3088,7 +3089,7 @@ func createRPCCloseUpdate(
 
 		err := fn.MapOptionZ(
 			u.LocalCloseOutput,
-			func(closeOut chancloser.CloseOutput) error {
+			func(closeOut types.CloseOutput) error {
 				cr, err := closeOut.ShutdownRecords.Serialize()
 				if err != nil {
 					return fmt.Errorf("error serializing "+
@@ -3113,7 +3114,7 @@ func createRPCCloseUpdate(
 
 		err = fn.MapOptionZ(
 			u.RemoteCloseOutput,
-			func(closeOut chancloser.CloseOutput) error {
+			func(closeOut types.CloseOutput) error {
 				cr, err := closeOut.ShutdownRecords.Serialize()
 				if err != nil {
 					return fmt.Errorf("error serializing "+

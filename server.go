@@ -61,7 +61,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
-	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
+	chcl "github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1364,6 +1364,11 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		AuxLeafStore: implCfg.AuxLeafStore,
 		AuxSigner:    implCfg.AuxSigner,
 		AuxResolver:  implCfg.AuxContractResolver,
+		AuxCloser: fn.MapOption(
+			func(c chcl.AuxChanCloser) contractcourt.AuxChanCloser {
+				return c
+			},
+		)(implCfg.AuxChanCloser),
 	}, dbs.ChanStateDB)
 
 	// Select the configuration and funding parameters for Bitcoin.
@@ -1441,7 +1446,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	}
 
 	// Attempt to parse the provided upfront-shutdown address (if any).
-	script, err := chancloser.ParseUpfrontShutdownAddress(
+	script, err := chcl.ParseUpfrontShutdownAddress(
 		cfg.UpfrontShutdownAddr, cfg.ActiveNetParams.Params,
 	)
 	if err != nil {

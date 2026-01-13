@@ -44,6 +44,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
+	"github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/netann"
@@ -169,12 +170,12 @@ type ChannelCloseUpdate struct {
 	// LocalCloseOutput is an optional, additional output on the closing
 	// transaction that the local party should be paid to. This will only be
 	// populated if the local balance isn't dust.
-	LocalCloseOutput fn.Option[chancloser.CloseOutput]
+	LocalCloseOutput fn.Option[types.CloseOutput]
 
 	// RemoteCloseOutput is an optional, additional output on the closing
 	// transaction that the remote party should be paid to. This will only
 	// be populated if the remote balance isn't dust.
-	RemoteCloseOutput fn.Option[chancloser.CloseOutput]
+	RemoteCloseOutput fn.Option[types.CloseOutput]
 
 	// AuxOutputs is an optional set of additional outputs that might be
 	// included in the closing transaction. These are used for custom

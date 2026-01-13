@@ -230,6 +230,10 @@ type ChainArbitratorConfig struct {
 	// AuxResolver is an optional interface that can be used to modify the
 	// way contracts are resolved.
 	AuxResolver fn.Option[lnwallet.AuxContractResolver]
+
+	// AuxCloser is an optional interface that can be used to finalize
+	// cooperative channel closes.
+	AuxCloser fn.Option[AuxChanCloser]
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all
@@ -1138,6 +1142,7 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 			extractStateNumHint: lnwallet.GetStateNumHint,
 			auxLeafStore:        c.cfg.AuxLeafStore,
 			auxResolver:         c.cfg.AuxResolver,
+			auxCloser:           c.cfg.AuxCloser,
 		},
 	)
 	if err != nil {
@@ -1315,6 +1320,7 @@ func (c *ChainArbitrator) loadOpenChannels() error {
 				extractStateNumHint: lnwallet.GetStateNumHint,
 				auxLeafStore:        c.cfg.AuxLeafStore,
 				auxResolver:         c.cfg.AuxResolver,
+				auxCloser:           c.cfg.AuxCloser,
 			},
 		)
 		if err != nil {

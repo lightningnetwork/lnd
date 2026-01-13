@@ -5006,7 +5006,7 @@ func TestRecoverGossipPanic(t *testing.T) {
 			panicked := make(chan struct{})
 			go func() {
 				defer ctx.gossiper.finalizeGossipProcessing(
-					context.Background(), "testing",
+					t.Context(), "testing",
 					nMsg, jobIDRef,
 				)
 				defer close(panicked)
@@ -5069,7 +5069,7 @@ func TestRecoverGossipPanicBlockedErrorChannel(t *testing.T) {
 	panicked := make(chan struct{})
 	go func() {
 		defer ctx.gossiper.finalizeGossipProcessing(
-			context.Background(), "testing", nMsg, &jobID,
+			t.Context(), "testing", nMsg, &jobID,
 		)
 		defer close(panicked)
 
@@ -5141,7 +5141,7 @@ func TestRecoverGossipPanicSignalsDependents(t *testing.T) {
 	panicked := make(chan struct{})
 	go func() {
 		defer ctx.gossiper.finalizeGossipProcessing(
-			context.Background(), "testing", nMsg, &parentJobID,
+			t.Context(), "testing", nMsg, &parentJobID,
 		)
 		defer close(panicked)
 
@@ -5211,7 +5211,7 @@ func TestRecoverGossipPanicNilJobID(t *testing.T) {
 	panicked := make(chan struct{})
 	go func() {
 		defer ctx.gossiper.finalizeGossipProcessing(
-			context.Background(), "processing", nMsg, nil,
+			t.Context(), "processing", nMsg, nil,
 		)
 		defer close(panicked)
 

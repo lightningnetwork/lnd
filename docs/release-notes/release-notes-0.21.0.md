@@ -21,6 +21,12 @@
 
 # Bug Fixes
 
+* [Fixed `OpenChannel` with
+  `fund_max`](https://github.com/lightningnetwork/lnd/pull/10488) to use the
+  protocol-level maximum channel size instead of the user-configured
+  `maxchansize`. The `maxchansize` config option is intended only for limiting
+  incoming channel requests from peers, not outgoing ones.
+
 - Chain notifier RPCs now [return the gRPC `Unavailable`
   status](https://github.com/lightningnetwork/lnd/pull/10352) while the
   sub-server is still starting. This allows clients to reliably detect the

@@ -187,6 +187,9 @@ linters:
         rules:
           json: snake
 
+    usetesting:
+      context-background: true
+
     whitespace:
       multi-if: true
       multi-func: true

@@ -8240,6 +8240,12 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 		numEvents = 100
 	}
 
+	// Cap at 50000 as documented in the API.
+	const maxForwardingEvents = 50000
+	if numEvents > maxForwardingEvents {
+		numEvents = maxForwardingEvents
+	}
+
 	// Create sets of incoming and outgoing channel IDs from the request
 	// for faster lookups for filtering.
 	incomingChanIDs := fn.NewSet(req.IncomingChanIds...)

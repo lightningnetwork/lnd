@@ -97,6 +97,11 @@
 
 ## lncli Updates
 
+* [Fixed misleading "(default: 0)" help text](https://github.com/lightningnetwork/lnd/pull/10499)
+  for `base_fee_msat`, `fee_rate`/`fee_rate_ppm`, and `time_lock_delta` flags in
+  `lncli updatechanpolicy`. These fields are now marked as `[required]` since
+  omitting them with the current implementation would set them to invalid values.
+
 ## Breaking Changes
 
 ## Performance Improvements

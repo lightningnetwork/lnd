@@ -74,6 +74,11 @@ type ProtocolOptions struct {
 	// NoExperimentalAccountabilityOption disables experimental accountability.
 	NoExperimentalAccountabilityOption bool `long:"no-experimental-accountability" description:"do not forward experimental accountability signals"`
 
+	// NoExperimentalEndorsementOption is the deprecated name for
+	// NoExperimentalAccountabilityOption. It is hidden and will be removed
+	// in a future release.
+	NoExperimentalEndorsementOption bool `long:"no-experimental-endorsement" hidden:"true" description:"deprecated: use no-experimental-accountability instead"`
+
 	// CustomMessage allows the custom message APIs to handle messages with
 	// the provided protocol numbers, which fall outside the custom message
 	// number range.
@@ -140,9 +145,11 @@ func (l *ProtocolOptions) NoRouteBlinding() bool {
 }
 
 // NoExpAccountability returns true if experimental accountability should be
-// disabled.
+// disabled. It also checks the deprecated NoExperimentalEndorsementOption for
+// backwards compatibility.
 func (l *ProtocolOptions) NoExpAccountability() bool {
-	return l.NoExperimentalAccountabilityOption
+	return l.NoExperimentalAccountabilityOption ||
+		l.NoExperimentalEndorsementOption
 }
 
 // NoQuiescence returns true if quiescence is disabled.

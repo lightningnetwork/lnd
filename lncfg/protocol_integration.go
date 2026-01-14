@@ -77,6 +77,11 @@ type ProtocolOptions struct {
 	// NoExperimentalAccountabilityOption disables experimental accountability.
 	NoExperimentalAccountabilityOption bool `long:"no-experimental-accountability" description:"do not forward experimental accountability signals"`
 
+	// NoExperimentalEndorsementOption is the deprecated name for
+	// NoExperimentalAccountabilityOption. It is hidden and will be removed
+	// in a future release.
+	NoExperimentalEndorsementOption bool `long:"no-experimental-endorsement" hidden:"true" description:"deprecated: use no-experimental-accountability instead"`
+
 	// NoQuiescenceOption disables quiescence for all channels.
 	NoQuiescenceOption bool `long:"no-quiescence" description:"do not allow or advertise quiescence for any channel"`
 
@@ -138,9 +143,11 @@ func (l *ProtocolOptions) NoRouteBlinding() bool {
 }
 
 // NoExpAccountability returns true if experimental accountability should be
-// disabled.
+// disabled. It also checks the deprecated NoExperimentalEndorsementOption for
+// backwards compatibility.
 func (l *ProtocolOptions) NoExpAccountability() bool {
-	return l.NoExperimentalAccountabilityOption
+	return l.NoExperimentalAccountabilityOption ||
+		l.NoExperimentalEndorsementOption
 }
 
 // NoQuiescence returns true if quiescence is disabled.

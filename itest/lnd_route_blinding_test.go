@@ -1595,3 +1595,110 @@ func testPartiallySpecifiedBlindedPath(ht *lntest.HarnessTest) {
 	// Check that Frank can pay the invoice.
 	ht.CompletePaymentRequests(frank, []string{invoice.PaymentRequest})
 }
+
+// testBlindedPathsMaxNumPaths tests if the MaxNumPaths restricition is working
+// accordingly. Dave will create an invoice containing two blinded paths: one
+// with Bob as the intro node and one with Carol as the intro node, than
+// MaxNumPaths is set to 1 to restrict the number of paths returned.
+//
+//		   --- Bob ---
+//	          /            \
+//	      Alice           Dave
+//		  \	       /
+//		   --- Carol ---
+func testBlindedPathsMaxNumPaths(ht *lntest.HarnessTest) {
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
+
+	// Create a four-node context consisting of Alice, Bob and three new
+	// nodes.
+	dave := ht.NewNode("dave", nil)
+	carol := ht.NewNode("carol", nil)
+
+	// Connect nodes to ensure propagation of channels.
+	ht.EnsureConnected(alice, carol)
+	ht.EnsureConnected(alice, bob)
+	ht.EnsureConnected(carol, dave)
+	ht.EnsureConnected(bob, dave)
+
+	// Fund the new nodes.
+	ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, carol)
+	ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, dave)
+	ht.MineBlocksAndAssertNumTxes(1, 2)
+
+	const paymentAmt = btcutil.Amount(300000)
+
+	nodes := []*node.HarnessNode{alice, bob, carol, dave}
+
+	reqs := []*lntest.OpenChannelRequest{
+		{
+			Local:  alice,
+			Remote: bob,
+			Param:  lntest.OpenChannelParams{Amt: paymentAmt * 2},
+		},
+		{
+			Local:  alice,
+			Remote: carol,
+			Param:  lntest.OpenChannelParams{Amt: paymentAmt * 2},
+		},
+		{
+			Local:  bob,
+			Remote: dave,
+			Param:  lntest.OpenChannelParams{Amt: paymentAmt * 2},
+		},
+		{
+			Local:  carol,
+			Remote: dave,
+			Param:  lntest.OpenChannelParams{Amt: paymentAmt * 2},
+		},
+	}
+
+	channelPoints := ht.OpenMultiChannelsAsync(reqs)
+
+	// Make sure every node has heard every channel.
+	for _, hn := range nodes {
+		for _, cp := range channelPoints {
+			ht.AssertChannelInGraph(hn, cp)
+		}
+
+		// Each node should have exactly 5 edges.
+		ht.AssertNumEdges(hn, len(channelPoints), false)
+	}
+
+	// Make Dave create an invoice.
+	var (
+		minNumRealHops uint32 = 1
+		numHops        uint32 = 1
+		maxNumPaths    uint32 = 1
+	)
+	invoice := &lnrpc.Invoice{
+		Memo:      "test",
+		Value:     int64(paymentAmt),
+		IsBlinded: true,
+		BlindedPathConfig: &lnrpc.BlindedPathConfig{
+			MinNumRealHops: &minNumRealHops,
+			NumHops:        &numHops,
+		},
+	}
+	invoiceResp := dave.RPC.AddInvoice(invoice)
+
+	// Assert that two blinded paths are included in the invoice.
+	payReq := dave.RPC.DecodePayReq(invoiceResp.PaymentRequest)
+	require.Len(ht, payReq.BlindedPaths, 2)
+
+	invoice = &lnrpc.Invoice{
+		Memo:      "test",
+		Value:     int64(paymentAmt),
+		IsBlinded: true,
+		BlindedPathConfig: &lnrpc.BlindedPathConfig{
+			MinNumRealHops: &minNumRealHops,
+			NumHops:        &numHops,
+			MaxNumPaths:    &maxNumPaths,
+		},
+	}
+	invoiceResp = dave.RPC.AddInvoice(invoice)
+
+	// Assert that one blinded path is included in the invoice.
+	payReq = dave.RPC.DecodePayReq(invoiceResp.PaymentRequest)
+	require.Len(ht, payReq.BlindedPaths, 1)
+}

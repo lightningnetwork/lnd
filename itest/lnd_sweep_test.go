@@ -879,7 +879,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// Before we mine empty blocks to check the RBF behavior, we need to be
 	// aware that Bob's incoming HTLC will expire before his outgoing HTLC
 	// deadline is reached. This happens because the incoming HTLC is sent
-	// onchain at CLTVDelta-BroadcastDelta=18-10=8, which means after 8
+	// onchain at CLTVDelta-BroadcastDelta=24-16=8, which means after 8
 	// blocks are mined, we expect Bob force closes the channel Alice->Bob.
 	blocksTillIncomingSweep := cltvDelta -
 		lncfg.DefaultIncomingBroadcastDelta

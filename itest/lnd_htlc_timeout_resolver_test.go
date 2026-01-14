@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	finalCltvDelta  = routing.MinCLTVDelta // 18.
-	thawHeightDelta = finalCltvDelta * 2   // 36.
+	finalCltvDelta  = routing.MinCLTVDelta // 24.
+	thawHeightDelta = finalCltvDelta * 2   // 48.
 )
 
 // makeRouteHints creates a route hints that will allow Carol to be reached

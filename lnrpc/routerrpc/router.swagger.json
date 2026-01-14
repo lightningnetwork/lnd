@@ -1901,6 +1901,14 @@
           "type": "integer",
           "format": "int64",
           "description": "A user preference of how long a probe payment should maximally be allowed to\ntake, denoted in seconds. The probing payment loop is aborted if this\ntimeout is reached. Note that the probing process itself can take longer\nthan the timeout if the HTLC becomes delayed or stuck. Canceling the context\nof this call will not cancel the payment loop, the duration is only\ncontrolled by the timeout parameter."
+        },
+        "outgoing_chan_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "The channel ids of the channels that are allowed for the first hop. If\nempty, any channel may be used. This field is applicable to both\ngraph-based fee estimation (using dest + amt_sat) and probe-based\nestimation (using payment_request)."
         }
       }
     },

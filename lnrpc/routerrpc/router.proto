@@ -431,6 +431,14 @@ message RouteFeeRequest {
     controlled by the timeout parameter.
     */
     uint32 timeout = 4;
+
+    /*
+    The channel ids of the channels that are allowed for the first hop. If
+    empty, any channel may be used. This field is applicable to both
+    graph-based fee estimation (using dest + amt_sat) and probe-based
+    estimation (using payment_request).
+    */
+    repeated uint64 outgoing_chan_ids = 5;
 }
 
 message RouteFeeResponse {

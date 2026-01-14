@@ -1968,6 +1968,14 @@ var estimateRouteFeeCommand = cli.Command{
 				"applicable if pay_req is specified.",
 			Value: paymentTimeout,
 		},
+		cli.Int64SliceFlag{
+			Name: "outgoing_chan_id",
+			Usage: "short channel id of the outgoing channel to " +
+				"use for the first hop of the fee estimation; " +
+				"can be specified multiple times in the same " +
+				"command",
+			Value: &cli.Int64Slice{},
+		},
 	},
 }
 
@@ -2012,6 +2020,14 @@ func estimateRouteFee(ctx *cli.Context) error {
 
 	default:
 		return fmt.Errorf("fee estimation arguments missing")
+	}
+
+	outChan := ctx.Int64Slice("outgoing_chan_id")
+	if len(outChan) != 0 {
+		req.OutgoingChanIds = make([]uint64, len(outChan))
+		for i, c := range outChan {
+			req.OutgoingChanIds[i] = uint64(c)
+		}
 	}
 
 	resp, err := client.EstimateRouteFee(ctxc, req)

@@ -15712,14 +15712,27 @@ type PolicyUpdateRequest struct {
 	//	*PolicyUpdateRequest_ChanPoint
 	Scope isPolicyUpdateRequest_Scope `protobuf_oneof:"scope"`
 	// The base fee charged regardless of the number of milli-satoshis sent.
+	// Only applied if base_fee_msat_specified is true.
 	BaseFeeMsat int64 `protobuf:"varint,3,opt,name=base_fee_msat,json=baseFeeMsat,proto3" json:"base_fee_msat,omitempty"`
+	// If true, base_fee_msat is applied. If false, the existing base fee is
+	// retained.
+	BaseFeeMsatSpecified bool `protobuf:"varint,12,opt,name=base_fee_msat_specified,json=baseFeeMsatSpecified,proto3" json:"base_fee_msat_specified,omitempty"`
 	// The effective fee rate in milli-satoshis. The precision of this value
-	// goes up to 6 decimal places, so 1e-6.
+	// goes up to 6 decimal places, so 1e-6. Only applied if fee_rate_specified
+	// is true.
 	FeeRate float64 `protobuf:"fixed64,4,opt,name=fee_rate,json=feeRate,proto3" json:"fee_rate,omitempty"`
-	// The effective fee rate in micro-satoshis (parts per million).
+	// The effective fee rate in micro-satoshis (parts per million). Only
+	// applied if fee_rate_specified is true.
 	FeeRatePpm uint32 `protobuf:"varint,9,opt,name=fee_rate_ppm,json=feeRatePpm,proto3" json:"fee_rate_ppm,omitempty"`
-	// The required timelock delta for HTLCs forwarded over the channel.
+	// If true, fee_rate or fee_rate_ppm is applied. If false, the existing fee
+	// rate is retained.
+	FeeRateSpecified bool `protobuf:"varint,13,opt,name=fee_rate_specified,json=feeRateSpecified,proto3" json:"fee_rate_specified,omitempty"`
+	// The required timelock delta for HTLCs forwarded over the channel. Only
+	// applied if time_lock_delta_specified is true.
 	TimeLockDelta uint32 `protobuf:"varint,5,opt,name=time_lock_delta,json=timeLockDelta,proto3" json:"time_lock_delta,omitempty"`
+	// If true, time_lock_delta is applied. If false, the existing time lock
+	// delta is retained.
+	TimeLockDeltaSpecified bool `protobuf:"varint,14,opt,name=time_lock_delta_specified,json=timeLockDeltaSpecified,proto3" json:"time_lock_delta_specified,omitempty"`
 	// If set, the maximum HTLC size in milli-satoshis. If unset, the maximum
 	// HTLC will be unchanged.
 	MaxHtlcMsat uint64 `protobuf:"varint,6,opt,name=max_htlc_msat,json=maxHtlcMsat,proto3" json:"max_htlc_msat,omitempty"`
@@ -15820,6 +15833,27 @@ func (x *PolicyUpdateRequest) GetTimeLockDelta() uint32 {
 		return x.TimeLockDelta
 	}
 	return 0
+}
+
+func (x *PolicyUpdateRequest) GetBaseFeeMsatSpecified() bool {
+	if x != nil {
+		return x.BaseFeeMsatSpecified
+	}
+	return false
+}
+
+func (x *PolicyUpdateRequest) GetFeeRateSpecified() bool {
+	if x != nil {
+		return x.FeeRateSpecified
+	}
+	return false
+}
+
+func (x *PolicyUpdateRequest) GetTimeLockDeltaSpecified() bool {
+	if x != nil {
+		return x.TimeLockDeltaSpecified
+	}
+	return false
 }
 
 func (x *PolicyUpdateRequest) GetMaxHtlcMsat() uint64 {

@@ -54,8 +54,8 @@ const (
 	// mining blocks.
 	maxBlocksAllowed = 100
 
-	finalCltvDelta  = routing.MinCLTVDelta // 18.
-	thawHeightDelta = finalCltvDelta * 2   // 36.
+	finalCltvDelta  = routing.MinCLTVDelta // 24.
+	thawHeightDelta = finalCltvDelta * 2   // 48.
 )
 
 var (
@@ -409,7 +409,7 @@ func (h *HarnessTest) checkAndLimitBlocksMined(startHeight int32) {
 	desc += "1. break test into smaller individual tests, especially if " +
 		"this is a table-drive test.\n" +
 		"2. use smaller CSV via `--bitcoin.defaultremotedelay=1.`\n" +
-		"3. use smaller CLTV via `--bitcoin.timelockdelta=18.`\n" +
+		"3. use smaller CLTV via `--bitcoin.timelockdelta=24.`\n" +
 		"4. remove unnecessary CloseChannel when test ends.\n" +
 		"5. use `CreateSimpleNetwork` for efficient channel creation.\n"
 	h.Log(desc)

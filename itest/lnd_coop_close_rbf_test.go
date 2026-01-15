@@ -1,8 +1,13 @@
 package itest
 
 import (
+	"fmt"
+
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 )
@@ -152,4 +157,173 @@ func testRBFCoopCloseDisconnect(ht *lntest.HarnessTest) {
 
 	// Disconnect Bob from Alice.
 	ht.DisconnectNodes(alice, bob)
+}
+
+// testCoopCloseRBFWithReorg tests that when a cooperative close transaction
+// is reorganized out during confirmation waiting, the system properly handles
+// RBF replacements and re-registration for any spend of the funding output.
+func testCoopCloseRBFWithReorg(ht *lntest.HarnessTest) {
+	// Skip this test for neutrino backend as we can't trigger reorgs.
+	if ht.IsNeutrinoBackend() {
+		ht.Skipf("skipping reorg test for neutrino backend")
+	}
+
+	// Force cooperative close to require 3 confirmations for predictable
+	// testing.
+	const requiredConfs = 3
+	rbfCoopFlags := []string{
+		"--protocol.rbf-coop-close",
+		"--dev.force-channel-close-confs=3",
+	}
+
+	// Set the fee estimate to 1sat/vbyte to ensure our RBF attempts work.
+	ht.SetFeeEstimate(250)
+	ht.SetFeeEstimateWithConf(250, 6)
+
+	// Create two nodes with enough coins for a 50/50 channel.
+	cfgs := [][]string{rbfCoopFlags, rbfCoopFlags}
+	params := lntest.OpenChannelParams{
+		Amt:     btcutil.Amount(10_000_000),
+		PushAmt: btcutil.Amount(5_000_000),
+	}
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, params)
+	alice, bob := nodes[0], nodes[1]
+	chanPoint := chanPoints[0]
+
+	// Initiate cooperative close with initial fee rate of 5 sat/vb.
+	initialFeeRate := chainfee.SatPerVByte(5)
+	_, aliceCloseUpdate := ht.CloseChannelAssertPending(
+		alice, chanPoint, false,
+		lntest.WithCoopCloseFeeRate(initialFeeRate),
+		lntest.WithLocalTxNotify(),
+	)
+
+	// Verify the initial close transaction is at the expected fee rate.
+	alicePendingUpdate := aliceCloseUpdate.GetClosePending()
+	require.NotNil(ht, aliceCloseUpdate)
+	require.Equal(
+		ht, int64(initialFeeRate), alicePendingUpdate.FeePerVbyte,
+	)
+
+	// Capture the initial close transaction from the mempool.
+	initialCloseTxid, err := chainhash.NewHash(alicePendingUpdate.Txid)
+	require.NoError(ht, err)
+	initialCloseTx := ht.AssertTxInMempool(*initialCloseTxid)
+
+	// Create first RBF replacement before any mining.
+	firstRbfFeeRate := chainfee.SatPerVByte(10)
+	_, firstRbfUpdate := ht.CloseChannelAssertPending(
+		bob, chanPoint, false,
+		lntest.WithCoopCloseFeeRate(firstRbfFeeRate),
+		lntest.WithLocalTxNotify(),
+	)
+
+	// Capture the first RBF transaction.
+	closePending := firstRbfUpdate.GetClosePending()
+	firstRbfTxid, err := chainhash.NewHash(closePending.Txid)
+	require.NoError(ht, err)
+	firstRbfTx := ht.AssertTxInMempool(*firstRbfTxid)
+
+	_, bestHeight := ht.GetBestBlock()
+	ht.Logf("Current block height: %d", bestHeight)
+
+	// Mine n-1 blocks (2 blocks when requiring 3 confirmations) with the
+	// first RBF transaction. This is just shy of full confirmation.
+	block1 := ht.Miner().MineBlockWithTxes(
+		[]*btcutil.Tx{btcutil.NewTx(firstRbfTx)},
+	)
+
+	ht.Logf("Mined block %d with first RBF tx", bestHeight+1)
+
+	block2 := ht.MineEmptyBlocks(1)[0]
+
+	ht.Logf("Mined block %d", bestHeight+2)
+
+	ht.Logf("Re-orging two blocks to remove first RBF tx")
+
+	// Trigger a reorganization that removes the last 2 blocks. This is safe
+	// because we haven't reached full confirmation yet.
+	bestBlockHash := block2.Header.BlockHash()
+	require.NoError(
+		ht, ht.Miner().Client.InvalidateBlock(&bestBlockHash),
+	)
+	bestBlockHash = block1.Header.BlockHash()
+	require.NoError(
+		ht, ht.Miner().Client.InvalidateBlock(&bestBlockHash),
+	)
+
+	_, bestHeight = ht.GetBestBlock()
+	ht.Logf("Re-orged to block height: %d", bestHeight)
+
+	ht.Log("Mining blocks to surpass previous chain")
+
+	// Mine 2 empty blocks to trigger the reorg on the nodes.
+	ht.MineEmptyBlocks(2)
+
+	_, bestHeight = ht.GetBestBlock()
+	ht.Logf("Mined blocks to reach height: %d", bestHeight)
+
+	// Now, instead of mining the second RBF, mine the INITIAL transaction
+	// to test that the system can handle any valid spend of the funding
+	// output.
+	block := ht.Miner().MineBlockWithTxes(
+		[]*btcutil.Tx{btcutil.NewTx(initialCloseTx)},
+	)
+	ht.AssertTxInBlock(block, *initialCloseTxid)
+
+	// Mine additional blocks to reach the required confirmations (3 total).
+	ht.MineEmptyBlocks(requiredConfs - 1)
+
+	// Both parties should see that the channel is now fully closed on chain
+	// with the expected closing txid.
+	expectedClosingTxid := initialCloseTxid.String()
+	err = wait.NoError(func() error {
+		req := &lnrpc.ClosedChannelsRequest{}
+		aliceClosedChans := alice.RPC.ClosedChannels(req)
+		bobClosedChans := bob.RPC.ClosedChannels(req)
+		if len(aliceClosedChans.Channels) != 1 {
+			return fmt.Errorf("alice: expected 1 closed "+
+				"chan, got %d", len(aliceClosedChans.Channels))
+		}
+		if len(bobClosedChans.Channels) != 1 {
+			return fmt.Errorf("bob: expected 1 closed chan, got %d",
+				len(bobClosedChans.Channels))
+		}
+
+		// Verify both Alice and Bob have the expected closing txid.
+		aliceClosedChan := aliceClosedChans.Channels[0]
+		if aliceClosedChan.ClosingTxHash != expectedClosingTxid {
+			return fmt.Errorf("alice: expected closing txid %s, "+
+				"got %s",
+				expectedClosingTxid,
+				aliceClosedChan.ClosingTxHash)
+		}
+		if aliceClosedChan.CloseType !=
+			lnrpc.ChannelCloseSummary_COOPERATIVE_CLOSE {
+
+			return fmt.Errorf("alice: expected cooperative "+
+				"close, got %v",
+				aliceClosedChan.CloseType)
+		}
+
+		bobClosedChan := bobClosedChans.Channels[0]
+		if bobClosedChan.ClosingTxHash != expectedClosingTxid {
+			return fmt.Errorf("bob: expected closing txid %s, "+
+				"got %s",
+				expectedClosingTxid,
+				bobClosedChan.ClosingTxHash)
+		}
+		if bobClosedChan.CloseType !=
+			lnrpc.ChannelCloseSummary_COOPERATIVE_CLOSE {
+
+			return fmt.Errorf("bob: expected cooperative "+
+				"close, got %v",
+				bobClosedChan.CloseType)
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(ht, err)
+
+	ht.Logf("Successfully verified closing txid: %s", expectedClosingTxid)
 }

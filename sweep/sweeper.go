@@ -1712,6 +1712,8 @@ func (s *UtxoSweeper) handleBumpEventTxFailed(resp *bumpResp) {
 	if tx != nil {
 		log.Warnf("Fee bump attempt failed for tx=%v: %v", tx.TxHash(),
 			err)
+	} else {
+		log.Debugf("Sweep attempt failed (no tx created): %v", err)
 	}
 
 	// NOTE: When marking the inputs as failed, we are using the input set

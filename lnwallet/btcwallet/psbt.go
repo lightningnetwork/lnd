@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -45,6 +46,16 @@ var (
 	// of a script spend type.
 	ErrScriptSpendFeeEstimationUnsupported = errors.New(
 		"cannot estimate fee for script spend inputs",
+	)
+
+	// ErrUnexpectedNumberOfTaprootLeafScripts is returned if a taproot
+	// script path spend is detected but the TaprootLeafScript field does
+	// not contain exactly one entry. Fee estimation requires the caller to
+	// commit to the specific leaf being revealed so the control block and
+	// revealed script sizes can be derived precisely.
+	ErrUnexpectedNumberOfTaprootLeafScripts = errors.New(
+		"taproot script path requires exactly one TaprootLeafScript " +
+			"entry",
 	)
 
 	// ErrUnsupportedScript is returned if a supplied pk script is not
@@ -418,10 +429,36 @@ func EstimateInputWeight(in *psbt.PInput, w *input.TxWeightEstimator) error {
 
 		// For p2tr script spend path.
 		case input.TaprootScriptSpendSignMethod:
-			return fmt.Errorf("P2TR inputs are not supported, "+
-				"cannot estimate witness size for script "+
-				"spend: %w",
-				ErrScriptSpendFeeEstimationUnsupported)
+			// For script path spends, we require exactly one
+			// TaprootLeafScript entry so the revealed script and
+			// control block size are unambiguous.
+			if len(in.TaprootLeafScript) != 1 {
+				return ErrUnexpectedNumberOfTaprootLeafScripts
+			}
+
+			leafScript := in.TaprootLeafScript[0]
+			controlBlock, err := txscript.ParseControlBlock(
+				leafScript.ControlBlock,
+			)
+			if err != nil {
+				return fmt.Errorf("error parsing control "+
+					"block: %w", err)
+			}
+
+			revealType := waddrmgr.TapscriptTypePartialReveal
+			tapscript := &waddrmgr.Tapscript{
+				Type:           revealType,
+				ControlBlock:   controlBlock,
+				RevealedScript: leafScript.Script,
+			}
+
+			// The leaf witness size is the size of the serialized
+			// script itself.
+			leafWitnessSize := lntypes.WeightUnit(
+				len(leafScript.Script),
+			)
+
+			w.AddTapscriptInput(leafWitnessSize, tapscript)
 
 		default:
 			return fmt.Errorf("unsupported signing method for "+

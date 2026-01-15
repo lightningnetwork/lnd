@@ -321,7 +321,9 @@ func (h *HarnessTest) AssertMinerBlockHeightDelta(
 func (h *HarnessTest) SendRawTransaction(tx *wire.MsgTx,
 	allowHighFees bool) (chainhash.Hash, error) {
 
-	txid, err := h.miner.Client.SendRawTransaction(tx, allowHighFees)
+	// Use the miner's SendRawTransaction method which handles both
+	// btcd and bitcoind backends.
+	txid, err := h.miner.SendRawTransaction(tx, allowHighFees)
 	require.NoError(h, err)
 
 	return *txid, nil

@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/miner"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -86,6 +87,12 @@ var (
 	lndExecutable = flag.String(
 		"lndexec", itestLndBinary, "full path to lnd binary",
 	)
+
+	// minerBackendFlag selects which miner backend to use. If not set, a
+	// default miner is used.
+	minerBackendFlag = flag.String(
+		"minerbackend", "", "miner backend (btcd, bitcoind)",
+	)
 )
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a
@@ -104,8 +111,15 @@ func TestLightningNetworkDaemon(t *testing.T) {
 
 	// Get the binary path and setup the harness test.
 	binary := getLndBinary(t)
-	harnessTest := lntest.SetupHarness(
-		t, binary, *dbBackendFlag, *nativeSQLFlag, feeService,
+	var minerCfg *miner.MinerConfig
+	if minerBackendFlag != nil && *minerBackendFlag != "" {
+		minerCfg = &miner.MinerConfig{
+			Backend: *minerBackendFlag,
+		}
+	}
+
+	harnessTest := lntest.SetupHarnessWithMinerConfig(
+		t, binary, *dbBackendFlag, *nativeSQLFlag, feeService, minerCfg,
 	)
 	defer harnessTest.Stop()
 

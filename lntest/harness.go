@@ -1,6 +1,7 @@
 package lntest
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"runtime/debug"
@@ -54,8 +55,15 @@ const (
 	// mining blocks.
 	maxBlocksAllowed = 100
 
-	finalCltvDelta  = routing.MinCLTVDelta // 18.
-	thawHeightDelta = finalCltvDelta * 2   // 36.
+	// finalCltvDelta is the min CLTV delta used by the router.
+	//
+	// At the time of writing, this is 18 blocks (routing.MinCLTVDelta).
+	finalCltvDelta = routing.MinCLTVDelta
+
+	// thawHeightDelta defines how far in the future we pick thaw heights.
+	//
+	// At the time of writing, this is 36 blocks (finalCltvDelta * 2).
+	thawHeightDelta = finalCltvDelta * 2
 )
 
 var (
@@ -98,7 +106,8 @@ type HarnessTest struct {
 	// runCtx is a context with cancel method. It's used to signal when the
 	// node needs to quit, and used as the parent context when spawning
 	// children contexts for RPC requests.
-	runCtx context.Context //nolint:containedctx
+	//nolint:containedctx
+	runCtx context.Context
 	cancel context.CancelFunc
 
 	// stopChainBackend points to the cleanup function returned by the
@@ -506,8 +515,7 @@ func (h *HarnessTest) NewNode(name string,
 	require.NoError(h, err, "failed to start node %s", node.Name())
 
 	// Get the miner's best block hash.
-	bestBlock, err := h.miner.Client.GetBestBlockHash()
-	require.NoError(h, err, "unable to get best block hash")
+	bestBlock, _ := h.miner.GetBestBlock()
 
 	// Wait until the node's chain backend is synced to the miner's best
 	// block.
@@ -1333,7 +1341,8 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 			return nil, nil
 		}
 
-		pendingClose, ok := event.Update.(*lnrpc.CloseStatusUpdate_ClosePending) //nolint:ll
+		//nolint:ll
+		pendingClose, ok := event.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
 		require.Truef(h, ok, "expected channel close "+
 			"update, instead got %v", pendingClose)
 
@@ -2285,9 +2294,13 @@ func (h *HarnessTest) GetOutputIndex(txid chainhash.Hash, addr string) int {
 	p2trOutputIndex := -1
 	for i, txOut := range tx.MsgTx().TxOut {
 		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-			txOut.PkScript, h.miner.ActiveNet,
+			txOut.PkScript, miner.HarnessNetParams,
 		)
 		require.NoError(h, err)
+
+		if len(addrs) == 0 {
+			continue
+		}
 
 		if addrs[0].String() == addr {
 			p2trOutputIndex = i
@@ -2595,14 +2608,43 @@ func (h *HarnessTest) DeriveFundingShim(alice, bob *node.HarnessNode,
 	}
 
 	var txid *chainhash.Hash
+	var outputIndex uint32
 	targetOutputs := []*wire.TxOut{fundingOutput}
+
+	findFundingOutputIndex := func(tx *wire.MsgTx) uint32 {
+		for i, out := range tx.TxOut {
+			if out.Value != fundingOutput.Value {
+				continue
+			}
+			if !bytes.Equal(out.PkScript, fundingOutput.PkScript) {
+				continue
+			}
+
+			return uint32(i)
+		}
+
+		require.Failf(
+			h, "funding output not found",
+			"funding output not found in tx %v", txid,
+		)
+
+		return 0
+	}
+
 	if publish {
 		txid = h.SendOutputsWithoutChange(targetOutputs, 5)
+
+		// If we published the funding transaction, then we need to
+		// look it up in the mempool to locate the actual output
+		// index.
+		tx := h.GetRawTransaction(*txid).MsgTx()
+		outputIndex = findFundingOutputIndex(tx)
 	} else {
 		tx := h.CreateTransaction(targetOutputs, 5)
 
 		txHash := tx.TxHash()
 		txid = &txHash
+		outputIndex = findFundingOutputIndex(tx)
 	}
 
 	// At this point, we can being our external channel funding workflow.
@@ -2617,6 +2659,7 @@ func (h *HarnessTest) DeriveFundingShim(alice, bob *node.HarnessNode,
 		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
 			FundingTxidBytes: txid[:],
 		},
+		OutputIndex: outputIndex,
 	}
 	chanPointShim := &lnrpc.ChanPointShim{
 		Amt:       int64(chanSize),

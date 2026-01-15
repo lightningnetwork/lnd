@@ -280,6 +280,8 @@ jobs:
             args: backend=btcd cover=1
           - name: bitcoind
             args: backend=bitcoind cover=1
+          - name: bitcoind-miner
+            args: backend=bitcoind minerbackend=bitcoind
           - name: bitcoind-notxindex
             args: backend="bitcoind notxindex"
           - name: neutrino

@@ -4,6 +4,7 @@
 package lntest
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -72,7 +73,20 @@ func (b BitcoindBackendConfig) ConnectMiner() error {
 
 // DisconnectMiner is called to disconnect the miner.
 func (b BitcoindBackendConfig) DisconnectMiner() error {
-	return b.rpcClient.AddNode(b.minerAddr, rpcclient.ANRemove)
+	// `addnode remove` removes from the addnode list, but doesn't reliably
+	// disconnect an existing connection. Use `disconnectnode` first.
+	_, err := b.rpcClient.RawRequest(
+		"disconnectnode",
+		[]json.RawMessage{
+			[]byte(fmt.Sprintf("%q", b.minerAddr)),
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	_ = b.rpcClient.AddNode(b.minerAddr, rpcclient.ANRemove)
+	return nil
 }
 
 // Credentials returns the rpc username, password and host for the backend.
@@ -124,7 +138,8 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 
 	cmdArgs := []string{
 		"-datadir=" + tempBitcoindDir,
-		"-whitelist=127.0.0.1", // whitelist localhost to speed up relay
+		// Whitelist localhost to speed up relay.
+		"-whitelist=127.0.0.1",
 		"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6f" +
 			"d$507c670e800a95284294edb5773b05544b" +
 			"220110063096c221be9933c82d38e1",

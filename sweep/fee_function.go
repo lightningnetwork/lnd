@@ -159,8 +159,16 @@ func NewLinearFeeFunction(maxFeeRate chainfee.SatPerKWeight,
 
 	// The starting and ending fee rates are in sat/kw, so we need to
 	// convert them to msat/kw by multiplying by 1000.
-	delta := btcutil.Amount(end - start).MulF64(1000 / float64(l.width))
-	l.deltaFeeRate = mSatPerKWeight(delta)
+	//
+	// NOTE: l.width cannot be 0 here because we return early above when
+	// confTarget <= 1, and otherwise set width=confTarget-1 (so width>=1).
+	calcDelta := func(start, end chainfee.SatPerKWeight) mSatPerKWeight {
+		delta := btcutil.Amount(end - start).
+			MulF64(1000 / float64(l.width))
+		return mSatPerKWeight(delta)
+	}
+
+	l.deltaFeeRate = calcDelta(start, end)
 
 	// We only allow the delta to be zero if the width is one - when the
 	// delta is zero, it means the starting and ending fee rates are the
@@ -168,11 +176,28 @@ func NewLinearFeeFunction(maxFeeRate chainfee.SatPerKWeight,
 	// than 1 doesn't provide any utility. This could happen when the
 	// budget is too small.
 	if l.deltaFeeRate == 0 && l.width != 1 {
-		log.Errorf("Failed to init fee function: startingFeeRate=%v, "+
-			"endingFeeRate=%v, width=%v, delta=%v", start, end,
-			l.width, l.deltaFeeRate)
+		minFeeRate := l.estimator.RelayFeePerKW()
 
-		return nil, ErrZeroFeeRateDelta
+		// The delta is zero, we at least try to broadcast the tx with
+		// the min relay fee if we have enough budget to cover it.
+		if minFeeRate < l.endingFeeRate {
+			log.Debugf("Delta is zero with start=%v, falling "+
+				"back to min relay fee %v as starting rate",
+				start, minFeeRate)
+
+			start = minFeeRate
+			l.deltaFeeRate = calcDelta(start, end)
+		}
+
+		// If still zero after fallback, we truly can't bump fees.
+		if l.deltaFeeRate == 0 {
+			log.Errorf("Failed to init fee function: "+
+				"startingFeeRate=%v, endingFeeRate=%v, "+
+				"width=%v, delta=%v", start, end,
+				l.width, l.deltaFeeRate)
+
+			return nil, ErrZeroFeeRateDelta
+		}
 	}
 
 	// Attach the calculated values to the fee function.

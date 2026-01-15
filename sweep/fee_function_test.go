@@ -47,7 +47,8 @@ func TestLinearFeeFunctionNewMaxFeeRateUsed(t *testing.T) {
 }
 
 // TestLinearFeeFunctionNewZeroFeeRateDelta tests when the fee rate delta is
-// zero, it will return an error except when the width is one.
+// zero, it will fall back to min relay fee if possible, or return an error
+// if that also fails. It will not return an error when the width is one.
 func TestLinearFeeFunctionNewZeroFeeRateDelta(t *testing.T) {
 	t.Parallel()
 
@@ -59,21 +60,48 @@ func TestLinearFeeFunctionNewZeroFeeRateDelta(t *testing.T) {
 
 	// Create testing params.
 	maxFeeRate := chainfee.SatPerKWeight(10000)
-	estimatedFeeRate := chainfee.SatPerKWeight(500)
+	minRelayFeeRate := chainfee.SatPerKWeight(500)
 	confTarget := uint32(6)
 	noStartFeeRate := fn.None[chainfee.SatPerKWeight]()
 
-	// When the calculated fee rate delta is 0, an error should be returned
-	// when the width is not one.
+	// When the calculated fee rate delta is 0, it should fall back to min
+	// relay fee if possible. Since minRelayFeeRate < maxFeeRate, this
+	// should succeed.
 	//
-	// Mock the fee estimator to return the fee rate.
+	// Mock the fee estimator to return maxFeeRate as starting rate (so
+	// delta would be 0), but min relay fee is lower so fallback works.
+	// RelayFeePerKW is called twice: once in Estimate() for validation,
+	// and once in the fallback block.
 	estimator.On("EstimateFeePerKW", confTarget).Return(
-		// The starting fee rate is the max fee rate.
 		maxFeeRate, nil).Once()
-	estimator.On("RelayFeePerKW").Return(estimatedFeeRate).Once()
+	estimator.On("RelayFeePerKW").Return(minRelayFeeRate).Twice()
 
 	f, err := NewLinearFeeFunction(
 		maxFeeRate, confTarget, estimator, noStartFeeRate,
+	)
+	rt.NoError(err)
+	rt.NotNil(f)
+
+	// Assert it fell back to min relay fee as starting rate.
+	rt.Equal(minRelayFeeRate, f.startingFeeRate)
+	rt.Equal(maxFeeRate, f.endingFeeRate)
+	rt.NotZero(f.deltaFeeRate)
+
+	// When delta is 0 AND min relay fee >= ending fee rate, error is
+	// returned because there's no room to bump fees.
+	//
+	// Set endingFeeRate = minRelayFeeRate so there's truly no room.
+	// Estimator returns something higher that gets capped to endingFeeRate.
+	// RelayFeePerKW is called twice: once in Estimate() for validation,
+	// and once in the fallback block.
+	tightBudgetMaxFee := minRelayFeeRate // 500 - same as minRelayFee
+	estimator.On("EstimateFeePerKW", confTarget).Return(
+		// Return something higher that gets capped to max
+		tightBudgetMaxFee+100, nil).Once()
+	estimator.On("RelayFeePerKW").Return(minRelayFeeRate).Twice()
+
+	f, err = NewLinearFeeFunction(
+		tightBudgetMaxFee, confTarget, estimator, noStartFeeRate,
 	)
 	rt.ErrorContains(err, "fee rate delta is zero")
 	rt.Nil(f)
@@ -87,7 +115,7 @@ func TestLinearFeeFunctionNewZeroFeeRateDelta(t *testing.T) {
 	estimator.On("EstimateFeePerKW", smallConf).Return(
 		// The fee rate is greater than the max fee rate.
 		maxFeeRate+1, nil).Once()
-	estimator.On("RelayFeePerKW").Return(estimatedFeeRate).Once()
+	estimator.On("RelayFeePerKW").Return(minRelayFeeRate).Once()
 
 	f, err = NewLinearFeeFunction(
 		maxFeeRate, smallConf, estimator, noStartFeeRate,

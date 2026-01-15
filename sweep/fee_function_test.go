@@ -8,6 +8,104 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestLinearFeeFunctionHTLCSweepMinRelayFeeFallback tests that when sweeping an
+// HTLC output with a tight budget, the fee function falls back to using the
+// min relay fee as the starting rate instead of failing with ErrZeroFeeRateDelta.
+//
+// This test demonstrates the fix for the scenario where:
+// 1. An HTLC output needs to be swept with a constrained budget
+// 2. The fee estimator returns a fee rate higher than the budget-derived
+//    maxFeeRate, which then gets capped to maxFeeRate in FeeEstimateInfo.Estimate
+// 3. Since start == end (both capped at maxFeeRate), delta becomes 0
+// 4. The conf target is < 1008 (so it doesn't automatically use min relay fee)
+//
+// Before the fix: The sweep would fail with ErrZeroFeeRateDelta because
+// delta = 0. The HTLC would not be broadcast until the deadline was reached
+// (width=1).
+//
+// After the fix: The fee function falls back to min relay fee as the starting
+// rate if minRelayFee < endingFeeRate, allowing the sweep to be broadcast
+// immediately.
+func TestLinearFeeFunctionHTLCSweepMinRelayFeeFallback(t *testing.T) {
+	t.Parallel()
+
+	rt := require.New(t)
+
+	// Create a mock fee estimator.
+	estimator := &chainfee.MockEstimator{}
+	defer estimator.AssertExpectations(t)
+
+	// Simulate an HTLC sweep scenario with a tight budget.
+	//
+	// maxFeeRate represents the maximum fee rate we can afford based on
+	// the HTLC output value. This is derived from: budget / txWeight.
+	maxFeeRate := chainfee.SatPerKWeight(10000)
+
+	// minRelayFeeRate is the minimum relay fee rate (typically 253 sat/kw
+	// on mainnet). This is the fallback rate we'll use.
+	minRelayFeeRate := chainfee.SatPerKWeight(253)
+
+	// The conf target for an HTLC sweep - typically based on CLTV expiry.
+	// Using 144 blocks (~1 day) as an example. This is < 1008, so it
+	// doesn't automatically use min relay fee in estimateFeeRate.
+	confTarget := uint32(144)
+	noStartFeeRate := fn.None[chainfee.SatPerKWeight]()
+
+	// Scenario: The fee estimator returns a fee rate higher than our
+	// budget allows. In FeeEstimateInfo.Estimate, this gets capped to
+	// maxFeeRate (see walletsweep.go line 142-147).
+	//
+	// This results in: startingFeeRate = maxFeeRate (capped)
+	// And since: endingFeeRate = maxFeeRate (from budget)
+	// We get: delta = end - start = 0
+	//
+	// Mock the fee estimator to return a fee rate higher than maxFeeRate.
+	// This simulates the case where the estimated fee exceeds our budget.
+	estimator.On("EstimateFeePerKW", confTarget).Return(
+		// Return a fee higher than maxFeeRate - it will be capped.
+		maxFeeRate+5000, nil).Once()
+
+	// RelayFeePerKW is called twice:
+	// - Once in FeeEstimateInfo.Estimate for validation (>= minRelayFee)
+	// - Once in NewLinearFeeFunction's fallback block when delta == 0
+	estimator.On("RelayFeePerKW").Return(minRelayFeeRate).Twice()
+
+	// Create the fee function - this should succeed by falling back to
+	// min relay fee.
+	f, err := NewLinearFeeFunction(
+		maxFeeRate, confTarget, estimator, noStartFeeRate,
+	)
+
+	// Assert the fee function was created successfully.
+	rt.NoError(err, "Fee function creation should succeed with min "+
+		"relay fee fallback")
+	rt.NotNil(f)
+
+	// Assert it fell back to min relay fee as starting rate instead of
+	// failing with ErrZeroFeeRateDelta.
+	rt.Equal(minRelayFeeRate, f.startingFeeRate, "Starting fee rate "+
+		"should fall back to min relay fee")
+	rt.Equal(maxFeeRate, f.endingFeeRate)
+	rt.Equal(minRelayFeeRate, f.currentFeeRate)
+
+	// Assert the delta is now non-zero, allowing fee bumping.
+	rt.NotZero(f.deltaFeeRate, "Delta should be non-zero after "+
+		"fallback to min relay fee")
+
+	// Verify that the fee function can be incremented (fee bumping works).
+	increased, err := f.Increment()
+	rt.NoError(err)
+	rt.True(increased)
+
+	// The new fee rate should be higher than the starting rate.
+	rt.Greater(f.FeeRate(), minRelayFeeRate, "Fee rate should increase "+
+		"after increment")
+
+	// Verify the fee rate is still within bounds.
+	rt.LessOrEqual(f.FeeRate(), maxFeeRate, "Fee rate should not "+
+		"exceed max fee rate")
+}
+
 // TestLinearFeeFunctionNewMaxFeeRateUsed tests when the conf target is <= 1,
 // the max fee rate is used.
 func TestLinearFeeFunctionNewMaxFeeRateUsed(t *testing.T) {

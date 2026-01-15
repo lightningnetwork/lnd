@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -418,10 +419,36 @@ func EstimateInputWeight(in *psbt.PInput, w *input.TxWeightEstimator) error {
 
 		// For p2tr script spend path.
 		case input.TaprootScriptSpendSignMethod:
-			return fmt.Errorf("P2TR inputs are not supported, "+
-				"cannot estimate witness size for script "+
-				"spend: %w",
-				ErrScriptSpendFeeEstimationUnsupported)
+			// For script path spends, we require the
+			// TaprootLeafScript to be populated so we can
+			// calculate the control block size.
+			if len(in.TaprootLeafScript) == 0 {
+				return fmt.Errorf("taproot script path "+
+					"requires TaprootLeafScript to be "+
+					"populated for fee estimation: %w",
+					ErrScriptSpendFeeEstimationUnsupported)
+			}
+
+			leafScript := in.TaprootLeafScript[0]
+			controlBlock, err := txscript.ParseControlBlock(
+				leafScript.ControlBlock,
+			)
+			if err != nil {
+				return fmt.Errorf("error parsing control "+
+					"block: %w", err)
+			}
+
+			tapscript := &waddrmgr.Tapscript{
+				Type:           waddrmgr.TapscriptTypePartialReveal,
+				ControlBlock:   controlBlock,
+				RevealedScript: leafScript.Script,
+			}
+
+			// The leaf witness size is the size of the serialized
+			// script itself.
+			leafWitnessSize := lntypes.WeightUnit(len(leafScript.Script))
+
+			w.AddTapscriptInput(leafWitnessSize, tapscript)
 
 		default:
 			return fmt.Errorf("unsupported signing method for "+

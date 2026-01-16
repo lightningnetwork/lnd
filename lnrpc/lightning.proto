@@ -2956,6 +2956,16 @@ message PendingChannelsResponse {
         // The raw hex encoded bytes of the closing transaction. Included if
         // include_raw_tx in the request is true.
         string closing_tx_hex = 5;
+
+        /*
+        Remaining number of confirmations until the channel is considered
+        fully closed and removed from waiting close. This value is based on a
+        reorg safety factor which is determined by the channel capacity. As
+        long as the closing transaction is not confirmed, this value will be
+        the number of confirmations required to consider the channel fully
+        closed.
+        */
+        uint32 blocks_til_closed = 6;
     }
 
     message Commitments {

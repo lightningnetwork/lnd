@@ -48,6 +48,12 @@ var (
 		"cannot estimate fee for script spend inputs",
 	)
 
+	// ErrMissingTaprootLeafScript is returned if a taproot script path
+	// spend is detected but the TaprootLeafScript field is not populated.
+	ErrMissingTaprootLeafScript = errors.New(
+		"taproot script path requires TaprootLeafScript to be populated",
+	)
+
 	// ErrUnsupportedScript is returned if a supplied pk script is not
 	// known or supported.
 	ErrUnsupportedScript = errors.New("unsupported or unknown pk script")
@@ -423,10 +429,7 @@ func EstimateInputWeight(in *psbt.PInput, w *input.TxWeightEstimator) error {
 			// TaprootLeafScript to be populated so we can
 			// calculate the control block size.
 			if len(in.TaprootLeafScript) == 0 {
-				return fmt.Errorf("taproot script path "+
-					"requires TaprootLeafScript to be "+
-					"populated for fee estimation: %w",
-					ErrScriptSpendFeeEstimationUnsupported)
+				return ErrMissingTaprootLeafScript
 			}
 
 			leafScript := in.TaprootLeafScript[0]

@@ -843,6 +843,9 @@ func init() {
 		"wallet", allTestCases, walletTestCases,
 	)
 	allTestCases = appendPrefixed(
+		"wallet sync", allTestCases, walletSyncTestCases,
+	)
+	allTestCases = appendPrefixed(
 		"coop close with external delivery", allTestCases,
 		coopCloseWithExternalTestCases,
 	)

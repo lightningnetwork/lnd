@@ -2845,9 +2845,16 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 		errChan = make(chan error, 1)
 		notifier := r.server.cc.ChainNotifier
+
+		// For force closes, we notify the RPC client immediately after
+		// 1 confirmation. The actual security-critical confirmation
+		// waiting is handled by the channel arbitrator.
+		numConfs := uint32(1)
+
 		go peer.WaitForChanToClose(
 			uint32(bestHeight), notifier, errChan, chanPoint,
-			&closingTxid, closingTx.TxOut[0].PkScript, func() {
+			&closingTxid, closingTx.TxOut[0].PkScript, numConfs,
+			func() {
 				// Respond to the local subsystem which
 				// requested the channel closure.
 				updateChan <- &peer.ChannelCloseUpdate{

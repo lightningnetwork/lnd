@@ -234,6 +234,12 @@ type ChainArbitratorConfig struct {
 	// AuxCloser is an optional interface that can be used to finalize
 	// cooperative channel closes.
 	AuxCloser fn.Option[AuxChanCloser]
+
+	// ChannelCloseConfs is an optional override for the number of
+	// confirmations required for channel closes. When set, this overrides
+	// the normal capacity-based scaling. This is only available in
+	// dev/integration builds for testing purposes.
+	ChannelCloseConfs fn.Option[uint32]
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all
@@ -1143,6 +1149,7 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 			auxLeafStore:        c.cfg.AuxLeafStore,
 			auxResolver:         c.cfg.AuxResolver,
 			auxCloser:           c.cfg.AuxCloser,
+			chanCloseConfs:      c.cfg.ChannelCloseConfs,
 		},
 	)
 	if err != nil {
@@ -1321,6 +1328,7 @@ func (c *ChainArbitrator) loadOpenChannels() error {
 				auxLeafStore:        c.cfg.AuxLeafStore,
 				auxResolver:         c.cfg.AuxResolver,
 				auxCloser:           c.cfg.AuxCloser,
+				chanCloseConfs:      c.cfg.ChannelCloseConfs,
 			},
 		)
 		if err != nil {

@@ -2118,6 +2118,10 @@ message GetInfoResponse {
 
     // Indicates whether final htlc resolutions are stored on disk.
     bool store_final_htlc_resolutions = 22;
+
+    // Whether the wallet is fully synced to the best chain. This indicates the
+    // wallet's internal sync state with the backing chain source.
+    bool wallet_synced = 23;
 }
 
 message GetDebugInfoRequest {

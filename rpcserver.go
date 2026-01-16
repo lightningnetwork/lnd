@@ -3450,6 +3450,7 @@ func (r *rpcServer) GetInfo(_ context.Context,
 		Features:                  features,
 		RequireHtlcInterceptor:    r.cfg.RequireInterceptor,
 		StoreFinalHtlcResolutions: r.cfg.StoreFinalHtlcResolutions,
+		WalletSynced:              syncInfo.isWalletSynced,
 	}, nil
 }
 
@@ -9468,6 +9469,10 @@ type chainSyncInfo struct {
 	// - blockbeat dispatcher.
 	isSynced bool
 
+	// isWalletSynced specifies whether the wallet is synced to
+	// our chain view.
+	isWalletSynced bool
+
 	// bestHeight is the current height known to the chain backend.
 	bestHeight int32
 
@@ -9488,22 +9493,23 @@ func (r *rpcServer) getChainSyncInfo() (*chainSyncInfo, error) {
 		return nil, fmt.Errorf("unable to get best block info: %w", err)
 	}
 
-	isSynced, bestHeaderTimestamp, err := r.server.cc.Wallet.IsSynced()
+	isWalletSynced, bestHeaderTimestamp, err :=
+		r.server.cc.Wallet.IsSynced()
 	if err != nil {
 		return nil, fmt.Errorf("unable to sync PoV of the wallet "+
 			"with current best block in the main chain: %v", err)
 	}
 
-	// Create an info to be returned.
+	// Create info to be returned.
 	info := &chainSyncInfo{
-		isSynced:   isSynced,
-		bestHeight: bestHeight,
-		blockHash:  *bestHash,
-		timestamp:  bestHeaderTimestamp,
+		isWalletSynced: isWalletSynced,
+		bestHeight:     bestHeight,
+		blockHash:      *bestHash,
+		timestamp:      bestHeaderTimestamp,
 	}
 
 	// Exit early if the wallet is not synced.
-	if !isSynced {
+	if !isWalletSynced {
 		rpcsLog.Debugf("Wallet is not synced to height %v yet",
 			bestHeight)
 
@@ -9518,6 +9524,7 @@ func (r *rpcServer) getChainSyncInfo() (*chainSyncInfo, error) {
 	// by many wallets (and also our itests) to make sure everything's up to
 	// date, we add the router's state to it. So the flag will only toggle
 	// to true once the router was also able to catch up.
+	isSynced := isWalletSynced
 	if !r.cfg.Routing.AssumeChannelValid {
 		routerHeight := r.server.graphBuilder.SyncedHeight()
 		isSynced = uint32(bestHeight) == routerHeight

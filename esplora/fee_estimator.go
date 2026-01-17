@@ -3,6 +3,7 @@ package esplora
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -131,58 +132,29 @@ func (e *FeeEstimator) Stop() error {
 func (e *FeeEstimator) EstimateFeePerKW(
 	numBlocks uint32) (chainfee.SatPerKWeight, error) {
 
+	if numBlocks > chainfee.MaxBlockTarget {
+		log.Debugf("conf target %d exceeds the max value, use %d instead.",
+			numBlocks, chainfee.MaxBlockTarget)
+		numBlocks = chainfee.MaxBlockTarget
+	}
+
 	// Try to get from cache first.
-	e.feeCacheMtx.RLock()
-	if feeRate, ok := e.feeCache[numBlocks]; ok {
-		e.feeCacheMtx.RUnlock()
-		return feeRate, nil
-	}
-	e.feeCacheMtx.RUnlock()
-
-	// Not in cache, try to find the closest target.
-	e.feeCacheMtx.RLock()
-	closestTarget := uint32(0)
-	var closestFee chainfee.SatPerKWeight
-	for target, fee := range e.feeCache {
-		if target <= numBlocks && target > closestTarget {
-			closestTarget = target
-			closestFee = fee
-		}
-	}
-	e.feeCacheMtx.RUnlock()
-
-	if closestTarget > 0 {
-		return closestFee, nil
+	if feeRate, ok := e.getCachedFee(numBlocks); ok {
+		return e.clampFee(feeRate), nil
 	}
 
 	// No cached data available, try to fetch fresh data.
 	if err := e.updateFeeCache(); err != nil {
 		log.Debugf("Failed to fetch fee estimates: %v", err)
-		return e.cfg.FallbackFeePerKW, nil
+		return e.clampFee(e.cfg.FallbackFeePerKW), nil
 	}
 
 	// Try cache again after update.
-	e.feeCacheMtx.RLock()
-	if feeRate, ok := e.feeCache[numBlocks]; ok {
-		e.feeCacheMtx.RUnlock()
-		return feeRate, nil
+	if feeRate, ok := e.getCachedFee(numBlocks); ok {
+		return e.clampFee(feeRate), nil
 	}
 
-	// Find closest target.
-	closestTarget = 0
-	for target, fee := range e.feeCache {
-		if target <= numBlocks && target > closestTarget {
-			closestTarget = target
-			closestFee = fee
-		}
-	}
-	e.feeCacheMtx.RUnlock()
-
-	if closestTarget > 0 {
-		return closestFee, nil
-	}
-
-	return e.cfg.FallbackFeePerKW, nil
+	return e.clampFee(e.cfg.FallbackFeePerKW), nil
 }
 
 // RelayFeePerKW returns the minimum fee rate required for transactions to be
@@ -203,9 +175,7 @@ func (e *FeeEstimator) updateFeeCache() error {
 		return fmt.Errorf("failed to get fee estimates: %w", err)
 	}
 
-	e.feeCacheMtx.Lock()
-	defer e.feeCacheMtx.Unlock()
-
+	newFeeCache := make(map[uint32]chainfee.SatPerKWeight)
 	for targetStr, feeRate := range estimates {
 		target, err := strconv.ParseUint(targetStr, 10, 32)
 		if err != nil {
@@ -221,8 +191,12 @@ func (e *FeeEstimator) updateFeeCache() error {
 			feePerKW = e.cfg.MinFeePerKW
 		}
 
-		e.feeCache[uint32(target)] = feePerKW
+		newFeeCache[uint32(target)] = feePerKW
 	}
+
+	e.feeCacheMtx.Lock()
+	e.feeCache = newFeeCache
+	e.feeCacheMtx.Unlock()
 
 	log.Debugf("Updated fee cache with %d entries", len(estimates))
 
@@ -255,4 +229,71 @@ func (e *FeeEstimator) feeUpdateLoop() {
 // So: sat/kw = sat/vB * 1000 / 4 = sat/vB * 250
 func satPerVBToSatPerKW(satPerVB float64) chainfee.SatPerKWeight {
 	return chainfee.SatPerKWeight(satPerVB * 250)
+}
+
+// getCachedFee finds the best cached fee for a target. It will return the exact
+// target if present, otherwise the closest lower target. If no lower target
+// exists, it returns the minimum cached target (cheaper than requested).
+func (e *FeeEstimator) getCachedFee(numBlocks uint32) (
+	chainfee.SatPerKWeight, bool) {
+
+	e.feeCacheMtx.RLock()
+	defer e.feeCacheMtx.RUnlock()
+
+	if len(e.feeCache) == 0 {
+		return 0, false
+	}
+
+	if feeRate, ok := e.feeCache[numBlocks]; ok {
+		return feeRate, true
+	}
+
+	closestTarget := uint32(0)
+	var closestFee chainfee.SatPerKWeight
+	minTarget := uint32(math.MaxUint32)
+	var minFee chainfee.SatPerKWeight
+	hasMin := false
+
+	for target, fee := range e.feeCache {
+		if target <= numBlocks && target > closestTarget {
+			closestTarget = target
+			closestFee = fee
+		}
+
+		if target < minTarget {
+			minTarget = target
+			minFee = fee
+			hasMin = true
+		}
+	}
+
+	if closestTarget > 0 {
+		log.Warnf("Esplora fee cache missing target=%d, using target=%d instead",
+			numBlocks, closestTarget)
+		return closestFee, true
+	}
+
+	if hasMin {
+		log.Errorf("Esplora fee cache missing target=%d, using target=%d instead",
+			numBlocks, minTarget)
+		return minFee, true
+	}
+
+	return 0, false
+}
+
+// clampFee enforces a minimum fee floor using relay and configured floors.
+func (e *FeeEstimator) clampFee(
+	fee chainfee.SatPerKWeight) chainfee.SatPerKWeight {
+
+	floor := e.relayFeePerKW
+	if e.cfg.MinFeePerKW > floor {
+		floor = e.cfg.MinFeePerKW
+	}
+
+	if fee < floor {
+		return floor
+	}
+
+	return fee
 }

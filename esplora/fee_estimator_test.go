@@ -266,3 +266,65 @@ func TestFeeEstimatorClosestTarget(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, chainfee.SatPerKWeight(10000), feeRate)
 }
+
+// TestFeeEstimatorMinTargetFallback tests that when no lower target exists,
+// we fall back to the minimum cached target.
+func TestFeeEstimatorMinTargetFallback(t *testing.T) {
+	t.Parallel()
+
+	cfg := &ClientConfig{
+		URL:            "http://localhost:3002",
+		RequestTimeout: 30 * time.Second,
+		MaxRetries:     0,
+		PollInterval:   10 * time.Second,
+	}
+	client := NewClient(cfg)
+
+	feeCfg := &FeeEstimatorConfig{
+		FallbackFeePerKW:  chainfee.SatPerKWeight(12500),
+		MinFeePerKW:       chainfee.FeePerKwFloor,
+		FeeUpdateInterval: 5 * time.Minute,
+	}
+
+	estimator := NewFeeEstimator(client, feeCfg)
+
+	estimator.feeCacheMtx.Lock()
+	estimator.feeCache[3] = chainfee.SatPerKWeight(5000)
+	estimator.feeCache[6] = chainfee.SatPerKWeight(2500)
+	estimator.feeCacheMtx.Unlock()
+
+	// Request target 1, should get minimum cached target (3).
+	feeRate, err := estimator.EstimateFeePerKW(1)
+	require.NoError(t, err)
+	require.Equal(t, chainfee.SatPerKWeight(5000), feeRate)
+}
+
+// TestFeeEstimatorClampToRelayFloor tests that fees are clamped to relay fee.
+func TestFeeEstimatorClampToRelayFloor(t *testing.T) {
+	t.Parallel()
+
+	cfg := &ClientConfig{
+		URL:            "http://localhost:3002",
+		RequestTimeout: 30 * time.Second,
+		MaxRetries:     0,
+		PollInterval:   10 * time.Second,
+	}
+	client := NewClient(cfg)
+
+	feeCfg := &FeeEstimatorConfig{
+		FallbackFeePerKW:  chainfee.SatPerKWeight(12500),
+		MinFeePerKW:       chainfee.FeePerKwFloor,
+		FeeUpdateInterval: 5 * time.Minute,
+	}
+
+	estimator := NewFeeEstimator(client, feeCfg)
+	estimator.relayFeePerKW = chainfee.SatPerKWeight(6000)
+
+	estimator.feeCacheMtx.Lock()
+	estimator.feeCache[6] = chainfee.SatPerKWeight(1000)
+	estimator.feeCacheMtx.Unlock()
+
+	feeRate, err := estimator.EstimateFeePerKW(6)
+	require.NoError(t, err)
+	require.Equal(t, chainfee.SatPerKWeight(6000), feeRate)
+}

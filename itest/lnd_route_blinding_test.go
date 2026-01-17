@@ -352,7 +352,7 @@ func (b *blindedForwardTest) setupNetwork(ctx context.Context,
 	withInterceptor bool) {
 
 	carolArgs := []string{
-		"--bitcoin.timelockdelta=18",
+		"--bitcoin.timelockdelta=24",
 		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", toLocalCSV),
 	}
 	if withInterceptor {
@@ -360,7 +360,7 @@ func (b *blindedForwardTest) setupNetwork(ctx context.Context,
 	}
 
 	daveArgs := []string{
-		"--bitcoin.timelockdelta=18",
+		"--bitcoin.timelockdelta=24",
 		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", toLocalCSV),
 	}
 	cfgs := [][]string{nil, nil, carolArgs, daveArgs}

@@ -93,6 +93,13 @@
   ensures dependencies are properly freed and logs the panic trace for
   debugging.
 
+* [Improved confirmation scaling for cooperative
+  closes](https://github.com/lightningnetwork/lnd/pull/10331) to provide better
+  reorg protection. Previously, cooperative closes required a minimum of 3
+  confirmations. Now, small channels only require 1 confirmation, while larger
+  channels scale proportionally using the standard 0.16 BTC threshold (matching
+  funding confirmation scaling).
+
 ## RPC Updates
 
  * The `EstimateRouteFee` RPC now implements an [LSP detection 
@@ -106,6 +113,15 @@
 ## lncli Updates
 
 ## Breaking Changes
+
+* [Increased MinCLTVDelta from 18 to
+  24](https://github.com/lightningnetwork/lnd/pull/TODO) to provide a larger
+  safety margin above the `DefaultFinalCltvRejectDelta` (19 blocks). This
+  affects users who create invoices with custom `cltv_expiry_delta` values
+  between 18-23, which will now require a minimum of 24. The default value of
+  80 blocks for invoice creation remains unchanged, so most users will not be
+  affected. Existing invoices created before the upgrade will continue to work
+  normally.
 
 ## Performance Improvements
 
@@ -145,4 +161,5 @@
 
 * Abdulkbk
 * bitromortac
+* Olaoluwa Osuntokun
 * Ziggie

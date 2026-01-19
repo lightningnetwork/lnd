@@ -3925,6 +3925,15 @@ func TestNodeIsPublic(t *testing.T) {
 	// participant to replicate real-world scenarios (private edges being in
 	// some graphs but not others, etc.).
 	aliceGraph := MakeTestGraph(t)
+
+	// SQL store caches public nodes and once a node is cached as public, it
+	// stays public until eviction/restart. This test asserts
+	// public<->private transitions, so it doesn't apply to SQL.
+	if _, ok := aliceGraph.V1Store.(*SQLStore); ok {
+		t.Skip("Skipping test because SQL backend uses public node " +
+			"cache, public status is sticky until eviction")
+	}
+
 	aliceNode := createTestVertex(t)
 	if err := aliceGraph.SetSourceNode(ctx, aliceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)

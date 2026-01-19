@@ -372,11 +372,15 @@ func (r *Manager) updateEdge(chanPoint wire.OutPoint,
 		return err
 	}
 
-	// Update forwarding fee scheme and required time lock delta.
-	edge.FeeBaseMSat = newSchema.BaseFee
-	edge.FeeProportionalMillionths = lnwire.MilliSatoshi(
-		newSchema.FeeRate,
-	)
+	// Update forwarding fee scheme if specified.
+	if newSchema.BaseFee != nil {
+		edge.FeeBaseMSat = *newSchema.BaseFee
+	}
+	if newSchema.FeeRate != nil {
+		edge.FeeProportionalMillionths = lnwire.MilliSatoshi(
+			*newSchema.FeeRate,
+		)
+	}
 
 	// If inbound fees are set, we update the edge with them.
 	err = fn.MapOptionZ(newSchema.InboundFee,
@@ -392,7 +396,10 @@ func (r *Manager) updateEdge(chanPoint wire.OutPoint,
 		return err
 	}
 
-	edge.TimeLockDelta = uint16(newSchema.TimeLockDelta)
+	// Update time lock delta if specified.
+	if newSchema.TimeLockDelta != nil {
+		edge.TimeLockDelta = uint16(*newSchema.TimeLockDelta)
+	}
 
 	// Retrieve negotiated channel htlc amt limits.
 	amtMin, amtMax, err := r.getHtlcAmtLimits(channel)

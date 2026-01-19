@@ -95,6 +95,13 @@
 
 ## RPC Updates
 
+* [Added `*_specified` boolean fields to `PolicyUpdateRequest`](https://github.com/lightningnetwork/lnd/pull/10500)
+  for `base_fee_msat`, `fee_rate`, and `time_lock_delta`. This enables truly
+  optional updates to channel policies - when a `*_specified` field is false,
+  the corresponding parameter is not modified, allowing users to update only
+  specific policy fields while preserving others. Previously, omitting a field
+  would reset it to zero (which was invalid for `time_lock_delta`).
+
 ## lncli Updates
 
 ## Breaking Changes

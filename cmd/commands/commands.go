@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
@@ -2525,7 +2526,9 @@ var updateChannelPolicyCommand = cli.Command{
 			Name: "base_fee_msat",
 			Usage: "the base fee in milli-satoshis that will be " +
 				"charged for each forwarded HTLC, regardless " +
-				"of payment size",
+				"of payment size. If unset, the existing " +
+				"base fee is retained",
+			Value: int64(chainreg.DefaultBitcoinBaseFeeMSat),
 		},
 		cli.StringFlag{
 			Name: "fee_rate",
@@ -2534,7 +2537,8 @@ var updateChannelPolicyCommand = cli.Command{
 				"forwarded HTLC, the lowest possible rate is " +
 				"0 with a granularity of 0.000001 " +
 				"(millionths). Can not be set at the same " +
-				"time as fee_rate_ppm",
+				"time as fee_rate_ppm. If unset, the " +
+				"existing fee rate is retained",
 		},
 		cli.Uint64Flag{
 			Name: "fee_rate_ppm",
@@ -2543,7 +2547,9 @@ var updateChannelPolicyCommand = cli.Command{
 				"value of each forwarded HTLC, the lowest " +
 				"possible rate is 0 with a granularity of " +
 				"0.000001 (millionths). Can not be set at " +
-				"the same time as fee_rate",
+				"the same time as fee_rate. If unset, the " +
+				"existing fee rate is retained",
+			Value: uint64(chainreg.DefaultBitcoinFeeRate),
 		},
 		cli.Int64Flag{
 			Name: "inbound_base_fee_msat",
@@ -2573,7 +2579,10 @@ var updateChannelPolicyCommand = cli.Command{
 		cli.Uint64Flag{
 			Name: "time_lock_delta",
 			Usage: "the CLTV delta that will be applied to all " +
-				"forwarded HTLCs",
+				"forwarded HTLCs. Must be between 18 and " +
+				"65535. If unset, the existing time lock " +
+				"delta is retained",
+			Value: uint64(chainreg.DefaultBitcoinTimeLockDelta),
 		},
 		cli.Uint64Flag{
 			Name: "min_htlc_msat",
@@ -2660,62 +2669,69 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	defer cleanUp()
 
 	var (
-		baseFee       int64
-		feeRate       float64
-		feeRatePpm    uint64
-		timeLockDelta uint16
-		err           error
+		baseFee                int64
+		baseFeeMsatSpecified   bool
+		feeRate                float64
+		feeRatePpm             uint64
+		feeRateSpecified       bool
+		timeLockDelta          uint32
+		timeLockDeltaSpecified bool
+		err                    error
 	)
 	args := ctx.Args()
 
+	// Parse base_fee_msat. If explicitly set, mark as specified.
 	switch {
 	case ctx.IsSet("base_fee_msat"):
 		baseFee = ctx.Int64("base_fee_msat")
+		baseFeeMsatSpecified = true
 	case args.Present():
 		baseFee, err = strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode base_fee_msat: %w",
 				err)
 		}
+		baseFeeMsatSpecified = true
 		args = args.Tail()
-	default:
-		return fmt.Errorf("base_fee_msat argument missing")
 	}
 
+	// Parse fee_rate or fee_rate_ppm. If explicitly set, mark as specified.
 	switch {
 	case ctx.IsSet("fee_rate") && ctx.IsSet("fee_rate_ppm"):
 		return fmt.Errorf("fee_rate or fee_rate_ppm can not both be set")
 	case ctx.IsSet("fee_rate"):
 		feeRate = ctx.Float64("fee_rate")
+		feeRateSpecified = true
 	case ctx.IsSet("fee_rate_ppm"):
 		feeRatePpm = ctx.Uint64("fee_rate_ppm")
+		feeRateSpecified = true
 	case args.Present():
 		feeRate, err = strconv.ParseFloat(args.First(), 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode fee_rate: %w", err)
 		}
-
+		feeRateSpecified = true
 		args = args.Tail()
-	default:
-		return fmt.Errorf("fee_rate or fee_rate_ppm argument missing")
 	}
 
+	// Parse time_lock_delta. If explicitly set, mark as specified.
 	switch {
 	case ctx.IsSet("time_lock_delta"):
 		timeLockDeltaStr := ctx.String("time_lock_delta")
-		timeLockDelta, err = parseTimeLockDelta(timeLockDeltaStr)
+		tld, err := parseTimeLockDelta(timeLockDeltaStr)
 		if err != nil {
 			return err
 		}
+		timeLockDelta = uint32(tld)
+		timeLockDeltaSpecified = true
 	case args.Present():
-		timeLockDelta, err = parseTimeLockDelta(args.First())
+		tld, err := parseTimeLockDelta(args.First())
 		if err != nil {
 			return err
 		}
-
+		timeLockDelta = uint32(tld)
+		timeLockDeltaSpecified = true
 		args = args.Tail()
-	default:
-		return fmt.Errorf("time_lock_delta argument missing")
 	}
 
 	var (
@@ -2771,11 +2787,14 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	createMissingEdge := ctx.Bool("create_missing_edge")
 
 	req := &lnrpc.PolicyUpdateRequest{
-		BaseFeeMsat:       baseFee,
-		TimeLockDelta:     uint32(timeLockDelta),
-		MaxHtlcMsat:       ctx.Uint64("max_htlc_msat"),
-		InboundFee:        inboundFee,
-		CreateMissingEdge: createMissingEdge,
+		BaseFeeMsat:            baseFee,
+		BaseFeeMsatSpecified:   baseFeeMsatSpecified,
+		TimeLockDelta:          timeLockDelta,
+		TimeLockDeltaSpecified: timeLockDeltaSpecified,
+		FeeRateSpecified:       feeRateSpecified,
+		MaxHtlcMsat:            ctx.Uint64("max_htlc_msat"),
+		InboundFee:             inboundFee,
+		CreateMissingEdge:      createMissingEdge,
 	}
 
 	if ctx.IsSet("min_htlc_msat") {
@@ -2793,10 +2812,13 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		}
 	}
 
-	if feeRate != 0 {
-		req.FeeRate = feeRate
-	} else if feeRatePpm != 0 {
-		req.FeeRatePpm = uint32(feeRatePpm)
+	// Set fee rate values if specified.
+	if feeRateSpecified {
+		if feeRate != 0 {
+			req.FeeRate = feeRate
+		} else if feeRatePpm != 0 {
+			req.FeeRatePpm = uint32(feeRatePpm)
+		}
 	}
 
 	resp, err := client.UpdateChannelPolicy(ctxc, req)

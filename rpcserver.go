@@ -8085,54 +8085,70 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		return nil, fmt.Errorf("unknown scope: %v", scope)
 	}
 
-	var feeRateFixed uint32
+	var feeRateFixed *uint32
 
-	switch {
-	// The request should use either the fee rate in percent, or the new
-	// ppm rate, but not both.
-	case req.FeeRate != 0 && req.FeeRatePpm != 0:
-		errMsg := "cannot set both FeeRate and FeeRatePpm at the " +
-			"same time"
+	// Only process fee rate if explicitly specified.
+	if req.FeeRateSpecified {
+		switch {
+		// The request should use either the fee rate in percent, or
+		// the new ppm rate, but not both.
+		case req.FeeRate != 0 && req.FeeRatePpm != 0:
+			errMsg := "cannot set both FeeRate and FeeRatePpm " +
+				"at the same time"
 
-		return nil, status.Errorf(codes.InvalidArgument, "%v", errMsg)
+			return nil, status.Errorf(
+				codes.InvalidArgument, "%v", errMsg,
+			)
 
-	// If the request is using fee_rate.
-	case req.FeeRate != 0:
-		// As a sanity check, if the fee isn't zero, we'll ensure that
-		// the passed fee rate is below 1e-6, or the lowest allowed
-		// non-zero fee rate expressible within the protocol.
-		if req.FeeRate != 0 && req.FeeRate < minFeeRate {
-			return nil, fmt.Errorf("fee rate of %v is too "+
-				"small, min fee rate is %v", req.FeeRate,
-				minFeeRate)
+		// If the request is using fee_rate.
+		case req.FeeRate != 0:
+			// As a sanity check, if the fee isn't zero, we'll
+			// ensure that the passed fee rate is below 1e-6, or
+			// the lowest allowed non-zero fee rate expressible
+			// within the protocol.
+			if req.FeeRate < minFeeRate {
+				return nil, fmt.Errorf("fee rate of %v is "+
+					"too small, min fee rate is %v",
+					req.FeeRate, minFeeRate)
+			}
+
+			// We'll also need to convert the floating point fee
+			// rate we accept over RPC to the fixed point rate
+			// that we use within the protocol. We do this by
+			// multiplying the passed fee rate by the fee base.
+			// This gives us the fixed point, scaled by 1 million
+			// that's used within the protocol.
+			//
+			// Because of the inaccurate precision of the IEEE 754
+			// standard, we need to round the product of feerate
+			// and feebase.
+			rate := uint32(math.Round(req.FeeRate * feeBase))
+			feeRateFixed = &rate
+
+		// Otherwise, we use the fee_rate_ppm parameter.
+		case req.FeeRatePpm != 0:
+			feeRateFixed = &req.FeeRatePpm
+
+		// If fee_rate_specified is true but both rates are 0, set to 0.
+		default:
+			zero := uint32(0)
+			feeRateFixed = &zero
 		}
-
-		// We'll also need to convert the floating point fee rate we
-		// accept over RPC to the fixed point rate that we use within
-		// the protocol. We do this by multiplying the passed fee rate
-		// by the fee base. This gives us the fixed point, scaled by 1
-		// million that's used within the protocol.
-		//
-		// Because of the inaccurate precision of the IEEE 754
-		// standard, we need to round the product of feerate and
-		// feebase.
-		feeRateFixed = uint32(math.Round(req.FeeRate * feeBase))
-
-	// Otherwise, we use the fee_rate_ppm parameter.
-	case req.FeeRatePpm != 0:
-		feeRateFixed = req.FeeRatePpm
 	}
 
-	// We'll also ensure that the user isn't setting a CLTV delta that
-	// won't give outgoing HTLCs enough time to fully resolve if needed.
-	if req.TimeLockDelta < minTimeLockDelta {
-		return nil, fmt.Errorf("time lock delta of %v is too small, "+
-			"minimum supported is %v", req.TimeLockDelta,
-			minTimeLockDelta)
-	} else if req.TimeLockDelta > uint32(MaxTimeLockDelta) {
-		return nil, fmt.Errorf("time lock delta of %v is too big, "+
-			"maximum supported is %v", req.TimeLockDelta,
-			MaxTimeLockDelta)
+	// Only validate time lock delta if explicitly specified.
+	var timeLockDelta *uint32
+	if req.TimeLockDeltaSpecified {
+		if req.TimeLockDelta < minTimeLockDelta {
+			return nil, fmt.Errorf("time lock delta of %v is too "+
+				"small, minimum supported is %v",
+				req.TimeLockDelta, minTimeLockDelta)
+		} else if req.TimeLockDelta > uint32(MaxTimeLockDelta) {
+			return nil, fmt.Errorf("time lock delta of %v is too "+
+				"big, maximum supported is %v",
+				req.TimeLockDelta, MaxTimeLockDelta)
+		}
+		timeLockDelta = &req.TimeLockDelta
 	}
 
 	// By default, positive inbound fees are rejected.
@@ -8160,9 +8176,15 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		})
 	}
 
-	baseFeeMsat := lnwire.MilliSatoshi(req.BaseFeeMsat)
+	// Only set base fee if explicitly specified.
+	var baseFee *lnwire.MilliSatoshi
+	if req.BaseFeeMsatSpecified {
+		baseFeeMsat := lnwire.MilliSatoshi(req.BaseFeeMsat)
+		baseFee = &baseFeeMsat
+	}
+
 	feeSchema := routing.FeeSchema{
-		BaseFee:    baseFeeMsat,
+		BaseFee:    baseFee,
 		FeeRate:    feeRateFixed,
 		InboundFee: inboundFee,
 	}
@@ -8176,7 +8198,7 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 
 	chanPolicy := routing.ChannelPolicy{
 		FeeSchema:     feeSchema,
-		TimeLockDelta: req.TimeLockDelta,
+		TimeLockDelta: timeLockDelta,
 		MaxHTLC:       maxHtlc,
 		MinHTLC:       minHtlc,
 	}

@@ -54,12 +54,15 @@ func TestManager(t *testing.T) {
 	localMultisigKey := localMultisigPrivKey.PubKey()
 	remoteMultisigPrivKey, _ := btcec.NewPrivateKey()
 	remoteMultisigKey := remoteMultisigPrivKey.PubKey()
+	baseFee := lnwire.MilliSatoshi(100)
+	feeRate := uint32(200)
+	timeLockDelta := uint32(80)
 	newPolicy := routing.ChannelPolicy{
 		FeeSchema: routing.FeeSchema{
-			BaseFee: 100,
-			FeeRate: 200,
+			BaseFee: &baseFee,
+			FeeRate: &feeRate,
 		},
-		TimeLockDelta: 80,
+		TimeLockDelta: &timeLockDelta,
 		MaxHTLC:       5000,
 	}
 
@@ -80,13 +83,13 @@ func TestManager(t *testing.T) {
 		}
 
 		policy := chanPolicies[chanPointValid]
-		if policy.TimeLockDelta != newPolicy.TimeLockDelta {
+		if policy.TimeLockDelta != *newPolicy.TimeLockDelta {
 			t.Fatal("unexpected time lock delta")
 		}
-		if policy.BaseFee != newPolicy.BaseFee {
+		if policy.BaseFee != *newPolicy.BaseFee {
 			t.Fatal("unexpected base fee")
 		}
-		if uint32(policy.FeeRate) != newPolicy.FeeRate {
+		if uint32(policy.FeeRate) != *newPolicy.FeeRate {
 			t.Fatal("unexpected base fee")
 		}
 		if policy.MaxHTLC != newPolicy.MaxHTLC {
@@ -108,13 +111,13 @@ func TestManager(t *testing.T) {
 			if !policy.MessageFlags.HasMaxHtlc() {
 				t.Fatal("expected max htlc flag")
 			}
-			if policy.TimeLockDelta != uint16(newPolicy.TimeLockDelta) {
+			if policy.TimeLockDelta != uint16(*newPolicy.TimeLockDelta) {
 				t.Fatal("unexpected time lock delta")
 			}
-			if policy.FeeBaseMSat != newPolicy.BaseFee {
+			if policy.FeeBaseMSat != *newPolicy.BaseFee {
 				t.Fatal("unexpected base fee")
 			}
-			if uint32(policy.FeeProportionalMillionths) != newPolicy.FeeRate {
+			if uint32(policy.FeeProportionalMillionths) != *newPolicy.FeeRate {
 				t.Fatal("unexpected base fee")
 			}
 			if policy.MaxHTLC != newPolicy.MaxHTLC {

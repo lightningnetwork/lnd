@@ -540,6 +540,51 @@ func (c *Client) GetBlockTxIDs(ctx context.Context, blockHash string) ([]string,
 	return txids, nil
 }
 
+// GetBlockTxs fetches all transactions in a block with full details including
+// addresses. This is more efficient than GetBlockTxIDs + individual tx fetches
+// because it returns all data with fewer requests.
+// Note: The API is paginated at 25 txs per page, so we fetch all pages.
+func (c *Client) GetBlockTxs(ctx context.Context, blockHash string) ([]*TxInfo, error) {
+	var allTxs []*TxInfo
+	startIndex := 0
+	const pageSize = 25
+
+	for {
+		var endpoint string
+		if startIndex == 0 {
+			endpoint = "/block/" + blockHash + "/txs"
+		} else {
+			endpoint = fmt.Sprintf("/block/%s/txs/%d", blockHash, startIndex)
+		}
+
+		body, err := c.doGet(ctx, endpoint)
+		if err != nil {
+			// If we already have some results, treat errors on subsequent
+			// pages as end of pagination (API returns 404 for out of range).
+			if startIndex > 0 && len(allTxs) > 0 {
+				break
+			}
+			return nil, err
+		}
+
+		var txs []*TxInfo
+		if err := json.Unmarshal(body, &txs); err != nil {
+			return nil, fmt.Errorf("failed to decode response: %w", err)
+		}
+
+		allTxs = append(allTxs, txs...)
+
+		// If we got fewer than pageSize, we've reached the end.
+		if len(txs) < pageSize {
+			break
+		}
+
+		startIndex += pageSize
+	}
+
+	return allTxs, nil
+}
+
 // GetBlock fetches a full block with all transactions.
 func (c *Client) GetBlock(ctx context.Context, blockHash *chainhash.Hash) (*btcutil.Block, error) {
 	hashStr := blockHash.String()

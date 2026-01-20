@@ -123,3 +123,79 @@ func TestRpcCommitmentType(t *testing.T) {
 		})
 	}
 }
+
+// TestForwardingHistoryMaxEvents tests that the ForwardingHistory RPC
+// enforces the maximum number of events that can be requested.
+func TestForwardingHistoryMaxEvents(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		maxEvents uint32
+		expectErr bool
+	}{
+		{
+			name:      "within limit",
+			maxEvents: 50000,
+			expectErr: false,
+		},
+		{
+			name:      "at limit",
+			maxEvents: channeldb.MaxResponseEvents,
+			expectErr: false,
+		},
+		{
+			name:      "exceeds limit",
+			maxEvents: 50001,
+			expectErr: true,
+		},
+		{
+			name:      "far exceeds limit",
+			maxEvents: 999999999,
+			expectErr: true,
+		},
+		{
+			name:      "zero defaults to 100",
+			maxEvents: 0,
+			expectErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a minimal rpcServer for testing.
+			cdb := channeldb.OpenForTesting(t, t.TempDir())
+			r := &rpcServer{
+				server: &server{
+					miscDB: cdb.Backend,
+					implCfg: &ImplementationCfg{
+						AuxComponents: AuxComponents{},
+					},
+				},
+			}
+
+			req := &lnrpc.ForwardingHistoryRequest{
+				NumMaxEvents: tt.maxEvents,
+			}
+
+			// Note: This will fail when trying to flush forwarding
+			// events because htlcSwitch is nil, but that's after
+			// the validation we're testing. We just check if we
+			// get the expected error for max events.
+			_, err := r.ForwardingHistory(nil, req)
+
+			if tt.expectErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(),
+					"exceeds maximum allowed")
+			} else if tt.maxEvents != 0 && tt.maxEvents <= channeldb.MaxResponseEvents {
+				// For valid non-zero values, we expect a different
+				// error (htlcSwitch nil), not the max events error.
+				if err != nil {
+					require.NotContains(t, err.Error(),
+						"exceeds maximum allowed")
+				}
+			}
+		})
+	}
+}

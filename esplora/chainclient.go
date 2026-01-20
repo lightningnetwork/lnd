@@ -660,9 +660,27 @@ func (c *ChainClient) filterBlocksByScanning(
 		if !ok {
 			continue
 		}
-		// Scan each transaction for watched addresses.
+		// Scan each transaction for watched addresses and spent outpoints.
 		for _, tx := range blockTxs {
 			txHash := tx.TxHash()
+			txIsRelevant := false
+
+			// First, check inputs to see if they spend any watched outpoints.
+			// This detects when our UTXOs are spent.
+			for _, txIn := range tx.TxIn {
+				// Check if this input spends a watched outpoint.
+				if addr, ok := req.WatchedOutPoints[txIn.PreviousOutPoint]; ok {
+					txIsRelevant = true
+					log.Infof("FilterBlocks: found spend of watched outpoint %v (addr=%s) in block %d",
+						txIn.PreviousOutPoint, addr.EncodeAddress(), blockMeta.Height)
+				}
+				// Check if this input spends an outpoint we found in this scan.
+				if addr, ok := foundOutPoints[txIn.PreviousOutPoint]; ok {
+					txIsRelevant = true
+					log.Infof("FilterBlocks: found spend of found outpoint %v (addr=%s) in block %d",
+						txIn.PreviousOutPoint, addr.EncodeAddress(), blockMeta.Height)
+				}
+			}
 
 			// Check outputs for watched addresses.
 			for i, txOut := range tx.TxOut {
@@ -678,15 +696,7 @@ func (c *ChainClient) filterBlocksByScanning(
 
 					// Check external addresses.
 					if scopedIdx, ok := externalAddrMap[addrStr]; ok {
-						if _, seen := seenTxs[txHash]; !seen {
-							relevantTxns = append(relevantTxns, tx)
-							seenTxs[txHash] = struct{}{}
-						}
-
-						if !foundRelevant || uint32(blockIdx) < batchIndex {
-							batchIndex = uint32(blockIdx)
-						}
-						foundRelevant = true
+						txIsRelevant = true
 
 						if foundExternalAddrs[scopedIdx.Scope] == nil {
 							foundExternalAddrs[scopedIdx.Scope] = make(map[uint32]struct{})
@@ -696,21 +706,13 @@ func (c *ChainClient) filterBlocksByScanning(
 						op := wire.OutPoint{Hash: txHash, Index: uint32(i)}
 						foundOutPoints[op] = req.ExternalAddrs[scopedIdx]
 
-						log.Tracef("FilterBlocks: found output for external addr %s in block %d",
-							addrStr, blockMeta.Height)
+						log.Infof("FilterBlocks: found output for external addr %s (scope=%v, index=%d) in block %d, value=%d",
+							addrStr, scopedIdx.Scope, scopedIdx.Index, blockMeta.Height, txOut.Value)
 					}
 
 					// Check internal addresses.
 					if scopedIdx, ok := internalAddrMap[addrStr]; ok {
-						if _, seen := seenTxs[txHash]; !seen {
-							relevantTxns = append(relevantTxns, tx)
-							seenTxs[txHash] = struct{}{}
-						}
-
-						if !foundRelevant || uint32(blockIdx) < batchIndex {
-							batchIndex = uint32(blockIdx)
-						}
-						foundRelevant = true
+						txIsRelevant = true
 
 						if foundInternalAddrs[scopedIdx.Scope] == nil {
 							foundInternalAddrs[scopedIdx.Scope] = make(map[uint32]struct{})
@@ -720,10 +722,23 @@ func (c *ChainClient) filterBlocksByScanning(
 						op := wire.OutPoint{Hash: txHash, Index: uint32(i)}
 						foundOutPoints[op] = req.InternalAddrs[scopedIdx]
 
-						log.Tracef("FilterBlocks: found output for internal addr %s in block %d",
-							addrStr, blockMeta.Height)
+						log.Infof("FilterBlocks: found output for internal addr %s (scope=%v, index=%d) in block %d, value=%d",
+							addrStr, scopedIdx.Scope, scopedIdx.Index, blockMeta.Height, txOut.Value)
 					}
 				}
+			}
+
+			// If this transaction is relevant, add it to results.
+			if txIsRelevant {
+				if _, seen := seenTxs[txHash]; !seen {
+					relevantTxns = append(relevantTxns, tx)
+					seenTxs[txHash] = struct{}{}
+				}
+
+				if !foundRelevant || uint32(blockIdx) < batchIndex {
+					batchIndex = uint32(blockIdx)
+				}
+				foundRelevant = true
 			}
 		}
 

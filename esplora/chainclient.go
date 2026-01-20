@@ -81,6 +81,11 @@ type ChainClient struct {
 	watchedOutpointsMtx sync.RWMutex
 	watchedOutpoints    map[wire.OutPoint]btcutil.Address
 
+	// progress logging for long rescans/sync.
+	progressMtx        sync.Mutex
+	lastProgressLog    time.Time
+	lastProgressHeight int64
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
@@ -245,15 +250,25 @@ func (c *ChainClient) GetBlockHash(height int64) (*chainhash.Hash, error) {
 
 	for i := 0; i < maxRetries; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), defaultRequestTimeout)
+		start := time.Now()
 		hashStr, err = c.client.GetBlockHashByHeight(ctx, height)
 		cancel()
 
 		if err == nil {
+			c.maybeLogProgress(height)
+			if dur := time.Since(start); dur > 2*time.Second {
+				log.Warnf("Slow GetBlockHash height=%d took %v", height, dur)
+			}
 			if i > 0 {
 				log.Debugf("Successfully got block hash at height %d after %d retries",
 					height, i)
 			}
 			break
+		}
+
+		if dur := time.Since(start); dur > 2*time.Second {
+			log.Warnf("Slow GetBlockHash height=%d failed after %v: %v",
+				height, dur, err)
 		}
 
 		log.Debugf("GetBlockHash attempt %d/%d failed for height %d: %v",
@@ -305,11 +320,20 @@ func (c *ChainClient) GetBlockHeader(hash *chainhash.Hash) (*wire.BlockHeader, e
 
 	for i := 0; i < maxRetries; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), defaultRequestTimeout)
+		start := time.Now()
 		header, err = c.client.GetBlockHeader(ctx, hash.String())
 		cancel()
 
 		if err == nil {
+			if dur := time.Since(start); dur > 2*time.Second {
+				log.Warnf("Slow GetBlockHeader hash=%s took %v", hash.String(), dur)
+			}
 			break
+		}
+
+		if dur := time.Since(start); dur > 2*time.Second {
+			log.Warnf("Slow GetBlockHeader hash=%s failed after %v: %v",
+				hash.String(), dur, err)
 		}
 
 		// If this isn't the last retry, wait before trying again.
@@ -333,6 +357,44 @@ func (c *ChainClient) GetBlockHeader(hash *chainhash.Hash) (*wire.BlockHeader, e
 	return header, nil
 }
 
+// maybeLogProgress logs periodic progress during long scans.
+func (c *ChainClient) maybeLogProgress(height int64) {
+	const (
+		progressEvery    = int64(500)
+		progressInterval = 30 * time.Second
+	)
+
+	now := time.Now()
+
+	c.progressMtx.Lock()
+	defer c.progressMtx.Unlock()
+
+	if c.lastProgressLog.IsZero() {
+		c.lastProgressLog = now
+		c.lastProgressHeight = height
+		return
+	}
+
+	heightDelta := height - c.lastProgressHeight
+	timeDelta := now.Sub(c.lastProgressLog)
+	if heightDelta < 0 {
+		// Reset baseline if height moves backward (e.g. birthday search).
+		c.lastProgressLog = now
+		c.lastProgressHeight = height
+		return
+	}
+	if heightDelta < progressEvery && timeDelta < progressInterval {
+		return
+	}
+
+	rate := float64(heightDelta) / timeDelta.Seconds()
+	log.Infof("Esplora sync progress: height=%d (+%d in %s, %.2f blk/s)",
+		height, heightDelta, timeDelta.Round(time.Second), rate)
+
+	c.lastProgressLog = now
+	c.lastProgressHeight = height
+}
+
 // IsCurrent returns true if the chain client believes it is synced with the
 // network.
 func (c *ChainClient) IsCurrent() bool {
@@ -350,9 +412,37 @@ func (c *ChainClient) IsCurrent() bool {
 	return time.Since(bestHeader.Timestamp) < 2*time.Hour
 }
 
+// filterBlocksAddressThreshold is the number of addresses above which we switch
+// from per-address API queries to block-based scanning. Block-based scanning
+// fetches each block's transactions and scans them locally, which is much more
+// efficient when there are many addresses to check.
+const filterBlocksAddressThreshold = 500
+
 // FilterBlocks scans the blocks contained in the FilterBlocksRequest for any
 // addresses of interest.
 func (c *ChainClient) FilterBlocks(
+	req *chain.FilterBlocksRequest) (*chain.FilterBlocksResponse, error) {
+
+	totalAddrs := len(req.ExternalAddrs) + len(req.InternalAddrs)
+
+	log.Tracef("FilterBlocks called: %d external addrs, %d internal addrs, %d blocks",
+		len(req.ExternalAddrs), len(req.InternalAddrs), len(req.Blocks))
+
+	// Use block-based scanning for large address sets (e.g., during wallet recovery).
+	// This is much more efficient than querying each address individually.
+	if totalAddrs > filterBlocksAddressThreshold {
+		log.Infof("FilterBlocks: using block-based scanning for %d addresses across %d blocks",
+			totalAddrs, len(req.Blocks))
+		return c.filterBlocksByScanning(req)
+	}
+
+	// For small address sets, use per-address queries.
+	return c.filterBlocksByAddress(req)
+}
+
+// filterBlocksByAddress filters blocks by querying each address individually.
+// This is efficient for small address sets but slow for large ones.
+func (c *ChainClient) filterBlocksByAddress(
 	req *chain.FilterBlocksRequest) (*chain.FilterBlocksResponse, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -367,11 +457,7 @@ func (c *ChainClient) FilterBlocks(
 		foundOutPoints     = make(map[wire.OutPoint]btcutil.Address)
 	)
 
-	log.Tracef("FilterBlocks called: %d external addrs, %d internal addrs, %d blocks",
-		len(req.ExternalAddrs), len(req.InternalAddrs), len(req.Blocks))
-
 	// Check each watched external address for activity in the requested blocks.
-	// req.ExternalAddrs is map[waddrmgr.ScopedIndex]btcutil.Address
 	for scopedIdx, addr := range req.ExternalAddrs {
 		txns, idx, err := c.filterAddressInBlocks(ctx, addr, req.Blocks)
 		if err != nil {
@@ -386,13 +472,11 @@ func (c *ChainClient) FilterBlocks(
 			}
 			foundRelevant = true
 
-			// Record this address as found using the ScopedIndex
 			if foundExternalAddrs[scopedIdx.Scope] == nil {
 				foundExternalAddrs[scopedIdx.Scope] = make(map[uint32]struct{})
 			}
 			foundExternalAddrs[scopedIdx.Scope][scopedIdx.Index] = struct{}{}
 
-			// Record outpoints for this address from the transactions
 			for _, tx := range txns {
 				for i, txOut := range tx.TxOut {
 					_, addrs, _, err := txscript.ExtractPkScriptAddrs(
@@ -433,13 +517,11 @@ func (c *ChainClient) FilterBlocks(
 			}
 			foundRelevant = true
 
-			// Record this address as found using the ScopedIndex
 			if foundInternalAddrs[scopedIdx.Scope] == nil {
 				foundInternalAddrs[scopedIdx.Scope] = make(map[uint32]struct{})
 			}
 			foundInternalAddrs[scopedIdx.Scope][scopedIdx.Index] = struct{}{}
 
-			// Record outpoints for this address from the transactions
 			for _, tx := range txns {
 				for i, txOut := range tx.TxOut {
 					_, addrs, _, err := txscript.ExtractPkScriptAddrs(
@@ -480,6 +562,285 @@ func (c *ChainClient) FilterBlocks(
 		FoundOutPoints:     foundOutPoints,
 		RelevantTxns:       relevantTxns,
 	}, nil
+}
+
+// maxConcurrentBlockFetches is the maximum number of concurrent block fetches.
+const maxConcurrentBlockFetches = 5
+
+// filterBlocksByScanning filters blocks by fetching each block's transactions
+// and scanning them locally against the watched address set. This is much more
+// efficient than per-address queries when there are many addresses.
+func (c *ChainClient) filterBlocksByScanning(
+	req *chain.FilterBlocksRequest) (*chain.FilterBlocksResponse, error) {
+
+	// Use a longer timeout for block scanning since we may need to fetch many blocks.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	// Build address lookup maps for O(1) matching.
+	// Map from address string to ScopedIndex for quick lookup.
+	externalAddrMap := make(map[string]waddrmgr.ScopedIndex)
+	for scopedIdx, addr := range req.ExternalAddrs {
+		externalAddrMap[addr.EncodeAddress()] = scopedIdx
+	}
+
+	internalAddrMap := make(map[string]waddrmgr.ScopedIndex)
+	for scopedIdx, addr := range req.InternalAddrs {
+		internalAddrMap[addr.EncodeAddress()] = scopedIdx
+	}
+
+	// Pre-fetch all block transactions in parallel for better performance.
+	type blockTxsResult struct {
+		blockIdx int
+		txs      []*wire.MsgTx
+		err      error
+	}
+
+	log.Infof("FilterBlocks: pre-fetching transactions for %d blocks...", len(req.Blocks))
+
+	blockTxsChan := make(chan blockTxsResult, len(req.Blocks))
+	blockSemaphore := make(chan struct{}, maxConcurrentBlockFetches)
+
+	var fetchWg sync.WaitGroup
+	for i, blockMeta := range req.Blocks {
+		fetchWg.Add(1)
+		go func(idx int, meta wtxmgr.BlockMeta) {
+			defer fetchWg.Done()
+
+			// Acquire semaphore.
+			select {
+			case blockSemaphore <- struct{}{}:
+				defer func() { <-blockSemaphore }()
+			case <-ctx.Done():
+				blockTxsChan <- blockTxsResult{blockIdx: idx, err: ctx.Err()}
+				return
+			}
+
+			txs, err := c.getBlockTransactions(ctx, &meta.Hash)
+			blockTxsChan <- blockTxsResult{blockIdx: idx, txs: txs, err: err}
+
+			// Log progress for long operations.
+			if (idx+1)%100 == 0 {
+				log.Infof("FilterBlocks: fetched %d/%d blocks", idx+1, len(req.Blocks))
+			}
+		}(i, blockMeta)
+	}
+
+	go func() {
+		fetchWg.Wait()
+		close(blockTxsChan)
+	}()
+
+	// Collect all block transactions.
+	allBlockTxs := make(map[int][]*wire.MsgTx)
+	for result := range blockTxsChan {
+		if result.err != nil {
+			log.Warnf("FilterBlocks: failed to get transactions for block %d: %v",
+				result.blockIdx, result.err)
+			continue
+		}
+		allBlockTxs[result.blockIdx] = result.txs
+	}
+
+	log.Infof("FilterBlocks: finished fetching transactions, scanning %d blocks...", len(allBlockTxs))
+
+	var (
+		relevantTxns       []*wire.MsgTx
+		batchIndex         uint32
+		foundRelevant      bool
+		foundExternalAddrs = make(map[waddrmgr.KeyScope]map[uint32]struct{})
+		foundInternalAddrs = make(map[waddrmgr.KeyScope]map[uint32]struct{})
+		foundOutPoints     = make(map[wire.OutPoint]btcutil.Address)
+		seenTxs            = make(map[chainhash.Hash]struct{})
+	)
+
+	// Process blocks sequentially (order matters for finding earliest match).
+	for blockIdx, blockMeta := range req.Blocks {
+		blockTxs, ok := allBlockTxs[blockIdx]
+		if !ok {
+			continue
+		}
+		// Scan each transaction for watched addresses.
+		for _, tx := range blockTxs {
+			txHash := tx.TxHash()
+
+			// Check outputs for watched addresses.
+			for i, txOut := range tx.TxOut {
+				_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+					txOut.PkScript, c.chainParams,
+				)
+				if err != nil {
+					continue
+				}
+
+				for _, addr := range addrs {
+					addrStr := addr.EncodeAddress()
+
+					// Check external addresses.
+					if scopedIdx, ok := externalAddrMap[addrStr]; ok {
+						if _, seen := seenTxs[txHash]; !seen {
+							relevantTxns = append(relevantTxns, tx)
+							seenTxs[txHash] = struct{}{}
+						}
+
+						if !foundRelevant || uint32(blockIdx) < batchIndex {
+							batchIndex = uint32(blockIdx)
+						}
+						foundRelevant = true
+
+						if foundExternalAddrs[scopedIdx.Scope] == nil {
+							foundExternalAddrs[scopedIdx.Scope] = make(map[uint32]struct{})
+						}
+						foundExternalAddrs[scopedIdx.Scope][scopedIdx.Index] = struct{}{}
+
+						op := wire.OutPoint{Hash: txHash, Index: uint32(i)}
+						foundOutPoints[op] = req.ExternalAddrs[scopedIdx]
+
+						log.Tracef("FilterBlocks: found output for external addr %s in block %d",
+							addrStr, blockMeta.Height)
+					}
+
+					// Check internal addresses.
+					if scopedIdx, ok := internalAddrMap[addrStr]; ok {
+						if _, seen := seenTxs[txHash]; !seen {
+							relevantTxns = append(relevantTxns, tx)
+							seenTxs[txHash] = struct{}{}
+						}
+
+						if !foundRelevant || uint32(blockIdx) < batchIndex {
+							batchIndex = uint32(blockIdx)
+						}
+						foundRelevant = true
+
+						if foundInternalAddrs[scopedIdx.Scope] == nil {
+							foundInternalAddrs[scopedIdx.Scope] = make(map[uint32]struct{})
+						}
+						foundInternalAddrs[scopedIdx.Scope][scopedIdx.Index] = struct{}{}
+
+						op := wire.OutPoint{Hash: txHash, Index: uint32(i)}
+						foundOutPoints[op] = req.InternalAddrs[scopedIdx]
+
+						log.Tracef("FilterBlocks: found output for internal addr %s in block %d",
+							addrStr, blockMeta.Height)
+					}
+				}
+			}
+		}
+
+		// Log progress every 50 blocks.
+		if (blockIdx+1)%50 == 0 || blockIdx == len(req.Blocks)-1 {
+			log.Infof("FilterBlocks: scanned %d/%d blocks, found %d relevant txns",
+				blockIdx+1, len(req.Blocks), len(relevantTxns))
+		}
+	}
+
+	if !foundRelevant {
+		log.Infof("FilterBlocks: no relevant transactions found in %d blocks",
+			len(req.Blocks))
+		return nil, nil
+	}
+
+	log.Infof("FilterBlocks: found %d relevant txns, earliest at block height %d",
+		len(relevantTxns), req.Blocks[batchIndex].Height)
+
+	return &chain.FilterBlocksResponse{
+		BatchIndex:         batchIndex,
+		BlockMeta:          req.Blocks[batchIndex],
+		FoundExternalAddrs: foundExternalAddrs,
+		FoundInternalAddrs: foundInternalAddrs,
+		FoundOutPoints:     foundOutPoints,
+		RelevantTxns:       relevantTxns,
+	}, nil
+}
+
+// maxConcurrentTxFetches is the maximum number of concurrent transaction fetches.
+const maxConcurrentTxFetches = 10
+
+// getBlockTransactions fetches all transactions for a block using parallel fetching.
+func (c *ChainClient) getBlockTransactions(ctx context.Context,
+	blockHash *chainhash.Hash) ([]*wire.MsgTx, error) {
+
+	// Get transaction IDs for the block.
+	txids, err := c.client.GetBlockTxIDs(ctx, blockHash.String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get block txids: %w", err)
+	}
+
+	if len(txids) == 0 {
+		return nil, nil
+	}
+
+	// For small blocks, fetch sequentially to avoid overhead.
+	if len(txids) <= 2 {
+		txs := make([]*wire.MsgTx, 0, len(txids))
+		for _, txid := range txids {
+			tx, err := c.client.GetRawTransactionMsgTx(ctx, txid)
+			if err != nil {
+				log.Warnf("Failed to get tx %s: %v", txid, err)
+				continue
+			}
+			txs = append(txs, tx)
+		}
+		return txs, nil
+	}
+
+	// For larger blocks, fetch transactions in parallel.
+	type txResult struct {
+		index int
+		tx    *wire.MsgTx
+		err   error
+	}
+
+	results := make(chan txResult, len(txids))
+	semaphore := make(chan struct{}, maxConcurrentTxFetches)
+
+	var wg sync.WaitGroup
+	for i, txid := range txids {
+		wg.Add(1)
+		go func(idx int, id string) {
+			defer wg.Done()
+
+			// Acquire semaphore.
+			select {
+			case semaphore <- struct{}{}:
+				defer func() { <-semaphore }()
+			case <-ctx.Done():
+				results <- txResult{index: idx, err: ctx.Err()}
+				return
+			}
+
+			tx, err := c.client.GetRawTransactionMsgTx(ctx, id)
+			results <- txResult{index: idx, tx: tx, err: err}
+		}(i, txid)
+	}
+
+	// Wait for all goroutines to complete.
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results maintaining order.
+	txsByIndex := make(map[int]*wire.MsgTx)
+	for result := range results {
+		if result.err != nil {
+			log.Warnf("Failed to get tx at index %d: %v", result.index, result.err)
+			continue
+		}
+		if result.tx != nil {
+			txsByIndex[result.index] = result.tx
+		}
+	}
+
+	// Build ordered slice.
+	txs := make([]*wire.MsgTx, 0, len(txsByIndex))
+	for i := 0; i < len(txids); i++ {
+		if tx, ok := txsByIndex[i]; ok {
+			txs = append(txs, tx)
+		}
+	}
+
+	return txs, nil
 }
 
 // filterAddressInBlocks checks if an address has any activity in the given blocks.

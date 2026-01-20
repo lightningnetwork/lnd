@@ -43,12 +43,34 @@ var (
 
 // ChainClient is an implementation of chain.Interface that uses an Esplora
 // HTTP API as its backend.
+// ChainClientConfig holds configuration options for the ChainClient.
+type ChainClientConfig struct {
+	// UseGapLimit enables gap limit optimization for wallet recovery.
+	UseGapLimit bool
+
+	// GapLimit is the number of consecutive unused addresses before stopping.
+	GapLimit int
+
+	// AddressBatchSize is the number of addresses to query concurrently.
+	AddressBatchSize int
+}
+
+// DefaultChainClientConfig returns a ChainClientConfig with default values.
+func DefaultChainClientConfig() *ChainClientConfig {
+	return &ChainClientConfig{
+		UseGapLimit:      true,
+		GapLimit:         20,
+		AddressBatchSize: 10,
+	}
+}
+
 type ChainClient struct {
 	started int32
 	stopped int32
 
 	client         *Client
 	chainParams    *chaincfg.Params
+	cfg            *ChainClientConfig
 	subscriptionID uint64
 
 	// bestBlock tracks the current chain tip.
@@ -94,10 +116,17 @@ type ChainClient struct {
 var _ chain.Interface = (*ChainClient)(nil)
 
 // NewChainClient creates a new Esplora chain client.
-func NewChainClient(client *Client, chainParams *chaincfg.Params) *ChainClient {
+func NewChainClient(client *Client, chainParams *chaincfg.Params,
+	cfg *ChainClientConfig) *ChainClient {
+
+	if cfg == nil {
+		cfg = DefaultChainClientConfig()
+	}
+
 	return &ChainClient{
 		client:           client,
 		chainParams:      chainParams,
+		cfg:              cfg,
 		headerCache:      make(map[chainhash.Hash]*wire.BlockHeader),
 		heightToHash:     make(map[int32]*chainhash.Hash),
 		notificationChan: make(chan interface{}, 100),
@@ -428,6 +457,14 @@ func (c *ChainClient) FilterBlocks(
 	log.Tracef("FilterBlocks called: %d external addrs, %d internal addrs, %d blocks",
 		len(req.ExternalAddrs), len(req.InternalAddrs), len(req.Blocks))
 
+	// Use gap limit scanning for large address sets when enabled.
+	// This is dramatically faster than scanning all addresses.
+	if c.cfg.UseGapLimit && totalAddrs > filterBlocksAddressThreshold {
+		log.Infof("FilterBlocks: using gap limit scanning (gap=%d) for %d addresses",
+			c.cfg.GapLimit, totalAddrs)
+		return c.filterBlocksWithGapLimit(req)
+	}
+
 	// Use block-based scanning for large address sets (e.g., during wallet recovery).
 	// This is much more efficient than querying each address individually.
 	if totalAddrs > filterBlocksAddressThreshold {
@@ -438,6 +475,307 @@ func (c *ChainClient) FilterBlocks(
 
 	// For small address sets, use per-address queries.
 	return c.filterBlocksByAddress(req)
+}
+
+// addressScanResult holds the result of scanning a single address.
+type addressScanResult struct {
+	scopedIdx waddrmgr.ScopedIndex
+	addr      btcutil.Address
+	txInfos   []*TxInfo
+	err       error
+}
+
+// filterBlocksWithGapLimit implements BIP-44 gap limit scanning for wallet recovery.
+// Instead of scanning all addresses, it scans incrementally and stops when
+// it finds GapLimit consecutive unused addresses per scope/chain.
+func (c *ChainClient) filterBlocksWithGapLimit(
+	req *chain.FilterBlocksRequest) (*chain.FilterBlocksResponse, error) {
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	// Build block height lookup for filtering transactions.
+	blockHeights := make(map[int32]int)
+	for i, block := range req.Blocks {
+		blockHeights[block.Height] = i
+	}
+
+	var (
+		batchIndex         uint32 = ^uint32(0)
+		foundRelevant      bool
+		foundExternalAddrs = make(map[waddrmgr.KeyScope]map[uint32]struct{})
+		foundInternalAddrs = make(map[waddrmgr.KeyScope]map[uint32]struct{})
+		foundOutPoints     = make(map[wire.OutPoint]btcutil.Address)
+		matchedTxIDs       = make(map[string]int) // txid -> blockIdx
+	)
+
+	// Process external addresses with gap limit.
+	extResult := c.scanAddressesWithGapLimit(
+		ctx, req.ExternalAddrs, blockHeights, true,
+	)
+	for scopedIdx, result := range extResult.foundAddrs {
+		if foundExternalAddrs[scopedIdx.Scope] == nil {
+			foundExternalAddrs[scopedIdx.Scope] = make(map[uint32]struct{})
+		}
+		foundExternalAddrs[scopedIdx.Scope][scopedIdx.Index] = struct{}{}
+
+		for op, addr := range result.outpoints {
+			foundOutPoints[op] = addr
+		}
+		for txid, blockIdx := range result.txIDs {
+			matchedTxIDs[txid] = blockIdx
+			if !foundRelevant || uint32(blockIdx) < batchIndex {
+				batchIndex = uint32(blockIdx)
+			}
+			foundRelevant = true
+		}
+	}
+
+	// Process internal addresses with gap limit.
+	intResult := c.scanAddressesWithGapLimit(
+		ctx, req.InternalAddrs, blockHeights, false,
+	)
+	for scopedIdx, result := range intResult.foundAddrs {
+		if foundInternalAddrs[scopedIdx.Scope] == nil {
+			foundInternalAddrs[scopedIdx.Scope] = make(map[uint32]struct{})
+		}
+		foundInternalAddrs[scopedIdx.Scope][scopedIdx.Index] = struct{}{}
+
+		for op, addr := range result.outpoints {
+			foundOutPoints[op] = addr
+		}
+		for txid, blockIdx := range result.txIDs {
+			matchedTxIDs[txid] = blockIdx
+			if !foundRelevant || uint32(blockIdx) < batchIndex {
+				batchIndex = uint32(blockIdx)
+			}
+			foundRelevant = true
+		}
+	}
+
+	// Log summary.
+	log.Infof("Gap limit scan complete: external scanned=%d found=%d, internal scanned=%d found=%d",
+		extResult.scannedCount, len(extResult.foundAddrs),
+		intResult.scannedCount, len(intResult.foundAddrs))
+
+	if !foundRelevant {
+		log.Infof("FilterBlocks (gap limit): no relevant transactions found")
+		return nil, nil
+	}
+
+	// Fetch raw transactions for matches.
+	log.Infof("FilterBlocks (gap limit): fetching %d matched raw transactions...", len(matchedTxIDs))
+
+	relevantTxns := make([]*wire.MsgTx, 0, len(matchedTxIDs))
+	for txid := range matchedTxIDs {
+		tx, err := c.client.GetRawTransactionMsgTx(ctx, txid)
+		if err != nil {
+			log.Warnf("FilterBlocks: failed to fetch raw tx %s: %v", txid, err)
+			continue
+		}
+		relevantTxns = append(relevantTxns, tx)
+	}
+
+	log.Infof("FilterBlocks (gap limit): found %d relevant txns, earliest at block height %d",
+		len(relevantTxns), req.Blocks[batchIndex].Height)
+
+	return &chain.FilterBlocksResponse{
+		BatchIndex:         batchIndex,
+		BlockMeta:          req.Blocks[batchIndex],
+		FoundExternalAddrs: foundExternalAddrs,
+		FoundInternalAddrs: foundInternalAddrs,
+		FoundOutPoints:     foundOutPoints,
+		RelevantTxns:       relevantTxns,
+	}, nil
+}
+
+// gapLimitScanResult holds results from gap limit address scanning.
+type gapLimitScanResult struct {
+	scannedCount int
+	foundAddrs   map[waddrmgr.ScopedIndex]*addressFoundResult
+}
+
+// addressFoundResult holds details about a found address.
+type addressFoundResult struct {
+	outpoints map[wire.OutPoint]btcutil.Address
+	txIDs     map[string]int // txid -> blockIdx
+}
+
+// scanAddressesWithGapLimit scans addresses using BIP-44 gap limit logic.
+// It groups addresses by scope/chain, scans in index order, and stops
+// when GapLimit consecutive unused addresses are found.
+func (c *ChainClient) scanAddressesWithGapLimit(
+	ctx context.Context,
+	addrs map[waddrmgr.ScopedIndex]btcutil.Address,
+	blockHeights map[int32]int,
+	isExternal bool) *gapLimitScanResult {
+
+	result := &gapLimitScanResult{
+		foundAddrs: make(map[waddrmgr.ScopedIndex]*addressFoundResult),
+	}
+
+	if len(addrs) == 0 {
+		return result
+	}
+
+	// Group addresses by KeyScope for gap limit tracking.
+	// Within each scope, we track the gap separately.
+	type scopeGroup struct {
+		indices []uint32
+		addrs   map[uint32]waddrmgr.ScopedIndex
+	}
+	scopeGroups := make(map[waddrmgr.KeyScope]*scopeGroup)
+
+	for scopedIdx := range addrs {
+		scope := scopedIdx.Scope
+		if scopeGroups[scope] == nil {
+			scopeGroups[scope] = &scopeGroup{
+				addrs: make(map[uint32]waddrmgr.ScopedIndex),
+			}
+		}
+		scopeGroups[scope].indices = append(scopeGroups[scope].indices, scopedIdx.Index)
+		scopeGroups[scope].addrs[scopedIdx.Index] = scopedIdx
+	}
+
+	// Sort indices within each scope.
+	for _, group := range scopeGroups {
+		sortUint32Slice(group.indices)
+	}
+
+	chainType := "external"
+	if !isExternal {
+		chainType = "internal"
+	}
+
+	// Process each scope with gap limit.
+	for scope, group := range scopeGroups {
+		highestUsedIdx := -1
+		consecutiveUnused := 0
+		scannedInScope := 0
+
+		log.Debugf("Gap limit scan: scope=%v chain=%s, %d addresses to check",
+			scope, chainType, len(group.indices))
+
+		// Process addresses in batches for efficiency.
+		batchSize := c.cfg.AddressBatchSize
+		for i := 0; i < len(group.indices); i += batchSize {
+			// Check if we've hit the gap limit.
+			if consecutiveUnused >= c.cfg.GapLimit {
+				log.Debugf("Gap limit reached for scope=%v chain=%s after %d addresses (highest used: %d)",
+					scope, chainType, scannedInScope, highestUsedIdx)
+				break
+			}
+
+			// Prepare batch.
+			end := i + batchSize
+			if end > len(group.indices) {
+				end = len(group.indices)
+			}
+			batchIndices := group.indices[i:end]
+
+			// Query addresses in parallel.
+			resultsChan := make(chan addressScanResult, len(batchIndices))
+			var wg sync.WaitGroup
+
+			for _, idx := range batchIndices {
+				wg.Add(1)
+				go func(index uint32) {
+					defer wg.Done()
+
+					scopedIdx := group.addrs[index]
+					addr := addrs[scopedIdx]
+
+					txInfos, err := c.client.GetAddressTxs(ctx, addr.EncodeAddress())
+					resultsChan <- addressScanResult{
+						scopedIdx: scopedIdx,
+						addr:      addr,
+						txInfos:   txInfos,
+						err:       err,
+					}
+				}(idx)
+			}
+
+			wg.Wait()
+			close(resultsChan)
+
+			// Process results in index order.
+			batchResults := make(map[uint32]addressScanResult)
+			for res := range resultsChan {
+				batchResults[res.scopedIdx.Index] = res
+			}
+
+			for _, idx := range batchIndices {
+				scannedInScope++
+				result.scannedCount++
+
+				res, ok := batchResults[idx]
+				if !ok || res.err != nil {
+					consecutiveUnused++
+					continue
+				}
+
+				// Filter transactions to those in our block range.
+				hasRelevantTx := false
+				addrResult := &addressFoundResult{
+					outpoints: make(map[wire.OutPoint]btcutil.Address),
+					txIDs:     make(map[string]int),
+				}
+
+				for _, txInfo := range res.txInfos {
+					if !txInfo.Status.Confirmed {
+						continue
+					}
+
+					blockIdx, inRange := blockHeights[int32(txInfo.Status.BlockHeight)]
+					if !inRange {
+						continue
+					}
+
+					hasRelevantTx = true
+					addrResult.txIDs[txInfo.TxID] = blockIdx
+
+					// Record outpoints for this address.
+					txHash, err := chainhash.NewHashFromStr(txInfo.TxID)
+					if err != nil {
+						continue
+					}
+					for i, vout := range txInfo.Vout {
+						if vout.ScriptPubKeyAddr == res.addr.EncodeAddress() {
+							op := wire.OutPoint{Hash: *txHash, Index: uint32(i)}
+							addrResult.outpoints[op] = res.addr
+						}
+					}
+				}
+
+				if hasRelevantTx {
+					result.foundAddrs[res.scopedIdx] = addrResult
+					highestUsedIdx = int(idx)
+					consecutiveUnused = 0
+
+					log.Debugf("Gap limit scan: found activity at scope=%v chain=%s index=%d",
+						scope, chainType, idx)
+				} else {
+					consecutiveUnused++
+				}
+			}
+		}
+
+		log.Infof("Gap limit scan complete: scope=%v chain=%s scanned=%d found=%d",
+			scope, chainType, scannedInScope, len(result.foundAddrs))
+	}
+
+	return result
+}
+
+// sortUint32Slice sorts a slice of uint32 in ascending order.
+func sortUint32Slice(s []uint32) {
+	for i := 0; i < len(s)-1; i++ {
+		for j := i + 1; j < len(s); j++ {
+			if s[i] > s[j] {
+				s[i], s[j] = s[j], s[i]
+			}
+		}
+	}
 }
 
 // filterBlocksByAddress filters blocks by querying each address individually.

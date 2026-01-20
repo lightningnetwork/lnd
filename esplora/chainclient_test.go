@@ -32,7 +32,7 @@ func TestNewChainClient(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, nil)
 
 	require.NotNil(t, chainClient)
 	require.NotNil(t, chainClient.client)
@@ -54,7 +54,7 @@ func TestChainClientBackEnd(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, nil)
 
 	require.Equal(t, "esplora", chainClient.BackEnd())
 }
@@ -71,7 +71,7 @@ func TestChainClientNotifications(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, nil)
 
 	notifChan := chainClient.Notifications()
 	require.NotNil(t, notifChan)
@@ -89,7 +89,7 @@ func TestChainClientTestMempoolAccept(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, nil)
 
 	tx := wire.NewMsgTx(wire.TxVersion)
 	results, err := chainClient.TestMempoolAccept([]*wire.MsgTx{tx}, 0.0)
@@ -112,7 +112,7 @@ func TestChainClientMapRPCErr(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, nil)
 
 	testErr := ErrNotConnected
 	mappedErr := chainClient.MapRPCErr(testErr)
@@ -132,7 +132,7 @@ func TestChainClientNotifyBlocks(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, nil)
 
 	err := chainClient.NotifyBlocks()
 	require.NoError(t, err)
@@ -151,7 +151,7 @@ func TestChainClientNotifyReceived(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, nil)
 
 	// Create a test address.
 	pubKeyHash := make([]byte, 20)
@@ -180,7 +180,7 @@ func TestChainClientIsCurrent(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, nil)
 
 	// Without a live connection, IsCurrent() should return false since it
 	// cannot fetch the best block from the network.
@@ -199,7 +199,7 @@ func TestChainClientCacheHeader(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, nil)
 
 	// Create a test header.
 	header := &wire.BlockHeader{
@@ -242,7 +242,7 @@ func TestChainClientGetUtxo(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, nil)
 
 	// Create a test outpoint and pkScript.
 	testHash := chainhash.Hash{0x01, 0x02, 0x03}
@@ -273,7 +273,7 @@ func TestEsploraUtxoSourceInterface(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, nil)
 
 	// Define the interface locally to test without importing btcwallet.
 	type UtxoSource interface {
@@ -297,7 +297,7 @@ func TestChainClientGetBlockHashCaching(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, nil)
 
 	// Pre-populate the cache.
 	testHash := chainhash.Hash{0x01, 0x02, 0x03, 0x04}
@@ -325,7 +325,7 @@ func TestChainClientGetBlockHeaderCaching(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, nil)
 
 	// Create and cache a test header.
 	header := &wire.BlockHeader{
@@ -357,7 +357,7 @@ func TestChainClientMultipleAddresses(t *testing.T) {
 	}
 	client := NewClient(cfg)
 
-	chainClient := NewChainClient(client, &chaincfg.MainNetParams)
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, nil)
 
 	// Create multiple test addresses.
 	addrs := make([]btcutil.Address, 5)
@@ -377,4 +377,105 @@ func TestChainClientMultipleAddresses(t *testing.T) {
 	chainClient.watchedAddrsMtx.RUnlock()
 
 	require.Equal(t, 5, count)
+}
+
+// TestChainClientDefaultConfig tests that default config is used when nil is passed.
+func TestChainClientDefaultConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := &ClientConfig{
+		URL:            "http://localhost:3002",
+		RequestTimeout: 30 * time.Second,
+		MaxRetries:     3,
+		PollInterval:   10 * time.Second,
+	}
+	client := NewClient(cfg)
+
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, nil)
+
+	require.NotNil(t, chainClient.cfg)
+	require.True(t, chainClient.cfg.UseGapLimit)
+	require.Equal(t, 20, chainClient.cfg.GapLimit)
+	require.Equal(t, 10, chainClient.cfg.AddressBatchSize)
+}
+
+// TestChainClientCustomConfig tests that custom config is properly applied.
+func TestChainClientCustomConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := &ClientConfig{
+		URL:            "http://localhost:3002",
+		RequestTimeout: 30 * time.Second,
+		MaxRetries:     3,
+		PollInterval:   10 * time.Second,
+	}
+	client := NewClient(cfg)
+
+	chainClientCfg := &ChainClientConfig{
+		UseGapLimit:      false,
+		GapLimit:         50,
+		AddressBatchSize: 25,
+	}
+	chainClient := NewChainClient(client, &chaincfg.MainNetParams, chainClientCfg)
+
+	require.NotNil(t, chainClient.cfg)
+	require.False(t, chainClient.cfg.UseGapLimit)
+	require.Equal(t, 50, chainClient.cfg.GapLimit)
+	require.Equal(t, 25, chainClient.cfg.AddressBatchSize)
+}
+
+// TestDefaultChainClientConfig tests the DefaultChainClientConfig function.
+func TestDefaultChainClientConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultChainClientConfig()
+
+	require.NotNil(t, cfg)
+	require.True(t, cfg.UseGapLimit)
+	require.Equal(t, 20, cfg.GapLimit)
+	require.Equal(t, 10, cfg.AddressBatchSize)
+}
+
+// TestSortUint32Slice tests the sorting helper function.
+func TestSortUint32Slice(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		input    []uint32
+		expected []uint32
+	}{
+		{
+			name:     "already sorted",
+			input:    []uint32{1, 2, 3, 4, 5},
+			expected: []uint32{1, 2, 3, 4, 5},
+		},
+		{
+			name:     "reverse order",
+			input:    []uint32{5, 4, 3, 2, 1},
+			expected: []uint32{1, 2, 3, 4, 5},
+		},
+		{
+			name:     "random order",
+			input:    []uint32{3, 1, 4, 1, 5, 9, 2, 6},
+			expected: []uint32{1, 1, 2, 3, 4, 5, 6, 9},
+		},
+		{
+			name:     "single element",
+			input:    []uint32{42},
+			expected: []uint32{42},
+		},
+		{
+			name:     "empty slice",
+			input:    []uint32{},
+			expected: []uint32{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			sortUint32Slice(tc.input)
+			require.Equal(t, tc.expected, tc.input)
+		})
+	}
 }

@@ -738,8 +738,13 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 
 		// Create the chain client for wallet integration.
 		log.Debug("Creating Esplora chain client")
+		chainClientCfg := &esplora.ChainClientConfig{
+			UseGapLimit:      esploraMode.UseGapLimit,
+			GapLimit:         esploraMode.GapLimit,
+			AddressBatchSize: esploraMode.AddressBatchSize,
+		}
 		chainClient := esplora.NewChainClient(
-			esploraClient, cfg.ActiveNetParams.Params,
+			esploraClient, cfg.ActiveNetParams.Params, chainClientCfg,
 		)
 		cc.ChainSource = chainClient
 		log.Debug("Esplora chain client created")

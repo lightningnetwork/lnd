@@ -455,95 +455,110 @@ func (c *ChainClient) filterBlocksByAddress(
 		foundExternalAddrs = make(map[waddrmgr.KeyScope]map[uint32]struct{})
 		foundInternalAddrs = make(map[waddrmgr.KeyScope]map[uint32]struct{})
 		foundOutPoints     = make(map[wire.OutPoint]btcutil.Address)
+		seenTxs            = make(map[chainhash.Hash]struct{})
 	)
 
-	// Check each watched external address for activity in the requested blocks.
+	// Helper to process address matches and update results.
+	processAddressMatch := func(scopedIdx waddrmgr.ScopedIndex, addr btcutil.Address,
+		txns []*wire.MsgTx, idx uint32, isExternal bool) {
+
+		for _, tx := range txns {
+			txHash := tx.TxHash()
+			if _, seen := seenTxs[txHash]; !seen {
+				relevantTxns = append(relevantTxns, tx)
+				seenTxs[txHash] = struct{}{}
+			}
+		}
+
+		if !foundRelevant || idx < batchIndex {
+			batchIndex = idx
+		}
+		foundRelevant = true
+
+		// Record found address.
+		if isExternal {
+			if foundExternalAddrs[scopedIdx.Scope] == nil {
+				foundExternalAddrs[scopedIdx.Scope] = make(map[uint32]struct{})
+			}
+			foundExternalAddrs[scopedIdx.Scope][scopedIdx.Index] = struct{}{}
+		} else {
+			if foundInternalAddrs[scopedIdx.Scope] == nil {
+				foundInternalAddrs[scopedIdx.Scope] = make(map[uint32]struct{})
+			}
+			foundInternalAddrs[scopedIdx.Scope][scopedIdx.Index] = struct{}{}
+		}
+
+		// Record outpoints for outputs matching this address.
+		for _, tx := range txns {
+			for i, txOut := range tx.TxOut {
+				_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+					txOut.PkScript, c.chainParams,
+				)
+				if err != nil {
+					continue
+				}
+				for _, a := range addrs {
+					if a.EncodeAddress() == addr.EncodeAddress() {
+						op := wire.OutPoint{
+							Hash:  tx.TxHash(),
+							Index: uint32(i),
+						}
+						foundOutPoints[op] = addr
+					}
+				}
+			}
+		}
+	}
+
+	// Check each watched external address.
 	for scopedIdx, addr := range req.ExternalAddrs {
 		txns, idx, err := c.filterAddressInBlocks(ctx, addr, req.Blocks)
 		if err != nil {
 			log.Warnf("Failed to filter address %s: %v", addr, err)
 			continue
 		}
-
 		if len(txns) > 0 {
-			relevantTxns = append(relevantTxns, txns...)
-			if !foundRelevant || idx < batchIndex {
-				batchIndex = idx
-			}
-			foundRelevant = true
-
-			if foundExternalAddrs[scopedIdx.Scope] == nil {
-				foundExternalAddrs[scopedIdx.Scope] = make(map[uint32]struct{})
-			}
-			foundExternalAddrs[scopedIdx.Scope][scopedIdx.Index] = struct{}{}
-
-			for _, tx := range txns {
-				for i, txOut := range tx.TxOut {
-					_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-						txOut.PkScript, c.chainParams,
-					)
-					if err != nil {
-						continue
-					}
-					for _, a := range addrs {
-						if a.EncodeAddress() == addr.EncodeAddress() {
-							op := wire.OutPoint{
-								Hash:  tx.TxHash(),
-								Index: uint32(i),
-							}
-							foundOutPoints[op] = addr
-						}
-					}
-				}
-			}
-
+			processAddressMatch(scopedIdx, addr, txns, idx, true)
 			log.Tracef("FilterBlocks: found %d txs for external addr %s (scope=%v, index=%d)",
 				len(txns), addr.EncodeAddress(), scopedIdx.Scope, scopedIdx.Index)
 		}
 	}
 
-	// Check each watched internal address for activity in the requested blocks.
+	// Check each watched internal address.
 	for scopedIdx, addr := range req.InternalAddrs {
 		txns, idx, err := c.filterAddressInBlocks(ctx, addr, req.Blocks)
 		if err != nil {
 			log.Warnf("Failed to filter address %s: %v", addr, err)
 			continue
 		}
-
 		if len(txns) > 0 {
-			relevantTxns = append(relevantTxns, txns...)
+			processAddressMatch(scopedIdx, addr, txns, idx, false)
+			log.Tracef("FilterBlocks: found %d txs for internal addr %s (scope=%v, index=%d)",
+				len(txns), addr.EncodeAddress(), scopedIdx.Scope, scopedIdx.Index)
+		}
+	}
+
+	// Check watched outpoints for spends.
+	for outpoint, addr := range req.WatchedOutPoints {
+		txns, idx, err := c.filterOutpointSpend(ctx, outpoint, req.Blocks)
+		if err != nil {
+			log.Warnf("Failed to check outpoint %v: %v", outpoint, err)
+			continue
+		}
+		if len(txns) > 0 {
+			for _, tx := range txns {
+				txHash := tx.TxHash()
+				if _, seen := seenTxs[txHash]; !seen {
+					relevantTxns = append(relevantTxns, tx)
+					seenTxs[txHash] = struct{}{}
+				}
+			}
 			if !foundRelevant || idx < batchIndex {
 				batchIndex = idx
 			}
 			foundRelevant = true
-
-			if foundInternalAddrs[scopedIdx.Scope] == nil {
-				foundInternalAddrs[scopedIdx.Scope] = make(map[uint32]struct{})
-			}
-			foundInternalAddrs[scopedIdx.Scope][scopedIdx.Index] = struct{}{}
-
-			for _, tx := range txns {
-				for i, txOut := range tx.TxOut {
-					_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-						txOut.PkScript, c.chainParams,
-					)
-					if err != nil {
-						continue
-					}
-					for _, a := range addrs {
-						if a.EncodeAddress() == addr.EncodeAddress() {
-							op := wire.OutPoint{
-								Hash:  tx.TxHash(),
-								Index: uint32(i),
-							}
-							foundOutPoints[op] = addr
-						}
-					}
-				}
-			}
-
-			log.Tracef("FilterBlocks: found %d txs for internal addr %s (scope=%v, index=%d)",
-				len(txns), addr.EncodeAddress(), scopedIdx.Scope, scopedIdx.Index)
+			log.Debugf("FilterBlocks: found spend of outpoint %v (addr=%s)",
+				outpoint, addr.EncodeAddress())
 		}
 	}
 
@@ -562,6 +577,38 @@ func (c *ChainClient) filterBlocksByAddress(
 		FoundOutPoints:     foundOutPoints,
 		RelevantTxns:       relevantTxns,
 	}, nil
+}
+
+// filterOutpointSpend checks if an outpoint was spent in any of the given blocks.
+func (c *ChainClient) filterOutpointSpend(ctx context.Context,
+	outpoint wire.OutPoint,
+	blocks []wtxmgr.BlockMeta) ([]*wire.MsgTx, uint32, error) {
+
+	// Check if the outpoint has been spent.
+	outSpend, err := c.client.GetTxOutSpend(ctx, outpoint.Hash.String(), outpoint.Index)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if !outSpend.Spent || !outSpend.Status.Confirmed {
+		return nil, 0, nil
+	}
+
+	// Check if the spending tx is in one of our blocks.
+	blockHeights := make(map[int32]int)
+	for i, block := range blocks {
+		blockHeights[block.Height] = i
+	}
+
+	if idx, ok := blockHeights[int32(outSpend.Status.BlockHeight)]; ok {
+		tx, err := c.client.GetRawTransactionMsgTx(ctx, outSpend.TxID)
+		if err != nil {
+			return nil, 0, err
+		}
+		return []*wire.MsgTx{tx}, uint32(idx), nil
+	}
+
+	return nil, 0, nil
 }
 
 // maxConcurrentBlockFetches is the maximum number of concurrent block fetches.
@@ -622,11 +669,6 @@ func (c *ChainClient) filterBlocksByScanning(
 			// Use GetBlockTxs which returns addresses directly - single API call per block.
 			txInfos, err := c.client.GetBlockTxs(ctx, meta.Hash.String())
 			blockTxsChan <- blockTxsResult{blockIdx: idx, txInfos: txInfos, err: err}
-
-			// Log progress for long operations.
-			if (idx+1)%100 == 0 {
-				log.Infof("FilterBlocks: fetched %d/%d blocks", idx+1, len(req.Blocks))
-			}
 		}(i, blockMeta)
 	}
 
@@ -685,13 +727,13 @@ func (c *ChainClient) filterBlocksByScanning(
 				// Check if this input spends a watched outpoint.
 				if addr, ok := req.WatchedOutPoints[prevOutpoint]; ok {
 					txIsRelevant = true
-					log.Infof("FilterBlocks: found spend of watched outpoint %v (addr=%s) in block %d",
+					log.Debugf("FilterBlocks: found spend of watched outpoint %v (addr=%s) in block %d",
 						prevOutpoint, addr.EncodeAddress(), blockMeta.Height)
 				}
 				// Check if this input spends an outpoint we found in this scan.
 				if addr, ok := foundOutPoints[prevOutpoint]; ok {
 					txIsRelevant = true
-					log.Infof("FilterBlocks: found spend of found outpoint %v (addr=%s) in block %d",
+					log.Debugf("FilterBlocks: found spend of found outpoint %v (addr=%s) in block %d",
 						prevOutpoint, addr.EncodeAddress(), blockMeta.Height)
 				}
 			}
@@ -720,7 +762,7 @@ func (c *ChainClient) filterBlocksByScanning(
 					op := wire.OutPoint{Hash: *txHash, Index: uint32(i)}
 					foundOutPoints[op] = req.ExternalAddrs[scopedIdx]
 
-					log.Infof("FilterBlocks: found output for external addr %s (scope=%v, index=%d) in block %d, value=%d",
+					log.Debugf("FilterBlocks: found output for external addr %s (scope=%v, index=%d) in block %d, value=%d",
 						addrStr, scopedIdx.Scope, scopedIdx.Index, blockMeta.Height, vout.Value)
 				}
 
@@ -736,7 +778,7 @@ func (c *ChainClient) filterBlocksByScanning(
 					op := wire.OutPoint{Hash: *txHash, Index: uint32(i)}
 					foundOutPoints[op] = req.InternalAddrs[scopedIdx]
 
-					log.Infof("FilterBlocks: found output for internal addr %s (scope=%v, index=%d) in block %d, value=%d",
+					log.Debugf("FilterBlocks: found output for internal addr %s (scope=%v, index=%d) in block %d, value=%d",
 						addrStr, scopedIdx.Scope, scopedIdx.Index, blockMeta.Height, vout.Value)
 				}
 			}
@@ -791,96 +833,6 @@ func (c *ChainClient) filterBlocksByScanning(
 		FoundOutPoints:     foundOutPoints,
 		RelevantTxns:       relevantTxns,
 	}, nil
-}
-
-// maxConcurrentTxFetches is the maximum number of concurrent transaction fetches.
-const maxConcurrentTxFetches = 10
-
-// getBlockTransactions fetches all transactions for a block using parallel fetching.
-func (c *ChainClient) getBlockTransactions(ctx context.Context,
-	blockHash *chainhash.Hash) ([]*wire.MsgTx, error) {
-
-	// Get transaction IDs for the block.
-	txids, err := c.client.GetBlockTxIDs(ctx, blockHash.String())
-	if err != nil {
-		return nil, fmt.Errorf("failed to get block txids: %w", err)
-	}
-
-	if len(txids) == 0 {
-		return nil, nil
-	}
-
-	// For small blocks, fetch sequentially to avoid overhead.
-	if len(txids) <= 2 {
-		txs := make([]*wire.MsgTx, 0, len(txids))
-		for _, txid := range txids {
-			tx, err := c.client.GetRawTransactionMsgTx(ctx, txid)
-			if err != nil {
-				log.Warnf("Failed to get tx %s: %v", txid, err)
-				continue
-			}
-			txs = append(txs, tx)
-		}
-		return txs, nil
-	}
-
-	// For larger blocks, fetch transactions in parallel.
-	type txResult struct {
-		index int
-		tx    *wire.MsgTx
-		err   error
-	}
-
-	results := make(chan txResult, len(txids))
-	semaphore := make(chan struct{}, maxConcurrentTxFetches)
-
-	var wg sync.WaitGroup
-	for i, txid := range txids {
-		wg.Add(1)
-		go func(idx int, id string) {
-			defer wg.Done()
-
-			// Acquire semaphore.
-			select {
-			case semaphore <- struct{}{}:
-				defer func() { <-semaphore }()
-			case <-ctx.Done():
-				results <- txResult{index: idx, err: ctx.Err()}
-				return
-			}
-
-			tx, err := c.client.GetRawTransactionMsgTx(ctx, id)
-			results <- txResult{index: idx, tx: tx, err: err}
-		}(i, txid)
-	}
-
-	// Wait for all goroutines to complete.
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	// Collect results maintaining order.
-	txsByIndex := make(map[int]*wire.MsgTx)
-	for result := range results {
-		if result.err != nil {
-			log.Warnf("Failed to get tx at index %d: %v", result.index, result.err)
-			continue
-		}
-		if result.tx != nil {
-			txsByIndex[result.index] = result.tx
-		}
-	}
-
-	// Build ordered slice.
-	txs := make([]*wire.MsgTx, 0, len(txsByIndex))
-	for i := 0; i < len(txids); i++ {
-		if tx, ok := txsByIndex[i]; ok {
-			txs = append(txs, tx)
-		}
-	}
-
-	return txs, nil
 }
 
 // filterAddressInBlocks checks if an address has any activity in the given blocks.

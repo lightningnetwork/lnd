@@ -1344,15 +1344,27 @@ func (c *ChainClient) scanAddressHistory(ctx context.Context,
 
 	log.Debugf("Found %d transactions for address %s", len(txs), addrStr)
 
+	// Filter and collect confirmed transactions above startHeight.
+	var confirmedTxs []*TxInfo
 	for _, txInfo := range txs {
 		if !txInfo.Status.Confirmed {
 			continue
 		}
-
 		if int32(txInfo.Status.BlockHeight) < startHeight {
 			continue
 		}
+		confirmedTxs = append(confirmedTxs, txInfo)
+	}
 
+	// Sort transactions by block height (oldest first).
+	// This is critical for proper UTXO tracking - the wallet must see
+	// funding transactions before spending transactions.
+	sortTxInfoByHeight(confirmedTxs)
+
+	log.Debugf("Processing %d confirmed transactions for address %s (sorted by height)",
+		len(confirmedTxs), addrStr)
+
+	for _, txInfo := range confirmedTxs {
 		// Fetch the full transaction.
 		tx, err := c.client.GetRawTransactionMsgTx(ctx, txInfo.TxID)
 		if err != nil {
@@ -1364,6 +1376,9 @@ func (c *ChainClient) scanAddressHistory(ctx context.Context,
 		if err != nil {
 			continue
 		}
+
+		log.Tracef("Sending tx %s at height %d for address %s",
+			txInfo.TxID, txInfo.Status.BlockHeight, addrStr)
 
 		// Send relevant transaction notification.
 		c.notificationChan <- chain.RelevantTx{
@@ -1384,6 +1399,25 @@ func (c *ChainClient) scanAddressHistory(ctx context.Context,
 	}
 
 	return nil
+}
+
+// sortTxInfoByHeight sorts transactions by block height in ascending order
+// (oldest first). For transactions in the same block, sort by txid for
+// deterministic ordering.
+func sortTxInfoByHeight(txs []*TxInfo) {
+	for i := 0; i < len(txs)-1; i++ {
+		for j := i + 1; j < len(txs); j++ {
+			// Sort by height first
+			if txs[i].Status.BlockHeight > txs[j].Status.BlockHeight {
+				txs[i], txs[j] = txs[j], txs[i]
+			} else if txs[i].Status.BlockHeight == txs[j].Status.BlockHeight {
+				// Same height, sort by txid for deterministic order
+				if txs[i].TxID > txs[j].TxID {
+					txs[i], txs[j] = txs[j], txs[i]
+				}
+			}
+		}
+	}
 }
 
 // NotifyReceived marks an address for transaction notifications.

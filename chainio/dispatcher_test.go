@@ -183,6 +183,7 @@ func TestRegisterQueue(t *testing.T) {
 
 	// Create a new dispatcher.
 	b := NewBlockbeatDispatcher(mockNotifier)
+	defer b.Stop()
 
 	// Register the consumers.
 	b.RegisterQueue(consumers)
@@ -208,6 +209,7 @@ func TestStartDispatcher(t *testing.T) {
 
 	// Create a new dispatcher.
 	b := NewBlockbeatDispatcher(mockNotifier)
+	defer b.Stop()
 
 	// Start the dispatcher without consumers should return an error.
 	err := b.Start()
@@ -247,6 +249,7 @@ func TestDispatchBlocks(t *testing.T) {
 
 	// Create a new dispatcher.
 	b := NewBlockbeatDispatcher(mockNotifier)
+	defer b.Stop()
 
 	// Create the beat and attach it to the dispatcher.
 	epoch := chainntnfs.BlockEpoch{Height: 1}
@@ -323,6 +326,7 @@ func TestNotifyQueuesSuccess(t *testing.T) {
 
 	// Create a new dispatcher.
 	b := NewBlockbeatDispatcher(mockNotifier)
+	defer b.Stop()
 
 	// Register the queues.
 	b.RegisterQueue(queue1)
@@ -366,6 +370,7 @@ func TestNotifyQueuesError(t *testing.T) {
 
 	// Create a new dispatcher.
 	b := NewBlockbeatDispatcher(mockNotifier)
+	defer b.Stop()
 
 	// Register the queues.
 	b.RegisterQueue(queue)
@@ -408,6 +413,7 @@ func TestCurrentHeight(t *testing.T) {
 
 	// Create a new dispatcher.
 	b := NewBlockbeatDispatcher(mockNotifier)
+	defer b.Stop()
 
 	// Register the queues.
 	b.RegisterQueue(queue)

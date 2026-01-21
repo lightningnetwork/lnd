@@ -81,6 +81,9 @@ type Config struct {
 	// stream of peer online/offline events.
 	SubscribePeerEvents func() (subscribe.Subscription, error)
 
+	// IsPeerOnline returns true if the peer is currently online.
+	IsPeerOnline func(route.Vertex) bool
+
 	// GetOpenChannels provides a list of existing open channels which is
 	// used to populate the ChannelEventStore with a set of channels on
 	// startup.
@@ -258,8 +261,7 @@ func (c *ChannelEventStore) addChannel(channelPoint wire.OutPoint,
 
 // getOrCreatePeerMonitor tries to get an existing peer monitor from our in
 // memory list. If the peer is not yet known to us, it will create a new
-// monitor and add it to the list. When a new monitor is created, we also send
-// an initial online event for the peer.
+// monitor and add it to the list.
 func (c *ChannelEventStore) getOrCreatePeerMonitor(
 	peer route.Vertex) (peerMonitor, error) {
 
@@ -291,8 +293,12 @@ func (c *ChannelEventStore) getOrCreatePeerMonitor(
 	peerMonitor = newPeerLog(c.cfg.Clock, flapCount, lastFlap)
 	c.peers[peer] = peerMonitor
 
-	// Send an online event given it's the first time we see this peer.
-	peerMonitor.onlineEvent(true)
+	initiallyOnline := true
+	if c.cfg.IsPeerOnline != nil {
+		initiallyOnline = c.cfg.IsPeerOnline(peer)
+	}
+
+	peerMonitor.onlineEvent(initiallyOnline)
 
 	return peerMonitor, nil
 }

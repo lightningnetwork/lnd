@@ -1651,6 +1651,12 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		SubscribePeerEvents: func() (subscribe.Subscription, error) {
 			return s.peerNotifier.SubscribePeerEvents()
 		},
+		IsPeerOnline: func(peer route.Vertex) bool {
+			s.mu.RLock()
+			_, ok := s.peersByPub[string(peer[:])]
+			s.mu.RUnlock()
+			return ok
+		},
 		GetOpenChannels: s.chanStateDB.FetchAllOpenChannels,
 		Clock:           clock.NewDefaultClock(),
 		ReadFlapCount:   s.miscDB.ReadFlapCount,

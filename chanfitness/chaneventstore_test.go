@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/subscribe"
+	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/stretchr/testify/require"
 )
 
@@ -286,6 +287,68 @@ func TestGetChanInfo(t *testing.T) {
 	require.Equal(t, time.Hour, info.Uptime)
 
 	ctx.stop()
+}
+
+// TestGetChanInfoOfflinePeerAtStartup tests that if a peer is currently offline
+// when it is first tracked (e.g. on startup), we do not over-report uptime.
+func TestGetChanInfoOfflinePeerAtStartup(t *testing.T) {
+	clock := clock.NewTestClock(testNow)
+
+	chanSub := newMockSubscription(t)
+	peerSub := newMockSubscription(t)
+
+	// Create a peer and channel that will be added on store startup.
+	pubKey := btcec.NewPublicKey(
+		new(btcec.FieldVal).SetInt(0),
+		new(btcec.FieldVal).SetInt(1),
+	)
+
+	peer, err := route.NewVertexFromBytes(pubKey.SerializeCompressed())
+	require.NoError(t, err)
+
+	chanPoint := wire.OutPoint{Index: 1}
+
+	store := NewChannelEventStore(&Config{
+		SubscribeChannelEvents: func() (subscribe.Subscription, error) {
+			return chanSub, nil
+		},
+		SubscribePeerEvents: func() (subscribe.Subscription, error) {
+			return peerSub, nil
+		},
+		IsPeerOnline: func(route.Vertex) bool {
+			return false
+		},
+		GetOpenChannels: func() ([]*channeldb.OpenChannel, error) {
+			return []*channeldb.OpenChannel{
+				{
+					FundingOutpoint: chanPoint,
+					IdentityPub:     pubKey,
+				},
+			}, nil
+		},
+		Clock: clock,
+		WriteFlapCount: func(map[route.Vertex]*channeldb.FlapCount) error {
+			return nil
+		},
+		ReadFlapCount: func(route.Vertex) (*channeldb.FlapCount, error) {
+			return nil, channeldb.ErrNoPeerBucket
+		},
+		FlapCountTicker: ticker.NewForce(FlapCountFlushRate),
+	})
+
+	require.NoError(t, store.Start())
+
+	t.Cleanup(func() {
+		require.NoError(t, store.Stop())
+	})
+
+	// After an hour, lifetime increases but uptime remains zero.
+	clock.SetTime(testNow.Add(time.Hour))
+
+	info, err := store.GetChanInfo(chanPoint, peer)
+	require.NoError(t, err)
+	require.Equal(t, time.Hour, info.Lifetime)
+	require.Zero(t, info.Uptime)
 }
 
 // TestFlapCount tests querying the store for peer flap counts, covering the

@@ -41,6 +41,10 @@ type estimateRouteFeeTestCase struct {
 	// routeHints are the route hints that will be used for the probe.
 	routeHints []*lnrpc.RouteHint
 
+	// outgoingChanIds is the list of channel IDs allowed for the first
+	// hop. If empty, any channel may be used.
+	outgoingChanIds []uint64
+
 	// expectedRoutingFeesMsat are the expected routing fees that will be
 	// returned by the probe.
 	expectedRoutingFeesMsat int64
@@ -153,6 +157,20 @@ func testEstimateRouteFee(ht *lntest.HarnessTest) {
 	)
 	require.Len(ht, davesPrivChannels.Channels, 1)
 	daveFrankChanID := davesPrivChannels.Channels[0].ChanId
+
+	// Get Alice's public channels to find the Alice-Carol channel ID.
+	alicesChannels := mts.alice.RPC.ListChannels(&lnrpc.ListChannelsRequest{})
+	require.GreaterOrEqual(ht, len(alicesChannels.Channels), 2)
+
+	// Find the Alice-Carol channel by checking the remote pubkey.
+	var aliceCarolChanID uint64
+	for _, ch := range alicesChannels.Channels {
+		if ch.RemotePubkey == mts.carol.PubKeyStr {
+			aliceCarolChanID = ch.ChanId
+			break
+		}
+	}
+	require.NotZero(ht, aliceCarolChanID, "Alice-Carol channel not found")
 
 	// Let's disable the paths from Alice to Bob through Dave and Eve with
 	// high fees. This ensures that the path estimates are based on Carol's
@@ -441,6 +459,30 @@ func testEstimateRouteFee(ht *lntest.HarnessTest) {
 				highestFeeRouteDelta,
 			expectedFailureReason: failureReasonNone,
 		},
+		// Test graph-based estimation with a specific outgoing channel.
+		// We specify the Alice-Carol channel, so the route should go
+		// through Carol to Bob.
+		{
+			name: "graph based estimate with " +
+				"outgoing channel",
+			probing:                 false,
+			destination:             mts.bob,
+			outgoingChanIds:         []uint64{aliceCarolChanID},
+			expectedRoutingFeesMsat: feeStandardSingleHop,
+			expectedCltvDelta:       locktime + deltaCB,
+			expectedFailureReason:   failureReasonNone,
+		},
+		// Test graph-based estimation with a non-existent outgoing
+		// channel. This should fail because the specified channel
+		// doesn't exist and has no balance.
+		{
+			name: "graph based estimate with " +
+				"invalid outgoing channel",
+			probing:         false,
+			destination:     mts.bob,
+			outgoingChanIds: []uint64{999999999},
+			expectedError:   "insufficient local balance",
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -467,13 +509,15 @@ func runFeeEstimationTestCase(ht *lntest.HarnessTest,
 			tc.destination, probeAmount, 1, tc.routeHints...,
 		)
 		feeReq = &routerrpc.RouteFeeRequest{
-			PaymentRequest: payReqs[0],
-			Timeout:        uint32(wait.PaymentTimeout.Seconds()),
+			PaymentRequest:  payReqs[0],
+			Timeout:         uint32(wait.PaymentTimeout.Seconds()),
+			OutgoingChanIds: tc.outgoingChanIds,
 		}
 	} else {
 		feeReq = &routerrpc.RouteFeeRequest{
-			Dest:   tc.destination.PubKey[:],
-			AmtSat: int64(probeAmount),
+			Dest:            tc.destination.PubKey[:],
+			AmtSat:          int64(probeAmount),
+			OutgoingChanIds: tc.outgoingChanIds,
 		}
 	}
 

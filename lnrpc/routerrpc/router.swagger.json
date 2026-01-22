@@ -1429,7 +1429,12 @@
         "UNKNOWN_INVOICE",
         "INVALID_KEYSEND",
         "MPP_IN_PROGRESS",
-        "CIRCULAR_ROUTE"
+        "CIRCULAR_ROUTE",
+        "INVOICE_ALREADY_SETTLED",
+        "HTLC_INVOICE_TYPE_MISMATCH",
+        "AMP_ERROR",
+        "AMP_RECONSTRUCTION",
+        "EXTERNAL_VALIDATION_FAILED"
       ],
       "default": "UNKNOWN"
     },

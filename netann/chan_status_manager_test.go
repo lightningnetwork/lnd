@@ -752,14 +752,16 @@ var stateMachineTests = []stateMachineTest{
 
 			// Now, insert edge policies for the channel into the
 			// graph, starting with the channel enabled, and mark
-			// the link active.
+			// the link active. Mark the channels active first to
+			// avoid a race where the manager's ticker fires after
+			// adding edge policies but before marking active.
+			h.markActive(newChans)
 			for _, c := range newChans {
 				info, pol1, pol2 := createEdgePolicies(
 					h.t, c, h.ourPubKey, true,
 				)
 				h.graph.addEdgePolicy(c, info, pol1, pol2)
 			}
-			h.markActive(newChans)
 
 			// We expect no updates to be sent since the channel is
 			// enabled and active.

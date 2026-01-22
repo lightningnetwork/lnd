@@ -1404,6 +1404,25 @@
         }
       }
     },
+    "routerrpcDeleteForwardingHistoryResponse": {
+      "type": "object",
+      "properties": {
+        "events_deleted": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Number of forwarding events deleted."
+        },
+        "total_fee_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "Total fees earned from deleted events (in millisatoshis).\nThis is the sum of (amt_in - amt_out) for all deleted events, which\ncan be used for accounting purposes."
+        },
+        "status": {
+          "type": "string",
+          "description": "Status message."
+        }
+      }
+    },
     "routerrpcFailureDetail": {
       "type": "string",
       "enum": [

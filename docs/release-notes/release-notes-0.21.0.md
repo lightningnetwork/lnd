@@ -95,6 +95,11 @@
 
 ## RPC Updates
 
+* [Enabled rich gRPC status error support in the middleware
+  API](https://github.com/lightningnetwork/lnd/pull/10458), allowing middleware
+  to inspect and modify full gRPC error details including error codes, not just
+  plain error strings.
+
 ## lncli Updates
 
 ## Breaking Changes

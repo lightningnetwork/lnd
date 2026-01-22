@@ -45,6 +45,13 @@ CP := cp
 MAKE := make
 XARGS := xargs -L 1
 
+OS                                      :=$(shell uname -s)
+export OS
+OS_VERSION                              :=$(shell uname -r)
+
+CHECK_MARK                              :=\033[0;32m\xE2\x9C\x94\033[0m
+export CHECK_MARK
+
 include make/testing_flags.mk
 include make/release_flags.mk
 include make/fuzz_flags.mk
@@ -195,6 +202,47 @@ docker-release:
 docker-tools:
 	@$(call print, "Building tools docker image.")
 	docker build -q -t lnd-tools $(TOOLS_DIR)
+
+.ONESHELL:
+docker-start:
+##docker-start
+##	start docker on Linux or Darwin
+	@( \
+		PID=$!;trap handler SIGINT;\
+		while kill -0 $(PID) > /dev/null 2>&1; do \
+			wait $(PID); \
+		done; \
+	)
+	@( \
+		$(call print, "Waiting for docker to start"); \
+		while ! docker system info > /dev/null 2>&1; do \
+			clear; \
+			$(call print, "Waiting for docker to start."); \
+			sleep 1; \
+			( \
+			if [[ '$(OS)' == 'Linux' ]]; then \
+				type -P systemctl 2>/dev/null 2>&1 && \
+				systemctl restart docker.service || \
+				type -P service 2>/dev/null 2>&1 && \
+				service restart docker; \
+			fi; \
+			clear; \
+			$(call print, "Waiting for docker to start.."); \
+			sleep 1; \
+			if [[ '$(OS)' == 'Darwin' ]]; then \
+				open --background -a /./Applications/Docker.app/Contents/MacOS/Docker; \
+			fi; \
+			clear; \
+			$(call print, "Waiting for docker to start..."); \
+			sleep 1; \
+			clear; \
+			$(call print, "Waiting for docker to start...."); \
+			); \
+		done; \
+	echo -e "\\r${CHECK_MARK} docker started..."; \
+	)
+
+
 
 scratch: build
 

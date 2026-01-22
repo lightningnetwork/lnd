@@ -186,6 +186,9 @@ func rpcFailureResolution(invoiceFailure invoices.FailResolutionResult) (
 	case invoices.ResultInvoiceNotOpen:
 		return FailureDetail_INVOICE_NOT_OPEN, nil
 
+	case invoices.ResultInvoiceAlreadySettled:
+		return FailureDetail_INVOICE_ALREADY_SETTLED, nil
+
 	case invoices.ResultMppTimeout:
 		return FailureDetail_MPP_INVOICE_TIMEOUT, nil
 
@@ -209,6 +212,18 @@ func rpcFailureResolution(invoiceFailure invoices.FailResolutionResult) (
 
 	case invoices.ResultMppInProgress:
 		return FailureDetail_MPP_IN_PROGRESS, nil
+
+	case invoices.ResultHtlcInvoiceTypeMismatch:
+		return FailureDetail_HTLC_INVOICE_TYPE_MISMATCH, nil
+
+	case invoices.ResultAmpError:
+		return FailureDetail_AMP_ERROR, nil
+
+	case invoices.ResultAmpReconstruction:
+		return FailureDetail_AMP_RECONSTRUCTION, nil
+
+	case invoices.ExternalValidationFailed:
+		return FailureDetail_EXTERNAL_VALIDATION_FAILED, nil
 
 	default:
 		return 0, fmt.Errorf("unknown fail resolution: %v",

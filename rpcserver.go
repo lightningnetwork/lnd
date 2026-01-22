@@ -7377,7 +7377,8 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	}
 	start := time.Now()
 	diameter := simpleGraph.DiameterRadialCutoff()
-	rpcsLog.Infof("elapsed time for diameter (%d) calculation: %v", diameter,
+
+	rpcsLog.Tracef("elapsed time for diameter (%d) calculation: %v", diameter,
 		time.Since(start))
 
 	// TODO(roasbeef): also add oldest channel?

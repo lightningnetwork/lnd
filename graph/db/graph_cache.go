@@ -192,14 +192,14 @@ func (c *GraphCache) UpdatePolicy(policy *models.CachedEdgePolicy, fromNode,
 
 	updatePolicy := func(nodeKey route.Vertex) {
 		if len(c.nodeChannels[nodeKey]) == 0 {
-			log.Warnf("Node=%v not found in graph cache", nodeKey)
+			log.Debugf("Node=%v not found in graph cache", nodeKey)
 
 			return
 		}
 
 		channel, ok := c.nodeChannels[nodeKey][policy.ChannelID]
 		if !ok {
-			log.Warnf("Channel=%v not found in graph cache",
+			log.Debugf("Channel=%v not found in graph cache",
 				policy.ChannelID)
 
 			return

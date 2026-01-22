@@ -133,8 +133,7 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 
 			//nolint:ll
 			chanAnn, edge1, edge2, err := netann.CreateChanAnnouncement(
-				channel.Info.AuthProof, channel.Info,
-				channel.Policy1, channel.Policy2,
+				channel.Info, channel.Policy1, channel.Policy2,
 			)
 			if err != nil {
 				if !yield(nil, err) {
@@ -281,8 +280,7 @@ func (c *ChanSeries) FetchChanAnns(chain chainhash.Hash,
 		}
 
 		chanAnn, edge1, edge2, err := netann.CreateChanAnnouncement(
-			channel.Info.AuthProof, channel.Info, channel.Policy1,
-			channel.Policy2,
+			channel.Info, channel.Policy1, channel.Policy2,
 		)
 		if err != nil {
 			return nil, err

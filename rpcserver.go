@@ -704,7 +704,7 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 	invoiceHtlcModifier *invoices.HtlcModificationInterceptor) error {
 
 	// Set up router rpc backend.
-	selfNode, err := s.graphDB.SourceNode(ctx)
+	selfNode, err := s.v1Graph.SourceNode(ctx)
 	if err != nil {
 		return err
 	}
@@ -746,7 +746,7 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 			return info.NodeKey1Bytes, info.NodeKey2Bytes, nil
 		},
 		HasNode: func(nodePub route.Vertex) (bool, error) {
-			_, exists, err := graph.HasNode(ctx, nodePub)
+			exists, err := s.v1Graph.HasNode(ctx, nodePub)
 
 			return exists, err
 		},
@@ -1821,8 +1821,8 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 	// channels signed the message.
 	//
 	// TODO(phlip9): Require valid nodes to have capital in active channels.
-	graph := r.server.graphDB
-	_, active, err := graph.HasNode(ctx, pub)
+	graph := r.server.v1Graph
+	active, err := graph.HasNode(ctx, pub)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query graph: %w", err)
 	}
@@ -4994,7 +4994,7 @@ func createRPCOpenChannel(ctx context.Context, r *rpcServer,
 
 	// Look up our channel peer's node alias if the caller requests it.
 	if peerAliasLookup {
-		peerAlias, err := r.server.graphDB.LookupAlias(ctx, nodePub)
+		peerAlias, err := r.server.v1Graph.LookupAlias(ctx, nodePub)
 		if err != nil {
 			peerAlias = fmt.Sprintf("unable to lookup "+
 				"peer alias: %v", err)
@@ -6979,10 +6979,10 @@ func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo,
 	// channel announcement.
 	if includeAuthProof && edgeInfo.AuthProof != nil {
 		edge.AuthProof = &lnrpc.ChannelAuthProof{
-			NodeSig1:    edgeInfo.AuthProof.NodeSig1Bytes,
-			BitcoinSig1: edgeInfo.AuthProof.BitcoinSig1Bytes,
-			NodeSig2:    edgeInfo.AuthProof.NodeSig2Bytes,
-			BitcoinSig2: edgeInfo.AuthProof.BitcoinSig2Bytes,
+			NodeSig1:    edgeInfo.AuthProof.NodeSig1(),
+			BitcoinSig1: edgeInfo.AuthProof.BitcoinSig1(),
+			NodeSig2:    edgeInfo.AuthProof.NodeSig2(),
+			BitcoinSig2: edgeInfo.AuthProof.BitcoinSig2(),
 		}
 	}
 
@@ -7142,7 +7142,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 			"include_channels")
 	}
 
-	graph := r.server.graphDB
+	graph := r.server.v1Graph
 
 	// First, parse the hex-encoded public key into a full in-memory public
 	// key object we can work with for querying.
@@ -7908,7 +7908,7 @@ const feeBase float64 = 1000000
 func (r *rpcServer) FeeReport(ctx context.Context,
 	_ *lnrpc.FeeReportRequest) (*lnrpc.FeeReportResponse, error) {
 
-	channelGraph := r.server.graphDB
+	channelGraph := r.server.v1Graph
 	selfNode, err := channelGraph.SourceNode(ctx)
 	if err != nil {
 		return nil, err
@@ -8297,7 +8297,7 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 			return "", err
 		}
 
-		peer, err := r.server.graphDB.FetchNode(ctx, vertex)
+		peer, err := r.server.v1Graph.FetchNode(ctx, vertex)
 		if err != nil {
 			return "", err
 		}

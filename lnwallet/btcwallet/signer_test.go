@@ -1,6 +1,7 @@
 package btcwallet
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"math"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
@@ -349,4 +351,183 @@ func getChainBackend(t *testing.T, netParams *chaincfg.Params) (chain.Interface,
 // hardenedKey returns a key of a hardened derivation key path.
 func hardenedKey(part uint32) uint32 {
 	return part + hdkeychain.HardenedKeyStart
+}
+
+// TestMaybeTweakPrivKey tests the maybeTweakPrivKey function to ensure it
+// correctly applies single tweaks, double tweaks, both tweaks combined, and
+// handles the case where no tweaks are applied.
+func TestMaybeTweakPrivKey(t *testing.T) {
+	// Create a test private key.
+	privKeyBytes, err := hex.DecodeString(
+		"e68abc8e2a7a5b9f0e4a3c7d8b9e6f5" +
+			"a4b3c2d1e0f9e8d7c6b5a4938271605",
+	)
+	require.NoError(t, err)
+	privKey, pubKey := btcec.PrivKeyFromBytes(privKeyBytes)
+
+	// Create test tweak values.
+	singleTweakBytes, err := hex.DecodeString(
+		"1234567890abcdef1234567890abcdef" +
+			"1234567890abcdef1234567890abcdef",
+	)
+	require.NoError(t, err)
+
+	doubleTweakBytes, err := hex.DecodeString(
+		"fedcba0987654321fedcba0987654321" +
+			"fedcba0987654321fedcba0987654321",
+	)
+	require.NoError(t, err)
+	doubleTweak, _ := btcec.PrivKeyFromBytes(doubleTweakBytes)
+
+	testCases := []struct {
+		name        string
+		singleTweak []byte
+		doubleTweak *btcec.PrivateKey
+		validate    func(*testing.T, *btcec.PrivateKey,
+			*btcec.PublicKey)
+	}{
+		{
+			name:        "no tweaks applied",
+			singleTweak: nil,
+			doubleTweak: nil,
+			validate: func(t *testing.T, result *btcec.PrivateKey,
+				_ *btcec.PublicKey) {
+
+				// Should return the original private key
+				// unchanged.
+				require.Equal(
+					t, privKey.Serialize(),
+					result.Serialize(),
+					"expected private key to be unchanged",
+				)
+			},
+		},
+		{
+			name:        "single tweak only",
+			singleTweak: singleTweakBytes,
+			doubleTweak: nil,
+			validate: func(t *testing.T, result *btcec.PrivateKey,
+				_ *btcec.PublicKey) {
+
+				// Manually apply single tweak to verify.
+				expected := input.TweakPrivKey(
+					privKey, singleTweakBytes,
+				)
+				require.Equal(
+					t, expected.Serialize(),
+					result.Serialize(),
+					"single tweak not applied correctly",
+				)
+				// Ensure it's different from the original.
+				require.NotEqual(
+					t, privKey.Serialize(),
+					result.Serialize(),
+					"tweaked key should differ from "+
+						"original",
+				)
+			},
+		},
+		{
+			name:        "double tweak only",
+			singleTweak: nil,
+			doubleTweak: doubleTweak,
+			validate: func(t *testing.T, result *btcec.PrivateKey,
+				_ *btcec.PublicKey) {
+
+				// Manually apply double tweak to verify.
+				expected := input.DeriveRevocationPrivKey(
+					privKey, doubleTweak,
+				)
+				require.Equal(
+					t, expected.Serialize(),
+					result.Serialize(),
+					"double tweak not applied correctly",
+				)
+				// Ensure it's different from the original.
+				require.NotEqual(
+					t, privKey.Serialize(),
+					result.Serialize(),
+					"tweaked key should differ from "+
+						"original",
+				)
+			},
+		},
+		{
+			name:        "both tweaks combined",
+			singleTweak: singleTweakBytes,
+			doubleTweak: doubleTweak,
+			validate: func(t *testing.T, result *btcec.PrivateKey,
+				origPubKey *btcec.PublicKey) {
+
+				// Manually apply both tweaks in order: double
+				// first, then single.
+				afterDouble := input.DeriveRevocationPrivKey(
+					privKey, doubleTweak,
+				)
+				expected := input.TweakPrivKey(
+					afterDouble, singleTweakBytes,
+				)
+				require.Equal(
+					t, expected.Serialize(),
+					result.Serialize(),
+					"combined tweaks not applied correctly",
+				)
+				// Ensure it's different from single tweak only.
+				singleOnly := input.TweakPrivKey(
+					privKey, singleTweakBytes,
+				)
+				require.NotEqual(
+					t, singleOnly.Serialize(),
+					result.Serialize(),
+					"combined tweak should differ from "+
+						"single tweak only",
+				)
+
+				// Calculate the expected tweaked public key by
+				// applying the same tweaks to the original
+				// public key.
+				doubleTweakPub := doubleTweak.PubKey()
+				afterDoublePub := input.DeriveRevocationPubkey(
+					origPubKey, doubleTweakPub,
+				)
+				finalPK := input.TweakPubKeyWithTweak(
+					afterDoublePub, singleTweakBytes,
+				)
+
+				// Verify that the tweaked private key can sign
+				// for the expected tweaked public key.
+				testMsg := []byte("test message for signing")
+				msgHash := sha256.Sum256(testMsg)
+				signature := ecdsa.Sign(result, msgHash[:])
+
+				// Verify the signature with the tweaked public
+				// key.
+				require.True(
+					t,
+					signature.Verify(msgHash[:], finalPK),
+					"signature verification failed for "+
+						"combined tweaked key",
+				)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			// Create a sign descriptor with the test tweaks.
+			signDesc := &input.SignDescriptor{
+				SingleTweak: tc.singleTweak,
+				DoubleTweak: tc.doubleTweak,
+			}
+
+			// Call the function under test.
+			result, err := maybeTweakPrivKey(signDesc, privKey)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+
+			// Validate the result.
+			tc.validate(t, result, pubKey)
+		})
+	}
 }

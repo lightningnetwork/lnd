@@ -295,7 +295,7 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	// propagated.
 	baseFee = int64(800)
 	feeRate = int64(123)
-	timeLockDelta = uint32(24)
+	timeLockDelta = uint32(22)
 	maxHtlc *= 2
 	inboundBaseFee := int32(-400)
 	inboundFeeRatePpm := int32(-60)

@@ -29,8 +29,9 @@ LND is configured for Postgres through the following configuration options:
 * `db.backend=postgres` to select the Postgres backend.
 * `db.postgres.dsn=...` to set the database connection string that includes
   database, user and password.
-* `db.postgres.timeout=...` to set the connection timeout. If not set, no
-  timeout applies.
+* `db.postgres.timeout` is always set to 0 (disabled). This setting is not
+  user-configurable as LND does not properly retry on timeout errors. Any
+  non-zero value will be ignored with a warning logged.
 
 Example as follows:
 ```
@@ -39,8 +40,8 @@ db.backend=postgres
 db.postgres.dsn=postgresql://dbuser:dbpass@127.0.0.1:5432/dbname
 db.postgres.timeout=0
 ```
-Connection timeout is disabled, to account for situations where the database
-might be slow for unexpected reasons.
+Connection timeout is always disabled to prevent issues where LND would fail to
+properly retry after a timeout error occurs.
 
 Moreover for particular kv tables we also add the option to access the
 tables via a global lock (single wirter). This is a temorpary measure until 

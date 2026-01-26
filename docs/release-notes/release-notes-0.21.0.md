@@ -185,6 +185,9 @@
 
 ## Code Health
 
+* [Extends sat/kw support to rbf cooperative channel closes](https://github.com/lightningnetwork/lnd/pull/10425), ensuring consistent fee handling across the
+closing flow and adding `fee_per_kw` to the RPC message `PendingUpdate`.
+
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)

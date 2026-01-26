@@ -12,7 +12,7 @@ const (
 	// We adhere to the recommendation in BOLT 02 for terminal payments.
 	// See also:
 	// https://github.com/lightning/bolts/blob/master/02-peer-protocol.md
-	DefaultAssumedFinalCLTVDelta = 24
+	DefaultAssumedFinalCLTVDelta = 18
 
 	// feeRateParts is the total number of parts used to express fee rates.
 	feeRateParts = 1e6

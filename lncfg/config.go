@@ -20,16 +20,11 @@ const (
 	// DefaultIncomingBroadcastDelta defines the number of blocks before the
 	// expiry of an incoming htlc at which we force close the channel. We
 	// only go to chain if we also have the preimage to actually pull in the
-	// htlc. BOLT #2 suggests 7 blocks. We use more for extra safety.
-	//
-	// The value accounts for:
-	//   - Up to 6 blocks waiting for close tx confirmation (reorg safety)
-	//   - Time to broadcast and confirm our sweep/2nd level success tx
-	//
-	// Within this window we need to get our sweep confirmed, because after
-	// that the remote party is also able to claim the htlc using the
-	// timeout path.
-	DefaultIncomingBroadcastDelta = 16
+	// htlc. BOLT #2 suggests 7 blocks. We use a few more for extra safety.
+	// Within this window we need to get our sweep or 2nd level success tx
+	// confirmed, because after that the remote party is also able to claim
+	// the htlc using the timeout path.
+	DefaultIncomingBroadcastDelta = 10
 
 	// DefaultFinalCltvRejectDelta defines the number of blocks before the
 	// expiry of an incoming exit hop htlc at which we cancel it back

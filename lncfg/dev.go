@@ -5,7 +5,6 @@ package lncfg
 import (
 	"time"
 
-	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 )
 
@@ -58,10 +57,4 @@ func (d *DevConfig) GetMaxWaitNumBlocksFundingConf() uint32 {
 // false for production build.
 func (d *DevConfig) GetUnsafeConnect() bool {
 	return false
-}
-
-// ChannelCloseConfs returns the config value for channel close confirmations
-// override, which is always None for production build.
-func (d *DevConfig) ChannelCloseConfs() fn.Option[uint32] {
-	return fn.None[uint32]()
 }

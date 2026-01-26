@@ -370,12 +370,6 @@ type Config struct {
 	// closure initiated by the remote peer.
 	CoopCloseTargetConfs uint32
 
-	// ChannelCloseConfs is an optional override for the number of
-	// confirmations required for channel closes. When set, this overrides
-	// the normal capacity-based scaling. This is only available in
-	// dev/integration builds for testing purposes.
-	ChannelCloseConfs fn.Option[uint32]
-
 	// ServerPubKey is the serialized, compressed public key of our lnd node.
 	// It is used to determine which policy (channel edge) to pass to the
 	// ChannelLink.
@@ -4450,22 +4444,9 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 	localOut := chanCloser.LocalCloseOutput()
 	remoteOut := chanCloser.RemoteCloseOutput()
 	auxOut := chanCloser.AuxOutputs()
-
-	// Determine the number of confirmations to wait before signaling a
-	// successful cooperative close, scaled by channel capacity (see
-	// CloseConfsForCapacity). Check if we have a config override for
-	// testing purposes.
-	chanCapacity := chanCloser.Channel().Capacity
-	numConfs := p.cfg.ChannelCloseConfs.UnwrapOrFunc(func() uint32 {
-		// No override, use normal capacity-based scaling.
-		return lnwallet.CloseConfsForCapacity(chanCapacity)
-	})
-
-	// Register for full confirmation to send the final update.
-	closeScript := closingTx.TxOut[0].PkScript
 	go WaitForChanToClose(
 		chanCloser.NegotiationHeight(), notifier, errChan,
-		&chanPoint, &closingTxid, closeScript, numConfs, func() {
+		&chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, func() {
 			// Respond to the local subsystem which requested the
 			// channel closure.
 			if closeReq != nil {
@@ -4488,14 +4469,14 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 // the function, then it will be sent over the errChan.
 func WaitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
 	errChan chan error, chanPoint *wire.OutPoint,
-	closingTxID *chainhash.Hash, closeScript []byte, numConfs uint32,
-	cb func()) {
+	closingTxID *chainhash.Hash, closeScript []byte, cb func()) {
 
 	peerLog.Infof("Waiting for confirmation of close of ChannelPoint(%v) "+
 		"with txid: %v", chanPoint, closingTxID)
 
+	// TODO(roasbeef): add param for num needed confs
 	confNtfn, err := notifier.RegisterConfirmationsNtfn(
-		closingTxID, closeScript, numConfs, bestHeight,
+		closingTxID, closeScript, 1, bestHeight,
 	)
 	if err != nil {
 		if errChan != nil {

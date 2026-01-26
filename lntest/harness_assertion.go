@@ -18,7 +18,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -553,10 +552,8 @@ func (h HarnessTest) WaitForChannelCloseEvent(
 	require.NoError(h, err)
 
 	resp, ok := event.Update.(*lnrpc.CloseStatusUpdate_ChanClose)
-	require.Truef(
-		h, ok, "expected channel close update, instead got %T: %v",
-		event.Update, spew.Sdump(event.Update),
-	)
+	require.Truef(h, ok, "expected channel close update, instead got %v",
+		event.Update)
 
 	txid, err := chainhash.NewHash(resp.ChanClose.ClosingTxid)
 	require.NoErrorf(h, err, "wrong format found in closing txid: %v",

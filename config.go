@@ -420,7 +420,9 @@ type Config struct {
 
 	KeepFailedPaymentAttempts bool `long:"keep-failed-payment-attempts" description:"Keeps persistent record of all failed payment attempts for successfully settled payments."`
 
-	StoreFinalHtlcResolutions bool `long:"store-final-htlc-resolutions" description:"Persistently store the final resolution of incoming htlcs."`
+	StoreFinalHtlcResolutions bool `long:"store-final-htlc-resolutions" description:"DEPRECATED: This option is now enabled by default. Use --no-store-final-htlc-resolutions to disable." hidden:"true"`
+
+	NoStoreFinalHtlcResolutions bool `long:"no-store-final-htlc-resolutions" description:"Disable the persistent storage of final HTLC resolutions."`
 
 	DefaultRemoteMaxHtlcs uint16 `long:"default-remote-max-htlcs" description:"The default max_htlc applied when opening or accepting channels. This value limits the number of concurrent HTLCs that the remote party can add to the commitment. The maximum possible value is 483."`
 
@@ -663,6 +665,7 @@ func DefaultConfig() Config {
 		DefaultRemoteMaxHtlcs:         defaultRemoteMaxHtlcs,
 		NumGraphSyncPeers:             defaultMinPeers,
 		HistoricalSyncInterval:        discovery.DefaultHistoricalSyncInterval,
+		StoreFinalHtlcResolutions:     true,
 		Tor: &lncfg.Tor{
 			SOCKS:   defaultTorSOCKS,
 			DNS:     defaultTorDNS,
@@ -1022,6 +1025,12 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	cfg.WalletUnlockPasswordFile = CleanAndExpandPath(
 		cfg.WalletUnlockPasswordFile,
 	)
+
+	// If the user explicitly disabled storing final HTLC resolutions,
+	// override the default value.
+	if cfg.NoStoreFinalHtlcResolutions {
+		cfg.StoreFinalHtlcResolutions = false
+	}
 
 	// Ensure that the user didn't attempt to specify negative values for
 	// any of the autopilot params.

@@ -99,9 +99,16 @@
 
 ## Breaking Changes
 
+* [Enabled `--store-final-htlc-resolutions` by default](https://github.com/lightningnetwork/lnd/pull/10524).
+  LND now persists final HTLC outcomes. Use `--no-store-final-htlc-resolutions`
+  to disable.
+
 ## Performance Improvements
 
 ## Deprecations
+
+* The `--store-final-htlc-resolutions` flag is now deprecated as this behavior
+  is enabled by default. Use `--no-store-final-htlc-resolutions` to disable.
 
 ### ⚠️ **Warning:** The deprecated fee rate option `--sat_per_byte` will be removed in release version **0.22**
 

@@ -1,0 +1,170 @@
+name: PR Severity Classification
+
+on:
+  pull_request:
+    types: [opened, synchronize, labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: pr-severity-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  classify:
+    name: Classify PR Severity
+    runs-on: ubuntu-latest
+    # Skip if PR has skip-severity-check label.
+    # For labeled events, only run if 'reclassify' label was added.
+    if: |
+      !contains(github.event.pull_request.labels.*.name, 'skip-severity-check') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'reclassify')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Classify PR with Claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.PR_SEVERITY_BOT_TOKEN }}
+
+          # Allow Claude to manage labels and post comments.
+          # Keep permissions minimal to limit prompt injection risk.
+          claude_args: --allowedTools "Bash(gh pr view:*)" "Bash(gh pr edit:*)" "Bash(gh pr comment:*)"
+
+          prompt: |
+            You are a PR severity classifier for the lnd (Lightning Network Daemon) repository.
+
+            ## Your Task
+
+            Analyze PR #${{ github.event.pull_request.number }} and:
+            1. Determine its severity level based on the files changed
+            2. Apply the appropriate severity label
+            3. Post a detailed comment explaining your determination
+
+            ## Severity Levels
+
+            **CRITICAL** (severity-critical) - Requires expert review:
+            - lnwallet/* - Wallet operations, channel funding, signing, commitment transactions
+            - htlcswitch/* - HTLC forwarding, payment routing state machine
+            - contractcourt/* - On-chain dispute resolution, breach handling
+            - sweep/* - Output sweeping, fund recovery, fee bumping
+            - peer/*, brontide/* - Encrypted peer connections, Noise protocol
+            - keychain/* - Private key derivation and management
+            - input/* - Script signing, witness generation, MuSig2
+            - channeldb/* - Channel state persistence, database migrations
+            - funding/* - Channel funding workflow coordination
+            - lnwire/* - Lightning wire protocol messages
+            - server.go, rpcserver.go - Core server coordination
+
+            **HIGH** (severity-high) - Requires knowledgeable engineer:
+            - routing/* - Payment pathfinding algorithms
+            - invoices/* - Invoice management and settlement
+            - discovery/* - Gossip protocol
+            - graph/* - Network graph maintenance
+            - watchtower/* - Breach remediation
+            - feature/* - Feature bit management
+            - lnrpc/* - RPC/API definitions
+            - macaroons/*, walletunlocker/*, cert/* - Auth/security
+            - chainntnfs/*, chanacceptor/*, protofsm/*, sqldb/*
+
+            **MEDIUM** (severity-medium) - Focused review:
+            - payments/*, autopilot/*, lncfg/*, chanfitness/*
+            - netann/*, kvdb/*, chanbackup/*, aezeed/*, tor/*
+            - zpay32/*, tlv/*, fn/*, record/*, amp/*
+            - *.proto files (API changes)
+            - Other Go files not categorized above
+
+            **LOW** (severity-low) - Best-effort review:
+            - docs/*, release-notes/*, *.md files
+            - scripts/*, tools/*, contrib/*, make/*, docker/*
+            - itest/*, lntest/*, *_test.go (test-only changes)
+            - .github/* (CI/CD configuration)
+
+            ## Classification Rules
+
+            1. The HIGHEST severity file determines the PR severity
+            2. Bump severity UP one level if:
+               - PR touches >20 files (excluding tests and auto-generated files)
+               - PR has >500 lines changed (excluding tests and auto-generated files)
+               - PR touches multiple distinct critical packages
+            3. Check for override labels first (severity-override-*). If present, respect the override.
+            4. Database migrations (channeldb/migration*, sqldb/*, wtdb/*) are always CRITICAL
+
+            ## Files to Exclude from Line/File Counting
+            When calculating file count and lines changed for severity bumps, exclude:
+            - Test files: *_test.go, itest/*, lntest/*
+            - Auto-generated files: *.pb.go, *.pb.gw.go, *.pb.json.go, *.sql.go, *_generated.go
+            - Mock files: mock_*.go, *_mock.go
+
+            ## Steps
+
+            1. First, check for existing override labels:
+               ```
+               gh pr view ${{ github.event.pull_request.number }} --json labels --jq '.labels[].name'
+               ```
+
+            2. If an override label exists (severity-override-*), use that level and skip classification.
+
+            3. Get the list of changed files:
+               ```
+               gh pr view ${{ github.event.pull_request.number }} --json files,additions,deletions
+               ```
+
+            4. Classify each file and determine overall severity.
+
+            5. Remove any existing severity-* labels (not override labels):
+               ```
+               gh pr edit ${{ github.event.pull_request.number }} --remove-label "severity-critical" 2>/dev/null || true
+               gh pr edit ${{ github.event.pull_request.number }} --remove-label "severity-high" 2>/dev/null || true
+               gh pr edit ${{ github.event.pull_request.number }} --remove-label "severity-medium" 2>/dev/null || true
+               gh pr edit ${{ github.event.pull_request.number }} --remove-label "severity-low" 2>/dev/null || true
+               ```
+
+            6. Apply the new severity label:
+               ```
+               gh pr edit ${{ github.event.pull_request.number }} --add-label "severity-<level>"
+               ```
+
+            7. Post a comment with your analysis. Use this format:
+
+               ```markdown
+               ## <emoji> PR Severity: **<LEVEL>**
+
+               > <source> | <N> files | <M> lines changed
+
+               <details>
+               <summary>🔴 <strong>Critical</strong> (N files)</summary>
+
+               - `path/to/file1.go` - reason
+               - `path/to/file2.go` - reason
+
+               </details>
+
+               [repeat for other tiers if applicable]
+
+               ### Analysis
+
+               <Your explanation of why this severity was chosen, any concerns, etc.>
+
+               ---
+               <sub>To override, add a `severity-override-{critical,high,medium,low}` label.</sub>
+               <!-- pr-severity-bot -->
+               ```
+
+            8. Post the comment using `gh pr comment`:
+               ```
+               gh pr comment ${{ github.event.pull_request.number }} --body "YOUR_COMMENT_HERE"
+               ```
+
+            ## Emoji Mapping
+            - critical: 🔴
+            - high: 🟠
+            - medium: 🟡
+            - low: 🟢

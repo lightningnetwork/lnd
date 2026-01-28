@@ -27,6 +27,11 @@
   `maxchansize`. The `maxchansize` config option is intended only for limiting
   incoming channel requests from peers, not outgoing ones.
 
+- [Fixed channel uptime reporting](https://github.com/lightningnetwork/lnd/pull/10515)
+  for inactive channels. The chanfitness event store now seeds a peer's initial
+  online state based on the current peer connection state, preventing offline
+  peers from being treated as online on startup.
+
 - Chain notifier RPCs now [return the gRPC `Unavailable`
   status](https://github.com/lightningnetwork/lnd/pull/10352) while the
   sub-server is still starting. This allows clients to reliably detect the

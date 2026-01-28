@@ -358,8 +358,8 @@ func (p *peerLog) getOnlinePeriods() []*onlinePeriod {
 		return onlinePeriods
 	}
 
-	// The log ended on an online event, so we need to add a final online
-	// period which terminates at the present.
+	// The log ended on an online event, so we add a final online period
+	// which terminates at the present.
 	finalEvent := &onlinePeriod{
 		start: lastEvent.timestamp,
 		end:   p.clock.Now(),

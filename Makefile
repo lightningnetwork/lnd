@@ -22,6 +22,9 @@ IOS_BUILD_DIR := $(MOBILE_BUILD_DIR)/ios
 IOS_BUILD := $(IOS_BUILD_DIR)/Lndmobile.xcframework
 ANDROID_BUILD_DIR := $(MOBILE_BUILD_DIR)/android
 ANDROID_BUILD := $(ANDROID_BUILD_DIR)/Lndmobile.aar
+# For Android, set max page size to 16KB to support devices using 16KB memory pages.
+# Reference: https://developer.android.com/guide/practices/page-sizes
+ANDROID_EXTLDFLAGS := -extldflags=-Wl,-z,max-page-size=16384
 
 COMMIT := $(shell git describe --tags --dirty)
 
@@ -470,7 +473,7 @@ macos: mobile-rpc
 android: mobile-rpc
 	@$(call print, "Building Android library ($(ANDROID_BUILD)).")
 	mkdir -p $(ANDROID_BUILD_DIR)
-	$(GOMOBILE_BIN) bind -target=android -androidapi 21 -tags="mobile $(DEV_TAGS) $(RPC_TAGS)" -ldflags "$(RELEASE_LDFLAGS)" -v -o $(ANDROID_BUILD) $(MOBILE_PKG)
+	$(GOMOBILE_BIN) bind -target=android -androidapi 21 -tags="mobile $(DEV_TAGS) $(RPC_TAGS)" -ldflags "$(RELEASE_LDFLAGS) $(ANDROID_EXTLDFLAGS)" -v -o $(ANDROID_BUILD) $(MOBILE_PKG)
 
 #? mobile: Build mobile RPC stubs and project templates for iOS and Android
 mobile: ios android

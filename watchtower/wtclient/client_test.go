@@ -1811,8 +1811,10 @@ var clientTests = []clientTest{
 			require.NoError(h.t, err)
 
 			cancel := make(chan struct{})
+			dialStarted := make(chan struct{})
 			h.net.registerConnCallback(
 				h.server.addr, func(peer wtserver.Peer) {
+					close(dialStarted)
 					select {
 					case <-h.quit:
 					case <-cancel:
@@ -1846,6 +1848,15 @@ var clientTests = []clientTest{
 			// Also add the new tower address.
 			err = h.clientMgr.AddTower(towerAddr)
 			require.NoError(h.t, err)
+
+			// Wait for the dial to start so that we know the
+			// session negotiation has begun and the address is
+			// locked.
+			select {
+			case <-dialStarted:
+			case <-time.After(waitTime):
+				h.t.Fatal("timeout waiting for dial to start")
+			}
 
 			// Assert that if the client attempts to remove the
 			// tower's first address, then it will error due to
@@ -2354,10 +2365,16 @@ var clientTests = []clientTest{
 			}, waitTime)
 			require.NoError(h.t, err)
 
-			// Now remove the tower.
-			err = h.clientMgr.RemoveTower(
-				h.server.addr.IdentityKey, nil,
-			)
+			// Now remove the tower. We use wait.Predicate here
+			// because the address may still be locked by an active
+			// session.
+			err = wait.Predicate(func() bool {
+				err := h.clientMgr.RemoveTower(
+					h.server.addr.IdentityKey, nil,
+				)
+
+				return err == nil
+			}, waitTime)
 			require.NoError(h.t, err)
 
 			// Add a new tower.

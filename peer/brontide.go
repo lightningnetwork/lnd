@@ -19,6 +19,8 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
+	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/buffer"
@@ -301,9 +303,13 @@ type Config struct {
 	// the Brontide.
 	RoutingPolicy models.ForwardingPolicy
 
-	// Sphinx is used when setting up ChannelLinks so they can decode sphinx
-	// onion blobs.
-	Sphinx *hop.OnionProcessor
+	// SphinxPayment is used when setting up ChannelLinks so they can decode
+	// sphinx onion blobs.
+	SphinxPayment *hop.OnionProcessor
+
+	// SphinxOnionMsg is the router used to decode sphinx onion blobs from
+	// an onion_message_packet.
+	SphinxOnionMsg *sphinx.Router
 
 	// WitnessBeacon is used when setting up ChannelLinks so they can add any
 	// preimages that they learn.
@@ -479,6 +485,9 @@ type Config struct {
 	// experimental accountability signals should be set.
 	ShouldFwdExpAccountability func() bool
 
+	// ActorSystem is the server wide actor system.
+	ActorSystem *actor.ActorSystem
+
 	// NoDisconnectOnPongFailure indicates whether the peer should *not* be
 	// disconnected if a pong is not received in time or is mismatched.
 	NoDisconnectOnPongFailure bool
@@ -647,6 +656,11 @@ type Brontide struct {
 	// msg router. If so, then we don't worry about stopping the msg router
 	// when a peer disconnects.
 	globalMsgRouter bool
+
+	// onionPeerActorRef is an optional actor ref that points to the onion
+	// actor created for this peer iff the remote peer supports onion
+	// messaging.
+	onionPeerActorRef fn.Option[onionmessage.OnionPeerActorRef]
 
 	startReady chan struct{}
 
@@ -910,9 +924,45 @@ func (p *Brontide) Start() error {
 		return fmt.Errorf("unable to load channels: %w", err)
 	}
 
-	onionMessageEndpoint := onionmessage.NewOnionEndpoint(
-		p.cfg.OnionMessageServer,
+	// If the remote peer supports onion messages, then we'll spawn the
+	// onion peer actor, which will be used to send onion messages **to**
+	// the remote peer.
+	if p.remoteFeatures.HasFeature(lnwire.OnionMessagesOptional) {
+		p.log.Infof("Remote peer supports onion messages, " +
+			"registering onion message actor")
+		sender := func(msg *lnwire.OnionMessage) {
+			if err := p.SendMessageLazy(false, msg); err != nil {
+				p.log.Warnf("Failed to send onion message: %v",
+					err)
+			}
+		}
+		onionPeerActorRef := onionmessage.SpawnOnionPeerActor(
+			p.cfg.ActorSystem, sender, p.PubKey(),
+		)
+		p.onionPeerActorRef = fn.Some(onionPeerActorRef)
+	}
+
+	// The onion message endpoint is used to handle incoming onion messages
+	// **from** this peer. This uses the message multiplexer to route
+	// messages to the endpoint for further processing.
+	ourPubKey, err := btcec.ParsePubKey(p.cfg.ServerPubKey[:])
+	if err != nil {
+		return fmt.Errorf("unable to parse server pub key: %w", err)
+	}
+	resolver := &onionmessage.GraphNodeResolver{
+		Graph:  p.cfg.ChannelGraph,
+		OurPub: ourPubKey,
+	}
+	onionMessageEndpoint, err := onionmessage.NewOnionEndpoint(
+		p.cfg.ActorSystem.Receptionist(),
+		p.cfg.SphinxOnionMsg,
+		resolver,
+		onionmessage.WithMessageServer(p.cfg.OnionMessageServer),
 	)
+	if err != nil {
+		return fmt.Errorf("unable to create onion message endpoint: "+
+			"%w", err)
+	}
 
 	// We register the onion message endpoint with the message router.
 	err = fn.MapOptionZ(p.msgRouter, func(r msgmux.Router) error {
@@ -1446,8 +1496,8 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 	//nolint:ll
 	linkCfg := htlcswitch.ChannelLinkConfig{
 		Peer:                   p,
-		DecodeHopIterators:     p.cfg.Sphinx.DecodeHopIterators,
-		ExtractErrorEncrypter:  p.cfg.Sphinx.ExtractErrorEncrypter,
+		DecodeHopIterators:     p.cfg.SphinxPayment.DecodeHopIterators,
+		ExtractErrorEncrypter:  p.cfg.SphinxPayment.ExtractErrorEncrypter,
 		FetchLastChannelUpdate: p.cfg.FetchLastChanUpdate,
 		HodlMask:               p.cfg.Hodl.Mask(),
 		Registry:               p.cfg.Invoices,
@@ -1678,6 +1728,12 @@ func (p *Brontide) Disconnect(reason error) {
 			router.Stop()
 		})
 	}
+
+	// If we have an onion peer actor, stop and remove it from the actor
+	// system.
+	p.onionPeerActorRef.WhenSome(func(ref onionmessage.OnionPeerActorRef) {
+		p.cfg.ActorSystem.StopAndRemoveActor(ref.ID())
+	})
 }
 
 // String returns the string representation of this peer.

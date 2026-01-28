@@ -56,7 +56,8 @@ type OnionMessagePayload struct {
 	// EncryptedData contains encrypted data for the recipient.
 	EncryptedData []byte
 
-	// FinalHopTLVs contains any tlvs with type >= 64 that
+	// FinalHopTLVs contains any TLVs with type >= 64 that are reserved for
+	// the final hop's payload.
 	FinalHopTLVs []*FinalHopTLV
 }
 

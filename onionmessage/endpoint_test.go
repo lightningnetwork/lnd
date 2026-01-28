@@ -548,7 +548,9 @@ func TestOnionEndpointSendMessageRouting(t *testing.T) {
 	}
 }
 
-func TestOnionEndpointSendMessageProcessError(t *testing.T) {
+// TestOnionEndpointSendMessageInvalidOnionBlob verifies that processing fails
+// gracefully when provided with an invalid onion blob that cannot be decoded.
+func TestOnionEndpointSendMessageInvalidOnionBlob(t *testing.T) {
 	h := newEndpointHarness(t)
 	defer h.cleanup()
 
@@ -649,6 +651,8 @@ func TestOnionEndpointInvalidBlindedRouteData(t *testing.T) {
 	requireNoUpdate(t, h.client)
 }
 
+// TestOnionEndpointCanHandle verifies that the OnionEndpoint correctly
+// identifies which message types it can handle.
 func TestOnionEndpointCanHandle(t *testing.T) {
 	t.Parallel()
 

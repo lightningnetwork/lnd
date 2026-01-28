@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// processOnionMessageTest defines the test parameters for testing
+// processOnionMessage with different routing scenarios.
 type processOnionMessageTest struct {
 	name             string
 	hopsToBlind      []*sphinx.HopInfo
@@ -21,6 +23,8 @@ type processOnionMessageTest struct {
 	expectedOverride *btcec.PublicKey
 }
 
+// TestProcessOnionMessage tests the processOnionMessage function with various
+// forwarding and delivery scenarios.
 func TestProcessOnionMessage(t *testing.T) {
 	// Helper to generate keys.
 	genKey := func() *btcec.PrivateKey {
@@ -57,11 +61,11 @@ func TestProcessOnionMessage(t *testing.T) {
 	}
 
 	// Case 1 Data: Forward Action Success.
-	nextNode1 := fn.NewLeft[*btcec.PublicKey, lnwire.ShortChannelID](
+	nextNodeByPubKey := fn.NewLeft[*btcec.PublicKey, lnwire.ShortChannelID](
 		pubKeyB,
 	)
 	rd1A := record.NewNonFinalBlindedRouteDataOnionMessage(
-		nextNode1, nil, nil,
+		nextNodeByPubKey, nil, nil,
 	)
 	rd1B := &record.BlindedRouteData{}
 	hops1 := []*sphinx.HopInfo{
@@ -70,11 +74,11 @@ func TestProcessOnionMessage(t *testing.T) {
 	}
 
 	// Case 2 Data: Forward Action Path Key Override Success.
-	nextNode2 := fn.NewLeft[*btcec.PublicKey, lnwire.ShortChannelID](
-		pubKeyB,
-	)
+	nextNodeWithOverride := fn.NewLeft[
+		*btcec.PublicKey, lnwire.ShortChannelID,
+	](pubKeyB)
 	rd2A := record.NewNonFinalBlindedRouteDataOnionMessage(
-		nextNode2, pubKeyOverride, nil,
+		nextNodeWithOverride, pubKeyOverride, nil,
 	)
 	rd2B := &record.BlindedRouteData{}
 	hops2 := []*sphinx.HopInfo{
@@ -86,11 +90,11 @@ func TestProcessOnionMessage(t *testing.T) {
 	scid := lnwire.NewShortChanIDFromInt(12345)
 	resolver.addPeer(scid, pubKeyB)
 
-	nextNode3 := fn.NewRight[*btcec.PublicKey](
+	nextNodeBySCID := fn.NewRight[*btcec.PublicKey](
 		scid,
 	)
 	rd3A := record.NewNonFinalBlindedRouteDataOnionMessage(
-		nextNode3, nil, nil,
+		nextNodeBySCID, nil, nil,
 	)
 	rd3B := &record.BlindedRouteData{}
 	hops3 := []*sphinx.HopInfo{
@@ -142,11 +146,13 @@ func TestProcessOnionMessage(t *testing.T) {
 	}
 }
 
+// testProcessOnionMessageCase is a helper that executes a single test case for
+// processOnionMessage, building the blinded path and verifying the result.
 func testProcessOnionMessageCase(t *testing.T, router *sphinx.Router,
 	resolver NodeIDResolver, tc processOnionMessageTest) {
 
 	blindedPath := testhelpers.BuildBlindedPath(t, tc.hopsToBlind)
-	msg, expectedCypherTexts := testhelpers.BuildOnionMessage(
+	msg, expectedCipherTexts := testhelpers.BuildOnionMessage(
 		t, blindedPath, nil,
 	)
 
@@ -162,7 +168,7 @@ func testProcessOnionMessageCase(t *testing.T, router *sphinx.Router,
 			action.WhenRight(func(dlvrAction deliverAction) {
 				require.Equal(
 					t,
-					expectedCypherTexts[0],
+					expectedCipherTexts[0],
 					dlvrAction.payload.EncryptedData,
 				)
 			})
@@ -189,7 +195,7 @@ func testProcessOnionMessageCase(t *testing.T, router *sphinx.Router,
 				require.NotEmpty(t, fwdAction.nextPacket)
 				require.Equal(
 					t,
-					expectedCypherTexts[0],
+					expectedCipherTexts[0],
 					fwdAction.payload.EncryptedData,
 				)
 			})

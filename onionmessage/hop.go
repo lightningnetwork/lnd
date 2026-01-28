@@ -131,7 +131,7 @@ func createRoutingAction(resolver NodeIDResolver,
 			nextNodeID = n.Val
 		} else {
 			scid, err := routeData.ShortChannelID.UnwrapOrErr(
-				ErrNextNodeIdEmpty,
+				ErrSCIDEmpty,
 			)
 			if err != nil {
 				return routingAction{}, err
@@ -175,7 +175,9 @@ func deriveNextPathKey(router *sphinx.Router, currentPathKey *btcec.PublicKey,
 		// Otherwise, derive the next path key using the router.
 		nextKey, err := router.NextEphemeral(currentPathKey)
 		if err != nil {
-			// If the derivation fails, return a zero key.
+			// If the derivation fails, log and return a zero key.
+			log.Warnf("Failed to derive next path key: %v", err)
+
 			return override.Zero()
 		}
 

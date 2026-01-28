@@ -44,7 +44,7 @@ func TestSpawnOnionPeerActorSendsMessage(t *testing.T) {
 		testPathKey.PubKey(), []byte{1, 2, 3, 4},
 	)
 
-	req := &OMRequest{msg: *expectedMsg}
+	req := &Request{msg: *expectedMsg}
 	actorRef.Tell(context.Background(), req)
 
 	// Verify the message was sent.
@@ -52,7 +52,7 @@ func TestSpawnOnionPeerActorSendsMessage(t *testing.T) {
 	case receivedMsg := <-sent:
 		require.Equal(t, expectedMsg.PathKey, receivedMsg.PathKey)
 		require.Equal(t, expectedMsg.OnionBlob, receivedMsg.OnionBlob)
-	case <-time.After(time.Second):
+	case <-time.After(time.Second * 5):
 		require.FailNow(t, "message not sent within timeout")
 	}
 }

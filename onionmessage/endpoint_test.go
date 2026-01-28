@@ -451,6 +451,9 @@ func buildConcatenatedPathHops(
 	}
 }
 
+// TestOnionEndpointSendMessageRouting tests the OnionEndpoint's message routing
+// functionality across various scenarios including forwarding via next node ID,
+// forwarding via SCID, delivery, concatenated paths, and unknown peer handling.
 func TestOnionEndpointSendMessageRouting(t *testing.T) {
 	t.Parallel()
 

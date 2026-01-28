@@ -171,7 +171,6 @@ func (o *OnionEndpoint) SendMessage(ctx context.Context,
 			if err != nil {
 				log.ErrorS(logCtx, "Failed to forward onion "+
 					"message", err)
-				isProcessedSuccessful = false
 			}
 
 			isProcessedSuccessful = true
@@ -241,13 +240,13 @@ func (o *OnionEndpoint) forwardMessage(ctx context.Context,
 	}
 
 	// Send the onion message to the peer actor.
-	actorRefOpt.WhenSome(func(actorRef actor.ActorRef[*OMRequest,
-		*OMResponse]) {
+	actorRefOpt.WhenSome(func(actorRef actor.ActorRef[*Request,
+		*Response]) {
 
 		onionMsg := lnwire.NewOnionMessage(
 			nextBlindingPoint, nextPacket,
 		)
-		req := &OMRequest{msg: *onionMsg}
+		req := &Request{msg: *onionMsg}
 		actorRef.Tell(ctx, req)
 	})
 

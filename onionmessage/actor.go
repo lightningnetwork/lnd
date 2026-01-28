@@ -9,11 +9,11 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// OMRequest is a message sent to an Onion Peer Actor to request sending an
+// Request is a message sent to an Onion Peer Actor to request sending an
 // onion message to a specific peer. Each actor is responsible for a single
 // peer connection, and this message is used to queue onion messages for
 // delivery to that peer.
-type OMRequest struct {
+type Request struct {
 	// Embed BaseMessage to satisfy the actor package Message interface.
 	actor.BaseMessage
 
@@ -23,24 +23,24 @@ type OMRequest struct {
 	msg lnwire.OnionMessage
 }
 
-// MessageType returns a string identifier for the OMRequest message type.
-func (m *OMRequest) MessageType() string {
+// MessageType returns a string identifier for the Request message type.
+func (m *Request) MessageType() string {
 	return "OnionMessageRequest"
 }
 
-// OMResponse is the response message sent back from an Onion Peer Actor.
-type OMResponse struct {
+// Response is the response message sent back from an Onion Peer Actor.
+type Response struct {
 	actor.BaseMessage
 	Success bool
 }
 
-// MessageType returns a string identifier for the OMResponse message type.
-func (m *OMResponse) MessageType() string {
+// MessageType returns a string identifier for the Response message type.
+func (m *Response) MessageType() string {
 	return "OnionMessageResponse"
 }
 
 // OnionPeerActorRef is a reference to an Onion Peer Actor.
-type OnionPeerActorRef actor.ActorRef[*OMRequest, *OMResponse]
+type OnionPeerActorRef actor.ActorRef[*Request, *Response]
 
 // SpawnOnionPeerActor spawns a new Onion Peer Actor responsible for sending
 // onion messages to a single peer identified by pubKey.
@@ -62,19 +62,19 @@ func SpawnOnionPeerActor(system *actor.ActorSystem,
 	// The actor logic creates a function behavior that sends onion messages
 	// using the provided sender function.
 	actorLogic := func(ctx context.Context,
-		req *OMRequest) fn.Result[*OMResponse] {
+		req *Request) fn.Result[*Response] {
 
 		select {
 		case <-ctx.Done():
 
-			return fn.Err[*OMResponse](
+			return fn.Err[*Response](
 				ErrActorShuttingDown,
 			)
 		default:
 		}
 
 		sender(&req.msg)
-		response := &OMResponse{Success: true}
+		response := &Response{Success: true}
 
 		return fn.Ok(response)
 	}
@@ -83,7 +83,7 @@ func SpawnOnionPeerActor(system *actor.ActorSystem,
 	behavior := actor.NewFunctionBehavior(actorLogic)
 
 	pubKeyHex := hex.EncodeToString(pubKey[:])
-	serviceKey := actor.NewServiceKey[*OMRequest, *OMResponse](pubKeyHex)
+	serviceKey := actor.NewServiceKey[*Request, *Response](pubKeyHex)
 	actorRef := serviceKey.Spawn(
 		system, "onion-peer-actor-"+pubKeyHex, behavior,
 	)
@@ -92,10 +92,10 @@ func SpawnOnionPeerActor(system *actor.ActorSystem,
 }
 
 func findPeerActor(receptionist *actor.Receptionist, pubKey [33]byte,
-) fn.Option[actor.ActorRef[*OMRequest, *OMResponse]] {
+) fn.Option[actor.ActorRef[*Request, *Response]] {
 
 	pubKeyHex := hex.EncodeToString(pubKey[:])
-	serviceKey := actor.NewServiceKey[*OMRequest, *OMResponse](pubKeyHex)
+	serviceKey := actor.NewServiceKey[*Request, *Response](pubKeyHex)
 	refs := actor.FindInReceptionist(receptionist, serviceKey)
 
 	return fn.Head(refs)

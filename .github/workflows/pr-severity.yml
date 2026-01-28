@@ -1,7 +1,10 @@
 name: PR Severity Classification
 
 on:
-  pull_request:
+  # Use pull_request_target to allow running on fork PRs with access to secrets.
+  # This is safe because we don't checkout or execute any code from the PR -
+  # we only read PR metadata (changed files, labels) via the GitHub API.
+  pull_request_target:
     types: [opened, synchronize, labeled]
 
 permissions:

@@ -42,6 +42,35 @@ func (m *Response) MessageType() string {
 // OnionPeerActorRef is a reference to an Onion Peer Actor.
 type OnionPeerActorRef actor.ActorRef[*Request, *Response]
 
+// OnionPeerActor handles onion message delivery to a specific peer. It
+// implements the actor.ActorBehavior interface and can be tested directly
+// without the actor system.
+type OnionPeerActor struct {
+	sender func(msg *lnwire.OnionMessage)
+}
+
+// NewOnionPeerActor creates a new OnionPeerActor with the given sender
+// function.
+func NewOnionPeerActor(sender func(msg *lnwire.OnionMessage)) *OnionPeerActor {
+	return &OnionPeerActor{sender: sender}
+}
+
+// Receive processes an incoming onion message request and sends it to the peer.
+// This method implements the actor.ActorBehavior interface.
+func (a *OnionPeerActor) Receive(ctx context.Context,
+	req *Request) fn.Result[*Response] {
+
+	select {
+	case <-ctx.Done():
+		return fn.Err[*Response](ErrActorShuttingDown)
+	default:
+	}
+
+	a.sender(&req.msg)
+
+	return fn.Ok(&Response{Success: true})
+}
+
 // SpawnOnionPeerActor spawns a new Onion Peer Actor responsible for sending
 // onion messages to a single peer identified by pubKey.
 //
@@ -59,33 +88,12 @@ func SpawnOnionPeerActor(system *actor.ActorSystem,
 	sender func(msg *lnwire.OnionMessage),
 	pubKey [33]byte) OnionPeerActorRef {
 
-	// The actor logic creates a function behavior that sends onion messages
-	// using the provided sender function.
-	actorLogic := func(ctx context.Context,
-		req *Request) fn.Result[*Response] {
-
-		select {
-		case <-ctx.Done():
-
-			return fn.Err[*Response](
-				ErrActorShuttingDown,
-			)
-		default:
-		}
-
-		sender(&req.msg)
-		response := &Response{Success: true}
-
-		return fn.Ok(response)
-	}
-
-	// Create a behavior from the function.
-	behavior := actor.NewFunctionBehavior(actorLogic)
+	peerActor := NewOnionPeerActor(sender)
 
 	pubKeyHex := hex.EncodeToString(pubKey[:])
 	serviceKey := actor.NewServiceKey[*Request, *Response](pubKeyHex)
 	actorRef := serviceKey.Spawn(
-		system, "onion-peer-actor-"+pubKeyHex, behavior,
+		system, "onion-peer-actor-"+pubKeyHex, peerActor,
 	)
 
 	return actorRef

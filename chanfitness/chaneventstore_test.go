@@ -327,10 +327,11 @@ func TestGetChanInfoOfflinePeerAtStartup(t *testing.T) {
 			}, nil
 		},
 		Clock: clock,
-		WriteFlapCount: func(map[route.Vertex]*channeldb.FlapCount) error {
+		WriteFlapCount: func(peerFlapCountMap) error {
 			return nil
 		},
-		ReadFlapCount: func(route.Vertex) (*channeldb.FlapCount, error) {
+		ReadFlapCount: func(route.Vertex) (*channeldb.FlapCount,
+			error) {
 			return nil, channeldb.ErrNoPeerBucket
 		},
 		FlapCountTicker: ticker.NewForce(FlapCountFlushRate),

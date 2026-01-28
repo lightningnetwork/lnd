@@ -31,6 +31,9 @@ func TestManager(t *testing.T) {
 	type channel struct {
 		edgeInfo   *models.ChannelEdgeInfo
 		edgePolicy *models.ChannelEdgePolicy
+		// allowNilPolicy signals whether we should pass a nil edge policy
+		// to the callback instead of defaulting to currentPolicy.
+		allowNilPolicy bool
 	}
 
 	var (
@@ -134,7 +137,8 @@ func TestManager(t *testing.T) {
 			// Use the channel's specific edge policy if set,
 			// otherwise use the default current policy.
 			edgePolicy := c.edgePolicy
-			if edgePolicy == nil && len(c.edgeInfo.ChannelPoint.Hash) != 0 {
+			if edgePolicy == nil && !c.allowNilPolicy &&
+				len(c.edgeInfo.ChannelPoint.Hash) != 0 {
 				edgePolicy = &currentPolicy
 			}
 			if err := cb(c.edgeInfo, edgePolicy); err != nil {
@@ -330,6 +334,7 @@ func TestManager(t *testing.T) {
 						ChannelPoint: chanPointValid,
 					},
 					edgePolicy: nil,
+				allowNilPolicy: true,
 				},
 			},
 			specifiedChanPoints:    []wire.OutPoint{chanPointValid},
@@ -352,6 +357,7 @@ func TestManager(t *testing.T) {
 						ChannelPoint: chanPointValid,
 					},
 					edgePolicy: nil,
+				allowNilPolicy: true,
 				},
 			},
 			specifiedChanPoints: []wire.OutPoint{chanPointValid},

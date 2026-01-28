@@ -536,10 +536,10 @@ func TestOnionEndpointSendMessageRouting(t *testing.T) {
 			}
 
 			for _, fht := range tc.finalHopTLVs {
-				TLVType := fht.TLVType
+				tlvType := fht.TLVType
 				require.Equal(
 					t, fht.Value,
-					update.CustomRecords[uint64(TLVType)],
+					update.CustomRecords[uint64(tlvType)],
 				)
 			}
 

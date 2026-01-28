@@ -268,6 +268,25 @@ func testListChannels(ht *lntest.HarnessTest) {
 		// expect the flap count to be 1.
 		require.EqualValues(ht, 1, p.FlapCount)
 	}
+
+	// Restart Alice with Bob offline and assert uptime remains zero.
+	ht.Shutdown(bob)
+	ht.RestartNode(alice)
+
+	err := wait.NoError(func() error {
+		channel := ht.QueryChannelByChanPoint(alice, chanPoint)
+		if channel.Lifetime < 2 {
+			return fmt.Errorf("lifetime not advanced: %v",
+				channel.Lifetime)
+		}
+		if channel.Uptime != 0 {
+			return fmt.Errorf("expected uptime 0, got %v",
+				channel.Uptime)
+		}
+
+		return nil
+	}, lntest.DefaultTimeout)
+	require.NoError(ht, err, "channel uptime should remain zero")
 }
 
 // testMaxPendingChannels checks that error is returned from remote peer if

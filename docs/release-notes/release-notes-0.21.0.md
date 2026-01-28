@@ -51,6 +51,11 @@
   DBytes33 (33 bytes) records, preventing malformed TLV data from being
   accepted.
 
+- [Fixed an issue](https://github.com/lightningnetwork/lnd/pull/10340) where
+channels without policies were skipped in the `ChanUpdatesInHorizon` method for
+zombie channels pruning. This caused zombie channels with no policies to persist
+in the database indefinitely.
+
 # New Features
 
 - Basic Support for [onion messaging forwarding](https://github.com/lightningnetwork/lnd/pull/9868) 
@@ -152,6 +157,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Abdulkbk
 * Boris Nagaev
 * Elle Mouton
 * Erick Cestari

@@ -14,10 +14,10 @@ import (
 func testLookupHtlcResolution(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(1000000)
 
-	alice := ht.NewNodeWithCoins("Alice", nil)
-	carol := ht.NewNode("Carol", []string{
-		"--store-final-htlc-resolutions",
+	alice := ht.NewNodeWithCoins("Alice", []string{
+		"--no-store-final-htlc-resolutions",
 	})
+	carol := ht.NewNode("Carol", nil)
 	ht.EnsureConnected(alice, carol)
 
 	// Open a channel between Alice and Carol.

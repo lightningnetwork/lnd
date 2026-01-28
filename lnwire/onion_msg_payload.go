@@ -140,7 +140,7 @@ func (o *OnionMessagePayload) Decode(r io.Reader) (map[tlv.Type][]byte, error) {
 			encryptedDataTLVType, &o.EncryptedData,
 		),
 		// Add a record for invoice request sub-namespace so that we
-		// won't fail on the even tlv - reasoning above.
+		// won't fail on the even tlv - reasoning below.
 		tlv.MakePrimitiveRecord(
 			InvoiceRequestNamespaceType,
 			&invoiceRequestPayload.Value,

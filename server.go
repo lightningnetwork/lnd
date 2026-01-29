@@ -2364,10 +2364,9 @@ func (s *server) Start(ctx context.Context) error {
 		// connections and registered with each peer's message router.
 		// Skip if onion messaging is disabled via config.
 		if !s.cfg.ProtocolOptions.NoOnionMessages() {
-			resolver := &onionmessage.GraphNodeResolver{
-				Graph:  s.graphDB,
-				OurPub: s.identityECDH.PubKey(),
-			}
+			resolver := onionmessage.NewGraphNodeResolver(
+				s.graphDB, s.identityECDH.PubKey(),
+			)
 			s.onionEndpoint, err = onionmessage.NewOnionEndpoint(
 				s.actorSystem.Receptionist(),
 				s.sphinxOnionMsg,

@@ -5556,6 +5556,10 @@
         "store_final_htlc_resolutions": {
           "type": "boolean",
           "description": "Indicates whether final htlc resolutions are stored on disk."
+        },
+        "wallet_synced": {
+          "type": "boolean",
+          "description": "Whether the wallet is fully synced to the best chain. This indicates the\nwallet's internal sync state with the backing chain source."
         }
       }
     },

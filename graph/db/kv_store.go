@@ -3377,8 +3377,11 @@ func (c *KVStore) isPublic(tx kvdb.RTx, nodePub route.Vertex,
 		}
 
 		// Since the edge _does_ extend to the source node, we'll also
-		// need to ensure that this is a public edge.
-		if info.AuthProof != nil {
+		// need to ensure that this is a public edge with valid
+		// signatures (not empty).
+		if info.AuthProof != nil && !info.AuthProof.IsEmpty() &&
+			len(info.AuthProof.BitcoinSig1()) > 0 {
+
 			nodeIsPublic = true
 			return errDone
 		}

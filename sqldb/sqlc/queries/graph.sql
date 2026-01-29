@@ -101,14 +101,14 @@ SELECT EXISTS (
     -- one of the signatures since we only ever set them
     -- together.
     WHERE c.version = 1
-      AND c.bitcoin_1_signature IS NOT NULL
+      AND COALESCE(length(c.bitcoin_1_signature), 0) > 0
       AND n.pub_key = $1
     UNION ALL
     SELECT 1
     FROM graph_channels c
     JOIN graph_nodes n ON n.id = c.node_id_2
     WHERE c.version = 1
-      AND c.bitcoin_1_signature IS NOT NULL
+      AND COALESCE(length(c.bitcoin_1_signature), 0) > 0
       AND n.pub_key = $1
 );
 
@@ -121,7 +121,7 @@ SELECT EXISTS (
     -- here that determine if a node is public is specific
     -- to the V2 gossip protocol.
     WHERE c.version = 2
-      AND c.signature IS NOT NULL
+      AND COALESCE(length(c.signature), 0) > 0
       AND n.pub_key = $1
 
     UNION ALL
@@ -251,7 +251,7 @@ WHERE last_update >= @start_time
       SELECT 1
       FROM graph_channels c
       WHERE c.version = 1
-        AND c.bitcoin_1_signature IS NOT NULL
+        AND COALESCE(length(c.bitcoin_1_signature), 0) > 0
         AND (c.node_id_1 = graph_nodes.id OR c.node_id_2 = graph_nodes.id)
     )
   )
@@ -731,7 +731,7 @@ WHERE c.version = $1
 -- name: GetPublicV1ChannelsBySCID :many
 SELECT *
 FROM graph_channels
-WHERE node_1_signature IS NOT NULL
+WHERE COALESCE(length(node_1_signature), 0) > 0
   AND scid >= @start_scid
   AND scid < @end_scid;
 

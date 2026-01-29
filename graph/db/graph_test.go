@@ -154,6 +154,10 @@ var versionedTests = []versionedTest{
 		name: "node is public",
 		test: testNodeIsPublic,
 	},
+	{
+		name: "node is public empty channel signature",
+		test: testIsPublicNodeEmptyChannelSignature,
+	},
 }
 
 // TestVersionedDBs runs various tests against both v1 and v2 versioned
@@ -4263,6 +4267,59 @@ func testNodeIsPublic(t *testing.T, v lnwire.GossipVersion) {
 		[]*VersionedGraph{aliceGraph, carolGraph},
 		false,
 	)
+}
+
+// testIsPublicNodeEmptyChannelSignature ensures empty channel signatures don't
+// mark nodes as public.
+func testIsPublicNodeEmptyChannelSignature(t *testing.T,
+	v lnwire.GossipVersion) {
+
+	t.Parallel()
+	ctx := t.Context()
+
+	testGraph := MakeTestGraph(t)
+	graph := NewVersionedGraph(testGraph, v)
+
+	// Set a source node as it's required for IsPublicNode.
+	sourceNode := createTestVertex(t, v)
+	err := graph.SetSourceNode(ctx, sourceNode)
+	require.NoError(t, err)
+
+	node1 := createTestVertex(t, v)
+
+	node1.LastUpdate = nextUpdateTime()
+
+	err = graph.AddNode(ctx, node1)
+	require.NoError(t, err)
+
+	// Create an edge between source node and node1, with
+	// empty signatures. This tests that empty signatures
+	// don't mark nodes as public.
+	edgeInfo, _ := createEdge(
+		v, 10, 0, 0, 0, sourceNode, node1,
+		true,
+	)
+
+	switch v {
+	case lnwire.GossipVersion1:
+		edgeInfo.AuthProof =
+			models.NewV1ChannelAuthProof(
+				[]byte{}, []byte{},
+				[]byte{}, []byte{},
+			)
+	case lnwire.GossipVersion2:
+		edgeInfo.AuthProof =
+			models.NewV2ChannelAuthProof([]byte{})
+	}
+
+	err = graph.AddChannelEdge(ctx, edgeInfo)
+	require.NoError(t, err)
+
+	// node1 should NOT be considered public because the
+	// channel announcement has empty signatures.
+	isPublic, err := graph.IsPublicNode(node1.PubKeyBytes)
+	require.NoError(t, err)
+	require.False(t, isPublic)
 }
 
 // BenchmarkIsPublicNode measures the performance of IsPublicNode when checking

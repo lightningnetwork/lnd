@@ -30,6 +30,18 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Checkout PR branch (handles fork PRs)
+        if: github.event.issue.pull_request || github.event_name == 'pull_request_review_comment' || github.event_name == 'pull_request_review'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "issue_comment" ]; then
+            PR_NUMBER=${{ github.event.issue.number }}
+          else
+            PR_NUMBER=${{ github.event.pull_request.number }}
+          fi
+          gh pr checkout "$PR_NUMBER"
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1

@@ -62,6 +62,13 @@
   due to validation checks in the graph Builder that were resurfaced after the
   graph refactor work.
 
+* [Fix backwards compatibility for channel edge feature
+  deserialization](https://github.com/lightningnetwork/lnd/pull/10529). Nodes
+  upgrading from pre-v0.20 versions could fail to read channel edges from their
+  graph database due to a format change in how channel features are serialized.
+  The fix adds automatic format detection to handle both legacy (raw feature
+  bits) and new (length-prefixed) formats.
+
 # New Features
 
 ## Functional Enhancements

@@ -19,7 +19,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
-	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/brontide"
@@ -307,9 +306,9 @@ type Config struct {
 	// sphinx onion blobs.
 	SphinxPayment *hop.OnionProcessor
 
-	// SphinxOnionMsg is the router used to decode sphinx onion blobs from
-	// an onion_message_packet.
-	SphinxOnionMsg *sphinx.Router
+	// OnionEndpoint handles incoming onion messages and routes them to the
+	// appropriate peer actor for forwarding or processes them locally.
+	OnionEndpoint *onionmessage.OnionEndpoint
 
 	// WitnessBeacon is used when setting up ChannelLinks so they can add any
 	// preimages that they learn.
@@ -476,10 +475,6 @@ type Config struct {
 	// implementations to inject and process custom records over channel
 	// related wire messages.
 	AuxChannelNegotiator fn.Option[lnwallet.AuxChannelNegotiator]
-
-	// OnionMessageServer is an instance of a message server that dispatches
-	// onion messages to subscribers.
-	OnionMessageServer *subscribe.Server
 
 	// ShouldFwdExpAccountability is a closure that indicates whether
 	// experimental accountability signals should be set.
@@ -940,33 +935,14 @@ func (p *Brontide) Start() error {
 		}
 	}
 
-	// The onion message endpoint is used to handle incoming onion messages
-	// **from** this peer. This uses the message multiplexer to route
-	// messages to the endpoint for further processing.
-	ourPubKey, err := btcec.ParsePubKey(p.cfg.ServerPubKey[:])
-	if err != nil {
-		return fmt.Errorf("unable to parse server pub key: %w", err)
-	}
-	resolver := &onionmessage.GraphNodeResolver{
-		Graph:  p.cfg.ChannelGraph,
-		OurPub: ourPubKey,
-	}
-	onionMessageEndpoint, err := onionmessage.NewOnionEndpoint(
-		p.cfg.ActorSystem.Receptionist(),
-		p.cfg.SphinxOnionMsg,
-		resolver,
-		onionmessage.WithMessageServer(p.cfg.OnionMessageServer),
-	)
-	if err != nil {
-		return fmt.Errorf("unable to create onion message endpoint: "+
-			"%w", err)
-	}
-
-	// We register the onion message endpoint with the message router.
+	// Register the onion message endpoint with this peer's message router.
+	// The endpoint is shared across all peers and handles incoming onion
+	// messages by routing them to the appropriate peer actor for forwarding
+	// or processing them locally.
 	err = fn.MapOptionZ(p.msgRouter, func(r msgmux.Router) error {
-		_ = r.UnregisterEndpoint(onionMessageEndpoint.Name())
+		_ = r.UnregisterEndpoint(p.cfg.OnionEndpoint.Name())
 
-		return r.RegisterEndpoint(onionMessageEndpoint)
+		return r.RegisterEndpoint(p.cfg.OnionEndpoint)
 	})
 	if err != nil {
 		return fmt.Errorf("unable to register endpoint for onion "+

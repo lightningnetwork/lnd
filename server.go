@@ -68,6 +68,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/onionmessage"
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
@@ -422,6 +423,10 @@ type server struct {
 	customMessageServer *subscribe.Server
 
 	onionMessageServer *subscribe.Server
+
+	// onionEndpoint handles incoming onion messages and routes them to the
+	// appropriate peer actor for forwarding or processes them locally.
+	onionEndpoint *onionmessage.OnionEndpoint
 
 	// actorSystem is the actor system tasked with handling actors that are
 	// created for this server.
@@ -2350,6 +2355,25 @@ func (s *server) Start(ctx context.Context) error {
 		})
 		if err := s.sphinxOnionMsg.Start(); err != nil {
 			startErr = err
+			return
+		}
+
+		// Create the onion message endpoint that handles incoming onion
+		// messages for all peers. This is shared across all peer
+		// connections and registered with each peer's message router.
+		resolver := &onionmessage.GraphNodeResolver{
+			Graph:  s.graphDB,
+			OurPub: s.identityECDH.PubKey(),
+		}
+		s.onionEndpoint, err = onionmessage.NewOnionEndpoint(
+			s.actorSystem.Receptionist(),
+			s.sphinxOnionMsg,
+			resolver,
+			onionmessage.WithMessageServer(s.onionMessageServer),
+		)
+		if err != nil {
+			startErr = fmt.Errorf("unable to create onion message "+
+				"endpoint: %w", err)
 			return
 		}
 
@@ -4421,14 +4445,13 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		BestBlockView:           s.cc.BestBlockTracker,
 		RoutingPolicy:           s.cc.RoutingPolicy,
 		SphinxPayment:           s.sphinxPayment,
-		SphinxOnionMsg:          s.sphinxOnionMsg,
+		OnionEndpoint:           s.onionEndpoint,
 		WitnessBeacon:           s.witnessBeacon,
 		Invoices:                s.invoices,
 		ChannelNotifier:         s.channelNotifier,
 		HtlcNotifier:            s.htlcNotifier,
 		TowerClient:             towerClient,
 		DisconnectPeer:          s.DisconnectPeer,
-		OnionMessageServer:      s.onionMessageServer,
 		ActorSystem:             s.actorSystem,
 		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
 			lnwire.NodeAnnouncement1, error) {

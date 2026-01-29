@@ -4,6 +4,7 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"encoding/binary"
+	"errors"
 	"io"
 	"math/rand"
 	"net"
@@ -32,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/onionmessage"
 	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -713,10 +715,10 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 		router.Stop()
 	})
 
-	server := subscribe.NewServer()
-	require.NoError(t, server.Start())
+	onionMsgServer := subscribe.NewServer()
+	require.NoError(t, onionMsgServer.Start())
 	t.Cleanup(func() {
-		require.NoError(t, server.Stop())
+		require.NoError(t, onionMsgServer.Stop())
 	})
 
 	actorSystem := actor.NewActorSystem()
@@ -724,25 +726,33 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 		require.NoError(t, actorSystem.Shutdown())
 	})
 
+	// Create the onion endpoint for tests.
+	onionEndpoint, err := onionmessage.NewOnionEndpoint(
+		actorSystem.Receptionist(),
+		router,
+		&noopNodeIDResolver{},
+		onionmessage.WithMessageServer(onionMsgServer),
+	)
+	require.NoError(t, err)
+
 	estimator := chainfee.NewStaticEstimator(12500, 0)
 
 	cfg := &Config{
-		Addr:               cfgAddr,
-		PubKeyBytes:        pubKey,
-		ServerPubKey:       serverKeyArr,
-		SphinxOnionMsg:     router,
-		OnionMessageServer: server,
-		ActorSystem:        actorSystem,
-		ErrorBuffer:        errBuffer,
-		ChainIO:            chainIO,
-		Switch:             mockSwitch,
-		ChanActiveTimeout:  chanActiveTimeout,
-		InterceptSwitch:    interceptableSwitch,
-		ChannelDB:          dbAliceChannel.ChannelStateDB(),
-		FeeEstimator:       estimator,
-		Wallet:             wallet,
-		ChainNotifier:      notifier,
-		ChanStatusMgr:      chanStatusMgr,
+		Addr:              cfgAddr,
+		PubKeyBytes:       pubKey,
+		ServerPubKey:      serverKeyArr,
+		OnionEndpoint:     onionEndpoint,
+		ActorSystem:       actorSystem,
+		ErrorBuffer:       errBuffer,
+		ChainIO:           chainIO,
+		Switch:            mockSwitch,
+		ChanActiveTimeout: chanActiveTimeout,
+		InterceptSwitch:   interceptableSwitch,
+		ChannelDB:         dbAliceChannel.ChannelStateDB(),
+		FeeEstimator:      estimator,
+		Wallet:            wallet,
+		ChainNotifier:     notifier,
+		ChanStatusMgr:     chanStatusMgr,
 		Features: lnwire.NewFeatureVector(
 			nil, lnwire.Features,
 		),
@@ -835,4 +845,15 @@ func startPeer(t *testing.T, mockConn *mockMessageConn,
 	require.True(t, ok)
 
 	return done
+}
+
+// noopNodeIDResolver is a resolver that returns an error for all lookups.
+// Used in tests that don't need onion message SCID resolution.
+type noopNodeIDResolver struct{}
+
+// RemotePubFromSCID implements onionmessage.NodeIDResolver.
+func (n *noopNodeIDResolver) RemotePubFromSCID(
+	lnwire.ShortChannelID) (*btcec.PublicKey, error) {
+
+	return nil, errors.New("noop resolver")
 }

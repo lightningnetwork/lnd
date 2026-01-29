@@ -89,31 +89,29 @@ func NewV2ChannelAuthProof(signature []byte) *ChannelAuthProof {
 	}
 }
 
-// NodeSig1 returns the first node signature bytes, or an empty slice if not
-// present.
+// NodeSig1 returns the first node signature bytes, or nil if not present.
 func (c *ChannelAuthProof) NodeSig1() []byte {
-	return c.NodeSig1Bytes.UnwrapOr([]byte{})
+	return c.NodeSig1Bytes.UnwrapOr(nil)
 }
 
-// NodeSig2 returns the second node signature bytes, or an empty slice if not
-// present.
+// NodeSig2 returns the second node signature bytes, or nil if not present.
 func (c *ChannelAuthProof) NodeSig2() []byte {
-	return c.NodeSig2Bytes.UnwrapOr([]byte{})
+	return c.NodeSig2Bytes.UnwrapOr(nil)
 }
 
-// BitcoinSig1 returns the first bitcoin signature bytes, or an empty slice if
-// not present.
+// BitcoinSig1 returns the first bitcoin signature bytes, or nil if not
+// present.
 func (c *ChannelAuthProof) BitcoinSig1() []byte {
-	return c.BitcoinSig1Bytes.UnwrapOr([]byte{})
+	return c.BitcoinSig1Bytes.UnwrapOr(nil)
 }
 
-// BitcoinSig2 returns the second bitcoin signature bytes, or an empty slice if
-// not present.
+// BitcoinSig2 returns the second bitcoin signature bytes, or nil if not
+// present.
 func (c *ChannelAuthProof) BitcoinSig2() []byte {
-	return c.BitcoinSig2Bytes.UnwrapOr([]byte{})
+	return c.BitcoinSig2Bytes.UnwrapOr(nil)
 }
 
-// Sig returns the v2 signature bytes, or an empty slice if not present.
+// Sig returns the v2 signature bytes, or nil if not present.
 func (c *ChannelAuthProof) Sig() []byte {
-	return c.Signature.UnwrapOr([]byte{})
+	return c.Signature.UnwrapOr(nil)
 }

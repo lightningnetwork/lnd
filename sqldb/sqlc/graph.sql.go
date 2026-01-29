@@ -2085,7 +2085,7 @@ WHERE last_update >= $1
       SELECT 1
       FROM graph_channels c
       WHERE c.version = 1
-        AND c.bitcoin_1_signature IS NOT NULL
+        AND COALESCE(length(c.bitcoin_1_signature), 0) > 0
         AND (c.node_id_1 = graph_nodes.id OR c.node_id_2 = graph_nodes.id)
     )
   )
@@ -2211,7 +2211,7 @@ func (q *Queries) GetPruneTip(ctx context.Context) (GraphPruneLog, error) {
 const getPublicV1ChannelsBySCID = `-- name: GetPublicV1ChannelsBySCID :many
 SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature, signature, funding_pk_script, merkle_root_hash
 FROM graph_channels
-WHERE node_1_signature IS NOT NULL
+WHERE COALESCE(length(node_1_signature), 0) > 0
   AND scid >= $1
   AND scid < $2
 `
@@ -2732,14 +2732,14 @@ SELECT EXISTS (
     -- one of the signatures since we only ever set them
     -- together.
     WHERE c.version = 1
-      AND c.bitcoin_1_signature IS NOT NULL
+      AND COALESCE(length(c.bitcoin_1_signature), 0) > 0
       AND n.pub_key = $1
     UNION ALL
     SELECT 1
     FROM graph_channels c
     JOIN graph_nodes n ON n.id = c.node_id_2
     WHERE c.version = 1
-      AND c.bitcoin_1_signature IS NOT NULL
+      AND COALESCE(length(c.bitcoin_1_signature), 0) > 0
       AND n.pub_key = $1
 )
 `
@@ -2760,7 +2760,7 @@ SELECT EXISTS (
     -- here that determine if a node is public is specific
     -- to the V2 gossip protocol.
     WHERE c.version = 2
-      AND c.signature IS NOT NULL
+      AND COALESCE(length(c.signature), 0) > 0
       AND n.pub_key = $1
 
     UNION ALL

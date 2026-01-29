@@ -4715,6 +4715,64 @@ func fetchChanEdgeInfo(edgeIndex kvdb.RBucket,
 	return deserializeChanEdgeInfo(edgeInfoReader)
 }
 
+// deserializeChanEdgeFeatures deserializes channel edge features from bytes,
+// handling both the legacy format (raw feature bits) and the current format
+// (2-byte length prefix followed by feature bits).
+//
+// Legacy format (pre-v0.20): VarBytes containing raw feature bits directly.
+// Current format (v0.20+): VarBytes containing [2-byte big-endian length][feature bits].
+//
+// The format is detected by checking if the first 2 bytes, interpreted as a
+// big-endian uint16 length, equals len(featureBytes)-2. This detection is safe
+// because in the legacy format, the first byte always has at least one bit set
+// (otherwise SerializeSize would return fewer bytes), making the first two bytes
+// never encode a value equal to len-2.
+func deserializeChanEdgeFeatures(featureBytes []byte) (*lnwire.FeatureVector,
+	error) {
+
+	features := lnwire.NewRawFeatureVector()
+
+	// Empty features are valid in both formats.
+	if len(featureBytes) == 0 {
+		return lnwire.NewFeatureVector(features, lnwire.Features), nil
+	}
+
+	// Check if this looks like the new format with a 2-byte length prefix.
+	// In the new format, the first 2 bytes encode the length of the
+	// remaining feature bytes.
+	if len(featureBytes) >= 2 {
+		encodedLen := binary.BigEndian.Uint16(featureBytes[:2])
+		if int(encodedLen) == len(featureBytes)-2 {
+			// New format: skip the 2-byte length prefix and decode
+			// the remaining bytes as raw feature bits.
+			err := features.DecodeBase256(
+				bytes.NewReader(featureBytes[2:]),
+				int(encodedLen),
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to decode "+
+					"features (new format): %w", err)
+			}
+
+			return lnwire.NewFeatureVector(
+				features, lnwire.Features,
+			), nil
+		}
+	}
+
+	// Legacy format: the bytes are raw feature bits without a length
+	// prefix.
+	err := features.DecodeBase256(
+		bytes.NewReader(featureBytes), len(featureBytes),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode features "+
+			"(legacy format): %w", err)
+	}
+
+	return lnwire.NewFeatureVector(features, lnwire.Features), nil
+}
+
 func deserializeChanEdgeInfo(r io.Reader) (*models.ChannelEdgeInfo, error) {
 	var (
 		err      error
@@ -4739,13 +4797,10 @@ func deserializeChanEdgeInfo(r io.Reader) (*models.ChannelEdgeInfo, error) {
 		return nil, err
 	}
 
-	features := lnwire.NewRawFeatureVector()
-	err = features.Decode(bytes.NewReader(featureBytes))
+	edgeInfo.Features, err = deserializeChanEdgeFeatures(featureBytes)
 	if err != nil {
-		return nil, fmt.Errorf("unable to decode "+
-			"features: %w", err)
+		return nil, err
 	}
-	edgeInfo.Features = lnwire.NewFeatureVector(features, lnwire.Features)
 
 	proof := &models.ChannelAuthProof{}
 

@@ -666,6 +666,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		NoTaprootChans:               !cfg.ProtocolOptions.TaprootChans,
 		NoTaprootOverlay:             !cfg.ProtocolOptions.TaprootOverlayChans,
 		NoRouteBlinding:              cfg.ProtocolOptions.NoRouteBlinding(),
+		NoOnionMessages:              cfg.ProtocolOptions.NoOnionMessages(),
 		NoExperimentalAccountability: cfg.ProtocolOptions.NoExpAccountability(),
 		NoQuiescence:                 cfg.ProtocolOptions.NoQuiescence(),
 		NoRbfCoopClose:               !cfg.ProtocolOptions.RbfCoopClose,
@@ -2361,20 +2362,25 @@ func (s *server) Start(ctx context.Context) error {
 		// Create the onion message endpoint that handles incoming onion
 		// messages for all peers. This is shared across all peer
 		// connections and registered with each peer's message router.
-		resolver := &onionmessage.GraphNodeResolver{
-			Graph:  s.graphDB,
-			OurPub: s.identityECDH.PubKey(),
-		}
-		s.onionEndpoint, err = onionmessage.NewOnionEndpoint(
-			s.actorSystem.Receptionist(),
-			s.sphinxOnionMsg,
-			resolver,
-			onionmessage.WithMessageServer(s.onionMessageServer),
-		)
-		if err != nil {
-			startErr = fmt.Errorf("unable to create onion message "+
-				"endpoint: %w", err)
-			return
+		// Skip if onion messaging is disabled via config.
+		if !s.cfg.ProtocolOptions.NoOnionMessages() {
+			resolver := &onionmessage.GraphNodeResolver{
+				Graph:  s.graphDB,
+				OurPub: s.identityECDH.PubKey(),
+			}
+			s.onionEndpoint, err = onionmessage.NewOnionEndpoint(
+				s.actorSystem.Receptionist(),
+				s.sphinxOnionMsg,
+				resolver,
+				onionmessage.WithMessageServer(
+					s.onionMessageServer,
+				),
+			)
+			if err != nil {
+				startErr = fmt.Errorf("unable to create onion "+
+					"message endpoint: %w", err)
+				return
+			}
 		}
 
 		cleanup = cleanup.add(s.chanStatusMgr.Stop)

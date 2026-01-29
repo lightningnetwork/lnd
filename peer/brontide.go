@@ -938,15 +938,17 @@ func (p *Brontide) Start() error {
 	// Register the onion message endpoint with this peer's message router.
 	// The endpoint is shared across all peers and handles incoming onion
 	// messages by routing them to the appropriate peer actor for forwarding
-	// or processing them locally.
-	err = fn.MapOptionZ(p.msgRouter, func(r msgmux.Router) error {
-		_ = r.UnregisterEndpoint(p.cfg.OnionEndpoint.Name())
+	// or processing them locally. Skip if onion messaging is disabled.
+	if p.cfg.OnionEndpoint != nil {
+		err = fn.MapOptionZ(p.msgRouter, func(r msgmux.Router) error {
+			_ = r.UnregisterEndpoint(p.cfg.OnionEndpoint.Name())
 
-		return r.RegisterEndpoint(p.cfg.OnionEndpoint)
-	})
-	if err != nil {
-		return fmt.Errorf("unable to register endpoint for onion "+
-			"messaging: %w", err)
+			return r.RegisterEndpoint(p.cfg.OnionEndpoint)
+		})
+		if err != nil {
+			return fmt.Errorf("unable to register endpoint for "+
+				"onion messaging: %w", err)
+		}
 	}
 
 	p.startTime = time.Now()

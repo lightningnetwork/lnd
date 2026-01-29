@@ -940,7 +940,11 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 		return lnwire.ShortChannelID{}, fmt.Errorf("no peer alias")
 	}
 
+	hID := lnwire.ShortChannelID{BlockHeight: startHeight}
+	channelSeries := newMockChannelGraphTimeSeries(hID)
+
 	gossiper := New(Config{
+		ChanSeries:  channelSeries,
 		ChainIO:     chain,
 		ChainParams: &chaincfg.MainNetParams,
 		Notifier:    notifier,
@@ -5296,4 +5300,74 @@ func TestGossiperShutdownWrongChainAnnouncement(t *testing.T) {
 	// If the bug is present, Stop() will hang forever because a goroutine
 	// is blocked trying to send to the error channel a second time.
 	require.NoError(t, tCtx.gossiper.Stop())
+}
+
+// TestGossipSyncerRace verifies that there is no race when the gossiper flushes
+// a pending batch of new announcements to the network while concurrently
+// processing a GossipTimestampRange message from a peer.
+func TestGossipSyncerRace(t *testing.T) {
+	t.Parallel()
+
+	tCtx, err := createTestCtx(t, 0, false)
+	require.NoError(t, err)
+
+	nodePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{}}
+
+	// Connect the remote peer so it can send us a GossipTimestampRange
+	// message.
+	tCtx.gossiper.InitSyncState(nodePeer)
+
+	errCh := make(chan error, 1)
+
+	go func() {
+		// Wait for the trickle delay to elapse before sending the
+		// GossipTimestampRange message.
+		time.Sleep(trickleDelay)
+
+		gossipTimestampRange := &lnwire.GossipTimestampRange{
+			ChainHash:      tCtx.gossiper.syncMgr.cfg.ChainHash,
+			FirstTimestamp: uint32(time.Now().Unix()),
+			TimestampRange: 3600,
+		}
+
+		select {
+		case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
+			t.Context(), gossipTimestampRange, nodePeer,
+		):
+			errCh <- err
+		case <-time.After(2 * time.Second):
+			errCh <- fmt.Errorf("gossip message not processed")
+		}
+	}()
+
+	// Send a channel announcement from the remote peer, which will be
+	// flushed to the network after the trickle delay.
+	ca, err := tCtx.createRemoteChannelAnnouncement(0)
+	require.NoError(t, err)
+
+	select {
+	case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
+		t.Context(), ca, nodePeer,
+	):
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("remote announcement not processed")
+	}
+
+	// After the trickle delay, the channel announcement is flushed to the
+	// network. At the same time, the peer sends a GossipTimestampRange
+	// message, which could trigger a race.
+	select {
+	case <-tCtx.broadcastedMessage:
+	case <-time.After(2 * trickleDelay):
+		t.Fatal("announcement was not broadcast")
+	}
+
+	// Ensure the goroutine completed successfully.
+	select {
+	case err := <-errCh:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for gossip message processing")
+	}
 }

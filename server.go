@@ -668,6 +668,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		NoTaprootChans:               !cfg.ProtocolOptions.TaprootChans,
 		NoTaprootOverlay:             !cfg.ProtocolOptions.TaprootOverlayChans,
 		NoRouteBlinding:              cfg.ProtocolOptions.NoRouteBlinding(),
+		NoOnionMessages:              cfg.ProtocolOptions.NoOnionMessages(),
 		NoExperimentalAccountability: cfg.ProtocolOptions.NoExpAccountability(),
 		NoQuiescence:                 cfg.ProtocolOptions.NoQuiescence(),
 		NoRbfCoopClose:               !cfg.ProtocolOptions.RbfCoopClose,
@@ -2370,15 +2371,18 @@ func (s *server) Start(ctx context.Context) error {
 		}
 
 		// Create the onion message actor factory that will be used to
-		// spawn per-peer actors for handling onion messages.
-		resolver := &onionmessage.GraphNodeResolver{
-			Graph:  s.graphDB,
-			OurPub: s.identityECDH.PubKey(),
+		// spawn per-peer actors for handling onion messages. Skip if
+		// onion messaging is disabled via config.
+		if !s.cfg.ProtocolOptions.NoOnionMessages() {
+			resolver := &onionmessage.GraphNodeResolver{
+				Graph:  s.graphDB,
+				OurPub: s.identityECDH.PubKey(),
+			}
+			s.onionActorFactory = onionmessage.NewOnionActorFactory(
+				s.sphinxOnionMsg, resolver, s,
+				s.onionMessageServer,
+			)
 		}
-		s.onionActorFactory = onionmessage.NewOnionActorFactory(
-			s.sphinxOnionMsg, resolver, s,
-			s.onionMessageServer,
-		)
 
 		cleanup = cleanup.add(s.chanStatusMgr.Stop)
 		if err := s.chanStatusMgr.Start(); err != nil {

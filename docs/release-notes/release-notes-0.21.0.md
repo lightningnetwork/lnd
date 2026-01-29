@@ -86,6 +86,16 @@
   potential loss of funds. The compilation of the server is hidden behind the
   non-default `switchrpc` build tag.
 
+* The `SendOnion` RPC is now fully [idempotent](
+  https://github.com/lightningnetwork/lnd/pull/10473), providing a critical
+  reliability improvement for external payment orchestrators (such as a remote
+  `ChannelRouter`). Callers can now safely retry a `SendOnion` request after a
+  network timeout or ambiguous error without risking a duplicate payment. If a
+  request with the same `attempt_id` has already been processed, the RPC will
+  now return a `DUPLICATE_HTLC` error, serving as a definitive acknowledgment
+  that the dispatch was received. This allows clients to build more resilient
+  payment-sending logic.
+
 ## lncli Additions
 
 # Improvements

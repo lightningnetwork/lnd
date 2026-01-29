@@ -72,3 +72,22 @@ func (m *mockRouteProcessor) UnmarshallRoute(route *lnrpc.Route) (
 
 	return m.unmarshallRoute, m.unmarshallErr
 }
+
+// mockAttemptStore is a mock implementation of the AttemptStore interface.
+type mockAttemptStore struct {
+	htlcswitch.AttemptStore
+	initErr error
+	failErr error
+}
+
+// InitAttempt returns the mocked initErr.
+func (m *mockAttemptStore) InitAttempt(attemptID uint64) error {
+	return m.initErr
+}
+
+// FailPendingAttempt returns the mocked failErr.
+func (m *mockAttemptStore) FailPendingAttempt(attemptID uint64,
+	reason *htlcswitch.LinkError) error {
+
+	return m.failErr
+}

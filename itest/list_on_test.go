@@ -768,6 +768,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSendOnionTwice,
 	},
 	{
+		Name:     "send onion concurrency",
+		TestFunc: testSendOnionConcurrency,
+	},
+	{
 		Name:     "track onion",
 		TestFunc: testTrackOnion,
 	},

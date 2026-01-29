@@ -36,6 +36,10 @@ type Config struct {
 	// be dispatched.
 	HtlcDispatcher routing.PaymentAttemptDispatcher
 
+	// AttemptStore provides the means by which the RPC server can manage
+	// the state of an HTLC attempt, including initializing and failing it.
+	AttemptStore htlcswitch.AttemptStore
+
 	// ChannelInfoAccessor defines an interface for accessing channel
 	// information necessary for dispatching payment attempts, specifically
 	// methods for fetching links by public key.

@@ -3438,6 +3438,11 @@
         "closing_tx_hex": {
           "type": "string",
           "description": "The raw hex encoded bytes of the closing transaction. Included if\ninclude_raw_tx in the request is true."
+        },
+        "blocks_til_closed": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Remaining number of confirmations until the channel is considered\nfully closed and removed from waiting close. This value is based on\nthe channel capacity for reorg safety. Will be 0 if the closing\ntransaction is not yet confirmed."
         }
       }
     },

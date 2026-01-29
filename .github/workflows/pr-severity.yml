@@ -37,6 +37,11 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.PR_SEVERITY_BOT_TOKEN }}
 
+          # Allow any user since this workflow only reads PR metadata via API
+          # and doesn't execute any code from the PR. Tool permissions are
+          # restricted to gh pr commands only.
+          allowed_non_write_users: "*"
+
           # Allow Claude to manage labels and post comments.
           # Keep permissions minimal to limit prompt injection risk.
           claude_args: --allowedTools "Bash(gh pr view:*)" "Bash(gh pr edit:*)" "Bash(gh pr comment:*)"

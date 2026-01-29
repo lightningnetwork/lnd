@@ -2374,10 +2374,9 @@ func (s *server) Start(ctx context.Context) error {
 		// spawn per-peer actors for handling onion messages. Skip if
 		// onion messaging is disabled via config.
 		if !s.cfg.ProtocolOptions.NoOnionMessages() {
-			resolver := &onionmessage.GraphNodeResolver{
-				Graph:  s.graphDB,
-				OurPub: s.identityECDH.PubKey(),
-			}
+			resolver := onionmessage.NewGraphNodeResolver(
+				s.graphDB, s.identityECDH.PubKey(),
+			)
 			s.onionActorFactory = onionmessage.NewOnionActorFactory(
 				s.sphinxOnionMsg, resolver, s,
 				s.onionMessageServer,

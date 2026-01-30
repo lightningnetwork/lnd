@@ -119,7 +119,12 @@ func (l *chanObserver) DisableOutgoingAdds() error {
 // MarkCoopBroadcasted persistently marks that the channel close transaction
 // has been broadcast.
 func (l *chanObserver) MarkCoopBroadcasted(tx *wire.MsgTx, local bool) error {
-	return l.chanView.MarkCoopBroadcasted(tx, lntypes.Local)
+	party := lntypes.Remote
+	if local {
+		party = lntypes.Local
+	}
+
+	return l.chanView.MarkCoopBroadcasted(tx, party)
 }
 
 // MarkShutdownSent persists the given ShutdownInfo. The existence of the

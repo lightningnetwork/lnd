@@ -32,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/stretchr/testify/require"
 )
 
@@ -2441,4 +2442,327 @@ func createHTLC(data int, amount lnwire.MilliSatoshi) (*lnwire.UpdateAddHTLC, [3
 		Amount:      amount,
 		Expiry:      uint32(5),
 	}, returnPreimage
+}
+
+// mockAuxSweeperNotify is a mock implementation of sweep.AuxSweeper that tracks
+// calls to NotifyBroadcast for testing purposes.
+type mockAuxSweeperNotify struct {
+	notifyCalls []notifyCall
+	notifyErr   error
+}
+
+// notifyCall records the parameters of a NotifyBroadcast call.
+type notifyCall struct {
+	req           *sweep.BumpRequest
+	tx            *wire.MsgTx
+	fee           btcutil.Amount
+	skipBroadcast bool
+}
+
+// DeriveSweepAddr implements sweep.AuxSweeper.
+func (m *mockAuxSweeperNotify) DeriveSweepAddr(_ []input.Input,
+	_ lnwallet.AddrWithKey) fn.Result[sweep.SweepOutput] {
+
+	return fn.Ok(sweep.SweepOutput{})
+}
+
+// ExtraBudgetForInputs implements sweep.AuxSweeper.
+func (m *mockAuxSweeperNotify) ExtraBudgetForInputs(
+	_ []input.Input) fn.Result[btcutil.Amount] {
+
+	return fn.Ok(btcutil.Amount(0))
+}
+
+// NotifyBroadcast implements sweep.AuxSweeper and records the call.
+func (m *mockAuxSweeperNotify) NotifyBroadcast(req *sweep.BumpRequest,
+	tx *wire.MsgTx, fee btcutil.Amount,
+	_ map[wire.OutPoint]int, skipBroadcast bool) error {
+
+	m.notifyCalls = append(m.notifyCalls, notifyCall{
+		req:           req,
+		tx:            tx,
+		fee:           fee,
+		skipBroadcast: skipBroadcast,
+	})
+
+	return m.notifyErr
+}
+
+// TestNotifyConfirmedJusticeTx tests that notifyConfirmedJusticeTx correctly
+// identifies confirmed justice transactions and notifies the aux sweeper.
+func TestNotifyConfirmedJusticeTx(t *testing.T) {
+	t.Parallel()
+
+	// Create test transactions for each justice tx variant.
+	spendAllTx := &wire.MsgTx{Version: 1}
+	spendCommitOutsTx := &wire.MsgTx{Version: 2}
+	spendHTLCsTx := &wire.MsgTx{Version: 3}
+	unrelatedTx := &wire.MsgTx{Version: 4}
+
+	spendAllHash := spendAllTx.TxHash()
+	spendCommitOutsHash := spendCommitOutsTx.TxHash()
+	spendHTLCsHash := spendHTLCsTx.TxHash()
+	unrelatedHash := unrelatedTx.TxHash()
+
+	// Create justice tx contexts.
+	spendAllCtx := &justiceTxCtx{
+		justiceTx: spendAllTx,
+		fee:       btcutil.Amount(1000),
+	}
+	spendCommitOutsCtx := &justiceTxCtx{
+		justiceTx: spendCommitOutsTx,
+		fee:       btcutil.Amount(2000),
+	}
+	spendHTLCsCtx := &justiceTxCtx{
+		justiceTx: spendHTLCsTx,
+		fee:       btcutil.Amount(3000),
+	}
+
+	tests := []struct {
+		name             string
+		spends           []spend
+		justiceTxs       *justiceTxVariants
+		notifiedTxs      map[chainhash.Hash]bool
+		expectedCalls    int
+		expectedFees     []btcutil.Amount
+		expectedSkipFlag bool
+	}{
+		{
+			name: "spendAll variant detected",
+			spends: []spend{{
+				detail: &chainntnfs.SpendDetail{
+					SpenderTxHash:  &spendAllHash,
+					SpendingTx:     spendAllTx,
+					SpendingHeight: 100,
+				},
+			}},
+			justiceTxs: &justiceTxVariants{
+				spendAll: spendAllCtx,
+			},
+			notifiedTxs:      make(map[chainhash.Hash]bool),
+			expectedCalls:    1,
+			expectedFees:     []btcutil.Amount{1000},
+			expectedSkipFlag: true,
+		},
+		{
+			name: "spendCommitOuts variant detected",
+			spends: []spend{{
+				detail: &chainntnfs.SpendDetail{
+					SpenderTxHash:  &spendCommitOutsHash,
+					SpendingTx:     spendCommitOutsTx,
+					SpendingHeight: 100,
+				},
+			}},
+			justiceTxs: &justiceTxVariants{
+				spendCommitOuts: spendCommitOutsCtx,
+			},
+			notifiedTxs:      make(map[chainhash.Hash]bool),
+			expectedCalls:    1,
+			expectedFees:     []btcutil.Amount{2000},
+			expectedSkipFlag: true,
+		},
+		{
+			name: "spendHTLCs variant detected",
+			spends: []spend{{
+				detail: &chainntnfs.SpendDetail{
+					SpenderTxHash:  &spendHTLCsHash,
+					SpendingTx:     spendHTLCsTx,
+					SpendingHeight: 100,
+				},
+			}},
+			justiceTxs: &justiceTxVariants{
+				spendHTLCs: spendHTLCsCtx,
+			},
+			notifiedTxs:      make(map[chainhash.Hash]bool),
+			expectedCalls:    1,
+			expectedFees:     []btcutil.Amount{3000},
+			expectedSkipFlag: true,
+		},
+		{
+			name: "skip already notified transaction",
+			spends: []spend{{
+				detail: &chainntnfs.SpendDetail{
+					SpenderTxHash:  &spendAllHash,
+					SpendingTx:     spendAllTx,
+					SpendingHeight: 100,
+				},
+			}},
+			justiceTxs: &justiceTxVariants{
+				spendAll: spendAllCtx,
+			},
+			notifiedTxs: map[chainhash.Hash]bool{
+				spendAllHash: true,
+			},
+			expectedCalls: 0,
+		},
+		{
+			name: "skip unconfirmed spend (height 0)",
+			spends: []spend{{
+				detail: &chainntnfs.SpendDetail{
+					SpenderTxHash:  &spendAllHash,
+					SpendingTx:     spendAllTx,
+					SpendingHeight: 0,
+				},
+			}},
+			justiceTxs: &justiceTxVariants{
+				spendAll: spendAllCtx,
+			},
+			notifiedTxs:   make(map[chainhash.Hash]bool),
+			expectedCalls: 0,
+		},
+		{
+			name: "no match - unrelated transaction",
+			spends: []spend{{
+				detail: &chainntnfs.SpendDetail{
+					SpenderTxHash:  &unrelatedHash,
+					SpendingTx:     unrelatedTx,
+					SpendingHeight: 100,
+				},
+			}},
+			justiceTxs: &justiceTxVariants{
+				spendAll:        spendAllCtx,
+				spendCommitOuts: spendCommitOutsCtx,
+				spendHTLCs:      spendHTLCsCtx,
+			},
+			notifiedTxs:   make(map[chainhash.Hash]bool),
+			expectedCalls: 0,
+		},
+		{
+			name: "multiple spends - only matching ones notified",
+			spends: []spend{
+				{
+					detail: &chainntnfs.SpendDetail{
+						SpenderTxHash:  &spendAllHash,
+						SpendingTx:     spendAllTx,
+						SpendingHeight: 100,
+					},
+				},
+				{
+					detail: &chainntnfs.SpendDetail{
+						SpenderTxHash:  &unrelatedHash,
+						SpendingTx:     unrelatedTx,
+						SpendingHeight: 100,
+					},
+				},
+				{
+					detail: &chainntnfs.SpendDetail{
+						SpenderTxHash:  &spendHTLCsHash,
+						SpendingTx:     spendHTLCsTx,
+						SpendingHeight: 100,
+					},
+				},
+			},
+			justiceTxs: &justiceTxVariants{
+				spendAll:   spendAllCtx,
+				spendHTLCs: spendHTLCsCtx,
+			},
+			notifiedTxs:      make(map[chainhash.Hash]bool),
+			expectedCalls:    2,
+			expectedFees:     []btcutil.Amount{1000, 3000},
+			expectedSkipFlag: true,
+		},
+		{
+			name:   "nil justice txs - no panic",
+			spends: []spend{},
+			justiceTxs: &justiceTxVariants{
+				spendAll:        nil,
+				spendCommitOuts: nil,
+				spendHTLCs:      nil,
+			},
+			notifiedTxs:   make(map[chainhash.Hash]bool),
+			expectedCalls: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create mock aux sweeper.
+			mockSweeper := &mockAuxSweeperNotify{}
+
+			// Create a minimal BreachArbitrator with the mock.
+			brar := &BreachArbitrator{
+				cfg: &BreachConfig{
+					AuxSweeper: fn.Some[sweep.AuxSweeper](
+						mockSweeper,
+					),
+				},
+			}
+
+			// Call the function under test.
+			brar.notifyConfirmedJusticeTx(
+				tc.spends, tc.justiceTxs, tc.notifiedTxs,
+			)
+
+			// Verify the number of NotifyBroadcast calls.
+			require.Len(t, mockSweeper.notifyCalls,
+				tc.expectedCalls, "unexpected number of "+
+					"NotifyBroadcast calls")
+
+			// Verify the fees if we expected calls.
+			for i, call := range mockSweeper.notifyCalls {
+				if i < len(tc.expectedFees) {
+					require.Equal(t, tc.expectedFees[i],
+						call.fee,
+						"unexpected fee for call %d", i)
+				}
+
+				// Verify skipBroadcast is always true for
+				// confirmed justice txs.
+				require.Equal(t, tc.expectedSkipFlag,
+					call.skipBroadcast,
+					"skipBroadcast should be true")
+			}
+
+			// Verify notifiedTxs map was updated for successful
+			// notifications.
+			for _, call := range mockSweeper.notifyCalls {
+				txHash := call.tx.TxHash()
+				require.True(t, tc.notifiedTxs[txHash],
+					"tx %v should be marked as notified",
+					txHash)
+			}
+		})
+	}
+}
+
+// TestNotifyConfirmedJusticeTxNoAuxSweeper verifies that the function handles
+// the case where no aux sweeper is configured.
+func TestNotifyConfirmedJusticeTxNoAuxSweeper(t *testing.T) {
+	t.Parallel()
+
+	spendAllTx := &wire.MsgTx{Version: 1}
+	spendAllHash := spendAllTx.TxHash()
+
+	spends := []spend{{
+		detail: &chainntnfs.SpendDetail{
+			SpenderTxHash:  &spendAllHash,
+			SpendingTx:     spendAllTx,
+			SpendingHeight: 100,
+		},
+	}}
+
+	justiceTxs := &justiceTxVariants{
+		spendAll: &justiceTxCtx{
+			justiceTx: spendAllTx,
+			fee:       btcutil.Amount(1000),
+		},
+	}
+
+	// Create BreachArbitrator with no aux sweeper.
+	brar := &BreachArbitrator{
+		cfg: &BreachConfig{
+			AuxSweeper: fn.None[sweep.AuxSweeper](),
+		},
+	}
+
+	notifiedTxs := make(map[chainhash.Hash]bool)
+
+	// Should not panic and should not mark as notified since there's no
+	// aux sweeper to notify.
+	brar.notifyConfirmedJusticeTx(spends, justiceTxs, notifiedTxs)
+
+	// The tx should still be marked as notified even without an aux
+	// sweeper, to avoid repeated processing.
+	require.True(t, notifiedTxs[spendAllHash],
+		"tx should be marked as notified")
 }

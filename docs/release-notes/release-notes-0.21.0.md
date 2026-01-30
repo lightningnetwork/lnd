@@ -65,16 +65,6 @@
   avoid modifications to the existing flows for dispatching local payments,
   preserving the existing battle-tested logic.
 
-## RPC Additions
-
-* [Added support for coordinator-based MuSig2 signing
-  patterns](https://github.com/lightningnetwork/lnd/pull/10436) with two new
-  RPCs: `MuSig2RegisterCombinedNonce` allows registering a pre-aggregated
-  combined nonce for a session (useful when a coordinator aggregates all nonces
-  externally), and `MuSig2GetCombinedNonce` retrieves the combined nonce after
-  it becomes available. These methods provide an alternative to the standard
-  `MuSig2RegisterNonces` workflow and are only supported in MuSig2 v1.0.0rc2.
-
 * Added a new [switchrpc RPC sub-system](https://github.com/lightningnetwork/lnd/pull/9489)
   with `SendOnion`, `BuildOnion`, and `TrackOnion` endpoints. This allows the
   daemon to offload path-finding, onion construction and payment life-cycle
@@ -85,6 +75,26 @@
   Running multiple controllers concurrently will lead to undefined behavior and
   potential loss of funds. The compilation of the server is hidden behind the
   non-default `switchrpc` build tag.
+
+* The `SendOnion` RPC is now fully [idempotent](
+  https://github.com/lightningnetwork/lnd/pull/10473), providing a critical
+  reliability improvement for external payment orchestrators (such as a remote
+  `ChannelRouter`). Callers can now safely retry a `SendOnion` request after a
+  network timeout or ambiguous error without risking a duplicate payment. If a
+  request with the same `attempt_id` has already been processed, the RPC will
+  now return a `DUPLICATE_HTLC` error, serving as a definitive acknowledgment
+  that the dispatch was received. This allows clients to build more resilient
+  payment-sending logic.
+
+## RPC Additions
+
+* [Added support for coordinator-based MuSig2 signing
+  patterns](https://github.com/lightningnetwork/lnd/pull/10436) with two new
+  RPCs: `MuSig2RegisterCombinedNonce` allows registering a pre-aggregated
+  combined nonce for a session (useful when a coordinator aggregates all nonces
+  externally), and `MuSig2GetCombinedNonce` retrieves the combined nonce after
+  it becomes available. These methods provide an alternative to the standard
+  `MuSig2RegisterNonces` workflow and are only supported in MuSig2 v1.0.0rc2.
 
 ## lncli Additions
 

@@ -1,6 +1,9 @@
 package itest
 
 import (
+	"context"
+	"sync"
+
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -9,9 +12,12 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/switchrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // testSendOnion tests the basic success case for the SendOnion RPC. It
@@ -36,8 +42,6 @@ func testSendOnion(ht *lntest.HarnessTest) {
 
 	// Make sure Alice knows about all channels.
 	aliceBobChan := ht.AssertChannelInGraph(alice, chanPoints[0])
-	ht.AssertChannelInGraph(alice, chanPoints[1])
-	ht.AssertChannelInGraph(alice, chanPoints[2])
 
 	const (
 		numPayments = 1
@@ -120,9 +124,6 @@ func testSendOnionTwice(ht *lntest.HarnessTest) {
 	defer ht.CloseChannel(bob, chanPoints[1])
 	defer ht.CloseChannel(carol, chanPoints[2])
 
-	ht.AssertChannelInGraph(alice, chanPoints[1])
-	ht.AssertChannelInGraph(alice, chanPoints[2])
-
 	const paymentAmt = 10000
 
 	// Create a preimage, that will be held by Dave.
@@ -178,13 +179,19 @@ func testSendOnionTwice(ht *lntest.HarnessTest) {
 	// While the first onion is still in-flight, we'll send the same onion
 	// again with the same attempt ID. This should error as our Switch will
 	// detect duplicate ADDs for *in-flight* HTLCs.
-	resp = alice.RPC.SendOnion(sendReq)
-	ht.Logf("SendOnion resp: %+v, code: %v", resp, resp.ErrorCode)
-	require.False(ht, resp.Success, "expected failure on onion send")
-	require.Equal(ht, resp.ErrorCode,
-		switchrpc.ErrorCode_DUPLICATE_HTLC,
+	ctxt, cancel := context.WithTimeout(
+		context.Background(), rpc.DefaultTimeout,
+	)
+	defer cancel()
+
+	_, err := alice.RPC.Switch.SendOnion(ctxt, sendReq)
+	require.Error(ht, err, "expected failure on onion send")
+
+	// Check that we get the expected gRPC error.
+	s, ok := status.FromError(err)
+	require.True(ht, ok, "expected gRPC status error")
+	require.Equal(ht, codes.AlreadyExists, s.Code(),
 		"unexpected error code")
-	require.Equal(ht, resp.ErrorMessage, htlcswitch.ErrDuplicateAdd.Error())
 
 	// Dave settles the invoice.
 	dave.RPC.SettleInvoice(preimage[:])
@@ -203,14 +210,138 @@ func testSendOnionTwice(ht *lntest.HarnessTest) {
 	require.Equal(ht, preimage[:], trackResp.Preimage)
 
 	// Now that the original HTLC attempt has settled, we'll send the same
-	// onion again with the same attempt ID.
-	//
-	// NOTE: Currently, this does not error. When we make SendOnion fully
-	// duplicate safe, this should be updated to assert an error is
-	// returned.
-	resp = alice.RPC.SendOnion(sendReq)
-	require.True(ht, resp.Success, "expected successful onion send")
-	require.Empty(ht, resp.ErrorMessage, "unexpected failure to send onion")
+	// onion again with the same attempt ID. Confirm that this is also
+	// prevented.
+	ctxt, cancel = context.WithTimeout(context.Background(),
+		rpc.DefaultTimeout)
+	defer cancel()
+
+	_, err = alice.RPC.Switch.SendOnion(ctxt, sendReq)
+	require.Error(ht, err, "expected failure on onion send")
+
+	// Check that we get the expected gRPC error.
+	s, ok = status.FromError(err)
+	require.True(ht, ok, "expected gRPC status error")
+	require.Equal(ht, codes.AlreadyExists, s.Code(),
+		"unexpected error code")
+}
+
+// testSendOnionConcurrency simulates a client that crashes and attempts to
+// retry a payment with the same attempt ID concurrently. This test provides a
+// strong guarantee that the SendOnion RPC is idempotent and correctly prevents
+// duplicate payment attempts from succeeding.
+func testSendOnionConcurrency(ht *lntest.HarnessTest) {
+	// Create a two-node context consisting of Alice and Bob.
+	const chanAmt = btcutil.Amount(100000)
+	const numNodes = 2
+	nodeCfgs := make([][]string, numNodes)
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		nodeCfgs, lntest.OpenChannelParams{Amt: chanAmt},
+	)
+	alice, bob := nodes[0], nodes[1]
+
+	// Make sure Alice knows about the channel.
+	aliceBobChan := ht.AssertChannelInGraph(alice, chanPoints[0])
+
+	const paymentAmt = 10000
+
+	// Request an invoice from Bob so he is expecting payment.
+	_, rHashes, invoices := ht.CreatePayReqs(bob, paymentAmt, 1)
+	paymentHash := rHashes[0]
+
+	// Query for a route to pay from Alice to Bob.
+	routesReq := &lnrpc.QueryRoutesRequest{
+		PubKey: bob.PubKeyStr,
+		Amt:    paymentAmt,
+	}
+	routes := alice.RPC.QueryRoutes(routesReq)
+	route := routes.Routes[0]
+	finalHop := route.Hops[len(route.Hops)-1]
+	finalHop.MppRecord = &lnrpc.MPPRecord{
+		PaymentAddr:  invoices[0].PaymentAddr,
+		TotalAmtMsat: int64(lnwire.NewMSatFromSatoshis(paymentAmt)),
+	}
+
+	// Construct the onion for the route.
+	onionReq := &switchrpc.BuildOnionRequest{
+		Route:       route,
+		PaymentHash: paymentHash,
+	}
+	onionResp := alice.RPC.BuildOnion(onionReq)
+
+	// Create the SendOnion request that all goroutines will use.
+	// The AttemptId MUST be the same for all calls.
+	sendReq := &switchrpc.SendOnionRequest{
+		FirstHopChanId: aliceBobChan.ChannelId,
+		Amount:         route.TotalAmtMsat,
+		Timelock:       route.TotalTimeLock,
+		PaymentHash:    paymentHash,
+		OnionBlob:      onionResp.OnionBlob,
+		AttemptId:      42,
+	}
+
+	const numConcurrentRequests = 50
+	var wg sync.WaitGroup
+	wg.Add(numConcurrentRequests)
+
+	// Use channels to collect the results from each goroutine.
+	resultsChan := make(chan error,
+		numConcurrentRequests)
+
+	// Launch all requests concurrently to simulate a retry storm.
+	for i := 0; i < numConcurrentRequests; i++ {
+		go func() {
+			defer wg.Done()
+			ctxt, cancel := context.WithTimeout(
+				context.Background(),
+				rpc.DefaultTimeout,
+			)
+			defer cancel()
+
+			_, err := alice.RPC.Switch.SendOnion(ctxt, sendReq)
+			resultsChan <- err
+		}()
+	}
+
+	wg.Wait()
+	close(resultsChan)
+
+	// We expect exactly one successful dispatch and the rest to be
+	// rejected as duplicates.
+	successCount := 0
+	duplicateCount := 0
+
+	for err := range resultsChan {
+		// A nil error indicates a successful dispatch.
+		if err == nil {
+			successCount++
+			continue
+		}
+
+		// For non-nil errors, we should receive a gRPC status error.
+		s, ok := status.FromError(err)
+
+		// If it's not a gRPC status error, it's an unexpected
+		// condition.
+		require.Truef(ht, ok, "unexpected error from SendOnion: %v, "+
+			"code: %v", s.Err().Error(), s.Code())
+
+		// Check if the error code indicates a duplicate acknowledgment.
+		if s.Code() == codes.AlreadyExists {
+			duplicateCount++
+		} else {
+			ht.Fatalf("unexpected error from SendOnion: %v, "+
+				"code: %v", s.Err().Error(), s.Code())
+		}
+	}
+
+	// Confirm that only a single dispatch succeeds.
+	require.Equal(ht, 1, successCount, "expected exactly one success")
+	require.Equal(ht, numConcurrentRequests-1, duplicateCount,
+		"expected all other attempts to be duplicates")
+
+	// The invoice should eventually show as settled for Bob.
+	ht.AssertInvoiceSettled(bob, invoices[0].PaymentAddr)
 }
 
 // testTrackOnion exercises the SwitchRPC server's TrackOnion endpoint,
@@ -231,10 +362,6 @@ func testTrackOnion(ht *lntest.HarnessTest) {
 	defer ht.CloseChannel(alice, chanPoints[0])
 	defer ht.CloseChannel(bob, chanPoints[1])
 	defer ht.CloseChannel(carol, chanPoints[2])
-
-	// Make sure Alice knows about all channels.
-	ht.AssertChannelInGraph(alice, chanPoints[1])
-	ht.AssertChannelInGraph(alice, chanPoints[2])
 
 	const paymentAmt = 10000
 

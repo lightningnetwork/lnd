@@ -1099,6 +1099,11 @@ func (s *SQLStore) updateChanCacheBatch(edgesToCache map[uint64]ChannelEdge) {
 // 5. Update cache after successful batch
 // 6. Repeat with updated pagination cursor until no more results
 //
+// Note: Ideally each channel should have at least one policy. However, if a
+// channel is created and never updated, it will not have any policies.
+// In this case, we'll return the channel with no policies at all regardless of
+// the time range. This helps us prune zombie channels with no policies.
+//
 // NOTE: This is part of the V1Store interface.
 func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 	opts ...IteratorOption) iter.Seq2[ChannelEdge, error] {

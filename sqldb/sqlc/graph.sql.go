@@ -1142,6 +1142,10 @@ WHERE c.version = $1
        (cp1.last_update >= $2 AND cp1.last_update < $3)
        OR
        (cp2.last_update >= $2 AND cp2.last_update < $3)
+    -- TODO(abdulkbk): see the potential of adding a created_at to channel 
+    -- table to extend this query to include channels created in a time range.
+       OR
+       (cp1.last_update IS NULL AND cp2.last_update IS NULL)
   )
   -- Pagination using compound cursor (max_update_time, id).
   -- We use COALESCE with -1 as sentinel since timestamps are always positive.

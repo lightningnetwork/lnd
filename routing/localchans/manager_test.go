@@ -29,7 +29,11 @@ func TestManager(t *testing.T) {
 	t.Parallel()
 
 	type channel struct {
-		edgeInfo *models.ChannelEdgeInfo
+		edgeInfo   *models.ChannelEdgeInfo
+		edgePolicy *models.ChannelEdgePolicy
+		// allowNilPolicy signals whether we should pass a nil edge policy
+		// to the callback instead of defaulting to currentPolicy.
+		allowNilPolicy bool
 	}
 
 	var (
@@ -130,7 +134,14 @@ func TestManager(t *testing.T) {
 			*models.ChannelEdgePolicy) error, _ func()) error {
 
 		for _, c := range channelSet {
-			if err := cb(c.edgeInfo, &currentPolicy); err != nil {
+			// Use the channel's specific edge policy if set,
+			// otherwise use the default current policy.
+			edgePolicy := c.edgePolicy
+			if edgePolicy == nil && !c.allowNilPolicy &&
+				len(c.edgeInfo.ChannelPoint.Hash) != 0 {
+				edgePolicy = &currentPolicy
+			}
+			if err := cb(c.edgeInfo, edgePolicy); err != nil {
 				return err
 			}
 		}
@@ -306,6 +317,54 @@ func TestManager(t *testing.T) {
 			expectedNumUpdates:  0,
 			expectedUpdateFailures: []lnrpc.UpdateFailure{
 				lnrpc.UpdateFailure_UPDATE_FAILURE_UNKNOWN,
+			},
+			expectErr: nil,
+		},
+		{
+			// Here, the edge policy is nil but edge info exists.
+			// The edge should be recreated because
+			// createMissingEdge is true.
+			name:          "nil edge policy recreated",
+			currentPolicy: models.ChannelEdgePolicy{},
+			newPolicy:     newPolicy,
+			channelSet: []channel{
+				{
+					edgeInfo: &models.ChannelEdgeInfo{
+						Capacity:     chanCap,
+						ChannelPoint: chanPointValid,
+					},
+					edgePolicy: nil,
+				allowNilPolicy: true,
+				},
+			},
+			specifiedChanPoints:    []wire.OutPoint{chanPointValid},
+			createMissingEdge:      true,
+			expectedNumUpdates:     1,
+			expectedUpdateFailures: []lnrpc.UpdateFailure{},
+			expectErr:              nil,
+		},
+		{
+			// Here, the edge policy is nil but edge info exists.
+			// The edge will not be recreated because
+			// createMissingEdge is false.
+			name:          "nil edge policy not recreated",
+			currentPolicy: models.ChannelEdgePolicy{},
+			newPolicy:     newPolicy,
+			channelSet: []channel{
+				{
+					edgeInfo: &models.ChannelEdgeInfo{
+						Capacity:     chanCap,
+						ChannelPoint: chanPointValid,
+					},
+					edgePolicy: nil,
+				allowNilPolicy: true,
+				},
+			},
+			specifiedChanPoints: []wire.OutPoint{chanPointValid},
+			createMissingEdge:   false,
+			expectedNumUpdates:  0,
+			expectedUpdateFailures: []lnrpc.UpdateFailure{
+				lnrpc.UpdateFailure_UPDATE_FAILURE_NOT_FOUND,
 			},
 			expectErr: nil,
 		},

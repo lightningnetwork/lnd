@@ -51,6 +51,13 @@
   DBytes33 (33 bytes) records, preventing malformed TLV data from being
   accepted.
 
+- [Fixed missing graph data for local channels](https://github.com/lightningnetwork/lnd/pull/10516)
+  that prevented channels from being used for sending or forwarding payments.
+  The fix introduces a conditional mechanism to defer failure of channels with
+  missing edge policies when the `createMissingEdge` flag is enabled, allowing
+  them to be properly recreated instead of being immediately excluded from
+  policy updates.
+
 # New Features
 
 - Basic Support for [onion messaging forwarding](https://github.com/lightningnetwork/lnd/pull/9868) 

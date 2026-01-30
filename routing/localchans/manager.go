@@ -104,11 +104,19 @@ func (r *Manager) UpdatePolicy(ctx context.Context,
 				"a channel. Channel point: %v",
 				info.ChannelPoint.String())
 
-			failedUpdates = append(failedUpdates, makeFailureItem(
-				info.ChannelPoint,
-				lnrpc.UpdateFailure_UPDATE_FAILURE_NOT_FOUND,
-				"edge policy not found",
-			))
+			// If createMissingEdge is true, we need to keep this
+			// channel in unprocessedChans so it can be handled by
+			// the createMissingEdge logic later.
+			if createMissingEdge {
+				unprocessedChans[info.ChannelPoint] = struct{}{}
+			} else {
+				failedUpdates = append(failedUpdates,
+					makeFailureItem(
+						info.ChannelPoint,
+						lnrpc.UpdateFailure_UPDATE_FAILURE_NOT_FOUND,
+						"edge policy not found",
+					))
+			}
 
 			return nil
 		}

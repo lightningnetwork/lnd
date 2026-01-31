@@ -46,6 +46,7 @@ type SQLQueries interface {
 		Payment DB read operations.
 	*/
 	FilterPayments(ctx context.Context, query sqlc.FilterPaymentsParams) ([]sqlc.FilterPaymentsRow, error)
+	FilterPaymentsDesc(ctx context.Context, query sqlc.FilterPaymentsDescParams) ([]sqlc.FilterPaymentsDescRow, error)
 	FetchPayment(ctx context.Context, paymentIdentifier []byte) (sqlc.FetchPaymentRow, error)
 	FetchPaymentsByIDs(ctx context.Context, paymentIDs []int64) ([]sqlc.FetchPaymentsByIDsRow, error)
 
@@ -796,12 +797,27 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 			return nil
 		}
 
+		//nolint:ll
+		convertFilterPaymentsDescRows := func(
+			rows []sqlc.FilterPaymentsDescRow) []sqlc.FilterPaymentsRow {
+
+			out := make([]sqlc.FilterPaymentsRow, len(rows))
+			for i, row := range rows {
+				out[i] = sqlc.FilterPaymentsRow{
+					Payment:       row.Payment,
+					IntentType:    row.IntentType,
+					IntentPayload: row.IntentPayload,
+				}
+			}
+
+			return out
+		}
+
 		queryFunc := func(ctx context.Context, lastID int64,
 			limit int32) ([]sqlc.FilterPaymentsRow, error) {
 
 			filterParams := sqlc.FilterPaymentsParams{
 				NumLimit: limit,
-				Reverse:  query.Reversed,
 				// For now there only BOLT 11 payment intents
 				// exist.
 				IntentType: sqldb.SQLInt16(
@@ -831,6 +847,19 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 					time.Unix(query.CreationDateEnd, 0).
 						UTC(),
 				)
+			}
+
+			if query.Reversed {
+				rows, err := db.FilterPaymentsDesc(
+					ctx, sqlc.FilterPaymentsDescParams(
+						filterParams,
+					),
+				)
+				if err != nil {
+					return nil, err
+				}
+
+				return convertFilterPaymentsDescRows(rows), nil
 			}
 
 			return db.FilterPayments(ctx, filterParams)

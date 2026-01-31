@@ -10,25 +10,45 @@ SELECT
     i.intent_payload AS "intent_payload"
 FROM payments p
 LEFT JOIN payment_intents i ON i.payment_id = p.id
-WHERE (
-    p.id > sqlc.narg('index_offset_get') OR
-    sqlc.narg('index_offset_get') IS NULL
-) AND (
-    p.id < sqlc.narg('index_offset_let') OR
-    sqlc.narg('index_offset_let') IS NULL
-) AND (
-    p.created_at >= sqlc.narg('created_after') OR
-    sqlc.narg('created_after') IS NULL
-) AND (
-    p.created_at <= sqlc.narg('created_before') OR
-    sqlc.narg('created_before') IS NULL
-) AND (
-    i.intent_type = sqlc.narg('intent_type') OR
-    sqlc.narg('intent_type') IS NULL OR i.intent_type IS NULL
-)
-ORDER BY
-    CASE WHEN sqlc.narg('reverse') = false OR sqlc.narg('reverse') IS NULL THEN p.id END ASC,
-    CASE WHEN sqlc.narg('reverse') = true THEN p.id END DESC
+WHERE p.id > COALESCE(sqlc.narg('index_offset_get'), -1)
+  AND p.id < COALESCE(sqlc.narg('index_offset_let'), 9223372036854775807)
+  AND p.created_at >= COALESCE(
+      sqlc.narg('created_after'),
+      CAST('1970-01-01 00:00:00' AS TIMESTAMP)
+  )
+  AND p.created_at <= COALESCE(
+      sqlc.narg('created_before'),
+      CAST('9999-12-31 23:59:59' AS TIMESTAMP)
+  )
+  AND (
+      i.intent_type = sqlc.narg('intent_type') OR
+      sqlc.narg('intent_type') IS NULL OR i.intent_type IS NULL
+  )
+ORDER BY p.id ASC
+LIMIT @num_limit;
+
+-- name: FilterPaymentsDesc :many
+SELECT
+    sqlc.embed(p),
+    i.intent_type AS "intent_type",
+    i.intent_payload AS "intent_payload"
+FROM payments p
+LEFT JOIN payment_intents i ON i.payment_id = p.id
+WHERE p.id > COALESCE(sqlc.narg('index_offset_get'), -1)
+  AND p.id < COALESCE(sqlc.narg('index_offset_let'), 9223372036854775807)
+  AND p.created_at >= COALESCE(
+      sqlc.narg('created_after'),
+      CAST('1970-01-01 00:00:00' AS TIMESTAMP)
+  )
+  AND p.created_at <= COALESCE(
+      sqlc.narg('created_before'),
+      CAST('9999-12-31 23:59:59' AS TIMESTAMP)
+  )
+  AND (
+      i.intent_type = sqlc.narg('intent_type') OR
+      sqlc.narg('intent_type') IS NULL OR i.intent_type IS NULL
+  )
+ORDER BY p.id DESC
 LIMIT @num_limit;
 
 -- name: FetchPayment :one

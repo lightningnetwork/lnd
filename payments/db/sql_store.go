@@ -46,6 +46,7 @@ type SQLQueries interface {
 		Payment DB read operations.
 	*/
 	FilterPayments(ctx context.Context, query sqlc.FilterPaymentsParams) ([]sqlc.FilterPaymentsRow, error)
+	FilterPaymentsDesc(ctx context.Context, query sqlc.FilterPaymentsDescParams) ([]sqlc.FilterPaymentsDescRow, error)
 	FetchPayment(ctx context.Context, paymentIdentifier []byte) (sqlc.FetchPaymentRow, error)
 	FetchPaymentsByIDs(ctx context.Context, paymentIDs []int64) ([]sqlc.FetchPaymentsByIDsRow, error)
 
@@ -796,12 +797,51 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 			return nil
 		}
 
+		//nolint:ll
+		convertFilterPaymentsDescRows := func(
+			rows []sqlc.FilterPaymentsDescRow) []sqlc.FilterPaymentsRow {
+
+			out := make([]sqlc.FilterPaymentsRow, len(rows))
+			for i, row := range rows {
+				out[i] = sqlc.FilterPaymentsRow{
+					Payment:       row.Payment,
+					IntentType:    row.IntentType,
+					IntentPayload: row.IntentPayload,
+				}
+			}
+
+			return out
+		}
+
 		queryFunc := func(ctx context.Context, lastID int64,
 			limit int32) ([]sqlc.FilterPaymentsRow, error) {
 
+			// Default date bounds: epoch start and far
+			// future. These are always provided so the SQL
+			// query uses simple comparisons instead of
+			// COALESCE (which causes type mismatch on
+			// Postgres) or OR-based optional filters (which
+			// can prevent index usage).
+			createdAfter := time.Unix(0, 0).UTC()
+			if query.CreationDateStart != 0 {
+				createdAfter = time.Unix(
+					query.CreationDateStart, 0,
+				).UTC()
+			}
+
+			createdBefore := time.Date(
+				9999, 12, 31, 23, 59, 59, 0, time.UTC,
+			)
+			if query.CreationDateEnd != 0 {
+				createdBefore = time.Unix(
+					query.CreationDateEnd, 0,
+				).UTC()
+			}
+
 			filterParams := sqlc.FilterPaymentsParams{
-				NumLimit: limit,
-				Reverse:  query.Reversed,
+				NumLimit:      limit,
+				CreatedAfter:  createdAfter,
+				CreatedBefore: createdBefore,
 				// For now there only BOLT 11 payment intents
 				// exist.
 				IntentType: sqldb.SQLInt16(
@@ -819,18 +859,17 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 				)
 			}
 
-			// Add potential date filters if specified.
-			if query.CreationDateStart != 0 {
-				filterParams.CreatedAfter = sqldb.SQLTime(
-					time.Unix(query.CreationDateStart, 0).
-						UTC(),
+			if query.Reversed {
+				rows, err := db.FilterPaymentsDesc(
+					ctx, sqlc.FilterPaymentsDescParams(
+						filterParams,
+					),
 				)
-			}
-			if query.CreationDateEnd != 0 {
-				filterParams.CreatedBefore = sqldb.SQLTime(
-					time.Unix(query.CreationDateEnd, 0).
-						UTC(),
-				)
+				if err != nil {
+					return nil, err
+				}
+
+				return convertFilterPaymentsDescRows(rows), nil
 			}
 
 			return db.FilterPayments(ctx, filterParams)
@@ -1928,7 +1967,12 @@ func (s *SQLStore) DeletePayments(ctx context.Context, failedOnly,
 			limit int32) ([]sqlc.FilterPaymentsRow, error) {
 
 			filterParams := sqlc.FilterPaymentsParams{
-				NumLimit: limit,
+				NumLimit:     limit,
+				CreatedAfter: time.Unix(0, 0).UTC(),
+				CreatedBefore: time.Date(
+					9999, 12, 31, 23, 59, 59,
+					0, time.UTC,
+				),
 				IndexOffsetGet: sqldb.SQLInt64(
 					lastID,
 				),

@@ -10,25 +10,41 @@ SELECT
     i.intent_payload AS "intent_payload"
 FROM payments p
 LEFT JOIN payment_intents i ON i.payment_id = p.id
-WHERE (
-    p.id > sqlc.narg('index_offset_get') OR
-    sqlc.narg('index_offset_get') IS NULL
-) AND (
-    p.id < sqlc.narg('index_offset_let') OR
-    sqlc.narg('index_offset_let') IS NULL
-) AND (
-    p.created_at >= sqlc.narg('created_after') OR
-    sqlc.narg('created_after') IS NULL
-) AND (
-    p.created_at <= sqlc.narg('created_before') OR
-    sqlc.narg('created_before') IS NULL
-) AND (
-    i.intent_type = sqlc.narg('intent_type') OR
-    sqlc.narg('intent_type') IS NULL OR i.intent_type IS NULL
-)
-ORDER BY
-    CASE WHEN sqlc.narg('reverse') = false OR sqlc.narg('reverse') IS NULL THEN p.id END ASC,
-    CASE WHEN sqlc.narg('reverse') = true THEN p.id END DESC
+WHERE p.id > COALESCE(sqlc.narg('index_offset_get'), -1)
+  AND p.id < COALESCE(sqlc.narg('index_offset_let'), 9223372036854775807)
+  -- NOTE: We use non-nullable time params with Go-side defaults instead of
+  -- COALESCE, because COALESCE with text fallback causes type mismatch on
+  -- Postgres (timestamp vs text), and OR-based optional filters can prevent
+  -- the planner from using the created_at index.
+  AND p.created_at >= @created_after
+  AND p.created_at <= @created_before
+  AND (
+      i.intent_type = sqlc.narg('intent_type') OR
+      sqlc.narg('intent_type') IS NULL OR i.intent_type IS NULL
+  )
+ORDER BY p.id ASC
+LIMIT @num_limit;
+
+-- name: FilterPaymentsDesc :many
+SELECT
+    sqlc.embed(p),
+    i.intent_type AS "intent_type",
+    i.intent_payload AS "intent_payload"
+FROM payments p
+LEFT JOIN payment_intents i ON i.payment_id = p.id
+WHERE p.id > COALESCE(sqlc.narg('index_offset_get'), -1)
+  AND p.id < COALESCE(sqlc.narg('index_offset_let'), 9223372036854775807)
+  -- NOTE: We use non-nullable time params with Go-side defaults instead of
+  -- COALESCE, because COALESCE with text fallback causes type mismatch on
+  -- Postgres (timestamp vs text), and OR-based optional filters can prevent
+  -- the planner from using the created_at index.
+  AND p.created_at >= @created_after
+  AND p.created_at <= @created_before
+  AND (
+      i.intent_type = sqlc.narg('intent_type') OR
+      sqlc.narg('intent_type') IS NULL OR i.intent_type IS NULL
+  )
+ORDER BY p.id DESC
 LIMIT @num_limit;
 
 -- name: FetchPayment :one

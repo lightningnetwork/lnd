@@ -124,6 +124,17 @@
 
 ## Deprecations
 
+### ⚠️ **Warning:** Deprecated fields in `lnrpc.Hop` will be removed in release version **0.22**
+
+  The following deprecated fields in the [`lnrpc.Hop`](https://lightning.engineering/api-docs/api/lnd/lightning/send-to-route-sync/#lnrpchop)
+  message will be removed:
+
+  | Field | Deprecated Since | Replacement |
+  |-------|------------------|-------------|
+  | `chan_capacity` | 0.7.1 | None |
+  | `amt_to_forward` | 0.7.1 | `amt_to_forward_msat` |
+  | `fee` | 0.7.1 | `fee_msat` |
+
 ### ⚠️ **Warning:** The deprecated fee rate option `--sat_per_byte` will be removed in release version **0.22**
 
   The deprecated `--sat_per_byte` option will be fully removed. This flag was

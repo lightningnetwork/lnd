@@ -507,13 +507,30 @@ var unlockCommand = cli.Command{
 	Action: actionDecorator(unlock),
 }
 
+// unlock is the lncli entry point for unlocking the wallet using the
+// WalletUnlocker service.
 func unlock(ctx *cli.Context) error {
-	ctxc := getContext()
-	client, cleanUp := getWalletUnlockerClient(ctx)
+	return unlockWithDeps(
+		ctx, readPassword, getWalletUnlockerClient,
+		getStateServiceClient, getContext, os.Stdin,
+	)
+}
+
+// unlockWithDeps performs the unlock flow with injected dependencies to
+// simplify unit testing.
+func unlockWithDeps(ctx *cli.Context,
+	readPasswordFn func(string) ([]byte, error),
+	getUnlockerClientFn func(*cli.Context) (lnrpc.WalletUnlockerClient,
+		func()),
+	getStateClientFn func(*cli.Context) (lnrpc.StateClient, func()),
+	getContextFn func() context.Context, stdin io.Reader) error {
+
+	ctxc := getContextFn()
+	client, cleanUp := getUnlockerClientFn(ctx)
 	defer cleanUp()
 
 	// Use the always-on state service to wait for unlock readiness.
-	stateClient, stateCleanUp := getStateServiceClient(ctx)
+	stateClient, stateCleanUp := getStateClientFn(ctx)
 	defer stateCleanUp()
 
 	var (
@@ -526,7 +543,7 @@ func unlock(ctx *cli.Context) error {
 	// password manager. If the user types the password instead, it will be
 	// echoed in the console.
 	case ctx.IsSet("stdin"):
-		reader := bufio.NewReader(os.Stdin)
+		reader := bufio.NewReader(stdin)
 		pw, err = reader.ReadBytes('\n')
 
 		// Remove carriage return and newline characters.
@@ -536,7 +553,7 @@ func unlock(ctx *cli.Context) error {
 	// terminal to be a real tty and will fail if a string is piped into
 	// lncli.
 	default:
-		pw, err = readPassword("Input wallet password: ")
+		pw, err = readPasswordFn("Input wallet password: ")
 	}
 	if err != nil {
 		return err
@@ -614,6 +631,7 @@ func waitForWalletState(ctx context.Context, client lnrpc.StateClient,
 				return errors.New("lnd shut down before " +
 					"reaching expected wallet state")
 			}
+
 			return err
 		}
 

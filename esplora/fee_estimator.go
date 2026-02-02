@@ -274,7 +274,7 @@ func (e *FeeEstimator) getCachedFee(numBlocks uint32) (
 	}
 
 	if hasMin {
-		log.Errorf("Esplora fee cache missing target=%d, using target=%d instead",
+		log.Warnf("Esplora fee cache missing target=%d, using target=%d instead",
 			numBlocks, minTarget)
 		return minFee, true
 	}

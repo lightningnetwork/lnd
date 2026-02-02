@@ -41,8 +41,6 @@ var (
 	ErrOutputNotFound = errors.New("output not found")
 )
 
-// ChainClient is an implementation of chain.Interface that uses an Esplora
-// HTTP API as its backend.
 // ChainClientConfig holds configuration options for the ChainClient.
 type ChainClientConfig struct {
 	// UseGapLimit enables gap limit optimization for wallet recovery.

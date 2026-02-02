@@ -3,8 +3,11 @@ package commands
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -15,6 +18,8 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/urfave/cli"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -507,6 +512,10 @@ func unlock(ctx *cli.Context) error {
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
 
+	// Use the always-on state service to wait for unlock readiness.
+	stateClient, stateCleanUp := getStateServiceClient(ctx)
+	defer stateCleanUp()
+
 	var (
 		pw  []byte
 		err error
@@ -555,7 +564,26 @@ func unlock(ctx *cli.Context) error {
 		RecoveryWindow: recoveryWindow,
 		StatelessInit:  ctx.Bool(statelessInitFlag.Name),
 	}
+
+	// Wait until lnd reports the wallet is locked and ready to accept
+	// an unlock request.
+	waitCtx, cancel := context.WithCancel(ctxc)
+	err = waitForWalletLocked(waitCtx, stateClient)
+	cancel()
+	if err != nil {
+		return err
+	}
+
+	// Submit the unlock request once the wallet is ready.
 	_, err = client.UnlockWallet(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	// Wait until the wallet is fully unlocked (or RPC/server active).
+	waitCtx, cancel = context.WithCancel(ctxc)
+	err = waitForWalletUnlocked(waitCtx, stateClient)
+	cancel()
 	if err != nil {
 		return err
 	}
@@ -565,6 +593,137 @@ func unlock(ctx *cli.Context) error {
 	// TODO(roasbeef): add ability to accept hex single and multi backups
 
 	return nil
+}
+
+// waitForWalletState consumes the StateService stream until the check function
+// reports completion or the stream ends.
+func waitForWalletState(ctx context.Context, client lnrpc.StateClient,
+	check func(lnrpc.WalletState) (bool, error)) error {
+
+	stream, err := client.SubscribeState(
+		ctx, &lnrpc.SubscribeStateRequest{},
+	)
+	if err != nil {
+		return err
+	}
+
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return errors.New("lnd shut down before " +
+					"reaching expected wallet state")
+			}
+			return err
+		}
+
+		state := resp.GetState()
+		fmt.Printf("wallet state: %s\n", state)
+
+		done, err := check(state)
+		if done {
+			return err
+		}
+	}
+}
+
+// waitForWalletLocked blocks until the wallet reaches LOCKED, or errors if the
+// wallet is missing or already unlocked.
+func waitForWalletLocked(ctx context.Context, client lnrpc.StateClient) error {
+	check := func(state lnrpc.WalletState) (bool, error) {
+		switch state {
+		case lnrpc.WalletState_LOCKED:
+			return true, nil
+
+		case lnrpc.WalletState_NON_EXISTING:
+			return true, errors.New("wallet is not initialized - " +
+				"please run 'lncli create'")
+
+		case lnrpc.WalletState_UNLOCKED,
+			lnrpc.WalletState_RPC_ACTIVE,
+			lnrpc.WalletState_SERVER_ACTIVE:
+
+			return true, errors.New("wallet is already unlocked")
+
+		default:
+			return false, nil
+		}
+	}
+
+	err := waitForWalletState(ctx, client, check)
+	if err == nil {
+		return nil
+	}
+
+	if s, ok := status.FromError(err); ok {
+		switch s.Code() {
+		case codes.Unimplemented:
+			fmt.Println("StateService not available, " +
+				"skipping wait for locked state")
+
+			return nil
+
+		case codes.Unavailable:
+			// The state service may be temporarily unreachable.
+			fmt.Println("StateService unavailable, " +
+				"skipping wait for locked state")
+
+			return nil
+
+		default:
+		}
+	}
+
+	return err
+}
+
+// waitForWalletUnlocked blocks until the wallet reaches UNLOCKED or beyond,
+// or errors if the wallet is missing.
+func waitForWalletUnlocked(ctx context.Context,
+	client lnrpc.StateClient) error {
+
+	check := func(state lnrpc.WalletState) (bool, error) {
+		switch state {
+		case lnrpc.WalletState_UNLOCKED,
+			lnrpc.WalletState_RPC_ACTIVE,
+			lnrpc.WalletState_SERVER_ACTIVE:
+
+			return true, nil
+
+		case lnrpc.WalletState_NON_EXISTING:
+			return true, errors.New("wallet is not initialized - " +
+				"please run 'lncli create'")
+
+		default:
+			return false, nil
+		}
+	}
+
+	err := waitForWalletState(ctx, client, check)
+	if err == nil {
+		return nil
+	}
+
+	if s, ok := status.FromError(err); ok {
+		switch s.Code() {
+		case codes.Unimplemented:
+			fmt.Println("StateService not available, " +
+				"skipping wait for unlocked state")
+
+			return nil
+
+		case codes.Unavailable:
+			// The state service may be temporarily unreachable.
+			fmt.Println("StateService unavailable, " +
+				"skipping wait for unlocked state")
+
+			return nil
+
+		default:
+		}
+	}
+
+	return err
 }
 
 var changePasswordCommand = cli.Command{

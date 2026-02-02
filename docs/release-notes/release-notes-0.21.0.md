@@ -45,11 +45,17 @@
   has been removed from the public key parsing methods, and proper mutex
   protection has been added to the cache access in `DisconnectBlockAtHeight`.
 
-- [Fixed TLV decoders to reject malformed records with incorrect lengths](https://github.com/lightningnetwork/lnd/pull/10249). 
+- [Fixed TLV decoders to reject malformed records with incorrect lengths](https://github.com/lightningnetwork/lnd/pull/10249).
   TLV decoders now strictly enforce fixed-length requirements for Fee (8 bytes),
   Musig2Nonce (66 bytes), ShortChannelID (8 bytes), Vertex (33 bytes), and
   DBytes33 (33 bytes) records, preventing malformed TLV data from being
   accepted.
+
+- [Fixed `MarkCoopBroadcasted` to correctly use the `local`
+  parameter](https://github.com/lightningnetwork/lnd/pull/10532). The method was
+  ignoring the `local` parameter and always marking cooperative close
+  transactions as locally initiated, even when they were initiated by the remote
+  peer.
 
 # New Features
 

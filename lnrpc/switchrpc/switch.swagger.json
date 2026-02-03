@@ -351,21 +351,67 @@
       },
       "description": "BuildOnionResponse contains the constructed onion packet."
     },
-    "switchrpcErrorCode": {
-      "type": "string",
-      "enum": [
-        "UNSPECIFIED",
-        "PAYMENT_ID_NOT_FOUND",
-        "FORWARDING_ERROR",
-        "CLEAR_TEXT_ERROR",
-        "UNREADABLE_FAILURE_MESSAGE",
-        "DUPLICATE_HTLC",
-        "NO_LINK",
-        "SWITCH_EXITING",
-        "INTERNAL"
-      ],
-      "default": "UNSPECIFIED",
-      "description": " - UNSPECIFIED: Default value for unset errors.\n - PAYMENT_ID_NOT_FOUND: Payment ID was not found.\n - FORWARDING_ERROR: Error occurred during forwarding.\n - CLEAR_TEXT_ERROR: Clear text error.\n - UNREADABLE_FAILURE_MESSAGE: Failure message could not be read.\n - DUPLICATE_HTLC: An HTLC with same ID is already in flight.\n - NO_LINK: No link available for payment.\n - SWITCH_EXITING: HTLC switch is exiting.\n - INTERNAL: Opaque internal server error."
+    "switchrpcClearTextFailure": {
+      "type": "object",
+      "properties": {
+        "wire_message": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw, serialized `lnwire.FailureMessage`."
+        }
+      },
+      "description": "ClearTextFailure is included when the failure originates locally or is a\nfully decrypted, known failure from an upstream node. It contains the raw\nlnwire.FailureMessage."
+    },
+    "switchrpcFailureDetails": {
+      "type": "object",
+      "properties": {
+        "error_message": {
+          "type": "string",
+          "description": "A human-readable error_message for logging or display."
+        },
+        "clear_text_failure": {
+          "$ref": "#/definitions/switchrpcClearTextFailure",
+          "description": "clear_text_failure is included when the failure originates locally\n(at our node) or is a fully decrypted, known failure from an upstream\nnode. It contains the raw lnwire.FailureMessage."
+        },
+        "forwarding_failure": {
+          "$ref": "#/definitions/switchrpcForwardingFailure",
+          "description": "forwarding_failure is included when the HTLC fails at a remote node\nin the payment path and includes the index of the failing node."
+        },
+        "encrypted_error_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "encrypted_error_data is returned when the server could not decrypt\nthe onion error blob, deferring decryption to the client."
+        },
+        "unreadable_failure": {
+          "$ref": "#/definitions/switchrpcUnreadableFailure",
+          "description": "The failure message from a remote peer could not be decrypted."
+        },
+        "internal_error": {
+          "$ref": "#/definitions/switchrpcInternalError",
+          "description": "An internal error occurred."
+        }
+      },
+      "description": "FailureDetails provides structured information about why a payment attempt\nfailed on the network. This message is included in a successful\nTrackOnionResponse when the queried attempt ultimately failed."
+    },
+    "switchrpcForwardingFailure": {
+      "type": "object",
+      "properties": {
+        "failure_source_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "failure_source_index is the 0-based index of the node within the payment\nroute that reported the failure. Index 0 refers to the local node."
+        },
+        "wire_message": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw, serialized `lnwire.FailureMessage` reported by the failing node."
+        }
+      },
+      "description": "ForwardingFailure represents an HTLC failure that occurred at a specific\nhop within the payment route."
+    },
+    "switchrpcInternalError": {
+      "type": "object",
+      "description": "InternalError indicates that an unexpected internal error occurred."
     },
     "switchrpcSendOnionRequest": {
       "type": "object",
@@ -427,20 +473,7 @@
     },
     "switchrpcSendOnionResponse": {
       "type": "object",
-      "properties": {
-        "success": {
-          "type": "boolean",
-          "description": "Indicates if the onion was successfully sent or not.\nEquivalent to `error_code == ERROR_CODE_UNSPECIFIED`."
-        },
-        "error_message": {
-          "type": "string",
-          "description": "In case of failure, this field will provide more information about the\nerror."
-        },
-        "error_code": {
-          "$ref": "#/definitions/switchrpcErrorCode",
-          "description": "A code representing the type of error that occurred. This can be used\nto programmatically distinguish between different kinds of errors."
-        }
-      }
+      "description": "SendOnionResponse is an empty message. A gRPC OK status indicates successful\ndispatch. Failures are communicated via the gRPC status error's details,\nwhich will contain a SendOnionFailureDetails message."
     },
     "switchrpcTrackOnionRequest": {
       "type": "object",
@@ -478,20 +511,15 @@
           "format": "byte",
           "description": "The preimage obtained by making the payment. If this field is set,\nthe payment succeeded."
         },
-        "error_message": {
-          "type": "string",
-          "description": "In case of failure, this field will provide more information about the\nerror."
-        },
-        "error_code": {
-          "$ref": "#/definitions/switchrpcErrorCode",
-          "description": "A code representing the type of error that occurred. This can be used\nto programmatically distinguish between different kinds of errors."
-        },
-        "encrypted_error": {
-          "type": "string",
-          "format": "byte",
-          "description": "If the caller provides no means to decrypt the error, then we'll defer\nerror decryption on the server and return the encrypted error blob."
+        "failure_details": {
+          "$ref": "#/definitions/switchrpcFailureDetails",
+          "description": "The application-level failure for the payment attempt. If this field\nis set, the payment attempt failed."
         }
       }
+    },
+    "switchrpcUnreadableFailure": {
+      "type": "object",
+      "description": "UnreadableFailure indicates that the failure message from the network was\nmalformed or otherwise unreadable."
     }
   }
 }

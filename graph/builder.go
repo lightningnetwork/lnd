@@ -1276,7 +1276,7 @@ func (b *Builder) ForAllOutgoingChannels(ctx context.Context,
 	reset func()) error {
 
 	return b.cfg.Graph.ForEachNodeChannel(
-		ctx, b.cfg.SelfNode,
+		ctx, lnwire.GossipVersion1, b.cfg.SelfNode,
 		func(c *models.ChannelEdgeInfo, e *models.ChannelEdgePolicy,
 			_ *models.ChannelEdgePolicy) error {
 

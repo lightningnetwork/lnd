@@ -3690,9 +3690,14 @@ func nodeTraversal(tx kvdb.RTx, nodePub []byte, db kvdb.Backend,
 // halted with the error propagated back up to the caller.
 //
 // Unknown policies are passed into the callback as nil values.
-func (c *KVStore) ForEachNodeChannel(_ context.Context, nodePub route.Vertex,
+func (c *KVStore) ForEachNodeChannel(_ context.Context,
+	v lnwire.GossipVersion, nodePub route.Vertex,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error, reset func()) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	return nodeTraversal(
 		nil, nodePub[:], c.db, func(_ kvdb.RTx,

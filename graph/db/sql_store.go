@@ -913,7 +913,7 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 		}
 
 		return forEachNodeChannel(
-			ctx, db, s.cfg, nodeID,
+			ctx, db, s.cfg, lnwire.GossipVersion1, nodeID,
 			func(info *models.ChannelEdgeInfo,
 				outPolicy *models.ChannelEdgePolicy,
 				_ *models.ChannelEdgePolicy) error {
@@ -1027,14 +1027,15 @@ func (s *SQLStore) ForEachNodeCacheable(ctx context.Context,
 // Unknown policies are passed into the callback as nil values.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
+func (s *SQLStore) ForEachNodeChannel(ctx context.Context,
+	v lnwire.GossipVersion, nodePub route.Vertex,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error, reset func()) error {
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		dbNode, err := db.GetNodeByPubKey(
 			ctx, sqlc.GetNodeByPubKeyParams{
-				Version: int16(lnwire.GossipVersion1),
+				Version: int16(v),
 				PubKey:  nodePub[:],
 			},
 		)
@@ -1044,7 +1045,7 @@ func (s *SQLStore) ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
 			return fmt.Errorf("unable to fetch node: %w", err)
 		}
 
-		return forEachNodeChannel(ctx, db, s.cfg, dbNode.ID, cb)
+		return forEachNodeChannel(ctx, db, s.cfg, v, dbNode.ID, cb)
 	}, reset)
 }
 
@@ -3524,14 +3525,15 @@ func forEachNodeCacheable(ctx context.Context, cfg *sqldb.QueryConfig,
 // edge information, the outgoing policy and the incoming policy for the
 // channel and node combo.
 func forEachNodeChannel(ctx context.Context, db SQLQueries,
-	cfg *SQLStoreConfig, id int64, cb func(*models.ChannelEdgeInfo,
+	cfg *SQLStoreConfig, v lnwire.GossipVersion, id int64,
+	cb func(*models.ChannelEdgeInfo,
 		*models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error) error {
 
-	// Get all the V1 channels for this node.
+	// Get all the channels for this node.
 	rows, err := db.ListChannelsByNodeID(
 		ctx, sqlc.ListChannelsByNodeIDParams{
-			Version: int16(lnwire.GossipVersion1),
+			Version: int16(v),
 			NodeID1: id,
 		},
 	)

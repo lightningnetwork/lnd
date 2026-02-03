@@ -1757,7 +1757,7 @@ func TestGraphTraversal(t *testing.T) {
 	numNodeChans := 0
 	firstNode, secondNode := nodeList[0], nodeList[1]
 	err = graph.ForEachNodeChannel(
-		ctx, firstNode.PubKeyBytes,
+		ctx, lnwire.GossipVersion1, firstNode.PubKeyBytes,
 		func(_ *models.ChannelEdgeInfo, outEdge,
 			inEdge *models.ChannelEdgePolicy) error {
 
@@ -3843,7 +3843,7 @@ func testIncompleteChannelPolicies(t *testing.T, v lnwire.GossipVersion) {
 
 		calls := 0
 		err := graph.ForEachNodeChannel(
-			ctx, node.PubKeyBytes,
+			ctx, lnwire.GossipVersion1, node.PubKeyBytes,
 			func(_ *models.ChannelEdgeInfo, outEdge,
 				inEdge *models.ChannelEdgePolicy) error {
 
@@ -5061,7 +5061,9 @@ func BenchmarkForEachChannel(b *testing.B) {
 				return nil
 			}
 
-			err := graph.ForEachNodeChannel(ctx, n, cb, func() {})
+			err := graph.ForEachNodeChannel(
+				ctx, lnwire.GossipVersion1, n, cb, func() {},
+			)
 			require.NoError(b, err)
 		}
 	}

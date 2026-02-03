@@ -597,11 +597,12 @@ func (c *ChannelGraph) ForEachSourceNodeChannel(ctx context.Context,
 
 // ForEachNodeChannel iterates through all channels of the given node.
 func (c *ChannelGraph) ForEachNodeChannel(ctx context.Context,
-	nodePub route.Vertex, cb func(*models.ChannelEdgeInfo,
+	v lnwire.GossipVersion, nodePub route.Vertex,
+	cb func(*models.ChannelEdgeInfo,
 		*models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error, reset func()) error {
 
-	return c.db.ForEachNodeChannel(ctx, nodePub, cb, reset)
+	return c.db.ForEachNodeChannel(ctx, v, nodePub, cb, reset)
 }
 
 // ForEachNode iterates through all stored vertices/nodes in the graph.
@@ -903,6 +904,15 @@ func (c *VersionedGraph) DeleteChannelEdges(strictZombiePruning,
 // the second boolean.
 func (c *VersionedGraph) HasChannelEdge(chanID uint64) (bool, bool, error) {
 	return c.db.HasChannelEdge(c.v, chanID)
+}
+
+// ForEachNodeChannel iterates through all channels of the given node.
+func (c *VersionedGraph) ForEachNodeChannel(ctx context.Context,
+	nodePub route.Vertex, cb func(*models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy) error, reset func()) error {
+
+	return c.db.ForEachNodeChannel(ctx, c.v, nodePub, cb, reset)
 }
 
 // ForEachChannel iterates through all channel edges stored within the graph.

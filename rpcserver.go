@@ -5768,27 +5768,15 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 			return payIntent, err
 		}
 
-		// If the amount was not included in the invoice, then we let
-		// the payer specify the amount of satoshis they wish to send.
-		// We override the amount to pay with the amount provided from
-		// the payment request.
-		if payReq.MilliSat == nil {
-			amt, err := lnrpc.UnmarshallAmt(
-				rpcPayReq.Amt, rpcPayReq.AmtMsat,
-			)
-			if err != nil {
-				return payIntent, err
-			}
-			if amt == 0 {
-				return payIntent, errors.New("amount must be " +
-					"specified when paying a zero amount " +
-					"invoice")
-			}
-
-			payIntent.msat = amt
-		} else {
-			payIntent.msat = *payReq.MilliSat
+		// Validate and resolve the payment amount against the
+		// invoice. Overpayment is allowed, underpayment is not.
+		amt, err := lnrpc.ValidatePayReqAmt(
+			payReq.MilliSat, rpcPayReq.Amt, rpcPayReq.AmtMsat,
+		)
+		if err != nil {
+			return payIntent, err
 		}
+		payIntent.msat = amt
 
 		// Calculate the fee limit that should be used for this payment.
 		payIntent.feeLimit = lnrpc.CalculateFeeLimit(

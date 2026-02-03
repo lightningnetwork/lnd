@@ -1044,6 +1044,7 @@ func createChannelEdge(node1, node2 *models.Node) (*models.ChannelEdgeInfo,
 	)
 
 	edge1 := &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID,
 		LastUpdate:                nextUpdateTime(),
@@ -1058,6 +1059,7 @@ func createChannelEdge(node1, node2 *models.Node) (*models.ChannelEdgeInfo,
 		ExtraOpaqueData:           []byte{1, 0},
 	}
 	edge2 := &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID,
 		LastUpdate:                nextUpdateTime(),
@@ -1442,6 +1444,7 @@ func randEdgePolicy(chanID uint64) *models.ChannelEdgePolicy {
 
 func copyEdgePolicy(p *models.ChannelEdgePolicy) *models.ChannelEdgePolicy {
 	return &models.ChannelEdgePolicy{
+		Version:                   p.Version,
 		SigBytes:                  p.SigBytes,
 		ChannelID:                 p.ChannelID,
 		LastUpdate:                p.LastUpdate,
@@ -1459,6 +1462,7 @@ func copyEdgePolicy(p *models.ChannelEdgePolicy) *models.ChannelEdgePolicy {
 
 func newEdgePolicy(chanID uint64, updateTime int64) *models.ChannelEdgePolicy {
 	return &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		ChannelID:                 chanID,
 		LastUpdate:                time.Unix(updateTime, 0),
 		MessageFlags:              1,
@@ -3454,6 +3458,7 @@ func TestFilterChannelRange(t *testing.T) {
 			updateTime = time.Unix(updateTimeSeed, 0)
 			err = graph.UpdateEdgePolicy(
 				ctx, &models.ChannelEdgePolicy{
+					Version:      lnwire.GossipVersion1,
 					ToNode:       node.PubKeyBytes,
 					ChannelFlags: chanFlags,
 					ChannelID:    chanID,
@@ -4747,6 +4752,7 @@ func TestLightningNodeSigVerification(t *testing.T) {
 func TestComputeFee(t *testing.T) {
 	var (
 		policy = models.ChannelEdgePolicy{
+			Version:                   lnwire.GossipVersion1,
 			FeeBaseMSat:               10000,
 			FeeProportionalMillionths: 30000,
 		}

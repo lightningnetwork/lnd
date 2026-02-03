@@ -364,6 +364,7 @@ func (r *Manager) createEdge(channel *channeldb.OpenChannel,
 	// be updated with the new values in the call to processChan below.
 	timeLockDelta := uint16(r.DefaultRoutingPolicy.TimeLockDelta)
 	edge := &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		ChannelID:                 shortChanID.ToUint64(),
 		LastUpdate:                timestamp,
 		TimeLockDelta:             timeLockDelta,

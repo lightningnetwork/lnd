@@ -512,6 +512,7 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		return nil, nil, err
 	}
 	edgePolicy := &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),
@@ -528,6 +529,7 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		return nil, nil, err
 	}
 	edgePolicy = &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),

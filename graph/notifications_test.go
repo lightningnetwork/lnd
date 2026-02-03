@@ -113,6 +113,7 @@ func randEdgePolicy(chanID *lnwire.ShortChannelID,
 	}
 
 	return &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Unix(int64(prand.Int31()), 0),

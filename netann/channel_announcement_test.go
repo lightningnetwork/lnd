@@ -40,29 +40,26 @@ func TestCreateChanAnnouncement(t *testing.T) {
 		ExtraOpaqueData: []byte{0x1},
 	}
 
-	chanProof := &models.ChannelAuthProof{
-		NodeSig1Bytes:    expChanAnn.NodeSig1.ToSignatureBytes(),
-		NodeSig2Bytes:    expChanAnn.NodeSig2.ToSignatureBytes(),
-		BitcoinSig1Bytes: expChanAnn.BitcoinSig1.ToSignatureBytes(),
-		BitcoinSig2Bytes: expChanAnn.BitcoinSig2.ToSignatureBytes(),
-	}
-	chanInfo := &models.ChannelEdgeInfo{
-		ChainHash:        expChanAnn.ChainHash,
-		ChannelID:        expChanAnn.ShortChannelID.ToUint64(),
-		ChannelPoint:     wire.OutPoint{Index: 1},
-		Capacity:         btcutil.SatoshiPerBitcoin,
-		NodeKey1Bytes:    key,
-		NodeKey2Bytes:    key,
-		BitcoinKey1Bytes: key,
-		BitcoinKey2Bytes: key,
-		Features: lnwire.NewFeatureVector(
-			features, lnwire.Features,
-		),
-		ExtraOpaqueData: expChanAnn.ExtraOpaqueData,
-	}
-	chanAnn, _, _, err := CreateChanAnnouncement(
-		chanProof, chanInfo, nil, nil,
+	chanProof := models.NewV1ChannelAuthProof(
+		expChanAnn.NodeSig1.ToSignatureBytes(),
+		expChanAnn.NodeSig2.ToSignatureBytes(),
+		expChanAnn.BitcoinSig1.ToSignatureBytes(),
+		expChanAnn.BitcoinSig2.ToSignatureBytes(),
 	)
+	chanInfo, err := models.NewV1Channel(
+		expChanAnn.ShortChannelID.ToUint64(), expChanAnn.ChainHash,
+		key, key, &models.ChannelV1Fields{
+			BitcoinKey1Bytes: key,
+			BitcoinKey2Bytes: key,
+			ExtraOpaqueData:  expChanAnn.ExtraOpaqueData,
+		},
+		models.WithChanProof(chanProof),
+		models.WithChannelPoint(wire.OutPoint{Index: 1}),
+		models.WithCapacity(btcutil.SatoshiPerBitcoin),
+		models.WithFeatures(features),
+	)
+	require.NoError(t, err)
+	chanAnn, _, _, err := CreateChanAnnouncement(chanInfo, nil, nil)
 	require.NoError(t, err, "unable to create channel announcement")
 
 	assert.Equal(t, chanAnn, expChanAnn)

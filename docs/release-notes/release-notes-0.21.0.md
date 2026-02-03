@@ -120,6 +120,15 @@
   communicated via standard gRPC status codes. This is a **breaking change** for
   any clients of the `TrackOnion` RPC.
 
+* The `switchrpc.SendOnion` RPC has been overhauled to provide a more robust,
+  client-friendly, and forward-compatible API. Failures are no longer reported
+  in the response body but are instead communicated exclusively via gRPC status
+  codes with rich, structured `SendOnionFailureDetails` attached. The
+  `ErrorCode` enum has been redesigned to represent actionable client states,
+  and a new `CLEAR_TEXT_ERROR` code provides forward-compatibility for clients
+  when new definitive local errors are introduced. This is a **breaking change**
+  for any clients of the `SendOnion` RPC.
+
 ## lncli Updates
 
 ## Breaking Changes

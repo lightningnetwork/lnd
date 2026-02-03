@@ -661,11 +661,18 @@ func (c *ChannelGraph) DisabledChannelIDs() ([]uint64, error) {
 	return c.db.DisabledChannelIDs()
 }
 
-// HasChannelEdge returns true if the database knows of a channel edge.
-func (c *ChannelGraph) HasChannelEdge(chanID uint64) (time.Time, time.Time,
-	bool, bool, error) {
+// HasV1ChannelEdge returns true if the database knows of a channel edge.
+func (c *ChannelGraph) HasV1ChannelEdge(chanID uint64) (time.Time,
+	time.Time, bool, bool, error) {
 
-	return c.db.HasChannelEdge(chanID)
+	return c.db.HasV1ChannelEdge(chanID)
+}
+
+// HasChannelEdge returns true if the database knows of a channel edge.
+func (c *ChannelGraph) HasChannelEdge(v lnwire.GossipVersion,
+	chanID uint64) (bool, bool, error) {
+
+	return c.db.HasChannelEdge(v, chanID)
 }
 
 // AddEdgeProof sets the proof of an existing edge in the graph database.
@@ -887,6 +894,14 @@ func (c *VersionedGraph) DeleteChannelEdges(strictZombiePruning,
 	}
 
 	return err
+}
+
+// HasChannelEdge returns true if the database knows of a channel edge with the
+// passed channel ID and this graph's gossip version, and false otherwise. If it
+// is not found, then the zombie index is checked and its result is returned as
+// the second boolean.
+func (c *VersionedGraph) HasChannelEdge(chanID uint64) (bool, bool, error) {
+	return c.db.HasChannelEdge(c.v, chanID)
 }
 
 // IsPublicNode determines whether the node is seen as public in the graph.

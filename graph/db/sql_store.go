@@ -747,8 +747,11 @@ func (s *SQLStore) AddChannelEdge(ctx context.Context,
 			case alreadyExists:
 				return ErrEdgeAlreadyExist
 			default:
-				s.rejectCache.remove(edge.Version, edge.ChannelID)
+				s.rejectCache.remove(
+					edge.Version, edge.ChannelID,
+				)
 				s.chanCache.remove(edge.ChannelID)
+
 				return nil
 			}
 		},
@@ -2204,15 +2207,15 @@ func (s *SQLStore) FetchChannelEdgesByOutpoint(v lnwire.GossipVersion,
 	return edge, policy1, policy2, nil
 }
 
-// HasChannelEdge returns true if the database knows of a channel edge with the
-// passed channel ID, and false otherwise. If an edge with that ID is found
-// within the graph, then two time stamps representing the last time the edge
-// was updated for both directed edges are returned along with the boolean. If
-// it is not found, then the zombie index is checked and its result is returned
-// as the second boolean.
+// HasV1ChannelEdge returns true if the database knows of a channel edge
+// with the passed channel ID, and false otherwise. If an edge with that ID
+// is found within the graph, then two time stamps representing the last time
+// the edge was updated for both directed edges are returned along with the
+// boolean. If it is not found, then the zombie index is checked and its
+// result is returned as the second boolean.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool,
+func (s *SQLStore) HasV1ChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 	bool, error) {
 
 	ctx := context.TODO()
@@ -2323,6 +2326,158 @@ func (s *SQLStore) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 	)
 
 	return node1LastUpdate, node2LastUpdate, exists, isZombie, nil
+}
+
+// HasChannelEdge returns true if the database knows of a channel edge with the
+// passed channel ID and gossip version, and false otherwise. If an edge with
+// that ID is found within the graph, then the zombie index is checked and its
+// result is returned as the second boolean.
+//
+// NOTE: part of the Store interface.
+func (s *SQLStore) HasChannelEdge(v lnwire.GossipVersion,
+	chanID uint64) (bool, bool, error) {
+
+	if !isKnownGossipVersion(v) {
+		return false, false, fmt.Errorf(
+			"unsupported gossip version: %d", v,
+		)
+	}
+
+	ctx := context.TODO()
+
+	var (
+		exists          bool
+		isZombie        bool
+		node1LastUpdate time.Time
+		node2LastUpdate time.Time
+		node1Block      uint32
+		node2Block      uint32
+	)
+
+	// We'll query the cache with the shared lock held to allow multiple
+	// readers to access values in the cache concurrently if they exist.
+	s.cacheMu.RLock()
+	if entry, ok := s.rejectCache.get(v, chanID); ok {
+		s.cacheMu.RUnlock()
+		exists, isZombie = entry.flags.unpack()
+		return exists, isZombie, nil
+	}
+	s.cacheMu.RUnlock()
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	// The item was not found with the shared lock, so we'll acquire the
+	// exclusive lock and check the cache again in case another method added
+	// the entry to the cache while no lock was held.
+	if entry, ok := s.rejectCache.get(v, chanID); ok {
+		exists, isZombie = entry.flags.unpack()
+		return exists, isZombie, nil
+	}
+
+	chanIDB := channelIDToBytes(chanID)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		channel, err := db.GetChannelBySCID(
+			ctx, sqlc.GetChannelBySCIDParams{
+				Scid:    chanIDB,
+				Version: int16(v),
+			},
+		)
+		if errors.Is(err, sql.ErrNoRows) {
+			// Check if it is a zombie channel.
+			isZombie, err = db.IsZombieChannel(
+				ctx, sqlc.IsZombieChannelParams{
+					Scid:    chanIDB,
+					Version: int16(v),
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("could not check if channel "+
+					"is zombie: %w", err)
+			}
+
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("unable to fetch channel: %w", err)
+		}
+
+		exists = true
+
+		policy1, err := db.GetChannelPolicyByChannelAndNode(
+			ctx, sqlc.GetChannelPolicyByChannelAndNodeParams{
+				Version:   int16(v),
+				ChannelID: channel.ID,
+				NodeID:    channel.NodeID1,
+			},
+		)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("unable to fetch channel policy: %w",
+				err)
+		} else if err == nil {
+			switch v {
+			case lnwire.GossipVersion1:
+				if policy1.LastUpdate.Valid {
+					node1LastUpdate = time.Unix(
+						policy1.LastUpdate.Int64, 0,
+					)
+				}
+			case lnwire.GossipVersion2:
+				if policy1.BlockHeight.Valid {
+					node1Block = uint32(
+						policy1.BlockHeight.Int64,
+					)
+				}
+			}
+		}
+
+		policy2, err := db.GetChannelPolicyByChannelAndNode(
+			ctx, sqlc.GetChannelPolicyByChannelAndNodeParams{
+				Version:   int16(v),
+				ChannelID: channel.ID,
+				NodeID:    channel.NodeID2,
+			},
+		)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("unable to fetch channel policy: %w",
+				err)
+		} else if err == nil {
+			switch v {
+			case lnwire.GossipVersion1:
+				if policy2.LastUpdate.Valid {
+					node2LastUpdate = time.Unix(
+						policy2.LastUpdate.Int64, 0,
+					)
+				}
+			case lnwire.GossipVersion2:
+				if policy2.BlockHeight.Valid {
+					node2Block = uint32(
+						policy2.BlockHeight.Int64,
+					)
+				}
+			}
+		}
+
+		return nil
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return false, false,
+			fmt.Errorf("unable to fetch channel: %w", err)
+	}
+
+	var entry rejectCacheEntry
+	switch v {
+	case lnwire.GossipVersion1:
+		entry = newRejectCacheEntryV1(
+			node1LastUpdate, node2LastUpdate, exists, isZombie,
+		)
+	case lnwire.GossipVersion2:
+		entry = newRejectCacheEntryV2(
+			node1Block, node2Block, exists, isZombie,
+		)
+	}
+	s.rejectCache.insert(v, chanID, entry)
+
+	return exists, isZombie, nil
 }
 
 // ChannelID attempt to lookup the 8-byte compact channel ID which maps to the
@@ -3553,8 +3708,9 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 	if version == lnwire.GossipVersion1 {
 		extra, err = marshalExtraOpaqueData(edge.ExtraOpaqueData)
 		if err != nil {
-			return node1Pub, node2Pub, false, fmt.Errorf("unable to "+
-				"marshal extra opaque data: %w", err)
+			return node1Pub, node2Pub, false, fmt.Errorf(
+				"unable to marshal extra opaque data: %w", err,
+			)
 		}
 	}
 

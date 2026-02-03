@@ -59,7 +59,6 @@ type rejectCacheEntry struct {
 	flags rejectFlags
 }
 
-// newRejectCacheEntryV1 constructs a reject cache entry for v1 policies.
 func newRejectCacheEntryV1(upd1, upd2 time.Time, exists,
 	isZombie bool) rejectCacheEntry {
 
@@ -70,7 +69,6 @@ func newRejectCacheEntryV1(upd1, upd2 time.Time, exists,
 	}
 }
 
-// newRejectCacheEntryV2 constructs a reject cache entry for v2 policies.
 func newRejectCacheEntryV2(upd1, upd2 uint32, exists,
 	isZombie bool) rejectCacheEntry {
 
@@ -81,7 +79,6 @@ func newRejectCacheEntryV2(upd1, upd2 uint32, exists,
 	}
 }
 
-// updateRejectCacheEntryV1 updates the cached v1 timestamps.
 func updateRejectCacheEntryV1(entry *rejectCacheEntry, isUpdate1 bool,
 	lastUpdate time.Time) {
 
@@ -92,7 +89,6 @@ func updateRejectCacheEntryV1(entry *rejectCacheEntry, isUpdate1 bool,
 	}
 }
 
-// updateRejectCacheEntryV2 updates the cached v2 block heights.
 func updateRejectCacheEntryV2(entry *rejectCacheEntry, isUpdate1 bool,
 	blockHeight uint32) {
 
@@ -104,8 +100,7 @@ func updateRejectCacheEntryV2(entry *rejectCacheEntry, isUpdate1 bool,
 }
 
 // rejectCacheKey uniquely identifies a channel entry in the reject cache by
-// gossip version and channel ID. This allows v1 and v2 policy state for the
-// same channel ID to be cached independently.
+// gossip version and channel ID.
 type rejectCacheKey struct {
 	version lnwire.GossipVersion
 	chanID  uint64

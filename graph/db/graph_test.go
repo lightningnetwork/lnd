@@ -1015,7 +1015,8 @@ func assertEdgeInfoEqual(t *testing.T, e1 *models.ChannelEdgeInfo,
 	}
 }
 
-func createChannelEdge(node1, node2 *models.Node) (*models.ChannelEdgeInfo,
+func createChannelEdge(node1, node2 *models.Node,
+	v lnwire.GossipVersion) (*models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) {
 
 	var (
@@ -1050,56 +1051,123 @@ func createChannelEdge(node1, node2 *models.Node) (*models.ChannelEdgeInfo,
 		3, 3, 3, 3, 3,
 	}
 
-	proof := models.NewV1ChannelAuthProof(
-		testSig.Serialize(),
-		testSig.Serialize(),
-		testSig.Serialize(),
-		testSig.Serialize(),
+	var (
+		edgeInfo *models.ChannelEdgeInfo
+		edge1    *models.ChannelEdgePolicy
+		edge2    *models.ChannelEdgePolicy
 	)
 
-	edgeInfo, _ := models.NewV1Channel(
-		chanID, *chaincfg.MainNetParams.GenesisHash, node1Key, node2Key,
-		&models.ChannelV1Fields{
-			BitcoinKey1Bytes: node1Key,
-			BitcoinKey2Bytes: node2Key,
-			ExtraOpaqueData:  extraData,
-		},
-		models.WithChanProof(proof),
-		models.WithChannelPoint(outpoint),
-		models.WithCapacity(1000),
-	)
+	switch v {
+	case gossipV1:
+		proof := models.NewV1ChannelAuthProof(
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+		)
 
-	edge1 := &models.ChannelEdgePolicy{
-		Version:                   lnwire.GossipVersion1,
-		SigBytes:                  testSig.Serialize(),
-		ChannelID:                 chanID,
-		LastUpdate:                nextUpdateTime(),
-		SecondPeer:                false,
-		MessageFlags:              1,
-		ChannelFlags:              0,
-		TimeLockDelta:             99,
-		MinHTLC:                   2342135,
-		MaxHTLC:                   13928598,
-		FeeBaseMSat:               4352345,
-		FeeProportionalMillionths: 3452352,
-		ToNode:                    secondNode,
-		ExtraOpaqueData:           []byte{1, 0},
-	}
-	edge2 := &models.ChannelEdgePolicy{
-		Version:                   lnwire.GossipVersion1,
-		SigBytes:                  testSig.Serialize(),
-		ChannelID:                 chanID,
-		SecondPeer:                true,
-		LastUpdate:                nextUpdateTime(),
-		MessageFlags:              1,
-		ChannelFlags:              1,
-		TimeLockDelta:             99,
-		MinHTLC:                   2342135,
-		MaxHTLC:                   13928598,
-		FeeBaseMSat:               4352345,
-		FeeProportionalMillionths: 90392423,
-		ToNode:                    firstNode,
-		ExtraOpaqueData:           []byte{1, 0},
+		edgeInfo, _ = models.NewV1Channel(
+			chanID, *chaincfg.MainNetParams.GenesisHash,
+			node1Key, node2Key, &models.ChannelV1Fields{
+				BitcoinKey1Bytes: node1Key,
+				BitcoinKey2Bytes: node2Key,
+				ExtraOpaqueData:  extraData,
+			},
+			models.WithChanProof(proof),
+			models.WithChannelPoint(outpoint),
+			models.WithCapacity(1000),
+		)
+
+		edge1 = &models.ChannelEdgePolicy{
+			Version:                   lnwire.GossipVersion1,
+			SigBytes:                  testSig.Serialize(),
+			ChannelID:                 chanID,
+			LastUpdate:                nextUpdateTime(),
+			MessageFlags:              1,
+			ChannelFlags:              0,
+			TimeLockDelta:             99,
+			MinHTLC:                   2342135,
+			MaxHTLC:                   13928598,
+			FeeBaseMSat:               4352345,
+			FeeProportionalMillionths: 3452352,
+			ToNode:                    secondNode,
+			ExtraOpaqueData:           []byte{1, 0},
+		}
+		edge2 = &models.ChannelEdgePolicy{
+			Version:                   lnwire.GossipVersion1,
+			SigBytes:                  testSig.Serialize(),
+			ChannelID:                 chanID,
+			LastUpdate:                nextUpdateTime(),
+			MessageFlags:              1,
+			ChannelFlags:              1,
+			TimeLockDelta:             99,
+			MinHTLC:                   2342135,
+			MaxHTLC:                   13928598,
+			FeeBaseMSat:               4352345,
+			FeeProportionalMillionths: 90392423,
+			ToNode:                    firstNode,
+			ExtraOpaqueData:           []byte{1, 0},
+		}
+
+	case gossipV2:
+		var merkleRoot chainhash.Hash
+		copy(merkleRoot[:], bytes.Repeat([]byte{0xaa}, 32))
+
+		fundingScript := []byte{0x00, 0x20}
+		fundingScript = append(
+			fundingScript, bytes.Repeat([]byte{0xbb}, 32)...,
+		)
+
+		proof := models.NewV2ChannelAuthProof(testSig.Serialize())
+
+		edgeInfo, _ = models.NewV2Channel(
+			chanID, *chaincfg.MainNetParams.GenesisHash,
+			node1Key, node2Key, &models.ChannelV2Fields{
+				BitcoinKey1Bytes:  fn.Some(node1Key),
+				BitcoinKey2Bytes:  fn.Some(node2Key),
+				MerkleRootHash:    fn.Some(merkleRoot),
+				FundingScript:     fn.Some(fundingScript),
+				ExtraSignedFields: make(map[uint64][]byte),
+			},
+			models.WithChanProof(proof),
+			models.WithChannelPoint(outpoint),
+			models.WithCapacity(1000),
+		)
+
+		edge1 = &models.ChannelEdgePolicy{
+			Version:                   lnwire.GossipVersion2,
+			SigBytes:                  testSig.Serialize(),
+			ChannelID:                 chanID,
+			LastBlockHeight:           nextBlockHeight(),
+			SecondPeer:                false,
+			DisableFlags:              0,
+			TimeLockDelta:             99,
+			MinHTLC:                   2342135,
+			MaxHTLC:                   13928598,
+			FeeBaseMSat:               4352345,
+			FeeProportionalMillionths: 3452352,
+			ToNode:                    secondNode,
+			ExtraSignedFields: map[uint64][]byte{
+				100: {0x1, 0x2},
+			},
+		}
+		edge2 = &models.ChannelEdgePolicy{
+			Version:                   lnwire.GossipVersion2,
+			SigBytes:                  testSig.Serialize(),
+			ChannelID:                 chanID,
+			LastBlockHeight:           nextBlockHeight(),
+			SecondPeer:                true,
+			DisableFlags:              0,
+			TimeLockDelta:             99,
+			MinHTLC:                   2342135,
+			MaxHTLC:                   13928598,
+			FeeBaseMSat:               4352345,
+			FeeProportionalMillionths: 90392423,
+			ToNode:                    firstNode,
+			ExtraSignedFields: map[uint64][]byte{
+				101: {0x3, 0x4},
+			},
+		}
 	}
 
 	return edgeInfo, edge1, edge2
@@ -1125,7 +1193,9 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	assertNodeInCache(t, graph, node2, testFeatures)
 
 	// Create an edge and add it to the db.
-	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
+	edgeInfo, edge1, edge2 := createChannelEdge(
+		node1, node2, lnwire.GossipVersion1,
+	)
 
 	// Make sure inserting the policy at this point, before the edge info
 	// is added, will fail.
@@ -4518,7 +4588,9 @@ func TestDisabledChannelIDs(t *testing.T) {
 	}
 
 	// Adding a new channel edge to the graph.
-	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
+	edgeInfo, edge1, edge2 := createChannelEdge(
+		node1, node2, lnwire.GossipVersion1,
+	)
 	node2.LastUpdate = nextUpdateTime()
 	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
@@ -4604,7 +4676,9 @@ func TestEdgePolicyMissingMaxHTLC(t *testing.T) {
 	}
 	node2 := createTestVertex(t, lnwire.GossipVersion1)
 
-	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
+	edgeInfo, edge1, edge2 := createChannelEdge(
+		node1, node2, lnwire.GossipVersion1,
+	)
 	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -4743,7 +4817,9 @@ func TestGraphZombieIndex(t *testing.T) {
 		node1, node2 = node2, node1
 	}
 
-	edge, _, _ := createChannelEdge(node1, node2)
+	edge, _, _ := createChannelEdge(
+		node1, node2, lnwire.GossipVersion1,
+	)
 	require.NoError(t, graph.AddChannelEdge(ctx, edge))
 
 	// Since the edge is known the graph and it isn't a zombie, IsZombieEdge
@@ -5005,7 +5081,9 @@ func TestBatchedUpdateEdgePolicy(t *testing.T) {
 	require.NoError(t, graph.AddNode(ctx, node2))
 
 	// Create an edge and add it to the db.
-	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
+	edgeInfo, edge1, edge2 := createChannelEdge(
+		node1, node2, lnwire.GossipVersion1,
+	)
 
 	// Make sure inserting the policy at this point, before the edge info
 	// is added, will fail.
@@ -5118,7 +5196,9 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	require.NoError(t, graph.AddNode(ctx, node2))
 
 	// Create an edge and add it to the db.
-	edgeInfo, e1, e2 := createChannelEdge(node1, node2)
+	edgeInfo, e1, e2 := createChannelEdge(
+		node1, node2, lnwire.GossipVersion1,
+	)
 
 	// Because of lexigraphical sorting and the usage of random node keys in
 	// this test, we need to determine which edge belongs to node 1 at

@@ -78,6 +78,7 @@ type SQLQueries interface {
 	DeleteNodeFeature(ctx context.Context, arg sqlc.DeleteNodeFeatureParams) error
 	GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error)
 	GetV2DisabledSCIDs(ctx context.Context) ([][]byte, error)
+	GetChannelsByPolicyBlockRange(ctx context.Context, arg sqlc.GetChannelsByPolicyBlockRangeParams) ([]sqlc.GetChannelsByPolicyBlockRangeRow, error)
 
 	/*
 		Source node queries.
@@ -1094,10 +1095,82 @@ func extractMaxUpdateTime(
 	}
 }
 
+// extractMaxBlockHeight returns the maximum of the two policy block heights.
+// This is used for pagination cursor tracking.
+func extractMaxBlockHeight(
+	row sqlc.GetChannelsByPolicyBlockRangeRow) int64 {
+
+	switch {
+	case row.Policy1BlockHeight.Valid && row.Policy2BlockHeight.Valid:
+		return max(row.Policy1BlockHeight.Int64,
+			row.Policy2BlockHeight.Int64)
+	case row.Policy1BlockHeight.Valid:
+		return row.Policy1BlockHeight.Int64
+	case row.Policy2BlockHeight.Valid:
+		return row.Policy2BlockHeight.Int64
+	default:
+		return 0
+	}
+}
+
 // buildChannelFromRow constructs a ChannelEdge from a database row.
 // This includes building the nodes, channel info, and policies.
+//
+//nolint:dupl
 func (s *SQLStore) buildChannelFromRow(ctx context.Context, db SQLQueries,
 	row sqlc.GetChannelsByPolicyLastUpdateRangeRow) (ChannelEdge, error) {
+
+	node1, err := buildNode(ctx, s.cfg.QueryCfg, db, row.GraphNode)
+	if err != nil {
+		return ChannelEdge{}, fmt.Errorf("unable to build node1: %w",
+			err)
+	}
+
+	node2, err := buildNode(ctx, s.cfg.QueryCfg, db, row.GraphNode_2)
+	if err != nil {
+		return ChannelEdge{}, fmt.Errorf("unable to build node2: %w",
+			err)
+	}
+
+	channel, err := getAndBuildEdgeInfo(
+		ctx, s.cfg, db,
+		row.GraphChannel, node1.PubKeyBytes,
+		node2.PubKeyBytes,
+	)
+	if err != nil {
+		return ChannelEdge{}, fmt.Errorf("unable to build "+
+			"channel info: %w", err)
+	}
+
+	dbPol1, dbPol2, err := extractChannelPolicies(row)
+	if err != nil {
+		return ChannelEdge{}, fmt.Errorf("unable to extract "+
+			"channel policies: %w", err)
+	}
+
+	p1, p2, err := getAndBuildChanPolicies(
+		ctx, s.cfg.QueryCfg, db, dbPol1, dbPol2, channel.ChannelID,
+		node1.PubKeyBytes, node2.PubKeyBytes,
+	)
+	if err != nil {
+		return ChannelEdge{}, fmt.Errorf("unable to build "+
+			"channel policies: %w", err)
+	}
+
+	return ChannelEdge{
+		Info:    channel,
+		Policy1: p1,
+		Policy2: p2,
+		Node1:   node1,
+		Node2:   node2,
+	}, nil
+}
+
+// buildChannelFromBlockRow constructs a ChannelEdge from a block-range row.
+//
+//nolint:dupl
+func (s *SQLStore) buildChannelFromBlockRow(ctx context.Context, db SQLQueries,
+	row sqlc.GetChannelsByPolicyBlockRangeRow) (ChannelEdge, error) {
 
 	node1, err := buildNode(ctx, s.cfg.QueryCfg, db, row.GraphNode)
 	if err != nil {
@@ -1162,20 +1235,14 @@ func (s *SQLStore) updateChanCacheBatch(v lnwire.GossipVersion,
 	}
 }
 
-// ChanUpdatesInHorizon returns all the known channel edges which have at least
-// one edge that has an update timestamp within the specified horizon.
-//
-// Iterator Lifecycle:
-// 1. Initialize state (edgesSeen map, cache tracking, pagination cursors)
-// 2. Query batch of channels with policies in time range
-// 3. For each channel: check if seen, check cache, or build from DB
-// 4. Yield channels to caller
-// 5. Update cache after successful batch
-// 6. Repeat with updated pagination cursor until no more results
-//
-// NOTE: This is part of the Store interface.
-func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
+// ChanUpdatesInRange returns channel updates within a versioned range.
+func (s *SQLStore) ChanUpdatesInRange(v lnwire.GossipVersion,
+	r ChanUpdateRange,
 	opts ...IteratorOption) iter.Seq2[ChannelEdge, error] {
+
+	if err := r.validateForVersion(v); err != nil {
+		return chanUpdateRangeErrIter(err)
+	}
 
 	// Apply options.
 	cfg := defaultIteratorConfig()
@@ -1185,40 +1252,70 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 
 	return func(yield func(ChannelEdge, error) bool) {
 		var (
-			ctx            = context.TODO()
-			edgesSeen      = make(map[uint64]struct{})
-			edgesToCache   = make(map[uint64]ChannelEdge)
-			hits           int
-			total          int
-			lastUpdateTime sql.NullInt64
-			lastID         sql.NullInt64
-			hasMore        = true
+			ctx             = context.TODO()
+			edgesSeen       = make(map[uint64]struct{})
+			edgesToCache    = make(map[uint64]ChannelEdge)
+			hits            int
+			total           int
+			lastUpdateTime  sql.NullInt64
+			lastBlockHeight sql.NullInt64
+			lastID          sql.NullInt64
+			hasMore         = true
 		)
 
-		// Each iteration, we'll read a batch amount of channel updates
-		// (consulting the cache along the way), yield them, then loop
-		// back to decide if we have any more updates to read out.
-		for hasMore {
-			var batch []ChannelEdge
+		s.iterChanUpdates(
+			ctx, yield, v, r, cfg, edgesSeen, edgesToCache,
+			&lastUpdateTime, &lastID, &hasMore, &hits, &total,
+			&lastBlockHeight,
+		)
+	}
+}
 
-			// Acquire read lock before starting transaction to
-			// ensure consistent lock ordering (cacheMu -> DB) and
-			// prevent deadlock with write operations.
-			s.cacheMu.RLock()
+// iterChanUpdates iterates over channel updates using either time or block
+// ranges depending on version.
+func (s *SQLStore) iterChanUpdates(ctx context.Context, //nolint:funlen
+	yield func(ChannelEdge, error) bool, v lnwire.GossipVersion,
+	r ChanUpdateRange, cfg *iterConfig,
+	edgesSeen map[uint64]struct{},
+	edgesToCache map[uint64]ChannelEdge,
+	lastUpdateTime, lastID *sql.NullInt64,
+	hasMore *bool, hits, total *int,
+	lastBlockHeight *sql.NullInt64) {
 
-			err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(),
-				func(db SQLQueries) error {
+	// Each iteration, we'll read a batch amount of channel updates
+	// (consulting the cache along the way), yield them, then loop
+	// back to decide if we have any more updates to read out.
+	for *hasMore {
+		var batch []ChannelEdge
+
+		// Acquire read lock before starting transaction to ensure
+		// consistent lock ordering (cacheMu -> DB) and prevent deadlock
+		// with write operations.
+		s.cacheMu.RLock()
+
+		err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(),
+			func(db SQLQueries) error {
+				switch v {
+				case gossipV1:
+					hasStart := r.StartTime.IsSome()
+					hasEnd := r.EndTime.IsSome()
+					if !hasStart || !hasEnd {
+						return fmt.Errorf(
+							"missing time range",
+						)
+					}
+
 					//nolint:ll
 					params := sqlc.GetChannelsByPolicyLastUpdateRangeParams{
-						Version: int16(lnwire.GossipVersion1),
+						Version: int16(v),
 						StartTime: sqldb.SQLInt64(
-							startTime.Unix(),
+							r.StartTime.UnwrapOr(time.Time{}).Unix(),
 						),
 						EndTime: sqldb.SQLInt64(
-							endTime.Unix(),
+							r.EndTime.UnwrapOr(time.Time{}).Unix(),
 						),
-						LastUpdateTime: lastUpdateTime,
-						LastID:         lastID,
+						LastUpdateTime: *lastUpdateTime,
+						LastID:         *lastID,
 						MaxResults: sql.NullInt32{
 							Int32: int32(
 								cfg.chanUpdateIterBatchSize,
@@ -1235,38 +1332,33 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 					}
 
 					//nolint:ll
-					hasMore = len(rows) == cfg.chanUpdateIterBatchSize
+					*hasMore = len(rows) == cfg.chanUpdateIterBatchSize
 
 					//nolint:ll
 					for _, row := range rows {
-						lastUpdateTime = sql.NullInt64{
+						*lastUpdateTime = sql.NullInt64{
 							Int64: extractMaxUpdateTime(row),
 							Valid: true,
 						}
-						lastID = sql.NullInt64{
+						*lastID = sql.NullInt64{
 							Int64: row.GraphChannel.ID,
 							Valid: true,
 						}
 
-						// Skip if we've already
-						// processed this channel.
 						chanIDInt := byteOrder.Uint64(
 							row.GraphChannel.Scid,
 						)
-						_, ok := edgesSeen[chanIDInt]
-						if ok {
+						if _, ok := edgesSeen[chanIDInt]; ok {
 							continue
 						}
 
-						// Check cache (we already hold
-						// shared read lock).
 						channel, ok := s.chanCache.get(
 							lnwire.GossipVersion1,
 							chanIDInt,
 						)
 						if ok {
-							hits++
-							total++
+							*hits++
+							*total++
 							edgesSeen[chanIDInt] = struct{}{}
 							batch = append(batch, channel)
 
@@ -1285,56 +1377,155 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 
 						batch = append(batch, chanEdge)
 
-						total++
+						*total++
 					}
 
-					return nil
-				}, func() {
-					batch = nil
-					edgesSeen = make(map[uint64]struct{})
-					edgesToCache = make(
-						map[uint64]ChannelEdge,
+				case gossipV2:
+					if !r.StartHeight.IsSome() ||
+						!r.EndHeight.IsSome() {
+
+						return fmt.Errorf(
+							"missing height range",
+						)
+					}
+
+					//nolint:ll
+					params := sqlc.GetChannelsByPolicyBlockRangeParams{
+						Version: int16(v),
+						StartHeight: sql.NullInt64{
+							Valid: true,
+							Int64: int64(
+								r.StartHeight.UnwrapOr(0),
+							),
+						},
+						EndHeight: sql.NullInt64{
+							Valid: true,
+							Int64: int64(r.EndHeight.UnwrapOr(0)),
+						},
+						LastBlockHeight: *lastBlockHeight,
+						LastID:          *lastID,
+						MaxResults: sql.NullInt32{
+							Int32: int32(
+								cfg.chanUpdateIterBatchSize,
+							),
+							Valid: true,
+						},
+					}
+
+					//nolint:ll
+					rows, err := db.GetChannelsByPolicyBlockRange(
+						ctx, params,
 					)
-				})
+					if err != nil {
+						return err
+					}
 
-			// Release read lock after transaction completes.
-			s.cacheMu.RUnlock()
+					//nolint:ll
+					*hasMore = len(rows) == cfg.chanUpdateIterBatchSize
 
-			if err != nil {
-				log.Errorf("ChanUpdatesInHorizon "+
-					"batch error: %v", err)
+					//nolint:ll
+					for _, row := range rows {
+						*lastBlockHeight = sql.NullInt64{
+							Int64: extractMaxBlockHeight(row),
+							Valid: true,
+						}
+						*lastID = sql.NullInt64{
+							Int64: row.GraphChannel.ID,
+							Valid: true,
+						}
 
-				yield(ChannelEdge{}, err)
+						chanIDInt := byteOrder.Uint64(
+							row.GraphChannel.Scid,
+						)
+						if _, ok := edgesSeen[chanIDInt]; ok {
+							continue
+						}
 
-				return
-			}
+						channel, ok := s.chanCache.get(
+							v, chanIDInt,
+						)
+						if ok {
+							*hits++
+							*total++
+							edgesSeen[chanIDInt] = struct{}{}
+							batch = append(batch, channel)
 
-			for _, edge := range batch {
-				if !yield(edge, nil) {
-					return
+							continue
+						}
+
+						chanEdge, err := s.buildChannelFromBlockRow(
+							ctx, db, row,
+						)
+						if err != nil {
+							return err
+						}
+
+						edgesSeen[chanIDInt] = struct{}{}
+						edgesToCache[chanIDInt] = chanEdge
+
+						batch = append(batch, chanEdge)
+
+						*total++
+					}
+
+				default:
+					return fmt.Errorf("unsupported "+
+						"gossip version: %d", v)
 				}
-			}
 
-			// Update cache after successful batch yield, setting
-			// the cache lock only once for the entire batch.
-			s.updateChanCacheBatch(
-				lnwire.GossipVersion1, edgesToCache,
-			)
-			edgesToCache = make(map[uint64]ChannelEdge)
+				return nil
+			}, func() {
+				batch = nil
+				edgesSeen = make(map[uint64]struct{})
+				edgesToCache = make(
+					map[uint64]ChannelEdge,
+				)
+			})
 
-			// If the batch didn't yield anything, then we're done.
-			if len(batch) == 0 {
-				break
+		// Release read lock after transaction completes.
+		s.cacheMu.RUnlock()
+
+		if err != nil {
+			log.Errorf("ChanUpdatesInRange batch error: %v", err)
+
+			yield(ChannelEdge{}, err)
+
+			return
+		}
+
+		for _, edge := range batch {
+			if !yield(edge, nil) {
+				return
 			}
 		}
 
-		if total > 0 {
-			log.Debugf("ChanUpdatesInHorizon hit percentage: "+
-				"%.2f (%d/%d)",
-				float64(hits)*100/float64(total), hits, total)
-		} else {
-			log.Debugf("ChanUpdatesInHorizon returned no edges "+
-				"in horizon (%s, %s)", startTime, endTime)
+		// Update cache after successful batch yield, setting
+		// the cache lock only once for the entire batch.
+		s.updateChanCacheBatch(v, edgesToCache)
+		edgesToCache = make(map[uint64]ChannelEdge)
+
+		// If the batch didn't yield anything, then we're done.
+		if len(batch) == 0 {
+			break
+		}
+	}
+
+	if *total > 0 {
+		log.Debugf("ChanUpdatesInRange hit percentage: "+
+			"%.2f (%d/%d)",
+			float64(*hits)*100/float64(*total), *hits, *total)
+	} else {
+		switch v {
+		case gossipV1:
+			log.Debugf("ChanUpdatesInRange returned no edges "+
+				"in horizon (%s, %s)",
+				r.StartTime.UnwrapOr(time.Time{}),
+				r.EndTime.UnwrapOr(time.Time{}))
+		case gossipV2:
+			log.Debugf("ChanUpdatesInRange returned no edges "+
+				"in range (%d, %d)",
+				r.StartHeight.UnwrapOr(0),
+				r.EndHeight.UnwrapOr(0))
 		}
 	}
 }
@@ -5262,6 +5453,54 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 		return policy1, policy2, nil
 
 	case sqlc.GetChannelsByPolicyLastUpdateRangeRow:
+		if r.Policy1ID.Valid {
+			policy1 = &sqlc.GraphChannelPolicy{
+				ID:                      r.Policy1ID.Int64,
+				Version:                 r.Policy1Version.Int16,
+				ChannelID:               r.GraphChannel.ID,
+				NodeID:                  r.Policy1NodeID.Int64,
+				Timelock:                r.Policy1Timelock.Int32,
+				FeePpm:                  r.Policy1FeePpm.Int64,
+				BaseFeeMsat:             r.Policy1BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy1MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy1MaxHtlcMsat,
+				LastUpdate:              r.Policy1LastUpdate,
+				InboundBaseFeeMsat:      r.Policy1InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy1InboundFeeRateMilliMsat,
+				Disabled:                r.Policy1Disabled,
+				MessageFlags:            r.Policy1MessageFlags,
+				ChannelFlags:            r.Policy1ChannelFlags,
+				Signature:               r.Policy1Signature,
+				BlockHeight:             r.Policy1BlockHeight,
+				DisableFlags:            r.Policy1DisableFlags,
+			}
+		}
+		if r.Policy2ID.Valid {
+			policy2 = &sqlc.GraphChannelPolicy{
+				ID:                      r.Policy2ID.Int64,
+				Version:                 r.Policy2Version.Int16,
+				ChannelID:               r.GraphChannel.ID,
+				NodeID:                  r.Policy2NodeID.Int64,
+				Timelock:                r.Policy2Timelock.Int32,
+				FeePpm:                  r.Policy2FeePpm.Int64,
+				BaseFeeMsat:             r.Policy2BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy2MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy2MaxHtlcMsat,
+				LastUpdate:              r.Policy2LastUpdate,
+				InboundBaseFeeMsat:      r.Policy2InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy2InboundFeeRateMilliMsat,
+				Disabled:                r.Policy2Disabled,
+				MessageFlags:            r.Policy2MessageFlags,
+				ChannelFlags:            r.Policy2ChannelFlags,
+				Signature:               r.Policy2Signature,
+				BlockHeight:             r.Policy2BlockHeight,
+				DisableFlags:            r.Policy2DisableFlags,
+			}
+		}
+
+		return policy1, policy2, nil
+
+	case sqlc.GetChannelsByPolicyBlockRangeRow:
 		if r.Policy1ID.Valid {
 			policy1 = &sqlc.GraphChannelPolicy{
 				ID:                      r.Policy1ID.Int64,

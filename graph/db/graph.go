@@ -696,12 +696,12 @@ func (c *ChannelGraph) HighestChanID(ctx context.Context,
 	return c.db.HighestChanID(ctx, v)
 }
 
-// ChanUpdatesInHorizon returns all known channel edges with updates in the
-// horizon.
-func (c *ChannelGraph) ChanUpdatesInHorizon(startTime, endTime time.Time,
-	opts ...IteratorOption) iter.Seq2[ChannelEdge, error] {
+// ChanUpdatesInRange returns channel updates within a versioned range.
+func (c *ChannelGraph) ChanUpdatesInRange(v lnwire.GossipVersion,
+	r ChanUpdateRange, opts ...IteratorOption) iter.Seq2[ChannelEdge,
+	error] {
 
-	return c.db.ChanUpdatesInHorizon(startTime, endTime, opts...)
+	return c.db.ChanUpdatesInRange(v, r, opts...)
 }
 
 // FilterChannelRange returns channel IDs within the passed block height range.
@@ -961,6 +961,13 @@ func (c *VersionedGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge,
 	error) {
 
 	return c.db.FetchChanInfos(c.v, chanIDs)
+}
+
+// ChanUpdatesInRange returns channel updates within a versioned range.
+func (c *VersionedGraph) ChanUpdatesInRange(r ChanUpdateRange,
+	opts ...IteratorOption) iter.Seq2[ChannelEdge, error] {
+
+	return c.db.ChanUpdatesInRange(c.v, r, opts...)
 }
 
 // HighestChanID returns the "highest" known channel ID in the channel graph.

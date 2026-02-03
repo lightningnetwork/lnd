@@ -33,9 +33,9 @@ func TestGraphCacheAddNode(t *testing.T) {
 	runTest := func(nodeA, nodeB route.Vertex) {
 		t.Helper()
 
-		channelFlagA, channelFlagB := 0, 1
+		isNode1A, isNode1B := true, false
 		if nodeA == pubKey2 {
-			channelFlagA, channelFlagB = 1, 0
+			isNode1A, isNode1B = false, true
 		}
 
 		inboundFee := lnwire.Fee{
@@ -44,8 +44,9 @@ func TestGraphCacheAddNode(t *testing.T) {
 		}
 
 		outPolicy1 := &models.CachedEdgePolicy{
-			ChannelID:    1000,
-			ChannelFlags: lnwire.ChanUpdateChanFlags(channelFlagA),
+			ChannelID:  1000,
+			IsNode1:    isNode1A,
+			IsDisabled: false,
 			ToNodePubKey: func() route.Vertex {
 				return nodeB
 			},
@@ -53,8 +54,9 @@ func TestGraphCacheAddNode(t *testing.T) {
 			InboundFee: fn.Some(inboundFee),
 		}
 		inPolicy1 := &models.CachedEdgePolicy{
-			ChannelID:    1000,
-			ChannelFlags: lnwire.ChanUpdateChanFlags(channelFlagB),
+			ChannelID:  1000,
+			IsNode1:    isNode1B,
+			IsDisabled: false,
 			ToNodePubKey: func() route.Vertex {
 				return nodeA
 			},
@@ -125,8 +127,9 @@ func assertCachedPolicyEqual(t *testing.T, original,
 	cached *models.CachedEdgePolicy) {
 
 	require.Equal(t, original.ChannelID, cached.ChannelID)
-	require.Equal(t, original.MessageFlags, cached.MessageFlags)
-	require.Equal(t, original.ChannelFlags, cached.ChannelFlags)
+	require.Equal(t, original.HasMaxHTLC, cached.HasMaxHTLC)
+	require.Equal(t, original.IsNode1, cached.IsNode1)
+	require.Equal(t, original.IsDisabled, cached.IsDisabled)
 	require.Equal(t, original.TimeLockDelta, cached.TimeLockDelta)
 	require.Equal(t, original.MinHTLC, cached.MinHTLC)
 	require.Equal(t, original.MaxHTLC, cached.MaxHTLC)
@@ -171,13 +174,14 @@ func TestGraphCacheDisabledPoliciesRegression(t *testing.T) {
 
 	// Create two disabled policies.
 	disabledPolicy1 := &models.CachedEdgePolicy{
-		ChannelID:    chanID,
-		ChannelFlags: lnwire.ChanUpdateDisabled,
+		ChannelID:  chanID,
+		IsNode1:    true,
+		IsDisabled: true,
 	}
 	disabledPolicy2 := &models.CachedEdgePolicy{
-		ChannelID: chanID,
-		ChannelFlags: lnwire.ChanUpdateDisabled |
-			lnwire.ChanUpdateDirection,
+		ChannelID:  chanID,
+		IsNode1:    false,
+		IsDisabled: true,
 	}
 
 	// Add the channel with both policies disabled (simulating
@@ -207,7 +211,8 @@ func TestGraphCacheDisabledPoliciesRegression(t *testing.T) {
 	// Now simulate receiving a fresh update enabling one direction.
 	enabledPolicy1 := &models.CachedEdgePolicy{
 		ChannelID:     chanID,
-		ChannelFlags:  0, // NOT disabled anymore
+		IsNode1:       true,
+		IsDisabled:    false,
 		TimeLockDelta: 40,
 		MinHTLC:       lnwire.MilliSatoshi(1000),
 	}

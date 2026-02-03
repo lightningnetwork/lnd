@@ -688,8 +688,10 @@ func (c *ChannelGraph) AddEdgeProof(chanID lnwire.ShortChannelID,
 }
 
 // HighestChanID returns the "highest" known channel ID in the channel graph.
-func (c *ChannelGraph) HighestChanID(ctx context.Context) (uint64, error) {
-	return c.db.HighestChanID(ctx)
+func (c *ChannelGraph) HighestChanID(ctx context.Context,
+	v lnwire.GossipVersion) (uint64, error) {
+
+	return c.db.HighestChanID(ctx, v)
 }
 
 // ChanUpdatesInHorizon returns all known channel edges with updates in the
@@ -948,6 +950,11 @@ func (c *VersionedGraph) ForEachChannelCacheable(
 // DisabledChannelIDs returns the channel ids of disabled channels.
 func (c *VersionedGraph) DisabledChannelIDs() ([]uint64, error) {
 	return c.db.DisabledChannelIDs(c.v)
+}
+
+// HighestChanID returns the "highest" known channel ID in the channel graph.
+func (c *VersionedGraph) HighestChanID(ctx context.Context) (uint64, error) {
+	return c.db.HighestChanID(ctx, c.v)
 }
 
 // ChannelID attempts to lookup the 8-byte compact channel ID.

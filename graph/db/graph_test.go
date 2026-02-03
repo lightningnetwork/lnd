@@ -198,6 +198,10 @@ var versionedTests = []versionedTest{
 		name: "graph cache for each node channel",
 		test: testGraphCacheForEachNodeChannel,
 	},
+	{
+		name: "highest chan id",
+		test: testHighestChanID,
+	},
 }
 
 // TestVersionedDBs runs various tests against both v1 and v2 versioned
@@ -2484,41 +2488,32 @@ func TestGraphPruning(t *testing.T) {
 
 // TestHighestChanID tests that we're able to properly retrieve the highest
 // known channel ID in the database.
-func TestHighestChanID(t *testing.T) {
+func testHighestChanID(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	// If we don't yet have any channels in the database, then we should
 	// get a channel ID of zero if we ask for the highest channel ID.
 	bestID, err := graph.HighestChanID(ctx)
 	require.NoError(t, err, "unable to get highest ID")
 	if bestID != 0 {
-		t.Fatalf("best ID w/ no chan should be zero, is instead: %v",
-			bestID)
+		require.Equal(t, uint64(0), bestID)
 	}
 
 	// Next, we'll insert two channels into the database, with each channel
 	// connecting the same two nodes.
-	node1 := createTestVertex(t, lnwire.GossipVersion1)
-	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	node1 := createTestVertex(t, v)
+	node2 := createTestVertex(t, v)
 
 	// The first channel with be at height 10, while the other will be at
 	// height 100.
-	edge1, _ := createEdge(
-		lnwire.GossipVersion1, 10, 0, 0, 0, node1, node2,
-	)
-	edge2, chanID2 := createEdge(
-		lnwire.GossipVersion1, 100, 0, 0, 0, node1, node2,
-	)
+	edge1, _ := createEdge(v, 10, 0, 0, 0, node1, node2)
+	edge2, chanID2 := createEdge(v, 100, 0, 0, 0, node1, node2)
 
-	if err := graph.AddChannelEdge(ctx, edge1); err != nil {
-		t.Fatalf("unable to create channel edge: %v", err)
-	}
-	if err := graph.AddChannelEdge(ctx, edge2); err != nil {
-		t.Fatalf("unable to create channel edge: %v", err)
-	}
+	require.NoError(t, graph.AddChannelEdge(ctx, edge1))
+	require.NoError(t, graph.AddChannelEdge(ctx, edge2))
 
 	// Now that the edges has been inserted, we'll query for the highest
 	// known channel ID in the database.
@@ -2526,25 +2521,17 @@ func TestHighestChanID(t *testing.T) {
 	require.NoError(t, err, "unable to get highest ID")
 
 	if bestID != chanID2.ToUint64() {
-		t.Fatalf("expected %v got %v for best chan ID: ",
-			chanID2.ToUint64(), bestID)
+		require.Equal(t, chanID2.ToUint64(), bestID)
 	}
 
 	// If we add another edge, then the current best chan ID should be
 	// updated as well.
-	edge3, chanID3 := createEdge(
-		lnwire.GossipVersion1, 1000, 0, 0, 0, node1, node2,
-	)
-	if err := graph.AddChannelEdge(ctx, edge3); err != nil {
-		t.Fatalf("unable to create channel edge: %v", err)
-	}
+	edge3, chanID3 := createEdge(v, 1000, 0, 0, 0, node1, node2)
+	require.NoError(t, graph.AddChannelEdge(ctx, edge3))
 	bestID, err = graph.HighestChanID(ctx)
 	require.NoError(t, err, "unable to get highest ID")
 
-	if bestID != chanID3.ToUint64() {
-		t.Fatalf("expected %v got %v for best chan ID: ",
-			chanID3.ToUint64(), bestID)
-	}
+	require.Equal(t, chanID3.ToUint64(), bestID)
 }
 
 // TestChanUpdatesInHorizon tests the we're able to properly retrieve all known
@@ -5210,6 +5197,7 @@ func BenchmarkForEachChannel(b *testing.B) {
 // method works as expected, and is able to handle nil self edges.
 func testGraphCacheForEachNodeChannel(t *testing.T,
 	v lnwire.GossipVersion) {
+
 	t.Parallel()
 	ctx := t.Context()
 

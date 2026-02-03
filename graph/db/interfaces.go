@@ -246,7 +246,8 @@ type Store interface { //nolint:interfacebloat
 	// graph. This represents the "newest" channel from the PoV of the
 	// chain. This method can be used by peers to quickly determine if
 	// they're graphs are in sync.
-	HighestChanID(ctx context.Context) (uint64, error)
+	HighestChanID(ctx context.Context, v lnwire.GossipVersion) (
+		uint64, error)
 
 	// ChanUpdatesInHorizon returns all the known channel edges which have
 	// at least one edge that has an update timestamp within the specified

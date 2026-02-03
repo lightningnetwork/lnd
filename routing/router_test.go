@@ -2751,6 +2751,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// We must add the edge policy to be able to use the edge for route
 	// finding.
 	edgePolicy := &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -2766,6 +2767,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// Create edge in the other direction as well.
 	edgePolicy = &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -2832,6 +2834,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	require.NoError(t, ctx.graph.AddChannelEdge(ctxb, edge))
 
 	edgePolicy = &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -2846,6 +2849,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	require.NoError(t, ctx.graph.UpdateEdgePolicy(ctxb, edgePolicy))
 
 	edgePolicy = &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -2965,6 +2969,7 @@ func (m *mockGraphBuilder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 	}
 
 	err := m.updateEdge(&models.ChannelEdgePolicy{
+		Version:                   msg.GossipVersion(),
 		SigBytes:                  msg.Signature.ToSignatureBytes(),
 		ChannelID:                 msg.ShortChannelID.ToUint64(),
 		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),

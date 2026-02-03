@@ -64,6 +64,7 @@ func TestManager(t *testing.T) {
 	}
 
 	currentPolicy := models.ChannelEdgePolicy{
+		Version:      lnwire.GossipVersion1,
 		MinHTLC:      minHTLC,
 		MessageFlags: lnwire.ChanUpdateRequiredMaxHtlc,
 	}
@@ -451,6 +452,7 @@ func TestCreateEdgeLower(t *testing.T) {
 	require.NoError(t, err)
 
 	expectedEdge := &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		ChannelID:                 8,
 		LastUpdate:                timestamp,
 		TimeLockDelta:             7,
@@ -542,6 +544,7 @@ func TestCreateEdgeHigher(t *testing.T) {
 	require.NoError(t, err)
 
 	expectedEdge := &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		ChannelID:                 8,
 		LastUpdate:                timestamp,
 		TimeLockDelta:             7,

@@ -304,6 +304,7 @@ func (s *Server) ImportGraph(ctx context.Context,
 
 		makePolicy := func(rpcPolicy *lnrpc.RoutingPolicy) *models.ChannelEdgePolicy { //nolint:ll
 			policy := &models.ChannelEdgePolicy{
+				Version:   lnwire.GossipVersion1,
 				ChannelID: rpcEdge.ChannelId,
 				LastUpdate: time.Unix(
 					int64(rpcPolicy.LastUpdate), 0,

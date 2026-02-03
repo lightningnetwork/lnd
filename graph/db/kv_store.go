@@ -1179,8 +1179,11 @@ func (c *KVStore) AddChannelEdge(ctx context.Context,
 			case alreadyExists:
 				return ErrEdgeAlreadyExist
 			default:
-				c.rejectCache.remove(lnwire.GossipVersion1, edge.ChannelID)
+				c.rejectCache.remove(
+					lnwire.GossipVersion1, edge.ChannelID,
+				)
 				c.chanCache.remove(edge.ChannelID)
+
 				return nil
 			}
 		},
@@ -1283,13 +1286,13 @@ func (c *KVStore) addChannelEdge(tx kvdb.RwTx,
 	return chanIndex.Put(b.Bytes(), chanKey[:])
 }
 
-// HasChannelEdge returns true if the database knows of a channel edge with the
-// passed channel ID, and false otherwise. If an edge with that ID is found
-// within the graph, then two time stamps representing the last time the edge
-// was updated for both directed edges are returned along with the boolean. If
-// it is not found, then the zombie index is checked and its result is returned
-// as the second boolean.
-func (c *KVStore) HasChannelEdge(
+// HasV1ChannelEdge returns true if the database knows of a channel edge
+// with the passed channel ID, and false otherwise. If an edge with that ID
+// is found within the graph, then two time stamps representing the last time
+// the edge was updated for both directed edges are returned along with the
+// boolean. If it is not found, then the zombie index is checked and its
+// result is returned as the second boolean.
+func (c *KVStore) HasV1ChannelEdge(
 	chanID uint64) (time.Time, time.Time, bool, bool, error) {
 
 	var (
@@ -1392,6 +1395,22 @@ func (c *KVStore) HasChannelEdge(
 	})
 
 	return upd1Time, upd2Time, exists, isZombie, nil
+}
+
+// HasChannelEdge returns true if the database knows of a channel edge with the
+// passed channel ID and gossip version, and false otherwise. If it is not
+// found, then the zombie index is checked and its result is returned as the
+// second boolean.
+func (c *KVStore) HasChannelEdge(v lnwire.GossipVersion,
+	chanID uint64) (bool, bool, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return false, false, ErrVersionNotSupportedForKVDB
+	}
+
+	_, _, exists, isZombie, err := c.HasV1ChannelEdge(chanID)
+
+	return exists, isZombie, err
 }
 
 // AddEdgeProof sets the proof of an existing edge in the graph database.
@@ -3265,7 +3284,8 @@ func (c *KVStore) updateEdgeCache(e *models.ChannelEdgePolicy,
 	// the entry with the updated timestamp for the direction that was just
 	// written. If the edge doesn't exist, we'll load the cache entry lazily
 	// during the next query for this edge.
-	if entry, ok := c.rejectCache.get(lnwire.GossipVersion1, e.ChannelID); ok {
+	entry, ok := c.rejectCache.get(lnwire.GossipVersion1, e.ChannelID)
+	if ok {
 		if isUpdate1 {
 			entry.upd1Time = e.LastUpdate.Unix()
 		} else {

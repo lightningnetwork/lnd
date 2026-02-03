@@ -268,7 +268,9 @@ func (e *EsploraFilteredChainView) handlePotentialReorg(newHeight,
 }
 
 // filterBlockTransactions scans the watched outputs to find any that were
-// spent in the given block height.
+// spent in the given block height. It fetches all block transactions and
+// scans them locally, which is more efficient than making per-outpoint API
+// calls when there are many watched outpoints.
 func (e *EsploraFilteredChainView) filterBlockTransactions(
 	blockHeight uint32) []*wire.MsgTx {
 
@@ -285,47 +287,69 @@ func (e *EsploraFilteredChainView) filterBlockTransactions(
 	}
 	e.filterMtx.RUnlock()
 
-	var filteredTxns []*wire.MsgTx
-	spentOutpoints := make([]wire.OutPoint, 0)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	// For each watched outpoint, check if it was spent using the outspend
-	// endpoint.
-	for outpoint := range watchedOutpoints {
-		outSpend, err := e.client.GetTxOutSpend(
-			ctx, outpoint.Hash.String(), outpoint.Index,
-		)
+	// Get block hash for this height.
+	blockHashStr, err := e.client.GetBlockHashByHeight(ctx, int64(blockHeight))
+	if err != nil {
+		log.Errorf("Failed to get block hash at height %d: %v",
+			blockHeight, err)
+		return nil
+	}
+
+	// Fetch all transactions in the block. This is more efficient than
+	// making individual GetTxOutSpend calls for each watched outpoint,
+	// especially for nodes with many channels.
+	txInfos, err := e.client.GetBlockTxs(ctx, blockHashStr)
+	if err != nil {
+		log.Errorf("Failed to get block transactions at height %d: %v",
+			blockHeight, err)
+		return nil
+	}
+
+	var spentOutpoints []wire.OutPoint
+	matchedTxIDs := make(map[string]struct{})
+
+	// Scan all transactions for inputs that spend watched outpoints.
+	for _, txInfo := range txInfos {
+		for _, vin := range txInfo.Vin {
+			if vin.IsCoinbase {
+				continue
+			}
+
+			// Parse the previous outpoint being spent by this input.
+			prevHash, err := chainhash.NewHashFromStr(vin.TxID)
+			if err != nil {
+				continue
+			}
+
+			prevOutpoint := wire.OutPoint{
+				Hash:  *prevHash,
+				Index: vin.Vout,
+			}
+
+			// Check if this input spends a watched outpoint.
+			if _, watched := watchedOutpoints[prevOutpoint]; watched {
+				// Track the spending transaction (avoid duplicates
+				// if tx spends multiple watched outpoints).
+				if _, exists := matchedTxIDs[txInfo.TxID]; !exists {
+					matchedTxIDs[txInfo.TxID] = struct{}{}
+				}
+				spentOutpoints = append(spentOutpoints, prevOutpoint)
+			}
+		}
+	}
+
+	// Fetch the raw transactions for matches.
+	var filteredTxns []*wire.MsgTx
+	for txid := range matchedTxIDs {
+		tx, err := e.client.GetRawTransactionMsgTx(ctx, txid)
 		if err != nil {
-			log.Debugf("Failed to check outspend for %v: %v",
-				outpoint, err)
+			log.Debugf("Failed to get spending tx %s: %v", txid, err)
 			continue
 		}
-
-		if !outSpend.Spent {
-			continue
-		}
-
-		// Check if the spend is confirmed and at this block height.
-		if !outSpend.Status.Confirmed {
-			continue
-		}
-
-		if uint32(outSpend.Status.BlockHeight) != blockHeight {
-			continue
-		}
-
-		// Fetch the spending transaction.
-		tx, err := e.client.GetRawTransactionMsgTx(ctx, outSpend.TxID)
-		if err != nil {
-			log.Debugf("Failed to get spending tx %s: %v",
-				outSpend.TxID, err)
-			continue
-		}
-
 		filteredTxns = append(filteredTxns, tx)
-		spentOutpoints = append(spentOutpoints, outpoint)
 	}
 
 	// Remove spent outpoints from the filter.

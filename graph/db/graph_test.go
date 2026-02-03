@@ -147,6 +147,10 @@ var versionedTests = []versionedTest{
 		test: testEdgeInsertionDeletion,
 	},
 	{
+		name: "edge policy crud",
+		test: testEdgePolicyCRUD,
+	},
+	{
 		name: "partial node",
 		test: testPartialNode,
 	},
@@ -1182,18 +1186,28 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	assertEdgeInfoEqual(t, dbEdgeInfo, edgeInfo)
 }
 
-// TestEdgePolicyCRUD tests basic CRUD operations for edge policies.
-func TestEdgePolicyCRUD(t *testing.T) {
+// testEdgePolicyCRUD tests basic CRUD operations for edge policies.
+func testEdgePolicyCRUD(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
-	node1 := createTestVertex(t, lnwire.GossipVersion1)
-	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	node1 := createTestVertex(t, v)
+	node2 := createTestVertex(t, v)
 
 	// Create an edge. Don't add it to the DB yet.
-	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
+	edgeInfo, shortChanID := createEdge(
+		v, 100, 1, 0, 0, node1, node2,
+	)
+	chanID := shortChanID.ToUint64()
+
+	edge1 := newEdgePolicy(v, chanID, nextUpdateTime().Unix(), true)
+	edge2 := newEdgePolicy(v, chanID, nextUpdateTime().Unix(), false)
+	edge1.ToNode = edgeInfo.NodeKey2Bytes
+	edge2.ToNode = edgeInfo.NodeKey1Bytes
+	edge1.SigBytes = testSig.Serialize()
+	edge2.SigBytes = testSig.Serialize()
 
 	updateAndAssertPolicies := func() {
 		// Make copies of the policies before calling UpdateEdgePolicy
@@ -1202,8 +1216,14 @@ func TestEdgePolicyCRUD(t *testing.T) {
 		edge1 := copyEdgePolicy(edge1)
 		edge2 := copyEdgePolicy(edge2)
 
-		edge1.LastUpdate = nextUpdateTime()
-		edge2.LastUpdate = nextUpdateTime()
+		switch v {
+		case lnwire.GossipVersion1:
+			edge1.LastUpdate = nextUpdateTime()
+			edge2.LastUpdate = nextUpdateTime()
+		case lnwire.GossipVersion2:
+			edge1.LastBlockHeight = nextBlockHeight()
+			edge2.LastBlockHeight = nextBlockHeight()
+		}
 
 		require.NoError(t, graph.UpdateEdgePolicy(ctx, edge1))
 		require.NoError(t, graph.UpdateEdgePolicy(ctx, edge2))
@@ -1219,7 +1239,7 @@ func TestEdgePolicyCRUD(t *testing.T) {
 		// assert that the deserialized policies match the original
 		// ones.
 		err := graph.ForEachChannel(
-			ctx, lnwire.GossipVersion1,
+			ctx,
 			func(info *models.ChannelEdgeInfo,
 				policy1 *models.ChannelEdgePolicy,
 				policy2 *models.ChannelEdgePolicy) error {
@@ -1251,13 +1271,26 @@ func TestEdgePolicyCRUD(t *testing.T) {
 
 	updateAndAssertPolicies()
 
-	// Update one of the edges to have ChannelFlags include a bit unknown
-	// to us.
-	edge1.ChannelFlags |= 1 << 6
+	switch v {
+	case lnwire.GossipVersion1:
+		// Update one of the edges to have ChannelFlags include a bit
+		// unknown to us.
+		edge1.ChannelFlags |= 1 << 6
 
-	// Update the other edge to have MessageFlags include a bit unknown to
-	// us.
-	edge2.MessageFlags |= 1 << 4
+		// Update the other edge to have MessageFlags include a bit
+		// unknown to us.
+		edge2.MessageFlags |= 1 << 4
+
+	case lnwire.GossipVersion2:
+		// Update one of the edges to have DisableFlags include a bit
+		// unknown to us.
+		edge1.DisableFlags |= 1 << 6
+
+		// Update the other edge to have a modified extra signed field.
+		edge2.ExtraSignedFields = map[uint64][]byte{
+			200: {0x4, 0x5},
+		}
+	}
 
 	updateAndAssertPolicies()
 }

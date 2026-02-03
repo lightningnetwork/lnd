@@ -1217,7 +1217,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		// the database.
 		graph := p.cfg.ChannelGraph
 		info, p1, p2, err := graph.FetchChannelEdgesByOutpoint(
-			&chanPoint,
+			lnwire.GossipVersion1, &chanPoint,
 		)
 		if err != nil && !errors.Is(err, graphdb.ErrEdgeNotFound) {
 			return nil, err

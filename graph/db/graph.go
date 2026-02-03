@@ -678,23 +678,21 @@ func (c *ChannelGraph) FetchChanInfos(v lnwire.GossipVersion,
 
 // FetchChannelEdgesByOutpoint attempts to lookup directed edges by funding
 // outpoint.
-func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
+func (c *ChannelGraph) FetchChannelEdgesByOutpoint(
+	v lnwire.GossipVersion, op *wire.OutPoint) (
 	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
-	return c.db.FetchChannelEdgesByOutpoint(
-		lnwire.GossipVersion1, op,
-	)
+	return c.db.FetchChannelEdgesByOutpoint(v, op)
 }
 
 // FetchChannelEdgesByID attempts to lookup directed edges by channel ID.
-func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (
+func (c *ChannelGraph) FetchChannelEdgesByID(
+	v lnwire.GossipVersion, chanID uint64) (
 	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
-	return c.db.FetchChannelEdgesByID(
-		lnwire.GossipVersion1, chanID,
-	)
+	return c.db.FetchChannelEdgesByID(v, chanID)
 }
 
 // ChannelView returns the verifiable edge information for each active channel.

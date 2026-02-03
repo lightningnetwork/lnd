@@ -1283,7 +1283,9 @@ func testEdgeInfoUpdates(t *testing.T, v lnwire.GossipVersion) {
 
 	// With the edges inserted, perform some queries to ensure that they've
 	// been inserted properly.
-	dbEdgeInfo, dbEdge1, dbEdge2, err := graph.FetchChannelEdgesByID(chanID)
+	dbEdgeInfo, dbEdge1, dbEdge2, err := graph.FetchChannelEdgesByID(
+		chanID,
+	)
 	require.NoError(t, err, "unable to fetch channel by ID")
 	if err := compareEdgePolicies(dbEdge1, edge1); err != nil {
 		t.Fatalf("edge doesn't match: %v", err)
@@ -4921,7 +4923,9 @@ func TestEdgePolicyMissingMaxHTLC(t *testing.T) {
 	// we added is invalid according to the new format, it should be as we
 	// are not aware of the policy (indicated by the policy returned being
 	// nil)
-	dbEdgeInfo, dbEdge1, dbEdge2, err := graph.FetchChannelEdgesByID(chanID)
+	dbEdgeInfo, dbEdge1, dbEdge2, err := graph.FetchChannelEdgesByID(
+		lnwire.GossipVersion1, chanID,
+	)
 	require.NoError(t, err, "unable to fetch channel by ID")
 
 	// The first edge should have a nil-policy returned
@@ -4939,7 +4943,9 @@ func TestEdgePolicyMissingMaxHTLC(t *testing.T) {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
-	dbEdgeInfo, dbEdge1, dbEdge2, err = graph.FetchChannelEdgesByID(chanID)
+	dbEdgeInfo, dbEdge1, dbEdge2, err = graph.FetchChannelEdgesByID(
+		lnwire.GossipVersion1, chanID,
+	)
 	require.NoError(t, err, "unable to fetch channel by ID")
 	if err := compareEdgePolicies(dbEdge1, edge1); err != nil {
 		t.Fatalf("edge doesn't match: %v", err)

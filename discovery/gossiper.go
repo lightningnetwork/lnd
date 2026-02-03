@@ -3422,20 +3422,12 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 	// different alias. This might mean that SigBytes is incorrect as it
 	// signs a different SCID than the database SCID, but since there will
 	// only be a difference if AuthProof == nil, this is fine.
-	update := &models.ChannelEdgePolicy{
-		Version:                   upd.GossipVersion(),
-		SigBytes:                  upd.Signature.ToSignatureBytes(),
-		ChannelID:                 chanInfo.ChannelID,
-		LastUpdate:                timestamp,
-		MessageFlags:              upd.MessageFlags,
-		ChannelFlags:              upd.ChannelFlags,
-		TimeLockDelta:             upd.TimeLockDelta,
-		MinHTLC:                   upd.HtlcMinimumMsat,
-		MaxHTLC:                   upd.HtlcMaximumMsat,
-		FeeBaseMSat:               lnwire.MilliSatoshi(upd.BaseFee),
-		FeeProportionalMillionths: lnwire.MilliSatoshi(upd.FeeRate),
-		InboundFee:                upd.InboundFee.ValOpt(),
-		ExtraOpaqueData:           upd.ExtraOpaqueData,
+	update, err := models.ChanEdgePolicyFromWire(
+		chanInfo.ChannelID, upd,
+	)
+	if err != nil {
+		nMsg.err <- err
+		return nil, false
 	}
 
 	if err := d.cfg.Graph.UpdateEdge(ctx, update, ops...); err != nil {

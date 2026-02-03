@@ -176,20 +176,25 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 
 				return nil
 			}, func() {})
-		if err != nil && !errors.Is(err, ErrVersionNotSupportedForKVDB) {
+		if err != nil && !errors.Is(
+			err, ErrVersionNotSupportedForKVDB,
+		) {
 			return err
 		}
 
 		err = c.db.ForEachChannelCacheable(v,
 			func(info *models.CachedEdgeInfo,
-				policy1, policy2 *models.CachedEdgePolicy) error {
+				policy1,
+				policy2 *models.CachedEdgePolicy) error {
 
 				c.graphCache.AddChannel(info, policy1, policy2)
 
 				return nil
 			}, func() {},
 		)
-		if err != nil && !errors.Is(err, ErrVersionNotSupportedForKVDB) {
+		if err != nil && !errors.Is(
+			err, ErrVersionNotSupportedForKVDB,
+		) {
 			return err
 		}
 	}

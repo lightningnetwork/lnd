@@ -151,6 +151,10 @@ var versionedTests = []versionedTest{
 		test: testEdgePolicyCRUD,
 	},
 	{
+		name: "incomplete channel policies",
+		test: testIncompleteChannelPolicies,
+	},
+	{
 		name: "partial node",
 		test: testPartialNode,
 	},
@@ -1753,7 +1757,7 @@ func TestGraphTraversal(t *testing.T) {
 	numNodeChans := 0
 	firstNode, secondNode := nodeList[0], nodeList[1]
 	err = graph.ForEachNodeChannel(
-		ctx, firstNode.PubKeyBytes,
+		ctx, lnwire.GossipVersion1, firstNode.PubKeyBytes,
 		func(_ *models.ChannelEdgeInfo, outEdge,
 			inEdge *models.ChannelEdgePolicy) error {
 
@@ -3810,32 +3814,26 @@ func TestFetchChanInfos(t *testing.T) {
 	}
 }
 
-// TestIncompleteChannelPolicies tests that a channel that only has a policy
+// testIncompleteChannelPolicies tests that a channel that only has a policy
 // specified on one end is properly returned in ForEachChannel calls from
 // both sides.
-func TestIncompleteChannelPolicies(t *testing.T) {
+func testIncompleteChannelPolicies(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	// Create two nodes.
-	node1 := createTestVertex(t, lnwire.GossipVersion1)
-	if err := graph.AddNode(ctx, node1); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
-	node2 := createTestVertex(t, lnwire.GossipVersion1)
-	if err := graph.AddNode(ctx, node2); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
+	node1 := createTestVertex(t, v)
+	require.NoError(t, graph.AddNode(ctx, node1))
+	node2 := createTestVertex(t, v)
+	require.NoError(t, graph.AddNode(ctx, node2))
 
 	channel, chanID := createEdge(
-		lnwire.GossipVersion1, uint32(0), 0, 0, 0, node1, node2,
+		v, uint32(0), 0, 0, 0, node1, node2,
 	)
 
-	if err := graph.AddChannelEdge(ctx, channel); err != nil {
-		t.Fatalf("unable to create channel edge: %v", err)
-	}
+	require.NoError(t, graph.AddChannelEdge(ctx, channel))
 
 	// Ensure that channel is reported with unknown policies.
 	checkPolicies := func(node *models.Node, expectedIn,
@@ -3847,21 +3845,8 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 			func(_ *models.ChannelEdgeInfo, outEdge,
 				inEdge *models.ChannelEdgePolicy) error {
 
-				if !expectedOut && outEdge != nil {
-					t.Fatalf("Expected no outgoing policy")
-				}
-
-				if expectedOut && outEdge == nil {
-					t.Fatalf("Expected an outgoing policy")
-				}
-
-				if !expectedIn && inEdge != nil {
-					t.Fatalf("Expected no incoming policy")
-				}
-
-				if expectedIn && inEdge == nil {
-					t.Fatalf("Expected an incoming policy")
-				}
+				require.Equal(t, expectedOut, outEdge != nil)
+				require.Equal(t, expectedIn, inEdge != nil)
 
 				calls++
 
@@ -3874,34 +3859,30 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 
 	checkPolicies(node2, false, false)
 
+	newTestEdgePolicy := func(isNode1 bool,
+		toNode route.Vertex) *models.ChannelEdgePolicy {
+
+		policy := newEdgePolicy(
+			v, chanID.ToUint64(), nextUpdateTime().Unix(), isNode1,
+		)
+		policy.ToNode = toNode
+		policy.SigBytes = testSig.Serialize()
+
+		return policy
+	}
+
 	// Only create an edge policy for node1 and leave the policy for node2
 	// unknown.
-	updateTime := time.Unix(1234, 0)
-
-	edgePolicy := newEdgePolicy(
-		lnwire.GossipVersion1, chanID.ToUint64(), updateTime.Unix(),
-		true,
-	)
-	edgePolicy.ToNode = node2.PubKeyBytes
-	edgePolicy.SigBytes = testSig.Serialize()
-	if err := graph.UpdateEdgePolicy(ctx, edgePolicy); err != nil {
-		t.Fatalf("unable to update edge: %v", err)
-	}
+	edgePolicy := newTestEdgePolicy(true, node2.PubKeyBytes)
+	require.NoError(t, graph.UpdateEdgePolicy(ctx, edgePolicy))
 
 	checkPolicies(node1, false, true)
 	checkPolicies(node2, true, false)
 
 	// Create second policy and assert that both policies are reported
 	// as present.
-	edgePolicy = newEdgePolicy(
-		lnwire.GossipVersion1, chanID.ToUint64(), updateTime.Unix(),
-		false,
-	)
-	edgePolicy.ToNode = node1.PubKeyBytes
-	edgePolicy.SigBytes = testSig.Serialize()
-	if err := graph.UpdateEdgePolicy(ctx, edgePolicy); err != nil {
-		t.Fatalf("unable to update edge: %v", err)
-	}
+	edgePolicy = newTestEdgePolicy(false, node1.PubKeyBytes)
+	require.NoError(t, graph.UpdateEdgePolicy(ctx, edgePolicy))
 
 	checkPolicies(node1, true, true)
 	checkPolicies(node2, true, true)
@@ -5024,7 +5005,9 @@ func BenchmarkForEachChannel(b *testing.B) {
 				return nil
 			}
 
-			err := graph.ForEachNodeChannel(ctx, n, cb, func() {})
+			err := graph.ForEachNodeChannel(
+				ctx, lnwire.GossipVersion1, n, cb, func() {},
+			)
 			require.NoError(b, err)
 		}
 	}

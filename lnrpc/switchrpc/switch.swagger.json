@@ -362,22 +362,6 @@
       },
       "description": "ClearTextFailure is included when the failure originates locally or is a\nfully decrypted, known failure from an upstream node. It contains the raw\nlnwire.FailureMessage."
     },
-    "switchrpcErrorCode": {
-      "type": "string",
-      "enum": [
-        "UNSPECIFIED",
-        "PAYMENT_ID_NOT_FOUND",
-        "FORWARDING_ERROR",
-        "CLEAR_TEXT_ERROR",
-        "UNREADABLE_FAILURE_MESSAGE",
-        "DUPLICATE_HTLC",
-        "NO_LINK",
-        "SWITCH_EXITING",
-        "INTERNAL"
-      ],
-      "default": "UNSPECIFIED",
-      "description": " - UNSPECIFIED: Default value for unset errors.\n - PAYMENT_ID_NOT_FOUND: Payment ID was not found.\n - FORWARDING_ERROR: Error occurred during forwarding.\n - CLEAR_TEXT_ERROR: Clear text error.\n - UNREADABLE_FAILURE_MESSAGE: Failure message could not be read.\n - DUPLICATE_HTLC: An HTLC with same ID is already in flight.\n - NO_LINK: No link available for payment.\n - SWITCH_EXITING: HTLC switch is exiting.\n - INTERNAL: Opaque internal server error."
-    },
     "switchrpcFailureDetails": {
       "type": "object",
       "properties": {
@@ -489,20 +473,7 @@
     },
     "switchrpcSendOnionResponse": {
       "type": "object",
-      "properties": {
-        "success": {
-          "type": "boolean",
-          "description": "Indicates if the onion was successfully sent or not.\nEquivalent to `error_code == ERROR_CODE_UNSPECIFIED`."
-        },
-        "error_message": {
-          "type": "string",
-          "description": "In case of failure, this field will provide more information about the\nerror."
-        },
-        "error_code": {
-          "$ref": "#/definitions/switchrpcErrorCode",
-          "description": "A code representing the type of error that occurred. This can be used\nto programmatically distinguish between different kinds of errors."
-        }
-      }
+      "description": "SendOnionResponse is an empty message. A gRPC OK status indicates successful\ndispatch. Failures are communicated via the gRPC status error's details,\nwhich will contain a SendOnionFailureDetails message."
     },
     "switchrpcTrackOnionRequest": {
       "type": "object",

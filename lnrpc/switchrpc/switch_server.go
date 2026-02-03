@@ -6,7 +6,6 @@ package switchrpc
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -77,6 +76,10 @@ var (
 	// completes in an ambiguous state: no error and no valid preimage.
 	ErrAmbiguousPaymentState = errors.New("payment completed in an " +
 		"ambiguous state: no error and no valid preimage")
+
+	// ErrUnknown is returned when a client is unable to unmarshall an
+	// error from a gRPC status.
+	ErrUnknown = errors.New("unable to unmarshall error")
 )
 
 // ServerShell is a shell struct holding a reference to the actual sub-server.
@@ -307,14 +310,10 @@ func (s *Server) SendOnion(_ context.Context,
 
 		// If we receive an initialization error, we'll return the error
 		// directly to the caller so they can handle the ambiguity.
-		//
-		// TODO(calvin): actually transport the error signal across the
-		// rpc boundary possibly using grpc st.WithDetails().
 		log.Errorf("Unable to initialize attempt id=%d: %v", attemptID,
 			err)
 
-		return nil, status.Errorf(codes.Unavailable, "unable to "+
-			"initialize attempt id=%d: %v", attemptID, err)
+		return nil, marshallSendOnionError(err)
 	}
 
 	// Perform all RPC-level pre-dispatch checks.
@@ -352,17 +351,11 @@ func (s *Server) SendOnion(_ context.Context,
 
 		// Translate the internal dispatch error into a gRPC status
 		// with rich details for the client.
-		message, code := translateErrorForRPC(dispatchErr)
-
-		return &SendOnionResponse{
-			Success:      false,
-			ErrorMessage: message,
-			ErrorCode:    code,
-		}, nil
+		return nil, marshallSendOnionError(dispatchErr)
 	}
 
 	// The onion attempt was successfully dispatched.
-	return &SendOnionResponse{Success: true}, nil
+	return &SendOnionResponse{}, nil
 }
 
 // failPendingAttempt is a helper which transitions the given attempt from an
@@ -827,44 +820,154 @@ func (s *Server) BuildOnion(_ context.Context,
 	}, nil
 }
 
-// translateErrorForRPC converts an error from the underlying HTLC switch to
-// a form that we can package for delivery to SendOnion rpc clients.
-func translateErrorForRPC(err error) (string, ErrorCode) {
-	var (
-		clearTextErr htlcswitch.ClearTextError
-	)
+// marshallSendOnionError translates an error from the underlying HTLC switch
+// into a gRPC status error with rich, fine-grained details.
+func marshallSendOnionError(err error) error {
+	var clearTextErr htlcswitch.ClearTextError
 
+	details := &SendOnionFailureDetails{
+		ErrorMessage: err.Error(),
+	}
+
+	var rpcCode codes.Code
 	switch {
-	case errors.Is(err, htlcswitch.ErrPaymentIDNotFound):
-		return err.Error(), ErrorCode_PAYMENT_ID_NOT_FOUND
-
-	case errors.Is(err, htlcswitch.ErrDuplicateAdd):
-		return err.Error(), ErrorCode_DUPLICATE_HTLC
-
-	case errors.Is(err, htlcswitch.ErrUnreadableFailureMessage):
-		return err.Error(),
-			ErrorCode_UNREADABLE_FAILURE_MESSAGE
-
-	case errors.Is(err, htlcswitch.ErrSwitchExiting):
-		return err.Error(), ErrorCode_SWITCH_EXITING
-
 	case errors.As(err, &clearTextErr):
+		// We have a clear text error. We can now extract the
+		// underlying wire message.
 		var buf bytes.Buffer
 		encodeErr := lnwire.EncodeFailure(
 			&buf, clearTextErr.WireMessage(), 0,
 		)
 		if encodeErr != nil {
-			return fmt.Sprintf("failed to encode wire "+
-					"message: %v", encodeErr),
-				ErrorCode_INTERNAL
+			return status.Errorf(codes.Internal,
+				"failed to encode wire message: %v",
+				encodeErr)
 		}
 
-		return hex.EncodeToString(buf.Bytes()),
-			ErrorCode_CLEAR_TEXT_ERROR
+		details.ClearTextFailure = &ClearTextFailure{
+			WireMessage: buf.Bytes(),
+		}
+		details.ErrorCode = ErrorCode_CLEAR_TEXT_ERROR
+		rpcCode = codes.FailedPrecondition
+
+	case errors.Is(err, htlcswitch.ErrUnreadableFailureMessage):
+		details.ErrorCode = ErrorCode_UNREADABLE_FAILURE_MESSAGE
+		rpcCode = codes.Internal
+
+	case errors.Is(err, htlcswitch.ErrDuplicateAdd):
+		details.ErrorCode = ErrorCode_DUPLICATE_HTLC
+		rpcCode = codes.AlreadyExists
+
+	case errors.Is(err, htlcswitch.ErrSwitchExiting):
+		details.ErrorCode = ErrorCode_SWITCH_EXITING
+		rpcCode = codes.Unavailable
+
+	// Handle the critical ambiguous failure from InitAttempt. This error
+	// type signals that we are unsure if the idempotency anchor was
+	// written, and cannot provide acknowledgement on whether or not an htlc
+	// for the given attempt ID has been processed by the server. We signal
+	// this with a specific ErrorCode and a top-level gRPC status of
+	// Unavailable. The client MUST retry to resolve the ambiguity.
+	case errors.Is(err, htlcswitch.ErrAmbiguousAttemptInit):
+		details.ErrorCode = ErrorCode_HTLC_STATUS_UNKNOWN
+		rpcCode = codes.Unavailable
 
 	default:
-		return err.Error(), ErrorCode_INTERNAL
+		rpcCode = codes.Internal
 	}
+
+	// All definitive failures that are translated by this function occurred
+	// after the idempotency key was written. We can generally classify them
+	// as a failed precondition for the dispatch to succeed.
+	st := status.New(rpcCode, err.Error())
+	stWithDetails, attachErr := st.WithDetails(details)
+	if attachErr != nil {
+		log.Warnf("Unable to attach details to SendOnion error: %v",
+			attachErr)
+		return st.Err()
+	}
+
+	return stWithDetails.Err()
+}
+
+// UnmarshallSendOnionError inspects a gRPC error from a SendOnion call,
+// extracts the rich failure details, and translates it into a concrete Go
+// error. It returns the specific translated error if details are found,
+// otherwise it returns a generic error.
+func UnmarshallSendOnionError(rpcErr error) error {
+	st, ok := status.FromError(rpcErr)
+	if !ok {
+		// Not a gRPC status error, return as is.
+		return rpcErr
+	}
+
+	// Search for the specific failure details message within the status.
+	for _, detail := range st.Details() {
+		if failure, ok := detail.(*SendOnionFailureDetails); ok {
+			// We found the details. Now translate them into the
+			// appropriate Go error type.
+
+			// First, check for a specific structured error. This is
+			// the most detailed information we can get.
+			if failure.ClearTextFailure != nil {
+				// This is the most common case for a definitive
+				// failure.
+				linkErr, err := UnmarshallLinkError(
+					failure.ClearTextFailure,
+				)
+				if err != nil {
+					return err
+				}
+
+				return linkErr
+			}
+
+			// If no structured error is present, check for a
+			// specific error code.
+			switch failure.ErrorCode {
+			case ErrorCode_DUPLICATE_HTLC:
+				return htlcswitch.ErrDuplicateAdd
+			case ErrorCode_UNREADABLE_FAILURE_MESSAGE:
+				return htlcswitch.ErrUnreadableFailureMessage
+			case ErrorCode_SWITCH_EXITING:
+				return htlcswitch.ErrSwitchExiting
+			case ErrorCode_HTLC_STATUS_UNKNOWN:
+				return htlcswitch.ErrAmbiguousAttemptInit
+			}
+
+			// Fallback to the generic error message if no
+			// structured failure or specific code is present.
+			return fmt.Errorf("%w: %s", ErrUnknown,
+				failure.ErrorMessage)
+		}
+	}
+
+	// No details were found, return the original gRPC status error
+	// wrapped in our sentinel error.
+	return fmt.Errorf("%w: %w", ErrUnknown, rpcErr)
+}
+
+// GetSendOnionFailureDetails inspects a gRPC error from a SendOnion call and
+// extracts the rich failure details, if present. It returns the details struct
+// directly, allowing the caller to inspect all fields. It returns nil if no
+// such details are found.
+func GetSendOnionFailureDetails(rpcErr error) *SendOnionFailureDetails {
+	st, ok := status.FromError(rpcErr)
+	if !ok {
+		// Not a gRPC status error.
+		return nil
+	}
+
+	// Search for the specific failure details message within the status.
+	for _, detail := range st.Details() {
+		if failure, ok := detail.(*SendOnionFailureDetails); ok {
+			// We found the details, return them directly.
+			return failure
+		}
+	}
+
+	// No details were found.
+	return nil
 }
 
 // newTrackOnionFailureResponse is a helper function that wraps a

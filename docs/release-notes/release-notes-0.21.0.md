@@ -154,7 +154,8 @@
 * Prepare the graph DB for handling gossip V2
   nodes and channels [1](https://github.com/lightningnetwork/lnd/pull/10339)
     [2](https://github.com/lightningnetwork/lnd/pull/10379)
-    [3](https://github.com/lightningnetwork/lnd/pull/10380).
+    [3](https://github.com/lightningnetwork/lnd/pull/10380)
+    [4](https://github.com/lightningnetwork/lnd/pull/10542).
 
 ## Code Health
 

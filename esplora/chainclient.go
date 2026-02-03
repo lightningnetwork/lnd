@@ -1,9 +1,11 @@
 package esplora
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -767,13 +769,7 @@ func (c *ChainClient) scanAddressesWithGapLimit(
 
 // sortUint32Slice sorts a slice of uint32 in ascending order.
 func sortUint32Slice(s []uint32) {
-	for i := 0; i < len(s)-1; i++ {
-		for j := i + 1; j < len(s); j++ {
-			if s[i] > s[j] {
-				s[i], s[j] = s[j], s[i]
-			}
-		}
-	}
+	slices.Sort(s)
 }
 
 // filterBlocksByAddress filters blocks by querying each address individually.
@@ -1403,19 +1399,12 @@ func (c *ChainClient) scanAddressHistory(ctx context.Context,
 // (oldest first). For transactions in the same block, sort by txid for
 // deterministic ordering.
 func sortTxInfoByHeight(txs []*TxInfo) {
-	for i := 0; i < len(txs)-1; i++ {
-		for j := i + 1; j < len(txs); j++ {
-			// Sort by height first
-			if txs[i].Status.BlockHeight > txs[j].Status.BlockHeight {
-				txs[i], txs[j] = txs[j], txs[i]
-			} else if txs[i].Status.BlockHeight == txs[j].Status.BlockHeight {
-				// Same height, sort by txid for deterministic order
-				if txs[i].TxID > txs[j].TxID {
-					txs[i], txs[j] = txs[j], txs[i]
-				}
-			}
+	slices.SortFunc(txs, func(a, b *TxInfo) int {
+		if a.Status.BlockHeight != b.Status.BlockHeight {
+			return cmp.Compare(a.Status.BlockHeight, b.Status.BlockHeight)
 		}
-	}
+		return cmp.Compare(a.TxID, b.TxID)
+	})
 }
 
 // NotifyReceived marks an address for transaction notifications.

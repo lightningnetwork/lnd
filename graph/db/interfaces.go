@@ -239,7 +239,8 @@ type Store interface { //nolint:interfacebloat
 	// ChannelID attempt to lookup the 8-byte compact channel ID which maps
 	// to the passed channel point (outpoint). If the passed channel doesn't
 	// exist within the database, then ErrEdgeNotFound is returned.
-	ChannelID(chanPoint *wire.OutPoint) (uint64, error)
+	ChannelID(v lnwire.GossipVersion,
+		chanPoint *wire.OutPoint) (uint64, error)
 
 	// HighestChanID returns the "highest" known channel ID in the channel
 	// graph. This represents the "newest" channel from the PoV of the

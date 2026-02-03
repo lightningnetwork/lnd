@@ -177,8 +177,9 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 				return nil
 			}, func() {},
 		)
-		if err != nil &&
-			!errors.Is(err, ErrVersionNotSupportedForKVDB) {
+		if err != nil && !errors.Is(
+			err, ErrVersionNotSupportedForKVDB,
+		) {
 
 			return err
 		}
@@ -685,8 +686,10 @@ func (c *ChannelGraph) AddEdgeProof(chanID lnwire.ShortChannelID,
 }
 
 // ChannelID attempts to lookup the 8-byte compact channel ID.
-func (c *ChannelGraph) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
-	return c.db.ChannelID(chanPoint)
+func (c *ChannelGraph) ChannelID(v lnwire.GossipVersion,
+	chanPoint *wire.OutPoint) (uint64, error) {
+
+	return c.db.ChannelID(v, chanPoint)
 }
 
 // HighestChanID returns the "highest" known channel ID in the channel graph.
@@ -945,6 +948,11 @@ func (c *VersionedGraph) ForEachChannelCacheable(
 		*models.CachedEdgePolicy) error, reset func()) error {
 
 	return c.db.ForEachChannelCacheable(c.v, cb, reset)
+}
+
+// ChannelID attempts to lookup the 8-byte compact channel ID.
+func (c *VersionedGraph) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
+	return c.db.ChannelID(c.v, chanPoint)
 }
 
 // IsPublicNode determines whether the node is seen as public in the graph.

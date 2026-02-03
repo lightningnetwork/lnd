@@ -41,7 +41,7 @@ type ChannelGraphTimeSeries interface {
 	// passed superSet.
 	FilterKnownChanIDs(chain chainhash.Hash,
 		superSet []graphdb.ChannelUpdateInfo,
-		isZombieChan func(time.Time, time.Time) bool) (
+		isZombieChan func(graphdb.ChannelUpdateInfo) bool) (
 		[]lnwire.ShortChannelID, error)
 
 	// FilterChannelRange returns the set of channels that we created
@@ -215,7 +215,7 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 // NOTE: This is part of the ChannelGraphTimeSeries interface.
 func (c *ChanSeries) FilterKnownChanIDs(_ chainhash.Hash,
 	superSet []graphdb.ChannelUpdateInfo,
-	isZombieChan func(time.Time, time.Time) bool) (
+	isZombieChan func(graphdb.ChannelUpdateInfo) bool) (
 	[]lnwire.ShortChannelID, error) {
 
 	newChanIDs, err := c.graph.FilterKnownChanIDs(superSet, isZombieChan)

@@ -3517,6 +3517,8 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 		InboundBaseFeeMsat:      inboundBase,
 		InboundFeeRateMilliMsat: inboundRate,
 		Signature:               edge.SigBytes,
+		BlockHeight:             sql.NullInt64{},
+		DisableFlags:            sql.NullInt16{},
 	})
 	if err != nil {
 		return node1Pub, node2Pub, isNode1,
@@ -4830,6 +4832,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				Disabled:                r.Policy1Disabled,
 				MessageFlags:            r.Policy1MessageFlags,
 				ChannelFlags:            r.Policy1ChannelFlags,
+				BlockHeight:             r.Policy1BlockHeight,
+				DisableFlags:            r.Policy1DisableFlags,
 			}
 		}
 		if r.Policy2Timelock.Valid {
@@ -4844,6 +4848,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				Disabled:                r.Policy2Disabled,
 				MessageFlags:            r.Policy2MessageFlags,
 				ChannelFlags:            r.Policy2ChannelFlags,
+				BlockHeight:             r.Policy2BlockHeight,
+				DisableFlags:            r.Policy2DisableFlags,
 			}
 		}
 
@@ -4868,6 +4874,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				MessageFlags:            r.Policy1MessageFlags,
 				ChannelFlags:            r.Policy1ChannelFlags,
 				Signature:               r.Policy1Signature,
+				BlockHeight:             r.Policy1BlockHeight,
+				DisableFlags:            r.Policy1DisableFlags,
 			}
 		}
 		if r.Policy2ID.Valid {
@@ -4888,6 +4896,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				MessageFlags:            r.Policy2MessageFlags,
 				ChannelFlags:            r.Policy2ChannelFlags,
 				Signature:               r.Policy2Signature,
+				BlockHeight:             r.Policy2BlockHeight,
+				DisableFlags:            r.Policy2DisableFlags,
 			}
 		}
 
@@ -4912,6 +4922,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				MessageFlags:            r.Policy1MessageFlags,
 				ChannelFlags:            r.Policy1ChannelFlags,
 				Signature:               r.Policy1Signature,
+				BlockHeight:             r.Policy1BlockHeight,
+				DisableFlags:            r.Policy1DisableFlags,
 			}
 		}
 		if r.Policy2ID.Valid {
@@ -4932,6 +4944,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				MessageFlags:            r.Policy2MessageFlags,
 				ChannelFlags:            r.Policy2ChannelFlags,
 				Signature:               r.Policy2Signature,
+				BlockHeight:             r.Policy2BlockHeight,
+				DisableFlags:            r.Policy2DisableFlags,
 			}
 		}
 
@@ -4956,6 +4970,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				MessageFlags:            r.Policy1MessageFlags,
 				ChannelFlags:            r.Policy1ChannelFlags,
 				Signature:               r.Policy1Signature,
+				BlockHeight:             r.Policy1BlockHeight,
+				DisableFlags:            r.Policy1DisableFlags,
 			}
 		}
 		if r.Policy2ID.Valid {
@@ -4976,6 +4992,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				MessageFlags:            r.Policy2MessageFlags,
 				ChannelFlags:            r.Policy2ChannelFlags,
 				Signature:               r.Policy2Signature,
+				BlockHeight:             r.Policy2BlockHeight,
+				DisableFlags:            r.Policy2DisableFlags,
 			}
 		}
 
@@ -5000,6 +5018,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				MessageFlags:            r.Policy1MessageFlags,
 				ChannelFlags:            r.Policy1ChannelFlags,
 				Signature:               r.Policy1Signature,
+				BlockHeight:             r.Policy1BlockHeight,
+				DisableFlags:            r.Policy1DisableFlags,
 			}
 		}
 		if r.Policy2ID.Valid {
@@ -5020,6 +5040,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				MessageFlags:            r.Policy2MessageFlags,
 				ChannelFlags:            r.Policy2ChannelFlags,
 				Signature:               r.Policy2Signature,
+				BlockHeight:             r.Policy2BlockHeight,
+				DisableFlags:            r.Policy2DisableFlags,
 			}
 		}
 
@@ -5044,6 +5066,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				MessageFlags:            r.Policy1MessageFlags,
 				ChannelFlags:            r.Policy1ChannelFlags,
 				Signature:               r.Policy1Signature,
+				BlockHeight:             r.Policy1BlockHeight,
+				DisableFlags:            r.Policy1DisableFlags,
 			}
 		}
 		if r.Policy2ID.Valid {
@@ -5064,6 +5088,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				MessageFlags:            r.Policy2MessageFlags,
 				ChannelFlags:            r.Policy2ChannelFlags,
 				Signature:               r.Policy2Signature,
+				BlockHeight:             r.Policy2BlockHeight,
+				DisableFlags:            r.Policy2DisableFlags,
 			}
 		}
 
@@ -5088,6 +5114,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				MessageFlags:            r.Policy1MessageFlags,
 				ChannelFlags:            r.Policy1ChannelFlags,
 				Signature:               r.Policy1Signature,
+				BlockHeight:             r.Policy1BlockHeight,
+				DisableFlags:            r.Policy1DisableFlags,
 			}
 		}
 		if r.Policy2ID.Valid {
@@ -5108,6 +5136,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				MessageFlags:            r.Policy2MessageFlags,
 				ChannelFlags:            r.Policy2ChannelFlags,
 				Signature:               r.Policy2Signature,
+				BlockHeight:             r.Policy2BlockHeight,
+				DisableFlags:            r.Policy2DisableFlags,
 			}
 		}
 
@@ -5132,6 +5162,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				MessageFlags:            r.Policy1MessageFlags,
 				ChannelFlags:            r.Policy1ChannelFlags,
 				Signature:               r.Policy1Signature,
+				BlockHeight:             r.Policy1BlockHeight,
+				DisableFlags:            r.Policy1DisableFlags,
 			}
 		}
 		if r.Policy2ID.Valid {
@@ -5152,6 +5184,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				MessageFlags:            r.Policy2MessageFlags,
 				ChannelFlags:            r.Policy2ChannelFlags,
 				Signature:               r.Policy2Signature,
+				BlockHeight:             r.Policy2BlockHeight,
+				DisableFlags:            r.Policy2DisableFlags,
 			}
 		}
 
@@ -5176,6 +5210,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				MessageFlags:            r.Policy1MessageFlags,
 				ChannelFlags:            r.Policy1ChannelFlags,
 				Signature:               r.Policy1Signature,
+				BlockHeight:             r.Policy1BlockHeight,
+				DisableFlags:            r.Policy1DisableFlags,
 			}
 		}
 		if r.Policy2ID.Valid {
@@ -5196,6 +5232,8 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 				MessageFlags:            r.Policy2MessageFlags,
 				ChannelFlags:            r.Policy2ChannelFlags,
 				Signature:               r.Policy2Signature,
+				BlockHeight:             r.Policy2BlockHeight,
+				DisableFlags:            r.Policy2DisableFlags,
 			}
 		}
 

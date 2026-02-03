@@ -407,6 +407,8 @@ SELECT
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Policy 2
     cp2.id AS policy2_id,
@@ -423,7 +425,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy_2_message_flags,
     cp2.channel_flags AS policy_2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -462,6 +466,8 @@ SELECT
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Policy 2
     cp2.id AS policy2_id,
@@ -478,7 +484,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
     cp2.channel_flags AS policy2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -511,6 +519,8 @@ SELECT
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Policy 2 (node_id_2)
     cp2.id AS policy2_id,
@@ -527,7 +537,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
     cp2.channel_flags AS policy2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -590,6 +602,8 @@ SELECT
     cp1.message_flags AS policy_1_message_flags,
     cp1.channel_flags AS policy_1_channel_flags,
     cp1.signature AS policy_1_signature,
+    cp1.block_height AS policy_1_block_height,
+    cp1.disable_flags AS policy_1_disable_flags,
 
     -- Node 2 policy
     cp2.id AS policy_2_id,
@@ -606,7 +620,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy_2_message_flags,
     cp2.channel_flags AS policy_2_channel_flags,
-    cp2.signature AS policy_2_signature
+    cp2.signature AS policy_2_signature,
+    cp2.block_height AS policy_2_block_height,
+    cp2.disable_flags AS policy_2_disable_flags
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
     JOIN graph_nodes n2 ON c.node_id_2 = n2.id
@@ -647,6 +663,8 @@ SELECT sqlc.embed(c),
        cp1.message_flags AS policy1_message_flags,
        cp1.channel_flags AS policy1_channel_flags,
        cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
        -- Policy 2
        cp2.id AS policy2_id,
@@ -663,7 +681,9 @@ SELECT sqlc.embed(c),
        cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
        cp2.message_flags AS policy2_message_flags,
        cp2.channel_flags AS policy2_channel_flags,
-       cp2.signature AS policy2_signature
+       cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
          JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -700,6 +720,8 @@ SELECT sqlc.embed(c),
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
        -- Policy 2
     cp2.id AS policy2_id,
@@ -716,7 +738,9 @@ SELECT sqlc.embed(c),
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
     cp2.channel_flags AS policy2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -765,6 +789,8 @@ SELECT
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
     cp1.signature AS policy_1_signature,
 
     -- Node 2 policy
@@ -782,7 +808,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
     cp2.channel_flags AS policy2_channel_flags,
-    cp2.signature AS policy_2_signature
+    cp2.signature AS policy_2_signature,
+    cp2.block_height AS policy_2_block_height,
+    cp2.disable_flags AS policy_2_disable_flags
 
 FROM graph_channels c
 JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -816,6 +844,8 @@ SELECT
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Node 2 policy
     cp2.timelock AS policy_2_timelock,
@@ -827,7 +857,9 @@ SELECT
     cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
-    cp2.channel_flags AS policy2_channel_flags
+    cp2.channel_flags AS policy2_channel_flags,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
 JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -900,9 +932,9 @@ INSERT INTO graph_channel_policies (
     base_fee_msat, min_htlc_msat, last_update, disabled,
     max_htlc_msat, inbound_base_fee_msat,
     inbound_fee_rate_milli_msat, message_flags, channel_flags,
-    signature
+    signature, block_height, disable_flags
 ) VALUES  (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
 )
 ON CONFLICT (channel_id, node_id, version)
     -- Update the following fields if a conflict occurs on channel_id,
@@ -919,7 +951,9 @@ ON CONFLICT (channel_id, node_id, version)
         inbound_fee_rate_milli_msat = EXCLUDED.inbound_fee_rate_milli_msat,
         message_flags = EXCLUDED.message_flags,
         channel_flags = EXCLUDED.channel_flags,
-        signature = EXCLUDED.signature
+        signature = EXCLUDED.signature,
+        block_height = EXCLUDED.block_height,
+        disable_flags = EXCLUDED.disable_flags
 WHERE EXCLUDED.last_update > graph_channel_policies.last_update
 RETURNING id;
 
@@ -952,6 +986,8 @@ SELECT
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Policy 2
     cp2.id AS policy2_id,
@@ -968,7 +1004,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy_2_message_flags,
     cp2.channel_flags AS policy_2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id

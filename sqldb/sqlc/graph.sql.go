@@ -397,6 +397,8 @@ SELECT
     cp1.message_flags AS policy_1_message_flags,
     cp1.channel_flags AS policy_1_channel_flags,
     cp1.signature AS policy_1_signature,
+    cp1.block_height AS policy_1_block_height,
+    cp1.disable_flags AS policy_1_disable_flags,
 
     -- Node 2 policy
     cp2.id AS policy_2_id,
@@ -413,7 +415,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy_2_message_flags,
     cp2.channel_flags AS policy_2_channel_flags,
-    cp2.signature AS policy_2_signature
+    cp2.signature AS policy_2_signature,
+    cp2.block_height AS policy_2_block_height,
+    cp2.disable_flags AS policy_2_disable_flags
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
     JOIN graph_nodes n2 ON c.node_id_2 = n2.id
@@ -448,6 +452,8 @@ type GetChannelByOutpointWithPoliciesRow struct {
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
 	Policy2Version                 sql.NullInt16
@@ -463,6 +469,8 @@ type GetChannelByOutpointWithPoliciesRow struct {
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) GetChannelByOutpointWithPolicies(ctx context.Context, arg GetChannelByOutpointWithPoliciesParams) (GetChannelByOutpointWithPoliciesRow, error) {
@@ -502,6 +510,8 @@ func (q *Queries) GetChannelByOutpointWithPolicies(ctx context.Context, arg GetC
 		&i.Policy1MessageFlags,
 		&i.Policy1ChannelFlags,
 		&i.Policy1Signature,
+		&i.Policy1BlockHeight,
+		&i.Policy1DisableFlags,
 		&i.Policy2ID,
 		&i.Policy2NodeID,
 		&i.Policy2Version,
@@ -517,6 +527,8 @@ func (q *Queries) GetChannelByOutpointWithPolicies(ctx context.Context, arg GetC
 		&i.Policy2MessageFlags,
 		&i.Policy2ChannelFlags,
 		&i.Policy2Signature,
+		&i.Policy2BlockHeight,
+		&i.Policy2DisableFlags,
 	)
 	return i, err
 }
@@ -577,6 +589,8 @@ SELECT
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Policy 2
     cp2.id AS policy2_id,
@@ -593,7 +607,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy_2_message_flags,
     cp2.channel_flags AS policy_2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -630,6 +646,8 @@ type GetChannelBySCIDWithPoliciesRow struct {
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
 	Policy2Version                 sql.NullInt16
@@ -645,6 +663,8 @@ type GetChannelBySCIDWithPoliciesRow struct {
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) GetChannelBySCIDWithPolicies(ctx context.Context, arg GetChannelBySCIDWithPoliciesParams) (GetChannelBySCIDWithPoliciesRow, error) {
@@ -698,6 +718,8 @@ func (q *Queries) GetChannelBySCIDWithPolicies(ctx context.Context, arg GetChann
 		&i.Policy1MessageFlags,
 		&i.Policy1ChannelFlags,
 		&i.Policy1Signature,
+		&i.Policy1BlockHeight,
+		&i.Policy1DisableFlags,
 		&i.Policy2ID,
 		&i.Policy2NodeID,
 		&i.Policy2Version,
@@ -713,6 +735,8 @@ func (q *Queries) GetChannelBySCIDWithPolicies(ctx context.Context, arg GetChann
 		&i.Policy2MessageFlags,
 		&i.Policy2ChannelFlags,
 		&i.Policy2Signature,
+		&i.Policy2BlockHeight,
+		&i.Policy2DisableFlags,
 	)
 	return i, err
 }
@@ -917,6 +941,8 @@ SELECT
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Policy 2
     cp2.id AS policy2_id,
@@ -933,7 +959,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
     cp2.channel_flags AS policy2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -966,6 +994,8 @@ type GetChannelsByIDsRow struct {
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
 	Policy2Version                 sql.NullInt16
@@ -981,6 +1011,8 @@ type GetChannelsByIDsRow struct {
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) GetChannelsByIDs(ctx context.Context, ids []int64) ([]GetChannelsByIDsRow, error) {
@@ -1038,6 +1070,8 @@ func (q *Queries) GetChannelsByIDs(ctx context.Context, ids []int64) ([]GetChann
 			&i.Policy1MessageFlags,
 			&i.Policy1ChannelFlags,
 			&i.Policy1Signature,
+			&i.Policy1BlockHeight,
+			&i.Policy1DisableFlags,
 			&i.Policy2ID,
 			&i.Policy2NodeID,
 			&i.Policy2Version,
@@ -1053,6 +1087,8 @@ func (q *Queries) GetChannelsByIDs(ctx context.Context, ids []int64) ([]GetChann
 			&i.Policy2MessageFlags,
 			&i.Policy2ChannelFlags,
 			&i.Policy2Signature,
+			&i.Policy2BlockHeight,
+			&i.Policy2DisableFlags,
 		); err != nil {
 			return nil, err
 		}
@@ -1159,6 +1195,8 @@ SELECT
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Policy 2 (node_id_2)
     cp2.id AS policy2_id,
@@ -1175,7 +1213,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
     cp2.channel_flags AS policy2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -1244,6 +1284,8 @@ type GetChannelsByPolicyLastUpdateRangeRow struct {
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
 	Policy2Version                 sql.NullInt16
@@ -1259,6 +1301,8 @@ type GetChannelsByPolicyLastUpdateRangeRow struct {
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg GetChannelsByPolicyLastUpdateRangeParams) ([]GetChannelsByPolicyLastUpdateRangeRow, error) {
@@ -1325,6 +1369,8 @@ func (q *Queries) GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg Ge
 			&i.Policy1MessageFlags,
 			&i.Policy1ChannelFlags,
 			&i.Policy1Signature,
+			&i.Policy1BlockHeight,
+			&i.Policy1DisableFlags,
 			&i.Policy2ID,
 			&i.Policy2NodeID,
 			&i.Policy2Version,
@@ -1340,6 +1386,8 @@ func (q *Queries) GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg Ge
 			&i.Policy2MessageFlags,
 			&i.Policy2ChannelFlags,
 			&i.Policy2Signature,
+			&i.Policy2BlockHeight,
+			&i.Policy2DisableFlags,
 		); err != nil {
 			return nil, err
 		}
@@ -1440,6 +1488,8 @@ SELECT
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Policy 2
     cp2.id AS policy2_id,
@@ -1456,7 +1506,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy_2_message_flags,
     cp2.channel_flags AS policy_2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -1494,6 +1546,8 @@ type GetChannelsBySCIDWithPoliciesRow struct {
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
 	Policy2Version                 sql.NullInt16
@@ -1509,6 +1563,8 @@ type GetChannelsBySCIDWithPoliciesRow struct {
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) GetChannelsBySCIDWithPolicies(ctx context.Context, arg GetChannelsBySCIDWithPoliciesParams) ([]GetChannelsBySCIDWithPoliciesRow, error) {
@@ -1579,6 +1635,8 @@ func (q *Queries) GetChannelsBySCIDWithPolicies(ctx context.Context, arg GetChan
 			&i.Policy1MessageFlags,
 			&i.Policy1ChannelFlags,
 			&i.Policy1Signature,
+			&i.Policy1BlockHeight,
+			&i.Policy1DisableFlags,
 			&i.Policy2ID,
 			&i.Policy2NodeID,
 			&i.Policy2Version,
@@ -1594,6 +1652,8 @@ func (q *Queries) GetChannelsBySCIDWithPolicies(ctx context.Context, arg GetChan
 			&i.Policy2MessageFlags,
 			&i.Policy2ChannelFlags,
 			&i.Policy2Signature,
+			&i.Policy2BlockHeight,
+			&i.Policy2DisableFlags,
 		); err != nil {
 			return nil, err
 		}
@@ -2826,6 +2886,8 @@ SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
        -- Policy 2
     cp2.id AS policy2_id,
@@ -2842,7 +2904,9 @@ SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
     cp2.channel_flags AS policy2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -2879,6 +2943,8 @@ type ListChannelsByNodeIDRow struct {
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
 	Policy2Version                 sql.NullInt16
@@ -2894,6 +2960,8 @@ type ListChannelsByNodeIDRow struct {
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNodeIDParams) ([]ListChannelsByNodeIDRow, error) {
@@ -2939,6 +3007,8 @@ func (q *Queries) ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNo
 			&i.Policy1MessageFlags,
 			&i.Policy1ChannelFlags,
 			&i.Policy1Signature,
+			&i.Policy1BlockHeight,
+			&i.Policy1DisableFlags,
 			&i.Policy2ID,
 			&i.Policy2NodeID,
 			&i.Policy2Version,
@@ -2954,6 +3024,8 @@ func (q *Queries) ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNo
 			&i.Policy2MessageFlags,
 			&i.Policy2ChannelFlags,
 			&i.Policy2Signature,
+			&i.Policy2BlockHeight,
+			&i.Policy2DisableFlags,
 		); err != nil {
 			return nil, err
 		}
@@ -2992,6 +3064,8 @@ SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity
        cp1.message_flags AS policy1_message_flags,
        cp1.channel_flags AS policy1_channel_flags,
        cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
        -- Policy 2
        cp2.id AS policy2_id,
@@ -3008,7 +3082,9 @@ SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity
        cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
        cp2.message_flags AS policy2_message_flags,
        cp2.channel_flags AS policy2_channel_flags,
-       cp2.signature AS policy2_signature
+       cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
          JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -3047,6 +3123,8 @@ type ListChannelsForNodeIDsRow struct {
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
 	Policy2Version                 sql.NullInt16
@@ -3062,6 +3140,8 @@ type ListChannelsForNodeIDsRow struct {
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) ListChannelsForNodeIDs(ctx context.Context, arg ListChannelsForNodeIDsParams) ([]ListChannelsForNodeIDsRow, error) {
@@ -3126,6 +3206,8 @@ func (q *Queries) ListChannelsForNodeIDs(ctx context.Context, arg ListChannelsFo
 			&i.Policy1MessageFlags,
 			&i.Policy1ChannelFlags,
 			&i.Policy1Signature,
+			&i.Policy1BlockHeight,
+			&i.Policy1DisableFlags,
 			&i.Policy2ID,
 			&i.Policy2NodeID,
 			&i.Policy2Version,
@@ -3141,6 +3223,8 @@ func (q *Queries) ListChannelsForNodeIDs(ctx context.Context, arg ListChannelsFo
 			&i.Policy2MessageFlags,
 			&i.Policy2ChannelFlags,
 			&i.Policy2Signature,
+			&i.Policy2BlockHeight,
+			&i.Policy2DisableFlags,
 		); err != nil {
 			return nil, err
 		}
@@ -3225,6 +3309,8 @@ SELECT
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Node 2 policy
     cp2.timelock AS policy_2_timelock,
@@ -3236,7 +3322,9 @@ SELECT
     cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
-    cp2.channel_flags AS policy2_channel_flags
+    cp2.channel_flags AS policy2_channel_flags,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
 JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -3272,6 +3360,8 @@ type ListChannelsWithPoliciesForCachePaginatedRow struct {
 	Policy1InboundFeeRateMilliMsat sql.NullInt64
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy2Timelock                sql.NullInt32
 	Policy2FeePpm                  sql.NullInt64
 	Policy2BaseFeeMsat             sql.NullInt64
@@ -3282,6 +3372,8 @@ type ListChannelsWithPoliciesForCachePaginatedRow struct {
 	Policy2InboundFeeRateMilliMsat sql.NullInt64
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) ListChannelsWithPoliciesForCachePaginated(ctx context.Context, arg ListChannelsWithPoliciesForCachePaginatedParams) ([]ListChannelsWithPoliciesForCachePaginatedRow, error) {
@@ -3309,6 +3401,8 @@ func (q *Queries) ListChannelsWithPoliciesForCachePaginated(ctx context.Context,
 			&i.Policy1InboundFeeRateMilliMsat,
 			&i.Policy1MessageFlags,
 			&i.Policy1ChannelFlags,
+			&i.Policy1BlockHeight,
+			&i.Policy1DisableFlags,
 			&i.Policy2Timelock,
 			&i.Policy2FeePpm,
 			&i.Policy2BaseFeeMsat,
@@ -3319,6 +3413,8 @@ func (q *Queries) ListChannelsWithPoliciesForCachePaginated(ctx context.Context,
 			&i.Policy2InboundFeeRateMilliMsat,
 			&i.Policy2MessageFlags,
 			&i.Policy2ChannelFlags,
+			&i.Policy2BlockHeight,
+			&i.Policy2DisableFlags,
 		); err != nil {
 			return nil, err
 		}
@@ -3356,6 +3452,8 @@ SELECT
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
     cp1.signature AS policy_1_signature,
 
     -- Node 2 policy
@@ -3373,7 +3471,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
     cp2.channel_flags AS policy2_channel_flags,
-    cp2.signature AS policy_2_signature
+    cp2.signature AS policy_2_signature,
+    cp2.block_height AS policy_2_block_height,
+    cp2.disable_flags AS policy_2_disable_flags
 
 FROM graph_channels c
 JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -3411,6 +3511,8 @@ type ListChannelsWithPoliciesPaginatedRow struct {
 	Policy1InboundFeeRateMilliMsat sql.NullInt64
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy1Signature               []byte
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
@@ -3427,6 +3529,8 @@ type ListChannelsWithPoliciesPaginatedRow struct {
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) ListChannelsWithPoliciesPaginated(ctx context.Context, arg ListChannelsWithPoliciesPaginatedParams) ([]ListChannelsWithPoliciesPaginatedRow, error) {
@@ -3471,6 +3575,8 @@ func (q *Queries) ListChannelsWithPoliciesPaginated(ctx context.Context, arg Lis
 			&i.Policy1InboundFeeRateMilliMsat,
 			&i.Policy1MessageFlags,
 			&i.Policy1ChannelFlags,
+			&i.Policy1BlockHeight,
+			&i.Policy1DisableFlags,
 			&i.Policy1Signature,
 			&i.Policy2ID,
 			&i.Policy2NodeID,
@@ -3487,6 +3593,8 @@ func (q *Queries) ListChannelsWithPoliciesPaginated(ctx context.Context, arg Lis
 			&i.Policy2MessageFlags,
 			&i.Policy2ChannelFlags,
 			&i.Policy2Signature,
+			&i.Policy2BlockHeight,
+			&i.Policy2DisableFlags,
 		); err != nil {
 			return nil, err
 		}
@@ -3674,9 +3782,9 @@ INSERT INTO graph_channel_policies (
     base_fee_msat, min_htlc_msat, last_update, disabled,
     max_htlc_msat, inbound_base_fee_msat,
     inbound_fee_rate_milli_msat, message_flags, channel_flags,
-    signature
+    signature, block_height, disable_flags
 ) VALUES  (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
 )
 ON CONFLICT (channel_id, node_id, version)
     -- Update the following fields if a conflict occurs on channel_id,
@@ -3693,7 +3801,9 @@ ON CONFLICT (channel_id, node_id, version)
         inbound_fee_rate_milli_msat = EXCLUDED.inbound_fee_rate_milli_msat,
         message_flags = EXCLUDED.message_flags,
         channel_flags = EXCLUDED.channel_flags,
-        signature = EXCLUDED.signature
+        signature = EXCLUDED.signature,
+        block_height = EXCLUDED.block_height,
+        disable_flags = EXCLUDED.disable_flags
 WHERE EXCLUDED.last_update > graph_channel_policies.last_update
 RETURNING id
 `
@@ -3714,6 +3824,8 @@ type UpsertEdgePolicyParams struct {
 	MessageFlags            sql.NullInt16
 	ChannelFlags            sql.NullInt16
 	Signature               []byte
+	BlockHeight             sql.NullInt64
+	DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) UpsertEdgePolicy(ctx context.Context, arg UpsertEdgePolicyParams) (int64, error) {
@@ -3733,6 +3845,8 @@ func (q *Queries) UpsertEdgePolicy(ctx context.Context, arg UpsertEdgePolicyPara
 		arg.MessageFlags,
 		arg.ChannelFlags,
 		arg.Signature,
+		arg.BlockHeight,
+		arg.DisableFlags,
 	)
 	var id int64
 	err := row.Scan(&id)

@@ -411,9 +411,13 @@ func (c *KVStore) AddrsForNode(ctx context.Context, v lnwire.GossipVersion,
 // NOTE: If an edge can't be found, or wasn't advertised, then a nil pointer
 // for that particular channel edge routing policy will be passed into the
 // callback.
-func (c *KVStore) ForEachChannel(_ context.Context,
+func (c *KVStore) ForEachChannel(_ context.Context, v lnwire.GossipVersion,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error, reset func()) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	return forEachChannel(c.db, cb, reset)
 }

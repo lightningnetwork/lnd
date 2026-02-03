@@ -642,10 +642,11 @@ func (c *ChannelGraph) IsPublicNode(pubKey [33]byte) (bool, error) {
 
 // ForEachChannel iterates through all channel edges stored within the graph.
 func (c *ChannelGraph) ForEachChannel(ctx context.Context,
-	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error, reset func()) error {
+	v lnwire.GossipVersion, cb func(*models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error,
+	reset func()) error {
 
-	return c.db.ForEachChannel(ctx, cb, reset)
+	return c.db.ForEachChannel(ctx, v, cb, reset)
 }
 
 // ForEachChannelCacheable iterates through all channel edges for the cache.
@@ -902,6 +903,14 @@ func (c *VersionedGraph) DeleteChannelEdges(strictZombiePruning,
 // the second boolean.
 func (c *VersionedGraph) HasChannelEdge(chanID uint64) (bool, bool, error) {
 	return c.db.HasChannelEdge(c.v, chanID)
+}
+
+// ForEachChannel iterates through all channel edges stored within the graph.
+func (c *VersionedGraph) ForEachChannel(ctx context.Context,
+	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy) error, reset func()) error {
+
+	return c.db.ForEachChannel(ctx, c.v, cb, reset)
 }
 
 // IsPublicNode determines whether the node is seen as public in the graph.

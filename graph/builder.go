@@ -952,20 +952,12 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 		return false
 	}
 
-	update := &models.ChannelEdgePolicy{
-		Version:                   msg.GossipVersion(),
-		SigBytes:                  msg.Signature.ToSignatureBytes(),
-		ChannelID:                 msg.ShortChannelID.ToUint64(),
-		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
-		MessageFlags:              msg.MessageFlags,
-		ChannelFlags:              msg.ChannelFlags,
-		TimeLockDelta:             msg.TimeLockDelta,
-		MinHTLC:                   msg.HtlcMinimumMsat,
-		MaxHTLC:                   msg.HtlcMaximumMsat,
-		FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
-		FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
-		InboundFee:                msg.InboundFee.ValOpt(),
-		ExtraOpaqueData:           msg.ExtraOpaqueData,
+	update, err := models.ChanEdgePolicyFromWire(
+		msg.ShortChannelID.ToUint64(), msg,
+	)
+	if err != nil {
+		log.Errorf("Unable to parse channel update: %v", err)
+		return false
 	}
 
 	err = b.UpdateEdge(ctx, update)

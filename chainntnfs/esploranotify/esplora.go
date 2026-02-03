@@ -534,10 +534,10 @@ func (e *EsploraNotifier) historicalConfDetails(
 			}
 
 			// Fetch the actual transaction.
-			var msgTx *wire.MsgTx
-			msgTx, err = e.client.GetRawTransactionMsgTx(ctx, txInfo.TxID)
+			msgTx, err := e.client.GetRawTransactionMsgTx(ctx, txInfo.TxID)
 			if err != nil {
-				log.Debugf("Failed to fetch raw tx: %v", err)
+				return nil, fmt.Errorf("failed to fetch raw tx %s: %w",
+					txInfo.TxID, err)
 			}
 
 			// Get the TxIndex.
@@ -545,7 +545,8 @@ func (e *EsploraNotifier) historicalConfDetails(
 				ctx, txInfo.Status.BlockHash, txInfo.TxID,
 			)
 			if err != nil {
-				log.Debugf("Failed to get TxIndex: %v", err)
+				return nil, fmt.Errorf("failed to get tx index for %s: %w",
+					txInfo.TxID, err)
 			}
 
 			return &chainntnfs.TxConfirmation{
@@ -599,17 +600,18 @@ func (e *EsploraNotifier) historicalConfDetails(
 		log.Debugf("Found confirmed tx %s at height %d via scripthash",
 			txInfo.TxID, txInfo.Status.BlockHeight)
 
-		var msgTx *wire.MsgTx
-		msgTx, err = e.client.GetRawTransactionMsgTx(ctx, txInfo.TxID)
+		msgTx, err := e.client.GetRawTransactionMsgTx(ctx, txInfo.TxID)
 		if err != nil {
-			log.Debugf("Failed to fetch raw tx %s: %v", txInfo.TxID, err)
+			return nil, fmt.Errorf("failed to fetch raw tx %s: %w",
+				txInfo.TxID, err)
 		}
 
 		txIndex, err := e.client.GetTxIndex(
 			ctx, txInfo.Status.BlockHash, txInfo.TxID,
 		)
 		if err != nil {
-			log.Debugf("Failed to get TxIndex: %v", err)
+			return nil, fmt.Errorf("failed to get tx index for %s: %w",
+				txInfo.TxID, err)
 		}
 
 		return &chainntnfs.TxConfirmation{

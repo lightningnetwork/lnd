@@ -10,7 +10,7 @@ type channelCacheKey struct {
 }
 
 // channelCache is an in-memory cache used to improve the performance of
-// ChanUpdatesInHorizon. It caches the chan info and edge policies for a
+// ChanUpdatesInRange. It caches the chan info and edge policies for a
 // particular channel.
 type channelCache struct {
 	n        int

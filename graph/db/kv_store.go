@@ -2375,15 +2375,26 @@ func (c *KVStore) fetchNextChanUpdateBatch(
 	return batch, hasMore, nil
 }
 
-// ChanUpdatesInHorizon returns all the known channel edges which have at least
-// one edge that has an update timestamp within the specified horizon.
-func (c *KVStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
+// ChanUpdatesInRange returns channel updates within a versioned range.
+func (c *KVStore) ChanUpdatesInRange(v lnwire.GossipVersion,
+	r ChanUpdateRange,
 	opts ...IteratorOption) iter.Seq2[ChannelEdge, error] {
+
+	if err := r.validateForVersion(v); err != nil {
+		return chanUpdateRangeErrIter(err)
+	}
+
+	if v != lnwire.GossipVersion1 {
+		return chanUpdateRangeErrIter(ErrVersionNotSupportedForKVDB)
+	}
 
 	cfg := defaultIteratorConfig()
 	for _, opt := range opts {
 		opt(cfg)
 	}
+
+	startTime := r.StartTime.UnwrapOr(time.Time{})
+	endTime := r.EndTime.UnwrapOr(time.Time{})
 
 	return func(yield func(ChannelEdge, error) bool) {
 		iterState := newChanUpdatesIterator(
@@ -2401,7 +2412,7 @@ func (c *KVStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 				// These errors just mean the graph is empty,
 				// which is OK.
 				if !isEmptyGraphError(err) {
-					log.Errorf("ChanUpdatesInHorizon "+
+					log.Errorf("ChanUpdatesInRange "+
 						"batch error: %v", err)
 
 					yield(ChannelEdge{}, err)
@@ -2431,13 +2442,13 @@ func (c *KVStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 		}
 
 		if iterState.total > 0 {
-			log.Tracef("ChanUpdatesInHorizon hit percentage: "+
+			log.Tracef("ChanUpdatesInRange hit percentage: "+
 				"%.2f (%d/%d)", float64(iterState.hits)*100/
 				float64(iterState.total), iterState.hits,
 				iterState.total)
 		} else {
-			log.Tracef("ChanUpdatesInHorizon returned no edges "+
-				"in horizon (%s, %s)", startTime, endTime)
+			log.Tracef("ChanUpdatesInRange returned no edges "+
+				"in range (%s, %s)", startTime, endTime)
 		}
 	}
 }

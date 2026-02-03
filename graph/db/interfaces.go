@@ -249,10 +249,11 @@ type Store interface { //nolint:interfacebloat
 	HighestChanID(ctx context.Context, v lnwire.GossipVersion) (
 		uint64, error)
 
-	// ChanUpdatesInHorizon returns all the known channel edges which have
-	// at least one edge that has an update timestamp within the specified
-	// horizon.
-	ChanUpdatesInHorizon(startTime, endTime time.Time,
+	// ChanUpdatesInRange returns all the known channel edges which have
+	// at least one edge update within the specified range for the given
+	// gossip version.
+	ChanUpdatesInRange(v lnwire.GossipVersion,
+		r ChanUpdateRange,
 		opts ...IteratorOption) iter.Seq2[ChannelEdge, error]
 
 	// FilterKnownChanIDs takes a set of channel IDs and return the subset

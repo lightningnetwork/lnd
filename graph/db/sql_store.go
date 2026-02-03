@@ -786,10 +786,16 @@ func (s *SQLStore) AddChannelEdge(ctx context.Context,
 // can be used by peers to quickly determine if their graphs are in sync.
 //
 // NOTE: This is part of the Store interface.
-func (s *SQLStore) HighestChanID(ctx context.Context) (uint64, error) {
+func (s *SQLStore) HighestChanID(ctx context.Context,
+	v lnwire.GossipVersion) (uint64, error) {
+
 	var highestChanID uint64
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		chanID, err := db.HighestSCID(ctx, int16(lnwire.GossipVersion1))
+		if !isKnownGossipVersion(v) {
+			return fmt.Errorf("unsupported gossip version: %d", v)
+		}
+
+		chanID, err := db.HighestSCID(ctx, int16(v))
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		} else if err != nil {

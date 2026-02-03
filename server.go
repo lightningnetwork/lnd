@@ -1042,7 +1042,9 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		return nil, fmt.Errorf("can't create router: %w", err)
 	}
 
-	chanSeries := discovery.NewChanSeries(s.graphDB)
+	chanSeries := discovery.NewChanSeries(
+		graphdb.NewVersionedGraph(s.graphDB, lnwire.GossipVersion1),
+	)
 	gossipMessageStore, err := discovery.NewMessageStore(dbs.ChanStateDB)
 	if err != nil {
 		return nil, err

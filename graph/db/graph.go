@@ -710,8 +710,10 @@ func (c *ChannelGraph) ChannelID(v lnwire.GossipVersion,
 }
 
 // HighestChanID returns the "highest" known channel ID in the channel graph.
-func (c *ChannelGraph) HighestChanID(ctx context.Context) (uint64, error) {
-	return c.db.HighestChanID(ctx)
+func (c *ChannelGraph) HighestChanID(ctx context.Context,
+	v lnwire.GossipVersion) (uint64, error) {
+
+	return c.db.HighestChanID(ctx, v)
 }
 
 // ChanUpdatesInHorizon returns all known channel edges with updates in the
@@ -809,6 +811,11 @@ func NewVersionedGraph(c *ChannelGraph,
 		ChannelGraph: c,
 		v:            v,
 	}
+}
+
+// Version returns the gossip version for this graph.
+func (c *VersionedGraph) Version() lnwire.GossipVersion {
+	return c.v
 }
 
 // FetchNode attempts to look up a target node by its identity public key.
@@ -982,6 +989,11 @@ func (c *VersionedGraph) ForEachNodeDirectedChannel(
 // DisabledChannelIDs returns the channel ids of disabled channels.
 func (c *VersionedGraph) DisabledChannelIDs() ([]uint64, error) {
 	return c.db.DisabledChannelIDs(c.v)
+}
+
+// HighestChanID returns the "highest" known channel ID in the channel graph.
+func (c *VersionedGraph) HighestChanID(ctx context.Context) (uint64, error) {
+	return c.db.HighestChanID(ctx, c.v)
 }
 
 // ChannelID attempts to lookup the 8-byte compact channel ID.

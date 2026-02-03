@@ -197,13 +197,20 @@ type Store interface { //nolint:interfacebloat
 	AddChannelEdge(ctx context.Context, edge *models.ChannelEdgeInfo,
 		op ...batch.SchedulerOption) error
 
-	// HasChannelEdge returns true if the database knows of a channel edge
+	// HasV1ChannelEdge returns true if the database knows of a channel edge
 	// with the passed channel ID, and false otherwise. If an edge with that
 	// ID is found within the graph, then two time stamps representing the
 	// last time the edge was updated for both directed edges are returned
 	// along with the boolean. If it is not found, then the zombie index is
 	// checked and its result is returned as the second boolean.
-	HasChannelEdge(chanID uint64) (time.Time, time.Time, bool, bool,
+	HasV1ChannelEdge(chanID uint64) (time.Time, time.Time, bool, bool,
+		error)
+
+	// HasChannelEdge returns true if the database knows of a channel edge
+	// with the passed channel ID and gossip version, and false otherwise.
+	// If it is not found, then the zombie index is checked and its result
+	// is returned as the second boolean.
+	HasChannelEdge(v lnwire.GossipVersion, chanID uint64) (bool, bool,
 		error)
 
 	// DeleteChannelEdges removes edges with the given channel IDs from the

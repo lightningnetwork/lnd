@@ -1219,7 +1219,8 @@ func TestEdgePolicyCRUD(t *testing.T) {
 		// assert that the deserialized policies match the original
 		// ones.
 		err := graph.ForEachChannel(
-			ctx, func(info *models.ChannelEdgeInfo,
+			ctx, lnwire.GossipVersion1,
+			func(info *models.ChannelEdgeInfo,
 				policy1 *models.ChannelEdgePolicy,
 				policy2 *models.ChannelEdgePolicy) error {
 
@@ -1703,13 +1704,14 @@ func TestGraphTraversal(t *testing.T) {
 	// Iterate through all the known channels within the graph DB, once
 	// again if the map is empty that indicates that all edges have
 	// properly been reached.
-	err = graph.ForEachChannel(ctx, func(ei *models.ChannelEdgeInfo,
-		_ *models.ChannelEdgePolicy,
-		_ *models.ChannelEdgePolicy) error {
+	err = graph.ForEachChannel(ctx, lnwire.GossipVersion1,
+		func(ei *models.ChannelEdgeInfo,
+			_ *models.ChannelEdgePolicy,
+			_ *models.ChannelEdgePolicy) error {
 
-		delete(chanIndex, ei.ChannelID)
-		return nil
-	}, func() {})
+			delete(chanIndex, ei.ChannelID)
+			return nil
+		}, func() {})
 	require.NoError(t, err)
 	require.Len(t, chanIndex, 0)
 
@@ -2005,7 +2007,8 @@ func assertPruneTip(t *testing.T, graph *ChannelGraph,
 func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 	numChans := 0
 	err := graph.ForEachChannel(
-		t.Context(), func(*models.ChannelEdgeInfo,
+		t.Context(), lnwire.GossipVersion1,
+		func(*models.ChannelEdgeInfo,
 			*models.ChannelEdgePolicy,
 			*models.ChannelEdgePolicy) error {
 

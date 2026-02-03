@@ -2410,6 +2410,41 @@ func (q *Queries) GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error) {
 	return items, nil
 }
 
+const getV2DisabledSCIDs = `-- name: GetV2DisabledSCIDs :many
+SELECT c.scid
+FROM graph_channels c
+    JOIN graph_channel_policies cp ON cp.channel_id = c.id
+WHERE COALESCE(cp.disable_flags, 0) != 0
+AND c.version = 2
+GROUP BY c.scid
+HAVING COUNT(*) > 1
+`
+
+// NOTE: this is V2 specific since V2 uses a disable flag
+// bit vector instead of a single boolean.
+func (q *Queries) GetV2DisabledSCIDs(ctx context.Context) ([][]byte, error) {
+	rows, err := q.db.QueryContext(ctx, getV2DisabledSCIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items [][]byte
+	for rows.Next() {
+		var scid []byte
+		if err := rows.Scan(&scid); err != nil {
+			return nil, err
+		}
+		items = append(items, scid)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getZombieChannel = `-- name: GetZombieChannel :one
 SELECT scid, version, node_key_1, node_key_2
 FROM graph_zombie_channels

@@ -186,6 +186,10 @@ var versionedTests = []versionedTest{
 		name: "batched update edge policy",
 		test: testBatchedUpdateEdgePolicy,
 	},
+	{
+		name: "disabled channel ids",
+		test: testDisabledChannelIDs,
+	},
 }
 
 // TestVersionedDBs runs various tests against both v1 and v2 versioned
@@ -4577,29 +4581,32 @@ func BenchmarkIsPublicNode(b *testing.B) {
 // TestDisabledChannelIDs ensures that the disabled channels within the
 // disabledEdgePolicyBucket are managed properly and the list returned from
 // DisabledChannelIDs is correct.
-func TestDisabledChannelIDs(t *testing.T) {
+func testDisabledChannelIDs(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	// Create first node and add it to the graph.
-	node1 := createTestVertex(t, lnwire.GossipVersion1)
+	node1 := createTestVertex(t, v)
 	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
 	// Create second node and add it to the graph.
-	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	node2 := createTestVertex(t, v)
 	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
 	// Adding a new channel edge to the graph.
-	edgeInfo, edge1, edge2 := createChannelEdge(
-		node1, node2, lnwire.GossipVersion1,
-	)
-	node2.LastUpdate = nextUpdateTime()
+	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2, v)
+	switch v {
+	case lnwire.GossipVersion1:
+		node2.LastUpdate = nextUpdateTime()
+	case lnwire.GossipVersion2:
+		node2.LastBlockHeight = nextBlockHeight()
+	}
 	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -4618,7 +4625,12 @@ func TestDisabledChannelIDs(t *testing.T) {
 
 	// Add one disabled policy and ensure the channel is still not in the
 	// disabled list.
-	edge1.ChannelFlags |= lnwire.ChanUpdateDisabled
+	switch v {
+	case lnwire.GossipVersion1:
+		edge1.ChannelFlags |= lnwire.ChanUpdateDisabled
+	case lnwire.GossipVersion2:
+		edge1.DisableFlags |= lnwire.ChanUpdateDisableIncoming
+	}
 	if err := graph.UpdateEdgePolicy(ctx, edge1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
@@ -4631,7 +4643,12 @@ func TestDisabledChannelIDs(t *testing.T) {
 
 	// Add second disabled policy and ensure the channel is now in the
 	// disabled list.
-	edge2.ChannelFlags |= lnwire.ChanUpdateDisabled
+	switch v {
+	case lnwire.GossipVersion1:
+		edge2.ChannelFlags |= lnwire.ChanUpdateDisabled
+	case lnwire.GossipVersion2:
+		edge2.DisableFlags |= lnwire.ChanUpdateDisableIncoming
+	}
 	if err := graph.UpdateEdgePolicy(ctx, edge2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}

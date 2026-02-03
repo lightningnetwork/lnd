@@ -581,7 +581,7 @@ func (b *Builder) pruneZombieChans() error {
 				"ids chans: %v", err)
 		}
 
-		disabledEdges, err := b.cfg.Graph.FetchChanInfos(
+		disabledEdges, err := b.v1Graph.FetchChanInfos(
 			disabledChanIDs,
 		)
 		if err != nil {

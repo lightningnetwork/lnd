@@ -202,6 +202,10 @@ var versionedTests = []versionedTest{
 		name: "highest chan id",
 		test: testHighestChanID,
 	},
+	{
+		name: "fetch chan infos",
+		test: testFetchChanInfos,
+	},
 }
 
 // TestVersionedDBs runs various tests against both v1 and v2 versioned
@@ -3868,22 +3872,18 @@ func TestFilterChannelRange(t *testing.T) {
 
 // TestFetchChanInfos tests that we're able to properly retrieve the full set
 // of ChannelEdge structs for a given set of short channel ID's.
-func TestFetchChanInfos(t *testing.T) {
+func testFetchChanInfos(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.
-	node1 := createTestVertex(t, lnwire.GossipVersion1)
-	if err := graph.AddNode(ctx, node1); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
-	node2 := createTestVertex(t, lnwire.GossipVersion1)
-	if err := graph.AddNode(ctx, node2); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
+	node1 := createTestVertex(t, v)
+	require.NoError(t, graph.AddNode(ctx, node1))
+	node2 := createTestVertex(t, v)
+	require.NoError(t, graph.AddNode(ctx, node2))
 
 	// We'll make 5 test channels, ensuring we keep track of which channel
 	// ID corresponds to a particular ChannelEdge.
@@ -3894,36 +3894,35 @@ func TestFetchChanInfos(t *testing.T) {
 	edgeQuery := make([]uint64, 0, numChans)
 	for i := 0; i < numChans; i++ {
 		channel, chanID := createEdge(
-			lnwire.GossipVersion1, uint32(i*10), 0, 0, 0,
-			node1, node2,
+			v, uint32(i*10), 0, 0, 0, node1, node2,
 		)
 
-		if err := graph.AddChannelEdge(ctx, channel); err != nil {
-			t.Fatalf("unable to create channel edge: %v", err)
-		}
+		require.NoError(t, graph.AddChannelEdge(ctx, channel))
 
 		updateTime := endTime
 		endTime = updateTime.Add(time.Second * 10)
 
 		edge1 := newEdgePolicy(
-			lnwire.GossipVersion1, chanID.ToUint64(),
+			v, chanID.ToUint64(),
 			updateTime.Unix(), true,
 		)
+		if v == lnwire.GossipVersion1 {
+			edge1.ChannelFlags = 0
+		}
 		edge1.ToNode = node2.PubKeyBytes
 		edge1.SigBytes = testSig.Serialize()
-		if err := graph.UpdateEdgePolicy(ctx, edge1); err != nil {
-			t.Fatalf("unable to update edge: %v", err)
-		}
+		require.NoError(t, graph.UpdateEdgePolicy(ctx, edge1))
 
 		edge2 := newEdgePolicy(
-			lnwire.GossipVersion1, chanID.ToUint64(),
+			v, chanID.ToUint64(),
 			updateTime.Unix(), false,
 		)
+		if v == lnwire.GossipVersion1 {
+			edge2.ChannelFlags = 1
+		}
 		edge2.ToNode = node1.PubKeyBytes
 		edge2.SigBytes = testSig.Serialize()
-		if err := graph.UpdateEdgePolicy(ctx, edge2); err != nil {
-			t.Fatalf("unable to update edge: %v", err)
-		}
+		require.NoError(t, graph.UpdateEdgePolicy(ctx, edge2))
 
 		edges = append(edges, ChannelEdge{
 			Info:    channel,
@@ -3941,11 +3940,9 @@ func TestFetchChanInfos(t *testing.T) {
 	// Add an another edge to the query that has been marked as a zombie
 	// edge. The query should also skip this channel.
 	zombieChan, zombieChanID := createEdge(
-		lnwire.GossipVersion1, 666, 0, 0, 0, node1, node2,
+		v, 666, 0, 0, 0, node1, node2,
 	)
-	if err := graph.AddChannelEdge(ctx, zombieChan); err != nil {
-		t.Fatalf("unable to create channel edge: %v", err)
-	}
+	require.NoError(t, graph.AddChannelEdge(ctx, zombieChan))
 	err := graph.DeleteChannelEdges(false, true, zombieChan.ChannelID)
 	require.NoError(t, err, "unable to delete and mark edge zombie")
 	edgeQuery = append(edgeQuery, zombieChanID.ToUint64())

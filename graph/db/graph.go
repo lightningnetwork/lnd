@@ -349,7 +349,9 @@ func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
 	if c.graphCache != nil {
 		// We need to add the channel back into our graph cache,
 		// otherwise we won't use it for path finding.
-		infos, err := c.db.FetchChanInfos([]uint64{chanID})
+		infos, err := c.db.FetchChanInfos(
+			lnwire.GossipVersion1, []uint64{chanID},
+		)
 		if err != nil {
 			return err
 		}
@@ -710,8 +712,10 @@ func (c *ChannelGraph) FilterChannelRange(startHeight, endHeight uint32,
 }
 
 // FetchChanInfos returns the set of channel edges for the passed channel IDs.
-func (c *ChannelGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
-	return c.db.FetchChanInfos(chanIDs)
+func (c *ChannelGraph) FetchChanInfos(v lnwire.GossipVersion,
+	chanIDs []uint64) ([]ChannelEdge, error) {
+
+	return c.db.FetchChanInfos(v, chanIDs)
 }
 
 // FetchChannelEdgesByOutpoint attempts to lookup directed edges by funding
@@ -950,6 +954,13 @@ func (c *VersionedGraph) ForEachChannelCacheable(
 // DisabledChannelIDs returns the channel ids of disabled channels.
 func (c *VersionedGraph) DisabledChannelIDs() ([]uint64, error) {
 	return c.db.DisabledChannelIDs(c.v)
+}
+
+// FetchChanInfos returns the set of channel edges for the passed channel IDs.
+func (c *VersionedGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge,
+	error) {
+
+	return c.db.FetchChanInfos(c.v, chanIDs)
 }
 
 // HighestChanID returns the "highest" known channel ID in the channel graph.

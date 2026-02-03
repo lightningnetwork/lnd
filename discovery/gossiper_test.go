@@ -4448,7 +4448,9 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 	// our rebroadcast interval.
 	rateLimitKeepAliveUpdate := *batch.chanUpdAnn1
 	rateLimitKeepAliveUpdate.Timestamp++
-	require.NoError(t, signUpdate(remoteKeyPriv1, &rateLimitKeepAliveUpdate))
+	require.NoError(
+		t, signUpdate(remoteKeyPriv1, &rateLimitKeepAliveUpdate),
+	)
 	assertRateLimit(&rateLimitKeepAliveUpdate, nodePeer1, true)
 
 	keepAliveUpdate := *batch.chanUpdAnn1

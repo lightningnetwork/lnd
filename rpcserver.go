@@ -716,7 +716,9 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 		FetchChannelCapacity: func(chanID uint64) (btcutil.Amount,
 			error) {
 
-			info, _, _, err := graph.FetchChannelEdgesByID(chanID)
+			info, _, _, err := graph.FetchChannelEdgesByID(
+				lnwire.GossipVersion1, chanID,
+			)
 			if err != nil {
 				return 0, err
 			}
@@ -734,7 +736,7 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 			route.Vertex, error) {
 
 			info, _, _, err := graph.FetchChannelEdgesByID(
-				chanID,
+				lnwire.GossipVersion1, chanID,
 			)
 			if err != nil {
 				return route.Vertex{}, route.Vertex{},
@@ -7106,7 +7108,7 @@ func (r *rpcServer) GetChanInfo(_ context.Context,
 	switch {
 	case in.ChanId != 0:
 		edgeInfo, edge1, edge2, err = graph.FetchChannelEdgesByID(
-			in.ChanId,
+			lnwire.GossipVersion1, in.ChanId,
 		)
 
 	case in.ChanPoint != "":
@@ -7116,7 +7118,7 @@ func (r *rpcServer) GetChanInfo(_ context.Context,
 			return nil, err
 		}
 		edgeInfo, edge1, edge2, err = graph.FetchChannelEdgesByOutpoint(
-			chanPoint,
+			lnwire.GossipVersion1, chanPoint,
 		)
 
 	default:

@@ -3804,7 +3804,18 @@ ON CONFLICT (channel_id, node_id, version)
         signature = EXCLUDED.signature,
         block_height = EXCLUDED.block_height,
         disable_flags = EXCLUDED.disable_flags
-WHERE EXCLUDED.last_update > graph_channel_policies.last_update
+WHERE (
+    EXCLUDED.version = 1 AND (
+        graph_channel_policies.last_update IS NULL
+        OR EXCLUDED.last_update > graph_channel_policies.last_update
+    )
+)
+OR (
+    EXCLUDED.version = 2 AND (
+        graph_channel_policies.block_height IS NULL
+        OR EXCLUDED.block_height >= graph_channel_policies.block_height
+    )
+)
 RETURNING id
 `
 

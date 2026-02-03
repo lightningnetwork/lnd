@@ -915,7 +915,9 @@ func (b *Builder) MarkZombieEdge(chanID uint64) error {
 	// so we don't continue to request it. We use the "zero key" for both
 	// node pubkeys so this edge can't be resurrected.
 	var zeroKey [33]byte
-	err := b.cfg.Graph.MarkEdgeZombie(chanID, zeroKey, zeroKey)
+	err := b.cfg.Graph.MarkEdgeZombie(
+		lnwire.GossipVersion1, chanID, zeroKey, zeroKey,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to mark spent chan(id=%v) as a "+
 			"zombie: %w", chanID, err)
@@ -1417,5 +1419,7 @@ func (b *Builder) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) MarkEdgeLive(chanID lnwire.ShortChannelID) error {
-	return b.cfg.Graph.MarkEdgeLive(chanID.ToUint64())
+	return b.cfg.Graph.MarkEdgeLive(
+		lnwire.GossipVersion1, chanID.ToUint64(),
+	)
 }

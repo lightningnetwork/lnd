@@ -337,11 +337,13 @@ func (c *ChannelGraph) AddChannelEdge(ctx context.Context,
 	return nil
 }
 
-// MarkEdgeLive clears an edge from our zombie index, deeming it as live.
-// If the cache is enabled, the edge will be added back to the graph cache if
-// we still have a record of this channel in the DB.
-func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
-	err := c.db.MarkEdgeLive(chanID)
+// MarkEdgeLive clears an edge from our zombie index for the given gossip
+// version, deeming it as live. If the cache is enabled, the edge will be added
+// back to the graph cache if we still have a record of this channel in the DB.
+func (c *ChannelGraph) MarkEdgeLive(v lnwire.GossipVersion,
+	chanID uint64) error {
+
+	err := c.db.MarkEdgeLive(v, chanID)
 	if err != nil {
 		return err
 	}
@@ -349,9 +351,7 @@ func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
 	if c.graphCache != nil {
 		// We need to add the channel back into our graph cache,
 		// otherwise we won't use it for path finding.
-		infos, err := c.db.FetchChanInfos(
-			lnwire.GossipVersion1, []uint64{chanID},
-		)
+		infos, err := c.db.FetchChanInfos(v, []uint64{chanID})
 		if err != nil {
 			return err
 		}
@@ -511,10 +511,21 @@ func (c *ChannelGraph) PruneGraphNodes() error {
 // words, we perform a set difference of our set of chan ID's and the ones
 // passed in. This method can be used by callers to determine the set of
 // channels another peer knows of that we don't.
-func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
-	isZombieChan func(time.Time, time.Time) bool) ([]uint64, error) {
+func (c *ChannelGraph) FilterKnownChanIDs(v lnwire.GossipVersion,
+	chansInfo []ChannelUpdateInfo,
+	isZombieChan func(ChannelUpdateInfo) bool) ([]uint64, error) {
 
-	unknown, knownZombies, err := c.db.FilterKnownChanIDs(chansInfo)
+	if !isKnownGossipVersion(v) {
+		return nil, fmt.Errorf("unsupported gossip version: %d", v)
+	}
+
+	for _, info := range chansInfo {
+		if err := info.validateForVersion(v); err != nil {
+			return nil, err
+		}
+	}
+
+	unknown, knownZombies, err := c.db.FilterKnownChanIDs(v, chansInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -531,9 +542,7 @@ func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 		// recent. During the querying of the gossip msg verification
 		// happens as usual. However we should start punishing peers
 		// when they don't provide us honest data ?
-		isStillZombie := isZombieChan(
-			info.Node1UpdateTimestamp, info.Node2UpdateTimestamp,
-		)
+		isStillZombie := isZombieChan(info)
 
 		if isStillZombie {
 			continue
@@ -544,7 +553,7 @@ func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 		// alive, and we let it be added to the set of IDs to query our
 		// peer for.
 		err := c.db.MarkEdgeLive(
-			info.ShortChannelID.ToUint64(),
+			v, info.ShortChannelID.ToUint64(),
 		)
 		// Since there is a chance that the edge could have been marked
 		// as "live" between the FilterKnownChanIDs call and the
@@ -559,12 +568,12 @@ func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 }
 
 // MarkEdgeZombie attempts to mark a channel identified by its channel ID as a
-// zombie. This method is used on an ad-hoc basis, when channels need to be
-// marked as zombies outside the normal pruning cycle.
-func (c *ChannelGraph) MarkEdgeZombie(chanID uint64,
+// zombie for the given gossip version. This method is used on an ad-hoc basis,
+// when channels need to be marked as zombies outside the normal pruning cycle.
+func (c *ChannelGraph) MarkEdgeZombie(v lnwire.GossipVersion, chanID uint64,
 	pubKey1, pubKey2 [33]byte) error {
 
-	err := c.db.MarkEdgeZombie(chanID, pubKey1, pubKey2)
+	err := c.db.MarkEdgeZombie(v, chanID, pubKey1, pubKey2)
 	if err != nil {
 		return err
 	}
@@ -819,6 +828,20 @@ func (c *VersionedGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 	return c.db.FetchChannelEdgesByOutpoint(c.v, op)
 }
 
+// MarkEdgeZombie attempts to mark a channel identified by its channel ID as a
+// zombie for this version.
+func (c *VersionedGraph) MarkEdgeZombie(chanID uint64,
+	pubKey1, pubKey2 [33]byte) error {
+
+	return c.ChannelGraph.MarkEdgeZombie(c.v, chanID, pubKey1, pubKey2)
+}
+
+// MarkEdgeLive clears an edge from our zombie index for this version, deeming
+// it as live.
+func (c *VersionedGraph) MarkEdgeLive(chanID uint64) error {
+	return c.ChannelGraph.MarkEdgeLive(c.v, chanID)
+}
+
 // IsZombieEdge returns whether the edge is considered zombie for this version.
 func (c *VersionedGraph) IsZombieEdge(chanID uint64) (bool, [33]byte,
 	[33]byte, error) {
@@ -961,6 +984,14 @@ func (c *VersionedGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge,
 	error) {
 
 	return c.db.FetchChanInfos(c.v, chanIDs)
+}
+
+// FilterKnownChanIDs takes a set of channel IDs and return the subset of chan
+// ID's that we don't know and are not known zombies of the passed set.
+func (c *VersionedGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
+	isZombieChan func(ChannelUpdateInfo) bool) ([]uint64, error) {
+
+	return c.ChannelGraph.FilterKnownChanIDs(c.v, chansInfo, isZombieChan)
 }
 
 // ChanUpdatesInRange returns channel updates within a versioned range.

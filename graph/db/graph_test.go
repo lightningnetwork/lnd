@@ -167,6 +167,14 @@ var versionedTests = []versionedTest{
 		test: testGraphTraversalCacheable,
 	},
 	{
+		name: "filter known chan ids",
+		test: testFilterKnownChanIDs,
+	},
+	{
+		name: "filter known chan ids zombie revival",
+		test: testFilterKnownChanIDsZombieRevival,
+	},
+	{
 		name: "partial node",
 		test: testPartialNode,
 	},
@@ -3241,10 +3249,12 @@ func TestChanUpdatesInHorizonBoundaryConditions(t *testing.T) {
 //
 // NOTE: this tests focuses on zombie revival. The main logic of
 // FilterKnownChanIDs is tested in TestFilterKnownChanIDs.
-func TestFilterKnownChanIDsZombieRevival(t *testing.T) {
+func testFilterKnownChanIDsZombieRevival(t *testing.T,
+	v lnwire.GossipVersion) {
+
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	var (
 		scid1 = lnwire.ShortChannelID{BlockHeight: 1}
@@ -3260,9 +3270,13 @@ func TestFilterKnownChanIDsZombieRevival(t *testing.T) {
 	}
 
 	// Mark channel 1 and 2 as zombies.
-	err := graph.MarkEdgeZombie(scid1.ToUint64(), [33]byte{}, [33]byte{})
+	err := graph.MarkEdgeZombie(
+		scid1.ToUint64(), [33]byte{}, [33]byte{},
+	)
 	require.NoError(t, err)
-	err = graph.MarkEdgeZombie(scid2.ToUint64(), [33]byte{}, [33]byte{})
+	err = graph.MarkEdgeZombie(
+		scid2.ToUint64(), [33]byte{}, [33]byte{},
+	)
 	require.NoError(t, err)
 
 	require.True(t, isZombie(scid1))
@@ -3275,7 +3289,7 @@ func TestFilterKnownChanIDsZombieRevival(t *testing.T) {
 		{ShortChannelID: scid1},
 		{ShortChannelID: scid2},
 		{ShortChannelID: scid3},
-	}, func(_ time.Time, _ time.Time) bool {
+	}, func(ChannelUpdateInfo) bool {
 		return true
 	})
 	require.NoError(t, err)
@@ -3287,15 +3301,29 @@ func TestFilterKnownChanIDsZombieRevival(t *testing.T) {
 	// Now call it again but this time with a isStillZombie call-back that
 	// would result in channel with SCID 2 no longer being considered a
 	// zombie.
+	reviveInfo := ChannelUpdateInfo{ShortChannelID: scid2}
+	switch v {
+	case lnwire.GossipVersion1:
+		reviveInfo.Node1UpdateTimestamp = time.Unix(1000, 0)
+	case lnwire.GossipVersion2:
+		reviveInfo.Node1UpdateHeight = 100
+	}
+
 	_, err = graph.FilterKnownChanIDs([]ChannelUpdateInfo{
 		{ShortChannelID: scid1},
-		{
-			ShortChannelID:       scid2,
-			Node1UpdateTimestamp: time.Unix(1000, 0),
-		},
+		reviveInfo,
 		{ShortChannelID: scid3},
-	}, func(t1 time.Time, _ time.Time) bool {
-		return !t1.Equal(time.Unix(1000, 0))
+	}, func(info ChannelUpdateInfo) bool {
+		switch v {
+		case lnwire.GossipVersion1:
+			return !info.Node1UpdateTimestamp.Equal(
+				time.Unix(1000, 0),
+			)
+		case lnwire.GossipVersion2:
+			return info.Node1UpdateHeight != 100
+		default:
+			return true
+		}
 	})
 	require.NoError(t, err)
 
@@ -3308,15 +3336,13 @@ func TestFilterKnownChanIDsZombieRevival(t *testing.T) {
 // TestFilterKnownChanIDs tests that we're able to properly perform the set
 // differences of an incoming set of channel ID's, and those that we already
 // know of on disk.
-func TestFilterKnownChanIDs(t *testing.T) {
+func testFilterKnownChanIDs(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
-	isZombieUpdate := func(updateTime1 time.Time,
-		updateTime2 time.Time) bool {
-
+	isZombieUpdate := func(ChannelUpdateInfo) bool {
 		return true
 	}
 
@@ -3333,7 +3359,9 @@ func TestFilterKnownChanIDs(t *testing.T) {
 		{ShortChannelID: scid2},
 		{ShortChannelID: scid3},
 	}
-	filteredIDs, err := graph.FilterKnownChanIDs(preChanIDs, isZombieUpdate)
+	filteredIDs, err := graph.FilterKnownChanIDs(
+		preChanIDs, isZombieUpdate,
+	)
 	require.NoError(t, err, "unable to filter chan IDs")
 	require.EqualValues(t, []uint64{
 		scid1.ToUint64(),
@@ -3342,11 +3370,11 @@ func TestFilterKnownChanIDs(t *testing.T) {
 	}, filteredIDs)
 
 	// We'll start by creating two nodes which will seed our test graph.
-	node1 := createTestVertex(t, lnwire.GossipVersion1)
+	node1 := createTestVertex(t, v)
 	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
-	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	node2 := createTestVertex(t, v)
 	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -3357,25 +3385,32 @@ func TestFilterKnownChanIDs(t *testing.T) {
 	chanIDs := make([]ChannelUpdateInfo, 0, numChans)
 	for i := 0; i < numChans; i++ {
 		channel, chanID := createEdge(
-			lnwire.GossipVersion1, uint32(i*10), 0, 0, 0,
-			node1, node2,
+			v, uint32(i*10), 0, 0, 0, node1, node2,
 		)
 
 		if err := graph.AddChannelEdge(ctx, channel); err != nil {
 			t.Fatalf("unable to create channel edge: %v", err)
 		}
 
-		chanIDs = append(chanIDs, NewChannelUpdateInfo(
-			chanID, time.Time{}, time.Time{},
-		))
+		switch v {
+		case lnwire.GossipVersion1:
+			chanIDs = append(chanIDs, NewChannelUpdateInfo(
+				chanID, time.Time{}, time.Time{},
+			))
+		case lnwire.GossipVersion2:
+			chanIDs = append(
+				chanIDs, NewChannelUpdateInfoV2(
+					chanID, 0, 0,
+				),
+			)
+		}
 	}
 
 	const numZombies = 5
 	zombieIDs := make([]ChannelUpdateInfo, 0, numZombies)
 	for i := 0; i < numZombies; i++ {
 		channel, chanID := createEdge(
-			lnwire.GossipVersion1, uint32(i*10+1), 0, 0, 0,
-			node1, node2,
+			v, uint32(i*10+1), 0, 0, 0, node1, node2,
 		)
 		if err := graph.AddChannelEdge(ctx, channel); err != nil {
 			t.Fatalf("unable to create channel edge: %v", err)
@@ -3623,10 +3658,11 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 					return nil
 				}
 
-				return graph.MarkEdgeZombie(
-					channel.id.ToUint64(),
-					node1.PubKeyBytes,
-					node2.PubKeyBytes,
+				chanID := channel.id.ToUint64()
+
+			return graph.MarkEdgeZombie(
+					lnwire.GossipVersion1, chanID,
+					node1.PubKeyBytes, node2.PubKeyBytes,
 				)
 			},
 		},
@@ -3646,8 +3682,8 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 				}
 
 				_, err := graph.FilterKnownChanIDs(
-					chanIDs,
-					func(t time.Time, t2 time.Time) bool {
+					lnwire.GossipVersion1, chanIDs,
+					func(ChannelUpdateInfo) bool {
 						return rand.Intn(2) == 0
 					},
 				)
@@ -4999,12 +5035,15 @@ func TestGraphZombieIndex(t *testing.T) {
 
 	// Similarly, if we mark the same edge as live, we should no longer see
 	// it within the index.
-	require.NoError(t, graph.MarkEdgeLive(edge.ChannelID))
+	require.NoError(
+		t, graph.MarkEdgeLive(lnwire.GossipVersion1, edge.ChannelID),
+	)
 
 	// Attempting to mark the edge as live again now that it is no longer
 	// in the zombie index should fail.
 	require.ErrorIs(
-		t, graph.MarkEdgeLive(edge.ChannelID), ErrZombieEdgeNotFound,
+		t, graph.MarkEdgeLive(lnwire.GossipVersion1, edge.ChannelID),
+		ErrZombieEdgeNotFound,
 	)
 
 	isZombie, _, _, err = graph.IsZombieEdge(edge.ChannelID)
@@ -5016,7 +5055,8 @@ func TestGraphZombieIndex(t *testing.T) {
 	// If we mark the edge as a zombie manually, then it should show up as
 	// being a zombie once again.
 	err = graph.MarkEdgeZombie(
-		edge.ChannelID, node1.PubKeyBytes, node2.PubKeyBytes,
+		lnwire.GossipVersion1, edge.ChannelID,
+		node1.PubKeyBytes, node2.PubKeyBytes,
 	)
 	require.NoError(t, err, "unable to mark edge as zombie")
 

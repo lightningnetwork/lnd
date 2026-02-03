@@ -1976,11 +1976,11 @@ func (s *SQLStore) FilterChannelRange(startHeight, endHeight uint32,
 }
 
 // MarkEdgeZombie attempts to mark a channel identified by its channel ID as a
-// zombie. This method is used on an ad-hoc basis, when channels need to be
-// marked as zombies outside the normal pruning cycle.
+// zombie for the given gossip version. This method is used on an ad-hoc basis,
+// when channels need to be marked as zombies outside the normal pruning cycle.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) MarkEdgeZombie(chanID uint64,
+func (s *SQLStore) MarkEdgeZombie(v lnwire.GossipVersion, chanID uint64,
 	pubKey1, pubKey2 [33]byte) error {
 
 	ctx := context.TODO()
@@ -1988,12 +1988,16 @@ func (s *SQLStore) MarkEdgeZombie(chanID uint64,
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
 
+	if !isKnownGossipVersion(v) {
+		return fmt.Errorf("unsupported gossip version: %d", v)
+	}
+
 	chanIDB := channelIDToBytes(chanID)
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		return db.UpsertZombieChannel(
 			ctx, sqlc.UpsertZombieChannelParams{
-				Version:  int16(lnwire.GossipVersion1),
+				Version:  int16(v),
 				Scid:     chanIDB,
 				NodeKey1: pubKey1[:],
 				NodeKey2: pubKey2[:],
@@ -2005,16 +2009,17 @@ func (s *SQLStore) MarkEdgeZombie(chanID uint64,
 			"(channel_id=%d): %w", chanID, err)
 	}
 
-	s.rejectCache.remove(lnwire.GossipVersion1, chanID)
-	s.chanCache.remove(lnwire.GossipVersion1, chanID)
+	s.rejectCache.remove(v, chanID)
+	s.chanCache.remove(v, chanID)
 
 	return nil
 }
 
-// MarkEdgeLive clears an edge from our zombie index, deeming it as live.
+// MarkEdgeLive clears an edge from our zombie index for the given gossip
+// version, deeming it as live.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) MarkEdgeLive(chanID uint64) error {
+func (s *SQLStore) MarkEdgeLive(v lnwire.GossipVersion, chanID uint64) error {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
 
@@ -2023,11 +2028,15 @@ func (s *SQLStore) MarkEdgeLive(chanID uint64) error {
 		chanIDB = channelIDToBytes(chanID)
 	)
 
+	if !isKnownGossipVersion(v) {
+		return fmt.Errorf("unsupported gossip version: %d", v)
+	}
+
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		res, err := db.DeleteZombieChannel(
 			ctx, sqlc.DeleteZombieChannelParams{
 				Scid:    chanIDB,
-				Version: int16(lnwire.GossipVersion1),
+				Version: int16(v),
 			},
 		)
 		if err != nil {
@@ -2054,8 +2063,8 @@ func (s *SQLStore) MarkEdgeLive(chanID uint64) error {
 			"(channel_id=%d): %w", chanID, err)
 	}
 
-	s.rejectCache.remove(lnwire.GossipVersion1, chanID)
-	s.chanCache.remove(lnwire.GossipVersion1, chanID)
+	s.rejectCache.remove(v, chanID)
+	s.chanCache.remove(v, chanID)
 
 	return err
 }
@@ -2890,8 +2899,8 @@ func (s *SQLStore) forEachChanWithPoliciesInSCIDList(ctx context.Context,
 // known zombies is also returned.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
-	[]ChannelUpdateInfo, error) {
+func (s *SQLStore) FilterKnownChanIDs(v lnwire.GossipVersion,
+	chansInfo []ChannelUpdateInfo) ([]uint64, []ChannelUpdateInfo, error) {
 
 	var (
 		ctx          = context.TODO()
@@ -2901,6 +2910,11 @@ func (s *SQLStore) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
 			map[uint64]ChannelUpdateInfo, len(chansInfo),
 		)
 	)
+
+	if !isKnownGossipVersion(v) {
+		return nil, nil, fmt.Errorf("unsupported gossip version: %d",
+			v)
+	}
 
 	// We first build a lookup map of the channel ID's to the
 	// ChannelUpdateInfo. This allows us to quickly delete channels that we
@@ -2921,7 +2935,7 @@ func (s *SQLStore) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
 			return nil
 		}
 
-		err := s.forEachChanInSCIDList(ctx, db, cb, chansInfo)
+		err := s.forEachChanInSCIDList(ctx, db, v, cb, chansInfo)
 		if err != nil {
 			return fmt.Errorf("unable to iterate through "+
 				"channels: %w", err)
@@ -2940,7 +2954,7 @@ func (s *SQLStore) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
 			isZombie, err := db.IsZombieChannel(
 				ctx, sqlc.IsZombieChannelParams{
 					Scid:    channelIDToBytes(channelID),
-					Version: int16(lnwire.GossipVersion1),
+					Version: int16(v),
 				},
 			)
 			if err != nil {
@@ -2979,6 +2993,7 @@ func (s *SQLStore) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
 // ChannelUpdateInfo slice. The callback function is called for each channel
 // that is found.
 func (s *SQLStore) forEachChanInSCIDList(ctx context.Context, db SQLQueries,
+	v lnwire.GossipVersion,
 	cb func(ctx context.Context, channel sqlc.GraphChannel) error,
 	chansInfo []ChannelUpdateInfo) error {
 
@@ -2987,7 +3002,7 @@ func (s *SQLStore) forEachChanInSCIDList(ctx context.Context, db SQLQueries,
 
 		return db.GetChannelsBySCIDs(
 			ctx, sqlc.GetChannelsBySCIDsParams{
-				Version: int16(lnwire.GossipVersion1),
+				Version: int16(v),
 				Scids:   scids,
 			},
 		)

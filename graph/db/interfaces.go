@@ -263,7 +263,8 @@ type Store interface { //nolint:interfacebloat
 	// callers to determine the set of channels another peer knows of that
 	// we don't. The ChannelUpdateInfos for the known zombies is also
 	// returned.
-	FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
+	FilterKnownChanIDs(v lnwire.GossipVersion,
+		chansInfo []ChannelUpdateInfo) ([]uint64,
 		[]ChannelUpdateInfo, error)
 
 	// FilterChannelRange returns the channel ID's of all known channels
@@ -320,12 +321,12 @@ type Store interface { //nolint:interfacebloat
 	// MarkEdgeZombie attempts to mark a channel identified by its channel
 	// ID as a zombie. This method is used on an ad-hoc basis, when channels
 	// need to be marked as zombies outside the normal pruning cycle.
-	MarkEdgeZombie(chanID uint64,
+	MarkEdgeZombie(v lnwire.GossipVersion, chanID uint64,
 		pubKey1, pubKey2 [33]byte) error
 
-	// MarkEdgeLive clears an edge from our zombie index, deeming it as
-	// live.
-	MarkEdgeLive(chanID uint64) error
+	// MarkEdgeLive clears an edge from our zombie index for the given
+	// gossip version, deeming it as live.
+	MarkEdgeLive(v lnwire.GossipVersion, chanID uint64) error
 
 	// IsZombieEdge returns whether the edge is considered zombie. If it is
 	// a zombie, then the two node public keys corresponding to this edge

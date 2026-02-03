@@ -2687,13 +2687,17 @@ func (c *KVStore) NodeUpdatesInHorizon(startTime,
 // passed in. This method can be used by callers to determine the set of
 // channels another peer knows of that we don't. The ChannelUpdateInfos for the
 // known zombies is also returned.
-func (c *KVStore) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
-	[]ChannelUpdateInfo, error) {
+func (c *KVStore) FilterKnownChanIDs(v lnwire.GossipVersion,
+	chansInfo []ChannelUpdateInfo) ([]uint64, []ChannelUpdateInfo, error) {
 
 	var (
 		newChanIDs   []uint64
 		knownZombies []ChannelUpdateInfo
 	)
+
+	if v != lnwire.GossipVersion1 {
+		return nil, nil, ErrVersionNotSupportedForKVDB
+	}
 
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
@@ -2766,8 +2770,8 @@ func (c *KVStore) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
 	return newChanIDs, knownZombies, nil
 }
 
-// ChannelUpdateInfo couples the SCID of a channel with the timestamps of the
-// latest received channel updates for the channel.
+// ChannelUpdateInfo couples the SCID of a channel with the latest received
+// channel updates for the channel.
 type ChannelUpdateInfo struct {
 	// ShortChannelID is the SCID identifier of the channel.
 	ShortChannelID lnwire.ShortChannelID
@@ -2781,10 +2785,20 @@ type ChannelUpdateInfo struct {
 	// from the node 2 channel peer. This will be set to zero time if no
 	// update has yet been received from this node.
 	Node2UpdateTimestamp time.Time
+
+	// Node1UpdateHeight is the block height of the latest received update
+	// from the node 1 channel peer. This will be set to zero height if no
+	// update has yet been received from this node.
+	Node1UpdateHeight uint32
+
+	// Node2UpdateHeight is the block height of the latest received update
+	// from the node 2 channel peer. This will be set to zero height if no
+	// update has yet been received from this node.
+	Node2UpdateHeight uint32
 }
 
-// NewChannelUpdateInfo is a constructor which makes sure we initialize the
-// timestamps with zero seconds unix timestamp which equals
+// NewChannelUpdateInfo is a constructor for v1 update info which makes sure we
+// initialize the timestamps with zero seconds unix timestamp which equals
 // `January 1, 1970, 00:00:00 UTC` in case the value is `time.Time{}`.
 func NewChannelUpdateInfo(scid lnwire.ShortChannelID, node1Timestamp,
 	node2Timestamp time.Time) ChannelUpdateInfo {
@@ -2804,6 +2818,47 @@ func NewChannelUpdateInfo(scid lnwire.ShortChannelID, node1Timestamp,
 	}
 
 	return chanInfo
+}
+
+// NewChannelUpdateInfoV2 is a constructor for v2 update info which uses block
+// heights instead of timestamps.
+func NewChannelUpdateInfoV2(scid lnwire.ShortChannelID, node1Height,
+	node2Height uint32) ChannelUpdateInfo {
+
+	return ChannelUpdateInfo{
+		ShortChannelID:    scid,
+		Node1UpdateHeight: node1Height,
+		Node2UpdateHeight: node2Height,
+	}
+}
+
+func (i ChannelUpdateInfo) validateForVersion(
+	v lnwire.GossipVersion) error {
+
+	switch v {
+	case lnwire.GossipVersion1:
+		if i.Node1UpdateHeight != 0 || i.Node2UpdateHeight != 0 {
+			return fmt.Errorf("v1 channel update info includes " +
+				"block heights")
+		}
+
+	case lnwire.GossipVersion2:
+		if !isZeroTimestamp(i.Node1UpdateTimestamp) ||
+			!isZeroTimestamp(i.Node2UpdateTimestamp) {
+
+			return fmt.Errorf("v2 channel update info includes " +
+				"timestamps")
+		}
+
+	default:
+		return fmt.Errorf("unknown gossip version: %v", v)
+	}
+
+	return nil
+}
+
+func isZeroTimestamp(t time.Time) bool {
+	return t.IsZero() || t.Equal(time.Unix(0, 0))
 }
 
 // BlockChannelRange represents a range of channels for a given block height.
@@ -4250,10 +4305,14 @@ func (c *KVStore) ChannelView() ([]EdgePoint, error) {
 }
 
 // MarkEdgeZombie attempts to mark a channel identified by its channel ID as a
-// zombie. This method is used on an ad-hoc basis, when channels need to be
-// marked as zombies outside the normal pruning cycle.
-func (c *KVStore) MarkEdgeZombie(chanID uint64,
+// zombie for the given gossip version. This method is used on an ad-hoc basis,
+// when channels need to be marked as zombies outside the normal pruning cycle.
+func (c *KVStore) MarkEdgeZombie(v lnwire.GossipVersion, chanID uint64,
 	pubKey1, pubKey2 [33]byte) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
@@ -4275,8 +4334,8 @@ func (c *KVStore) MarkEdgeZombie(chanID uint64,
 		return err
 	}
 
-	c.rejectCache.remove(lnwire.GossipVersion1, chanID)
-	c.chanCache.remove(lnwire.GossipVersion1, chanID)
+	c.rejectCache.remove(v, chanID)
+	c.chanCache.remove(v, chanID)
 
 	return nil
 }
@@ -4297,8 +4356,13 @@ func markEdgeZombie(zombieIndex kvdb.RwBucket, chanID uint64, pubKey1,
 	return zombieIndex.Put(k[:], v[:])
 }
 
-// MarkEdgeLive clears an edge from our zombie index, deeming it as live.
-func (c *KVStore) MarkEdgeLive(chanID uint64) error {
+// MarkEdgeLive clears an edge from our zombie index for the given gossip
+// version, deeming it as live.
+func (c *KVStore) MarkEdgeLive(v lnwire.GossipVersion, chanID uint64) error {
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
+
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
 

@@ -166,6 +166,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 	require.NoError(t, err)
 
 	edgePolicy := &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -1219,6 +1220,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 
 	// We'll also add two edge policies, one for each direction.
 	edgePolicy := &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                updateTimeStamp,
@@ -1233,6 +1235,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 	}
 
 	edgePolicy = &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                updateTimeStamp,
@@ -1557,6 +1560,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 		}
 
 		edgePolicy := &models.ChannelEdgePolicy{
+			Version:  lnwire.GossipVersion1,
 			SigBytes: testSig.Serialize(),
 			MessageFlags: lnwire.ChanUpdateMsgFlags(
 				edge.MessageFlags,
@@ -1939,7 +1943,9 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				channelFlags |= lnwire.ChanUpdateDisabled
 			}
 
+			//nolint:ll
 			edgePolicy := &models.ChannelEdgePolicy{
+				Version:                   lnwire.GossipVersion1,
 				SigBytes:                  testSig.Serialize(),
 				MessageFlags:              msgFlags,
 				ChannelFlags:              channelFlags,
@@ -1970,7 +1976,9 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			}
 			channelFlags |= lnwire.ChanUpdateDirection
 
+			//nolint:ll
 			edgePolicy := &models.ChannelEdgePolicy{
+				Version:                   lnwire.GossipVersion1,
 				SigBytes:                  testSig.Serialize(),
 				MessageFlags:              msgFlags,
 				ChannelFlags:              channelFlags,

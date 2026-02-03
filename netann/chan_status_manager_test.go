@@ -116,12 +116,14 @@ func createEdgePolicies(t *testing.T, channel *channeldb.OpenChannel,
 
 	return edgeInfo,
 		&models.ChannelEdgePolicy{
+			Version:      lnwire.GossipVersion1,
 			ChannelID:    channel.ShortChanID().ToUint64(),
 			ChannelFlags: dir1,
 			LastUpdate:   time.Now(),
 			SigBytes:     testSigBytes,
 		},
 		&models.ChannelEdgePolicy{
+			Version:      lnwire.GossipVersion1,
 			ChannelID:    channel.ShortChanID().ToUint64(),
 			ChannelFlags: dir2,
 			LastUpdate:   time.Now(),
@@ -222,6 +224,7 @@ func (g *mockGraph) ApplyChannelUpdate(update *lnwire.ChannelUpdate1,
 	timestamp := time.Unix(int64(update.Timestamp), 0)
 
 	policy := &models.ChannelEdgePolicy{
+		Version:      lnwire.GossipVersion1,
 		ChannelID:    update.ShortChannelID.ToUint64(),
 		ChannelFlags: update.ChannelFlags,
 		LastUpdate:   timestamp,

@@ -2960,7 +2960,13 @@ func (c *KVStore) FilterChannelRange(startHeight,
 // skipped and the result will contain only those edges that exist at the time
 // of the query. This can be used to respond to peer queries that are seeking to
 // fill in gaps in their view of the channel graph.
-func (c *KVStore) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
+func (c *KVStore) FetchChanInfos(v lnwire.GossipVersion,
+	chanIDs []uint64) ([]ChannelEdge, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return nil, ErrVersionNotSupportedForKVDB
+	}
+
 	return c.fetchChanInfos(nil, chanIDs)
 }
 

@@ -39,8 +39,10 @@ type FeeEstimatorConfig struct {
 // DefaultFeeEstimatorConfig returns a FeeEstimatorConfig with sensible
 // defaults.
 func DefaultFeeEstimatorConfig() *FeeEstimatorConfig {
+	// Use 25 sat/vB as the fallback fee rate, which matches the bitcoind
+	// backend's default. 25 sat/vB = 6250 sat/kw (25 * 250).
 	return &FeeEstimatorConfig{
-		FallbackFeePerKW:  chainfee.SatPerKWeight(12500),
+		FallbackFeePerKW:  chainfee.SatPerKWeight(6250),
 		MinFeePerKW:       chainfee.FeePerKwFloor,
 		FeeUpdateInterval: defaultFeeUpdateInterval,
 	}

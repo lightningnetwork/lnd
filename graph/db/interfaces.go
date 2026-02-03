@@ -190,7 +190,7 @@ type Store interface { //nolint:interfacebloat
 	// DisabledChannelIDs returns the channel ids of disabled channels.
 	// A channel is disabled when two of the associated ChanelEdgePolicies
 	// have their disabled bit on.
-	DisabledChannelIDs() ([]uint64, error)
+	DisabledChannelIDs(v lnwire.GossipVersion) ([]uint64, error)
 
 	// AddChannelEdge adds a new (undirected, blank) edge to the graph
 	// database. An undirected edge from the two target nodes are created.

@@ -76,6 +76,8 @@ type SQLQueries interface {
 	GetNodeFeaturesBatch(ctx context.Context, ids []int64) ([]sqlc.GraphNodeFeature, error)
 	GetNodeFeaturesByPubKey(ctx context.Context, arg sqlc.GetNodeFeaturesByPubKeyParams) ([]int32, error)
 	DeleteNodeFeature(ctx context.Context, arg sqlc.DeleteNodeFeatureParams) error
+	GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error)
+	GetV2DisabledSCIDs(ctx context.Context) ([][]byte, error)
 
 	/*
 		Source node queries.
@@ -119,7 +121,6 @@ type SQLQueries interface {
 	*/
 	UpsertEdgePolicy(ctx context.Context, arg sqlc.UpsertEdgePolicyParams) (int64, error)
 	GetChannelPolicyByChannelAndNode(ctx context.Context, arg sqlc.GetChannelPolicyByChannelAndNodeParams) (sqlc.GraphChannelPolicy, error)
-	GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error)
 
 	UpsertChanPolicyExtraType(ctx context.Context, arg sqlc.UpsertChanPolicyExtraTypeParams) error
 	GetChannelPolicyExtraTypesBatch(ctx context.Context, policyIds []int64) ([]sqlc.GetChannelPolicyExtraTypesBatchRow, error)
@@ -459,13 +460,26 @@ func (s *SQLStore) FetchNodeFeatures(v lnwire.GossipVersion,
 // have their disabled bit on.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) DisabledChannelIDs() ([]uint64, error) {
+func (s *SQLStore) DisabledChannelIDs(
+	v lnwire.GossipVersion) ([]uint64, error) {
+
 	var (
 		ctx     = context.TODO()
 		chanIDs []uint64
 	)
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		dbChanIDs, err := db.GetV1DisabledSCIDs(ctx)
+		var (
+			dbChanIDs [][]byte
+			err       error
+		)
+		switch v {
+		case gossipV1:
+			dbChanIDs, err = db.GetV1DisabledSCIDs(ctx)
+		case gossipV2:
+			dbChanIDs, err = db.GetV2DisabledSCIDs(ctx)
+		default:
+			return fmt.Errorf("unsupported gossip version: %d", v)
+		}
 		if err != nil {
 			return fmt.Errorf("unable to fetch disabled "+
 				"channels: %w", err)

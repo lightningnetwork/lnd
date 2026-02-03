@@ -83,6 +83,9 @@ type Querier interface {
 	// structure will have a more complex disabled bit vector
 	// and so the query for V2 may differ.
 	GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error)
+	// NOTE: this is V2 specific since V2 uses a disable flag
+	// bit vector instead of a single boolean.
+	GetV2DisabledSCIDs(ctx context.Context) ([][]byte, error)
 	GetZombieChannel(ctx context.Context, arg GetZombieChannelParams) (GraphZombieChannel, error)
 	GetZombieChannelsSCIDs(ctx context.Context, arg GetZombieChannelsSCIDsParams) ([]GraphZombieChannel, error)
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)

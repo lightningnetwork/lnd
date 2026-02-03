@@ -1066,6 +1066,17 @@ AND c.version = 1
 GROUP BY c.scid
 HAVING COUNT(*) > 1;
 
+-- name: GetV2DisabledSCIDs :many
+SELECT c.scid
+FROM graph_channels c
+    JOIN graph_channel_policies cp ON cp.channel_id = c.id
+-- NOTE: this is V2 specific since V2 uses a disable flag
+-- bit vector instead of a single boolean.
+WHERE COALESCE(cp.disable_flags, 0) != 0
+AND c.version = 2
+GROUP BY c.scid
+HAVING COUNT(*) > 1;
+
 -- name: DeleteChannelPolicyExtraTypes :exec
 DELETE FROM graph_channel_policy_extra_types
 WHERE channel_policy_id = $1;

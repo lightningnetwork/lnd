@@ -3455,9 +3455,15 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 
 	var (
 		node1Pub, node2Pub route.Vertex
-		isNode1            bool
 		chanIDB            = channelIDToBytes(edge.ChannelID)
+		version            = edge.Version
 	)
+
+	if !isKnownGossipVersion(version) {
+		return node1Pub, node2Pub, false, fmt.Errorf(
+			"unsupported gossip version: %d", version,
+		)
+	}
 
 	// Check that this edge policy refers to a channel that we already
 	// know of. We do this explicitly so that we can return the appropriate
@@ -3466,7 +3472,7 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 	dbChan, err := tx.GetChannelAndNodesBySCID(
 		ctx, sqlc.GetChannelAndNodesBySCIDParams{
 			Scid:    chanIDB,
-			Version: int16(lnwire.GossipVersion1),
+			Version: int16(version),
 		},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -3480,7 +3486,7 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 	copy(node2Pub[:], dbChan.Node2PubKey)
 
 	// Figure out which node this edge is from.
-	isNode1 = edge.ChannelFlags&lnwire.ChanUpdateDirection == 0
+	isNode1 := edge.IsNode1()
 	nodeID := dbChan.NodeID1
 	if !isNode1 {
 		nodeID = dbChan.NodeID2
@@ -3495,31 +3501,40 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 		inboundBase = sqldb.SQLInt64(fee.BaseFee)
 	})
 
-	id, err := tx.UpsertEdgePolicy(ctx, sqlc.UpsertEdgePolicyParams{
-		Version:     int16(lnwire.GossipVersion1),
-		ChannelID:   dbChan.ID,
-		NodeID:      nodeID,
-		Timelock:    int32(edge.TimeLockDelta),
-		FeePpm:      int64(edge.FeeProportionalMillionths),
-		BaseFeeMsat: int64(edge.FeeBaseMSat),
-		MinHtlcMsat: int64(edge.MinHTLC),
-		LastUpdate:  sqldb.SQLInt64(edge.LastUpdate.Unix()),
-		Disabled: sql.NullBool{
-			Valid: true,
-			Bool:  edge.IsDisabled(),
-		},
-		MaxHtlcMsat: sql.NullInt64{
-			Valid: edge.MessageFlags.HasMaxHtlc(),
-			Int64: int64(edge.MaxHTLC),
-		},
+	params := sqlc.UpsertEdgePolicyParams{
+		Version:                 int16(version),
+		ChannelID:               dbChan.ID,
+		NodeID:                  nodeID,
+		Timelock:                int32(edge.TimeLockDelta),
+		FeePpm:                  int64(edge.FeeProportionalMillionths),
+		BaseFeeMsat:             int64(edge.FeeBaseMSat),
+		MinHtlcMsat:             int64(edge.MinHTLC),
 		MessageFlags:            sqldb.SQLInt16(edge.MessageFlags),
 		ChannelFlags:            sqldb.SQLInt16(edge.ChannelFlags),
 		InboundBaseFeeMsat:      inboundBase,
 		InboundFeeRateMilliMsat: inboundRate,
 		Signature:               edge.SigBytes,
-		BlockHeight:             sql.NullInt64{},
-		DisableFlags:            sql.NullInt16{},
-	})
+	}
+
+	if version == lnwire.GossipVersion1 {
+		params.LastUpdate = sqldb.SQLInt64(edge.LastUpdate.Unix())
+		params.Disabled = sql.NullBool{
+			Valid: true,
+			Bool:  edge.IsDisabled(),
+		}
+		params.MaxHtlcMsat = sql.NullInt64{
+			Valid: edge.MessageFlags.HasMaxHtlc(),
+			Int64: int64(edge.MaxHTLC),
+		}
+	} else {
+		params.BlockHeight = sqldb.SQLInt64(
+			int64(edge.LastBlockHeight),
+		)
+		params.DisableFlags = sqldb.SQLInt16(edge.DisableFlags)
+		params.MaxHtlcMsat = sqldb.SQLInt64(int64(edge.MaxHTLC))
+	}
+
+	id, err := tx.UpsertEdgePolicy(ctx, params)
 	if err != nil {
 		return node1Pub, node2Pub, isNode1,
 			fmt.Errorf("unable to upsert edge policy: %w", err)
@@ -3527,10 +3542,13 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 
 	// Convert the flat extra opaque data into a map of TLV types to
 	// values.
-	extra, err := marshalExtraOpaqueData(edge.ExtraOpaqueData)
-	if err != nil {
-		return node1Pub, node2Pub, false, fmt.Errorf("unable to "+
-			"marshal extra opaque data: %w", err)
+	extra := edge.ExtraSignedFields
+	if version == lnwire.GossipVersion1 {
+		extra, err = marshalExtraOpaqueData(edge.ExtraOpaqueData)
+		if err != nil {
+			return node1Pub, node2Pub, false, fmt.Errorf("unable to "+
+				"marshal extra opaque data: %w", err)
+		}
 	}
 
 	// Update the channel policy's extra signed fields.
@@ -4713,14 +4731,14 @@ func getAndBuildChanPolicies(ctx context.Context, cfg *sqldb.QueryConfig,
 	}
 
 	pol1, err := buildChanPolicyWithBatchData(
-		dbPol1, channelID, node2, batchData,
+		true, dbPol1, channelID, node2, batchData,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to build policy1: %w", err)
 	}
 
 	pol2, err := buildChanPolicyWithBatchData(
-		dbPol2, channelID, node1, batchData,
+		false, dbPol2, channelID, node1, batchData,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to build policy2: %w", err)
@@ -4738,7 +4756,9 @@ func buildCachedChanPolicies(dbPol1, dbPol2 *sqlc.GraphChannelPolicy,
 
 	var p1, p2 *models.CachedEdgePolicy
 	if dbPol1 != nil {
-		policy1, err := buildChanPolicy(*dbPol1, channelID, nil, node2)
+		policy1, err := buildChanPolicy(
+			true, *dbPol1, channelID, nil, node2,
+		)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -4746,7 +4766,9 @@ func buildCachedChanPolicies(dbPol1, dbPol2 *sqlc.GraphChannelPolicy,
 		p1 = models.NewCachedPolicy(policy1)
 	}
 	if dbPol2 != nil {
-		policy2, err := buildChanPolicy(*dbPol2, channelID, nil, node1)
+		policy2, err := buildChanPolicy(
+			false, *dbPol2, channelID, nil, node1,
+		)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -4759,15 +4781,9 @@ func buildCachedChanPolicies(dbPol1, dbPol2 *sqlc.GraphChannelPolicy,
 
 // buildChanPolicy builds a models.ChannelEdgePolicy instance from the
 // provided sqlc.GraphChannelPolicy and other required information.
-func buildChanPolicy(dbPolicy sqlc.GraphChannelPolicy, channelID uint64,
-	extras map[uint64][]byte,
+func buildChanPolicy(isNode1 bool, dbPolicy sqlc.GraphChannelPolicy,
+	channelID uint64, extras map[uint64][]byte,
 	toNode route.Vertex) (*models.ChannelEdgePolicy, error) {
-
-	recs, err := lnwire.CustomRecords(extras).Serialize()
-	if err != nil {
-		return nil, fmt.Errorf("unable to serialize extra signed "+
-			"fields: %w", err)
-	}
 
 	var inboundFee fn.Option[lnwire.Fee]
 	if dbPolicy.InboundFeeRateMilliMsat.Valid ||
@@ -4779,18 +4795,11 @@ func buildChanPolicy(dbPolicy sqlc.GraphChannelPolicy, channelID uint64,
 		})
 	}
 
-	return &models.ChannelEdgePolicy{
-		SigBytes:  dbPolicy.Signature,
-		ChannelID: channelID,
-		LastUpdate: time.Unix(
-			dbPolicy.LastUpdate.Int64, 0,
-		),
-		MessageFlags: sqldb.ExtractSqlInt16[lnwire.ChanUpdateMsgFlags](
-			dbPolicy.MessageFlags,
-		),
-		ChannelFlags: sqldb.ExtractSqlInt16[lnwire.ChanUpdateChanFlags](
-			dbPolicy.ChannelFlags,
-		),
+	p := &models.ChannelEdgePolicy{
+		Version:       lnwire.GossipVersion(dbPolicy.Version),
+		SigBytes:      dbPolicy.Signature,
+		ChannelID:     channelID,
+		SecondPeer:    !isNode1,
 		TimeLockDelta: uint16(dbPolicy.Timelock),
 		MinHTLC: lnwire.MilliSatoshi(
 			dbPolicy.MinHtlcMsat,
@@ -4804,8 +4813,40 @@ func buildChanPolicy(dbPolicy sqlc.GraphChannelPolicy, channelID uint64,
 		FeeProportionalMillionths: lnwire.MilliSatoshi(dbPolicy.FeePpm),
 		ToNode:                    toNode,
 		InboundFee:                inboundFee,
-		ExtraOpaqueData:           recs,
-	}, nil
+	}
+
+	if p.Version == lnwire.GossipVersion1 {
+		recs, err := lnwire.CustomRecords(extras).Serialize()
+		if err != nil {
+			return nil, fmt.Errorf("unable to serialize extra "+
+				"signed fields: %w", err)
+		}
+
+		p.ExtraOpaqueData = recs
+		p.LastUpdate = time.Unix(dbPolicy.LastUpdate.Int64, 0)
+		//nolint:ll
+		p.MessageFlags = sqldb.ExtractSqlInt16[lnwire.ChanUpdateMsgFlags](
+			dbPolicy.MessageFlags,
+		)
+		//nolint:ll
+		p.ChannelFlags = sqldb.ExtractSqlInt16[lnwire.ChanUpdateChanFlags](
+			dbPolicy.ChannelFlags,
+		)
+	} else {
+		if dbPolicy.BlockHeight.Valid {
+			p.LastBlockHeight = uint32(
+				dbPolicy.BlockHeight.Int64,
+			)
+		}
+
+		//nolint:ll
+		p.DisableFlags = sqldb.ExtractSqlInt16[lnwire.ChanUpdateDisableFlags](
+			dbPolicy.DisableFlags,
+		)
+		p.ExtraSignedFields = extras
+	}
+
+	return p, nil
 }
 
 // extractChannelPolicies extracts the sqlc.GraphChannelPolicy records from the give
@@ -5517,14 +5558,14 @@ func buildChanPoliciesWithBatchData(dbPol1, dbPol2 *sqlc.GraphChannelPolicy,
 	*models.ChannelEdgePolicy, error) {
 
 	pol1, err := buildChanPolicyWithBatchData(
-		dbPol1, channelID, node2, batchData,
+		true, dbPol1, channelID, node2, batchData,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to build policy1: %w", err)
 	}
 
 	pol2, err := buildChanPolicyWithBatchData(
-		dbPol2, channelID, node1, batchData,
+		false, dbPol2, channelID, node1, batchData,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to build policy2: %w", err)
@@ -5535,9 +5576,10 @@ func buildChanPoliciesWithBatchData(dbPol1, dbPol2 *sqlc.GraphChannelPolicy,
 
 // buildChanPolicyWithBatchData builds a models.ChannelEdgePolicy instance from
 // the provided sqlc.GraphChannelPolicy and the provided batchChannelData.
-func buildChanPolicyWithBatchData(dbPol *sqlc.GraphChannelPolicy,
-	channelID uint64, toNode route.Vertex,
-	batchData *batchChannelData) (*models.ChannelEdgePolicy, error) {
+func buildChanPolicyWithBatchData(isNode1 bool,
+	dbPol *sqlc.GraphChannelPolicy, channelID uint64,
+	toNode route.Vertex, batchData *batchChannelData) (
+	*models.ChannelEdgePolicy, error) {
 
 	if dbPol == nil {
 		return nil, nil
@@ -5550,7 +5592,7 @@ func buildChanPolicyWithBatchData(dbPol *sqlc.GraphChannelPolicy,
 		dbPol1Extras = make(map[uint64][]byte)
 	}
 
-	return buildChanPolicy(*dbPol, channelID, dbPol1Extras, toNode)
+	return buildChanPolicy(isNode1, *dbPol, channelID, dbPol1Extras, toNode)
 }
 
 // batchChannelData holds all the related data for a batch of channels.

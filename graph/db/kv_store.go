@@ -3296,6 +3296,9 @@ func updateEdgePolicy(tx kvdb.RwTx, edge *models.ChannelEdgePolicy) (
 	route.Vertex, route.Vertex, bool, error) {
 
 	var noVertex route.Vertex
+	if edge.Version != lnwire.GossipVersion1 {
+		return noVertex, noVertex, false, ErrVersionNotSupportedForKVDB
+	}
 
 	edges := tx.ReadWriteBucket(edgeBucket)
 	if edges == nil {
@@ -5157,6 +5160,10 @@ func fetchChanEdgePolicies(edgeIndex kvdb.RBucket, edges kvdb.RBucket,
 func serializeChanEdgePolicy(w io.Writer, edge *models.ChannelEdgePolicy,
 	to []byte) error {
 
+	if edge.Version != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
+
 	err := wire.WriteVarBytes(w, 0, edge.SigBytes)
 	if err != nil {
 		return err
@@ -5245,7 +5252,9 @@ func deserializeChanEdgePolicy(r io.Reader) (*models.ChannelEdgePolicy, error) {
 func deserializeChanEdgePolicyRaw(r io.Reader) (*models.ChannelEdgePolicy,
 	error) {
 
-	edge := &models.ChannelEdgePolicy{}
+	edge := &models.ChannelEdgePolicy{
+		Version: lnwire.GossipVersion1,
+	}
 
 	var err error
 	edge.SigBytes, err = wire.ReadVarBytes(r, 0, 80, "sig")

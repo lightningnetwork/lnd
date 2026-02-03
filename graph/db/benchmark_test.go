@@ -370,8 +370,8 @@ func TestPopulateDBs(t *testing.T) {
 			numPolicies = 0
 		)
 		err := graph.ForEachChannel(
-			ctx, func(info *models.ChannelEdgeInfo,
-				policy,
+			ctx, lnwire.GossipVersion1,
+			func(info *models.ChannelEdgeInfo, policy,
 				policy2 *models.ChannelEdgePolicy) error {
 
 				numChans++
@@ -497,48 +497,49 @@ func syncGraph(t *testing.T, src, dest *ChannelGraph) {
 	}
 
 	var wgChans sync.WaitGroup
-	err = src.ForEachChannel(ctx, func(info *models.ChannelEdgeInfo,
-		policy1, policy2 *models.ChannelEdgePolicy) error {
+	err = src.ForEachChannel(ctx, lnwire.GossipVersion1,
+		func(info *models.ChannelEdgeInfo,
+			policy1, policy2 *models.ChannelEdgePolicy) error {
 
-		// Add each channel & policy. We do this in a goroutine to
-		// take advantage of batch processing.
-		wgChans.Add(1)
-		go func() {
-			defer wgChans.Done()
+			// Add each channel & policy. We do this in a goroutine
+			// to take advantage of batch processing.
+			wgChans.Add(1)
+			go func() {
+				defer wgChans.Done()
 
-			err := dest.AddChannelEdge(
-				ctx, info, batch.LazyAdd(),
-			)
-			if !errors.Is(err, ErrEdgeAlreadyExist) {
-				require.NoError(t, err)
-			}
-
-			if policy1 != nil {
-				err = dest.UpdateEdgePolicy(
-					ctx, policy1, batch.LazyAdd(),
+				err := dest.AddChannelEdge(
+					ctx, info, batch.LazyAdd(),
 				)
-				require.NoError(t, err)
-			}
+				if !errors.Is(err, ErrEdgeAlreadyExist) {
+					require.NoError(t, err)
+				}
 
-			if policy2 != nil {
-				err = dest.UpdateEdgePolicy(
-					ctx, policy2, batch.LazyAdd(),
-				)
-				require.NoError(t, err)
-			}
+				if policy1 != nil {
+					err = dest.UpdateEdgePolicy(
+						ctx, policy1, batch.LazyAdd(),
+					)
+					require.NoError(t, err)
+				}
 
-			mu.Lock()
-			total++
-			chunk++
-			s.Do(func() {
-				reportChanStats()
-				chunk = 0
-			})
-			mu.Unlock()
-		}()
+				if policy2 != nil {
+					err = dest.UpdateEdgePolicy(
+						ctx, policy2, batch.LazyAdd(),
+					)
+					require.NoError(t, err)
+				}
 
-		return nil
-	}, func() {})
+				mu.Lock()
+				total++
+				chunk++
+				s.Do(func() {
+					reportChanStats()
+					chunk = 0
+				})
+				mu.Unlock()
+			}()
+
+			return nil
+		}, func() {})
 	require.NoError(t, err)
 
 	wgChans.Wait()
@@ -638,7 +639,8 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 			fn: func(b testing.TB, store Store) {
 				//nolint:ll
 				err := store.ForEachChannel(
-					ctx, func(_ *models.ChannelEdgeInfo,
+					ctx, lnwire.GossipVersion1,
+					func(_ *models.ChannelEdgeInfo,
 						_ *models.ChannelEdgePolicy,
 						_ *models.ChannelEdgePolicy) error {
 
@@ -821,7 +823,7 @@ func BenchmarkFindOptimalSQLQueryConfig(b *testing.B) {
 
 					//nolint:ll
 					err = store.ForEachChannel(
-						ctx,
+						ctx, lnwire.GossipVersion1,
 						func(_ *models.ChannelEdgeInfo,
 							_,
 							_ *models.ChannelEdgePolicy) error {

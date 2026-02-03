@@ -162,9 +162,12 @@ type Store interface { //nolint:interfacebloat
 	// NOTE: If an edge can't be found, or wasn't advertised, then a nil
 	// pointer for that particular channel edge routing policy will be
 	// passed into the callback.
-	ForEachChannel(ctx context.Context, cb func(*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error,
-		reset func()) error
+	//
+	// TODO(elle): add a cross-version iteration API and make this iterate
+	// over all versions.
+	ForEachChannel(ctx context.Context, v lnwire.GossipVersion,
+		cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+			*models.ChannelEdgePolicy) error, reset func()) error
 
 	// ForEachChannelCacheable iterates through all the channel edges stored
 	// within the graph and invokes the passed callback for each edge. The

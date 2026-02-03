@@ -1819,6 +1819,15 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		return nil, mkErr("unable to parse node color: %v", err)
 	}
 
+	// Validate TrickleDelay and default to 1ms if non-positive to ensure
+	// the trickle timer can still function.
+	if cfg.TrickleDelay <= 0 {
+		srvrLog.Infof("TrickleDelay is non-positive (%v ms), "+
+			"setting to 1ms", cfg.TrickleDelay)
+
+		cfg.TrickleDelay = 1
+	}
+
 	// All good, return the sanitized result.
 	return &cfg, nil
 }

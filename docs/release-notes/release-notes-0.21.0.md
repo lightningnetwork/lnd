@@ -57,6 +57,12 @@
   transactions as locally initiated, even when they were initiated by the remote
   peer.
 
+- [Fixed a panic in the gossiper](https://github.com/lightningnetwork/lnd/pull/10463)
+  when `TrickleDelay` is configured with a non-positive value. The configuration
+  validation now checks `TrickleDelay` at startup and defaults it to 1
+  millisecond if set to zero or a negative value, preventing `time.NewTicker`
+  from panicking.
+
 # New Features
 
 - Basic Support for [onion messaging forwarding](https://github.com/lightningnetwork/lnd/pull/9868) 
@@ -141,7 +147,7 @@
 
 ## Testing
 
-* [Added unit tests for TLV length validation across multiple packages](https://github.com/lightningnetwork/lnd/pull/10249). 
+* [Added unit tests for TLV length validation across multiple packages](https://github.com/lightningnetwork/lnd/pull/10249).
   New tests  ensure that fixed-size TLV decoders reject malformed records with
   invalid lengths, including roundtrip tests for Fee, Musig2Nonce,
   ShortChannelID and Vertex records.

@@ -155,6 +155,10 @@ func NewTestPostgresDB(t testing.TB, fixture *TestPgFixture) *PostgresStore {
 		context.Background(), GetMigrations()),
 	)
 
+	t.Cleanup(func() {
+		require.NoError(t, store.DB.Close())
+	})
+
 	return store
 }
 
@@ -181,6 +185,10 @@ func NewTestPostgresDBWithVersion(t *testing.T, fixture *TestPgFixture,
 
 	err = store.ExecuteMigrations(TargetVersion(version))
 	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		require.NoError(t, store.DB.Close())
+	})
 
 	return store
 }

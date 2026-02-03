@@ -747,7 +747,7 @@ func (s *SQLStore) AddChannelEdge(ctx context.Context,
 			case alreadyExists:
 				return ErrEdgeAlreadyExist
 			default:
-				s.rejectCache.remove(edge.ChannelID)
+				s.rejectCache.remove(edge.Version, edge.ChannelID)
 				s.chanCache.remove(edge.ChannelID)
 				return nil
 			}
@@ -862,13 +862,18 @@ func (s *SQLStore) updateEdgeCache(e *models.ChannelEdgePolicy,
 	// the entry with the updated timestamp for the direction that was just
 	// written. If the edge doesn't exist, we'll load the cache entry lazily
 	// during the next query for this edge.
-	if entry, ok := s.rejectCache.get(e.ChannelID); ok {
-		if isUpdate1 {
-			entry.upd1Time = e.LastUpdate.Unix()
-		} else {
-			entry.upd2Time = e.LastUpdate.Unix()
+	if entry, ok := s.rejectCache.get(e.Version, e.ChannelID); ok {
+		switch e.Version {
+		case lnwire.GossipVersion1:
+			updateRejectCacheEntryV1(
+				&entry, isUpdate1, e.LastUpdate,
+			)
+		case lnwire.GossipVersion2:
+			updateRejectCacheEntryV2(
+				&entry, isUpdate1, e.LastBlockHeight,
+			)
 		}
-		s.rejectCache.insert(e.ChannelID, entry)
+		s.rejectCache.insert(e.Version, e.ChannelID, entry)
 	}
 
 	// If an entry for this channel is found in channel cache, we'll modify
@@ -1764,7 +1769,7 @@ func (s *SQLStore) MarkEdgeZombie(chanID uint64,
 			"(channel_id=%d): %w", chanID, err)
 	}
 
-	s.rejectCache.remove(chanID)
+	s.rejectCache.remove(lnwire.GossipVersion1, chanID)
 	s.chanCache.remove(chanID)
 
 	return nil
@@ -1813,7 +1818,7 @@ func (s *SQLStore) MarkEdgeLive(chanID uint64) error {
 			"(channel_id=%d): %w", chanID, err)
 	}
 
-	s.rejectCache.remove(chanID)
+	s.rejectCache.remove(lnwire.GossipVersion1, chanID)
 	s.chanCache.remove(chanID)
 
 	return err
@@ -1995,7 +2000,7 @@ func (s *SQLStore) DeleteChannelEdges(v lnwire.GossipVersion,
 	}
 
 	for _, chanID := range chanIDs {
-		s.rejectCache.remove(chanID)
+		s.rejectCache.remove(v, chanID)
 		s.chanCache.remove(chanID)
 	}
 
@@ -2222,7 +2227,7 @@ func (s *SQLStore) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 	// We'll query the cache with the shared lock held to allow multiple
 	// readers to access values in the cache concurrently if they exist.
 	s.cacheMu.RLock()
-	if entry, ok := s.rejectCache.get(chanID); ok {
+	if entry, ok := s.rejectCache.get(lnwire.GossipVersion1, chanID); ok {
 		s.cacheMu.RUnlock()
 		node1LastUpdate = time.Unix(entry.upd1Time, 0)
 		node2LastUpdate = time.Unix(entry.upd2Time, 0)
@@ -2238,7 +2243,7 @@ func (s *SQLStore) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 	// The item was not found with the shared lock, so we'll acquire the
 	// exclusive lock and check the cache again in case another method added
 	// the entry to the cache while no lock was held.
-	if entry, ok := s.rejectCache.get(chanID); ok {
+	if entry, ok := s.rejectCache.get(lnwire.GossipVersion1, chanID); ok {
 		node1LastUpdate = time.Unix(entry.upd1Time, 0)
 		node2LastUpdate = time.Unix(entry.upd2Time, 0)
 		exists, isZombie = entry.flags.unpack()
@@ -2309,11 +2314,13 @@ func (s *SQLStore) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 			fmt.Errorf("unable to fetch channel: %w", err)
 	}
 
-	s.rejectCache.insert(chanID, rejectCacheEntry{
-		upd1Time: node1LastUpdate.Unix(),
-		upd2Time: node2LastUpdate.Unix(),
-		flags:    packRejectFlags(exists, isZombie),
-	})
+	s.rejectCache.insert(
+		lnwire.GossipVersion1, chanID,
+		newRejectCacheEntryV1(
+			node1LastUpdate, node2LastUpdate, exists,
+			isZombie,
+		),
+	)
 
 	return node1LastUpdate, node2LastUpdate, exists, isZombie, nil
 }
@@ -2732,7 +2739,7 @@ func (s *SQLStore) PruneGraph(spentOutputs []*wire.OutPoint,
 	}
 
 	for _, channel := range closedChans {
-		s.rejectCache.remove(channel.ChannelID)
+		s.rejectCache.remove(channel.Version, channel.ChannelID)
 		s.chanCache.remove(channel.ChannelID)
 	}
 
@@ -3001,7 +3008,7 @@ func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
 
 	s.cacheMu.Lock()
 	for _, channel := range removedChans {
-		s.rejectCache.remove(channel.ChannelID)
+		s.rejectCache.remove(channel.Version, channel.ChannelID)
 		s.chanCache.remove(channel.ChannelID)
 	}
 	s.cacheMu.Unlock()

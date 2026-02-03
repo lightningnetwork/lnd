@@ -1,5 +1,11 @@
 package graphdb
 
+import (
+	"time"
+
+	"github.com/lightningnetwork/lnd/lnwire"
+)
+
 // rejectFlags is a compact representation of various metadata stored by the
 // reject cache about a particular channel.
 type rejectFlags uint8
@@ -41,9 +47,68 @@ func (f rejectFlags) unpack() (bool, bool) {
 // including the timestamps of its latest edge policies and whether or not the
 // channel exists in the graph.
 type rejectCacheEntry struct {
+	// upd{1,2}Time are Unix timestamps for v1 policies.
 	upd1Time int64
 	upd2Time int64
-	flags    rejectFlags
+
+	// upd{1,2}BlockHeight are the last known block heights for v2
+	// policies.
+	upd1BlockHeight uint32
+	upd2BlockHeight uint32
+
+	flags rejectFlags
+}
+
+// newRejectCacheEntryV1 constructs a reject cache entry for v1 policies.
+func newRejectCacheEntryV1(upd1, upd2 time.Time, exists,
+	isZombie bool) rejectCacheEntry {
+
+	return rejectCacheEntry{
+		upd1Time: upd1.Unix(),
+		upd2Time: upd2.Unix(),
+		flags:    packRejectFlags(exists, isZombie),
+	}
+}
+
+// newRejectCacheEntryV2 constructs a reject cache entry for v2 policies.
+func newRejectCacheEntryV2(upd1, upd2 uint32, exists,
+	isZombie bool) rejectCacheEntry {
+
+	return rejectCacheEntry{
+		upd1BlockHeight: upd1,
+		upd2BlockHeight: upd2,
+		flags:           packRejectFlags(exists, isZombie),
+	}
+}
+
+// updateRejectCacheEntryV1 updates the cached v1 timestamps.
+func updateRejectCacheEntryV1(entry *rejectCacheEntry, isUpdate1 bool,
+	lastUpdate time.Time) {
+
+	if isUpdate1 {
+		entry.upd1Time = lastUpdate.Unix()
+	} else {
+		entry.upd2Time = lastUpdate.Unix()
+	}
+}
+
+// updateRejectCacheEntryV2 updates the cached v2 block heights.
+func updateRejectCacheEntryV2(entry *rejectCacheEntry, isUpdate1 bool,
+	blockHeight uint32) {
+
+	if isUpdate1 {
+		entry.upd1BlockHeight = blockHeight
+	} else {
+		entry.upd2BlockHeight = blockHeight
+	}
+}
+
+// rejectCacheKey uniquely identifies a channel entry in the reject cache by
+// gossip version and channel ID. This allows v1 and v2 policy state for the
+// same channel ID to be cached independently.
+type rejectCacheKey struct {
+	version lnwire.GossipVersion
+	chanID  uint64
 }
 
 // rejectCache is an in-memory cache used to improve the performance of
@@ -51,20 +116,25 @@ type rejectCacheEntry struct {
 // well as the most recent timestamps for each policy (if they exists).
 type rejectCache struct {
 	n     int
-	edges map[uint64]rejectCacheEntry
+	edges map[rejectCacheKey]rejectCacheEntry
 }
 
 // newRejectCache creates a new rejectCache with maximum capacity of n entries.
 func newRejectCache(n int) *rejectCache {
 	return &rejectCache{
 		n:     n,
-		edges: make(map[uint64]rejectCacheEntry, n),
+		edges: make(map[rejectCacheKey]rejectCacheEntry, n),
 	}
 }
 
 // get returns the entry from the cache for chanid, if it exists.
-func (c *rejectCache) get(chanid uint64) (rejectCacheEntry, bool) {
-	entry, ok := c.edges[chanid]
+func (c *rejectCache) get(version lnwire.GossipVersion, chanid uint64) (
+	rejectCacheEntry, bool) {
+
+	entry, ok := c.edges[rejectCacheKey{
+		version: version,
+		chanID:  chanid,
+	}]
 	return entry, ok
 }
 
@@ -72,10 +142,17 @@ func (c *rejectCache) get(chanid uint64) (rejectCacheEntry, bool) {
 // exists, it will be replaced with the new entry. If the entry doesn't exists,
 // it will be inserted to the cache, performing a random eviction if the cache
 // is at capacity.
-func (c *rejectCache) insert(chanid uint64, entry rejectCacheEntry) {
+func (c *rejectCache) insert(version lnwire.GossipVersion, chanid uint64,
+	entry rejectCacheEntry) {
+
+	key := rejectCacheKey{
+		version: version,
+		chanID:  chanid,
+	}
+
 	// If entry exists, replace it.
-	if _, ok := c.edges[chanid]; ok {
-		c.edges[chanid] = entry
+	if _, ok := c.edges[key]; ok {
+		c.edges[key] = entry
 		return
 	}
 
@@ -86,10 +163,13 @@ func (c *rejectCache) insert(chanid uint64, entry rejectCacheEntry) {
 			break
 		}
 	}
-	c.edges[chanid] = entry
+	c.edges[key] = entry
 }
 
 // remove deletes an entry for chanid from the cache, if it exists.
-func (c *rejectCache) remove(chanid uint64) {
-	delete(c.edges, chanid)
+func (c *rejectCache) remove(version lnwire.GossipVersion, chanid uint64) {
+	delete(c.edges, rejectCacheKey{
+		version: version,
+		chanID:  chanid,
+	})
 }

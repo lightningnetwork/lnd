@@ -104,6 +104,10 @@
 * routerrpc HTLC event subscribers now receive specific failure details for
   invoice-level validation failures, avoiding ambiguous `UNKNOWN` results. [#10520](https://github.com/lightningnetwork/lnd/pull/10520)
 
+* SubscribeChannelEvents [now emits channel update
+  events](https://github.com/lightningnetwork/lnd/pull/10543) to be able to
+  subscribe to state changes.
+
 ## lncli Updates
 
 ## Breaking Changes
@@ -158,6 +162,7 @@
 
 # Contributors (Alphabetical Order)
 
+* bitromortac
 * Boris Nagaev
 * Elle Mouton
 * Erick Cestari

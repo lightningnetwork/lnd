@@ -30,7 +30,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 		FeeProportionalMillionths: 100000,
 		FeeBaseMSat:               30,
 		TimeLockDelta:             60,
-		MessageFlags:              lnwire.ChanUpdateRequiredMaxHtlc,
+		HasMaxHTLC:                true,
 		MaxHTLC:                   5000,
 		MinHTLC:                   100,
 	}
@@ -39,7 +39,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 		FeeProportionalMillionths: 190000,
 		FeeBaseMSat:               10,
 		TimeLockDelta:             40,
-		MessageFlags:              lnwire.ChanUpdateRequiredMaxHtlc,
+		HasMaxHTLC:                true,
 		MaxHTLC:                   4000,
 		MinHTLC:                   100,
 	}

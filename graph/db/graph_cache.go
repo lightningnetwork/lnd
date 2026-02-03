@@ -142,8 +142,8 @@ func (c *GraphCache) AddChannel(info *models.CachedEdgeInfo,
 	// Skip adding policies if both are disabled, as the channel is
 	// currently unusable for routing. However, we still add the channel
 	// structure above so that policy updates can later enable it.
-	if policy1 != nil && policy1.IsDisabled() &&
-		policy2 != nil && policy2.IsDisabled() {
+	if policy1 != nil && policy1.IsDisabled &&
+		policy2 != nil && policy2.IsDisabled {
 
 		log.Debugf("Skipping policies for channel %v: both "+
 			"policies are disabled (channel structure still "+
@@ -156,14 +156,14 @@ func (c *GraphCache) AddChannel(info *models.CachedEdgeInfo,
 	// of node 2 then we have the policy 1 as seen from node 1.
 	if policy1 != nil {
 		fromNode, toNode := info.NodeKey1Bytes, info.NodeKey2Bytes
-		if !policy1.IsNode1() {
+		if !policy1.IsNode1 {
 			fromNode, toNode = toNode, fromNode
 		}
 		c.UpdatePolicy(policy1, fromNode, toNode)
 	}
 	if policy2 != nil {
 		fromNode, toNode := info.NodeKey2Bytes, info.NodeKey1Bytes
-		if policy2.IsNode1() {
+		if policy2.IsNode1 {
 			fromNode, toNode = toNode, fromNode
 		}
 		c.UpdatePolicy(policy2, fromNode, toNode)
@@ -210,7 +210,7 @@ func (c *GraphCache) UpdatePolicy(policy *models.CachedEdgePolicy, fromNode,
 		switch {
 		// This is node 1, and it is edge 1, so this is the outgoing
 		// policy for node 1.
-		case channel.IsNode1 && policy.IsNode1():
+		case channel.IsNode1 && policy.IsNode1:
 			channel.OutPolicySet = true
 			policy.InboundFee.WhenSome(func(fee lnwire.Fee) {
 				channel.InboundFee = fee
@@ -218,7 +218,7 @@ func (c *GraphCache) UpdatePolicy(policy *models.CachedEdgePolicy, fromNode,
 
 		// This is node 2, and it is edge 2, so this is the outgoing
 		// policy for node 2.
-		case !channel.IsNode1 && !policy.IsNode1():
+		case !channel.IsNode1 && !policy.IsNode1:
 			channel.OutPolicySet = true
 			policy.InboundFee.WhenSome(func(fee lnwire.Fee) {
 				channel.InboundFee = fee

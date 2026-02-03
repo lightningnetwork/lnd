@@ -3,6 +3,8 @@ package graphdb
 import (
 	"reflect"
 	"testing"
+
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // TestRejectCache checks the behavior of the rejectCache with respect to insertion,
@@ -15,14 +17,14 @@ func TestRejectCache(t *testing.T) {
 
 	// As a sanity check, assert that querying the empty cache does not
 	// return an entry.
-	_, ok := c.get(0)
+	_, ok := c.get(lnwire.GossipVersion1, 0)
 	if ok {
 		t.Fatalf("reject cache should be empty")
 	}
 
 	// Now, fill up the cache entirely.
 	for i := uint64(0); i < cacheSize; i++ {
-		c.insert(i, entryForInt(i))
+		c.insert(lnwire.GossipVersion1, i, entryForInt(i))
 	}
 
 	// Assert that the cache has all of the entries just inserted, since no
@@ -30,7 +32,10 @@ func TestRejectCache(t *testing.T) {
 	assertHasEntries(t, c, 0, cacheSize)
 
 	// Now, insert a new element that causes the cache to evict an element.
-	c.insert(cacheSize, entryForInt(cacheSize))
+	c.insert(
+		lnwire.GossipVersion1, cacheSize,
+		entryForInt(cacheSize),
+	)
 
 	// Assert that the cache has this last entry, as the cache should evict
 	// some prior element and not the newly inserted one.
@@ -40,7 +45,7 @@ func TestRejectCache(t *testing.T) {
 	// elements.
 	evicted := make(map[uint64]struct{})
 	for i := uint64(0); i < cacheSize+1; i++ {
-		_, ok := c.get(i)
+		_, ok := c.get(lnwire.GossipVersion1, i)
 		if !ok {
 			evicted[i] = struct{}{}
 		}
@@ -54,9 +59,9 @@ func TestRejectCache(t *testing.T) {
 
 	// Remove the highest item which initially caused the eviction and
 	// reinsert the element that was evicted prior.
-	c.remove(cacheSize)
+	c.remove(lnwire.GossipVersion1, cacheSize)
 	for i := range evicted {
-		c.insert(i, entryForInt(i))
+		c.insert(lnwire.GossipVersion1, i, entryForInt(i))
 	}
 
 	// Since the removal created an extra slot, the last insertion should
@@ -69,7 +74,7 @@ func TestRejectCache(t *testing.T) {
 	// happening on inserts for existing cache items, we expect this to fail
 	// with high probability.
 	for i := uint64(0); i < cacheSize; i++ {
-		c.insert(i, entryForInt(i))
+		c.insert(lnwire.GossipVersion1, i, entryForInt(i))
 	}
 	assertHasEntries(t, c, 0, cacheSize)
 
@@ -82,7 +87,7 @@ func assertHasEntries(t *testing.T, c *rejectCache, start, end uint64) {
 	t.Helper()
 
 	for i := start; i < end; i++ {
-		entry, ok := c.get(i)
+		entry, ok := c.get(lnwire.GossipVersion1, i)
 		if !ok {
 			t.Fatalf("reject cache should contain chan %d", i)
 		}

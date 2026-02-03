@@ -1238,7 +1238,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 
 	// We should also be able to retrieve the channelID only knowing the
 	// channel point of the channel.
-	dbChanID, err := graph.ChannelID(&outpoint)
+	dbChanID, err := graph.ChannelID(lnwire.GossipVersion1, &outpoint)
 	require.NoError(t, err, "unable to retrieve channel ID")
 	if dbChanID != chanID {
 		t.Fatalf("chan ID's mismatch, expected %v got %v", dbChanID,

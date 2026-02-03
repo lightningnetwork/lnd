@@ -75,20 +75,33 @@ endif
 # Paths inside container must match GOCACHE/GOMODCACHE in tools/Dockerfile.
 ifdef CI
 # CI mode: bind mount to host paths that GitHub Actions caches.
-DOCKER_TOOLS = docker run \
+DOCKER_TOOLS_BASE = docker run \
   --rm \
   -v $${HOME}/.cache/go-build:/tmp/build/.cache \
   -v $${HOME}/go/pkg/mod:/tmp/build/.modcache \
   -v $${HOME}/.cache/golangci-lint:/root/.cache/golangci-lint \
-  -v $$(pwd):/build lnd-tools
+	-v $$(pwd):/build
+DOCKER_TOOLS = $(DOCKER_TOOLS_BASE) lnd-tools
+DOCKER_TOOLS_LINT = $(DOCKER_TOOLS)
 else
 # Local mode: Docker named volumes for fast macOS/Windows performance.
-DOCKER_TOOLS = docker run \
+# Detect if we're in a git worktree. Use git rev-parse --git-common-dir to get
+# the path to the main git directory for the linter's diff processor to work
+# correctly with the new-from-rev setting.
+GIT_COMMON_DIR := $(shell \
+  common_dir="$$(git rev-parse --git-common-dir 2>/dev/null)"; \
+  if [ "$$common_dir" != ".git" ] && [ -n "$$common_dir" ]; then \
+    echo "$$common_dir"; \
+  fi)
+GIT_VOLUME := $(if $(GIT_COMMON_DIR),-v "$(GIT_COMMON_DIR):$(GIT_COMMON_DIR):ro",)
+DOCKER_TOOLS_BASE = docker run \
   --rm \
   -v lnd-go-build-cache:/tmp/build/.cache \
   -v lnd-go-mod-cache:/tmp/build/.modcache \
   -v lnd-go-lint-cache:/root/.cache/golangci-lint \
-  -v $$(pwd):/build lnd-tools
+  -v $$(pwd):/build
+DOCKER_TOOLS = $(DOCKER_TOOLS_BASE) lnd-tools
+DOCKER_TOOLS_LINT = $(DOCKER_TOOLS_BASE) $(GIT_VOLUME) lnd-tools
 endif
 
 GREEN := "\\033[0;32m"
@@ -358,7 +371,7 @@ check-go-version: check-go-version-dockerfile check-go-version-yaml
 #? lint-source: Run static code analysis
 lint-source: docker-tools	
 	@$(call print, "Linting source.")
-	$(DOCKER_TOOLS) custom-gcl run -v $(LINT_WORKERS)
+	$(DOCKER_TOOLS_LINT) custom-gcl run -v $(LINT_WORKERS)
 
 #? lint-config-check: Verify that the lint config is up to date
 #  We use the official linter here not our custom one because for checking the

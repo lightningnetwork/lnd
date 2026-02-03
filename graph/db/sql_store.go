@@ -33,6 +33,11 @@ import (
 	"github.com/lightningnetwork/lnd/tor"
 )
 
+const (
+	gossipV1 = lnwire.GossipVersion1
+	gossipV2 = lnwire.GossipVersion2
+)
+
 // SQLQueries is a subset of the sqlc.Querier interface that can be used to
 // execute queries against the SQL graph tables.
 //
@@ -305,7 +310,7 @@ func (s *SQLStore) HasV1Node(ctx context.Context,
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		dbNode, err := db.GetNodeByPubKey(
 			ctx, sqlc.GetNodeByPubKeyParams{
-				Version: int16(lnwire.GossipVersion1),
+				Version: int16(gossipV1),
 				PubKey:  pubKey[:],
 			},
 		)
@@ -869,11 +874,11 @@ func (s *SQLStore) updateEdgeCache(e *models.ChannelEdgePolicy,
 	// during the next query for this edge.
 	if entry, ok := s.rejectCache.get(e.Version, e.ChannelID); ok {
 		switch e.Version {
-		case lnwire.GossipVersion1:
+		case gossipV1:
 			updateRejectCacheEntryV1(
 				&entry, isUpdate1, e.LastUpdate,
 			)
-		case lnwire.GossipVersion2:
+		case gossipV2:
 			updateRejectCacheEntryV2(
 				&entry, isUpdate1, e.LastBlockHeight,
 			)
@@ -2241,7 +2246,7 @@ func (s *SQLStore) HasV1ChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 	// We'll query the cache with the shared lock held to allow multiple
 	// readers to access values in the cache concurrently if they exist.
 	s.cacheMu.RLock()
-	if entry, ok := s.rejectCache.get(lnwire.GossipVersion1, chanID); ok {
+	if entry, ok := s.rejectCache.get(gossipV1, chanID); ok {
 		s.cacheMu.RUnlock()
 		node1LastUpdate = time.Unix(entry.upd1Time, 0)
 		node2LastUpdate = time.Unix(entry.upd2Time, 0)
@@ -2257,7 +2262,7 @@ func (s *SQLStore) HasV1ChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 	// The item was not found with the shared lock, so we'll acquire the
 	// exclusive lock and check the cache again in case another method added
 	// the entry to the cache while no lock was held.
-	if entry, ok := s.rejectCache.get(lnwire.GossipVersion1, chanID); ok {
+	if entry, ok := s.rejectCache.get(gossipV1, chanID); ok {
 		node1LastUpdate = time.Unix(entry.upd1Time, 0)
 		node2LastUpdate = time.Unix(entry.upd2Time, 0)
 		exists, isZombie = entry.flags.unpack()
@@ -2270,7 +2275,7 @@ func (s *SQLStore) HasV1ChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 		channel, err := db.GetChannelBySCID(
 			ctx, sqlc.GetChannelBySCIDParams{
 				Scid:    chanIDB,
-				Version: int16(lnwire.GossipVersion1),
+				Version: int16(gossipV1),
 			},
 		)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -2278,7 +2283,7 @@ func (s *SQLStore) HasV1ChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 			isZombie, err = db.IsZombieChannel(
 				ctx, sqlc.IsZombieChannelParams{
 					Scid:    chanIDB,
-					Version: int16(lnwire.GossipVersion1),
+					Version: int16(gossipV1),
 				},
 			)
 			if err != nil {
@@ -2295,7 +2300,7 @@ func (s *SQLStore) HasV1ChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 
 		policy1, err := db.GetChannelPolicyByChannelAndNode(
 			ctx, sqlc.GetChannelPolicyByChannelAndNodeParams{
-				Version:   int16(lnwire.GossipVersion1),
+				Version:   int16(gossipV1),
 				ChannelID: channel.ID,
 				NodeID:    channel.NodeID1,
 			},
@@ -2309,7 +2314,7 @@ func (s *SQLStore) HasV1ChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 
 		policy2, err := db.GetChannelPolicyByChannelAndNode(
 			ctx, sqlc.GetChannelPolicyByChannelAndNodeParams{
-				Version:   int16(lnwire.GossipVersion1),
+				Version:   int16(gossipV1),
 				ChannelID: channel.ID,
 				NodeID:    channel.NodeID2,
 			},
@@ -2329,7 +2334,7 @@ func (s *SQLStore) HasV1ChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 	}
 
 	s.rejectCache.insert(
-		lnwire.GossipVersion1, chanID,
+		gossipV1, chanID,
 		newRejectCacheEntryV1(
 			node1LastUpdate, node2LastUpdate, exists,
 			isZombie,
@@ -2426,13 +2431,13 @@ func (s *SQLStore) HasChannelEdge(v lnwire.GossipVersion,
 				err)
 		} else if err == nil {
 			switch v {
-			case lnwire.GossipVersion1:
+			case gossipV1:
 				if policy1.LastUpdate.Valid {
 					node1LastUpdate = time.Unix(
 						policy1.LastUpdate.Int64, 0,
 					)
 				}
-			case lnwire.GossipVersion2:
+			case gossipV2:
 				if policy1.BlockHeight.Valid {
 					node1Block = uint32(
 						policy1.BlockHeight.Int64,
@@ -2453,13 +2458,13 @@ func (s *SQLStore) HasChannelEdge(v lnwire.GossipVersion,
 				err)
 		} else if err == nil {
 			switch v {
-			case lnwire.GossipVersion1:
+			case gossipV1:
 				if policy2.LastUpdate.Valid {
 					node2LastUpdate = time.Unix(
 						policy2.LastUpdate.Int64, 0,
 					)
 				}
-			case lnwire.GossipVersion2:
+			case gossipV2:
 				if policy2.BlockHeight.Valid {
 					node2Block = uint32(
 						policy2.BlockHeight.Int64,
@@ -2477,11 +2482,11 @@ func (s *SQLStore) HasChannelEdge(v lnwire.GossipVersion,
 
 	var entry rejectCacheEntry
 	switch v {
-	case lnwire.GossipVersion1:
+	case gossipV1:
 		entry = newRejectCacheEntryV1(
 			node1LastUpdate, node2LastUpdate, exists, isZombie,
 		)
-	case lnwire.GossipVersion2:
+	case gossipV2:
 		entry = newRejectCacheEntryV2(
 			node1Block, node2Block, exists, isZombie,
 		)
@@ -2543,9 +2548,9 @@ func (s *SQLStore) IsPublicNode(v lnwire.GossipVersion, pubKey [33]byte) (bool,
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		var err error
 		switch v {
-		case lnwire.GossipVersion1:
+		case gossipV1:
 			isPublic, err = db.IsPublicV1Node(ctx, pubKey[:])
-		case lnwire.GossipVersion2:
+		case gossipV2:
 			isPublic, err = db.IsPublicV2Node(ctx, pubKey[:])
 		}
 
@@ -3204,7 +3209,7 @@ func (s *SQLStore) AddEdgeProof(scid lnwire.ShortChannelID,
 			err error
 		)
 		switch proof.Version {
-		case lnwire.GossipVersion1:
+		case gossipV1:
 			res, err = db.AddV1ChannelProof(
 				ctx, sqlc.AddV1ChannelProofParams{
 					Scid:              scidBytes,
@@ -3215,7 +3220,7 @@ func (s *SQLStore) AddEdgeProof(scid lnwire.ShortChannelID,
 				},
 			)
 
-		case lnwire.GossipVersion2:
+		case gossipV2:
 			res, err = db.AddV2ChannelProof(
 				ctx, sqlc.AddV2ChannelProofParams{
 					Scid:      scidBytes,
@@ -3690,7 +3695,8 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 		Signature:               edge.SigBytes,
 	}
 
-	if version == lnwire.GossipVersion1 {
+	switch version {
+	case gossipV1:
 		params.LastUpdate = sqldb.SQLInt64(edge.LastUpdate.Unix())
 		params.Disabled = sql.NullBool{
 			Valid: true,
@@ -3700,7 +3706,7 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 			Valid: edge.MessageFlags.HasMaxHtlc(),
 			Int64: int64(edge.MaxHTLC),
 		}
-	} else {
+	case gossipV2:
 		params.BlockHeight = sqldb.SQLInt64(
 			int64(edge.LastBlockHeight),
 		)
@@ -3717,7 +3723,7 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 	// Convert the flat extra opaque data into a map of TLV types to
 	// values.
 	extra := edge.ExtraSignedFields
-	if version == lnwire.GossipVersion1 {
+	if version == gossipV1 {
 		extra, err = marshalExtraOpaqueData(edge.ExtraOpaqueData)
 		if err != nil {
 			return node1Pub, node2Pub, false, fmt.Errorf(
@@ -3793,9 +3799,9 @@ func buildNode(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
 // and supported.
 func isKnownGossipVersion(v lnwire.GossipVersion) bool {
 	switch v {
-	case lnwire.GossipVersion1:
+	case gossipV1:
 		return true
-	case lnwire.GossipVersion2:
+	case gossipV2:
 		return true
 	default:
 		return false
@@ -3869,7 +3875,7 @@ func buildNodeWithBatchData(dbNode sqlc.GraphNode,
 
 	// Use preloaded extra fields.
 	if extraFields, exists := batchData.extraFields[dbNode.ID]; exists {
-		if v == lnwire.GossipVersion1 {
+		if v == gossipV1 {
 			records := lnwire.CustomRecords(extraFields)
 			recs, err := records.Serialize()
 			if err != nil {
@@ -3962,7 +3968,7 @@ func upsertNodeAncillaryData(ctx context.Context, db SQLQueries,
 	// Convert the flat extra opaque data into a map of TLV types to
 	// values.
 	extra := node.ExtraSignedFields
-	if node.Version == lnwire.GossipVersion1 {
+	if node.Version == gossipV1 {
 		extra, err = marshalExtraOpaqueData(node.ExtraOpaqueData)
 		if err != nil {
 			return fmt.Errorf("unable to marshal extra opaque "+
@@ -4001,10 +4007,10 @@ func populateNodeParams(node *models.Node,
 	})
 
 	switch node.Version {
-	case lnwire.GossipVersion1:
+	case gossipV1:
 		lastUpdate = sqldb.SQLInt64(node.LastUpdate.Unix())
 
-	case lnwire.GossipVersion2:
+	case gossipV2:
 		lastBlockHeight = sqldb.SQLInt64(int64(node.LastBlockHeight))
 
 	default:
@@ -4581,7 +4587,7 @@ func insertChannel(ctx context.Context, db SQLQueries,
 
 	// Finally, insert any extra TLV fields in the channel announcement.
 	extra := edge.ExtraSignedFields
-	if v == lnwire.GossipVersion1 {
+	if v == gossipV1 {
 		extra, err = marshalExtraOpaqueData(edge.ExtraOpaqueData)
 		if err != nil {
 			return fmt.Errorf("unable to marshal extra opaque "+
@@ -4727,7 +4733,7 @@ func buildEdgeInfoWithBatchData(chain chainhash.Hash,
 	// Build the appropriate channel based on version.
 	var channel *models.ChannelEdgeInfo
 	switch v {
-	case lnwire.GossipVersion1:
+	case gossipV1:
 		// For v1, serialize extras into ExtraOpaqueData.
 		recs, err := lnwire.CustomRecords(extras).Serialize()
 		if err != nil {
@@ -4776,7 +4782,7 @@ func buildEdgeInfoWithBatchData(chain chainhash.Hash,
 			)
 		}
 
-	case lnwire.GossipVersion2:
+	case gossipV2:
 		v2Fields := &models.ChannelV2Fields{
 			ExtraSignedFields: extras,
 		}
@@ -4878,14 +4884,14 @@ func getAndBuildChanPolicies(ctx context.Context, cfg *sqldb.QueryConfig,
 
 	// TODO(elle): update to support v2 policies.
 	if dbPol1 != nil &&
-		lnwire.GossipVersion(dbPol1.Version) != lnwire.GossipVersion1 {
+		lnwire.GossipVersion(dbPol1.Version) != gossipV1 {
 
 		return nil, nil, fmt.Errorf("unsupported policy1 version: %d",
 			dbPol1.Version)
 	}
 
 	if dbPol2 != nil &&
-		lnwire.GossipVersion(dbPol2.Version) != lnwire.GossipVersion1 {
+		lnwire.GossipVersion(dbPol2.Version) != gossipV1 {
 
 		return nil, nil, fmt.Errorf("unsupported policy2 version: %d",
 			dbPol2.Version)
@@ -4990,7 +4996,7 @@ func buildChanPolicy(isNode1 bool, dbPolicy sqlc.GraphChannelPolicy,
 		InboundFee:                inboundFee,
 	}
 
-	if p.Version == lnwire.GossipVersion1 {
+	if p.Version != gossipV2 {
 		recs, err := lnwire.CustomRecords(extras).Serialize()
 		if err != nil {
 			return nil, fmt.Errorf("unable to serialize extra "+
@@ -6357,7 +6363,7 @@ func handleZombieMarking(ctx context.Context, db SQLQueries,
 
 	if strictZombiePruning {
 		// TODO(elle): update for V2 last update times.
-		if v != lnwire.GossipVersion1 {
+		if v != gossipV1 {
 			return fmt.Errorf("strict zombie pruning only "+
 				"supported for gossip v1, got %v", v)
 		}

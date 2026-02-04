@@ -235,6 +235,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testNeutrino,
 	},
 	{
+		Name:     "neutrino headers import",
+		TestFunc: testNeutrinoHeadersImport,
+	},
+	{
 		Name:     "etcd failover",
 		TestFunc: testEtcdFailover,
 	},

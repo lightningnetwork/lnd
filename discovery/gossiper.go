@@ -880,7 +880,14 @@ func (d *AuthenticatedGossiper) stop() {
 func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(ctx context.Context,
 	msg lnwire.Message, peer lnpeer.Peer) chan error {
 
-	errChan := make(chan error, 1)
+	// Buffer up to two messages on errChan since up to two messages may be
+	// written and not all callers of this function actually read from
+	// errChan. Without this buffer goroutines end up blocking on writes to
+	// errChan, which prevents the gossiper from shutting down cleanly.
+	//
+	// TODO(ziggie): Redesign this once the actor model pattern becomes
+	// available. See https://github.com/lightningnetwork/lnd/pull/9820.
+	errChan := make(chan error, 2)
 
 	// For messages in the known set of channel series queries, we'll
 	// dispatch the message directly to the GossipSyncer, and skip the main

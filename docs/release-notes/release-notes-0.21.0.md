@@ -63,6 +63,12 @@
   millisecond if set to zero or a negative value, preventing `time.NewTicker`
   from panicking.
 
+- [Fixed a shutdown
+  deadlock](https://github.com/lightningnetwork/lnd/pull/10540) in the gossiper.
+  Certain gossip messages could cause multiple error messages to be sent on a
+  channel that was only expected to be used for a single message. The erring
+  goroutine would block on the second send, leading to a deadlock at shutdown.
+
 # New Features
 
 - Basic Support for [onion messaging forwarding](https://github.com/lightningnetwork/lnd/pull/9868) 
@@ -168,6 +174,7 @@
 * Elle Mouton
 * Erick Cestari
 * hieblmi
+* Matt Morehouse
 * Mohamed Awnallah
 * Nishant Bansal
 * Pins

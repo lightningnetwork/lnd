@@ -290,9 +290,9 @@ type ChannelLinkConfig struct {
 	// restrict the flow of HTLCs and fee updates.
 	MaxFeeExposure lnwire.MilliSatoshi
 
-	// ShouldFwdExpEndorsement is a closure that indicates whether the link
-	// should forward experimental endorsement signals.
-	ShouldFwdExpEndorsement func() bool
+	// ShouldFwdExpAccountability is a closure that indicates whether the
+	// link should forward experimental accountability signals.
+	ShouldFwdExpAccountability func() bool
 
 	// AuxTrafficShaper is an optional auxiliary traffic shaper that can be
 	// used to manage the bandwidth of the link.
@@ -3163,11 +3163,11 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 				continue
 			}
 
-			endorseValue := l.experimentalEndorsement(
+			accountableValue := l.experimentalAccountability(
 				record.CustomSet(add.CustomRecords),
 			)
-			endorseType := uint64(
-				lnwire.ExperimentalEndorsementType,
+			accountableType := uint64(
+				lnwire.ExperimentalAccountableType,
 			)
 
 			switch fwdPkg.State {
@@ -3191,9 +3191,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 					BlindingPoint: fwdInfo.NextBlinding,
 				}
 
-				endorseValue.WhenSome(func(e byte) {
+				accountableValue.WhenSome(func(e byte) {
 					custRecords := map[uint64][]byte{
-						endorseType: {e},
+						accountableType: {e},
 					}
 
 					outgoingAdd.CustomRecords = custRecords
@@ -3249,9 +3249,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 				BlindingPoint: fwdInfo.NextBlinding,
 			}
 
-			endorseValue.WhenSome(func(e byte) {
+			accountableValue.WhenSome(func(e byte) {
 				addMsg.CustomRecords = map[uint64][]byte{
-					endorseType: {e},
+					accountableType: {e},
 				}
 			})
 
@@ -3340,44 +3340,42 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 	l.forwardBatch(reforward, switchPackets...)
 }
 
-// experimentalEndorsement returns the value to set for our outgoing
-// experimental endorsement field, and a boolean indicating whether it should
-// be populated on the outgoing htlc.
-func (l *channelLink) experimentalEndorsement(
+// experimentalAccountability returns the value to set for our outgoing
+// experimental accountable field. It only considers the accountability bit,
+// other custom records present are not considered for forwarding.
+func (l *channelLink) experimentalAccountability(
 	customUpdateAdd record.CustomSet) fn.Option[byte] {
 
-	// Only relay experimental signal if we are within the experiment
-	// period.
-	if !l.cfg.ShouldFwdExpEndorsement() {
+	if !l.cfg.ShouldFwdExpAccountability() {
 		return fn.None[byte]()
 	}
 
 	// If we don't have any custom records or the experimental field is
 	// not set, just forward a zero value.
 	if len(customUpdateAdd) == 0 {
-		return fn.Some[byte](lnwire.ExperimentalUnendorsed)
+		return fn.Some[byte](lnwire.ExperimentalUnaccountable)
 	}
 
-	t := uint64(lnwire.ExperimentalEndorsementType)
+	t := uint64(lnwire.ExperimentalAccountableType)
 	value, set := customUpdateAdd[t]
 	if !set {
-		return fn.Some[byte](lnwire.ExperimentalUnendorsed)
+		return fn.Some[byte](lnwire.ExperimentalUnaccountable)
 	}
 
 	// We expect at least one byte for this field, consider it invalid if
 	// it has no data and just forward a zero value.
 	if len(value) == 0 {
-		return fn.Some[byte](lnwire.ExperimentalUnendorsed)
+		return fn.Some[byte](lnwire.ExperimentalUnaccountable)
 	}
 
-	// Only forward endorsed if the incoming link is endorsed.
-	if value[0] == lnwire.ExperimentalEndorsed {
-		return fn.Some[byte](lnwire.ExperimentalEndorsed)
+	// Only forward accountable if the incoming link is accountable.
+	if value[0] == lnwire.ExperimentalAccountable {
+		return fn.Some[byte](lnwire.ExperimentalAccountable)
 	}
 
-	// Forward as unendorsed otherwise, including cases where we've
+	// Forward as unaccountable otherwise, including cases where we've
 	// received an invalid value that uses more than 3 bits of information.
-	return fn.Some[byte](lnwire.ExperimentalUnendorsed)
+	return fn.Some[byte](lnwire.ExperimentalUnaccountable)
 }
 
 // processExitHop handles an htlc for which this link is the exit hop. It

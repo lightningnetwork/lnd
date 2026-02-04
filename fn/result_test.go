@@ -96,3 +96,130 @@ func TestSinkOnOkContinuationCall(t *testing.T) {
 	require.True(t, called)
 	require.Nil(t, res)
 }
+
+var errFlatMap = errors.New("fail")
+var errFlatMapOrig = errors.New("original")
+
+var flatMapTestCases = []struct {
+	name      string
+	input     Result[int]
+	fnA       func(int) Result[int]
+	fnB       func(int) Result[string]
+	expectedA Result[int]
+	expectedB Result[string]
+}{
+	{
+		name:  "Ok to Ok",
+		input: Ok(1),
+		fnA:   func(i int) Result[int] { return Ok(i + 1) },
+		fnB: func(i int) Result[string] {
+			return Ok(fmt.Sprintf("%d", i+1))
+		},
+		expectedA: Ok(2),
+		expectedB: Ok("2"),
+	},
+	{
+		name:  "Ok to Err",
+		input: Ok(1),
+		fnA: func(i int) Result[int] {
+			return Err[int](errFlatMap)
+		},
+		fnB: func(i int) Result[string] {
+			return Err[string](errFlatMap)
+		},
+		expectedA: Err[int](errFlatMap),
+		expectedB: Err[string](errFlatMap),
+	},
+	{
+		name:  "Err to Err (function not called)",
+		input: Err[int](errFlatMapOrig),
+		fnA:   func(i int) Result[int] { return Ok(i + 1) },
+		fnB: func(i int) Result[string] {
+			return Ok("should not happen")
+		},
+		expectedA: Err[int](errFlatMapOrig),
+		expectedB: Err[string](errFlatMapOrig),
+	},
+}
+
+var orElseTestCases = []struct {
+	name     string
+	input    Result[int]
+	fn       func(error) Result[int]
+	expected Result[int]
+}{
+	{
+		name:     "Ok to Ok (function not called)",
+		input:    Ok(1),
+		fn:       func(err error) Result[int] { return Ok(2) },
+		expected: Ok(1),
+	},
+	{
+		name:     "Err to Ok",
+		input:    Err[int](errFlatMapOrig),
+		fn:       func(err error) Result[int] { return Ok(2) },
+		expected: Ok(2),
+	},
+	{
+		name:  "Err to Err",
+		input: Err[int](errFlatMapOrig),
+		fn: func(err error) Result[int] {
+			return Err[int](errFlatMap)
+		},
+		expected: Err[int](errFlatMap),
+	},
+}
+
+func TestFlatMap(t *testing.T) {
+	for _, tc := range flatMapTestCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			actual := tc.input.FlatMap(tc.fnA)
+			require.Equal(t, tc.expectedA, actual)
+		})
+	}
+}
+
+func TestAndThenMethod(t *testing.T) {
+	// Since AndThen is just an alias for FlatMap, we can reuse the same
+	// test cases.
+	for _, tc := range flatMapTestCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			actual := tc.input.AndThen(tc.fnA)
+			require.Equal(t, tc.expectedA, actual)
+		})
+	}
+}
+
+func TestOrElseMethod(t *testing.T) {
+	for _, tc := range orElseTestCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			actual := tc.input.OrElse(tc.fn)
+			require.Equal(t, tc.expected, actual)
+		})
+	}
+}
+
+func TestFlatMapResult(t *testing.T) {
+	for _, tc := range flatMapTestCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			actual := FlatMapResult(tc.input, tc.fnB)
+			require.Equal(t, tc.expectedB, actual)
+		})
+	}
+}
+
+func TestAndThenFunc(t *testing.T) {
+	// Since AndThen is just an alias for FlatMapResult, we can reuse the
+	// same test cases.
+	for _, tc := range flatMapTestCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			actual := AndThen(tc.input, tc.fnB)
+			require.Equal(t, tc.expectedB, actual)
+		})
+	}
+}

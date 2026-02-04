@@ -568,6 +568,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testChannelFundMaxAnchorReserve,
 	},
 	{
+		Name:     "channel fundmax maxchansize",
+		TestFunc: testChannelFundMaxMaxChanSize,
+	},
+	{
 		Name:     "htlc timeout resolver extract preimage remote",
 		TestFunc: testHtlcTimeoutResolverExtractPreimageRemote,
 	},
@@ -700,8 +704,8 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testDebuglevelShow,
 	},
 	{
-		Name:     "experimental endorsement",
-		TestFunc: testExperimentalEndorsement,
+		Name:     "experimental accountability",
+		TestFunc: testExperimentalAccountability,
 	},
 	{
 		Name:     "quiescence",
@@ -736,6 +740,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testRBFCoopCloseDisconnect,
 	},
 	{
+		Name:     "coop close rbf with reorg",
+		TestFunc: testCoopCloseRBFWithReorg,
+	},
+	{
 		Name:     "bump fee low budget",
 		TestFunc: testBumpFeeLowBudget,
 	},
@@ -758,6 +766,14 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "estimate fee",
 		TestFunc: testEstimateFee,
+	},
+	{
+		Name:     "estimate on chain fee with selected inputs",
+		TestFunc: testEstimateOnChainFeeWithSelectedInputs,
+	},
+	{
+		Name:     "estimate on chain fee auto selected inputs",
+		TestFunc: testEstimateOnChainFeeAutoSelectedInputs,
 	},
 }
 

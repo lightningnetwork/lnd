@@ -69,6 +69,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
+	"github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/onionmessage"
@@ -695,8 +696,6 @@ func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
 // addDeps populates all dependencies needed by the RPC server, and any
 // of the sub-servers that it maintains. When this is done, the RPC server can
 // be started, and start accepting RPC calls.
-//
-//nolint:funlen
 func (r *rpcServer) addDeps(ctx context.Context, s *server,
 	macService *macaroons.Service,
 	subServerCgs *subRPCServerConfigs, atpl *autopilot.Manager,
@@ -781,14 +780,8 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 
 			return nil
 		},
-		ShouldSetExpEndorsement: func() bool {
-			if s.cfg.ProtocolOptions.NoExperimentalEndorsement() {
-				return false
-			}
-
-			return clock.NewDefaultClock().Now().Before(
-				EndorsementExperimentEnd,
-			)
+		ShouldSetExpAccountability: func() bool {
+			return !s.cfg.ProtocolOptions.NoExpAccountability()
 		},
 	}
 
@@ -1283,14 +1276,29 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 		return nil, err
 	}
 
+	var selectOutpoints fn.Set[wire.OutPoint]
+	if len(in.Inputs) != 0 {
+		wireOutpoints, err := toWireOutpoints(in.Inputs)
+		if err != nil {
+			return nil, fmt.Errorf("can't create outpoints %w", err)
+		}
+
+		if fn.HasDuplicates(wireOutpoints) {
+			return nil, fmt.Errorf("selected outpoints contain " +
+				"duplicate values")
+		}
+
+		selectOutpoints = fn.NewSet(wireOutpoints...)
+	}
+
 	// We will ask the wallet to create a tx using this fee rate. We set
 	// dryRun=true to avoid inflating the change addresses in the db.
 	var tx *txauthor.AuthoredTx
 	wallet := r.server.cc.Wallet
 	err = wallet.WithCoinSelectLock(func() error {
 		tx, err = wallet.CreateSimpleTx(
-			nil, outputs, feePerKw, minConfs, coinSelectionStrategy,
-			true,
+			selectOutpoints, outputs, feePerKw, minConfs,
+			coinSelectionStrategy, true,
 		)
 		return err
 	})
@@ -1305,12 +1313,26 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 	}
 	totalFee := int64(tx.TotalInput) - totalOutput
 
+	// Return the inputs the estimate is for.
+	outStr := make([]string, 0, len(tx.Tx.TxIn))
+	for _, txIn := range tx.Tx.TxIn {
+		outStr = append(
+			outStr, txIn.PreviousOutPoint.String(),
+		)
+	}
+
+	inputs, err := UtxosToOutpoints(outStr)
+	if err != nil {
+		return nil, fmt.Errorf("can't convert outpoints %w", err)
+	}
+
 	resp := &lnrpc.EstimateFeeResponse{
 		FeeSat:      totalFee,
 		SatPerVbyte: uint64(feePerKw.FeePerVByte()),
 
 		// Deprecated field.
 		FeerateSatPerByte: int64(feePerKw.FeePerVByte()),
+		Inputs:            inputs,
 	}
 
 	rpcsLog.Debugf("[estimatefee] fee estimate for conf target %d: %v",
@@ -2130,15 +2152,26 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 			"the channel opening")
 	}
 
+	// Fetch our own feature set and determine wumbo support early, as it's
+	// needed for both FundMax and explicit amount validation.
+	globalFeatureSet := r.server.featureMgr.Get(feature.SetNodeAnn)
+	wumboEnabled := globalFeatureSet.HasFeature(
+		lnwire.WumboChannelsOptional,
+	)
+
 	// If the FundMax flag is set, ensure that the acceptable minimum local
 	// amount adheres to the amount to be pushed to the remote, and to
-	// current rules, while also respecting the settings for the maximum
+	// current rules, while also respecting the protocol-level maximum
 	// channel size.
 	var minFundAmt, fundUpToMaxAmt btcutil.Amount
 	if in.FundMax {
-		// We assume the configured maximum channel size to be the upper
-		// bound of our "maxed" out funding attempt.
-		fundUpToMaxAmt = btcutil.Amount(r.cfg.MaxChanSize)
+		// Use the protocol-level maximum as the upper bound for our
+		// funding attempt.
+		if wumboEnabled {
+			fundUpToMaxAmt = funding.MaxBtcFundingAmountWumbo
+		} else {
+			fundUpToMaxAmt = MaxFundingAmount
+		}
 
 		// Since the standard non-fundmax flow requires the minimum
 		// funding amount to be at least in the amount of the initial
@@ -2164,8 +2197,6 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	maxHtlcs := uint16(in.RemoteMaxHtlcs)
 	remoteChanReserve := btcutil.Amount(in.RemoteChanReserveSat)
 
-	globalFeatureSet := r.server.featureMgr.Get(feature.SetNodeAnn)
-
 	// Determine if the user provided channel fees
 	// and if so pass them on to the funding workflow.
 	var channelBaseFee, channelFeeRate *uint64
@@ -2190,9 +2221,6 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// in the wallet hence we do not check it here against the maximum
 	// funding amount. Only if the localFundingAmt is specified we can check
 	// if it exceeds the maximum funding amount.
-	wumboEnabled := globalFeatureSet.HasFeature(
-		lnwire.WumboChannelsOptional,
-	)
 	if !in.FundMax && !wumboEnabled && localFundingAmt > MaxFundingAmount {
 		return nil, fmt.Errorf("funding amount is too large, the max "+
 			"channel size is: %v", MaxFundingAmount)
@@ -2817,9 +2845,16 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 		errChan = make(chan error, 1)
 		notifier := r.server.cc.ChainNotifier
+
+		// For force closes, we notify the RPC client immediately after
+		// 1 confirmation. The actual security-critical confirmation
+		// waiting is handled by the channel arbitrator.
+		numConfs := uint32(1)
+
 		go peer.WaitForChanToClose(
 			uint32(bestHeight), notifier, errChan, chanPoint,
-			&closingTxid, closingTx.TxOut[0].PkScript, func() {
+			&closingTxid, closingTx.TxOut[0].PkScript, numConfs,
+			func() {
 				// Respond to the local subsystem which
 				// requested the channel closure.
 				updateChan <- &peer.ChannelCloseUpdate{
@@ -3067,7 +3102,7 @@ func createRPCCloseUpdate(
 
 		err := fn.MapOptionZ(
 			u.LocalCloseOutput,
-			func(closeOut chancloser.CloseOutput) error {
+			func(closeOut types.CloseOutput) error {
 				cr, err := closeOut.ShutdownRecords.Serialize()
 				if err != nil {
 					return fmt.Errorf("error serializing "+
@@ -3092,7 +3127,7 @@ func createRPCCloseUpdate(
 
 		err = fn.MapOptionZ(
 			u.RemoteCloseOutput,
-			func(closeOut chancloser.CloseOutput) error {
+			func(closeOut types.CloseOutput) error {
 				cr, err := closeOut.ShutdownRecords.Serialize()
 				if err != nil {
 					return fmt.Errorf("error serializing "+

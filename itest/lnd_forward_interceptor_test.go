@@ -387,7 +387,7 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 	// all intercepted packets. These packets are held to simulate a
 	// pending payment.
 	packet := ht.ReceiveHtlcInterceptor(bobInterceptor)
-	require.Equal(ht, lntest.CustomRecordsWithUnendorsed(
+	require.Equal(ht, lntest.CustomRecordsWithUnaccountable(
 		customRecords,
 	), packet.InWireCustomRecords)
 
@@ -433,11 +433,11 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 	packet = ht.ReceiveHtlcInterceptor(bobInterceptor)
 
 	require.Len(ht, packet.InWireCustomRecords, 2)
-	require.Equal(ht, lntest.CustomRecordsWithUnendorsed(customRecords),
+	require.Equal(ht, lntest.CustomRecordsWithUnaccountable(customRecords),
 		packet.InWireCustomRecords)
 
 	// And now we forward the payment at Carol, expecting only an
-	// endorsement signal in our incoming custom records.
+	// accountability signal in our incoming custom records.
 	packet = ht.ReceiveHtlcInterceptor(carolInterceptor)
 	require.Len(ht, packet.InWireCustomRecords, 1)
 	err = carolInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
@@ -451,7 +451,7 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 		alice, preimage.Hash(), lnrpc.Payment_SUCCEEDED,
 		func(p *lnrpc.Payment) error {
 			recordsEqual := reflect.DeepEqual(
-				lntest.CustomRecordsWithUnendorsed(
+				lntest.CustomRecordsWithUnaccountable(
 					sendReq.FirstHopCustomRecords,
 				), p.FirstHopCustomRecords,
 			)

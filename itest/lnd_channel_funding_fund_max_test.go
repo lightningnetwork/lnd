@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -407,4 +408,80 @@ func sweepNodeWalletAndAssert(ht *lntest.HarnessTest, node *node.HarnessNode) {
 
 	// Ensure that the node's balance is 0
 	checkChannelBalance(ht, node, 0, 0)
+}
+
+// testChannelFundMaxMaxChanSize verifies that fundMax uses the protocol-level
+// maximum channel size, not the user-configured maxChanSize. The maxChanSize
+// config option is intended only for limiting incoming channel requests, not
+// outgoing ones.
+func testChannelFundMaxMaxChanSize(ht *lntest.HarnessTest) {
+	testCases := []struct {
+		name        string
+		wumbo       bool
+		expectedMax btcutil.Amount
+	}{
+		{
+			name:        "non-wumbo",
+			wumbo:       false,
+			expectedMax: funding.MaxBtcFundingAmount,
+		},
+		{
+			name:        "wumbo",
+			wumbo:       true,
+			expectedMax: funding.MaxBtcFundingAmountWumbo,
+		},
+	}
+
+	for _, tc := range testCases {
+		success := ht.Run(tc.name, func(t *testing.T) {
+			st := ht.Subtest(t)
+
+			// Configure Alice with a restrictive maxChanSize (5M
+			// sats), which is below both protocol maximums.
+			aliceArgs := []string{
+				"--maxchansize=5000000",
+			}
+			if tc.wumbo {
+				aliceArgs = append(
+					aliceArgs, "--protocol.wumbo-channels",
+				)
+			}
+
+			alice := st.NewNode("Alice", aliceArgs)
+
+			// Bob needs wumbo enabled to accept large channels.
+			var bobArgs []string
+			if tc.wumbo {
+				bobArgs = []string{"--protocol.wumbo-channels"}
+			}
+			bob := st.NewNode("Bob", bobArgs)
+
+			st.EnsureConnected(alice, bob)
+
+			// Fund Alice with more than the protocol maximum.
+			fundAmt := tc.expectedMax + btcutil.SatoshiPerBitcoin
+			st.FundCoins(fundAmt, alice)
+
+			// Open channel with fundMax. This should use the
+			// protocol maximum, not the configured maxChanSize.
+			chanPoint := st.OpenChannel(
+				alice, bob, lntest.OpenChannelParams{
+					FundMax: true,
+				},
+			)
+
+			cType := st.GetChannelCommitType(alice, chanPoint)
+
+			// The expected balance is the protocol maximum minus
+			// the commitment fee.
+			expectedBalance := tc.expectedMax -
+				lntest.CalcStaticFee(cType, 0)
+
+			checkChannelBalance(st, alice, expectedBalance, 0)
+			checkChannelBalance(st, bob, 0, expectedBalance)
+		})
+		if !success {
+			break
+		}
+	}
 }

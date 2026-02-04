@@ -149,10 +149,10 @@ func FlattenResult[A any](r Result[Result[A]]) Result[A] {
 // success value if it exists.
 func (r Result[T]) FlatMap(f func(T) Result[T]) Result[T] {
 	if r.IsOk() {
-		return r
+		return f(r.left)
 	}
 
-	return f(r.left)
+	return r
 }
 
 // AndThen is an alias for FlatMap. This along with OrElse can be used to

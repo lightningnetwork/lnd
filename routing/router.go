@@ -54,8 +54,8 @@ const (
 	// creating incompatibilities during the upgrade process. For some time
 	// LND has used an explicit default final CLTV delta of 40 blocks for
 	// bitcoin, though we now clamp the lower end of this
-	// range for user-chosen deltas to 18 blocks to be conservative.
-	MinCLTVDelta = 18
+	// range for user-chosen deltas to 24 blocks to be conservative.
+	MinCLTVDelta = 24
 
 	// MaxCLTVDelta is the maximum CLTV value accepted by LND for all
 	// timelock deltas.

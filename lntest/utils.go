@@ -283,14 +283,14 @@ func CalcStaticFeeBuffer(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
 	return feeBuffer.ToSatoshis()
 }
 
-// CustomRecordsWithUnendorsed copies the map of custom records and adds an
-// endorsed signal (replacing in the case of conflict) for assertion in tests.
-func CustomRecordsWithUnendorsed(
+// CustomRecordsWithUnaccountable copies the map of custom records and adds an
+// accountable signal (replacing in the case of conflict) for assertion in
+// tests.
+func CustomRecordsWithUnaccountable(
 	originalRecords lnwire.CustomRecords) map[uint64][]byte {
-
 	return originalRecords.MergedCopy(map[uint64][]byte{
-		uint64(lnwire.ExperimentalEndorsementType): {
-			lnwire.ExperimentalUnendorsed,
+		uint64(lnwire.ExperimentalAccountableType): {
+			lnwire.ExperimentalUnaccountable,
 		}},
 	)
 }

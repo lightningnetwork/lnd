@@ -61,7 +61,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
-	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
+	chcl "github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -138,12 +138,6 @@ var (
 	//
 	// TODO(roasbeef): add command line param to modify.
 	MaxFundingAmount = funding.MaxBtcFundingAmount
-
-	// EndorsementExperimentEnd is the time after which nodes should stop
-	// propagating experimental endorsement signals.
-	//
-	// Per blip04: January 1, 2026 12:00:00 AM UTC in unix seconds.
-	EndorsementExperimentEnd = time.Unix(1767225600, 0)
 
 	// ErrGossiperBan is one of the errors that can be returned when we
 	// attempt to finalize a connection to a remote peer.
@@ -641,22 +635,22 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 	//nolint:ll
 	featureMgr, err := feature.NewManager(feature.Config{
-		NoTLVOnion:                cfg.ProtocolOptions.LegacyOnion(),
-		NoStaticRemoteKey:         cfg.ProtocolOptions.NoStaticRemoteKey(),
-		NoAnchors:                 cfg.ProtocolOptions.NoAnchorCommitments(),
-		NoWumbo:                   !cfg.ProtocolOptions.Wumbo(),
-		NoScriptEnforcementLease:  cfg.ProtocolOptions.NoScriptEnforcementLease(),
-		NoKeysend:                 !cfg.AcceptKeySend,
-		NoOptionScidAlias:         !cfg.ProtocolOptions.ScidAlias(),
-		NoZeroConf:                !cfg.ProtocolOptions.ZeroConf(),
-		NoAnySegwit:               cfg.ProtocolOptions.NoAnySegwit(),
-		CustomFeatures:            cfg.ProtocolOptions.CustomFeatures(),
-		NoTaprootChans:            !cfg.ProtocolOptions.TaprootChans,
-		NoTaprootOverlay:          !cfg.ProtocolOptions.TaprootOverlayChans,
-		NoRouteBlinding:           cfg.ProtocolOptions.NoRouteBlinding(),
-		NoExperimentalEndorsement: cfg.ProtocolOptions.NoExperimentalEndorsement(),
-		NoQuiescence:              cfg.ProtocolOptions.NoQuiescence(),
-		NoRbfCoopClose:            !cfg.ProtocolOptions.RbfCoopClose,
+		NoTLVOnion:                   cfg.ProtocolOptions.LegacyOnion(),
+		NoStaticRemoteKey:            cfg.ProtocolOptions.NoStaticRemoteKey(),
+		NoAnchors:                    cfg.ProtocolOptions.NoAnchorCommitments(),
+		NoWumbo:                      !cfg.ProtocolOptions.Wumbo(),
+		NoScriptEnforcementLease:     cfg.ProtocolOptions.NoScriptEnforcementLease(),
+		NoKeysend:                    !cfg.AcceptKeySend,
+		NoOptionScidAlias:            !cfg.ProtocolOptions.ScidAlias(),
+		NoZeroConf:                   !cfg.ProtocolOptions.ZeroConf(),
+		NoAnySegwit:                  cfg.ProtocolOptions.NoAnySegwit(),
+		CustomFeatures:               cfg.ProtocolOptions.CustomFeatures(),
+		NoTaprootChans:               !cfg.ProtocolOptions.TaprootChans,
+		NoTaprootOverlay:             !cfg.ProtocolOptions.TaprootOverlayChans,
+		NoRouteBlinding:              cfg.ProtocolOptions.NoRouteBlinding(),
+		NoExperimentalAccountability: cfg.ProtocolOptions.NoExpAccountability(),
+		NoQuiescence:                 cfg.ProtocolOptions.NoQuiescence(),
+		NoRbfCoopClose:               !cfg.ProtocolOptions.RbfCoopClose,
 	})
 	if err != nil {
 		return nil, err
@@ -1370,6 +1364,12 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		AuxLeafStore: implCfg.AuxLeafStore,
 		AuxSigner:    implCfg.AuxSigner,
 		AuxResolver:  implCfg.AuxContractResolver,
+		AuxCloser: fn.MapOption(
+			func(c chcl.AuxChanCloser) contractcourt.AuxChanCloser {
+				return c
+			},
+		)(implCfg.AuxChanCloser),
+		ChannelCloseConfs: s.cfg.Dev.ChannelCloseConfs(),
 	}, dbs.ChanStateDB)
 
 	// Select the configuration and funding parameters for Bitcoin.
@@ -1447,7 +1447,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	}
 
 	// Attempt to parse the provided upfront-shutdown address (if any).
-	script, err := chancloser.ParseUpfrontShutdownAddress(
+	script, err := chcl.ParseUpfrontShutdownAddress(
 		cfg.UpfrontShutdownAddr, cfg.ActiveNetParams.Params,
 	)
 	if err != nil {
@@ -1483,16 +1483,6 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		DefaultMinHtlcIn:     cc.MinHtlcIn,
 		NumRequiredConfs: func(chanAmt btcutil.Amount,
 			pushAmt lnwire.MilliSatoshi) uint16 {
-			// For large channels we increase the number
-			// of confirmations we require for the
-			// channel to be considered open. As it is
-			// always the responder that gets to choose
-			// value, the pushAmt is value being pushed
-			// to us. This means we have more to lose
-			// in the case this gets re-orged out, and
-			// we will require more confirmations before
-			// we consider it open.
-
 			// In case the user has explicitly specified
 			// a default value for the number of
 			// confirmations, we use it.
@@ -1501,29 +1491,17 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 				return defaultConf
 			}
 
-			minConf := uint64(3)
-			maxConf := uint64(6)
-
-			// If this is a wumbo channel, then we'll require the
-			// max amount of confirmations.
-			if chanAmt > MaxFundingAmount {
-				return uint16(maxConf)
-			}
-
-			// If not we return a value scaled linearly
-			// between 3 and 6, depending on channel size.
-			// TODO(halseth): Use 1 as minimum?
-			maxChannelSize := uint64(
-				lnwire.NewMSatFromSatoshis(MaxFundingAmount))
-			stake := lnwire.NewMSatFromSatoshis(chanAmt) + pushAmt
-			conf := maxConf * uint64(stake) / maxChannelSize
-			if conf < minConf {
-				conf = minConf
-			}
-			if conf > maxConf {
-				conf = maxConf
-			}
-			return uint16(conf)
+			// Otherwise, scale the number of confirmations based on
+			// the channel amount and push amount. For large
+			// channels we increase the number of
+			// confirmations we require for the channel to be
+			// considered open. As it is always the
+			// responder that gets to choose value, the
+			// pushAmt is value being pushed to us. This
+			// means we have more to lose in the case this
+			// gets re-orged out, and we will require more
+			// confirmations before we consider it open.
+			return lnwallet.FundingConfsForAmounts(chanAmt, pushAmt)
 		},
 		RequiredRemoteDelay: func(chanAmt btcutil.Amount) uint16 {
 			// We scale the remote CSV delay (the time the
@@ -2144,6 +2122,21 @@ func (s *server) Start(ctx context.Context) error {
 	cleanup := cleaner{}
 
 	s.start.Do(func() {
+		// Before starting any subsystems, repair any link nodes that
+		// may have been incorrectly pruned due to the race condition
+		// that was fixed in the link node pruning logic. This must
+		// happen before the chain arbitrator and other subsystems load
+		// channels, to ensure the invariant "link node exists iff
+		// channels exist" is maintained.
+		err := s.chanStateDB.RepairLinkNodes(s.cfg.ActiveNetParams.Net)
+		if err != nil {
+			srvrLog.Errorf("Failed to repair link nodes: %v", err)
+
+			startErr = err
+
+			return
+		}
+
 		cleanup = cleanup.add(s.customMessageServer.Stop)
 		if err := s.customMessageServer.Start(); err != nil {
 			startErr = err
@@ -2473,9 +2466,8 @@ func (s *server) Start(ctx context.Context) error {
 		// With all the relevant sub-systems started, we'll now attempt
 		// to establish persistent connections to our direct channel
 		// collaborators within the network. Before doing so however,
-		// we'll prune our set of link nodes found within the database
-		// to ensure we don't reconnect to any nodes we no longer have
-		// open channels with.
+		// we'll prune our set of link nodes to ensure we don't
+		// reconnect to any nodes we no longer have open channels with.
 		if err := s.chanStateDB.PruneLinkNodes(); err != nil {
 			srvrLog.Errorf("Failed to prune link nodes: %v", err)
 
@@ -4422,6 +4414,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		MaxOutgoingCltvExpiry:   s.cfg.MaxOutgoingCltvExpiry,
 		MaxChannelFeeAllocation: s.cfg.MaxChannelFeeAllocation,
 		CoopCloseTargetConfs:    s.cfg.CoopCloseTargetConfs,
+		ChannelCloseConfs:       s.cfg.Dev.ChannelCloseConfs(),
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
 		ChannelCommitInterval:  s.cfg.ChannelCommitInterval,
@@ -4443,14 +4436,8 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		AuxResolver:            s.implCfg.AuxContractResolver,
 		AuxTrafficShaper:       s.implCfg.TrafficShaper,
 		AuxChannelNegotiator:   s.implCfg.AuxChannelNegotiator,
-		ShouldFwdExpEndorsement: func() bool {
-			if s.cfg.ProtocolOptions.NoExperimentalEndorsement() {
-				return false
-			}
-
-			return clock.NewDefaultClock().Now().Before(
-				EndorsementExperimentEnd,
-			)
+		ShouldFwdExpAccountability: func() bool {
+			return !s.cfg.ProtocolOptions.NoExpAccountability()
 		},
 		NoDisconnectOnPongFailure: s.cfg.NoDisconnectOnPongFailure,
 	}

@@ -2930,6 +2930,78 @@ func TestExtraDataNodeAnnouncementValidation(t *testing.T) {
 	require.NoError(t, err, "unable to process announcement")
 }
 
+// TestZeroTimestampNodeAnnouncementRejection tests that a NodeAnnouncement with
+// a zero timestamp is rejected per BOLT 7.
+func TestZeroTimestampNodeAnnouncementRejection(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	tCtx, err := createTestCtx(t, 0, false)
+	require.NoError(t, err, "can't create context")
+
+	remotePeer := &mockPeer{
+		remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{},
+	}
+
+	// Create a node announcement with a zero timestamp.
+	nodeAnn, err := createNodeAnnouncement(remoteKeyPriv1, 0)
+	require.NoError(t, err, "can't create node announcement")
+
+	// Processing the announcement should fail with a zero timestamp error.
+	select {
+	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+		ctx, nodeAnn, remotePeer,
+	):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "zero timestamp")
+}
+
+// TestZeroTimestampChannelUpdateRejection tests that a ChannelUpdate with a
+// zero timestamp is rejected per BOLT 7.
+func TestZeroTimestampChannelUpdateRejection(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	tCtx, err := createTestCtx(t, 0, false)
+	require.NoError(t, err, "can't create context")
+
+	remotePeer := &mockPeer{
+		remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{},
+	}
+
+	// First, we need to process a channel announcement so that the channel
+	// update has a valid channel to refer to.
+	chanAnn, err := tCtx.createRemoteChannelAnnouncement(0)
+	require.NoError(t, err, "unable to create chan ann")
+
+	select {
+	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+		ctx, chanAnn, remotePeer,
+	):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	require.NoError(t, err, "unable to process chan ann")
+
+	// Now create a channel update with a zero timestamp.
+	chanUpdAnn, err := createUpdateAnnouncement(0, 0, remoteKeyPriv1, 0)
+	require.NoError(t, err, "unable to create chan update")
+
+	// Processing the update should fail with a zero timestamp error.
+	select {
+	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+		ctx, chanUpdAnn, remotePeer,
+	):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "zero timestamp")
+}
+
 // assertBroadcast checks that num messages are being broadcasted from the
 // gossiper. The broadcasted messages are returned.
 func assertBroadcast(t *testing.T, ctx *testCtx, num int) []lnwire.Message {
@@ -4854,4 +4926,313 @@ func assertChanChainRejection(t *testing.T, ctx *testCtx,
 	isZombie, err := ctx.router.IsZombieEdge(edge.ShortChannelID)
 	require.NoError(t, err)
 	require.True(t, isZombie, "edge should be marked as zombie")
+}
+
+// TestRecoverGossipPanic tests that the finalizeGossipProcessing function
+// correctly handles panics in gossip goroutines by recovering, logging, and
+// sending errors back to callers.
+func TestRecoverGossipPanic(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name       string
+		setupMsg   func() (*networkMsg, chan error)
+		checkError bool
+	}{
+		{
+			name: "panic with full message context",
+			setupMsg: func() (*networkMsg, chan error) {
+				errChan := make(chan error, 1)
+				return &networkMsg{
+					msg: &lnwire.ChannelUpdate1{
+						Timestamp: testTimestamp,
+					},
+					peer: &mockPeer{
+						remoteKeyPub1, nil, nil,
+						atomic.Bool{},
+					},
+					err: errChan,
+				}, errChan
+			},
+			checkError: true,
+		},
+		{
+			name: "panic with nil message",
+			setupMsg: func() (*networkMsg, chan error) {
+				errChan := make(chan error, 1)
+				return &networkMsg{
+					msg:  nil,
+					peer: nil,
+					err:  errChan,
+				}, errChan
+			},
+			checkError: true,
+		},
+		{
+			name: "panic with nil error channel",
+			setupMsg: func() (*networkMsg, chan error) {
+				return &networkMsg{
+					msg: &lnwire.ChannelUpdate1{
+						Timestamp: testTimestamp,
+					},
+					peer: nil,
+					err:  nil,
+				}, nil
+			},
+			checkError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, err := createTestCtx(t, proofMatureDelta, false)
+			require.NoError(t, err)
+
+			nMsg, errChan := tc.setupMsg()
+
+			// Initialize a proper job so CompleteJob has a slot
+			// to return.
+			var jobIDRef *JobID
+			if nMsg.msg != nil {
+				job, err := ctx.gossiper.vb.InitJobDependencies(
+					nMsg.msg,
+				)
+				require.NoError(t, err)
+				jobIDRef = &job
+			}
+
+			// Create a function that will panic and then recover.
+			panicked := make(chan struct{})
+			go func() {
+				defer ctx.gossiper.finalizeGossipProcessing(
+					t.Context(), "testing",
+					nMsg, jobIDRef,
+				)
+				defer close(panicked)
+
+				panic("test panic")
+			}()
+
+			// Wait for the goroutine to complete.
+			select {
+			case <-panicked:
+			case <-time.After(time.Second):
+				t.Fatal("timeout waiting for panic recovery")
+			}
+
+			// If we expect an error to be sent back, verify it.
+			if tc.checkError {
+				require.NotNil(t, errChan, "test expects "+
+					"error but errChan is nil")
+			}
+			if tc.checkError && errChan != nil {
+				select {
+				case err := <-errChan:
+					require.Error(t, err)
+					require.Contains(
+						t, err.Error(), "panic while",
+					)
+					require.Contains(
+						t, err.Error(), "test panic",
+					)
+				case <-time.After(time.Second):
+					t.Fatal("timeout waiting for error")
+				}
+			}
+		})
+	}
+}
+
+// TestRecoverGossipPanicBlockedErrorChannel verifies that the panic recovery
+// does not hang when the error channel is unbuffered and not being read from.
+// The recovery should use a non-blocking send with a default case.
+func TestRecoverGossipPanicBlockedErrorChannel(t *testing.T) {
+	t.Parallel()
+
+	ctx, err := createTestCtx(t, proofMatureDelta, false)
+	require.NoError(t, err)
+
+	// Create an UNBUFFERED channel and don't read from it.
+	errChan := make(chan error)
+
+	nMsg := &networkMsg{
+		msg:  &lnwire.ChannelUpdate1{Timestamp: testTimestamp},
+		peer: &mockPeer{remoteKeyPub1, nil, nil, atomic.Bool{}},
+		err:  errChan,
+	}
+
+	// Initialize a proper job so CompleteJob has a slot to return.
+	jobID, err := ctx.gossiper.vb.InitJobDependencies(nMsg.msg)
+	require.NoError(t, err)
+
+	panicked := make(chan struct{})
+	go func() {
+		defer ctx.gossiper.finalizeGossipProcessing(
+			t.Context(), "testing", nMsg, &jobID,
+		)
+		defer close(panicked)
+
+		panic("test panic")
+	}()
+
+	// Should not hang - the default case should handle blocked channel.
+	select {
+	case <-panicked:
+		// Success - didn't hang.
+	case <-time.After(time.Second):
+		t.Fatal("panic recovery hung on blocked error channel")
+	}
+}
+
+// TestRecoverGossipPanicSignalsDependents verifies that when a parent job
+// panics during gossip processing, the panic recovery correctly signals
+// dependent jobs via the validation barrier so they don't block forever.
+func TestRecoverGossipPanicSignalsDependents(t *testing.T) {
+	t.Parallel()
+
+	ctx, err := createTestCtx(t, proofMatureDelta, false)
+	require.NoError(t, err)
+
+	// Create a channel announcement directly without mocks. We only need
+	// it to register with the validation barrier.
+	chanAnn := &lnwire.ChannelAnnouncement1{
+		ShortChannelID: lnwire.NewShortChanIDFromInt(12345),
+		NodeID1:        [33]byte{0x02},
+		NodeID2:        [33]byte{0x03},
+	}
+
+	// Register the channel announcement as a parent job.
+	parentJobID, err := ctx.gossiper.vb.InitJobDependencies(chanAnn)
+	require.NoError(t, err)
+
+	// Create a channel update that depends on this channel announcement.
+	// Channel updates wait for their parent channel announcement.
+	chanUpdate := &lnwire.ChannelUpdate1{
+		ShortChannelID: chanAnn.ShortChannelID,
+		Timestamp:      testTimestamp,
+	}
+
+	// Register the channel update as a child job.
+	childJobID, err := ctx.gossiper.vb.InitJobDependencies(chanUpdate)
+	require.NoError(t, err)
+
+	// Start a goroutine that waits for the parent job to complete.
+	childDone := make(chan error, 1)
+	go func() {
+		err := ctx.gossiper.vb.WaitForParents(childJobID, chanUpdate)
+		childDone <- err
+	}()
+
+	// Give the child goroutine time to start waiting.
+	time.Sleep(50 * time.Millisecond)
+
+	// Now simulate the parent job panicking and recovering.
+	// The recovery should call SignalDependents.
+	errChan := make(chan error, 1)
+	nMsg := &networkMsg{
+		msg: chanAnn,
+		peer: &mockPeer{
+			remoteKeyPub1, nil, nil, atomic.Bool{},
+		},
+		err: errChan,
+	}
+
+	panicked := make(chan struct{})
+	go func() {
+		defer ctx.gossiper.finalizeGossipProcessing(
+			t.Context(), "testing", nMsg, &parentJobID,
+		)
+		defer close(panicked)
+
+		panic("parent job panic")
+	}()
+
+	// Wait for the panic to be recovered.
+	select {
+	case <-panicked:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for panic recovery")
+	}
+
+	// Verify error was sent back on the parent's error channel.
+	select {
+	case err := <-errChan:
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "panic while")
+		require.Contains(t, err.Error(), "parent job panic")
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for error on parent")
+	}
+
+	// The child job should now be unblocked because SignalDependents
+	// was called during panic recovery.
+	select {
+	case err := <-childDone:
+		// Child should complete without error (or with nil if
+		// parent jobs are now empty).
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("child job still blocked - SignalDependents " +
+			"did not unblock waiting jobs")
+	}
+
+	// Clean up the child job. The parent job was already completed by
+	// finalizeGossipProcessing.
+	ctx.gossiper.vb.CompleteJob()
+}
+
+// TestRecoverGossipPanicNilJobID verifies that panic recovery works correctly
+// when jobID is nil (e.g., for AnnounceSignatures which bypass the validation
+// barrier).
+func TestRecoverGossipPanicNilJobID(t *testing.T) {
+	t.Parallel()
+
+	ctx, err := createTestCtx(t, proofMatureDelta, false)
+	require.NoError(t, err)
+
+	// Create an announce signatures message (these bypass validation
+	// barrier and thus have nil jobID in the recovery path).
+	annSigs := &lnwire.AnnounceSignatures1{
+		ShortChannelID: lnwire.NewShortChanIDFromInt(12345),
+	}
+
+	errChan := make(chan error, 1)
+	nMsg := &networkMsg{
+		msg: annSigs,
+		peer: &mockPeer{
+			remoteKeyPub1, nil, nil, atomic.Bool{},
+		},
+		err: errChan,
+	}
+
+	// Call finalizeGossipProcessing with nil jobID (simulating the
+	// AnnounceSignatures serial processing path).
+	panicked := make(chan struct{})
+	go func() {
+		defer ctx.gossiper.finalizeGossipProcessing(
+			t.Context(), "processing", nMsg, nil,
+		)
+		defer close(panicked)
+
+		panic("announce signatures panic")
+	}()
+
+	// Wait for panic recovery.
+	select {
+	case <-panicked:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for panic recovery")
+	}
+
+	// Verify error was sent back.
+	select {
+	case err := <-errChan:
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "panic while")
+		require.Contains(t, err.Error(), "announce signatures panic")
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for error")
+	}
 }

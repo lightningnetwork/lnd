@@ -289,13 +289,15 @@ const (
 	// being finalized.
 	SimpleTaprootChannelsOptionalStaging = 181
 
-	// ExperimentalEndorsementRequired is a required feature bit that
-	// indicates that the node will relay experimental endorsement signals.
-	ExperimentalEndorsementRequired FeatureBit = 260
+	// ExperimentalAccountabilityRequired is a required feature bit that
+	// indicates that the node will relay experimental accountability
+	// signals.
+	ExperimentalAccountabilityRequired FeatureBit = 260
 
-	// ExperimentalEndorsementOptional is an optional feature bit that
-	// indicates that the node will relay experimental endorsement signals.
-	ExperimentalEndorsementOptional FeatureBit = 261
+	// ExperimentalAccountabilityOptional is an optional feature bit that
+	// indicates that the node will relay experimental accountability
+	// signals.
+	ExperimentalAccountabilityOptional FeatureBit = 261
 
 	// Bolt11BlindedPathsRequired is a required feature bit that indicates
 	// that the node is able to understand the blinded path tagged field in
@@ -385,8 +387,8 @@ var Features = map[FeatureBit]string{
 	SimpleTaprootChannelsOptionalStaging: "simple-taproot-chans-x",
 	SimpleTaprootOverlayChansOptional:    "taproot-overlay-chans",
 	SimpleTaprootOverlayChansRequired:    "taproot-overlay-chans",
-	ExperimentalEndorsementRequired:      "endorsement-x",
-	ExperimentalEndorsementOptional:      "endorsement-x",
+	ExperimentalAccountabilityRequired:   "accountable-x",
+	ExperimentalAccountabilityOptional:   "accountable-x",
 	Bolt11BlindedPathsOptional:           "bolt-11-blinded-paths",
 	Bolt11BlindedPathsRequired:           "bolt-11-blinded-paths",
 	RbfCoopCloseOptional:                 "rbf-coop-close",

@@ -21,6 +21,12 @@
 
 # Bug Fixes
 
+* [Fixed `OpenChannel` with
+  `fund_max`](https://github.com/lightningnetwork/lnd/pull/10488) to use the
+  protocol-level maximum channel size instead of the user-configured
+  `maxchansize`. The `maxchansize` config option is intended only for limiting
+  incoming channel requests from peers, not outgoing ones.
+
 - Chain notifier RPCs now [return the gRPC `Unavailable`
   status](https://github.com/lightningnetwork/lnd/pull/10352) while the
   sub-server is still starting. This allows clients to reliably detect the
@@ -39,11 +45,23 @@
   has been removed from the public key parsing methods, and proper mutex
   protection has been added to the cache access in `DisconnectBlockAtHeight`.
 
-- [Fixed TLV decoders to reject malformed records with incorrect lengths](https://github.com/lightningnetwork/lnd/pull/10249). 
+- [Fixed TLV decoders to reject malformed records with incorrect lengths](https://github.com/lightningnetwork/lnd/pull/10249).
   TLV decoders now strictly enforce fixed-length requirements for Fee (8 bytes),
   Musig2Nonce (66 bytes), ShortChannelID (8 bytes), Vertex (33 bytes), and
   DBytes33 (33 bytes) records, preventing malformed TLV data from being
   accepted.
+
+- [Fixed `MarkCoopBroadcasted` to correctly use the `local`
+  parameter](https://github.com/lightningnetwork/lnd/pull/10532). The method was
+  ignoring the `local` parameter and always marking cooperative close
+  transactions as locally initiated, even when they were initiated by the remote
+  peer.
+
+- [Fixed a panic in the gossiper](https://github.com/lightningnetwork/lnd/pull/10463)
+  when `TrickleDelay` is configured with a non-positive value. The configuration
+  validation now checks `TrickleDelay` at startup and defaults it to 1
+  millisecond if set to zero or a negative value, preventing `time.NewTicker`
+  from panicking.
 
 # New Features
 
@@ -64,7 +82,15 @@
   it becomes available. These methods provide an alternative to the standard
   `MuSig2RegisterNonces` workflow and are only supported in MuSig2 v1.0.0rc2.
 
+* The `EstimateFee` RPC now supports [explicit input
+  selection](https://github.com/lightningnetwork/lnd/pull/10296). Users can
+  specify a list of inputs to use as transaction inputs via the new
+  `inputs` field in `EstimateFeeRequest`.
+
 ## lncli Additions
+
+* The `estimatefee` command now supports the `--utxos` flag to specify explicit
+  inputs for fee estimation.
 
 # Improvements
 ## Functional Updates
@@ -75,7 +101,14 @@
   This applies to both funders and fundees, with the ability to override the
   value during channel opening or acceptance.
 
+* Rename [experimental endorsement signal](https://github.com/lightning/blips/blob/a833e7b49f224e1240b5d669e78fa950160f5a06/blip-0004.md)
+  to [accountable](https://github.com/lightningnetwork/lnd/pull/10367) to match
+  the latest [proposal](https://github.com/lightning/blips/pull/67).
+
 ## RPC Updates
+
+* routerrpc HTLC event subscribers now receive specific failure details for
+  invoice-level validation failures, avoiding ambiguous `UNKNOWN` results. [#10520](https://github.com/lightningnetwork/lnd/pull/10520)
 
 ## lncli Updates
 
@@ -114,7 +147,7 @@
 
 ## Testing
 
-* [Added unit tests for TLV length validation across multiple packages](https://github.com/lightningnetwork/lnd/pull/10249). 
+* [Added unit tests for TLV length validation across multiple packages](https://github.com/lightningnetwork/lnd/pull/10249).
   New tests  ensure that fixed-size TLV decoders reject malformed records with
   invalid lengths, including roundtrip tests for Fee, Musig2Nonce,
   ShortChannelID and Vertex records.
@@ -134,6 +167,7 @@
 * Boris Nagaev
 * Elle Mouton
 * Erick Cestari
+* hieblmi
 * Mohamed Awnallah
 * Nishant Bansal
 * Pins

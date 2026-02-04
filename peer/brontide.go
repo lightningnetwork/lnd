@@ -44,6 +44,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
+	"github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/netann"
@@ -169,12 +170,12 @@ type ChannelCloseUpdate struct {
 	// LocalCloseOutput is an optional, additional output on the closing
 	// transaction that the local party should be paid to. This will only be
 	// populated if the local balance isn't dust.
-	LocalCloseOutput fn.Option[chancloser.CloseOutput]
+	LocalCloseOutput fn.Option[types.CloseOutput]
 
 	// RemoteCloseOutput is an optional, additional output on the closing
 	// transaction that the remote party should be paid to. This will only
 	// be populated if the remote balance isn't dust.
-	RemoteCloseOutput fn.Option[chancloser.CloseOutput]
+	RemoteCloseOutput fn.Option[types.CloseOutput]
 
 	// AuxOutputs is an optional set of additional outputs that might be
 	// included in the closing transaction. These are used for custom
@@ -371,6 +372,12 @@ type Config struct {
 	// closure initiated by the remote peer.
 	CoopCloseTargetConfs uint32
 
+	// ChannelCloseConfs is an optional override for the number of
+	// confirmations required for channel closes. When set, this overrides
+	// the normal capacity-based scaling. This is only available in
+	// dev/integration builds for testing purposes.
+	ChannelCloseConfs fn.Option[uint32]
+
 	// ServerPubKey is the serialized, compressed public key of our lnd node.
 	// It is used to determine which policy (channel edge) to pass to the
 	// ChannelLink.
@@ -468,9 +475,9 @@ type Config struct {
 	// onion messages to subscribers.
 	OnionMessageServer *subscribe.Server
 
-	// ShouldFwdExpEndorsement is a closure that indicates whether
-	// experimental endorsement signals should be set.
-	ShouldFwdExpEndorsement func() bool
+	// ShouldFwdExpAccountability is a closure that indicates whether
+	// experimental accountability signals should be set.
+	ShouldFwdExpAccountability func() bool
 
 	// NoDisconnectOnPongFailure indicates whether the peer should *not* be
 	// disconnected if a pong is not received in time or is mismatched.
@@ -1460,25 +1467,25 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		PendingCommitTicker: ticker.New(
 			p.cfg.PendingCommitInterval,
 		),
-		BatchSize:               p.cfg.ChannelCommitBatchSize,
-		UnsafeReplay:            p.cfg.UnsafeReplay,
-		MinUpdateTimeout:        htlcswitch.DefaultMinLinkFeeUpdateTimeout,
-		MaxUpdateTimeout:        htlcswitch.DefaultMaxLinkFeeUpdateTimeout,
-		OutgoingCltvRejectDelta: p.cfg.OutgoingCltvRejectDelta,
-		TowerClient:             p.cfg.TowerClient,
-		MaxOutgoingCltvExpiry:   p.cfg.MaxOutgoingCltvExpiry,
-		MaxFeeAllocation:        p.cfg.MaxChannelFeeAllocation,
-		MaxAnchorsCommitFeeRate: p.cfg.MaxAnchorsCommitFeeRate,
-		NotifyActiveLink:        p.cfg.ChannelNotifier.NotifyActiveLinkEvent,
-		NotifyActiveChannel:     p.cfg.ChannelNotifier.NotifyActiveChannelEvent,
-		NotifyInactiveChannel:   p.cfg.ChannelNotifier.NotifyInactiveChannelEvent,
-		NotifyInactiveLinkEvent: p.cfg.ChannelNotifier.NotifyInactiveLinkEvent,
-		HtlcNotifier:            p.cfg.HtlcNotifier,
-		GetAliases:              p.cfg.GetAliases,
-		PreviouslySentShutdown:  shutdownMsg,
-		DisallowRouteBlinding:   p.cfg.DisallowRouteBlinding,
-		MaxFeeExposure:          p.cfg.MaxFeeExposure,
-		ShouldFwdExpEndorsement: p.cfg.ShouldFwdExpEndorsement,
+		BatchSize:                  p.cfg.ChannelCommitBatchSize,
+		UnsafeReplay:               p.cfg.UnsafeReplay,
+		MinUpdateTimeout:           htlcswitch.DefaultMinLinkFeeUpdateTimeout,
+		MaxUpdateTimeout:           htlcswitch.DefaultMaxLinkFeeUpdateTimeout,
+		OutgoingCltvRejectDelta:    p.cfg.OutgoingCltvRejectDelta,
+		TowerClient:                p.cfg.TowerClient,
+		MaxOutgoingCltvExpiry:      p.cfg.MaxOutgoingCltvExpiry,
+		MaxFeeAllocation:           p.cfg.MaxChannelFeeAllocation,
+		MaxAnchorsCommitFeeRate:    p.cfg.MaxAnchorsCommitFeeRate,
+		NotifyActiveLink:           p.cfg.ChannelNotifier.NotifyActiveLinkEvent,
+		NotifyActiveChannel:        p.cfg.ChannelNotifier.NotifyActiveChannelEvent,
+		NotifyInactiveChannel:      p.cfg.ChannelNotifier.NotifyInactiveChannelEvent,
+		NotifyInactiveLinkEvent:    p.cfg.ChannelNotifier.NotifyInactiveLinkEvent,
+		HtlcNotifier:               p.cfg.HtlcNotifier,
+		GetAliases:                 p.cfg.GetAliases,
+		PreviouslySentShutdown:     shutdownMsg,
+		DisallowRouteBlinding:      p.cfg.DisallowRouteBlinding,
+		MaxFeeExposure:             p.cfg.MaxFeeExposure,
+		ShouldFwdExpAccountability: p.cfg.ShouldFwdExpAccountability,
 		DisallowQuiescence: p.cfg.DisallowQuiescence ||
 			!p.remoteFeatures.HasFeature(lnwire.QuiescenceOptional),
 		AuxTrafficShaper:     p.cfg.AuxTrafficShaper,
@@ -4464,9 +4471,22 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 	localOut := chanCloser.LocalCloseOutput()
 	remoteOut := chanCloser.RemoteCloseOutput()
 	auxOut := chanCloser.AuxOutputs()
+
+	// Determine the number of confirmations to wait before signaling a
+	// successful cooperative close, scaled by channel capacity (see
+	// CloseConfsForCapacity). Check if we have a config override for
+	// testing purposes.
+	chanCapacity := chanCloser.Channel().Capacity
+	numConfs := p.cfg.ChannelCloseConfs.UnwrapOrFunc(func() uint32 {
+		// No override, use normal capacity-based scaling.
+		return lnwallet.CloseConfsForCapacity(chanCapacity)
+	})
+
+	// Register for full confirmation to send the final update.
+	closeScript := closingTx.TxOut[0].PkScript
 	go WaitForChanToClose(
 		chanCloser.NegotiationHeight(), notifier, errChan,
-		&chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, func() {
+		&chanPoint, &closingTxid, closeScript, numConfs, func() {
 			// Respond to the local subsystem which requested the
 			// channel closure.
 			if closeReq != nil {
@@ -4489,14 +4509,14 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 // the function, then it will be sent over the errChan.
 func WaitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
 	errChan chan error, chanPoint *wire.OutPoint,
-	closingTxID *chainhash.Hash, closeScript []byte, cb func()) {
+	closingTxID *chainhash.Hash, closeScript []byte, numConfs uint32,
+	cb func()) {
 
 	peerLog.Infof("Waiting for confirmation of close of ChannelPoint(%v) "+
 		"with txid: %v", chanPoint, closingTxID)
 
-	// TODO(roasbeef): add param for num needed confs
 	confNtfn, err := notifier.RegisterConfirmationsNtfn(
-		closingTxID, closeScript, 1, bestHeight,
+		closingTxID, closeScript, numConfs, bestHeight,
 	)
 	if err != nil {
 		if errChan != nil {

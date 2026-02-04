@@ -62,6 +62,13 @@
   due to validation checks in the graph Builder that were resurfaced after the
   graph refactor work.
 
+* [Fix backwards compatibility for channel edge feature
+  deserialization](https://github.com/lightningnetwork/lnd/pull/10529). Nodes
+  upgrading from pre-v0.20 versions could fail to read channel edges from their
+  graph database due to a format change in how channel features are serialized.
+  The fix adds automatic format detection to handle both legacy (raw feature
+  bits) and new (length-prefixed) formats.
+
 # New Features
 
 ## Functional Enhancements
@@ -72,6 +79,20 @@
 
 # Improvements
 ## Functional Updates
+
+* [Added panic recovery](https://github.com/lightningnetwork/lnd/pull/10470) to
+  the gossiper's message processing goroutines. This increases the robustness
+  of the gossiper subsystem by allowing it to continue operating even if a
+  logic error causes a panic during message processing. The recovery mechanism
+  ensures dependencies are properly freed and logs the panic trace for
+  debugging.
+
+* [Improved confirmation scaling for cooperative
+  closes](https://github.com/lightningnetwork/lnd/pull/10331) to provide better
+  reorg protection. Previously, cooperative closes required a minimum of 3
+  confirmations. Now, small channels only require 1 confirmation, while larger
+  channels scale proportionally using the standard 0.16 BTC threshold (matching
+  funding confirmation scaling).
 
 ## RPC Updates
 
@@ -87,6 +108,15 @@
 
 ## Breaking Changes
 
+* [Increased MinCLTVDelta from 18 to
+  24](https://github.com/lightningnetwork/lnd/pull/TODO) to provide a larger
+  safety margin above the `DefaultFinalCltvRejectDelta` (19 blocks). This
+  affects users who create invoices with custom `cltv_expiry_delta` values
+  between 18-23, which will now require a minimum of 24. The default value of
+  80 blocks for invoice creation remains unchanged, so most users will not be
+  affected. Existing invoices created before the upgrade will continue to work
+  normally.
+
 ## Performance Improvements
 
 * [Added new Postgres configuration 
@@ -98,10 +128,20 @@
   safe single-writer behavior until the wallet subsystem is fully 
   concurrent-safe.
 
+* [Modified the query for `IsPublicV1Node`](https://github.com/lightningnetwork/lnd/pull/10356)
+  to use `UNION ALL` instead of `OR` conditions in the `WHERE` clause, improving
+  performance when checking for public nodes especially in large graphs when using `SQL` backends.
+
 ## Deprecations
 
 # Technical and Architectural Updates
 ## BOLT Spec Updates
+
+* [Enforce non-zero timestamps](https://github.com/lightningnetwork/lnd/pull/10469)
+  for `channel_update` (as required by BOLT 7) and `node_announcement` messages.
+  Gossip messages with zero timestamps are now rejected. For `channel_update`
+  messages, remote peers sending such invalid messages will have their ban score
+  incremented.
 
 ## Testing
 
@@ -113,5 +153,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Abdulkbk
 * bitromortac
+* Olaoluwa Osuntokun
 * Ziggie

@@ -118,11 +118,11 @@ type Store interface { //nolint:interfacebloat
 	DeleteNode(ctx context.Context, v lnwire.GossipVersion,
 		nodePub route.Vertex) error
 
-	// NodeUpdatesInHorizon returns all the known lightning node which have
-	// an update timestamp within the passed range. This method can be used
-	// by two nodes to quickly determine if they have the same set of up to
-	// date node announcements.
-	NodeUpdatesInHorizon(startTime, endTime time.Time,
+	// NodeUpdatesInHorizon returns all the known lightning nodes which have
+	// updates within the passed range for the given gossip version. This
+	// method can be used by two nodes to quickly determine if they have the
+	// same set of up to date node announcements.
+	NodeUpdatesInHorizon(v lnwire.GossipVersion, r NodeUpdateRange,
 		opts ...IteratorOption) iter.Seq2[*models.Node, error]
 
 	// FetchNode attempts to look up a target node by its identity

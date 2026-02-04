@@ -2920,7 +2920,10 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 	// If we issue an arbitrary query before we insert any nodes into the
 	// database, then we shouldn't get any results back.
 	nodeUpdatesIter := graph.NodeUpdatesInHorizon(
-		time.Unix(999, 0), time.Unix(9999, 0),
+		lnwire.GossipVersion1, NodeUpdateRange{
+			StartTime: fn.Some(time.Unix(999, 0)),
+			EndTime:   fn.Some(time.Unix(9999, 0)),
+		},
 	)
 	nodeUpdates, err := fn.CollectErr(nodeUpdatesIter)
 	require.NoError(t, err, "unable to query for node updates")
@@ -2995,7 +2998,115 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 	}
 	for _, queryCase := range queryCases {
 		iter := graph.NodeUpdatesInHorizon(
-			queryCase.start, queryCase.end,
+			lnwire.GossipVersion1, NodeUpdateRange{
+				StartTime: fn.Some(queryCase.start),
+				EndTime:   fn.Some(queryCase.end),
+			},
+		)
+
+		resp, err := fn.CollectErr(iter)
+		require.NoError(t, err, "unable to query for node updates")
+		require.Len(t, resp, len(queryCase.resp))
+
+		for i := 0; i < len(resp); i++ {
+			compareNodes(t, &queryCase.resp[i], resp[i])
+		}
+	}
+}
+
+// TestNodeUpdatesInBlockRange tests that we're able to properly scan and
+// retrieve the most recent node updates within a particular block range.
+func TestNodeUpdatesInBlockRange(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	if !isSQLDB {
+		t.Skip("v2 node update ranges require SQL backend")
+	}
+
+	graph := MakeTestGraph(t)
+
+	startHeight := uint32(100)
+	endHeight := startHeight
+
+	// If we issue an arbitrary query before we insert any nodes into the
+	// database, then we shouldn't get any results back.
+	nodeUpdatesIter := graph.NodeUpdatesInHorizon(
+		lnwire.GossipVersion2, NodeUpdateRange{
+			StartHeight: fn.Some(uint32(999)),
+			EndHeight:   fn.Some(uint32(9999)),
+		},
+	)
+	nodeUpdates, err := fn.CollectErr(nodeUpdatesIter)
+	require.NoError(t, err, "unable to query for node updates")
+	require.Len(t, nodeUpdates, 0)
+
+	// We'll create 10 node announcements, each with a block height 10
+	// blocks after the other.
+	const numNodes = 10
+	nodeAnns := make([]models.Node, 0, numNodes)
+	for i := 0; i < numNodes; i++ {
+		nodeAnn := createTestVertex(t, lnwire.GossipVersion2)
+		nodeAnn.LastBlockHeight = endHeight
+		require.NoError(t, graph.AddNode(ctx, nodeAnn))
+
+		nodeAnns = append(nodeAnns, *nodeAnn)
+		endHeight += 10
+	}
+
+	queryCases := []struct {
+		start uint32
+		end   uint32
+
+		resp []models.Node
+	}{
+		// If we query for the entire range, then we should get the same
+		// set of nodes back.
+		{
+			start: startHeight,
+			end:   endHeight,
+
+			resp: nodeAnns,
+		},
+
+		// If we query for a range of nodes right before our range, we
+		// shouldn't get any results back.
+		{
+			start: 0,
+			end:   10,
+		},
+
+		// If we only query for the last height (range wise), we should
+		// only get that last node.
+		{
+			start: endHeight - 10,
+			end:   endHeight - 10,
+
+			resp: nodeAnns[9:],
+		},
+
+		// If we query for just the first height, we should only get a
+		// single node back (the first one).
+		{
+			start: startHeight,
+			end:   startHeight,
+
+			resp: nodeAnns[:1],
+		},
+
+		{
+			start: startHeight + 10,
+			end:   endHeight - 10,
+
+			resp: nodeAnns[1:],
+		},
+	}
+	for _, queryCase := range queryCases {
+		iter := graph.NodeUpdatesInHorizon(
+			lnwire.GossipVersion2, NodeUpdateRange{
+				StartHeight: fn.Some(queryCase.start),
+				EndHeight:   fn.Some(queryCase.end),
+			},
 		)
 
 		resp, err := fn.CollectErr(iter)
@@ -3123,8 +3234,10 @@ func testNodeUpdatesWithBatchSize(t *testing.T, ctx context.Context,
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			iter := testGraph.NodeUpdatesInHorizon(
-				tc.start, tc.end,
-				WithNodeUpdateIterBatchSize(
+				lnwire.GossipVersion1, NodeUpdateRange{
+					StartTime: fn.Some(tc.start),
+					EndTime:   fn.Some(tc.end),
+				}, WithNodeUpdateIterBatchSize(
 					batchSize,
 				),
 			)
@@ -3154,6 +3267,97 @@ func testNodeUpdatesWithBatchSize(t *testing.T, ctx context.Context,
 	}
 }
 
+// testNodeUpdatesWithBlockBatchSize is a helper function that tests node
+// updates with a specific batch size to ensure the iterator works correctly
+// across batch boundaries for block ranges.
+func testNodeUpdatesWithBlockBatchSize(t *testing.T, ctx context.Context,
+	batchSize int) {
+
+	// Create a fresh graph for each test.
+	testGraph := MakeTestGraph(t)
+
+	// Add 25 nodes with increasing block heights.
+	startHeight := uint32(100)
+	var nodeAnns []models.Node
+
+	for i := 0; i < 25; i++ {
+		nodeAnn := createTestVertex(t, lnwire.GossipVersion2)
+		nodeAnn.LastBlockHeight = startHeight + uint32(i)
+		require.NoError(t, testGraph.AddNode(ctx, nodeAnn))
+
+		nodeAnns = append(nodeAnns, *nodeAnn)
+	}
+
+	testCases := []struct {
+		name  string
+		start uint32
+		end   uint32
+		want  int
+	}{
+		{
+			name:  "full range",
+			start: startHeight,
+			end:   startHeight + 24,
+			want:  25,
+		},
+		{
+			name:  "partial range",
+			start: startHeight + 5,
+			end:   startHeight + 14,
+			want:  10,
+		},
+		{
+			name:  "single block",
+			start: startHeight + 10,
+			end:   startHeight + 10,
+			want:  1,
+		},
+		{
+			name:  "empty range before",
+			start: startHeight - 10,
+			end:   startHeight - 1,
+			want:  0,
+		},
+		{
+			name:  "empty range after",
+			start: startHeight + 30,
+			end:   startHeight + 40,
+			want:  0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			iter := testGraph.NodeUpdatesInHorizon(
+				lnwire.GossipVersion2, NodeUpdateRange{
+					StartHeight: fn.Some(tc.start),
+					EndHeight:   fn.Some(tc.end),
+				}, WithNodeUpdateIterBatchSize(
+					batchSize,
+				),
+			)
+
+			nodes, err := fn.CollectErr(iter)
+			require.NoError(t, err)
+			require.Len(
+				t, nodes, tc.want,
+				"expected %d nodes, got %d",
+				tc.want, len(nodes),
+			)
+
+			// Verify nodes are in the correct block range.
+			for _, node := range nodes {
+				require.GreaterOrEqual(
+					t, node.LastBlockHeight, tc.start,
+				)
+				require.LessOrEqual(
+					t, node.LastBlockHeight, tc.end,
+				)
+			}
+		})
+	}
+}
+
 // TestNodeUpdatesInHorizonBoundaryConditions tests the iterator boundary
 // conditions, specifically around batch boundaries and edge cases.
 func TestNodeUpdatesInHorizonBoundaryConditions(t *testing.T) {
@@ -3169,6 +3373,29 @@ func TestNodeUpdatesInHorizonBoundaryConditions(t *testing.T) {
 		testName := fmt.Sprintf("BatchSize%d", batchSize)
 		t.Run(testName, func(t *testing.T) {
 			testNodeUpdatesWithBatchSize(t, ctx, batchSize)
+		})
+	}
+}
+
+// TestNodeUpdatesInBlockRangeBoundaryConditions tests the iterator boundary
+// conditions for node updates with block ranges.
+func TestNodeUpdatesInBlockRangeBoundaryConditions(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	if !isSQLDB {
+		t.Skip("v2 node update ranges require SQL backend")
+	}
+
+	// Test with various batch sizes to ensure the iterator works correctly
+	// across batch boundaries.
+	batchSizes := []int{1, 3, 5, 10, 25, 100}
+
+	for _, batchSize := range batchSizes {
+		testName := fmt.Sprintf("BatchSize%d", batchSize)
+		t.Run(testName, func(t *testing.T) {
+			testNodeUpdatesWithBlockBatchSize(t, ctx, batchSize)
 		})
 	}
 }
@@ -3195,8 +3422,14 @@ func TestNodeUpdatesInHorizonEarlyTermination(t *testing.T) {
 
 	for _, stopAt := range terminationPoints {
 		t.Run(fmt.Sprintf("StopAt%d", stopAt), func(t *testing.T) {
+			r := NodeUpdateRange{
+				StartTime: fn.Some(startTime),
+				EndTime: fn.Some(
+					startTime.Add(200 * time.Hour),
+				),
+			}
 			iter := graph.NodeUpdatesInHorizon(
-				startTime, startTime.Add(200*time.Hour),
+				lnwire.GossipVersion1, r,
 				WithNodeUpdateIterBatchSize(10),
 			)
 
@@ -3216,6 +3449,60 @@ func TestNodeUpdatesInHorizonEarlyTermination(t *testing.T) {
 				"should have collected exactly %d nodes",
 				stopAt,
 			)
+		})
+	}
+}
+
+// TestNodeUpdatesInBlockRangeEarlyTermination tests that the iterator properly
+// handles early termination when the caller stops iterating.
+func TestNodeUpdatesInBlockRangeEarlyTermination(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	if !isSQLDB {
+		t.Skip("v2 node update ranges require SQL backend")
+	}
+
+	graph := MakeTestGraph(t)
+
+	// We'll start by creating 100 nodes, each with a block height spaced
+	// one block apart.
+	startHeight := uint32(100)
+	for i := 0; i < 100; i++ {
+		nodeAnn := createTestVertex(t, lnwire.GossipVersion2)
+		nodeAnn.LastBlockHeight = startHeight + uint32(i)
+		require.NoError(t, graph.AddNode(ctx, nodeAnn))
+	}
+
+	// Test early termination at various points.
+	terminationPoints := []int{0, 1, 5, 10, 23, 50, 99}
+
+	for _, stopAt := range terminationPoints {
+		t.Run(fmt.Sprintf("StopAt%d", stopAt), func(t *testing.T) {
+			iter := graph.NodeUpdatesInHorizon(
+				lnwire.GossipVersion2, NodeUpdateRange{
+					StartHeight: fn.Some(startHeight),
+					EndHeight: fn.Some(
+						startHeight + 200,
+					),
+				}, WithNodeUpdateIterBatchSize(10),
+			)
+
+			// Collect only up to stopAt nodes, breaking afterwards.
+			collected := 0
+			for node, err := range iter {
+				require.NoError(t, err)
+				if node == nil {
+					break
+				}
+				if collected >= stopAt {
+					break
+				}
+
+				collected++
+			}
+
+			require.Equal(t, stopAt, collected)
 		})
 	}
 }
@@ -4578,7 +4865,10 @@ func testNodePruningUpdateIndexDeletion(t *testing.T, v lnwire.GossipVersion) {
 	// update time of our test node.
 	startTime := time.Unix(9, 0)
 	endTime := node1.LastUpdate.Add(time.Minute)
-	nodesInHorizonIter := graph.NodeUpdatesInHorizon(startTime, endTime)
+	nodesInHorizonIter := graph.NodeUpdatesInHorizon(NodeUpdateRange{
+		StartTime: fn.Some(startTime),
+		EndTime:   fn.Some(endTime),
+	})
 
 	// We should only have a single node, and that node should exactly
 	// match the node we just inserted.
@@ -4597,7 +4887,10 @@ func testNodePruningUpdateIndexDeletion(t *testing.T, v lnwire.GossipVersion) {
 
 	// Now that the node has been deleted, we'll again query the nodes in
 	// the horizon. This time we should have no nodes at all.
-	nodesInHorizonIter = graph.NodeUpdatesInHorizon(startTime, endTime)
+	nodesInHorizonIter = graph.NodeUpdatesInHorizon(NodeUpdateRange{
+		StartTime: fn.Some(startTime),
+		EndTime:   fn.Some(endTime),
+	})
 	nodesInHorizon, err = fn.CollectErr(nodesInHorizonIter)
 	require.NoError(t, err, "unable to fetch nodes in horizon")
 

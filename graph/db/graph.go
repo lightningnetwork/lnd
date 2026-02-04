@@ -590,11 +590,12 @@ func (c *ChannelGraph) ForEachNodeCacheable(ctx context.Context,
 }
 
 // NodeUpdatesInHorizon returns all known lightning nodes with updates in the
-// range.
-func (c *ChannelGraph) NodeUpdatesInHorizon(startTime, endTime time.Time,
-	opts ...IteratorOption) iter.Seq2[*models.Node, error] {
+// range for the given gossip version.
+func (c *ChannelGraph) NodeUpdatesInHorizon(v lnwire.GossipVersion,
+	r NodeUpdateRange, opts ...IteratorOption) iter.Seq2[*models.Node,
+	error] {
 
-	return c.db.NodeUpdatesInHorizon(startTime, endTime, opts...)
+	return c.db.NodeUpdatesInHorizon(v, r, opts...)
 }
 
 // HasV1Node determines if the graph has a vertex identified by the target node
@@ -838,10 +839,10 @@ func (c *VersionedGraph) ChannelView() ([]EdgePoint, error) {
 
 // NodeUpdatesInHorizon returns all known lightning nodes with updates in the
 // range for this version.
-func (c *VersionedGraph) NodeUpdatesInHorizon(startTime, endTime time.Time,
+func (c *VersionedGraph) NodeUpdatesInHorizon(r NodeUpdateRange,
 	opts ...IteratorOption) iter.Seq2[*models.Node, error] {
 
-	return c.db.NodeUpdatesInHorizon(startTime, endTime, opts...)
+	return c.db.NodeUpdatesInHorizon(c.v, r, opts...)
 }
 
 // FetchNode attempts to look up a target node by its identity public key.

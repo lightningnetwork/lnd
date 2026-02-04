@@ -654,6 +654,61 @@ func TestSetSourceNodeSameTimestamp(t *testing.T) {
 	require.Equal(t, testNode.LastUpdate, updatedNode.LastUpdate)
 }
 
+// TestSetSourceNodeSameBlockHeight tests that SetSourceNode accepts updates
+// with the same block height for v2 nodes. This mirrors the timestamp
+// collision behavior for v1, but uses the v2 block-height ordering.
+func TestSetSourceNodeSameBlockHeight(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	if !isSQLDB {
+		t.Skip("v2 nodes are only supported by the SQL backends")
+	}
+
+	graph := NewVersionedGraph(MakeTestGraph(t), lnwire.GossipVersion2)
+
+	// Create and set the initial source node.
+	testNode := createTestVertex(t, lnwire.GossipVersion2)
+	require.NoError(t, graph.SetSourceNode(ctx, testNode))
+
+	// Verify the source node was set correctly.
+	sourceNode, err := graph.SourceNode(ctx)
+	require.NoError(t, err)
+	compareNodes(t, testNode, sourceNode)
+
+	// Create a modified version of the node with the same block height
+	// but different parameters (e.g., different alias and color).
+	modifiedNode := models.NewV2Node(
+		testNode.PubKeyBytes, &models.NodeV2Fields{
+			// Same block height.
+			LastBlockHeight: testNode.LastBlockHeight,
+			// Different alias and color.
+			Alias: fn.Some("different-alias"),
+			Color: fn.Some(color.RGBA{
+				R: 100, G: 200, B: 50,
+			}),
+			Addresses:         testNode.Addresses,
+			Features:          testNode.Features.RawFeatureVector,
+			Signature:         testNode.AuthSigBytes,
+			ExtraSignedFields: testNode.ExtraSignedFields,
+		},
+	)
+
+	// Attempt to set the source node with the same block height but
+	// different parameters. This should succeed for SQL stores.
+	require.NoError(t, graph.SetSourceNode(ctx, modifiedNode))
+
+	// Verify that the parameter changes actually persisted.
+	updatedNode, err := graph.SourceNode(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "different-alias", updatedNode.Alias.UnwrapOr(""))
+	require.Equal(
+		t, color.RGBA{R: 100, G: 200, B: 50, A: 0},
+		updatedNode.Color.UnwrapOr(color.RGBA{}),
+	)
+	require.Equal(t, testNode.LastBlockHeight, updatedNode.LastBlockHeight)
+}
+
 // testEdgeInsertionDeletion tests the basic CRUD operations for channel edges.
 func testEdgeInsertionDeletion(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()

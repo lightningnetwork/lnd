@@ -4723,6 +4723,78 @@ func fetchChanEdgeInfo(edgeIndex kvdb.RBucket,
 	return deserializeChanEdgeInfo(edgeInfoReader)
 }
 
+// deserializeChanEdgeFeatures deserializes channel edge features from bytes,
+// handling both the legacy format (raw feature bits) and the current format
+// (2-byte length prefix followed by feature bits).
+//
+// Legacy format (pre-v0.20): VarBytes containing raw feature bits directly.
+// Current format (v0.20+): VarBytes containing a 2-byte big-endian length
+// followed by the feature bits.
+//
+// The format is detected by checking if the first 2 bytes, interpreted as a
+// big-endian uint16 length, equals len(featureBytes)-2. Since this length
+// check alone could have false positives (e.g., a 258-byte legacy vector
+// starting with 0x01, 0x00), we additionally verify by decoding and
+// re-encoding the payload to confirm it produces the exact same bytes
+// (canonical encoding check).
+func deserializeChanEdgeFeatures(featureBytes []byte) (*lnwire.FeatureVector,
+	error) {
+
+	features := lnwire.NewRawFeatureVector()
+
+	// Empty features are valid in both formats.
+	if len(featureBytes) == 0 {
+		return lnwire.NewFeatureVector(features, lnwire.Features), nil
+	}
+
+	// Check if this looks like the new format with a 2-byte length prefix.
+	// In the new format, the first 2 bytes encode the length of the
+	// remaining feature bytes.
+	if len(featureBytes) >= 2 {
+		encodedLen := binary.BigEndian.Uint16(featureBytes[:2])
+		if int(encodedLen) == len(featureBytes)-2 {
+			// This looks like it could be the new format. To be
+			// certain, we decode and re-encode to verify canonical
+			// encoding, as a legacy feature vector could
+			// accidentally match the length check (e.g., a 258-byte
+			// legacy vector starting with 0x01, 0x00 would have
+			// 256 == 258 - 2).
+			payload := featureBytes[2:]
+			tempFeatures := lnwire.NewRawFeatureVector()
+			err := tempFeatures.DecodeBase256(
+				bytes.NewReader(payload), int(encodedLen),
+			)
+
+			var checkBuf bytes.Buffer
+			if err == nil {
+				err = tempFeatures.EncodeBase256(&checkBuf)
+			}
+
+			// If there were no errors and the re-encoded payload
+			// matches the original, we are confident it's the new
+			// format.
+			isCanonical := bytes.Equal(checkBuf.Bytes(), payload)
+			if err == nil && isCanonical {
+				return lnwire.NewFeatureVector(
+					tempFeatures, lnwire.Features,
+				), nil
+			}
+		}
+	}
+
+	// Legacy format: the bytes are raw feature bits without a length
+	// prefix.
+	err := features.DecodeBase256(
+		bytes.NewReader(featureBytes), len(featureBytes),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode features "+
+			"(legacy format): %w", err)
+	}
+
+	return lnwire.NewFeatureVector(features, lnwire.Features), nil
+}
+
 func deserializeChanEdgeInfo(r io.Reader) (models.ChannelEdgeInfo, error) {
 	var (
 		err      error
@@ -4747,13 +4819,10 @@ func deserializeChanEdgeInfo(r io.Reader) (models.ChannelEdgeInfo, error) {
 		return models.ChannelEdgeInfo{}, err
 	}
 
-	features := lnwire.NewRawFeatureVector()
-	err = features.Decode(bytes.NewReader(featureBytes))
+	edgeInfo.Features, err = deserializeChanEdgeFeatures(featureBytes)
 	if err != nil {
-		return models.ChannelEdgeInfo{}, fmt.Errorf("unable to decode "+
-			"features: %w", err)
+		return models.ChannelEdgeInfo{}, err
 	}
-	edgeInfo.Features = lnwire.NewFeatureVector(features, lnwire.Features)
 
 	proof := &models.ChannelAuthProof{}
 

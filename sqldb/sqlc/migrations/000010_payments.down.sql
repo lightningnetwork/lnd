@@ -25,6 +25,7 @@ DROP TABLE IF EXISTS payment_route_hops;
 -- ─────────────────────────────────────────────
 
 DROP INDEX IF EXISTS idx_htlc_resolutions_type;
+DROP INDEX IF EXISTS idx_htlc_resolutions_type_attempt_index;
 DROP INDEX IF EXISTS idx_htlc_resolutions_time;
 DROP TABLE IF EXISTS payment_htlc_attempt_resolutions;
 
@@ -33,6 +34,7 @@ DROP TABLE IF EXISTS payment_htlc_attempt_resolutions;
 -- ─────────────────────────────────────────────
 
 DROP INDEX IF EXISTS idx_htlc_payment_id;
+DROP INDEX IF EXISTS idx_htlc_payment_id_attempt_time;
 DROP INDEX IF EXISTS idx_htlc_payment_hash;
 DROP INDEX IF EXISTS idx_htlc_attempt_time;
 DROP TABLE IF EXISTS payment_htlc_attempts;

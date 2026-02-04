@@ -299,6 +299,17 @@ func normalizePaymentForCompare(payment *MPPayment) {
 		htlc.circuit = nil
 		htlc.cachedSessionKey = nil
 
+		// For legacy payments, the HTLC Hash field may be nil in the
+		// bbolt backend. During migration, the SQL code uses the
+		// parent payment hash as fallback. To ensure the comparison
+		// between bbolt and SQL data succeeds, we apply the same
+		// fallback here.
+		//
+		// See also: patchLegacyPaymentHash in payment_lifecycle.go.
+		if htlc.Hash == nil && payment.Info != nil {
+			htlc.Hash = &payment.Info.PaymentIdentifier
+		}
+
 		if len(htlc.Route.FirstHopWireCustomRecords) == 0 {
 			htlc.Route.FirstHopWireCustomRecords =
 				lnwire.CustomRecords{}

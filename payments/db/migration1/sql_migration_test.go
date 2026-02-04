@@ -2097,6 +2097,182 @@ type paymentFeatureSet struct {
 	hopMetadata   bool
 }
 
+// TestMigrateLegacyPaymentWithNilHash tests migration of a legacy payment where
+// the HTLC attempt's Hash field is nil. In older payments, the Hash wasn't
+// stored on individual HTLCs; instead, the parent payment hash should be used.
+func TestMigrateLegacyPaymentWithNilHash(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	kvDB := setupTestKVDB(t)
+
+	var paymentHash [32]byte
+	copy(paymentHash[:], []byte("test_legacy_nil_hash_payment"))
+
+	err := kvdb.Update(kvDB, func(tx kvdb.RwTx) error {
+		paymentsBucket, err := tx.CreateTopLevelBucket(
+			paymentsRootBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		indexBucket, err := tx.CreateTopLevelBucket(paymentsIndexBucket)
+		if err != nil {
+			return err
+		}
+
+		return createLegacyPaymentWithNilHash(
+			t, paymentsBucket, indexBucket, paymentHash,
+		)
+	}, func() {})
+	require.NoError(t, err)
+
+	sqlStore := setupTestSQLDB(t)
+
+	err = runPaymentsMigration(ctx, kvDB, sqlStore)
+	require.NoError(t, err)
+
+	// Verify the payment was migrated correctly.
+	var paymentID lntypes.Hash
+	copy(paymentID[:], paymentHash[:])
+
+	payment, err := sqlStore.FetchPayment(ctx, paymentID)
+	require.NoError(t, err)
+	require.NotNil(t, payment)
+	require.Len(t, payment.HTLCs, 1)
+
+	// The HTLC should have the parent payment hash since its own Hash was
+	// nil.
+	require.NotNil(t, payment.HTLCs[0].Hash)
+	require.Equal(t, paymentID, *payment.HTLCs[0].Hash)
+}
+
+// createLegacyPaymentWithNilHash creates a payment with an HTLC attempt that
+// has a nil Hash field, simulating older payment data format.
+func createLegacyPaymentWithNilHash(t *testing.T, paymentsBucket,
+	indexBucket kvdb.RwBucket, hash [32]byte) error {
+
+	t.Helper()
+
+	paymentBucket, err := paymentsBucket.CreateBucketIfNotExists(hash[:])
+	if err != nil {
+		return err
+	}
+
+	var paymentID lntypes.Hash
+	copy(paymentID[:], hash[:])
+
+	creationInfo := &PaymentCreationInfo{
+		PaymentIdentifier: paymentID,
+		Value:             lnwire.MilliSatoshi(50000),
+		CreationTime:      time.Now().Add(-24 * time.Hour),
+		PaymentRequest:    []byte("lnbc500n1legacy_payment"),
+	}
+
+	var creationBuf bytes.Buffer
+	err = serializePaymentCreationInfo(&creationBuf, creationInfo)
+	if err != nil {
+		return err
+	}
+	err = paymentBucket.Put(paymentCreationInfoKey, creationBuf.Bytes())
+	if err != nil {
+		return err
+	}
+
+	seqBytes := make([]byte, 8)
+	byteOrder.PutUint64(seqBytes, 100)
+	err = paymentBucket.Put(paymentSequenceKey, seqBytes)
+	if err != nil {
+		return err
+	}
+
+	htlcBucket, err := paymentBucket.CreateBucketIfNotExists(
+		paymentHtlcsBucket,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Create HTLC attempt with nil Hash (legacy format).
+	sessionKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	var sessionKeyBytes [32]byte
+	copy(sessionKeyBytes[:], sessionKey.Serialize())
+
+	var sourcePubKey route.Vertex
+	copy(sourcePubKey[:], sessionKey.PubKey().SerializeCompressed())
+
+	hopKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	attemptInfo := &HTLCAttemptInfo{
+		AttemptID:  1,
+		sessionKey: sessionKeyBytes,
+		Route: route.Route{
+			TotalTimeLock: 500000,
+			TotalAmount:   50000,
+			SourcePubKey:  sourcePubKey,
+			Hops: []*route.Hop{
+				{
+					PubKeyBytes:      route.NewVertex(hopKey.PubKey()),
+					ChannelID:        12345,
+					OutgoingTimeLock: 499500,
+					AmtToForward:     49000,
+				},
+			},
+		},
+		AttemptTime: time.Now().Add(-2 * time.Hour),
+		Hash:        nil, // Legacy: Hash is nil
+	}
+
+	// Serialize the attempt info. Since Hash is nil, the serialization
+	// will not write the hash, simulating the legacy format.
+	attemptKey := make([]byte, len(htlcAttemptInfoKey)+8)
+	copy(attemptKey, htlcAttemptInfoKey)
+	byteOrder.PutUint64(attemptKey[len(htlcAttemptInfoKey):], 1)
+
+	var attemptBuf bytes.Buffer
+	err = serializeHTLCAttemptInfo(&attemptBuf, attemptInfo)
+	if err != nil {
+		return err
+	}
+	err = htlcBucket.Put(attemptKey, attemptBuf.Bytes())
+	if err != nil {
+		return err
+	}
+
+	// Add settlement info.
+	settleInfo := &HTLCSettleInfo{
+		Preimage:   lntypes.Preimage(hash),
+		SettleTime: time.Now().Add(-1 * time.Hour),
+	}
+
+	settleKey := make([]byte, len(htlcSettleInfoKey)+8)
+	copy(settleKey, htlcSettleInfoKey)
+	byteOrder.PutUint64(settleKey[len(htlcSettleInfoKey):], 1)
+
+	var settleBuf bytes.Buffer
+	err = serializeHTLCSettleInfo(&settleBuf, settleInfo)
+	if err != nil {
+		return err
+	}
+	err = htlcBucket.Put(settleKey, settleBuf.Bytes())
+	if err != nil {
+		return err
+	}
+
+	// Create index entry.
+	var idx bytes.Buffer
+	err = WriteElements(&idx, paymentIndexTypeHash, hash[:])
+	if err != nil {
+		return err
+	}
+
+	return indexBucket.Put(seqBytes, idx.Bytes())
+}
+
 // createPaymentWithFeatureSet creates a payment with a selected set of
 // optional features for combination testing.
 func createPaymentWithFeatureSet(t *testing.T, paymentsBucket,

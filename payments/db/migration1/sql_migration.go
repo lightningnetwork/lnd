@@ -365,20 +365,23 @@ func migrateHTLCAttempt(ctx context.Context, paymentID int64,
 	parentPaymentHash lntypes.Hash, htlc *HTLCAttempt, sqlDB SQLQueries,
 	stats *MigrationStats) error {
 
-	// Validate that we have a payment hash for the attempt.
+	// Determine the payment hash for this HTLC attempt.
 	//
-	// NOTE: We always require an attempt payment hash. A missing hash is an
-	// unrecoverable inconsistency. All payments should have a payment hash
-	// (AMP,MPP,Legacy)
+	// For AMP payments, each HTLC has its own unique hash. For non-AMP
+	// payments (MPP, Legacy), all HTLCs use the same hash as the parent
+	// payment. Older payment attempts may not have the hash stored
+	// explicitly, in which case we fall back to the parent payment hash
+	// which is ok since non-AMP payments have a single hash for all HTLCs.
 	var paymentHash []byte
 	switch {
 	case htlc.Hash != nil:
 		paymentHash = (*htlc.Hash)[:]
 
 	default:
-		return fmt.Errorf("HTLC attempt %d missing payment hash "+
-			"(parent payment hash=%x)", htlc.AttemptID,
-			parentPaymentHash[:])
+		// For older payments where Hash is nil, use the parent payment
+		// hash. This is consistent with how the router handles these
+		// legacy payments.
+		paymentHash = parentPaymentHash[:]
 	}
 
 	firstHopAmountMsat := int64(htlc.Route.FirstHopAmount.Val.Int())

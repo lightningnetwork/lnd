@@ -66,14 +66,16 @@ func testGraphMigration(ht *lntest.HarnessTest) {
 			numNodes int
 			edges    = make(map[uint64]bool)
 		)
-		err := db.ForEachNodeCached(ctx, lnwire.GossipVersion1, false,
+		err := db.ForEachNodeCached(
+			ctx, lnwire.GossipVersion1, false,
 			func(_ context.Context,
 				_ route.Vertex, _ []net.Addr,
-				chans map[uint64]*graphdb.DirectedChannel) error {
-
+				chans map[uint64]*graphdb.DirectedChannel,
+			) error {
 				numNodes++
 
-				// For each node, also count the number of edges.
+				// For each node, also count the
+				// number of edges.
 				for _, ch := range chans {
 					edges[ch.ChannelID] = true
 				}

@@ -741,11 +741,15 @@ func (c *ChannelGraph) ChanUpdatesInRange(v lnwire.GossipVersion,
 	return c.db.ChanUpdatesInRange(v, r, opts...)
 }
 
-// FilterChannelRange returns channel IDs within the passed block height range.
-func (c *ChannelGraph) FilterChannelRange(startHeight, endHeight uint32,
-	withTimestamps bool) ([]BlockChannelRange, error) {
+// FilterChannelRange returns channel IDs within the passed block height range
+// for the given gossip version.
+func (c *ChannelGraph) FilterChannelRange(v lnwire.GossipVersion,
+	startHeight, endHeight uint32, withTimestamps bool) (
+	[]BlockChannelRange, error) {
 
-	return c.db.FilterChannelRange(startHeight, endHeight, withTimestamps)
+	return c.db.FilterChannelRange(
+		v, startHeight, endHeight, withTimestamps,
+	)
 }
 
 // FetchChanInfos returns the set of channel edges for the passed channel IDs.
@@ -851,6 +855,15 @@ func (c *VersionedGraph) ForEachNodeCached(ctx context.Context,
 	reset func()) error {
 
 	return c.db.ForEachNodeCached(ctx, c.v, withAddrs, cb, reset)
+}
+
+// FilterChannelRange returns channel IDs within the passed block height range.
+func (c *VersionedGraph) FilterChannelRange(startHeight, endHeight uint32,
+	withTimestamps bool) ([]BlockChannelRange, error) {
+
+	return c.db.FilterChannelRange(
+		c.v, startHeight, endHeight, withTimestamps,
+	)
 }
 
 // FetchNode attempts to look up a target node by its identity public key.

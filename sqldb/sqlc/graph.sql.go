@@ -2299,6 +2299,92 @@ func (q *Queries) GetNodeIDByPubKey(ctx context.Context, arg GetNodeIDByPubKeyPa
 	return id, err
 }
 
+const getNodesByBlockHeightRange = `-- name: GetNodesByBlockHeightRange :many
+SELECT id, version, pub_key, alias, last_update, color, signature, block_height
+FROM graph_nodes
+WHERE graph_nodes.version = $1
+  AND block_height >= $2
+  AND block_height <= $3
+  -- Pagination: We use (block_height, pub_key) as a compound cursor.
+  -- This ensures stable ordering and allows us to resume from where we left off.
+  -- We use COALESCE with -1 as sentinel since heights are always positive.
+  AND (
+    -- Include rows with block_height greater than cursor (or all rows if cursor is -1)
+    block_height > COALESCE($4, -1)
+    OR
+    -- For rows with same block_height, use pub_key as tiebreaker
+    (block_height = COALESCE($4, -1)
+     AND pub_key > $5)
+  )
+  -- Optional filter for public nodes only
+  AND (
+    -- If only_public is false or not provided, include all nodes
+    COALESCE($6, FALSE) IS FALSE
+    OR
+    -- For V2 protocol, a node is public if it has at least one public channel.
+    -- A public channel has signature set (channel announcement received).
+    EXISTS (
+      SELECT 1
+      FROM graph_channels c
+      WHERE c.version = 2
+        AND COALESCE(length(c.signature), 0) > 0
+        AND (c.node_id_1 = graph_nodes.id OR c.node_id_2 = graph_nodes.id)
+    )
+  )
+ORDER BY block_height ASC, pub_key ASC
+LIMIT COALESCE($7, 999999999)
+`
+
+type GetNodesByBlockHeightRangeParams struct {
+	Version         int16
+	StartHeight     sql.NullInt64
+	EndHeight       sql.NullInt64
+	LastBlockHeight sql.NullInt64
+	LastPubKey      []byte
+	OnlyPublic      interface{}
+	MaxResults      interface{}
+}
+
+func (q *Queries) GetNodesByBlockHeightRange(ctx context.Context, arg GetNodesByBlockHeightRangeParams) ([]GraphNode, error) {
+	rows, err := q.db.QueryContext(ctx, getNodesByBlockHeightRange,
+		arg.Version,
+		arg.StartHeight,
+		arg.EndHeight,
+		arg.LastBlockHeight,
+		arg.LastPubKey,
+		arg.OnlyPublic,
+		arg.MaxResults,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GraphNode
+	for rows.Next() {
+		var i GraphNode
+		if err := rows.Scan(
+			&i.ID,
+			&i.Version,
+			&i.PubKey,
+			&i.Alias,
+			&i.LastUpdate,
+			&i.Color,
+			&i.Signature,
+			&i.BlockHeight,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getNodesByIDs = `-- name: GetNodesByIDs :many
 SELECT id, version, pub_key, alias, last_update, color, signature, block_height
 FROM graph_nodes
@@ -2350,23 +2436,24 @@ func (q *Queries) GetNodesByIDs(ctx context.Context, ids []int64) ([]GraphNode, 
 const getNodesByLastUpdateRange = `-- name: GetNodesByLastUpdateRange :many
 SELECT id, version, pub_key, alias, last_update, color, signature, block_height
 FROM graph_nodes
-WHERE last_update >= $1
-  AND last_update <= $2
+WHERE graph_nodes.version = $1
+  AND last_update >= $2
+  AND last_update <= $3
   -- Pagination: We use (last_update, pub_key) as a compound cursor.
   -- This ensures stable ordering and allows us to resume from where we left off.
   -- We use COALESCE with -1 as sentinel since timestamps are always positive.
   AND (
     -- Include rows with last_update greater than cursor (or all rows if cursor is -1)
-    last_update > COALESCE($3, -1)
+    last_update > COALESCE($4, -1)
     OR 
     -- For rows with same last_update, use pub_key as tiebreaker
-    (last_update = COALESCE($3, -1) 
-     AND pub_key > $4)
+    (last_update = COALESCE($4, -1) 
+     AND pub_key > $5)
   )
   -- Optional filter for public nodes only
   AND (
     -- If only_public is false or not provided, include all nodes
-    COALESCE($5, FALSE) IS FALSE
+    COALESCE($6, FALSE) IS FALSE
     OR 
     -- For V1 protocol, a node is public if it has at least one public channel.
     -- A public channel has bitcoin_1_signature set (channel announcement received).
@@ -2379,10 +2466,11 @@ WHERE last_update >= $1
     )
   )
 ORDER BY last_update ASC, pub_key ASC
-LIMIT COALESCE($6, 999999999)
+LIMIT COALESCE($7, 999999999)
 `
 
 type GetNodesByLastUpdateRangeParams struct {
+	Version    int16
 	StartTime  sql.NullInt64
 	EndTime    sql.NullInt64
 	LastUpdate sql.NullInt64
@@ -2393,6 +2481,7 @@ type GetNodesByLastUpdateRangeParams struct {
 
 func (q *Queries) GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByLastUpdateRangeParams) ([]GraphNode, error) {
 	rows, err := q.db.QueryContext(ctx, getNodesByLastUpdateRange,
+		arg.Version,
 		arg.StartTime,
 		arg.EndTime,
 		arg.LastUpdate,

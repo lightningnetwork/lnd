@@ -52,6 +52,7 @@ type SQLQueries interface {
 	GetNodesByIDs(ctx context.Context, ids []int64) ([]sqlc.GraphNode, error)
 	GetNodeIDByPubKey(ctx context.Context, arg sqlc.GetNodeIDByPubKeyParams) (int64, error)
 	GetNodesByLastUpdateRange(ctx context.Context, arg sqlc.GetNodesByLastUpdateRangeParams) ([]sqlc.GraphNode, error)
+	GetNodesByBlockHeightRange(ctx context.Context, arg sqlc.GetNodesByBlockHeightRangeParams) ([]sqlc.GraphNode, error)
 	ListNodesPaginated(ctx context.Context, arg sqlc.ListNodesPaginatedParams) ([]sqlc.GraphNode, error)
 	ListNodeIDsAndPubKeys(ctx context.Context, arg sqlc.ListNodeIDsAndPubKeysParams) ([]sqlc.ListNodeIDsAndPubKeysRow, error)
 	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
@@ -609,14 +610,15 @@ func (s *SQLStore) SetSourceNode(ctx context.Context,
 	}, sqldb.NoOpReset)
 }
 
-// NodeUpdatesInHorizon returns all the known lightning node which have an
-// update timestamp within the passed range. This method can be used by two
-// nodes to quickly determine if they have the same set of up to date node
+// NodeUpdatesInHorizon returns all the known lightning nodes which have
+// updates within the passed range. This method can be used by two nodes to
+// quickly determine if they have the same set of up to date node
 // announcements.
 //
 // NOTE: This is part of the Store interface.
-func (s *SQLStore) NodeUpdatesInHorizon(startTime, endTime time.Time,
-	opts ...IteratorOption) iter.Seq2[*models.Node, error] {
+func (s *SQLStore) NodeUpdatesInHorizon(v lnwire.GossipVersion,
+	r NodeUpdateRange, opts ...IteratorOption) iter.Seq2[*models.Node,
+	error] {
 
 	cfg := defaultIteratorConfig()
 	for _, opt := range opts {
@@ -627,9 +629,15 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime, endTime time.Time,
 		var (
 			ctx            = context.TODO()
 			lastUpdateTime sql.NullInt64
+			lastBlock      sql.NullInt64
 			lastPubKey     = make([]byte, 33)
 			hasMore        = true
 		)
+
+		if err := r.validateForVersion(v); err != nil {
+			yield(nil, err)
+			return
+		}
 
 		// Each iteration, we'll read a batch amount of nodes, yield
 		// them, then decide is we have more or not.
@@ -638,34 +646,76 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime, endTime time.Time,
 
 			//nolint:ll
 			err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-				//nolint:ll
-				params := sqlc.GetNodesByLastUpdateRangeParams{
-					StartTime: sqldb.SQLInt64(
-						startTime.Unix(),
-					),
-					EndTime: sqldb.SQLInt64(
-						endTime.Unix(),
-					),
-					LastUpdate: lastUpdateTime,
-					LastPubKey: lastPubKey,
-					OnlyPublic: sql.NullBool{
-						Bool:  cfg.iterPublicNodes,
-						Valid: true,
-					},
-					MaxResults: sqldb.SQLInt32(
-						cfg.nodeUpdateIterBatchSize,
-					),
-				}
-				rows, err := db.GetNodesByLastUpdateRange(
-					ctx, params,
-				)
-				if err != nil {
-					return err
+				var rows []sqlc.GraphNode
+				switch v {
+				case gossipV1:
+					//nolint:ll
+					params := sqlc.GetNodesByLastUpdateRangeParams{
+						Version: int16(v),
+						StartTime: sqldb.SQLInt64(
+							r.StartTime.UnwrapOr(time.Time{}).
+								Unix(),
+						),
+						EndTime: sqldb.SQLInt64(
+							r.EndTime.UnwrapOr(time.Time{}).
+								Unix(),
+						),
+						LastUpdate: lastUpdateTime,
+						LastPubKey: lastPubKey,
+						OnlyPublic: sql.NullBool{
+							Bool:  cfg.iterPublicNodes,
+							Valid: true,
+						},
+						MaxResults: sqldb.SQLInt32(
+							cfg.nodeUpdateIterBatchSize,
+						),
+					}
+					var err error
+					rows, err = db.GetNodesByLastUpdateRange(
+						ctx, params,
+					)
+					if err != nil {
+						return err
+					}
+
+				case gossipV2:
+					//nolint:ll
+					params := sqlc.GetNodesByBlockHeightRangeParams{
+						Version: int16(v),
+						StartHeight: sqldb.SQLInt64(
+							int64(r.StartHeight.
+								UnwrapOr(0)),
+						),
+						EndHeight: sqldb.SQLInt64(
+							int64(r.EndHeight.
+								UnwrapOr(0)),
+						),
+						LastBlockHeight: lastBlock,
+						LastPubKey:      lastPubKey,
+						OnlyPublic: sql.NullBool{
+							Bool:  cfg.iterPublicNodes,
+							Valid: true,
+						},
+						MaxResults: sqldb.SQLInt32(
+							cfg.nodeUpdateIterBatchSize,
+						),
+					}
+					var err error
+					rows, err = db.GetNodesByBlockHeightRange(
+						ctx, params,
+					)
+					if err != nil {
+						return err
+					}
+
+				default:
+					return fmt.Errorf("unknown gossip version: %v",
+						v)
 				}
 
 				hasMore = len(rows) == cfg.nodeUpdateIterBatchSize
 
-				err = forEachNodeInBatch(
+				err := forEachNodeInBatch(
 					ctx, s.cfg.QueryCfg, db, rows,
 					func(_ int64, node *models.Node) error {
 						batch = append(batch, node)
@@ -673,10 +723,19 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime, endTime time.Time,
 						// Update pagination cursors
 						// based on the last processed
 						// node.
-						lastUpdateTime = sql.NullInt64{
-							Int64: node.LastUpdate.
-								Unix(),
-							Valid: true,
+						switch v {
+						case gossipV1:
+							lastUpdateTime = sql.NullInt64{
+								Int64: node.LastUpdate.
+									Unix(),
+								Valid: true,
+							}
+						case gossipV2:
+							lastBlock = sql.NullInt64{
+								Int64: int64(node.
+									LastBlockHeight),
+								Valid: true,
+							}
 						}
 						lastPubKey = node.PubKeyBytes[:]
 

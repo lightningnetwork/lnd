@@ -227,7 +227,8 @@ ORDER BY node_id, type, position;
 -- name: GetNodesByLastUpdateRange :many
 SELECT *
 FROM graph_nodes
-WHERE last_update >= @start_time
+WHERE graph_nodes.version = @version
+  AND last_update >= @start_time
   AND last_update <= @end_time
   -- Pagination: We use (last_update, pub_key) as a compound cursor.
   -- This ensures stable ordering and allows us to resume from where we left off.
@@ -256,6 +257,41 @@ WHERE last_update >= @start_time
     )
   )
 ORDER BY last_update ASC, pub_key ASC
+LIMIT COALESCE(sqlc.narg('max_results'), 999999999);
+
+-- name: GetNodesByBlockHeightRange :many
+SELECT *
+FROM graph_nodes
+WHERE graph_nodes.version = @version
+  AND block_height >= @start_height
+  AND block_height <= @end_height
+  -- Pagination: We use (block_height, pub_key) as a compound cursor.
+  -- This ensures stable ordering and allows us to resume from where we left off.
+  -- We use COALESCE with -1 as sentinel since heights are always positive.
+  AND (
+    -- Include rows with block_height greater than cursor (or all rows if cursor is -1)
+    block_height > COALESCE(sqlc.narg('last_block_height'), -1)
+    OR
+    -- For rows with same block_height, use pub_key as tiebreaker
+    (block_height = COALESCE(sqlc.narg('last_block_height'), -1)
+     AND pub_key > sqlc.narg('last_pub_key'))
+  )
+  -- Optional filter for public nodes only
+  AND (
+    -- If only_public is false or not provided, include all nodes
+    COALESCE(sqlc.narg('only_public'), FALSE) IS FALSE
+    OR
+    -- For V2 protocol, a node is public if it has at least one public channel.
+    -- A public channel has signature set (channel announcement received).
+    EXISTS (
+      SELECT 1
+      FROM graph_channels c
+      WHERE c.version = 2
+        AND COALESCE(length(c.signature), 0) > 0
+        AND (c.node_id_1 = graph_nodes.id OR c.node_id_2 = graph_nodes.id)
+    )
+  )
+ORDER BY block_height ASC, pub_key ASC
 LIMIT COALESCE(sqlc.narg('max_results'), 999999999);
 
 -- name: DeleteNodeAddresses :exec

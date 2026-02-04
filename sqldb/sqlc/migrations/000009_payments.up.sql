@@ -153,10 +153,6 @@ CREATE TABLE IF NOT EXISTS payment_htlc_attempts (
 CREATE INDEX IF NOT EXISTS idx_htlc_payment_id 
 ON payment_htlc_attempts(payment_id);
 
--- Index for efficient querying by attempt index (for lookups and joins)
-CREATE INDEX IF NOT EXISTS idx_htlc_attempt_index 
-ON payment_htlc_attempts(attempt_index);
-
 -- Index for efficient querying by payment hash (for HTLC matching)
 CREATE INDEX IF NOT EXISTS idx_htlc_payment_hash 
 ON payment_htlc_attempts(payment_hash);
@@ -256,10 +252,6 @@ CREATE TABLE IF NOT EXISTS payment_route_hops (
     CONSTRAINT idx_route_hops_unique_hop_per_attempt 
     UNIQUE (htlc_attempt_index, hop_index)
 );
-
--- Index for efficient querying by attempt index (find all hops for an attempt)
-CREATE INDEX IF NOT EXISTS idx_route_hops_htlc_attempt_index 
-ON payment_route_hops(htlc_attempt_index);
 
 -- ─────────────────────────────────────────────
 -- Per-Hop Payload Tables

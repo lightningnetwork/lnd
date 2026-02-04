@@ -1,6 +1,7 @@
 package bitcoindnotify
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -175,7 +176,7 @@ func (b *BitcoindNotifier) startNotifier() error {
 
 	// Connect to bitcoind, and register for notifications on connected,
 	// and disconnected blocks.
-	if err := b.chainConn.Start(); err != nil {
+	if err := b.chainConn.Start(context.TODO()); err != nil {
 		return err
 	}
 	if err := b.chainConn.NotifyBlocks(); err != nil {

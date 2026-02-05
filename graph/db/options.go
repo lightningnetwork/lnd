@@ -13,6 +13,11 @@ const (
 	// around 40MB.
 	DefaultChannelCacheSize = 20000
 
+	// DefaultPublicNodeCacheSize is the default number of node public
+	// status entries to cache. With 15k entries, this produces a cache of
+	// around 1-1.5MB (including map overhead and LRU bookkeeping).
+	DefaultPublicNodeCacheSize = 15000
+
 	// DefaultPreAllocCacheNumNodes is the default number of channels we
 	// assume for mainnet for pre-allocating the graph cache. As of
 	// September 2021, there currently are 14k nodes in a strictly pruned
@@ -125,6 +130,10 @@ type StoreOptions struct {
 	// channel cache.
 	ChannelCacheSize int
 
+	// PublicNodeCacheSize is the maximum number of node public status
+	// entries to hold in the cache.
+	PublicNodeCacheSize int
+
 	// BatchCommitInterval is the maximum duration the batch schedulers will
 	// wait before attempting to commit a pending set of updates.
 	BatchCommitInterval time.Duration
@@ -138,9 +147,10 @@ type StoreOptions struct {
 // DefaultOptions returns a StoreOptions populated with default values.
 func DefaultOptions() *StoreOptions {
 	return &StoreOptions{
-		RejectCacheSize:  DefaultRejectCacheSize,
-		ChannelCacheSize: DefaultChannelCacheSize,
-		NoMigration:      false,
+		RejectCacheSize:     DefaultRejectCacheSize,
+		ChannelCacheSize:    DefaultChannelCacheSize,
+		PublicNodeCacheSize: DefaultPublicNodeCacheSize,
+		NoMigration:         false,
 	}
 }
 
@@ -167,5 +177,12 @@ func WithChannelCacheSize(n int) StoreOptionModifier {
 func WithBatchCommitInterval(interval time.Duration) StoreOptionModifier {
 	return func(o *StoreOptions) {
 		o.BatchCommitInterval = interval
+	}
+}
+
+// WithPublicNodeCacheSize sets the PublicNodeCacheSize to n.
+func WithPublicNodeCacheSize(n int) StoreOptionModifier {
+	return func(o *StoreOptions) {
+		o.PublicNodeCacheSize = n
 	}
 }

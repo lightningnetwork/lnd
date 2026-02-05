@@ -1045,6 +1045,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	graphDBOptions := []graphdb.StoreOptionModifier{
 		graphdb.WithRejectCacheSize(cfg.Caches.RejectCacheSize),
 		graphdb.WithChannelCacheSize(cfg.Caches.ChannelCacheSize),
+		graphdb.WithPublicNodeCacheSize(cfg.Caches.PublicNodeCacheSize),
 		graphdb.WithBatchCommitInterval(cfg.DB.BatchCommitInterval),
 	}
 

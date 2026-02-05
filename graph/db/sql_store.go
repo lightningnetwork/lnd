@@ -21,6 +21,8 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/neutrino/cache"
+	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -176,11 +178,23 @@ type SQLStore struct {
 	rejectCache *rejectCache
 	chanCache   *channelCache
 
+	publicNodeCache *lru.Cache[[33]byte, *cachedPublicNode]
+
 	chanScheduler batch.Scheduler[SQLQueries]
 	nodeScheduler batch.Scheduler[SQLQueries]
 
 	srcNodes  map[lnwire.GossipVersion]*srcNodeInfo
 	srcNodeMu sync.Mutex
+}
+
+// cachedPublicNode represents a value that can be stored in an LRU cache. It
+// has the Size() method which the lru cache requires.
+type cachedPublicNode struct{}
+
+// Size returns the size of the cache entry. We return 1 as we just want to
+// limit the number of entries rather than their actual memory size.
+func (c *cachedPublicNode) Size() (uint64, error) {
+	return 1, nil
 }
 
 // A compile-time assertion to ensure that SQLStore implements the V1Store
@@ -217,7 +231,10 @@ func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries,
 		db:          db,
 		rejectCache: newRejectCache(opts.RejectCacheSize),
 		chanCache:   newChannelCache(opts.ChannelCacheSize),
-		srcNodes:    make(map[lnwire.GossipVersion]*srcNodeInfo),
+		publicNodeCache: lru.NewCache[[33]byte, *cachedPublicNode](
+			uint64(opts.PublicNodeCacheSize),
+		),
+		srcNodes: make(map[lnwire.GossipVersion]*srcNodeInfo),
 	}
 
 	s.chanScheduler = batch.NewTimeScheduler(
@@ -2292,8 +2309,19 @@ func (s *SQLStore) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
 func (s *SQLStore) IsPublicNode(pubKey [33]byte) (bool, error) {
 	ctx := context.TODO()
 
+	// Check the cache first and return early if there is a hit.
+	cached, err := s.publicNodeCache.Get(pubKey)
+	if err == nil && cached != nil {
+		return true, nil
+	}
+
+	// Log any error other than NotFound.
+	if err != nil && !errors.Is(err, cache.ErrElementNotFound) {
+		log.Warnf("Unable to check cache if node is public: %v", err)
+	}
+
 	var isPublic bool
-	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+	err = s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		var err error
 		isPublic, err = db.IsPublicV1Node(ctx, pubKey[:])
 
@@ -2302,6 +2330,14 @@ func (s *SQLStore) IsPublicNode(pubKey [33]byte) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("unable to check if node is "+
 			"public: %w", err)
+	}
+
+	// Store the result in cache only if the node is public.
+	if isPublic {
+		_, err = s.publicNodeCache.Put(pubKey, &cachedPublicNode{})
+		if err != nil {
+			log.Warnf("Unable to store node info in cache: %v", err)
+		}
 	}
 
 	return isPublic, nil

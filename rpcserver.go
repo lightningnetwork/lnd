@@ -8247,6 +8247,13 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 		numEvents = 100
 	}
 
+	// Enforce the maximum number of events that can be returned to avoid
+	// exceeding the max gRPC message size.
+	if numEvents > channeldb.MaxResponseEvents {
+		return nil, fmt.Errorf("max events %d exceeds maximum "+
+			"allowed %d", numEvents, channeldb.MaxResponseEvents)
+	}
+
 	// Create sets of incoming and outgoing channel IDs from the request
 	// for faster lookups for filtering.
 	incomingChanIDs := fn.NewSet(req.IncomingChanIds...)

@@ -1576,9 +1576,13 @@ func (g *GossipSyncer) ApplyGossipFilter(ctx context.Context,
 func (g *GossipSyncer) FilterGossipMsgs(ctx context.Context,
 	msgs ...msgWithSenders) {
 
+	g.Lock()
+	filter := g.remoteUpdateHorizon
+	g.Unlock()
+
 	// If the peer doesn't have an update horizon set, then we won't send
 	// it any new update messages.
-	if g.remoteUpdateHorizon == nil {
+	if filter == nil {
 		log.Tracef("GossipSyncer(%x): skipped due to nil "+
 			"remoteUpdateHorizon", g.cfg.peerPub[:])
 		return
@@ -1619,12 +1623,10 @@ func (g *GossipSyncer) FilterGossipMsgs(ctx context.Context,
 
 	// We'll construct a helper function that we'll us below to determine
 	// if a given messages passes the gossip msg filter.
-	g.Lock()
-	startTime := time.Unix(int64(g.remoteUpdateHorizon.FirstTimestamp), 0)
+	startTime := time.Unix(int64(filter.FirstTimestamp), 0)
 	endTime := startTime.Add(
-		time.Duration(g.remoteUpdateHorizon.TimestampRange) * time.Second,
+		time.Duration(filter.TimestampRange) * time.Second,
 	)
-	g.Unlock()
 
 	passesFilter := func(timeStamp uint32) bool {
 		t := time.Unix(int64(timeStamp), 0)

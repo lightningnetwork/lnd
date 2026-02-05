@@ -754,6 +754,13 @@ message BuildRouteRequest {
     bytes payment_addr = 5;
 
     /*
+    An optional AMP record to use for AMP payments. If provided, this will be
+    included in the final hop of the route instead of an MPP record. The
+    payment_addr field should not be set if this is provided.
+    */
+    AMPRecord amp_record = 8;
+
+    /*
     An optional field that can be used to pass an arbitrary set of TLV records
     to the first hop peer of this payment. This can be used to pass application
     specific data during the payment attempt. Record types are required to be in

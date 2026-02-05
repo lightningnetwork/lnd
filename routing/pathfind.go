@@ -113,6 +113,10 @@ type finalHopParams struct {
 	records     record.CustomSet
 	paymentAddr fn.Option[[32]byte]
 
+	// amp is an optional AMP record to include in the final hop. This is
+	// mutually exclusive with paymentAddr.
+	amp fn.Option[*record.AMP]
+
 	// metadata is additional data that is sent along with the payment to
 	// the payee.
 	metadata []byte
@@ -210,6 +214,7 @@ func newRoute(sourceVertex route.Vertex,
 			outgoingTimeLock    uint32
 			customRecords       record.CustomSet
 			mpp                 *record.MPP
+			amp                 *record.AMP
 			metadata            []byte
 		)
 
@@ -257,11 +262,29 @@ func newRoute(sourceVertex route.Vertex,
 					"payment addr")
 			}
 
+			// Check for AMP support if AMP record is provided.
+			ampSupport := supports(lnwire.AMPOptional)
+			if !ampSupport && finalHop.amp.IsSome() {
+				return nil, errors.New("cannot attach AMP " +
+					"record")
+			}
+
+			// Ensure AMP and MPP are mutually exclusive.
+			if finalHop.paymentAddr.IsSome() && finalHop.amp.IsSome() {
+				return nil, errors.New("cannot attach both MPP " +
+					"and AMP records")
+			}
+
 			// Otherwise attach the mpp record if it exists.
 			// TODO(halseth): move this to payment life cycle,
 			// where AMP options are set.
 			finalHop.paymentAddr.WhenSome(func(addr [32]byte) {
 				mpp = record.NewMPP(finalHop.totalAmt, addr)
+			})
+
+			// Attach the AMP record if it exists.
+			finalHop.amp.WhenSome(func(ampRec *record.AMP) {
+				amp = ampRec
 			})
 
 			metadata = finalHop.metadata
@@ -311,6 +334,7 @@ func newRoute(sourceVertex route.Vertex,
 			OutgoingTimeLock: outgoingTimeLock,
 			CustomRecords:    customRecords,
 			MPP:              mpp,
+			AMP:              amp,
 			Metadata:         metadata,
 			TotalAmtMsat:     totalAmtMsatBlinded,
 		}

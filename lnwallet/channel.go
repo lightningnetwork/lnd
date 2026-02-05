@@ -6576,6 +6576,13 @@ func (lc *LightningChannel) ChannelPoint() wire.OutPoint {
 	return lc.channelState.FundingOutpoint
 }
 
+// ChannelState returns a copy of the internal channeldb.OpenChannel state
+// struct. Modifications to the returned struct will not be reflected within
+// the LightningChannel.
+func (lc *LightningChannel) ChannelState() *channeldb.OpenChannel {
+	return lc.channelState.Copy()
+}
+
 // ChannelID returns the ChannelID of this LightningChannel. This is the same
 // ChannelID that is used in update messages for this channel.
 func (lc *LightningChannel) ChannelID() lnwire.ChannelID {

@@ -317,6 +317,14 @@ const (
 	// support for the special custom taproot overlay channel.
 	SimpleTaprootOverlayChansRequired = 2026
 
+	// OnionMessagesRequired is a required feature bit that indicates that
+	// the node can forward onion messages.
+	OnionMessagesRequired = 38
+
+	// OnionMessagesOptional is an optional feature bit that indicates
+	// that the node can forward onion messages.
+	OnionMessagesOptional = 39
+
 	// MaxBolt11Feature is the maximum feature bit value allowed in bolt 11
 	// invoices.
 	//
@@ -395,6 +403,8 @@ var Features = map[FeatureBit]string{
 	RbfCoopCloseRequired:                 "rbf-coop-close",
 	RbfCoopCloseOptionalStaging:          "rbf-coop-close-x",
 	RbfCoopCloseRequiredStaging:          "rbf-coop-close-x",
+	OnionMessagesOptional:                "onion-messages",
+	OnionMessagesRequired:                "onion-messages",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

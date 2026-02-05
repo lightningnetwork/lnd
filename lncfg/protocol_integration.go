@@ -74,6 +74,9 @@ type ProtocolOptions struct {
 	// NoRouteBlindingOption disables forwarding of payments in blinded routes.
 	NoRouteBlindingOption bool `long:"no-route-blinding" description:"do not forward payments that are a part of a blinded route"`
 
+	// NoOnionMessagesOption disables onion message forwarding.
+	NoOnionMessagesOption bool `long:"no-onion-messages" description:"disable support for onion messaging"`
+
 	// NoExperimentalAccountabilityOption disables experimental accountability.
 	NoExperimentalAccountabilityOption bool `long:"no-experimental-accountability" description:"do not forward experimental accountability signals"`
 
@@ -140,6 +143,11 @@ func (l *ProtocolOptions) NoAnySegwit() bool {
 // NoRouteBlinding returns true if forwarding of blinded payments is disabled.
 func (l *ProtocolOptions) NoRouteBlinding() bool {
 	return l.NoRouteBlindingOption
+}
+
+// NoOnionMessages returns true if onion messaging is disabled.
+func (l *ProtocolOptions) NoOnionMessages() bool {
+	return l.NoOnionMessagesOption
 }
 
 // NoExpAccountability returns true if experimental accountability should be

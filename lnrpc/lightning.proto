@@ -607,7 +607,7 @@ service Lightning {
     SubscribeOnionMessages subscribes to a stream of incoming onion messages.
     */
     rpc SubscribeOnionMessages (SubscribeOnionMessagesRequest)
-        returns (stream OnionMessage);
+        returns (stream OnionMessageUpdate);
 
     /* lncli: `listaliases`
     ListAliases returns the set of all aliases that have ever existed with
@@ -676,7 +676,7 @@ message SendCustomMessageResponse {
 message SubscribeOnionMessagesRequest {
 }
 
-message OnionMessage {
+message OnionMessageUpdate {
     // Peer from which this message originates. Represented as a byte-encoded
     // public key.
     bytes peer = 1;
@@ -694,6 +694,20 @@ message OnionMessage {
     // encrypted payloads and routing instructions used to forward this message
     // along its designated path.
     bytes onion = 3;
+
+    // reply_path is the blinded path that should be used when replying to a
+    // received message.
+    BlindedPath reply_path = 4;
+
+    // encrypted_recipient_data is the encrypted data that contains the
+    // forwarding information for an onion message. It contains either
+    // next_node_id or short_channel_id for each non-final node. It MAY contain
+    // the path_id for the final node.
+    bytes encrypted_recipient_data = 5;
+
+    // Custom onion message tlv records. These are customized fields that are
+    // not defined by LND and cannot be extracted.
+    map<uint64, bytes> custom_records = 6;
 }
 
 message SendOnionMessageRequest {

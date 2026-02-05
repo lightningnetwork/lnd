@@ -77,6 +77,10 @@ type Config struct {
 	// coop close.
 	NoRbfCoopClose bool
 
+	// NoOnionMessages unsets any bits that signal support for onion
+	// messaging.
+	NoOnionMessages bool
+
 	// CustomFeatures is a set of custom features to advertise in each
 	// set.
 	CustomFeatures map[Set][]lnwire.FeatureBit
@@ -220,6 +224,10 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		if cfg.NoRbfCoopClose {
 			raw.Unset(lnwire.RbfCoopCloseOptionalStaging)
 			raw.Unset(lnwire.RbfCoopCloseOptional)
+		}
+		if cfg.NoOnionMessages {
+			raw.Unset(lnwire.OnionMessagesOptional)
+			raw.Unset(lnwire.OnionMessagesRequired)
 		}
 
 		for _, custom := range cfg.CustomFeatures[set] {

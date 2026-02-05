@@ -1161,13 +1161,14 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
 
 		pd = &paymentDescriptor{
-			ChanID:      wireMsg.ChanID,
-			Amount:      ogHTLC.Amount,
-			RHash:       ogHTLC.RHash,
-			ParentIndex: ogHTLC.HtlcIndex,
-			LogIndex:    logUpdate.LogIndex,
-			EntryType:   Fail,
-			FailReason:  wireMsg.Reason[:],
+			ChanID:        wireMsg.ChanID,
+			Amount:        ogHTLC.Amount,
+			RHash:         ogHTLC.RHash,
+			ParentIndex:   ogHTLC.HtlcIndex,
+			LogIndex:      logUpdate.LogIndex,
+			EntryType:     Fail,
+			FailReason:    wireMsg.Reason[:],
+			FailExtraData: wireMsg.ExtraData,
 			removeCommitHeights: lntypes.Dual[uint64]{
 				Remote: commitHeight,
 			},
@@ -1261,13 +1262,14 @@ func (lc *LightningChannel) localLogUpdateToPayDesc(logUpdate *channeldb.LogUpda
 		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
 
 		return &paymentDescriptor{
-			ChanID:      wireMsg.ChanID,
-			Amount:      ogHTLC.Amount,
-			RHash:       ogHTLC.RHash,
-			ParentIndex: ogHTLC.HtlcIndex,
-			LogIndex:    logUpdate.LogIndex,
-			EntryType:   Fail,
-			FailReason:  wireMsg.Reason[:],
+			ChanID:        wireMsg.ChanID,
+			Amount:        ogHTLC.Amount,
+			RHash:         ogHTLC.RHash,
+			ParentIndex:   ogHTLC.HtlcIndex,
+			LogIndex:      logUpdate.LogIndex,
+			EntryType:     Fail,
+			FailReason:    wireMsg.Reason[:],
+			FailExtraData: wireMsg.ExtraData,
 			removeCommitHeights: lntypes.Dual[uint64]{
 				Remote: commitHeight,
 			},
@@ -1380,13 +1382,14 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 		ogHTLC := localUpdateLog.lookupHtlc(wireMsg.ID)
 
 		return &paymentDescriptor{
-			ChanID:      wireMsg.ChanID,
-			Amount:      ogHTLC.Amount,
-			RHash:       ogHTLC.RHash,
-			ParentIndex: ogHTLC.HtlcIndex,
-			LogIndex:    logUpdate.LogIndex,
-			EntryType:   Fail,
-			FailReason:  wireMsg.Reason[:],
+			ChanID:        wireMsg.ChanID,
+			Amount:        ogHTLC.Amount,
+			RHash:         ogHTLC.RHash,
+			ParentIndex:   ogHTLC.HtlcIndex,
+			LogIndex:      logUpdate.LogIndex,
+			EntryType:     Fail,
+			FailReason:    wireMsg.Reason[:],
+			FailExtraData: wireMsg.ExtraData,
 			removeCommitHeights: lntypes.Dual[uint64]{
 				Local: commitHeight,
 			},
@@ -6438,7 +6441,8 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 // NOTE: It is okay for sourceRef, destRef, and closeKey to be nil when unit
 // testing the wallet.
 func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte,
-	sourceRef *channeldb.AddRef, destRef *channeldb.SettleFailRef,
+	extraData lnwire.ExtraOpaqueData, sourceRef *channeldb.AddRef,
+	destRef *channeldb.SettleFailRef,
 	closeKey *models.CircuitKey) error {
 
 	lc.Lock()
@@ -6466,6 +6470,7 @@ func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte,
 		SourceRef:        sourceRef,
 		DestRef:          destRef,
 		ClosedCircuitKey: closeKey,
+		FailExtraData:    extraData,
 	}
 
 	lc.updateLogs.Local.appendUpdate(pd)
@@ -6533,7 +6538,7 @@ func (lc *LightningChannel) MalformedFailHTLC(htlcIndex uint64,
 // commitment update. This method should be called in response to the upstream
 // party cancelling an outgoing HTLC.
 func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64, reason []byte,
-) error {
+	extraData lnwire.ExtraOpaqueData) error {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -6550,13 +6555,14 @@ func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64, reason []byte,
 	}
 
 	pd := &paymentDescriptor{
-		ChanID:      lc.ChannelID(),
-		Amount:      htlc.Amount,
-		RHash:       htlc.RHash,
-		ParentIndex: htlc.HtlcIndex,
-		LogIndex:    lc.updateLogs.Remote.logIndex,
-		EntryType:   Fail,
-		FailReason:  reason,
+		ChanID:        lc.ChannelID(),
+		Amount:        htlc.Amount,
+		RHash:         htlc.RHash,
+		ParentIndex:   htlc.HtlcIndex,
+		LogIndex:      lc.updateLogs.Remote.logIndex,
+		EntryType:     Fail,
+		FailReason:    reason,
+		FailExtraData: extraData,
 	}
 
 	lc.updateLogs.Remote.appendUpdate(pd)

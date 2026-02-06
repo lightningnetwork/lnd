@@ -2521,11 +2521,11 @@ var updateChannelPolicyCommand = cli.Command{
         points are encoded as: funding_txid:output_index
 	`,
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		cli.StringFlag{
 			Name: "base_fee_msat",
-			Usage: "the base fee in milli-satoshis that will be " +
-				"charged for each forwarded HTLC, regardless " +
-				"of payment size",
+			Usage: "[required] base fee in milli-satoshis " +
+				"charged for each forwarded HTLC, " +
+				"regardless of payment size (e.g., 1000)",
 		},
 		cli.StringFlag{
 			Name: "fee_rate",
@@ -2533,17 +2533,17 @@ var updateChannelPolicyCommand = cli.Command{
 				"proportionally based on the value of each " +
 				"forwarded HTLC, the lowest possible rate is " +
 				"0 with a granularity of 0.000001 " +
-				"(millionths). Can not be set at the same " +
-				"time as fee_rate_ppm",
+				"(millionths). Either fee_rate or " +
+				"fee_rate_ppm is required",
 		},
-		cli.Uint64Flag{
+		cli.StringFlag{
 			Name: "fee_rate_ppm",
 			Usage: "the fee rate ppm (parts per million) that " +
 				"will be charged proportionally based on the " +
 				"value of each forwarded HTLC, the lowest " +
 				"possible rate is 0 with a granularity of " +
-				"0.000001 (millionths). Can not be set at " +
-				"the same time as fee_rate",
+				"0.000001 (millionths). Either fee_rate or " +
+				"fee_rate_ppm is required",
 		},
 		cli.Int64Flag{
 			Name: "inbound_base_fee_msat",
@@ -2570,10 +2570,11 @@ var updateChannelPolicyCommand = cli.Command{
 				"(forward at a loss), and lead to " +
 				"penalization by the sender",
 		},
-		cli.Uint64Flag{
+		cli.StringFlag{
 			Name: "time_lock_delta",
-			Usage: "the CLTV delta that will be applied to all " +
-				"forwarded HTLCs",
+			Usage: "[required] CLTV delta applied to all " +
+				"forwarded HTLCs. Must be between 18 " +
+				"and 65535 (e.g., 80)",
 		},
 		cli.Uint64Flag{
 			Name: "min_htlc_msat",
@@ -2670,7 +2671,15 @@ func updateChannelPolicy(ctx *cli.Context) error {
 
 	switch {
 	case ctx.IsSet("base_fee_msat"):
-		baseFee = ctx.Int64("base_fee_msat")
+		baseFee, err = strconv.ParseInt(
+			ctx.String("base_fee_msat"),
+			10,
+			64,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to decode base_fee_msat: %w",
+				err)
+		}
 	case args.Present():
 		baseFee, err = strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
@@ -2686,9 +2695,20 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	case ctx.IsSet("fee_rate") && ctx.IsSet("fee_rate_ppm"):
 		return fmt.Errorf("fee_rate or fee_rate_ppm can not both be set")
 	case ctx.IsSet("fee_rate"):
-		feeRate = ctx.Float64("fee_rate")
+		feeRate, err = strconv.ParseFloat(ctx.String("fee_rate"), 64)
+		if err != nil {
+			return fmt.Errorf("unable to decode fee_rate: %w", err)
+		}
 	case ctx.IsSet("fee_rate_ppm"):
-		feeRatePpm = ctx.Uint64("fee_rate_ppm")
+		feeRatePpm, err = strconv.ParseUint(
+			ctx.String("fee_rate_ppm"),
+			10,
+			64,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to decode fee_rate_ppm: %w",
+				err)
+		}
 	case args.Present():
 		feeRate, err = strconv.ParseFloat(args.First(), 64)
 		if err != nil {

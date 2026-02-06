@@ -125,21 +125,37 @@ jobs:
 
             ## Steps
 
-            1. First, check for existing override labels:
+            1. First, check for existing override labels AND existing severity labels:
                ```
                gh pr view ${{ github.event.pull_request.number }} --json labels --jq '.labels[].name'
                ```
+               Note which `severity-*` label (if any) is currently applied. This is
+               the "previous severity".
 
             2. If an override label exists (severity-override-*), use that level and skip classification.
 
-            3. Get the list of changed files:
+            3. Check for existing bot comments. Look for the HTML marker `<!-- pr-severity-bot -->`:
+               ```
+               gh pr view ${{ github.event.pull_request.number }} --json comments --jq '.comments[].body' | grep -c 'pr-severity-bot' || true
+               ```
+               This tells you whether the bot has commented before.
+
+            4. Get the list of changed files:
                ```
                gh pr view ${{ github.event.pull_request.number }} --json files,additions,deletions
                ```
 
-            4. Classify each file and determine overall severity.
+            5. Classify each file and determine the new overall severity.
 
-            5. Remove any existing severity-* labels (not override labels):
+            6. **Decide whether to comment.** Only post a comment if EITHER:
+               - The bot has NOT commented before (no existing comment with `<!-- pr-severity-bot -->`), OR
+               - The newly determined severity is DIFFERENT from the previous severity label.
+
+               If the bot already commented AND the severity has NOT changed, just
+               stop here — do NOT post another comment. Still update the label if
+               needed (step 7-8), but skip the comment.
+
+            7. Remove any existing severity-* labels (not override labels):
                ```
                gh pr edit ${{ github.event.pull_request.number }} --remove-label "severity-critical" 2>/dev/null || true
                gh pr edit ${{ github.event.pull_request.number }} --remove-label "severity-high" 2>/dev/null || true
@@ -147,12 +163,16 @@ jobs:
                gh pr edit ${{ github.event.pull_request.number }} --remove-label "severity-low" 2>/dev/null || true
                ```
 
-            6. Apply the new severity label:
+            8. Apply the new severity label:
                ```
                gh pr edit ${{ github.event.pull_request.number }} --add-label "severity-<level>"
                ```
 
-            7. Post a comment with your analysis. Use this format:
+            9. If you determined in step 6 that a comment should be posted, post it
+               with your analysis. Use this format:
+
+               If this is a severity CHANGE (previous label existed but differs),
+               prepend: `> ⚠️ Severity changed: **<OLD>** → **<NEW>** (files changed since last classification)`
 
                ```markdown
                ## <emoji> PR Severity: **<LEVEL>**
@@ -178,10 +198,13 @@ jobs:
                <!-- pr-severity-bot -->
                ```
 
-            8. Post the comment using `gh pr comment`:
+            10. Post the comment using `gh pr comment`:
                ```
                gh pr comment ${{ github.event.pull_request.number }} --body "YOUR_COMMENT_HERE"
                ```
+
+            11. If you decided in step 6 to SKIP commenting, do NOT post any comment.
+                Just ensure the label is correct and exit.
 
             ## Emoji Mapping
             - critical: 🔴

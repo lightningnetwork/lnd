@@ -113,7 +113,7 @@ func (r *RemoteSigner) Validate() error {
 //
 //nolint:ll
 type InboundWatchOnlyCfg struct {
-	StartupTimeout time.Duration `long:"startuptimeout" description:"The time the watch-only node will wait for the remote signer to connect during startup. If the timeout expires before the remote signer connects, the watch-only node will shut down. Valid time units are {s, m, h}."`
+	StartupTimeout time.Duration `long:"startuptimeout" description:"The time the watch-only node will wait for the remote signer to connect during startup. If the timeout expires before the remote signer connects, the watch-only node will shut down. If set to 0, no timeout will not expire. Valid time units are {s, m, h}."`
 
 	// RPCListeners is the set of dedicated gRPC listener addresses that
 	// serve only the SignCoordinatorStreams RPC for inbound remote signer

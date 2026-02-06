@@ -454,6 +454,13 @@ func (s *SignCoordinator) WaitUntilConnected(ctx context.Context) error {
 	currentClientReady := s.clientReady
 	s.mu.Unlock()
 
+	var timeout <-chan time.Time
+	if s.connectionTimeout > 0 {
+		timer := time.NewTimer(s.connectionTimeout)
+		defer timer.Stop()
+		timeout = timer.C
+	}
+
 	select {
 	case <-currentClientReady:
 		return nil
@@ -464,7 +471,7 @@ func (s *SignCoordinator) WaitUntilConnected(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 
-	case <-time.After(s.connectionTimeout):
+	case <-timeout:
 		return ErrConnectTimeout
 	}
 }

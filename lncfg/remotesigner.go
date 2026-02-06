@@ -104,7 +104,7 @@ func (r *RemoteSigner) Validate() error {
 //
 //nolint:ll
 type inboundWatchOnlyCfg struct {
-	StartupTimeout time.Duration `long:"startuptimeout" description:"The time the watch-only node will wait for the remote signer to connect during startup. If the timeout expires before the remote signer connects, the watch-only node will shut down. Valid time units are {s, m, h}."`
+	StartupTimeout time.Duration `long:"startuptimeout" description:"The time the watch-only node will wait for the remote signer to connect during startup. If the timeout expires before the remote signer connects, the watch-only node will shut down. If set to 0, no timeout will not expire. Valid time units are {s, m, h}."`
 }
 
 // WatchOnlyNode holds the configuration options for how to connect to a watch

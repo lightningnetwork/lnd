@@ -4822,6 +4822,7 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 	case sqlc.ListChannelsWithPoliciesForCachePaginatedRow:
 		if r.Policy1Timelock.Valid {
 			policy1 = &sqlc.GraphChannelPolicy{
+				Version:                 int16(lnwire.GossipVersion1),
 				Timelock:                r.Policy1Timelock.Int32,
 				FeePpm:                  r.Policy1FeePpm.Int64,
 				BaseFeeMsat:             r.Policy1BaseFeeMsat.Int64,
@@ -4838,6 +4839,7 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 		}
 		if r.Policy2Timelock.Valid {
 			policy2 = &sqlc.GraphChannelPolicy{
+				Version:                 int16(lnwire.GossipVersion1),
 				Timelock:                r.Policy2Timelock.Int32,
 				FeePpm:                  r.Policy2FeePpm.Int64,
 				BaseFeeMsat:             r.Policy2BaseFeeMsat.Int64,

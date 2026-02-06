@@ -147,6 +147,14 @@ var versionedTests = []versionedTest{
 		test: testEdgeInsertionDeletion,
 	},
 	{
+		name: "edge policy crud",
+		test: testEdgePolicyCRUD,
+	},
+	{
+		name: "incomplete channel policies",
+		test: testIncompleteChannelPolicies,
+	},
+	{
 		name: "partial node",
 		test: testPartialNode,
 	},
@@ -886,7 +894,9 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	}
 
 	// The two first edges should be removed from the db.
-	_, _, has, isZombie, err := graph.HasChannelEdge(edgeInfo.ChannelID)
+	has, isZombie, err := graph.HasChannelEdge(
+		lnwire.GossipVersion1, edgeInfo.ChannelID,
+	)
 	require.NoError(t, err, "unable to query for edge")
 	if has {
 		t.Fatalf("edge1 was not pruned from the graph")
@@ -894,7 +904,9 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	if isZombie {
 		t.Fatal("reorged edge1 should not be marked as zombie")
 	}
-	_, _, has, isZombie, err = graph.HasChannelEdge(edgeInfo2.ChannelID)
+	has, isZombie, err = graph.HasChannelEdge(
+		lnwire.GossipVersion1, edgeInfo2.ChannelID,
+	)
 	require.NoError(t, err, "unable to query for edge")
 	if has {
 		t.Fatalf("edge2 was not pruned from the graph")
@@ -904,7 +916,9 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	}
 
 	// Edge 3 should not be removed.
-	_, _, has, isZombie, err = graph.HasChannelEdge(edgeInfo3.ChannelID)
+	has, isZombie, err = graph.HasChannelEdge(
+		lnwire.GossipVersion1, edgeInfo3.ChannelID,
+	)
 	require.NoError(t, err, "unable to query for edge")
 	if !has {
 		t.Fatalf("edge3 was pruned from the graph")
@@ -1044,6 +1058,7 @@ func createChannelEdge(node1, node2 *models.Node) (*models.ChannelEdgeInfo,
 	)
 
 	edge1 := &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID,
 		LastUpdate:                nextUpdateTime(),
@@ -1058,6 +1073,7 @@ func createChannelEdge(node1, node2 *models.Node) (*models.ChannelEdgeInfo,
 		ExtraOpaqueData:           []byte{1, 0},
 	}
 	edge2 := &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID,
 		LastUpdate:                nextUpdateTime(),
@@ -1125,7 +1141,9 @@ func TestEdgeInfoUpdates(t *testing.T) {
 
 	// Check for existence of the edge within the database, it should be
 	// found.
-	_, _, found, isZombie, err := graph.HasChannelEdge(chanID)
+	found, isZombie, err := graph.HasChannelEdge(
+		lnwire.GossipVersion1, chanID,
+	)
 	require.NoError(t, err, "unable to query for edge")
 	if !found {
 		t.Fatalf("graph should have of inserted edge")
@@ -1170,18 +1188,28 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	assertEdgeInfoEqual(t, dbEdgeInfo, edgeInfo)
 }
 
-// TestEdgePolicyCRUD tests basic CRUD operations for edge policies.
-func TestEdgePolicyCRUD(t *testing.T) {
+// testEdgePolicyCRUD tests basic CRUD operations for edge policies.
+func testEdgePolicyCRUD(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
-	node1 := createTestVertex(t, lnwire.GossipVersion1)
-	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	node1 := createTestVertex(t, v)
+	node2 := createTestVertex(t, v)
 
 	// Create an edge. Don't add it to the DB yet.
-	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
+	edgeInfo, shortChanID := createEdge(
+		v, 100, 1, 0, 0, node1, node2,
+	)
+	chanID := shortChanID.ToUint64()
+
+	edge1 := newEdgePolicy(v, chanID, nextUpdateTime().Unix(), true)
+	edge2 := newEdgePolicy(v, chanID, nextUpdateTime().Unix(), false)
+	edge1.ToNode = edgeInfo.NodeKey2Bytes
+	edge2.ToNode = edgeInfo.NodeKey1Bytes
+	edge1.SigBytes = testSig.Serialize()
+	edge2.SigBytes = testSig.Serialize()
 
 	updateAndAssertPolicies := func() {
 		// Make copies of the policies before calling UpdateEdgePolicy
@@ -1190,8 +1218,14 @@ func TestEdgePolicyCRUD(t *testing.T) {
 		edge1 := copyEdgePolicy(edge1)
 		edge2 := copyEdgePolicy(edge2)
 
-		edge1.LastUpdate = nextUpdateTime()
-		edge2.LastUpdate = nextUpdateTime()
+		switch v {
+		case lnwire.GossipVersion1:
+			edge1.LastUpdate = nextUpdateTime()
+			edge2.LastUpdate = nextUpdateTime()
+		case lnwire.GossipVersion2:
+			edge1.LastBlockHeight = nextBlockHeight()
+			edge2.LastBlockHeight = nextBlockHeight()
+		}
 
 		require.NoError(t, graph.UpdateEdgePolicy(ctx, edge1))
 		require.NoError(t, graph.UpdateEdgePolicy(ctx, edge2))
@@ -1207,7 +1241,8 @@ func TestEdgePolicyCRUD(t *testing.T) {
 		// assert that the deserialized policies match the original
 		// ones.
 		err := graph.ForEachChannel(
-			ctx, func(info *models.ChannelEdgeInfo,
+			ctx,
+			func(info *models.ChannelEdgeInfo,
 				policy1 *models.ChannelEdgePolicy,
 				policy2 *models.ChannelEdgePolicy) error {
 
@@ -1238,13 +1273,26 @@ func TestEdgePolicyCRUD(t *testing.T) {
 
 	updateAndAssertPolicies()
 
-	// Update one of the edges to have ChannelFlags include a bit unknown
-	// to us.
-	edge1.ChannelFlags |= 1 << 6
+	switch v {
+	case lnwire.GossipVersion1:
+		// Update one of the edges to have ChannelFlags include a bit
+		// unknown to us.
+		edge1.ChannelFlags |= 1 << 6
 
-	// Update the other edge to have MessageFlags include a bit unknown to
-	// us.
-	edge2.MessageFlags |= 1 << 4
+		// Update the other edge to have MessageFlags include a bit
+		// unknown to us.
+		edge2.MessageFlags |= 1 << 4
+
+	case lnwire.GossipVersion2:
+		// Update one of the edges to have DisableFlags include a bit
+		// unknown to us.
+		edge1.DisableFlags |= 1 << 6
+
+		// Update the other edge to have a modified extra signed field.
+		edge2.ExtraSignedFields = map[uint64][]byte{
+			200: {0x4, 0x5},
+		}
+	}
 
 	updateAndAssertPolicies()
 }
@@ -1437,16 +1485,20 @@ func assertEdgeWithPolicyInCache(t *testing.T, g *ChannelGraph,
 func randEdgePolicy(chanID uint64) *models.ChannelEdgePolicy {
 	update := prand.Int63()
 
-	return newEdgePolicy(chanID, update)
+	return newEdgePolicy(lnwire.GossipVersion1, chanID, update, true)
 }
 
 func copyEdgePolicy(p *models.ChannelEdgePolicy) *models.ChannelEdgePolicy {
 	return &models.ChannelEdgePolicy{
+		Version:                   p.Version,
 		SigBytes:                  p.SigBytes,
 		ChannelID:                 p.ChannelID,
 		LastUpdate:                p.LastUpdate,
+		LastBlockHeight:           p.LastBlockHeight,
+		SecondPeer:                p.SecondPeer,
 		MessageFlags:              p.MessageFlags,
 		ChannelFlags:              p.ChannelFlags,
+		DisableFlags:              p.DisableFlags,
 		TimeLockDelta:             p.TimeLockDelta,
 		MinHTLC:                   p.MinHTLC,
 		MaxHTLC:                   p.MaxHTLC,
@@ -1454,21 +1506,42 @@ func copyEdgePolicy(p *models.ChannelEdgePolicy) *models.ChannelEdgePolicy {
 		FeeProportionalMillionths: p.FeeProportionalMillionths,
 		ToNode:                    p.ToNode,
 		ExtraOpaqueData:           p.ExtraOpaqueData,
+		ExtraSignedFields:         p.ExtraSignedFields,
 	}
 }
 
-func newEdgePolicy(chanID uint64, updateTime int64) *models.ChannelEdgePolicy {
-	return &models.ChannelEdgePolicy{
+func newEdgePolicy(v lnwire.GossipVersion, chanID uint64,
+	updateTime int64, isNode1 bool) *models.ChannelEdgePolicy {
+
+	policy := &models.ChannelEdgePolicy{
+		Version:                   v,
 		ChannelID:                 chanID,
-		LastUpdate:                time.Unix(updateTime, 0),
-		MessageFlags:              1,
-		ChannelFlags:              0,
 		TimeLockDelta:             uint16(prand.Int63()),
 		MinHTLC:                   lnwire.MilliSatoshi(prand.Int63()),
 		MaxHTLC:                   lnwire.MilliSatoshi(prand.Int63()),
 		FeeBaseMSat:               lnwire.MilliSatoshi(prand.Int63()),
 		FeeProportionalMillionths: lnwire.MilliSatoshi(prand.Int63()),
 	}
+
+	if v == lnwire.GossipVersion2 {
+		policy.LastBlockHeight = nextBlockHeight()
+		policy.SecondPeer = !isNode1
+		policy.DisableFlags = 0
+		policy.ExtraSignedFields = map[uint64][]byte{
+			100: {0x1, 0x2, 0x3},
+		}
+
+		return policy
+	}
+
+	policy.LastUpdate = time.Unix(updateTime, 0)
+	policy.MessageFlags = 1
+	if !isNode1 {
+		policy.ChannelFlags = lnwire.ChanUpdateDirection
+	}
+	policy.ExtraOpaqueData = []byte{1, 0}
+
+	return policy
 }
 
 // testAddEdgeProof tests the ability to add an edge proof to an existing edge.
@@ -1668,13 +1741,14 @@ func TestGraphTraversal(t *testing.T) {
 	// Iterate through all the known channels within the graph DB, once
 	// again if the map is empty that indicates that all edges have
 	// properly been reached.
-	err = graph.ForEachChannel(ctx, func(ei *models.ChannelEdgeInfo,
-		_ *models.ChannelEdgePolicy,
-		_ *models.ChannelEdgePolicy) error {
+	err = graph.ForEachChannel(ctx, lnwire.GossipVersion1,
+		func(ei *models.ChannelEdgeInfo,
+			_ *models.ChannelEdgePolicy,
+			_ *models.ChannelEdgePolicy) error {
 
-		delete(chanIndex, ei.ChannelID)
-		return nil
-	}, func() {})
+			delete(chanIndex, ei.ChannelID)
+			return nil
+		}, func() {})
 	require.NoError(t, err)
 	require.Len(t, chanIndex, 0)
 
@@ -1683,7 +1757,7 @@ func TestGraphTraversal(t *testing.T) {
 	numNodeChans := 0
 	firstNode, secondNode := nodeList[0], nodeList[1]
 	err = graph.ForEachNodeChannel(
-		ctx, firstNode.PubKeyBytes,
+		ctx, lnwire.GossipVersion1, firstNode.PubKeyBytes,
 		func(_ *models.ChannelEdgeInfo, outEdge,
 			inEdge *models.ChannelEdgePolicy) error {
 
@@ -1970,7 +2044,8 @@ func assertPruneTip(t *testing.T, graph *ChannelGraph,
 func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 	numChans := 0
 	err := graph.ForEachChannel(
-		t.Context(), func(*models.ChannelEdgeInfo,
+		t.Context(), lnwire.GossipVersion1,
+		func(*models.ChannelEdgeInfo,
 			*models.ChannelEdgePolicy,
 			*models.ChannelEdgePolicy) error {
 
@@ -2354,7 +2429,8 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 		endTime = endTime.Add(time.Second * 10)
 
 		edge1 := newEdgePolicy(
-			chanID.ToUint64(), edge1UpdateTime.Unix(),
+			lnwire.GossipVersion1, chanID.ToUint64(),
+			edge1UpdateTime.Unix(), true,
 		)
 		edge1.ChannelFlags = 0
 		edge1.ToNode = node2.PubKeyBytes
@@ -2364,7 +2440,8 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 		}
 
 		edge2 := newEdgePolicy(
-			chanID.ToUint64(), edge2UpdateTime.Unix(),
+			lnwire.GossipVersion1, chanID.ToUint64(),
+			edge2UpdateTime.Unix(), false,
 		)
 		edge2.ChannelFlags = 1
 		edge2.ToNode = node1.PubKeyBytes
@@ -2816,8 +2893,10 @@ func TestChanUpdatesInHorizonBoundaryConditions(t *testing.T) {
 					t, graph.AddChannelEdge(ctx, channel),
 				)
 
+				//nolint:ll
 				edge1 := newEdgePolicy(
-					chanID.ToUint64(), updateTime.Unix(),
+					lnwire.GossipVersion1, chanID.ToUint64(),
+					updateTime.Unix(), true,
 				)
 				edge1.ChannelFlags = 0
 				edge1.ToNode = node2.PubKeyBytes
@@ -2826,8 +2905,10 @@ func TestChanUpdatesInHorizonBoundaryConditions(t *testing.T) {
 					t, graph.UpdateEdgePolicy(ctx, edge1),
 				)
 
+				//nolint:ll
 				edge2 := newEdgePolicy(
-					chanID.ToUint64(), updateTime.Unix(),
+					lnwire.GossipVersion1, chanID.ToUint64(),
+					updateTime.Unix(), false,
 				)
 				edge2.ChannelFlags = 1
 				edge2.ToNode = node1.PubKeyBytes
@@ -3284,7 +3365,8 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 					return nil
 				}
 
-				_, _, _, _, err := graph.HasChannelEdge(
+				_, _, err := graph.HasChannelEdge(
+					lnwire.GossipVersion1,
 					channel.id.ToUint64(),
 				)
 
@@ -3454,6 +3536,7 @@ func TestFilterChannelRange(t *testing.T) {
 			updateTime = time.Unix(updateTimeSeed, 0)
 			err = graph.UpdateEdgePolicy(
 				ctx, &models.ChannelEdgePolicy{
+					Version:      lnwire.GossipVersion1,
 					ToNode:       node.PubKeyBytes,
 					ChannelFlags: chanFlags,
 					ChannelID:    chanID,
@@ -3663,7 +3746,10 @@ func TestFetchChanInfos(t *testing.T) {
 		updateTime := endTime
 		endTime = updateTime.Add(time.Second * 10)
 
-		edge1 := newEdgePolicy(chanID.ToUint64(), updateTime.Unix())
+		edge1 := newEdgePolicy(
+			lnwire.GossipVersion1, chanID.ToUint64(),
+			updateTime.Unix(), true,
+		)
 		edge1.ChannelFlags = 0
 		edge1.ToNode = node2.PubKeyBytes
 		edge1.SigBytes = testSig.Serialize()
@@ -3671,7 +3757,10 @@ func TestFetchChanInfos(t *testing.T) {
 			t.Fatalf("unable to update edge: %v", err)
 		}
 
-		edge2 := newEdgePolicy(chanID.ToUint64(), updateTime.Unix())
+		edge2 := newEdgePolicy(
+			lnwire.GossipVersion1, chanID.ToUint64(),
+			updateTime.Unix(), false,
+		)
 		edge2.ChannelFlags = 1
 		edge2.ToNode = node1.PubKeyBytes
 		edge2.SigBytes = testSig.Serialize()
@@ -3727,32 +3816,26 @@ func TestFetchChanInfos(t *testing.T) {
 	}
 }
 
-// TestIncompleteChannelPolicies tests that a channel that only has a policy
+// testIncompleteChannelPolicies tests that a channel that only has a policy
 // specified on one end is properly returned in ForEachChannel calls from
 // both sides.
-func TestIncompleteChannelPolicies(t *testing.T) {
+func testIncompleteChannelPolicies(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	// Create two nodes.
-	node1 := createTestVertex(t, lnwire.GossipVersion1)
-	if err := graph.AddNode(ctx, node1); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
-	node2 := createTestVertex(t, lnwire.GossipVersion1)
-	if err := graph.AddNode(ctx, node2); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
+	node1 := createTestVertex(t, v)
+	require.NoError(t, graph.AddNode(ctx, node1))
+	node2 := createTestVertex(t, v)
+	require.NoError(t, graph.AddNode(ctx, node2))
 
 	channel, chanID := createEdge(
-		lnwire.GossipVersion1, uint32(0), 0, 0, 0, node1, node2,
+		v, uint32(0), 0, 0, 0, node1, node2,
 	)
 
-	if err := graph.AddChannelEdge(ctx, channel); err != nil {
-		t.Fatalf("unable to create channel edge: %v", err)
-	}
+	require.NoError(t, graph.AddChannelEdge(ctx, channel))
 
 	// Ensure that channel is reported with unknown policies.
 	checkPolicies := func(node *models.Node, expectedIn,
@@ -3764,21 +3847,8 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 			func(_ *models.ChannelEdgeInfo, outEdge,
 				inEdge *models.ChannelEdgePolicy) error {
 
-				if !expectedOut && outEdge != nil {
-					t.Fatalf("Expected no outgoing policy")
-				}
-
-				if expectedOut && outEdge == nil {
-					t.Fatalf("Expected an outgoing policy")
-				}
-
-				if !expectedIn && inEdge != nil {
-					t.Fatalf("Expected no incoming policy")
-				}
-
-				if expectedIn && inEdge == nil {
-					t.Fatalf("Expected an incoming policy")
-				}
+				require.Equal(t, expectedOut, outEdge != nil)
+				require.Equal(t, expectedIn, inEdge != nil)
 
 				calls++
 
@@ -3791,30 +3861,38 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 
 	checkPolicies(node2, false, false)
 
+	newTestEdgePolicy := func(isNode1 bool,
+		toNode route.Vertex) *models.ChannelEdgePolicy {
+
+		policy := newEdgePolicy(
+			v, chanID.ToUint64(), nextUpdateTime().Unix(), isNode1,
+		)
+		policy.ToNode = toNode
+		policy.SigBytes = testSig.Serialize()
+
+		if v == lnwire.GossipVersion1 {
+			if isNode1 {
+				policy.ChannelFlags = 0
+			} else {
+				policy.ChannelFlags = lnwire.ChanUpdateDirection
+			}
+		}
+
+		return policy
+	}
+
 	// Only create an edge policy for node1 and leave the policy for node2
 	// unknown.
-	updateTime := time.Unix(1234, 0)
-
-	edgePolicy := newEdgePolicy(chanID.ToUint64(), updateTime.Unix())
-	edgePolicy.ChannelFlags = 0
-	edgePolicy.ToNode = node2.PubKeyBytes
-	edgePolicy.SigBytes = testSig.Serialize()
-	if err := graph.UpdateEdgePolicy(ctx, edgePolicy); err != nil {
-		t.Fatalf("unable to update edge: %v", err)
-	}
+	edgePolicy := newTestEdgePolicy(true, node2.PubKeyBytes)
+	require.NoError(t, graph.UpdateEdgePolicy(ctx, edgePolicy))
 
 	checkPolicies(node1, false, true)
 	checkPolicies(node2, true, false)
 
 	// Create second policy and assert that both policies are reported
 	// as present.
-	edgePolicy = newEdgePolicy(chanID.ToUint64(), updateTime.Unix())
-	edgePolicy.ChannelFlags = 1
-	edgePolicy.ToNode = node1.PubKeyBytes
-	edgePolicy.SigBytes = testSig.Serialize()
-	if err := graph.UpdateEdgePolicy(ctx, edgePolicy); err != nil {
-		t.Fatalf("unable to update edge: %v", err)
-	}
+	edgePolicy = newTestEdgePolicy(false, node1.PubKeyBytes)
+	require.NoError(t, graph.UpdateEdgePolicy(ctx, edgePolicy))
 
 	checkPolicies(node1, true, true)
 	checkPolicies(node2, true, true)
@@ -4659,21 +4737,13 @@ func compareNodes(t *testing.T, a, b *models.Node) {
 // compareEdgePolicies is used to compare two ChannelEdgePolices using
 // compareNodes, so as to exclude comparisons of the Nodes' Features struct.
 func compareEdgePolicies(a, b *models.ChannelEdgePolicy) error {
+	if a.Version != b.Version {
+		return fmt.Errorf("Version doesn't match: expected %v, got %v",
+			a.Version, b.Version)
+	}
 	if a.ChannelID != b.ChannelID {
 		return fmt.Errorf("ChannelID doesn't match: expected %v, "+
 			"got %v", a.ChannelID, b.ChannelID)
-	}
-	if !reflect.DeepEqual(a.LastUpdate, b.LastUpdate) {
-		return fmt.Errorf("edge LastUpdate doesn't match: "+
-			"expected %#v, got %#v", a.LastUpdate, b.LastUpdate)
-	}
-	if a.MessageFlags != b.MessageFlags {
-		return fmt.Errorf("MessageFlags doesn't match: expected %v, "+
-			"got %v", a.MessageFlags, b.MessageFlags)
-	}
-	if a.ChannelFlags != b.ChannelFlags {
-		return fmt.Errorf("ChannelFlags doesn't match: expected %v, "+
-			"got %v", a.ChannelFlags, b.ChannelFlags)
 	}
 	if a.TimeLockDelta != b.TimeLockDelta {
 		return fmt.Errorf("TimeLockDelta doesn't match: expected %v, "+
@@ -4696,16 +4766,64 @@ func compareEdgePolicies(a, b *models.ChannelEdgePolicy) error {
 			"expected %v, got %v", a.FeeProportionalMillionths,
 			b.FeeProportionalMillionths)
 	}
-	if !bytes.Equal(a.ExtraOpaqueData, b.ExtraOpaqueData) {
-		return fmt.Errorf("extra data doesn't match: %v vs %v",
-			a.ExtraOpaqueData, b.ExtraOpaqueData)
-	}
 	if !bytes.Equal(a.ToNode[:], b.ToNode[:]) {
 		return fmt.Errorf("ToNode doesn't match: expected %x, got %x",
 			a.ToNode, b.ToNode)
 	}
+	if a.Version == lnwire.GossipVersion2 {
+		if a.LastBlockHeight != b.LastBlockHeight {
+			return fmt.Errorf("LastBlockHeight doesn't match: "+
+				"expected %v, got %v", a.LastBlockHeight,
+				b.LastBlockHeight)
+		}
+		if a.SecondPeer != b.SecondPeer {
+			return fmt.Errorf("SecondPeer doesn't match: "+
+				"expected %v, got %v", a.SecondPeer,
+				b.SecondPeer)
+		}
+		if a.DisableFlags != b.DisableFlags {
+			return fmt.Errorf("DisableFlags doesn't match: "+
+				"expected %v, got %v", a.DisableFlags,
+				b.DisableFlags)
+		}
+		if !equalExtraSignedFields(
+			a.ExtraSignedFields, b.ExtraSignedFields,
+		) {
+
+			return fmt.Errorf("ExtraSignedFields doesn't match: "+
+				"expected %#v, got %#v", a.ExtraSignedFields,
+				b.ExtraSignedFields)
+		}
+
+		return nil
+	}
+
+	if !reflect.DeepEqual(a.LastUpdate, b.LastUpdate) {
+		return fmt.Errorf("edge LastUpdate doesn't match: "+
+			"expected %#v, got %#v", a.LastUpdate, b.LastUpdate)
+	}
+	if a.MessageFlags != b.MessageFlags {
+		return fmt.Errorf("MessageFlags doesn't match: expected %v, "+
+			"got %v", a.MessageFlags, b.MessageFlags)
+	}
+	if a.ChannelFlags != b.ChannelFlags {
+		return fmt.Errorf("ChannelFlags doesn't match: expected %v, "+
+			"got %v", a.ChannelFlags, b.ChannelFlags)
+	}
+	if !bytes.Equal(a.ExtraOpaqueData, b.ExtraOpaqueData) {
+		return fmt.Errorf("extra data doesn't match: %v vs %v",
+			a.ExtraOpaqueData, b.ExtraOpaqueData)
+	}
 
 	return nil
+}
+
+func equalExtraSignedFields(a, b map[uint64][]byte) bool {
+	if len(a) == 0 && len(b) == 0 {
+		return true
+	}
+
+	return reflect.DeepEqual(a, b)
 }
 
 // TestLightningNodeSigVerification checks that we can use the Node's
@@ -4747,6 +4865,7 @@ func TestLightningNodeSigVerification(t *testing.T) {
 func TestComputeFee(t *testing.T) {
 	var (
 		policy = models.ChannelEdgePolicy{
+			Version:                   lnwire.GossipVersion1,
 			FeeBaseMSat:               10000,
 			FeeProportionalMillionths: 30000,
 		}
@@ -4942,7 +5061,9 @@ func BenchmarkForEachChannel(b *testing.B) {
 				return nil
 			}
 
-			err := graph.ForEachNodeChannel(ctx, n, cb, func() {})
+			err := graph.ForEachNodeChannel(
+				ctx, lnwire.GossipVersion1, n, cb, func() {},
+			)
 			require.NoError(b, err)
 		}
 	}

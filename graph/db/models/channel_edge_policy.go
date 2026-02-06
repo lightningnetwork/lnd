@@ -14,6 +14,10 @@ import (
 // information concerning fees, and minimum time-lock information which is
 // utilized during path finding.
 type ChannelEdgePolicy struct {
+	// Version is the gossip version of the channel update that produced
+	// this policy.
+	Version lnwire.GossipVersion
+
 	// SigBytes is the raw bytes of the signature of the channel edge
 	// policy. We'll only parse these if the caller needs to access the
 	// signature for validation purposes.
@@ -28,6 +32,14 @@ type ChannelEdgePolicy struct {
 	// was received.
 	LastUpdate time.Time
 
+	// LastBlockHeight is the block height that timestamps the last update
+	// for v2 channel updates.
+	LastBlockHeight uint32
+
+	// SecondPeer indicates whether this policy was announced by the second
+	// peer in the channel for v2 channel updates.
+	SecondPeer bool
+
 	// MessageFlags is a bitfield which indicates the presence of optional
 	// fields (like max_htlc) in the policy.
 	MessageFlags lnwire.ChanUpdateMsgFlags
@@ -35,6 +47,10 @@ type ChannelEdgePolicy struct {
 	// ChannelFlags is a bitfield which signals the capabilities of the
 	// channel as well as the directed edge this update applies to.
 	ChannelFlags lnwire.ChanUpdateChanFlags
+
+	// DisableFlags is a v2-specific bitfield which signals whether the
+	// channel is disabled for incoming or outgoing traffic.
+	DisableFlags lnwire.ChanUpdateDisableFlags
 
 	// TimeLockDelta is the number of blocks this node will subtract from
 	// the expiry of an incoming HTLC. This value expresses the time buffer
@@ -77,11 +93,78 @@ type ChannelEdgePolicy struct {
 	// and ensure we're able to make upgrades to the network in a forwards
 	// compatible manner.
 	ExtraOpaqueData lnwire.ExtraOpaqueData
+
+	// ExtraSignedFields are the extra signed fields found in v2 channel
+	// updates.
+	ExtraSignedFields map[uint64][]byte
+}
+
+// ChanEdgePolicyFromWire constructs a ChannelEdgePolicy from a channel update
+// message.
+func ChanEdgePolicyFromWire(scid uint64,
+	update lnwire.ChannelUpdate) (*ChannelEdgePolicy, error) {
+
+	switch upd := update.(type) {
+	case *lnwire.ChannelUpdate1:
+		//nolint:ll
+		return &ChannelEdgePolicy{
+			Version:                   lnwire.GossipVersion1,
+			SigBytes:                  upd.Signature.ToSignatureBytes(),
+			ChannelID:                 scid,
+			LastUpdate:                time.Unix(int64(upd.Timestamp), 0),
+			MessageFlags:              upd.MessageFlags,
+			ChannelFlags:              upd.ChannelFlags,
+			TimeLockDelta:             upd.TimeLockDelta,
+			MinHTLC:                   upd.HtlcMinimumMsat,
+			MaxHTLC:                   upd.HtlcMaximumMsat,
+			FeeBaseMSat:               lnwire.MilliSatoshi(upd.BaseFee),
+			FeeProportionalMillionths: lnwire.MilliSatoshi(upd.FeeRate),
+			InboundFee:                upd.InboundFee.ValOpt(),
+			ExtraOpaqueData:           upd.ExtraOpaqueData,
+		}, nil
+
+	case *lnwire.ChannelUpdate2:
+		return &ChannelEdgePolicy{
+			Version:         lnwire.GossipVersion2,
+			SigBytes:        upd.Signature.Val.ToSignatureBytes(),
+			ChannelID:       upd.ShortChannelID.Val.ToUint64(),
+			LastBlockHeight: upd.BlockHeight.Val,
+			SecondPeer:      upd.SecondPeer.IsSome(),
+			DisableFlags:    upd.DisabledFlags.Val,
+			TimeLockDelta:   upd.CLTVExpiryDelta.Val,
+			MinHTLC:         upd.HTLCMinimumMsat.Val,
+			MaxHTLC:         upd.HTLCMaximumMsat.Val,
+			FeeBaseMSat: lnwire.MilliSatoshi(
+				upd.FeeBaseMsat.Val,
+			),
+			FeeProportionalMillionths: lnwire.MilliSatoshi(
+				upd.FeeProportionalMillionths.Val,
+			),
+			InboundFee:        upd.InboundFee.ValOpt(),
+			ExtraSignedFields: upd.ExtraSignedFields,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("unknown channel update version: %v",
+		update.MsgType())
+}
+
+// IsNode1 returns true if this policy was announced by the channel's node_1.
+func (c *ChannelEdgePolicy) IsNode1() bool {
+	if c.Version == lnwire.GossipVersion1 {
+		return c.ChannelFlags&lnwire.ChanUpdateDirection == 0
+	}
+
+	return !c.SecondPeer
 }
 
 // IsDisabled determines whether the edge has the disabled bit set.
 func (c *ChannelEdgePolicy) IsDisabled() bool {
-	return c.ChannelFlags.IsDisabled()
+	if c.Version == lnwire.GossipVersion1 {
+		return c.ChannelFlags.IsDisabled()
+	}
+
+	return !c.DisableFlags.IsEnabled()
 }
 
 // ComputeFee computes the fee to forward an HTLC of `amt` milli-satoshis over
@@ -95,7 +178,13 @@ func (c *ChannelEdgePolicy) ComputeFee(
 
 // String returns a human-readable version of the channel edge policy.
 func (c *ChannelEdgePolicy) String() string {
-	return fmt.Sprintf("ChannelID=%v, MessageFlags=%v, ChannelFlags=%v, "+
-		"LastUpdate=%v", c.ChannelID, c.MessageFlags, c.ChannelFlags,
-		c.LastUpdate)
+	if c.Version == lnwire.GossipVersion1 {
+		return fmt.Sprintf("ChannelID=%v, MessageFlags=%v, "+
+			"ChannelFlags=%v, LastUpdate=%v", c.ChannelID,
+			c.MessageFlags, c.ChannelFlags, c.LastUpdate)
+	}
+
+	return fmt.Sprintf("ChannelID=%v, Node1=%v, DisableFlags=%v, "+
+		"BlockHeight=%v", c.ChannelID, !c.SecondPeer,
+		c.DisableFlags, c.LastBlockHeight)
 }

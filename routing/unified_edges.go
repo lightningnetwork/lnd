@@ -188,7 +188,7 @@ func (u *unifiedEdge) amtInRange(amt lnwire.MilliSatoshi) bool {
 	}
 
 	// Skip channels for which this htlc is too large.
-	if u.policy.MessageFlags.HasMaxHtlc() &&
+	if u.policy.HasMaxHTLC &&
 		amt > u.policy.MaxHTLC {
 
 		log.Tracef("Exceeds policy's MaxHTLC: amt=%v, MaxHTLC=%v",
@@ -376,7 +376,7 @@ func (u *edgeUnifier) getEdgeNetwork(netAmtReceived lnwire.MilliSatoshi,
 		}
 
 		// For network channels, skip the disabled ones.
-		if edge.policy.IsDisabled() {
+		if edge.policy.IsDisabled {
 			log.Debugf("Skipped edge %v due to it being disabled",
 				edge.policy.ChannelID)
 			continue
@@ -385,7 +385,7 @@ func (u *edgeUnifier) getEdgeNetwork(netAmtReceived lnwire.MilliSatoshi,
 		// Track the maximal capacity for usable channels. If we don't
 		// know the capacity, we fall back to MaxHTLC.
 		capMsat := lnwire.NewMSatFromSatoshis(edge.capacity)
-		if capMsat == 0 && edge.policy.MessageFlags.HasMaxHtlc() {
+		if capMsat == 0 && edge.policy.HasMaxHTLC {
 			log.Tracef("No capacity available for channel %v, "+
 				"using MaxHtlcMsat (%v) as a fallback.",
 				edge.policy.ChannelID, edge.policy.MaxHTLC)

@@ -20,13 +20,15 @@ type CachedEdgePolicy struct {
 	// and the last 2 bytes are the output index for the channel.
 	ChannelID uint64
 
-	// MessageFlags is a bitfield which indicates the presence of optional
-	// fields (like max_htlc) in the policy.
-	MessageFlags lnwire.ChanUpdateMsgFlags
+	// HasMaxHTLC indicates whether the policy has a max HTLC value.
+	HasMaxHTLC bool
 
-	// ChannelFlags is a bitfield which signals the capabilities of the
-	// channel as well as the directed edge this update applies to.
-	ChannelFlags lnwire.ChanUpdateChanFlags
+	// IsNode1 indicates whether this policy was announced by the channel's
+	// node_1.
+	IsNode1 bool
+
+	// IsDisabled indicates whether the policy disables forwarding.
+	IsDisabled bool
 
 	// TimeLockDelta is the number of blocks this node will subtract from
 	// the expiry of an incoming HTLC. This value expresses the time buffer
@@ -75,24 +77,31 @@ func (c *CachedEdgePolicy) ComputeFee(
 	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
 }
 
-// IsDisabled returns true if the channel is disabled in the direction from  the
-// advertising node.
-func (c *CachedEdgePolicy) IsDisabled() bool {
-	return c.ChannelFlags&lnwire.ChanUpdateDisabled != 0
-}
-
-// IsNode1 returns true if this policy was announced by the channel's node_1
-// node.
-func (c *CachedEdgePolicy) IsNode1() bool {
-	return c.ChannelFlags&lnwire.ChanUpdateDirection == 0
-}
-
 // NewCachedPolicy turns a full policy into a minimal one that can be cached.
 func NewCachedPolicy(policy *ChannelEdgePolicy) *CachedEdgePolicy {
+	if policy.Version != lnwire.GossipVersion2 {
+		return &CachedEdgePolicy{
+			ChannelID:  policy.ChannelID,
+			HasMaxHTLC: policy.MessageFlags.HasMaxHtlc(),
+			IsDisabled: policy.ChannelFlags&
+				lnwire.ChanUpdateDisabled != 0,
+			IsNode1: policy.ChannelFlags&
+				lnwire.ChanUpdateDirection == 0,
+			TimeLockDelta: policy.TimeLockDelta,
+			MinHTLC:       policy.MinHTLC,
+			MaxHTLC:       policy.MaxHTLC,
+			FeeBaseMSat:   policy.FeeBaseMSat,
+			FeeProportionalMillionths: policy.
+				FeeProportionalMillionths,
+			InboundFee: policy.InboundFee,
+		}
+	}
+
 	return &CachedEdgePolicy{
 		ChannelID:                 policy.ChannelID,
-		MessageFlags:              policy.MessageFlags,
-		ChannelFlags:              policy.ChannelFlags,
+		HasMaxHTLC:                true,
+		IsNode1:                   !policy.SecondPeer,
+		IsDisabled:                !policy.DisableFlags.IsEnabled(),
 		TimeLockDelta:             policy.TimeLockDelta,
 		MinHTLC:                   policy.MinHTLC,
 		MaxHTLC:                   policy.MaxHTLC,

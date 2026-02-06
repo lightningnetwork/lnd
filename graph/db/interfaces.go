@@ -73,8 +73,9 @@ type Store interface { //nolint:interfacebloat
 	// to the caller.
 	//
 	// Unknown policies are passed into the callback as nil values.
-	ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
-		cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	ForEachNodeChannel(ctx context.Context, v lnwire.GossipVersion,
+		nodePub route.Vertex, cb func(*models.ChannelEdgeInfo,
+			*models.ChannelEdgePolicy,
 			*models.ChannelEdgePolicy) error, reset func()) error
 
 	// ForEachNodeCached is similar to forEachNode, but it returns
@@ -162,9 +163,12 @@ type Store interface { //nolint:interfacebloat
 	// NOTE: If an edge can't be found, or wasn't advertised, then a nil
 	// pointer for that particular channel edge routing policy will be
 	// passed into the callback.
-	ForEachChannel(ctx context.Context, cb func(*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error,
-		reset func()) error
+	//
+	// TODO(elle): add a cross-version iteration API and make this iterate
+	// over all versions.
+	ForEachChannel(ctx context.Context, v lnwire.GossipVersion,
+		cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+			*models.ChannelEdgePolicy) error, reset func()) error
 
 	// ForEachChannelCacheable iterates through all the channel edges stored
 	// within the graph and invokes the passed callback for each edge. The
@@ -197,13 +201,20 @@ type Store interface { //nolint:interfacebloat
 	AddChannelEdge(ctx context.Context, edge *models.ChannelEdgeInfo,
 		op ...batch.SchedulerOption) error
 
-	// HasChannelEdge returns true if the database knows of a channel edge
+	// HasV1ChannelEdge returns true if the database knows of a channel edge
 	// with the passed channel ID, and false otherwise. If an edge with that
 	// ID is found within the graph, then two time stamps representing the
 	// last time the edge was updated for both directed edges are returned
 	// along with the boolean. If it is not found, then the zombie index is
 	// checked and its result is returned as the second boolean.
-	HasChannelEdge(chanID uint64) (time.Time, time.Time, bool, bool,
+	HasV1ChannelEdge(chanID uint64) (time.Time, time.Time, bool, bool,
+		error)
+
+	// HasChannelEdge returns true if the database knows of a channel edge
+	// with the passed channel ID and gossip version, and false otherwise.
+	// If it is not found, then the zombie index is checked and its result
+	// is returned as the second boolean.
+	HasChannelEdge(v lnwire.GossipVersion, chanID uint64) (bool, bool,
 		error)
 
 	// DeleteChannelEdges removes edges with the given channel IDs from the

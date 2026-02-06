@@ -317,7 +317,9 @@ var shouldIncludeChannelTestCases = []struct {
 
 				return edge
 			}(),
+			//nolint:ll
 			&models.ChannelEdgePolicy{
+				Version:                   lnwire.GossipVersion1,
 				FeeBaseMSat:               1000,
 				FeeProportionalMillionths: 20,
 				TimeLockDelta:             13,
@@ -364,7 +366,9 @@ var shouldIncludeChannelTestCases = []struct {
 		).Once().Return(
 			&models.ChannelEdgeInfo{},
 			&models.ChannelEdgePolicy{},
+			//nolint:ll
 			&models.ChannelEdgePolicy{
+				Version:                   lnwire.GossipVersion1,
 				FeeBaseMSat:               1000,
 				FeeProportionalMillionths: 20,
 				TimeLockDelta:             13,
@@ -409,7 +413,9 @@ var shouldIncludeChannelTestCases = []struct {
 		).Once().Return(
 			&models.ChannelEdgeInfo{},
 			&models.ChannelEdgePolicy{},
+			//nolint:ll
 			&models.ChannelEdgePolicy{
+				Version:                   lnwire.GossipVersion1,
 				FeeBaseMSat:               1000,
 				FeeProportionalMillionths: 20,
 				TimeLockDelta:             13,

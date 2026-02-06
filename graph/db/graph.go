@@ -597,11 +597,12 @@ func (c *ChannelGraph) ForEachSourceNodeChannel(ctx context.Context,
 
 // ForEachNodeChannel iterates through all channels of the given node.
 func (c *ChannelGraph) ForEachNodeChannel(ctx context.Context,
-	nodePub route.Vertex, cb func(*models.ChannelEdgeInfo,
+	v lnwire.GossipVersion, nodePub route.Vertex,
+	cb func(*models.ChannelEdgeInfo,
 		*models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error, reset func()) error {
 
-	return c.db.ForEachNodeChannel(ctx, nodePub, cb, reset)
+	return c.db.ForEachNodeChannel(ctx, v, nodePub, cb, reset)
 }
 
 // ForEachNode iterates through all stored vertices/nodes in the graph.
@@ -642,10 +643,11 @@ func (c *ChannelGraph) IsPublicNode(pubKey [33]byte) (bool, error) {
 
 // ForEachChannel iterates through all channel edges stored within the graph.
 func (c *ChannelGraph) ForEachChannel(ctx context.Context,
-	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error, reset func()) error {
+	v lnwire.GossipVersion, cb func(*models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error,
+	reset func()) error {
 
-	return c.db.ForEachChannel(ctx, cb, reset)
+	return c.db.ForEachChannel(ctx, v, cb, reset)
 }
 
 // ForEachChannelCacheable iterates through all channel edges for the cache.
@@ -661,11 +663,18 @@ func (c *ChannelGraph) DisabledChannelIDs() ([]uint64, error) {
 	return c.db.DisabledChannelIDs()
 }
 
-// HasChannelEdge returns true if the database knows of a channel edge.
-func (c *ChannelGraph) HasChannelEdge(chanID uint64) (time.Time, time.Time,
-	bool, bool, error) {
+// HasV1ChannelEdge returns true if the database knows of a channel edge.
+func (c *ChannelGraph) HasV1ChannelEdge(chanID uint64) (time.Time,
+	time.Time, bool, bool, error) {
 
-	return c.db.HasChannelEdge(chanID)
+	return c.db.HasV1ChannelEdge(chanID)
+}
+
+// HasChannelEdge returns true if the database knows of a channel edge.
+func (c *ChannelGraph) HasChannelEdge(v lnwire.GossipVersion,
+	chanID uint64) (bool, bool, error) {
+
+	return c.db.HasChannelEdge(v, chanID)
 }
 
 // AddEdgeProof sets the proof of an existing edge in the graph database.
@@ -887,6 +896,31 @@ func (c *VersionedGraph) DeleteChannelEdges(strictZombiePruning,
 	}
 
 	return err
+}
+
+// HasChannelEdge returns true if the database knows of a channel edge with the
+// passed channel ID and this graph's gossip version, and false otherwise. If it
+// is not found, then the zombie index is checked and its result is returned as
+// the second boolean.
+func (c *VersionedGraph) HasChannelEdge(chanID uint64) (bool, bool, error) {
+	return c.db.HasChannelEdge(c.v, chanID)
+}
+
+// ForEachNodeChannel iterates through all channels of the given node.
+func (c *VersionedGraph) ForEachNodeChannel(ctx context.Context,
+	nodePub route.Vertex, cb func(*models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy) error, reset func()) error {
+
+	return c.db.ForEachNodeChannel(ctx, c.v, nodePub, cb, reset)
+}
+
+// ForEachChannel iterates through all channel edges stored within the graph.
+func (c *VersionedGraph) ForEachChannel(ctx context.Context,
+	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy) error, reset func()) error {
+
+	return c.db.ForEachChannel(ctx, c.v, cb, reset)
 }
 
 // IsPublicNode determines whether the node is seen as public in the graph.

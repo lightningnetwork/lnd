@@ -109,7 +109,7 @@
 ## Breaking Changes
 
 * [Increased MinCLTVDelta from 18 to
-  24](https://github.com/lightningnetwork/lnd/pull/TODO) to provide a larger
+  24](https://github.com/lightningnetwork/lnd/pull/10331) to provide a larger
   safety margin above the `DefaultFinalCltvRejectDelta` (19 blocks). This
   affects users who create invoices with custom `cltv_expiry_delta` values
   between 18-23, which will now require a minimum of 24. The default value of

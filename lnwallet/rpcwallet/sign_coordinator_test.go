@@ -2,6 +2,7 @@ package rpcwallet
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -814,6 +815,86 @@ func TestRemoteSignerDisconnects(t *testing.T) {
 
 	// Verify the responses map is empty after all responses are received
 	require.Equal(t, coordinator.responses.Len(), 0)
+}
+
+// TestWaitUntilConnectedNoTimeout verifies that setting the connection
+// timeout to zero completely disables the internal connect timeout
+// (i.e., no timer is started). As a result, WaitUntilConnected can only
+// return when the signer connects, the coordinator shuts down, or the
+// caller’s context is canceled. This ensures that no fallback or default
+// timeout is applied when the value is set to 0.
+func TestWaitUntilConnectedNoTimeout(t *testing.T) {
+	t.Parallel()
+
+	coordinator := NewSignCoordinator(2*time.Second, 0)
+	stream := newMockSCStream()
+
+	runErrChan := make(chan error, 1)
+	go func() {
+		err := coordinator.Run(stream)
+		if err != nil {
+			runErrChan <- err
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+
+	waitErrChan := make(chan error, 1)
+	go func() {
+		waitErrChan <- coordinator.WaitUntilConnected(ctx)
+	}()
+
+	// With connectionTimeout == 0, there is no internal timeout path, so
+	// WaitUntilConnected must stay blocked until the handshake completes or
+	// the ctx is canceled.
+	select {
+	case err := <-waitErrChan:
+		t.Fatalf("WaitUntilConnected returned early: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	signReg := &walletrpc.SignerRegistration{
+		RegistrationChallenge: "registrationChallenge",
+		RegistrationInfo:      "outboundSigner",
+	}
+
+	regType := &walletrpc.SignCoordinatorResponse_SignerRegistration{
+		SignerRegistration: signReg,
+	}
+
+	registrationMsg := &walletrpc.SignCoordinatorResponse{
+		RefRequestId:     1,
+		SignResponseType: regType,
+	}
+
+	stream.sendResponse(registrationMsg)
+
+	// Drain the registration complete message to avoid blocking Send in
+	// the handshake.
+	select {
+	case req := <-stream.sendChan:
+		require.Equal(t, handshakeRequestID, req.GetRequestId())
+	case <-time.After(2 * time.Second):
+		t.Fatalf("registration complete was not sent")
+	}
+
+	require.NoError(t, <-waitErrChan)
+
+	// Cancel the stream to unblock Run, then shut down the coordinator.
+	// Either shutdown path can win the race, so we accept either error.
+	stream.Cancel()
+	coordinator.Stop()
+
+	select {
+	case err := <-runErrChan:
+		require.True(
+			t, errors.Is(err, ErrShuttingDown) ||
+				errors.Is(err, ErrStreamCanceled),
+		)
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Run did not exit after shutdown")
+	}
 }
 
 // TestRemoteSignerReconnectsDuringResponseWait verifies that the sign

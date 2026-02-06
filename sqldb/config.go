@@ -65,6 +65,15 @@ func (p *PostgresConfig) Validate() error {
 		return fmt.Errorf("invalid DSN: %w", err)
 	}
 
+	// Force timeout to 0 since LND doesn't properly retry on timeout
+	// errors. Log a warning if the user tried to set a non-zero value.
+	if p.Timeout != 0 {
+		log.Warnf("db.postgres.timeout is not supported and will be "+
+			"ignored. LND does not properly retry on timeout "+
+			"errors, so timeout is always set to 0 (disabled).")
+		p.Timeout = 0
+	}
+
 	if err := p.QueryConfig.Validate(false); err != nil {
 		return fmt.Errorf("invalid query config: %w", err)
 	}

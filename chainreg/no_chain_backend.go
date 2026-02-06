@@ -1,6 +1,7 @@
 package chainreg
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -127,7 +128,7 @@ type NoChainSource struct {
 	BestBlockTime time.Time
 }
 
-func (n *NoChainSource) Start() error {
+func (n *NoChainSource) Start(_ context.Context) error {
 	n.notifChan = make(chan interface{})
 
 	go func() {

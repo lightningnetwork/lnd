@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -1622,6 +1623,11 @@ func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 	}
 	cfg.Routing.AssumeChannelValid = !cfg.NeutrinoMode.ValidateChannels
 
+	// Validate neutrino headers import configuration.
+	if err := cfg.NeutrinoMode.Validate(); err != nil {
+		return nil, nil, err
+	}
+
 	// First we'll open the database file for neutrino, creating the
 	// database if needed. We append the normalized network name here to
 	// match the behavior of btcwallet.
@@ -1723,6 +1729,31 @@ func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 		PersistToDisk:      cfg.NeutrinoMode.PersistFilters,
 	}
 
+	// Configure headers import if both sources are specified. The
+	// chainimport package handles both HTTP URLs and local file paths
+	// transparently based on the source string prefix.
+	if cfg.NeutrinoMode.BlockHeadersSource != "" &&
+		cfg.NeutrinoMode.FilterHeadersSource != "" {
+
+		importCfg := &neutrino.HeadersImportConfig{
+			BlockHeadersSource:  cfg.NeutrinoMode.BlockHeadersSource,
+			FilterHeadersSource: cfg.NeutrinoMode.FilterHeadersSource,
+		}
+
+		// On regtest and simnet, blocks mined in rapid succession
+		// can share identical timestamps. Use BFFastAdd to skip
+		// contextual checks (like timestamp ordering) that would
+		// incorrectly reject these valid headers during import.
+		netName := cfg.ActiveNetParams.Params.Name
+		if netName == chaincfg.RegressionNetParams.Name ||
+			netName == chaincfg.SimNetParams.Name {
+
+			importCfg.ValidationFlags = blockchain.BFFastAdd
+		}
+
+		config.HeadersImport = importCfg
+	}
+
 	if cfg.NeutrinoMode.MaxPeers <= 0 {
 		return nil, nil, fmt.Errorf("a non-zero number must be set " +
 			"for neutrino max peers")
@@ -1739,7 +1770,7 @@ func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 			"client: %v", err)
 	}
 
-	if err := neutrinoCS.Start(); err != nil {
+	if err := neutrinoCS.Start(ctx); err != nil {
 		db.Close()
 		return nil, nil, err
 	}

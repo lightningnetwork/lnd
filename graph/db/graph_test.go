@@ -3843,7 +3843,7 @@ func testIncompleteChannelPolicies(t *testing.T, v lnwire.GossipVersion) {
 
 		calls := 0
 		err := graph.ForEachNodeChannel(
-			ctx, lnwire.GossipVersion1, node.PubKeyBytes,
+			ctx, node.PubKeyBytes,
 			func(_ *models.ChannelEdgeInfo, outEdge,
 				inEdge *models.ChannelEdgePolicy) error {
 

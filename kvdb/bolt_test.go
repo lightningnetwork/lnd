@@ -24,6 +24,10 @@ func TestBolt(t *testing.T) {
 			test: testReadWriteCursor,
 		},
 		{
+			name: "read write cursor delete before positioning",
+			test: testReadWriteCursorDeleteBeforePositioning,
+		},
+		{
 			name: "read write cursor with bucket and value",
 			test: testReadWriteCursorWithBucketAndValue,
 		},

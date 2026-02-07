@@ -497,7 +497,14 @@ type Config struct {
 
 	RPCMiddleware *lncfg.RPCMiddleware `group:"rpcmiddleware" namespace:"rpcmiddleware"`
 
+	// RemoteSigner defines how to connect to a remote signer node. If this
+	// is enabled, the node acts as a watch-only node in a remote signer
+	// setup.
 	RemoteSigner *lncfg.RemoteSigner `group:"remotesigner" namespace:"remotesigner"`
+
+	// WatchOnlyNode defines how to connect to a watch-only node. If this is
+	// enabled, the node acts as a remote signer in a remote signer setup.
+	WatchOnlyNode *lncfg.WatchOnlyNode `group:"watchonlynode" namespace:"watchonlynode"`
 
 	Sweeper *lncfg.Sweeper `group:"sweeper" namespace:"sweeper"`
 
@@ -757,10 +764,9 @@ func DefaultConfig() Config {
 		ChannelCommitBatchSize:    defaultChannelCommitBatchSize,
 		CoinSelectionStrategy:     defaultCoinSelectionStrategy,
 		KeepFailedPaymentAttempts: defaultKeepFailedPaymentAttempts,
-		RemoteSigner: &lncfg.RemoteSigner{
-			Timeout: lncfg.DefaultRemoteSignerRPCTimeout,
-		},
-		Sweeper: lncfg.DefaultSweeperConfig(),
+		RemoteSigner:              lncfg.DefaultRemoteSignerCfg(),
+		WatchOnlyNode:             lncfg.DefaultWatchOnlyNodeCfg(),
+		Sweeper:                   lncfg.DefaultSweeperConfig(),
 		Htlcswitch: &lncfg.Htlcswitch{
 			MailboxDeliveryTimeout: htlcswitch.DefaultMailboxDeliveryTimeout,
 			QuiescenceTimeout:      lncfg.DefaultQuiescenceTimeout,
@@ -1790,6 +1796,14 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		)
 	}
 
+	// Validate that the node isn't configured as both a remote signer and a
+	// watch-only node.
+	if cfg.RemoteSigner.Enable && cfg.WatchOnlyNode.Enable {
+		return nil, fmt.Errorf("cannot be configured as both a " +
+			"watchonly node and a remote signer node " +
+			"simultaneously")
+	}
+
 	// Validate the subconfigs for workers, caches, and the tower client.
 	err = lncfg.Validate(
 		cfg.Workers,
@@ -1800,6 +1814,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.HealthChecks,
 		cfg.RPCMiddleware,
 		cfg.RemoteSigner,
+		cfg.WatchOnlyNode,
 		cfg.Sweeper,
 		cfg.Htlcswitch,
 		cfg.Invoices,

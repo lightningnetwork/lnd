@@ -25,27 +25,31 @@ type SwitchClient interface {
 	// after a timeout or disconnection. Retries MUST use the exact same
 	// attempt_id to allow the server to correctly detect duplicate requests.
 	//
-	// A client interacting with this RPC must handle four distinct categories of
-	// outcomes, communicated via gRPC status codes:
+	// A client interacting with this RPC must handle four distinct categories
+	// of outcomes, determined by the gRPC status code:
 	//
 	// 1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has
 	// been successfully dispatched. The client can proceed to track the
-	// payment's final result via the `TrackOnion` RPC.
+	// payment's final result via the TrackOnion RPC.
 	//
 	// 2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): A definitive
 	// acknowledgment that a request with the same attempt_id has already
 	// been successfully processed. A retrying client should interpret this
 	// as a success and proceed to tracking the payment's result.
 	//
-	// 3. AMBIGUOUS FAILURE (gRPC code Unavailable or DeadlineExceeded): An
-	// ambiguous error occurred (e.g., the server is shutting down or the
-	// client timed out). The state of the HTLC dispatch is unknown. The
-	// client MUST retry the exact same request to resolve the ambiguity.
+	// 3. INDEFINITE FAILURE (gRPC code Unavailable or DeadlineExceeded): The
+	// state of the HTLC dispatch is unknown. The client MUST retry the exact
+	// same request to resolve the ambiguity. A client MUST NOT treat this as
+	// a definitive failure and move on to a new attempt ID; doing so risks a
+	// duplicate in-flight HTLC.
 	//
-	// 4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument, etc.):
-	// A definitive failure is a guarantee that the HTLC was not and will not be
-	// dispatched. The client should fail the attempt and may retry with a new
-	// route and/or new attempt_id.
+	// 4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument,
+	// etc.): The HTLC was not and will not be dispatched. The client should
+	// fail the attempt and may retry with a new route and/or attempt_id.
+	//
+	// In the case of a FailedPrecondition or Unavailable failure, the gRPC
+	// error may include a SendOnionFailureDetails message with additional
+	// context for logging and pathfinding.
 	SendOnion(ctx context.Context, in *SendOnionRequest, opts ...grpc.CallOption) (*SendOnionResponse, error)
 	// TrackOnion allows callers to query whether or not a payment dispatched via
 	// SendOnion succeeded or failed.
@@ -127,27 +131,31 @@ type SwitchServer interface {
 	// after a timeout or disconnection. Retries MUST use the exact same
 	// attempt_id to allow the server to correctly detect duplicate requests.
 	//
-	// A client interacting with this RPC must handle four distinct categories of
-	// outcomes, communicated via gRPC status codes:
+	// A client interacting with this RPC must handle four distinct categories
+	// of outcomes, determined by the gRPC status code:
 	//
 	// 1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has
 	// been successfully dispatched. The client can proceed to track the
-	// payment's final result via the `TrackOnion` RPC.
+	// payment's final result via the TrackOnion RPC.
 	//
 	// 2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): A definitive
 	// acknowledgment that a request with the same attempt_id has already
 	// been successfully processed. A retrying client should interpret this
 	// as a success and proceed to tracking the payment's result.
 	//
-	// 3. AMBIGUOUS FAILURE (gRPC code Unavailable or DeadlineExceeded): An
-	// ambiguous error occurred (e.g., the server is shutting down or the
-	// client timed out). The state of the HTLC dispatch is unknown. The
-	// client MUST retry the exact same request to resolve the ambiguity.
+	// 3. INDEFINITE FAILURE (gRPC code Unavailable or DeadlineExceeded): The
+	// state of the HTLC dispatch is unknown. The client MUST retry the exact
+	// same request to resolve the ambiguity. A client MUST NOT treat this as
+	// a definitive failure and move on to a new attempt ID; doing so risks a
+	// duplicate in-flight HTLC.
 	//
-	// 4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument, etc.):
-	// A definitive failure is a guarantee that the HTLC was not and will not be
-	// dispatched. The client should fail the attempt and may retry with a new
-	// route and/or new attempt_id.
+	// 4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument,
+	// etc.): The HTLC was not and will not be dispatched. The client should
+	// fail the attempt and may retry with a new route and/or attempt_id.
+	//
+	// In the case of a FailedPrecondition or Unavailable failure, the gRPC
+	// error may include a SendOnionFailureDetails message with additional
+	// context for logging and pathfinding.
 	SendOnion(context.Context, *SendOnionRequest) (*SendOnionResponse, error)
 	// TrackOnion allows callers to query whether or not a payment dispatched via
 	// SendOnion succeeded or failed.

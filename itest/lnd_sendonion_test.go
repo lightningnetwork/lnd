@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"context"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -12,7 +11,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/switchrpc"
 	"github.com/lightningnetwork/lnd/lntest"
-	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -84,9 +82,8 @@ func testSendOnion(ht *lntest.HarnessTest) {
 		AttemptId:      1,
 	}
 
-	resp := alice.RPC.SendOnion(sendReq)
-	require.True(ht, resp.Success, "expected successful onion send")
-	require.Empty(ht, resp.ErrorMessage, "unexpected failure to send onion")
+	err := alice.RPC.SendOnion(sendReq)
+	require.NoError(ht, err, "expected successful onion send")
 
 	// Query for the result of the payment via onion and confirm that it
 	// succeeded.
@@ -168,9 +165,8 @@ func testSendOnionTwice(ht *lntest.HarnessTest) {
 		OnionBlob:      onionResp.OnionBlob,
 		AttemptId:      1,
 	}
-	resp := alice.RPC.SendOnion(sendReq)
-	require.True(ht, resp.Success, "expected successful onion send")
-	require.Empty(ht, resp.ErrorMessage, "unexpected failure to send onion")
+	err := alice.RPC.SendOnion(sendReq)
+	require.NoError(ht, err, "expected successful onion send")
 
 	// Assert that the HTLC reaches Dave.
 	invoiceStream := dave.RPC.SubscribeSingleInvoice(payHash[:])
@@ -179,12 +175,7 @@ func testSendOnionTwice(ht *lntest.HarnessTest) {
 	// While the first onion is still in-flight, we'll send the same onion
 	// again with the same attempt ID. This should error as our Switch will
 	// detect duplicate ADDs for *in-flight* HTLCs.
-	ctxt, cancel := context.WithTimeout(
-		context.Background(), rpc.DefaultTimeout,
-	)
-	defer cancel()
-
-	_, err := alice.RPC.Switch.SendOnion(ctxt, sendReq)
+	err = alice.RPC.SendOnion(sendReq)
 	require.Error(ht, err, "expected failure on onion send")
 
 	// Check that we get the expected gRPC error.
@@ -212,11 +203,7 @@ func testSendOnionTwice(ht *lntest.HarnessTest) {
 	// Now that the original HTLC attempt has settled, we'll send the same
 	// onion again with the same attempt ID. Confirm that this is also
 	// prevented.
-	ctxt, cancel = context.WithTimeout(context.Background(),
-		rpc.DefaultTimeout)
-	defer cancel()
-
-	_, err = alice.RPC.Switch.SendOnion(ctxt, sendReq)
+	err = alice.RPC.SendOnion(sendReq)
 	require.Error(ht, err, "expected failure on onion send")
 
 	// Check that we get the expected gRPC error.
@@ -285,20 +272,14 @@ func testSendOnionConcurrency(ht *lntest.HarnessTest) {
 	wg.Add(numConcurrentRequests)
 
 	// Use channels to collect the results from each goroutine.
-	resultsChan := make(chan error,
-		numConcurrentRequests)
+	resultsChan := make(chan error, numConcurrentRequests)
 
 	// Launch all requests concurrently to simulate a retry storm.
 	for i := 0; i < numConcurrentRequests; i++ {
 		go func() {
 			defer wg.Done()
-			ctxt, cancel := context.WithTimeout(
-				context.Background(),
-				rpc.DefaultTimeout,
-			)
-			defer cancel()
 
-			_, err := alice.RPC.Switch.SendOnion(ctxt, sendReq)
+			err := alice.RPC.SendOnion(sendReq)
 			resultsChan <- err
 		}()
 	}
@@ -398,9 +379,8 @@ func testTrackOnion(ht *lntest.HarnessTest) {
 		AttemptId:      1,
 	}
 
-	resp := alice.RPC.SendOnion(sendReq)
-	require.True(ht, resp.Success, "expected successful onion send")
-	require.Empty(ht, resp.ErrorMessage, "unexpected failure to send onion")
+	err := alice.RPC.SendOnion(sendReq)
+	require.NoError(ht, err, "expected successful onion send")
 
 	// Track the payment providing all necessary information to delegate
 	// error decryption to the server. We expect this to fail as Dave is not

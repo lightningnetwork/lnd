@@ -74,7 +74,7 @@ func MapSQLError(err error) error {
 	return err
 }
 
-// parsePostgresError attempts to parse a sqlite error as a database agnostic
+// parseSqliteError attempts to parse a sqlite error as a database agnostic
 // SQL error.
 func parseSqliteError(sqliteErr *sqlite.Error) error {
 	switch sqliteErr.Code() {
@@ -91,6 +91,29 @@ func parseSqliteError(sqliteErr *sqlite.Error) error {
 
 	// Database is currently busy, so we'll need to try again.
 	case sqlite3.SQLITE_BUSY:
+		return &ErrSerializationError{
+			DBError: sqliteErr,
+		}
+
+	// Transient I/O errors can occur on mobile/embedded platforms due to
+	// memory pressure, storage constraints, or background app lifecycle
+	// management. Classifying these as serialization errors allows the
+	// retry logic to attempt the transaction again.
+	case sqlite3.SQLITE_IOERR:
+		return &ErrSerializationError{
+			DBError: sqliteErr,
+		}
+
+	// The database disk is full. On mobile devices this can be a
+	// transient condition that resolves after the OS frees up space.
+	case sqlite3.SQLITE_FULL:
+		return &ErrSerializationError{
+			DBError: sqliteErr,
+		}
+
+	// The database table is locked by another transaction on the same
+	// connection, which is a form of serialization conflict.
+	case sqlite3.SQLITE_LOCKED:
 		return &ErrSerializationError{
 			DBError: sqliteErr,
 		}

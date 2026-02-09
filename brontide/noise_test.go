@@ -700,3 +700,135 @@ func assertFlush(t *testing.T, b *Machine, w io.Writer, n int64, expN int,
 		t.Fatalf("expected n: %d, got: %d", expN, nn)
 	}
 }
+
+// writeRecorder records all data written to it, tracking each Write call
+// separately to verify write coalescing behavior.
+type writeRecorder struct {
+	writes [][]byte
+}
+
+func (w *writeRecorder) Write(p []byte) (int, error) {
+	// Make a copy of the data to avoid issues with buffer reuse.
+	w.writes = append(w.writes, append([]byte{}, p...))
+
+	return len(p), nil
+}
+
+// totalBytes returns the total number of bytes written across all Write calls.
+func (w *writeRecorder) totalBytes() int {
+	total := 0
+	for _, write := range w.writes {
+		total += len(write)
+	}
+
+	return total
+}
+
+// TestFlushCoalescedWrite verifies that the Flush method writes header and body
+// data correctly. Note: For non-TCP writers (like bytes.Buffer), net.Buffers
+// falls back to sequential writes.
+func TestFlushCoalescedWrite(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		payloadSize int
+	}{
+		{
+			name:        "small message",
+			payloadSize: 10,
+		},
+		{
+			name:        "medium message",
+			payloadSize: 500,
+		},
+		{
+			name:        "large message",
+			payloadSize: 1400,
+		},
+		{
+			name:        "max message",
+			payloadSize: math.MaxUint16,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var b Machine
+			b.split()
+
+			payload := bytes.Repeat([]byte("x"), tc.payloadSize)
+			err := b.WriteMessage(payload)
+			require.NoError(t, err)
+
+			recorder := &writeRecorder{}
+			n, err := b.Flush(recorder)
+			require.NoError(t, err)
+
+			// The returned value should be the plaintext payload size.
+			require.Equal(
+				t, tc.payloadSize, n,
+				"returned byte count should match payload size",
+			)
+
+			// Total bytes written should be header + payload + MAC.
+			expectedTotal := encHeaderSize + tc.payloadSize +
+				macSize
+			require.Equal(
+				t, expectedTotal, recorder.totalBytes(),
+				"total written bytes should be "+
+					"header + payload + MAC",
+			)
+
+			// Verify that subsequent Flush is a no-op.
+			n, err = b.Flush(recorder)
+			require.NoError(t, err)
+			require.Equal(
+				t, 0, n,
+				"subsequent flush should be no-op",
+			)
+		})
+	}
+}
+
+// TestFlushPartialWriteRecovery specifically tests that partial writes
+// can be recovered by calling Flush again, and that the final result
+// is correct.
+func TestFlushPartialWriteRecovery(t *testing.T) {
+	t.Parallel()
+
+	// Create a test connection to get properly paired encrypt/decrypt
+	// machines.
+	localConn, remoteConn, err := establishTestConnection(t)
+	require.NoError(t, err)
+
+	localBrontide := localConn.(*Conn)
+
+	payload := []byte("hello world")
+	err = localBrontide.noise.WriteMessage(payload)
+	require.NoError(t, err)
+
+	// First, write only part of the header using a timeout writer.
+	var partialOutput bytes.Buffer
+	partialWriter := NewTimeoutWriter(&partialOutput, 5)
+
+	n, err := localBrontide.noise.Flush(partialWriter)
+	require.ErrorIs(t, err, iotest.ErrTimeout)
+	require.Equal(t, 0, n, "no payload bytes should be reported yet")
+
+	// Now write the rest directly to the underlying connection. We need to
+	// write the partial output first, then flush the rest.
+	_, err = localBrontide.conn.Write(partialOutput.Bytes())
+	require.NoError(t, err)
+
+	// Flush remaining bytes to the connection.
+	n, err = localBrontide.noise.Flush(localBrontide.conn)
+	require.NoError(t, err)
+	require.Equal(t, len(payload), n)
+
+	// Read and verify the message on the remote end.
+	buf := make([]byte, len(payload))
+	_, err = io.ReadFull(remoteConn, buf)
+	require.NoError(t, err)
+	require.Equal(t, payload, buf)
+}

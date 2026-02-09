@@ -6,7 +6,6 @@ package switchrpc
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"errors"
 	"testing"
 
@@ -17,8 +16,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
-	codes "google.golang.org/grpc/codes"
-	status "google.golang.org/grpc/status"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // TestSendOnion is a unit test that rigorously verifies the behavior of the
@@ -57,8 +56,9 @@ func TestSendOnion(t *testing.T) {
 		// call.
 		expectedErrCode codes.Code
 
-		// expectedResponse is the expected response from the RPC call.
-		expectedResponse *SendOnionResponse
+		// checkFailureDetails is a function that asserts the contents
+		// of the SendOnionFailureDetails message.
+		checkFailureDetails func(*testing.T, *SendOnionFailureDetails)
 	}{
 		{
 			name: "valid request",
@@ -70,7 +70,7 @@ func TestSendOnion(t *testing.T) {
 				require.True(t, ok)
 				payer.sendErr = nil
 			},
-			expectedResponse: &SendOnionResponse{Success: true},
+			expectedErrCode: codes.OK,
 		},
 		{
 			name: "missing onion blob",
@@ -118,21 +118,22 @@ func TestSendOnion(t *testing.T) {
 				require.True(t, ok)
 				payer.sendErr = errors.New("internal error")
 			},
-			expectedResponse: &SendOnionResponse{
-				Success:      false,
-				ErrorMessage: "internal error",
-				ErrorCode:    ErrorCode_INTERNAL,
+			expectedErrCode: codes.Internal,
+			checkFailureDetails: func(t *testing.T,
+				details *SendOnionFailureDetails) {
+
+				require.Contains(t, details.ErrorMessage,
+					"internal error")
 			},
 		},
 		{
-			// The ErrDuplicateAdd error is the means by which an
-			// rpc client is safe to retry the SendOnion rpc until
-			// an explicit acknowledgement of htlc dispatch can be
-			// received from the server. The ability to retry and
-			// rely on duplicate prevention is useful under
-			// scenarios where the status of htlc dispatch is
-			// uncertain (eg: network timeout or after restart).
-			name: "dispatcher duplicate htlc error",
+			// The ErrPaymentIDAlreadyExists error is the means by
+			// which an rpc client is safe to retry the SendOnion
+			// RPC until an explicit acknowledgement of HTLC
+			// dispatch can be received from the server. The
+			// acknowledgement is expected to be signalled by a
+			// AlreadyExists grpc status code.
+			name: "duplicate attempt initialization",
 			setup: func(t *testing.T, s *Server,
 				req *SendOnionRequest) {
 
@@ -143,6 +144,100 @@ func TestSendOnion(t *testing.T) {
 				store.initErr = htlcswitch.ErrPaymentIDAlreadyExists
 			},
 			expectedErrCode: codes.AlreadyExists,
+		},
+		{
+			// ErrDuplicateAdd from the switch/dispatcher is a
+			// last line of defense against duplicate htlc attempts.
+			// Under normal operation, InitAttempt catches
+			// duplicates first and we never reach SendHTLC. This
+			// path could be reached if the InitAttempt record were
+			// removed (e.g., via a future DeleteAttempts RPC) while
+			// the circuit is still registered.
+			name: "dispatcher duplicate htlc error",
+			setup: func(t *testing.T, s *Server,
+				req *SendOnionRequest) {
+
+				payer, ok := s.cfg.HtlcDispatcher.(*mockPayer)
+				require.True(t, ok)
+				payer.sendErr = htlcswitch.ErrDuplicateAdd
+			},
+			expectedErrCode: codes.AlreadyExists,
+		},
+		{
+			name: "ambiguous attempt init error",
+			setup: func(t *testing.T, s *Server,
+				req *SendOnionRequest) {
+
+				store, ok := s.cfg.AttemptStore.(*mockAttemptStore)
+				require.True(t, ok)
+				store.initErr = htlcswitch.ErrAmbiguousAttemptInit
+			},
+			expectedErrCode: codes.Unavailable,
+			checkFailureDetails: func(t *testing.T,
+				details *SendOnionFailureDetails) {
+
+				indefinite := details.GetIndefiniteFailure()
+				require.NotNil(t, indefinite)
+				require.Equal(t,
+					IndefiniteFailureCode_HTLC_INIT_FAILED,
+					indefinite.Reason,
+				)
+			},
+		},
+		{
+			name: "attempt init returns generic internal error",
+			setup: func(t *testing.T, s *Server,
+				req *SendOnionRequest) {
+
+				// Mock a generic, unexpected error from
+				// InitAttempt to test the defensive fallback
+				// error path.
+				store, ok := s.cfg.AttemptStore.(*mockAttemptStore)
+				require.True(t, ok)
+				store.initErr = errors.New("unexpected DB error")
+			},
+			expectedErrCode: codes.Internal,
+			checkFailureDetails: func(t *testing.T,
+				details *SendOnionFailureDetails) {
+
+				indefinite := details.GetIndefiniteFailure()
+				require.NotNil(t, indefinite)
+				require.Equal(t,
+					IndefiniteFailureCode_REASON_UNKNOWN,
+					indefinite.Reason,
+				)
+			},
+		},
+		{
+			name: "clear text error",
+			setup: func(t *testing.T, s *Server,
+				req *SendOnionRequest) {
+
+				wireMsg := lnwire.NewTemporaryChannelFailure(nil)
+				linkErr := htlcswitch.NewDetailedLinkError(
+					wireMsg,
+					htlcswitch.OutgoingFailureInsufficientBalance,
+				)
+
+				payer, ok := s.cfg.HtlcDispatcher.(*mockPayer)
+				require.True(t, ok)
+				payer.sendErr = linkErr
+			},
+			expectedErrCode: codes.FailedPrecondition,
+			checkFailureDetails: func(t *testing.T,
+				details *SendOnionFailureDetails) {
+
+				definite := details.GetDefiniteFailure()
+				require.NotNil(t, definite)
+
+				failure := definite.GetLocalFailure()
+				require.NotNil(t, failure)
+
+				_, err := UnmarshallFailureMessage(
+					failure.WireMessage,
+				)
+				require.NoError(t, err)
+			},
 		},
 	}
 
@@ -167,9 +262,19 @@ func TestSendOnion(t *testing.T) {
 
 			resp, err := server.SendOnion(t.Context(), req)
 
-			// Check for gRPC level errors.
-			if tc.expectedErrCode != codes.OK {
-				require.Error(t, err)
+			// If we expected OK, assert a nil error and non-nil
+			// response.
+			if tc.expectedErrCode == codes.OK {
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+				return
+			}
+
+			// Otherwise, we expect a gRPC status error.
+			require.Error(t, err)
+
+			// If we don't need to check details, we're done.
+			if tc.checkFailureDetails == nil {
 				s, ok := status.FromError(err)
 				require.True(t, ok)
 				require.Equal(t, tc.expectedErrCode, s.Code())
@@ -177,11 +282,34 @@ func TestSendOnion(t *testing.T) {
 				return
 			}
 
-			// If no gRPC error was expected, check the response.
-			require.NoError(t, err)
-			require.Equal(t, tc.expectedResponse, resp)
+			// Otherwise confirm the failure details are as
+			// expected.
+			details := requireSendOnionFailureDetails(
+				t, err, tc.expectedErrCode,
+			)
+			tc.checkFailureDetails(t, details)
 		})
 	}
+}
+
+// requireSendOnionFailureDetails is a test helper that asserts a SendOnion call
+// failed with a specific gRPC status code and extracts the embedded
+// SendOnionFailureDetails message.
+func requireSendOnionFailureDetails(t *testing.T, err error,
+	expectedRPCCode codes.Code) *SendOnionFailureDetails {
+
+	s, ok := status.FromError(err)
+	require.True(t, ok, "expected gRPC status error")
+	require.Equal(t, expectedRPCCode, s.Code(),
+		"unexpected gRPC status code")
+
+	details := s.Details()
+	require.Len(t, details, 1, "expected one failure detail")
+
+	failureDetails, ok := details[0].(*SendOnionFailureDetails)
+	require.True(t, ok, "expected SendOnionFailureDetails")
+
+	return failureDetails
 }
 
 // TestTrackOnion is a unit test that rigorously verifies the behavior of the
@@ -626,67 +754,6 @@ func TestBuildOnion(t *testing.T) {
 	}
 }
 
-// TestTranslateErrorForRPC tests the TranslateErrorForRPC function.
-func TestTranslateErrorForRPC(t *testing.T) {
-	t.Parallel()
-
-	mockWireMsg := lnwire.NewTemporaryChannelFailure(nil)
-	mockClearTextErr := htlcswitch.NewLinkError(mockWireMsg)
-
-	var buf bytes.Buffer
-	err := lnwire.EncodeFailure(&buf, mockWireMsg, 0)
-	require.NoError(t, err)
-
-	encodedMsg := hex.EncodeToString(buf.Bytes())
-
-	//nolint:ll
-	tests := []struct {
-		name         string
-		err          error
-		expectedMsg  string
-		expectedCode ErrorCode
-	}{
-		{
-			name:         "ErrPaymentIDNotFound",
-			err:          htlcswitch.ErrPaymentIDNotFound,
-			expectedMsg:  htlcswitch.ErrPaymentIDNotFound.Error(),
-			expectedCode: ErrorCode_PAYMENT_ID_NOT_FOUND,
-		},
-		{
-			name:         "ErrUnreadableFailureMessage",
-			err:          htlcswitch.ErrUnreadableFailureMessage,
-			expectedMsg:  htlcswitch.ErrUnreadableFailureMessage.Error(),
-			expectedCode: ErrorCode_UNREADABLE_FAILURE_MESSAGE,
-		},
-		{
-			name:         "ErrSwitchExiting",
-			err:          htlcswitch.ErrSwitchExiting,
-			expectedMsg:  htlcswitch.ErrSwitchExiting.Error(),
-			expectedCode: ErrorCode_SWITCH_EXITING,
-		},
-		{
-			name:         "ClearTextError",
-			err:          mockClearTextErr,
-			expectedMsg:  encodedMsg,
-			expectedCode: ErrorCode_CLEAR_TEXT_ERROR,
-		},
-		{
-			name:         "Unknown Error",
-			err:          errors.New("some unexpected error"),
-			expectedMsg:  "some unexpected error",
-			expectedCode: ErrorCode_INTERNAL,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			msg, code := translateErrorForRPC(tt.err)
-			require.Contains(t, msg, tt.expectedMsg)
-			require.Equal(t, tt.expectedCode, code)
-		})
-	}
-}
-
 // TestMarshallFailureDetails tests the conversion of internal errors types
 // produced by the Switch into the wire/rpc representation.
 func TestMarshallFailureDetails(t *testing.T) {
@@ -1013,6 +1080,242 @@ func TestBuildErrorDecryptor(t *testing.T) {
 				require.NotNil(t, decryptor)
 			} else {
 				require.Nil(t, decryptor)
+			}
+		})
+	}
+}
+
+// TestMarshallDispatchFailure tests that the server-side marshalling of
+// internal htlcswitch errors into gRPC status errors with rich,
+// structurally-classified details is correct.
+func TestMarshallDispatchFailure(t *testing.T) {
+	t.Parallel()
+
+	wireMsg := lnwire.NewTemporaryChannelFailure(nil)
+	linkErr := htlcswitch.NewLinkError(wireMsg)
+
+	//nolint:ll
+	testCases := []struct {
+		name             string
+		err              error
+		expectedGRPCCode codes.Code
+		checkDetails     func(*testing.T, *SendOnionFailureDetails)
+	}{
+		{
+			name:             "clear text error",
+			err:              linkErr,
+			expectedGRPCCode: codes.FailedPrecondition,
+			checkDetails: func(t *testing.T, d *SendOnionFailureDetails) {
+				definite := d.GetDefiniteFailure()
+				require.NotNil(t, definite)
+				require.Nil(t, d.GetIndefiniteFailure())
+
+				ctf := definite.GetLocalFailure()
+				require.NotNil(t, ctf)
+
+				decoded, err := UnmarshallFailureMessage(
+					ctf.WireMessage,
+				)
+				require.NoError(t, err)
+				require.Equal(t, wireMsg, decoded)
+			},
+		},
+		{
+			name:             "switch exiting",
+			err:              htlcswitch.ErrSwitchExiting,
+			expectedGRPCCode: codes.Unavailable,
+			checkDetails: func(t *testing.T, d *SendOnionFailureDetails) {
+				indefinite := d.GetIndefiniteFailure()
+				require.NotNil(t, indefinite)
+				require.Nil(t, d.GetDefiniteFailure())
+				require.Equal(t,
+					IndefiniteFailureCode_SWITCH_EXITING,
+					indefinite.Reason,
+				)
+			},
+		},
+		{
+			name:             "ambiguous init",
+			err:              htlcswitch.ErrAmbiguousAttemptInit,
+			expectedGRPCCode: codes.Unavailable,
+			checkDetails: func(t *testing.T, d *SendOnionFailureDetails) {
+				indefinite := d.GetIndefiniteFailure()
+				require.NotNil(t, indefinite)
+				require.Nil(t, d.GetDefiniteFailure())
+				require.Equal(t,
+					IndefiniteFailureCode_HTLC_INIT_FAILED,
+					indefinite.Reason,
+				)
+			},
+		},
+		{
+			name:             "generic internal error",
+			err:              errors.New("generic error"),
+			expectedGRPCCode: codes.Internal,
+			checkDetails: func(t *testing.T, d *SendOnionFailureDetails) {
+				indefinite := d.GetIndefiniteFailure()
+				require.NotNil(t, indefinite)
+				require.Nil(t, d.GetDefiniteFailure())
+				require.Equal(t,
+					IndefiniteFailureCode_REASON_UNKNOWN,
+					indefinite.Reason,
+				)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Marshall the error into a gRPC status error.
+			rpcErr := marshallDispatchFailure(tc.err)
+
+			// Assert that we got a gRPC error with the correct
+			// top-level code.
+			s, ok := status.FromError(rpcErr)
+			require.True(t, ok)
+			require.Equal(t, tc.expectedGRPCCode, s.Code())
+
+			// Extract the failure details and run the specific
+			// assertions for this test case.
+			details := GetSendOnionFailureDetails(rpcErr)
+			require.NotNil(t, details)
+			tc.checkDetails(t, details)
+		})
+	}
+}
+
+// TestGetSendOnionFailureDetails verifies the behavior of the
+// GetSendOnionFailureDetails helper.
+func TestGetSendOnionFailureDetails(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock wire message and encode it.
+	wireMsg := lnwire.NewTemporaryChannelFailure(nil)
+	var buf bytes.Buffer
+	err := lnwire.EncodeFailure(&buf, wireMsg, 0)
+	require.NoError(t, err)
+
+	// Create mock SendOnionFailureDetails structs for expected outputs.
+	mockDefiniteDetails := &SendOnionFailureDetails{
+		ErrorMessage: "mock clear text error",
+		FailureClass: &SendOnionFailureDetails_DefiniteFailure{
+			DefiniteFailure: &DefiniteFailure{
+				Detail: &DefiniteFailure_LocalFailure{
+					LocalFailure: &LocalFailure{
+						WireMessage: buf.Bytes(),
+					},
+				},
+			},
+		},
+	}
+
+	mockIndefiniteDetails := &SendOnionFailureDetails{
+		ErrorMessage: "mock indefinite error",
+		FailureClass: &SendOnionFailureDetails_IndefiniteFailure{
+			IndefiniteFailure: &IndefiniteFailure{
+				Reason: IndefiniteFailureCode_REASON_UNKNOWN,
+			},
+		},
+	}
+
+	// Create gRPC status errors with the new mock details.
+	gRPCErrorWithDefiniteDetails, err := status.New(
+		codes.FailedPrecondition, "test error",
+	).WithDetails(mockDefiniteDetails)
+	require.NoError(t, err)
+
+	gRPCErrorWithIndefiniteDetails, err := status.New(
+		codes.Internal, "test error",
+	).WithDetails(mockIndefiniteDetails)
+	require.NoError(t, err)
+
+	// Create a gRPC status error without any details.
+	gRPCErrorWithoutDetails := status.Error(codes.Unavailable,
+		"generic gRPC error")
+
+	// Create a non-gRPC error.
+	nonGrpcError := errors.New("plain old error")
+
+	testCases := []struct {
+		name            string
+		err             error
+		expectedDetails *SendOnionFailureDetails
+	}{
+		{
+			name:            "gRPC error with definite details",
+			err:             gRPCErrorWithDefiniteDetails.Err(),
+			expectedDetails: mockDefiniteDetails,
+		},
+		{
+			name:            "gRPC error with indefinite details",
+			err:             gRPCErrorWithIndefiniteDetails.Err(),
+			expectedDetails: mockIndefiniteDetails,
+		},
+		{
+			name:            "gRPC error without details",
+			err:             gRPCErrorWithoutDetails,
+			expectedDetails: nil,
+		},
+		{
+			name:            "non-gRPC error",
+			err:             nonGrpcError,
+			expectedDetails: nil,
+		},
+		{
+			name:            "nil error",
+			err:             nil,
+			expectedDetails: nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := GetSendOnionFailureDetails(tc.err)
+
+			// If no details were expected, assert nil and return.
+			if tc.expectedDetails == nil {
+				require.Nil(t, result)
+				return
+			}
+
+			// Otherwise, confirm the top-level error message.
+			require.NotNil(t, result)
+			require.Equal(t, tc.expectedDetails.ErrorMessage,
+				result.ErrorMessage)
+
+			// Now, validate the oneof FailureClass field.
+			switch expectedClass := tc.expectedDetails.
+				FailureClass.(type) {
+			case *SendOnionFailureDetails_DefiniteFailure:
+				actualDefinite := result.GetDefiniteFailure()
+				require.NotNil(t, actualDefinite)
+				require.Nil(t, result.GetIndefiniteFailure())
+
+				// Validate nested LocalFailure.
+				expectedErr := expectedClass.DefiniteFailure.
+					GetLocalFailure()
+				actualErr := actualDefinite.
+					GetLocalFailure()
+
+				require.NotNil(t, actualErr)
+				require.Equal(t, expectedErr.WireMessage,
+					actualErr.WireMessage)
+
+			case *SendOnionFailureDetails_IndefiniteFailure:
+				actualIndefinite := result.
+					GetIndefiniteFailure()
+
+				require.NotNil(t, actualIndefinite)
+				require.Nil(t, result.GetDefiniteFailure())
+
+				// Validate nested IndefiniteFailureCode reason.
+				require.Equal(t, expectedClass.
+					IndefiniteFailure.Reason,
+					actualIndefinite.Reason)
+
+			default:
+				t.Fatalf("unexpected failure class type: %T",
+					expectedClass)
 			}
 		})
 	}

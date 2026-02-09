@@ -597,13 +597,13 @@ service Lightning {
     rpc SubscribeCustomMessages (SubscribeCustomMessagesRequest)
         returns (stream CustomMessage);
 
-    /* lncli: `sendonion`
+    /* lncli: `sendonionmessage`
     SendOnionMessage sends an onion message to a peer.
     */
     rpc SendOnionMessage (SendOnionMessageRequest)
         returns (SendOnionMessageResponse);
 
-    /* lncli: `subscribeonion`
+    /* lncli: `subscribeonionmessage`
     SubscribeOnionMessages subscribes to a stream of incoming onion messages.
     */
     rpc SubscribeOnionMessages (SubscribeOnionMessagesRequest)

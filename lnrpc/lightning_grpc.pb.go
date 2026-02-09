@@ -417,10 +417,10 @@ type LightningClient interface {
 	// needs to be compiled with  the `dev` build tag, and the message type to
 	// override should be specified in lnd's experimental protocol configuration.
 	SubscribeCustomMessages(ctx context.Context, in *SubscribeCustomMessagesRequest, opts ...grpc.CallOption) (Lightning_SubscribeCustomMessagesClient, error)
-	// lncli: `sendonion`
+	// lncli: `sendonionmessage`
 	// SendOnionMessage sends an onion message to a peer.
 	SendOnionMessage(ctx context.Context, in *SendOnionMessageRequest, opts ...grpc.CallOption) (*SendOnionMessageResponse, error)
-	// lncli: `subscribeonion`
+	// lncli: `subscribeonionmessage`
 	// SubscribeOnionMessages subscribes to a stream of incoming onion messages.
 	SubscribeOnionMessages(ctx context.Context, in *SubscribeOnionMessagesRequest, opts ...grpc.CallOption) (Lightning_SubscribeOnionMessagesClient, error)
 	// lncli: `listaliases`
@@ -1806,10 +1806,10 @@ type LightningServer interface {
 	// needs to be compiled with  the `dev` build tag, and the message type to
 	// override should be specified in lnd's experimental protocol configuration.
 	SubscribeCustomMessages(*SubscribeCustomMessagesRequest, Lightning_SubscribeCustomMessagesServer) error
-	// lncli: `sendonion`
+	// lncli: `sendonionmessage`
 	// SendOnionMessage sends an onion message to a peer.
 	SendOnionMessage(context.Context, *SendOnionMessageRequest) (*SendOnionMessageResponse, error)
-	// lncli: `subscribeonion`
+	// lncli: `subscribeonionmessage`
 	// SubscribeOnionMessages subscribes to a stream of incoming onion messages.
 	SubscribeOnionMessages(*SubscribeOnionMessagesRequest, Lightning_SubscribeOnionMessagesServer) error
 	// lncli: `listaliases`

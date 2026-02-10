@@ -1802,9 +1802,10 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	t.Cleanup(n.stop)
 
 	// Replace decode function with another which throws an error.
-	n.carolChannelLink.cfg.ExtractErrorEncrypter = func(
-		*btcec.PublicKey) (hop.ErrorEncrypter, lnwire.FailCode) {
-		return nil, lnwire.CodeInvalidOnionVersion
+	n.carolChannelLink.cfg.ExtractSharedSecret = func(
+		*btcec.PublicKey) (sphinx.Hash256, lnwire.FailCode) {
+
+		return sphinx.Hash256{}, lnwire.CodeInvalidOnionVersion
 	}
 
 	carolBandwidthBefore := n.carolChannelLink.Bandwidth()
@@ -2213,9 +2214,15 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 		Circuits:           aliceSwitch.CircuitModifier(),
 		ForwardPackets:     forwardPackets,
 		DecodeHopIterators: decoder.DecodeHopIterators,
-		ExtractErrorEncrypter: func(*btcec.PublicKey) (
-			hop.ErrorEncrypter, lnwire.FailCode) {
-			return obfuscator, lnwire.CodeNone
+		ExtractSharedSecret: func(*btcec.PublicKey) (
+			sphinx.Hash256, lnwire.FailCode) {
+
+			return sphinx.Hash256{}, lnwire.CodeNone
+		},
+		CreateErrorEncrypter: func(*btcec.PublicKey,
+			sphinx.Hash256, bool, bool) hop.ErrorEncrypter {
+
+			return obfuscator
 		},
 		FetchLastChannelUpdate: mockGetChanUpdateMessage,
 		PreimageCache:          pCache,
@@ -2671,7 +2678,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	reason := make([]byte, 292)
 	copy(reason, []byte("nop"))
 
-	err = harness.bobChannel.FailHTLC(bobIndex, reason, nil, nil, nil)
+	err = harness.bobChannel.FailHTLC(bobIndex, reason, nil, nil, nil, nil)
 	require.NoError(t, err, "unable to fail htlc")
 	failMsg := &lnwire.UpdateFailHTLC{
 		ID:     1,
@@ -2918,7 +2925,9 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected UpdateFailHTLC, got %T", msg)
 	}
-	err = harness.bobChannel.ReceiveFailHTLC(failMsg.ID, []byte("fail"))
+	err = harness.bobChannel.ReceiveFailHTLC(
+		failMsg.ID, []byte("fail"), nil,
+	)
 	require.NoError(t, err, "failed receiving fail htlc")
 
 	// After failing an HTLC, the link will automatically trigger
@@ -4897,10 +4906,15 @@ func (h *persistentLinkHarness) restartLink(
 		Circuits:           h.hSwitch.CircuitModifier(),
 		ForwardPackets:     forwardPackets,
 		DecodeHopIterators: decoder.DecodeHopIterators,
-		ExtractErrorEncrypter: func(*btcec.PublicKey) (
-			hop.ErrorEncrypter, lnwire.FailCode) {
+		ExtractSharedSecret: func(*btcec.PublicKey) (
+			sphinx.Hash256, lnwire.FailCode) {
 
-			return obfuscator, lnwire.CodeNone
+			return sphinx.Hash256{}, lnwire.CodeNone
+		},
+		CreateErrorEncrypter: func(*btcec.PublicKey,
+			sphinx.Hash256, bool, bool) hop.ErrorEncrypter {
+
+			return obfuscator
 		},
 		FetchLastChannelUpdate: mockGetChanUpdateMessage,
 		PreimageCache:          pCache,
@@ -7298,7 +7312,7 @@ func TestChannelLinkShortFailureRelay(t *testing.T) {
 	// Return a short htlc failure from Bob to Alice and lock in.
 	shortReason := make([]byte, 260)
 
-	err = harness.bobChannel.FailHTLC(0, shortReason, nil, nil, nil)
+	err = harness.bobChannel.FailHTLC(0, shortReason, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	harness.aliceLink.HandleChannelUpdate(&lnwire.UpdateFailHTLC{

@@ -1,6 +1,6 @@
 module github.com/lightningnetwork/lnd/clock
 
-go 1.24.11
+go 1.25.5
 
 require github.com/stretchr/testify v1.8.2
 

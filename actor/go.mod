@@ -1,6 +1,6 @@
 module github.com/lightningnetwork/lnd/actor
 
-go 1.24.9
+go 1.25.5
 
 require (
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084

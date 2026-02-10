@@ -95,6 +95,7 @@ jobs:
             - chainntnfs/*, chanacceptor/*, protofsm/*, sqldb/*
 
             **MEDIUM** (severity-medium) - Focused review:
+            - cmd/* - CLI client commands (do NOT inherit severity from server-side packages with similar names)
             - payments/*, autopilot/*, lncfg/*, chanfitness/*
             - netann/*, kvdb/*, chanbackup/*, aezeed/*, tor/*
             - zpay32/*, tlv/*, fn/*, record/*, amp/*
@@ -110,12 +111,16 @@ jobs:
             ## Classification Rules
 
             1. The HIGHEST severity file determines the PR severity
-            2. Bump severity UP one level if:
+            2. Classify files by their actual package path, NOT by filename keywords.
+               Files under cmd/* are CLI client code and should always be MEDIUM,
+               even if the filename contains a server-side package name (e.g.
+               cmd/commands/cmd_walletunlocker.go is MEDIUM, not HIGH).
+            3. Bump severity UP one level if:
                - PR touches >20 files (excluding tests and auto-generated files)
                - PR has >500 lines changed (excluding tests and auto-generated files)
                - PR touches multiple distinct critical packages
-            3. Check for override labels first (severity-override-*). If present, respect the override.
-            4. Database migrations (channeldb/migration*, sqldb/*, wtdb/*) are always CRITICAL
+            4. Check for override labels first (severity-override-*). If present, respect the override.
+            5. Database migrations (channeldb/migration*, sqldb/*, wtdb/*) are always CRITICAL
 
             ## Files to Exclude from Line/File Counting
             When calculating file count and lines changed for severity bumps, exclude:

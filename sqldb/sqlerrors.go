@@ -74,11 +74,22 @@ func MapSQLError(err error) error {
 	return err
 }
 
+// sqliteErrBaseCode extracts the primary error code from a SQLite extended
+// error code. SQLite extended error codes encode the base category in the
+// lower 8 bits and the extended subtype in the upper bits. For example,
+// SQLITE_IOERR_GETTEMPPATH (6410) has base code SQLITE_IOERR (10).
+func sqliteErrBaseCode(code int) int {
+	return code & 0xFF
+}
+
 // parseSqliteError attempts to parse a sqlite error as a database agnostic
 // SQL error.
 func parseSqliteError(sqliteErr *sqlite.Error) error {
-	switch sqliteErr.Code() {
-	// Handle unique constraint violation error.
+	code := sqliteErr.Code()
+
+	// First check exact extended error codes for constraint violations,
+	// since these use specific extended codes by definition.
+	switch code {
 	case sqlite3.SQLITE_CONSTRAINT_UNIQUE:
 		return &ErrSQLUniqueConstraintViolation{
 			DBError: sqliteErr,
@@ -88,17 +99,29 @@ func parseSqliteError(sqliteErr *sqlite.Error) error {
 		return &ErrSQLUniqueConstraintViolation{
 			DBError: sqliteErr,
 		}
+	}
 
-	// Database is currently busy, so we'll need to try again.
+	// For transient/retryable errors, match on the base error code
+	// (lower 8 bits). SQLite returns extended error codes that encode
+	// the specific failure subtype in the upper bits. For example,
+	// SQLITE_IOERR (10) has over 20 extended variants like
+	// SQLITE_IOERR_WRITE (778), SQLITE_IOERR_FSYNC (1034), and
+	// SQLITE_IOERR_GETTEMPPATH (6410). All share the same base code
+	// and all represent transient I/O conditions eligible for retry.
+	switch sqliteErrBaseCode(code) {
+	// Database is currently busy, so we'll need to try again. This
+	// also covers SQLITE_BUSY_RECOVERY (261), SQLITE_BUSY_SNAPSHOT
+	// (517), and SQLITE_BUSY_TIMEOUT (773).
 	case sqlite3.SQLITE_BUSY:
 		return &ErrSerializationError{
 			DBError: sqliteErr,
 		}
 
-	// Transient I/O errors can occur on mobile/embedded platforms due to
-	// memory pressure, storage constraints, or background app lifecycle
-	// management. Classifying these as serialization errors allows the
-	// retry logic to attempt the transaction again.
+	// Transient I/O errors can occur on mobile/embedded platforms due
+	// to memory pressure, storage constraints, or background app
+	// lifecycle management. This covers all extended IOERR variants
+	// (SQLITE_IOERR_READ, SQLITE_IOERR_WRITE, SQLITE_IOERR_FSYNC,
+	// SQLITE_IOERR_GETTEMPPATH, etc.).
 	case sqlite3.SQLITE_IOERR:
 		return &ErrSerializationError{
 			DBError: sqliteErr,
@@ -112,7 +135,9 @@ func parseSqliteError(sqliteErr *sqlite.Error) error {
 		}
 
 	// The database table is locked by another transaction on the same
-	// connection, which is a form of serialization conflict.
+	// connection, which is a form of serialization conflict. This also
+	// covers SQLITE_LOCKED_SHAREDCACHE (262) and SQLITE_LOCKED_VTAB
+	// (518).
 	case sqlite3.SQLITE_LOCKED:
 		return &ErrSerializationError{
 			DBError: sqliteErr,

@@ -24,13 +24,19 @@ func (q *Queries) CountPayments(ctx context.Context) (int64, error) {
 }
 
 const deleteFailedAttempts = `-- name: DeleteFailedAttempts :exec
-DELETE FROM payment_htlc_attempts WHERE payment_id = $1 AND attempt_index IN (
-    SELECT attempt_index FROM payment_htlc_attempt_resolutions WHERE resolution_type = 2
+DELETE FROM payment_htlc_attempts
+WHERE payment_id = $1
+AND EXISTS (
+    SELECT 1 FROM payment_htlc_attempt_resolutions hr
+    WHERE hr.attempt_index = payment_htlc_attempts.attempt_index
+    AND hr.resolution_type = 2
 )
 `
 
 // Delete all failed HTLC attempts for the given payment. Resolution type 2
-// indicates a failed attempt.
+// indicates a failed attempt. Uses EXISTS to scope the resolution lookup to
+// only this payment's attempts, avoiding an O(N) scan of all failed
+// resolutions across all payments.
 func (q *Queries) DeleteFailedAttempts(ctx context.Context, paymentID int64) error {
 	_, err := q.db.ExecContext(ctx, deleteFailedAttempts, paymentID)
 	return err

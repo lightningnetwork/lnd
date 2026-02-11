@@ -316,8 +316,7 @@ func TestParseFieldDataLength(t *testing.T) {
 }
 
 // TestParse32Bytes checks that the payment hash is properly parsed.
-// If the data does not have a length of 52 bytes, we skip over parsing the
-// field and do not return an error.
+// If the data does not have a length of 52 bytes, we return an error.
 func TestParse32Bytes(t *testing.T) {
 	t.Parallel()
 
@@ -329,14 +328,12 @@ func TestParse32Bytes(t *testing.T) {
 		result *[32]byte
 	}{
 		{
-			data:   []byte{},
-			valid:  true,
-			result: nil, // skip unknown length, not 52 bytes
+			data:  []byte{},
+			valid: false,
 		},
 		{
-			data:   []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
-			valid:  true,
-			result: nil, // skip unknown length, not 52 bytes
+			data:  []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+			valid: false,
 		},
 		{
 			data:   testPaymentHashData,
@@ -344,9 +341,8 @@ func TestParse32Bytes(t *testing.T) {
 			result: &testPaymentHash,
 		},
 		{
-			data:   append(testPaymentHashData, 0x0),
-			valid:  true,
-			result: nil, // skip unknown length, not 52 bytes
+			data:  append(testPaymentHashData, 0x0),
+			valid: false,
 		},
 	}
 
@@ -422,8 +418,7 @@ func TestParseDescription(t *testing.T) {
 }
 
 // TestParseDestination checks that the destination is properly parsed.
-// If the data does not have a length of 53 bytes, we skip over parsing the
-// field and do not return an error.
+// If the data does not have a length of 53 bytes, we return an error.
 func TestParseDestination(t *testing.T) {
 	t.Parallel()
 
@@ -435,14 +430,12 @@ func TestParseDestination(t *testing.T) {
 		result *btcec.PublicKey
 	}{
 		{
-			data:   []byte{},
-			valid:  true,
-			result: nil, // skip unknown length, not 53 bytes
+			data:  []byte{},
+			valid: false,
 		},
 		{
-			data:   []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
-			valid:  true,
-			result: nil, // skip unknown length, not 53 bytes
+			data:  []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+			valid: false,
 		},
 		{
 			data:   testPubKeyData,
@@ -450,9 +443,8 @@ func TestParseDestination(t *testing.T) {
 			result: testPubKey,
 		},
 		{
-			data:   append(testPubKeyData, 0x0),
-			valid:  true,
-			result: nil, // skip unknown length, not 53 bytes
+			data:  append(testPubKeyData, 0x0),
+			valid: false,
 		},
 	}
 

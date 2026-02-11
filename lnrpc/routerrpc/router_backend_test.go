@@ -782,9 +782,8 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 			sendReq: &SendPaymentRequest{
 				PaymentRequest: paymentReqMissingAddr,
 			},
-			valid: false,
-			expectedErrorMsg: "payment request must contain " +
-				"either a payment address or blinded paths",
+			valid:            false,
+			expectedErrorMsg: "payment secret not found",
 		},
 		{
 			name: "Invalid dest vertex length",

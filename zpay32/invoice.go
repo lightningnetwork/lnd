@@ -381,6 +381,24 @@ func validateInvoice(invoice *Invoice) error {
 		return fmt.Errorf("no payment hash found")
 	}
 
+	// The invoice must include a payment secret.
+	// If blinded paths are used, a payment secret is not required because
+	// the PathID in the final hop serves the same purpose.
+	if len(invoice.BlindedPaymentPaths) == 0 {
+		payAddr, err := invoice.PaymentAddr.UnwrapOrErr(
+			fmt.Errorf("payment secret not found"),
+		)
+		if err != nil {
+			return err
+		}
+		if len(payAddr) != 32 {
+			return fmt.Errorf(
+				"unsupported payment secret length: %d",
+				len(payAddr),
+			)
+		}
+	}
+
 	if len(invoice.RouteHints) != 0 &&
 		len(invoice.BlindedPaymentPaths) != 0 {
 

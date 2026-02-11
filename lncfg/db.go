@@ -40,9 +40,6 @@ const (
 	DefaultBatchCommitInterval = 500 * time.Millisecond
 
 	defaultPostgresMaxConnections = 50
-	defaultSqliteMaxConnections   = 2
-
-	defaultSqliteBusyTimeout = 5 * time.Second
 
 	// NSChannelDB is the namespace name that we use for the combined graph
 	// and channel state DB.
@@ -126,8 +123,8 @@ func DefaultDB() *DB {
 			QueryConfig:            *sqldb.DefaultPostgresConfig(),
 		},
 		Sqlite: &sqldb.SqliteConfig{
-			MaxConnections: defaultSqliteMaxConnections,
-			BusyTimeout:    defaultSqliteBusyTimeout,
+			MaxConnections: sqldb.DefaultSqliteMaxConns,
+			BusyTimeout:    sqldb.DefaultSqliteBusyTimeout,
 			QueryConfig:    *sqldb.DefaultSQLiteConfig(),
 		},
 		UseNativeSQL:           false,

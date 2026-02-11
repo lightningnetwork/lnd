@@ -408,6 +408,16 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		}, nil
 
 	case PostgresBackend:
+		// Wait for the Postgres database to become available before
+		// opening the connection. This is necessary in environments
+		// where the database may not be ready when LND starts.
+		if err := sqldb.WaitForPostgresReady(
+			ctx, db.Postgres,
+		); err != nil {
+			return nil, fmt.Errorf("error waiting for postgres "+
+				"to become available: %v", err)
+		}
+
 		// Convert the sqldb PostgresConfig to a kvdb postgres.Config.
 		// This is a temporary measure until we migrate all kvdb SQL
 		// users to native SQL.

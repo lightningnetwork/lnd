@@ -100,6 +100,12 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 		)
 	}
 
+	// Then we add any user specified pragma options. Note that these can
+	// be of the form: "key=value", "key(N)" or "key".
+	for _, option := range cfg.PragmaOptions {
+		sqliteOptions.Add(sqliteOptionPrefix, option)
+	}
+
 	// Construct the DSN which is just the database file name, appended
 	// with the series of pragma options as a query URL string. For more
 	// details on the formatting here, see the modernc.org/sqlite docs:

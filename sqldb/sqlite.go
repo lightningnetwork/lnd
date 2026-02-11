@@ -70,7 +70,7 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 		},
 		{
 			name:  "busy_timeout",
-			value: "5000",
+			value: fmt.Sprintf("%d", cfg.busyTimeoutMs()),
 		},
 		{
 			// With the WAL mode, this ensures that we also do an

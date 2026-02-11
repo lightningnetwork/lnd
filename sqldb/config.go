@@ -31,6 +31,22 @@ type SqliteConfig struct {
 	QueryConfig    `group:"query" namespace:"query"`
 }
 
+const (
+	// defaultBusyTimeoutMs is the default busy_timeout value in
+	// milliseconds, used when no BusyTimeout is configured.
+	defaultBusyTimeoutMs = 5000
+)
+
+// busyTimeoutMs returns the busy_timeout value in milliseconds. If
+// BusyTimeout is not set, it returns the default value.
+func (s *SqliteConfig) busyTimeoutMs() int64 {
+	if s.BusyTimeout > 0 {
+		return s.BusyTimeout.Milliseconds()
+	}
+
+	return defaultBusyTimeoutMs
+}
+
 // Validate checks that the SqliteConfig values are valid.
 func (p *SqliteConfig) Validate() error {
 	if err := p.QueryConfig.Validate(true); err != nil {

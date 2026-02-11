@@ -4531,6 +4531,10 @@ message ListPaymentsRequest {
     // If set, returns all payments with a creation date less than or equal to
     // it. Measured in seconds since the unix epoch.
     uint64 creation_date_end = 7;
+
+    // If set, omit hop-level route data for HTLC attempts to reduce query
+    // cost and response size.
+    bool omit_hops = 8;
 }
 
 message ListPaymentsResponse {

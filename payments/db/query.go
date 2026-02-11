@@ -44,6 +44,10 @@ type Query struct {
 	// CreationDateEnd, expressed in Unix seconds, if set, filters out all
 	// payments with a creation date less than or equal to it.
 	CreationDateEnd int64
+
+	// OmitHops skips loading hop and hop-level custom record data for
+	// HTLC attempts when set to true.
+	OmitHops bool
 }
 
 // Response contains the result of a query to the payments database.

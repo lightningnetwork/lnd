@@ -1648,13 +1648,23 @@ func (p *Brontide) Disconnect(reason error) {
 	// started, otherwise we will skip reading it as this chan won't be
 	// closed, hence blocks forever.
 	if atomic.LoadInt32(&p.started) == 1 {
-		p.log.Debugf("Peer hasn't finished starting up yet, waiting " +
-			"on startReady signal before closing connection")
-
+		// First check if startup has already completed (non-blocking).
 		select {
 		case <-p.startReady:
-		case <-p.cg.Done():
-			return
+			// Startup already completed, no need to wait.
+
+		default:
+			// Still starting up, need to wait.
+			p.log.Debugf("Peer hasn't finished starting up yet, " +
+				"waiting on startReady signal before " +
+				"closing connection")
+
+			select {
+			case <-p.startReady:
+
+			case <-p.cg.Done():
+				return
+			}
 		}
 	}
 

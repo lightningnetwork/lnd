@@ -91,6 +91,15 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 			name:  "auto_vacuum",
 			value: "incremental",
 		},
+		{
+			// Set the page cache size to 32MB. The SQLite default
+			// is -2000 (2MB), which causes frequent cache misses
+			// and disk I/O as the database grows. Negative values
+			// set the cache size in KiB. Users can override this
+			// via the PragmaOptions config.
+			name:  "cache_size",
+			value: "-32000",
+		},
 	}
 	sqliteOptions := make(url.Values)
 	for _, option := range pragmaOptions {

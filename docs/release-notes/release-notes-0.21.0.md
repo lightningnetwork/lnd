@@ -217,6 +217,12 @@
     migration](https://github.com/lightningnetwork/lnd/pull/10485) with
     comprehensive tests. The migration is currently dev-only, compiled behind
     the `test_db_postgres`, `test_db_sqlite`, or `test_native_sql` build tags.
+  * Various [SQL payment store
+    improvements](https://github.com/lightningnetwork/lnd/pull/10535):
+    optimize schema indexes, improve query performance for payment filtering
+    and failed attempt cleanup, fix cross-database timestamp handling, add
+    `omit_hops` option to `ListPayments` to reduce response size, and increase
+    the default SQLite cache size.
 
 
 ## Code Health

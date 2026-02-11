@@ -44,6 +44,9 @@ const (
 
 	defaultSqliteBusyTimeout = 5 * time.Second
 
+	defaultPostgresStartupMaxRetries = 5
+	defaultPostgresStartupRetryDelay = 1 * time.Second
+
 	// NSChannelDB is the namespace name that we use for the combined graph
 	// and channel state DB.
 	NSChannelDB = "channeldb"
@@ -114,7 +117,9 @@ func DefaultDB() *DB {
 			MaxMsgSize: 32768 * 1024,
 		},
 		Postgres: &sqldb.PostgresConfig{
-			MaxConnections: defaultPostgresMaxConnections,
+			MaxConnections:    defaultPostgresMaxConnections,
+			StartupMaxRetries: defaultPostgresStartupMaxRetries,
+			StartupRetryDelay: defaultPostgresStartupRetryDelay,
 			// Normally we don't use a global lock for channeldb
 			// access, but if a user encounters huge concurrency
 			// issues, they can enable this to use a global lock.

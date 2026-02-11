@@ -196,9 +196,15 @@
   * [Finalize SQL implementation for 
     payments db](https://github.com/lightningnetwork/lnd/pull/10373)
   * [Add the KV-to-SQL payment
-    migration](https://github.com/lightningnetwork/lnd/pull/10485) with 
-    comprehensive tests and build tag "test_native_sql" gated wiring into the 
+    migration](https://github.com/lightningnetwork/lnd/pull/10485) with
+    comprehensive tests and build tag "test_native_sql" gated wiring into the
     payment flow.
+  * Various [SQL payment store
+    improvements](https://github.com/lightningnetwork/lnd/pull/10535):
+    optimize schema indexes, improve query performance for payment filtering
+    and failed attempt cleanup, fix cross-database timestamp handling, add
+    `omit_hops` option to `ListPayments` to reduce response size, and increase
+    the default SQLite cache size.
 
 
 ## Code Health

@@ -32,6 +32,12 @@ type SqliteConfig struct {
 }
 
 const (
+	// defaultSqliteMaxConns is the default number of maximum open
+	// connections for SQLite. SQLite only supports a single writer, so a
+	// low default reduces contention on the busy_timeout and limits
+	// resource usage, especially on mobile.
+	defaultSqliteMaxConns = 2
+
 	// defaultBusyTimeoutMs is the default busy_timeout value in
 	// milliseconds, used when no BusyTimeout is configured.
 	defaultBusyTimeoutMs = 5000
@@ -45,6 +51,18 @@ func (s *SqliteConfig) busyTimeoutMs() int64 {
 	}
 
 	return defaultBusyTimeoutMs
+}
+
+// MaxConns returns the effective maximum number of open connections. If
+// MaxConnections is not set, it returns a default of 2. This low default is
+// chosen because SQLite only supports a single writer, which helps reduce
+// contention and resource usage.
+func (s *SqliteConfig) MaxConns() int {
+	if s.MaxConnections > 0 {
+		return s.MaxConnections
+	}
+
+	return defaultSqliteMaxConns
 }
 
 // Validate checks that the SqliteConfig values are valid.

@@ -207,7 +207,7 @@ func (db *DB) Init(ctx context.Context, dbPath string) error {
 		sqlbase.Init(db.Postgres.MaxConnections)
 
 	case db.Backend == SqliteBackend:
-		sqlbase.Init(db.Sqlite.MaxConnections)
+		sqlbase.Init(db.Sqlite.MaxConns())
 	}
 
 	return nil

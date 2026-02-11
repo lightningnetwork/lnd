@@ -40,7 +40,7 @@ env:
 
   # If you change this please also update GO_VERSION in Makefile (then run
   # `make lint` to see where else it needs to be updated as well).
-  GO_VERSION: 1.25.5
+  GO_VERSION: 1.26.0
 
 jobs:
   static-checks:
@@ -176,7 +176,7 @@ jobs:
           - name: amd64
             sys: darwin-amd64 freebsd-amd64 linux-amd64 netbsd-amd64 openbsd-amd64 windows-amd64
           - name: arm
-            sys: darwin-arm64 freebsd-arm linux-armv6 linux-armv7 linux-arm64 windows-arm
+            sys: darwin-arm64 freebsd-arm linux-armv6 linux-armv7 linux-arm64 windows-arm64
     steps:
       - name: Git checkout
         uses: actions/checkout@v5

@@ -69,6 +69,12 @@
   channel that was only expected to be used for a single message. The erring
   goroutine would block on the second send, leading to a deadlock at shutdown.
 
+* [Fixed `lncli unlock` to wait until the wallet is ready to be
+  unlocked](https://github.com/lightningnetwork/lnd/pull/10536)
+  before sending the unlock request. The command now reports wallet state
+  transitions during startup, avoiding lost unlocks during slow database
+  initialization.
+
 # New Features
 
 - Basic Support for [onion messaging forwarding](https://github.com/lightningnetwork/lnd/pull/9868) 

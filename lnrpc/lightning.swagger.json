@@ -2440,6 +2440,13 @@
             "required": false,
             "type": "string",
             "format": "uint64"
+          },
+          {
+            "name": "omit_hops",
+            "description": "If set, omit hop-level route data for HTLC attempts to reduce query\ncost and response size.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [

@@ -14,7 +14,7 @@ import (
 type Graph interface {
 	// ForEachNodeDirectedChannel calls the callback for every channel of
 	// the given node.
-	ForEachNodeDirectedChannel(nodePub route.Vertex,
+	ForEachNodeDirectedChannel(v lnwire.GossipVersion, nodePub route.Vertex,
 		cb func(channel *graphdb.DirectedChannel) error,
 		reset func()) error
 

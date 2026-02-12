@@ -669,8 +669,13 @@ func (c *KVStore) fetchNodeFeatures(tx kvdb.RTx,
 // Unknown policies are passed into the callback as nil values.
 //
 // NOTE: this is part of the graphdb.NodeTraverser interface.
-func (c *KVStore) ForEachNodeDirectedChannel(nodePub route.Vertex,
-	cb func(channel *DirectedChannel) error, reset func()) error {
+func (c *KVStore) ForEachNodeDirectedChannel(v lnwire.GossipVersion,
+	nodePub route.Vertex, cb func(channel *DirectedChannel) error,
+	reset func()) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	return c.forEachNodeDirectedChannel(nil, nodePub, cb, reset)
 }
@@ -4471,8 +4476,13 @@ type nodeTraverserSession struct {
 // node.
 //
 // NOTE: Part of the NodeTraverser interface.
-func (c *nodeTraverserSession) ForEachNodeDirectedChannel(nodePub route.Vertex,
+func (c *nodeTraverserSession) ForEachNodeDirectedChannel(
+	v lnwire.GossipVersion, nodePub route.Vertex,
 	cb func(channel *DirectedChannel) error, _ func()) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	return c.db.forEachNodeDirectedChannel(c.tx, nodePub, cb, func() {})
 }

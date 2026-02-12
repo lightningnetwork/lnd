@@ -116,7 +116,7 @@ func (u *nodeEdgeUnifier) addGraphPolicies(g Graph) error {
 
 	// Iterate over all channels of the to node.
 	err := g.ForEachNodeDirectedChannel(
-		u.toNode, cb, func() {
+		lnwire.GossipVersion1, u.toNode, cb, func() {
 			channels = nil
 		},
 	)

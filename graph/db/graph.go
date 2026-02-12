@@ -163,29 +163,35 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 	log.Info("Populating in-memory channel graph, this might take a " +
 		"while...")
 
-	err := c.db.ForEachNodeCacheable(ctx, gossipV1,
-		func(node route.Vertex,
-			features *lnwire.FeatureVector) error {
+	for _, v := range []lnwire.GossipVersion{
+		gossipV1, gossipV2,
+	} {
+		// TODO(elle): If we have both v1 and v2 entries for the same
+		// node/channel, prefer v2 when merging.
+		err := c.db.ForEachNodeCacheable(ctx, v,
+			func(node route.Vertex,
+				features *lnwire.FeatureVector) error {
 
-			c.graphCache.AddNodeFeatures(node, features)
+				c.graphCache.AddNodeFeatures(node, features)
 
-			return nil
-		}, func() {})
-	if err != nil {
-		return err
-	}
+				return nil
+			}, func() {})
+		if err != nil && !errors.Is(err, ErrVersionNotSupportedForKVDB) {
+			return err
+		}
 
-	err = c.db.ForEachChannelCacheable(gossipV1,
-		func(info *models.CachedEdgeInfo,
-			policy1, policy2 *models.CachedEdgePolicy) error {
+		err = c.db.ForEachChannelCacheable(v,
+			func(info *models.CachedEdgeInfo,
+				policy1, policy2 *models.CachedEdgePolicy) error {
 
-			c.graphCache.AddChannel(info, policy1, policy2)
+				c.graphCache.AddChannel(info, policy1, policy2)
 
-			return nil
-		}, func() {},
-	)
-	if err != nil {
-		return err
+				return nil
+			}, func() {},
+		)
+		if err != nil && !errors.Is(err, ErrVersionNotSupportedForKVDB) {
+			return err
+		}
 	}
 
 	log.Infof("Finished populating in-memory channel graph (took %v, %s)",
@@ -204,14 +210,15 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 // Unknown policies are passed into the callback as nil values.
 //
 // NOTE: this is part of the graphdb.NodeTraverser interface.
-func (c *ChannelGraph) ForEachNodeDirectedChannel(node route.Vertex,
-	cb func(channel *DirectedChannel) error, reset func()) error {
+func (c *ChannelGraph) ForEachNodeDirectedChannel(v lnwire.GossipVersion,
+	node route.Vertex, cb func(channel *DirectedChannel) error,
+	reset func()) error {
 
 	if c.graphCache != nil {
 		return c.graphCache.ForEachChannel(node, cb)
 	}
 
-	return c.db.ForEachNodeDirectedChannel(node, cb, reset)
+	return c.db.ForEachNodeDirectedChannel(v, node, cb, reset)
 }
 
 // FetchNodeFeatures returns the features of the given node. If no features are
@@ -947,6 +954,18 @@ func (c *VersionedGraph) ForEachChannelCacheable(
 		*models.CachedEdgePolicy) error, reset func()) error {
 
 	return c.db.ForEachChannelCacheable(c.v, cb, reset)
+}
+
+// ForEachNodeDirectedChannel iterates through all channels of a given node.
+// The version parameter is accepted for interface compatibility but ignored
+// in favour of the baked-in version.
+func (c *VersionedGraph) ForEachNodeDirectedChannel(
+	_ lnwire.GossipVersion, node route.Vertex,
+	cb func(channel *DirectedChannel) error, reset func()) error {
+
+	return c.ChannelGraph.ForEachNodeDirectedChannel(
+		c.v, node, cb, reset,
+	)
 }
 
 // IsPublicNode determines whether the node is seen as public in the graph.

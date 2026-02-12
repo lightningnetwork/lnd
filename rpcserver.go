@@ -3212,7 +3212,9 @@ func abandonChanFromGraph(chanGraph *graphdb.VersionedGraph,
 
 	// If the channel ID is still in the graph, then that means the channel
 	// is still open, so we'll now move to purge it from the graph.
-	return chanGraph.DeleteChannelEdges(false, true, chanID)
+	return chanGraph.DeleteChannelEdges(
+		false, true, chanID,
+	)
 }
 
 // abandonChan removes a channel from the database, graph and contract court.
@@ -6421,7 +6423,9 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		NodeSigner:        r.server.nodeSigner,
 		DefaultCLTVExpiry: defaultDelta,
 		ChanDB:            r.server.chanStateDB,
-		Graph:             r.server.graphDB,
+		Graph: graphdb.NewVersionedGraph(
+			r.server.graphDB, lnwire.GossipVersion1,
+		),
 		GenInvoiceFeatures: func() *lnwire.FeatureVector {
 			v := r.server.featureMgr.Get(feature.SetInvoice)
 

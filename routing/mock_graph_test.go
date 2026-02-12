@@ -165,8 +165,8 @@ func (m *mockGraph) addChannel(id uint64, node1id, node2id byte,
 // forEachNodeChannel calls the callback for every channel of the given node.
 //
 // NOTE: Part of the Graph interface.
-func (m *mockGraph) ForEachNodeDirectedChannel(_ lnwire.GossipVersion,
-	nodePub route.Vertex,
+func (m *mockGraph) ForEachNodeDirectedChannel(
+	_ lnwire.GossipVersion, nodePub route.Vertex,
 	cb func(channel *graphdb.DirectedChannel) error, _ func()) error {
 
 	// Look up the mock node.
@@ -222,8 +222,8 @@ func (m *mockGraph) sourceNode() route.Vertex {
 // fetchNodeFeatures returns the features of the given node.
 //
 // NOTE: Part of the Graph interface.
-func (m *mockGraph) FetchNodeFeatures(nodePub route.Vertex) (
-	*lnwire.FeatureVector, error) {
+func (m *mockGraph) FetchNodeFeatures(_ lnwire.GossipVersion,
+	nodePub route.Vertex) (*lnwire.FeatureVector, error) {
 
 	return lnwire.EmptyFeatureVector(), nil
 }

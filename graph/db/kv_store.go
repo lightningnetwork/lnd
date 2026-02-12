@@ -4592,8 +4592,13 @@ func (c *nodeTraverserSession) ForEachNodeDirectedChannel(
 // unknown, assume no additional features are supported.
 //
 // NOTE: Part of the NodeTraverser interface.
-func (c *nodeTraverserSession) FetchNodeFeatures(nodePub route.Vertex) (
+func (c *nodeTraverserSession) FetchNodeFeatures(v lnwire.GossipVersion,
+	nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return nil, ErrVersionNotSupportedForKVDB
+	}
 
 	return c.db.fetchNodeFeatures(c.tx, nodePub)
 }

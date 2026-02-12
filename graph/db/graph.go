@@ -234,14 +234,15 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(v lnwire.GossipVersion,
 // features instead of the database.
 //
 // NOTE: this is part of the graphdb.NodeTraverser interface.
-func (c *ChannelGraph) FetchNodeFeatures(node route.Vertex) (
+func (c *ChannelGraph) FetchNodeFeatures(v lnwire.GossipVersion,
+	node route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
 	if c.graphCache != nil {
 		return c.graphCache.GetFeatures(node), nil
 	}
 
-	return c.db.FetchNodeFeatures(lnwire.GossipVersion1, node)
+	return c.db.FetchNodeFeatures(v, node)
 }
 
 // GraphSession will provide the call-back with access to a NodeTraverser
@@ -384,12 +385,11 @@ func (c *ChannelGraph) MarkEdgeLive(v lnwire.GossipVersion,
 // that we require the node that failed to send the fresh update to be the one
 // that resurrects the channel from its zombie state. The markZombie bool
 // denotes whether to mark the channel as a zombie.
-func (c *ChannelGraph) DeleteChannelEdges(strictZombiePruning, markZombie bool,
-	chanIDs ...uint64) error {
+func (c *ChannelGraph) DeleteChannelEdges(v lnwire.GossipVersion,
+	strictZombiePruning, markZombie bool, chanIDs ...uint64) error {
 
 	infos, err := c.db.DeleteChannelEdges(
-		lnwire.GossipVersion1, strictZombiePruning, markZombie,
-		chanIDs...,
+		v, strictZombiePruning, markZombie, chanIDs...,
 	)
 	if err != nil {
 		return err
@@ -663,9 +663,12 @@ func (c *ChannelGraph) HasV1Node(ctx context.Context,
 	return c.db.HasV1Node(ctx, nodePub)
 }
 
-// IsPublicNode determines whether the node is seen as public in the graph.
-func (c *ChannelGraph) IsPublicNode(pubKey [33]byte) (bool, error) {
-	return c.db.IsPublicNode(lnwire.GossipVersion1, pubKey)
+// IsPublicNode determines whether the node is seen as public in the graph for
+// the given gossip version.
+func (c *ChannelGraph) IsPublicNode(v lnwire.GossipVersion,
+	pubKey [33]byte) (bool, error) {
+
+	return c.db.IsPublicNode(v, pubKey)
 }
 
 // ForEachChannel iterates through all channel edges stored within the graph.
@@ -775,11 +778,12 @@ func (c *ChannelGraph) ChannelView() ([]EdgePoint, error) {
 	return c.db.ChannelView()
 }
 
-// IsZombieEdge returns whether the edge is considered zombie.
-func (c *ChannelGraph) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte,
-	error) {
+// IsZombieEdge returns whether the edge is considered zombie for the given
+// gossip version.
+func (c *ChannelGraph) IsZombieEdge(v lnwire.GossipVersion, chanID uint64) (
+	bool, [33]byte, [33]byte, error) {
 
-	return c.db.IsZombieEdge(lnwire.GossipVersion1, chanID)
+	return c.db.IsZombieEdge(v, chanID)
 }
 
 // NumZombies returns the current number of zombie channels in the graph.

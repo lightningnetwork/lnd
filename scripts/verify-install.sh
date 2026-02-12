@@ -159,7 +159,12 @@ function verify_signatures() {
     # Run the actual verification.
     gpg --homedir "$TEMP_DIR" --no-default-keyring --keyring "$KEYRING" --status-fd=1 \
       --verify "$TEMP_DIR/$signature" "$TEMP_DIR/$MANIFEST" \
-      > "$STATUS_FILE" 2>&1 || { echo "ERROR: Invalid signature!"; exit 1; } 
+      > "$STATUS_FILE" 2>&1 || {
+        echo "ERROR: Invalid signature $signature from user $USERNAME!"
+        echo "  GPG output:"
+        cat "$STATUS_FILE" | sed 's/^/    /'
+        exit 1
+      }
 
     echo "Verifying $signature of user $USERNAME against key ring $KEYRING"
     if grep -q "Good signature" "$STATUS_FILE"; then

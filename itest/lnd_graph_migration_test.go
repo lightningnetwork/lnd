@@ -8,6 +8,7 @@ import (
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/stretchr/testify/require"
@@ -65,22 +66,23 @@ func testGraphMigration(ht *lntest.HarnessTest) {
 			numNodes int
 			edges    = make(map[uint64]bool)
 		)
-		err := db.ForEachNodeCached(ctx, false, func(_ context.Context,
-			_ route.Vertex, _ []net.Addr,
-			chans map[uint64]*graphdb.DirectedChannel) error {
+		err := db.ForEachNodeCached(ctx, lnwire.GossipVersion1, false,
+			func(_ context.Context,
+				_ route.Vertex, _ []net.Addr,
+				chans map[uint64]*graphdb.DirectedChannel) error {
 
-			numNodes++
+				numNodes++
 
-			// For each node, also count the number of edges.
-			for _, ch := range chans {
-				edges[ch.ChannelID] = true
-			}
+				// For each node, also count the number of edges.
+				for _, ch := range chans {
+					edges[ch.ChannelID] = true
+				}
 
-			return nil
-		}, func() {
-			clear(edges)
-			numNodes = 0
-		})
+				return nil
+			}, func() {
+				clear(edges)
+				numNodes = 0
+			})
 		require.NoError(ht, err)
 		require.Equal(ht, expNumNodes, numNodes)
 		require.Equal(ht, expNumChans, len(edges))

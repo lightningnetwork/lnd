@@ -1726,7 +1726,9 @@ func TestGraphTraversal(t *testing.T) {
 	// graph. And we'll create 5 channels between each node pair.
 	const numNodes = 20
 	const numChannels = 5
-	chanIndex, nodeList := fillTestGraph(t, graph, numNodes, numChannels)
+	chanIndex, nodeList := fillTestGraph(
+		t, graph, numNodes, numChannels, lnwire.GossipVersion1,
+	)
 
 	// Make an index of the node list for easy look up below.
 	nodeIndex := make(map[route.Vertex]struct{})
@@ -1826,7 +1828,9 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	// graph. And we'll create 5 channels between the first two nodes.
 	const numNodes = 20
 	const numChannels = 5
-	chanIndex, _ := fillTestGraph(t, graph, numNodes, numChannels)
+	chanIndex, _ := fillTestGraph(
+		t, graph, numNodes, numChannels, lnwire.GossipVersion1,
+	)
 
 	// Create a map of all nodes with the iteration we know works (because
 	// it is tested in another test).
@@ -1898,7 +1902,9 @@ func TestGraphCacheTraversal(t *testing.T) {
 	// graph. And we'll create 5 channels between each node pair.
 	const numNodes = 20
 	const numChannels = 5
-	chanIndex, nodeList := fillTestGraph(t, graph, numNodes, numChannels)
+	chanIndex, nodeList := fillTestGraph(
+		t, graph, numNodes, numChannels, lnwire.GossipVersion1,
+	)
 
 	// Iterate through all the known channels within the graph DB, once
 	// again if the map is empty that indicates that all edges have
@@ -1941,17 +1947,18 @@ func TestGraphCacheTraversal(t *testing.T) {
 	require.Equal(t, numChannels*2*(numNodes-1), numNodeChans)
 }
 
-// fillTestGraph fills the graph with a given number of nodes and create a given
-// number of channels between each node.
+// fillTestGraph fills the graph with nodes and channels using the requested
+// gossip version.
 func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
-	numChannels int) (map[uint64]struct{}, []*models.Node) {
+	numChannels int, v lnwire.GossipVersion) (map[uint64]struct{},
+	[]*models.Node) {
 
 	ctx := t.Context()
 
 	nodes := make([]*models.Node, numNodes)
 	nodeIndex := map[string]struct{}{}
 	for i := 0; i < numNodes; i++ {
-		node := createTestVertex(t, lnwire.GossipVersion1)
+		node := createTestVertex(t, v)
 
 		nodes[i] = node
 		nodeIndex[node.Alias.UnwrapOr("")] = struct{}{}
@@ -1975,6 +1982,74 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 	// Create a number of channels between each of the node pairs generated
 	// above. This will result in numChannels*(numNodes-1) channels.
 	chanIndex := map[uint64]struct{}{}
+	buildEdgeInfo := func(chanID uint64, node1Key,
+		node2Key route.Vertex, op wire.OutPoint,
+		version lnwire.GossipVersion) *models.ChannelEdgeInfo {
+
+		switch version {
+		case gossipV1:
+			proof := models.NewV1ChannelAuthProof(
+				testSig.Serialize(),
+				testSig.Serialize(),
+				testSig.Serialize(),
+				testSig.Serialize(),
+			)
+
+			edgeInfo, err := models.NewV1Channel(
+				chanID, *chaincfg.MainNetParams.GenesisHash,
+				node1Key, node2Key, &models.ChannelV1Fields{
+					BitcoinKey1Bytes: node1Key,
+					BitcoinKey2Bytes: node2Key,
+				},
+				models.WithChanProof(proof),
+				models.WithChannelPoint(op),
+				models.WithCapacity(1000),
+			)
+			require.NoError(t, err)
+
+			return edgeInfo
+
+		case gossipV2:
+			var merkleRoot chainhash.Hash
+			copy(merkleRoot[:], bytes.Repeat([]byte{0xaa}, 32))
+
+			fundingScript := []byte{0x00, 0x20}
+			fundingScript = append(
+				fundingScript,
+				bytes.Repeat([]byte{0xbb}, 32)...,
+			)
+
+			proof := models.NewV2ChannelAuthProof(
+				testSig.Serialize(),
+			)
+
+			v2Fields := &models.ChannelV2Fields{
+				BitcoinKey1Bytes: fn.Some(node1Key),
+				BitcoinKey2Bytes: fn.Some(node2Key),
+				MerkleRootHash:   fn.Some(merkleRoot),
+				FundingScript:    fn.Some(fundingScript),
+				ExtraSignedFields: make(
+					map[uint64][]byte,
+				),
+			}
+
+			edgeInfo, err := models.NewV2Channel(
+				chanID, *chaincfg.MainNetParams.GenesisHash,
+				node1Key, node2Key, v2Fields,
+				models.WithChanProof(proof),
+				models.WithChannelPoint(op),
+				models.WithCapacity(1000),
+			)
+			require.NoError(t, err)
+
+			return edgeInfo
+		}
+
+		require.Failf(t, "unknown gossip version", "%v", version)
+
+		return nil
+	}
+
 	for n := 0; n < numNodes-1; n++ {
 		node1 := nodes[n]
 		node2 := nodes[n+1]
@@ -1996,39 +2071,26 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 			copy(node1Key[:], node1.PubKeyBytes[:])
 			copy(node2Key[:], node2.PubKeyBytes[:])
 
-			proof := models.NewV1ChannelAuthProof(
-				testSig.Serialize(),
-				testSig.Serialize(),
-				testSig.Serialize(),
-				testSig.Serialize(),
+			edgeInfo := buildEdgeInfo(
+				chanID, node1Key, node2Key, op, v,
 			)
-
-			edgeInfo, err := models.NewV1Channel(
-				chanID, *chaincfg.MainNetParams.GenesisHash,
-				node1Key, node2Key, &models.ChannelV1Fields{
-					BitcoinKey1Bytes: node1Key,
-					BitcoinKey2Bytes: node2Key,
-				},
-				models.WithChanProof(proof),
-				models.WithChannelPoint(op),
-				models.WithCapacity(1000),
-			)
-			require.NoError(t, err)
 			err = graph.AddChannelEdge(ctx, edgeInfo)
 			require.NoError(t, err)
 
 			// Create and add an edge with random data that points
 			// from node1 -> node2.
-			edge := randEdgePolicy(chanID)
-			edge.ChannelFlags = 0
+			edge := newEdgePolicy(
+				v, chanID, prand.Int63(), true,
+			)
 			edge.ToNode = node2.PubKeyBytes
 			edge.SigBytes = testSig.Serialize()
 			require.NoError(t, graph.UpdateEdgePolicy(ctx, edge))
 
 			// Create another random edge that points from
 			// node2 -> node1 this time.
-			edge = randEdgePolicy(chanID)
-			edge.ChannelFlags = 1
+			edge = newEdgePolicy(
+				v, chanID, prand.Int63(), false,
+			)
 			edge.ToNode = node1.PubKeyBytes
 			edge.SigBytes = testSig.Serialize()
 			require.NoError(t, graph.UpdateEdgePolicy(ctx, edge))
@@ -4417,7 +4479,9 @@ func BenchmarkIsPublicNode(b *testing.B) {
 	// Create a graph with a reasonable number of nodes and channels.
 	numNodes := 100
 	numChans := 4
-	_, nodes := fillTestGraph(b, graph, numNodes, numChans)
+	_, nodes := fillTestGraph(
+		b, graph, numNodes, numChans, lnwire.GossipVersion1,
+	)
 
 	// Use deterministic random number generator for reproducible results.
 	rng := prand.New(prand.NewSource(42))
@@ -4985,7 +5049,9 @@ func BenchmarkForEachChannel(b *testing.B) {
 
 	const numNodes = 100
 	const numChannels = 4
-	_, _ = fillTestGraph(b, graph, numNodes, numChannels)
+	_, _ = fillTestGraph(
+		b, graph, numNodes, numChannels, lnwire.GossipVersion1,
+	)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -5010,7 +5076,7 @@ func BenchmarkForEachChannel(b *testing.B) {
 		for _, n := range nodes {
 			cb := func(info *models.ChannelEdgeInfo,
 				policy *models.ChannelEdgePolicy,
-				policy2 *models.ChannelEdgePolicy) error { //nolint:ll
+				policy2 *models.ChannelEdgePolicy) error {
 
 				// We need to do something with
 				// the data here, otherwise the
@@ -5136,7 +5202,9 @@ func TestGraphLoading(t *testing.T) {
 	// Populate the graph with test data.
 	const numNodes = 100
 	const numChannels = 4
-	_, _ = fillTestGraph(t, graph, numNodes, numChannels)
+	_, _ = fillTestGraph(
+		t, graph, numNodes, numChannels, lnwire.GossipVersion1,
+	)
 
 	// Recreate the graph. This should cause the graph cache to be
 	// populated.

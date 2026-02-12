@@ -685,13 +685,6 @@ func (c *ChannelGraph) AddEdgeProof(chanID lnwire.ShortChannelID,
 	return c.db.AddEdgeProof(chanID, proof)
 }
 
-// ChannelID attempts to lookup the 8-byte compact channel ID.
-func (c *ChannelGraph) ChannelID(v lnwire.GossipVersion,
-	chanPoint *wire.OutPoint) (uint64, error) {
-
-	return c.db.ChannelID(v, chanPoint)
-}
-
 // HighestChanID returns the "highest" known channel ID in the channel graph.
 func (c *ChannelGraph) HighestChanID(ctx context.Context) (uint64, error) {
 	return c.db.HighestChanID(ctx)

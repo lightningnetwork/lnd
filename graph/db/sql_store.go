@@ -4895,16 +4895,15 @@ func getAndBuildChanPolicies(ctx context.Context, cfg *sqldb.QueryConfig,
 		return nil, nil, nil
 	}
 
-	// TODO(elle): update to support v2 policies.
 	if dbPol1 != nil &&
-		lnwire.GossipVersion(dbPol1.Version) != gossipV1 {
+		!isKnownGossipVersion(lnwire.GossipVersion(dbPol1.Version)) {
 
 		return nil, nil, fmt.Errorf("unsupported policy1 version: %d",
 			dbPol1.Version)
 	}
 
 	if dbPol2 != nil &&
-		lnwire.GossipVersion(dbPol2.Version) != gossipV1 {
+		!isKnownGossipVersion(lnwire.GossipVersion(dbPol2.Version)) {
 
 		return nil, nil, fmt.Errorf("unsupported policy2 version: %d",
 			dbPol2.Version)

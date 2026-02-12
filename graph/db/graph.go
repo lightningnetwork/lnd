@@ -589,10 +589,11 @@ func (c *ChannelGraph) UpdateEdgePolicy(ctx context.Context,
 
 // ForEachSourceNodeChannel iterates through all channels of the source node.
 func (c *ChannelGraph) ForEachSourceNodeChannel(ctx context.Context,
-	cb func(chanPoint wire.OutPoint, havePolicy bool,
-		otherNode *models.Node) error, reset func()) error {
+	v lnwire.GossipVersion, cb func(chanPoint wire.OutPoint,
+		havePolicy bool, otherNode *models.Node) error,
+	reset func()) error {
 
-	return c.db.ForEachSourceNodeChannel(ctx, cb, reset)
+	return c.db.ForEachSourceNodeChannel(ctx, v, cb, reset)
 }
 
 // ForEachNodeChannel iterates through all channels of the given node.
@@ -904,6 +905,14 @@ func (c *VersionedGraph) DeleteChannelEdges(strictZombiePruning,
 // the second boolean.
 func (c *VersionedGraph) HasChannelEdge(chanID uint64) (bool, bool, error) {
 	return c.db.HasChannelEdge(c.v, chanID)
+}
+
+// ForEachSourceNodeChannel iterates through all channels of the source node.
+func (c *VersionedGraph) ForEachSourceNodeChannel(ctx context.Context,
+	cb func(chanPoint wire.OutPoint, havePolicy bool,
+		otherNode *models.Node) error, reset func()) error {
+
+	return c.db.ForEachSourceNodeChannel(ctx, c.v, cb, reset)
 }
 
 // ForEachNodeChannel iterates through all channels of the given node.

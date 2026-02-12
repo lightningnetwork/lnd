@@ -100,6 +100,8 @@ const (
 var (
 	testTimeout = 5 * time.Second
 
+	testTimeoutLong = time.Minute
+
 	testTime = time.Date(2018, time.February, 2, 14, 0, 0, 0, time.UTC)
 
 	testInvoicePreimage = lntypes.Preimage{1}
@@ -255,7 +257,9 @@ func timeout() func() {
 
 	go func() {
 		select {
-		case <-time.After(10 * time.Second):
+		// Use a longer timeout to accommodate slow Postgres database
+		// setup and migrations when running tests in parallel.
+		case <-time.After(testTimeoutLong):
 			err := pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
 			if err != nil {
 				panic(fmt.Sprintf("error writing to std out "+

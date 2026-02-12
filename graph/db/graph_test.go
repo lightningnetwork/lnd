@@ -190,6 +190,14 @@ var versionedTests = []versionedTest{
 		name: "disabled channel ids",
 		test: testDisabledChannelIDs,
 	},
+	{
+		name: "batched add channel edge",
+		test: testBatchedAddChannelEdge,
+	},
+	{
+		name: "graph cache for each node channel",
+		test: testGraphCacheForEachNodeChannel,
+	},
 }
 
 // TestVersionedDBs runs various tests against both v1 and v2 versioned
@@ -5010,19 +5018,19 @@ func TestComputeFee(t *testing.T) {
 
 // TestBatchedAddChannelEdge asserts that BatchedAddChannelEdge properly
 // executes multiple AddChannelEdge requests in a single txn.
-func TestBatchedAddChannelEdge(t *testing.T) {
+func testBatchedAddChannelEdge(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
-	sourceNode := createTestVertex(t, lnwire.GossipVersion1)
+	sourceNode := createTestVertex(t, v)
 	require.Nil(t, graph.SetSourceNode(ctx, sourceNode))
 
 	// We'd like to test the insertion/deletion of edges, so we create two
 	// vertexes to connect.
-	node1 := createTestVertex(t, lnwire.GossipVersion1)
-	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	node1 := createTestVertex(t, v)
+	node2 := createTestVertex(t, v)
 
 	// In addition to the fake vertexes we create some fake channel
 	// identifiers.
@@ -5045,23 +5053,20 @@ func TestBatchedAddChannelEdge(t *testing.T) {
 
 	// Create an edge which has its block height at 156.
 	height := uint32(156)
-	edgeInfo, _ := createEdge(
-		lnwire.GossipVersion1, height, 0, 0, 0, node1, node2,
-	)
+	edgeInfo, _ := createEdge(v, height, 0, 0, 0, node1, node2)
 
 	// Create an edge with block height 157. We give it
 	// maximum values for tx index and position, to make
 	// sure our database range scan get edges from the
 	// entire range.
 	edgeInfo2, _ := createEdge(
-		lnwire.GossipVersion1, height+1,
-		math.MaxUint32&0x00ffffff, math.MaxUint16, 1, node1,
-		node2,
+		v, height+1, math.MaxUint32&0x00ffffff, math.MaxUint16, 1,
+		node1, node2,
 	)
 
 	// Create a third edge, this with a block height of 155.
 	edgeInfo3, _ := createEdge(
-		lnwire.GossipVersion1, height-1, 0, 0, 2, node1, node2,
+		v, height-1, 0, 0, 2, node1, node2,
 	)
 
 	edges := []models.ChannelEdgeInfo{*edgeInfo, *edgeInfo2, *edgeInfo3}
@@ -5203,25 +5208,24 @@ func BenchmarkForEachChannel(b *testing.B) {
 
 // TestGraphCacheForEachNodeChannel tests that the forEachNodeDirectedChannel
 // method works as expected, and is able to handle nil self edges.
-func TestGraphCacheForEachNodeChannel(t *testing.T) {
+func testGraphCacheForEachNodeChannel(t *testing.T,
+	v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	// Unset the channel graph cache to simulate the user running with the
 	// option turned off.
 	graph.graphCache = nil
 
-	node1 := createTestVertex(t, lnwire.GossipVersion1)
+	node1 := createTestVertex(t, v)
 	require.NoError(t, graph.AddNode(ctx, node1))
-	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	node2 := createTestVertex(t, v)
 	require.NoError(t, graph.AddNode(ctx, node2))
 
 	// Create an edge and add it to the db.
-	edgeInfo, e1, e2 := createChannelEdge(
-		node1, node2, lnwire.GossipVersion1,
-	)
+	edgeInfo, e1, e2 := createChannelEdge(node1, node2, v)
 
 	// Because of lexigraphical sorting and the usage of random node keys in
 	// this test, we need to determine which edge belongs to node 1 at
@@ -5238,8 +5242,8 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 
 	getSingleChannel := func() *DirectedChannel {
 		var ch *DirectedChannel
-		err := graph.ForEachNodeDirectedChannel(
-			node1.PubKeyBytes,
+		err := graph.db.ForEachNodeDirectedChannel(
+			v, node1.PubKeyBytes,
 			func(c *DirectedChannel) error {
 				require.Nil(t, ch)
 				ch = c
@@ -5265,6 +5269,12 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 		FeeRate: 20,
 	}
 	edge1.InboundFee = fn.Some(inboundFee)
+	switch v {
+	case lnwire.GossipVersion1:
+		edge1.LastUpdate = edge1.LastUpdate.Add(time.Second)
+	case lnwire.GossipVersion2:
+		edge1.LastBlockHeight = nextBlockHeight()
+	}
 	require.NoError(t, graph.UpdateEdgePolicy(ctx, edge1))
 	edge1 = copyEdgePolicy(edge1) // Avoid read/write race conditions.
 
@@ -5272,22 +5282,29 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	require.NotNil(t, directedChan)
 	require.Equal(t, inboundFee, directedChan.InboundFee)
 
-	// Set an invalid inbound fee and check that persistence fails.
-	edge1.ExtraOpaqueData = []byte{
-		253, 217, 3, 8, 0,
-	}
-	// We need to update the timestamp so that we don't hit the DB conflict
-	// error when we try to update the edge policy.
-	edge1.LastUpdate = edge1.LastUpdate.Add(time.Second)
-	require.ErrorIs(
-		t, graph.UpdateEdgePolicy(ctx, edge1), ErrParsingExtraTLVBytes,
-	)
+	// The below test only applies to v1 since in v2, we would fail TLV
+	// parsing at the lnwire level when parsing bytes from the wire.
+	if v == lnwire.GossipVersion1 {
+		// Set an invalid inbound fee and check that persistence fails.
+		edge1.ExtraOpaqueData = []byte{
+			253, 217, 3, 8, 0,
+		}
+		// We need to update the timestamp so that we don't hit
+		// the DB conflict error when we try to update the edge
+		// policy.
+		edge1.LastUpdate = edge1.LastUpdate.Add(time.Second)
+		require.ErrorIs(
+			t, graph.UpdateEdgePolicy(ctx, edge1),
+			ErrParsingExtraTLVBytes,
+		)
 
-	// Since persistence of the last update failed, we should still bet
-	// the previous result when we query the channel again.
-	directedChan = getSingleChannel()
-	require.NotNil(t, directedChan)
-	require.Equal(t, inboundFee, directedChan.InboundFee)
+		// Since persistence of the last update failed, we should
+		// still bet the previous result when we query the channel
+		// again.
+		directedChan = getSingleChannel()
+		require.NotNil(t, directedChan)
+		require.Equal(t, inboundFee, directedChan.InboundFee)
+	}
 }
 
 // TestGraphLoading asserts that the cache is properly reconstructed after a

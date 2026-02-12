@@ -178,6 +178,14 @@ var versionedTests = []versionedTest{
 		name: "node is public empty channel signature",
 		test: testIsPublicNodeEmptyChannelSignature,
 	},
+	{
+		name: "edge info updates",
+		test: testEdgeInfoUpdates,
+	},
+	{
+		name: "batched update edge policy",
+		test: testBatchedUpdateEdgePolicy,
+	},
 }
 
 // TestVersionedDBs runs various tests against both v1 and v2 versioned
@@ -1173,29 +1181,27 @@ func createChannelEdge(node1, node2 *models.Node,
 	return edgeInfo, edge1, edge2
 }
 
-func TestEdgeInfoUpdates(t *testing.T) {
+func testEdgeInfoUpdates(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.
-	node1 := createTestVertex(t, lnwire.GossipVersion1)
+	node1 := createTestVertex(t, v)
 	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
-	assertNodeInCache(t, graph, node1, testFeatures)
-	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	assertNodeInCache(t, graph.ChannelGraph, node1, testFeatures)
+	node2 := createTestVertex(t, v)
 	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
-	assertNodeInCache(t, graph, node2, testFeatures)
+	assertNodeInCache(t, graph.ChannelGraph, node2, testFeatures)
 
 	// Create an edge and add it to the db.
-	edgeInfo, edge1, edge2 := createChannelEdge(
-		node1, node2, lnwire.GossipVersion1,
-	)
+	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2, v)
 
 	// Make sure inserting the policy at this point, before the edge info
 	// is added, will fail.
@@ -1207,7 +1213,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	if err := graph.AddChannelEdge(ctx, edgeInfo); err != nil {
 		t.Fatalf("unable to create channel edge: %v", err)
 	}
-	assertEdgeWithNoPoliciesInCache(t, graph, edgeInfo)
+	assertEdgeWithNoPoliciesInCache(t, graph.ChannelGraph, edgeInfo)
 
 	chanID := edgeInfo.ChannelID
 	outpoint := edgeInfo.ChannelPoint
@@ -1217,17 +1223,19 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	if err := graph.UpdateEdgePolicy(ctx, edge1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
-	assertEdgeWithPolicyInCache(t, graph, edgeInfo, edge1, true)
+	assertEdgeWithPolicyInCache(
+		t, graph.ChannelGraph, edgeInfo, edge1, true,
+	)
 	if err := graph.UpdateEdgePolicy(ctx, edge2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
-	assertEdgeWithPolicyInCache(t, graph, edgeInfo, edge2, false)
+	assertEdgeWithPolicyInCache(
+		t, graph.ChannelGraph, edgeInfo, edge2, false,
+	)
 
 	// Check for existence of the edge within the database, it should be
 	// found.
-	found, isZombie, err := graph.HasChannelEdge(
-		lnwire.GossipVersion1, chanID,
-	)
+	found, isZombie, err := graph.HasChannelEdge(chanID)
 	require.NoError(t, err, "unable to query for edge")
 	if !found {
 		t.Fatalf("graph should have of inserted edge")
@@ -1238,7 +1246,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 
 	// We should also be able to retrieve the channelID only knowing the
 	// channel point of the channel.
-	dbChanID, err := graph.ChannelID(lnwire.GossipVersion1, &outpoint)
+	dbChanID, err := graph.ChannelID(&outpoint)
 	require.NoError(t, err, "unable to retrieve channel ID")
 	if dbChanID != chanID {
 		t.Fatalf("chan ID's mismatch, expected %v got %v", dbChanID,
@@ -5067,23 +5075,21 @@ func TestBatchedAddChannelEdge(t *testing.T) {
 
 // TestBatchedUpdateEdgePolicy asserts that BatchedUpdateEdgePolicy properly
 // executes multiple UpdateEdgePolicy requests in a single txn.
-func TestBatchedUpdateEdgePolicy(t *testing.T) {
+func testBatchedUpdateEdgePolicy(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.
-	node1 := createTestVertex(t, lnwire.GossipVersion1)
+	node1 := createTestVertex(t, v)
 	require.NoError(t, graph.AddNode(ctx, node1))
-	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	node2 := createTestVertex(t, v)
 	require.NoError(t, graph.AddNode(ctx, node2))
 
 	// Create an edge and add it to the db.
-	edgeInfo, edge1, edge2 := createChannelEdge(
-		node1, node2, lnwire.GossipVersion1,
-	)
+	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2, v)
 
 	// Make sure inserting the policy at this point, before the edge info
 	// is added, will fail.

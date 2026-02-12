@@ -1003,8 +1003,8 @@ func (s *SQLStore) ForEachNodeDirectedChannel(nodePub route.Vertex,
 // callback returns an error, then the transaction is aborted and the iteration
 // stops early.
 func (s *SQLStore) ForEachNodeCacheable(ctx context.Context,
-	cb func(route.Vertex, *lnwire.FeatureVector) error,
-	reset func()) error {
+	v lnwire.GossipVersion, cb func(route.Vertex,
+		*lnwire.FeatureVector) error, reset func()) error {
 
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		return forEachNodeCacheable(
@@ -1546,11 +1546,15 @@ func (s *SQLStore) ForEachNodeCached(ctx context.Context, withAddrs bool,
 //
 // NOTE: this method is like ForEachChannel but fetches only the data
 // required for the graph cache.
-func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
-	*models.CachedEdgePolicy, *models.CachedEdgePolicy) error,
-	reset func()) error {
+func (s *SQLStore) ForEachChannelCacheable(v lnwire.GossipVersion,
+	cb func(*models.CachedEdgeInfo, *models.CachedEdgePolicy,
+		*models.CachedEdgePolicy) error, reset func()) error {
 
 	ctx := context.TODO()
+
+	if !isKnownGossipVersion(v) {
+		return fmt.Errorf("unsupported gossip version: %d", v)
+	}
 
 	handleChannel := func(_ context.Context,
 		row sqlc.ListChannelsWithPoliciesForCachePaginatedRow) error {
@@ -1595,7 +1599,7 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 
 			return db.ListChannelsWithPoliciesForCachePaginated(
 				ctx, sqlc.ListChannelsWithPoliciesForCachePaginatedParams{
-					Version: int16(lnwire.GossipVersion1),
+					Version: int16(v),
 					ID:      lastID,
 					Limit:   limit,
 				},

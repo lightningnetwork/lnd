@@ -103,8 +103,9 @@ type Store interface { //nolint:interfacebloat
 	// in the graph, executing the passed callback with each node
 	// encountered. If the callback returns an error, then the transaction
 	// is aborted and the iteration stops early.
-	ForEachNodeCacheable(ctx context.Context, cb func(route.Vertex,
-		*lnwire.FeatureVector) error, reset func()) error
+	ForEachNodeCacheable(ctx context.Context, v lnwire.GossipVersion,
+		cb func(route.Vertex, *lnwire.FeatureVector) error,
+		reset func()) error
 
 	// LookupAlias attempts to return the alias as advertised by the target
 	// node.
@@ -182,9 +183,9 @@ type Store interface { //nolint:interfacebloat
 	//
 	// NOTE: this method is like ForEachChannel but fetches only the data
 	// required for the graph cache.
-	ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
-		*models.CachedEdgePolicy, *models.CachedEdgePolicy) error,
-		reset func()) error
+	ForEachChannelCacheable(v lnwire.GossipVersion,
+		cb func(*models.CachedEdgeInfo, *models.CachedEdgePolicy,
+			*models.CachedEdgePolicy) error, reset func()) error
 
 	// DisabledChannelIDs returns the channel ids of disabled channels.
 	// A channel is disabled when two of the associated ChanelEdgePolicies

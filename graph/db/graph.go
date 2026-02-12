@@ -163,18 +163,19 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 	log.Info("Populating in-memory channel graph, this might take a " +
 		"while...")
 
-	err := c.db.ForEachNodeCacheable(ctx, func(node route.Vertex,
-		features *lnwire.FeatureVector) error {
+	err := c.db.ForEachNodeCacheable(ctx, gossipV1,
+		func(node route.Vertex,
+			features *lnwire.FeatureVector) error {
 
-		c.graphCache.AddNodeFeatures(node, features)
+			c.graphCache.AddNodeFeatures(node, features)
 
-		return nil
-	}, func() {})
+			return nil
+		}, func() {})
 	if err != nil {
 		return err
 	}
 
-	err = c.db.ForEachChannelCacheable(
+	err = c.db.ForEachChannelCacheable(gossipV1,
 		func(info *models.CachedEdgeInfo,
 			policy1, policy2 *models.CachedEdgePolicy) error {
 
@@ -615,10 +616,10 @@ func (c *ChannelGraph) ForEachNode(ctx context.Context,
 
 // ForEachNodeCacheable iterates through all stored vertices/nodes in the graph.
 func (c *ChannelGraph) ForEachNodeCacheable(ctx context.Context,
-	cb func(route.Vertex, *lnwire.FeatureVector) error,
-	reset func()) error {
+	v lnwire.GossipVersion, cb func(route.Vertex,
+		*lnwire.FeatureVector) error, reset func()) error {
 
-	return c.db.ForEachNodeCacheable(ctx, cb, reset)
+	return c.db.ForEachNodeCacheable(ctx, v, cb, reset)
 }
 
 // NodeUpdatesInHorizon returns all known lightning nodes with updates in the
@@ -652,11 +653,11 @@ func (c *ChannelGraph) ForEachChannel(ctx context.Context,
 }
 
 // ForEachChannelCacheable iterates through all channel edges for the cache.
-func (c *ChannelGraph) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
-	*models.CachedEdgePolicy, *models.CachedEdgePolicy) error,
-	reset func()) error {
+func (c *ChannelGraph) ForEachChannelCacheable(v lnwire.GossipVersion,
+	cb func(*models.CachedEdgeInfo, *models.CachedEdgePolicy,
+		*models.CachedEdgePolicy) error, reset func()) error {
 
-	return c.db.ForEachChannelCacheable(cb, reset)
+	return c.db.ForEachChannelCacheable(v, cb, reset)
 }
 
 // DisabledChannelIDs returns the channel ids of disabled channels.
@@ -930,6 +931,22 @@ func (c *VersionedGraph) ForEachChannel(ctx context.Context,
 		*models.ChannelEdgePolicy) error, reset func()) error {
 
 	return c.db.ForEachChannel(ctx, c.v, cb, reset)
+}
+
+// ForEachNodeCacheable iterates through all stored vertices/nodes in the graph.
+func (c *VersionedGraph) ForEachNodeCacheable(ctx context.Context,
+	cb func(route.Vertex, *lnwire.FeatureVector) error,
+	reset func()) error {
+
+	return c.db.ForEachNodeCacheable(ctx, c.v, cb, reset)
+}
+
+// ForEachChannelCacheable iterates through all channel edges for the cache.
+func (c *VersionedGraph) ForEachChannelCacheable(
+	cb func(*models.CachedEdgeInfo, *models.CachedEdgePolicy,
+		*models.CachedEdgePolicy) error, reset func()) error {
+
+	return c.db.ForEachChannelCacheable(c.v, cb, reset)
 }
 
 // IsPublicNode determines whether the node is seen as public in the graph.

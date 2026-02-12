@@ -669,7 +669,8 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 			name: "ForEachNodeCacheable",
 			fn: func(b testing.TB, store Store) {
 				err := store.ForEachNodeCacheable(
-					ctx, func(_ route.Vertex,
+					ctx, lnwire.GossipVersion1,
+					func(_ route.Vertex,
 						_ *lnwire.FeatureVector) error {
 
 						// Increment the counter to

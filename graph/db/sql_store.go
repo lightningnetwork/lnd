@@ -988,13 +988,14 @@ func (s *SQLStore) ForEachNode(ctx context.Context,
 // Unknown policies are passed into the callback as nil values.
 //
 // NOTE: this is part of the graphdb.NodeTraverser interface.
-func (s *SQLStore) ForEachNodeDirectedChannel(nodePub route.Vertex,
-	cb func(channel *DirectedChannel) error, reset func()) error {
+func (s *SQLStore) ForEachNodeDirectedChannel(v lnwire.GossipVersion,
+	nodePub route.Vertex, cb func(channel *DirectedChannel) error,
+	reset func()) error {
 
 	var ctx = context.TODO()
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		return forEachNodeDirectedChannel(ctx, db, nodePub, cb)
+		return forEachNodeDirectedChannel(ctx, db, v, nodePub, cb)
 	}, reset)
 }
 
@@ -3347,12 +3348,15 @@ func newSQLNodeTraverser(db SQLQueries,
 // node.
 //
 // NOTE: Part of the NodeTraverser interface.
-func (s *sqlNodeTraverser) ForEachNodeDirectedChannel(nodePub route.Vertex,
-	cb func(channel *DirectedChannel) error, _ func()) error {
+func (s *sqlNodeTraverser) ForEachNodeDirectedChannel(
+	nodePub route.Vertex, cb func(channel *DirectedChannel) error,
+	_ func()) error {
 
 	ctx := context.TODO()
 
-	return forEachNodeDirectedChannel(ctx, s.db, nodePub, cb)
+	return forEachNodeDirectedChannel(
+		ctx, s.db, lnwire.GossipVersion1, nodePub, cb,
+	)
 }
 
 // FetchNodeFeatures returns the features of the given node. If the node is
@@ -3372,7 +3376,8 @@ func (s *sqlNodeTraverser) FetchNodeFeatures(nodePub route.Vertex) (
 // channel and its incoming policy. If the node is not found, no error is
 // returned.
 func forEachNodeDirectedChannel(ctx context.Context, db SQLQueries,
-	nodePub route.Vertex, cb func(channel *DirectedChannel) error) error {
+	v lnwire.GossipVersion, nodePub route.Vertex,
+	cb func(channel *DirectedChannel) error) error {
 
 	toNodeCallback := func() route.Vertex {
 		return nodePub
@@ -3380,7 +3385,7 @@ func forEachNodeDirectedChannel(ctx context.Context, db SQLQueries,
 
 	dbID, err := db.GetNodeIDByPubKey(
 		ctx, sqlc.GetNodeIDByPubKeyParams{
-			Version: int16(lnwire.GossipVersion1),
+			Version: int16(v),
 			PubKey:  nodePub[:],
 		},
 	)
@@ -3392,7 +3397,7 @@ func forEachNodeDirectedChannel(ctx context.Context, db SQLQueries,
 
 	rows, err := db.ListChannelsByNodeID(
 		ctx, sqlc.ListChannelsByNodeIDParams{
-			Version: int16(lnwire.GossipVersion1),
+			Version: int16(v),
 			NodeID1: dbID,
 		},
 	)

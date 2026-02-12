@@ -163,32 +163,41 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 	log.Info("Populating in-memory channel graph, this might take a " +
 		"while...")
 
-	// TODO(elle): the cache should be populated with data from across
-	//  protocol versions.
-	err := c.db.ForEachNodeCacheable(
-		ctx, lnwire.GossipVersion1, func(node route.Vertex,
-			features *lnwire.FeatureVector) error {
+	for _, v := range []lnwire.GossipVersion{
+		gossipV1, gossipV2,
+	} {
+		// TODO(elle): If we have both v1 and v2 entries for the same
+		// node/channel, prefer v2 when merging.
+		err := c.db.ForEachNodeCacheable(ctx, v,
+			func(node route.Vertex,
+				features *lnwire.FeatureVector) error {
 
-			c.graphCache.AddNodeFeatures(node, features)
+				c.graphCache.AddNodeFeatures(node, features)
 
-			return nil
-		}, func() {},
-	)
-	if err != nil {
-		return err
-	}
+				return nil
+			}, func() {},
+		)
+		if err != nil &&
+			!errors.Is(err, ErrVersionNotSupportedForKVDB) {
 
-	err = c.db.ForEachChannelCacheable(
-		lnwire.GossipVersion1, func(info *models.CachedEdgeInfo,
-			policy1, policy2 *models.CachedEdgePolicy) error {
+			return err
+		}
 
-			c.graphCache.AddChannel(info, policy1, policy2)
+		err = c.db.ForEachChannelCacheable(
+			v, func(info *models.CachedEdgeInfo,
+				policy1,
+				policy2 *models.CachedEdgePolicy) error {
 
-			return nil
-		}, func() {},
-	)
-	if err != nil {
-		return err
+				c.graphCache.AddChannel(info, policy1, policy2)
+
+				return nil
+			}, func() {},
+		)
+		if err != nil &&
+			!errors.Is(err, ErrVersionNotSupportedForKVDB) {
+
+			return err
+		}
 	}
 
 	log.Infof("Finished populating in-memory channel graph (took %v, %s)",
@@ -214,7 +223,10 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(node route.Vertex,
 		return c.graphCache.ForEachChannel(node, cb)
 	}
 
-	return c.db.ForEachNodeDirectedChannel(node, cb, reset)
+	// TODO(elle): once the no-cache path needs to support
+	// pathfinding across gossip versions, this should iterate
+	// across all versions rather than defaulting to v1.
+	return c.db.ForEachNodeDirectedChannel(gossipV1, node, cb, reset)
 }
 
 // FetchNodeFeatures returns the features of the given node. If no features are

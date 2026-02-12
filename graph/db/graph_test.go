@@ -163,6 +163,10 @@ var versionedTests = []versionedTest{
 		test: testForEachSourceNodeChannel,
 	},
 	{
+		name: "graph traversal cacheable",
+		test: testGraphTraversalCacheable,
+	},
+	{
 		name: "partial node",
 		test: testPartialNode,
 	},
@@ -1815,42 +1819,36 @@ func TestGraphTraversal(t *testing.T) {
 	require.Equal(t, numChannels, numNodeChans)
 }
 
-// TestGraphTraversalCacheable tests that the memory optimized node traversal is
+// testGraphTraversalCacheable tests that the memory optimized node traversal is
 // working correctly.
-func TestGraphTraversalCacheable(t *testing.T) {
+func testGraphTraversalCacheable(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	// We'd like to test some of the graph traversal capabilities within
 	// the DB, so we'll create a series of fake nodes to insert into the
 	// graph. And we'll create 5 channels between the first two nodes.
 	const numNodes = 20
 	const numChannels = 5
-	chanIndex, _ := fillTestGraph(
-		t, graph, numNodes, numChannels, lnwire.GossipVersion1,
+	chanIndex, nodeList := fillTestGraph(
+		t, graph.ChannelGraph, numNodes, numChannels, v,
 	)
 
-	// Create a map of all nodes with the iteration we know works (because
-	// it is tested in another test).
+	// Create a map of all nodes with the nodes we just inserted.
 	nodeMap := make(map[route.Vertex]struct{})
-	err := graph.ForEachNode(ctx, func(n *models.Node) error {
-		nodeMap[n.PubKeyBytes] = struct{}{}
-
-		return nil
-	}, func() {})
-	require.NoError(t, err)
+	for _, node := range nodeList {
+		nodeMap[node.PubKeyBytes] = struct{}{}
+	}
 	require.Len(t, nodeMap, numNodes)
 
 	// Iterate through all the known channels within the graph DB by
 	// iterating over each node, once again if the map is empty that
 	// indicates that all edges have properly been reached.
 	var nodes []route.Vertex
-	err = graph.ForEachNodeCacheable(
-		ctx, lnwire.GossipVersion1, func(node route.Vertex,
-			features *lnwire.FeatureVector) error {
-
+	err := graph.ForEachNodeCacheable(ctx,
+		func(node route.Vertex, features *lnwire.FeatureVector) error {
 			delete(nodeMap, node)
 			nodes = append(nodes, node)
 
@@ -1872,7 +1870,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	for _, node := range nodes {
 		// Query the ChannelGraph which uses the cache to iterate
 		// through the channels for each node.
-		err = graph.ForEachNodeDirectedChannel(
+		err = graph.ChannelGraph.ForEachNodeDirectedChannel(
 			node, func(d *DirectedChannel) error {
 				delete(chanIndex, d.ChannelID)
 				return nil
@@ -1882,7 +1880,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 
 		// Now skip the cache and query the DB directly.
 		err = graph.db.ForEachNodeDirectedChannel(
-			node, func(d *DirectedChannel) error {
+			v, node, func(d *DirectedChannel) error {
 				delete(chanIndex2, d.ChannelID)
 				return nil
 			}, func() {},
@@ -1957,12 +1955,12 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 	ctx := t.Context()
 
 	nodes := make([]*models.Node, numNodes)
-	nodeIndex := map[string]struct{}{}
+	nodeIndex := map[route.Vertex]struct{}{}
 	for i := 0; i < numNodes; i++ {
 		node := createTestVertex(t, v)
 
 		nodes[i] = node
-		nodeIndex[node.Alias.UnwrapOr("")] = struct{}{}
+		nodeIndex[node.PubKeyBytes] = struct{}{}
 	}
 
 	// Add each of the nodes into the graph, they should be inserted
@@ -1973,10 +1971,12 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 
 	// Iterate over each node as returned by the graph, if all nodes are
 	// reached, then the map created above should be empty.
-	err := graph.ForEachNode(ctx, func(n *models.Node) error {
-		delete(nodeIndex, n.Alias.UnwrapOr(""))
-		return nil
-	}, func() {})
+	err := graph.ForEachNodeCacheable(ctx, v,
+		func(node route.Vertex, _ *lnwire.FeatureVector) error {
+			delete(nodeIndex, node)
+
+			return nil
+		}, func() {})
 	require.NoError(t, err)
 	require.Len(t, nodeIndex, 0)
 
@@ -5135,7 +5135,8 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 
 	getSingleChannel := func() *DirectedChannel {
 		var ch *DirectedChannel
-		err := graph.ForEachNodeDirectedChannel(node1.PubKeyBytes,
+		err := graph.ForEachNodeDirectedChannel(
+			node1.PubKeyBytes,
 			func(c *DirectedChannel) error {
 				require.Nil(t, ch)
 				ch = c

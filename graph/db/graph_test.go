@@ -155,6 +155,14 @@ var versionedTests = []versionedTest{
 		test: testIncompleteChannelPolicies,
 	},
 	{
+		name: "add channel edge shell nodes",
+		test: testAddChannelEdgeShellNodes,
+	},
+	{
+		name: "for each source node channel",
+		test: testForEachSourceNodeChannel,
+	},
+	{
 		name: "partial node",
 		test: testPartialNode,
 	},
@@ -1605,16 +1613,16 @@ func testAddEdgeProof(t *testing.T, v lnwire.GossipVersion) {
 	require.NotNil(t, dbEdge2.AuthProof)
 }
 
-// TestForEachSourceNodeChannel tests that the ForEachSourceNodeChannel
+// testForEachSourceNodeChannel tests that the ForEachSourceNodeChannel
 // correctly iterates through the channels of the set source node.
-func TestForEachSourceNodeChannel(t *testing.T) {
+func testForEachSourceNodeChannel(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	// Create a source node (A) and set it as such in the DB.
-	nodeA := createTestVertex(t, lnwire.GossipVersion1)
+	nodeA := createTestVertex(t, v)
 	require.NoError(t, graph.SetSourceNode(ctx, nodeA))
 
 	// Now, create a few more nodes (B, C, D) along with some channels
@@ -1630,32 +1638,40 @@ func TestForEachSourceNodeChannel(t *testing.T) {
 	// outgoing policy but for the A-C channel, we will set only an incoming
 	// policy.
 
-	nodeB := createTestVertex(t, lnwire.GossipVersion1)
-	nodeC := createTestVertex(t, lnwire.GossipVersion1)
-	nodeD := createTestVertex(t, lnwire.GossipVersion1)
+	nodeB := createTestVertex(t, v)
+	nodeC := createTestVertex(t, v)
+	nodeD := createTestVertex(t, v)
 
-	abEdge, abPolicy1, abPolicy2 := createChannelEdge(nodeA, nodeB)
+	abEdge, _ := createEdge(v, 100, 0, 0, 0, nodeA, nodeB)
 	require.NoError(t, graph.AddChannelEdge(ctx, abEdge))
-	acEdge, acPolicy1, acPolicy2 := createChannelEdge(nodeA, nodeC)
+	acEdge, _ := createEdge(v, 200, 0, 0, 1, nodeA, nodeC)
 	require.NoError(t, graph.AddChannelEdge(ctx, acEdge))
-	bdEdge, _, _ := createChannelEdge(nodeB, nodeD)
+	bdEdge, _ := createEdge(v, 300, 0, 0, 2, nodeB, nodeD)
 	require.NoError(t, graph.AddChannelEdge(ctx, bdEdge))
 
-	// Figure out which of the policies returned above are node A's so that
-	// we know which to persist.
-	//
-	// First, set the outgoing policy for the A-B channel.
-	abPolicyAOutgoing := abPolicy1
-	if !bytes.Equal(abPolicy1.ToNode[:], nodeB.PubKeyBytes[:]) {
-		abPolicyAOutgoing = abPolicy2
+	newPolicy := func(edge *models.ChannelEdgeInfo, fromNode,
+		toNode route.Vertex) *models.ChannelEdgePolicy {
+
+		isNode1 := bytes.Equal(fromNode[:], edge.NodeKey1Bytes[:])
+		policy := newEdgePolicy(
+			v, edge.ChannelID, nextUpdateTime().Unix(), isNode1,
+		)
+		policy.ToNode = toNode
+		policy.SigBytes = testSig.Serialize()
+
+		return policy
 	}
+
+	// First, set the outgoing policy for the A-B channel.
+	abPolicyAOutgoing := newPolicy(
+		abEdge, nodeA.PubKeyBytes, nodeB.PubKeyBytes,
+	)
 	require.NoError(t, graph.UpdateEdgePolicy(ctx, abPolicyAOutgoing))
 
 	// Now, set the incoming policy for the A-C channel.
-	acPolicyAIncoming := acPolicy1
-	if !bytes.Equal(acPolicy1.ToNode[:], nodeA.PubKeyBytes[:]) {
-		acPolicyAIncoming = acPolicy2
-	}
+	acPolicyAIncoming := newPolicy(
+		acEdge, nodeC.PubKeyBytes, nodeA.PubKeyBytes,
+	)
 	require.NoError(t, graph.UpdateEdgePolicy(ctx, acPolicyAIncoming))
 
 	type sourceNodeChan struct {
@@ -1677,21 +1693,24 @@ func TestForEachSourceNodeChannel(t *testing.T) {
 
 	// Now, we'll use the ForEachSourceNodeChannel and assert that it
 	// returns the expected data in the call-back.
-	err := graph.ForEachSourceNodeChannel(ctx, func(chanPoint wire.OutPoint,
-		havePolicy bool, otherNode *models.Node) error {
+	err := graph.ForEachSourceNodeChannel(
+		ctx, func(chanPoint wire.OutPoint, havePolicy bool,
+			otherNode *models.Node) error {
 
-		require.Contains(t, expectedSrcChans, chanPoint)
-		expected := expectedSrcChans[chanPoint]
+			require.Contains(t, expectedSrcChans, chanPoint)
+			expected := expectedSrcChans[chanPoint]
 
-		require.Equal(
-			t, expected.otherNode[:], otherNode.PubKeyBytes[:],
-		)
-		require.Equal(t, expected.havePolicy, havePolicy)
+			require.Equal(
+				t, expected.otherNode[:],
+				otherNode.PubKeyBytes[:],
+			)
+			require.Equal(t, expected.havePolicy, havePolicy)
 
-		delete(expectedSrcChans, chanPoint)
+			delete(expectedSrcChans, chanPoint)
 
-		return nil
-	}, func() {})
+			return nil
+		}, func() {},
+	)
 	require.NoError(t, err)
 	require.Empty(t, expectedSrcChans)
 }
@@ -4106,25 +4125,25 @@ func TestPruneGraphNodes(t *testing.T) {
 	require.NotNil(t, err)
 }
 
-// TestAddChannelEdgeShellNodes tests that when we attempt to add a ChannelEdge
+// testAddChannelEdgeShellNodes tests that when we attempt to add a ChannelEdge
 // to the graph, one or both of the nodes the edge involves aren't found in the
 // database, then shell edges are created for each node if needed.
-func TestAddChannelEdgeShellNodes(t *testing.T) {
+func testAddChannelEdgeShellNodes(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := NewVersionedGraph(MakeTestGraph(t), lnwire.GossipVersion1)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	// To start, we'll create two nodes, and only add one of them to the
 	// channel graph.
-	node1 := createTestVertex(t, lnwire.GossipVersion1)
+	node1 := createTestVertex(t, v)
 	require.NoError(t, graph.SetSourceNode(ctx, node1))
-	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	node2 := createTestVertex(t, v)
 
 	// We'll now create an edge between the two nodes, as a result, node2
 	// should be inserted into the database as a shell node.
 	edgeInfo, _ := createEdge(
-		lnwire.GossipVersion1, 100, 0, 0, 0, node1, node2,
+		v, 100, 0, 0, 0, node1, node2,
 	)
 	require.NoError(t, graph.AddChannelEdge(ctx, edgeInfo))
 

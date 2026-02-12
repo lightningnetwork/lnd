@@ -3722,8 +3722,13 @@ func (c *KVStore) ForEachNodeChannel(_ context.Context,
 // channel's outpoint, whether we have a policy for the channel and the channel
 // peer's node information.
 func (c *KVStore) ForEachSourceNodeChannel(_ context.Context,
-	cb func(chanPoint wire.OutPoint, havePolicy bool,
-		otherNode *models.Node) error, reset func()) error {
+	v lnwire.GossipVersion, cb func(chanPoint wire.OutPoint,
+		havePolicy bool, otherNode *models.Node) error,
+	reset func()) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	return kvdb.View(c.db, func(tx kvdb.RTx) error {
 		nodes := tx.ReadBucket(nodeBucket)

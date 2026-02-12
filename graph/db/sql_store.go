@@ -902,20 +902,19 @@ func (s *SQLStore) updateEdgeCache(e *models.ChannelEdgePolicy,
 //
 // NOTE: part of the Store interface.
 func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
-	cb func(chanPoint wire.OutPoint, havePolicy bool,
-		otherNode *models.Node) error, reset func()) error {
+	v lnwire.GossipVersion, cb func(chanPoint wire.OutPoint,
+		havePolicy bool, otherNode *models.Node) error,
+	reset func()) error {
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		nodeID, nodePub, err := s.getSourceNode(
-			ctx, db, lnwire.GossipVersion1,
-		)
+		nodeID, nodePub, err := s.getSourceNode(ctx, db, v)
 		if err != nil {
 			return fmt.Errorf("unable to fetch source node: %w",
 				err)
 		}
 
 		return forEachNodeChannel(
-			ctx, db, s.cfg, lnwire.GossipVersion1, nodeID,
+			ctx, db, s.cfg, v, nodeID,
 			func(info *models.ChannelEdgeInfo,
 				outPolicy *models.ChannelEdgePolicy,
 				_ *models.ChannelEdgePolicy) error {
@@ -937,8 +936,8 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 				}
 
 				_, otherNode, err := getNodeByPubKey(
-					ctx, s.cfg.QueryCfg, db,
-					lnwire.GossipVersion1, otherNodePub,
+					ctx, s.cfg.QueryCfg, db, v,
+					otherNodePub,
 				)
 				if err != nil {
 					return fmt.Errorf("unable to fetch "+

@@ -1128,7 +1128,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		DefaultRoutingPolicy: cc.RoutingPolicy,
 		ForAllOutgoingChannels: func(ctx context.Context,
 			cb func(*models.ChannelEdgeInfo,
-				*models.ChannelEdgePolicy) error,
+			*models.ChannelEdgePolicy) error,
 			reset func()) error {
 
 			return s.v1Graph.ForEachNodeChannel(
@@ -3576,7 +3576,10 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 		graphAddrs[pubStr] = n
 		return nil
 	}
-	err = s.graphDB.ForEachSourceNodeChannel(
+
+	// TODO(elle): for now, we only fetch our V1 channels. This should be
+	//  updated to fetch channels across all versions.
+	err = s.v1Graph.ForEachSourceNodeChannel(
 		ctx, forEachSrcNodeChan, func() {
 			clear(graphAddrs)
 		},

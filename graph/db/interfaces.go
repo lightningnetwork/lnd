@@ -59,7 +59,7 @@ type Store interface { //nolint:interfacebloat
 	// node, executing the passed callback on each. The call-back is
 	// provided with the channel's outpoint, whether we have a policy for
 	// the channel and the channel peer's node information.
-	ForEachSourceNodeChannel(ctx context.Context,
+	ForEachSourceNodeChannel(ctx context.Context, v lnwire.GossipVersion,
 		cb func(chanPoint wire.OutPoint, havePolicy bool,
 			otherNode *models.Node) error,
 		reset func()) error

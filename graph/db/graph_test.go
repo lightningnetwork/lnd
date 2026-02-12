@@ -214,6 +214,10 @@ var versionedTests = []versionedTest{
 		name: "fetch chan infos",
 		test: testFetchChanInfos,
 	},
+	{
+		name: "channel view",
+		test: testChannelView,
+	},
 }
 
 // TestVersionedDBs runs various tests against both v1 and v2 versioned
@@ -2415,7 +2419,7 @@ func TestGraphPruning(t *testing.T) {
 
 	// With all the channel points added, we'll consult the graph to ensure
 	// it has the same channel view as the one we just constructed.
-	channelView, err := graph.ChannelView()
+	channelView, err := graph.ChannelView(lnwire.GossipVersion1)
 	require.NoError(t, err, "unable to get graph channel view")
 	assertChanViewEqual(t, channelView, edgePoints)
 
@@ -2443,7 +2447,7 @@ func TestGraphPruning(t *testing.T) {
 	assertNumChans(t, graph, 2)
 
 	// Those channels should also be missing from the channel view.
-	channelView, err = graph.ChannelView()
+	channelView, err = graph.ChannelView(lnwire.GossipVersion1)
 	require.NoError(t, err, "unable to get graph channel view")
 	assertChanViewEqualChanPoints(t, channelView, channelPoints[2:])
 
@@ -2497,7 +2501,7 @@ func TestGraphPruning(t *testing.T) {
 	// Finally, the channel view at this point in the graph should now be
 	// completely empty.  Those channels should also be missing from the
 	// channel view.
-	channelView, err = graph.ChannelView()
+	channelView, err = graph.ChannelView(lnwire.GossipVersion1)
 	require.NoError(t, err, "unable to get graph channel view")
 	if len(channelView) != 0 {
 		t.Fatalf("channel view should be empty, instead have: %v",
@@ -2551,6 +2555,45 @@ func testHighestChanID(t *testing.T, v lnwire.GossipVersion) {
 	require.NoError(t, err, "unable to get highest ID")
 
 	require.Equal(t, chanID3.ToUint64(), bestID)
+}
+
+func testChannelView(t *testing.T, v lnwire.GossipVersion) {
+	t.Parallel()
+	ctx := t.Context()
+
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
+
+	node1 := createTestVertex(t, v)
+	require.NoError(t, graph.AddNode(ctx, node1))
+
+	node2 := createTestVertex(t, v)
+	require.NoError(t, graph.AddNode(ctx, node2))
+
+	edgeInfo, _ := createEdge(v, 100, 0, 0, 0, node1, node2)
+	require.NoError(t, graph.AddChannelEdge(ctx, edgeInfo))
+
+	var (
+		pkScript []byte
+		err      error
+	)
+	switch v {
+	case lnwire.GossipVersion1:
+		pkScript, err = edgeInfo.FundingPKScript()
+	case lnwire.GossipVersion2:
+		pkScript, err = edgeInfo.FundingScript.UnwrapOrErr(
+			fmt.Errorf("missing funding script"),
+		)
+	}
+	require.NoError(t, err)
+
+	edgePoints := []EdgePoint{{
+		FundingPkScript: pkScript,
+		OutPoint:        edgeInfo.ChannelPoint,
+	}}
+
+	channelView, err := graph.ChannelView()
+	require.NoError(t, err)
+	assertChanViewEqual(t, channelView, edgePoints)
 }
 
 // TestChanUpdatesInHorizon tests that we're able to properly retrieve all

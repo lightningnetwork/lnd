@@ -837,9 +837,20 @@ WHERE c.version = $1
 -- name: GetPublicV1ChannelsBySCID :many
 SELECT *
 FROM graph_channels
-WHERE COALESCE(length(node_1_signature), 0) > 0
+WHERE version = 1
+  AND COALESCE(length(node_1_signature), 0) > 0
   AND scid >= @start_scid
-  AND scid < @end_scid;
+  AND scid < @end_scid
+ORDER BY scid ASC;
+
+-- name: GetPublicV2ChannelsBySCID :many
+SELECT *
+FROM graph_channels
+WHERE version = 2
+  AND COALESCE(length(signature), 0) > 0
+  AND scid >= @start_scid
+  AND scid < @end_scid
+ORDER BY scid ASC;
 
 -- name: ListChannelsPaginated :many
 SELECT id, bitcoin_key_1, bitcoin_key_2, outpoint
@@ -847,6 +858,13 @@ FROM graph_channels c
 WHERE c.version = $1 AND c.id > $2
 ORDER BY c.id
 LIMIT $3;
+
+-- name: ListChannelsPaginatedV2 :many
+SELECT id, outpoint, funding_pk_script
+FROM graph_channels c
+WHERE c.version = 2 AND c.id > $1
+ORDER BY c.id
+LIMIT $2;
 
 -- name: ListChannelsWithPoliciesPaginated :many
 SELECT

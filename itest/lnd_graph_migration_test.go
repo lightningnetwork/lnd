@@ -72,6 +72,7 @@ func testGraphMigration(ht *lntest.HarnessTest) {
 				_ route.Vertex, _ []net.Addr,
 				chans map[uint64]*graphdb.DirectedChannel,
 			) error {
+
 				numNodes++
 
 				// For each node, also count the

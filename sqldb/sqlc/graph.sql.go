@@ -2500,9 +2500,11 @@ func (q *Queries) GetPruneTip(ctx context.Context) (GraphPruneLog, error) {
 const getPublicV1ChannelsBySCID = `-- name: GetPublicV1ChannelsBySCID :many
 SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature, signature, funding_pk_script, merkle_root_hash
 FROM graph_channels
-WHERE COALESCE(length(node_1_signature), 0) > 0
+WHERE version = 1
+  AND COALESCE(length(node_1_signature), 0) > 0
   AND scid >= $1
   AND scid < $2
+ORDER BY scid ASC
 `
 
 type GetPublicV1ChannelsBySCIDParams struct {
@@ -2512,6 +2514,61 @@ type GetPublicV1ChannelsBySCIDParams struct {
 
 func (q *Queries) GetPublicV1ChannelsBySCID(ctx context.Context, arg GetPublicV1ChannelsBySCIDParams) ([]GraphChannel, error) {
 	rows, err := q.db.QueryContext(ctx, getPublicV1ChannelsBySCID, arg.StartScid, arg.EndScid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GraphChannel
+	for rows.Next() {
+		var i GraphChannel
+		if err := rows.Scan(
+			&i.ID,
+			&i.Version,
+			&i.Scid,
+			&i.NodeID1,
+			&i.NodeID2,
+			&i.Outpoint,
+			&i.Capacity,
+			&i.BitcoinKey1,
+			&i.BitcoinKey2,
+			&i.Node1Signature,
+			&i.Node2Signature,
+			&i.Bitcoin1Signature,
+			&i.Bitcoin2Signature,
+			&i.Signature,
+			&i.FundingPkScript,
+			&i.MerkleRootHash,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPublicV2ChannelsBySCID = `-- name: GetPublicV2ChannelsBySCID :many
+SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature, signature, funding_pk_script, merkle_root_hash
+FROM graph_channels
+WHERE version = 2
+  AND COALESCE(length(signature), 0) > 0
+  AND scid >= $1
+  AND scid < $2
+ORDER BY scid ASC
+`
+
+type GetPublicV2ChannelsBySCIDParams struct {
+	StartScid []byte
+	EndScid   []byte
+}
+
+func (q *Queries) GetPublicV2ChannelsBySCID(ctx context.Context, arg GetPublicV2ChannelsBySCIDParams) ([]GraphChannel, error) {
+	rows, err := q.db.QueryContext(ctx, getPublicV2ChannelsBySCID, arg.StartScid, arg.EndScid)
 	if err != nil {
 		return nil, err
 	}
@@ -3539,6 +3596,48 @@ func (q *Queries) ListChannelsPaginated(ctx context.Context, arg ListChannelsPag
 			&i.BitcoinKey2,
 			&i.Outpoint,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChannelsPaginatedV2 = `-- name: ListChannelsPaginatedV2 :many
+SELECT id, outpoint, funding_pk_script
+FROM graph_channels c
+WHERE c.version = 2 AND c.id > $1
+ORDER BY c.id
+LIMIT $2
+`
+
+type ListChannelsPaginatedV2Params struct {
+	ID    int64
+	Limit int32
+}
+
+type ListChannelsPaginatedV2Row struct {
+	ID              int64
+	Outpoint        string
+	FundingPkScript []byte
+}
+
+func (q *Queries) ListChannelsPaginatedV2(ctx context.Context, arg ListChannelsPaginatedV2Params) ([]ListChannelsPaginatedV2Row, error) {
+	rows, err := q.db.QueryContext(ctx, listChannelsPaginatedV2, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListChannelsPaginatedV2Row
+	for rows.Next() {
+		var i ListChannelsPaginatedV2Row
+		if err := rows.Scan(&i.ID, &i.Outpoint, &i.FundingPkScript); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

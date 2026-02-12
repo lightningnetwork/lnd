@@ -106,9 +106,11 @@ type SQLQueries interface {
 	ListChannelsWithPoliciesPaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesPaginatedParams) ([]sqlc.ListChannelsWithPoliciesPaginatedRow, error)
 	ListChannelsWithPoliciesForCachePaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesForCachePaginatedParams) ([]sqlc.ListChannelsWithPoliciesForCachePaginatedRow, error)
 	ListChannelsPaginated(ctx context.Context, arg sqlc.ListChannelsPaginatedParams) ([]sqlc.ListChannelsPaginatedRow, error)
+	ListChannelsPaginatedV2(ctx context.Context, arg sqlc.ListChannelsPaginatedV2Params) ([]sqlc.ListChannelsPaginatedV2Row, error)
 	GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg sqlc.GetChannelsByPolicyLastUpdateRangeParams) ([]sqlc.GetChannelsByPolicyLastUpdateRangeRow, error)
 	GetChannelByOutpointWithPolicies(ctx context.Context, arg sqlc.GetChannelByOutpointWithPoliciesParams) (sqlc.GetChannelByOutpointWithPoliciesRow, error)
 	GetPublicV1ChannelsBySCID(ctx context.Context, arg sqlc.GetPublicV1ChannelsBySCIDParams) ([]sqlc.GraphChannel, error)
+	GetPublicV2ChannelsBySCID(ctx context.Context, arg sqlc.GetPublicV2ChannelsBySCIDParams) ([]sqlc.GraphChannel, error)
 	GetSCIDByOutpoint(ctx context.Context, arg sqlc.GetSCIDByOutpointParams) ([]byte, error)
 	DeleteChannels(ctx context.Context, ids []int64) error
 
@@ -1880,6 +1882,10 @@ func (s *SQLStore) FilterChannelRange(v lnwire.GossipVersion,
 		chanIDEnd   = channelIDToBytes(endSCID.ToUint64())
 	)
 
+	if !isKnownGossipVersion(v) {
+		return nil, fmt.Errorf("unknown gossip version: %v", v)
+	}
+
 	// 1) get all channels where channelID is between start and end chan ID.
 	// 2) skip if not public (ie, no channel_proof)
 	// 3) collect that channel.
@@ -1887,23 +1893,32 @@ func (s *SQLStore) FilterChannelRange(v lnwire.GossipVersion,
 	//    and add those timestamps to the collected channel.
 	channelsPerBlock := make(map[uint32][]ChannelUpdateInfo)
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		// TODO(elle): replace with a version-aware query.
-		dbChans, err := db.GetPublicV1ChannelsBySCID(
-			ctx, sqlc.GetPublicV1ChannelsBySCIDParams{
-				StartScid: chanIDStart,
-				EndScid:   chanIDEnd,
-			},
+		var (
+			dbChans []sqlc.GraphChannel
+			err     error
 		)
+		switch v {
+		case gossipV1:
+			dbChans, err = db.GetPublicV1ChannelsBySCID(
+				ctx, sqlc.GetPublicV1ChannelsBySCIDParams{
+					StartScid: chanIDStart,
+					EndScid:   chanIDEnd,
+				},
+			)
+		case gossipV2:
+			dbChans, err = db.GetPublicV2ChannelsBySCID(
+				ctx, sqlc.GetPublicV2ChannelsBySCIDParams{
+					StartScid: chanIDStart,
+					EndScid:   chanIDEnd,
+				},
+			)
+		}
 		if err != nil {
 			return fmt.Errorf("unable to fetch channel range: %w",
 				err)
 		}
 
 		for _, dbChan := range dbChans {
-			if v != lnwire.GossipVersion(dbChan.Version) {
-				continue
-			}
-
 			cid := lnwire.NewShortChanIDFromInt(
 				byteOrder.Uint64(dbChan.Scid),
 			)
@@ -3225,25 +3240,44 @@ func (s *SQLStore) deleteChannels(ctx context.Context, db SQLQueries,
 // closes on the resident blockchain.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) ChannelView() ([]EdgePoint, error) {
+func (s *SQLStore) ChannelView(v lnwire.GossipVersion) ([]EdgePoint, error) {
 	var (
 		ctx        = context.TODO()
 		edgePoints []EdgePoint
 	)
 
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		handleChannel := func(_ context.Context,
+		handleV1Channel := func(_ context.Context,
 			channel sqlc.ListChannelsPaginatedRow) error {
 
-			// TODO(elle): update to handle V2 channels.
-			pkScript, err := genMultiSigP2WSH(
-				channel.BitcoinKey1, channel.BitcoinKey2,
-			)
+			op, err := wire.NewOutPointFromString(channel.Outpoint)
 			if err != nil {
 				return err
 			}
 
-			op, err := wire.NewOutPointFromString(channel.Outpoint)
+			var (
+				key1 route.Vertex
+				key2 route.Vertex
+			)
+			if len(channel.BitcoinKey1) != len(key1) {
+				return fmt.Errorf("unexpected bitcoin key 1 "+
+					"length: %d", len(channel.BitcoinKey1))
+			}
+			if len(channel.BitcoinKey2) != len(key2) {
+				return fmt.Errorf("unexpected bitcoin key 2 "+
+					"length: %d", len(channel.BitcoinKey2))
+			}
+			copy(key1[:], channel.BitcoinKey1)
+			copy(key2[:], channel.BitcoinKey2)
+
+			edgeInfo := &models.ChannelEdgeInfo{
+				Version:          gossipV1,
+				BitcoinKey1Bytes: fn.Some(key1),
+				BitcoinKey2Bytes: fn.Some(key2),
+				ChannelPoint:     *op,
+			}
+
+			pkScript, err := edgeInfo.FundingPKScript()
 			if err != nil {
 				return err
 			}
@@ -3256,26 +3290,79 @@ func (s *SQLStore) ChannelView() ([]EdgePoint, error) {
 			return nil
 		}
 
-		queryFunc := func(ctx context.Context, lastID int64,
-			limit int32) ([]sqlc.ListChannelsPaginatedRow, error) {
+		handleV2Channel := func(_ context.Context,
+			channel sqlc.ListChannelsPaginatedV2Row) error {
 
-			return db.ListChannelsPaginated(
-				ctx, sqlc.ListChannelsPaginatedParams{
-					Version: int16(lnwire.GossipVersion1),
-					ID:      lastID,
-					Limit:   limit,
-				},
+			op, err := wire.NewOutPointFromString(channel.Outpoint)
+			if err != nil {
+				return err
+			}
+			if len(channel.FundingPkScript) == 0 {
+				return fmt.Errorf("missing funding pk script "+
+					"for channel %v", channel.ID)
+			}
+
+			edgePoints = append(edgePoints, EdgePoint{
+				FundingPkScript: channel.FundingPkScript,
+				OutPoint:        *op,
+			})
+
+			return nil
+		}
+
+		switch v {
+		case gossipV1:
+			queryFunc := func(ctx context.Context, lastID int64,
+				limit int32) ([]sqlc.ListChannelsPaginatedRow,
+				error) {
+
+				return db.ListChannelsPaginated(
+					ctx, sqlc.ListChannelsPaginatedParams{
+						Version: int16(v),
+						ID:      lastID,
+						Limit:   limit,
+					},
+				)
+			}
+
+			extractCursor := func(
+				row sqlc.ListChannelsPaginatedRow,
+			) int64 {
+				return row.ID
+			}
+
+			return sqldb.ExecutePaginatedQuery(
+				ctx, s.cfg.QueryCfg, int64(-1), queryFunc,
+				extractCursor, handleV1Channel,
 			)
-		}
 
-		extractCursor := func(row sqlc.ListChannelsPaginatedRow) int64 {
-			return row.ID
-		}
+		case gossipV2:
+			queryFunc := func(ctx context.Context, lastID int64,
+				limit int32) ([]sqlc.ListChannelsPaginatedV2Row,
+				error) {
 
-		return sqldb.ExecutePaginatedQuery(
-			ctx, s.cfg.QueryCfg, int64(-1), queryFunc,
-			extractCursor, handleChannel,
-		)
+				return db.ListChannelsPaginatedV2(
+					ctx, sqlc.ListChannelsPaginatedV2Params{
+						ID:    lastID,
+						Limit: limit,
+					},
+				)
+			}
+
+			extractCursor := func(
+				row sqlc.ListChannelsPaginatedV2Row,
+			) int64 {
+				return row.ID
+			}
+
+			return sqldb.ExecutePaginatedQuery(
+				ctx, s.cfg.QueryCfg, int64(-1), queryFunc,
+				extractCursor, handleV2Channel,
+			)
+
+		default:
+			return fmt.Errorf("unknown gossip version: %v", v)
+		}
 	}, func() {
 		edgePoints = nil
 	})

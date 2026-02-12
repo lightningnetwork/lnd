@@ -3,7 +3,6 @@ package graphdb
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -18,14 +17,12 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
-	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -4212,26 +4209,6 @@ func (c *KVStore) IsPublicNode(v lnwire.GossipVersion, pubKey [33]byte) (bool,
 	return nodeIsPublic, nil
 }
 
-// genMultiSigP2WSH generates the p2wsh'd multisig script for 2 of 2 pubkeys.
-func genMultiSigP2WSH(aPub, bPub []byte) ([]byte, error) {
-	witnessScript, err := input.GenMultiSigScript(aPub, bPub)
-	if err != nil {
-		return nil, err
-	}
-
-	// With the witness script generated, we'll now turn it into a p2wsh
-	// script:
-	//  * OP_0 <sha256(script)>
-	bldr := txscript.NewScriptBuilder(
-		txscript.WithScriptAllocSize(input.P2WSHSize),
-	)
-	bldr.AddOp(txscript.OP_0)
-	scriptHash := sha256.Sum256(witnessScript)
-	bldr.AddData(scriptHash[:])
-
-	return bldr.Script()
-}
-
 // EdgePoint couples the outpoint of a channel with the funding script that it
 // creates. The FilteredChainView will use this to watch for spends of this
 // edge point on chain. We require both of these values as depending on the
@@ -4254,7 +4231,11 @@ func (e *EdgePoint) String() string {
 // within the known channel graph. The set of UTXO's (along with their scripts)
 // returned are the ones that need to be watched on chain to detect channel
 // closes on the resident blockchain.
-func (c *KVStore) ChannelView() ([]EdgePoint, error) {
+func (c *KVStore) ChannelView(v lnwire.GossipVersion) ([]EdgePoint, error) {
+	if v != lnwire.GossipVersion1 {
+		return nil, ErrVersionNotSupportedForKVDB
+	}
+
 	var edgePoints []EdgePoint
 	if err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		// We're going to iterate over the entire channel index, so

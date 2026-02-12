@@ -779,8 +779,10 @@ func (c *ChannelGraph) FetchChannelEdgesByID(
 }
 
 // ChannelView returns the verifiable edge information for each active channel.
-func (c *ChannelGraph) ChannelView() ([]EdgePoint, error) {
-	return c.db.ChannelView()
+func (c *ChannelGraph) ChannelView(v lnwire.GossipVersion) (
+	[]EdgePoint, error) {
+
+	return c.db.ChannelView(v)
 }
 
 // IsZombieEdge returns whether the edge is considered zombie for the given
@@ -864,6 +866,11 @@ func (c *VersionedGraph) FilterChannelRange(startHeight, endHeight uint32,
 	return c.db.FilterChannelRange(
 		c.v, startHeight, endHeight, withTimestamps,
 	)
+}
+
+// ChannelView returns the verifiable edge information for each active channel.
+func (c *VersionedGraph) ChannelView() ([]EdgePoint, error) {
+	return c.db.ChannelView(c.v)
 }
 
 // FetchNode attempts to look up a target node by its identity public key.

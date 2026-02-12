@@ -95,14 +95,14 @@ function import_keys() {
 function verify_signatures() {
   # Download the JSON of the release itself. That'll contain the release ID we
   # need for the next call.
-  RELEASE_JSON=$(curl -L -s -H "$HEADER_JSON" "$RELEASE_URL/$VERSION")
+  RELEASE_JSON=$(curl -L --no-progress-meter -H "$HEADER_JSON" "$RELEASE_URL/$VERSION")
 
   TAG_NAME=$(echo $RELEASE_JSON | jq -r '.tag_name')
   RELEASE_ID=$(echo $RELEASE_JSON | jq -r '.id')
   echo "Release $TAG_NAME found with ID $RELEASE_ID"
 
   # Now download the asset list and filter by the manifest and the signatures.
-  ASSETS=$(curl -L -s -H "$HEADER_GH_JSON" "$API_URL/$RELEASE_ID" | jq -c '.assets[]')
+  ASSETS=$(curl -L --no-progress-meter -H "$HEADER_GH_JSON" "$API_URL/$RELEASE_ID" | jq -c '.assets[]')
   MANIFEST=$(echo $ASSETS | jq -r "$MANIFEST_SELECTOR")
   SIGNATURES=$(echo $ASSETS | jq -r "$SIGNATURE_SELECTOR")
 
@@ -116,11 +116,11 @@ function verify_signatures() {
   # Download the main "manifest-*.txt" and all "manifest-*.sig" files containing
   # the detached signatures.
   echo "Downloading $MANIFEST"
-  curl -L -s -o "$TEMP_DIR/$MANIFEST" "$RELEASE_URL/download/$VERSION/$MANIFEST"
+  curl -L --no-progress-meter -o "$TEMP_DIR/$MANIFEST" "$RELEASE_URL/download/$VERSION/$MANIFEST"
 
   for signature in $SIGNATURES; do
     echo "Downloading $signature"
-    curl -L -s -o "$TEMP_DIR/$signature" "$RELEASE_URL/download/$VERSION/$signature"
+    curl -L --no-progress-meter -o "$TEMP_DIR/$signature" "$RELEASE_URL/download/$VERSION/$signature"
   done
 
   echo ""

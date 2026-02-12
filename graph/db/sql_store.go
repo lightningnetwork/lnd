@@ -1850,6 +1850,12 @@ func (s *SQLStore) ForEachChannelCacheable(v lnwire.GossipVersion,
 		if err != nil {
 			return err
 		}
+		if dbPol1 != nil {
+			dbPol1.Version = int16(v)
+		}
+		if dbPol2 != nil {
+			dbPol2.Version = int16(v)
+		}
 
 		pol1, pol2, err := buildCachedChanPolicies(
 			dbPol1, dbPol2, edge.ChannelID, node1, node2,

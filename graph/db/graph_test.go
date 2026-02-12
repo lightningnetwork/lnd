@@ -219,6 +219,10 @@ var versionedTests = []versionedTest{
 		test: testGraphCacheTraversal,
 	},
 	{
+		name: "graph zombie index",
+		test: testGraphZombieIndex,
+	},
+	{
 		name: "prune graph nodes",
 		test: testPruneGraphNodes,
 	},
@@ -241,6 +245,14 @@ var versionedTests = []versionedTest{
 	{
 		name: "channel view",
 		test: testChannelView,
+	},
+	{
+		name: "graph loading",
+		test: testGraphLoading,
+	},
+	{
+		name: "disconnect block at height",
+		test: testDisconnectBlockAtHeight,
 	},
 }
 
@@ -874,23 +886,23 @@ func createEdge(version lnwire.GossipVersion, height, txIndex uint32,
 	return edgeInfo, shortChanID
 }
 
-// TestDisconnectBlockAtHeight checks that the pruned state of the channel
+// testDisconnectBlockAtHeight checks that the pruned state of the channel
 // database is what we expect after calling DisconnectBlockAtHeight.
-func TestDisconnectBlockAtHeight(t *testing.T) {
+func testDisconnectBlockAtHeight(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
-	sourceNode := createTestVertex(t, lnwire.GossipVersion1)
+	sourceNode := createTestVertex(t, v)
 	if err := graph.SetSourceNode(ctx, sourceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
 	// We'd like to test the insertion/deletion of edges, so we create two
 	// vertexes to connect.
-	node1 := createTestVertex(t, lnwire.GossipVersion1)
-	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	node1 := createTestVertex(t, v)
+	node2 := createTestVertex(t, v)
 
 	// In addition to the fake vertexes we create some fake channel
 	// identifiers.
@@ -913,24 +925,19 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 
 	// Create an edge which has its block height at 156.
 	height := uint32(156)
-	edgeInfo, _ := createEdge(
-		lnwire.GossipVersion1, height, 0, 0, 0, node1, node2,
-	)
+	edgeInfo, _ := createEdge(v, height, 0, 0, 0, node1, node2)
 
 	// Create an edge with block height 157. We give it
 	// maximum values for tx index and position, to make
 	// sure our database range scan get edges from the
 	// entire range.
 	edgeInfo2, _ := createEdge(
-		lnwire.GossipVersion1, height+1,
-		math.MaxUint32&0x00ffffff, math.MaxUint16, 1, node1,
-		node2,
+		v, height+1, math.MaxUint32&0x00ffffff, math.MaxUint16,
+		1, node1, node2,
 	)
 
 	// Create a third edge, this with a block height of 155.
-	edgeInfo3, _ := createEdge(
-		lnwire.GossipVersion1, height-1, 0, 0, 2, node1, node2,
-	)
+	edgeInfo3, _ := createEdge(v, height-1, 0, 0, 2, node1, node2)
 
 	// Now add all these new edges to the database.
 	if err := graph.AddChannelEdge(ctx, edgeInfo); err != nil {
@@ -944,9 +951,9 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	if err := graph.AddChannelEdge(ctx, edgeInfo3); err != nil {
 		t.Fatalf("unable to create channel edge: %v", err)
 	}
-	assertEdgeWithNoPoliciesInCache(t, graph, edgeInfo)
-	assertEdgeWithNoPoliciesInCache(t, graph, edgeInfo2)
-	assertEdgeWithNoPoliciesInCache(t, graph, edgeInfo3)
+	assertEdgeWithNoPoliciesInCache(t, graph.ChannelGraph, edgeInfo)
+	assertEdgeWithNoPoliciesInCache(t, graph.ChannelGraph, edgeInfo2)
+	assertEdgeWithNoPoliciesInCache(t, graph.ChannelGraph, edgeInfo3)
 
 	// Call DisconnectBlockAtHeight, which should prune every channel
 	// that has a funding height of 'height' or greater.
@@ -954,9 +961,9 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to prune %v", err)
 	}
-	assertNoEdge(t, graph, edgeInfo.ChannelID)
-	assertNoEdge(t, graph, edgeInfo2.ChannelID)
-	assertEdgeWithNoPoliciesInCache(t, graph, edgeInfo3)
+	assertNoEdge(t, graph.ChannelGraph, edgeInfo.ChannelID)
+	assertNoEdge(t, graph.ChannelGraph, edgeInfo2.ChannelID)
+	assertEdgeWithNoPoliciesInCache(t, graph.ChannelGraph, edgeInfo3)
 
 	// The two edges should have been removed.
 	if len(removed) != 2 {
@@ -971,9 +978,7 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	}
 
 	// The two first edges should be removed from the db.
-	has, isZombie, err := graph.HasChannelEdge(
-		lnwire.GossipVersion1, edgeInfo.ChannelID,
-	)
+	has, isZombie, err := graph.HasChannelEdge(edgeInfo.ChannelID)
 	require.NoError(t, err, "unable to query for edge")
 	if has {
 		t.Fatalf("edge1 was not pruned from the graph")
@@ -981,9 +986,7 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	if isZombie {
 		t.Fatal("reorged edge1 should not be marked as zombie")
 	}
-	has, isZombie, err = graph.HasChannelEdge(
-		lnwire.GossipVersion1, edgeInfo2.ChannelID,
-	)
+	has, isZombie, err = graph.HasChannelEdge(edgeInfo2.ChannelID)
 	require.NoError(t, err, "unable to query for edge")
 	if has {
 		t.Fatalf("edge2 was not pruned from the graph")
@@ -993,9 +996,7 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	}
 
 	// Edge 3 should not be removed.
-	has, isZombie, err = graph.HasChannelEdge(
-		lnwire.GossipVersion1, edgeInfo3.ChannelID,
-	)
+	has, isZombie, err = graph.HasChannelEdge(edgeInfo3.ChannelID)
 	require.NoError(t, err, "unable to query for edge")
 	if !has {
 		t.Fatalf("edge3 was pruned from the graph")
@@ -5356,12 +5357,14 @@ func putSerializedPolicy(t *testing.T, db kvdb.Backend, from []byte,
 	require.NoError(t, err, "error writing db")
 }
 
-// assertNumZombies queries the provided ChannelGraph for NumZombies, and
+// assertNumZombies queries the provided graph for NumZombies, and
 // asserts that the returned number is equal to expZombies.
-func assertNumZombies(t *testing.T, graph *ChannelGraph, expZombies uint64) {
+func assertNumZombies(t *testing.T, graph *VersionedGraph,
+	expZombies uint64) {
+
 	t.Helper()
 
-	numZombies, err := graph.NumZombies(lnwire.GossipVersion1)
+	numZombies, err := graph.NumZombies()
 	require.NoError(t, err, "unable to query number of zombies")
 
 	if numZombies != expZombies {
@@ -5370,16 +5373,16 @@ func assertNumZombies(t *testing.T, graph *ChannelGraph, expZombies uint64) {
 	}
 }
 
-// TestGraphZombieIndex ensures that we can mark edges correctly as zombie/live.
-func TestGraphZombieIndex(t *testing.T) {
+// testGraphZombieIndex ensures that we can mark edges correctly as zombie/live.
+func testGraphZombieIndex(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
 	// We'll start by creating our test graph along with a test edge.
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
-	node1 := createTestVertex(t, lnwire.GossipVersion1)
-	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	node1 := createTestVertex(t, v)
+	node2 := createTestVertex(t, v)
 
 	// Swap the nodes if the second's pubkey is smaller than the first.
 	// Without this, the comparisons at the end will fail probabilistically.
@@ -5388,28 +5391,22 @@ func TestGraphZombieIndex(t *testing.T) {
 	}
 
 	edge, _, _ := createChannelEdge(
-		node1, node2, lnwire.GossipVersion1,
+		node1, node2, v,
 	)
 	require.NoError(t, graph.AddChannelEdge(ctx, edge))
 
 	// Since the edge is known the graph and it isn't a zombie, IsZombieEdge
 	// should not report the channel as a zombie.
-	isZombie, _, _, err := graph.IsZombieEdge(
-		lnwire.GossipVersion1, edge.ChannelID,
-	)
+	isZombie, _, _, err := graph.IsZombieEdge(edge.ChannelID)
 	require.NoError(t, err)
 	require.False(t, isZombie)
 	assertNumZombies(t, graph, 0)
 
 	// If we delete the edge and mark it as a zombie, then we should expect
 	// to see it within the index.
-	err = graph.DeleteChannelEdges(
-		lnwire.GossipVersion1, false, true, edge.ChannelID,
-	)
+	err = graph.DeleteChannelEdges(false, true, edge.ChannelID)
 	require.NoError(t, err, "unable to mark edge as zombie")
-	isZombie, pubKey1, pubKey2, err := graph.IsZombieEdge(
-		lnwire.GossipVersion1, edge.ChannelID,
-	)
+	isZombie, pubKey1, pubKey2, err := graph.IsZombieEdge(edge.ChannelID)
 	require.NoError(t, err)
 	require.True(t, isZombie)
 	require.Equal(t, node1.PubKeyBytes, pubKey1)
@@ -5418,20 +5415,16 @@ func TestGraphZombieIndex(t *testing.T) {
 
 	// Similarly, if we mark the same edge as live, we should no longer see
 	// it within the index.
-	require.NoError(
-		t, graph.MarkEdgeLive(lnwire.GossipVersion1, edge.ChannelID),
-	)
+	require.NoError(t, graph.MarkEdgeLive(edge.ChannelID))
 
 	// Attempting to mark the edge as live again now that it is no longer
 	// in the zombie index should fail.
 	require.ErrorIs(
-		t, graph.MarkEdgeLive(lnwire.GossipVersion1, edge.ChannelID),
+		t, graph.MarkEdgeLive(edge.ChannelID),
 		ErrZombieEdgeNotFound,
 	)
 
-	isZombie, _, _, err = graph.IsZombieEdge(
-		lnwire.GossipVersion1, edge.ChannelID,
-	)
+	isZombie, _, _, err = graph.IsZombieEdge(edge.ChannelID)
 	require.NoError(t, err)
 	require.False(t, isZombie)
 
@@ -5440,14 +5433,11 @@ func TestGraphZombieIndex(t *testing.T) {
 	// If we mark the edge as a zombie manually, then it should show up as
 	// being a zombie once again.
 	err = graph.MarkEdgeZombie(
-		lnwire.GossipVersion1, edge.ChannelID,
-		node1.PubKeyBytes, node2.PubKeyBytes,
+		edge.ChannelID, node1.PubKeyBytes, node2.PubKeyBytes,
 	)
 	require.NoError(t, err, "unable to mark edge as zombie")
 
-	isZombie, _, _, err = graph.IsZombieEdge(
-		lnwire.GossipVersion1, edge.ChannelID,
-	)
+	isZombie, _, _, err = graph.IsZombieEdge(edge.ChannelID)
 	require.NoError(t, err)
 	require.True(t, isZombie)
 	assertNumZombies(t, graph, 1)
@@ -5859,9 +5849,9 @@ func testGraphCacheForEachNodeChannel(t *testing.T,
 	}
 }
 
-// TestGraphLoading asserts that the cache is properly reconstructed after a
+// testGraphLoading asserts that the cache is properly reconstructed after a
 // restart.
-func TestGraphLoading(t *testing.T) {
+func testGraphLoading(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 
 	// Next, create the graph for the first time.
@@ -5878,7 +5868,7 @@ func TestGraphLoading(t *testing.T) {
 	const numNodes = 100
 	const numChannels = 4
 	_, _ = fillTestGraph(
-		t, graph, numNodes, numChannels, lnwire.GossipVersion1,
+		t, graph, numNodes, numChannels, v,
 	)
 
 	// Recreate the graph. This should cause the graph cache to be

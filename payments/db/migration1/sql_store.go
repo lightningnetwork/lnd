@@ -1,4 +1,4 @@
-package paymentsdb
+package migration1
 
 import (
 	"bytes"
@@ -12,9 +12,9 @@ import (
 
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/payments/db/migration1/sqlc"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sqldb"
-	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
 // PaymentIntentType represents the type of payment intent.
@@ -128,6 +128,10 @@ var _ DB = (*SQLStore)(nil)
 type SQLStoreConfig struct {
 	// QueryConfig holds configuration values for SQL queries.
 	QueryCfg *sqldb.QueryConfig
+
+	// SkipMigrationValidation disables in-migration validation checks.
+	// This is intended for large databases where validation is too slow.
+	SkipMigrationValidation bool
 }
 
 // NewSQLStore creates a new SQLStore instance given an open
@@ -166,14 +170,14 @@ func fetchPaymentWithCompleteData(ctx context.Context,
 
 	// Load batch data for this single payment.
 	batchData, err := batchLoadPaymentDetailsData(
-		ctx, cfg, db, []int64{payment.ID}, true,
+		ctx, cfg, db, []int64{payment.ID},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load batch data: %w", err)
 	}
 
 	// Build the payment from the batch data.
-	return buildPaymentFromBatchData(dbPayment, batchData, true)
+	return buildPaymentFromBatchData(dbPayment, batchData)
 }
 
 // paymentsCompleteData holds the full payment data when batch loading base
@@ -193,9 +197,7 @@ func batchLoadPayments(ctx context.Context, cfg *sqldb.QueryConfig,
 			err)
 	}
 
-	batchData, err := batchLoadPaymentDetailsData(
-		ctx, cfg, db, paymentIDs, true,
-	)
+	batchData, err := batchLoadPaymentDetailsData(ctx, cfg, db, paymentIDs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load payment batch data: %w",
 			err)
@@ -565,8 +567,7 @@ func computePaymentStatusFromResolutions(resolutionTypes []sql.NullInt32,
 // batchLoadPaymentDetailsData loads all related data for multiple payments in
 // batch. It uses a batch queries to fetch all data for the given payment IDs.
 func batchLoadPaymentDetailsData(ctx context.Context, cfg *sqldb.QueryConfig,
-	db SQLQueries, paymentIDs []int64, includeHops bool) (
-	*paymentsDetailsData, error) {
+	db SQLQueries, paymentIDs []int64) (*paymentsDetailsData, error) {
 
 	batchData := &paymentsDetailsData{
 		paymentCustomRecords: make(
@@ -613,35 +614,31 @@ func batchLoadPaymentDetailsData(ctx context.Context, cfg *sqldb.QueryConfig,
 		return batchData, nil
 	}
 
-	if includeHops {
-		// Load hops for all attempts and collect hop IDs.
-		hopIDs, err := batchLoadHopsForAttempts(
-			ctx, cfg, db, allAttemptIndices, batchData,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch hops "+
-				"for attempts: %w", err)
-		}
+	// Load hops for all attempts and collect hop IDs.
+	hopIDs, err := batchLoadHopsForAttempts(
+		ctx, cfg, db, allAttemptIndices, batchData,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch hops for attempts: %w",
+			err)
+	}
 
-		// Load hop-level custom records if there are any hops.
-		if len(hopIDs) > 0 {
-			err = batchLoadHopCustomRecords(
-				ctx, cfg, db, hopIDs, batchData,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("failed to fetch "+
-					"hop custom records: %w", err)
-			}
-		}
-
-		// Load route-level first hop custom records.
-		err = batchLoadRouteCustomRecords(
-			ctx, cfg, db, allAttemptIndices, batchData,
-		)
+	// Load hop-level custom records if there are any hops.
+	if len(hopIDs) > 0 {
+		err = batchLoadHopCustomRecords(ctx, cfg, db, hopIDs, batchData)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch route "+
-				"custom records: %w", err)
+			return nil, fmt.Errorf("failed to fetch hop custom "+
+				"records: %w", err)
 		}
+	}
+
+	// Load route-level first hop custom records.
+	err = batchLoadRouteCustomRecords(
+		ctx, cfg, db, allAttemptIndices, batchData,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch route custom "+
+			"records: %w", err)
 	}
 
 	return batchData, nil
@@ -650,8 +647,7 @@ func batchLoadPaymentDetailsData(ctx context.Context, cfg *sqldb.QueryConfig,
 // buildPaymentFromBatchData builds a complete MPPayment from a database payment
 // and pre-loaded batch data.
 func buildPaymentFromBatchData(dbPayment sqlc.PaymentAndIntent,
-	batchData *paymentsDetailsData, includeHops bool) (
-	*MPPayment, error) {
+	batchData *paymentsDetailsData) (*MPPayment, error) {
 
 	// The query will only return BOLT 11 payment intents or intents with
 	// no intent type set.
@@ -691,7 +687,6 @@ func buildPaymentFromBatchData(dbPayment sqlc.PaymentAndIntent,
 			dbAttempt, batchData.hopsByAttempt[attemptIndex],
 			batchData.hopCustomRecords,
 			batchData.routeCustomRecords[attemptIndex],
-			includeHops,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert attempt "+
@@ -790,7 +785,6 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 
 			return batchLoadPaymentDetailsData(
 				ctx, s.cfg.QueryCfg, db, paymentIDs,
-				!query.OmitHops,
 			)
 		}
 
@@ -802,7 +796,7 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 
 			// Build the payment from the pre-loaded batch data.
 			mpPayment, err := buildPaymentFromBatchData(
-				dbPayment, batchData, !query.OmitHops,
+				dbPayment, batchData,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to fetch payment "+
@@ -1094,7 +1088,7 @@ func (s *SQLStore) FetchInFlightPayments(ctx context.Context) ([]*MPPayment,
 
 			// Build the payment from batch data.
 			mpPayment, err := buildPaymentFromBatchData(
-				dbPayment, batchData.paymentsDetailsData, true,
+				dbPayment, batchData.paymentsDetailsData,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to build payment: %w",

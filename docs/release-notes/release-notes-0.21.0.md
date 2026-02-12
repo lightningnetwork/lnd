@@ -124,6 +124,17 @@
 
 ## Deprecations
 
+### ⚠️ **Warning:** Deprecated fields in `lnrpc.Hop` will be removed in release version **0.22**
+
+  The following deprecated fields in the [`lnrpc.Hop`](https://lightning.engineering/api-docs/api/lnd/lightning/send-to-route-sync/#lnrpchop)
+  message will be removed:
+
+  | Field | Deprecated Since | Replacement |
+  |-------|------------------|-------------|
+  | `chan_capacity` | 0.7.1 | None |
+  | `amt_to_forward` | 0.7.1 | `amt_to_forward_msat` |
+  | `fee` | 0.7.1 | `fee_msat` |
+
 ### ⚠️ **Warning:** The deprecated fee rate option `--sat_per_byte` will be removed in release version **0.22**
 
   The deprecated `--sat_per_byte` option will be fully removed. This flag was
@@ -184,6 +195,16 @@
     db functions Part 2](https://github.com/lightningnetwork/lnd/pull/10308)
   * [Finalize SQL implementation for 
     payments db](https://github.com/lightningnetwork/lnd/pull/10373)
+  * [Add the KV-to-SQL payment
+    migration](https://github.com/lightningnetwork/lnd/pull/10485) with
+    comprehensive tests and build tag "test_native_sql" gated wiring into the
+    payment flow.
+  * Various [SQL payment store
+    improvements](https://github.com/lightningnetwork/lnd/pull/10535):
+    optimize schema indexes, improve query performance for payment filtering
+    and failed attempt cleanup, fix cross-database timestamp handling, add
+    `omit_hops` option to `ListPayments` to reduce response size, and increase
+    the default SQLite cache size.
 
 
 ## Code Health

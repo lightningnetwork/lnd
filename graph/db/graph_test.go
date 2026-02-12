@@ -314,7 +314,7 @@ func testNodeInsertionAndDeletion(t *testing.T, v lnwire.GossipVersion) {
 
 	// Check that the node's features are fetched correctly. This check
 	// will check the database directly.
-	features, err = graph.FetchNodeFeatures(node.PubKeyBytes)
+	features, err = graph.db.FetchNodeFeatures(v, node.PubKeyBytes)
 	require.NoError(t, err)
 	require.Equal(t, testFeatures, features)
 
@@ -1974,9 +1974,9 @@ func testGraphTraversalCacheable(t *testing.T, v lnwire.GossipVersion) {
 	}
 
 	for _, node := range nodes {
-		// Query the ChannelGraph which uses the cache to iterate
+		// Query the VersionedGraph which uses the cache to iterate
 		// through the channels for each node.
-		err = graph.ChannelGraph.ForEachNodeDirectedChannel(
+		err = graph.ForEachNodeDirectedChannel(
 			node, func(d *DirectedChannel) error {
 				delete(chanIndex, d.ChannelID)
 				return nil
@@ -3660,7 +3660,7 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 
 				chanID := channel.id.ToUint64()
 
-			return graph.MarkEdgeZombie(
+				return graph.MarkEdgeZombie(
 					lnwire.GossipVersion1, chanID,
 					node1.PubKeyBytes, node2.PubKeyBytes,
 				)
@@ -3761,7 +3761,8 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 				}
 
 				err := graph.DeleteChannelEdges(
-					strictPruning, markZombie, chanIDs...,
+					lnwire.GossipVersion1, strictPruning,
+					markZombie, chanIDs...,
 				)
 				if err != nil &&
 					!errors.Is(err, ErrEdgeNotFound) {
@@ -4741,7 +4742,9 @@ func BenchmarkIsPublicNode(b *testing.B) {
 		// Query random nodes to avoid query caching and better
 		// represent real-world query patterns.
 		nodePub := nodes[rng.Intn(len(nodes))].PubKeyBytes
-		_, err := graph.IsPublicNode(nodePub)
+		_, err := graph.IsPublicNode(
+			lnwire.GossipVersion1, nodePub,
+		)
 		require.NoError(b, err)
 	}
 }
@@ -5017,16 +5020,22 @@ func TestGraphZombieIndex(t *testing.T) {
 
 	// Since the edge is known the graph and it isn't a zombie, IsZombieEdge
 	// should not report the channel as a zombie.
-	isZombie, _, _, err := graph.IsZombieEdge(edge.ChannelID)
+	isZombie, _, _, err := graph.IsZombieEdge(
+		lnwire.GossipVersion1, edge.ChannelID,
+	)
 	require.NoError(t, err)
 	require.False(t, isZombie)
 	assertNumZombies(t, graph, 0)
 
 	// If we delete the edge and mark it as a zombie, then we should expect
 	// to see it within the index.
-	err = graph.DeleteChannelEdges(false, true, edge.ChannelID)
+	err = graph.DeleteChannelEdges(
+		lnwire.GossipVersion1, false, true, edge.ChannelID,
+	)
 	require.NoError(t, err, "unable to mark edge as zombie")
-	isZombie, pubKey1, pubKey2, err := graph.IsZombieEdge(edge.ChannelID)
+	isZombie, pubKey1, pubKey2, err := graph.IsZombieEdge(
+		lnwire.GossipVersion1, edge.ChannelID,
+	)
 	require.NoError(t, err)
 	require.True(t, isZombie)
 	require.Equal(t, node1.PubKeyBytes, pubKey1)
@@ -5046,7 +5055,9 @@ func TestGraphZombieIndex(t *testing.T) {
 		ErrZombieEdgeNotFound,
 	)
 
-	isZombie, _, _, err = graph.IsZombieEdge(edge.ChannelID)
+	isZombie, _, _, err = graph.IsZombieEdge(
+		lnwire.GossipVersion1, edge.ChannelID,
+	)
 	require.NoError(t, err)
 	require.False(t, isZombie)
 
@@ -5060,7 +5071,9 @@ func TestGraphZombieIndex(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to mark edge as zombie")
 
-	isZombie, _, _, err = graph.IsZombieEdge(edge.ChannelID)
+	isZombie, _, _, err = graph.IsZombieEdge(
+		lnwire.GossipVersion1, edge.ChannelID,
+	)
 	require.NoError(t, err)
 	require.True(t, isZombie)
 	assertNumZombies(t, graph, 1)

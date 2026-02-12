@@ -3597,8 +3597,8 @@ func (s *sqlNodeTraverser) ForEachNodeDirectedChannel(
 // unknown, assume no additional features are supported.
 //
 // NOTE: Part of the NodeTraverser interface.
-func (s *sqlNodeTraverser) FetchNodeFeatures(nodePub route.Vertex) (
-	*lnwire.FeatureVector, error) {
+func (s *sqlNodeTraverser) FetchNodeFeatures(
+	nodePub route.Vertex) (*lnwire.FeatureVector, error) {
 
 	ctx := context.TODO()
 

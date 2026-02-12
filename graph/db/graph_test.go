@@ -424,7 +424,8 @@ func testNodeInsertionAndDeletion(t *testing.T, v lnwire.GossipVersion) {
 	// Also check that the withAddr param of ForEachNodeCached correctly
 	// returns the addresses we expect for this node.
 	err = graph.ForEachNodeCached(
-		ctx, true, func(ctx context.Context, node route.Vertex,
+		ctx, true,
+		func(ctx context.Context, node route.Vertex,
 			addrs []net.Addr,
 			chans map[uint64]*DirectedChannel) error {
 
@@ -1852,23 +1853,25 @@ func TestGraphTraversal(t *testing.T) {
 	// set of channels (to force the fall back), we should find all the
 	// channel as well as the nodes included.
 	graph.graphCache = nil
-	err := graph.ForEachNodeCached(ctx, false, func(_ context.Context,
-		node route.Vertex, _ []net.Addr,
-		chans map[uint64]*DirectedChannel) error {
+	err := graph.ForEachNodeCached(
+		ctx, lnwire.GossipVersion1, false,
+		func(_ context.Context, node route.Vertex, _ []net.Addr,
+			chans map[uint64]*DirectedChannel) error {
 
-		if _, ok := nodeIndex[node]; !ok {
-			return fmt.Errorf("node %x not found in graph", node)
-		}
-
-		for chanID := range chans {
-			if _, ok := chanIndex[chanID]; !ok {
-				return fmt.Errorf("chan %v not found in "+
-					"graph", chanID)
+			if _, ok := nodeIndex[node]; !ok {
+				return fmt.Errorf("node %x not found in graph",
+					node)
 			}
-		}
 
-		return nil
-	}, func() {})
+			for chanID := range chans {
+				if _, ok := chanIndex[chanID]; !ok {
+					return fmt.Errorf("chan %v not "+
+						"found in graph", chanID)
+				}
+			}
+
+			return nil
+		}, func() {})
 	require.NoError(t, err)
 
 	// Iterate through all the known channels within the graph DB, once
@@ -2249,9 +2252,11 @@ func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 	require.Equal(t, n, numChans)
 }
 
-func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
+func assertNumNodes(t *testing.T, graph *ChannelGraph, v lnwire.GossipVersion,
+	n int) {
+
 	numNodes := 0
-	err := graph.ForEachNode(t.Context(),
+	err := graph.ForEachNode(t.Context(), v,
 		func(_ *models.Node) error {
 			numNodes++
 
@@ -2465,7 +2470,7 @@ func TestGraphPruning(t *testing.T) {
 	// see both channels and their participants, along with the source node.
 	assertPruneTip(t, graph, &blockHash, blockHeight)
 	assertNumChans(t, graph, 2)
-	assertNumNodes(t, graph, 4)
+	assertNumNodes(t, graph, lnwire.GossipVersion1, 4)
 
 	// Finally, create a block that prunes the remainder of the channels
 	// from the graph.
@@ -2487,7 +2492,7 @@ func TestGraphPruning(t *testing.T) {
 	// only the source node should remain within the current graph.
 	assertPruneTip(t, graph, &blockHash, blockHeight)
 	assertNumChans(t, graph, 0)
-	assertNumNodes(t, graph, 1)
+	assertNumNodes(t, graph, lnwire.GossipVersion1, 1)
 
 	// Finally, the channel view at this point in the graph should now be
 	// completely empty.  Those channels should also be missing from the
@@ -4433,7 +4438,7 @@ func TestPruneGraphNodes(t *testing.T) {
 	// source node (which can't be pruned), and node 1+2. Nodes 1 and two
 	// should still be left in the graph as there's half of an advertised
 	// edge between them.
-	assertNumNodes(t, graph.ChannelGraph, 3)
+	assertNumNodes(t, graph.ChannelGraph, lnwire.GossipVersion1, 3)
 
 	// Finally, we'll ensure that node3, the only fully unconnected node as
 	// properly deleted from the graph and not another node in its place.
@@ -4993,7 +4998,7 @@ func putSerializedPolicy(t *testing.T, db kvdb.Backend, from []byte,
 func assertNumZombies(t *testing.T, graph *ChannelGraph, expZombies uint64) {
 	t.Helper()
 
-	numZombies, err := graph.NumZombies()
+	numZombies, err := graph.NumZombies(lnwire.GossipVersion1)
 	require.NoError(t, err, "unable to query number of zombies")
 
 	if numZombies != expZombies {

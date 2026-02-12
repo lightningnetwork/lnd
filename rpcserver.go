@@ -7053,10 +7053,12 @@ func (r *rpcServer) GetNodeMetrics(ctx context.Context,
 	// Obtain the pointer to the global singleton channel graph, this will
 	// provide a consistent view of the graph due to bolt db's
 	// transactional model.
-	graph := r.server.graphDB
+	graph := graphdb.NewVersionedGraph(
+		r.server.graphDB, lnwire.GossipVersion1,
+	)
 
-	// Calculate betweenness centrality if requested. Note that depending on the
-	// graph size, this may take up to a few minutes.
+	// Calculate betweenness centrality if requested. Note that depending
+	// on the graph size, this may take up to a few minutes.
 	channelGraph := autopilot.ChannelGraphFromDatabase(graph)
 	centralityMetric, err := autopilot.NewBetweennessCentralityMetric(
 		runtime.NumCPU(),
@@ -7267,7 +7269,9 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	_ *lnrpc.NetworkInfoRequest) (*lnrpc.NetworkInfo, error) {
 
-	graph := r.server.graphDB
+	graph := graphdb.NewVersionedGraph(
+		r.server.graphDB, lnwire.GossipVersion1,
+	)
 
 	var (
 		numNodes             uint32

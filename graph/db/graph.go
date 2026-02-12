@@ -208,10 +208,12 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 }
 
 // ForEachNodeCached iterates through all the stored vertices/nodes in the
-// graph, executing the passed callback with each node encountered.
+// graph for the given gossip version, executing the passed callback with each
+// node encountered.
 //
 // NOTE: The callback contents MUST not be modified.
-func (c *ChannelGraph) ForEachNodeCached(ctx context.Context, withAddrs bool,
+func (c *ChannelGraph) ForEachNodeCached(ctx context.Context,
+	v lnwire.GossipVersion, withAddrs bool,
 	cb func(ctx context.Context, node route.Vertex, addrs []net.Addr,
 		chans map[uint64]*DirectedChannel) error, reset func()) error {
 
@@ -225,7 +227,7 @@ func (c *ChannelGraph) ForEachNodeCached(ctx context.Context, withAddrs bool,
 		)
 	}
 
-	return c.db.ForEachNodeCached(ctx, withAddrs, cb, reset)
+	return c.db.ForEachNodeCached(ctx, v, withAddrs, cb, reset)
 }
 
 // AddNode adds a vertex/node to the graph database. If the node is not
@@ -571,11 +573,12 @@ func (c *ChannelGraph) ForEachNodeChannel(ctx context.Context,
 	return c.db.ForEachNodeChannel(ctx, v, nodePub, cb, reset)
 }
 
-// ForEachNode iterates through all stored vertices/nodes in the graph.
-func (c *ChannelGraph) ForEachNode(ctx context.Context,
+// ForEachNode iterates through all stored vertices/nodes in the graph for the
+// given gossip version.
+func (c *ChannelGraph) ForEachNode(ctx context.Context, v lnwire.GossipVersion,
 	cb func(*models.Node) error, reset func()) error {
 
-	return c.db.ForEachNode(ctx, cb, reset)
+	return c.db.ForEachNode(ctx, v, cb, reset)
 }
 
 // ForEachNodeCacheable iterates through all stored vertices/nodes in the graph.
@@ -708,9 +711,10 @@ func (c *ChannelGraph) IsZombieEdge(v lnwire.GossipVersion, chanID uint64) (
 	return c.db.IsZombieEdge(v, chanID)
 }
 
-// NumZombies returns the current number of zombie channels in the graph.
-func (c *ChannelGraph) NumZombies() (uint64, error) {
-	return c.db.NumZombies()
+// NumZombies returns the current number of zombie channels in the graph for
+// the given gossip version.
+func (c *ChannelGraph) NumZombies(v lnwire.GossipVersion) (uint64, error) {
+	return c.db.NumZombies(v)
 }
 
 // PutClosedScid stores a SCID for a closed channel in the database.
@@ -761,7 +765,7 @@ func (c *VersionedGraph) Version() lnwire.GossipVersion {
 func (c *VersionedGraph) ForEachNode(ctx context.Context,
 	cb func(*models.Node) error, reset func()) error {
 
-	return c.db.ForEachNode(ctx, cb, reset)
+	return c.db.ForEachNode(ctx, c.v, cb, reset)
 }
 
 // FetchNodeFeatures returns the features of the given node. If no features are
@@ -809,7 +813,7 @@ func (c *VersionedGraph) ForEachNodeCached(ctx context.Context,
 		addrs []net.Addr, chans map[uint64]*DirectedChannel) error,
 	reset func()) error {
 
-	return c.ChannelGraph.ForEachNodeCached(ctx, withAddrs, cb, reset)
+	return c.ChannelGraph.ForEachNodeCached(ctx, c.v, withAddrs, cb, reset)
 }
 
 // FilterChannelRange returns channel IDs within the passed block height range.
@@ -1019,6 +1023,11 @@ func (c *VersionedGraph) ForEachChannelCacheable(
 // DisabledChannelIDs returns the channel ids of disabled channels.
 func (c *VersionedGraph) DisabledChannelIDs() ([]uint64, error) {
 	return c.db.DisabledChannelIDs(c.v)
+}
+
+// NumZombies returns the current number of zombie channels in the graph.
+func (c *VersionedGraph) NumZombies() (uint64, error) {
+	return c.db.NumZombies(c.v)
 }
 
 // FetchChanInfos returns the set of channel edges for the passed channel IDs.

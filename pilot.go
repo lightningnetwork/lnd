@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -185,7 +186,11 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 				cfg.MinConfs, lnwallet.DefaultAccountName,
 			)
 		},
-		Graph:       autopilot.ChannelGraphFromDatabase(svr.graphDB),
+		Graph: autopilot.ChannelGraphFromDatabase(
+			graphdb.NewVersionedGraph(
+				svr.graphDB, lnwire.GossipVersion1,
+			),
+		),
 		Constraints: atplConstraints,
 		ConnectToPeer: func(target *btcec.PublicKey, addrs []net.Addr) (bool, error) {
 			// First, we'll check if we're already connected to the

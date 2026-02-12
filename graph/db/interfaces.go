@@ -86,18 +86,19 @@ type Store interface { //nolint:interfacebloat
 	// the addresses are actually needed.
 	//
 	// NOTE: The callback contents MUST not be modified.
-	ForEachNodeCached(ctx context.Context, withAddrs bool,
+	ForEachNodeCached(ctx context.Context, v lnwire.GossipVersion,
+		withAddrs bool,
 		cb func(ctx context.Context, node route.Vertex,
 			addrs []net.Addr,
 			chans map[uint64]*DirectedChannel) error,
 		reset func()) error
 
 	// ForEachNode iterates through all the stored vertices/nodes in the
-	// graph, executing the passed callback with each node encountered. If
-	// the callback returns an error, then the transaction is aborted and
-	// the iteration stops early.
-	ForEachNode(ctx context.Context, cb func(*models.Node) error,
-		reset func()) error
+	// graph for the given gossip version, executing the passed callback
+	// with each node encountered. If the callback returns an error, then
+	// the transaction is aborted and the iteration stops early.
+	ForEachNode(ctx context.Context, v lnwire.GossipVersion,
+		cb func(*models.Node) error, reset func()) error
 
 	// ForEachNodeCacheable iterates through all the stored vertices/nodes
 	// in the graph, executing the passed callback with each node
@@ -336,7 +337,7 @@ type Store interface { //nolint:interfacebloat
 
 	// NumZombies returns the current number of zombie channels in the
 	// graph.
-	NumZombies() (uint64, error)
+	NumZombies(v lnwire.GossipVersion) (uint64, error)
 
 	// PutClosedScid stores a SCID for a closed channel in the database.
 	// This is so that we can ignore channel announcements that we know to

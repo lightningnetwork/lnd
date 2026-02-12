@@ -698,9 +698,14 @@ func (c *KVStore) FetchNodeFeatures(v lnwire.GossipVersion,
 // data to the call-back.
 //
 // NOTE: The callback contents MUST not be modified.
-func (c *KVStore) ForEachNodeCached(ctx context.Context, withAddrs bool,
+func (c *KVStore) ForEachNodeCached(ctx context.Context,
+	v lnwire.GossipVersion, withAddrs bool,
 	cb func(ctx context.Context, node route.Vertex, addrs []net.Addr,
 		chans map[uint64]*DirectedChannel) error, reset func()) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	// Otherwise call back to a version that uses the database directly.
 	// We'll iterate over each node, then the set of channels for each
@@ -833,8 +838,12 @@ func (c *KVStore) DisabledChannelIDs(
 // early.
 //
 // NOTE: this is part of the Store interface.
-func (c *KVStore) ForEachNode(_ context.Context,
+func (c *KVStore) ForEachNode(_ context.Context, v lnwire.GossipVersion,
 	cb func(*models.Node) error, reset func()) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	return forEachNode(c.db, func(tx kvdb.RTx,
 		node *models.Node) error {
@@ -4478,7 +4487,11 @@ func isZombieEdge(zombieIndex kvdb.RBucket,
 }
 
 // NumZombies returns the current number of zombie channels in the graph.
-func (c *KVStore) NumZombies() (uint64, error) {
+func (c *KVStore) NumZombies(v lnwire.GossipVersion) (uint64, error) {
+	if v != lnwire.GossipVersion1 {
+		return 0, ErrVersionNotSupportedForKVDB
+	}
+
 	var numZombies uint64
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)

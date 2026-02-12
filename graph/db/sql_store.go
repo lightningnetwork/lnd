@@ -750,7 +750,9 @@ func (s *SQLStore) AddChannelEdge(ctx context.Context,
 				s.rejectCache.remove(
 					edge.Version, edge.ChannelID,
 				)
-				s.chanCache.remove(edge.ChannelID)
+				s.chanCache.remove(
+					edge.Version, edge.ChannelID,
+				)
 
 				return nil
 			}
@@ -883,13 +885,13 @@ func (s *SQLStore) updateEdgeCache(e *models.ChannelEdgePolicy,
 	// the entry with the updated policy for the direction that was just
 	// written. If the edge doesn't exist, we'll defer loading the info and
 	// policies and lazily read from disk during the next query.
-	if channel, ok := s.chanCache.get(e.ChannelID); ok {
+	if channel, ok := s.chanCache.get(e.Version, e.ChannelID); ok {
 		if isUpdate1 {
 			channel.Policy1 = e
 		} else {
 			channel.Policy2 = e
 		}
-		s.chanCache.insert(e.ChannelID, channel)
+		s.chanCache.insert(e.Version, e.ChannelID, channel)
 	}
 }
 
@@ -1120,7 +1122,9 @@ func (s *SQLStore) buildChannelFromRow(ctx context.Context, db SQLQueries,
 
 // updateChanCacheBatch updates the channel cache with multiple edges at once.
 // This method acquires the cache lock only once for the entire batch.
-func (s *SQLStore) updateChanCacheBatch(edgesToCache map[uint64]ChannelEdge) {
+func (s *SQLStore) updateChanCacheBatch(v lnwire.GossipVersion,
+	edgesToCache map[uint64]ChannelEdge) {
+
 	if len(edgesToCache) == 0 {
 		return
 	}
@@ -1129,7 +1133,7 @@ func (s *SQLStore) updateChanCacheBatch(edgesToCache map[uint64]ChannelEdge) {
 	defer s.cacheMu.Unlock()
 
 	for chanID, edge := range edgesToCache {
-		s.chanCache.insert(chanID, edge)
+		s.chanCache.insert(v, chanID, edge)
 	}
 }
 
@@ -1232,6 +1236,7 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 						// Check cache (we already hold
 						// shared read lock).
 						channel, ok := s.chanCache.get(
+							lnwire.GossipVersion1,
 							chanIDInt,
 						)
 						if ok {
@@ -1287,7 +1292,9 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 
 			// Update cache after successful batch yield, setting
 			// the cache lock only once for the entire batch.
-			s.updateChanCacheBatch(edgesToCache)
+			s.updateChanCacheBatch(
+				lnwire.GossipVersion1, edgesToCache,
+			)
 			edgesToCache = make(map[uint64]ChannelEdge)
 
 			// If the batch didn't yield anything, then we're done.
@@ -1779,7 +1786,7 @@ func (s *SQLStore) MarkEdgeZombie(chanID uint64,
 	}
 
 	s.rejectCache.remove(lnwire.GossipVersion1, chanID)
-	s.chanCache.remove(chanID)
+	s.chanCache.remove(lnwire.GossipVersion1, chanID)
 
 	return nil
 }
@@ -1828,7 +1835,7 @@ func (s *SQLStore) MarkEdgeLive(chanID uint64) error {
 	}
 
 	s.rejectCache.remove(lnwire.GossipVersion1, chanID)
-	s.chanCache.remove(chanID)
+	s.chanCache.remove(lnwire.GossipVersion1, chanID)
 
 	return err
 }
@@ -2010,7 +2017,7 @@ func (s *SQLStore) DeleteChannelEdges(v lnwire.GossipVersion,
 
 	for _, chanID := range chanIDs {
 		s.rejectCache.remove(v, chanID)
-		s.chanCache.remove(chanID)
+		s.chanCache.remove(v, chanID)
 	}
 
 	return edges, nil
@@ -2901,7 +2908,7 @@ func (s *SQLStore) PruneGraph(spentOutputs []*wire.OutPoint,
 
 	for _, channel := range closedChans {
 		s.rejectCache.remove(channel.Version, channel.ChannelID)
-		s.chanCache.remove(channel.ChannelID)
+		s.chanCache.remove(channel.Version, channel.ChannelID)
 	}
 
 	return closedChans, prunedNodes, nil
@@ -3170,7 +3177,7 @@ func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
 	s.cacheMu.Lock()
 	for _, channel := range removedChans {
 		s.rejectCache.remove(channel.Version, channel.ChannelID)
-		s.chanCache.remove(channel.ChannelID)
+		s.chanCache.remove(channel.Version, channel.ChannelID)
 	}
 	s.cacheMu.Unlock()
 

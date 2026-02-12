@@ -1186,7 +1186,9 @@ func (c *KVStore) AddChannelEdge(ctx context.Context,
 				c.rejectCache.remove(
 					lnwire.GossipVersion1, edge.ChannelID,
 				)
-				c.chanCache.remove(edge.ChannelID)
+				c.chanCache.remove(
+					lnwire.GossipVersion1, edge.ChannelID,
+				)
 
 				return nil
 			}
@@ -1588,7 +1590,7 @@ func (c *KVStore) PruneGraph(spentOutputs []*wire.OutPoint,
 
 	for _, channel := range chansClosed {
 		c.rejectCache.remove(lnwire.GossipVersion1, channel.ChannelID)
-		c.chanCache.remove(channel.ChannelID)
+		c.chanCache.remove(lnwire.GossipVersion1, channel.ChannelID)
 	}
 
 	return chansClosed, prunedNodes, nil
@@ -1855,7 +1857,7 @@ func (c *KVStore) DisconnectBlockAtHeight(height uint32) (
 
 	for _, channel := range removedChans {
 		c.rejectCache.remove(lnwire.GossipVersion1, channel.ChannelID)
-		c.chanCache.remove(channel.ChannelID)
+		c.chanCache.remove(lnwire.GossipVersion1, channel.ChannelID)
 	}
 
 	return removedChans, nil
@@ -1974,7 +1976,7 @@ func (c *KVStore) DeleteChannelEdges(v lnwire.GossipVersion,
 
 	for _, chanID := range chanIDs {
 		c.rejectCache.remove(lnwire.GossipVersion1, chanID)
-		c.chanCache.remove(chanID)
+		c.chanCache.remove(lnwire.GossipVersion1, chanID)
 	}
 
 	return infos, nil
@@ -2104,7 +2106,7 @@ func (c *KVStore) updateChanCacheBatch(edgesToCache map[uint64]ChannelEdge) {
 	defer c.cacheMu.Unlock()
 
 	for cid, edge := range edgesToCache {
-		c.chanCache.insert(cid, edge)
+		c.chanCache.insert(lnwire.GossipVersion1, cid, edge)
 	}
 }
 
@@ -2256,7 +2258,10 @@ func (c *KVStore) fetchNextChanUpdateBatch(
 			}
 
 			// Check cache (we already hold shared read lock).
-			if channel, ok := c.chanCache.get(chanIDInt); ok {
+			channel, ok := c.chanCache.get(
+				lnwire.GossipVersion1, chanIDInt,
+			)
+			if ok {
 				state.edgesSeen[chanIDInt] = struct{}{}
 
 				batch = append(batch, channel)
@@ -2300,7 +2305,7 @@ func (c *KVStore) fetchNextChanUpdateBatch(
 
 			// Now we have all the information we need to build the
 			// channel edge.
-			channel := ChannelEdge{
+			channel = ChannelEdge{
 				Info:    edgeInfo,
 				Policy1: edge1,
 				Policy2: edge2,
@@ -3302,13 +3307,16 @@ func (c *KVStore) updateEdgeCache(e *models.ChannelEdgePolicy,
 	// the entry with the updated policy for the direction that was just
 	// written. If the edge doesn't exist, we'll defer loading the info and
 	// policies and lazily read from disk during the next query.
-	if channel, ok := c.chanCache.get(e.ChannelID); ok {
+	channel, ok := c.chanCache.get(
+		lnwire.GossipVersion1, e.ChannelID,
+	)
+	if ok {
 		if isUpdate1 {
 			channel.Policy1 = e
 		} else {
 			channel.Policy2 = e
 		}
-		c.chanCache.insert(e.ChannelID, channel)
+		c.chanCache.insert(lnwire.GossipVersion1, e.ChannelID, channel)
 	}
 }
 
@@ -4215,7 +4223,7 @@ func (c *KVStore) MarkEdgeZombie(chanID uint64,
 	}
 
 	c.rejectCache.remove(lnwire.GossipVersion1, chanID)
-	c.chanCache.remove(chanID)
+	c.chanCache.remove(lnwire.GossipVersion1, chanID)
 
 	return nil
 }
@@ -4284,7 +4292,7 @@ func (c *KVStore) markEdgeLiveUnsafe(tx kvdb.RwTx, chanID uint64) error {
 	}
 
 	c.rejectCache.remove(lnwire.GossipVersion1, chanID)
-	c.chanCache.remove(chanID)
+	c.chanCache.remove(lnwire.GossipVersion1, chanID)
 
 	return nil
 }

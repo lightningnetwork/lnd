@@ -3328,6 +3328,7 @@ func (s *SQLStore) ChannelView(v lnwire.GossipVersion) ([]EdgePoint, error) {
 			extractCursor := func(
 				row sqlc.ListChannelsPaginatedRow,
 			) int64 {
+
 				return row.ID
 			}
 
@@ -3352,6 +3353,7 @@ func (s *SQLStore) ChannelView(v lnwire.GossipVersion) ([]EdgePoint, error) {
 			extractCursor := func(
 				row sqlc.ListChannelsPaginatedV2Row,
 			) int64 {
+
 				return row.ID
 			}
 

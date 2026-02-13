@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/buffer"
@@ -301,9 +302,13 @@ type Config struct {
 	// the Brontide.
 	RoutingPolicy models.ForwardingPolicy
 
-	// Sphinx is used when setting up ChannelLinks so they can decode sphinx
-	// onion blobs.
-	Sphinx *hop.OnionProcessor
+	// SphinxPayment is used when setting up ChannelLinks so they can decode
+	// sphinx onion blobs.
+	SphinxPayment *hop.OnionProcessor
+
+	// OnionEndpoint handles incoming onion messages and routes them to the
+	// appropriate peer actor for forwarding or processes them locally.
+	OnionEndpoint *onionmessage.OnionEndpoint
 
 	// WitnessBeacon is used when setting up ChannelLinks so they can add any
 	// preimages that they learn.
@@ -471,13 +476,12 @@ type Config struct {
 	// related wire messages.
 	AuxChannelNegotiator fn.Option[lnwallet.AuxChannelNegotiator]
 
-	// OnionMessageServer is an instance of a message server that dispatches
-	// onion messages to subscribers.
-	OnionMessageServer *subscribe.Server
-
 	// ShouldFwdExpAccountability is a closure that indicates whether
 	// experimental accountability signals should be set.
 	ShouldFwdExpAccountability func() bool
+
+	// ActorSystem is the server wide actor system.
+	ActorSystem *actor.ActorSystem
 
 	// NoDisconnectOnPongFailure indicates whether the peer should *not* be
 	// disconnected if a pong is not received in time or is mismatched.
@@ -910,19 +914,41 @@ func (p *Brontide) Start() error {
 		return fmt.Errorf("unable to load channels: %w", err)
 	}
 
-	onionMessageEndpoint := onionmessage.NewOnionEndpoint(
-		p.cfg.OnionMessageServer,
-	)
+	// If the remote peer supports onion messages, then we'll spawn the
+	// onion peer actor, which will be used to send onion messages **to**
+	// the remote peer.
+	if p.remoteFeatures.HasFeature(lnwire.OnionMessagesOptional) {
+		p.log.Infof("Remote peer supports onion messages, " +
+			"registering onion message actor")
+		sender := func(msg *lnwire.OnionMessage) {
+			if err := p.SendMessageLazy(false, msg); err != nil {
+				p.log.Warnf("Failed to send onion message: %v",
+					err)
+			}
+		}
+		_, err := onionmessage.SpawnOnionPeerActor(
+			p.cfg.ActorSystem, sender, p.PubKey(),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to spawn onion peer "+
+				"actor: %w", err)
+		}
+	}
 
-	// We register the onion message endpoint with the message router.
-	err = fn.MapOptionZ(p.msgRouter, func(r msgmux.Router) error {
-		_ = r.UnregisterEndpoint(onionMessageEndpoint.Name())
+	// Register the onion message endpoint with this peer's message router.
+	// The endpoint is shared across all peers and handles incoming onion
+	// messages by routing them to the appropriate peer actor for forwarding
+	// or processing them locally. Skip if onion messaging is disabled.
+	if p.cfg.OnionEndpoint != nil {
+		err = fn.MapOptionZ(p.msgRouter, func(r msgmux.Router) error {
+			_ = r.UnregisterEndpoint(p.cfg.OnionEndpoint.Name())
 
-		return r.RegisterEndpoint(onionMessageEndpoint)
-	})
-	if err != nil {
-		return fmt.Errorf("unable to register endpoint for onion "+
-			"messaging: %w", err)
+			return r.RegisterEndpoint(p.cfg.OnionEndpoint)
+		})
+		if err != nil {
+			return fmt.Errorf("unable to register endpoint for "+
+				"onion messaging: %w", err)
+		}
 	}
 
 	p.startTime = time.Now()
@@ -1446,8 +1472,8 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 	//nolint:ll
 	linkCfg := htlcswitch.ChannelLinkConfig{
 		Peer:                   p,
-		DecodeHopIterators:     p.cfg.Sphinx.DecodeHopIterators,
-		ExtractErrorEncrypter:  p.cfg.Sphinx.ExtractErrorEncrypter,
+		DecodeHopIterators:     p.cfg.SphinxPayment.DecodeHopIterators,
+		ExtractErrorEncrypter:  p.cfg.SphinxPayment.ExtractErrorEncrypter,
 		FetchLastChannelUpdate: p.cfg.FetchLastChanUpdate,
 		HodlMask:               p.cfg.Hodl.Mask(),
 		Registry:               p.cfg.Invoices,
@@ -1688,6 +1714,9 @@ func (p *Brontide) Disconnect(reason error) {
 			router.Stop()
 		})
 	}
+
+	// Stop the onion peer actor if one was spawned for this peer.
+	onionmessage.StopPeerActor(p.cfg.ActorSystem, p.PubKey())
 }
 
 // String returns the string representation of this peer.
@@ -2574,6 +2603,15 @@ func messageSummary(msg lnwire.Message) string {
 			"stamp_range=%v", msg.ChainHash,
 			time.Unix(int64(msg.FirstTimestamp), 0),
 			msg.TimestampRange)
+
+	case *lnwire.OnionMessage:
+		var pathKey []byte
+		if msg.PathKey != nil {
+			pathKey = msg.PathKey.SerializeCompressed()
+		}
+
+		return fmt.Sprintf("path_key=%x, onion_len=%v", pathKey,
+			len(msg.OnionBlob))
 
 	case *lnwire.Stfu:
 		return fmt.Sprintf("chan_id=%v, initiator=%v", msg.ChanID,

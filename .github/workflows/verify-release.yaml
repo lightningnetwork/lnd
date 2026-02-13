@@ -1,0 +1,36 @@
+name: Verify release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag (e.g. v0.20.1-beta)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  verify-release:
+    name: Verify release signatures and binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify release
+        env:
+          VERSION: ${{ inputs.version || github.event.release.tag_name }}
+        run: |
+          docker run --rm --entrypoint="" \
+            lightninglabs/lnd:${VERSION} \
+            /verify-install.sh ${VERSION}
+
+      - name: Set release back to draft on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version || github.event.release.tag_name }}
+        run: |
+          gh release edit ${VERSION} \
+            --repo ${{ github.repository }} \
+            --draft

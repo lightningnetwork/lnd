@@ -71,6 +71,46 @@ func UnmarshallAmt(amtSat, amtMsat int64) (lnwire.MilliSatoshi, error) {
 	return lnwire.MilliSatoshi(amtMsat), nil
 }
 
+// ValidatePayReqAmt validates the amount for a payment that includes a BOLT11
+// payment request. If the invoice includes a fixed amount, the caller may
+// optionally specify a larger amount to overpay, but underpayment is rejected.
+// For zero-amount invoices, the caller must specify an amount. The returned
+// value is the amount that should be used for the payment.
+func ValidatePayReqAmt(invoiceMsat *lnwire.MilliSatoshi,
+	amtSat, amtMsat int64) (lnwire.MilliSatoshi, error) {
+
+	reqAmt, err := UnmarshallAmt(amtSat, amtMsat)
+	if err != nil {
+		return 0, err
+	}
+
+	if invoiceMsat == nil {
+		// For zero-amount invoices, the caller must specify an amount.
+		if reqAmt == 0 {
+			return 0, errors.New("amount must be specified " +
+				"when paying a zero amount invoice")
+		}
+
+		return reqAmt, nil
+	}
+
+	// The invoice has a fixed amount. If the caller also specified an
+	// amount, allow it as long as it is at least the invoice amount
+	// (overpayment is permitted by the spec).
+	if reqAmt != 0 {
+		if reqAmt < *invoiceMsat {
+			return 0, fmt.Errorf("payment amount (%v) must "+
+				"not be less than invoice amount (%v)",
+				reqAmt, *invoiceMsat,
+			)
+		}
+
+		return reqAmt, nil
+	}
+
+	return *invoiceMsat, nil
+}
+
 // ParseConfs validates the minimum and maximum confirmation arguments of a
 // ListUnspent request.
 func ParseConfs(min, max int32) (int32, int32, error) {

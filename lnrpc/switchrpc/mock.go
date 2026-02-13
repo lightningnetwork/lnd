@@ -76,8 +76,10 @@ func (m *mockRouteProcessor) UnmarshallRoute(route *lnrpc.Route) (
 // mockAttemptStore is a mock implementation of the AttemptStore interface.
 type mockAttemptStore struct {
 	htlcswitch.AttemptStore
-	initErr error
-	failErr error
+	initErr    error
+	failErr    error
+	deleteErr  error
+	deleteResp map[uint64]htlcswitch.DeletionStatus
 }
 
 // InitAttempt returns the mocked initErr.
@@ -90,6 +92,17 @@ func (m *mockAttemptStore) FailPendingAttempt(attemptID uint64,
 	reason *htlcswitch.LinkError) error {
 
 	return m.failErr
+}
+
+// DeleteAttempts returns the mocked deleteResp and deleteErr.
+func (m *mockAttemptStore) DeleteAttempts(
+	attemptIDs []uint64) (map[uint64]htlcswitch.DeletionStatus, error) {
+
+	if m.deleteErr != nil {
+		return nil, m.deleteErr
+	}
+
+	return m.deleteResp, nil
 }
 
 // mockErrorDecrypter is a mock implementation of htlcswitch.ErrorDecrypter.

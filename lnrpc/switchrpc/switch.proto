@@ -82,6 +82,25 @@ service Switch {
     BuildOnion attempts to build an onion packet for the specified route.
     */
     rpc BuildOnion (BuildOnionRequest) returns (BuildOnionResponse);
+
+    /*
+    DeleteAttempts removes terminal (settled or failed) payment attempt records
+    from the server's attempt store. The client explicitly names the attempt
+    IDs to delete, enabling online garbage collection of completed attempt
+    data.
+
+    The server processes each attempt ID independently and reports per-ID
+    results. Pending (in-flight) attempts are never deleted; they are reported
+    with a DELETION_PENDING status. Unknown attempt IDs are reported with
+    DELETION_NOT_FOUND. Unprocessable records are reported with
+    DELETION_FAILED. The overall RPC succeeds (gRPC OK) as long as the
+    request could be processed, even if individual attempts were not deleted.
+
+    Clients MUST only delete attempts whose outcome (settled or failed) has
+    been durably recorded and will never need to be retried. Deleting an
+    attempt removes the server's idempotency protection for that attempt ID.
+    */
+    rpc DeleteAttempts (DeleteAttemptsRequest) returns (DeleteAttemptsResponse);
 }
 
 message SendOnionRequest {
@@ -311,4 +330,44 @@ message BuildOnionResponse {
     // The serialized public keys of all nodes along the route for the
     // constructed onion.
     repeated bytes hop_pubkeys = 3;
+}
+
+message DeleteAttemptsRequest {
+    // The attempt IDs to delete from the server's attempt store. Only terminal
+    // (settled or failed) attempts will be deleted. Pending (in-flight)
+    // attempts are skipped and reported with a DELETION_PENDING status.
+    repeated uint64 attempt_ids = 1;
+}
+
+message DeleteAttemptsResponse {
+    // Per-attempt deletion outcomes. The order corresponds to the order of
+    // attempt_ids in the request.
+    repeated AttemptDeletionResult results = 1;
+}
+
+// AttemptDeletionResult reports the outcome of deleting a single attempt.
+message AttemptDeletionResult {
+    // The attempt ID this result corresponds to.
+    uint64 attempt_id = 1;
+
+    // The outcome of the deletion for this attempt.
+    AttemptDeletionStatus status = 2;
+}
+
+// AttemptDeletionStatus describes the outcome of a single attempt deletion.
+enum AttemptDeletionStatus {
+    // The attempt result was successfully deleted from the store.
+    DELETION_OK = 0;
+
+    // The attempt is still in-flight (pending) and cannot be safely deleted.
+    DELETION_PENDING = 1;
+
+    // The attempt ID was not found in the store. This may indicate a client
+    // bug (wrong ID, wrong backend) since the server has no record of this
+    // attempt ever existing.
+    DELETION_NOT_FOUND = 2;
+
+    // The attempt record exists but could not be processed (e.g.
+    // deserialization error). The record remains in the store.
+    DELETION_FAILED = 3;
 }

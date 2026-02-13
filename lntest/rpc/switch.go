@@ -53,3 +53,18 @@ func (h *HarnessRPC) BuildOnion(
 
 	return resp
 }
+
+// DeleteAttempts makes a RPC call to DeleteAttempts and asserts.
+//
+//nolint:ll
+func (h *HarnessRPC) DeleteAttempts(
+	req *switchrpc.DeleteAttemptsRequest) *switchrpc.DeleteAttemptsResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.Switch.DeleteAttempts(ctxt, req)
+	h.NoError(err, "DeleteAttempts")
+
+	return resp
+}

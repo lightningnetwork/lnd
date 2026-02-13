@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -42,6 +43,28 @@ var (
 	ErrAmbiguousAttemptInit = errors.New(
 		"ambiguous result for payment attempt registration",
 	)
+)
+
+// DeletionStatus represents the outcome of deleting a single attempt from
+// the store.
+type DeletionStatus int
+
+const (
+	// DeletionOK indicates the attempt was successfully deleted.
+	DeletionOK DeletionStatus = iota
+
+	// DeletionPending indicates the attempt is still in-flight and cannot
+	// be deleted.
+	DeletionPending
+
+	// DeletionNotFound indicates the attempt ID was not found in the
+	// store.
+	DeletionNotFound
+
+	// DeletionFailed indicates that the attempt record exists but could
+	// not be processed (e.g. deserialization error). The record remains
+	// in the store.
+	DeletionFailed
 )
 
 const (
@@ -464,6 +487,123 @@ func (store *networkResultStore) CleanStore(keep map[uint64]struct{}) error {
 
 		return nil
 	}, func() {})
+}
+
+// DeleteAttempts removes terminal (settled or failed) attempt results from the
+// store. Pending (in-flight) attempts are not deleted. The returned map reports
+// the outcome for each requested attempt ID.
+//
+// This is the safe, "positive space" alternative to CleanStore. Unlike
+// CleanStore which requires a complete snapshot of in-flight attempts (and is
+// therefore vulnerable to stale-snapshot race conditions in a distributed
+// system), DeleteAttempts only operates on explicitly named, finished items.
+func (store *networkResultStore) DeleteAttempts(
+	attemptIDs []uint64) (map[uint64]DeletionStatus, error) {
+
+	results := make(map[uint64]DeletionStatus, len(attemptIDs))
+
+	if len(attemptIDs) == 0 {
+		return results, nil
+	}
+
+	// Reject duplicates and sort IDs before acquiring per-ID mutexes
+	// below. This prevents deadlocks from locking the same ID twice
+	// (duplicates) or from inconsistent lock ordering across concurrent
+	// callers (unsorted).
+	seen := make(map[uint64]struct{}, len(attemptIDs))
+	for _, id := range attemptIDs {
+		if _, ok := seen[id]; ok {
+			return nil, fmt.Errorf("duplicate attempt ID %d", id)
+		}
+
+		seen[id] = struct{}{}
+	}
+	slices.Sort(attemptIDs)
+
+	// Acquire per-ID mutexes for all requested IDs. This ensures
+	// consistency with concurrent Init/Store/Subscribe operations on the
+	// same attempt IDs.
+	for _, id := range attemptIDs {
+		store.attemptIDMtx.Lock(id)
+	}
+	defer func() {
+		for _, id := range attemptIDs {
+			store.attemptIDMtx.Unlock(id)
+		}
+	}()
+
+	err := kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
+		bucket, err := tx.CreateTopLevelBucket(
+			networkResultStoreBucketKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		for _, id := range attemptIDs {
+			var attemptIDBytes [8]byte
+			binary.BigEndian.PutUint64(attemptIDBytes[:], id)
+
+			resultBytes := bucket.Get(attemptIDBytes[:])
+
+			// If the key doesn't exist, report NotFound.
+			if resultBytes == nil {
+				results[id] = DeletionNotFound
+
+				continue
+			}
+
+			// Deserialize to check the state.
+			r := bytes.NewReader(resultBytes)
+			result, err := deserializeNetworkResult(r)
+			if err != nil {
+				log.Warnf("Unable to deserialize result "+
+					"for attempt %d during delete: %v",
+					id, err)
+
+				results[id] = DeletionFailed
+
+				continue
+			}
+
+			// Do not delete pending (in-flight) attempts.
+			if result.msg.MsgType() == pendingHtlcMsgType {
+				results[id] = DeletionPending
+
+				continue
+			}
+
+			// Terminal result — safe to delete.
+			if err := bucket.Delete(attemptIDBytes[:]); err != nil {
+				return fmt.Errorf("failed to delete "+
+					"attempt %d: %w", id, err)
+			}
+
+			results[id] = DeletionOK
+		}
+
+		return nil
+	}, func() {
+		// Reset the results map on transaction retry.
+		results = make(map[uint64]DeletionStatus, len(attemptIDs))
+	})
+	if err != nil {
+		return nil, fmt.Errorf("DeleteAttempts failed: %w", err)
+	}
+
+	deletedCount := 0
+	for _, status := range results {
+		if status == DeletionOK {
+			deletedCount++
+		}
+	}
+
+	if deletedCount > 0 {
+		log.Infof("Deleted %d terminal attempt(s) from network "+
+			"result store", deletedCount)
+	}
+
+	return results, nil
 }
 
 // FetchPendingAttempts returns a list of all attempt IDs that are currently in

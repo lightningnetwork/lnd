@@ -77,6 +77,11 @@ type ControlTower interface {
 	// update with the current state of every inflight payment is always
 	// sent out immediately.
 	SubscribeAllPayments() (ControlTowerSubscriber, error)
+
+	// DeleteFailedPayments deletes all failed payments from the db. We call
+	// this method on startup to clean up the db of any failed payments if
+	// the user has set the GcFailedPaymentsOnStartup flag.
+	DeleteFailedPayments() error
 }
 
 // ControlTowerSubscriber contains the state for a payment update subscriber.
@@ -143,17 +148,26 @@ type controlTower struct {
 	// that no race conditions occur in between updating the database and
 	// sending a notification.
 	paymentsMtx *multimutex.Mutex[lntypes.Hash]
+
+	// gcFailedPaymentsOnTheFly determines if failed payments should be
+	// garbage collected immediately upon failure.
+	gcFailedPaymentsOnTheFly bool
 }
 
 // NewControlTower creates a new instance of the controlTower.
-func NewControlTower(db paymentsdb.DB) ControlTower {
+func NewControlTower(db paymentsdb.DB,
+	gcFailedPaymentsOnTheFly bool) ControlTower {
+		
 	return &controlTower{
 		db: db,
 		subscribersAllPayments: make(
 			map[uint64]*controlTowerSubscriberImpl,
 		),
-		subscribers: make(map[lntypes.Hash][]*controlTowerSubscriberImpl),
-		paymentsMtx: multimutex.NewMutex[lntypes.Hash](),
+		subscribers: make(
+			map[lntypes.Hash][]*controlTowerSubscriberImpl,
+		),
+		paymentsMtx:              multimutex.NewMutex[lntypes.Hash](),
+		gcFailedPaymentsOnTheFly: gcFailedPaymentsOnTheFly,
 	}
 }
 
@@ -276,6 +290,17 @@ func (p *controlTower) FailPayment(paymentHash lntypes.Hash,
 
 	// Notify subscribers of fail event.
 	p.notifySubscribers(paymentHash, payment)
+
+	// If the garbage collection flag is set, we'll delete the failed
+	// payment on the fly. We do this after failing the payment to make
+	// sure the payment and attempt are both marked as failed.
+	if p.gcFailedPaymentsOnTheFly {
+		const failedHtlcsOnly = false
+		err := p.db.DeletePayment(paymentHash, failedHtlcsOnly)
+		if err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -422,4 +447,14 @@ func (p *controlTower) notifySubscribers(paymentHash lntypes.Hash,
 			p.subscribersMtx.Unlock()
 		}
 	}
+}
+
+// DeleteFailedPayments deletes all failed payments from the db. We explicitly
+// set failedOnly to true to delete the payment and all its attempts.
+func (p *controlTower) DeleteFailedPayments() error {
+	const failedOnly = true
+	const failedHtlcsOnly = false
+	_, err := p.db.DeletePayments(failedOnly, failedHtlcsOnly)
+
+	return err
 }

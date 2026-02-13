@@ -588,6 +588,10 @@ func (m *mockControlTowerOld) SubscribeAllPayments() (
 	return nil, errors.New("not implemented")
 }
 
+func (m *mockControlTowerOld) DeleteFailedPayments() error {
+	return nil
+}
+
 type mockPaymentAttemptDispatcher struct {
 	mock.Mock
 }
@@ -819,6 +823,11 @@ func (m *mockControlTower) SubscribeAllPayments() (
 
 	args := m.Called()
 	return args.Get(0).(ControlTowerSubscriber), args.Error(1)
+}
+
+func (m *mockControlTower) DeleteFailedPayments() error {
+	args := m.Called()
+	return args.Error(0)
 }
 
 type mockMPPayment struct {

@@ -58,7 +58,7 @@ const (
 	DeletionPending
 
 	// DeletionNotFound indicates the attempt ID was not found in the
-	// store.
+	// store. This may indicate a client bug (wrong ID, wrong backend).
 	DeletionNotFound
 
 	// DeletionFailed indicates that the attempt record exists but could

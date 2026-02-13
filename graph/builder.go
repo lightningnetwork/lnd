@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -230,7 +231,9 @@ func (b *Builder) Start() error {
 		// FilteredChainView instance.  We do this before, as otherwise
 		// we may miss on-chain events as the filter hasn't properly
 		// been applied.
-		channelView, err := b.cfg.Graph.ChannelView()
+		channelView, err := b.cfg.Graph.ChannelView(
+			lnwire.GossipVersion1,
+		)
 		if err != nil && !errors.Is(
 			err, graphdb.ErrGraphNoEdgesFound,
 		) {
@@ -573,13 +576,15 @@ func (b *Builder) pruneZombieChans() error {
 	// both edges. If they're both disabled, then we can interpret this as
 	// the channel being closed and can prune it from our graph.
 	if b.cfg.AssumeChannelValid {
-		disabledChanIDs, err := b.cfg.Graph.DisabledChannelIDs()
+		disabledChanIDs, err := b.cfg.Graph.DisabledChannelIDs(
+			lnwire.GossipVersion1,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to get disabled channels "+
 				"ids chans: %v", err)
 		}
 
-		disabledEdges, err := b.cfg.Graph.FetchChanInfos(
+		disabledEdges, err := b.v1Graph.FetchChanInfos(
 			disabledChanIDs,
 		)
 		if err != nil {
@@ -598,7 +603,10 @@ func (b *Builder) pruneZombieChans() error {
 
 	startTime := time.Unix(0, 0)
 	endTime := time.Now().Add(-1 * chanExpiry)
-	oldEdgesIter := b.cfg.Graph.ChanUpdatesInHorizon(startTime, endTime)
+	oldEdgesIter := b.v1Graph.ChanUpdatesInRange(graphdb.ChanUpdateRange{
+		StartTime: fn.Some(startTime),
+		EndTime:   fn.Some(endTime),
+	})
 
 	for u, err := range oldEdgesIter {
 		if err != nil {
@@ -909,7 +917,9 @@ func (b *Builder) MarkZombieEdge(chanID uint64) error {
 	// so we don't continue to request it. We use the "zero key" for both
 	// node pubkeys so this edge can't be resurrected.
 	var zeroKey [33]byte
-	err := b.cfg.Graph.MarkEdgeZombie(chanID, zeroKey, zeroKey)
+	err := b.cfg.Graph.MarkEdgeZombie(
+		lnwire.GossipVersion1, chanID, zeroKey, zeroKey,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to mark spent chan(id=%v) as a "+
 			"zombie: %w", chanID, err)
@@ -1253,7 +1263,9 @@ func (b *Builder) GetChannelByID(chanID lnwire.ShortChannelID) (
 	*models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
-	return b.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
+	return b.cfg.Graph.FetchChannelEdgesByID(
+		lnwire.GossipVersion1, chanID.ToUint64(),
+	)
 }
 
 // FetchNode attempts to look up a target node by its identity public
@@ -1411,5 +1423,7 @@ func (b *Builder) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) MarkEdgeLive(chanID lnwire.ShortChannelID) error {
-	return b.cfg.Graph.MarkEdgeLive(chanID.ToUint64())
+	return b.cfg.Graph.MarkEdgeLive(
+		lnwire.GossipVersion1, chanID.ToUint64(),
+	)
 }

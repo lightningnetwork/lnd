@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
@@ -40,7 +41,7 @@ type ChannelGraphTimeSeries interface {
 	// passed superSet.
 	FilterKnownChanIDs(chain chainhash.Hash,
 		superSet []graphdb.ChannelUpdateInfo,
-		isZombieChan func(time.Time, time.Time) bool) (
+		isZombieChan func(graphdb.ChannelUpdateInfo) bool) (
 		[]lnwire.ShortChannelID, error)
 
 	// FilterChannelRange returns the set of channels that we created
@@ -73,12 +74,12 @@ type ChannelGraphTimeSeries interface {
 // in-protocol channel range queries to quickly and efficiently synchronize our
 // channel state with all peers.
 type ChanSeries struct {
-	graph *graphdb.ChannelGraph
+	graph *graphdb.VersionedGraph
 }
 
 // NewChanSeries constructs a new ChanSeries backed by a channeldb.ChannelGraph.
 // The returned ChanSeries implements the ChannelGraphTimeSeries interface.
-func NewChanSeries(graph *graphdb.ChannelGraph) *ChanSeries {
+func NewChanSeries(graph *graphdb.VersionedGraph) *ChanSeries {
 	return &ChanSeries{
 		graph: graph,
 	}
@@ -114,8 +115,11 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 	return func(yield func(lnwire.Message, error) bool) {
 		// First, we'll query for all the set of channels that have an
 		// update that falls within the specified horizon.
-		chansInHorizon := c.graph.ChanUpdatesInHorizon(
-			startTime, endTime,
+		chansInHorizon := c.graph.ChanUpdatesInRange(
+			graphdb.ChanUpdateRange{
+				StartTime: fn.Some(startTime),
+				EndTime:   fn.Some(endTime),
+			},
 		)
 
 		for channel, err := range chansInHorizon {
@@ -181,7 +185,10 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 		// update within the horizon as well. We send these second to
 		// ensure that they follow any active channels they have.
 		nodeAnnsInHorizon := c.graph.NodeUpdatesInHorizon(
-			startTime, endTime, graphdb.WithIterPublicNodesOnly(),
+			graphdb.NodeUpdateRange{
+				StartTime: fn.Some(startTime),
+				EndTime:   fn.Some(endTime),
+			}, graphdb.WithIterPublicNodesOnly(),
 		)
 		for nodeAnn, err := range nodeAnnsInHorizon {
 			if err != nil {
@@ -211,7 +218,7 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 // NOTE: This is part of the ChannelGraphTimeSeries interface.
 func (c *ChanSeries) FilterKnownChanIDs(_ chainhash.Hash,
 	superSet []graphdb.ChannelUpdateInfo,
-	isZombieChan func(time.Time, time.Time) bool) (
+	isZombieChan func(graphdb.ChannelUpdateInfo) bool) (
 	[]lnwire.ShortChannelID, error) {
 
 	newChanIDs, err := c.graph.FilterKnownChanIDs(superSet, isZombieChan)

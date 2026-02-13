@@ -577,7 +577,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 
 	// Iterate over all channels of the to node.
 	err := g.ForEachNodeDirectedChannel(
-		node, cb, func() {
+		lnwire.GossipVersion1, node, cb, func() {
 			max = 0
 			total = 0
 		},
@@ -621,7 +621,9 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	features := r.DestFeatures
 	if features == nil {
 		var err error
-		features, err = g.graph.FetchNodeFeatures(target)
+		features, err = g.graph.FetchNodeFeatures(
+			lnwire.GossipVersion1, target,
+		)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -1019,7 +1021,9 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		}
 
 		// Fetch node features fresh from the graph.
-		fromFeatures, err := g.graph.FetchNodeFeatures(node)
+		fromFeatures, err := g.graph.FetchNodeFeatures(
+			lnwire.GossipVersion1, node,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -1286,7 +1290,7 @@ func findBlindedPaths(g Graph, target route.Vertex,
 			nextTargetReset   = nextTarget
 		)
 		err := g.ForEachNodeDirectedChannel(
-			nextTarget,
+			lnwire.GossipVersion1, nextTarget,
 			func(channel *graphdb.DirectedChannel) error {
 				// This is not the right channel, continue to
 				// the node's other channels.
@@ -1349,7 +1353,9 @@ func findBlindedPaths(g Graph, target route.Vertex,
 			return true, nil
 		}
 
-		features, err := g.FetchNodeFeatures(node)
+		features, err := g.FetchNodeFeatures(
+			lnwire.GossipVersion1, node,
+		)
 		if err != nil {
 			return false, err
 		}
@@ -1461,7 +1467,7 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 	// Now, iterate over the node's channels in search for paths to this
 	// node that can be used for blinded paths
 	err = g.ForEachNodeDirectedChannel(
-		node,
+		lnwire.GossipVersion1, node,
 		func(channel *graphdb.DirectedChannel) error {
 			// Keep track of how many incoming channels this node
 			// has. We only use a node as an introduction node if it

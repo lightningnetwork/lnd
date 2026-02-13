@@ -21,11 +21,12 @@ import (
 type NodeTraverser interface {
 	// ForEachNodeDirectedChannel calls the callback for every channel of
 	// the given node.
-	ForEachNodeDirectedChannel(nodePub route.Vertex,
+	ForEachNodeDirectedChannel(v lnwire.GossipVersion, nodePub route.Vertex,
 		cb func(channel *DirectedChannel) error, reset func()) error
 
 	// FetchNodeFeatures returns the features of the given node.
-	FetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)
+	FetchNodeFeatures(v lnwire.GossipVersion,
+		nodePub route.Vertex) (*lnwire.FeatureVector, error)
 }
 
 // Store represents the main interface for the channel graph database for all
@@ -33,7 +34,7 @@ type NodeTraverser interface {
 type Store interface { //nolint:interfacebloat
 	// ForEachNodeDirectedChannel calls the callback for every channel of
 	// the given node.
-	ForEachNodeDirectedChannel(nodePub route.Vertex,
+	ForEachNodeDirectedChannel(v lnwire.GossipVersion, nodePub route.Vertex,
 		cb func(channel *DirectedChannel) error, reset func()) error
 
 	// FetchNodeFeatures returns the features of the given node.
@@ -59,7 +60,7 @@ type Store interface { //nolint:interfacebloat
 	// node, executing the passed callback on each. The call-back is
 	// provided with the channel's outpoint, whether we have a policy for
 	// the channel and the channel peer's node information.
-	ForEachSourceNodeChannel(ctx context.Context,
+	ForEachSourceNodeChannel(ctx context.Context, v lnwire.GossipVersion,
 		cb func(chanPoint wire.OutPoint, havePolicy bool,
 			otherNode *models.Node) error,
 		reset func()) error
@@ -86,25 +87,27 @@ type Store interface { //nolint:interfacebloat
 	// the addresses are actually needed.
 	//
 	// NOTE: The callback contents MUST not be modified.
-	ForEachNodeCached(ctx context.Context, withAddrs bool,
+	ForEachNodeCached(ctx context.Context, v lnwire.GossipVersion,
+		withAddrs bool,
 		cb func(ctx context.Context, node route.Vertex,
 			addrs []net.Addr,
 			chans map[uint64]*DirectedChannel) error,
 		reset func()) error
 
 	// ForEachNode iterates through all the stored vertices/nodes in the
-	// graph, executing the passed callback with each node encountered. If
-	// the callback returns an error, then the transaction is aborted and
-	// the iteration stops early.
-	ForEachNode(ctx context.Context, cb func(*models.Node) error,
-		reset func()) error
+	// graph for the given gossip version, executing the passed callback
+	// with each node encountered. If the callback returns an error, then
+	// the transaction is aborted and the iteration stops early.
+	ForEachNode(ctx context.Context, v lnwire.GossipVersion,
+		cb func(*models.Node) error, reset func()) error
 
 	// ForEachNodeCacheable iterates through all the stored vertices/nodes
 	// in the graph, executing the passed callback with each node
 	// encountered. If the callback returns an error, then the transaction
 	// is aborted and the iteration stops early.
-	ForEachNodeCacheable(ctx context.Context, cb func(route.Vertex,
-		*lnwire.FeatureVector) error, reset func()) error
+	ForEachNodeCacheable(ctx context.Context, v lnwire.GossipVersion,
+		cb func(route.Vertex, *lnwire.FeatureVector) error,
+		reset func()) error
 
 	// LookupAlias attempts to return the alias as advertised by the target
 	// node.
@@ -116,11 +119,11 @@ type Store interface { //nolint:interfacebloat
 	DeleteNode(ctx context.Context, v lnwire.GossipVersion,
 		nodePub route.Vertex) error
 
-	// NodeUpdatesInHorizon returns all the known lightning node which have
-	// an update timestamp within the passed range. This method can be used
-	// by two nodes to quickly determine if they have the same set of up to
-	// date node announcements.
-	NodeUpdatesInHorizon(startTime, endTime time.Time,
+	// NodeUpdatesInHorizon returns all the known lightning nodes which have
+	// updates within the passed range for the given gossip version. This
+	// method can be used by two nodes to quickly determine if they have the
+	// same set of up to date node announcements.
+	NodeUpdatesInHorizon(v lnwire.GossipVersion, r NodeUpdateRange,
 		opts ...IteratorOption) iter.Seq2[*models.Node, error]
 
 	// FetchNode attempts to look up a target node by its identity
@@ -182,14 +185,14 @@ type Store interface { //nolint:interfacebloat
 	//
 	// NOTE: this method is like ForEachChannel but fetches only the data
 	// required for the graph cache.
-	ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
-		*models.CachedEdgePolicy, *models.CachedEdgePolicy) error,
-		reset func()) error
+	ForEachChannelCacheable(v lnwire.GossipVersion,
+		cb func(*models.CachedEdgeInfo, *models.CachedEdgePolicy,
+			*models.CachedEdgePolicy) error, reset func()) error
 
 	// DisabledChannelIDs returns the channel ids of disabled channels.
 	// A channel is disabled when two of the associated ChanelEdgePolicies
 	// have their disabled bit on.
-	DisabledChannelIDs() ([]uint64, error)
+	DisabledChannelIDs(v lnwire.GossipVersion) ([]uint64, error)
 
 	// AddChannelEdge adds a new (undirected, blank) edge to the graph
 	// database. An undirected edge from the two target nodes are created.
@@ -238,18 +241,21 @@ type Store interface { //nolint:interfacebloat
 	// ChannelID attempt to lookup the 8-byte compact channel ID which maps
 	// to the passed channel point (outpoint). If the passed channel doesn't
 	// exist within the database, then ErrEdgeNotFound is returned.
-	ChannelID(chanPoint *wire.OutPoint) (uint64, error)
+	ChannelID(v lnwire.GossipVersion,
+		chanPoint *wire.OutPoint) (uint64, error)
 
 	// HighestChanID returns the "highest" known channel ID in the channel
 	// graph. This represents the "newest" channel from the PoV of the
 	// chain. This method can be used by peers to quickly determine if
 	// they're graphs are in sync.
-	HighestChanID(ctx context.Context) (uint64, error)
+	HighestChanID(ctx context.Context, v lnwire.GossipVersion) (
+		uint64, error)
 
-	// ChanUpdatesInHorizon returns all the known channel edges which have
-	// at least one edge that has an update timestamp within the specified
-	// horizon.
-	ChanUpdatesInHorizon(startTime, endTime time.Time,
+	// ChanUpdatesInRange returns all the known channel edges which have
+	// at least one edge update within the specified range for the given
+	// gossip version.
+	ChanUpdatesInRange(v lnwire.GossipVersion,
+		r ChanUpdateRange,
 		opts ...IteratorOption) iter.Seq2[ChannelEdge, error]
 
 	// FilterKnownChanIDs takes a set of channel IDs and return the subset
@@ -259,19 +265,21 @@ type Store interface { //nolint:interfacebloat
 	// callers to determine the set of channels another peer knows of that
 	// we don't. The ChannelUpdateInfos for the known zombies is also
 	// returned.
-	FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
+	FilterKnownChanIDs(v lnwire.GossipVersion,
+		chansInfo []ChannelUpdateInfo) ([]uint64,
 		[]ChannelUpdateInfo, error)
 
 	// FilterChannelRange returns the channel ID's of all known channels
-	// which were mined in a block height within the passed range. The
-	// channel IDs are grouped by their common block height. This method can
-	// be used to quickly share with a peer the set of channels we know of
-	// within a particular range to catch them up after a period of time
-	// offline. If withTimestamps is true then the timestamp info of the
-	// latest received channel update messages of the channel will be
-	// included in the response.
-	FilterChannelRange(startHeight, endHeight uint32, withTimestamps bool) (
-		[]BlockChannelRange, error)
+	// which were mined in a block height within the passed range for the
+	// given gossip version. The channel IDs are grouped by their common
+	// block height. This method can be used to quickly share with a peer
+	// the set of channels we know of within a particular range to catch
+	// them up after a period of time offline. If withTimestamps is true
+	// then the timestamp info of the latest received channel update
+	// messages of the channel will be included in the response.
+	FilterChannelRange(v lnwire.GossipVersion, startHeight,
+		endHeight uint32, withTimestamps bool) ([]BlockChannelRange,
+		error)
 
 	// FetchChanInfos returns the set of channel edges that correspond to
 	// the passed channel ID's. If an edge is the query is unknown to the
@@ -279,7 +287,8 @@ type Store interface { //nolint:interfacebloat
 	// edges that exist at the time of the query. This can be used to
 	// respond to peer queries that are seeking to fill in gaps in their
 	// view of the channel graph.
-	FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error)
+	FetchChanInfos(v lnwire.GossipVersion,
+		chanIDs []uint64) ([]ChannelEdge, error)
 
 	// FetchChannelEdgesByOutpoint attempts to lookup the two directed edges
 	// for the channel identified by the funding outpoint. If the channel
@@ -307,20 +316,21 @@ type Store interface { //nolint:interfacebloat
 		*models.ChannelEdgePolicy, error)
 
 	// ChannelView returns the verifiable edge information for each active
-	// channel within the known channel graph. The set of UTXO's (along with
-	// their scripts) returned are the ones that need to be watched on chain
-	// to detect channel closes on the resident blockchain.
-	ChannelView() ([]EdgePoint, error)
+	// channel within the known channel graph for the given gossip version.
+	// The set of UTXO's (along with their scripts) returned are the ones
+	// that need to be watched on chain to detect channel closes on the
+	// resident blockchain.
+	ChannelView(v lnwire.GossipVersion) ([]EdgePoint, error)
 
 	// MarkEdgeZombie attempts to mark a channel identified by its channel
 	// ID as a zombie. This method is used on an ad-hoc basis, when channels
 	// need to be marked as zombies outside the normal pruning cycle.
-	MarkEdgeZombie(chanID uint64,
+	MarkEdgeZombie(v lnwire.GossipVersion, chanID uint64,
 		pubKey1, pubKey2 [33]byte) error
 
-	// MarkEdgeLive clears an edge from our zombie index, deeming it as
-	// live.
-	MarkEdgeLive(chanID uint64) error
+	// MarkEdgeLive clears an edge from our zombie index for the given
+	// gossip version, deeming it as live.
+	MarkEdgeLive(v lnwire.GossipVersion, chanID uint64) error
 
 	// IsZombieEdge returns whether the edge is considered zombie. If it is
 	// a zombie, then the two node public keys corresponding to this edge
@@ -330,7 +340,7 @@ type Store interface { //nolint:interfacebloat
 
 	// NumZombies returns the current number of zombie channels in the
 	// graph.
-	NumZombies() (uint64, error)
+	NumZombies(v lnwire.GossipVersion) (uint64, error)
 
 	// PutClosedScid stores a SCID for a closed channel in the database.
 	// This is so that we can ignore channel announcements that we know to

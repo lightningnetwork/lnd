@@ -1042,7 +1042,9 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		return nil, fmt.Errorf("can't create router: %w", err)
 	}
 
-	chanSeries := discovery.NewChanSeries(s.graphDB)
+	chanSeries := discovery.NewChanSeries(
+		graphdb.NewVersionedGraph(s.graphDB, lnwire.GossipVersion1),
+	)
 	gossipMessageStore, err := discovery.NewMessageStore(dbs.ChanStateDB)
 	if err != nil {
 		return nil, err
@@ -1395,7 +1397,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		*models.ChannelEdgePolicy, error) {
 
 		info, e1, e2, err := s.graphDB.FetchChannelEdgesByID(
-			scid.ToUint64(),
+			lnwire.GossipVersion1, scid.ToUint64(),
 		)
 		if errors.Is(err, graphdb.ErrEdgeNotFound) {
 			// This is unlikely but there is a slim chance of this
@@ -2940,7 +2942,11 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 	// First, we'll create an instance of the ChannelGraphBootstrapper as
 	// this can be used by default if we've already partially seeded the
 	// network.
-	chanGraph := autopilot.ChannelGraphFromDatabase(s.graphDB)
+	chanGraph := autopilot.ChannelGraphFromDatabase(
+		graphdb.NewVersionedGraph(
+			s.graphDB, lnwire.GossipVersion1,
+		),
+	)
 	graphBootstrapper, err := discovery.NewGraphBootstrapper(
 		chanGraph, s.cfg.Bitcoin.IsLocalNetwork(),
 	)
@@ -3576,7 +3582,7 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 		graphAddrs[pubStr] = n
 		return nil
 	}
-	err = s.graphDB.ForEachSourceNodeChannel(
+	err = s.v1Graph.ForEachSourceNodeChannel(
 		ctx, forEachSrcNodeChan, func() {
 			clear(graphAddrs)
 		},

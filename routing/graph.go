@@ -14,12 +14,13 @@ import (
 type Graph interface {
 	// ForEachNodeDirectedChannel calls the callback for every channel of
 	// the given node.
-	ForEachNodeDirectedChannel(nodePub route.Vertex,
+	ForEachNodeDirectedChannel(v lnwire.GossipVersion, nodePub route.Vertex,
 		cb func(channel *graphdb.DirectedChannel) error,
 		reset func()) error
 
 	// FetchNodeFeatures returns the features of the given node.
-	FetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)
+	FetchNodeFeatures(v lnwire.GossipVersion,
+		nodePub route.Vertex) (*lnwire.FeatureVector, error)
 }
 
 // GraphSessionFactory can be used to gain access to a graphdb.NodeTraverser

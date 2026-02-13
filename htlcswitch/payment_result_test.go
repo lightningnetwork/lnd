@@ -2,6 +2,8 @@ package htlcswitch
 
 import (
 	"bytes"
+	"encoding/binary"
+	"fmt"
 	"math/rand"
 	"reflect"
 	"sync"
@@ -11,9 +13,11 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
+	"pgregory.net/rapid"
 )
 
 // TestNetworkResultSerialization checks that NetworkResults are properly
@@ -403,5 +407,553 @@ func TestNetworkResultStoreFailAndFetch(t *testing.T) {
 		)
 		require.Error(t, err,
 			"expected error when failing already failed attempt")
+	})
+}
+
+// TestDeleteAttempts tests the DeleteAttempts method of the
+// networkResultStore, verifying that it correctly deletes terminal attempts,
+// refuses to delete pending attempts, and reports per-ID results.
+func TestDeleteAttempts(t *testing.T) {
+	t.Parallel()
+
+	db := channeldb.OpenForTesting(t, t.TempDir())
+	store := newNetworkResultStore(db)
+
+	// Helper to create and store a settled result.
+	storeSettled := func(t *testing.T, id uint64) {
+		t.Helper()
+		require.NoError(t, store.InitAttempt(id))
+		settleResult := &networkResult{
+			msg:         &lnwire.UpdateFulfillHTLC{},
+			unencrypted: true,
+		}
+		require.NoError(t, store.StoreResult(id, settleResult))
+	}
+
+	// Helper to create and store a failed result.
+	storeFailed := func(t *testing.T, id uint64) {
+		t.Helper()
+		require.NoError(t, store.InitAttempt(id))
+		failResult := &networkResult{
+			msg:         &lnwire.UpdateFailHTLC{},
+			unencrypted: true,
+		}
+		require.NoError(t, store.StoreResult(id, failResult))
+	}
+
+	t.Run("empty ID list", func(t *testing.T) {
+		results, err := store.DeleteAttempts(nil)
+		require.NoError(t, err)
+		require.Empty(t, results)
+
+		results, err = store.DeleteAttempts([]uint64{})
+		require.NoError(t, err)
+		require.Empty(t, results)
+	})
+
+	t.Run("delete settled attempt", func(t *testing.T) {
+		var id uint64 = 10
+		storeSettled(t, id)
+
+		// Verify it exists before deletion.
+		_, err := store.GetResult(id)
+		require.NoError(t, err)
+
+		results, err := store.DeleteAttempts([]uint64{id})
+		require.NoError(t, err)
+		require.Equal(t, DeletionOK, results[id])
+
+		// Verify the record is gone.
+		_, err = store.GetResult(id)
+		require.ErrorIs(t, err, ErrPaymentIDNotFound)
+	})
+
+	t.Run("delete failed attempt", func(t *testing.T) {
+		var id uint64 = 20
+		storeFailed(t, id)
+
+		results, err := store.DeleteAttempts([]uint64{id})
+		require.NoError(t, err)
+		require.Equal(t, DeletionOK, results[id])
+
+		// Verify the record is gone.
+		_, err = store.GetResult(id)
+		require.ErrorIs(t, err, ErrPaymentIDNotFound)
+	})
+
+	t.Run("refuse to delete pending attempt", func(t *testing.T) {
+		var id uint64 = 30
+		require.NoError(t, store.InitAttempt(id))
+
+		results, err := store.DeleteAttempts([]uint64{id})
+		require.NoError(t, err)
+		require.Equal(t, DeletionPending, results[id])
+
+		// Verify the record is still present.
+		_, err = store.GetResult(id)
+		require.ErrorIs(t, err, ErrAttemptResultPending)
+	})
+
+	t.Run("reject duplicate IDs", func(t *testing.T) {
+		_, err := store.DeleteAttempts([]uint64{1, 2, 1})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "duplicate attempt ID 1")
+	})
+
+	t.Run("delete unknown attempt ID", func(t *testing.T) {
+		results, err := store.DeleteAttempts([]uint64{9999})
+		require.NoError(t, err)
+		require.Equal(t, DeletionNotFound, results[uint64(9999)])
+	})
+
+	t.Run("unreadable message", func(t *testing.T) {
+		// Write corrupt bytes directly to the store for a known
+		// attempt ID.
+		var id uint64 = 35
+		var attemptIDBytes [8]byte
+		binary.BigEndian.PutUint64(attemptIDBytes[:], id)
+
+		err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+			bucket, err := tx.CreateTopLevelBucket(
+				networkResultStoreBucketKey,
+			)
+			if err != nil {
+				return err
+			}
+
+			return bucket.Put(
+				attemptIDBytes[:], []byte("corrupted-attempt"),
+			)
+		}, func() {})
+		require.NoError(t, err)
+
+		// DeleteAttempts should report DeletionFailed for the
+		// unreadable entry.
+		results, err := store.DeleteAttempts([]uint64{id})
+		require.NoError(t, err)
+		require.Equal(t, DeletionFailed, results[id])
+	})
+
+	t.Run("mixed batch", func(t *testing.T) {
+		var (
+			settledID uint64 = 40
+			failedID  uint64 = 41
+			pendingID uint64 = 42
+			unknownID uint64 = 43
+		)
+
+		storeSettled(t, settledID)
+		storeFailed(t, failedID)
+		require.NoError(t, store.InitAttempt(pendingID))
+
+		results, err := store.DeleteAttempts([]uint64{
+			settledID, failedID, pendingID, unknownID,
+		})
+		require.NoError(t, err)
+		require.Len(t, results, 4)
+
+		require.Equal(t, DeletionOK, results[settledID])
+		require.Equal(t, DeletionOK, results[failedID])
+		require.Equal(t, DeletionPending, results[pendingID])
+		require.Equal(t, DeletionNotFound, results[unknownID])
+
+		// Verify settled and failed are gone.
+		_, err = store.GetResult(settledID)
+		require.ErrorIs(t, err, ErrPaymentIDNotFound)
+		_, err = store.GetResult(failedID)
+		require.ErrorIs(t, err, ErrPaymentIDNotFound)
+
+		// Verify pending is still there.
+		_, err = store.GetResult(pendingID)
+		require.ErrorIs(t, err, ErrAttemptResultPending)
+	})
+
+	t.Run("idempotent re-delete", func(t *testing.T) {
+		var id uint64 = 50
+		storeSettled(t, id)
+
+		// First delete succeeds.
+		results, err := store.DeleteAttempts([]uint64{id})
+		require.NoError(t, err)
+		require.Equal(t, DeletionOK, results[id])
+
+		// Second delete reports not found.
+		results, err = store.DeleteAttempts([]uint64{id})
+		require.NoError(t, err)
+		require.Equal(t, DeletionNotFound, results[id])
+	})
+
+	t.Run("InitAttempt succeeds after delete", func(t *testing.T) {
+		var id uint64 = 60
+		storeSettled(t, id)
+
+		// Delete the attempt.
+		results, err := store.DeleteAttempts([]uint64{id})
+		require.NoError(t, err)
+		require.Equal(t, DeletionOK, results[id])
+
+		// Re-initializing the same ID should now succeed since the
+		// record was fully removed.
+		err = store.InitAttempt(id)
+		require.NoError(t, err)
+	})
+}
+
+// TestDeleteAttemptsProperties uses property-based testing to verify
+// DeleteAttempts invariants hold across randomly generated inputs. Rather than
+// hand-picking specific scenarios (like TestDeleteAttempts above), this test
+// lets the rapid framework generate hundreds of random mixes of pending,
+// settled, failed, and non-existent attempt IDs and checks that key properties
+// always hold.
+func TestDeleteAttemptsProperties(t *testing.T) {
+	t.Parallel()
+
+	// Property 1: Pending records are never deleted. No matter what mix of
+	// IDs is requested, pending attempts must always survive.
+	t.Run("pending records always survive", func(t *testing.T) {
+		t.Parallel()
+
+		rapid.Check(t, func(rt *rapid.T) {
+			db := channeldb.OpenForTesting(t, t.TempDir())
+			store := newNetworkResultStore(db)
+
+			// Generate a random number of records.
+			numPending := rapid.IntRange(1, 10).Draw(
+				rt, "numPending",
+			)
+			numSettled := rapid.IntRange(0, 10).Draw(
+				rt, "numSettled",
+			)
+			numFailed := rapid.IntRange(0, 10).Draw(
+				rt, "numFailed",
+			)
+
+			var nextID uint64 = 1
+			pendingIDs := make([]uint64, 0, numPending)
+			allIDs := make([]uint64, 0)
+
+			// Create pending records.
+			for i := 0; i < numPending; i++ {
+				id := nextID
+				nextID++
+				require.NoError(t, store.InitAttempt(id))
+				pendingIDs = append(pendingIDs, id)
+				allIDs = append(allIDs, id)
+			}
+
+			// Create settled records.
+			for i := 0; i < numSettled; i++ {
+				id := nextID
+				nextID++
+				require.NoError(t, store.InitAttempt(id))
+				settleResult := &networkResult{
+					msg: &lnwire.
+						UpdateFulfillHTLC{},
+					unencrypted: true,
+				}
+				require.NoError(t, store.StoreResult(
+					id, settleResult,
+				))
+				allIDs = append(allIDs, id)
+			}
+
+			// Create failed records.
+			for i := 0; i < numFailed; i++ {
+				id := nextID
+				nextID++
+				require.NoError(t, store.InitAttempt(id))
+				failResult := &networkResult{
+					msg:         &lnwire.UpdateFailHTLC{},
+					unencrypted: true,
+				}
+				require.NoError(t, store.StoreResult(
+					id, failResult,
+				))
+				allIDs = append(allIDs, id)
+			}
+
+			// Add some non-existent IDs.
+			numGhost := rapid.IntRange(0, 5).Draw(rt, "numGhost")
+			for i := 0; i < numGhost; i++ {
+				allIDs = append(allIDs, nextID+uint64(100+i))
+			}
+
+			// Delete all of them.
+			results, err := store.DeleteAttempts(allIDs)
+			require.NoError(t, err)
+
+			// PROPERTY: Every pending record must report
+			// DeletionPending and still be readable in the store.
+			for _, id := range pendingIDs {
+				require.Equal(
+					t, DeletionPending, results[id],
+					"pending attempt %d was not protected",
+					id,
+				)
+
+				_, err := store.GetResult(id)
+				require.ErrorIs(
+					t, err, ErrAttemptResultPending,
+					"pending attempt %d was deleted "+
+						"from store", id,
+				)
+			}
+		})
+	})
+
+	// Property 2: Result count always equals request count. Every requested
+	// ID gets exactly one status in the response.
+	t.Run("result count equals request count", func(t *testing.T) {
+		t.Parallel()
+
+		rapid.Check(t, func(rt *rapid.T) {
+			db := channeldb.OpenForTesting(t, t.TempDir())
+			store := newNetworkResultStore(db)
+
+			numIDs := rapid.IntRange(0, 20).Draw(rt, "numIDs")
+			ids := make([]uint64, numIDs)
+			for i := range ids {
+				ids[i] = uint64(i + 1)
+
+				// Randomly decide: store a record or leave it
+				// non-existent.
+				action := rapid.IntRange(0, 2).Draw(
+					rt, fmt.Sprintf("action_%d", i),
+				)
+
+				switch action {
+				case 0:
+					// Leave non-existent.
+				case 1:
+					// Pending.
+					require.NoError(t, store.InitAttempt(
+						ids[i],
+					))
+				case 2:
+					// Terminal (settled).
+					require.NoError(t, store.InitAttempt(
+						ids[i],
+					))
+					result := &networkResult{
+						msg: &lnwire.
+							UpdateFulfillHTLC{},
+						unencrypted: true,
+					}
+					require.NoError(t, store.StoreResult(
+						ids[i], result,
+					))
+				}
+			}
+
+			results, err := store.DeleteAttempts(ids)
+			require.NoError(t, err)
+
+			// PROPERTY: Exactly one result per requested ID.
+			require.Len(t, results, numIDs)
+			for _, id := range ids {
+				_, ok := results[id]
+				require.True(
+					t, ok,
+					"missing result for ID %d", id,
+				)
+			}
+		})
+	})
+
+	// Property 3: Deletion is idempotent. Deleting the same terminal IDs
+	// twice never returns an error — the second call reports NotFound for
+	// each already-deleted record.
+	t.Run("deletion is idempotent", func(t *testing.T) {
+		t.Parallel()
+
+		rapid.Check(t, func(rt *rapid.T) {
+			db := channeldb.OpenForTesting(t, t.TempDir())
+			store := newNetworkResultStore(db)
+
+			numTerminal := rapid.IntRange(1, 10).Draw(
+				rt, "numTerminal",
+			)
+			ids := make([]uint64, numTerminal)
+			for i := range ids {
+				ids[i] = uint64(i + 1)
+				require.NoError(t, store.InitAttempt(ids[i]))
+				result := &networkResult{
+					msg: &lnwire.
+						UpdateFulfillHTLC{},
+					unencrypted: true,
+				}
+				require.NoError(t, store.StoreResult(
+					ids[i], result,
+				))
+			}
+
+			// First delete — all should succeed.
+			results1, err := store.DeleteAttempts(ids)
+			require.NoError(t, err)
+			for _, id := range ids {
+				require.Equal(
+					t, DeletionOK, results1[id],
+					"first delete of %d should succeed",
+					id,
+				)
+			}
+
+			// Second delete — no error, all report gone.
+			results2, err := store.DeleteAttempts(ids)
+			require.NoError(t, err)
+
+			// PROPERTY: Re-deleting never errors. Each ID reports
+			// NotFound (the record is gone).
+			for _, id := range ids {
+				require.Equal(
+					t, DeletionNotFound, results2[id],
+					"re-delete of %d returned "+
+						"unexpected status %v",
+					id, results2[id],
+				)
+			}
+		})
+	})
+
+	// Property 4: Terminal records are always removed. After a successful
+	// delete, every terminal record must be gone from the store.
+	t.Run("terminal records are removed", func(t *testing.T) {
+		t.Parallel()
+
+		rapid.Check(t, func(rt *rapid.T) {
+			db := channeldb.OpenForTesting(t, t.TempDir())
+			store := newNetworkResultStore(db)
+
+			numTerminal := rapid.IntRange(1, 15).Draw(
+				rt, "numTerminal",
+			)
+			ids := make([]uint64, numTerminal)
+			for i := range ids {
+				ids[i] = uint64(i + 1)
+				require.NoError(t, store.InitAttempt(ids[i]))
+
+				// Randomly choose settled or failed.
+				var msg lnwire.Message
+				if rapid.Bool().Draw(rt,
+					fmt.Sprintf("settled_%d", i)) {
+
+					msg = &lnwire.UpdateFulfillHTLC{}
+				} else {
+					msg = &lnwire.UpdateFailHTLC{}
+				}
+
+				result := &networkResult{
+					msg:         msg,
+					unencrypted: true,
+				}
+				require.NoError(t, store.StoreResult(
+					ids[i], result,
+				))
+			}
+
+			results, err := store.DeleteAttempts(ids)
+			require.NoError(t, err)
+
+			// PROPERTY: Every terminal record reports DeletionOK
+			// and is gone from the store.
+			for _, id := range ids {
+				require.Equal(
+					t, DeletionOK, results[id],
+					"terminal attempt %d not deleted",
+					id,
+				)
+
+				_, err := store.GetResult(id)
+				require.ErrorIs(
+					t, err, ErrPaymentIDNotFound,
+					"terminal attempt %d still in "+
+						"store after delete", id,
+				)
+			}
+		})
+	})
+
+	// Property 5: Non-target IDs are unaffected. Deleting a subset of
+	// terminal IDs must not disturb any other records in the store.
+	t.Run("non-target IDs unaffected", func(t *testing.T) {
+		t.Parallel()
+
+		rapid.Check(t, func(rt *rapid.T) {
+			db := channeldb.OpenForTesting(t, t.TempDir())
+			store := newNetworkResultStore(db)
+
+			numTarget := rapid.IntRange(1, 10).Draw(
+				rt, "numTarget",
+			)
+			numBystander := rapid.IntRange(1, 10).Draw(
+				rt, "numBystander",
+			)
+
+			var nextID uint64 = 1
+			targetIDs := make([]uint64, numTarget)
+			bystanderIDs := make([]uint64, numBystander)
+
+			// Create terminal records to delete.
+			for i := range targetIDs {
+				targetIDs[i] = nextID
+				nextID++
+				require.NoError(t, store.InitAttempt(
+					targetIDs[i],
+				))
+				result := &networkResult{
+					msg: &lnwire.
+						UpdateFulfillHTLC{},
+					unencrypted: true,
+				}
+				require.NoError(t, store.StoreResult(
+					targetIDs[i], result,
+				))
+			}
+
+			// Create bystander records (mix of pending and
+			// terminal) that should not be touched.
+			for i := range bystanderIDs {
+				bystanderIDs[i] = nextID
+				nextID++
+				require.NoError(t, store.InitAttempt(
+					bystanderIDs[i],
+				))
+
+				// Randomly leave some as pending, settle
+				// others.
+				if rapid.Bool().Draw(rt,
+					fmt.Sprintf("settle_%d", i)) {
+
+					result := &networkResult{
+						msg: &lnwire.
+							UpdateFulfillHTLC{},
+						unencrypted: true,
+					}
+					require.NoError(t, store.StoreResult(
+						bystanderIDs[i], result,
+					))
+				}
+			}
+
+			// Delete only the target IDs.
+			_, err := store.DeleteAttempts(targetIDs)
+			require.NoError(t, err)
+
+			// PROPERTY: Every bystander record is still in the
+			// store, unmodified.
+			for _, id := range bystanderIDs {
+				_, err := store.GetResult(id)
+
+				// GetResult returns nil error for terminal
+				// results and ErrAttemptResultPending for
+				// pending ones. Either is fine — the point
+				// is it's not ErrPaymentIDNotFound.
+				require.NotErrorIs(
+					t, err, ErrPaymentIDNotFound,
+					"bystander attempt %d was deleted",
+					id,
+				)
+			}
+		})
 	})
 }

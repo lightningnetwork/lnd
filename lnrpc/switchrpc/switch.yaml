@@ -12,3 +12,6 @@ http:
     - selector: switchrpc.Switch.BuildOnion
       post: "/v2/switch/build"
       body: "*"
+    - selector: switchrpc.Switch.DeleteAttempts
+      post: "/v2/switch/deleteattempts"
+      body: "*"

@@ -50,6 +50,40 @@
         ]
       }
     },
+    "/v2/switch/deleteattempts": {
+      "post": {
+        "summary": "DeleteAttempts removes terminal (settled or failed) payment attempt records\nfrom the server's attempt store. The client explicitly names the attempt\nIDs to delete, enabling online garbage collection of completed attempt\ndata.",
+        "description": "The server processes each attempt ID independently and reports per-ID\nresults. Pending (in-flight) attempts are never deleted; they are reported\nwith a DELETION_PENDING status. Unknown attempt IDs are reported with\nDELETION_NOT_FOUND. Unprocessable records are reported with\nDELETION_FAILED. The overall RPC succeeds (gRPC OK) as long as the\nrequest could be processed, even if individual attempts were not deleted.\n\nClients MUST only delete attempts whose outcome (settled or failed) has\nbeen durably recorded and will never need to be retried. Deleting an\nattempt removes the server's idempotency protection for that attempt ID.",
+        "operationId": "Switch_DeleteAttempts",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/switchrpcDeleteAttemptsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/switchrpcDeleteAttemptsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Switch"
+        ]
+      }
+    },
     "/v2/switch/onion": {
       "post": {
         "summary": "SendOnion provides an idempotent API for dispatching a pre-formed onion\npacket, which is the primary entry point for a remote router.",
@@ -307,6 +341,32 @@
         }
       }
     },
+    "switchrpcAttemptDeletionResult": {
+      "type": "object",
+      "properties": {
+        "attempt_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The attempt ID this result corresponds to."
+        },
+        "status": {
+          "$ref": "#/definitions/switchrpcAttemptDeletionStatus",
+          "description": "The outcome of the deletion for this attempt."
+        }
+      },
+      "description": "AttemptDeletionResult reports the outcome of deleting a single attempt."
+    },
+    "switchrpcAttemptDeletionStatus": {
+      "type": "string",
+      "enum": [
+        "DELETION_OK",
+        "DELETION_PENDING",
+        "DELETION_NOT_FOUND",
+        "DELETION_FAILED"
+      ],
+      "default": "DELETION_OK",
+      "description": "AttemptDeletionStatus describes the outcome of a single attempt deletion.\n\n - DELETION_OK: The attempt result was successfully deleted from the store.\n - DELETION_PENDING: The attempt is still in-flight (pending) and cannot be safely deleted.\n - DELETION_NOT_FOUND: The attempt ID was not found in the store. This may indicate a client\nbug (wrong ID, wrong backend) since the server has no record of this\nattempt ever existing.\n - DELETION_FAILED: The attempt record exists but could not be processed (e.g.\ndeserialization error). The record remains in the store."
+    },
     "switchrpcBuildOnionRequest": {
       "type": "object",
       "properties": {
@@ -350,6 +410,32 @@
         }
       },
       "description": "BuildOnionResponse contains the constructed onion packet."
+    },
+    "switchrpcDeleteAttemptsRequest": {
+      "type": "object",
+      "properties": {
+        "attempt_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "The attempt IDs to delete from the server's attempt store. Only terminal\n(settled or failed) attempts will be deleted. Pending (in-flight)\nattempts are skipped and reported with a DELETION_PENDING status."
+        }
+      }
+    },
+    "switchrpcDeleteAttemptsResponse": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/switchrpcAttemptDeletionResult"
+          },
+          "description": "Per-attempt deletion outcomes. The order corresponds to the order of\nattempt_ids in the request."
+        }
+      }
     },
     "switchrpcFailureDetails": {
       "type": "object",

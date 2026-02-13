@@ -254,7 +254,6 @@ will have the following tags:
 - [peersrpc](/lnrpc/peersrpc/peers.proto)
 - [kvdb_postrgres](/docs/postgres.md)
 - [kvdb_sqlite](/docs/sqlite.md)
-- [kvdb_etcd](/docs/etcd.md)
 
 The `dev` tag is used for development builds, and is not included in the
 release builds & installation.

@@ -35,7 +35,7 @@ RUN apk --no-cache add \
     jq \
     ca-certificates \
     gnupg \
-    curl
+    wget
 
 # Copy the binaries from the builder image.
 COPY --from=builder /go/bin/lncli /bin/

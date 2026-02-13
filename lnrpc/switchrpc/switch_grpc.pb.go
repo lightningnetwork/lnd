@@ -25,27 +25,35 @@ type SwitchClient interface {
 	// after a timeout or disconnection. Retries MUST use the exact same
 	// attempt_id to allow the server to correctly detect duplicate requests.
 	//
-	// A client interacting with this RPC must handle four distinct categories of
-	// outcomes, communicated via gRPC status codes:
+	// The server communicates outcomes through two channels: the gRPC status
+	// code and, for application-level failures, a SendOnionFailureDetails
+	// message attached to the gRPC error's details. The client should evaluate
+	// these in the following order:
 	//
 	// 1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has
 	// been successfully dispatched. The client can proceed to track the
-	// payment's final result via the `TrackOnion` RPC.
+	// payment's final result via the TrackOnion RPC.
 	//
 	// 2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): A definitive
 	// acknowledgment that a request with the same attempt_id has already
 	// been successfully processed. A retrying client should interpret this
 	// as a success and proceed to tracking the payment's result.
 	//
-	// 3. AMBIGUOUS FAILURE (gRPC code Unavailable or DeadlineExceeded): An
-	// ambiguous error occurred (e.g., the server is shutting down or the
-	// client timed out). The state of the HTLC dispatch is unknown. The
-	// client MUST retry the exact same request to resolve the ambiguity.
+	// 3. APPLICATION-LEVEL FAILURE (SendOnionFailureDetails present): For any
+	// other gRPC error, the client should check for a SendOnionFailureDetails
+	// message in the error's details. If present, the failure_class oneof is
+	// the authoritative classification. A DefiniteFailure guarantees the HTLC
+	// was not and will not be dispatched; the client should fail the attempt and
+	// may retry with a new route. An IndefiniteFailure means the state of the HTLC
+	// is unknown; the client MUST retry the exact same request to resolve the
+	// ambiguity.
 	//
-	// 4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument, etc.):
-	// A definitive failure is a guarantee that the HTLC was not and will not be
-	// dispatched. The client should fail the attempt and may retry with a new
-	// route and/or new attempt_id.
+	// 4. BARE gRPC ERROR (no SendOnionFailureDetails): If no details payload
+	// is attached, the error is a transport-level or pre-flight validation
+	// failure. If the gRPC status code is InvalidArgument or FailedPrecondition,
+	// the request was rejected before dispatch was attempted and this is a
+	// definitive failure. For all other codes (Unavailable, DeadlineExceeded,
+	// etc.), the state is unknown and the client MUST retry the same request.
 	SendOnion(ctx context.Context, in *SendOnionRequest, opts ...grpc.CallOption) (*SendOnionResponse, error)
 	// TrackOnion allows callers to query whether or not a payment dispatched via
 	// SendOnion succeeded or failed.
@@ -58,7 +66,24 @@ type SwitchClient interface {
 	// RPC server.
 	//
 	// Once dispatch is confirmed, TrackOnion provides the mechanism to wait for
-	// the result of the in-flight HTLC.
+	// the result of the in-flight HTLC. A client must handle three distinct
+	// categories of outcomes:
+	//
+	// 1. PAYMENT SUCCESS (gRPC code OK, preimage set): The payment settled
+	// successfully. The response contains the payment preimage.
+	//
+	// 2. PAYMENT FAILURE (gRPC code OK, failure_details set): The payment failed
+	// at the application level. The failure_details oneof describes the specific
+	// failure type: a ForwardingFailure from a remote hop, a ClearTextFailure
+	// from the local node, an UnreadableFailure if the error could not be
+	// decoded, or a SwitchError for other switch-level failures. When
+	// encrypted_error_data is populated, the client may perform its own
+	// decryption.
+	//
+	// 3. QUERY FAILURE (gRPC error status): The query itself could not be
+	// completed. NotFound indicates the payment ID is unknown. Unavailable
+	// signals the switch is shutting down. Canceled or DeadlineExceeded
+	// reflects client-side timeouts. These are safe to retry.
 	TrackOnion(ctx context.Context, in *TrackOnionRequest, opts ...grpc.CallOption) (*TrackOnionResponse, error)
 	// BuildOnion attempts to build an onion packet for the specified route.
 	BuildOnion(ctx context.Context, in *BuildOnionRequest, opts ...grpc.CallOption) (*BuildOnionResponse, error)
@@ -110,27 +135,35 @@ type SwitchServer interface {
 	// after a timeout or disconnection. Retries MUST use the exact same
 	// attempt_id to allow the server to correctly detect duplicate requests.
 	//
-	// A client interacting with this RPC must handle four distinct categories of
-	// outcomes, communicated via gRPC status codes:
+	// The server communicates outcomes through two channels: the gRPC status
+	// code and, for application-level failures, a SendOnionFailureDetails
+	// message attached to the gRPC error's details. The client should evaluate
+	// these in the following order:
 	//
 	// 1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has
 	// been successfully dispatched. The client can proceed to track the
-	// payment's final result via the `TrackOnion` RPC.
+	// payment's final result via the TrackOnion RPC.
 	//
 	// 2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): A definitive
 	// acknowledgment that a request with the same attempt_id has already
 	// been successfully processed. A retrying client should interpret this
 	// as a success and proceed to tracking the payment's result.
 	//
-	// 3. AMBIGUOUS FAILURE (gRPC code Unavailable or DeadlineExceeded): An
-	// ambiguous error occurred (e.g., the server is shutting down or the
-	// client timed out). The state of the HTLC dispatch is unknown. The
-	// client MUST retry the exact same request to resolve the ambiguity.
+	// 3. APPLICATION-LEVEL FAILURE (SendOnionFailureDetails present): For any
+	// other gRPC error, the client should check for a SendOnionFailureDetails
+	// message in the error's details. If present, the failure_class oneof is
+	// the authoritative classification. A DefiniteFailure guarantees the HTLC
+	// was not and will not be dispatched; the client should fail the attempt and
+	// may retry with a new route. An IndefiniteFailure means the state of the HTLC
+	// is unknown; the client MUST retry the exact same request to resolve the
+	// ambiguity.
 	//
-	// 4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument, etc.):
-	// A definitive failure is a guarantee that the HTLC was not and will not be
-	// dispatched. The client should fail the attempt and may retry with a new
-	// route and/or new attempt_id.
+	// 4. BARE gRPC ERROR (no SendOnionFailureDetails): If no details payload
+	// is attached, the error is a transport-level or pre-flight validation
+	// failure. If the gRPC status code is InvalidArgument or FailedPrecondition,
+	// the request was rejected before dispatch was attempted and this is a
+	// definitive failure. For all other codes (Unavailable, DeadlineExceeded,
+	// etc.), the state is unknown and the client MUST retry the same request.
 	SendOnion(context.Context, *SendOnionRequest) (*SendOnionResponse, error)
 	// TrackOnion allows callers to query whether or not a payment dispatched via
 	// SendOnion succeeded or failed.
@@ -143,7 +176,24 @@ type SwitchServer interface {
 	// RPC server.
 	//
 	// Once dispatch is confirmed, TrackOnion provides the mechanism to wait for
-	// the result of the in-flight HTLC.
+	// the result of the in-flight HTLC. A client must handle three distinct
+	// categories of outcomes:
+	//
+	// 1. PAYMENT SUCCESS (gRPC code OK, preimage set): The payment settled
+	// successfully. The response contains the payment preimage.
+	//
+	// 2. PAYMENT FAILURE (gRPC code OK, failure_details set): The payment failed
+	// at the application level. The failure_details oneof describes the specific
+	// failure type: a ForwardingFailure from a remote hop, a ClearTextFailure
+	// from the local node, an UnreadableFailure if the error could not be
+	// decoded, or a SwitchError for other switch-level failures. When
+	// encrypted_error_data is populated, the client may perform its own
+	// decryption.
+	//
+	// 3. QUERY FAILURE (gRPC error status): The query itself could not be
+	// completed. NotFound indicates the payment ID is unknown. Unavailable
+	// signals the switch is shutting down. Canceled or DeadlineExceeded
+	// reflects client-side timeouts. These are safe to retry.
 	TrackOnion(context.Context, *TrackOnionRequest) (*TrackOnionResponse, error)
 	// BuildOnion attempts to build an onion packet for the specified route.
 	BuildOnion(context.Context, *BuildOnionRequest) (*BuildOnionResponse, error)

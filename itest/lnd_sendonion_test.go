@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"context"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -12,7 +11,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/switchrpc"
 	"github.com/lightningnetwork/lnd/lntest"
-	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -84,9 +82,8 @@ func testSendOnion(ht *lntest.HarnessTest) {
 		AttemptId:      1,
 	}
 
-	resp := alice.RPC.SendOnion(sendReq)
-	require.True(ht, resp.Success, "expected successful onion send")
-	require.Empty(ht, resp.ErrorMessage, "unexpected failure to send onion")
+	err := alice.RPC.SendOnion(sendReq)
+	require.NoError(ht, err, "expected successful onion send")
 
 	// Query for the result of the payment via onion and confirm that it
 	// succeeded.
@@ -97,7 +94,7 @@ func testSendOnion(ht *lntest.HarnessTest) {
 		HopPubkeys:  onionResp.HopPubkeys,
 	}
 	trackResp := alice.RPC.TrackOnion(trackReq)
-	require.Equal(ht, invoices[0].RPreimage, trackResp.Preimage)
+	require.Equal(ht, invoices[0].RPreimage, trackResp.GetPreimage())
 
 	// The invoice should show as settled for Dave.
 	ht.AssertInvoiceSettled(dave, invoices[0].PaymentAddr)
@@ -168,9 +165,8 @@ func testSendOnionTwice(ht *lntest.HarnessTest) {
 		OnionBlob:      onionResp.OnionBlob,
 		AttemptId:      1,
 	}
-	resp := alice.RPC.SendOnion(sendReq)
-	require.True(ht, resp.Success, "expected successful onion send")
-	require.Empty(ht, resp.ErrorMessage, "unexpected failure to send onion")
+	err := alice.RPC.SendOnion(sendReq)
+	require.NoError(ht, err, "expected successful onion send")
 
 	// Assert that the HTLC reaches Dave.
 	invoiceStream := dave.RPC.SubscribeSingleInvoice(payHash[:])
@@ -179,12 +175,7 @@ func testSendOnionTwice(ht *lntest.HarnessTest) {
 	// While the first onion is still in-flight, we'll send the same onion
 	// again with the same attempt ID. This should error as our Switch will
 	// detect duplicate ADDs for *in-flight* HTLCs.
-	ctxt, cancel := context.WithTimeout(
-		context.Background(), rpc.DefaultTimeout,
-	)
-	defer cancel()
-
-	_, err := alice.RPC.Switch.SendOnion(ctxt, sendReq)
+	err = alice.RPC.SendOnion(sendReq)
 	require.Error(ht, err, "expected failure on onion send")
 
 	// Check that we get the expected gRPC error.
@@ -207,16 +198,12 @@ func testSendOnionTwice(ht *lntest.HarnessTest) {
 		HopPubkeys:  onionResp.HopPubkeys,
 	}
 	trackResp := alice.RPC.TrackOnion(trackReq)
-	require.Equal(ht, preimage[:], trackResp.Preimage)
+	require.Equal(ht, preimage[:], trackResp.GetPreimage())
 
 	// Now that the original HTLC attempt has settled, we'll send the same
 	// onion again with the same attempt ID. Confirm that this is also
 	// prevented.
-	ctxt, cancel = context.WithTimeout(context.Background(),
-		rpc.DefaultTimeout)
-	defer cancel()
-
-	_, err = alice.RPC.Switch.SendOnion(ctxt, sendReq)
+	err = alice.RPC.SendOnion(sendReq)
 	require.Error(ht, err, "expected failure on onion send")
 
 	// Check that we get the expected gRPC error.
@@ -285,20 +272,14 @@ func testSendOnionConcurrency(ht *lntest.HarnessTest) {
 	wg.Add(numConcurrentRequests)
 
 	// Use channels to collect the results from each goroutine.
-	resultsChan := make(chan error,
-		numConcurrentRequests)
+	resultsChan := make(chan error, numConcurrentRequests)
 
 	// Launch all requests concurrently to simulate a retry storm.
 	for i := 0; i < numConcurrentRequests; i++ {
 		go func() {
 			defer wg.Done()
-			ctxt, cancel := context.WithTimeout(
-				context.Background(),
-				rpc.DefaultTimeout,
-			)
-			defer cancel()
 
-			_, err := alice.RPC.Switch.SendOnion(ctxt, sendReq)
+			err := alice.RPC.SendOnion(sendReq)
 			resultsChan <- err
 		}()
 	}
@@ -398,12 +379,8 @@ func testTrackOnion(ht *lntest.HarnessTest) {
 		AttemptId:      1,
 	}
 
-	resp := alice.RPC.SendOnion(sendReq)
-	require.True(ht, resp.Success, "expected successful onion send")
-	require.Empty(ht, resp.ErrorMessage, "unexpected failure to send onion")
-
-	serverErrorStr := ""
-	clientErrorStr := ""
+	err := alice.RPC.SendOnion(sendReq)
+	require.NoError(ht, err, "expected successful onion send")
 
 	// Track the payment providing all necessary information to delegate
 	// error decryption to the server. We expect this to fail as Dave is not
@@ -415,10 +392,11 @@ func testTrackOnion(ht *lntest.HarnessTest) {
 		HopPubkeys:  onionResp.HopPubkeys,
 	}
 	trackResp := alice.RPC.TrackOnion(trackReq)
-	require.NotEmpty(ht, trackResp.ErrorMessage,
-		"expected onion tracking error")
+	serverFailure := trackResp.GetFailureDetails()
+	require.NotNil(ht, serverFailure, "expected onion tracking error")
 
-	serverErrorStr = trackResp.ErrorMessage
+	serverFwdFailure := serverFailure.GetForwardingFailure()
+	require.NotNil(ht, serverFwdFailure, "expected forwarding failure")
 
 	// Now we'll track the same payment attempt, but we'll specify that
 	// we want to handle the error decryption ourselves client side.
@@ -427,16 +405,18 @@ func testTrackOnion(ht *lntest.HarnessTest) {
 		PaymentHash: paymentHash,
 	}
 	trackResp = alice.RPC.TrackOnion(trackReq)
-	require.NotNil(ht, trackResp.EncryptedError, "expected encrypted error")
+	clientFailure := trackResp.GetFailureDetails()
+	require.NotNil(ht, clientFailure, "expected client tracking error")
+
+	encryptedErrorBytes := clientFailure.GetEncryptedErrorData()
+	require.NotNil(ht, encryptedErrorBytes, "expected encrypted error")
 
 	// Decrypt and inspect the error from the TrackOnion RPC response.
 	sessionKey, _ := btcec.PrivKeyFromBytes(onionResp.SessionKey)
 	var pubKeys []*btcec.PublicKey
 	for _, keyBytes := range onionResp.HopPubkeys {
 		pubKey, err := btcec.ParsePubKey(keyBytes)
-		if err != nil {
-			ht.Fatalf("Failed to parse public key: %v", err)
-		}
+		require.NoError(ht, err, "Failed to parse public key")
 		pubKeys = append(pubKeys, pubKey)
 	}
 
@@ -450,14 +430,19 @@ func testTrackOnion(ht *lntest.HarnessTest) {
 	}
 
 	// Simulate an RPC client decrypting the onion error.
-	encryptedError := lnwire.OpaqueReason(trackResp.EncryptedError)
-	forwardingError, err := errorDecryptor.DecryptError(encryptedError)
-	require.Nil(ht, err, "unable to decrypt error")
+	encryptedError := lnwire.OpaqueReason(encryptedErrorBytes)
+	clientFwdErr, err := errorDecryptor.DecryptError(encryptedError)
+	require.NoError(ht, err, "unable to decrypt error")
 
-	clientErrorStr = forwardingError.Error()
+	// Finally, assert that the structured forwarding failure is the same
+	// whether it was decrypted on the server or on the client.
+	serverFwdErr, err := switchrpc.UnmarshallForwardingError(
+		serverFwdFailure,
+	)
+	require.NoError(ht, err, "unable to decode server forwarding failure")
 
-	serverFwdErr, err := switchrpc.ParseForwardingError(serverErrorStr)
-	require.Nil(ht, err, "expected to parse forwarding error from server")
-	require.Equal(ht, serverFwdErr.Error(), clientErrorStr, "expect error "+
-		"message to match whether handled by client or server")
+	require.Equal(ht, serverFwdFailure.FailureSourceIndex,
+		uint32(clientFwdErr.FailureSourceIdx), "source index mismatch")
+	require.Equal(ht, serverFwdErr.WireMessage(),
+		clientFwdErr.WireMessage(), "wire message mismatch")
 }

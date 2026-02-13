@@ -545,7 +545,7 @@ func TestDeleteAttempts(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, DeletionOK, results[id])
 
-		// Second delete reports not found.
+		// Second delete reports already deleted.
 		results, err = store.DeleteAttempts([]uint64{id})
 		require.NoError(t, err)
 		require.Equal(t, DeletionNotFound, results[id])

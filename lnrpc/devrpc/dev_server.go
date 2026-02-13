@@ -224,7 +224,6 @@ func (s *Server) ImportGraph(ctx context.Context,
 	// Obtain the pointer to the global singleton channel graph.
 	graphDB := s.cfg.GraphDB
 
-	var err error
 	for _, rpcNode := range graph.Nodes {
 		pubKeyBytes, err := parsePubKey(rpcNode.PubKey)
 		if err != nil {
@@ -258,7 +257,7 @@ func (s *Server) ImportGraph(ctx context.Context,
 			Color:    nodeColor,
 			// NOTE: this is a workaround to ensure that
 			// HaveAnnouncement() returns true so that the other
-			// fields are properly persisted. However,
+			// fields are properly persisted.
 			AuthSigBytes: []byte{0},
 		})
 
@@ -273,18 +272,12 @@ func (s *Server) ImportGraph(ctx context.Context,
 	for _, rpcEdge := range graph.Edges {
 		rpcEdge := rpcEdge
 
-		edge := &models.ChannelEdgeInfo{
-			ChannelID: rpcEdge.ChannelId,
-			ChainHash: *s.cfg.ActiveNetParams.GenesisHash,
-			Capacity:  btcutil.Amount(rpcEdge.Capacity),
-		}
-
-		edge.NodeKey1Bytes, err = parsePubKey(rpcEdge.Node1Pub)
+		node1, err := parsePubKey(rpcEdge.Node1Pub)
 		if err != nil {
 			return nil, err
 		}
 
-		edge.NodeKey2Bytes, err = parsePubKey(rpcEdge.Node2Pub)
+		node2, err := parsePubKey(rpcEdge.Node2Pub)
 		if err != nil {
 			return nil, err
 		}
@@ -293,7 +286,16 @@ func (s *Server) ImportGraph(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
-		edge.ChannelPoint = *channelPoint
+
+		edge, err := models.NewV1Channel(
+			rpcEdge.ChannelId, *s.cfg.ActiveNetParams.GenesisHash,
+			node1, node2, &models.ChannelV1Fields{},
+			models.WithCapacity(btcutil.Amount(rpcEdge.Capacity)),
+			models.WithChannelPoint(*channelPoint),
+		)
+		if err != nil {
+			return nil, err
+		}
 
 		if err := graphDB.AddChannelEdge(ctx, edge); err != nil {
 			return nil, fmt.Errorf("unable to add edge %v: %w",
@@ -302,6 +304,7 @@ func (s *Server) ImportGraph(ctx context.Context,
 
 		makePolicy := func(rpcPolicy *lnrpc.RoutingPolicy) *models.ChannelEdgePolicy { //nolint:ll
 			policy := &models.ChannelEdgePolicy{
+				Version:   lnwire.GossipVersion1,
 				ChannelID: rpcEdge.ChannelId,
 				LastUpdate: time.Unix(
 					int64(rpcPolicy.LastUpdate), 0,

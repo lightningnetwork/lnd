@@ -28,10 +28,17 @@ type NodeTraverser interface {
 	FetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)
 }
 
-// V1Store represents the main interface for the channel graph database for all
+// Store represents the main interface for the channel graph database for all
 // channels and nodes gossiped via the V1 gossip protocol as defined in BOLT 7.
-type V1Store interface { //nolint:interfacebloat
-	NodeTraverser
+type Store interface { //nolint:interfacebloat
+	// ForEachNodeDirectedChannel calls the callback for every channel of
+	// the given node.
+	ForEachNodeDirectedChannel(nodePub route.Vertex,
+		cb func(channel *DirectedChannel) error, reset func()) error
+
+	// FetchNodeFeatures returns the features of the given node.
+	FetchNodeFeatures(v lnwire.GossipVersion,
+		nodePub route.Vertex) (*lnwire.FeatureVector, error)
 
 	// AddNode adds a vertex/node to the graph database. If the
 	// node is not in the database from before, this will add a new,
@@ -45,7 +52,7 @@ type V1Store interface { //nolint:interfacebloat
 	// AddrsForNode returns all known addresses for the target node public
 	// key that the graph DB is aware of. The returned boolean indicates if
 	// the given node is unknown to the graph DB or not.
-	AddrsForNode(ctx context.Context,
+	AddrsForNode(ctx context.Context, v lnwire.GossipVersion,
 		nodePub *btcec.PublicKey) (bool, []net.Addr, error)
 
 	// ForEachSourceNodeChannel iterates through all channels of the source
@@ -66,8 +73,9 @@ type V1Store interface { //nolint:interfacebloat
 	// to the caller.
 	//
 	// Unknown policies are passed into the callback as nil values.
-	ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
-		cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	ForEachNodeChannel(ctx context.Context, v lnwire.GossipVersion,
+		nodePub route.Vertex, cb func(*models.ChannelEdgeInfo,
+			*models.ChannelEdgePolicy,
 			*models.ChannelEdgePolicy) error, reset func()) error
 
 	// ForEachNodeCached is similar to forEachNode, but it returns
@@ -100,11 +108,13 @@ type V1Store interface { //nolint:interfacebloat
 
 	// LookupAlias attempts to return the alias as advertised by the target
 	// node.
-	LookupAlias(ctx context.Context, pub *btcec.PublicKey) (string, error)
+	LookupAlias(ctx context.Context, v lnwire.GossipVersion,
+		pub *btcec.PublicKey) (string, error)
 
 	// DeleteNode starts a new database transaction to remove a
 	// vertex/node from the database according to the node's public key.
-	DeleteNode(ctx context.Context, nodePub route.Vertex) error
+	DeleteNode(ctx context.Context, v lnwire.GossipVersion,
+		nodePub route.Vertex) error
 
 	// NodeUpdatesInHorizon returns all the known lightning node which have
 	// an update timestamp within the passed range. This method can be used
@@ -116,20 +126,28 @@ type V1Store interface { //nolint:interfacebloat
 	// FetchNode attempts to look up a target node by its identity
 	// public key. If the node isn't found in the database, then
 	// ErrGraphNodeNotFound is returned.
-	FetchNode(ctx context.Context, nodePub route.Vertex) (*models.Node,
+	FetchNode(ctx context.Context, v lnwire.GossipVersion,
+		nodePub route.Vertex) (*models.Node, error)
+
+	// HasV1Node determines if the graph has a vertex identified by
+	// the target node identity public key in the V1 graph. If the node
+	// exists in the database, a timestamp of when the data for the node
+	// was lasted updated is returned along with a true boolean. Otherwise,
+	// an empty time.Time is returned with a false boolean.
+	// This is specific to the V1 graph since only V1 node announcements
+	// use timestamps for their latest update timestamp.
+	HasV1Node(ctx context.Context, nodePub [33]byte) (time.Time, bool,
 		error)
 
 	// HasNode determines if the graph has a vertex identified by
-	// the target node identity public key. If the node exists in the
-	// database, a timestamp of when the data for the node was lasted
-	// updated is returned along with a true boolean. Otherwise, an empty
-	// time.Time is returned with a false boolean.
-	HasNode(ctx context.Context, nodePub [33]byte) (time.Time, bool, error)
+	// the target node identity public key.
+	HasNode(ctx context.Context, v lnwire.GossipVersion,
+		nodePub [33]byte) (bool, error)
 
 	// IsPublicNode is a helper method that determines whether the node with
 	// the given public key is seen as a public node in the graph from the
 	// graph's source node's point of view.
-	IsPublicNode(pubKey [33]byte) (bool, error)
+	IsPublicNode(v lnwire.GossipVersion, pubKey [33]byte) (bool, error)
 
 	// GraphSession will provide the call-back with access to a
 	// NodeTraverser instance which can be used to perform queries against
@@ -145,9 +163,12 @@ type V1Store interface { //nolint:interfacebloat
 	// NOTE: If an edge can't be found, or wasn't advertised, then a nil
 	// pointer for that particular channel edge routing policy will be
 	// passed into the callback.
-	ForEachChannel(ctx context.Context, cb func(*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error,
-		reset func()) error
+	//
+	// TODO(elle): add a cross-version iteration API and make this iterate
+	// over all versions.
+	ForEachChannel(ctx context.Context, v lnwire.GossipVersion,
+		cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+			*models.ChannelEdgePolicy) error, reset func()) error
 
 	// ForEachChannelCacheable iterates through all the channel edges stored
 	// within the graph and invokes the passed callback for each edge. The
@@ -180,13 +201,20 @@ type V1Store interface { //nolint:interfacebloat
 	AddChannelEdge(ctx context.Context, edge *models.ChannelEdgeInfo,
 		op ...batch.SchedulerOption) error
 
-	// HasChannelEdge returns true if the database knows of a channel edge
+	// HasV1ChannelEdge returns true if the database knows of a channel edge
 	// with the passed channel ID, and false otherwise. If an edge with that
 	// ID is found within the graph, then two time stamps representing the
 	// last time the edge was updated for both directed edges are returned
 	// along with the boolean. If it is not found, then the zombie index is
 	// checked and its result is returned as the second boolean.
-	HasChannelEdge(chanID uint64) (time.Time, time.Time, bool, bool,
+	HasV1ChannelEdge(chanID uint64) (time.Time, time.Time, bool, bool,
+		error)
+
+	// HasChannelEdge returns true if the database knows of a channel edge
+	// with the passed channel ID and gossip version, and false otherwise.
+	// If it is not found, then the zombie index is checked and its result
+	// is returned as the second boolean.
+	HasChannelEdge(v lnwire.GossipVersion, chanID uint64) (bool, bool,
 		error)
 
 	// DeleteChannelEdges removes edges with the given channel IDs from the
@@ -198,8 +226,9 @@ type V1Store interface { //nolint:interfacebloat
 	// failed to send the fresh update to be the one that resurrects the
 	// channel from its zombie state. The markZombie bool denotes whether
 	// to mark the channel as a zombie.
-	DeleteChannelEdges(strictZombiePruning, markZombie bool,
-		chanIDs ...uint64) ([]*models.ChannelEdgeInfo, error)
+	DeleteChannelEdges(v lnwire.GossipVersion, strictZombiePruning,
+		markZombie bool, chanIDs ...uint64) (
+		[]*models.ChannelEdgeInfo, error)
 
 	// AddEdgeProof sets the proof of an existing edge in the graph
 	// database.
@@ -258,7 +287,7 @@ type V1Store interface { //nolint:interfacebloat
 	// houses the general information for the channel itself is returned as
 	// well as two structs that contain the routing policies for the channel
 	// in either direction.
-	FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
+	FetchChannelEdgesByOutpoint(v lnwire.GossipVersion, op *wire.OutPoint) (
 		*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy, error)
 
@@ -273,7 +302,7 @@ type V1Store interface { //nolint:interfacebloat
 	// zombie within the database. In this case, the ChannelEdgePolicy's
 	// will be nil, and the ChannelEdgeInfo will only include the public
 	// keys of each node.
-	FetchChannelEdgesByID(chanID uint64) (
+	FetchChannelEdgesByID(v lnwire.GossipVersion, chanID uint64) (
 		*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy, error)
 
@@ -296,7 +325,8 @@ type V1Store interface { //nolint:interfacebloat
 	// IsZombieEdge returns whether the edge is considered zombie. If it is
 	// a zombie, then the two node public keys corresponding to this edge
 	// are also returned.
-	IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte, error)
+	IsZombieEdge(v lnwire.GossipVersion, chanID uint64) (bool, [33]byte,
+		[33]byte, error)
 
 	// NumZombies returns the current number of zombie channels in the
 	// graph.
@@ -327,7 +357,8 @@ type V1Store interface { //nolint:interfacebloat
 	// treated as the center node within a star-graph. This method may be
 	// used to kick off a path finding algorithm in order to explore the
 	// reachability of another node based off the source node.
-	SourceNode(ctx context.Context) (*models.Node, error)
+	SourceNode(ctx context.Context, v lnwire.GossipVersion) (*models.Node,
+		error)
 
 	// SetSourceNode sets the source node within the graph database. The
 	// source node is to be used as the center of a star-graph within path

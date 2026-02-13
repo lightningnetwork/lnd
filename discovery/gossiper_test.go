@@ -272,10 +272,15 @@ func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 			return nil, nil, nil, graphdb.ErrEdgeNotFound
 		}
 
-		return &models.ChannelEdgeInfo{
-			NodeKey1Bytes: pubKeys[0],
-			NodeKey2Bytes: pubKeys[1],
-		}, nil, nil, graphdb.ErrZombieEdge
+		zombieEdge, err := models.NewV1Channel(
+			0, chainhash.Hash{}, pubKeys[0], pubKeys[1],
+			&models.ChannelV1Fields{},
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		return zombieEdge, nil, nil, graphdb.ErrZombieEdge
 	}
 
 	edges := r.edges[chanID.ToUint64()]
@@ -4443,7 +4448,9 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 	// our rebroadcast interval.
 	rateLimitKeepAliveUpdate := *batch.chanUpdAnn1
 	rateLimitKeepAliveUpdate.Timestamp++
-	require.NoError(t, signUpdate(remoteKeyPriv1, &rateLimitKeepAliveUpdate))
+	require.NoError(
+		t, signUpdate(remoteKeyPriv1, &rateLimitKeepAliveUpdate),
+	)
 	assertRateLimit(&rateLimitKeepAliveUpdate, nodePeer1, true)
 
 	keepAliveUpdate := *batch.chanUpdAnn1

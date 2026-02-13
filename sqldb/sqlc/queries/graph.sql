@@ -5,9 +5,9 @@
 
 -- name: UpsertNode :one
 INSERT INTO graph_nodes (
-    version, pub_key, alias, last_update, color, signature
+    version, pub_key, alias, last_update, block_height, color, signature
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6, $7
 )
 ON CONFLICT (pub_key, version)
     -- Update the following fields if a conflict occurs on pub_key
@@ -15,10 +15,13 @@ ON CONFLICT (pub_key, version)
     DO UPDATE SET
         alias = EXCLUDED.alias,
         last_update = EXCLUDED.last_update,
+        block_height = EXCLUDED.block_height,
         color = EXCLUDED.color,
         signature = EXCLUDED.signature
-WHERE graph_nodes.last_update IS NULL
-    OR EXCLUDED.last_update > graph_nodes.last_update
+WHERE (graph_nodes.last_update IS NULL
+    OR EXCLUDED.last_update > graph_nodes.last_update)
+AND (graph_nodes.block_height IS NULL
+    OR EXCLUDED.block_height >= graph_nodes.block_height)
 RETURNING id;
 
 -- We use a separate upsert for our own node since we want to be less strict
@@ -26,9 +29,9 @@ RETURNING id;
 -- update the record even if the last_update is the same as what we have.
 -- name: UpsertSourceNode :one
 INSERT INTO graph_nodes (
-    version, pub_key, alias, last_update, color, signature
+    version, pub_key, alias, last_update, block_height, color, signature
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6, $7
 )
 ON CONFLICT (pub_key, version)
     -- Update the following fields if a conflict occurs on pub_key
@@ -36,10 +39,13 @@ ON CONFLICT (pub_key, version)
     DO UPDATE SET
         alias = EXCLUDED.alias,
         last_update = EXCLUDED.last_update,
+        block_height = EXCLUDED.block_height,
         color = EXCLUDED.color,
         signature = EXCLUDED.signature
 WHERE graph_nodes.last_update IS NULL
     OR EXCLUDED.last_update >= graph_nodes.last_update
+AND (graph_nodes.block_height IS NULL
+   OR EXCLUDED.block_height >= graph_nodes.block_height)
 RETURNING id;
 
 -- name: GetNodesByIDs :many
@@ -52,6 +58,14 @@ SELECT *
 FROM graph_nodes
 WHERE pub_key = $1
   AND version = $2;
+
+-- name: NodeExists :one
+SELECT EXISTS (
+    SELECT 1
+    FROM graph_nodes
+    WHERE pub_key = $1
+      AND version = $2
+) AS node_exists;
 
 -- name: GetNodeIDByPubKey :one
 SELECT id
@@ -87,14 +101,36 @@ SELECT EXISTS (
     -- one of the signatures since we only ever set them
     -- together.
     WHERE c.version = 1
-      AND c.bitcoin_1_signature IS NOT NULL
+      AND COALESCE(length(c.bitcoin_1_signature), 0) > 0
       AND n.pub_key = $1
     UNION ALL
     SELECT 1
     FROM graph_channels c
     JOIN graph_nodes n ON n.id = c.node_id_2
     WHERE c.version = 1
-      AND c.bitcoin_1_signature IS NOT NULL
+      AND COALESCE(length(c.bitcoin_1_signature), 0) > 0
+      AND n.pub_key = $1
+);
+
+-- name: IsPublicV2Node :one
+SELECT EXISTS (
+    SELECT 1
+    FROM graph_channels c
+    JOIN graph_nodes n ON n.id = c.node_id_1
+    -- NOTE: we hard-code the version here since the clauses
+    -- here that determine if a node is public is specific
+    -- to the V2 gossip protocol.
+    WHERE c.version = 2
+      AND COALESCE(length(c.signature), 0) > 0
+      AND n.pub_key = $1
+
+    UNION ALL
+
+    SELECT 1
+    FROM graph_channels c
+    JOIN graph_nodes n ON n.id = c.node_id_2
+    WHERE c.version = 2
+      AND COALESCE(length(c.signature), 0) > 0
       AND n.pub_key = $1
 );
 
@@ -215,7 +251,7 @@ WHERE last_update >= @start_time
       SELECT 1
       FROM graph_channels c
       WHERE c.version = 1
-        AND c.bitcoin_1_signature IS NOT NULL
+        AND COALESCE(length(c.bitcoin_1_signature), 0) > 0
         AND (c.node_id_1 = graph_nodes.id OR c.node_id_2 = graph_nodes.id)
     )
   )
@@ -283,9 +319,9 @@ INSERT INTO graph_channels (
     version, scid, node_id_1, node_id_2,
     outpoint, capacity, bitcoin_key_1, bitcoin_key_2,
     node_1_signature, node_2_signature, bitcoin_1_signature,
-    bitcoin_2_signature
+    bitcoin_2_signature, signature, funding_pk_script, merkle_root_hash
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 )
 RETURNING id;
 
@@ -297,6 +333,12 @@ SET node_1_signature = $2,
     bitcoin_2_signature = $5
 WHERE scid = $1
   AND version = 1;
+
+-- name: AddV2ChannelProof :execresult
+UPDATE graph_channels
+SET signature = $2
+WHERE scid = $1
+  AND version = 2;
 
 -- name: GetChannelsBySCIDRange :many
 SELECT sqlc.embed(c),
@@ -365,6 +407,8 @@ SELECT
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Policy 2
     cp2.id AS policy2_id,
@@ -381,7 +425,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy_2_message_flags,
     cp2.channel_flags AS policy_2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -420,6 +466,8 @@ SELECT
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Policy 2
     cp2.id AS policy2_id,
@@ -436,7 +484,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
     cp2.channel_flags AS policy2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -469,6 +519,8 @@ SELECT
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Policy 2 (node_id_2)
     cp2.id AS policy2_id,
@@ -485,7 +537,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
     cp2.channel_flags AS policy2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -548,6 +602,8 @@ SELECT
     cp1.message_flags AS policy_1_message_flags,
     cp1.channel_flags AS policy_1_channel_flags,
     cp1.signature AS policy_1_signature,
+    cp1.block_height AS policy_1_block_height,
+    cp1.disable_flags AS policy_1_disable_flags,
 
     -- Node 2 policy
     cp2.id AS policy_2_id,
@@ -564,7 +620,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy_2_message_flags,
     cp2.channel_flags AS policy_2_channel_flags,
-    cp2.signature AS policy_2_signature
+    cp2.signature AS policy_2_signature,
+    cp2.block_height AS policy_2_block_height,
+    cp2.disable_flags AS policy_2_disable_flags
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
     JOIN graph_nodes n2 ON c.node_id_2 = n2.id
@@ -605,6 +663,8 @@ SELECT sqlc.embed(c),
        cp1.message_flags AS policy1_message_flags,
        cp1.channel_flags AS policy1_channel_flags,
        cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
        -- Policy 2
        cp2.id AS policy2_id,
@@ -621,7 +681,9 @@ SELECT sqlc.embed(c),
        cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
        cp2.message_flags AS policy2_message_flags,
        cp2.channel_flags AS policy2_channel_flags,
-       cp2.signature AS policy2_signature
+       cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
          JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -658,6 +720,8 @@ SELECT sqlc.embed(c),
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
        -- Policy 2
     cp2.id AS policy2_id,
@@ -674,7 +738,9 @@ SELECT sqlc.embed(c),
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
     cp2.channel_flags AS policy2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -689,7 +755,7 @@ WHERE c.version = $1
 -- name: GetPublicV1ChannelsBySCID :many
 SELECT *
 FROM graph_channels
-WHERE node_1_signature IS NOT NULL
+WHERE COALESCE(length(node_1_signature), 0) > 0
   AND scid >= @start_scid
   AND scid < @end_scid;
 
@@ -723,6 +789,8 @@ SELECT
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
     cp1.signature AS policy_1_signature,
 
     -- Node 2 policy
@@ -740,7 +808,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
     cp2.channel_flags AS policy2_channel_flags,
-    cp2.signature AS policy_2_signature
+    cp2.signature AS policy_2_signature,
+    cp2.block_height AS policy_2_block_height,
+    cp2.disable_flags AS policy_2_disable_flags
 
 FROM graph_channels c
 JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -774,6 +844,8 @@ SELECT
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Node 2 policy
     cp2.timelock AS policy_2_timelock,
@@ -785,7 +857,9 @@ SELECT
     cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
-    cp2.channel_flags AS policy2_channel_flags
+    cp2.channel_flags AS policy2_channel_flags,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
 JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -858,9 +932,9 @@ INSERT INTO graph_channel_policies (
     base_fee_msat, min_htlc_msat, last_update, disabled,
     max_htlc_msat, inbound_base_fee_msat,
     inbound_fee_rate_milli_msat, message_flags, channel_flags,
-    signature
+    signature, block_height, disable_flags
 ) VALUES  (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
 )
 ON CONFLICT (channel_id, node_id, version)
     -- Update the following fields if a conflict occurs on channel_id,
@@ -877,8 +951,21 @@ ON CONFLICT (channel_id, node_id, version)
         inbound_fee_rate_milli_msat = EXCLUDED.inbound_fee_rate_milli_msat,
         message_flags = EXCLUDED.message_flags,
         channel_flags = EXCLUDED.channel_flags,
-        signature = EXCLUDED.signature
-WHERE EXCLUDED.last_update > graph_channel_policies.last_update
+        signature = EXCLUDED.signature,
+        block_height = EXCLUDED.block_height,
+        disable_flags = EXCLUDED.disable_flags
+WHERE (
+    EXCLUDED.version = 1 AND (
+        graph_channel_policies.last_update IS NULL
+        OR EXCLUDED.last_update > graph_channel_policies.last_update
+    )
+)
+OR (
+    EXCLUDED.version = 2 AND (
+        graph_channel_policies.block_height IS NULL
+        OR EXCLUDED.block_height >= graph_channel_policies.block_height
+    )
+)
 RETURNING id;
 
 -- name: GetChannelPolicyByChannelAndNode :one
@@ -910,6 +997,8 @@ SELECT
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Policy 2
     cp2.id AS policy2_id,
@@ -926,7 +1015,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy_2_message_flags,
     cp2.channel_flags AS policy_2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id

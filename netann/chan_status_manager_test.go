@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -19,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 )
 
@@ -100,18 +102,28 @@ func createEdgePolicies(t *testing.T, channel *channeldb.OpenChannel,
 	// bit.
 	dir2 |= lnwire.ChanUpdateDirection
 
-	return &models.ChannelEdgeInfo{
-			ChannelPoint:  channel.FundingOutpoint,
-			NodeKey1Bytes: pubkey1,
-			NodeKey2Bytes: pubkey2,
-		},
+	pubkey1Vertex, err := route.NewVertexFromBytes(pubkey1[:])
+	require.NoError(t, err)
+	pubkey2Vertex, err := route.NewVertexFromBytes(pubkey2[:])
+	require.NoError(t, err)
+
+	edgeInfo, err := models.NewV1Channel(
+		channel.ShortChanID().ToUint64(), chainhash.Hash{},
+		pubkey1Vertex, pubkey2Vertex, &models.ChannelV1Fields{},
+		models.WithChannelPoint(channel.FundingOutpoint),
+	)
+	require.NoError(t, err)
+
+	return edgeInfo,
 		&models.ChannelEdgePolicy{
+			Version:      lnwire.GossipVersion1,
 			ChannelID:    channel.ShortChanID().ToUint64(),
 			ChannelFlags: dir1,
 			LastUpdate:   time.Now(),
 			SigBytes:     testSigBytes,
 		},
 		&models.ChannelEdgePolicy{
+			Version:      lnwire.GossipVersion1,
 			ChannelID:    channel.ShortChanID().ToUint64(),
 			ChannelFlags: dir2,
 			LastUpdate:   time.Now(),
@@ -212,6 +224,7 @@ func (g *mockGraph) ApplyChannelUpdate(update *lnwire.ChannelUpdate1,
 	timestamp := time.Unix(int64(update.Timestamp), 0)
 
 	policy := &models.ChannelEdgePolicy{
+		Version:      lnwire.GossipVersion1,
 		ChannelID:    update.ShortChannelID.ToUint64(),
 		ChannelFlags: update.ChannelFlags,
 		LastUpdate:   timestamp,

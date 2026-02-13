@@ -55,6 +55,22 @@ func (q *Queries) AddV1ChannelProof(ctx context.Context, arg AddV1ChannelProofPa
 	)
 }
 
+const addV2ChannelProof = `-- name: AddV2ChannelProof :execresult
+UPDATE graph_channels
+SET signature = $2
+WHERE scid = $1
+  AND version = 2
+`
+
+type AddV2ChannelProofParams struct {
+	Scid      []byte
+	Signature []byte
+}
+
+func (q *Queries) AddV2ChannelProof(ctx context.Context, arg AddV2ChannelProofParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, addV2ChannelProof, arg.Scid, arg.Signature)
+}
+
 const countZombieChannels = `-- name: CountZombieChannels :one
 SELECT COUNT(*)
 FROM graph_zombie_channels
@@ -78,9 +94,9 @@ INSERT INTO graph_channels (
     version, scid, node_id_1, node_id_2,
     outpoint, capacity, bitcoin_key_1, bitcoin_key_2,
     node_1_signature, node_2_signature, bitcoin_1_signature,
-    bitcoin_2_signature
+    bitcoin_2_signature, signature, funding_pk_script, merkle_root_hash
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 )
 RETURNING id
 `
@@ -98,6 +114,9 @@ type CreateChannelParams struct {
 	Node2Signature    []byte
 	Bitcoin1Signature []byte
 	Bitcoin2Signature []byte
+	Signature         []byte
+	FundingPkScript   []byte
+	MerkleRootHash    []byte
 }
 
 func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (int64, error) {
@@ -114,6 +133,9 @@ func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (i
 		arg.Node2Signature,
 		arg.Bitcoin1Signature,
 		arg.Bitcoin2Signature,
+		arg.Signature,
+		arg.FundingPkScript,
+		arg.MerkleRootHash,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -290,7 +312,7 @@ func (q *Queries) DeleteZombieChannel(ctx context.Context, arg DeleteZombieChann
 
 const getChannelAndNodesBySCID = `-- name: GetChannelAndNodesBySCID :one
 SELECT
-    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
+    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature, c.signature, c.funding_pk_script, c.merkle_root_hash,
     n1.pub_key AS node1_pub_key,
     n2.pub_key AS node2_pub_key
 FROM graph_channels c
@@ -319,6 +341,9 @@ type GetChannelAndNodesBySCIDRow struct {
 	Node2Signature    []byte
 	Bitcoin1Signature []byte
 	Bitcoin2Signature []byte
+	Signature         []byte
+	FundingPkScript   []byte
+	MerkleRootHash    []byte
 	Node1PubKey       []byte
 	Node2PubKey       []byte
 }
@@ -340,6 +365,9 @@ func (q *Queries) GetChannelAndNodesBySCID(ctx context.Context, arg GetChannelAn
 		&i.Node2Signature,
 		&i.Bitcoin1Signature,
 		&i.Bitcoin2Signature,
+		&i.Signature,
+		&i.FundingPkScript,
+		&i.MerkleRootHash,
 		&i.Node1PubKey,
 		&i.Node2PubKey,
 	)
@@ -348,7 +376,7 @@ func (q *Queries) GetChannelAndNodesBySCID(ctx context.Context, arg GetChannelAn
 
 const getChannelByOutpointWithPolicies = `-- name: GetChannelByOutpointWithPolicies :one
 SELECT
-    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
+    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature, c.signature, c.funding_pk_script, c.merkle_root_hash,
 
     n1.pub_key AS node1_pubkey,
     n2.pub_key AS node2_pubkey,
@@ -369,6 +397,8 @@ SELECT
     cp1.message_flags AS policy_1_message_flags,
     cp1.channel_flags AS policy_1_channel_flags,
     cp1.signature AS policy_1_signature,
+    cp1.block_height AS policy_1_block_height,
+    cp1.disable_flags AS policy_1_disable_flags,
 
     -- Node 2 policy
     cp2.id AS policy_2_id,
@@ -385,7 +415,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy_2_message_flags,
     cp2.channel_flags AS policy_2_channel_flags,
-    cp2.signature AS policy_2_signature
+    cp2.signature AS policy_2_signature,
+    cp2.block_height AS policy_2_block_height,
+    cp2.disable_flags AS policy_2_disable_flags
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
     JOIN graph_nodes n2 ON c.node_id_2 = n2.id
@@ -420,6 +452,8 @@ type GetChannelByOutpointWithPoliciesRow struct {
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
 	Policy2Version                 sql.NullInt16
@@ -435,6 +469,8 @@ type GetChannelByOutpointWithPoliciesRow struct {
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) GetChannelByOutpointWithPolicies(ctx context.Context, arg GetChannelByOutpointWithPoliciesParams) (GetChannelByOutpointWithPoliciesRow, error) {
@@ -454,6 +490,9 @@ func (q *Queries) GetChannelByOutpointWithPolicies(ctx context.Context, arg GetC
 		&i.GraphChannel.Node2Signature,
 		&i.GraphChannel.Bitcoin1Signature,
 		&i.GraphChannel.Bitcoin2Signature,
+		&i.GraphChannel.Signature,
+		&i.GraphChannel.FundingPkScript,
+		&i.GraphChannel.MerkleRootHash,
 		&i.Node1Pubkey,
 		&i.Node2Pubkey,
 		&i.Policy1ID,
@@ -471,6 +510,8 @@ func (q *Queries) GetChannelByOutpointWithPolicies(ctx context.Context, arg GetC
 		&i.Policy1MessageFlags,
 		&i.Policy1ChannelFlags,
 		&i.Policy1Signature,
+		&i.Policy1BlockHeight,
+		&i.Policy1DisableFlags,
 		&i.Policy2ID,
 		&i.Policy2NodeID,
 		&i.Policy2Version,
@@ -486,12 +527,14 @@ func (q *Queries) GetChannelByOutpointWithPolicies(ctx context.Context, arg GetC
 		&i.Policy2MessageFlags,
 		&i.Policy2ChannelFlags,
 		&i.Policy2Signature,
+		&i.Policy2BlockHeight,
+		&i.Policy2DisableFlags,
 	)
 	return i, err
 }
 
 const getChannelBySCID = `-- name: GetChannelBySCID :one
-SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature FROM graph_channels
+SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature, signature, funding_pk_script, merkle_root_hash FROM graph_channels
 WHERE scid = $1 AND version = $2
 `
 
@@ -517,15 +560,18 @@ func (q *Queries) GetChannelBySCID(ctx context.Context, arg GetChannelBySCIDPara
 		&i.Node2Signature,
 		&i.Bitcoin1Signature,
 		&i.Bitcoin2Signature,
+		&i.Signature,
+		&i.FundingPkScript,
+		&i.MerkleRootHash,
 	)
 	return i, err
 }
 
 const getChannelBySCIDWithPolicies = `-- name: GetChannelBySCIDWithPolicies :one
 SELECT
-    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
-    n1.id, n1.version, n1.pub_key, n1.alias, n1.last_update, n1.color, n1.signature,
-    n2.id, n2.version, n2.pub_key, n2.alias, n2.last_update, n2.color, n2.signature,
+    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature, c.signature, c.funding_pk_script, c.merkle_root_hash,
+    n1.id, n1.version, n1.pub_key, n1.alias, n1.last_update, n1.color, n1.signature, n1.block_height,
+    n2.id, n2.version, n2.pub_key, n2.alias, n2.last_update, n2.color, n2.signature, n2.block_height,
 
     -- Policy 1
     cp1.id AS policy1_id,
@@ -543,6 +589,8 @@ SELECT
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Policy 2
     cp2.id AS policy2_id,
@@ -559,7 +607,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy_2_message_flags,
     cp2.channel_flags AS policy_2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -596,6 +646,8 @@ type GetChannelBySCIDWithPoliciesRow struct {
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
 	Policy2Version                 sql.NullInt16
@@ -611,6 +663,8 @@ type GetChannelBySCIDWithPoliciesRow struct {
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) GetChannelBySCIDWithPolicies(ctx context.Context, arg GetChannelBySCIDWithPoliciesParams) (GetChannelBySCIDWithPoliciesRow, error) {
@@ -630,6 +684,9 @@ func (q *Queries) GetChannelBySCIDWithPolicies(ctx context.Context, arg GetChann
 		&i.GraphChannel.Node2Signature,
 		&i.GraphChannel.Bitcoin1Signature,
 		&i.GraphChannel.Bitcoin2Signature,
+		&i.GraphChannel.Signature,
+		&i.GraphChannel.FundingPkScript,
+		&i.GraphChannel.MerkleRootHash,
 		&i.GraphNode.ID,
 		&i.GraphNode.Version,
 		&i.GraphNode.PubKey,
@@ -637,6 +694,7 @@ func (q *Queries) GetChannelBySCIDWithPolicies(ctx context.Context, arg GetChann
 		&i.GraphNode.LastUpdate,
 		&i.GraphNode.Color,
 		&i.GraphNode.Signature,
+		&i.GraphNode.BlockHeight,
 		&i.GraphNode_2.ID,
 		&i.GraphNode_2.Version,
 		&i.GraphNode_2.PubKey,
@@ -644,6 +702,7 @@ func (q *Queries) GetChannelBySCIDWithPolicies(ctx context.Context, arg GetChann
 		&i.GraphNode_2.LastUpdate,
 		&i.GraphNode_2.Color,
 		&i.GraphNode_2.Signature,
+		&i.GraphNode_2.BlockHeight,
 		&i.Policy1ID,
 		&i.Policy1NodeID,
 		&i.Policy1Version,
@@ -659,6 +718,8 @@ func (q *Queries) GetChannelBySCIDWithPolicies(ctx context.Context, arg GetChann
 		&i.Policy1MessageFlags,
 		&i.Policy1ChannelFlags,
 		&i.Policy1Signature,
+		&i.Policy1BlockHeight,
+		&i.Policy1DisableFlags,
 		&i.Policy2ID,
 		&i.Policy2NodeID,
 		&i.Policy2Version,
@@ -674,6 +735,8 @@ func (q *Queries) GetChannelBySCIDWithPolicies(ctx context.Context, arg GetChann
 		&i.Policy2MessageFlags,
 		&i.Policy2ChannelFlags,
 		&i.Policy2Signature,
+		&i.Policy2BlockHeight,
+		&i.Policy2DisableFlags,
 	)
 	return i, err
 }
@@ -764,7 +827,7 @@ func (q *Queries) GetChannelFeaturesBatch(ctx context.Context, chanIds []int64) 
 }
 
 const getChannelPolicyByChannelAndNode = `-- name: GetChannelPolicyByChannelAndNode :one
-SELECT id, version, channel_id, node_id, timelock, fee_ppm, base_fee_msat, min_htlc_msat, max_htlc_msat, last_update, disabled, inbound_base_fee_msat, inbound_fee_rate_milli_msat, message_flags, channel_flags, signature
+SELECT id, version, channel_id, node_id, timelock, fee_ppm, base_fee_msat, min_htlc_msat, max_htlc_msat, last_update, disabled, inbound_base_fee_msat, inbound_fee_rate_milli_msat, message_flags, channel_flags, signature, block_height, disable_flags
 FROM graph_channel_policies
 WHERE channel_id = $1
   AND node_id = $2
@@ -797,6 +860,8 @@ func (q *Queries) GetChannelPolicyByChannelAndNode(ctx context.Context, arg GetC
 		&i.MessageFlags,
 		&i.ChannelFlags,
 		&i.Signature,
+		&i.BlockHeight,
+		&i.DisableFlags,
 	)
 	return i, err
 }
@@ -852,7 +917,7 @@ func (q *Queries) GetChannelPolicyExtraTypesBatch(ctx context.Context, policyIds
 
 const getChannelsByIDs = `-- name: GetChannelsByIDs :many
 SELECT
-    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
+    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature, c.signature, c.funding_pk_script, c.merkle_root_hash,
 
     -- Minimal node data.
     n1.id AS node1_id,
@@ -876,6 +941,8 @@ SELECT
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Policy 2
     cp2.id AS policy2_id,
@@ -892,7 +959,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
     cp2.channel_flags AS policy2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -925,6 +994,8 @@ type GetChannelsByIDsRow struct {
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
 	Policy2Version                 sql.NullInt16
@@ -940,6 +1011,8 @@ type GetChannelsByIDsRow struct {
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) GetChannelsByIDs(ctx context.Context, ids []int64) ([]GetChannelsByIDsRow, error) {
@@ -975,6 +1048,9 @@ func (q *Queries) GetChannelsByIDs(ctx context.Context, ids []int64) ([]GetChann
 			&i.GraphChannel.Node2Signature,
 			&i.GraphChannel.Bitcoin1Signature,
 			&i.GraphChannel.Bitcoin2Signature,
+			&i.GraphChannel.Signature,
+			&i.GraphChannel.FundingPkScript,
+			&i.GraphChannel.MerkleRootHash,
 			&i.Node1ID,
 			&i.Node1PubKey,
 			&i.Node2ID,
@@ -994,6 +1070,8 @@ func (q *Queries) GetChannelsByIDs(ctx context.Context, ids []int64) ([]GetChann
 			&i.Policy1MessageFlags,
 			&i.Policy1ChannelFlags,
 			&i.Policy1Signature,
+			&i.Policy1BlockHeight,
+			&i.Policy1DisableFlags,
 			&i.Policy2ID,
 			&i.Policy2NodeID,
 			&i.Policy2Version,
@@ -1009,6 +1087,8 @@ func (q *Queries) GetChannelsByIDs(ctx context.Context, ids []int64) ([]GetChann
 			&i.Policy2MessageFlags,
 			&i.Policy2ChannelFlags,
 			&i.Policy2Signature,
+			&i.Policy2BlockHeight,
+			&i.Policy2DisableFlags,
 		); err != nil {
 			return nil, err
 		}
@@ -1025,7 +1105,7 @@ func (q *Queries) GetChannelsByIDs(ctx context.Context, ids []int64) ([]GetChann
 
 const getChannelsByOutpoints = `-- name: GetChannelsByOutpoints :many
 SELECT
-    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
+    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature, c.signature, c.funding_pk_script, c.merkle_root_hash,
     n1.pub_key AS node1_pubkey,
     n2.pub_key AS node2_pubkey
 FROM graph_channels c
@@ -1074,6 +1154,9 @@ func (q *Queries) GetChannelsByOutpoints(ctx context.Context, outpoints []string
 			&i.GraphChannel.Node2Signature,
 			&i.GraphChannel.Bitcoin1Signature,
 			&i.GraphChannel.Bitcoin2Signature,
+			&i.GraphChannel.Signature,
+			&i.GraphChannel.FundingPkScript,
+			&i.GraphChannel.MerkleRootHash,
 			&i.Node1Pubkey,
 			&i.Node2Pubkey,
 		); err != nil {
@@ -1092,9 +1175,9 @@ func (q *Queries) GetChannelsByOutpoints(ctx context.Context, outpoints []string
 
 const getChannelsByPolicyLastUpdateRange = `-- name: GetChannelsByPolicyLastUpdateRange :many
 SELECT
-    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
-    n1.id, n1.version, n1.pub_key, n1.alias, n1.last_update, n1.color, n1.signature,
-    n2.id, n2.version, n2.pub_key, n2.alias, n2.last_update, n2.color, n2.signature,
+    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature, c.signature, c.funding_pk_script, c.merkle_root_hash,
+    n1.id, n1.version, n1.pub_key, n1.alias, n1.last_update, n1.color, n1.signature, n1.block_height,
+    n2.id, n2.version, n2.pub_key, n2.alias, n2.last_update, n2.color, n2.signature, n2.block_height,
 
     -- Policy 1 (node_id_1)
     cp1.id AS policy1_id,
@@ -1112,6 +1195,8 @@ SELECT
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Policy 2 (node_id_2)
     cp2.id AS policy2_id,
@@ -1128,7 +1213,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
     cp2.channel_flags AS policy2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -1197,6 +1284,8 @@ type GetChannelsByPolicyLastUpdateRangeRow struct {
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
 	Policy2Version                 sql.NullInt16
@@ -1212,6 +1301,8 @@ type GetChannelsByPolicyLastUpdateRangeRow struct {
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg GetChannelsByPolicyLastUpdateRangeParams) ([]GetChannelsByPolicyLastUpdateRangeRow, error) {
@@ -1244,6 +1335,9 @@ func (q *Queries) GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg Ge
 			&i.GraphChannel.Node2Signature,
 			&i.GraphChannel.Bitcoin1Signature,
 			&i.GraphChannel.Bitcoin2Signature,
+			&i.GraphChannel.Signature,
+			&i.GraphChannel.FundingPkScript,
+			&i.GraphChannel.MerkleRootHash,
 			&i.GraphNode.ID,
 			&i.GraphNode.Version,
 			&i.GraphNode.PubKey,
@@ -1251,6 +1345,7 @@ func (q *Queries) GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg Ge
 			&i.GraphNode.LastUpdate,
 			&i.GraphNode.Color,
 			&i.GraphNode.Signature,
+			&i.GraphNode.BlockHeight,
 			&i.GraphNode_2.ID,
 			&i.GraphNode_2.Version,
 			&i.GraphNode_2.PubKey,
@@ -1258,6 +1353,7 @@ func (q *Queries) GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg Ge
 			&i.GraphNode_2.LastUpdate,
 			&i.GraphNode_2.Color,
 			&i.GraphNode_2.Signature,
+			&i.GraphNode_2.BlockHeight,
 			&i.Policy1ID,
 			&i.Policy1NodeID,
 			&i.Policy1Version,
@@ -1273,6 +1369,8 @@ func (q *Queries) GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg Ge
 			&i.Policy1MessageFlags,
 			&i.Policy1ChannelFlags,
 			&i.Policy1Signature,
+			&i.Policy1BlockHeight,
+			&i.Policy1DisableFlags,
 			&i.Policy2ID,
 			&i.Policy2NodeID,
 			&i.Policy2Version,
@@ -1288,6 +1386,8 @@ func (q *Queries) GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg Ge
 			&i.Policy2MessageFlags,
 			&i.Policy2ChannelFlags,
 			&i.Policy2Signature,
+			&i.Policy2BlockHeight,
+			&i.Policy2DisableFlags,
 		); err != nil {
 			return nil, err
 		}
@@ -1303,7 +1403,7 @@ func (q *Queries) GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg Ge
 }
 
 const getChannelsBySCIDRange = `-- name: GetChannelsBySCIDRange :many
-SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
+SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature, c.signature, c.funding_pk_script, c.merkle_root_hash,
     n1.pub_key AS node1_pub_key,
     n2.pub_key AS node2_pub_key
 FROM graph_channels c
@@ -1347,6 +1447,9 @@ func (q *Queries) GetChannelsBySCIDRange(ctx context.Context, arg GetChannelsByS
 			&i.GraphChannel.Node2Signature,
 			&i.GraphChannel.Bitcoin1Signature,
 			&i.GraphChannel.Bitcoin2Signature,
+			&i.GraphChannel.Signature,
+			&i.GraphChannel.FundingPkScript,
+			&i.GraphChannel.MerkleRootHash,
 			&i.Node1PubKey,
 			&i.Node2PubKey,
 		); err != nil {
@@ -1365,9 +1468,9 @@ func (q *Queries) GetChannelsBySCIDRange(ctx context.Context, arg GetChannelsByS
 
 const getChannelsBySCIDWithPolicies = `-- name: GetChannelsBySCIDWithPolicies :many
 SELECT
-    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
-    n1.id, n1.version, n1.pub_key, n1.alias, n1.last_update, n1.color, n1.signature,
-    n2.id, n2.version, n2.pub_key, n2.alias, n2.last_update, n2.color, n2.signature,
+    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature, c.signature, c.funding_pk_script, c.merkle_root_hash,
+    n1.id, n1.version, n1.pub_key, n1.alias, n1.last_update, n1.color, n1.signature, n1.block_height,
+    n2.id, n2.version, n2.pub_key, n2.alias, n2.last_update, n2.color, n2.signature, n2.block_height,
 
     -- Policy 1
     cp1.id AS policy1_id,
@@ -1385,6 +1488,8 @@ SELECT
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Policy 2
     cp2.id AS policy2_id,
@@ -1401,7 +1506,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy_2_message_flags,
     cp2.channel_flags AS policy_2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -1439,6 +1546,8 @@ type GetChannelsBySCIDWithPoliciesRow struct {
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
 	Policy2Version                 sql.NullInt16
@@ -1454,6 +1563,8 @@ type GetChannelsBySCIDWithPoliciesRow struct {
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) GetChannelsBySCIDWithPolicies(ctx context.Context, arg GetChannelsBySCIDWithPoliciesParams) ([]GetChannelsBySCIDWithPoliciesRow, error) {
@@ -1490,6 +1601,9 @@ func (q *Queries) GetChannelsBySCIDWithPolicies(ctx context.Context, arg GetChan
 			&i.GraphChannel.Node2Signature,
 			&i.GraphChannel.Bitcoin1Signature,
 			&i.GraphChannel.Bitcoin2Signature,
+			&i.GraphChannel.Signature,
+			&i.GraphChannel.FundingPkScript,
+			&i.GraphChannel.MerkleRootHash,
 			&i.GraphNode.ID,
 			&i.GraphNode.Version,
 			&i.GraphNode.PubKey,
@@ -1497,6 +1611,7 @@ func (q *Queries) GetChannelsBySCIDWithPolicies(ctx context.Context, arg GetChan
 			&i.GraphNode.LastUpdate,
 			&i.GraphNode.Color,
 			&i.GraphNode.Signature,
+			&i.GraphNode.BlockHeight,
 			&i.GraphNode_2.ID,
 			&i.GraphNode_2.Version,
 			&i.GraphNode_2.PubKey,
@@ -1504,6 +1619,7 @@ func (q *Queries) GetChannelsBySCIDWithPolicies(ctx context.Context, arg GetChan
 			&i.GraphNode_2.LastUpdate,
 			&i.GraphNode_2.Color,
 			&i.GraphNode_2.Signature,
+			&i.GraphNode_2.BlockHeight,
 			&i.Policy1ID,
 			&i.Policy1NodeID,
 			&i.Policy1Version,
@@ -1519,6 +1635,8 @@ func (q *Queries) GetChannelsBySCIDWithPolicies(ctx context.Context, arg GetChan
 			&i.Policy1MessageFlags,
 			&i.Policy1ChannelFlags,
 			&i.Policy1Signature,
+			&i.Policy1BlockHeight,
+			&i.Policy1DisableFlags,
 			&i.Policy2ID,
 			&i.Policy2NodeID,
 			&i.Policy2Version,
@@ -1534,6 +1652,8 @@ func (q *Queries) GetChannelsBySCIDWithPolicies(ctx context.Context, arg GetChan
 			&i.Policy2MessageFlags,
 			&i.Policy2ChannelFlags,
 			&i.Policy2Signature,
+			&i.Policy2BlockHeight,
+			&i.Policy2DisableFlags,
 		); err != nil {
 			return nil, err
 		}
@@ -1549,7 +1669,7 @@ func (q *Queries) GetChannelsBySCIDWithPolicies(ctx context.Context, arg GetChan
 }
 
 const getChannelsBySCIDs = `-- name: GetChannelsBySCIDs :many
-SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature FROM graph_channels
+SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature, signature, funding_pk_script, merkle_root_hash FROM graph_channels
 WHERE version = $1
   AND scid IN (/*SLICE:scids*/?)
 `
@@ -1593,6 +1713,9 @@ func (q *Queries) GetChannelsBySCIDs(ctx context.Context, arg GetChannelsBySCIDs
 			&i.Node2Signature,
 			&i.Bitcoin1Signature,
 			&i.Bitcoin2Signature,
+			&i.Signature,
+			&i.FundingPkScript,
+			&i.MerkleRootHash,
 		); err != nil {
 			return nil, err
 		}
@@ -1756,7 +1879,7 @@ func (q *Queries) GetNodeAddressesBatch(ctx context.Context, ids []int64) ([]Gra
 }
 
 const getNodeByPubKey = `-- name: GetNodeByPubKey :one
-SELECT id, version, pub_key, alias, last_update, color, signature
+SELECT id, version, pub_key, alias, last_update, color, signature, block_height
 FROM graph_nodes
 WHERE pub_key = $1
   AND version = $2
@@ -1778,6 +1901,7 @@ func (q *Queries) GetNodeByPubKey(ctx context.Context, arg GetNodeByPubKeyParams
 		&i.LastUpdate,
 		&i.Color,
 		&i.Signature,
+		&i.BlockHeight,
 	)
 	return i, err
 }
@@ -1947,7 +2071,7 @@ func (q *Queries) GetNodeIDByPubKey(ctx context.Context, arg GetNodeIDByPubKeyPa
 }
 
 const getNodesByIDs = `-- name: GetNodesByIDs :many
-SELECT id, version, pub_key, alias, last_update, color, signature
+SELECT id, version, pub_key, alias, last_update, color, signature, block_height
 FROM graph_nodes
 WHERE id IN (/*SLICE:ids*/?)
 `
@@ -1979,6 +2103,7 @@ func (q *Queries) GetNodesByIDs(ctx context.Context, ids []int64) ([]GraphNode, 
 			&i.LastUpdate,
 			&i.Color,
 			&i.Signature,
+			&i.BlockHeight,
 		); err != nil {
 			return nil, err
 		}
@@ -1994,7 +2119,7 @@ func (q *Queries) GetNodesByIDs(ctx context.Context, ids []int64) ([]GraphNode, 
 }
 
 const getNodesByLastUpdateRange = `-- name: GetNodesByLastUpdateRange :many
-SELECT id, version, pub_key, alias, last_update, color, signature
+SELECT id, version, pub_key, alias, last_update, color, signature, block_height
 FROM graph_nodes
 WHERE last_update >= $1
   AND last_update <= $2
@@ -2020,7 +2145,7 @@ WHERE last_update >= $1
       SELECT 1
       FROM graph_channels c
       WHERE c.version = 1
-        AND c.bitcoin_1_signature IS NOT NULL
+        AND COALESCE(length(c.bitcoin_1_signature), 0) > 0
         AND (c.node_id_1 = graph_nodes.id OR c.node_id_2 = graph_nodes.id)
     )
   )
@@ -2061,6 +2186,7 @@ func (q *Queries) GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByL
 			&i.LastUpdate,
 			&i.Color,
 			&i.Signature,
+			&i.BlockHeight,
 		); err != nil {
 			return nil, err
 		}
@@ -2143,9 +2269,9 @@ func (q *Queries) GetPruneTip(ctx context.Context) (GraphPruneLog, error) {
 }
 
 const getPublicV1ChannelsBySCID = `-- name: GetPublicV1ChannelsBySCID :many
-SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature
+SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature, signature, funding_pk_script, merkle_root_hash
 FROM graph_channels
-WHERE node_1_signature IS NOT NULL
+WHERE COALESCE(length(node_1_signature), 0) > 0
   AND scid >= $1
   AND scid < $2
 `
@@ -2178,6 +2304,9 @@ func (q *Queries) GetPublicV1ChannelsBySCID(ctx context.Context, arg GetPublicV1
 			&i.Node2Signature,
 			&i.Bitcoin1Signature,
 			&i.Bitcoin2Signature,
+			&i.Signature,
+			&i.FundingPkScript,
+			&i.MerkleRootHash,
 		); err != nil {
 			return nil, err
 		}
@@ -2663,20 +2792,50 @@ SELECT EXISTS (
     -- one of the signatures since we only ever set them
     -- together.
     WHERE c.version = 1
-      AND c.bitcoin_1_signature IS NOT NULL
+      AND COALESCE(length(c.bitcoin_1_signature), 0) > 0
       AND n.pub_key = $1
     UNION ALL
     SELECT 1
     FROM graph_channels c
     JOIN graph_nodes n ON n.id = c.node_id_2
     WHERE c.version = 1
-      AND c.bitcoin_1_signature IS NOT NULL
+      AND COALESCE(length(c.bitcoin_1_signature), 0) > 0
       AND n.pub_key = $1
 )
 `
 
 func (q *Queries) IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error) {
 	row := q.db.QueryRowContext(ctx, isPublicV1Node, pubKey)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const isPublicV2Node = `-- name: IsPublicV2Node :one
+SELECT EXISTS (
+    SELECT 1
+    FROM graph_channels c
+    JOIN graph_nodes n ON n.id = c.node_id_1
+    -- NOTE: we hard-code the version here since the clauses
+    -- here that determine if a node is public is specific
+    -- to the V2 gossip protocol.
+    WHERE c.version = 2
+      AND COALESCE(length(c.signature), 0) > 0
+      AND n.pub_key = $1
+
+    UNION ALL
+
+    SELECT 1
+    FROM graph_channels c
+    JOIN graph_nodes n ON n.id = c.node_id_2
+    WHERE c.version = 2
+      AND COALESCE(length(c.signature), 0) > 0
+      AND n.pub_key = $1
+)
+`
+
+func (q *Queries) IsPublicV2Node(ctx context.Context, pubKey []byte) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isPublicV2Node, pubKey)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -2704,7 +2863,7 @@ func (q *Queries) IsZombieChannel(ctx context.Context, arg IsZombieChannelParams
 }
 
 const listChannelsByNodeID = `-- name: ListChannelsByNodeID :many
-SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
+SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature, c.signature, c.funding_pk_script, c.merkle_root_hash,
     n1.pub_key AS node1_pubkey,
     n2.pub_key AS node2_pubkey,
 
@@ -2727,6 +2886,8 @@ SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
        -- Policy 2
     cp2.id AS policy2_id,
@@ -2743,7 +2904,9 @@ SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
     cp2.channel_flags AS policy2_channel_flags,
-    cp2.signature AS policy2_signature
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
     JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -2780,6 +2943,8 @@ type ListChannelsByNodeIDRow struct {
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
 	Policy2Version                 sql.NullInt16
@@ -2795,6 +2960,8 @@ type ListChannelsByNodeIDRow struct {
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNodeIDParams) ([]ListChannelsByNodeIDRow, error) {
@@ -2820,6 +2987,9 @@ func (q *Queries) ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNo
 			&i.GraphChannel.Node2Signature,
 			&i.GraphChannel.Bitcoin1Signature,
 			&i.GraphChannel.Bitcoin2Signature,
+			&i.GraphChannel.Signature,
+			&i.GraphChannel.FundingPkScript,
+			&i.GraphChannel.MerkleRootHash,
 			&i.Node1Pubkey,
 			&i.Node2Pubkey,
 			&i.Policy1ID,
@@ -2837,6 +3007,8 @@ func (q *Queries) ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNo
 			&i.Policy1MessageFlags,
 			&i.Policy1ChannelFlags,
 			&i.Policy1Signature,
+			&i.Policy1BlockHeight,
+			&i.Policy1DisableFlags,
 			&i.Policy2ID,
 			&i.Policy2NodeID,
 			&i.Policy2Version,
@@ -2852,6 +3024,8 @@ func (q *Queries) ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNo
 			&i.Policy2MessageFlags,
 			&i.Policy2ChannelFlags,
 			&i.Policy2Signature,
+			&i.Policy2BlockHeight,
+			&i.Policy2DisableFlags,
 		); err != nil {
 			return nil, err
 		}
@@ -2867,7 +3041,7 @@ func (q *Queries) ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNo
 }
 
 const listChannelsForNodeIDs = `-- name: ListChannelsForNodeIDs :many
-SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
+SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature, c.signature, c.funding_pk_script, c.merkle_root_hash,
        n1.pub_key AS node1_pubkey,
        n2.pub_key AS node2_pubkey,
 
@@ -2890,6 +3064,8 @@ SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity
        cp1.message_flags AS policy1_message_flags,
        cp1.channel_flags AS policy1_channel_flags,
        cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
        -- Policy 2
        cp2.id AS policy2_id,
@@ -2906,7 +3082,9 @@ SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity
        cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
        cp2.message_flags AS policy2_message_flags,
        cp2.channel_flags AS policy2_channel_flags,
-       cp2.signature AS policy2_signature
+       cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
          JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -2945,6 +3123,8 @@ type ListChannelsForNodeIDsRow struct {
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
 	Policy2Version                 sql.NullInt16
@@ -2960,6 +3140,8 @@ type ListChannelsForNodeIDsRow struct {
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) ListChannelsForNodeIDs(ctx context.Context, arg ListChannelsForNodeIDsParams) ([]ListChannelsForNodeIDsRow, error) {
@@ -3004,6 +3186,9 @@ func (q *Queries) ListChannelsForNodeIDs(ctx context.Context, arg ListChannelsFo
 			&i.GraphChannel.Node2Signature,
 			&i.GraphChannel.Bitcoin1Signature,
 			&i.GraphChannel.Bitcoin2Signature,
+			&i.GraphChannel.Signature,
+			&i.GraphChannel.FundingPkScript,
+			&i.GraphChannel.MerkleRootHash,
 			&i.Node1Pubkey,
 			&i.Node2Pubkey,
 			&i.Policy1ID,
@@ -3021,6 +3206,8 @@ func (q *Queries) ListChannelsForNodeIDs(ctx context.Context, arg ListChannelsFo
 			&i.Policy1MessageFlags,
 			&i.Policy1ChannelFlags,
 			&i.Policy1Signature,
+			&i.Policy1BlockHeight,
+			&i.Policy1DisableFlags,
 			&i.Policy2ID,
 			&i.Policy2NodeID,
 			&i.Policy2Version,
@@ -3036,6 +3223,8 @@ func (q *Queries) ListChannelsForNodeIDs(ctx context.Context, arg ListChannelsFo
 			&i.Policy2MessageFlags,
 			&i.Policy2ChannelFlags,
 			&i.Policy2Signature,
+			&i.Policy2BlockHeight,
+			&i.Policy2DisableFlags,
 		); err != nil {
 			return nil, err
 		}
@@ -3120,6 +3309,8 @@ SELECT
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
 
     -- Node 2 policy
     cp2.timelock AS policy_2_timelock,
@@ -3131,7 +3322,9 @@ SELECT
     cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
-    cp2.channel_flags AS policy2_channel_flags
+    cp2.channel_flags AS policy2_channel_flags,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
 
 FROM graph_channels c
 JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -3167,6 +3360,8 @@ type ListChannelsWithPoliciesForCachePaginatedRow struct {
 	Policy1InboundFeeRateMilliMsat sql.NullInt64
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy2Timelock                sql.NullInt32
 	Policy2FeePpm                  sql.NullInt64
 	Policy2BaseFeeMsat             sql.NullInt64
@@ -3177,6 +3372,8 @@ type ListChannelsWithPoliciesForCachePaginatedRow struct {
 	Policy2InboundFeeRateMilliMsat sql.NullInt64
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) ListChannelsWithPoliciesForCachePaginated(ctx context.Context, arg ListChannelsWithPoliciesForCachePaginatedParams) ([]ListChannelsWithPoliciesForCachePaginatedRow, error) {
@@ -3204,6 +3401,8 @@ func (q *Queries) ListChannelsWithPoliciesForCachePaginated(ctx context.Context,
 			&i.Policy1InboundFeeRateMilliMsat,
 			&i.Policy1MessageFlags,
 			&i.Policy1ChannelFlags,
+			&i.Policy1BlockHeight,
+			&i.Policy1DisableFlags,
 			&i.Policy2Timelock,
 			&i.Policy2FeePpm,
 			&i.Policy2BaseFeeMsat,
@@ -3214,6 +3413,8 @@ func (q *Queries) ListChannelsWithPoliciesForCachePaginated(ctx context.Context,
 			&i.Policy2InboundFeeRateMilliMsat,
 			&i.Policy2MessageFlags,
 			&i.Policy2ChannelFlags,
+			&i.Policy2BlockHeight,
+			&i.Policy2DisableFlags,
 		); err != nil {
 			return nil, err
 		}
@@ -3230,7 +3431,7 @@ func (q *Queries) ListChannelsWithPoliciesForCachePaginated(ctx context.Context,
 
 const listChannelsWithPoliciesPaginated = `-- name: ListChannelsWithPoliciesPaginated :many
 SELECT
-    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
+    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature, c.signature, c.funding_pk_script, c.merkle_root_hash,
 
     -- Join node pubkeys
     n1.pub_key AS node1_pubkey,
@@ -3251,6 +3452,8 @@ SELECT
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
     cp1.message_flags AS policy1_message_flags,
     cp1.channel_flags AS policy1_channel_flags,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
     cp1.signature AS policy_1_signature,
 
     -- Node 2 policy
@@ -3268,7 +3471,9 @@ SELECT
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
     cp2.message_flags AS policy2_message_flags,
     cp2.channel_flags AS policy2_channel_flags,
-    cp2.signature AS policy_2_signature
+    cp2.signature AS policy_2_signature,
+    cp2.block_height AS policy_2_block_height,
+    cp2.disable_flags AS policy_2_disable_flags
 
 FROM graph_channels c
 JOIN graph_nodes n1 ON c.node_id_1 = n1.id
@@ -3306,6 +3511,8 @@ type ListChannelsWithPoliciesPaginatedRow struct {
 	Policy1InboundFeeRateMilliMsat sql.NullInt64
 	Policy1MessageFlags            sql.NullInt16
 	Policy1ChannelFlags            sql.NullInt16
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
 	Policy1Signature               []byte
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
@@ -3322,6 +3529,8 @@ type ListChannelsWithPoliciesPaginatedRow struct {
 	Policy2MessageFlags            sql.NullInt16
 	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) ListChannelsWithPoliciesPaginated(ctx context.Context, arg ListChannelsWithPoliciesPaginatedParams) ([]ListChannelsWithPoliciesPaginatedRow, error) {
@@ -3347,6 +3556,9 @@ func (q *Queries) ListChannelsWithPoliciesPaginated(ctx context.Context, arg Lis
 			&i.GraphChannel.Node2Signature,
 			&i.GraphChannel.Bitcoin1Signature,
 			&i.GraphChannel.Bitcoin2Signature,
+			&i.GraphChannel.Signature,
+			&i.GraphChannel.FundingPkScript,
+			&i.GraphChannel.MerkleRootHash,
 			&i.Node1Pubkey,
 			&i.Node2Pubkey,
 			&i.Policy1ID,
@@ -3363,6 +3575,8 @@ func (q *Queries) ListChannelsWithPoliciesPaginated(ctx context.Context, arg Lis
 			&i.Policy1InboundFeeRateMilliMsat,
 			&i.Policy1MessageFlags,
 			&i.Policy1ChannelFlags,
+			&i.Policy1BlockHeight,
+			&i.Policy1DisableFlags,
 			&i.Policy1Signature,
 			&i.Policy2ID,
 			&i.Policy2NodeID,
@@ -3379,6 +3593,8 @@ func (q *Queries) ListChannelsWithPoliciesPaginated(ctx context.Context, arg Lis
 			&i.Policy2MessageFlags,
 			&i.Policy2ChannelFlags,
 			&i.Policy2Signature,
+			&i.Policy2BlockHeight,
+			&i.Policy2DisableFlags,
 		); err != nil {
 			return nil, err
 		}
@@ -3436,7 +3652,7 @@ func (q *Queries) ListNodeIDsAndPubKeys(ctx context.Context, arg ListNodeIDsAndP
 }
 
 const listNodesPaginated = `-- name: ListNodesPaginated :many
-SELECT id, version, pub_key, alias, last_update, color, signature
+SELECT id, version, pub_key, alias, last_update, color, signature, block_height
 FROM graph_nodes
 WHERE version = $1 AND id > $2
 ORDER BY id
@@ -3466,6 +3682,7 @@ func (q *Queries) ListNodesPaginated(ctx context.Context, arg ListNodesPaginated
 			&i.LastUpdate,
 			&i.Color,
 			&i.Signature,
+			&i.BlockHeight,
 		); err != nil {
 			return nil, err
 		}
@@ -3478,6 +3695,27 @@ func (q *Queries) ListNodesPaginated(ctx context.Context, arg ListNodesPaginated
 		return nil, err
 	}
 	return items, nil
+}
+
+const nodeExists = `-- name: NodeExists :one
+SELECT EXISTS (
+    SELECT 1
+    FROM graph_nodes
+    WHERE pub_key = $1
+      AND version = $2
+) AS node_exists
+`
+
+type NodeExistsParams struct {
+	PubKey  []byte
+	Version int16
+}
+
+func (q *Queries) NodeExists(ctx context.Context, arg NodeExistsParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, nodeExists, arg.PubKey, arg.Version)
+	var node_exists bool
+	err := row.Scan(&node_exists)
+	return node_exists, err
 }
 
 const upsertChanPolicyExtraType = `-- name: UpsertChanPolicyExtraType :exec
@@ -3544,9 +3782,9 @@ INSERT INTO graph_channel_policies (
     base_fee_msat, min_htlc_msat, last_update, disabled,
     max_htlc_msat, inbound_base_fee_msat,
     inbound_fee_rate_milli_msat, message_flags, channel_flags,
-    signature
+    signature, block_height, disable_flags
 ) VALUES  (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
 )
 ON CONFLICT (channel_id, node_id, version)
     -- Update the following fields if a conflict occurs on channel_id,
@@ -3563,8 +3801,21 @@ ON CONFLICT (channel_id, node_id, version)
         inbound_fee_rate_milli_msat = EXCLUDED.inbound_fee_rate_milli_msat,
         message_flags = EXCLUDED.message_flags,
         channel_flags = EXCLUDED.channel_flags,
-        signature = EXCLUDED.signature
-WHERE EXCLUDED.last_update > graph_channel_policies.last_update
+        signature = EXCLUDED.signature,
+        block_height = EXCLUDED.block_height,
+        disable_flags = EXCLUDED.disable_flags
+WHERE (
+    EXCLUDED.version = 1 AND (
+        graph_channel_policies.last_update IS NULL
+        OR EXCLUDED.last_update > graph_channel_policies.last_update
+    )
+)
+OR (
+    EXCLUDED.version = 2 AND (
+        graph_channel_policies.block_height IS NULL
+        OR EXCLUDED.block_height >= graph_channel_policies.block_height
+    )
+)
 RETURNING id
 `
 
@@ -3584,6 +3835,8 @@ type UpsertEdgePolicyParams struct {
 	MessageFlags            sql.NullInt16
 	ChannelFlags            sql.NullInt16
 	Signature               []byte
+	BlockHeight             sql.NullInt64
+	DisableFlags            sql.NullInt16
 }
 
 func (q *Queries) UpsertEdgePolicy(ctx context.Context, arg UpsertEdgePolicyParams) (int64, error) {
@@ -3603,6 +3856,8 @@ func (q *Queries) UpsertEdgePolicy(ctx context.Context, arg UpsertEdgePolicyPara
 		arg.MessageFlags,
 		arg.ChannelFlags,
 		arg.Signature,
+		arg.BlockHeight,
+		arg.DisableFlags,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -3616,9 +3871,9 @@ const upsertNode = `-- name: UpsertNode :one
 */
 
 INSERT INTO graph_nodes (
-    version, pub_key, alias, last_update, color, signature
+    version, pub_key, alias, last_update, block_height, color, signature
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6, $7
 )
 ON CONFLICT (pub_key, version)
     -- Update the following fields if a conflict occurs on pub_key
@@ -3626,20 +3881,24 @@ ON CONFLICT (pub_key, version)
     DO UPDATE SET
         alias = EXCLUDED.alias,
         last_update = EXCLUDED.last_update,
+        block_height = EXCLUDED.block_height,
         color = EXCLUDED.color,
         signature = EXCLUDED.signature
-WHERE graph_nodes.last_update IS NULL
-    OR EXCLUDED.last_update > graph_nodes.last_update
+WHERE (graph_nodes.last_update IS NULL
+    OR EXCLUDED.last_update > graph_nodes.last_update)
+AND (graph_nodes.block_height IS NULL
+    OR EXCLUDED.block_height >= graph_nodes.block_height)
 RETURNING id
 `
 
 type UpsertNodeParams struct {
-	Version    int16
-	PubKey     []byte
-	Alias      sql.NullString
-	LastUpdate sql.NullInt64
-	Color      sql.NullString
-	Signature  []byte
+	Version     int16
+	PubKey      []byte
+	Alias       sql.NullString
+	LastUpdate  sql.NullInt64
+	BlockHeight sql.NullInt64
+	Color       sql.NullString
+	Signature   []byte
 }
 
 func (q *Queries) UpsertNode(ctx context.Context, arg UpsertNodeParams) (int64, error) {
@@ -3648,6 +3907,7 @@ func (q *Queries) UpsertNode(ctx context.Context, arg UpsertNodeParams) (int64, 
 		arg.PubKey,
 		arg.Alias,
 		arg.LastUpdate,
+		arg.BlockHeight,
 		arg.Color,
 		arg.Signature,
 	)
@@ -3744,9 +4004,9 @@ func (q *Queries) UpsertPruneLogEntry(ctx context.Context, arg UpsertPruneLogEnt
 
 const upsertSourceNode = `-- name: UpsertSourceNode :one
 INSERT INTO graph_nodes (
-    version, pub_key, alias, last_update, color, signature
+    version, pub_key, alias, last_update, block_height, color, signature
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6, $7
 )
 ON CONFLICT (pub_key, version)
     -- Update the following fields if a conflict occurs on pub_key
@@ -3754,20 +4014,24 @@ ON CONFLICT (pub_key, version)
     DO UPDATE SET
         alias = EXCLUDED.alias,
         last_update = EXCLUDED.last_update,
+        block_height = EXCLUDED.block_height,
         color = EXCLUDED.color,
         signature = EXCLUDED.signature
 WHERE graph_nodes.last_update IS NULL
     OR EXCLUDED.last_update >= graph_nodes.last_update
+AND (graph_nodes.block_height IS NULL
+   OR EXCLUDED.block_height >= graph_nodes.block_height)
 RETURNING id
 `
 
 type UpsertSourceNodeParams struct {
-	Version    int16
-	PubKey     []byte
-	Alias      sql.NullString
-	LastUpdate sql.NullInt64
-	Color      sql.NullString
-	Signature  []byte
+	Version     int16
+	PubKey      []byte
+	Alias       sql.NullString
+	LastUpdate  sql.NullInt64
+	BlockHeight sql.NullInt64
+	Color       sql.NullString
+	Signature   []byte
 }
 
 // We use a separate upsert for our own node since we want to be less strict
@@ -3779,6 +4043,7 @@ func (q *Queries) UpsertSourceNode(ctx context.Context, arg UpsertSourceNodePara
 		arg.PubKey,
 		arg.Alias,
 		arg.LastUpdate,
+		arg.BlockHeight,
 		arg.Color,
 		arg.Signature,
 	)

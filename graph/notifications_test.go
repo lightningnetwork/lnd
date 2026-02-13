@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -68,12 +69,12 @@ var (
 	_           = testSScalar.SetByteSlice(testSBytes)
 	testSig     = ecdsa.NewSignature(testRScalar, testSScalar)
 
-	testAuthProof = models.ChannelAuthProof{
-		NodeSig1Bytes:    testSig.Serialize(),
-		NodeSig2Bytes:    testSig.Serialize(),
-		BitcoinSig1Bytes: testSig.Serialize(),
-		BitcoinSig2Bytes: testSig.Serialize(),
-	}
+	testAuthProof = *models.NewV1ChannelAuthProof(
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+	)
 )
 
 func createTestNode(t *testing.T) *models.Node {
@@ -112,6 +113,7 @@ func randEdgePolicy(chanID *lnwire.ShortChannelID,
 	}
 
 	return &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Unix(int64(prand.Int31()), 0),
@@ -447,23 +449,27 @@ func TestEdgeUpdateNotification(t *testing.T) {
 
 	// Finally, to conclude our test set up, we'll create a channel
 	// update to announce the created channel between the two nodes.
-	edge := &models.ChannelEdgeInfo{
-		ChannelID:     chanID.ToUint64(),
-		NodeKey1Bytes: node1.PubKeyBytes,
-		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
-		},
-		Features:      lnwire.EmptyFeatureVector(),
-		ChannelPoint:  *chanPoint,
-		Capacity:      chanValue,
-		FundingScript: fn.Some(script),
-	}
-	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
-	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
+	btcKey1 := route.NewVertex(bitcoinKey1)
+	btcKey2 := route.NewVertex(bitcoinKey2)
+
+	proof := models.NewV1ChannelAuthProof(
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+	)
+
+	edge, err := models.NewV1Channel(
+		chanID.ToUint64(), *chaincfg.SimNetParams.GenesisHash,
+		node1.PubKeyBytes, node2.PubKeyBytes, &models.ChannelV1Fields{
+			BitcoinKey1Bytes: btcKey1,
+			BitcoinKey2Bytes: btcKey2,
+		}, models.WithChanProof(proof),
+		models.WithChannelPoint(*chanPoint),
+		models.WithCapacity(chanValue),
+		models.WithFundingScript(script),
+	)
+	require.NoError(t, err)
 
 	if err := ctx.builder.AddEdge(ctxb, edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
@@ -641,21 +647,25 @@ func TestNodeUpdateNotification(t *testing.T) {
 	testFeaturesBuf := new(bytes.Buffer)
 	require.NoError(t, testFeatures.Encode(testFeaturesBuf))
 
-	edge := &models.ChannelEdgeInfo{
-		ChannelID:     chanID.ToUint64(),
-		NodeKey1Bytes: node1.PubKeyBytes,
-		NodeKey2Bytes: node2.PubKeyBytes,
-		Features:      lnwire.EmptyFeatureVector(),
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
-		},
-		FundingScript: fn.Some(script),
-	}
-	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
-	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
+	btcKey1 := route.NewVertex(bitcoinKey1)
+	btcKey2 := route.NewVertex(bitcoinKey2)
+
+	proof := models.NewV1ChannelAuthProof(
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+	)
+
+	edge, err := models.NewV1Channel(
+		chanID.ToUint64(), *chaincfg.SimNetParams.GenesisHash,
+		node1.PubKeyBytes, node2.PubKeyBytes, &models.ChannelV1Fields{
+			BitcoinKey1Bytes: btcKey1,
+			BitcoinKey2Bytes: btcKey2,
+		}, models.WithChanProof(proof),
+		models.WithFundingScript(script),
+	)
+	require.NoError(t, err)
 
 	// Adding the edge will add the nodes to the graph, but with no info
 	// except the pubkey known.
@@ -827,23 +837,28 @@ func TestNotificationCancellation(t *testing.T) {
 	// to the client.
 	ntfnClient.Cancel()
 
-	edge := &models.ChannelEdgeInfo{
-		ChannelID:     chanID.ToUint64(),
-		NodeKey1Bytes: node1.PubKeyBytes,
-		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
-		},
-		Features:      lnwire.EmptyFeatureVector(),
-		ChannelPoint:  *chanPoint,
-		Capacity:      chanValue,
-		FundingScript: fn.Some(script),
-	}
-	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
-	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
+	btcKey1 := route.NewVertex(bitcoinKey1)
+	btcKey2 := route.NewVertex(bitcoinKey2)
+
+	proof := models.NewV1ChannelAuthProof(
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+	)
+
+	edge, err := models.NewV1Channel(
+		chanID.ToUint64(), *chaincfg.SimNetParams.GenesisHash,
+		node1.PubKeyBytes, node2.PubKeyBytes, &models.ChannelV1Fields{
+			BitcoinKey1Bytes: btcKey1,
+			BitcoinKey2Bytes: btcKey2,
+		}, models.WithChanProof(proof),
+		models.WithChannelPoint(*chanPoint),
+		models.WithCapacity(chanValue),
+		models.WithFundingScript(script),
+	)
+	require.NoError(t, err)
+
 	if err := ctx.builder.AddEdge(ctxb, edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
@@ -903,23 +918,28 @@ func TestChannelCloseNotification(t *testing.T) {
 
 	// Finally, to conclude our test set up, we'll create a channel
 	// announcement to announce the created channel between the two nodes.
-	edge := &models.ChannelEdgeInfo{
-		ChannelID:     chanID.ToUint64(),
-		NodeKey1Bytes: node1.PubKeyBytes,
-		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
-		},
-		Features:      lnwire.EmptyFeatureVector(),
-		ChannelPoint:  *chanUtxo,
-		Capacity:      chanValue,
-		FundingScript: fn.Some(script),
-	}
-	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
-	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
+	btcKey1 := route.NewVertex(bitcoinKey1)
+	btcKey2 := route.NewVertex(bitcoinKey2)
+
+	proof := models.NewV1ChannelAuthProof(
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+	)
+
+	edge, err := models.NewV1Channel(
+		chanID.ToUint64(), *chaincfg.SimNetParams.GenesisHash,
+		node1.PubKeyBytes, node2.PubKeyBytes, &models.ChannelV1Fields{
+			BitcoinKey1Bytes: btcKey1,
+			BitcoinKey2Bytes: btcKey2,
+		}, models.WithChanProof(proof),
+		models.WithChannelPoint(*chanUtxo),
+		models.WithCapacity(chanValue),
+		models.WithFundingScript(script),
+	)
+	require.NoError(t, err)
+
 	if err := ctx.builder.AddEdge(ctxb, edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
@@ -1042,7 +1062,7 @@ func TestEncodeHexColor(t *testing.T) {
 type testCtx struct {
 	builder *Builder
 
-	graph *graphdb.ChannelGraph
+	graph *graphdb.VersionedGraph
 
 	aliases map[string]route.Vertex
 
@@ -1059,7 +1079,9 @@ type testCtx struct {
 func createTestCtxSingleNode(t *testing.T,
 	startingHeight uint32) *testCtx {
 
-	graph := graphdb.MakeTestGraph(t)
+	graph := graphdb.NewVersionedGraph(
+		graphdb.MakeTestGraph(t), lnwire.GossipVersion1,
+	)
 	sourceNode := createTestNode(t)
 
 	require.NoError(t,
@@ -1086,7 +1108,7 @@ func (c *testCtx) RestartBuilder(t *testing.T) {
 	// start it.
 	builder, err := NewBuilder(&Config{
 		SelfNode:            selfNode.PubKeyBytes,
-		Graph:               c.graph,
+		Graph:               c.graph.ChannelGraph,
 		Chain:               c.chain,
 		ChainView:           c.chainView,
 		Notifier:            c.builder.cfg.Notifier,
@@ -1108,7 +1130,7 @@ func (c *testCtx) RestartBuilder(t *testing.T) {
 }
 
 type testGraphInstance struct {
-	graph *graphdb.ChannelGraph
+	graph *graphdb.VersionedGraph
 
 	// aliasMap is a map from a node's alias to its public key. This type is
 	// provided in order to allow easily look up from the human memorable
@@ -1157,7 +1179,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 
 	graphBuilder, err := NewBuilder(&Config{
 		SelfNode:            selfnode.PubKeyBytes,
-		Graph:               graphInstance.graph,
+		Graph:               graphInstance.graph.ChannelGraph,
 		Chain:               chain,
 		ChainView:           chainView,
 		Notifier:            notifier,

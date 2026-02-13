@@ -12,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -31,12 +32,14 @@ type testGraph interface {
 }
 
 type testDBGraph struct {
-	db *graphdb.ChannelGraph
+	db *graphdb.VersionedGraph
 	databaseChannelGraph
 }
 
 func newDiskChanGraph(t *testing.T) (testGraph, error) {
-	graphDB := graphdb.MakeTestGraph(t)
+	graphDB := graphdb.NewVersionedGraph(
+		graphdb.MakeTestGraph(t), lnwire.GossipVersion1,
+	)
 	require.NoError(t, graphDB.Start())
 	t.Cleanup(func() {
 		require.NoError(t, graphDB.Stop())
@@ -490,20 +493,26 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	}
 
 	chanID := randChanID()
-	edge := &models.ChannelEdgeInfo{
-		ChannelID: chanID.ToUint64(),
-		Capacity:  capacity,
-		Features:  lnwire.EmptyFeatureVector(),
+	nodeKey1 := route.NewVertex(lnNode1)
+	nodeKey2 := route.NewVertex(lnNode2)
+	btcKey1 := route.NewVertex(lnNode1)
+	btcKey2 := route.NewVertex(lnNode2)
+	edge, err := models.NewV1Channel(
+		chanID.ToUint64(), chainhash.Hash{}, nodeKey1, nodeKey2,
+		&models.ChannelV1Fields{
+			BitcoinKey1Bytes: btcKey1,
+			BitcoinKey2Bytes: btcKey2,
+		}, models.WithCapacity(capacity),
+	)
+	if err != nil {
+		return nil, nil, err
 	}
-	copy(edge.NodeKey1Bytes[:], lnNode1.SerializeCompressed())
-	copy(edge.NodeKey2Bytes[:], lnNode2.SerializeCompressed())
-	copy(edge.BitcoinKey1Bytes[:], lnNode1.SerializeCompressed())
-	copy(edge.BitcoinKey2Bytes[:], lnNode2.SerializeCompressed())
 
 	if err := d.db.AddChannelEdge(ctx, edge); err != nil {
 		return nil, nil, err
 	}
 	edgePolicy := &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),
@@ -520,6 +529,7 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		return nil, nil, err
 	}
 	edgePolicy = &models.ChannelEdgePolicy{
+		Version:                   lnwire.GossipVersion1,
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),

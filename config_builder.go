@@ -1096,7 +1096,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 	// The graph store implementation we will use depends on whether
 	// native SQL is enabled or not.
-	var graphStore graphdb.V1Store
+	var graphStore graphdb.Store
 
 	// Instantiate a native SQL store if the flag is set.
 	if d.cfg.DB.UseNativeSQL {

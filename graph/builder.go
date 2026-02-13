@@ -111,7 +111,8 @@ type Builder struct {
 
 	bestHeight atomic.Uint32
 
-	cfg *Config
+	cfg     *Config
+	v1Graph *graphdb.VersionedGraph
 
 	// newBlocks is a channel in which new blocks connected to the end of
 	// the main chain are sent over, and blocks updated after a call to
@@ -146,7 +147,11 @@ var _ ChannelGraphSource = (*Builder)(nil)
 // NewBuilder constructs a new Builder.
 func NewBuilder(cfg *Config) (*Builder, error) {
 	return &Builder{
-		cfg:            cfg,
+		cfg: cfg,
+		// For now, we'll just use V1 graph reader.
+		v1Graph: graphdb.NewVersionedGraph(
+			cfg.Graph, lnwire.GossipVersion1,
+		),
 		channelEdgeMtx: multimutex.NewMutex[uint64](),
 		statTicker:     ticker.New(defaultStatInterval),
 		stats:          new(builderStats),
@@ -620,7 +625,7 @@ func (b *Builder) pruneZombieChans() error {
 		toPrune = append(toPrune, chanID)
 		log.Tracef("Pruning zombie channel with ChannelID(%v)", chanID)
 	}
-	err := b.cfg.Graph.DeleteChannelEdges(
+	err := b.v1Graph.DeleteChannelEdges(
 		b.cfg.StrictZombiePruning, true, toPrune...,
 	)
 	if err != nil {
@@ -874,7 +879,7 @@ func (b *Builder) assertNodeAnnFreshness(ctx context.Context, node route.Vertex,
 	// node announcements, we will ignore such nodes. If we do know about
 	// this node, check that this update brings info newer than what we
 	// already have.
-	lastUpdate, exists, err := b.cfg.Graph.HasNode(ctx, node)
+	lastUpdate, exists, err := b.cfg.Graph.HasV1Node(ctx, node)
 	if err != nil {
 		return fmt.Errorf("unable to query for the "+
 			"existence of node: %w", err)
@@ -947,19 +952,12 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 		return false
 	}
 
-	update := &models.ChannelEdgePolicy{
-		SigBytes:                  msg.Signature.ToSignatureBytes(),
-		ChannelID:                 msg.ShortChannelID.ToUint64(),
-		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
-		MessageFlags:              msg.MessageFlags,
-		ChannelFlags:              msg.ChannelFlags,
-		TimeLockDelta:             msg.TimeLockDelta,
-		MinHTLC:                   msg.HtlcMinimumMsat,
-		MaxHTLC:                   msg.HtlcMaximumMsat,
-		FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
-		FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
-		InboundFee:                msg.InboundFee.ValOpt(),
-		ExtraOpaqueData:           msg.ExtraOpaqueData,
+	update, err := models.ChanEdgePolicyFromWire(
+		msg.ShortChannelID.ToUint64(), msg,
+	)
+	if err != nil {
+		log.Errorf("Unable to parse channel update: %v", err)
+		return false
 	}
 
 	err = b.UpdateEdge(ctx, update)
@@ -1045,8 +1043,8 @@ func (b *Builder) addEdge(ctx context.Context, edge *models.ChannelEdgeInfo,
 
 	// Prior to processing the announcement we first check if we
 	// already know of this channel, if so, then we can exit early.
-	_, _, exists, isZombie, err := b.cfg.Graph.HasChannelEdge(
-		edge.ChannelID,
+	exists, isZombie, err := b.cfg.Graph.HasChannelEdge(
+		edge.Version, edge.ChannelID,
 	)
 	if err != nil && !errors.Is(err, graphdb.ErrGraphNoEdgesFound) {
 		return fmt.Errorf("unable to check for edge existence: %w",
@@ -1147,7 +1145,7 @@ func (b *Builder) updateEdge(ctx context.Context,
 	defer b.channelEdgeMtx.Unlock(policy.ChannelID)
 
 	edge1Timestamp, edge2Timestamp, exists, isZombie, err :=
-		b.cfg.Graph.HasChannelEdge(policy.ChannelID)
+		b.cfg.Graph.HasV1ChannelEdge(policy.ChannelID)
 	if err != nil && !errors.Is(err, graphdb.ErrGraphNoEdgesFound) {
 		return fmt.Errorf("unable to check for edge existence: %w", err)
 	}
@@ -1266,7 +1264,7 @@ func (b *Builder) GetChannelByID(chanID lnwire.ShortChannelID) (
 func (b *Builder) FetchNode(ctx context.Context,
 	node route.Vertex) (*models.Node, error) {
 
-	return b.cfg.Graph.FetchNode(ctx, node)
+	return b.v1Graph.FetchNode(ctx, node)
 }
 
 // ForAllOutgoingChannels is used to iterate over all outgoing channels owned by
@@ -1278,7 +1276,7 @@ func (b *Builder) ForAllOutgoingChannels(ctx context.Context,
 	reset func()) error {
 
 	return b.cfg.Graph.ForEachNodeChannel(
-		ctx, b.cfg.SelfNode,
+		ctx, lnwire.GossipVersion1, b.cfg.SelfNode,
 		func(c *models.ChannelEdgeInfo, e *models.ChannelEdgePolicy,
 			_ *models.ChannelEdgePolicy) error {
 
@@ -1325,7 +1323,7 @@ func (b *Builder) IsStaleNode(ctx context.Context, node route.Vertex,
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) IsPublicNode(node route.Vertex) (bool, error) {
-	return b.cfg.Graph.IsPublicNode(node)
+	return b.v1Graph.IsPublicNode(node)
 }
 
 // IsKnownEdge returns true if the graph source already knows of the passed
@@ -1333,8 +1331,8 @@ func (b *Builder) IsPublicNode(node route.Vertex) (bool, error) {
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
-	_, _, exists, isZombie, _ := b.cfg.Graph.HasChannelEdge(
-		chanID.ToUint64(),
+	exists, isZombie, _ := b.cfg.Graph.HasChannelEdge(
+		lnwire.GossipVersion1, chanID.ToUint64(),
 	)
 
 	return exists || isZombie
@@ -1345,7 +1343,9 @@ func (b *Builder) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) IsZombieEdge(chanID lnwire.ShortChannelID) (bool, error) {
-	_, _, _, isZombie, err := b.cfg.Graph.HasChannelEdge(chanID.ToUint64())
+	_, isZombie, err := b.cfg.Graph.HasChannelEdge(
+		lnwire.GossipVersion1, chanID.ToUint64(),
+	)
 
 	return isZombie, err
 }
@@ -1358,7 +1358,7 @@ func (b *Builder) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 	timestamp time.Time, flags lnwire.ChanUpdateChanFlags) bool {
 
 	edge1Timestamp, edge2Timestamp, exists, isZombie, err :=
-		b.cfg.Graph.HasChannelEdge(chanID.ToUint64())
+		b.cfg.Graph.HasV1ChannelEdge(chanID.ToUint64())
 	if err != nil {
 		log.Debugf("Check stale edge policy got error: %v", err)
 		return false

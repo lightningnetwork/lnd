@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -15,14 +14,14 @@ import (
 // information concerning fees, and minimum time-lock information which is
 // utilized during path finding.
 type ChannelEdgePolicy struct {
+	// Version is the gossip version of the channel update that produced
+	// this policy.
+	Version lnwire.GossipVersion
+
 	// SigBytes is the raw bytes of the signature of the channel edge
 	// policy. We'll only parse these if the caller needs to access the
-	// signature for validation purposes. Do not set SigBytes directly, but
-	// use SetSigBytes instead to make sure that the cache is invalidated.
+	// signature for validation purposes.
 	SigBytes []byte
-
-	// sig is a cached fully parsed signature.
-	sig *ecdsa.Signature
 
 	// ChannelID is the unique channel ID for the channel. The first 3
 	// bytes are the block height, the next 3 the index within the block,
@@ -33,6 +32,14 @@ type ChannelEdgePolicy struct {
 	// was received.
 	LastUpdate time.Time
 
+	// LastBlockHeight is the block height that timestamps the last update
+	// for v2 channel updates.
+	LastBlockHeight uint32
+
+	// SecondPeer indicates whether this policy was announced by the second
+	// peer in the channel for v2 channel updates.
+	SecondPeer bool
+
 	// MessageFlags is a bitfield which indicates the presence of optional
 	// fields (like max_htlc) in the policy.
 	MessageFlags lnwire.ChanUpdateMsgFlags
@@ -40,6 +47,10 @@ type ChannelEdgePolicy struct {
 	// ChannelFlags is a bitfield which signals the capabilities of the
 	// channel as well as the directed edge this update applies to.
 	ChannelFlags lnwire.ChanUpdateChanFlags
+
+	// DisableFlags is a v2-specific bitfield which signals whether the
+	// channel is disabled for incoming or outgoing traffic.
+	DisableFlags lnwire.ChanUpdateDisableFlags
 
 	// TimeLockDelta is the number of blocks this node will subtract from
 	// the expiry of an incoming HTLC. This value expresses the time buffer
@@ -82,38 +93,81 @@ type ChannelEdgePolicy struct {
 	// and ensure we're able to make upgrades to the network in a forwards
 	// compatible manner.
 	ExtraOpaqueData lnwire.ExtraOpaqueData
+
+	// ExtraSignedFields are the extra signed fields found in v2 channel
+	// updates.
+	ExtraSignedFields map[uint64][]byte
 }
 
-// Signature is a channel announcement signature, which is needed for proper
-// edge policy announcement.
-//
-// NOTE: By having this method to access an attribute, we ensure we only need
-// to fully deserialize the signature if absolutely necessary.
-func (c *ChannelEdgePolicy) Signature() (*ecdsa.Signature, error) {
-	if c.sig != nil {
-		return c.sig, nil
+// ChanEdgePolicyFromWire constructs a ChannelEdgePolicy from a channel update
+// message.
+func ChanEdgePolicyFromWire(scid uint64,
+	update lnwire.ChannelUpdate) (*ChannelEdgePolicy, error) {
+
+	switch upd := update.(type) {
+	case *lnwire.ChannelUpdate1:
+		//nolint:ll
+		return &ChannelEdgePolicy{
+			Version:                   lnwire.GossipVersion1,
+			SigBytes:                  upd.Signature.ToSignatureBytes(),
+			ChannelID:                 scid,
+			LastUpdate:                time.Unix(int64(upd.Timestamp), 0),
+			MessageFlags:              upd.MessageFlags,
+			ChannelFlags:              upd.ChannelFlags,
+			TimeLockDelta:             upd.TimeLockDelta,
+			MinHTLC:                   upd.HtlcMinimumMsat,
+			MaxHTLC:                   upd.HtlcMaximumMsat,
+			FeeBaseMSat:               lnwire.MilliSatoshi(upd.BaseFee),
+			FeeProportionalMillionths: lnwire.MilliSatoshi(upd.FeeRate),
+			InboundFee:                upd.InboundFee.ValOpt(),
+			ExtraOpaqueData:           upd.ExtraOpaqueData,
+		}, nil
+
+	case *lnwire.ChannelUpdate2:
+		return &ChannelEdgePolicy{
+			Version:         lnwire.GossipVersion2,
+			SigBytes:        upd.Signature.Val.ToSignatureBytes(),
+			ChannelID:       scid,
+			LastBlockHeight: upd.BlockHeight.Val,
+			SecondPeer:      upd.SecondPeer.IsSome(),
+			DisableFlags:    upd.DisabledFlags.Val,
+			TimeLockDelta:   upd.CLTVExpiryDelta.Val,
+			MinHTLC:         upd.HTLCMinimumMsat.Val,
+			MaxHTLC:         upd.HTLCMaximumMsat.Val,
+			FeeBaseMSat: lnwire.MilliSatoshi(
+				upd.FeeBaseMsat.Val,
+			),
+			FeeProportionalMillionths: lnwire.MilliSatoshi(
+				upd.FeeProportionalMillionths.Val,
+			),
+			InboundFee:        upd.InboundFee.ValOpt(),
+			ExtraSignedFields: upd.ExtraSignedFields,
+		}, nil
 	}
 
-	sig, err := ecdsa.ParseSignature(c.SigBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	c.sig = sig
-
-	return sig, nil
+	return nil, fmt.Errorf("unknown channel update version: %v",
+		update.MsgType())
 }
 
-// SetSigBytes updates the signature and invalidates the cached parsed
-// signature.
-func (c *ChannelEdgePolicy) SetSigBytes(sig []byte) {
-	c.SigBytes = sig
-	c.sig = nil
+// IsNode1 returns true if this policy was announced by the channel's node_1.
+func (c *ChannelEdgePolicy) IsNode1() bool {
+	if c.Version == lnwire.GossipVersion1 {
+		return c.ChannelFlags&lnwire.ChanUpdateDirection == 0
+	}
+
+	return !c.SecondPeer
 }
 
 // IsDisabled determines whether the edge has the disabled bit set.
+//
+// NOTE: for v2 channel updates, we return true here only if both the incoming
+// and outgoing disabled bits are set.
 func (c *ChannelEdgePolicy) IsDisabled() bool {
-	return c.ChannelFlags.IsDisabled()
+	if c.Version == lnwire.GossipVersion1 {
+		return c.ChannelFlags.IsDisabled()
+	}
+
+	return !c.DisableFlags.IsEnabled()
 }
 
 // ComputeFee computes the fee to forward an HTLC of `amt` milli-satoshis over
@@ -127,7 +181,13 @@ func (c *ChannelEdgePolicy) ComputeFee(
 
 // String returns a human-readable version of the channel edge policy.
 func (c *ChannelEdgePolicy) String() string {
-	return fmt.Sprintf("ChannelID=%v, MessageFlags=%v, ChannelFlags=%v, "+
-		"LastUpdate=%v", c.ChannelID, c.MessageFlags, c.ChannelFlags,
-		c.LastUpdate)
+	if c.Version == lnwire.GossipVersion1 {
+		return fmt.Sprintf("ChannelID=%v, MessageFlags=%v, "+
+			"ChannelFlags=%v, LastUpdate=%v", c.ChannelID,
+			c.MessageFlags, c.ChannelFlags, c.LastUpdate)
+	}
+
+	return fmt.Sprintf("ChannelID=%v, Node1=%v, DisableFlags=%v, "+
+		"BlockHeight=%v", c.ChannelID, !c.SecondPeer,
+		c.DisableFlags, c.LastBlockHeight)
 }

@@ -380,9 +380,23 @@ func (c ChanUpdateDisableFlags) IsEnabled() bool {
 	return c == 0
 }
 
-// String returns the bitfield flags as a string.
+// String returns a human-readable representation of the disable flags.
 func (c ChanUpdateDisableFlags) String() string {
-	return fmt.Sprintf("%08b", c)
+	if c.IsEnabled() {
+		return "Enabled"
+	}
+
+	incoming := c.IncomingDisabled()
+	outgoing := c.OutgoingDisabled()
+
+	switch {
+	case incoming && outgoing:
+		return "Disabled(incoming&outgoing)"
+	case incoming:
+		return "Disabled(incoming)"
+	default:
+		return "Disabled(outgoing)"
+	}
 }
 
 // Record returns the tlv record for the disable flags.

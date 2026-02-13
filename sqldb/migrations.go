@@ -92,6 +92,11 @@ var (
 			// schema. This is optional and can be disabled by the
 			// user if necessary.
 		},
+		{
+			Name:          "000009_graph_v2_columns",
+			Version:       11,
+			SchemaVersion: 9,
+		},
 	}, migrationAdditions...)
 
 	// ErrMigrationMismatch is returned when a migrated record does not

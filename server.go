@@ -321,6 +321,7 @@ type server struct {
 	fundingMgr *funding.Manager
 
 	graphDB *graphdb.ChannelGraph
+	v1Graph *graphdb.VersionedGraph
 
 	chanStateDB *channeldb.ChannelStateDB
 
@@ -669,12 +670,17 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		HtlcInterceptor:             invoiceHtlcModifier,
 	}
 
-	addrSource := channeldb.NewMultiAddrSource(dbs.ChanStateDB, dbs.GraphDB)
+	v1Graph := graphdb.NewVersionedGraph(
+		dbs.GraphDB, lnwire.GossipVersion1,
+	)
+
+	addrSource := channeldb.NewMultiAddrSource(dbs.ChanStateDB, v1Graph)
 
 	s := &server{
 		cfg:            cfg,
 		implCfg:        implCfg,
 		graphDB:        dbs.GraphDB,
+		v1Graph:        v1Graph,
 		chanStateDB:    dbs.ChanStateDB.ChannelStateDB(),
 		addrSource:     addrSource,
 		miscDB:         dbs.ChanStateDB,
@@ -982,7 +988,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		MinProbability: routingConfig.MinRouteProbability,
 	}
 
-	sourceNode, err := dbs.GraphDB.SourceNode(ctx)
+	sourceNode, err := s.v1Graph.SourceNode(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error getting source node: %w", err)
 	}
@@ -1125,7 +1131,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 				*models.ChannelEdgePolicy) error,
 			reset func()) error {
 
-			return s.graphDB.ForEachNodeChannel(ctx, selfVertex,
+			return s.v1Graph.ForEachNodeChannel(
+				ctx, selfVertex,
 				func(c *models.ChannelEdgeInfo,
 					e *models.ChannelEdgePolicy,
 					_ *models.ChannelEdgePolicy) error {
@@ -1416,7 +1423,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			return nil, fmt.Errorf("we don't have an edge")
 		}
 
-		err = s.graphDB.DeleteChannelEdges(
+		err = s.v1Graph.DeleteChannelEdges(
 			false, false, scid.ToUint64(),
 		)
 		return ourPolicy, err
@@ -3434,7 +3441,7 @@ func (s *server) updateAndBroadcastSelfNode(ctx context.Context,
 	// Update the on-disk version of our announcement.
 	// Load and modify self node istead of creating anew instance so we
 	// don't risk overwriting any existing values.
-	selfNode, err := s.graphDB.SourceNode(ctx)
+	selfNode, err := s.v1Graph.SourceNode(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to get current source node: %w", err)
 	}
@@ -5207,7 +5214,7 @@ func (s *server) fetchNodeAdvertisedAddrs(ctx context.Context,
 		return nil, err
 	}
 
-	node, err := s.graphDB.FetchNode(ctx, vertex)
+	node, err := s.v1Graph.FetchNode(ctx, vertex)
 	if err != nil {
 		return nil, err
 	}
@@ -5618,7 +5625,7 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 		nodeLastUpdate = time.Now()
 	)
 
-	srcNode, err := s.graphDB.SourceNode(ctx)
+	srcNode, err := s.v1Graph.SourceNode(ctx)
 	switch {
 	case err == nil:
 		// If we have a source node persisted in the DB already, then we

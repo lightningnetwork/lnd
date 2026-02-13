@@ -75,6 +75,11 @@
   transitions during startup, avoiding lost unlocks during slow database
   initialization.
 
+* [Fixed the gossiper accepting malformed gossip
+messages](https://github.com/lightningnetwork/lnd/pull/10581) by enforcing chain
+hash validation on `ReplyChannelRange`, `ReplyShortChanIDsEnd` and
+`GossipTimestampRange`.
+
 # New Features
 
 - Basic Support for [onion messaging forwarding](https://github.com/lightningnetwork/lnd/pull/9868) 

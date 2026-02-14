@@ -2,6 +2,7 @@ package btcwallet
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -382,7 +383,7 @@ func (b *BtcWallet) Start() error {
 
 	// Establish an RPC connection in addition to starting the goroutines
 	// in the underlying wallet.
-	if err := b.chain.Start(); err != nil {
+	if err := b.chain.Start(context.TODO()); err != nil {
 		return err
 	}
 

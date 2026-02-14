@@ -204,6 +204,7 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 
 	msgChan := make(chan []lnwire.Message, 20)
 	cfg := gossipSyncerCfg{
+		chainHash:              *chaincfg.MainNetParams.GenesisHash,
 		channelSeries:          newMockChannelGraphTimeSeries(hID),
 		encodingType:           encodingType,
 		chunkSize:              chunkSize,
@@ -555,6 +556,7 @@ func TestGossipSyncerApplyNoHistoricalGossipFilter(t *testing.T) {
 
 	// We'll apply this gossip horizon for the remote peer.
 	remoteHorizon := &lnwire.GossipTimestampRange{
+		ChainHash:      syncer.cfg.chainHash,
 		FirstTimestamp: unixStamp(25000),
 		TimestampRange: uint32(1000),
 	}
@@ -615,6 +617,7 @@ func TestGossipSyncerApplyGossipFilter(t *testing.T) {
 
 	// We'll apply this gossip horizon for the remote peer.
 	remoteHorizon := &lnwire.GossipTimestampRange{
+		ChainHash:      syncer.cfg.chainHash,
 		FirstTimestamp: unixStamp(25000),
 		TimestampRange: uint32(1000),
 	}
@@ -844,9 +847,11 @@ func TestGossipSyncerReplyShortChanIDs(t *testing.T) {
 
 	queryReply := []lnwire.Message{
 		&lnwire.ChannelAnnouncement1{
+			ChainHash:      syncer.cfg.chainHash,
 			ShortChannelID: lnwire.NewShortChanIDFromInt(20),
 		},
 		&lnwire.ChannelUpdate1{
+			ChainHash:      syncer.cfg.chainHash,
 			ShortChannelID: lnwire.NewShortChanIDFromInt(20),
 			Timestamp:      unixStamp(999999),
 		},
@@ -879,6 +884,7 @@ func TestGossipSyncerReplyShortChanIDs(t *testing.T) {
 	// With our set up above complete, we'll now attempt to obtain a reply
 	// from the channel syncer for our target chan ID query.
 	err := syncer.replyShortChanIDs(ctx, &lnwire.QueryShortChanIDs{
+		ChainHash:    syncer.cfg.chainHash,
 		ShortChanIDs: queryChanIDs,
 	})
 	require.NoError(t, err, "unable to query for chan IDs")
@@ -951,6 +957,7 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 	const numBlocks = 50
 	const endingBlockHeight = startingBlockHeight + numBlocks - 1
 	query := &lnwire.QueryChannelRange{
+		ChainHash:        syncer.cfg.chainHash,
 		FirstBlockHeight: uint32(startingBlockHeight),
 		NumBlocks:        uint32(numBlocks),
 	}
@@ -1118,18 +1125,21 @@ func TestGossipSyncerReplyChanRangeQueryBlockRange(t *testing.T) {
 	queryReqs := []*lnwire.QueryChannelRange{
 		// full range example
 		{
+			ChainHash:        syncer.cfg.chainHash,
 			FirstBlockHeight: uint32(0),
 			NumBlocks:        uint32(math.MaxUint32),
 		},
 
 		// small query example that does not overflow
 		{
+			ChainHash:        syncer.cfg.chainHash,
 			FirstBlockHeight: uint32(1000),
 			NumBlocks:        uint32(100),
 		},
 
 		// overflow example
 		{
+			ChainHash:        syncer.cfg.chainHash,
 			FirstBlockHeight: uint32(1000),
 			NumBlocks:        uint32(math.MaxUint32),
 		},
@@ -1231,6 +1241,7 @@ func TestGossipSyncerReplyChanRangeQueryNoNewChans(t *testing.T) {
 	// Next, we'll craft a query to ask for all the new chan ID's after
 	// block 100.
 	query := &lnwire.QueryChannelRange{
+		ChainHash:        syncer.cfg.chainHash,
 		FirstBlockHeight: 100,
 		NumBlocks:        50,
 	}
@@ -1387,6 +1398,7 @@ func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 	// last block.
 	replies := []*lnwire.ReplyChannelRange{
 		{
+			ChainHash:        syncer.cfg.chainHash,
 			FirstBlockHeight: 0,
 			NumBlocks:        11,
 			ShortChanIDs: []lnwire.ShortChannelID{
@@ -1396,6 +1408,7 @@ func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 			},
 		},
 		{
+			ChainHash:        syncer.cfg.chainHash,
 			FirstBlockHeight: 11,
 			NumBlocks:        1,
 			ShortChanIDs: []lnwire.ShortChannelID{
@@ -1405,6 +1418,7 @@ func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 			},
 		},
 		{
+			ChainHash:        syncer.cfg.chainHash,
 			FirstBlockHeight: 12,
 			NumBlocks:        1,
 			ShortChanIDs: []lnwire.ShortChannelID{
@@ -1414,6 +1428,7 @@ func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 			},
 		},
 		{
+			ChainHash:        syncer.cfg.chainHash,
 			FirstBlockHeight: 13,
 			NumBlocks:        query.NumBlocks - 13,
 			Complete:         1,
@@ -1588,6 +1603,110 @@ func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 			t.Fatal(err)
 		}
 	}
+}
+
+// TestGossipSyncerProcessMalformedChanRangeReply tests that the GossipSyncer
+// rejects malformed ReplyChannelRange messages from a peer.
+func TestGossipSyncerProcessMalformedChanRangeReply(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	_, syncer, _ := newTestSyncer(
+		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
+		defaultEncoding, defaultChunkSize,
+	)
+
+	replies := []*lnwire.ReplyChannelRange{
+		{
+			ChainHash: *chaincfg.RegressionNetParams.
+				GenesisHash,
+			FirstBlockHeight: 0,
+			NumBlocks:        11,
+			Complete:         1,
+			ShortChanIDs: []lnwire.ShortChannelID{
+				{
+					BlockHeight: 10,
+					TxIndex:     1,
+				},
+			},
+		},
+		{
+			ChainHash:        syncer.cfg.chainHash,
+			FirstBlockHeight: 0,
+			NumBlocks:        11,
+			Complete:         1,
+			ShortChanIDs: []lnwire.ShortChannelID{
+				{
+					BlockHeight: 10,
+					TxIndex:     1,
+				},
+				{
+					BlockHeight: 10,
+					TxIndex:     2,
+				},
+			},
+			Timestamps: []lnwire.ChanUpdateTimestamps{
+				{
+					Timestamp1: uint32(time.Now().Unix()),
+					Timestamp2: uint32(time.Now().Unix()),
+				},
+			},
+		},
+	}
+
+	require.ErrorContains(
+		t, syncer.processChanRangeReply(ctx, replies[0]),
+		"reply includes channels for chain",
+	)
+	require.ErrorContains(
+		t, syncer.processChanRangeReply(ctx, replies[1]),
+		"number of timestamps (1) does not match number of SCIDs (2)",
+	)
+}
+
+// TestGossipSyncerProcessMalformedShortChanIDsEndReply tests that the
+// GossipSyncer rejects malformed ReplyShortChanIDsEnd messages from a peer.
+func TestGossipSyncerProcessMalformedShortChanIDsEndReply(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	_, syncer, _ := newTestSyncer(
+		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
+		defaultEncoding, defaultChunkSize,
+	)
+
+	reply := &lnwire.ReplyShortChanIDsEnd{
+		ChainHash: *chaincfg.RegressionNetParams.GenesisHash,
+		Complete:  1,
+	}
+
+	require.ErrorContains(
+		t, syncer.processScidEndReply(ctx, reply),
+		"reply includes channels for chain",
+	)
+}
+
+// TestGossipSyncerProcessMalformedGossipTimestampRange tests that the
+// GossipSyncer rejects malformed GossipTimestampRange messages from a peer.
+func TestGossipSyncerProcessMalformedGossipTimestampRange(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	_, syncer, _ := newTestSyncer(
+		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
+		defaultEncoding, defaultChunkSize,
+	)
+
+	gossip := &lnwire.GossipTimestampRange{
+		ChainHash:      *chaincfg.RegressionNetParams.GenesisHash,
+		FirstTimestamp: uint32(time.Now().Unix()),
+		TimestampRange: math.MaxUint32,
+	}
+
+	require.ErrorContains(
+		t, syncer.ApplyGossipFilter(ctx, gossip),
+		"gossip filter specifies chain",
+	)
 }
 
 // TestGossipSyncerSynchronizeChanIDs tests that we properly request chunks of
@@ -2243,6 +2362,9 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 				firstTimestamp := uint32(time.Now().Unix())
 				assertMsgSent(
 					t, mChan, &lnwire.GossipTimestampRange{
+						ChainHash: *chaincfg.
+							MainNetParams.
+							GenesisHash,
 						FirstTimestamp: firstTimestamp,
 						TimestampRange: math.MaxUint32,
 					},
@@ -2255,6 +2377,9 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 				// updates.
 				assertMsgSent(
 					t, mChan, &lnwire.GossipTimestampRange{
+						ChainHash: *chaincfg.
+							MainNetParams.
+							GenesisHash,
 						FirstTimestamp: uint32(
 							zeroTimestamp.Unix(),
 						),
@@ -2283,6 +2408,8 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 				// updates.
 				firstTimestamp := uint32(time.Now().Unix())
 				assertMsgSent(t, msgChan, &lnwire.GossipTimestampRange{
+					ChainHash: *chaincfg.MainNetParams.
+						GenesisHash,
 					FirstTimestamp: firstTimestamp,
 					TimestampRange: math.MaxUint32,
 				})
@@ -2363,6 +2490,7 @@ func TestGossipSyncerHistoricalSync(t *testing.T) {
 	// We should expect to see a single lnwire.QueryChannelRange message be
 	// sent to the remote peer with a FirstBlockHeight of 0.
 	expectedMsg := &lnwire.QueryChannelRange{
+		ChainHash:        syncer.cfg.chainHash,
 		FirstBlockHeight: 0,
 		NumBlocks:        latestKnownHeight,
 		QueryOptions:     lnwire.NewTimestampQueryOption(),

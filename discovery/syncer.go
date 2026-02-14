@@ -587,7 +587,7 @@ func (g *GossipSyncer) channelGraphSyncer(ctx context.Context) {
 					if err != nil {
 						log.Errorf("Unable to "+
 							"process chan range "+
-							"query: %v", err)
+							"reply: %v", err)
 						return
 					}
 					continue
@@ -647,9 +647,18 @@ func (g *GossipSyncer) channelGraphSyncer(ctx context.Context) {
 				// If this is the final reply to one of our
 				// queries, then we'll loop back into our query
 				// state to send of the remaining query chunks.
-				_, ok := msg.(*lnwire.ReplyShortChanIDsEnd)
+				reply, ok := msg.(*lnwire.ReplyShortChanIDsEnd)
 				if ok {
-					g.setSyncState(queryNewChannels)
+					err := g.processScidEndReply(
+						ctx, reply,
+					)
+					if err != nil {
+						log.Errorf("Unable to "+
+							"process short chan "+
+							"id end reply: %v", err)
+
+						return
+					}
 					continue
 				}
 
@@ -919,6 +928,26 @@ func isLegacyReplyChannelRange(query *lnwire.QueryChannelRange,
 func (g *GossipSyncer) processChanRangeReply(_ context.Context,
 	msg *lnwire.ReplyChannelRange) error {
 
+	// If the peer sent us a reply with a different chain hash, then we are
+	// not going to process the message any further.
+	if g.cfg.chainHash != msg.ChainHash {
+		return fmt.Errorf("reply includes channels for "+
+			"chain=%v, we're on chain=%v", msg.ChainHash,
+			g.cfg.chainHash)
+	}
+
+	// Although we already verified that if a timestamp is provided, it is
+	// provided for each SCID, we still enforce this check here for
+	// additional safety. Without this check, a panic could occur if
+	// validation is missing in the Decode function.
+	if len(msg.Timestamps) != 0 &&
+		len(msg.Timestamps) != len(msg.ShortChanIDs) {
+
+		return fmt.Errorf("number of timestamps (%d) does not match "+
+			"number of SCIDs (%d)", len(msg.Timestamps),
+			len(msg.ShortChanIDs))
+	}
+
 	// isStale returns whether the timestamp is too far into the past.
 	isStale := func(timestamp time.Time) bool {
 		return time.Since(timestamp) > graph.DefaultChannelPruneExpiry
@@ -1099,6 +1128,25 @@ func (g *GossipSyncer) processChanRangeReply(_ context.Context,
 
 	log.Infof("GossipSyncer(%x): starting query for %v new chans",
 		g.cfg.peerPub[:], len(newChans))
+
+	return nil
+}
+
+// processScidEndReply is called when the GossipSyncer receives the final reply
+// to one of our query SCIDs requests, after which we transition back into the
+// query state.
+func (g *GossipSyncer) processScidEndReply(_ context.Context,
+	msg *lnwire.ReplyShortChanIDsEnd) error {
+
+	// If the peer sent us a reply with a different chain hash, then we are
+	// not going to process the message any further.
+	if g.cfg.chainHash != msg.ChainHash {
+		return fmt.Errorf("reply includes channels for "+
+			"chain=%v, we're on chain=%v", msg.ChainHash,
+			g.cfg.chainHash)
+	}
+
+	g.setSyncState(queryNewChannels)
 
 	return nil
 }
@@ -1432,6 +1480,13 @@ func (g *GossipSyncer) replyShortChanIDs(ctx context.Context,
 // to the peer that aren't within the time range of the filter.
 func (g *GossipSyncer) ApplyGossipFilter(ctx context.Context,
 	filter *lnwire.GossipTimestampRange) error {
+
+	// If the peer sent us a gossip with a different chain hash, then we are
+	// not going to process the message any further.
+	if g.cfg.chainHash != filter.ChainHash {
+		return fmt.Errorf("gossip filter specifies chain=%v, we're on "+
+			"chain=%v", filter.ChainHash, g.cfg.chainHash)
+	}
 
 	g.Lock()
 

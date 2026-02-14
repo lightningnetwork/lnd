@@ -1453,6 +1453,10 @@
           "type": "integer",
           "format": "int64",
           "description": "Optional. The deadline delta in number of blocks that the output\nshould be spent within. This translates internally to the width of the\nfee function that the sweeper will use to bump the fee rate. When the\ndeadline is reached, ALL the budget will be spent as fees."
+        },
+        "include_raw_tx": {
+          "type": "boolean",
+          "description": "Optional. Whether to include the raw transaction hex in the response. This\nis useful for cases where the transaction does not propagate and the caller\nwants to manually broadcast it."
         }
       }
     },
@@ -1462,6 +1466,10 @@
         "status": {
           "type": "string",
           "description": "The status of the bump fee operation."
+        },
+        "raw_tx": {
+          "type": "string",
+          "description": "The raw transaction hex of the sweeping transaction. This field is only\npopulated if include_raw_tx was set to true in the request and the sweep\ntransaction was successfully created."
         }
       }
     },

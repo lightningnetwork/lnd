@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
@@ -19,6 +20,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1465,4 +1468,168 @@ func TestRemovePendingChannel(t *testing.T) {
 	}, wait.DefaultTimeout)
 
 	require.NoError(t, err)
+}
+
+// mockAuxTrafficShaper is a mock implementation of htlcswitch.AuxTrafficShaper
+// for testing the createHtlcValidator function.
+type mockAuxTrafficShaper struct {
+	// shouldHandle is the return value for ShouldHandleTraffic.
+	shouldHandle bool
+
+	// shouldHandleErr is the error to return from ShouldHandleTraffic.
+	shouldHandleErr error
+
+	// paymentBandwidthCalled tracks whether PaymentBandwidth was called.
+	paymentBandwidthCalled bool
+
+	// paymentBandwidth is the bandwidth to return from PaymentBandwidth.
+	paymentBandwidth lnwire.MilliSatoshi
+
+	// paymentBandwidthErr is the error to return from PaymentBandwidth.
+	paymentBandwidthErr error
+}
+
+// ShouldHandleTraffic returns the configured shouldHandle value.
+func (m *mockAuxTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
+	_, _ fn.Option[tlv.Blob]) (bool, error) {
+
+	return m.shouldHandle, m.shouldHandleErr
+}
+
+// PaymentBandwidth records that it was called and returns the configured
+// bandwidth.
+func (m *mockAuxTrafficShaper) PaymentBandwidth(_, _,
+	_ fn.Option[tlv.Blob], _, _ lnwire.MilliSatoshi,
+	_ lnwallet.AuxHtlcView, _ route.Vertex) (lnwire.MilliSatoshi, error) {
+
+	m.paymentBandwidthCalled = true
+
+	return m.paymentBandwidth, m.paymentBandwidthErr
+}
+
+// ProduceHtlcExtraData is a no-op for this mock.
+func (m *mockAuxTrafficShaper) ProduceHtlcExtraData(
+	totalAmount lnwire.MilliSatoshi, _ lnwire.CustomRecords,
+	_ route.Vertex) (lnwire.MilliSatoshi, lnwire.CustomRecords, error) {
+
+	return totalAmount, nil, nil
+}
+
+// IsCustomHTLC returns false for this mock.
+func (m *mockAuxTrafficShaper) IsCustomHTLC(_ lnwire.CustomRecords) bool {
+	return false
+}
+
+// Compile-time check that mockAuxTrafficShaper implements AuxTrafficShaper.
+var _ htlcswitch.AuxTrafficShaper = (*mockAuxTrafficShaper)(nil)
+
+// TestCreateHtlcValidator tests that the HTLC validator created by
+// createHtlcValidator respects the ShouldHandleTraffic check. When
+// ShouldHandleTraffic returns false, the validator should return nil without
+// calling PaymentBandwidth.
+func TestCreateHtlcValidator(t *testing.T) {
+	t.Parallel()
+
+	// Create a minimal Brontide with just the identity key set.
+	privKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	peer := &Brontide{
+		cfg: Config{
+			Addr: &lnwire.NetAddress{
+				IdentityKey: privKey.PubKey(),
+			},
+		},
+	}
+
+	// Create a mock channel with minimal required fields.
+	dbChan := &channeldb.OpenChannel{
+		ShortChannelID: lnwire.NewShortChanIDFromInt(123),
+	}
+
+	testCases := []struct {
+		name                  string
+		shouldHandle          bool
+		shouldHandleErr       error
+		paymentBandwidth      lnwire.MilliSatoshi
+		paymentBandwidthErr   error
+		htlcAmount            lnwire.MilliSatoshi
+		linkBandwidth         lnwire.MilliSatoshi
+		expectError           bool
+		expectBandwidthCalled bool
+	}{
+		{
+			name:                  "non-custom channel skips check",
+			shouldHandle:          false,
+			paymentBandwidth:      0,
+			htlcAmount:            1000,
+			linkBandwidth:         5000,
+			expectError:           false,
+			expectBandwidthCalled: false,
+		},
+		{
+			name:                  "sufficient bandwidth",
+			shouldHandle:          true,
+			paymentBandwidth:      10000,
+			htlcAmount:            1000,
+			linkBandwidth:         5000,
+			expectError:           false,
+			expectBandwidthCalled: true,
+		},
+		{
+			name:                  "insufficient bandwidth",
+			shouldHandle:          true,
+			paymentBandwidth:      500,
+			htlcAmount:            1000,
+			linkBandwidth:         5000,
+			expectError:           true,
+			expectBandwidthCalled: true,
+		},
+		{
+			name:                  "ShouldHandleTraffic error",
+			shouldHandle:          false,
+			shouldHandleErr:       fmt.Errorf("shaper error"),
+			htlcAmount:            1000,
+			linkBandwidth:         5000,
+			expectError:           true,
+			expectBandwidthCalled: false,
+		},
+		{
+			name:                  "PaymentBandwidth error",
+			shouldHandle:          true,
+			paymentBandwidthErr:   fmt.Errorf("bandwidth error"),
+			htlcAmount:            1000,
+			linkBandwidth:         5000,
+			expectError:           true,
+			expectBandwidthCalled: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := &mockAuxTrafficShaper{
+				shouldHandle:        tc.shouldHandle,
+				shouldHandleErr:     tc.shouldHandleErr,
+				paymentBandwidth:    tc.paymentBandwidth,
+				paymentBandwidthErr: tc.paymentBandwidthErr,
+			}
+
+			validator := peer.createHtlcValidator(dbChan, mock)
+
+			err := validator(
+				tc.htlcAmount, tc.linkBandwidth,
+				nil, lnwallet.AuxHtlcView{},
+			)
+
+			if tc.expectError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			require.Equal(t, tc.expectBandwidthCalled,
+				mock.paymentBandwidthCalled,
+				"PaymentBandwidth called mismatch")
+		})
+	}
 }

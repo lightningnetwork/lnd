@@ -3138,12 +3138,11 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 	}
 
 	// All the probabilities are set to 1. So if we restrict the path length
-	// to 2 and allow a max of 3 routes, then we expect three paths here.
+	// to 2, then we expect three paths here.
 	routes, err := ctx.router.FindBlindedPaths(
 		dave, 1000, probabilitySrc, &BlindedPathRestrictions{
 			MinDistanceFromIntroNode: 2,
 			NumHops:                  2,
-			MaxNumPaths:              3,
 		},
 	)
 	require.NoError(t, err)
@@ -3177,8 +3176,7 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 	}
 
 	// Now, let's lower the MC probability of the B-D to 0.5 and F-D link to
-	// 0.25. We will leave the MaxNumPaths as 3 and so all paths should
-	// still be returned but the order should be:
+	// 0.25. All paths should still be returned but the order should be:
 	// 1) A -> C -> D
 	// 2) A -> B -> D
 	// 3) A -> F -> D
@@ -3188,7 +3186,6 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 		dave, 1000, probabilitySrc, &BlindedPathRestrictions{
 			MinDistanceFromIntroNode: 2,
 			NumHops:                  2,
-			MaxNumPaths:              3,
 		},
 	)
 	require.NoError(t, err)
@@ -3205,7 +3202,6 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 		dave, 1000, probabilitySrc, &BlindedPathRestrictions{
 			MinDistanceFromIntroNode: 2,
 			NumHops:                  2,
-			MaxNumPaths:              3,
 		},
 	)
 	require.NoError(t, err)
@@ -3215,27 +3211,12 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 		"alice,charlie,dave",
 	})
 
-	// Change the MaxNumPaths to 1 to assert that only the best route is
-	// returned.
-	routes, err = ctx.router.FindBlindedPaths(
-		dave, 1000, probabilitySrc, &BlindedPathRestrictions{
-			MinDistanceFromIntroNode: 2,
-			NumHops:                  2,
-			MaxNumPaths:              1,
-		},
-	)
-	require.NoError(t, err)
-	assertPaths(routes, []string{
-		"alice,bob,dave",
-	})
-
 	// Test the edge case where Dave, the recipient, is also the
 	// introduction node.
 	routes, err = ctx.router.FindBlindedPaths(
 		dave, 1000, probabilitySrc, &BlindedPathRestrictions{
 			MinDistanceFromIntroNode: 0,
 			NumHops:                  0,
-			MaxNumPaths:              1,
 		},
 	)
 	require.NoError(t, err)
@@ -3250,7 +3231,6 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 		dave, 1000, probabilitySrc, &BlindedPathRestrictions{
 			MinDistanceFromIntroNode: 2,
 			NumHops:                  2,
-			MaxNumPaths:              3,
 		},
 	)
 	require.NoError(t, err)
@@ -3265,7 +3245,6 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 		dave, 1000, probabilitySrc, &BlindedPathRestrictions{
 			MinDistanceFromIntroNode: 2,
 			NumHops:                  2,
-			MaxNumPaths:              3,
 			NodeOmissionSet:          fn.NewSet(frank),
 		},
 	)

@@ -603,9 +603,6 @@ type BlindedPathRestrictions struct {
 	// our node along with an introduction node hop.
 	NumHops uint8
 
-	// MaxNumPaths is the maximum number of blinded paths to select.
-	MaxNumPaths uint8
-
 	// NodeOmissionSet is a set of nodes that should not be used within any
 	// of the blinded paths that we generate.
 	NodeOmissionSet fn.Set[route.Vertex]
@@ -711,18 +708,13 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 		return routes[i].probability > routes[j].probability
 	})
 
-	// Now just choose the best paths up until the maximum number of allowed
-	// paths.
-	bestRoutes := make([]*route.Route, 0, restrictions.MaxNumPaths)
+	// Now just get all paths ordered by probability.
+	allRoutes := make([]*route.Route, 0, len(routes))
 	for _, route := range routes {
-		if len(bestRoutes) >= int(restrictions.MaxNumPaths) {
-			break
-		}
-
-		bestRoutes = append(bestRoutes, route.route)
+		allRoutes = append(allRoutes, route.route)
 	}
 
-	return bestRoutes, nil
+	return allRoutes, nil
 }
 
 // generateNewSessionKey generates a new ephemeral private key to be used for a

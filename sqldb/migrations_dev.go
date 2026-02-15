@@ -4,8 +4,8 @@ package sqldb
 
 var migrationAdditions = []MigrationConfig{
 	{
-		Name:          "000009_payments",
-		Version:       11,
-		SchemaVersion: 9,
+		Name:          "000010_payments",
+		Version:       12,
+		SchemaVersion: 10,
 	},
 }

@@ -301,14 +301,25 @@ func (db *db) Close() error {
 	return dbConns.Close(db.cfg.Dsn)
 }
 
+// ErrNoTxActive is a partial error string that is returned by SQLite when a
+// rollback is attempted but no transaction is active. This can occur when
+// SQLite has already auto-rolled-back the transaction due to a critical error
+// such as SQLITE_IOERR, SQLITE_FULL, or SQLITE_NOMEM.
+const ErrNoTxActive = "no transaction is active"
+
 // attemptRollback attempts to roll back the transaction, and if it fails, it
 // will return the error. If the transaction was already closed, it will return
-// nil.
+// nil. This also handles the case where the underlying database engine (e.g.,
+// SQLite) has already rolled back the transaction automatically due to a
+// critical error.
 func attemptRollback(tx *readWriteTx) error {
 	rollbackErr := tx.Rollback()
 	if rollbackErr != nil &&
 		!errors.Is(rollbackErr, walletdb.ErrTxClosed) &&
-		!strings.Contains(rollbackErr.Error(), "conn closed") {
+		!strings.Contains(rollbackErr.Error(), "conn closed") &&
+		!strings.Contains(
+			rollbackErr.Error(), ErrNoTxActive,
+		) {
 
 		return fmt.Errorf("error rolling back tx: %w", rollbackErr)
 	}

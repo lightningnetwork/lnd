@@ -75,6 +75,11 @@
   transitions during startup, avoiding lost unlocks during slow database
   initialization.
 
+* [Ensure that the interceptor is properly closed on failure paths in `lnd.Start`](https://github.com/lightningnetwork/lnd/pull/10587).
+  This is mostly relevant for mobile and lnd-as-a-lib use-cases where subsequent
+  attempts to start lnd would otherwise fail with "intercept already started"
+  errors as the state stays in-process.
+
 # New Features
 
 - Basic Support for [onion messaging forwarding](https://github.com/lightningnetwork/lnd/pull/9868) 
@@ -191,6 +196,7 @@
 * Boris Nagaev
 * Elle Mouton
 * Erick Cestari
+* Hampus Sjöberg
 * hieblmi
 * Matt Morehouse
 * Mohamed Awnallah

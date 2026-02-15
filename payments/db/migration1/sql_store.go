@@ -1,4 +1,4 @@
-package paymentsdb
+package migration1
 
 import (
 	"bytes"
@@ -12,9 +12,9 @@ import (
 
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/payments/db/migration1/sqlc"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sqldb"
-	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
 // PaymentIntentType represents the type of payment intent.
@@ -128,6 +128,10 @@ var _ DB = (*SQLStore)(nil)
 type SQLStoreConfig struct {
 	// QueryConfig holds configuration values for SQL queries.
 	QueryCfg *sqldb.QueryConfig
+
+	// SkipMigrationValidation disables in-migration validation checks.
+	// This is intended for large databases where validation is too slow.
+	SkipMigrationValidation bool
 }
 
 // NewSQLStore creates a new SQLStore instance given an open

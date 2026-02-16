@@ -1847,16 +1847,17 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	// iterating over each node, once again if the map is empty that
 	// indicates that all edges have properly been reached.
 	var nodes []route.Vertex
-	err = graph.ForEachNodeCacheable(ctx, func(node route.Vertex,
-		features *lnwire.FeatureVector) error {
+	err = graph.ForEachNodeCacheable(
+		ctx, lnwire.GossipVersion1, func(node route.Vertex,
+			features *lnwire.FeatureVector) error {
 
-		delete(nodeMap, node)
-		nodes = append(nodes, node)
+			delete(nodeMap, node)
+			nodes = append(nodes, node)
 
-		return nil
-	}, func() {
-		nodes = nil
-	})
+			return nil
+		}, func() {
+			nodes = nil
+		})
 	require.NoError(t, err)
 	require.Len(t, nodeMap, 0)
 
@@ -5062,15 +5063,16 @@ func BenchmarkForEachChannel(b *testing.B) {
 		)
 
 		var nodes []route.Vertex
-		err := graph.ForEachNodeCacheable(ctx, func(node route.Vertex,
-			vector *lnwire.FeatureVector) error {
+		err := graph.ForEachNodeCacheable(
+			ctx, lnwire.GossipVersion1, func(node route.Vertex,
+				vector *lnwire.FeatureVector) error {
 
-			nodes = append(nodes, node)
+				nodes = append(nodes, node)
 
-			return nil
-		}, func() {
-			nodes = nil
-		})
+				return nil
+			}, func() {
+				nodes = nil
+			})
 		require.NoError(b, err)
 
 		for _, n := range nodes {

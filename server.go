@@ -3620,42 +3620,39 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 	// node announcements and attempt to reconnect to each node.
 	var numOutboundConns int
 	for pubStr, nodeAddr := range nodeAddrsMap {
-		// Add this peer to the set of peers we should maintain a
-		// persistent connection with. We set the value to false to
-		// indicate that we should not continue to reconnect if the
-		// number of channels returns to zero, since this peer has not
-		// been requested as perm by the user.
-		s.persistentPeers[pubStr] = false
-		if _, ok := s.persistentPeersBackoff[pubStr]; !ok {
-			s.persistentPeersBackoff[pubStr] = s.cfg.MinBackoff
-		}
-
+		// Build the address list for this peer.
+		addrs := make([]*lnwire.NetAddress, 0,
+			len(nodeAddr.addresses))
 		for _, address := range nodeAddr.addresses {
-			// Create a wrapper address which couples the IP and
-			// the pubkey so the brontide authenticated connection
-			// can be established.
-			lnAddr := &lnwire.NetAddress{
+			addrs = append(addrs, &lnwire.NetAddress{
 				IdentityKey: nodeAddr.pubKey,
 				Address:     address,
-			}
-
-			s.persistentPeerAddrs[pubStr] = append(
-				s.persistentPeerAddrs[pubStr], lnAddr)
+			})
 		}
 
-		// We'll connect to the first 10 peers immediately, then
-		// randomly stagger any remaining connections if the
-		// stagger initial reconnect flag is set. This ensures
-		// that mobile nodes or nodes with a small number of
-		// channels obtain connectivity quickly, but larger
-		// nodes are able to disperse the costs of connecting to
-		// all peers at once.
-		if numOutboundConns < numInstantInitReconnect ||
-			!s.cfg.StaggerInitialReconnect {
+		// Create the worker for this peer (not perm — it was
+		// discovered from the channel graph, not requested by
+		// the user).
+		w := s.getOrCreateWorker(pubStr, false, addrs)
 
-			go s.connectToPersistentPeer(pubStr)
-		} else {
-			go s.delayInitialReconnect(pubStr)
+		// We'll connect to the first 10 peers immediately,
+		// then randomly stagger any remaining connections if
+		// the stagger initial reconnect flag is set. The
+		// worker handles the delay via its backoff wait,
+		// which also responds to commands during the wait.
+		var delay time.Duration
+		if numOutboundConns >= numInstantInitReconnect &&
+			s.cfg.StaggerInitialReconnect {
+
+			delay = time.Duration(
+				prand.Intn(maxInitReconnectDelay),
+			) * time.Second
+		}
+
+		w.cmdChan <- connWorkerMsg{
+			cmd:     cmdConnect,
+			addrs:   addrs,
+			backoff: delay,
 		}
 
 		numOutboundConns++

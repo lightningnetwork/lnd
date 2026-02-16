@@ -250,3 +250,26 @@ func (a *NodeAnnouncement1) TimestampDesc() string {
 func (a *NodeAnnouncement1) GossipVersion() GossipVersion {
 	return GossipVersion1
 }
+
+// CmpAge can be used to determine if this announcement is older or newer than
+// the passed announcement.
+//
+// NOTE: this is part of the NodeAnnouncement interface.
+func (a *NodeAnnouncement1) CmpAge(announcement NodeAnnouncement) (
+	CompareResult, error) {
+
+	other, ok := announcement.(*NodeAnnouncement1)
+	if !ok {
+		return 0, fmt.Errorf("expected *NodeAnnouncement1, got: %T",
+			announcement)
+	}
+
+	switch {
+	case a.Timestamp < other.Timestamp:
+		return LessThan, nil
+	case a.Timestamp > other.Timestamp:
+		return GreaterThan, nil
+	default:
+		return EqualTo, nil
+	}
+}

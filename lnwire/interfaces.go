@@ -140,6 +140,12 @@ type NodeAnnouncement interface {
 	// timestamp of the announcement.
 	TimestampDesc() string
 
+	// CmpAge can be used to determine if the announcement is older or
+	// newer than the passed announcement. It returns LessThan if this
+	// announcement is older than the passed announcement, GreaterThan if it
+	// is newer and EqualTo if they are the same age.
+	CmpAge(announcement NodeAnnouncement) (CompareResult, error)
+
 	Message
 	GossipMessage
 }

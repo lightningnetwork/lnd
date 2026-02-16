@@ -5244,7 +5244,9 @@ func (s *server) fetchLastChanUpdate() func(lnwire.ShortChannelID) (
 
 	ourPubKey := s.identityECDH.PubKey().SerializeCompressed()
 	return func(cid lnwire.ShortChannelID) (*lnwire.ChannelUpdate1, error) {
-		info, edge1, edge2, err := s.graphBuilder.GetChannelByID(cid)
+		info, edge1, edge2, err := s.graphBuilder.GetChannelByID(
+			lnwire.GossipVersion1, cid,
+		)
 		if err != nil {
 			return nil, err
 		}

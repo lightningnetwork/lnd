@@ -82,7 +82,9 @@ func TestAddProof(t *testing.T) {
 	// properly updated.
 	require.NoError(t, ctx.builder.AddProof(*chanID, &testAuthProof))
 
-	info, _, _, err := ctx.builder.GetChannelByID(*chanID)
+	info, _, _, err := ctx.builder.GetChannelByID(
+		lnwire.GossipVersion1, *chanID,
+	)
 	require.NoError(t, err, "unable to get channel")
 	require.NotNil(t, info.AuthProof)
 }
@@ -1161,7 +1163,7 @@ func TestIsKnownEdge(t *testing.T) {
 
 	// Now that the edge has been inserted, query is the router already
 	// knows of the edge should return true.
-	if !ctx.builder.IsKnownEdge(*chanID) {
+	if !ctx.builder.IsKnownEdge(lnwire.GossipVersion1, *chanID) {
 		t.Fatalf("router should detect edge as known")
 	}
 }
@@ -1198,10 +1200,22 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 	// If we query for staleness before adding the edge, we should get
 	// false.
 	updateTimeStamp := time.Unix(123, 0)
-	if ctx.builder.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
+	if ctx.builder.IsStaleEdgePolicy(&models.ChannelEdgePolicy{
+		Version:      lnwire.GossipVersion1,
+		ChannelID:    chanID.ToUint64(),
+		LastUpdate:   updateTimeStamp,
+		ChannelFlags: 0,
+	}) {
+
 		t.Fatalf("router failed to detect fresh edge policy")
 	}
-	if ctx.builder.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
+	if ctx.builder.IsStaleEdgePolicy(&models.ChannelEdgePolicy{
+		Version:      lnwire.GossipVersion1,
+		ChannelID:    chanID.ToUint64(),
+		LastUpdate:   updateTimeStamp,
+		ChannelFlags: 1,
+	}) {
+
 		t.Fatalf("router failed to detect fresh edge policy")
 	}
 
@@ -1251,20 +1265,44 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 
 	// Now that the edges have been added, an identical (chanID, flag,
 	// timestamp) tuple for each edge should be detected as a stale edge.
-	if !ctx.builder.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
+	if !ctx.builder.IsStaleEdgePolicy(&models.ChannelEdgePolicy{
+		Version:      lnwire.GossipVersion1,
+		ChannelID:    chanID.ToUint64(),
+		LastUpdate:   updateTimeStamp,
+		ChannelFlags: 0,
+	}) {
+
 		t.Fatalf("router failed to detect stale edge policy")
 	}
-	if !ctx.builder.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
+	if !ctx.builder.IsStaleEdgePolicy(&models.ChannelEdgePolicy{
+		Version:      lnwire.GossipVersion1,
+		ChannelID:    chanID.ToUint64(),
+		LastUpdate:   updateTimeStamp,
+		ChannelFlags: 1,
+	}) {
+
 		t.Fatalf("router failed to detect stale edge policy")
 	}
 
 	// If we now update the timestamp for both edges, the router should
 	// detect that this tuple represents a fresh edge.
 	updateTimeStamp = time.Unix(9999, 0)
-	if ctx.builder.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
+	if ctx.builder.IsStaleEdgePolicy(&models.ChannelEdgePolicy{
+		Version:      lnwire.GossipVersion1,
+		ChannelID:    chanID.ToUint64(),
+		LastUpdate:   updateTimeStamp,
+		ChannelFlags: 0,
+	}) {
+
 		t.Fatalf("router failed to detect fresh edge policy")
 	}
-	if ctx.builder.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
+	if ctx.builder.IsStaleEdgePolicy(&models.ChannelEdgePolicy{
+		Version:      lnwire.GossipVersion1,
+		ChannelID:    chanID.ToUint64(),
+		LastUpdate:   updateTimeStamp,
+		ChannelFlags: 1,
+	}) {
+
 		t.Fatalf("router failed to detect fresh edge policy")
 	}
 }

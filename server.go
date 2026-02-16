@@ -474,15 +474,6 @@ func (s *server) updatePersistentPeerAddrs() error {
 							SerializeCompressed(),
 					)
 
-					// We only care about updates from
-					// our persistentPeers.
-					s.mu.RLock()
-					_, ok := s.persistentPeers[pubKeyStr]
-					s.mu.RUnlock()
-					if !ok {
-						continue
-					}
-
 					addrs := make([]*lnwire.NetAddress, 0,
 						len(update.Addresses))
 
@@ -496,25 +487,18 @@ func (s *server) updatePersistentPeerAddrs() error {
 						)
 					}
 
+					// Send the updated addresses to the
+					// worker. If no worker exists for
+					// this peer (not persistent), this
+					// is a no-op.
 					s.mu.Lock()
-
-					// Update the stored addresses for this
-					// to peer to reflect the new set.
-					s.persistentPeerAddrs[pubKeyStr] = addrs
-
-					// If there are no outstanding
-					// connection requests for this peer
-					// then our work is done since we are
-					// not currently trying to connect to
-					// them.
-					if len(s.persistentConnReqs[pubKeyStr]) == 0 {
-						s.mu.Unlock()
-						continue
-					}
-
+					s.sendWorkerCmd(pubKeyStr,
+						connWorkerMsg{
+							cmd:   cmdUpdateAddrs,
+							addrs: addrs,
+						},
+					)
 					s.mu.Unlock()
-
-					s.connectToPersistentPeer(pubKeyStr)
 				}
 			}
 		}

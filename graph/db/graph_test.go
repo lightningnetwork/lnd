@@ -6002,7 +6002,8 @@ func TestLightningNodePersistence(t *testing.T) {
 	require.True(t, ok)
 
 	// Convert the wire message to our internal node representation.
-	node := models.NodeFromWireAnnouncement(na)
+	node, err := models.NodeFromWireAnnouncement(na)
+	require.NoError(t, err)
 
 	// Persist the node to disk.
 	err = graph.AddNode(ctx, node)

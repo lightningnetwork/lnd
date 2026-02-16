@@ -317,17 +317,46 @@ func (r *mockGraphSource) FetchNode(_ context.Context,
 }
 
 // IsStaleNode returns true if the graph source has a node announcement for the
-// target node with a more recent timestamp.
+// target node/version that is at least as fresh as the passed announcement.
 func (r *mockGraphSource) IsStaleNode(_ context.Context,
-	nodePub route.Vertex, timestamp time.Time) bool {
+	v lnwire.GossipVersion, nodePub route.Vertex,
+	updateTimestamp lnwire.Timestamp) bool {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for _, node := range r.nodes {
-		if node.PubKeyBytes == nodePub {
-			return node.LastUpdate.After(timestamp) ||
-				node.LastUpdate.Equal(timestamp)
+	for _, dbNode := range r.nodes {
+		if dbNode.PubKeyBytes != nodePub ||
+			dbNode.Version != v {
+
+			continue
+		}
+
+		switch v {
+		case lnwire.GossipVersion1:
+			dbTimestamp := lnwire.UnixTimestamp(0)
+			if !dbNode.LastUpdate.IsZero() {
+				dbTimestamp = lnwire.UnixTimestamp(
+					dbNode.LastUpdate.Unix(),
+				)
+			}
+			cmp, err := dbTimestamp.Cmp(updateTimestamp)
+			if err != nil {
+				return true
+			}
+
+			return cmp != lnwire.LessThan
+
+		case lnwire.GossipVersion2:
+			dbTimestamp := lnwire.BlockHeightTimestamp(
+				dbNode.LastBlockHeight,
+			)
+			cmp, err := dbTimestamp.Cmp(updateTimestamp)
+			if err != nil {
+				return true
+			}
+
+			return cmp != lnwire.LessThan
 		}
 	}
 
@@ -335,6 +364,10 @@ func (r *mockGraphSource) IsStaleNode(_ context.Context,
 	// require the node to already have a channel in the graph to not be
 	// considered stale.
 	for _, info := range r.infos {
+		if info.Version != v {
+			continue
+		}
+
 		if info.NodeKey1Bytes == nodePub {
 			return false
 		}
@@ -342,13 +375,20 @@ func (r *mockGraphSource) IsStaleNode(_ context.Context,
 			return false
 		}
 	}
+
 	return true
 }
 
 // IsPublicNode determines whether the given vertex is seen as a public node in
 // the graph from the graph's source node's point of view.
-func (r *mockGraphSource) IsPublicNode(node route.Vertex) (bool, error) {
+func (r *mockGraphSource) IsPublicNode(v lnwire.GossipVersion,
+	node route.Vertex) (bool, error) {
+
 	for _, info := range r.infos {
+		if info.Version != v {
+			continue
+		}
+
 		if !bytes.Equal(node[:], info.NodeKey1Bytes[:]) &&
 			!bytes.Equal(node[:], info.NodeKey2Bytes[:]) {
 			continue
@@ -2211,8 +2251,8 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if len(announcements.nodeAnnouncements) != 2 {
 		t.Fatal("node announcement not replaced in batch")
 	}
-	nodeID := route.NewVertex(remoteKeyPriv2.PubKey())
-	stored, ok := announcements.nodeAnnouncements[nodeID]
+	nodeKey := newNodeAnnouncementID(na5)
+	stored, ok := announcements.nodeAnnouncements[nodeKey]
 	if !ok {
 		t.Fatalf("node announcement not found in batch")
 	}
@@ -2983,7 +3023,7 @@ func TestExtraDataNodeAnnouncementValidation(t *testing.T) {
 }
 
 // TestZeroTimestampNodeAnnouncementRejection tests that a NodeAnnouncement with
-// a zero timestamp is rejected per BOLT 7.
+// a zero update time is rejected.
 func TestZeroTimestampNodeAnnouncementRejection(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -2999,7 +3039,8 @@ func TestZeroTimestampNodeAnnouncementRejection(t *testing.T) {
 	nodeAnn, err := createNodeAnnouncement(remoteKeyPriv1, 0)
 	require.NoError(t, err, "can't create node announcement")
 
-	// Processing the announcement should fail with a zero timestamp error.
+	// Processing the announcement should fail with a zero update time
+	// error.
 	select {
 	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, nodeAnn, remotePeer,
@@ -3008,7 +3049,7 @@ func TestZeroTimestampNodeAnnouncementRejection(t *testing.T) {
 		t.Fatal("did not process remote announcement")
 	}
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "zero timestamp")
+	require.Contains(t, err.Error(), "zero update time")
 }
 
 // TestZeroTimestampChannelUpdateRejection tests that a ChannelUpdate with a

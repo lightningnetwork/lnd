@@ -221,6 +221,20 @@ func (n *NodeAnnouncement2) TimestampDesc() string {
 	return fmt.Sprintf("block_height=%d", n.BlockHeight.Val)
 }
 
+// HasZeroUpdateTime returns true if the update-ordering field is zero.
+//
+// NOTE: part of the NodeAnnouncement interface.
+func (n *NodeAnnouncement2) HasZeroUpdateTime() bool {
+	return n.UpdateTimestamp().IsZero()
+}
+
+// UpdateTimestamp returns the update-ordering field.
+//
+// NOTE: part of the NodeAnnouncement interface.
+func (n *NodeAnnouncement2) UpdateTimestamp() Timestamp {
+	return BlockHeightTimestamp(n.BlockHeight.Val)
+}
+
 // GossipVersion returns the gossip version that this message is part of.
 //
 // NOTE: this is part of the GossipMessage interface.

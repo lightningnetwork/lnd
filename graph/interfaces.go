@@ -2,7 +2,6 @@ package graph
 
 import (
 	"context"
-	"time"
 
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -40,15 +39,15 @@ type ChannelGraphSource interface {
 		op ...batch.SchedulerOption) error
 
 	// IsStaleNode returns true if the graph source has a node announcement
-	// for the target node with a more recent timestamp. This method will
-	// also return true if we don't have an active channel announcement for
-	// the target node.
-	IsStaleNode(ctx context.Context, node route.Vertex,
-		timestamp time.Time) bool
+	// for the target node/version that is at least as fresh as the passed
+	// announcement. This method will also return true if we don't have an
+	// active channel announcement for the target node/version.
+	IsStaleNode(ctx context.Context, v lnwire.GossipVersion,
+		nodePub route.Vertex, updateTimestamp lnwire.Timestamp) bool
 
 	// IsPublicNode determines whether the given vertex is seen as a public
 	// node in the graph from the graph's source node's point of view.
-	IsPublicNode(node route.Vertex) (bool, error)
+	IsPublicNode(v lnwire.GossipVersion, node route.Vertex) (bool, error)
 
 	// IsKnownEdge returns true if the graph source already knows of the
 	// passed channel ID either as a live or zombie edge.

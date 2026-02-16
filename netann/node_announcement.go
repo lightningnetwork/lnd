@@ -15,6 +15,20 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
+const (
+	// nodeAnn2MsgName is a string representing the name of the
+	// NodeAnnouncement2 message. This string will be used during the
+	// construction of the tagged hash message to be signed when producing
+	// the signature for the NodeAnnouncement2 message.
+	nodeAnn2MsgName = "node_announcement_2"
+
+	// nodeAnn2SigFieldName is the name of the signature field of the
+	// NodeAnnouncement2 message. This string will be used during the
+	// construction of the tagged hash message to be signed when producing
+	// the signature for the NodeAnnouncement2 message.
+	nodeAnn2SigFieldName = "signature"
+)
+
 // NodeAnnModifier is a closure that makes in-place modifications to an
 // lnwire.NodeAnnouncement1.
 type NodeAnnModifier func(*lnwire.NodeAnnouncement1)
@@ -84,14 +98,32 @@ func SignNodeAnnouncement(signer lnwallet.MessageSigner,
 	return err
 }
 
-// ValidateNodeAnn validates the fields and signature of a node announcement.
-func ValidateNodeAnn(a *lnwire.NodeAnnouncement1) error {
-	err := ValidateNodeAnnFields(a)
-	if err != nil {
-		return fmt.Errorf("invalid node announcement fields: %w", err)
-	}
+// ValidateNodeAnn validates a node announcement according to its version-
+// specific rules.
+func ValidateNodeAnn(a lnwire.NodeAnnouncement) error {
+	switch a := a.(type) {
+	case *lnwire.NodeAnnouncement1:
+		err := ValidateNodeAnnFields(a)
+		if err != nil {
+			return fmt.Errorf("invalid node ann "+
+				"fields: %w", err)
+		}
 
-	return ValidateNodeAnnSignature(a)
+		return ValidateNodeAnnSignature(a)
+
+	case *lnwire.NodeAnnouncement2:
+		err := validateNodeAnn2Fields(a)
+		if err != nil {
+			return fmt.Errorf("invalid node ann "+
+				"fields: %w", err)
+		}
+
+		return ValidateNodeAnn2Signature(a)
+
+	default:
+		return fmt.Errorf("unhandled implementation of "+
+			"lnwire.NodeAnnouncement: %T", a)
+	}
 }
 
 // ValidateNodeAnnFields validates the fields of a node announcement.
@@ -117,6 +149,58 @@ func ValidateNodeAnnFields(a *lnwire.NodeAnnouncement1) error {
 	}
 
 	return nil
+}
+
+// validateNodeAnn2Fields validates the fields of a v2 node announcement.
+func validateNodeAnn2Fields(a *lnwire.NodeAnnouncement2) error {
+	var validationErr error
+	a.DNSHostName.ValOpt().WhenSome(func(dns lnwire.DNSAddress) {
+		validationErr = lnwire.ValidateDNSAddr(
+			dns.Hostname, dns.Port,
+		)
+	})
+
+	return validationErr
+}
+
+// ValidateNodeAnn2Signature validates the node announcement by ensuring that
+// the attached signature is a valid signature of the node announcement under
+// the announced node public key.
+func ValidateNodeAnn2Signature(a *lnwire.NodeAnnouncement2) error {
+	digest, err := NodeAnn2DigestToSign(a)
+	if err != nil {
+		return fmt.Errorf("unable to reconstruct message data: %w", err)
+	}
+
+	nodeSig, err := a.Signature.Val.ToSignature()
+	if err != nil {
+		return err
+	}
+
+	nodeKey, err := btcec.ParsePubKey(a.NodeID.Val[:])
+	if err != nil {
+		return err
+	}
+
+	if !nodeSig.Verify(digest, nodeKey) {
+		return fmt.Errorf("signature on NodeAnnouncement2(%x) is "+
+			"invalid", nodeKey.SerializeCompressed())
+	}
+
+	return nil
+}
+
+// NodeAnn2DigestToSign computes the digest of the node announcement message to
+// be signed.
+func NodeAnn2DigestToSign(a *lnwire.NodeAnnouncement2) ([]byte, error) {
+	data, err := lnwire.SerialiseFieldsToSign(a)
+	if err != nil {
+		return nil, err
+	}
+
+	hash := MsgHash(nodeAnn2MsgName, nodeAnn2SigFieldName, data)
+
+	return hash[:], nil
 }
 
 // ValidateNodeAnnSignature validates the node announcement by ensuring that the

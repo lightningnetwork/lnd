@@ -114,6 +114,7 @@ type Builder struct {
 
 	cfg     *Config
 	v1Graph *graphdb.VersionedGraph
+	v2Graph *graphdb.VersionedGraph
 
 	// newBlocks is a channel in which new blocks connected to the end of
 	// the main chain are sent over, and blocks updated after a call to
@@ -149,9 +150,11 @@ var _ ChannelGraphSource = (*Builder)(nil)
 func NewBuilder(cfg *Config) (*Builder, error) {
 	return &Builder{
 		cfg: cfg,
-		// For now, we'll just use V1 graph reader.
 		v1Graph: graphdb.NewVersionedGraph(
 			cfg.Graph, lnwire.GossipVersion1,
+		),
+		v2Graph: graphdb.NewVersionedGraph(
+			cfg.Graph, lnwire.GossipVersion2,
 		),
 		channelEdgeMtx: multimutex.NewMutex[uint64](),
 		statTicker:     ticker.New(defaultStatInterval),
@@ -874,37 +877,112 @@ func (b *Builder) updateGraphWithClosedChannels(
 	return nil
 }
 
+// nodeTimestampFromNode extracts the node announcement update-ordering value
+// from a database model node.
+func nodeTimestampFromNode(node *models.Node) (lnwire.Timestamp, error) {
+	switch node.Version {
+	case lnwire.GossipVersion1:
+		if node.LastUpdate.IsZero() {
+			return lnwire.UnixTimestamp(0), nil
+		}
+
+		return lnwire.UnixTimestamp(node.LastUpdate.Unix()), nil
+
+	case lnwire.GossipVersion2:
+		return lnwire.BlockHeightTimestamp(node.LastBlockHeight), nil
+
+	default:
+		return nil, fmt.Errorf("unknown gossip version: "+
+			"%v", node.Version)
+	}
+}
+
+// hasV2Node determines if the graph has a V2 node identified by the target
+// node identity public key. If the node exists in the database, the last seen
+// block height is returned along with a true boolean.
+func (b *Builder) hasV2Node(ctx context.Context,
+	nodePub route.Vertex) (lnwire.BlockHeightTimestamp, bool, error) {
+
+	dbNode, err := b.v2Graph.FetchNode(ctx, nodePub)
+	if errors.Is(err, graphdb.ErrGraphNodeNotFound) {
+		return lnwire.BlockHeightTimestamp(0), false, nil
+	}
+	if err != nil {
+		return lnwire.BlockHeightTimestamp(0), false,
+			fmt.Errorf("unable to fetch v2 node: %w", err)
+	}
+
+	return lnwire.BlockHeightTimestamp(dbNode.LastBlockHeight), true, nil
+}
+
+// fetchNodeTimestamp fetches the last-known update-ordering value for the
+// given node/version pair.
+func (b *Builder) fetchNodeTimestamp(ctx context.Context,
+	v lnwire.GossipVersion, nodePub route.Vertex) (lnwire.Timestamp, bool,
+	error) {
+
+	switch v {
+	case lnwire.GossipVersion1:
+		lastUpdate, exists, err := b.cfg.Graph.HasV1Node(ctx, nodePub)
+		if err != nil {
+			return nil, false, err
+		}
+
+		if lastUpdate.IsZero() {
+			return lnwire.UnixTimestamp(0), exists, nil
+		}
+
+		return lnwire.UnixTimestamp(lastUpdate.Unix()), exists, nil
+
+	case lnwire.GossipVersion2:
+		timestamp, exists, err := b.hasV2Node(ctx, nodePub)
+		if err != nil {
+			return nil, false, err
+		}
+
+		return timestamp, exists, nil
+
+	default:
+		return nil, false, fmt.Errorf("unknown gossip version: %v", v)
+	}
+}
+
 // assertNodeAnnFreshness returns a non-nil error if we have an announcement in
-// the database for the passed node with a timestamp newer than the passed
-// timestamp. ErrIgnored will be returned if we already have the node, and
-// ErrOutdated will be returned if we have a timestamp that's after the new
-// timestamp.
-func (b *Builder) assertNodeAnnFreshness(ctx context.Context, node route.Vertex,
-	msgTimestamp time.Time) error {
+// the database for the passed node/version with an update timestamp that is
+// greater than or equal to the candidate update timestamp. ErrIgnored will be
+// returned if we don't know the node, and ErrOutdated will be returned if the
+// existing announcement is at least as fresh.
+func (b *Builder) assertNodeAnnFreshness(ctx context.Context,
+	v lnwire.GossipVersion, nodePub route.Vertex,
+	updateTimestamp lnwire.Timestamp) error {
 
 	// If we are not already aware of this node, it means that we don't
 	// know about any channel using this node. To avoid a DoS attack by
-	// node announcements, we will ignore such nodes. If we do know about
-	// this node, check that this update brings info newer than what we
-	// already have.
-	lastUpdate, exists, err := b.cfg.Graph.HasV1Node(ctx, node)
+	// node announcements, we will ignore such nodes.
+	existingTimestamp, exists, err := b.fetchNodeTimestamp(
+		ctx, v, nodePub,
+	)
 	if err != nil {
-		return fmt.Errorf("unable to query for the "+
-			"existence of node: %w", err)
+		return fmt.Errorf("unable to query for the existence of "+
+			"node: %w", err)
 	}
 	if !exists {
-		return NewErrf(ErrIgnored, "Ignoring node announcement"+
-			" for node not found in channel graph (%x)",
-			node[:])
+		return NewErrf(ErrIgnored, "Ignoring node announcement for "+
+			"node not found in channel graph (%x)", nodePub[:])
 	}
 
 	// If we've reached this point then we're aware of the vertex being
-	// advertised. So we now check if the new message has a new time stamp,
-	// if not then we won't accept the new data as it would override newer
-	// data.
-	if !lastUpdate.Before(msgTimestamp) {
-		return NewErrf(ErrOutdated, "Ignoring outdated "+
-			"announcement for %x", node[:])
+	// advertised. So we now check if the new message has a newer update
+	// ordering value, if not then we won't accept the new data as it would
+	// override newer data.
+	cmp, err := existingTimestamp.Cmp(updateTimestamp)
+	if err != nil {
+		return fmt.Errorf("unable to compare node announcement "+
+			"timestamps: %w", err)
+	}
+	if cmp != lnwire.LessThan {
+		return NewErrf(ErrOutdated, "Ignoring outdated announcement "+
+			"for %x", nodePub[:])
 	}
 
 	return nil
@@ -1004,10 +1082,17 @@ func (b *Builder) AddNode(ctx context.Context, node *models.Node,
 func (b *Builder) addNode(ctx context.Context, node *models.Node,
 	op ...batch.SchedulerOption) error {
 
+	updateTimestamp, err := nodeTimestampFromNode(node)
+	if err != nil {
+		return err
+	}
+
 	// Before we add the node to the database, we'll check to see if the
 	// announcement is "fresh" or not. If it isn't, then we'll return an
 	// error.
-	err := b.assertNodeAnnFreshness(ctx, node.PubKeyBytes, node.LastUpdate)
+	err = b.assertNodeAnnFreshness(
+		ctx, node.Version, node.PubKeyBytes, updateTimestamp,
+	)
 	if err != nil {
 		return err
 	}
@@ -1374,17 +1459,21 @@ func (b *Builder) AddProof(chanID lnwire.ShortChannelID,
 }
 
 // IsStaleNode returns true if the graph source has a node announcement for the
-// target node with a more recent timestamp.
+// target node/version that is at least as fresh as the passed announcement.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) IsStaleNode(ctx context.Context, node route.Vertex,
-	timestamp time.Time) bool {
+func (b *Builder) IsStaleNode(ctx context.Context,
+	v lnwire.GossipVersion, nodePub route.Vertex,
+	updateTimestamp lnwire.Timestamp) bool {
 
 	// If our attempt to assert that the node announcement is fresh fails,
 	// then we know that this is actually a stale announcement.
-	err := b.assertNodeAnnFreshness(ctx, node, timestamp)
+	err := b.assertNodeAnnFreshness(
+		ctx, v, nodePub, updateTimestamp,
+	)
 	if err != nil {
-		log.Debugf("Checking stale node %s got %v", node, err)
+		log.Debugf("Checking stale node %s on version=%v got %v",
+			nodePub, v, err)
 		return true
 	}
 
@@ -1395,8 +1484,10 @@ func (b *Builder) IsStaleNode(ctx context.Context, node route.Vertex,
 // the graph from the graph's source node's point of view.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) IsPublicNode(node route.Vertex) (bool, error) {
-	return b.v1Graph.IsPublicNode(node)
+func (b *Builder) IsPublicNode(v lnwire.GossipVersion,
+	node route.Vertex) (bool, error) {
+
+	return b.cfg.Graph.IsPublicNode(v, node)
 }
 
 // IsKnownEdge returns true if the graph source already knows of the passed

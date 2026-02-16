@@ -244,6 +244,20 @@ func (a *NodeAnnouncement1) TimestampDesc() string {
 	return fmt.Sprintf("timestamp=%d", a.Timestamp)
 }
 
+// HasZeroUpdateTime returns true if the update-ordering field is zero.
+//
+// NOTE: part of the NodeAnnouncement interface.
+func (a *NodeAnnouncement1) HasZeroUpdateTime() bool {
+	return a.UpdateTimestamp().IsZero()
+}
+
+// UpdateTimestamp returns the update-ordering field.
+//
+// NOTE: part of the NodeAnnouncement interface.
+func (a *NodeAnnouncement1) UpdateTimestamp() Timestamp {
+	return UnixTimestamp(a.Timestamp)
+}
+
 // GossipVersion returns the gossip version that this message is part of.
 //
 // NOTE: this is part of the GossipMessage interface.

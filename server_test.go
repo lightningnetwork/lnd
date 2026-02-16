@@ -1,26 +1,67 @@
 package lnd
 
 import (
+	"errors"
+	"net"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/connmgr"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/peer"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 )
+
+// mockNet implements tor.Net for testing. All calls return errors
+// since tests that use workers mock the dialer at a higher level.
+type mockNet struct{}
+
+var _ tor.Net = (*mockNet)(nil)
+
+func (m *mockNet) Dial(network, addr string,
+	timeout time.Duration) (net.Conn, error) {
+
+	return nil, errors.New("mock: no real dialing")
+}
+
+func (m *mockNet) LookupHost(host string) ([]string, error) {
+	return nil, errors.New("mock: no DNS")
+}
+
+func (m *mockNet) LookupSRV(service, proto, name string,
+	timeout time.Duration) (string, []*net.SRV, error) {
+
+	return "", nil, errors.New("mock: no SRV")
+}
+
+func (m *mockNet) ResolveTCPAddr(network,
+	address string) (*net.TCPAddr, error) {
+
+	return nil, errors.New("mock: no resolve")
+}
 
 // newTestServer creates a minimal server instance with only the fields needed
 // for persistent connection management tests.
 func newTestServer(t *testing.T) *server {
 	t.Helper()
 
+	// Generate a test identity key for the server.
+	identityPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
 	s := &server{
 		cfg: &Config{
 			MinBackoff: time.Second,
+			MaxBackoff: time.Hour,
 			Dev:        &lncfg.DevConfig{},
+			net:        &mockNet{},
+		},
+		identityECDH: &keychain.PrivKeyECDH{
+			PrivKey: identityPriv,
 		},
 		persistentPeers:         make(map[string]bool),
 		persistentPeersBackoff:  make(map[string]time.Duration),
@@ -178,6 +219,42 @@ func TestNodeAnnouncementTimestampComparison(t *testing.T) {
 			)
 		})
 	}
+}
+
+// TestConnectToPeerAccumulation verifies that repeated ConnectToPeer calls
+// with perm=true result in a single worker, not accumulated ConnReqs.
+func TestConnectToPeerAccumulation(t *testing.T) {
+	t.Parallel()
+
+	s := newTestServer(t)
+
+	pubKey := generateTestPubKey(t)
+	addr := &lnwire.NetAddress{
+		IdentityKey: pubKey,
+		Address:     &net.TCPAddr{IP: net.ParseIP("1.2.3.4"), Port: 9735},
+	}
+
+	targetPub := string(pubKey.SerializeCompressed())
+
+	// Call ConnectToPeer 10 times with perm=true. With workers,
+	// each call reuses the same worker and sends cmdConnect.
+	for i := 0; i < 10; i++ {
+		err := s.ConnectToPeer(addr, true, time.Second)
+		require.NoError(t, err)
+	}
+
+	s.mu.Lock()
+	w, ok := s.persistentWorkers[targetPub]
+	s.mu.Unlock()
+
+	// Only one worker should exist, and it should be perm.
+	require.True(t, ok, "worker should exist")
+	require.True(t, w.perm, "worker should be perm")
+
+	// Clean up workers.
+	s.mu.Lock()
+	s.stopWorker(targetPub)
+	s.mu.Unlock()
 }
 
 // TestPeerBackoff tests the pure peerBackoff function with table-driven cases

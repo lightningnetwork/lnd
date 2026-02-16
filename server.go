@@ -5056,38 +5056,22 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 
 	// Peer was not found, continue to pursue connection with peer.
 
-	// If there's already a pending connection request for this pubkey,
-	// then we ignore this request to ensure we don't create a redundant
-	// connection.
-	if reqs, ok := s.persistentConnReqs[targetPub]; ok {
-		srvrLog.Warnf("Already have %d persistent connection "+
-			"requests for %v, connecting anyway.", len(reqs), addr)
-	}
-
 	// If there's not already a pending or active connection to this node,
 	// then instruct the connection manager to attempt to establish a
 	// persistent connection to the peer.
 	srvrLog.Debugf("Connecting to %v", addr)
 	if perm {
-		connReq := &connmgr.ConnReq{
-			Addr:      addr,
-			Permanent: true,
+		// Create or retrieve the worker and send a connect
+		// command. Sending cmdConnect to an existing worker
+		// naturally replaces its current operation (cancel +
+		// restart).
+		addrs := []*lnwire.NetAddress{addr}
+		w := s.getOrCreateWorker(targetPub, true, addrs)
+		w.cmdChan <- connWorkerMsg{
+			cmd:   cmdConnect,
+			addrs: addrs,
 		}
-
-		// Since the user requested a permanent connection, we'll set
-		// the entry to true which will tell the server to continue
-		// reconnecting even if the number of channels with this peer is
-		// zero.
-		s.persistentPeers[targetPub] = true
-		if _, ok := s.persistentPeersBackoff[targetPub]; !ok {
-			s.persistentPeersBackoff[targetPub] = s.cfg.MinBackoff
-		}
-		s.persistentConnReqs[targetPub] = append(
-			s.persistentConnReqs[targetPub], connReq,
-		)
 		s.mu.Unlock()
-
-		go s.connMgr.Connect(connReq)
 
 		return nil
 	}

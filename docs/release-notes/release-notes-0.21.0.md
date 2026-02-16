@@ -177,11 +177,12 @@
   code](https://github.com/lightningnetwork/lnd/pull/10338) to prevent the 
   need for maintenance as the sqlc code evolves. 
 * Prepare the graph DB for handling gossip V2
-  nodes and channels [1](https://github.com/lightningnetwork/lnd/pull/10339)
-    [2](https://github.com/lightningnetwork/lnd/pull/10379)
-    [3](https://github.com/lightningnetwork/lnd/pull/10380)
+  nodes and channels [1](https://github.com/lightningnetwork/lnd/pull/10339),
+    [2](https://github.com/lightningnetwork/lnd/pull/10379),
+    [3](https://github.com/lightningnetwork/lnd/pull/10380),
     [4](https://github.com/lightningnetwork/lnd/pull/10542),
-    [5](https://github.com/lightningnetwork/lnd/pull/10572).
+    [5](https://github.com/lightningnetwork/lnd/pull/10572),
+    [6](https://github.com/lightningnetwork/lnd/pull/10582).
 
 ## Code Health
 

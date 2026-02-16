@@ -139,3 +139,105 @@ func TestNodeAnnouncementTimestampComparison(t *testing.T) {
 		})
 	}
 }
+
+// TestPeerBackoff tests the pure peerBackoff function with table-driven cases
+// covering zero backoff, short-lived connections (doubles), stable connections
+// (reduces), and capping at max.
+func TestPeerBackoff(t *testing.T) {
+	t.Parallel()
+
+	const (
+		minBackoff         = 1 * time.Second
+		maxBackoff         = 1 * time.Hour
+		stableConnDuration = 10 * time.Minute
+	)
+
+	tests := []struct {
+		name           string
+		currentBackoff time.Duration
+		startTime      time.Time
+		assertBackoff  func(t *testing.T, result time.Duration)
+	}{
+		{
+			// Peer never started: backoff should roughly double
+			// (with randomization).
+			name:           "zero start time doubles backoff",
+			currentBackoff: 10 * time.Second,
+			startTime:      time.Time{},
+			assertBackoff: func(t *testing.T, result time.Duration) {
+				// computeNextBackoff doubles with ±5%
+				// wiggle, so result should be roughly 20s.
+				require.Greater(t, result,
+					15*time.Second,
+					"backoff too low for failed start")
+				require.Less(t, result,
+					25*time.Second,
+					"backoff too high for failed start")
+			},
+		},
+		{
+			// Short-lived connection (< stableConnDuration):
+			// backoff should roughly double.
+			name:           "short lived connection doubles backoff",
+			currentBackoff: 10 * time.Second,
+			startTime:      time.Now().Add(-5 * time.Minute),
+			assertBackoff: func(t *testing.T, result time.Duration) {
+				require.Greater(t, result,
+					15*time.Second,
+					"backoff too low for short conn")
+				require.Less(t, result,
+					25*time.Second,
+					"backoff too high for short conn")
+			},
+		},
+		{
+			// Stable connection (> stableConnDuration) with
+			// large backoff: should reduce. reb(30m) ≈ 60m,
+			// minus 20m conn = ~40m, which is > minBackoff.
+			name:           "stable connection reduces backoff",
+			currentBackoff: 30 * time.Minute,
+			startTime:      time.Now().Add(-20 * time.Minute),
+			assertBackoff: func(t *testing.T, result time.Duration) {
+				require.Greater(t, result, minBackoff,
+					"should be above min")
+				require.Less(t, result, 50*time.Minute,
+					"should be reduced from doubled")
+			},
+		},
+		{
+			// Stable connection that lasted much longer than
+			// backoff: should return minBackoff.
+			// reb(1s) ≈ 2s, minus 1h conn → negative → min.
+			name:           "long stable connection resets to min",
+			currentBackoff: minBackoff,
+			startTime:      time.Now().Add(-1 * time.Hour),
+			assertBackoff: func(t *testing.T, result time.Duration) {
+				require.Equal(t, minBackoff, result)
+			},
+		},
+		{
+			// Backoff at max: doubling should cap at max.
+			name:           "backoff caps at max",
+			currentBackoff: maxBackoff,
+			startTime:      time.Time{},
+			assertBackoff: func(t *testing.T, result time.Duration) {
+				// After capping + wiggle.
+				require.LessOrEqual(t, result,
+					maxBackoff+maxBackoff/10)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := peerBackoff(
+				tc.currentBackoff, tc.startTime, minBackoff,
+				maxBackoff, stableConnDuration,
+			)
+
+			tc.assertBackoff(t, result)
+		})
+	}
+}

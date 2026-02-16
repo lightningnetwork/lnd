@@ -3893,36 +3893,53 @@ func (s *server) nextPeerBackoff(pubStr string,
 		return s.cfg.MinBackoff
 	}
 
+	return peerBackoff(
+		backoff, startTime, s.cfg.MinBackoff, s.cfg.MaxBackoff,
+		defaultStableConnDuration,
+	)
+}
+
+// peerBackoff computes the next reconnection backoff for a persistent peer
+// given the current backoff, the time the peer was last started, and the
+// configured bounds. A zero startTime indicates the peer failed to start.
+// Connections that lasted longer than stableConnDuration get their backoff
+// reduced; short-lived connections double it.
+func peerBackoff(currentBackoff time.Duration, startTime time.Time,
+	minBackoff, maxBackoff,
+	stableConnDuration time.Duration) time.Duration {
+
 	// If the peer failed to start properly, we'll just use the previous
 	// backoff to compute the subsequent randomized exponential backoff
 	// duration. This will roughly double on average.
 	if startTime.IsZero() {
-		return computeNextBackoff(backoff, s.cfg.MaxBackoff)
+		return computeNextBackoff(currentBackoff, maxBackoff)
 	}
 
 	// The peer succeeded in starting. If the connection didn't last long
 	// enough to be considered stable, we'll continue to back off retries
 	// with this peer.
 	connDuration := time.Since(startTime)
-	if connDuration < defaultStableConnDuration {
-		return computeNextBackoff(backoff, s.cfg.MaxBackoff)
+	if connDuration < stableConnDuration {
+		return computeNextBackoff(currentBackoff, maxBackoff)
 	}
 
-	// The peer succeed in starting and this was stable peer, so we'll
+	// The peer succeeded in starting and this was a stable peer, so we'll
 	// reduce the timeout duration by the length of the connection after
 	// applying randomized exponential backoff. We'll only apply this in the
 	// case that:
-	//   reb(curBackoff) - connDuration > cfg.MinBackoff
-	relaxedBackoff := computeNextBackoff(backoff, s.cfg.MaxBackoff) - connDuration
-	if relaxedBackoff > s.cfg.MinBackoff {
+	//   reb(curBackoff) - connDuration > minBackoff
+	relaxedBackoff := computeNextBackoff(
+		currentBackoff, maxBackoff,
+	) - connDuration
+	if relaxedBackoff > minBackoff {
 		return relaxedBackoff
 	}
 
-	// Lastly, if reb(currBackoff) - connDuration <= cfg.MinBackoff, meaning
+	// Lastly, if reb(currBackoff) - connDuration <= minBackoff, meaning
 	// the stable connection lasted much longer than our previous backoff.
 	// To reward such good behavior, we'll reconnect after the default
 	// timeout.
-	return s.cfg.MinBackoff
+	return minBackoff
 }
 
 // shouldDropLocalConnection determines if our local connection to a remote peer
@@ -5192,6 +5209,13 @@ func computeNextBackoff(currBackoff, maxBackoff time.Duration) time.Duration {
 	// Using 1/10 of our duration as a margin, compute a random offset to
 	// avoid the nodes entering connection cycles.
 	margin := nextBackoff / 10
+
+	// If the margin is too small (0), skip randomization and just return
+	// the backoff, otherwise the rand.Int call panics. This can happen when
+	// nextBackoff < 10 time units.
+	if margin == 0 {
+		return nextBackoff
+	}
 
 	var wiggle big.Int
 	wiggle.SetUint64(uint64(margin))

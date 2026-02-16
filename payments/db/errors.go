@@ -136,6 +136,11 @@ var (
 	ErrNoDuplicateNestedBucket = errors.New("nested duplicate bucket not " +
 		"found")
 
+	// ErrNoDuplicateSequenceNumber is returned when a duplicate payment
+	// sub-bucket does not contain the sequence number key.
+	ErrNoDuplicateSequenceNumber = errors.New("duplicate payment " +
+		"sequence number not found")
+
 	// ErrNoSequenceNrIndex is returned when an attempt to lookup a payment
 	// index is made for a sequence number that is not indexed.
 	//

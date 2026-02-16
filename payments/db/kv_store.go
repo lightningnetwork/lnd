@@ -1236,7 +1236,7 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 
 		seqBytes := subBucket.Get(duplicatePaymentSequenceKey)
 		if seqBytes == nil {
-			return err
+			return ErrNoDuplicateSequenceNumber
 		}
 
 		// If this duplicate payment is not the sequence number we are

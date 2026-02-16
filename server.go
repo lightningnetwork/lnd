@@ -4777,13 +4777,13 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	// in question.
 	s.removePeerUnsafe(ctx, p)
 
-	// Next, check to see if this is a persistent peer or not.
-	if _, ok := s.persistentPeers[pubStr]; !ok {
+	// Check whether this is a persistent peer via the worker map.
+	if _, ok := s.persistentWorkers[pubStr]; !ok {
 		return
 	}
 
 	// Get the last address that we used to connect to the peer.
-	addrs := []net.Addr{
+	rawAddrs := []net.Addr{
 		p.NetAddress().Address,
 	}
 
@@ -4793,7 +4793,7 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	switch {
 	// We found advertised addresses, so use them.
 	case err == nil:
-		addrs = advertisedAddrs
+		rawAddrs = advertisedAddrs
 
 	// The peer doesn't have an advertised address.
 	case err == errNoAdvertisedAddr:
@@ -4826,62 +4826,37 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 			"address for peer", err)
 	}
 
-	// Make an easy lookup map so that we can check if an address
-	// is already in the address list that we have stored for this peer.
-	existingAddrs := make(map[string]bool)
-	for _, addr := range s.persistentPeerAddrs[pubStr] {
-		existingAddrs[addr.String()] = true
+	// Convert raw addresses to lnwire.NetAddress.
+	lnAddrs := make([]*lnwire.NetAddress, 0, len(rawAddrs))
+	for _, addr := range rawAddrs {
+		lnAddrs = append(lnAddrs, &lnwire.NetAddress{
+			IdentityKey: p.IdentityKey(),
+			Address:     addr,
+			ChainNet:    p.NetAddress().ChainNet,
+		})
 	}
 
-	// Add any missing addresses for this peer to persistentPeerAddr.
-	for _, addr := range addrs {
-		if existingAddrs[addr.String()] {
-			continue
-		}
-
-		s.persistentPeerAddrs[pubStr] = append(
-			s.persistentPeerAddrs[pubStr],
-			&lnwire.NetAddress{
-				IdentityKey: p.IdentityKey(),
-				Address:     addr,
-				ChainNet:    p.NetAddress().ChainNet,
-			},
-		)
+	// Compute the backoff using the pure function so we don't
+	// depend on the old map. If the worker doesn't exist yet (e.g., for
+	// an inbound peer that just opened a channel), use zero backoff which
+	// will result in immediate reconnection.
+	var currentBackoff time.Duration
+	if w := s.persistentWorkers[pubStr]; w != nil {
+		currentBackoff = w.backoff
 	}
+	backoff := peerBackoff(
+		currentBackoff, p.StartTime(), s.cfg.MinBackoff,
+		s.cfg.MaxBackoff, defaultStableConnDuration,
+	)
 
-	// Record the computed backoff in the backoff map.
-	backoff := s.nextPeerBackoff(pubStr, p.StartTime())
-	s.persistentPeersBackoff[pubStr] = backoff
+	srvrLog.DebugS(ctx, "Scheduling connection re-establishment "+
+		"to persistent peer", "reconnecting_in", backoff)
 
-	// Initialize a retry canceller for this peer if one does not
-	// exist.
-	cancelChan, ok := s.persistentRetryCancels[pubStr]
-	if !ok {
-		cancelChan = make(chan struct{})
-		s.persistentRetryCancels[pubStr] = cancelChan
-	}
-
-	// We choose not to wait group this go routine since the Connect
-	// call can stall for arbitrarily long if we shutdown while an
-	// outbound connection attempt is being made.
-	go func() {
-		srvrLog.DebugS(ctx, "Scheduling connection "+
-			"re-establishment to persistent peer",
-			"reconnecting_in", backoff)
-
-		select {
-		case <-time.After(backoff):
-		case <-cancelChan:
-			return
-		case <-s.quit:
-			return
-		}
-
-		srvrLog.DebugS(ctx, "Attempting to re-establish persistent "+
-			"connection")
-
-		s.connectToPersistentPeer(pubStr)
-	}()
+	s.sendWorkerCmd(pubStr, connWorkerMsg{
+		cmd:     cmdConnect,
+		addrs:   lnAddrs,
+		backoff: backoff,
+	})
 }
 
 // connectToPersistentPeer uses all the stored addresses for a peer to attempt

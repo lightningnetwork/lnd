@@ -291,6 +291,11 @@ type server struct {
 	persistentConnReqs     map[string][]*connmgr.ConnReq
 	persistentRetryCancels map[string]chan struct{}
 
+	// persistentWorkers maps each persistent peer's pubkey to its
+	// connection worker. A worker's existence means the peer is persistent;
+	// its backoff, addresses, and dial state live inside the worker.
+	persistentWorkers map[string]*connWorker
+
 	// peerErrors keeps a set of peer error buffers for peers that have
 	// disconnected from us. This allows us to track historic peer errors
 	// over connections. The string of the peer's compressed pubkey is used
@@ -716,6 +721,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		persistentConnReqs:      make(map[string][]*connmgr.ConnReq),
 		persistentPeerAddrs:     make(map[string][]*lnwire.NetAddress),
 		persistentRetryCancels:  make(map[string]chan struct{}),
+		persistentWorkers:       make(map[string]*connWorker),
 		peerErrors:              make(map[string]*queue.CircularBuffer),
 		ignorePeerTermination:   make(map[*peer.Brontide]struct{}),
 		scheduledPeerConnection: make(map[string]func()),
@@ -3710,6 +3716,94 @@ func (s *server) bannedPersistentPeerConnection(remotePub string) {
 	}
 }
 
+// getOrCreateWorker returns the existing connection worker for the
+// given peer, or creates and starts a new one. The caller must hold
+// the server mutex.
+func (s *server) getOrCreateWorker(pubStr string, perm bool,
+	addrs []*lnwire.NetAddress) *connWorker {
+
+	if w, ok := s.persistentWorkers[pubStr]; ok {
+		// Upgrade to perm if requested.
+		if perm && !w.perm {
+			w.perm = true
+		}
+		return w
+	}
+
+	cfg := connWorkerCfg{
+		dialContext: func(ctx context.Context,
+			addr *lnwire.NetAddress) (net.Conn, error) {
+
+			dialer := func(ctx context.Context, network,
+				ipAddr string) (net.Conn, error) {
+
+				return s.cfg.net.Dial(
+					network, ipAddr, tor.DefaultConnTimeout,
+				)
+			}
+
+			return brontide.DialContext(
+				ctx, s.identityECDH, addr, dialer,
+			)
+		},
+		onConnection: func(conn net.Conn,
+			addr *lnwire.NetAddress) {
+
+			s.OutboundPeerConnected(nil, conn)
+		},
+		minBackoff:         s.cfg.MinBackoff,
+		maxBackoff:         s.cfg.MaxBackoff,
+		stableConnDuration: defaultStableConnDuration,
+		staggerDelay:       multiAddrConnectionStagger,
+		quit:               s.quit,
+	}
+
+	w := newConnWorker(pubStr, perm, cfg)
+	w.addrs = addrs
+	s.persistentWorkers[pubStr] = w
+
+	s.wg.Go(w.Run)
+
+	return w
+}
+
+// stopWorker sends cmdStop to the worker for the given peer and removes it from
+// the map. The caller must hold the server mutex. No-op if no worker exists.
+func (s *server) stopWorker(pubStr string) {
+	w, ok := s.persistentWorkers[pubStr]
+	if !ok {
+		return
+	}
+
+	select {
+	case w.cmdChan <- connWorkerMsg{cmd: cmdStop}:
+	default:
+		srvrLog.Warnf("Worker cmdChan full for peer %x, "+
+			"stop is not processed", pubStr)
+	}
+
+	delete(s.persistentWorkers, pubStr)
+}
+
+// sendWorkerCmd sends a command to the worker for the given peer. Returns false
+// if no worker exists. The caller must hold the server mutex (at least RLock).
+func (s *server) sendWorkerCmd(pubStr string, msg connWorkerMsg) bool {
+
+	w, ok := s.persistentWorkers[pubStr]
+	if !ok {
+		return false
+	}
+
+	select {
+	case w.cmdChan <- msg:
+	default:
+		srvrLog.Warnf("Worker cmdChan full for peer %x, "+
+			"command %v is not processed", pubStr, msg.cmd)
+	}
+
+	return true
+}
+
 // BroadcastMessage sends a request to the server to broadcast a set of
 // messages to all peers other than the one specified by the `skips` parameter.
 // All messages sent via BroadcastMessage will be queued for lazy delivery to
@@ -4013,6 +4107,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
 		s.cancelConnReqs(pubStr, nil)
+		s.sendWorkerCmd(pubStr, connWorkerMsg{cmd: cmdStandDown})
 		s.peerConnected(conn, nil, true)
 
 	case nil:
@@ -4043,6 +4138,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		srvrLog.DebugS(ctx, "Disconnecting stale connection")
 
 		s.cancelConnReqs(pubStr, nil)
+		s.sendWorkerCmd(pubStr, connWorkerMsg{cmd: cmdStandDown})
 
 		// Remove the current peer from the server's internal state and
 		// signal that the peer termination watcher does not need to
@@ -4082,9 +4178,9 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 			"ignoring outbound connection from local=%v, remote=%v",
 			p, conn.LocalAddr(), conn.RemoteAddr())
 
-		if connReq != nil {
-			s.connMgr.Remove(connReq.ID())
-		}
+		s.cancelConnReqs(pubStr, nil)
+		s.sendWorkerCmd(pubStr, connWorkerMsg{cmd: cmdStandDown})
+
 		conn.Close()
 		return
 	}

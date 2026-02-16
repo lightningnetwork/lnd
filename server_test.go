@@ -4,8 +4,48 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/connmgr"
+	"github.com/lightningnetwork/lnd/lncfg"
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/peer"
 	"github.com/stretchr/testify/require"
 )
+
+// newTestServer creates a minimal server instance with only the fields needed
+// for persistent connection management tests.
+func newTestServer(t *testing.T) *server {
+	t.Helper()
+
+	s := &server{
+		cfg: &Config{
+			MinBackoff: time.Second,
+			Dev:        &lncfg.DevConfig{},
+		},
+		persistentPeers:         make(map[string]bool),
+		persistentPeersBackoff:  make(map[string]time.Duration),
+		persistentConnReqs:      make(map[string][]*connmgr.ConnReq),
+		persistentPeerAddrs:     make(map[string][]*lnwire.NetAddress),
+		persistentRetryCancels:  make(map[string]chan struct{}),
+		persistentWorkers:       make(map[string]*connWorker),
+		peersByPub:              make(map[string]*peer.Brontide),
+		inboundPeers:            make(map[string]*peer.Brontide),
+		outboundPeers:           make(map[string]*peer.Brontide),
+		ignorePeerTermination:   make(map[*peer.Brontide]struct{}),
+		scheduledPeerConnection: make(map[string]func()),
+		quit:                    make(chan struct{}),
+	}
+
+	return s
+}
+
+// generateTestPubKey creates a new random public key for testing.
+func generateTestPubKey(t *testing.T) *btcec.PublicKey {
+	t.Helper()
+	priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	return priv.PubKey()
+}
 
 // TestNodeAnnouncementTimestampComparison tests the timestamp comparison
 // logic used in setSelfNode to ensure node announcements have strictly
@@ -240,4 +280,66 @@ func TestPeerBackoff(t *testing.T) {
 			tc.assertBackoff(t, result)
 		})
 	}
+}
+
+// TestGetOrCreateWorker verifies that getOrCreateWorker creates a new worker on
+// first call and returns the existing one on subsequent calls.
+func TestGetOrCreateWorker(t *testing.T) {
+	t.Parallel()
+
+	s := newTestServer(t)
+
+	pubKey := generateTestPubKey(t)
+	pubStr := string(pubKey.SerializeCompressed())
+
+	// First call creates a new worker.
+	w := s.getOrCreateWorker(pubStr, false, nil)
+	require.NotNil(t, w)
+
+	_, ok := s.persistentWorkers[pubStr]
+	require.True(t, ok, "worker should be in map")
+
+	// Second call returns the same worker.
+	w2 := s.getOrCreateWorker(pubStr, false, nil)
+	require.Equal(t, w, w2, "should return same worker")
+
+	// Upgrade to perm.
+	w3 := s.getOrCreateWorker(pubStr, true, nil)
+	require.Equal(t, w, w3)
+	require.True(t, w.perm, "should be upgraded to perm")
+
+	// Clean up.
+	s.stopWorker(pubStr)
+}
+
+// TestStopWorker verifies that stopWorker removes the worker from the map and
+// sends cmdStop.
+func TestStopWorker(t *testing.T) {
+	t.Parallel()
+
+	s := newTestServer(t)
+
+	pubKey := generateTestPubKey(t)
+	pubStr := string(pubKey.SerializeCompressed())
+
+	// Create a worker.
+	s.getOrCreateWorker(pubStr, false, nil)
+	require.Contains(t, s.persistentWorkers, pubStr)
+
+	// Stop it.
+	s.stopWorker(pubStr)
+	require.NotContains(t, s.persistentWorkers, pubStr)
+}
+
+// TestSendWorkerCmdNoWorker verifies that sendWorkerCmd returns false when no
+// worker exists for the peer.
+func TestSendWorkerCmdNoWorker(t *testing.T) {
+	t.Parallel()
+
+	s := newTestServer(t)
+
+	ok := s.sendWorkerCmd("nonexistent", connWorkerMsg{
+		cmd: cmdStandDown,
+	})
+	require.False(t, ok)
 }

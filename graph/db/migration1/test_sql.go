@@ -31,16 +31,15 @@ func (t *testBatchedSQLQueries) ExecTx(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		} else {
-			err = tx.Commit()
-		}
-	}()
 
 	reset()
 	queries := sqlc.New(tx)
 
-	return txBody(queries)
+	if err := txBody(queries); err != nil {
+		_ = tx.Rollback()
+
+		return err
+	}
+
+	return tx.Commit()
 }

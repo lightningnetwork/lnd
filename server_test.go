@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/connmgr"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -63,11 +62,6 @@ func newTestServer(t *testing.T) *server {
 		identityECDH: &keychain.PrivKeyECDH{
 			PrivKey: identityPriv,
 		},
-		persistentPeers:         make(map[string]bool),
-		persistentPeersBackoff:  make(map[string]time.Duration),
-		persistentConnReqs:      make(map[string][]*connmgr.ConnReq),
-		persistentPeerAddrs:     make(map[string][]*lnwire.NetAddress),
-		persistentRetryCancels:  make(map[string]chan struct{}),
 		persistentWorkers:       make(map[string]*connWorker),
 		peersByPub:              make(map[string]*peer.Brontide),
 		inboundPeers:            make(map[string]*peer.Brontide),

@@ -281,16 +281,6 @@ type server struct {
 	peerConnectedListeners    map[string][]chan<- lnpeer.Peer
 	peerDisconnectedListeners map[string][]chan<- struct{}
 
-	// TODO(yy): the Brontide.Start doesn't know this value, which means it
-	// will continue to send messages even if there are no active channels
-	// and the value below is false. Once it's pruned, all its connections
-	// will be closed, thus the Brontide.Start will return an error.
-	persistentPeers        map[string]bool
-	persistentPeersBackoff map[string]time.Duration
-	persistentPeerAddrs    map[string][]*lnwire.NetAddress
-	persistentConnReqs     map[string][]*connmgr.ConnReq
-	persistentRetryCancels map[string]chan struct{}
-
 	// persistentWorkers maps each persistent peer's pubkey to its
 	// connection worker. A worker's existence means the peer is persistent;
 	// its backoff, addresses, and dial state live inside the worker.
@@ -700,11 +690,6 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 		torController: torController,
 
-		persistentPeers:         make(map[string]bool),
-		persistentPeersBackoff:  make(map[string]time.Duration),
-		persistentConnReqs:      make(map[string][]*connmgr.ConnReq),
-		persistentPeerAddrs:     make(map[string][]*lnwire.NetAddress),
-		persistentRetryCancels:  make(map[string]chan struct{}),
 		persistentWorkers:       make(map[string]*connWorker),
 		peerErrors:              make(map[string]*queue.CircularBuffer),
 		ignorePeerTermination:   make(map[*peer.Brontide]struct{}),
@@ -2967,7 +2952,7 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 //   - the node itself needs to be skipped as it doesn't make sense to connect
 //     to itself.
 //   - the peers that already have connections with, as in s.peersByPub.
-//   - the peers that we are attempting to connect, as in s.persistentPeers.
+//   - the peers that we are attempting to connect, as in s.persistentWorkers.
 func (s *server) createBootstrapIgnorePeers() map[autopilot.NodeID]struct{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -3643,19 +3628,6 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 	return nil
 }
 
-// delayInitialReconnect will attempt a reconnection to the given peer after
-// sampling a value for the delay between 0s and the maxInitReconnectDelay.
-//
-// NOTE: This method MUST be run as a goroutine.
-func (s *server) delayInitialReconnect(pubStr string) {
-	delay := time.Duration(prand.Intn(maxInitReconnectDelay)) * time.Second
-	select {
-	case <-time.After(delay):
-		s.connectToPersistentPeer(pubStr)
-	case <-s.quit:
-	}
-}
-
 // prunePersistentPeerConnection removes all internal state related to
 // persistent connections to a peer within the server. This is used to avoid
 // persistent connection retries to peers we do not have any open channels with.
@@ -3663,25 +3635,23 @@ func (s *server) prunePersistentPeerConnection(compressedPubKey [33]byte) {
 	pubKeyStr := string(compressedPubKey[:])
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	// Check the worker map: if the worker is non-perm, stop it.
-	if w, ok := s.persistentWorkers[pubKeyStr]; ok && !w.perm {
-		s.stopWorker(pubKeyStr)
-	}
-
-	if perm, ok := s.persistentPeers[pubKeyStr]; ok && !perm {
-		delete(s.persistentPeers, pubKeyStr)
-		delete(s.persistentPeersBackoff, pubKeyStr)
-		delete(s.persistentPeerAddrs, pubKeyStr)
-		s.cancelConnReqs(pubKeyStr, nil)
-		s.mu.Unlock()
-
-		srvrLog.Infof("Pruned peer %x from persistent connections, "+
-			"peer has no open channels", compressedPubKey)
-
+	w, ok := s.persistentWorkers[pubKeyStr]
+	if !ok {
 		return
 	}
-	s.mu.Unlock()
+
+	// Only stop non-perm workers. Perm workers persist even with
+	// zero channels.
+	if w.perm {
+		return
+	}
+
+	s.stopWorker(pubKeyStr)
+
+	srvrLog.Infof("Pruned peer %x from persistent connections, "+
+		"peer has no open channels", compressedPubKey)
 }
 
 // bannedPersistentPeerConnection does not actually "ban" a persistent peer. It
@@ -3693,16 +3663,8 @@ func (s *server) prunePersistentPeerConnection(compressedPubKey [33]byte) {
 //
 // NOTE: The server's write lock MUST be held when this is called.
 func (s *server) bannedPersistentPeerConnection(remotePub string) {
-	// Stop the worker if the peer is non-perm.
 	if w, ok := s.persistentWorkers[remotePub]; ok && !w.perm {
 		s.stopWorker(remotePub)
-	}
-
-	if perm, ok := s.persistentPeers[remotePub]; ok && !perm {
-		delete(s.persistentPeers, remotePub)
-		delete(s.persistentPeersBackoff, remotePub)
-		delete(s.persistentPeerAddrs, remotePub)
-		s.cancelConnReqs(remotePub, nil)
 	}
 }
 
@@ -3964,25 +3926,6 @@ func (s *server) findPeerByPubStr(pubStr string) (*peer.Brontide, error) {
 	return peer, nil
 }
 
-// nextPeerBackoff computes the next backoff duration for a peer's pubkey using
-// exponential backoff. If no previous backoff was known, the default is
-// returned.
-func (s *server) nextPeerBackoff(pubStr string,
-	startTime time.Time) time.Duration {
-
-	// Now, determine the appropriate backoff to use for the retry.
-	backoff, ok := s.persistentPeersBackoff[pubStr]
-	if !ok {
-		// If an existing backoff was unknown, use the default.
-		return s.cfg.MinBackoff
-	}
-
-	return peerBackoff(
-		backoff, startTime, s.cfg.MinBackoff, s.cfg.MaxBackoff,
-		defaultStableConnDuration,
-	)
-}
-
 // peerBackoff computes the next reconnection backoff for a persistent peer
 // given the current backoff, the time the peer was last started, and the
 // configured bounds. A zero startTime indicates the peer failed to start.
@@ -4096,7 +4039,6 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
-		s.cancelConnReqs(pubStr, nil)
 		s.sendWorkerCmd(pubStr, connWorkerMsg{cmd: cmdStandDown})
 		s.peerConnected(conn, nil, true)
 
@@ -4127,7 +4069,6 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		// disconnect our already connected peer.
 		srvrLog.DebugS(ctx, "Disconnecting stale connection")
 
-		s.cancelConnReqs(pubStr, nil)
 		s.sendWorkerCmd(pubStr, connWorkerMsg{cmd: cmdStandDown})
 
 		// Remove the current peer from the server's internal state and
@@ -4161,22 +4102,16 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// If we already have an inbound connection to this peer, then ignore
-	// this new connection.
+	// If we already have an inbound connection to this peer, then
+	// ignore this new connection. The worker is told to stand down
+	// so it stops dialing.
 	if p, ok := s.inboundPeers[pubStr]; ok {
 		srvrLog.Debugf("Already have inbound connection for %v, "+
 			"ignoring outbound connection from local=%v, remote=%v",
 			p, conn.LocalAddr(), conn.RemoteAddr())
 
-		s.cancelConnReqs(pubStr, nil)
 		s.sendWorkerCmd(pubStr, connWorkerMsg{cmd: cmdStandDown})
 
-		conn.Close()
-		return
-	}
-	if _, ok := s.persistentConnReqs[pubStr]; !ok && connReq != nil {
-		srvrLog.Debugf("Ignoring canceled outbound connection")
-		s.connMgr.Remove(connReq.ID())
 		conn.Close()
 		return
 	}
@@ -4186,29 +4121,12 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	// ignore this connection.
 	if _, ok := s.scheduledPeerConnection[pubStr]; ok {
 		srvrLog.Debugf("Ignoring connection, peer already scheduled")
-
-		if connReq != nil {
-			s.connMgr.Remove(connReq.ID())
-		}
-
 		conn.Close()
 		return
 	}
 
 	srvrLog.Infof("Established outbound connection to: %x@%v", pubStr,
 		conn.RemoteAddr())
-
-	if connReq != nil {
-		// A successful connection was returned by the connmgr.
-		// Immediately cancel all pending requests, excluding the
-		// outbound connection we just established.
-		ignore := connReq.ID()
-		s.cancelConnReqs(pubStr, &ignore)
-	} else {
-		// This was a successful connection made by some other
-		// subsystem. Remove all requests being managed by the connmgr.
-		s.cancelConnReqs(pubStr, nil)
-	}
 
 	// If we already have a connection with this peer, decide whether or not
 	// we need to drop the stale connection. We forgo adding a default case
@@ -4261,57 +4179,6 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 			s.peerConnected(conn, connReq, false)
 		}
 	}
-}
-
-// UnassignedConnID is the default connection ID that a request can have before
-// it actually is submitted to the connmgr.
-// TODO(conner): move into connmgr package, or better, add connmgr method for
-// generating atomic IDs
-const UnassignedConnID uint64 = 0
-
-// cancelConnReqs stops all persistent connection requests for a given pubkey.
-// Any attempts initiated by the peerTerminationWatcher are canceled first.
-// Afterwards, each connection request removed from the connmgr. The caller can
-// optionally specify a connection ID to ignore, which prevents us from
-// canceling a successful request. All persistent connreqs for the provided
-// pubkey are discarded after the operationjw.
-func (s *server) cancelConnReqs(pubStr string, skip *uint64) {
-	// First, cancel any lingering persistent retry attempts, which will
-	// prevent retries for any with backoffs that are still maturing.
-	if cancelChan, ok := s.persistentRetryCancels[pubStr]; ok {
-		close(cancelChan)
-		delete(s.persistentRetryCancels, pubStr)
-	}
-
-	// Next, check to see if we have any outstanding persistent connection
-	// requests to this peer. If so, then we'll remove all of these
-	// connection requests, and also delete the entry from the map.
-	connReqs, ok := s.persistentConnReqs[pubStr]
-	if !ok {
-		return
-	}
-
-	for _, connReq := range connReqs {
-		srvrLog.Tracef("Canceling %s:", connReqs)
-
-		// Atomically capture the current request identifier.
-		connID := connReq.ID()
-
-		// Skip any zero IDs, this indicates the request has not
-		// yet been schedule.
-		if connID == UnassignedConnID {
-			continue
-		}
-
-		// Skip a particular connection ID if instructed.
-		if skip != nil && connID == *skip {
-			continue
-		}
-
-		s.connMgr.Remove(connID)
-	}
-
-	delete(s.persistentConnReqs, pubStr)
 }
 
 // handleCustomMessage dispatches an incoming custom peers message to
@@ -4868,103 +4735,6 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	})
 }
 
-// connectToPersistentPeer uses all the stored addresses for a peer to attempt
-// to connect to the peer. It creates connection requests if there are
-// currently none for a given address and it removes old connection requests
-// if the associated address is no longer in the latest address list for the
-// peer.
-func (s *server) connectToPersistentPeer(pubKeyStr string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Create an easy lookup map of the addresses we have stored for the
-	// peer. We will remove entries from this map if we have existing
-	// connection requests for the associated address and then any leftover
-	// entries will indicate which addresses we should create new
-	// connection requests for.
-	addrMap := make(map[string]*lnwire.NetAddress)
-	for _, addr := range s.persistentPeerAddrs[pubKeyStr] {
-		addrMap[addr.String()] = addr
-	}
-
-	// Go through each of the existing connection requests and
-	// check if they correspond to the latest set of addresses. If
-	// there is a connection requests that does not use one of the latest
-	// advertised addresses then remove that connection request.
-	var updatedConnReqs []*connmgr.ConnReq
-	for _, connReq := range s.persistentConnReqs[pubKeyStr] {
-		lnAddr := connReq.Addr.(*lnwire.NetAddress).Address.String()
-
-		switch _, ok := addrMap[lnAddr]; ok {
-		// If the existing connection request is using one of the
-		// latest advertised addresses for the peer then we add it to
-		// updatedConnReqs and remove the associated address from
-		// addrMap so that we don't recreate this connReq later on.
-		case true:
-			updatedConnReqs = append(
-				updatedConnReqs, connReq,
-			)
-			delete(addrMap, lnAddr)
-
-		// If the existing connection request is using an address that
-		// is not one of the latest advertised addresses for the peer
-		// then we remove the connecting request from the connection
-		// manager.
-		case false:
-			srvrLog.Info(
-				"Removing conn req:", connReq.Addr.String(),
-			)
-			s.connMgr.Remove(connReq.ID())
-		}
-	}
-
-	s.persistentConnReqs[pubKeyStr] = updatedConnReqs
-
-	cancelChan, ok := s.persistentRetryCancels[pubKeyStr]
-	if !ok {
-		cancelChan = make(chan struct{})
-		s.persistentRetryCancels[pubKeyStr] = cancelChan
-	}
-
-	// Any addresses left in addrMap are new ones that we have not made
-	// connection requests for. So create new connection requests for those.
-	// If there is more than one address in the address map, stagger the
-	// creation of the connection requests for those.
-	go func() {
-		ticker := time.NewTicker(multiAddrConnectionStagger)
-		defer ticker.Stop()
-
-		for _, addr := range addrMap {
-			// Send the persistent connection request to the
-			// connection manager, saving the request itself so we
-			// can cancel/restart the process as needed.
-			connReq := &connmgr.ConnReq{
-				Addr:      addr,
-				Permanent: true,
-			}
-
-			s.mu.Lock()
-			s.persistentConnReqs[pubKeyStr] = append(
-				s.persistentConnReqs[pubKeyStr], connReq,
-			)
-			s.mu.Unlock()
-
-			srvrLog.Debugf("Attempting persistent connection to "+
-				"channel peer %v", addr)
-
-			go s.connMgr.Connect(connReq)
-
-			select {
-			case <-s.quit:
-				return
-			case <-cancelChan:
-				return
-			case <-ticker.C:
-			}
-		}
-	}()
-}
-
 // removePeerUnsafe removes the passed peer from the server's state of all
 // active peers.
 //
@@ -5148,14 +4918,7 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 
 	srvrLog.Infof("Disconnecting from %v", peer)
 
-	s.cancelConnReqs(pubStr, nil)
 	s.stopWorker(pubStr)
-
-	// If this peer was formerly a persistent connection, then we'll remove
-	// them from this map so we don't attempt to re-connect after we
-	// disconnect.
-	delete(s.persistentPeers, pubStr)
-	delete(s.persistentPeersBackoff, pubStr)
 
 	// Remove the peer by calling Disconnect. Previously this was done with
 	// removePeerUnsafe, which bypassed the peerTerminationWatcher.

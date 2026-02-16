@@ -2,6 +2,7 @@ package brontide
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"math"
 	"net"
@@ -103,6 +104,108 @@ func Dial(local keychain.SingleKeyECDH, netAddr *lnwire.NetAddress,
 		b.conn.Close()
 		return nil, err
 	}
+
+	return b, nil
+}
+
+// DialContextFunc is a function that establishes a network connection
+// with context cancellation support.
+type DialContextFunc func(ctx context.Context, net, addr string) (
+	net.Conn, error)
+
+// DialContext attempts to establish an encrypted+authenticated connection
+// with the remote peer located at netAddr which has the remote public key
+// embedded. Unlike Dial, DialContext accepts a context for cancellation
+// and a context-aware dialer. The TCP connect phase respects context
+// cancellation natively via the dialer. If the context is canceled during
+// the Brontide handshake, the underlying connection is closed, causing
+// handshake reads/writes to fail with an error.
+func DialContext(ctx context.Context, local keychain.SingleKeyECDH,
+	netAddr *lnwire.NetAddress, dialer DialContextFunc) (*Conn, error) {
+
+	ipAddr := netAddr.Address.String()
+	conn, err := dialer(ctx, "tcp", ipAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	b := &Conn{
+		conn:  conn,
+		noise: NewBrontideMachine(true, local, netAddr.IdentityKey),
+	}
+
+	// Spawn a goroutine that closes the underlying connection if the
+	// context is canceled during the handshake. This causes any blocking
+	// Read/Write on the connection to return immediately. We signal done
+	// before returning on success to prevent the goroutine from closing a
+	// successfully established connection.
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			conn.Close()
+		case <-done:
+		}
+	}()
+
+	// closeAndReturn is a helper to close the connection on handshake
+	// failure. It signals the cancel goroutine first to avoid a
+	// double-close race.
+	closeAndReturn := func(err error) (*Conn, error) {
+		close(done)
+		b.conn.Close()
+		return nil, err
+	}
+
+	// Initiate the handshake by sending the first act to the receiver.
+	actOne, err := b.noise.GenActOne()
+	if err != nil {
+		return closeAndReturn(err)
+	}
+	if _, err := conn.Write(actOne[:]); err != nil {
+		return closeAndReturn(err)
+	}
+
+	// We'll ensure that we get ActTwo from the remote peer in a timely
+	// manner. If they don't respond within handshakeReadTimeout, then
+	// we'll kill the connection.
+	err = conn.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
+	if err != nil {
+		return closeAndReturn(err)
+	}
+
+	// If the first act was successful (we know that address is actually
+	// remotePub), then read the second act after which we'll be able to
+	// send our static public key to the remote peer with strong forward
+	// secrecy.
+	var actTwo [ActTwoSize]byte
+	if _, err := io.ReadFull(conn, actTwo[:]); err != nil {
+		return closeAndReturn(err)
+	}
+	if err := b.noise.RecvActTwo(actTwo); err != nil {
+		return closeAndReturn(err)
+	}
+
+	// Finally, complete the handshake by sending over our encrypted static
+	// key and execute the final ECDH operation.
+	actThree, err := b.noise.GenActThree()
+	if err != nil {
+		return closeAndReturn(err)
+	}
+	if _, err := conn.Write(actThree[:]); err != nil {
+		return closeAndReturn(err)
+	}
+
+	// We'll reset the deadline as it's no longer critical beyond the
+	// initial handshake.
+	err = conn.SetReadDeadline(time.Time{})
+	if err != nil {
+		return closeAndReturn(err)
+	}
+
+	// Signal the cancel goroutine before returning the connection to
+	// prevent it from closing a successfully established connection.
+	close(done)
 
 	return b, nil
 }

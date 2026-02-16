@@ -1537,17 +1537,15 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		WatchNewChannel: func(channel *channeldb.OpenChannel,
 			peerKey *btcec.PublicKey) error {
 
-			// First, we'll mark this new peer as a persistent peer
-			// for re-connection purposes. If the peer is not yet
-			// tracked or the user hasn't requested it to be perm,
-			// we'll set false to prevent the server from continuing
-			// to connect to this peer even if the number of
-			// channels with this peer is zero.
+			// Ensure a worker exists for this peer so we
+			// maintain a persistent connection. The peer is
+			// already connected (we just opened a channel),
+			// so no cmdConnect is sent — the worker starts
+			// idle. If a worker already exists, this is a
+			// no-op.
 			s.mu.Lock()
 			pubStr := string(peerKey.SerializeCompressed())
-			if _, ok := s.persistentPeers[pubStr]; !ok {
-				s.persistentPeers[pubStr] = false
-			}
+			s.getOrCreateWorker(pubStr, false, nil)
 			s.mu.Unlock()
 
 			// With that taken care of, we'll send this channel to
@@ -2988,7 +2986,7 @@ func (s *server) createBootstrapIgnorePeers() map[autopilot.NodeID]struct{} {
 
 	// Ignore all persistent peers as they have a dedicated reconnecting
 	// process.
-	for pubKeyStr := range s.persistentPeers {
+	for pubKeyStr := range s.persistentWorkers {
 		var nID autopilot.NodeID
 		copy(nID[:], []byte(pubKeyStr))
 		ignore[nID] = struct{}{}
@@ -3665,6 +3663,12 @@ func (s *server) prunePersistentPeerConnection(compressedPubKey [33]byte) {
 	pubKeyStr := string(compressedPubKey[:])
 
 	s.mu.Lock()
+
+	// Check the worker map: if the worker is non-perm, stop it.
+	if w, ok := s.persistentWorkers[pubKeyStr]; ok && !w.perm {
+		s.stopWorker(pubKeyStr)
+	}
+
 	if perm, ok := s.persistentPeers[pubKeyStr]; ok && !perm {
 		delete(s.persistentPeers, pubKeyStr)
 		delete(s.persistentPeersBackoff, pubKeyStr)
@@ -3689,6 +3693,11 @@ func (s *server) prunePersistentPeerConnection(compressedPubKey [33]byte) {
 //
 // NOTE: The server's write lock MUST be held when this is called.
 func (s *server) bannedPersistentPeerConnection(remotePub string) {
+	// Stop the worker if the peer is non-perm.
+	if w, ok := s.persistentWorkers[remotePub]; ok && !w.perm {
+		s.stopWorker(remotePub)
+	}
+
 	if perm, ok := s.persistentPeers[remotePub]; ok && !perm {
 		delete(s.persistentPeers, remotePub)
 		delete(s.persistentPeersBackoff, remotePub)
@@ -5140,6 +5149,7 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 	srvrLog.Infof("Disconnecting from %v", peer)
 
 	s.cancelConnReqs(pubStr, nil)
+	s.stopWorker(pubStr)
 
 	// If this peer was formerly a persistent connection, then we'll remove
 	// them from this map so we don't attempt to re-connect after we

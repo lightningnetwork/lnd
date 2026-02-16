@@ -95,14 +95,20 @@ function import_keys() {
 function verify_signatures() {
   # Download the JSON of the release itself. That'll contain the release ID we
   # need for the next call.
-  RELEASE_JSON=$(curl -L -s -H "$HEADER_JSON" "$RELEASE_URL/$VERSION")
+  RELEASE_JSON=$(wget -q --header="$HEADER_JSON" -O - "$RELEASE_URL/$VERSION") || {
+    echo "ERROR: Failed to download release JSON from $RELEASE_URL/$VERSION"
+    exit 1
+  }
 
   TAG_NAME=$(echo $RELEASE_JSON | jq -r '.tag_name')
   RELEASE_ID=$(echo $RELEASE_JSON | jq -r '.id')
   echo "Release $TAG_NAME found with ID $RELEASE_ID"
 
   # Now download the asset list and filter by the manifest and the signatures.
-  ASSETS=$(curl -L -s -H "$HEADER_GH_JSON" "$API_URL/$RELEASE_ID" | jq -c '.assets[]')
+  ASSETS=$(wget -q --header="$HEADER_GH_JSON" -O - "$API_URL/$RELEASE_ID" | jq -c '.assets[]') || {
+    echo "ERROR: Failed to download asset list from $API_URL/$RELEASE_ID"
+    exit 1
+  }
   MANIFEST=$(echo $ASSETS | jq -r "$MANIFEST_SELECTOR")
   SIGNATURES=$(echo $ASSETS | jq -r "$SIGNATURE_SELECTOR")
 
@@ -116,11 +122,17 @@ function verify_signatures() {
   # Download the main "manifest-*.txt" and all "manifest-*.sig" files containing
   # the detached signatures.
   echo "Downloading $MANIFEST"
-  curl -L -s -o "$TEMP_DIR/$MANIFEST" "$RELEASE_URL/download/$VERSION/$MANIFEST"
+  wget -q -O "$TEMP_DIR/$MANIFEST" "$RELEASE_URL/download/$VERSION/$MANIFEST" || {
+    echo "ERROR: Failed to download $MANIFEST from $RELEASE_URL/download/$VERSION/$MANIFEST"
+    exit 1
+  }
 
   for signature in $SIGNATURES; do
     echo "Downloading $signature"
-    curl -L -s -o "$TEMP_DIR/$signature" "$RELEASE_URL/download/$VERSION/$signature"
+    wget -q -O "$TEMP_DIR/$signature" "$RELEASE_URL/download/$VERSION/$signature" || {
+      echo "ERROR: Failed to download $signature from $RELEASE_URL/download/$VERSION/$signature"
+      exit 1
+    }
   done
 
   echo ""
@@ -159,7 +171,12 @@ function verify_signatures() {
     # Run the actual verification.
     gpg --homedir "$TEMP_DIR" --no-default-keyring --keyring "$KEYRING" --status-fd=1 \
       --verify "$TEMP_DIR/$signature" "$TEMP_DIR/$MANIFEST" \
-      > "$STATUS_FILE" 2>&1 || { echo "ERROR: Invalid signature!"; exit 1; } 
+      > "$STATUS_FILE" 2>&1 || {
+        echo "ERROR: Invalid signature $signature from user $USERNAME!"
+        echo "  GPG output:"
+        cat "$STATUS_FILE" | sed 's/^/    /'
+        exit 1
+      }
 
     echo "Verifying $signature of user $USERNAME against key ring $KEYRING"
     if grep -q "Good signature" "$STATUS_FILE"; then
@@ -262,7 +279,7 @@ shift
 verify_version "$VERSION"
 
 # Make sure we have all tools needed for the verification.
-check_command curl
+check_command wget
 check_command jq
 check_command gpg
 

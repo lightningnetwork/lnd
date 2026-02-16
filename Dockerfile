@@ -29,13 +29,13 @@ FROM alpine as final
 VOLUME /root/.lnd
 
 # Add utilities for quality of life and SSL-related reasons. We also require
-# curl and gpg for the signature verification script.
+# wget and gpg for the signature verification script.
 RUN apk --no-cache add \
     bash \
     jq \
     ca-certificates \
     gnupg \
-    curl
+    wget
 
 # Copy the binaries from the builder image.
 COPY --from=builder /go/bin/lncli /bin/

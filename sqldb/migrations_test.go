@@ -616,3 +616,100 @@ func TestMigrationSucceedsAfterDirtyStateMigrationFailure19RC1(t *testing.T) {
 		require.False(t, dirty)
 	})
 }
+
+// TestMigrationConfigConsistency verifies that the migration configuration in
+// migrationConfig is consistent with the actual SQL schema files embedded in
+// the binary. This catches version collisions (e.g. two migrations claiming
+// the same schema version) and missing schema files.
+func TestMigrationConfigConsistency(t *testing.T) {
+	t.Parallel()
+
+	migrations := GetMigrations()
+	require.NotEmpty(t, migrations)
+
+	// Build a set of schema versions that have actual .up.sql files in
+	// the embedded filesystem.
+	embeddedFiles, err := sqlSchemas.ReadDir("sqlc/migrations")
+	require.NoError(t, err)
+
+	fileSchemaVersions := make(map[int]string)
+	for _, f := range embeddedFiles {
+		if f.IsDir() {
+			continue
+		}
+
+		var version int
+		_, err := fmt.Sscanf(f.Name(), "%06d_", &version)
+		require.NoError(t, err, "schema migration file %q is "+
+			"missing a valid numeric prefix (expected "+
+			"format: 000XXX_name.up.sql)", f.Name())
+
+		// Enforce the 6-digit zero-padded naming convention
+		// for consistent directory listing order.
+		expectedPrefix := fmt.Sprintf("%06d_", version)
+		require.True(t,
+			len(f.Name()) > len(expectedPrefix) &&
+				f.Name()[:len(expectedPrefix)] == expectedPrefix,
+			"schema migration file %q should use 6-digit "+
+				"zero-padded prefix %q", f.Name(),
+			expectedPrefix)
+
+		// Verify no two files share the same numeric prefix.
+		if existing, ok := fileSchemaVersions[version]; ok {
+			t.Fatalf("duplicate schema file version %06d: "+
+				"%q and %q", version, existing, f.Name())
+		}
+
+		fileSchemaVersions[version] = f.Name()
+	}
+
+	// Track seen versions to detect duplicates.
+	seenVersions := make(map[int]string)
+	seenSchemaVersions := make(map[int]string)
+
+	for _, m := range migrations {
+		// 1. Verify no duplicate global versions.
+		if existing, ok := seenVersions[m.Version]; ok {
+			t.Fatalf("duplicate global version %d: %q and %q",
+				m.Version, existing, m.Name)
+		}
+		seenVersions[m.Version] = m.Name
+
+		// 2. For schema migrations (those that advance the schema
+		//    version), verify a corresponding .up.sql file exists
+		//    and no two config entries claim the same schema version
+		//    with different file prefixes.
+		prevSchema := 0
+		if m.Version > 1 {
+			prevSchema = migrations[m.Version-2].SchemaVersion
+		}
+
+		// A migration advances the schema if its SchemaVersion is
+		// higher than the previous migration's SchemaVersion.
+		if m.SchemaVersion > prevSchema {
+			_, hasFile := fileSchemaVersions[m.SchemaVersion]
+			require.True(t, hasFile,
+				"migration %q (version %d) declares "+
+					"SchemaVersion=%d but no %06d_*.up.sql"+
+					" file exists in the embedded FS",
+				m.Name, m.Version, m.SchemaVersion,
+				m.SchemaVersion)
+
+			if existing, ok := seenSchemaVersions[m.SchemaVersion]; ok {
+				t.Fatalf("duplicate schema version %d: "+
+					"%q and %q", m.SchemaVersion,
+					existing, m.Name)
+			}
+			seenSchemaVersions[m.SchemaVersion] = m.Name
+		}
+	}
+
+	// 3. Verify versions are sequential starting from 1.
+	for i, m := range migrations {
+		require.Equal(t, i+1, m.Version,
+			"migration %q has version %d but expected %d "+
+				"(migrations must be sequential)",
+			m.Name, m.Version, i+1)
+	}
+
+}

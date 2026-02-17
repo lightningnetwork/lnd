@@ -202,6 +202,10 @@
     db functions Part 2](https://github.com/lightningnetwork/lnd/pull/10308)
   * [Finalize SQL implementation for 
     payments db](https://github.com/lightningnetwork/lnd/pull/10373)
+  * [Add the KV-to-SQL payment
+    migration](https://github.com/lightningnetwork/lnd/pull/10485) with
+    comprehensive tests. The migration is currently dev-only, compiled behind
+    the `test_db_postgres`, `test_db_sqlite`, or `test_native_sql` build tags.
 
 
 ## Code Health

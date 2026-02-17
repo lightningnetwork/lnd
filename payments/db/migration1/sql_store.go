@@ -1,4 +1,4 @@
-package paymentsdb
+package migration1
 
 import (
 	"bytes"
@@ -12,9 +12,9 @@ import (
 
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/payments/db/migration1/sqlc"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sqldb"
-	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
 // PaymentIntentType represents the type of payment intent.
@@ -155,9 +155,6 @@ func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries,
 		db:  db,
 	}, nil
 }
-
-// A compile-time constraint to ensure SQLStore implements DB.
-var _ DB = (*SQLStore)(nil)
 
 // fetchPaymentWithCompleteData fetches a payment with all its related data
 // including attempts, hops, and custom records from the database.

@@ -1,4 +1,4 @@
-package paymentsdb
+package migration1
 
 import "errors"
 

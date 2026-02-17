@@ -834,6 +834,7 @@ SELECT
     n2.pub_key AS node2_pubkey,
 
     -- Node 1 policy
+    cp1.version AS policy1_version,
     cp1.timelock AS policy_1_timelock,
     cp1.fee_ppm AS policy_1_fee_ppm,
     cp1.base_fee_msat AS policy_1_base_fee_msat,
@@ -848,6 +849,7 @@ SELECT
     cp1.disable_flags AS policy1_disable_flags,
 
     -- Node 2 policy
+    cp2.version AS policy2_version,
     cp2.timelock AS policy_2_timelock,
     cp2.fee_ppm AS policy_2_fee_ppm,
     cp2.base_fee_msat AS policy_2_base_fee_msat,

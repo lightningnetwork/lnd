@@ -3334,6 +3334,7 @@ SELECT
     n2.pub_key AS node2_pubkey,
 
     -- Node 1 policy
+    cp1.version AS policy1_version,
     cp1.timelock AS policy_1_timelock,
     cp1.fee_ppm AS policy_1_fee_ppm,
     cp1.base_fee_msat AS policy_1_base_fee_msat,
@@ -3348,6 +3349,7 @@ SELECT
     cp1.disable_flags AS policy1_disable_flags,
 
     -- Node 2 policy
+    cp2.version AS policy2_version,
     cp2.timelock AS policy_2_timelock,
     cp2.fee_ppm AS policy_2_fee_ppm,
     cp2.base_fee_msat AS policy_2_base_fee_msat,
@@ -3385,6 +3387,7 @@ type ListChannelsWithPoliciesForCachePaginatedRow struct {
 	Capacity                       sql.NullInt64
 	Node1Pubkey                    []byte
 	Node2Pubkey                    []byte
+	Policy1Version                 sql.NullInt16
 	Policy1Timelock                sql.NullInt32
 	Policy1FeePpm                  sql.NullInt64
 	Policy1BaseFeeMsat             sql.NullInt64
@@ -3397,6 +3400,7 @@ type ListChannelsWithPoliciesForCachePaginatedRow struct {
 	Policy1ChannelFlags            sql.NullInt16
 	Policy1BlockHeight             sql.NullInt64
 	Policy1DisableFlags            sql.NullInt16
+	Policy2Version                 sql.NullInt16
 	Policy2Timelock                sql.NullInt32
 	Policy2FeePpm                  sql.NullInt64
 	Policy2BaseFeeMsat             sql.NullInt64
@@ -3426,6 +3430,7 @@ func (q *Queries) ListChannelsWithPoliciesForCachePaginated(ctx context.Context,
 			&i.Capacity,
 			&i.Node1Pubkey,
 			&i.Node2Pubkey,
+			&i.Policy1Version,
 			&i.Policy1Timelock,
 			&i.Policy1FeePpm,
 			&i.Policy1BaseFeeMsat,
@@ -3438,6 +3443,7 @@ func (q *Queries) ListChannelsWithPoliciesForCachePaginated(ctx context.Context,
 			&i.Policy1ChannelFlags,
 			&i.Policy1BlockHeight,
 			&i.Policy1DisableFlags,
+			&i.Policy2Version,
 			&i.Policy2Timelock,
 			&i.Policy2FeePpm,
 			&i.Policy2BaseFeeMsat,

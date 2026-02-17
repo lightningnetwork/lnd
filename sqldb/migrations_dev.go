@@ -22,4 +22,9 @@ var migrationAdditions = []MigrationConfig{
 		// schema. This is optional and can be disabled by the
 		// user if necessary.
 	},
+	{
+		Name:          "000012_drop_redundant_invoice_indexes",
+		Version:       15,
+		SchemaVersion: 12,
+	},
 }

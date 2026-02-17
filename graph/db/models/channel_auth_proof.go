@@ -1,6 +1,8 @@
 package models
 
 import (
+	"fmt"
+
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -114,4 +116,29 @@ func (c *ChannelAuthProof) BitcoinSig2() []byte {
 // Sig returns the v2 signature bytes, or nil if not present.
 func (c *ChannelAuthProof) Sig() []byte {
 	return c.Signature.UnwrapOr(nil)
+}
+
+// ChannelAuthProofFromWireAnnouncement constructs a channel auth proof from a
+// wire channel announcement message.
+func ChannelAuthProofFromWireAnnouncement(
+	ann lnwire.ChannelAnnouncement) (*ChannelAuthProof, error) {
+
+	switch ann := ann.(type) {
+	case *lnwire.ChannelAnnouncement1:
+		return NewV1ChannelAuthProof(
+			ann.NodeSig1.ToSignatureBytes(),
+			ann.NodeSig2.ToSignatureBytes(),
+			ann.BitcoinSig1.ToSignatureBytes(),
+			ann.BitcoinSig2.ToSignatureBytes(),
+		), nil
+
+	case *lnwire.ChannelAnnouncement2:
+		return NewV2ChannelAuthProof(
+			ann.Signature.Val.ToSignatureBytes(),
+		), nil
+
+	default:
+		return nil, fmt.Errorf("unsupported channel announcement: %T",
+			ann)
+	}
 }

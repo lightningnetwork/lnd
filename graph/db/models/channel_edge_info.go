@@ -256,6 +256,59 @@ func NewV2Channel(chanID uint64, chainHash chainhash.Hash, node1,
 	return edge, nil
 }
 
+// ChannelEdgeInfoFromWireAnnouncement constructs a ChannelEdgeInfo from a wire
+// channel announcement message.
+func ChannelEdgeInfoFromWireAnnouncement(msg lnwire.ChannelAnnouncement,
+	proof *ChannelAuthProof) (*ChannelEdgeInfo, error) {
+
+	switch msg := msg.(type) {
+	case *lnwire.ChannelAnnouncement1:
+		return NewV1Channel(
+			msg.ShortChannelID.ToUint64(), msg.ChainHash,
+			msg.NodeID1, msg.NodeID2, &ChannelV1Fields{
+				BitcoinKey1Bytes: msg.BitcoinKey1,
+				BitcoinKey2Bytes: msg.BitcoinKey2,
+				ExtraOpaqueData:  msg.ExtraOpaqueData,
+			},
+			WithChanProof(proof), WithFeatures(msg.Features),
+		)
+
+	case *lnwire.ChannelAnnouncement2:
+		bitcoinKey1 := fn.MapOption(
+			func(key [33]byte) route.Vertex {
+				return key
+			},
+		)(msg.BitcoinKey1.ValOpt())
+		bitcoinKey2 := fn.MapOption(
+			func(key [33]byte) route.Vertex {
+				return key
+			},
+		)(msg.BitcoinKey2.ValOpt())
+		merkleRootHash := fn.MapOption(
+			func(hash [32]byte) chainhash.Hash {
+				return hash
+			},
+		)(msg.MerkleRootHash.ValOpt())
+
+		return NewV2Channel(
+			msg.ShortChannelID.Val.ToUint64(), msg.ChainHash.Val,
+			msg.NodeID1.Val, msg.NodeID2.Val, &ChannelV2Fields{
+				BitcoinKey1Bytes:  bitcoinKey1,
+				BitcoinKey2Bytes:  bitcoinKey2,
+				MerkleRootHash:    merkleRootHash,
+				ExtraSignedFields: msg.ExtraSignedFields,
+			},
+			WithChanProof(proof), WithFeatures(&msg.Features.Val),
+			WithCapacity(btcutil.Amount(msg.Capacity.Val)),
+			WithChannelPoint(wire.OutPoint(msg.Outpoint.Val)),
+		)
+
+	default:
+		return nil, fmt.Errorf("unsupported channel announcement: %T",
+			msg)
+	}
+}
+
 // NodeKey1 is the identity public key of the "first" node that was involved in
 // the creation of this channel. A node is considered "first" if the
 // lexicographical ordering the its serialized public key is "smaller" than

@@ -458,7 +458,8 @@ func TestCompleteWith(t *testing.T) {
 }
 
 // TestAwaitFuture verifies that AwaitFuture unpacks a resolved future into a
-// (value, nil) pair and that context cancellation before resolution is
+// (value, nil) pair, that a future completed with fn.Err is reported as a
+// (zero, err) pair, and that context cancellation before resolution is
 // reported as a (zero, ctx.Err()) pair.
 func TestAwaitFuture(t *testing.T) {
 	t.Parallel()
@@ -470,6 +471,16 @@ func TestAwaitFuture(t *testing.T) {
 	val, err := AwaitFuture(context.Background(), promise.Future())
 	require.NoError(t, err)
 	require.Equal(t, "hello", val)
+
+	// Future completed with fn.Err — should surface the error as the
+	// second return value with the zero string value.
+	sentinel := fmt.Errorf("result-level error")
+	errPromise := NewPromise[string]()
+	errPromise.Complete(fn.Err[string](sentinel))
+
+	val3, err3 := AwaitFuture(context.Background(), errPromise.Future())
+	require.ErrorIs(t, err3, sentinel)
+	require.Equal(t, "", val3, "zero value expected on fn.Err result")
 
 	// Cancelled context — should return the zero value and ctx.Err().
 	unresolved := NewPromise[string]()

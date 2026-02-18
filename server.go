@@ -5266,15 +5266,14 @@ func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate1,
 		}
 	}
 
-	errChan := s.authGossiper.ProcessLocalAnnouncement(
+	fut := s.authGossiper.ProcessLocalAnnouncement(
 		update, discovery.RemoteAlias(peerAlias),
 	)
-	select {
-	case err := <-errChan:
-		return err
-	case <-s.quit:
-		return ErrServerShuttingDown
-	}
+
+	ctx, cancel := lnutils.ContextFromQuit(s.quit)
+	defer cancel()
+
+	return discovery.AwaitGossipResult(ctx, fut)
 }
 
 // SendCustomMessage sends a custom message to the peer with the specified

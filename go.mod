@@ -64,6 +64,8 @@ require (
 	pgregory.net/rapid v1.2.0
 )
 
+require github.com/lightningnetwork/lnd/actor v0.0.5 // indirect
+
 require (
 	dario.cat/mergo v1.0.1 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
@@ -204,6 +206,10 @@ require (
 
 // TODO(elle): remove once the gossip V2 sqldb changes have been made.
 replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
+
+// Use local actor module to pick up CompleteWith/AwaitFuture helpers added
+// as part of the discovery errChan -> Future[error] migration.
+replace github.com/lightningnetwork/lnd/actor => ./actor
 
 // This replace is for https://github.com/advisories/GHSA-25xm-hr59-7c27
 replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.11

@@ -431,9 +431,56 @@ func TestFutureOnCompleteFutureCompletes(t *testing.T) {
 	})
 }
 
-// TestPromiseCompleteIdempotency verifies that calling Complete on a Promise
-// multiple times is safe and only the first completion takes effect. Subsequent
-// calls should return false and not alter the future's result.
+// TestCompleteWith verifies that CompleteWith resolves a promise with the
+// supplied value, that the resolution is immediately visible on the Future, and
+// that a second call is a safe no-op (idempotency inherited from Complete).
+func TestCompleteWith(t *testing.T) {
+	t.Parallel()
+
+	// Normal completion — value should be visible on the future.
+	promise := NewPromise[int]()
+	CompleteWith(promise, 42)
+
+	result := promise.Future().Await(context.Background())
+	require.False(t, result.IsErr())
+	result.WhenOk(func(v int) {
+		require.Equal(t, 42, v)
+	})
+
+	// Second call must be a no-op; the future must still hold 42.
+	CompleteWith(promise, 99)
+
+	result2 := promise.Future().Await(context.Background())
+	require.False(t, result2.IsErr())
+	result2.WhenOk(func(v int) {
+		require.Equal(t, 42, v, "second CompleteWith must not overwrite")
+	})
+}
+
+// TestAwaitFuture verifies that AwaitFuture unpacks a resolved future into a
+// (value, nil) pair and that context cancellation before resolution is
+// reported as a (zero, ctx.Err()) pair.
+func TestAwaitFuture(t *testing.T) {
+	t.Parallel()
+
+	// Resolved future — should return the value with a nil error.
+	promise := NewPromise[string]()
+	CompleteWith(promise, "hello")
+
+	val, err := AwaitFuture(context.Background(), promise.Future())
+	require.NoError(t, err)
+	require.Equal(t, "hello", val)
+
+	// Cancelled context — should return the zero value and ctx.Err().
+	unresolved := NewPromise[string]()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	val2, err2 := AwaitFuture(ctx, unresolved.Future())
+	require.ErrorIs(t, err2, context.Canceled)
+	require.Equal(t, "", val2, "zero value expected on cancellation")
+}
+
 func TestPromiseCompleteIdempotency(t *testing.T) {
 	t.Parallel()
 

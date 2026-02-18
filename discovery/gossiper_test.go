@@ -5004,11 +5004,7 @@ func TestGossipSyncerRace(t *testing.T) {
 
 // TestPrematureAnnouncementProcessing checks that a channel announcement
 // carrying a future block height is correctly deferred via isPremature and
-// then re-processed once the target block arrives — without deadlocking the
-// gossiper. This is a regression test for the Network Isolation Attack where
-// a premature announcement could block the gossiper by sending to an already-
-// full chan error twice. actor.Promise.Complete is idempotent via sync.Once,
-// so the second completion is a safe no-op.
+// then re-processed once the target block arrives.
 func TestPrematureAnnouncementProcessing(t *testing.T) {
 	t.Parallel()
 
@@ -5036,8 +5032,7 @@ func TestPrematureAnnouncementProcessing(t *testing.T) {
 
 	// Advance the block height to 200. This triggers resendFutureMessages,
 	// which re-queues the cached announcement copy into the processing
-	// pipeline. The copy carries a fresh actor.Promise whose Complete call
-	// is idempotent — unlike chan error, a second completion never blocks.
+	// pipeline.
 	tCtx.notifier.notifyBlock(chainhash.Hash{}, futureHeight)
 
 	// Wait for the announcement to be broadcast. This confirms the gossiper

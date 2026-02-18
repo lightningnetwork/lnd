@@ -978,10 +978,10 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(ctx context.Context,
 	case <-ctx.Done():
 		completeGossipResult(promise, ctx.Err())
 	case <-d.quit:
-		completeGossipResult(nMsg.errPromise, ErrGossiperShuttingDown)
+		completeGossipResult(promise, ErrGossiperShuttingDown)
 	}
 
-	return nMsg.errPromise.Future()
+	return promise.Future()
 }
 
 // ProcessLocalAnnouncement sends a new remote announcement message along with

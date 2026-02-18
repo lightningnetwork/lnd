@@ -70,3 +70,24 @@ db.sqlite.busytimeout=10s
 db.sqlite.pragmaoptions=temp_store=memory
 db.sqlite.pragmaoptions=incremental_vacuum
 ```
+
+## Mobile (Android/iOS) considerations
+
+When running LND on mobile platforms via gomobile, the following pragma option
+is **required**:
+
+```
+db.sqlite.pragmaoptions=temp_store=memory
+```
+
+Without this setting, SQLite will attempt to use the system temporary directory
+for intermediate results during complex operations. On Android (and iOS), the
+app sandbox prevents access to the system temp path, causing
+`SQLITE_IOERR_GETTEMPPATH` (error code 6410) failures. These failures manifest
+as `disk I/O error` during neutrino block header and compact filter header sync,
+typically when both sync processes run concurrently and trigger more complex
+database transactions.
+
+Setting `temp_store=memory` tells SQLite to keep all temporary data in RAM
+instead of writing to disk, which avoids the sandbox restriction entirely. For
+LND's typical query patterns, the memory overhead is negligible.

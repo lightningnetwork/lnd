@@ -75,6 +75,12 @@
   transitions during startup, avoiding lost unlocks during slow database
   initialization.
 
+* [Required `total_amount_msat` for blinded final
+  hops](https://github.com/lightningnetwork/lnd/pull/10597). Per BOLT 4, when
+  `encrypted_recipient_data` is present on a final node, `total_amount_msat`
+  must be included. Validation is now performed explicitly at payload parsing 
+  time.
+
 # New Features
 
 - Basic Support for [onion messaging forwarding](https://github.com/lightningnetwork/lnd/pull/9868) 

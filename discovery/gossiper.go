@@ -971,14 +971,12 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(ctx context.Context,
 	select {
 	case d.networkMsgs <- nMsg:
 
-	// If the peer that sent us this error is quitting, then we don't need
-	// to send back an error and can return immediately.
-	// TODO(elle): the peer should now just rely on canceling the passed
-	//  context.
+	// If the peer that sent us this message is quitting, complete the
+	// promise so any awaiter does not block indefinitely.
 	case <-peer.QuitSignal():
-		return promise.Future()
+		completeGossipResult(promise, ErrGossiperShuttingDown)
 	case <-ctx.Done():
-		return promise.Future()
+		completeGossipResult(promise, ctx.Err())
 	case <-d.quit:
 		completeGossipResult(nMsg.errPromise, ErrGossiperShuttingDown)
 	}

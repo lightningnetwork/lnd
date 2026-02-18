@@ -3731,7 +3731,9 @@ func (f *Manager) addToGraph(completeChan *channeldb.OpenChannel,
 		discovery.TapscriptRoot(completeChan.TapscriptRoot),
 	))
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
+		if errors.Is(err, context.Canceled) ||
+			errors.Is(err, discovery.ErrGossiperShuttingDown) {
+
 			return ErrFundingManagerShuttingDown
 		}
 		if graph.IsError(err, graph.ErrOutdated, graph.ErrIgnored) {
@@ -3747,7 +3749,9 @@ func (f *Manager) addToGraph(completeChan *channeldb.OpenChannel,
 		ann.chanUpdateAnn, discovery.RemoteAlias(peerAlias),
 	))
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
+		if errors.Is(err, context.Canceled) ||
+			errors.Is(err, discovery.ErrGossiperShuttingDown) {
+
 			return ErrFundingManagerShuttingDown
 		}
 		if graph.IsError(err, graph.ErrOutdated, graph.ErrIgnored) {
@@ -4712,7 +4716,9 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 		ctx, f.cfg.SendAnnouncement(ann.chanProof),
 	)
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
+		if errors.Is(err, context.Canceled) ||
+			errors.Is(err, discovery.ErrGossiperShuttingDown) {
+
 			return ErrFundingManagerShuttingDown
 		}
 		if graph.IsError(err, graph.ErrOutdated, graph.ErrIgnored) {
@@ -4738,7 +4744,9 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 		ctx, f.cfg.SendAnnouncement(&nodeAnn),
 	)
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
+		if errors.Is(err, context.Canceled) ||
+			errors.Is(err, discovery.ErrGossiperShuttingDown) {
+
 			return ErrFundingManagerShuttingDown
 		}
 		if graph.IsError(err, graph.ErrOutdated, graph.ErrIgnored) {

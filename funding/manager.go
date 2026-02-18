@@ -2,6 +2,7 @@ package funding
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -406,7 +408,7 @@ type Config struct {
 	// any information within the graph that is not included in the gossip
 	// message.
 	SendAnnouncement func(msg lnwire.Message,
-		optionalFields ...discovery.OptionalMsgField) chan error
+		optionalFields ...discovery.OptionalMsgField) actor.Future[error]
 
 	// NotifyWhenOnline allows the FundingManager to register with a
 	// subsystem that will notify it when the peer comes online. This is
@@ -3687,6 +3689,30 @@ func (f *Manager) extractAnnounceParams(c *channeldb.OpenChannel) (
 	return fwdMinHTLC, fwdMaxHTLC
 }
 
+// mapGossipError inspects a gossip result error and translates shutdown
+// signals into ErrFundingManagerShuttingDown. Graph-rejected errors (outdated,
+// ignored) are logged at debug level and treated as non-fatal (nil is
+// returned). All other non-nil errors are returned as-is for the caller to
+// handle.
+func mapGossipError(err error, msgType string) error {
+	if err == nil {
+		return nil
+	}
+
+	if errors.Is(err, context.Canceled) ||
+		errors.Is(err, discovery.ErrGossiperShuttingDown) {
+
+		return ErrFundingManagerShuttingDown
+	}
+
+	if graph.IsError(err, graph.ErrOutdated, graph.ErrIgnored) {
+		log.Debugf("Graph rejected %s: %v", msgType, err)
+		return nil
+	}
+
+	return err
+}
+
 // addToGraph sends a ChannelAnnouncement and a ChannelUpdate to the
 // gossiper so that the channel is added to the graph builder's internal graph.
 // These announcement messages are NOT broadcasted to the greater network,
@@ -3716,48 +3742,34 @@ func (f *Manager) addToGraph(completeChan *channeldb.OpenChannel,
 			"announcement: %v", err)
 	}
 
+	// Create a context tied to the manager's quit channel so that both
+	// gossip awaits below respect shutdown.
+	ctx, cancel := lnutils.ContextFromQuit(f.quit)
+	defer cancel()
+
 	// Send ChannelAnnouncement and ChannelUpdate to the gossiper to add
 	// to the Router's topology.
-	errChan := f.cfg.SendAnnouncement(
-		ann.chanAnn, discovery.ChannelCapacity(completeChan.Capacity),
-		discovery.ChannelPoint(completeChan.FundingOutpoint),
-		discovery.TapscriptRoot(completeChan.TapscriptRoot),
-	)
-	select {
-	case err := <-errChan:
-		if err != nil {
-			if graph.IsError(err, graph.ErrOutdated,
-				graph.ErrIgnored) {
-
-				log.Debugf("Graph rejected "+
-					"ChannelAnnouncement: %v", err)
-			} else {
-				return fmt.Errorf("error sending channel "+
-					"announcement: %v", err)
-			}
-		}
-	case <-f.quit:
-		return ErrFundingManagerShuttingDown
+	err = mapGossipError(discovery.AwaitGossipResult(ctx,
+		f.cfg.SendAnnouncement(
+			ann.chanAnn,
+			discovery.ChannelCapacity(completeChan.Capacity),
+			discovery.ChannelPoint(completeChan.FundingOutpoint),
+			discovery.TapscriptRoot(completeChan.TapscriptRoot),
+		),
+	), "ChannelAnnouncement")
+	if err != nil {
+		return fmt.Errorf("error sending channel announcement: %w",
+			err)
 	}
 
-	errChan = f.cfg.SendAnnouncement(
-		ann.chanUpdateAnn, discovery.RemoteAlias(peerAlias),
-	)
-	select {
-	case err := <-errChan:
-		if err != nil {
-			if graph.IsError(err, graph.ErrOutdated,
-				graph.ErrIgnored) {
-
-				log.Debugf("Graph rejected "+
-					"ChannelUpdate: %v", err)
-			} else {
-				return fmt.Errorf("error sending channel "+
-					"update: %v", err)
-			}
-		}
-	case <-f.quit:
-		return ErrFundingManagerShuttingDown
+	err = mapGossipError(discovery.AwaitGossipResult(ctx,
+		f.cfg.SendAnnouncement(
+			ann.chanUpdateAnn,
+			discovery.RemoteAlias(peerAlias),
+		),
+	), "ChannelUpdate")
+	if err != nil {
+		return fmt.Errorf("error sending channel update: %w", err)
 	}
 
 	return nil
@@ -4701,28 +4713,21 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 		return err
 	}
 
+	// Create a context tied to the manager's quit channel so that both
+	// gossip awaits below respect shutdown.
+	ctx, cancel := lnutils.ContextFromQuit(f.quit)
+	defer cancel()
+
 	// We only send the channel proof announcement and the node announcement
 	// because addToGraph previously sent the ChannelAnnouncement and
 	// the ChannelUpdate announcement messages. The channel proof and node
 	// announcements are broadcast to the greater network.
-	errChan := f.cfg.SendAnnouncement(ann.chanProof)
-	select {
-	case err := <-errChan:
-		if err != nil {
-			if graph.IsError(err, graph.ErrOutdated,
-				graph.ErrIgnored) {
-
-				log.Debugf("Graph rejected "+
-					"AnnounceSignatures: %v", err)
-			} else {
-				log.Errorf("Unable to send channel "+
-					"proof: %v", err)
-				return err
-			}
-		}
-
-	case <-f.quit:
-		return ErrFundingManagerShuttingDown
+	err = mapGossipError(discovery.AwaitGossipResult(
+		ctx, f.cfg.SendAnnouncement(ann.chanProof),
+	), "AnnounceSignatures")
+	if err != nil {
+		log.Errorf("Unable to send channel proof: %v", err)
+		return err
 	}
 
 	// Now that the channel is announced to the network, we will also
@@ -4735,24 +4740,12 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 		return err
 	}
 
-	errChan = f.cfg.SendAnnouncement(&nodeAnn)
-	select {
-	case err := <-errChan:
-		if err != nil {
-			if graph.IsError(err, graph.ErrOutdated,
-				graph.ErrIgnored) {
-
-				log.Debugf("Graph rejected "+
-					"NodeAnnouncement1: %v", err)
-			} else {
-				log.Errorf("Unable to send node "+
-					"announcement: %v", err)
-				return err
-			}
-		}
-
-	case <-f.quit:
-		return ErrFundingManagerShuttingDown
+	err = mapGossipError(discovery.AwaitGossipResult(
+		ctx, f.cfg.SendAnnouncement(&nodeAnn),
+	), "NodeAnnouncement")
+	if err != nil {
+		log.Errorf("Unable to send node announcement: %v", err)
+		return err
 	}
 
 	return nil

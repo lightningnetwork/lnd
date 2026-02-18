@@ -2,6 +2,7 @@ package funding
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -29,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -474,16 +477,17 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			return testSig, nil
 		},
 		SendAnnouncement: func(msg lnwire.Message,
-			_ ...discovery.OptionalMsgField) chan error {
+			_ ...discovery.OptionalMsgField) actor.Future[error] {
 
-			errChan := make(chan error, 1)
+			promise := actor.NewPromise[error]()
+			var sendErr error
 			select {
 			case sentAnnouncements <- msg:
-				errChan <- nil
 			case <-shutdownChan:
-				errChan <- fmt.Errorf("shutting down")
+				sendErr = fmt.Errorf("shutting down")
 			}
-			return errChan
+			actor.CompleteWith(promise, sendErr)
+			return promise.Future()
 		},
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement1,
 			error) {
@@ -649,16 +653,17 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 			return testSig, nil
 		},
 		SendAnnouncement: func(msg lnwire.Message,
-			_ ...discovery.OptionalMsgField) chan error {
+			_ ...discovery.OptionalMsgField) actor.Future[error] {
 
-			errChan := make(chan error, 1)
+			promise := actor.NewPromise[error]()
+			var sendErr error
 			select {
 			case aliceAnnounceChan <- msg:
-				errChan <- nil
 			case <-shutdownChan:
-				errChan <- fmt.Errorf("shutting down")
+				sendErr = fmt.Errorf("shutting down")
 			}
-			return errChan
+			actor.CompleteWith(promise, sendErr)
+			return promise.Future()
 		},
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement1,
 			error) {
@@ -1980,11 +1985,14 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 
 	// Intentionally make the channel announcements fail
 	alice.fundingMgr.cfg.SendAnnouncement = func(msg lnwire.Message,
-		_ ...discovery.OptionalMsgField) chan error {
+		_ ...discovery.OptionalMsgField) actor.Future[error] {
 
-		errChan := make(chan error, 1)
-		errChan <- fmt.Errorf("intentional error in SendAnnouncement")
-		return errChan
+		promise := actor.NewPromise[error]()
+		actor.CompleteWith(
+			promise,
+			fmt.Errorf("intentional error in SendAnnouncement"),
+		)
+		return promise.Future()
 	}
 
 	channelReadyAlice, ok := assertFundingMsgSent(
@@ -5102,4 +5110,67 @@ func TestFundingManagerCoinbase(t *testing.T) {
 	// Check that they notify the breach arbiter and peer about the new
 	// channel.
 	assertHandleChannelReady(t, alice, bob)
+}
+
+// TestMapGossipError verifies that mapGossipError correctly translates gossip
+// result errors into funding manager errors.
+func TestMapGossipError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		inErr   error
+		wantErr error
+	}{
+		{
+			name:    "nil error",
+			inErr:   nil,
+			wantErr: nil,
+		},
+		{
+			name:    "context canceled maps to shutdown",
+			inErr:   context.Canceled,
+			wantErr: ErrFundingManagerShuttingDown,
+		},
+		{
+			name:    "gossiper shutting down maps to shutdown",
+			inErr:   discovery.ErrGossiperShuttingDown,
+			wantErr: ErrFundingManagerShuttingDown,
+		},
+		{
+			name:    "graph outdated treated as non-fatal",
+			inErr:   graph.NewErrf(graph.ErrOutdated, "outdated"),
+			wantErr: nil,
+		},
+		{
+			name:    "graph ignored treated as non-fatal",
+			inErr:   graph.NewErrf(graph.ErrIgnored, "ignored"),
+			wantErr: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := mapGossipError(tc.inErr, "TestMsg")
+
+			if tc.wantErr == nil {
+				require.NoError(t, got)
+				return
+			}
+
+			require.Error(t, got)
+			require.ErrorIs(t, got, tc.wantErr)
+		})
+	}
+
+	// Verify that unrecognized errors pass through unchanged.
+	t.Run("other errors passed through", func(t *testing.T) {
+		t.Parallel()
+
+		sentinel := errors.New("unexpected failure")
+		got := mapGossipError(sentinel, "TestMsg")
+		require.ErrorIs(t, got, sentinel)
+	})
 }

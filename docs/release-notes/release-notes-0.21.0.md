@@ -127,6 +127,16 @@
   communicated via standard gRPC status codes. This is a **breaking change** for
   any clients of the `TrackOnion` RPC.
 
+* The `switchrpc.SendOnion` RPC has been
+  [overhauled](https://github.com/lightningnetwork/lnd/pull/10545) to provide a
+  more robust, client-friendly, and forward-compatible API. The
+  `SendOnionResponse` is now an empty message; a gRPC status of `OK` indicates
+  successful dispatch. Application-level dispatch failures carry structured
+  `SendOnionFailureDetails` in the gRPC status details, classifying each failure
+  as either `DefiniteFailure` (safe to fail the attempt) or `IndefiniteFailure`
+  (client MUST retry). This is a **breaking change** for any clients of the
+  `SendOnion` RPC.
+
 ## RPC Additions
 
 * [Added support for coordinator-based MuSig2 signing

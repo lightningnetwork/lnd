@@ -6,7 +6,6 @@ package switchrpc
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -250,32 +249,38 @@ func (r *ServerShell) CreateSubServer(
 // transitions the PENDING record to a final FAILED state, ensuring attempts are
 // not "orphaned" in an initialized but not actually dispatched state.
 //
-// A client interacting with this RPC must handle four distinct categories of
-// outcomes:
+// The server communicates outcomes through two channels: the gRPC status code
+// and, for application-level failures, a SendOnionFailureDetails message
+// attached to the gRPC error's details. A client should evaluate these in the
+// following order:
 //
-// 1. SUCCESS: This is a definitive confirmation that the HTLC has been
+// 1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has been
 // successfully dispatched and is now in-flight. The client can proceed to track
-// the payment's final result via the `TrackOnion` RPC.
+// the payment's final result via the TrackOnion RPC.
 //
-// 2. DUPLICATE ACKNOWLEDGMENT: This is not a payment-level failure. It is a
-// definitive acknowledgment that a request with the same attempt id has already
-// been successfully processed. A retrying client should interpret this as a
-// success for the attempt and proceed to tracking the payment's result.
+// 2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): This is not a
+// payment-level failure. It is a definitive acknowledgment that a request with
+// the same attempt id has already been successfully processed. A retrying
+// client should interpret this as a success and proceed to tracking the
+// payment's result.
 //
-// 3. AMBIGUOUS FAILURE (e.g, gRPC `codes.Unavailable` status):
-// This error is returned if the server fails during the critical initial step
-// of writing the PENDING record. In this state, the server cannot be certain
-// whether the HTLC was dispatched. The client MUST retry the *exact same
-// request* with the original attempt id to resolve this ambiguity. A client
-// MUST NOT treat this error as a definitive failure and move on to a new
-// attempt ID; doing so is the definition of a "leaked attempt" and risks a
-// duplicate payment if the original ambiguous attempt succeeded.
+// 3. APPLICATION-LEVEL FAILURE (SendOnionFailureDetails present): For any
+// other gRPC error, the client should check for a SendOnionFailureDetails
+// message in the error's details. If present, the failure_class oneof is the
+// authoritative classification. A DefiniteFailure guarantees the HTLC was not
+// and will not be dispatched; the client should fail the attempt and may retry
+// with a new route. An IndefiniteFailure means the state of the HTLC is
+// unknown; the client MUST retry the *exact same request* with the original
+// attempt id to resolve this ambiguity. A client MUST NOT treat an
+// IndefiniteFailure as a definitive failure and move on to a new attempt ID;
+// doing so risks a duplicate payment if the original attempt succeeded.
 //
-// 4. DEFINITIVE FAILURE (any other error): For all other failures (e.g.,
-// invalid parameters, local policy violations), this RPC will return a
-// definitive error. A definitive failure is a guarantee that the HTLC was not
-// and will not be dispatched. To prevent orphaned records, the server is
-// responsible for transitioning the PENDING attempt to a FAILED state.
+// 4. BARE gRPC ERROR (no SendOnionFailureDetails): If no details payload is
+// attached, the error is a transport-level or pre-flight validation failure.
+// If the gRPC status code is InvalidArgument or FailedPrecondition, the
+// request was rejected before dispatch was attempted and this is a definitive
+// failure. For all other codes (Unavailable, DeadlineExceeded, etc.), the
+// state is unknown and the client MUST retry the exact same request.
 func (s *Server) SendOnion(_ context.Context,
 	req *SendOnionRequest) (*SendOnionResponse, error) {
 
@@ -290,14 +295,14 @@ func (s *Server) SendOnion(_ context.Context,
 	// This prevents the client from incorrectly concluding the original
 	// attempt failed, which would risk a duplicate attempt.
 	attemptID := req.AttemptId
-	err := s.cfg.AttemptStore.InitAttempt(attemptID)
-	if err != nil {
+	initErr := s.cfg.AttemptStore.InitAttempt(attemptID)
+	if initErr != nil {
 		// A record for this attempt ID already exists. This indicates a
 		// client-side retry of a request that was already successfully
 		// registered. We return a distinct error to signal that the
 		// dispatch request is acknowledged and that the caller can
 		// safely proceed to track the result.
-		if errors.Is(err, htlcswitch.ErrPaymentIDAlreadyExists) {
+		if errors.Is(initErr, htlcswitch.ErrPaymentIDAlreadyExists) {
 			log.Debugf("Attempt id=%v already exists", attemptID)
 
 			return nil, status.Errorf(codes.AlreadyExists,
@@ -307,14 +312,10 @@ func (s *Server) SendOnion(_ context.Context,
 
 		// If we receive an initialization error, we'll return the error
 		// directly to the caller so they can handle the ambiguity.
-		//
-		// TODO(calvin): actually transport the error signal across the
-		// rpc boundary possibly using grpc st.WithDetails().
 		log.Errorf("Unable to initialize attempt id=%d: %v", attemptID,
-			err)
+			initErr)
 
-		return nil, status.Errorf(codes.Unavailable, "unable to "+
-			"initialize attempt id=%d: %v", attemptID, err)
+		return nil, marshallDispatchFailure(initErr)
 	}
 
 	// Perform all RPC-level pre-dispatch checks.
@@ -342,9 +343,19 @@ func (s *Server) SendOnion(_ context.Context,
 	// With the attempt initialized, we now dispatch the HTLC.
 	dispatchErr := s.cfg.HtlcDispatcher.SendHTLC(chanID, attemptID, htlcAdd)
 	if dispatchErr != nil {
-		// The core dispatch logic failed definitively. We'll
-		// transition the attempt from an initialized to a terminally
-		// failed state to prevent an orphaned attempt.
+		// If the dispatcher returns ErrDuplicateAdd, we treat it as an
+		// acknowledgment of a prior successful dispatch, not an error.
+		if errors.Is(dispatchErr, htlcswitch.ErrDuplicateAdd) {
+			log.Debugf("Duplicate dispatch for attempt id=%v",
+				attemptID)
+
+			return nil, status.Errorf(codes.AlreadyExists,
+				"payment with attempt ID %d already exists",
+				attemptID)
+		}
+
+		// For any other dispatch error, we transition the attempt to a
+		// failed state to prevent an orphaned record.
 		log.Warnf("Dispatch failed for attempt %d: %v. Failing "+
 			"pending attempt.", req.AttemptId, dispatchErr)
 
@@ -352,17 +363,11 @@ func (s *Server) SendOnion(_ context.Context,
 
 		// Translate the internal dispatch error into a gRPC status
 		// with rich details for the client.
-		message, code := translateErrorForRPC(dispatchErr)
-
-		return &SendOnionResponse{
-			Success:      false,
-			ErrorMessage: message,
-			ErrorCode:    code,
-		}, nil
+		return nil, marshallDispatchFailure(dispatchErr)
 	}
 
 	// The onion attempt was successfully dispatched.
-	return &SendOnionResponse{Success: true}, nil
+	return &SendOnionResponse{}, nil
 }
 
 // failPendingAttempt is a helper which transitions the given attempt from an
@@ -387,7 +392,8 @@ func (s *Server) failPendingAttempt(attemptID uint64, context string) {
 
 // validateAndPrepareOnion performs the pre-checks and preparation for a
 // SendOnion request. It returns the channel ID, the HTLC to be sent, and any
-// validation error.
+// validation error. All returned errors are gRPC status errors suitable for
+// returning directly to the caller.
 func (s *Server) validateAndPrepareOnion(req *SendOnionRequest) (
 	lnwire.ShortChannelID, *lnwire.UpdateAddHTLC, error) {
 
@@ -837,44 +843,123 @@ func (s *Server) BuildOnion(_ context.Context,
 	}, nil
 }
 
-// translateErrorForRPC converts an error from the underlying HTLC switch to
-// a form that we can package for delivery to SendOnion rpc clients.
-func translateErrorForRPC(err error) (string, ErrorCode) {
+// marshallDispatchFailure translates an error from the underlying HTLC switch
+// into a gRPC status error with rich, structurally-classified details.
+func marshallDispatchFailure(err error) error {
+	details := &SendOnionFailureDetails{
+		ErrorMessage: err.Error(),
+	}
+
 	var (
-		clearTextErr htlcswitch.ClearTextError
+		rpcCode        codes.Code
+		clearTextErr   htlcswitch.ClearTextError
+		indefiniteFail *IndefiniteFailure
+		definiteFail   *DefiniteFailure
 	)
 
 	switch {
-	case errors.Is(err, htlcswitch.ErrPaymentIDNotFound):
-		return err.Error(), ErrorCode_PAYMENT_ID_NOT_FOUND
-
-	case errors.Is(err, htlcswitch.ErrDuplicateAdd):
-		return err.Error(), ErrorCode_DUPLICATE_HTLC
-
-	case errors.Is(err, htlcswitch.ErrUnreadableFailureMessage):
-		return err.Error(),
-			ErrorCode_UNREADABLE_FAILURE_MESSAGE
-
-	case errors.Is(err, htlcswitch.ErrSwitchExiting):
-		return err.Error(), ErrorCode_SWITCH_EXITING
-
+	// Handle definite failures.
 	case errors.As(err, &clearTextErr):
+		rpcCode = codes.FailedPrecondition
+
 		var buf bytes.Buffer
 		encodeErr := lnwire.EncodeFailure(
 			&buf, clearTextErr.WireMessage(), 0,
 		)
 		if encodeErr != nil {
-			return fmt.Sprintf("failed to encode wire "+
-					"message: %v", encodeErr),
-				ErrorCode_INTERNAL
+			// The failure is still definite — the switch rejected
+			// the HTLC — we just can't serialize the specific
+			// wire-level reason. We return a DefiniteFailure with
+			// so the client can fail the attempt rather than
+			// retrying indefinitely.
+			log.Errorf("Failed to encode ClearTextError wire "+
+				"message: %v", encodeErr)
+
+			definiteFail = &DefiniteFailure{}
+
+			break
 		}
 
-		return hex.EncodeToString(buf.Bytes()),
-			ErrorCode_CLEAR_TEXT_ERROR
+		definiteFail = &DefiniteFailure{
+			Detail: &DefiniteFailure_LocalFailure{
+				LocalFailure: &LocalFailure{
+					WireMessage: buf.Bytes(),
+				},
+			},
+		}
 
+	// Handle indefinite failures with specific reasons. These errors
+	// cannot provide acknowledgement on whether or not an htlc for the
+	// given attempt ID has been processed by the server. We signal this
+	// with a specific failure reasons and a top-level gRPC status of
+	// Unavailable. The client MUST retry to resolve the ambiguity.
+	case errors.Is(err, htlcswitch.ErrSwitchExiting):
+		rpcCode = codes.Unavailable
+		indefiniteFail = &IndefiniteFailure{
+			Reason: IndefiniteFailureCode_SWITCH_EXITING,
+		}
+
+	case errors.Is(err, htlcswitch.ErrAmbiguousAttemptInit):
+		rpcCode = codes.Unavailable
+		indefiniteFail = &IndefiniteFailure{
+			Reason: IndefiniteFailureCode_HTLC_INIT_FAILED,
+		}
+
+	// Consider unclassified errors as indefinite for safety.
 	default:
-		return err.Error(), ErrorCode_INTERNAL
+		rpcCode = codes.Internal
+		indefiniteFail = &IndefiniteFailure{
+			Reason: IndefiniteFailureCode_REASON_UNKNOWN,
+		}
 	}
+
+	// Classify the failure as either definite or indefinite.
+	if definiteFail != nil {
+		details.FailureClass =
+			&SendOnionFailureDetails_DefiniteFailure{
+				DefiniteFailure: definiteFail,
+			}
+	} else {
+		details.FailureClass =
+			&SendOnionFailureDetails_IndefiniteFailure{
+				IndefiniteFailure: indefiniteFail,
+			}
+	}
+
+	// Create the gRPC status and attach the structured details.
+	st := status.New(rpcCode, err.Error())
+	stWithDetails, attachErr := st.WithDetails(details)
+	if attachErr != nil {
+		log.Warnf("Unable to attach details to SendOnion error: %v",
+			attachErr)
+
+		return st.Err()
+	}
+
+	return stWithDetails.Err()
+}
+
+// GetSendOnionFailureDetails inspects a gRPC error from a SendOnion call and
+// extracts the rich failure details, if present. It returns the details struct
+// directly, allowing the caller to inspect all fields. It returns nil if no
+// such details are found.
+func GetSendOnionFailureDetails(rpcErr error) *SendOnionFailureDetails {
+	st, ok := status.FromError(rpcErr)
+	if !ok {
+		// Not a gRPC status error.
+		return nil
+	}
+
+	// Search for the specific failure details message within the status.
+	for _, detail := range st.Details() {
+		if failure, ok := detail.(*SendOnionFailureDetails); ok {
+			// We found the details, return them directly.
+			return failure
+		}
+	}
+
+	// No details were found.
+	return nil
 }
 
 // marshallFailureDetails creates the FailureDetails message for the

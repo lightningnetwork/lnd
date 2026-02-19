@@ -53,7 +53,7 @@
     "/v2/switch/onion": {
       "post": {
         "summary": "SendOnion provides an idempotent API for dispatching a pre-formed onion\npacket, which is the primary entry point for a remote router.",
-        "description": "To safely handle network failures, a client can and should retry this RPC\nafter a timeout or disconnection. Retries MUST use the exact same\nattempt_id to allow the server to correctly detect duplicate requests.\n\nA client interacting with this RPC must handle four distinct categories of\noutcomes, communicated via gRPC status codes:\n\n1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has\nbeen successfully dispatched. The client can proceed to track the\npayment's final result via the `TrackOnion` RPC.\n\n2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): A definitive\nacknowledgment that a request with the same attempt_id has already\nbeen successfully processed. A retrying client should interpret this\nas a success and proceed to tracking the payment's result.\n\n3. AMBIGUOUS FAILURE (gRPC code Unavailable or DeadlineExceeded): An\nambiguous error occurred (e.g., the server is shutting down or the\nclient timed out). The state of the HTLC dispatch is unknown. The\nclient MUST retry the exact same request to resolve the ambiguity.\n\n4. DEFINITIVE FAILURE (gRPC code FailedPrecondition, InvalidArgument, etc.):\nA definitive failure is a guarantee that the HTLC was not and will not be\ndispatched. The client should fail the attempt and may retry with a new\nroute and/or new attempt_id.",
+        "description": "To safely handle network failures, a client can and should retry this RPC\nafter a timeout or disconnection. Retries MUST use the exact same\nattempt_id to allow the server to correctly detect duplicate requests.\n\nThe server communicates outcomes through two channels: the gRPC status\ncode and, for application-level failures, a SendOnionFailureDetails\nmessage attached to the gRPC error's details. The client should evaluate\nthese in the following order:\n\n1. SUCCESS (gRPC code OK): A definitive confirmation that the HTLC has\nbeen successfully dispatched. The client can proceed to track the\npayment's final result via the TrackOnion RPC.\n\n2. DUPLICATE ACKNOWLEDGMENT (gRPC code AlreadyExists): A definitive\nacknowledgment that a request with the same attempt_id has already\nbeen successfully processed. A retrying client should interpret this\nas a success and proceed to tracking the payment's result.\n\n3. APPLICATION-LEVEL FAILURE (SendOnionFailureDetails present): For any\nother gRPC error, the client should check for a SendOnionFailureDetails\nmessage in the error's details. If present, the failure_class oneof is\nthe authoritative classification. A DefiniteFailure guarantees the HTLC\nwas not and will not be dispatched; the client should fail the attempt and\nmay retry with a new route. An IndefiniteFailure means the state of the HTLC\nis unknown; the client MUST retry the exact same request to resolve the\nambiguity.\n\n4. BARE gRPC ERROR (no SendOnionFailureDetails): If no details payload\nis attached, the error is a transport-level or pre-flight validation\nfailure. If the gRPC status code is InvalidArgument or FailedPrecondition,\nthe request was rejected before dispatch was attempted and this is a\ndefinitive failure. For all other codes (Unavailable, DeadlineExceeded,\netc.), the state is unknown and the client MUST retry the same request.",
         "operationId": "Switch_SendOnion",
         "responses": {
           "200": {
@@ -351,22 +351,6 @@
       },
       "description": "BuildOnionResponse contains the constructed onion packet."
     },
-    "switchrpcErrorCode": {
-      "type": "string",
-      "enum": [
-        "UNSPECIFIED",
-        "PAYMENT_ID_NOT_FOUND",
-        "FORWARDING_ERROR",
-        "CLEAR_TEXT_ERROR",
-        "UNREADABLE_FAILURE_MESSAGE",
-        "DUPLICATE_HTLC",
-        "NO_LINK",
-        "SWITCH_EXITING",
-        "INTERNAL"
-      ],
-      "default": "UNSPECIFIED",
-      "description": " - UNSPECIFIED: Default value for unset errors.\n - PAYMENT_ID_NOT_FOUND: Payment ID was not found.\n - FORWARDING_ERROR: Error occurred during forwarding.\n - CLEAR_TEXT_ERROR: Clear text error.\n - UNREADABLE_FAILURE_MESSAGE: Failure message could not be read.\n - DUPLICATE_HTLC: An HTLC with same ID is already in flight.\n - NO_LINK: No link available for payment.\n - SWITCH_EXITING: HTLC switch is exiting.\n - INTERNAL: Opaque internal server error."
-    },
     "switchrpcFailureDetails": {
       "type": "object",
       "properties": {
@@ -485,20 +469,7 @@
     },
     "switchrpcSendOnionResponse": {
       "type": "object",
-      "properties": {
-        "success": {
-          "type": "boolean",
-          "description": "Indicates if the onion was successfully sent or not.\nEquivalent to `error_code == ERROR_CODE_UNSPECIFIED`."
-        },
-        "error_message": {
-          "type": "string",
-          "description": "In case of failure, this field will provide more information about the\nerror."
-        },
-        "error_code": {
-          "$ref": "#/definitions/switchrpcErrorCode",
-          "description": "A code representing the type of error that occurred. This can be used\nto programmatically distinguish between different kinds of errors."
-        }
-      }
+      "description": "SendOnionResponse is an empty message. A gRPC status of OK or AlreadyExists\nindicates a successful dispatch acknowledgment."
     },
     "switchrpcSwitchError": {
       "type": "object",

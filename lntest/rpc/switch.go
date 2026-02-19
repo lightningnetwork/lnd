@@ -10,19 +10,18 @@ import (
 // SwitchClient related RPCs.
 // =====================
 
-// SendOnion makes a RPC call to SendOnion and asserts.
+// SendOnion makes a RPC call to SendOnion and returns the error.
 //
 //nolint:lll
 func (h *HarnessRPC) SendOnion(
-	req *switchrpc.SendOnionRequest) *switchrpc.SendOnionResponse {
+	req *switchrpc.SendOnionRequest) error {
 
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
-	resp, err := h.Switch.SendOnion(ctxt, req)
-	h.NoError(err, "SendOnion")
+	_, err := h.Switch.SendOnion(ctxt, req)
 
-	return resp
+	return err
 }
 
 // TrackOnion makes a RPC call to TrackOnion and asserts.

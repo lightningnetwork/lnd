@@ -391,3 +391,105 @@ func ClientAddressDialer(defaultPort string) func(context.Context,
 		)
 	}
 }
+
+// IsLocalAddress determines whether the given network address refers to a local
+// network interface or loopback address. It performs comprehensive checks for
+// various forms of local addressing including:
+//   - Unix domain sockets
+//   - Common localhost hostnames (localhost, ::1, 127.0.0.1)
+//   - Loopback IP addresses
+//   - IP addresses belonging to any local network interface
+//
+// The function handles both direct IP addresses and hostnames that require
+// resolution. For hostnames, it attempts DNS resolution and checks the resulting
+// IP. If the address cannot be parsed or resolved, it returns false.
+//
+// NOTE: This function performs network interface enumeration which may be
+// relatively expensive in terms of system calls. Cache results if calling
+// frequently.
+//
+// Parameters:
+//   - addr: The network address to check. Can be nil, in which case false is
+//     returned.
+//
+// Returns:
+//   - true if the address is determined to be local
+//   - false if the address is non-local or if any error occurs during checking
+func IsLocalAddress(addr net.Addr) bool {
+	// Handle nil input
+	if addr == nil {
+		return false
+	}
+
+	// Get the string representation of the address
+	addrStr := addr.String()
+
+	// Check for Unix domain sockets which are always local
+	if addr.Network() == "unix" {
+		return true
+	}
+
+	// Parse the host from the address string
+	if hostPart, _, err := net.SplitHostPort(addrStr); err == nil {
+		// SplitHostPort worked, use the host part
+		addrStr = hostPart
+	}
+
+	// Check for common localhost names
+	if addrStr == "localhost" || addrStr == "::1" || addrStr == "127.0.0.1" {
+		return true
+	}
+
+	// Try to resolve the IP address
+	ip := net.ParseIP(addrStr)
+	if ip == nil {
+		// If we can't parse it as an IP, try to resolve it
+		ips, err := net.LookupIP(addrStr)
+		if err != nil || len(ips) == 0 {
+			return false
+		}
+		ip = ips[0]
+	}
+
+	// Check if it's a loopback address
+	if ip.IsLoopback() {
+		return true
+	}
+
+	// Get all interface addresses
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return false
+	}
+
+	// Check if the IP matches any local interface
+	for _, iface := range interfaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, ifaceAddr := range addrs {
+			// Get the network and IP from the interface address
+			var ipNet *net.IPNet
+			switch v := ifaceAddr.(type) {
+			case *net.IPNet:
+				ipNet = v
+			case *net.IPAddr:
+				ipNet = &net.IPNet{
+					IP:   v.IP,
+					Mask: v.IP.DefaultMask(),
+				}
+			default:
+				continue
+			}
+
+			// Check if the IP is in the network range
+			if ipNet.Contains(ip) {
+				return true
+			}
+		}
+	}
+
+	return false
+}

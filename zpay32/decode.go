@@ -186,6 +186,10 @@ func Decode(invoice string, net *chaincfg.Params, opts ...DecodeOption) (
 			return nil, fmt.Errorf("unable to deserialize "+
 				"signature: %v", err)
 		}
+		// Ensure the signature is in canonical low-S form.
+		if err = ecdsa.VerifyLowS(sig.ToSignatureBytes()); err != nil {		
+			return nil, err
+		}
 		if !signature.Verify(hash, decodedInvoice.Destination) {
 			return nil, fmt.Errorf("invalid invoice signature")
 		}

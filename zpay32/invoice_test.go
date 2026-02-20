@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+//nolint:ll
 var (
 	testMillisat24BTC    = lnwire.MilliSatoshi(2400000000000)
 	testMillisat2500uBTC = lnwire.MilliSatoshi(250000000)
@@ -60,6 +61,9 @@ var (
 
 	testPrivKeyBytes, _     = hex.DecodeString("e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2db734")
 	testPrivKey, testPubKey = btcec.PrivKeyFromBytes(testPrivKeyBytes)
+
+	testHighSPubKeyBytes, _ = hex.DecodeString("02d0139ce7427d6dfffd26a326c18be754ef1e64672b42694ba5b23ef6e6e7803d")
+	testHighSPubKey, _      = btcec.ParsePubKey(testHighSPubKeyBytes)
 
 	testDescriptionHashSlice = chainhash.HashB([]byte("One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon"))
 
@@ -897,6 +901,35 @@ func TestDecodeEncode(t *testing.T) {
 				}),
 				WithErrorOnUnknownFeatureBit(),
 			},
+		},
+		{
+			// Invoice with high-S signature and Public-key
+			// recovery.
+			encodedInvoice: "lnbc1pvjluezsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygspp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdpl2pkx2ctnv5sxxmmwwd5kgetjypeh2ursdae8g6twvus8g6rfwvs8qun0dfjkxaq9qrsgq357wnc5r2ueh7ck6q93dj32dlqnls087fxdwk8qakdyafkq3yap2r09nt4ndd0unm3z9u5t48y6ucv4r5sg7lk98c77ctvjczkspk5qprc90gx",
+			valid:          true,
+			skipEncoding:   true,
+			decodedInvoice: func() *Invoice {
+				return &Invoice{
+					Net:         &chaincfg.MainNetParams,
+					Timestamp:   time.Unix(1496314658, 0),
+					PaymentHash: &testPaymentHash,
+					PaymentAddr: fn.Some(specPaymentAddr),
+					Description: &testPleaseConsider,
+					Destination: testHighSPubKey,
+					Features: lnwire.NewFeatureVector(
+						lnwire.NewRawFeatureVector(
+							8, 14,
+						),
+						lnwire.Features,
+					),
+				}
+			},
+		},
+		{
+			// Invoice with high-S signature and 'n' tagged field
+			// for destination pubkey.
+			encodedInvoice: "lnbc25m1p70xwfzpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdpl2pkx2ctnv5sxxmmwwd5kgetjypeh2ursdae8g6twvus8g6rfwvs8qun0dfjkxaqnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66sp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygs9qrsgqsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygsp5cfzp9ugllvk03rltd6hvndxj26ux6gcxc5azyxk060rj9tzghct5zvjlps76gx8wpq5yuu79688k8gnm2c0al6v608s96l0xzrrlqqwnzxmu",
+			valid:          false,
 		},
 	}
 

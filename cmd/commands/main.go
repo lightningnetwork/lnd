@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd"
@@ -326,6 +327,24 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 	}
 
 	return tlsCertPath, macPath, nil
+}
+
+// parseFeeRate converts a fee from sat/vB to sat/kw using float64 math.
+// We round up to avoid underpaying due to floating point truncation.
+func parseFeeRate(ctx *cli.Context, flagName string) (uint64, error) {
+	if !ctx.IsSet(flagName) {
+		return 0, nil
+	}
+
+	satPerVb := ctx.Float64(flagName)
+	if satPerVb <= 0 {
+		return 0, fmt.Errorf("invalid --%s", flagName)
+	}
+
+	scaleFactor := float64(blockchain.WitnessScaleFactor)
+	satPerKw := uint64((satPerVb*1000 + scaleFactor - 1) / scaleFactor)
+
+	return satPerKw, nil
 }
 
 // checkNotBothSet accepts two flag names, a and b, and checks that only flag a

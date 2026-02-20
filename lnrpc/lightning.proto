@@ -1237,6 +1237,9 @@ message EstimateFeeResponse {
 
     // A list of selected inputs for the transaction the estimate is for.
     repeated OutPoint inputs = 4;
+
+    // The fee rate in satoshi/kweight.
+    uint64 sat_per_kw = 5;
 }
 
 message SendManyRequest {
@@ -1249,12 +1252,18 @@ message SendManyRequest {
 
     // A manual fee rate set in sat/vbyte that should be used when crafting the
     // transaction.
-    uint64 sat_per_vbyte = 4;
+    uint64 sat_per_vbyte = 4 [deprecated = true];
 
     // Deprecated, use sat_per_vbyte.
     // A manual fee rate set in sat/vbyte that should be used when crafting the
     // transaction.
     int64 sat_per_byte = 5 [deprecated = true];
+
+    /*
+    A manual fee rate set in sat/kweight that should be used when crafting the
+    transaction.
+    */
+    uint64 sat_per_kw = 10;
 
     // An optional label for the transaction, limited to 500 characters.
     string label = 6;
@@ -1287,12 +1296,18 @@ message SendCoinsRequest {
 
     // A manual fee rate set in sat/vbyte that should be used when crafting the
     // transaction.
-    uint64 sat_per_vbyte = 4;
+    uint64 sat_per_vbyte = 4 [deprecated = true];
 
     // Deprecated, use sat_per_vbyte.
     // A manual fee rate set in sat/vbyte that should be used when crafting the
     // transaction.
     int64 sat_per_byte = 5 [deprecated = true];
+
+    /*
+    A manual fee rate set in sat/kweight that should be used when crafting the
+    transaction.
+    */
+    uint64 sat_per_kw = 12;
 
     /*
     If set, the amount field should be unset. It indicates lnd will send all
@@ -2213,6 +2228,18 @@ message CloseChannelRequest {
     // closure transaction.
     int64 sat_per_byte = 4 [deprecated = true];
 
+    // A manual fee rate set in sat/vbyte that should be used when crafting the
+    // closure transaction.
+    uint64 sat_per_vbyte = 6 [deprecated = true];
+
+    /*
+    A manual fee rate set in sat/kweight that should be used when crafting the
+    transaction.
+
+    NOTE: This field is only respected if we're the initiator of the channel.
+    */
+    uint64 sat_per_kw = 9;
+
     /*
     An optional address to send funds to in the case of a cooperative close.
     If the channel was opened with an upfront shutdown script and this field
@@ -2221,14 +2248,15 @@ message CloseChannelRequest {
     */
     string delivery_address = 5;
 
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
-    // closure transaction.
-    uint64 sat_per_vbyte = 6;
+    // The maximum fee rate the closer is willing to pay.
+    //
+    // NOTE: This field is only respected if we're the initiator of the channel.
+    uint64 max_fee_per_vbyte = 7 [deprecated = true];
 
     // The maximum fee rate the closer is willing to pay.
     //
     // NOTE: This field is only respected if we're the initiator of the channel.
-    uint64 max_fee_per_vbyte = 7;
+    uint64 max_fee_per_kw = 10;
 
     // If true, then the rpc call will not block while it awaits a closing txid
     // to be broadcasted to the mempool. To obtain the closing tx one has to
@@ -2253,6 +2281,7 @@ message PendingUpdate {
     uint32 output_index = 2;
     int64 fee_per_vbyte = 3;
     bool local_close_tx = 4;
+    uint64 fee_per_kw = 5;
 }
 
 message InstantUpdate {
@@ -2294,7 +2323,13 @@ message BatchOpenChannelRequest {
 
     // A manual fee rate set in sat/vByte that should be used when crafting the
     // funding transaction.
-    int64 sat_per_vbyte = 3;
+    int64 sat_per_vbyte = 3 [deprecated = true];
+
+    /*
+    A manual fee rate set in sat/kweight that should be used when crafting the
+    transaction.
+    */
+    uint64 sat_per_kw = 8;
 
     // The minimum number of confirmations each one of your outputs used for
     // the funding transaction must satisfy.
@@ -2438,7 +2473,18 @@ message BatchOpenChannelResponse {
 message OpenChannelRequest {
     // A manual fee rate set in sat/vbyte that should be used when crafting the
     // funding transaction.
-    uint64 sat_per_vbyte = 1;
+    uint64 sat_per_vbyte = 1 [deprecated = true];
+
+    // Deprecated, use sat_per_vbyte.
+    // A manual fee rate set in sat/vbyte that should be used when crafting the
+    // funding transaction.
+    int64 sat_per_byte = 7 [deprecated = true];
+
+    /*
+    A manual fee rate set in sat/kweight that should be used when crafting the
+    funding transaction.
+    */
+    uint64 sat_per_kw = 29;
 
     /*
     The pubkey of the node to open a channel with. When using REST, this field
@@ -2462,11 +2508,6 @@ message OpenChannelRequest {
     // The target number of blocks that the funding transaction should be
     // confirmed by.
     int32 target_conf = 6;
-
-    // Deprecated, use sat_per_vbyte.
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
-    // funding transaction.
-    int64 sat_per_byte = 7 [deprecated = true];
 
     // Whether this channel should be private, not announced to the greater
     // network.

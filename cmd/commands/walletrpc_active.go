@@ -284,7 +284,7 @@ var bumpFeeCommand = cli.Command{
 			Usage:  "Deprecated, use immediate instead.",
 			Hidden: true,
 		},
-		cli.Uint64Flag{
+		cli.Float64Flag{
 			Name: "sat_per_vbyte",
 			Usage: `
 	The starting fee rate, expressed in sat/vbyte, that will be used to
@@ -353,13 +353,19 @@ func bumpFee(ctx *cli.Context) error {
 		immediate = true
 	}
 
+	// Parse fee rate from --sat_per_vbyte and convert to sat/kw.
+	satPerKw, err := parseFeeRate(ctx, "sat_per_vbyte")
+	if err != nil {
+		return err
+	}
+
 	resp, err := client.BumpFee(ctxc, &walletrpc.BumpFeeRequest{
 		Outpoint:      protoOutPoint,
 		TargetConf:    uint32(ctx.Uint64("conf_target")),
 		Immediate:     immediate,
 		Budget:        ctx.Uint64("budget"),
-		SatPerVbyte:   ctx.Uint64("sat_per_vbyte"),
 		DeadlineDelta: uint32(ctx.Uint64("deadline_delta")),
+		SatPerKw:      satPerKw,
 	})
 	if err != nil {
 		return err

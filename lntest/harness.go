@@ -934,6 +934,10 @@ type OpenChannelParams struct {
 	// should be confirmed in.
 	ConfTarget fn.Option[int32]
 
+	// SatPerKWeight is the amount of satoshis to spend in chain fees per
+	// KWeight of the transaction.
+	SatPerKWeight btcutil.Amount
+
 	// CommitmentType is the commitment type that should be used for the
 	// channel to be opened.
 	CommitmentType lnrpc.CommitmentType
@@ -1012,7 +1016,7 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 	confTarget := p.ConfTarget.UnwrapOr(6)
 
 	// If there's fee rate set, unset the conf target.
-	if p.SatPerVByte != 0 {
+	if p.SatPerVByte != 0 || p.SatPerKWeight != 0 {
 		confTarget = 0
 	}
 
@@ -1029,6 +1033,7 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 		RemoteMaxHtlcs:     uint32(p.RemoteMaxHtlcs),
 		FundingShim:        p.FundingShim,
 		SatPerVbyte:        uint64(p.SatPerVByte),
+		SatPerKw:           uint64(p.SatPerKWeight),
 		CommitmentType:     p.CommitmentType,
 		ZeroConf:           p.ZeroConf,
 		ScidAlias:          p.ScidAlias,
@@ -1223,7 +1228,7 @@ func (h *HarnessTest) OpenChannelAssertErr(srcNode, destNode *node.HarnessNode,
 
 // closeChannelOpts holds the options for closing a channel.
 type closeChannelOpts struct {
-	feeRate fn.Option[chainfee.SatPerVByte]
+	feeRate fn.Option[chainfee.SatPerKWeight]
 
 	// localTxOnly is a boolean indicating if we should only attempt to
 	// consume close pending notifications for the local transaction.
@@ -1244,7 +1249,7 @@ type CloseChanOpt func(*closeChannelOpts)
 
 // WithCoopCloseFeeRate is a functional option to set the fee rate for a coop
 // close attempt.
-func WithCoopCloseFeeRate(rate chainfee.SatPerVByte) CloseChanOpt {
+func WithCoopCloseFeeRate(rate chainfee.SatPerKWeight) CloseChanOpt {
 	return func(o *closeChannelOpts) {
 		o.feeRate = fn.Some(rate)
 	}
@@ -1302,8 +1307,8 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 		NoWait:       true,
 	}
 
-	closeOpts.feeRate.WhenSome(func(feeRate chainfee.SatPerVByte) {
-		closeReq.SatPerVbyte = uint64(feeRate)
+	closeOpts.feeRate.WhenSome(func(feeRate chainfee.SatPerKWeight) {
+		closeReq.SatPerKw = uint64(feeRate)
 	})
 
 	var (
@@ -1343,9 +1348,9 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 			continue
 		}
 
-		notifyRate := pendingClose.ClosePending.FeePerVbyte
+		notifyRate := pendingClose.ClosePending.FeePerKw
 		if closeOpts.localTxOnly &&
-			notifyRate != int64(closeReq.SatPerVbyte) {
+			notifyRate != closeReq.SatPerKw {
 
 			continue
 		}
@@ -2072,6 +2077,31 @@ func (h *HarnessTest) CalculateTxesFeeRate(txns []*wire.MsgTx) int64 {
 	feeRate := totalFee * scale / totalWeight
 
 	return feeRate
+}
+
+// CalculateFeeRateSatPerVByte calculates the weight of a transaction in
+// sat_per_vbyte.
+func (h *HarnessTest) CalculateFeeRateSatPerVByte(tx *wire.MsgTx) int64 {
+	weight := h.CalculateTxWeight(tx)
+	// always rounding up because there are no decimal vbytes.
+	virtualSize := int64(weight+3) / 4
+	txFee := int64(h.CalculateTxFee(tx))
+
+	return txFee / virtualSize
+}
+
+// CalculateFeeRateSatPerKWeight calculates the weight of a transaction in
+// sat_per_kweight.
+func (h *HarnessTest) CalculateFeeRateSatPerKWeight(tx *wire.MsgTx) int64 {
+	weight := int64(h.CalculateTxWeight(tx))
+	txFee := int64(h.CalculateTxFee(tx))
+
+	return txFee * 1000 / weight
+}
+
+type SweptOutput struct {
+	OutPoint wire.OutPoint
+	SweepTx  *wire.MsgTx
 }
 
 // AssertSweepFound looks up a sweep in a nodes list of broadcast sweeps and

@@ -100,7 +100,7 @@ type SendShutdown struct {
 
 	// IdealFeeRate is the ideal fee rate we'd like to use for the closing
 	// attempt.
-	IdealFeeRate chainfee.SatPerVByte
+	IdealFeeRate chainfee.SatPerKWeight
 }
 
 // protocolSealed indicates that this struct is a ProtocolEvent instance.
@@ -182,7 +182,7 @@ func (c *ChannelFlushed) protocolSealed() {}
 //   - toState: LocalOfferSent
 type SendOfferEvent struct {
 	// TargetFeeRate is the fee rate we'll use for the closing transaction.
-	TargetFeeRate chainfee.SatPerVByte
+	TargetFeeRate chainfee.SatPerKWeight
 }
 
 // protocolSealed indicates that this struct is a ProtocolEvent instance.
@@ -304,7 +304,7 @@ type Environment struct {
 	// DefaultFeeRate is the fee we'll use for the closing transaction if
 	// the user didn't specify an ideal fee rate. This may happen if the
 	// remote party is the one that initiates the co-op close.
-	DefaultFeeRate chainfee.SatPerVByte
+	DefaultFeeRate chainfee.SatPerKWeight
 
 	// ThawHeight is the height at which the channel will be thawed. If
 	// this is None, then co-op close can occur at any moment.
@@ -453,7 +453,7 @@ type ShutdownPending struct {
 
 	// IdealFeeRate is the ideal fee rate we'd like to use for the closing
 	// attempt.
-	IdealFeeRate fn.Option[chainfee.SatPerVByte]
+	IdealFeeRate fn.Option[chainfee.SatPerKWeight]
 
 	// EarlyRemoteOffer is the offer we received from the remote party
 	// before we received their shutdown message. We'll stash it to process
@@ -498,7 +498,7 @@ type ChannelFlushing struct {
 	// IdealFeeRate is the ideal fee rate we'd like to use for the closing
 	// transaction. Once the channel has been flushed, we'll use this as
 	// our target fee rate.
-	IdealFeeRate fn.Option[chainfee.SatPerVByte]
+	IdealFeeRate fn.Option[chainfee.SatPerKWeight]
 }
 
 // String returns the name of the state for ChannelFlushing.
@@ -732,7 +732,7 @@ type LocalOfferSent struct {
 	ProposedFee btcutil.Amount
 
 	// ProposedFeeRate is the fee rate we proposed to the remote party.
-	ProposedFeeRate chainfee.SatPerVByte
+	ProposedFeeRate chainfee.SatPerKWeight
 
 	// LocalSig is the signature we sent to the remote party.
 	LocalSig lnwire.Sig
@@ -781,7 +781,7 @@ type ClosePending struct {
 	*CloseChannelTerms
 
 	// FeeRate is the fee rate of the closing transaction.
-	FeeRate chainfee.SatPerVByte
+	FeeRate chainfee.SatPerKWeight
 
 	// Party indicates which party is at this state. This is used to
 	// implement the state transition properly, based on ShouldRouteTo.

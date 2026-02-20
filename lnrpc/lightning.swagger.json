@@ -854,13 +854,6 @@
             "format": "int64"
           },
           {
-            "name": "delivery_address",
-            "description": "An optional address to send funds to in the case of a cooperative close.\nIf the channel was opened with an upfront shutdown script and this field\nis set, the request to close will fail because the channel must pay out\nto the upfront shutdown addresss.",
-            "in": "query",
-            "required": false,
-            "type": "string"
-          },
-          {
             "name": "sat_per_vbyte",
             "description": "A manual fee rate set in sat/vbyte that should be used when crafting the\nclosure transaction.",
             "in": "query",
@@ -869,7 +862,30 @@
             "format": "uint64"
           },
           {
+            "name": "sat_per_kw",
+            "description": "A manual fee rate set in sat/kweight that should be used when crafting the\ntransaction.\n\nNOTE: This field is only respected if we're the initiator of the channel.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "delivery_address",
+            "description": "An optional address to send funds to in the case of a cooperative close.\nIf the channel was opened with an upfront shutdown script and this field\nis set, the request to close will fail because the channel must pay out\nto the upfront shutdown addresss.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
             "name": "max_fee_per_vbyte",
+            "description": "The maximum fee rate the closer is willing to pay.\n\nNOTE: This field is only respected if we're the initiator of the channel.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "max_fee_per_kw",
             "description": "The maximum fee rate the closer is willing to pay.\n\nNOTE: This field is only respected if we're the initiator of the channel.",
             "in": "query",
             "required": false,
@@ -3741,6 +3757,11 @@
           "format": "int64",
           "description": "A manual fee rate set in sat/vByte that should be used when crafting the\nfunding transaction."
         },
+        "sat_per_kw": {
+          "type": "string",
+          "format": "uint64",
+          "description": "A manual fee rate set in sat/kweight that should be used when crafting the\ntransaction."
+        },
         "min_confs": {
           "type": "integer",
           "format": "int32",
@@ -5046,6 +5067,11 @@
             "$ref": "#/definitions/lnrpcOutPoint"
           },
           "description": "A list of selected inputs for the transaction the estimate is for."
+        },
+        "sat_per_kw": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The fee rate in satoshi/kweight."
         }
       }
     },
@@ -6582,6 +6608,16 @@
           "format": "uint64",
           "description": "A manual fee rate set in sat/vbyte that should be used when crafting the\nfunding transaction."
         },
+        "sat_per_byte": {
+          "type": "string",
+          "format": "int64",
+          "description": "Deprecated, use sat_per_vbyte.\nA manual fee rate set in sat/vbyte that should be used when crafting the\nfunding transaction."
+        },
+        "sat_per_kw": {
+          "type": "string",
+          "format": "uint64",
+          "description": "A manual fee rate set in sat/kweight that should be used when crafting the\nfunding transaction."
+        },
         "node_pubkey": {
           "type": "string",
           "format": "byte",
@@ -6605,11 +6641,6 @@
           "type": "integer",
           "format": "int32",
           "description": "The target number of blocks that the funding transaction should be\nconfirmed by."
-        },
-        "sat_per_byte": {
-          "type": "string",
-          "format": "int64",
-          "description": "Deprecated, use sat_per_vbyte.\nA manual fee rate set in sat/vbyte that should be used when crafting the\nfunding transaction."
         },
         "private": {
           "type": "boolean",
@@ -7141,6 +7172,10 @@
         },
         "local_close_tx": {
           "type": "boolean"
+        },
+        "fee_per_kw": {
+          "type": "string",
+          "format": "uint64"
         }
       }
     },
@@ -7566,6 +7601,11 @@
           "format": "int64",
           "description": "Deprecated, use sat_per_vbyte.\nA manual fee rate set in sat/vbyte that should be used when crafting the\ntransaction."
         },
+        "sat_per_kw": {
+          "type": "string",
+          "format": "uint64",
+          "description": "A manual fee rate set in sat/kweight that should be used when crafting the\ntransaction."
+        },
         "send_all": {
           "type": "boolean",
           "description": "If set, the amount field should be unset. It indicates lnd will send all\nwallet coins or all selected coins to the specified address."
@@ -7660,6 +7700,11 @@
           "type": "string",
           "format": "int64",
           "description": "Deprecated, use sat_per_vbyte.\nA manual fee rate set in sat/vbyte that should be used when crafting the\ntransaction."
+        },
+        "sat_per_kw": {
+          "type": "string",
+          "format": "uint64",
+          "description": "A manual fee rate set in sat/kweight that should be used when crafting the\ntransaction."
         },
         "label": {
           "type": "string",

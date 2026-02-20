@@ -99,10 +99,20 @@
   specify a list of inputs to use as transaction inputs via the new
   `inputs` field in `EstimateFeeRequest`.
 
+* [Add sat_per_kw option for more fine granular control of transaction 
+  fees](https://github.com/lightningnetwork/lnd/pull/10067). This option is added for the sendcoins, sendmany, openchannel, batchopenchannel,
+  closechannel, closeallchannels and wallet bumpfee commands. Also add
+  max_fee_per_kw for closechannel command.
+
 ## lncli Additions
 
 * The `estimatefee` command now supports the `--utxos` flag to specify explicit
   inputs for fee estimation.
+
+* The [--sat_per_vbyte](https://github.com/lightningnetwork/lnd/pull/10067) 
+  option now supports fractional values (e.g. 1.05).
+  This option is added for the sendcoins, sendmany, openchannel,
+  batchopenchannel, closechannel, closeallchannels and wallet bumpfee commands. The max_fee_rate argument for closechannel also supports fractional values.
 
 # Improvements
 ## Functional Updates
@@ -160,6 +170,10 @@
 | [`lnrpc.SendCoins`](https://lightning.engineering/api-docs/api/lnd/lightning/send-coins/) | [`lnrpc.SendCoinsRequest`](https://lightning.engineering/api-docs/api/lnd/lightning/send-coins/#lnrpcsendcoinsrequest) | sat_per_byte
 | [`lnrpc.SendMany`](https://lightning.engineering/api-docs/api/lnd/lightning/send-many/) | [`lnrpc.SendManyRequest`](https://lightning.engineering/api-docs/api/lnd/lightning/send-many/#lnrpcsendmanyrequest) | sat_per_byte
 | [`walletrpc.BumpFee`](https://lightning.engineering/api-docs/api/lnd/wallet-kit/bump-fee/) | [`walletrpc.BumpFeeRequest`](walletrpc.BumpFeeRequest) | sat_per_byte
+
+### ⚠️ **Warning:** The deprecated fee rate option --sat_per_byte will be removed in release version **0.22**
+
+  The following RPCs will be impacted: sendcoins, sendmany, openchannel, closechannel, closeallchannels and wallet bumpfee.
 
 # Technical and Architectural Updates
 ## BOLT Spec Updates

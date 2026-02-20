@@ -3,6 +3,7 @@ package lncfg
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"time"
@@ -68,6 +69,10 @@ const (
 
 	// NSNeutrinoDB is the namespace name that we use for the neutrino DB.
 	NSNeutrinoDB = "neutrinodb"
+
+	// MigrationMarkerFile is a marker file created by lndinit migrate-db
+	// that indicates successful database migration.
+	MigrationMarkerFile = ".migration-complete"
 )
 
 // DB holds database configuration for LND.
@@ -502,6 +507,13 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		warnExistingBoltDBs(
 			logger, "postgres", chanDBPath, ChannelDBName,
 		)
+		// Also check for macaroons.db and sphinxreplay.db bbolt files
+		warnExistingBoltDBs(
+			logger, "postgres", walletDBPath, MacaroonDBName,
+		)
+		warnExistingBoltDBs(
+			logger, "postgres", chanDBPath, DecayedLogDbName,
+		)
 
 		returnEarly = false
 
@@ -617,14 +629,29 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 			closeFuncs[SqliteBackend] = nativeSQLiteStore.Close
 		}
 
-		// Warn if the user is trying to switch over to a sqlite DB
-		// while there is a wallet or channel bbolt DB still present.
-		warnExistingBoltDBs(
-			logger, "sqlite", walletDBPath, WalletDBName,
-		)
-		warnExistingBoltDBs(
-			logger, "sqlite", chanDBPath, ChannelDBName,
-		)
+		// Check if migration has been completed before warning about
+		// existing bbolt databases
+		migrationComplete := hasMigrationCompleted(walletDBPath) || 
+			hasMigrationCompleted(chanDBPath)
+
+		// Only show warnings if migration hasn't been completed
+		if !migrationComplete {
+			// Warn if the user is trying to switch over to a sqlite DB
+			// while there is a wallet or channel bbolt DB still present.
+			warnExistingBoltDBs(
+				logger, "sqlite", walletDBPath, WalletDBName,
+			)
+			warnExistingBoltDBs(
+				logger, "sqlite", chanDBPath, ChannelDBName,
+			)
+			// Also check for macaroons.db and sphinxreplay.db bbolt files
+			warnExistingBoltDBs(
+				logger, "sqlite", walletDBPath, MacaroonDBName,
+			)
+			warnExistingBoltDBs(
+				logger, "sqlite", chanDBPath, DecayedLogDbName,
+			)
+		}
 
 		returnEarly = false
 
@@ -751,6 +778,30 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		),
 		CloseFuncs: closeFuncs,
 	}, nil
+}
+
+// hasMigrationCompleted checks if migration has been completed by looking for
+// SQLite files with substantial size or a migration marker file.
+func hasMigrationCompleted(dbPath string) bool {
+	// Check for marker file (which lndinit could create after migration)
+	markerPath := filepath.Join(dbPath, MigrationMarkerFile)
+	if _, err := os.Stat(markerPath); err == nil {
+		return true
+	}
+
+	// Check for non-empty SQLite files
+	sqliteFiles := []string{SqliteChainDBName, SqliteChannelDBName}
+	for _, fileName := range sqliteFiles {
+		filePath := filepath.Join(dbPath, fileName)
+		fileInfo, err := os.Stat(filePath)
+		
+		// If file exists and has substantial size (not just created empty)
+		if err == nil && fileInfo.Size() > 1024 {
+			return true
+		}
+	}
+	
+	return false
 }
 
 // warnExistingBoltDBs checks if there is an existing bbolt database in the

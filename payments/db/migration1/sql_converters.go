@@ -1,4 +1,4 @@
-package paymentsdb
+package migration1
 
 import (
 	"bytes"
@@ -9,9 +9,8 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/payments/db/migration1/sqlc"
 	"github.com/lightningnetwork/lnd/record"
-	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -41,13 +40,12 @@ func dbPaymentToCreationInfo(paymentIdentifier []byte, amountMsat int64,
 func dbAttemptToHTLCAttempt(dbAttempt sqlc.FetchHtlcAttemptsForPaymentsRow,
 	hops []sqlc.FetchHopsForAttemptsRow,
 	hopCustomRecords map[int64][]sqlc.PaymentHopCustomRecord,
-	routeCustomRecords []sqlc.PaymentAttemptFirstHopCustomRecord,
-	includeHops bool) (
+	routeCustomRecords []sqlc.PaymentAttemptFirstHopCustomRecord) (
 	*HTLCAttempt, error) {
 
 	// Convert route-level first hop custom records to CustomRecords map.
 	var firstHopWireCustomRecords lnwire.CustomRecords
-	if includeHops && len(routeCustomRecords) > 0 {
+	if len(routeCustomRecords) > 0 {
 		firstHopWireCustomRecords = make(lnwire.CustomRecords)
 		for _, record := range routeCustomRecords {
 			firstHopWireCustomRecords[uint64(record.Key)] =
@@ -56,11 +54,10 @@ func dbAttemptToHTLCAttempt(dbAttempt sqlc.FetchHtlcAttemptsForPaymentsRow,
 	}
 
 	// Build the route from the database data.
-	route, err := dbDataToRoute(
+	rt, err := dbDataToRoute(
 		hops, hopCustomRecords, dbAttempt.FirstHopAmountMsat,
 		dbAttempt.RouteTotalTimeLock, dbAttempt.RouteTotalAmount,
 		dbAttempt.RouteSourceKey, firstHopWireCustomRecords,
-		!includeHops,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert to route: %w",
@@ -80,7 +77,7 @@ func dbAttemptToHTLCAttempt(dbAttempt sqlc.FetchHtlcAttemptsForPaymentsRow,
 	info := HTLCAttemptInfo{
 		AttemptID:   uint64(dbAttempt.AttemptIndex),
 		sessionKey:  sessionKey,
-		Route:       *route,
+		Route:       *rt,
 		AttemptTime: dbAttempt.AttemptTime,
 		Hash:        &hash,
 	}
@@ -130,7 +127,7 @@ func dbAttemptToHTLCAttempt(dbAttempt sqlc.FetchHtlcAttemptsForPaymentsRow,
 
 		// Decode the failure message if present.
 		if len(dbAttempt.FailureMsg) > 0 {
-			msg, err := lnwire.DecodeFailureMessage(
+			msg, err := decodeFailureMessage(
 				bytes.NewReader(dbAttempt.FailureMsg), 0,
 			)
 			if err != nil {
@@ -146,52 +143,27 @@ func dbAttemptToHTLCAttempt(dbAttempt sqlc.FetchHtlcAttemptsForPaymentsRow,
 	return attempt, nil
 }
 
-// dbDataToRoute converts database route data to a route.Route.
+// dbDataToRoute converts database route data to a Route.
 func dbDataToRoute(hops []sqlc.FetchHopsForAttemptsRow,
 	hopCustomRecords map[int64][]sqlc.PaymentHopCustomRecord,
 	firstHopAmountMsat int64, totalTimeLock int32, totalAmount int64,
-	sourceKey []byte, firstHopWireCustomRecords lnwire.CustomRecords,
-	allowEmpty bool) (
-	*route.Route, error) {
+	sourceKey []byte, firstHopWireCustomRecords lnwire.CustomRecords) (
+	*Route, error) {
 
 	if len(hops) == 0 {
-		if !allowEmpty {
-			return nil, fmt.Errorf("no hops provided")
-		}
-
-		var sourceNode route.Vertex
-		copy(sourceNode[:], sourceKey)
-
-		route := &route.Route{
-			TotalTimeLock: uint32(totalTimeLock),
-			TotalAmount: lnwire.MilliSatoshi(
-				totalAmount,
-			),
-			SourcePubKey:              sourceNode,
-			Hops:                      nil,
-			FirstHopWireCustomRecords: firstHopWireCustomRecords,
-		}
-
-		if firstHopAmountMsat != 0 {
-			route.FirstHopAmount = tlv.NewRecordT[tlv.TlvType0](
-				tlv.NewBigSizeT(lnwire.MilliSatoshi(
-					firstHopAmountMsat,
-				)),
-			)
-		}
-
-		return route, nil
+		return nil, fmt.Errorf("no hops provided")
 	}
 
 	// Hops are already sorted by hop_index from the SQL query.
-	routeHops := make([]*route.Hop, len(hops))
+	routeHops := make([]*Hop, len(hops))
 
 	for i, hop := range hops {
-		pubKey, err := route.NewVertexFromBytes(hop.PubKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse pub key: %w",
-				err)
+		if len(hop.PubKey) != 33 {
+			return nil, fmt.Errorf("invalid pub key length: %d",
+				len(hop.PubKey))
 		}
+		var pubKey Vertex
+		copy(pubKey[:], hop.PubKey)
 
 		var channelID uint64
 		if hop.Scid != "" {
@@ -205,7 +177,7 @@ func dbDataToRoute(hops []sqlc.FetchHopsForAttemptsRow,
 			}
 		}
 
-		routeHop := &route.Hop{
+		routeHop := &Hop{
 			PubKeyBytes:      pubKey,
 			ChannelID:        channelID,
 			OutgoingTimeLock: uint32(hop.OutgoingTimeLock),
@@ -261,9 +233,7 @@ func dbDataToRoute(hops []sqlc.FetchHopsForAttemptsRow,
 
 		// Add hop-level custom records.
 		if records, ok := hopCustomRecords[hop.ID]; ok {
-			routeHop.CustomRecords = make(
-				record.CustomSet,
-			)
+			routeHop.CustomRecords = make(map[uint64][]byte)
 			for _, rec := range records {
 				routeHop.CustomRecords[uint64(rec.Key)] =
 					rec.Value
@@ -279,10 +249,10 @@ func dbDataToRoute(hops []sqlc.FetchHopsForAttemptsRow,
 	}
 
 	// Parse the source node public key.
-	var sourceNode route.Vertex
+	var sourceNode Vertex
 	copy(sourceNode[:], sourceKey)
 
-	route := &route.Route{
+	rt := &Route{
 		TotalTimeLock:             uint32(totalTimeLock),
 		TotalAmount:               lnwire.MilliSatoshi(totalAmount),
 		SourcePubKey:              sourceNode,
@@ -292,12 +262,12 @@ func dbDataToRoute(hops []sqlc.FetchHopsForAttemptsRow,
 
 	// Set the first hop amount if it is set.
 	if firstHopAmountMsat != 0 {
-		route.FirstHopAmount = tlv.NewRecordT[tlv.TlvType0](
+		rt.FirstHopAmount = tlv.NewRecordT[tlv.TlvType0](
 			tlv.NewBigSizeT(lnwire.MilliSatoshi(
 				firstHopAmountMsat,
 			)),
 		)
 	}
 
-	return route, nil
+	return rt, nil
 }

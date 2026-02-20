@@ -23,7 +23,9 @@ type Querier interface {
 	DeleteChannels(ctx context.Context, ids []int64) error
 	DeleteExtraNodeType(ctx context.Context, arg DeleteExtraNodeTypeParams) error
 	// Delete all failed HTLC attempts for the given payment. Resolution type 2
-	// indicates a failed attempt.
+	// indicates a failed attempt. Uses EXISTS to scope the resolution lookup to
+	// only this payment's attempts, avoiding an O(N) scan of all failed
+	// resolutions across all payments.
 	DeleteFailedAttempts(ctx context.Context, paymentID int64) error
 	DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) (sql.Result, error)
 	DeleteNode(ctx context.Context, id int64) error
@@ -49,15 +51,22 @@ type Querier interface {
 	FetchHtlcAttemptResolutionsForPayments(ctx context.Context, paymentIds []int64) ([]FetchHtlcAttemptResolutionsForPaymentsRow, error)
 	FetchHtlcAttemptsForPayments(ctx context.Context, paymentIds []int64) ([]FetchHtlcAttemptsForPaymentsRow, error)
 	FetchPayment(ctx context.Context, paymentIdentifier []byte) (FetchPaymentRow, error)
+	// Fetch all duplicate payment records from the payment_duplicates table for
+	// a given payment ID.
+	FetchPaymentDuplicates(ctx context.Context, paymentID int64) ([]PaymentDuplicate, error)
 	FetchPaymentLevelFirstHopCustomRecords(ctx context.Context, paymentIds []int64) ([]PaymentFirstHopCustomRecord, error)
 	// Batch fetch payment and intent data for a set of payment IDs.
 	// Used to avoid fetching redundant payment data when processing multiple
 	// attempts for the same payment.
 	FetchPaymentsByIDs(ctx context.Context, paymentIds []int64) ([]FetchPaymentsByIDsRow, error)
+	// Migration-specific batch fetch that returns payment data along with HTLC
+	// attempt counts for structural validation during KV to SQL migration.
+	FetchPaymentsByIDsMig(ctx context.Context, paymentIds []int64) ([]FetchPaymentsByIDsMigRow, error)
 	FetchRouteLevelFirstHopCustomRecords(ctx context.Context, htlcAttemptIndices []int64) ([]PaymentAttemptFirstHopCustomRecord, error)
 	FetchSettledAMPSubInvoices(ctx context.Context, arg FetchSettledAMPSubInvoicesParams) ([]FetchSettledAMPSubInvoicesRow, error)
 	FilterInvoices(ctx context.Context, arg FilterInvoicesParams) ([]Invoice, error)
 	FilterPayments(ctx context.Context, arg FilterPaymentsParams) ([]FilterPaymentsRow, error)
+	FilterPaymentsDesc(ctx context.Context, arg FilterPaymentsDescParams) ([]FilterPaymentsDescRow, error)
 	GetAMPInvoiceID(ctx context.Context, setID []byte) (int64, error)
 	GetChannelAndNodesBySCID(ctx context.Context, arg GetChannelAndNodesBySCIDParams) (GetChannelAndNodesBySCIDRow, error)
 	GetChannelByOutpointWithPolicies(ctx context.Context, arg GetChannelByOutpointWithPoliciesParams) (GetChannelByOutpointWithPoliciesRow, error)
@@ -80,6 +89,7 @@ type Querier interface {
 	// from different invoices. It is the caller's responsibility to ensure that
 	// we bubble up an error in those cases.
 	GetInvoice(ctx context.Context, arg GetInvoiceParams) ([]Invoice, error)
+	GetInvoiceByAddr(ctx context.Context, paymentAddr []byte) (Invoice, error)
 	GetInvoiceByHash(ctx context.Context, hash []byte) (Invoice, error)
 	GetInvoiceBySetID(ctx context.Context, setID []byte) ([]Invoice, error)
 	GetInvoiceFeatures(ctx context.Context, invoiceID int64) ([]InvoiceFeature, error)
@@ -146,10 +156,18 @@ type Querier interface {
 	// payment process.
 	InsertPayment(ctx context.Context, arg InsertPaymentParams) (int64, error)
 	InsertPaymentAttemptFirstHopCustomRecord(ctx context.Context, arg InsertPaymentAttemptFirstHopCustomRecordParams) error
+	// Insert a duplicate payment record into the payment_duplicates table and
+	// return its ID.
+	InsertPaymentDuplicateMig(ctx context.Context, arg InsertPaymentDuplicateMigParams) (int64, error)
 	InsertPaymentFirstHopCustomRecord(ctx context.Context, arg InsertPaymentFirstHopCustomRecordParams) error
 	InsertPaymentHopCustomRecord(ctx context.Context, arg InsertPaymentHopCustomRecordParams) error
 	// Insert a payment intent for a given payment and return its ID.
 	InsertPaymentIntent(ctx context.Context, arg InsertPaymentIntentParams) (int64, error)
+	// Migration-specific payment insert that allows setting fail_reason.
+	// Normal InsertPayment forces fail_reason to NULL since new payments
+	// aren't failed yet. During migration, we're inserting historical data
+	// that may already be failed.
+	InsertPaymentMig(ctx context.Context, arg InsertPaymentMigParams) (int64, error)
 	InsertRouteHop(ctx context.Context, arg InsertRouteHopParams) (int64, error)
 	InsertRouteHopAmp(ctx context.Context, arg InsertRouteHopAmpParams) error
 	InsertRouteHopBlinded(ctx context.Context, arg InsertRouteHopBlindedParams) error

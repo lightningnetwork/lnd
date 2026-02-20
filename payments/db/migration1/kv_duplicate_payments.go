@@ -1,4 +1,4 @@
-package paymentsdb
+package migration1
 
 import (
 	"bytes"
@@ -11,7 +11,6 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 var (
@@ -56,7 +55,7 @@ type duplicateHTLCAttemptInfo struct {
 	sessionKey [btcec.PrivKeyBytesLen]byte
 
 	// route is the route attempted to send the HTLC.
-	route route.Route
+	route Route
 }
 
 // fetchDuplicatePaymentStatus fetches the payment status of the payment. If
@@ -89,6 +88,7 @@ func deserializeDuplicateHTLCAttemptInfo(r io.Reader) (
 	if err != nil {
 		return nil, err
 	}
+
 	return a, nil
 }
 
@@ -238,6 +238,7 @@ func fetchDuplicatePayments(paymentHashBucket kvdb.RBucket) ([]*MPPayment,
 		}
 
 		payments = append(payments, p)
+
 		return nil
 	})
 	if err != nil {

@@ -1497,6 +1497,11 @@ var listPaymentsCommand = cli.Command{
 				"payments with creation date less than or " +
 				"equal to it",
 		},
+		cli.BoolFlag{
+			Name: "omit_hops",
+			Usage: "if set, omit hop-level route data to " +
+				"reduce query cost and response size",
+		},
 	},
 	Action: actionDecorator(listPayments),
 }
@@ -1514,6 +1519,7 @@ func listPayments(ctx *cli.Context) error {
 		CountTotalPayments: ctx.Bool("count_total_payments"),
 		CreationDateStart:  ctx.Uint64("creation_date_start"),
 		CreationDateEnd:    ctx.Uint64("creation_date_end"),
+		OmitHops:           ctx.Bool("omit_hops"),
 	}
 
 	payments, err := client.ListPayments(ctxc, req)

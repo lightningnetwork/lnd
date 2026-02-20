@@ -1,6 +1,7 @@
 package invoices
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -13,7 +14,6 @@ import (
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/sqldb"
@@ -52,11 +52,11 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 	FilterInvoices(ctx context.Context,
 		arg sqlc.FilterInvoicesParams) ([]sqlc.Invoice, error)
 
-	GetInvoice(ctx context.Context,
-		arg sqlc.GetInvoiceParams) ([]sqlc.Invoice, error)
-
 	GetInvoiceByHash(ctx context.Context, hash []byte) (sqlc.Invoice,
 		error)
+
+	GetInvoiceByAddr(ctx context.Context,
+		paymentAddr []byte) (sqlc.Invoice, error)
 
 	GetInvoiceBySetID(ctx context.Context, setID []byte) ([]sqlc.Invoice,
 		error)
@@ -350,73 +350,69 @@ func getInvoiceByRef(ctx context.Context,
 		return sqlc.Invoice{}, ErrInvoiceNotFound
 	}
 
-	// If the reference is a hash only, we can look up the invoice directly
-	// by the payment hash which is faster.
-	if ref.IsHashOnly() {
+	// If the reference contains a payment hash we can look up the invoice
+	// directly by hash using the unique index, avoiding a full table scan.
+	// The hash alone uniquely identifies any invoice so additional fields
+	// in the ref (payment address, set ID) are not needed for the lookup.
+	if ref.PayHash() != nil {
 		invoice, err := db.GetInvoiceByHash(ctx, ref.PayHash()[:])
 		if errors.Is(err, sql.ErrNoRows) {
 			return sqlc.Invoice{}, ErrInvoiceNotFound
 		}
+		if err != nil {
+			return sqlc.Invoice{}, err
+		}
 
-		return invoice, err
+		// If the ref also specifies a payment address, verify it
+		// matches the invoice found by hash. A mismatch means the ref
+		// is equivocating — the hash points to one invoice and the
+		// address points to another.
+		payAddr := ref.PayAddr()
+		if payAddr != nil && *payAddr != BlankPayAddr {
+			if !bytes.Equal(invoice.PaymentAddr, payAddr[:]) {
+				return sqlc.Invoice{}, ErrInvRefEquivocation
+			}
+		}
+
+		return invoice, nil
 	}
 
-	// Otherwise the reference may include more fields, so we'll need to
-	// assemble the query parameters based on the fields that are set.
-	var params sqlc.GetInvoiceParams
+	// If the reference contains a payment address (AMP payments), look up
+	// directly by payment address using the unique index.
+	//
+	// NOTE: Pre-0.8 invoices do not have a payment address, and blank
+	// payment addresses are a special case for legacy keysend invoices.
+	// Those are handled by the hash fast path above.
+	payAddr := ref.PayAddr()
+	if payAddr != nil && *payAddr != BlankPayAddr {
+		invoice, err := db.GetInvoiceByAddr(ctx, payAddr[:])
+		if errors.Is(err, sql.ErrNoRows) {
+			return sqlc.Invoice{}, ErrInvoiceNotFound
+		}
+		if err != nil {
+			return sqlc.Invoice{}, fmt.Errorf("unable to fetch "+
+				"invoice: %w", err)
+		}
 
-	if ref.PayHash() != nil {
-		params.Hash = ref.PayHash()[:]
+		return invoice, nil
 	}
 
-	// Newer invoices (0.11 and up) are indexed by payment address in
-	// addition to payment hash, but pre 0.8 invoices do not have one at
-	// all. Only allow lookups for payment address if it is not a blank
-	// payment address, which is a special-cased value for legacy keysend
-	// invoices.
-	if ref.PayAddr() != nil && *ref.PayAddr() != BlankPayAddr {
-		params.PaymentAddr = ref.PayAddr()[:]
-	}
-
-	// If the reference has a set ID we'll fetch the invoice which has the
-	// corresponding AMP sub invoice.
+	// If only the set ID is given, look up via the AMP sub-invoice index.
 	if ref.SetID() != nil {
-		params.SetID = ref.SetID()[:]
+		rows, err := db.GetInvoiceBySetID(ctx, ref.SetID()[:])
+		if err != nil {
+			return sqlc.Invoice{}, fmt.Errorf("unable to fetch "+
+				"invoice: %w", err)
+		}
+
+		if len(rows) == 0 {
+			return sqlc.Invoice{}, ErrInvoiceNotFound
+		}
+
+		return rows[0], nil
 	}
 
-	var (
-		rows []sqlc.Invoice
-		err  error
-	)
-
-	// We need to split the query based on how we intend to look up the
-	// invoice. If only the set ID is given then we want to have an exact
-	// match on the set ID. If other fields are given, we want to match on
-	// those fields and the set ID but with a less strict join condition.
-	if params.Hash == nil && params.PaymentAddr == nil &&
-		params.SetID != nil {
-
-		rows, err = db.GetInvoiceBySetID(ctx, params.SetID)
-	} else {
-		rows, err = db.GetInvoice(ctx, params)
-	}
-
-	switch {
-	case len(rows) == 0:
-		return sqlc.Invoice{}, ErrInvoiceNotFound
-
-	case len(rows) > 1:
-		// In case the reference is ambiguous, meaning it matches more
-		// than	one invoice, we'll return an error.
-		return sqlc.Invoice{}, fmt.Errorf("ambiguous invoice ref: "+
-			"%s: %s", ref.String(), lnutils.SpewLogClosure(rows))
-
-	case err != nil:
-		return sqlc.Invoice{}, fmt.Errorf("unable to fetch invoice: %w",
-			err)
-	}
-
-	return rows[0], nil
+	return sqlc.Invoice{}, ErrInvoiceNotFound
 }
 
 // fetchInvoice fetches the common invoice data and the AMP state for the

@@ -623,6 +623,13 @@ service Lightning {
     */
     rpc LookupHtlcResolution (LookupHtlcResolutionRequest)
         returns (LookupHtlcResolutionResponse);
+
+    /* lncli: `generatepreimage`
+    GeneratePreimage generates a new preimage and returns it along with its hash.
+    If a preimage is provided in the request, it is validated and its hash is
+    returned.
+    */
+    rpc GeneratePreimage (GeneratePreimageRequest) returns (GeneratePreimageResponse);
 }
 
 message LookupHtlcResolutionRequest {
@@ -5478,4 +5485,20 @@ message InterceptFeedback {
     binary serialized gRPC message in the protobuf format.
     */
     bytes replacement_serialized = 3;
+}
+
+message GeneratePreimageRequest {
+    /*
+    The optional preimage to use. If not set, a random preimage will be
+    generated.
+    */
+    bytes preimage = 1;
+}
+
+message GeneratePreimageResponse {
+    // The generated or validated preimage.
+    bytes preimage = 1;
+
+    // The SHA256 hash of the preimage.
+    bytes hash = 2;
 }

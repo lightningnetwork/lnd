@@ -6815,16 +6815,38 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 		endHeight = req.EndHeight
 	}
 
+	// Check if the user requested a reversed range. As per the
+	// documentation: "If the end_height is less than the start_height,
+	// transactions will be queried in reverse." We swap the heights
+	// for the query and reverse the results after fetching.
+	reversed := req.EndHeight != 0 && req.StartHeight > req.EndHeight
+	startHeight := req.StartHeight
+	if reversed {
+		startHeight = req.EndHeight
+		endHeight = req.StartHeight
+	}
+
 	txns, firstIdx, lastIdx, err :=
 		r.server.cc.Wallet.ListTransactionDetails(
-			req.StartHeight, endHeight, req.Account,
+			startHeight, endHeight, req.Account,
 			req.IndexOffset, req.MaxTransactions,
 		)
 	if err != nil {
 		return nil, err
 	}
 
-	return lnrpc.RPCTransactionDetails(txns, firstIdx, lastIdx), nil
+	resp := lnrpc.RPCTransactionDetails(txns, firstIdx, lastIdx)
+
+	// If the user requested a reversed range, reverse the transaction
+	// list so that the most recent transactions come first.
+	if reversed {
+		txs := resp.Transactions
+		for i, j := 0, len(txs)-1; i < j; i, j = i+1, j-1 {
+			txs[i], txs[j] = txs[j], txs[i]
+		}
+	}
+
+	return resp, nil
 }
 
 // DescribeGraph returns a description of the latest graph state from the PoV

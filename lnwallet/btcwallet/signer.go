@@ -238,20 +238,32 @@ func (b *BtcWallet) fetchPrivKey(
 
 // maybeTweakPrivKey examines the single and double tweak parameters on the
 // passed sign descriptor and may perform a mapping on the passed private key
-// in order to utilize the tweaks, if populated.
+// in order to utilize the tweaks, if populated. If both tweak parameters are
+// set, then both are applied in the following order:
+//
+//	a) double tweak
+//	b) single tweak
 func maybeTweakPrivKey(signDesc *input.SignDescriptor,
 	privKey *btcec.PrivateKey) (*btcec.PrivateKey, error) {
 
 	var retPriv *btcec.PrivateKey
+
 	switch {
+	// If both tweak parameters are set, apply the double tweak first
+	// (revocation), then the single tweak (HTLC index).
+	case signDesc.DoubleTweak != nil && signDesc.SingleTweak != nil:
+		retPriv = input.DeriveRevocationPrivKey(
+			privKey, signDesc.DoubleTweak,
+		)
+		retPriv = input.TweakPrivKey(retPriv, signDesc.SingleTweak)
 
 	case signDesc.SingleTweak != nil:
-		retPriv = input.TweakPrivKey(privKey,
-			signDesc.SingleTweak)
+		retPriv = input.TweakPrivKey(privKey, signDesc.SingleTweak)
 
 	case signDesc.DoubleTweak != nil:
-		retPriv = input.DeriveRevocationPrivKey(privKey,
-			signDesc.DoubleTweak)
+		retPriv = input.DeriveRevocationPrivKey(
+			privKey, signDesc.DoubleTweak,
+		)
 
 	default:
 		retPriv = privKey

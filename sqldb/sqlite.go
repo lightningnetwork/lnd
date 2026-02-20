@@ -70,7 +70,7 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 		},
 		{
 			name:  "busy_timeout",
-			value: "5000",
+			value: fmt.Sprintf("%d", cfg.busyTimeoutMs()),
 		},
 		{
 			// With the WAL mode, this ensures that we also do an
@@ -98,6 +98,12 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 			sqliteOptionPrefix,
 			fmt.Sprintf("%v=%v", option.name, option.value),
 		)
+	}
+
+	// Then we add any user specified pragma options. Note that these can
+	// be of the form: "key=value", "key(N)" or "key".
+	for _, option := range cfg.PragmaOptions {
+		sqliteOptions.Add(sqliteOptionPrefix, option)
 	}
 
 	// Construct the DSN which is just the database file name, appended
@@ -130,8 +136,8 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 			err)
 	}
 
-	db.SetMaxOpenConns(defaultMaxConns)
-	db.SetMaxIdleConns(defaultMaxConns)
+	db.SetMaxOpenConns(cfg.MaxConns())
+	db.SetMaxIdleConns(cfg.MaxConns())
 	db.SetConnMaxLifetime(connIdleLifetime)
 	queries := sqlc.New(db)
 

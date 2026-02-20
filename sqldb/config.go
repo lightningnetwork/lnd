@@ -31,6 +31,40 @@ type SqliteConfig struct {
 	QueryConfig    `group:"query" namespace:"query"`
 }
 
+const (
+	// DefaultSqliteMaxConns is the default number of maximum open
+	// connections for SQLite. SQLite only supports a single writer, so a
+	// low default reduces contention on the busy_timeout and limits
+	// resource usage, especially on mobile.
+	DefaultSqliteMaxConns = 2
+
+	// DefaultSqliteBusyTimeout is the default busy_timeout value used
+	// when no BusyTimeout is configured.
+	DefaultSqliteBusyTimeout = 5 * time.Second
+)
+
+// busyTimeoutMs returns the busy_timeout value in milliseconds. If
+// BusyTimeout is not set, it returns the default value.
+func (s *SqliteConfig) busyTimeoutMs() int64 {
+	if s.BusyTimeout > 0 {
+		return s.BusyTimeout.Milliseconds()
+	}
+
+	return DefaultSqliteBusyTimeout.Milliseconds()
+}
+
+// MaxConns returns the effective maximum number of open connections. If
+// MaxConnections is not set, it returns a default of 2. This low default is
+// chosen because SQLite only supports a single writer, which helps reduce
+// contention and resource usage.
+func (s *SqliteConfig) MaxConns() int {
+	if s.MaxConnections > 0 {
+		return s.MaxConnections
+	}
+
+	return DefaultSqliteMaxConns
+}
+
 // Validate checks that the SqliteConfig values are valid.
 func (p *SqliteConfig) Validate() error {
 	if err := p.QueryConfig.Validate(true); err != nil {

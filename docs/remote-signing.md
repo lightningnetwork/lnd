@@ -8,11 +8,11 @@ keys in its wallet. The second instance (in this document referred to as
 the **private** keys.
 
 The advantage of such a setup is that the `lnd` instance containing the private
-keys (the "signer") can be completely offline except for a single inbound gRPC
-connection.
+keys (the "signer") can be completely offline except for a single inbound or
+outbound gRPC connection.
 The signer instance can run on a different machine with more tightly locked down
-network security, optimally only allowing the single gRPC connection from the
-outside.
+network security, optimally only allowing the single gRPC connection to or from
+the outside.
 
 An example setup could look like:
 
@@ -39,12 +39,24 @@ xxx               xx
 
 ```
 
-## Example setup
+When using a remote signer, the "signer" node can be configured to operate in
+one of two modes.
+It can either be configured as an "inbound" remote signer (the default setting)
+or as an "outbound" remote signer. As an "inbound" remote signer, the signer
+node permits a single inbound gRPC connection **from** the watch-only lnd node.
+Conversely, when configured as an "outbound" remote signer, it allows a single
+outbound gRPC connection **to** the watch-only lnd node.
 
-In this example we are going to set up two nodes, the "signer" that has the full
-seed and private keys and the "watch-only" node that only has public keys.
+## Example setups
 
-### The "signer" node
+In the examples below, we demonstrate how to configure the "signer" node and the
+"watch-only" node, either using an "inbound" or an "outbound" remote signer. The
+"signer" node possesses the full seed and private keys, while the "watch-only"
+node holds only the public keys.
+
+### Inbound remote signer example (default option)
+
+#### The inbound "signer" node
 
 The node "signer" is the hardened node that contains the private key material
 and is not connected to the internet or LN P2P network at all. Ideally only a
@@ -104,7 +116,7 @@ signer>  $ lncli bakemacaroon --save_to signer.custom.macaroon \
 Copy this file (`signer.custom.macaroon`) along with the `tls.cert` of the
 signer node to the machine where the watch-only node will be running.
 
-### The "watch-only" node
+#### The "watch-only" node with an inbound remote signer
 
 The node "watch-only" is the public, internet facing node that does not contain
 any private keys in its wallet but delegates all signing operations to the node
@@ -118,6 +130,10 @@ remotesigner.enable=true
 remotesigner.rpchost=zane.example.internal:10019
 remotesigner.tlscertpath=/home/watch-only/example/signer.tls.cert
 remotesigner.macaroonpath=/home/watch-only/example/signer.custom.macaroon
+# Optionally, specify that the watch-only doesn't allow any inbound connections
+# from the remote signer.
+# However, since this is the default behaviour, this isn't required.
+remotesigner.allowinboundconnection=false
 ```
 
 After starting "watch-only", the wallet can be created in watch-only mode by
@@ -136,7 +152,170 @@ Input an optional address look-ahead used to scan for used keys (default 2500):
 ```
 
 Alternatively a script can be used for initializing the watch-only wallet
-through the RPC interface as is described in the next section.
+through the RPC interface as is described in the
+[section below](#Example-initialization-script).
+
+### Outbound remote signer example
+
+The setup of an outbound remote signer, can be done in 3 steps:
+
+1. Start the signer node and export the `xpub`s of the wallet.
+2. Bake a custom macaroon for the watch-only node with a specified root key,
+which allows the signer node to establish an outbound connection to it.
+3. Start watch-only node and initialize its watch-only wallet using the same
+root key as in step 2.
+
+Note: These steps are only required during the initial setup of the signer
+wallet with a connected watch-only wallet. After this setup, the signer and
+watch-only node can be started as usual, provided the configuration from these
+steps remains in place.
+
+#### Step 1: export the `xpub`s of the outbound signer node's wallet
+
+When starting the signer node to export the `xpub`s of the wallet, these entries
+in `lnd.conf` are recommended:
+
+```text
+# We apply some basic "hardening" parameters to make sure no connections to the
+# internet are opened.
+
+[Application Options]
+# Don't listen on the p2p port.
+nolisten=true
+
+# Don't reach out to the bootstrap nodes, we don't need a synced graph.
+nobootstrap=true
+
+# The signer node will not look at the chain at all, it only needs to sign
+# things with the keys contained in its wallet. So we don't need to hook it up
+# to any chain backend.
+[bitcoin]
+# We still need to signal that we're using the Bitcoin chain.
+bitcoin.active=true
+
+# And we're making sure mainnet parameters are used.
+bitcoin.mainnet=true
+
+# But we aren't using a "real" chain backed but a mocked one.
+bitcoin.node=nochainbackend
+
+# Specify that signer will make an outbound connection to the watch-only node.
+watchonlynode.enable=true
+
+# The watch-only node's RPC host.
+watchonlynode.rpchost=zane.example.internal:10019
+
+# A macaroon and TLS certificate for the watch-only node.
+watchonlynode.macaroonpath=/home/signer/example/watch-only.custom.macaroon
+watchonlynode.tlscertpath=/home/signer/example/watch-only.tls.cert
+```
+
+**Note:** The watch-only node’s `rpchost`, `macaroonpath`, and `tlscertpath`
+specified in the configuration will not resolve successfully until steps 2 and 3
+are completed, as these files do not yet exist, and no node is currently running
+at the specified `rpchost`.
+The signer node will continuously attempt to establish a connection to the
+watch-only node using these values until the connection is successful.
+Consequently, the configuration values will resolve properly once steps 2 and 3
+have been executed.
+
+After successfully starting up the "signer", and either unlocking an existing or
+creating a new wallet, the following command can be run to export the `xpub`s of
+the wallet:
+
+```shell
+signer>  $  lncli wallet accounts list > accounts-signer.json
+```
+
+That `accounts-signer.json` file has to be copied to the machine on which
+"watch-only" will be running. It contains the extended public keys for all of
+`lnd`'s accounts (see [required accounts](#required-accounts) ).
+
+#### Step 2: Bake the watch-only node's custom macaroon with a specified root key
+
+To bake the custom macaroon for the watch-only node before its wallet exists,
+first generate a root key, which will be used both to bake the macaroon and to
+create the watch-only node's wallet.
+
+Generation of a root key is exemplified below:
+
+```shell
+watch-only> $ ROOT_KEY=$(cat /dev/urandom | head -c32 | xxd -p -c32)
+```
+
+Once the root key is ready, bake the custom macaroon with:
+
+```shell
+watch-only> $ lncli bakemacaroon --root_key $ROOT_KEY \
+--save_to /home/signer/example/watch-only.custom.macaroon remotesigner:generate
+```
+
+**Note:** The `save_to` path should match the `remotesigner.macaroonpath`
+specified in step 1. If the signer and watch-only nodes are on separate
+environments, move the macaroon to the `remotesigner.macaroonpath` after baking
+it instead.
+
+Also note that the watch-only node does not need to be running to execute this
+command.
+
+
+#### Step 3: Start the Watch-Only Node and Initialize Its Watch-Only Wallet
+
+When starting the watch-only node, ensure the following entries are set in
+`lnd.conf`:
+
+```text
+# Enable the use of a remote signer.
+remotesigner.enable=true
+
+# Specify that the watch-only node will accept an incoming connection from the
+# remote signer.
+remotesigner.allowinboundconnection=true
+```
+
+It is also recommended to set the following parameter, which defines the
+interval at which the watch-only node will check if the signer node is still
+connected. If the signer node is disconnected during a check, the watch-only
+node will shut down:
+
+```text
+# Set the interval for how often the watch-only node will check that the signer
+# node is still connected.
+healthcheck.remotesigner.interval=5s
+```
+
+Since the signer node set up in Step 1 increases the delay between connection
+attempts slightly with each failed attempt, it may take some time before it
+reconnects to the watch-only node after it has been started. Setting a high
+value for this configuration field will help ensure that the watch-only node
+does not time out when starting up.
+
+After starting the watch-only node, you can create a new watch-only wallet by
+following the example below:
+
+```shell
+watch-only>  $  lncli createwatchonly --mac_root_key $ROOT_KEY \
+  accounts-signer.json
+
+Input wallet password:
+Confirm password:
+
+Input an optional wallet birthday unix timestamp of first block to start scanning from (default 0): 
+
+
+Input an optional address look-ahead used to scan for used keys (default 2500):
+```
+
+**Note:** This command should be executed in an environment where the
+`$ROOT_KEY` environment variable, created in Step 2, is defined. When selecting
+a wallet birthday UNIX timestamp, choose one that is as close as possible to the
+wallet’s actual creation time to expedite the initial setup of the watch-only
+wallet.
+
+Finally, if the watch-only node and signer node are set up in different
+environments, you will also need to copy the watch-only node's TLS certificate
+and place it in the path specified for the `watchonlynode.tlscertpath`
+configuration field in Step 1.
 
 ## Migrating an existing setup to remote signing
 
@@ -146,9 +325,9 @@ a watch-only and a remote signer node).
 
 To migrate an existing node, follow these steps:
 1. Create a new "signer" node using the same seed as the existing node,
-   following the steps [mentioned above](#the-signer-node).
+   following the steps the "signer" node examples above.
 2. In the configuration of the existing node, add the configuration entries as
-   [shown above](#the-watch-only-node). But instead of creating a new wallet
+   "watch-only" node examples above. But instead of creating a new wallet
    (since one already exists), instruct `lnd` to migrate the existing wallet to
    a watch-only one (by purging all private key material from it) by adding the
   `remotesigner.migrate-wallet-to-watch-only=true` configuration entry.

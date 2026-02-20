@@ -6,41 +6,55 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
-// createNewSubServer is a helper method that will create the new router sub
-// server given the main config dispatcher method. If we're unable to find the
-// config that is meant for us in the config dispatcher, then we'll exit with
-// an error.
-func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
-	*Server, lnrpc.MacaroonPerms, error) {
+// getConfig is a helper method that will fetch the config for sub-server given
+// the main config dispatcher method. If we're unable to find the config
+// that is meant for us in the config dispatcher, then we'll exit with an
+// error. If enforceDependencies is set to true, the function also verifies that
+// the dependencies in the config are properly set.
+func getConfig(configRegistry lnrpc.SubServerConfigDispatcher,
+	enforceDependencies bool) (*Config, error) {
 
 	// We'll attempt to look up the config that we expect, according to our
 	// subServerName name. If we can't find this, then we'll exit with an
 	// error, as we're unable to properly initialize ourselves without this
 	// config.
-	routeServerConf, ok := configRegistry.FetchConfig(subServerName)
+	subServerConf, ok := configRegistry.FetchConfig(subServerName)
 	if !ok {
-		return nil, nil, fmt.Errorf("unable to find config for "+
-			"subserver type %s", subServerName)
+		return nil, fmt.Errorf("unable to find config for subserver "+
+			"type %s", subServerName)
 	}
 
 	// Now that we've found an object mapping to our service name, we'll
 	// ensure that it's the type we need.
-	config, ok := routeServerConf.(*Config)
+	config, ok := subServerConf.(*Config)
 	if !ok {
-		return nil, nil, fmt.Errorf("wrong type of config for "+
-			"subserver %s, expected %T got %T", subServerName,
-			&Config{}, routeServerConf)
+		return nil, fmt.Errorf("wrong type of config for subserver "+
+			"%s, expected %T got %T", subServerName, &Config{},
+			subServerConf)
 	}
 
+	if enforceDependencies {
+		if err := verifyDependencies(config); err != nil {
+			return nil, err
+		}
+	}
+
+	return config, nil
+}
+
+// verifyDependencies ensures that the dependencies in the config are properly
+// set.
+//
+//nolint:stylecheck
+func verifyDependencies(config *Config) error {
 	// Before we try to make the new router service instance, we'll perform
 	// some sanity checks on the arguments to ensure that they're usable.
 	switch {
 	case config.Router == nil:
-		return nil, nil, fmt.Errorf("Router must be set to create " +
-			"Routerpc")
+		return fmt.Errorf("Router must be set to create Routerpc")
 	}
 
-	return New(config)
+	return nil
 }
 
 func init() {

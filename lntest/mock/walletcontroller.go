@@ -1,6 +1,7 @@
 package mock
 
 import (
+	"context"
 	"encoding/hex"
 	"sync/atomic"
 	"time"
@@ -279,6 +280,14 @@ func (w *WalletController) Start() error {
 // Stop currently does nothing.
 func (w *WalletController) Stop() error {
 	return nil
+}
+
+// ReadySignal currently signals that the wallet is ready instantly.
+func (w *WalletController) ReadySignal(_ context.Context) chan error {
+	readyChan := make(chan error, 1)
+	readyChan <- nil
+
+	return readyChan
 }
 
 func (w *WalletController) FetchTx(chainhash.Hash) (*wire.MsgTx, error) {

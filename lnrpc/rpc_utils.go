@@ -55,6 +55,11 @@ var (
 	RESTJsonUnmarshalOpts = &protojson.UnmarshalOptions{
 		AllowPartial: false,
 	}
+
+	// ErrDependenciesFinalized is an error that is returned when the final
+	// dependencies have already been injected into a sub-server.
+	ErrDependenciesFinalized = errors.New("final dependencies have " +
+		"already been injected")
 )
 
 // RPCTransaction returns a rpc transaction.

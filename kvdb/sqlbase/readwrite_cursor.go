@@ -184,49 +184,57 @@ func (c *readWriteCursor) Seek(seek []byte) ([]byte, []byte) {
 }
 
 // Delete removes the current key/value pair the cursor is at without
-// invalidating the cursor.  Returns ErrIncompatibleValue if attempted
-// when the cursor points to a nested bucket.
+// invalidating the cursor. Returns ErrIncompatibleValue if attempted when the
+// cursor points to a nested bucket.
 func (c *readWriteCursor) Delete() error {
-	// Get first record at or after cursor.
-	var key []byte
+	// Use a single atomic query with CTEs to:
+	// 1. Find the first key at or after cursor position
+	// 2. Delete it if it's a value (not a bucket)
+	// 3. Return whether it was deleted or is a bucket
+	var deleted bool
+	var isBucket bool
+	
 	row, cancel := c.bucket.tx.QueryRow(
-		"SELECT key FROM "+c.bucket.table+" WHERE "+
-			parentSelector(c.bucket.id)+
-			" AND key>=$1 ORDER BY key LIMIT 1",
+		"WITH target AS ("+
+			"  SELECT key, value FROM "+c.bucket.table+
+			"  WHERE "+parentSelector(c.bucket.id)+
+			"  AND key >= $1"+
+			"  ORDER BY key"+
+			"  LIMIT 1"+
+			"), "+
+			"deleted AS ("+
+			"  DELETE FROM "+c.bucket.table+
+			"  WHERE "+parentSelector(c.bucket.id)+
+			"  AND key = (SELECT key FROM target)"+
+			"  AND value IS NOT NULL"+
+			"  RETURNING 1"+
+			") "+
+			"SELECT "+
+			"  EXISTS(SELECT 1 FROM deleted) AS was_deleted, "+
+			"  EXISTS(SELECT 1 FROM target WHERE value IS NULL) AS is_bucket",
 		c.currKey,
 	)
 	defer cancel()
-	err := row.Scan(&key)
 
-	switch {
-	case err == sql.ErrNoRows:
+	err := row.Scan(&deleted, &isBucket)
+	if err == sql.ErrNoRows {
+		// No key at or after cursor position.
 		return nil
-
-	case err != nil:
-		panic(err)
 	}
-
-	// Delete record.
-	result, err := c.bucket.tx.Exec(
-		"DELETE FROM "+c.bucket.table+" WHERE "+
-			parentSelector(c.bucket.id)+
-			" AND key=$1 AND value IS NOT NULL",
-		key,
-	)
 	if err != nil {
 		panic(err)
 	}
 
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return err
+	// If we deleted the key, we're done.
+	if deleted {
+		return nil
 	}
 
-	// The key exists but nothing has been deleted. This means that the key
-	// must have been a bucket key.
-	if rows != 1 {
+	// If the key is a bucket, return incompatible value error.
+	if isBucket {
 		return walletdb.ErrIncompatibleValue
 	}
 
-	return err
+	// No key found (target was empty).
+	return nil
 }

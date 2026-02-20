@@ -90,6 +90,7 @@ func TestGossipSyncerSingleBacklogSend(t *testing.T) {
 
 	// Now we'll create a filter, then apply it in a goroutine.
 	filter := &lnwire.GossipTimestampRange{
+		ChainHash:      syncer.cfg.chainHash,
 		FirstTimestamp: uint32(time.Now().Unix() - 3600),
 		TimestampRange: 7200,
 	}

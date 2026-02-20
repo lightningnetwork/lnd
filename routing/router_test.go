@@ -135,7 +135,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	sourceNode, err := graphInstance.v1Graph.SourceNode(t.Context())
 	require.NoError(t, err)
 	sessionSource := &SessionSource{
-		GraphSessionFactory: graphInstance.graph,
+		GraphSessionFactory: graphInstance.v1Graph,
 		SourceNode:          sourceNode,
 		GetLink:             graphInstance.getLink,
 		PathFindingConfig:   pathFindingConfig,
@@ -146,7 +146,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 
 	router, err := New(Config{
 		SelfNode:       sourceNode.PubKeyBytes,
-		RoutingGraph:   graphInstance.graph,
+		RoutingGraph:   graphInstance.v1Graph,
 		Chain:          chain,
 		Payer:          &mockPaymentAttemptDispatcherOld{},
 		Control:        makeMockControlTower(),
@@ -454,6 +454,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 
 	// Assert that the initially configured fee is retrieved correctly.
 	_, e1, e2, err := ctx.graph.FetchChannelEdgesByID(
+		lnwire.GossipVersion1,
 		lnwire.NewShortChanIDFromInt(1).ToUint64(),
 	)
 	require.NoError(t, err, "cannot retrieve channel")
@@ -526,6 +527,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	require.Error(t, err, "expected route to fail with channel update")
 
 	_, e1, e2, err = ctx.graph.FetchChannelEdgesByID(
+		lnwire.GossipVersion1,
 		lnwire.NewShortChanIDFromInt(1).ToUint64(),
 	)
 	require.NoError(t, err, "cannot retrieve channel")
@@ -548,6 +550,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	// This time a valid signature was supplied and the policy change should
 	// have been applied to the graph.
 	_, e1, e2, err = ctx.graph.FetchChannelEdgesByID(
+		lnwire.GossipVersion1,
 		lnwire.NewShortChanIDFromInt(1).ToUint64(),
 	)
 	require.NoError(t, err, "cannot retrieve channel")
@@ -589,7 +592,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	// to sophon. We'll obtain this as we'll need to to generate the
 	// FeeInsufficient error that we'll send back.
 	_, _, edgeUpdateToFail, err := ctx.graph.FetchChannelEdgesByID(
-		songokuSophonChanID,
+		lnwire.GossipVersion1, songokuSophonChanID,
 	)
 	require.NoError(t, err, "unable to fetch chan id")
 
@@ -936,7 +939,9 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	chanID := ctx.getChannelIDFromAlias(t, "roasbeef", "songoku")
 	roasbeefSongoku := lnwire.NewShortChanIDFromInt(chanID)
 
-	_, _, edgeUpdateToFail, err := ctx.graph.FetchChannelEdgesByID(chanID)
+	_, _, edgeUpdateToFail, err := ctx.graph.FetchChannelEdgesByID(
+		lnwire.GossipVersion1, chanID,
+	)
 	require.NoError(t, err, "unable to fetch chan id")
 
 	errChanUpdate := lnwire.ChannelUpdate1{

@@ -1173,6 +1173,235 @@ func (q *Queries) GetChannelsByOutpoints(ctx context.Context, outpoints []string
 	return items, nil
 }
 
+const getChannelsByPolicyBlockRange = `-- name: GetChannelsByPolicyBlockRange :many
+SELECT
+    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature, c.signature, c.funding_pk_script, c.merkle_root_hash,
+    n1.id, n1.version, n1.pub_key, n1.alias, n1.last_update, n1.color, n1.signature, n1.block_height,
+    n2.id, n2.version, n2.pub_key, n2.alias, n2.last_update, n2.color, n2.signature, n2.block_height,
+
+    -- Policy 1 (node_id_1)
+    cp1.id AS policy1_id,
+    cp1.node_id AS policy1_node_id,
+    cp1.version AS policy1_version,
+    cp1.timelock AS policy1_timelock,
+    cp1.fee_ppm AS policy1_fee_ppm,
+    cp1.base_fee_msat AS policy1_base_fee_msat,
+    cp1.min_htlc_msat AS policy1_min_htlc_msat,
+    cp1.max_htlc_msat AS policy1_max_htlc_msat,
+    cp1.last_update AS policy1_last_update,
+    cp1.disabled AS policy1_disabled,
+    cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
+    cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.message_flags AS policy1_message_flags,
+    cp1.channel_flags AS policy1_channel_flags,
+    cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
+
+    -- Policy 2 (node_id_2)
+    cp2.id AS policy2_id,
+    cp2.node_id AS policy2_node_id,
+    cp2.version AS policy2_version,
+    cp2.timelock AS policy2_timelock,
+    cp2.fee_ppm AS policy2_fee_ppm,
+    cp2.base_fee_msat AS policy2_base_fee_msat,
+    cp2.min_htlc_msat AS policy2_min_htlc_msat,
+    cp2.max_htlc_msat AS policy2_max_htlc_msat,
+    cp2.last_update AS policy2_last_update,
+    cp2.disabled AS policy2_disabled,
+    cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
+    cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.message_flags AS policy2_message_flags,
+    cp2.channel_flags AS policy2_channel_flags,
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
+
+FROM graph_channels c
+    JOIN graph_nodes n1 ON c.node_id_1 = n1.id
+    JOIN graph_nodes n2 ON c.node_id_2 = n2.id
+    LEFT JOIN graph_channel_policies cp1
+        ON cp1.channel_id = c.id AND cp1.node_id = c.node_id_1 AND cp1.version = c.version
+    LEFT JOIN graph_channel_policies cp2
+        ON cp2.channel_id = c.id AND cp2.node_id = c.node_id_2 AND cp2.version = c.version
+WHERE c.version = $1
+  AND (
+       (cp1.block_height >= $2 AND cp1.block_height < $3)
+       OR
+       (cp2.block_height >= $2 AND cp2.block_height < $3)
+  )
+  -- Pagination using compound cursor (max_block_height, id).
+  -- We use COALESCE with -1 as sentinel since heights are always positive.
+  AND (
+       (CASE
+           WHEN COALESCE(cp1.block_height, 0) >= COALESCE(cp2.block_height, 0)
+               THEN COALESCE(cp1.block_height, 0)
+           ELSE COALESCE(cp2.block_height, 0)
+       END > COALESCE($4, -1))
+       OR
+       (CASE
+           WHEN COALESCE(cp1.block_height, 0) >= COALESCE(cp2.block_height, 0)
+               THEN COALESCE(cp1.block_height, 0)
+           ELSE COALESCE(cp2.block_height, 0)
+       END = COALESCE($4, -1)
+       AND c.id > COALESCE($5, -1))
+  )
+ORDER BY
+    CASE
+        WHEN COALESCE(cp1.block_height, 0) >= COALESCE(cp2.block_height, 0)
+            THEN COALESCE(cp1.block_height, 0)
+        ELSE COALESCE(cp2.block_height, 0)
+    END ASC,
+    c.id ASC
+LIMIT COALESCE($6, 999999999)
+`
+
+type GetChannelsByPolicyBlockRangeParams struct {
+	Version         int16
+	StartHeight     sql.NullInt64
+	EndHeight       sql.NullInt64
+	LastBlockHeight sql.NullInt64
+	LastID          sql.NullInt64
+	MaxResults      interface{}
+}
+
+type GetChannelsByPolicyBlockRangeRow struct {
+	GraphChannel                   GraphChannel
+	GraphNode                      GraphNode
+	GraphNode_2                    GraphNode
+	Policy1ID                      sql.NullInt64
+	Policy1NodeID                  sql.NullInt64
+	Policy1Version                 sql.NullInt16
+	Policy1Timelock                sql.NullInt32
+	Policy1FeePpm                  sql.NullInt64
+	Policy1BaseFeeMsat             sql.NullInt64
+	Policy1MinHtlcMsat             sql.NullInt64
+	Policy1MaxHtlcMsat             sql.NullInt64
+	Policy1LastUpdate              sql.NullInt64
+	Policy1Disabled                sql.NullBool
+	Policy1InboundBaseFeeMsat      sql.NullInt64
+	Policy1InboundFeeRateMilliMsat sql.NullInt64
+	Policy1MessageFlags            sql.NullInt16
+	Policy1ChannelFlags            sql.NullInt16
+	Policy1Signature               []byte
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
+	Policy2ID                      sql.NullInt64
+	Policy2NodeID                  sql.NullInt64
+	Policy2Version                 sql.NullInt16
+	Policy2Timelock                sql.NullInt32
+	Policy2FeePpm                  sql.NullInt64
+	Policy2BaseFeeMsat             sql.NullInt64
+	Policy2MinHtlcMsat             sql.NullInt64
+	Policy2MaxHtlcMsat             sql.NullInt64
+	Policy2LastUpdate              sql.NullInt64
+	Policy2Disabled                sql.NullBool
+	Policy2InboundBaseFeeMsat      sql.NullInt64
+	Policy2InboundFeeRateMilliMsat sql.NullInt64
+	Policy2MessageFlags            sql.NullInt16
+	Policy2ChannelFlags            sql.NullInt16
+	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
+}
+
+func (q *Queries) GetChannelsByPolicyBlockRange(ctx context.Context, arg GetChannelsByPolicyBlockRangeParams) ([]GetChannelsByPolicyBlockRangeRow, error) {
+	rows, err := q.db.QueryContext(ctx, getChannelsByPolicyBlockRange,
+		arg.Version,
+		arg.StartHeight,
+		arg.EndHeight,
+		arg.LastBlockHeight,
+		arg.LastID,
+		arg.MaxResults,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetChannelsByPolicyBlockRangeRow
+	for rows.Next() {
+		var i GetChannelsByPolicyBlockRangeRow
+		if err := rows.Scan(
+			&i.GraphChannel.ID,
+			&i.GraphChannel.Version,
+			&i.GraphChannel.Scid,
+			&i.GraphChannel.NodeID1,
+			&i.GraphChannel.NodeID2,
+			&i.GraphChannel.Outpoint,
+			&i.GraphChannel.Capacity,
+			&i.GraphChannel.BitcoinKey1,
+			&i.GraphChannel.BitcoinKey2,
+			&i.GraphChannel.Node1Signature,
+			&i.GraphChannel.Node2Signature,
+			&i.GraphChannel.Bitcoin1Signature,
+			&i.GraphChannel.Bitcoin2Signature,
+			&i.GraphChannel.Signature,
+			&i.GraphChannel.FundingPkScript,
+			&i.GraphChannel.MerkleRootHash,
+			&i.GraphNode.ID,
+			&i.GraphNode.Version,
+			&i.GraphNode.PubKey,
+			&i.GraphNode.Alias,
+			&i.GraphNode.LastUpdate,
+			&i.GraphNode.Color,
+			&i.GraphNode.Signature,
+			&i.GraphNode.BlockHeight,
+			&i.GraphNode_2.ID,
+			&i.GraphNode_2.Version,
+			&i.GraphNode_2.PubKey,
+			&i.GraphNode_2.Alias,
+			&i.GraphNode_2.LastUpdate,
+			&i.GraphNode_2.Color,
+			&i.GraphNode_2.Signature,
+			&i.GraphNode_2.BlockHeight,
+			&i.Policy1ID,
+			&i.Policy1NodeID,
+			&i.Policy1Version,
+			&i.Policy1Timelock,
+			&i.Policy1FeePpm,
+			&i.Policy1BaseFeeMsat,
+			&i.Policy1MinHtlcMsat,
+			&i.Policy1MaxHtlcMsat,
+			&i.Policy1LastUpdate,
+			&i.Policy1Disabled,
+			&i.Policy1InboundBaseFeeMsat,
+			&i.Policy1InboundFeeRateMilliMsat,
+			&i.Policy1MessageFlags,
+			&i.Policy1ChannelFlags,
+			&i.Policy1Signature,
+			&i.Policy1BlockHeight,
+			&i.Policy1DisableFlags,
+			&i.Policy2ID,
+			&i.Policy2NodeID,
+			&i.Policy2Version,
+			&i.Policy2Timelock,
+			&i.Policy2FeePpm,
+			&i.Policy2BaseFeeMsat,
+			&i.Policy2MinHtlcMsat,
+			&i.Policy2MaxHtlcMsat,
+			&i.Policy2LastUpdate,
+			&i.Policy2Disabled,
+			&i.Policy2InboundBaseFeeMsat,
+			&i.Policy2InboundFeeRateMilliMsat,
+			&i.Policy2MessageFlags,
+			&i.Policy2ChannelFlags,
+			&i.Policy2Signature,
+			&i.Policy2BlockHeight,
+			&i.Policy2DisableFlags,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getChannelsByPolicyLastUpdateRange = `-- name: GetChannelsByPolicyLastUpdateRange :many
 SELECT
     c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature, c.signature, c.funding_pk_script, c.merkle_root_hash,
@@ -2070,6 +2299,92 @@ func (q *Queries) GetNodeIDByPubKey(ctx context.Context, arg GetNodeIDByPubKeyPa
 	return id, err
 }
 
+const getNodesByBlockHeightRange = `-- name: GetNodesByBlockHeightRange :many
+SELECT id, version, pub_key, alias, last_update, color, signature, block_height
+FROM graph_nodes
+WHERE graph_nodes.version = $1
+  AND block_height >= $2
+  AND block_height <= $3
+  -- Pagination: We use (block_height, pub_key) as a compound cursor.
+  -- This ensures stable ordering and allows us to resume from where we left off.
+  -- We use COALESCE with -1 as sentinel since heights are always positive.
+  AND (
+    -- Include rows with block_height greater than cursor (or all rows if cursor is -1)
+    block_height > COALESCE($4, -1)
+    OR
+    -- For rows with same block_height, use pub_key as tiebreaker
+    (block_height = COALESCE($4, -1)
+     AND pub_key > $5)
+  )
+  -- Optional filter for public nodes only
+  AND (
+    -- If only_public is false or not provided, include all nodes
+    COALESCE($6, FALSE) IS FALSE
+    OR
+    -- For V2 protocol, a node is public if it has at least one public channel.
+    -- A public channel has signature set (channel announcement received).
+    EXISTS (
+      SELECT 1
+      FROM graph_channels c
+      WHERE c.version = 2
+        AND COALESCE(length(c.signature), 0) > 0
+        AND (c.node_id_1 = graph_nodes.id OR c.node_id_2 = graph_nodes.id)
+    )
+  )
+ORDER BY block_height ASC, pub_key ASC
+LIMIT COALESCE($7, 999999999)
+`
+
+type GetNodesByBlockHeightRangeParams struct {
+	Version         int16
+	StartHeight     sql.NullInt64
+	EndHeight       sql.NullInt64
+	LastBlockHeight sql.NullInt64
+	LastPubKey      []byte
+	OnlyPublic      interface{}
+	MaxResults      interface{}
+}
+
+func (q *Queries) GetNodesByBlockHeightRange(ctx context.Context, arg GetNodesByBlockHeightRangeParams) ([]GraphNode, error) {
+	rows, err := q.db.QueryContext(ctx, getNodesByBlockHeightRange,
+		arg.Version,
+		arg.StartHeight,
+		arg.EndHeight,
+		arg.LastBlockHeight,
+		arg.LastPubKey,
+		arg.OnlyPublic,
+		arg.MaxResults,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GraphNode
+	for rows.Next() {
+		var i GraphNode
+		if err := rows.Scan(
+			&i.ID,
+			&i.Version,
+			&i.PubKey,
+			&i.Alias,
+			&i.LastUpdate,
+			&i.Color,
+			&i.Signature,
+			&i.BlockHeight,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getNodesByIDs = `-- name: GetNodesByIDs :many
 SELECT id, version, pub_key, alias, last_update, color, signature, block_height
 FROM graph_nodes
@@ -2121,23 +2436,24 @@ func (q *Queries) GetNodesByIDs(ctx context.Context, ids []int64) ([]GraphNode, 
 const getNodesByLastUpdateRange = `-- name: GetNodesByLastUpdateRange :many
 SELECT id, version, pub_key, alias, last_update, color, signature, block_height
 FROM graph_nodes
-WHERE last_update >= $1
-  AND last_update <= $2
+WHERE graph_nodes.version = $1
+  AND last_update >= $2
+  AND last_update <= $3
   -- Pagination: We use (last_update, pub_key) as a compound cursor.
   -- This ensures stable ordering and allows us to resume from where we left off.
   -- We use COALESCE with -1 as sentinel since timestamps are always positive.
   AND (
     -- Include rows with last_update greater than cursor (or all rows if cursor is -1)
-    last_update > COALESCE($3, -1)
+    last_update > COALESCE($4, -1)
     OR 
     -- For rows with same last_update, use pub_key as tiebreaker
-    (last_update = COALESCE($3, -1) 
-     AND pub_key > $4)
+    (last_update = COALESCE($4, -1) 
+     AND pub_key > $5)
   )
   -- Optional filter for public nodes only
   AND (
     -- If only_public is false or not provided, include all nodes
-    COALESCE($5, FALSE) IS FALSE
+    COALESCE($6, FALSE) IS FALSE
     OR 
     -- For V1 protocol, a node is public if it has at least one public channel.
     -- A public channel has bitcoin_1_signature set (channel announcement received).
@@ -2150,10 +2466,11 @@ WHERE last_update >= $1
     )
   )
 ORDER BY last_update ASC, pub_key ASC
-LIMIT COALESCE($6, 999999999)
+LIMIT COALESCE($7, 999999999)
 `
 
 type GetNodesByLastUpdateRangeParams struct {
+	Version    int16
 	StartTime  sql.NullInt64
 	EndTime    sql.NullInt64
 	LastUpdate sql.NullInt64
@@ -2164,6 +2481,7 @@ type GetNodesByLastUpdateRangeParams struct {
 
 func (q *Queries) GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByLastUpdateRangeParams) ([]GraphNode, error) {
 	rows, err := q.db.QueryContext(ctx, getNodesByLastUpdateRange,
+		arg.Version,
 		arg.StartTime,
 		arg.EndTime,
 		arg.LastUpdate,
@@ -2271,9 +2589,11 @@ func (q *Queries) GetPruneTip(ctx context.Context) (GraphPruneLog, error) {
 const getPublicV1ChannelsBySCID = `-- name: GetPublicV1ChannelsBySCID :many
 SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature, signature, funding_pk_script, merkle_root_hash
 FROM graph_channels
-WHERE COALESCE(length(node_1_signature), 0) > 0
+WHERE version = 1
+  AND COALESCE(length(node_1_signature), 0) > 0
   AND scid >= $1
   AND scid < $2
+ORDER BY scid ASC
 `
 
 type GetPublicV1ChannelsBySCIDParams struct {
@@ -2283,6 +2603,61 @@ type GetPublicV1ChannelsBySCIDParams struct {
 
 func (q *Queries) GetPublicV1ChannelsBySCID(ctx context.Context, arg GetPublicV1ChannelsBySCIDParams) ([]GraphChannel, error) {
 	rows, err := q.db.QueryContext(ctx, getPublicV1ChannelsBySCID, arg.StartScid, arg.EndScid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GraphChannel
+	for rows.Next() {
+		var i GraphChannel
+		if err := rows.Scan(
+			&i.ID,
+			&i.Version,
+			&i.Scid,
+			&i.NodeID1,
+			&i.NodeID2,
+			&i.Outpoint,
+			&i.Capacity,
+			&i.BitcoinKey1,
+			&i.BitcoinKey2,
+			&i.Node1Signature,
+			&i.Node2Signature,
+			&i.Bitcoin1Signature,
+			&i.Bitcoin2Signature,
+			&i.Signature,
+			&i.FundingPkScript,
+			&i.MerkleRootHash,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPublicV2ChannelsBySCID = `-- name: GetPublicV2ChannelsBySCID :many
+SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature, signature, funding_pk_script, merkle_root_hash
+FROM graph_channels
+WHERE version = 2
+  AND COALESCE(length(signature), 0) > 0
+  AND scid >= $1
+  AND scid < $2
+ORDER BY scid ASC
+`
+
+type GetPublicV2ChannelsBySCIDParams struct {
+	StartScid []byte
+	EndScid   []byte
+}
+
+func (q *Queries) GetPublicV2ChannelsBySCID(ctx context.Context, arg GetPublicV2ChannelsBySCIDParams) ([]GraphChannel, error) {
+	rows, err := q.db.QueryContext(ctx, getPublicV2ChannelsBySCID, arg.StartScid, arg.EndScid)
 	if err != nil {
 		return nil, err
 	}
@@ -3310,6 +3685,48 @@ func (q *Queries) ListChannelsPaginated(ctx context.Context, arg ListChannelsPag
 			&i.BitcoinKey2,
 			&i.Outpoint,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChannelsPaginatedV2 = `-- name: ListChannelsPaginatedV2 :many
+SELECT id, outpoint, funding_pk_script
+FROM graph_channels c
+WHERE c.version = 2 AND c.id > $1
+ORDER BY c.id
+LIMIT $2
+`
+
+type ListChannelsPaginatedV2Params struct {
+	ID    int64
+	Limit int32
+}
+
+type ListChannelsPaginatedV2Row struct {
+	ID              int64
+	Outpoint        string
+	FundingPkScript []byte
+}
+
+func (q *Queries) ListChannelsPaginatedV2(ctx context.Context, arg ListChannelsPaginatedV2Params) ([]ListChannelsPaginatedV2Row, error) {
+	rows, err := q.db.QueryContext(ctx, listChannelsPaginatedV2, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListChannelsPaginatedV2Row
+	for rows.Next() {
+		var i ListChannelsPaginatedV2Row
+		if err := rows.Scan(&i.ID, &i.Outpoint, &i.FundingPkScript); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -228,21 +228,83 @@ func (n *Node) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement1,
 	return nodeAnn, nil
 }
 
-// NodeFromWireAnnouncement creates a Node instance from an
-// lnwire.NodeAnnouncement1 message.
-func NodeFromWireAnnouncement(msg *lnwire.NodeAnnouncement1) *Node {
-	timestamp := time.Unix(int64(msg.Timestamp), 0)
+// NodeFromWireAnnouncement creates a Node instance from a node announcement
+// wire message.
+func NodeFromWireAnnouncement(msg lnwire.NodeAnnouncement) (*Node, error) {
+	switch msg := msg.(type) {
+	case *lnwire.NodeAnnouncement1:
+		timestamp := time.Unix(int64(msg.Timestamp), 0)
+		sigBytes := msg.Signature.ToSignatureBytes()
 
-	return NewV1Node(
-		msg.NodeID,
-		&NodeV1Fields{
-			LastUpdate:      timestamp,
-			Addresses:       msg.Addresses,
-			Alias:           msg.Alias.String(),
-			AuthSigBytes:    msg.Signature.ToSignatureBytes(),
-			Features:        msg.Features,
-			Color:           msg.RGBColor,
-			ExtraOpaqueData: msg.ExtraOpaqueData,
-		},
-	)
+		return NewV1Node(
+			msg.NodeID,
+			&NodeV1Fields{
+				LastUpdate:      timestamp,
+				Addresses:       msg.Addresses,
+				Alias:           msg.Alias.String(),
+				AuthSigBytes:    sigBytes,
+				Features:        msg.Features,
+				Color:           msg.RGBColor,
+				ExtraOpaqueData: msg.ExtraOpaqueData,
+			},
+		), nil
+
+	case *lnwire.NodeAnnouncement2:
+		var addrs []net.Addr
+		msg.IPV4Addrs.ValOpt().WhenSome(
+			func(ipv4Addrs lnwire.IPV4Addrs) {
+				for _, addr := range ipv4Addrs {
+					addrs = append(addrs, addr)
+				}
+			},
+		)
+		msg.IPV6Addrs.ValOpt().WhenSome(
+			func(ipv6Addrs lnwire.IPV6Addrs) {
+				for _, addr := range ipv6Addrs {
+					addrs = append(addrs, addr)
+				}
+			},
+		)
+		msg.TorV3Addrs.ValOpt().WhenSome(
+			func(torAddrs lnwire.TorV3Addrs) {
+				for _, addr := range torAddrs {
+					addrs = append(addrs, addr)
+				}
+			},
+		)
+		msg.DNSHostName.ValOpt().WhenSome(
+			func(dnsAddr lnwire.DNSAddress) {
+				dns := dnsAddr
+				addrs = append(addrs, &dns)
+			},
+		)
+
+		nodeColor := fn.MapOption(
+			func(c lnwire.Color) color.RGBA {
+				return color.RGBA(c)
+			},
+		)(msg.Color.ValOpt())
+
+		nodeAlias := fn.MapOption(
+			func(a lnwire.NodeAlias2) string {
+				return string(a)
+			},
+		)(msg.Alias.ValOpt())
+
+		sig := msg.Signature.Val.ToSignatureBytes()
+
+		return NewV2Node(
+			msg.NodeID.Val, &NodeV2Fields{
+				LastBlockHeight:   msg.BlockHeight.Val,
+				Addresses:         addrs,
+				Color:             nodeColor,
+				Alias:             nodeAlias,
+				Signature:         sig,
+				Features:          &msg.Features.Val,
+				ExtraSignedFields: msg.ExtraSignedFields,
+			},
+		), nil
+	}
+
+	return nil, fmt.Errorf("unsupported node announcement: %T", msg)
 }

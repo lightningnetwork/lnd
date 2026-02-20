@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -113,6 +114,7 @@ type Builder struct {
 
 	cfg     *Config
 	v1Graph *graphdb.VersionedGraph
+	v2Graph *graphdb.VersionedGraph
 
 	// newBlocks is a channel in which new blocks connected to the end of
 	// the main chain are sent over, and blocks updated after a call to
@@ -148,9 +150,11 @@ var _ ChannelGraphSource = (*Builder)(nil)
 func NewBuilder(cfg *Config) (*Builder, error) {
 	return &Builder{
 		cfg: cfg,
-		// For now, we'll just use V1 graph reader.
 		v1Graph: graphdb.NewVersionedGraph(
 			cfg.Graph, lnwire.GossipVersion1,
+		),
+		v2Graph: graphdb.NewVersionedGraph(
+			cfg.Graph, lnwire.GossipVersion2,
 		),
 		channelEdgeMtx: multimutex.NewMutex[uint64](),
 		statTicker:     ticker.New(defaultStatInterval),
@@ -230,7 +234,9 @@ func (b *Builder) Start() error {
 		// FilteredChainView instance.  We do this before, as otherwise
 		// we may miss on-chain events as the filter hasn't properly
 		// been applied.
-		channelView, err := b.cfg.Graph.ChannelView()
+		channelView, err := b.cfg.Graph.ChannelView(
+			lnwire.GossipVersion1,
+		)
 		if err != nil && !errors.Is(
 			err, graphdb.ErrGraphNoEdgesFound,
 		) {
@@ -600,7 +606,10 @@ func (b *Builder) pruneZombieChans() error {
 
 	startTime := time.Unix(0, 0)
 	endTime := time.Now().Add(-1 * chanExpiry)
-	oldEdgesIter := b.cfg.Graph.ChanUpdatesInHorizon(startTime, endTime)
+	oldEdgesIter := b.v1Graph.ChanUpdatesInRange(graphdb.ChanUpdateRange{
+		StartTime: fn.Some(startTime),
+		EndTime:   fn.Some(endTime),
+	})
 
 	for u, err := range oldEdgesIter {
 		if err != nil {
@@ -868,37 +877,112 @@ func (b *Builder) updateGraphWithClosedChannels(
 	return nil
 }
 
+// nodeTimestampFromNode extracts the node announcement update-ordering value
+// from a database model node.
+func nodeTimestampFromNode(node *models.Node) (lnwire.Timestamp, error) {
+	switch node.Version {
+	case lnwire.GossipVersion1:
+		if node.LastUpdate.IsZero() {
+			return lnwire.UnixTimestamp(0), nil
+		}
+
+		return lnwire.UnixTimestamp(node.LastUpdate.Unix()), nil
+
+	case lnwire.GossipVersion2:
+		return lnwire.BlockHeightTimestamp(node.LastBlockHeight), nil
+
+	default:
+		return nil, fmt.Errorf("unknown gossip version: "+
+			"%v", node.Version)
+	}
+}
+
+// hasV2Node determines if the graph has a V2 node identified by the target
+// node identity public key. If the node exists in the database, the last seen
+// block height is returned along with a true boolean.
+func (b *Builder) hasV2Node(ctx context.Context,
+	nodePub route.Vertex) (lnwire.BlockHeightTimestamp, bool, error) {
+
+	dbNode, err := b.v2Graph.FetchNode(ctx, nodePub)
+	if errors.Is(err, graphdb.ErrGraphNodeNotFound) {
+		return lnwire.BlockHeightTimestamp(0), false, nil
+	}
+	if err != nil {
+		return lnwire.BlockHeightTimestamp(0), false,
+			fmt.Errorf("unable to fetch v2 node: %w", err)
+	}
+
+	return lnwire.BlockHeightTimestamp(dbNode.LastBlockHeight), true, nil
+}
+
+// fetchNodeTimestamp fetches the last-known update-ordering value for the
+// given node/version pair.
+func (b *Builder) fetchNodeTimestamp(ctx context.Context,
+	v lnwire.GossipVersion, nodePub route.Vertex) (lnwire.Timestamp, bool,
+	error) {
+
+	switch v {
+	case lnwire.GossipVersion1:
+		lastUpdate, exists, err := b.cfg.Graph.HasV1Node(ctx, nodePub)
+		if err != nil {
+			return nil, false, err
+		}
+
+		if lastUpdate.IsZero() {
+			return lnwire.UnixTimestamp(0), exists, nil
+		}
+
+		return lnwire.UnixTimestamp(lastUpdate.Unix()), exists, nil
+
+	case lnwire.GossipVersion2:
+		timestamp, exists, err := b.hasV2Node(ctx, nodePub)
+		if err != nil {
+			return nil, false, err
+		}
+
+		return timestamp, exists, nil
+
+	default:
+		return nil, false, fmt.Errorf("unknown gossip version: %v", v)
+	}
+}
+
 // assertNodeAnnFreshness returns a non-nil error if we have an announcement in
-// the database for the passed node with a timestamp newer than the passed
-// timestamp. ErrIgnored will be returned if we already have the node, and
-// ErrOutdated will be returned if we have a timestamp that's after the new
-// timestamp.
-func (b *Builder) assertNodeAnnFreshness(ctx context.Context, node route.Vertex,
-	msgTimestamp time.Time) error {
+// the database for the passed node/version with an update timestamp that is
+// greater than or equal to the candidate update timestamp. ErrIgnored will be
+// returned if we don't know the node, and ErrOutdated will be returned if the
+// existing announcement is at least as fresh.
+func (b *Builder) assertNodeAnnFreshness(ctx context.Context,
+	v lnwire.GossipVersion, nodePub route.Vertex,
+	updateTimestamp lnwire.Timestamp) error {
 
 	// If we are not already aware of this node, it means that we don't
 	// know about any channel using this node. To avoid a DoS attack by
-	// node announcements, we will ignore such nodes. If we do know about
-	// this node, check that this update brings info newer than what we
-	// already have.
-	lastUpdate, exists, err := b.cfg.Graph.HasV1Node(ctx, node)
+	// node announcements, we will ignore such nodes.
+	existingTimestamp, exists, err := b.fetchNodeTimestamp(
+		ctx, v, nodePub,
+	)
 	if err != nil {
-		return fmt.Errorf("unable to query for the "+
-			"existence of node: %w", err)
+		return fmt.Errorf("unable to query for the existence of "+
+			"node: %w", err)
 	}
 	if !exists {
-		return NewErrf(ErrIgnored, "Ignoring node announcement"+
-			" for node not found in channel graph (%x)",
-			node[:])
+		return NewErrf(ErrIgnored, "Ignoring node announcement for "+
+			"node not found in channel graph (%x)", nodePub[:])
 	}
 
 	// If we've reached this point then we're aware of the vertex being
-	// advertised. So we now check if the new message has a new time stamp,
-	// if not then we won't accept the new data as it would override newer
-	// data.
-	if !lastUpdate.Before(msgTimestamp) {
-		return NewErrf(ErrOutdated, "Ignoring outdated "+
-			"announcement for %x", node[:])
+	// advertised. So we now check if the new message has a newer update
+	// ordering value, if not then we won't accept the new data as it would
+	// override newer data.
+	cmp, err := existingTimestamp.Cmp(updateTimestamp)
+	if err != nil {
+		return fmt.Errorf("unable to compare node announcement "+
+			"timestamps: %w", err)
+	}
+	if cmp != lnwire.LessThan {
+		return NewErrf(ErrOutdated, "Ignoring outdated announcement "+
+			"for %x", nodePub[:])
 	}
 
 	return nil
@@ -906,12 +990,12 @@ func (b *Builder) assertNodeAnnFreshness(ctx context.Context, node route.Vertex,
 
 // MarkZombieEdge adds a channel that failed complete validation into the zombie
 // index so we can avoid having to re-validate it in the future.
-func (b *Builder) MarkZombieEdge(chanID uint64) error {
+func (b *Builder) MarkZombieEdge(v lnwire.GossipVersion, chanID uint64) error {
 	// If the edge fails validation we'll mark the edge itself as a zombie
 	// so we don't continue to request it. We use the "zero key" for both
 	// node pubkeys so this edge can't be resurrected.
 	var zeroKey [33]byte
-	err := b.cfg.Graph.MarkEdgeZombie(chanID, zeroKey, zeroKey)
+	err := b.cfg.Graph.MarkEdgeZombie(v, chanID, zeroKey, zeroKey)
 	if err != nil {
 		return fmt.Errorf("unable to mark spent chan(id=%v) as a "+
 			"zombie: %w", chanID, err)
@@ -925,7 +1009,9 @@ func (b *Builder) MarkZombieEdge(chanID uint64) error {
 func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 	ctx := context.TODO()
 
-	ch, _, _, err := b.GetChannelByID(msg.ShortChannelID)
+	ch, _, _, err := b.GetChannelByID(
+		lnwire.GossipVersion1, msg.ShortChannelID,
+	)
 	if err != nil {
 		log.Errorf("Unable to retrieve channel by id: %v", err)
 		return false
@@ -996,10 +1082,17 @@ func (b *Builder) AddNode(ctx context.Context, node *models.Node,
 func (b *Builder) addNode(ctx context.Context, node *models.Node,
 	op ...batch.SchedulerOption) error {
 
+	updateTimestamp, err := nodeTimestampFromNode(node)
+	if err != nil {
+		return err
+	}
+
 	// Before we add the node to the database, we'll check to see if the
 	// announcement is "fresh" or not. If it isn't, then we'll return an
 	// error.
-	err := b.assertNodeAnnFreshness(ctx, node.PubKeyBytes, node.LastUpdate)
+	err = b.assertNodeAnnFreshness(
+		ctx, node.Version, node.PubKeyBytes, updateTimestamp,
+	)
 	if err != nil {
 		return err
 	}
@@ -1146,63 +1239,125 @@ func (b *Builder) updateEdge(ctx context.Context,
 	b.channelEdgeMtx.Lock(policy.ChannelID)
 	defer b.channelEdgeMtx.Unlock(policy.ChannelID)
 
-	edge1Timestamp, edge2Timestamp, exists, isZombie, err :=
-		b.cfg.Graph.HasV1ChannelEdge(policy.ChannelID)
-	if err != nil && !errors.Is(err, graphdb.ErrGraphNoEdgesFound) {
-		return fmt.Errorf("unable to check for edge existence: %w", err)
-	}
+	var err error
 
-	// If the channel is marked as a zombie in our database, and
-	// we consider this a stale update, then we should not apply the
-	// policy.
-	isStaleUpdate := time.Since(policy.LastUpdate) >
-		b.cfg.ChannelPruneExpiry
+	switch policy.Version {
+	case lnwire.GossipVersion1:
+		edge1Timestamp, edge2Timestamp, exists, isZombie, err :=
+			b.cfg.Graph.HasV1ChannelEdge(policy.ChannelID)
+		if err != nil &&
+			!errors.Is(err, graphdb.ErrGraphNoEdgesFound) {
 
-	if isZombie && isStaleUpdate {
-		return NewErrf(ErrIgnored, "ignoring stale update "+
-			"(flags=%v|%v) for zombie chan_id=%v",
-			policy.MessageFlags, policy.ChannelFlags,
-			policy.ChannelID)
-	}
-
-	// If the channel doesn't exist in our database, we cannot apply the
-	// updated policy.
-	if !exists {
-		return NewErrf(ErrIgnored, "ignoring update (flags=%v|%v) for "+
-			"unknown chan_id=%v", policy.MessageFlags,
-			policy.ChannelFlags, policy.ChannelID)
-	}
-
-	log.Debugf("Found edge1Timestamp=%v, edge2Timestamp=%v",
-		edge1Timestamp, edge2Timestamp)
-
-	// As edges are directional edge node has a unique policy for the
-	// direction of the edge they control. Therefore, we first check if we
-	// already have the most up-to-date information for that edge. If this
-	// message has a timestamp not strictly newer than what we already know
-	// of we can exit early.
-	switch policy.ChannelFlags & lnwire.ChanUpdateDirection {
-	// A flag set of 0 indicates this is an announcement for the "first"
-	// node in the channel.
-	case 0:
-		// Ignore outdated message.
-		if !edge1Timestamp.Before(policy.LastUpdate) {
-			return NewErrf(ErrOutdated, "Ignoring "+
-				"outdated update (flags=%v|%v) for "+
-				"known chan_id=%v", policy.MessageFlags,
-				policy.ChannelFlags, policy.ChannelID)
+			return fmt.Errorf("unable to check for "+
+				"edge existence: %w", err)
 		}
 
-	// Similarly, a flag set of 1 indicates this is an announcement
-	// for the "second" node in the channel.
-	case 1:
-		// Ignore outdated message.
-		if !edge2Timestamp.Before(policy.LastUpdate) {
-			return NewErrf(ErrOutdated, "Ignoring "+
-				"outdated update (flags=%v|%v) for "+
-				"known chan_id=%v", policy.MessageFlags,
-				policy.ChannelFlags, policy.ChannelID)
+		// If the channel is marked as a zombie in our
+		// database, and we consider this a stale update,
+		// then we should not apply the policy.
+		isStaleUpdate := time.Since(policy.LastUpdate) >
+			b.cfg.ChannelPruneExpiry
+		if isZombie && isStaleUpdate {
+			return NewErrf(ErrIgnored, "ignoring stale update "+
+				"(flags=%v|%v) for zombie chan_id=%v",
+				policy.MessageFlags, policy.ChannelFlags,
+				policy.ChannelID)
 		}
+
+		// If the channel doesn't exist in our database, we cannot
+		// apply the updated policy.
+		if !exists {
+			return NewErrf(ErrIgnored, "ignoring update "+
+				"(flags=%v|%v) for unknown chan_id=%v",
+				policy.MessageFlags, policy.ChannelFlags,
+				policy.ChannelID)
+		}
+
+		log.Debugf("Found edge1Timestamp=%v, edge2Timestamp=%v",
+			edge1Timestamp, edge2Timestamp)
+
+		// As edges are directional edge node has a unique policy for
+		// the direction of the edge they control. Therefore, we first
+		// check if we already have the most up-to-date information for
+		// that edge.
+		switch policy.ChannelFlags & lnwire.ChanUpdateDirection {
+		case 0:
+			if !edge1Timestamp.Before(policy.LastUpdate) {
+				return NewErrf(ErrOutdated, "Ignoring "+
+					"outdated update (flags=%v|%v) "+
+					"for known chan_id=%v",
+					policy.MessageFlags,
+					policy.ChannelFlags,
+					policy.ChannelID)
+			}
+
+		case 1:
+			if !edge2Timestamp.Before(policy.LastUpdate) {
+				return NewErrf(ErrOutdated, "Ignoring "+
+					"outdated update (flags=%v|%v) "+
+					"for known chan_id=%v",
+					policy.MessageFlags,
+					policy.ChannelFlags,
+					policy.ChannelID)
+			}
+		}
+
+	case lnwire.GossipVersion2:
+		exists, isZombie, err := b.cfg.Graph.HasChannelEdge(
+			policy.Version, policy.ChannelID,
+		)
+		if err != nil &&
+			!errors.Is(err, graphdb.ErrGraphNoEdgesFound) {
+
+			return fmt.Errorf("unable to check for "+
+				"edge existence: %w", err)
+		}
+		if !exists {
+			return NewErrf(ErrIgnored,
+				"ignoring update for "+
+					"unknown chan_id=%v",
+				policy.ChannelID)
+		}
+
+		// For v2, updates are ordered by block height,
+		// not by wall clock timestamp.
+		_, edge1, edge2, err := b.cfg.Graph.FetchChannelEdgesByID(
+			policy.Version, policy.ChannelID,
+		)
+		if err != nil &&
+			!errors.Is(err, graphdb.ErrEdgeNotFound) {
+
+			return fmt.Errorf("unable to fetch "+
+				"edge: %w", err)
+		}
+
+		var existingHeight uint32
+		if policy.IsNode1() && edge1 != nil {
+			existingHeight = edge1.LastBlockHeight
+		}
+		if !policy.IsNode1() && edge2 != nil {
+			existingHeight = edge2.LastBlockHeight
+		}
+
+		if existingHeight >= policy.LastBlockHeight {
+			return NewErrf(ErrOutdated,
+				"ignoring outdated v2 update "+
+					"for known chan_id=%v",
+				policy.ChannelID)
+		}
+
+		// We currently don't map prune-expiry time
+		// windows onto v2 block-height semantics in
+		// builder. As a conservative behavior, allow
+		// potentially-fresh v2 updates to try reviving
+		// zombie edges.
+		if isZombie {
+			log.Debugf("Applying v2 update for zombie chan_id=%v",
+				policy.ChannelID)
+		}
+
+	default:
+		return fmt.Errorf("unknown gossip version: %v", policy.Version)
 	}
 
 	// Now that we know this isn't a stale update, we'll apply the new edge
@@ -1250,12 +1405,13 @@ func (b *Builder) SyncedHeight() uint32 {
 // GetChannelByID return the channel by the channel id.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) GetChannelByID(chanID lnwire.ShortChannelID) (
+func (b *Builder) GetChannelByID(v lnwire.GossipVersion,
+	chanID lnwire.ShortChannelID) (
 	*models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
-	return b.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
+	return b.cfg.Graph.FetchChannelEdgesByID(v, chanID.ToUint64())
 }
 
 // FetchNode attempts to look up a target node by its identity public
@@ -1303,17 +1459,21 @@ func (b *Builder) AddProof(chanID lnwire.ShortChannelID,
 }
 
 // IsStaleNode returns true if the graph source has a node announcement for the
-// target node with a more recent timestamp.
+// target node/version that is at least as fresh as the passed announcement.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) IsStaleNode(ctx context.Context, node route.Vertex,
-	timestamp time.Time) bool {
+func (b *Builder) IsStaleNode(ctx context.Context,
+	v lnwire.GossipVersion, nodePub route.Vertex,
+	updateTimestamp lnwire.Timestamp) bool {
 
 	// If our attempt to assert that the node announcement is fresh fails,
 	// then we know that this is actually a stale announcement.
-	err := b.assertNodeAnnFreshness(ctx, node, timestamp)
+	err := b.assertNodeAnnFreshness(
+		ctx, v, nodePub, updateTimestamp,
+	)
 	if err != nil {
-		log.Debugf("Checking stale node %s got %v", node, err)
+		log.Debugf("Checking stale node %s on version=%v got %v",
+			nodePub, v, err)
 		return true
 	}
 
@@ -1324,18 +1484,20 @@ func (b *Builder) IsStaleNode(ctx context.Context, node route.Vertex,
 // the graph from the graph's source node's point of view.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) IsPublicNode(node route.Vertex) (bool, error) {
-	return b.v1Graph.IsPublicNode(node)
+func (b *Builder) IsPublicNode(v lnwire.GossipVersion,
+	node route.Vertex) (bool, error) {
+
+	return b.cfg.Graph.IsPublicNode(v, node)
 }
 
 // IsKnownEdge returns true if the graph source already knows of the passed
 // channel ID either as a live or zombie edge.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
-	exists, isZombie, _ := b.cfg.Graph.HasChannelEdge(
-		lnwire.GossipVersion1, chanID.ToUint64(),
-	)
+func (b *Builder) IsKnownEdge(v lnwire.GossipVersion,
+	chanID lnwire.ShortChannelID) bool {
+
+	exists, isZombie, _ := b.cfg.Graph.HasChannelEdge(v, chanID.ToUint64())
 
 	return exists || isZombie
 }
@@ -1344,66 +1506,69 @@ func (b *Builder) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
 // as a zombie edge.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) IsZombieEdge(chanID lnwire.ShortChannelID) (bool, error) {
-	_, isZombie, err := b.cfg.Graph.HasChannelEdge(
-		lnwire.GossipVersion1, chanID.ToUint64(),
-	)
+func (b *Builder) IsZombieEdge(v lnwire.GossipVersion,
+	chanID lnwire.ShortChannelID) (bool, error) {
+
+	_, isZombie, err := b.cfg.Graph.HasChannelEdge(v, chanID.ToUint64())
 
 	return isZombie, err
 }
 
 // IsStaleEdgePolicy returns true if the graph source has a channel edge for
-// the passed channel ID (and flags) that have a more recent timestamp.
+// the passed policy that has a more recent announcement.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
-	timestamp time.Time, flags lnwire.ChanUpdateChanFlags) bool {
-
-	edge1Timestamp, edge2Timestamp, exists, isZombie, err :=
-		b.cfg.Graph.HasV1ChannelEdge(chanID.ToUint64())
-	if err != nil {
-		log.Debugf("Check stale edge policy got error: %v", err)
-		return false
-	}
-
-	// If we know of the edge as a zombie, then we'll make some additional
-	// checks to determine if the new policy is fresh.
-	if isZombie {
-		// When running with AssumeChannelValid, we also prune channels
-		// if both of their edges are disabled. We'll mark the new
-		// policy as stale if it remains disabled.
-		if b.cfg.AssumeChannelValid {
-			isDisabled := flags&lnwire.ChanUpdateDisabled ==
-				lnwire.ChanUpdateDisabled
-			if isDisabled {
-				return true
-			}
+func (b *Builder) IsStaleEdgePolicy(policy *models.ChannelEdgePolicy) bool {
+	switch policy.Version {
+	case lnwire.GossipVersion1:
+		edge1Timestamp, edge2Timestamp, exists, isZombie, err :=
+			b.cfg.Graph.HasV1ChannelEdge(policy.ChannelID)
+		if err != nil {
+			log.Debugf("Check stale edge policy got error: %v", err)
+			return false
 		}
 
-		// Otherwise, we'll fall back to our usual ChannelPruneExpiry.
-		return time.Since(timestamp) > b.cfg.ChannelPruneExpiry
-	}
+		if isZombie {
+			if b.cfg.AssumeChannelValid && policy.IsDisabled() {
+				return true
+			}
 
-	// If we don't know of the edge, then it means it's fresh (thus not
-	// stale).
-	if !exists {
-		return false
-	}
+			return time.Since(policy.LastUpdate) >
+				b.cfg.ChannelPruneExpiry
+		}
 
-	// As edges are directional edge node has a unique policy for the
-	// direction of the edge they control. Therefore, we first check if we
-	// already have the most up-to-date information for that edge. If so,
-	// then we can exit early.
-	switch {
-	// A flag set of 0 indicates this is an announcement for the "first"
-	// node in the channel.
-	case flags&lnwire.ChanUpdateDirection == 0:
-		return !edge1Timestamp.Before(timestamp)
+		if !exists {
+			return false
+		}
 
-	// Similarly, a flag set of 1 indicates this is an announcement for the
-	// "second" node in the channel.
-	case flags&lnwire.ChanUpdateDirection == 1:
-		return !edge2Timestamp.Before(timestamp)
+		if policy.IsNode1() {
+			return !edge1Timestamp.Before(policy.LastUpdate)
+		}
+
+		return !edge2Timestamp.Before(policy.LastUpdate)
+
+	case lnwire.GossipVersion2:
+		_, p1, p2, err := b.cfg.Graph.FetchChannelEdgesByID(
+			policy.Version, policy.ChannelID,
+		)
+		if err != nil {
+			if errors.Is(err, graphdb.ErrEdgeNotFound) {
+				return false
+			}
+
+			log.Debugf("Check stale edge policy "+
+				"got error: %v", err)
+
+			return false
+		}
+
+		if policy.IsNode1() {
+			return p1 != nil &&
+				p1.LastBlockHeight >= policy.LastBlockHeight
+		}
+
+		return p2 != nil &&
+			p2.LastBlockHeight >= policy.LastBlockHeight
 	}
 
 	return false
@@ -1412,6 +1577,8 @@ func (b *Builder) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 // MarkEdgeLive clears an edge from our zombie index, deeming it as live.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) MarkEdgeLive(chanID lnwire.ShortChannelID) error {
-	return b.cfg.Graph.MarkEdgeLive(chanID.ToUint64())
+func (b *Builder) MarkEdgeLive(v lnwire.GossipVersion,
+	chanID lnwire.ShortChannelID) error {
+
+	return b.cfg.Graph.MarkEdgeLive(v, chanID.ToUint64())
 }

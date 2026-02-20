@@ -1,6 +1,13 @@
 package graphdb
 
-import "time"
+import (
+	"fmt"
+	"iter"
+	"time"
+
+	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lnwire"
+)
 
 const (
 	// DefaultRejectCacheSize is the default number of rejectCacheEntries to
@@ -37,6 +44,128 @@ type iterConfig struct {
 	// iterPublicNodes is used to make an iterator that only iterates over
 	// public nodes.
 	iterPublicNodes bool
+}
+
+// ChanUpdateRange describes a range for channel updates. Only one of the time
+// or height ranges should be set depending on the gossip version.
+type ChanUpdateRange struct {
+	StartTime   fn.Option[time.Time]
+	EndTime     fn.Option[time.Time]
+	StartHeight fn.Option[uint32]
+	EndHeight   fn.Option[uint32]
+}
+
+func (r ChanUpdateRange) validateForVersion(v lnwire.GossipVersion) error {
+	hasStartTime := r.StartTime.IsSome()
+	hasEndTime := r.EndTime.IsSome()
+	hasTimeRange := hasStartTime || hasEndTime
+
+	hasStartHeight := r.StartHeight.IsSome()
+	hasEndHeight := r.EndHeight.IsSome()
+	hasBlockRange := hasStartHeight || hasEndHeight
+
+	if hasTimeRange && hasBlockRange {
+		return fmt.Errorf("chan update range has both " +
+			"time and block ranges")
+	}
+
+	switch v {
+	case lnwire.GossipVersion1:
+		if hasBlockRange {
+			return fmt.Errorf("v1 chan update range must use time")
+		}
+		if !hasTimeRange {
+			return fmt.Errorf("v1 chan update range missing time")
+		}
+		if !hasStartTime || !hasEndTime {
+			return fmt.Errorf("v1 chan update range " +
+				"missing time bounds")
+		}
+
+	case lnwire.GossipVersion2:
+		if hasTimeRange {
+			return fmt.Errorf("v2 chan update range " +
+				"must use blocks")
+		}
+		if !hasBlockRange {
+			return fmt.Errorf("v2 chan update range " +
+				"missing block range")
+		}
+		if !hasStartHeight || !hasEndHeight {
+			return fmt.Errorf("v2 chan update range " +
+				"missing block bounds")
+		}
+
+	default:
+		return fmt.Errorf("unknown gossip version: %v", v)
+	}
+
+	return nil
+}
+
+// NodeUpdateRange describes a range for node updates. Only one of the time or
+// height ranges should be set depending on the gossip version.
+type NodeUpdateRange struct {
+	StartTime   fn.Option[time.Time]
+	EndTime     fn.Option[time.Time]
+	StartHeight fn.Option[uint32]
+	EndHeight   fn.Option[uint32]
+}
+
+func (r NodeUpdateRange) validateForVersion(v lnwire.GossipVersion) error {
+	hasStartTime := r.StartTime.IsSome()
+	hasEndTime := r.EndTime.IsSome()
+	hasTimeRange := hasStartTime || hasEndTime
+
+	hasStartHeight := r.StartHeight.IsSome()
+	hasEndHeight := r.EndHeight.IsSome()
+	hasBlockRange := hasStartHeight || hasEndHeight
+
+	if hasTimeRange && hasBlockRange {
+		return fmt.Errorf("node update range has both " +
+			"time and block ranges")
+	}
+
+	switch v {
+	case lnwire.GossipVersion1:
+		if hasBlockRange {
+			return fmt.Errorf("v1 node update range " +
+				"must use time")
+		}
+		if !hasTimeRange {
+			return fmt.Errorf("v1 node update range " +
+				"missing time")
+		}
+		if !hasStartTime || !hasEndTime {
+			return fmt.Errorf("v1 node update range " +
+				"missing time bounds")
+		}
+
+	case lnwire.GossipVersion2:
+		if hasTimeRange {
+			return fmt.Errorf("v2 node update range " +
+				"must use height")
+		}
+		if !hasBlockRange {
+			return fmt.Errorf("v2 node update range " +
+				"missing height")
+		}
+		if !hasStartHeight || !hasEndHeight {
+			return fmt.Errorf("v2 node update range " +
+				"missing height bounds")
+		}
+
+	default:
+		return fmt.Errorf("unknown gossip version: %d", v)
+	}
+
+	return nil
+}
+
+func chanUpdateRangeErrIter(err error) iter.Seq2[ChannelEdge, error] {
+	return func(yield func(ChannelEdge, error) bool) {
+		_ = yield(ChannelEdge{}, err)
+	}
 }
 
 // defaultIteratorConfig returns the default configuration.

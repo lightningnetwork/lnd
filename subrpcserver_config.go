@@ -265,7 +265,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 				reflect.ValueOf(defaultDelta),
 			)
 			subCfgValue.FieldByName("Graph").Set(
-				reflect.ValueOf(graphDB),
+				reflect.ValueOf(graphdb.NewVersionedGraph(
+					graphDB, lnwire.GossipVersion1,
+				)),
 			)
 			subCfgValue.FieldByName("ChanStateDB").Set(
 				reflect.ValueOf(chanStateDB),

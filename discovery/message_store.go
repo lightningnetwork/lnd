@@ -83,10 +83,10 @@ func NewMessageStore(db kvdb.Backend) (*MessageStore, error) {
 func msgShortChanID(msg lnwire.Message) (lnwire.ShortChannelID, error) {
 	var shortChanID lnwire.ShortChannelID
 	switch msg := msg.(type) {
-	case *lnwire.AnnounceSignatures1:
-		shortChanID = msg.ShortChannelID
-	case *lnwire.ChannelUpdate1:
-		shortChanID = msg.ShortChannelID
+	case lnwire.AnnounceSignatures:
+		shortChanID = msg.SCID()
+	case lnwire.ChannelUpdate:
+		shortChanID = msg.SCID()
 	default:
 		return shortChanID, ErrUnsupportedMessage
 	}
@@ -157,10 +157,10 @@ func (s *MessageStore) DeleteMessage(msg lnwire.Message,
 			return ErrCorruptedMessageStore
 		}
 
-		// In the event that we're attempting to delete a ChannelUpdate
-		// from the store, we'll make sure that we're actually deleting
-		// the correct one as it can be overwritten.
-		if msg, ok := msg.(*lnwire.ChannelUpdate1); ok {
+		// In the event that we're attempting to delete a channel
+		// update from the store, we'll make sure that we're deleting
+		// the exact update as newer updates can overwrite older ones.
+		if updMsg, ok := msg.(lnwire.ChannelUpdate); ok {
 			// Deleting a value from a bucket that doesn't exist
 			// acts as a NOP, so we'll return if a message doesn't
 			// exist under this key.
@@ -174,15 +174,22 @@ func (s *MessageStore) DeleteMessage(msg lnwire.Message,
 				return err
 			}
 
-			// If the timestamps don't match, then the update stored
-			// should be the latest one, so we'll avoid deleting it.
-			m, ok := dbMsg.(*lnwire.ChannelUpdate1)
+			storedUpdate, ok := dbMsg.(lnwire.ChannelUpdate)
 			if !ok {
 				return fmt.Errorf("expected "+
-					"*lnwire.ChannelUpdate1, got: %T",
+					"lnwire.ChannelUpdate, got: %T",
 					dbMsg)
 			}
-			if msg.Timestamp != m.Timestamp {
+
+			cmp, err := updMsg.CmpAge(storedUpdate)
+			if err != nil {
+				return err
+			}
+
+			// Don't delete if the stored update is newer or older.
+			// We only delete if we are targeting the exact same
+			// update.
+			if cmp != lnwire.EqualTo {
 				return nil
 			}
 		}

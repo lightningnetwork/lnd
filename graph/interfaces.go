@@ -2,7 +2,6 @@ package graph
 
 import (
 	"context"
-	"time"
 
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -40,29 +39,27 @@ type ChannelGraphSource interface {
 		op ...batch.SchedulerOption) error
 
 	// IsStaleNode returns true if the graph source has a node announcement
-	// for the target node with a more recent timestamp. This method will
-	// also return true if we don't have an active channel announcement for
-	// the target node.
-	IsStaleNode(ctx context.Context, node route.Vertex,
-		timestamp time.Time) bool
+	// for the target node/version that is at least as fresh as the passed
+	// announcement. This method will also return true if we don't have an
+	// active channel announcement for the target node/version.
+	IsStaleNode(ctx context.Context, v lnwire.GossipVersion,
+		nodePub route.Vertex, updateTimestamp lnwire.Timestamp) bool
 
 	// IsPublicNode determines whether the given vertex is seen as a public
 	// node in the graph from the graph's source node's point of view.
-	IsPublicNode(node route.Vertex) (bool, error)
+	IsPublicNode(v lnwire.GossipVersion, node route.Vertex) (bool, error)
 
 	// IsKnownEdge returns true if the graph source already knows of the
 	// passed channel ID either as a live or zombie edge.
-	IsKnownEdge(chanID lnwire.ShortChannelID) bool
+	IsKnownEdge(v lnwire.GossipVersion, chanID lnwire.ShortChannelID) bool
 
 	// IsStaleEdgePolicy returns true if the graph source has a channel
-	// edge for the passed channel ID (and flags) that have a more recent
-	// timestamp.
-	IsStaleEdgePolicy(chanID lnwire.ShortChannelID, timestamp time.Time,
-		flags lnwire.ChanUpdateChanFlags) bool
+	// edge for the passed policy that has a more recent announcement.
+	IsStaleEdgePolicy(policy *models.ChannelEdgePolicy) bool
 
 	// MarkEdgeLive clears an edge from our zombie index, deeming it as
 	// live.
-	MarkEdgeLive(chanID lnwire.ShortChannelID) error
+	MarkEdgeLive(v lnwire.GossipVersion, chanID lnwire.ShortChannelID) error
 
 	// ForAllOutgoingChannels is used to iterate over all channels
 	// emanating from the "source" node which is the center of the
@@ -76,7 +73,7 @@ type ChannelGraphSource interface {
 	CurrentBlockHeight() (uint32, error)
 
 	// GetChannelByID return the channel by the channel id.
-	GetChannelByID(chanID lnwire.ShortChannelID) (
+	GetChannelByID(v lnwire.GossipVersion, chanID lnwire.ShortChannelID) (
 		*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy, error)
 
@@ -86,9 +83,10 @@ type ChannelGraphSource interface {
 	FetchNode(context.Context, route.Vertex) (*models.Node, error)
 
 	// MarkZombieEdge marks the channel with the given ID as a zombie edge.
-	MarkZombieEdge(chanID uint64) error
+	MarkZombieEdge(v lnwire.GossipVersion, chanID uint64) error
 
 	// IsZombieEdge returns true if the edge with the given channel ID is
 	// currently marked as a zombie edge.
-	IsZombieEdge(chanID lnwire.ShortChannelID) (bool, error)
+	IsZombieEdge(v lnwire.GossipVersion,
+		chanID lnwire.ShortChannelID) (bool, error)
 }

@@ -227,7 +227,8 @@ ORDER BY node_id, type, position;
 -- name: GetNodesByLastUpdateRange :many
 SELECT *
 FROM graph_nodes
-WHERE last_update >= @start_time
+WHERE graph_nodes.version = @version
+  AND last_update >= @start_time
   AND last_update <= @end_time
   -- Pagination: We use (last_update, pub_key) as a compound cursor.
   -- This ensures stable ordering and allows us to resume from where we left off.
@@ -256,6 +257,41 @@ WHERE last_update >= @start_time
     )
   )
 ORDER BY last_update ASC, pub_key ASC
+LIMIT COALESCE(sqlc.narg('max_results'), 999999999);
+
+-- name: GetNodesByBlockHeightRange :many
+SELECT *
+FROM graph_nodes
+WHERE graph_nodes.version = @version
+  AND block_height >= @start_height
+  AND block_height <= @end_height
+  -- Pagination: We use (block_height, pub_key) as a compound cursor.
+  -- This ensures stable ordering and allows us to resume from where we left off.
+  -- We use COALESCE with -1 as sentinel since heights are always positive.
+  AND (
+    -- Include rows with block_height greater than cursor (or all rows if cursor is -1)
+    block_height > COALESCE(sqlc.narg('last_block_height'), -1)
+    OR
+    -- For rows with same block_height, use pub_key as tiebreaker
+    (block_height = COALESCE(sqlc.narg('last_block_height'), -1)
+     AND pub_key > sqlc.narg('last_pub_key'))
+  )
+  -- Optional filter for public nodes only
+  AND (
+    -- If only_public is false or not provided, include all nodes
+    COALESCE(sqlc.narg('only_public'), FALSE) IS FALSE
+    OR
+    -- For V2 protocol, a node is public if it has at least one public channel.
+    -- A public channel has signature set (channel announcement received).
+    EXISTS (
+      SELECT 1
+      FROM graph_channels c
+      WHERE c.version = 2
+        AND COALESCE(length(c.signature), 0) > 0
+        AND (c.node_id_1 = graph_nodes.id OR c.node_id_2 = graph_nodes.id)
+    )
+  )
+ORDER BY block_height ASC, pub_key ASC
 LIMIT COALESCE(sqlc.narg('max_results'), 999999999);
 
 -- name: DeleteNodeAddresses :exec
@@ -579,6 +615,88 @@ ORDER BY
     c.id ASC
 LIMIT COALESCE(sqlc.narg('max_results'), 999999999);
 
+-- name: GetChannelsByPolicyBlockRange :many
+SELECT
+    sqlc.embed(c),
+    sqlc.embed(n1),
+    sqlc.embed(n2),
+
+    -- Policy 1 (node_id_1)
+    cp1.id AS policy1_id,
+    cp1.node_id AS policy1_node_id,
+    cp1.version AS policy1_version,
+    cp1.timelock AS policy1_timelock,
+    cp1.fee_ppm AS policy1_fee_ppm,
+    cp1.base_fee_msat AS policy1_base_fee_msat,
+    cp1.min_htlc_msat AS policy1_min_htlc_msat,
+    cp1.max_htlc_msat AS policy1_max_htlc_msat,
+    cp1.last_update AS policy1_last_update,
+    cp1.disabled AS policy1_disabled,
+    cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
+    cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.message_flags AS policy1_message_flags,
+    cp1.channel_flags AS policy1_channel_flags,
+    cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
+
+    -- Policy 2 (node_id_2)
+    cp2.id AS policy2_id,
+    cp2.node_id AS policy2_node_id,
+    cp2.version AS policy2_version,
+    cp2.timelock AS policy2_timelock,
+    cp2.fee_ppm AS policy2_fee_ppm,
+    cp2.base_fee_msat AS policy2_base_fee_msat,
+    cp2.min_htlc_msat AS policy2_min_htlc_msat,
+    cp2.max_htlc_msat AS policy2_max_htlc_msat,
+    cp2.last_update AS policy2_last_update,
+    cp2.disabled AS policy2_disabled,
+    cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
+    cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.message_flags AS policy2_message_flags,
+    cp2.channel_flags AS policy2_channel_flags,
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
+
+FROM graph_channels c
+    JOIN graph_nodes n1 ON c.node_id_1 = n1.id
+    JOIN graph_nodes n2 ON c.node_id_2 = n2.id
+    LEFT JOIN graph_channel_policies cp1
+        ON cp1.channel_id = c.id AND cp1.node_id = c.node_id_1 AND cp1.version = c.version
+    LEFT JOIN graph_channel_policies cp2
+        ON cp2.channel_id = c.id AND cp2.node_id = c.node_id_2 AND cp2.version = c.version
+WHERE c.version = @version
+  AND (
+       (cp1.block_height >= @start_height AND cp1.block_height < @end_height)
+       OR
+       (cp2.block_height >= @start_height AND cp2.block_height < @end_height)
+  )
+  -- Pagination using compound cursor (max_block_height, id).
+  -- We use COALESCE with -1 as sentinel since heights are always positive.
+  AND (
+       (CASE
+           WHEN COALESCE(cp1.block_height, 0) >= COALESCE(cp2.block_height, 0)
+               THEN COALESCE(cp1.block_height, 0)
+           ELSE COALESCE(cp2.block_height, 0)
+       END > COALESCE(sqlc.narg('last_block_height'), -1))
+       OR
+       (CASE
+           WHEN COALESCE(cp1.block_height, 0) >= COALESCE(cp2.block_height, 0)
+               THEN COALESCE(cp1.block_height, 0)
+           ELSE COALESCE(cp2.block_height, 0)
+       END = COALESCE(sqlc.narg('last_block_height'), -1)
+       AND c.id > COALESCE(sqlc.narg('last_id'), -1))
+  )
+ORDER BY
+    CASE
+        WHEN COALESCE(cp1.block_height, 0) >= COALESCE(cp2.block_height, 0)
+            THEN COALESCE(cp1.block_height, 0)
+        ELSE COALESCE(cp2.block_height, 0)
+    END ASC,
+    c.id ASC
+LIMIT COALESCE(sqlc.narg('max_results'), 999999999);
+
 -- name: GetChannelByOutpointWithPolicies :one
 SELECT
     sqlc.embed(c),
@@ -755,9 +873,20 @@ WHERE c.version = $1
 -- name: GetPublicV1ChannelsBySCID :many
 SELECT *
 FROM graph_channels
-WHERE COALESCE(length(node_1_signature), 0) > 0
+WHERE version = 1
+  AND COALESCE(length(node_1_signature), 0) > 0
   AND scid >= @start_scid
-  AND scid < @end_scid;
+  AND scid < @end_scid
+ORDER BY scid ASC;
+
+-- name: GetPublicV2ChannelsBySCID :many
+SELECT *
+FROM graph_channels
+WHERE version = 2
+  AND COALESCE(length(signature), 0) > 0
+  AND scid >= @start_scid
+  AND scid < @end_scid
+ORDER BY scid ASC;
 
 -- name: ListChannelsPaginated :many
 SELECT id, bitcoin_key_1, bitcoin_key_2, outpoint
@@ -765,6 +894,13 @@ FROM graph_channels c
 WHERE c.version = $1 AND c.id > $2
 ORDER BY c.id
 LIMIT $3;
+
+-- name: ListChannelsPaginatedV2 :many
+SELECT id, outpoint, funding_pk_script
+FROM graph_channels c
+WHERE c.version = 2 AND c.id > $1
+ORDER BY c.id
+LIMIT $2;
 
 -- name: ListChannelsWithPoliciesPaginated :many
 SELECT

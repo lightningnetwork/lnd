@@ -1061,9 +1061,13 @@ func (g *GossipSyncer) processChanRangeReply(_ context.Context,
 
 	// Otherwise, this is the final response, so we'll now check to see
 	// which channels they know of that we don't.
+	isZombieChan := func(info graphdb.ChannelUpdateInfo) bool {
+		return g.cfg.isStillZombieChannel(
+			info.Node1UpdateTimestamp, info.Node2UpdateTimestamp,
+		)
+	}
 	newChans, err := g.cfg.channelSeries.FilterKnownChanIDs(
-		g.cfg.chainHash, g.bufferedChanRangeReplies,
-		g.cfg.isStillZombieChannel,
+		g.cfg.chainHash, g.bufferedChanRangeReplies, isZombieChan,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to filter chan ids: %w", err)
@@ -1611,13 +1615,19 @@ func (g *GossipSyncer) FilterGossipMsgs(ctx context.Context,
 		map[lnwire.ShortChannelID][]*lnwire.ChannelUpdate1,
 	)
 	for _, msg := range msgs {
-		chanUpdate, ok := msg.msg.(*lnwire.ChannelUpdate1)
+		chanUpdate, ok := msg.msg.(lnwire.ChannelUpdate)
 		if !ok {
 			continue
 		}
 
-		chanUpdateIndex[chanUpdate.ShortChannelID] = append(
-			chanUpdateIndex[chanUpdate.ShortChannelID], chanUpdate,
+		chanUpdate1, ok := chanUpdate.(*lnwire.ChannelUpdate1)
+		if !ok {
+			continue
+		}
+
+		scid := chanUpdate1.ShortChannelID
+		chanUpdateIndex[scid] = append(
+			chanUpdateIndex[scid], chanUpdate1,
 		)
 	}
 
@@ -1648,20 +1658,22 @@ func (g *GossipSyncer) FilterGossipMsgs(ctx context.Context,
 		// For each channel announcement message, we'll only send this
 		// message if the channel updates for the channel are between
 		// our time range.
-		case *lnwire.ChannelAnnouncement1:
+		case lnwire.ChannelAnnouncement:
+			scid := msg.SCID()
+
 			// First, we'll check if the channel updates are in
 			// this message batch.
-			chanUpdates, ok := chanUpdateIndex[msg.ShortChannelID]
+			chanUpdates, ok := chanUpdateIndex[scid]
 			if !ok {
 				// If not, we'll attempt to query the database
 				// to see if we know of the updates.
 				chanUpdates, err = g.cfg.channelSeries.FetchChanUpdates(
-					g.cfg.chainHash, msg.ShortChannelID,
+					g.cfg.chainHash, scid,
 				)
 				if err != nil {
 					log.Warnf("no channel updates found for "+
 						"short_chan_id=%v",
-						msg.ShortChannelID)
+						scid)
 					continue
 				}
 			}
@@ -1679,15 +1691,17 @@ func (g *GossipSyncer) FilterGossipMsgs(ctx context.Context,
 
 		// For each channel update, we'll only send if it the timestamp
 		// is between our time range.
-		case *lnwire.ChannelUpdate1:
-			if passesFilter(msg.Timestamp) {
+		case lnwire.ChannelUpdate:
+			msg1, ok := msg.(*lnwire.ChannelUpdate1)
+			if ok && passesFilter(msg1.Timestamp) {
 				msgsToSend = append(msgsToSend, msg)
 			}
 
 		// Similarly, we only send node announcements if the update
 		// timestamp ifs between our set gossip filter time range.
-		case *lnwire.NodeAnnouncement1:
-			if passesFilter(msg.Timestamp) {
+		case lnwire.NodeAnnouncement:
+			msg1, ok := msg.(*lnwire.NodeAnnouncement1)
+			if ok && passesFilter(msg1.Timestamp) {
 				msgsToSend = append(msgsToSend, msg)
 			}
 		}

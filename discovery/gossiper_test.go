@@ -120,14 +120,16 @@ func (r *mockGraphSource) AddNode(_ context.Context, node *models.Node,
 	return nil
 }
 
-func (r *mockGraphSource) MarkZombieEdge(scid uint64) error {
+func (r *mockGraphSource) MarkZombieEdge(_ lnwire.GossipVersion,
+	scid uint64) error {
+
 	return r.MarkEdgeZombie(
 		lnwire.NewShortChanIDFromInt(scid), [33]byte{}, [33]byte{},
 	)
 }
 
-func (r *mockGraphSource) IsZombieEdge(chanID lnwire.ShortChannelID) (bool,
-	error) {
+func (r *mockGraphSource) IsZombieEdge(_ lnwire.GossipVersion,
+	chanID lnwire.ShortChannelID) (bool, error) {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -244,7 +246,8 @@ func (r *mockGraphSource) ForAllOutgoingChannels(_ context.Context,
 	return nil
 }
 
-func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
+func (r *mockGraphSource) GetChannelByID(_ lnwire.GossipVersion,
+	chanID lnwire.ShortChannelID) (
 	*models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
@@ -314,17 +317,46 @@ func (r *mockGraphSource) FetchNode(_ context.Context,
 }
 
 // IsStaleNode returns true if the graph source has a node announcement for the
-// target node with a more recent timestamp.
+// target node/version that is at least as fresh as the passed announcement.
 func (r *mockGraphSource) IsStaleNode(_ context.Context,
-	nodePub route.Vertex, timestamp time.Time) bool {
+	v lnwire.GossipVersion, nodePub route.Vertex,
+	updateTimestamp lnwire.Timestamp) bool {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for _, node := range r.nodes {
-		if node.PubKeyBytes == nodePub {
-			return node.LastUpdate.After(timestamp) ||
-				node.LastUpdate.Equal(timestamp)
+	for _, dbNode := range r.nodes {
+		if dbNode.PubKeyBytes != nodePub ||
+			dbNode.Version != v {
+
+			continue
+		}
+
+		switch v {
+		case lnwire.GossipVersion1:
+			dbTimestamp := lnwire.UnixTimestamp(0)
+			if !dbNode.LastUpdate.IsZero() {
+				dbTimestamp = lnwire.UnixTimestamp(
+					dbNode.LastUpdate.Unix(),
+				)
+			}
+			cmp, err := dbTimestamp.Cmp(updateTimestamp)
+			if err != nil {
+				return true
+			}
+
+			return cmp != lnwire.LessThan
+
+		case lnwire.GossipVersion2:
+			dbTimestamp := lnwire.BlockHeightTimestamp(
+				dbNode.LastBlockHeight,
+			)
+			cmp, err := dbTimestamp.Cmp(updateTimestamp)
+			if err != nil {
+				return true
+			}
+
+			return cmp != lnwire.LessThan
 		}
 	}
 
@@ -332,6 +364,10 @@ func (r *mockGraphSource) IsStaleNode(_ context.Context,
 	// require the node to already have a channel in the graph to not be
 	// considered stale.
 	for _, info := range r.infos {
+		if info.Version != v {
+			continue
+		}
+
 		if info.NodeKey1Bytes == nodePub {
 			return false
 		}
@@ -339,13 +375,20 @@ func (r *mockGraphSource) IsStaleNode(_ context.Context,
 			return false
 		}
 	}
+
 	return true
 }
 
 // IsPublicNode determines whether the given vertex is seen as a public node in
 // the graph from the graph's source node's point of view.
-func (r *mockGraphSource) IsPublicNode(node route.Vertex) (bool, error) {
+func (r *mockGraphSource) IsPublicNode(v lnwire.GossipVersion,
+	node route.Vertex) (bool, error) {
+
 	for _, info := range r.infos {
+		if info.Version != v {
+			continue
+		}
+
 		if !bytes.Equal(node[:], info.NodeKey1Bytes[:]) &&
 			!bytes.Equal(node[:], info.NodeKey2Bytes[:]) {
 			continue
@@ -360,7 +403,9 @@ func (r *mockGraphSource) IsPublicNode(node route.Vertex) (bool, error) {
 
 // IsKnownEdge returns true if the graph source already knows of the passed
 // channel ID either as a live or zombie channel.
-func (r *mockGraphSource) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
+func (r *mockGraphSource) IsKnownEdge(_ lnwire.GossipVersion,
+	chanID lnwire.ShortChannelID) bool {
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -371,14 +416,14 @@ func (r *mockGraphSource) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
 }
 
 // IsStaleEdgePolicy returns true if the graph source has a channel edge for
-// the passed channel ID (and flags) that have a more recent timestamp.
-func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
-	timestamp time.Time, flags lnwire.ChanUpdateChanFlags) bool {
+// the passed policy that has a more recent announcement.
+func (r *mockGraphSource) IsStaleEdgePolicy(
+	policy *models.ChannelEdgePolicy) bool {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	chanIDInt := chanID.ToUint64()
+	chanIDInt := policy.ChannelID
 	edges, ok := r.edges[chanIDInt]
 	if !ok {
 		// Since the edge doesn't exist, we'll check our zombie index as
@@ -391,29 +436,60 @@ func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 		// Since it exists within our zombie index, we'll check that it
 		// respects the router's live edge horizon to determine whether
 		// it is stale or not.
-		return time.Since(timestamp) > graph.DefaultChannelPruneExpiry
+		sinceUpdate := time.Since(policy.LastUpdate)
+
+		return sinceUpdate > graph.DefaultChannelPruneExpiry
 	}
 
-	switch {
-	case flags&lnwire.ChanUpdateDirection == 0 &&
-		!reflect.DeepEqual(edges[0], models.ChannelEdgePolicy{}):
+	empty := models.ChannelEdgePolicy{}
 
-		return !timestamp.After(edges[0].LastUpdate)
+	switch policy.Version {
+	case lnwire.GossipVersion2:
+		switch {
+		case policy.IsNode1() &&
+			!reflect.DeepEqual(edges[0], empty):
 
-	case flags&lnwire.ChanUpdateDirection == 1 &&
-		!reflect.DeepEqual(edges[1], models.ChannelEdgePolicy{}):
+			return edges[0].LastBlockHeight >=
+				policy.LastBlockHeight
 
-		return !timestamp.After(edges[1].LastUpdate)
+		case !policy.IsNode1() &&
+			!reflect.DeepEqual(edges[1], empty):
+
+			return edges[1].LastBlockHeight >=
+				policy.LastBlockHeight
+
+		default:
+			return false
+		}
 
 	default:
-		return false
+		switch {
+		case policy.IsNode1() &&
+			!reflect.DeepEqual(edges[0], empty):
+
+			return !policy.LastUpdate.After(
+				edges[0].LastUpdate,
+			)
+
+		case !policy.IsNode1() &&
+			!reflect.DeepEqual(edges[1], empty):
+
+			return !policy.LastUpdate.After(
+				edges[1].LastUpdate,
+			)
+
+		default:
+			return false
+		}
 	}
 }
 
 // MarkEdgeLive clears an edge from our zombie index, deeming it as live.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (r *mockGraphSource) MarkEdgeLive(chanID lnwire.ShortChannelID) error {
+func (r *mockGraphSource) MarkEdgeLive(_ lnwire.GossipVersion,
+	chanID lnwire.ShortChannelID) error {
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.zombies, chanID.ToUint64())
@@ -2079,8 +2155,9 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 
 	assertChannelUpdate := func(channelUpdate *lnwire.ChannelUpdate1) {
 		channelKey := channelUpdateID{
-			ua3.ShortChannelID,
-			ua3.ChannelFlags,
+			channelID: ua3.ShortChannelID,
+			version:   ua3.GossipVersion(),
+			isNode1:   ua3.IsNode1(),
 		}
 
 		mws, ok := announcements.channelUpdates[channelKey]
@@ -2174,8 +2251,8 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	if len(announcements.nodeAnnouncements) != 2 {
 		t.Fatal("node announcement not replaced in batch")
 	}
-	nodeID := route.NewVertex(remoteKeyPriv2.PubKey())
-	stored, ok := announcements.nodeAnnouncements[nodeID]
+	nodeKey := newNodeAnnouncementID(na5)
+	stored, ok := announcements.nodeAnnouncements[nodeKey]
 	if !ok {
 		t.Fatalf("node announcement not found in batch")
 	}
@@ -2440,7 +2517,9 @@ func TestRejectZombieEdge(t *testing.T) {
 
 	// If we then mark the edge as live, the edge's zombie status should be
 	// overridden and the announcements should be processed.
-	if err := tCtx.router.MarkEdgeLive(chanID); err != nil {
+	if err := tCtx.router.MarkEdgeLive(
+		lnwire.GossipVersion1, chanID,
+	); err != nil {
 		t.Fatalf("unable mark channel %v as zombie: %v", chanID, err)
 	}
 
@@ -2537,7 +2616,9 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 	processAnnouncement(batch.chanUpdAnn1, true, true)
 
 	// At this point, the channel should still be considered a zombie.
-	_, _, _, err = tCtx.router.GetChannelByID(chanID)
+	_, _, _, err = tCtx.router.GetChannelByID(
+		lnwire.GossipVersion1, chanID,
+	)
 	require.ErrorIs(t, err, graphdb.ErrZombieEdge)
 
 	// Attempting to process the current channel update should fail due to
@@ -2662,6 +2743,7 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	// to the map of premature ChannelUpdates. Check that nothing
 	// was added to the graph.
 	chanInfo, e1, e2, err := tCtx.router.GetChannelByID(
+		lnwire.GossipVersion1,
 		batch.chanUpdAnn1.ShortChannelID,
 	)
 	if !errors.Is(err, graphdb.ErrEdgeNotFound) {
@@ -2732,6 +2814,7 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 
 	// Check that the ChannelEdgePolicy was added to the graph.
 	chanInfo, e1, e2, err = tCtx.router.GetChannelByID(
+		lnwire.GossipVersion1,
 		batch.chanUpdAnn1.ShortChannelID,
 	)
 	require.NoError(t, err, "unable to get channel from router")
@@ -2940,7 +3023,7 @@ func TestExtraDataNodeAnnouncementValidation(t *testing.T) {
 }
 
 // TestZeroTimestampNodeAnnouncementRejection tests that a NodeAnnouncement with
-// a zero timestamp is rejected per BOLT 7.
+// a zero update time is rejected.
 func TestZeroTimestampNodeAnnouncementRejection(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -2956,7 +3039,8 @@ func TestZeroTimestampNodeAnnouncementRejection(t *testing.T) {
 	nodeAnn, err := createNodeAnnouncement(remoteKeyPriv1, 0)
 	require.NoError(t, err, "can't create node announcement")
 
-	// Processing the announcement should fail with a zero timestamp error.
+	// Processing the announcement should fail with a zero update time
+	// error.
 	select {
 	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, nodeAnn, remotePeer,
@@ -2965,7 +3049,7 @@ func TestZeroTimestampNodeAnnouncementRejection(t *testing.T) {
 		t.Fatal("did not process remote announcement")
 	}
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "zero timestamp")
+	require.Contains(t, err.Error(), "zero update time")
 }
 
 // TestZeroTimestampChannelUpdateRejection tests that a ChannelUpdate with a
@@ -3918,7 +4002,9 @@ func TestProcessChannelAnnouncementOptionalMsgFields(t *testing.T) {
 
 		t.Helper()
 
-		edge, _, _, err := ctx.router.GetChannelByID(chanID)
+		edge, _, _, err := ctx.router.GetChannelByID(
+			lnwire.GossipVersion1, chanID,
+		)
 		if err != nil {
 			t.Fatalf("unable to get channel by id: %v", err)
 		}
@@ -4811,7 +4897,9 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 	// as a zombie if any error occurs in the chanvalidate.Validate call.
 	// For the sake of the rest of the test, however, we mark it as live
 	// here.
-	_ = tCtx.router.MarkEdgeLive(ca.ShortChannelID)
+	_ = tCtx.router.MarkEdgeLive(
+		ca.GossipVersion(), ca.ShortChannelID,
+	)
 
 	select {
 	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
@@ -4934,7 +5022,9 @@ func assertChanChainRejection(t *testing.T, ctx *testCtx,
 	}
 
 	// This channel should now be present in the zombie channel index.
-	isZombie, err := ctx.router.IsZombieEdge(edge.ShortChannelID)
+	isZombie, err := ctx.router.IsZombieEdge(
+		edge.GossipVersion(), edge.ShortChannelID,
+	)
 	require.NoError(t, err)
 	require.True(t, isZombie, "edge should be marked as zombie")
 }

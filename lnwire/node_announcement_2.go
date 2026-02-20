@@ -221,11 +221,48 @@ func (n *NodeAnnouncement2) TimestampDesc() string {
 	return fmt.Sprintf("block_height=%d", n.BlockHeight.Val)
 }
 
+// HasZeroUpdateTime returns true if the update-ordering field is zero.
+//
+// NOTE: part of the NodeAnnouncement interface.
+func (n *NodeAnnouncement2) HasZeroUpdateTime() bool {
+	return n.UpdateTimestamp().IsZero()
+}
+
+// UpdateTimestamp returns the update-ordering field.
+//
+// NOTE: part of the NodeAnnouncement interface.
+func (n *NodeAnnouncement2) UpdateTimestamp() Timestamp {
+	return BlockHeightTimestamp(n.BlockHeight.Val)
+}
+
 // GossipVersion returns the gossip version that this message is part of.
 //
 // NOTE: this is part of the GossipMessage interface.
 func (n *NodeAnnouncement2) GossipVersion() GossipVersion {
 	return GossipVersion2
+}
+
+// CmpAge can be used to determine if this announcement is older or newer than
+// the passed announcement.
+//
+// NOTE: this is part of the NodeAnnouncement interface.
+func (n *NodeAnnouncement2) CmpAge(announcement NodeAnnouncement) (
+	CompareResult, error) {
+
+	other, ok := announcement.(*NodeAnnouncement2)
+	if !ok {
+		return 0, fmt.Errorf("expected *NodeAnnouncement2, got: %T",
+			announcement)
+	}
+
+	switch {
+	case n.BlockHeight.Val < other.BlockHeight.Val:
+		return LessThan, nil
+	case n.BlockHeight.Val > other.BlockHeight.Val:
+		return GreaterThan, nil
+	default:
+		return EqualTo, nil
+	}
 }
 
 // A compile-time check to ensure NodeAnnouncement2 implements the Message

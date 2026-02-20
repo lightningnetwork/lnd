@@ -708,7 +708,7 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 	if err != nil {
 		return err
 	}
-	graph := s.graphDB
+	graph := s.v1Graph
 
 	routerBackend := &routerrpc.RouterBackend{
 		SelfNode: selfNode.PubKeyBytes,
@@ -733,9 +733,7 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 		FetchChannelEndpoints: func(chanID uint64) (route.Vertex,
 			route.Vertex, error) {
 
-			info, _, _, err := graph.FetchChannelEdgesByID(
-				chanID,
-			)
+			info, _, _, err := graph.FetchChannelEdgesByID(chanID)
 			if err != nil {
 				return route.Vertex{}, route.Vertex{},
 					fmt.Errorf("unable to fetch channel "+
@@ -3212,7 +3210,9 @@ func abandonChanFromGraph(chanGraph *graphdb.VersionedGraph,
 
 	// If the channel ID is still in the graph, then that means the channel
 	// is still open, so we'll now move to purge it from the graph.
-	return chanGraph.DeleteChannelEdges(false, true, chanID)
+	return chanGraph.DeleteChannelEdges(
+		false, true, chanID,
+	)
 }
 
 // abandonChan removes a channel from the database, graph and contract court.
@@ -6421,7 +6421,9 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		NodeSigner:        r.server.nodeSigner,
 		DefaultCLTVExpiry: defaultDelta,
 		ChanDB:            r.server.chanStateDB,
-		Graph:             r.server.graphDB,
+		Graph: graphdb.NewVersionedGraph(
+			r.server.graphDB, lnwire.GossipVersion1,
+		),
 		GenInvoiceFeatures: func() *lnwire.FeatureVector {
 			v := r.server.featureMgr.Get(feature.SetInvoice)
 
@@ -7051,10 +7053,12 @@ func (r *rpcServer) GetNodeMetrics(ctx context.Context,
 	// Obtain the pointer to the global singleton channel graph, this will
 	// provide a consistent view of the graph due to bolt db's
 	// transactional model.
-	graph := r.server.graphDB
+	graph := graphdb.NewVersionedGraph(
+		r.server.graphDB, lnwire.GossipVersion1,
+	)
 
-	// Calculate betweenness centrality if requested. Note that depending on the
-	// graph size, this may take up to a few minutes.
+	// Calculate betweenness centrality if requested. Note that depending
+	// on the graph size, this may take up to a few minutes.
 	channelGraph := autopilot.ChannelGraphFromDatabase(graph)
 	centralityMetric, err := autopilot.NewBetweennessCentralityMetric(
 		runtime.NumCPU(),
@@ -7102,7 +7106,7 @@ func (r *rpcServer) GetChanInfo(_ context.Context,
 	switch {
 	case in.ChanId != 0:
 		edgeInfo, edge1, edge2, err = graph.FetchChannelEdgesByID(
-			in.ChanId,
+			lnwire.GossipVersion1, in.ChanId,
 		)
 
 	case in.ChanPoint != "":
@@ -7112,7 +7116,7 @@ func (r *rpcServer) GetChanInfo(_ context.Context,
 			return nil, err
 		}
 		edgeInfo, edge1, edge2, err = graph.FetchChannelEdgesByOutpoint(
-			chanPoint,
+			lnwire.GossipVersion1, chanPoint,
 		)
 
 	default:
@@ -7265,7 +7269,9 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	_ *lnrpc.NetworkInfoRequest) (*lnrpc.NetworkInfo, error) {
 
-	graph := r.server.graphDB
+	graph := graphdb.NewVersionedGraph(
+		r.server.graphDB, lnwire.GossipVersion1,
+	)
 
 	var (
 		numNodes             uint32

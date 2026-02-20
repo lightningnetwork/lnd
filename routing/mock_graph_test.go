@@ -221,8 +221,8 @@ func (m *mockGraph) sourceNode() route.Vertex {
 // fetchNodeFeatures returns the features of the given node.
 //
 // NOTE: Part of the Graph interface.
-func (m *mockGraph) FetchNodeFeatures(nodePub route.Vertex) (
-	*lnwire.FeatureVector, error) {
+func (m *mockGraph) FetchNodeFeatures(
+	nodePub route.Vertex) (*lnwire.FeatureVector, error) {
 
 	return lnwire.EmptyFeatureVector(), nil
 }

@@ -71,6 +71,16 @@ type ValidationBarrier struct {
 	sync.Mutex
 }
 
+// chanAnnID returns the dependency ID used for channel-scoped jobs.
+func chanAnnID(v lnwire.GossipVersion, scid lnwire.ShortChannelID) string {
+	return fmt.Sprintf("%d:%s", v, scid.String())
+}
+
+// nodeAnnID returns the dependency ID used for node-scoped jobs.
+func nodeAnnID(v lnwire.GossipVersion, node route.Vertex) string {
+	return fmt.Sprintf("%d:%s", v, node.String())
+}
+
 // NewValidationBarrier creates a new instance of a validation barrier given
 // the total number of active requests, and a quit channel which will be used
 // to know when to kill pending, but unfilled jobs.
@@ -173,29 +183,40 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) (JobID,
 	// Once a slot is open, we'll examine the message of the job, to see if
 	// there need to be any dependent barriers set up.
 	switch msg := job.(type) {
-	case *lnwire.ChannelAnnouncement1:
+	case lnwire.ChannelAnnouncement:
 		id := JobID(v.idCtr.Add(1))
+		version := msg.GossipVersion()
 
-		updateOrCreateJobInfo(msg.ShortChannelID.String(), id)
-		updateOrCreateJobInfo(route.Vertex(msg.NodeID1).String(), id)
-		updateOrCreateJobInfo(route.Vertex(msg.NodeID2).String(), id)
+		updateOrCreateJobInfo(chanAnnID(version, msg.SCID()), id)
+		n1 := route.Vertex(msg.Node1KeyBytes())
+		n2 := route.Vertex(msg.Node2KeyBytes())
+		updateOrCreateJobInfo(
+			nodeAnnID(version, n1), id,
+		)
+		updateOrCreateJobInfo(
+			nodeAnnID(version, n2), id,
+		)
 
 		return id, nil
 
 	// Populate the dependency mappings for the below child jobs.
-	case *lnwire.ChannelUpdate1:
-		childJobID := JobID(v.idCtr.Add(1))
-		populateDependencies(msg.ShortChannelID.String(), childJobID)
-
-		return childJobID, nil
-	case *lnwire.NodeAnnouncement1:
+	case lnwire.ChannelUpdate:
 		childJobID := JobID(v.idCtr.Add(1))
 		populateDependencies(
-			route.Vertex(msg.NodeID).String(), childJobID,
+			chanAnnID(msg.GossipVersion(), msg.SCID()), childJobID,
 		)
 
 		return childJobID, nil
-	case *lnwire.AnnounceSignatures1:
+	case lnwire.NodeAnnouncement:
+		childJobID := JobID(v.idCtr.Add(1))
+		nID := route.Vertex(msg.NodePub())
+		populateDependencies(
+			nodeAnnID(msg.GossipVersion(), nID),
+			childJobID,
+		)
+
+		return childJobID, nil
+	case lnwire.AnnounceSignatures:
 		// TODO(roasbeef): need to wait on chan ann?
 		// - We can do the above by calling populateDependencies. For
 		//   now, while we evaluate potential side effects, don't do
@@ -242,10 +263,10 @@ func (v *ValidationBarrier) WaitForParents(childJobID JobID,
 	v.Lock()
 
 	switch msg := job.(type) {
-	// Any ChannelUpdate or NodeAnnouncement1 jobs will need to wait on the
+	// Any ChannelUpdate or NodeAnnouncement jobs will need to wait on the
 	// completion of any active ChannelAnnouncement jobs related to them.
-	case *lnwire.ChannelUpdate1:
-		annID = msg.ShortChannelID.String()
+	case lnwire.ChannelUpdate:
+		annID = chanAnnID(msg.GossipVersion(), msg.SCID())
 
 		parentJobIDs, ok = v.jobDependencies[childJobID]
 		if !ok {
@@ -256,10 +277,11 @@ func (v *ValidationBarrier) WaitForParents(childJobID JobID,
 		}
 
 		jobDesc = fmt.Sprintf("job=lnwire.ChannelUpdate, scid=%v",
-			msg.ShortChannelID.ToUint64())
+			msg.SCID().ToUint64())
 
-	case *lnwire.NodeAnnouncement1:
-		annID = route.Vertex(msg.NodeID).String()
+	case lnwire.NodeAnnouncement:
+		pub := route.Vertex(msg.NodePub())
+		annID = nodeAnnID(msg.GossipVersion(), pub)
 
 		parentJobIDs, ok = v.jobDependencies[childJobID]
 		if !ok {
@@ -269,17 +291,17 @@ func (v *ValidationBarrier) WaitForParents(childJobID JobID,
 			return nil
 		}
 
-		jobDesc = fmt.Sprintf("job=lnwire.NodeAnnouncement1, pub=%s",
-			route.Vertex(msg.NodeID))
+		jobDesc = fmt.Sprintf("job=lnwire.NodeAnnouncement, pub=%s",
+			pub)
 
 	// Other types of jobs can be executed immediately, so we'll just
 	// return directly.
-	case *lnwire.AnnounceSignatures1:
+	case lnwire.AnnounceSignatures:
 		// TODO(roasbeef): need to wait on chan ann?
 		v.Unlock()
 		return nil
 
-	case *lnwire.ChannelAnnouncement1:
+	case lnwire.ChannelAnnouncement:
 		v.Unlock()
 		return nil
 	}
@@ -425,37 +447,52 @@ func (v *ValidationBarrier) SignalDependents(job interface{}, id JobID) error {
 	}
 
 	switch msg := job.(type) {
-	case *lnwire.ChannelAnnouncement1:
+	case lnwire.ChannelAnnouncement:
 		// Signal to the child jobs that parent validation has
 		// finished. We have to call removeJob for each annID
 		// that this ChannelAnnouncement can be associated with.
-		err := removeJob(msg.ShortChannelID.String(), id, false)
+		version := msg.GossipVersion()
+
+		err := removeJob(chanAnnID(version, msg.SCID()), id, false)
 		if err != nil {
 			return err
 		}
 
-		err = removeJob(route.Vertex(msg.NodeID1).String(), id, false)
+		err = removeJob(
+			nodeAnnID(version, route.Vertex(msg.Node1KeyBytes())),
+			id, false,
+		)
 		if err != nil {
 			return err
 		}
 
-		err = removeJob(route.Vertex(msg.NodeID2).String(), id, false)
+		err = removeJob(
+			nodeAnnID(version, route.Vertex(msg.Node2KeyBytes())),
+			id, false,
+		)
 		if err != nil {
 			return err
 		}
 
 		return nil
 
-	case *lnwire.NodeAnnouncement1:
+	case lnwire.NodeAnnouncement:
 		// Remove child job info.
-		return removeJob(route.Vertex(msg.NodeID).String(), id, true)
+		nID := nodeAnnID(
+			msg.GossipVersion(),
+			route.Vertex(msg.NodePub()),
+		)
 
-	case *lnwire.ChannelUpdate1:
+		return removeJob(nID, id, true)
+
+	case lnwire.ChannelUpdate:
 		// Remove child job info.
-		return removeJob(msg.ShortChannelID.String(), id, true)
+		return removeJob(
+			chanAnnID(msg.GossipVersion(), msg.SCID()), id, true,
+		)
 
-	case *lnwire.AnnounceSignatures1:
-		// No dependency mappings are stored for AnnounceSignatures1,
+	case lnwire.AnnounceSignatures:
+		// No dependency mappings are stored for AnnounceSignatures,
 		// so do nothing.
 		return nil
 	}

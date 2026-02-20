@@ -183,12 +183,19 @@
     [4](https://github.com/lightningnetwork/lnd/pull/10542),
     [5](https://github.com/lightningnetwork/lnd/pull/10572).
 
+* Added [WaitForPostgresReady](https://github.com/lightningnetwork/lnd/pull/10564)
+  to wait for the Postgres database to become available before opening the
+  connection. This is necessary in environments where the database may not be
+  ready when LND starts. Also added `startup-max-retries` and
+  `startup-retry-delay` configuration options to control the retry behavior.
+
 ## Code Health
 
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
 
+* Abdulkbk
 * Boris Nagaev
 * Elle Mouton
 * Erick Cestari

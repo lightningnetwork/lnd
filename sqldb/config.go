@@ -47,6 +47,8 @@ type PostgresConfig struct {
 	Dsn                     string        `long:"dsn" description:"Database connection string."`
 	Timeout                 time.Duration `long:"timeout" description:"Database connection timeout. Set to zero to disable."`
 	MaxConnections          int           `long:"maxconnections" description:"The maximum number of open connections to the database. Set to zero for unlimited."`
+	StartupMaxRetries       int           `long:"startup-max-retries" description:"Maximum number of times to retry connecting to the database at startup. Set to zero to disable retries."`
+	StartupRetryDelay       time.Duration `long:"startup-retry-delay" description:"The delay between connection retry attempts at startup."`
 	SkipMigrations          bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
 	ChannelDBWithGlobalLock bool          `long:"channeldb-with-global-lock" description:"Use a global lock for channeldb access. This ensures only a single writer at a time but reduces concurrency. This is a temporary workaround until the revocation log is migrated to a native sql schema."`
 	WalletDBWithGlobalLock  bool          `long:"walletdb-with-global-lock" description:"Use a global lock for wallet database access. This ensures only a single writer at a time but reduces concurrency. This is a temporary workaround until the wallet subsystem is upgraded to a native sql schema."`
@@ -63,6 +65,11 @@ func (p *PostgresConfig) Validate() error {
 	_, err := url.Parse(p.Dsn)
 	if err != nil {
 		return fmt.Errorf("invalid DSN: %w", err)
+	}
+
+	if p.StartupMaxRetries > 0 && p.StartupRetryDelay <= 0 {
+		return fmt.Errorf("startup retry delay must be positive " +
+			"when retries are enabled")
 	}
 
 	if err := p.QueryConfig.Validate(false); err != nil {

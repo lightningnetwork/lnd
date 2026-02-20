@@ -295,6 +295,11 @@ type Config struct {
 	// TrafficShaper is an optional traffic shaper that can be used to
 	// control the outgoing channel of a payment.
 	TrafficShaper fn.Option[htlcswitch.AuxTrafficShaper]
+
+	// ExternalPaymentLifecycle indicates that the payment lifecycle is
+	// managed by an external entity, and the dispatcher's payment store
+	// should not be cleaned on startup.
+	ExternalPaymentLifecycle bool
 }
 
 // EdgeLocator is a struct used to identify a specific edge.

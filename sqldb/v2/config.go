@@ -33,7 +33,7 @@ const (
 type SqliteConfig struct {
 	Timeout        time.Duration `long:"timeout" description:"The time after which a database query should be timed out."`
 	BusyTimeout    time.Duration `long:"busytimeout" description:"The maximum amount of time to wait for a database connection to become available for a query."`
-	MaxConnections int           `long:"maxconnections" description:"The maximum number of open connections to the database. Set to zero for unlimited."`
+	MaxConnections int           `long:"maxconnections" description:"The maximum number of open connections to the database."`
 	PragmaOptions  []string      `long:"pragmaoptions" description:"A list of pragma options to set on a database connection. For example, 'auto_vacuum=incremental'. Note that the flag must be specified multiple times if multiple options are to be set."`
 	SkipMigrations bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
 
@@ -59,8 +59,8 @@ func (p *SqliteConfig) Validate() error {
 type PostgresConfig struct {
 	Dsn                string        `long:"dsn" description:"Database connection string."`
 	Timeout            time.Duration `long:"timeout" description:"Database connection timeout. Set to zero to disable."`
-	MaxOpenConnections int           `long:"maxconnections" description:"Max open connections to keep alive to the database server. Set to zero for unlimited."`
-	MaxIdleConnections int           `long:"maxidleconnections" description:"Max number of idle connections to keep in the connection pool. Set to zero for unlimited."`
+	MaxOpenConnections int           `long:"maxconnections" description:"Max open connections to keep alive to the database server."`
+	MaxIdleConnections int           `long:"maxidleconnections" description:"Max number of idle connections to keep in the connection pool."`
 	ConnMaxLifetime    time.Duration `long:"connmaxlifetime" description:"Max amount of time a connection can be reused for before it is closed. Valid time units are {s, m, h}."`
 	ConnMaxIdleTime    time.Duration `long:"connmaxidletime" description:"Max amount of time a connection can be idle for before it is closed. Valid time units are {s, m, h}."`
 	RequireSSL         bool          `long:"requiressl" description:"Whether to require using SSL (mode: require) when connecting to the server."`

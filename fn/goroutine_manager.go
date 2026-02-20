@@ -17,20 +17,27 @@ type GoroutineManager struct {
 	// map. The key is the id of the goroutine.
 	cancelFns map[uint32]context.CancelFunc
 
-	mu sync.Mutex
+	mu   sync.Mutex
+	cond *sync.Cond
 
 	stopped sync.Once
 	quit    chan struct{}
-	wg      sync.WaitGroup
+
+	// count is the number of goroutines currently running. Must be accessed
+	// holding mu.
+	count int
 }
 
 // NewGoroutineManager constructs and returns a new instance of
 // GoroutineManager.
 func NewGoroutineManager() *GoroutineManager {
-	return &GoroutineManager{
+	gm := &GoroutineManager{
 		cancelFns: make(map[uint32]context.CancelFunc),
 		quit:      make(chan struct{}),
 	}
+	gm.cond = sync.NewCond(&gm.mu)
+
+	return gm
 }
 
 // addCancelFn adds a context cancel function to the manager and returns an id
@@ -82,15 +89,8 @@ func (g *GoroutineManager) Go(ctx context.Context,
 	ctx, cancel := context.WithCancel(ctx)
 	id := g.addCancelFn(cancel)
 
-	// Calling wg.Add(1) and wg.Wait() when the wg's counter is 0 is a race
-	// condition, since it is not clear if Wait() should block or not. This
-	// kind of race condition is detected by Go runtime and results in a
-	// crash if running with `-race`. To prevent this, we protect the calls
-	// to wg.Add(1) and wg.Wait() with a mutex. If we block here because
-	// Stop is running first, then Stop will close the quit channel which
-	// will cause the context to be cancelled, and we will exit before
-	// calling wg.Add(1). If we grab the mutex here before Stop does, then
-	// Stop will block until after we call wg.Add(1).
+	// Protect the remaining part of the method with the mutex, because we
+	// access quit and count.
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -112,14 +112,69 @@ func (g *GoroutineManager) Go(ctx context.Context,
 	default:
 	}
 
-	g.wg.Add(1)
+	g.count++
 	go func() {
 		defer func() {
 			g.cancel(id)
-			g.wg.Done()
+
+			g.mu.Lock()
+			g.count--
+			g.mu.Unlock()
+
+			g.cond.Signal()
 		}()
 
 		f(ctx)
+	}()
+
+	return true
+}
+
+// GoBlocking tries to start a new blocking goroutine and returns a boolean
+// indicating its success. It returns true if the goroutine was successfully
+// created and false otherwise. A goroutine will fail to be created iff the
+// goroutine manager has stopped (Stop() was called and all the goroutines
+// have finished). To make sure GoBlocking succeeds, call it right after
+// creating a GoroutineManager (in Start() method of your object) or from
+// another goroutine created by the same GoroutineManager.
+//
+// The difference from Go() is that GoroutineManager doesn't manage contexts so
+// the goroutine can run as long as needed. GoroutineManager will still wait for
+// its completion in the Stop() method. But it is the caller's responsibility to
+// stop the launched goroutine and to pass a context to it if needed.
+//
+// This method is intended to perform shutdown of important tasks, where
+// interruption is not desirable.
+func (g *GoroutineManager) GoBlocking(f func()) bool {
+	// Protect the whole code of the method with the mutex, because we
+	// access quit and count.
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	// If the goroutine manager has completelly stopped, stop. This happens
+	// only if Stop() was called and all goroutines have finished.
+	select {
+	case <-g.quit:
+		if g.count == 0 {
+			return false
+		}
+	default:
+	}
+
+	g.count++
+	go func() {
+		defer func() {
+			g.mu.Lock()
+			g.count--
+			g.mu.Unlock()
+
+			// We use Signal() and not Broadcast(), because there
+			// could be only one user of g.cond.Wait(), because of
+			// g.stopped.
+			g.cond.Signal()
+		}()
+
+		f()
 	}()
 
 	return true
@@ -129,22 +184,22 @@ func (g *GoroutineManager) Go(ctx context.Context,
 // goroutines to finish.
 func (g *GoroutineManager) Stop() {
 	g.stopped.Do(func() {
+		g.mu.Lock()
+		defer g.mu.Unlock()
+
 		// Closing the quit channel will prevent any new goroutines from
 		// starting.
-		g.mu.Lock()
 		close(g.quit)
+
+		// Cancelling contexts of all launched goroutines.
 		for _, cancel := range g.cancelFns {
 			cancel()
 		}
-		g.mu.Unlock()
 
-		// Wait for all goroutines to finish. Note that this wg.Wait()
-		// call is safe, since it can't run in parallel with wg.Add(1)
-		// call in Go, since we just cancelled the context and even if
-		// Go call starts running here after acquiring the mutex, it
-		// would see that the context has expired and return false
-		// instead of calling wg.Add(1).
-		g.wg.Wait()
+		// Wait for all goroutines to finish.
+		for g.count != 0 {
+			g.cond.Wait()
+		}
 	})
 }
 

@@ -59,6 +59,11 @@ SELECT i.*
 FROM invoices i
 WHERE i.hash = $1;
 
+-- name: GetInvoiceByAddr :one
+SELECT i.*
+FROM invoices i
+WHERE i.payment_addr = $1;
+
 -- name: GetInvoiceBySetID :many
 SELECT i.*
 FROM invoices i

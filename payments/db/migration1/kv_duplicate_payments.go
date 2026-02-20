@@ -1,4 +1,4 @@
-package paymentsdb
+package migration1
 
 import (
 	"bytes"
@@ -89,6 +89,7 @@ func deserializeDuplicateHTLCAttemptInfo(r io.Reader) (
 	if err != nil {
 		return nil, err
 	}
+
 	return a, nil
 }
 
@@ -238,6 +239,7 @@ func fetchDuplicatePayments(paymentHashBucket kvdb.RBucket) ([]*MPPayment,
 		}
 
 		payments = append(payments, p)
+
 		return nil
 	})
 	if err != nil {

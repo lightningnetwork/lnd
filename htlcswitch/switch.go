@@ -1090,7 +1090,7 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 	// the first hop. In this case, we'll report a permanent
 	// channel failure as this means us, or the remote party had to
 	// go on chain.
-	case isResolution && htlc.Reason == nil:
+	case isResolution && len(htlc.Reason) == 0:
 		linkError := NewDetailedLinkError(
 			&lnwire.FailPermanentChannelFailure{},
 			OutgoingFailureOnChainTimeout,

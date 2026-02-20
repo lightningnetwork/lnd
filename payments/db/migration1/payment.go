@@ -120,7 +120,7 @@ type HTLCAttemptInfo struct {
 	cachedSessionKey *btcec.PrivateKey
 
 	// Route is the route attempted to send the HTLC.
-	Route route.Route
+	Route Route
 
 	// AttemptTime is the time at which this HTLC was attempted.
 	AttemptTime time.Time
@@ -142,7 +142,7 @@ type HTLCAttemptInfo struct {
 
 // NewHtlcAttempt creates a htlc attempt.
 func NewHtlcAttempt(attemptID uint64, sessionKey *btcec.PrivateKey,
-	route route.Route, attemptTime time.Time,
+	rt route.Route, attemptTime time.Time,
 	hash *lntypes.Hash) (*HTLCAttempt, error) {
 
 	var scratch [btcec.PrivKeyBytesLen]byte
@@ -152,7 +152,7 @@ func NewHtlcAttempt(attemptID uint64, sessionKey *btcec.PrivateKey,
 		AttemptID:        attemptID,
 		sessionKey:       scratch,
 		cachedSessionKey: sessionKey,
-		Route:            route,
+		Route:            routeToLocal(rt),
 		AttemptTime:      attemptTime,
 		Hash:             hash,
 	}
@@ -666,14 +666,17 @@ func (m *MPPayment) AllowMoreAttempts() (bool, error) {
 // the onion route specified by the passed layer 3 route. The blob returned
 // from this function can immediately be included within an HTLC add packet to
 // be sent to the first hop within the route.
-func generateSphinxPacket(rt *route.Route, paymentHash []byte,
+func generateSphinxPacket(rt *Route, paymentHash []byte,
 	sessionKey *btcec.PrivateKey) ([]byte, *sphinx.Circuit, error) {
+
+	// Convert the local Route to a route.Route for sphinx path generation.
+	rr := rt.toRouteRoute()
 
 	// Now that we know we have an actual route, we'll map the route into a
 	// sphinx payment path which includes per-hop payloads for each hop
 	// that give each node within the route the necessary information
 	// (fees, CLTV value, etc.) to properly forward the payment.
-	sphinxPath, err := rt.ToSphinxPath()
+	sphinxPath, err := rr.ToSphinxPath()
 	if err != nil {
 		return nil, nil, err
 	}

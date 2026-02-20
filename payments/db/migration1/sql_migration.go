@@ -10,9 +10,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/payments/db/migration1/sqlc"
-	"github.com/lightningnetwork/lnd/routing/route"
 	"golang.org/x/time/rate"
 )
 
@@ -454,7 +452,7 @@ func migrateHTLCAttempt(ctx context.Context, paymentID int64,
 	case htlc.Failure != nil:
 		var failureMsg bytes.Buffer
 		if htlc.Failure.Message != nil {
-			err := lnwire.EncodeFailureMessage(
+			err := encodeFailureMessage(
 				&failureMsg, htlc.Failure.Message, 0,
 			)
 			if err != nil {
@@ -497,7 +495,7 @@ func migrateHTLCAttempt(ctx context.Context, paymentID int64,
 
 // migrateRouteHop migrates a single route hop.
 func migrateRouteHop(ctx context.Context,
-	attemptID int64, hopIndex int, hop *route.Hop, sqlDB SQLQueries,
+	attemptID int64, hopIndex int, hop *Hop, sqlDB SQLQueries,
 	stats *MigrationStats) error {
 
 	// Convert channel ID to string representation of uint64.

@@ -78,6 +78,15 @@ service Switch {
     BuildOnion attempts to build an onion packet for the specified route.
     */
     rpc BuildOnion (BuildOnionRequest) returns (BuildOnionResponse);
+
+    /*
+    DisableRemoteRouter marks the database as no longer being used by a remote
+    router. This is useful for migrating from a remote router setup back to the
+    default embedded router. This RPC will fail if there are any active,
+    in-flight HTLCs.
+    */
+    rpc DisableRemoteRouter (DisableRemoteRouterRequest)
+        returns (DisableRemoteRouterResponse);
 }
 
 message SendOnionRequest {
@@ -311,4 +320,10 @@ message BuildOnionResponse {
     // The serialized public keys of all nodes along the route for the
     // constructed onion.
     repeated bytes hop_pubkeys = 3;
+}
+
+message DisableRemoteRouterRequest {
+}
+
+message DisableRemoteRouterResponse {
 }

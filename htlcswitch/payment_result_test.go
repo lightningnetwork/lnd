@@ -11,6 +11,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -105,7 +106,8 @@ func TestNetworkResultStore(t *testing.T) {
 
 	db := channeldb.OpenForTesting(t, t.TempDir())
 
-	store := newNetworkResultStore(db)
+	store, err := newNetworkResultStore(db, false)
+	require.NoError(t, err, "unable create result store")
 
 	var results []*networkResult
 	for i := 0; i < numResults; i++ {
@@ -309,7 +311,8 @@ func TestNetworkResultStoreFailAndFetch(t *testing.T) {
 	t.Parallel()
 
 	db := channeldb.OpenForTesting(t, t.TempDir())
-	store := newNetworkResultStore(db)
+	store, err := newNetworkResultStore(db, false)
+	require.NoError(t, err, "failed to create result store")
 
 	// Test FetchPendingAttempts on an empty store.
 	pending, err := store.FetchPendingAttempts()
@@ -403,5 +406,84 @@ func TestNetworkResultStoreFailAndFetch(t *testing.T) {
 		)
 		require.Error(t, err,
 			"expected error when failing already failed attempt")
+	})
+}
+
+// TestDisableRemoteRouter tests that the DisableRemoteRouter method behaves as
+// expected.
+func TestDisableRemoteRouter(t *testing.T) {
+	t.Parallel()
+
+	checkMarker := func(t *testing.T, db kvdb.Backend) bool {
+		var marked bool
+		err := db.View(func(tx kvdb.RTx) error {
+			if tx.ReadBucket(externalLifecycleMarkerBucket) != nil {
+				marked = true
+			}
+
+			return nil
+		}, func() {
+			marked = false
+		})
+		require.NoError(t, err)
+
+		return marked
+	}
+
+	// Test case 1: In-flight payments exist.
+	t.Run("in-flight payments", func(t *testing.T) {
+		t.Parallel()
+
+		db := channeldb.OpenForTesting(t, t.TempDir())
+		store, err := newNetworkResultStore(db, true)
+		require.NoError(t, err)
+		require.True(t, checkMarker(t, db))
+
+		// Add a payment result to simulate an in-flight payment.
+		err = store.storeResult(0, &networkResult{
+			msg: &lnwire.UpdateAddHTLC{},
+		})
+		require.NoError(t, err)
+
+		// Attempt to disable the remote router.
+		err = store.DisableRemoteRouter()
+		require.ErrorIs(t, err, ErrAttemptEntriesExist)
+
+		// The marker should still exist.
+		require.True(t, checkMarker(t, db))
+	})
+
+	// Test case 2: No in-flight payments.
+	t.Run("no in-flight payments", func(t *testing.T) {
+		t.Parallel()
+
+		db := channeldb.OpenForTesting(t, t.TempDir())
+		store, err := newNetworkResultStore(db, true)
+		require.NoError(t, err)
+		require.True(t, checkMarker(t, db))
+
+		// Attempt to disable the remote router.
+		err = store.DisableRemoteRouter()
+		require.NoError(t, err)
+
+		// The marker should be gone.
+		require.False(t, checkMarker(t, db))
+	})
+
+	// Test case 3: No in-flight payments and no marker.
+	t.Run("no marker", func(t *testing.T) {
+		t.Parallel()
+
+		db := channeldb.OpenForTesting(t, t.TempDir())
+		store, err := newNetworkResultStore(db, false)
+		require.NoError(t, err)
+		require.False(t, checkMarker(t, db))
+
+		// Attempt to disable the remote router.
+		err = store.DisableRemoteRouter()
+		require.NoError(t, err)
+
+		// The marker should still be gone.
+		require.False(t, checkMarker(t, db))
 	})
 }

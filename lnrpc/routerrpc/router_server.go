@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/aliasmgr"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -72,6 +73,15 @@ var (
 	// ErrNoValidAlias is returned if an alias is not in the valid range for
 	// allowed SCID aliases.
 	ErrNoValidAlias = errors.New("not a valid alias")
+
+	// errRemoteRouterActive is returned when a payment-sending RPC is
+	// called while the switchrpc build tag is active, indicating that
+	// payment lifecycle is managed by a remote router.
+	errRemoteRouterActive = status.Error(
+		codes.Unavailable,
+		"payment sending is disabled: payment lifecycle is "+
+			"managed by a remote router via switchrpc",
+	)
 
 	// macaroonOps are the set of capabilities that our minted macaroon (if
 	// it doesn't already exist) will have.
@@ -356,6 +366,13 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 // pre-image, along with the final route will be returned.
 func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 	stream Router_SendPaymentV2Server) error {
+
+	// When the payment lifecycle is managed by a remote router via
+	// switchrpc, local payment sending is disabled to prevent dual-router
+	// collisions in the shared attempt result store.
+	if build.SwitchRPC {
+		return errRemoteRouterActive
+	}
 
 	// Set payment request attempt timeout.
 	if req.TimeoutSeconds == 0 {
@@ -1058,6 +1075,13 @@ func timelockAndFee(p *lnrpc.Payment) (int64, int64, error) {
 // this call contains structured error information.
 func (s *Server) SendToRouteV2(ctx context.Context,
 	req *SendToRouteRequest) (*lnrpc.HTLCAttempt, error) {
+
+	// When the payment lifecycle is managed by a remote router via
+	// switchrpc, local payment sending is disabled to prevent dual-router
+	// collisions in the shared attempt result store.
+	if build.SwitchRPC {
+		return nil, errRemoteRouterActive
+	}
 
 	if req.Route == nil {
 		return nil, fmt.Errorf("unable to send, no routes provided")

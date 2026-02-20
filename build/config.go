@@ -21,6 +21,9 @@ const (
 	DefaultMaxLogFileSize = 20
 )
 
+// SwitchRPC is a build-time constant set via build tags. See
+// switchrpc_on.go and switchrpc_off.go.
+
 // LogConfig holds logging configuration options.
 //
 //nolint:ll

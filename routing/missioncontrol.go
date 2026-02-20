@@ -672,12 +672,15 @@ func (m *MissionControl) applyPaymentResult(
 	// Interpret result.
 	i := interpretResult(&result.route.Val, result.failure.ValOpt())
 
+	// This flag will be true if we grant a second chance to this route.
+	secondChance := false
+
 	if i.policyFailure != nil {
 		if m.state.requestSecondChance(
 			time.Unix(0, int64(result.timeReply.Val)),
 			i.policyFailure.From, i.policyFailure.To,
 		) {
-			return nil
+			secondChance = true
 		}
 	}
 
@@ -698,7 +701,10 @@ func (m *MissionControl) applyPaymentResult(
 	// difference. The largest difference occurs when aprioriWeight is 1. In
 	// that case, a node-level failure would not be applied to untried
 	// channels.
-	if i.nodeFailure != nil {
+	//
+	// If a second chance is being given, skip the node-level failure
+	// recording.
+	if i.nodeFailure != nil && !secondChance {
 		m.log.Debugf("Reporting node failure to Mission Control: "+
 			"node=%v", *i.nodeFailure)
 
@@ -721,10 +727,24 @@ func (m *MissionControl) applyPaymentResult(
 				pair, pairResult.amt)
 		}
 
+		ts := time.Unix(0, int64(result.timeReply.Val))
+
+		// If we want to grant a second chance, we'll apply half of the
+		// full penalty in order to not totally exclude this route from
+		// future attempts, but also encourage alternative route
+		// selection.
+		if secondChance {
+			// To create this effect of applying half of the penalty
+			// we'll record this failure as if it happened a bit
+			// further in the past. The distance between current and
+			// recorded time is equal to the penalty half life,
+			// which is the time duration it takes for a penalty
+			// to decay to its half value.
+			ts = ts.Add(-1 * DefaultPenaltyHalfLife)
+		}
+
 		m.state.setLastPairResult(
-			pair.From, pair.To,
-			time.Unix(0, int64(result.timeReply.Val)), &pairResult,
-			false,
+			pair.From, pair.To, ts, &pairResult, false,
 		)
 	}
 

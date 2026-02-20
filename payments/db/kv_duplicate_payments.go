@@ -228,7 +228,7 @@ func fetchDuplicatePayments(paymentHashBucket kvdb.RBucket) ([]*MPPayment,
 		subBucket := dup.NestedReadBucket(k)
 		if subBucket == nil {
 			// We one bucket for each duplicate to be found.
-			return fmt.Errorf("non bucket element" +
+			return fmt.Errorf("non bucket element " +
 				"in duplicate bucket")
 		}
 

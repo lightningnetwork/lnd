@@ -48,6 +48,18 @@ type Config struct {
 	// RouteProcessor provides the capability to convert from external (rpc)
 	// to internal representation of a payment route.
 	RouteProcessor RouteProcessor
+
+	// RemoteRouterController provides the ability to manage the remote router
+	// state.
+	RemoteRouterController RemoteRouterController
+}
+
+// RemoteRouterController defines a restricted interface for managing the remote
+// router state.
+type RemoteRouterController interface {
+	// DisableRemoteRouter disables the remote router, allowing a migration
+	// back to the embedded router.
+	DisableRemoteRouter() error
 }
 
 // ChannelInfoAccessor defines a restricted, read-only view into the switch's

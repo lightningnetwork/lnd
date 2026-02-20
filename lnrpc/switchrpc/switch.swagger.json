@@ -50,6 +50,39 @@
         ]
       }
     },
+    "/v2/switch/disableremoterouter": {
+      "post": {
+        "summary": "DisableRemoteRouter marks the database as no longer being used by a remote\nrouter. This is useful for migrating from a remote router setup back to the\ndefault embedded router. This RPC will fail if there are any attempt entries\nremaining in the network result store.",
+        "operationId": "Switch_DisableRemoteRouter",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/switchrpcDisableRemoteRouterResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/switchrpcDisableRemoteRouterRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Switch"
+        ]
+      }
+    },
     "/v2/switch/onion": {
       "post": {
         "summary": "SendOnion provides an idempotent API for dispatching a pre-formed onion\npacket, which is the primary entry point for a remote router.",
@@ -350,6 +383,12 @@
         }
       },
       "description": "BuildOnionResponse contains the constructed onion packet."
+    },
+    "switchrpcDisableRemoteRouterRequest": {
+      "type": "object"
+    },
+    "switchrpcDisableRemoteRouterResponse": {
+      "type": "object"
     },
     "switchrpcFailureDetails": {
       "type": "object",

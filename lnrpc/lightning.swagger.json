@@ -7137,7 +7137,12 @@
         },
         "fee_per_vbyte": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "title": "The update carries the fee rate in sat/vbyte and sat/kw"
+        },
+        "fee_per_kw": {
+          "type": "string",
+          "format": "uint64"
         },
         "local_close_tx": {
           "type": "boolean"

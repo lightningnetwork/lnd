@@ -2251,7 +2251,9 @@ message CloseStatusUpdate {
 message PendingUpdate {
     bytes txid = 1;
     uint32 output_index = 2;
+    // The update carries the fee rate in sat/vbyte and sat/kw
     int64 fee_per_vbyte = 3;
+    uint64 fee_per_kw = 5;
     bool local_close_tx = 4;
 }
 

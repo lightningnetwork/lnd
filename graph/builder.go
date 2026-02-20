@@ -573,13 +573,15 @@ func (b *Builder) pruneZombieChans() error {
 	// both edges. If they're both disabled, then we can interpret this as
 	// the channel being closed and can prune it from our graph.
 	if b.cfg.AssumeChannelValid {
-		disabledChanIDs, err := b.cfg.Graph.DisabledChannelIDs()
+		disabledChanIDs, err := b.cfg.Graph.DisabledChannelIDs(
+			lnwire.GossipVersion1,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to get disabled channels "+
 				"ids chans: %v", err)
 		}
 
-		disabledEdges, err := b.cfg.Graph.FetchChanInfos(
+		disabledEdges, err := b.v1Graph.FetchChanInfos(
 			disabledChanIDs,
 		)
 		if err != nil {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -14,37 +15,39 @@ import (
 func TestChannelCache(t *testing.T) {
 	const cacheSize = 100
 
+	v := lnwire.GossipVersion1
+
 	// Create a new channel cache with the configured max size.
 	c := newChannelCache(cacheSize)
 
 	// As a sanity check, assert that querying the empty cache does not
 	// return an entry.
-	_, ok := c.get(0)
+	_, ok := c.get(v, 0)
 	if ok {
 		t.Fatalf("channel cache should be empty")
 	}
 
 	// Now, fill up the cache entirely.
 	for i := uint64(0); i < cacheSize; i++ {
-		c.insert(i, channelForInt(i))
+		c.insert(v, i, channelForInt(i))
 	}
 
 	// Assert that the cache has all of the entries just inserted, since no
 	// eviction should occur until we try to surpass the max size.
-	assertHasChanEntries(t, c, 0, cacheSize)
+	assertHasChanEntries(t, c, v, 0, cacheSize)
 
 	// Now, insert a new element that causes the cache to evict an element.
-	c.insert(cacheSize, channelForInt(cacheSize))
+	c.insert(v, cacheSize, channelForInt(cacheSize))
 
 	// Assert that the cache has this last entry, as the cache should evict
 	// some prior element and not the newly inserted one.
-	assertHasChanEntries(t, c, cacheSize, cacheSize)
+	assertHasChanEntries(t, c, v, cacheSize, cacheSize)
 
 	// Iterate over all inserted elements and construct a set of the evicted
 	// elements.
 	evicted := make(map[uint64]struct{})
 	for i := uint64(0); i < cacheSize+1; i++ {
-		_, ok := c.get(i)
+		_, ok := c.get(v, i)
 		if !ok {
 			evicted[i] = struct{}{}
 		}
@@ -58,35 +61,37 @@ func TestChannelCache(t *testing.T) {
 
 	// Remove the highest item which initially caused the eviction and
 	// reinsert the element that was evicted prior.
-	c.remove(cacheSize)
+	c.remove(v, cacheSize)
 	for i := range evicted {
-		c.insert(i, channelForInt(i))
+		c.insert(v, i, channelForInt(i))
 	}
 
 	// Since the removal created an extra slot, the last insertion should
 	// not have caused an eviction and the entries for all channels in the
 	// original set that filled the cache should be present.
-	assertHasChanEntries(t, c, 0, cacheSize)
+	assertHasChanEntries(t, c, v, 0, cacheSize)
 
 	// Finally, reinsert the existing set back into the cache and test that
 	// the cache still has all the entries. If the randomized eviction were
 	// happening on inserts for existing cache items, we expect this to fail
 	// with high probability.
 	for i := uint64(0); i < cacheSize; i++ {
-		c.insert(i, channelForInt(i))
+		c.insert(v, i, channelForInt(i))
 	}
-	assertHasChanEntries(t, c, 0, cacheSize)
+	assertHasChanEntries(t, c, v, 0, cacheSize)
 
 }
 
 // assertHasEntries queries the edge cache for all channels in the range [start,
 // end), asserting that they exist and their value matches the entry produced by
 // entryForInt.
-func assertHasChanEntries(t *testing.T, c *channelCache, start, end uint64) {
+func assertHasChanEntries(t *testing.T, c *channelCache,
+	v lnwire.GossipVersion, start, end uint64) {
+
 	t.Helper()
 
 	for i := start; i < end; i++ {
-		entry, ok := c.get(i)
+		entry, ok := c.get(v, i)
 		if !ok {
 			t.Fatalf("channel cache should contain chan %d", i)
 		}

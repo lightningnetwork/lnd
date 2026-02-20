@@ -163,28 +163,42 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 	log.Info("Populating in-memory channel graph, this might take a " +
 		"while...")
 
-	err := c.db.ForEachNodeCacheable(ctx, func(node route.Vertex,
-		features *lnwire.FeatureVector) error {
+	for _, v := range []lnwire.GossipVersion{
+		gossipV1, gossipV2,
+	} {
+		// TODO(elle): If we have both v1 and v2 entries for the same
+		// node/channel, prefer v2 when merging.
+		err := c.db.ForEachNodeCacheable(ctx, v,
+			func(node route.Vertex,
+				features *lnwire.FeatureVector) error {
 
-		c.graphCache.AddNodeFeatures(node, features)
+				c.graphCache.AddNodeFeatures(node, features)
 
-		return nil
-	}, func() {})
-	if err != nil {
-		return err
-	}
+				return nil
+			}, func() {},
+		)
+		if err != nil && !errors.Is(
+			err, ErrVersionNotSupportedForKVDB,
+		) {
 
-	err = c.db.ForEachChannelCacheable(
-		func(info *models.CachedEdgeInfo,
-			policy1, policy2 *models.CachedEdgePolicy) error {
+			return err
+		}
 
-			c.graphCache.AddChannel(info, policy1, policy2)
+		err = c.db.ForEachChannelCacheable(
+			v, func(info *models.CachedEdgeInfo,
+				policy1,
+				policy2 *models.CachedEdgePolicy) error {
 
-			return nil
-		}, func() {},
-	)
-	if err != nil {
-		return err
+				c.graphCache.AddChannel(info, policy1, policy2)
+
+				return nil
+			}, func() {},
+		)
+		if err != nil &&
+			!errors.Is(err, ErrVersionNotSupportedForKVDB) {
+
+			return err
+		}
 	}
 
 	log.Infof("Finished populating in-memory channel graph (took %v, %s)",
@@ -210,7 +224,10 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(node route.Vertex,
 		return c.graphCache.ForEachChannel(node, cb)
 	}
 
-	return c.db.ForEachNodeDirectedChannel(node, cb, reset)
+	// TODO(elle): once the no-cache path needs to support
+	// pathfinding across gossip versions, this should iterate
+	// across all versions rather than defaulting to v1.
+	return c.db.ForEachNodeDirectedChannel(gossipV1, node, cb, reset)
 }
 
 // FetchNodeFeatures returns the features of the given node. If no features are
@@ -332,7 +349,9 @@ func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
 	if c.graphCache != nil {
 		// We need to add the channel back into our graph cache,
 		// otherwise we won't use it for path finding.
-		infos, err := c.db.FetchChanInfos([]uint64{chanID})
+		infos, err := c.db.FetchChanInfos(
+			lnwire.GossipVersion1, []uint64{chanID},
+		)
 		if err != nil {
 			return err
 		}
@@ -587,14 +606,6 @@ func (c *ChannelGraph) UpdateEdgePolicy(ctx context.Context,
 	return nil
 }
 
-// ForEachSourceNodeChannel iterates through all channels of the source node.
-func (c *ChannelGraph) ForEachSourceNodeChannel(ctx context.Context,
-	cb func(chanPoint wire.OutPoint, havePolicy bool,
-		otherNode *models.Node) error, reset func()) error {
-
-	return c.db.ForEachSourceNodeChannel(ctx, cb, reset)
-}
-
 // ForEachNodeChannel iterates through all channels of the given node.
 func (c *ChannelGraph) ForEachNodeChannel(ctx context.Context,
 	v lnwire.GossipVersion, nodePub route.Vertex,
@@ -614,10 +625,10 @@ func (c *ChannelGraph) ForEachNode(ctx context.Context,
 
 // ForEachNodeCacheable iterates through all stored vertices/nodes in the graph.
 func (c *ChannelGraph) ForEachNodeCacheable(ctx context.Context,
-	cb func(route.Vertex, *lnwire.FeatureVector) error,
-	reset func()) error {
+	v lnwire.GossipVersion, cb func(route.Vertex,
+		*lnwire.FeatureVector) error, reset func()) error {
 
-	return c.db.ForEachNodeCacheable(ctx, cb, reset)
+	return c.db.ForEachNodeCacheable(ctx, v, cb, reset)
 }
 
 // NodeUpdatesInHorizon returns all known lightning nodes with updates in the
@@ -650,17 +661,11 @@ func (c *ChannelGraph) ForEachChannel(ctx context.Context,
 	return c.db.ForEachChannel(ctx, v, cb, reset)
 }
 
-// ForEachChannelCacheable iterates through all channel edges for the cache.
-func (c *ChannelGraph) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
-	*models.CachedEdgePolicy, *models.CachedEdgePolicy) error,
-	reset func()) error {
-
-	return c.db.ForEachChannelCacheable(cb, reset)
-}
-
 // DisabledChannelIDs returns the channel ids of disabled channels.
-func (c *ChannelGraph) DisabledChannelIDs() ([]uint64, error) {
-	return c.db.DisabledChannelIDs()
+func (c *ChannelGraph) DisabledChannelIDs(v lnwire.GossipVersion) (
+	[]uint64, error) {
+
+	return c.db.DisabledChannelIDs(v)
 }
 
 // HasV1ChannelEdge returns true if the database knows of a channel edge.
@@ -684,14 +689,11 @@ func (c *ChannelGraph) AddEdgeProof(chanID lnwire.ShortChannelID,
 	return c.db.AddEdgeProof(chanID, proof)
 }
 
-// ChannelID attempts to lookup the 8-byte compact channel ID.
-func (c *ChannelGraph) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
-	return c.db.ChannelID(chanPoint)
-}
-
 // HighestChanID returns the "highest" known channel ID in the channel graph.
-func (c *ChannelGraph) HighestChanID(ctx context.Context) (uint64, error) {
-	return c.db.HighestChanID(ctx)
+func (c *ChannelGraph) HighestChanID(ctx context.Context,
+	v lnwire.GossipVersion) (uint64, error) {
+
+	return c.db.HighestChanID(ctx, v)
 }
 
 // ChanUpdatesInHorizon returns all known channel edges with updates in the
@@ -710,8 +712,10 @@ func (c *ChannelGraph) FilterChannelRange(startHeight, endHeight uint32,
 }
 
 // FetchChanInfos returns the set of channel edges for the passed channel IDs.
-func (c *ChannelGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
-	return c.db.FetchChanInfos(chanIDs)
+func (c *ChannelGraph) FetchChanInfos(v lnwire.GossipVersion,
+	chanIDs []uint64) ([]ChannelEdge, error) {
+
+	return c.db.FetchChanInfos(v, chanIDs)
 }
 
 // FetchChannelEdgesByOutpoint attempts to lookup directed edges by funding
@@ -906,6 +910,14 @@ func (c *VersionedGraph) HasChannelEdge(chanID uint64) (bool, bool, error) {
 	return c.db.HasChannelEdge(c.v, chanID)
 }
 
+// ForEachSourceNodeChannel iterates through all channels of the source node.
+func (c *VersionedGraph) ForEachSourceNodeChannel(ctx context.Context,
+	cb func(chanPoint wire.OutPoint, havePolicy bool,
+		otherNode *models.Node) error, reset func()) error {
+
+	return c.db.ForEachSourceNodeChannel(ctx, c.v, cb, reset)
+}
+
 // ForEachNodeChannel iterates through all channels of the given node.
 func (c *VersionedGraph) ForEachNodeChannel(ctx context.Context,
 	nodePub route.Vertex, cb func(*models.ChannelEdgeInfo,
@@ -921,6 +933,44 @@ func (c *VersionedGraph) ForEachChannel(ctx context.Context,
 		*models.ChannelEdgePolicy) error, reset func()) error {
 
 	return c.db.ForEachChannel(ctx, c.v, cb, reset)
+}
+
+// ForEachNodeCacheable iterates through all stored vertices/nodes in the graph.
+func (c *VersionedGraph) ForEachNodeCacheable(ctx context.Context,
+	cb func(route.Vertex, *lnwire.FeatureVector) error,
+	reset func()) error {
+
+	return c.db.ForEachNodeCacheable(ctx, c.v, cb, reset)
+}
+
+// ForEachChannelCacheable iterates through all channel edges for the cache.
+func (c *VersionedGraph) ForEachChannelCacheable(
+	cb func(*models.CachedEdgeInfo, *models.CachedEdgePolicy,
+		*models.CachedEdgePolicy) error, reset func()) error {
+
+	return c.db.ForEachChannelCacheable(c.v, cb, reset)
+}
+
+// DisabledChannelIDs returns the channel ids of disabled channels.
+func (c *VersionedGraph) DisabledChannelIDs() ([]uint64, error) {
+	return c.db.DisabledChannelIDs(c.v)
+}
+
+// FetchChanInfos returns the set of channel edges for the passed channel IDs.
+func (c *VersionedGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge,
+	error) {
+
+	return c.db.FetchChanInfos(c.v, chanIDs)
+}
+
+// HighestChanID returns the "highest" known channel ID in the channel graph.
+func (c *VersionedGraph) HighestChanID(ctx context.Context) (uint64, error) {
+	return c.db.HighestChanID(ctx, c.v)
+}
+
+// ChannelID attempts to lookup the 8-byte compact channel ID.
+func (c *VersionedGraph) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
+	return c.db.ChannelID(c.v, chanPoint)
 }
 
 // IsPublicNode determines whether the node is seen as public in the graph.

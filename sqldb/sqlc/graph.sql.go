@@ -2410,6 +2410,41 @@ func (q *Queries) GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error) {
 	return items, nil
 }
 
+const getV2DisabledSCIDs = `-- name: GetV2DisabledSCIDs :many
+SELECT c.scid
+FROM graph_channels c
+    JOIN graph_channel_policies cp ON cp.channel_id = c.id
+WHERE COALESCE(cp.disable_flags, 0) != 0
+AND c.version = 2
+GROUP BY c.scid
+HAVING COUNT(*) > 1
+`
+
+// NOTE: this is V2 specific since V2 uses a disable flag
+// bit vector instead of a single boolean.
+func (q *Queries) GetV2DisabledSCIDs(ctx context.Context) ([][]byte, error) {
+	rows, err := q.db.QueryContext(ctx, getV2DisabledSCIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items [][]byte
+	for rows.Next() {
+		var scid []byte
+		if err := rows.Scan(&scid); err != nil {
+			return nil, err
+		}
+		items = append(items, scid)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getZombieChannel = `-- name: GetZombieChannel :one
 SELECT scid, version, node_key_1, node_key_2
 FROM graph_zombie_channels
@@ -3299,6 +3334,7 @@ SELECT
     n2.pub_key AS node2_pubkey,
 
     -- Node 1 policy
+    cp1.version AS policy1_version,
     cp1.timelock AS policy_1_timelock,
     cp1.fee_ppm AS policy_1_fee_ppm,
     cp1.base_fee_msat AS policy_1_base_fee_msat,
@@ -3313,6 +3349,7 @@ SELECT
     cp1.disable_flags AS policy1_disable_flags,
 
     -- Node 2 policy
+    cp2.version AS policy2_version,
     cp2.timelock AS policy_2_timelock,
     cp2.fee_ppm AS policy_2_fee_ppm,
     cp2.base_fee_msat AS policy_2_base_fee_msat,
@@ -3350,6 +3387,7 @@ type ListChannelsWithPoliciesForCachePaginatedRow struct {
 	Capacity                       sql.NullInt64
 	Node1Pubkey                    []byte
 	Node2Pubkey                    []byte
+	Policy1Version                 sql.NullInt16
 	Policy1Timelock                sql.NullInt32
 	Policy1FeePpm                  sql.NullInt64
 	Policy1BaseFeeMsat             sql.NullInt64
@@ -3362,6 +3400,7 @@ type ListChannelsWithPoliciesForCachePaginatedRow struct {
 	Policy1ChannelFlags            sql.NullInt16
 	Policy1BlockHeight             sql.NullInt64
 	Policy1DisableFlags            sql.NullInt16
+	Policy2Version                 sql.NullInt16
 	Policy2Timelock                sql.NullInt32
 	Policy2FeePpm                  sql.NullInt64
 	Policy2BaseFeeMsat             sql.NullInt64
@@ -3391,6 +3430,7 @@ func (q *Queries) ListChannelsWithPoliciesForCachePaginated(ctx context.Context,
 			&i.Capacity,
 			&i.Node1Pubkey,
 			&i.Node2Pubkey,
+			&i.Policy1Version,
 			&i.Policy1Timelock,
 			&i.Policy1FeePpm,
 			&i.Policy1BaseFeeMsat,
@@ -3403,6 +3443,7 @@ func (q *Queries) ListChannelsWithPoliciesForCachePaginated(ctx context.Context,
 			&i.Policy1ChannelFlags,
 			&i.Policy1BlockHeight,
 			&i.Policy1DisableFlags,
+			&i.Policy2Version,
 			&i.Policy2Timelock,
 			&i.Policy2FeePpm,
 			&i.Policy2BaseFeeMsat,

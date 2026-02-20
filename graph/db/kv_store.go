@@ -496,9 +496,13 @@ func forEachChannel(db kvdb.Backend, cb func(*models.ChannelEdgeInfo,
 //
 // NOTE: this method is like ForEachChannel but fetches only the data required
 // for the graph cache.
-func (c *KVStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
-	*models.CachedEdgePolicy, *models.CachedEdgePolicy) error,
-	reset func()) error {
+func (c *KVStore) ForEachChannelCacheable(v lnwire.GossipVersion,
+	cb func(*models.CachedEdgeInfo, *models.CachedEdgePolicy,
+		*models.CachedEdgePolicy) error, reset func()) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	return c.db.View(func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)
@@ -665,8 +669,13 @@ func (c *KVStore) fetchNodeFeatures(tx kvdb.RTx,
 // Unknown policies are passed into the callback as nil values.
 //
 // NOTE: this is part of the graphdb.NodeTraverser interface.
-func (c *KVStore) ForEachNodeDirectedChannel(nodePub route.Vertex,
-	cb func(channel *DirectedChannel) error, reset func()) error {
+func (c *KVStore) ForEachNodeDirectedChannel(v lnwire.GossipVersion,
+	nodePub route.Vertex, cb func(channel *DirectedChannel) error,
+	reset func()) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	return c.forEachNodeDirectedChannel(nil, nodePub, cb, reset)
 }
@@ -763,7 +772,13 @@ func (c *KVStore) ForEachNodeCached(ctx context.Context, withAddrs bool,
 // DisabledChannelIDs returns the channel ids of disabled channels.
 // A channel is disabled when two of the associated ChanelEdgePolicies
 // have their disabled bit on.
-func (c *KVStore) DisabledChannelIDs() ([]uint64, error) {
+func (c *KVStore) DisabledChannelIDs(
+	v lnwire.GossipVersion) ([]uint64, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return nil, ErrVersionNotSupportedForKVDB
+	}
+
 	var disabledChanIDs []uint64
 	var chanEdgeFound map[uint64]struct{}
 
@@ -874,8 +889,12 @@ func forEachNode(db kvdb.Backend,
 // callback returns an error, then the transaction is aborted and the iteration
 // stops early.
 func (c *KVStore) ForEachNodeCacheable(_ context.Context,
-	cb func(route.Vertex, *lnwire.FeatureVector) error,
-	reset func()) error {
+	v lnwire.GossipVersion, cb func(route.Vertex,
+		*lnwire.FeatureVector) error, reset func()) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	traversal := func(tx kvdb.RTx) error {
 		// First grab the nodes bucket which stores the mapping from
@@ -1186,7 +1205,9 @@ func (c *KVStore) AddChannelEdge(ctx context.Context,
 				c.rejectCache.remove(
 					lnwire.GossipVersion1, edge.ChannelID,
 				)
-				c.chanCache.remove(edge.ChannelID)
+				c.chanCache.remove(
+					lnwire.GossipVersion1, edge.ChannelID,
+				)
 
 				return nil
 			}
@@ -1588,7 +1609,7 @@ func (c *KVStore) PruneGraph(spentOutputs []*wire.OutPoint,
 
 	for _, channel := range chansClosed {
 		c.rejectCache.remove(lnwire.GossipVersion1, channel.ChannelID)
-		c.chanCache.remove(channel.ChannelID)
+		c.chanCache.remove(lnwire.GossipVersion1, channel.ChannelID)
 	}
 
 	return chansClosed, prunedNodes, nil
@@ -1855,7 +1876,7 @@ func (c *KVStore) DisconnectBlockAtHeight(height uint32) (
 
 	for _, channel := range removedChans {
 		c.rejectCache.remove(lnwire.GossipVersion1, channel.ChannelID)
-		c.chanCache.remove(channel.ChannelID)
+		c.chanCache.remove(lnwire.GossipVersion1, channel.ChannelID)
 	}
 
 	return removedChans, nil
@@ -1974,7 +1995,7 @@ func (c *KVStore) DeleteChannelEdges(v lnwire.GossipVersion,
 
 	for _, chanID := range chanIDs {
 		c.rejectCache.remove(lnwire.GossipVersion1, chanID)
-		c.chanCache.remove(chanID)
+		c.chanCache.remove(lnwire.GossipVersion1, chanID)
 	}
 
 	return infos, nil
@@ -1983,7 +2004,13 @@ func (c *KVStore) DeleteChannelEdges(v lnwire.GossipVersion,
 // ChannelID attempt to lookup the 8-byte compact channel ID which maps to the
 // passed channel point (outpoint). If the passed channel doesn't exist within
 // the database, then ErrEdgeNotFound is returned.
-func (c *KVStore) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
+func (c *KVStore) ChannelID(v lnwire.GossipVersion,
+	chanPoint *wire.OutPoint) (uint64, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return 0, ErrVersionNotSupportedForKVDB
+	}
+
 	var chanID uint64
 	if err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		var err error
@@ -2029,7 +2056,13 @@ func getChanID(tx kvdb.RTx, chanPoint *wire.OutPoint) (uint64, error) {
 // HighestChanID returns the "highest" known channel ID in the channel graph.
 // This represents the "newest" channel from the PoV of the chain. This method
 // can be used by peers to quickly determine if they're graphs are in sync.
-func (c *KVStore) HighestChanID(_ context.Context) (uint64, error) {
+func (c *KVStore) HighestChanID(_ context.Context,
+	v lnwire.GossipVersion) (uint64, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return 0, ErrVersionNotSupportedForKVDB
+	}
+
 	var cid uint64
 
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
@@ -2104,7 +2137,7 @@ func (c *KVStore) updateChanCacheBatch(edgesToCache map[uint64]ChannelEdge) {
 	defer c.cacheMu.Unlock()
 
 	for cid, edge := range edgesToCache {
-		c.chanCache.insert(cid, edge)
+		c.chanCache.insert(lnwire.GossipVersion1, cid, edge)
 	}
 }
 
@@ -2256,7 +2289,10 @@ func (c *KVStore) fetchNextChanUpdateBatch(
 			}
 
 			// Check cache (we already hold shared read lock).
-			if channel, ok := c.chanCache.get(chanIDInt); ok {
+			channel, ok := c.chanCache.get(
+				lnwire.GossipVersion1, chanIDInt,
+			)
+			if ok {
 				state.edgesSeen[chanIDInt] = struct{}{}
 
 				batch = append(batch, channel)
@@ -2300,7 +2336,7 @@ func (c *KVStore) fetchNextChanUpdateBatch(
 
 			// Now we have all the information we need to build the
 			// channel edge.
-			channel := ChannelEdge{
+			channel = ChannelEdge{
 				Info:    edgeInfo,
 				Policy1: edge1,
 				Policy2: edge2,
@@ -2924,7 +2960,13 @@ func (c *KVStore) FilterChannelRange(startHeight,
 // skipped and the result will contain only those edges that exist at the time
 // of the query. This can be used to respond to peer queries that are seeking to
 // fill in gaps in their view of the channel graph.
-func (c *KVStore) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
+func (c *KVStore) FetchChanInfos(v lnwire.GossipVersion,
+	chanIDs []uint64) ([]ChannelEdge, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return nil, ErrVersionNotSupportedForKVDB
+	}
+
 	return c.fetchChanInfos(nil, chanIDs)
 }
 
@@ -3302,13 +3344,16 @@ func (c *KVStore) updateEdgeCache(e *models.ChannelEdgePolicy,
 	// the entry with the updated policy for the direction that was just
 	// written. If the edge doesn't exist, we'll defer loading the info and
 	// policies and lazily read from disk during the next query.
-	if channel, ok := c.chanCache.get(e.ChannelID); ok {
+	channel, ok := c.chanCache.get(
+		lnwire.GossipVersion1, e.ChannelID,
+	)
+	if ok {
 		if isUpdate1 {
 			channel.Policy1 = e
 		} else {
 			channel.Policy2 = e
 		}
-		c.chanCache.insert(e.ChannelID, channel)
+		c.chanCache.insert(lnwire.GossipVersion1, e.ChannelID, channel)
 	}
 }
 
@@ -3714,8 +3759,13 @@ func (c *KVStore) ForEachNodeChannel(_ context.Context,
 // channel's outpoint, whether we have a policy for the channel and the channel
 // peer's node information.
 func (c *KVStore) ForEachSourceNodeChannel(_ context.Context,
-	cb func(chanPoint wire.OutPoint, havePolicy bool,
-		otherNode *models.Node) error, reset func()) error {
+	v lnwire.GossipVersion, cb func(chanPoint wire.OutPoint,
+		havePolicy bool, otherNode *models.Node) error,
+	reset func()) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	return kvdb.View(c.db, func(tx kvdb.RTx) error {
 		nodes := tx.ReadBucket(nodeBucket)
@@ -4215,7 +4265,7 @@ func (c *KVStore) MarkEdgeZombie(chanID uint64,
 	}
 
 	c.rejectCache.remove(lnwire.GossipVersion1, chanID)
-	c.chanCache.remove(chanID)
+	c.chanCache.remove(lnwire.GossipVersion1, chanID)
 
 	return nil
 }
@@ -4284,7 +4334,7 @@ func (c *KVStore) markEdgeLiveUnsafe(tx kvdb.RwTx, chanID uint64) error {
 	}
 
 	c.rejectCache.remove(lnwire.GossipVersion1, chanID)
-	c.chanCache.remove(chanID)
+	c.chanCache.remove(lnwire.GossipVersion1, chanID)
 
 	return nil
 }
@@ -4450,8 +4500,9 @@ type nodeTraverserSession struct {
 // node.
 //
 // NOTE: Part of the NodeTraverser interface.
-func (c *nodeTraverserSession) ForEachNodeDirectedChannel(nodePub route.Vertex,
-	cb func(channel *DirectedChannel) error, _ func()) error {
+func (c *nodeTraverserSession) ForEachNodeDirectedChannel(
+	nodePub route.Vertex, cb func(channel *DirectedChannel) error,
+	_ func()) error {
 
 	return c.db.forEachNodeDirectedChannel(c.tx, nodePub, cb, func() {})
 }

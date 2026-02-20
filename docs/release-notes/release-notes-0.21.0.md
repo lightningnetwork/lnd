@@ -180,7 +180,8 @@
   nodes and channels [1](https://github.com/lightningnetwork/lnd/pull/10339)
     [2](https://github.com/lightningnetwork/lnd/pull/10379)
     [3](https://github.com/lightningnetwork/lnd/pull/10380)
-    [4](https://github.com/lightningnetwork/lnd/pull/10542).
+    [4](https://github.com/lightningnetwork/lnd/pull/10542),
+    [5](https://github.com/lightningnetwork/lnd/pull/10572).
 
 ## Code Health
 

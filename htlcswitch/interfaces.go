@@ -603,4 +603,8 @@ type AttemptStore interface {
 	// those listed in the keepPids map. This allows for a "delete all
 	// except" approach to cleanup.
 	CleanStore(keepPids map[uint64]struct{}) error
+
+	// DisableRemoteRouter checks for attempt entries and, if none are
+	// found, deletes the remote router marker from the database.
+	DisableRemoteRouter() error
 }

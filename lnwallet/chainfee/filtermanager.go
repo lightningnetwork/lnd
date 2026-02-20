@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/fn/v2"
 )
 
@@ -107,7 +107,7 @@ type bitcoindPeerInfoResp struct {
 	MinFeeFilter float64 `json:"minfeefilter"`
 }
 
-func fetchBitcoindFilters(client *rpcclient.Client) ([]SatPerKWeight, error) {
+func fetchBitcoindFilters(client *chain.BitcoindClient) ([]SatPerKWeight, error) {
 	resp, err := client.RawRequest("getpeerinfo", nil)
 	if err != nil {
 		return nil, err
@@ -159,7 +159,7 @@ func fetchBitcoindFilters(client *rpcclient.Client) ([]SatPerKWeight, error) {
 	return outboundPeerFilters, nil
 }
 
-func fetchBtcdFilters(client *rpcclient.Client) ([]SatPerKWeight, error) {
+func fetchBtcdFilters(client *chain.BtcdClient) ([]SatPerKWeight, error) {
 	resp, err := client.GetPeerInfo()
 	if err != nil {
 		return nil, err

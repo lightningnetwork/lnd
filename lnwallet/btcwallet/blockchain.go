@@ -72,7 +72,7 @@ func (b *BtcWallet) GetUtxo(op *wire.OutPoint, pkScript []byte,
 		// Otherwise, the output is assumed to be in the UTXO.
 		return spendReport.Output, nil
 
-	case *chain.RPCClient:
+	case *chain.BtcdClient:
 		txout, err := backend.GetTxOut(&op.Hash, op.Index, false)
 		if err != nil {
 			return nil, err

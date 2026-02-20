@@ -60,7 +60,7 @@ type BtcdNotifier struct {
 	active  int32 // To be used atomically.
 	stopped int32 // To be used atomically.
 
-	chainConn   *chain.RPCClient
+	chainConn   *chain.BtcdClient
 	chainParams *chaincfg.Params
 
 	notificationCancels  chan interface{}
@@ -135,14 +135,14 @@ func New(config *rpcclient.ConnConfig, chainParams *chaincfg.Params,
 		OnRedeemingTx:       notifier.onRedeemingTx,
 	}
 
-	rpcCfg := &chain.RPCClientConfig{
+	rpcCfg := &chain.BtcdConfig{
 		ReconnectAttempts:    20,
 		Conn:                 config,
 		Chain:                chainParams,
 		NotificationHandlers: ntfnCallbacks,
 	}
 
-	chainRPC, err := chain.NewRPCClientWithConfig(rpcCfg)
+	chainRPC, err := chain.NewBtcdClientWithConfig(rpcCfg)
 	if err != nil {
 		return nil, err
 	}

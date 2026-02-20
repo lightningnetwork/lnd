@@ -229,6 +229,11 @@ type Config struct {
 
 	// IsAlias returns whether or not a given SCID is an alias.
 	IsAlias func(scid lnwire.ShortChannelID) bool
+
+	// ExternalPaymentLifecycle indicates that the payment lifecycle is
+	// managed by an external entity, and the dispatcher's payment store
+	// should not be cleaned on startup.
+	ExternalPaymentLifecycle bool
 }
 
 // Switch is the central messaging bus for all incoming/outgoing HTLCs.

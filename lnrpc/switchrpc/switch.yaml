@@ -15,3 +15,6 @@ http:
     - selector: switchrpc.Switch.DeleteAttempts
       post: "/v2/switch/deleteattempts"
       body: "*"
+    - selector: switchrpc.Switch.DisableRemoteRouter
+      post: "/v2/switch/disableremoterouter"
+      body: "*"

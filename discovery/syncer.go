@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -210,7 +211,7 @@ var (
 // syncTransitionReq encapsulates a request for a gossip syncer sync transition.
 type syncTransitionReq struct {
 	newSyncType SyncerType
-	errChan     chan error
+	errPromise  actor.Promise[error]
 }
 
 // historicalSyncReq encapsulates a request for a gossip syncer to perform a
@@ -700,7 +701,9 @@ func (g *GossipSyncer) channelGraphSyncer(ctx context.Context) {
 		case syncerIdle:
 			select {
 			case req := <-g.syncTransitionReqs:
-				req.errChan <- g.handleSyncTransition(ctx, req)
+				completeGossipResult(
+					req.errPromise, g.handleSyncTransition(ctx, req),
+				)
 
 			case req := <-g.historicalSyncReqs:
 				g.handleHistoricalSync(req)
@@ -1776,11 +1779,12 @@ func (g *GossipSyncer) ResetSyncedSignal() chan struct{} {
 // NOTE: This can only be done once the gossip syncer has reached its final
 // chansSynced state.
 func (g *GossipSyncer) ProcessSyncTransition(newSyncType SyncerType) error {
-	errChan := make(chan error, 1)
+	promise := actor.NewPromise[error]()
+
 	select {
 	case g.syncTransitionReqs <- &syncTransitionReq{
 		newSyncType: newSyncType,
-		errChan:     errChan,
+		errPromise:  promise,
 	}:
 	case <-time.After(syncTransitionTimeout):
 		return ErrSyncTransitionTimeout
@@ -1788,12 +1792,14 @@ func (g *GossipSyncer) ProcessSyncTransition(newSyncType SyncerType) error {
 		return ErrGossipSyncerExiting
 	}
 
-	select {
-	case err := <-errChan:
-		return err
-	case <-g.cg.Done():
-		return ErrGossipSyncerExiting
-	}
+	// Use a timeout context so that the await does not block indefinitely
+	// if the syncer exits after accepting the request.
+	ctx, cancel := context.WithTimeout(
+		context.Background(), syncTransitionTimeout,
+	)
+	defer cancel()
+
+	return awaitGossipResult(ctx, promise.Future())
 }
 
 // handleSyncTransition handles a new sync type transition request.

@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/neutrino/cache"
 	"github.com/lightninglabs/neutrino/cache/lru"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -177,7 +178,7 @@ type networkMsg struct {
 
 	isRemote bool
 
-	err chan error
+	errPromise actor.Promise[error]
 }
 
 // chanPolicyUpdateRequest is a request that is sent to the server when a caller
@@ -186,7 +187,7 @@ type networkMsg struct {
 // updates committed to the lower layer.
 type chanPolicyUpdateRequest struct {
 	edgesToUpdate []EdgeWithInfo
-	errChan       chan error
+	errPromise    actor.Promise[error]
 }
 
 // PinnedSyncers is a set of node pubkeys for which we will maintain an active
@@ -646,19 +647,22 @@ type EdgeWithInfo struct {
 func (d *AuthenticatedGossiper) PropagateChanPolicyUpdate(
 	edgesToUpdate []EdgeWithInfo) error {
 
-	errChan := make(chan error, 1)
+	promise := actor.NewPromise[error]()
 	policyUpdate := &chanPolicyUpdateRequest{
 		edgesToUpdate: edgesToUpdate,
-		errChan:       errChan,
+		errPromise:    promise,
 	}
 
 	select {
 	case d.chanPolicyUpdates <- policyUpdate:
-		err := <-errChan
-		return err
 	case <-d.quit:
 		return fmt.Errorf("AuthenticatedGossiper shutting down")
 	}
+
+	ctx, cancel := lnutils.ContextFromQuit(d.quit)
+	defer cancel()
+
+	return awaitGossipResult(ctx, promise.Future())
 }
 
 // Start spawns network messages handler goroutine and registers on new block
@@ -829,7 +833,7 @@ func (d *AuthenticatedGossiper) resendFutureMessages(height uint32) {
 		select {
 		case d.networkMsgs <- msg:
 		case <-d.quit:
-			msg.err <- ErrGossiperShuttingDown
+			completeGossipResult(msg.errPromise, ErrGossiperShuttingDown)
 		}
 	}
 }
@@ -878,16 +882,9 @@ func (d *AuthenticatedGossiper) stop() {
 // peers.  Remote channel announcements should contain the announcement proof
 // and be fully validated.
 func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(ctx context.Context,
-	msg lnwire.Message, peer lnpeer.Peer) chan error {
+	msg lnwire.Message, peer lnpeer.Peer) actor.Future[error] {
 
-	// Buffer up to two messages on errChan since up to two messages may be
-	// written and not all callers of this function actually read from
-	// errChan. Without this buffer goroutines end up blocking on writes to
-	// errChan, which prevents the gossiper from shutting down cleanly.
-	//
-	// TODO(ziggie): Redesign this once the actor model pattern becomes
-	// available. See https://github.com/lightningnetwork/lnd/pull/9820.
-	errChan := make(chan error, 2)
+	promise := actor.NewPromise[error]()
 
 	// For messages in the known set of channel series queries, we'll
 	// dispatch the message directly to the GossipSyncer, and skip the main
@@ -903,8 +900,8 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(ctx context.Context,
 			log.Warnf("Gossip syncer for peer=%x not found",
 				peer.PubKey())
 
-			errChan <- ErrGossipSyncerNotFound
-			return errChan
+			completeGossipResult(promise, ErrGossipSyncerNotFound)
+			return promise.Future()
 		}
 
 		// If we've found the message target, then we'll dispatch the
@@ -915,8 +912,8 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(ctx context.Context,
 				peer.PubKey(), err)
 		}
 
-		errChan <- err
-		return errChan
+		completeGossipResult(promise, err)
+		return promise.Future()
 
 	// If a peer is updating its current update horizon, then we'll dispatch
 	// that directly to the proper GossipSyncer.
@@ -926,8 +923,8 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(ctx context.Context,
 			log.Warnf("Gossip syncer for peer=%x not found",
 				peer.PubKey())
 
-			errChan <- ErrGossipSyncerNotFound
-			return errChan
+			completeGossipResult(promise, ErrGossipSyncerNotFound)
+			return promise.Future()
 		}
 
 		// Queue the message for asynchronous processing to prevent
@@ -939,12 +936,12 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(ctx context.Context,
 			// Return nil to indicate we've handled the message,
 			// even though it was dropped. This prevents the peer
 			// from being disconnected.
-			errChan <- nil
-			return errChan
+			completeGossipResult(promise, nil)
+			return promise.Future()
 		}
 
-		errChan <- nil
-		return errChan
+		completeGossipResult(promise, nil)
+		return promise.Future()
 
 	// To avoid inserting edges in the graph for our own channels that we
 	// have already closed, we ignore such channel announcements coming
@@ -958,8 +955,8 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(ctx context.Context,
 			bytes.Equal(m.NodeID2[:], ownKey) {
 
 			log.Warn(ownErr)
-			errChan <- ownErr
-			return errChan
+			completeGossipResult(promise, ownErr)
+			return promise.Future()
 		}
 	}
 
@@ -968,25 +965,23 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(ctx context.Context,
 		isRemote: true,
 		peer:     peer,
 		source:   peer.IdentityKey(),
-		err:      errChan,
+		errPromise: promise,
 	}
 
 	select {
 	case d.networkMsgs <- nMsg:
 
-	// If the peer that sent us this error is quitting, then we don't need
-	// to send back an error and can return immediately.
-	// TODO(elle): the peer should now just rely on canceling the passed
-	//  context.
+	// If the peer that sent us this message is quitting, complete the
+	// promise so any awaiter does not block indefinitely.
 	case <-peer.QuitSignal():
-		return nil
+		completeGossipResult(promise, ErrGossiperShuttingDown)
 	case <-ctx.Done():
-		return nil
+		completeGossipResult(promise, ctx.Err())
 	case <-d.quit:
-		nMsg.err <- ErrGossiperShuttingDown
+		completeGossipResult(promise, ErrGossiperShuttingDown)
 	}
 
-	return nMsg.err
+	return promise.Future()
 }
 
 // ProcessLocalAnnouncement sends a new remote announcement message along with
@@ -997,7 +992,7 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(ctx context.Context,
 // entire channel announcement and update messages will be re-constructed and
 // broadcast to the rest of the network.
 func (d *AuthenticatedGossiper) ProcessLocalAnnouncement(msg lnwire.Message,
-	optionalFields ...OptionalMsgField) chan error {
+	optionalFields ...OptionalMsgField) actor.Future[error] {
 
 	optionalMsgFields := &optionalMsgFields{}
 	optionalMsgFields.apply(optionalFields...)
@@ -1007,16 +1002,16 @@ func (d *AuthenticatedGossiper) ProcessLocalAnnouncement(msg lnwire.Message,
 		optionalMsgFields: optionalMsgFields,
 		isRemote:          false,
 		source:            d.selfKey,
-		err:               make(chan error, 1),
+		errPromise:        actor.NewPromise[error](),
 	}
 
 	select {
 	case d.networkMsgs <- nMsg:
 	case <-d.quit:
-		nMsg.err <- ErrGossiperShuttingDown
+		completeGossipResult(nMsg.errPromise, ErrGossiperShuttingDown)
 	}
 
-	return nMsg.err
+	return nMsg.errPromise.Future()
 }
 
 // channelUpdateID is a unique identifier for ChannelUpdate messages, as
@@ -1506,7 +1501,7 @@ func (d *AuthenticatedGossiper) networkHandler(ctx context.Context) {
 			newChanUpdates, err := d.processChanPolicyUpdate(
 				ctx, policyUpdate.edgesToUpdate,
 			)
-			policyUpdate.errChan <- err
+			completeGossipResult(policyUpdate.errPromise, err)
 			if err != nil {
 				log.Errorf("Unable to craft policy updates: %v",
 					err)
@@ -1565,8 +1560,10 @@ func (d *AuthenticatedGossiper) networkHandler(ctx context.Context) {
 				sourceToPub(announcement.source),
 			) {
 
-				announcement.err <- fmt.Errorf("recently " +
-					"rejected")
+				completeGossipResult(
+					announcement.errPromise,
+					fmt.Errorf("recently rejected"),
+				)
 				continue
 			}
 
@@ -1577,7 +1574,7 @@ func (d *AuthenticatedGossiper) networkHandler(ctx context.Context) {
 				announcement.msg,
 			)
 			if err != nil {
-				announcement.err <- err
+				completeGossipResult(announcement.errPromise, err)
 				continue
 			}
 
@@ -1654,7 +1651,7 @@ func (d *AuthenticatedGossiper) handleNetworkMessages(ctx context.Context,
 			log.Warnf("unexpected error during validation "+
 				"barrier shutdown: %v", err)
 		}
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 
 		return
 	}
@@ -1676,7 +1673,7 @@ func (d *AuthenticatedGossiper) handleNetworkMessages(ctx context.Context,
 		log.Errorf("SignalDependents returned error for msg=%v with "+
 			"JobID=%v", lnutils.SpewLogClosure(nMsg.msg), jobID)
 
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 
 		return
 	}
@@ -1757,16 +1754,12 @@ func (d *AuthenticatedGossiper) finalizeGossipProcessing(logCtx context.Context,
 	}
 
 	// Send an error back to the caller if possible.
-	if nMsg != nil && nMsg.err != nil {
-		select {
-		case nMsg.err <- fmt.Errorf("panic while %s gossip "+
-			"message %s: %v", ctxStr, msgType, r):
-		default:
-			log.WarnS(logCtx, "Unable to send panic error, "+
-				"error channel blocked", nil,
-				slog.String("msg_type", msgType),
-			)
-		}
+	if nMsg != nil && nMsg.errPromise != nil {
+		completeGossipResult(
+			nMsg.errPromise,
+			fmt.Errorf("panic while %s gossip message %s: %v",
+				ctxStr, msgType, r),
+		)
 	}
 }
 
@@ -2220,15 +2213,16 @@ func (d *AuthenticatedGossiper) isPremature(chanID lnwire.ShortChannelID,
 	// Add the premature message to our future messages which will be
 	// resent once the block height has reached.
 	//
-	// Copy the networkMsgs since the old message's err chan will be
-	// consumed.
+	// Copy the networkMsg and allocate a fresh promise for the copy.
+	// The original message's errPromise is resolved by the caller with nil
+	// to indicate the message was accepted for deferred processing.
 	copied := &networkMsg{
 		peer:              msg.peer,
 		source:            msg.source,
 		msg:               msg.msg,
 		optionalMsgFields: msg.optionalMsgFields,
 		isRemote:          msg.isRemote,
-		err:               make(chan error, 1),
+		errPromise: actor.NewPromise[error](),
 	}
 
 	// Create the cached message.
@@ -2296,7 +2290,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(ctx context.Context,
 
 	default:
 		err := errors.New("wrong type of the announcement")
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 		return nil, false
 	}
 }
@@ -2586,7 +2580,7 @@ func (d *AuthenticatedGossiper) handleNodeAnnouncement(ctx context.Context,
 		log.Warnf("Rejecting node announcement from peer=%v: %v",
 			nMsg.peer, err)
 
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 
 		return nil, false
 	}
@@ -2595,7 +2589,7 @@ func (d *AuthenticatedGossiper) handleNodeAnnouncement(ctx context.Context,
 	// this node so we can skip validating signatures if not required.
 	if d.cfg.Graph.IsStaleNode(ctx, nodeAnn.NodeID, timestamp) {
 		log.Debugf("Skipped processing stale node: %x", nodeAnn.NodeID)
-		nMsg.err <- nil
+		completeGossipResult(nMsg.errPromise, nil)
 		return nil, true
 	}
 
@@ -2612,7 +2606,7 @@ func (d *AuthenticatedGossiper) handleNodeAnnouncement(ctx context.Context,
 			log.Error(err)
 		}
 
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 		return nil, false
 	}
 
@@ -2623,7 +2617,7 @@ func (d *AuthenticatedGossiper) handleNodeAnnouncement(ctx context.Context,
 	if err != nil {
 		log.Errorf("Unable to determine if node %x is advertised: %v",
 			nodeAnn.NodeID, err)
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 		return nil, false
 	}
 
@@ -2643,7 +2637,7 @@ func (d *AuthenticatedGossiper) handleNodeAnnouncement(ctx context.Context,
 			"due to being unadvertised", nodeAnn.NodeID)
 	}
 
-	nMsg.err <- nil
+	completeGossipResult(nMsg.errPromise, nil)
 	// TODO(roasbeef): get rid of the above
 
 	log.Debugf("Processed NodeAnnouncement1: peer=%v, timestamp=%v, "+
@@ -2680,7 +2674,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 		)
 		_, _ = d.recentRejects.Put(key, &cachedReject{})
 
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 		return nil, false
 	}
 
@@ -2698,7 +2692,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 		)
 		_, _ = d.recentRejects.Put(key, &cachedReject{})
 
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 		return nil, false
 	}
 
@@ -2710,7 +2704,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 			"advertises height %v, only height %v is known",
 			scid.ToUint64(), scid.BlockHeight, d.bestHeight)
 		d.Unlock()
-		nMsg.err <- nil
+		completeGossipResult(nMsg.errPromise, nil)
 		return nil, false
 	}
 	d.Unlock()
@@ -2718,7 +2712,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 	// At this point, we'll now ask the router if this is a zombie/known
 	// edge. If so we can skip all the processing below.
 	if d.cfg.Graph.IsKnownEdge(scid) {
-		nMsg.err <- nil
+		completeGossipResult(nMsg.errPromise, nil)
 		return nil, true
 	}
 
@@ -2728,7 +2722,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 	if err != nil {
 		log.Errorf("failed to check if scid %v is closed: %v", scid,
 			err)
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 
 		return nil, false
 	}
@@ -2738,7 +2732,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 
 		// If this is an announcement from us, we'll just ignore it.
 		if !nMsg.isRemote {
-			nMsg.err <- err
+			completeGossipResult(nMsg.errPromise, err)
 			return nil, false
 		}
 
@@ -2752,7 +2746,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 			err = dcErr
 		}
 
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 
 		return nil, false
 	}
@@ -2774,7 +2768,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 			_, _ = d.recentRejects.Put(key, &cachedReject{})
 
 			log.Error(err)
-			nMsg.err <- err
+			completeGossipResult(nMsg.errPromise, err)
 			return nil, false
 		}
 
@@ -2809,7 +2803,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 		_, _ = d.recentRejects.Put(key, &cachedReject{})
 
 		log.Errorf("unable to create channel edge: %v", err)
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 		return nil, false
 	}
 
@@ -2882,7 +2876,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 					log.Errorf("failed to mark scid(%v) "+
 						"as closed: %v", scid, dbErr)
 
-					nMsg.err <- dbErr
+					completeGossipResult(nMsg.errPromise, dbErr)
 
 					return nil, false
 				}
@@ -2898,7 +2892,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 				)
 				_, _ = d.recentRejects.Put(key, &cachedReject{})
 
-				nMsg.err <- err
+				completeGossipResult(nMsg.errPromise, err)
 
 				return nil, false
 			}
@@ -2906,7 +2900,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 			if !nMsg.isRemote {
 				log.Errorf("failed to add edge for local "+
 					"channel: %v", err)
-				nMsg.err <- err
+				completeGossipResult(nMsg.errPromise, err)
 
 				return nil, false
 			}
@@ -2922,7 +2916,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 				err = dcErr
 			}
 
-			nMsg.err <- err
+			completeGossipResult(nMsg.errPromise, err)
 
 			return nil, false
 		}
@@ -2963,7 +2957,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 				cr := &cachedReject{}
 				_, _ = d.recentRejects.Put(key, cr)
 
-				nMsg.err <- rErr
+				completeGossipResult(nMsg.errPromise, rErr)
 
 				return nil, false
 			}
@@ -2977,7 +2971,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 			//
 			// NOTE: since this is an ErrIgnored, we can return
 			// true here to signal "allow" to its dependants.
-			nMsg.err <- nil
+			completeGossipResult(nMsg.errPromise, nil)
 
 			return anns, true
 		}
@@ -2993,7 +2987,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 		if !nMsg.isRemote {
 			log.Errorf("failed to add edge for local channel: %v",
 				err)
-			nMsg.err <- err
+			completeGossipResult(nMsg.errPromise, err)
 
 			return nil, false
 		}
@@ -3002,7 +2996,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 		if dcErr != nil {
 			log.Errorf("failed to check if we should disconnect "+
 				"peer: %v", dcErr)
-			nMsg.err <- dcErr
+			completeGossipResult(nMsg.errPromise, dcErr)
 
 			return nil, false
 		}
@@ -3011,7 +3005,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 			nMsg.peer.Disconnect(ErrPeerBanned)
 		}
 
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 
 		return nil, false
 	}
@@ -3063,7 +3057,10 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 				select {
 				case d.networkMsgs <- updMsg:
 				case <-d.quit:
-					updMsg.err <- ErrGossiperShuttingDown
+					completeGossipResult(
+						updMsg.errPromise,
+						ErrGossiperShuttingDown,
+					)
 				}
 
 			// We don't expect any other message type than
@@ -3089,7 +3086,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 		})
 	}
 
-	nMsg.err <- nil
+	completeGossipResult(nMsg.errPromise, nil)
 
 	log.Debugf("Processed ChannelAnnouncement1: peer=%v, short_chan_id=%v",
 		nMsg.peer, scid.ToUint64())
@@ -3123,7 +3120,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 		)
 		_, _ = d.recentRejects.Put(key, &cachedReject{})
 
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 		return nil, false
 	}
 
@@ -3143,7 +3140,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 			"premature: advertises height %v, only height %v is "+
 			"known", shortChanID, blockHeight, d.bestHeight)
 		d.Unlock()
-		nMsg.err <- nil
+		completeGossipResult(nMsg.errPromise, nil)
 		return nil, false
 	}
 	d.Unlock()
@@ -3169,7 +3166,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 			}
 		}
 
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 
 		return nil, false
 	}
@@ -3201,7 +3198,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 			nMsg.peer, nMsg.msg.MsgType(), nMsg.isRemote,
 		)
 
-		nMsg.err <- nil
+		completeGossipResult(nMsg.errPromise, nil)
 		return nil, true
 	}
 
@@ -3213,7 +3210,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 
 		// If this is a channel_update from us, we'll just ignore it.
 		if !nMsg.isRemote {
-			nMsg.err <- err
+			completeGossipResult(nMsg.errPromise, err)
 			return nil, false
 		}
 
@@ -3229,7 +3226,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 			err = dcErr
 		}
 
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 
 		return nil, false
 	}
@@ -3247,7 +3244,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 		err = d.processZombieUpdate(ctx, chanInfo, graphScid, upd)
 		if err != nil {
 			log.Debug(err)
-			nMsg.err <- err
+			completeGossipResult(nMsg.errPromise, err)
 			return nil, false
 		}
 
@@ -3316,7 +3313,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 		err := fmt.Errorf("unable to validate channel update "+
 			"short_chan_id=%v: %v", shortChanID, err)
 		log.Error(err)
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 
 		key := newRejectCacheKey(
 			upd.GossipVersion(),
@@ -3359,7 +3356,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 			lnutils.SpewLogClosure(upd.ShortChannelID), err)
 
 		log.Error(rErr)
-		nMsg.err <- rErr
+		completeGossipResult(nMsg.errPromise, rErr)
 		return nil, false
 	}
 
@@ -3376,7 +3373,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 				log.Debugf("Ignoring keep alive update not "+
 					"within %v period for channel %v",
 					d.cfg.RebroadcastInterval, shortChanID)
-				nMsg.err <- nil
+				completeGossipResult(nMsg.errPromise, nil)
 				return nil, false
 			}
 		} else {
@@ -3409,7 +3406,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 				log.Debugf("Rate limiting update for channel "+
 					"%v from direction %x", shortChanID,
 					pubKey.SerializeCompressed())
-				nMsg.err <- nil
+				completeGossipResult(nMsg.errPromise, nil)
 				return nil, false
 			}
 		}
@@ -3426,7 +3423,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 		chanInfo.ChannelID, upd,
 	)
 	if err != nil {
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 		return nil, false
 	}
 
@@ -3452,7 +3449,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 				shortChanID, err)
 		}
 
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 		return nil, false
 	}
 
@@ -3476,14 +3473,14 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 				sig, err := d.cfg.SignAliasUpdate(upd)
 				if err != nil {
 					log.Error(err)
-					nMsg.err <- err
+					completeGossipResult(nMsg.errPromise, err)
 					return nil, false
 				}
 
 				lnSig, err := lnwire.NewSigFromSignature(sig)
 				if err != nil {
 					log.Error(err)
-					nMsg.err <- err
+					completeGossipResult(nMsg.errPromise, err)
 					return nil, false
 				}
 
@@ -3507,7 +3504,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 			err := fmt.Errorf("unable to reliably send %v for "+
 				"channel=%v to peer=%x: %v", upd.MsgType(),
 				upd.ShortChannelID, remotePubKey, err)
-			nMsg.err <- err
+			completeGossipResult(nMsg.errPromise, err)
 			return nil, false
 		}
 	}
@@ -3527,7 +3524,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 		})
 	}
 
-	nMsg.err <- nil
+	completeGossipResult(nMsg.errPromise, nil)
 
 	log.Debugf("Processed ChannelUpdate: peer=%v, short_chan_id=%v, "+
 		"timestamp=%v", nMsg.peer, upd.ShortChannelID.ToUint64(),
@@ -3566,7 +3563,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 			"lower than needed: %v < %v", d.bestHeight,
 			needBlockHeight)
 		d.Unlock()
-		nMsg.err <- nil
+		completeGossipResult(nMsg.errPromise, nil)
 		return nil, false
 	}
 	d.Unlock()
@@ -3589,7 +3586,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 			err := fmt.Errorf("unable to store the proof for "+
 				"short_chan_id=%v: %v", shortChanID, err)
 			log.Error(err)
-			nMsg.err <- err
+			completeGossipResult(nMsg.errPromise, err)
 
 			return nil, false
 		}
@@ -3600,13 +3597,13 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 			err := fmt.Errorf("unable to store the proof for "+
 				"short_chan_id=%v: %v", shortChanID, err)
 			log.Error(err)
-			nMsg.err <- err
+			completeGossipResult(nMsg.errPromise, err)
 			return nil, false
 		}
 
 		log.Infof("Orphan %v proof announcement with short_chan_id=%v"+
 			", adding to waiting batch", prefix, shortChanID)
-		nMsg.err <- nil
+		completeGossipResult(nMsg.errPromise, nil)
 		return nil, false
 	}
 
@@ -3621,7 +3618,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 			"to the peer which sent the proof, short_chan_id=%v",
 			shortChanID)
 		log.Error(err)
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 		return nil, false
 	}
 
@@ -3644,7 +3641,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 			err := fmt.Errorf("unable to reliably send %v for "+
 				"channel=%v to peer=%x: %v", ann.MsgType(),
 				ann.ShortChannelID, remotePubKey, err)
-			nMsg.err <- err
+			completeGossipResult(nMsg.errPromise, err)
 			return nil, false
 		}
 	}
@@ -3691,7 +3688,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 
 		log.Debugf("Already have proof for channel with chanID=%v",
 			ann.ChannelID)
-		nMsg.err <- nil
+		completeGossipResult(nMsg.errPromise, nil)
 		return nil, true
 	}
 
@@ -3706,7 +3703,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 		err := fmt.Errorf("unable to get the opposite proof for "+
 			"short_chan_id=%v: %v", shortChanID, err)
 		log.Error(err)
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 		return nil, false
 	}
 
@@ -3716,7 +3713,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 			err := fmt.Errorf("unable to store the proof for "+
 				"short_chan_id=%v: %v", shortChanID, err)
 			log.Error(err)
-			nMsg.err <- err
+			completeGossipResult(nMsg.errPromise, err)
 			return nil, false
 		}
 
@@ -3724,7 +3721,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 			"short_chan_id=%v, waiting for other half",
 			shortChanID)
 
-		nMsg.err <- nil
+		completeGossipResult(nMsg.errPromise, nil)
 		return nil, false
 	}
 
@@ -3757,7 +3754,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 	)
 	if err != nil {
 		log.Error(err)
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 		return nil, false
 	}
 
@@ -3769,7 +3766,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 			"short_chan_id=%v isn't valid: %v", shortChanID, err)
 
 		log.Error(err)
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 		return nil, false
 	}
 
@@ -3784,7 +3781,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 		err := fmt.Errorf("unable add proof to the channel chanID=%v:"+
 			" %v", ann.ChannelID, err)
 		log.Error(err)
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 		return nil, false
 	}
 
@@ -3793,7 +3790,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 		err := fmt.Errorf("unable to remove opposite proof for the "+
 			"channel with chanID=%v: %v", ann.ChannelID, err)
 		log.Error(err)
-		nMsg.err <- err
+		completeGossipResult(nMsg.errPromise, err)
 		return nil, false
 	}
 
@@ -3860,7 +3857,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 		}
 	}
 
-	nMsg.err <- nil
+	completeGossipResult(nMsg.errPromise, nil)
 	return announcements, true
 }
 

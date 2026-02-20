@@ -2049,13 +2049,11 @@ func newDiscMsgStream(p *Brontide) *msgStream {
 		// deleted.
 		p.log.Debugf("Processing remote msg %T", msg)
 
-		// TODO(ziggie): ProcessRemoteAnnouncement returns an error
-		// channel, but we cannot rely on it being written to.
-		// Because some messages might never be processed (e.g.
-		// premature channel updates). We should change the design here
-		// and use the actor model pattern as soon as it is available.
-		// So for now we should NOT use the error channel.
-		// See https://github.com/lightningnetwork/lnd/pull/9820.
+		// The returned Future[error] is intentionally not awaited
+		// here. Remote gossip messages are fire-and-forget from the
+		// peer's perspective: the gossiper processes them
+		// asynchronously, and an unawaited Future carries no cost
+		// (no goroutine, no channel leak).
 		p.cfg.AuthGossiper.ProcessRemoteAnnouncement(ctx, msg, p)
 	}
 

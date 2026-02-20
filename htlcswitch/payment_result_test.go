@@ -109,7 +109,8 @@ func TestNetworkResultStore(t *testing.T) {
 
 	db := channeldb.OpenForTesting(t, t.TempDir())
 
-	store := newNetworkResultStore(db)
+	store, err := newNetworkResultStore(db, false)
+	require.NoError(t, err)
 
 	var results []*networkResult
 	for i := 0; i < numResults; i++ {
@@ -348,7 +349,8 @@ func TestNetworkResultStoreCleanStore(t *testing.T) {
 				cleanup()
 			})
 
-			store := newNetworkResultStore(backend)
+			store, err := newNetworkResultStore(backend, false)
+			require.NoError(t, err)
 
 			// Store a result for every attempt ID.
 			for i := range test.numResults {
@@ -431,7 +433,8 @@ func BenchmarkPostgresNetworkResultStoreCleanStore(b *testing.B) {
 				cleanup()
 			})
 
-			store := newNetworkResultStore(backend)
+			store, err := newNetworkResultStore(backend, false)
+			require.NoError(b, err)
 			keep := make(map[uint64]struct{}, test.numKeep)
 			for i := range test.numKeep {
 				keep[i] = struct{}{}
@@ -490,7 +493,8 @@ func TestNetworkResultStoreFailAndFetch(t *testing.T) {
 	t.Parallel()
 
 	db := channeldb.OpenForTesting(t, t.TempDir())
-	store := newNetworkResultStore(db)
+	store, err := newNetworkResultStore(db, false)
+	require.NoError(t, err)
 
 	// Test FetchPendingAttempts on an empty store.
 	pending, err := store.FetchPendingAttempts()
@@ -594,7 +598,8 @@ func TestDeleteAttempts(t *testing.T) {
 	t.Parallel()
 
 	db := channeldb.OpenForTesting(t, t.TempDir())
-	store := newNetworkResultStore(db)
+	store, err := newNetworkResultStore(db, false)
+	require.NoError(t, err)
 
 	// Helper to create and store a settled result.
 	storeSettled := func(t *testing.T, id uint64) {
@@ -792,7 +797,8 @@ func TestDeleteAttemptsProperties(t *testing.T) {
 
 		rapid.Check(t, func(rt *rapid.T) {
 			db := channeldb.OpenForTesting(t, t.TempDir())
-			store := newNetworkResultStore(db)
+			store, err := newNetworkResultStore(db, false)
+			require.NoError(t, err)
 
 			// Generate a random number of records.
 			numPending := rapid.IntRange(1, 10).Draw(
@@ -885,7 +891,8 @@ func TestDeleteAttemptsProperties(t *testing.T) {
 
 		rapid.Check(t, func(rt *rapid.T) {
 			db := channeldb.OpenForTesting(t, t.TempDir())
-			store := newNetworkResultStore(db)
+			store, err := newNetworkResultStore(db, false)
+			require.NoError(t, err)
 
 			numIDs := rapid.IntRange(0, 20).Draw(rt, "numIDs")
 			ids := make([]uint64, numIDs)
@@ -945,7 +952,8 @@ func TestDeleteAttemptsProperties(t *testing.T) {
 
 		rapid.Check(t, func(rt *rapid.T) {
 			db := channeldb.OpenForTesting(t, t.TempDir())
-			store := newNetworkResultStore(db)
+			store, err := newNetworkResultStore(db, false)
+			require.NoError(t, err)
 
 			numTerminal := rapid.IntRange(1, 10).Draw(
 				rt, "numTerminal",
@@ -999,7 +1007,8 @@ func TestDeleteAttemptsProperties(t *testing.T) {
 
 		rapid.Check(t, func(rt *rapid.T) {
 			db := channeldb.OpenForTesting(t, t.TempDir())
-			store := newNetworkResultStore(db)
+			store, err := newNetworkResultStore(db, false)
+			require.NoError(t, err)
 
 			numTerminal := rapid.IntRange(1, 15).Draw(
 				rt, "numTerminal",
@@ -1057,7 +1066,8 @@ func TestDeleteAttemptsProperties(t *testing.T) {
 
 		rapid.Check(t, func(rt *rapid.T) {
 			db := channeldb.OpenForTesting(t, t.TempDir())
-			store := newNetworkResultStore(db)
+			store, err := newNetworkResultStore(db, false)
+			require.NoError(t, err)
 
 			numTarget := rapid.IntRange(1, 10).Draw(
 				rt, "numTarget",
@@ -1113,7 +1123,7 @@ func TestDeleteAttemptsProperties(t *testing.T) {
 			}
 
 			// Delete only the target IDs.
-			_, err := store.DeleteAttempts(targetIDs)
+			_, err = store.DeleteAttempts(targetIDs)
 			require.NoError(t, err)
 
 			// PROPERTY: Every bystander record is still in the

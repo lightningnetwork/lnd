@@ -360,9 +360,18 @@ func (r *ChannelRouter) Start() error {
 	log.Info("Channel Router starting")
 
 	// If any payments are still in flight, we resume, to make sure their
-	// results are properly handled.
+	// results are properly handled. In remote router mode, a failure here
+	// is fatal (e.g. in-flight local payments would collide with the
+	// remote router's attempt ID space). In normal mode, we log the error
+	// but continue — the daemon being online for breach protection is
+	// more important than payment resumption.
 	if err := r.resumePayments(); err != nil {
-		log.Error("Failed to resume payments during startup")
+		if r.cfg.ExternalPaymentLifecycle {
+			return fmt.Errorf("failed to resume payments: %w", err)
+		}
+
+		log.Errorf("Failed to resume payments during startup: %v",
+			err)
 	}
 
 	return nil
@@ -1420,6 +1429,34 @@ func (r *ChannelRouter) BuildRoute(amt fn.Option[lnwire.MilliSatoshi],
 // resumePayments fetches inflight payments and resumes their payment
 // lifecycles.
 func (r *ChannelRouter) resumePayments() error {
+	// When the payment lifecycle is managed externally via a remote
+	// router, the local ChannelRouter must not resume payments. If there
+	// are any in-flight payments from a previous local-router session,
+	// refuse to start. The operator must either restart without the
+	// switchrpc build tag to let those payments complete, or call the
+	// DisableRemoteRouter RPC to clear the remote router marker first.
+	if r.cfg.ExternalPaymentLifecycle {
+		payments, err := r.cfg.Control.FetchInFlightPayments()
+		if err != nil {
+			return err
+		}
+
+		if len(payments) > 0 {
+			return fmt.Errorf("cannot start with switchrpc "+
+				"build tag: %d in-flight payment(s) exist "+
+				"from a previous session; restart without "+
+				"the switchrpc tag to let them complete, "+
+				"or use the DisableRemoteRouter RPC to "+
+				"clear the remote router marker",
+				len(payments))
+		}
+
+		log.Infof("Dispatcher managed externally, no in-flight " +
+			"payments found. Skipping payment resume.")
+
+		return nil
+	}
+
 	// Get all payments that are inflight.
 	log.Debugf("Scanning for inflight payments")
 	payments, err := r.cfg.Control.FetchInFlightPayments()

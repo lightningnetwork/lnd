@@ -42,6 +42,14 @@ var (
 	ErrAmbiguousAttemptInit = errors.New(
 		"ambiguous result for payment attempt registration",
 	)
+
+	// ErrAttemptEntriesExist is returned when DisableRemoteRouter is
+	// called but there are still attempt entries in the network result
+	// store that have not been cleaned up.
+	ErrAttemptEntriesExist = errors.New(
+		"attempt entries exist in store",
+	)
+
 	// externalLifecycleMarkerBucket is a top-level bucket whose
 	// existence indicates that the payment lifecycle is managed
 	// externally. It prevents a local-mode binary from cleaning the
@@ -669,4 +677,28 @@ func newInternalFailureResult(linkErr *LinkError) (*networkResult, error) {
 		// This is a local failure.
 		unencrypted: true,
 	}, nil
+}
+
+// DisableRemoteRouter checks for attempt entries in the network result store
+// and if none are found, deletes the remote router marker from the database.
+func (store *networkResultStore) DisableRemoteRouter() error {
+	return store.backend.Update(func(tx kvdb.RwTx) error {
+		// First, check if there are any attempt entries.
+		bucket := tx.ReadBucket(networkResultStoreBucketKey)
+		if bucket != nil {
+			cursor := bucket.ReadCursor()
+			k, _ := cursor.First()
+			if k != nil {
+				return ErrAttemptEntriesExist
+			}
+		}
+
+		// If there are no pending payments, we can delete the marker.
+		err := tx.DeleteTopLevelBucket(externalLifecycleMarkerBucket)
+		if err != nil && !errors.Is(err, kvdb.ErrBucketNotFound) {
+			return err
+		}
+
+		return nil
+	}, func() {})
 }

@@ -2266,7 +2266,7 @@
     },
     "/v1/onionmessage": {
       "post": {
-        "summary": "lncli: `sendonion`\nSendOnionMessage sends an onion message to a peer.",
+        "summary": "lncli: `sendonionmessage`\nSendOnionMessage sends an onion message to a peer.",
         "operationId": "Lightning_SendOnionMessage",
         "responses": {
           "200": {
@@ -2299,7 +2299,7 @@
     },
     "/v1/onionmessage/subscribe": {
       "get": {
-        "summary": "lncli: `subscribeonion`\nSubscribeOnionMessages subscribes to a stream of incoming onion messages.",
+        "summary": "lncli: `subscribeonionmessage`\nSubscribeOnionMessages subscribes to a stream of incoming onion messages.",
         "operationId": "Lightning_SubscribeOnionMessages",
         "responses": {
           "200": {

@@ -104,6 +104,9 @@
 * The `estimatefee` command now supports the `--utxos` flag to specify explicit
   inputs for fee estimation.
 
+* [`SendOnionMessage` and `SubscribeOnionMessages`](https://github.com/lightningnetwork/lnd/pull/10560)
+  RPCs now have corresponding `lncli` commands.
+
 # Improvements
 ## Functional Updates
 
@@ -189,6 +192,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Abdulkbk
 * Boris Nagaev
 * Elle Mouton
 * Erick Cestari

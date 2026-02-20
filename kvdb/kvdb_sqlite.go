@@ -17,7 +17,10 @@ const (
 	// tag is defined. This will allow testing of other database backends.
 	SqliteBackend = true
 
-	testMaxConnections = 50
+	// Sqlite allows for concurrent reads however writers are limited to
+	// 1 so we select 2 here to allow for concurrent reads but keep the
+	// number of connections low to avoid write contention.
+	testMaxConnections = 2
 )
 
 // StartSqliteTestBackend starts a sqlite backed wallet.DB instance

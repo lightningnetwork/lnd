@@ -42,6 +42,12 @@ var (
 	ErrAmbiguousAttemptInit = errors.New(
 		"ambiguous result for payment attempt registration",
 	)
+	// externalLifecycleMarkerBucket is a top-level bucket whose
+	// existence indicates that the payment lifecycle is managed
+	// externally. It prevents a local-mode binary from cleaning the
+	// attempt store on startup, which would destroy state needed by
+	// the external manager.
+	externalLifecycleMarkerBucket = []byte("external-lifecycle-marker")
 )
 
 const (
@@ -124,12 +130,61 @@ type networkResultStore struct {
 	attemptIDMtx *multimutex.Mutex[uint64]
 }
 
-func newNetworkResultStore(db kvdb.Backend) *networkResultStore {
+func newNetworkResultStore(db kvdb.Backend,
+	externalLifecycle bool) (*networkResultStore, error) {
+
+	// Check for a state mismatch. If the payment lifecycle is managed
+	// locally but the database has been marked for external management,
+	// we must exit to prevent data loss.
+	if !externalLifecycle {
+		var isMarkedExternal bool
+		err := db.View(func(tx kvdb.RTx) error {
+			if tx.ReadBucket(externalLifecycleMarkerBucket) != nil {
+				isMarkedExternal = true
+			}
+
+			return nil
+		}, func() {
+			isMarkedExternal = false
+		})
+		if err != nil {
+			return nil, fmt.Errorf("unable to check for "+
+				"external lifecycle marker: %w", err)
+		}
+
+		if isMarkedExternal {
+			return nil, fmt.Errorf("the htlc attempt database is " +
+				"marked for external lifecycle management " +
+				"by a switchrpc build, but this binary is " +
+				"in local management mode. Halting to " +
+				"prevent data loss. To use this database, " +
+				"restart with an lnd build that includes " +
+				"the `switchrpc` build tag")
+		}
+	}
+
+	// If the payment lifecycle is managed externally, write the marker.
+	// This is placed after the check above to ensure we don't write and
+	// then immediately fail in a misconfigured dev environment.
+	if externalLifecycle {
+		err := db.Update(func(tx kvdb.RwTx) error {
+			_, err := tx.CreateTopLevelBucket(
+				externalLifecycleMarkerBucket,
+			)
+
+			return err
+		}, func() {})
+		if err != nil {
+			return nil, fmt.Errorf("unable to write external "+
+				"lifecycle marker: %w", err)
+		}
+	}
+
 	return &networkResultStore{
 		backend:      db,
 		results:      make(map[uint64][]chan *networkResult),
 		attemptIDMtx: multimutex.NewMutex[uint64](),
-	}
+	}, nil
 }
 
 // InitAttempt initializes the payment attempt with the given attemptID.

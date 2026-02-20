@@ -4,6 +4,7 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"encoding/binary"
+	"errors"
 	"io"
 	"math/rand"
 	"net"
@@ -15,6 +16,8 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
@@ -30,9 +33,11 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/onionmessage"
 	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/stretchr/testify/require"
 )
 
@@ -694,11 +699,50 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 	var pubKey [33]byte
 	copy(pubKey[:], aliceKeyPub.SerializeCompressed())
 
+	// We have to have a valid server key for brontide to start up properly.
+	serverKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	var serverKeyArr [33]byte
+	copy(serverKeyArr[:], serverKey.PubKey().SerializeCompressed())
+
+	router := sphinx.NewRouter(
+		&sphinx.PrivKeyECDH{PrivKey: aliceKeyPriv},
+		sphinx.NewMemoryReplayLog(),
+	)
+	require.NoError(t, router.Start())
+	t.Cleanup(func() {
+		router.Stop()
+	})
+
+	onionMsgServer := subscribe.NewServer()
+	require.NoError(t, onionMsgServer.Start())
+	t.Cleanup(func() {
+		require.NoError(t, onionMsgServer.Stop())
+	})
+
+	actorSystem := actor.NewActorSystem()
+	t.Cleanup(func() {
+		require.NoError(t, actorSystem.Shutdown())
+	})
+
+	// Create the onion endpoint for tests.
+	onionEndpoint, err := onionmessage.NewOnionEndpoint(
+		actorSystem.Receptionist(),
+		router,
+		&noopNodeIDResolver{},
+		onionmessage.WithMessageServer(onionMsgServer),
+	)
+	require.NoError(t, err)
+
 	estimator := chainfee.NewStaticEstimator(12500, 0)
 
 	cfg := &Config{
 		Addr:              cfgAddr,
 		PubKeyBytes:       pubKey,
+		ServerPubKey:      serverKeyArr,
+		OnionEndpoint:     onionEndpoint,
+		ActorSystem:       actorSystem,
 		ErrorBuffer:       errBuffer,
 		ChainIO:           chainIO,
 		Switch:            mockSwitch,
@@ -801,4 +845,15 @@ func startPeer(t *testing.T, mockConn *mockMessageConn,
 	require.True(t, ok)
 
 	return done
+}
+
+// noopNodeIDResolver is a resolver that returns an error for all lookups.
+// Used in tests that don't need onion message SCID resolution.
+type noopNodeIDResolver struct{}
+
+// RemotePubFromSCID implements onionmessage.NodeIDResolver.
+func (n *noopNodeIDResolver) RemotePubFromSCID(
+	lnwire.ShortChannelID) (*btcec.PublicKey, error) {
+
+	return nil, errors.New("noop resolver")
 }

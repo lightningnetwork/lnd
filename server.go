@@ -27,6 +27,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
@@ -67,6 +68,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/onionmessage"
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
@@ -376,7 +378,9 @@ type server struct {
 
 	chainArb *contractcourt.ChainArbitrator
 
-	sphinx *hop.OnionProcessor
+	sphinxPayment *hop.OnionProcessor
+
+	sphinxOnionMsg *sphinx.Router
 
 	towerClientMgr *wtclient.Manager
 
@@ -420,6 +424,14 @@ type server struct {
 	customMessageServer *subscribe.Server
 
 	onionMessageServer *subscribe.Server
+
+	// onionEndpoint handles incoming onion messages and routes them to the
+	// appropriate peer actor for forwarding or processes them locally.
+	onionEndpoint *onionmessage.OnionEndpoint
+
+	// actorSystem is the actor system tasked with handling actors that are
+	// created for this server.
+	actorSystem *actor.ActorSystem
 
 	// txPublisher is a publisher with fee-bumping capability.
 	txPublisher *sweep.TxPublisher
@@ -606,6 +618,12 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	)
 	sphinxRouter := sphinx.NewRouter(nodeKeyECDH, replayLog)
 
+	// Initialize the onion message sphinx router. This router doesn't need
+	// replay protection.
+	sphinxOnionMsg := sphinx.NewRouter(
+		nodeKeyECDH, sphinx.NewNoOpReplayLog(),
+	)
+
 	writeBufferPool := pool.NewWriteBuffer(
 		pool.DefaultWriteBufferGCInterval,
 		pool.DefaultWriteBufferExpiryInterval,
@@ -649,6 +667,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		NoTaprootChans:               !cfg.ProtocolOptions.TaprootChans,
 		NoTaprootOverlay:             !cfg.ProtocolOptions.TaprootOverlayChans,
 		NoRouteBlinding:              cfg.ProtocolOptions.NoRouteBlinding(),
+		NoOnionMessages:              cfg.ProtocolOptions.NoOnionMessages(),
 		NoExperimentalAccountability: cfg.ProtocolOptions.NoExpAccountability(),
 		NoQuiescence:                 cfg.ProtocolOptions.NoQuiescence(),
 		NoRbfCoopClose:               !cfg.ProtocolOptions.RbfCoopClose,
@@ -707,7 +726,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule
-		sphinx: hop.NewOnionProcessor(sphinxRouter),
+		sphinxPayment:  hop.NewOnionProcessor(sphinxRouter),
+		sphinxOnionMsg: sphinxOnionMsg,
 
 		torController: torController,
 
@@ -732,6 +752,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		customMessageServer: subscribe.NewServer(),
 
 		onionMessageServer: subscribe.NewServer(),
+
+		actorSystem: actor.NewActorSystem(),
 
 		tlsManager: tlsManager,
 
@@ -794,7 +816,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		},
 		FwdingLog:              dbs.ChanStateDB.ForwardingLog(),
 		SwitchPackager:         channeldb.NewSwitchPackager(),
-		ExtractErrorEncrypter:  s.sphinx.ExtractErrorEncrypter,
+		ExtractErrorEncrypter:  s.sphinxPayment.ExtractErrorEncrypter,
 		FetchLastChannelUpdate: s.fetchLastChanUpdate(),
 		Notifier:               s.cc.ChainNotifier,
 		HtlcNotifier:           s.htlcNotifier,
@@ -1346,7 +1368,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		Registry:                      s.invoices,
 		NotifyClosedChannel:           s.channelNotifier.NotifyClosedChannelEvent,
 		NotifyFullyResolvedChannel:    s.channelNotifier.NotifyFullyResolvedChannelEvent,
-		OnionProcessor:                s.sphinx,
+		OnionProcessor:                s.sphinxPayment,
 		PaymentsExpirationGracePeriod: cfg.PaymentsExpirationGracePeriod,
 		IsForwardedHTLC:               s.htlcSwitch.IsForwardedHTLC,
 		Clock:                         clock.NewDefaultClock(),
@@ -2331,10 +2353,42 @@ func (s *server) Start(ctx context.Context) error {
 			return
 		}
 
-		cleanup = cleanup.add(s.sphinx.Stop)
-		if err := s.sphinx.Start(); err != nil {
+		cleanup = cleanup.add(s.sphinxPayment.Stop)
+		if err := s.sphinxPayment.Start(); err != nil {
 			startErr = err
 			return
+		}
+
+		cleanup = cleanup.add(func() error {
+			s.sphinxOnionMsg.Stop()
+			return nil
+		})
+		if err := s.sphinxOnionMsg.Start(); err != nil {
+			startErr = err
+			return
+		}
+
+		// Create the onion message endpoint that handles incoming onion
+		// messages for all peers. This is shared across all peer
+		// connections and registered with each peer's message router.
+		// Skip if onion messaging is disabled via config.
+		if !s.cfg.ProtocolOptions.NoOnionMessages() {
+			resolver := onionmessage.NewGraphNodeResolver(
+				s.graphDB, s.identityECDH.PubKey(),
+			)
+			s.onionEndpoint, err = onionmessage.NewOnionEndpoint(
+				s.actorSystem.Receptionist(),
+				s.sphinxOnionMsg,
+				resolver,
+				onionmessage.WithMessageServer(
+					s.onionMessageServer,
+				),
+			)
+			if err != nil {
+				startErr = fmt.Errorf("unable to create onion "+
+					"message endpoint: %w", err)
+				return
+			}
 		}
 
 		cleanup = cleanup.add(s.chanStatusMgr.Stop)
@@ -2604,6 +2658,14 @@ func (s *server) Stop() error {
 		// Stop dispatching blocks to other systems immediately.
 		s.blockbeatDispatcher.Stop()
 
+		// Shutdown the onion router for onion messaging.
+		s.sphinxOnionMsg.Stop()
+
+		// Shutdown the actor system to stop all actors.
+		if err := s.actorSystem.Shutdown(); err != nil {
+			srvrLog.Warnf("failed to stop actorSystem: %v", err)
+		}
+
 		// Shutdown the wallet, funding manager, and the rpc server.
 		if err := s.chanStatusMgr.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop chanStatusMgr: %v", err)
@@ -2611,7 +2673,7 @@ func (s *server) Stop() error {
 		if err := s.htlcSwitch.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop htlcSwitch: %v", err)
 		}
-		if err := s.sphinx.Stop(); err != nil {
+		if err := s.sphinxPayment.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop sphinx: %v", err)
 		}
 		if err := s.invoices.Stop(); err != nil {
@@ -4399,14 +4461,15 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		ChainNotifier:           s.cc.ChainNotifier,
 		BestBlockView:           s.cc.BestBlockTracker,
 		RoutingPolicy:           s.cc.RoutingPolicy,
-		Sphinx:                  s.sphinx,
+		SphinxPayment:           s.sphinxPayment,
+		OnionEndpoint:           s.onionEndpoint,
 		WitnessBeacon:           s.witnessBeacon,
 		Invoices:                s.invoices,
 		ChannelNotifier:         s.channelNotifier,
 		HtlcNotifier:            s.htlcNotifier,
 		TowerClient:             towerClient,
 		DisconnectPeer:          s.DisconnectPeer,
-		OnionMessageServer:      s.onionMessageServer,
+		ActorSystem:             s.actorSystem,
 		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
 			lnwire.NodeAnnouncement1, error) {
 

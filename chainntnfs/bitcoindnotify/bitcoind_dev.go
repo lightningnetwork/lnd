@@ -4,6 +4,7 @@
 package bitcoindnotify
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -23,7 +24,7 @@ func (b *BitcoindNotifier) UnsafeStart(bestHeight int32, bestHash *chainhash.Has
 
 	// Connect to bitcoind, and register for notifications on connected,
 	// and disconnected blocks.
-	if err := b.chainConn.Start(); err != nil {
+	if err := b.chainConn.Start(context.TODO()); err != nil {
 		return err
 	}
 	if err := b.chainConn.NotifyBlocks(); err != nil {

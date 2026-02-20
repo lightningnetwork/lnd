@@ -1,6 +1,9 @@
 package lncfg
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Neutrino holds the configuration options for the daemon's connection to
 // neutrino.
@@ -18,4 +21,21 @@ type Neutrino struct {
 	ValidateChannels   bool          `long:"validatechannels" description:"Validate every channel in the graph during sync by downloading the containing block. This is the inverse of routing.assumechanvalid, meaning that for Neutrino the validation is turned off by default for massively increased graph sync performance. This speedup comes at the risk of using an unvalidated view of the network for routing. Overwrites the value of routing.assumechanvalid if Neutrino is used. (default: false)"`
 	BroadcastTimeout   time.Duration `long:"broadcasttimeout" description:"The amount of time to wait before giving up on a transaction broadcast attempt."`
 	PersistFilters     bool          `long:"persistfilters" description:"Whether compact filters fetched from the P2P network should be persisted to disk."`
+
+	BlockHeadersSource  string `long:"blockheaderssource" description:"Source for importing block headers on startup for fast initial sync. Can be a local file path or HTTP(S) URL (e.g., https://block-dn.org/headers/import/800000). When set, neutrino imports headers from this source before P2P sync."`
+	FilterHeadersSource string `long:"filterheaderssource" description:"Source for importing filter headers on startup for fast initial sync. Can be a local file path or HTTP(S) URL (e.g., https://block-dn.org/filter-headers/import/800000). Must be set together with blockheaderssource."`
+}
+
+// Validate checks the neutrino configuration for consistency.
+func (n *Neutrino) Validate() error {
+	blockSet := n.BlockHeadersSource != ""
+	filterSet := n.FilterHeadersSource != ""
+
+	if blockSet != filterSet {
+		return fmt.Errorf("both neutrino.blockheaderssource and " +
+			"neutrino.filterheaderssource must be specified " +
+			"together for headers import")
+	}
+
+	return nil
 }

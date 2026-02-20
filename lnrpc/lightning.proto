@@ -3064,6 +3064,10 @@ message PendingChannelsResponse {
 message ChannelEventSubscription {
 }
 
+message ChannelCommitUpdate {
+    Channel channel = 1;
+}
+
 message ChannelEventUpdate {
     oneof channel {
         Channel open_channel = 1;
@@ -3073,6 +3077,7 @@ message ChannelEventUpdate {
         PendingUpdate pending_open_channel = 6;
         ChannelPoint fully_resolved_channel = 7;
         ChannelPoint channel_funding_timeout = 8;
+        ChannelCommitUpdate updated_channel = 9;
     }
 
     enum UpdateType {
@@ -3083,6 +3088,7 @@ message ChannelEventUpdate {
         PENDING_OPEN_CHANNEL = 4;
         FULLY_RESOLVED_CHANNEL = 5;
         CHANNEL_FUNDING_TIMEOUT = 6;
+        CHANNEL_UPDATE = 7;
     }
 
     UpdateType type = 5;

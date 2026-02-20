@@ -72,6 +72,12 @@ type ClosedChannelEvent struct {
 	CloseSummary *channeldb.ChannelCloseSummary
 }
 
+// ChannelUpdateEvent represents a new event where a channel's state is updated.
+type ChannelUpdateEvent struct {
+	// Channel is the channel that has been updated.
+	Channel *channeldb.OpenChannel
+}
+
 // FullyResolvedChannelEvent represents a new event where a channel becomes
 // fully resolved.
 type FullyResolvedChannelEvent struct {
@@ -236,5 +242,16 @@ func (c *ChannelNotifier) NotifyInactiveChannelEvent(chanPoint wire.OutPoint) {
 	event := InactiveChannelEvent{ChannelPoint: &chanPoint}
 	if err := c.ntfnServer.SendUpdate(event); err != nil {
 		log.Warnf("Unable to send inactive channel update: %v", err)
+	}
+}
+
+// NotifyChannelUpdateEvent notifies subscribers that a channel's state has been
+// updated.
+func (c *ChannelNotifier) NotifyChannelUpdateEvent(
+	channel *channeldb.OpenChannel) {
+
+	event := ChannelUpdateEvent{Channel: channel}
+	if err := c.ntfnServer.SendUpdate(event); err != nil {
+		log.Warnf("Unable to send channel update: %v", err)
 	}
 }

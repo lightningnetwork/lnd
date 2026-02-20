@@ -256,6 +256,10 @@ type ChannelLinkConfig struct {
 	// ChannelNotifier when a channel link become inactive.
 	NotifyInactiveLinkEvent func(wire.OutPoint)
 
+	// NotifyChannelUpdate allows the link to tell the ChannelNotifier when
+	// a channel's state has been updated.
+	NotifyChannelUpdate func(*channeldb.OpenChannel)
+
 	// HtlcNotifier is an instance of a htlcNotifier which we will pipe htlc
 	// events through.
 	HtlcNotifier htlcNotifier
@@ -1812,6 +1816,13 @@ func (l *channelLink) handleUpstreamMsg(ctx context.Context,
 
 	case *lnwire.CommitSig:
 		err = l.processRemoteCommitSig(ctx, msg)
+
+		// At this point our local commitment state has been irrevocably
+		// committed to and our balances are updated. We notify our
+		// subscribers that the channel state has been updated.
+		if err == nil {
+			l.cfg.NotifyChannelUpdate(l.channel.ChannelState())
+		}
 
 	case *lnwire.RevokeAndAck:
 		err = l.processRemoteRevokeAndAck(ctx, msg)

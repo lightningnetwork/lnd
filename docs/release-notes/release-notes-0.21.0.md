@@ -129,6 +129,10 @@
   composite `synced_to_chain` field which also considers router and blockbeat
   dispatcher states.
 
+* SubscribeChannelEvents [now emits channel update
+  events](https://github.com/lightningnetwork/lnd/pull/10543) to be able to
+  subscribe to state changes.
+
 ## lncli Updates
 
 ## Breaking Changes
@@ -189,6 +193,7 @@
 
 # Contributors (Alphabetical Order)
 
+* bitromortac
 * Boris Nagaev
 * Elle Mouton
 * Erick Cestari

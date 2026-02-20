@@ -425,6 +425,20 @@ func (h *HarnessTest) assertChannelStatus(hn *node.HarnessNode,
 	return channel
 }
 
+// AssertChannelEventType consumes one event from a client and asserts the event
+// type is matched.
+func (h *HarnessTest) AssertChannelEventType(sub rpc.ChannelEventsClient,
+	updateType lnrpc.ChannelEventUpdate_UpdateType,
+) *lnrpc.ChannelEventUpdate {
+
+	update := h.ReceiveChannelEvent(sub)
+
+	require.Equalf(h, updateType, update.Type, "wrong event type, "+
+		"want %v got %v", updateType, update.Type)
+
+	return update
+}
+
 // AssertOutputScriptClass checks that the specified transaction output has the
 // expected script class.
 func (h *HarnessTest) AssertOutputScriptClass(tx *btcutil.Tx,

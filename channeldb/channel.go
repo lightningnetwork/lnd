@@ -746,6 +746,33 @@ func (c *ChannelCommitment) extractTlvData() commitTlvData {
 	return auxData
 }
 
+// copy returns a deep copy of the channel commitment.
+func (c *ChannelCommitment) copy() ChannelCommitment {
+	c2 := *c
+	if c.CommitTx != nil {
+		c2.CommitTx = c.CommitTx.Copy()
+	}
+	if len(c.CommitSig) > 0 {
+		c2.CommitSig = make([]byte, len(c.CommitSig))
+		copy(c2.CommitSig, c.CommitSig)
+	}
+
+	c.CustomBlob.WhenSome(func(blob tlv.Blob) {
+		blobCopy := make([]byte, len(blob))
+		copy(blobCopy, blob)
+		c2.CustomBlob = fn.Some(blobCopy)
+	})
+
+	if len(c.Htlcs) > 0 {
+		c2.Htlcs = make([]HTLC, len(c.Htlcs))
+		for i, h := range c.Htlcs {
+			c2.Htlcs[i] = h.Copy()
+		}
+	}
+
+	return c2
+}
+
 // ChannelStatus is a bit vector used to indicate whether an OpenChannel is in
 // the default usable state, or a state where it shouldn't be used.
 type ChannelStatus uint64
@@ -4064,6 +4091,78 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 	}
 
 	return snapshot
+}
+
+// Copy returns a deep copy of the channel state.
+func (c *OpenChannel) Copy() *OpenChannel {
+	c.RLock()
+	defer c.RUnlock()
+
+	clone := &OpenChannel{
+		ChanType:                c.ChanType,
+		ChainHash:               c.ChainHash,
+		FundingOutpoint:         c.FundingOutpoint,
+		ShortChannelID:          c.ShortChannelID,
+		IsPending:               c.IsPending,
+		IsInitiator:             c.IsInitiator,
+		chanStatus:              c.chanStatus,
+		FundingBroadcastHeight:  c.FundingBroadcastHeight,
+		ConfirmationHeight:      c.ConfirmationHeight,
+		NumConfsRequired:        c.NumConfsRequired,
+		ChannelFlags:            c.ChannelFlags,
+		IdentityPub:             c.IdentityPub,
+		Capacity:                c.Capacity,
+		TotalMSatSent:           c.TotalMSatSent,
+		TotalMSatReceived:       c.TotalMSatReceived,
+		InitialLocalBalance:     c.InitialLocalBalance,
+		InitialRemoteBalance:    c.InitialRemoteBalance,
+		LocalChanCfg:            c.LocalChanCfg,
+		RemoteChanCfg:           c.RemoteChanCfg,
+		LocalCommitment:         c.LocalCommitment.copy(),
+		RemoteCommitment:        c.RemoteCommitment.copy(),
+		RemoteCurrentRevocation: c.RemoteCurrentRevocation,
+		RemoteNextRevocation:    c.RemoteNextRevocation,
+		RevocationProducer:      c.RevocationProducer,
+		RevocationStore:         c.RevocationStore,
+		Packager:                c.Packager,
+		ThawHeight:              c.ThawHeight,
+		LastWasRevoke:           c.LastWasRevoke,
+		RevocationKeyLocator:    c.RevocationKeyLocator,
+		confirmedScid:           c.confirmedScid,
+		TapscriptRoot:           c.TapscriptRoot,
+	}
+
+	if c.FundingTxn != nil {
+		clone.FundingTxn = c.FundingTxn.Copy()
+	}
+
+	if len(c.LocalShutdownScript) > 0 {
+		clone.LocalShutdownScript = make(
+			lnwire.DeliveryAddress,
+			len(c.LocalShutdownScript),
+		)
+		copy(clone.LocalShutdownScript, c.LocalShutdownScript)
+	}
+	if len(c.RemoteShutdownScript) > 0 {
+		clone.RemoteShutdownScript = make(
+			lnwire.DeliveryAddress,
+			len(c.RemoteShutdownScript),
+		)
+		copy(clone.RemoteShutdownScript, c.RemoteShutdownScript)
+	}
+
+	if len(c.Memo) > 0 {
+		clone.Memo = make([]byte, len(c.Memo))
+		copy(clone.Memo, c.Memo)
+	}
+
+	c.CustomBlob.WhenSome(func(blob tlv.Blob) {
+		blobCopy := make([]byte, len(blob))
+		copy(blobCopy, blob)
+		clone.CustomBlob = fn.Some(blobCopy)
+	})
+
+	return clone
 }
 
 // LatestCommitments returns the two latest commitments for both the local and

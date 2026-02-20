@@ -364,6 +364,11 @@ func TestEstimateInputWeight(t *testing.T) {
 			Script:      []byte("some bitcoin script"),
 		}
 		dummyLeafHash = dummyLeaf.TapHash()
+
+		// Create a proper tapscript tree for testing script path
+		// estimation.
+		dummyTapscript    = input.TapscriptFullTree(&input.TaprootNUMSKey, dummyLeaf)
+		dummyCtrlBlock, _ = dummyTapscript.ControlBlock.ToBytes()
 	)
 
 	testCases := []struct {
@@ -449,12 +454,17 @@ func TestEstimateInputWeight(t *testing.T) {
 			},
 			TaprootLeafScript: []*psbt.TaprootTapLeafScript{
 				{
-					LeafVersion: dummyLeaf.LeafVersion,
-					Script:      dummyLeaf.Script,
+					ControlBlock: dummyCtrlBlock,
+					LeafVersion:  dummyLeaf.LeafVersion,
+					Script:       dummyLeaf.Script,
 				},
 			},
 		},
-		expectedErr: ErrScriptSpendFeeEstimationUnsupported,
+		// Script path witness: element count (1) + control block base
+		// (33) + control block len prefix (1) + script (19) + script
+		// len prefix (1) + leaf witness size (19, the script length).
+		expectedWitnessWeight: 1 + 33 + 1 + len(dummyLeaf.Script) + 1 +
+			len(dummyLeaf.Script),
 	}}
 
 	// The non-witness weight for a TX with a single input.

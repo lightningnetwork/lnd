@@ -161,6 +161,7 @@ func getPayReq(net *bitcoinCfg.Params) (string, error) {
 	options := []func(*zpay32.Invoice){
 		zpay32.CLTVExpiry(uint64(testCltvDelta)),
 		zpay32.Description("test"),
+		zpay32.PaymentAddr([32]byte{}),
 	}
 
 	payReq, err := zpay32.NewInvoice(

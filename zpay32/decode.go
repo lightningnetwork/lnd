@@ -301,6 +301,9 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			}
 
 			invoice.PaymentHash, err = parse32Bytes(base32Data)
+			if err != nil {
+				return fmt.Errorf("payment hash: %w", err)
+			}
 
 		case fieldTypeS:
 			if invoice.PaymentAddr.IsSome() {
@@ -311,7 +314,7 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 
 			addr, err := parse32Bytes(base32Data)
 			if err != nil {
-				return err
+				return fmt.Errorf("payment secret: %w", err)
 			}
 			if addr != nil {
 				invoice.PaymentAddr = fn.Some(*addr)
@@ -343,6 +346,9 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			}
 
 			invoice.Destination, err = parseDestination(base32Data)
+			if err != nil {
+				return fmt.Errorf("destination id: %w", err)
+			}
 
 		case fieldTypeH:
 			if invoice.DescriptionHash != nil {
@@ -352,6 +358,9 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			}
 
 			invoice.DescriptionHash, err = parse32Bytes(base32Data)
+			if err != nil {
+				return fmt.Errorf("description hash: %w", err)
+			}
 
 		case fieldTypeX:
 			if invoice.expiry != nil {
@@ -446,10 +455,10 @@ func parseFieldDataLength(data []byte) (uint16, error) {
 func parse32Bytes(data []byte) (*[32]byte, error) {
 	var paymentHash [32]byte
 
-	// As BOLT-11 states, a reader must skip over the 32-byte fields if
-	// it does not have a length of 52, so avoid returning an error.
+	// As BOLT-11 states, a reader must fail over the 32-byte fields if
+	// it does not have a length of 52.
 	if len(data) != hashBase32Len {
-		return nil, nil
+		return nil, ErrInvalidFieldLength
 	}
 
 	hash, err := bech32.ConvertBits(data, 5, 8, false)
@@ -488,10 +497,10 @@ func parseMetadata(data []byte) ([]byte, error) {
 // parseDestination converts the data (encoded in base32) into a 33-byte public
 // key of the payee node.
 func parseDestination(data []byte) (*btcec.PublicKey, error) {
-	// As BOLT-11 states, a reader must skip over the destination field
-	// if it does not have a length of 53, so avoid returning an error.
+	// As BOLT-11 states, a reader must fail over the destination field
+	// if it does not have a length of 53.
 	if len(data) != pubKeyBase32Len {
-		return nil, nil
+		return nil, ErrInvalidFieldLength
 	}
 
 	base256Data, err := bech32.ConvertBits(data, 5, 8, false)

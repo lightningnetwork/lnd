@@ -54,6 +54,11 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 			"create SwitchRPC")
 	}
 
+	if config.RemoteRouterController == nil {
+		return nil, nil, fmt.Errorf("remote router controller must " +
+			"be set to create SwitchRPC")
+	}
+
 	return New(config)
 }
 

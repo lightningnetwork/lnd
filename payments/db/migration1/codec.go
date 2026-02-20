@@ -2,81 +2,85 @@ package migration1
 
 import (
 	"encoding/binary"
-	"errors"
+	"fmt"
 	"io"
 	"time"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // Big endian is the preferred byte order, due to cursor scans over
 // integer keys iterating in order.
 var byteOrder = binary.BigEndian
 
-// UnknownElementType is an alias for channeldb.UnknownElementType.
-type UnknownElementType = channeldb.UnknownElementType
-
-// ReadElement deserializes a single element from the provided io.Reader.
-func ReadElement(r io.Reader, element interface{}) error {
-	err := channeldb.ReadElement(r, element)
-	switch {
-	// Known to channeldb codec.
-	case err == nil:
-		return nil
-
-	// Fail if error is not UnknownElementType.
-	default:
-		var unknownElementType UnknownElementType
-		if !errors.As(err, &unknownElementType) {
-			return err
-		}
-	}
-
-	// Process any paymentsdb-specific extensions to the codec.
-	switch e := element.(type) {
-	case *paymentIndexType:
-		if err := binary.Read(r, byteOrder, e); err != nil {
-			return err
-		}
-
-	// Type is still unknown to paymentsdb extensions, fail.
-	default:
-		return channeldb.NewUnknownElementType(
-			"ReadElement", element,
-		)
-	}
-
-	return nil
+// UnknownElementType is an error returned when the codec is unable to encode
+// or decode a particular type.
+//
+// NOTE: This is a frozen, self-contained copy of the serialization error type
+// to ensure that this migration package has no dependency on live packages
+// whose implementation may change after this migration was released.
+type UnknownElementType struct {
+	method  string
+	element interface{}
 }
 
-// WriteElement serializes a single element into the provided io.Writer.
+// NewUnknownElementType creates a new UnknownElementType error from the passed
+// method name and element.
+func NewUnknownElementType(method string, el interface{}) UnknownElementType {
+	return UnknownElementType{method: method, element: el}
+}
+
+// Error returns the name of the method that encountered the error, as well as
+// the type that was unsupported.
+func (e UnknownElementType) Error() string {
+	return fmt.Sprintf("Unknown type in %s: %T", e.method, e.element)
+}
+
+// WriteElement serializes a single element into the provided io.Writer using
+// big-endian byte order. Only the types required by the migration1 package are
+// supported. This is a frozen, self-contained copy of the serialization logic
+// to ensure that this migration package has no dependency on live packages
+// whose implementation may change after this migration was released.
 func WriteElement(w io.Writer, element interface{}) error {
-	err := channeldb.WriteElement(w, element)
-	switch {
-	// Known to channeldb codec.
-	case err == nil:
-		return nil
-
-	// Fail if error is not UnknownElementType.
-	default:
-		var unknownElementType UnknownElementType
-		if !errors.As(err, &unknownElementType) {
-			return err
-		}
-	}
-
-	// Process any paymentsdb-specific extensions to the codec.
 	switch e := element.(type) {
 	case paymentIndexType:
 		if err := binary.Write(w, byteOrder, e); err != nil {
 			return err
 		}
 
-	// Type is still unknown to paymentsdb extensions, fail.
+	case uint8:
+		if err := binary.Write(w, byteOrder, e); err != nil {
+			return err
+		}
+
+	case uint32:
+		if err := binary.Write(w, byteOrder, e); err != nil {
+			return err
+		}
+
+	case uint64:
+		if err := binary.Write(w, byteOrder, e); err != nil {
+			return err
+		}
+
+	case lnwire.MilliSatoshi:
+		if err := binary.Write(w, byteOrder, uint64(e)); err != nil {
+			return err
+		}
+
+	case [32]byte:
+		if _, err := w.Write(e[:]); err != nil {
+			return err
+		}
+
+	case []byte:
+		if err := wire.WriteVarBytes(w, 0, e); err != nil {
+			return err
+		}
+
 	default:
-		return channeldb.NewUnknownElementType(
-			"WriteElement", element,
-		)
+		return UnknownElementType{"WriteElement", e}
 	}
 
 	return nil
@@ -89,6 +93,59 @@ func WriteElements(w io.Writer, elements ...interface{}) error {
 		if err := WriteElement(w, element); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// ReadElement deserializes a single element from the provided io.Reader using
+// big-endian byte order. Only the types required by the migration1 package are
+// supported. This is a frozen, self-contained copy of the deserialization
+// logic to ensure that this migration package has no dependency on live
+// packages whose implementation may change after this migration was released.
+func ReadElement(r io.Reader, element interface{}) error {
+	switch e := element.(type) {
+	case *paymentIndexType:
+		if err := binary.Read(r, byteOrder, e); err != nil {
+			return err
+		}
+
+	case *uint8:
+		if err := binary.Read(r, byteOrder, e); err != nil {
+			return err
+		}
+
+	case *uint32:
+		if err := binary.Read(r, byteOrder, e); err != nil {
+			return err
+		}
+
+	case *uint64:
+		if err := binary.Read(r, byteOrder, e); err != nil {
+			return err
+		}
+
+	case *lnwire.MilliSatoshi:
+		var a uint64
+		if err := binary.Read(r, byteOrder, &a); err != nil {
+			return err
+		}
+		*e = lnwire.MilliSatoshi(a)
+
+	case *[32]byte:
+		if _, err := io.ReadFull(r, e[:]); err != nil {
+			return err
+		}
+
+	case *[]byte:
+		b, err := wire.ReadVarBytes(r, 0, 66000, "[]byte")
+		if err != nil {
+			return err
+		}
+		*e = b
+
+	default:
+		return UnknownElementType{"ReadElement", e}
 	}
 
 	return nil

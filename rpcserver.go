@@ -2905,9 +2905,20 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 					"offline channel with chan_point=%v",
 					chanPoint)
 
+				// Check if the channel is already closed or has a pending close tx.
+				if channel.HasChanStatus(
+					channeldb.ChanStatusCoopBroadcasted) {
+					return fmt.Errorf("channel is already " + 
+					"in the process of closing. Check " + 
+					"'lncli pendingchannels' for status. " +
+					"If the close transaction is not " +  
+					"confirmed, you may need to use "  + 
+					"'lncli wallet bumpfee'")
+				}
+
 				return fmt.Errorf("unable to gracefully close "+
-					"channel while peer is offline (try "+
-					"force closing it instead): %v", err)
+				"channel while peer is offline " + 
+				"(try force closing it instead): %v", err)
 			}
 		}
 

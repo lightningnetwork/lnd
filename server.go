@@ -2454,7 +2454,9 @@ func (s *server) Start(ctx context.Context) error {
 				peerAddr, true,
 				s.cfg.ConnectionTimeout,
 			)
-			if err != nil {
+			if err != nil &&
+				!lnutils.ErrorAs[*errPeerAlreadyConnected](err) {
+
 				startErr = fmt.Errorf("unable to connect to "+
 					"peer address provided as a config "+
 					"option: %v", err)

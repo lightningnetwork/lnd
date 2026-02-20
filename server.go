@@ -1779,10 +1779,11 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		s.hostAnn = netann.NewHostAnnouncer(netann.HostAnnouncerConfig{
 			Hosts:         cfg.ExternalHosts,
 			RefreshTicker: ticker.New(defaultHostSampleInterval),
-			LookupHost: func(host string) (net.Addr, error) {
+			LookupHost: func(host string) ([]net.Addr, error) {
 				return lncfg.ParseAddressString(
 					host, strconv.Itoa(defaultPeerPort),
 					cfg.net.ResolveTCPAddr,
+					cfg.net.LookupHost,
 				)
 			},
 			AdvertisedIPs: advertisedIPs,

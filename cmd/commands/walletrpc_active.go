@@ -37,6 +37,7 @@ var (
 		Subcommands: []cli.Command{
 			fundPsbtCommand,
 			fundTemplatePsbtCommand,
+			signPsbtCommand,
 			finalizePsbtCommand,
 		},
 	}
@@ -1456,6 +1457,90 @@ func marshallLocks(lockedUtxos []*walletrpc.UtxoLease) []*utxoLease {
 	}
 
 	return jsonLocks
+}
+
+// signPsbtResponse is a struct that contains JSON annotations for nice result
+// serialization.
+type signPsbtResponse struct {
+	Psbt         string   `json:"psbt"`
+	SignedInputs []uint32 `json:"signed_inputs"`
+}
+
+var signPsbtCommand = cli.Command{
+	Name:      "sign",
+	Usage:     "Sign a Partially Signed Bitcoin Transaction (PSBT).",
+	ArgsUsage: "funded_psbt",
+	Description: `
+	The sign command expects a PSBT with all inputs and outputs fully
+	declared and tries to sign all unsigned inputs that have all required
+	fields (UTXO information, BIP32 derivation information, witness or sig
+	scripts) set. If no error is returned, the PSBT is ready to be given to
+	the next signer or to be finalized if lnd was the last signer.
+
+	This command only signs inputs (and only those it can sign), it does not
+	perform any other tasks (such as coin selection, UTXO locking or
+	input/output/fee value validation, PSBT finalization). Any input that is
+	incomplete will be skipped.
+
+	Use this command if you want to add lnd's signature to a PSBT without
+	finalizing it, for example when signing multisig inputs where another
+	party also needs to sign.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "funded_psbt",
+			Usage: "the base64 encoded PSBT to sign",
+		},
+	},
+	Action: actionDecorator(signPsbt),
+}
+
+func signPsbt(ctx *cli.Context) error {
+	ctxc := getContext()
+
+	// Display the command's help message if we do not have the expected
+	// number of arguments/flags.
+	if ctx.NArg() > 1 || ctx.NumFlags() > 1 {
+		return cli.ShowCommandHelp(ctx, "sign")
+	}
+
+	var (
+		args       = ctx.Args()
+		psbtBase64 string
+	)
+	switch {
+	case ctx.IsSet("funded_psbt"):
+		psbtBase64 = ctx.String("funded_psbt")
+	case args.Present():
+		psbtBase64 = args.First()
+	default:
+		return fmt.Errorf("funded_psbt argument missing")
+	}
+
+	psbtBytes, err := base64.StdEncoding.DecodeString(psbtBase64)
+	if err != nil {
+		return err
+	}
+	req := &walletrpc.SignPsbtRequest{
+		FundedPsbt: psbtBytes,
+	}
+
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	response, err := walletClient.SignPsbt(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printJSON(&signPsbtResponse{
+		Psbt: base64.StdEncoding.EncodeToString(
+			response.SignedPsbt,
+		),
+		SignedInputs: response.SignedInputs,
+	})
+
+	return nil
 }
 
 // finalizePsbtResponse is a struct that contains JSON annotations for nice

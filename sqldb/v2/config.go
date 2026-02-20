@@ -31,11 +31,13 @@ const (
 //
 //nolint:ll
 type SqliteConfig struct {
-	Timeout        time.Duration `long:"timeout" description:"The time after which a database query should be timed out."`
-	BusyTimeout    time.Duration `long:"busytimeout" description:"The maximum amount of time to wait for a database connection to become available for a query."`
-	MaxConnections int           `long:"maxconnections" description:"The maximum number of open connections to the database."`
-	PragmaOptions  []string      `long:"pragmaoptions" description:"A list of pragma options to set on a database connection. For example, 'auto_vacuum=incremental'. Note that the flag must be specified multiple times if multiple options are to be set."`
-	SkipMigrations bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
+	Timeout            time.Duration `long:"timeout" description:"The time after which a database query should be timed out."`
+	BusyTimeout        time.Duration `long:"busytimeout" description:"The maximum amount of time to wait for a database connection to become available for a query."`
+	MaxConnections     int           `long:"maxconnections" description:"The maximum number of open connections to the database."`
+	MaxIdleConnections int           `long:"maxidleconnections" description:"Max number of idle connections to keep in the connection pool."`
+	ConnMaxLifetime    time.Duration `long:"connmaxlifetime" description:"Max amount of time a connection can be reused for before it is closed. Valid time units are {s, m, h}."`
+	PragmaOptions      []string      `long:"pragmaoptions" description:"A list of pragma options to set on a database connection. For example, 'auto_vacuum=incremental'. Note that the flag must be specified multiple times if multiple options are to be set."`
+	SkipMigrations     bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
 
 	// SkipMigrationDbBackup if true, then a backup of the database will not
 	// be created before applying migrations.

@@ -135,9 +135,19 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 		maxConns = cfg.MaxConnections
 	}
 
+	maxIdleConns := defaultMaxIdleConns
+	if cfg.MaxIdleConnections > 0 {
+		maxIdleConns = cfg.MaxIdleConnections
+	}
+
+	connMaxLifetime := defaultConnMaxLifetime
+	if cfg.ConnMaxLifetime > 0 {
+		connMaxLifetime = cfg.ConnMaxLifetime
+	}
+
 	db.SetMaxOpenConns(maxConns)
-	db.SetMaxIdleConns(defaultMaxIdleConns)
-	db.SetConnMaxLifetime(defaultConnMaxLifetime)
+	db.SetMaxIdleConns(maxIdleConns)
+	db.SetConnMaxLifetime(connMaxLifetime)
 
 	s := &SqliteStore{
 		Config: cfg,

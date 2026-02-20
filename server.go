@@ -1000,7 +1000,9 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		PathFindingConfig:   pathFindingConfig,
 	}
 
-	s.controlTower = routing.NewControlTower(dbs.PaymentsDB)
+	s.controlTower = routing.NewControlTower(
+		dbs.PaymentsDB, cfg.GcFailedPaymentsOnTheFly,
+	)
 
 	strictPruning := cfg.Bitcoin.Node == "neutrino" ||
 		cfg.Routing.StrictZombiePruning
@@ -1023,20 +1025,21 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.chanRouter, err = routing.New(routing.Config{
-		SelfNode:           nodePubKey,
-		RoutingGraph:       dbs.GraphDB,
-		Chain:              cc.ChainIO,
-		Payer:              s.htlcSwitch,
-		Control:            s.controlTower,
-		MissionControl:     s.defaultMC,
-		SessionSource:      paymentSessionSource,
-		GetLink:            s.htlcSwitch.GetLinkByShortID,
-		NextPaymentID:      sequencer.NextID,
-		PathFindingConfig:  pathFindingConfig,
-		Clock:              clock.NewDefaultClock(),
-		ApplyChannelUpdate: s.graphBuilder.ApplyChannelUpdate,
-		ClosedSCIDs:        s.fetchClosedChannelSCIDs(),
-		TrafficShaper:      implCfg.TrafficShaper,
+		SelfNode:                  nodePubKey,
+		RoutingGraph:              dbs.GraphDB,
+		Chain:                     cc.ChainIO,
+		Payer:                     s.htlcSwitch,
+		Control:                   s.controlTower,
+		MissionControl:            s.defaultMC,
+		SessionSource:             paymentSessionSource,
+		GetLink:                   s.htlcSwitch.GetLinkByShortID,
+		NextPaymentID:             sequencer.NextID,
+		PathFindingConfig:         pathFindingConfig,
+		Clock:                     clock.NewDefaultClock(),
+		ApplyChannelUpdate:        s.graphBuilder.ApplyChannelUpdate,
+		ClosedSCIDs:               s.fetchClosedChannelSCIDs(),
+		TrafficShaper:             implCfg.TrafficShaper,
+		GcFailedPaymentsOnStartup: cfg.GcFailedPaymentsOnStartup,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create router: %w", err)

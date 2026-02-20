@@ -463,6 +463,10 @@ type Config struct {
 
 	GcCanceledInvoicesOnTheFly bool `long:"gc-canceled-invoices-on-the-fly" description:"If true, we'll delete newly canceled invoices on the fly."`
 
+	GcFailedPaymentsOnStartup bool `long:"gc-failed-payments-on-startup" descrition:"If true, we'll attempt to garbage collect failed payments upon start."`
+
+	GcFailedPaymentsOnTheFly bool `long:"gc-failed-payments-on-the-fly" description:"If true, we'll delete newly failed payments on the fly."`
+
 	DustThreshold uint64 `long:"dust-threshold" description:"DEPRECATED: Sets the max fee exposure in satoshis for a channel after which HTLC's will be failed." hidden:"true"`
 
 	MaxFeeExposure uint64 `long:"channel-max-fee-exposure" description:" Limits the maximum fee exposure in satoshis of a channel. This value is enforced for all channels and is independent of the channel initiator."`

@@ -146,7 +146,7 @@ var errStreamIsolationWithProxySkip = errors.New(
 // This function starts all main system components then blocks until a signal
 // is received on the shutdownChan at which point everything is shut down again.
 func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
-	interceptor signal.Interceptor) error {
+	interceptor signal.Interceptor) (mainErr error) {
 
 	defer func() {
 		ltndLog.Info("Shutdown complete")
@@ -154,6 +154,17 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		if err != nil {
 			ltndLog.Errorf("Could not close log rotator: %v", err)
 		}
+	}()
+
+	// Make sure the signal interceptor is always fully stopped on any
+	// startup/runtime error so callers can safely retry startup.
+	defer func() {
+		if mainErr == nil {
+			return
+		}
+
+		interceptor.RequestShutdown()
+		<-interceptor.ShutdownChannel()
 	}()
 
 	ctx, cancel := context.WithCancel(context.Background())

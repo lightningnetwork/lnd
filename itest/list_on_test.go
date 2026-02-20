@@ -600,6 +600,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testQueryBlindedRoutes,
 	},
 	{
+		Name:     "blinding invoices maxnumpaths",
+		TestFunc: testBlindedPathsMaxNumPaths,
+	},
+	{
 		Name:     "route blinding invoices",
 		TestFunc: testBlindedRouteInvoices,
 	},

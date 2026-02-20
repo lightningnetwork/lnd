@@ -183,6 +183,9 @@ type BlindedPathConfig struct {
 	// dummy hops in a blinded path in the case where they cant be derived
 	// through other means.
 	DefaultDummyHopPolicy *blindedpath.BlindedHopPolicy
+
+	// MaxNumPaths is the maximum number of blinded paths to select.
+	MaxNumPaths uint8
 }
 
 // paymentHashAndPreimage returns the payment hash and preimage for this invoice
@@ -542,6 +545,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 				},
 				MinNumHops:            blindCfg.MinNumPathHops,
 				DefaultDummyHopPolicy: blindCfg.DefaultDummyHopPolicy,
+				MaxNumPaths:           blindCfg.MaxNumPaths,
 			},
 		)
 		if err != nil {

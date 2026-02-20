@@ -623,6 +623,7 @@ func TestBuildBlindedPath(t *testing.T) {
 		ValueMsat:               1000,
 		MinFinalCLTVExpiryDelta: 12,
 		BlocksUntilExpiry:       200,
+		MaxNumPaths:             3,
 	})
 	require.NoError(t, err)
 	require.Len(t, paths, 1)
@@ -797,6 +798,7 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 		ValueMsat:               1000,
 		MinFinalCLTVExpiryDelta: 12,
 		BlocksUntilExpiry:       200,
+		MaxNumPaths:             3,
 
 		// By setting the minimum number of hops to 4, we force 2 dummy
 		// hops to be added to the real route.
@@ -976,6 +978,7 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 		ValueMsat:               1000,
 		MinFinalCLTVExpiryDelta: 12,
 		BlocksUntilExpiry:       200,
+		MaxNumPaths:             3,
 
 		// By setting the minimum number of hops to 4, we force 2 dummy
 		// hops to be added to the real route.
@@ -1022,6 +1025,7 @@ func TestSingleHopBlindedPath(t *testing.T) {
 		ValueMsat:               1000,
 		MinFinalCLTVExpiryDelta: 12,
 		BlocksUntilExpiry:       200,
+		MaxNumPaths:             3,
 	})
 	require.NoError(t, err)
 	require.Len(t, paths, 1)

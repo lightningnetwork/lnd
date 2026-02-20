@@ -30,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
@@ -1023,20 +1024,21 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.chanRouter, err = routing.New(routing.Config{
-		SelfNode:           nodePubKey,
-		RoutingGraph:       dbs.GraphDB,
-		Chain:              cc.ChainIO,
-		Payer:              s.htlcSwitch,
-		Control:            s.controlTower,
-		MissionControl:     s.defaultMC,
-		SessionSource:      paymentSessionSource,
-		GetLink:            s.htlcSwitch.GetLinkByShortID,
-		NextPaymentID:      sequencer.NextID,
-		PathFindingConfig:  pathFindingConfig,
-		Clock:              clock.NewDefaultClock(),
-		ApplyChannelUpdate: s.graphBuilder.ApplyChannelUpdate,
-		ClosedSCIDs:        s.fetchClosedChannelSCIDs(),
-		TrafficShaper:      implCfg.TrafficShaper,
+		SelfNode:                 nodePubKey,
+		RoutingGraph:             dbs.GraphDB,
+		Chain:                    cc.ChainIO,
+		Payer:                    s.htlcSwitch,
+		Control:                  s.controlTower,
+		MissionControl:           s.defaultMC,
+		SessionSource:            paymentSessionSource,
+		GetLink:                  s.htlcSwitch.GetLinkByShortID,
+		NextPaymentID:            sequencer.NextID,
+		PathFindingConfig:        pathFindingConfig,
+		Clock:                    clock.NewDefaultClock(),
+		ApplyChannelUpdate:       s.graphBuilder.ApplyChannelUpdate,
+		ClosedSCIDs:              s.fetchClosedChannelSCIDs(),
+		TrafficShaper:            implCfg.TrafficShaper,
+		ExternalPaymentLifecycle: build.SwitchRPC,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create router: %w", err)

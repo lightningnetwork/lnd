@@ -105,7 +105,8 @@ func TestNetworkResultStore(t *testing.T) {
 
 	db := channeldb.OpenForTesting(t, t.TempDir())
 
-	store := newNetworkResultStore(db)
+	store, err := newNetworkResultStore(db, false)
+	require.NoError(t, err, "unable create result store")
 
 	var results []*networkResult
 	for i := 0; i < numResults; i++ {
@@ -309,7 +310,8 @@ func TestNetworkResultStoreFailAndFetch(t *testing.T) {
 	t.Parallel()
 
 	db := channeldb.OpenForTesting(t, t.TempDir())
-	store := newNetworkResultStore(db)
+	store, err := newNetworkResultStore(db, false)
+	require.NoError(t, err, "failed to create result store")
 
 	// Test FetchPendingAttempts on an empty store.
 	pending, err := store.FetchPendingAttempts()

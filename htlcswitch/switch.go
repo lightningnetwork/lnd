@@ -376,6 +376,13 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		return nil, err
 	}
 
+	networkResultStore, err := newNetworkResultStore(
+		cfg.DB, cfg.ExternalPaymentLifecycle,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	s := &Switch{
 		bestHeight:        currentHeight,
 		cfg:               &cfg,
@@ -385,7 +392,7 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		interfaceIndex:    make(map[[33]byte]map[lnwire.ChannelID]ChannelLink),
 		pendingLinkIndex:  make(map[lnwire.ChannelID]ChannelLink),
 		linkStopIndex:     make(map[lnwire.ChannelID]chan struct{}),
-		attemptStore:      newNetworkResultStore(cfg.DB),
+		attemptStore:      networkResultStore,
 		htlcPlex:          make(chan *plexPacket),
 		chanCloseRequests: make(chan *ChanClose),
 		resolutionMsgs:    make(chan *resolutionMsg),

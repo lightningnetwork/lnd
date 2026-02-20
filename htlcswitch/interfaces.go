@@ -608,4 +608,11 @@ type AttemptStore interface {
 	// from the store. The returned map reports the outcome for each
 	// requested attempt ID.
 	DeleteAttempts(attemptIDs []uint64) (map[uint64]DeletionStatus, error)
+
+	// DisableRemoteRouter checks for attempt entries and, if none are
+	// found, deletes the remote router marker from the database. The
+	// external controller that dispatched the attempts is responsible
+	// for cleaning results from the store (e.g. via DeleteAttempts)
+	// before calling this method.
+	DisableRemoteRouter() error
 }

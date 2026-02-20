@@ -27,6 +27,11 @@
   `maxchansize`. The `maxchansize` config option is intended only for limiting
   incoming channel requests from peers, not outgoing ones.
 
+- The `ForwardingHistory` RPC now [enforces the documented `max_events`
+  limit](https://github.com/lightningnetwork/lnd/pull/10512) (50,000) and
+  returns an error when callers exceed it, preventing potential gRPC message
+  size errors.
+
 - Chain notifier RPCs now [return the gRPC `Unavailable`
   status](https://github.com/lightningnetwork/lnd/pull/10352) while the
   sub-server is still starting. This allows clients to reliably detect the

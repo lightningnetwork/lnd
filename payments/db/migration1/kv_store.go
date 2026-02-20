@@ -19,7 +19,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
-	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -1615,7 +1614,7 @@ func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo,
 	// only the custom records provided by the user to be sent to the first
 	// hop. But this can easily be extended with further records by merging
 	// the records into a single TLV stream.
-	c.FirstHopCustomRecords, err = lnwire.ParseCustomRecordsFrom(r)
+	c.FirstHopCustomRecords, err = parseCustomRecordsFrom(r)
 	if err != nil {
 		return nil, err
 	}
@@ -1653,7 +1652,7 @@ func serializeHTLCAttemptInfo(w io.Writer, a *HTLCAttemptInfo) error {
 	producers := []tlv.RecordProducer{
 		&a.Route.FirstHopAmount,
 	}
-	tlvData, err := lnwire.MergeAndEncode(
+	tlvData, err := mergeAndEncode(
 		producers, nil, a.Route.FirstHopWireCustomRecords,
 	)
 	if err != nil {
@@ -1708,7 +1707,7 @@ func deserializeHTLCAttemptInfo(r io.Reader) (*HTLCAttemptInfo, error) {
 		return nil, err
 	}
 
-	customRecords, _, _, err := lnwire.ParseAndExtractCustomRecords(
+	customRecords, err := parseAndExtractCustomRecords(
 		extraData, &a.Route.FirstHopAmount,
 	)
 	if err != nil {
@@ -1720,7 +1719,7 @@ func deserializeHTLCAttemptInfo(r io.Reader) (*HTLCAttemptInfo, error) {
 	return a, nil
 }
 
-func serializeHop(w io.Writer, h *route.Hop) error {
+func serializeHop(w io.Writer, h *Hop) error {
 	if err := WriteElements(w,
 		h.PubKeyBytes[:],
 		h.ChannelID,
@@ -1783,7 +1782,7 @@ func serializeHop(w io.Writer, h *route.Hop) error {
 
 	// Final sanity check to absolutely rule out custom records that are not
 	// custom and write into the standard range.
-	if err := h.CustomRecords.Validate(); err != nil {
+	if err := record.CustomSet(h.CustomRecords).Validate(); err != nil {
 		return err
 	}
 
@@ -1823,8 +1822,8 @@ func serializeHop(w io.Writer, h *route.Hop) error {
 // to read/write a TLV stream larger than this.
 const maxOnionPayloadSize = 1300
 
-func deserializeHop(r io.Reader) (*route.Hop, error) {
-	h := &route.Hop{}
+func deserializeHop(r io.Reader) (*Hop, error) {
+	h := &Hop{}
 
 	var pub []byte
 	if err := ReadElements(r, &pub); err != nil {
@@ -1965,7 +1964,7 @@ func deserializeHop(r io.Reader) (*route.Hop, error) {
 }
 
 // SerializeRoute serializes a route.
-func SerializeRoute(w io.Writer, r route.Route) error {
+func SerializeRoute(w io.Writer, r Route) error {
 	if err := WriteElements(w,
 		r.TotalTimeLock, r.TotalAmount, r.SourcePubKey[:],
 	); err != nil {
@@ -1988,8 +1987,8 @@ func SerializeRoute(w io.Writer, r route.Route) error {
 }
 
 // DeserializeRoute deserializes a route.
-func DeserializeRoute(r io.Reader) (route.Route, error) {
-	rt := route.Route{}
+func DeserializeRoute(r io.Reader) (Route, error) {
+	rt := Route{}
 	if err := ReadElements(r,
 		&rt.TotalTimeLock, &rt.TotalAmount,
 	); err != nil {
@@ -2007,7 +2006,7 @@ func DeserializeRoute(r io.Reader) (route.Route, error) {
 		return rt, err
 	}
 
-	var hops []*route.Hop
+	var hops []*Hop
 	for i := uint32(0); i < numHops; i++ {
 		hop, err := deserializeHop(r)
 		if err != nil {
@@ -2062,7 +2061,7 @@ func serializeHTLCFailInfo(w io.Writer, f *HTLCFailInfo) error {
 	// byte slice.
 	var messageBytes bytes.Buffer
 	if f.Message != nil {
-		err := lnwire.EncodeFailureMessage(&messageBytes, f.Message, 0)
+		err := encodeFailureMessage(&messageBytes, f.Message, 0)
 		if err != nil {
 			return err
 		}
@@ -2092,11 +2091,11 @@ func deserializeHTLCFailInfo(r io.Reader) (*HTLCFailInfo, error) {
 		return nil, err
 	}
 	if len(failureBytes) > 0 {
-		f.Message, err = lnwire.DecodeFailureMessage(
+		f.Message, err = decodeFailureMessage(
 			bytes.NewReader(failureBytes), 0,
 		)
 		if err != nil &&
-			!errors.Is(err, lnwire.ErrParsingExtraTLVBytes) {
+			!errors.Is(err, errParsingExtraTLVBytes) {
 
 			return nil, err
 		}
@@ -2104,7 +2103,7 @@ func deserializeHTLCFailInfo(r io.Reader) (*HTLCFailInfo, error) {
 		// In case we have an invalid TLV stream regarding the extra
 		// tlv data we still continue with the decoding of the
 		// HTLCFailInfo.
-		if errors.Is(err, lnwire.ErrParsingExtraTLVBytes) {
+		if errors.Is(err, errParsingExtraTLVBytes) {
 			log.Warnf("Failed to decode extra TLV bytes for "+
 				"failure message: %v", err)
 		}

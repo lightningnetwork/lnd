@@ -13,7 +13,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/payments/db/migration1/sqlc"
-	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sqldb"
 )
 
@@ -1415,7 +1414,7 @@ func (s *SQLStore) InitPayment(ctx context.Context, paymentHash lntypes.Hash,
 
 // insertRouteHops inserts all route hop data for a given set of hops.
 func (s *SQLStore) insertRouteHops(ctx context.Context, db SQLQueries,
-	hops []*route.Hop, attemptID uint64) error {
+	hops []*Hop, attemptID uint64) error {
 
 	for i, hop := range hops {
 		// Insert the basic route hop data and get the generated ID.
@@ -1765,7 +1764,7 @@ func (s *SQLStore) FailAttempt(ctx context.Context, paymentHash lntypes.Hash,
 
 		var failureMsg bytes.Buffer
 		if failInfo.Message != nil {
-			err := lnwire.EncodeFailureMessage(
+			err := encodeFailureMessage(
 				&failureMsg, failInfo.Message, 0,
 			)
 			if err != nil {

@@ -844,7 +844,7 @@ func TestMigratePaymentWithFailureMessage(t *testing.T) {
 		var sessionKeyBytes [32]byte
 		copy(sessionKeyBytes[:], sessionKey.Serialize())
 
-		var sourcePubKey route.Vertex
+		var sourcePubKey [33]byte
 		copy(sourcePubKey[:], sessionKey.PubKey().SerializeCompressed())
 
 		hopKey, err := btcec.NewPrivateKey()
@@ -861,13 +861,13 @@ func TestMigratePaymentWithFailureMessage(t *testing.T) {
 		attemptInfo := &HTLCAttemptInfo{
 			AttemptID:  attemptID,
 			sessionKey: sessionKeyBytes,
-			Route: route.Route{
+			Route: Route{
 				TotalTimeLock: 500000,
 				TotalAmount:   900,
 				SourcePubKey:  sourcePubKey,
-				Hops: []*route.Hop{
+				Hops: []*Hop{
 					{
-						PubKeyBytes:      route.NewVertex(hopKey.PubKey()),
+						PubKeyBytes:      [33]byte(route.NewVertex(hopKey.PubKey())),
 						ChannelID:        12345,
 						OutgoingTimeLock: 499500,
 						AmtToForward:     850,
@@ -1122,7 +1122,7 @@ func createTestHTLCAttempt(t *testing.T, htlcBucket kvdb.RwBucket,
 	hop2Key, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
-	var sourcePubKey route.Vertex
+	var sourcePubKey [33]byte
 	copy(sourcePubKey[:], sessionKey.PubKey().SerializeCompressed())
 
 	// Convert session key to [32]byte.
@@ -1132,23 +1132,23 @@ func createTestHTLCAttempt(t *testing.T, htlcBucket kvdb.RwBucket,
 	attemptInfo := &HTLCAttemptInfo{
 		AttemptID:  attemptID,
 		sessionKey: sessionKeyBytes,
-		Route: route.Route{
+		Route: Route{
 			TotalTimeLock: 500000,
 			TotalAmount:   900,
 			SourcePubKey:  sourcePubKey,
-			Hops: []*route.Hop{
+			Hops: []*Hop{
 				{
-					PubKeyBytes: route.NewVertex(
+					PubKeyBytes: [33]byte(route.NewVertex(
 						hop1Key.PubKey(),
-					),
+					)),
 					ChannelID:        12345,
 					OutgoingTimeLock: 499500,
 					AmtToForward:     850,
 				},
 				{
-					PubKeyBytes: route.NewVertex(
+					PubKeyBytes: [33]byte(route.NewVertex(
 						hop2Key.PubKey(),
-					),
+					)),
 					ChannelID:        67890,
 					OutgoingTimeLock: 499000,
 					AmtToForward:     800,
@@ -1296,7 +1296,7 @@ func createTestDuplicatePayment(t *testing.T,
 	hop2Key, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
-	var sourcePubKey route.Vertex
+	var sourcePubKey [33]byte
 	copy(sourcePubKey[:], sessionKey.PubKey().SerializeCompressed())
 
 	var sessionKeyBytes [32]byte
@@ -1309,23 +1309,23 @@ func createTestDuplicatePayment(t *testing.T,
 	duplicateAttempt := &duplicateHTLCAttemptInfo{
 		attemptID:  attemptID,
 		sessionKey: sessionKeyBytes,
-		route: route.Route{
+		route: Route{
 			TotalTimeLock: 500000,
 			TotalAmount:   900,
 			SourcePubKey:  sourcePubKey,
-			Hops: []*route.Hop{
+			Hops: []*Hop{
 				{
-					PubKeyBytes: route.NewVertex(
+					PubKeyBytes: [33]byte(route.NewVertex(
 						hop1Key.PubKey(),
-					),
+					)),
 					ChannelID:        12345,
 					OutgoingTimeLock: 499500,
 					AmtToForward:     850,
 				},
 				{
-					PubKeyBytes: route.NewVertex(
+					PubKeyBytes: [33]byte(route.NewVertex(
 						hop2Key.PubKey(),
-					),
+					)),
 					ChannelID:        67890,
 					OutgoingTimeLock: 499000,
 					AmtToForward:     800,
@@ -1563,7 +1563,7 @@ type paymentTestConfig struct {
 	baseTimeLock      uint32
 	paymentCustomRecs lnwire.CustomRecords
 	attemptCustomRecs lnwire.CustomRecords
-	hopConfigurator   func(hop *route.Hop, index int, isFinal bool)
+	hopConfigurator   func(hop *Hop, index int, isFinal bool)
 }
 
 // serializeAndPut serializes data using the provided serializer function and
@@ -1580,17 +1580,17 @@ func serializeAndPut(bucket kvdb.RwBucket, key []byte,
 
 // generateSessionKey creates a new session key and returns the private key,
 // source public key vertex, and serialized key bytes.
-func generateSessionKey(t *testing.T) (*btcec.PrivateKey, route.Vertex,
+func generateSessionKey(t *testing.T) (*btcec.PrivateKey, [33]byte,
 	[32]byte, error) {
 
 	t.Helper()
 
 	sessionKey, err := btcec.NewPrivateKey()
 	if err != nil {
-		return nil, route.Vertex{}, [32]byte{}, err
+		return nil, [33]byte{}, [32]byte{}, err
 	}
 
-	var sourcePubKey route.Vertex
+	var sourcePubKey [33]byte
 	copy(sourcePubKey[:], sessionKey.PubKey().SerializeCompressed())
 
 	var sessionKeyBytes [32]byte
@@ -1604,12 +1604,12 @@ func generateSessionKey(t *testing.T) (*btcec.PrivateKey, route.Vertex,
 // feature-specific customization.
 func createTestHops(t *testing.T, numHops int, baseAmount lnwire.MilliSatoshi,
 	baseChannelID uint64, baseTimeLock uint32,
-	configurator func(*route.Hop, int, bool)) ([]*route.Hop,
+	configurator func(*Hop, int, bool)) ([]*Hop,
 	lnwire.MilliSatoshi, error) {
 
 	t.Helper()
 
-	hops := make([]*route.Hop, numHops)
+	hops := make([]*Hop, numHops)
 	currentAmt := baseAmount
 
 	for i := 0; i < numHops; i++ {
@@ -1619,8 +1619,8 @@ func createTestHops(t *testing.T, numHops int, baseAmount lnwire.MilliSatoshi,
 		}
 
 		amt := baseAmount - lnwire.MilliSatoshi(uint64(i)*100)
-		hop := &route.Hop{
-			PubKeyBytes:      route.NewVertex(hopKey.PubKey()),
+		hop := &Hop{
+			PubKeyBytes:      [33]byte(route.NewVertex(hopKey.PubKey())),
 			ChannelID:        baseChannelID + uint64(i),
 			OutgoingTimeLock: baseTimeLock - uint32(i*40),
 			AmtToForward:     amt,
@@ -1750,7 +1750,7 @@ func createTestPayment(t *testing.T, paymentsBucket, indexBucket kvdb.RwBucket,
 	attemptInfo := &HTLCAttemptInfo{
 		AttemptID:  cfg.attemptID,
 		sessionKey: sessionKeyBytes,
-		Route: route.Route{
+		Route: Route{
 			TotalTimeLock:             cfg.baseTimeLock,
 			TotalAmount:               totalAmount,
 			SourcePubKey:              sourcePubKey,
@@ -1803,7 +1803,7 @@ func createPaymentWithMPP(t *testing.T, paymentsBucket,
 			numHops:        3,
 			baseChannelID:  100000,
 			baseTimeLock:   500000,
-			hopConfigurator: func(hop *route.Hop, index int,
+			hopConfigurator: func(hop *Hop, index int,
 				isFinal bool) {
 
 				if isFinal {
@@ -1856,7 +1856,7 @@ func createPaymentWithAMPChildIndex(t *testing.T, paymentsBucket,
 			numHops:        2,
 			baseChannelID:  200000,
 			baseTimeLock:   600000,
-			hopConfigurator: func(hop *route.Hop, index int,
+			hopConfigurator: func(hop *Hop, index int,
 				isFinal bool) {
 
 				if isFinal {
@@ -1914,10 +1914,10 @@ func createPaymentWithCustomRecords(t *testing.T, paymentsBucket,
 				65541: []byte("attempt_custom_value_1"),
 				65542: []byte("attempt_custom_value_2"),
 			},
-			hopConfigurator: func(hop *route.Hop, index int,
+			hopConfigurator: func(hop *Hop, index int,
 				isFinal bool) {
 
-				hop.CustomRecords = record.CustomSet{
+				hop.CustomRecords = map[uint64][]byte{
 					65538 + uint64(index): []byte(
 						fmt.Sprintf(
 							"hop_%d_custom_value",
@@ -1950,7 +1950,7 @@ func createPaymentWithBlindedRoute(t *testing.T, paymentsBucket,
 			numHops:        4,
 			baseChannelID:  400000,
 			baseTimeLock:   800000,
-			hopConfigurator: func(hop *route.Hop, index int,
+			hopConfigurator: func(hop *Hop, index int,
 				isFinal bool) {
 
 				if isFinal {
@@ -1993,7 +1993,7 @@ func createPaymentWithMetadata(t *testing.T, paymentsBucket,
 			numHops:        3,
 			baseChannelID:  500000,
 			baseTimeLock:   900000,
-			hopConfigurator: func(hop *route.Hop, index int,
+			hopConfigurator: func(hop *Hop, index int,
 				isFinal bool) {
 
 				hop.Metadata = []byte(
@@ -2035,11 +2035,11 @@ func createPaymentWithAllFeatures(t *testing.T, paymentsBucket,
 				65549: []byte("all_feat_attempt_custom_1"),
 				65550: []byte("all_feat_attempt_custom_2"),
 			},
-			hopConfigurator: func(hop *route.Hop, index int,
+			hopConfigurator: func(hop *Hop, index int,
 				isFinal bool) {
 
 				// Add custom records and metadata to all hops.
-				hop.CustomRecords = record.CustomSet{
+				hop.CustomRecords = map[uint64][]byte{
 					65545 + uint64(index): []byte(
 						fmt.Sprintf(
 							"all_feat_hop_%d",
@@ -2201,7 +2201,7 @@ func createLegacyPaymentWithNilHash(t *testing.T, paymentsBucket,
 	var sessionKeyBytes [32]byte
 	copy(sessionKeyBytes[:], sessionKey.Serialize())
 
-	var sourcePubKey route.Vertex
+	var sourcePubKey [33]byte
 	copy(sourcePubKey[:], sessionKey.PubKey().SerializeCompressed())
 
 	hopKey, err := btcec.NewPrivateKey()
@@ -2210,13 +2210,13 @@ func createLegacyPaymentWithNilHash(t *testing.T, paymentsBucket,
 	attemptInfo := &HTLCAttemptInfo{
 		AttemptID:  1,
 		sessionKey: sessionKeyBytes,
-		Route: route.Route{
+		Route: Route{
 			TotalTimeLock: 500000,
 			TotalAmount:   50000,
 			SourcePubKey:  sourcePubKey,
-			Hops: []*route.Hop{
+			Hops: []*Hop{
 				{
-					PubKeyBytes:      route.NewVertex(hopKey.PubKey()),
+					PubKeyBytes:      [33]byte(route.NewVertex(hopKey.PubKey())),
 					ChannelID:        12345,
 					OutgoingTimeLock: 499500,
 					AmtToForward:     49000,
@@ -2336,27 +2336,27 @@ func createPaymentWithFeatureSet(t *testing.T, paymentsBucket,
 	sessionKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
-	var sourcePubKey route.Vertex
+	var sourcePubKey [33]byte
 	copy(sourcePubKey[:], sessionKey.PubKey().SerializeCompressed())
 
 	var sessionKeyBytes [32]byte
 	copy(sessionKeyBytes[:], sessionKey.Serialize())
 
 	baseAmt := lnwire.MilliSatoshi(100000)
-	hops := make([]*route.Hop, 3)
+	hops := make([]*Hop, 3)
 	for i := 0; i < 3; i++ {
 		hopKey, err := btcec.NewPrivateKey()
 		require.NoError(t, err)
 
 		amt := baseAmt - lnwire.MilliSatoshi(uint64(i)*100)
-		hop := &route.Hop{
-			PubKeyBytes:      route.NewVertex(hopKey.PubKey()),
+		hop := &Hop{
+			PubKeyBytes:      [33]byte(route.NewVertex(hopKey.PubKey())),
 			ChannelID:        uint64(700000 + i),
 			OutgoingTimeLock: uint32(700000 - i*40),
 			AmtToForward:     amt,
 		}
 		if features.customRecords {
-			hop.CustomRecords = record.CustomSet{
+			hop.CustomRecords = map[uint64][]byte{
 				65562 + uint64(i): []byte(fmt.Sprintf(
 					"combo_hop_%d", i,
 				)),
@@ -2406,7 +2406,7 @@ func createPaymentWithFeatureSet(t *testing.T, paymentsBucket,
 		hops[i] = hop
 	}
 
-	routeInfo := route.Route{
+	routeInfo := Route{
 		TotalTimeLock: 700000,
 		TotalAmount:   baseAmt - 200,
 		SourcePubKey:  sourcePubKey,

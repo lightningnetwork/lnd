@@ -11,7 +11,6 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 var (
@@ -56,7 +55,7 @@ type duplicateHTLCAttemptInfo struct {
 	sessionKey [btcec.PrivKeyBytesLen]byte
 
 	// route is the route attempted to send the HTLC.
-	route route.Route
+	route Route
 }
 
 // fetchDuplicatePaymentStatus fetches the payment status of the payment. If

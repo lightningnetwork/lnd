@@ -774,6 +774,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
+	//nolint:ll
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
 		DB:                   dbs.ChanStateDB,
 		FetchAllOpenChannels: s.chanStateDB.FetchAllOpenChannels,
@@ -793,22 +794,23 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 			peer.HandleLocalCloseChanReqs(request)
 		},
-		FwdingLog:              dbs.ChanStateDB.ForwardingLog(),
-		SwitchPackager:         channeldb.NewSwitchPackager(),
-		ExtractErrorEncrypter:  s.sphinx.ExtractErrorEncrypter,
-		FetchLastChannelUpdate: s.fetchLastChanUpdate(),
-		Notifier:               s.cc.ChainNotifier,
-		HtlcNotifier:           s.htlcNotifier,
-		FwdEventTicker:         ticker.New(htlcswitch.DefaultFwdEventInterval),
-		LogEventTicker:         ticker.New(htlcswitch.DefaultLogInterval),
-		AckEventTicker:         ticker.New(htlcswitch.DefaultAckInterval),
-		AllowCircularRoute:     cfg.AllowCircularRoute,
-		RejectHTLC:             cfg.RejectHTLC,
-		Clock:                  clock.NewDefaultClock(),
-		MailboxDeliveryTimeout: cfg.Htlcswitch.MailboxDeliveryTimeout,
-		MaxFeeExposure:         thresholdMSats,
-		SignAliasUpdate:        s.signAliasUpdate,
-		IsAlias:                aliasmgr.IsAlias,
+		FwdingLog:                dbs.ChanStateDB.ForwardingLog(),
+		SwitchPackager:           channeldb.NewSwitchPackager(),
+		ExtractErrorEncrypter:    s.sphinx.ExtractErrorEncrypter,
+		FetchLastChannelUpdate:   s.fetchLastChanUpdate(),
+		Notifier:                 s.cc.ChainNotifier,
+		HtlcNotifier:             s.htlcNotifier,
+		FwdEventTicker:           ticker.New(htlcswitch.DefaultFwdEventInterval),
+		LogEventTicker:           ticker.New(htlcswitch.DefaultLogInterval),
+		AckEventTicker:           ticker.New(htlcswitch.DefaultAckInterval),
+		AllowCircularRoute:       cfg.AllowCircularRoute,
+		RejectHTLC:               cfg.RejectHTLC,
+		Clock:                    clock.NewDefaultClock(),
+		MailboxDeliveryTimeout:   cfg.Htlcswitch.MailboxDeliveryTimeout,
+		MaxFeeExposure:           thresholdMSats,
+		SignAliasUpdate:          s.signAliasUpdate,
+		IsAlias:                  aliasmgr.IsAlias,
+		ExternalPaymentLifecycle: build.SwitchRPC,
 	}, uint32(currentHeight))
 	if err != nil {
 		return nil, err

@@ -65,15 +65,82 @@ FROM invoices i
 INNER JOIN amp_sub_invoices a 
 ON i.id = a.invoice_id AND a.set_id = $1;
 
+-- name: FetchPendingInvoices :many
+-- FetchPendingInvoices returns all invoices in a pending state (open or
+-- accepted). The invoices_state_idx index on the state column makes this a
+-- fast index scan rather than a full table scan.
+SELECT
+    invoices.*
+FROM invoices
+WHERE state IN (0, 3) -- 0 = ContractOpen, 3 = ContractAccepted
+ORDER BY id ASC
+LIMIT @num_limit OFFSET @num_offset;
+
+-- name: FilterInvoicesBySettleIndex :many
+-- FilterInvoicesBySettleIndex returns settled invoices whose settle_index is
+-- greater than or equal to the given value, ordered by id. The caller must
+-- always supply a concrete lower bound so the invoices_settle_index_idx index
+-- can be used.
+SELECT
+    invoices.*
+FROM invoices
+WHERE settle_index >= @settle_index_get
+ORDER BY id ASC
+LIMIT @num_limit OFFSET @num_offset;
+
+-- name: FilterInvoicesByAddIndex :many
+-- FilterInvoicesByAddIndex returns invoices whose add_index (primary key id)
+-- is greater than or equal to the given value, ordered by id. Because id is
+-- the primary key, this is always an efficient range scan on the clustered
+-- index.
+SELECT
+    invoices.*
+FROM invoices
+WHERE id >= @add_index_get
+ORDER BY id ASC
+LIMIT @num_limit OFFSET @num_offset;
+
+-- name: FilterInvoicesForward :many
+-- FilterInvoicesForward returns invoices in ascending id order starting from
+-- add_index_get. All parameters are non-nullable so the planner always sees
+-- plain range predicates and can use the primary-key index. The caller is
+-- responsible for supplying Go-side defaults when a filter is not needed:
+--   created_after  → time.Unix(0, 0).UTC()       (epoch – before any invoice)
+--   created_before → time.Date(9999, …)            (far future – no upper cap)
+--   pending_only   → false                         (include all states)
+SELECT
+    invoices.*
+FROM invoices
+WHERE id >= @add_index_get
+  AND (NOT @pending_only OR state IN (0, 3)) -- 0 = ContractOpen, 3 = ContractAccepted
+  AND created_at >= @created_after
+  AND created_at < @created_before
+ORDER BY id ASC
+LIMIT @num_limit OFFSET @num_offset;
+
+-- name: FilterInvoicesReverse :many
+-- FilterInvoicesReverse is the descending counterpart of FilterInvoicesForward.
+-- It returns invoices in descending id order up to and including add_index_let.
+-- See FilterInvoicesForward for the expected Go-side defaults.
+SELECT
+    invoices.*
+FROM invoices
+WHERE id <= @add_index_let
+  AND (NOT @pending_only OR state IN (0, 3)) -- 0 = ContractOpen, 3 = ContractAccepted
+  AND created_at >= @created_after
+  AND created_at < @created_before
+ORDER BY id DESC
+LIMIT @num_limit OFFSET @num_offset;
+
 -- name: FilterInvoices :many
 SELECT
     invoices.*
 FROM invoices
 WHERE (
-    id >= sqlc.narg('add_index_get') OR 
+    id >= sqlc.narg('add_index_get') OR
     sqlc.narg('add_index_get') IS NULL
 ) AND (
-    id <= sqlc.narg('add_index_let') OR 
+    id <= sqlc.narg('add_index_let') OR
     sqlc.narg('add_index_let') IS NULL
 ) AND (
     settle_index >= sqlc.narg('settle_index_get') OR
@@ -82,18 +149,18 @@ WHERE (
     settle_index <= sqlc.narg('settle_index_let') OR
     sqlc.narg('settle_index_let') IS NULL
 ) AND (
-    state = sqlc.narg('state') OR 
+    state = sqlc.narg('state') OR
     sqlc.narg('state') IS NULL
 ) AND (
     created_at >= sqlc.narg('created_after') OR
     sqlc.narg('created_after') IS NULL
 ) AND (
-    created_at < sqlc.narg('created_before') OR 
+    created_at < sqlc.narg('created_before') OR
     sqlc.narg('created_before') IS NULL
 ) AND (
     CASE
         WHEN sqlc.narg('pending_only') = TRUE THEN (state = 0 OR state = 3)
-        ELSE TRUE 
+        ELSE TRUE
     END
 )
 ORDER BY

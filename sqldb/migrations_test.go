@@ -113,8 +113,8 @@ func testInvoiceExpiryMigration(t *testing.T, makeDB makeMigrationTestDB) {
 	// AMP invoices.
 	err = migrate(TargetVersion(4))
 
-	invoices, err := db.FilterInvoices(ctxb, sqlc.FilterInvoicesParams{
-		AddIndexGet: SQLInt64(1),
+	invoices, err := db.FilterInvoicesByAddIndex(ctxb, sqlc.FilterInvoicesByAddIndexParams{
+		AddIndexGet: 1,
 		NumLimit:    100,
 	})
 

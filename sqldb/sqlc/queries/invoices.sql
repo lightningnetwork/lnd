@@ -132,48 +132,6 @@ WHERE id <= @add_index_let
 ORDER BY id DESC
 LIMIT @num_limit OFFSET @num_offset;
 
--- name: FilterInvoices :many
-SELECT
-    invoices.*
-FROM invoices
-WHERE (
-    id >= sqlc.narg('add_index_get') OR
-    sqlc.narg('add_index_get') IS NULL
-) AND (
-    id <= sqlc.narg('add_index_let') OR
-    sqlc.narg('add_index_let') IS NULL
-) AND (
-    settle_index >= sqlc.narg('settle_index_get') OR
-    sqlc.narg('settle_index_get') IS NULL
-) AND (
-    settle_index <= sqlc.narg('settle_index_let') OR
-    sqlc.narg('settle_index_let') IS NULL
-) AND (
-    state = sqlc.narg('state') OR
-    sqlc.narg('state') IS NULL
-) AND (
-    created_at >= sqlc.narg('created_after') OR
-    sqlc.narg('created_after') IS NULL
-) AND (
-    created_at < sqlc.narg('created_before') OR
-    sqlc.narg('created_before') IS NULL
-) AND (
-    CASE
-        WHEN sqlc.narg('pending_only') = TRUE THEN (state = 0 OR state = 3)
-        ELSE TRUE
-    END
-)
-ORDER BY
-CASE
-    WHEN sqlc.narg('reverse') = FALSE OR sqlc.narg('reverse') IS NULL THEN id
-    ELSE NULL
-    END ASC,
-CASE
-    WHEN sqlc.narg('reverse') = TRUE THEN id
-    ELSE NULL
-END DESC
-LIMIT @num_limit OFFSET @num_offset;
-
 -- name: UpdateInvoiceState :execresult
 UPDATE invoices
 SET state = $2,

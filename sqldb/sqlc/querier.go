@@ -36,7 +36,6 @@ type Querier interface {
 	// fast index scan rather than a full table scan.
 	FetchPendingInvoices(ctx context.Context, arg FetchPendingInvoicesParams) ([]Invoice, error)
 	FetchSettledAMPSubInvoices(ctx context.Context, arg FetchSettledAMPSubInvoicesParams) ([]FetchSettledAMPSubInvoicesRow, error)
-	FilterInvoices(ctx context.Context, arg FilterInvoicesParams) ([]Invoice, error)
 	// FilterInvoicesByAddIndex returns invoices whose add_index (primary key id)
 	// is greater than or equal to the given value, ordered by id. Because id is
 	// the primary key, this is always an efficient range scan on the clustered

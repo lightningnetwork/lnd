@@ -30,6 +30,24 @@ const (
 	invoiceProgressLogInterval = 30 * time.Second
 )
 
+var (
+	// invoiceCreatedAfterDefault is the lower-bound sentinel for the
+	// created_at timestamp filter used by FilterInvoicesForward and
+	// FilterInvoicesReverse. time.Unix(0, 0) precedes any real invoice
+	// creation date, so passing this value tells the planner "no lower
+	// bound" while still providing a concrete, non-nullable parameter.
+	invoiceCreatedAfterDefault = time.Unix(0, 0).UTC()
+
+	// invoiceCreatedBeforeDefault is the upper-bound sentinel for the
+	// created_at timestamp filter. Year 9999 lies far beyond any
+	// foreseeable invoice creation date, so passing this value tells the
+	// planner "no upper bound" while still keeping the parameter
+	// non-nullable.
+	invoiceCreatedBeforeDefault = time.Date(
+		9999, 12, 31, 23, 59, 59, 0, time.UTC,
+	)
+)
+
 // SQLInvoiceQueries is an interface that defines the set of operations that can
 // be executed against the invoice SQL database.
 type SQLInvoiceQueries interface { //nolint:interfacebloat
@@ -49,8 +67,38 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 	InsertInvoiceHTLCCustomRecord(ctx context.Context,
 		arg sqlc.InsertInvoiceHTLCCustomRecordParams) error
 
-	FilterInvoices(ctx context.Context,
-		arg sqlc.FilterInvoicesParams) ([]sqlc.Invoice, error)
+	// FetchPendingInvoices returns all open/accepted invoices ordered by
+	// id ascending. It replaces the old catch-all FilterInvoices for the
+	// pending-only path and lets the planner use invoices_state_idx.
+	FetchPendingInvoices(ctx context.Context,
+		arg sqlc.FetchPendingInvoicesParams) ([]sqlc.Invoice, error)
+
+	// FilterInvoicesBySettleIndex returns settled invoices whose
+	// settle_index is >= the given bound, ordered by id ascending. The
+	// caller must always supply a concrete lower bound so the planner can
+	// use invoices_settle_index_idx.
+	FilterInvoicesBySettleIndex(ctx context.Context,
+		arg sqlc.FilterInvoicesBySettleIndexParams) ([]sqlc.Invoice,
+		error)
+
+	// FilterInvoicesByAddIndex returns invoices whose primary-key id is >=
+	// the given bound, ordered by id ascending. Because id is the primary
+	// key, this is always a range scan on the clustered index.
+	FilterInvoicesByAddIndex(ctx context.Context,
+		arg sqlc.FilterInvoicesByAddIndexParams) ([]sqlc.Invoice, error)
+
+	// FilterInvoicesForward returns invoices in ascending id order. All
+	// parameters are non-nullable so the planner always sees plain range
+	// predicates. Callers must supply Go-side defaults for unused filters
+	// (see FilterInvoicesForwardParams).
+	FilterInvoicesForward(ctx context.Context,
+		arg sqlc.FilterInvoicesForwardParams) ([]sqlc.Invoice, error)
+
+	// FilterInvoicesReverse is the descending counterpart of
+	// FilterInvoicesForward. See FilterInvoicesForwardParams for the
+	// expected Go-side defaults.
+	FilterInvoicesReverse(ctx context.Context,
+		arg sqlc.FilterInvoicesReverseParams) ([]sqlc.Invoice, error)
 
 	GetInvoice(ctx context.Context,
 		arg sqlc.GetInvoiceParams) ([]sqlc.Invoice, error)
@@ -721,14 +769,12 @@ func (i *SQLStore) FetchPendingInvoices(ctx context.Context) (
 	readTxOpt := sqldb.ReadTxOpt()
 	err := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
 		return queryWithLimit(func(offset int) (int, error) {
-			params := sqlc.FilterInvoicesParams{
-				PendingOnly: true,
-				NumOffset:   int32(offset),
-				NumLimit:    int32(i.opts.paginationLimit),
-				Reverse:     false,
+			params := sqlc.FetchPendingInvoicesParams{
+				NumOffset: int32(offset),
+				NumLimit:  int32(i.opts.paginationLimit),
 			}
 
-			rows, err := db.FilterInvoices(ctx, params)
+			rows, err := db.FetchPendingInvoices(ctx, params)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return 0, fmt.Errorf("unable to get invoices "+
 					"from db: %w", err)
@@ -782,14 +828,15 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 	readTxOpt := sqldb.ReadTxOpt()
 	err := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
 		err := queryWithLimit(func(offset int) (int, error) {
-			params := sqlc.FilterInvoicesParams{
+			// settle_index is always provided here so the
+			// invoices_settle_index_idx index can be used.
+			params := sqlc.FilterInvoicesBySettleIndexParams{
 				SettleIndexGet: sqldb.SQLInt64(idx + 1),
 				NumOffset:      int32(offset),
 				NumLimit:       int32(i.opts.paginationLimit),
-				Reverse:        false,
 			}
 
-			rows, err := db.FilterInvoices(ctx, params)
+			rows, err := db.FilterInvoicesBySettleIndex(ctx, params)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return 0, fmt.Errorf("unable to get invoices "+
 					"from db: %w", err)
@@ -928,14 +975,15 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 	readTxOpt := sqldb.ReadTxOpt()
 	err := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
 		return queryWithLimit(func(offset int) (int, error) {
-			params := sqlc.FilterInvoicesParams{
-				AddIndexGet: sqldb.SQLInt64(idx + 1),
+			// id is always provided here so the primary-key
+			// index is used for this range scan.
+			params := sqlc.FilterInvoicesByAddIndexParams{
+				AddIndexGet: int64(idx + 1),
 				NumOffset:   int32(offset),
 				NumLimit:    int32(i.opts.paginationLimit),
-				Reverse:     false,
 			}
 
-			rows, err := db.FilterInvoices(ctx, params)
+			rows, err := db.FilterInvoicesByAddIndex(ctx, params)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return 0, fmt.Errorf("unable to get invoices "+
 					"from db: %w", err)
@@ -996,53 +1044,71 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 			"be non-zero")
 	}
 
+	// Default date bounds: use the package-level sentinels so that the
+	// planner always receives a concrete, non-nullable value and can use
+	// the created_at index without OR-based fallbacks.
+	createdAfter := invoiceCreatedAfterDefault
+	if q.CreationDateStart != 0 {
+		createdAfter = time.Unix(q.CreationDateStart, 0).UTC()
+	}
+
+	createdBefore := invoiceCreatedBeforeDefault
+	if q.CreationDateEnd != 0 {
+		// Add 1 second so the end boundary is inclusive: the SQL
+		// predicate is strict less-than (created_at < createdBefore).
+		createdBefore = time.Unix(q.CreationDateEnd+1, 0).UTC()
+	}
+
 	readTxOpt := sqldb.ReadTxOpt()
 	err := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
 		return queryWithLimit(func(offset int) (int, error) {
-			params := sqlc.FilterInvoicesParams{
-				NumOffset:   int32(offset),
-				NumLimit:    int32(i.opts.paginationLimit),
-				PendingOnly: q.PendingOnly,
-				Reverse:     q.Reversed,
-			}
+			var (
+				rows  []sqlc.Invoice
+				err   error
+				limit = int32(i.opts.paginationLimit)
+			)
 
 			if q.Reversed {
-				// If the index offset was not set, we want to
-				// fetch from the lastest invoice.
-				if q.IndexOffset == 0 {
-					params.AddIndexLet = sqldb.SQLInt64(
-						int64(math.MaxInt64),
-					)
-				} else {
-					// The invoice with index offset id must
-					// not be included in the results.
-					params.AddIndexLet = sqldb.SQLInt64(
-						q.IndexOffset - 1,
-					)
+				// For reverse queries the upper id bound is
+				// always provided. When no offset is given we
+				// start from the most recently added invoice.
+				addIndexLet := int64(math.MaxInt64)
+				if q.IndexOffset != 0 {
+					// The invoice at IndexOffset must not
+					// appear in the results.
+					addIndexLet = int64(q.IndexOffset) - 1
 				}
+
+				params := sqlc.FilterInvoicesReverseParams{
+					AddIndexLet:   addIndexLet,
+					PendingOnly:   q.PendingOnly,
+					CreatedAfter:  createdAfter,
+					CreatedBefore: createdBefore,
+					NumOffset:     int32(offset),
+					NumLimit:      limit,
+				}
+
+				rows, err = db.FilterInvoicesReverse(
+					ctx, params,
+				)
 			} else {
-				// The invoice with index offset id must not be
-				// included in the results.
-				params.AddIndexGet = sqldb.SQLInt64(
-					q.IndexOffset + 1,
+				// For forward queries the lower id bound is
+				// always provided. IndexOffset 0 means "start
+				// from the very first invoice" (id >= 1).
+				params := sqlc.FilterInvoicesForwardParams{
+					AddIndexGet:   int64(q.IndexOffset) + 1,
+					PendingOnly:   q.PendingOnly,
+					CreatedAfter:  createdAfter,
+					CreatedBefore: createdBefore,
+					NumOffset:     int32(offset),
+					NumLimit:      limit,
+				}
+
+				rows, err = db.FilterInvoicesForward(
+					ctx, params,
 				)
 			}
 
-			if q.CreationDateStart != 0 {
-				params.CreatedAfter = sqldb.SQLTime(
-					time.Unix(q.CreationDateStart, 0).UTC(),
-				)
-			}
-
-			if q.CreationDateEnd != 0 {
-				// We need to add 1 to the end date as we're
-				// checking less than the end date in SQL.
-				params.CreatedBefore = sqldb.SQLTime(
-					time.Unix(q.CreationDateEnd+1, 0).UTC(),
-				)
-			}
-
-			rows, err := db.FilterInvoices(ctx, params)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return 0, fmt.Errorf("unable to get invoices "+
 					"from db: %w", err)

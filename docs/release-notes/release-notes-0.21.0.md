@@ -135,6 +135,16 @@
 
 ## Performance Improvements
 
+* [Replace the catch-all `FilterInvoices` SQL query with five focused,
+  index-friendly queries](https://github.com/lightningnetwork/lnd/pull/10601)
+  (`FetchPendingInvoices`, `FilterInvoicesBySettleIndex`,
+  `FilterInvoicesByAddIndex`, `FilterInvoicesForward`,
+  `FilterInvoicesReverse`). The old query used `col >= $param OR $param IS
+  NULL` predicates and a `CASE`-based `ORDER BY` that prevented SQLite's query
+  planner from using indexes, causing full table scans. Each new query carries
+  only the parameters it actually needs and uses a direct `ORDER BY`, allowing
+  the planner to perform efficient index range scans on the invoice table.
+
 ## Deprecations
 
 ### ⚠️ **Warning:** The deprecated fee rate option `--sat_per_byte` will be removed in release version **0.22**

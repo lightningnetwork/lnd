@@ -31,8 +31,33 @@ type Querier interface {
 	DeleteZombieChannel(ctx context.Context, arg DeleteZombieChannelParams) (sql.Result, error)
 	FetchAMPSubInvoiceHTLCs(ctx context.Context, arg FetchAMPSubInvoiceHTLCsParams) ([]FetchAMPSubInvoiceHTLCsRow, error)
 	FetchAMPSubInvoices(ctx context.Context, arg FetchAMPSubInvoicesParams) ([]AmpSubInvoice, error)
+	// FetchPendingInvoices returns all invoices in a pending state (open or
+	// accepted). The invoices_state_idx index on the state column makes this a
+	// fast index scan rather than a full table scan.
+	FetchPendingInvoices(ctx context.Context, arg FetchPendingInvoicesParams) ([]Invoice, error)
 	FetchSettledAMPSubInvoices(ctx context.Context, arg FetchSettledAMPSubInvoicesParams) ([]FetchSettledAMPSubInvoicesRow, error)
-	FilterInvoices(ctx context.Context, arg FilterInvoicesParams) ([]Invoice, error)
+	// FilterInvoicesByAddIndex returns invoices whose add_index (primary key id)
+	// is greater than or equal to the given value, ordered by id. Because id is
+	// the primary key, this is always an efficient range scan on the clustered
+	// index.
+	FilterInvoicesByAddIndex(ctx context.Context, arg FilterInvoicesByAddIndexParams) ([]Invoice, error)
+	// FilterInvoicesBySettleIndex returns settled invoices whose settle_index is
+	// greater than or equal to the given value, ordered by id. The caller must
+	// always supply a concrete lower bound so the invoices_settle_index_idx index
+	// can be used.
+	FilterInvoicesBySettleIndex(ctx context.Context, arg FilterInvoicesBySettleIndexParams) ([]Invoice, error)
+	// FilterInvoicesForward returns invoices in ascending id order starting from
+	// add_index_get. All parameters are non-nullable so the planner always sees
+	// plain range predicates and can use the primary-key index. The caller is
+	// responsible for supplying Go-side defaults when a filter is not needed:
+	//   created_after  → time.Unix(0, 0).UTC()       (epoch – before any invoice)
+	//   created_before → time.Date(9999, …)            (far future – no upper cap)
+	//   pending_only   → false                         (include all states)
+	FilterInvoicesForward(ctx context.Context, arg FilterInvoicesForwardParams) ([]Invoice, error)
+	// FilterInvoicesReverse is the descending counterpart of FilterInvoicesForward.
+	// It returns invoices in descending id order up to and including add_index_let.
+	// See FilterInvoicesForward for the expected Go-side defaults.
+	FilterInvoicesReverse(ctx context.Context, arg FilterInvoicesReverseParams) ([]Invoice, error)
 	GetAMPInvoiceID(ctx context.Context, setID []byte) (int64, error)
 	GetChannelAndNodesBySCID(ctx context.Context, arg GetChannelAndNodesBySCIDParams) (GetChannelAndNodesBySCIDRow, error)
 	GetChannelByOutpointWithPolicies(ctx context.Context, arg GetChannelByOutpointWithPoliciesParams) (GetChannelByOutpointWithPoliciesRow, error)

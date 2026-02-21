@@ -64,74 +64,295 @@ func (q *Queries) DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) (s
 	)
 }
 
-const filterInvoices = `-- name: FilterInvoices :many
+const fetchPendingInvoices = `-- name: FetchPendingInvoices :many
 SELECT
     invoices.id, invoices.hash, invoices.preimage, invoices.settle_index, invoices.settled_at, invoices.memo, invoices.amount_msat, invoices.cltv_delta, invoices.expiry, invoices.payment_addr, invoices.payment_request, invoices.payment_request_hash, invoices.state, invoices.amount_paid_msat, invoices.is_amp, invoices.is_hodl, invoices.is_keysend, invoices.created_at
 FROM invoices
-WHERE (
-    id >= $1 OR 
-    $1 IS NULL
-) AND (
-    id <= $2 OR 
-    $2 IS NULL
-) AND (
-    settle_index >= $3 OR
-    $3 IS NULL
-) AND (
-    settle_index <= $4 OR
-    $4 IS NULL
-) AND (
-    state = $5 OR 
-    $5 IS NULL
-) AND (
-    created_at >= $6 OR
-    $6 IS NULL
-) AND (
-    created_at < $7 OR 
-    $7 IS NULL
-) AND (
-    CASE
-        WHEN $8 = TRUE THEN (state = 0 OR state = 3)
-        ELSE TRUE 
-    END
-)
-ORDER BY
-CASE
-    WHEN $9 = FALSE OR $9 IS NULL THEN id
-    ELSE NULL
-    END ASC,
-CASE
-    WHEN $9 = TRUE THEN id
-    ELSE NULL
-END DESC
-LIMIT $11 OFFSET $10
+WHERE state IN (0, 3) -- 0 = ContractOpen, 3 = ContractAccepted
+ORDER BY id ASC
+LIMIT $2 OFFSET $1
 `
 
-type FilterInvoicesParams struct {
-	AddIndexGet    sql.NullInt64
-	AddIndexLet    sql.NullInt64
+type FetchPendingInvoicesParams struct {
+	NumOffset int32
+	NumLimit  int32
+}
+
+// FetchPendingInvoices returns all invoices in a pending state (open or
+// accepted). The invoices_state_idx index on the state column makes this a
+// fast index scan rather than a full table scan.
+func (q *Queries) FetchPendingInvoices(ctx context.Context, arg FetchPendingInvoicesParams) ([]Invoice, error) {
+	rows, err := q.db.QueryContext(ctx, fetchPendingInvoices, arg.NumOffset, arg.NumLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Invoice
+	for rows.Next() {
+		var i Invoice
+		if err := rows.Scan(
+			&i.ID,
+			&i.Hash,
+			&i.Preimage,
+			&i.SettleIndex,
+			&i.SettledAt,
+			&i.Memo,
+			&i.AmountMsat,
+			&i.CltvDelta,
+			&i.Expiry,
+			&i.PaymentAddr,
+			&i.PaymentRequest,
+			&i.PaymentRequestHash,
+			&i.State,
+			&i.AmountPaidMsat,
+			&i.IsAmp,
+			&i.IsHodl,
+			&i.IsKeysend,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const filterInvoicesByAddIndex = `-- name: FilterInvoicesByAddIndex :many
+SELECT
+    invoices.id, invoices.hash, invoices.preimage, invoices.settle_index, invoices.settled_at, invoices.memo, invoices.amount_msat, invoices.cltv_delta, invoices.expiry, invoices.payment_addr, invoices.payment_request, invoices.payment_request_hash, invoices.state, invoices.amount_paid_msat, invoices.is_amp, invoices.is_hodl, invoices.is_keysend, invoices.created_at
+FROM invoices
+WHERE id >= $1
+ORDER BY id ASC
+LIMIT $3 OFFSET $2
+`
+
+type FilterInvoicesByAddIndexParams struct {
+	AddIndexGet int64
+	NumOffset   int32
+	NumLimit    int32
+}
+
+// FilterInvoicesByAddIndex returns invoices whose add_index (primary key id)
+// is greater than or equal to the given value, ordered by id. Because id is
+// the primary key, this is always an efficient range scan on the clustered
+// index.
+func (q *Queries) FilterInvoicesByAddIndex(ctx context.Context, arg FilterInvoicesByAddIndexParams) ([]Invoice, error) {
+	rows, err := q.db.QueryContext(ctx, filterInvoicesByAddIndex, arg.AddIndexGet, arg.NumOffset, arg.NumLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Invoice
+	for rows.Next() {
+		var i Invoice
+		if err := rows.Scan(
+			&i.ID,
+			&i.Hash,
+			&i.Preimage,
+			&i.SettleIndex,
+			&i.SettledAt,
+			&i.Memo,
+			&i.AmountMsat,
+			&i.CltvDelta,
+			&i.Expiry,
+			&i.PaymentAddr,
+			&i.PaymentRequest,
+			&i.PaymentRequestHash,
+			&i.State,
+			&i.AmountPaidMsat,
+			&i.IsAmp,
+			&i.IsHodl,
+			&i.IsKeysend,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const filterInvoicesBySettleIndex = `-- name: FilterInvoicesBySettleIndex :many
+SELECT
+    invoices.id, invoices.hash, invoices.preimage, invoices.settle_index, invoices.settled_at, invoices.memo, invoices.amount_msat, invoices.cltv_delta, invoices.expiry, invoices.payment_addr, invoices.payment_request, invoices.payment_request_hash, invoices.state, invoices.amount_paid_msat, invoices.is_amp, invoices.is_hodl, invoices.is_keysend, invoices.created_at
+FROM invoices
+WHERE settle_index >= $1
+ORDER BY id ASC
+LIMIT $3 OFFSET $2
+`
+
+type FilterInvoicesBySettleIndexParams struct {
 	SettleIndexGet sql.NullInt64
-	SettleIndexLet sql.NullInt64
-	State          sql.NullInt16
-	CreatedAfter   sql.NullTime
-	CreatedBefore  sql.NullTime
-	PendingOnly    interface{}
-	Reverse        interface{}
 	NumOffset      int32
 	NumLimit       int32
 }
 
-func (q *Queries) FilterInvoices(ctx context.Context, arg FilterInvoicesParams) ([]Invoice, error) {
-	rows, err := q.db.QueryContext(ctx, filterInvoices,
+// FilterInvoicesBySettleIndex returns settled invoices whose settle_index is
+// greater than or equal to the given value, ordered by id. The caller must
+// always supply a concrete lower bound so the invoices_settle_index_idx index
+// can be used.
+func (q *Queries) FilterInvoicesBySettleIndex(ctx context.Context, arg FilterInvoicesBySettleIndexParams) ([]Invoice, error) {
+	rows, err := q.db.QueryContext(ctx, filterInvoicesBySettleIndex, arg.SettleIndexGet, arg.NumOffset, arg.NumLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Invoice
+	for rows.Next() {
+		var i Invoice
+		if err := rows.Scan(
+			&i.ID,
+			&i.Hash,
+			&i.Preimage,
+			&i.SettleIndex,
+			&i.SettledAt,
+			&i.Memo,
+			&i.AmountMsat,
+			&i.CltvDelta,
+			&i.Expiry,
+			&i.PaymentAddr,
+			&i.PaymentRequest,
+			&i.PaymentRequestHash,
+			&i.State,
+			&i.AmountPaidMsat,
+			&i.IsAmp,
+			&i.IsHodl,
+			&i.IsKeysend,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const filterInvoicesForward = `-- name: FilterInvoicesForward :many
+SELECT
+    invoices.id, invoices.hash, invoices.preimage, invoices.settle_index, invoices.settled_at, invoices.memo, invoices.amount_msat, invoices.cltv_delta, invoices.expiry, invoices.payment_addr, invoices.payment_request, invoices.payment_request_hash, invoices.state, invoices.amount_paid_msat, invoices.is_amp, invoices.is_hodl, invoices.is_keysend, invoices.created_at
+FROM invoices
+WHERE id >= $1
+  AND (NOT $2 OR state IN (0, 3)) -- 0 = ContractOpen, 3 = ContractAccepted
+  AND created_at >= $3
+  AND created_at < $4
+ORDER BY id ASC
+LIMIT $6 OFFSET $5
+`
+
+type FilterInvoicesForwardParams struct {
+	AddIndexGet   int64
+	PendingOnly   interface{}
+	CreatedAfter  time.Time
+	CreatedBefore time.Time
+	NumOffset     int32
+	NumLimit      int32
+}
+
+// FilterInvoicesForward returns invoices in ascending id order starting from
+// add_index_get. All parameters are non-nullable so the planner always sees
+// plain range predicates and can use the primary-key index. The caller is
+// responsible for supplying Go-side defaults when a filter is not needed:
+//
+//	created_after  → time.Unix(0, 0).UTC()       (epoch – before any invoice)
+//	created_before → time.Date(9999, …)            (far future – no upper cap)
+//	pending_only   → false                         (include all states)
+func (q *Queries) FilterInvoicesForward(ctx context.Context, arg FilterInvoicesForwardParams) ([]Invoice, error) {
+	rows, err := q.db.QueryContext(ctx, filterInvoicesForward,
 		arg.AddIndexGet,
-		arg.AddIndexLet,
-		arg.SettleIndexGet,
-		arg.SettleIndexLet,
-		arg.State,
+		arg.PendingOnly,
 		arg.CreatedAfter,
 		arg.CreatedBefore,
+		arg.NumOffset,
+		arg.NumLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Invoice
+	for rows.Next() {
+		var i Invoice
+		if err := rows.Scan(
+			&i.ID,
+			&i.Hash,
+			&i.Preimage,
+			&i.SettleIndex,
+			&i.SettledAt,
+			&i.Memo,
+			&i.AmountMsat,
+			&i.CltvDelta,
+			&i.Expiry,
+			&i.PaymentAddr,
+			&i.PaymentRequest,
+			&i.PaymentRequestHash,
+			&i.State,
+			&i.AmountPaidMsat,
+			&i.IsAmp,
+			&i.IsHodl,
+			&i.IsKeysend,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const filterInvoicesReverse = `-- name: FilterInvoicesReverse :many
+SELECT
+    invoices.id, invoices.hash, invoices.preimage, invoices.settle_index, invoices.settled_at, invoices.memo, invoices.amount_msat, invoices.cltv_delta, invoices.expiry, invoices.payment_addr, invoices.payment_request, invoices.payment_request_hash, invoices.state, invoices.amount_paid_msat, invoices.is_amp, invoices.is_hodl, invoices.is_keysend, invoices.created_at
+FROM invoices
+WHERE id <= $1
+  AND (NOT $2 OR state IN (0, 3)) -- 0 = ContractOpen, 3 = ContractAccepted
+  AND created_at >= $3
+  AND created_at < $4
+ORDER BY id DESC
+LIMIT $6 OFFSET $5
+`
+
+type FilterInvoicesReverseParams struct {
+	AddIndexLet   int64
+	PendingOnly   interface{}
+	CreatedAfter  time.Time
+	CreatedBefore time.Time
+	NumOffset     int32
+	NumLimit      int32
+}
+
+// FilterInvoicesReverse is the descending counterpart of FilterInvoicesForward.
+// It returns invoices in descending id order up to and including add_index_let.
+// See FilterInvoicesForward for the expected Go-side defaults.
+func (q *Queries) FilterInvoicesReverse(ctx context.Context, arg FilterInvoicesReverseParams) ([]Invoice, error) {
+	rows, err := q.db.QueryContext(ctx, filterInvoicesReverse,
+		arg.AddIndexLet,
 		arg.PendingOnly,
-		arg.Reverse,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
 		arg.NumOffset,
 		arg.NumLimit,
 	)

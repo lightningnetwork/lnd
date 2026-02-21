@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"sync"
 
@@ -838,6 +839,16 @@ type channelOpts struct {
 	auxResolver fn.Option[AuxContractResolver]
 
 	skipNonceInit bool
+
+	// taprootNonceType specifies which nonce format to use when
+	// constructing messages for the peer. This is determined by the peer's
+	// advertised feature bits.
+	taprootNonceType lnwire.TaprootNonceType
+
+	// customSigningRand is an optional custom random source for generating
+	// deterministic JIT signing nonces in MuSig2 sessions. This should
+	// only be set in tests that need reproducible signatures.
+	customSigningRand fn.Option[io.Reader]
 }
 
 // WithLocalMusigNonces is used to bind an existing verification/local nonce to
@@ -886,6 +897,25 @@ func WithAuxSigner(signer AuxSigner) ChannelOpt {
 func WithAuxResolver(resolver AuxContractResolver) ChannelOpt {
 	return func(o *channelOpts) {
 		o.auxResolver = fn.Some[AuxContractResolver](resolver)
+	}
+}
+
+// WithCustomSigningRand is used to provide a custom random source for
+// generating deterministic JIT signing nonces in MuSig2 sessions. This should
+// only be used in tests that need reproducible MuSig2 signatures.
+func WithCustomSigningRand(rand io.Reader) ChannelOpt {
+	return func(o *channelOpts) {
+		o.customSigningRand = fn.Some[io.Reader](rand)
+	}
+}
+
+// WithPeerFeatures determines the appropriate nonce type to use based on the
+// peer's advertised feature bits. If the peer supports the final taproot
+// channel feature bits (80/81), we use the map-based LocalNonces field.
+// Otherwise, we fall back to the legacy single LocalNonce field.
+func WithPeerFeatures(features *lnwire.FeatureVector) ChannelOpt {
+	return func(o *channelOpts) {
+		o.taprootNonceType = lnwire.DetermineTaprootNonceType(features)
 	}
 }
 
@@ -5642,6 +5672,45 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 	return revocationMsg, newCommitment.Htlcs, finalHtlcs, nil
 }
 
+// extractRevokeAndAckNonce extracts the next verification nonce from a
+// RevokeAndAck message. It prioritizes the new LocalNonces field over the
+// legacy LocalNonce field for backwards compatibility. If neither field is
+// present, an error is returned.
+func extractRevokeAndAckNonce(revMsg *lnwire.RevokeAndAck,
+) (lnwire.Musig2Nonce, error) {
+
+	switch {
+	case revMsg.LocalNonces.IsSome():
+		noncesData, err := revMsg.LocalNonces.UnwrapOrErr(
+			fmt.Errorf("invalid LocalNonces"),
+		)
+		if err != nil {
+			return lnwire.Musig2Nonce{}, err
+		}
+
+		// For revoke and ack, we expect the nonce for the main
+		// commitment. For now, we take the first nonce from the map.
+		for _, nonce := range noncesData.NoncesMap {
+			return nonce, nil
+		}
+
+		return lnwire.Musig2Nonce{}, fmt.Errorf("remote " +
+			"verification nonce not sent")
+
+	case revMsg.LocalNonce.IsSome():
+		localNonce, err := revMsg.LocalNonce.UnwrapOrErrV(errNoNonce)
+		if err != nil {
+			return lnwire.Musig2Nonce{}, err
+		}
+
+		return localNonce, nil
+
+	default:
+		return lnwire.Musig2Nonce{}, fmt.Errorf("remote " +
+			"verification nonce not sent")
+	}
+}
+
 // ReceiveRevocation processes a revocation sent by the remote party for the
 // lowest unrevoked commitment within their commitment chain. We receive a
 // revocation either during the initial session negotiation wherein revocation
@@ -5827,15 +5896,13 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	// Now that we have a new verification nonce from them, we can refresh
 	// our remote musig2 session which allows us to create another state.
 	if lc.channelState.ChanType.IsTaproot() {
-		localNonce, err := revMsg.LocalNonce.UnwrapOrErrV(errNoNonce)
+		localNonce, err := extractRevokeAndAckNonce(revMsg)
 		if err != nil {
 			return nil, nil, err
 		}
 
 		session, err := lc.musigSessions.RemoteSession.Refresh(
-			&musig2.Nonces{
-				PubNonce: localNonce,
-			},
+			&musig2.Nonces{PubNonce: localNonce},
 		)
 		if err != nil {
 			return nil, nil, err
@@ -6599,7 +6666,7 @@ func GetSignedCommitTx(inputs SignedCommitTxInputs,
 		musigSession := NewPartialMusigSession(
 			*localNonce, inputs.OurKey, inputs.TheirKey, signer,
 			inputs.SignDesc.Output, LocalMusigCommit,
-			tapscriptTweak,
+			tapscriptTweak, fn.None[io.Reader](),
 		)
 
 		var remoteSig lnwire.PartialSigWithNonce
@@ -7336,10 +7403,16 @@ func newOutgoingHtlcResolution(signer input.Signer,
 			return nil, err
 		}
 	} else {
+		// Determine script options based on channel type.
+		var scriptOpts []input.TaprootScriptOpt
+		if chanType.IsTaprootFinal() {
+			scriptOpts = append(scriptOpts, input.WithProdScripts())
+		}
+
 		//nolint:ll
 		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
 			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
-			secondLevelAuxLeaf,
+			secondLevelAuxLeaf, scriptOpts...,
 		)
 		if err != nil {
 			return nil, err
@@ -7696,10 +7769,16 @@ func newIncomingHtlcResolution(signer input.Signer,
 			return nil, err
 		}
 	} else {
+		// Determine script options based on channel type.
+		var scriptOpts []input.TaprootScriptOpt
+		if chanType.IsTaprootFinal() {
+			scriptOpts = append(scriptOpts, input.WithProdScripts())
+		}
+
 		//nolint:ll
 		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
 			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
-			secondLevelAuxLeaf,
+			secondLevelAuxLeaf, scriptOpts...,
 		)
 		if err != nil {
 			return nil, err
@@ -9238,9 +9317,27 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 		if err != nil {
 			return nil, err
 		}
-		revocationMsg.LocalNonce = lnwire.SomeMusig2Nonce(
-			nextVerificationNonce.PubNonce,
-		)
+
+		fundingTxid := lc.channelState.FundingOutpoint.Hash
+		nonce := nextVerificationNonce.PubNonce
+
+		// Set the appropriate nonce field based on the peer's feature
+		// bits. If they support the final taproot channel feature bits,
+		// we use the map-based LocalNonces field. Otherwise, we use the
+		// legacy single LocalNonce field.
+		switch lc.opts.taprootNonceType {
+		case lnwire.TaprootNonceTypeLegacy:
+			revocationMsg.LocalNonce = lnwire.SomeMusig2Nonce(nonce)
+
+		case lnwire.TaprootNonceTypeMap:
+			noncesMap := make(map[chainhash.Hash]lnwire.Musig2Nonce)
+			noncesMap[fundingTxid] = nonce
+			revocationMsg.LocalNonces = lnwire.SomeLocalNonces(
+				lnwire.LocalNoncesData{
+					NoncesMap: noncesMap,
+				},
+			)
+		}
 	}
 
 	return revocationMsg, nil
@@ -9931,13 +10028,14 @@ func (lc *LightningChannel) InitRemoteMusigNonces(remoteNonce *musig2.Nonces,
 	// TODO(roasbeef): propagate rename of signing and verification nonces
 
 	sessionCfg := &MusigSessionCfg{
-		LocalKey:       localChanCfg.MultiSigKey,
-		RemoteKey:      remoteChanCfg.MultiSigKey,
-		LocalNonce:     *localNonce,
-		RemoteNonce:    *remoteNonce,
-		Signer:         lc.Signer,
-		InputTxOut:     &lc.fundingOutput,
-		TapscriptTweak: lc.channelState.TapscriptRoot,
+		LocalKey:        localChanCfg.MultiSigKey,
+		RemoteKey:       remoteChanCfg.MultiSigKey,
+		LocalNonce:      *localNonce,
+		RemoteNonce:     *remoteNonce,
+		Signer:          lc.Signer,
+		InputTxOut:      &lc.fundingOutput,
+		TapscriptTweak:  lc.channelState.TapscriptRoot,
+		CustomNonceRand: lc.opts.customSigningRand,
 	}
 	lc.musigSessions = NewMusigPairSession(
 		sessionCfg,

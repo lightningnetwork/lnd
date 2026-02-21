@@ -1593,3 +1593,126 @@ func TestTxSizes(t *testing.T) {
 		})
 	}
 }
+
+// TestTaprootScriptOptions tests that both staging and production taproot
+// scripts can be generated successfully and that they produce different
+// script trees.
+func TestTaprootScriptOptions(t *testing.T) {
+	// Generate test keys.
+	senderKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	receiverKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	revokeKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	var payHash [32]byte
+	copy(payHash[:], "testhash")
+
+	// Test SenderHTLCScriptTaproot with different options.
+	t.Run("SenderHTLC staging vs production", func(t *testing.T) {
+		// Generate staging script (default).
+		stagingScript, err := input.SenderHTLCScriptTaproot(
+			senderKey.PubKey(), receiverKey.PubKey(),
+			revokeKey.PubKey(), payHash[:], lntypes.Remote,
+			input.NoneTapLeaf(),
+		)
+		require.NoError(t, err)
+
+		// Generate production script.
+		prodScript, err := input.SenderHTLCScriptTaproot(
+			senderKey.PubKey(), receiverKey.PubKey(),
+			revokeKey.PubKey(), payHash[:], lntypes.Remote,
+			input.NoneTapLeaf(), input.WithProdScripts(),
+		)
+		require.NoError(t, err)
+
+		// For sender HTLC, only the success script (redeemed by receiver) differs.
+		require.NotEqual(t, stagingScript.SuccessTapLeaf.Script,
+			prodScript.SuccessTapLeaf.Script,
+			"staging and production sender success scripts should differ")
+
+		// Production success script should be smaller due to OP_CHECKSIGVERIFY optimizations.
+		require.Less(t, len(prodScript.SuccessTapLeaf.Script),
+			len(stagingScript.SuccessTapLeaf.Script),
+			"production sender success script should be smaller than staging")
+
+		// Both should have valid tapscript trees.
+		require.NotNil(t, stagingScript.TapscriptTree)
+		require.NotNil(t, prodScript.TapscriptTree)
+	})
+
+	// Test ReceiverHTLCScriptTaproot with different options.
+	t.Run("ReceiverHTLC staging vs production", func(t *testing.T) {
+		cltvExpiry := uint32(500000)
+
+		// Generate staging script (default).
+		stagingScript, err := input.ReceiverHTLCScriptTaproot(
+			cltvExpiry, senderKey.PubKey(), receiverKey.PubKey(),
+			revokeKey.PubKey(), payHash[:], lntypes.Remote,
+			input.NoneTapLeaf(),
+		)
+		require.NoError(t, err)
+
+		// Generate production script.
+		prodScript, err := input.ReceiverHTLCScriptTaproot(
+			cltvExpiry, senderKey.PubKey(), receiverKey.PubKey(),
+			revokeKey.PubKey(), payHash[:], lntypes.Remote,
+			input.NoneTapLeaf(), input.WithProdScripts(),
+		)
+		require.NoError(t, err)
+
+		// For receiver HTLC, the timeout script (sender reclaims) should differ.
+		require.NotEqual(t, stagingScript.TimeoutTapLeaf.Script,
+			prodScript.TimeoutTapLeaf.Script,
+			"staging and production receiver timeout scripts should differ")
+
+		// Production timeout script should be smaller due to OP_CHECKSIGVERIFY optimizations.
+		require.Less(t, len(prodScript.TimeoutTapLeaf.Script),
+			len(stagingScript.TimeoutTapLeaf.Script),
+			"production receiver timeout script should be smaller than staging")
+
+		// Both should have valid tapscript trees.
+		require.NotNil(t, stagingScript.TapscriptTree)
+		require.NotNil(t, prodScript.TapscriptTree)
+	})
+
+	// Test commit scripts with different options.
+	t.Run("CommitScript staging vs production", func(t *testing.T) {
+		csvDelay := uint32(144)
+
+		// Generate staging script (default).
+		stagingScript, err := input.NewLocalCommitScriptTree(
+			csvDelay, senderKey.PubKey(), revokeKey.PubKey(),
+			input.NoneTapLeaf(),
+		)
+		require.NoError(t, err)
+
+		// Generate production script.
+		prodScript, err := input.NewLocalCommitScriptTree(
+			csvDelay, senderKey.PubKey(), revokeKey.PubKey(),
+			input.NoneTapLeaf(), input.WithProdScripts(),
+		)
+		require.NoError(t, err)
+
+		// Only the settle script should differ between staging and production.
+		// The revocation script doesn't implement production optimizations.
+		require.NotEqual(t, stagingScript.SettleLeaf.Script,
+			prodScript.SettleLeaf.Script,
+			"staging and production settle scripts should differ")
+
+		// Revocation scripts should be identical (no production optimization).
+		require.Equal(t, stagingScript.RevocationLeaf.Script,
+			prodScript.RevocationLeaf.Script,
+			"revocation scripts should be identical between staging and production")
+
+		// Production settle script should be smaller due to OP_CHECKSIGVERIFY optimizations.
+		require.Less(t, len(prodScript.SettleLeaf.Script),
+			len(stagingScript.SettleLeaf.Script),
+			"production settle script should be smaller than staging")
+
+		// Both should have valid tapscript trees.
+		require.NotNil(t, stagingScript.TapscriptTree)
+		require.NotNil(t, prodScript.TapscriptTree)
+	})
+}

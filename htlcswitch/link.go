@@ -895,10 +895,17 @@ func (l *channelLink) syncChanStates(ctx context.Context) error {
 
 	l.log.Infof("Attempting to re-synchronize channel: %v", chanState)
 
-	// First, we'll generate our ChanSync message to send to the other
-	// side. Based on this message, the remote party will decide if they
-	// need to retransmit any data or not.
-	localChanSyncMsg, err := chanState.ChanSyncMsg()
+	// First, we'll generate our ChanSync message to send to the other side.
+	// Based on this message, the remote party will decide if they need to
+	// retransmit any data or not. We pass the peer's feature bits so that
+	// we use the correct nonce format based on whether they support the
+	// final or staging taproot channel feature bits.
+	nonceType := lnwire.DetermineTaprootNonceType(
+		l.cfg.Peer.RemoteFeatures(),
+	)
+	localChanSyncMsg, err := chanState.ChanSyncMsg(
+		channeldb.WithChanSyncNonceType(nonceType),
+	)
 	if err != nil {
 		return fmt.Errorf("unable to generate chan sync message for "+
 			"ChannelPoint(%v)", l.channel.ChannelPoint())

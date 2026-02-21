@@ -237,6 +237,11 @@ type MusigSession struct {
 	// instead of the normal BIP 86 tweak when creating the MuSig2
 	// aggregate key and session.
 	tapscriptTweak fn.Option[input.MuSig2Tweaks]
+
+	// customNonceRand is an optional custom random source used to generate
+	// deterministic JIT signing nonces. This should only be set in tests
+	// that need reproducible MuSig2 signatures.
+	customNonceRand fn.Option[io.Reader]
 }
 
 // NewPartialMusigSession creates a new musig2 session given only the
@@ -245,7 +250,8 @@ type MusigSession struct {
 func NewPartialMusigSession(verificationNonce musig2.Nonces,
 	localKey, remoteKey keychain.KeyDescriptor, signer input.MuSig2Signer,
 	inputTxOut *wire.TxOut, commitType MusigCommitType,
-	tapscriptTweak fn.Option[input.MuSig2Tweaks]) *MusigSession {
+	tapscriptTweak fn.Option[input.MuSig2Tweaks],
+	customNonceRand fn.Option[io.Reader]) *MusigSession {
 
 	signerKeys := []*btcec.PublicKey{localKey.PubKey, remoteKey.PubKey}
 
@@ -254,14 +260,15 @@ func NewPartialMusigSession(verificationNonce musig2.Nonces,
 	}
 
 	return &MusigSession{
-		nonces:         nonces,
-		remoteKey:      remoteKey,
-		localKey:       localKey,
-		inputTxOut:     inputTxOut,
-		signerKeys:     signerKeys,
-		signer:         signer,
-		commitType:     commitType,
-		tapscriptTweak: tapscriptTweak,
+		nonces:          nonces,
+		remoteKey:       remoteKey,
+		localKey:        localKey,
+		inputTxOut:      inputTxOut,
+		signerKeys:      signerKeys,
+		signer:          signer,
+		commitType:      commitType,
+		tapscriptTweak:  tapscriptTweak,
+		customNonceRand: customNonceRand,
 	}
 }
 
@@ -351,10 +358,17 @@ func (m *MusigSession) SignCommit(tx *wire.MsgTx) (*MusigPartialSig, error) {
 		// a fresh nonce that'll be sent along side our signature. With
 		// the nonce in hand, we can finalize the session.
 		txHash := tx.TxHash()
-		signingNonce, err := musig2.GenNonces(
+		nonceOpts := []musig2.NonceGenOption{
 			musig2.WithPublicKey(m.localKey.PubKey),
 			musig2.WithNonceAuxInput(txHash[:]),
-		)
+		}
+		m.customNonceRand.WhenSome(func(r io.Reader) {
+			nonceOpts = append(
+				nonceOpts,
+				musig2.WithCustomRand(r),
+			)
+		})
+		signingNonce, err := musig2.GenNonces(nonceOpts...)
 		if err != nil {
 			return nil, err
 		}
@@ -409,6 +423,7 @@ func (m *MusigSession) Refresh(verificationNonce *musig2.Nonces,
 	return NewPartialMusigSession(
 		*verificationNonce, m.localKey, m.remoteKey, m.signer,
 		m.inputTxOut, m.commitType, m.tapscriptTweak,
+		m.customNonceRand,
 	), nil
 }
 
@@ -587,6 +602,11 @@ type MusigSessionCfg struct {
 	// TapscriptTweak is an optional tweak that can be used to modify the
 	// MuSig2 public key used in the session.
 	TapscriptTweak fn.Option[chainhash.Hash]
+
+	// CustomNonceRand is an optional custom random source for generating
+	// deterministic JIT signing nonces. This should only be set in tests
+	// that need reproducible MuSig2 signatures.
+	CustomNonceRand fn.Option[io.Reader]
 }
 
 // MusigPairSession houses the two musig2 sessions needed to do funding and
@@ -615,10 +635,12 @@ func NewMusigPairSession(cfg *MusigSessionCfg) *MusigPairSession {
 	localSession := NewPartialMusigSession(
 		cfg.LocalNonce, cfg.LocalKey, cfg.RemoteKey, cfg.Signer,
 		cfg.InputTxOut, LocalMusigCommit, tapscriptTweak,
+		cfg.CustomNonceRand,
 	)
 	remoteSession := NewPartialMusigSession(
 		cfg.RemoteNonce, cfg.LocalKey, cfg.RemoteKey, cfg.Signer,
 		cfg.InputTxOut, RemoteMusigCommit, tapscriptTweak,
+		cfg.CustomNonceRand,
 	)
 
 	return &MusigPairSession{

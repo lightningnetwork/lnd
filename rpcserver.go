@@ -8282,6 +8282,7 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 		NumMaxEvents:    numEvents,
 		IncomingChanIDs: incomingChanIDs,
 		OutgoingChanIDs: outgoingChanIDs,
+		Reversed:        req.Reversed,
 	}
 	timeSlice, err := r.server.miscDB.ForwardingLog().Query(eventQuery)
 	if err != nil {

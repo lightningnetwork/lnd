@@ -4838,6 +4838,12 @@ message ForwardingHistoryRequest {
     // List of outgoing channel ids to filter htlcs being forwarded to a
     // particular channel
     repeated uint64 outgoing_chan_ids = 7;
+
+    // If set, the forwarding events returned will result from seeking
+    // backwards from the specified index offset. This can be used to
+    // paginate backwards. The order of the returned events is always
+    // newest first (descending index order).
+    bool reversed = 8;
 }
 message ForwardingEvent {
     // Timestamp is the time (unix epoch offset) that this circuit was

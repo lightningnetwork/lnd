@@ -7,10 +7,11 @@
 package lnrpc
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -16091,6 +16092,11 @@ type ForwardingHistoryRequest struct {
 	// List of outgoing channel ids to filter htlcs being forwarded to a
 	// particular channel
 	OutgoingChanIds []uint64 `protobuf:"varint,7,rep,packed,name=outgoing_chan_ids,json=outgoingChanIds,proto3" json:"outgoing_chan_ids,omitempty"`
+	// If set, the forwarding events returned will result from seeking
+	// backwards from the specified index offset. This can be used to
+	// paginate backwards. The order of the returned events is always
+	// newest first (descending index order).
+	Reversed bool `protobuf:"varint,8,opt,name=reversed,proto3" json:"reversed,omitempty"`
 }
 
 func (x *ForwardingHistoryRequest) Reset() {
@@ -16172,6 +16178,13 @@ func (x *ForwardingHistoryRequest) GetOutgoingChanIds() []uint64 {
 		return x.OutgoingChanIds
 	}
 	return nil
+}
+
+func (x *ForwardingHistoryRequest) GetReversed() bool {
+	if x != nil {
+		return x.Reversed
+	}
+	return false
 }
 
 type ForwardingEvent struct {

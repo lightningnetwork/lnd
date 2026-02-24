@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"time"
 
@@ -1060,11 +1061,16 @@ func (s *SQLStore) FetchInFlightPayments(ctx context.Context) ([]*MPPayment,
 			return err
 		}
 
-		// Convert map to slice.
+		// Convert map to slice and sort by sequence number to
+		// produce a deterministic ordering.
 		mpPayments = make([]*MPPayment, 0, len(processedPayments))
 		for _, payment := range processedPayments {
 			mpPayments = append(mpPayments, payment)
 		}
+		sort.Slice(mpPayments, func(i, j int) bool {
+			return mpPayments[i].SequenceNum <
+				mpPayments[j].SequenceNum
+		})
 
 		return nil
 	}, func() {

@@ -40,15 +40,15 @@ DROP INDEX IF EXISTS idx_htlc_attempt_time;
 DROP TABLE IF EXISTS payment_htlc_attempts;
 
 -- ─────────────────────────────────────────────
--- Drop payments table and its indexes.
--- ─────────────────────────────────────────────
-
-DROP INDEX IF EXISTS idx_payments_created_at;
-DROP TABLE IF EXISTS payments;
-
--- ─────────────────────────────────────────────
 -- Drop payment intents table and its indexes.
 -- ─────────────────────────────────────────────
 
 DROP INDEX IF EXISTS idx_payment_intents_type;
 DROP TABLE IF EXISTS payment_intents;
+
+-- ─────────────────────────────────────────────
+-- Drop payments table and its indexes.
+-- ─────────────────────────────────────────────
+
+DROP INDEX IF EXISTS idx_payments_created_at;
+DROP TABLE IF EXISTS payments;

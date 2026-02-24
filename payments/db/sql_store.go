@@ -132,9 +132,6 @@ func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries,
 	}, nil
 }
 
-// A compile-time constraint to ensure SQLStore implements DB.
-var _ DB = (*SQLStore)(nil)
-
 // fetchPaymentWithCompleteData fetches a payment with all its related data
 // including attempts, hops, and custom records from the database.
 // This is a convenience wrapper around the batch loading functions for single

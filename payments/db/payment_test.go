@@ -109,8 +109,10 @@ var (
 // attempt, including whether it was settled or failed.
 type htlcStatus struct {
 	*HTLCAttemptInfo
-	settle  *lntypes.Preimage
-	failure *HTLCFailReason
+	settle     *lntypes.Preimage
+	settleTime time.Time
+	failure    *HTLCFailReason
+	failTime   time.Time
 }
 
 // payment is a helper structure that holds basic information on a test payment,
@@ -295,8 +297,22 @@ func assertPaymentInfo(t *testing.T, p DB, hash lntypes.Hash,
 			t.Fatalf("Preimages don't match: %x vs %x",
 				htlc.Settle.Preimage, a.settle)
 		}
+
+		if !a.settleTime.IsZero() &&
+			!htlc.Settle.SettleTime.Equal(a.settleTime) {
+
+			t.Fatalf("SettleTimes don't match: %v vs %v",
+				htlc.Settle.SettleTime, a.settleTime)
+		}
 	} else if htlc.Settle != nil {
 		t.Fatal("expected no settle info")
+	}
+
+	if a.failure != nil && !a.failTime.IsZero() &&
+		!htlc.Failure.FailTime.Equal(a.failTime) {
+
+		t.Fatalf("FailTimes don't match: %v vs %v",
+			htlc.Failure.FailTime, a.failTime)
 	}
 }
 
@@ -1992,10 +2008,12 @@ func TestSwitchFail(t *testing.T) {
 	require.NoError(t, err, "unable to register attempt")
 
 	htlcReason := HTLCFailUnreadable
+	htlcFailTime := time.Unix(5000, 0)
 	_, err = paymentDB.FailAttempt(
 		ctx, info.PaymentIdentifier, attempt.AttemptID,
 		&HTLCFailInfo{
-			Reason: htlcReason,
+			Reason:   htlcReason,
+			FailTime: htlcFailTime,
 		},
 	)
 	if err != nil {
@@ -2008,6 +2026,7 @@ func TestSwitchFail(t *testing.T) {
 	htlc := &htlcStatus{
 		HTLCAttemptInfo: attempt,
 		failure:         &htlcReason,
+		failTime:        htlcFailTime,
 	}
 
 	assertPaymentInfo(t, paymentDB, info.PaymentIdentifier, info, nil, htlc)
@@ -2173,10 +2192,12 @@ func TestMultiShard(t *testing.T) {
 		// Fail the second attempt.
 		a := attempts[1]
 		htlcFail := HTLCFailUnreadable
+		secondFailTime := time.Unix(6000, 0)
 		_, err = paymentDB.FailAttempt(
 			ctx, info.PaymentIdentifier, a.AttemptID,
 			&HTLCFailInfo{
-				Reason: htlcFail,
+				Reason:   htlcFail,
+				FailTime: secondFailTime,
 			},
 		)
 		if err != nil {
@@ -2186,6 +2207,7 @@ func TestMultiShard(t *testing.T) {
 		htlc := &htlcStatus{
 			HTLCAttemptInfo: a,
 			failure:         &htlcFail,
+			failTime:        secondFailTime,
 		}
 		assertPaymentInfo(
 			t, paymentDB, info.PaymentIdentifier, info, nil, htlc,
@@ -2204,10 +2226,12 @@ func TestMultiShard(t *testing.T) {
 
 		var firstFailReason *FailureReason
 		if test.settleFirst {
+			firstSettleTime := time.Unix(1000, 0)
 			_, err := paymentDB.SettleAttempt(
 				ctx, info.PaymentIdentifier, a.AttemptID,
 				&HTLCSettleInfo{
-					Preimage: preimg,
+					Preimage:   preimg,
+					SettleTime: firstSettleTime,
 				},
 			)
 			if err != nil {
@@ -2215,17 +2239,21 @@ func TestMultiShard(t *testing.T) {
 					"received, got: %v", err)
 			}
 
-			// Assert that the HTLC has had the preimage recorded.
+			// Assert that the HTLC has had the preimage and
+			// settle time recorded.
 			htlc.settle = &preimg
+			htlc.settleTime = firstSettleTime
 			assertPaymentInfo(
 				t, paymentDB, info.PaymentIdentifier, info, nil,
 				htlc,
 			)
 		} else {
+			firstFailTime := time.Unix(2000, 0)
 			_, err := paymentDB.FailAttempt(
 				ctx, info.PaymentIdentifier, a.AttemptID,
 				&HTLCFailInfo{
-					Reason: htlcFail,
+					Reason:   htlcFail,
+					FailTime: firstFailTime,
 				},
 			)
 			if err != nil {
@@ -2235,6 +2263,7 @@ func TestMultiShard(t *testing.T) {
 
 			// Assert the failure was recorded.
 			htlc.failure = &htlcFail
+			htlc.failTime = firstFailTime
 			assertPaymentInfo(
 				t, paymentDB, info.PaymentIdentifier, info, nil,
 				htlc,
@@ -2297,25 +2326,30 @@ func TestMultiShard(t *testing.T) {
 		}
 		if test.settleLast {
 			// Settle the last outstanding attempt.
+			lastSettleTime := time.Unix(3000, 0)
 			_, err = paymentDB.SettleAttempt(
 				ctx, info.PaymentIdentifier, a.AttemptID,
 				&HTLCSettleInfo{
-					Preimage: preimg,
+					Preimage:   preimg,
+					SettleTime: lastSettleTime,
 				},
 			)
 			require.NoError(t, err, "unable to settle")
 
 			htlc.settle = &preimg
+			htlc.settleTime = lastSettleTime
 			assertPaymentInfo(
 				t, paymentDB, info.PaymentIdentifier,
 				info, firstFailReason, htlc,
 			)
 		} else {
 			// Fail the attempt.
+			lastFailTime := time.Unix(4000, 0)
 			_, err := paymentDB.FailAttempt(
 				ctx, info.PaymentIdentifier, a.AttemptID,
 				&HTLCFailInfo{
-					Reason: htlcFail,
+					Reason:   htlcFail,
+					FailTime: lastFailTime,
 				},
 			)
 			if err != nil {
@@ -2325,6 +2359,7 @@ func TestMultiShard(t *testing.T) {
 
 			// Assert the failure was recorded.
 			htlc.failure = &htlcFail
+			htlc.failTime = lastFailTime
 			assertPaymentInfo(
 				t, paymentDB, info.PaymentIdentifier, info,
 				firstFailReason, htlc,

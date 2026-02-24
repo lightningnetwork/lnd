@@ -1629,7 +1629,7 @@ func (s *SQLStore) SettleAttempt(ctx context.Context, paymentHash lntypes.Hash,
 
 		err = db.SettleAttempt(ctx, sqlc.SettleAttemptParams{
 			AttemptIndex:   int64(attemptID),
-			ResolutionTime: time.Now(),
+			ResolutionTime: settleInfo.SettleTime,
 			ResolutionType: int32(HTLCAttemptResolutionSettled),
 			SettlePreimage: settleInfo.Preimage[:],
 		})
@@ -1716,7 +1716,7 @@ func (s *SQLStore) FailAttempt(ctx context.Context, paymentHash lntypes.Hash,
 
 		err = db.FailAttempt(ctx, sqlc.FailAttemptParams{
 			AttemptIndex:   int64(attemptID),
-			ResolutionTime: time.Now(),
+			ResolutionTime: failInfo.FailTime,
 			ResolutionType: int32(HTLCAttemptResolutionFailed),
 			FailureSourceIndex: sqldb.SQLInt32(
 				failInfo.FailureSourceIndex,

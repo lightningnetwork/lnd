@@ -2476,3 +2476,148 @@ func createPaymentWithFeatureSet(t *testing.T, paymentsBucket,
 
 	return indexBucket.Put(seqBytes, idx.Bytes())
 }
+
+// TestMigrateInFlightPayment tests that a payment with an active (in-flight)
+// HTLC attempt — i.e. a node that upgrades while a payment is still pending on
+// the network — is migrated correctly. The HTLC attempt must appear in SQL
+// without a settlement or failure resolution, and FetchInFlightPayments must
+// return the payment after migration.
+func TestMigrateInFlightPayment(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	kvDB := setupTestKVDB(t)
+
+	var paymentHash [32]byte
+	copy(paymentHash[:], []byte("test_inflight_payment_hash_1234"))
+
+	err := kvdb.Update(kvDB, func(tx kvdb.RwTx) error {
+		paymentsBucket, err := tx.CreateTopLevelBucket(
+			paymentsRootBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		indexBucket, err := tx.CreateTopLevelBucket(
+			paymentsIndexBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		return createInFlightPayment(
+			t, paymentsBucket, indexBucket, paymentHash,
+		)
+	}, func() {})
+	require.NoError(t, err)
+
+	sqlStore := setupTestSQLDB(t)
+
+	err = runPaymentsMigration(ctx, kvDB, sqlStore)
+	require.NoError(t, err)
+
+	// Verify the payment data matches between KV and SQL.
+	assertPaymentDataMatches(t, ctx, kvDB, sqlStore, paymentHash)
+
+	// Additionally verify that FetchInFlightPayments returns this payment,
+	// confirming it is treated as in-flight by the SQL store.
+	inFlight, err := sqlStore.FetchInFlightPayments(ctx)
+	require.NoError(t, err)
+	require.Len(t, inFlight, 1)
+
+	var paymentID lntypes.Hash
+	copy(paymentID[:], paymentHash[:])
+	require.Equal(t, paymentID, inFlight[0].Info.PaymentIdentifier)
+	require.Equal(t, StatusInFlight, inFlight[0].Status)
+	require.Len(t, inFlight[0].HTLCs, 1)
+	require.Nil(t, inFlight[0].HTLCs[0].Settle)
+	require.Nil(t, inFlight[0].HTLCs[0].Failure)
+}
+
+// createInFlightPayment creates a payment with an active (in-flight) HTLC
+// attempt in the KV store. Unlike settled payments, no settle or fail
+// resolution is written for the HTLC, simulating a payment that is still
+// pending on the network at the time of migration.
+func createInFlightPayment(t *testing.T, paymentsBucket,
+	indexBucket kvdb.RwBucket, hash [32]byte) error {
+
+	t.Helper()
+
+	paymentBucket, err := paymentsBucket.CreateBucketIfNotExists(hash[:])
+	if err != nil {
+		return err
+	}
+
+	var paymentID lntypes.Hash
+	copy(paymentID[:], hash[:])
+
+	creationInfo := &PaymentCreationInfo{
+		PaymentIdentifier: paymentID,
+		Value:             lnwire.MilliSatoshi(100000),
+		CreationTime:      time.Now().Add(-1 * time.Hour),
+		PaymentRequest:    []byte("lnbc1inflight_payment"),
+	}
+
+	err = serializeAndPut(
+		paymentBucket, paymentCreationInfoKey,
+		func(w io.Writer) error {
+			return serializePaymentCreationInfo(w, creationInfo)
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	seqBytes := make([]byte, 8)
+	byteOrder.PutUint64(seqBytes, 42)
+	if err := paymentBucket.Put(paymentSequenceKey, seqBytes); err != nil {
+		return err
+	}
+
+	htlcBucket, err := paymentBucket.CreateBucketIfNotExists(
+		paymentHtlcsBucket,
+	)
+	if err != nil {
+		return err
+	}
+
+	_, sourcePubKey, sessionKeyBytes, err := generateSessionKey(t)
+	if err != nil {
+		return err
+	}
+
+	hopKey, err := btcec.NewPrivateKey()
+	if err != nil {
+		return err
+	}
+
+	const attemptID = 1
+	attemptInfo := &HTLCAttemptInfo{
+		AttemptID:  attemptID,
+		sessionKey: sessionKeyBytes,
+		Route: route.Route{
+			TotalTimeLock: 500000,
+			TotalAmount:   100000,
+			SourcePubKey:  sourcePubKey,
+			Hops: []*route.Hop{
+				{
+					PubKeyBytes: route.NewVertex(
+						hopKey.PubKey(),
+					),
+					ChannelID:        12345,
+					OutgoingTimeLock: 499500,
+					AmtToForward:     99000,
+				},
+			},
+		},
+		AttemptTime: time.Now().Add(-30 * time.Minute),
+		Hash:        (*lntypes.Hash)(&hash),
+	}
+
+	if err = writeHTLCAttempt(htlcBucket, attemptID, attemptInfo); err != nil {
+		return err
+	}
+
+	return createIndexEntry(indexBucket, seqBytes, hash)
+}

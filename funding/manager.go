@@ -3812,24 +3812,42 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		if numConfs < 6 {
 			numConfs = 6
 		}
+
 		txid := completeChan.FundingOutpoint.Hash
-		log.Debugf("Will announce channel %v after ChannelPoint"+
-			"(%v) has gotten %d confirmations",
-			shortChanID.ToUint64(), completeChan.FundingOutpoint,
-			numConfs)
+		log.Debugf("Will announce channel %v after "+
+			"ChannelPoint(%v) has gotten %d confirmations",
+			shortChanID.ToUint64(),
+			completeChan.FundingOutpoint, numConfs)
 
 		fundingScript, err := MakeFundingScript(completeChan)
 		if err != nil {
-			return fmt.Errorf("unable to create funding script "+
-				"for ChannelPoint(%v): %v",
+			return fmt.Errorf("unable to create funding "+
+				"script for ChannelPoint(%v): %v",
 				completeChan.FundingOutpoint, err)
 		}
 
-		// Register with the ChainNotifier for a notification once the
-		// funding transaction reaches at least 6 confirmations.
+		// For zero-conf channels that are already confirmed, use
+		// the confirmed block height as the height hint instead
+		// of the broadcast height. This significantly reduces the
+		// rescan range on restart, which is especially important
+		// for mobile devices using the neutrino backend where
+		// historical rescans consume significant bandwidth.
+		heightHint := completeChan.BroadcastHeight()
+		if completeChan.IsZeroConf() && completeChan.ZeroConfConfirmed() {
+			confirmedScid := completeChan.ZeroConfRealScid()
+			heightHint = confirmedScid.BlockHeight
+
+			log.Debugf("Using confirmed height %d as hint for "+
+				"zero-conf ChannelPoint(%v)",
+				heightHint, completeChan.FundingOutpoint)
+		}
+
+		// Register with the ChainNotifier for a notification
+		// once the funding transaction reaches at least 6
+		// confirmations.
 		confNtfn, err := f.cfg.Notifier.RegisterConfirmationsNtfn(
 			&txid, fundingScript, numConfs,
-			completeChan.BroadcastHeight(),
+			heightHint,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to register for "+
@@ -3837,21 +3855,22 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 				completeChan.FundingOutpoint, err)
 		}
 
-		// Wait until 6 confirmations has been reached or the wallet
-		// signals a shutdown.
+		// Wait until 6 confirmations has been reached or the
+		// wallet signals a shutdown.
 		select {
 		case _, ok := <-confNtfn.Confirmed:
 			if !ok {
-				return fmt.Errorf("ChainNotifier shutting "+
-					"down, cannot complete funding flow "+
-					"for ChannelPoint(%v)",
+				return fmt.Errorf("ChainNotifier "+
+					"shutting down, cannot "+
+					"complete funding flow for "+
+					"ChannelPoint(%v)",
 					completeChan.FundingOutpoint)
 			}
 			// Fallthrough.
 
 		case <-f.quit:
-			return fmt.Errorf("%v, stopping funding flow for "+
-				"ChannelPoint(%v)",
+			return fmt.Errorf("%v, stopping funding flow "+
+				"for ChannelPoint(%v)",
 				ErrFundingManagerShuttingDown,
 				completeChan.FundingOutpoint)
 		}
@@ -3920,6 +3939,18 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 // a zero-conf channel. This will wait for the real confirmation, add the
 // confirmed SCID to the router graph, and then announce after six confs.
 func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel) error {
+	// If the zero-conf channel is already confirmed, we can skip the
+	// historical chain rescan. This is important for mobile devices where
+	// rescanning from the broadcast height can consume significant
+	// bandwidth, especially with the neutrino backend.
+	if c.ZeroConfConfirmed() {
+		log.Debugf("Zero-conf ChannelPoint(%v) already confirmed "+
+			"with SCID %v, skipping chain rescan",
+			c.FundingOutpoint, c.ZeroConfRealScid())
+
+		return nil
+	}
+
 	// First we'll check whether the channel is confirmed on-chain. If it
 	// is already confirmed, the chainntnfs subsystem will return with the
 	// confirmed tx. Otherwise, we'll wait here until confirmation occurs.

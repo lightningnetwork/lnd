@@ -29,7 +29,7 @@ type migratedPaymentRef struct {
 // with their SQL counterparts. If a structural mismatch is detected, a full
 // deep comparison is performed to produce a detailed diff for debugging.
 func validateMigratedPaymentBatch(ctx context.Context,
-	kvBackend kvdb.Backend, sqlDB SQLQueries,
+	kvBackend kvdb.Backend, sqlDB SQLMigrationQueries,
 	cfg *SQLStoreConfig, batch []migratedPaymentRef) error {
 
 	if len(batch) == 0 {

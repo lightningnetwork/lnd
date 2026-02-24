@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/remotesignerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/stretchr/testify/require"
@@ -154,8 +155,8 @@ var _ SignCoordinatorStreamFeeder = (*mockStreamFeeder)(nil)
 
 // Mock implementation of a stream.
 type mockStream struct {
-	sendChan chan *walletrpc.SignCoordinatorResponse
-	recvChan chan *walletrpc.SignCoordinatorRequest
+	sendChan chan *remotesignerrpc.SignCoordinatorResponse
+	recvChan chan *remotesignerrpc.SignCoordinatorRequest
 
 	// recvErrChan can be used to simulate that the stream errors.
 	recvErrChan chan error
@@ -169,8 +170,8 @@ type mockStream struct {
 // stream.
 func newMockStream(ctx context.Context) *mockStream {
 	return &mockStream{
-		sendChan:    make(chan *walletrpc.SignCoordinatorResponse),
-		recvChan:    make(chan *walletrpc.SignCoordinatorRequest),
+		sendChan:    make(chan *remotesignerrpc.SignCoordinatorResponse),
+		recvChan:    make(chan *remotesignerrpc.SignCoordinatorRequest),
 		recvErrChan: make(chan error),
 		ctx:         ctx,
 	}
@@ -178,7 +179,7 @@ func newMockStream(ctx context.Context) *mockStream {
 
 // Send sends a response over the mock stream. This is called by the remote
 // signer client when it responds to a request.
-func (ms *mockStream) Send(resp *walletrpc.SignCoordinatorResponse) error {
+func (ms *mockStream) Send(resp *remotesignerrpc.SignCoordinatorResponse) error {
 	select {
 	case <-ms.ctx.Done():
 		// If the context is canceled, we return an error to indicate
@@ -194,7 +195,7 @@ func (ms *mockStream) Send(resp *walletrpc.SignCoordinatorResponse) error {
 // remote signer client. If a request is sent over the recvChan, the remote
 // signer client will handle the request. If an error is sent over the
 // recvErrChan channel, the error will be received by the remote signer client.
-func (ms *mockStream) Recv() (*walletrpc.SignCoordinatorRequest, error) {
+func (ms *mockStream) Recv() (*remotesignerrpc.SignCoordinatorRequest, error) {
 	select {
 	case resp := <-ms.recvChan:
 		return resp, nil
@@ -210,7 +211,7 @@ func (ms *mockStream) Recv() (*walletrpc.SignCoordinatorRequest, error) {
 // Helper function to simulate requests sent over the mock stream.
 // The function will return an error if the stream is canceled before the
 // request is received.
-func (ms *mockStream) recvRequest(req *walletrpc.SignCoordinatorRequest) error {
+func (ms *mockStream) recvRequest(req *remotesignerrpc.SignCoordinatorRequest) error {
 	select {
 	case ms.recvChan <- req:
 		return nil
@@ -234,7 +235,7 @@ func (ms *mockStream) recvErr(err error) error {
 // handleHandshake simulates the handshake procedure between the remote signer
 // client and the watch-only node.
 func (ms *mockStream) handleHandshake(t *testing.T) error {
-	var resp *walletrpc.SignCoordinatorResponse
+	var resp *remotesignerrpc.SignCoordinatorResponse
 
 	// Wait for the handshake init from the remote signer client.
 	select {
@@ -248,22 +249,22 @@ func (ms *mockStream) handleHandshake(t *testing.T) error {
 	require.Equal(t, handshakeRequestID, resp.GetRefRequestId())
 	require.NotEmpty(t, resp.GetSignerRegistration())
 
-	complete := &walletrpc.RegistrationResponse_RegistrationComplete{
-		RegistrationComplete: &walletrpc.RegistrationComplete{
+	complete := &remotesignerrpc.RegistrationResponse_RegistrationComplete{
+		RegistrationComplete: &remotesignerrpc.RegistrationComplete{
 			Signature:        "",
 			RegistrationInfo: "watch-only registration info",
 		},
 	}
 
-	rType := &walletrpc.SignCoordinatorRequest_RegistrationResponse{
-		RegistrationResponse: &walletrpc.RegistrationResponse{
+	rType := &remotesignerrpc.SignCoordinatorRequest_RegistrationResponse{
+		RegistrationResponse: &remotesignerrpc.RegistrationResponse{
 			RegistrationResponseType: complete,
 		},
 	}
 
 	// Send a message to the client to simulate that the watch-only node has
 	// accepted the registration and that it's completed.
-	regCompleteMsg := &walletrpc.SignCoordinatorRequest{
+	regCompleteMsg := &remotesignerrpc.SignCoordinatorRequest{
 		RequestId:       handshakeRequestID,
 		SignRequestType: rType,
 	}
@@ -323,13 +324,13 @@ func TestPingResponse(t *testing.T) {
 	}()
 
 	// create the ping request.
-	pingReq := &walletrpc.SignCoordinatorRequest_Ping{
+	pingReq := &remotesignerrpc.SignCoordinatorRequest_Ping{
 		Ping: true,
 	}
 
 	requestID := uint64(2)
 
-	req := &walletrpc.SignCoordinatorRequest{
+	req := &remotesignerrpc.SignCoordinatorRequest{
 		RequestId:       requestID,
 		SignRequestType: pingReq,
 	}
@@ -363,13 +364,13 @@ func TestMultiplePingResponses(t *testing.T) {
 	}()
 
 	// Create the first ping request.
-	pingReq := &walletrpc.SignCoordinatorRequest_Ping{
+	pingReq := &remotesignerrpc.SignCoordinatorRequest_Ping{
 		Ping: true,
 	}
 
 	requestID1 := uint64(2)
 
-	req1 := &walletrpc.SignCoordinatorRequest{
+	req1 := &remotesignerrpc.SignCoordinatorRequest{
 		RequestId:       requestID1,
 		SignRequestType: pingReq,
 	}
@@ -389,7 +390,7 @@ func TestMultiplePingResponses(t *testing.T) {
 	// Create the second ping request.
 	requestID2 := uint64(3)
 
-	req2 := &walletrpc.SignCoordinatorRequest{
+	req2 := &remotesignerrpc.SignCoordinatorRequest{
 		RequestId:       requestID2,
 		SignRequestType: pingReq,
 	}
@@ -458,13 +459,13 @@ func TestResponseError(t *testing.T) {
 	// Create a SignMessage request. As the remote signer client has an
 	// mockSignerServer instance as the signrpc server, this request will
 	// thrown an error when the signer server processes it.
-	signMessageReq := &walletrpc.SignCoordinatorRequest_SignMessageReq{
+	signMessageReq := &remotesignerrpc.SignCoordinatorRequest_SignMessageReq{
 		SignMessageReq: &signrpc.SignMessageReq{},
 	}
 
 	requestID := uint64(2)
 
-	req := &walletrpc.SignCoordinatorRequest{
+	req := &remotesignerrpc.SignCoordinatorRequest{
 		RequestId:       requestID,
 		SignRequestType: signMessageReq,
 	}

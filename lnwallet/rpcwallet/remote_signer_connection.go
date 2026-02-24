@@ -10,6 +10,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
+	"github.com/lightningnetwork/lnd/lnrpc/remotesignerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -20,8 +21,8 @@ import (
 )
 
 type (
-	StreamClient = walletrpc.WalletKit_SignCoordinatorStreamsClient
-	StreamServer = walletrpc.WalletKit_SignCoordinatorStreamsServer
+	StreamClient = remotesignerrpc.RemoteSigner_SignCoordinatorStreamsClient
+	StreamServer = remotesignerrpc.RemoteSigner_SignCoordinatorStreamsServer
 )
 
 // RemoteSignerConnection is an interface that abstracts the communication with
@@ -51,7 +52,7 @@ type RemoteSignerConnection interface {
 
 // RemoteSignerRequests is an interface that defines the requests that can be
 // sent to a remote signer. It's a subset of the signrpc.SignerClient and
-// walletrpc.WalletKitClient interfaces.
+// wallet/signing RPC interfaces used for remote signer coordination.
 type RemoteSignerRequests interface {
 	// DeriveSharedKey sends a SharedKeyRequest to the remote signer and
 	// waits for the corresponding response.
@@ -121,10 +122,11 @@ type RemoteSignerRequests interface {
 // inbound remote signer. An inbound remote signer is a remote signer that
 // allows the watch-only node to connect to it via an inbound GRPC connection.
 type OutboundConnection struct {
-	// Embedded signrpc.SignerClient and walletrpc.WalletKitClient to
+	// Embedded signrpc.SignerClient and the remote signer stream client to
 	// implement the RemoteSigner interface.
 	signrpc.SignerClient
 	walletrpc.WalletKitClient
+	remotesignerrpc.RemoteSignerClient
 
 	// The ConnectionCfg containing connection details of the remote signer.
 	cfg lncfg.ConnectionCfg
@@ -275,6 +277,7 @@ func (r *OutboundConnection) connect(ctx context.Context,
 	r.conn = conn
 	r.SignerClient = signrpc.NewSignerClient(conn)
 	r.WalletKitClient = walletrpc.NewWalletKitClient(conn)
+	r.RemoteSignerClient = remotesignerrpc.NewRemoteSignerClient(conn)
 
 	return nil
 }

@@ -59,10 +59,17 @@ type RPCKeyRing struct {
 	remoteSignerConn RemoteSignerConnection
 }
 
+// InboundRemoteSignerConnProvider exposes only the inbound remote signer
+// stream connection used by the dedicated remotesigner RPC server.
+type InboundRemoteSignerConnProvider interface {
+	InboundRemoteSignerConnection() (InboundRemoteSignerConnection, bool)
+}
+
 var _ keychain.SecretKeyRing = (*RPCKeyRing)(nil)
 var _ input.Signer = (*RPCKeyRing)(nil)
 var _ keychain.MessageSignerRing = (*RPCKeyRing)(nil)
 var _ lnwallet.WalletController = (*RPCKeyRing)(nil)
+var _ InboundRemoteSignerConnProvider = (*RPCKeyRing)(nil)
 
 // NewRPCKeyRing creates a new remote signing secret key ring that uses the
 // given watch-only base wallet to keep track of addresses and transactions but
@@ -79,6 +86,15 @@ func NewRPCKeyRing(watchOnlyKeyRing keychain.SecretKeyRing,
 		rpcTimeout:       remoteSignerConn.Timeout(),
 		remoteSignerConn: remoteSignerConn,
 	}, nil
+}
+
+// InboundRemoteSignerConnection returns the inbound remote signer stream
+// connection if this key ring was configured for inbound mode.
+func (r *RPCKeyRing) InboundRemoteSignerConnection() (
+	InboundRemoteSignerConnection, bool) {
+
+	conn, ok := r.remoteSignerConn.(InboundRemoteSignerConnection)
+	return conn, ok
 }
 
 // NewAddress returns the next external or internal address for the

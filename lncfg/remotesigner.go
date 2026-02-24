@@ -81,6 +81,11 @@ func (r *RemoteSigner) Validate() error {
 	}
 
 	if r.AllowInboundConnection {
+		if len(r.RPCListeners) == 0 {
+			return fmt.Errorf("remotesigner.rpclisten must be set when " +
+				"allowinboundconnection is enabled")
+		}
+
 		if r.StartupTimeout < time.Second {
 			return fmt.Errorf("remotesigner.startuptimeout of "+
 				"%v is invalid, cannot be smaller than %v",
@@ -105,6 +110,11 @@ func (r *RemoteSigner) Validate() error {
 //nolint:ll
 type InboundWatchOnlyCfg struct {
 	StartupTimeout time.Duration `long:"startuptimeout" description:"The time the watch-only node will wait for the remote signer to connect during startup. If the timeout expires before the remote signer connects, the watch-only node will shut down. If set to 0, no timeout will not expire. Valid time units are {s, m, h}."`
+
+	// RPCListeners is an optional set of dedicated gRPC listener addresses
+	// that will serve only the SignCoordinatorStreams RPC for inbound remote
+	// signer connections. If unset, the main RPC server will serve the RPC.
+	RPCListeners []string `long:"rpclisten" description:"Optional dedicated RPC listen address(es) for inbound remote signer connections. If set, lnd starts a separate gRPC server that serves only the SignCoordinatorStreams RPC. If unset, the main RPC server serves the RPC instead."`
 }
 
 // WatchOnlyNode holds the configuration options for how to connect to a watch

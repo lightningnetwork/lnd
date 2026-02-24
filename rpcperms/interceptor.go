@@ -110,8 +110,6 @@ var (
 	// when we are waiting for the remote signer to connect, i.e. in the
 	// allowRemoteSigner state.
 	allowRemoteSignerWhitelist = map[string]struct{}{
-		"/walletrpc.WalletKit/SignCoordinatorStreams": {},
-
 		"/lnrpc.Lightning/StopDaemon": {},
 	}
 )

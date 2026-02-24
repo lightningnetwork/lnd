@@ -279,10 +279,6 @@ type WalletKitClient interface {
 	// caller's responsibility to either publish the transaction on success or
 	// unlock/release any locked UTXOs in case of an error in this method.
 	FinalizePsbt(ctx context.Context, in *FinalizePsbtRequest, opts ...grpc.CallOption) (*FinalizePsbtResponse, error)
-	// SignCoordinatorStreams dispatches a bi-directional streaming RPC that
-	// allows a remote signer to connect to lnd and remotely provide the signatures
-	// required for any on-chain related transactions or messages.
-	SignCoordinatorStreams(ctx context.Context, opts ...grpc.CallOption) (WalletKit_SignCoordinatorStreamsClient, error)
 }
 
 type walletKitClient struct {
@@ -543,37 +539,6 @@ func (c *walletKitClient) FinalizePsbt(ctx context.Context, in *FinalizePsbtRequ
 		return nil, err
 	}
 	return out, nil
-}
-
-func (c *walletKitClient) SignCoordinatorStreams(ctx context.Context, opts ...grpc.CallOption) (WalletKit_SignCoordinatorStreamsClient, error) {
-	stream, err := c.cc.NewStream(ctx, &WalletKit_ServiceDesc.Streams[0], "/walletrpc.WalletKit/SignCoordinatorStreams", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &walletKitSignCoordinatorStreamsClient{stream}
-	return x, nil
-}
-
-type WalletKit_SignCoordinatorStreamsClient interface {
-	Send(*SignCoordinatorResponse) error
-	Recv() (*SignCoordinatorRequest, error)
-	grpc.ClientStream
-}
-
-type walletKitSignCoordinatorStreamsClient struct {
-	grpc.ClientStream
-}
-
-func (x *walletKitSignCoordinatorStreamsClient) Send(m *SignCoordinatorResponse) error {
-	return x.ClientStream.SendMsg(m)
-}
-
-func (x *walletKitSignCoordinatorStreamsClient) Recv() (*SignCoordinatorRequest, error) {
-	m := new(SignCoordinatorRequest)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
 }
 
 // WalletKitServer is the server API for WalletKit service.
@@ -839,10 +804,6 @@ type WalletKitServer interface {
 	// caller's responsibility to either publish the transaction on success or
 	// unlock/release any locked UTXOs in case of an error in this method.
 	FinalizePsbt(context.Context, *FinalizePsbtRequest) (*FinalizePsbtResponse, error)
-	// SignCoordinatorStreams dispatches a bi-directional streaming RPC that
-	// allows a remote signer to connect to lnd and remotely provide the signatures
-	// required for any on-chain related transactions or messages.
-	SignCoordinatorStreams(WalletKit_SignCoordinatorStreamsServer) error
 	mustEmbedUnimplementedWalletKitServer()
 }
 
@@ -933,9 +894,6 @@ func (UnimplementedWalletKitServer) SignPsbt(context.Context, *SignPsbtRequest) 
 }
 func (UnimplementedWalletKitServer) FinalizePsbt(context.Context, *FinalizePsbtRequest) (*FinalizePsbtResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FinalizePsbt not implemented")
-}
-func (UnimplementedWalletKitServer) SignCoordinatorStreams(WalletKit_SignCoordinatorStreamsServer) error {
-	return status.Errorf(codes.Unimplemented, "method SignCoordinatorStreams not implemented")
 }
 func (UnimplementedWalletKitServer) mustEmbedUnimplementedWalletKitServer() {}
 
@@ -1454,32 +1412,6 @@ func _WalletKit_FinalizePsbt_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
-func _WalletKit_SignCoordinatorStreams_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(WalletKitServer).SignCoordinatorStreams(&walletKitSignCoordinatorStreamsServer{stream})
-}
-
-type WalletKit_SignCoordinatorStreamsServer interface {
-	Send(*SignCoordinatorRequest) error
-	Recv() (*SignCoordinatorResponse, error)
-	grpc.ServerStream
-}
-
-type walletKitSignCoordinatorStreamsServer struct {
-	grpc.ServerStream
-}
-
-func (x *walletKitSignCoordinatorStreamsServer) Send(m *SignCoordinatorRequest) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func (x *walletKitSignCoordinatorStreamsServer) Recv() (*SignCoordinatorResponse, error) {
-	m := new(SignCoordinatorResponse)
-	if err := x.ServerStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
 // WalletKit_ServiceDesc is the grpc.ServiceDesc for WalletKit service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1600,13 +1532,6 @@ var WalletKit_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _WalletKit_FinalizePsbt_Handler,
 		},
 	},
-	Streams: []grpc.StreamDesc{
-		{
-			StreamName:    "SignCoordinatorStreams",
-			Handler:       _WalletKit_SignCoordinatorStreams_Handler,
-			ServerStreams: true,
-			ClientStreams: true,
-		},
-	},
+	Streams:  []grpc.StreamDesc{},
 	Metadata: "walletrpc/walletkit.proto",
 }

@@ -2228,7 +2228,7 @@ func (d *AuthenticatedGossiper) isPremature(chanID lnwire.ShortChannelID,
 		msg:               msg.msg,
 		optionalMsgFields: msg.optionalMsgFields,
 		isRemote:          msg.isRemote,
-		err:               make(chan error, 1),
+		err:               make(chan error, 2),
 	}
 
 	// Create the cached message.

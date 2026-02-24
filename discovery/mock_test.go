@@ -5,11 +5,15 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/chainview"
+	"github.com/lightningnetwork/lnd/ticker"
 )
 
 // mockPeer implements the lnpeer.Peer interface and is used to test the
@@ -197,4 +201,28 @@ func (m *mockScidCloser) IsClosedScid(scid lnwire.ShortChannelID) (bool,
 
 func (m *mockScidCloser) IsChannelPeer(pubkey *btcec.PublicKey) (bool, error) {
 	return m.channelPeer, nil
+}
+
+type noopTicker struct{}
+
+var _ ticker.Ticker = (*noopTicker)(nil)
+
+func (n *noopTicker) Ticks() <-chan time.Time {
+	return nil
+}
+
+func (n *noopTicker) Stop() {}
+
+func (n *noopTicker) Pause() {}
+
+func (n *noopTicker) Resume() {}
+
+type noopChainView struct {
+	chainview.FilteredChainView
+}
+
+func (n *noopChainView) UpdateFilter(ops []graphdb.EdgePoint,
+	updateHeight uint32) error {
+
+	return nil
 }

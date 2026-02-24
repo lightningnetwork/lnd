@@ -35,6 +35,11 @@ func (m *MockChain) WaitForShutdown() {
 func (m *MockChain) GetBestBlock() (*chainhash.Hash, int32, error) {
 	args := m.Called()
 
+	// If the first return value is a function, evaluate it dynamically.
+	if fn, ok := args.Get(0).(func() (*chainhash.Hash, int32, error)); ok {
+		return fn()
+	}
+
 	if args.Get(0) == nil {
 		return nil, args.Get(1).(int32), args.Error(2)
 	}

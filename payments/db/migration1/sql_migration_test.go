@@ -1498,8 +1498,14 @@ func runPaymentsMigration(ctx context.Context, kvDB kvdb.Backend,
 
 	return sqlStore.db.ExecTx(
 		ctx, sqldb.WriteTxOpt(), func(tx SQLQueries) error {
+			migTx, ok := tx.(SQLMigrationQueries)
+			if !ok {
+				return fmt.Errorf("db does not implement " +
+					"SQLMigrationQueries")
+			}
+
 			return MigratePaymentsKVToSQL(
-				ctx, kvDB, tx, &SQLStoreConfig{
+				ctx, kvDB, migTx, &SQLStoreConfig{
 					QueryCfg: sqlStore.cfg.QueryCfg,
 				},
 			)

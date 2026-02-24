@@ -38,7 +38,7 @@ type MigrationStats struct {
 // migrated data in batches. Callers are responsible for executing this within
 // a single SQL transaction if atomicity is required.
 func MigratePaymentsKVToSQL(ctx context.Context, kvBackend kvdb.Backend,
-	sqlDB SQLQueries, cfg *SQLStoreConfig) error {
+	sqlDB SQLMigrationQueries, cfg *SQLStoreConfig) error {
 
 	if cfg == nil {
 		return fmt.Errorf("missing SQL store config for migration")
@@ -273,7 +273,7 @@ func normalizeTimeForSQL(t time.Time) time.Time {
 
 // migratePayment migrates a single payment from KV to SQL.
 func migratePayment(ctx context.Context, payment *MPPayment, hash lntypes.Hash,
-	sqlDB SQLQueries, stats *MigrationStats) (int64, error) {
+	sqlDB SQLMigrationQueries, stats *MigrationStats) (int64, error) {
 
 	// Update migration stats based on payment status.
 	switch payment.Status {
@@ -603,7 +603,7 @@ func migrateRouteHop(ctx context.Context,
 // migrateDuplicatePayments migrates duplicate payments into the dedicated
 // payment_duplicates table.
 func migrateDuplicatePayments(ctx context.Context, dupBucket kvdb.RBucket,
-	hash [32]byte, primaryPaymentID int64, sqlDB SQLQueries,
+	hash [32]byte, primaryPaymentID int64, sqlDB SQLMigrationQueries,
 	stats *MigrationStats) error {
 
 	duplicateCount := 0
@@ -661,7 +661,7 @@ func migrateDuplicatePayments(ctx context.Context, dupBucket kvdb.RBucket,
 // given payment hash into payment_duplicates.
 func migrateSingleDuplicatePayment(ctx context.Context, dupBucket kvdb.RBucket,
 	hash [32]byte, primaryPaymentID int64, duplicateSeq uint64,
-	sqlDB SQLQueries) error {
+	sqlDB SQLMigrationQueries) error {
 
 	creationData := dupBucket.Get(duplicatePaymentCreationInfoKey)
 	if creationData == nil {

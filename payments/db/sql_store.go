@@ -90,13 +90,16 @@ type SQLQueries interface {
 	// DeleteFailedAttempts removes all failed HTLCs from the db for a
 	// given payment.
 	DeleteFailedAttempts(ctx context.Context, paymentID int64) error
+}
 
-	/*
-		Migration specific queries.
-
-		These queries are used ONLY for the one-time migration from KV
-		to SQL.
-	*/
+// SQLMigrationQueries extends SQLQueries with the additional queries needed
+// for the one-time migration from KV to SQL. Keeping them in a separate
+// interface makes it clear which code paths are migration-only and prevents
+// the regular store from accidentally depending on them.
+//
+//nolint:ll
+type SQLMigrationQueries interface {
+	SQLQueries
 
 	// FetchPaymentsByIDsMig is a migration-only batch fetch that returns
 	// payment data along with HTLC attempt counts for structural

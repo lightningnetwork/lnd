@@ -443,9 +443,9 @@ func (r *InterceptorChain) Permissions() map[string][]bakery.Op {
 
 // RegisterMiddleware registers a new middleware that will handle request/
 // response interception for all RPC messages that are initiated with a custom
-// macaroon caveat. The name of the custom caveat a middleware is handling is
-// also its unique identifier. Only one middleware can be registered for each
-// custom caveat.
+// macaroon caveat. Only one read/write middleware can be registered for each
+// custom caveat name. Multiple read-only middlewares are permitted since they
+// cannot modify responses.
 func (r *InterceptorChain) RegisterMiddleware(mw *MiddlewareHandler) error {
 	r.Lock()
 	defer r.Unlock()
@@ -457,12 +457,15 @@ func (r *InterceptorChain) RegisterMiddleware(mw *MiddlewareHandler) error {
 			"registered", mw.middlewareName)
 	}
 
-	// For now, we only want one middleware per custom caveat name. If we
-	// allowed multiple middlewares handling the same caveat there would be
-	// a need for extra call chaining logic, and they could overwrite each
-	// other's responses.
+	// We only want one read/write middleware per custom caveat name since
+	// multiple could overwrite each other's responses. Read-only
+	// middlewares are exempt because they cannot modify responses.
 	for _, middleware := range r.registeredMiddleware {
 		if middleware.customCaveatName == mw.customCaveatName {
+			if middleware.readOnly && mw.readOnly {
+				continue
+			}
+
 			return fmt.Errorf("a middleware is already registered "+
 				"for the custom caveat name '%s': %v",
 				mw.customCaveatName, middleware.middlewareName)

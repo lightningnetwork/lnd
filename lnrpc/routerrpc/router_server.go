@@ -190,7 +190,7 @@ type ServerShell struct {
 // Server is a stand-alone sub RPC server which exposes functionality that
 // allows clients to route arbitrary payment through the Lightning Network.
 type Server struct {
-	injected                 int32 // To be used atomically.
+	started                  int32 // To be used atomically.
 	shutdown                 int32 // To be used atomically.
 	forwardInterceptorActive int32 // To be used atomically.
 
@@ -213,52 +213,7 @@ var _ RouterServer = (*Server)(nil)
 // we're unable to create it, then an error will be returned. We also return
 // the set of permissions that we require as a server. At the time of writing
 // of this documentation, this is the same macaroon as the admin macaroon.
-func New() (*Server, lnrpc.MacaroonPerms, error) {
-	routerServer := &Server{
-		cfg:  &Config{},
-		quit: make(chan struct{}),
-	}
-
-	return routerServer, macPermissions, nil
-}
-
-// Stop signals any active goroutines for a graceful closure.
-//
-// NOTE: This is part of the lnrpc.SubServer interface.
-func (s *Server) Stop() error {
-	if atomic.AddInt32(&s.shutdown, 1) != 1 {
-		return nil
-	}
-
-	close(s.quit)
-
-	return nil
-}
-
-// InjectDependencies populates the sub-server's dependencies. If the
-// finalizeDependencies boolean is true, then the sub-server will finalize its
-// dependencies and return an error if any required dependencies are missing.
-//
-// NOTE: This is part of the lnrpc.SubServer interface.
-func (s *Server) InjectDependencies(
-	configRegistry lnrpc.SubServerConfigDispatcher,
-	finalizeDependencies bool) error {
-
-	if finalizeDependencies && atomic.AddInt32(&s.injected, 1) != 1 {
-		return lnrpc.ErrDependenciesFinalized
-	}
-
-	cfg, err := getConfig(configRegistry, finalizeDependencies)
-	if err != nil {
-		return err
-	}
-
-	if finalizeDependencies {
-		s.cfg = cfg
-
-		return nil
-	}
-
+func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	// If the path of the router macaroon wasn't generated, then we'll
 	// assume that it's found at the default network directory.
 	if cfg.RouterMacPath == "" {
@@ -285,21 +240,47 @@ func (s *Server) InjectDependencies(
 			macaroonOps...,
 		)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 		routerMacBytes, err := routerMac.M().MarshalBinary()
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 		err = os.WriteFile(macFilePath, routerMacBytes, 0644)
 		if err != nil {
 			_ = os.Remove(macFilePath)
-			return err
+			return nil, nil, err
 		}
 	}
 
-	s.cfg = cfg
+	routerServer := &Server{
+		cfg:  cfg,
+		quit: make(chan struct{}),
+	}
 
+	return routerServer, macPermissions, nil
+}
+
+// Start launches any helper goroutines required for the rpcServer to function.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) Start() error {
+	if atomic.AddInt32(&s.started, 1) != 1 {
+		return nil
+	}
+
+	return nil
+}
+
+// Stop signals any active goroutines for a graceful closure.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) Stop() error {
+	if atomic.AddInt32(&s.shutdown, 1) != 1 {
+		return nil
+	}
+
+	close(s.quit)
 	return nil
 }
 
@@ -349,15 +330,17 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 	return nil
 }
 
-// CreateSubServer creates an instance of the sub-server, and returns the
-// macaroon permissions that the sub-server wishes to pass on to the root server
-// for all methods routed towards it.
+// CreateSubServer populates the subserver's dependencies using the passed
+// SubServerConfigDispatcher. This method should fully initialize the
+// sub-server instance, making it ready for action. It returns the macaroon
+// permissions that the sub-server wishes to pass on to the root server for all
+// methods routed towards it.
 //
 // NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer() (
+func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
 
-	subServer, macPermissions, err := New()
+	subServer, macPermissions, err := createNewSubServer(configRegistry)
 	if err != nil {
 		return nil, nil, err
 	}

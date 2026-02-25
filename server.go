@@ -389,7 +389,8 @@ type server struct {
 
 	tlsManager *TLSManager
 
-	remoteSignerClient rpcwallet.RemoteSignerClient
+	remoteSignerClientFactory func() (rpcwallet.RemoteSignerClient, error)
+	remoteSignerClient        rpcwallet.RemoteSignerClient
 
 	// featureMgr dispatches feature vectors for various contexts within the
 	// daemon.
@@ -585,8 +586,10 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	chansToRestore walletunlocker.ChannelsToRecover,
 	chanPredicate chanacceptor.ChannelAcceptor,
 	torController *tor.Controller, tlsManager *TLSManager,
-	leaderElector cluster.LeaderElector, implCfg *ImplementationCfg,
-	remoteSignerClient rpcwallet.RemoteSignerClient) (*server, error) {
+	leaderElector cluster.LeaderElector,
+	implCfg *ImplementationCfg,
+	remoteSignerClientFactory func() (rpcwallet.RemoteSignerClient,
+	error)) (*server, error) {
 
 	var (
 		err         error
@@ -673,6 +676,13 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 	addrSource := channeldb.NewMultiAddrSource(dbs.ChanStateDB, dbs.GraphDB)
 
+	if remoteSignerClientFactory == nil {
+		remoteSignerClientFactory =
+			func() (rpcwallet.RemoteSignerClient, error) {
+				return &rpcwallet.NoOpClient{}, nil
+			}
+	}
+
 	s := &server{
 		cfg:            cfg,
 		implCfg:        implCfg,
@@ -731,7 +741,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 		tlsManager: tlsManager,
 
-		remoteSignerClient: remoteSignerClient,
+		remoteSignerClientFactory: remoteSignerClientFactory,
+		remoteSignerClient:        &rpcwallet.NoOpClient{},
 
 		featureMgr: featureMgr,
 		quit:       make(chan struct{}),
@@ -1126,7 +1137,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		DefaultRoutingPolicy: cc.RoutingPolicy,
 		ForAllOutgoingChannels: func(ctx context.Context,
 			cb func(*models.ChannelEdgeInfo,
-				*models.ChannelEdgePolicy) error,
+			*models.ChannelEdgePolicy) error,
 			reset func()) error {
 
 			return s.graphDB.ForEachNodeChannel(ctx, selfVertex,
@@ -2193,7 +2204,12 @@ func (s *server) Start(ctx context.Context) error {
 			}
 		}
 
-		ctx := context.TODO()
+		remoteSignerClient, err := s.remoteSignerClientFactory()
+		if err != nil {
+			startErr = err
+			return
+		}
+		s.remoteSignerClient = remoteSignerClient
 
 		cleanup = cleanup.add(s.remoteSignerClient.Stop)
 		if err := s.remoteSignerClient.Start(ctx); err != nil {

@@ -636,25 +636,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	defer cleanUp()
 
-	// Prepare the sub-servers, and insert the permissions required to
-	// access them into the interceptor chain. Note that we do not yet have
-	// all dependencies required to use all sub-servers, but we need be able
-	// to allow a remote signer to connect to lnd before we can derive the
-	// keys create the required dependencies.
-	err = rpcServer.prepareSubServers(
-		interceptorChain.MacaroonService(), cfg.SubRPCServers,
-	)
-	if err != nil {
-		return mkErr("error adding sub server permissions", err)
-	}
-
-	defer func() {
-		err := rpcServer.Stop()
-		if err != nil {
-			ltndLog.Errorf("Error stopping the RPC server", err)
-		}
-	}()
-
 	// If an inbound remote signer is configured, start the dedicated RPC
 	// server before waiting for the wallet to become ready. This RPC is not
 	// served by the main RPC server.
@@ -851,15 +832,16 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		multiAcceptor = chanacceptor.NewChainedAcceptor()
 	}
 
-	// Set up the remote signer client. If cfg.WatchOnlyNode.Enable isn't
-	// set to true, this remote signer client won't run when the server
-	// starts.
 	rscBuilder := rpcwallet.NewRemoteSignerClientBuilder(cfg.WatchOnlyNode)
 
-	rsClient, err := rscBuilder.Build(rpcServer.subServers)
-	if err != nil {
-		return mkErr("unable to create remote signer client", err)
-	}
+	// We pass a factory instead of a concrete RemoteSignerClient because
+	// the builder needs rpcServer.subServers (WalletKit/Signer), and those
+	// sub-servers are only instantiated in rpcServer.addDeps() later in
+	// startup. The server calls this factory in server.Start(), after that.
+	remoteSignerClientFactory :=
+		func() (rpcwallet.RemoteSignerClient, error) {
+			return rscBuilder.Build(rpcServer.subServers)
+		}
 
 	// Set up the core server which will listen for incoming peer
 	// connections.
@@ -867,7 +849,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		ctx, cfg, cfg.Listeners, dbs, activeChainControl, &idKeyDesc,
 		activeChainControl.Cfg.WalletUnlockParams.ChansToRestore,
 		multiAcceptor, torController, tlsManager, leaderElector,
-		implCfg, rsClient,
+		implCfg, remoteSignerClientFactory,
 	)
 	if err != nil {
 		return mkErr("unable to create server", err)
@@ -908,6 +890,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	if err != nil {
 		return mkErr("unable to add deps to RPC server", err)
 	}
+
+	if err := rpcServer.Start(); err != nil {
+		return mkErr("unable to start RPC server", err)
+	}
+	defer rpcServer.Stop()
 
 	// We transition the RPC state to Active, as the sub-servers are now
 	// ready to be used.

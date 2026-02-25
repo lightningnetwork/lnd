@@ -16,8 +16,6 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -257,18 +255,10 @@ type ServerShell struct {
 // to execute common wallet operations. This includes requesting new addresses,
 // keys (for contracts!), and publishing transactions.
 type WalletKit struct {
-	injected int32 // To be used atomically.
-
 	// Required by the grpc-gateway/v2 library for forward compatibility.
 	UnimplementedWalletKitServer
 
 	cfg *Config
-
-	// As we allow rpc requests into the server before dependencies have
-	// been finalized, the read lock should be held in functions that
-	// accesses values from the cfg before dependencies are finalized.
-	// The write lock should be held when setting the cfg.
-	sync.RWMutex
 }
 
 // A compile time check to ensure that WalletKit fully implements the
@@ -276,44 +266,7 @@ type WalletKit struct {
 var _ WalletKitServer = (*WalletKit)(nil)
 
 // New creates a new instance of the WalletKit sub-RPC server.
-func New() (*WalletKit, lnrpc.MacaroonPerms, error) {
-	return &WalletKit{cfg: &Config{}}, macPermissions, nil
-}
-
-// Stop signals any active goroutines for a graceful closure.
-//
-// NOTE: This is part of the lnrpc.SubServer interface.
-func (w *WalletKit) Stop() error {
-	return nil
-}
-
-// InjectDependencies populates the sub-server's dependencies. If the
-// finalizeDependencies boolean is true, then the sub-server will finalize its
-// dependencies and return an error if any required dependencies are missing.
-//
-// NOTE: This is part of the lnrpc.SubServer interface.
-func (w *WalletKit) InjectDependencies(
-	configRegistry lnrpc.SubServerConfigDispatcher,
-	finalizeDependencies bool) error {
-
-	if finalizeDependencies && atomic.AddInt32(&w.injected, 1) != 1 {
-		return lnrpc.ErrDependenciesFinalized
-	}
-
-	w.Lock()
-	defer w.Unlock()
-
-	cfg, err := getConfig(configRegistry, finalizeDependencies)
-	if err != nil {
-		return err
-	}
-
-	if finalizeDependencies {
-		w.cfg = cfg
-
-		return nil
-	}
-
+func New(cfg *Config) (*WalletKit, lnrpc.MacaroonPerms, error) {
 	// If the path of the wallet kit macaroon wasn't specified, then we'll
 	// assume that it's found at the default network directory.
 	if cfg.WalletKitMacPath == "" {
@@ -340,21 +293,37 @@ func (w *WalletKit) InjectDependencies(
 			macaroonOps...,
 		)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 		walletKitMacBytes, err := walletKitMac.M().MarshalBinary()
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 		err = os.WriteFile(macFilePath, walletKitMacBytes, 0644)
 		if err != nil {
 			_ = os.Remove(macFilePath)
-			return err
+			return nil, nil, err
 		}
 	}
 
-	w.cfg = cfg
+	walletKit := &WalletKit{
+		cfg: cfg,
+	}
 
+	return walletKit, macPermissions, nil
+}
+
+// Start launches any helper goroutines required for the sub-server to function.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (w *WalletKit) Start() error {
+	return nil
+}
+
+// Stop signals any active goroutines for a graceful closure.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (w *WalletKit) Stop() error {
 	return nil
 }
 
@@ -404,15 +373,17 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 	return nil
 }
 
-// CreateSubServer creates an instance of the sub-server, and returns the
-// macaroon permissions that the sub-server wishes to pass on to the root server
-// for all methods routed towards it.
+// CreateSubServer populates the subserver's dependencies using the passed
+// SubServerConfigDispatcher. This method should fully initialize the
+// sub-server instance, making it ready for action. It returns the macaroon
+// permissions that the sub-server wishes to pass on to the root server for all
+// methods routed towards it.
 //
 // NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer() (
+func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
 
-	subServer, macPermissions, err := New()
+	subServer, macPermissions, err := createNewSubServer(configRegistry)
 	if err != nil {
 		return nil, nil, err
 	}

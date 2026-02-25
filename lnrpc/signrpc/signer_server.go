@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync/atomic"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -29,11 +28,11 @@ import (
 )
 
 const (
-	// SubServerName is the name of the sub rpc server. We'll use this name
+	// subServerName is the name of the sub rpc server. We'll use this name
 	// to register ourselves, and we also require that the main
 	// SubServerConfigDispatcher instance recognize this as the name of the
 	// config file that we need.
-	SubServerName = "SignRPC"
+	subServerName = "SignRPC"
 
 	// BIP0340 is the prefix for BIP0340-related tagged hashes.
 	BIP0340 = "BIP0340"
@@ -127,8 +126,6 @@ type ServerShell struct {
 // lnd. This allows callers to create custom protocols, external to lnd, even
 // backed by multiple distinct lnd across independent failure domains.
 type Server struct {
-	injected int32 // To be used atomically.
-
 	// Required by the grpc-gateway/v2 library for forward compatibility.
 	UnimplementedSignerServer
 
@@ -144,41 +141,7 @@ var _ SignerServer = (*Server)(nil)
 // method. If the macaroons we need aren't found in the filepath, then we'll
 // create them on start up. If we're unable to locate, or create the macaroons
 // we need, then we'll return with an error.
-func New() (*Server, lnrpc.MacaroonPerms, error) {
-	return &Server{cfg: &Config{}}, macPermissions, nil
-}
-
-// Stop signals any active goroutines for a graceful closure.
-//
-// NOTE: This is part of the lnrpc.SubServer interface.
-func (s *Server) Stop() error {
-	return nil
-}
-
-// InjectDependencies populates the sub-server's dependencies. If the
-// finalizeDependencies boolean is true, then the sub-server will finalize its
-// dependencies and return an error if any required dependencies are missing.
-//
-// NOTE: This is part of the lnrpc.SubServer interface.
-func (s *Server) InjectDependencies(
-	configRegistry lnrpc.SubServerConfigDispatcher,
-	finalizeDependencies bool) error {
-
-	if finalizeDependencies && atomic.AddInt32(&s.injected, 1) != 1 {
-		return lnrpc.ErrDependenciesFinalized
-	}
-
-	cfg, err := getConfig(configRegistry, finalizeDependencies)
-	if err != nil {
-		return err
-	}
-
-	if finalizeDependencies {
-		s.cfg = cfg
-
-		return nil
-	}
-
+func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	// If the path of the signer macaroon wasn't generated, then we'll
 	// assume that it's found at the default network directory.
 	if cfg.SignerMacPath == "" {
@@ -205,21 +168,37 @@ func (s *Server) InjectDependencies(
 			macaroonOps...,
 		)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 		signerMacBytes, err := signerMac.M().MarshalBinary()
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 		err = os.WriteFile(macFilePath, signerMacBytes, 0644)
 		if err != nil {
 			_ = os.Remove(macFilePath)
-			return err
+			return nil, nil, err
 		}
 	}
 
-	s.cfg = cfg
+	signerServer := &Server{
+		cfg: cfg,
+	}
 
+	return signerServer, macPermissions, nil
+}
+
+// Start launches any helper goroutines required for the rpcServer to function.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) Start() error {
+	return nil
+}
+
+// Stop signals any active goroutines for a graceful closure.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) Stop() error {
 	return nil
 }
 
@@ -228,7 +207,7 @@ func (s *Server) InjectDependencies(
 //
 // NOTE: This is part of the lnrpc.SubServer interface.
 func (s *Server) Name() string {
-	return SubServerName
+	return subServerName
 }
 
 // RegisterWithRootServer will be called by the root gRPC server to direct a
@@ -270,15 +249,17 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 	return nil
 }
 
-// CreateSubServer creates an instance of the sub-server, and returns the
-// macaroon permissions that the sub-server wishes to pass on to the root server
-// for all methods routed towards it.
+// CreateSubServer populates the subserver's dependencies using the passed
+// SubServerConfigDispatcher. This method should fully initialize the
+// sub-server instance, making it ready for action. It returns the macaroon
+// permissions that the sub-server wishes to pass on to the root server for all
+// methods routed towards it.
 //
 // NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer() (
+func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
 
-	subServer, macPermissions, err := New()
+	subServer, macPermissions, err := createNewSubServer(configRegistry)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -500,7 +481,6 @@ func (s *Server) SignOutputRaw(_ context.Context, in *SignReq) (*SignResp,
 	resp := &SignResp{
 		RawSigs: make([][]byte, numSigs),
 	}
-
 	for i, signDesc := range signDescs {
 		sig, err := s.cfg.Signer.SignOutputRaw(&txToSign, signDesc)
 		if err != nil {
@@ -603,7 +583,6 @@ func (s *Server) ComputeInputScript(ctx context.Context,
 	resp := &InputScriptResp{
 		InputScripts: make([]*InputScript, numWitnesses),
 	}
-
 	for i, signDesc := range signDescs {
 		inputScript, err := s.cfg.Signer.ComputeInputScript(
 			&txToSign, signDesc,

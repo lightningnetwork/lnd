@@ -9,45 +9,32 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
-// getConfig is a helper method that will fetch the config for sub-server given
-// the main config dispatcher method. If we're unable to find the config
-// that is meant for us in the config dispatcher, then we'll exit with an
-// error. If enforceDependencies is set to true, the function also verifies that
-// the dependencies in the config are properly set.
-func getConfig(configRegistry lnrpc.SubServerConfigDispatcher,
-	enforceDependencies bool) (*Config, error) {
+// createNewSubServer is a helper method that will create the new chain notifier
+// sub server given the main config dispatcher method. If we're unable to find
+// the config that is meant for us in the config dispatcher, then we'll exit
+// with an error.
+func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
+	*Server, lnrpc.MacaroonPerms, error) {
 
 	// We'll attempt to look up the config that we expect, according to our
 	// subServerName name. If we can't find this, then we'll exit with an
 	// error, as we're unable to properly initialize ourselves without this
 	// config.
-	subServerConf, ok := configRegistry.FetchConfig(subServerName)
+	chainNotifierServerConf, ok := configRegistry.FetchConfig(subServerName)
 	if !ok {
-		return nil, fmt.Errorf("unable to find config for subserver "+
-			"type %s", subServerName)
+		return nil, nil, fmt.Errorf("unable to find config for "+
+			"subserver type %s", subServerName)
 	}
 
 	// Now that we've found an object mapping to our service name, we'll
 	// ensure that it's the type we need.
-	config, ok := subServerConf.(*Config)
+	config, ok := chainNotifierServerConf.(*Config)
 	if !ok {
-		return nil, fmt.Errorf("wrong type of config for subserver "+
-			"%s, expected %T got %T", subServerName, &Config{},
-			subServerConf)
+		return nil, nil, fmt.Errorf("wrong type of config for "+
+			"subserver %s, expected %T got %T", subServerName,
+			&Config{}, chainNotifierServerConf)
 	}
 
-	if enforceDependencies {
-		if err := verifyDependencies(config); err != nil {
-			return nil, err
-		}
-	}
-
-	return config, nil
-}
-
-// verifyDependencies ensures that the dependencies in the config are properly
-// set.
-func verifyDependencies(config *Config) error {
 	// Before we try to make the new chain notifier service instance, we'll
 	// perform some sanity checks on the arguments to ensure that they're
 	// usable.
@@ -56,17 +43,19 @@ func verifyDependencies(config *Config) error {
 	// ensure that we know where to look for them, or create them if not
 	// found.
 	case config.MacService != nil && config.NetworkDir == "":
-		return fmt.Errorf("NetworkDir must be set to create chainrpc")
-
-	case config.ChainNotifier == nil:
-		return fmt.Errorf("ChainNotifier must be set to create " +
+		return nil, nil, fmt.Errorf("NetworkDir must be set to create " +
 			"chainrpc")
 
+	case config.ChainNotifier == nil:
+		return nil, nil, fmt.Errorf("ChainNotifier must be set to " +
+			"create chainrpc")
+
 	case config.Chain == nil:
-		return fmt.Errorf("field Chain must be set to create chainrpc")
+		return nil, nil, fmt.Errorf("field Chain must be set to " +
+			"create chainrpc")
 	}
 
-	return nil
+	return New(config)
 }
 
 func init() {

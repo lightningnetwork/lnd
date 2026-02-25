@@ -43,11 +43,6 @@ const (
 	// RPC server is not yet ready.
 	walletUnlocked
 
-	// allowRemoteSigner means that the wallet is unlocked, and that we're
-	// waiting for the remote signer to connect before proceeding. Only
-	// rpc calls to connect the remote signer are allowed during this state.
-	allowRemoteSigner
-
 	// rpcActive means that the RPC server is ready to accept calls.
 	rpcActive
 
@@ -75,12 +70,6 @@ var (
 	ErrWalletUnlocked = fmt.Errorf("wallet already unlocked, " +
 		"WalletUnlocker service is no longer available")
 
-	// ErrAwaitingRemoteSigner is returned if an RPC call is made, other
-	// than an RPC call to connect a remote signer, while LND is waiting for
-	// a remote signer to connect.
-	ErrAwaitingRemoteSigner = fmt.Errorf("waiting for remote signer to " +
-		"connect before other RPC calls can be accepted")
-
 	// ErrRPCStarting is returned if the wallet has been unlocked but the
 	// RPC server is not yet ready to accept calls.
 	ErrRPCStarting = fmt.Errorf("the RPC server is in the process of " +
@@ -104,13 +93,6 @@ var (
 		// before we can check macaroons, so we whitelist it.
 		"/lnrpc.State/SubscribeState": {},
 		"/lnrpc.State/GetState":       {},
-	}
-
-	// allowRemoteSignerWhitelist defines methods that we allow to be called
-	// when we are waiting for the remote signer to connect, i.e. in the
-	// allowRemoteSigner state.
-	allowRemoteSignerWhitelist = map[string]struct{}{
-		"/lnrpc.Lightning/StopDaemon": {},
 	}
 )
 
@@ -283,18 +265,7 @@ func (r *InterceptorChain) SetWalletUnlocked() {
 	_ = r.ntfnServer.SendUpdate(r.state)
 }
 
-// SetAllowRemoteSigner moves the RPC state from walletUnlocked to
-// waitRemoteSigner.
-func (r *InterceptorChain) SetAllowRemoteSigner() {
-	r.Lock()
-	defer r.Unlock()
-
-	r.state = allowRemoteSigner
-	_ = r.ntfnServer.SendUpdate(r.state)
-}
-
-// SetRPCActive moves the RPC state from either walletUnlocked or
-// waitRemoteSigner to rpcActive.
+// SetRPCActive moves the RPC state from walletUnlocked to rpcActive.
 func (r *InterceptorChain) SetRPCActive() {
 	r.Lock()
 	defer r.Unlock()
@@ -327,8 +298,6 @@ func rpcStateToWalletState(state rpcState) (lnrpc.WalletState, error) {
 		walletState = lnrpc.WalletState_LOCKED
 	case walletUnlocked:
 		walletState = lnrpc.WalletState_UNLOCKED
-	case allowRemoteSigner:
-		walletState = lnrpc.WalletState_ALLOW_REMOTE_SIGNER
 	case rpcActive:
 		walletState = lnrpc.WalletState_RPC_ACTIVE
 	case serverActive:
@@ -783,22 +752,6 @@ func (r *InterceptorChain) checkRPCState(srv interface{},
 		}
 
 		return ErrRPCStarting
-
-	// If lnd is waiting for the remote signer to connect, we only allow
-	// calls to the remote signer.
-	case allowRemoteSigner:
-		_, ok := srv.(lnrpc.WalletUnlockerServer)
-		if ok {
-			return ErrWalletUnlocked
-		}
-
-		// As we only allow calls to connect the remote signer until the
-		// full rpc server is active, we check whether the method is
-		// whitelisted or not.
-		_, ok = allowRemoteSignerWhitelist[fullMethod]
-		if !ok {
-			return ErrAwaitingRemoteSigner
-		}
 
 	// If the RPC server or lnd server is active, we allow calls to any
 	// service except the WalletUnlocker.

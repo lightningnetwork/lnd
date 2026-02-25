@@ -165,6 +165,8 @@ func (s *SignCoordinator) Run(stream StreamServer) error {
 	}
 
 	if s.clientConnected {
+		s.mu.Unlock()
+
 		// If we already have a stream, we error out as we can only have
 		// one connection at a time.
 		return ErrMultipleConnections
@@ -937,84 +939,98 @@ func processRequest[R comparable](ctx context.Context, s *SignCoordinator,
 	}
 	defer done()
 
-	// Wait for the remote signer to connect. If the remote signer doesn't
-	// connect within the configured connection timeout, or before the ctx
-	// times out, we will return an error.
-	err = s.WaitUntilConnected(ctx)
-
-	if err != nil {
-		return zero, err
-	}
-
-	reqID := s.nextRequestID.Add(1)
-	req := generateRequest(reqID)
-
-	reqCtx, cancelReq := context.WithCancel(ctx)
-	cleanUpChannel := s.createResponseChannel(reqID, reqCtx.Done())
-	defer func() {
-		cancelReq()
-		cleanUpChannel()
-	}()
-
-	log.Debugf("Sending a %T to the remote signer with request ID %d",
-		req.SignRequestType, reqID)
-
-	log.Tracef("Request content: %v", formatSignCoordinatorMsg(&req))
-
-	// reprocessOnDisconnect is a helper function that will be used to
-	// resend the request if the remote signer disconnects, through which
-	// we will wait for it to reconnect within the configured timeout, and
-	// then resend the request.
-	reprocessOnDisconnect := func() (R, error) {
-		log.Debugf("Remote signer disconnected while waiting for "+
-			"response for request ID %d. Retrying request...",
-			reqID)
-
-		return processRequest[R](
-			ctx, s, generateRequest, extractResponse,
-		)
-	}
-
-	// Send the request to the remote signer. Note that stream.Send is not
-	// safe for concurrent use and that we specifically lock the sendMu
-	// below and not general struct mutex, to keep the locking scope
-	// minimal.
-	s.sendMu.Lock()
-	err = s.stream.Send(&req)
-	s.sendMu.Unlock()
-
-	if err != nil {
-		st, isStatusError := status.FromError(err)
-		if isStatusError && st.Code() == codes.Unavailable {
-			// If the stream was closed due to the remote signer
-			// disconnecting, we will retry to process the request
-			// if the remote signer reconnects.
-			return reprocessOnDisconnect()
+	// tryProcessRequest performs one attempt to send a request and receive
+	// its response.
+	//
+	// Return values:
+	//   1. shouldRetry: true if the caller should retry this request after
+	//      a transient disconnect (for example, stream unavailable or
+	//      signer disconnected while waiting for the response).
+	//   2. R: the extracted RPC response when the request succeeded.
+	//      Undefined when shouldRetry is true or err is non-nil.
+	//   3. error: a terminal error for this request attempt. If non-nil,
+	//      the caller should stop retrying and return the error.
+	tryProcessRequest := func() (bool, R, error) {
+		// Wait for the remote signer to connect. If the remote signer
+		// doesn't connect within the configured connection timeout, or
+		// before the ctx times out, we will return an error.
+		err = s.WaitUntilConnected(ctx)
+		if err != nil {
+			return false, zero, err
 		}
 
-		return zero, err
+		reqID := s.nextRequestID.Add(1)
+		req := generateRequest(reqID)
+
+		reqCtx, cancelReq := context.WithCancel(ctx)
+		cleanUpChannel := s.createResponseChannel(reqID, reqCtx.Done())
+
+		log.Debugf("Sending a %T to the remote signer with request "+
+			"ID %d", req.SignRequestType, reqID)
+
+		log.Tracef("Request content: %v",
+			formatSignCoordinatorMsg(&req))
+
+		// Send the request to the remote signer. Note that stream.Send is
+		// not safe for concurrent use and that we specifically lock the
+		// sendMu below and not general struct mutex, to keep the locking
+		// scope minimal.
+		s.sendMu.Lock()
+		err = s.stream.Send(&req)
+		s.sendMu.Unlock()
+
+		if err != nil {
+			cancelReq()
+			cleanUpChannel()
+
+			st, isStatusError := status.FromError(err)
+			if isStatusError && st.Code() == codes.Unavailable {
+				log.Debugf("Remote signer disconnected while "+
+					"sending request ID %d. Retrying "+
+					"request...", reqID)
+
+				return true, zero, nil
+			}
+
+			return false, zero, err
+		}
+
+		// Wait for the remote signer response for the given request. We
+		// will wait for the configured request timeout, or until the
+		// context is cancelled/timed out.
+		resp, err := s.getResponse(reqCtx, reqID)
+
+		cancelReq()
+		cleanUpChannel()
+
+		if errors.Is(err, ErrNotConnected) {
+			log.Debugf("Remote signer disconnected while waiting "+
+				"for response for request ID %d. Retrying "+
+				"request...", reqID)
+
+			return true, zero, nil
+		}
+		if err != nil {
+			return false, zero, err
+		}
+
+		rpcResp := extractResponse(resp)
+		if rpcResp == zero {
+			return false, zero, ErrUnexpectedResponse
+		}
+
+		return false, rpcResp, nil
 	}
 
-	var resp *walletrpc.SignCoordinatorResponse
+	for {
+		shouldRetry, rpcResp, err := tryProcessRequest()
+		if err != nil {
+			return zero, err
+		}
+		if shouldRetry {
+			continue
+		}
 
-	// Wait for the remote signer response for the given request. We will
-	// wait for the configured request timeout, or until the context is
-	// cancelled/timed out.
-	resp, err = s.getResponse(reqCtx, reqID)
-
-	if errors.Is(err, ErrNotConnected) {
-		// If the remote signer disconnected while we were waiting for
-		// the response, we will retry to process the request if the
-		// remote signer reconnects.
-		return reprocessOnDisconnect()
-	} else if err != nil {
-		return zero, err
+		return rpcResp, nil
 	}
-
-	rpcResp := extractResponse(resp)
-	if rpcResp == zero {
-		return zero, ErrUnexpectedResponse
-	}
-
-	return rpcResp, nil
 }

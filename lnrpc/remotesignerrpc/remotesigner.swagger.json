@@ -230,6 +230,7 @@
       "properties": {
         "registration_challenge": {
           "type": "string",
+          "format": "byte",
           "description": "The registration challenge allows the remote signer to pass data that will\nbe signed by the watch-only lnd. The resulting signature will be returned in\nthe RegistrationResponse message."
         },
         "registration_info": {

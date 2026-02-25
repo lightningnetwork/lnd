@@ -135,7 +135,7 @@ func setupNewStream(t *testing.T,
 	}()
 
 	signReg := &remotesignerrpc.SignerRegistration{
-		RegistrationChallenge: "registrationChallenge",
+		RegistrationChallenge: []byte("registrationChallenge"),
 		RegistrationInfo:      "outboundSigner",
 	}
 
@@ -867,7 +867,7 @@ func TestWaitUntilConnectedNoTimeout(t *testing.T) {
 	}
 
 	signReg := &remotesignerrpc.SignerRegistration{
-		RegistrationChallenge: "registrationChallenge",
+		RegistrationChallenge: []byte("registrationChallenge"),
 		RegistrationInfo:      "outboundSigner",
 	}
 

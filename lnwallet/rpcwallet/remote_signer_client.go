@@ -491,8 +491,10 @@ func (r *OutboundClient) handshake(ctx context.Context, stream *Stream) error {
 		RefRequestId: handshakeRequestID,
 		SignResponseType: &RSRegistration{
 			SignerRegistration: &remotesignerrpc.SignerRegistration{
-				RegistrationChallenge: "registrationChallenge",
-				RegistrationInfo:      "outboundSigner",
+				RegistrationChallenge: []byte(
+					"registrationChallenge",
+				),
+				RegistrationInfo: "outboundSigner",
 			},
 		},
 	}

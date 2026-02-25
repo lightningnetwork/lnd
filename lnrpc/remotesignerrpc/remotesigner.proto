@@ -204,7 +204,7 @@ message SignerRegistration {
     be signed by the watch-only lnd. The resulting signature will be returned in
     the RegistrationResponse message.
     */
-    string registration_challenge = 1;
+    bytes registration_challenge = 1;
 
     /*
     The registration info contains details about the remote signer that may be

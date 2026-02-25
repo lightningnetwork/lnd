@@ -33,6 +33,75 @@ type MigrationStats struct {
 	MigrationDuration  time.Duration
 }
 
+// migrationProgressReporter tracks rolling-window ETA state and logs
+// periodic progress lines during the payment migration.
+type migrationProgressReporter struct {
+	startTime          time.Time
+	stats              *MigrationStats
+	indexedPayments    int64
+	rateWindowDuration time.Duration
+	windowStart        time.Time
+	windowPayments     int64
+	prevWindowRate     float64
+}
+
+// report logs a progress line showing the current migration rate and ETA.
+func (p *migrationProgressReporter) report() {
+	elapsed := time.Since(p.startTime)
+	if elapsed <= 0 || p.stats.TotalPayments == 0 {
+		return
+	}
+
+	paymentRate := float64(p.stats.TotalPayments) / elapsed.Seconds()
+	attemptRate := float64(p.stats.TotalAttempts) / elapsed.Seconds()
+
+	var pctStr string
+	if p.indexedPayments > 0 {
+		pct := float64(p.stats.TotalPayments) /
+			float64(p.indexedPayments) * 100
+		pctStr = fmt.Sprintf(" (~%.1f%%)", pct)
+	}
+
+	// Compute ETA using the rolling window rate so it responds to
+	// recent throughput changes. When the window expires we save
+	// the previous rate as a fallback for the reset tick.
+	windowElapsed := time.Since(p.windowStart)
+	if windowElapsed >= p.rateWindowDuration {
+		n := p.stats.TotalPayments - p.windowPayments
+		p.prevWindowRate = float64(n) / windowElapsed.Seconds()
+		p.windowPayments = p.stats.TotalPayments
+		p.windowStart = time.Now()
+		windowElapsed = 0
+	}
+
+	var etaStr string
+	if p.indexedPayments > 0 {
+		windowRate := p.prevWindowRate
+		if windowElapsed > 0 {
+			n := p.stats.TotalPayments - p.windowPayments
+			windowRate = float64(n) / windowElapsed.Seconds()
+		}
+
+		if windowRate > 0 {
+			remaining := p.indexedPayments - p.stats.TotalPayments
+			secs := float64(remaining) / windowRate
+			eta := time.Duration(secs) * time.Second
+			etaStr = fmt.Sprintf(
+				" | ETA: ~%v", eta.Round(time.Second),
+			)
+		}
+	}
+
+	log.Infof("Progress: %d payments%s, %d "+
+		"attempts, %d hops | Rate: %.1f "+
+		"pmt/s, %.1f att/s | Elapsed: %v%s",
+		p.stats.TotalPayments, pctStr,
+		p.stats.TotalAttempts, p.stats.TotalHops,
+		paymentRate, attemptRate,
+		elapsed.Round(time.Second), etaStr,
+	)
+}
+
 // MigratePaymentsKVToSQL migrates payments from KV to SQL and validates
 // migrated data in batches. Callers are responsible for executing this within
 // a single SQL transaction if atomicity is required.
@@ -59,15 +128,49 @@ func MigratePaymentsKVToSQL(ctx context.Context, kvBackend kvdb.Backend,
 	log.Infof("Starting payment migration from KV to SQL...")
 
 	var (
-		validationBatch   []migratedPaymentRef
-		validatedPayments int64
+		validationBatch []migratedPaymentRef
 
-		reportInterval     = rate.Sometimes{Interval: 5 * time.Second}
-		validationInterval = rate.Sometimes{Interval: 5 * time.Second}
+		// indexedPayments is the total number of entries in the index
+		// bucket. This is an upper bound on the number of payments to
+		// migrate since the index also includes duplicate payment
+		// entries (which are migrated as sub-entries of the primary
+		// payment rather than as top-level payments).
+		indexedPayments int64
+
+		reportInterval = rate.Sometimes{Interval: 5 * time.Second}
 	)
 
-	// Open the KV backend in read-only mode.
+	// Count entries in the index bucket upfront for approximate progress
+	// reporting. This is a cheap read-only scan with no deserialization.
 	err := kvBackend.View(func(kvTx kvdb.RTx) error {
+		indexes := kvTx.ReadBucket(paymentsIndexBucket)
+		if indexes == nil {
+			return nil
+		}
+
+		return indexes.ForEach(func(_, _ []byte) error {
+			indexedPayments++
+			return nil
+		})
+	}, func() { indexedPayments = 0 })
+	if err != nil {
+		return fmt.Errorf("count payments: %w", err)
+	}
+
+	log.Infof("Found ~%d index entries to migrate (includes duplicates)",
+		indexedPayments)
+
+	// Set up a progress reporter with rolling-window ETA.
+	reporter := &migrationProgressReporter{
+		startTime:          startTime,
+		stats:              stats,
+		indexedPayments:    indexedPayments,
+		rateWindowDuration: 30 * time.Second,
+		windowStart:        startTime,
+	}
+
+	// Open the KV backend in read-only mode.
+	err = kvBackend.View(func(kvTx kvdb.RTx) error {
 		// In case we start with an empty database, there are no
 		// payments to migrate.
 		paymentsBucket := kvTx.ReadBucket(paymentsRootBucket)
@@ -90,138 +193,13 @@ func MigratePaymentsKVToSQL(ctx context.Context, kvBackend kvdb.Backend,
 		// payments not in the chronological order but rather the
 		// lexicographical order of the payment hashes.
 		return indexes.ForEach(func(seqKey, indexVal []byte) error {
-			// Progress reporting based on time + actual work done.
-			reportProgress := func() {
-				elapsed := time.Since(startTime)
-				if elapsed <= 0 {
-					return
-				}
+			reportInterval.Do(reporter.report)
 
-				if stats.TotalPayments == 0 {
-					return
-				}
-
-				paymentRate := float64(stats.TotalPayments) /
-					elapsed.Seconds()
-				attemptRate := float64(stats.TotalAttempts) /
-					elapsed.Seconds()
-
-				log.Infof("Progress: %d payments, %d "+
-					"attempts, %d hops | Rate: %.1f "+
-					"pmt/s, %.1f att/s | Elapsed: %v",
-					stats.TotalPayments,
-					stats.TotalAttempts, stats.TotalHops,
-					paymentRate, attemptRate,
-					elapsed.Round(time.Second),
-				)
-			}
-
-			reportInterval.Do(reportProgress)
-
-			r := bytes.NewReader(indexVal)
-			paymentHash, err := deserializePaymentIndex(r)
-			if err != nil {
-				return err
-			}
-
-			paymentBucket := paymentsBucket.NestedReadBucket(
-				paymentHash[:],
+			return migrateIndexEntry(
+				ctx, seqKey, indexVal,
+				paymentsBucket, kvBackend,
+				sqlDB, cfg, stats, &validationBatch,
 			)
-			if paymentBucket == nil {
-				// We skip the entry in case this sequence
-				// number does not have a corresponding
-				// payment bucket. But aborting would not help
-				// either because it is just a db inconsistency.
-				log.Warnf("Missing bucket for payment %x",
-					paymentHash[:8])
-
-				stats.SkippedPayments++
-
-				return nil
-			}
-
-			// Every payment bucket should have a sequence number
-			// which is also important to check for duplicates.
-			seqBytes := paymentBucket.Get(paymentSequenceKey)
-			if seqBytes == nil {
-				return ErrNoSequenceNumber
-			}
-
-			// Skip duplicates. They are migrated into the
-			// payment_duplicates table when the primary payment is
-			// processed.
-			if !bytes.Equal(seqBytes, seqKey) {
-				return nil
-			}
-
-			// Fetch the payment from the kv store.
-			payment, err := fetchPayment(paymentBucket)
-			if err != nil {
-				return fmt.Errorf("fetch payment %x: %w",
-					paymentHash[:8], err)
-			}
-
-			// Migrate the payment to the SQL database.
-			paymentID, err := migratePayment(
-				ctx, payment, paymentHash, sqlDB, stats,
-			)
-			if err != nil {
-				return fmt.Errorf("migrate payment %x: %w",
-					paymentHash[:8], err)
-			}
-
-			// Check for duplicates.
-			dupBucket := paymentBucket.NestedReadBucket(
-				duplicatePaymentsBucket,
-			)
-			if dupBucket != nil {
-				err = migrateDuplicatePayments(
-					ctx, dupBucket, paymentHash,
-					paymentID, sqlDB, stats,
-				)
-				if err != nil {
-					return fmt.Errorf("migrate duplicates "+
-						"%x: %w", paymentHash[:8],
-						err)
-				}
-			}
-
-			// Add the payment to the validation batch.
-			validationBatch = append(
-				validationBatch, migratedPaymentRef{
-					Hash:      paymentHash,
-					PaymentID: paymentID,
-				},
-			)
-			if uint32(len(validationBatch)) >=
-				cfg.QueryCfg.MaxBatchSize {
-
-				err := validateMigratedPaymentBatch(
-					ctx, kvBackend, sqlDB,
-					cfg,
-					validationBatch,
-				)
-				if err != nil {
-					return err
-				}
-
-				validatedPayments += int64(
-					len(validationBatch),
-				)
-
-				// Log validation progress periodically.
-				validationInterval.Do(func() {
-					log.Infof("Validated %d/%d "+
-						"payments",
-						validatedPayments,
-						stats.TotalPayments,
-					)
-				})
-
-				validationBatch = validationBatch[:0]
-			}
-
-			return nil
 		})
 	}, func() {})
 
@@ -236,10 +214,6 @@ func MigratePaymentsKVToSQL(ctx context.Context, kvBackend kvdb.Backend,
 		); err != nil {
 			return err
 		}
-
-		validatedPayments += int64(len(validationBatch))
-		log.Infof("Validated %d/%d payments", validatedPayments,
-			stats.TotalPayments)
 	}
 
 	// Validate the total number of payments as an additional sanity check.
@@ -268,6 +242,90 @@ func normalizeTimeForSQL(t time.Time) time.Time {
 	}
 
 	return time.Unix(0, t.UnixNano()).UTC()
+}
+
+// migrateIndexEntry processes a single entry from the payments index bucket,
+// migrating the corresponding payment to SQL and appending it to the
+// validation batch.
+func migrateIndexEntry(ctx context.Context, seqKey, indexVal []byte,
+	paymentsBucket kvdb.RBucket, kvBackend kvdb.Backend,
+	sqlDB SQLMigrationQueries, cfg *SQLStoreConfig,
+	stats *MigrationStats, validationBatch *[]migratedPaymentRef) error {
+
+	r := bytes.NewReader(indexVal)
+	paymentHash, err := deserializePaymentIndex(r)
+	if err != nil {
+		return err
+	}
+
+	paymentBucket := paymentsBucket.NestedReadBucket(paymentHash[:])
+	if paymentBucket == nil {
+		// We skip the entry in case this sequence number does not
+		// have a corresponding payment bucket. But aborting would
+		// not help either because it is just a db inconsistency.
+		log.Warnf("Missing bucket for payment %x", paymentHash[:8])
+		stats.SkippedPayments++
+
+		return nil
+	}
+
+	// Every payment bucket should have a sequence number which is
+	// also important to check for duplicates.
+	seqBytes := paymentBucket.Get(paymentSequenceKey)
+	if seqBytes == nil {
+		return ErrNoSequenceNumber
+	}
+
+	// Skip duplicates. They are migrated into the payment_duplicates
+	// table when the primary payment is processed.
+	if !bytes.Equal(seqBytes, seqKey) {
+		return nil
+	}
+
+	// Fetch the payment from the kv store.
+	payment, err := fetchPayment(paymentBucket)
+	if err != nil {
+		return fmt.Errorf("fetch payment %x: %w", paymentHash[:8], err)
+	}
+
+	// Migrate the payment to the SQL database.
+	paymentID, err := migratePayment(
+		ctx, payment, paymentHash, sqlDB, stats,
+	)
+	if err != nil {
+		return fmt.Errorf("migrate payment %x: %w",
+			paymentHash[:8], err)
+	}
+
+	// Migrate any duplicate payments for this hash.
+	dupBucket := paymentBucket.NestedReadBucket(duplicatePaymentsBucket)
+	if dupBucket != nil {
+		err = migrateDuplicatePayments(
+			ctx, dupBucket, paymentHash, paymentID, sqlDB, stats,
+		)
+		if err != nil {
+			return fmt.Errorf("migrate duplicates %x: %w",
+				paymentHash[:8], err)
+		}
+	}
+
+	// Add the payment to the validation batch.
+	*validationBatch = append(*validationBatch, migratedPaymentRef{
+		Hash:      paymentHash,
+		PaymentID: paymentID,
+	})
+	if uint32(len(*validationBatch)) >= cfg.QueryCfg.MaxBatchSize {
+		err := validateMigratedPaymentBatch(
+			ctx, kvBackend, sqlDB, cfg, *validationBatch,
+		)
+		if err != nil {
+			return err
+		}
+
+		*validationBatch = (*validationBatch)[:0]
+	}
+
+	return nil
 }
 
 // migratePayment migrates a single payment from KV to SQL.

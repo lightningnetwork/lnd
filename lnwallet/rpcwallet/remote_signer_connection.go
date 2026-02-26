@@ -145,7 +145,7 @@ func NewOutboundConnection(ctx context.Context,
 	err := remoteSigner.connect(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("error connecting to the remote "+
-			"signing node through RPC: %v", err)
+			"signing node through RPC: %w", err)
 	}
 
 	return remoteSigner, nil
@@ -210,7 +210,11 @@ func (r *OutboundConnection) Timeout() time.Duration {
 // NOTE: This is part of the RemoteSignerConnection interface.
 func (r *OutboundConnection) Stop() {
 	if r.conn != nil {
-		r.conn.Close()
+		err := r.conn.Close()
+		if err != nil {
+			log.Errorf("error closing remote signer connection: %v",
+				err)
+		}
 	}
 }
 

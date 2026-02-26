@@ -148,7 +148,7 @@ func TestMigrationWithChannelDB(t *testing.T) {
 			// Just some sane defaults for the sqlite config.
 			const (
 				timeout  = 5 * time.Second
-				maxConns = 50
+				maxConns = 2
 			)
 
 			sqliteConfig := &sqlite.Config{

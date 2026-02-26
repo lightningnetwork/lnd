@@ -27,13 +27,18 @@ func getTestDsn(dbName string) string {
 
 var testPostgres *embeddedpostgres.EmbeddedPostgres
 
+// testMaxConnections is the total number of connections to the database server.
 const testMaxConnections = 200
+
+// testMaxConnectionPerDatabase is the number of connections per database the
+// golang driver will open.
+const testMaxConnectionPerDatabase = 10
 
 // StartEmbeddedPostgres starts an embedded postgres instance. This only needs
 // to be done once, because NewFixture will create random new databases on every
 // call. It returns a stop closure that stops the database if called.
 func StartEmbeddedPostgres() (func() error, error) {
-	sqlbase.Init(testMaxConnections)
+	sqlbase.Init(testMaxConnectionPerDatabase)
 
 	postgres := embeddedpostgres.NewDatabase(
 		embeddedpostgres.DefaultConfig().
@@ -43,6 +48,7 @@ func StartEmbeddedPostgres() (func() error, error) {
 					"max_connections": fmt.Sprintf(
 						"%d", testMaxConnections,
 					),
+					"max_pred_locks_per_transaction": "256",
 				},
 			),
 	)

@@ -156,6 +156,178 @@ func TestMigrationDataIntegrity(t *testing.T) {
 	}
 }
 
+// TestMigrationLegacyPayloadNormalized verifies that a payment whose HTLC
+// hops carry LegacyPayload=true in the KV store is migrated and compared
+// correctly. LegacyPayload was a hint used by the KV store to choose between
+// the legacy and TLV hop-payload serialization formats. The SQL store does not
+// serialize hop data at all — each field is stored natively in its own
+// column — so the flag is never persisted there. normalizePaymentForCompare
+// clears it on both sides before the equality check, so the comparison must
+// succeed even when the KV source has LegacyPayload=true.
+func TestMigrationLegacyPayloadNormalized(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	kvDB := setupTestKVDB(t)
+
+	hash := createTestPaymentHash(t, 0)
+
+	err := kvdb.Update(kvDB, func(tx kvdb.RwTx) error {
+		paymentsBucket, err := tx.CreateTopLevelBucket(
+			paymentsRootBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		indexBucket, err := tx.CreateTopLevelBucket(
+			paymentsIndexBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		paymentBucket, err := paymentsBucket.CreateBucketIfNotExists(
+			hash[:],
+		)
+		if err != nil {
+			return err
+		}
+
+		var paymentID lntypes.Hash
+		copy(paymentID[:], hash[:])
+
+		creationInfo := &PaymentCreationInfo{
+			PaymentIdentifier: paymentID,
+			Value:             lnwire.MilliSatoshi(1000000),
+			CreationTime:      time.Now().Add(-24 * time.Hour),
+			PaymentRequest:    []byte("lnbc1test"),
+		}
+
+		var b bytes.Buffer
+		if err = serializePaymentCreationInfo(
+			&b, creationInfo,
+		); err != nil {
+			return err
+		}
+		if err = paymentBucket.Put(
+			paymentCreationInfoKey, b.Bytes(),
+		); err != nil {
+			return err
+		}
+
+		seqBytes := make([]byte, 8)
+		byteOrder.PutUint64(seqBytes, 0)
+		if err = paymentBucket.Put(
+			paymentSequenceKey, seqBytes,
+		); err != nil {
+			return err
+		}
+
+		htlcBucket, err := paymentBucket.CreateBucketIfNotExists(
+			paymentHtlcsBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		hop1Key, err := btcec.NewPrivateKey()
+		if err != nil {
+			return err
+		}
+
+		hop2Key, err := btcec.NewPrivateKey()
+		if err != nil {
+			return err
+		}
+
+		sessionKey, err := btcec.NewPrivateKey()
+		if err != nil {
+			return err
+		}
+
+		var sourcePubKey Vertex
+		copy(sourcePubKey[:], sessionKey.PubKey().SerializeCompressed())
+
+		var sessionKeyBytes [32]byte
+		copy(sessionKeyBytes[:], sessionKey.Serialize())
+
+		const attemptID = uint64(1)
+		attemptInfo := &HTLCAttemptInfo{
+			AttemptID:  attemptID,
+			sessionKey: sessionKeyBytes,
+			Route: Route{
+				TotalTimeLock: 500000,
+				TotalAmount:   lnwire.MilliSatoshi(1000000),
+				SourcePubKey:  sourcePubKey,
+				Hops: []*Hop{
+					{
+						PubKeyBytes: NewVertex(
+							hop1Key.PubKey(),
+						),
+						ChannelID:        123456,
+						OutgoingTimeLock: 499500,
+						AmtToForward:     900000,
+						LegacyPayload:    true,
+					},
+					{
+						PubKeyBytes: NewVertex(
+							hop2Key.PubKey(),
+						),
+						ChannelID:        789012,
+						OutgoingTimeLock: 499000,
+						AmtToForward:     800000,
+						LegacyPayload:    true,
+					},
+				},
+			},
+			AttemptTime: time.Now().Add(-2 * time.Hour),
+			Hash:        &paymentID,
+		}
+
+		if err = writeHTLCAttempt(
+			htlcBucket, attemptID, attemptInfo,
+		); err != nil {
+			return err
+		}
+
+		settleInfo := &HTLCSettleInfo{
+			Preimage:   lntypes.Preimage(paymentID),
+			SettleTime: time.Now().Add(-1 * time.Hour),
+		}
+		if err = writeHTLCSettle(
+			htlcBucket, attemptID, settleInfo,
+		); err != nil {
+			return err
+		}
+
+		return createIndexEntry(indexBucket, seqBytes, hash)
+	}, func() {})
+	require.NoError(t, err)
+
+	// Fetch the payment from KV and verify LegacyPayload is true so we
+	// know the test data is correct before migration.
+	var kvPayment *MPPayment
+	err = kvdb.View(kvDB, func(tx kvdb.RTx) error {
+		bucket := tx.ReadBucket(paymentsRootBucket).
+			NestedReadBucket(hash[:])
+		var err error
+		kvPayment, err = fetchPayment(bucket)
+		return err
+	}, func() {})
+	require.NoError(t, err)
+	require.True(t, kvPayment.HTLCs[0].Route.Hops[0].LegacyPayload)
+	require.True(t, kvPayment.HTLCs[0].Route.Hops[1].LegacyPayload)
+
+	sqlStore := setupTestSQLDB(t)
+	require.NoError(t, runPaymentsMigration(ctx, kvDB, sqlStore))
+
+	// comparePaymentData normalizes both sides (clearing LegacyPayload)
+	// before the equality check, so this must pass.
+	comparePaymentData(t, ctx, sqlStore, kvPayment)
+}
+
 // TestMigrationWithDuplicates tests migration of duplicate payments into
 // the payment_duplicates table.
 func TestMigrationWithDuplicates(t *testing.T) {

@@ -320,6 +320,15 @@ func normalizePaymentForCompare(payment *MPPayment) {
 				htlc.Route.Hops[j].CustomRecords =
 					record.CustomSet{}
 			}
+
+			// LegacyPayload was a hint used by the KV store to
+			// determine how to serialize and deserialize the hop
+			// payload (i.e. whether to use the legacy format or
+			// TLV). The SQL store does not serialize hop data at
+			// all — each field is stored natively in its own
+			// column — so this flag has no meaning there and is
+			// never persisted.
+			htlc.Route.Hops[j].LegacyPayload = false
 		}
 	}
 }

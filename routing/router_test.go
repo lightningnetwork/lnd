@@ -3274,3 +3274,39 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 		"alice,bob,dave",
 	})
 }
+
+// TestResumePaymentsSkipsCleanStoreInExternalMode verifies that when
+// ExternalPaymentLifecycle is true, CleanStore is not called during
+// resumePayments. The external controller is responsible for cleaning the
+// attempt store.
+func TestResumePaymentsSkipsCleanStoreInExternalMode(t *testing.T) {
+	t.Parallel()
+
+	mockControl := &mockControlTower{}
+	mockPayer := &mockPaymentAttemptDispatcher{}
+
+	// Return no in-flight payments so resumePayments proceeds past
+	// FetchInFlightPayments without launching any goroutines.
+	mockControl.On("FetchInFlightPayments").Return(
+		[]*paymentsdb.MPPayment{}, nil,
+	)
+
+	rt := &ChannelRouter{
+		cfg: &Config{
+			Control: mockControl,
+			Payer:   mockPayer,
+
+			// This is the key: external mode is active.
+			ExternalPaymentLifecycle: true,
+		},
+		quit: make(chan struct{}),
+	}
+
+	err := rt.resumePayments()
+	require.NoError(t, err)
+
+	// CleanStore should NOT have been called.
+	mockPayer.AssertNotCalled(t, "CleanStore", mock.Anything)
+
+	mockControl.AssertExpectations(t)
+}

@@ -27,7 +27,9 @@ type RemoteSignerConnection interface {
 	Timeout() time.Duration
 
 	// Ready returns a channel that nil gets sent over once the remote
-	// signer is ready to accept requests.
+	// signer is ready to accept requests. Note that an error will be sent
+	// over the returned channel if the passed context expires before the
+	// remote signer is ready to accept requests.
 	Ready(ctx context.Context) chan error
 
 	// Stop gracefully disconnects from the remote signer.

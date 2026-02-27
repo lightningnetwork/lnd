@@ -33,6 +33,7 @@ require (
 	github.com/lightninglabs/neutrino v0.16.1
 	github.com/lightninglabs/neutrino/cache v1.1.2
 	github.com/lightningnetwork/lightning-onion v1.3.0
+	github.com/lightningnetwork/lnd/actor v0.0.3
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.9

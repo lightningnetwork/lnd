@@ -5,10 +5,12 @@ import (
 	"encoding/hex"
 	"log/slog"
 
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/msgmux"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/subscribe"
 )
 
@@ -27,6 +29,19 @@ type OnionMessageUpdate struct {
 	// manner as onions used to route HTLCs, with the exception that it uses
 	// blinded routes by default.
 	OnionBlob []byte
+
+	// CustomRecords contains any custom TLV records included in the
+	// payload.
+	CustomRecords record.CustomSet
+
+	// ReplyPath contains the reply path information for the onion message.
+	ReplyPath *sphinx.BlindedPath
+
+	// EncryptedRecipientData contains the encrypted recipient data for the
+	// onion message, created by the creator of the blinded route. This is
+	// the receiver for the last leg of the route, and the sender for the
+	// first leg up to the introduction point.
+	EncryptedRecipientData []byte
 }
 
 // OnionEndpoint handles incoming onion messages.

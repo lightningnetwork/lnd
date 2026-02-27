@@ -416,7 +416,7 @@ func (r *rbfCloserTestHarness) expectFeeEstimate(absoluteFee btcutil.Amount,
 
 	r.feeEstimator.On(
 		"EstimateFee", mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything,
+		mock.Anything, mock.Anything,
 	).Return(absoluteFee, nil).Times(numTimes)
 }
 

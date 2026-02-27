@@ -887,13 +887,9 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 		return nil, cleanUp, err
 	}
 
-	remoteSignerConnBuilder := rpcwallet.NewRemoteSignerConnectionBuilder(
-		d.DefaultWalletImpl.cfg.RemoteSigner,
-	)
-
 	// Create the remote signer connection instance.
-	remoteSignerConn, err := remoteSignerConnBuilder.Build(
-		context.Background(),
+	remoteSignerConn, err := rpcwallet.BuildRemoteSignerConnection(
+		context.TODO(), d.DefaultWalletImpl.cfg.RemoteSigner,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to set up remote signer: %w", err)

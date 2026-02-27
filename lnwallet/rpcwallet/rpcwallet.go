@@ -914,12 +914,6 @@ func (r *RPCKeyRing) MuSig2CombineSig(sessionID input.MuSig2SessionID,
 	return finalSig, resp.HaveAllSignatures, nil
 }
 
-// RemoteSignerConnection returns the remote signer connection instance that is
-// used by the RPC key ring to sign transactions.
-func (r *RPCKeyRing) RemoteSignerConnection() RemoteSignerConnection {
-	return r.remoteSignerConn
-}
-
 // MuSig2Cleanup removes a session from memory to free up resources.
 func (r *RPCKeyRing) MuSig2Cleanup(sessionID input.MuSig2SessionID) error {
 	req := &signrpc.MuSig2CleanupRequest{

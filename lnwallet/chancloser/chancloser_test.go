@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	wallettypes "github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
@@ -311,12 +312,56 @@ func (m *mockMusigSession) ClosingNonce() (*musig2.Nonces, error) {
 	}, nil
 }
 
+type mockAuxChanCloser struct {
+	extraScript []byte
+}
+
+func (m *mockAuxChanCloser) ShutdownBlob(
+	req wallettypes.AuxShutdownReq,
+) (fn.Option[lnwire.CustomRecords], error) {
+
+	return fn.None[lnwire.CustomRecords](), nil
+}
+
+func (m *mockAuxChanCloser) AuxCloseShape(
+	desc wallettypes.AuxCloseShapeDesc) (fn.Option[AuxCloseShape], error) {
+
+	return fn.Some(AuxCloseShape{
+		Outputs: []AuxCloseOutputShape{{
+			IsLocal:      true,
+			PkScriptSize: len(m.extraScript),
+		}},
+	}), nil
+}
+
+func (m *mockAuxChanCloser) AuxCloseOutputs(
+	desc wallettypes.AuxCloseDesc) (fn.Option[AuxCloseOutputs], error) {
+
+	closeOutputs := []lnwallet.CloseOutput{{
+		TxOut: wire.TxOut{
+			PkScript: m.extraScript,
+			Value:    0,
+		},
+		IsLocal: true,
+	}}
+
+	return fn.Some(AuxCloseOutputs{
+		ExtraCloseOutputs: closeOutputs,
+	}), nil
+}
+
+func (m *mockAuxChanCloser) FinalizeClose(desc wallettypes.AuxCloseDesc,
+	closeTx *wire.MsgTx) error {
+
+	return nil
+}
+
 type mockCoopFeeEstimator struct {
 	targetFee btcutil.Amount
 }
 
 func (m *mockCoopFeeEstimator) EstimateFee(chanType channeldb.ChannelType,
-	localTxOut, remoteTxOut *wire.TxOut,
+	localTxOut, remoteTxOut *wire.TxOut, extraTxOuts []*wire.TxOut,
 	idealFeeRate chainfee.SatPerKWeight) btcutil.Amount {
 
 	return m.targetFee
@@ -377,9 +422,155 @@ func TestMaxFeeClamp(t *testing.T) {
 
 			// We'll call initFeeBaseline early here since we need
 			// the populate these internal variables.
-			chanCloser.initFeeBaseline()
+			require.NoError(t, chanCloser.initFeeBaseline())
 
 			require.Equal(t, test.maxFee, chanCloser.maxFee)
+		})
+	}
+}
+
+// TestInitFeeBaselineWithAuxCloseOutputs tests that aux close outputs are
+// accounted for in the initial fee baseline calculation.
+func TestInitFeeBaselineWithAuxCloseOutputs(t *testing.T) {
+	t.Parallel()
+
+	localScript := bytes.Repeat([]byte{0x11}, 34)
+	remoteScript := bytes.Repeat([]byte{0x22}, 34)
+	extraScript := bytes.Repeat([]byte{0x33}, 34)
+
+	channel := &mockChannel{
+		initiator: true,
+	}
+
+	newCloser := func(auxCloser fn.Option[AuxChanCloser]) *ChanCloser {
+		closer := NewChanCloser(
+			ChanCloseCfg{
+				Channel:      channel,
+				FeeEstimator: &SimpleCoopFeeEstimator{},
+				AuxCloser:    auxCloser,
+			},
+			DeliveryAddrWithKey{
+				DeliveryAddress: localScript,
+			},
+			chainfee.FeePerKwFloor, 0, nil, lntypes.Local,
+		)
+		closer.remoteDeliveryScript = remoteScript
+
+		return closer
+	}
+
+	closerNoAux := newCloser(fn.None[AuxChanCloser]())
+	require.NoError(t, closerNoAux.initFeeBaseline())
+
+	closerWithAux := newCloser(fn.Some[AuxChanCloser](&mockAuxChanCloser{
+		extraScript: extraScript,
+	}))
+	require.NoError(t, closerWithAux.initFeeBaseline())
+
+	localOutput := &wire.TxOut{
+		PkScript: localScript,
+		Value:    0,
+	}
+	remoteOutput := &wire.TxOut{
+		PkScript: remoteScript,
+		Value:    0,
+	}
+	extraOutput := &wire.TxOut{
+		PkScript: extraScript,
+		Value:    0,
+	}
+
+	expectedFeeNoAux := calcCoopCloseFee(
+		0, localOutput, remoteOutput, nil, chainfee.FeePerKwFloor,
+	)
+	expectedFeeWithAux := calcCoopCloseFee(
+		0, localOutput, remoteOutput, []*wire.TxOut{extraOutput},
+		chainfee.FeePerKwFloor,
+	)
+
+	require.Equal(t, expectedFeeNoAux, closerNoAux.idealFeeSat)
+	require.Equal(t, expectedFeeWithAux, closerWithAux.idealFeeSat)
+	require.Greater(t, closerWithAux.idealFeeSat, closerNoAux.idealFeeSat)
+}
+
+// TestValidateAuxShape tests that concrete aux close outputs are matched
+// against the shape declared for fee estimation, independent of ordering.
+func TestValidateAuxShape(t *testing.T) {
+	t.Parallel()
+
+	shape := func(outs ...AuxCloseOutputShape) fn.Option[AuxCloseShape] {
+		return fn.Some(AuxCloseShape{Outputs: outs})
+	}
+	outputs := func(outs ...lnwallet.CloseOutput) fn.Option[AuxCloseOutputs] { //nolint:ll
+		return fn.Some(AuxCloseOutputs{ExtraCloseOutputs: outs})
+	}
+	closeOut := func(isLocal bool, scriptSize int) lnwallet.CloseOutput {
+		return lnwallet.CloseOutput{
+			TxOut: wire.TxOut{
+				PkScript: make([]byte, scriptSize),
+			},
+			IsLocal: isLocal,
+		}
+	}
+
+	testCases := []struct {
+		name       string
+		shape      fn.Option[AuxCloseShape]
+		auxOutputs fn.Option[AuxCloseOutputs]
+		valid      bool
+	}{{
+		name:       "both absent",
+		shape:      fn.None[AuxCloseShape](),
+		auxOutputs: fn.None[AuxCloseOutputs](),
+		valid:      true,
+	}, {
+		name: "matching outputs in different order",
+		shape: shape(
+			AuxCloseOutputShape{IsLocal: true, PkScriptSize: 34},
+			AuxCloseOutputShape{IsLocal: false, PkScriptSize: 34},
+		),
+		auxOutputs: outputs(
+			closeOut(false, 34), closeOut(true, 34),
+		),
+		valid: true,
+	}, {
+		name:       "undeclared output",
+		shape:      fn.None[AuxCloseShape](),
+		auxOutputs: outputs(closeOut(true, 34)),
+		valid:      false,
+	}, {
+		name: "missing output",
+		shape: shape(
+			AuxCloseOutputShape{IsLocal: true, PkScriptSize: 34},
+		),
+		auxOutputs: fn.None[AuxCloseOutputs](),
+		valid:      false,
+	}, {
+		name: "script size mismatch",
+		shape: shape(
+			AuxCloseOutputShape{IsLocal: true, PkScriptSize: 34},
+		),
+		auxOutputs: outputs(closeOut(true, 35)),
+		valid:      false,
+	}, {
+		name: "ownership mismatch",
+		shape: shape(
+			AuxCloseOutputShape{IsLocal: true, PkScriptSize: 34},
+		),
+		auxOutputs: outputs(closeOut(false, 34)),
+		valid:      false,
+	}}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := validateAuxShape(
+				testCase.shape, testCase.auxOutputs,
+			)
+			if testCase.valid {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, ErrAuxShapeMismatch)
+			}
 		})
 	}
 }
@@ -541,7 +732,7 @@ func TestTaprootFastClose(t *testing.T) {
 			},
 		}, DeliveryAddrWithKey{}, idealFee, 0, nil, lntypes.Local,
 	)
-	aliceCloser.initFeeBaseline()
+	require.NoError(t, aliceCloser.initFeeBaseline())
 
 	bobCloser := NewChanCloser(
 		ChanCloseCfg{
@@ -558,7 +749,7 @@ func TestTaprootFastClose(t *testing.T) {
 			},
 		}, DeliveryAddrWithKey{}, idealFee, 0, nil, lntypes.Remote,
 	)
-	bobCloser.initFeeBaseline()
+	require.NoError(t, bobCloser.initFeeBaseline())
 
 	// With our set up complete, we'll now initialize the shutdown
 	// procedure kicked off by Alice.

@@ -53,6 +53,10 @@
   transaction confirmed stayed in the `channelReadySent` opening state forever,
   never added to the graph and never announced. Only a restart recovered.
 
+* [Fixed coop close fee baseline for channels with auxiliary close outputs](https://github.com/lightningnetwork/lnd/pull/10969)
+  by including extra outputs in initial fee estimation, preventing underpriced
+  taproot/custom channel cooperative closes from failing mempool acceptance.
+
 # New Features
 
 ## Functional Enhancements

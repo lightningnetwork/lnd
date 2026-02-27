@@ -12,9 +12,9 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/payments/db/migration1/lnwire"
+	"github.com/lightningnetwork/lnd/payments/db/migration1/record"
 	"github.com/lightningnetwork/lnd/payments/db/migration1/sqlc"
-	"github.com/lightningnetwork/lnd/record"
 	"github.com/pmezard/go-difflib/difflib"
 )
 

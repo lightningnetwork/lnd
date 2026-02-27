@@ -10,7 +10,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/payments/db/migration1/lnwire"
 	"github.com/lightningnetwork/lnd/payments/db/migration1/sqlc"
 	"golang.org/x/time/rate"
 )

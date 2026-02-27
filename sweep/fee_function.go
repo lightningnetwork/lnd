@@ -162,17 +162,19 @@ func NewLinearFeeFunction(maxFeeRate chainfee.SatPerKWeight,
 	delta := btcutil.Amount(end - start).MulF64(1000 / float64(l.width))
 	l.deltaFeeRate = mSatPerKWeight(delta)
 
-	// We only allow the delta to be zero if the width is one - when the
-	// delta is zero, it means the starting and ending fee rates are the
-	// same, which means there's nothing to increase, so any width greater
-	// than 1 doesn't provide any utility. This could happen when the
-	// budget is too small.
+	// When the delta is zero, the starting and ending fee rates are the
+	// same, which means fee bumping isn't possible. This typically happens
+	// when the estimated fee rate exceeds the budget-derived max and both
+	// get clamped to the same value. We still want to attempt the sweep
+	// at this rate, so we set the width to zero to signal that the fee
+	// function is already at its maximum and Increment() should
+	// immediately return ErrMaxPosition.
 	if l.deltaFeeRate == 0 && l.width != 1 {
-		log.Errorf("Failed to init fee function: startingFeeRate=%v, "+
-			"endingFeeRate=%v, width=%v, delta=%v", start, end,
-			l.width, l.deltaFeeRate)
+		log.Warnf("Fee function delta is zero (start=%v, end=%v, "+
+			"width=%v), fee bumping disabled", start, end,
+			l.width)
 
-		return nil, ErrZeroFeeRateDelta
+		l.width = 0
 	}
 
 	// Attach the calculated values to the fee function.

@@ -21,6 +21,13 @@
 
 # Bug Fixes
 
+* [Fixed the sweeper's fee function](https://github.com/lightningnetwork/lnd/pull/10614)
+  to handle the case where the estimated fee rate exceeds the budget-derived
+  max, causing both starting and ending fee rates to be equal (delta=0). Instead
+  of rejecting the sweep entirely, the sweeper now creates a flat-rate fee
+  function and attempts the sweep at the max budget rate. This prevents UTXOs
+  with tight budgets from being stuck in a perpetual retry loop.
+
 * [Fixed `OpenChannel` with
   `fund_max`](https://github.com/lightningnetwork/lnd/pull/10488) to use the
   protocol-level maximum channel size instead of the user-configured

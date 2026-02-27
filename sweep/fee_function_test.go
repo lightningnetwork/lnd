@@ -47,7 +47,8 @@ func TestLinearFeeFunctionNewMaxFeeRateUsed(t *testing.T) {
 }
 
 // TestLinearFeeFunctionNewZeroFeeRateDelta tests when the fee rate delta is
-// zero, it will return an error except when the width is one.
+// zero, a flat-rate fee function should be returned with width set to zero
+// when width > 1, or kept as-is when width is one.
 func TestLinearFeeFunctionNewZeroFeeRateDelta(t *testing.T) {
 	t.Parallel()
 
@@ -63,8 +64,9 @@ func TestLinearFeeFunctionNewZeroFeeRateDelta(t *testing.T) {
 	confTarget := uint32(6)
 	noStartFeeRate := fn.None[chainfee.SatPerKWeight]()
 
-	// When the calculated fee rate delta is 0, an error should be returned
-	// when the width is not one.
+	// When the calculated fee rate delta is 0 and the width is greater
+	// than one, a flat-rate fee function should be returned with width
+	// set to zero (fee bumping disabled).
 	//
 	// Mock the fee estimator to return the fee rate.
 	estimator.On("EstimateFeePerKW", confTarget).Return(
@@ -75,8 +77,22 @@ func TestLinearFeeFunctionNewZeroFeeRateDelta(t *testing.T) {
 	f, err := NewLinearFeeFunction(
 		maxFeeRate, confTarget, estimator, noStartFeeRate,
 	)
-	rt.ErrorContains(err, "fee rate delta is zero")
-	rt.Nil(f)
+	rt.NoError(err)
+	rt.NotNil(f)
+
+	// Assert the internal state - width should be set to 0 since fee
+	// bumping is not possible.
+	rt.Equal(maxFeeRate, f.startingFeeRate)
+	rt.Equal(maxFeeRate, f.endingFeeRate)
+	rt.Equal(maxFeeRate, f.currentFeeRate)
+	rt.Zero(f.deltaFeeRate)
+	rt.Zero(f.width)
+
+	// Increment should immediately return ErrMaxPosition since width
+	// is 0.
+	increased, err := f.Increment()
+	rt.ErrorIs(err, ErrMaxPosition)
+	rt.False(increased)
 
 	// When the calculated fee rate delta is 0, an error should NOT be
 	// returned when the width is one, and the starting feerate is capped

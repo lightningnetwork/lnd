@@ -2452,11 +2452,10 @@ func (c *ChannelArbitrator) prepContractResolutions(
 
 				resolution, ok := inResolutionMap[htlcOp]
 				if !ok {
-					// TODO(roasbeef): panic?
-					log.Errorf("ChannelArbitrator(%v) unable to find "+
-						"incoming resolution: %v",
-						c.cfg.ChanPoint, htlcOp)
-					continue
+					return nil, fmt.Errorf(
+						"ChannelArbitrator(%v): no incoming resolution for claimable HTLC: %v", //nolint:ll
+						c.cfg.ChanPoint, htlcOp,
+					)
 				}
 
 				resolver := newSuccessResolver(
@@ -2482,9 +2481,10 @@ func (c *ChannelArbitrator) prepContractResolutions(
 
 				resolution, ok := outResolutionMap[htlcOp]
 				if !ok {
-					log.Errorf("ChannelArbitrator(%v) unable to find "+
-						"outgoing resolution: %v", c.cfg.ChanPoint, htlcOp)
-					continue
+					return nil, fmt.Errorf(
+						"ChannelArbitrator(%v): no outgoing resolution for timed-out HTLC: %v", //nolint:ll
+						c.cfg.ChanPoint, htlcOp,
+					)
 				}
 
 				resolver := newTimeoutResolver(
@@ -2521,10 +2521,12 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				// TODO(roasbeef): can't be negative!!!
 				resolution, ok := inResolutionMap[htlcOp]
 				if !ok {
-					log.Errorf("ChannelArbitrator(%v) unable to find "+
-						"incoming resolution: %v",
-						c.cfg.ChanPoint, htlcOp)
-					continue
+					return nil, fmt.Errorf(
+						"ChannelArbitrator(%v): "+
+							"no incoming resolution "+ //nolint:ll
+							"for watched HTLC: %v",
+						c.cfg.ChanPoint, htlcOp,
+					)
 				}
 
 				resolver := newIncomingContestResolver(
@@ -2551,12 +2553,12 @@ func (c *ChannelArbitrator) prepContractResolutions(
 
 				resolution, ok := outResolutionMap[htlcOp]
 				if !ok {
-					log.Errorf("ChannelArbitrator(%v) "+
-						"unable to find outgoing "+
-						"resolution: %v",
-						c.cfg.ChanPoint, htlcOp)
-
-					continue
+					return nil, fmt.Errorf(
+						"ChannelArbitrator(%v): "+
+							"no outgoing resolution "+ //nolint:ll
+							"for watched HTLC: %v",
+						c.cfg.ChanPoint, htlcOp,
+					)
 				}
 
 				resolver := newOutgoingContestResolver(

@@ -3192,6 +3192,83 @@ func (m *mockChannel) ForceCloseChan() (*wire.MsgTx, error) {
 	return &wire.MsgTx{}, nil
 }
 
+// TestPrepContractResolutionsMissingResolution tests that
+// prepContractResolutions returns an error when the resolution map is missing
+// an entry for an HTLC that requires on-chain action, rather than silently
+// skipping it.
+func TestPrepContractResolutionsMissingResolution(t *testing.T) {
+	t.Parallel()
+
+	commitHash := chainhash.Hash{0xaa}
+
+	// htlc is a non-dust HTLC that will be placed into the action map.
+	htlc := channeldb.HTLC{
+		HtlcIndex:   0,
+		OutputIndex: 0,
+		Amt:         10_000,
+	}
+
+	tests := []struct {
+		name   string
+		action ChainAction
+	}{
+		{
+			name:   "HtlcClaimAction missing incoming resolution",
+			action: HtlcClaimAction,
+		},
+		{
+			name:   "HtlcTimeoutAction missing outgoing resolution",
+			action: HtlcTimeoutAction,
+		},
+		{
+			name: "HtlcIncomingWatchAction " +
+				"missing incoming resolution",
+			action: HtlcIncomingWatchAction,
+		},
+		{
+			name: "HtlcOutgoingWatchAction " +
+				"missing outgoing resolution",
+			action: HtlcOutgoingWatchAction,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			log := &mockArbitratorLog{
+				state:     StateDefault,
+				newStates: make(chan ArbitratorState, 5),
+			}
+
+			chanArbCtx, err := createTestChannelArbitrator(
+				t, log,
+			)
+			require.NoError(t, err)
+
+			chanArb := chanArbCtx.chanArb
+
+			// Build an action map with a single HTLC but
+			// provide empty resolutions so the lookup fails.
+			htlcActions := ChainActionMap{
+				tc.action: []channeldb.HTLC{htlc},
+			}
+
+			contractRes := &ContractResolutions{
+				CommitHash:      commitHash,
+				HtlcResolutions: lnwallet.HtlcResolutions{},
+			}
+
+			_, err = chanArb.prepContractResolutions(
+				contractRes, 100, htlcActions,
+			)
+			require.Error(t, err)
+			require.Contains(t, err.Error(),
+				"no ")
+		})
+	}
+}
+
 func newBeatFromHeight(height int32) *chainio.Beat {
 	epoch := chainntnfs.BlockEpoch{
 		Height: height,

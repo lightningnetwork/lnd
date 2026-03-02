@@ -1134,6 +1134,16 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 				// Set the invoice bucket tombstone to indicate
 				// that the migration has been completed.
+				//
+				// TODO(ziggie): The tombstone is currently
+				// set inside the SQL transaction callback,
+				// which is fragile: if the SQL transaction
+				// is retried (e.g. on a serialization
+				// error), the KV tombstone is written before
+				// the SQL commit is confirmed. Move this to
+				// run after ApplyAllMigrations returns so
+				// the tombstone is only set once the
+				// migration is durably committed.
 				d.logger.Debugf("Setting invoice bucket " +
 					"tombstone")
 
@@ -1173,15 +1183,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 						"payments to SQL: %w", err)
 				}
 
-				// Set the payments bucket tombstone to
-				// indicate that the migration has been
-				// completed.
-				d.logger.Debugf("Setting payments bucket " +
-					"tombstone")
-
-				return paymentsdb.SetPaymentsBucketTombstone(
-					dbs.ChanStateDB.Backend,
-				)
+				return nil
 			}
 
 			// Make sure we attach the custom migration function to
@@ -1260,6 +1262,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			graphExecutor, graphDBOptions...,
 		)
 		if err != nil {
+			cleanUp()
 			err = fmt.Errorf("unable to get graph store: %w", err)
 			d.logger.Error(err)
 
@@ -1275,6 +1278,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			baseDB, dbs.ChanStateDB.Backend,
 		)
 		if err != nil {
+			cleanUp()
 			err = fmt.Errorf("unable to get payments store: %w",
 				err)
 
@@ -1286,8 +1290,12 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		// Check if the invoice bucket tombstone is set. If it is, we
 		// need to return and ask the user switch back to using the
 		// native SQL store.
+		//
+		// NOTE: The invoice bucket tombstone acts as the system-wide
+		// guard against switching back to KV mode.
 		ripInvoices, err := dbs.ChanStateDB.GetInvoiceBucketTombstone()
 		if err != nil {
+			cleanUp()
 			err = fmt.Errorf("unable to check invoice bucket "+
 				"tombstone: %w", err)
 			d.logger.Error(err)
@@ -1302,33 +1310,14 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			return nil, nil, err
 		}
 
-		// Check if the payments bucket tombstone is set. If it is, we
-		// need to return and ask the user switch back to using the
-		// native SQL store.
-		ripPayments, err := paymentsdb.GetPaymentsBucketTombstone(
-			dbs.ChanStateDB.Backend,
-		)
-		if err != nil {
-			err = fmt.Errorf("unable to check payments bucket "+
-				"tombstone: %w", err)
-			d.logger.Error(err)
-
-			return nil, nil, err
-		}
-		if ripPayments {
-			err = fmt.Errorf("payments bucket tombstoned, please " +
-				"switch back to native SQL")
-			d.logger.Error(err)
-
-			return nil, nil, err
-		}
-
 		dbs.InvoiceDB = dbs.ChanStateDB
 
 		graphStore, err = graphdb.NewKVStore(
 			databaseBackends.GraphDB, graphDBOptions...,
 		)
 		if err != nil {
+			cleanUp()
+
 			return nil, nil, err
 		}
 

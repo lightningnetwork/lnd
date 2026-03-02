@@ -1162,6 +1162,18 @@ func (p *paymentLifecycle) reloadInflightAttempts(
 		// it's a legacy payment.
 		a = p.patchLegacyPaymentHash(a)
 
+		// Execute the configured reconciliation strategy.
+		if err := p.router.cfg.ReconcileAttempt(a); err != nil {
+			log.Warnf("Reconciliation failed for attempt "+
+				"%v in payment %v: %v. Skipping result "+
+				"collection; will retry on next restart.",
+				a.AttemptID, p.identifier, err)
+
+			continue
+		}
+
+		// Reconciliation succeeded (or was a no-op), so proceed
+		// to awaiting the attempt result.
 		p.resultCollector(&a)
 	}
 

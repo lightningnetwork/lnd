@@ -2,6 +2,7 @@ package chainview
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"fmt"
 	"sync"
@@ -93,7 +94,7 @@ func (b *BitcoindFilteredChainView) Start() error {
 
 	log.Infof("FilteredChainView starting")
 
-	err := b.chainClient.Start()
+	err := b.chainClient.Start(context.TODO())
 	if err != nil {
 		return err
 	}

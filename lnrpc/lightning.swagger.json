@@ -7976,6 +7976,11 @@
             "$ref": "#/definitions/lnrpcPreviousOutPoint"
           },
           "description": "PreviousOutpoints/Inputs of this transaction."
+        },
+        "weight": {
+          "type": "string",
+          "format": "int64",
+          "description": "The weight of the transaction in weight units."
         }
       }
     },

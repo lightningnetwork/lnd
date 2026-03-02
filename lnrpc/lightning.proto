@@ -810,6 +810,9 @@ message Transaction {
 
     // PreviousOutpoints/Inputs of this transaction.
     repeated PreviousOutPoint previous_outpoints = 12;
+
+    // The weight of the transaction in weight units.
+    int64 weight = 13;
 }
 
 message GetTransactionsRequest {

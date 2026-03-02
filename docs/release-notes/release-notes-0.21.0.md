@@ -137,6 +137,15 @@
   (client MUST retry). This is a **breaking change** for any clients of the
   `SendOnion` RPC.
 
+* Added a new [`switchrpc.DeleteAttempts`](https://github.com/lightningnetwork/lnd/pull/10602)
+  RPC that allows an external router to clean up terminal (settled or failed)
+  attempt records from the `AttemptStore`. The RPC accepts a batch of attempt
+  IDs and returns per-ID results indicating whether each was deleted, already
+  deleted, still pending (in-flight), or not found. Deleting a terminal attempt
+  record removes the duplicate protection established by InitAttempt, allowing a
+  subsequent SendOnion call with the same attempt ID to succeed. Clients should
+  only delete attempt IDs they have fully finalized and will never reuse.
+
 ## RPC Additions
 
 * [Added support for coordinator-based MuSig2 signing

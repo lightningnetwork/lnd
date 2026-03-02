@@ -603,4 +603,9 @@ type AttemptStore interface {
 	// those listed in the keepPids map. This allows for a "delete all
 	// except" approach to cleanup.
 	CleanStore(keepPids map[uint64]struct{}) error
+
+	// DeleteAttempts removes terminal (settled or failed) attempt results
+	// from the store. The returned map reports the outcome for each
+	// requested attempt ID.
+	DeleteAttempts(attemptIDs []uint64) (map[uint64]DeletionStatus, error)
 }

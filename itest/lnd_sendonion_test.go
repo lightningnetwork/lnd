@@ -211,6 +211,27 @@ func testSendOnionTwice(ht *lntest.HarnessTest) {
 	require.True(ht, ok, "expected gRPC status error")
 	require.Equal(ht, codes.AlreadyExists, s.Code(),
 		"unexpected error code")
+
+	// Now that we've confirmed that duplicate sends are rejected for
+	// settled attempts, delete the attempt record from the store.
+	deleteReq := &switchrpc.DeleteAttemptsRequest{
+		AttemptIds: []uint64{1},
+	}
+	deleteResp := alice.RPC.DeleteAttempts(deleteReq)
+	require.Len(ht, deleteResp.Results, 1)
+	require.Equal(ht,
+		switchrpc.AttemptDeletionStatus_DELETION_OK,
+		deleteResp.Results[0].Status,
+	)
+
+	// Deleting the same attempt again should return NOT_FOUND,
+	// confirming the record was fully removed.
+	deleteResp = alice.RPC.DeleteAttempts(deleteReq)
+	require.Len(ht, deleteResp.Results, 1)
+	require.Equal(ht,
+		switchrpc.AttemptDeletionStatus_DELETION_NOT_FOUND,
+		deleteResp.Results[0].Status,
+	)
 }
 
 // testSendOnionConcurrency simulates a client that crashes and attempts to

@@ -405,3 +405,164 @@ func TestNetworkResultStoreFailAndFetch(t *testing.T) {
 			"expected error when failing already failed attempt")
 	})
 }
+
+// TestDeleteAttempts tests the DeleteAttempts method of the
+// networkResultStore, verifying that it correctly deletes terminal attempts,
+// refuses to delete pending attempts, and reports per-ID results.
+func TestDeleteAttempts(t *testing.T) {
+	t.Parallel()
+
+	db := channeldb.OpenForTesting(t, t.TempDir())
+	store := newNetworkResultStore(db)
+
+	// Helper to create and store a settled result.
+	storeSettled := func(t *testing.T, id uint64) {
+		t.Helper()
+		require.NoError(t, store.InitAttempt(id))
+		settleResult := &networkResult{
+			msg:         &lnwire.UpdateFulfillHTLC{},
+			unencrypted: true,
+		}
+		require.NoError(t, store.StoreResult(id, settleResult))
+	}
+
+	// Helper to create and store a failed result.
+	storeFailed := func(t *testing.T, id uint64) {
+		t.Helper()
+		require.NoError(t, store.InitAttempt(id))
+		failResult := &networkResult{
+			msg:         &lnwire.UpdateFailHTLC{},
+			unencrypted: true,
+		}
+		require.NoError(t, store.StoreResult(id, failResult))
+	}
+
+	t.Run("empty ID list", func(t *testing.T) {
+		results, err := store.DeleteAttempts(nil)
+		require.NoError(t, err)
+		require.Empty(t, results)
+
+		results, err = store.DeleteAttempts([]uint64{})
+		require.NoError(t, err)
+		require.Empty(t, results)
+	})
+
+	t.Run("delete settled attempt", func(t *testing.T) {
+		var id uint64 = 10
+		storeSettled(t, id)
+
+		// Verify it exists before deletion.
+		_, err := store.GetResult(id)
+		require.NoError(t, err)
+
+		results, err := store.DeleteAttempts([]uint64{id})
+		require.NoError(t, err)
+		require.Equal(t, DeletionOK, results[id])
+
+		// Verify the record is gone.
+		_, err = store.GetResult(id)
+		require.ErrorIs(t, err, ErrPaymentIDNotFound)
+	})
+
+	t.Run("delete failed attempt", func(t *testing.T) {
+		var id uint64 = 20
+		storeFailed(t, id)
+
+		results, err := store.DeleteAttempts([]uint64{id})
+		require.NoError(t, err)
+		require.Equal(t, DeletionOK, results[id])
+
+		// Verify the record is gone.
+		_, err = store.GetResult(id)
+		require.ErrorIs(t, err, ErrPaymentIDNotFound)
+	})
+
+	t.Run("refuse to delete pending attempt", func(t *testing.T) {
+		var id uint64 = 30
+		require.NoError(t, store.InitAttempt(id))
+
+		results, err := store.DeleteAttempts([]uint64{id})
+		require.NoError(t, err)
+		require.Equal(t, DeletionPending, results[id])
+
+		// Verify the record is still present.
+		_, err = store.GetResult(id)
+		require.ErrorIs(t, err, ErrAttemptResultPending)
+	})
+
+	t.Run("reject duplicate IDs", func(t *testing.T) {
+		_, err := store.DeleteAttempts([]uint64{1, 2, 1})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "duplicate attempt ID 1")
+	})
+
+	t.Run("delete unknown attempt ID", func(t *testing.T) {
+		results, err := store.DeleteAttempts([]uint64{9999})
+		require.NoError(t, err)
+		require.Equal(t, DeletionNotFound, results[uint64(9999)])
+	})
+
+	t.Run("mixed batch", func(t *testing.T) {
+		var (
+			settledID uint64 = 40
+			failedID  uint64 = 41
+			pendingID uint64 = 42
+			unknownID uint64 = 43
+		)
+
+		storeSettled(t, settledID)
+		storeFailed(t, failedID)
+		require.NoError(t, store.InitAttempt(pendingID))
+
+		results, err := store.DeleteAttempts([]uint64{
+			settledID, failedID, pendingID, unknownID,
+		})
+		require.NoError(t, err)
+		require.Len(t, results, 4)
+
+		require.Equal(t, DeletionOK, results[settledID])
+		require.Equal(t, DeletionOK, results[failedID])
+		require.Equal(t, DeletionPending, results[pendingID])
+		require.Equal(t, DeletionNotFound, results[unknownID])
+
+		// Verify settled and failed are gone.
+		_, err = store.GetResult(settledID)
+		require.ErrorIs(t, err, ErrPaymentIDNotFound)
+		_, err = store.GetResult(failedID)
+		require.ErrorIs(t, err, ErrPaymentIDNotFound)
+
+		// Verify pending is still there.
+		_, err = store.GetResult(pendingID)
+		require.ErrorIs(t, err, ErrAttemptResultPending)
+	})
+
+	t.Run("idempotent re-delete", func(t *testing.T) {
+		var id uint64 = 50
+		storeSettled(t, id)
+
+		// First delete succeeds.
+		results, err := store.DeleteAttempts([]uint64{id})
+		require.NoError(t, err)
+		require.Equal(t, DeletionOK, results[id])
+
+		// Second delete reports already deleted.
+		results, err = store.DeleteAttempts([]uint64{id})
+		require.NoError(t, err)
+		require.Equal(t, DeletionNotFound, results[id])
+	})
+
+	t.Run("InitAttempt succeeds after delete", func(t *testing.T) {
+		var id uint64 = 60
+		storeSettled(t, id)
+
+		// Delete the attempt.
+		results, err := store.DeleteAttempts([]uint64{id})
+		require.NoError(t, err)
+		require.Equal(t, DeletionOK, results[id])
+
+		// Re-initializing the same ID should now succeed since the
+		// record was fully removed.
+		err = store.InitAttempt(id)
+		require.NoError(t, err)
+	})
+}

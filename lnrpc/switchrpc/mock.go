@@ -4,6 +4,8 @@
 package switchrpc
 
 import (
+	sync "sync"
+
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -76,8 +78,10 @@ func (m *mockRouteProcessor) UnmarshallRoute(route *lnrpc.Route) (
 // mockAttemptStore is a mock implementation of the AttemptStore interface.
 type mockAttemptStore struct {
 	htlcswitch.AttemptStore
-	initErr error
-	failErr error
+	initErr    error
+	failErr    error
+	deleteErr  error
+	deleteResp map[uint64]htlcswitch.DeletionStatus
 }
 
 // InitAttempt returns the mocked initErr.
@@ -90,6 +94,63 @@ func (m *mockAttemptStore) FailPendingAttempt(attemptID uint64,
 	reason *htlcswitch.LinkError) error {
 
 	return m.failErr
+}
+
+// DeleteAttempts returns the mocked deleteResp and deleteErr.
+func (m *mockAttemptStore) DeleteAttempts(
+	attemptIDs []uint64) (map[uint64]htlcswitch.DeletionStatus, error) {
+
+	if m.deleteErr != nil {
+		return nil, m.deleteErr
+	}
+
+	return m.deleteResp, nil
+}
+
+// statefulAttemptStore is a mock that tracks initialized attempt IDs to
+// simulate real idempotency behavior. Unlike the basic mockAttemptStore, this
+// mock maintains state across calls, making it suitable for testing multi-step
+// interactions between SendOnion and DeleteAttempts.
+type statefulAttemptStore struct {
+	mockAttemptStore
+
+	mu          sync.Mutex
+	initialized map[uint64]bool
+}
+
+// InitAttempt records the attempt ID and returns ErrPaymentIDAlreadyExists if
+// the ID was already initialized.
+func (s *statefulAttemptStore) InitAttempt(attemptID uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.initialized[attemptID] {
+		return htlcswitch.ErrPaymentIDAlreadyExists
+	}
+
+	s.initialized[attemptID] = true
+
+	return nil
+}
+
+// DeleteAttempts removes initialized IDs and reports per-ID results.
+func (s *statefulAttemptStore) DeleteAttempts(
+	attemptIDs []uint64) (map[uint64]htlcswitch.DeletionStatus, error) {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	results := make(map[uint64]htlcswitch.DeletionStatus)
+	for _, id := range attemptIDs {
+		if s.initialized[id] {
+			delete(s.initialized, id)
+			results[id] = htlcswitch.DeletionOK
+		} else {
+			results[id] = htlcswitch.DeletionNotFound
+		}
+	}
+
+	return results, nil
 }
 
 // mockErrorDecrypter is a mock implementation of htlcswitch.ErrorDecrypter.

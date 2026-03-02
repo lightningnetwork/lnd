@@ -602,6 +602,14 @@ jobs:
       - name: 🛡️ Backwards compatibility test
         run: make backwards-compat-test
 
+      - name: 📋 Upload node logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bw-compat-logs
+          path: scripts/bw-compatibility-test/logs/
+          retention-days: 7
+
   #########################################
   # Auto Cache Cleanup on Pull Requests
   #########################################

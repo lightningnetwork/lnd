@@ -71,6 +71,7 @@ services:
       - "--protocol.zero-conf"
       - "--protocol.simple-taproot-chans"
       - "--trickledelay=50"
+      - "--historicalsyncinterval=10s"
 
   bob:
     image: lightninglabs/lnd:${LND_LATEST_VERSION}
@@ -111,6 +112,7 @@ services:
       - "--protocol.zero-conf"
       - "--protocol.simple-taproot-chans"
       - "--trickledelay=50"
+      - "--historicalsyncinterval=10s"
 
   charlie:
     image: lightninglabs/lnd:${LND_LATEST_VERSION}
@@ -148,6 +150,7 @@ services:
       - "--tlsextradomain=charlie"
       - "--accept-keysend"
       - "--trickledelay=50"
+      - "--historicalsyncinterval=10s"
 
   dave:
     image: lightninglabs/lnd:${LND_LATEST_VERSION}
@@ -185,6 +188,7 @@ services:
       - "--tlsextradomain=dave"
       - "--accept-keysend"
       - "--trickledelay=50"
+      - "--historicalsyncinterval=10s"
       - "--db.backend=sqlite"
       - "--db.use-native-sql"
 

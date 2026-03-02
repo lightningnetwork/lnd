@@ -298,6 +298,24 @@ wait_for_active_chans() {
   echo "🟢 $node now has exactly $expected_channels active channels!"
 }
 
+# collect_logs copies the lnd log file from each running container into a
+# local ./logs directory. Call this before compose_down so logs are available
+# for CI artifact upload even after the cluster is torn down.
+function collect_logs() {
+  local log_dir="$DIR/logs"
+  mkdir -p "$log_dir"
+
+  for node in alice bob charlie dave bob-pr dave-pr; do
+    if docker ps -a --format '{{.Names}}' | grep -q "^${node}$"; then
+      mkdir -p "$log_dir/$node"
+      docker cp "$node:/root/.lnd/logs/bitcoin/regtest/lnd.log" \
+        "$log_dir/$node/lnd.log" 2>/dev/null || true
+    fi
+  done
+
+  echo "📋 Logs collected in $log_dir"
+}
+
 # mine mines a number of blocks on the regtest network. If no
 # argument is provided, it defaults to 6 blocks.
 function mine() {

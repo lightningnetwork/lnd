@@ -33,6 +33,7 @@ func createTestPaymentLifecycle() *paymentLifecycle {
 			TrafficShaper: fn.Some[htlcswitch.AuxTrafficShaper](
 				&mockTrafficShaper{},
 			),
+			ReconcileAttempt: noOpReconcile,
 		},
 		quit: quitChan,
 	}

@@ -86,6 +86,7 @@ func newTestPaymentLifecycle(t *testing.T) (*paymentLifecycle, *mockers) {
 			TrafficShaper: fn.Some[htlcswitch.AuxTrafficShaper](
 				&mockTrafficShaper{},
 			),
+			ReconcileAttempt: noOpReconcile,
 		},
 		quit: quitChan,
 	}
@@ -1861,4 +1862,79 @@ func TestReloadInflightAttemptsLegacy(t *testing.T) {
 
 	// Assert the result is received as expected.
 	require.Equal(t, result, r.result)
+}
+
+// TestReloadInflightAttemptsWithReconciliation checks that when a
+// ReconcileFunc is configured, it is called for each in-flight attempt and
+// result collection proceeds on success.
+func TestReloadInflightAttemptsWithReconciliation(t *testing.T) {
+	t.Parallel()
+
+	p, m := newTestPaymentLifecycle(t)
+
+	// Create an attempt.
+	paymentAmt := 10_000
+	preimage := lntypes.Preimage{1}
+	attempt := makeSettledAttempt(t, paymentAmt, preimage)
+
+	// Track which attempts the callback receives.
+	var reconciledIDs []uint64
+	p.router.cfg.ReconcileAttempt = func(a *paymentsdb.HTLCAttempt) error {
+		reconciledIDs = append(reconciledIDs, a.AttemptID)
+		return nil
+	}
+
+	// Mock FetchPayment and InFlightHTLCs.
+	m.control.On("FetchPayment", p.identifier).Return(m.payment, nil).Once()
+	m.payment.On("InFlightHTLCs").Return(
+		[]paymentsdb.HTLCAttempt{*attempt},
+	).Once()
+
+	// Call the method under test.
+	payment, err := p.reloadInflightAttempts()
+	require.NoError(t, err)
+	require.Equal(t, m.payment, payment)
+
+	// The callback should have been invoked with the attempt.
+	require.Len(t, reconciledIDs, 1)
+	require.Equal(t, attempt.AttemptID, reconciledIDs[0])
+
+	// Result collection should have proceeded.
+	require.Equal(t, 1, m.collectResultsCount)
+}
+
+// TestReloadInflightAttemptsReconciliationError checks that when
+// ReconcileFunc returns an error, result collection is skipped for that
+// attempt.
+func TestReloadInflightAttemptsReconciliationError(t *testing.T) {
+	t.Parallel()
+
+	p, m := newTestPaymentLifecycle(t)
+
+	// Create an attempt.
+	paymentAmt := 10_000
+	preimage := lntypes.Preimage{1}
+	attempt := makeSettledAttempt(t, paymentAmt, preimage)
+
+	// Configure a ReconcileFunc that always fails, simulating
+	// the case where the htlc's in-flight status cannot be
+	// confirmed.
+	p.router.cfg.ReconcileAttempt = func(a *paymentsdb.HTLCAttempt) error {
+		return errors.New("htlc status unknown: dispatch unavailable")
+	}
+
+	// Mock FetchPayment and InFlightHTLCs.
+	m.control.On("FetchPayment", p.identifier).Return(m.payment, nil).Once()
+	m.payment.On("InFlightHTLCs").Return(
+		[]paymentsdb.HTLCAttempt{*attempt},
+	).Once()
+
+	// Call the method under test.
+	payment, err := p.reloadInflightAttempts()
+	require.NoError(t, err)
+	require.Equal(t, m.payment, payment)
+
+	// Result collection should NOT have been called — the attempt was
+	// skipped because reconciliation failed.
+	require.Equal(t, 0, m.collectResultsCount)
 }

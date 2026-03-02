@@ -113,6 +113,8 @@ type Querier interface {
 	GetInvoice(ctx context.Context, arg GetInvoiceParams) ([]Invoice, error)
 	GetInvoiceByAddr(ctx context.Context, paymentAddr []byte) (Invoice, error)
 	GetInvoiceByHash(ctx context.Context, hash []byte) (Invoice, error)
+	// TODO(ziggie): This query can only return one invoice if the set_id is
+	// the primary key of amp_sub_invoices table.
 	GetInvoiceBySetID(ctx context.Context, setID []byte) ([]Invoice, error)
 	GetInvoiceFeatures(ctx context.Context, invoiceID int64) ([]InvoiceFeature, error)
 	GetInvoiceHTLCCustomRecords(ctx context.Context, invoiceID int64) ([]GetInvoiceHTLCCustomRecordsRow, error)

@@ -547,6 +547,8 @@ INNER JOIN amp_sub_invoices a
 ON i.id = a.invoice_id AND a.set_id = $1
 `
 
+// TODO(ziggie): This query can only return one invoice if the set_id is
+// the primary key of amp_sub_invoices table.
 func (q *Queries) GetInvoiceBySetID(ctx context.Context, setID []byte) ([]Invoice, error) {
 	rows, err := q.db.QueryContext(ctx, getInvoiceBySetID, setID)
 	if err != nil {

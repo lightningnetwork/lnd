@@ -65,6 +65,8 @@ FROM invoices i
 WHERE i.payment_addr = $1;
 
 -- name: GetInvoiceBySetID :many
+-- TODO(ziggie): This query can only return one invoice if the set_id is 
+-- the primary key of amp_sub_invoices table.
 SELECT i.*
 FROM invoices i
 INNER JOIN amp_sub_invoices a 

@@ -317,6 +317,10 @@
   map is returned. When `include_log` is set to `true`, the log file content is
   also included in the response.
 
+* [Add `source_pub_key` to `Route` proto message](https://github.com/lightningnetwork/lnd/pull/9153)
+  so that routes can be constructed and unmarshalled from the perspective of
+  different nodes. Defaults to the node's own public key.
+
 ## lncli Updates
 
 * The `getdebuginfo` command now supports an `--include_log` flag. By default,

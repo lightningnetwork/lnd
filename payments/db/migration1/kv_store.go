@@ -1,4 +1,4 @@
-package paymentsdb
+package migration1
 
 import (
 	"bytes"
@@ -17,9 +17,8 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/record"
-	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/payments/db/migration1/lnwire"
+	"github.com/lightningnetwork/lnd/payments/db/migration1/record"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -1720,7 +1719,7 @@ func deserializeHTLCAttemptInfo(r io.Reader) (*HTLCAttemptInfo, error) {
 	return a, nil
 }
 
-func serializeHop(w io.Writer, h *route.Hop) error {
+func serializeHop(w io.Writer, h *Hop) error {
 	if err := WriteElements(w,
 		h.PubKeyBytes[:],
 		h.ChannelID,
@@ -1823,8 +1822,8 @@ func serializeHop(w io.Writer, h *route.Hop) error {
 // to read/write a TLV stream larger than this.
 const maxOnionPayloadSize = 1300
 
-func deserializeHop(r io.Reader) (*route.Hop, error) {
-	h := &route.Hop{}
+func deserializeHop(r io.Reader) (*Hop, error) {
+	h := &Hop{}
 
 	var pub []byte
 	if err := ReadElements(r, &pub); err != nil {
@@ -1965,7 +1964,7 @@ func deserializeHop(r io.Reader) (*route.Hop, error) {
 }
 
 // SerializeRoute serializes a route.
-func SerializeRoute(w io.Writer, r route.Route) error {
+func SerializeRoute(w io.Writer, r Route) error {
 	if err := WriteElements(w,
 		r.TotalTimeLock, r.TotalAmount, r.SourcePubKey[:],
 	); err != nil {
@@ -1988,8 +1987,8 @@ func SerializeRoute(w io.Writer, r route.Route) error {
 }
 
 // DeserializeRoute deserializes a route.
-func DeserializeRoute(r io.Reader) (route.Route, error) {
-	rt := route.Route{}
+func DeserializeRoute(r io.Reader) (Route, error) {
+	rt := Route{}
 	if err := ReadElements(r,
 		&rt.TotalTimeLock, &rt.TotalAmount,
 	); err != nil {
@@ -2007,7 +2006,7 @@ func DeserializeRoute(r io.Reader) (route.Route, error) {
 		return rt, err
 	}
 
-	var hops []*route.Hop
+	var hops []*Hop
 	for i := uint32(0); i < numHops; i++ {
 		hop, err := deserializeHop(r)
 		if err != nil {

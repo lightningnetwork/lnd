@@ -302,7 +302,9 @@ linters:
       - "internal\\/musig2v040"
       - channeldb/migration_01_to_11
       - channeldb/migration/lnwire21
-      
+      - payments/db/migration1/lnwire
+      - payments/db/migration1/record
+
 issues:
   # Only show newly introduced problems.
   new-from-rev: 03eab4db64540aa5f789c617793e4459f4ba9e78

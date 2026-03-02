@@ -1,4 +1,4 @@
-package paymentsdb
+package migration1
 
 import (
 	"bytes"
@@ -7,15 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
 	"strconv"
 	"time"
 
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/payments/db/migration1/lnwire"
+	"github.com/lightningnetwork/lnd/payments/db/migration1/sqlc"
 	"github.com/lightningnetwork/lnd/sqldb"
-	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
 // PaymentIntentType represents the type of payment intent.
@@ -47,6 +45,7 @@ type SQLQueries interface {
 		Payment DB read operations.
 	*/
 	FilterPayments(ctx context.Context, query sqlc.FilterPaymentsParams) ([]sqlc.FilterPaymentsRow, error)
+	FilterPaymentsDesc(ctx context.Context, query sqlc.FilterPaymentsDescParams) ([]sqlc.FilterPaymentsDescRow, error)
 	FetchPayment(ctx context.Context, paymentIdentifier []byte) (sqlc.FetchPaymentRow, error)
 	FetchPaymentsByIDs(ctx context.Context, paymentIDs []int64) ([]sqlc.FetchPaymentsByIDsRow, error)
 
@@ -821,12 +820,51 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 			return nil
 		}
 
+		//nolint:ll
+		convertFilterPaymentsDescRows := func(
+			rows []sqlc.FilterPaymentsDescRow) []sqlc.FilterPaymentsRow {
+
+			out := make([]sqlc.FilterPaymentsRow, len(rows))
+			for i, row := range rows {
+				out[i] = sqlc.FilterPaymentsRow{
+					Payment:       row.Payment,
+					IntentType:    row.IntentType,
+					IntentPayload: row.IntentPayload,
+				}
+			}
+
+			return out
+		}
+
 		queryFunc := func(ctx context.Context, lastID int64,
 			limit int32) ([]sqlc.FilterPaymentsRow, error) {
 
+			// Default date bounds: epoch start and far
+			// future. These are always provided so the SQL
+			// query uses simple comparisons instead of
+			// COALESCE (which causes type mismatch on
+			// Postgres) or OR-based optional filters (which
+			// can prevent index usage).
+			createdAfter := time.Unix(0, 0).UTC()
+			if query.CreationDateStart != 0 {
+				createdAfter = time.Unix(
+					query.CreationDateStart, 0,
+				).UTC()
+			}
+
+			createdBefore := time.Date(
+				9999, 12, 31, 23, 59, 59, 0, time.UTC,
+			)
+			if query.CreationDateEnd != 0 {
+				createdBefore = time.Unix(
+					query.CreationDateEnd, 0,
+				).UTC()
+			}
+
 			filterParams := sqlc.FilterPaymentsParams{
-				NumLimit: limit,
-				Reverse:  query.Reversed,
+				NumLimit:      limit,
+				CreatedAfter:  createdAfter,
+				CreatedBefore: createdBefore,
 				// For now there only BOLT 11 payment intents
 				// exist.
 				IntentType: sqldb.SQLInt16(
@@ -844,18 +882,17 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 				)
 			}
 
-			// Add potential date filters if specified.
-			if query.CreationDateStart != 0 {
-				filterParams.CreatedAfter = sqldb.SQLTime(
-					time.Unix(query.CreationDateStart, 0).
-						UTC(),
+			if query.Reversed {
+				rows, err := db.FilterPaymentsDesc(
+					ctx, sqlc.FilterPaymentsDescParams(
+						filterParams,
+					),
 				)
-			}
-			if query.CreationDateEnd != 0 {
-				filterParams.CreatedBefore = sqldb.SQLTime(
-					time.Unix(query.CreationDateEnd, 0).
-						UTC(),
-				)
+				if err != nil {
+					return nil, err
+				}
+
+				return convertFilterPaymentsDescRows(rows), nil
 			}
 
 			return db.FilterPayments(ctx, filterParams)
@@ -1085,16 +1122,11 @@ func (s *SQLStore) FetchInFlightPayments(ctx context.Context) ([]*MPPayment,
 			return err
 		}
 
-		// Convert map to slice and sort by sequence number to
-		// produce a deterministic ordering.
+		// Convert map to slice.
 		mpPayments = make([]*MPPayment, 0, len(processedPayments))
 		for _, payment := range processedPayments {
 			mpPayments = append(mpPayments, payment)
 		}
-		sort.Slice(mpPayments, func(i, j int) bool {
-			return mpPayments[i].SequenceNum <
-				mpPayments[j].SequenceNum
-		})
 
 		return nil
 	}, func() {
@@ -1385,7 +1417,7 @@ func (s *SQLStore) InitPayment(ctx context.Context, paymentHash lntypes.Hash,
 
 // insertRouteHops inserts all route hop data for a given set of hops.
 func (s *SQLStore) insertRouteHops(ctx context.Context, db SQLQueries,
-	hops []*route.Hop, attemptID uint64) error {
+	hops []*Hop, attemptID uint64) error {
 
 	for i, hop := range hops {
 		// Insert the basic route hop data and get the generated ID.
@@ -1659,7 +1691,7 @@ func (s *SQLStore) SettleAttempt(ctx context.Context, paymentHash lntypes.Hash,
 
 		err = db.SettleAttempt(ctx, sqlc.SettleAttemptParams{
 			AttemptIndex:   int64(attemptID),
-			ResolutionTime: settleInfo.SettleTime.UTC(),
+			ResolutionTime: time.Now(),
 			ResolutionType: int32(HTLCAttemptResolutionSettled),
 			SettlePreimage: settleInfo.Preimage[:],
 		})
@@ -1746,7 +1778,7 @@ func (s *SQLStore) FailAttempt(ctx context.Context, paymentHash lntypes.Hash,
 
 		err = db.FailAttempt(ctx, sqlc.FailAttemptParams{
 			AttemptIndex:   int64(attemptID),
-			ResolutionTime: failInfo.FailTime.UTC(),
+			ResolutionTime: time.Now(),
 			ResolutionType: int32(HTLCAttemptResolutionFailed),
 			FailureSourceIndex: sqldb.SQLInt32(
 				failInfo.FailureSourceIndex,
@@ -1958,7 +1990,12 @@ func (s *SQLStore) DeletePayments(ctx context.Context, failedOnly,
 			limit int32) ([]sqlc.FilterPaymentsRow, error) {
 
 			filterParams := sqlc.FilterPaymentsParams{
-				NumLimit: limit,
+				NumLimit:     limit,
+				CreatedAfter: time.Unix(0, 0).UTC(),
+				CreatedBefore: time.Date(
+					9999, 12, 31, 23, 59, 59,
+					0, time.UTC,
+				),
 				IndexOffsetGet: sqldb.SQLInt64(
 					lastID,
 				),

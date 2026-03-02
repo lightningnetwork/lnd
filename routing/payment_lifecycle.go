@@ -1114,8 +1114,9 @@ func (p *paymentLifecycle) patchLegacyPaymentHash(
 }
 
 // reloadInflightAttempts is called when the payment lifecycle is resumed after
-// a restart. It reloads all inflight attempts from the control tower and
-// collects the results of the attempts that have been sent before.
+// a restart. It reloads all inflight attempts from the control tower,
+// reconciles each attempt via the configured ReconcileAttempt callback, and
+// then collects the results of the attempts that have been confirmed in-flight.
 func (p *paymentLifecycle) reloadInflightAttempts() (paymentsdb.DBMPPayment,
 	error) {
 
@@ -1134,6 +1135,18 @@ func (p *paymentLifecycle) reloadInflightAttempts() (paymentsdb.DBMPPayment,
 		// it's a legacy payment.
 		a = p.patchLegacyPaymentHash(a)
 
+		// Execute the configured reconciliation strategy.
+		if err := p.router.cfg.ReconcileAttempt(&a); err != nil {
+			log.Warnf("Reconciliation failed for attempt "+
+				"%v in payment %v: %v. Skipping result "+
+				"collection; will retry on next restart.",
+				a.AttemptID, p.identifier, err)
+
+			continue
+		}
+
+		// The HTLC attempt is confirmed to be in-flight, so it
+		// is safe to proceed to awaiting the attempt result.
 		p.resultCollector(&a)
 	}
 

@@ -1703,7 +1703,8 @@ func (s *SQLStore) FilterChannelRange(ctx context.Context, startHeight,
 				byteOrder.Uint64(dbChan.Scid),
 			)
 			chanInfo := NewChannelUpdateInfo(
-				cid, time.Time{}, time.Time{},
+				cid, lnwire.GossipVersion1,
+				time.Time{}, time.Time{},
 			)
 
 			if !withTimestamps {

@@ -2764,6 +2764,9 @@ type ChannelUpdateInfo struct {
 	// ShortChannelID is the SCID identifier of the channel.
 	ShortChannelID lnwire.ShortChannelID
 
+	// Version is the gossip version of the channel.
+	Version lnwire.GossipVersion
+
 	// Node1UpdateTimestamp is the timestamp of the latest received update
 	// from the node 1 channel peer. This will be set to zero time if no
 	// update has yet been received from this node.
@@ -2778,11 +2781,13 @@ type ChannelUpdateInfo struct {
 // NewChannelUpdateInfo is a constructor which makes sure we initialize the
 // timestamps with zero seconds unix timestamp which equals
 // `January 1, 1970, 00:00:00 UTC` in case the value is `time.Time{}`.
-func NewChannelUpdateInfo(scid lnwire.ShortChannelID, node1Timestamp,
+func NewChannelUpdateInfo(scid lnwire.ShortChannelID,
+	v lnwire.GossipVersion, node1Timestamp,
 	node2Timestamp time.Time) ChannelUpdateInfo {
 
 	chanInfo := ChannelUpdateInfo{
 		ShortChannelID:       scid,
+		Version:              v,
 		Node1UpdateTimestamp: node1Timestamp,
 		Node2UpdateTimestamp: node2Timestamp,
 	}
@@ -2874,7 +2879,7 @@ func (c *KVStore) FilterChannelRange(_ context.Context, startHeight,
 			cid := lnwire.NewShortChanIDFromInt(rawCid)
 
 			chanInfo := NewChannelUpdateInfo(
-				cid, time.Time{}, time.Time{},
+				cid, lnwire.GossipVersion1, time.Time{}, time.Time{},
 			)
 
 			if !withTimestamps {

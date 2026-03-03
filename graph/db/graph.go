@@ -522,7 +522,7 @@ func (c *ChannelGraph) PruneGraphNodes(ctx context.Context) error {
 // channels another peer knows of that we don't.
 func (c *ChannelGraph) FilterKnownChanIDs(ctx context.Context,
 	chansInfo []ChannelUpdateInfo,
-	isZombieChan func(time.Time, time.Time) bool) ([]uint64, error) {
+	isZombieChan func(ChannelUpdateInfo) bool) ([]uint64, error) {
 
 	unknown, knownZombies, err := c.db.FilterKnownChanIDs(ctx, chansInfo)
 	if err != nil {
@@ -541,20 +541,16 @@ func (c *ChannelGraph) FilterKnownChanIDs(ctx context.Context,
 		// recent. During the querying of the gossip msg verification
 		// happens as usual. However we should start punishing peers
 		// when they don't provide us honest data ?
-		isStillZombie := isZombieChan(
-			info.Node1UpdateTimestamp, info.Node2UpdateTimestamp,
-		)
-
-		if isStillZombie {
+		if isZombieChan(info) {
 			continue
 		}
 
 		// If we have marked it as a zombie but the latest update
-		// timestamps could bring it back from the dead, then we mark it
+		// info could bring it back from the dead, then we mark it
 		// alive, and we let it be added to the set of IDs to query our
 		// peer for.
 		err := c.db.MarkEdgeLive(
-			ctx, lnwire.GossipVersion1,
+			ctx, info.Version,
 			info.ShortChannelID.ToUint64(),
 		)
 		// Since there is a chance that the edge could have been marked

@@ -29,6 +29,11 @@ const (
 	// if a channel should be pruned or not.
 	DefaultChannelPruneExpiry = time.Hour * 24 * 14
 
+	// avgBitcoinBlockTime is the approximate time between Bitcoin blocks,
+	// used to convert a time-based channel prune expiry into a
+	// block-height-based expiry for v2 gossip channels.
+	avgBitcoinBlockTime = 10 * time.Minute
+
 	// DefaultFirstTimePruneDelay is the time we'll wait after startup
 	// before attempting to prune the graph for zombie channels. We don't
 	// do it immediately after startup to allow lnd to start up without
@@ -460,6 +465,30 @@ func (b *Builder) syncGraphWithChain() error {
 	return nil
 }
 
+// isPolicyZombie returns true if the given edge policy is considered stale
+// based on version-specific freshness criteria. For v1 policies, staleness is
+// determined by wall-clock time since the last update. For v2 policies,
+// staleness is determined by how many blocks have elapsed since the last
+// update block height.
+func (b *Builder) isPolicyZombie(e *models.ChannelEdgePolicy) bool {
+	chanExpiry := b.cfg.ChannelPruneExpiry
+
+	switch e.Version {
+	case lnwire.GossipVersion1:
+		return time.Since(e.LastUpdate) >= chanExpiry
+
+	default:
+		expiryBlocks := uint32(chanExpiry / avgBitcoinBlockTime)
+		currentHeight := b.bestHeight.Load()
+
+		if e.LastBlockHeight > currentHeight {
+			return false
+		}
+
+		return currentHeight-e.LastBlockHeight >= expiryBlocks
+	}
+}
+
 // isZombieChannel takes two edge policy updates and determines if the
 // corresponding channel should be considered a zombie. The first boolean is
 // true if the policy update from node 1 is considered a zombie, the second
@@ -468,20 +497,17 @@ func (b *Builder) syncGraphWithChain() error {
 func (b *Builder) isZombieChannel(e1,
 	e2 *models.ChannelEdgePolicy) (bool, bool, bool) {
 
-	chanExpiry := b.cfg.ChannelPruneExpiry
+	e1Zombie := e1 == nil || b.isPolicyZombie(e1)
+	e2Zombie := e2 == nil || b.isPolicyZombie(e2)
 
-	e1Zombie := e1 == nil || time.Since(e1.LastUpdate) >= chanExpiry
-	e2Zombie := e2 == nil || time.Since(e2.LastUpdate) >= chanExpiry
-
-	var e1Time, e2Time time.Time
-	if e1 != nil {
-		e1Time = e1.LastUpdate
-	}
-	if e2 != nil {
-		e2Time = e2.LastUpdate
+	// If strict zombie pruning is enabled, a channel is a zombie if
+	// either edge is stale.
+	if b.cfg.StrictZombiePruning {
+		return e1Zombie, e2Zombie, e1Zombie || e2Zombie
 	}
 
-	return e1Zombie, e2Zombie, b.IsZombieChannel(e1Time, e2Time)
+	// Otherwise a channel is only a zombie if both edges are stale.
+	return e1Zombie, e2Zombie, e1Zombie && e2Zombie
 }
 
 // IsZombieChannel takes the timestamps of the latest channel updates for a

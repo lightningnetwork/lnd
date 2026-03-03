@@ -939,6 +939,98 @@ func testPruneChannelGraphDoubleDisabled(t *testing.T, assumeValid bool) {
 	}
 }
 
+// TestIsPolicyZombie verifies that isPolicyZombie correctly classifies edge
+// policies as stale or fresh for both gossip versions.
+func TestIsPolicyZombie(t *testing.T) {
+	t.Parallel()
+
+	const (
+		pruneExpiry  = time.Hour
+		currentHeight = uint32(1000)
+	)
+
+	// expiryBlocks is the number of blocks equivalent to pruneExpiry using
+	// the approximate block time.
+	expiryBlocks := uint32(pruneExpiry / avgBitcoinBlockTime)
+
+	b := &Builder{
+		cfg: &Config{
+			ChannelPruneExpiry: pruneExpiry,
+		},
+	}
+	b.bestHeight.Store(currentHeight)
+
+	tests := []struct {
+		name   string
+		policy *models.ChannelEdgePolicy
+		zombie bool
+	}{
+		{
+			// A v1 policy updated half an expiry ago is fresh.
+			name: "v1 fresh",
+			policy: &models.ChannelEdgePolicy{
+				Version:    lnwire.GossipVersion1,
+				LastUpdate: time.Now().Add(-(pruneExpiry / 2)),
+			},
+			zombie: false,
+		},
+		{
+			// A v1 policy with a zero timestamp is stale.
+			name: "v1 stale",
+			policy: &models.ChannelEdgePolicy{
+				Version:    lnwire.GossipVersion1,
+				LastUpdate: time.Unix(0, 0),
+			},
+			zombie: true,
+		},
+		{
+			// A v2 policy updated one block before the expiry
+			// threshold is still fresh.
+			name: "v2 fresh",
+			policy: &models.ChannelEdgePolicy{
+				Version:         lnwire.GossipVersion2,
+				LastBlockHeight: currentHeight - expiryBlocks + 1,
+			},
+			zombie: false,
+		},
+		{
+			// A v2 policy exactly at the expiry boundary is stale.
+			name: "v2 stale at boundary",
+			policy: &models.ChannelEdgePolicy{
+				Version:         lnwire.GossipVersion2,
+				LastBlockHeight: currentHeight - expiryBlocks,
+			},
+			zombie: true,
+		},
+		{
+			// A v2 policy older than the expiry threshold is stale.
+			name: "v2 stale",
+			policy: &models.ChannelEdgePolicy{
+				Version:         lnwire.GossipVersion2,
+				LastBlockHeight: currentHeight - expiryBlocks - 10,
+			},
+			zombie: true,
+		},
+		{
+			// A v2 policy with a future block height is never stale.
+			name: "v2 future block",
+			policy: &models.ChannelEdgePolicy{
+				Version:         lnwire.GossipVersion2,
+				LastBlockHeight: currentHeight + 1,
+			},
+			zombie: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.zombie, b.isPolicyZombie(tc.policy))
+		})
+	}
+}
+
 // TestIsStaleNode tests that the IsStaleNode method properly detects stale
 // node announcements.
 func TestIsStaleNode(t *testing.T) {

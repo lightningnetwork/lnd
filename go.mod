@@ -205,6 +205,9 @@ require (
 // TODO(gijs): remove once new actor package is released.
 replace github.com/lightningnetwork/lnd/actor => ./actor
 
+// TODO(gijs): remove once new queue package is released.
+replace github.com/lightningnetwork/lnd/queue => ./queue
+
 // TODO(elle): remove once the gossip V2 sqldb changes have been made.
 replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 

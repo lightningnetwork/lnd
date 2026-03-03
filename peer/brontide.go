@@ -310,6 +310,13 @@ type Config struct {
 	// message actor. If nil, onion messaging is disabled.
 	SpawnOnionActor onionmessage.OnionActorFactory
 
+	// OnionActorOpts returns ActorOptions for the onion peer actor
+	// being spawned for the given peer. This allows per-peer
+	// customization of mailbox size, drop predicates, etc.
+	OnionActorOpts func(peerPubKey [33]byte) []actor.ActorOption[
+		*onionmessage.Request, *onionmessage.Response,
+	]
+
 	// ActorSystem is the actor system tasked with managing actors.
 	ActorSystem *actor.ActorSystem
 
@@ -929,8 +936,25 @@ func (p *Brontide) Start() error {
 		p.log.Infof("Remote peer supports onion messages, " +
 			"spawning onion message actor")
 
+		// Fetch per-peer actor options. The OnionActorOpts
+		// callback is the extension point for per-peer
+		// customization of the drop predicate (e.g. choosing
+		// RED thresholds based on channel capacity or routing
+		// importance). Today the callback returns identical
+		// defaults for every peer; to differentiate, supply a
+		// callback that inspects peerPubKey and returns
+		// tailored options via
+		// onionmessage.DefaultOnionActorOpts with a
+		// peer-specific DropCheckFunc.
+		var opts []actor.ActorOption[
+			*onionmessage.Request, *onionmessage.Response,
+		]
+		if p.cfg.OnionActorOpts != nil {
+			opts = p.cfg.OnionActorOpts(p.PubKey())
+		}
+
 		ref, spawnErr := p.cfg.SpawnOnionActor(
-			p.cfg.ActorSystem, p.PubKey(),
+			p.cfg.ActorSystem, p.PubKey(), opts...,
 		)
 		if spawnErr != nil {
 			return fmt.Errorf("unable to spawn onion peer "+

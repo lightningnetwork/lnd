@@ -5528,6 +5528,66 @@ func TestChanAvailableBandwidth(t *testing.T) {
 	// TODO(roasbeef): additional tests from diff starting conditions
 }
 
+// TestChanRemoteAvailableBalance verifies that RemoteAvailableBalance correctly
+// returns the balance available for the remote party, taking into account
+// reserves and commitment fees. It also ensures that the local party's view of
+// the remote party's balance matches the remote party's own view of their
+// available balance.
+func TestChanRemoteAvailableBalance(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, err := CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err, "unable to create test channels")
+
+	assertRemoteBandwidthEstimateCorrect := func() {
+		t.Helper()
+
+		// Query the RemoteAvailableBalance from Alice's PoV.
+		// This should be what Bob can send.
+		aliceRemoteAvailableBalance := aliceChannel.RemoteAvailableBalance()
+
+		// Query the AvailableBalance from Bob's PoV.
+		bobAvailableBalance := bobChannel.AvailableBalance()
+
+		require.Equal(t, bobAvailableBalance, aliceRemoteAvailableBalance,
+			"Alice's view of Bob's balance should match Bob's own view")
+
+		// Also check from Bob's PoV.
+		bobRemoteAvailableBalance := bobChannel.RemoteAvailableBalance()
+		aliceAvailableBalance := aliceChannel.AvailableBalance()
+
+		require.Equal(t, aliceAvailableBalance, bobRemoteAvailableBalance,
+			"Bob's view of Alice's balance should match Alice's own view")
+	}
+
+	// Initially, both should be correct.
+	assertRemoteBandwidthEstimateCorrect()
+
+	// Alice sends an HTLC to Bob.
+	htlcAmt := lnwire.NewMSatFromSatoshis(1000000)
+	htlc, _ := createHTLC(0, htlcAmt)
+	addAndReceiveHTLC(t, aliceChannel, bobChannel, htlc, nil)
+
+	// After adding but before signing, balances should still be consistent.
+	assertRemoteBandwidthEstimateCorrect()
+
+	// Bob sends an HTLC to Alice.
+	htlc, _ = createHTLC(0, htlcAmt)
+	addAndReceiveHTLC(t, bobChannel, aliceChannel, htlc, nil)
+
+	assertRemoteBandwidthEstimateCorrect()
+
+	// Commit the state.
+	require.NoError(t, ForceStateTransition(aliceChannel, bobChannel))
+
+	assertRemoteBandwidthEstimateCorrect()
+}
+
 // TestChanAvailableBalanceNearHtlcFee checks that we get the expected reported
 // balance when it is close to the fee buffer.
 func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
@@ -5796,7 +5856,7 @@ func TestChanCommitWeightDustHtlcs(t *testing.T) {
 			lc.updateLogs.Local.logIndex)
 
 		_, w := lc.availableCommitmentBalance(
-			htlcView, lntypes.Remote, FeeBuffer,
+			htlcView, lntypes.Remote, FeeBuffer, false,
 		)
 
 		return w
@@ -10536,6 +10596,7 @@ func TestApplyCommitmentFee(t *testing.T) {
 			//nolint:ll
 			balance, bufferAmt, commitFee, err := tc.channel.applyCommitFee(
 				tc.balance, commitWeight, feePerKw, tc.buffer,
+				tc.channel.IsInitiator(),
 			)
 
 			require.ErrorIs(t, err, tc.expectedErr)

@@ -4996,6 +4996,15 @@ func createRPCOpenChannel(ctx context.Context, r *rpcServer,
 		RemoteChanReserveSat: int64(dbChannel.RemoteChanCfg.ChanReserve),
 	}
 
+	// Finally, we'll consult the htlcSwitch to see if there's an active
+	// link for this channel. If so, we'll populate the local and remote
+	// spendable balance fields.
+	link, _ := r.server.htlcSwitch.GetLink(chanID)
+	if link != nil {
+		channel.LocalSpendableMsat = int64(link.Bandwidth())
+		channel.RemoteSpendableMsat = int64(link.RemoteBandwidth())
+	}
+
 	// Look up our channel peer's node alias if the caller requests it.
 	if peerAliasLookup {
 		peerAlias, err := r.server.v1Graph.LookupAlias(ctx, nodePub)

@@ -3783,14 +3783,10 @@ func (b BufferType) String() string {
 	}
 }
 
-// applyCommitFee applies the commitFee including a buffer to the balance amount
-// and verifies that it does not become negative. This function returns the new
-// balance, the exact buffer amount (excluding the commitment fee) and the
-// commitment fee.
-// applyCommitFee subtracts the commitment fee from the given balance. If the
-// party is the initiator, then the fee buffer is also applied to ensure that
-// the initiator has enough funds to cover the commitment fee even if the fee
-// rate doubles in the future.
+// applyCommitFee deducts the commitment fee and an optional buffer from the
+// balance, ensuring it remains non-negative. If the party is the initiator,
+// a buffer is enforced to hedge against potential fee rate doubling. Returns:
+// the adjusted balance, the buffer (less the commit fee), and the commit fee.
 func (lc *LightningChannel) applyCommitFee(
 	balance lnwire.MilliSatoshi, commitWeight lntypes.WeightUnit,
 	feePerKw chainfee.SatPerKWeight,

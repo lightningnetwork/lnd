@@ -185,6 +185,24 @@ type MissionControlQuerier interface {
 		amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64
 }
 
+// ReconcileFunc defines the callback invoked for each in-flight HTLC attempt
+// during startup before result collection begins. This enables write-first
+// recovery for remote dispatchers that need to confirm dispatch status after
+// a crash.
+//
+// Implementations should re-dispatch the attempt idempotently, returning nil
+// once the attempt is confirmed in-flight (newly dispatched or duplicate
+// acknowledged). Transient failures should be retried internally; only return
+// an error for unresolvable cases.
+type ReconcileFunc func(a *paymentsdb.HTLCAttempt) error
+
+// noOpReconcile is the default ReconcileFunc that proceeds directly to result
+// tracking, preserving historic behavior of the daemon. The router and switch
+// share a crash domain, so no additional reconciliation is needed.
+func noOpReconcile(_ *paymentsdb.HTLCAttempt) error {
+	return nil
+}
+
 // FeeSchema is the set fee configuration for a Lightning Node on the network.
 // Using the coefficients described within the schema, the required fee to
 // forward outgoing payments can be derived.
@@ -295,6 +313,14 @@ type Config struct {
 	// TrafficShaper is an optional traffic shaper that can be used to
 	// control the outgoing channel of a payment.
 	TrafficShaper fn.Option[htlcswitch.AuxTrafficShaper]
+
+	// ReconcileAttempt is the strategy executed for each in-flight
+	// HTLC attempt during startup before result collection begins.
+	// See ReconcileFunc for details.
+	//
+	// Defaults to noOpReconcile when not set, preserving standard
+	// lnd behavior where the router and switch share a crash domain.
+	ReconcileAttempt ReconcileFunc
 }
 
 // EdgeLocator is a struct used to identify a specific edge.
@@ -338,6 +364,13 @@ type ChannelRouter struct {
 // channel graph is a subset of the UTXO set) set, then the router will proceed
 // to fully sync to the latest state of the UTXO set.
 func New(cfg Config) (*ChannelRouter, error) {
+	// Default to a no-op reconciliation callback, preserving
+	// standard lnd behavior where the router and switch share a
+	// crash domain.
+	if cfg.ReconcileAttempt == nil {
+		cfg.ReconcileAttempt = noOpReconcile
+	}
+
 	return &ChannelRouter{
 		cfg:  &cfg,
 		quit: make(chan struct{}),

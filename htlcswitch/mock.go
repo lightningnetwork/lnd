@@ -910,7 +910,17 @@ func (f *mockChannelLink) ShortChanID() lnwire.ShortChannelID {
 	return f.shortChanID
 }
 
+// Bandwidth returns a hardcoded amount of milli-satoshis for the mock link.
+//
+// NOTE: Part of the ChannelLink interface.
 func (f *mockChannelLink) Bandwidth() lnwire.MilliSatoshi {
+	return 99999999
+}
+
+// RemoteBandwidth returns a hardcoded amount of milli-satoshis for the mock link.
+//
+// NOTE: Part of the ChannelLink interface.
+func (f *mockChannelLink) RemoteBandwidth() lnwire.MilliSatoshi {
 	return 99999999
 }
 

@@ -2149,6 +2149,16 @@ func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
 	return l.channel.AvailableBalance()
 }
 
+// RemoteBandwidth returns the total amount that the remote party can send
+// through the channel link at this given instance. The value returned is
+// expressed in millisatoshi.
+//
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) RemoteBandwidth() lnwire.MilliSatoshi {
+	// Get the balance available for the remote party for new HTLCs.
+	return l.channel.RemoteAvailableBalance()
+}
+
 // MayAddOutgoingHtlc indicates whether we can add an outgoing htlc with the
 // amount provided to the link. This check does not reserve a space, since
 // forwards or other payments may use the available slot, so it should be

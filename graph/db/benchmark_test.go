@@ -349,7 +349,8 @@ func TestPopulateDBs(t *testing.T) {
 	countNodes := func(graph *ChannelGraph) int {
 		numNodes := 0
 		err := graph.ForEachNode(
-			ctx, func(node *models.Node) error {
+			ctx, lnwire.GossipVersion1,
+			func(node *models.Node) error {
 				numNodes++
 
 				return nil
@@ -455,7 +456,8 @@ func syncGraph(t *testing.T, src, dest *ChannelGraph) {
 	}
 
 	var wgNodes sync.WaitGroup
-	err := src.ForEachNode(ctx, func(node *models.Node) error {
+	v1 := lnwire.GossipVersion1
+	err := src.ForEachNode(ctx, v1, func(node *models.Node) error {
 		wgNodes.Add(1)
 		go func() {
 			defer wgNodes.Done()
@@ -621,7 +623,7 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 			name: "ForEachNode",
 			fn: func(b testing.TB, store Store) {
 				err := store.ForEachNode(
-					ctx,
+					ctx, lnwire.GossipVersion1,
 					func(_ *models.Node) error {
 						// Increment the counter to
 						// ensure the callback is doing
@@ -689,7 +691,8 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 			fn: func(b testing.TB, store Store) {
 				//nolint:ll
 				err := store.ForEachNodeCached(
-					ctx, false, func(context.Context,
+					ctx, lnwire.GossipVersion1, false,
+					func(context.Context,
 						route.Vertex,
 						[]net.Addr,
 						map[uint64]*DirectedChannel) error {
@@ -813,7 +816,7 @@ func BenchmarkFindOptimalSQLQueryConfig(b *testing.B) {
 					)
 
 					err := store.ForEachNode(
-						ctx,
+						ctx, lnwire.GossipVersion1,
 						func(_ *models.Node) error {
 							numNodes++
 

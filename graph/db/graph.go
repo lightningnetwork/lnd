@@ -272,7 +272,8 @@ func (c *ChannelGraph) GraphSession(ctx context.Context,
 // graph, executing the passed callback with each node encountered.
 //
 // NOTE: The callback contents MUST not be modified.
-func (c *ChannelGraph) ForEachNodeCached(ctx context.Context, withAddrs bool,
+func (c *ChannelGraph) ForEachNodeCached(ctx context.Context,
+	v lnwire.GossipVersion, withAddrs bool,
 	cb func(ctx context.Context, node route.Vertex, addrs []net.Addr,
 		chans map[uint64]*DirectedChannel) error, reset func()) error {
 
@@ -286,7 +287,7 @@ func (c *ChannelGraph) ForEachNodeCached(ctx context.Context, withAddrs bool,
 		)
 	}
 
-	return c.db.ForEachNodeCached(ctx, withAddrs, cb, reset)
+	return c.db.ForEachNodeCached(ctx, v, withAddrs, cb, reset)
 }
 
 // AddNode adds a vertex/node to the graph database. If the node is not
@@ -626,9 +627,10 @@ func (c *ChannelGraph) ForEachNodeChannel(ctx context.Context,
 
 // ForEachNode iterates through all stored vertices/nodes in the graph.
 func (c *ChannelGraph) ForEachNode(ctx context.Context,
-	cb func(*models.Node) error, reset func()) error {
+	v lnwire.GossipVersion, cb func(*models.Node) error,
+	reset func()) error {
 
-	return c.db.ForEachNode(ctx, cb, reset)
+	return c.db.ForEachNode(ctx, v, cb, reset)
 }
 
 // ForEachNodeCacheable iterates through all stored vertices/nodes in the graph.
@@ -785,8 +787,10 @@ func (c *ChannelGraph) IsZombieEdge(ctx context.Context,
 }
 
 // NumZombies returns the current number of zombie channels in the graph.
-func (c *ChannelGraph) NumZombies(ctx context.Context) (uint64, error) {
-	return c.db.NumZombies(ctx)
+func (c *ChannelGraph) NumZombies(ctx context.Context,
+	v lnwire.GossipVersion) (uint64, error) {
+
+	return c.db.NumZombies(ctx, v)
 }
 
 // PutClosedScid stores a SCID for a closed channel in the database.
@@ -874,14 +878,19 @@ func (c *VersionedGraph) ForEachNodeCached(ctx context.Context,
 		chans map[uint64]*DirectedChannel) error,
 	reset func()) error {
 
-	return c.ChannelGraph.ForEachNodeCached(ctx, withAddrs, cb, reset)
+	return c.ChannelGraph.ForEachNodeCached(ctx, c.v, withAddrs, cb, reset)
 }
 
 // ForEachNode iterates through all stored vertices/nodes in the graph.
 func (c *VersionedGraph) ForEachNode(ctx context.Context,
 	cb func(*models.Node) error, reset func()) error {
 
-	return c.db.ForEachNode(ctx, cb, reset)
+	return c.db.ForEachNode(ctx, c.v, cb, reset)
+}
+
+// NumZombies returns the current number of zombie channels in the graph.
+func (c *VersionedGraph) NumZombies(ctx context.Context) (uint64, error) {
+	return c.db.NumZombies(ctx, c.v)
 }
 
 // NodeUpdatesInHorizon returns all known lightning nodes which have an update

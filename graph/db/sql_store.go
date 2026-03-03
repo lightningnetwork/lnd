@@ -983,13 +983,13 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 // early.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) ForEachNode(ctx context.Context,
+func (s *SQLStore) ForEachNode(ctx context.Context, v lnwire.GossipVersion,
 	cb func(node *models.Node) error, reset func()) error {
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		return forEachNodePaginated(
 			ctx, s.cfg.QueryCfg, db,
-			lnwire.GossipVersion1, func(_ context.Context, _ int64,
+			v, func(_ context.Context, _ int64,
 				node *models.Node) error {
 
 				return cb(node)
@@ -1342,7 +1342,8 @@ func (s *SQLStore) ChanUpdatesInHorizon(ctx context.Context,
 // if the addresses are actually needed.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) ForEachNodeCached(ctx context.Context, withAddrs bool,
+func (s *SQLStore) ForEachNodeCached(ctx context.Context,
+	v lnwire.GossipVersion, withAddrs bool,
 	cb func(ctx context.Context, node route.Vertex, addrs []net.Addr,
 		chans map[uint64]*DirectedChannel) error, reset func()) error {
 
@@ -1360,7 +1361,7 @@ func (s *SQLStore) ForEachNodeCached(ctx context.Context, withAddrs bool,
 
 			return db.ListNodeIDsAndPubKeys(
 				ctx, sqlc.ListNodeIDsAndPubKeysParams{
-					Version: int16(lnwire.GossipVersion1),
+					Version: int16(v),
 					ID:      lastID,
 					Limit:   limit,
 				},
@@ -1927,13 +1928,16 @@ func (s *SQLStore) IsZombieEdge(ctx context.Context, v lnwire.GossipVersion,
 // NumZombies returns the current number of zombie channels in the graph.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) NumZombies(ctx context.Context) (uint64, error) {
+func (s *SQLStore) NumZombies(
+	ctx context.Context, v lnwire.GossipVersion,
+) (uint64, error) {
+
 	var (
 		numZombies uint64
 	)
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		count, err := db.CountZombieChannels(
-			ctx, int16(lnwire.GossipVersion1),
+			ctx, int16(v),
 		)
 		if err != nil {
 			return fmt.Errorf("unable to count zombie channels: %w",

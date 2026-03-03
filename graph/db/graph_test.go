@@ -1760,23 +1760,26 @@ func TestGraphTraversal(t *testing.T) {
 	// set of channels (to force the fall back), we should find all the
 	// channel as well as the nodes included.
 	graph.graphCache = nil
-	err := graph.ForEachNodeCached(ctx, false, func(_ context.Context,
-		node route.Vertex, _ []net.Addr,
-		chans map[uint64]*DirectedChannel) error {
+	err := graph.ForEachNodeCached(ctx, lnwire.GossipVersion1, false,
+		func(_ context.Context, node route.Vertex, _ []net.Addr,
+			chans map[uint64]*DirectedChannel) error {
 
-		if _, ok := nodeIndex[node]; !ok {
-			return fmt.Errorf("node %x not found in graph", node)
-		}
-
-		for chanID := range chans {
-			if _, ok := chanIndex[chanID]; !ok {
-				return fmt.Errorf("chan %v not found in "+
-					"graph", chanID)
+			if _, ok := nodeIndex[node]; !ok {
+				return fmt.Errorf("node %x not found in graph",
+					node)
 			}
-		}
 
-		return nil
-	}, func() {})
+			for chanID := range chans {
+				if _, ok := chanIndex[chanID]; !ok {
+					return fmt.Errorf(
+						"chan %v not found in graph",
+						chanID,
+					)
+				}
+			}
+
+			return nil
+		}, func() {})
 	require.NoError(t, err)
 
 	// Iterate through all the known channels within the graph DB, once
@@ -2148,7 +2151,7 @@ func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 
 func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
 	numNodes := 0
-	err := graph.ForEachNode(t.Context(),
+	err := graph.ForEachNode(t.Context(), lnwire.GossipVersion1,
 		func(_ *models.Node) error {
 			numNodes++
 
@@ -4590,7 +4593,7 @@ func putSerializedPolicy(t *testing.T, db kvdb.Backend, from []byte,
 func assertNumZombies(t *testing.T, graph *ChannelGraph, expZombies uint64) {
 	t.Helper()
 
-	numZombies, err := graph.NumZombies(t.Context())
+	numZombies, err := graph.NumZombies(t.Context(), lnwire.GossipVersion1)
 	require.NoError(t, err, "unable to query number of zombies")
 	require.Equal(t, expZombies, numZombies)
 }

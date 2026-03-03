@@ -405,6 +405,9 @@ func (m *mockUpdateHandler) ChanID() lnwire.ChannelID { return m.cid }
 // Bandwidth currently returns a dummy value.
 func (m *mockUpdateHandler) Bandwidth() lnwire.MilliSatoshi { return 0 }
 
+// RemoteBandwidth currently returns a dummy value.
+func (m *mockUpdateHandler) RemoteBandwidth() lnwire.MilliSatoshi { return 0 }
+
 // EligibleToForward currently returns a dummy value.
 func (m *mockUpdateHandler) EligibleToForward() bool { return false }
 

@@ -993,7 +993,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		return nil, fmt.Errorf("error getting source node: %w", err)
 	}
 	paymentSessionSource := &routing.SessionSource{
-		GraphSessionFactory: dbs.GraphDB,
+		GraphSessionFactory: s.v1Graph,
 		SourceNode:          sourceNode,
 		MissionControl:      s.defaultMC,
 		GetLink:             s.htlcSwitch.GetLinkByShortID,
@@ -1024,7 +1024,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 	s.chanRouter, err = routing.New(routing.Config{
 		SelfNode:                  nodePubKey,
-		RoutingGraph:              dbs.GraphDB,
+		RoutingGraph:              s.v1Graph,
 		Chain:                     cc.ChainIO,
 		Payer:                     s.htlcSwitch,
 		Control:                   s.controlTower,

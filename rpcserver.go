@@ -708,7 +708,7 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 	if err != nil {
 		return err
 	}
-	graph := s.graphDB
+	graph := s.v1Graph
 
 	routerBackend := &routerrpc.RouterBackend{
 		SelfNode: selfNode.PubKeyBytes,

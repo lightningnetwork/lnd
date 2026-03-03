@@ -1884,9 +1884,9 @@ func testGraphTraversalCacheable(t *testing.T, v lnwire.GossipVersion) {
 	}
 
 	for _, node := range nodes {
-		// Query the ChannelGraph which uses the cache to iterate
+		// Query the VersionedGraph which uses the cache to iterate
 		// through the channels for each node.
-		err = graph.ChannelGraph.ForEachNodeDirectedChannel(
+		err = graph.ForEachNodeDirectedChannel(
 			ctx, node, func(d *DirectedChannel) error {
 				delete(chanIndex, d.ChannelID)
 				return nil
@@ -3339,13 +3339,13 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 				chanSet := getRandChanSet()
 				var chanIDs []ChannelUpdateInfo
 
+				ver := lnwire.GossipVersion1
 				for _, c := range chanSet {
-					chanIDs = append(
-						chanIDs,
-						ChannelUpdateInfo{
-							ShortChannelID: c.id,
-						},
-					)
+					info := ChannelUpdateInfo{
+						ShortChannelID: c.id,
+						Version:        ver,
+					}
+					chanIDs = append(chanIDs, info)
 				}
 
 				_, err := graph.FilterKnownChanIDs(

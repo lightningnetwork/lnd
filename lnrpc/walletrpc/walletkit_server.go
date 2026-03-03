@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
@@ -1151,27 +1152,59 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 		return nil, err
 	}
 
+	var (
+		resultChan chan sweep.Result
+		status     string
+	)
+
 	// If this input exists, we will update its params.
 	if existing {
-		_, err = w.cfg.Sweeper.UpdateParams(*op, params)
+		resultChan, err = w.cfg.Sweeper.UpdateParams(*op, params)
 		if err != nil {
 			return nil, err
 		}
-
-		return &BumpFeeResponse{
-			Status: "Successfully registered rbf-tx with sweeper",
-		}, nil
+		status = "Successfully registered rbf-tx with sweeper"
+	} else {
+		// Otherwise, create a new sweeping request for this input.
+		resultChan, err = w.sweepNewInput(
+			op, uint32(currentHeight), params,
+		)
+		if err != nil {
+			return nil, err
+		}
+		status = "Successfully registered CPFP-tx with the sweeper"
 	}
 
-	// Otherwise, create a new sweeping request for this input.
-	err = w.sweepNewInput(op, uint32(currentHeight), params)
-	if err != nil {
-		return nil, err
+	response := &BumpFeeResponse{
+		Status: status,
 	}
 
-	return &BumpFeeResponse{
-		Status: "Successfully registered CPFP-tx with the sweeper",
-	}, nil
+	// If the caller requested the raw transaction, wait for the sweep
+	// result and extract the transaction hex.
+	if in.IncludeRawTx {
+		select {
+		case result := <-resultChan:
+			if result.Err != nil {
+				return nil, fmt.Errorf("sweep failed: %w",
+					result.Err)
+			}
+
+			if result.Tx != nil {
+				var buf bytes.Buffer
+				err := result.Tx.Serialize(&buf)
+				if err != nil {
+					return nil, fmt.Errorf("failed to "+
+						"serialize tx: %w", err)
+				}
+				response.RawTx = hex.EncodeToString(buf.Bytes())
+			}
+
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	return response, nil
 }
 
 // getWaitingCloseChannel returns the waiting close channel in case it does
@@ -1343,7 +1376,7 @@ func (w *WalletKit) BumpForceCloseFee(_ context.Context,
 //
 // NOTE: if the budget is not set, the default budget ratio is used.
 func (w *WalletKit) sweepNewInput(op *wire.OutPoint, currentHeight uint32,
-	params sweep.Params) error {
+	params sweep.Params) (chan sweep.Result, error) {
 
 	log.Debugf("Attempting to sweep outpoint %s", op)
 
@@ -1356,12 +1389,12 @@ func (w *WalletKit) sweepNewInput(op *wire.OutPoint, currentHeight uint32,
 	// order to sweep the output.
 	utxo, err := w.cfg.Wallet.FetchOutpointInfo(op)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// We're only able to bump the fee of unconfirmed transactions.
 	if utxo.Confirmations > 0 {
-		return errors.New("unable to bump fee of a confirmed " +
+		return nil, errors.New("unable to bump fee of a confirmed " +
 			"transaction")
 	}
 
@@ -1401,18 +1434,19 @@ func (w *WalletKit) sweepNewInput(op *wire.OutPoint, currentHeight uint32,
 		witnessType = input.TaprootPubKeySpend
 		signDesc.HashType = txscript.SigHashDefault
 	default:
-		return fmt.Errorf("unknown input witness %v", op)
+		return nil, fmt.Errorf("unknown input witness %v", op)
 	}
 
 	log.Infof("[BumpFee]: bumping fee for new input=%v, params=%v", op,
 		params)
 
 	inp := input.NewBaseInput(op, witnessType, signDesc, currentHeight)
-	if _, err = w.cfg.Sweeper.SweepInput(inp, params); err != nil {
-		return err
+	resultChan, err := w.cfg.Sweeper.SweepInput(inp, params)
+	if err != nil {
+		return nil, err
 	}
 
-	return nil
+	return resultChan, nil
 }
 
 // ListSweeps returns a list of the sweeps that our node has published.

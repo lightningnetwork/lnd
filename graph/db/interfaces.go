@@ -327,10 +327,11 @@ type Store interface { //nolint:interfacebloat
 	ChannelView(ctx context.Context) ([]EdgePoint, error)
 
 	// MarkEdgeZombie attempts to mark a channel identified by its channel
-	// ID as a zombie. This method is used on an ad-hoc basis, when channels
-	// need to be marked as zombies outside the normal pruning cycle.
-	MarkEdgeZombie(ctx context.Context, chanID uint64,
-		pubKey1, pubKey2 [33]byte) error
+	// ID as a zombie for the given gossip version. This method is used on
+	// an ad-hoc basis, when channels need to be marked as zombies outside
+	// the normal pruning cycle.
+	MarkEdgeZombie(ctx context.Context, v lnwire.GossipVersion,
+		chanID uint64, pubKey1, pubKey2 [33]byte) error
 
 	// MarkEdgeLive clears an edge from our zombie index for the given
 	// gossip version, deeming it as live.

@@ -4289,10 +4289,14 @@ func (c *KVStore) ChannelView(_ context.Context) ([]EdgePoint, error) {
 }
 
 // MarkEdgeZombie attempts to mark a channel identified by its channel ID as a
-// zombie. This method is used on an ad-hoc basis, when channels need to be
-// marked as zombies outside the normal pruning cycle.
-func (c *KVStore) MarkEdgeZombie(_ context.Context, chanID uint64,
-	pubKey1, pubKey2 [33]byte) error {
+// zombie for the given gossip version. This method is used on an ad-hoc basis,
+// when channels need to be marked as zombies outside the normal pruning cycle.
+func (c *KVStore) MarkEdgeZombie(_ context.Context, v lnwire.GossipVersion,
+	chanID uint64, pubKey1, pubKey2 [33]byte) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()

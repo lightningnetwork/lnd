@@ -510,28 +510,48 @@ func (b *Builder) isZombieChannel(e1,
 	return e1Zombie, e2Zombie, e1Zombie && e2Zombie
 }
 
-// IsZombieChannel takes the timestamps of the latest channel updates for a
-// channel and returns true if the channel should be considered a zombie based
-// on these timestamps.
-func (b *Builder) IsZombieChannel(updateTime1,
-	updateTime2 time.Time) bool {
-
+// IsZombieChannel returns true if the channel described by info should be
+// considered a zombie. For v1 channels, freshness is a unix timestamp; for v2+
+// channels it is a block height.
+func (b *Builder) IsZombieChannel(info graphdb.ChannelUpdateInfo) bool {
 	chanExpiry := b.cfg.ChannelPruneExpiry
 
-	e1Zombie := updateTime1.IsZero() ||
-		time.Since(updateTime1) >= chanExpiry
+	var e1Zombie, e2Zombie bool
 
-	e2Zombie := updateTime2.IsZero() ||
-		time.Since(updateTime2) >= chanExpiry
+	switch info.Version {
+	case lnwire.GossipVersion1:
+		t1 := info.Node1FreshnessTime()
+		t2 := info.Node2FreshnessTime()
 
-	// If we're using strict zombie pruning, then a channel is only
-	// considered live if both edges have a recent update we know of.
+		e1Zombie = t1.IsZero() || time.Since(t1) >= chanExpiry
+		e2Zombie = t2.IsZero() || time.Since(t2) >= chanExpiry
+
+	default:
+		expiryBlocks := uint32(chanExpiry / avgBitcoinBlockTime)
+		currentHeight := b.bestHeight.Load()
+
+		isBlockZombie := func(freshness lnwire.Timestamp) bool {
+			h, ok := freshness.(lnwire.BlockHeightTimestamp)
+			if !ok || uint32(h) == 0 {
+				return true
+			}
+
+			height := uint32(h)
+			if height > currentHeight {
+				return false
+			}
+
+			return currentHeight-height >= expiryBlocks
+		}
+
+		e1Zombie = isBlockZombie(info.Node1Freshness)
+		e2Zombie = isBlockZombie(info.Node2Freshness)
+	}
+
 	if b.cfg.StrictZombiePruning {
 		return e1Zombie || e2Zombie
 	}
 
-	// Otherwise, if we're using the less strict variant, then a channel is
-	// considered live if either of the edges have a recent update.
 	return e1Zombie && e2Zombie
 }
 

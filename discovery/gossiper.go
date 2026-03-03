@@ -380,10 +380,9 @@ type Config struct {
 	FindChannel func(node *btcec.PublicKey, chanID lnwire.ChannelID) (
 		*channeldb.OpenChannel, error)
 
-	// IsStillZombieChannel takes the timestamps of the latest channel
-	// updates for a channel and returns true if the channel should be
-	// considered a zombie based on these timestamps.
-	IsStillZombieChannel func(time.Time, time.Time) bool
+	// IsStillZombieChannel returns true if the channel described by info
+	// should still be considered a zombie.
+	IsStillZombieChannel func(graphdb.ChannelUpdateInfo) bool
 
 	// AssumeChannelValid toggles whether the gossiper will check for
 	// spent-ness of channel outpoints. For neutrino, this saves long

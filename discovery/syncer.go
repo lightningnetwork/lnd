@@ -284,10 +284,9 @@ type gossipSyncerCfg struct {
 	// for a single QueryChannelRange request.
 	maxQueryChanRangeReplies uint32
 
-	// isStillZombieChannel takes the timestamps of the latest channel
-	// updates for a channel and returns true if the channel should be
-	// considered a zombie based on these timestamps.
-	isStillZombieChannel func(time.Time, time.Time) bool
+	// isStillZombieChannel returns true if the channel described by info
+	// should still be considered a zombie.
+	isStillZombieChannel func(graphdb.ChannelUpdateInfo) bool
 
 	// timestampQueueSize is the size of the timestamp range queue. If not
 	// set, defaults to the global timestampQueueSize constant.
@@ -974,7 +973,9 @@ func (g *GossipSyncer) processChanRangeReply(_ context.Context,
 	g.prevReplyChannelRange = msg
 
 	for i, scid := range msg.ShortChanIDs {
-		info := graphdb.NewV1ChannelUpdateInfo(scid, time.Time{}, time.Time{})
+		info := graphdb.NewV1ChannelUpdateInfo(
+			scid, time.Time{}, time.Time{},
+		)
 
 		if len(msg.Timestamps) != 0 {
 			info.Node1Freshness = lnwire.UnixTimestamp(
@@ -1060,17 +1061,9 @@ func (g *GossipSyncer) processChanRangeReply(_ context.Context,
 
 	// Otherwise, this is the final response, so we'll now check to see
 	// which channels they know of that we don't.
-	// TODO(elle): isStillZombieChannel only inspects v1 time-based
-	// timestamps; once the gossip sync protocol supports v2, this
-	// should be updated to handle block-height freshness for v2
-	// channels.
-	isZombieChan := func(info graphdb.ChannelUpdateInfo) bool {
-		return g.cfg.isStillZombieChannel(
-			info.Node1FreshnessTime(), info.Node2FreshnessTime(),
-		)
-	}
 	newChans, err := g.cfg.channelSeries.FilterKnownChanIDs(
-		g.cfg.chainHash, g.bufferedChanRangeReplies, isZombieChan,
+		g.cfg.chainHash, g.bufferedChanRangeReplies,
+		g.cfg.isStillZombieChannel,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to filter chan ids: %w", err)

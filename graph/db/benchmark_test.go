@@ -348,8 +348,9 @@ func TestPopulateDBs(t *testing.T) {
 	// graph.
 	countNodes := func(graph *ChannelGraph) int {
 		numNodes := 0
-		err := graph.ForEachNode(
-			ctx, lnwire.GossipVersion1,
+		v1Graph := NewVersionedGraph(graph, lnwire.GossipVersion1)
+		err := v1Graph.ForEachNode(
+			ctx,
 			func(node *models.Node) error {
 				numNodes++
 
@@ -456,8 +457,8 @@ func syncGraph(t *testing.T, src, dest *ChannelGraph) {
 	}
 
 	var wgNodes sync.WaitGroup
-	v1 := lnwire.GossipVersion1
-	err := src.ForEachNode(ctx, v1, func(node *models.Node) error {
+	v1Src := NewVersionedGraph(src, lnwire.GossipVersion1)
+	err := v1Src.ForEachNode(ctx, func(node *models.Node) error {
 		wgNodes.Add(1)
 		go func() {
 			defer wgNodes.Done()

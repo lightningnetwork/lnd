@@ -322,10 +322,12 @@ type Store interface { //nolint:interfacebloat
 		*models.ChannelEdgePolicy, error)
 
 	// ChannelView returns the verifiable edge information for each active
-	// channel within the known channel graph. The set of UTXO's (along with
-	// their scripts) returned are the ones that need to be watched on chain
-	// to detect channel closes on the resident blockchain.
-	ChannelView(ctx context.Context) ([]EdgePoint, error)
+	// channel within the known channel graph for the given gossip version.
+	// The set of UTXO's (along with their scripts) returned are the ones
+	// that need to be watched on chain to detect channel closes on the
+	// resident blockchain.
+	ChannelView(ctx context.Context, v lnwire.GossipVersion) ([]EdgePoint,
+		error)
 
 	// MarkEdgeZombie attempts to mark a channel identified by its channel
 	// ID as a zombie for the given gossip version. This method is used on

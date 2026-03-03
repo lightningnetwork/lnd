@@ -625,14 +625,6 @@ func (c *ChannelGraph) ForEachNodeChannel(ctx context.Context,
 	return c.db.ForEachNodeChannel(ctx, v, nodePub, cb, reset)
 }
 
-// ForEachNode iterates through all stored vertices/nodes in the graph.
-func (c *ChannelGraph) ForEachNode(ctx context.Context,
-	v lnwire.GossipVersion, cb func(*models.Node) error,
-	reset func()) error {
-
-	return c.db.ForEachNode(ctx, v, cb, reset)
-}
-
 // ForEachNodeCacheable iterates through all stored vertices/nodes in the graph.
 func (c *ChannelGraph) ForEachNodeCacheable(ctx context.Context,
 	v lnwire.GossipVersion, cb func(route.Vertex,
@@ -656,14 +648,6 @@ func (c *ChannelGraph) HasV1Node(ctx context.Context,
 	nodePub [33]byte) (time.Time, bool, error) {
 
 	return c.db.HasV1Node(ctx, nodePub)
-}
-
-// IsPublicNode determines whether the node is seen as public in the graph for
-// the given gossip version.
-func (c *ChannelGraph) IsPublicNode(ctx context.Context,
-	v lnwire.GossipVersion, pubKey [33]byte) (bool, error) {
-
-	return c.db.IsPublicNode(ctx, v, pubKey)
 }
 
 // ForEachChannel iterates through all channel edges stored within the graph.
@@ -770,27 +754,6 @@ func (c *ChannelGraph) FetchChannelEdgesByID(ctx context.Context,
 	return c.db.FetchChannelEdgesByID(
 		ctx, lnwire.GossipVersion1, chanID,
 	)
-}
-
-// ChannelView returns the verifiable edge information for each active channel.
-func (c *ChannelGraph) ChannelView(ctx context.Context) ([]EdgePoint, error) {
-	return c.db.ChannelView(ctx)
-}
-
-// IsZombieEdge returns whether the edge is considered zombie for the given
-// gossip version.
-func (c *ChannelGraph) IsZombieEdge(ctx context.Context,
-	v lnwire.GossipVersion, chanID uint64) (bool, [33]byte, [33]byte,
-	error) {
-
-	return c.db.IsZombieEdge(ctx, v, chanID)
-}
-
-// NumZombies returns the current number of zombie channels in the graph.
-func (c *ChannelGraph) NumZombies(ctx context.Context,
-	v lnwire.GossipVersion) (uint64, error) {
-
-	return c.db.NumZombies(ctx, v)
 }
 
 // PutClosedScid stores a SCID for a closed channel in the database.
@@ -906,7 +869,7 @@ func (c *VersionedGraph) NodeUpdatesInHorizon(ctx context.Context,
 func (c *VersionedGraph) ChannelView(ctx context.Context) ([]EdgePoint,
 	error) {
 
-	return c.db.ChannelView(ctx)
+	return c.db.ChannelView(ctx, c.v)
 }
 
 // GraphSession provides the callback with access to a NodeTraverser instance
@@ -1014,23 +977,9 @@ func (c *VersionedGraph) SourceNode(ctx context.Context) (*models.Node,
 func (c *VersionedGraph) DeleteChannelEdges(ctx context.Context,
 	strictZombiePruning, markZombie bool, chanIDs ...uint64) error {
 
-	infos, err := c.db.DeleteChannelEdges(
+	return c.ChannelGraph.DeleteChannelEdges(
 		ctx, c.v, strictZombiePruning, markZombie, chanIDs...,
 	)
-	if err != nil {
-		return err
-	}
-
-	if c.graphCache != nil {
-		for _, info := range infos {
-			c.graphCache.RemoveChannel(
-				info.NodeKey1Bytes, info.NodeKey2Bytes,
-				info.ChannelID,
-			)
-		}
-	}
-
-	return err
 }
 
 // HasChannelEdge returns true if the database knows of a channel edge with the

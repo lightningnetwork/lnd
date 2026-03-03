@@ -204,6 +204,10 @@ var versionedTests = []versionedTest{
 		name: "fetch chan infos",
 		test: testFetchChanInfos,
 	},
+	{
+		name: "channel view",
+		test: testChannelView,
+	},
 }
 
 // TestVersionedDBs runs various tests against both v1 and v2 versioned
@@ -2151,12 +2155,12 @@ func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 
 func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
 	numNodes := 0
-	err := graph.ForEachNode(t.Context(), lnwire.GossipVersion1,
-		func(_ *models.Node) error {
-			numNodes++
+	v1Graph := NewVersionedGraph(graph, lnwire.GossipVersion1)
+	err := v1Graph.ForEachNode(t.Context(), func(_ *models.Node) error {
+		numNodes++
 
-			return nil
-		}, func() {})
+		return nil
+	}, func() {})
 	require.NoError(t, err)
 	require.Equal(t, n, numNodes)
 }
@@ -2275,9 +2279,11 @@ func TestGraphPruning(t *testing.T) {
 		require.NoError(t, graph.UpdateEdgePolicy(ctx, edge))
 	}
 
+	v1Graph := NewVersionedGraph(graph, lnwire.GossipVersion1)
+
 	// With all the channel points added, we'll consult the graph to ensure
 	// it has the same channel view as the one we just constructed.
-	channelView, err := graph.ChannelView(ctx)
+	channelView, err := v1Graph.ChannelView(ctx)
 	require.NoError(t, err, "unable to get graph channel view")
 	assertChanViewEqual(t, channelView, edgePoints)
 
@@ -2304,7 +2310,7 @@ func TestGraphPruning(t *testing.T) {
 	assertNumChans(t, graph, 2)
 
 	// Those channels should also be missing from the channel view.
-	channelView, err = graph.ChannelView(ctx)
+	channelView, err = v1Graph.ChannelView(ctx)
 	require.NoError(t, err, "unable to get graph channel view")
 	assertChanViewEqualChanPoints(t, channelView, channelPoints[2:])
 
@@ -2353,7 +2359,7 @@ func TestGraphPruning(t *testing.T) {
 	// Finally, the channel view at this point in the graph should now be
 	// completely empty.  Those channels should also be missing from the
 	// channel view.
-	channelView, err = graph.ChannelView(ctx)
+	channelView, err = v1Graph.ChannelView(ctx)
 	require.NoError(t, err, "unable to get graph channel view")
 	require.Empty(t, channelView)
 }
@@ -2956,10 +2962,9 @@ func TestFilterKnownChanIDsZombieRevival(t *testing.T) {
 		scid3 = lnwire.ShortChannelID{BlockHeight: 3}
 	)
 
+	v1Graph := NewVersionedGraph(graph, lnwire.GossipVersion1)
 	isZombie := func(scid lnwire.ShortChannelID) bool {
-		zombie, _, _, err := graph.IsZombieEdge(
-			ctx, lnwire.GossipVersion1, scid.ToUint64(),
-		)
+		zombie, _, _, err := v1Graph.IsZombieEdge(ctx, scid.ToUint64())
 		require.NoError(t, err)
 
 		return zombie
@@ -3830,6 +3835,52 @@ func testFetchChanInfos(t *testing.T, v lnwire.GossipVersion) {
 	}
 }
 
+// testChannelView tests that ChannelView returns the correct edge points for
+// each active channel in the graph.
+func testChannelView(t *testing.T, v lnwire.GossipVersion) {
+	t.Parallel()
+	ctx := t.Context()
+
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
+
+	// Initially the channel view should be empty.
+	channelView, err := graph.ChannelView(ctx)
+	require.NoError(t, err)
+	require.Empty(t, channelView)
+
+	// Add some nodes and a set of channels between them.
+	node1 := createTestVertex(t, v)
+	require.NoError(t, graph.AddNode(ctx, node1))
+	node2 := createTestVertex(t, v)
+	require.NoError(t, graph.AddNode(ctx, node2))
+
+	const numChans = 3
+	edgePoints := make([]EdgePoint, 0, numChans)
+	for i := 0; i < numChans; i++ {
+		edge, _ := createEdge(
+			v, uint32(i+1), 0, 0, uint32(i), node1, node2,
+		)
+		require.NoError(t, graph.AddChannelEdge(ctx, edge))
+
+		pkScript, err := edge.FundingPKScript()
+		require.NoError(t, err)
+
+		edgePoints = append(edgePoints, EdgePoint{
+			FundingPkScript: pkScript,
+			OutPoint: wire.OutPoint{
+				Hash:  rev,
+				Index: uint32(i),
+			},
+		})
+	}
+
+	// Fetch the channel view and ensure it matches the expected edge
+	// points.
+	channelView, err = graph.ChannelView(ctx)
+	require.NoError(t, err)
+	assertChanViewEqual(t, channelView, edgePoints)
+}
+
 // testIncompleteChannelPolicies tests that a channel that only has a policy
 // specified on one end is properly returned in ForEachChannel calls from
 // both sides.
@@ -4385,13 +4436,12 @@ func BenchmarkIsPublicNode(b *testing.B) {
 	// Use deterministic random number generator for reproducible results.
 	rng := prand.New(prand.NewSource(42))
 
+	v1Graph := NewVersionedGraph(graph, lnwire.GossipVersion1)
 	for b.Loop() {
 		// Query random nodes to avoid query caching and better
 		// represent real-world query patterns.
 		nodePub := nodes[rng.Intn(len(nodes))].PubKeyBytes
-		_, err := graph.IsPublicNode(
-			b.Context(), lnwire.GossipVersion1, nodePub,
-		)
+		_, err := v1Graph.IsPublicNode(b.Context(), nodePub)
 		require.NoError(b, err)
 	}
 }
@@ -4593,7 +4643,8 @@ func putSerializedPolicy(t *testing.T, db kvdb.Backend, from []byte,
 func assertNumZombies(t *testing.T, graph *ChannelGraph, expZombies uint64) {
 	t.Helper()
 
-	numZombies, err := graph.NumZombies(t.Context(), lnwire.GossipVersion1)
+	v1Graph := NewVersionedGraph(graph, lnwire.GossipVersion1)
+	numZombies, err := v1Graph.NumZombies(t.Context())
 	require.NoError(t, err, "unable to query number of zombies")
 	require.Equal(t, expZombies, numZombies)
 }
@@ -4620,11 +4671,11 @@ func TestGraphZombieIndex(t *testing.T) {
 	)
 	require.NoError(t, graph.AddChannelEdge(ctx, edge))
 
+	v1Graph := NewVersionedGraph(graph, lnwire.GossipVersion1)
+
 	// Since the edge is known the graph and it isn't a zombie, IsZombieEdge
 	// should not report the channel as a zombie.
-	isZombie, _, _, err := graph.IsZombieEdge(
-		ctx, lnwire.GossipVersion1, edge.ChannelID,
-	)
+	isZombie, _, _, err := v1Graph.IsZombieEdge(ctx, edge.ChannelID)
 	require.NoError(t, err)
 	require.False(t, isZombie)
 	assertNumZombies(t, graph, 0)
@@ -4635,8 +4686,8 @@ func TestGraphZombieIndex(t *testing.T) {
 		ctx, lnwire.GossipVersion1, false, true, edge.ChannelID,
 	)
 	require.NoError(t, err, "unable to mark edge as zombie")
-	isZombie, pubKey1, pubKey2, err := graph.IsZombieEdge(
-		ctx, lnwire.GossipVersion1, edge.ChannelID,
+	isZombie, pubKey1, pubKey2, err := v1Graph.IsZombieEdge(
+		ctx, edge.ChannelID,
 	)
 	require.NoError(t, err)
 	require.True(t, isZombie)
@@ -4658,9 +4709,7 @@ func TestGraphZombieIndex(t *testing.T) {
 		ErrZombieEdgeNotFound,
 	)
 
-	isZombie, _, _, err = graph.IsZombieEdge(
-		ctx, lnwire.GossipVersion1, edge.ChannelID,
-	)
+	isZombie, _, _, err = v1Graph.IsZombieEdge(ctx, edge.ChannelID)
 	require.NoError(t, err)
 	require.False(t, isZombie)
 
@@ -4674,9 +4723,7 @@ func TestGraphZombieIndex(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to mark edge as zombie")
 
-	isZombie, _, _, err = graph.IsZombieEdge(
-		ctx, lnwire.GossipVersion1, edge.ChannelID,
-	)
+	isZombie, _, _, err = v1Graph.IsZombieEdge(ctx, edge.ChannelID)
 	require.NoError(t, err)
 	require.True(t, isZombie)
 	assertNumZombies(t, graph, 1)

@@ -974,39 +974,38 @@ func (g *GossipSyncer) processChanRangeReply(_ context.Context,
 	g.prevReplyChannelRange = msg
 
 	for i, scid := range msg.ShortChanIDs {
-		info := graphdb.NewChannelUpdateInfo(
-			scid, lnwire.GossipVersion1, time.Time{}, time.Time{},
-		)
+		info := graphdb.NewV1ChannelUpdateInfo(scid, time.Time{}, time.Time{})
 
 		if len(msg.Timestamps) != 0 {
-			t1 := time.Unix(int64(msg.Timestamps[i].Timestamp1), 0)
-			info.Node1UpdateTimestamp = t1
+			info.Node1Freshness = lnwire.UnixTimestamp(
+				msg.Timestamps[i].Timestamp1,
+			)
 
+			info.Node2Freshness = lnwire.UnixTimestamp(
+				msg.Timestamps[i].Timestamp2,
+			)
+
+			t1 := time.Unix(int64(msg.Timestamps[i].Timestamp1), 0)
 			t2 := time.Unix(int64(msg.Timestamps[i].Timestamp2), 0)
-			info.Node2UpdateTimestamp = t2
 
 			// Sort out all channels with outdated or skewed
 			// timestamps. Both timestamps need to be out of
 			// boundaries for us to skip the channel and not query
 			// it later on.
 			switch {
-			case isStale(info.Node1UpdateTimestamp) &&
-				isStale(info.Node2UpdateTimestamp):
+			case isStale(t1) && isStale(t2):
 
 				continue
 
-			case isSkewed(info.Node1UpdateTimestamp) &&
-				isSkewed(info.Node2UpdateTimestamp):
+			case isSkewed(t1) && isSkewed(t2):
 
 				continue
 
-			case isStale(info.Node1UpdateTimestamp) &&
-				isSkewed(info.Node2UpdateTimestamp):
+			case isStale(t1) && isSkewed(t2):
 
 				continue
 
-			case isStale(info.Node2UpdateTimestamp) &&
-				isSkewed(info.Node1UpdateTimestamp):
+			case isStale(t2) && isSkewed(t1):
 
 				continue
 			}
@@ -1067,7 +1066,7 @@ func (g *GossipSyncer) processChanRangeReply(_ context.Context,
 	// channels.
 	isZombieChan := func(info graphdb.ChannelUpdateInfo) bool {
 		return g.cfg.isStillZombieChannel(
-			info.Node1UpdateTimestamp, info.Node2UpdateTimestamp,
+			info.Node1FreshnessTime(), info.Node2FreshnessTime(),
 		)
 	}
 	newChans, err := g.cfg.channelSeries.FilterKnownChanIDs(
@@ -1276,11 +1275,11 @@ func (g *GossipSyncer) replyChanRangeQuery(ctx context.Context,
 			}
 
 			timestamps[i].Timestamp1 = uint32(
-				info.Node1UpdateTimestamp.Unix(),
+				info.Node1FreshnessTime().Unix(),
 			)
 
 			timestamps[i].Timestamp2 = uint32(
-				info.Node2UpdateTimestamp.Unix(),
+				info.Node2FreshnessTime().Unix(),
 			)
 		}
 

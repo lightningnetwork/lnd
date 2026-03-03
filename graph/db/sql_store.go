@@ -1702,9 +1702,8 @@ func (s *SQLStore) FilterChannelRange(ctx context.Context, startHeight,
 			cid := lnwire.NewShortChanIDFromInt(
 				byteOrder.Uint64(dbChan.Scid),
 			)
-			chanInfo := NewChannelUpdateInfo(
-				cid, lnwire.GossipVersion1,
-				time.Time{}, time.Time{},
+			chanInfo := NewV1ChannelUpdateInfo(
+				cid, time.Time{}, time.Time{},
 			)
 
 			if !withTimestamps {
@@ -1728,8 +1727,8 @@ func (s *SQLStore) FilterChannelRange(ctx context.Context, startHeight,
 				return fmt.Errorf("unable to fetch node1 "+
 					"policy: %w", err)
 			} else if err == nil {
-				chanInfo.Node1UpdateTimestamp = time.Unix(
-					node1Policy.LastUpdate.Int64, 0,
+				chanInfo.Node1Freshness = lnwire.UnixTimestamp(
+					node1Policy.LastUpdate.Int64,
 				)
 			}
 
@@ -1745,8 +1744,8 @@ func (s *SQLStore) FilterChannelRange(ctx context.Context, startHeight,
 				return fmt.Errorf("unable to fetch node2 "+
 					"policy: %w", err)
 			} else if err == nil {
-				chanInfo.Node2UpdateTimestamp = time.Unix(
-					node2Policy.LastUpdate.Int64, 0,
+				chanInfo.Node2Freshness = lnwire.UnixTimestamp(
+					node2Policy.LastUpdate.Int64,
 				)
 			}
 

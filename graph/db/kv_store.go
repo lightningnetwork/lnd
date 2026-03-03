@@ -2767,40 +2767,76 @@ type ChannelUpdateInfo struct {
 	// Version is the gossip version of the channel.
 	Version lnwire.GossipVersion
 
-	// Node1UpdateTimestamp is the timestamp of the latest received update
-	// from the node 1 channel peer. This will be set to zero time if no
-	// update has yet been received from this node.
-	Node1UpdateTimestamp time.Time
+	// Node1Freshness is the update-ordering value of the latest received
+	// update from the node 1 channel peer. For v1 channels this is a
+	// lnwire.UnixTimestamp; for v2 channels it is a
+	// lnwire.BlockHeightTimestamp. A zero value means no update has been
+	// received from this node.
+	Node1Freshness lnwire.Timestamp
 
-	// Node2UpdateTimestamp is the timestamp of the latest received update
-	// from the node 2 channel peer. This will be set to zero time if no
-	// update has yet been received from this node.
-	Node2UpdateTimestamp time.Time
+	// Node2Freshness is the update-ordering value of the latest received
+	// update from the node 2 channel peer. For v1 channels this is a
+	// lnwire.UnixTimestamp; for v2 channels it is a
+	// lnwire.BlockHeightTimestamp. A zero value means no update has been
+	// received from this node.
+	Node2Freshness lnwire.Timestamp
 }
 
-// NewChannelUpdateInfo is a constructor which makes sure we initialize the
-// timestamps with zero seconds unix timestamp which equals
-// `January 1, 1970, 00:00:00 UTC` in case the value is `time.Time{}`.
-func NewChannelUpdateInfo(scid lnwire.ShortChannelID,
-	v lnwire.GossipVersion, node1Timestamp,
-	node2Timestamp time.Time) ChannelUpdateInfo {
+// NewV1ChannelUpdateInfo constructs a ChannelUpdateInfo for a v1 gossip
+// channel. The node timestamps are normalised to the unix epoch if zero.
+func NewV1ChannelUpdateInfo(scid lnwire.ShortChannelID,
+	node1Timestamp, node2Timestamp time.Time) ChannelUpdateInfo {
 
-	chanInfo := ChannelUpdateInfo{
-		ShortChannelID:       scid,
-		Version:              v,
-		Node1UpdateTimestamp: node1Timestamp,
-		Node2UpdateTimestamp: node2Timestamp,
-	}
-
+	node1Unix := lnwire.UnixTimestamp(node1Timestamp.Unix())
 	if node1Timestamp.IsZero() {
-		chanInfo.Node1UpdateTimestamp = time.Unix(0, 0)
+		node1Unix = 0
 	}
 
+	node2Unix := lnwire.UnixTimestamp(node2Timestamp.Unix())
 	if node2Timestamp.IsZero() {
-		chanInfo.Node2UpdateTimestamp = time.Unix(0, 0)
+		node2Unix = 0
 	}
 
-	return chanInfo
+	return ChannelUpdateInfo{
+		ShortChannelID: scid,
+		Version:        lnwire.GossipVersion1,
+		Node1Freshness: node1Unix,
+		Node2Freshness: node2Unix,
+	}
+}
+
+// NewV2ChannelUpdateInfo constructs a ChannelUpdateInfo for a v2 gossip
+// channel. A block height of zero means no update has been received from
+// the corresponding node.
+func NewV2ChannelUpdateInfo(scid lnwire.ShortChannelID,
+	node1BlockHeight, node2BlockHeight uint32) ChannelUpdateInfo {
+
+	return ChannelUpdateInfo{
+		ShortChannelID: scid,
+		Version:        lnwire.GossipVersion2,
+		Node1Freshness: lnwire.BlockHeightTimestamp(node1BlockHeight),
+		Node2Freshness: lnwire.BlockHeightTimestamp(node2BlockHeight),
+	}
+}
+
+// Node1FreshnessTime returns the v1 unix-time freshness for node 1's latest
+// update. It returns the zero time if the freshness is not a unix timestamp.
+func (c ChannelUpdateInfo) Node1FreshnessTime() time.Time {
+	if u, ok := c.Node1Freshness.(lnwire.UnixTimestamp); ok {
+		return time.Unix(int64(u), 0)
+	}
+
+	return time.Time{}
+}
+
+// Node2FreshnessTime returns the v1 unix-time freshness for node 2's latest
+// update. It returns the zero time if the freshness is not a unix timestamp.
+func (c ChannelUpdateInfo) Node2FreshnessTime() time.Time {
+	if u, ok := c.Node2Freshness.(lnwire.UnixTimestamp); ok {
+		return time.Unix(int64(u), 0)
+	}
+
+	return time.Time{}
 }
 
 // BlockChannelRange represents a range of channels for a given block height.
@@ -2878,8 +2914,8 @@ func (c *KVStore) FilterChannelRange(_ context.Context, startHeight,
 			rawCid := byteOrder.Uint64(k)
 			cid := lnwire.NewShortChanIDFromInt(rawCid)
 
-			chanInfo := NewChannelUpdateInfo(
-				cid, lnwire.GossipVersion1, time.Time{}, time.Time{},
+			chanInfo := NewV1ChannelUpdateInfo(
+				cid, time.Time{}, time.Time{},
 			)
 
 			if !withTimestamps {
@@ -2905,7 +2941,9 @@ func (c *KVStore) FilterChannelRange(_ context.Context, startHeight,
 					return err
 				}
 
-				chanInfo.Node1UpdateTimestamp = edge.LastUpdate
+				chanInfo.Node1Freshness = lnwire.UnixTimestamp(
+					edge.LastUpdate.Unix(),
+				)
 			}
 
 			rawPolicy = edges.Get(node2Key)
@@ -2920,7 +2958,9 @@ func (c *KVStore) FilterChannelRange(_ context.Context, startHeight,
 					return err
 				}
 
-				chanInfo.Node2UpdateTimestamp = edge.LastUpdate
+				chanInfo.Node2Freshness = lnwire.UnixTimestamp(
+					edge.LastUpdate.Unix(),
+				)
 			}
 
 			channelsPerBlock[cid.BlockHeight] = append(

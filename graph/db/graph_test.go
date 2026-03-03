@@ -2997,13 +2997,13 @@ func TestFilterKnownChanIDsZombieRevival(t *testing.T) {
 	_, err = graph.FilterKnownChanIDs(ctx, []ChannelUpdateInfo{
 		{ShortChannelID: scid1, Version: lnwire.GossipVersion1},
 		{
-			ShortChannelID:       scid2,
-			Version:              lnwire.GossipVersion1,
-			Node1UpdateTimestamp: time.Unix(1000, 0),
+			ShortChannelID: scid2,
+			Version:        lnwire.GossipVersion1,
+			Node1Freshness: lnwire.UnixTimestamp(1000),
 		},
 		{ShortChannelID: scid3, Version: lnwire.GossipVersion1},
 	}, func(info ChannelUpdateInfo) bool {
-		return !info.Node1UpdateTimestamp.Equal(time.Unix(1000, 0))
+		return info.Node1Freshness != lnwire.UnixTimestamp(1000)
 	})
 	require.NoError(t, err)
 
@@ -3066,8 +3066,8 @@ func TestFilterKnownChanIDs(t *testing.T) {
 		)
 		require.NoError(t, graph.AddChannelEdge(ctx, channel))
 
-		chanIDs = append(chanIDs, NewChannelUpdateInfo(
-			chanID, lnwire.GossipVersion1, time.Time{}, time.Time{},
+		chanIDs = append(chanIDs, NewV1ChannelUpdateInfo(
+			chanID, time.Time{}, time.Time{},
 		))
 	}
 
@@ -3563,13 +3563,11 @@ func TestFilterChannelRange(t *testing.T) {
 		)
 		require.NoError(t, graph.AddChannelEdge(ctx, channel2))
 
-		chanInfo1 := NewChannelUpdateInfo(
-			chanID1, lnwire.GossipVersion1,
-			time.Time{}, time.Time{},
+		chanInfo1 := NewV1ChannelUpdateInfo(
+			chanID1, time.Time{}, time.Time{},
 		)
-		chanInfo2 := NewChannelUpdateInfo(
-			chanID2, lnwire.GossipVersion1,
-			time.Time{}, time.Time{},
+		chanInfo2 := NewV1ChannelUpdateInfo(
+			chanID2, time.Time{}, time.Time{},
 		)
 		channelRanges = append(channelRanges, BlockChannelRange{
 			Height: chanHeight,
@@ -3585,12 +3583,8 @@ func TestFilterChannelRange(t *testing.T) {
 			time4 = maybeAddPolicy(channel2.ChannelID, node2, true)
 		)
 
-		chanInfo1 = NewChannelUpdateInfo(
-			chanID1, lnwire.GossipVersion1, time1, time2,
-		)
-		chanInfo2 = NewChannelUpdateInfo(
-			chanID2, lnwire.GossipVersion1, time3, time4,
-		)
+		chanInfo1 = NewV1ChannelUpdateInfo(chanID1, time1, time2)
+		chanInfo2 = NewV1ChannelUpdateInfo(chanID2, time3, time4)
 		channelRangesWithTimestamps = append(
 			channelRangesWithTimestamps, BlockChannelRange{
 				Height: chanHeight,

@@ -107,10 +107,6 @@ type Querier interface {
 	GetClosedChannelsSCIDs(ctx context.Context, scids [][]byte) ([][]byte, error)
 	GetDatabaseVersion(ctx context.Context) (int32, error)
 	GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]GraphNodeExtraType, error)
-	// This method may return more than one invoice if filter using multiple fields
-	// from different invoices. It is the caller's responsibility to ensure that
-	// we bubble up an error in those cases.
-	GetInvoice(ctx context.Context, arg GetInvoiceParams) ([]Invoice, error)
 	GetInvoiceByAddr(ctx context.Context, paymentAddr []byte) (Invoice, error)
 	GetInvoiceByHash(ctx context.Context, hash []byte) (Invoice, error)
 	// TODO(ziggie): This query can only return one invoice if the set_id is

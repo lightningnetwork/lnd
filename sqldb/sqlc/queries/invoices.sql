@@ -29,31 +29,6 @@ SELECT *
 FROM invoice_features
 WHERE invoice_id = $1;
 
--- This method may return more than one invoice if filter using multiple fields
--- from different invoices. It is the caller's responsibility to ensure that 
--- we bubble up an error in those cases.
-
--- name: GetInvoice :many
-SELECT i.*
-FROM invoices i
-LEFT JOIN amp_sub_invoices a 
-ON i.id = a.invoice_id
-AND (
-    a.set_id = sqlc.narg('set_id') OR sqlc.narg('set_id') IS NULL
-)
-WHERE (
-    i.id = sqlc.narg('add_index') OR 
-    sqlc.narg('add_index') IS NULL
-) AND (
-    i.hash = sqlc.narg('hash') OR 
-    sqlc.narg('hash') IS NULL
-) AND (
-    i.payment_addr = sqlc.narg('payment_addr') OR 
-    sqlc.narg('payment_addr') IS NULL
-)
-GROUP BY i.id
-LIMIT 2;
-
 -- name: GetInvoiceByHash :one
 SELECT i.*
 FROM invoices i

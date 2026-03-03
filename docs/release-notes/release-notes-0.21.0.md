@@ -185,6 +185,14 @@
   invalid lengths, including roundtrip tests for Fee, Musig2Nonce,
   ShortChannelID and Vertex records.
 
+* [Made ChanStatusManager tests
+  deterministic](https://github.com/lightningnetwork/lnd/pull/10623) by
+  replacing wall-clock timing with injectable clock and ticker interfaces. This
+  eliminates flaky test failures under CPU contention by using explicit time
+  control instead of `time.Sleep` and real-time waits. A dedicated no-op `Sync`
+  method was added to the manager's event loop for side-effect-free test
+  synchronization.
+
 ## Database
 
 * Freeze the [graph SQL migration 

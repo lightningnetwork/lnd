@@ -3505,7 +3505,9 @@ func TestFilterChannelRange(t *testing.T) {
 
 	// If we try to filter a channel range before we have any channels
 	// inserted, we should get an empty slice of results.
-	resp, err := graph.FilterChannelRange(ctx, 10, 100, false)
+	resp, err := graph.FilterChannelRange(
+		ctx, lnwire.GossipVersion1, 10, 100, false,
+	)
 	require.NoError(t, err)
 	require.Empty(t, resp)
 
@@ -3676,7 +3678,8 @@ func TestFilterChannelRange(t *testing.T) {
 
 			// First, do the query without requesting timestamps.
 			resp, err := graph.FilterChannelRange(
-				ctx, test.startHeight, test.endHeight, false,
+				ctx, lnwire.GossipVersion1, test.startHeight,
+				test.endHeight, false,
 			)
 			require.NoError(t, err)
 
@@ -3690,7 +3693,8 @@ func TestFilterChannelRange(t *testing.T) {
 
 			// Now, query the timestamps as well.
 			resp, err = graph.FilterChannelRange(
-				ctx, test.startHeight, test.endHeight, true,
+				ctx, lnwire.GossipVersion1, test.startHeight,
+				test.endHeight, true,
 			)
 			require.NoError(t, err)
 
@@ -3702,6 +3706,29 @@ func TestFilterChannelRange(t *testing.T) {
 				require.Equal(t, expRes, resp)
 			}
 		})
+	}
+}
+
+// TestFilterChannelRangeVersionGuard checks that FilterChannelRange correctly
+// handles version-specific requests. For gossip v1, the KV store returns
+// results as normal; for v2, the KV store returns
+// ErrVersionNotSupportedForKVDB while the SQL store returns empty results
+// (a v2-aware query is a follow-up).
+func TestFilterChannelRangeVersionGuard(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	store := NewTestDB(t)
+
+	_, err := store.FilterChannelRange(
+		ctx, lnwire.GossipVersion2, 0, 1000, false,
+	)
+
+	// The KV store does not support v2 and must return the sentinel error.
+	// The SQL store accepts any known version (returning empty results
+	// since no v2 channels have been added).
+	if err != nil {
+		require.ErrorIs(t, err, ErrVersionNotSupportedForKVDB)
 	}
 }
 

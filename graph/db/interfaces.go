@@ -273,15 +273,15 @@ type Store interface { //nolint:interfacebloat
 		error)
 
 	// FilterChannelRange returns the channel ID's of all known channels
-	// which were mined in a block height within the passed range. The
-	// channel IDs are grouped by their common block height. This method can
-	// be used to quickly share with a peer the set of channels we know of
-	// within a particular range to catch them up after a period of time
-	// offline. If withTimestamps is true then the timestamp info of the
-	// latest received channel update messages of the channel will be
-	// included in the response.
-	FilterChannelRange(ctx context.Context, startHeight,
-		endHeight uint32,
+	// which were mined in a block height within the passed range for the
+	// given gossip version. The channel IDs are grouped by their common
+	// block height. This method can be used to quickly share with a peer
+	// the set of channels we know of within a particular range to catch
+	// them up after a period of time offline. If withTimestamps is true
+	// then the timestamp info of the latest received channel update
+	// messages of the channel will be included in the response.
+	FilterChannelRange(ctx context.Context, v lnwire.GossipVersion,
+		startHeight, endHeight uint32,
 		withTimestamps bool) ([]BlockChannelRange, error)
 
 	// FetchChanInfos returns the set of channel edges that correspond to

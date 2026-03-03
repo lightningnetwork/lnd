@@ -1664,8 +1664,9 @@ func (s *SQLStore) ForEachChannel(ctx context.Context,
 // will be included in the response.
 //
 // NOTE: This is part of the Store interface.
-func (s *SQLStore) FilterChannelRange(ctx context.Context, startHeight,
-	endHeight uint32, withTimestamps bool) ([]BlockChannelRange, error) {
+func (s *SQLStore) FilterChannelRange(ctx context.Context,
+	v lnwire.GossipVersion, startHeight, endHeight uint32,
+	withTimestamps bool) ([]BlockChannelRange, error) {
 
 	var (
 		startSCID = &lnwire.ShortChannelID{
@@ -1687,6 +1688,7 @@ func (s *SQLStore) FilterChannelRange(ctx context.Context, startHeight,
 	//    and add those timestamps to the collected channel.
 	channelsPerBlock := make(map[uint32][]ChannelUpdateInfo)
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		// TODO(elle): replace with a version-aware query.
 		dbChans, err := db.GetPublicV1ChannelsBySCID(
 			ctx, sqlc.GetPublicV1ChannelsBySCIDParams{
 				StartScid: chanIDStart,
@@ -1699,6 +1701,10 @@ func (s *SQLStore) FilterChannelRange(ctx context.Context, startHeight,
 		}
 
 		for _, dbChan := range dbChans {
+			if v != lnwire.GossipVersion(dbChan.Version) {
+				continue
+			}
+
 			cid := lnwire.NewShortChanIDFromInt(
 				byteOrder.Uint64(dbChan.Scid),
 			)
@@ -1718,7 +1724,7 @@ func (s *SQLStore) FilterChannelRange(ctx context.Context, startHeight,
 			//nolint:ll
 			node1Policy, err := db.GetChannelPolicyByChannelAndNode(
 				ctx, sqlc.GetChannelPolicyByChannelAndNodeParams{
-					Version:   int16(lnwire.GossipVersion1),
+					Version:   int16(v),
 					ChannelID: dbChan.ID,
 					NodeID:    dbChan.NodeID1,
 				},
@@ -1735,7 +1741,7 @@ func (s *SQLStore) FilterChannelRange(ctx context.Context, startHeight,
 			//nolint:ll
 			node2Policy, err := db.GetChannelPolicyByChannelAndNode(
 				ctx, sqlc.GetChannelPolicyByChannelAndNodeParams{
-					Version:   int16(lnwire.GossipVersion1),
+					Version:   int16(v),
 					ChannelID: dbChan.ID,
 					NodeID:    dbChan.NodeID2,
 				},

@@ -717,13 +717,25 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(ctx context.Context,
 	return c.db.ChanUpdatesInHorizon(ctx, startTime, endTime, opts...)
 }
 
-// FilterChannelRange returns channel IDs within the passed block height range.
+// FilterChannelRange returns channel IDs within the passed block height range
+// for the given gossip version.
 func (c *ChannelGraph) FilterChannelRange(ctx context.Context,
-	startHeight, endHeight uint32, withTimestamps bool) (
-	[]BlockChannelRange, error) {
+	v lnwire.GossipVersion, startHeight, endHeight uint32,
+	withTimestamps bool) ([]BlockChannelRange, error) {
 
 	return c.db.FilterChannelRange(
-		ctx, startHeight, endHeight, withTimestamps,
+		ctx, v, startHeight, endHeight, withTimestamps,
+	)
+}
+
+// FilterChannelRange returns channel IDs within the passed block height range
+// for this graph's gossip version.
+func (c *VersionedGraph) FilterChannelRange(ctx context.Context,
+	startHeight, endHeight uint32,
+	withTimestamps bool) ([]BlockChannelRange, error) {
+
+	return c.db.FilterChannelRange(
+		ctx, c.v, startHeight, endHeight, withTimestamps,
 	)
 }
 

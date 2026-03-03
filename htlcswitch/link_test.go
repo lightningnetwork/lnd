@@ -445,6 +445,122 @@ func TestChannelLinkSigThenRev(t *testing.T) {
 	ctx.receiveRevAndAckAliceToBob()
 }
 
+// TestChannelLinkFailDuringRestart tests that the link fails (force-closing
+// the channel) if the commit dance is not completed after sharing the
+// update_fee and one of the peers restarts before completion.
+//
+// Specifically, this tests the following scenario:
+//
+//	Alice                    Bob
+//	----update_fee----->
+//	-----commit_sig---->
+//	<--revoke_and_ack----
+//	==== restart node ====
+//	<-----commit_sig----
+//	==== force close ====
+func TestChannelLinkFailDuringRestart(t *testing.T) {
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+
+	harness, err := newSingleLinkTestHarness(t, chanAmt, 0)
+	require.NoError(t, err)
+
+	err = harness.start()
+	require.NoError(t, err)
+	defer harness.aliceLink.Stop()
+
+	alice := newPersistentLinkHarness(
+		t, harness.aliceSwitch, harness.aliceLink,
+		harness.aliceBatchTicker, harness.aliceRestore,
+	)
+	alice.coreLink.markReestablished()
+
+	// ----update_fee----->
+	// -----commit_sig---->
+	err = alice.coreLink.updateChannelFee(t.Context(), 85727)
+	require.NoError(t, err)
+
+	// Bob receive update_fee.
+	select {
+	case msg := <-alice.msgs:
+		updateFee := msg.(*lnwire.UpdateFee)
+		harness.bobChannel.ReceiveUpdateFee(
+			chainfee.SatPerKWeight(updateFee.FeePerKw),
+		)
+	case <-time.After(5 * time.Second):
+		t.Fatalf("did not receive update_fee message")
+	}
+
+	// Bob receive commit_sig, respond with revoke_and_ack.
+	select {
+	case msg := <-alice.msgs:
+		commitSig := msg.(*lnwire.CommitSig)
+
+		err = harness.bobChannel.ReceiveNewCommitment(&lnwallet.CommitSigs{
+			CommitSig:  commitSig.CommitSig,
+			HtlcSigs:   commitSig.HtlcSigs,
+			PartialSig: commitSig.PartialSig,
+		})
+		require.NoError(t, err)
+
+		// <--revoke_and_ack----
+		nextRevocation, _, _, err := harness.bobChannel.RevokeCurrentCommitment()
+		require.NoError(t, err)
+		harness.aliceLink.HandleChannelUpdate(nextRevocation)
+
+		// Bob will generate a commit sig, but this message will not be
+		// received by Alice, and before that, one of the sides restarts
+		harness.bobChannel.SignNextCommitment(t.Context())
+
+	case <-time.After(5 * time.Second):
+		t.Fatalf("did not receive commit_sig message")
+	}
+
+	// ==== restart node ====
+	// Restart Alice so she sends and accepts ChannelReestablish.
+	alice.restart(true, true)
+
+	// Restart Bob by re-instantiating NewLightningChannel.
+	bobSigner := harness.bobChannel.Signer
+	signerMock := lnwallet.NewDefaultAuxSignerMock(t)
+	bobPool := lnwallet.NewSigPool(runtime.NumCPU(), bobSigner)
+	bobChannel, err := lnwallet.NewLightningChannel(
+		bobSigner, harness.bobChannel.State(), bobPool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(signerMock),
+	)
+	require.NoError(t, err)
+	err = bobPool.Start()
+	require.NoError(t, err)
+
+	// <--channel_reestablish--
+	bobReest, err := bobChannel.State().ChanSyncMsg()
+	require.NoError(t, err)
+	alice.coreLink.HandleChannelUpdate(bobReest)
+
+	// --channel_reestablish-->
+	// Bob processes Alice's reestablish and re-sends commit_sig.
+	// Alice then force-closes upon receiving the commit_sig, which should
+	// not happen, indicating a bug.
+	select {
+	case msg := <-alice.msgs:
+		reestMsg, ok := msg.(*lnwire.ChannelReestablish)
+		require.True(t, ok)
+
+		msgsToReSend, _, _, err := bobChannel.ProcessChanSyncMsg(
+			t.Context(), reestMsg,
+		)
+		require.NoError(t, err)
+
+		// <-----commit_sig----
+		// ==== force close ====
+		alice.coreLink.HandleChannelUpdate(msgsToReSend[0])
+		time.Sleep(5 * time.Second)
+
+	case <-time.After(5 * time.Second):
+		t.Fatalf("did not receive channel_reestablish message")
+	}
+}
+
 // TestChannelLinkSingleHopPayment in this test we checks the interaction
 // between Alice and Bob within scope of one channel.
 func TestChannelLinkSingleHopPayment(t *testing.T) {
@@ -4905,9 +5021,10 @@ func (h *persistentLinkHarness) restartLink(
 		},
 		FetchLastChannelUpdate: mockGetChanUpdateMessage,
 		PreimageCache:          pCache,
-		OnChannelFailure: func(lnwire.ChannelID,
-			lnwire.ShortChannelID, LinkFailureError) {
+		OnChannelFailure: func(_ lnwire.ChannelID,
+			_ lnwire.ShortChannelID, linkErr LinkFailureError) {
 
+			require.NotEqual(t, linkErr.FailureAction, LinkFailureForceClose)
 		},
 		UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 			return nil

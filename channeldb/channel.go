@@ -3423,18 +3423,14 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 		// Persist the unsigned acked updates that are not included
 		// in their new commitment.
 		updateBytes := chanBucket.Get(unsignedAckedUpdatesKey)
-		if updateBytes == nil {
-			// This shouldn't normally happen as we always store
-			// the number of updates, but could still be
-			// encountered by nodes that are upgrading.
-			newRemoteCommit = &newCommit.Commitment
-			return nil
-		}
 
-		r := bytes.NewReader(updateBytes)
-		unsignedUpdates, err := deserializeLogUpdates(r)
-		if err != nil {
-			return err
+		var unsignedUpdates []LogUpdate
+		if updateBytes != nil {
+			r := bytes.NewReader(updateBytes)
+			unsignedUpdates, err = deserializeLogUpdates(r)
+			if err != nil {
+				return err
+			}
 		}
 
 		var validUpdates []LogUpdate

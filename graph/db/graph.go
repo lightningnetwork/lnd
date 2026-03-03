@@ -345,11 +345,13 @@ func (c *ChannelGraph) AddChannelEdge(ctx context.Context,
 	return nil
 }
 
-// MarkEdgeLive clears an edge from our zombie index, deeming it as live.
-// If the cache is enabled, the edge will be added back to the graph cache if
-// we still have a record of this channel in the DB.
-func (c *ChannelGraph) MarkEdgeLive(ctx context.Context, chanID uint64) error {
-	err := c.db.MarkEdgeLive(ctx, chanID)
+// MarkEdgeLive clears an edge from our zombie index for the given gossip
+// version, deeming it as live. If the cache is enabled, the edge will be added
+// back to the graph cache if we still have a record of this channel in the DB.
+func (c *ChannelGraph) MarkEdgeLive(ctx context.Context,
+	v lnwire.GossipVersion, chanID uint64) error {
+
+	err := c.db.MarkEdgeLive(ctx, v, chanID)
 	if err != nil {
 		return err
 	}
@@ -357,9 +359,7 @@ func (c *ChannelGraph) MarkEdgeLive(ctx context.Context, chanID uint64) error {
 	if c.graphCache != nil {
 		// We need to add the channel back into our graph cache,
 		// otherwise we won't use it for path finding.
-		infos, err := c.db.FetchChanInfos(
-			ctx, lnwire.GossipVersion1, []uint64{chanID},
-		)
+		infos, err := c.db.FetchChanInfos(ctx, v, []uint64{chanID})
 		if err != nil {
 			return err
 		}
@@ -554,7 +554,8 @@ func (c *ChannelGraph) FilterKnownChanIDs(ctx context.Context,
 		// alive, and we let it be added to the set of IDs to query our
 		// peer for.
 		err := c.db.MarkEdgeLive(
-			ctx, info.ShortChannelID.ToUint64(),
+			ctx, lnwire.GossipVersion1,
+			info.ShortChannelID.ToUint64(),
 		)
 		// Since there is a chance that the edge could have been marked
 		// as "live" between the FilterKnownChanIDs call and the

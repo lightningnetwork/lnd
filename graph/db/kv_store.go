@@ -4291,8 +4291,15 @@ func markEdgeZombie(zombieIndex kvdb.RwBucket, chanID uint64, pubKey1,
 	return zombieIndex.Put(k[:], v[:])
 }
 
-// MarkEdgeLive clears an edge from our zombie index, deeming it as live.
-func (c *KVStore) MarkEdgeLive(_ context.Context, chanID uint64) error {
+// MarkEdgeLive clears an edge from our zombie index for the given gossip
+// version, deeming it as live.
+func (c *KVStore) MarkEdgeLive(_ context.Context, v lnwire.GossipVersion,
+	chanID uint64) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
+
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
 

@@ -1450,11 +1450,14 @@ func (b *Builder) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 	return false
 }
 
-// MarkEdgeLive clears an edge from our zombie index, deeming it as live.
+// MarkEdgeLive clears an edge from our zombie index for the given gossip
+// version, deeming it as live.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) MarkEdgeLive(chanID lnwire.ShortChannelID) error {
+func (b *Builder) MarkEdgeLive(v lnwire.GossipVersion,
+	chanID lnwire.ShortChannelID) error {
+
 	return b.cfg.Graph.MarkEdgeLive(
-		context.TODO(), chanID.ToUint64(),
+		context.TODO(), v, chanID.ToUint64(),
 	)
 }

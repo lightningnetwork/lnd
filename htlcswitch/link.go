@@ -2196,7 +2196,6 @@ func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) RemoteBandwidth() lnwire.MilliSatoshi {
-	// Get the balance available for the remote party for new HTLCs.
 	return l.channel.RemoteAvailableBalance()
 }
 

@@ -2,6 +2,7 @@ package funding
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -5102,4 +5104,85 @@ func TestFundingManagerCoinbase(t *testing.T) {
 	// Check that they notify the breach arbiter and peer about the new
 	// channel.
 	assertHandleChannelReady(t, alice, bob)
+}
+
+// TestChannelReadyUnknownChannelID tests that when the funding manager
+// receives channel_ready messages with unknown ChannelIDs, they are handled
+// inline in the coordinator without accumulating goroutines. After processing
+// a batch of such messages, the coordinator should remain responsive for
+// legitimate funding operations.
+func TestChannelReadyUnknownChannelID(t *testing.T) {
+	t.Parallel()
+
+	// Track how many times FindChannel is called to verify that all bogus
+	// messages are indeed processed (and not silently dropped).
+	var findChannelCalls atomic.Uint64
+
+	alice, bob := setupFundingManagers(
+		t, func(cfg *Config) {
+			origFindChannel := cfg.FindChannel
+			cfg.FindChannel = func(
+				node *btcec.PublicKey,
+				chanID lnwire.ChannelID,
+			) (*channeldb.OpenChannel, error) {
+
+				findChannelCalls.Add(1)
+
+				return origFindChannel(node, chanID)
+			}
+		},
+	)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	// Record the goroutine count before sending any messages.
+	startGoroutines := runtime.NumGoroutine()
+
+	// Send a batch of channel_ready messages with random (bogus)
+	// ChannelIDs to Alice from Bob. These should all be processed inline
+	// in the coordinator since none of them have a corresponding
+	// localDiscoverySignal.
+	const numBogusMessages = 100
+	for i := 0; i < numBogusMessages; i++ {
+		var randomChanID lnwire.ChannelID
+		_, err := rand.Read(randomChanID[:])
+		require.NoError(t, err)
+
+		bogusMsg := &lnwire.ChannelReady{
+			ChanID:                 randomChanID,
+			NextPerCommitmentPoint: bobAddr.IdentityKey,
+		}
+		alice.fundingMgr.ProcessFundingMsg(bogusMsg, bob)
+	}
+
+	// The fundingMsgs channel has a buffer, so we need to wait for all
+	// messages to actually be consumed by the coordinator. We verify this
+	// by checking that FindChannel was called for each message.
+	err := wait.NoError(func() error {
+		calls := findChannelCalls.Load()
+		if calls < numBogusMessages {
+			return fmt.Errorf("FindChannel called %d times, "+
+				"want %d", calls, numBogusMessages)
+		}
+
+		return nil
+	}, time.Second*15)
+	require.NoError(t, err)
+
+	// Verify that goroutine count hasn't grown significantly. Since the
+	// messages are handled inline, we should not see a goroutine for
+	// each message.
+	endGoroutines := runtime.NumGoroutine()
+	goroutineGrowth := endGoroutines - startGoroutines
+	require.Less(t, goroutineGrowth, numBogusMessages/2,
+		"goroutine count grew unexpectedly, messages may not be "+
+			"processed inline")
+
+	// Verify the coordinator is still responsive by opening a new
+	// channel. If the coordinator were stalled, this would time out.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	openChannel(
+		t, alice, bob, 500000, 0, 1, updateChan, true, nil,
+	)
 }

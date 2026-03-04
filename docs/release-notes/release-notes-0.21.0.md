@@ -234,6 +234,12 @@
 
 ## Tooling and Documentation
 
+* [Overhauled Docker documentation and environment](https://github.com/lightningnetwork/lnd/pull/10461)
+  to modernize the developer onboarding flow. Key updates include migrating 
+  to Docker Compose V2, updating base images (btcd v0.25.0, Go 1.25.5), 
+  and transitioning the documentation to focus on a more reliable "Simnet" 
+  workflow while removing obsolete faucet references.
+
 # Contributors (Alphabetical Order)
 
 * bitromortac

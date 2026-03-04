@@ -1,7 +1,6 @@
 # If you change this please also update GO_VERSION in Makefile (then run
 # `make lint` to see where else it needs to be updated as well).
-ARG GO_VERSION=1.25.5
-FROM golang:${GO_VERSION}-alpine AS builder
+FROM golang:1.25.5-alpine AS builder
 
 LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
 

@@ -139,7 +139,7 @@ type SQLStoreConfig struct {
 }
 
 // NewSQLStore creates a new SQLStore instance given an open
-// BatchedSQLPaymentsQueries storage backend.
+// BatchedSQLQueries storage backend.
 func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries,
 	options ...OptionModifier) (*SQLStore, error) {
 

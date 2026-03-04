@@ -1791,7 +1791,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	// Create liveness monitor.
 	err = s.createLivenessMonitor(ctx, cfg, cc, leaderElector)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to create liveness monitor: %w",
+			err)
 	}
 
 	listeners := make([]net.Listener, len(listenAddrs))

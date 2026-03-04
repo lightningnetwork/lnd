@@ -417,12 +417,13 @@ func (m *mockUpdateHandler) MayAddOutgoingHtlc(lnwire.MilliSatoshi) error { retu
 type mockMessageConn struct {
 	t *testing.T
 
-	// MessageConn embeds our interface so that the mock does not need to
-	// implement every function. The mock will panic if an unspecified function
-	// is called.
+	// MessageConn embeds our interface so that
+	// the mock does not need to implement every function.
+	// The mock will panic if an unspecifiedfunction is called.
 	MessageConn
 
-	// writtenMessages is a channel that our mock pushes written messages into.
+	// writtenMessages is a channel that our mock pushes written messages
+	// into.
 	writtenMessages chan []byte
 
 	readMessages   chan []byte

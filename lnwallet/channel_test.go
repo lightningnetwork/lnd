@@ -5752,25 +5752,81 @@ func TestChanRemoteAvailableBalance(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create test channels")
 
+	// Verify available balances against independently hand-computed
+	// expected values.
+	//
+	// The available balance for the initiator must account for the
+	// commitment fee difference after adding a new HTLC output, plus
+	// the reserve. The responder only pays the reserve.
+	aliceBalance := aliceChannel.channelState.LocalCommitment.LocalBalance
+	bobBalance := aliceChannel.channelState.LocalCommitment.RemoteBalance
+	aliceCommitFee := aliceChannel.channelState.LocalCommitment.CommitFee
+
+	aliceReserve := lnwire.NewMSatFromSatoshis(
+		aliceChannel.channelState.LocalChanCfg.ChanReserve,
+	)
+	bobReserve := lnwire.NewMSatFromSatoshis(
+		bobChannel.channelState.LocalChanCfg.ChanReserve,
+	)
+
+	feeRate := chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	)
+	commitWeight := CommitWeight(channeldb.SingleFunderTweaklessBit)
+	feeBuffer := CalcFeeBuffer(feeRate, commitWeight+input.HTLCWeight)
+
+	// Alice is the initiator, so she pays the commitment fees and has a
+	// fee buffer.
+	aliceCommitMSat := lnwire.NewMSatFromSatoshis(aliceCommitFee)
+	expectedAliceBalance := aliceBalance + aliceCommitMSat -
+		aliceReserve - feeBuffer
+
+	// Bob is the responder, so he only pays the reserve.
+	expectedBobBalance := bobBalance - bobReserve
+
+	// Assert Alice's AvailableBalance matches expected.
+	require.Equal(t, expectedAliceBalance, aliceChannel.AvailableBalance(),
+		"Alice's available balance does not match expected")
+
+	// Assert Alice's RemoteAvailableBalance (which is Bob's available
+	// balance) matches expected.
+	require.Equal(
+		t, expectedBobBalance, aliceChannel.RemoteAvailableBalance(),
+		"Alice's view of Bob's balance does not match expected",
+	)
+
+	// Assert Bob's AvailableBalance matches expected.
+	require.Equal(t, expectedBobBalance, bobChannel.AvailableBalance(),
+		"Bob's available balance does not match expected")
+
+	// Assert Bob's RemoteAvailableBalance (which is Alice's available
+	// balance) matches expected.
+	require.Equal(
+		t, expectedAliceBalance, bobChannel.RemoteAvailableBalance(),
+		"Bob's view of Alice's balance does not match expected",
+	)
+
 	assertRemoteBandwidthEstimateCorrect := func() {
 		t.Helper()
 
 		// Query the RemoteAvailableBalance from Alice's PoV.
 		// This should be what Bob can send.
-		aliceRemoteAvailableBalance := aliceChannel.RemoteAvailableBalance()
+		aliceRemoteBalance := aliceChannel.RemoteAvailableBalance()
 
 		// Query the AvailableBalance from Bob's PoV.
 		bobAvailableBalance := bobChannel.AvailableBalance()
 
-		require.Equal(t, bobAvailableBalance, aliceRemoteAvailableBalance,
-			"Alice's view of Bob's balance should match Bob's own view")
+		require.Equal(t, bobAvailableBalance, aliceRemoteBalance,
+			"Alice's view of Bob's balance should match "+
+				"Bob's own view")
 
 		// Also check from Bob's PoV.
-		bobRemoteAvailableBalance := bobChannel.RemoteAvailableBalance()
+		bobRemoteBalance := bobChannel.RemoteAvailableBalance()
 		aliceAvailableBalance := aliceChannel.AvailableBalance()
 
-		require.Equal(t, aliceAvailableBalance, bobRemoteAvailableBalance,
-			"Bob's view of Alice's balance should match Alice's own view")
+		require.Equal(t, aliceAvailableBalance, bobRemoteBalance,
+			"Bob's view of Alice's balance should match "+
+				"Alice's own view")
 	}
 
 	// Initially, both should be correct.

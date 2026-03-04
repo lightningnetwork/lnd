@@ -4683,12 +4683,13 @@ type Channel struct {
 	Memo string `protobuf:"bytes,36,opt,name=memo,proto3" json:"memo,omitempty"`
 	// Custom channel data that might be populated in custom channels.
 	CustomChannelData []byte `protobuf:"bytes,37,opt,name=custom_channel_data,json=customChannelData,proto3" json:"custom_channel_data,omitempty"`
-	// The amount of funds in milli-satoshis that can be sent in the channel.
-	// This takes into account the channel reserve and any commitment fees.
+	// The amount of funds in milli-satoshis that we can send in the channel,
+	// net of reserve and commitment fees. This field is only populated if the
+	// channel is active (has an active link).
 	LocalSpendableMsat int64 `protobuf:"varint,38,opt,name=local_spendable_msat,json=localSpendableMsat,proto3" json:"local_spendable_msat,omitempty"`
-	// The amount of funds in milli-satoshis that the remote party can send in
-	// the channel. This takes into account the channel reserve and any
-	// commitment fees.
+	// The amount of funds in milli-satoshis that the remote party can send to
+	// us (i.e., our inbound capacity), net of reserve and commitment fees.
+	// This field is only populated if the channel is active (has an active link).
 	RemoteSpendableMsat int64 `protobuf:"varint,39,opt,name=remote_spendable_msat,json=remoteSpendableMsat,proto3" json:"remote_spendable_msat,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache

@@ -93,12 +93,7 @@ func BenchmarkSqliteMaxConns(b *testing.B) {
 				hash := hashes[i%numInvoices]
 				i++
 
-				_, err := store.GetInvoice(
-					ctx,
-					sqlc.GetInvoiceParams{
-						Hash: hash,
-					},
-				)
+				_, err := store.GetInvoiceByHash(ctx, hash)
 				if err != nil {
 					require.ErrorIs(b, err, sql.ErrNoRows)
 				}
@@ -182,11 +177,8 @@ func BenchmarkSqliteMaxConnsConcurrentReads(b *testing.B) {
 						defer wg.Done()
 
 						hash := hashes[g%numInvoices]
-						_, err := store.GetInvoice(
-							ctx,
-							sqlc.GetInvoiceParams{
-								Hash: hash,
-							},
+						_, err := store.GetInvoiceByHash(
+							ctx, hash,
 						)
 						if err != nil &&
 							err != sql.ErrNoRows {

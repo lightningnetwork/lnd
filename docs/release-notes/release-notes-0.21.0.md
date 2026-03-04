@@ -195,7 +195,8 @@
     [2](https://github.com/lightningnetwork/lnd/pull/10379)
     [3](https://github.com/lightningnetwork/lnd/pull/10380)
     [4](https://github.com/lightningnetwork/lnd/pull/10542),
-    [5](https://github.com/lightningnetwork/lnd/pull/10572).
+    [5](https://github.com/lightningnetwork/lnd/pull/10572),
+    [6](https://github.com/lightningnetwork/lnd/pull/10582).
 
 * Payment Store SQL implementation and migration project:
   * Introduce an [abstract payment 

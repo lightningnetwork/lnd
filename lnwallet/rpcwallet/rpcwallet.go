@@ -908,6 +908,11 @@ func (r *RPCKeyRing) MuSig2CombineSig(sessionID input.MuSig2SessionID,
 	return finalSig, resp.HaveAllSignatures, nil
 }
 
+// Ping verifies that the remote signer is still responsive.
+func (r *RPCKeyRing) Ping(ctx context.Context, timeout time.Duration) error {
+	return r.remoteSignerConn.Ping(ctx, timeout)
+}
+
 // MuSig2Cleanup removes a session from memory to free up resources.
 func (r *RPCKeyRing) MuSig2Cleanup(sessionID input.MuSig2SessionID) error {
 	req := &signrpc.MuSig2CleanupRequest{

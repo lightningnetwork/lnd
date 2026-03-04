@@ -2009,10 +2009,20 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 	// If remote signing is enabled, add the healthcheck for the remote
 	// signing RPC interface.
 	if s.cfg.RemoteSigner.Enable {
-		rpckKeyRing, ok := cc.Wc.(*rpcwallet.RPCKeyRing)
+		// remoteSignerPinger is a local interface added to keep
+		// dependencies narrow: for the liveness probe we only need
+		// the ability to ping the remote signer, which is done through
+		// the rpcwallet.RPCKeyRing.Ping function. Avoiding a concrete
+		// *rpcwallet.RPCKeyRing dependency keeps WalletController
+		// encapsulation intact.
+		type remoteSignerPinger interface {
+			Ping(context.Context, time.Duration) error
+		}
+
+		rsPinger, ok := cc.Wc.(remoteSignerPinger)
 		if !ok {
 			return errors.New("incorrect WalletController type, " +
-				"expected *rpcwallet.RPCKeyRing")
+				"expected remote signer pinger")
 		}
 
 		innerTimeout := cfg.HealthChecks.RemoteSigner.Timeout
@@ -2026,11 +2036,11 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 			"remote signer connection",
 			rpcwallet.HealthCheck(
 				ctx,
-				rpckKeyRing.RemoteSignerConnection(),
 				// For the health check we might to be even
 				// stricter than the initial/normal connect, so
 				// we use the health check timeout.
 				innerTimeout,
+				rsPinger.Ping,
 			),
 			cfg.HealthChecks.RemoteSigner.Interval,
 			outerTimeout,

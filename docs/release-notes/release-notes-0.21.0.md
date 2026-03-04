@@ -149,6 +149,13 @@
   only the parameters it actually needs and uses a direct `ORDER BY`, allowing
   the planner to perform efficient index range scans on the invoice table.
 
+*  [Fix full table scans on the HTLC settlement 
+    hot path](https://github.com/lightningnetwork/lnd/pull/10619).
+    Replace the catch-all `GetInvoice` query (which used `OR $1 IS NULL`
+    predicates that forced full table scans) with three dedicated queries
+    targeting uniquely-constrained columns. Also drop four redundant indexes 
+    that duplicated UNIQUE constraints or were never used as query filters.
+
 ## Deprecations
 
 ### ⚠️ **Warning:** The deprecated fee rate option `--sat_per_byte` will be removed in release version **0.22**

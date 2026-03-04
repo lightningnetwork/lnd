@@ -16,8 +16,9 @@ cd $DIR
 compose_up
 
 # Ensure that the cluster is shut down when the script exits
-# regardless of success
-trap compose_down EXIT
+# regardless of success. Logs are collected first so they are
+# available for CI artifact upload after the cluster is torn down.
+trap 'collect_logs; compose_down' EXIT
 
 # Set up the network.
 setup_network

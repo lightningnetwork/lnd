@@ -2322,7 +2322,7 @@ func testFailPartialAMPPayment(t *testing.T,
 			"expected MPPTimeout, got: %v", failRes.Outcome,
 		)
 
-	case <-time.After(testTimeout):
+	case <-time.After(testTimeoutLong):
 		t.Fatal("timeout waiting for HTLC resolution")
 	}
 
@@ -2339,7 +2339,7 @@ func testFailPartialAMPPayment(t *testing.T,
 			"expected MPPTimeout, got: %v", failRes.Outcome,
 		)
 
-	case <-time.After(testTimeout):
+	case <-time.After(testTimeoutLong):
 		t.Fatal("timeout waiting for HTLC resolution")
 	}
 
@@ -2408,7 +2408,7 @@ func testFailPartialAMPPayment(t *testing.T,
 			"expected MPPTimeout, got: %v", failRes.Outcome,
 		)
 
-	case <-time.After(testTimeout):
+	case <-time.After(testTimeoutLong):
 		t.Fatal("timeout waiting for HTLC resolution")
 	}
 

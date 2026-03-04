@@ -11,9 +11,9 @@ const (
 	// through RPC.
 	DefaultRemoteSignerRPCTimeout = 5 * time.Second
 
-	// DefaultRequestTimeout is the default timeout used for requests to and
-	// from the remote signer.
-	DefaultRequestTimeout = 5 * time.Second
+	// DefaultRemoteSignerRequestTimeout is the default timeout used for
+	// requests to and from the remote signer.
+	DefaultRemoteSignerRequestTimeout = 5 * time.Second
 )
 
 // RemoteSigner holds the configuration options for how to connect to a remote
@@ -114,7 +114,7 @@ type ConnectionCfg struct {
 func defaultConnectionCfg() ConnectionCfg {
 	return ConnectionCfg{
 		Timeout:        DefaultRemoteSignerRPCTimeout,
-		RequestTimeout: DefaultRequestTimeout,
+		RequestTimeout: DefaultRemoteSignerRequestTimeout,
 	}
 }
 

@@ -1057,8 +1057,7 @@ func (f *Manager) reservationCoordinator() {
 				f.funderProcessFundingSigned(fmsg.peer, msg)
 
 			case *lnwire.ChannelReady:
-				f.wg.Add(1)
-				go f.handleChannelReady(fmsg.peer, msg)
+				f.handleChannelReady(fmsg.peer, msg)
 
 			case *lnwire.Warning:
 				f.handleWarningMsg(fmsg.peer, msg)
@@ -3650,7 +3649,7 @@ func (f *Manager) receivedChannelReady(node *btcec.PublicKey,
 	}
 
 	// Finally, the barrier signal is removed once we finish
-	// `handleChannelReady`. If we can still find the signal, we haven't
+	// `processChannelReady`. If we can still find the signal, we haven't
 	// finished processing it yet.
 	_, loaded := f.handleChannelReadyBarriers.Load(chanID)
 
@@ -4038,10 +4037,8 @@ func genFirstStateMusigNonce(channel *channeldb.OpenChannel,
 
 // handleChannelReady finalizes the channel funding process and enables the
 // channel to enter normal operating mode.
-func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
+func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 	msg *lnwire.ChannelReady) {
-
-	defer f.wg.Done()
 
 	// Notify the aux hook that the specified peer just established a
 	// channel with us, identified by the given channel ID.
@@ -4050,6 +4047,66 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 			acn.ProcessChannelReady(msg.ChanID, peer.PubKey())
 		},
 	)
+
+	log.Debugf("Received ChannelReady for ChannelID(%v) from "+
+		"peer %x", msg.ChanID,
+		peer.IdentityKey().SerializeCompressed())
+
+	// We now load or create a new channel barrier for this channel. If
+	// we are currently in the process of handling a channel_ready message
+	// for this channel, ignore the duplicate.
+	_, loaded := f.handleChannelReadyBarriers.LoadOrStore(
+		msg.ChanID, struct{}{},
+	)
+	if loaded {
+		log.Infof("Already handling channelReady for "+
+			"ChannelID(%v), ignoring.", msg.ChanID)
+		return
+	}
+
+	// Check whether we need to wait for the local funding confirmation flow
+	// to finish before we can proceed with this message. The
+	// localDiscoverySignal is only present for channels that we are
+	// actively funding and is bounded by the maximum number of pending
+	// channels.
+	localDiscoverySignal, ok := f.localDiscoverySignals.Load(msg.ChanID)
+	if ok {
+		f.wg.Add(1)
+		go func() {
+			defer f.wg.Done()
+			defer f.handleChannelReadyBarriers.Delete(
+				msg.ChanID,
+			)
+
+			// Wait for the local waitForFundingConfirmation
+			// goroutine to signal that it has the necessary state
+			// in place. Otherwise, we may be missing critical
+			// information required to handle forwarded HTLC's.
+			select {
+			case <-localDiscoverySignal:
+			case <-f.quit:
+				return
+			}
+
+			f.localDiscoverySignals.Delete(msg.ChanID)
+			f.processChannelReady(peer, msg)
+		}()
+
+		return
+	}
+
+	// No signal wait needed, process the message inline within the
+	// coordinator.
+	defer f.handleChannelReadyBarriers.Delete(msg.ChanID)
+	f.processChannelReady(peer, msg)
+}
+
+// processChannelReady completes the channel_ready handling after any required
+// signal waits. It looks up the channel in the database and finalizes the
+// funding flow by inserting the remote party's next revocation point and
+// handing the channel off to the peer for normal operation.
+func (f *Manager) processChannelReady(peer lnpeer.Peer,
+	msg *lnwire.ChannelReady) {
 
 	// If we are in development mode, we'll wait for specified duration
 	// before processing the channel ready message.
@@ -4068,51 +4125,10 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 		}
 	}
 
-	log.Debugf("Received ChannelReady for ChannelID(%v) from "+
-		"peer %x", msg.ChanID,
-		peer.IdentityKey().SerializeCompressed())
-
-	// We now load or create a new channel barrier for this channel.
-	_, loaded := f.handleChannelReadyBarriers.LoadOrStore(
-		msg.ChanID, struct{}{},
-	)
-
-	// If we are currently in the process of handling a channel_ready
-	// message for this channel, ignore.
-	if loaded {
-		log.Infof("Already handling channelReady for "+
-			"ChannelID(%v), ignoring.", msg.ChanID)
-		return
-	}
-
-	// If not already handling channelReady for this channel, then the
-	// `LoadOrStore` has set up a barrier, and it will be removed once this
-	// function exits.
-	defer f.handleChannelReadyBarriers.Delete(msg.ChanID)
-
-	localDiscoverySignal, ok := f.localDiscoverySignals.Load(msg.ChanID)
-	if ok {
-		// Before we proceed with processing the channel_ready
-		// message, we'll wait for the local waitForFundingConfirmation
-		// goroutine to signal that it has the necessary state in
-		// place. Otherwise, we may be missing critical information
-		// required to handle forwarded HTLC's.
-		select {
-		case <-localDiscoverySignal:
-			// Fallthrough
-		case <-f.quit:
-			return
-		}
-
-		// With the signal received, we can now safely delete the entry
-		// from the map.
-		f.localDiscoverySignals.Delete(msg.ChanID)
-	}
-
-	// First, we'll attempt to locate the channel whose funding workflow is
-	// being finalized by this message. We go to the database rather than
-	// our reservation map as we may have restarted, mid funding flow. Also
-	// provide the node's public key to make the search faster.
+	// We'll attempt to locate the channel whose funding workflow is being
+	// finalized by this message. We go to the database rather than our
+	// reservation map as we may have restarted mid funding flow. The
+	// node's public key is provided to scope the search.
 	chanID := msg.ChanID
 	channel, err := f.cfg.FindChannel(peer.IdentityKey(), chanID)
 	if err != nil {
@@ -4137,7 +4153,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 	// during invoice creation. In the zero-conf case, it is also used to
 	// provide a ChannelUpdate to the remote peer. This is done before the
 	// call to InsertNextRevocation in case the call to PutPeerAlias fails.
-	// If it were to fail on the first call to handleChannelReady, we
+	// If it were to fail on the first call to processChannelReady, we
 	// wouldn't want the channel to be usable yet.
 	if channel.NegotiatedAliasFeature() {
 		// If the AliasScid field is nil, we must fail out. We will

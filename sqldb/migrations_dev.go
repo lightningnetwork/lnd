@@ -2,34 +2,9 @@
 
 package sqldb
 
-var migrationAdditions = []MigrationConfig{
-	{
-		Name:          "000010_payments",
-		Version:       12,
-		SchemaVersion: 10,
-	},
-	{
-		Name:          "000011_payment_duplicates",
-		Version:       13,
-		SchemaVersion: 11,
-	},
-	{
-		Name:          "kv_payments_migration",
-		Version:       14,
-		SchemaVersion: 11,
-		// A migration function may be attached to this
-		// migration to migrate KV payments to the native SQL
-		// schema. This is optional and can be disabled by the
-		// user if necessary.
-	},
-	{
-		Name:          "000012_drop_redundant_invoice_indexes",
-		Version:       15,
-		SchemaVersion: 12,
-	},
-	{
-		Name:          "000013_payments_index_improvements",
-		Version:       16,
-		SchemaVersion: 13,
-	},
-}
+// migrationAdditions is a list of migrations that are added to the
+// migrationConfig slice.
+//
+// NOTE: This should always be empty as all migrations are now included in the
+// main line (see migrations.go).
+var migrationAdditions []MigrationConfig

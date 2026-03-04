@@ -168,7 +168,9 @@ type mockServer struct {
 
 var _ lnpeer.Peer = (*mockServer)(nil)
 
-func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) {
+func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (
+	*Switch, error) {
+
 	signAliasUpdate := func(u *lnwire.ChannelUpdate1) (*ecdsa.Signature,
 		error) {
 
@@ -446,10 +448,11 @@ func (o *mockObfuscator) IntermediateEncrypt(reason lnwire.OpaqueReason) lnwire.
 	return reason
 }
 
-func (o *mockObfuscator) EncryptMalformedError(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
+func (o *mockObfuscator) EncryptMalformedError(
+	reason lnwire.OpaqueReason) lnwire.OpaqueReason {
+
 	var b bytes.Buffer
 	b.Write(fakeHmac)
-
 	b.Write(reason)
 
 	return b.Bytes()
@@ -929,7 +932,8 @@ func (f *mockChannelLink) Bandwidth() lnwire.MilliSatoshi {
 	return 99999999
 }
 
-// RemoteBandwidth returns a hardcoded amount of milli-satoshis for the mock link.
+// RemoteBandwidth returns a hardcoded amount of milli-satoshis for
+// the mock link.
 //
 // NOTE: Part of the ChannelLink interface.
 func (f *mockChannelLink) RemoteBandwidth() lnwire.MilliSatoshi {

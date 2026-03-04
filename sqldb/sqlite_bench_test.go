@@ -15,6 +15,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// getInvoiceByHashForBench fetches an invoice by hash and reports any
+// error except sql.ErrNoRows (expected when the invoice doesn't exist).
+func getInvoiceByHashForBench(b *testing.B, store *SqliteStore,
+	ctx context.Context, hash []byte) {
+
+	_, err := store.GetInvoiceByHash(ctx, hash)
+	if err != nil {
+		require.ErrorIs(b, err, sql.ErrNoRows)
+	}
+}
+
 // BenchmarkSqliteMaxConns benchmarks sequential reads against a SQLite
 // database with varying MaxConnections settings.
 //
@@ -92,11 +103,7 @@ func BenchmarkSqliteMaxConns(b *testing.B) {
 			for b.Loop() {
 				hash := hashes[i%numInvoices]
 				i++
-
-				_, err := store.GetInvoiceByHash(ctx, hash)
-				if err != nil {
-					require.ErrorIs(b, err, sql.ErrNoRows)
-				}
+				getInvoiceByHashForBench(b, store, ctx, hash)
 			}
 		})
 	}
@@ -173,20 +180,13 @@ func BenchmarkSqliteMaxConnsConcurrentReads(b *testing.B) {
 				wg.Add(goroutines)
 
 				for g := range goroutines {
-					go func() {
+					hash := hashes[g%numInvoices]
+					go func(h []byte) {
 						defer wg.Done()
-
-						hash := hashes[g%numInvoices]
-						_, err := store.GetInvoiceByHash(
-							ctx, hash,
+						getInvoiceByHashForBench(
+							b, store, ctx, h,
 						)
-						if err != nil &&
-							err != sql.ErrNoRows {
-
-							b.Errorf("GetInvoice:"+
-								" %v", err)
-						}
-					}()
+					}(hash)
 				}
 
 				wg.Wait()

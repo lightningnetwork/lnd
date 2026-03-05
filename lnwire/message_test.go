@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -308,13 +309,13 @@ func newMsgWarning(tb testing.TB, r io.Reader) *lnwire.Warning {
 	return msg
 }
 
-func newMsgInit(t testing.TB, r io.Reader) *lnwire.Init {
+func newMsgInit(t testing.TB, r *rand.Rand) *lnwire.Init {
 	t.Helper()
 
 	return &lnwire.Init{
 		GlobalFeatures: rawFeatureVector(),
 		Features:       rawFeatureVector(),
-		ExtraData:      createExtraData(t, r),
+		ExtraData:      createValidTLVExtraData(t, r),
 	}
 }
 
@@ -476,7 +477,7 @@ func newMsgShutdown(t testing.TB, r *rand.Rand) *lnwire.Shutdown {
 
 	msg := &lnwire.Shutdown{
 		Address:   randDeliveryAddress(t, r),
-		ExtraData: createExtraData(t, r),
+		ExtraData: createValidTLVExtraData(t, r),
 	}
 
 	_, err := r.Read(msg.ChannelID[:])
@@ -507,7 +508,7 @@ func newMsgUpdateAddHTLC(t testing.TB, r *rand.Rand) *lnwire.UpdateAddHTLC {
 		ID:        r.Uint64(),
 		Amount:    lnwire.MilliSatoshi(r.Int63()),
 		Expiry:    r.Uint32(),
-		ExtraData: createExtraData(t, r),
+		ExtraData: createValidTLVExtraData(t, r),
 	}
 
 	_, err := r.Read(msg.ChanID[:])
@@ -529,7 +530,7 @@ func newMsgUpdateFulfillHTLC(t testing.TB,
 
 	msg := &lnwire.UpdateFulfillHTLC{
 		ID:        r.Uint64(),
-		ExtraData: createExtraData(t, r),
+		ExtraData: createValidTLVExtraData(t, r),
 	}
 
 	_, err := r.Read(msg.ChanID[:])
@@ -555,7 +556,7 @@ func newMsgUpdateFailHTLC(t testing.TB, r *rand.Rand) *lnwire.UpdateFailHTLC {
 	return msg
 }
 
-func newMsgCommitSig(t testing.TB, r io.Reader) *lnwire.CommitSig {
+func newMsgCommitSig(t testing.TB, r *rand.Rand) *lnwire.CommitSig {
 	t.Helper()
 
 	msg := lnwire.NewCommitSig()
@@ -564,7 +565,7 @@ func newMsgCommitSig(t testing.TB, r io.Reader) *lnwire.CommitSig {
 	require.NoError(t, err, "unable to generate chan id")
 
 	msg.CommitSig = testNodeSig
-	msg.ExtraData = createExtraData(t, r)
+	msg.ExtraData = createValidTLVExtraData(t, r)
 
 	msg.HtlcSigs = make([]lnwire.Sig, testNumSigs)
 	for i := 0; i < testNumSigs; i++ {
@@ -657,7 +658,7 @@ func newMsgChannelAnnouncement(t testing.TB,
 		NodeID2:         randRawKey(t),
 		BitcoinKey1:     randRawKey(t),
 		BitcoinKey2:     randRawKey(t),
-		ExtraOpaqueData: createExtraData(t, r),
+		ExtraOpaqueData: createValidTLVExtraData(t, r),
 		NodeSig1:        testNodeSig,
 		NodeSig2:        testNodeSig,
 		BitcoinSig1:     testNodeSig,
@@ -686,7 +687,7 @@ func newMsgNodeAnnouncement(t testing.TB,
 		},
 		NodeID:          randRawKey(t),
 		Addresses:       randAddrs(t, r),
-		ExtraOpaqueData: createExtraData(t, r),
+		ExtraOpaqueData: createValidTLVExtraData(t, r),
 		Signature:       testNodeSig,
 	}
 
@@ -1063,4 +1064,38 @@ func createExtraData(t testing.TB, r io.Reader) []byte {
 	binary.BigEndian.PutUint16(extraData[:2], uint16(len(extraData[2:])))
 
 	return extraData
+}
+
+// createValidTLVExtraData creates a valid, canonically-ordered TLV stream
+// suitable for use as ExtraData in messages whose Encode methods re-parse
+// ExtraData as TLV. Unlike createExtraData which generates raw random bytes,
+// this produces properly encoded TLV records with monotonically increasing
+// types.
+func createValidTLVExtraData(t testing.TB, r *rand.Rand) []byte {
+	t.Helper()
+
+	// Generate between 1 and 4 TLV records with strictly increasing
+	// types and random values.
+	numRecords := r.Intn(4) + 1
+	records := make([]tlv.Record, 0, numRecords)
+	tlvType := tlv.Type(r.Intn(100) + 1)
+
+	for i := 0; i < numRecords; i++ {
+		val := make([]byte, r.Intn(20)+1)
+		_, err := r.Read(val)
+		require.NoError(t, err, "unable to generate tlv value")
+
+		records = append(
+			records, tlv.MakePrimitiveRecord(tlvType, &val),
+		)
+
+		// Ensure strictly increasing types.
+		tlvType += tlv.Type(r.Intn(100) + 1)
+	}
+
+	// Encode the records.
+	encoded, err := lnwire.EncodeRecords(records)
+	require.NoError(t, err, "unable to encode tlv records")
+
+	return encoded
 }

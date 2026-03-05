@@ -251,7 +251,7 @@ var client = new lnrpc.WalletUnlocker(WATCH_ONLY_RPC_HOSTPORT, sslCreds);
 
 client.initWallet({
     wallet_password: Buffer.from(WATCH_ONLY_WALLET_PASSWORD, 'utf-8'),
-    recovery_window: 2500,
+    recovery_window: 31000,
     watch_only: {
         accounts: [
         {

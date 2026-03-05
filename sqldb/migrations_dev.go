@@ -27,4 +27,9 @@ var migrationAdditions = []MigrationConfig{
 		Version:       15,
 		SchemaVersion: 12,
 	},
+	{
+		Name:          "000013_payments_index_improvements",
+		Version:       16,
+		SchemaVersion: 13,
+	},
 }

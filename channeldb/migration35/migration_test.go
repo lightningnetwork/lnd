@@ -69,8 +69,8 @@ func makeHappyPathSetup() (func(tx kvdb.RwTx) error,
 		isRemote:           true,
 	}
 
-	key1 := proof1.Key()
-	key2 := proof2.Key()
+	legacyKey1 := proof1.LegacyKey()
+	legacyKey2 := proof2.LegacyKey()
 
 	before := func(tx kvdb.RwTx) error {
 		bucket, err := tx.CreateTopLevelBucket(waitingProofsBucketKey)
@@ -78,17 +78,17 @@ func makeHappyPathSetup() (func(tx kvdb.RwTx) error,
 			return err
 		}
 
-		err = bucket.Put(key1[:], encodeLegacyProof(proof1))
+		err = bucket.Put(legacyKey1[:], encodeLegacyProof(proof1))
 		if err != nil {
 			return err
 		}
 
-		return bucket.Put(key2[:], encodeLegacyProof(proof2))
+		return bucket.Put(legacyKey2[:], encodeLegacyProof(proof2))
 	}
 
 	expected := map[waitingProofKey]*waitingProof{
-		key1: proof1,
-		key2: proof2,
+		proof1.Key(): proof1,
+		proof2.Key(): proof2,
 	}
 
 	after := func(tx kvdb.RwTx) error {
@@ -116,6 +116,18 @@ func makeHappyPathSetup() (func(tx kvdb.RwTx) error,
 			}
 		}
 
+		if bucket.Get(legacyKey1[:]) != nil {
+			return fmt.Errorf(
+				"legacy key %x still exists", legacyKey1,
+			)
+		}
+
+		if bucket.Get(legacyKey2[:]) != nil {
+			return fmt.Errorf(
+				"legacy key %x still exists", legacyKey2,
+			)
+		}
+
 		return nil
 	}
 
@@ -131,7 +143,7 @@ func makeKeyMismatchSetup() (func(tx kvdb.RwTx) error,
 		announceSignatures: newAnnSig(15, 4),
 		isRemote:           false,
 	}
-	wrongKey := waitingProofKey{}
+	wrongKey := legacyWaitingProofKey{}
 	binary.BigEndian.PutUint64(wrongKey[:8], 99)
 
 	before := func(tx kvdb.RwTx) error {

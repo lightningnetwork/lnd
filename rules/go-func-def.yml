@@ -1,0 +1,56 @@
+# Go function definition formatting rules.
+# Based on docs/development_guidelines.md.
+#
+# These rules detect improper wrapping patterns in function definitions.
+
+# Rule: Function parameters ending with dangling comma before close paren.
+id: func-def-dangling-param-comma
+language: go
+severity: warning
+message: "Function parameters should not end with dangling comma before close paren"
+note: |
+  Per docs/development_guidelines.md: Function definition wrapping should
+  continue parameters on the next line, not leave a dangling comma.
+
+  WRONG:
+    func foo(a, b, c,
+    ) (d, error) {
+
+  RIGHT:
+    func foo(a, b,
+        c) (d, error) {
+rule:
+  kind: function_declaration
+  all:
+    # Has parameters that end with comma-newline-close-paren-open-paren (for returns)
+    - regex: ",\\s*\\n\\s*\\)\\s*\\("
+---
+# Rule: Function return types starting with open paren on its own line.
+id: func-def-dangling-return-paren
+language: go
+severity: warning
+message: "Function return types should not start with open paren on its own line"
+note: |
+  Per docs/development_guidelines.md: Return type wrapping should continue
+  on the same line, not start a new line with open paren.
+
+  WRONG:
+    func bar(a, b, c) (
+        d, error,
+    ) {
+
+  RIGHT:
+    func baz(a, b, c) (d,
+        error) {
+rule:
+  kind: function_declaration
+  all:
+    # Return type starts with close-paren-open-paren-newline
+    - regex: "\\)\\s*\\(\\s*\\n"
+# NOTE: The "multi-line function needs blank line before body" rule is disabled.
+# It's difficult to implement correctly with ast-grep because:
+# 1. The regex matches ANY block inside the function (switch, if, etc.), not
+#    just the function's opening brace
+# 2. AST doesn't represent blank lines as nodes - they're only in text
+# 3. The rule would need to match the exact position of text after the {
+# This is a style hint in the guidelines, not a hard requirement.

@@ -779,7 +779,7 @@ var interfaceImpls = []struct {
 			// Wait until the node has fully synced up to the local
 			// btcd node.
 			err = wait.NoError(func() error {
-				err := spvNode.Start()
+				err := spvNode.Start(t.Context())
 				if err != nil {
 					return err
 				}

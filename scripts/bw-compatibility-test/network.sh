@@ -307,9 +307,7 @@ function collect_logs() {
 
   for node in alice bob charlie dave bob-pr dave-pr; do
     if docker ps -a --format '{{.Names}}' | grep -q "^${node}$"; then
-      mkdir -p "$log_dir/$node"
-      docker cp "$node:/root/.lnd/logs/bitcoin/regtest/lnd.log" \
-        "$log_dir/$node/lnd.log" 2>/dev/null || true
+      docker logs "$node" > "$log_dir/${node}.log" 2>&1 || true
     fi
   done
 

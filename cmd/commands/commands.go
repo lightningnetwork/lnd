@@ -38,7 +38,7 @@ import (
 
 // TODO(roasbeef): expose all fee conf targets
 
-const defaultRecoveryWindow int32 = 2500
+const defaultRecoveryWindow int32 = 31000
 
 const (
 	defaultUtxoMinConf = 1

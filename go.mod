@@ -4,7 +4,7 @@ require (
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344
 	github.com/andybalholm/brotli v1.0.4
-	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6
+	github.com/btcsuite/btcd v0.24.3-0.20250711193856-4530538f8c6b
 	github.com/btcsuite/btcd/btcec/v2 v2.3.6
 	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.10
@@ -63,6 +63,8 @@ require (
 	gopkg.in/macaroon.v2 v2.0.0
 	pgregory.net/rapid v1.2.0
 )
+
+require github.com/btcsuite/btcd/v2transport v1.0.1 // indirect
 
 require (
 	dario.cat/mergo v1.0.1 // indirect

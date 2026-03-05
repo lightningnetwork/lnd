@@ -17,6 +17,22 @@ type promiseImpl[T any] struct {
 	fut *futureImpl[T]
 }
 
+// CompleteWith completes a promise with the given value, wrapping it as a
+// successful result. This is a convenience wrapper over
+// promise.Complete(fn.Ok(val)). Safe to call multiple times; only the first
+// call takes effect.
+func CompleteWith[T any](p Promise[T], val T) {
+	p.Complete(fn.Ok(val))
+}
+
+// AwaitFuture blocks until the future resolves or the context is cancelled.
+// On success, it returns the resolved value and a nil error. If the context
+// is cancelled before the future resolves, it returns the zero value of T and
+// the context cancellation error.
+func AwaitFuture[T any](ctx context.Context, f Future[T]) (T, error) {
+	return f.Await(ctx).Unpack()
+}
+
 // NewPromise creates a new Promise. The associated Future, which consumers can
 // use to await the result, can be obtained via the Future() method. The Future
 // is completed by calling the Complete() method on this Promise.

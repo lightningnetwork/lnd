@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -474,16 +475,17 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			return testSig, nil
 		},
 		SendAnnouncement: func(msg lnwire.Message,
-			_ ...discovery.OptionalMsgField) chan error {
+			_ ...discovery.OptionalMsgField) actor.Future[error] {
 
-			errChan := make(chan error, 1)
+			promise := actor.NewPromise[error]()
+			var sendErr error
 			select {
 			case sentAnnouncements <- msg:
-				errChan <- nil
 			case <-shutdownChan:
-				errChan <- fmt.Errorf("shutting down")
+				sendErr = fmt.Errorf("shutting down")
 			}
-			return errChan
+			actor.CompleteWith(promise, sendErr)
+			return promise.Future()
 		},
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement1,
 			error) {
@@ -649,16 +651,17 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 			return testSig, nil
 		},
 		SendAnnouncement: func(msg lnwire.Message,
-			_ ...discovery.OptionalMsgField) chan error {
+			_ ...discovery.OptionalMsgField) actor.Future[error] {
 
-			errChan := make(chan error, 1)
+			promise := actor.NewPromise[error]()
+			var sendErr error
 			select {
 			case aliceAnnounceChan <- msg:
-				errChan <- nil
 			case <-shutdownChan:
-				errChan <- fmt.Errorf("shutting down")
+				sendErr = fmt.Errorf("shutting down")
 			}
-			return errChan
+			actor.CompleteWith(promise, sendErr)
+			return promise.Future()
 		},
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement1,
 			error) {
@@ -1980,11 +1983,14 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 
 	// Intentionally make the channel announcements fail
 	alice.fundingMgr.cfg.SendAnnouncement = func(msg lnwire.Message,
-		_ ...discovery.OptionalMsgField) chan error {
+		_ ...discovery.OptionalMsgField) actor.Future[error] {
 
-		errChan := make(chan error, 1)
-		errChan <- fmt.Errorf("intentional error in SendAnnouncement")
-		return errChan
+		promise := actor.NewPromise[error]()
+		actor.CompleteWith(
+			promise,
+			fmt.Errorf("intentional error in SendAnnouncement"),
+		)
+		return promise.Future()
 	}
 
 	channelReadyAlice, ok := assertFundingMsgSent(

@@ -118,7 +118,7 @@ Input your cipher seed passphrase (press enter if your seed doesn't have a passp
 
 Finally, the user has an option to choose a _recovery window_:
 ```text
-Input an optional address look-ahead used to scan for used keys (default 2500):
+Input an optional address look-ahead used to scan for used keys (default 2500 or increase it to 31000 if you have a very old wallet):
 ```
 
 The recovery window is a metric that the on-chain rescanner will use to

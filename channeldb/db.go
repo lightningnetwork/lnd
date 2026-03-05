@@ -30,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration32"
 	"github.com/lightningnetwork/lnd/channeldb/migration33"
 	"github.com/lightningnetwork/lnd/channeldb/migration34"
+	"github.com/lightningnetwork/lnd/channeldb/migration35"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/clock"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -302,6 +303,13 @@ var (
 		{
 			number:    33,
 			migration: migration33.MigrateMCStoreNameSpacedResults,
+		},
+		{
+			// We skip mandatory version 34 because that
+			// number is already associated with an
+			// optional migration package.
+			number:    35,
+			migration: migration35.MigrateWaitingProofStore,
 		},
 	}
 

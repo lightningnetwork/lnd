@@ -186,6 +186,16 @@ func (s *WaitingProofStore) Get(key WaitingProofKey) (*WaitingProof, error) {
 // proof for the same channel id.
 type WaitingProofKey [9]byte
 
+// WaitingProofType represents the type of proof encoded in a waiting proof
+// record.
+type WaitingProofType uint8
+
+const (
+	// WaitingProofTypeV1 represents a waiting proof containing an
+	// AnnounceSignatures1 message (gossip v1, P2WSH channels).
+	WaitingProofTypeV1 WaitingProofType = 0
+)
+
 // WaitingProof is the storable object, which encapsulate the half proof and
 // the information about from which side this proof came. This structure is
 // needed to make channel proof exchange persistent, so that after client
@@ -229,6 +239,10 @@ func (p *WaitingProof) Key() WaitingProofKey {
 
 // Encode writes the internal representation of waiting proof in byte stream.
 func (p *WaitingProof) Encode(w io.Writer) error {
+	if err := binary.Write(w, byteOrder, WaitingProofTypeV1); err != nil {
+		return err
+	}
+
 	if err := binary.Write(w, byteOrder, p.isRemote); err != nil {
 		return err
 	}
@@ -250,6 +264,15 @@ func (p *WaitingProof) Encode(w io.Writer) error {
 // Decode reads the data from the byte stream and initializes the
 // waiting proof object with it.
 func (p *WaitingProof) Decode(r io.Reader) error {
+	var proofType WaitingProofType
+	if err := binary.Read(r, byteOrder, &proofType); err != nil {
+		return err
+	}
+
+	if proofType != WaitingProofTypeV1 {
+		return fmt.Errorf("unknown waiting proof type: %v", proofType)
+	}
+
 	if err := binary.Read(r, byteOrder, &p.isRemote); err != nil {
 		return err
 	}

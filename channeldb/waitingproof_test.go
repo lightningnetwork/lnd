@@ -1,6 +1,8 @@
 package channeldb
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"reflect"
 	"testing"
@@ -54,4 +56,43 @@ func TestWaitingProofStore(t *testing.T) {
 	}, func() {}); err != nil && err != ErrWaitingProofNotFound {
 		t.Fatal(err)
 	}
+}
+
+// TestWaitingProofEncodePrefix asserts that waiting proofs are encoded with the
+// V1 waiting proof type prefix.
+func TestWaitingProofEncodePrefix(t *testing.T) {
+	t.Parallel()
+
+	proof := NewWaitingProof(true, &lnwire.AnnounceSignatures1{
+		NodeSignature:    wireSig,
+		BitcoinSignature: wireSig,
+		ExtraOpaqueData:  []byte{1, 2, 3},
+	})
+
+	var encoded bytes.Buffer
+	require.NoError(t, proof.Encode(&encoded))
+
+	var proofType WaitingProofType
+	require.NoError(t, binary.Read(&encoded, byteOrder, &proofType))
+	require.Equal(t, WaitingProofTypeV1, proofType)
+}
+
+// TestWaitingProofDecodeUnknownType asserts that decoding fails for unknown
+// waiting proof type prefixes.
+func TestWaitingProofDecodeUnknownType(t *testing.T) {
+	t.Parallel()
+
+	var encoded bytes.Buffer
+	require.NoError(t, binary.Write(&encoded, byteOrder, uint8(99)))
+	require.NoError(t, binary.Write(&encoded, byteOrder, true))
+
+	msg := &lnwire.AnnounceSignatures1{
+		NodeSignature:    wireSig,
+		BitcoinSignature: wireSig,
+	}
+	require.NoError(t, msg.Encode(&encoded, 0))
+
+	var proof WaitingProof
+	err := proof.Decode(&encoded)
+	require.ErrorContains(t, err, "unknown waiting proof type")
 }

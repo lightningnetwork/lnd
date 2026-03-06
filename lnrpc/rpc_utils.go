@@ -1,12 +1,16 @@
 package lnrpc
 
 import (
+	"bytes"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
 
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -62,6 +66,18 @@ func RPCTransaction(tx *lnwallet.TransactionDetail) *Transaction {
 	var destAddresses []string
 	// Re-package destination output information.
 	var outputDetails []*OutputDetail
+
+	var txWeight int64
+
+	if len(tx.RawTx) > 0 {
+		reader := bytes.NewReader(tx.RawTx)
+		var msgTx wire.MsgTx
+		if err := msgTx.Deserialize(reader); err == nil {
+			txWeight = blockchain.GetTransactionWeight(
+				btcutil.NewTx(&msgTx),
+			)
+		}
+	}
 	for _, o := range tx.OutputDetails {
 		// Note: DestAddresses is deprecated but we keep
 		// populating it with addresses for backwards
@@ -113,6 +129,7 @@ func RPCTransaction(tx *lnwallet.TransactionDetail) *Transaction {
 		RawTxHex:          hex.EncodeToString(tx.RawTx),
 		Label:             tx.Label,
 		PreviousOutpoints: previousOutpoints,
+		Weight:            txWeight,
 	}
 }
 
@@ -226,7 +243,7 @@ func GetChannelOutPoint(chanPoint *ChannelPoint) (*OutPoint, error) {
 		OutputIndex: chanPoint.OutputIndex,
 	}, nil
 }
-
+								
 // CalculateFeeRate uses either satPerByte or satPerVByte, but not both, from a
 // request to calculate the fee rate. It provides compatibility for the
 // deprecated field, satPerByte. Once the field is safe to be removed, the

@@ -3431,6 +3431,8 @@ func (r *rpcServer) GetInfo(_ context.Context,
 	isTestNet := chainreg.IsTestnet(&r.cfg.ActiveNetParams)
 	nodeColor := graphdb.EncodeHexColor(nodeAnn.RGBColor)
 	version := build.Version() + " commit=" + build.Commit
+	cacheStatus := r.server.graphDB.GraphCacheStatus()
+	graphCacheStatus := rpcGraphCacheStatus(cacheStatus)
 
 	return &lnrpc.GetInfoResponse{
 		IdentityPubkey:            encodedIDPub,
@@ -3454,7 +3456,25 @@ func (r *rpcServer) GetInfo(_ context.Context,
 		RequireHtlcInterceptor:    r.cfg.RequireInterceptor,
 		StoreFinalHtlcResolutions: r.cfg.StoreFinalHtlcResolutions,
 		WalletSynced:              syncInfo.isWalletSynced,
+		GraphCacheStatus:          graphCacheStatus,
 	}, nil
+}
+
+// rpcGraphCacheStatus maps the graph DB cache status to the lnrpc enum used by
+// GetInfo.
+func rpcGraphCacheStatus(
+	status graphdb.GraphCacheStatus) lnrpc.GraphCacheStatus {
+
+	switch status {
+	case graphdb.GraphCacheStatusDisabled:
+		return lnrpc.GraphCacheStatus_GRAPH_CACHE_STATUS_DISABLED
+
+	case graphdb.GraphCacheStatusLoaded:
+		return lnrpc.GraphCacheStatus_GRAPH_CACHE_STATUS_LOADED
+
+	default:
+		return lnrpc.GraphCacheStatus_GRAPH_CACHE_STATUS_LOADING
+	}
 }
 
 // GetDebugInfo returns debug information concerning the state of the daemon

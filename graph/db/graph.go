@@ -26,6 +26,22 @@ import (
 // busy shutting down.
 var ErrChanGraphShuttingDown = fmt.Errorf("ChannelGraph shutting down")
 
+// GraphCacheStatus describes the current state of the in-memory graph cache.
+type GraphCacheStatus uint8
+
+const (
+	// GraphCacheStatusDisabled indicates that the graph cache is disabled.
+	GraphCacheStatusDisabled GraphCacheStatus = iota
+
+	// GraphCacheStatusLoading indicates that the graph cache is still
+	// being populated from the DB and is not yet serving reads.
+	GraphCacheStatusLoading
+
+	// GraphCacheStatusLoaded indicates that the graph cache has
+	// completed its initial population and is serving reads.
+	GraphCacheStatusLoaded
+)
+
 // ChannelGraph is a layer above the graph's CRUD layer.
 type ChannelGraph struct {
 	started atomic.Bool
@@ -66,6 +82,20 @@ func NewChannelGraph(v1Store Store,
 	}
 
 	return g, nil
+}
+
+// GraphCacheStatus returns the current state of the in-memory graph cache.
+func (c *ChannelGraph) GraphCacheStatus() GraphCacheStatus {
+	switch {
+	case c.cache == nil:
+		return GraphCacheStatusDisabled
+
+	case c.cache.isLoaded():
+		return GraphCacheStatusLoaded
+
+	default:
+		return GraphCacheStatusLoading
+	}
 }
 
 // Start kicks off any goroutines required for the ChannelGraph to function.

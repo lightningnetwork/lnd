@@ -257,9 +257,9 @@ type Config struct {
 	// ChannelDB is used to fetch opened channels, and closed channels.
 	ChannelDB *channeldb.ChannelStateDB
 
-	// ChannelGraph is a pointer to the channel graph which is used to
-	// query information about the set of known active channels.
-	ChannelGraph *graphdb.ChannelGraph
+	// ChannelGraph is used to query information about the set of known
+	// active channels.
+	ChannelGraph graphdb.GraphSource
 
 	// ChainArb is used to subscribe to channel events, update contract signals,
 	// and force close channels.
@@ -268,6 +268,10 @@ type Config struct {
 	// AuthGossiper is needed so that the Brontide impl can register with the
 	// gossiper and process remote channel announcements.
 	AuthGossiper *discovery.AuthenticatedGossiper
+
+	// NoGossipSync indicates that gossip syncing has been disabled. When
+	// set, we will not initiate gossip sync with our peers.
+	NoGossipSync bool
 
 	// ChanStatusMgr is used to set or un-set the disabled bit in channel
 	// updates.
@@ -980,6 +984,13 @@ func (p *Brontide) Start() error {
 // initGossipSync initializes either a gossip syncer or an initial routing
 // dump, depending on the negotiated synchronization method.
 func (p *Brontide) initGossipSync() {
+	// If gossip syncing has been disabled, we don't need to initialize a
+	// gossip syncer.
+	if p.cfg.NoGossipSync {
+		p.log.Info("Gossip syncing disabled, skipping init")
+		return
+	}
+
 	// If the remote peer knows of the new gossip queries feature, then
 	// we'll create a new gossipSyncer in the AuthenticatedGossiper for it.
 	if p.remoteFeatures.HasFeature(lnwire.GossipQueriesOptional) {

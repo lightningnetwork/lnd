@@ -475,6 +475,8 @@ type Config struct {
 
 	Gossip *lncfg.Gossip `group:"gossip" namespace:"gossip"`
 
+	RemoteGraph *lncfg.RemoteGraph `group:"remotegraph" namespace:"remotegraph"`
+
 	Workers *lncfg.Workers `group:"workers" namespace:"workers"`
 
 	Caches *lncfg.Caches `group:"caches" namespace:"caches"`
@@ -720,6 +722,9 @@ func DefaultConfig() Config {
 				Attempts: defaultLeaderCheckAttempts,
 				Backoff:  defaultLeaderCheckBackoff,
 			},
+		},
+		RemoteGraph: &lncfg.RemoteGraph{
+			Timeout: lncfg.DefaultRemoteGraphTimeout,
 		},
 		Gossip: &lncfg.Gossip{
 			MaxChannelUpdateBurst: discovery.DefaultMaxChannelUpdateBurst,
@@ -1806,6 +1811,16 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.Routing,
 		cfg.Pprof,
 		cfg.Gossip,
+		cfg.RemoteGraph,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate that the remote graph feature is compatible with the
+	// current configuration.
+	err = lncfg.ValidateRemoteGraph(
+		cfg.RemoteGraph, cfg.DB.NoGraphCache, cfg.Gossip.NoSync,
 	)
 	if err != nil {
 		return nil, err

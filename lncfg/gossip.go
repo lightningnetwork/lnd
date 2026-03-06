@@ -43,6 +43,8 @@ type Gossip struct {
 	BanThreshold uint64 `long:"ban-threshold" description:"The score at which a peer is banned. A peer's ban score is incremented for each invalid gossip message. Invalid messages include those with bad signatures, stale timestamps, excessive updates, or invalid chain data. Once the score reaches this threshold, the peer is banned. Set to 0 to disable banning."`
 
 	PeerMsgRateBytes uint64 `long:"peer-msg-rate-bytes" description:"The peer-specific rate of outbound gossip messages, expressed in bytes per second. This setting controls the long-term average speed of gossip traffic sent from your node. The rate limit is applied to each peer. If the rate of outgoing messages exceeds this value, lnd will start to queue and delay messages sending to that peer to stay within the limit."`
+
+	NoSync bool `long:"no-sync" description:"If set, lnd will not request graph updates from its peers and won't advertise the gossip queries feature bit. This is useful if LND has been provided with an external graph source that it may use for pathfinding."`
 }
 
 // Parse the pubkeys for the pinned syncers.

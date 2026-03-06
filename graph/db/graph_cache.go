@@ -268,6 +268,18 @@ func (c *GraphCache) RemoveChannel(node1, node2 route.Vertex, chanID uint64) {
 	c.removeChannelIfFound(node2, chanID)
 }
 
+// RemoveChannelByID removes a channel by its ID. This is less efficient than
+// RemoveChannel since it needs to scan all nodes to find the channel, but is
+// useful when the channel's endpoint nodes are not known.
+func (c *GraphCache) RemoveChannelByID(chanID uint64) {
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+
+	for node := range c.nodeChannels {
+		c.removeChannelIfFound(node, chanID)
+	}
+}
+
 // removeChannelIfFound removes a single channel from one side.
 func (c *GraphCache) removeChannelIfFound(node route.Vertex, chanID uint64) {
 	if len(c.nodeChannels[node]) == 0 {

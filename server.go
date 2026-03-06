@@ -688,7 +688,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	if cfg.RemoteGraph.Enable {
 		selfPub := route.NewVertex(nodeKeyECDH.PubKey())
 
-		if dbs.GraphDB.GraphCacheStore() == nil {
+		cache := dbs.GraphDB.GraphCacheStore()
+		if cache == nil {
 			return nil, fmt.Errorf("remote graph requires the " +
 				"graph cache to be enabled")
 		}
@@ -706,6 +707,30 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 					return parseAddr(
 						addr, cfg.net,
 					)
+				},
+			},
+			&sources.TopologyCallbacks{
+				OnChannel: func(info *models.CachedEdgeInfo) {
+					cache.AddChannel(info, nil, nil)
+				},
+				OnChannelUpdate: func(
+					policy *models.CachedEdgePolicy,
+					fromNode, toNode route.Vertex) {
+
+					cache.UpdatePolicy(
+						policy, fromNode, toNode,
+					)
+				},
+				OnNodeUpdate: func(
+					node route.Vertex,
+					features *lnwire.FeatureVector) {
+
+					cache.AddNodeFeatures(
+						node, features,
+					)
+				},
+				OnChannelClosed: func(chanID uint64) {
+					cache.RemoveChannelByID(chanID)
 				},
 			},
 		)

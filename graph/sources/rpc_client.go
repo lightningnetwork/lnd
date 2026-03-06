@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/hex"
@@ -51,6 +52,26 @@ type RPCConfig struct {
 	ParseAddress func(strAddress string) (net.Addr, error)
 }
 
+// TopologyCallbacks defines callbacks invoked when the remote graph's topology
+// changes. These allow the caller (typically the server) to keep the local
+// graph cache in sync with the remote graph.
+type TopologyCallbacks struct {
+	// OnChannel is called when a new channel is discovered or an existing
+	// channel's edge info is received.
+	OnChannel func(info *models.CachedEdgeInfo)
+
+	// OnChannelUpdate is called when a channel policy update is received.
+	OnChannelUpdate func(policy *models.CachedEdgePolicy,
+		fromNode, toNode route.Vertex)
+
+	// OnNodeUpdate is called when a node announcement is received.
+	OnNodeUpdate func(node route.Vertex,
+		features *lnwire.FeatureVector)
+
+	// OnChannelClosed is called when a channel close is detected.
+	OnChannelClosed func(chanID uint64)
+}
+
 // RPCClient implements the RemoteGraph interface by querying a remote LND node
 // over gRPC.
 type RPCClient struct {
@@ -58,6 +79,7 @@ type RPCClient struct {
 	stopped atomic.Bool
 
 	cfg *RPCConfig
+	cb  *TopologyCallbacks
 
 	grpcConn *grpc.ClientConn
 	conn     lnrpc.LightningClient
@@ -67,9 +89,10 @@ type RPCClient struct {
 }
 
 // NewRPCClient constructs a new RPCClient.
-func NewRPCClient(cfg *RPCConfig) *RPCClient {
+func NewRPCClient(cfg *RPCConfig, cb *TopologyCallbacks) *RPCClient {
 	return &RPCClient{
 		cfg: cfg,
+		cb:  cb,
 	}
 }
 
@@ -124,6 +147,278 @@ func (c *RPCClient) Stop() error {
 	}
 
 	return nil
+}
+
+// StartSubscription launches the topology subscription goroutine that keeps
+// the local cache in sync with the remote graph. This should be called after
+// PopulateCache to avoid the subscription overwriting the initial snapshot
+// with stale data.
+func (c *RPCClient) StartSubscription(ctx context.Context) {
+	if c.cb == nil {
+		return
+	}
+
+	c.wg.Add(1)
+	go c.handleNetworkUpdates(ctx)
+}
+
+// PopulateCache performs an initial full fetch of the remote graph and feeds
+// all nodes and channels into the registered topology callbacks. This must be
+// called after Start to seed the local graph cache before relying on the
+// incremental subscription for updates.
+func (c *RPCClient) PopulateCache(ctx context.Context) error {
+	if c.cb == nil {
+		return nil
+	}
+
+	log.Info("Populating graph cache from remote graph...")
+	startTime := time.Now()
+
+	graph, err := c.conn.DescribeGraph(ctx, &lnrpc.ChannelGraphRequest{
+		IncludeUnannounced: true,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to fetch remote graph: %w", err)
+	}
+
+	// First, add all node features.
+	if c.cb.OnNodeUpdate != nil {
+		for _, rpcNode := range graph.Nodes {
+			pub, err := route.NewVertexFromStr(rpcNode.PubKey)
+			if err != nil {
+				return err
+			}
+
+			c.cb.OnNodeUpdate(
+				pub, unmarshalFeatures(rpcNode.Features),
+			)
+		}
+	}
+
+	// Then add all channels and their policies.
+	for _, edge := range graph.Edges {
+		node1, err := route.NewVertexFromStr(edge.Node1Pub)
+		if err != nil {
+			return err
+		}
+		node2, err := route.NewVertexFromStr(edge.Node2Pub)
+		if err != nil {
+			return err
+		}
+
+		if c.cb.OnChannel != nil {
+			c.cb.OnChannel(&models.CachedEdgeInfo{
+				ChannelID:     edge.ChannelId,
+				Capacity:      btcutil.Amount(edge.Capacity),
+				NodeKey1Bytes: node1,
+				NodeKey2Bytes: node2,
+			})
+		}
+
+		if c.cb.OnChannelUpdate != nil {
+			if edge.Node1Policy != nil {
+				policy := makeCachedPolicy(
+					edge.ChannelId,
+					edge.Node1Policy,
+					node2, true,
+				)
+				c.cb.OnChannelUpdate(
+					policy, node1, node2,
+				)
+			}
+			if edge.Node2Policy != nil {
+				policy := makeCachedPolicy(
+					edge.ChannelId,
+					edge.Node2Policy,
+					node1, false,
+				)
+				c.cb.OnChannelUpdate(
+					policy, node2, node1,
+				)
+			}
+		}
+	}
+
+	log.Infof("Remote graph cache populated with %d nodes and %d "+
+		"channels in %v", len(graph.Nodes), len(graph.Edges),
+		time.Since(startTime))
+
+	return nil
+}
+// handleNetworkUpdates subscribes to topology updates from the remote LND
+// node and forwards them to the registered callbacks. If the subscription
+// drops, it reconnects with exponential backoff.
+//
+// NOTE: this MUST be run as a goroutine.
+func (c *RPCClient) handleNetworkUpdates(ctx context.Context) {
+	defer c.wg.Done()
+
+	backoff := time.Second
+	const maxBackoff = time.Minute
+
+	for {
+		err := c.subscribeAndProcess(ctx)
+
+		// If the context was cancelled, we're shutting down.
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		log.Errorf("Remote graph subscription error (retrying in "+
+			"%v): %v", backoff, err)
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+}
+
+// subscribeAndProcess opens a topology subscription and processes updates
+// until an error occurs or the context is cancelled.
+func (c *RPCClient) subscribeAndProcess(
+	ctx context.Context) error {
+
+	client, err := c.conn.SubscribeChannelGraph(
+		ctx, &lnrpc.GraphTopologySubscription{},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe: %w", err)
+	}
+
+	log.Info("Subscribed to remote graph topology updates")
+
+	for {
+		updates, err := client.Recv()
+		if err != nil {
+			return fmt.Errorf("recv error: %w", err)
+		}
+
+		for _, update := range updates.ChannelUpdates {
+			if err := c.handleChannelUpdate(update); err != nil {
+				log.Errorf("Error handling channel update: %v",
+					err)
+			}
+		}
+
+		for _, update := range updates.NodeUpdates {
+			if err := c.handleNodeUpdate(update); err != nil {
+				log.Errorf("Error handling node update: %v",
+					err)
+			}
+		}
+
+		for _, update := range updates.ClosedChans {
+			if c.cb.OnChannelClosed != nil {
+				c.cb.OnChannelClosed(update.ChanId)
+			}
+		}
+	}
+}
+
+// handleNodeUpdate converts an lnrpc.NodeUpdate and invokes the OnNodeUpdate
+// callback.
+func (c *RPCClient) handleNodeUpdate(update *lnrpc.NodeUpdate) error {
+	if c.cb.OnNodeUpdate == nil {
+		return nil
+	}
+
+	pub, err := route.NewVertexFromStr(update.IdentityKey)
+	if err != nil {
+		return err
+	}
+
+	c.cb.OnNodeUpdate(pub, unmarshalFeatures(update.Features))
+
+	return nil
+}
+
+// handleChannelUpdate converts an lnrpc.ChannelEdgeUpdate and invokes the
+// OnChannel and OnChannelUpdate callbacks.
+func (c *RPCClient) handleChannelUpdate(
+	update *lnrpc.ChannelEdgeUpdate) error {
+
+	fromNode, err := route.NewVertexFromStr(update.AdvertisingNode)
+	if err != nil {
+		return err
+	}
+
+	toNode, err := route.NewVertexFromStr(update.ConnectingNode)
+	if err != nil {
+		return err
+	}
+
+	// Lexicographically sort the pubkeys to determine node1/node2.
+	var node1, node2 route.Vertex
+	if bytes.Compare(fromNode[:], toNode[:]) == -1 {
+		node1 = fromNode
+		node2 = toNode
+	} else {
+		node1 = toNode
+		node2 = fromNode
+	}
+
+	if c.cb.OnChannel != nil {
+		edge := &models.CachedEdgeInfo{
+			ChannelID:     update.ChanId,
+			Capacity:      btcutil.Amount(update.Capacity),
+			NodeKey1Bytes: node1,
+			NodeKey2Bytes: node2,
+		}
+		c.cb.OnChannel(edge)
+	}
+
+	if update.RoutingPolicy != nil && c.cb.OnChannelUpdate != nil {
+		policy := makeCachedPolicy(
+			update.ChanId, update.RoutingPolicy, toNode,
+			fromNode == node1,
+		)
+		c.cb.OnChannelUpdate(policy, fromNode, toNode)
+	}
+
+	return nil
+}
+
+// makeCachedPolicy converts an lnrpc.RoutingPolicy to a CachedEdgePolicy
+// suitable for use with the graph cache.
+func makeCachedPolicy(chanID uint64, rpcPolicy *lnrpc.RoutingPolicy,
+	toNode [33]byte, isNode1 bool) *models.CachedEdgePolicy {
+
+	policy := &models.CachedEdgePolicy{
+		ChannelID:     chanID,
+		IsNode1:       isNode1,
+		IsDisabled:    rpcPolicy.Disabled,
+		HasMaxHTLC:    rpcPolicy.MaxHtlcMsat > 0,
+		TimeLockDelta: uint16(rpcPolicy.TimeLockDelta),
+		MinHTLC:       lnwire.MilliSatoshi(rpcPolicy.MinHtlc),
+		MaxHTLC:       lnwire.MilliSatoshi(rpcPolicy.MaxHtlcMsat),
+		FeeBaseMSat:   lnwire.MilliSatoshi(rpcPolicy.FeeBaseMsat),
+		FeeProportionalMillionths: lnwire.MilliSatoshi(
+			rpcPolicy.FeeRateMilliMsat,
+		),
+		ToNodePubKey: func() route.Vertex {
+			return toNode
+		},
+	}
+
+	if rpcPolicy.InboundFeeRateMilliMsat != 0 ||
+		rpcPolicy.InboundFeeBaseMsat != 0 {
+
+		policy.InboundFee = fn.Some(lnwire.Fee{
+			BaseFee: rpcPolicy.InboundFeeBaseMsat,
+			FeeRate: rpcPolicy.InboundFeeRateMilliMsat,
+		})
+	}
+
+	return policy
 }
 
 // ForEachNode iterates over all nodes from the remote graph.

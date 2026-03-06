@@ -344,7 +344,7 @@ func (d *DBGraphSource) SourceNode(ctx context.Context) (*models.Node,
 		func(v lnwire.GossipVersion) (*models.Node, error) {
 			return d.cg.db.SourceNode(ctx, v)
 		},
-		ErrGraphNodeNotFound,
+		ErrSourceNodeNotSet,
 	)
 }
 

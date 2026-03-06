@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -200,4 +201,232 @@ func testRemoteGraph(ht *lntest.HarnessTest) {
 		return nil
 	}, wait.DefaultTimeout)
 	require.NoError(ht.T, err)
+}
+
+// testRemoteGraphPolicyUpdate tests that when a payment fails because of a
+// stale fee policy (FeeInsufficient), the updated ChannelUpdate from the
+// failure message is applied to the sender's graph cache — even when the
+// channel only exists in the remote graph and not in the sender's local DB.
+func testRemoteGraphPolicyUpdate(ht *lntest.HarnessTest) {
+	var (
+		ctx          = context.Background()
+		descGraphReq = &lnrpc.ChannelGraphRequest{
+			IncludeUnannounced: true,
+		}
+	)
+
+	// Set up a network:
+	// Alice <- Bob <- Carol
+	_, nodes := ht.CreateSimpleNetwork(
+		[][]string{nil, nil, nil}, lntest.OpenChannelParams{
+			Amt: btcutil.Amount(100000),
+		},
+	)
+	carol, bob, alice := nodes[0], nodes[1], nodes[2]
+
+	// Create graph provider node, Greg. Connect it to Bob so it syncs the
+	// public graph.
+	greg := ht.NewNode("Greg", nil)
+	ht.EnsureConnected(greg, bob)
+
+	// Wait until Greg has synced the public graph.
+	err := wait.NoError(func() error {
+		resp := greg.RPC.DescribeGraph(descGraphReq)
+		if len(resp.Edges) != 2 {
+			return fmt.Errorf("greg has %d edges, want 2",
+				len(resp.Edges))
+		}
+
+		return nil
+	}, wait.DefaultTimeout)
+	require.NoError(ht.T, err)
+
+	// Create Zane, using Greg as its remote graph source with gossip
+	// sync disabled.
+	zane := ht.NewNode("Zane", []string{
+		"--gossip.no-sync",
+		"--remotegraph.enable",
+		"--caches.rpc-graph-cache-duration=0",
+		fmt.Sprintf(
+			"--remotegraph.rpchost=localhost:%d",
+			greg.Cfg.RPCPort,
+		),
+		fmt.Sprintf(
+			"--remotegraph.tlscertpath=%s",
+			greg.Cfg.TLSCertPath,
+		),
+		fmt.Sprintf(
+			"--remotegraph.macaroonpath=%s",
+			greg.Cfg.AdminMacPath,
+		),
+	})
+
+	// Fund Zane, connect to Carol, and open a private channel.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, zane)
+	ht.EnsureConnected(zane, carol)
+	chanPointZane := ht.OpenChannel(
+		zane, carol, lntest.OpenChannelParams{
+			Private: true,
+			Amt:     btcutil.Amount(100000),
+		},
+	)
+
+	// Wait until Zane sees the full graph (2 public + 1 private = 3
+	// edges).
+	err = wait.NoError(func() error {
+		resp := zane.RPC.DescribeGraph(descGraphReq)
+		if len(resp.Edges) != 3 {
+			return fmt.Errorf("zane has %d edges, want 3",
+				len(resp.Edges))
+		}
+
+		return nil
+	}, wait.DefaultTimeout)
+	require.NoError(ht.T, err)
+
+	// Verify Zane can route a payment through the remote graph.
+	invoice := alice.RPC.AddInvoice(&lnrpc.Invoice{Value: 100})
+	ht.CompletePaymentRequests(zane, []string{invoice.PaymentRequest})
+
+	// Record the Bob->Alice channel ID so we can query its policy later.
+	bobGraph := bob.RPC.DescribeGraph(descGraphReq)
+	var bobAliceChanID uint64
+	for _, edge := range bobGraph.Edges {
+		isBA := edge.Node1Pub == bob.PubKeyStr &&
+			edge.Node2Pub == alice.PubKeyStr
+		isAB := edge.Node1Pub == alice.PubKeyStr &&
+			edge.Node2Pub == bob.PubKeyStr
+
+		if isBA || isAB {
+			bobAliceChanID = edge.ChannelId
+
+			break
+		}
+	}
+	require.NotZero(ht.T, bobAliceChanID,
+		"bob-alice channel not found")
+
+	// Disconnect Greg from Bob so Greg won't receive the upcoming fee
+	// update through gossip. This means Zane's remote graph subscription
+	// won't deliver the update either.
+	ht.DisconnectNodes(greg, bob)
+
+	// Query Zane's current view of the Bob->Alice channel's fee policy
+	// so we know the "old" value.
+	zaneChanInfo, err := zane.RPC.LN.GetChanInfo(
+		ctx, &lnrpc.ChanInfoRequest{ChanId: bobAliceChanID},
+	)
+	require.NoError(ht.T, err)
+
+	// Determine which policy is Bob's. Bob is the node that charges fees
+	// for forwarding on this channel.
+	var oldBobFeeRate int64
+	if zaneChanInfo.Node1Pub == bob.PubKeyStr {
+		oldBobFeeRate = zaneChanInfo.Node1Policy.FeeRateMilliMsat
+	} else {
+		oldBobFeeRate = zaneChanInfo.Node2Policy.FeeRateMilliMsat
+	}
+
+	// Bob dramatically increases his fee on the Bob->Alice channel.
+	newFeeRate := oldBobFeeRate + 500_000
+	bob.RPC.UpdateChannelPolicy(&lnrpc.PolicyUpdateRequest{
+		Scope: &lnrpc.PolicyUpdateRequest_Global{
+			Global: true,
+		},
+		BaseFeeMsat:   1000,
+		FeeRate:       float64(newFeeRate) / 1_000_000,
+		TimeLockDelta: 80,
+	})
+
+	// Give Alice a moment to receive the update from Bob (they're
+	// connected), but Greg is disconnected so neither Greg nor Zane
+	// will learn of the update through gossip/subscription.
+	err = wait.NoError(func() error {
+		info, err := alice.RPC.LN.GetChanInfo(
+			ctx,
+			&lnrpc.ChanInfoRequest{ChanId: bobAliceChanID},
+		)
+		if err != nil {
+			return err
+		}
+
+		var feeRate int64
+		if info.Node1Pub == bob.PubKeyStr {
+			feeRate = info.Node1Policy.FeeRateMilliMsat
+		} else {
+			feeRate = info.Node2Policy.FeeRateMilliMsat
+		}
+		if feeRate != newFeeRate {
+			return fmt.Errorf("alice sees fee rate %d, "+
+				"want %d", feeRate, newFeeRate)
+		}
+
+		return nil
+	}, wait.DefaultTimeout)
+	require.NoError(ht.T, err)
+
+	// Zane should still have the OLD fee policy for Bob since Greg is
+	// disconnected and can't forward the update.
+	zaneChanInfo, err = zane.RPC.LN.GetChanInfo(
+		ctx, &lnrpc.ChanInfoRequest{ChanId: bobAliceChanID},
+	)
+	require.NoError(ht.T, err)
+
+	var zaneBobFeeRate int64
+	if zaneChanInfo.Node1Pub == bob.PubKeyStr {
+		zaneBobFeeRate = zaneChanInfo.Node1Policy.FeeRateMilliMsat
+	} else {
+		zaneBobFeeRate = zaneChanInfo.Node2Policy.FeeRateMilliMsat
+	}
+	require.Equal(ht.T, oldBobFeeRate, zaneBobFeeRate,
+		"zane should still see old fee rate")
+
+	// Now Zane tries to pay Alice again. The payment will be attempted
+	// with the stale fee policy. Bob will reject it with FeeInsufficient
+	// and include the updated ChannelUpdate in the failure message.
+	//
+	// The router will extract the ChannelUpdate and call
+	// ApplyChannelUpdate. Currently, this fails silently because the
+	// channel only exists in the remote graph (via Greg), not in Zane's
+	// local DB.
+	//
+	// We use a high fee limit to ensure the payment would succeed if
+	// Zane had the correct fee info.
+	invoice2 := alice.RPC.AddInvoice(&lnrpc.Invoice{Value: 100})
+
+	// TODO(elle): Once the fix is applied, this payment should succeed
+	// because ApplyChannelUpdate will update the graph cache from the
+	// failure message, and the router will retry with the correct fees.
+	// For now, we assert the BROKEN behavior: the payment fails because
+	// Zane can't learn the updated fee from the failure message.
+	ht.SendPaymentAssertFail(
+		zane,
+		&routerrpc.SendPaymentRequest{
+			PaymentRequest: invoice2.PaymentRequest,
+			TimeoutSeconds: 30,
+			FeeLimitMsat:   10_000_000,
+			MaxParts:       1,
+		},
+		lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE,
+	)
+
+	// Verify Zane's cached policy for Bob->Alice is still the OLD fee.
+	// This confirms that ApplyChannelUpdate did NOT update the cache
+	// from the failure message (the bug).
+	zaneChanInfo, err = zane.RPC.LN.GetChanInfo(
+		ctx, &lnrpc.ChanInfoRequest{ChanId: bobAliceChanID},
+	)
+	require.NoError(ht.T, err)
+
+	if zaneChanInfo.Node1Pub == bob.PubKeyStr {
+		zaneBobFeeRate = zaneChanInfo.Node1Policy.FeeRateMilliMsat
+	} else {
+		zaneBobFeeRate = zaneChanInfo.Node2Policy.FeeRateMilliMsat
+	}
+	require.Equal(ht.T, oldBobFeeRate, zaneBobFeeRate,
+		"bug confirmed: zane's cache was NOT updated from "+
+			"the payment failure message")
+
+	// Clean up.
+	ht.CloseChannel(zane, chanPointZane)
 }

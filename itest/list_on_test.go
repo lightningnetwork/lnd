@@ -783,6 +783,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "remote graph",
 		TestFunc: testRemoteGraph,
 	},
+	{
+		Name:     "remote graph policy update",
+		TestFunc: testRemoteGraphPolicyUpdate,
+	},
 }
 
 // appendPrefixed is used to add a prefix to each test name in the subtests

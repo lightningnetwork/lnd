@@ -23,21 +23,21 @@ import (
 )
 
 type (
-	// signerResponse is a type alias for the SignCoordinator response type,
+	// RSResponse is a type alias for the SignCoordinator response type,
 	// created to keep line length within 80 characters.
-	signerResponse = walletrpc.SignCoordinatorResponse
+	RSResponse = remotesignerrpc.SignCoordinatorResponse
 
-	// registrationResp is a type alias for the registration response type,
-	// created to keep line length within 80 characters.
-	registrationResp = walletrpc.SignCoordinatorRequest_RegistrationResponse
+	// RSRegistrationResponse is a type alias for the registration response
+	// type, created to keep line length within 80 characters.
+	RSRegistrationResponse = remotesignerrpc.SignCoordinatorRequest_RegistrationResponse
 
-	// completeType is a type alias for the registration complete type,
-	// created to keep line length within 80 characters.
-	completeType = walletrpc.RegistrationResponse_RegistrationComplete
+	// RSRegistrationComplete is a type alias for the registration complete
+	// type, created to keep line length within 80 characters.
+	RSRegistrationComplete = remotesignerrpc.RegistrationResponse_RegistrationComplete
 
-	// signerRegType is a type alias for the signer registration type,
+	// RSRegistration is a type alias for the signer registration type,
 	// created to keep line length within 80 characters.
-	signerRegType = walletrpc.SignCoordinatorResponse_SignerRegistration
+	RSRegistration = remotesignerrpc.SignCoordinatorResponse_SignerRegistration
 )
 
 var (
@@ -64,8 +64,8 @@ const (
 	// attempting to reconnect to the watch-only node.
 	defaultMaxRetryTimeout = time.Minute * 1
 
-	// handshakeRequestID is the request ID that is reversed for the
-	// handshake with the watch-only node.
+	// handshakeRequestID is the request ID reserved for the handshake with
+	// the watch-only node.
 	handshakeRequestID = uint64(1)
 )
 
@@ -286,12 +286,7 @@ type OutboundClient struct {
 	// watch-only node.
 	requestTimeout time.Duration
 
-	// retryTimeout is the backoff timeout used when retrying to set up a
-	// connection to the watch-only node, if the previous connection/attempt
-	// failed.
-	retryTimeout time.Duration
-
-	// maxRetryTimeout is the max value for the retryTimeout, defining
+	// maxRetryTimeout is the max value for the retry timeout, defining
 	// the maximum backoff period before attempting to reconnect to the
 	// watch-only node.
 	maxRetryTimeout time.Duration
@@ -325,7 +320,6 @@ func NewOutboundClient(walletServer walletrpc.WalletKitServer,
 		signerServer:    signerServer,
 		streamFeeder:    streamFeeder,
 		requestTimeout:  requestTimeout,
-		retryTimeout:    defaultRetryTimeout,
 		maxRetryTimeout: defaultMaxRetryTimeout,
 		cg:              fn.NewContextGuard(),
 		gManager:        fn.NewGoroutineManager(),
@@ -355,6 +349,13 @@ func (r *OutboundClient) Start(ctx context.Context) error {
 // and retry to connect if the connection fails until we Stop the remote
 // signer client.
 func (r *OutboundClient) runForever(ctx context.Context) {
+	// retryTimeout is the current backoff timeout used when retrying to set
+	// up a connection to the watch-only node, if the previous
+	// connection/attempt failed. The variable is reset to the
+	// defaultRetryTimeout once a successful connection is set up with the
+	// watch-only node.
+	retryTimeout := defaultRetryTimeout
+
 	for {
 		// Check if we are shutting down.
 		select {
@@ -363,34 +364,39 @@ func (r *OutboundClient) runForever(ctx context.Context) {
 		default:
 		}
 
-		err := r.runOnce(ctx)
+		connected, err := r.runOnce(ctx)
 		if err != nil {
 			r.log.ErrorS(ctx, "runOnce error", err)
+		}
+
+		// Reset the retry timeout after a successful connection.
+		if connected {
+			retryTimeout = defaultRetryTimeout
 		}
 
 		r.log.InfoS(
 			ctx,
 			"Connection retry to watch-only node scheduled",
-			"retry_after", r.retryTimeout,
+			"retry_after", retryTimeout,
 		)
 
 		// Backoff before retrying to connect to the watch-only node.
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(r.retryTimeout):
+		case <-time.After(retryTimeout):
 		}
 
 		r.log.InfoS(ctx, "Retrying to connect to watch-only node")
 
 		// Increase the retry timeout by 50% for every retry.
-		r.retryTimeout = time.Duration(
-			float64(r.retryTimeout) * retryMultiplier,
+		retryTimeout = time.Duration(
+			float64(retryTimeout) * retryMultiplier,
 		)
 
-		// But cap the retryTimeout at r.maxRetryTimeout
-		if r.retryTimeout > r.maxRetryTimeout {
-			r.retryTimeout = r.maxRetryTimeout
+		// But cap the retryTimeout at r.maxRetryTimeout.
+		if retryTimeout > r.maxRetryTimeout {
+			retryTimeout = r.maxRetryTimeout
 		}
 	}
 }
@@ -425,7 +431,7 @@ func (r *OutboundClient) MustImplementRemoteSignerClient() {}
 // and responding to the sign requests that are sent over the stream. The
 // function will continuously run until the remote signer client is either
 // stopped or the stream errors.
-func (r *OutboundClient) runOnce(ctx context.Context) error {
+func (r *OutboundClient) runOnce(ctx context.Context) (bool, error) {
 	// Derive a context for the lifetime of the stream.
 	ctx, cancel := r.cg.Create(ctx)
 
@@ -437,7 +443,7 @@ func (r *OutboundClient) runOnce(ctx context.Context) error {
 	// Try to get a new stream to the watch-only node.
 	stream, err := r.streamFeeder.GetStream(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() {
 		err := stream.Close()
@@ -452,15 +458,12 @@ func (r *OutboundClient) runOnce(ctx context.Context) error {
 	// requests.
 	err = r.handshake(ctx, stream)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	log.InfoS(ctx, "Completed setup connection to watch-only node")
 
-	// Reset the retry timeout after a successful connection.
-	r.retryTimeout = defaultRetryTimeout
-
-	return r.processSignRequestsForever(ctx, stream)
+	return true, r.processSignRequestsForever(ctx, stream)
 }
 
 // handshake performs the handshake process with the watch-only node. As we are
@@ -485,8 +488,8 @@ func (r *OutboundClient) handshake(ctx context.Context, stream *Stream) error {
 	// The RegistrationChallenge should also be set to a randomized string.
 	var registrationMsg = &walletrpc.SignCoordinatorResponse{
 		RefRequestId: handshakeRequestID,
-		SignResponseType: &signerRegType{
-			SignerRegistration: &walletrpc.SignerRegistration{
+		SignResponseType: &RSRegistration{
+			SignerRegistration: &remotesignerrpc.SignerRegistration{
 				RegistrationChallenge: "registrationChallenge",
 				RegistrationInfo:      "outboundSigner",
 			},
@@ -531,7 +534,7 @@ func (r *OutboundClient) handshake(ctx context.Context, stream *Stream) error {
 	}
 
 	// Check the type of the response message.
-	resp, ok := msg.GetSignRequestType().(*registrationResp)
+	resp, ok := msg.GetSignRequestType().(*RSRegistrationResponse)
 	if !ok {
 		return fmt.Errorf("expected registration response, but got: %T",
 			msg.GetSignRequestType())
@@ -540,7 +543,7 @@ func (r *OutboundClient) handshake(ctx context.Context, stream *Stream) error {
 	switch rType := resp.RegistrationResponse.
 		GetRegistrationResponseType().(type) {
 	// The registration was successful.
-	case *completeType:
+	case *RSRegistrationComplete:
 		// TODO(viktor): This should verify that the signature in the
 		// complete message is valid.
 		return nil
@@ -621,6 +624,7 @@ func (r *OutboundClient) waitForRequest(ctx context.Context, stream *Stream) (
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
+
 	case err := <-errChan:
 		if err != nil {
 			return nil, fmt.Errorf("error receiving request: %w",
@@ -634,7 +638,7 @@ func (r *OutboundClient) waitForRequest(ctx context.Context, stream *Stream) (
 // formResponse processes the received request from the watch-only node, and
 // sends the corresponding response back.
 func (r *OutboundClient) formResponse(ctx context.Context,
-	req *walletrpc.SignCoordinatorRequest) *signerResponse {
+	req *remotesignerrpc.SignCoordinatorRequest) *RSResponse {
 
 	resp, err := r.process(ctx, req)
 	if err != nil {
@@ -650,7 +654,7 @@ func (r *OutboundClient) formResponse(ctx context.Context,
 			},
 		}
 
-		resp = &signerResponse{
+		resp = &RSResponse{
 			RefRequestId:     req.GetRequestId(),
 			SignResponseType: eType,
 		}
@@ -662,7 +666,7 @@ func (r *OutboundClient) formResponse(ctx context.Context,
 // process sends the passed request on to the appropriate server for processing
 // it, and returns the response.
 func (r *OutboundClient) process(ctx context.Context,
-	req *walletrpc.SignCoordinatorRequest) (*signerResponse, error) {
+	req *remotesignerrpc.SignCoordinatorRequest) (*RSResponse, error) {
 
 	r.log.DebugS(ctx, "Processing a request from watch-only",
 		btclog.Fmt("request_type", "%T", req.GetSignRequestType()))
@@ -672,7 +676,7 @@ func (r *OutboundClient) process(ctx context.Context,
 
 	var (
 		requestID = req.GetRequestId()
-		signResp  = &signerResponse{
+		signResp  = &RSResponse{
 			RefRequestId: requestID,
 		}
 	)
@@ -857,7 +861,7 @@ func (r *OutboundClient) process(ctx context.Context,
 
 // sendResponse sends the passed response back to the watch-only node over the
 // stream.
-func (r *OutboundClient) sendResponse(ctx context.Context, resp *signerResponse,
+func (r *OutboundClient) sendResponse(ctx context.Context, resp *RSResponse,
 	stream *Stream) error {
 
 	// Timeout sending the response if it takes too long.

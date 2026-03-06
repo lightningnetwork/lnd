@@ -47,6 +47,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/graph/sources"
 	"github.com/lightningnetwork/lnd/healthcheck"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -320,9 +321,10 @@ type server struct {
 
 	fundingMgr *funding.Manager
 
-	graphDB     *graphdb.ChannelGraph
-	graphSource graphdb.GraphSource
-	v1Graph     *graphdb.VersionedGraph
+	graphDB           *graphdb.ChannelGraph
+	graphSource       graphdb.GraphSource
+	v1Graph           *graphdb.VersionedGraph
+	remoteGraphClient *sources.RPCClient
 
 	chanStateDB *channeldb.ChannelStateDB
 
@@ -675,23 +677,64 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	v1Graph := graphdb.NewVersionedGraph(
 		dbs.GraphDB, lnwire.GossipVersion1,
 	)
-	graphSource := graphdb.NewDBGraphSource(dbs.GraphDB)
+
+	var (
+		graphSource       graphdb.GraphSource
+		remoteGraphClient *sources.RPCClient
+	)
+
+	localSource := graphdb.NewDBGraphSource(dbs.GraphDB)
+
+	if cfg.RemoteGraph.Enable {
+		selfPub := route.NewVertex(nodeKeyECDH.PubKey())
+
+		if dbs.GraphDB.GraphCacheStore() == nil {
+			return nil, fmt.Errorf("remote graph requires the " +
+				"graph cache to be enabled")
+		}
+
+		remoteGraphClient = sources.NewRPCClient(
+			&sources.RPCConfig{
+				RPCHost:      cfg.RemoteGraph.RPCHost,
+				MacaroonPath: cfg.RemoteGraph.MacaroonPath,
+				TLSCertPath:  cfg.RemoteGraph.TLSCertPath,
+				Timeout:      cfg.RemoteGraph.Timeout,
+				ParseAddress: func(
+					addr string,
+				) (net.Addr, error) {
+
+					return parseAddr(
+						addr, cfg.net,
+					)
+				},
+			},
+		)
+
+		graphSource = sources.NewMux(
+			localSource, remoteGraphClient, selfPub,
+		)
+	} else {
+		graphSource = localSource
+	}
 
 	addrSource := channeldb.NewMultiAddrSource(dbs.ChanStateDB, graphSource)
 
 	s := &server{
-		cfg:            cfg,
-		implCfg:        implCfg,
-		graphDB:        dbs.GraphDB,
-		graphSource:    graphSource,
-		v1Graph:        v1Graph,
-		chanStateDB:    dbs.ChanStateDB.ChannelStateDB(),
-		addrSource:     addrSource,
-		miscDB:         dbs.ChanStateDB,
-		invoicesDB:     dbs.InvoiceDB,
-		paymentsDB:     dbs.PaymentsDB,
-		cc:             cc,
-		sigPool:        lnwallet.NewSigPool(cfg.Workers.Sig, cc.Signer),
+		cfg:               cfg,
+		implCfg:           implCfg,
+		graphDB:           dbs.GraphDB,
+		graphSource:       graphSource,
+		v1Graph:           v1Graph,
+		remoteGraphClient: remoteGraphClient,
+		chanStateDB:       dbs.ChanStateDB.ChannelStateDB(),
+		addrSource:        addrSource,
+		miscDB:            dbs.ChanStateDB,
+		invoicesDB:        dbs.InvoiceDB,
+		paymentsDB:        dbs.PaymentsDB,
+		cc:                cc,
+		sigPool: lnwallet.NewSigPool(
+			cfg.Workers.Sig, cc.Signer,
+		),
 		writePool:      writePool,
 		readPool:       readPool,
 		chansToRestore: chansToRestore,
@@ -2152,6 +2195,14 @@ func (s *server) Start(ctx context.Context) error {
 			return
 		}
 
+		if s.remoteGraphClient != nil {
+			cleanup = cleanup.add(s.remoteGraphClient.Stop)
+			if err := s.remoteGraphClient.Start(ctx); err != nil {
+				startErr = err
+				return
+			}
+		}
+
 		cleanup = cleanup.add(s.customMessageServer.Stop)
 		if err := s.customMessageServer.Start(); err != nil {
 			startErr = err
@@ -2639,6 +2690,12 @@ func (s *server) Stop() error {
 		}
 		if err := s.graphDB.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop graphDB %v", err)
+		}
+		if s.remoteGraphClient != nil {
+			if err := s.remoteGraphClient.Stop(); err != nil {
+				srvrLog.Warnf("failed to stop remote graph "+
+					"client: %v", err)
+			}
 		}
 		if err := s.chainArb.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop chainArb: %v", err)

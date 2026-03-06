@@ -44,10 +44,10 @@ type RemoteSigner struct {
 	// signer.
 	ConnectionCfg
 
-	// inboundWatchOnlyCfg holds the configuration options specifically
+	// InboundWatchOnlyCfg holds the configuration options specifically
 	// used when the watch-only node expects an inbound connection from
 	// the remote signer.
-	inboundWatchOnlyCfg
+	InboundWatchOnlyCfg
 }
 
 // DefaultRemoteSignerCfg returns the default RemoteSigner config.
@@ -56,7 +56,7 @@ func DefaultRemoteSignerCfg() *RemoteSigner {
 		Enable:                 false,
 		AllowInboundConnection: false,
 		ConnectionCfg:          defaultConnectionCfg(),
-		inboundWatchOnlyCfg: inboundWatchOnlyCfg{
+		InboundWatchOnlyCfg: InboundWatchOnlyCfg{
 			StartupTimeout: DefaultStartupTimeout,
 		},
 	}
@@ -98,11 +98,11 @@ func (r *RemoteSigner) Validate() error {
 	return nil
 }
 
-// inboundWatchOnlyCfg holds the configuration options specific for watch-only
-// nodes with the allowinboundconnection` option set.
+// InboundWatchOnlyCfg holds the configuration options specific for watch-only
+// nodes with the `allowinboundconnection` option set.
 //
 //nolint:ll
-type inboundWatchOnlyCfg struct {
+type InboundWatchOnlyCfg struct {
 	StartupTimeout time.Duration `long:"startuptimeout" description:"The time the watch-only node will wait for the remote signer to connect during startup. If the timeout expires before the remote signer connects, the watch-only node will shut down. Valid time units are {s, m, h}."`
 }
 

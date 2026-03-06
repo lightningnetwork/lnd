@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -436,7 +437,9 @@ func testPartialNode(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := NewVersionedGraph(MakeTestGraph(t), v)
+	graph := NewVersionedGraph(
+		MakeTestGraph(t, WithSyncGraphCachePopulation()), v,
+	)
 
 	// To insert a partial node, we need to add a channel edge that has
 	// node keys for nodes we are not yet aware of.
@@ -608,7 +611,9 @@ func testEdgeInsertionDeletion(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := NewVersionedGraph(MakeTestGraph(t), v)
+	graph := NewVersionedGraph(
+		MakeTestGraph(t, WithSyncGraphCachePopulation()), v,
+	)
 
 	// We'd like to test the insertion/deletion of edges, so we create two
 	// vertexes to connect.
@@ -845,7 +850,7 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraph(t, WithSyncGraphCachePopulation())
 
 	sourceNode := createTestVertex(t, lnwire.GossipVersion1)
 	require.NoError(t, graph.SetSourceNode(ctx, sourceNode))
@@ -1144,7 +1149,9 @@ func testEdgeInfoUpdates(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := NewVersionedGraph(MakeTestGraph(t), v)
+	graph := NewVersionedGraph(
+		MakeTestGraph(t, WithSyncGraphCachePopulation()), v,
+	)
 
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.
@@ -1162,7 +1169,7 @@ func testEdgeInfoUpdates(t *testing.T, v lnwire.GossipVersion) {
 	// is added, will fail.
 	err := graph.UpdateEdgePolicy(ctx, edge1)
 	require.ErrorIs(t, err, ErrEdgeNotFound)
-	require.Len(t, graph.graphCache.nodeChannels, 0)
+	require.Len(t, graph.cache.cache.nodeChannels, 0)
 
 	// Add the edge info.
 	require.NoError(t, graph.AddChannelEdge(ctx, edgeInfo))
@@ -1326,7 +1333,7 @@ func assertNodeInCache(t *testing.T, g *ChannelGraph, n *models.Node,
 
 	// Let's check the internal view first.
 	require.Equal(
-		t, expectedFeatures, g.graphCache.nodeFeatures[n.PubKeyBytes],
+		t, expectedFeatures, g.cache.cache.nodeFeatures[n.PubKeyBytes],
 	)
 
 	// The external view should reflect this as well. Except when we expect
@@ -1335,16 +1342,19 @@ func assertNodeInCache(t *testing.T, g *ChannelGraph, n *models.Node,
 	if expectedFeatures == nil {
 		expectedFeatures = lnwire.EmptyFeatureVector()
 	}
-	features := g.graphCache.GetFeatures(n.PubKeyBytes)
+	features := g.cache.cache.GetFeatures(n.PubKeyBytes)
 	require.Equal(t, expectedFeatures, features)
 }
 
 func assertNodeNotInCache(t *testing.T, g *ChannelGraph, n route.Vertex) {
-	_, ok := g.graphCache.nodeFeatures[n]
+	_, ok := g.cache.cache.nodeFeatures[n]
+	require.False(t, ok)
+
+	_, ok = g.cache.cache.nodeChannels[n]
 	require.False(t, ok)
 
 	// We should get the default features for this node.
-	features := g.graphCache.GetFeatures(n)
+	features := g.cache.cache.GetFeatures(n)
 	require.Equal(t, lnwire.EmptyFeatureVector(), features)
 }
 
@@ -1352,8 +1362,8 @@ func assertEdgeWithNoPoliciesInCache(t *testing.T, g *ChannelGraph,
 	e *models.ChannelEdgeInfo) {
 
 	// Let's check the internal view first.
-	require.NotEmpty(t, g.graphCache.nodeChannels[e.NodeKey1Bytes])
-	require.NotEmpty(t, g.graphCache.nodeChannels[e.NodeKey2Bytes])
+	require.NotEmpty(t, g.cache.cache.nodeChannels[e.NodeKey1Bytes])
+	require.NotEmpty(t, g.cache.cache.nodeChannels[e.NodeKey2Bytes])
 
 	expectedNode1Channel := &DirectedChannel{
 		ChannelID:    e.ChannelID,
@@ -1364,11 +1374,11 @@ func assertEdgeWithNoPoliciesInCache(t *testing.T, g *ChannelGraph,
 		InPolicy:     nil,
 	}
 	require.Contains(
-		t, g.graphCache.nodeChannels[e.NodeKey1Bytes], e.ChannelID,
+		t, g.cache.cache.nodeChannels[e.NodeKey1Bytes], e.ChannelID,
 	)
 	require.Equal(
 		t, expectedNode1Channel,
-		g.graphCache.nodeChannels[e.NodeKey1Bytes][e.ChannelID],
+		g.cache.cache.nodeChannels[e.NodeKey1Bytes][e.ChannelID],
 	)
 
 	expectedNode2Channel := &DirectedChannel{
@@ -1380,16 +1390,16 @@ func assertEdgeWithNoPoliciesInCache(t *testing.T, g *ChannelGraph,
 		InPolicy:     nil,
 	}
 	require.Contains(
-		t, g.graphCache.nodeChannels[e.NodeKey2Bytes], e.ChannelID,
+		t, g.cache.cache.nodeChannels[e.NodeKey2Bytes], e.ChannelID,
 	)
 	require.Equal(
 		t, expectedNode2Channel,
-		g.graphCache.nodeChannels[e.NodeKey2Bytes][e.ChannelID],
+		g.cache.cache.nodeChannels[e.NodeKey2Bytes][e.ChannelID],
 	)
 
 	// The external view should reflect this as well.
 	var foundChannel *DirectedChannel
-	err := g.graphCache.ForEachChannel(
+	err := g.cache.cache.ForEachChannel(
 		e.NodeKey1Bytes, func(c *DirectedChannel) error {
 			if c.ChannelID == e.ChannelID {
 				foundChannel = c
@@ -1402,7 +1412,7 @@ func assertEdgeWithNoPoliciesInCache(t *testing.T, g *ChannelGraph,
 	require.NotNil(t, foundChannel)
 	require.Equal(t, expectedNode1Channel, foundChannel)
 
-	err = g.graphCache.ForEachChannel(
+	err = g.cache.cache.ForEachChannel(
 		e.NodeKey2Bytes, func(c *DirectedChannel) error {
 			if c.ChannelID == e.ChannelID {
 				foundChannel = c
@@ -1419,7 +1429,7 @@ func assertEdgeWithNoPoliciesInCache(t *testing.T, g *ChannelGraph,
 func assertNoEdge(t *testing.T, g *ChannelGraph, chanID uint64) {
 	// Make sure no channel in the cache has the given channel ID. If there
 	// are no channels at all, that is fine as well.
-	for _, channels := range g.graphCache.nodeChannels {
+	for _, channels := range g.cache.cache.nodeChannels {
 		for _, channel := range channels {
 			require.NotEqual(t, channel.ChannelID, chanID)
 		}
@@ -1430,7 +1440,7 @@ func assertEdgeWithPolicyInCache(t *testing.T, g *ChannelGraph,
 	e *models.ChannelEdgeInfo, p *models.ChannelEdgePolicy, policy1 bool) {
 
 	// Check the internal state first.
-	c1, ok := g.graphCache.nodeChannels[e.NodeKey1Bytes][e.ChannelID]
+	c1, ok := g.cache.cache.nodeChannels[e.NodeKey1Bytes][e.ChannelID]
 	require.True(t, ok)
 
 	if policy1 {
@@ -1443,7 +1453,7 @@ func assertEdgeWithPolicyInCache(t *testing.T, g *ChannelGraph,
 		)
 	}
 
-	c2, ok := g.graphCache.nodeChannels[e.NodeKey2Bytes][e.ChannelID]
+	c2, ok := g.cache.cache.nodeChannels[e.NodeKey2Bytes][e.ChannelID]
 	require.True(t, ok)
 
 	if policy1 {
@@ -1461,14 +1471,14 @@ func assertEdgeWithPolicyInCache(t *testing.T, g *ChannelGraph,
 		c1Ext *DirectedChannel
 		c2Ext *DirectedChannel
 	)
-	require.NoError(t, g.graphCache.ForEachChannel(
+	require.NoError(t, g.cache.cache.ForEachChannel(
 		e.NodeKey1Bytes, func(c *DirectedChannel) error {
 			c1Ext = c
 
 			return nil
 		},
 	))
-	require.NoError(t, g.graphCache.ForEachChannel(
+	require.NoError(t, g.cache.cache.ForEachChannel(
 		e.NodeKey2Bytes, func(c *DirectedChannel) error {
 			c2Ext = c
 
@@ -5046,7 +5056,9 @@ func TestGraphLoading(t *testing.T) {
 	// Next, create the graph for the first time.
 	graphStore := NewTestDB(t)
 
-	graph, err := NewChannelGraph(graphStore)
+	graph, err := NewChannelGraph(
+		graphStore, WithSyncGraphCachePopulation(),
+	)
 	require.NoError(t, err)
 	require.NoError(t, graph.Start())
 	t.Cleanup(func() {
@@ -5062,7 +5074,9 @@ func TestGraphLoading(t *testing.T) {
 
 	// Recreate the graph. This should cause the graph cache to be
 	// populated.
-	graphReloaded, err := NewChannelGraph(graphStore)
+	graphReloaded, err := NewChannelGraph(
+		graphStore, WithSyncGraphCachePopulation(),
+	)
 	require.NoError(t, err)
 	require.NoError(t, graphReloaded.Start())
 	t.Cleanup(func() {
@@ -5071,14 +5085,443 @@ func TestGraphLoading(t *testing.T) {
 
 	// Assert that the cache content is identical.
 	require.Equal(
-		t, graph.graphCache.nodeChannels,
-		graphReloaded.graphCache.nodeChannels,
+		t, graph.cache.cache.nodeChannels,
+		graphReloaded.cache.cache.nodeChannels,
 	)
 
 	require.Equal(
-		t, graph.graphCache.nodeFeatures,
-		graphReloaded.graphCache.nodeFeatures,
+		t, graph.cache.cache.nodeFeatures,
+		graphReloaded.cache.cache.nodeFeatures,
 	)
+}
+
+// TestAsyncGraphCache tests the behaviour of the ChannelGraph when the graph
+// cache is populated asynchronously.
+func TestAsyncGraphCache(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	const (
+		numNodes    = 100
+		numChannels = 3
+	)
+
+	// Next, create the graph for the first time.
+	graphStore := NewTestDB(t)
+
+	// The first time we spin up the graph, we Start is as normal and fill
+	// it with test data. This will ensure that the graph cache has
+	// something to load on the next Start.
+	graph, err := NewChannelGraph(graphStore)
+	require.NoError(t, err)
+	require.NoError(t, graph.Start())
+	channels, nodes := fillTestGraph(
+		t, graph, numNodes, numChannels, lnwire.GossipVersion1,
+	)
+
+	assertGraphState := func() {
+		var (
+			numNodes  int
+			chanIndex = make(map[uint64]struct{}, numChannels)
+		)
+
+		// We query the graph for all nodes and channels, and
+		// assert that we get the expected number of nodes and
+		// channels.
+		err := graph.ForEachNodeCached(
+			ctx, false, func(_ context.Context, node route.Vertex,
+				_ []net.Addr,
+				chans map[uint64]*DirectedChannel) error {
+
+				numNodes++
+				for chanID := range chans {
+					chanIndex[chanID] = struct{}{}
+				}
+
+				return nil
+			}, func() {
+				numNodes = 0
+				chanIndex = make(
+					map[uint64]struct{}, numChannels,
+				)
+			},
+		)
+		require.NoError(t, err)
+
+		require.Equal(t, len(nodes), numNodes)
+		require.Equal(t, len(channels), len(chanIndex))
+	}
+
+	assertGraphState()
+
+	// Now we stop the graph.
+	require.NoError(t, graph.Stop())
+
+	// Recreate it but don't start it yet.
+	graph, err = NewChannelGraph(graphStore)
+	require.NoError(t, err)
+
+	// Spin off a goroutine that starts to make queries to the ChannelGraph.
+	// We start this before we start the graph, so that we can ensure that
+	// the queries are made while the graph cache is being populated.
+	var (
+		wg      sync.WaitGroup
+		numRuns = 10
+	)
+	for i := 0; i < numRuns; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			assertGraphState()
+		}()
+	}
+
+	require.NoError(t, graph.Start())
+	t.Cleanup(func() {
+		require.NoError(t, graph.Stop())
+	})
+
+	wg.Wait()
+
+	// Wait for the cache to be fully populated.
+	err = wait.Predicate(func() bool {
+		return graph.cache.isLoaded()
+	}, wait.DefaultTimeout)
+	require.NoError(t, err)
+
+	// And then assert that all the expected nodes and channels are
+	// present in the graph cache.
+	for _, node := range nodes {
+		_, ok := graph.cache.cache.nodeChannels[node.PubKeyBytes]
+		require.True(t, ok)
+	}
+}
+
+type blockingCacheLoadStore struct {
+	Store
+
+	cacheLoadStarted chan struct{}
+	allowCacheLoad   chan struct{}
+	blockOnce        sync.Once
+}
+
+// ForEachChannelCacheable pauses the first cacheable channel iteration until
+// the test allows it to continue.
+func (s *blockingCacheLoadStore) ForEachChannelCacheable(ctx context.Context,
+	v lnwire.GossipVersion, cb func(*models.CachedEdgeInfo,
+		*models.CachedEdgePolicy, *models.CachedEdgePolicy) error,
+	reset func()) error {
+
+	return s.Store.ForEachChannelCacheable(
+		ctx, v, func(info *models.CachedEdgeInfo,
+			policy1,
+			policy2 *models.CachedEdgePolicy) error {
+
+			s.blockOnce.Do(func() {
+				close(s.cacheLoadStarted)
+				<-s.allowCacheLoad
+			})
+
+			return cb(info, policy1, policy2)
+		}, reset,
+	)
+}
+
+type shutdownBlockingCacheLoadStore struct {
+	Store
+
+	cacheLoadStarted chan struct{}
+	blockOnce        sync.Once
+}
+
+// ForEachChannelCacheable blocks until the context is canceled so tests can
+// assert that Stop interrupts async cache population.
+func (s *shutdownBlockingCacheLoadStore) ForEachChannelCacheable(
+	ctx context.Context, v lnwire.GossipVersion,
+	cb func(*models.CachedEdgeInfo, *models.CachedEdgePolicy,
+		*models.CachedEdgePolicy) error, reset func()) error {
+
+	return s.Store.ForEachChannelCacheable(
+		ctx, v, func(info *models.CachedEdgeInfo,
+			policy1,
+			policy2 *models.CachedEdgePolicy) error {
+
+			s.blockOnce.Do(func() {
+				close(s.cacheLoadStarted)
+				<-ctx.Done()
+			})
+
+			return ctx.Err()
+		}, reset,
+	)
+}
+
+type failingCacheLoadStore struct {
+	Store
+
+	cacheLoadAttempted chan struct{}
+	populateErr        error
+}
+
+// ForEachChannelCacheable fails the initial cache population after signaling
+// that the async load reached channel iteration.
+func (s *failingCacheLoadStore) ForEachChannelCacheable(ctx context.Context,
+	v lnwire.GossipVersion, cb func(*models.CachedEdgeInfo,
+		*models.CachedEdgePolicy, *models.CachedEdgePolicy) error,
+	reset func()) error {
+
+	close(s.cacheLoadAttempted)
+
+	return s.populateErr
+}
+
+// TestAsyncGraphCacheReplaysConcurrentWrites asserts that graph mutations that
+// happen while the async cache population is running are replayed onto the
+// cache before it becomes readable.
+func TestAsyncGraphCacheReplaysConcurrentWrites(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	store := NewTestDB(t)
+
+	setupGraph, err := NewChannelGraph(
+		store, WithSyncGraphCachePopulation(),
+	)
+	require.NoError(t, err)
+	require.NoError(t, setupGraph.Start())
+
+	node1 := createTestVertex(t, lnwire.GossipVersion1)
+	require.NoError(t, setupGraph.AddNode(ctx, node1))
+	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	require.NoError(t, setupGraph.AddNode(ctx, node2))
+
+	edgeInfo, edge1, edge2 := createChannelEdge(
+		node1, node2, lnwire.GossipVersion1,
+	)
+	require.NoError(t, setupGraph.AddChannelEdge(ctx, edgeInfo))
+	require.NoError(t, setupGraph.UpdateEdgePolicy(ctx, edge1))
+	require.NoError(t, setupGraph.UpdateEdgePolicy(ctx, edge2))
+	require.NoError(t, setupGraph.Stop())
+
+	blockingStore := &blockingCacheLoadStore{
+		Store:            store,
+		cacheLoadStarted: make(chan struct{}),
+		allowCacheLoad:   make(chan struct{}),
+	}
+
+	graph, err := NewChannelGraph(blockingStore)
+	require.NoError(t, err)
+	require.NoError(t, graph.Start())
+	t.Cleanup(func() {
+		require.NoError(t, graph.Stop())
+	})
+
+	<-blockingStore.cacheLoadStarted
+
+	updatedEdge := *edge1
+	updatedEdge.LastUpdate = nextUpdateTime()
+	updatedEdge.FeeBaseMSat++
+	require.NoError(t, graph.UpdateEdgePolicy(ctx, &updatedEdge))
+
+	close(blockingStore.allowCacheLoad)
+
+	err = wait.Predicate(func() bool {
+		return graph.cache.isLoaded()
+	}, wait.DefaultTimeout)
+	require.NoError(t, err)
+
+	var cachedFee lnwire.MilliSatoshi
+	err = graph.ForEachNodeDirectedChannel(
+		ctx, updatedEdge.ToNode,
+		func(channel *DirectedChannel) error {
+			if channel.ChannelID != updatedEdge.ChannelID {
+				return nil
+			}
+
+			require.NotNil(t, channel.InPolicy)
+			cachedFee = channel.InPolicy.FeeBaseMSat
+
+			return nil
+		}, func() {},
+	)
+	require.NoError(t, err)
+	require.Equal(t, updatedEdge.FeeBaseMSat, cachedFee)
+}
+
+// TestAsyncGraphCacheStopCancelsLoad asserts that Stop interrupts async cache
+// population instead of waiting for the full load to finish.
+func TestAsyncGraphCacheStopCancelsLoad(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	store := NewTestDB(t)
+
+	setupGraph, err := NewChannelGraph(
+		store, WithSyncGraphCachePopulation(),
+	)
+	require.NoError(t, err)
+	require.NoError(t, setupGraph.Start())
+
+	node1 := createTestVertex(t, lnwire.GossipVersion1)
+	require.NoError(t, setupGraph.AddNode(ctx, node1))
+	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	require.NoError(t, setupGraph.AddNode(ctx, node2))
+
+	edgeInfo, edge1, edge2 := createChannelEdge(
+		node1, node2, lnwire.GossipVersion1,
+	)
+	require.NoError(t, setupGraph.AddChannelEdge(ctx, edgeInfo))
+	require.NoError(t, setupGraph.UpdateEdgePolicy(ctx, edge1))
+	require.NoError(t, setupGraph.UpdateEdgePolicy(ctx, edge2))
+	require.NoError(t, setupGraph.Stop())
+
+	blockingStore := &shutdownBlockingCacheLoadStore{
+		Store:            store,
+		cacheLoadStarted: make(chan struct{}),
+	}
+
+	graph, err := NewChannelGraph(blockingStore)
+	require.NoError(t, err)
+	require.NoError(t, graph.Start())
+
+	<-blockingStore.cacheLoadStarted
+
+	stopErr := make(chan error, 1)
+	go func() {
+		stopErr <- graph.Stop()
+	}()
+
+	select {
+	case err := <-stopErr:
+		require.NoError(t, err)
+
+	case <-time.After(wait.DefaultTimeout):
+		t.Fatal("Stop did not cancel graph cache loading")
+	}
+}
+
+// TestAsyncGraphCachePopulationFailureFallsBackToDB asserts that cache
+// population errors leave the cache unreadable while reads continue to succeed
+// through the DB-backed path.
+func TestAsyncGraphCachePopulationFailureFallsBackToDB(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	store := NewTestDB(t)
+
+	setupGraph, err := NewChannelGraph(
+		store, WithSyncGraphCachePopulation(),
+	)
+	require.NoError(t, err)
+	require.NoError(t, setupGraph.Start())
+
+	node1 := createTestVertex(t, lnwire.GossipVersion1)
+	require.NoError(t, setupGraph.AddNode(ctx, node1))
+	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	require.NoError(t, setupGraph.AddNode(ctx, node2))
+
+	edgeInfo, edge1, edge2 := createChannelEdge(
+		node1, node2, lnwire.GossipVersion1,
+	)
+	require.NoError(t, setupGraph.AddChannelEdge(ctx, edgeInfo))
+	require.NoError(t, setupGraph.UpdateEdgePolicy(ctx, edge1))
+	require.NoError(t, setupGraph.UpdateEdgePolicy(ctx, edge2))
+	require.NoError(t, setupGraph.Stop())
+
+	populateErr := errors.New("cache population failed")
+	failingStore := &failingCacheLoadStore{
+		Store:              store,
+		cacheLoadAttempted: make(chan struct{}),
+		populateErr:        populateErr,
+	}
+
+	graph, err := NewChannelGraph(failingStore)
+	require.NoError(t, err)
+	require.NoError(t, graph.Start())
+	t.Cleanup(func() {
+		require.NoError(t, graph.Stop())
+	})
+
+	<-failingStore.cacheLoadAttempted
+	require.False(t, graph.cache.isLoaded())
+
+	var numChannels int
+	err = graph.ForEachNodeDirectedChannel(
+		ctx, edge1.ToNode,
+		func(channel *DirectedChannel) error {
+			if channel.ChannelID != edge1.ChannelID {
+				return nil
+			}
+
+			numChannels++
+			require.NotNil(t, channel.InPolicy)
+			require.Equal(t, edge1.FeeBaseMSat,
+				channel.InPolicy.FeeBaseMSat)
+
+			return nil
+		}, func() {},
+	)
+	require.NoError(t, err)
+	require.Equal(t, 1, numChannels)
+}
+
+// TestKVCacheableIteratorsRespectCancellation asserts that KV-backed cache
+// iterators return when their context is canceled.
+func TestKVCacheableIteratorsRespectCancellation(t *testing.T) {
+	t.Parallel()
+
+	if isSQLDB {
+		t.Skip("KV iterator cancellation is specific to KVStore")
+	}
+
+	ctx := t.Context()
+	store := NewTestDB(t)
+
+	kvStore, ok := store.(*KVStore)
+	require.True(t, ok)
+
+	graph, err := NewChannelGraph(
+		kvStore, WithSyncGraphCachePopulation(),
+	)
+	require.NoError(t, err)
+	require.NoError(t, graph.Start())
+	t.Cleanup(func() {
+		require.NoError(t, graph.Stop())
+	})
+
+	node1 := createTestVertex(t, lnwire.GossipVersion1)
+	require.NoError(t, graph.AddNode(ctx, node1))
+	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	require.NoError(t, graph.AddNode(ctx, node2))
+
+	edgeInfo, edge1, edge2 := createChannelEdge(
+		node1, node2, lnwire.GossipVersion1,
+	)
+	require.NoError(t, graph.AddChannelEdge(ctx, edgeInfo))
+	require.NoError(t, graph.UpdateEdgePolicy(ctx, edge1))
+	require.NoError(t, graph.UpdateEdgePolicy(ctx, edge2))
+
+	canceledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+
+	err = kvStore.ForEachNodeCacheable(
+		canceledCtx, lnwire.GossipVersion1,
+		func(route.Vertex, *lnwire.FeatureVector) error {
+			return nil
+		}, func() {},
+	)
+	require.ErrorIs(t, err, context.Canceled)
+
+	err = kvStore.ForEachChannelCacheable(
+		canceledCtx, lnwire.GossipVersion1,
+		func(*models.CachedEdgeInfo, *models.CachedEdgePolicy,
+			*models.CachedEdgePolicy) error {
+
+			return nil
+		}, func() {},
+	)
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 // TestClosedScid tests that we can correctly insert a SCID into the index of

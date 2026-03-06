@@ -41,6 +41,19 @@ var (
 	ErrUnexpectedResponse = errors.New("unexpected response type")
 )
 
+// requestInfo tracks the response delivery state for a single in-flight
+// request sent to the remote signer.
+type requestInfo struct {
+	// respChan is the per-request response channel that StartReceiving uses
+	// to deliver the remote signer response back to the waiting request.
+	respChan chan *RSResponse
+
+	// respQuit is closed when the waiting request context is canceled or
+	// completed. StartReceiving uses this to avoid sending a response to a
+	// request that is no longer waiting for it.
+	respQuit <-chan struct{}
+}
+
 // SignCoordinator is an implementation of the signrpc.SignerClient and the
 // walletrpc.WalletKitClient interfaces that passes on all requests to a remote
 // signer. It is used by the watch-only wallet to delegate any signing or ECDH
@@ -56,7 +69,8 @@ type SignCoordinator struct {
 	// stream is a bi-directional stream between us and the remote signer.
 	stream StreamServer
 
-	// responses is a map of request IDs to response channels. This map
+	// responses is a map of request IDs to response channels and request
+	// lifecycle channels. This map
 	// should be populated with a response channel for each request that has
 	// been sent to the remote signer. The response channel should be
 	// inserted into the map before the request is sent.
@@ -64,7 +78,7 @@ type SignCoordinator struct {
 	// associated response channel in this map is ignored.
 	// The response channel should be removed from the map when the response
 	// has been received and processed.
-	responses *lnutils.SyncMap[uint64, chan *signerResponse]
+	responses *lnutils.SyncMap[uint64, requestInfo]
 
 	// receiveErrChan is used to signal that the stream with the remote
 	// signer has errored, and we can no longer process responses.
@@ -89,6 +103,12 @@ type SignCoordinator struct {
 	// signer to connect.
 	connectionTimeout time.Duration
 
+	// sendMu serializes stream send operations, since gRPC stream Send is
+	// not safe for concurrent use from multiple goroutines. We use a
+	// separate mutex to keep the locking scope minimal and avoid locking
+	// the rest of the struct while sending messages.
+	sendMu sync.Mutex
+
 	mu sync.Mutex
 
 	wg sync.WaitGroup
@@ -102,7 +122,7 @@ var _ RemoteSignerRequests = (*SignCoordinator)(nil)
 func NewSignCoordinator(requestTimeout time.Duration,
 	connectionTimeout time.Duration) *SignCoordinator {
 
-	respsMap := &lnutils.SyncMap[uint64, chan *signerResponse]{}
+	respsMap := &lnutils.SyncMap[uint64, requestInfo]{}
 
 	s := &SignCoordinator{
 		responses:         respsMap,
@@ -385,7 +405,7 @@ func (s *SignCoordinator) StartReceiving() {
 			return
 		}
 
-		respChan, ok := s.responses.Load(resp.GetRefRequestId())
+		reqInfo, ok := s.responses.Load(resp.GetRefRequestId())
 
 		if ok {
 			select {
@@ -393,13 +413,18 @@ func (s *SignCoordinator) StartReceiving() {
 			// channel, as the channel allows for a buffer of 1, and
 			// we shouldn't have multiple requests and responses for
 			// the same request ID.
-			case respChan <- resp:
+			case reqInfo.respChan <- resp:
 
 			case <-s.quit:
 				return
 
-			// The timeout case be unreachable, as we should always
-			// be able to send 1 response over the response channel.
+			// This request was canceled, do not try to send any
+			// response for this request ID.
+			case <-reqInfo.respQuit:
+
+			// The timeout case should be unreachable, as we should
+			// always be able to send 1 response over the response
+			// channel.
 			// We keep this case just to avoid a scenario where the
 			// receive loop would be blocked if we receive multiple
 			// responses for the same request ID.
@@ -449,12 +474,18 @@ func (s *SignCoordinator) WaitUntilConnected(ctx context.Context) error {
 // which removes the channel from the responses map, and the caller must ensure
 // that this cleanup function is executed once the thread that's waiting for
 // the response is done.
-func (s *SignCoordinator) createResponseChannel(requestID uint64) func() {
-	// Create a new response channel.
-	respChan := make(chan *signerResponse, 1)
+func (s *SignCoordinator) createResponseChannel(requestID uint64,
+	respQuit <-chan struct{}) func() {
 
-	// Insert the response channel into the map.
-	s.responses.Store(requestID, respChan)
+	// Create a new response channel.
+	respChan := make(chan *RSResponse, 1)
+
+	// Insert the response channel and request lifecycle channel into the
+	// map.
+	s.responses.Store(requestID, requestInfo{
+		respChan: respChan,
+		respQuit: respQuit,
+	})
 
 	// Create a cleanup function that will delete the response channel.
 	return func() {
@@ -480,7 +511,7 @@ func (s *SignCoordinator) createResponseChannel(requestID uint64) func() {
 // Note: Before calling this function, the caller must have created a response
 // channel for the request ID.
 func (s *SignCoordinator) getResponse(ctx context.Context,
-	requestID uint64) (*signerResponse, error) {
+	requestID uint64) (*RSResponse, error) {
 
 	respChan, ok := s.responses.Load(requestID)
 
@@ -494,7 +525,7 @@ func (s *SignCoordinator) getResponse(ctx context.Context,
 
 	// Wait for the response to arrive.
 	select {
-	case resp, ok := <-respChan:
+	case resp, ok := <-respChan.respChan:
 		if !ok {
 			// If the response channel was closed, we return an
 			// error as the receiving thread must have timed out
@@ -594,7 +625,7 @@ func (s *SignCoordinator) Ping(ctx context.Context,
 				SignRequestType: req,
 			}
 		},
-		func(resp *signerResponse) bool {
+		func(resp *RSResponse) bool {
 			return resp.GetPong()
 		},
 	)
@@ -620,7 +651,7 @@ func (s *SignCoordinator) DeriveSharedKey(ctx context.Context,
 				SignRequestType: req,
 			}
 		},
-		func(resp *signerResponse) *signrpc.SharedKeyResponse {
+		func(resp *RSResponse) *signrpc.SharedKeyResponse {
 			return resp.GetSharedKeyResponse()
 		},
 	)
@@ -646,7 +677,7 @@ func (s *SignCoordinator) MuSig2Cleanup(ctx context.Context,
 				SignRequestType: req,
 			}
 		},
-		func(resp *signerResponse) *signrpc.MuSig2CleanupResponse {
+		func(resp *RSResponse) *signrpc.MuSig2CleanupResponse {
 			return resp.GetMuSig2CleanupResponse()
 		},
 	)
@@ -672,7 +703,7 @@ func (s *SignCoordinator) MuSig2CombineSig(ctx context.Context,
 				SignRequestType: req,
 			}
 		},
-		func(resp *signerResponse) *signrpc.MuSig2CombineSigResponse {
+		func(resp *RSResponse) *signrpc.MuSig2CombineSigResponse {
 			return resp.GetMuSig2CombineSigResponse()
 		},
 	)
@@ -698,7 +729,7 @@ func (s *SignCoordinator) MuSig2CreateSession(ctx context.Context,
 				SignRequestType: req,
 			}
 		},
-		func(resp *signerResponse) *signrpc.MuSig2SessionResponse {
+		func(resp *RSResponse) *signrpc.MuSig2SessionResponse {
 			return resp.GetMuSig2SessionResponse()
 		},
 	)
@@ -727,7 +758,7 @@ func (s *SignCoordinator) MuSig2RegisterNonces(ctx context.Context,
 				SignRequestType: req,
 			}
 		},
-		func(resp *signerResponse) muSig2RegisterNoncesResp {
+		func(resp *RSResponse) muSig2RegisterNoncesResp {
 			return resp.GetMuSig2RegisterNoncesResponse()
 		},
 	)
@@ -754,7 +785,7 @@ func (s *SignCoordinator) MuSig2RegisterCombinedNonce(ctx context.Context,
 				SignRequestType: req,
 			}
 		},
-		func(resp *signerResponse) muSig2RegCombNResp {
+		func(resp *RSResponse) muSig2RegCombNResp {
 			return resp.GetMuSig2CombNoncesResp()
 		},
 	)
@@ -780,7 +811,7 @@ func (s *SignCoordinator) MuSig2GetCombinedNonce(ctx context.Context,
 				SignRequestType: req,
 			}
 		},
-		func(resp *signerResponse) muSig2GetCombNonceResp {
+		func(resp *RSResponse) muSig2GetCombNonceResp {
 			return resp.GetMuSig2GetCombNoncesResp()
 		},
 	)
@@ -806,7 +837,7 @@ func (s *SignCoordinator) MuSig2Sign(ctx context.Context,
 				SignRequestType: req,
 			}
 		},
-		func(resp *signerResponse) *signrpc.MuSig2SignResponse {
+		func(resp *RSResponse) *signrpc.MuSig2SignResponse {
 			return resp.GetMuSig2SignResponse()
 		},
 	)
@@ -832,7 +863,7 @@ func (s *SignCoordinator) SignMessage(ctx context.Context,
 				SignRequestType: req,
 			}
 		},
-		func(resp *signerResponse) *signrpc.SignMessageResp {
+		func(resp *RSResponse) *signrpc.SignMessageResp {
 			return resp.GetSignMessageResp()
 		},
 	)
@@ -858,7 +889,7 @@ func (s *SignCoordinator) SignPsbt(ctx context.Context,
 				SignRequestType: req,
 			}
 		},
-		func(resp *signerResponse) *walletrpc.SignPsbtResponse {
+		func(resp *RSResponse) *walletrpc.SignPsbtResponse {
 			return resp.GetSignPsbtResponse()
 		},
 	)
@@ -870,8 +901,8 @@ func (s *SignCoordinator) SignPsbt(ctx context.Context,
 // specified timeout. If it is not set, configured timeouts will be used for
 // the individual operations within the function.
 func processRequest[R comparable](ctx context.Context, s *SignCoordinator,
-	generateRequest func(uint64) walletrpc.SignCoordinatorRequest,
-	extractResponse func(*signerResponse) R) (R, error) {
+	generateRequest func(uint64) remotesignerrpc.SignCoordinatorRequest,
+	extractResponse func(*RSResponse) R) (R, error) {
 
 	var zero R
 
@@ -893,15 +924,26 @@ func processRequest[R comparable](ctx context.Context, s *SignCoordinator,
 	reqID := s.nextRequestID.Add(1)
 	req := generateRequest(reqID)
 
-	cleanUpChannel := s.createResponseChannel(reqID)
-	defer cleanUpChannel()
+	reqCtx, cancelReq := context.WithCancel(ctx)
+	cleanUpChannel := s.createResponseChannel(reqID, reqCtx.Done())
+	defer func() {
+		cancelReq()
+		cleanUpChannel()
+	}()
 
 	log.Debugf("Sending a %T to the remote signer with request ID %d",
 		req.SignRequestType, reqID)
 
 	log.Tracef("Request content: %v", formatSignCoordinatorMsg(&req))
 
+	// Send the request to the remote signer. Note that stream.Send is not
+	// safe for concurrent use and that we specifically lock the sendMu
+	// below and not general struct mutex, to keep the locking scope
+	// minimal.
+	s.sendMu.Lock()
 	err = s.stream.Send(&req)
+	s.sendMu.Unlock()
+
 	if err != nil {
 		return zero, err
 	}
@@ -911,7 +953,7 @@ func processRequest[R comparable](ctx context.Context, s *SignCoordinator,
 	// Wait for the remote signer response for the given request. We will
 	// wait for the configured request timeout, or until the context is
 	// cancelled/timed out.
-	resp, err = s.getResponse(ctx, reqID)
+	resp, err = s.getResponse(reqCtx, reqID)
 
 	if err != nil {
 		return zero, err

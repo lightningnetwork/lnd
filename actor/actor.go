@@ -7,6 +7,12 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 )
 
+// MailboxFactory is a function type that creates a Mailbox implementation.
+// It receives the actor's context and the desired capacity, allowing custom
+// mailbox implementations (e.g., BackpressureMailbox) to be injected.
+type MailboxFactory[M Message, R any] func(ctx context.Context,
+	capacity int) Mailbox[M, R]
+
 // ActorConfig holds the configuration parameters for creating a new Actor.
 // It is generic over M (Message type) and R (Response type) to accommodate
 // the actor's specific behavior.
@@ -24,6 +30,10 @@ type ActorConfig[M Message, R any] struct {
 
 	// MailboxSize defines the buffer capacity of the actor's mailbox.
 	MailboxSize int
+
+	// MailboxFactory is an optional factory for creating the actor's
+	// mailbox. If nil, a default ChannelMailbox will be used.
+	MailboxFactory MailboxFactory[M, R]
 }
 
 // envelope wraps a message with its associated promise. This allows the sender
@@ -93,8 +103,14 @@ func NewActor[M Message, R any](cfg ActorConfig[M, R]) (*Actor[M, R],
 		mailboxCapacity = 1
 	}
 
-	// Create mailbox - could be injected via config in the future.
-	mailbox := NewChannelMailbox[M, R](ctx, mailboxCapacity)
+	// Create the mailbox using the factory if provided, otherwise use
+	// the default ChannelMailbox.
+	var mailbox Mailbox[M, R]
+	if cfg.MailboxFactory != nil {
+		mailbox = cfg.MailboxFactory(ctx, mailboxCapacity)
+	} else {
+		mailbox = NewChannelMailbox[M, R](ctx, mailboxCapacity)
+	}
 
 	actor := &Actor[M, R]{
 		id:       cfg.ID,

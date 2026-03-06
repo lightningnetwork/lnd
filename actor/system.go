@@ -116,19 +116,44 @@ func NewActorSystemWithConfig(config SystemConfig) *ActorSystem {
 	return system
 }
 
+// ActorOption is a functional option for customizing actor creation.
+type ActorOption[M Message, R any] func(*ActorConfig[M, R])
+
+// WithMailboxFactory returns an ActorOption that sets a custom mailbox factory.
+func WithMailboxFactory[M Message, R any](
+	f MailboxFactory[M, R]) ActorOption[M, R] {
+
+	return func(cfg *ActorConfig[M, R]) {
+		cfg.MailboxFactory = f
+	}
+}
+
+// WithMailboxSize returns an ActorOption that overrides the default mailbox
+// size.
+func WithMailboxSize[M Message, R any](size int) ActorOption[M, R] {
+	return func(cfg *ActorConfig[M, R]) {
+		cfg.MailboxSize = size
+	}
+}
+
 // RegisterWithSystem creates an actor with the given ID, service key, and
 // behavior within the specified ActorSystem. It starts the actor, adds it to
 // the system's management, registers it with the receptionist using the
 // provided key, and returns its ActorRef.
 func RegisterWithSystem[M Message, R any](as *ActorSystem, id string,
 	key ServiceKey[M, R],
-	behavior ActorBehavior[M, R]) (ActorRef[M, R], error) {
+	behavior ActorBehavior[M, R],
+	opts ...ActorOption[M, R]) (ActorRef[M, R], error) {
 
 	actorCfg := ActorConfig[M, R]{
 		ID:          id,
 		Behavior:    behavior,
 		DLO:         as.deadLetterActor,
 		MailboxSize: as.config.MailboxCapacity,
+	}
+
+	for _, opt := range opts {
+		opt(&actorCfg)
 	}
 	// Check for duplicate actor ID before creating the actor.
 	as.mu.Lock()
@@ -299,9 +324,10 @@ func NewServiceKey[M Message, R any](name string) ServiceKey[M, R] {
 // It's a convenience method that calls RegisterWithSystem, starting the actor
 // and registering it with the receptionist.
 func (sk ServiceKey[M, R]) Spawn(as *ActorSystem, id string,
-	behavior ActorBehavior[M, R]) (ActorRef[M, R], error) {
+	behavior ActorBehavior[M, R],
+	opts ...ActorOption[M, R]) (ActorRef[M, R], error) {
 
-	return RegisterWithSystem(as, id, sk, behavior)
+	return RegisterWithSystem(as, id, sk, behavior, opts...)
 }
 
 // Unregister removes an actor reference associated with this service key from

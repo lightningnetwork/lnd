@@ -85,14 +85,20 @@ type chanGraphOptions struct {
 	// preAllocCacheNumNodes is the number of nodes we expect to be in the
 	// graph cache, so we can pre-allocate the map accordingly.
 	preAllocCacheNumNodes int
+
+	// asyncGraphCachePopulation indicates whether the graph cache
+	// should be populated asynchronously or if the Start method should
+	// block until the cache is fully populated.
+	asyncGraphCachePopulation bool
 }
 
 // defaultChanGraphOptions returns a new chanGraphOptions instance populated
 // with default values.
 func defaultChanGraphOptions() *chanGraphOptions {
 	return &chanGraphOptions{
-		useGraphCache:         true,
-		preAllocCacheNumNodes: DefaultPreAllocCacheNumNodes,
+		useGraphCache:             true,
+		asyncGraphCachePopulation: true,
+		preAllocCacheNumNodes:     DefaultPreAllocCacheNumNodes,
 	}
 }
 
@@ -112,6 +118,25 @@ func WithUseGraphCache(use bool) ChanGraphOption {
 func WithPreAllocCacheNumNodes(n int) ChanGraphOption {
 	return func(o *chanGraphOptions) {
 		o.preAllocCacheNumNodes = n
+	}
+}
+
+// WithAsyncGraphCachePopulation sets whether the graph cache should be
+// populated asynchronously or if the Start method should block until the
+// cache is fully populated.
+func WithAsyncGraphCachePopulation(async bool) ChanGraphOption {
+	return func(o *chanGraphOptions) {
+		o.asyncGraphCachePopulation = async
+	}
+}
+
+// WithSyncGraphCachePopulation will cause the ChannelGraph to block
+// until the graph cache is fully populated before returning from the Start
+// method. This is useful for tests that need to ensure the graph cache is
+// fully populated before proceeding with further operations.
+func WithSyncGraphCachePopulation() ChanGraphOption {
+	return func(o *chanGraphOptions) {
+		o.asyncGraphCachePopulation = false
 	}
 }
 

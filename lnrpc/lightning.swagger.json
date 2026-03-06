@@ -5572,6 +5572,10 @@
         "wallet_synced": {
           "type": "boolean",
           "description": "Whether the wallet is fully synced to the best chain. This indicates the\nwallet's internal sync state with the backing chain source."
+        },
+        "graph_cache_status": {
+          "$ref": "#/definitions/lnrpcGraphCacheStatus",
+          "description": "The current status of the in-memory graph cache."
         }
       }
     },
@@ -5592,6 +5596,15 @@
           "description": "The recovery progress, ranging from 0 to 1."
         }
       }
+    },
+    "lnrpcGraphCacheStatus": {
+      "type": "string",
+      "enum": [
+        "GRAPH_CACHE_STATUS_DISABLED",
+        "GRAPH_CACHE_STATUS_LOADING",
+        "GRAPH_CACHE_STATUS_LOADED"
+      ],
+      "default": "GRAPH_CACHE_STATUS_DISABLED"
     },
     "lnrpcGraphTopologyUpdate": {
       "type": "object",

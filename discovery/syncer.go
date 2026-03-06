@@ -284,10 +284,9 @@ type gossipSyncerCfg struct {
 	// for a single QueryChannelRange request.
 	maxQueryChanRangeReplies uint32
 
-	// isStillZombieChannel takes the timestamps of the latest channel
-	// updates for a channel and returns true if the channel should be
-	// considered a zombie based on these timestamps.
-	isStillZombieChannel func(time.Time, time.Time) bool
+	// isStillZombieChannel returns true if the channel described by info
+	// should still be considered a zombie.
+	isStillZombieChannel func(graphdb.ChannelUpdateInfo) bool
 
 	// timestampQueueSize is the size of the timestamp range queue. If not
 	// set, defaults to the global timestampQueueSize constant.
@@ -974,39 +973,40 @@ func (g *GossipSyncer) processChanRangeReply(_ context.Context,
 	g.prevReplyChannelRange = msg
 
 	for i, scid := range msg.ShortChanIDs {
-		info := graphdb.NewChannelUpdateInfo(
+		info := graphdb.NewV1ChannelUpdateInfo(
 			scid, time.Time{}, time.Time{},
 		)
 
 		if len(msg.Timestamps) != 0 {
-			t1 := time.Unix(int64(msg.Timestamps[i].Timestamp1), 0)
-			info.Node1UpdateTimestamp = t1
+			info.Node1Freshness = lnwire.UnixTimestamp(
+				msg.Timestamps[i].Timestamp1,
+			)
 
+			info.Node2Freshness = lnwire.UnixTimestamp(
+				msg.Timestamps[i].Timestamp2,
+			)
+
+			t1 := time.Unix(int64(msg.Timestamps[i].Timestamp1), 0)
 			t2 := time.Unix(int64(msg.Timestamps[i].Timestamp2), 0)
-			info.Node2UpdateTimestamp = t2
 
 			// Sort out all channels with outdated or skewed
 			// timestamps. Both timestamps need to be out of
 			// boundaries for us to skip the channel and not query
 			// it later on.
 			switch {
-			case isStale(info.Node1UpdateTimestamp) &&
-				isStale(info.Node2UpdateTimestamp):
+			case isStale(t1) && isStale(t2):
 
 				continue
 
-			case isSkewed(info.Node1UpdateTimestamp) &&
-				isSkewed(info.Node2UpdateTimestamp):
+			case isSkewed(t1) && isSkewed(t2):
 
 				continue
 
-			case isStale(info.Node1UpdateTimestamp) &&
-				isSkewed(info.Node2UpdateTimestamp):
+			case isStale(t1) && isSkewed(t2):
 
 				continue
 
-			case isStale(info.Node2UpdateTimestamp) &&
-				isSkewed(info.Node1UpdateTimestamp):
+			case isStale(t2) && isSkewed(t1):
 
 				continue
 			}
@@ -1268,11 +1268,11 @@ func (g *GossipSyncer) replyChanRangeQuery(ctx context.Context,
 			}
 
 			timestamps[i].Timestamp1 = uint32(
-				info.Node1UpdateTimestamp.Unix(),
+				info.Node1FreshnessTime().Unix(),
 			)
 
 			timestamps[i].Timestamp2 = uint32(
-				info.Node2UpdateTimestamp.Unix(),
+				info.Node2FreshnessTime().Unix(),
 			)
 		}
 

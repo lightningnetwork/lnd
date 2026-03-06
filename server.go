@@ -993,7 +993,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		return nil, fmt.Errorf("error getting source node: %w", err)
 	}
 	paymentSessionSource := &routing.SessionSource{
-		GraphSessionFactory: dbs.GraphDB,
+		GraphSessionFactory: s.v1Graph,
 		SourceNode:          sourceNode,
 		MissionControl:      s.defaultMC,
 		GetLink:             s.htlcSwitch.GetLinkByShortID,
@@ -1024,7 +1024,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 	s.chanRouter, err = routing.New(routing.Config{
 		SelfNode:                  nodePubKey,
-		RoutingGraph:              dbs.GraphDB,
+		RoutingGraph:              s.v1Graph,
 		Chain:                     cc.ChainIO,
 		Payer:                     s.htlcSwitch,
 		Control:                   s.controlTower,
@@ -2943,7 +2943,7 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 	// First, we'll create an instance of the ChannelGraphBootstrapper as
 	// this can be used by default if we've already partially seeded the
 	// network.
-	chanGraph := autopilot.ChannelGraphFromDatabase(s.graphDB)
+	chanGraph := autopilot.ChannelGraphFromDatabase(s.v1Graph)
 	graphBootstrapper, err := discovery.NewGraphBootstrapper(
 		chanGraph, s.cfg.Bitcoin.IsLocalNetwork(),
 	)

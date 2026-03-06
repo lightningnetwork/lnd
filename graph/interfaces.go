@@ -60,9 +60,9 @@ type ChannelGraphSource interface {
 	IsStaleEdgePolicy(chanID lnwire.ShortChannelID, timestamp time.Time,
 		flags lnwire.ChanUpdateChanFlags) bool
 
-	// MarkEdgeLive clears an edge from our zombie index, deeming it as
-	// live.
-	MarkEdgeLive(chanID lnwire.ShortChannelID) error
+	// MarkEdgeLive clears an edge from our zombie index for the given
+	// gossip version, deeming it as live.
+	MarkEdgeLive(v lnwire.GossipVersion, chanID lnwire.ShortChannelID) error
 
 	// ForAllOutgoingChannels is used to iterate over all channels
 	// emanating from the "source" node which is the center of the

@@ -708,7 +708,7 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 	if err != nil {
 		return err
 	}
-	graph := s.graphDB
+	graph := s.v1Graph
 
 	routerBackend := &routerrpc.RouterBackend{
 		SelfNode: selfNode.PubKeyBytes,
@@ -6452,7 +6452,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		NodeSigner:        r.server.nodeSigner,
 		DefaultCLTVExpiry: defaultDelta,
 		ChanDB:            r.server.chanStateDB,
-		Graph:             r.server.graphDB,
+		Graph:             r.server.v1Graph,
 		GenInvoiceFeatures: func() *lnwire.FeatureVector {
 			v := r.server.featureMgr.Get(feature.SetInvoice)
 
@@ -7079,10 +7079,11 @@ func (r *rpcServer) GetNodeMetrics(ctx context.Context,
 		BetweennessCentrality: make(map[string]*lnrpc.FloatMetric),
 	}
 
-	// Obtain the pointer to the global singleton channel graph, this will
-	// provide a consistent view of the graph due to bolt db's
-	// transactional model.
-	graph := r.server.graphDB
+	// Obtain the pointer to the V1 channel graph, this will provide a
+	// consistent view of the graph due to bolt db's transactional model.
+	//
+	// TODO(elle): switch to a cross-version graph view when available.
+	graph := r.server.v1Graph
 
 	// Calculate betweenness centrality if requested. Note that depending on the
 	// graph size, this may take up to a few minutes.
@@ -7296,7 +7297,8 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	_ *lnrpc.NetworkInfoRequest) (*lnrpc.NetworkInfo, error) {
 
-	graph := r.server.graphDB
+	// TODO(elle): switch to a cross-version graph view when available.
+	graph := r.server.v1Graph
 
 	var (
 		numNodes             uint32

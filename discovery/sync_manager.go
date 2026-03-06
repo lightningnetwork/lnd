@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -129,10 +130,9 @@ type SyncManagerCfg struct {
 	// PassiveSync.
 	PinnedSyncers PinnedSyncers
 
-	// IsStillZombieChannel takes the timestamps of the latest channel
-	// updates for a channel and returns true if the channel should be
-	// considered a zombie based on these timestamps.
-	IsStillZombieChannel func(time.Time, time.Time) bool
+	// IsStillZombieChannel returns true if the channel described by info
+	// should still be considered a zombie.
+	IsStillZombieChannel func(graphdb.ChannelUpdateInfo) bool
 
 	// AllotedMsgBytesPerSecond is the allotted bandwidth rate, expressed in
 	// bytes/second that the gossip manager can consume. Once we exceed this

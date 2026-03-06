@@ -413,7 +413,9 @@ func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 // MarkEdgeLive clears an edge from our zombie index, deeming it as live.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (r *mockGraphSource) MarkEdgeLive(chanID lnwire.ShortChannelID) error {
+func (r *mockGraphSource) MarkEdgeLive(_ lnwire.GossipVersion,
+	chanID lnwire.ShortChannelID) error {
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.zombies, chanID.ToUint64())
@@ -2440,7 +2442,8 @@ func TestRejectZombieEdge(t *testing.T) {
 
 	// If we then mark the edge as live, the edge's zombie status should be
 	// overridden and the announcements should be processed.
-	if err := tCtx.router.MarkEdgeLive(chanID); err != nil {
+	err = tCtx.router.MarkEdgeLive(lnwire.GossipVersion1, chanID)
+	if err != nil {
 		t.Fatalf("unable mark channel %v as zombie: %v", chanID, err)
 	}
 
@@ -4811,7 +4814,7 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 	// as a zombie if any error occurs in the chanvalidate.Validate call.
 	// For the sake of the rest of the test, however, we mark it as live
 	// here.
-	_ = tCtx.router.MarkEdgeLive(ca.ShortChannelID)
+	_ = tCtx.router.MarkEdgeLive(lnwire.GossipVersion1, ca.ShortChannelID)
 
 	select {
 	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(

@@ -135,7 +135,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	sourceNode, err := graphInstance.v1Graph.SourceNode(t.Context())
 	require.NoError(t, err)
 	sessionSource := &SessionSource{
-		GraphSessionFactory: graphInstance.graph,
+		GraphSessionFactory: graphInstance.v1Graph,
 		SourceNode:          sourceNode,
 		GetLink:             graphInstance.getLink,
 		PathFindingConfig:   pathFindingConfig,
@@ -146,7 +146,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 
 	router, err := New(Config{
 		SelfNode:       sourceNode.PubKeyBytes,
-		RoutingGraph:   graphInstance.graph,
+		RoutingGraph:   graphInstance.v1Graph,
 		Chain:          chain,
 		Payer:          &mockPaymentAttemptDispatcherOld{},
 		Control:        makeMockControlTower(),

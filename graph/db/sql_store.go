@@ -105,9 +105,11 @@ type SQLQueries interface {
 	ListChannelsWithPoliciesPaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesPaginatedParams) ([]sqlc.ListChannelsWithPoliciesPaginatedRow, error)
 	ListChannelsWithPoliciesForCachePaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesForCachePaginatedParams) ([]sqlc.ListChannelsWithPoliciesForCachePaginatedRow, error)
 	ListChannelsPaginated(ctx context.Context, arg sqlc.ListChannelsPaginatedParams) ([]sqlc.ListChannelsPaginatedRow, error)
+	ListChannelsPaginatedV2(ctx context.Context, arg sqlc.ListChannelsPaginatedV2Params) ([]sqlc.ListChannelsPaginatedV2Row, error)
 	GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg sqlc.GetChannelsByPolicyLastUpdateRangeParams) ([]sqlc.GetChannelsByPolicyLastUpdateRangeRow, error)
 	GetChannelByOutpointWithPolicies(ctx context.Context, arg sqlc.GetChannelByOutpointWithPoliciesParams) (sqlc.GetChannelByOutpointWithPoliciesRow, error)
 	GetPublicV1ChannelsBySCID(ctx context.Context, arg sqlc.GetPublicV1ChannelsBySCIDParams) ([]sqlc.GraphChannel, error)
+	GetPublicV2ChannelsBySCID(ctx context.Context, arg sqlc.GetPublicV2ChannelsBySCIDParams) ([]sqlc.GraphChannel, error)
 	GetSCIDByOutpoint(ctx context.Context, arg sqlc.GetSCIDByOutpointParams) ([]byte, error)
 	DeleteChannels(ctx context.Context, ids []int64) error
 
@@ -983,13 +985,13 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 // early.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) ForEachNode(ctx context.Context,
+func (s *SQLStore) ForEachNode(ctx context.Context, v lnwire.GossipVersion,
 	cb func(node *models.Node) error, reset func()) error {
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		return forEachNodePaginated(
 			ctx, s.cfg.QueryCfg, db,
-			lnwire.GossipVersion1, func(_ context.Context, _ int64,
+			v, func(_ context.Context, _ int64,
 				node *models.Node) error {
 
 				return cb(node)
@@ -1342,7 +1344,8 @@ func (s *SQLStore) ChanUpdatesInHorizon(ctx context.Context,
 // if the addresses are actually needed.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) ForEachNodeCached(ctx context.Context, withAddrs bool,
+func (s *SQLStore) ForEachNodeCached(ctx context.Context,
+	v lnwire.GossipVersion, withAddrs bool,
 	cb func(ctx context.Context, node route.Vertex, addrs []net.Addr,
 		chans map[uint64]*DirectedChannel) error, reset func()) error {
 
@@ -1360,7 +1363,7 @@ func (s *SQLStore) ForEachNodeCached(ctx context.Context, withAddrs bool,
 
 			return db.ListNodeIDsAndPubKeys(
 				ctx, sqlc.ListNodeIDsAndPubKeysParams{
-					Version: int16(lnwire.GossipVersion1),
+					Version: int16(v),
 					ID:      lastID,
 					Limit:   limit,
 				},
@@ -1664,8 +1667,9 @@ func (s *SQLStore) ForEachChannel(ctx context.Context,
 // will be included in the response.
 //
 // NOTE: This is part of the Store interface.
-func (s *SQLStore) FilterChannelRange(ctx context.Context, startHeight,
-	endHeight uint32, withTimestamps bool) ([]BlockChannelRange, error) {
+func (s *SQLStore) FilterChannelRange(ctx context.Context,
+	v lnwire.GossipVersion, startHeight, endHeight uint32,
+	withTimestamps bool) ([]BlockChannelRange, error) {
 
 	var (
 		startSCID = &lnwire.ShortChannelID{
@@ -1687,24 +1691,48 @@ func (s *SQLStore) FilterChannelRange(ctx context.Context, startHeight,
 	//    and add those timestamps to the collected channel.
 	channelsPerBlock := make(map[uint32][]ChannelUpdateInfo)
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		dbChans, err := db.GetPublicV1ChannelsBySCID(
-			ctx, sqlc.GetPublicV1ChannelsBySCIDParams{
-				StartScid: chanIDStart,
-				EndScid:   chanIDEnd,
-			},
+		var (
+			dbChans []sqlc.GraphChannel
+			chanErr error
 		)
-		if err != nil {
+
+		switch v {
+		case gossipV1:
+			dbChans, chanErr = db.GetPublicV1ChannelsBySCID(
+				ctx, sqlc.GetPublicV1ChannelsBySCIDParams{
+					StartScid: chanIDStart,
+					EndScid:   chanIDEnd,
+				},
+			)
+		case gossipV2:
+			dbChans, chanErr = db.GetPublicV2ChannelsBySCID(
+				ctx, sqlc.GetPublicV2ChannelsBySCIDParams{
+					StartScid: chanIDStart,
+					EndScid:   chanIDEnd,
+				},
+			)
+		default:
+			return fmt.Errorf("unsupported gossip version: %d", v)
+		}
+		if chanErr != nil {
 			return fmt.Errorf("unable to fetch channel range: %w",
-				err)
+				chanErr)
 		}
 
 		for _, dbChan := range dbChans {
 			cid := lnwire.NewShortChanIDFromInt(
 				byteOrder.Uint64(dbChan.Scid),
 			)
-			chanInfo := NewChannelUpdateInfo(
-				cid, time.Time{}, time.Time{},
-			)
+
+			var chanInfo ChannelUpdateInfo
+			switch v {
+			case gossipV1:
+				chanInfo = NewV1ChannelUpdateInfo(
+					cid, time.Time{}, time.Time{},
+				)
+			case gossipV2:
+				chanInfo = NewV2ChannelUpdateInfo(cid, 0, 0)
+			}
 
 			if !withTimestamps {
 				channelsPerBlock[cid.BlockHeight] = append(
@@ -1718,7 +1746,7 @@ func (s *SQLStore) FilterChannelRange(ctx context.Context, startHeight,
 			//nolint:ll
 			node1Policy, err := db.GetChannelPolicyByChannelAndNode(
 				ctx, sqlc.GetChannelPolicyByChannelAndNodeParams{
-					Version:   int16(lnwire.GossipVersion1),
+					Version:   int16(v),
 					ChannelID: dbChan.ID,
 					NodeID:    dbChan.NodeID1,
 				},
@@ -1727,15 +1755,21 @@ func (s *SQLStore) FilterChannelRange(ctx context.Context, startHeight,
 				return fmt.Errorf("unable to fetch node1 "+
 					"policy: %w", err)
 			} else if err == nil {
-				chanInfo.Node1UpdateTimestamp = time.Unix(
-					node1Policy.LastUpdate.Int64, 0,
-				)
+				ts := node1Policy.LastUpdate.Int64
+				switch v {
+				case gossipV1:
+					chanInfo.Node1Freshness =
+						lnwire.UnixTimestamp(ts)
+				case gossipV2:
+					chanInfo.Node1Freshness =
+						lnwire.BlockHeightTimestamp(ts)
+				}
 			}
 
 			//nolint:ll
 			node2Policy, err := db.GetChannelPolicyByChannelAndNode(
 				ctx, sqlc.GetChannelPolicyByChannelAndNodeParams{
-					Version:   int16(lnwire.GossipVersion1),
+					Version:   int16(v),
 					ChannelID: dbChan.ID,
 					NodeID:    dbChan.NodeID2,
 				},
@@ -1744,9 +1778,15 @@ func (s *SQLStore) FilterChannelRange(ctx context.Context, startHeight,
 				return fmt.Errorf("unable to fetch node2 "+
 					"policy: %w", err)
 			} else if err == nil {
-				chanInfo.Node2UpdateTimestamp = time.Unix(
-					node2Policy.LastUpdate.Int64, 0,
-				)
+				ts := node2Policy.LastUpdate.Int64
+				switch v {
+				case gossipV1:
+					chanInfo.Node2Freshness =
+						lnwire.UnixTimestamp(ts)
+				case gossipV2:
+					chanInfo.Node2Freshness =
+						lnwire.BlockHeightTimestamp(ts)
+				}
 			}
 
 			channelsPerBlock[cid.BlockHeight] = append(
@@ -1779,12 +1819,16 @@ func (s *SQLStore) FilterChannelRange(ctx context.Context, startHeight,
 }
 
 // MarkEdgeZombie attempts to mark a channel identified by its channel ID as a
-// zombie. This method is used on an ad-hoc basis, when channels need to be
-// marked as zombies outside the normal pruning cycle.
+// zombie for the given gossip version. This method is used on an ad-hoc basis,
+// when channels need to be marked as zombies outside the normal pruning cycle.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) MarkEdgeZombie(ctx context.Context, chanID uint64,
-	pubKey1, pubKey2 [33]byte) error {
+func (s *SQLStore) MarkEdgeZombie(ctx context.Context, v lnwire.GossipVersion,
+	chanID uint64, pubKey1, pubKey2 [33]byte) error {
+
+	if !isKnownGossipVersion(v) {
+		return fmt.Errorf("unsupported gossip version: %d", v)
+	}
 
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
@@ -1794,7 +1838,7 @@ func (s *SQLStore) MarkEdgeZombie(ctx context.Context, chanID uint64,
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		return db.UpsertZombieChannel(
 			ctx, sqlc.UpsertZombieChannelParams{
-				Version:  int16(lnwire.GossipVersion1),
+				Version:  int16(v),
 				Scid:     chanIDB,
 				NodeKey1: pubKey1[:],
 				NodeKey2: pubKey2[:],
@@ -1806,28 +1850,33 @@ func (s *SQLStore) MarkEdgeZombie(ctx context.Context, chanID uint64,
 			"(channel_id=%d): %w", chanID, err)
 	}
 
-	s.rejectCache.remove(lnwire.GossipVersion1, chanID)
-	s.chanCache.remove(lnwire.GossipVersion1, chanID)
+	s.rejectCache.remove(v, chanID)
+	s.chanCache.remove(v, chanID)
 
 	return nil
 }
 
-// MarkEdgeLive clears an edge from our zombie index, deeming it as live.
+// MarkEdgeLive clears an edge from our zombie index for the given gossip
+// version, deeming it as live.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) MarkEdgeLive(ctx context.Context, chanID uint64) error {
+func (s *SQLStore) MarkEdgeLive(ctx context.Context,
+	v lnwire.GossipVersion, chanID uint64) error {
+
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
 
-	var (
-		chanIDB = channelIDToBytes(chanID)
-	)
+	if !isKnownGossipVersion(v) {
+		return fmt.Errorf("unsupported gossip version: %d", v)
+	}
+
+	chanIDB := channelIDToBytes(chanID)
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		res, err := db.DeleteZombieChannel(
 			ctx, sqlc.DeleteZombieChannelParams{
 				Scid:    chanIDB,
-				Version: int16(lnwire.GossipVersion1),
+				Version: int16(v),
 			},
 		)
 		if err != nil {
@@ -1854,8 +1903,8 @@ func (s *SQLStore) MarkEdgeLive(ctx context.Context, chanID uint64) error {
 			"(channel_id=%d): %w", chanID, err)
 	}
 
-	s.rejectCache.remove(lnwire.GossipVersion1, chanID)
-	s.chanCache.remove(lnwire.GossipVersion1, chanID)
+	s.rejectCache.remove(v, chanID)
+	s.chanCache.remove(v, chanID)
 
 	return err
 }
@@ -1912,13 +1961,16 @@ func (s *SQLStore) IsZombieEdge(ctx context.Context, v lnwire.GossipVersion,
 // NumZombies returns the current number of zombie channels in the graph.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) NumZombies(ctx context.Context) (uint64, error) {
+func (s *SQLStore) NumZombies(
+	ctx context.Context, v lnwire.GossipVersion,
+) (uint64, error) {
+
 	var (
 		numZombies uint64
 	)
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		count, err := db.CountZombieChannels(
-			ctx, int16(lnwire.GossipVersion1),
+			ctx, int16(v),
 		)
 		if err != nil {
 			return fmt.Errorf("unable to count zombie channels: %w",
@@ -2985,54 +3037,126 @@ func (s *SQLStore) deleteChannels(ctx context.Context, db SQLQueries,
 // closes on the resident blockchain.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) ChannelView(ctx context.Context) ([]EdgePoint, error) {
+func (s *SQLStore) ChannelView(ctx context.Context,
+	v lnwire.GossipVersion) ([]EdgePoint, error) {
+
 	var edgePoints []EdgePoint
 
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		handleChannel := func(_ context.Context,
-			channel sqlc.ListChannelsPaginatedRow) error {
+		switch v {
+		case gossipV1:
+			handleChannel := func(_ context.Context,
+				channel sqlc.ListChannelsPaginatedRow) error {
 
-			// TODO(elle): update to handle V2 channels.
-			pkScript, err := genMultiSigP2WSH(
-				channel.BitcoinKey1, channel.BitcoinKey2,
-			)
-			if err != nil {
-				return err
+				key1, err := route.NewVertexFromBytes(
+					channel.BitcoinKey1,
+				)
+				if err != nil {
+					return err
+				}
+
+				key2, err := route.NewVertexFromBytes(
+					channel.BitcoinKey2,
+				)
+				if err != nil {
+					return err
+				}
+
+				edge := &models.ChannelEdgeInfo{
+					Version:          gossipV1,
+					BitcoinKey1Bytes: fn.Some(key1),
+					BitcoinKey2Bytes: fn.Some(key2),
+				}
+				pkScript, err := edge.FundingPKScript()
+				if err != nil {
+					return err
+				}
+
+				op, err := wire.NewOutPointFromString(
+					channel.Outpoint,
+				)
+				if err != nil {
+					return err
+				}
+
+				edgePoints = append(edgePoints, EdgePoint{
+					FundingPkScript: pkScript,
+					OutPoint:        *op,
+				})
+
+				return nil
 			}
 
-			op, err := wire.NewOutPointFromString(channel.Outpoint)
-			if err != nil {
-				return err
+			queryFunc := func(ctx context.Context, lastID int64,
+				limit int32) ([]sqlc.ListChannelsPaginatedRow,
+				error) {
+
+				return db.ListChannelsPaginated(
+					ctx, sqlc.ListChannelsPaginatedParams{
+						Version: int16(gossipV1),
+						ID:      lastID,
+						Limit:   limit,
+					},
+				)
 			}
 
-			edgePoints = append(edgePoints, EdgePoint{
-				FundingPkScript: pkScript,
-				OutPoint:        *op,
-			})
+			extractCursor := func(
+				row sqlc.ListChannelsPaginatedRow) int64 {
 
-			return nil
-		}
+				return row.ID
+			}
 
-		queryFunc := func(ctx context.Context, lastID int64,
-			limit int32) ([]sqlc.ListChannelsPaginatedRow, error) {
-
-			return db.ListChannelsPaginated(
-				ctx, sqlc.ListChannelsPaginatedParams{
-					Version: int16(lnwire.GossipVersion1),
-					ID:      lastID,
-					Limit:   limit,
-				},
+			return sqldb.ExecutePaginatedQuery(
+				ctx, s.cfg.QueryCfg, int64(-1), queryFunc,
+				extractCursor, handleChannel,
 			)
-		}
 
-		extractCursor := func(row sqlc.ListChannelsPaginatedRow) int64 {
-			return row.ID
-		}
+		case gossipV2:
+			handleChannel := func(_ context.Context,
+				channel sqlc.ListChannelsPaginatedV2Row) error {
 
-		return sqldb.ExecutePaginatedQuery(
-			ctx, s.cfg.QueryCfg, int64(-1), queryFunc,
-			extractCursor, handleChannel,
-		)
+				op, err := wire.NewOutPointFromString(
+					channel.Outpoint,
+				)
+				if err != nil {
+					return err
+				}
+
+				pkScript := channel.FundingPkScript
+				edgePoints = append(edgePoints, EdgePoint{
+					FundingPkScript: pkScript,
+					OutPoint:        *op,
+				})
+
+				return nil
+			}
+
+			queryFunc := func(ctx context.Context, lastID int64,
+				limit int32) ([]sqlc.ListChannelsPaginatedV2Row,
+				error) {
+
+				return db.ListChannelsPaginatedV2(
+					ctx, sqlc.ListChannelsPaginatedV2Params{
+						ID:    lastID,
+						Limit: limit,
+					},
+				)
+			}
+
+			extractCursor := func(
+				row sqlc.ListChannelsPaginatedV2Row) int64 {
+
+				return row.ID
+			}
+
+			return sqldb.ExecutePaginatedQuery(
+				ctx, s.cfg.QueryCfg, int64(-1), queryFunc,
+				extractCursor, handleChannel,
+			)
+
+		default:
+			return fmt.Errorf("unsupported gossip version: %d", v)
+		}
 	}, func() {
 		edgePoints = nil
 	})

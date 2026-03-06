@@ -1089,6 +1089,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		AssumeChannelValid:  cfg.Routing.AssumeChannelValid,
 		StrictZombiePruning: strictPruning,
 		IsAlias:             aliasmgr.IsAlias,
+		GraphSource:         s.graphSource,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create graph builder: %w", err)

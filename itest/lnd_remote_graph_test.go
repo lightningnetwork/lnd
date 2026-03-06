@@ -9,7 +9,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -381,51 +380,14 @@ func testRemoteGraphPolicyUpdate(ht *lntest.HarnessTest) {
 	require.Equal(ht.T, oldBobFeeRate, zaneBobFeeRate,
 		"zane should still see old fee rate")
 
-	// Now Zane tries to pay Alice again. The payment will be attempted
-	// with the stale fee policy. Bob will reject it with FeeInsufficient
-	// and include the updated ChannelUpdate in the failure message.
-	//
-	// The router will extract the ChannelUpdate and call
-	// ApplyChannelUpdate. Currently, this fails silently because the
-	// channel only exists in the remote graph (via Greg), not in Zane's
-	// local DB.
-	//
-	// We use a high fee limit to ensure the payment would succeed if
-	// Zane had the correct fee info.
+	// Now Zane tries to pay Alice again. The first attempt uses the stale
+	// fee policy, so Bob rejects it with FeeInsufficient and includes the
+	// updated ChannelUpdate in the failure message. ApplyChannelUpdate
+	// falls back to the GraphSource (since the channel isn't in Zane's
+	// local DB), updates the graph cache, and the router retries with
+	// the correct fees.
 	invoice2 := alice.RPC.AddInvoice(&lnrpc.Invoice{Value: 100})
-
-	// TODO(elle): Once the fix is applied, this payment should succeed
-	// because ApplyChannelUpdate will update the graph cache from the
-	// failure message, and the router will retry with the correct fees.
-	// For now, we assert the BROKEN behavior: the payment fails because
-	// Zane can't learn the updated fee from the failure message.
-	ht.SendPaymentAssertFail(
-		zane,
-		&routerrpc.SendPaymentRequest{
-			PaymentRequest: invoice2.PaymentRequest,
-			TimeoutSeconds: 30,
-			FeeLimitMsat:   10_000_000,
-			MaxParts:       1,
-		},
-		lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE,
-	)
-
-	// Verify Zane's cached policy for Bob->Alice is still the OLD fee.
-	// This confirms that ApplyChannelUpdate did NOT update the cache
-	// from the failure message (the bug).
-	zaneChanInfo, err = zane.RPC.LN.GetChanInfo(
-		ctx, &lnrpc.ChanInfoRequest{ChanId: bobAliceChanID},
-	)
-	require.NoError(ht.T, err)
-
-	if zaneChanInfo.Node1Pub == bob.PubKeyStr {
-		zaneBobFeeRate = zaneChanInfo.Node1Policy.FeeRateMilliMsat
-	} else {
-		zaneBobFeeRate = zaneChanInfo.Node2Policy.FeeRateMilliMsat
-	}
-	require.Equal(ht.T, oldBobFeeRate, zaneBobFeeRate,
-		"bug confirmed: zane's cache was NOT updated from "+
-			"the payment failure message")
+	ht.CompletePaymentRequests(zane, []string{invoice2.PaymentRequest})
 
 	// Clean up.
 	ht.CloseChannel(zane, chanPointZane)

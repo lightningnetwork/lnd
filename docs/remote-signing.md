@@ -250,9 +250,9 @@ watch-only> $ lncli bakemacaroon --root_key $ROOT_KEY \
 --save_to /home/signer/example/watch-only.custom.macaroon remotesigner:generate
 ```
 
-**Note:** The `save_to` path should match the `remotesigner.macaroonpath`
+**Note:** The `save_to` path should match the `watchonlynode.macaroonpath`
 specified in step 1. If the signer and watch-only nodes are on separate
-environments, move the macaroon to the `remotesigner.macaroonpath` after baking
+environments, move the macaroon to the `watchonlynode.macaroonpath` after baking
 it instead.
 
 Also note that the watch-only node does not need to be running to execute this
@@ -284,11 +284,24 @@ node will shut down:
 healthcheck.remotesigner.interval=5s
 ```
 
-Since the signer node set up in Step 1 increases the delay between connection
-attempts slightly with each failed attempt, it may take some time before it
-reconnects to the watch-only node after it has been started. Setting a high
-value for this configuration field will help ensure that the watch-only node
-does not time out when starting up.
+If the signer disconnects after startup, it may take some time to reconnect.
+During that window, the watch-only node may run a remote signer health check
+while the signer is still disconnected, which will cause the watch-only node to
+shut down.
+
+Increasing the health check interval reduces how often this check runs, which
+reduces the chance of a shutdown during reconnect backoff. If you want to
+minimize this risk, increase the `healthcheck.remotesigner.interval` value and
+also increase the remote signer health check timeout:
+
+```text
+healthcheck.remotesigner.timeout=5s
+```
+Set this timeout to the maximum reconnect delay you want to tolerate before the
+watch-only node shuts down. Note that other regular requests sent concurrently
+to the remote signer may still time out and return errors while waiting for the
+signer to reconnect. Therefore, setting this value too high is experimental and
+may have unexpected side effects.
 
 After starting the watch-only node, you can create a new watch-only wallet by
 following the example below:

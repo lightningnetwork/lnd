@@ -275,6 +275,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 	_, hasAMP := parsedTypes[record.AMPOnionType]
 	_, hasEncryptedData := parsedTypes[record.EncryptedDataOnionType]
 	_, hasBlinding := parsedTypes[record.BlindingPointOnionType]
+	_, hasTotalAmtMsatBlinded := parsedTypes[record.TotalAmtMsatBlindedType]
 
 	// All cleartext hops (including final hop) and the final hop in a
 	// blinded path require the forwading amount and expiry TLVs to be set.
@@ -308,6 +309,15 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 		return ErrInvalidPayload{
 			Type:      record.EncryptedDataOnionType,
 			Violation: IncludedViolation,
+			FinalHop:  isFinalHop,
+		}
+
+	// If encrypted data is present and is final hop, we require that
+	// total_amount_msat is set.
+	case isFinalHop && hasEncryptedData && !hasTotalAmtMsatBlinded:
+		return ErrInvalidPayload{
+			Type:      record.TotalAmtMsatBlindedType,
+			Violation: OmittedViolation,
 			FinalHop:  isFinalHop,
 		}
 

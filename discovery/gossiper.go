@@ -87,6 +87,12 @@ var (
 	// the remote peer.
 	ErrGossipSyncerNotFound = errors.New("gossip syncer not found")
 
+	// ErrUnexpectedGossipQueries is returned if we receive gossip queries
+	// from a peer when gossip syncing is disabled.
+	ErrUnexpectedGossipQueries = errors.New(
+		"unexpected gossip queries received",
+	)
+
 	// ErrNoFundingTransaction is returned when we are unable to find the
 	// funding transaction described by the short channel ID on chain.
 	ErrNoFundingTransaction = errors.New(
@@ -409,6 +415,11 @@ type Config struct {
 	// PeerMsgRateBytes is the rate limit for the number of bytes per second
 	// that we'll allocate to outbound gossip messages for a single peer.
 	PeerMsgRateBytes uint64
+
+	// NoGossipSync is true if gossip syncing has been disabled. It
+	// indicates that we have not advertised the gossip queries feature bit,
+	// and so we should not receive any gossip queries from our peers.
+	NoGossipSync bool
 }
 
 // processedNetworkMsg is a wrapper around networkMsg and a boolean. It is
@@ -888,6 +899,25 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(ctx context.Context,
 	// TODO(ziggie): Redesign this once the actor model pattern becomes
 	// available. See https://github.com/lightningnetwork/lnd/pull/9820.
 	errChan := make(chan error, 2)
+
+	// If gossip syncing has been disabled, reject any gossip queries from
+	// our peer since we have not advertised the gossip queries feature bit.
+	if d.cfg.NoGossipSync {
+		switch msg.(type) {
+		case *lnwire.QueryShortChanIDs,
+			*lnwire.QueryChannelRange,
+			*lnwire.ReplyChannelRange,
+			*lnwire.ReplyShortChanIDsEnd,
+			*lnwire.GossipTimestampRange:
+
+			log.Warnf("Gossip syncing was disabled, "+
+				"skipping message: %v", msg)
+			errChan <- ErrUnexpectedGossipQueries
+
+			return errChan
+		default:
+		}
+	}
 
 	// For messages in the known set of channel series queries, we'll
 	// dispatch the message directly to the GossipSyncer, and skip the main

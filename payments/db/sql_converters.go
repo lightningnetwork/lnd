@@ -41,12 +41,13 @@ func dbPaymentToCreationInfo(paymentIdentifier []byte, amountMsat int64,
 func dbAttemptToHTLCAttempt(dbAttempt sqlc.FetchHtlcAttemptsForPaymentsRow,
 	hops []sqlc.FetchHopsForAttemptsRow,
 	hopCustomRecords map[int64][]sqlc.PaymentHopCustomRecord,
-	routeCustomRecords []sqlc.PaymentAttemptFirstHopCustomRecord) (
+	routeCustomRecords []sqlc.PaymentAttemptFirstHopCustomRecord,
+	includeHops bool) (
 	*HTLCAttempt, error) {
 
 	// Convert route-level first hop custom records to CustomRecords map.
 	var firstHopWireCustomRecords lnwire.CustomRecords
-	if len(routeCustomRecords) > 0 {
+	if includeHops && len(routeCustomRecords) > 0 {
 		firstHopWireCustomRecords = make(lnwire.CustomRecords)
 		for _, record := range routeCustomRecords {
 			firstHopWireCustomRecords[uint64(record.Key)] =
@@ -59,6 +60,7 @@ func dbAttemptToHTLCAttempt(dbAttempt sqlc.FetchHtlcAttemptsForPaymentsRow,
 		hops, hopCustomRecords, dbAttempt.FirstHopAmountMsat,
 		dbAttempt.RouteTotalTimeLock, dbAttempt.RouteTotalAmount,
 		dbAttempt.RouteSourceKey, firstHopWireCustomRecords,
+		!includeHops,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert to route: %w",
@@ -148,11 +150,37 @@ func dbAttemptToHTLCAttempt(dbAttempt sqlc.FetchHtlcAttemptsForPaymentsRow,
 func dbDataToRoute(hops []sqlc.FetchHopsForAttemptsRow,
 	hopCustomRecords map[int64][]sqlc.PaymentHopCustomRecord,
 	firstHopAmountMsat int64, totalTimeLock int32, totalAmount int64,
-	sourceKey []byte, firstHopWireCustomRecords lnwire.CustomRecords) (
+	sourceKey []byte, firstHopWireCustomRecords lnwire.CustomRecords,
+	allowEmpty bool) (
 	*route.Route, error) {
 
 	if len(hops) == 0 {
-		return nil, fmt.Errorf("no hops provided")
+		if !allowEmpty {
+			return nil, fmt.Errorf("no hops provided")
+		}
+
+		var sourceNode route.Vertex
+		copy(sourceNode[:], sourceKey)
+
+		route := &route.Route{
+			TotalTimeLock: uint32(totalTimeLock),
+			TotalAmount: lnwire.MilliSatoshi(
+				totalAmount,
+			),
+			SourcePubKey:              sourceNode,
+			Hops:                      nil,
+			FirstHopWireCustomRecords: firstHopWireCustomRecords,
+		}
+
+		if firstHopAmountMsat != 0 {
+			route.FirstHopAmount = tlv.NewRecordT[tlv.TlvType0](
+				tlv.NewBigSizeT(lnwire.MilliSatoshi(
+					firstHopAmountMsat,
+				)),
+			)
+		}
+
+		return route, nil
 	}
 
 	// Hops are already sorted by hop_index from the SQL query.

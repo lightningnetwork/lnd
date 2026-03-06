@@ -18,6 +18,8 @@ import (
 // etc.) to work with a unified view of the network without caring about gossip
 // protocol versions or whether the data comes from a local database or a
 // remote source.
+//
+//nolint:interfacebloat
 type GraphSource interface {
 	NodeTraverser
 

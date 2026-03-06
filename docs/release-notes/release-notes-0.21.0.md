@@ -84,6 +84,16 @@
 
 ## Functional Enhancements
 
+* [Added support for using a remote LND node as a graph data
+  source](https://github.com/lightningnetwork/lnd/pull/10065). This allows a
+  lightweight or mobile node to delegate graph queries to a trusted remote LND
+  node instead of syncing and storing the full network graph locally. The feature
+  introduces a new `GraphSource` interface, a `Mux` that combines local and
+  remote graph data, and an RPC client that connects to the remote node's gRPC
+  API. The local graph cache is kept in sync via a topology subscription. Enable
+  with `--remotegraph.enable` along with `--gossip.no-sync` to disable local
+  gossip syncing.
+
 ## RPC Additions
 
 * [Added support for coordinator-based MuSig2 signing

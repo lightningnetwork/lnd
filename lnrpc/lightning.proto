@@ -1733,6 +1733,19 @@ message Channel {
     Custom channel data that might be populated in custom channels.
     */
     bytes custom_channel_data = 37;
+
+    /*
+    The amount of funds in milli-satoshis that can be sent in the channel.
+    This takes into account the channel reserve and any commitment fees.
+    */
+    int64 local_spendable_msat = 38;
+
+    /*
+    The amount of funds in milli-satoshis that the remote party can send in
+    the channel. This takes into account the channel reserve and any
+    commitment fees.
+    */
+    int64 remote_spendable_msat = 39;
 }
 
 message ListChannelsRequest {

@@ -128,10 +128,16 @@ type ChannelUpdateHandler interface {
 
 	// Bandwidth returns the amount of milli-satoshis which current link
 	// might pass through channel link. The value returned from this method
-	// represents the up to date available flow through the channel. This
-	// takes into account any forwarded but un-cleared HTLC's, and any
-	// HTLC's which have been set to the over flow queue.
+	// represents the up to date available flow through the channel for the
+	// local party. This takes into account any forwarded but un-cleared
+	// HTLC's, and any HTLC's which have been set to the over flow queue.
 	Bandwidth() lnwire.MilliSatoshi
+
+	// RemoteBandwidth returns the amount of milli-satoshis which the remote
+	// party can send through the channel. Similar to Bandwidth(), it takes
+	// into account reserves and commitment fees from the remote's
+	// perspective.
+	RemoteBandwidth() lnwire.MilliSatoshi
 
 	// EligibleToForward returns a bool indicating if the channel is able
 	// to actively accept requests to forward HTLC's. A channel may be

@@ -104,15 +104,17 @@ func (c *RPCClient) rpcCtx(
 	return context.WithTimeout(ctx, c.cfg.Timeout)
 }
 
-// Start connects the client to the remote graph server.
-func (c *RPCClient) Start(ctx context.Context) error {
+// Start connects the client to the remote graph server, populates the graph
+// cache from a full snapshot, and launches the topology subscription goroutine
+// to keep the cache in sync with incremental updates.
+func (c *RPCClient) Start() error {
 	if !c.started.CompareAndSwap(false, true) {
 		return nil
 	}
 
 	log.Info("Remote graph RPC client starting")
 
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = fn.Some(cancel)
 
 	conn, err := connectRPC(
@@ -124,6 +126,19 @@ func (c *RPCClient) Start(ctx context.Context) error {
 	}
 	c.grpcConn = conn
 	c.conn = lnrpc.NewLightningClient(conn)
+
+	// TODO: Once #10065 (async graph cache population) lands, this
+	// can be made async using the graphCacheState's applyUpdate
+	// buffering so that startup doesn't block on the remote graph
+	// fetch.
+	if err := c.populateCache(ctx); err != nil {
+		return err
+	}
+
+	if c.cb != nil {
+		c.wg.Add(1)
+		go c.handleNetworkUpdates(ctx)
+	}
 
 	return nil
 }
@@ -149,24 +164,11 @@ func (c *RPCClient) Stop() error {
 	return nil
 }
 
-// StartSubscription launches the topology subscription goroutine that keeps
-// the local cache in sync with the remote graph. This should be called after
-// PopulateCache to avoid the subscription overwriting the initial snapshot
-// with stale data.
-func (c *RPCClient) StartSubscription(ctx context.Context) {
-	if c.cb == nil {
-		return
-	}
-
-	c.wg.Add(1)
-	go c.handleNetworkUpdates(ctx)
-}
-
-// PopulateCache performs an initial full fetch of the remote graph and feeds
-// all nodes and channels into the registered topology callbacks. This must be
-// called after Start to seed the local graph cache before relying on the
-// incremental subscription for updates.
-func (c *RPCClient) PopulateCache(ctx context.Context) error {
+// populateCache performs an initial full fetch of the remote graph and feeds
+// all nodes and channels into the registered topology callbacks. Once the
+// cache is populated, it launches the topology subscription goroutine to keep
+// the cache in sync with incremental updates.
+func (c *RPCClient) populateCache(ctx context.Context) error {
 	if c.cb == nil {
 		return nil
 	}
@@ -245,6 +247,7 @@ func (c *RPCClient) PopulateCache(ctx context.Context) error {
 
 	return nil
 }
+
 // handleNetworkUpdates subscribes to topology updates from the remote LND
 // node and forwards them to the registered callbacks. If the subscription
 // drops, it reconnects with exponential backoff.
@@ -266,7 +269,7 @@ func (c *RPCClient) handleNetworkUpdates(ctx context.Context) {
 		default:
 		}
 
-		log.Errorf("Remote graph subscription error (retrying in "+
+		log.Warnf("Remote graph subscription error (retrying in "+
 			"%v): %v", backoff, err)
 
 		select {
@@ -456,7 +459,7 @@ func (c *RPCClient) ForEachNode(ctx context.Context,
 // NOTE: this is part of the RemoteGraph interface.
 func (c *RPCClient) ForEachChannel(ctx context.Context,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error,
+	*models.ChannelEdgePolicy) error,
 	reset func()) error {
 
 	ctx, cancel := c.rpcCtx(ctx)
@@ -491,7 +494,7 @@ func (c *RPCClient) ForEachChannel(ctx context.Context,
 func (c *RPCClient) ForEachNodeChannel(ctx context.Context,
 	nodePub route.Vertex,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error,
+	*models.ChannelEdgePolicy) error,
 	reset func()) error {
 
 	ctx, cancel := c.rpcCtx(ctx)

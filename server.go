@@ -2222,7 +2222,7 @@ func (s *server) Start(ctx context.Context) error {
 
 		if s.remoteGraphClient != nil {
 			cleanup = cleanup.add(s.remoteGraphClient.Stop)
-			if err := s.remoteGraphClient.Start(ctx); err != nil {
+			if err := s.remoteGraphClient.Start(); err != nil {
 				startErr = err
 				return
 			}

@@ -125,13 +125,13 @@ func (c *GraphCache) AddChannel(info *models.CachedEdgeInfo,
 	// structure to the cache, even if both policies are currently disabled,
 	// so that later policy updates can find and update the channel entry.
 	c.mtx.Lock()
-	c.updateOrAddEdge(info.NodeKey1Bytes, &DirectedChannel{
+	c.maybeAddEdge(info.NodeKey1Bytes, &DirectedChannel{
 		ChannelID: info.ChannelID,
 		IsNode1:   true,
 		OtherNode: info.NodeKey2Bytes,
 		Capacity:  info.Capacity,
 	})
-	c.updateOrAddEdge(info.NodeKey2Bytes, &DirectedChannel{
+	c.maybeAddEdge(info.NodeKey2Bytes, &DirectedChannel{
 		ChannelID: info.ChannelID,
 		IsNode1:   false,
 		OtherNode: info.NodeKey1Bytes,
@@ -170,11 +170,17 @@ func (c *GraphCache) AddChannel(info *models.CachedEdgeInfo,
 	}
 }
 
-// updateOrAddEdge makes sure the edge information for a node is either updated
-// if it already exists or is added to that node's list of channels.
-func (c *GraphCache) updateOrAddEdge(node route.Vertex, edge *DirectedChannel) {
+// maybeAddEdge adds the edge to the node's channel list only if it does not
+// already exist. This prevents overwriting policies that were set by previous
+// updates (e.g., from topology subscription updates where channel structure
+// and policy updates arrive separately).
+func (c *GraphCache) maybeAddEdge(node route.Vertex, edge *DirectedChannel) {
 	if len(c.nodeChannels[node]) == 0 {
 		c.nodeChannels[node] = make(map[uint64]*DirectedChannel)
+	}
+
+	if c.nodeChannels[node][edge.ChannelID] != nil {
+		return
 	}
 
 	c.nodeChannels[node][edge.ChannelID] = edge

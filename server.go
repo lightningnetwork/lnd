@@ -394,6 +394,9 @@ type server struct {
 
 	tlsManager *TLSManager
 
+	remoteSignerClientFactory func() (rpcwallet.RemoteSignerClient, error)
+	remoteSignerClient        rpcwallet.RemoteSignerClient
+
 	// featureMgr dispatches feature vectors for various contexts within the
 	// daemon.
 	featureMgr *feature.Manager
@@ -598,7 +601,9 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	chanPredicate chanacceptor.ChannelAcceptor,
 	torController *tor.Controller, tlsManager *TLSManager,
 	leaderElector cluster.LeaderElector,
-	implCfg *ImplementationCfg) (*server, error) {
+	implCfg *ImplementationCfg,
+	remoteSignerClientFactory func() (rpcwallet.RemoteSignerClient,
+	error)) (*server, error) {
 
 	var (
 		err         error
@@ -696,6 +701,13 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 	addrSource := channeldb.NewMultiAddrSource(dbs.ChanStateDB, v1Graph)
 
+	if remoteSignerClientFactory == nil {
+		remoteSignerClientFactory =
+			func() (rpcwallet.RemoteSignerClient, error) {
+				return &rpcwallet.NoOpClient{}, nil
+			}
+	}
+
 	s := &server{
 		cfg:            cfg,
 		implCfg:        implCfg,
@@ -757,6 +769,9 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		actorSystem: actor.NewActorSystem(),
 
 		tlsManager: tlsManager,
+
+		remoteSignerClientFactory: remoteSignerClientFactory,
+		remoteSignerClient:        &rpcwallet.NoOpClient{},
 
 		featureMgr: featureMgr,
 		quit:       make(chan struct{}),
@@ -1154,7 +1169,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		DefaultRoutingPolicy: cc.RoutingPolicy,
 		ForAllOutgoingChannels: func(ctx context.Context,
 			cb func(*models.ChannelEdgeInfo,
-				*models.ChannelEdgePolicy) error,
+			*models.ChannelEdgePolicy) error,
 			reset func()) error {
 
 			return s.v1Graph.ForEachNodeChannel(
@@ -1822,7 +1837,11 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	}
 
 	// Create liveness monitor.
-	s.createLivenessMonitor(cfg, cc, leaderElector)
+	err = s.createLivenessMonitor(ctx, cfg, cc, leaderElector)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create liveness monitor: %w",
+			err)
+	}
 
 	listeners := make([]net.Listener, len(listenAddrs))
 	for i, listenAddr := range listenAddrs {
@@ -1939,8 +1958,8 @@ func (s *server) signAliasUpdate(u *lnwire.ChannelUpdate1) (*ecdsa.Signature,
 //
 // If a health check has been disabled by setting attempts to 0, our monitor
 // will not run it.
-func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl,
-	leaderElector cluster.LeaderElector) {
+func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
+	cc *chainreg.ChainControl, leaderElector cluster.LeaderElector) error {
 
 	chainBackendAttempts := cfg.HealthChecks.ChainCheck.Attempts
 	if cfg.Bitcoin.Node == "nochainbackend" {
@@ -2037,28 +2056,46 @@ func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl,
 
 	// If remote signing is enabled, add the healthcheck for the remote
 	// signing RPC interface.
-	if s.cfg.RemoteSigner != nil && s.cfg.RemoteSigner.Enable {
+	if s.cfg.RemoteSigner.Enable {
+		// remoteSignerPinger is a local interface added to keep
+		// dependencies narrow: for the liveness probe we only need
+		// the ability to ping the remote signer, which is done through
+		// the rpcwallet.RPCKeyRing.Ping function. Avoiding a concrete
+		// *rpcwallet.RPCKeyRing dependency keeps WalletController
+		// encapsulation intact.
+		type remoteSignerPinger interface {
+			Ping(context.Context, time.Duration) error
+		}
+
+		rsPinger, ok := cc.Wc.(remoteSignerPinger)
+		if !ok {
+			return errors.New("incorrect WalletController type, " +
+				"expected remote signer pinger")
+		}
+
+		innerTimeout := cfg.HealthChecks.RemoteSigner.Timeout
+
 		// Because we have two cascading timeouts here, we need to add
 		// some slack to the "outer" one of them in case the "inner"
 		// returns exactly on time.
-		overhead := time.Millisecond * 10
+		outerTimeout := innerTimeout + time.Millisecond*10
 
-		remoteSignerConnectionCheck := healthcheck.NewObservation(
+		rsConnectionCheck := healthcheck.NewObservation(
 			"remote signer connection",
 			rpcwallet.HealthCheck(
-				s.cfg.RemoteSigner,
-
+				ctx,
 				// For the health check we might to be even
 				// stricter than the initial/normal connect, so
-				// we use the health check timeout here.
-				cfg.HealthChecks.RemoteSigner.Timeout,
+				// we use the health check timeout.
+				innerTimeout,
+				rsPinger.Ping,
 			),
 			cfg.HealthChecks.RemoteSigner.Interval,
-			cfg.HealthChecks.RemoteSigner.Timeout+overhead,
+			outerTimeout,
 			cfg.HealthChecks.RemoteSigner.Backoff,
 			cfg.HealthChecks.RemoteSigner.Attempts,
 		)
-		checks = append(checks, remoteSignerConnectionCheck)
+		checks = append(checks, rsConnectionCheck)
 	}
 
 	// If we have a leader elector, we add a health check to ensure we are
@@ -2074,7 +2111,7 @@ func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl,
 				// as the healthcheck observer will handle the
 				// timeout case for us.
 				timeoutCtx, cancel := context.WithTimeout(
-					context.Background(),
+					ctx,
 					cfg.HealthChecks.LeaderCheck.Timeout,
 				)
 				defer cancel()
@@ -2112,6 +2149,8 @@ func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl,
 			Shutdown: srvrLog.Criticalf,
 		},
 	)
+
+	return nil
 }
 
 // Started returns true if the server has been started, and false otherwise.
@@ -2196,6 +2235,19 @@ func (s *server) Start(ctx context.Context) error {
 				startErr = err
 				return
 			}
+		}
+
+		remoteSignerClient, err := s.remoteSignerClientFactory()
+		if err != nil {
+			startErr = err
+			return
+		}
+		s.remoteSignerClient = remoteSignerClient
+
+		cleanup = cleanup.add(s.remoteSignerClient.Stop)
+		if err := s.remoteSignerClient.Start(ctx); err != nil {
+			startErr = err
+			return
 		}
 
 		// Start the notification server. This is used so channel
@@ -2740,6 +2792,10 @@ func (s *server) Stop() error {
 		if err := s.cc.BestBlockTracker.Stop(); err != nil {
 			srvrLog.Warnf("Unable to stop BestBlockTracker: %v",
 				err)
+		}
+		if err := s.remoteSignerClient.Stop(); err != nil {
+			srvrLog.Warnf("Unable to stop remote signer "+
+				"client: %v", err)
 		}
 		if err := s.chanEventStore.Stop(); err != nil {
 			srvrLog.Warnf("Unable to stop ChannelEventStore: %v",

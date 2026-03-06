@@ -274,7 +274,7 @@ func (r *InterceptorChain) SetRPCActive() {
 	_ = r.ntfnServer.SendUpdate(r.state)
 }
 
-// SetServerActive moves the RPC state from walletUnlocked to rpcActive.
+// SetServerActive moves the RPC state from rpcActive to serverActive.
 func (r *InterceptorChain) SetServerActive() {
 	r.Lock()
 	defer r.Unlock()
@@ -708,7 +708,9 @@ func (r *InterceptorChain) MacaroonStreamServerInterceptor() grpc.StreamServerIn
 
 // checkRPCState checks whether a call to the given server is allowed in the
 // current RPC state.
-func (r *InterceptorChain) checkRPCState(srv interface{}) error {
+func (r *InterceptorChain) checkRPCState(srv interface{},
+	fullMethod string) error {
+
 	// The StateService is being accessed, we allow the call regardless of
 	// the current state.
 	_, ok := srv.(lnrpc.StateServer)
@@ -772,9 +774,10 @@ func (r *InterceptorChain) rpcStateUnaryServerInterceptor() grpc.UnaryServerInte
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler) (interface{}, error) {
 
-		r.rpcsLog.Debugf("[%v] requested", info.FullMethod)
+		method := info.FullMethod
+		r.rpcsLog.Debugf("[%v] requested", method)
 
-		if err := r.checkRPCState(info.Server); err != nil {
+		if err := r.checkRPCState(info.Server, method); err != nil {
 			return nil, err
 		}
 
@@ -790,7 +793,7 @@ func (r *InterceptorChain) rpcStateStreamServerInterceptor() grpc.StreamServerIn
 
 		r.rpcsLog.Debugf("[%v] requested", info.FullMethod)
 
-		if err := r.checkRPCState(srv); err != nil {
+		if err := r.checkRPCState(srv, info.FullMethod); err != nil {
 			return err
 		}
 

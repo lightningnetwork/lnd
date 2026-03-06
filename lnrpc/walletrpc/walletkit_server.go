@@ -185,6 +185,10 @@ var (
 			Entity: "onchain",
 			Action: "write",
 		}},
+		"/walletrpc.WalletKit/SignCoordinatorStreams": {{
+			Entity: "remotesigner",
+			Action: "generate",
+		}},
 	}
 
 	// DefaultWalletKitMacFilename is the default name of the wallet kit
@@ -432,6 +436,7 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 	// any other concurrent processes attempting to lock any UTXOs which may
 	// be shown available to us.
 	var utxos []*lnwallet.Utxo
+
 	err = w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
 		utxos, err = w.cfg.Wallet.ListUnspentWitness(
 			minConfs, maxConfs, req.Account,

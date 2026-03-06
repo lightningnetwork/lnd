@@ -873,14 +873,38 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 	partialChainControl *chainreg.PartialChainControl,
 	walletConfig *btcwallet.Config) (*chainreg.ChainControl, func(), error) {
 
+	// Keeps track of both the remote signer and the chain control clean up
+	// functions.
+	var (
+		cleanUpTasks []func()
+		cleanUp      = func() {
+			for i := len(cleanUpTasks) - 1; i >= 0; i-- {
+				cleanUpTasks[i]()
+			}
+		}
+	)
+
 	walletController, err := btcwallet.New(
 		*walletConfig, partialChainControl.Cfg.BlockCache,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to create wallet controller: %w", err)
 		d.logger.Error(err)
-		return nil, nil, err
+		return nil, cleanUp, err
 	}
+
+	// Create the remote signer connection instance.
+	remoteSignerConn, err := rpcwallet.BuildRemoteSignerConnection(
+		context.TODO(), d.DefaultWalletImpl.cfg.RemoteSigner,
+	)
+	if err != nil {
+		err := fmt.Errorf("unable to set up remote signer: %w", err)
+		d.logger.Error(err)
+
+		return nil, cleanUp, err
+	}
+
+	cleanUpTasks = append(cleanUpTasks, remoteSignerConn.Stop)
 
 	baseKeyRing := keychain.NewBtcWalletKeyRing(
 		walletController.InternalWallet(), walletConfig.CoinType,
@@ -888,13 +912,14 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 
 	rpcKeyRing, err := rpcwallet.NewRPCKeyRing(
 		baseKeyRing, walletController,
-		d.DefaultWalletImpl.cfg.RemoteSigner, walletConfig.NetParams,
+		remoteSignerConn, walletConfig.NetParams,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to create RPC remote signing wallet "+
 			"%v", err)
 		d.logger.Error(err)
-		return nil, nil, err
+
+		return nil, cleanUp, err
 	}
 
 	// Create, and start the lnwallet, which handles the core payment
@@ -913,14 +938,17 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 
 	// We've created the wallet configuration now, so we can finish
 	// initializing the main chain control.
-	activeChainControl, cleanUp, err := chainreg.NewChainControl(
+	activeChainControl, ccCleanUp, err := chainreg.NewChainControl(
 		lnWalletConfig, rpcKeyRing, partialChainControl,
 	)
 	if err != nil {
 		err := fmt.Errorf("unable to create chain control: %w", err)
 		d.logger.Error(err)
-		return nil, nil, err
+
+		return nil, cleanUp, err
 	}
+
+	cleanUpTasks = append(cleanUpTasks, ccCleanUp)
 
 	return activeChainControl, cleanUp, nil
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/batch"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -39,8 +40,9 @@ type ChannelGraph struct {
 	db Store
 	*topologyManager
 
-	quit chan struct{}
-	wg   sync.WaitGroup
+	quit   chan struct{}
+	wg     sync.WaitGroup
+	cancel fn.Option[context.CancelFunc]
 }
 
 // NewChannelGraph creates a new ChannelGraph instance with the given backend.
@@ -77,7 +79,8 @@ func (c *ChannelGraph) Start() error {
 	log.Debugf("ChannelGraph starting")
 	defer log.Debug("ChannelGraph started")
 
-	ctx := context.TODO()
+	ctx, cancel := context.WithCancel(context.Background())
+	c.cancel = fn.Some(cancel)
 
 	if err := c.populateCache(ctx); err != nil {
 		return fmt.Errorf("could not populate the graph cache: %w", err)
@@ -98,6 +101,7 @@ func (c *ChannelGraph) Stop() error {
 	log.Debugf("ChannelGraph shutting down...")
 	defer log.Debug("ChannelGraph shutdown complete")
 
+	c.cancel.WhenSome(func(fn context.CancelFunc) { fn() })
 	close(c.quit)
 	c.wg.Wait()
 

@@ -78,6 +78,19 @@ func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
 		)
 	})
 
+	// Test that multiple read-only middlewares can be registered at the
+	// same time and that both receive intercept messages.
+	//
+	// NOTE: we restart the node here to make sure the old interceptor is
+	// removed from registration.
+	ht.RestartNode(alice)
+	ht.EnsureConnected(alice, bob)
+	ht.Run("multiple read-only middlewares", func(tt *testing.T) {
+		multipleReadOnlyMiddlewareTest(
+			tt, alice, bob, readonlyMac,
+		)
+	})
+
 	// We've manually disconnected Bob from Alice in the previous test, make
 	// sure they're connected again.
 	//
@@ -205,6 +218,61 @@ func middlewareRegistrationRestrictionTests(t *testing.T,
 			invalidName.cancel()
 		})
 	}
+}
+
+// multipleReadOnlyMiddlewareTest verifies that multiple read-only middlewares
+// can be registered simultaneously and that both receive intercept messages for
+// the same RPC call.
+func multipleReadOnlyMiddlewareTest(t *testing.T, node,
+	peer *node.HarnessNode, userMac *macaroon.Macaroon) {
+
+	t.Helper()
+
+	ctxb := t.Context()
+	ctxc, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+
+	// Register two read-only middlewares with different names.
+	reg1 := registerMiddleware(
+		t, node, &lnrpc.MiddlewareRegistration{
+			MiddlewareName: "itest-readonly-one",
+			ReadOnlyMode:   true,
+		}, true,
+	)
+	defer reg1.cancel()
+
+	reg2 := registerMiddleware(
+		t, node, &lnrpc.MiddlewareRegistration{
+			MiddlewareName: "itest-readonly-two",
+			ReadOnlyMode:   true,
+		}, true,
+	)
+	defer reg2.cancel()
+
+	// Create a client connection to simulate a user request.
+	cleanup, client := macaroonClient(t, node, userMac)
+	defer cleanup()
+
+	// Send a simple RPC request listing all channels to trigger the rpc
+	// interceptors. We need to invoke the intercept logic in a goroutine
+	// because we'd block the execution of the main task otherwise.
+	req := &lnrpc.ListChannelsRequest{ActiveOnly: true}
+	go reg1.interceptUnary(
+		"/lnrpc.Lightning/ListChannels", req, nil, true, false,
+		nil,
+	)
+	go reg2.interceptUnary(
+		"/lnrpc.Lightning/ListChannels", req, nil, true, false,
+		nil,
+	)
+
+	// Do the actual call now and wait for both interceptors to process.
+	resp, err := client.ListChannels(ctxc, req)
+	require.NoError(t, err)
+
+	// Verify both middlewares received the response intercept message.
+	assertInterceptedType(t, resp, <-reg1.responsesChan)
+	assertInterceptedType(t, resp, <-reg2.responsesChan)
 }
 
 // middlewareInterceptionTest tests that unary and streaming requests can be

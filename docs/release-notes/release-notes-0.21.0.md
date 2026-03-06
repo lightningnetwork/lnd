@@ -203,6 +203,10 @@
     [3](https://github.com/lightningnetwork/lnd/pull/10380)
     [4](https://github.com/lightningnetwork/lnd/pull/10542),
     [5](https://github.com/lightningnetwork/lnd/pull/10572).
+* Updated waiting proof persistence for gossip upgrades by introducing typed
+  waiting proof keys and payloads, with a DB migration to rewrite legacy
+  waiting proof records to the new key/value format
+  ([#10633](https://github.com/lightningnetwork/lnd/pull/10633)).
 
 * Payment Store SQL implementation and migration project:
   * Introduce an [abstract payment 

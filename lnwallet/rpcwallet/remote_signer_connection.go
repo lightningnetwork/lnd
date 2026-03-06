@@ -308,15 +308,12 @@ type InboundConnection struct {
 func NewInboundConnection(requestTimeout time.Duration,
 	connectionTimeout time.Duration) *InboundConnection {
 
-	remoteSigner := &InboundConnection{
+	return &InboundConnection{
 		connectionTimeout: connectionTimeout,
+		SignCoordinator: NewSignCoordinator(
+			requestTimeout, connectionTimeout,
+		),
 	}
-
-	remoteSigner.SignCoordinator = NewSignCoordinator(
-		requestTimeout, connectionTimeout,
-	)
-
-	return remoteSigner
 }
 
 // Timeout returns the set connection timeout for the remote signer.

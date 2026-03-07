@@ -3458,15 +3458,26 @@ func (r *rpcServer) GetInfo(_ context.Context,
 }
 
 // GetDebugInfo returns debug information concerning the state of the daemon
-// and its subsystems. This includes the full configuration and the latest log
-// entries from the log file.
+// and its subsystems. By default, this returns only the configuration. If the
+// `include_log` flag is set in the request, the latest log entries from the
+// log file are also included.
 func (r *rpcServer) GetDebugInfo(_ context.Context,
-	_ *lnrpc.GetDebugInfoRequest) (*lnrpc.GetDebugInfoResponse, error) {
+	req *lnrpc.GetDebugInfoRequest) (*lnrpc.GetDebugInfoResponse, error) {
 
 	flatConfig, _, err := configToFlatMap(*r.cfg)
 	if err != nil {
 		return nil, fmt.Errorf("error converting config to flat map: "+
 			"%w", err)
+	}
+
+	resp := &lnrpc.GetDebugInfoResponse{
+		Config: flatConfig,
+	}
+
+	// If the include_log flag is not set, we only return the config and
+	// skip the log file content which can be large.
+	if !req.IncludeLog {
+		return resp, nil
 	}
 
 	logFileName := filepath.Join(r.cfg.LogDir, defaultLogFilename)
@@ -3476,10 +3487,9 @@ func (r *rpcServer) GetDebugInfo(_ context.Context,
 			logFileName, err)
 	}
 
-	return &lnrpc.GetDebugInfoResponse{
-		Config: flatConfig,
-		Log:    strings.Split(string(logContent), "\n"),
-	}, nil
+	resp.Log = strings.Split(string(logContent), "\n")
+
+	return resp, nil
 }
 
 // GetRecoveryInfo returns a boolean indicating whether the wallet is started

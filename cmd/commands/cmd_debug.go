@@ -23,14 +23,26 @@ var getDebugInfoCommand = cli.Command{
 	Category: "Debug",
 	Usage:    "Returns debug information related to the active daemon.",
 	Action:   actionDecorator(getDebugInfo),
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name: "include_log",
+			Usage: "if set, the log file content is " +
+				"included in the response in " +
+				"addition to the config",
+		},
+	},
 }
 
+// getDebugInfo retrieves debug information from the daemon, optionally
+// including the log file content.
 func getDebugInfo(ctx *cli.Context) error {
 	ctxc := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &lnrpc.GetDebugInfoRequest{}
+	req := &lnrpc.GetDebugInfoRequest{
+		IncludeLog: ctx.Bool("include_log"),
+	}
 	resp, err := client.GetDebugInfo(ctxc, req)
 	if err != nil {
 		return err
@@ -61,12 +73,14 @@ var encryptDebugPackageCommand = cli.Command{
 
 	The file by default contains the output of the following commands:
 	- lncli getinfo
-	- lncli getdebuginfo
+	- lncli getdebuginfo (config only)
 	- lncli getnetworkinfo
 
 	By specifying the following flags, additional information can be added
 	to the file (usually this will be requested by the developer depending
 	on the issue at hand):
+		--include_log:
+			- includes the log file content in the debug info
 		--peers:
 			- lncli listpeers
 		--onchain:
@@ -112,6 +126,11 @@ var encryptDebugPackageCommand = cli.Command{
 			Usage: "include information about channels " +
 				"(lncli listchannels, lncli pendingchannels, " +
 				"lncli closedchannels)",
+		},
+		cli.BoolFlag{
+			Name: "include_log",
+			Usage: "include the log file content in the " +
+				"debug package",
 		},
 	},
 	Action: actionDecorator(encryptDebugPackage),
@@ -226,7 +245,9 @@ func collectDebugPackageInfo(ctx *cli.Context) ([]byte, error) {
 	}
 
 	debugInfo, err := client.GetDebugInfo(
-		ctxc, &lnrpc.GetDebugInfoRequest{},
+		ctxc, &lnrpc.GetDebugInfoRequest{
+			IncludeLog: ctx.Bool("include_log"),
+		},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error getting debug info: %w", err)

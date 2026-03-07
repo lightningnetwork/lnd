@@ -2139,6 +2139,9 @@ message GetInfoResponse {
 }
 
 message GetDebugInfoRequest {
+    // If set to true, the log file content will be included in the response.
+    // By default, only the config information is returned.
+    bool include_log = 1;
 }
 
 message GetDebugInfoResponse {

@@ -230,6 +230,11 @@
     comprehensive tests. The migration is currently dev-only, compiled behind
     the `test_db_postgres`, `test_db_sqlite`, or `test_native_sql` build tags.
 
+* Added [WaitForPostgresReady](https://github.com/lightningnetwork/lnd/pull/10564)
+  to wait for the Postgres database to become available before opening the
+  connection. This is necessary in environments where the database may not be
+  ready when LND starts. Also added `startup-max-retries` and
+  `startup-retry-delay` configuration options to control the retry behavior.
 
 ## Code Health
 
@@ -237,6 +242,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Abdulkbk
 * bitromortac
 * Boris Nagaev
 * Elle Mouton

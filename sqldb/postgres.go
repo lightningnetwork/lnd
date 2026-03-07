@@ -186,6 +186,56 @@ func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
 	)
 }
 
+// WaitForPostgresReady waits for the Postgres database to become available by
+// pinging it in a retry loop with a fixed delay. This is useful in environments
+// like Kubernetes where the database container may not be ready when LND
+// starts. If StartupMaxRetries is zero, this function returns immediately
+// without pinging.
+func WaitForPostgresReady(ctx context.Context,
+	cfg *PostgresConfig) error {
+
+	if cfg.StartupMaxRetries <= 0 {
+		return nil
+	}
+
+	sanitizedDSN, err := replacePasswordInDSN(cfg.Dsn)
+	if err != nil {
+		return err
+	}
+
+	db, err := sql.Open("pgx", cfg.Dsn)
+	if err != nil {
+		return fmt.Errorf("error creating postgres connection: %w",
+			err)
+	}
+	defer db.Close()
+
+	for attempt := 0; attempt < cfg.StartupMaxRetries; attempt++ {
+		pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err = db.PingContext(pingCtx)
+		cancel()
+
+		if err == nil {
+			log.Infof("Postgres is ready at '%s'", sanitizedDSN)
+			return nil
+		}
+
+		log.Warnf("Failed to connect to postgres at '%s' "+
+			"(attempt %d/%d): %v", sanitizedDSN, attempt+1,
+			cfg.StartupMaxRetries, err)
+
+		select {
+		case <-time.After(cfg.StartupRetryDelay):
+		case <-ctx.Done():
+			return fmt.Errorf("context canceled while waiting "+
+				"for postgres: %w", ctx.Err())
+		}
+	}
+
+	return fmt.Errorf("failed to connect to postgres at '%s' after %d "+
+		"attempts: %w", sanitizedDSN, cfg.StartupMaxRetries, err)
+}
+
 // GetSchemaVersion returns the current schema version of the Postgres database.
 func (s *PostgresStore) GetSchemaVersion() (int, bool, error) {
 	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})

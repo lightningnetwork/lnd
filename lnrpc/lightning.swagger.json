@@ -1095,6 +1095,15 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "include_log",
+            "description": "If set to true, the log file content will be included in the response.\nBy default, only the config information is returned.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          }
+        ],
         "tags": [
           "Lightning"
         ]

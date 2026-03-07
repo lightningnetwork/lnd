@@ -134,9 +134,27 @@
   events](https://github.com/lightningnetwork/lnd/pull/10543) to be able to
   subscribe to state changes.
 
+* The [`GetDebugInfo`](https://github.com/lightningnetwork/lnd/pull/10613) RPC
+  request now accepts an `include_log` flag. By default, only the configuration
+  map is returned. When `include_log` is set to `true`, the log file content is
+  also included in the response.
+
 ## lncli Updates
 
+* The `getdebuginfo` command now supports an `--include_log` flag. By default,
+  only the daemon's configuration is returned. When set, the log file content is
+  also included in the response.
+
+* The `encryptdebugpackage` command now supports an `--include_log` flag. When
+  set, the log file content is included in the encrypted debug package.
+
 ## Breaking Changes
+
+* The [`GetDebugInfo`](https://github.com/lightningnetwork/lnd/pull/10613) RPC
+  no longer returns log file content by default. Clients that rely on the `log`
+  field must now explicitly set `include_log` to `true` in the request. The
+  `lncli getdebuginfo` and `lncli encryptdebugpackage` commands similarly
+  require the `--include_log` flag to include logs in the output.
 
 ## Performance Improvements
 

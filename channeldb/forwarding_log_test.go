@@ -606,3 +606,105 @@ func TestForwardingLogQueryChanIDs(t *testing.T) {
 		})
 	}
 }
+
+// TestForwardingLogQueryReversed tests that we're able to properly query for
+// items in reverse chronological order.
+func TestForwardingLogQueryReversed(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll set up a test database, and use that to instantiate the
+	// forwarding event log that we'll be using for the duration of the
+	// test.
+	db, err := MakeTestDB(t)
+	require.NoError(t, err, "unable to make test db")
+
+	log := ForwardingLog{
+		db: db,
+	}
+
+	initialTime := time.Unix(1234, 0)
+	timestamp := initialTime
+
+	// We'll create 100 random events, which each event being spaced 10
+	// minutes after the prior event.
+	numEvents := 100
+	events := make([]ForwardingEvent, numEvents)
+	for i := 0; i < numEvents; i++ {
+		events[i] = ForwardingEvent{
+			Timestamp:      timestamp,
+			IncomingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
+			OutgoingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
+			AmtIn:          lnwire.MilliSatoshi(rand.Int63()),
+			AmtOut:         lnwire.MilliSatoshi(rand.Int63()),
+			IncomingHtlcID: fn.Some(uint64(i)),
+			OutgoingHtlcID: fn.Some(uint64(i)),
+		}
+
+		timestamp = timestamp.Add(time.Minute * 10)
+	}
+
+	// Now that all of our set of events constructed, we'll add them to the
+	// database in a batch manner.
+	if err := log.AddForwardingEvents(events); err != nil {
+		t.Fatalf("unable to add events: %v", err)
+	}
+
+	// With our events added we'll now construct a reversed query to retrieve
+	// all of the events.
+	eventQuery := ForwardingEventQuery{
+		StartTime:    initialTime,
+		EndTime:      timestamp,
+		IndexOffset:  0,
+		NumMaxEvents: 1000,
+		Reversed:     true,
+	}
+	timeSlice, err := log.Query(eventQuery)
+	require.NoError(t, err, "unable to query for events")
+
+	// The set of returned events should be in reverse order.
+	if len(timeSlice.ForwardingEvents) != numEvents {
+		t.Fatalf("wrong number of events: expected %v, got %v", numEvents,
+			len(timeSlice.ForwardingEvents))
+	}
+
+	for i := 0; i < numEvents; i++ {
+		expected := events[numEvents-1-i]
+		actual := timeSlice.ForwardingEvents[i]
+		if !reflect.DeepEqual(expected, actual) {
+			t.Fatalf("event mismatch at index %d: expected %v vs %v",
+				i, spew.Sdump(expected), spew.Sdump(actual))
+		}
+	}
+
+	// Now test pagination with reversed query.
+	eventQuery.NumMaxEvents = 10
+	timeSlice, err = log.Query(eventQuery)
+	require.NoError(t, err)
+	require.Equal(t, 10, len(timeSlice.ForwardingEvents))
+
+	// Should be the last 10 events (most recent).
+	for i := 0; i < 10; i++ {
+		expected := events[numEvents-1-i]
+		actual := timeSlice.ForwardingEvents[i]
+		if !reflect.DeepEqual(expected, actual) {
+			t.Fatalf("pagination mismatch at index %d: expected %v vs %v",
+				i, spew.Sdump(expected), spew.Sdump(actual))
+		}
+	}
+
+	// Use the offset to get the next page.
+	eventQuery.IndexOffset = timeSlice.LastIndexOffset
+	timeSlice, err = log.Query(eventQuery)
+	require.NoError(t, err)
+	require.Equal(t, 10, len(timeSlice.ForwardingEvents))
+
+	// Should be the next 10 events.
+	for i := 0; i < 10; i++ {
+		expected := events[numEvents-11-i]
+		actual := timeSlice.ForwardingEvents[i]
+		if !reflect.DeepEqual(expected, actual) {
+			t.Fatalf("pagination mismatch at page 2 index %d: expected %v vs %v",
+				i, spew.Sdump(expected), spew.Sdump(actual))
+		}
+	}
+}

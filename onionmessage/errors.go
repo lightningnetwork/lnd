@@ -14,4 +14,22 @@ var (
 	// ErrSCIDEmpty is returned when the short channel ID is missing from
 	// the route data.
 	ErrSCIDEmpty = errors.New("short channel ID empty")
+
+	// ErrNilReceptionist is returned when a nil receptionist is provided.
+	ErrNilReceptionist = errors.New("receptionist cannot be nil")
+
+	// ErrNilRouter is returned when a nil router is provided.
+	ErrNilRouter = errors.New("router cannot be nil")
+
+	// ErrNilResolver is returned when a nil resolver is provided.
+	ErrNilResolver = errors.New("resolver cannot be nil")
+
+	// ErrNoPathFound is returned when no path exists between the source
+	// and destination nodes that supports onion messaging.
+	ErrNoPathFound = errors.New("no path found to destination")
+
+	// ErrDestinationNoOnionSupport is returned when the destination node
+	// does not advertise support for onion messages.
+	ErrDestinationNoOnionSupport = errors.New("destination does not " +
+		"support onion messages")
 )

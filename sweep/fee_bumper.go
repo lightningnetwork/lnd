@@ -740,6 +740,7 @@ func (t *TxPublisher) broadcast(record *monitorRecord) (*BumpResult, error) {
 	err := fn.MapOptionZ(t.cfg.AuxSweeper, func(aux AuxSweeper) error {
 		return aux.NotifyBroadcast(
 			record.req, tx, record.fee, record.outpointToTxIndex,
+			false,
 		)
 	})
 	if err != nil {

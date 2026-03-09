@@ -266,6 +266,10 @@ type ForwardingEventQuery struct {
 	// forwarded to a particular channel.
 	// If the list is empty, then it is ignored.
 	OutgoingChanIDs fn.Set[uint64]
+
+	// Reversed is a boolean that indicates whether the query should be
+	// returned in reverse chronological order.
+	Reversed bool
 }
 
 // ForwardingLogTimeSlice is the response to a forwarding query. It includes
@@ -324,9 +328,47 @@ func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice,
 		// We'll continue until either we reach the end of the range,
 		// or reach our max number of events.
 		logCursor := logBucket.ReadCursor()
-		timestamp, eventBytes := logCursor.Seek(startTime[:])
-		//nolint:ll
-		for ; timestamp != nil && bytes.Compare(timestamp, endTime[:]) <= 0; timestamp, eventBytes = logCursor.Next() {
+
+		var timestamp, eventBytes []byte
+		if q.Reversed {
+			timestamp, eventBytes = logCursor.Seek(endTime[:])
+			switch {
+			// If the cursor is at a key that's greater than our
+			// end time, then we'll back up by one to ensure we
+			// start within our range.
+			case timestamp != nil &&
+				bytes.Compare(timestamp, endTime[:]) > 0:
+
+				timestamp, eventBytes = logCursor.Prev()
+
+			// If we've reached the end of the bucket, then we'll
+			// move the cursor to the very last element in the
+			// bucket.
+			case timestamp == nil:
+				timestamp, eventBytes = logCursor.Last()
+			}
+		} else {
+			timestamp, eventBytes = logCursor.Seek(startTime[:])
+		}
+
+		for timestamp != nil {
+			// If we're querying in reverse, then we'll exit if
+			// we've reached a timestamp that is before our start
+			// time.
+			if q.Reversed {
+				if bytes.Compare(timestamp, startTime[:]) < 0 {
+					break
+				}
+			} else {
+				// Otherwise, we'll exit if we've reached a
+				// timestamp that is after our end time.
+				if bytes.Compare(timestamp, endTime[:]) > 0 {
+					break
+				}
+			}
+
+			// If our current return payload exceeds the max number
+			// of events, then we'll exit now.
 			// If our current return payload exceeds the max number
 			// of events, then we'll exit now.
 			if uint32(len(resp.ForwardingEvents)) >= q.NumMaxEvents {
@@ -341,6 +383,12 @@ func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice,
 				q.OutgoingChanIDs.IsEmpty() {
 
 				recordsToSkip--
+
+				if q.Reversed {
+					timestamp, eventBytes = logCursor.Prev()
+				} else {
+					timestamp, eventBytes = logCursor.Next()
+				}
 				continue
 			}
 
@@ -390,6 +438,12 @@ func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice,
 			// then we'll continue to seek forward.
 			if recordsToSkip > 0 {
 				recordsToSkip--
+
+				if q.Reversed {
+					timestamp, eventBytes = logCursor.Prev()
+				} else {
+					timestamp, eventBytes = logCursor.Next()
+				}
 				continue
 			}
 
@@ -399,6 +453,12 @@ func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice,
 				event,
 			)
 			recordOffset++
+
+			if q.Reversed {
+				timestamp, eventBytes = logCursor.Prev()
+			} else {
+				timestamp, eventBytes = logCursor.Next()
+			}
 		}
 
 		return nil

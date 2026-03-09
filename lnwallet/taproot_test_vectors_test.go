@@ -1282,6 +1282,23 @@ func verifyTaprootVectors(t *testing.T) {
 			})
 		}
 	})
+
+	// Verify signatures cryptographically as a third party would.
+	t.Run("signature_verification", func(t *testing.T) {
+		fundingPkScript, err := hex.DecodeString(
+			stored.Scripts.Funding.PkScript,
+		)
+		require.NoError(t, err)
+
+		for _, storedTx := range stored.Transactions {
+			t.Run(storedTx.Name, func(t *testing.T) {
+				verifyCommitmentTxSig(
+					t, storedTx, fundingPkScript,
+					tc.fundingAmount,
+				)
+			})
+		}
+	})
 }
 
 // extractHash160FromScript uses the script tokenizer to find and extract the
@@ -1313,4 +1330,86 @@ func extractHash160FromScript(t *testing.T, script []byte) [20]byte {
 
 	var zero [20]byte
 	return zero
+}
+
+// verifyCommitmentTxSig performs third-party verification of the commitment
+// transaction and all HTLC resolution transactions by executing the taproot
+// script verification engine against the provided witnesses.
+func verifyCommitmentTxSig(t *testing.T, txCase TransactionTestCase,
+	fundingPkScript []byte, fundingAmt btcutil.Amount) {
+
+	// Deserialize the commitment transaction.
+	commitTxBytes, err := hex.DecodeString(
+		txCase.ExpectedCommitmentTxHex,
+	)
+	require.NoError(t, err)
+
+	commitTx := wire.NewMsgTx(2)
+	err = commitTx.Deserialize(bytes.NewReader(commitTxBytes))
+	require.NoError(t, err)
+
+	// Verify the commitment tx witness against the funding output.
+	prevOutFetcher := txscript.NewCannedPrevOutputFetcher(
+		fundingPkScript, int64(fundingAmt),
+	)
+	sigHashes := txscript.NewTxSigHashes(commitTx, prevOutFetcher)
+
+	vm, err := txscript.NewEngine(
+		fundingPkScript, commitTx, 0,
+		txscript.StandardVerifyFlags, nil,
+		sigHashes, int64(fundingAmt), prevOutFetcher,
+	)
+	require.NoError(t, err, "failed to create script engine for "+
+		"commitment tx")
+
+	err = vm.Execute()
+	require.NoError(t, err, "commitment tx signature verification "+
+		"failed")
+
+	t.Logf("commitment tx signature verified successfully")
+
+	// Verify each HTLC resolution transaction against its commitment
+	// output.
+	for i, htlcDesc := range txCase.HtlcDescs {
+		htlcTxBytes, err := hex.DecodeString(
+			htlcDesc.ResolutionTxHex,
+		)
+		require.NoError(t, err)
+
+		htlcTx := wire.NewMsgTx(2)
+		err = htlcTx.Deserialize(bytes.NewReader(htlcTxBytes))
+		require.NoError(t, err)
+
+		// The HTLC tx spends from the commitment tx. Find the
+		// output it references.
+		prevOutIdx := htlcTx.TxIn[0].PreviousOutPoint.Index
+		require.Less(t, int(prevOutIdx), len(commitTx.TxOut),
+			"HTLC tx references invalid output index")
+
+		prevOut := commitTx.TxOut[prevOutIdx]
+		htlcPrevFetcher := txscript.NewCannedPrevOutputFetcher(
+			prevOut.PkScript, prevOut.Value,
+		)
+		htlcSigHashes := txscript.NewTxSigHashes(
+			htlcTx, htlcPrevFetcher,
+		)
+
+		htlcVM, err := txscript.NewEngine(
+			prevOut.PkScript, htlcTx, 0,
+			txscript.StandardVerifyFlags, nil,
+			htlcSigHashes, prevOut.Value,
+			htlcPrevFetcher,
+		)
+		require.NoError(t, err,
+			fmt.Sprintf("failed to create script engine for "+
+				"HTLC resolution tx %d", i))
+
+		err = htlcVM.Execute()
+		require.NoError(t, err,
+			fmt.Sprintf("HTLC resolution tx %d signature "+
+				"verification failed", i))
+
+		t.Logf("HTLC resolution tx %d signature verified "+
+			"successfully", i)
+	}
 }

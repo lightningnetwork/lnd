@@ -894,8 +894,8 @@ var taprootTransactionTestCases = []struct {
 		name:          "commitment tx with some HTLCs trimmed",
 		localBalance:  6_988_000_000,
 		remoteBalance: 3_000_000_000,
-		feePerKw:      100_000,
-		dustLimit:     546,
+		feePerKw:      644,
+		dustLimit:     2500,
 		useTestHtlcs:  true,
 	},
 }

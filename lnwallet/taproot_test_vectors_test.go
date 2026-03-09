@@ -1001,58 +1001,68 @@ func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase
 			resolutions := forceCloseSum.ContractResolutions.UnwrapOrFail(t)
 			htlcResolutions := resolutions.HtlcResolutions
 
-			secondLevelTxes := map[uint32]*wire.MsgTx{}
-			secondLevelSigs := map[uint32]string{}
-			storeTx := func(
-				index uint32, tx *wire.MsgTx, sig string,
-			) {
-				secondLevelTxes[index] = tx
-				secondLevelSigs[index] = sig
+			// Build a map from commitment tx output index to
+			// the second-level transaction and remote sig.
+			// HtlcSigs are sorted by output index (BIP 69),
+			// so we collect all HTLC output indices, sort
+			// them, and map each to the correct sig.
+			type htlcEntry struct {
+				outputIdx uint32
+				tx        *wire.MsgTx
+			}
+			var allHtlcs []htlcEntry
+
+			for _, r := range htlcResolutions.IncomingHTLCs {
+				successTx := r.SignedSuccessTx
+
+				// Complete the witness with the preimage.
+				// Witness layout for HTLC-success:
+				//   [0]=remoteSig [1]=localSig
+				//   [2]=preimage [3]=script
+				//   [4]=controlBlock
+				//
+				// Parse the success script to extract the
+				// RIPEMD160 hash using the script tokenizer
+				// rather than hardcoded offsets.
+				script := successTx.TxIn[0].Witness[3]
+				payHash := extractHash160FromScript(t, script)
+				preimage := hash160map[payHash]
+				successTx.TxIn[0].Witness[2] = preimage[:]
+
+				allHtlcs = append(allHtlcs, htlcEntry{
+					outputIdx: r.HtlcPoint().Index,
+					tx:        successTx,
+				})
+			}
+			for _, r := range htlcResolutions.OutgoingHTLCs {
+				allHtlcs = append(allHtlcs, htlcEntry{
+					outputIdx: r.HtlcPoint().Index,
+					tx:        r.SignedTimeoutTx,
+				})
 			}
 
-			for i, r := range htlcResolutions.IncomingHTLCs {
-				successTx := r.SignedSuccessTx
-				// Complete the witness with the preimage.
-				witnessScript := successTx.TxIn[0].Witness[4]
-				var hash160 [20]byte
-				copy(hash160[:], witnessScript[69:69+20])
-				preimage := hash160map[hash160]
-				successTx.TxIn[0].Witness[3] = preimage[:]
+			// Sort by output index to match HtlcSigs ordering.
+			sort.Slice(allHtlcs, func(a, b int) bool {
+				return allHtlcs[a].outputIdx < allHtlcs[b].outputIdx
+			})
 
+			require.Equal(t,
+				len(allHtlcs),
+				len(remoteNewCommit.HtlcSigs),
+				"htlc sig count mismatch",
+			)
+
+			for i, entry := range allHtlcs {
 				sigHex := hex.EncodeToString(
 					remoteNewCommit.HtlcSigs[i].ToSignatureBytes(),
 				)
-				storeTx(
-					r.HtlcPoint().Index, successTx, sigHex,
-				)
-			}
-			for i, r := range htlcResolutions.OutgoingHTLCs {
-				sigIdx := len(htlcResolutions.IncomingHTLCs) + i
-				sigHex := hex.EncodeToString(
-					remoteNewCommit.HtlcSigs[sigIdx].ToSignatureBytes(),
-				)
-				storeTx(
-					r.HtlcPoint().Index,
-					r.SignedTimeoutTx, sigHex,
-				)
-			}
 
-			var keys []uint32
-			for k := range secondLevelTxes {
-				keys = append(keys, k)
-			}
-			sort.Slice(keys, func(a, b int) bool {
-				return keys[a] < keys[b]
-			})
-
-			for _, idx := range keys {
-				tx := secondLevelTxes[idx]
 				var b bytes.Buffer
-				err := tx.Serialize(&b)
+				err := entry.tx.Serialize(&b)
 				require.NoError(t, err)
 
 				htlcDescs = append(htlcDescs, HtlcDesc{
-					RemotePartialSigHex: secondLevelSigs[idx],
+					RemotePartialSigHex: sigHex,
 					ResolutionTxHex:     hex.EncodeToString(b.Bytes()),
 				})
 			}
@@ -1274,3 +1284,33 @@ func verifyTaprootVectors(t *testing.T) {
 	})
 }
 
+// extractHash160FromScript uses the script tokenizer to find and extract the
+// 20-byte RIPEMD160 payment hash from an HTLC success script. The script
+// contains: OP_SIZE 32 OP_EQUALVERIFY OP_HASH160 <20-byte-hash> OP_EQUALVERIFY
+// followed by checksig operations.
+func extractHash160FromScript(t *testing.T, script []byte) [20]byte {
+	t.Helper()
+
+	tokenizer := txscript.MakeScriptTokenizer(0, script)
+	for tokenizer.Next() {
+		if tokenizer.Opcode() == txscript.OP_HASH160 {
+			// The next token should be the 20-byte push data.
+			require.True(t, tokenizer.Next(),
+				"expected data push after OP_HASH160")
+
+			data := tokenizer.Data()
+			require.Len(t, data, 20,
+				"expected 20-byte hash after OP_HASH160")
+
+			var hash160 [20]byte
+			copy(hash160[:], data)
+			return hash160
+		}
+	}
+
+	require.NoError(t, tokenizer.Err(), "script tokenizer error")
+	t.Fatal("OP_HASH160 not found in script")
+
+	var zero [20]byte
+	return zero
+}

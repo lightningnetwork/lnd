@@ -67,6 +67,7 @@ require (
 	gopkg.in/macaroon-bakery.v2 v2.0.1
 	gopkg.in/macaroon.v2 v2.0.0
 	pgregory.net/rapid v1.2.0
+	rsc.io/qr v0.2.0
 )
 
 require (

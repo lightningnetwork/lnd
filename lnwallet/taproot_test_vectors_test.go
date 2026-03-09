@@ -264,6 +264,8 @@ type TransactionTestCase struct {
 	FeePerKw                int64      `json:"fee_per_kw"`
 	DustLimitSatoshis       int64      `json:"dust_limit_satoshis,omitempty"`
 	Htlcs                   []HtlcInput `json:"htlcs"`
+	LocalNonce              string     `json:"local_nonce"`
+	RemoteNonce             string     `json:"remote_nonce"`
 	RemotePartialSig        string     `json:"remote_partial_sig"`
 	ExpectedCommitmentTxHex string     `json:"expected_commitment_tx_hex"`
 	HtlcDescs               []HtlcDesc `json:"htlc_descs"`
@@ -948,6 +950,12 @@ func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase
 		localNewCommit, err := localChannel.SignNextCommitment(ctxb)
 		require.NoError(t, err)
 
+		// Capture the local nonce from the local commitment sig.
+		localPartialSig := localNewCommit.PartialSig.UnwrapOrFailV(t)
+		localNonceHex := hex.EncodeToString(
+			localPartialSig.Nonce[:],
+		)
+
 		err = remoteChannel.ReceiveNewCommitment(
 			localNewCommit.CommitSigs,
 		)
@@ -962,9 +970,14 @@ func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase
 		remoteNewCommit, err := remoteChannel.SignNextCommitment(ctxb)
 		require.NoError(t, err)
 
-		// Capture remote partial signature.
-		remoteSigHex := hex.EncodeToString(
-			remoteNewCommit.CommitSig.ToSignatureBytes(),
+		// Capture the remote partial signature and nonce from the
+		// musig2 partial sig (not CommitSig which is zero for
+		// taproot channels).
+		remotePartialSig := remoteNewCommit.PartialSig.UnwrapOrFailV(t)
+		sigBytes := remotePartialSig.Sig.Bytes()
+		remoteSigHex := hex.EncodeToString(sigBytes[:])
+		remoteNonceHex := hex.EncodeToString(
+			remotePartialSig.Nonce[:],
 		)
 
 		err = localChannel.ReceiveNewCommitment(
@@ -1064,6 +1077,8 @@ func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase
 			RemoteBalanceMsat:       uint64(testCase.remoteBalance),
 			FeePerKw:                int64(testCase.feePerKw),
 			Htlcs:                   htlcInputs,
+			LocalNonce:              localNonceHex,
+			RemoteNonce:             remoteNonceHex,
 			RemotePartialSig:        remoteSigHex,
 			ExpectedCommitmentTxHex: hex.EncodeToString(txBytes.Bytes()),
 			HtlcDescs:               htlcDescs,

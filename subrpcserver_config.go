@@ -321,6 +321,13 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 		case *switchrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)
 
+			subCfgValue.FieldByName("NetworkDir").Set(
+				reflect.ValueOf(networkDir),
+			)
+			subCfgValue.FieldByName("MacService").Set(
+				reflect.ValueOf(macService),
+			)
+
 			subCfgValue.FieldByName("HtlcDispatcher").Set(
 				reflect.ValueOf(htlcSwitch),
 			)

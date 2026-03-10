@@ -1,6 +1,7 @@
 package lnd
 
 import (
+	"context"
 	"errors"
 	"net"
 	"testing"
@@ -400,6 +401,95 @@ func TestStopWorker(t *testing.T) {
 	// Stop it.
 	s.stopWorker(pubStr)
 	require.NotContains(t, s.persistentWorkers, pubStr)
+}
+
+// TestStopWorkerDropsCmdOnFullChannel demonstrates that stopWorker silently
+// drops cmdStop when the worker's command channel is already full. The worker
+// is removed from the map but its goroutine continues running — it becomes
+// orphaned and can only be stopped by closing s.quit.
+func TestStopWorkerDropsCmdOnFullChannel(t *testing.T) {
+	t.Parallel()
+
+	s := newTestServer(t)
+
+	pubKey := generateTestPubKey(t)
+	pubStr := string(pubKey.SerializeCompressed())
+
+	// Create a worker with a slow dial so it stays in the dial loop.
+	dialStarted := make(chan struct{})
+	blockDial := make(chan struct{})
+	s.getOrCreateWorker(pubStr, false, nil)
+	w := s.persistentWorkers[pubStr]
+
+	// Override the dial function to block until we release it.
+	w.cfg.dialContext = func(ctx context.Context,
+		addr *lnwire.NetAddress) (net.Conn, error) {
+
+		close(dialStarted)
+		<-blockDial
+		return nil, errors.New("blocked dial released")
+	}
+
+	addr := &lnwire.NetAddress{
+		IdentityKey: pubKey,
+		Address:     &net.TCPAddr{IP: net.ParseIP("1.2.3.4"), Port: 9735},
+	}
+
+	// Send cmdConnect to start the worker dialing. This fills the buffer
+	// momentarily but the worker drains it and enters dialLoop.
+	w.cmdChan <- connWorkerMsg{
+		cmd:   cmdConnect,
+		addrs: []*lnwire.NetAddress{addr},
+	}
+
+	// Wait for the worker to be inside the dial goroutine.
+	select {
+	case <-dialStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for dial to start")
+	}
+
+	// Now fill the command channel while the worker is blocked in dial.
+	// The worker is inside tryAllAddresses waiting on resultCh, so it
+	// hasn't drained cmdChan yet. We send a command to fill the buffer.
+	w.cmdChan <- connWorkerMsg{cmd: cmdStandDown}
+
+	// Channel is now full (capacity 1). stopWorker should fail to deliver
+	// cmdStop.
+	s.stopWorker(pubStr)
+
+	// The worker is removed from the map...
+	require.NotContains(t, s.persistentWorkers, pubStr)
+
+	// ...but the goroutine is still alive. Release the dial so the worker
+	// can process commands again.
+	close(blockDial)
+
+	// Give the worker time to process the cmdStandDown (which it received
+	// instead of cmdStop) and return to idle.
+	time.Sleep(100 * time.Millisecond)
+
+	// The worker goroutine is still running in its idle select — it never
+	// received cmdStop. We can prove this by sending it another command.
+	// If the goroutine had exited, this send would block forever (no
+	// reader).
+	workerAlive := make(chan bool, 1)
+	go func() {
+		select {
+		case w.cmdChan <- connWorkerMsg{cmd: cmdStop}:
+			workerAlive <- true
+		case <-time.After(2 * time.Second):
+			workerAlive <- false
+		}
+	}()
+
+	alive := <-workerAlive
+	require.True(t, alive,
+		"worker goroutine is still running despite being "+
+			"removed from persistentWorkers — orphaned")
+
+	// Clean up: close quit to stop the orphaned worker.
+	close(s.quit)
 }
 
 // TestSendWorkerCmdNoWorker verifies that sendWorkerCmd returns false when no

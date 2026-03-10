@@ -1,6 +1,7 @@
 package chainreg
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -147,6 +148,10 @@ func (n *NoChainSource) Stop() {
 func (n *NoChainSource) WaitForShutdown() {
 }
 
+func (n *NoChainSource) GetPeerInfo() ([]btcjson.GetPeerInfoResult, error) {
+	return nil, errNotImplemented
+}
+
 func (n *NoChainSource) GetBestBlock() (*chainhash.Hash, int32, error) {
 	return noChainBackendBestHash, noChainBackendBestHeight, nil
 }
@@ -172,6 +177,12 @@ func (n *NoChainSource) GetBlockHeader(*chainhash.Hash) (*wire.BlockHeader,
 	}, nil
 }
 
+func (n *NoChainSource) GetBlockChainInfo() (*btcjson.GetBlockChainInfoResult,
+	error) {
+
+	return nil, errNotImplemented
+}
+
 func (n *NoChainSource) IsCurrent() bool {
 	return true
 }
@@ -188,6 +199,12 @@ func (n *NoChainSource) BlockStamp() (*waddrmgr.BlockStamp, error) {
 
 func (n *NoChainSource) SendRawTransaction(*wire.MsgTx, bool) (*chainhash.Hash,
 	error) {
+
+	return nil, errNotImplemented
+}
+
+func (n *NoChainSource) RawRequest(method string,
+	params []json.RawMessage) (json.RawMessage, error) {
 
 	return nil, errNotImplemented
 }

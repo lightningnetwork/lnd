@@ -3268,7 +3268,7 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 		var aliceClient, bobClient chain.Interface
 		switch backEnd {
 		case "btcd":
-			aliceClient, err = chain.NewRPCClient(
+			aliceClient, err = chain.NewBtcdClient(
 				netParams, rpcConfig.Host, rpcConfig.User,
 				rpcConfig.Pass, rpcConfig.Certificates, false,
 				20,
@@ -3276,7 +3276,7 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			if err != nil {
 				t.Fatalf("unable to make chain rpc: %v", err)
 			}
-			bobClient, err = chain.NewRPCClient(
+			bobClient, err = chain.NewBtcdClient(
 				netParams, rpcConfig.Host, rpcConfig.User,
 				rpcConfig.Pass, rpcConfig.Certificates, false,
 				20,

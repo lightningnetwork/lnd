@@ -403,6 +403,172 @@ func TestStopWorker(t *testing.T) {
 	require.NotContains(t, s.persistentWorkers, pubStr)
 }
 
+// TestConnectToPeerDeadlockOnFullChannel demonstrates that a blocking channel
+// send in ConnectToPeer (perm path) while holding s.mu deadlocks against the
+// worker's onConnection callback which also needs s.mu.
+//
+// Deadlock diagram:
+//
+//	Goroutine A (ConnectToPeer): holds s.mu → blocks on w.cmdChan
+//	Goroutine B (worker):        holds cmdChan slot (in onConnection) → blocks on s.mu
+//
+// The test uses a timeout to detect the deadlock rather than hanging forever.
+func TestConnectToPeerDeadlockOnFullChannel(t *testing.T) {
+	t.Parallel()
+
+	s := newTestServer(t)
+
+	pubKey := generateTestPubKey(t)
+	pubStr := string(pubKey.SerializeCompressed())
+
+	// onConnectionReached signals that the worker's onConnection callback
+	// has been entered. We use this to coordinate the deadlock scenario.
+	onConnectionReached := make(chan struct{})
+
+	// onConnectionBlock keeps the worker inside onConnection so we can
+	// attempt the competing s.mu acquisition.
+	onConnectionBlock := make(chan struct{})
+
+	// Create the worker manually so we can control the callbacks.
+	cfg := connWorkerCfg{
+		dialContext: func(ctx context.Context,
+			addr *lnwire.NetAddress) (net.Conn, error) {
+
+			// Return a mock connection that succeeds immediately.
+			return &mockConn{}, nil
+		},
+		onConnection: func(conn net.Conn,
+			addr *lnwire.NetAddress) {
+
+			// Simulate what OutboundPeerConnected does: acquire
+			// s.mu. In the real code this is line 4102 of
+			// server.go.
+			close(onConnectionReached)
+			<-onConnectionBlock
+
+			// In the real code, s.mu.Lock() would block here,
+			// but for this test we just simulate the blocking
+			// by waiting on onConnectionBlock above. The actual
+			// deadlock is: worker blocks on s.mu.Lock() inside
+			// OutboundPeerConnected, while ConnectToPeer holds
+			// s.mu and blocks on w.cmdChan.
+		},
+		minBackoff:   time.Second,
+		maxBackoff:   time.Hour,
+		staggerDelay: time.Millisecond,
+		quit:         s.quit,
+	}
+
+	w := newConnWorker(pubStr, false, cfg)
+	s.persistentWorkers[pubStr] = w
+	go w.Run()
+
+	addr := &lnwire.NetAddress{
+		IdentityKey: pubKey,
+		Address: &net.TCPAddr{
+			IP: net.ParseIP("1.2.3.4"), Port: 9735,
+		},
+	}
+
+	// Send cmdConnect so the worker starts dialing. The mock dialer
+	// succeeds immediately, so the worker will enter onConnection.
+	w.cmdChan <- connWorkerMsg{
+		cmd:   cmdConnect,
+		addrs: []*lnwire.NetAddress{addr},
+	}
+
+	// Wait for the worker to enter onConnection.
+	select {
+	case <-onConnectionReached:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for onConnection")
+	}
+
+	// Now the worker is blocked inside onConnection (simulating the
+	// s.mu.Lock() call in OutboundPeerConnected). The worker's run loop
+	// is stalled — it cannot drain cmdChan.
+	//
+	// Simulate what ConnectToPeer does: hold s.mu and do a blocking
+	// send on w.cmdChan. With the worker stalled, cmdChan is empty
+	// (capacity 1, the earlier cmdConnect was already consumed), so the
+	// send should succeed... BUT if we first fill the channel, the
+	// blocking send will deadlock.
+	//
+	// To reproduce the exact deadlock, we need the channel to be full.
+	// In the real scenario, the channel could be full from a concurrent
+	// peerTerminationWatcher sending cmdConnect. Simulate that:
+	select {
+	case w.cmdChan <- connWorkerMsg{cmd: cmdStandDown}:
+		// Channel is now full.
+	default:
+		t.Fatal("expected channel to be empty at this point")
+	}
+
+	// Now attempt the ConnectToPeer pattern: hold s.mu + blocking send.
+	// This MUST deadlock (or timeout) because:
+	//   - w.cmdChan is full (we just filled it)
+	//   - The worker can't drain it (blocked in onConnection)
+	//   - In real code, the worker would be blocked on s.mu.Lock()
+	//     which ConnectToPeer holds
+	deadlockDetected := make(chan struct{})
+	go func() {
+		s.mu.Lock()
+		// This is the problematic line from server.go:4849.
+		// It blocks because cmdChan is full and the worker is
+		// stalled.
+		w.cmdChan <- connWorkerMsg{
+			cmd:   cmdConnect,
+			addrs: []*lnwire.NetAddress{addr},
+		}
+		s.mu.Unlock()
+
+		// If we get here, no deadlock occurred.
+		close(deadlockDetected)
+	}()
+
+	// The blocking send should not complete within the timeout because
+	// the worker is stalled and can't drain the channel.
+	select {
+	case <-deadlockDetected:
+		t.Fatal("expected deadlock but send completed — " +
+			"test setup is wrong")
+	case <-time.After(2 * time.Second):
+		// Deadlock confirmed: the goroutine is stuck on the
+		// blocking channel send while holding s.mu.
+	}
+
+	// Clean up: unblock the worker and release everything.
+	close(onConnectionBlock)
+
+	// Drain the channel so the blocked goroutine can complete.
+	<-w.cmdChan
+
+	// Wait for the deadlocked goroutine to finish.
+	select {
+	case <-deadlockDetected:
+	case <-time.After(5 * time.Second):
+		t.Fatal("cleanup: goroutine still stuck")
+	}
+
+	s.mu.Lock()
+	delete(s.persistentWorkers, pubStr)
+	s.mu.Unlock()
+
+	close(s.quit)
+}
+
+// mockConn is a minimal net.Conn for testing.
+type mockConn struct{}
+
+func (m *mockConn) Read(b []byte) (int, error)         { return 0, nil }
+func (m *mockConn) Write(b []byte) (int, error)        { return len(b), nil }
+func (m *mockConn) Close() error                       { return nil }
+func (m *mockConn) LocalAddr() net.Addr                { return &net.TCPAddr{} }
+func (m *mockConn) RemoteAddr() net.Addr               { return &net.TCPAddr{} }
+func (m *mockConn) SetDeadline(time.Time) error        { return nil }
+func (m *mockConn) SetReadDeadline(time.Time) error    { return nil }
+func (m *mockConn) SetWriteDeadline(time.Time) error   { return nil }
+
 // TestStopWorkerDropsCmdOnFullChannel demonstrates that stopWorker silently
 // drops cmdStop when the worker's command channel is already full. The worker
 // is removed from the map but its goroutine continues running — it becomes

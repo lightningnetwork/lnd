@@ -34,6 +34,7 @@ import (
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -8744,19 +8745,45 @@ func (r *rpcServer) SubscribeCustomMessages(
 // SendOnionMessage sends an onion message to the destination node, using
 // graph-based pathfinding to route it. If no graph path is found, a direct
 // send to the destination peer is attempted.
-//
-// TODO(Abdulkbk): update proto to rename peer→destination and remove the
-// path_key/onion fields once pathfinding is fully wired end-to-end.
 func (r *rpcServer) SendOnionMessage(ctx context.Context,
 	req *lnrpc.SendOnionMessageRequest) (*lnrpc.SendOnionMessageResponse,
 	error) {
 
-	destination, err := route.NewVertexFromBytes(req.Peer)
+	destination, err := route.NewVertexFromBytes(req.Destination)
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	err = r.server.SendOnionMessage(ctx, destination)
+	finalHopTLVs := make([]*lnwire.FinalHopTLV, 0, len(req.FinalHopTlvs))
+	for tlvType, val := range req.FinalHopTlvs {
+		record := &lnwire.FinalHopTLV{
+			TLVType: tlv.Type(tlvType),
+			Value:   val,
+		}
+
+		// Ensure the passed tlv type is valid final hop tlv type and
+		// return early if it is not.
+		if err := record.Validate(); err != nil {
+			return nil, status.Error(
+				codes.InvalidArgument, err.Error(),
+			)
+		}
+
+		finalHopTLVs = append(finalHopTLVs, record)
+	}
+
+	var replyPath *sphinx.BlindedPath
+	if req.ReplyPath != nil {
+		replyPath, err = routerrpc.UnmarshalBlindedPath(req.ReplyPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	err = r.server.SendOnionMessage(
+		ctx, destination, finalHopTLVs, replyPath,
+	)
+
 	switch {
 	case errors.Is(err, onionmessage.ErrDestinationNoOnionSupport):
 		return nil, status.Error(codes.InvalidArgument, err.Error())

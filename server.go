@@ -5517,15 +5517,17 @@ func (s *server) SendCustomMessage(ctx context.Context, peerPub [33]byte,
 
 // SendOnionMessage finds a path to destination using the channel graph and
 // sends an onion message to it. If the graph yields no route, a direct send
-// to the destination peer is attempted as a fallback.
+// to the destination peer is attempted as a fallback. finalHopTLVs and
+// replyPath may be nil.
 func (s *server) SendOnionMessage(ctx context.Context,
-	destination route.Vertex) error {
+	destination route.Vertex, finalHopTLVs []*lnwire.FinalHopTLV,
+	replyPath *sphinx.BlindedPath) error {
 
 	if s.onionMsgSender == nil {
 		return errors.New("onion messaging is disabled")
 	}
 
-	return s.onionMsgSender.Send(ctx, destination, nil, nil)
+	return s.onionMsgSender.Send(ctx, destination, finalHopTLVs, replyPath)
 }
 
 // SendToPeer sends an onion message to the peer identified by the given

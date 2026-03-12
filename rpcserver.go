@@ -8741,29 +8741,30 @@ func (r *rpcServer) SubscribeCustomMessages(
 	}
 }
 
-// SendOnionMessage sends a custom peer message.
+// SendOnionMessage sends an onion message to the destination node, using
+// graph-based pathfinding to route it. If no graph path is found, a direct
+// send to the destination peer is attempted.
+//
+// TODO(Abdulkbk): update proto to rename peer→destination and remove the
+// path_key/onion fields once pathfinding is fully wired end-to-end.
 func (r *rpcServer) SendOnionMessage(ctx context.Context,
 	req *lnrpc.SendOnionMessageRequest) (*lnrpc.SendOnionMessageResponse,
 	error) {
 
-	// First we'll validate the string passed in within the request to
-	// ensure that it's a valid hex-string, and also a valid compressed
-	// public key.
-	pathKey, err := btcec.ParsePubKey(req.PathKey)
-	if err != nil {
-		return nil, fmt.Errorf("unable to decode path key bytes: %w",
-			err)
-	}
-
-	peer, err := route.NewVertexFromBytes(req.Peer)
+	destination, err := route.NewVertexFromBytes(req.Peer)
 	if err != nil {
 		return nil, err
 	}
 
-	err = r.server.SendOnionMessage(ctx, peer, pathKey, req.Onion)
+	err = r.server.SendOnionMessage(ctx, destination)
 	switch {
-	case errors.Is(err, ErrPeerNotConnected):
+	case errors.Is(err, onionmessage.ErrDestinationNoOnionSupport):
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+
+	case errors.Is(err, onionmessage.ErrNoPathFound),
+		errors.Is(err, ErrPeerNotConnected):
 		return nil, status.Error(codes.NotFound, err.Error())
+
 	case err != nil:
 		return nil, err
 	}

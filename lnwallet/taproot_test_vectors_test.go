@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -264,6 +265,8 @@ type TransactionTestCase struct {
 	FeePerKw                int64      `json:"fee_per_kw"`
 	DustLimitSatoshis       int64      `json:"dust_limit_satoshis,omitempty"`
 	Htlcs                   []HtlcInput `json:"htlcs"`
+	LocalSecNonce           string     `json:"local_sec_nonce"`
+	RemoteSecNonce          string     `json:"remote_sec_nonce"`
 	LocalNonce              string     `json:"local_nonce"`
 	RemoteNonce             string     `json:"remote_nonce"`
 	RemotePartialSig        string     `json:"remote_partial_sig"`
@@ -950,10 +953,22 @@ func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase
 		localNewCommit, err := localChannel.SignNextCommitment(ctxb)
 		require.NoError(t, err)
 
-		// Capture the local nonce from the local commitment sig.
-		localPartialSig := localNewCommit.PartialSig.UnwrapOrFailV(t)
+		// Discard the local JIT signing nonce (used for remote's
+		// commitment, not local's).
+		localChannel.musigSessions.RemoteSession.lastSigningSecNonce()
+
+		// Capture local's verification nonce for local's own
+		// commitment. This is the nonce local contributes to the
+		// MuSig2 session for the commitment tx stored in the test
+		// vector (which is local's commitment, obtained via
+		// ForceClose). We must capture it BEFORE
+		// ReceiveNewCommitment finalizes the local session.
+		localVerifNonce := localChannel.musigSessions.LocalSession.VerificationNonce()
 		localNonceHex := hex.EncodeToString(
-			localPartialSig.Nonce[:],
+			localVerifNonce.PubNonce[:],
+		)
+		localSecNonceHex := hex.EncodeToString(
+			localVerifNonce.SecNonce[:],
 		)
 
 		err = remoteChannel.ReceiveNewCommitment(
@@ -969,6 +984,12 @@ func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase
 
 		remoteNewCommit, err := remoteChannel.SignNextCommitment(ctxb)
 		require.NoError(t, err)
+
+		// Capture the remote secret nonce from the musig session.
+		remoteSecNonceBytes := remoteChannel.musigSessions.RemoteSession.lastSigningSecNonce().UnwrapOrFail(t)
+		remoteSecNonceHex := hex.EncodeToString(
+			remoteSecNonceBytes[:],
+		)
 
 		// Capture the remote partial signature and nonce from the
 		// musig2 partial sig (not CommitSig which is zero for
@@ -1087,6 +1108,8 @@ func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase
 			RemoteBalanceMsat:       uint64(testCase.remoteBalance),
 			FeePerKw:                int64(testCase.feePerKw),
 			Htlcs:                   htlcInputs,
+			LocalSecNonce:           localSecNonceHex,
+			RemoteSecNonce:          remoteSecNonceHex,
 			LocalNonce:              localNonceHex,
 			RemoteNonce:             remoteNonceHex,
 			RemotePartialSig:        remoteSigHex,
@@ -1299,6 +1322,187 @@ func verifyTaprootVectors(t *testing.T) {
 			})
 		}
 	})
+
+	// Replay MuSig2 signing from the secret nonces and private keys
+	// to verify that partial signatures are independently reproducible.
+	t.Run("musig2_partial_sig_replay", func(t *testing.T) {
+		fundingPkScript, err := hex.DecodeString(
+			stored.Scripts.Funding.PkScript,
+		)
+		require.NoError(t, err)
+
+		for _, storedTx := range stored.Transactions {
+			t.Run(storedTx.Name, func(t *testing.T) {
+				verifyMusig2PartialSigs(
+					t, storedTx, fundingPkScript,
+					tc.fundingAmount,
+					tc.localFundingPrivkey,
+					tc.remoteFundingPrivkey,
+				)
+			})
+		}
+	})
+}
+
+// verifyMusig2PartialSigs replays MuSig2 signing from the secret nonces and
+// private keys in the test vectors, verifying that the partial signatures can
+// be independently reproduced and that the combined signature matches the
+// witness in the commitment transaction.
+func verifyMusig2PartialSigs(t *testing.T, txCase TransactionTestCase,
+	fundingPkScript []byte, fundingAmt btcutil.Amount,
+	localPrivKey, remotePrivKey *btcec.PrivateKey) {
+
+	t.Helper()
+
+	// Decode secret nonces (97 bytes each).
+	localSecNonceBytes, err := hex.DecodeString(txCase.LocalSecNonce)
+	require.NoError(t, err)
+	require.Len(t, localSecNonceBytes, musig2.SecNonceSize)
+
+	remoteSecNonceBytes, err := hex.DecodeString(txCase.RemoteSecNonce)
+	require.NoError(t, err)
+	require.Len(t, remoteSecNonceBytes, musig2.SecNonceSize)
+
+	var localSecNonce, remoteSecNonce [musig2.SecNonceSize]byte
+	copy(localSecNonce[:], localSecNonceBytes)
+	copy(remoteSecNonce[:], remoteSecNonceBytes)
+
+	// Decode public nonces (66 bytes each).
+	localPubNonceBytes, err := hex.DecodeString(txCase.LocalNonce)
+	require.NoError(t, err)
+	require.Len(t, localPubNonceBytes, musig2.PubNonceSize)
+
+	remotePubNonceBytes, err := hex.DecodeString(txCase.RemoteNonce)
+	require.NoError(t, err)
+	require.Len(t, remotePubNonceBytes, musig2.PubNonceSize)
+
+	var localPubNonce, remotePubNonce [musig2.PubNonceSize]byte
+	copy(localPubNonce[:], localPubNonceBytes)
+	copy(remotePubNonce[:], remotePubNonceBytes)
+
+	// Aggregate the public nonces.
+	combinedNonce, err := musig2.AggregateNonces(
+		[][musig2.PubNonceSize]byte{localPubNonce, remotePubNonce},
+	)
+	require.NoError(t, err)
+
+	// Deserialize the commitment transaction and compute the sighash.
+	commitTxBytes, err := hex.DecodeString(
+		txCase.ExpectedCommitmentTxHex,
+	)
+	require.NoError(t, err)
+
+	commitTx := wire.NewMsgTx(2)
+	err = commitTx.Deserialize(bytes.NewReader(commitTxBytes))
+	require.NoError(t, err)
+
+	prevOutFetcher := txscript.NewCannedPrevOutputFetcher(
+		fundingPkScript, int64(fundingAmt),
+	)
+	sigHash, err := txscript.CalcTaprootSignatureHash(
+		txscript.NewTxSigHashes(commitTx, prevOutFetcher),
+		txscript.SigHashDefault, commitTx, 0, prevOutFetcher,
+	)
+	require.NoError(t, err)
+
+	var sigHashMsg [32]byte
+	copy(sigHashMsg[:], sigHash)
+
+	pubKeys := []*btcec.PublicKey{
+		localPrivKey.PubKey(), remotePrivKey.PubKey(),
+	}
+	signOpts := []musig2.SignOption{
+		musig2.WithSortedKeys(),
+		musig2.WithBip86SignTweak(),
+	}
+
+	// Replay the remote partial signature using the secret nonce.
+	remotePartialSig, err := musig2.Sign(
+		remoteSecNonce, remotePrivKey, combinedNonce,
+		pubKeys, sigHashMsg, signOpts...,
+	)
+	require.NoError(t, err)
+
+	// Verify the replayed remote partial sig matches the stored value.
+	storedRemoteSigBytes, err := hex.DecodeString(
+		txCase.RemotePartialSig,
+	)
+	require.NoError(t, err)
+
+	replayedSigBytes := remotePartialSig.S.Bytes()
+	require.Equal(t,
+		storedRemoteSigBytes,
+		replayedSigBytes[:],
+		"replayed remote partial sig does not match stored value",
+	)
+
+	t.Logf("remote partial sig replayed and matched successfully")
+
+	// Also replay the local partial signature.
+	localPartialSig, err := musig2.Sign(
+		localSecNonce, localPrivKey, combinedNonce,
+		pubKeys, sigHashMsg, signOpts...,
+	)
+	require.NoError(t, err)
+
+	// Verify the local partial sig against its public nonce.
+	valid := localPartialSig.Verify(
+		localPubNonce, combinedNonce, pubKeys,
+		localPrivKey.PubKey(), sigHashMsg, signOpts...,
+	)
+	require.True(t, valid, "local partial sig verification failed")
+
+	t.Logf("local partial sig replayed and verified successfully")
+
+	// Combine both partial signatures into the final Schnorr sig using
+	// the Session API, which handles nonce aggregation internally.
+	localCtx, err := musig2.NewContext(
+		localPrivKey, true,
+		musig2.WithKnownSigners(pubKeys),
+		musig2.WithBip86TweakCtx(),
+	)
+	require.NoError(t, err)
+
+	localNonces := &musig2.Nonces{
+		PubNonce: localPubNonce,
+		SecNonce: localSecNonce,
+	}
+	localSession, err := localCtx.NewSession(
+		musig2.WithPreGeneratedNonce(localNonces),
+	)
+	require.NoError(t, err)
+
+	allNoncesKnown, err := localSession.RegisterPubNonce(remotePubNonce)
+	require.NoError(t, err)
+	require.True(t, allNoncesKnown)
+
+	// Sign with local to advance the session state, then feed in
+	// remote's partial sig to combine.
+	_, err = localSession.Sign(sigHashMsg)
+	require.NoError(t, err)
+
+	haveAll, err := localSession.CombineSig(remotePartialSig)
+	require.NoError(t, err)
+	require.True(t, haveAll)
+
+	finalSig := localSession.FinalSig()
+	require.NotNil(t, finalSig)
+
+	// The commitment tx witness should contain the 64-byte Schnorr sig.
+	require.GreaterOrEqual(t, len(commitTx.TxIn[0].Witness), 1,
+		"commitment tx has no witness")
+
+	witnessSig := commitTx.TxIn[0].Witness[0]
+	require.Len(t, witnessSig, 64,
+		"witness sig should be 64 bytes")
+
+	require.Equal(t,
+		finalSig.Serialize(),
+		witnessSig,
+		"combined MuSig2 sig does not match commitment tx witness",
+	)
+
+	t.Logf("combined MuSig2 signature matches commitment tx witness")
 }
 
 // extractHash160FromScript uses the script tokenizer to find and extract the

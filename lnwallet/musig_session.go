@@ -242,6 +242,12 @@ type MusigSession struct {
 	// deterministic JIT signing nonces. This should only be set in tests
 	// that need reproducible MuSig2 signatures.
 	customNonceRand fn.Option[io.Reader]
+
+	// lastSecNonce holds the secret nonce from the most recent JIT nonce
+	// generation. This is only populated when customNonceRand is set
+	// (test vector generation), allowing test code to extract the raw
+	// 97-byte secret nonces for inclusion in interop test vectors.
+	lastSecNonce fn.Option[[musig2.SecNonceSize]byte]
 }
 
 // NewPartialMusigSession creates a new musig2 session given only the
@@ -372,6 +378,14 @@ func (m *MusigSession) SignCommit(tx *wire.MsgTx) (*MusigPartialSig, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		// When using deterministic nonce generation (test vector
+		// mode), stash the secret nonce so it can be extracted
+		// for inclusion in interop test vectors.
+		m.customNonceRand.WhenSome(func(_ io.Reader) {
+			m.lastSecNonce = fn.Some(signingNonce.SecNonce)
+		})
+
 		if err := m.FinalizeSession(*signingNonce); err != nil {
 			return nil, err
 		}
@@ -430,6 +444,16 @@ func (m *MusigSession) Refresh(verificationNonce *musig2.Nonces,
 // VerificationNonce returns the current verification nonce for the session.
 func (m *MusigSession) VerificationNonce() *musig2.Nonces {
 	return &m.nonces.VerificationNonce
+}
+
+// lastSigningSecNonce returns the secret nonce from the most recent JIT nonce
+// generation, if available. This is only populated when customNonceRand is set
+// (test vector generation mode). The value is cleared after being read to
+// prevent accidental nonce reuse.
+func (m *MusigSession) lastSigningSecNonce() fn.Option[[musig2.SecNonceSize]byte] {
+	nonce := m.lastSecNonce
+	m.lastSecNonce = fn.None[[musig2.SecNonceSize]byte]()
+	return nonce
 }
 
 // musigSessionOpts is a set of options that can be used to modify calls to the

@@ -1,8 +1,11 @@
 package onionmessage
 
 import (
+	"context"
+
 	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -38,4 +41,14 @@ type PeerMessageSender interface {
 	// SendToPeer sends an onion message to the peer identified by the
 	// given compressed public key.
 	SendToPeer(pubKey [33]byte, msg *lnwire.OnionMessage) error
+}
+
+// GraphSessionProvider provides a read-only graph session for pathfinding.
+// The callback receives a NodeTraverser scoped to the session's lifetime.
+type GraphSessionProvider interface {
+	// GraphSession calls cb with a NodeTraverser backed by a read-only
+	// graph session. reset is called between retries if the session must
+	// be restarted.
+	GraphSession(ctx context.Context,
+		cb func(graphdb.NodeTraverser) error, reset func()) error
 }

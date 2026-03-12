@@ -2135,6 +2135,7 @@ type singleLinkTestHarness struct {
 	aliceBatchTicker chan time.Time
 	start            func() error
 	aliceRestore     func() (*lnwallet.LightningChannel, error)
+	invoiceRegistry  *mockInvoiceRegistry
 }
 
 func newSingleLinkTestHarness(t *testing.T, chanAmt,
@@ -2277,6 +2278,7 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 		aliceBatchTicker: bticker.Force,
 		start:            start,
 		aliceRestore:     aliceLc.restore,
+		invoiceRegistry:  invoiceRegistry,
 	}
 
 	return harness, nil
@@ -5010,6 +5012,44 @@ func generateHtlcAndInvoice(t *testing.T,
 	htlc.ID = id
 
 	return htlc, invoice
+}
+
+// generateSingleHopHtlc generates a single hop htlc to send to the receiver.
+func generateSingleHopHtlc(t *testing.T, id uint64, htlcAmt lnwire.MilliSatoshi,
+	preimageSeed uint64) (*lnwire.UpdateAddHTLC, lntypes.Preimage, error) {
+
+	t.Helper()
+
+	htlcExpiry := testStartingHeight + testInvoiceCltvExpiry
+	hops := []*hop.Payload{
+		hop.NewLegacyPayload(&sphinx.HopData{
+			Realm:         [1]byte{}, // hop.BitcoinNetwork
+			NextAddress:   [8]byte{}, // hop.Exit,
+			ForwardAmount: uint64(htlcAmt),
+			OutgoingCltv:  uint32(htlcExpiry),
+		}),
+	}
+	blob, err := generateRoute(hops...)
+	if err != nil {
+		return nil, lntypes.Preimage{}, err
+	}
+
+	var preimage lntypes.Preimage
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], preimageSeed)
+	preimage = sha256.Sum256(buf[:])
+
+	rhash := sha256.Sum256(preimage[:])
+
+	htlc := &lnwire.UpdateAddHTLC{
+		ID:          id,
+		PaymentHash: rhash,
+		Amount:      htlcAmt,
+		Expiry:      uint32(htlcExpiry),
+		OnionBlob:   blob,
+	}
+
+	return htlc, preimage, nil
 }
 
 // TestChannelLinkNoMoreUpdates tests that we won't send a new commitment

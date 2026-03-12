@@ -62,6 +62,12 @@
 
 ## BOLT Spec Updates
 
+* Added support for [attributable failures (feature
+  36/37)](https://github.com/lightningnetwork/lnd/pull/9888) per BOLT #1044.
+  Per-hop hold times reported via the new `attribution_data` field on
+  `update_fail_htlc` are exposed to senders through `Failure.hold_times` on
+  `SendPaymentV2` results.
+
 * The fundee now [enforces the BOLT-02 bound on
   `push_msat`](https://github.com/lightningnetwork/lnd/pull/10765),
   rejecting incoming `open_channel` messages where `push_msat` exceeds

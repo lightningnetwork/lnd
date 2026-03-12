@@ -7641,20 +7641,22 @@
     "lnrpcSendOnionMessageRequest": {
       "type": "object",
       "properties": {
-        "peer": {
+        "destination": {
           "type": "string",
           "format": "byte",
-          "title": "Peer to send the message to"
+          "description": "The compressed public key of the destination node. Graph-based\npathfinding is used to route the message; a direct send is attempted\nas a fallback if no graph route exists."
         },
-        "path_key": {
-          "type": "string",
-          "format": "byte",
-          "description": "PathKey is used to derive the blinded node id by tweaking the hop's\nstatic public key. The hop uses the corresponding blinded private key\ntogether with the sender's ephemeral key to perform ECDH and obtain the\nshared secret for decrypting the onion payload. Separately, for\ndecrypting `encrypted_recipient_data`, the recipient performs ECDH\nbetween its static node private key and the path_key to derive the\ndecryption key."
+        "final_hop_tlvs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Application-level TLV records for the destination node. Keys must\nbe \u003e= 64 per the BOLT 12 spec (e.g. invoice request namespace = 64)."
         },
-        "onion": {
-          "type": "string",
-          "format": "byte",
-          "description": "Serialized Sphinx onion packet (BOLT 4) containing the layered, per-hop\nencrypted payloads and routing instructions used to forward this message\nalong its designated path."
+        "reply_path": {
+          "$ref": "#/definitions/lnrpcBlindedPath",
+          "description": "An optional blinded path the destination should use to reply to this\nmessage."
         }
       }
     },

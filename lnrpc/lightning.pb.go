@@ -16707,7 +16707,13 @@ type Failure struct {
 	// the failure message. Position zero is the sender node.
 	FailureSourceIndex uint32 `protobuf:"varint,8,opt,name=failure_source_index,json=failureSourceIndex,proto3" json:"failure_source_index,omitempty"`
 	// A failure type-dependent block height.
-	Height        uint32 `protobuf:"varint,9,opt,name=height,proto3" json:"height,omitempty"`
+	Height uint32 `protobuf:"varint,9,opt,name=height,proto3" json:"height,omitempty"`
+	// An array of hold times (in 100ms units) as reported by the nodes along
+	// the route via attributable errors. The first element corresponds to the
+	// first hop after the sender, with greater indices indicating nodes
+	// further along the route. Multiply by 100 to get milliseconds. This
+	// field is only populated when the error includes attribution data.
+	HoldTimes     []uint32 `protobuf:"varint,10,rep,packed,name=hold_times,json=holdTimes,proto3" json:"hold_times,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -16796,6 +16802,13 @@ func (x *Failure) GetHeight() uint32 {
 		return x.Height
 	}
 	return 0
+}
+
+func (x *Failure) GetHoldTimes() []uint32 {
+	if x != nil {
+		return x.HoldTimes
+	}
+	return nil
 }
 
 type ChannelUpdate struct {
@@ -19841,7 +19854,7 @@ const file_lightning_proto_rawDesc = "" +
 	"\x12method_permissions\x18\x01 \x03(\v25.lnrpc.ListPermissionsResponse.MethodPermissionsEntryR\x11methodPermissions\x1ac\n" +
 	"\x16MethodPermissionsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x123\n" +
-	"\x05value\x18\x02 \x01(\v2\x1d.lnrpc.MacaroonPermissionListR\x05value:\x028\x01\"\xcc\b\n" +
+	"\x05value\x18\x02 \x01(\v2\x1d.lnrpc.MacaroonPermissionListR\x05value:\x028\x01\"\xeb\b\n" +
 	"\aFailure\x12.\n" +
 	"\x04code\x18\x01 \x01(\x0e2\x1a.lnrpc.Failure.FailureCodeR\x04code\x12;\n" +
 	"\x0echannel_update\x18\x03 \x01(\v2\x14.lnrpc.ChannelUpdateR\rchannelUpdate\x12\x1b\n" +
@@ -19851,7 +19864,10 @@ const file_lightning_proto_rawDesc = "" +
 	"cltvExpiry\x12\x14\n" +
 	"\x05flags\x18\a \x01(\rR\x05flags\x120\n" +
 	"\x14failure_source_index\x18\b \x01(\rR\x12failureSourceIndex\x12\x16\n" +
-	"\x06height\x18\t \x01(\rR\x06height\"\x8b\x06\n" +
+	"\x06height\x18\t \x01(\rR\x06height\x12\x1d\n" +
+	"\n" +
+	"hold_times\x18\n" +
+	" \x03(\rR\tholdTimes\"\x8b\x06\n" +
 	"\vFailureCode\x12\f\n" +
 	"\bRESERVED\x10\x00\x12(\n" +
 	"$INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS\x10\x01\x12\x1c\n" +

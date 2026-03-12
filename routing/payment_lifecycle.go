@@ -1096,6 +1096,7 @@ func marshallError(sendError error, time time.Time) *paymentsdb.HTLCFailInfo {
 	ok = errors.As(rtErr, &fErr)
 	if ok {
 		response.FailureSourceIndex = uint32(fErr.FailureSourceIdx)
+		response.HoldTimes = fErr.HoldTimes
 	}
 
 	return response

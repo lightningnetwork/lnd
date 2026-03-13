@@ -56,7 +56,14 @@ WHERE payment_id = $1
 ORDER BY id ASC;
 
 -- name: CountPayments :one
-SELECT COUNT(*) FROM payments;
+SELECT COUNT(*) FROM payments p
+WHERE (
+    p.created_at >= sqlc.narg('created_after') OR
+    sqlc.narg('created_after') IS NULL
+) AND (
+    p.created_at <= sqlc.narg('created_before') OR
+    sqlc.narg('created_before') IS NULL
+);
 
 -- name: FetchHtlcAttemptsForPayments :many
 SELECT

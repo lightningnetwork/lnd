@@ -13,11 +13,23 @@ import (
 )
 
 const countPayments = `-- name: CountPayments :one
-SELECT COUNT(*) FROM payments
+SELECT COUNT(*) FROM payments p
+WHERE (
+    p.created_at >= $1 OR
+    $1 IS NULL
+) AND (
+    p.created_at <= $2 OR
+    $2 IS NULL
+)
 `
 
-func (q *Queries) CountPayments(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countPayments)
+type CountPaymentsParams struct {
+	CreatedAfter  sql.NullTime
+	CreatedBefore sql.NullTime
+}
+
+func (q *Queries) CountPayments(ctx context.Context, arg CountPaymentsParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countPayments, arg.CreatedAfter, arg.CreatedBefore)
 	var count int64
 	err := row.Scan(&count)
 	return count, err

@@ -1254,7 +1254,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		DefaultRoutingPolicy: cc.RoutingPolicy,
 		ForAllOutgoingChannels: func(ctx context.Context,
 			cb func(*models.ChannelEdgeInfo,
-			*models.ChannelEdgePolicy) error,
+				*models.ChannelEdgePolicy) error,
 			reset func()) error {
 
 			return s.v1Graph.ForEachNodeChannel(

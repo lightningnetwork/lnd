@@ -69,6 +69,11 @@
   channel that was only expected to be used for a single message. The erring
   goroutine would block on the second send, leading to a deadlock at shutdown.
 
+* [Fixed silent HTLC abandonment in
+  `prepContractResolutions`](https://github.com/lightningnetwork/lnd/pull/10616)
+  where missing resolution map entries caused HTLCs to be
+  silently skipped instead of returning an error.
+
 * [Fixed `lncli unlock` to wait until the wallet is ready to be
   unlocked](https://github.com/lightningnetwork/lnd/pull/10536)
   before sending the unlock request. The command now reports wallet state

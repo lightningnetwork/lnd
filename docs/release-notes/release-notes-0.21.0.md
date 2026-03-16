@@ -70,6 +70,15 @@
   the chain watch filter on restart. This was a pre-existing bug since
   private taproot channels were first introduced.
 
+- Watch-only wallet account imports
+  [now preserve](https://github.com/lightningnetwork/lnd/pull/10644)
+  explicit non-zero account numbers per scope. This fixes remote-signer setups
+  where `DeriveKey(KeyFamily=N)` failed for sparse custom key families (e.g.
+  `N=43210`) because accounts were previously remapped contiguously. Account
+  numbers are written to the wallet database at creation time and are not
+  re-imported on unlock, so downgrading after wallet creation does not remap
+  them.
+
 # New Features
 
 - [Basic Support](https://github.com/lightningnetwork/lnd/pull/9868) for onion

@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -28,6 +29,100 @@ import (
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/stretchr/testify/require"
 )
+
+// bip340Signer wraps a Signer and overrides SignOutputRaw for taproot script
+// spends to use BIP-340 standard nonce derivation (with zero auxrand) instead
+// of RFC6979. This ensures HTLC signatures in test vectors are deterministic
+// and reproducible across MuSig2/Schnorr implementations (e.g. libsecp256k1).
+type bip340Signer struct {
+	input.Signer
+
+	// privKeys maps compressed pubkey bytes to private keys, allowing the
+	// wrapper to look up the signing key for BIP-340 re-signing.
+	privKeys map[[33]byte]*btcec.PrivateKey
+}
+
+// newBIP340Signer creates a bip340Signer that wraps the given signer. The
+// provided private keys are indexed by their compressed public key for lookup
+// during taproot script spend signing.
+func newBIP340Signer(inner input.Signer,
+	keys []*btcec.PrivateKey) *bip340Signer {
+
+	keyMap := make(map[[33]byte]*btcec.PrivateKey, len(keys))
+	for _, k := range keys {
+		var pub [33]byte
+		copy(pub[:], k.PubKey().SerializeCompressed())
+		keyMap[pub] = k
+	}
+
+	return &bip340Signer{
+		Signer:   inner,
+		privKeys: keyMap,
+	}
+}
+
+// SignOutputRaw overrides the embedded signer's method. For taproot script
+// path spends, it computes the sighash and signs using schnorr.CustomNonce
+// with zero auxrand (BIP-340 deterministic). All other signing paths delegate
+// to the wrapped signer unchanged.
+func (s *bip340Signer) SignOutputRaw(tx *wire.MsgTx,
+	signDesc *input.SignDescriptor) (input.Signature, error) {
+
+	// Only override taproot script spends. Everything else (including
+	// MuSig2 key spends) delegates to the inner signer.
+	if signDesc.SignMethod != input.TaprootScriptSpendSignMethod {
+		return s.Signer.SignOutputRaw(tx, signDesc)
+	}
+
+	// Resolve the private key. The SignDescriptor's KeyDesc.PubKey is
+	// the base key before any tweaking. We apply the same single-tweak
+	// that MockSigner uses to derive the actual signing key.
+	basePub := signDesc.KeyDesc.PubKey
+	if basePub == nil {
+		return nil, fmt.Errorf("bip340Signer: no pubkey in " +
+			"sign descriptor")
+	}
+
+	var pubBytes [33]byte
+	copy(pubBytes[:], basePub.SerializeCompressed())
+	basePriv, ok := s.privKeys[pubBytes]
+	if !ok {
+		return nil, fmt.Errorf("bip340Signer: unknown key %x",
+			pubBytes)
+	}
+
+	// Apply the single tweak if present (used for HTLC key derivation).
+	privKey := basePriv
+	if signDesc.SingleTweak != nil {
+		privKey = input.TweakPrivKey(basePriv, signDesc.SingleTweak)
+	}
+
+	// Compute the tapscript sighash.
+	sigHashes := txscript.NewTxSigHashes(
+		tx, signDesc.PrevOutputFetcher,
+	)
+	leaf := txscript.TapLeaf{
+		LeafVersion: txscript.BaseLeafVersion,
+		Script:      signDesc.WitnessScript,
+	}
+	sigHash, err := txscript.CalcTapscriptSignaturehash(
+		sigHashes, signDesc.HashType, tx, signDesc.InputIndex,
+		signDesc.PrevOutputFetcher, leaf,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Sign using BIP-340 nonce derivation with zero auxrand.
+	sig, err := schnorr.Sign(
+		privKey, sigHash, schnorr.CustomNonce([32]byte{}),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return sig, nil
+}
 
 // generateTaprootVectors controls whether to generate test vectors and write
 // them to disk, or to verify the stored vectors match regenerated values.
@@ -795,19 +890,30 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 	// Create mock signers with all deterministic keys. The funding key must
 	// be at index 0 because the MusigSessionManager's key fetcher always
 	// returns Privkeys[0] as the MuSig2 signing key.
-	localSigner := input.NewMockSigner([]*btcec.PrivateKey{
+	localKeys := []*btcec.PrivateKey{
 		tc.localFundingPrivkey,
 		tc.localPaymentBasepointSecret,
 		tc.localDelayedPaymentBasepointSecret,
 		tc.localHtlcBasepointSecret,
-	}, nil)
-
-	remoteSigner := input.NewMockSigner([]*btcec.PrivateKey{
+	}
+	remoteKeys := []*btcec.PrivateKey{
 		tc.remoteFundingPrivkey,
 		tc.remoteRevocationBasepointSecret,
 		tc.remotePaymentBasepointSecret,
 		tc.remoteHtlcBasepointSecret,
-	}, nil)
+	}
+
+	// Wrap the mock signers with bip340Signer so that taproot script
+	// spend signatures (used for HTLC second-level transactions) use
+	// BIP-340 standard nonce derivation instead of RFC6979. This makes
+	// the HTLC signatures deterministic and reproducible across different
+	// Schnorr implementations (e.g. libsecp256k1 vs btcd).
+	localSigner := newBIP340Signer(
+		input.NewMockSigner(localKeys, nil), localKeys,
+	)
+	remoteSigner := newBIP340Signer(
+		input.NewMockSigner(remoteKeys, nil), remoteKeys,
+	)
 
 	// Derive deterministic signing rand for JIT nonces so MuSig2
 	// signatures are reproducible across runs.

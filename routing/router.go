@@ -185,6 +185,34 @@ type MissionControlQuerier interface {
 		amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64
 }
 
+// ReconcileFunc defines the callback invoked for each in-flight HTLC attempt
+// during startup before result collection begins.
+//
+// When the ChannelRouter runs in a separate process from the Switch, a crash
+// can occur after the router persists an attempt but before the dispatch call
+// is confirmed by the switch. On restart, the router cannot tell whether the
+// HTLC is actually in-flight. This callback resolves that ambiguity by letting
+// the caller re-dispatch the attempt idempotently: the switch either accepts
+// the HTLC (newly dispatched) or returns a duplicate error (already in-flight).
+// Either outcome confirms the attempt is live and result collection can
+// proceed safely.
+//
+// Implementations should handle transient failures internally (e.g. retry with
+// backoff) and only return an error when reconciliation cannot be completed. A
+// returned error causes the lifecycle to skip result collection for that
+// attempt; it will be retried on the next restart.
+type ReconcileFunc func(a paymentsdb.HTLCAttempt) error
+
+// noOpReconcile is the default ReconcileFunc used in standard lnd where the
+// ChannelRouter and Switch run in the same process. Because they share a crash
+// domain — if lnd crashes, both restart together — the dispatch hand-off
+// (RegisterAttempt to CommitCircuits) is synchronous and in-process. On
+// restart, result collection from the Switch unambiguously reveals whether
+// each attempt was dispatched, so no reconciliation is needed.
+func noOpReconcile(_ paymentsdb.HTLCAttempt) error {
+	return nil
+}
+
 // FeeSchema is the set fee configuration for a Lightning Node on the network.
 // Using the coefficients described within the schema, the required fee to
 // forward outgoing payments can be derived.
@@ -295,6 +323,17 @@ type Config struct {
 	// TrafficShaper is an optional traffic shaper that can be used to
 	// control the outgoing channel of a payment.
 	TrafficShaper fn.Option[htlcswitch.AuxTrafficShaper]
+
+	// ReconcileAttempt is the strategy executed for each in-flight
+	// HTLC attempt during startup before result collection begins.
+	// Callers running the ChannelRouter in a separate process from
+	// the Switch should provide an implementation that idempotently
+	// confirms dispatch status for each attempt (e.g. via SendOnion).
+	// See ReconcileFunc for the full contract.
+	//
+	// Defaults to noOpReconcile when not set, preserving standard
+	// lnd behavior where the router and switch share a crash domain.
+	ReconcileAttempt ReconcileFunc
 }
 
 // EdgeLocator is a struct used to identify a specific edge.
@@ -338,6 +377,13 @@ type ChannelRouter struct {
 // channel graph is a subset of the UTXO set) set, then the router will proceed
 // to fully sync to the latest state of the UTXO set.
 func New(cfg Config) (*ChannelRouter, error) {
+	// Default to a no-op reconciliation callback, preserving
+	// standard lnd behavior where the router and switch share a
+	// crash domain.
+	if cfg.ReconcileAttempt == nil {
+		cfg.ReconcileAttempt = noOpReconcile
+	}
+
 	return &ChannelRouter{
 		cfg:  &cfg,
 		quit: make(chan struct{}),

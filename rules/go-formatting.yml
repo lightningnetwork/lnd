@@ -1,0 +1,212 @@
+# Go formatting rules for multi-line function calls and struct literals.
+# Based on docs/development_guidelines.md.
+#
+# These rules detect asymmetric closing braces/parens where the closing
+# character is on the same line as content instead of its own line.
+
+# Rule: Multi-line struct literal with closing brace on same line as field.
+# This catches patterns like:
+#   &Struct{
+#     Field: value}  // WRONG - } on same line as field
+#
+# Instead of:
+#   &Struct{
+#     Field: value,
+#   }  // RIGHT - } on its own line
+id: struct-literal-asymmetric-close
+language: go
+severity: warning
+message: "Struct literal closing brace should be on its own line"
+note: |
+  Per docs/development_guidelines.md: When a struct literal spans multiple lines,
+  the closing } should be on its own line at the same indentation level
+  as the opening line.
+
+  WRONG:
+    foo(&Bar{
+      Field: value})
+
+  RIGHT:
+    foo(&Bar{
+      Field: value,
+    })
+rule:
+  kind: composite_literal
+  all:
+    # Must span multiple lines (contains newline)
+    - regex: "\\{[\\s\\S]*\\n[\\s\\S]*\\}"
+    # Must have content immediately before closing brace (no trailing comma)
+    - regex: "[a-zA-Z0-9_\"')}]\\}$"
+---
+# Rule: Multi-line function call with asymmetric wrapping.
+# Detects calls where first arg is on same line as opening paren but
+# closing paren is on same line as last arg (asymmetric).
+#
+# EXCLUDES log/error calls which have different formatting rules per guidelines.
+id: func-call-asymmetric-wrap
+language: go
+severity: warning
+message: "Multi-line function call has asymmetric wrapping"
+note: |
+  Per docs/development_guidelines.md: When wrapping function calls,
+  if the first arg is on the opening line, the closing paren
+  should also be on its own line OR all args should fit on one line.
+
+  WRONG:
+    value, err := bar(a,
+        b, c)
+
+  RIGHT (option 1 - all on new lines):
+    value, err := bar(
+        a, b, c,
+    )
+
+  RIGHT (option 2 - all on one line if fits):
+    value, err := bar(a, b, c)
+
+  NOTE: Log and error calls are excluded from this rule per guidelines.
+rule:
+  kind: call_expression
+  all:
+    # Must span multiple lines
+    - regex: "\\n"
+    # Must have first arg on same line as open paren: foo(arg
+    - regex: "\\([^\\n\\)]+,"
+    # Must end with arg immediately before close paren (no trailing comma on own line)
+    - regex: "[a-zA-Z0-9_\"'\\)\\]]\\)$"
+  not:
+    any:
+      # Exclude log calls (compact form is correct for these)
+      - regex: "\\.(Trace|Debug|Info|Warn|Error|Fatal|Critical)(f|S)?\\("
+      # Exclude fmt.Errorf and fmt.Printf
+      - regex: "fmt\\.(Errorf|Printf|Sprintf)\\("
+      # Exclude testing log calls (t.Logf, h.Logf, etc.)
+      - regex: "\\.(Logf|Log)\\("
+---
+# Rule: Log/error calls using expanded form instead of compact.
+# Per guidelines, log and error formatting should minimize lines.
+id: log-error-expanded-form
+language: go
+severity: hint
+message: "Log/error calls should use compact form, not expanded"
+note: |
+  Per docs/development_guidelines.md: Log and error formatting should
+  minimize lines while staying under 80 chars.
+
+  WRONG:
+    return fmt.Errorf(
+        "message",
+        arg,
+    )
+
+  RIGHT:
+    return fmt.Errorf("message "+
+        "continued", arg)
+rule:
+  kind: call_expression
+  all:
+    - any:
+        - pattern: fmt.Errorf($$$ARGS)
+        - pattern: fmt.Printf($$$ARGS)
+        - pattern: $LOG.Debugf($$$ARGS)
+        - pattern: $LOG.Infof($$$ARGS)
+        - pattern: $LOG.Warnf($$$ARGS)
+        - pattern: $LOG.Errorf($$$ARGS)
+        - pattern: $LOG.Tracef($$$ARGS)
+    # Starts with open paren followed by newline (expanded form)
+    - regex: "f\\(\\s*\\n"
+---
+# Rule: Switch/select cases should be separated by blank lines.
+# Detects consecutive case clauses without blank line spacing.
+id: switch-case-needs-spacing
+language: go
+severity: hint
+message: "Switch/select cases should be separated by blank lines"
+note: |
+  Per docs/development_guidelines.md: We favor spacing between stanzas within
+  switch case statements and select statements.
+
+  WRONG:
+    switch x {
+    case a:
+        <code>
+    case b:
+        <code>
+    }
+
+  RIGHT:
+    switch x {
+    // Comment for case a.
+    case a:
+        <code>
+
+    case b:
+        <code>
+    }
+rule:
+  any:
+    - kind: expression_switch_statement
+    - kind: type_switch_statement
+  # Detects case/default following } or ) without blank line
+  # Pattern: closing brace/paren, newline, tab, then case/default keyword
+  regex: "[)}]\\n\\t(case|default)"
+---
+# Rule: Select cases should be separated by blank lines.
+id: select-case-needs-spacing
+language: go
+severity: hint
+message: "Select cases should be separated by blank lines"
+note: |
+  Per docs/development_guidelines.md: We favor spacing between stanzas within
+  select statements.
+
+  WRONG:
+    select {
+    case <-ch1:
+        <code>
+    case <-ch2:
+        <code>
+    }
+
+  RIGHT:
+    select {
+    case <-ch1:
+        <code>
+
+    case <-ch2:
+        <code>
+    }
+rule:
+  kind: select_statement
+  # Detects case/default following } or ) without blank line
+  regex: "[)}]\\n\\t(case|default)"
+---
+# Rule: No inline comments - comments should be on their own line.
+# Detects inline comments by matching composite literals that contain
+# lines with code followed by // comment on the same line.
+id: no-inline-comments
+language: go
+severity: warning
+message: "Inline comment should be on its own line above the code"
+note: |
+  Comments should be on their own line above the code they describe,
+  not at the end of a line.
+
+  WRONG:
+    ChanStatusDefault, // Default status
+    Amount: 100, // The amount in satoshis.
+
+  RIGHT:
+    // Default status.
+    ChanStatusDefault,
+
+    // The amount in satoshis.
+    Amount: 100,
+rule:
+  kind: literal_value
+  has:
+    kind: comment
+  # Match literals containing inline comments: code followed by // on same line.
+  # The key is [^\n] before // ensures they're on the same line.
+  # Pattern: (something other than newline/whitespace), optional spaces, // comment, newline
+  regex: "[a-zA-Z0-9_)\"'\\]},][ \\t]*//[^\\n]*\\n"

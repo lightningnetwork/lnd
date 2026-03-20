@@ -16,12 +16,14 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/clock"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/stretchr/testify/require"
 )
 
@@ -326,8 +328,12 @@ func (s *mockSwitch) SetStatus(chanID lnwire.ChannelID, active bool) {
 	s.isActive[chanID] = active
 }
 
+// testStartTime is the starting time for tests.
+var testStartTime = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+
 func newManagerCfg(t *testing.T, numChannels int,
-	startEnabled bool) (*netann.ChanStatusConfig, *mockGraph, *mockSwitch) {
+	startEnabled bool) (*netann.ChanStatusConfig, *mockGraph, *mockSwitch,
+	*clock.TestClock, *ticker.Force) {
 
 	t.Helper()
 
@@ -337,6 +343,10 @@ func newManagerCfg(t *testing.T, numChannels int,
 
 	graph := newMockGraph(t, numChannels, startEnabled, privKey.PubKey())
 	htlcSwitch := newMockSwitch()
+
+	// Create a test clock and force ticker for deterministic testing.
+	testClock := clock.NewTestClock(testStartTime)
+	forceTicker := ticker.NewForce(time.Hour)
 
 	cfg := &netann.ChanStatusConfig{
 		ChanStatusSampleInterval: 50 * time.Millisecond,
@@ -349,19 +359,23 @@ func newManagerCfg(t *testing.T, numChannels int,
 		ApplyChannelUpdate:       graph.ApplyChannelUpdate,
 		DB:                       graph,
 		Graph:                    graph,
+		Clock:                    testClock,
+		StatusSampleTicker:       forceTicker,
 	}
 
-	return cfg, graph, htlcSwitch
+	return cfg, graph, htlcSwitch, testClock, forceTicker
 }
 
 type testHarness struct {
-	t                  *testing.T
-	numChannels        int
-	graph              *mockGraph
-	htlcSwitch         *mockSwitch
-	mgr                *netann.ChanStatusManager
-	ourPubKey          *btcec.PublicKey
-	safeDisableTimeout time.Duration
+	t              *testing.T
+	numChannels    int
+	graph          *mockGraph
+	htlcSwitch     *mockSwitch
+	mgr            *netann.ChanStatusManager
+	ourPubKey      *btcec.PublicKey
+	clock          *clock.TestClock
+	ticker         *ticker.Force
+	disableTimeout time.Duration
 }
 
 // newHarness returns a new testHarness for testing a ChanStatusManager. The
@@ -371,7 +385,9 @@ type testHarness struct {
 func newHarness(t *testing.T, numChannels int,
 	startActive, startEnabled bool) testHarness {
 
-	cfg, graph, htlcSwitch := newManagerCfg(t, numChannels, startEnabled)
+	cfg, graph, htlcSwitch, testClock, forceTicker := newManagerCfg(
+		t, numChannels, startEnabled,
+	)
 
 	mgr, err := netann.NewChanStatusManager(cfg)
 	require.NoError(t, err, "unable to create chan status manager")
@@ -380,13 +396,15 @@ func newHarness(t *testing.T, numChannels int,
 	require.NoError(t, err, "unable to start chan status manager")
 
 	h := testHarness{
-		t:                  t,
-		numChannels:        numChannels,
-		graph:              graph,
-		htlcSwitch:         htlcSwitch,
-		mgr:                mgr,
-		ourPubKey:          cfg.OurPubKey,
-		safeDisableTimeout: (3 * cfg.ChanDisableTimeout) / 2, // 1.5x
+		t:              t,
+		numChannels:    numChannels,
+		graph:          graph,
+		htlcSwitch:     htlcSwitch,
+		mgr:            mgr,
+		ourPubKey:      cfg.OurPubKey,
+		clock:          testClock,
+		ticker:         forceTicker,
+		disableTimeout: cfg.ChanDisableTimeout,
 	}
 
 	// Initialize link status as requested.
@@ -419,6 +437,54 @@ func (h *testHarness) markInactive(channels []*channeldb.OpenChannel) {
 		chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
 		h.htlcSwitch.SetStatus(chanID, false)
 	}
+}
+
+// tick triggers a single tick on the status sample ticker and waits for the
+// manager to process it using proper synchronization.
+func (h *testHarness) tick() {
+	h.t.Helper()
+
+	select {
+	case h.ticker.Force <- h.clock.Now():
+	case <-time.After(5 * time.Second):
+		h.t.Fatal("unable to force tick")
+	}
+
+	// Synchronize with the manager to ensure the tick has been processed.
+	h.sync()
+}
+
+// sync ensures the manager has processed all pending operations by sending a
+// no-op request through the manager's event loop and waiting for the response.
+// Since the manager processes all events (ticks, requests) in a single select
+// loop, receiving a response guarantees all prior events have been handled.
+func (h *testHarness) sync() {
+	h.t.Helper()
+
+	h.mgr.Sync()
+}
+
+// advanceTime advances the test clock by the given duration.
+func (h *testHarness) advanceTime(d time.Duration) {
+	h.t.Helper()
+
+	h.clock.SetTime(h.clock.Now().Add(d))
+}
+
+// triggerDisable triggers the disable flow by ticking once (to mark channels
+// pending-disabled), advancing time past the disable timeout, and ticking again
+// (to actually disable them).
+func (h *testHarness) triggerDisable() {
+	h.t.Helper()
+
+	// First tick marks inactive channels as pending-disabled.
+	h.tick()
+
+	// Advance time past the disable timeout.
+	h.advanceTime(h.disableTimeout + time.Millisecond)
+
+	// Second tick disables the pending-disabled channels.
+	h.tick()
 }
 
 // assertEnables requests enables for all of the passed channels, and asserts
@@ -494,60 +560,74 @@ func (h *testHarness) assertAuto(outpoint wire.OutPoint, expErr error) {
 	}
 }
 
-// assertNoUpdates waits for the specified duration, and asserts that no updates
-// are announced on the network.
-func (h *testHarness) assertNoUpdates(duration time.Duration) {
+// assertNoUpdates asserts that no updates are pending on the network. This
+// triggers a tick cycle and checks that no updates are received.
+func (h *testHarness) assertNoUpdates() {
 	h.t.Helper()
 
-	h.assertUpdates(nil, false, duration)
+	// Trigger a tick cycle to ensure any pending operations complete.
+	h.tick()
+	h.advanceTime(h.disableTimeout + time.Millisecond)
+	h.tick()
+
+	h.assertUpdates(nil, false)
 }
 
-// assertUpdates waits for the specified duration, asserting that an update
-// are receive on the network for each of the passed OpenChannels, and that all
-// of their disable bits are set to match expEnabled. The expEnabled parameter
-// is ignored if channels is nil.
+// assertUpdates asserts that updates are received on the network for each of
+// the passed OpenChannels, and that all of their disable bits are set to match
+// expEnabled. The expEnabled parameter is ignored if channels is nil.
 func (h *testHarness) assertUpdates(channels []*channeldb.OpenChannel,
-	expEnabled bool, duration time.Duration) {
+	expEnabled bool) {
 
 	h.t.Helper()
 
-	// Compute an index of the expected short channel ids for which we want
-	// to received updates.
-	expSids := sidsFromChans(channels)
-
-	timeout := time.After(duration)
-	recvdSids := make(map[lnwire.ShortChannelID]struct{})
-	for {
+	// If no updates are expected, verify the channel is empty using a
+	// non-blocking check. Since we control time explicitly, any updates
+	// that were triggered should already be in the channel.
+	if len(channels) == 0 {
 		select {
 		case upd := <-h.graph.updates:
-			// Assert that the received short channel id is one that
-			// we expect. If no updates were expected, this will
-			// always fail on the first update received.
-			if _, ok := expSids[upd.ShortChannelID]; !ok {
-				h.t.Fatalf("received update for unexpected "+
-					"short chan id: %v", upd.ShortChannelID)
-			}
+			h.t.Fatalf("received unexpected update for "+
+				"short chan id: %v", upd.ShortChannelID)
+		default:
+			// No updates in channel, as expected.
+			return
+		}
+	}
 
-			// Assert that the disabled bit is set properly.
-			enabled := upd.ChannelFlags&lnwire.ChanUpdateDisabled !=
-				lnwire.ChanUpdateDisabled
-			if expEnabled != enabled {
-				h.t.Fatalf("expected enabled: %v, actual: %v",
-					expEnabled, enabled)
-			}
+	// Compute an index of the expected short channel ids for which we want
+	// to receive updates.
+	expSids := sidsFromChans(channels)
 
-			recvdSids[upd.ShortChannelID] = struct{}{}
-
-		case <-timeout:
-			// Time is up, assert that the correct number of unique
-			// updates was received.
-			if len(recvdSids) == len(channels) {
-				return
-			}
-
-			h.t.Fatalf("expected %d updates, got %d",
+	// Read expected updates from the channel. Since we control time
+	// explicitly, updates should already be in the channel.
+	recvdSids := make(map[lnwire.ShortChannelID]struct{})
+	for len(recvdSids) < len(channels) {
+		var upd *lnwire.ChannelUpdate1
+		select {
+		case upd = <-h.graph.updates:
+		case <-time.After(5 * time.Second):
+			h.t.Fatalf("timed out waiting for updates: "+
+				"expected %d, got %d",
 				len(channels), len(recvdSids))
 		}
+
+		// Assert that the received short channel id is one that
+		// we expect.
+		if _, ok := expSids[upd.ShortChannelID]; !ok {
+			h.t.Fatalf("received update for unexpected "+
+				"short chan id: %v", upd.ShortChannelID)
+		}
+
+		// Assert that the disabled bit is set properly.
+		enabled := upd.ChannelFlags&lnwire.ChanUpdateDisabled !=
+			lnwire.ChanUpdateDisabled
+		if expEnabled != enabled {
+			h.t.Fatalf("expected enabled: %v, actual: %v",
+				expEnabled, enabled)
+		}
+
+		recvdSids[upd.ShortChannelID] = struct{}{}
 	}
 }
 
@@ -578,7 +658,7 @@ var stateMachineTests = []stateMachineTest{
 		fn: func(h testHarness) {
 			// No updates should be sent because being active and
 			// enabled should be a stable state.
-			h.assertNoUpdates(h.safeDisableTimeout)
+			h.assertNoUpdates()
 		},
 	},
 	{
@@ -588,7 +668,7 @@ var stateMachineTests = []stateMachineTest{
 		fn: func(h testHarness) {
 			// No updates should be sent because being inactive and
 			// disabled should be a stable state.
-			h.assertNoUpdates(h.safeDisableTimeout)
+			h.assertNoUpdates()
 		},
 	},
 	{
@@ -599,9 +679,7 @@ var stateMachineTests = []stateMachineTest{
 			// Request enables for all channels.
 			h.assertEnables(h.graph.chans(), nil, false)
 			// Expect to see them all enabled on the network.
-			h.assertUpdates(
-				h.graph.chans(), true, h.safeDisableTimeout,
-			)
+			h.assertUpdates(h.graph.chans(), true)
 		},
 	},
 	{
@@ -612,9 +690,7 @@ var stateMachineTests = []stateMachineTest{
 			// Request disables for all channels.
 			h.assertDisables(h.graph.chans(), nil, false)
 			// Expect to see them all disabled on the network.
-			h.assertUpdates(
-				h.graph.chans(), false, h.safeDisableTimeout,
-			)
+			h.assertUpdates(h.graph.chans(), false)
 		},
 	},
 	{
@@ -625,7 +701,7 @@ var stateMachineTests = []stateMachineTest{
 			// Request enables for already enabled channels.
 			h.assertEnables(h.graph.chans(), nil, false)
 			// Manager shouldn't send out any updates.
-			h.assertNoUpdates(h.safeDisableTimeout)
+			h.assertNoUpdates()
 		},
 	},
 	{
@@ -636,7 +712,7 @@ var stateMachineTests = []stateMachineTest{
 			// Request disables for already enabled channels.
 			h.assertDisables(h.graph.chans(), nil, false)
 			// Manager shouldn't sent out any updates.
-			h.assertNoUpdates(h.safeDisableTimeout)
+			h.assertNoUpdates()
 		},
 	},
 	{
@@ -646,10 +722,11 @@ var stateMachineTests = []stateMachineTest{
 		fn: func(h testHarness) {
 			// Simulate disconnection and have links go inactive.
 			h.markInactive(h.graph.chans())
+			// Trigger the disable flow: tick to mark pending,
+			// advance time past timeout, tick again to disable.
+			h.triggerDisable()
 			// Should see all channels passively disabled.
-			h.assertUpdates(
-				h.graph.chans(), false, h.safeDisableTimeout,
-			)
+			h.assertUpdates(h.graph.chans(), false)
 		},
 	},
 	{
@@ -659,9 +736,10 @@ var stateMachineTests = []stateMachineTest{
 		fn: func(h testHarness) {
 			// Simulate disconnection and have links go inactive.
 			h.markInactive(h.graph.chans())
-			// Allow 2 sample intervals to pass, but not long
-			// enough for a disable to occur.
-			time.Sleep(100 * time.Millisecond)
+			// Tick once to mark them pending-disabled.
+			h.tick()
+			// Advance time, but not past the disable timeout.
+			h.advanceTime(h.disableTimeout / 2)
 			// Simulate reconnect by making channels active.
 			h.markActive(h.graph.chans())
 			// Request that all channels be re-enabled.
@@ -669,7 +747,7 @@ var stateMachineTests = []stateMachineTest{
 			// Pending disable should have been canceled, and
 			// no updates sent. Channels remain enabled on the
 			// network.
-			h.assertNoUpdates(h.safeDisableTimeout)
+			h.assertNoUpdates()
 		},
 	},
 	{
@@ -680,7 +758,7 @@ var stateMachineTests = []stateMachineTest{
 			// Simulate reconnect by making channels active.
 			h.markActive(h.graph.chans())
 			// No updates should be sent without explicit enable.
-			h.assertNoUpdates(h.safeDisableTimeout)
+			h.assertNoUpdates()
 		},
 	},
 	{
@@ -694,7 +772,7 @@ var stateMachineTests = []stateMachineTest{
 				h.graph.chans(), netann.ErrEnableInactiveChan, false,
 			)
 			// No updates should be sent as a result of the failure.
-			h.assertNoUpdates(h.safeDisableTimeout)
+			h.assertNoUpdates()
 		},
 	},
 	{
@@ -714,7 +792,7 @@ var stateMachineTests = []stateMachineTest{
 				unknownChans, graphdb.ErrEdgeNotFound, false,
 			)
 			// No updates should be sent as a result of the failure.
-			h.assertNoUpdates(h.safeDisableTimeout)
+			h.assertNoUpdates()
 		},
 	},
 	{
@@ -734,7 +812,7 @@ var stateMachineTests = []stateMachineTest{
 				unknownChans, graphdb.ErrEdgeNotFound, false,
 			)
 			// No updates should be sent as a result of the failure.
-			h.assertNoUpdates(h.safeDisableTimeout)
+			h.assertNoUpdates()
 		},
 	},
 	{
@@ -744,7 +822,7 @@ var stateMachineTests = []stateMachineTest{
 		fn: func(h testHarness) {
 			// Allow the manager to enter a steady state for the
 			// initial channel set.
-			h.assertNoUpdates(h.safeDisableTimeout)
+			h.assertNoUpdates()
 
 			// Add a new channels to the graph, but don't yet add
 			// the edge policies. We should see no updates sent
@@ -757,7 +835,7 @@ var stateMachineTests = []stateMachineTest{
 			for _, c := range newChans {
 				h.graph.addChannel(c)
 			}
-			h.assertNoUpdates(h.safeDisableTimeout)
+			h.assertNoUpdates()
 
 			// Check that trying to enable the channel with unknown
 			// edges results in a failure.
@@ -778,7 +856,7 @@ var stateMachineTests = []stateMachineTest{
 
 			// We expect no updates to be sent since the channel is
 			// enabled and active.
-			h.assertNoUpdates(h.safeDisableTimeout)
+			h.assertNoUpdates()
 
 			// Finally, assert that enabling the channel doesn't
 			// return an error now that everything is in place.
@@ -792,7 +870,7 @@ var stateMachineTests = []stateMachineTest{
 		fn: func(h testHarness) {
 			// Allow the manager to enter a steady state for the
 			// initial channel set.
-			h.assertNoUpdates(h.safeDisableTimeout)
+			h.assertNoUpdates()
 
 			// Select half of the current channels to remove.
 			channels := h.graph.chans()
@@ -806,7 +884,7 @@ var stateMachineTests = []stateMachineTest{
 			for _, c := range rmChans {
 				h.graph.removeChannel(c)
 			}
-			h.assertNoUpdates(h.safeDisableTimeout)
+			h.assertNoUpdates()
 
 			// Check that trying to enable the channel with unknown
 			// edges results in a failure.
@@ -822,7 +900,7 @@ var stateMachineTests = []stateMachineTest{
 		fn: func(h testHarness) {
 			// Allow the manager to enter a steady state for the
 			// initial channel set.
-			h.assertNoUpdates(h.safeDisableTimeout)
+			h.assertNoUpdates()
 
 			// Select half of the current channels to remove.
 			channels := h.graph.chans()
@@ -834,14 +912,14 @@ var stateMachineTests = []stateMachineTest{
 
 			// Since the channels are still in the graph, we expect
 			// these channels to be disabled on the network.
-			h.assertUpdates(rmChans, false, h.safeDisableTimeout)
+			h.assertUpdates(rmChans, false)
 
 			// Finally, remove  the channels from the graph and
 			// assert no more updates are sent.
 			for _, c := range rmChans {
 				h.graph.removeChannel(c)
 			}
-			h.assertNoUpdates(h.safeDisableTimeout)
+			h.assertNoUpdates()
 		},
 	},
 	{
@@ -853,9 +931,7 @@ var stateMachineTests = []stateMachineTest{
 			h.assertEnables(h.graph.chans(), nil, true)
 
 			// Expect to see them all enabled on the network.
-			h.assertUpdates(
-				h.graph.chans(), true, h.safeDisableTimeout,
-			)
+			h.assertUpdates(h.graph.chans(), true)
 
 			// Subsequent request disables with manual = false should succeed.
 			h.assertDisables(
@@ -863,9 +939,7 @@ var stateMachineTests = []stateMachineTest{
 			)
 
 			// Expect to see them all disabled on the network again.
-			h.assertUpdates(
-				h.graph.chans(), false, h.safeDisableTimeout,
-			)
+			h.assertUpdates(h.graph.chans(), false)
 		},
 	},
 	{
@@ -877,9 +951,7 @@ var stateMachineTests = []stateMachineTest{
 			h.assertDisables(h.graph.chans(), nil, true)
 
 			// Expect to see them all disabled on the network.
-			h.assertUpdates(
-				h.graph.chans(), false, h.safeDisableTimeout,
-			)
+			h.assertUpdates(h.graph.chans(), false)
 
 			// Request enables with manual = false should fail.
 			h.assertEnables(
@@ -890,9 +962,7 @@ var stateMachineTests = []stateMachineTest{
 			h.assertEnables(h.graph.chans(), nil, true)
 
 			// Expect to see them all enabled on the network again.
-			h.assertUpdates(
-				h.graph.chans(), true, h.safeDisableTimeout,
-			)
+			h.assertUpdates(h.graph.chans(), true)
 		},
 	},
 	{
@@ -904,9 +974,7 @@ var stateMachineTests = []stateMachineTest{
 			h.assertDisables(h.graph.chans(), nil, true)
 
 			// Expect to see them all disabled on the network.
-			h.assertUpdates(
-				h.graph.chans(), false, h.safeDisableTimeout,
-			)
+			h.assertUpdates(h.graph.chans(), false)
 
 			// Request enables with manual = false should fail.
 			h.assertEnables(
@@ -919,9 +987,7 @@ var stateMachineTests = []stateMachineTest{
 			h.assertEnables(h.graph.chans(), nil, false)
 
 			// Expect to see them all enabled on the network again.
-			h.assertUpdates(
-				h.graph.chans(), true, h.safeDisableTimeout,
-			)
+			h.assertUpdates(h.graph.chans(), true)
 		},
 	},
 }

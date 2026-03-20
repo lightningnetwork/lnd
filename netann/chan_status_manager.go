@@ -9,10 +9,12 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/clock"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/ticker"
 )
 
 var (
@@ -89,6 +91,14 @@ type ChanStatusConfig struct {
 	// manager to check if the channels being monitored have become
 	// inactive.
 	ChanStatusSampleInterval time.Duration
+
+	// Clock is the time source used by the manager. If nil, the real clock
+	// will be used.
+	Clock clock.Clock
+
+	// StatusSampleTicker is the ticker used to sample channel status. If
+	// nil, a new ticker will be created using ChanStatusSampleInterval.
+	StatusSampleTicker ticker.Ticker
 }
 
 // ChanStatusManager facilitates requests to enable or disable a channel via a
@@ -102,6 +112,9 @@ type ChanStatusManager struct {
 	stopped sync.Once
 
 	cfg *ChanStatusConfig
+
+	// clock is the time source used by the manager.
+	clock clock.Clock
 
 	// ourPubKeyBytes is the serialized compressed pubkey of our node.
 	ourPubKeyBytes []byte
@@ -123,10 +136,15 @@ type ChanStatusManager struct {
 	// state management into the primary event loop.
 	autoRequests chan statusRequest
 
+	// syncRequests is used in tests to synchronize with the event loop.
+	// Sending on this channel and waiting for the response guarantees
+	// that all prior events in the select loop have been processed.
+	syncRequests chan chan struct{}
+
 	// statusSampleTicker fires at the interval prescribed by
 	// ChanStatusSampleInterval to check if channels in chanStates have
 	// become inactive.
-	statusSampleTicker *time.Ticker
+	statusSampleTicker ticker.Ticker
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -160,14 +178,28 @@ func NewChanStatusManager(cfg *ChanStatusConfig) (*ChanStatusManager, error) {
 
 	}
 
+	// Use the provided clock, or default to the real clock.
+	clk := cfg.Clock
+	if clk == nil {
+		clk = clock.NewDefaultClock()
+	}
+
+	// Use the provided ticker, or create a new one.
+	statusTicker := cfg.StatusSampleTicker
+	if statusTicker == nil {
+		statusTicker = ticker.New(cfg.ChanStatusSampleInterval)
+	}
+
 	return &ChanStatusManager{
 		cfg:                cfg,
+		clock:              clk,
 		ourPubKeyBytes:     cfg.OurPubKey.SerializeCompressed(),
 		chanStates:         make(channelStates),
-		statusSampleTicker: time.NewTicker(cfg.ChanStatusSampleInterval),
+		statusSampleTicker: statusTicker,
 		enableRequests:     make(chan statusRequest),
 		disableRequests:    make(chan statusRequest),
 		autoRequests:       make(chan statusRequest),
+		syncRequests:       make(chan chan struct{}),
 		quit:               make(chan struct{}),
 	}, nil
 }
@@ -218,6 +250,9 @@ func (m *ChanStatusManager) start() error {
 		}
 	}
 
+	// Start the status sample ticker.
+	m.statusSampleTicker.Resume()
+
 	m.wg.Add(1)
 	go m.statusManager()
 
@@ -232,6 +267,7 @@ func (m *ChanStatusManager) Stop() error {
 
 		close(m.quit)
 		m.wg.Wait()
+		m.statusSampleTicker.Stop()
 	})
 	return nil
 }
@@ -287,6 +323,24 @@ func (m *ChanStatusManager) RequestDisable(outpoint wire.OutPoint,
 // back to the state ChanStatusDisabled. Otherwise, no action will be taken.
 func (m *ChanStatusManager) RequestAuto(outpoint wire.OutPoint) error {
 	return m.submitRequest(m.autoRequests, outpoint, true)
+}
+
+// Sync blocks until the manager's event loop has processed all prior events.
+// This is a no-op that carries no side effects on channel state, making it
+// safe to call regardless of the current state of any channel.
+func (m *ChanStatusManager) Sync() {
+	done := make(chan struct{})
+
+	select {
+	case m.syncRequests <- done:
+	case <-m.quit:
+		return
+	}
+
+	select {
+	case <-done:
+	case <-m.quit:
+	}
 }
 
 // statusRequest is passed to the statusManager to request a change in status
@@ -351,8 +405,14 @@ func (m *ChanStatusManager) statusManager() {
 		case req := <-m.autoRequests:
 			req.errChan <- m.processAutoRequest(req.outpoint)
 
+		// Process sync requests used for test synchronization. This
+		// is a no-op that simply signals the caller, confirming all
+		// prior events have been processed.
+		case syncChan := <-m.syncRequests:
+			close(syncChan)
+
 		// Use long-polling to detect when channels become inactive.
-		case <-m.statusSampleTicker.C:
+		case <-m.statusSampleTicker.Ticks():
 			// First, do a sweep and mark any ChanStatusEnabled
 			// channels that are not active within the htlcswitch as
 			// ChanStatusPendingDisabled. The channel will then be
@@ -542,7 +602,7 @@ func (m *ChanStatusManager) markPendingInactiveChannels() {
 		// the switch. Compute the time at which we will send out a
 		// disable if the peer is unable to reestablish a stable
 		// connection.
-		disableTime := time.Now().Add(m.cfg.ChanDisableTimeout)
+		disableTime := m.clock.Now().Add(m.cfg.ChanDisableTimeout)
 
 		log.Debugf("Marking channel(%v) pending-inactive",
 			c.FundingOutpoint)
@@ -556,7 +616,7 @@ func (m *ChanStatusManager) markPendingInactiveChannels() {
 // SendDisableTime has been superseded by the current time.
 func (m *ChanStatusManager) disableInactiveChannels() {
 	// Now, disable any channels whose inactive chan timeout has elapsed.
-	now := time.Now()
+	now := m.clock.Now()
 	for outpoint, state := range m.chanStates {
 		// Ignore statuses that are not in the pending-inactive state.
 		if state.Status != ChanStatusPendingDisabled {

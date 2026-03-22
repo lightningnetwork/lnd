@@ -491,7 +491,8 @@ func newMockIteratorDecoder() *mockIteratorDecoder {
 }
 
 func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, rHash []byte,
-	cltv uint32) (hop.Iterator, lnwire.FailCode) {
+	cltv uint32, _ lnwire.MilliSatoshi,
+	_ lnwire.BlindingPointRecord) (hop.Iterator, lnwire.FailCode) {
 
 	var b [4]byte
 	_, err := r.Read(b[:])
@@ -540,6 +541,7 @@ func (p *mockIteratorDecoder) DecodeHopIterators(id []byte,
 	for _, req := range reqs {
 		iterator, failcode := p.DecodeHopIterator(
 			req.OnionReader, req.RHash, req.IncomingCltv,
+			req.IncomingAmount, req.BlindingPoint,
 		)
 
 		if p.decodeFail {

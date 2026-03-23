@@ -4000,8 +4000,7 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 				}
 
 				return graph.MarkEdgeZombie(
-					ctx, lnwire.GossipVersion1,
-					channel.id.ToUint64(),
+					ctx, channel.id.ToUint64(),
 					node1.PubKeyBytes,
 					node2.PubKeyBytes,
 				)

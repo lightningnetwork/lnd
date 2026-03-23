@@ -3,6 +3,7 @@ package models
 import (
 	"image/color"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -180,8 +181,9 @@ func TestNodeAnnouncementV2AddressCategorization(t *testing.T) {
 	ipv4Addr := &net.TCPAddr{IP: net.ParseIP("1.2.3.4").To4(), Port: 9735}
 	ipv6Addr := &net.TCPAddr{IP: net.ParseIP("::1"), Port: 9736}
 	torAddr := &tor.OnionAddr{
-		OnionService: "abcdefghijklmnopqrstuvwxyz234567aaaa",
-		Port:         9737,
+		OnionService: "aaaaaaaaaaaaaaaaaaaaaaaaaaaa" +
+			"aaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion",
+		Port: 9737,
 	}
 	dnsAddr := &lnwire.DNSAddress{Hostname: "example.com", Port: 9738}
 
@@ -379,4 +381,44 @@ func TestNodeAnnouncementWithoutSignature(t *testing.T) {
 	ann, err := node.NodeAnnouncement(false)
 	require.NoError(t, err)
 	require.Equal(t, node.PubKeyBytes, ann.NodeID)
+}
+
+// TestWireNodeAnnouncementV2KeepsOnlyTorV3 asserts that building a v2 node
+// announcement drops onion addresses other than tor v3, since gossip v2 only
+// carries tor v3 addresses, and keeps the tor v3 ones.
+func TestWireNodeAnnouncementV2KeepsOnlyTorV3(t *testing.T) {
+	t.Parallel()
+
+	// A tor v2 onion service has 16 base32 characters and a tor v3 one 56,
+	// each followed by ".onion".
+	torV2 := &tor.OnionAddr{
+		OnionService: strings.Repeat("a", 16) + ".onion",
+		Port:         9735,
+	}
+	torV3 := &tor.OnionAddr{
+		OnionService: strings.Repeat("b", 56) + ".onion",
+		Port:         9736,
+	}
+	require.Len(t, torV2.OnionService, tor.V2Len)
+	require.Len(t, torV3.OnionService, tor.V3Len)
+
+	node := NewV2Node(pubVertex(newTestKey(t)), &NodeV2Fields{
+		Features:  lnwire.NewRawFeatureVector(),
+		Addresses: []net.Addr{torV2, torV3},
+	})
+
+	ann, err := node.WireNodeAnnouncement(false)
+	require.NoError(t, err)
+
+	ann2, ok := ann.(*lnwire.NodeAnnouncement2)
+	require.True(t, ok)
+
+	// Only the tor v3 address may make it into the announcement.
+	var kept []string
+	ann2.TorV3Addrs.ValOpt().WhenSome(func(addrs lnwire.TorV3Addrs) {
+		for _, addr := range addrs {
+			kept = append(kept, addr.OnionService)
+		}
+	})
+	require.Equal(t, []string{torV3.OnionService}, kept)
 }

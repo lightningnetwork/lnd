@@ -2112,17 +2112,15 @@ func (s *SQLStore) FilterChannelRange(ctx context.Context,
 				return fmt.Errorf("unable to fetch node1 "+
 					"policy: %w", err)
 			} else if err == nil {
-				n1Update := node1Policy.LastUpdate.Int64
-				n1Height := node1Policy.BlockHeight.Int64
-
 				switch v {
 				case gossipV1:
-					chanInfo.Node1Freshness =
-						lnwire.UnixTimestamp(n1Update)
+					chanInfo.Node1Freshness = lnwire.UnixTimestamp(
+						node1Policy.LastUpdate.Int64,
+					)
 				case gossipV2:
 					chanInfo.Node1Freshness =
 						lnwire.BlockHeightTimestamp(
-							n1Height,
+							uint32(node1Policy.BlockHeight.Int64),
 						)
 				}
 			}
@@ -2139,17 +2137,15 @@ func (s *SQLStore) FilterChannelRange(ctx context.Context,
 				return fmt.Errorf("unable to fetch node2 "+
 					"policy: %w", err)
 			} else if err == nil {
-				n2Update := node2Policy.LastUpdate.Int64
-				n2Height := node2Policy.BlockHeight.Int64
-
 				switch v {
 				case gossipV1:
-					chanInfo.Node2Freshness =
-						lnwire.UnixTimestamp(n2Update)
+					chanInfo.Node2Freshness = lnwire.UnixTimestamp(
+						node2Policy.LastUpdate.Int64,
+					)
 				case gossipV2:
 					chanInfo.Node2Freshness =
 						lnwire.BlockHeightTimestamp(
-							n2Height,
+							uint32(node2Policy.BlockHeight.Int64),
 						)
 				}
 			}

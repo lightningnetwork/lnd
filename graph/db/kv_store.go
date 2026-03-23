@@ -3483,7 +3483,7 @@ func updateEdgePolicy(tx kvdb.RwTx, edge *models.ChannelEdgePolicy) (
 	// or second edge policy is being updated.
 	var fromNode, toNode []byte
 	var isUpdate1 bool
-	if edge.ChannelFlags&lnwire.ChanUpdateDirection == 0 {
+	if edge.IsNode1() {
 		fromNode = nodeInfo[:33]
 		toNode = nodeInfo[33:66]
 		isUpdate1 = true
@@ -5302,7 +5302,7 @@ func putChanEdgePolicy(edges kvdb.RwBucket, edge *models.ChannelEdgePolicy,
 
 	err = updateEdgePolicyDisabledIndex(
 		edges, edge.ChannelID,
-		edge.ChannelFlags&lnwire.ChanUpdateDirection > 0,
+		!edge.IsNode1(),
 		edge.IsDisabled(),
 	)
 	if err != nil {

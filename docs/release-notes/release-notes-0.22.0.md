@@ -180,6 +180,12 @@
   so callers can retrieve channels without knowing which gossip version
   announced them.
 
+* Add [v2 model and store
+  support](https://github.com/lightningnetwork/lnd/pull/11306) to the graph
+  database: wire conversion helpers for node announcements, channel auth
+  proofs, edge info, and edge policies; `VersionedGraph` zombie wrappers;
+  SQL queries for v2 node traversal; and v3-only onion address filtering.
+
 ## Code Health
 
 ## Tooling and Documentation

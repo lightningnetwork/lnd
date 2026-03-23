@@ -478,8 +478,9 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 					}
 					if url.Port() != zmqPubRawBlockURL.Port() {
 						log.Warnf("zmq block event port mismatch: "+
-							"lnd configured for %s, bitcoind reports %s -- "+
-							"ensure ports match or are forwarded correctly",
+							"lnd is configured for %s but "+
+							"bitcoind reports %s -- ensure the "+
+							"ports match or are forwarded correctly",
 							zmqPubRawBlockURL.Host, url.Host)
 					}
 					pubRawBlockActive = true
@@ -491,8 +492,9 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 					}
 					if url.Port() != zmqPubRawTxURL.Port() {
 						log.Warnf("zmq tx event port mismatch: "+
-							"lnd configured for %s, bitcoind reports %s -- "+
-							"ensure ports match or are forwarded correctly",
+							"lnd is configured for %s but "+
+							"bitcoind reports %s -- ensure the "+
+							"ports match or are forwarded correctly",
 							zmqPubRawTxURL.Host, url.Host)
 					}
 					pubRawTxActive = true

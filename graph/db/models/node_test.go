@@ -174,7 +174,7 @@ func TestNodeAnnouncementV2AddressCategorization(t *testing.T) {
 	ipv4Addr := &net.TCPAddr{IP: net.ParseIP("1.2.3.4").To4(), Port: 9735}
 	ipv6Addr := &net.TCPAddr{IP: net.ParseIP("::1"), Port: 9736}
 	torAddr := &tor.OnionAddr{
-		OnionService: "abcdefghijklmnopqrstuvwxyz234567aaaa",
+		OnionService: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion",
 		Port:         9737,
 	}
 	dnsAddr := &lnwire.DNSAddress{Hostname: "example.com", Port: 9738}

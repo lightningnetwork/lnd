@@ -4239,7 +4239,21 @@ func (s *sqlNodeTraverser) FetchNodeFeatures(ctx context.Context,
 	nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
-	return fetchNodeFeatures(ctx, s.db, gossipV1, nodePub)
+	// Try v2 first, fall back to v1 if the v2 features are empty.
+	for _, v := range []lnwire.GossipVersion{gossipV2, gossipV1} {
+		features, err := fetchNodeFeatures(
+			ctx, s.db, v, nodePub,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if !features.IsEmpty() {
+			return features, nil
+		}
+	}
+
+	return lnwire.EmptyFeatureVector(), nil
 }
 
 // forEachNodeDirectedChannel iterates through all channels of a given

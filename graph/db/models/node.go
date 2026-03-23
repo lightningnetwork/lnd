@@ -316,7 +316,10 @@ func (n *Node) toNodeAnnouncement2(signed bool) (*lnwire.NodeAnnouncement2,
 			}
 
 		case *tor.OnionAddr:
-			torV3 = append(torV3, a)
+			// Only v3 onion addresses are supported in gossip v2.
+			if len(a.OnionService) == tor.V3Len {
+				torV3 = append(torV3, a)
+			}
 
 		case *lnwire.DNSAddress:
 			nodeAnn.DNSHostName = tlv.SomeRecordT(

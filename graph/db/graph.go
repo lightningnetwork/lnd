@@ -820,8 +820,7 @@ func (c *VersionedGraph) FilterKnownChanIDs(ctx context.Context,
 		// alive, and we let it be added to the set of IDs to
 		// query our peer for.
 		err := c.db.MarkEdgeLive(
-			ctx, info.Version,
-			info.ShortChannelID.ToUint64(),
+			ctx, c.v, info.ShortChannelID.ToUint64(),
 		)
 		// Since there is a chance that the edge could have been
 		// marked as "live" between the FilterKnownChanIDs call

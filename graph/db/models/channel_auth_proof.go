@@ -1,8 +1,20 @@
 package models
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
+)
+
+var (
+	// ErrV2AnnSigProofAssemblyPending is returned when trying to derive a
+	// channel auth proof from v2 announce signatures. This will be
+	// supported once v2 proof assembly from announce_signatures_2 halves is
+	// implemented.
+	ErrV2AnnSigProofAssemblyPending = errors.New("v2 announce signatures " +
+		"proof assembly not yet implemented")
 )
 
 // ChannelAuthProof is the authentication proof (the signature portion) for a
@@ -114,4 +126,75 @@ func (c *ChannelAuthProof) BitcoinSig2() []byte {
 // Sig returns the v2 signature bytes, or nil if not present.
 func (c *ChannelAuthProof) Sig() []byte {
 	return c.Signature.UnwrapOr(nil)
+}
+
+// ChannelAuthProofFromWireAnnouncement constructs a channel auth proof from a
+// wire channel announcement message.
+func ChannelAuthProofFromWireAnnouncement(
+	ann lnwire.ChannelAnnouncement) (*ChannelAuthProof, error) {
+
+	switch ann := ann.(type) {
+	case *lnwire.ChannelAnnouncement1:
+		return NewV1ChannelAuthProof(
+			ann.NodeSig1.ToSignatureBytes(),
+			ann.NodeSig2.ToSignatureBytes(),
+			ann.BitcoinSig1.ToSignatureBytes(),
+			ann.BitcoinSig2.ToSignatureBytes(),
+		), nil
+
+	case *lnwire.ChannelAnnouncement2:
+		return NewV2ChannelAuthProof(
+			ann.Signature.Val.ToSignatureBytes(),
+		), nil
+
+	default:
+		return nil, fmt.Errorf("unsupported channel announcement: %T",
+			ann)
+	}
+}
+
+// ChannelAuthProofFromAnnounceSignatures derives a channel auth proof from two
+// opposing announce signatures messages.
+func ChannelAuthProofFromAnnounceSignatures(ann, oppositeAnn lnwire.AnnounceSignatures,
+	isFirstNode bool) (*ChannelAuthProof, error) {
+
+	if ann == nil || oppositeAnn == nil {
+		return nil, fmt.Errorf("announce signatures cannot be nil")
+	}
+
+	if ann.GossipVersion() != oppositeAnn.GossipVersion() {
+		return nil, fmt.Errorf("announce signatures version mismatch: %v "+
+			"!= %v", ann.GossipVersion(), oppositeAnn.GossipVersion())
+	}
+
+	switch annSig := ann.(type) {
+	case *lnwire.AnnounceSignatures1:
+		oppSig, ok := oppositeAnn.(*lnwire.AnnounceSignatures1)
+		if !ok {
+			return nil, fmt.Errorf("unexpected opposite announce "+
+				"signatures type: %T", oppositeAnn)
+		}
+
+		if isFirstNode {
+			return NewV1ChannelAuthProof(
+				annSig.NodeSignature.ToSignatureBytes(),
+				oppSig.NodeSignature.ToSignatureBytes(),
+				annSig.BitcoinSignature.ToSignatureBytes(),
+				oppSig.BitcoinSignature.ToSignatureBytes(),
+			), nil
+		}
+
+		return NewV1ChannelAuthProof(
+			oppSig.NodeSignature.ToSignatureBytes(),
+			annSig.NodeSignature.ToSignatureBytes(),
+			oppSig.BitcoinSignature.ToSignatureBytes(),
+			annSig.BitcoinSignature.ToSignatureBytes(),
+		), nil
+
+	case *lnwire.AnnounceSignatures2:
+		return nil, ErrV2AnnSigProofAssemblyPending
+
+	default:
+		return nil, fmt.Errorf("unsupported announce signatures: %T", ann)
+	}
 }

@@ -93,8 +93,10 @@ type Querier interface {
 	FilterPayments(ctx context.Context, arg FilterPaymentsParams) ([]FilterPaymentsRow, error)
 	GetAMPInvoiceID(ctx context.Context, setID []byte) (int64, error)
 	GetChannelAndNodesBySCID(ctx context.Context, arg GetChannelAndNodesBySCIDParams) (GetChannelAndNodesBySCIDRow, error)
+	GetChannelByOutpointPreferHighestVersionWithPolicies(ctx context.Context, outpoint string) (GetChannelByOutpointPreferHighestVersionWithPoliciesRow, error)
 	GetChannelByOutpointWithPolicies(ctx context.Context, arg GetChannelByOutpointWithPoliciesParams) (GetChannelByOutpointWithPoliciesRow, error)
 	GetChannelBySCID(ctx context.Context, arg GetChannelBySCIDParams) (GraphChannel, error)
+	GetChannelBySCIDPreferHighestVersionWithPolicies(ctx context.Context, scid []byte) (GetChannelBySCIDPreferHighestVersionWithPoliciesRow, error)
 	GetChannelBySCIDWithPolicies(ctx context.Context, arg GetChannelBySCIDWithPoliciesParams) (GetChannelBySCIDWithPoliciesRow, error)
 	GetChannelExtrasBatch(ctx context.Context, chanIds []int64) ([]GraphChannelExtraType, error)
 	GetChannelFeaturesBatch(ctx context.Context, chanIds []int64) ([]GraphChannelFeature, error)
@@ -146,6 +148,8 @@ type Querier interface {
 	// NOTE: this is V2 specific since V2 uses a disable flag
 	// bit vector instead of a single boolean.
 	GetV2DisabledSCIDs(ctx context.Context) ([][]byte, error)
+	GetVersionsByOutpoint(ctx context.Context, outpoint string) ([]int16, error)
+	GetVersionsBySCID(ctx context.Context, scid []byte) ([]int16, error)
 	GetZombieChannel(ctx context.Context, arg GetZombieChannelParams) (GraphZombieChannel, error)
 	GetZombieChannelsSCIDs(ctx context.Context, arg GetZombieChannelsSCIDsParams) ([]GraphZombieChannel, error)
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)

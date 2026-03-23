@@ -374,6 +374,162 @@ func (q *Queries) GetChannelAndNodesBySCID(ctx context.Context, arg GetChannelAn
 	return i, err
 }
 
+const getChannelByOutpointPreferHighestVersionWithPolicies = `-- name: GetChannelByOutpointPreferHighestVersionWithPolicies :one
+SELECT
+    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature, c.signature, c.funding_pk_script, c.merkle_root_hash,
+
+    n1.pub_key AS node1_pubkey,
+    n2.pub_key AS node2_pubkey,
+
+    -- Node 1 policy
+    cp1.id AS policy_1_id,
+    cp1.node_id AS policy_1_node_id,
+    cp1.version AS policy_1_version,
+    cp1.timelock AS policy_1_timelock,
+    cp1.fee_ppm AS policy_1_fee_ppm,
+    cp1.base_fee_msat AS policy_1_base_fee_msat,
+    cp1.min_htlc_msat AS policy_1_min_htlc_msat,
+    cp1.max_htlc_msat AS policy_1_max_htlc_msat,
+    cp1.last_update AS policy_1_last_update,
+    cp1.disabled AS policy_1_disabled,
+    cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
+    cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.message_flags AS policy_1_message_flags,
+    cp1.channel_flags AS policy_1_channel_flags,
+    cp1.signature AS policy_1_signature,
+    cp1.block_height AS policy_1_block_height,
+    cp1.disable_flags AS policy_1_disable_flags,
+
+    -- Node 2 policy
+    cp2.id AS policy_2_id,
+    cp2.node_id AS policy_2_node_id,
+    cp2.version AS policy_2_version,
+    cp2.timelock AS policy_2_timelock,
+    cp2.fee_ppm AS policy_2_fee_ppm,
+    cp2.base_fee_msat AS policy_2_base_fee_msat,
+    cp2.min_htlc_msat AS policy_2_min_htlc_msat,
+    cp2.max_htlc_msat AS policy_2_max_htlc_msat,
+    cp2.last_update AS policy_2_last_update,
+    cp2.disabled AS policy_2_disabled,
+    cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
+    cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.message_flags AS policy_2_message_flags,
+    cp2.channel_flags AS policy_2_channel_flags,
+    cp2.signature AS policy_2_signature,
+    cp2.block_height AS policy_2_block_height,
+    cp2.disable_flags AS policy_2_disable_flags
+FROM graph_channels c
+    JOIN graph_nodes n1 ON c.node_id_1 = n1.id
+    JOIN graph_nodes n2 ON c.node_id_2 = n2.id
+    LEFT JOIN graph_channel_policies cp1
+        ON cp1.channel_id = c.id AND cp1.node_id = c.node_id_1 AND cp1.version = c.version
+    LEFT JOIN graph_channel_policies cp2
+        ON cp2.channel_id = c.id AND cp2.node_id = c.node_id_2 AND cp2.version = c.version
+WHERE c.outpoint = $1
+ORDER BY c.version DESC
+LIMIT 1
+`
+
+type GetChannelByOutpointPreferHighestVersionWithPoliciesRow struct {
+	GraphChannel                   GraphChannel
+	Node1Pubkey                    []byte
+	Node2Pubkey                    []byte
+	Policy1ID                      sql.NullInt64
+	Policy1NodeID                  sql.NullInt64
+	Policy1Version                 sql.NullInt16
+	Policy1Timelock                sql.NullInt32
+	Policy1FeePpm                  sql.NullInt64
+	Policy1BaseFeeMsat             sql.NullInt64
+	Policy1MinHtlcMsat             sql.NullInt64
+	Policy1MaxHtlcMsat             sql.NullInt64
+	Policy1LastUpdate              sql.NullInt64
+	Policy1Disabled                sql.NullBool
+	Policy1InboundBaseFeeMsat      sql.NullInt64
+	Policy1InboundFeeRateMilliMsat sql.NullInt64
+	Policy1MessageFlags            sql.NullInt16
+	Policy1ChannelFlags            sql.NullInt16
+	Policy1Signature               []byte
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
+	Policy2ID                      sql.NullInt64
+	Policy2NodeID                  sql.NullInt64
+	Policy2Version                 sql.NullInt16
+	Policy2Timelock                sql.NullInt32
+	Policy2FeePpm                  sql.NullInt64
+	Policy2BaseFeeMsat             sql.NullInt64
+	Policy2MinHtlcMsat             sql.NullInt64
+	Policy2MaxHtlcMsat             sql.NullInt64
+	Policy2LastUpdate              sql.NullInt64
+	Policy2Disabled                sql.NullBool
+	Policy2InboundBaseFeeMsat      sql.NullInt64
+	Policy2InboundFeeRateMilliMsat sql.NullInt64
+	Policy2MessageFlags            sql.NullInt16
+	Policy2ChannelFlags            sql.NullInt16
+	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
+}
+
+func (q *Queries) GetChannelByOutpointPreferHighestVersionWithPolicies(ctx context.Context, outpoint string) (GetChannelByOutpointPreferHighestVersionWithPoliciesRow, error) {
+	row := q.db.QueryRowContext(ctx, getChannelByOutpointPreferHighestVersionWithPolicies, outpoint)
+	var i GetChannelByOutpointPreferHighestVersionWithPoliciesRow
+	err := row.Scan(
+		&i.GraphChannel.ID,
+		&i.GraphChannel.Version,
+		&i.GraphChannel.Scid,
+		&i.GraphChannel.NodeID1,
+		&i.GraphChannel.NodeID2,
+		&i.GraphChannel.Outpoint,
+		&i.GraphChannel.Capacity,
+		&i.GraphChannel.BitcoinKey1,
+		&i.GraphChannel.BitcoinKey2,
+		&i.GraphChannel.Node1Signature,
+		&i.GraphChannel.Node2Signature,
+		&i.GraphChannel.Bitcoin1Signature,
+		&i.GraphChannel.Bitcoin2Signature,
+		&i.GraphChannel.Signature,
+		&i.GraphChannel.FundingPkScript,
+		&i.GraphChannel.MerkleRootHash,
+		&i.Node1Pubkey,
+		&i.Node2Pubkey,
+		&i.Policy1ID,
+		&i.Policy1NodeID,
+		&i.Policy1Version,
+		&i.Policy1Timelock,
+		&i.Policy1FeePpm,
+		&i.Policy1BaseFeeMsat,
+		&i.Policy1MinHtlcMsat,
+		&i.Policy1MaxHtlcMsat,
+		&i.Policy1LastUpdate,
+		&i.Policy1Disabled,
+		&i.Policy1InboundBaseFeeMsat,
+		&i.Policy1InboundFeeRateMilliMsat,
+		&i.Policy1MessageFlags,
+		&i.Policy1ChannelFlags,
+		&i.Policy1Signature,
+		&i.Policy1BlockHeight,
+		&i.Policy1DisableFlags,
+		&i.Policy2ID,
+		&i.Policy2NodeID,
+		&i.Policy2Version,
+		&i.Policy2Timelock,
+		&i.Policy2FeePpm,
+		&i.Policy2BaseFeeMsat,
+		&i.Policy2MinHtlcMsat,
+		&i.Policy2MaxHtlcMsat,
+		&i.Policy2LastUpdate,
+		&i.Policy2Disabled,
+		&i.Policy2InboundBaseFeeMsat,
+		&i.Policy2InboundFeeRateMilliMsat,
+		&i.Policy2MessageFlags,
+		&i.Policy2ChannelFlags,
+		&i.Policy2Signature,
+		&i.Policy2BlockHeight,
+		&i.Policy2DisableFlags,
+	)
+	return i, err
+}
+
 const getChannelByOutpointWithPolicies = `-- name: GetChannelByOutpointWithPolicies :one
 SELECT
     c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature, c.signature, c.funding_pk_script, c.merkle_root_hash,
@@ -563,6 +719,176 @@ func (q *Queries) GetChannelBySCID(ctx context.Context, arg GetChannelBySCIDPara
 		&i.Signature,
 		&i.FundingPkScript,
 		&i.MerkleRootHash,
+	)
+	return i, err
+}
+
+const getChannelBySCIDPreferHighestVersionWithPolicies = `-- name: GetChannelBySCIDPreferHighestVersionWithPolicies :one
+SELECT
+    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature, c.signature, c.funding_pk_script, c.merkle_root_hash,
+    n1.id, n1.version, n1.pub_key, n1.alias, n1.last_update, n1.color, n1.signature, n1.block_height,
+    n2.id, n2.version, n2.pub_key, n2.alias, n2.last_update, n2.color, n2.signature, n2.block_height,
+
+    -- Policy 1
+    cp1.id AS policy1_id,
+    cp1.node_id AS policy1_node_id,
+    cp1.version AS policy1_version,
+    cp1.timelock AS policy1_timelock,
+    cp1.fee_ppm AS policy1_fee_ppm,
+    cp1.base_fee_msat AS policy1_base_fee_msat,
+    cp1.min_htlc_msat AS policy1_min_htlc_msat,
+    cp1.max_htlc_msat AS policy1_max_htlc_msat,
+    cp1.last_update AS policy1_last_update,
+    cp1.disabled AS policy1_disabled,
+    cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
+    cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.message_flags AS policy1_message_flags,
+    cp1.channel_flags AS policy1_channel_flags,
+    cp1.signature AS policy1_signature,
+    cp1.block_height AS policy1_block_height,
+    cp1.disable_flags AS policy1_disable_flags,
+
+    -- Policy 2
+    cp2.id AS policy2_id,
+    cp2.node_id AS policy2_node_id,
+    cp2.version AS policy2_version,
+    cp2.timelock AS policy2_timelock,
+    cp2.fee_ppm AS policy2_fee_ppm,
+    cp2.base_fee_msat AS policy2_base_fee_msat,
+    cp2.min_htlc_msat AS policy2_min_htlc_msat,
+    cp2.max_htlc_msat AS policy2_max_htlc_msat,
+    cp2.last_update AS policy2_last_update,
+    cp2.disabled AS policy2_disabled,
+    cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
+    cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.message_flags AS policy_2_message_flags,
+    cp2.channel_flags AS policy_2_channel_flags,
+    cp2.signature AS policy2_signature,
+    cp2.block_height AS policy2_block_height,
+    cp2.disable_flags AS policy2_disable_flags
+
+FROM graph_channels c
+    JOIN graph_nodes n1 ON c.node_id_1 = n1.id
+    JOIN graph_nodes n2 ON c.node_id_2 = n2.id
+    LEFT JOIN graph_channel_policies cp1
+        ON cp1.channel_id = c.id AND cp1.node_id = c.node_id_1 AND cp1.version = c.version
+    LEFT JOIN graph_channel_policies cp2
+        ON cp2.channel_id = c.id AND cp2.node_id = c.node_id_2 AND cp2.version = c.version
+WHERE c.scid = $1
+ORDER BY c.version DESC
+LIMIT 1
+`
+
+type GetChannelBySCIDPreferHighestVersionWithPoliciesRow struct {
+	GraphChannel                   GraphChannel
+	GraphNode                      GraphNode
+	GraphNode_2                    GraphNode
+	Policy1ID                      sql.NullInt64
+	Policy1NodeID                  sql.NullInt64
+	Policy1Version                 sql.NullInt16
+	Policy1Timelock                sql.NullInt32
+	Policy1FeePpm                  sql.NullInt64
+	Policy1BaseFeeMsat             sql.NullInt64
+	Policy1MinHtlcMsat             sql.NullInt64
+	Policy1MaxHtlcMsat             sql.NullInt64
+	Policy1LastUpdate              sql.NullInt64
+	Policy1Disabled                sql.NullBool
+	Policy1InboundBaseFeeMsat      sql.NullInt64
+	Policy1InboundFeeRateMilliMsat sql.NullInt64
+	Policy1MessageFlags            sql.NullInt16
+	Policy1ChannelFlags            sql.NullInt16
+	Policy1Signature               []byte
+	Policy1BlockHeight             sql.NullInt64
+	Policy1DisableFlags            sql.NullInt16
+	Policy2ID                      sql.NullInt64
+	Policy2NodeID                  sql.NullInt64
+	Policy2Version                 sql.NullInt16
+	Policy2Timelock                sql.NullInt32
+	Policy2FeePpm                  sql.NullInt64
+	Policy2BaseFeeMsat             sql.NullInt64
+	Policy2MinHtlcMsat             sql.NullInt64
+	Policy2MaxHtlcMsat             sql.NullInt64
+	Policy2LastUpdate              sql.NullInt64
+	Policy2Disabled                sql.NullBool
+	Policy2InboundBaseFeeMsat      sql.NullInt64
+	Policy2InboundFeeRateMilliMsat sql.NullInt64
+	Policy2MessageFlags            sql.NullInt16
+	Policy2ChannelFlags            sql.NullInt16
+	Policy2Signature               []byte
+	Policy2BlockHeight             sql.NullInt64
+	Policy2DisableFlags            sql.NullInt16
+}
+
+func (q *Queries) GetChannelBySCIDPreferHighestVersionWithPolicies(ctx context.Context, scid []byte) (GetChannelBySCIDPreferHighestVersionWithPoliciesRow, error) {
+	row := q.db.QueryRowContext(ctx, getChannelBySCIDPreferHighestVersionWithPolicies, scid)
+	var i GetChannelBySCIDPreferHighestVersionWithPoliciesRow
+	err := row.Scan(
+		&i.GraphChannel.ID,
+		&i.GraphChannel.Version,
+		&i.GraphChannel.Scid,
+		&i.GraphChannel.NodeID1,
+		&i.GraphChannel.NodeID2,
+		&i.GraphChannel.Outpoint,
+		&i.GraphChannel.Capacity,
+		&i.GraphChannel.BitcoinKey1,
+		&i.GraphChannel.BitcoinKey2,
+		&i.GraphChannel.Node1Signature,
+		&i.GraphChannel.Node2Signature,
+		&i.GraphChannel.Bitcoin1Signature,
+		&i.GraphChannel.Bitcoin2Signature,
+		&i.GraphChannel.Signature,
+		&i.GraphChannel.FundingPkScript,
+		&i.GraphChannel.MerkleRootHash,
+		&i.GraphNode.ID,
+		&i.GraphNode.Version,
+		&i.GraphNode.PubKey,
+		&i.GraphNode.Alias,
+		&i.GraphNode.LastUpdate,
+		&i.GraphNode.Color,
+		&i.GraphNode.Signature,
+		&i.GraphNode.BlockHeight,
+		&i.GraphNode_2.ID,
+		&i.GraphNode_2.Version,
+		&i.GraphNode_2.PubKey,
+		&i.GraphNode_2.Alias,
+		&i.GraphNode_2.LastUpdate,
+		&i.GraphNode_2.Color,
+		&i.GraphNode_2.Signature,
+		&i.GraphNode_2.BlockHeight,
+		&i.Policy1ID,
+		&i.Policy1NodeID,
+		&i.Policy1Version,
+		&i.Policy1Timelock,
+		&i.Policy1FeePpm,
+		&i.Policy1BaseFeeMsat,
+		&i.Policy1MinHtlcMsat,
+		&i.Policy1MaxHtlcMsat,
+		&i.Policy1LastUpdate,
+		&i.Policy1Disabled,
+		&i.Policy1InboundBaseFeeMsat,
+		&i.Policy1InboundFeeRateMilliMsat,
+		&i.Policy1MessageFlags,
+		&i.Policy1ChannelFlags,
+		&i.Policy1Signature,
+		&i.Policy1BlockHeight,
+		&i.Policy1DisableFlags,
+		&i.Policy2ID,
+		&i.Policy2NodeID,
+		&i.Policy2Version,
+		&i.Policy2Timelock,
+		&i.Policy2FeePpm,
+		&i.Policy2BaseFeeMsat,
+		&i.Policy2MinHtlcMsat,
+		&i.Policy2MaxHtlcMsat,
+		&i.Policy2LastUpdate,
+		&i.Policy2Disabled,
+		&i.Policy2InboundBaseFeeMsat,
+		&i.Policy2InboundFeeRateMilliMsat,
+		&i.Policy2MessageFlags,
+		&i.Policy2ChannelFlags,
+		&i.Policy2Signature,
+		&i.Policy2BlockHeight,
+		&i.Policy2DisableFlags,
 	)
 	return i, err
 }
@@ -2514,7 +2840,6 @@ func (q *Queries) GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByL
 	}
 	return items, nil
 }
-
 const getPruneEntriesForHeights = `-- name: GetPruneEntriesForHeights :many
 SELECT block_height, block_hash
 FROM graph_prune_log
@@ -2806,6 +3131,66 @@ func (q *Queries) GetV2DisabledSCIDs(ctx context.Context) ([][]byte, error) {
 			return nil, err
 		}
 		items = append(items, scid)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getVersionsByOutpoint = `-- name: GetVersionsByOutpoint :many
+SELECT version
+FROM graph_channels
+WHERE outpoint = $1
+ORDER BY version
+`
+
+func (q *Queries) GetVersionsByOutpoint(ctx context.Context, outpoint string) ([]int16, error) {
+	rows, err := q.db.QueryContext(ctx, getVersionsByOutpoint, outpoint)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int16
+	for rows.Next() {
+		var version int16
+		if err := rows.Scan(&version); err != nil {
+			return nil, err
+		}
+		items = append(items, version)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getVersionsBySCID = `-- name: GetVersionsBySCID :many
+SELECT version
+FROM graph_channels
+WHERE scid = $1
+ORDER BY version
+`
+
+func (q *Queries) GetVersionsBySCID(ctx context.Context, scid []byte) ([]int16, error) {
+	rows, err := q.db.QueryContext(ctx, getVersionsBySCID, scid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int16
+	for rows.Next() {
+		var version int16
+		if err := rows.Scan(&version); err != nil {
+			return nil, err
+		}
+		items = append(items, version)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

@@ -2187,9 +2187,12 @@ func (d *AuthenticatedGossiper) addNode(ctx context.Context,
 			err)
 	}
 
-	return d.cfg.Graph.AddNode(
-		ctx, models.NodeFromWireAnnouncement(msg), op...,
-	)
+	node, err := models.NodeFromWireAnnouncement(msg)
+	if err != nil {
+		return err
+	}
+
+	return d.cfg.Graph.AddNode(ctx, node, op...)
 }
 
 // isPremature decides whether a given network message has a block height+delta

@@ -641,6 +641,14 @@ func (c *ChannelGraph) HasV1Node(ctx context.Context,
 	return c.db.HasV1Node(ctx, nodePub)
 }
 
+// ForEachNode iterates through all nodes in the graph across all gossip
+// versions, yielding each unique node exactly once.
+func (c *ChannelGraph) ForEachNode(ctx context.Context,
+	cb func(*models.Node) error, reset func()) error {
+
+	return c.db.ForEachNode(ctx, cb, reset)
+}
+
 // ForEachChannel iterates through all channel edges stored within the graph
 // across all gossip versions.
 func (c *ChannelGraph) ForEachChannel(ctx context.Context,
@@ -907,7 +915,7 @@ func (c *VersionedGraph) FilterKnownChanIDs(ctx context.Context,
 		// alive, and we let it be added to the set of IDs to query
 		// our peer for.
 		err := c.db.MarkEdgeLive(
-			ctx, info.Version,
+			ctx, c.v,
 			info.ShortChannelID.ToUint64(),
 		)
 		// Since there is a chance that the edge could have been
@@ -1049,6 +1057,23 @@ func (c *VersionedGraph) DeleteChannelEdges(ctx context.Context,
 	return c.ChannelGraph.DeleteChannelEdges(
 		ctx, c.v, strictZombiePruning, markZombie, chanIDs...,
 	)
+}
+
+// MarkEdgeZombie marks a channel as a zombie for this version.
+func (c *VersionedGraph) MarkEdgeZombie(ctx context.Context, chanID uint64,
+	pubKey1, pubKey2 [33]byte) error {
+
+	return c.ChannelGraph.MarkEdgeZombie(
+		ctx, c.v, chanID, pubKey1, pubKey2,
+	)
+}
+
+// MarkEdgeLive clears an edge from our zombie index for this version, deeming
+// it as live.
+func (c *VersionedGraph) MarkEdgeLive(ctx context.Context,
+	chanID uint64) error {
+
+	return c.ChannelGraph.MarkEdgeLive(ctx, c.v, chanID)
 }
 
 // HasChannelEdge returns true if the database knows of a channel edge with the

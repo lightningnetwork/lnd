@@ -248,6 +248,11 @@
   `ChanUpdatesInHorizon`, `FilterKnownChanIDs`) work across gossip v1 and v2.
   Add `PreferHighest` fetch helpers and `GetVersions` queries so callers can
   retrieve channels without knowing which gossip version announced them.
+* Add [v2 model and store
+  support](https://github.com/lightningnetwork/lnd/pull/10657) to the graph
+  database: wire conversion helpers for node announcements, channel auth
+  proofs, edge info, and edge policies; `VersionedGraph` zombie wrappers;
+  SQL queries for v2 node traversal; and v3-only onion address filtering.
 * Updated waiting proof persistence for gossip upgrades by introducing typed
   waiting proof keys and payloads, with a DB migration to rewrite legacy
   waiting proof records to the new key/value format

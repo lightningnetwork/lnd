@@ -151,11 +151,11 @@ func ChanEdgePolicyFromWire(scid uint64,
 
 // IsNode1 returns true if this policy was announced by the channel's node_1.
 func (c *ChannelEdgePolicy) IsNode1() bool {
-	if c.Version == lnwire.GossipVersion1 {
-		return c.ChannelFlags&lnwire.ChanUpdateDirection == 0
+	if c.Version == lnwire.GossipVersion2 {
+		return !c.SecondPeer
 	}
 
-	return !c.SecondPeer
+	return c.ChannelFlags&lnwire.ChanUpdateDirection == 0
 }
 
 // IsDisabled determines whether the edge has the disabled bit set.

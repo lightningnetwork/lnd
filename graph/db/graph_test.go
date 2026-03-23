@@ -3000,13 +3000,11 @@ func TestFilterKnownChanIDsZombieRevival(t *testing.T) {
 
 	// Mark channel 1 and 2 as zombies.
 	err := graph.MarkEdgeZombie(
-		ctx, lnwire.GossipVersion1, scid1.ToUint64(),
-		[33]byte{}, [33]byte{},
+		ctx, scid1.ToUint64(), [33]byte{}, [33]byte{},
 	)
 	require.NoError(t, err)
 	err = graph.MarkEdgeZombie(
-		ctx, lnwire.GossipVersion1, scid2.ToUint64(),
-		[33]byte{}, [33]byte{},
+		ctx, scid2.ToUint64(), [33]byte{}, [33]byte{},
 	)
 	require.NoError(t, err)
 
@@ -5273,7 +5271,8 @@ func TestLightningNodePersistence(t *testing.T) {
 	require.True(t, ok)
 
 	// Convert the wire message to our internal node representation.
-	node := models.NodeFromWireAnnouncement(na)
+	node, err := models.NodeFromWireAnnouncement(na)
+	require.NoError(t, err)
 
 	// Persist the node to disk.
 	err = graph.AddNode(ctx, node)

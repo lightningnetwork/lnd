@@ -1087,6 +1087,23 @@ func (c *VersionedGraph) DeleteChannelEdges(ctx context.Context,
 	)
 }
 
+// MarkEdgeZombie marks a channel as a zombie for this version.
+func (c *VersionedGraph) MarkEdgeZombie(ctx context.Context, chanID uint64,
+	pubKey1, pubKey2 [33]byte) error {
+
+	return c.ChannelGraph.MarkEdgeZombie(
+		ctx, c.v, chanID, pubKey1, pubKey2,
+	)
+}
+
+// MarkEdgeLive clears an edge from our zombie index for this version, deeming
+// it as live.
+func (c *VersionedGraph) MarkEdgeLive(ctx context.Context,
+	chanID uint64) error {
+
+	return c.ChannelGraph.MarkEdgeLive(ctx, c.v, chanID)
+}
+
 // HasChannelEdge returns true if the database knows of a channel edge with the
 // passed channel ID and this graph's gossip version, and false otherwise. If it
 // is not found, then the zombie index is checked and its result is returned as

@@ -27,12 +27,13 @@ var (
 		"original record")
 )
 
-// MigrationConfig is a configuration struct that describes SQL migrations. Each
-// migration is associated with a specific schema version and a global database
-// version. Migrations are applied in the order of their global database
-// version. If a migration includes a non-nil MigrationFn, it is executed after
-// the SQL schema has been migrated to the corresponding schema version.
-type MigrationConfig struct {
+// MigrationDescriptor is a description struct that describes SQL migrations.
+// Each migration is associated with a specific schema version and a global
+// database version. Migrations are applied in the order of their global
+// database version. If a migration includes a non-nil MigrationFn, it is
+// executed after the SQL schema has been migrated to the corresponding schema
+// version.
+type MigrationDescriptor struct {
 	// Name is the name of the migration.
 	Name string
 
@@ -75,14 +76,14 @@ type MigrationSet struct {
 	// daemon.
 	LatestMigrationVersion uint
 
-	// Configs defines a list of migrations to be applied to the
+	// Descriptors defines a list of migrations to be applied to the
 	// database. Each migration is assigned a version number, determining
 	// its execution order.
 	// The schema version, tracked by golang-migrate, ensures migrations are
 	// applied to the correct schema. For migrations involving only schema
 	// changes, the migration function can be left nil. For custom
 	// migrations an implemented migration function is required.
-	Configs []MigrationConfig
+	Descriptors []MigrationDescriptor
 }
 
 // MigrationTarget is a functional option that can be passed to applyMigrations

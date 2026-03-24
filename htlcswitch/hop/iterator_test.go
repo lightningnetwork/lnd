@@ -103,6 +103,170 @@ func TestSphinxHopIteratorForwardingInstructions(t *testing.T) {
 	}
 }
 
+// TestDecodeHopIterator tests that DecodeHopIterator can successfully process
+// a real onion packet constructed by the sphinx library and return a valid hop
+// iterator with the correct forwarding information. It also tests various error
+// cases such as truncated packets and corrupted HMACs.
+func TestDecodeHopIterator(t *testing.T) {
+	t.Parallel()
+
+	// Generate a fresh private key for our onion processor (the
+	// "receiving" node).
+	receiverPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	sphinxRouter := sphinx.NewRouter(
+		&sphinx.PrivKeyECDH{PrivKey: receiverPrivKey},
+		sphinx.NewNoOpReplayLog(),
+	)
+	require.NoError(t, sphinxRouter.Start())
+	defer sphinxRouter.Stop()
+
+	processor := NewOnionProcessor(sphinxRouter)
+
+	// Session key used by the "sender" to construct the onion.
+	sessionKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	// Build a TLV payload for the final hop with amount and CLTV.
+	var (
+		fwdAmt       uint64              = 500_000
+		outgoingCltv uint32              = 144
+		incomingCltv uint32              = 200
+		incomingAmt  lnwire.MilliSatoshi = 600_000
+		noBlinding   lnwire.BlindingPointRecord
+	)
+	var payloadBuf bytes.Buffer
+	tlvRecords := []tlv.Record{
+		record.NewAmtToFwdRecord(&fwdAmt),
+		record.NewLockTimeRecord(&outgoingCltv),
+	}
+	tlvStream, err := tlv.NewStream(tlvRecords...)
+	require.NoError(t, err)
+	require.NoError(t, tlvStream.Encode(&payloadBuf))
+
+	// Build a one-hop payment path to the receiver.
+	var path sphinx.PaymentPath
+	path[0] = sphinx.OnionHop{
+		NodePub: *receiverPrivKey.PubKey(),
+		HopPayload: sphinx.HopPayload{
+			Type:    sphinx.PayloadTLV,
+			Payload: payloadBuf.Bytes(),
+		},
+	}
+
+	// Create the onion packet.
+	rHash := [32]byte{0xaa, 0xbb, 0xcc}
+	onionPkt, err := sphinx.NewOnionPacket(
+		&path, sessionKey, rHash[:],
+		sphinx.DeterministicPacketFiller,
+	)
+	require.NoError(t, err)
+
+	// serializeOnion is a helper that encodes an onion packet to bytes.
+	serializeOnion := func(pkt *sphinx.OnionPacket) []byte {
+		var buf bytes.Buffer
+		require.NoError(t, pkt.Encode(&buf))
+		return buf.Bytes()
+	}
+
+	validOnionBytes := serializeOnion(onionPkt)
+
+	tests := []struct {
+		name         string
+		onionBytes   []byte
+		rHash        []byte
+		expectedFail lnwire.FailCode
+		checkPayload bool
+	}{
+		{
+			name:         "valid onion",
+			onionBytes:   validOnionBytes,
+			rHash:        rHash[:],
+			expectedFail: lnwire.CodeNone,
+			checkPayload: true,
+		},
+		{
+			name:         "truncated packet",
+			onionBytes:   validOnionBytes[:10],
+			rHash:        rHash[:],
+			expectedFail: lnwire.CodeInvalidOnionKey,
+		},
+		{
+			name:         "empty reader",
+			onionBytes:   []byte{},
+			rHash:        rHash[:],
+			expectedFail: lnwire.CodeInvalidOnionKey,
+		},
+		{
+			name: "corrupted HMAC",
+			onionBytes: func() []byte {
+				corrupted := make([]byte, len(validOnionBytes))
+				copy(corrupted, validOnionBytes)
+				// Flip a byte in the HMAC (last 32 bytes of
+				// the packet).
+				corrupted[len(corrupted)-1] ^= 0xff
+
+				return corrupted
+			}(),
+			rHash:        rHash[:],
+			expectedFail: lnwire.CodeInvalidOnionHmac,
+		},
+		{
+			name:         "wrong payment hash",
+			onionBytes:   validOnionBytes,
+			rHash:        bytes.Repeat([]byte{0xff}, 32),
+			expectedFail: lnwire.CodeInvalidOnionHmac,
+		},
+		{
+			name: "invalid version byte",
+			onionBytes: func() []byte {
+				corrupted := make([]byte, len(validOnionBytes))
+				copy(corrupted, validOnionBytes)
+				// Set an invalid version (first byte).
+				corrupted[0] = 0xff
+
+				return corrupted
+			}(),
+			rHash:        rHash[:],
+			expectedFail: lnwire.CodeInvalidOnionVersion,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			reader := bytes.NewReader(tc.onionBytes)
+			iterator, failCode := processor.DecodeHopIterator(
+				reader, tc.rHash, incomingCltv, incomingAmt,
+				noBlinding,
+			)
+
+			require.Equal(t, tc.expectedFail, failCode)
+
+			if !tc.checkPayload {
+				return
+			}
+
+			require.NotNil(t, iterator)
+
+			payload, role, err := iterator.HopPayload()
+			require.NoError(t, err)
+			require.Equal(t, RouteRoleCleartext, role)
+
+			fwdInfo := payload.ForwardingInfo()
+			require.Equal(
+				t, lnwire.MilliSatoshi(fwdAmt),
+				fwdInfo.AmountToForward,
+			)
+			require.Equal(
+				t, outgoingCltv, fwdInfo.OutgoingCTLV,
+			)
+		})
+	}
+}
+
 // TestForwardingAmountCalc tests calculation of forwarding amounts from the
 // hop's forwarding parameters.
 func TestForwardingAmountCalc(t *testing.T) {

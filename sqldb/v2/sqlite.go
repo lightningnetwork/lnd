@@ -251,9 +251,19 @@ func (s *SqliteStore) backupAndMigrate(mig *migrate.Migrate,
 	return mig.Up()
 }
 
-// ExecuteMigrations runs migrations for the sqlite database, depending on the
+// ExecuteMigrations runs migrations for the sqlite database using the default
+// production migration target.
+func (s *SqliteStore) ExecuteMigrations(set MigrationSet) error {
+	if s.Config.SkipMigrations {
+		return nil
+	}
+
+	return s.executeMigrations(s.backupAndMigrate, set)
+}
+
+// executeMigrations runs migrations for the sqlite database, depending on the
 // target given, either all migrations or up to a given version.
-func (s *SqliteStore) ExecuteMigrations(target MigrationTarget,
+func (s *SqliteStore) executeMigrations(target MigrationTarget,
 	set MigrationSet) error {
 
 	driver, err := sqlite_migrate.WithInstance(
@@ -283,14 +293,6 @@ func (s *SqliteStore) ExecuteMigrations(target MigrationTarget,
 	return applyMigrations(
 		sqliteFS, driver, set.SQLFileDirectory, "sqlite", target, opts,
 	)
-}
-
-func (s *SqliteStore) DefaultTarget() MigrationTarget {
-	return s.backupAndMigrate
-}
-
-func (s *SqliteStore) SkipMigrations() bool {
-	return s.Config.SkipMigrations
 }
 
 // GetSchemaVersion returns the current schema version of the SQLite database.

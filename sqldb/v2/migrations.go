@@ -96,29 +96,11 @@ type MigrationTarget func(mig *migrate.Migrate,
 
 // MigrationExecutor is an interface that abstracts the migration functionality.
 type MigrationExecutor interface {
-	// ExecuteMigrations runs database migrations up to the specified target
-	// version or all migrations if no target is specified. A migration may
-	// include a schema change, a custom migration function, or both.
-	// Developers must ensure that migrations are defined in the correct
-	// order. Migration details are stored in the global variable
-	// migrationConfig.
-	ExecuteMigrations(target MigrationTarget, set MigrationSet) error
-
-	// GetSchemaVersion returns the current schema version of the database.
-	GetSchemaVersion() (int, bool, error)
-
-	// SetSchemaVersion sets the schema version of the database.
-	//
-	// NOTE: This alters the internal database schema tracker. USE WITH
-	// CAUTION!!!
-	SetSchemaVersion(version int, dirty bool) error
-
-	// DefaultTarget returns the default migration target.
-	DefaultTarget() MigrationTarget
-
-	// SkipMigrations indicates if the SQL and corresponding code migrations
-	// will be skipped.
-	SkipMigrations() bool
+	// ExecuteMigrations runs database migrations for the given migration
+	// set using the executor's default production migration target. A
+	// migration may include a schema change, a custom migration function,
+	// or both.
+	ExecuteMigrations(set MigrationSet) error
 }
 
 var (
@@ -403,13 +385,8 @@ func (t *replacerFile) Close() error {
 // ApplyAllMigrations applies both the SQLC and custom in-code migrations to the
 // SQLite database.
 func ApplyAllMigrations(executor MigrationExecutor, sets []MigrationSet) error {
-	// Execute migrations unless configured to skip them.
-	if executor.SkipMigrations() {
-		return nil
-	}
-
 	for _, set := range sets {
-		err := executor.ExecuteMigrations(executor.DefaultTarget(), set)
+		err := executor.ExecuteMigrations(set)
 		if err != nil {
 			return fmt.Errorf("error applying migrations: %w", err)
 		}

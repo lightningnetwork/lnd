@@ -197,7 +197,7 @@ func NewTestPostgresDBWithVersion(t testing.TB, fixture *TestPgFixture,
 	store, err := NewPostgresStore(storeCfg)
 	require.NoError(t, err)
 
-	err = store.ExecuteMigrations(TargetVersion(version), sets)
+	err = store.executeMigrations(TargetVersion(version), sets)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

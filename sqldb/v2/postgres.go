@@ -167,9 +167,19 @@ func errPostgresMigration(err error) error {
 	return fmt.Errorf("error creating postgres migration: %w", err)
 }
 
-// ExecuteMigrations runs migrations for the Postgres database, depending on the
-// target given, either all migrations or up to a given version.
-func (s *PostgresStore) ExecuteMigrations(target MigrationTarget,
+// ExecuteMigrations runs migrations for the Postgres database using the
+// default production migration target.
+func (s *PostgresStore) ExecuteMigrations(set MigrationSet) error {
+	if s.cfg.SkipMigrations {
+		return nil
+	}
+
+	return s.executeMigrations(TargetLatest, set)
+}
+
+// executeMigrations runs migrations for the Postgres database, depending on
+// the target given, either all migrations or up to a given version.
+func (s *PostgresStore) executeMigrations(target MigrationTarget,
 	set MigrationSet) error {
 
 	dbName, err := getDatabaseNameFromDSN(s.cfg.Dsn)
@@ -230,12 +240,4 @@ func (s *PostgresStore) SetSchemaVersion(version int, dirty bool) error {
 	}
 
 	return driver.SetVersion(version, dirty)
-}
-
-func (s *PostgresStore) DefaultTarget() MigrationTarget {
-	return TargetLatest
-}
-
-func (s *PostgresStore) SkipMigrations() bool {
-	return s.cfg.SkipMigrations
 }

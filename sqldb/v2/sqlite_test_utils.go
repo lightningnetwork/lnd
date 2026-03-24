@@ -75,7 +75,7 @@ func NewTestSqliteDBWithVersion(t *testing.T, set MigrationSet,
 	}, dbFileName)
 	require.NoError(t, err)
 
-	err = sqlDB.ExecuteMigrations(TargetVersion(version), set)
+	err = sqlDB.executeMigrations(TargetVersion(version), set)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

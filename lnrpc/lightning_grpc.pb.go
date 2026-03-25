@@ -432,6 +432,13 @@ type LightningClient interface {
 	// If the htlc has no final resolution yet, a NotFound grpc status code is
 	// returned.
 	LookupHtlcResolution(ctx context.Context, in *LookupHtlcResolutionRequest, opts ...grpc.CallOption) (*LookupHtlcResolutionResponse, error)
+	// InjectGossipMessage injects a raw gossip message (e.g. a ChannelUpdate)
+	// into this node's gossiper for validation and processing. This is used by
+	// lightweight nodes that use this node as a remote graph source: when they
+	// learn about updated channel policies through payment failures, they push
+	// those updates back so the graph source can validate, apply, and
+	// re-broadcast them to its peers.
+	InjectGossipMessage(ctx context.Context, in *InjectGossipMessageRequest, opts ...grpc.CallOption) (*InjectGossipMessageResponse, error)
 }
 
 type lightningClient struct {
@@ -1403,6 +1410,15 @@ func (c *lightningClient) LookupHtlcResolution(ctx context.Context, in *LookupHt
 	return out, nil
 }
 
+func (c *lightningClient) InjectGossipMessage(ctx context.Context, in *InjectGossipMessageRequest, opts ...grpc.CallOption) (*InjectGossipMessageResponse, error) {
+	out := new(InjectGossipMessageResponse)
+	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/InjectGossipMessage", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LightningServer is the server API for Lightning service.
 // All implementations must embed UnimplementedLightningServer
 // for forward compatibility
@@ -1821,6 +1837,13 @@ type LightningServer interface {
 	// If the htlc has no final resolution yet, a NotFound grpc status code is
 	// returned.
 	LookupHtlcResolution(context.Context, *LookupHtlcResolutionRequest) (*LookupHtlcResolutionResponse, error)
+	// InjectGossipMessage injects a raw gossip message (e.g. a ChannelUpdate)
+	// into this node's gossiper for validation and processing. This is used by
+	// lightweight nodes that use this node as a remote graph source: when they
+	// learn about updated channel policies through payment failures, they push
+	// those updates back so the graph source can validate, apply, and
+	// re-broadcast them to its peers.
+	InjectGossipMessage(context.Context, *InjectGossipMessageRequest) (*InjectGossipMessageResponse, error)
 	mustEmbedUnimplementedLightningServer()
 }
 
@@ -2040,6 +2063,9 @@ func (UnimplementedLightningServer) ListAliases(context.Context, *ListAliasesReq
 }
 func (UnimplementedLightningServer) LookupHtlcResolution(context.Context, *LookupHtlcResolutionRequest) (*LookupHtlcResolutionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method LookupHtlcResolution not implemented")
+}
+func (UnimplementedLightningServer) InjectGossipMessage(context.Context, *InjectGossipMessageRequest) (*InjectGossipMessageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InjectGossipMessage not implemented")
 }
 func (UnimplementedLightningServer) mustEmbedUnimplementedLightningServer() {}
 
@@ -3394,6 +3420,24 @@ func _Lightning_LookupHtlcResolution_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Lightning_InjectGossipMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InjectGossipMessageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).InjectGossipMessage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/InjectGossipMessage",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).InjectGossipMessage(ctx, req.(*InjectGossipMessageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Lightning_ServiceDesc is the grpc.ServiceDesc for Lightning service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3628,6 +3672,10 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "LookupHtlcResolution",
 			Handler:    _Lightning_LookupHtlcResolution_Handler,
+		},
+		{
+			MethodName: "InjectGossipMessage",
+			Handler:    _Lightning_InjectGossipMessage_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

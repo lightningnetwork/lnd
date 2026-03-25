@@ -185,7 +185,9 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 				cfg.MinConfs, lnwallet.DefaultAccountName,
 			)
 		},
-		Graph:       autopilot.ChannelGraphFromDatabase(svr.v1Graph),
+		Graph: autopilot.ChannelGraphFromDatabase(
+			svr.graphSource,
+		),
 		Constraints: atplConstraints,
 		ConnectToPeer: func(target *btcec.PublicKey, addrs []net.Addr) (bool, error) {
 			// First, we'll check if we're already connected to the

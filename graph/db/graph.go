@@ -105,6 +105,19 @@ func (c *ChannelGraph) GraphCacheStatus() GraphCacheStatus {
 	}
 }
 
+// ApplyCacheUpdate applies an update function to the graph cache. If the
+// cache is still being populated, the update is buffered and replayed once
+// population completes. This is used by the remote graph subscription
+// handler to update the cache with topology changes from the remote graph
+// source.
+func (c *ChannelGraph) ApplyCacheUpdate(update func(cache *GraphCache)) {
+	if c.cache == nil {
+		return
+	}
+
+	c.cache.applyUpdate(update)
+}
+
 // Start kicks off any goroutines required for the ChannelGraph to function.
 // If the graph cache is enabled, then it will be populated with the contents of
 // the database.

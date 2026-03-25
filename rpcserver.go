@@ -588,6 +588,10 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/InjectGossipMessage": {{
+			Entity: "info",
+			Action: "write",
+		}},
 		"/lnrpc.Lightning/ListAliases": {{
 			Entity: "offchain",
 			Action: "read",
@@ -704,11 +708,11 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 	invoiceHtlcModifier *invoices.HtlcModificationInterceptor) error {
 
 	// Set up router rpc backend.
-	selfNode, err := s.v1Graph.SourceNode(ctx)
+	selfNode, err := s.graphSource.SourceNode(ctx)
 	if err != nil {
 		return err
 	}
-	graph := s.v1Graph
+	graph := s.graphSource
 
 	routerBackend := &routerrpc.RouterBackend{
 		SelfNode: selfNode.PubKeyBytes,
@@ -4791,6 +4795,55 @@ func (r *rpcServer) LookupHtlcResolution(
 	}, nil
 }
 
+// InjectGossipMessage accepts a raw Lightning gossip message (wire format) and
+// feeds it into this node's gossiper for validation and processing. This
+// allows lightweight nodes using this node as a remote graph source to push
+// back channel updates they discover through payment failures.
+func (r *rpcServer) InjectGossipMessage(ctx context.Context,
+	in *lnrpc.InjectGossipMessageRequest) (
+	*lnrpc.InjectGossipMessageResponse, error) {
+
+	if len(in.Msg) == 0 {
+		return nil, status.Error(codes.InvalidArgument,
+			"gossip message bytes required")
+	}
+
+	// Deserialize the wire message.
+	msg, err := lnwire.ReadMessage(bytes.NewReader(in.Msg), 0)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"unable to decode gossip message: %v", err)
+	}
+
+	// Only ChannelUpdate messages are currently supported.
+	switch msg.(type) {
+	case *lnwire.ChannelUpdate1:
+	default:
+		return nil, status.Errorf(codes.InvalidArgument,
+			"unsupported gossip message type: %T", msg)
+	}
+
+	// Feed the message to the gossiper as if it came from a remote peer.
+	// We use ProcessLocalAnnouncement which does not require a peer
+	// reference. The gossiper will validate the message (checking the
+	// signature, timestamp, etc.) and if valid, apply it to the graph
+	// and broadcast it to peers.
+	errChan := r.server.authGossiper.ProcessLocalAnnouncement(msg)
+
+	select {
+	case err := <-errChan:
+		if err != nil {
+			return nil, status.Errorf(codes.Internal,
+				"gossiper rejected message: %v", err)
+		}
+
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	return &lnrpc.InjectGossipMessageResponse{}, nil
+}
+
 // ListChannels returns a description of all the open channels that this node
 // is a participant in.
 func (r *rpcServer) ListChannels(ctx context.Context,
@@ -5071,7 +5124,7 @@ func createRPCOpenChannel(ctx context.Context, r *rpcServer,
 
 	// Look up our channel peer's node alias if the caller requests it.
 	if peerAliasLookup {
-		peerAlias, err := r.server.v1Graph.LookupAlias(ctx, nodePub)
+		peerAlias, err := r.server.graphSource.LookupAlias(ctx, nodePub)
 		if err != nil {
 			peerAlias = fmt.Sprintf("unable to lookup "+
 				"peer alias: %v", err)
@@ -6525,7 +6578,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		NodeSigner:        r.server.nodeSigner,
 		DefaultCLTVExpiry: defaultDelta,
 		ChanDB:            r.server.chanStateDB,
-		Graph:             r.server.v1Graph,
+		Graph:             r.server.graphSource,
 		GenInvoiceFeatures: func() *lnwire.FeatureVector {
 			v := r.server.featureMgr.Get(feature.SetInvoice)
 
@@ -6957,11 +7010,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 		}
 	}
 
-	// Obtain the pointer to the V1 channel graph. This will provide a
-	// consistent view of the graph due to bolt db's transactional model.
-	//
-	// TODO(elle): switch to a cross-version graph view when available.
-	graph := r.server.v1Graph
+	graph := r.server.graphSource
 
 	// First iterate through all the known nodes (connected or unconnected
 	// within the graph), collating their current state into the RPC
@@ -7152,15 +7201,14 @@ func (r *rpcServer) GetNodeMetrics(ctx context.Context,
 		BetweennessCentrality: make(map[string]*lnrpc.FloatMetric),
 	}
 
-	// Obtain the pointer to the V1 channel graph, this will provide a
-	// consistent view of the graph due to bolt db's transactional model.
-	//
-	// TODO(elle): switch to a cross-version graph view when available.
-	graph := r.server.v1Graph
-
+	// Obtain the pointer to the global singleton channel graph, this will
+	// provide a consistent view of the graph due to bolt db's
+	// transactional model.
 	// Calculate betweenness centrality if requested. Note that depending on the
 	// graph size, this may take up to a few minutes.
-	channelGraph := autopilot.ChannelGraphFromDatabase(graph)
+	channelGraph := autopilot.ChannelGraphFromDatabase(
+		r.server.graphSource,
+	)
 	centralityMetric, err := autopilot.NewBetweennessCentralityMetric(
 		runtime.NumCPU(),
 	)
@@ -7196,13 +7244,13 @@ func (r *rpcServer) GetNodeMetrics(ctx context.Context,
 func (r *rpcServer) GetChanInfo(ctx context.Context,
 	in *lnrpc.ChanInfoRequest) (*lnrpc.ChannelEdge, error) {
 
-	graph := r.server.graphDB
-
 	var (
 		edgeInfo     *models.ChannelEdgeInfo
 		edge1, edge2 *models.ChannelEdgePolicy
 		err          error
 	)
+
+	graph := r.server.graphSource
 
 	switch {
 	case in.ChanId != 0:
@@ -7250,8 +7298,6 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 			"include_channels")
 	}
 
-	graph := r.server.v1Graph
-
 	// First, parse the hex-encoded public key into a full in-memory public
 	// key object we can work with for querying.
 	pubKey, err := route.NewVertexFromStr(in.PubKey)
@@ -7262,6 +7308,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	// With the public key decoded, attempt to fetch the node corresponding
 	// to this public key. If the node cannot be found, then an error will
 	// be returned.
+	graph := r.server.graphSource
 	node, err := graph.FetchNode(ctx, pubKey)
 	switch {
 	case errors.Is(err, graphdb.ErrGraphNodeNotFound):
@@ -7370,8 +7417,7 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	_ *lnrpc.NetworkInfoRequest) (*lnrpc.NetworkInfo, error) {
 
-	// TODO(elle): switch to a cross-version graph view when available.
-	graph := r.server.v1Graph
+	graph := r.server.graphSource
 
 	var (
 		numNodes             uint32
@@ -7464,7 +7510,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	}
 
 	// Query the graph for the current number of zombie channels.
-	numZombies, err := graph.NumZombies(ctx)
+	numZombies, err := r.server.v1Graph.NumZombies(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -8018,14 +8064,13 @@ const feeBase float64 = 1000000
 func (r *rpcServer) FeeReport(ctx context.Context,
 	_ *lnrpc.FeeReportRequest) (*lnrpc.FeeReportResponse, error) {
 
-	channelGraph := r.server.v1Graph
-	selfNode, err := channelGraph.SourceNode(ctx)
+	selfNode, err := r.server.graphSource.SourceNode(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	var feeReports []*lnrpc.ChannelFeeReport
-	err = channelGraph.ForEachNodeChannel(
+	err = r.server.graphSource.ForEachNodeChannel(
 		ctx, selfNode.PubKeyBytes,
 		func(chanInfo *models.ChannelEdgeInfo,
 			edgePolicy, _ *models.ChannelEdgePolicy) error {
@@ -8407,7 +8452,7 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 			return "", err
 		}
 
-		peer, err := r.server.v1Graph.FetchNode(ctx, vertex)
+		peer, err := r.server.graphSource.FetchNode(ctx, vertex)
 		if err != nil {
 			return "", err
 		}

@@ -48,6 +48,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/graph/sources"
 	"github.com/lightningnetwork/lnd/healthcheck"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -322,8 +323,10 @@ type server struct {
 
 	fundingMgr *funding.Manager
 
-	graphDB *graphdb.ChannelGraph
-	v1Graph *graphdb.VersionedGraph
+	graphDB           *graphdb.ChannelGraph
+	graphSource       graphdb.GraphSource
+	v1Graph           *graphdb.VersionedGraph
+	remoteGraphClient *sources.RPCClient
 
 	chanStateDB *channeldb.ChannelStateDB
 
@@ -672,6 +675,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		NoExperimentalAccountability: cfg.ProtocolOptions.NoExpAccountability(),
 		NoQuiescence:                 cfg.ProtocolOptions.NoQuiescence(),
 		NoRbfCoopClose:               !cfg.ProtocolOptions.RbfCoopClose,
+		NoGossipQueries:              cfg.Gossip.NoSync,
 	})
 	if err != nil {
 		return nil, err
@@ -694,20 +698,111 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		dbs.GraphDB, lnwire.GossipVersion1,
 	)
 
-	addrSource := channeldb.NewMultiAddrSource(dbs.ChanStateDB, v1Graph)
+	var (
+		graphSource       graphdb.GraphSource
+		remoteGraphClient *sources.RPCClient
+	)
+
+	localSource := graphdb.NewDBGraphSource(dbs.GraphDB)
+
+	if cfg.RemoteGraph.Enable {
+		selfPub := route.NewVertex(nodeKeyECDH.PubKey())
+
+		status := dbs.GraphDB.GraphCacheStatus()
+		if status == graphdb.GraphCacheStatusDisabled {
+			return nil, fmt.Errorf("remote graph requires the " +
+				"graph cache to be enabled")
+		}
+
+		graphDB := dbs.GraphDB
+		remoteGraphClient = sources.NewRPCClient(
+			&sources.RPCConfig{
+				RPCHost:      cfg.RemoteGraph.RPCHost,
+				MacaroonPath: cfg.RemoteGraph.MacaroonPath,
+				TLSCertPath:  cfg.RemoteGraph.TLSCertPath,
+				Timeout:      cfg.RemoteGraph.Timeout,
+				ParseAddress: func(
+					addr string,
+				) (net.Addr, error) {
+
+					return parseAddr(
+						addr, cfg.net,
+					)
+				},
+			},
+			&sources.TopologyCallbacks{
+				OnChannel: func(info *models.CachedEdgeInfo) {
+					graphDB.ApplyCacheUpdate(
+						func(c *graphdb.GraphCache) {
+							c.AddChannel(
+								info, nil, nil,
+							)
+						},
+					)
+				},
+				OnChannelUpdate: func(
+					policy *models.CachedEdgePolicy,
+					fromNode, toNode route.Vertex) {
+
+					graphDB.ApplyCacheUpdate(
+						func(c *graphdb.GraphCache) {
+							c.UpdatePolicy(
+								policy,
+								fromNode,
+								toNode,
+							)
+						},
+					)
+				},
+				OnNodeUpdate: func(
+					node route.Vertex,
+					features *lnwire.FeatureVector) {
+
+					graphDB.ApplyCacheUpdate(
+						func(c *graphdb.GraphCache) {
+							c.AddNodeFeatures(
+								node, features,
+							)
+						},
+					)
+				},
+				OnChannelClosed: func(chanID uint64) {
+					graphDB.ApplyCacheUpdate(
+						func(c *graphdb.GraphCache) {
+							c.RemoveChannelByID(
+								chanID,
+							)
+						},
+					)
+				},
+			},
+		)
+
+		graphSource = sources.NewMux(
+			localSource, remoteGraphClient, selfPub,
+		)
+	} else {
+		graphSource = localSource
+	}
+
+	addrSource := channeldb.NewMultiAddrSource(dbs.ChanStateDB, graphSource)
 
 	s := &server{
-		cfg:            cfg,
-		implCfg:        implCfg,
-		graphDB:        dbs.GraphDB,
-		v1Graph:        v1Graph,
-		chanStateDB:    dbs.ChanStateDB.ChannelStateDB(),
-		addrSource:     addrSource,
-		miscDB:         dbs.ChanStateDB,
-		invoicesDB:     dbs.InvoiceDB,
-		paymentsDB:     dbs.PaymentsDB,
-		cc:             cc,
-		sigPool:        lnwallet.NewSigPool(cfg.Workers.Sig, cc.Signer),
+		cfg:               cfg,
+		implCfg:           implCfg,
+		graphDB:           dbs.GraphDB,
+		graphSource:       graphSource,
+		v1Graph:           v1Graph,
+		remoteGraphClient: remoteGraphClient,
+		chanStateDB:       dbs.ChanStateDB.ChannelStateDB(),
+		addrSource:        addrSource,
+		miscDB:            dbs.ChanStateDB,
+		invoicesDB:        dbs.InvoiceDB,
+		paymentsDB:        dbs.PaymentsDB,
+		cc:                cc,
+		sigPool: lnwallet.NewSigPool(
+			cfg.Workers.Sig, cc.Signer,
+		),
 		writePool:      writePool,
 		readPool:       readPool,
 		chansToRestore: chansToRestore,
@@ -863,7 +958,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		IsChannelActive:          s.htlcSwitch.HasActiveLink,
 		ApplyChannelUpdate:       s.applyChannelUpdate,
 		DB:                       s.chanStateDB,
-		Graph:                    dbs.GraphDB,
+		Graph:                    s.graphSource,
 	}
 
 	chanStatusMgr, err := netann.NewChanStatusManager(chanStatusMgrCfg)
@@ -1011,12 +1106,12 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		MinProbability: routingConfig.MinRouteProbability,
 	}
 
-	sourceNode, err := s.v1Graph.SourceNode(ctx)
+	sourceNode, err := s.graphSource.SourceNode(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error getting source node: %w", err)
 	}
 	paymentSessionSource := &routing.SessionSource{
-		GraphSessionFactory: s.v1Graph,
+		GraphSessionFactory: s.graphSource,
 		SourceNode:          sourceNode,
 		MissionControl:      s.defaultMC,
 		GetLink:             s.htlcSwitch.GetLinkByShortID,
@@ -1040,6 +1135,28 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		AssumeChannelValid:  cfg.Routing.AssumeChannelValid,
 		StrictZombiePruning: strictPruning,
 		IsAlias:             aliasmgr.IsAlias,
+		GraphSource:         s.graphSource,
+		OnRemoteChannelUpdate: func(
+			msg *lnwire.ChannelUpdate1) {
+
+			if s.remoteGraphClient == nil {
+				return
+			}
+
+			ctx, cancel := context.WithTimeout(
+				context.Background(), 5*time.Second,
+			)
+			defer cancel()
+
+			err := s.remoteGraphClient.InjectGossipMessage(
+				ctx, msg,
+			)
+			if err != nil {
+				srvrLog.Warnf("Failed to propagate "+
+					"channel update to remote "+
+					"graph source: %v", err)
+			}
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create graph builder: %w", err)
@@ -1125,6 +1242,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		FilterConcurrency:       cfg.Gossip.FilterConcurrency,
 		BanThreshold:            cfg.Gossip.BanThreshold,
 		PeerMsgRateBytes:        cfg.Gossip.PeerMsgRateBytes,
+		NoGossipSync:            cfg.Gossip.NoSync,
 	}, nodeKeyDesc)
 
 	accessCfg := &accessManConfig{
@@ -1157,7 +1275,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 				*models.ChannelEdgePolicy) error,
 			reset func()) error {
 
-			return s.v1Graph.ForEachNodeChannel(
+			return s.graphSource.ForEachNodeChannel(
 				ctx, selfVertex,
 				func(c *models.ChannelEdgeInfo,
 					e *models.ChannelEdgePolicy,
@@ -1420,7 +1538,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	deleteAliasEdge := func(scid lnwire.ShortChannelID) (
 		*models.ChannelEdgePolicy, error) {
 
-		info, e1, e2, err := s.graphDB.FetchChannelEdgesByID(
+		info, e1, e2, err := s.graphSource.FetchChannelEdgesByID(
 			context.TODO(), scid.ToUint64(),
 		)
 		if errors.Is(err, graphdb.ErrEdgeNotFound) {
@@ -2330,6 +2448,14 @@ func (s *server) Start(ctx context.Context) error {
 			return
 		}
 
+		if s.remoteGraphClient != nil {
+			cleanup = cleanup.add(s.remoteGraphClient.Stop)
+			if err := s.remoteGraphClient.Start(); err != nil {
+				startErr = err
+				return
+			}
+		}
+
 		cleanup = cleanup.add(s.graphBuilder.Stop)
 		if err := s.graphBuilder.Start(); err != nil {
 			startErr = err
@@ -2683,6 +2809,12 @@ func (s *server) Stop() error {
 		if err := s.graphDB.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop graphDB %v", err)
 		}
+		if s.remoteGraphClient != nil {
+			if err := s.remoteGraphClient.Stop(); err != nil {
+				srvrLog.Warnf("failed to stop remote graph "+
+					"client: %v", err)
+			}
+		}
 		if err := s.chainArb.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop chainArb: %v", err)
 		}
@@ -2991,7 +3123,7 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 	// First, we'll create an instance of the ChannelGraphBootstrapper as
 	// this can be used by default if we've already partially seeded the
 	// network.
-	chanGraph := autopilot.ChannelGraphFromDatabase(s.v1Graph)
+	chanGraph := autopilot.ChannelGraphFromDatabase(s.graphSource)
 	graphBootstrapper, err := discovery.NewGraphBootstrapper(
 		chanGraph, s.cfg.Bitcoin.IsLocalNetwork(),
 	)
@@ -3492,7 +3624,7 @@ func (s *server) updateAndBroadcastSelfNode(ctx context.Context,
 	// Update the on-disk version of our announcement.
 	// Load and modify self node istead of creating anew instance so we
 	// don't risk overwriting any existing values.
-	selfNode, err := s.v1Graph.SourceNode(ctx)
+	selfNode, err := s.graphSource.SourceNode(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to get current source node: %w", err)
 	}
@@ -3628,9 +3760,7 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 		return nil
 	}
 
-	// TODO(elle): for now, we only fetch our V1 channels. This should be
-	//  updated to fetch channels across all versions.
-	err = s.v1Graph.ForEachSourceNodeChannel(
+	err = s.graphSource.ForEachSourceNodeChannel(
 		ctx, forEachSrcNodeChan, func() {
 			clear(graphAddrs)
 		},
@@ -4436,9 +4566,10 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		Switch:                  s.htlcSwitch,
 		InterceptSwitch:         s.interceptableSwitch,
 		ChannelDB:               s.chanStateDB,
-		ChannelGraph:            s.graphDB,
+		ChannelGraph:            s.graphSource,
 		ChainArb:                s.chainArb,
 		AuthGossiper:            s.authGossiper,
+		NoGossipSync:            s.cfg.Gossip.NoSync,
 		ChanStatusMgr:           s.chanStatusMgr,
 		ChainIO:                 s.cc.ChainIO,
 		FeeEstimator:            s.cc.FeeEstimator,
@@ -5273,7 +5404,7 @@ func (s *server) fetchNodeAdvertisedAddrs(ctx context.Context,
 		return nil, err
 	}
 
-	node, err := s.v1Graph.FetchNode(ctx, vertex)
+	node, err := s.graphSource.FetchNode(ctx, vertex)
 	if err != nil {
 		return nil, err
 	}
@@ -5698,7 +5829,7 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 		nodeLastUpdate = time.Now()
 	)
 
-	srcNode, err := s.v1Graph.SourceNode(ctx)
+	srcNode, err := s.graphSource.SourceNode(ctx)
 	switch {
 	case err == nil:
 		// If we have a source node persisted in the DB already, then we

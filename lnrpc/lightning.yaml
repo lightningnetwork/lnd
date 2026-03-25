@@ -176,3 +176,6 @@ http:
       get: "/v1/aliases/list"
     - selector: lnrpc.Lightning.LookupHtlcResolution
       get: "/v1/htlc-resolution/{chan_id}/{htlc_index}"
+    - selector: lnrpc.Lightning.InjectGossipMessage
+      post: "/v1/graph/inject"
+      body: "*"

@@ -81,6 +81,11 @@ type Config struct {
 	// messaging.
 	NoOnionMessages bool
 
+	// NoGossipQueries unsets the gossip queries feature bit. This is set
+	// when gossip syncing is disabled (e.g. when using a remote graph
+	// source).
+	NoGossipQueries bool
+
 	// CustomFeatures is a set of custom features to advertise in each
 	// set.
 	CustomFeatures map[Set][]lnwire.FeatureBit
@@ -228,6 +233,10 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		if cfg.NoOnionMessages {
 			raw.Unset(lnwire.OnionMessagesOptional)
 			raw.Unset(lnwire.OnionMessagesRequired)
+		}
+		if cfg.NoGossipQueries {
+			raw.Unset(lnwire.GossipQueriesOptional)
+			raw.Unset(lnwire.GossipQueriesRequired)
 		}
 
 		for _, custom := range cfg.CustomFeatures[set] {

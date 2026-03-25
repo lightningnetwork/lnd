@@ -623,6 +623,17 @@ service Lightning {
     */
     rpc LookupHtlcResolution (LookupHtlcResolutionRequest)
         returns (LookupHtlcResolutionResponse);
+
+    /*
+    InjectGossipMessage injects a raw gossip message (e.g. a ChannelUpdate)
+    into this node's gossiper for validation and processing. This is used by
+    lightweight nodes that use this node as a remote graph source: when they
+    learn about updated channel policies through payment failures, they push
+    those updates back so the graph source can validate, apply, and
+    re-broadcast them to its peers.
+    */
+    rpc InjectGossipMessage (InjectGossipMessageRequest)
+        returns (InjectGossipMessageResponse);
 }
 
 message LookupHtlcResolutionRequest {
@@ -5533,4 +5544,14 @@ message InterceptFeedback {
     binary serialized gRPC message in the protobuf format.
     */
     bytes replacement_serialized = 3;
+}
+
+message InjectGossipMessageRequest {
+    // The raw gossip message serialized in the Lightning wire format (as
+    // defined in BOLT #7). Currently only ChannelUpdate messages are
+    // supported.
+    bytes msg = 1;
+}
+
+message InjectGossipMessageResponse {
 }

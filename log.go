@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/sources"
 	"github.com/lightningnetwork/lnd/healthcheck"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -206,6 +207,7 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 		root, blindedpath.Subsystem, interceptor, blindedpath.UseLogger,
 	)
 	AddSubLogger(root, graphdb.Subsystem, interceptor, graphdb.UseLogger)
+	AddSubLogger(root, "GSRC", interceptor, sources.UseLogger)
 	AddSubLogger(root, chainio.Subsystem, interceptor, chainio.UseLogger)
 	AddSubLogger(root, msgmux.Subsystem, interceptor, msgmux.UseLogger)
 	AddSubLogger(root, sqldb.Subsystem, interceptor, sqldb.UseLogger)

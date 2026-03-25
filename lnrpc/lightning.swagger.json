@@ -1264,6 +1264,39 @@
         ]
       }
     },
+    "/v1/graph/inject": {
+      "post": {
+        "summary": "InjectGossipMessage injects a raw gossip message (e.g. a ChannelUpdate)\ninto this node's gossiper for validation and processing. This is used by\nlightweight nodes that use this node as a remote graph source: when they\nlearn about updated channel policies through payment failures, they push\nthose updates back so the graph source can validate, apply, and\nre-broadcast them to its peers.",
+        "operationId": "Lightning_InjectGossipMessage",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcInjectGossipMessageResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcInjectGossipMessageRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/graph/node/{pub_key}": {
       "get": {
         "summary": "lncli: `getnodeinfo`\nGetNodeInfo returns the latest advertised, aggregated, and authenticated\nchannel information for the specified node identified by its public key.",
@@ -5866,6 +5899,19 @@
         "INITIATOR_BOTH"
       ],
       "default": "INITIATOR_UNKNOWN"
+    },
+    "lnrpcInjectGossipMessageRequest": {
+      "type": "object",
+      "properties": {
+        "msg": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw gossip message serialized in the Lightning wire format (as\ndefined in BOLT #7). Currently only ChannelUpdate messages are\nsupported."
+        }
+      }
+    },
+    "lnrpcInjectGossipMessageResponse": {
+      "type": "object"
     },
     "lnrpcInstantUpdate": {
       "type": "object",

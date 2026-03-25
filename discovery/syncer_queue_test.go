@@ -380,6 +380,7 @@ func TestGossipSyncerQueueOrder(t *testing.T) {
 			orderMu.Lock()
 			processedRanges = append(
 				processedRanges, &lnwire.GossipTimestampRange{
+					ChainHash: syncer.cfg.chainHash,
 					FirstTimestamp: uint32(
 						req.start.Unix(),
 					),
@@ -408,7 +409,7 @@ func TestGossipSyncerQueueOrder(t *testing.T) {
 	var queuedMessages []*lnwire.GossipTimestampRange
 	for i := 0; i < numMessages; i++ {
 		msg := &lnwire.GossipTimestampRange{
-			ChainHash:      chainhash.Hash{},
+			ChainHash:      syncer.cfg.chainHash,
 			FirstTimestamp: uint32(1000 + i*100),
 			TimestampRange: 3600,
 		}

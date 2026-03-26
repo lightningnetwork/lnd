@@ -377,6 +377,8 @@ var decodePayloadTests = []decodePayloadTest{
 			0x04, 0x00,
 			// encrypted data
 			0x0a, 0x03, 0x03, 0x02, 0x01,
+			// total_amount
+			0x12, 0x00,
 		},
 		shouldHaveEncData: true,
 	},
@@ -389,10 +391,31 @@ var decodePayloadTests = []decodePayloadTest{
 			0x04, 0x00,
 			// encrypted data
 			0x0a, 0x03, 0x03, 0x02, 0x01,
+			// total_amount
+			0x12, 0x00,
 		},
 		shouldHaveEncData: true,
 		expErr: hop.ErrInvalidPayload{
 			Type:      record.AmtOnionType,
+			Violation: hop.OmittedViolation,
+			FinalHop:  true,
+		},
+	},
+	{
+		name:             "final blinded missing total_amount",
+		isFinalHop:       true,
+		updateAddBlinded: true,
+		payload: []byte{
+			// amount
+			0x02, 0x00,
+			// cltv
+			0x04, 0x00,
+			// encrypted data
+			0x0a, 0x03, 0x03, 0x02, 0x01,
+		},
+		shouldHaveEncData: true,
+		expErr: hop.ErrInvalidPayload{
+			Type:      record.TotalAmtMsatBlindedType,
 			Violation: hop.OmittedViolation,
 			FinalHop:  true,
 		},
@@ -406,6 +429,8 @@ var decodePayloadTests = []decodePayloadTest{
 			0x02, 0x00,
 			// encrypted data
 			0x0a, 0x03, 0x03, 0x02, 0x01,
+			// total_amount
+			0x12, 0x00,
 		},
 		shouldHaveEncData: true,
 		expErr: hop.ErrInvalidPayload{

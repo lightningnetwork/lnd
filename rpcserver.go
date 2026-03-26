@@ -1865,8 +1865,8 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 
 	// Return a descriptive error if no host is provided.
 	if in.Addr.Host == "" {
-		return nil, status.Error(codes.InvalidArgument,
-			fmt.Sprintf("no addresses known for peer %s", in.Addr.Pubkey))
+		return nil, status.Errorf(codes.InvalidArgument,
+			"no addresses known for peer %s", in.Addr.Pubkey)
 	}
 
 	addr, err := parseAddr(in.Addr.Host, r.cfg.net)

@@ -1228,6 +1228,13 @@ message PendingSweep {
     input has no locktime.
     */
     uint32 maturity_height = 15;
+
+    /*
+    The raw hex-encoded sweep transaction that currently spends this input.
+    This may be empty if the input has not yet been included in a published
+    sweep transaction.
+    */
+    string raw_tx_hex = 16;
 }
 
 message PendingSweepsRequest {

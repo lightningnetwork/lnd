@@ -1998,6 +1998,10 @@
           "type": "integer",
           "format": "int64",
           "description": "The block height which the input's locktime will expire at. Zero if the\ninput has no locktime."
+        },
+        "raw_tx_hex": {
+          "type": "string",
+          "description": "The raw hex-encoded sweep transaction that currently spends this input.\nThis may be empty if the input has not yet been included in a published\nsweep transaction."
         }
       }
     },

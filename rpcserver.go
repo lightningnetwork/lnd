@@ -1863,6 +1863,12 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 		return nil, fmt.Errorf("cannot make connection to self")
 	}
 
+	// Return a descriptive error if no host is provided.
+	if in.Addr.Host == "" {
+		return nil, status.Error(codes.InvalidArgument,
+			fmt.Sprintf("no addresses known for peer %s", in.Addr.Pubkey))
+	}
+
 	addr, err := parseAddr(in.Addr.Host, r.cfg.net)
 	if err != nil {
 		return nil, err

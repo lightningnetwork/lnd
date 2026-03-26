@@ -204,6 +204,11 @@ type SweeperInput struct {
 	// different from the DeadlineHeight in its params as it's an actual
 	// value than an option.
 	DeadlineHeight int32
+
+	// sweepTx is the most recent sweep transaction that spends this
+	// input. This is set when the sweep transaction is published or
+	// replaced via RBF.
+	sweepTx *wire.MsgTx
 }
 
 // String returns a human readable interpretation of the pending input.
@@ -309,6 +314,11 @@ type PendingInputResponse struct {
 	// MaturityHeight is the block height that this input's locktime will
 	// be expired at. For inputs with no locktime this value is zero.
 	MaturityHeight uint32
+
+	// SweepTx is the most recent sweep transaction that spends this
+	// input. This may be nil if the input has not yet been included in a
+	// published sweep transaction.
+	SweepTx *wire.MsgTx
 }
 
 // updateReq is an internal message we'll use to represent an external caller's
@@ -920,7 +930,8 @@ func (s *UtxoSweeper) markInputsPendingPublish(set InputSet) {
 
 // markInputsPublished updates the sweeping tx in db and marks the list of
 // inputs as published.
-func (s *UtxoSweeper) markInputsPublished(tr *TxRecord, set InputSet) error {
+func (s *UtxoSweeper) markInputsPublished(tr *TxRecord, tx *wire.MsgTx,
+	set InputSet) error {
 	// Mark this tx in db once successfully published.
 	//
 	// NOTE: this will behave as an overwrite, which is fine as the record
@@ -959,6 +970,10 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord, set InputSet) error {
 
 		// Update the input's latest fee rate.
 		pi.lastFeeRate = chainfee.SatPerKWeight(tr.FeeRate)
+
+		// Store the sweep transaction on the input so it can be
+		// returned via PendingSweeps.
+		pi.sweepTx = tx
 	}
 
 	return nil
@@ -1098,6 +1113,7 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 			Params:            inp.params,
 			DeadlineHeight:    uint32(inp.DeadlineHeight),
 			MaturityHeight:    maturityHeight,
+			SweepTx:           inp.sweepTx,
 		}
 	}
 
@@ -1766,7 +1782,7 @@ func (s *UtxoSweeper) handleBumpEventTxReplaced(resp *bumpResp) error {
 	}
 
 	// Mark the inputs as published using the replacing tx.
-	return s.markInputsPublished(tr, resp.set)
+	return s.markInputsPublished(tr, newTx, resp.set)
 }
 
 // handleBumpEventTxPublished handles the case where the sweeping tx has been
@@ -1782,7 +1798,7 @@ func (s *UtxoSweeper) handleBumpEventTxPublished(resp *bumpResp) error {
 
 	// Inputs have been successfully published so we update their
 	// states.
-	err := s.markInputsPublished(tr, resp.set)
+	err := s.markInputsPublished(tr, tx, resp.set)
 	if err != nil {
 		return err
 	}

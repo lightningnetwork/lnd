@@ -1740,15 +1740,21 @@ func TestTaprootScriptOptions(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		// For sender HTLC, only the success script (redeemed by receiver) differs.
+		// For sender HTLC, only the success script (redeemed
+		// by receiver) differs.
 		require.NotEqual(t, stagingScript.SuccessTapLeaf.Script,
 			prodScript.SuccessTapLeaf.Script,
-			"staging and production sender success scripts should differ")
+			"staging and production sender success "+
+				"scripts should differ",
+		)
 
-		// Production success script should be smaller due to OP_CHECKSIGVERIFY optimizations.
+		// Production success script should be smaller due to
+		// OP_CHECKSIGVERIFY optimizations.
 		require.Less(t, len(prodScript.SuccessTapLeaf.Script),
 			len(stagingScript.SuccessTapLeaf.Script),
-			"production sender success script should be smaller than staging")
+			"production sender success script "+
+				"should be smaller than staging",
+		)
 
 		// Both should have valid tapscript trees.
 		require.NotNil(t, stagingScript.TapscriptTree)
@@ -1775,15 +1781,21 @@ func TestTaprootScriptOptions(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		// For receiver HTLC, the timeout script (sender reclaims) should differ.
+		// For receiver HTLC, the timeout script (sender
+		// reclaims) should differ.
 		require.NotEqual(t, stagingScript.TimeoutTapLeaf.Script,
 			prodScript.TimeoutTapLeaf.Script,
-			"staging and production receiver timeout scripts should differ")
+			"staging and production receiver "+
+				"timeout scripts should differ",
+		)
 
-		// Production timeout script should be smaller due to OP_CHECKSIGVERIFY optimizations.
+		// Production timeout script should be smaller due to
+		// OP_CHECKSIGVERIFY optimizations.
 		require.Less(t, len(prodScript.TimeoutTapLeaf.Script),
 			len(stagingScript.TimeoutTapLeaf.Script),
-			"production receiver timeout script should be smaller than staging")
+			"production receiver timeout script "+
+				"should be smaller than staging",
+		)
 
 		// Both should have valid tapscript trees.
 		require.NotNil(t, stagingScript.TapscriptTree)
@@ -1808,21 +1820,29 @@ func TestTaprootScriptOptions(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		// Only the settle script should differ between staging and production.
-		// The revocation script doesn't implement production optimizations.
+		// Only the settle script should differ between staging
+		// and production.
+		// The revocation script doesn't implement production
+		// optimizations.
 		require.NotEqual(t, stagingScript.SettleLeaf.Script,
 			prodScript.SettleLeaf.Script,
 			"staging and production settle scripts should differ")
 
-		// Revocation scripts should be identical (no production optimization).
+		// Revocation scripts should be identical (no production
+		// optimization).
 		require.Equal(t, stagingScript.RevocationLeaf.Script,
 			prodScript.RevocationLeaf.Script,
-			"revocation scripts should be identical between staging and production")
+			"revocation scripts should be identical "+
+				"between staging and "+
+				"production")
 
-		// Production settle script should be smaller due to OP_CHECKSIGVERIFY optimizations.
+		// Production settle script should be smaller due to
+		// OP_CHECKSIGVERIFY optimizations.
 		require.Less(t, len(prodScript.SettleLeaf.Script),
 			len(stagingScript.SettleLeaf.Script),
-			"production settle script should be smaller than staging")
+			"production settle script should "+
+				"be smaller than staging",
+		)
 
 		// Both should have valid tapscript trees.
 		require.NotNil(t, stagingScript.TapscriptTree)

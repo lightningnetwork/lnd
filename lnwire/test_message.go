@@ -1872,7 +1872,9 @@ func (c *RevokeAndAck) RandTestMessage(t *rapid.T) Message {
 			nonces[txid] = RandMusig2Nonce(t)
 		}
 
-		msg.LocalNonces = SomeLocalNonces(LocalNoncesData{NoncesMap: nonces})
+		msg.LocalNonces = SomeLocalNonces(LocalNoncesData{
+			NoncesMap: nonces,
+		})
 	}
 
 	return msg

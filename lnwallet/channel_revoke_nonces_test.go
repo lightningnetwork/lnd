@@ -76,26 +76,30 @@ func TestRevokeAndAckTaprootLocalNonces(t *testing.T) {
 
 	chanType := channeldb.SimpleTaprootFeatureBit
 
-	t.Run("legacy nonce type only populates LocalNonce", func(t *testing.T) {
-		t.Parallel()
+	t.Run("legacy nonce type only populates LocalNonce",
+		func(t *testing.T) {
+			t.Parallel()
 
-		// Staging taproot channels populate only the
-		// LocalNonce field (legacy behavior).
-		revMsg, _, _, err := generateAndProcessRevocation(
-			t, chanType, nil,
-		)
-		require.NoError(t, err)
+			// Staging taproot channels populate only the
+			// LocalNonce field (legacy behavior).
+			revMsg, _, _, err := generateAndProcessRevocation(
+				t, chanType, nil,
+			)
+			require.NoError(t, err)
 
-		// Verify only LocalNonce is populated (legacy behavior).
-		require.True(
-			t, revMsg.LocalNonce.IsSome(),
-			"LocalNonce should be populated for legacy nonce type",
-		)
-		require.True(
-			t, revMsg.LocalNonces.IsNone(),
-			"LocalNonces should NOT be populated for legacy nonce type",
-		)
-	})
+			// Verify only LocalNonce is populated (legacy
+			// behavior).
+			require.True(
+				t, revMsg.LocalNonce.IsSome(),
+				"LocalNonce should be populated for legacy "+
+					"nonce type",
+			)
+			require.True(
+				t, revMsg.LocalNonces.IsNone(),
+				"LocalNonces should NOT be populated for "+
+					"legacy nonce type",
+			)
+		})
 
 	t.Run("extracted nonce from legacy field", func(t *testing.T) {
 		t.Parallel()
@@ -158,27 +162,27 @@ func TestRevokeAndAckTaprootLocalNonces(t *testing.T) {
 		)
 	})
 
-	t.Run("receive with only LocalNonce field (legacy peer)", func(t *testing.T) {
-		t.Parallel()
+	t.Run("receive with only LocalNonce field (legacy peer)",
+		func(t *testing.T) {
+			t.Parallel()
 
-		// Modify the message to clear the LocalNonces field.
-		clearLocalNonces := func(rev *lnwire.RevokeAndAck) {
-			rev.LocalNonces = lnwire.OptLocalNonces{}
-		}
+			// Modify the message to clear the LocalNonces field.
+			clearLocalNonces := func(rev *lnwire.RevokeAndAck) {
+				rev.LocalNonces = lnwire.OptLocalNonces{}
+			}
 
-		// This should should successfully process with only LocalNonce
-		// (backwards compat).
-		_, _, _, err := generateAndProcessRevocation(
-			t, chanType, clearLocalNonces,
-		)
-		require.NoError(
-			t, err,
-			"should successfully process "+
-				"revocation with only LocalNonce for "+
-				"backwards compatibility",
-		)
-
-	})
+			// Processing should still succeed with only LocalNonce
+			// (backwards compat).
+			_, _, _, err := generateAndProcessRevocation(
+				t, chanType, clearLocalNonces,
+			)
+			require.NoError(
+				t, err,
+				"successfully process "+
+					"revocation with only LocalNonce for "+
+					"backwards compatibility",
+			)
+		})
 
 	t.Run("error when LocalNonces map is empty", func(t *testing.T) {
 		t.Parallel()
@@ -187,11 +191,13 @@ func TestRevokeAndAckTaprootLocalNonces(t *testing.T) {
 		// LocalNonce.
 		emptyMap := func(rev *lnwire.RevokeAndAck) {
 			rev.LocalNonce = lnwire.OptMusig2NonceTLV{}
+
+			emptyNonces := make(
+				map[chainhash.Hash]lnwire.Musig2Nonce,
+			)
 			rev.LocalNonces = lnwire.SomeLocalNonces(
 				lnwire.LocalNoncesData{
-					NoncesMap: make(
-						map[chainhash.Hash]lnwire.Musig2Nonce,
-					),
+					NoncesMap: emptyNonces,
 				},
 			)
 		}

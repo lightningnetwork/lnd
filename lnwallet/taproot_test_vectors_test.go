@@ -150,6 +150,7 @@ func deriveKeyFromSeed(seed []byte, label string) *btcec.PrivateKey {
 	keyBytes := h.Sum(nil)
 
 	privKey, _ := btcec.PrivKeyFromBytes(keyBytes)
+
 	return privKey
 }
 
@@ -249,15 +250,11 @@ func (tc *taprootTestContext) commitPoint() *btcec.PublicKey {
 	return input.ComputeCommitmentPoint(tc.localPerCommitSecret[:])
 }
 
-// ---------------------------------------------------------------------------
-// JSON output types
-// ---------------------------------------------------------------------------
-
 // TaprootTestVectors is the top-level JSON structure for taproot test vectors.
 type TaprootTestVectors struct {
-	Params       TestVectorParams       `json:"params"`
-	Scripts      ScriptVectors          `json:"scripts"`
-	Transactions []TransactionTestCase  `json:"transactions"`
+	Params       TestVectorParams      `json:"params"`
+	Scripts      ScriptVectors         `json:"scripts"`
+	Transactions []TransactionTestCase `json:"transactions"`
 }
 
 // TestVectorParams holds the seed, channel parameters, and all keys.
@@ -278,18 +275,18 @@ type KeySet struct {
 	RemoteFundingPrivkey string `json:"remote_funding_privkey"`
 	RemoteFundingPubkey  string `json:"remote_funding_pubkey"`
 
-	LocalPaymentBasepointSecret string `json:"local_payment_basepoint_secret"`
-	LocalPaymentBasepoint       string `json:"local_payment_basepoint"`
-	RemotePaymentBasepointSecret string `json:"remote_payment_basepoint_secret"`
+	LocalPaymentBasepointSecret  string `json:"local_payment_basepoint_secret"` //nolint:ll
+	LocalPaymentBasepoint        string `json:"local_payment_basepoint"`
+	RemotePaymentBasepointSecret string `json:"remote_payment_basepoint_secret"` //nolint:ll
 	RemotePaymentBasepoint       string `json:"remote_payment_basepoint"`
 
-	LocalDelayedPaymentBasepointSecret string `json:"local_delayed_payment_basepoint_secret"`
-	LocalDelayedPaymentBasepoint       string `json:"local_delayed_payment_basepoint"`
-	RemoteRevocationBasepointSecret    string `json:"remote_revocation_basepoint_secret"`
-	RemoteRevocationBasepoint          string `json:"remote_revocation_basepoint"`
+	LocalDelayedPaymentBasepointSecret string `json:"local_delayed_payment_basepoint_secret"` //nolint:ll
+	LocalDelayedPaymentBasepoint       string `json:"local_delayed_payment_basepoint"`        //nolint:ll
+	RemoteRevocationBasepointSecret    string `json:"remote_revocation_basepoint_secret"`     //nolint:ll
+	RemoteRevocationBasepoint          string `json:"remote_revocation_basepoint"`            //nolint:ll
 
-	LocalHtlcBasepointSecret string `json:"local_htlc_basepoint_secret"`
-	LocalHtlcBasepoint       string `json:"local_htlc_basepoint"`
+	LocalHtlcBasepointSecret  string `json:"local_htlc_basepoint_secret"`
+	LocalHtlcBasepoint        string `json:"local_htlc_basepoint"`
 	RemoteHtlcBasepointSecret string `json:"remote_htlc_basepoint_secret"`
 	RemoteHtlcBasepoint       string `json:"remote_htlc_basepoint"`
 
@@ -297,17 +294,17 @@ type KeySet struct {
 	LocalPerCommitPoint  string `json:"local_per_commit_point"`
 
 	// Derived per-commitment keys.
-	DerivedLocalDelayedPubkey string `json:"derived_local_delayed_pubkey"`
-	DerivedRevocationPubkey   string `json:"derived_revocation_pubkey"`
-	DerivedLocalHtlcPubkey    string `json:"derived_local_htlc_pubkey"`
-	DerivedRemoteHtlcPubkey   string `json:"derived_remote_htlc_pubkey"`
+	DerivedLocalDelayedPubkey  string `json:"derived_local_delayed_pubkey"`
+	DerivedRevocationPubkey    string `json:"derived_revocation_pubkey"`
+	DerivedLocalHtlcPubkey     string `json:"derived_local_htlc_pubkey"`
+	DerivedRemoteHtlcPubkey    string `json:"derived_remote_htlc_pubkey"`
 	DerivedRemotePaymentPubkey string `json:"derived_remote_payment_pubkey"`
 }
 
 // ScriptVectorEntry represents a single tapscript tree decomposition.
 type ScriptVectorEntry struct {
 	// For scripts with named leaves.
-	Scripts   map[string]string `json:"scripts,omitempty"`
+	Scripts    map[string]string `json:"scripts,omitempty"`
 	LeafHashes map[string]string `json:"leaf_hashes,omitempty"`
 
 	TapscriptRoot string `json:"tapscript_root"`
@@ -330,12 +327,12 @@ type ScriptVectors struct {
 	ToRemote                 ScriptVectorEntry   `json:"to_remote"`
 	LocalAnchor              ScriptVectorEntry   `json:"local_anchor"`
 	RemoteAnchor             ScriptVectorEntry   `json:"remote_anchor"`
-	OfferedHtlcLocalCommit   ScriptVectorEntry   `json:"offered_htlc_local_commit"`
-	OfferedHtlcRemoteCommit  ScriptVectorEntry   `json:"offered_htlc_remote_commit"`
-	AcceptedHtlcLocalCommit  ScriptVectorEntry   `json:"accepted_htlc_local_commit"`
-	AcceptedHtlcRemoteCommit ScriptVectorEntry   `json:"accepted_htlc_remote_commit"`
-	SecondLevelHtlcSuccess   ScriptVectorEntry   `json:"second_level_htlc_success"`
-	SecondLevelHtlcTimeout   ScriptVectorEntry   `json:"second_level_htlc_timeout"`
+	OfferedHtlcLocalCommit   ScriptVectorEntry   `json:"offered_htlc_local_commit"`   //nolint:ll
+	OfferedHtlcRemoteCommit  ScriptVectorEntry   `json:"offered_htlc_remote_commit"`  //nolint:ll
+	AcceptedHtlcLocalCommit  ScriptVectorEntry   `json:"accepted_htlc_local_commit"`  //nolint:ll
+	AcceptedHtlcRemoteCommit ScriptVectorEntry   `json:"accepted_htlc_remote_commit"` //nolint:ll
+	SecondLevelHtlcSuccess   ScriptVectorEntry   `json:"second_level_htlc_success"`   //nolint:ll
+	SecondLevelHtlcTimeout   ScriptVectorEntry   `json:"second_level_htlc_timeout"`   //nolint:ll
 }
 
 // HtlcDesc describes an HTLC resolution in the transaction vectors.
@@ -346,32 +343,28 @@ type HtlcDesc struct {
 
 // HtlcInput describes an HTLC added to the channel for a test case.
 type HtlcInput struct {
-	Incoming  bool   `json:"incoming"`
+	Incoming   bool   `json:"incoming"`
 	AmountMsat uint64 `json:"amount_msat"`
-	Expiry    uint32 `json:"expiry"`
-	Preimage  string `json:"preimage"`
+	Expiry     uint32 `json:"expiry"`
+	Preimage   string `json:"preimage"`
 }
 
 // TransactionTestCase is one transaction test vector.
 type TransactionTestCase struct {
-	Name                    string     `json:"name"`
-	LocalBalanceMsat        uint64     `json:"local_balance_msat"`
-	RemoteBalanceMsat       uint64     `json:"remote_balance_msat"`
-	FeePerKw                int64      `json:"fee_per_kw"`
-	DustLimitSatoshis       int64      `json:"dust_limit_satoshis,omitempty"`
+	Name                    string      `json:"name"`
+	LocalBalanceMsat        uint64      `json:"local_balance_msat"`
+	RemoteBalanceMsat       uint64      `json:"remote_balance_msat"`
+	FeePerKw                int64       `json:"fee_per_kw"`
+	DustLimitSatoshis       int64       `json:"dust_limit_satoshis,omitempty"` //nolint:ll
 	Htlcs                   []HtlcInput `json:"htlcs"`
-	LocalSecNonce           string     `json:"local_sec_nonce"`
-	RemoteSecNonce          string     `json:"remote_sec_nonce"`
-	LocalNonce              string     `json:"local_nonce"`
-	RemoteNonce             string     `json:"remote_nonce"`
-	RemotePartialSig        string     `json:"remote_partial_sig"`
-	ExpectedCommitmentTxHex string     `json:"expected_commitment_tx_hex"`
-	HtlcDescs               []HtlcDesc `json:"htlc_descs"`
+	LocalSecNonce           string      `json:"local_sec_nonce"`
+	RemoteSecNonce          string      `json:"remote_sec_nonce"`
+	LocalNonce              string      `json:"local_nonce"`
+	RemoteNonce             string      `json:"remote_nonce"`
+	RemotePartialSig        string      `json:"remote_partial_sig"`
+	ExpectedCommitmentTxHex string      `json:"expected_commitment_tx_hex"`
+	HtlcDescs               []HtlcDesc  `json:"htlc_descs"`
 }
-
-// ---------------------------------------------------------------------------
-// Script vector generation (Section A)
-// ---------------------------------------------------------------------------
 
 // generateParams populates the params section of the test vectors.
 func (tc *taprootTestContext) generateParams() TestVectorParams {
@@ -390,6 +383,7 @@ func (tc *taprootTestContext) generateParams() TestVectorParams {
 	remoteHtlcPubkey := input.TweakPubKey(
 		tc.remoteHtlcBasepointSecret.PubKey(), commitPt,
 	)
+
 	// For tweakless channels, the remote payment key is untweaked.
 	remotePaymentPubkey := tc.remotePaymentBasepointSecret.PubKey()
 
@@ -401,28 +395,58 @@ func (tc *taprootTestContext) generateParams() TestVectorParams {
 		CommitHeight:          tc.commitHeight,
 		NumsPoint:             input.TaprootNUMSHex,
 		Keys: KeySet{
-			LocalFundingPrivkey:  privHex(tc.localFundingPrivkey),
-			LocalFundingPubkey:   pubHex(tc.localFundingPrivkey.PubKey()),
+			LocalFundingPrivkey: privHex(tc.localFundingPrivkey),
+			LocalFundingPubkey: pubHex(
+				tc.localFundingPrivkey.PubKey(),
+			),
 			RemoteFundingPrivkey: privHex(tc.remoteFundingPrivkey),
-			RemoteFundingPubkey:  pubHex(tc.remoteFundingPrivkey.PubKey()),
+			RemoteFundingPubkey: pubHex(
+				tc.remoteFundingPrivkey.PubKey(),
+			),
 
-			LocalPaymentBasepointSecret: privHex(tc.localPaymentBasepointSecret),
-			LocalPaymentBasepoint:       pubHex(tc.localPaymentBasepointSecret.PubKey()),
-			RemotePaymentBasepointSecret: privHex(tc.remotePaymentBasepointSecret),
-			RemotePaymentBasepoint:       pubHex(tc.remotePaymentBasepointSecret.PubKey()),
+			LocalPaymentBasepointSecret: privHex(
+				tc.localPaymentBasepointSecret,
+			),
+			LocalPaymentBasepoint: pubHex(
+				tc.localPaymentBasepointSecret.PubKey(),
+			),
+			RemotePaymentBasepointSecret: privHex(
+				tc.remotePaymentBasepointSecret,
+			),
+			RemotePaymentBasepoint: pubHex(
+				tc.remotePaymentBasepointSecret.PubKey(),
+			),
 
-			LocalDelayedPaymentBasepointSecret: privHex(tc.localDelayedPaymentBasepointSecret),
-			LocalDelayedPaymentBasepoint:       pubHex(tc.localDelayedPaymentBasepointSecret.PubKey()),
-			RemoteRevocationBasepointSecret:    privHex(tc.remoteRevocationBasepointSecret),
-			RemoteRevocationBasepoint:          pubHex(tc.remoteRevocationBasepointSecret.PubKey()),
+			LocalDelayedPaymentBasepointSecret: privHex(
+				tc.localDelayedPaymentBasepointSecret,
+			),
+			LocalDelayedPaymentBasepoint: pubHex(
+				tc.localDelayedPaymentBasepointSecret.PubKey(),
+			),
+			RemoteRevocationBasepointSecret: privHex(
+				tc.remoteRevocationBasepointSecret,
+			),
+			RemoteRevocationBasepoint: pubHex(
+				tc.remoteRevocationBasepointSecret.PubKey(),
+			),
 
-			LocalHtlcBasepointSecret: privHex(tc.localHtlcBasepointSecret),
-			LocalHtlcBasepoint:       pubHex(tc.localHtlcBasepointSecret.PubKey()),
-			RemoteHtlcBasepointSecret: privHex(tc.remoteHtlcBasepointSecret),
-			RemoteHtlcBasepoint:       pubHex(tc.remoteHtlcBasepointSecret.PubKey()),
+			LocalHtlcBasepointSecret: privHex(
+				tc.localHtlcBasepointSecret,
+			),
+			LocalHtlcBasepoint: pubHex(
+				tc.localHtlcBasepointSecret.PubKey(),
+			),
+			RemoteHtlcBasepointSecret: privHex(
+				tc.remoteHtlcBasepointSecret,
+			),
+			RemoteHtlcBasepoint: pubHex(
+				tc.remoteHtlcBasepointSecret.PubKey(),
+			),
 
-			LocalPerCommitSecret: hex.EncodeToString(tc.localPerCommitSecret[:]),
-			LocalPerCommitPoint:  pubHex(commitPt),
+			LocalPerCommitSecret: hex.EncodeToString(
+				tc.localPerCommitSecret[:],
+			),
+			LocalPerCommitPoint: pubHex(commitPt),
 
 			DerivedLocalDelayedPubkey:  pubHex(localDelayedPubkey),
 			DerivedRevocationPubkey:    pubHex(revocationPubkey),
@@ -614,7 +638,8 @@ func (tc *taprootTestContext) generateScriptVectors() ScriptVectors {
 
 	// Use HTLC 0 for offered/accepted HTLC vectors.
 	preimage0, err := lntypes.MakePreimageFromStr(
-		"0000000000000000000000000000000000000000000000000000000000000000",
+		"00000000000000000000000000000000000000000000" +
+			"00000000000000000000",
 	)
 	require.NoError(t, err)
 	payHash0 := preimage0.Hash()
@@ -659,10 +684,10 @@ func (tc *taprootTestContext) generateScriptVectors() ScriptVectors {
 	)
 	require.NoError(t, err)
 
-	// 9. Second-level HTLC timeout (same function, different keys in a
-	// real scenario, but for vectors we show the construction with the
-	// same delay key since second-level success and timeout share the
-	// same script tree structure).
+	// 9. Second-level HTLC timeout (same function, different keys in a real
+	//    scenario, but for vectors we show the construction with the same
+	//    delay key since second-level success and timeout share the same
+	//    script tree structure).
 	secondLevelTimeout, err := input.TaprootSecondLevelScriptTree(
 		revocationPubkey, localDelayedPubkey,
 		uint32(tc.localCsvDelay), noAux,
@@ -671,17 +696,29 @@ func (tc *taprootTestContext) generateScriptVectors() ScriptVectors {
 	require.NoError(t, err)
 
 	return ScriptVectors{
-		Funding:                  tc.generateFundingVector(),
-		ToLocal:                  commitScriptTreeToEntry(toLocalTree),
-		ToRemote:                 commitScriptTreeToEntry(toRemoteTree),
-		LocalAnchor:              anchorScriptTreeToEntry(localAnchorTree),
-		RemoteAnchor:             anchorScriptTreeToEntry(remoteAnchorTree),
-		OfferedHtlcLocalCommit:   htlcScriptTreeToEntry(offeredLocalTree),
-		OfferedHtlcRemoteCommit:  htlcScriptTreeToEntry(offeredRemoteTree),
-		AcceptedHtlcLocalCommit:  htlcScriptTreeToEntry(acceptedLocalTree),
-		AcceptedHtlcRemoteCommit: htlcScriptTreeToEntry(acceptedRemoteTree),
-		SecondLevelHtlcSuccess:   secondLevelScriptTreeToEntry(secondLevelSuccess),
-		SecondLevelHtlcTimeout:   secondLevelScriptTreeToEntry(secondLevelTimeout),
+		Funding:     tc.generateFundingVector(),
+		ToLocal:     commitScriptTreeToEntry(toLocalTree),
+		ToRemote:    commitScriptTreeToEntry(toRemoteTree),
+		LocalAnchor: anchorScriptTreeToEntry(localAnchorTree),
+		RemoteAnchor: anchorScriptTreeToEntry(
+			remoteAnchorTree,
+		),
+		OfferedHtlcLocalCommit: htlcScriptTreeToEntry(offeredLocalTree),
+		OfferedHtlcRemoteCommit: htlcScriptTreeToEntry(
+			offeredRemoteTree,
+		),
+		AcceptedHtlcLocalCommit: htlcScriptTreeToEntry(
+			acceptedLocalTree,
+		),
+		AcceptedHtlcRemoteCommit: htlcScriptTreeToEntry(
+			acceptedRemoteTree,
+		),
+		SecondLevelHtlcSuccess: secondLevelScriptTreeToEntry(
+			secondLevelSuccess,
+		),
+		SecondLevelHtlcTimeout: secondLevelScriptTreeToEntry(
+			secondLevelTimeout,
+		),
 	}
 }
 
@@ -818,7 +855,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 	feePerKw := chainfee.SatPerKWeight(feeRate)
 	commitWeight := lntypes.WeightUnit(input.AnchorCommitWeight)
 	commitFee := feePerKw.FeeForWeight(commitWeight)
-	anchorAmt := btcutil.Amount(2 * AnchorSize)
+	anchorAmt := btcutil.Amount(2 * AnchorSize) //nolint:unconvert
 
 	remoteCommitTx, localCommitTx, err := CreateCommitmentTxns(
 		remoteBalance, localBalance-commitFee,
@@ -830,17 +867,21 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 	var commitHeight = tc.commitHeight - 1
 
 	remoteCommit := channeldb.ChannelCommitment{
-		CommitHeight:  commitHeight,
-		LocalBalance:  lnwire.NewMSatFromSatoshis(remoteBalance),
-		RemoteBalance: lnwire.NewMSatFromSatoshis(localBalance - commitFee - anchorAmt),
-		CommitFee:     commitFee,
-		FeePerKw:      btcutil.Amount(feePerKw),
-		CommitTx:      remoteCommitTx,
-		CommitSig:     testSigBytes,
+		CommitHeight: commitHeight,
+		LocalBalance: lnwire.NewMSatFromSatoshis(remoteBalance),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(
+			localBalance - commitFee - anchorAmt,
+		),
+		CommitFee: commitFee,
+		FeePerKw:  btcutil.Amount(feePerKw),
+		CommitTx:  remoteCommitTx,
+		CommitSig: testSigBytes,
 	}
 	localCommit := channeldb.ChannelCommitment{
-		CommitHeight:  commitHeight,
-		LocalBalance:  lnwire.NewMSatFromSatoshis(localBalance - commitFee - anchorAmt),
+		CommitHeight: commitHeight,
+		LocalBalance: lnwire.NewMSatFromSatoshis(
+			localBalance - commitFee - anchorAmt,
+		),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(remoteBalance),
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
@@ -865,8 +906,10 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 		LocalCommitment:         remoteCommit,
 		RemoteCommitment:        remoteCommit,
 		Db:                      dbRemote.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
-		FundingTxn:              fundingTx,
+		Packager: channeldb.NewChannelPackager(
+			shortChanID,
+		),
+		FundingTxn: fundingTx,
 	}
 	localChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            localCfg,
@@ -883,8 +926,10 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 		LocalCommitment:         localCommit,
 		RemoteCommitment:        localCommit,
 		Db:                      dbLocal.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
-		FundingTxn:              fundingTx,
+		Packager: channeldb.NewChannelPackager(
+			shortChanID,
+		),
+		FundingTxn: fundingTx,
 	}
 
 	// Create mock signers with all deterministic keys. The funding key must
@@ -917,8 +962,12 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 
 	// Derive deterministic signing rand for JIT nonces so MuSig2
 	// signatures are reproducible across runs.
-	localRandHash := sha256.Sum256(append(tc.seed, []byte("local-signing-rand")...))
-	remoteRandHash := sha256.Sum256(append(tc.seed, []byte("remote-signing-rand")...))
+	localRandHash := sha256.Sum256(
+		append(tc.seed, []byte("local-signing-rand")...),
+	)
+	remoteRandHash := sha256.Sum256(
+		append(tc.seed, []byte("remote-signing-rand")...),
+	)
 
 	auxSigner := NewDefaultAuxSignerMock(t)
 	remotePool := NewSigPool(1, remoteSigner)
@@ -978,26 +1027,26 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 
 // taprootTransactionTestCases defines the set of transaction test cases.
 var taprootTransactionTestCases = []struct {
-	name         string
-	localBalance lnwire.MilliSatoshi
+	name          string
+	localBalance  lnwire.MilliSatoshi
 	remoteBalance lnwire.MilliSatoshi
-	feePerKw     btcutil.Amount
-	dustLimit    btcutil.Amount
-	useTestHtlcs bool
+	feePerKw      btcutil.Amount
+	dustLimit     btcutil.Amount
+	useTestHtlcs  bool
 }{
 	{
-		name:         "simple commitment tx with no HTLCs",
-		localBalance: 7_000_000_000,
+		name:          "simple commitment tx with no HTLCs",
+		localBalance:  7_000_000_000,
 		remoteBalance: 3_000_000_000,
-		feePerKw:     15_000,
-		useTestHtlcs: false,
+		feePerKw:      15_000,
+		useTestHtlcs:  false,
 	},
 	{
-		name:         "commitment tx with five HTLCs untrimmed",
-		localBalance: 6_988_000_000,
+		name:          "commitment tx with five HTLCs untrimmed",
+		localBalance:  6_988_000_000,
 		remoteBalance: 3_000_000_000,
-		feePerKw:     644,
-		useTestHtlcs: true,
+		feePerKw:      644,
+		useTestHtlcs:  true,
 	},
 	{
 		name:          "commitment tx with some HTLCs trimmed",
@@ -1010,7 +1059,7 @@ var taprootTransactionTestCases = []struct {
 }
 
 // generateTransactionVectors generates all transaction test vectors.
-func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase {
+func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase { //nolint:ll
 	t := tc.t
 	var results []TransactionTestCase
 
@@ -1040,7 +1089,7 @@ func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase
 			remoteBalance+localBalance,
 		)
 
-		remoteChannel, localChannel := createTaprootTestChannelsForVectors(
+		remoteChannel, localChannel := createTaprootTestChannelsForVectors( //nolint:ll
 			tc, testCase.feePerKw,
 			remoteBalance.ToSatoshis(),
 			localBalance.ToSatoshis(),
@@ -1064,12 +1113,12 @@ func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase
 		localChannel.musigSessions.RemoteSession.lastSigningSecNonce()
 
 		// Capture local's verification nonce for local's own
-		// commitment. This is the nonce local contributes to the
-		// MuSig2 session for the commitment tx stored in the test
-		// vector (which is local's commitment, obtained via
-		// ForceClose). We must capture it BEFORE
-		// ReceiveNewCommitment finalizes the local session.
-		localVerifNonce := localChannel.musigSessions.LocalSession.VerificationNonce()
+		// commitment. This is the nonce local contributes to the MuSig2
+		// session for the commitment tx stored in the test vector
+		// (which is local's commitment, obtained via ForceClose). We
+		// must capture it BEFORE ReceiveNewCommitment finalizes the
+		// local session.
+		localVerifNonce := localChannel.musigSessions.LocalSession.VerificationNonce() //nolint:ll
 		localNonceHex := hex.EncodeToString(
 			localVerifNonce.PubNonce[:],
 		)
@@ -1092,7 +1141,7 @@ func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase
 		require.NoError(t, err)
 
 		// Capture the remote secret nonce from the musig session.
-		remoteSecNonceBytes := remoteChannel.musigSessions.RemoteSession.lastSigningSecNonce().UnwrapOrFail(t)
+		remoteSecNonceBytes := remoteChannel.musigSessions.RemoteSession.lastSigningSecNonce().UnwrapOrFail(t) //nolint:ll
 		remoteSecNonceHex := hex.EncodeToString(
 			remoteSecNonceBytes[:],
 		)
@@ -1125,7 +1174,7 @@ func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase
 		// Collect HTLC resolution transactions.
 		var htlcDescs []HtlcDesc
 		if testCase.useTestHtlcs {
-			resolutions := forceCloseSum.ContractResolutions.UnwrapOrFail(t)
+			resolutions := forceCloseSum.ContractResolutions.UnwrapOrFail(t) //nolint:ll
 			htlcResolutions := resolutions.HtlcResolutions
 
 			// Build a map from commitment tx output index to
@@ -1170,7 +1219,7 @@ func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase
 
 			// Sort by output index to match HtlcSigs ordering.
 			sort.Slice(allHtlcs, func(a, b int) bool {
-				return allHtlcs[a].outputIdx < allHtlcs[b].outputIdx
+				return allHtlcs[a].outputIdx < allHtlcs[b].outputIdx //nolint:ll
 			})
 
 			require.Equal(t,
@@ -1181,7 +1230,7 @@ func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase
 
 			for i, entry := range allHtlcs {
 				sigHex := hex.EncodeToString(
-					remoteNewCommit.HtlcSigs[i].ToSignatureBytes(),
+					remoteNewCommit.HtlcSigs[i].ToSignatureBytes(), //nolint:ll
 				)
 
 				var b bytes.Buffer
@@ -1190,7 +1239,9 @@ func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase
 
 				htlcDescs = append(htlcDescs, HtlcDesc{
 					RemotePartialSigHex: sigHex,
-					ResolutionTxHex:     hex.EncodeToString(b.Bytes()),
+					ResolutionTxHex: hex.EncodeToString(
+						b.Bytes(),
+					),
 				})
 			}
 		}
@@ -1209,18 +1260,20 @@ func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase
 		}
 
 		result := TransactionTestCase{
-			Name:                    testCase.name,
-			LocalBalanceMsat:        uint64(testCase.localBalance),
-			RemoteBalanceMsat:       uint64(testCase.remoteBalance),
-			FeePerKw:                int64(testCase.feePerKw),
-			Htlcs:                   htlcInputs,
-			LocalSecNonce:           localSecNonceHex,
-			RemoteSecNonce:          remoteSecNonceHex,
-			LocalNonce:              localNonceHex,
-			RemoteNonce:             remoteNonceHex,
-			RemotePartialSig:        remoteSigHex,
-			ExpectedCommitmentTxHex: hex.EncodeToString(txBytes.Bytes()),
-			HtlcDescs:               htlcDescs,
+			Name:              testCase.name,
+			LocalBalanceMsat:  uint64(testCase.localBalance),
+			RemoteBalanceMsat: uint64(testCase.remoteBalance),
+			FeePerKw:          int64(testCase.feePerKw),
+			Htlcs:             htlcInputs,
+			LocalSecNonce:     localSecNonceHex,
+			RemoteSecNonce:    remoteSecNonceHex,
+			LocalNonce:        localNonceHex,
+			RemoteNonce:       remoteNonceHex,
+			RemotePartialSig:  remoteSigHex,
+			ExpectedCommitmentTxHex: hex.EncodeToString(
+				txBytes.Bytes(),
+			),
+			HtlcDescs: htlcDescs,
 		}
 		if testCase.dustLimit != 0 {
 			result.DustLimitSatoshis = int64(testCase.dustLimit)
@@ -1234,10 +1287,6 @@ func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase
 
 	return results
 }
-
-// ---------------------------------------------------------------------------
-// Main test entry point
-// ---------------------------------------------------------------------------
 
 // TestTaprootVectors either generates or verifies taproot test vectors
 // depending on the -generate-taproot-vectors flag.
@@ -1402,9 +1451,10 @@ func verifyTaprootVectors(t *testing.T) {
 				for j, storedHtlc := range storedTx.HtlcDescs {
 					require.Equal(t,
 						storedHtlc.ResolutionTxHex,
-						genTx.HtlcDescs[j].ResolutionTxHex,
+						genTx.HtlcDescs[j].ResolutionTxHex, //nolint:ll
 						fmt.Sprintf(
-							"htlc %d resolution tx mismatch", j,
+							"htlc %d resolution "+
+								"tx mismatch", j, //nolint:ll
 						),
 					)
 				}
@@ -1631,6 +1681,7 @@ func extractHash160FromScript(t *testing.T, script []byte) [20]byte {
 
 			var hash160 [20]byte
 			copy(hash160[:], data)
+
 			return hash160
 		}
 	}
@@ -1639,6 +1690,7 @@ func extractHash160FromScript(t *testing.T, script []byte) [20]byte {
 	t.Fatal("OP_HASH160 not found in script")
 
 	var zero [20]byte
+
 	return zero
 }
 

@@ -195,6 +195,7 @@ func newChanRestoreScenario(ht *lntest.HarnessTest, ct lnrpc.CommitmentType,
 	var privateChan bool
 	if ct == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
 		ct == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
+
 		privateChan = true
 	}
 
@@ -642,6 +643,7 @@ func runChanRestoreScenarioCommitTypes(ht *lntest.HarnessTest,
 	// otherwise).
 	if (ct == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
 		ct == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL) && zeroConf {
+
 		ht.MineBlocksAndAssertNumTxes(1, 1)
 	}
 

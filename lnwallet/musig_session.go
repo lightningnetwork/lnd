@@ -450,7 +450,7 @@ func (m *MusigSession) VerificationNonce() *musig2.Nonces {
 // generation, if available. This is only populated when customNonceRand is set
 // (test vector generation mode). The value is cleared after being read to
 // prevent accidental nonce reuse.
-func (m *MusigSession) lastSigningSecNonce() fn.Option[[musig2.SecNonceSize]byte] {
+func (m *MusigSession) lastSigningSecNonce() fn.Option[[musig2.SecNonceSize]byte] { //nolint:ll
 	nonce := m.lastSecNonce
 	m.lastSecNonce = fn.None[[musig2.SecNonceSize]byte]()
 	return nonce

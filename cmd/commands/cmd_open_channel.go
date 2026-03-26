@@ -59,9 +59,9 @@ Signed base64 encoded PSBT or hex encoded raw wire TX (or path to file): `
 	// of memory issues or other weird errors.
 	psbtMaxFileSize = 1024 * 1024
 
-	channelTypeTweakless         = "tweakless"
-	channelTypeAnchors           = "anchors"
-	channelTypeSimpleTaproot     = "taproot"
+	channelTypeTweakless          = "tweakless"
+	channelTypeAnchors            = "anchors"
+	channelTypeSimpleTaproot      = "taproot"
 	channelTypeSimpleTaprootFinal = "taproot-final"
 )
 
@@ -257,7 +257,8 @@ var openChannelCommand = cli.Command{
 			Usage: fmt.Sprintf("(optional) the type of channel to "+
 				"propose to the remote peer (%q, %q, %q, %q)",
 				channelTypeTweakless, channelTypeAnchors,
-				channelTypeSimpleTaproot, channelTypeSimpleTaprootFinal),
+				channelTypeSimpleTaproot,
+				channelTypeSimpleTaprootFinal),
 		},
 		cli.BoolFlag{
 			Name: "zero_conf",

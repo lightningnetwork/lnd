@@ -147,6 +147,7 @@ func runPsbtChanFundingWithNodes(ht *lntest.HarnessTest, carol,
 	// that an internal key is included.
 	if commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
 		commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
+
 		decodedPSBT, err := psbt.NewFromRawBytes(
 			bytes.NewReader(tempPsbt), false,
 		)

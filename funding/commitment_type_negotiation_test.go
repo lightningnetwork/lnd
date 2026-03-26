@@ -308,7 +308,8 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			expectsErr:        nil,
 		},
 
-		// Test cases for final taproot channels with explicit negotiation.
+		// Test cases for final taproot channels with explicit
+		// negotiation.
 		{
 			name: "explicit simple taproot final only",
 			channelFeatures: lnwire.NewRawFeatureVector(
@@ -322,10 +323,10 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.SimpleTaprootChannelsOptionalFinal,
 				lnwire.ExplicitChannelTypeOptional,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal,
+			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal, //nolint:ll
 			expectsChanType: (*lnwire.ChannelType)(
 				lnwire.NewRawFeatureVector(
-					lnwire.SimpleTaprootChannelsRequiredFinal,
+					lnwire.SimpleTaprootChannelsRequiredFinal, //nolint:ll
 				),
 			),
 			expectsErr: nil,
@@ -346,10 +347,10 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.ScidAliasOptional,
 				lnwire.ExplicitChannelTypeOptional,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal,
+			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal, //nolint:ll
 			expectsChanType: (*lnwire.ChannelType)(
 				lnwire.NewRawFeatureVector(
-					lnwire.SimpleTaprootChannelsRequiredFinal,
+					lnwire.SimpleTaprootChannelsRequiredFinal, //nolint:ll
 					lnwire.ScidAliasRequired,
 				),
 			),
@@ -372,10 +373,10 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.ZeroConfOptional,
 				lnwire.ExplicitChannelTypeOptional,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal,
+			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal, //nolint:ll
 			expectsChanType: (*lnwire.ChannelType)(
 				lnwire.NewRawFeatureVector(
-					lnwire.SimpleTaprootChannelsRequiredFinal,
+					lnwire.SimpleTaprootChannelsRequiredFinal, //nolint:ll
 					lnwire.ZeroConfRequired,
 				),
 			),
@@ -383,7 +384,8 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			expectsErr: nil,
 		},
 		{
-			name: "explicit simple taproot final with scid alias and zero conf",
+			name: "explicit simple taproot final with scid alias " +
+				"and zero conf",
 			channelFeatures: lnwire.NewRawFeatureVector(
 				lnwire.SimpleTaprootChannelsRequiredFinal,
 				lnwire.ScidAliasRequired,
@@ -401,10 +403,10 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.ZeroConfOptional,
 				lnwire.ExplicitChannelTypeOptional,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal,
+			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal, //nolint:ll
 			expectsChanType: (*lnwire.ChannelType)(
 				lnwire.NewRawFeatureVector(
-					lnwire.SimpleTaprootChannelsRequiredFinal,
+					lnwire.SimpleTaprootChannelsRequiredFinal, //nolint:ll
 					lnwire.ScidAliasRequired,
 					lnwire.ZeroConfRequired,
 				),
@@ -414,7 +416,8 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			expectsErr: nil,
 		},
 		{
-			name: "explicit simple taproot final missing remote support",
+			name: "explicit simple taproot final missing " +
+				"remote support",
 			channelFeatures: lnwire.NewRawFeatureVector(
 				lnwire.SimpleTaprootChannelsRequiredFinal,
 			),
@@ -429,9 +432,11 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			expectsErr: errUnsupportedChannelType,
 		},
 
-		// Test cases for implicit negotiation preferring final over staging.
+		// Test cases for implicit negotiation preferring
+		// final over staging.
 		{
-			name:            "implicit final taproot preferred over staging",
+			name: "implicit final taproot preferred " +
+				"over staging",
 			channelFeatures: nil,
 			localFeatures: lnwire.NewRawFeatureVector(
 				lnwire.SimpleTaprootChannelsOptionalFinal,
@@ -443,16 +448,17 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.SimpleTaprootChannelsOptionalStaging,
 				lnwire.ExplicitChannelTypeOptional,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal,
+			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal, //nolint:ll
 			expectsChanType: (*lnwire.ChannelType)(
 				lnwire.NewRawFeatureVector(
-					lnwire.SimpleTaprootChannelsRequiredFinal,
+					lnwire.SimpleTaprootChannelsRequiredFinal, //nolint:ll
 				),
 			),
 			expectsErr: nil,
 		},
 		{
-			name:            "implicit staging taproot when final not supported",
+			name: "implicit staging taproot when final " +
+				"not supported",
 			channelFeatures: nil,
 			localFeatures: lnwire.NewRawFeatureVector(
 				lnwire.SimpleTaprootChannelsOptionalFinal,
@@ -466,7 +472,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			expectsCommitType: lnwallet.CommitmentTypeSimpleTaproot,
 			expectsChanType: (*lnwire.ChannelType)(
 				lnwire.NewRawFeatureVector(
-					lnwire.SimpleTaprootChannelsRequiredStaging,
+					lnwire.SimpleTaprootChannelsRequiredStaging, //nolint:ll
 				),
 			),
 			expectsErr: nil,
@@ -482,10 +488,10 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.SimpleTaprootChannelsOptionalFinal,
 				lnwire.ExplicitChannelTypeOptional,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal,
+			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal, //nolint:ll
 			expectsChanType: (*lnwire.ChannelType)(
 				lnwire.NewRawFeatureVector(
-					lnwire.SimpleTaprootChannelsRequiredFinal,
+					lnwire.SimpleTaprootChannelsRequiredFinal, //nolint:ll
 				),
 			),
 			expectsErr: nil,

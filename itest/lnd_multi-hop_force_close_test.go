@@ -365,7 +365,7 @@ func testLocalClaimOutgoingHTLCSimpleTaprootFinal(ht *lntest.HarnessTest) {
 
 // testLocalClaimOutgoingHTLCSimpleTaprootFinalZeroConf tests
 // `runLocalClaimOutgoingHTLC` with zero-conf production simple taproot channel.
-func testLocalClaimOutgoingHTLCSimpleTaprootFinalZeroConf(ht *lntest.HarnessTest) {
+func testLocalClaimOutgoingHTLCSimpleTaprootFinalZeroConf(ht *lntest.HarnessTest) { //nolint:ll
 	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
 
 	// Create a three hop network: Alice -> Bob -> Carol, using zero-conf
@@ -464,8 +464,12 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
 	var routeHints []*lnrpc.RouteHint
-	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
-		params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
+	isTaproot := params.CommitmentType ==
+		lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		params.CommitmentType ==
+			lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	if isTaproot {
 		routeHints = makeRouteHints(bob, carol, params.ZeroConf)
 	}
 
@@ -729,7 +733,7 @@ func testMultiHopReceiverPreimageClaimSimpleTaprootZeroConf(
 
 // testMultiHopReceiverPreimageClaimSimpleTaprootFinal tests
 // `runMultiHopReceiverPreimageClaim` with production simple taproot channels.
-func testMultiHopReceiverPreimageClaimSimpleTaprootFinal(ht *lntest.HarnessTest) {
+func testMultiHopReceiverPreimageClaimSimpleTaprootFinal(ht *lntest.HarnessTest) { //nolint:ll
 	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
 
 	// Create a three hop network: Alice -> Bob -> Carol, using production
@@ -850,8 +854,12 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
 	var routeHints []*lnrpc.RouteHint
-	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
-		params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
+	isTaproot := params.CommitmentType ==
+		lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		params.CommitmentType ==
+			lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	if isTaproot {
 		routeHints = makeRouteHints(bob, carol, params.ZeroConf)
 	}
 
@@ -1134,7 +1142,7 @@ func testLocalForceCloseBeforeTimeoutSimpleTaprootZeroConf(
 
 // testLocalForceCloseBeforeTimeoutSimpleTaprootFinal tests
 // `runLocalForceCloseBeforeHtlcTimeout` with production simple taproot channel.
-func testLocalForceCloseBeforeTimeoutSimpleTaprootFinal(ht *lntest.HarnessTest) {
+func testLocalForceCloseBeforeTimeoutSimpleTaprootFinal(ht *lntest.HarnessTest) { //nolint:ll
 	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
 
 	// Create a three hop network: Alice -> Bob -> Carol, using production
@@ -1251,8 +1259,12 @@ func runLocalForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
 	var routeHints []*lnrpc.RouteHint
-	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
-		params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
+	isTaproot := params.CommitmentType ==
+		lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		params.CommitmentType ==
+			lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	if isTaproot {
 		routeHints = makeRouteHints(bob, carol, params.ZeroConf)
 	}
 
@@ -1523,8 +1535,9 @@ func testRemoteForceCloseBeforeTimeoutSimpleTaproot(ht *lntest.HarnessTest) {
 }
 
 // testRemoteForceCloseBeforeTimeoutSimpleTaprootFinal tests
-// `runRemoteForceCloseBeforeHtlcTimeout` with production simple taproot channel.
-func testRemoteForceCloseBeforeTimeoutSimpleTaprootFinal(ht *lntest.HarnessTest) {
+// `runRemoteForceCloseBeforeHtlcTimeout` with production simple taproot
+// channel.
+func testRemoteForceCloseBeforeTimeoutSimpleTaprootFinal(ht *lntest.HarnessTest) { //nolint:ll
 	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
 
 	// Create a three hop network: Alice -> Bob -> Carol, using production
@@ -1638,8 +1651,12 @@ func runRemoteForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
 	var routeHints []*lnrpc.RouteHint
-	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
-		params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
+	isTaproot := params.CommitmentType ==
+		lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		params.CommitmentType ==
+			lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	if isTaproot {
 		routeHints = makeRouteHints(bob, carol, params.ZeroConf)
 	}
 
@@ -1893,7 +1910,7 @@ func testLocalClaimIncomingHTLCSimpleTaprootFinal(ht *lntest.HarnessTest) {
 
 // testLocalClaimIncomingHTLCSimpleTaprootFinalZeroConf tests
 // `runLocalClaimIncomingHTLC` with zero-conf production simple taproot channel.
-func testLocalClaimIncomingHTLCSimpleTaprootFinalZeroConf(ht *lntest.HarnessTest) {
+func testLocalClaimIncomingHTLCSimpleTaprootFinalZeroConf(ht *lntest.HarnessTest) { //nolint:ll
 	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
 
 	// Create a three hop network: Alice -> Bob -> Carol, using zero-conf
@@ -1941,8 +1958,12 @@ func runLocalClaimIncomingHTLC(ht *lntest.HarnessTest,
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
 	var routeHints []*lnrpc.RouteHint
-	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
-		params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
+	isTaproot := params.CommitmentType ==
+		lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		params.CommitmentType ==
+			lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	if isTaproot {
 		routeHints = makeRouteHints(bob, carol, params.ZeroConf)
 	}
 
@@ -2616,8 +2637,12 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
 	var routeHints []*lnrpc.RouteHint
-	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
-		params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
+	isTaproot := params.CommitmentType ==
+		lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		params.CommitmentType ==
+			lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	if isTaproot {
 		routeHints = makeRouteHints(bob, carol, params.ZeroConf)
 	}
 
@@ -3278,8 +3303,12 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 		aliceRouteHints []*lnrpc.RouteHint
 	)
 
-	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
-		params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
+	isTaproot := params.CommitmentType ==
+		lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		params.CommitmentType ==
+			lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	if isTaproot {
 		carolRouteHints = makeRouteHints(bob, carol, params.ZeroConf)
 		aliceRouteHints = makeRouteHints(bob, alice, params.ZeroConf)
 	}

@@ -194,6 +194,7 @@ func runBasicFundingTest(ht *lntest.HarnessTest, carolCommitType,
 	// TODO(roasbeef): lift after gossip 1.75
 	if carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
 		carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
+
 		privateChan = true
 	}
 

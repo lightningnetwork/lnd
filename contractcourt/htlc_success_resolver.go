@@ -70,7 +70,8 @@ type htlcSuccessResolver struct {
 // newSuccessResolver instanties a new htlc success resolver.
 func newSuccessResolver(res lnwallet.IncomingHtlcResolution,
 	broadcastHeight uint32, htlc channeldb.HTLC,
-	chanType channeldb.ChannelType, resCfg ResolverConfig) *htlcSuccessResolver {
+	chanType channeldb.ChannelType,
+	resCfg ResolverConfig) *htlcSuccessResolver {
 
 	h := &htlcSuccessResolver{
 		contractResolverKit: *newContractResolverKit(resCfg),
@@ -424,7 +425,8 @@ func (h *htlcSuccessResolver) isTaproot() bool {
 	)
 }
 
-// isTaprootFinal returns true if the htlc output is from a final taproot channel.
+// isTaprootFinal returns true if the htlc output is from a final taproot
+// channel.
 func (h *htlcSuccessResolver) isTaprootFinal() bool {
 	return h.chanType.IsTaprootFinal()
 }
@@ -437,7 +439,8 @@ func (h *htlcSuccessResolver) sweepRemoteCommitOutput() error {
 	// sweeping transaction, and generate a witness.
 	var inp input.Input
 
-	if h.isTaprootFinal() {
+	switch {
+	case h.isTaprootFinal():
 		inp = lnutils.Ptr(input.MakeTaprootHtlcSucceedInputFinal(
 			&h.htlcResolution.ClaimOutpoint,
 			&h.htlcResolution.SweepSignDesc,
@@ -448,7 +451,7 @@ func (h *htlcSuccessResolver) sweepRemoteCommitOutput() error {
 				h.htlcResolution.ResolutionBlob,
 			),
 		))
-	} else if h.isTaproot() {
+	case h.isTaproot():
 		inp = lnutils.Ptr(input.MakeTaprootHtlcSucceedInput(
 			&h.htlcResolution.ClaimOutpoint,
 			&h.htlcResolution.SweepSignDesc,
@@ -459,7 +462,7 @@ func (h *htlcSuccessResolver) sweepRemoteCommitOutput() error {
 				h.htlcResolution.ResolutionBlob,
 			),
 		))
-	} else {
+	default:
 		inp = lnutils.Ptr(input.MakeHtlcSucceedInput(
 			&h.htlcResolution.ClaimOutpoint,
 			&h.htlcResolution.SweepSignDesc,
@@ -593,11 +596,12 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	// Let the sweeper sweep the second-level output now that the
 	// CSV/CLTV locks have expired.
 	var witType input.StandardWitnessType
-	if h.isTaprootFinal() {
+	switch {
+	case h.isTaprootFinal():
 		witType = input.TaprootHtlcAcceptedSuccessSecondLevelFinal
-	} else if h.isTaproot() {
+	case h.isTaproot():
 		witType = input.TaprootHtlcAcceptedSuccessSecondLevel
-	} else {
+	default:
 		witType = input.HtlcAcceptedSuccessSecondLevel
 	}
 	inp := h.makeSweepInput(

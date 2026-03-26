@@ -53,10 +53,11 @@ const (
 	// the staging version using feature bits 180/181.
 	CommitmentTypeSimpleTaproot
 
-	// CommitmentTypeSimpleTaprootFinal is the production commitment type for
-	// taproot channels that use a musig2 funding output and the tapscript tree
-	// where relevant for the commitment transaction pk scripts. This uses the
-	// final feature bits 80/81 and production scripts.
+	// CommitmentTypeSimpleTaprootFinal is the production commitment type
+	// for taproot channels that use a musig2 funding output and the
+	// tapscript tree where relevant for the commitment transaction pk
+	// scripts. This uses the final feature bits 80/81 and production
+	// scripts.
 	CommitmentTypeSimpleTaprootFinal
 
 	// CommitmentTypeSimpleTaprootOverlay builds on the existing

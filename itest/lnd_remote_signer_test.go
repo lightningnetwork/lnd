@@ -160,6 +160,7 @@ func prepareRemoteSignerTest(ht *lntest.HarnessTest, tc remoteSignerTestCase) (
 	var commitArgs []string
 	if tc.commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
 		tc.commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
+
 		commitArgs = lntest.NodeArgsForCommitType(
 			tc.commitType,
 		)

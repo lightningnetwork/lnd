@@ -339,12 +339,12 @@ func MakeTaprootHtlcSucceedInput(op *wire.OutPoint, signDesc *SignDescriptor,
 	}
 }
 
-// MakeTaprootHtlcSucceedInputFinal creates a new HtlcSucceedInput that can be used
-// to spend an HTLC output for a production taproot channel on the remote party's
-// commitment transaction.
-func MakeTaprootHtlcSucceedInputFinal(op *wire.OutPoint, signDesc *SignDescriptor,
-	preimage []byte, heightHint, blocksToMaturity uint32,
-	opts ...InputOpt) HtlcSucceedInput {
+// MakeTaprootHtlcSucceedInputFinal creates a new HtlcSucceedInput that can be
+// used to spend an HTLC output for a production taproot channel on the remote
+// party's commitment transaction.
+func MakeTaprootHtlcSucceedInputFinal(op *wire.OutPoint,
+	signDesc *SignDescriptor, preimage []byte, heightHint,
+	blocksToMaturity uint32, opts ...InputOpt) HtlcSucceedInput {
 
 	input := MakeBaseInput(
 		op, TaprootHtlcAcceptedRemoteSuccessFinal, signDesc,

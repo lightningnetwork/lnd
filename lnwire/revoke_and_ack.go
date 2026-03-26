@@ -98,7 +98,7 @@ func (c *RevokeAndAck) Decode(r io.Reader, pver uint32) error {
 	if val, ok := typeMap[c.LocalNonce.TlvType()]; ok && val == nil {
 		c.LocalNonce = tlv.SomeRecordT(localNonce)
 	}
-	if val, ok := typeMap[(LocalNoncesRecordTypeDef)(nil).TypeVal()]; ok && val == nil {
+	if val, ok := typeMap[(LocalNoncesRecordTypeDef)(nil).TypeVal()]; ok && val == nil { //nolint:ll
 		c.LocalNonces = SomeLocalNonces(localNoncesData)
 	}
 

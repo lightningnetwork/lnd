@@ -320,7 +320,8 @@ func newTaprootJusticeKit(sweepScript []byte,
 
 	tree, err := input.NewLocalCommitScriptTree(
 		breachInfo.RemoteDelay, keyRing.ToLocalKey,
-		keyRing.RevocationKey, fn.None[txscript.TapLeaf](), scriptOpts...,
+		keyRing.RevocationKey, fn.None[txscript.TapLeaf](),
+		scriptOpts...,
 	)
 	if err != nil {
 		return nil, err
@@ -361,7 +362,8 @@ func (t *taprootJusticeKit) ToLocalOutputSpendInfo() (*txscript.PkScript,
 	}
 
 	// TODO: Add channel type info to determine whether to use production
-	// scripts for final taproot channels. For now, we default to staging scripts.
+	// scripts for final taproot channels. For now, we default to staging
+	// scripts.
 	var scriptOpts []input.TaprootScriptOpt
 	// if chanType.IsTaprootFinal() {
 	//     scriptOpts = append(scriptOpts, input.WithProdScripts())
@@ -435,7 +437,8 @@ func (t *taprootJusticeKit) ToRemoteOutputSpendInfo() (*txscript.PkScript,
 	}
 
 	// TODO: Add channel type info to determine whether to use production
-	// scripts for final taproot channels. For now, we default to staging scripts.
+	// scripts for final taproot channels. For now, we default to staging
+	// scripts.
 	var scriptOpts []input.TaprootScriptOpt
 	// if chanType.IsTaprootFinal() {
 	//     scriptOpts = append(scriptOpts, input.WithProdScripts())

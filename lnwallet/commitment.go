@@ -445,7 +445,8 @@ func SecondLevelHtlcScript(chanType channeldb.ChannelType, initiator bool,
 		}
 
 		return input.TaprootSecondLevelScriptTree(
-			revocationKey, delayKey, csvDelay, auxLeaf, scriptOpts...,
+			revocationKey, delayKey, csvDelay, auxLeaf,
+			scriptOpts...,
 		)
 
 	// If we are the initiator of a leased channel, then we have an
@@ -1183,7 +1184,8 @@ func genSegwitV0HtlcScript(chanType channeldb.ChannelType,
 // channel.
 func GenTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 	timeout uint32, rHash [32]byte, keyRing *CommitmentKeyRing,
-	auxLeaf input.AuxTapLeaf, opts ...input.TaprootScriptOpt) (*input.HtlcScriptTree, error) {
+	auxLeaf input.AuxTapLeaf,
+	opts ...input.TaprootScriptOpt) (*input.HtlcScriptTree, error) {
 
 	var (
 		htlcScriptTree *input.HtlcScriptTree
@@ -1200,7 +1202,8 @@ func GenTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 	case isIncoming && whoseCommit.IsLocal():
 		htlcScriptTree, err = input.ReceiverHTLCScriptTaproot(
 			timeout, keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
-			keyRing.RevocationKey, rHash[:], whoseCommit, auxLeaf, opts...,
+			keyRing.RevocationKey, rHash[:], whoseCommit, auxLeaf,
+			opts...,
 		)
 
 	// We're being paid via an HTLC by the remote party, and the HTLC is
@@ -1209,7 +1212,8 @@ func GenTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 	case isIncoming && whoseCommit.IsRemote():
 		htlcScriptTree, err = input.SenderHTLCScriptTaproot(
 			keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
-			keyRing.RevocationKey, rHash[:], whoseCommit, auxLeaf, opts...,
+			keyRing.RevocationKey, rHash[:], whoseCommit, auxLeaf,
+			opts...,
 		)
 
 	// We're sending an HTLC which is being added to our commitment
@@ -1218,7 +1222,8 @@ func GenTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 	case !isIncoming && whoseCommit.IsLocal():
 		htlcScriptTree, err = input.SenderHTLCScriptTaproot(
 			keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
-			keyRing.RevocationKey, rHash[:], whoseCommit, auxLeaf, opts...,
+			keyRing.RevocationKey, rHash[:], whoseCommit, auxLeaf,
+			opts...,
 		)
 
 	// Finally, we're paying the remote party via an HTLC, which is being
@@ -1227,7 +1232,8 @@ func GenTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 	case !isIncoming && whoseCommit.IsRemote():
 		htlcScriptTree, err = input.ReceiverHTLCScriptTaproot(
 			timeout, keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
-			keyRing.RevocationKey, rHash[:], whoseCommit, auxLeaf, opts...,
+			keyRing.RevocationKey, rHash[:], whoseCommit, auxLeaf,
+			opts...,
 		)
 	}
 
@@ -1259,7 +1265,8 @@ func genHtlcScript(chanType channeldb.ChannelType, isIncoming bool,
 	}
 
 	return GenTaprootHtlcScript(
-		isIncoming, whoseCommit, timeout, rHash, keyRing, auxLeaf, scriptOpts...,
+		isIncoming, whoseCommit, timeout, rHash, keyRing, auxLeaf,
+		scriptOpts...,
 	)
 }
 

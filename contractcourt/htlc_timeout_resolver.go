@@ -72,7 +72,8 @@ type htlcTimeoutResolver struct {
 // newTimeoutResolver instantiates a new timeout htlc resolver.
 func newTimeoutResolver(res lnwallet.OutgoingHtlcResolution,
 	broadcastHeight uint32, htlc channeldb.HTLC,
-	chanType channeldb.ChannelType, resCfg ResolverConfig) *htlcTimeoutResolver {
+	chanType channeldb.ChannelType,
+	resCfg ResolverConfig) *htlcTimeoutResolver {
 
 	h := &htlcTimeoutResolver{
 		contractResolverKit: *newContractResolverKit(resCfg),
@@ -95,7 +96,8 @@ func (h *htlcTimeoutResolver) isTaproot() bool {
 	)
 }
 
-// isTaprootFinal returns true if the htlc output is from a final taproot channel.
+// isTaprootFinal returns true if the htlc output is from a final taproot
+// channel.
 func (h *htlcTimeoutResolver) isTaprootFinal() bool {
 	return h.chanType.IsTaprootFinal()
 }
@@ -524,11 +526,12 @@ func (h *htlcTimeoutResolver) resolveSecondLevelTxLegacy() error {
 // are resolved via this path.
 func (h *htlcTimeoutResolver) sweepDirectHtlcOutput() error {
 	var htlcWitnessType input.StandardWitnessType
-	if h.isTaprootFinal() {
+	switch {
+	case h.isTaprootFinal():
 		htlcWitnessType = input.TaprootHtlcOfferedRemoteTimeoutFinal
-	} else if h.isTaproot() {
+	case h.isTaproot():
 		htlcWitnessType = input.TaprootHtlcOfferedRemoteTimeout
-	} else {
+	default:
 		htlcWitnessType = input.HtlcOfferedRemoteTimeout
 	}
 
@@ -1052,11 +1055,12 @@ func (h *htlcTimeoutResolver) sweepTimeoutTxOutput() error {
 	}
 
 	var witType input.StandardWitnessType
-	if h.isTaprootFinal() {
+	switch {
+	case h.isTaprootFinal():
 		witType = input.TaprootHtlcOfferedTimeoutSecondLevelFinal
-	} else if h.isTaproot() {
+	case h.isTaproot():
 		witType = input.TaprootHtlcOfferedTimeoutSecondLevel
-	} else {
+	default:
 		witType = input.HtlcOfferedTimeoutSecondLevel
 	}
 

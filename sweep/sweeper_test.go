@@ -117,7 +117,8 @@ func TestMarkInputsPendingPublish(t *testing.T) {
 }
 
 // TestMarkInputsPublished checks that given a list of inputs with different
-// states, only the state `PendingPublish` will be marked as `Published`.
+// states, only the inputs in `PendingPublish` and `Published` will have their
+// state, fee rate and sweep tx updated.
 func TestMarkInputsPublished(t *testing.T) {
 	t.Parallel()
 
@@ -139,18 +140,29 @@ func TestMarkInputsPublished(t *testing.T) {
 		Store: mockStore,
 	})
 
-	// Create two inputs with different states.
+	// Create three inputs with different states.
 	// - inputInit specifies a newly created input.
 	// - inputPendingPublish specifies an input about to be published.
+	// - inputPublished specifies an input that was published before and
+	//   is now being swept by a replacement tx.
+	// inputNotInTx is in the input set but is not actually spent by the
+	// published tx, so its sweep tx must not be stored.
 	var (
 		inputInit           = createMockInput(t, s, Init)
 		inputPendingPublish = createMockInput(t, s, PendingPublish)
+		inputPublished      = createMockInput(t, s, Published)
+		inputNotInTx        = createMockInput(t, s, PendingPublish)
 	)
+
+	// Attach a stale sweep tx to the published input to assert it's
+	// refreshed when the replacement tx is published.
+	staleTx := &wire.MsgTx{LockTime: 1}
+	s.inputs[inputPublished.OutPoint()].sweepTx = staleTx
 
 	// First, check that when an error is returned from db, it's properly
 	// returned here.
 	mockStore.On("StoreTx", dummyTR).Return(dummyErr).Once()
-	err := s.markInputsPublished(dummyTR, nil)
+	err := s.markInputsPublished(dummyTR, nil, nil)
 	require.ErrorIs(err, dummyErr)
 
 	// We also expect the record has been marked as published.
@@ -162,16 +174,25 @@ func TestMarkInputsPublished(t *testing.T) {
 	// Mock the store to return nil
 	mockStore.On("StoreTx", dummyTR).Return(nil).Once()
 
-	// Mark the test inputs. We expect the non-exist input and the
-	// inputInit to be skipped, and the final input to be marked as
-	// published.
-	set.On("Inputs").Return([]input.Input{inputInit, inputPendingPublish})
+	// Mark the test inputs. We expect the inputInit to be skipped, and
+	// the pending-publish and published inputs to be updated.
+	set.On("Inputs").Return([]input.Input{
+		inputInit, inputPendingPublish, inputPublished, inputNotInTx,
+	})
 
-	err = s.markInputsPublished(dummyTR, set)
+	// The published tx only spends the pending-publish and published
+	// inputs, so only those should have the sweep tx attached.
+	dummyTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: inputPendingPublish.OutPoint()},
+			{PreviousOutPoint: inputPublished.OutPoint()},
+		},
+	}
+	err = s.markInputsPublished(dummyTR, dummyTx, set)
 	require.NoError(err)
 
 	// We expect unchanged number of pending inputs.
-	require.Len(s.inputs, 2)
+	require.Len(s.inputs, 4)
 
 	// We expect the init input's state to stay unchanged.
 	require.Equal(Init,
@@ -180,6 +201,24 @@ func TestMarkInputsPublished(t *testing.T) {
 	// We expect the pending-publish input's is now marked as published.
 	require.Equal(Published,
 		s.inputs[inputPendingPublish.OutPoint()].state)
+
+	// We expect the sweep tx to be stored on the published input.
+	require.Equal(dummyTx,
+		s.inputs[inputPendingPublish.OutPoint()].sweepTx)
+
+	// We expect the already-published input to stay in Published and
+	// have its stale sweep tx replaced by the new one.
+	require.Equal(Published,
+		s.inputs[inputPublished.OutPoint()].state)
+	require.Equal(dummyTx,
+		s.inputs[inputPublished.OutPoint()].sweepTx)
+
+	// We expect the input that's marked published but isn't spent by the
+	// tx to be updated in state, yet have no sweep tx attached, as the tx
+	// doesn't contain it.
+	require.Equal(Published,
+		s.inputs[inputNotInTx.OutPoint()].state)
+	require.Nil(s.inputs[inputNotInTx.OutPoint()].sweepTx)
 
 	// Assert mocked statements are executed as expected.
 	mockStore.AssertExpectations(t)
@@ -226,6 +265,13 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 		inputFatal          = createMockInput(t, s, Fatal)
 	)
 
+	// Attach a sweep tx to the inputs that will transition to
+	// PublishFailed, to assert it's retained so the last broadcast tx is
+	// still surfaced via PendingSweeps.
+	broadcastTx := &wire.MsgTx{LockTime: 1}
+	s.inputs[inputPendingPublish.OutPoint()].sweepTx = broadcastTx
+	s.inputs[inputPublished.OutPoint()].sweepTx = broadcastTx
+
 	// Gather all inputs.
 	set.On("Inputs").Return([]input.Input{
 		inputInit, inputPendingPublish, inputPublished,
@@ -248,15 +294,18 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	require.True(pi.params.StartingFeeRate.IsNone())
 
 	// We expect the pending-publish input's is now marked as publish
-	// failed.
+	// failed, with its broadcast sweep tx retained.
 	pi = s.inputs[inputPendingPublish.OutPoint()]
 	require.Equal(PublishFailed, pi.state)
 	require.Equal(feeRate, pi.params.StartingFeeRate.UnsafeFromSome())
+	require.Equal(broadcastTx, pi.sweepTx)
 
-	// We expect the published input's is now marked as publish failed.
+	// We expect the published input's is now marked as publish failed,
+	// with its broadcast sweep tx retained.
 	pi = s.inputs[inputPublished.OutPoint()]
 	require.Equal(PublishFailed, pi.state)
 	require.Equal(feeRate, pi.params.StartingFeeRate.UnsafeFromSome())
+	require.Equal(broadcastTx, pi.sweepTx)
 
 	// We expect the publish failed input to stay unchanged.
 	pi = s.inputs[inputPublishFailed.OutPoint()]
@@ -535,9 +584,10 @@ func TestDecideRBFInfo(t *testing.T) {
 	mockMempool.On("LookupInputMempoolSpend", op).Return(
 		fn.None[wire.MsgTx]()).Once()
 
-	// Since the mempool lookup failed, we expect no RBFInfo.
-	rbf := s.decideRBFInfo(op)
+	// Since the mempool lookup failed, we expect no RBFInfo and no tx.
+	rbf, sweepTx := s.decideRBFInfo(op)
 	require.True(rbf.IsNone())
+	require.Nil(sweepTx)
 
 	// Mock the mempool lookup to return a tx three times as we are calling
 	// attachAvailableRBFInfo three times.
@@ -548,17 +598,19 @@ func TestDecideRBFInfo(t *testing.T) {
 	// Mock the store to return an error saying the tx cannot be found.
 	mockStore.On("GetTx", tx.TxHash()).Return(nil, ErrTxNotFound).Once()
 
-	// The db lookup failed, we expect no RBFInfo.
-	rbf = s.decideRBFInfo(op)
+	// The db lookup failed, we expect no RBFInfo and no tx.
+	rbf, sweepTx = s.decideRBFInfo(op)
 	require.True(rbf.IsNone())
+	require.Nil(sweepTx)
 
 	// Mock the store to return a db error.
 	dummyErr := errors.New("dummy error")
 	mockStore.On("GetTx", tx.TxHash()).Return(nil, dummyErr).Once()
 
-	// The db lookup failed, we expect no RBFInfo.
-	rbf = s.decideRBFInfo(op)
+	// The db lookup failed, we expect no RBFInfo and no tx.
+	rbf, sweepTx = s.decideRBFInfo(op)
 	require.True(rbf.IsNone())
+	require.Nil(sweepTx)
 
 	// Mock the store to return a record.
 	tr := &TxRecord{
@@ -568,7 +620,7 @@ func TestDecideRBFInfo(t *testing.T) {
 	mockStore.On("GetTx", tx.TxHash()).Return(tr, nil).Once()
 
 	// Call the method again.
-	rbf = s.decideRBFInfo(op)
+	rbf, sweepTx = s.decideRBFInfo(op)
 
 	// Assert that the RBF info is returned.
 	rbfInfo := fn.Some(RBFInfo{
@@ -577,6 +629,10 @@ func TestDecideRBFInfo(t *testing.T) {
 		FeeRate: chainfee.SatPerKWeight(tr.FeeRate),
 	})
 	require.Equal(rbfInfo, rbf)
+
+	// We also expect the recovered mempool tx to be returned so the input
+	// can track it as its sweep tx.
+	require.Equal(&tx, sweepTx)
 }
 
 // TestMarkInputFatal checks that the input is marked as expected.
@@ -863,6 +919,100 @@ func TestHandleBumpEventTxReplaced(t *testing.T) {
 
 	// Assert the state of the input is updated.
 	require.Equal(t, Published, s.inputs[op].state)
+}
+
+// TestHandleBumpEventTxReplacedOnPublished checks that when a sweeping tx is
+// replaced via an automatic RBF, an input that's already in the state
+// `Published` has its fee rate and sweep tx updated to the replacement tx.
+func TestHandleBumpEventTxReplacedOnPublished(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock store.
+	store := &MockSweeperStore{}
+	defer store.AssertExpectations(t)
+
+	// Create a mock wallet.
+	wallet := &MockWallet{}
+	defer wallet.AssertExpectations(t)
+
+	// Create a mock input set.
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		Store:  store,
+		Wallet: wallet,
+	})
+
+	// Create a mock input that's already published - the initial sweeping
+	// tx was broadcast and is now being fee bumped via RBF.
+	inp := createMockInput(t, s, Published)
+	set.On("Inputs").Return([]input.Input{inp})
+
+	op := inp.OutPoint()
+
+	// Create a testing tx that spends the input.
+	tx := &wire.MsgTx{
+		LockTime: 1,
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op},
+		},
+	}
+
+	// Attach the old sweeping tx to the input to mimic the state after
+	// the initial publish.
+	s.inputs[op].sweepTx = tx
+
+	// Create a replacement tx with a higher fee rate.
+	replacementTx := &wire.MsgTx{
+		LockTime: 2,
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op},
+		},
+	}
+	newFeeRate := chainfee.SatPerKWeight(1000)
+
+	// Create a testing bump result.
+	br := &BumpResult{
+		Tx:         replacementTx,
+		ReplacedTx: tx,
+		Event:      TxReplaced,
+		FeeRate:    newFeeRate,
+	}
+
+	// Create a testing bump response.
+	resp := &bumpResp{
+		result: br,
+		set:    set,
+	}
+
+	// Mock the store to return the old tx record and delete it without
+	// error.
+	store.On("GetTx", tx.TxHash()).Return(&TxRecord{
+		Txid: tx.TxHash(),
+	}, nil).Once()
+	store.On("DeleteTx", tx.TxHash()).Return(nil).Once()
+
+	// Mock the store to save the new tx record.
+	store.On("StoreTx", &TxRecord{
+		Txid:      replacementTx.TxHash(),
+		FeeRate:   uint64(newFeeRate),
+		Published: true,
+	}).Return(nil).Once()
+
+	// We expect to cancel rebroadcasting the replaced tx.
+	wallet.On("CancelRebroadcast", tx.TxHash()).Once()
+
+	// Call the method under test.
+	err := s.handleBumpEventTxReplaced(resp)
+	require.NoError(t, err)
+
+	// Assert the input stays in Published, and its fee rate and sweep tx
+	// reflect the replacement tx instead of the replaced one.
+	require.Equal(t, Published, s.inputs[op].state)
+	require.Equal(t, newFeeRate, s.inputs[op].lastFeeRate)
+	require.Equal(t, replacementTx, s.inputs[op].sweepTx)
 }
 
 // TestHandleBumpEventTxPublished checks that the sweeper correctly handles the

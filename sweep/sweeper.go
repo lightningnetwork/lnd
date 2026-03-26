@@ -204,6 +204,11 @@ type SweeperInput struct {
 	// different from the DeadlineHeight in its params as it's an actual
 	// value than an option.
 	DeadlineHeight int32
+
+	// sweepTx is the most recent sweep transaction that spends this
+	// input. This is set when the sweep transaction is published or
+	// replaced via RBF.
+	sweepTx *wire.MsgTx
 }
 
 // String returns a human readable interpretation of the pending input.
@@ -309,6 +314,11 @@ type PendingInputResponse struct {
 	// MaturityHeight is the block height that this input's locktime will
 	// be expired at. For inputs with no locktime this value is zero.
 	MaturityHeight uint32
+
+	// SweepTx is the most recent sweep transaction that spends this
+	// input. This may be nil if the input has not yet been included in a
+	// published sweep transaction.
+	SweepTx *wire.MsgTx
 }
 
 // updateReq is an internal message we'll use to represent an external caller's
@@ -919,7 +929,8 @@ func (s *UtxoSweeper) markInputsPendingPublish(set InputSet) {
 
 // markInputsPublished updates the sweeping tx in db and marks the list of
 // inputs as published.
-func (s *UtxoSweeper) markInputsPublished(tr *TxRecord, set InputSet) error {
+func (s *UtxoSweeper) markInputsPublished(tr *TxRecord, tx *wire.MsgTx,
+	set InputSet) error {
 	// Mark this tx in db once successfully published.
 	//
 	// NOTE: this will behave as an overwrite, which is fine as the record
@@ -928,6 +939,17 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord, set InputSet) error {
 	err := s.cfg.Store.StoreTx(tr)
 	if err != nil {
 		return fmt.Errorf("store tx: %w", err)
+	}
+
+	// Collect the outpoints actually spent by this tx so we only attach it
+	// to inputs it really contains. By construction set.Inputs() belong to
+	// tx, but this guards against ever storing a sweep tx that omits the
+	// input it's recorded against.
+	spentByTx := make(map[wire.OutPoint]struct{})
+	if tx != nil {
+		for _, txIn := range tx.TxIn {
+			spentByTx[txIn.PreviousOutPoint] = struct{}{}
+		}
 	}
 
 	// Reschedule sweep.
@@ -944,9 +966,11 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord, set InputSet) error {
 			continue
 		}
 
-		// Valdiate that the input is in an expected state.
-		if pi.state != PendingPublish {
-			// We may get a Published if this is a replacement tx.
+		// Validate that the input is in an expected state. We may
+		// get a Published input if this is a replacement tx, in
+		// which case we still want to update its fee rate and sweep
+		// tx below.
+		if pi.state != PendingPublish && pi.state != Published {
 			log.Debugf("Expect input %v to have %v, instead it "+
 				"has %v", op, PendingPublish, pi.state)
 
@@ -956,8 +980,20 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord, set InputSet) error {
 		// Update the input's state.
 		pi.state = Published
 
-		// Update the input's latest fee rate.
-		pi.lastFeeRate = chainfee.SatPerKWeight(tr.FeeRate)
+		// Update the input's latest fee rate. Real publish/replace
+		// events always carry a fee rate; guard against a zero value so
+		// we never clobber a valid rate (and the RPC's sat_per_vbyte)
+		// with zero.
+		if tr.FeeRate != 0 {
+			pi.lastFeeRate = chainfee.SatPerKWeight(tr.FeeRate)
+		}
+
+		// Store the sweep transaction on the input so it can be
+		// returned via PendingSweeps, but only if the tx actually
+		// spends this input.
+		if _, ok := spentByTx[op]; ok {
+			pi.sweepTx = tx
+		}
 	}
 
 	return nil
@@ -993,6 +1029,13 @@ func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,
 
 		// Update the input's state.
 		pi.state = PublishFailed
+
+		// We intentionally keep pi.sweepTx here. It's only ever set to a
+		// tx we've successfully broadcast, so when a bump attempt fails
+		// (e.g. the new fee rate can't be covered by the budget) the
+		// previously broadcast tx is still the live sweep in the mempool
+		// and remains the correct one to surface via PendingSweeps as
+		// raw_tx_hex.
 
 		log.Debugf("Input(%v): updating params: starting fee rate "+
 			"[%v -> %v]", op, pi.params.StartingFeeRate,
@@ -1083,6 +1126,14 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 	for _, inp := range s.inputs {
 		_, maturityHeight := inp.isMature(uint32(s.currentHeight))
 
+		// Deep-copy the sweep tx before handing it to the caller's
+		// goroutine so the response never shares a mutable transaction
+		// with the sweeper's internal state.
+		var sweepTx *wire.MsgTx
+		if inp.sweepTx != nil {
+			sweepTx = inp.sweepTx.Copy()
+		}
+
 		// Only the exported fields are set, as we expect the response
 		// to only be consumed externally.
 		op := inp.OutPoint()
@@ -1097,6 +1148,7 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 			Params:            inp.params,
 			DeadlineHeight:    uint32(inp.DeadlineHeight),
 			MaturityHeight:    maturityHeight,
+			SweepTx:           sweepTx,
 		}
 	}
 
@@ -1255,18 +1307,24 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
 
 	// This is a new input, and we want to query the mempool to see if this
 	// input has already been spent. If so, we'll start the input with the
-	// RBFInfo.
-	rbfInfo := s.decideRBFInfo(input.input.OutPoint())
+	// RBFInfo and the recovered sweep tx.
+	rbfInfo, sweepTx := s.decideRBFInfo(input.input.OutPoint())
 
 	// Create a new pendingInput and initialize the listeners slice with
 	// the passed in result channel. If this input is offered for sweep
 	// again, the result channel will be appended to this slice.
+	//
+	// When the input's sweep is already in the mempool (e.g. recovered on
+	// restart), sweepTx carries it so PendingSweeps can surface its
+	// raw_tx_hex right away instead of returning empty until the next
+	// publish.
 	pi = &SweeperInput{
 		state:     Init,
 		listeners: []chan Result{input.resultChan},
 		Input:     input.input,
 		params:    input.params,
 		rbf:       rbfInfo,
+		sweepTx:   sweepTx,
 	}
 
 	// Set the starting fee rate if a previous sweeping tx is found.
@@ -1307,11 +1365,12 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
 }
 
 // decideRBFInfo queries the mempool to see whether the given input has already
-// been spent. When spent, it will query the sweeper store to fetch the fee info
-// of the spending transction, and construct an RBFInfo based on it. Suppose an
-// error occurs, fn.None is returned.
-func (s *UtxoSweeper) decideRBFInfo(
-	op wire.OutPoint) fn.Option[RBFInfo] {
+// been spent. When spent by a tx we broadcast, it queries the sweeper store to
+// fetch the fee info of the spending transaction and constructs an RBFInfo
+// based on it, returning that tx so it can be tracked as the input's sweep tx.
+// Suppose an error occurs, fn.None and a nil tx are returned.
+func (s *UtxoSweeper) decideRBFInfo(op wire.OutPoint) (fn.Option[RBFInfo],
+	*wire.MsgTx) {
 
 	// Check if we can find the spending tx of this input in mempool.
 	txOption := s.mempoolLookup(op)
@@ -1329,7 +1388,7 @@ func (s *UtxoSweeper) decideRBFInfo(
 	// - for neutrino we don't have a mempool.
 	// - for btcd below v0.24.1 we don't have `gettxspendingprevout`.
 	if tx == nil {
-		return fn.None[RBFInfo]()
+		return fn.None[RBFInfo](), nil
 	}
 
 	// Otherwise the input is already spent in the mempool, so eventually
@@ -1349,7 +1408,7 @@ func (s *UtxoSweeper) decideRBFInfo(
 	// this tx is confirmed, we will remove the input from our inputs.
 	if errors.Is(err, ErrTxNotFound) {
 		log.Warnf("Spending tx %v not found in sweeper store", txid)
-		return fn.None[RBFInfo]()
+		return fn.None[RBFInfo](), nil
 	}
 
 	// Exit if we get an db error.
@@ -1357,17 +1416,18 @@ func (s *UtxoSweeper) decideRBFInfo(
 		log.Errorf("Unable to get tx %v from sweeper store: %v",
 			txid, err)
 
-		return fn.None[RBFInfo]()
+		return fn.None[RBFInfo](), nil
 	}
 
-	// Prepare the fee info and return it.
+	// Prepare the fee info and return it along with the recovered tx so the
+	// input tracks it as its sweep tx.
 	rbf := fn.Some(RBFInfo{
 		Txid:    txid,
 		Fee:     btcutil.Amount(tr.Fee),
 		FeeRate: chainfee.SatPerKWeight(tr.FeeRate),
 	})
 
-	return rbf
+	return rbf, tx
 }
 
 // handleExistingInput processes an input that is already known to the sweeper.
@@ -1765,7 +1825,7 @@ func (s *UtxoSweeper) handleBumpEventTxReplaced(resp *bumpResp) error {
 	}
 
 	// Mark the inputs as published using the replacing tx.
-	return s.markInputsPublished(tr, resp.set)
+	return s.markInputsPublished(tr, newTx, resp.set)
 }
 
 // handleBumpEventTxPublished handles the case where the sweeping tx has been
@@ -1781,7 +1841,7 @@ func (s *UtxoSweeper) handleBumpEventTxPublished(resp *bumpResp) error {
 
 	// Inputs have been successfully published so we update their
 	// states.
-	err := s.markInputsPublished(tr, resp.set)
+	err := s.markInputsPublished(tr, tx, resp.set)
 	if err != nil {
 		return err
 	}

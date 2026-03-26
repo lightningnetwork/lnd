@@ -1998,6 +1998,10 @@
           "type": "integer",
           "format": "int64",
           "description": "The block height which the input's locktime will expire at. Zero if the\ninput has no locktime."
+        },
+        "raw_tx_hex": {
+          "type": "string",
+          "description": "The raw hex-encoded sweep transaction lnd most recently broadcast to spend\nthis input. This field is advisory and intended for diagnostics only.\nRebroadcasting it is not guaranteed to be safe: lnd may be actively\nfee-bumping this input, and during an RBF bump there is a brief window where\nthis still reflects the previous version until the replacement is recorded.\nRe-injecting it can therefore conflict with lnd's in-flight RBF by\nresurfacing a superseded, lower-fee version. Empty when lnd has no sweep\ntransaction on record for this input, e.g. none has been broadcast yet."
         }
       }
     },

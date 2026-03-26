@@ -1228,6 +1228,18 @@ message PendingSweep {
     input has no locktime.
     */
     uint32 maturity_height = 15;
+
+    /*
+    The raw hex-encoded sweep transaction lnd most recently broadcast to spend
+    this input. This field is advisory and intended for diagnostics only.
+    Rebroadcasting it is not guaranteed to be safe: lnd may be actively
+    fee-bumping this input, and during an RBF bump there is a brief window where
+    this still reflects the previous version until the replacement is recorded.
+    Re-injecting it can therefore conflict with lnd's in-flight RBF by
+    resurfacing a superseded, lower-fee version. Empty when lnd has no sweep
+    transaction on record for this input, e.g. none has been broadcast yet.
+    */
+    string raw_tx_hex = 16;
 }
 
 message PendingSweepsRequest {

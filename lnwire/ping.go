@@ -14,7 +14,8 @@ type PingPayload []byte
 // the end of the ping message (which is padding).
 type Ping struct {
 	// NumPongBytes is the number of bytes the pong response to this
-	// message should carry.
+	// message should carry. Per BOLT #1, if this value is 65532 or
+	// greater, no pong reply should be sent.
 	NumPongBytes uint16
 
 	// PaddingBytes is a set of opaque bytes used to pad out this ping
@@ -45,10 +46,6 @@ func (p *Ping) Decode(r io.Reader, pver uint32) error {
 	err := ReadElements(r, &p.NumPongBytes, &p.PaddingBytes)
 	if err != nil {
 		return err
-	}
-
-	if p.NumPongBytes > MaxPongBytes {
-		return ErrMaxPongBytesExceeded
 	}
 
 	return nil

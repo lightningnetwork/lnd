@@ -1517,7 +1517,7 @@ var _ TestMessage = (*Ping)(nil)
 //
 // This is part of the TestMessage interface.
 func (p *Ping) RandTestMessage(t *rapid.T) Message {
-	numPongBytes := uint16(rapid.IntRange(0, int(MaxPongBytes)).Draw(
+	numPongBytes := uint16(rapid.IntRange(0, 65535).Draw(
 		t, "numPongBytes"),
 	)
 

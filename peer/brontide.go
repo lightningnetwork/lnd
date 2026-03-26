@@ -2220,6 +2220,12 @@ out:
 			// the relevant atomic variable.
 			p.lastPingPayload.Store(msg.PaddingBytes[:])
 
+			// Per BOLT #1, if num_pong_bytes >= 65532, the sender
+			// does not require a pong reply. We MUST NOT reply.
+			if msg.NumPongBytes >= lnwire.NoPongReplyThreshold {
+				continue
+			}
+
 			// Next, we'll send over the amount of specified pong
 			// bytes.
 			pong := lnwire.NewPong(p.cfg.PongBuf[0:msg.NumPongBytes])

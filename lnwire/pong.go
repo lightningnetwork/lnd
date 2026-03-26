@@ -11,6 +11,11 @@ import (
 // 2 bytes, leaving 65531 bytes.
 const MaxPongBytes = 65531
 
+// NoPongReplyThreshold is the minimum value of num_pong_bytes for which no
+// pong reply should be sent, per BOLT #1. Values in the range [65532, 65535]
+// mean "no reply needed".
+const NoPongReplyThreshold uint16 = 65532
+
 // ErrMaxPongBytesExceeded indicates that the NumPongBytes field from the ping
 // message has exceeded MaxPongBytes.
 var ErrMaxPongBytesExceeded = fmt.Errorf("pong bytes exceeded")

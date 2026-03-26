@@ -1,6 +1,8 @@
 package itest
 
 import (
+	"bytes"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -62,31 +64,6 @@ func testBumpFeeLowBudget(ht *lntest.HarnessTest) {
 	assertPendingSweepResp := func(budget uint64,
 		deadline uint32) *wire.MsgTx {
 
-		// Alice should still have one pending sweep.
-		pendingSweep := ht.AssertNumPendingSweeps(alice, 1)[0]
-
-		// Validate all fields returned from `PendingSweeps` are as
-		// expected.
-		require.Equal(ht, op.TxidBytes, pendingSweep.Outpoint.TxidBytes)
-		require.Equal(ht, op.OutputIndex,
-			pendingSweep.Outpoint.OutputIndex)
-		require.Equal(ht, walletrpc.WitnessType_TAPROOT_PUB_KEY_SPEND,
-			pendingSweep.WitnessType)
-		require.EqualValuesf(ht, value, pendingSweep.AmountSat,
-			"amount not matched: want=%d, got=%d", value,
-			pendingSweep.AmountSat)
-		require.True(ht, pendingSweep.Immediate)
-
-		require.EqualValuesf(ht, budget, pendingSweep.Budget,
-			"budget not matched: want=%d, got=%d", budget,
-			pendingSweep.Budget)
-
-		// Since the request doesn't specify a deadline, we expect the
-		// existing deadline to be used.
-		require.Equalf(ht, deadline, pendingSweep.DeadlineHeight,
-			"deadline height not matched: want=%d, got=%d",
-			deadline, pendingSweep.DeadlineHeight)
-
 		// We expect to see Alice's original tx and her CPFP tx in the
 		// mempool.
 		txns := ht.GetNumTxsFromMempool(2)
@@ -97,6 +74,61 @@ func testBumpFeeLowBudget(ht *lntest.HarnessTest) {
 		if sweepTx.TxHash() == tx.TxHash() {
 			sweepTx = txns[1]
 		}
+
+		// Serialize the mempool sweep tx so we can compare against the
+		// RawTxHex returned by the RPC.
+		var expectedBuf bytes.Buffer
+		require.NoError(ht, sweepTx.Serialize(&expectedBuf))
+		expectedHex := hex.EncodeToString(expectedBuf.Bytes())
+
+		// Note that the sweeper updates the input's tracked sweep tx
+		// after broadcasting, so there is a brief window where the
+		// mempool has the new tx but the input still references the
+		// previous one. We retry the comparison here until both views
+		// converge.
+		err := wait.NoError(func() error {
+			// Alice should still have one pending sweep.
+			ps := ht.AssertNumPendingSweeps(alice, 1)[0]
+
+			// Validate all fields returned from `PendingSweeps`
+			// are as expected. These fields don't change during
+			// the test so we assert them without retrying.
+			require.Equal(ht, op.TxidBytes, ps.Outpoint.TxidBytes)
+			require.Equal(ht, op.OutputIndex,
+				ps.Outpoint.OutputIndex)
+			require.Equal(ht,
+				walletrpc.WitnessType_TAPROOT_PUB_KEY_SPEND,
+				ps.WitnessType)
+			require.EqualValuesf(ht, value, ps.AmountSat,
+				"amount not matched: want=%d, got=%d", value,
+				ps.AmountSat)
+			require.True(ht, ps.Immediate)
+			require.EqualValuesf(ht, budget, ps.Budget,
+				"budget not matched: want=%d, got=%d", budget,
+				ps.Budget)
+
+			// Since the request doesn't specify a deadline, we
+			// expect the existing deadline to be used.
+			require.Equalf(ht, deadline, ps.DeadlineHeight,
+				"deadline height not matched: want=%d, got=%d",
+				deadline, ps.DeadlineHeight)
+
+			// Validate that the raw tx hex matches the sweep
+			// transaction observed in the mempool. This is the
+			// field that lags behind, so the comparison lives
+			// inside the retry loop.
+			if ps.RawTxHex == "" {
+				return fmt.Errorf("raw tx hex is empty")
+			}
+			if ps.RawTxHex != expectedHex {
+				return fmt.Errorf("raw tx hex mismatch: "+
+					"want=%s, got=%s", expectedHex,
+					ps.RawTxHex)
+			}
+
+			return nil
+		}, wait.DefaultTimeout)
+		require.NoError(ht, err, "raw tx hex did not converge")
 
 		return sweepTx
 	}
@@ -300,6 +332,15 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 		if sweepTx.TxHash() == tx.TxHash() {
 			sweepTx = txns[1]
 		}
+
+		// Validate that the raw tx hex is populated and matches the
+		// sweep transaction.
+		ps := ht.AssertNumPendingSweeps(alice, 1)[0]
+		require.NotEmpty(ht, ps.RawTxHex)
+		var expectedBuf bytes.Buffer
+		require.NoError(ht, sweepTx.Serialize(&expectedBuf))
+		expectedHex := hex.EncodeToString(expectedBuf.Bytes())
+		require.Equal(ht, expectedHex, ps.RawTxHex)
 
 		return sweepTx
 	}

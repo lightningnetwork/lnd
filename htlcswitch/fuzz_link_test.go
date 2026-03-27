@@ -1,6 +1,7 @@
 package htlcswitch
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -12,10 +13,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -23,6 +29,79 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
+
+// fuzzScalar returns a 32-byte scalar derived from sigHash with three
+// invariants that guarantee a clean round-trip through ecdsa.ParseDERSignature
+// and the lnwire.Sig 64-byte compact encoding:
+//
+//  1. s[0] != 0x00 — extractCanonicalPadding always keeps all 32 bytes,
+//     so the DER layout is fixed: 0x30 ?? 02 01 01 02 20 [32 bytes].
+//  2. s[0] < 0x80 — no DER sign-extension 0x00 prefix needed.
+//  3. s < 2^254 << N/2 — ParseDERSignature never normalizes s to N-s.
+//
+// Achieved by: clear the top two bits of s[0] and set bit 0.
+// Result: s[0] ∈ {0x01,0x03,…,0x3f}, no secp256k1 arithmetic needed.
+func fuzzScalar(sigHash []byte) [32]byte {
+	s := sha256.Sum256(sigHash)
+	s[0] = s[0]&0x3f | 0x01
+	return s
+}
+
+// fuzzDERSig builds a minimal DER-encoded ECDSA signature with r=1 and
+// s=fuzzScalar(sigHash). Both r and s are small positives so no sign-extension
+// padding is needed. ecdsa.ParseDERSignature accepts the result unchanged.
+func fuzzDERSig(sigHash []byte) []byte {
+	s := fuzzScalar(sigHash)
+	var inner []byte
+	inner = append(inner, 0x02, 0x01, 0x01) // r = 1
+	inner = append(inner, 0x02, 0x20)       // s tag + 32-byte length
+	inner = append(inner, s[:]...)          // s value
+
+	return append([]byte{0x30, byte(len(inner))}, inner...)
+}
+
+// fuzzSigner embeds MockSigner to satisfy input.Signer (MuSig2 methods,
+// ComputeInputScript) but overrides SignOutputRaw with a trivial scheme:
+// r=1, s=fuzzScalar(sigHash). Zero secp256k1 point-multiplication.
+// Returns a real *ecdsa.Signature so lnwire.NewSigFromSignature accepts it.
+type fuzzSigner struct {
+	*input.MockSigner
+}
+
+func (f *fuzzSigner) SignOutputRaw(tx *wire.MsgTx,
+	signDesc *input.SignDescriptor) (input.Signature, error) {
+
+	sigHash, err := txscript.CalcWitnessSigHash(
+		signDesc.WitnessScript, signDesc.SigHashes, signDesc.HashType,
+		tx, signDesc.InputIndex, signDesc.Output.Value,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return ecdsa.ParseDERSignature(fuzzDERSig(sigHash))
+}
+
+// fuzzSigVerifier is the paired verifier for fuzzSigner. It extracts s from
+// the DER-serialized signature (preserved through the lnwire round-trip) and
+// checks s == fuzzScalar(sigHash).
+func fuzzSigVerifier(sig input.Signature, sigHash []byte,
+	_ *btcec.PublicKey) bool {
+
+	expected := fuzzScalar(sigHash)
+
+	// DER layout after round-trip: 0x30 [len] 0x02 0x01 0x01 0x02 0x20
+	// [32 bytes s] fuzzScalar guarantees s[0] < 0x40, so no DER
+	// sign-extension byte is ever added and the s field is always exactly
+	// 32 bytes.
+	der := sig.Serialize()
+	if len(der) < 7+32 {
+		return false
+	}
+	sBytes := der[7 : 7+32]
+
+	return bytes.Equal(sBytes, expected[:])
+}
 
 type Event uint8
 
@@ -196,8 +275,21 @@ func newFuzzFSM(t *testing.T, channelSize, aliceShareGen,
 
 	blockHeight := 100
 
+	// Create lightning channels using the trivial fuzz signer so that
+	// secp256k1 ECDSA is never called during fuzzing (big CPU win).
+	mkFuzzSigner := func(k *btcec.PrivateKey) input.Signer {
+		return &fuzzSigner{
+			MockSigner: input.NewMockSigner(
+				[]*btcec.PrivateKey{k}, nil,
+			),
+		}
+	}
 	alice, bob, err := createTestChannel(t, alicePrivKey, bobPrivKey,
 		aliceAmount, bobAmount, aliceReserve, bobReserve, SchanID,
+		withTestSignerFactory(mkFuzzSigner),
+		withTestChanOpts(
+			lnwallet.WithSigVerifier(fuzzSigVerifier),
+		),
 	)
 	require.NoError(t, err)
 

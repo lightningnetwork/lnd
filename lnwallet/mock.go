@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -519,4 +520,24 @@ func (*MockAuxContractResolver) ResolveContract(
 	ResolutionReq) fn.Result[tlv.Blob] {
 
 	return fn.Ok[tlv.Blob](nil)
+}
+
+// SigVerifier is an optional function that overrides the default ECDSA
+// signature verification for commitment and HTLC signatures. Both the
+// commitment sig (ReceiveNewCommitment) and HTLC sigs (SigPool) use this
+// hook. When nil, the standard sig.Verify method is used.
+//
+// This is intended for testing scenarios (e.g. fuzz harnesses) that use a
+// trivial signing scheme instead of secp256k1, allowing both sides to share
+// the same fast sign+verify implementation without modifying production code.
+type SigVerifier func(sig input.Signature, sigHash []byte,
+	pubKey *btcec.PublicKey) bool
+
+// WithSigVerifier injects a custom signature verifier into the channel,
+// overriding the default secp256k1 ECDSA verification for both commitment and
+// HTLC signatures. Both signing sides must use a consistent scheme.
+func WithSigVerifier(v SigVerifier) ChannelOpt {
+	return func(o *channelOpts) {
+		o.sigVerifier = v
+	}
 }

@@ -42,17 +42,6 @@ const (
 	// channel arbitrator.
 	arbitratorBlockBufferSize = 20
 
-	// resolverRetryInitialBackoff is the initial backoff duration before
-	// retrying a failed Resolve() call. The backoff doubles on each
-	// subsequent retry.
-	resolverRetryInitialBackoff = time.Second
-
-	// resolverRetryMaxBackoff is the maximum backoff duration between
-	// retry attempts for a failed Resolve() call. This caps the
-	// exponential backoff to avoid excessively long delays for
-	// time-sensitive HTLC resolutions.
-	resolverRetryMaxBackoff = 5 * time.Minute
-
 	// AnchorOutputValue is the output value for the anchor output of an
 	// anchor channel.
 	// See BOLT 03 for more details:
@@ -2625,53 +2614,6 @@ func (c *ChannelArbitrator) replaceResolver(oldResolver,
 	return errors.New("resolver to be replaced not found")
 }
 
-// resolveWithRetry attempts to resolve a contract, retrying with exponential
-// backoff on transient errors. This prevents the resolver goroutine from
-// permanently exiting due to temporary backend disruptions such as bitcoind
-// restarts or ZMQ connection issues.
-//
-// Only errResolverShuttingDown is returned to the caller; all other errors
-// trigger a retry after the backoff period.
-func (c *ChannelArbitrator) resolveWithRetry(
-	currentContract ContractResolver) (ContractResolver, error) {
-
-	backoff := resolverRetryInitialBackoff
-
-	for {
-		nextContract, err := currentContract.Resolve()
-		if err == nil {
-			return nextContract, nil
-		}
-
-		// If the resolver itself is shutting down, propagate the
-		// error immediately so the caller can exit cleanly.
-		if errors.Is(err, errResolverShuttingDown) {
-			return nil, err
-		}
-
-		// Log the error and schedule a retry. We use exponential
-		// backoff to avoid hammering a recovering backend, but cap
-		// the backoff to ensure we don't delay HTLC resolution
-		// excessively.
-		log.Errorf("ChannelArbitrator(%v): unable to progress "+
-			"%T (will retry in %v): %v",
-			c.cfg.ChanPoint, currentContract, backoff, err)
-
-		select {
-		case <-time.After(backoff):
-			// Double the backoff for the next attempt, capped
-			// at the maximum.
-			backoff *= 2
-			if backoff > resolverRetryMaxBackoff {
-				backoff = resolverRetryMaxBackoff
-			}
-
-		case <-c.quit:
-			return nil, errResolverShuttingDown
-		}
-	}
-}
-
 // resolveContract is a goroutine tasked with fully resolving an unresolved
 // contract. Either the initial contract will be resolved after a single step,
 // or the contract will itself create another contract to be resolved. In
@@ -2685,6 +2627,10 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 
 	log.Tracef("ChannelArbitrator(%v): attempting to resolve %T",
 		c.cfg.ChanPoint, currentContract)
+
+	// retryAttempt tracks consecutive transient Resolve() errors for
+	// exponential backoff. Reset to zero on any successful Resolve().
+	retryAttempt := 0
 
 	// Until the contract is fully resolved, we'll continue to iteratively
 	// resolve the contract one step at a time.
@@ -2700,21 +2646,40 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 
 		default:
 			// Otherwise, we'll attempt to resolve the current
-			// contract. If we encounter a transient error
-			// (e.g., from a bitcoind restart or ZMQ hiccup),
-			// we'll retry with exponential backoff rather than
-			// permanently exiting the goroutine. This ensures
-			// that HTLC outputs remain watched even through
-			// temporary backend disruptions.
-			nextContract, err := c.resolveWithRetry(
-				currentContract,
-			)
+			// contract.
+			nextContract, err := currentContract.Resolve()
 			if err != nil {
-				// resolveWithRetry only returns
-				// errResolverShuttingDown, which means
-				// we should exit.
-				return
+				if err == errResolverShuttingDown {
+					return
+				}
+
+				// Instead of exiting the goroutine permanently
+				// on transient errors, retry with exponential
+				// backoff. This prevents silent resolver death
+				// from transient failures like brief bitcoind
+				// restarts or ZMQ disconnects, which could
+				// leave HTLC outputs completely unwatched.
+				log.Errorf("ChannelArbitrator(%v): unable to "+
+					"progress %T: %v (retry in %v, "+
+					"attempt %d)",
+					c.cfg.ChanPoint, currentContract, err,
+					resolverRetryBackoff(retryAttempt),
+					retryAttempt+1)
+
+				select {
+				case <-time.After(
+					resolverRetryBackoff(retryAttempt),
+				):
+				case <-c.quit:
+					return
+				}
+
+				retryAttempt++
+				continue
 			}
+
+			// Resolve succeeded, reset retry counter.
+			retryAttempt = 0
 
 			switch {
 			// If this contract produced another, then this means

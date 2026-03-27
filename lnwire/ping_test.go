@@ -3,6 +3,8 @@ package lnwire
 import (
 	"bytes"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestPingDecodeNoReply tests that ping messages with num_pong_bytes >= 65532
@@ -14,7 +16,7 @@ func TestPingDecodeNoReply(t *testing.T) {
 	testCases := []struct {
 		name         string
 		numPongBytes uint16
-		padding      []byte
+		padding      PingPayload
 	}{
 		{
 			name:         "no reply needed 65532",
@@ -34,7 +36,7 @@ func TestPingDecodeNoReply(t *testing.T) {
 		{
 			name:         "no reply needed 65535 (max uint16)",
 			numPongBytes: 65535,
-			padding:      nil,
+			padding:      []byte{},
 		},
 		{
 			name:         "normal pong 0 bytes",
@@ -44,7 +46,7 @@ func TestPingDecodeNoReply(t *testing.T) {
 		{
 			name:         "normal pong max allowed",
 			numPongBytes: MaxPongBytes,
-			padding:      nil,
+			padding:      []byte{},
 		},
 		{
 			name:         "normal pong boundary 65531",
@@ -66,30 +68,17 @@ func TestPingDecodeNoReply(t *testing.T) {
 
 			var buf bytes.Buffer
 			err := ping.Encode(&buf, 0)
-			if err != nil {
-				t.Fatalf("failed to encode ping: %v", err)
-			}
+			require.NoError(t, err, "failed to encode ping")
 
 			// Decode it back.
 			decodedPing := &Ping{}
 			err = decodedPing.Decode(&buf, 0)
-			if err != nil {
-				t.Fatalf("failed to decode ping with "+
-					"num_pong_bytes=%d: %v",
-					tc.numPongBytes, err)
-			}
+			require.NoErrorf(t, err, "failed to decode ping with "+
+				"num_pong_bytes=%d", tc.numPongBytes)
 
 			// Verify fields match.
-			if decodedPing.NumPongBytes != tc.numPongBytes {
-				t.Errorf("NumPongBytes mismatch: got %d, "+
-					"want %d", decodedPing.NumPongBytes,
-					tc.numPongBytes)
-			}
-			if !bytes.Equal(decodedPing.PaddingBytes, tc.padding) {
-				t.Errorf("PaddingBytes mismatch: got %x, "+
-					"want %x", decodedPing.PaddingBytes,
-					tc.padding)
-			}
+			require.Equal(t, tc.numPongBytes, decodedPing.NumPongBytes)
+			require.Equal(t, tc.padding, decodedPing.PaddingBytes)
 		})
 	}
 }

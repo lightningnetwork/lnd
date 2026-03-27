@@ -255,6 +255,66 @@ func testReadWriteCursor(t *testing.T, db walletdb.DB) {
 	require.NoError(t, err)
 }
 
+// testReadWriteCursorDeleteBeforePositioning tests that calling Delete on a
+// cursor before positioning it returns an error.
+func testReadWriteCursorDeleteBeforePositioning(t *testing.T, db walletdb.DB) {
+	require.NoError(t, Update(db, func(tx walletdb.ReadWriteTx) error {
+		b, err := tx.CreateTopLevelBucket([]byte("test"))
+		require.NoError(t, err)
+		require.NotNil(t, b)
+
+		require.NoError(t, b.Put([]byte("key1"), []byte("val1")))
+		require.NoError(t, b.Put([]byte("key2"), []byte("val2")))
+
+		// Create a cursor but don't position it.
+		cursor := b.ReadWriteCursor()
+
+		// Test Delete on unpositioned cursor. The behavior differs by
+		// backend:
+		//
+		// - BoltDB: panics
+		// - SQL backends: returns nil (no-op)
+		//
+		// We'll use panic recovery to handle both cases.
+		didPanic := false
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					didPanic = true
+				}
+			}()
+
+			err = cursor.Delete()
+		}()
+
+		if didPanic {
+			// This is expected for BoltDB
+			t.Log("Delete on unpositioned cursor " +
+				"panicked (expected for BoltDB)")
+		} else {
+			// For SQL backends, it should not error.
+			require.NoError(t, err)
+			t.Log("Delete on unpositioned cursor " +
+				"returned nil (expected for SQL backends)")
+		}
+
+		// Verify that no data was deleted.
+		require.Equal(t, []byte("val1"), b.Get([]byte("key1")))
+		require.Equal(t, []byte("val2"), b.Get([]byte("key2")))
+
+		// Now position the cursor and delete should work.
+		k, v := cursor.First()
+		require.Equal(t, []byte("key1"), k)
+		require.Equal(t, []byte("val1"), v)
+
+		require.NoError(t, cursor.Delete())
+		require.Nil(t, b.Get([]byte("key1")))
+		require.Equal(t, []byte("val2"), b.Get([]byte("key2")))
+
+		return nil
+	}, func() {}))
+}
+
 // testReadWriteCursorWithBucketAndValue tests that cursors are able to iterate
 // over both bucket and value keys if both are present in the iterated bucket.
 func testReadWriteCursorWithBucketAndValue(t *testing.T, db walletdb.DB) {

@@ -47,6 +47,16 @@ func TestPostgres(t *testing.T) {
 			},
 		},
 		{
+			name: "read write cursor delete before positioning",
+			test: testReadWriteCursorDeleteBeforePositioning,
+			expectedDb: m{
+				"test_kv": []m{
+					{"id": int64(1), "key": "test", "parent_id": nil, "sequence": nil, "value": nil},
+					{"id": int64(3), "key": "key2", "parent_id": int64(1), "sequence": nil, "value": "val2"},
+				},
+			},
+		},
+		{
 			name: "read write cursor with bucket and value",
 			test: testReadWriteCursorWithBucketAndValue,
 			expectedDb: m{

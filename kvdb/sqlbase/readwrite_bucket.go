@@ -323,46 +323,71 @@ func (b *readWriteBucket) Put(key, value []byte) error {
 	return nil
 }
 
-// Delete deletes the key/value pointed to by the passed key.
-// Returns ErrKeyRequired if the passed key is empty.
+// Delete deletes the key/value pointed to by the passed key. Returns
+// ErrKeyRequired if the passed key is empty.
 func (b *readWriteBucket) Delete(key []byte) error {
 	if key == nil {
+		// Deleting a nil key seems like a no-op in original context,
+		// maintain that.
 		return nil
 	}
+
 	if len(key) == 0 {
 		return walletdb.ErrKeyRequired
 	}
 
-	// Check to see if a bucket with this key exists.
-	var dummy int
-	row, cancel := b.tx.QueryRow(
-		"SELECT 1 FROM "+b.table+" WHERE "+parentSelector(b.id)+
-			" AND key=$1 AND value IS NULL", key,
-	)
-	defer cancel()
-	err := row.Scan(&dummy)
-	switch {
-	// No bucket exists, proceed to deletion of the key.
-	case err == sql.ErrNoRows:
-
-	case err != nil:
-		return err
-
-	// Bucket exists.
-	default:
-		return walletdb.ErrIncompatibleValue
-	}
-
-	_, err = b.tx.Exec(
+	// First, try to delete the key directly, but only if it's a value
+	// (value IS NOT NULL).
+	result, err := b.tx.Exec(
 		"DELETE FROM "+b.table+" WHERE key=$1 AND "+
 			parentSelector(b.id)+" AND value IS NOT NULL",
 		key,
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("error attempting to delete "+
+			"key %x: %w", key, err)
 	}
 
-	return nil
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("error getting rows affected for "+
+			"key %x: %w", key, err)
+	}
+
+	// If we deleted exactly one row, we're done. It was a key-value pair.
+	if rowsAffected == 1 {
+		return nil
+	}
+
+	// If rowsAffected is 0, it means either:
+	// 1. The key doesn't exist at all.
+	// 2. The key exists, but `value IS NULL` (it's a bucket).
+	//
+	// We need to check for case 2 to return ErrIncompatibleValue.
+	var existsAsBucket int
+	row, cancel := b.tx.QueryRow(
+		"SELECT 1 FROM "+b.table+" WHERE "+parentSelector(b.id)+
+			" AND key=$1 AND value IS NULL", key,
+	)
+	defer cancel()
+	err = row.Scan(&existsAsBucket)
+
+	if err == nil {
+		// Scan succeeded without error, meaning we found a row where
+		// value IS NULL. It's a bucket.
+		return walletdb.ErrIncompatibleValue
+	}
+
+	if err == sql.ErrNoRows {
+		// Key didn't exist as a value (rowsAffected==0) AND it doesn't
+		// exist as a bucket. So the key just wasn't found. Deleting a
+		// non-existent key is often a no-op.
+		return nil
+	}
+
+	// Some other database error occurred during the check.
+	return fmt.Errorf("error checking if key %x exists as bucket: %w",
+		key, err)
 }
 
 // ReadWriteCursor returns a new read-write cursor for this bucket.
@@ -379,9 +404,40 @@ func (b *readWriteBucket) Tx() walletdb.ReadWriteTx {
 // Note that this is not a thread safe function and as such it must not be used
 // for synchronization.
 func (b *readWriteBucket) NextSequence() (uint64, error) {
-	seq := b.Sequence() + 1
+	if b.id == nil {
+		// Sequence numbers are only supported for nested buckets, as
+		// top-level buckets don't have a unique row ID in the same way.
+		panic("sequence not supported on top level bucket")
+	}
 
-	return seq, b.SetSequence(seq)
+	var nextSeq uint64
+	row, cancel := b.tx.QueryRow(
+		// Atomically increment the sequence number for the bucket ID.
+		// We use COALESCE to handle the case where the sequence is NULL
+		// (never set before), treating it as 0 before incrementing. The
+		// RETURNING clause gives us the new value.
+		"UPDATE "+b.table+" SET sequence = COALESCE(sequence, 0) + 1 "+
+			"WHERE id=$1 RETURNING sequence",
+		b.id,
+	)
+	defer cancel()
+
+	err := row.Scan(&nextSeq)
+	if err != nil {
+		// If we get sql.ErrNoRows, it means the bucket ID didn't exist,
+		// which shouldn't happen if the bucket was created correctly.
+		// We wrap the error for clarity.
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("bucket with id %d not found "+
+				"for sequence update", *b.id)
+		}
+
+		// Return other potential scan or query errors directly.
+		return 0, fmt.Errorf("failed to update and retrieve "+
+			"sequence for bucket id %d: %w", *b.id, err)
+	}
+
+	return nextSeq, nil
 }
 
 // SetSequence updates the sequence number for the bucket.

@@ -45,6 +45,12 @@ type VerifyJob struct {
 	// party's update log.
 	HtlcIndex uint64
 
+	// VerifyFunc is an optional custom verification function. When set, it
+	// replaces the default sig.Verify call in the pool worker. This allows
+	// injecting alternative signing schemes (e.g. for fuzz testing) without
+	// modifying production verification logic.
+	VerifyFunc SigVerifier
+
 	// Cancel is a channel that is closed by the caller if they wish to
 	// cancel all pending verification jobs part of a single batch. This
 	// channel is closed in the case that a single signature in a batch has
@@ -240,7 +246,14 @@ func (s *SigPool) poolWorker() {
 
 			rawSig := verifyMsg.Sig
 
-			if !rawSig.Verify(sigHash, verifyMsg.PubKey) {
+			verify := rawSig.Verify
+			if verifyMsg.VerifyFunc != nil {
+				fn := verifyMsg.VerifyFunc
+				verify = func(h []byte, k *btcec.PublicKey) bool { //nolint
+					return fn(rawSig, h, k)
+				}
+			}
+			if !verify(sigHash, verifyMsg.PubKey) {
 				err := fmt.Errorf("invalid signature "+
 					"sighash: %x, sig: %x", sigHash,
 					rawSig.Serialize())

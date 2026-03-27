@@ -82,6 +82,11 @@ const (
 	// paymentMigration is the version number for the payments migration
 	// that migrates KV payments to the native SQL schema.
 	paymentMigration = 14
+
+	// taprootV2Migration is the version number for the migration that
+	// converts private taproot channels from V1 workaround storage to
+	// canonical V2 storage.
+	taprootV2Migration = 17
 )
 
 // GrpcRegistrar is an interface that must be satisfied by an external subserver
@@ -1206,6 +1211,20 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 				case paymentMigration:
 					migrations[i].MigrationFn = paymentMig
+
+					continue
+
+				case taprootV2Migration:
+					if !d.cfg.Dev.GetSkipTaprootV2Migration() { //nolint:ll
+						taprootMig := func(
+							tx *sqlc.Queries,
+						) error {
+							return graphdb.MigratePrivateTaprootToV2( //nolint:ll
+								ctx, tx,
+							)
+						}
+						migrations[i].MigrationFn = taprootMig //nolint:ll
+					}
 
 					continue
 

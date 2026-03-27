@@ -126,6 +126,14 @@ var (
 			Version:       16,
 			SchemaVersion: 13,
 		},
+		{
+			Name:          "taproot_v1_to_v2_migration",
+			Version:       17,
+			SchemaVersion: 13,
+			// A migration function is attached to this migration
+			// to convert private taproot channels from the V1
+			// workaround storage format to canonical V2 storage.
+		},
 	}, migrationAdditions...)
 
 	// ErrMigrationMismatch is returned when a migrated record does not

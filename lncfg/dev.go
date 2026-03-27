@@ -60,6 +60,12 @@ func (d *DevConfig) GetUnsafeConnect() bool {
 	return false
 }
 
+// GetSkipTaprootV2Migration returns false for production builds — the
+// migration always runs.
+func (d *DevConfig) GetSkipTaprootV2Migration() bool {
+	return false
+}
+
 // ChannelCloseConfs returns the config value for channel close confirmations
 // override, which is always None for production build.
 func (d *DevConfig) ChannelCloseConfs() fn.Option[uint32] {

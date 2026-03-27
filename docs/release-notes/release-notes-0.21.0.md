@@ -275,6 +275,12 @@
     [4](https://github.com/lightningnetwork/lnd/pull/10542),
     [5](https://github.com/lightningnetwork/lnd/pull/10572),
     [6](https://github.com/lightningnetwork/lnd/pull/10582).
+* [Migrate private taproot channels in the SQL graph backend from the legacy
+  V1 workaround to canonical V2 storage](https://github.com/lightningnetwork/lnd/pull/10676).
+  Existing private taproot channels stored as V1 gossip objects with taproot
+  staging bits are rewritten as V2 channel rows, while a temporary `SQLStore`
+  shim keeps V1 graph callers and policy updates working until full gossip V2
+  support lands.
 * Updated waiting proof persistence for gossip upgrades by introducing typed
   waiting proof keys and payloads, with a DB migration to rewrite legacy
   waiting proof records to the new key/value format

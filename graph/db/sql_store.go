@@ -1013,7 +1013,28 @@ func (s *SQLStore) ForEachNodeDirectedChannel(ctx context.Context,
 	cb func(channel *DirectedChannel) error, reset func()) error {
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		return forEachNodeDirectedChannel(ctx, db, v, nodePub, cb)
+		err := forEachNodeDirectedChannel(
+			ctx, db, v, nodePub, cb,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Also include our own V2 private taproot channels that
+		// were migrated from V1 workaround storage. This is safe
+		// because no real V2 channels exist in the DB until the
+		// gossiper gains V2 support, at which point this shim is
+		// removed.
+		//
+		// TODO(elle): remove when gossiper/builder are fully
+		// V2-aware.
+		if v == gossipV1 {
+			return forEachNodeDirectedChannel(
+				ctx, db, gossipV2, nodePub, cb,
+			)
+		}
+
+		return nil
 	}, reset)
 }
 
@@ -1057,6 +1078,18 @@ func (s *SQLStore) ForEachNodeChannel(ctx context.Context,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error, reset func()) error {
 
+	// projectedCb wraps the callback to project V2 edge info and
+	// policies back to V1.
+	//
+	// TODO(elle): remove when gossiper/builder are fully V2-aware.
+	projectedCb := func(edge *models.ChannelEdgeInfo,
+		p1, p2 *models.ChannelEdgePolicy) error {
+
+		e, pp1, pp2 := projectV2EdgeInfoToV1(edge, p1, p2)
+
+		return cb(e, pp1, pp2)
+	}
+
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		dbNode, err := db.GetNodeByPubKey(
 			ctx, sqlc.GetNodeByPubKeyParams{
@@ -1070,7 +1103,39 @@ func (s *SQLStore) ForEachNodeChannel(ctx context.Context,
 			return fmt.Errorf("unable to fetch node: %w", err)
 		}
 
-		return forEachNodeChannel(ctx, db, s.cfg, v, dbNode.ID, cb)
+		err = forEachNodeChannel(
+			ctx, db, s.cfg, v, dbNode.ID, cb,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Also include V2 private taproot channels that were
+		// migrated from V1 workaround storage.
+		//
+		// TODO(elle): remove when gossiper/builder are fully
+		// V2-aware.
+		if v == gossipV1 {
+			dbNode2, err := db.GetNodeByPubKey(
+				ctx, sqlc.GetNodeByPubKeyParams{
+					Version: int16(gossipV2),
+					PubKey:  nodePub[:],
+				},
+			)
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			} else if err != nil {
+				return fmt.Errorf("unable to fetch v2 "+
+					"node: %w", err)
+			}
+
+			return forEachNodeChannel(
+				ctx, db, s.cfg, gossipV2,
+				dbNode2.ID, projectedCb,
+			)
+		}
+
+		return nil
 	}, reset)
 }
 
@@ -1626,10 +1691,42 @@ func (s *SQLStore) ForEachChannelCacheable(ctx context.Context,
 			)
 		}
 
-		return sqldb.ExecutePaginatedQuery(
+		err := sqldb.ExecutePaginatedQuery(
 			ctx, s.cfg.QueryCfg, int64(-1), queryFunc,
 			extractCursor, handleChannel,
 		)
+		if err != nil {
+			return err
+		}
+
+		// Also include V2 private taproot channels in the cache
+		// so that pathfinding uses them.
+		//
+		// TODO(elle): remove when gossiper/builder are fully
+		// V2-aware.
+		if v == gossipV1 {
+			//nolint:ll
+			v2QueryFunc := func(ctx context.Context, lastID int64,
+				limit int32) ([]sqlc.ListChannelsWithPoliciesForCachePaginatedRow,
+				error) {
+
+				return db.ListChannelsWithPoliciesForCachePaginated( //nolint:ll
+					ctx, sqlc.ListChannelsWithPoliciesForCachePaginatedParams{
+						Version: int16(gossipV2),
+						ID:      lastID,
+						Limit:   limit,
+					},
+				)
+			}
+
+			return sqldb.ExecutePaginatedQuery(
+				ctx, s.cfg.QueryCfg, int64(-1),
+				v2QueryFunc, extractCursor,
+				handleChannel,
+			)
+		}
+
+		return nil
 	}, reset)
 }
 
@@ -1654,7 +1751,33 @@ func (s *SQLStore) ForEachChannel(ctx context.Context,
 	}
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		return forEachChannelWithPolicies(ctx, db, s.cfg, v, cb)
+		err := forEachChannelWithPolicies(ctx, db, s.cfg, v, cb)
+		if err != nil {
+			return err
+		}
+
+		// Also include V2 private taproot channels that were
+		// migrated from V1 workaround storage.
+		//
+		// TODO(elle): remove when gossiper/builder are fully
+		// V2-aware.
+		if v == gossipV1 {
+			projectedCb := func(edge *models.ChannelEdgeInfo,
+				p1, p2 *models.ChannelEdgePolicy) error {
+
+				e, pp1, pp2 := projectV2EdgeInfoToV1(
+					edge, p1, p2,
+				)
+
+				return cb(e, pp1, pp2)
+			}
+
+			return forEachChannelWithPolicies(
+				ctx, db, s.cfg, gossipV2, projectedCb,
+			)
+		}
+
+		return nil
 	}, reset)
 }
 
@@ -2144,7 +2267,21 @@ func (s *SQLStore) FetchChannelEdgesByID(ctx context.Context,
 				},
 			)
 			if errors.Is(err, sql.ErrNoRows) {
-				return ErrEdgeNotFound
+				// If this was a V1 lookup, try falling back
+				// to V2 in case the channel was migrated
+				// from the private taproot V1 workaround to
+				// canonical V2 storage.
+				//
+				// TODO(elle): remove when gossiper/builder
+				// are fully V2-aware.
+				if v != gossipV1 {
+					return ErrEdgeNotFound
+				}
+
+				return fetchV2TaprootFallbackBySCID(
+					ctx, s.cfg, db, chanIDB,
+					&edge, &policy1, &policy2,
+				)
 			} else if err != nil {
 				return fmt.Errorf("unable to check if "+
 					"channel is zombie: %w", err)
@@ -2251,6 +2388,18 @@ func (s *SQLStore) FetchChannelEdgesByOutpoint(ctx context.Context,
 			},
 		)
 		if errors.Is(err, sql.ErrNoRows) {
+			// If this was a V1 lookup, try falling back to V2
+			// in case this is a migrated private taproot channel.
+			//
+			// TODO(elle): remove when gossiper/builder are fully
+			// V2-aware.
+			if v == gossipV1 {
+				return fetchV2TaprootFallbackByOutpoint(
+					ctx, s.cfg, db, op.String(),
+					&edge, &policy1, &policy2,
+				)
+			}
+
 			return ErrEdgeNotFound
 		} else if err != nil {
 			return fmt.Errorf("unable to fetch channel: %w", err)
@@ -2481,6 +2630,28 @@ func (s *SQLStore) HasChannelEdge(ctx context.Context,
 					"is zombie: %w", err)
 			}
 
+			// If the V1 lookup found nothing (not even a
+			// zombie), try falling back to V2 in case this
+			// is a migrated private taproot channel.
+			//
+			// TODO(elle): remove when gossiper/builder are
+			// fully V2-aware.
+			if !isZombie && v == gossipV1 {
+				v2Chan, v2Err := db.GetChannelBySCID(
+					ctx, sqlc.GetChannelBySCIDParams{
+						Scid:    chanIDB,
+						Version: int16(gossipV2),
+					},
+				)
+				if v2Err == nil && isPrivateTaprootV2(
+					v2Chan,
+				) {
+					exists = true
+
+					return nil
+				}
+			}
+
 			return nil
 		} else if err != nil {
 			return fmt.Errorf("unable to fetch channel: %w", err)
@@ -2682,6 +2853,58 @@ func (s *SQLStore) FetchChanInfos(ctx context.Context,
 
 		for _, c := range chans {
 			edges[c.Info.ChannelID] = c
+		}
+
+		// For any channel IDs not found as V1, try V2 fallback
+		// for migrated private taproot channels.
+		//
+		// TODO(elle): remove when gossiper/builder are fully
+		// V2-aware.
+		if v == gossipV1 {
+			var missingIDs []uint64
+			for _, id := range chanIDs {
+				if _, ok := edges[id]; !ok {
+					missingIDs = append(missingIDs, id)
+				}
+			}
+
+			if len(missingIDs) > 0 {
+				var v2Rows []sqlc.GetChannelsBySCIDWithPoliciesRow //nolint:ll
+				v2CB := func(ctx context.Context,
+					row sqlc.GetChannelsBySCIDWithPoliciesRow) error { //nolint:ll
+
+					v2Rows = append(v2Rows, row)
+
+					return nil
+				}
+
+				err := s.forEachChanWithPoliciesInSCIDList(
+					ctx, db, gossipV2, v2CB,
+					missingIDs,
+				)
+				if err != nil {
+					return err
+				}
+
+				v2Chans, err := batchBuildChannelEdges(
+					ctx, s.cfg, db, v2Rows,
+				)
+				if err != nil {
+					return err
+				}
+
+				for _, c := range v2Chans {
+					e, p1, p2 := projectV2EdgeInfoToV1(
+						c.Info, c.Policy1,
+						c.Policy2,
+					)
+					edges[e.ChannelID] = ChannelEdge{
+						Info:    e,
+						Policy1: p1,
+						Policy2: p2,
+					}
+				}
+			}
 		}
 
 		return err
@@ -3147,10 +3370,22 @@ func (s *SQLStore) ChannelView(ctx context.Context,
 				)
 			}
 
-			return sqldb.ExecuteCollectAndBatchWithSharedDataQuery(
+			err := sqldb.ExecuteCollectAndBatchWithSharedDataQuery(
 				ctx, s.cfg.QueryCfg, int64(-1), queryFunc,
 				extractCursor, collectID, loadChannelFeatures,
 				handleChannel,
+			)
+			if err != nil {
+				return err
+			}
+
+			// Also include V2 private taproot channels that
+			// were migrated from V1 workaround storage.
+			//
+			// TODO(elle): remove when gossiper/builder are
+			// fully V2-aware.
+			return appendV2TaprootEdgePoints(
+				ctx, s.cfg.QueryCfg, db, &edgePoints,
 			)
 
 		case gossipV2:
@@ -3519,8 +3754,20 @@ func (s *sqlNodeTraverser) ForEachNodeDirectedChannel(
 	ctx context.Context, nodePub route.Vertex,
 	cb func(channel *DirectedChannel) error, _ func()) error {
 
-	return forEachNodeDirectedChannel(
+	err := forEachNodeDirectedChannel(
 		ctx, s.db, lnwire.GossipVersion1, nodePub, cb,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Also include our own V2 private taproot channels that were
+	// migrated from V1 workaround storage. Safe because no real V2
+	// channels exist until the gossiper gains V2 support.
+	//
+	// TODO(elle): remove when gossiper/builder are fully V2-aware.
+	return forEachNodeDirectedChannel(
+		ctx, s.db, gossipV2, nodePub, cb,
 	)
 }
 
@@ -3830,7 +4077,30 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 		},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return node1Pub, node2Pub, false, ErrEdgeNotFound
+		// If this was a V1 policy update and the V1 channel is not
+		// found, try falling back to V2 in case this is a migrated
+		// private taproot channel. Convert the policy to V2 and
+		// proceed.
+		//
+		// TODO(elle): remove when gossiper/builder are fully
+		// V2-aware.
+		if version == gossipV1 {
+			dbChan2, err2 := tx.GetChannelAndNodesBySCID(
+				ctx, sqlc.GetChannelAndNodesBySCIDParams{
+					Scid:    chanIDB,
+					Version: int16(gossipV2),
+				},
+			)
+			if err2 == nil && len(dbChan2.Signature) == 0 {
+				dbChan = dbChan2
+				edge = projectV1PolicyToV2(edge)
+				version = gossipV2
+			}
+		}
+
+		if dbChan.ID == 0 {
+			return node1Pub, node2Pub, false, ErrEdgeNotFound
+		}
 	} else if err != nil {
 		return node1Pub, node2Pub, false, fmt.Errorf("unable to "+
 			"fetch channel(%v): %w", edge.ChannelID, err)

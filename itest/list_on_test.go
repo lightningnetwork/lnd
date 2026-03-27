@@ -516,6 +516,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSimpleTaprootChannelActivation,
 	},
 	{
+		Name:     "private taproot v2 migration",
+		TestFunc: testPrivateTaprootV2Migration,
+	},
+	{
 		Name:     "wallet import pubkey",
 		TestFunc: testWalletImportPubKey,
 	},

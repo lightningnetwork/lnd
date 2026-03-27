@@ -29,6 +29,7 @@ type DevConfig struct {
 	MaxWaitNumBlocksFundingConf uint32        `long:"maxwaitnumblocksfundingconf" description:"Maximum blocks to wait for funding confirmation before discarding non-initiated channels."`
 	UnsafeConnect               bool          `long:"unsafeconnect" description:"Allow the rpcserver to connect to a peer even if there's already a connection."`
 	ForceChannelCloseConfs      uint32        `long:"force-channel-close-confs" description:"Force a specific number of confirmations for channel closes (dev/test only)"`
+	SkipTaprootV2Migration      bool          `long:"skip-taproot-v2-migration" description:"Skip the private taproot V1→V2 migration (dev/test only, for testing pre/post migration behavior)"`
 }
 
 // ChannelReadyWait returns the config value `ProcessChannelReadyWait`.
@@ -72,6 +73,12 @@ func (d *DevConfig) GetMaxWaitNumBlocksFundingConf() uint32 {
 // GetUnsafeConnect returns the config value `UnsafeConnect`.
 func (d *DevConfig) GetUnsafeConnect() bool {
 	return d.UnsafeConnect
+}
+
+// GetSkipTaprootV2Migration returns the config value
+// `SkipTaprootV2Migration`.
+func (d *DevConfig) GetSkipTaprootV2Migration() bool {
+	return d.SkipTaprootV2Migration
 }
 
 // ChannelCloseConfs returns the forced confirmation count if set, or None if

@@ -861,6 +861,10 @@ type channelOpts struct {
 	// validation on HTLCs before they are added to the channel state.
 	auxHtlcValidator fn.Option[AuxHtlcValidator]
 
+	// sigVerifier is an optional custom signature verifier. If nil, the
+	// standard sig.Verify method is used.
+	sigVerifier SigVerifier
+
 	skipNonceInit bool
 
 	// customSigningRand is an optional custom random source for generating
@@ -945,6 +949,18 @@ func WithAuxHtlcValidator(validator AuxHtlcValidator) ChannelOpt {
 // defaultChannelOpts returns the set of default options for a new channel.
 func defaultChannelOpts() *channelOpts {
 	return &channelOpts{}
+}
+
+// verifySig verifies a signature using the injected SigVerifier if one is
+// configured, or falls back to the standard sig.Verify method.
+func (lc *LightningChannel) verifySig(sig input.Signature, sigHash []byte,
+	pubKey *btcec.PublicKey) bool {
+
+	if lc.opts.sigVerifier != nil {
+		return lc.opts.sigVerifier(sig, sigHash, pubKey)
+	}
+
+	return sig.Verify(sigHash, pubKey)
 }
 
 // NewLightningChannel creates a new, active payment channel given an
@@ -5455,6 +5471,14 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 		return err
 	}
 
+	// If a custom sig verifier is configured, propagate it to every HTLC
+	// verify job so the SigPool workers use the same scheme.
+	if lc.opts.sigVerifier != nil {
+		for i := range verifyJobs {
+			verifyJobs[i].VerifyFunc = lc.opts.sigVerifier
+		}
+	}
+
 	cancelChan := make(chan struct{})
 	verifyResps := lc.sigPool.SubmitVerifyBatch(verifyJobs, cancelChan)
 
@@ -5546,7 +5570,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 		if err != nil {
 			return err
 		}
-		if !cSig.Verify(sigHash, verifyKey) {
+		if !lc.verifySig(cSig, sigHash, verifyKey) {
 			close(cancelChan)
 
 			// If we fail to validate their commitment signature,

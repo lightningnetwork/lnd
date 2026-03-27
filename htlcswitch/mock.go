@@ -1179,3 +1179,81 @@ func (h *mockHTLCNotifier) NotifyFinalHtlcEvent(key models.CircuitKey,
 	info channeldb.FinalHtlcInfo) {
 
 }
+
+// mockMailBox is a no-op mailbox for testing.
+type mockMailBox struct{}
+
+// Compile-time assertion that mockMailBox implements MailBox.
+var _ MailBox = (*mockMailBox)(nil)
+
+func (m *mockMailBox) AddMessage(msg lnwire.Message) error {
+	return nil
+}
+
+func (m *mockMailBox) AddPacket(packet *htlcPacket) error {
+	return nil
+}
+
+func (m *mockMailBox) HasPacket(CircuitKey) bool {
+	return false
+}
+
+func (m *mockMailBox) AckPacket(CircuitKey) bool {
+	return false
+}
+
+func (m *mockMailBox) FailAdd(packet *htlcPacket) {
+
+}
+
+func (m *mockMailBox) MessageOutBox() chan lnwire.Message {
+	return make(chan lnwire.Message)
+}
+
+func (m *mockMailBox) PacketOutBox() chan *htlcPacket {
+	return make(chan *htlcPacket)
+}
+
+func (m *mockMailBox) ResetMessages() error {
+	return nil
+}
+
+func (m *mockMailBox) ResetPackets() error {
+	return nil
+}
+
+func (m *mockMailBox) SetDustClosure(isDust dustClosure) {
+
+}
+
+func (m *mockMailBox) SetFeeRate(feerate chainfee.SatPerKWeight) {
+
+}
+
+func (m *mockMailBox) DustPackets() (lnwire.MilliSatoshi, lnwire.MilliSatoshi) {
+	return 0, 0
+}
+
+func (m *mockMailBox) Start() {
+
+}
+
+func (m *mockMailBox) Stop() {
+
+}
+
+type noopTicker struct{}
+
+func (n *noopTicker) Ticks() <-chan time.Time {
+	// Returning nil intentionally: a receive on a nil channel blocks
+	// forever, so the link's timer-driven paths never fire.
+	return nil
+}
+
+func (n *noopTicker) Stop() {}
+
+func (n *noopTicker) Pause() {}
+
+func (n *noopTicker) Resume() {}
+
+func (n *noopTicker) ForceTick() {}

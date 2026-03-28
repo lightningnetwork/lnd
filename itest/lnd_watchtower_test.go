@@ -97,9 +97,10 @@ func testTowerClientTowerAndSessionManagement(ht *lntest.HarnessTest) {
 	}
 
 	// Assert that there are a few sessions between Dave and Wallis. There
-	// should be one per client. There are currently 3 types of clients, so
-	// we expect 3 sessions.
-	assertNumSessions(wallisPk, 3, false)
+	// should be one per client. There are currently 4 types of clients
+	// (legacy, anchor, taproot-staging, taproot-final), so we expect 4
+	// sessions.
+	assertNumSessions(wallisPk, 4, false)
 
 	// Before we make a channel, we'll load up Dave with some coins sent
 	// directly from the miner.
@@ -153,7 +154,7 @@ func testTowerClientTowerAndSessionManagement(ht *lntest.HarnessTest) {
 		Pubkey:  wilmaPk,
 		Address: wilmaListener,
 	})
-	assertNumSessions(wilmaPk, 3, false)
+	assertNumSessions(wilmaPk, 4, false)
 
 	// The updates from before should now appear on the new watchtower.
 	assertNumBackups(ht, dave.RPC, wilmaPk, 4, false)
@@ -171,7 +172,7 @@ func testTowerClientTowerAndSessionManagement(ht *lntest.HarnessTest) {
 	// number of sessions with Wallis has not changed - in other words, the
 	// previously used session was re-used.
 	assertNumBackups(ht, dave.RPC, wallisPk, 8, false)
-	assertNumSessions(wallisPk, 3, false)
+	assertNumSessions(wallisPk, 4, false)
 
 	findSession := func(towerPk []byte, numBackups uint32) []byte {
 		info := dave.RPC.GetTowerInfo(&wtclientrpc.GetTowerInfoRequest{
@@ -204,7 +205,7 @@ func testTowerClientTowerAndSessionManagement(ht *lntest.HarnessTest) {
 	// This should force the client to negotiate a new session. The old
 	// session still remains in our session list since the channel for which
 	// it has updates for is still open.
-	assertNumSessions(wallisPk, 4, false)
+	assertNumSessions(wallisPk, 5, false)
 
 	// Any new back-ups should now be backed up on a different session.
 	generateBackups(ht, dave, alice, 2)
@@ -225,7 +226,7 @@ func testTowerClientTowerAndSessionManagement(ht *lntest.HarnessTest) {
 	// be checked on each new block. It could have been the case that all
 	// checks with the above mined blocks were completed before the
 	// closable session was queued.
-	assertNumSessions(wallisPk, 3, true)
+	assertNumSessions(wallisPk, 4, true)
 
 	// For the sake of completion, we call RemoveTower here for both towers
 	// to show that this should never error.
@@ -338,6 +339,7 @@ func testRevokedCloseRetributionAltruistWatchtower(ht *lntest.HarnessTest) {
 		lnrpc.CommitmentType_LEGACY,
 		lnrpc.CommitmentType_ANCHORS,
 		lnrpc.CommitmentType_SIMPLE_TAPROOT,
+		lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
 	} {
 		testName := fmt.Sprintf("%v", commitType.String())
 		ct := commitType

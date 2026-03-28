@@ -1438,21 +1438,13 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		filepath.Dir(cfg.Tor.WatchtowerKeyPath),
 	}
 
-	// Only create the graph database directory if we're using a local
-	// database backend (bbolt). Remote backends like postgres don't
-	// need a local directory for the graph database.
+	// Only create the graph and watchtower directories if we're using a
+	// local database backend (e.g. bbolt or sqlite). Remote backends
+	// like postgres or etcd don't need local directories for these.
 	if cfg.DB.Backend != lncfg.PostgresBackend &&
 		cfg.DB.Backend != lncfg.EtcdBackend {
 
-		dirs = append(dirs, cfg.graphDatabaseDir())
-	}
-
-	// Only create the watchtower directory if we're using a local
-	// database backend. Remote backends store watchtower data remotely.
-	if cfg.DB.Backend != lncfg.PostgresBackend &&
-		cfg.DB.Backend != lncfg.EtcdBackend {
-
-		dirs = append(dirs, towerDir)
+		dirs = append(dirs, cfg.graphDatabaseDir(), towerDir)
 	}
 
 	// Only create the Let's Encrypt directory if the feature is actually

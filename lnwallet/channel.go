@@ -2078,6 +2078,11 @@ type BreachRetribution struct {
 	// RemoteResolutionBlob is a blob used for aux channels that permits an
 	// honest party to sweep the remote commitment output.
 	RemoteResolutionBlob fn.Option[tlv.Blob]
+
+	// ChanType is the channel type of the breached channel, used to
+	// determine whether production taproot scripts should be used when
+	// constructing justice transactions.
+	ChanType channeldb.ChannelType
 }
 
 // NewBreachRetribution creates a new fully populated BreachRetribution for the
@@ -2623,6 +2628,7 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 		RemoteOutpoint:   theirOutpoint,
 		HtlcRetributions: htlcRetributions,
 		KeyRing:          keyRing,
+		ChanType:         chanState.ChanType,
 	}, ourAmt, theirAmt, nil
 }
 
@@ -2698,6 +2704,7 @@ func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 		RemoteOutpoint:   theirOutpoint,
 		HtlcRetributions: htlcRetributions,
 		KeyRing:          keyRing,
+		ChanType:         chanState.ChanType,
 	}, ourAmt, theirAmt, nil
 }
 

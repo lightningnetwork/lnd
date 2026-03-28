@@ -957,7 +957,10 @@ func newRbfCloserTestHarness(t *testing.T,
 
 	peerPub := randPubKey(t)
 
-	msgMapper := NewRbfMsgMapper(uint32(startingHeight), chanID, *peerPub)
+	msgMapper := NewRbfMsgMapper(
+		func() uint32 { return uint32(startingHeight) },
+		chanID, *peerPub,
+	)
 
 	initialState := cfg.initialState.UnwrapOr(&ChannelActive{})
 

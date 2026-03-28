@@ -4031,7 +4031,18 @@ func (p *Brontide) initRbfChanCloser(
 	peerPub := *p.IdentityKey()
 
 	msgMapper := chancloser.NewRbfMsgMapper(
-		uint32(startingHeight), chanID, peerPub,
+		func() uint32 {
+			_, height, err := p.cfg.ChainIO.GetBestBlock()
+			if err != nil {
+				peerLog.Errorf("Unable to get best block "+
+					"height: %v", err)
+
+				return uint32(startingHeight)
+			}
+
+			return uint32(height)
+		},
+		chanID, peerPub,
 	)
 
 	initialState := chancloser.ChannelActive{}

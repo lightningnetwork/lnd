@@ -6,7 +6,7 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 )
 
-var unknownFlag = blob.Flag(16)
+var unknownFlag = blob.Flag(32)
 
 type typeStringTest struct {
 	name   string
@@ -18,7 +18,8 @@ var typeStringTests = []typeStringTest{
 	{
 		name: "commit no-reward",
 		typ:  blob.TypeAltruistCommit,
-		expStr: "[No-FlagTaprootChannel|" +
+		expStr: "[No-FlagTaprootFinalChannel|" +
+			"No-FlagTaprootChannel|" +
 			"No-FlagAnchorChannel|" +
 			"FlagCommitOutputs|" +
 			"No-FlagReward]",
@@ -26,7 +27,8 @@ var typeStringTests = []typeStringTest{
 	{
 		name: "commit reward",
 		typ:  blob.TypeRewardCommit,
-		expStr: "[No-FlagTaprootChannel|" +
+		expStr: "[No-FlagTaprootFinalChannel|" +
+			"No-FlagTaprootChannel|" +
 			"No-FlagAnchorChannel|" +
 			"FlagCommitOutputs|" +
 			"FlagReward]",
@@ -34,7 +36,8 @@ var typeStringTests = []typeStringTest{
 	{
 		name: "unknown flag",
 		typ:  unknownFlag.Type(),
-		expStr: "0000000000010000[No-FlagTaprootChannel|" +
+		expStr: "0000000000100000[No-FlagTaprootFinalChannel|" +
+			"No-FlagTaprootChannel|" +
 			"No-FlagAnchorChannel|" +
 			"No-FlagCommitOutputs|" +
 			"No-FlagReward]",

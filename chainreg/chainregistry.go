@@ -2,7 +2,6 @@ package chainreg
 
 import (
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -452,18 +451,9 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 				return nil, nil, err
 			}
 
-			// Fetch all active zmq notifications from the bitcoind client.
-			resp, err := chainConn.RawRequest("getzmqnotifications", nil)
+			// Fetch all active ZMQ notifications from bitcoind.
+			zmq, err := chainConn.GetZmqNotifications()
 			if err != nil {
-				return nil, nil, err
-			}
-
-			zmq := []struct {
-				Type    string `json:"type"`
-				Address string `json:"address"`
-			}{}
-
-			if err = json.Unmarshal([]byte(resp), &zmq); err != nil {
 				return nil, nil, err
 			}
 
@@ -472,31 +462,27 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 
 			for i := range zmq {
 				if zmq[i].Type == "pubrawblock" {
-					url, err := url.Parse(zmq[i].Address)
-					if err != nil {
-						return nil, nil, err
-					}
-					if url.Port() != zmqPubRawBlockURL.Port() {
+					if zmq[i].Address.Port() !=
+						zmqPubRawBlockURL.Port() {
+
 						log.Warnf(
 							"unable to subscribe to zmq block events on "+
 								"%s (bitcoind is running on %s)",
 							zmqPubRawBlockURL.Host,
-							url.Host,
+							zmq[i].Address.Host,
 						)
 					}
 					pubRawBlockActive = true
 				}
 				if zmq[i].Type == "pubrawtx" {
-					url, err := url.Parse(zmq[i].Address)
-					if err != nil {
-						return nil, nil, err
-					}
-					if url.Port() != zmqPubRawTxURL.Port() {
+					if zmq[i].Address.Port() !=
+						zmqPubRawTxURL.Port() {
+
 						log.Warnf(
 							"unable to subscribe to zmq tx events on "+
 								"%s (bitcoind is running on %s)",
 							zmqPubRawTxURL.Host,
-							url.Host,
+							zmq[i].Address.Host,
 						)
 					}
 					pubRawTxActive = true

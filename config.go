@@ -1424,15 +1424,44 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// Create the lnd directory and all other sub-directories if they don't
 	// already exist. This makes sure that directory trees are also created
 	// for files that point to outside the lnddir.
+	//
+	// We conditionally skip certain directories that are not needed when
+	// using a remote database backend like postgres:
+	//   - The graph database directory (used by bbolt for channel graph)
+	//   - The watchtower directory (used by bbolt for watchtower state)
 	dirs := []string{
 		lndDir, cfg.DataDir, cfg.networkDir,
-		cfg.LetsEncryptDir, towerDir, cfg.graphDatabaseDir(),
 		filepath.Dir(cfg.TLSCertPath), filepath.Dir(cfg.TLSKeyPath),
 		filepath.Dir(cfg.AdminMacPath), filepath.Dir(cfg.ReadMacPath),
 		filepath.Dir(cfg.InvoiceMacPath),
 		filepath.Dir(cfg.Tor.PrivateKeyPath),
 		filepath.Dir(cfg.Tor.WatchtowerKeyPath),
 	}
+
+	// Only create the graph database directory if we're using a local
+	// database backend (bbolt). Remote backends like postgres don't
+	// need a local directory for the graph database.
+	if cfg.DB.Backend != lncfg.PostgresBackend &&
+		cfg.DB.Backend != lncfg.EtcdBackend {
+
+		dirs = append(dirs, cfg.graphDatabaseDir())
+	}
+
+	// Only create the watchtower directory if we're using a local
+	// database backend. Remote backends store watchtower data remotely.
+	if cfg.DB.Backend != lncfg.PostgresBackend &&
+		cfg.DB.Backend != lncfg.EtcdBackend {
+
+		dirs = append(dirs, towerDir)
+	}
+
+	// Only create the Let's Encrypt directory if the feature is actually
+	// being used. If no domain is configured, there's no need for the
+	// directory.
+	if cfg.LetsEncryptDomain != "" {
+		dirs = append(dirs, cfg.LetsEncryptDir)
+	}
+
 	for _, dir := range dirs {
 		if err := makeDirectory(dir); err != nil {
 			return nil, err

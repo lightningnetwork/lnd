@@ -802,16 +802,8 @@ func NewChainControl(walletConfig lnwallet.Config,
 // getblockchaininfo.
 func getBitcoindHealthCheckCmd(client *rpcclient.Client) (string, int64, error) {
 	// Query bitcoind to get our current version.
-	resp, err := client.RawRequest("getnetworkinfo", nil)
+	info, err := client.GetNetworkInfo()
 	if err != nil {
-		return "", 0, err
-	}
-
-	// Parse the response to retrieve bitcoind's version.
-	info := struct {
-		Version int64 `json:"version"`
-	}{}
-	if err := json.Unmarshal(resp, &info); err != nil {
 		return "", 0, err
 	}
 
@@ -822,10 +814,10 @@ func getBitcoindHealthCheckCmd(client *rpcclient.Client) (string, int64, error) 
 	// The uptime call was added in version 0.15.0, so we return it for
 	// any version value >= 150000, as per the above calculation.
 	if info.Version >= 150000 {
-		return "uptime", info.Version, nil
+		return "uptime", int64(info.Version), nil
 	}
 
-	return "getblockchaininfo", info.Version, nil
+	return "getblockchaininfo", int64(info.Version), nil
 }
 
 var (

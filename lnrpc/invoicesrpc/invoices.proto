@@ -87,7 +87,13 @@ message AddHoldInvoiceRequest {
     */
     string memo = 1;
 
-    // The hash of the preimage
+    /*
+    The hash of the preimage. Optional: when omitted, the server generates
+    a random preimage locally, derives the hash, and returns the preimage
+    in the response (see payment_preimage). The generated preimage is not
+    persisted by the server, so the caller must save the returned value to
+    settle the invoice later.
+    */
     bytes hash = 2;
 
     /*
@@ -153,6 +159,21 @@ message AddHoldInvoiceResp {
     security.
     */
     bytes payment_addr = 3;
+
+    /*
+    The preimage for this invoice. Populated only when the server
+    auto-generates the preimage (i.e. the request was made without a
+    hash). The server does not persist this preimage — callers must
+    save it and supply it to SettleInvoice later. Empty when the
+    caller provided a hash, since the server does not know the
+    preimage in that case.
+    */
+    bytes payment_preimage = 4;
+
+    /*
+    The payment hash for this invoice. Always populated.
+    */
+    bytes payment_hash = 5;
 }
 
 message SettleInvoiceMsg {

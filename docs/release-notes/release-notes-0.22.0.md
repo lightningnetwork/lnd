@@ -21,6 +21,11 @@
 
 # Bug Fixes
 
+* Bitcoind outbound peer health checks [now use](https://github.com/lightningnetwork/lnd/pull/10686)
+  `getnetworkinfo.connections_out` instead of `getpeerinfo`. The same PR also
+  [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ
+  port-mismatch warnings so they no longer suggest that the connection failed.
+
 # New Features
 
 ## Functional Enhancements
@@ -64,4 +69,5 @@
 
 # Contributors (Alphabetical Order)
 
+* Boris Nagaev
 * Erick Cestari

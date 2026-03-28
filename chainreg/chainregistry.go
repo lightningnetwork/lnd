@@ -521,7 +521,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			// Make sure the bitcoind chain backend maintains a
 			// healthy connection to the network by checking the
 			// number of outbound peers.
-			return checkOutboundPeers(chainConn)
+			return checkOutboundPeersBitcoind(chainConn)
 		}
 
 	case "btcd":
@@ -887,6 +887,24 @@ var (
 	}
 )
 
+// checkOutboundPeersBitcoind checks the number of outbound peers connected to
+// a bitcoind backend. If the number of outbound peers is below 6, a warning is
+// logged. This function is intended to ensure that the chain backend maintains
+// a healthy connection to the network.
+//
+// This helper is bitcoind-specific because btcd does not currently implement
+// getnetworkinfo.
+func checkOutboundPeersBitcoind(client *rpcclient.Client) error {
+	info, err := client.GetNetworkInfo()
+	if err != nil {
+		return err
+	}
+
+	logOutboundPeerCount(int(info.ConnectionsOut))
+
+	return nil
+}
+
 // checkOutboundPeers checks the number of outbound peers connected to the
 // provided RPC client. If the number of outbound peers is below 6, a warning
 // is logged. This function is intended to ensure that the chain backend
@@ -904,6 +922,14 @@ func checkOutboundPeers(client *rpcclient.Client) error {
 		}
 	}
 
+	logOutboundPeerCount(outboundPeers)
+
+	return nil
+}
+
+// logOutboundPeerCount logs a warning when the number of outbound peers is
+// below the minimum threshold.
+func logOutboundPeerCount(outboundPeers int) {
 	if outboundPeers < DefaultMinOutboundPeers {
 		log.Warnf("The chain backend has an insufficient number "+
 			"of connected outbound peers (%d connected, expected "+
@@ -911,6 +937,4 @@ func checkOutboundPeers(client *rpcclient.Client) error {
 			"Connect to more trusted nodes manually if necessary.",
 			outboundPeers, DefaultMinOutboundPeers)
 	}
-
-	return nil
 }

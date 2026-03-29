@@ -65,7 +65,7 @@ type Peer interface {
 	QuitSignal() <-chan struct{}
 
 	// LocalFeatures returns the set of features that has been advertised by
-	// the us to the remote peer. This allows sub-systems that use this
+	// us to the remote peer. This allows sub-systems that use this
 	// interface to gate their behavior off the set of negotiated feature
 	// bits.
 	LocalFeatures() *lnwire.FeatureVector

@@ -1,6 +1,7 @@
 package funding
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -348,9 +349,14 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				)
 			}
 
+			if ok, _ := checkFeaturesDiff(localFeatures, remoteFeatures); testCase.expectsErr != nil {
+				require.Truef(t, ok, "expecting an error of kind %w", testCase.expectsErr)
+				require.Equal(t, fmt.Errorf("%w: missing features: local [] - remote [23]",
+					testCase.expectsErr), err)
+			}
+
 			require.Equal(t, testCase.zeroConf, localZc)
 			require.Equal(t, testCase.scidAlias, localScid)
-			require.Equal(t, testCase.expectsErr, err)
 
 			rChan, rCommit, err := negotiateCommitmentType(
 				channelType, remoteFeatures, localFeatures,
@@ -365,10 +371,14 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 					lnwire.ScidAliasRequired,
 				)
 			}
+			if ok, _ := checkFeaturesDiff(localFeatures, remoteFeatures); testCase.expectsErr != nil {
+				require.Truef(t, ok, "expecting an error of kind %w", testCase.expectsErr)
+				require.Equal(t, fmt.Errorf("%w: missing features: local [23] - remote []",
+					testCase.expectsErr), err)
+			}
 
 			require.Equal(t, testCase.zeroConf, remoteZc)
 			require.Equal(t, testCase.scidAlias, remoteScid)
-			require.Equal(t, testCase.expectsErr, err)
 
 			if testCase.expectsErr != nil {
 				return
@@ -395,5 +405,129 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 		if !ok {
 			return
 		}
+	}
+}
+
+func TestCheckFeaturesDiff(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name           string
+		localFeatures  *lnwire.RawFeatureVector
+		remoteFeatures *lnwire.RawFeatureVector
+		features       []lnwire.FeatureBit
+		expectedOk     bool
+		expectedDiff   featuresBitDiff
+	}{
+		{
+			name: "all features supported by both",
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			),
+			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			),
+			features: []lnwire.FeatureBit{
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			},
+			expectedOk: true,
+			expectedDiff: featuresBitDiff{
+				local:  []lnwire.FeatureBit{},
+				remote: []lnwire.FeatureBit{},
+			},
+		},
+		{
+			name: "missing feature in local",
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+			),
+			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			),
+			features: []lnwire.FeatureBit{
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			},
+			expectedOk: false,
+			expectedDiff: featuresBitDiff{
+				local:  []lnwire.FeatureBit{lnwire.AnchorsZeroFeeHtlcTxOptional},
+				remote: []lnwire.FeatureBit{},
+			},
+		},
+		{
+			name: "missing feature in remote",
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			),
+			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+			),
+			features: []lnwire.FeatureBit{
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			},
+			expectedOk: false,
+			expectedDiff: featuresBitDiff{
+				local:  []lnwire.FeatureBit{},
+				remote: []lnwire.FeatureBit{lnwire.AnchorsZeroFeeHtlcTxOptional},
+			},
+		},
+		{
+			name: "missing features in both",
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+			),
+			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			),
+			features: []lnwire.FeatureBit{
+				lnwire.StaticRemoteKeyOptional,
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			},
+			expectedOk: false,
+			expectedDiff: featuresBitDiff{
+				local:  []lnwire.FeatureBit{lnwire.AnchorsZeroFeeHtlcTxOptional},
+				remote: []lnwire.FeatureBit{lnwire.StaticRemoteKeyOptional},
+			},
+		},
+		{
+			name: "no features to check",
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.StaticRemoteKeyOptional,
+			),
+			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
+			),
+			features:   []lnwire.FeatureBit{},
+			expectedOk: true,
+			expectedDiff: featuresBitDiff{
+				local:  []lnwire.FeatureBit{},
+				remote: []lnwire.FeatureBit{},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			localFeatures := lnwire.NewFeatureVector(
+				testCase.localFeatures, lnwire.Features,
+			)
+			remoteFeatures := lnwire.NewFeatureVector(
+				testCase.remoteFeatures, lnwire.Features,
+			)
+
+			ok, diff := checkFeaturesDiff(localFeatures, remoteFeatures, testCase.features...)
+
+			require.Equal(t, testCase.expectedOk, ok)
+			require.Equal(t, testCase.expectedDiff, diff)
+		})
 	}
 }

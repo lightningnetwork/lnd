@@ -1202,6 +1202,110 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 	return link, nil
 }
 
+// newFuzzLink creates a channelLink for fuzz and deterministic test harnesses
+// without starting the htlcManager goroutine and without a Switch. No
+// background goroutines are spawned — the caller drives all state transitions
+// via direct method calls. The caller must inject the remote ChanSyncMsg into
+// the returned upstream channel and then call link.resumeLink to complete
+// reestablishment synchronously.
+func (h *hopNetwork) newFuzzLink(t testing.TB,
+	peer lnpeer.Peer,
+	channel *lnwallet.LightningChannel,
+	decoder *mockIteratorDecoder,
+	registry *mockInvoiceRegistry,
+	pCache *mockPreimageCache,
+	circuits CircuitMap,
+	bestHeight func() uint32,
+	maxFeeExposure lnwire.MilliSatoshi,
+	maxFeeAllocation float64,
+) (*channelLink, chan lnwire.Message) {
+
+	const (
+		minFeeUpdateTimeout = 30 * time.Minute
+		maxFeeUpdateTimeout = 40 * time.Minute
+	)
+
+	upstream := make(chan lnwire.Message, 1)
+
+	//nolint:ll
+	l := NewChannelLink(
+		ChannelLinkConfig{
+			BestHeight:    bestHeight,
+			FwrdingPolicy: h.globalPolicy,
+			Peer:          peer,
+			Circuits:      circuits,
+			// The fuzz harness only exercises single-hop direct
+			// payments, so no packet forwarding ever occurs.
+			ForwardPackets:     func(<-chan struct{}, bool, ...*htlcPacket) error { return nil },
+			DecodeHopIterators: decoder.DecodeHopIterators,
+			ExtractErrorEncrypter: func(*btcec.PublicKey) (
+				hop.ErrorEncrypter, lnwire.FailCode) {
+
+				return h.obfuscator, lnwire.CodeNone
+			},
+			FetchLastChannelUpdate: mockGetChanUpdateMessage,
+			Registry:               registry,
+			FeeEstimator:           h.feeEstimator,
+			PreimageCache:          pCache,
+			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
+				return nil
+			},
+			NotifyContractUpdate: func(*contractcourt.ContractUpdate) error {
+				return nil
+			},
+			ChainEvents:                &contractcourt.ChainEventSubscription{},
+			SyncStates:                 true,
+			BatchSize:                  10,
+			BatchTicker:                &noopTicker{},
+			FwdPkgGCTicker:             &noopTicker{},
+			PendingCommitTicker:        &noopTicker{},
+			MinUpdateTimeout:           minFeeUpdateTimeout,
+			MaxUpdateTimeout:           maxFeeUpdateTimeout,
+			OnChannelFailure:           func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
+			OutgoingCltvRejectDelta:    3,
+			MaxOutgoingCltvExpiry:      DefaultMaxOutgoingCltvExpiry,
+			MaxFeeAllocation:           maxFeeAllocation,
+			MaxFeeExposure:             maxFeeExposure,
+			MaxAnchorsCommitFeeRate:    chainfee.SatPerKVByte(10 * 1000).FeePerKWeight(),
+			NotifyActiveLink:           func(wire.OutPoint) {},
+			NotifyActiveChannel:        func(wire.OutPoint) {},
+			NotifyInactiveChannel:      func(wire.OutPoint) {},
+			NotifyInactiveLinkEvent:    func(wire.OutPoint) {},
+			NotifyChannelUpdate:        func(*channeldb.OpenChannel) {},
+			HtlcNotifier:               &mockHTLCNotifier{},
+			GetAliases:                 func(lnwire.ShortChannelID) []lnwire.ShortChannelID { return nil },
+			ShouldFwdExpAccountability: func() bool { return true },
+			// Set a large quiescence timeout so the background
+			// timer never fires during fuzz iterations.
+			QuiescenceTimeout: time.Hour,
+		},
+		channel,
+	)
+
+	chanLink, ok := l.(*channelLink)
+	require.True(t, ok, "expected *channelLink")
+
+	// Wire the upstream channel directly instead of going through a
+	// mailbox. The link reads from upstream during syncChanStates, so we
+	// must set it before calling resumeLink.
+	chanLink.upstream = upstream
+	chanLink.mailBox = &mockMailBox{}
+
+	t.Cleanup(func() {
+		// Stop the link to terminate the fwdPkgGarbager goroutine that
+		// resumeLink spawns internally. Without this the goroutine
+		// leaks for the lifetime of the test binary.
+		chanLink.Stop()
+
+		// Drain the upstream channel to unblock any pending sends.
+		for len(upstream) > 0 {
+			<-upstream
+		}
+	})
+
+	return chanLink, upstream
+}
+
 // twoHopNetwork is used for managing the created cluster of 2 hops.
 type twoHopNetwork struct {
 	hopNetwork

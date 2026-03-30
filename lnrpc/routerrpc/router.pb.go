@@ -862,9 +862,14 @@ type RouteFeeRequest struct {
 	// than the timeout if the HTLC becomes delayed or stuck. Canceling the context
 	// of this call will not cancel the payment loop, the duration is only
 	// controlled by the timeout parameter.
-	Timeout       uint32 `protobuf:"varint,4,opt,name=timeout,proto3" json:"timeout,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Timeout uint32 `protobuf:"varint,4,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	// The channel ids of the channels that are allowed for the first hop. If
+	// empty, any channel may be used. This field is applicable to both
+	// graph-based fee estimation (using dest + amt_sat) and probe-based
+	// estimation (using payment_request).
+	OutgoingChanIds []uint64 `protobuf:"varint,5,rep,packed,name=outgoing_chan_ids,json=outgoingChanIds,proto3" json:"outgoing_chan_ids,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *RouteFeeRequest) Reset() {
@@ -923,6 +928,13 @@ func (x *RouteFeeRequest) GetTimeout() uint32 {
 		return x.Timeout
 	}
 	return 0
+}
+
+func (x *RouteFeeRequest) GetOutgoingChanIds() []uint64 {
+	if x != nil {
+		return x.OutgoingChanIds
+	}
+	return nil
 }
 
 type RouteFeeResponse struct {
@@ -3833,12 +3845,13 @@ const file_routerrpc_router_proto_rawDesc = "" +
 	"\fpayment_hash\x18\x01 \x01(\fR\vpaymentHash\x12.\n" +
 	"\x13no_inflight_updates\x18\x02 \x01(\bR\x11noInflightUpdates\"F\n" +
 	"\x14TrackPaymentsRequest\x12.\n" +
-	"\x13no_inflight_updates\x18\x01 \x01(\bR\x11noInflightUpdates\"\x81\x01\n" +
+	"\x13no_inflight_updates\x18\x01 \x01(\bR\x11noInflightUpdates\"\xad\x01\n" +
 	"\x0fRouteFeeRequest\x12\x12\n" +
 	"\x04dest\x18\x01 \x01(\fR\x04dest\x12\x17\n" +
 	"\aamt_sat\x18\x02 \x01(\x03R\x06amtSat\x12'\n" +
 	"\x0fpayment_request\x18\x03 \x01(\tR\x0epaymentRequest\x12\x18\n" +
-	"\atimeout\x18\x04 \x01(\rR\atimeout\"\xa8\x01\n" +
+	"\atimeout\x18\x04 \x01(\rR\atimeout\x12*\n" +
+	"\x11outgoing_chan_ids\x18\x05 \x03(\x04R\x0foutgoingChanIds\"\xa8\x01\n" +
 	"\x10RouteFeeResponse\x12(\n" +
 	"\x10routing_fee_msat\x18\x01 \x01(\x03R\x0eroutingFeeMsat\x12&\n" +
 	"\x0ftime_lock_delay\x18\x02 \x01(\x03R\rtimeLockDelay\x12B\n" +

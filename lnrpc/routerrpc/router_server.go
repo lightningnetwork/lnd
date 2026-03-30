@@ -448,12 +448,15 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 			return nil, errors.New("amount must be greater than 0")
 
 		default:
-			return s.probeDestination(req.Dest, req.AmtSat)
+			return s.probeDestination(
+				req.Dest, req.AmtSat, req.OutgoingChanIds,
+			)
 		}
 
 	case isProbeInvoice:
 		return s.probePaymentRequest(
 			ctx, req.PaymentRequest, req.Timeout,
+			req.OutgoingChanIds,
 		)
 	}
 
@@ -462,8 +465,8 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 
 // probeDestination estimates fees along a route to a destination based on the
 // contents of the local graph.
-func (s *Server) probeDestination(dest []byte, amtSat int64) (*RouteFeeResponse,
-	error) {
+func (s *Server) probeDestination(dest []byte, amtSat int64,
+	outgoingChanIDs []uint64) (*RouteFeeResponse, error) {
 
 	destNode, err := route.NewVertexFromBytes(dest)
 	if err != nil {
@@ -478,14 +481,16 @@ func (s *Server) probeDestination(dest []byte, amtSat int64) (*RouteFeeResponse,
 	// that target amount, we'll only request a single route. Set a
 	// restriction for the default CLTV limit, otherwise we can find a route
 	// that exceeds it and is useless to us.
-	mc := s.cfg.RouterBackend.MissionControl
+	backend := s.cfg.RouterBackend
+	mc := backend.MissionControl
 	routeReq, err := routing.NewRouteRequest(
-		s.cfg.RouterBackend.SelfNode, &destNode, amtMsat, 0,
+		backend.SelfNode, &destNode, amtMsat, 0,
 		&routing.RestrictParams{
-			FeeLimit:          routeFeeLimitSat,
-			CltvLimit:         s.cfg.RouterBackend.MaxTotalTimelock,
-			ProbabilitySource: mc.GetProbability,
-		}, nil, nil, nil, s.cfg.RouterBackend.DefaultFinalCltvDelta,
+			FeeLimit:           routeFeeLimitSat,
+			CltvLimit:          backend.MaxTotalTimelock,
+			ProbabilitySource:  mc.GetProbability,
+			OutgoingChannelIDs: outgoingChanIDs,
+		}, nil, nil, nil, backend.DefaultFinalCltvDelta,
 	)
 	if err != nil {
 		return nil, err
@@ -522,7 +527,7 @@ func (s *Server) probeDestination(dest []byte, amtSat int64) (*RouteFeeResponse,
 // identify LSPs, the probe payment might use a different node id as the
 // final destination (the assumed LSP node id).
 func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
-	timeout uint32) (*RouteFeeResponse, error) {
+	timeout uint32, outgoingChanIDs []uint64) (*RouteFeeResponse, error) {
 
 	payReq, err := zpay32.Decode(
 		paymentRequest, s.cfg.RouterBackend.ActiveNetParams,
@@ -556,6 +561,7 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 		FeeLimitSat:      routeFeeLimitSat,
 		FinalCltvDelta:   int32(payReq.MinFinalCLTVExpiry()),
 		DestFeatures:     MarshalFeatures(payReq.Features),
+		OutgoingChanIds:  outgoingChanIDs,
 	}
 
 	// If the payment addresses is specified, then we'll also populate that
@@ -625,6 +631,7 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 			FeeLimitSat:      probeRequest.FeeLimitSat,
 			FinalCltvDelta:   int32(lspHint.CLTVExpiryDelta),
 			DestFeatures:     probeRequest.DestFeatures,
+			OutgoingChanIds:  probeRequest.OutgoingChanIds,
 		}
 
 		// Copy the payment address if present.

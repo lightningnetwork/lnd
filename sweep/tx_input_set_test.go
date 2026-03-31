@@ -411,7 +411,7 @@ func TestAddWalletInputsReturnErr(t *testing.T) {
 
 	// Check that the error is returned from
 	// ListUnspentWitnessFromDefaultAccount.
-	err := set.AddWalletInputs(wallet)
+	_, err := set.AddWalletInputs(wallet, fn.NewSet[wire.OutPoint]())
 	require.ErrorIs(t, err, dummyErr)
 
 	// Create an utxo with unknown address type to trigger an error.
@@ -424,7 +424,7 @@ func TestAddWalletInputsReturnErr(t *testing.T) {
 		min, max).Return([]*lnwallet.Utxo{utxo}, nil).Once()
 
 	// Check that the error is returned from createWalletTxInput.
-	err = set.AddWalletInputs(wallet)
+	_, err = set.AddWalletInputs(wallet, fn.NewSet[wire.OutPoint]())
 	require.Error(t, err)
 
 	// Mock the wallet to return empty utxos.
@@ -432,7 +432,7 @@ func TestAddWalletInputsReturnErr(t *testing.T) {
 		min, max).Return([]*lnwallet.Utxo{}, nil).Once()
 
 	// Check that the error is returned from not having wallet inputs.
-	err = set.AddWalletInputs(wallet)
+	_, err = set.AddWalletInputs(wallet, fn.NewSet[wire.OutPoint]())
 	require.ErrorIs(t, err, ErrNotEnoughInputs)
 }
 
@@ -484,7 +484,7 @@ func TestAddWalletInputsNotEnoughInputs(t *testing.T) {
 
 	// Add wallet inputs to the input set, which should return no error
 	// although the wallet cannot cover the budget.
-	err := set.AddWalletInputs(wallet)
+	_, err := set.AddWalletInputs(wallet, fn.NewSet[wire.OutPoint]())
 	require.NoError(t, err)
 
 	// Check that the budget set is updated.
@@ -552,7 +552,7 @@ func TestAddWalletInputsEmptyWalletSuccess(t *testing.T) {
 
 	// Add wallet inputs to the input set, which should return no error
 	// although the wallet is empty.
-	err := set.AddWalletInputs(wallet)
+	_, err := set.AddWalletInputs(wallet, fn.NewSet[wire.OutPoint]())
 	require.NoError(t, err)
 }
 
@@ -611,7 +611,7 @@ func TestAddWalletInputsSuccess(t *testing.T) {
 
 	// Add wallet inputs to the input set, which should give us an error as
 	// the wallet cannot cover the budget.
-	err = set.AddWalletInputs(wallet)
+	_, err = set.AddWalletInputs(wallet, fn.NewSet[wire.OutPoint]())
 	require.NoError(t, err)
 
 	// Check that the budget set is updated.
@@ -632,4 +632,95 @@ func TestAddWalletInputsSuccess(t *testing.T) {
 	require.Equal(t, deadline, set.DeadlineHeight())
 	// Weak check, a strong check is to open the slice and check each item.
 	require.Len(t, set.inputs, 3)
+}
+
+// TestAddWalletInputsExcludesUsedUtxos checks that wallet UTXOs
+// present in the exclusion set are skipped by AddWalletInputs.
+func TestAddWalletInputsExcludesUsedUtxos(t *testing.T) {
+	t.Parallel()
+
+	wallet := &MockWallet{}
+	defer wallet.AssertExpectations(t)
+
+	min, max := int32(1), int32(math.MaxInt32)
+
+	const budget = 10_000
+
+	// Create a mock input that has required outputs (needs
+	// wallet funding).
+	mockInput := &input.MockInput{}
+	mockInput.On("RequiredTxOut").Return(&wire.TxOut{})
+	defer mockInput.AssertExpectations(t)
+
+	deadline := int32(1000)
+	pi := &SweeperInput{
+		Input: mockInput,
+		params: Params{
+			Budget:         budget,
+			DeadlineHeight: fn.Some(deadline),
+		},
+	}
+
+	mockInput.On("OutPoint").Return(
+		wire.OutPoint{Hash: chainhash.Hash{1}},
+	)
+	mockInput.On("WitnessType").Return(
+		input.CommitmentAnchor,
+	)
+
+	// Create two wallet UTXOs with distinct outpoints.
+	excludedOP := wire.OutPoint{
+		Hash:  chainhash.Hash{0xaa},
+		Index: 0,
+	}
+	availableOP := wire.OutPoint{
+		Hash:  chainhash.Hash{0xbb},
+		Index: 0,
+	}
+
+	// Give the excluded UTXO a smaller value so it sorts
+	// first, guaranteeing the skip path is exercised before
+	// the available UTXO is considered.
+	excludedUtxo := &lnwallet.Utxo{
+		AddressType: lnwallet.WitnessPubKey,
+		Value:       budget / 2,
+		OutPoint:    excludedOP,
+	}
+	availableUtxo := &lnwallet.Utxo{
+		AddressType: lnwallet.WitnessPubKey,
+		Value:       budget,
+		OutPoint:    availableOP,
+	}
+
+	// Return both UTXOs from the wallet.
+	wallet.On(
+		"ListUnspentWitnessFromDefaultAccount", min, max,
+	).Return(
+		[]*lnwallet.Utxo{excludedUtxo, availableUtxo}, nil,
+	).Once()
+
+	set, err := NewBudgetInputSet(
+		[]SweeperInput{*pi}, deadline,
+		fn.None[AuxSweeper](),
+	)
+	require.NoError(t, err)
+
+	// Mark the first UTXO as already used.
+	usedUtxos := fn.NewSet(excludedOP)
+
+	addedOPs, err := set.AddWalletInputs(wallet, usedUtxos)
+	require.NoError(t, err)
+
+	// The set should contain the original input plus only the
+	// available (non-excluded) wallet UTXO.
+	require.Len(t, set.inputs, 2)
+
+	// Verify the wallet input that was added is the available
+	// one, not the excluded one.
+	walletInput := set.inputs[1]
+	require.Equal(t, availableOP, walletInput.OutPoint())
+
+	// The returned outpoints should list only the available
+	// UTXO.
+	require.Equal(t, []wire.OutPoint{availableOP}, addedOPs)
 }

@@ -644,7 +644,9 @@ func TestSweepPendingInputs(t *testing.T) {
 
 	// Mock this set to ask for wallet input.
 	setNeedWallet.On("NeedWalletInput").Return(true).Once()
-	setNeedWallet.On("AddWalletInputs", wallet).Return(nil).Once()
+	setNeedWallet.On(
+		"AddWalletInputs", wallet, mock.Anything,
+	).Return([]wire.OutPoint(nil), nil).Once()
 
 	// Mock the wallet to require the lock once.
 	wallet.On("WithCoinSelectLock", mock.Anything).Return(nil).Once()
@@ -683,6 +685,96 @@ func TestSweepPendingInputs(t *testing.T) {
 	publisher.On("Broadcast", mock.Anything).Return(nil).Twice()
 
 	// Call the method under test.
+	s.sweepPendingInputs(pis)
+}
+
+// TestSweepPendingInputsExcludesUsedUtxos verifies that when two
+// InputSets both need wallet inputs in the same sweep cycle, the
+// second set receives an exclusion set containing the wallet UTXOs
+// claimed by the first.
+func TestSweepPendingInputsExcludesUsedUtxos(t *testing.T) {
+	t.Parallel()
+
+	wallet := &MockWallet{}
+	defer wallet.AssertExpectations(t)
+
+	aggregator := &mockUtxoAggregator{}
+	defer aggregator.AssertExpectations(t)
+
+	publisher := &MockBumper{}
+	defer publisher.AssertExpectations(t)
+
+	s := New(&UtxoSweeperConfig{
+		Wallet:     wallet,
+		Aggregator: aggregator,
+		Publisher:  publisher,
+		GenSweepScript: func() fn.Result[lnwallet.AddrWithKey] {
+			//nolint:ll
+			return fn.Ok(lnwallet.AddrWithKey{
+				DeliveryAddress: testPubKey.SerializeCompressed(),
+			})
+		},
+		NoDeadlineConfTarget: uint32(DefaultDeadlineDelta),
+	})
+	s.currentHeight = testHeight
+
+	// A wallet UTXO that the first set will claim.
+	walletOP := wire.OutPoint{
+		Hash:  chainhash.Hash{0xaa},
+		Index: 0,
+	}
+
+	// --- First set: needs wallet input, claims walletOP ---
+	set1 := &MockInputSet{}
+	defer set1.AssertExpectations(t)
+
+	set1.On("NeedWalletInput").Return(true).Once()
+	set1.On("AddWalletInputs", wallet,
+		mock.MatchedBy(func(s fn.Set[wire.OutPoint]) bool {
+			return s.IsEmpty()
+		}),
+	).Return([]wire.OutPoint{walletOP}, nil).Once()
+
+	set1.On("Inputs").Return(nil).Maybe()
+	set1.On("DeadlineHeight").Return(testHeight).Once()
+	set1.On("Budget").Return(btcutil.Amount(1)).Once()
+	set1.On("StartingFeeRate").Return(
+		fn.None[chainfee.SatPerKWeight](),
+	).Once()
+	set1.On("Immediate").Return(false).Once()
+
+	// --- Second set: needs wallet input, must see walletOP
+	//     excluded ---
+	set2 := &MockInputSet{}
+	defer set2.AssertExpectations(t)
+
+	set2.On("NeedWalletInput").Return(true).Once()
+	set2.On("AddWalletInputs", wallet,
+		mock.MatchedBy(func(s fn.Set[wire.OutPoint]) bool {
+			return s.Contains(walletOP)
+		}),
+	).Return([]wire.OutPoint(nil), nil).Once()
+
+	set2.On("Inputs").Return(nil).Maybe()
+	set2.On("DeadlineHeight").Return(testHeight).Once()
+	set2.On("Budget").Return(btcutil.Amount(1)).Once()
+	set2.On("StartingFeeRate").Return(
+		fn.None[chainfee.SatPerKWeight](),
+	).Once()
+	set2.On("Immediate").Return(false).Once()
+
+	// Both sets need the coin select lock.
+	wallet.On(
+		"WithCoinSelectLock", mock.Anything,
+	).Return(nil).Twice()
+
+	pis := make(InputsMap)
+	aggregator.On("ClusterInputs", pis).Return(
+		[]InputSet{set1, set2},
+	)
+
+	publisher.On("Broadcast", mock.Anything).Return(nil).Twice()
+
 	s.sweepPendingInputs(pis)
 }
 

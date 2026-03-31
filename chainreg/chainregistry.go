@@ -465,12 +465,14 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 					if zmq[i].Address.Port() !=
 						zmqPubRawBlockURL.Port() {
 
-						log.Warnf(
-							"unable to subscribe to zmq block events on "+
-								"%s (bitcoind is running on %s)",
+						log.Warnf("zmq block port "+
+							"mismatch: lnd is "+
+							"using %s but "+
+							"bitcoind reports %s "+
+							"- ensure the port "+
+							"is correct",
 							zmqPubRawBlockURL.Host,
-							zmq[i].Address.Host,
-						)
+							zmq[i].Address.Host)
 					}
 					pubRawBlockActive = true
 				}
@@ -478,12 +480,14 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 					if zmq[i].Address.Port() !=
 						zmqPubRawTxURL.Port() {
 
-						log.Warnf(
-							"unable to subscribe to zmq tx events on "+
-								"%s (bitcoind is running on %s)",
+						log.Warnf("zmq tx port "+
+							"mismatch: lnd is "+
+							"using %s but "+
+							"bitcoind reports %s "+
+							"- ensure the port "+
+							"is correct",
 							zmqPubRawTxURL.Host,
-							zmq[i].Address.Host,
-						)
+							zmq[i].Address.Host)
 					}
 					pubRawTxActive = true
 				}

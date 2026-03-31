@@ -233,10 +233,13 @@ func (m *MockInputSet) FeeRate() chainfee.SatPerKWeight {
 // AddWalletInputs adds wallet inputs to the set until a non-dust
 // change output can be made. Return an error if there are not enough
 // wallet inputs.
-func (m *MockInputSet) AddWalletInputs(wallet Wallet) error {
-	args := m.Called(wallet)
+func (m *MockInputSet) AddWalletInputs(wallet Wallet,
+	excludeUtxos fn.Set[wire.OutPoint],
+) ([]wire.OutPoint, error) {
 
-	return args.Error(0)
+	args := m.Called(wallet, excludeUtxos)
+
+	return args.Get(0).([]wire.OutPoint), args.Error(1)
 }
 
 // NeedWalletInput returns true if the input set needs more wallet

@@ -34,10 +34,16 @@ type InputSet interface {
 	// Inputs returns the set of inputs that should be used to create a tx.
 	Inputs() []input.Input
 
-	// AddWalletInputs adds wallet inputs to the set until a non-dust
-	// change output can be made. Return an error if there are not enough
-	// wallet inputs.
-	AddWalletInputs(wallet Wallet) error
+	// AddWalletInputs adds wallet inputs to the set until a
+	// non-dust change output can be made. Return an error if
+	// there are not enough wallet inputs. The excludeUtxos set
+	// contains outpoints already claimed by other InputSets in
+	// the current sweep cycle and should be skipped. On success
+	// it returns the outpoints of the wallet UTXOs that were
+	// added.
+	AddWalletInputs(wallet Wallet,
+		excludeUtxos fn.Set[wire.OutPoint],
+	) ([]wire.OutPoint, error)
 
 	// NeedWalletInput returns true if the input set needs more wallet
 	// inputs.
@@ -347,55 +353,77 @@ func (b *BudgetInputSet) hasNormalInput() bool {
 // set to its initial state by removing any wallet inputs added.
 //
 // NOTE: must be called with the wallet lock held via `WithCoinSelectLock`.
-func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
-	// Retrieve wallet utxos. Only consider confirmed utxos to prevent
-	// problems around RBF rules for unconfirmed inputs. This currently
-	// ignores the configured coin selection strategy.
+func (b *BudgetInputSet) AddWalletInputs(wallet Wallet,
+	excludeUtxos fn.Set[wire.OutPoint],
+) ([]wire.OutPoint, error) {
+
+	// Retrieve wallet utxos. Only consider confirmed utxos to
+	// prevent problems around RBF rules for unconfirmed inputs.
+	// This currently ignores the configured coin selection
+	// strategy.
 	utxos, err := wallet.ListUnspentWitnessFromDefaultAccount(
 		1, math.MaxInt32,
 	)
 	if err != nil {
-		return fmt.Errorf("list unspent witness: %w", err)
+		return nil, fmt.Errorf("list unspent witness: %w",
+			err)
 	}
 
-	// Sort the UTXOs by putting smaller values at the start of the slice
-	// to avoid locking large UTXO for sweeping.
+	// Sort the UTXOs by putting smaller values at the start of
+	// the slice to avoid locking large UTXO for sweeping.
 	//
-	// TODO(yy): add more choices to CoinSelectionStrategy and use the
-	// configured value here.
+	// TODO(yy): add more choices to CoinSelectionStrategy and
+	// use the configured value here.
 	sort.Slice(utxos, func(i, j int) bool {
 		return utxos[i].Value < utxos[j].Value
 	})
 
-	// Add wallet inputs to the set until the specified budget is covered.
+	// Add wallet inputs to the set until the specified budget
+	// is covered.
+	var addedOPs []wire.OutPoint
+
 	for _, utxo := range utxos {
-		err := b.addWalletInput(utxo)
-		if err != nil {
-			return err
+		// Skip UTXOs already claimed by another InputSet
+		// in this sweep cycle.
+		if excludeUtxos.Contains(utxo.OutPoint) {
+			log.Debugf("Skipping wallet UTXO %v: "+
+				"already used by another "+
+				"sweep set", utxo.OutPoint)
+
+			continue
 		}
 
-		// Return if we've reached the minimum output amount.
+		err := b.addWalletInput(utxo)
+		if err != nil {
+			return nil, err
+		}
+
+		addedOPs = append(addedOPs, utxo.OutPoint)
+
+		// Return if we've reached the minimum output
+		// amount.
 		if !b.NeedWalletInput() {
-			return nil
+			return addedOPs, nil
 		}
 	}
 
 	// Exit if there are no inputs can contribute to the fees.
 	if !b.hasNormalInput() {
-		return ErrNotEnoughInputs
+		return nil, ErrNotEnoughInputs
 	}
 
-	// If there's at least one input that can contribute to fees, we allow
-	// the sweep to continue, even though the full budget can't be met.
-	// Maybe later more wallet inputs will become available and we can add
-	// them if needed.
+	// If there's at least one input that can contribute to fees,
+	// we allow the sweep to continue, even though the full
+	// budget can't be met. Maybe later more wallet inputs will
+	// become available and we can add them if needed.
 	budget := b.Budget()
 	total, spendable := b.inputAmts()
-	log.Warnf("Not enough wallet UTXOs: need budget=%v, has spendable=%v, "+
-		"total=%v, missing at least %v, sweeping anyway...", budget,
-		spendable, total, budget-spendable)
+	log.Warnf("Not enough wallet UTXOs: need budget=%v, has "+
+		"spendable=%v, total=%v, missing at least %v, "+
+		"sweeping anyway...", budget, spendable, total,
+		budget-spendable)
 
-	return nil
+	return addedOPs, nil
 }
 
 // Budget returns the total budget of the set.

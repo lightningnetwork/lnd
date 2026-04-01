@@ -81,6 +81,10 @@ type Config struct {
 	// messaging.
 	NoOnionMessages bool
 
+	// NoPeerStorage unsets any bits that signal support for storing
+	// encrypted backup data on behalf of channel peers.
+	NoPeerStorage bool
+
 	// CustomFeatures is a set of custom features to advertise in each
 	// set.
 	CustomFeatures map[Set][]lnwire.FeatureBit
@@ -228,6 +232,10 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		if cfg.NoOnionMessages {
 			raw.Unset(lnwire.OnionMessagesOptional)
 			raw.Unset(lnwire.OnionMessagesRequired)
+		}
+		if cfg.NoPeerStorage {
+			raw.Unset(lnwire.ProvideStorageOptional)
+			raw.Unset(lnwire.ProvideStorageRequired)
 		}
 
 		for _, custom := range cfg.CustomFeatures[set] {

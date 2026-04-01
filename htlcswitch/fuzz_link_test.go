@@ -103,6 +103,52 @@ func fuzzSigVerifier(sig input.Signature, sigHash []byte,
 	return bytes.Equal(sBytes, expected[:])
 }
 
+// fuzzCommitKeyDeriver is a trivial CommitKeyDeriverFunc for fuzz harnesses.
+// It mirrors the local/remote base-point selection of DeriveCommitmentKeys but
+// returns the raw base points without any secp256k1 scalar multiplication,
+// eliminating the ~30% CPU overhead of TweakPubKey/DeriveRevocationPubkey on
+// every commit round. Both Alice and Bob call this with mirrored arguments and
+// arrive at the same underlying public keys, so commitment tx scripts remain
+// consistent across both sides.
+func fuzzCommitKeyDeriver(commitPoint *btcec.PublicKey,
+	whoseCommit lntypes.ChannelParty, _ channeldb.ChannelType, localChanCfg,
+	remoteChanCfg *channeldb.ChannelConfig) *lnwallet.CommitmentKeyRing {
+
+	localBasePoint := localChanCfg.PaymentBasePoint
+	if whoseCommit.IsLocal() {
+		localBasePoint = localChanCfg.DelayBasePoint
+	}
+
+	var toLocalKey, toRemoteKey, revocationKey *btcec.PublicKey
+	if whoseCommit.IsLocal() {
+		toLocalKey = localChanCfg.DelayBasePoint.PubKey
+		toRemoteKey = remoteChanCfg.PaymentBasePoint.PubKey
+		revocationKey = remoteChanCfg.RevocationBasePoint.PubKey
+	} else {
+		toLocalKey = remoteChanCfg.DelayBasePoint.PubKey
+		toRemoteKey = localChanCfg.PaymentBasePoint.PubKey
+		revocationKey = localChanCfg.RevocationBasePoint.PubKey
+	}
+
+	return &lnwallet.CommitmentKeyRing{
+		CommitPoint: commitPoint,
+		// Tweaks are cheap (just SHA256), keep them accurate.
+		LocalCommitKeyTweak: input.SingleTweakBytes(
+			commitPoint, localBasePoint.PubKey,
+		),
+		LocalHtlcKeyTweak: input.SingleTweakBytes(
+			commitPoint, localChanCfg.HtlcBasePoint.PubKey,
+		),
+		// Skip TweakPubKey/DeriveRevocationPubkey — return base points
+		// directly to avoid secp256k1 scalar multiplications.
+		LocalHtlcKey:  localChanCfg.HtlcBasePoint.PubKey,
+		RemoteHtlcKey: remoteChanCfg.HtlcBasePoint.PubKey,
+		ToLocalKey:    toLocalKey,
+		ToRemoteKey:   toRemoteKey,
+		RevocationKey: revocationKey,
+	}
+}
+
 type Event uint8
 
 const (
@@ -289,6 +335,7 @@ func newFuzzFSM(t *testing.T, channelSize, aliceShareGen,
 		withTestSignerFactory(mkFuzzSigner),
 		withTestChanOpts(
 			lnwallet.WithSigVerifier(fuzzSigVerifier),
+			lnwallet.WithCommitKeyDeriver(fuzzCommitKeyDeriver),
 		),
 	)
 	require.NoError(t, err)

@@ -646,7 +646,7 @@ func (lc *LightningChannel) diskCommitToMemCommit(
 	// haven't yet received a responding commitment from the remote party.
 	var commitKeys lntypes.Dual[*CommitmentKeyRing]
 	if localCommitPoint != nil {
-		commitKeys.SetForParty(lntypes.Local, DeriveCommitmentKeys(
+		commitKeys.SetForParty(lntypes.Local, lc.deriveCommitmentKeys(
 			localCommitPoint, lntypes.Local,
 			lc.channelState.ChanType,
 			&lc.channelState.LocalChanCfg,
@@ -654,7 +654,7 @@ func (lc *LightningChannel) diskCommitToMemCommit(
 		))
 	}
 	if remoteCommitPoint != nil {
-		commitKeys.SetForParty(lntypes.Remote, DeriveCommitmentKeys(
+		commitKeys.SetForParty(lntypes.Remote, lc.deriveCommitmentKeys(
 			remoteCommitPoint, lntypes.Remote,
 			lc.channelState.ChanType,
 			&lc.channelState.LocalChanCfg,
@@ -863,6 +863,10 @@ type channelOpts struct {
 	// standard sig.Verify method is used.
 	sigVerifier SigVerifier
 
+	// commitKeyDeriver is an optional override for DeriveCommitmentKeys.
+	// When nil, the real secp256k1-based function is used.
+	commitKeyDeriver CommitKeyDeriverFunc
+
 	skipNonceInit bool
 
 	// customSigningRand is an optional custom random source for generating
@@ -959,6 +963,25 @@ func (lc *LightningChannel) verifySig(sig input.Signature, sigHash []byte,
 	}
 
 	return sig.Verify(sigHash, pubKey)
+}
+
+// deriveCommitmentKeys calls the injected CommitKeyDeriverFunc if one is set,
+// otherwise falls back to the real secp256k1-based DeriveCommitmentKeys.
+func (lc *LightningChannel) deriveCommitmentKeys(commitPoint *btcec.PublicKey,
+	whoseCommit lntypes.ChannelParty, chanType channeldb.ChannelType,
+	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) *CommitmentKeyRing { //nolint:ll
+
+	if lc.opts.commitKeyDeriver != nil {
+		return lc.opts.commitKeyDeriver(
+			commitPoint, whoseCommit, chanType,
+			localChanCfg, remoteChanCfg,
+		)
+	}
+
+	return DeriveCommitmentKeys(
+		commitPoint, whoseCommit, chanType,
+		localChanCfg, remoteChanCfg,
+	)
 }
 
 // NewLightningChannel creates a new, active payment channel given an
@@ -1584,7 +1607,7 @@ func (lc *LightningChannel) restoreCommitState(
 
 		// We'll also re-create the set of commitment keys needed to
 		// fully re-derive the state.
-		pendingRemoteKeyChain = DeriveCommitmentKeys(
+		pendingRemoteKeyChain = lc.deriveCommitmentKeys(
 			pendingCommitPoint, lntypes.Remote,
 			lc.channelState.ChanType,
 			&lc.channelState.LocalChanCfg,
@@ -4187,7 +4210,7 @@ func (lc *LightningChannel) SignNextCommitment(
 	// Grab the next commitment point for the remote party. This will be
 	// used within fetchCommitmentView to derive all the keys necessary to
 	// construct the commitment state.
-	keyRing := DeriveCommitmentKeys(
+	keyRing := lc.deriveCommitmentKeys(
 		commitPoint, lntypes.Remote, lc.channelState.ChanType,
 		&lc.channelState.LocalChanCfg, &lc.channelState.RemoteChanCfg,
 	)
@@ -5417,7 +5440,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 		return err
 	}
 	commitPoint := input.ComputeCommitmentPoint(commitSecret[:])
-	keyRing := DeriveCommitmentKeys(
+	keyRing := lc.deriveCommitmentKeys(
 		commitPoint, lntypes.Local, lc.channelState.ChanType,
 		&lc.channelState.LocalChanCfg, &lc.channelState.RemoteChanCfg,
 	)
@@ -9006,7 +9029,7 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 		return nil, err
 	}
 	localCommitPoint := input.ComputeCommitmentPoint(revocation[:])
-	localKeyRing := DeriveCommitmentKeys(
+	localKeyRing := lc.deriveCommitmentKeys(
 		localCommitPoint, lntypes.Local, lc.channelState.ChanType,
 		&lc.channelState.LocalChanCfg, &lc.channelState.RemoteChanCfg,
 	)
@@ -9020,7 +9043,7 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 	resolutions.Local = localRes
 
 	// Add anchor for remote commitment tx, if any.
-	remoteKeyRing := DeriveCommitmentKeys(
+	remoteKeyRing := lc.deriveCommitmentKeys(
 		lc.channelState.RemoteCurrentRevocation, lntypes.Remote,
 		lc.channelState.ChanType, &lc.channelState.LocalChanCfg,
 		&lc.channelState.RemoteChanCfg,
@@ -9041,7 +9064,7 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 	}
 
 	if remotePendingCommit != nil {
-		pendingRemoteKeyRing := DeriveCommitmentKeys(
+		pendingRemoteKeyRing := lc.deriveCommitmentKeys(
 			lc.channelState.RemoteNextRevocation, lntypes.Remote,
 			lc.channelState.ChanType, &lc.channelState.LocalChanCfg,
 			&lc.channelState.RemoteChanCfg,

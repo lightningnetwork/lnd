@@ -541,3 +541,20 @@ func WithSigVerifier(v SigVerifier) ChannelOpt {
 		o.sigVerifier = v
 	}
 }
+
+// CommitKeyDeriverFunc is an optional function that overrides
+// DeriveCommitmentKeys inside LightningChannel. When nil, the real
+// secp256k1-based derivation is used. Inject a trivial version in fuzz/test
+// harnesses to avoid scalar-multiplication overhead on every commit round.
+type CommitKeyDeriverFunc func(commitPoint *btcec.PublicKey,
+	whoseCommit lntypes.ChannelParty, chanType channeldb.ChannelType,
+	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) *CommitmentKeyRing
+
+// WithCommitKeyDeriver injects a custom commitment key derivation function,
+// overriding the default secp256k1-based DeriveCommitmentKeys on every commit
+// round. Intended for fuzz/test harnesses that need to avoid scalar-mult cost.
+func WithCommitKeyDeriver(fn CommitKeyDeriverFunc) ChannelOpt {
+	return func(o *channelOpts) {
+		o.commitKeyDeriver = fn
+	}
+}

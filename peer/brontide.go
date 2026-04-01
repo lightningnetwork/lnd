@@ -420,6 +420,11 @@ type Config struct {
 	// that is accumulated before signing a new commitment.
 	ChannelCommitBatchSize uint32
 
+	// HandlePeerStorage is called when a peer_storage message is received
+	// from a remote peer requesting that we store their encrypted backup
+	// blob.
+	HandlePeerStorage func(peer [33]byte, blob []byte) error
+
 	// HandleCustomMessage is called whenever a custom message is received
 	// from the peer.
 	HandleCustomMessage func(peer [33]byte, msg *lnwire.Custom) error
@@ -2355,10 +2360,15 @@ out:
 			)
 
 		case *lnwire.PeerStorage:
-			// TODO(peer-storage): Handle incoming peer_storage
-			// message — validate and store the blob.
-			p.log.Debugf("Received peer_storage (%d bytes)",
-				len(msg.Blob))
+			if p.cfg.HandlePeerStorage != nil {
+				err := p.cfg.HandlePeerStorage(
+					p.cfg.PubKeyBytes, msg.Blob,
+				)
+				if err != nil {
+					p.log.Warnf("Failed to handle "+
+						"peer_storage: %v", err)
+				}
+			}
 
 		case *lnwire.PeerStorageRetrieval:
 			// TODO(peer-storage): Handle incoming

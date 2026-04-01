@@ -4503,6 +4503,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		ChannelCommitInterval:  s.cfg.ChannelCommitInterval,
 		PendingCommitInterval:  s.cfg.PendingCommitInterval,
 		ChannelCommitBatchSize: s.cfg.ChannelCommitBatchSize,
+		HandlePeerStorage:      s.handlePeerStorage,
 		HandleCustomMessage:    s.handleCustomMessage,
 		GetAliases:             s.aliasMgr.GetAliases,
 		RequestAlias:           s.aliasMgr.RequestAlias,
@@ -5387,6 +5388,17 @@ func (s *server) SendCustomMessage(ctx context.Context, peerPub [33]byte,
 	// Send the message as low-priority. For now we assume that all
 	// application-defined message are low priority.
 	return peer.SendMessageLazy(true, msg)
+}
+
+// handlePeerStorage handles an incoming peer_storage message from a remote
+// peer by storing the encrypted backup blob in the database.
+func (s *server) handlePeerStorage(peer [33]byte, blob []byte) error {
+	peerVertex := route.Vertex(peer)
+
+	srvrLog.Debugf("Storing peer_storage from %x (%d bytes)",
+		peer, len(blob))
+
+	return s.miscDB.StorePeerStorage(peerVertex, blob)
 }
 
 // distributePeerStorage sends our encrypted SCB backup to all connected peers

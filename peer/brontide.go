@@ -2354,6 +2354,19 @@ out:
 				},
 			)
 
+		case *lnwire.PeerStorage:
+			// TODO(peer-storage): Handle incoming peer_storage
+			// message — validate and store the blob.
+			p.log.Debugf("Received peer_storage (%d bytes)",
+				len(msg.Blob))
+
+		case *lnwire.PeerStorageRetrieval:
+			// TODO(peer-storage): Handle incoming
+			// peer_storage_retrieval — decrypt and process the
+			// returned backup blob.
+			p.log.Infof("Received peer_storage_retrieval (%d "+
+				"bytes)", len(msg.Blob))
+
 		case *lnwire.Custom:
 			err := p.handleCustomMessage(msg)
 			if err != nil {

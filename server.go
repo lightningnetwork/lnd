@@ -1680,6 +1680,10 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
+	// Register a callback to distribute the packed SCB to peers that
+	// support option_provide_storage after each backup update.
+	s.chanSubSwapper.PostBackupFunc = s.distributePeerStorage
+
 	// Assemble a peer notifier which will provide clients with subscriptions
 	// to peer online and offline events.
 	s.peerNotifier = peernotifier.New()
@@ -5383,6 +5387,39 @@ func (s *server) SendCustomMessage(ctx context.Context, peerPub [33]byte,
 	// Send the message as low-priority. For now we assume that all
 	// application-defined message are low priority.
 	return peer.SendMessageLazy(true, msg)
+}
+
+// distributePeerStorage sends our encrypted SCB backup to all connected peers
+// that advertise option_provide_storage. This is called after each backup
+// update by the SubSwapper via PostBackupFunc.
+func (s *server) distributePeerStorage(backup chanbackup.PackedMulti) {
+	// Pad the blob to MaxPeerStorageBlob for privacy per the spec.
+	padded := make([]byte, lnwire.MaxPeerStorageBlob)
+	copy(padded, backup)
+
+	msg := &lnwire.PeerStorage{
+		Blob: padded,
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for pubStr, p := range s.peersByPub {
+		features := p.RemoteFeatures()
+		if features == nil {
+			continue
+		}
+
+		if !features.HasFeature(lnwire.ProvideStorageOptional) {
+			continue
+		}
+
+		srvrLog.Debugf("Sending peer_storage to peer %x", pubStr)
+		if err := p.SendMessageLazy(true, msg); err != nil {
+			srvrLog.Warnf("Failed to send peer_storage to "+
+				"peer %x: %v", pubStr, err)
+		}
+	}
 }
 
 // SendOnionMessage sends a custom message to the peer with the specified

@@ -1421,10 +1421,12 @@ var witnessSizeTests = []witnessSizeTest{
 				KeyDesc: keychain.KeyDescriptor{
 					PubKey: testKey.PubKey(),
 				},
-				WitnessScript: commitScriptTree.SettleLeaf.Script,
-				HashType:      txscript.SigHashAll,
-				InputIndex:    0,
-				SignMethod:    input.TaprootScriptSpendSignMethod,
+				WitnessScript: commitScriptTree.
+					SettleLeaf.Script,
+				HashType:   txscript.SigHashAll,
+				InputIndex: 0,
+				SignMethod: input.
+					TaprootScriptSpendSignMethod,
 			}
 
 			witness, err := input.TaprootCommitSpendSuccess(
@@ -1444,8 +1446,9 @@ var witnessSizeTests = []witnessSizeTest{
 			require.NoError(t, err)
 
 			signer := &dummySigner{}
-			commitScriptTree, err := input.NewRemoteCommitScriptTree(
-				testKey.PubKey(), input.NoneTapLeaf(),
+			cst, err := input.NewRemoteCommitScriptTree(
+				testKey.PubKey(),
+				input.NoneTapLeaf(),
 				input.WithProdScripts(),
 			)
 			require.NoError(t, err)
@@ -1454,15 +1457,113 @@ var witnessSizeTests = []witnessSizeTest{
 				KeyDesc: keychain.KeyDescriptor{
 					PubKey: testKey.PubKey(),
 				},
-				WitnessScript: commitScriptTree.SettleLeaf.Script,
+				WitnessScript: cst.SettleLeaf.Script,
 				HashType:      txscript.SigHashAll,
 				InputIndex:    0,
-				SignMethod:    input.TaprootScriptSpendSignMethod,
+				SignMethod: input.
+					TaprootScriptSpendSignMethod,
 			}
 
 			witness, err := input.TaprootCommitRemoteSpend(
 				signer, signDesc, testTx,
-				commitScriptTree.TapscriptTree,
+				cst.TapscriptTree,
+			)
+			require.NoError(t, err)
+
+			return witness
+		},
+	},
+	{
+		name:    "taproot offered remote timeout final",
+		expSize: input.TaprootHtlcOfferedRemoteTimeoutWitnessSizeFinal,
+		genWitness: func(t *testing.T) wire.TxWitness {
+			senderKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			receiverKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			revokeKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			var payHash [32]byte
+
+			signer := &dummySigner{}
+
+			htlcScriptTree, err := input.ReceiverHTLCScriptTaproot(
+				testCLTVExpiry, senderKey.PubKey(),
+				receiverKey.PubKey(), revokeKey.PubKey(),
+				payHash[:], lntypes.Remote,
+				input.NoneTapLeaf(),
+				input.WithProdScripts(),
+			)
+			require.NoError(t, err)
+
+			timeoutLeaf := htlcScriptTree.TimeoutTapLeaf
+
+			signDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: senderKey.PubKey(),
+				},
+				WitnessScript: timeoutLeaf.Script,
+				HashType:      txscript.SigHashAll,
+				InputIndex:    0,
+				SignMethod: input.
+					TaprootScriptSpendSignMethod,
+			}
+
+			witness, err := input.ReceiverHTLCScriptTaprootTimeout(
+				signer, signDesc, testTx, testCLTVExpiry,
+				revokeKey.PubKey(),
+				htlcScriptTree.TapscriptTree,
+			)
+			require.NoError(t, err)
+
+			return witness
+		},
+	},
+	{
+		name:    "taproot accepted remote success final",
+		expSize: input.TaprootHtlcAcceptedRemoteSuccessWitnessSizeFinal,
+		genWitness: func(t *testing.T) wire.TxWitness {
+			senderKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			receiverKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			revokeKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			var payHash [32]byte
+
+			signer := &dummySigner{}
+
+			htlcScriptTree, err := input.SenderHTLCScriptTaproot(
+				senderKey.PubKey(), receiverKey.PubKey(),
+				revokeKey.PubKey(), payHash[:],
+				lntypes.Remote, input.NoneTapLeaf(),
+				input.WithProdScripts(),
+			)
+			require.NoError(t, err)
+
+			successLeaf := htlcScriptTree.SuccessTapLeaf
+			scriptTree := htlcScriptTree.TapscriptTree
+
+			signDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: receiverKey.PubKey(),
+				},
+				WitnessScript: successLeaf.Script,
+				HashType:      txscript.SigHashAll,
+				InputIndex:    0,
+				SignMethod: input.
+					TaprootScriptSpendSignMethod,
+			}
+
+			witness, err := input.SenderHTLCScriptTaprootRedeem(
+				signer, signDesc, testTx, testPreimage,
+				revokeKey.PubKey(), scriptTree,
 			)
 			require.NoError(t, err)
 

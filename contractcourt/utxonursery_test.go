@@ -1492,12 +1492,12 @@ func TestMakeBabyOutputWitnessType(t *testing.T) {
 			name:            "staging taproot",
 			pkScript:        taprootPkScript,
 			isFinalTaproot:  false,
-			expectedWitType: input.TaprootHtlcOfferedTimeoutSecondLevel,
+			expectedWitType: input.TaprootHtlcOfferedTimeoutSecondLevel, //nolint:ll
 		},
 		{
-			name:           "production taproot final",
-			pkScript:       taprootPkScript,
-			isFinalTaproot: true,
+			name:            "production taproot final",
+			pkScript:        taprootPkScript,
+			isFinalTaproot:  true,
 			expectedWitType: input.TaprootHtlcOfferedTimeoutSecondLevelFinal, //nolint:ll
 		},
 	}
@@ -1571,8 +1571,8 @@ func TestIncubateConfigWitnessTypeSelection(t *testing.T) {
 			expectedOutgoing: input.HtlcOfferedRemoteTimeout,
 		},
 		{
-			name:     "staging taproot incoming+outgoing",
-			pkScript: taprootPkScript,
+			name:             "staging taproot incoming+outgoing",
+			pkScript:         taprootPkScript,
 			expectedIncoming: input.TaprootHtlcAcceptedSuccessSecondLevel, //nolint:ll
 			expectedOutgoing: input.TaprootHtlcOfferedRemoteTimeout,
 		},
@@ -1598,33 +1598,37 @@ func TestIncubateConfigWitnessTypeSelection(t *testing.T) {
 				opt(&cfg)
 			}
 
-			isFinalTaproot := cfg.chanType.UnwrapOr(0).IsTaprootFinal()
+			isFinal := cfg.chanType.UnwrapOr(
+				0,
+			).IsTaprootFinal()
 
-			// Verify incoming HTLC witness type selection.
-			isTaproot := txscript.IsPayToTaproot(tc.pkScript)
+			// Verify incoming HTLC witness type.
+			isTaproot := txscript.IsPayToTaproot(
+				tc.pkScript,
+			)
 
-			var incomingWit input.StandardWitnessType
+			var inWit input.StandardWitnessType
 			switch {
-			case isFinalTaproot:
-				incomingWit = input.TaprootHtlcAcceptedSuccessSecondLevelFinal //nolint:ll
+			case isFinal:
+				inWit = input.TaprootHtlcAcceptedSuccessSecondLevelFinal //nolint:ll
 			case isTaproot:
-				incomingWit = input.TaprootHtlcAcceptedSuccessSecondLevel //nolint:ll
+				inWit = input.TaprootHtlcAcceptedSuccessSecondLevel //nolint:ll
 			default:
-				incomingWit = input.HtlcAcceptedSuccessSecondLevel
+				inWit = input.HtlcAcceptedSuccessSecondLevel //nolint:ll
 			}
-			require.Equal(t, tc.expectedIncoming, incomingWit)
+			require.Equal(t, tc.expectedIncoming, inWit)
 
-			// Verify outgoing remote HTLC witness type selection.
-			var outgoingWit input.StandardWitnessType
+			// Verify outgoing remote HTLC witness type.
+			var outWit input.StandardWitnessType
 			switch {
-			case isFinalTaproot:
-				outgoingWit = input.TaprootHtlcOfferedRemoteTimeoutFinal //nolint:ll
+			case isFinal:
+				outWit = input.TaprootHtlcOfferedRemoteTimeoutFinal //nolint:ll
 			case isTaproot:
-				outgoingWit = input.TaprootHtlcOfferedRemoteTimeout
+				outWit = input.TaprootHtlcOfferedRemoteTimeout //nolint:ll
 			default:
-				outgoingWit = input.HtlcOfferedRemoteTimeout
+				outWit = input.HtlcOfferedRemoteTimeout
 			}
-			require.Equal(t, tc.expectedOutgoing, outgoingWit)
+			require.Equal(t, tc.expectedOutgoing, outWit)
 		})
 	}
 }

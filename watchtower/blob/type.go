@@ -90,7 +90,8 @@ const (
 	// production taproot channel using final scripts with
 	// OP_CHECKSIGVERIFY optimizations.
 	TypeAltruistTaprootFinalCommit = Type(
-		FlagCommitOutputs | FlagTaprootChannel | FlagTaprootFinalChannel,
+		FlagCommitOutputs | FlagTaprootChannel |
+			FlagTaprootFinalChannel,
 	)
 )
 

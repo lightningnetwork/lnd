@@ -2466,8 +2466,6 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
-
-
 				resolver := newSuccessResolver(
 					resolution, height, htlc, chanType,
 					resolverCfg,
@@ -2496,8 +2494,6 @@ func (c *ChannelArbitrator) prepContractResolutions(
 						"outgoing resolution: %v", c.cfg.ChanPoint, htlcOp)
 					continue
 				}
-
-
 
 				resolver := newTimeoutResolver(
 					resolution, height, htlc, chanType,
@@ -2540,8 +2536,6 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
-
-
 				resolver := newIncomingContestResolver(
 					resolution, height, htlc, chanType,
 					resolverCfg,
@@ -2573,7 +2567,6 @@ func (c *ChannelArbitrator) prepContractResolutions(
 
 					continue
 				}
-
 
 				resolver := newOutgoingContestResolver(
 					resolution, height, htlc, chanType,

@@ -604,7 +604,6 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	return nil
 }
 
-
 // NurseryReport attempts to return a nursery report stored for the target
 // outpoint. A nursery report details the maturity/sweeping progress for a
 // contract that was previously force closed. If a report entry for the target
@@ -1543,6 +1542,7 @@ func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
 	// This is an HTLC either if it's an incoming HTLC on our commitment
 	// transaction, or is an outgoing HTLC on the commitment transaction of
 	// the remote peer.
+	//nolint:ll
 	isHtlc := (witnessType == input.HtlcAcceptedSuccessSecondLevel ||
 		witnessType == input.TaprootHtlcAcceptedSuccessSecondLevel ||
 		witnessType == input.TaprootHtlcAcceptedSuccessSecondLevelFinal ||

@@ -93,7 +93,21 @@
 
 ## RPC Updates
 
+* [`AddHoldInvoice` hash field is now
+  optional](https://github.com/lightningnetwork/lnd/pull/10685). When omitted,
+  the server generates a random preimage, derives the payment hash, and
+  returns the preimage in the response. The preimage is never persisted — the
+  caller must save the returned value to settle the invoice later, preserving
+  the hold-invoice invariant that lnd only learns the preimage at
+  `SettleInvoice` time. The response adds `payment_preimage` (populated only
+  for the auto-generated case) and `payment_hash` (always populated).
+
 ## lncli Updates
+
+* The [`addholdinvoice` command now accepts `--hash` and `--preimage`
+  flags](https://github.com/lightningnetwork/lnd/pull/10685). When neither is
+  provided, the server generates both automatically. The legacy positional hash
+  argument is still supported for backward compatibility.
 
 ## Breaking Changes
 
@@ -200,4 +214,5 @@
 * Erick Cestari
 * Jared Tobin
 * Kevin Cai
+* Suheb
 * Vandit Singh

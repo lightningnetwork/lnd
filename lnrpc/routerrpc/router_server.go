@@ -168,6 +168,10 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/routerrpc.Router/XFindBaseLocalChanAlias": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 		"/routerrpc.Router/DeleteForwardingHistory": {{
 			Entity: "offchain",
 			Action: "write",

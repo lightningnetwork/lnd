@@ -162,7 +162,7 @@ Compiles the `lnrpc` proto files.
 
 `sample-conf-check`
 -------------------
-Checks whether all required options of `lnd --help` are included in [sample-lnd.conf](github.com/lightningnetwork/lnd/blob/master/sample-lnd.conf) and that the default values of `lnd --help` are also mentioned correctly.
+Checks whether all required options of `lnd --help` are included in [sample-lnd.conf](https://github.com/lightningnetwork/lnd/blob/master/sample-lnd.conf) and that the default values of `lnd --help` are also mentioned correctly.
 
 `scratch`
 ---------

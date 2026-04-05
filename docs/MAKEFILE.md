@@ -162,7 +162,7 @@ Compiles the `lnrpc` proto files.
 
 `sample-conf-check`
 -------------------
-Checks whether all required options of `lnd --help` are included in [sample-lnd.conf](../sample-lnd.conf) and that the default values of `lnd --help` are also mentioned correctly.
+Checks whether all required options from `lnd --help` are included in [`sample-lnd.conf`](../sample-lnd.conf) and whether the default values shown by `lnd --help` are documented correctly.
 
 `scratch`
 ---------

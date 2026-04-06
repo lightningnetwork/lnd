@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/stretchr/testify/require"
 )
 
@@ -285,7 +286,9 @@ func prepareOutboundRemoteSignerTest(ht *lntest.HarnessTest,
 	)
 
 	var commitArgs []string
-	if tc.commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+	if tc.commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		tc.commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
+
 		commitArgs = lntest.NodeArgsForCommitType(
 			tc.commitType,
 		)
@@ -296,12 +299,16 @@ func prepareOutboundRemoteSignerTest(ht *lntest.HarnessTest,
 	// private keys. We use the outbound signer type here, meaning
 	// that the watch-only node expects the signer to make an
 	// outbound connection to it.
+	rsHost := fmt.Sprintf("localhost:%d", port.NextAvailablePort())
+	rsRpcListen := fmt.Sprintf("--remotesigner.rpclisten=%s", rsHost)
+
 	watchOnly := ht.CreateNewNode(
 		"WatchOnly", append([]string{
 			"--remotesigner.enable",
 			"--remotesigner.allowinboundconnection",
 			"--remotesigner.timeout=30s",
 			"--remotesigner.requesttimeout=30s",
+			rsRpcListen,
 		}, commitArgs...),
 		password,
 	)
@@ -314,8 +321,8 @@ func prepareOutboundRemoteSignerTest(ht *lntest.HarnessTest,
 		"--watchonlynode.timeout=30s",
 		"--watchonlynode.requesttimeout=10s",
 		fmt.Sprintf(
-			"--watchonlynode.rpchost=localhost:%d",
-			watchOnly.Cfg.RPCPort,
+			"--watchonlynode.rpchost=%s",
+			rsHost,
 		),
 		fmt.Sprintf(
 			"--watchonlynode.tlscertpath=%s",

@@ -126,6 +126,7 @@ type OutboundConnection struct {
 	// implement the RemoteSigner interface.
 	signrpc.SignerClient
 	walletrpc.WalletKitClient
+	watchonlyrpc.WatchOnlyClient
 
 	// The ConnectionCfg containing connection details of the remote signer.
 	cfg lncfg.ConnectionCfg
@@ -276,6 +277,7 @@ func (r *OutboundConnection) connect(ctx context.Context,
 	r.conn = conn
 	r.SignerClient = signrpc.NewSignerClient(conn)
 	r.WalletKitClient = walletrpc.NewWalletKitClient(conn)
+	r.WatchOnlyClient = watchonlyrpc.NewWatchOnlyClient(conn)
 
 	return nil
 }

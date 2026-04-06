@@ -166,11 +166,11 @@ func (s *StreamFeeder) GetStream(ctx context.Context) (*Stream, error) {
 		return nil, err
 	}
 
-	// Wrap the connection in a WalletKitClient.
-	walletKitClient := walletrpc.NewWalletKitClient(conn)
+	// Wrap the connection in a RemoteSigner stream client.
+	watchOnlyClient := watchonlyrpc.NewWatchOnlyClient(conn)
 
 	// Create a new stream to the watch-only node.
-	streamClient, err := walletKitClient.SignCoordinatorStreams(ctx)
+	streamClient, err := watchOnlyClient.SignCoordinatorStreams(ctx)
 	if err != nil {
 		connErr := conn.Close()
 		if connErr != nil {
@@ -493,8 +493,10 @@ func (r *OutboundClient) handshake(ctx context.Context, stream *Stream) error {
 		RefRequestId: handshakeRequestID,
 		SignResponseType: &RSRegistration{
 			SignerRegistration: &watchonlyrpc.SignerRegistration{
-				RegistrationChallenge: "registrationChallenge",
-				RegistrationInfo:      "outboundSigner",
+				RegistrationChallenge: []byte(
+					"registrationChallenge",
+				),
+				RegistrationInfo: "outboundSigner",
 			},
 		},
 	}

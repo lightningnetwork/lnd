@@ -907,9 +907,9 @@ func TestRemoteSignerReconnectsDuringResponseWait(t *testing.T) {
 	require.True(t, ok)
 
 	// Now let's send the Pong response for the resent Ping request.
-	stream.sendResponse(&walletrpc.SignCoordinatorResponse{
+	stream.sendResponse(&watchonlyrpc.SignCoordinatorResponse{
 		RefRequestId: 3,
-		SignResponseType: &walletrpc.SignCoordinatorResponse_Pong{
+		SignResponseType: &watchonlyrpc.SignCoordinatorResponse_Pong{
 			Pong: true,
 		},
 	})
@@ -1012,9 +1012,9 @@ func TestRemoteSignerDisconnectsMidSend(t *testing.T) {
 	require.True(t, ok)
 
 	// Now let's send the Pong response for the resent Ping request.
-	stream.sendResponse(&walletrpc.SignCoordinatorResponse{
+	stream.sendResponse(&watchonlyrpc.SignCoordinatorResponse{
 		RefRequestId: 3,
-		SignResponseType: &walletrpc.SignCoordinatorResponse_Pong{
+		SignResponseType: &watchonlyrpc.SignCoordinatorResponse_Pong{
 			Pong: true,
 		},
 	})

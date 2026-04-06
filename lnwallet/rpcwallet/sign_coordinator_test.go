@@ -863,16 +863,16 @@ func TestWaitUntilConnectedNoTimeout(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 
-	signReg := &walletrpc.SignerRegistration{
-		RegistrationChallenge: "registrationChallenge",
+	signReg := &watchonlyrpc.SignerRegistration{
+		RegistrationChallenge: []byte("registrationChallenge"),
 		RegistrationInfo:      "outboundSigner",
 	}
 
-	regType := &walletrpc.SignCoordinatorResponse_SignerRegistration{
+	regType := &watchonlyrpc.SignCoordinatorResponse_SignerRegistration{
 		SignerRegistration: signReg,
 	}
 
-	registrationMsg := &walletrpc.SignCoordinatorResponse{
+	registrationMsg := &watchonlyrpc.SignCoordinatorResponse{
 		RefRequestId:     1,
 		SignResponseType: regType,
 	}

@@ -6,22 +6,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/watchonlyrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/metadata"
 )
 
 // mockSCStream is a mock implementation of the
-// walletrpc.WalletKit_SignCoordinatorStreamsServer stream interface.
+// watchonlyrpc.WatchOnly_SignCoordinatorStreamsServer stream interface.
 type mockSCStream struct {
 	// sendChan is used to simulate requests sent over the stream from the
 	// sign coordinator to the remote signer.
-	sendChan chan *walletrpc.SignCoordinatorRequest
+	sendChan chan *watchonlyrpc.SignCoordinatorRequest
 
 	// recvChan is used to simulate responses sent over the stream from the
 	// remote signer to the sign coordinator.
-	recvChan chan *walletrpc.SignCoordinatorResponse
+	recvChan chan *watchonlyrpc.SignCoordinatorResponse
 
 	// cancelChan is used to simulate a canceled stream.
 	cancelChan chan struct{}
@@ -32,8 +32,12 @@ type mockSCStream struct {
 // newMockSCStream creates a new mock stream.
 func newMockSCStream() *mockSCStream {
 	return &mockSCStream{
-		sendChan:   make(chan *walletrpc.SignCoordinatorRequest, 1),
-		recvChan:   make(chan *walletrpc.SignCoordinatorResponse, 1),
+		sendChan: make(
+			chan *watchonlyrpc.SignCoordinatorRequest, 1,
+		),
+		recvChan: make(
+			chan *watchonlyrpc.SignCoordinatorResponse, 1,
+		),
 		cancelChan: make(chan struct{}),
 		ctx:        context.Background(),
 	}
@@ -41,7 +45,7 @@ func newMockSCStream() *mockSCStream {
 
 // Send simulates a sent request from the sign coordinator to the remote signer
 // over the mock stream.
-func (ms *mockSCStream) Send(req *walletrpc.SignCoordinatorRequest) error {
+func (ms *mockSCStream) Send(req *watchonlyrpc.SignCoordinatorRequest) error {
 	select {
 	case ms.sendChan <- req:
 		return nil
@@ -53,7 +57,9 @@ func (ms *mockSCStream) Send(req *walletrpc.SignCoordinatorRequest) error {
 
 // Recv simulates a received response from the remote signer to the sign
 // coordinator over the mock stream.
-func (ms *mockSCStream) Recv() (*walletrpc.SignCoordinatorResponse, error) {
+func (ms *mockSCStream) Recv() (*watchonlyrpc.SignCoordinatorResponse,
+	error) {
+
 	select {
 	case resp := <-ms.recvChan:
 		return resp, nil
@@ -65,7 +71,7 @@ func (ms *mockSCStream) Recv() (*walletrpc.SignCoordinatorResponse, error) {
 	}
 }
 
-// Mock implementations of various WalletKit_SignCoordinatorStreamsServer
+// Mock implementations of various WatchOnly_SignCoordinatorStreamsServer
 // methods.
 func (ms *mockSCStream) RecvMsg(msg any) error        { return nil }
 func (ms *mockSCStream) SendHeader(metadata.MD) error { return nil }
@@ -84,7 +90,9 @@ func (ms *mockSCStream) Cancel() {
 }
 
 // Helper function to simulate responses sent over the mock stream.
-func (ms *mockSCStream) sendResponse(resp *walletrpc.SignCoordinatorResponse) {
+func (ms *mockSCStream) sendResponse(
+	resp *watchonlyrpc.SignCoordinatorResponse) {
+
 	ms.recvChan <- resp
 }
 
@@ -105,16 +113,16 @@ func setupSignCoordinator(t *testing.T) (*SignCoordinator, *mockSCStream,
 		}
 	}()
 
-	signReg := &walletrpc.SignerRegistration{
-		RegistrationChallenge: "registrationChallenge",
+	signReg := &watchonlyrpc.SignerRegistration{
+		RegistrationChallenge: []byte("registrationChallenge"),
 		RegistrationInfo:      "outboundSigner",
 	}
 
-	regType := &walletrpc.SignCoordinatorResponse_SignerRegistration{
+	regType := &watchonlyrpc.SignCoordinatorResponse_SignerRegistration{
 		SignerRegistration: signReg,
 	}
 
-	registrationMsg := &walletrpc.SignCoordinatorResponse{
+	registrationMsg := &watchonlyrpc.SignCoordinatorResponse{
 		RefRequestId:     1, // Request ID is always 1 for registration.
 		SignResponseType: regType,
 	}
@@ -141,7 +149,9 @@ func setupSignCoordinator(t *testing.T) (*SignCoordinator, *mockSCStream,
 
 // getRequest is a helper function to get a request that has been sent from
 // the sign coordinator over the mock stream.
-func getRequest(s *mockSCStream) (*walletrpc.SignCoordinatorRequest, error) {
+func getRequest(s *mockSCStream) (*watchonlyrpc.SignCoordinatorRequest,
+	error) {
+
 	select {
 	case req := <-s.sendChan:
 		return req, nil
@@ -192,9 +202,9 @@ func TestPingRequests(t *testing.T) {
 
 	// Now we simulate the response from the remote signer by sending a Pong
 	// response over the mock stream.
-	stream.sendResponse(&walletrpc.SignCoordinatorResponse{
+	stream.sendResponse(&watchonlyrpc.SignCoordinatorResponse{
 		RefRequestId: 2,
-		SignResponseType: &walletrpc.SignCoordinatorResponse_Pong{
+		SignResponseType: &watchonlyrpc.SignCoordinatorResponse_Pong{
 			Pong: true,
 		},
 	})
@@ -272,15 +282,15 @@ func TestConcurrentPingRequests(t *testing.T) {
 	require.True(t, ok)
 
 	// Send responses for both Ping requests in order.
-	stream.sendResponse(&walletrpc.SignCoordinatorResponse{
+	stream.sendResponse(&watchonlyrpc.SignCoordinatorResponse{
 		RefRequestId: 2,
-		SignResponseType: &walletrpc.SignCoordinatorResponse_Pong{
+		SignResponseType: &watchonlyrpc.SignCoordinatorResponse_Pong{
 			Pong: true,
 		},
 	})
-	stream.sendResponse(&walletrpc.SignCoordinatorResponse{
+	stream.sendResponse(&watchonlyrpc.SignCoordinatorResponse{
 		RefRequestId: 3,
-		SignResponseType: &walletrpc.SignCoordinatorResponse_Pong{
+		SignResponseType: &watchonlyrpc.SignCoordinatorResponse_Pong{
 			Pong: true,
 		},
 	})
@@ -340,15 +350,15 @@ func TestConcurrentPingRequests(t *testing.T) {
 	require.True(t, ok)
 
 	// Send the responses back in reverse order.
-	stream.sendResponse(&walletrpc.SignCoordinatorResponse{
+	stream.sendResponse(&watchonlyrpc.SignCoordinatorResponse{
 		RefRequestId: 5,
-		SignResponseType: &walletrpc.SignCoordinatorResponse_Pong{
+		SignResponseType: &watchonlyrpc.SignCoordinatorResponse_Pong{
 			Pong: true,
 		},
 	})
-	stream.sendResponse(&walletrpc.SignCoordinatorResponse{
+	stream.sendResponse(&watchonlyrpc.SignCoordinatorResponse{
 		RefRequestId: 4,
-		SignResponseType: &walletrpc.SignCoordinatorResponse_Pong{
+		SignResponseType: &watchonlyrpc.SignCoordinatorResponse_Pong{
 			Pong: true,
 		},
 	})
@@ -384,9 +394,9 @@ func TestPingTimeout(t *testing.T) {
 	require.Equal(t, uint64(2), req.GetRequestId())
 	require.True(t, req.GetPing())
 
-	stream.sendResponse(&walletrpc.SignCoordinatorResponse{
+	stream.sendResponse(&watchonlyrpc.SignCoordinatorResponse{
 		RefRequestId: 2,
-		SignResponseType: &walletrpc.SignCoordinatorResponse_Pong{
+		SignResponseType: &watchonlyrpc.SignCoordinatorResponse_Pong{
 			Pong: true,
 		},
 	})
@@ -479,9 +489,9 @@ func TestConcurrentPingTimeout(t *testing.T) {
 	require.True(t, ok)
 
 	// Send responses for the second Ping request.
-	stream.sendResponse(&walletrpc.SignCoordinatorResponse{
+	stream.sendResponse(&watchonlyrpc.SignCoordinatorResponse{
 		RefRequestId: 3,
-		SignResponseType: &walletrpc.SignCoordinatorResponse_Pong{
+		SignResponseType: &watchonlyrpc.SignCoordinatorResponse_Pong{
 			Pong: true,
 		},
 	})
@@ -542,9 +552,9 @@ func TestIncorrectResponseRequestId(t *testing.T) {
 
 	// Now let's send a response with another request ID than the Ping
 	// request.
-	stream.sendResponse(&walletrpc.SignCoordinatorResponse{
+	stream.sendResponse(&watchonlyrpc.SignCoordinatorResponse{
 		RefRequestId: 3, // Incorrect request ID
-		SignResponseType: &walletrpc.SignCoordinatorResponse_Pong{
+		SignResponseType: &watchonlyrpc.SignCoordinatorResponse_Pong{
 			Pong: true,
 		},
 	})
@@ -612,13 +622,13 @@ func TestSignerErrorResponse(t *testing.T) {
 
 	// Now let's send a SignerError response instead of a Pong back over the
 	// mock stream.
-	rType := &walletrpc.SignCoordinatorResponse_SignerError{
-		SignerError: &walletrpc.SignerError{
+	rType := &watchonlyrpc.SignCoordinatorResponse_SignerError{
+		SignerError: &watchonlyrpc.SignerError{
 			Error: "mock error",
 		},
 	}
 
-	stream.sendResponse(&walletrpc.SignCoordinatorResponse{
+	stream.sendResponse(&watchonlyrpc.SignCoordinatorResponse{
 		RefRequestId:     2,
 		SignResponseType: rType,
 	})

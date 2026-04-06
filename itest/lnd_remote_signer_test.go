@@ -714,16 +714,19 @@ func testRemoteSignerTaprootOutbound(ht *lntest.HarnessTest) {
 	executeRemoteSignerTestCase(ht, taprootTestCase(true))
 }
 
-// testOutboundRSMacaroonEnforcement tests that a valid macaroon including
-// the `remotesigner` entity is required to connect to a watch-only node that
-// uses an outbound remote signer, while the watch-only node is in the state
-// where it waits for the signer to connect.
+// testOutboundRSMacaroonEnforcement tests that a valid macaroon including the
+// `remotesigner` entity is required to connect to the dedicated remote signer
+// RPC server of a watch-only node that expects an outbound remote signer.
 func testOutboundRSMacaroonEnforcement(ht *lntest.HarnessTest) {
 	// Ensure that the watch-only node uses a configuration that requires an
 	// outbound remote signer during startup.
+	remoteSignerHost := fmt.Sprintf(
+		"localhost:%d", port.NextAvailablePort(),
+	)
 	watchOnlyArgs := []string{
 		"--remotesigner.enable",
 		"--remotesigner.allowinboundconnection",
+		fmt.Sprintf("--remotesigner.rpclisten=%s", remoteSignerHost),
 		"--remotesigner.timeout=15s",
 		"--remotesigner.requesttimeout=15s",
 	}
@@ -741,28 +744,13 @@ func testOutboundRSMacaroonEnforcement(ht *lntest.HarnessTest) {
 		startChan <- watchOnly.Start(ht.Context())
 	}()
 
-	// Wait and ensure that the watch-only node reaches the state where
-	// it waits for the remote signer to connect, as this is the state where
-	// we want to test the macaroon enforcement.
-	err := wait.NoError(func() error {
-		if watchOnly.RPC == nil {
-			return fmt.Errorf("watchOnly RPC is nil")
-		}
-
-		state, err := watchOnly.RPC.State.GetState(
-			ht.Context(), &lnrpc.GetStateRequest{},
-		)
-		if err != nil {
-			return err
-		}
-
-		if state.State != lnrpc.WalletState_ALLOW_REMOTE_SIGNER {
-			return fmt.Errorf("not yet in allow remote signer + " +
-				"state")
-		}
-
-		return nil
-	}, 15*time.Second)
+	// The watch-only node writes its non-admin macaroons during startup,
+	// before it fully transitions to the ready state. Wait for the invoice
+	// macaroon to exist before we try to use it below, otherwise this test
+	// can race that file creation on slower CI runners.
+	_, err := watchOnly.ReadMacaroon(
+		watchOnly.Cfg.InvoiceMacPath, 15*time.Second,
+	)
 	require.NoError(ht, err)
 
 	// Set up a connection to the watch-only node. However, instead of using
@@ -771,7 +759,7 @@ func testOutboundRSMacaroonEnforcement(ht *lntest.HarnessTest) {
 	// lacks the `remotesigner` entity required when the signer node
 	// connects to the watch-only node.
 	connectionCfg := lncfg.ConnectionCfg{
-		RPCHost:        watchOnly.Cfg.RPCAddr(),
+		RPCHost:        remoteSignerHost,
 		MacaroonPath:   watchOnly.Cfg.InvoiceMacPath,
 		TLSCertPath:    watchOnly.Cfg.TLSCertPath,
 		Timeout:        10 * time.Second,
@@ -779,8 +767,12 @@ func testOutboundRSMacaroonEnforcement(ht *lntest.HarnessTest) {
 	}
 
 	streamFeeder := rpcwallet.NewStreamFeeder(connectionCfg)
-
-	stream, err := streamFeeder.GetStream(ht.Context())
+	var stream *rpcwallet.Stream
+	err = wait.NoError(func() error {
+		var err error
+		stream, err = streamFeeder.GetStream(ht.Context())
+		return err
+	}, 15*time.Second)
 	require.NoError(ht, err)
 
 	defer func() {
@@ -799,8 +791,8 @@ func testOutboundRSMacaroonEnforcement(ht *lntest.HarnessTest) {
 		"--watchonlynode.timeout=30s",
 		"--watchonlynode.requesttimeout=10s",
 		fmt.Sprintf(
-			"--watchonlynode.rpchost=localhost:%d",
-			watchOnly.Cfg.RPCPort,
+			"--watchonlynode.rpchost=%s",
+			remoteSignerHost,
 		),
 		fmt.Sprintf(
 			"--watchonlynode.tlscertpath=%s",

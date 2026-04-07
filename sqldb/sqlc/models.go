@@ -123,6 +123,16 @@ type GraphNodeFeature struct {
 	FeatureBit int32
 }
 
+type GraphPreferredChannel struct {
+	Scid      []byte
+	ChannelID int64
+}
+
+type GraphPreferredNode struct {
+	PubKey []byte
+	NodeID int64
+}
+
 type GraphPruneLog struct {
 	BlockHeight int64
 	BlockHash   []byte

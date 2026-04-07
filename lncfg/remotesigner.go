@@ -95,12 +95,22 @@ func (r *RemoteSigner) Validate() error {
 				"%v is invalid, cannot be smaller than %v",
 				r.StartupTimeout, 0)
 		}
+	}
 
+	// Validate the shared timeout values in both inbound and outbound mode.
+	err := r.ConnectionCfg.validateTimeouts()
+	if err != nil {
+		return fmt.Errorf("remotesigner.%w", err)
+	}
+
+	// The host and credential settings are required only when the
+	// watch-only node initiates the outbound connection to the remote
+	// signer.
+	if r.AllowInboundConnection {
 		return nil
 	}
 
-	// Else, we are in outbound mode, so we verify the connection config.
-	err := r.ConnectionCfg.Validate()
+	err = r.ConnectionCfg.validateRemoteHostCredentials()
 	if err != nil {
 		return fmt.Errorf("remotesigner.%w", err)
 	}
@@ -183,6 +193,17 @@ func defaultConnectionCfg() ConnectionCfg {
 
 // Validate checks the values set in the ConnectionCfg config are valid.
 func (c *ConnectionCfg) Validate() error {
+	err := c.validateTimeouts()
+	if err != nil {
+		return err
+	}
+
+	return c.validateRemoteHostCredentials()
+}
+
+// validateTimeouts checks the timeout values that apply in both inbound and
+// outbound remote signer modes.
+func (c *ConnectionCfg) validateTimeouts() error {
 	if c.Timeout < time.Millisecond {
 		return fmt.Errorf("timeout of %v is invalid, cannot be "+
 			"smaller than %v", c.Timeout, time.Millisecond)
@@ -193,6 +214,12 @@ func (c *ConnectionCfg) Validate() error {
 			"be smaller than %v", c.RequestTimeout, time.Second)
 	}
 
+	return nil
+}
+
+// validateRemoteHostCredentials checks the host and credential settings needed
+// when this node initiates the outbound RPC connection.
+func (c *ConnectionCfg) validateRemoteHostCredentials() error {
 	if c.RPCHost == "" {
 		return fmt.Errorf("rpchost must be set")
 	}

@@ -1804,7 +1804,7 @@ func TestGraphTraversal(t *testing.T) {
 	// Iterate through all the known channels within the graph DB, once
 	// again if the map is empty that indicates that all edges have
 	// properly been reached.
-	err = graph.ForEachChannel(ctx, lnwire.GossipVersion1,
+	err = graph.ForEachChannel(ctx,
 		func(ei *models.ChannelEdgeInfo,
 			_ *models.ChannelEdgePolicy,
 			_ *models.ChannelEdgePolicy) error {
@@ -2158,7 +2158,7 @@ func assertPruneTip(t *testing.T, graph *ChannelGraph,
 func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 	numChans := 0
 	err := graph.ForEachChannel(
-		t.Context(), lnwire.GossipVersion1,
+		t.Context(),
 		func(*models.ChannelEdgeInfo,
 			*models.ChannelEdgePolicy,
 			*models.ChannelEdgePolicy) error {
@@ -6918,4 +6918,582 @@ func TestPreferredChannelFetch(t *testing.T) {
 	require.Equal(t, lnwire.GossipVersion1, info.Version)
 	require.NotNil(t, p1)
 	require.Nil(t, p2)
+}
+
+// TestDeleteNodePreferredRecomputation verifies that deleting one gossip
+// version of a dual-version node correctly recomputes the preferred-node
+// mapping so the surviving version remains visible via ForEachNode.
+func TestDeleteNodePreferredRecomputation(t *testing.T) {
+	t.Parallel()
+
+	if !isSQLDB {
+		t.Skip("preferred lookup requires SQL backend")
+	}
+
+	ctx := t.Context()
+	graph := MakeTestGraph(t)
+	store := graph.db
+
+	// Create a node with both v1 and v2 announcements.
+	priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	nodeV1 := createNode(t, lnwire.GossipVersion1, priv)
+	nodeV2 := createNode(t, lnwire.GossipVersion2, priv)
+
+	require.NoError(t, graph.AddNode(ctx, nodeV1))
+	require.NoError(t, graph.AddNode(ctx, nodeV2))
+
+	// ForEachNode should return the node (v2 preferred).
+	var count int
+	err = store.ForEachNode(ctx, func(n *models.Node) error {
+		if n.PubKeyBytes == nodeV1.PubKeyBytes {
+			require.Equal(t, lnwire.GossipVersion2, n.Version)
+			count++
+		}
+
+		return nil
+	}, func() { count = 0 })
+	require.NoError(t, err)
+	require.Equal(t, 1, count, "node should be visible before delete")
+
+	// Delete the v2 version.
+	require.NoError(t, store.DeleteNode(
+		ctx, lnwire.GossipVersion2, nodeV1.PubKeyBytes,
+	))
+
+	// The node should still be visible via ForEachNode, now as v1.
+	count = 0
+	err = store.ForEachNode(ctx, func(n *models.Node) error {
+		if n.PubKeyBytes == nodeV1.PubKeyBytes {
+			require.Equal(t, lnwire.GossipVersion1, n.Version)
+			count++
+		}
+
+		return nil
+	}, func() { count = 0 })
+	require.NoError(t, err)
+	require.Equal(t, 1, count,
+		"node should still be visible after deleting one version")
+
+	// Delete the remaining v1 version.
+	require.NoError(t, store.DeleteNode(
+		ctx, lnwire.GossipVersion1, nodeV1.PubKeyBytes,
+	))
+
+	// The node should now be gone.
+	count = 0
+	err = store.ForEachNode(ctx, func(n *models.Node) error {
+		if n.PubKeyBytes == nodeV1.PubKeyBytes {
+			count++
+		}
+
+		return nil
+	}, func() { count = 0 })
+	require.NoError(t, err)
+	require.Equal(t, 0, count,
+		"node should be gone after deleting all versions")
+}
+
+// TestPreferredForEachNode verifies that SQLStore.ForEachNode returns one
+// node per pubkey, preferring the highest announced version and otherwise
+// falling back to the highest-version shell node.
+func TestPreferredForEachNode(t *testing.T) {
+	t.Parallel()
+
+	if !isSQLDB {
+		t.Skip("preferred lookup requires SQL backend")
+	}
+
+	ctx := t.Context()
+	graph := MakeTestGraph(t)
+	store := graph.db
+
+	v1Only := createTestVertex(t, lnwire.GossipVersion1)
+	v1Only.Alias = fn.Some("v1-only")
+	require.NoError(t, graph.AddNode(ctx, v1Only))
+
+	bothPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	bothV1 := createNode(t, lnwire.GossipVersion1, bothPriv)
+	bothV1.Alias = fn.Some("both-v1")
+	require.NoError(t, graph.AddNode(ctx, bothV1))
+
+	bothV2 := createNode(t, lnwire.GossipVersion2, bothPriv)
+	bothV2.Alias = fn.Some("both-v2")
+	require.NoError(t, graph.AddNode(ctx, bothV2))
+
+	shellPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	shellPub, err := route.NewVertexFromBytes(
+		shellPriv.PubKey().SerializeCompressed(),
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, graph.AddNode(
+		ctx, models.NewShellNode(lnwire.GossipVersion1, shellPub),
+	))
+	require.NoError(t, graph.AddNode(
+		ctx, models.NewShellNode(lnwire.GossipVersion2, shellPub),
+	))
+
+	var nodeCount int
+	nodesByPub := make(map[route.Vertex]*models.Node)
+	err = store.ForEachNode(ctx, func(node *models.Node) error {
+		nodesByPub[node.PubKeyBytes] = node
+		nodeCount++
+
+		return nil
+	}, func() {
+		clear(nodesByPub)
+		nodeCount = 0
+	})
+	require.NoError(t, err)
+	require.Len(t, nodesByPub, 3)
+	require.Equal(t, 3, nodeCount, "unexpected duplicate nodes")
+
+	gotV1Only := nodesByPub[v1Only.PubKeyBytes]
+	require.NotNil(t, gotV1Only)
+	require.Equal(t, lnwire.GossipVersion1, gotV1Only.Version)
+	require.Equal(t, "v1-only", gotV1Only.Alias.UnwrapOr(""))
+	require.True(t, gotV1Only.HaveAnnouncement())
+
+	gotBoth := nodesByPub[bothV1.PubKeyBytes]
+	require.NotNil(t, gotBoth)
+	require.Equal(t, lnwire.GossipVersion2, gotBoth.Version)
+	require.Equal(t, "both-v2", gotBoth.Alias.UnwrapOr(""))
+	require.True(t, gotBoth.HaveAnnouncement())
+
+	gotShell := nodesByPub[shellPub]
+	require.NotNil(t, gotShell)
+	require.Equal(t, lnwire.GossipVersion2, gotShell.Version)
+	require.False(t, gotShell.HaveAnnouncement())
+}
+
+// TestPreferredForEachChannel verifies that SQLStore.ForEachChannel returns
+// one channel per SCID, preferring a higher-version channel when both versions
+// have policies, preserving lower-version policy data when the higher version
+// has none, and otherwise falling back to the highest-version no-policy
+// channel.
+func TestPreferredForEachChannel(t *testing.T) {
+	t.Parallel()
+
+	if !isSQLDB {
+		t.Skip("preferred lookup requires SQL backend")
+	}
+
+	ctx := t.Context()
+	graph := MakeTestGraph(t)
+	store := graph.db
+
+	node1Priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	node2Priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	node1V1 := createNode(t, lnwire.GossipVersion1, node1Priv)
+	node1V2 := createNode(t, lnwire.GossipVersion2, node1Priv)
+	node2V1 := createNode(t, lnwire.GossipVersion1, node2Priv)
+	node2V2 := createNode(t, lnwire.GossipVersion2, node2Priv)
+
+	require.NoError(t, graph.AddNode(ctx, node1V1))
+	require.NoError(t, graph.AddNode(ctx, node1V2))
+	require.NoError(t, graph.AddNode(ctx, node2V1))
+	require.NoError(t, graph.AddNode(ctx, node2V2))
+
+	v1Only, _ := createEdge(
+		lnwire.GossipVersion1, 200, 0, 0, 1, node1V1, node2V1,
+	)
+	require.NoError(t, graph.AddChannelEdge(ctx, v1Only))
+
+	policyPrefV1, _ := createEdge(
+		lnwire.GossipVersion1, 201, 0, 0, 2, node1V1, node2V1,
+	)
+	policyPrefV2, _ := createEdge(
+		lnwire.GossipVersion2, 201, 0, 0, 2, node1V2, node2V2,
+	)
+	require.NoError(t, graph.AddChannelEdge(ctx, policyPrefV1))
+	require.NoError(t, graph.AddChannelEdge(ctx, policyPrefV2))
+
+	policyOnlyV1 := newEdgePolicy(
+		lnwire.GossipVersion1, policyPrefV1.ChannelID, 1000, true,
+	)
+	policyOnlyV1.ToNode = node2V1.PubKeyBytes
+	policyOnlyV1.SigBytes = testSig.Serialize()
+	require.NoError(t, graph.UpdateEdgePolicy(ctx, policyOnlyV1))
+
+	versionPrefV1, _ := createEdge(
+		lnwire.GossipVersion1, 202, 0, 0, 3, node1V1, node2V1,
+	)
+	versionPrefV2, _ := createEdge(
+		lnwire.GossipVersion2, 202, 0, 0, 3, node1V2, node2V2,
+	)
+	require.NoError(t, graph.AddChannelEdge(ctx, versionPrefV1))
+	require.NoError(t, graph.AddChannelEdge(ctx, versionPrefV2))
+
+	versionPolicyV1 := newEdgePolicy(
+		lnwire.GossipVersion1, versionPrefV1.ChannelID, 1001, true,
+	)
+	versionPolicyV1.ToNode = node2V1.PubKeyBytes
+	versionPolicyV1.SigBytes = testSig.Serialize()
+	require.NoError(t, graph.UpdateEdgePolicy(ctx, versionPolicyV1))
+
+	versionPolicyV2 := newEdgePolicy(
+		lnwire.GossipVersion2, versionPrefV2.ChannelID, 1002, true,
+	)
+	versionPolicyV2.ToNode = node2V2.PubKeyBytes
+	versionPolicyV2.SigBytes = testSig.Serialize()
+	require.NoError(t, graph.UpdateEdgePolicy(ctx, versionPolicyV2))
+
+	shellPrefV1, _ := createEdge(
+		lnwire.GossipVersion1, 203, 0, 0, 4, node1V1, node2V1,
+	)
+	shellPrefV2, _ := createEdge(
+		lnwire.GossipVersion2, 203, 0, 0, 4, node1V2, node2V2,
+	)
+	require.NoError(t, graph.AddChannelEdge(ctx, shellPrefV1))
+	require.NoError(t, graph.AddChannelEdge(ctx, shellPrefV2))
+
+	type channelResult struct {
+		info *models.ChannelEdgeInfo
+		p1   *models.ChannelEdgePolicy
+		p2   *models.ChannelEdgePolicy
+	}
+	var chanCount int
+	channelsByID := make(map[uint64]channelResult)
+	err = store.ForEachChannel(ctx, func(info *models.ChannelEdgeInfo,
+		p1, p2 *models.ChannelEdgePolicy) error {
+
+		channelsByID[info.ChannelID] = channelResult{
+			info: info,
+			p1:   p1,
+			p2:   p2,
+		}
+		chanCount++
+
+		return nil
+	}, func() {
+		clear(channelsByID)
+		chanCount = 0
+	})
+	require.NoError(t, err)
+	require.Len(t, channelsByID, 4)
+	require.Equal(t, 4, chanCount, "unexpected duplicate channels")
+
+	gotV1Only := channelsByID[v1Only.ChannelID]
+	require.Equal(t, lnwire.GossipVersion1, gotV1Only.info.Version)
+	require.Nil(t, gotV1Only.p1)
+	require.Nil(t, gotV1Only.p2)
+
+	// Assert the policy content too, not just its presence, so that a
+	// policy taken from the wrong version or attached to the wrong
+	// direction fails the test.
+	gotPolicyPref := channelsByID[policyPrefV1.ChannelID]
+	require.Equal(t, lnwire.GossipVersion1, gotPolicyPref.info.Version)
+	require.NotNil(t, gotPolicyPref.p1)
+	require.Equal(t, lnwire.GossipVersion1, gotPolicyPref.p1.Version)
+	require.Equal(
+		t, policyOnlyV1.FeeBaseMSat, gotPolicyPref.p1.FeeBaseMSat,
+	)
+	require.Nil(t, gotPolicyPref.p2)
+
+	gotVersionPref := channelsByID[versionPrefV1.ChannelID]
+	require.Equal(t, lnwire.GossipVersion2, gotVersionPref.info.Version)
+	require.NotNil(t, gotVersionPref.p1)
+	require.Equal(t, lnwire.GossipVersion2, gotVersionPref.p1.Version)
+	require.Equal(
+		t, versionPolicyV2.FeeBaseMSat, gotVersionPref.p1.FeeBaseMSat,
+	)
+	require.Nil(t, gotVersionPref.p2)
+
+	gotShellPref := channelsByID[shellPrefV1.ChannelID]
+	require.Equal(t, lnwire.GossipVersion2, gotShellPref.info.Version)
+	require.Nil(t, gotShellPref.p1)
+	require.Nil(t, gotShellPref.p2)
+}
+
+// TestDeleteChannelPreferredRecomputation asserts that deleting one gossip
+// version of a channel leaves the other version reachable through the
+// cross-version iteration. The cascade drops the preferred mapping row along
+// with the deleted version, so the delete path has to re-insert it.
+func TestDeleteChannelPreferredRecomputation(t *testing.T) {
+	t.Parallel()
+
+	if !isSQLDB {
+		t.Skip("preferred lookup requires SQL backend")
+	}
+
+	ctx := t.Context()
+	graph := MakeTestGraph(t)
+	store := graph.db
+
+	node1Priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	node2Priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	node1V1 := createNode(t, lnwire.GossipVersion1, node1Priv)
+	node1V2 := createNode(t, lnwire.GossipVersion2, node1Priv)
+	node2V1 := createNode(t, lnwire.GossipVersion1, node2Priv)
+	node2V2 := createNode(t, lnwire.GossipVersion2, node2Priv)
+
+	for _, n := range []*models.Node{node1V1, node1V2, node2V1, node2V2} {
+		require.NoError(t, graph.AddNode(ctx, n))
+	}
+
+	chanV1, _ := createEdge(
+		lnwire.GossipVersion1, 310, 0, 0, 1, node1V1, node2V1,
+	)
+	chanV2, _ := createEdge(
+		lnwire.GossipVersion2, 310, 0, 0, 1, node1V2, node2V2,
+	)
+	require.NoError(t, graph.AddChannelEdge(ctx, chanV1))
+	require.NoError(t, graph.AddChannelEdge(ctx, chanV2))
+
+	// fetchVersions returns the gossip version of every channel that the
+	// cross-version iteration yields for our SCID.
+	fetchVersions := func() []lnwire.GossipVersion {
+		var versions []lnwire.GossipVersion
+		err := store.ForEachChannel(
+			ctx, func(info *models.ChannelEdgeInfo, _,
+				_ *models.ChannelEdgePolicy) error {
+
+				if info.ChannelID == chanV1.ChannelID {
+					versions = append(
+						versions, info.Version,
+					)
+				}
+
+				return nil
+			}, func() {
+				versions = nil
+			},
+		)
+		require.NoError(t, err)
+
+		return versions
+	}
+
+	// Both versions exist, so the channel is yielded once, as v2.
+	require.Equal(
+		t, []lnwire.GossipVersion{lnwire.GossipVersion2},
+		fetchVersions(),
+	)
+
+	// After deleting the v2 announcement the v1 one must take over.
+	require.NoError(t, graph.DeleteChannelEdges(
+		ctx, lnwire.GossipVersion2, false, false, chanV2.ChannelID,
+	))
+	require.Equal(
+		t, []lnwire.GossipVersion{lnwire.GossipVersion1},
+		fetchVersions(),
+	)
+
+	// With both versions gone the channel disappears.
+	require.NoError(t, graph.DeleteChannelEdges(
+		ctx, lnwire.GossipVersion1, false, false, chanV1.ChannelID,
+	))
+	require.Empty(t, fetchVersions())
+}
+
+// TestPreferredIterationPaging asserts that the byte cursors used by the
+// preferred node and channel iteration hand over correctly between pages. Both
+// queries page on a pub key or SCID instead of an integer id, so a cursor bug
+// shows up as a node or channel that is skipped or yielded twice.
+func TestPreferredIterationPaging(t *testing.T) {
+	t.Parallel()
+
+	if !isSQLDB {
+		t.Skip("preferred lookup requires SQL backend")
+	}
+
+	ctx := t.Context()
+	graph := MakeTestGraph(t)
+	store := graph.db
+
+	// Page after two rows so that a handful of rows already spans several
+	// pages.
+	sqlStore, ok := store.(*SQLStore)
+	require.True(t, ok)
+	sqlStore.cfg.QueryCfg.MaxPageSize = 2
+
+	const numNodes = 5
+
+	nodes := make([]*models.Node, 0, numNodes)
+	for i := 0; i < numNodes; i++ {
+		priv, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+
+		node := createNode(t, lnwire.GossipVersion1, priv)
+		require.NoError(t, graph.AddNode(ctx, node))
+		nodes = append(nodes, node)
+
+		// Announce every second node on v2 as well, so that the
+		// preferred mapping has to deduplicate across a page boundary.
+		if i%2 == 0 {
+			nodeV2 := createNode(t, lnwire.GossipVersion2, priv)
+			require.NoError(t, graph.AddNode(ctx, nodeV2))
+		}
+	}
+
+	// Fan the channels out from the first node so that we get one channel
+	// per remaining node.
+	scids := make(map[uint64]struct{})
+	for i := 1; i < numNodes; i++ {
+		edge, _ := createEdge(
+			lnwire.GossipVersion1, uint32(320+i), 0, 0, uint32(i),
+			nodes[0], nodes[i],
+		)
+		require.NoError(t, graph.AddChannelEdge(ctx, edge))
+		scids[edge.ChannelID] = struct{}{}
+	}
+
+	seenNodes := make(map[route.Vertex]int)
+	err := store.ForEachNode(ctx, func(node *models.Node) error {
+		seenNodes[node.PubKeyBytes]++
+
+		return nil
+	}, func() {
+		clear(seenNodes)
+	})
+	require.NoError(t, err)
+	require.Len(t, seenNodes, numNodes)
+
+	for pub, count := range seenNodes {
+		require.Equal(t, 1, count, "node %x yielded %d times", pub[:],
+			count)
+	}
+
+	seenChans := make(map[uint64]int)
+	err = store.ForEachChannel(ctx, func(info *models.ChannelEdgeInfo, _,
+		_ *models.ChannelEdgePolicy) error {
+
+		seenChans[info.ChannelID]++
+
+		return nil
+	}, func() {
+		clear(seenChans)
+	})
+	require.NoError(t, err)
+	require.Len(t, seenChans, len(scids))
+
+	for scid, count := range seenChans {
+		require.Contains(t, scids, scid)
+		require.Equal(t, 1, count, "channel %d yielded %d times", scid,
+			count)
+	}
+}
+
+// TestPruneAndDisconnectRemoveAllChannelVersions pins the property that the
+// cascade-only maintenance paths rely on. PruneGraph and
+// DisconnectBlockAtHeight match channels by outpoint and by SCID range, and
+// neither query filters on gossip version, so every version of a matched
+// channel is deleted in one statement and the cascade takes the preferred
+// mapping row with it. If either query ever gained a version predicate, the
+// cascade would strand the surviving version: its row would stay in the
+// database while it vanished from every cross-version read.
+func TestPruneAndDisconnectRemoveAllChannelVersions(t *testing.T) {
+	t.Parallel()
+
+	if !isSQLDB {
+		t.Skip("preferred lookup requires SQL backend")
+	}
+
+	ctx := t.Context()
+	graph := MakeTestGraph(t)
+
+	require.NoError(t, graph.SetSourceNode(
+		ctx, createTestVertex(t, lnwire.GossipVersion1),
+	))
+
+	node1Priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	node2Priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	node1V1 := createNode(t, lnwire.GossipVersion1, node1Priv)
+	node1V2 := createNode(t, lnwire.GossipVersion2, node1Priv)
+	node2V1 := createNode(t, lnwire.GossipVersion1, node2Priv)
+	node2V2 := createNode(t, lnwire.GossipVersion2, node2Priv)
+
+	for _, n := range []*models.Node{node1V1, node1V2, node2V1, node2V2} {
+		require.NoError(t, graph.AddNode(ctx, n))
+	}
+
+	// Both channels are announced under both gossip versions, so each SCID
+	// owns two channel rows and one preferred mapping row.
+	prunedV1, _ := createEdge(
+		lnwire.GossipVersion1, 201, 0, 0, 1, node1V1, node2V1,
+	)
+	prunedV2, _ := createEdge(
+		lnwire.GossipVersion2, 201, 0, 0, 1, node1V2, node2V2,
+	)
+	disconnectedV1, _ := createEdge(
+		lnwire.GossipVersion1, 202, 0, 0, 2, node1V1, node2V1,
+	)
+	disconnectedV2, _ := createEdge(
+		lnwire.GossipVersion2, 202, 0, 0, 2, node1V2, node2V2,
+	)
+	for _, e := range []*models.ChannelEdgeInfo{
+		prunedV1, prunedV2, disconnectedV1, disconnectedV2,
+	} {
+		require.NoError(t, graph.AddChannelEdge(ctx, e))
+	}
+
+	// assertGone checks both halves of the invariant: the SCID is absent
+	// from the cross-version iteration, which reads through the preferred
+	// mapping, and no channel row survives under either version.
+	assertGone := func(chanID uint64) {
+		t.Helper()
+
+		var seen bool
+		err := graph.db.ForEachChannel(
+			ctx, func(info *models.ChannelEdgeInfo, _,
+				_ *models.ChannelEdgePolicy) error {
+
+				if info.ChannelID == chanID {
+					seen = true
+				}
+
+				return nil
+			}, func() { seen = false },
+		)
+		require.NoError(t, err)
+		require.False(t, seen, "channel still yielded after delete")
+
+		for _, v := range []lnwire.GossipVersion{
+			lnwire.GossipVersion1, lnwire.GossipVersion2,
+		} {
+			has, _, err := graph.HasChannelEdge(ctx, v, chanID)
+			require.NoError(t, err)
+			require.Falsef(
+				t, has, "%v channel row survived the delete "+
+					"that dropped its preferred mapping", v,
+			)
+		}
+	}
+
+	// Seed the prune log so that DisconnectBlockAtHeight has something to
+	// roll back later on.
+	var blockHash chainhash.Hash
+	copy(blockHash[:], bytes.Repeat([]byte{1}, 32))
+	_, err = graph.PruneGraph(ctx, nil, &blockHash, 200)
+	require.NoError(t, err)
+
+	// Spending the funding outpoint must take both versions with it.
+	var blockHash2 chainhash.Hash
+	copy(blockHash2[:], bytes.Repeat([]byte{2}, 32))
+	pruned, err := graph.PruneGraph(
+		ctx, []*wire.OutPoint{&prunedV1.ChannelPoint}, &blockHash2, 203,
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, pruned)
+	assertGone(prunedV1.ChannelID)
+
+	// Disconnecting the block that funded the channel must do the same.
+	_, err = graph.DisconnectBlockAtHeight(ctx, 202)
+	require.NoError(t, err)
+	assertGone(disconnectedV1.ChannelID)
 }

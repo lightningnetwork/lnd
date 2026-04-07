@@ -4208,6 +4208,7 @@ func (s *sqlNodeTraverser) ForEachNodeDirectedChannel(
 		ctx, s.db, lnwire.GossipVersion1, nodePub, cb,
 	)
 }
+
 // FetchNodeFeatures returns the features of the given node. If the node is
 // unknown, assume no additional features are supported.
 //

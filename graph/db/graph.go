@@ -238,11 +238,20 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 	for _, v := range []lnwire.GossipVersion{
 		gossipV1, gossipV2,
 	} {
-		// TODO(elle): If we have both v1 and v2 entries for the same
-		// node/channel, prefer v2 when merging.
+		// We iterate v1 first, then v2. AddNodeFeatures and AddChannel
+		// overwrite on key collision, so v2 data takes precedence when
+		// both versions exist. For features specifically we
+		// additionally skip empty v2 entries so they don't shadow a
+		// non-empty v1 feature set; this matches the no-cache
+		// FetchNodeFeatures fallback rule that a non-empty
+		// lower-version vector wins over an empty higher-version one.
 		err := c.db.ForEachNodeCacheable(ctx, v,
 			func(node route.Vertex,
 				features *lnwire.FeatureVector) error {
+
+				if v == gossipV2 && features.IsEmpty() {
+					return nil
+				}
 
 				cache.AddNodeFeatures(node, features)
 
@@ -299,9 +308,9 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(ctx context.Context,
 		return c.cache.graphCache.ForEachChannel(node, cb)
 	}
 
-	// TODO(elle): once the no-cache path needs to support
-	// pathfinding across gossip versions, this should iterate
-	// across all versions rather than defaulting to v1.
+	// Without the in-memory cache, traversal stays version-scoped. Both
+	// SQL and KV stores support v1 adjacency reads here; cross-version
+	// merging is reserved for the cache-backed path above.
 	return c.db.ForEachNodeDirectedChannel(
 		ctx, gossipV1, node, cb, reset,
 	)
@@ -320,7 +329,22 @@ func (c *ChannelGraph) FetchNodeFeatures(ctx context.Context,
 		return c.cache.graphCache.GetFeatures(node), nil
 	}
 
-	return c.db.FetchNodeFeatures(ctx, lnwire.GossipVersion1, node)
+	// Try v2 first, fall back to v1 if the v2 features are empty.
+	for _, v := range []lnwire.GossipVersion{gossipV2, gossipV1} {
+		features, err := c.db.FetchNodeFeatures(ctx, v, node)
+		if errors.Is(err, ErrVersionNotSupportedForKVDB) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		if !features.IsEmpty() {
+			return features, nil
+		}
+	}
+
+	return lnwire.EmptyFeatureVector(), nil
 }
 
 // GraphSession will provide the call-back with access to a NodeTraverser
@@ -969,7 +993,7 @@ func (c *VersionedGraph) ChannelView(ctx context.Context) ([]EdgePoint,
 // for performing queries against the channel graph. If the graph cache is
 // enabled, the callback receives the VersionedGraph directly (which implements
 // NodeTraverser using the cache). Otherwise a read-only database session is
-// used.
+// used, and that session remains v1-only for now.
 func (c *VersionedGraph) GraphSession(ctx context.Context,
 	cb func(graph NodeTraverser) error, reset func()) error {
 
@@ -977,9 +1001,6 @@ func (c *VersionedGraph) GraphSession(ctx context.Context,
 		return cb(c)
 	}
 
-	// TODO(elle): the underlying GraphSession currently creates a
-	// NodeTraverser that is hardcoded to GossipVersion1. This needs to be
-	// updated to pass the version through for v2 support.
 	return c.db.GraphSession(ctx, cb, reset)
 }
 

@@ -624,15 +624,16 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		multiAcceptor = chanacceptor.NewChainedAcceptor()
 	}
 
-	// Set up the remote signer client. If cfg.WatchOnlyNode.Enable isn't
-	// set to true, this remote signer client won't run when the server
-	// starts.
 	rscBuilder := rpcwallet.NewRemoteSignerClientBuilder(cfg.WatchOnlyNode)
 
-	rsClient, err := rscBuilder.Build(rpcServer.subServers)
-	if err != nil {
-		return mkErr("unable to create remote signer client", err)
-	}
+	// We pass a factory instead of a concrete RemoteSignerClient because
+	// the builder needs rpcServer.subServers (WalletKit/Signer), and those
+	// sub-servers are only instantiated in rpcServer.addDeps() later in
+	// startup. The server calls this factory in server.Start(), after that.
+	remoteSignerClientFactory :=
+		func() (rpcwallet.RemoteSignerClient, error) {
+			return rscBuilder.Build(rpcServer.subServers)
+		}
 
 	// Set up the core server which will listen for incoming peer
 	// connections.
@@ -640,7 +641,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		ctx, cfg, cfg.Listeners, dbs, activeChainControl, &idKeyDesc,
 		activeChainControl.Cfg.WalletUnlockParams.ChansToRestore,
 		multiAcceptor, torController, tlsManager, leaderElector,
-		implCfg, rsClient,
+		implCfg, remoteSignerClientFactory,
 	)
 	if err != nil {
 		return mkErr("unable to create server", err)

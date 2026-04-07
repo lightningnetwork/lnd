@@ -1552,14 +1552,20 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			ourPolicy = e2
 		}
 
-		if ourPolicy == nil {
+		if info == nil || ourPolicy == nil {
 			// Something is wrong, so return an error.
 			return nil, fmt.Errorf("we don't have an edge")
 		}
 
-		err = s.v1Graph.DeleteChannelEdges(
-			context.TODO(), false, false, scid.ToUint64(),
+		// Delete the gossip version that the fetch above resolved to.
+		// That fetch spans gossip versions, so a v1-scoped delete
+		// would leave a v2 alias edge in the graph while reporting to
+		// the funding manager that it was removed.
+		err = s.graphDB.DeleteChannelEdges(
+			context.TODO(), info.Version, false, false,
+			scid.ToUint64(),
 		)
+
 		return ourPolicy, err
 	}
 

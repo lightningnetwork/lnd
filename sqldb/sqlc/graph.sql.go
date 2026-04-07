@@ -2495,6 +2495,59 @@ func (q *Queries) GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByL
 	return items, nil
 }
 
+const getPreferredChannelVersionByOutpoint = `-- name: GetPreferredChannelVersionByOutpoint :one
+SELECT c.version
+FROM graph_channels c
+    JOIN graph_preferred_channels pc ON pc.channel_id = c.id
+WHERE c.outpoint = $1
+  AND c.version IN (/*SLICE:versions*/?)
+`
+
+type GetPreferredChannelVersionByOutpointParams struct {
+	Outpoint string
+	Versions []int16
+}
+
+// Return the gossip version that the preferred-channel mapping selects for the
+// channel with the given funding outpoint. Every version of a channel shares
+// its outpoint and SCID, so at most one of them has a mapping row. The caller
+// passes the gossip versions to consider, so that the lookup can use the
+// (version, outpoint) index instead of scanning every channel.
+func (q *Queries) GetPreferredChannelVersionByOutpoint(ctx context.Context, arg GetPreferredChannelVersionByOutpointParams) (int16, error) {
+	query := getPreferredChannelVersionByOutpoint
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.Outpoint)
+	if len(arg.Versions) > 0 {
+		for _, v := range arg.Versions {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:versions*/?", makeQueryParams(len(queryParams), len(arg.Versions)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:versions*/?", "NULL", 1)
+	}
+	row := q.db.QueryRowContext(ctx, query, queryParams...)
+	var version int16
+	err := row.Scan(&version)
+	return version, err
+}
+
+const getPreferredChannelVersionBySCID = `-- name: GetPreferredChannelVersionBySCID :one
+SELECT c.version
+FROM graph_preferred_channels pc
+    JOIN graph_channels c ON c.id = pc.channel_id
+WHERE pc.scid = $1
+`
+
+// Return the gossip version that the preferred-channel mapping selects for an
+// SCID, so that readers follow the rule UpsertPreferredChannel applies instead
+// of ranking the versions again.
+func (q *Queries) GetPreferredChannelVersionBySCID(ctx context.Context, scid []byte) (int16, error) {
+	row := q.db.QueryRowContext(ctx, getPreferredChannelVersionBySCID, scid)
+	var version int16
+	err := row.Scan(&version)
+	return version, err
+}
+
 const getPruneEntriesForHeights = `-- name: GetPruneEntriesForHeights :many
 SELECT block_height, block_hash
 FROM graph_prune_log

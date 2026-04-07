@@ -1540,3 +1540,24 @@ ORDER BY
     c.version DESC
 LIMIT 1
 ON CONFLICT (scid) DO UPDATE SET channel_id = EXCLUDED.channel_id;
+
+-- name: GetPreferredChannelVersionBySCID :one
+-- Return the gossip version that the preferred-channel mapping selects for an
+-- SCID, so that readers follow the rule UpsertPreferredChannel applies instead
+-- of ranking the versions again.
+SELECT c.version
+FROM graph_preferred_channels pc
+    JOIN graph_channels c ON c.id = pc.channel_id
+WHERE pc.scid = $1;
+
+-- name: GetPreferredChannelVersionByOutpoint :one
+-- Return the gossip version that the preferred-channel mapping selects for the
+-- channel with the given funding outpoint. Every version of a channel shares
+-- its outpoint and SCID, so at most one of them has a mapping row. The caller
+-- passes the gossip versions to consider, so that the lookup can use the
+-- (version, outpoint) index instead of scanning every channel.
+SELECT c.version
+FROM graph_channels c
+    JOIN graph_preferred_channels pc ON pc.channel_id = c.id
+WHERE c.outpoint = sqlc.arg(outpoint)
+  AND c.version IN (sqlc.slice('versions')/*SLICE:versions*/);

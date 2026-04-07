@@ -55,6 +55,7 @@ type SQLQueries interface {
 	GetNodesByBlockHeightRange(ctx context.Context, arg sqlc.GetNodesByBlockHeightRangeParams) ([]sqlc.GraphNode, error)
 	GetPublicNodesByLastUpdateRange(ctx context.Context, arg sqlc.GetPublicNodesByLastUpdateRangeParams) ([]sqlc.GraphNode, error)
 	ListNodesPaginated(ctx context.Context, arg sqlc.ListNodesPaginatedParams) ([]sqlc.GraphNode, error)
+	UpsertPreferredNode(ctx context.Context, pubKey []byte) error
 	ListNodeIDsAndPubKeys(ctx context.Context, arg sqlc.ListNodeIDsAndPubKeysParams) ([]sqlc.ListNodeIDsAndPubKeysRow, error)
 	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
 	IsPublicV2Node(ctx context.Context, pubKey []byte) (bool, error)
@@ -105,6 +106,9 @@ type SQLQueries interface {
 	ListChannelsByNodeID(ctx context.Context, arg sqlc.ListChannelsByNodeIDParams) ([]sqlc.ListChannelsByNodeIDRow, error)
 	ListChannelsForNodeIDs(ctx context.Context, arg sqlc.ListChannelsForNodeIDsParams) ([]sqlc.ListChannelsForNodeIDsRow, error)
 	ListChannelsWithPoliciesPaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesPaginatedParams) ([]sqlc.ListChannelsWithPoliciesPaginatedRow, error)
+	UpsertPreferredChannel(ctx context.Context, scid []byte) error
+	GetPreferredChannelVersionBySCID(ctx context.Context, scid []byte) (int16, error)
+	GetPreferredChannelVersionByOutpoint(ctx context.Context, arg sqlc.GetPreferredChannelVersionByOutpointParams) (int16, error)
 	ListChannelsWithPoliciesForCachePaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesForCachePaginatedParams) ([]sqlc.ListChannelsWithPoliciesForCachePaginatedRow, error)
 	ListChannelsPaginated(ctx context.Context, arg sqlc.ListChannelsPaginatedParams) ([]sqlc.ListChannelsPaginatedRow, error)
 	ListChannelsPaginatedV2(ctx context.Context, arg sqlc.ListChannelsPaginatedV2Params) ([]sqlc.ListChannelsPaginatedV2Row, error)
@@ -418,6 +422,15 @@ func (s *SQLStore) DeleteNode(ctx context.Context, v lnwire.GossipVersion,
 	pubKey route.Vertex) error {
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		// Deleting the node cascades to its channels of this version,
+		// and from those to any preferred-channel mapping that points
+		// at them. Collect the SCIDs first, so that the mapping can be
+		// pointed at a version of the channel that survives.
+		scids, err := nodeChannelSCIDs(ctx, db, v, pubKey)
+		if err != nil {
+			return err
+		}
+
 		res, err := db.DeleteNodeByPubKey(
 			ctx, sqlc.DeleteNodeByPubKeyParams{
 				Version: int16(v),
@@ -439,13 +452,63 @@ func (s *SQLStore) DeleteNode(ctx context.Context, v lnwire.GossipVersion,
 			return fmt.Errorf("deleted %d rows, expected 1", rows)
 		}
 
-		return err
+		// Recompute the preferred mappings. If another version of a
+		// channel or of this node still exists, the upserts point the
+		// mapping at it. If no version remains, the INSERT...SELECT is
+		// a no-op and the CASCADE on the FK already removed the mapping
+		// row when the node was deleted above.
+		for _, scid := range scids {
+			err := db.UpsertPreferredChannel(ctx, scid)
+			if err != nil {
+				return fmt.Errorf("unable to recompute "+
+					"preferred channel: %w", err)
+			}
+		}
+
+		return db.UpsertPreferredNode(ctx, pubKey[:])
 	}, sqldb.NoOpReset)
 	if err != nil {
 		return fmt.Errorf("unable to delete node: %w", err)
 	}
 
 	return nil
+}
+
+// nodeChannelSCIDs returns the SCIDs of the given node's channels on one
+// gossip version. An unknown node has none.
+func nodeChannelSCIDs(ctx context.Context, db SQLQueries,
+	v lnwire.GossipVersion, pubKey route.Vertex) ([][]byte, error) {
+
+	nodeID, err := db.GetNodeIDByPubKey(
+		ctx, sqlc.GetNodeIDByPubKeyParams{
+			Version: int16(v),
+			PubKey:  pubKey[:],
+		},
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch node: %w", err)
+	}
+
+	rows, err := db.ListChannelsByNodeID(
+		ctx, sqlc.ListChannelsByNodeIDParams{
+			Version: int16(v),
+			NodeID1: nodeID,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch node channels: %w",
+			err)
+	}
+
+	scids := make([][]byte, 0, len(rows))
+	for _, row := range rows {
+		scids = append(scids, row.GraphChannel.Scid)
+	}
+
+	return scids, nil
 }
 
 // FetchNodeFeatures returns the features of the given node. If no features are
@@ -2432,7 +2495,25 @@ func (s *SQLStore) DeleteChannelEdges(ctx context.Context,
 			}
 		}
 
-		return s.deleteChannels(ctx, db, chanIDsToDelete)
+		err = s.deleteChannels(ctx, db, chanIDsToDelete)
+		if err != nil {
+			return err
+		}
+
+		// The CASCADE on graph_preferred_channels will have
+		// removed the mapping row for any deleted channel. If
+		// another version of the same SCID still exists, we
+		// need to re-insert the mapping.
+		for _, chanID := range chanIDs {
+			scidBytes := channelIDToBytes(chanID)
+			err = db.UpsertPreferredChannel(ctx, scidBytes)
+			if err != nil {
+				return fmt.Errorf("recalc preferred "+
+					"channel(%d): %w", chanID, err)
+			}
+		}
+
+		return nil
 	}, func() {
 		edges = nil
 
@@ -2662,15 +2743,15 @@ var preferredGossipVersionsDescending = []lnwire.GossipVersion{
 	gossipV2, gossipV1,
 }
 
-// FetchChannelEdgesByIDPreferred tries each known gossip version from highest
-// to lowest and returns the first result that has at least one policy. If no
-// version has policies, the highest version found is returned. This prevents a
-// v2 channel with no policies from hiding a v1 channel that has valid policy
-// data.
+// FetchChannelEdgesByIDPreferred returns the version of the channel that the
+// preferred-channel mapping selects, so it follows the rule that
+// UpsertPreferredChannel applies: a version with policies wins over a bare
+// one, then the higher version wins. This keeps a v2 channel with no policies
+// from hiding a v1 channel that has valid policy data.
 //
-// If no live edge is found across versions but at least one version reports
-// the channel as a zombie, ErrZombieEdge is returned with the zombie edge info
-// populated so callers can resurrect it.
+// If no version of the channel is live but at least one version reports it as
+// a zombie, ErrZombieEdge is returned with the highest such version's zombie
+// edge info populated so callers can resurrect it.
 //
 // NOTE: part of the Store interface.
 func (s *SQLStore) FetchChannelEdgesByIDPreferred(ctx context.Context,
@@ -2724,72 +2805,62 @@ func (s *SQLStore) FetchChannelEdgesByIDPreferred(ctx context.Context,
 	)
 
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		for _, v := range preferredGossipVersionsDescending {
+		v, err := db.GetPreferredChannelVersionBySCID(ctx, chanIDB)
+		switch {
+		case err == nil:
 			row, err := db.GetChannelBySCIDWithPolicies(
 				ctx, sqlc.GetChannelBySCIDWithPoliciesParams{
 					Scid:    chanIDB,
-					Version: int16(v),
+					Version: v,
 				},
 			)
-			if errors.Is(err, sql.ErrNoRows) {
-				zombie, err := db.GetZombieChannel(
-					ctx, sqlc.GetZombieChannelParams{
-						Scid:    chanIDB,
-						Version: int16(v),
-					},
-				)
-				if errors.Is(err, sql.ErrNoRows) {
-					continue
-				}
-				if err != nil {
-					return fmt.Errorf("unable to check if "+
-						"channel is zombie: %w", err)
-				}
-
-				if bestZombie == nil {
-					var err error
-					bestZombie, err = buildZombieEdge(
-						v, chanID, zombie.NodeKey1,
-						zombie.NodeKey2,
-					)
-					if err != nil {
-						return err
-					}
-				}
-
-				continue
-			}
 			if err != nil {
 				return fmt.Errorf("unable to fetch channel: %w",
 					err)
 			}
 
-			info, p1, p2, err := buildLiveEdge(ctx, db, row)
+			bestInfo, bestP1, bestP2, err = buildLiveEdge(
+				ctx, db, row,
+			)
+
+			return err
+
+		case !errors.Is(err, sql.ErrNoRows):
+			return fmt.Errorf("unable to fetch preferred channel "+
+				"version: %w", err)
+		}
+
+		// No version of the channel is live, so report the highest
+		// version that is marked as a zombie, if any.
+		for _, v := range preferredGossipVersionsDescending {
+			zombie, err := db.GetZombieChannel(
+				ctx, sqlc.GetZombieChannelParams{
+					Scid:    chanIDB,
+					Version: int16(v),
+				},
+			)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf("unable to check if channel "+
+					"is zombie: %w", err)
+			}
+
+			bestZombie, err = buildZombieEdge(
+				v, chanID, zombie.NodeKey1, zombie.NodeKey2,
+			)
 			if err != nil {
 				return err
 			}
 
-			if p1 != nil || p2 != nil {
-				bestInfo, bestP1, bestP2 = info, p1, p2
-
-				return nil
-			}
-
-			if bestInfo == nil {
-				bestInfo, bestP1, bestP2 = info, p1, p2
-			}
-		}
-
-		if bestInfo != nil {
-			return nil
-		}
-
-		if bestZombie != nil {
 			return ErrZombieEdge
 		}
 
 		return ErrEdgeNotFound
-	}, sqldb.NoOpReset)
+	}, func() {
+		bestInfo, bestP1, bestP2, bestZombie = nil, nil, nil, nil
+	})
 	if errors.Is(err, ErrZombieEdge) {
 		return bestZombie, nil, nil, ErrZombieEdge
 	}
@@ -2801,11 +2872,11 @@ func (s *SQLStore) FetchChannelEdgesByIDPreferred(ctx context.Context,
 	return bestInfo, bestP1, bestP2, nil
 }
 
-// FetchChannelEdgesByOutpointPreferred tries each known gossip version from
-// highest to lowest and returns the first result that has at least one policy.
-// If no version has policies, the highest version found is returned. This
-// prevents a v2 channel with no policies from hiding a v1 channel that has
-// valid policy data.
+// FetchChannelEdgesByOutpointPreferred returns the version of the channel that
+// the preferred-channel mapping selects, so it follows the rule that
+// UpsertPreferredChannel applies: a version with policies wins over a bare
+// one, then the higher version wins. This keeps a v2 channel with no policies
+// from hiding a v1 channel that has valid policy data.
 //
 // NOTE: part of the Store interface.
 func (s *SQLStore) FetchChannelEdgesByOutpointPreferred(
@@ -2856,45 +2927,44 @@ func (s *SQLStore) FetchChannelEdgesByOutpointPreferred(
 		}
 	)
 
+	// The outpoint is only indexed together with the version, so pass
+	// every known version to let the mapping lookup use that index.
+	versions := make([]int16, 0, len(preferredGossipVersionsDescending))
+	for _, v := range preferredGossipVersionsDescending {
+		versions = append(versions, int16(v))
+	}
+
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		for _, v := range preferredGossipVersionsDescending {
-			params := sqlc.GetChannelByOutpointWithPoliciesParams{
+		v, err := db.GetPreferredChannelVersionByOutpoint(
+			ctx, sqlc.GetPreferredChannelVersionByOutpointParams{
 				Outpoint: op.String(),
-				Version:  int16(v),
-			}
-			row, err := db.GetChannelByOutpointWithPolicies(
-				ctx, params,
-			)
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
-			}
-			if err != nil {
-				return fmt.Errorf("unable to fetch channel: %w",
-					err)
-			}
-
-			info, p1, p2, err := buildLiveEdge(ctx, db, row)
-			if err != nil {
-				return err
-			}
-
-			if p1 != nil || p2 != nil {
-				bestInfo, bestP1, bestP2 = info, p1, p2
-
-				return nil
-			}
-
-			if bestInfo == nil {
-				bestInfo, bestP1, bestP2 = info, p1, p2
-			}
+				Versions: versions,
+			},
+		)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrEdgeNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("unable to fetch preferred channel "+
+				"version: %w", err)
 		}
 
-		if bestInfo != nil {
-			return nil
+		row, err := db.GetChannelByOutpointWithPolicies(
+			ctx, sqlc.GetChannelByOutpointWithPoliciesParams{
+				Outpoint: op.String(),
+				Version:  v,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch channel: %w", err)
 		}
 
-		return ErrEdgeNotFound
-	}, sqldb.NoOpReset)
+		bestInfo, bestP1, bestP2, err = buildLiveEdge(ctx, db, row)
+
+		return err
+	}, func() {
+		bestInfo, bestP1, bestP2 = nil, nil, nil
+	})
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("could not fetch preferred "+
 			"channel: %w", err)
@@ -3592,6 +3662,10 @@ func (s *SQLStore) PruneGraph(ctx context.Context,
 			return err
 		}
 
+		// Delete all matched channels. GetChannelsByOutpoints
+		// returns every version for a given outpoint, so all
+		// versions are deleted and the CASCADE on
+		// graph_preferred_channels handles cleanup.
 		err = s.deleteChannels(ctx, db, chansToDelete)
 		if err != nil {
 			return fmt.Errorf("unable to delete channels: %w", err)
@@ -3899,9 +3973,22 @@ func (s *SQLStore) pruneGraphNodes(ctx context.Context,
 			"nodes: %w", err)
 	}
 
+	// Recalc preferred node mappings for all affected pub_keys. The
+	// CASCADE may have removed some entries; if another version of the
+	// node still exists, UpsertPreferredNode will re-insert the mapping.
+	// If no version remains, the upsert is a no-op (the INSERT ... SELECT
+	// returns no rows). Note that nodeKeys may contain duplicates if a
+	// node existed in multiple gossip versions and was pruned in all of
+	// them; UpsertPreferredNode is idempotent, so this is harmless.
 	prunedNodes := make([]route.Vertex, len(nodeKeys))
-	for i, nodeKey := range nodeKeys {
-		pub, err := route.NewVertexFromBytes(nodeKey)
+	for i, key := range nodeKeys {
+		err = db.UpsertPreferredNode(ctx, key)
+		if err != nil {
+			return nil, fmt.Errorf("recalc preferred "+
+				"node: %w", err)
+		}
+
+		pub, err := route.NewVertexFromBytes(key)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse pubkey "+
 				"from bytes: %w", err)
@@ -3976,6 +4063,10 @@ func (s *SQLStore) DisconnectBlockAtHeight(ctx context.Context,
 
 		removedChans = channelEdges
 
+		// Delete all matched channels. GetChannelsBySCIDRange
+		// returns every version for a given SCID, so all versions
+		// are deleted and the CASCADE on
+		// graph_preferred_channels handles cleanup.
 		err = s.deleteChannels(ctx, db, chanIDsToDelete)
 		if err != nil {
 			return fmt.Errorf("unable to delete channels: %w", err)
@@ -4558,6 +4649,15 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 			"policy extra TLVs: %w", err)
 	}
 
+	// Adding a policy may change which version is preferred for this
+	// SCID (a version with policies outranks one without).
+	scidBytes := channelIDToBytes(edge.ChannelID)
+	err = tx.UpsertPreferredChannel(ctx, scidBytes)
+	if err != nil {
+		return node1Pub, node2Pub, false, fmt.Errorf("upserting "+
+			"preferred channel(%d): %w", edge.ChannelID, err)
+	}
+
 	return node1Pub, node2Pub, isNode1, nil
 }
 
@@ -4911,6 +5011,13 @@ func upsertSourceNode(ctx context.Context, db SQLQueries,
 			node.PubKeyBytes, err)
 	}
 
+	// Recompute the preferred node mapping for this pub_key.
+	err = db.UpsertPreferredNode(ctx, node.PubKeyBytes[:])
+	if err != nil {
+		return 0, fmt.Errorf("upserting preferred node(%x): %w",
+			node.PubKeyBytes, err)
+	}
+
 	// We can exit here if we don't have the announcement yet.
 	if !node.HaveAnnouncement() {
 		return nodeID, nil
@@ -4945,6 +5052,15 @@ func upsertNode(ctx context.Context, db SQLQueries,
 	if err != nil {
 		return 0, fmt.Errorf("upserting node(%x): %w", node.PubKeyBytes,
 			err)
+	}
+
+	// Recompute the preferred node mapping for this pub_key. Even a shell
+	// node may become the preferred entry (e.g. first v2 shell for a key
+	// that previously only existed as a v1 shell).
+	err = db.UpsertPreferredNode(ctx, node.PubKeyBytes[:])
+	if err != nil {
+		return 0, fmt.Errorf("upserting preferred node(%x): %w",
+			node.PubKeyBytes, err)
 	}
 
 	// We can exit here if we don't have the announcement yet.
@@ -5430,6 +5546,14 @@ func insertChannel(ctx context.Context, db SQLQueries,
 		}
 	}
 
+	// Recompute the preferred channel mapping for this SCID.
+	scidBytes := channelIDToBytes(edge.ChannelID)
+	err = db.UpsertPreferredChannel(ctx, scidBytes)
+	if err != nil {
+		return fmt.Errorf("upserting preferred channel(%d): %w",
+			edge.ChannelID, err)
+	}
+
 	return nil
 }
 
@@ -5461,6 +5585,13 @@ func maybeCreateShellNode(ctx context.Context, db SQLQueries,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("unable to create shell node: %w", err)
+	}
+
+	// Recompute the preferred node mapping for this pub_key.
+	err = db.UpsertPreferredNode(ctx, pubKey[:])
+	if err != nil {
+		return 0, fmt.Errorf("upserting preferred node(%x): %w",
+			pubKey[:], err)
 	}
 
 	return id, nil

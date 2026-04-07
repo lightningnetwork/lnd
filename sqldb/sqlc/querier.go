@@ -144,6 +144,16 @@ type Querier interface {
 	GetNodesByIDs(ctx context.Context, ids []int64) ([]GraphNode, error)
 	GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByLastUpdateRangeParams) ([]GraphNode, error)
 	GetOfferByHash(ctx context.Context, hash []byte) (Offer, error)
+	// Return the gossip version that the preferred-channel mapping selects for the
+	// channel with the given funding outpoint. Every version of a channel shares
+	// its outpoint and SCID, so at most one of them has a mapping row. The caller
+	// passes the gossip versions to consider, so that the lookup can use the
+	// (version, outpoint) index instead of scanning every channel.
+	GetPreferredChannelVersionByOutpoint(ctx context.Context, arg GetPreferredChannelVersionByOutpointParams) (int16, error)
+	// Return the gossip version that the preferred-channel mapping selects for an
+	// SCID, so that readers follow the rule UpsertPreferredChannel applies instead
+	// of ranking the versions again.
+	GetPreferredChannelVersionBySCID(ctx context.Context, scid []byte) (int16, error)
 	GetPruneEntriesForHeights(ctx context.Context, heights []int64) ([]GraphPruneLog, error)
 	GetPruneHashByHeight(ctx context.Context, blockHeight int64) ([]byte, error)
 	GetPruneTip(ctx context.Context) (GraphPruneLog, error)

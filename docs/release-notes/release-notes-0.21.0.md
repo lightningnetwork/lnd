@@ -88,6 +88,16 @@
   non-wumbo channel size (~0.168 BTC), with wumbo channels always requiring
   6 confirmations.
 
+* [Added support for production (final) simple taproot
+  channels](https://github.com/lightningnetwork/lnd/pull/9985) using the
+  finalized taproot channel scripts with feature bits 80/81. Production taproot
+  channels use optimized scripts (`OP_CHECKSIGVERIFY` instead of `OP_CHECKSIG` +
+  `OP_DROP`) and a map-based nonce encoding in `channel_reestablish` and
+  `revoke_and_ack` keyed by funding TXID, laying the groundwork for splice
+  support. The nonce type is now auto-detected from the negotiated channel type
+  rather than peer feature bits, ensuring correct behavior across all recovery
+  and resynchronization paths.
+
 * [Added taproot channel support for RBF cooperative
   close](https://github.com/lightningnetwork/lnd/pull/10063). The new RBF-based
   cooperative close protocol (enabled with `--protocol.rbf-coop-close`) now

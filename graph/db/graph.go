@@ -214,6 +214,18 @@ func (c *ChannelGraph) handleTopologySubscriptions(ctx context.Context) {
 	}
 }
 
+// cacheableFeatures reports whether a node's feature vector may overwrite the
+// vector the graph cache already holds for that node. The cache keys features
+// by pub key alone, so an empty v2 vector would otherwise shadow a non-empty
+// v1 one. This is the same rule the no-cache FetchNodeFeatures fallback
+// applies, and every path that feeds the cache must apply it, otherwise the
+// cache disagrees with itself before and after a restart.
+func cacheableFeatures(v lnwire.GossipVersion,
+	features *lnwire.FeatureVector) bool {
+
+	return v != gossipV2 || !features.IsEmpty()
+}
+
 // populateCache loads the entire channel graph into the in-memory graph cache.
 func (c *ChannelGraph) populateCache(ctx context.Context) error {
 	if c.cache == nil {
@@ -238,11 +250,20 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 	for _, v := range []lnwire.GossipVersion{
 		gossipV1, gossipV2,
 	} {
-		// TODO(elle): If we have both v1 and v2 entries for the same
-		// node/channel, prefer v2 when merging.
+		// We iterate v1 first, then v2. AddNodeFeatures overwrites on
+		// key collision, so v2 features take precedence when both
+		// versions exist, except for the entries that
+		// cacheableFeatures rejects. AddChannel ranks a colliding SCID
+		// itself, using the same rule as the preferred lookup tables,
+		// so the iteration order here does not decide which version a
+		// channel is cached from.
 		err := c.db.ForEachNodeCacheable(ctx, v,
 			func(node route.Vertex,
 				features *lnwire.FeatureVector) error {
+
+				if !cacheableFeatures(v, features) {
+					return nil
+				}
 
 				cache.AddNodeFeatures(node, features)
 
@@ -299,9 +320,8 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(ctx context.Context,
 		return c.cache.graphCache.ForEachChannel(node, cb)
 	}
 
-	// TODO(elle): once the no-cache path needs to support
-	// pathfinding across gossip versions, this should iterate
-	// across all versions rather than defaulting to v1.
+	// The no-cache path only runs against the KV backend, which is
+	// v1-only.
 	return c.db.ForEachNodeDirectedChannel(
 		ctx, gossipV1, node, cb, reset,
 	)
@@ -320,7 +340,9 @@ func (c *ChannelGraph) FetchNodeFeatures(ctx context.Context,
 		return c.cache.graphCache.GetFeatures(node), nil
 	}
 
-	return c.db.FetchNodeFeatures(ctx, lnwire.GossipVersion1, node)
+	// The no-cache path only runs against the KV backend, which is
+	// v1-only.
+	return c.db.FetchNodeFeatures(ctx, gossipV1, node)
 }
 
 // GraphSession will provide the call-back with access to a NodeTraverser
@@ -373,7 +395,7 @@ func (c *ChannelGraph) AddNode(ctx context.Context,
 		return err
 	}
 
-	if c.cache != nil {
+	if c.cache != nil && cacheableFeatures(node.Version, node.Features) {
 		c.cache.applyUpdate(func(cache *GraphCache) {
 			cache.AddNodeFeatures(
 				node.PubKeyBytes, node.Features,
@@ -969,7 +991,7 @@ func (c *VersionedGraph) ChannelView(ctx context.Context) ([]EdgePoint,
 // for performing queries against the channel graph. If the graph cache is
 // enabled, the callback receives the VersionedGraph directly (which implements
 // NodeTraverser using the cache). Otherwise a read-only database session is
-// used.
+// used; the no-cache path only runs against the KV backend, which is v1-only.
 func (c *VersionedGraph) GraphSession(ctx context.Context,
 	cb func(graph NodeTraverser) error, reset func()) error {
 
@@ -977,9 +999,6 @@ func (c *VersionedGraph) GraphSession(ctx context.Context,
 		return cb(c)
 	}
 
-	// TODO(elle): the underlying GraphSession currently creates a
-	// NodeTraverser that is hardcoded to GossipVersion1. This needs to be
-	// updated to pass the version through for v2 support.
 	return c.db.GraphSession(ctx, cb, reset)
 }
 

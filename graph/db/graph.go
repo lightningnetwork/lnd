@@ -679,13 +679,14 @@ func (c *ChannelGraph) HasV1Node(ctx context.Context,
 	return c.db.HasV1Node(ctx, nodePub)
 }
 
-// ForEachChannel iterates through all channel edges stored within the graph.
+// ForEachChannel iterates through all channel edges stored within the graph
+// across all gossip versions.
 func (c *ChannelGraph) ForEachChannel(ctx context.Context,
-	v lnwire.GossipVersion, cb func(*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error,
+	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy) error,
 	reset func()) error {
 
-	return c.db.ForEachChannel(ctx, v, cb, reset)
+	return c.db.ForEachChannel(ctx, cb, reset)
 }
 
 // DisabledChannelIDs returns the channel ids of disabled channels.
@@ -817,26 +818,23 @@ func (c *ChannelGraph) FetchChanInfos(ctx context.Context,
 }
 
 // FetchChannelEdgesByOutpoint attempts to lookup directed edges by funding
-// outpoint.
+// outpoint, returning the highest available gossip version.
 func (c *ChannelGraph) FetchChannelEdgesByOutpoint(ctx context.Context,
 	op *wire.OutPoint) (
 	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
-	return c.db.FetchChannelEdgesByOutpoint(
-		ctx, lnwire.GossipVersion1, op,
-	)
+	return c.db.FetchChannelEdgesByOutpointPreferred(ctx, op)
 }
 
-// FetchChannelEdgesByID attempts to lookup directed edges by channel ID.
+// FetchChannelEdgesByID attempts to lookup directed edges by channel ID,
+// returning the highest available gossip version.
 func (c *ChannelGraph) FetchChannelEdgesByID(ctx context.Context,
 	chanID uint64) (
 	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
-	return c.db.FetchChannelEdgesByID(
-		ctx, lnwire.GossipVersion1, chanID,
-	)
+	return c.db.FetchChannelEdgesByIDPreferred(ctx, chanID)
 }
 
 // PutClosedScid stores a SCID for a closed channel in the database.
@@ -926,11 +924,14 @@ func (c *VersionedGraph) ForEachNodeCached(ctx context.Context,
 	return c.ChannelGraph.ForEachNodeCached(ctx, c.v, cb, reset)
 }
 
-// ForEachNode iterates through all stored vertices/nodes in the graph.
+// ForEachNode iterates through all stored vertices/nodes in the graph across
+// all gossip versions, returning the preferred version for each pub_key. Note
+// that this intentionally ignores c.v — cross-version iteration is the desired
+// behaviour for callers that enumerate graph topology.
 func (c *VersionedGraph) ForEachNode(ctx context.Context,
 	cb func(*models.Node) error, reset func()) error {
 
-	return c.db.ForEachNode(ctx, c.v, cb, reset)
+	return c.db.ForEachNode(ctx, cb, reset)
 }
 
 // NumZombies returns the current number of zombie channels in the graph.
@@ -1106,12 +1107,14 @@ func (c *VersionedGraph) ForEachNodeChannel(ctx context.Context,
 	return c.db.ForEachNodeChannel(ctx, c.v, nodePub, cb, reset)
 }
 
-// ForEachChannel iterates through all channel edges stored within the graph.
+// ForEachChannel iterates through all channel edges stored within the graph
+// across all gossip versions, returning the preferred version for each SCID.
+// See ForEachNode for the rationale on ignoring c.v.
 func (c *VersionedGraph) ForEachChannel(ctx context.Context,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error, reset func()) error {
 
-	return c.db.ForEachChannel(ctx, c.v, cb, reset)
+	return c.db.ForEachChannel(ctx, cb, reset)
 }
 
 // ForEachNodeCacheable iterates through all stored vertices/nodes in the graph.

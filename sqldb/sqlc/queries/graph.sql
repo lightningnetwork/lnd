@@ -73,13 +73,6 @@ FROM graph_nodes
 WHERE pub_key = $1
   AND version = $2;
 
--- name: ListNodesPaginated :many
-SELECT *
-FROM graph_nodes
-WHERE version = $1 AND id > $2
-ORDER BY id
-LIMIT $3;
-
 -- name: ListPreferredNodesPaginated :many
 SELECT sqlc.embed(n)
 FROM graph_preferred_nodes pn

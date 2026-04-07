@@ -226,7 +226,7 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 
 	loaded := false
 	defer func() {
-		c.cache.finishPopulation(loaded)
+		c.cache.finishPopulation(ctx, loaded)
 	}()
 
 	cache := c.cache.graphCache
@@ -238,13 +238,15 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 	for _, v := range []lnwire.GossipVersion{
 		gossipV1, gossipV2,
 	} {
-		// TODO(elle): If we have both v1 and v2 entries for the same
-		// node/channel, prefer v2 when merging.
+		// AddNodeFeatures keeps the features of each version apart
+		// and AddChannel ranks a colliding SCID itself, using the same
+		// rule as the preferred lookup tables, so the iteration order
+		// here does not decide which version's data is cached.
 		err := c.db.ForEachNodeCacheable(ctx, v,
 			func(node route.Vertex,
 				features *lnwire.FeatureVector) error {
 
-				cache.AddNodeFeatures(node, features)
+				cache.AddNodeFeatures(node, v, features)
 
 				return nil
 			}, func() {},
@@ -299,12 +301,11 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(ctx context.Context,
 		return c.cache.graphCache.ForEachChannel(node, cb)
 	}
 
-	// TODO(elle): once the no-cache path needs to support
-	// pathfinding across gossip versions, this should iterate
-	// across all versions rather than defaulting to v1.
-	return c.db.ForEachNodeDirectedChannel(
-		ctx, gossipV1, node, cb, reset,
-	)
+	// The cache is disabled, still loading or failed to load. A graph
+	// session applies the same cross-version precedence as the cache.
+	return c.db.GraphSession(ctx, func(graph NodeTraverser) error {
+		return graph.ForEachNodeDirectedChannel(ctx, node, cb, reset)
+	}, reset)
 }
 
 // FetchNodeFeatures returns the features of the given node. If no features are
@@ -320,13 +321,30 @@ func (c *ChannelGraph) FetchNodeFeatures(ctx context.Context,
 		return c.cache.graphCache.GetFeatures(node), nil
 	}
 
-	return c.db.FetchNodeFeatures(ctx, lnwire.GossipVersion1, node)
+	// The cache is disabled, still loading or failed to load. A graph
+	// session applies the same cross-version precedence as the cache.
+	var features *lnwire.FeatureVector
+	err := c.db.GraphSession(ctx, func(graph NodeTraverser) error {
+		var err error
+		features, err = graph.FetchNodeFeatures(ctx, node)
+
+		return err
+	}, func() {
+		features = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return features, nil
 }
 
 // GraphSession will provide the call-back with access to a NodeTraverser
 // instance which can be used to perform queries against the channel graph. If
-// the graph cache is not enabled, then the call-back will be provided with
-// access to the graph via a consistent read-only transaction.
+// the graph cache is not enabled, still loading or failed to load, then the
+// call-back will be provided with access to the graph via a consistent
+// read-only transaction, which applies the same cross-version precedence as
+// the cache.
 func (c *ChannelGraph) GraphSession(ctx context.Context,
 	cb func(graph NodeTraverser) error, reset func()) error {
 
@@ -374,9 +392,11 @@ func (c *ChannelGraph) AddNode(ctx context.Context,
 	}
 
 	if c.cache != nil {
-		c.cache.applyUpdate(func(cache *GraphCache) {
+		c.cache.applyUpdate(ctx, func(_ context.Context,
+			cache *GraphCache) {
+
 			cache.AddNodeFeatures(
-				node.PubKeyBytes, node.Features,
+				node.PubKeyBytes, node.Version, node.Features,
 			)
 		})
 	}
@@ -405,7 +425,9 @@ func (c *ChannelGraph) AddChannelEdge(ctx context.Context,
 	}
 
 	if c.cache != nil {
-		c.cache.applyUpdate(func(cache *GraphCache) {
+		c.cache.applyUpdate(ctx, func(_ context.Context,
+			cache *GraphCache) {
+
 			cache.AddChannel(models.NewCachedEdge(edge), nil, nil)
 		})
 	}
@@ -452,7 +474,9 @@ func (c *ChannelGraph) MarkEdgeLive(ctx context.Context,
 			policy2 = models.NewCachedPolicy(info.Policy2)
 		}
 
-		c.cache.applyUpdate(func(cache *GraphCache) {
+		c.cache.applyUpdate(ctx, func(_ context.Context,
+			cache *GraphCache) {
+
 			cache.AddChannel(
 				models.NewCachedEdge(info.Info),
 				policy1, policy2,
@@ -483,11 +507,13 @@ func (c *ChannelGraph) DeleteChannelEdges(ctx context.Context,
 	}
 
 	if c.cache != nil {
-		c.cache.applyUpdate(func(cache *GraphCache) {
+		c.cache.applyUpdate(ctx, func(ctx context.Context,
+			cache *GraphCache) {
+
 			for _, info := range infos {
-				cache.RemoveChannel(
+				c.removeCachedChannelVersion(
+					ctx, cache, v, info.ChannelID,
 					info.NodeKey1Bytes, info.NodeKey2Bytes,
-					info.ChannelID,
 				)
 			}
 		})
@@ -512,7 +538,9 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(ctx context.Context,
 	}
 
 	if c.cache != nil {
-		c.cache.applyUpdate(func(cache *GraphCache) {
+		c.cache.applyUpdate(ctx, func(_ context.Context,
+			cache *GraphCache) {
+
 			for _, edge := range edges {
 				cache.RemoveChannel(
 					edge.NodeKey1Bytes, edge.NodeKey2Bytes,
@@ -545,7 +573,9 @@ func (c *ChannelGraph) PruneGraph(ctx context.Context,
 	}
 
 	if c.cache != nil {
-		c.cache.applyUpdate(func(cache *GraphCache) {
+		c.cache.applyUpdate(ctx, func(ctx context.Context,
+			cache *GraphCache) {
+
 			for _, edge := range edges {
 				cache.RemoveChannel(
 					edge.NodeKey1Bytes, edge.NodeKey2Bytes,
@@ -553,7 +583,7 @@ func (c *ChannelGraph) PruneGraph(ctx context.Context,
 				)
 			}
 			for _, node := range nodes {
-				cache.RemoveNode(node)
+				c.removeCachedNodeVersion(ctx, cache, node)
 			}
 		})
 
@@ -590,9 +620,11 @@ func (c *ChannelGraph) PruneGraphNodes(ctx context.Context) error {
 	}
 
 	if c.cache != nil {
-		c.cache.applyUpdate(func(cache *GraphCache) {
+		c.cache.applyUpdate(ctx, func(ctx context.Context,
+			cache *GraphCache) {
+
 			for _, node := range nodes {
-				cache.RemoveNode(node)
+				c.removeCachedNodeVersion(ctx, cache, node)
 			}
 		})
 	}
@@ -613,8 +645,12 @@ func (c *ChannelGraph) MarkEdgeZombie(ctx context.Context,
 	}
 
 	if c.cache != nil {
-		c.cache.applyUpdate(func(cache *GraphCache) {
-			cache.RemoveChannel(pubKey1, pubKey2, chanID)
+		c.cache.applyUpdate(ctx, func(ctx context.Context,
+			cache *GraphCache) {
+
+			c.removeCachedChannelVersion(
+				ctx, cache, v, chanID, pubKey1, pubKey2,
+			)
 		})
 	}
 
@@ -637,9 +673,21 @@ func (c *ChannelGraph) UpdateEdgePolicy(ctx context.Context,
 	}
 
 	if c.cache != nil {
-		c.cache.applyUpdate(func(cache *GraphCache) {
-			cache.UpdatePolicy(
-				models.NewCachedPolicy(edge), from, to,
+		policy := models.NewCachedPolicy(edge)
+		c.cache.applyUpdate(ctx, func(ctx context.Context,
+			cache *GraphCache) {
+
+			if cache.UpdatePolicy(policy, from, to) {
+				return
+			}
+
+			// The channel is cached from another gossip version,
+			// which this policy may have displaced as the one the
+			// Store prefers. Reload the preferred channel, so that
+			// its edge and both of its policies replace the cached
+			// entry as a whole.
+			c.reloadCachedChannel(
+				ctx, cache, edge.ChannelID, from, to,
 			)
 		})
 	}
@@ -651,6 +699,112 @@ func (c *ChannelGraph) UpdateEdgePolicy(ctx context.Context,
 	}
 
 	return nil
+}
+
+// reloadCachedChannel replaces the cached entry of a channel with the version
+// of it that the Store prefers. If that can't be loaded, the channel is
+// removed from the cache rather than left with a mix of versions.
+func (c *ChannelGraph) reloadCachedChannel(ctx context.Context,
+	cache *GraphCache, chanID uint64, node1, node2 route.Vertex) {
+
+	info, policy1, policy2, err := c.db.FetchChannelEdgesByIDPreferred(
+		ctx, chanID,
+	)
+	if err != nil {
+		if !errors.Is(err, ErrEdgeNotFound) &&
+			!errors.Is(err, ErrZombieEdge) {
+
+			log.Errorf("Unable to reload channel %v into the "+
+				"graph cache: %v", chanID, err)
+		}
+
+		cache.RemoveChannel(node1, node2, chanID)
+
+		return
+	}
+
+	cache.ReplaceChannel(
+		models.NewCachedEdge(info), newCachedPolicy(policy1),
+		newCachedPolicy(policy2),
+	)
+}
+
+// removeCachedChannelVersion updates the cached entry of a channel once its
+// gossip version v is deleted or marked as a zombie. An entry built from
+// another version doesn't depend on v, so it stays. Otherwise the channel's
+// other version takes its place if the Store has it live, and the channel is
+// removed from the cache if not.
+func (c *ChannelGraph) removeCachedChannelVersion(ctx context.Context,
+	cache *GraphCache, v lnwire.GossipVersion, chanID uint64,
+	node1, node2 route.Vertex) {
+
+	version, ok := cache.channelVersion(node1, chanID)
+	if !ok || version != v {
+		return
+	}
+
+	other := gossipV2
+	if v == gossipV2 {
+		other = gossipV1
+	}
+
+	info, policy1, policy2, err := c.db.FetchChannelEdgesByID(
+		ctx, other, chanID,
+	)
+	if err == nil {
+		isZombie, _, _, err := c.db.IsZombieEdge(ctx, other, chanID)
+		if err == nil && !isZombie {
+			cache.ReplaceChannel(
+				models.NewCachedEdge(info),
+				newCachedPolicy(policy1),
+				newCachedPolicy(policy2),
+			)
+
+			return
+		}
+	}
+
+	cache.RemoveChannel(node1, node2, chanID)
+}
+
+// removeCachedNodeVersion updates the cache once some gossip version of a
+// node is deleted. It drops the features of the versions that are gone, and
+// the node itself, with its channels, once no version of it is left. A node
+// version is only deleted once it has no channels, so the channels of a
+// version that remains stay.
+func (c *ChannelGraph) removeCachedNodeVersion(ctx context.Context,
+	cache *GraphCache, node route.Vertex) {
+
+	var remains bool
+	for _, v := range []lnwire.GossipVersion{gossipV1, gossipV2} {
+		if exists, err := c.db.HasNode(ctx, v, node); err == nil &&
+			exists {
+
+			remains = true
+
+			continue
+		}
+
+		// Clearing the features of a version reselects the node's
+		// features from the version that remains.
+		cache.AddNodeFeatures(node, v, nil)
+	}
+
+	if !remains {
+		cache.RemoveNode(node)
+	}
+}
+
+// newCachedPolicy returns the cached form of a policy, or nil if the policy
+// is unknown.
+func newCachedPolicy(
+	policy *models.ChannelEdgePolicy) *models.CachedEdgePolicy {
+
+	if policy == nil {
+		return nil
+	}
+
+	return models.NewCachedPolicy(policy)
 }
 
 // ForEachNodeChannel iterates through all channels of the given node.
@@ -969,7 +1123,7 @@ func (c *VersionedGraph) ChannelView(ctx context.Context) ([]EdgePoint,
 // for performing queries against the channel graph. If the graph cache is
 // enabled, the callback receives the VersionedGraph directly (which implements
 // NodeTraverser using the cache). Otherwise a read-only database session is
-// used.
+// used, which applies the same cross-version precedence as the cache.
 func (c *VersionedGraph) GraphSession(ctx context.Context,
 	cb func(graph NodeTraverser) error, reset func()) error {
 
@@ -977,9 +1131,6 @@ func (c *VersionedGraph) GraphSession(ctx context.Context,
 		return cb(c)
 	}
 
-	// TODO(elle): the underlying GraphSession currently creates a
-	// NodeTraverser that is hardcoded to GossipVersion1. This needs to be
-	// updated to pass the version through for v2 support.
 	return c.db.GraphSession(ctx, cb, reset)
 }
 
@@ -1034,8 +1185,34 @@ func (c *VersionedGraph) DeleteNode(ctx context.Context,
 	}
 
 	if c.cache != nil {
-		c.cache.applyUpdate(func(cache *GraphCache) {
-			cache.RemoveNode(nodePub)
+		c.cache.applyUpdate(ctx, func(ctx context.Context,
+			cache *GraphCache) {
+
+			// Deleting this version of the node also deleted its
+			// channels on this version, but the other version of
+			// a channel can survive, and the cache may hold a
+			// channel from either version. So rather than
+			// removing all of the node's cached channels, update
+			// each one: entries of the other version stay, and
+			// entries of this version are replaced by the other
+			// version if the Store still has it. The callback
+			// never fails, so ForEachChannel can't either.
+			_ = cache.ForEachChannel(nodePub,
+				func(channel *DirectedChannel) error {
+					c.removeCachedChannelVersion(
+						ctx, cache, c.v,
+						channel.ChannelID, nodePub,
+						channel.OtherNode,
+					)
+
+					return nil
+				},
+			)
+
+			// The node itself may still exist on the other
+			// version. Only drop the features of this version,
+			// and the node once no version of it is left.
+			c.removeCachedNodeVersion(ctx, cache, nodePub)
 		})
 	}
 

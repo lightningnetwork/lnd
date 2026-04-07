@@ -39,6 +39,20 @@ type DirectedChannel struct {
 
 	// Inbound fees of this node.
 	InboundFee lnwire.Fee
+
+	// version is the gossip version that announced the channel this entry
+	// was built from. The cache keys channels by SCID alone, so entries
+	// for the same channel on two gossip versions collide, and this field
+	// is what ranks them. Entries built for the no-cache read paths leave
+	// it unset, because only the cache ranks entries.
+	version lnwire.GossipVersion
+
+	// hasPolicies reports whether the version this entry was built from
+	// has a policy, which ranks the entry along with its version. It is
+	// tracked apart from OutPolicySet and InPolicy, since the cache leaves
+	// out the policies of a channel that are both disabled, while the
+	// preferred lookup tables still count them.
+	hasPolicies bool
 }
 
 // DeepCopy creates a deep copy of the channel, including the incoming policy.
@@ -60,11 +74,35 @@ func (c *DirectedChannel) DeepCopy() *DirectedChannel {
 	return &channelCopy
 }
 
+// nodeFeatureSet holds the feature vector each gossip version announced for a
+// node, together with the vector the cache serves for it.
+type nodeFeatureSet struct {
+	v1, v2 *lnwire.FeatureVector
+
+	// preferred is the vector that preferredFeatures selects from v1 and
+	// v2. It is recomputed whenever either of them changes, so that the
+	// result doesn't depend on the order the announcements arrived in.
+	preferred *lnwire.FeatureVector
+}
+
+// preferredFeatures selects the features to advertise for a node that may be
+// announced on both gossip versions. The v2 features win, unless they are
+// empty and the node also has a v1 announcement, since an empty v2 vector
+// would otherwise hide the node's v1 features. A v2-only node keeps its empty
+// vector, so withdrawing its last feature bit clears its features.
+func preferredFeatures(v1, v2 *lnwire.FeatureVector) *lnwire.FeatureVector {
+	if v1 != nil && (v2 == nil || v2.IsEmpty()) {
+		return v1
+	}
+
+	return v2
+}
+
 // GraphCache is a type that holds a minimal set of information of the public
 // channel graph that can be used for pathfinding.
 type GraphCache struct {
 	nodeChannels map[route.Vertex]map[uint64]*DirectedChannel
-	nodeFeatures map[route.Vertex]*lnwire.FeatureVector
+	nodeFeatures map[route.Vertex]*nodeFeatureSet
 
 	mtx sync.RWMutex
 }
@@ -80,8 +118,7 @@ func NewGraphCache(preAllocNumNodes int) *GraphCache {
 			preAllocNumNodes*2,
 		),
 		nodeFeatures: make(
-			map[route.Vertex]*lnwire.FeatureVector,
-			preAllocNumNodes,
+			map[route.Vertex]*nodeFeatureSet, preAllocNumNodes,
 		),
 	}
 }
@@ -100,14 +137,48 @@ func (c *GraphCache) Stats() string {
 		numChannels)
 }
 
-// AddNodeFeatures adds a graph node and its features to the cache.
+// AddNodeFeatures adds a graph node and the features it announced on the
+// given gossip version to the cache. The features the cache serves for the
+// node are reselected from both versions, see preferredFeatures.
 func (c *GraphCache) AddNodeFeatures(node route.Vertex,
-	features *lnwire.FeatureVector) {
+	v lnwire.GossipVersion, features *lnwire.FeatureVector) {
 
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
-	c.nodeFeatures[node] = features
+	set, ok := c.nodeFeatures[node]
+	if !ok {
+		set = &nodeFeatureSet{}
+		c.nodeFeatures[node] = set
+	}
+
+	if v == lnwire.GossipVersion2 {
+		set.v2 = features
+	} else {
+		set.v1 = features
+	}
+
+	set.preferred = preferredFeatures(set.v1, set.v2)
+}
+
+// ReplaceChannel caches the given channel in place of any entry for its SCID,
+// whichever gossip version that entry was built from. It is used when the
+// version that the Store prefers for a channel changes, so that the edge and
+// both policies of the new version replace the old ones as a whole, instead of
+// leaving a policy of the old version behind.
+func (c *GraphCache) ReplaceChannel(info *models.CachedEdgeInfo,
+	policy1, policy2 *models.CachedEdgePolicy) {
+
+	if info == nil {
+		return
+	}
+
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+
+	c.removeChannelIfFound(info.NodeKey1Bytes, info.ChannelID)
+	c.removeChannelIfFound(info.NodeKey2Bytes, info.ChannelID)
+	c.addChannel(info, policy1, policy2)
 }
 
 // AddChannel adds a non-directed channel, meaning that the order of policy 1
@@ -117,6 +188,18 @@ func (c *GraphCache) AddNodeFeatures(node route.Vertex,
 func (c *GraphCache) AddChannel(info *models.CachedEdgeInfo,
 	policy1, policy2 *models.CachedEdgePolicy) {
 
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+
+	c.addChannel(info, policy1, policy2)
+}
+
+// addChannel implements AddChannel.
+//
+// NOTE: The write lock must be held when calling this function.
+func (c *GraphCache) addChannel(info *models.CachedEdgeInfo,
+	policy1, policy2 *models.CachedEdgePolicy) {
+
 	if info == nil {
 		return
 	}
@@ -124,20 +207,22 @@ func (c *GraphCache) AddChannel(info *models.CachedEdgeInfo,
 	// Create the edge entry for both nodes. We always add the channel
 	// structure to the cache, even if both policies are currently disabled,
 	// so that later policy updates can find and update the channel entry.
-	c.mtx.Lock()
+	hasPolicies := policy1 != nil || policy2 != nil
+
 	c.updateOrAddEdge(info.NodeKey1Bytes, &DirectedChannel{
 		ChannelID: info.ChannelID,
 		IsNode1:   true,
 		OtherNode: info.NodeKey2Bytes,
 		Capacity:  info.Capacity,
-	})
+		version:   info.Version,
+	}, hasPolicies)
 	c.updateOrAddEdge(info.NodeKey2Bytes, &DirectedChannel{
 		ChannelID: info.ChannelID,
 		IsNode1:   false,
 		OtherNode: info.NodeKey1Bytes,
 		Capacity:  info.Capacity,
-	})
-	c.mtx.Unlock()
+		version:   info.Version,
+	}, hasPolicies)
 
 	// Skip adding policies if both are disabled, as the channel is
 	// currently unusable for routing. However, we still add the channel
@@ -153,43 +238,89 @@ func (c *GraphCache) AddChannel(info *models.CachedEdgeInfo,
 	}
 
 	// The policy's node is always the to_node. So if policy 1 has to_node
-	// of node 2 then we have the policy 1 as seen from node 1.
+	// of node 2 then we have the policy 1 as seen from node 1. If the
+	// entry of another gossip version was kept above, updatePolicy leaves
+	// it alone, so the policies of this version can't leak into it.
 	if policy1 != nil {
 		fromNode, toNode := info.NodeKey1Bytes, info.NodeKey2Bytes
 		if !policy1.IsNode1 {
 			fromNode, toNode = toNode, fromNode
 		}
-		c.UpdatePolicy(policy1, fromNode, toNode)
+		c.updatePolicy(policy1, fromNode, toNode)
 	}
 	if policy2 != nil {
 		fromNode, toNode := info.NodeKey2Bytes, info.NodeKey1Bytes
 		if policy2.IsNode1 {
 			fromNode, toNode = toNode, fromNode
 		}
-		c.UpdatePolicy(policy2, fromNode, toNode)
+		c.updatePolicy(policy2, fromNode, toNode)
 	}
 }
 
 // updateOrAddEdge makes sure the edge information for a node is either updated
-// if it already exists or is added to that node's list of channels.
-func (c *GraphCache) updateOrAddEdge(node route.Vertex, edge *DirectedChannel) {
+// if it already exists or is added to that node's list of channels. An entry
+// that a lower ranked gossip version would replace is kept, see
+// preferIncomingEdge.
+func (c *GraphCache) updateOrAddEdge(node route.Vertex, edge *DirectedChannel,
+	hasPolicies bool) {
+
 	if len(c.nodeChannels[node]) == 0 {
 		c.nodeChannels[node] = make(map[uint64]*DirectedChannel)
 	}
 
+	existing, ok := c.nodeChannels[node][edge.ChannelID]
+	if ok && !preferIncomingEdge(existing, edge, hasPolicies) {
+		return
+	}
+
+	edge.hasPolicies = hasPolicies
 	c.nodeChannels[node][edge.ChannelID] = edge
+}
+
+// preferIncomingEdge reports whether an incoming edge outranks the cached
+// edge. An edge with policies wins, followed by the higher gossip version.
+func preferIncomingEdge(existing, incoming *DirectedChannel,
+	incomingHasPolicies bool) bool {
+
+	// A repeated announcement on the same version always wins, so that a
+	// channel whose policies were withdrawn also loses them here.
+	if existing.version == incoming.version {
+		return true
+	}
+
+	if existing.hasPolicies != incomingHasPolicies {
+		return incomingHasPolicies
+	}
+
+	return incoming.version > existing.version
 }
 
 // UpdatePolicy updates a single policy on both the from and to node. The order
 // of the from and to node is not strictly important. But we assume that a
 // channel edge was added beforehand so that the directed channel struct already
 // exists in the cache.
+//
+// The policy is only applied to an entry built from the policy's gossip
+// version. It returns false if the channel is cached from another version
+// that the policy's version now outranks, see preferIncomingEdge. The cached
+// entry is left untouched in that case, and the caller has to replace it with
+// the channel the Store now prefers, using ReplaceChannel.
 func (c *GraphCache) UpdatePolicy(policy *models.CachedEdgePolicy, fromNode,
-	toNode route.Vertex) {
+	toNode route.Vertex) bool {
 
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
+	return c.updatePolicy(policy, fromNode, toNode)
+}
+
+// updatePolicy implements UpdatePolicy.
+//
+// NOTE: The write lock must be held when calling this function.
+func (c *GraphCache) updatePolicy(policy *models.CachedEdgePolicy, fromNode,
+	toNode route.Vertex) bool {
+
+	upToDate := true
 	updatePolicy := func(nodeKey route.Vertex) {
 		if len(c.nodeChannels[nodeKey]) == 0 {
 			log.Debugf("Node=%v not found in graph cache", nodeKey)
@@ -204,6 +335,21 @@ func (c *GraphCache) UpdatePolicy(policy *models.CachedEdgePolicy, fromNode,
 
 			return
 		}
+
+		// A policy of another gossip version must not be mixed into
+		// this entry. If its version doesn't outrank the cached one,
+		// the cached entry stays the preferred one and the policy is
+		// ignored here. Otherwise, the whole entry is stale.
+		if channel.version != policy.Version {
+			incoming := &DirectedChannel{version: policy.Version}
+			if preferIncomingEdge(channel, incoming, true) {
+				upToDate = false
+			}
+
+			return
+		}
+
+		channel.hasPolicies = true
 
 		// Edge 1 is defined as the policy for the direction of node1 to
 		// node2.
@@ -233,6 +379,8 @@ func (c *GraphCache) UpdatePolicy(policy *models.CachedEdgePolicy, fromNode,
 
 	updatePolicy(fromNode)
 	updatePolicy(toNode)
+
+	return upToDate
 }
 
 // RemoveNode completely removes a node and all its channels (including the
@@ -262,6 +410,23 @@ func (c *GraphCache) RemoveChannel(node1, node2 route.Vertex, chanID uint64) {
 	c.removeChannelIfFound(node2, chanID)
 }
 
+// channelVersion returns the gossip version that the cached entry of a
+// channel was built from, as seen from the given node, and false if the node
+// has no cached entry for the channel.
+func (c *GraphCache) channelVersion(node route.Vertex,
+	chanID uint64) (lnwire.GossipVersion, bool) {
+
+	c.mtx.RLock()
+	defer c.mtx.RUnlock()
+
+	channel, ok := c.nodeChannels[node][chanID]
+	if !ok {
+		return 0, false
+	}
+
+	return channel.version, true
+}
+
 // removeChannelIfFound removes a single channel from one side.
 func (c *GraphCache) removeChannelIfFound(node route.Vertex, chanID uint64) {
 	if len(c.nodeChannels[node]) == 0 {
@@ -282,8 +447,10 @@ func (c *GraphCache) getChannels(node route.Vertex) []*DirectedChannel {
 		return nil
 	}
 
-	features, ok := c.nodeFeatures[node]
-	if !ok {
+	var features *lnwire.FeatureVector
+	if set, ok := c.nodeFeatures[node]; ok {
+		features = set.preferred
+	} else {
 		// If the features were set to nil explicitly, that's fine here.
 		// The router will overwrite the features of the destination
 		// node with those found in the invoice if necessary. But if we
@@ -368,12 +535,12 @@ func (c *GraphCache) GetFeatures(node route.Vertex) *lnwire.FeatureVector {
 	c.mtx.RLock()
 	defer c.mtx.RUnlock()
 
-	features, ok := c.nodeFeatures[node]
-	if !ok || features == nil {
+	set, ok := c.nodeFeatures[node]
+	if !ok || set.preferred == nil {
 		// The router expects the features to never be nil, so we return
 		// an empty feature set instead.
 		return lnwire.EmptyFeatureVector()
 	}
 
-	return features
+	return set.preferred
 }

@@ -62,7 +62,10 @@ func TestGraphCacheAddNode(t *testing.T) {
 			},
 		}
 		cache := NewGraphCache(10)
-		cache.AddNodeFeatures(nodeA, lnwire.EmptyFeatureVector())
+		cache.AddNodeFeatures(
+			nodeA, lnwire.GossipVersion1,
+			lnwire.EmptyFeatureVector(),
+		)
 		cache.AddChannel(&models.CachedEdgeInfo{
 			ChannelID: 1000,
 			// Those are direction independent!
@@ -253,4 +256,72 @@ func TestGraphCacheDisabledPoliciesRegression(t *testing.T) {
 	require.NotNil(t, foundChannels[0].InPolicy,
 		"incoming policy should be set after policy update")
 	require.Equal(t, uint16(40), foundChannels[0].InPolicy.TimeLockDelta)
+}
+
+// TestGraphCacheVersionedPolicies asserts that AddChannel doesn't apply the
+// policies of a channel announcement to a cached entry of another gossip
+// version that it doesn't replace. This happens when MarkEdgeLive re-adds the
+// v1 version of a channel whose policed v2 version is already cached.
+func TestGraphCacheVersionedPolicies(t *testing.T) {
+	t.Parallel()
+
+	const chanID = 1000
+
+	newInfo := func(v lnwire.GossipVersion) *models.CachedEdgeInfo {
+		return &models.CachedEdgeInfo{
+			ChannelID:     chanID,
+			NodeKey1Bytes: pubKey1,
+			NodeKey2Bytes: pubKey2,
+			Capacity:      500,
+			Version:       v,
+		}
+	}
+	newPolicy := func(v lnwire.GossipVersion, isNode1 bool,
+		fee lnwire.MilliSatoshi) *models.CachedEdgePolicy {
+
+		return &models.CachedEdgePolicy{
+			ChannelID:   chanID,
+			IsNode1:     isNode1,
+			Version:     v,
+			FeeBaseMSat: fee,
+		}
+	}
+	cachedChan := func(cache *GraphCache,
+		node route.Vertex) *DirectedChannel {
+
+		var found *DirectedChannel
+		err := cache.ForEachChannel(
+			node, func(c *DirectedChannel) error {
+				found = c
+
+				return nil
+			},
+		)
+		require.NoError(t, err)
+		require.NotNil(t, found)
+
+		return found
+	}
+
+	cache := NewGraphCache(10)
+	cache.AddChannel(
+		newInfo(lnwire.GossipVersion2),
+		newPolicy(lnwire.GossipVersion2, true, 200), nil,
+	)
+
+	// The v1 announcement loses against the policed v2 entry, so its
+	// policies must not be applied to that entry.
+	cache.AddChannel(
+		newInfo(lnwire.GossipVersion1),
+		newPolicy(lnwire.GossipVersion1, true, 100),
+		newPolicy(lnwire.GossipVersion1, false, 100),
+	)
+
+	node1Chan := cachedChan(cache, pubKey1)
+	require.Nil(t, node1Chan.InPolicy)
+
+	node2Chan := cachedChan(cache, pubKey2)
+	require.NotNil(t, node2Chan.InPolicy)
+	require.Equal(t, lnwire.GossipVersion2, node2Chan.InPolicy.Version)
+	require.EqualValues(t, 200, node2Chan.InPolicy.FeeBaseMSat)
 }

@@ -2001,7 +2001,7 @@ func (s *SQLStore) ForEachChannelCacheable(ctx context.Context,
 		}
 
 		edge := buildCacheableChannelInfo(
-			row.Scid, row.Capacity.Int64, node1, node2,
+			v, row.Scid, row.Capacity.Int64, node1, node2,
 		)
 
 		dbPol1, dbPol2, err := extractChannelPolicies(row)
@@ -4221,6 +4221,13 @@ func (s *SQLStore) GraphSession(ctx context.Context,
 
 // sqlNodeTraverser implements the NodeTraverser interface but with a backing
 // read only transaction for a consistent view of the graph.
+//
+// ChannelGraph reads through this type whenever its in-memory graph cache
+// can't serve reads. The SQL backend always runs with the cache enabled, but
+// the cache is populated asynchronously at startup and pathfinding runs on
+// these reads until that is done, or for good if it fails. The reads below
+// therefore apply the same cross-version precedence as the cache, so that v2
+// channels and features don't disappear from pathfinding in the meantime.
 type sqlNodeTraverser struct {
 	db    SQLQueries
 	chain chainhash.Hash
@@ -4248,9 +4255,7 @@ func (s *sqlNodeTraverser) ForEachNodeDirectedChannel(
 	ctx context.Context, nodePub route.Vertex,
 	cb func(channel *DirectedChannel) error, _ func()) error {
 
-	return forEachNodeDirectedChannel(
-		ctx, s.db, lnwire.GossipVersion1, nodePub, cb,
-	)
+	return forEachPreferredNodeDirectedChannel(ctx, s.db, nodePub, cb)
 }
 
 // FetchNodeFeatures returns the features of the given node. If the node is
@@ -4261,7 +4266,98 @@ func (s *sqlNodeTraverser) FetchNodeFeatures(ctx context.Context,
 	nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
-	return fetchNodeFeatures(ctx, s.db, lnwire.GossipVersion1, nodePub)
+	return fetchPreferredNodeFeatures(ctx, s.db, nodePub)
+}
+
+// forEachPreferredNodeDirectedChannel is the cross-version counterpart of
+// forEachNodeDirectedChannel. It yields each channel of the node once: a
+// channel announced on both gossip versions is taken from the version that the
+// preferred-channel mapping selects, which is the version the graph cache
+// holds for it. The incoming policies carry the node's features as selected by
+// fetchPreferredNodeFeatures.
+func forEachPreferredNodeDirectedChannel(ctx context.Context, db SQLQueries,
+	nodePub route.Vertex, cb func(channel *DirectedChannel) error) error {
+
+	var (
+		channels []*DirectedChannel
+		indices  = make(map[uint64]int)
+	)
+	for _, v := range []lnwire.GossipVersion{gossipV1, gossipV2} {
+		collect := func(channel *DirectedChannel) error {
+			i, ok := indices[channel.ChannelID]
+			if !ok {
+				indices[channel.ChannelID] = len(channels)
+				channels = append(channels, channel)
+
+				return nil
+			}
+
+			// The channel is announced on both versions, so let
+			// the preferred mapping decide.
+			scid := channelIDToBytes(channel.ChannelID)
+			preferred, err := db.GetPreferredChannelVersionBySCID(
+				ctx, scid,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to fetch preferred "+
+					"version of channel %v: %w",
+					channel.ChannelID, err)
+			}
+
+			if lnwire.GossipVersion(preferred) == v {
+				channels[i] = channel
+			}
+
+			return nil
+		}
+
+		err := forEachNodeDirectedChannel(
+			ctx, db, v, nodePub, collect,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(channels) == 0 {
+		return nil
+	}
+
+	features, err := fetchPreferredNodeFeatures(ctx, db, nodePub)
+	if err != nil {
+		return err
+	}
+
+	for _, channel := range channels {
+		if channel.InPolicy != nil {
+			channel.InPolicy.ToNodeFeatures = features
+		}
+
+		if err := cb(channel); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// fetchPreferredNodeFeatures returns the features of a node across both gossip
+// versions, selected the same way as the graph cache selects them, see
+// preferredFeatures.
+func fetchPreferredNodeFeatures(ctx context.Context, db SQLQueries,
+	nodePub route.Vertex) (*lnwire.FeatureVector, error) {
+
+	v1Features, err := fetchNodeFeatures(ctx, db, gossipV1, nodePub)
+	if err != nil {
+		return nil, err
+	}
+
+	v2Features, err := fetchNodeFeatures(ctx, db, gossipV2, nodePub)
+	if err != nil {
+		return nil, err
+	}
+
+	return preferredFeatures(v1Features, v2Features), nil
 }
 
 // forEachNodeDirectedChannel iterates through all channels of a given
@@ -4319,8 +4415,8 @@ func forEachNodeDirectedChannel(ctx context.Context, db SQLQueries,
 		}
 
 		edge := buildCacheableChannelInfo(
-			row.GraphChannel.Scid, row.GraphChannel.Capacity.Int64,
-			node1, node2,
+			v, row.GraphChannel.Scid,
+			row.GraphChannel.Capacity.Int64, node1, node2,
 		)
 
 		dbPol1, dbPol2, err := extractChannelPolicies(row)
@@ -4682,7 +4778,8 @@ func getNodeByPubKey(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
 
 // buildCacheableChannelInfo builds a models.CachedEdgeInfo instance from the
 // provided parameters.
-func buildCacheableChannelInfo(scid []byte, capacity int64, node1Pub,
+func buildCacheableChannelInfo(v lnwire.GossipVersion, scid []byte,
+	capacity int64, node1Pub,
 	node2Pub route.Vertex) *models.CachedEdgeInfo {
 
 	return &models.CachedEdgeInfo{
@@ -4690,6 +4787,7 @@ func buildCacheableChannelInfo(scid []byte, capacity int64, node1Pub,
 		NodeKey1Bytes: node1Pub,
 		NodeKey2Bytes: node2Pub,
 		Capacity:      btcutil.Amount(capacity),
+		Version:       v,
 	}
 }
 

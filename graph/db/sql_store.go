@@ -55,6 +55,7 @@ type SQLQueries interface {
 	GetNodesByBlockHeightRange(ctx context.Context, arg sqlc.GetNodesByBlockHeightRangeParams) ([]sqlc.GraphNode, error)
 	GetPublicNodesByLastUpdateRange(ctx context.Context, arg sqlc.GetPublicNodesByLastUpdateRangeParams) ([]sqlc.GraphNode, error)
 	ListNodesPaginated(ctx context.Context, arg sqlc.ListNodesPaginatedParams) ([]sqlc.GraphNode, error)
+	UpsertPreferredNode(ctx context.Context, pubKey []byte) error
 	ListNodeIDsAndPubKeys(ctx context.Context, arg sqlc.ListNodeIDsAndPubKeysParams) ([]sqlc.ListNodeIDsAndPubKeysRow, error)
 	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
 	IsPublicV2Node(ctx context.Context, pubKey []byte) (bool, error)
@@ -105,6 +106,7 @@ type SQLQueries interface {
 	ListChannelsByNodeID(ctx context.Context, arg sqlc.ListChannelsByNodeIDParams) ([]sqlc.ListChannelsByNodeIDRow, error)
 	ListChannelsForNodeIDs(ctx context.Context, arg sqlc.ListChannelsForNodeIDsParams) ([]sqlc.ListChannelsForNodeIDsRow, error)
 	ListChannelsWithPoliciesPaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesPaginatedParams) ([]sqlc.ListChannelsWithPoliciesPaginatedRow, error)
+	UpsertPreferredChannel(ctx context.Context, scid []byte) error
 	ListChannelsWithPoliciesForCachePaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesForCachePaginatedParams) ([]sqlc.ListChannelsWithPoliciesForCachePaginatedRow, error)
 	ListChannelsPaginated(ctx context.Context, arg sqlc.ListChannelsPaginatedParams) ([]sqlc.ListChannelsPaginatedRow, error)
 	ListChannelsPaginatedV2(ctx context.Context, arg sqlc.ListChannelsPaginatedV2Params) ([]sqlc.ListChannelsPaginatedV2Row, error)
@@ -439,7 +441,13 @@ func (s *SQLStore) DeleteNode(ctx context.Context, v lnwire.GossipVersion,
 			return fmt.Errorf("deleted %d rows, expected 1", rows)
 		}
 
-		return err
+		// Recompute the preferred mapping. If another version of
+		// this node still exists, UpsertPreferredNode will point
+		// the mapping at it. If no version remains, the
+		// INSERT...SELECT is a no-op and the CASCADE on the FK
+		// already removed the mapping row when the node was
+		// deleted above.
+		return db.UpsertPreferredNode(ctx, pubKey[:])
 	}, sqldb.NoOpReset)
 	if err != nil {
 		return fmt.Errorf("unable to delete node: %w", err)
@@ -2432,7 +2440,25 @@ func (s *SQLStore) DeleteChannelEdges(ctx context.Context,
 			}
 		}
 
-		return s.deleteChannels(ctx, db, chanIDsToDelete)
+		err = s.deleteChannels(ctx, db, chanIDsToDelete)
+		if err != nil {
+			return err
+		}
+
+		// The CASCADE on graph_preferred_channels will have
+		// removed the mapping row for any deleted channel. If
+		// another version of the same SCID still exists, we
+		// need to re-insert the mapping.
+		for _, chanID := range chanIDs {
+			scidBytes := channelIDToBytes(chanID)
+			err = db.UpsertPreferredChannel(ctx, scidBytes)
+			if err != nil {
+				return fmt.Errorf("recalc preferred "+
+					"channel(%d): %w", chanID, err)
+			}
+		}
+
+		return nil
 	}, func() {
 		edges = nil
 
@@ -3592,6 +3618,10 @@ func (s *SQLStore) PruneGraph(ctx context.Context,
 			return err
 		}
 
+		// Delete all matched channels. GetChannelsByOutpoints
+		// returns every version for a given outpoint, so all
+		// versions are deleted and the CASCADE on
+		// graph_preferred_channels handles cleanup.
 		err = s.deleteChannels(ctx, db, chansToDelete)
 		if err != nil {
 			return fmt.Errorf("unable to delete channels: %w", err)
@@ -3899,9 +3929,22 @@ func (s *SQLStore) pruneGraphNodes(ctx context.Context,
 			"nodes: %w", err)
 	}
 
+	// Recalc preferred node mappings for all affected pub_keys. The
+	// CASCADE may have removed some entries; if another version of the
+	// node still exists, UpsertPreferredNode will re-insert the mapping.
+	// If no version remains, the upsert is a no-op (the INSERT ... SELECT
+	// returns no rows). Note that nodeKeys may contain duplicates if a
+	// node existed in multiple gossip versions and was pruned in all of
+	// them; UpsertPreferredNode is idempotent, so this is harmless.
 	prunedNodes := make([]route.Vertex, len(nodeKeys))
-	for i, nodeKey := range nodeKeys {
-		pub, err := route.NewVertexFromBytes(nodeKey)
+	for i, key := range nodeKeys {
+		err = db.UpsertPreferredNode(ctx, key)
+		if err != nil {
+			return nil, fmt.Errorf("recalc preferred "+
+				"node: %w", err)
+		}
+
+		pub, err := route.NewVertexFromBytes(key)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse pubkey "+
 				"from bytes: %w", err)
@@ -3976,6 +4019,10 @@ func (s *SQLStore) DisconnectBlockAtHeight(ctx context.Context,
 
 		removedChans = channelEdges
 
+		// Delete all matched channels. GetChannelsBySCIDRange
+		// returns every version for a given SCID, so all versions
+		// are deleted and the CASCADE on
+		// graph_preferred_channels handles cleanup.
 		err = s.deleteChannels(ctx, db, chanIDsToDelete)
 		if err != nil {
 			return fmt.Errorf("unable to delete channels: %w", err)
@@ -4558,6 +4605,15 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 			"policy extra TLVs: %w", err)
 	}
 
+	// Adding a policy may change which version is preferred for this
+	// SCID (a version with policies outranks one without).
+	scidBytes := channelIDToBytes(edge.ChannelID)
+	err = tx.UpsertPreferredChannel(ctx, scidBytes)
+	if err != nil {
+		return node1Pub, node2Pub, false, fmt.Errorf("upserting "+
+			"preferred channel(%d): %w", edge.ChannelID, err)
+	}
+
 	return node1Pub, node2Pub, isNode1, nil
 }
 
@@ -4911,6 +4967,13 @@ func upsertSourceNode(ctx context.Context, db SQLQueries,
 			node.PubKeyBytes, err)
 	}
 
+	// Recompute the preferred node mapping for this pub_key.
+	err = db.UpsertPreferredNode(ctx, node.PubKeyBytes[:])
+	if err != nil {
+		return 0, fmt.Errorf("upserting preferred node(%x): %w",
+			node.PubKeyBytes, err)
+	}
+
 	// We can exit here if we don't have the announcement yet.
 	if !node.HaveAnnouncement() {
 		return nodeID, nil
@@ -4945,6 +5008,15 @@ func upsertNode(ctx context.Context, db SQLQueries,
 	if err != nil {
 		return 0, fmt.Errorf("upserting node(%x): %w", node.PubKeyBytes,
 			err)
+	}
+
+	// Recompute the preferred node mapping for this pub_key. Even a shell
+	// node may become the preferred entry (e.g. first v2 shell for a key
+	// that previously only existed as a v1 shell).
+	err = db.UpsertPreferredNode(ctx, node.PubKeyBytes[:])
+	if err != nil {
+		return 0, fmt.Errorf("upserting preferred node(%x): %w",
+			node.PubKeyBytes, err)
 	}
 
 	// We can exit here if we don't have the announcement yet.
@@ -5429,6 +5501,14 @@ func insertChannel(ctx context.Context, db SQLQueries,
 		}
 	}
 
+	// Recompute the preferred channel mapping for this SCID.
+	scidBytes := channelIDToBytes(edge.ChannelID)
+	err = db.UpsertPreferredChannel(ctx, scidBytes)
+	if err != nil {
+		return fmt.Errorf("upserting preferred channel(%d): %w",
+			edge.ChannelID, err)
+	}
+
 	return nil
 }
 
@@ -5460,6 +5540,13 @@ func maybeCreateShellNode(ctx context.Context, db SQLQueries,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("unable to create shell node: %w", err)
+	}
+
+	// Recompute the preferred node mapping for this pub_key.
+	err = db.UpsertPreferredNode(ctx, pubKey[:])
+	if err != nil {
+		return 0, fmt.Errorf("upserting preferred node(%x): %w",
+			pubKey[:], err)
 	}
 
 	return id, nil

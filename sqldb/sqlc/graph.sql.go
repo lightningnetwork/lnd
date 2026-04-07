@@ -4171,52 +4171,6 @@ func (q *Queries) ListNodeIDsAndPubKeys(ctx context.Context, arg ListNodeIDsAndP
 	return items, nil
 }
 
-const listNodesPaginated = `-- name: ListNodesPaginated :many
-SELECT id, version, pub_key, alias, last_update, color, signature, block_height
-FROM graph_nodes
-WHERE version = $1 AND id > $2
-ORDER BY id
-LIMIT $3
-`
-
-type ListNodesPaginatedParams struct {
-	Version int16
-	ID      int64
-	Limit   int32
-}
-
-func (q *Queries) ListNodesPaginated(ctx context.Context, arg ListNodesPaginatedParams) ([]GraphNode, error) {
-	rows, err := q.db.QueryContext(ctx, listNodesPaginated, arg.Version, arg.ID, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GraphNode
-	for rows.Next() {
-		var i GraphNode
-		if err := rows.Scan(
-			&i.ID,
-			&i.Version,
-			&i.PubKey,
-			&i.Alias,
-			&i.LastUpdate,
-			&i.Color,
-			&i.Signature,
-			&i.BlockHeight,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listPreferredChannelsPaginated = `-- name: ListPreferredChannelsPaginated :many
 SELECT
     c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature, c.signature, c.funding_pk_script, c.merkle_root_hash,

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/watchonlyrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -857,7 +858,8 @@ func TestRemoteSignerReconnectsDuringResponseWait(t *testing.T) {
 
 	// Verify that the request has the expected request ID and that it's a
 	// Ping request.
-	require.Equal(t, uint64(2), req.GetRequestId())
+	originalReqID := req.GetRequestId()
+	require.Equal(t, uint64(2), originalReqID)
 	require.True(t, req.GetPing())
 
 	// Verify that the coordinator has correctly set up a single response
@@ -886,13 +888,15 @@ func TestRemoteSignerReconnectsDuringResponseWait(t *testing.T) {
 	stream, _ = setupNewStream(t, coordinator)
 
 	// This should lead to that the sign coordinator resends the Ping
-	// request it's needs a response for over the new stream.
+	// request it still needs a response for over the new stream.
 	req, err = getRequest(stream)
 	require.NoError(t, err)
 
-	// Note that the request ID will be 3 for the resent request, as the
-	// coordinator will no longer wait for the response for the request with
-	// request ID 2.
+	// Verify that the resent request is explicitly another Ping from the
+	// watch-only node, not some unrelated follow-up request. The request
+	// ID must also be new, as the coordinator no longer waits for the
+	// response to the disconnected request.
+	require.NotEqual(t, originalReqID, req.GetRequestId())
 	require.Equal(t, uint64(3), req.GetRequestId())
 	require.True(t, req.GetPing())
 
@@ -923,6 +927,66 @@ func TestRemoteSignerReconnectsDuringResponseWait(t *testing.T) {
 	require.Less(t, time.Since(startTime), pingTimeout)
 
 	// Verify the responses map is empty after all responses are received
+	require.Equal(t, coordinator.responses.Len(), 0)
+}
+
+// TestMuSig2RequestDoesNotRetryOnReconnect verifies that stateful MuSig2
+// requests are not replayed after the remote signer disconnects and later
+// reconnects.
+func TestMuSig2RequestDoesNotRetryOnReconnect(t *testing.T) {
+	t.Parallel()
+
+	coordinator, stream, runErrChan := setupSignCoordinator(t)
+
+	var (
+		wg     sync.WaitGroup
+		reqErr error
+	)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		_, reqErr = coordinator.MuSig2CreateSession(
+			t.Context(), &signrpc.MuSig2SessionRequest{},
+		)
+	}()
+
+	req, err := getRequest(stream)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), req.GetRequestId())
+	require.NotNil(t, req.GetMuSig2SessionRequest())
+
+	// Verify that the coordinator tracks the outstanding MuSig2 request
+	// while it is waiting for the signer response.
+	require.Equal(t, coordinator.responses.Len(), 1)
+	_, ok := coordinator.responses.Load(uint64(2))
+	require.True(t, ok)
+
+	// Simulate that the signer disconnects before it responds.
+	stream.Cancel()
+
+	err = <-runErrChan
+	require.Equal(t, ErrStreamCanceled, err)
+
+	<-coordinator.disconnected
+
+	// Reconnect the signer. Since MuSig2 requests are stateful, the
+	// coordinator must not replay the request on the new stream.
+	stream, _ = setupNewStream(t, coordinator)
+
+	wg.Wait()
+	require.Equal(t, ErrNotConnected, reqErr)
+
+	select {
+	case req := <-stream.sendChan:
+		t.Fatalf("unexpected replayed request after reconnect: %T",
+			req.GetSignRequestType())
+
+	case <-time.After(1 * time.Second):
+		// No new request was sent.
+	}
+
 	require.Equal(t, coordinator.responses.Len(), 0)
 }
 

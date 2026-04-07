@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -227,8 +228,8 @@ func (s *StreamFeeder) getClientConn(
 		grpc.WithPerRPCCredentials(macCred),
 	}
 
-	log.InfoS(ctx, "Attempting to connect to the watch-only node on: %s",
-		s.cfg.RPCHost)
+	log.InfoS(ctx, "Attempting to connect to the watch-only node",
+		slog.String("rpc_host", s.cfg.RPCHost))
 
 	// Connect to the watch-only node using the new context.
 	return grpc.DialContext(ctx, s.cfg.RPCHost, opts...)
@@ -486,9 +487,11 @@ func (r *OutboundClient) handshake(ctx context.Context, stream *Stream) error {
 
 	// registrationMsg is the message that we send to the watch-only node to
 	// initiate the handshake process.
-	// TODO(viktor): This could be extended to include info about the
-	// version of the remote signer in the future.
-	// The RegistrationChallenge should also be set to a randomized string.
+	// TODO(viktor): The current authentication model is TLS + macaroon.
+	// This message could later be extended with version information and a
+	// randomized RegistrationChallenge as part of a future mutual-auth
+	// extension, but it does not currently provide signer identity
+	// verification on its own.
 	var registrationMsg = &watchonlyrpc.SignCoordinatorResponse{
 		RefRequestId: handshakeRequestID,
 		SignResponseType: &RSRegistration{

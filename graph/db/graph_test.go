@@ -1382,6 +1382,7 @@ func assertEdgeWithNoPoliciesInCache(t *testing.T, g *ChannelGraph,
 		Capacity:     e.Capacity,
 		OutPolicySet: false,
 		InPolicy:     nil,
+		version:      e.Version,
 	}
 	nodeChannels := g.cache.graphCache.nodeChannels
 	require.Contains(
@@ -1399,6 +1400,7 @@ func assertEdgeWithNoPoliciesInCache(t *testing.T, g *ChannelGraph,
 		Capacity:     e.Capacity,
 		OutPolicySet: false,
 		InPolicy:     nil,
+		version:      e.Version,
 	}
 	require.Contains(
 		t, nodeChannels[e.NodeKey2Bytes], e.ChannelID,
@@ -6995,6 +6997,68 @@ func TestDeleteNodePreferredRecomputation(t *testing.T) {
 		"node should be gone after deleting all versions")
 }
 
+// TestNoCacheNodeTraversal verifies that the no-cache fallback paths of
+// ChannelGraph.FetchNodeFeatures and ChannelGraph.ForEachNodeDirectedChannel
+// return v1 data correctly. The no-cache path is only ever reached on the KV
+// backend in production (which is v1-only), so cross-version semantics are
+// the cache path's job, not this one's.
+func TestNoCacheNodeTraversal(t *testing.T) {
+	t.Parallel()
+
+	if !isSQLDB {
+		t.Skip("test only meaningful for SQL backend")
+	}
+
+	ctx := t.Context()
+
+	// Disable the cache so we exercise the no-cache code paths.
+	graph := MakeTestGraph(t, WithUseGraphCache(false))
+
+	priv1, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	priv2, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	node1 := createNode(t, lnwire.GossipVersion1, priv1)
+	node2 := createNode(t, lnwire.GossipVersion1, priv2)
+	require.NoError(t, graph.AddNode(ctx, node1))
+	require.NoError(t, graph.AddNode(ctx, node2))
+
+	// FetchNodeFeatures should return the node's v1 features.
+	features, err := graph.FetchNodeFeatures(ctx, node1.PubKeyBytes)
+	require.NoError(t, err)
+	require.False(t, features.IsEmpty(),
+		"v1 node should have features")
+
+	// Add a v1 channel and verify ForEachNodeDirectedChannel sees it.
+	edge, _ := createEdge(
+		lnwire.GossipVersion1, 100, 0, 0, 0, node1, node2,
+	)
+	require.NoError(t, graph.AddChannelEdge(ctx, edge))
+
+	pol := newEdgePolicy(
+		lnwire.GossipVersion1, edge.ChannelID, 1000, true,
+	)
+	pol.ToNode = node2.PubKeyBytes
+	pol.SigBytes = testSig.Serialize()
+	require.NoError(t, graph.UpdateEdgePolicy(ctx, pol))
+
+	var foundChannels int
+	err = graph.ForEachNodeDirectedChannel(
+		ctx, node1.PubKeyBytes,
+		func(_ *DirectedChannel) error {
+			foundChannels++
+
+			return nil
+		}, func() {
+			foundChannels = 0
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, 1, foundChannels,
+		"expected 1 channel for v1 node")
+}
+
 // TestPreferredForEachNode verifies that SQLStore.ForEachNode returns one
 // node per pubkey, preferring the highest announced version and otherwise
 // falling back to the highest-version shell node.
@@ -7214,6 +7278,136 @@ func TestPreferredForEachChannel(t *testing.T) {
 	require.Nil(t, gotShellPref.p2)
 }
 
+// cachedChannel returns the cached directed channel that the given node holds
+// for the given SCID, or nil if the cache holds no such channel.
+func cachedChannel(t *testing.T, g *ChannelGraph, node route.Vertex,
+	scid uint64) *DirectedChannel {
+
+	t.Helper()
+
+	var found *DirectedChannel
+	err := g.ForEachNodeDirectedChannel(
+		t.Context(), node, func(c *DirectedChannel) error {
+			if c.ChannelID == scid {
+				found = c
+			}
+
+			return nil
+		}, func() {},
+	)
+	require.NoError(t, err)
+
+	return found
+}
+
+// TestCachePrefersPolicedChannelVersion asserts that the graph cache resolves a
+// channel announced on both gossip versions the same way the preferred lookup
+// tables do: the version that carries policies outranks the bare one. If the
+// two views disagreed, the channel would be routable in RPC output and
+// unroutable for pathfinding.
+func TestCachePrefersPolicedChannelVersion(t *testing.T) {
+	t.Parallel()
+
+	if !isSQLDB {
+		t.Skip("preferred lookup requires SQL backend")
+	}
+
+	ctx := t.Context()
+	graph := MakeTestGraph(t)
+	store := graph.db
+
+	node1Priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	node2Priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	node1V1 := createNode(t, lnwire.GossipVersion1, node1Priv)
+	node1V2 := createNode(t, lnwire.GossipVersion2, node1Priv)
+	node2V1 := createNode(t, lnwire.GossipVersion1, node2Priv)
+	node2V2 := createNode(t, lnwire.GossipVersion2, node2Priv)
+
+	for _, n := range []*models.Node{node1V1, node1V2, node2V1, node2V2} {
+		require.NoError(t, graph.AddNode(ctx, n))
+	}
+
+	// The channel is announced on v1 with a policy from node 1, and then a
+	// second time on v2 with no policy at all.
+	policedV1, _ := createEdge(
+		lnwire.GossipVersion1, 300, 0, 0, 1, node1V1, node2V1,
+	)
+	require.NoError(t, graph.AddChannelEdge(ctx, policedV1))
+
+	policy := newEdgePolicy(
+		lnwire.GossipVersion1, policedV1.ChannelID, 1000, true,
+	)
+	policy.ToNode = node2V1.PubKeyBytes
+	policy.SigBytes = testSig.Serialize()
+	require.NoError(t, graph.UpdateEdgePolicy(ctx, policy))
+
+	bareV2, _ := createEdge(
+		lnwire.GossipVersion2, 300, 0, 0, 1, node1V2, node2V2,
+	)
+	require.NoError(t, graph.AddChannelEdge(ctx, bareV2))
+
+	// The preferred lookup keeps the policed v1 announcement.
+	var (
+		gotInfo   *models.ChannelEdgeInfo
+		gotPolicy *models.ChannelEdgePolicy
+	)
+	err = store.ForEachChannel(ctx, func(info *models.ChannelEdgeInfo,
+		p1, _ *models.ChannelEdgePolicy) error {
+
+		if info.ChannelID != policedV1.ChannelID {
+			return nil
+		}
+
+		gotInfo, gotPolicy = info, p1
+
+		return nil
+	}, func() {
+		gotInfo, gotPolicy = nil, nil
+	})
+	require.NoError(t, err)
+	require.NotNil(t, gotInfo)
+	require.Equal(t, lnwire.GossipVersion1, gotInfo.Version)
+	require.NotNil(t, gotPolicy)
+
+	// The cache must reach the same verdict, both for the writes applied
+	// while it was live and for a fresh load of the same store.
+	assertPolicyCached := func(g *ChannelGraph) {
+		t.Helper()
+
+		node1Chan := cachedChannel(
+			t, g, node1V1.PubKeyBytes, policedV1.ChannelID,
+		)
+		require.NotNil(t, node1Chan)
+		require.True(
+			t, node1Chan.OutPolicySet, "node 1 lost its outgoing "+
+				"policy to the bare v2 announcement",
+		)
+
+		node2Chan := cachedChannel(
+			t, g, node2V1.PubKeyBytes, policedV1.ChannelID,
+		)
+		require.NotNil(t, node2Chan)
+		require.NotNil(
+			t, node2Chan.InPolicy, "node 2 lost its incoming "+
+				"policy to the bare v2 announcement",
+		)
+	}
+
+	assertPolicyCached(graph)
+
+	reloaded, err := NewChannelGraph(store, WithSyncGraphCachePopulation())
+	require.NoError(t, err)
+	require.NoError(t, reloaded.Start())
+	t.Cleanup(func() {
+		require.NoError(t, reloaded.Stop())
+	})
+
+	assertPolicyCached(reloaded)
+}
+
 // TestDeleteChannelPreferredRecomputation asserts that deleting one gossip
 // version of a channel leaves the other version reachable through the
 // cross-version iteration. The cascade drops the preferred mapping row along
@@ -7296,6 +7490,66 @@ func TestDeleteChannelPreferredRecomputation(t *testing.T) {
 		ctx, lnwire.GossipVersion1, false, false, chanV1.ChannelID,
 	))
 	require.Empty(t, fetchVersions())
+}
+
+// TestCacheKeepsFeaturesOverEmptyV2 asserts that a node announced on v2 with
+// no features does not shadow the feature vector it announced on v1. The cache
+// keys features by pub key alone, so both the live write path and a fresh
+// cache load have to rank the two announcements the same way.
+func TestCacheKeepsFeaturesOverEmptyV2(t *testing.T) {
+	t.Parallel()
+
+	if !isSQLDB {
+		t.Skip("cross-version nodes require SQL backend")
+	}
+
+	ctx := t.Context()
+	graph := MakeTestGraph(t)
+	store := graph.db
+
+	nodePriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	nodeV1 := createNode(t, lnwire.GossipVersion1, nodePriv)
+	require.False(t, nodeV1.Features.IsEmpty())
+	require.NoError(t, graph.AddNode(ctx, nodeV1))
+
+	// The same node re-announces on v2 without any feature bits.
+	pubKey := route.NewVertex(nodePriv.PubKey())
+	nodeV2 := models.NewV2Node(pubKey, &models.NodeV2Fields{
+		Signature:       testSig.Serialize(),
+		LastBlockHeight: nextBlockHeight(),
+		Features:        lnwire.NewRawFeatureVector(),
+		Addresses:       testAddrs,
+	})
+	require.True(t, nodeV2.Features.IsEmpty())
+	require.NoError(t, graph.AddNode(ctx, nodeV2))
+
+	assertV1Features := func(g *ChannelGraph) {
+		t.Helper()
+
+		features, err := g.FetchNodeFeatures(ctx, pubKey)
+		require.NoError(t, err)
+		require.False(
+			t, features.IsEmpty(), "empty v2 features shadowed "+
+				"the v1 announcement",
+		)
+		require.Equal(
+			t, nodeV1.Features.RawFeatureVector,
+			features.RawFeatureVector,
+		)
+	}
+
+	assertV1Features(graph)
+
+	reloaded, err := NewChannelGraph(store, WithSyncGraphCachePopulation())
+	require.NoError(t, err)
+	require.NoError(t, reloaded.Start())
+	t.Cleanup(func() {
+		require.NoError(t, reloaded.Stop())
+	})
+
+	assertV1Features(reloaded)
 }
 
 // TestPreferredIterationPaging asserts that the byte cursors used by the

@@ -1946,7 +1946,7 @@ func (s *SQLStore) ForEachChannelCacheable(ctx context.Context,
 		}
 
 		edge := buildCacheableChannelInfo(
-			row.Scid, row.Capacity.Int64, node1, node2,
+			v, row.Scid, row.Capacity.Int64, node1, node2,
 		)
 
 		dbPol1, dbPol2, err := extractChannelPolicies(row)
@@ -4275,8 +4275,8 @@ func forEachNodeDirectedChannel(ctx context.Context, db SQLQueries,
 		}
 
 		edge := buildCacheableChannelInfo(
-			row.GraphChannel.Scid, row.GraphChannel.Capacity.Int64,
-			node1, node2,
+			v, row.GraphChannel.Scid,
+			row.GraphChannel.Capacity.Int64, node1, node2,
 		)
 
 		dbPol1, dbPol2, err := extractChannelPolicies(row)
@@ -4638,7 +4638,8 @@ func getNodeByPubKey(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
 
 // buildCacheableChannelInfo builds a models.CachedEdgeInfo instance from the
 // provided parameters.
-func buildCacheableChannelInfo(scid []byte, capacity int64, node1Pub,
+func buildCacheableChannelInfo(v lnwire.GossipVersion, scid []byte,
+	capacity int64, node1Pub,
 	node2Pub route.Vertex) *models.CachedEdgeInfo {
 
 	return &models.CachedEdgeInfo{
@@ -4646,6 +4647,7 @@ func buildCacheableChannelInfo(scid []byte, capacity int64, node1Pub,
 		NodeKey1Bytes: node1Pub,
 		NodeKey2Bytes: node2Pub,
 		Capacity:      btcutil.Amount(capacity),
+		Version:       v,
 	}
 }
 

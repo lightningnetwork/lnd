@@ -283,7 +283,15 @@ func TestMigrateSingleInvoiceRapid(t *testing.T) {
 
 		testClock := clock.NewTestClock(time.Unix(1, 0))
 
-		return NewSQLStore(executor, testClock)
+		queryCfg := sqldb.DefaultSQLiteConfig()
+		if !sqlite {
+			queryCfg = sqldb.DefaultPostgresConfig()
+		}
+
+		return NewSQLStore(
+			&SQLStoreConfig{QueryCfg: queryCfg},
+			executor, testClock,
+		)
 	}
 
 	// Define property-based test using rapid.

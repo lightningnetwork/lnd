@@ -1246,6 +1246,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		)
 
 		sqlInvoiceDB := invoices.NewSQLStore(
+			&invoices.SQLStoreConfig{QueryCfg: queryCfg},
 			invoiceExecutor, clock.NewDefaultClock(),
 		)
 

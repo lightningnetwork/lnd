@@ -39,7 +39,11 @@ type Querier interface {
 	FailAttempt(ctx context.Context, arg FailAttemptParams) error
 	FailPayment(ctx context.Context, arg FailPaymentParams) (sql.Result, error)
 	FetchAMPSubInvoiceHTLCs(ctx context.Context, arg FetchAMPSubInvoiceHTLCsParams) ([]FetchAMPSubInvoiceHTLCsRow, error)
+	// Batch version of FetchAMPSubInvoiceHTLCs for a set of invoice IDs.
+	FetchAMPSubInvoiceHTLCsForInvoices(ctx context.Context, invoiceIds []int64) ([]FetchAMPSubInvoiceHTLCsForInvoicesRow, error)
 	FetchAMPSubInvoices(ctx context.Context, arg FetchAMPSubInvoicesParams) ([]AmpSubInvoice, error)
+	// Batch version of FetchAMPSubInvoices for a set of invoice IDs.
+	FetchAMPSubInvoicesForInvoices(ctx context.Context, invoiceIds []int64) ([]AmpSubInvoice, error)
 	// Fetch all inflight attempts with their payment data using pagination.
 	// Returns attempt data joined with payment and intent data to avoid separate queries.
 	FetchAllInflightAttempts(ctx context.Context, arg FetchAllInflightAttemptsParams) ([]PaymentHtlcAttempt, error)
@@ -126,8 +130,14 @@ type Querier interface {
 	// the primary key of amp_sub_invoices table.
 	GetInvoiceBySetID(ctx context.Context, setID []byte) ([]Invoice, error)
 	GetInvoiceFeatures(ctx context.Context, invoiceID int64) ([]InvoiceFeature, error)
+	// Batch version of GetInvoiceFeatures for a set of invoice IDs.
+	GetInvoiceFeaturesForInvoices(ctx context.Context, invoiceIds []int64) ([]InvoiceFeature, error)
 	GetInvoiceHTLCCustomRecords(ctx context.Context, invoiceID int64) ([]GetInvoiceHTLCCustomRecordsRow, error)
+	// Batch version of GetInvoiceHTLCCustomRecords for a set of invoice IDs.
+	GetInvoiceHTLCCustomRecordsForInvoices(ctx context.Context, invoiceIds []int64) ([]GetInvoiceHTLCCustomRecordsForInvoicesRow, error)
 	GetInvoiceHTLCs(ctx context.Context, invoiceID int64) ([]InvoiceHtlc, error)
+	// Batch version of GetInvoiceHTLCs for a set of invoice IDs.
+	GetInvoiceHTLCsForInvoices(ctx context.Context, invoiceIds []int64) ([]InvoiceHtlc, error)
 	GetKVInvoicePaymentHashByAddIndex(ctx context.Context, addIndex int64) ([]byte, error)
 	GetMigration(ctx context.Context, version int32) (time.Time, error)
 	GetNodeAddresses(ctx context.Context, nodeID int64) ([]GetNodeAddressesRow, error)

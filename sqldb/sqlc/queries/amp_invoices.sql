@@ -66,6 +66,23 @@ WHERE a.invoice_id = $1 AND a.set_id = $2 AND a.htlc_id = (
     SELECT id FROM invoice_htlcs AS i WHERE i.chan_id = $3 AND i.htlc_id = $4
 );
 
+-- name: FetchAMPSubInvoicesForInvoices :many
+-- Batch version of FetchAMPSubInvoices for a set of invoice IDs.
+SELECT *
+FROM amp_sub_invoices
+WHERE invoice_id IN (sqlc.slice('invoice_ids')/*SLICE:invoice_ids*/)
+ORDER BY invoice_id ASC;
+
+-- name: FetchAMPSubInvoiceHTLCsForInvoices :many
+-- Batch version of FetchAMPSubInvoiceHTLCs for a set of invoice IDs.
+SELECT
+    amp.set_id, amp.root_share, amp.child_index, amp.hash, amp.preimage,
+    invoice_htlcs.*
+FROM amp_sub_invoice_htlcs amp
+INNER JOIN invoice_htlcs ON amp.htlc_id = invoice_htlcs.id
+WHERE amp.invoice_id IN (sqlc.slice('invoice_ids')/*SLICE:invoice_ids*/)
+ORDER BY invoice_htlcs.invoice_id ASC;
+
 -- name: InsertAMPSubInvoice :exec
 INSERT INTO amp_sub_invoices (
     set_id, state, created_at, settled_at, settle_index, invoice_id

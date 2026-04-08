@@ -21,10 +21,6 @@ import (
 )
 
 const (
-	// defaultQueryPaginationLimit is used in the LIMIT clause of the SQL
-	// queries to limit the number of rows returned.
-	defaultQueryPaginationLimit = 100
-
 	// invoiceProgressLogInterval is the interval we use limiting the
 	// logging output of invoice processing.
 	invoiceProgressLogInterval = 30 * time.Second
@@ -46,6 +42,11 @@ var (
 	invoiceCreatedBeforeDefault = time.Date(
 		9999, 12, 31, 23, 59, 59, 0, time.UTC,
 	)
+
+	// errMaxInvoicesReached is a sentinel error returned by the
+	// QueryInvoices processItem callback to signal that the NumMaxInvoices
+	// limit has been reached and pagination can stop early.
+	errMaxInvoicesReached = errors.New("max invoices reached")
 )
 
 // SQLInvoiceQueries is an interface that defines the set of operations that can
@@ -117,6 +118,25 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 
 	GetInvoiceHTLCs(ctx context.Context,
 		invoiceID int64) ([]sqlc.InvoiceHtlc, error)
+
+	// Batch variants used by the paginated list callers to replace N+1
+	// per-invoice queries with a single IN-list query per page.
+	GetInvoiceFeaturesForInvoices(ctx context.Context,
+		invoiceIDs []int64) ([]sqlc.InvoiceFeature, error)
+
+	GetInvoiceHTLCsForInvoices(ctx context.Context,
+		invoiceIDs []int64) ([]sqlc.InvoiceHtlc, error)
+
+	GetInvoiceHTLCCustomRecordsForInvoices(ctx context.Context,
+		invoiceIDs []int64) (
+		[]sqlc.GetInvoiceHTLCCustomRecordsForInvoicesRow, error)
+
+	FetchAMPSubInvoicesForInvoices(ctx context.Context,
+		invoiceIDs []int64) ([]sqlc.AmpSubInvoice, error)
+
+	FetchAMPSubInvoiceHTLCsForInvoices(ctx context.Context,
+		invoiceIDs []int64) (
+		[]sqlc.FetchAMPSubInvoiceHTLCsForInvoicesRow, error)
 
 	UpdateInvoiceState(ctx context.Context,
 		arg sqlc.UpdateInvoiceStateParams) (sql.Result, error)
@@ -207,52 +227,238 @@ type BatchedSQLInvoiceQueries interface {
 	sqldb.BatchedTx[SQLInvoiceQueries]
 }
 
+// SQLStoreConfig holds the configuration for the SQLStore.
+type SQLStoreConfig struct {
+	// QueryCfg holds configuration values for SQL queries, including both
+	// the page size for cursor-based pagination and the batch size for
+	// IN-list batch loading.
+	QueryCfg *sqldb.QueryConfig
+}
+
 // SQLStore represents a storage backend.
 type SQLStore struct {
+	cfg   *SQLStoreConfig
 	db    BatchedSQLInvoiceQueries
 	clock clock.Clock
-	opts  SQLStoreOptions
-}
-
-// SQLStoreOptions holds the options for the SQL store.
-type SQLStoreOptions struct {
-	paginationLimit int
-}
-
-// defaultSQLStoreOptions returns the default options for the SQL store.
-func defaultSQLStoreOptions() SQLStoreOptions {
-	return SQLStoreOptions{
-		paginationLimit: defaultQueryPaginationLimit,
-	}
-}
-
-// SQLStoreOption is a functional option that can be used to optionally modify
-// the behavior of the SQL store.
-type SQLStoreOption func(*SQLStoreOptions)
-
-// WithPaginationLimit sets the pagination limit for the SQL store queries that
-// paginate results.
-func WithPaginationLimit(limit int) SQLStoreOption {
-	return func(o *SQLStoreOptions) {
-		o.paginationLimit = limit
-	}
 }
 
 // NewSQLStore creates a new SQLStore instance given a open
 // BatchedSQLInvoiceQueries storage backend.
-func NewSQLStore(db BatchedSQLInvoiceQueries,
-	clock clock.Clock, options ...SQLStoreOption) *SQLStore {
-
-	opts := defaultSQLStoreOptions()
-	for _, applyOption := range options {
-		applyOption(&opts)
-	}
+func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLInvoiceQueries,
+	clock clock.Clock) *SQLStore {
 
 	return &SQLStore{
+		cfg:   cfg,
 		db:    db,
 		clock: clock,
-		opts:  opts,
 	}
+}
+
+// invoiceDetailsData holds pre-loaded ancillary data for a page of invoice
+// rows, eliminating N+1 per-invoice queries when iterating large result sets.
+type invoiceDetailsData struct {
+	// features maps invoice_id → feature rows.
+	features map[int64][]sqlc.InvoiceFeature
+
+	// htlcs maps invoice_id → HTLC rows (non-AMP invoices only).
+	htlcs map[int64][]sqlc.InvoiceHtlc
+
+	// customRecords maps invoice_htlcs.id (the table primary key, distinct
+	// from the channel-level htlc_id) to the custom records for that HTLC.
+	// Shared between the AMP and non-AMP code paths.
+	customRecords map[int64][]sqlc.GetInvoiceHTLCCustomRecordsForInvoicesRow
+
+	// ampSubInvoices maps invoice_id → AMP sub-invoice rows.
+	ampSubInvoices map[int64][]sqlc.AmpSubInvoice
+
+	// ampHTLCs maps invoice_id → AMP sub-invoice HTLC rows.
+	ampHTLCs map[int64][]sqlc.FetchAMPSubInvoiceHTLCsForInvoicesRow
+}
+
+// batchLoadInvoiceFeatures fetches invoice features for all IDs in one or more
+// IN-list queries and stores the results in data.features.
+func batchLoadInvoiceFeatures(ctx context.Context, cfg *sqldb.QueryConfig,
+	db SQLInvoiceQueries, ids []int64, data *invoiceDetailsData) error {
+
+	return sqldb.ExecuteBatchQuery(
+		ctx, cfg, ids,
+		func(id int64) int64 { return id },
+		func(ctx context.Context, batch []int64) (
+			[]sqlc.InvoiceFeature, error) {
+
+			return db.GetInvoiceFeaturesForInvoices(ctx, batch)
+		},
+		func(_ context.Context, row sqlc.InvoiceFeature) error {
+			data.features[row.InvoiceID] = append(
+				data.features[row.InvoiceID], row,
+			)
+
+			return nil
+		},
+	)
+}
+
+// batchLoadInvoiceHTLCs fetches non-AMP invoice HTLCs for all IDs and stores
+// them in data.htlcs.
+func batchLoadInvoiceHTLCs(ctx context.Context, cfg *sqldb.QueryConfig,
+	db SQLInvoiceQueries, ids []int64, data *invoiceDetailsData) error {
+
+	return sqldb.ExecuteBatchQuery(
+		ctx, cfg, ids,
+		func(id int64) int64 { return id },
+		func(ctx context.Context, batch []int64) (
+			[]sqlc.InvoiceHtlc, error) {
+
+			return db.GetInvoiceHTLCsForInvoices(ctx, batch)
+		},
+		func(_ context.Context, row sqlc.InvoiceHtlc) error {
+			data.htlcs[row.InvoiceID] = append(
+				data.htlcs[row.InvoiceID], row,
+			)
+
+			return nil
+		},
+	)
+}
+
+// batchLoadInvoiceHTLCCustomRecords fetches HTLC custom records for the given
+// invoice IDs and stores them in data.customRecords, keyed by
+// invoice_htlcs.id. Covers both AMP and non-AMP HTLCs.
+func batchLoadInvoiceHTLCCustomRecords(ctx context.Context,
+	cfg *sqldb.QueryConfig, db SQLInvoiceQueries, ids []int64,
+	data *invoiceDetailsData) error {
+
+	//nolint:ll
+	return sqldb.ExecuteBatchQuery(
+		ctx, cfg, ids,
+		func(id int64) int64 { return id },
+		func(ctx context.Context, batch []int64) (
+			[]sqlc.GetInvoiceHTLCCustomRecordsForInvoicesRow,
+			error) {
+
+			return db.GetInvoiceHTLCCustomRecordsForInvoices(
+				ctx, batch,
+			)
+		},
+		func(_ context.Context,
+			row sqlc.GetInvoiceHTLCCustomRecordsForInvoicesRow) error {
+
+			data.customRecords[row.HtlcID] = append(
+				data.customRecords[row.HtlcID], row,
+			)
+
+			return nil
+		},
+	)
+}
+
+// batchLoadAMPSubInvoices fetches AMP sub-invoices for the given invoice IDs
+// and stores them in data.ampSubInvoices.
+func batchLoadAMPSubInvoices(ctx context.Context, cfg *sqldb.QueryConfig,
+	db SQLInvoiceQueries, ids []int64, data *invoiceDetailsData) error {
+
+	return sqldb.ExecuteBatchQuery(
+		ctx, cfg, ids,
+		func(id int64) int64 { return id },
+		func(ctx context.Context, batch []int64) (
+			[]sqlc.AmpSubInvoice, error) {
+
+			return db.FetchAMPSubInvoicesForInvoices(ctx, batch)
+		},
+		func(_ context.Context, row sqlc.AmpSubInvoice) error {
+			data.ampSubInvoices[row.InvoiceID] = append(
+				data.ampSubInvoices[row.InvoiceID], row,
+			)
+
+			return nil
+		},
+	)
+}
+
+// batchLoadAMPSubInvoiceHTLCs fetches AMP sub-invoice HTLCs for the given
+// invoice IDs and stores them in data.ampHTLCs.
+func batchLoadAMPSubInvoiceHTLCs(ctx context.Context, cfg *sqldb.QueryConfig,
+	db SQLInvoiceQueries, ids []int64, data *invoiceDetailsData) error {
+
+	return sqldb.ExecuteBatchQuery(
+		ctx, cfg, ids,
+		func(id int64) int64 { return id },
+		func(ctx context.Context, batch []int64) (
+			[]sqlc.FetchAMPSubInvoiceHTLCsForInvoicesRow, error) {
+
+			return db.FetchAMPSubInvoiceHTLCsForInvoices(ctx, batch)
+		},
+		func(_ context.Context,
+			row sqlc.FetchAMPSubInvoiceHTLCsForInvoicesRow) error {
+
+			data.ampHTLCs[row.InvoiceID] = append(
+				data.ampHTLCs[row.InvoiceID], row,
+			)
+
+			return nil
+		},
+	)
+}
+
+// batchLoadInvoiceDetailsData pre-loads all ancillary data for a page of
+// invoice IDs in a small constant number of IN-list queries, replacing the
+// per-invoice N+1 query pattern. It is designed to satisfy the
+// CollectAndBatchDataQueryFunc signature used by
+// ExecuteCollectAndBatchWithSharedDataQuery.
+func batchLoadInvoiceDetailsData(ctx context.Context, cfg *sqldb.QueryConfig,
+	db SQLInvoiceQueries, ids []int64) (*invoiceDetailsData, error) {
+
+	//nolint:ll
+	data := &invoiceDetailsData{
+		features:       make(map[int64][]sqlc.InvoiceFeature),
+		htlcs:          make(map[int64][]sqlc.InvoiceHtlc),
+		customRecords:  make(map[int64][]sqlc.GetInvoiceHTLCCustomRecordsForInvoicesRow),
+		ampSubInvoices: make(map[int64][]sqlc.AmpSubInvoice),
+		ampHTLCs:       make(map[int64][]sqlc.FetchAMPSubInvoiceHTLCsForInvoicesRow),
+	}
+
+	if len(ids) == 0 {
+		return data, nil
+	}
+
+	// Load features for all invoices.
+	err := batchLoadInvoiceFeatures(ctx, cfg, db, ids, data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to batch-load invoice "+
+			"features: %w", err)
+	}
+
+	// Load non-AMP HTLCs. For AMP invoice IDs this query returns no rows,
+	// so there is no correctness concern in querying all IDs at once.
+	if err := batchLoadInvoiceHTLCs(ctx, cfg, db, ids, data); err != nil {
+		return nil, fmt.Errorf("failed to batch-load invoice "+
+			"HTLCs: %w", err)
+	}
+
+	// Load HTLC custom records for all invoices — both AMP and non-AMP
+	// HTLCs can carry custom records and the same query covers both.
+	if err := batchLoadInvoiceHTLCCustomRecords(
+		ctx, cfg, db, ids, data,
+	); err != nil {
+		return nil, fmt.Errorf("failed to batch-load HTLC custom "+
+			"records: %w", err)
+	}
+
+	// Load AMP sub-invoices. For non-AMP invoice IDs this query returns no
+	// rows.
+	if err := batchLoadAMPSubInvoices(ctx, cfg, db, ids, data); err != nil {
+		return nil, fmt.Errorf("failed to batch-load AMP "+
+			"sub-invoices: %w", err)
+	}
+
+	// Load AMP sub-invoice HTLCs.
+	err = batchLoadAMPSubInvoiceHTLCs(ctx, cfg, db, ids, data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to batch-load AMP "+
+			"sub-invoice HTLCs: %w", err)
+	}
+
+	return data, nil
 }
 
 func makeInsertInvoiceParams(invoice *Invoice, paymentHash lntypes.Hash) (
@@ -517,7 +723,7 @@ func fetchInvoice(ctx context.Context, db SQLInvoiceQueries, ref InvoiceRef) (
 
 	// Fetch the rest of the invoice data and fill the invoice struct.
 	_, invoice, err := fetchInvoiceData(
-		ctx, db, sqlInvoice, setID, fetchAmpHtlcs,
+		ctx, db, sqlInvoice, setID, fetchAmpHtlcs, nil,
 	)
 	if err != nil {
 		return nil, err
@@ -771,37 +977,52 @@ func (i *SQLStore) FetchPendingInvoices(ctx context.Context) (
 
 	readTxOpt := sqldb.ReadTxOpt()
 	err := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
-		var cursor int64
-		limit := int32(i.opts.paginationLimit)
-		for {
-			params := sqlc.FetchPendingInvoicesParams{
-				IDCursor: cursor,
-				NumLimit: limit,
-			}
+		queryFunc := func(ctx context.Context, cursor int64,
+			limit int32) ([]sqlc.Invoice, error) {
 
-			rows, err := db.FetchPendingInvoices(ctx, params)
+			rows, err := db.FetchPendingInvoices(ctx,
+				sqlc.FetchPendingInvoicesParams{
+					IDCursor: cursor,
+					NumLimit: limit,
+				},
+			)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("unable to get invoices "+
-					"from db: %w", err)
+				return nil, fmt.Errorf("unable to get "+
+					"invoices from db: %w", err)
 			}
 
-			// Load all the information for the invoices.
-			for _, row := range rows {
+			return rows, nil
+		}
+
+		return sqldb.ExecuteCollectAndBatchWithSharedDataQuery(
+			ctx, i.cfg.QueryCfg, int64(0),
+			queryFunc,
+			func(row sqlc.Invoice) int64 { return row.ID },
+			func(row sqlc.Invoice) (int64, error) {
+				return row.ID, nil
+			},
+			func(ctx context.Context, ids []int64) (
+				*invoiceDetailsData, error) {
+
+				return batchLoadInvoiceDetailsData(
+					ctx, i.cfg.QueryCfg, db, ids,
+				)
+			},
+			func(ctx context.Context, row sqlc.Invoice,
+				batchData *invoiceDetailsData) error {
+
 				hash, invoice, err := fetchInvoiceData(
-					ctx, db, row, nil, true,
+					ctx, db, row, nil, true, batchData,
 				)
 				if err != nil {
 					return err
 				}
 
 				invoices[*hash] = *invoice
-				cursor = row.ID
-			}
 
-			if int32(len(rows)) < limit {
 				return nil
-			}
-		}
+			},
+		)
 	}, func() {
 		invoices = make(map[lntypes.Hash]Invoice)
 	})
@@ -835,27 +1056,45 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 
 	readTxOpt := sqldb.ReadTxOpt()
 	err := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
-		var cursor int64
-		limit := int32(i.opts.paginationLimit)
-		for {
-			// settle_index is always provided here so the
-			// invoices_settle_index_idx index can be used.
-			params := sqlc.FilterInvoicesBySettleIndexParams{
-				SettleIndexGet: sqldb.SQLInt64(idx + 1),
-				IDCursor:       cursor,
-				NumLimit:       limit,
-			}
+		// settle_index is always provided so the
+		// invoices_settle_index_idx index is used.
+		queryFunc := func(ctx context.Context, cursor int64,
+			limit int32) ([]sqlc.Invoice, error) {
 
-			rows, err := db.FilterInvoicesBySettleIndex(ctx, params)
+			rows, err := db.FilterInvoicesBySettleIndex(ctx,
+				sqlc.FilterInvoicesBySettleIndexParams{
+					SettleIndexGet: sqldb.SQLInt64(idx + 1),
+					IDCursor:       cursor,
+					NumLimit:       limit,
+				},
+			)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("unable to get invoices "+
-					"from db: %w", err)
+				return nil, fmt.Errorf("unable to get "+
+					"invoices from db: %w", err)
 			}
 
-			// Load all the information for the invoices.
-			for _, row := range rows {
+			return rows, nil
+		}
+
+		err := sqldb.ExecuteCollectAndBatchWithSharedDataQuery(
+			ctx, i.cfg.QueryCfg, int64(0),
+			queryFunc,
+			func(row sqlc.Invoice) int64 { return row.ID },
+			func(row sqlc.Invoice) (int64, error) {
+				return row.ID, nil
+			},
+			func(ctx context.Context, ids []int64) (
+				*invoiceDetailsData, error) {
+
+				return batchLoadInvoiceDetailsData(
+					ctx, i.cfg.QueryCfg, db, ids,
+				)
+			},
+			func(ctx context.Context, row sqlc.Invoice,
+				batchData *invoiceDetailsData) error {
+
 				_, invoice, err := fetchInvoiceData(
-					ctx, db, row, nil, true,
+					ctx, db, row, nil, true, batchData,
 				)
 				if err != nil {
 					return fmt.Errorf("unable to fetch "+
@@ -864,7 +1103,6 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 				}
 
 				invoices = append(invoices, *invoice)
-				cursor = row.ID
 
 				processedCount++
 				if time.Since(lastLogTime) >=
@@ -877,11 +1115,12 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 
 					lastLogTime = time.Now()
 				}
-			}
 
-			if int32(len(rows)) < limit {
-				break
-			}
+				return nil
+			},
+		)
+		if err != nil {
+			return err
 		}
 
 		// Now fetch all the AMP sub invoices that were settled since
@@ -895,10 +1134,13 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 			return err
 		}
 
+		// Collect invoice IDs and build sqlc.Invoice wrappers for the
+		// AMP settled rows so we can batch-load their ancillary data.
+		ampIDs := make([]int64, 0, len(ampInvoices))
+		ampSQLInvoices := make([]sqlc.Invoice, 0, len(ampInvoices))
 		for _, ampInvoice := range ampInvoices {
-			// Convert the row to a sqlc.Invoice so we can use the
-			// existing fetchInvoiceData function.
-			sqlInvoice := sqlc.Invoice{
+			ampIDs = append(ampIDs, ampInvoice.ID)
+			ampSQLInvoices = append(ampSQLInvoices, sqlc.Invoice{
 				ID:             ampInvoice.ID,
 				Hash:           ampInvoice.Hash,
 				Preimage:       ampInvoice.Preimage,
@@ -916,12 +1158,26 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 				IsHodl:         ampInvoice.IsHodl,
 				IsKeysend:      ampInvoice.IsKeysend,
 				CreatedAt:      ampInvoice.CreatedAt.UTC(),
-			}
+			})
+		}
+
+		// Batch-load ancillary data for all AMP settled invoices.
+		ampBatchData, err := batchLoadInvoiceDetailsData(
+			ctx, i.cfg.QueryCfg, db, ampIDs,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to batch-load AMP invoice "+
+				"data: %w", err)
+		}
+
+		for idx2, ampInvoice := range ampInvoices {
+			sqlInvoice := ampSQLInvoices[idx2]
 
 			// Fetch the state and HTLCs for this AMP sub invoice.
 			_, invoice, err := fetchInvoiceData(
 				ctx, db, sqlInvoice,
 				(*[32]byte)(ampInvoice.SetID), true,
+				ampBatchData,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to fetch "+
@@ -985,34 +1241,51 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 	readTxOpt := sqldb.ReadTxOpt()
 	err := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
 		// id is always provided here so the primary-key index is used
-		// for this range scan. The cursor starts at idx+1 so the first
-		// page fetches invoices with id >= idx+1. After each page the
-		// cursor advances to last_id + 1.
-		cursor := int64(idx + 1)
-		limit := int32(i.opts.paginationLimit)
-		for {
-			params := sqlc.FilterInvoicesByAddIndexParams{
-				AddIndexGet: cursor,
-				NumLimit:    limit,
-			}
+		// for this range scan. The initial cursor is idx+1 so the first
+		// page fetches invoices with id >= idx+1 (inclusive). After
+		// each row the cursor advances to row.ID + 1 for the next page.
+		queryFunc := func(ctx context.Context, cursor int64,
+			limit int32) ([]sqlc.Invoice, error) {
 
-			rows, err := db.FilterInvoicesByAddIndex(ctx, params)
+			rows, err := db.FilterInvoicesByAddIndex(ctx,
+				sqlc.FilterInvoicesByAddIndexParams{
+					AddIndexGet: cursor,
+					NumLimit:    limit,
+				},
+			)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("unable to get invoices "+
-					"from db: %w", err)
+				return nil, fmt.Errorf("unable to get "+
+					"invoices from db: %w", err)
 			}
 
-			// Load all the information for the invoices.
-			for _, row := range rows {
+			return rows, nil
+		}
+
+		return sqldb.ExecuteCollectAndBatchWithSharedDataQuery(
+			ctx, i.cfg.QueryCfg, int64(idx+1),
+			queryFunc,
+			func(row sqlc.Invoice) int64 { return row.ID + 1 },
+			func(row sqlc.Invoice) (int64, error) {
+				return row.ID, nil
+			},
+			func(ctx context.Context, ids []int64) (
+				*invoiceDetailsData, error) {
+
+				return batchLoadInvoiceDetailsData(
+					ctx, i.cfg.QueryCfg, db, ids,
+				)
+			},
+			func(ctx context.Context, row sqlc.Invoice,
+				batchData *invoiceDetailsData) error {
+
 				_, invoice, err := fetchInvoiceData(
-					ctx, db, row, nil, true,
+					ctx, db, row, nil, true, batchData,
 				)
 				if err != nil {
 					return err
 				}
 
 				result = append(result, *invoice)
-				cursor = row.ID + 1
 
 				processedCount++
 				if time.Since(lastLogTime) >=
@@ -1024,12 +1297,10 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 
 					lastLogTime = time.Now()
 				}
-			}
 
-			if int32(len(rows)) < limit {
 				return nil
-			}
-		}
+			},
+		)
 	}, func() {
 		result = nil
 	})
@@ -1077,89 +1348,120 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 
 	readTxOpt := sqldb.ReadTxOpt()
 	err := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
-		limit := int32(i.opts.paginationLimit)
-
 		// For reverse queries the cursor is an inclusive upper bound on
-		// id (id <= cursor); after each page it advances to
-		// last_returned_id - 1. Start at IndexOffset, or MaxInt64 to
-		// begin from the most recent invoice.
+		// id (id <= cursor); after each row it advances to row.ID - 1.
+		// Start at IndexOffset - 1, or MaxInt64 to begin from the most
+		// recent invoice.
 		// For forward queries the cursor is an inclusive lower bound
-		// (id >= cursor); after each page it advances to
-		// last_returned_id + 1. Start at IndexOffset + 1 so the invoice
-		// at IndexOffset itself is excluded (matching the old
-		// behaviour).
-		var cursor int64
+		// (id >= cursor); after each row it advances to row.ID + 1.
+		// Start at IndexOffset + 1 so the invoice at IndexOffset itself
+		// is excluded (matching the old behaviour).
+		//
+		//nolint:ll
+		var (
+			initialCursor int64
+			extractCursor sqldb.CursorExtractFunc[sqlc.Invoice, int64]
+			pageQueryFunc sqldb.PagedQueryFunc[int64, sqlc.Invoice]
+		)
+
 		if q.Reversed {
-			cursor = int64(math.MaxInt64)
+			initialCursor = int64(math.MaxInt64)
 			if q.IndexOffset != 0 {
-				cursor = int64(q.IndexOffset) - 1
+				initialCursor = int64(q.IndexOffset) - 1
+			}
+
+			extractCursor = func(row sqlc.Invoice) int64 {
+				return row.ID - 1
+			}
+
+			pageQueryFunc = func(ctx context.Context, cursor int64,
+				limit int32) ([]sqlc.Invoice, error) {
+
+				rows, err := db.FilterInvoicesReverse(ctx,
+					sqlc.FilterInvoicesReverseParams{
+						AddIndexLet:   cursor,
+						PendingOnly:   q.PendingOnly,
+						CreatedAfter:  createdAfter,
+						CreatedBefore: createdBefore,
+						NumLimit:      limit,
+					},
+				)
+				if err != nil &&
+					!errors.Is(err, sql.ErrNoRows) {
+
+					return nil, fmt.Errorf("unable to get "+
+						"invoices from db: %w", err)
+				}
+
+				return rows, nil
 			}
 		} else {
-			cursor = int64(q.IndexOffset) + 1
+			initialCursor = int64(q.IndexOffset) + 1
+
+			extractCursor = func(row sqlc.Invoice) int64 {
+				return row.ID + 1
+			}
+
+			pageQueryFunc = func(ctx context.Context, cursor int64,
+				limit int32) ([]sqlc.Invoice, error) {
+
+				rows, err := db.FilterInvoicesForward(ctx,
+					sqlc.FilterInvoicesForwardParams{
+						AddIndexGet:   cursor,
+						PendingOnly:   q.PendingOnly,
+						CreatedAfter:  createdAfter,
+						CreatedBefore: createdBefore,
+						NumLimit:      limit,
+					},
+				)
+				if err != nil &&
+					!errors.Is(err, sql.ErrNoRows) {
+
+					return nil, fmt.Errorf("unable to get "+
+						"invoices from db: %w", err)
+				}
+
+				return rows, nil
+			}
 		}
 
-		for {
-			var (
-				rows []sqlc.Invoice
-				err  error
-			)
+		err := sqldb.ExecuteCollectAndBatchWithSharedDataQuery(
+			ctx, i.cfg.QueryCfg, initialCursor,
+			pageQueryFunc,
+			extractCursor,
+			func(row sqlc.Invoice) (int64, error) {
+				return row.ID, nil
+			},
+			func(ctx context.Context, ids []int64) (
+				*invoiceDetailsData, error) {
 
-			if q.Reversed {
-				params := sqlc.FilterInvoicesReverseParams{
-					AddIndexLet:   cursor,
-					PendingOnly:   q.PendingOnly,
-					CreatedAfter:  createdAfter,
-					CreatedBefore: createdBefore,
-					NumLimit:      limit,
-				}
-
-				rows, err = db.FilterInvoicesReverse(
-					ctx, params,
+				return batchLoadInvoiceDetailsData(
+					ctx, i.cfg.QueryCfg, db, ids,
 				)
-			} else {
-				params := sqlc.FilterInvoicesForwardParams{
-					AddIndexGet:   cursor,
-					PendingOnly:   q.PendingOnly,
-					CreatedAfter:  createdAfter,
-					CreatedBefore: createdBefore,
-					NumLimit:      limit,
-				}
+			},
+			func(ctx context.Context, row sqlc.Invoice,
+				batchData *invoiceDetailsData) error {
 
-				rows, err = db.FilterInvoicesForward(
-					ctx, params,
-				)
-			}
-
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("unable to get invoices "+
-					"from db: %w", err)
-			}
-
-			// Load all the information for the invoices.
-			for _, row := range rows {
 				_, invoice, err := fetchInvoiceData(
-					ctx, db, row, nil, true,
+					ctx, db, row, nil, true, batchData,
 				)
 				if err != nil {
 					return err
 				}
 
 				invoices = append(invoices, *invoice)
-				if q.Reversed {
-					cursor = row.ID - 1
-				} else {
-					cursor = row.ID + 1
-				}
-
 				if len(invoices) == int(q.NumMaxInvoices) {
-					return nil
+					return errMaxInvoicesReached
 				}
-			}
 
-			if int32(len(rows)) < limit {
 				return nil
-			}
+			},
+		)
+		if errors.Is(err, errMaxInvoicesReached) {
+			return nil
 		}
+
+		return err
 	}, func() {
 		invoices = nil
 	})
@@ -1678,9 +1980,13 @@ func (i *SQLStore) DeleteCanceledInvoices(ctx context.Context) error {
 // invoice is AMP and the setID is not nil, then it will also fetch the AMP
 // state and HTLCs for the given setID, otherwise for all AMP sub invoices of
 // the invoice. If fetchAmpHtlcs is true, it will also fetch the AMP HTLCs.
+//
+// When batchData is non-nil the function reads ancillary data from the
+// pre-loaded maps instead of issuing per-invoice DB queries, replacing the
+// N+1 pattern in paginated callers.
 func fetchInvoiceData(ctx context.Context, db SQLInvoiceQueries,
-	row sqlc.Invoice, setID *[32]byte, fetchAmpHtlcs bool) (*lntypes.Hash,
-	*Invoice, error) {
+	row sqlc.Invoice, setID *[32]byte, fetchAmpHtlcs bool,
+	batchData *invoiceDetailsData) (*lntypes.Hash, *Invoice, error) {
 
 	// Unmarshal the common data.
 	hash, invoice, err := unmarshalInvoice(row)
@@ -1689,7 +1995,38 @@ func fetchInvoiceData(ctx context.Context, db SQLInvoiceQueries,
 			"invoice(id=%d) from db: %w", row.ID, err)
 	}
 
-	// Fetch the invoice features.
+	if batchData != nil {
+		// Fast path: build from pre-loaded batch data.
+		invoice.Terms.Features = buildFeaturesFromBatch(
+			batchData.features[row.ID],
+		)
+
+		if invoice.IsAMP() {
+			ampState, ampHtlcs, err := buildAMPStateFromBatch(
+				batchData, row.ID, setID, fetchAmpHtlcs,
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			invoice.AMPState = ampState
+			invoice.Htlcs = ampHtlcs
+		} else {
+			htlcs, err := buildHTLCsFromBatch(batchData, row.ID)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			if len(htlcs) > 0 {
+				invoice.Htlcs = htlcs
+			}
+		}
+
+		return hash, invoice, nil
+	}
+
+	// Slow path: issue per-invoice DB queries (used for single-invoice
+	// lookups where batch loading is not applicable).
 	features, err := getInvoiceFeatures(ctx, db, row.ID)
 	if err != nil {
 		return nil, nil, err
@@ -1725,6 +2062,214 @@ func fetchInvoiceData(ctx context.Context, db SQLInvoiceQueries,
 	}
 
 	return hash, invoice, nil
+}
+
+// buildFeaturesFromBatch builds a FeatureVector from pre-loaded feature rows.
+func buildFeaturesFromBatch(rows []sqlc.InvoiceFeature) *lnwire.FeatureVector {
+	features := lnwire.EmptyFeatureVector()
+	for _, row := range rows {
+		features.Set(lnwire.FeatureBit(row.Feature))
+	}
+
+	return features
+}
+
+// buildHTLCsFromBatch reconstructs the HTLC map for a non-AMP invoice from
+// pre-loaded batch data.
+func buildHTLCsFromBatch(data *invoiceDetailsData, invoiceID int64) (
+	map[CircuitKey]*InvoiceHTLC, error) {
+
+	htlcRows := data.htlcs[invoiceID]
+	if len(htlcRows) == 0 {
+		return nil, nil
+	}
+
+	htlcs := make(map[CircuitKey]*InvoiceHTLC, len(htlcRows))
+
+	for _, row := range htlcRows {
+		circuitKey, htlc, err := unmarshalInvoiceHTLC(row)
+		if err != nil {
+			return nil, fmt.Errorf("unable to unmarshal "+
+				"htlc(%d): %w", row.ID, err)
+		}
+
+		crRows := data.customRecords[row.ID]
+		cr := make(record.CustomSet, len(crRows))
+		for _, crRow := range crRows {
+			value := crRow.Value
+			if value == nil {
+				value = []byte{}
+			}
+			cr[uint64(crRow.Key)] = value
+		}
+		htlc.CustomRecords = cr
+
+		htlcs[circuitKey] = htlc
+	}
+
+	return htlcs, nil
+}
+
+// buildAMPStateFromBatch reconstructs the AMP state and optional HTLC set for
+// an AMP invoice from pre-loaded batch data.  When setID is non-nil only the
+// matching sub-invoice is included, mirroring the behaviour of fetchAmpState.
+func buildAMPStateFromBatch(data *invoiceDetailsData, invoiceID int64,
+	setID *[32]byte, fetchHtlcs bool) (AMPInvoiceState, HTLCSet, error) {
+
+	ampState := make(AMPInvoiceState)
+
+	for _, row := range data.ampSubInvoices[invoiceID] {
+		if setID != nil && !bytes.Equal(row.SetID, setID[:]) {
+			continue
+		}
+
+		if len(row.SetID) != 32 {
+			return nil, nil, fmt.Errorf("invalid set id "+
+				"length: %d", len(row.SetID))
+		}
+
+		var rowSetID [32]byte
+		copy(rowSetID[:], row.SetID)
+
+		var settleDate time.Time
+		if row.SettledAt.Valid {
+			settleDate = row.SettledAt.Time.Local()
+		}
+
+		ampState[rowSetID] = InvoiceStateAMP{
+			State:       HtlcState(row.State),
+			SettleIndex: uint64(row.SettleIndex.Int64),
+			SettleDate:  settleDate,
+			InvoiceKeys: make(map[models.CircuitKey]struct{}),
+		}
+	}
+
+	if !fetchHtlcs {
+		return ampState, nil, nil
+	}
+
+	ampHtlcs := make(map[models.CircuitKey]*InvoiceHTLC)
+
+	for _, row := range data.ampHTLCs[invoiceID] {
+		if setID != nil && !bytes.Equal(row.SetID, setID[:]) {
+			continue
+		}
+
+		uint64ChanID, err := strconv.ParseUint(row.ChanID, 10, 64)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		chanID := lnwire.NewShortChanIDFromInt(uint64ChanID)
+
+		if row.HtlcID < 0 {
+			return nil, nil, fmt.Errorf("invalid HTLC ID "+
+				"value: %v", row.HtlcID)
+		}
+
+		circuitKey := CircuitKey{
+			ChanID: chanID,
+			HtlcID: uint64(row.HtlcID),
+		}
+
+		htlc := &InvoiceHTLC{
+			Amt:          lnwire.MilliSatoshi(row.AmountMsat),
+			AcceptHeight: uint32(row.AcceptHeight),
+			AcceptTime:   row.AcceptTime.Local(),
+			Expiry:       uint32(row.ExpiryHeight),
+			State:        HtlcState(row.State),
+		}
+
+		if row.TotalMppMsat.Valid {
+			htlc.MppTotalAmt = lnwire.MilliSatoshi(
+				row.TotalMppMsat.Int64,
+			)
+		}
+
+		if row.ResolveTime.Valid {
+			htlc.ResolveTime = row.ResolveTime.Time.Local()
+		}
+
+		var (
+			rootShare [32]byte
+			rowSetID  [32]byte
+		)
+
+		if len(row.RootShare) != 32 {
+			return nil, nil, fmt.Errorf("invalid root share "+
+				"length: %d", len(row.RootShare))
+		}
+		copy(rootShare[:], row.RootShare)
+
+		if len(row.SetID) != 32 {
+			return nil, nil, fmt.Errorf("invalid set ID "+
+				"length: %d", len(row.SetID))
+		}
+		copy(rowSetID[:], row.SetID)
+
+		if row.ChildIndex < 0 || row.ChildIndex > math.MaxUint32 {
+			return nil, nil, fmt.Errorf("invalid child index "+
+				"value: %v", row.ChildIndex)
+		}
+
+		ampRecord := record.NewAMP(
+			rootShare, rowSetID, uint32(row.ChildIndex),
+		)
+		htlc.AMP = &InvoiceHtlcAMPData{Record: *ampRecord}
+
+		if len(row.Hash) != 32 {
+			return nil, nil, fmt.Errorf("invalid hash "+
+				"length: %d", len(row.Hash))
+		}
+		copy(htlc.AMP.Hash[:], row.Hash)
+
+		if row.Preimage != nil {
+			preimage, err := lntypes.MakePreimage(row.Preimage)
+			if err != nil {
+				return nil, nil, err
+			}
+			htlc.AMP.Preimage = &preimage
+		}
+
+		// row.ID is invoice_htlcs.id — the key for custom records.
+		crRows := data.customRecords[row.ID]
+		cr := make(record.CustomSet, len(crRows))
+		for _, crRow := range crRows {
+			value := crRow.Value
+			if value == nil {
+				value = []byte{}
+			}
+			cr[uint64(crRow.Key)] = value
+		}
+		htlc.CustomRecords = cr
+
+		ampHtlcs[circuitKey] = htlc
+	}
+
+	// Populate InvoiceKeys and AmtPaid for each set in ampState.
+	for sid := range ampState {
+		var amtPaid lnwire.MilliSatoshi
+		invoiceKeys := make(map[models.CircuitKey]struct{})
+
+		for key, htlc := range ampHtlcs {
+			if htlc.AMP.Record.SetID() != sid {
+				continue
+			}
+
+			invoiceKeys[key] = struct{}{}
+
+			if htlc.State != HtlcStateCanceled {
+				amtPaid += htlc.Amt
+			}
+		}
+
+		setState := ampState[sid]
+		setState.InvoiceKeys = invoiceKeys
+		setState.AmtPaid = amtPaid
+		ampState[sid] = setState
+	}
+
+	return ampState, ampHtlcs, nil
 }
 
 // getInvoiceFeatures fetches the invoice features for the given invoice id.

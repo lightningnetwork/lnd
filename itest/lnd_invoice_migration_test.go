@@ -68,7 +68,13 @@ func openNativeSQLInvoiceDB(ht *lntest.HarnessTest,
 		},
 	)
 
+	queryCfg := sqldb.DefaultSQLiteConfig()
+	if hn.Cfg.DBBackend != node.BackendSqlite {
+		queryCfg = sqldb.DefaultPostgresConfig()
+	}
+
 	return invoices.NewSQLStore(
+		&invoices.SQLStoreConfig{QueryCfg: queryCfg},
 		executor, clock.NewDefaultClock(),
 	)
 }

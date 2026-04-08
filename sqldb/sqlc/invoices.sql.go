@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 )
 
@@ -546,9 +547,50 @@ func (q *Queries) GetInvoiceFeatures(ctx context.Context, invoiceID int64) ([]In
 	return items, nil
 }
 
+const getInvoiceFeaturesForInvoices = `-- name: GetInvoiceFeaturesForInvoices :many
+SELECT feature, invoice_id
+FROM invoice_features
+WHERE invoice_id IN (/*SLICE:invoice_ids*/?)
+ORDER BY invoice_id ASC
+`
+
+// Batch version of GetInvoiceFeatures for a set of invoice IDs.
+func (q *Queries) GetInvoiceFeaturesForInvoices(ctx context.Context, invoiceIds []int64) ([]InvoiceFeature, error) {
+	query := getInvoiceFeaturesForInvoices
+	var queryParams []interface{}
+	if len(invoiceIds) > 0 {
+		for _, v := range invoiceIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:invoice_ids*/?", makeQueryParams(len(queryParams), len(invoiceIds)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:invoice_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InvoiceFeature
+	for rows.Next() {
+		var i InvoiceFeature
+		if err := rows.Scan(&i.Feature, &i.InvoiceID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getInvoiceHTLCCustomRecords = `-- name: GetInvoiceHTLCCustomRecords :many
 SELECT ihcr.htlc_id, key, value
-FROM invoice_htlcs ih JOIN invoice_htlc_custom_records ihcr ON ih.id=ihcr.htlc_id 
+FROM invoice_htlcs ih JOIN invoice_htlc_custom_records ihcr ON ih.id=ihcr.htlc_id
 WHERE ih.invoice_id = $1
 `
 
@@ -581,6 +623,53 @@ func (q *Queries) GetInvoiceHTLCCustomRecords(ctx context.Context, invoiceID int
 	return items, nil
 }
 
+const getInvoiceHTLCCustomRecordsForInvoices = `-- name: GetInvoiceHTLCCustomRecordsForInvoices :many
+SELECT ihcr.htlc_id, key, value
+FROM invoice_htlcs ih JOIN invoice_htlc_custom_records ihcr ON ih.id=ihcr.htlc_id
+WHERE ih.invoice_id IN (/*SLICE:invoice_ids*/?)
+ORDER BY ihcr.htlc_id ASC
+`
+
+type GetInvoiceHTLCCustomRecordsForInvoicesRow struct {
+	HtlcID int64
+	Key    int64
+	Value  []byte
+}
+
+// Batch version of GetInvoiceHTLCCustomRecords for a set of invoice IDs.
+func (q *Queries) GetInvoiceHTLCCustomRecordsForInvoices(ctx context.Context, invoiceIds []int64) ([]GetInvoiceHTLCCustomRecordsForInvoicesRow, error) {
+	query := getInvoiceHTLCCustomRecordsForInvoices
+	var queryParams []interface{}
+	if len(invoiceIds) > 0 {
+		for _, v := range invoiceIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:invoice_ids*/?", makeQueryParams(len(queryParams), len(invoiceIds)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:invoice_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetInvoiceHTLCCustomRecordsForInvoicesRow
+	for rows.Next() {
+		var i GetInvoiceHTLCCustomRecordsForInvoicesRow
+		if err := rows.Scan(&i.HtlcID, &i.Key, &i.Value); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getInvoiceHTLCs = `-- name: GetInvoiceHTLCs :many
 SELECT id, chan_id, htlc_id, amount_msat, total_mpp_msat, accept_height, accept_time, expiry_height, state, resolve_time, invoice_id
 FROM invoice_htlcs
@@ -589,6 +678,59 @@ WHERE invoice_id = $1
 
 func (q *Queries) GetInvoiceHTLCs(ctx context.Context, invoiceID int64) ([]InvoiceHtlc, error) {
 	rows, err := q.db.QueryContext(ctx, getInvoiceHTLCs, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InvoiceHtlc
+	for rows.Next() {
+		var i InvoiceHtlc
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChanID,
+			&i.HtlcID,
+			&i.AmountMsat,
+			&i.TotalMppMsat,
+			&i.AcceptHeight,
+			&i.AcceptTime,
+			&i.ExpiryHeight,
+			&i.State,
+			&i.ResolveTime,
+			&i.InvoiceID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getInvoiceHTLCsForInvoices = `-- name: GetInvoiceHTLCsForInvoices :many
+SELECT id, chan_id, htlc_id, amount_msat, total_mpp_msat, accept_height, accept_time, expiry_height, state, resolve_time, invoice_id
+FROM invoice_htlcs
+WHERE invoice_id IN (/*SLICE:invoice_ids*/?)
+ORDER BY invoice_id ASC
+`
+
+// Batch version of GetInvoiceHTLCs for a set of invoice IDs.
+func (q *Queries) GetInvoiceHTLCsForInvoices(ctx context.Context, invoiceIds []int64) ([]InvoiceHtlc, error) {
+	query := getInvoiceHTLCsForInvoices
+	var queryParams []interface{}
+	if len(invoiceIds) > 0 {
+		for _, v := range invoiceIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:invoice_ids*/?", makeQueryParams(len(queryParams), len(invoiceIds)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:invoice_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}

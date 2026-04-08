@@ -58,8 +58,15 @@ func TestMigrationWithChannelDB(t *testing.T) {
 
 		testClock := clock.NewTestClock(time.Unix(1, 0))
 
-		return invpkg.NewSQLStore(invoiceExecutor, testClock),
-			genericExecutor
+		queryCfg := sqldb.DefaultSQLiteConfig()
+		if !sqlite {
+			queryCfg = sqldb.DefaultPostgresConfig()
+		}
+
+		return invpkg.NewSQLStore(
+			&invpkg.SQLStoreConfig{QueryCfg: queryCfg},
+			invoiceExecutor, testClock,
+		), genericExecutor
 	}
 
 	migrationTest := func(t *testing.T, kvStore *channeldb.DB,

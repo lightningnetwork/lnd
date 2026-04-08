@@ -155,7 +155,15 @@ func TestInvoiceRegistry(t *testing.T) {
 
 		testClock := clock.NewTestClock(testTime)
 
-		return invpkg.NewSQLStore(executor, testClock), testClock
+		queryCfg := sqldb.DefaultSQLiteConfig()
+		if !sqlite {
+			queryCfg = sqldb.DefaultPostgresConfig()
+		}
+
+		return invpkg.NewSQLStore(
+			&invpkg.SQLStoreConfig{QueryCfg: queryCfg},
+			executor, testClock,
+		), testClock
 	}
 
 	for _, test := range testList {

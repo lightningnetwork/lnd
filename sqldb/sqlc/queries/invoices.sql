@@ -197,8 +197,29 @@ INSERT INTO invoice_htlc_custom_records (
 
 -- name: GetInvoiceHTLCCustomRecords :many
 SELECT ihcr.htlc_id, key, value
-FROM invoice_htlcs ih JOIN invoice_htlc_custom_records ihcr ON ih.id=ihcr.htlc_id 
+FROM invoice_htlcs ih JOIN invoice_htlc_custom_records ihcr ON ih.id=ihcr.htlc_id
 WHERE ih.invoice_id = $1;
+
+-- name: GetInvoiceFeaturesForInvoices :many
+-- Batch version of GetInvoiceFeatures for a set of invoice IDs.
+SELECT *
+FROM invoice_features
+WHERE invoice_id IN (sqlc.slice('invoice_ids')/*SLICE:invoice_ids*/)
+ORDER BY invoice_id ASC;
+
+-- name: GetInvoiceHTLCsForInvoices :many
+-- Batch version of GetInvoiceHTLCs for a set of invoice IDs.
+SELECT *
+FROM invoice_htlcs
+WHERE invoice_id IN (sqlc.slice('invoice_ids')/*SLICE:invoice_ids*/)
+ORDER BY invoice_id ASC;
+
+-- name: GetInvoiceHTLCCustomRecordsForInvoices :many
+-- Batch version of GetInvoiceHTLCCustomRecords for a set of invoice IDs.
+SELECT ihcr.htlc_id, key, value
+FROM invoice_htlcs ih JOIN invoice_htlc_custom_records ihcr ON ih.id=ihcr.htlc_id
+WHERE ih.invoice_id IN (sqlc.slice('invoice_ids')/*SLICE:invoice_ids*/)
+ORDER BY ihcr.htlc_id ASC;
 
 -- name: InsertKVInvoiceKeyAndAddIndex :exec
 INSERT INTO invoice_payment_hashes (

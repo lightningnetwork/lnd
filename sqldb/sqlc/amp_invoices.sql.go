@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 )
 
@@ -88,6 +89,86 @@ func (q *Queries) FetchAMPSubInvoiceHTLCs(ctx context.Context, arg FetchAMPSubIn
 	return items, nil
 }
 
+const fetchAMPSubInvoiceHTLCsForInvoices = `-- name: FetchAMPSubInvoiceHTLCsForInvoices :many
+SELECT
+    amp.set_id, amp.root_share, amp.child_index, amp.hash, amp.preimage,
+    invoice_htlcs.id, invoice_htlcs.chan_id, invoice_htlcs.htlc_id, invoice_htlcs.amount_msat, invoice_htlcs.total_mpp_msat, invoice_htlcs.accept_height, invoice_htlcs.accept_time, invoice_htlcs.expiry_height, invoice_htlcs.state, invoice_htlcs.resolve_time, invoice_htlcs.invoice_id
+FROM amp_sub_invoice_htlcs amp
+INNER JOIN invoice_htlcs ON amp.htlc_id = invoice_htlcs.id
+WHERE amp.invoice_id IN (/*SLICE:invoice_ids*/?)
+ORDER BY invoice_htlcs.invoice_id ASC
+`
+
+type FetchAMPSubInvoiceHTLCsForInvoicesRow struct {
+	SetID        []byte
+	RootShare    []byte
+	ChildIndex   int64
+	Hash         []byte
+	Preimage     []byte
+	ID           int64
+	ChanID       string
+	HtlcID       int64
+	AmountMsat   int64
+	TotalMppMsat sql.NullInt64
+	AcceptHeight int32
+	AcceptTime   time.Time
+	ExpiryHeight int32
+	State        int16
+	ResolveTime  sql.NullTime
+	InvoiceID    int64
+}
+
+// Batch version of FetchAMPSubInvoiceHTLCs for a set of invoice IDs.
+func (q *Queries) FetchAMPSubInvoiceHTLCsForInvoices(ctx context.Context, invoiceIds []int64) ([]FetchAMPSubInvoiceHTLCsForInvoicesRow, error) {
+	query := fetchAMPSubInvoiceHTLCsForInvoices
+	var queryParams []interface{}
+	if len(invoiceIds) > 0 {
+		for _, v := range invoiceIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:invoice_ids*/?", makeQueryParams(len(queryParams), len(invoiceIds)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:invoice_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchAMPSubInvoiceHTLCsForInvoicesRow
+	for rows.Next() {
+		var i FetchAMPSubInvoiceHTLCsForInvoicesRow
+		if err := rows.Scan(
+			&i.SetID,
+			&i.RootShare,
+			&i.ChildIndex,
+			&i.Hash,
+			&i.Preimage,
+			&i.ID,
+			&i.ChanID,
+			&i.HtlcID,
+			&i.AmountMsat,
+			&i.TotalMppMsat,
+			&i.AcceptHeight,
+			&i.AcceptTime,
+			&i.ExpiryHeight,
+			&i.State,
+			&i.ResolveTime,
+			&i.InvoiceID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fetchAMPSubInvoices = `-- name: FetchAMPSubInvoices :many
 SELECT set_id, state, created_at, settled_at, settle_index, invoice_id
 FROM amp_sub_invoices
@@ -105,6 +186,54 @@ type FetchAMPSubInvoicesParams struct {
 
 func (q *Queries) FetchAMPSubInvoices(ctx context.Context, arg FetchAMPSubInvoicesParams) ([]AmpSubInvoice, error) {
 	rows, err := q.db.QueryContext(ctx, fetchAMPSubInvoices, arg.InvoiceID, arg.SetID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AmpSubInvoice
+	for rows.Next() {
+		var i AmpSubInvoice
+		if err := rows.Scan(
+			&i.SetID,
+			&i.State,
+			&i.CreatedAt,
+			&i.SettledAt,
+			&i.SettleIndex,
+			&i.InvoiceID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const fetchAMPSubInvoicesForInvoices = `-- name: FetchAMPSubInvoicesForInvoices :many
+SELECT set_id, state, created_at, settled_at, settle_index, invoice_id
+FROM amp_sub_invoices
+WHERE invoice_id IN (/*SLICE:invoice_ids*/?)
+ORDER BY invoice_id ASC
+`
+
+// Batch version of FetchAMPSubInvoices for a set of invoice IDs.
+func (q *Queries) FetchAMPSubInvoicesForInvoices(ctx context.Context, invoiceIds []int64) ([]AmpSubInvoice, error) {
+	query := fetchAMPSubInvoicesForInvoices
+	var queryParams []interface{}
+	if len(invoiceIds) > 0 {
+		for _, v := range invoiceIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:invoice_ids*/?", makeQueryParams(len(queryParams), len(invoiceIds)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:invoice_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}

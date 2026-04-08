@@ -219,6 +219,18 @@
   page an efficient primary-key range scan regardless of how deep into the
   result set the query is.
 
+* [Eliminate N+1 per-invoice queries in the SQL invoice
+  store](https://github.com/lightningnetwork/lnd/pull/10701). The four
+  paginated list methods (`FetchPendingInvoices`, `InvoicesSettledSince`,
+  `InvoicesAddedSince`, `QueryInvoices`) previously issued multiple separate
+  DB round-trips per invoice row (features, HTLCs, HTLC custom records, AMP
+  sub-invoices, AMP sub-invoice HTLCs). Each method now collects all invoice
+  IDs for a page and loads the ancillary data in a small set of `WHERE id IN
+  (…)` batch queries, reducing the total round-trips per page from `O(n)` to
+  `O(1)`.
+  The single-invoice lookup path (`LookupInvoice`, `UpdateInvoice`) is
+  unchanged.
+
 * [Replace the catch-all `FilterInvoices` SQL query with five focused,
   index-friendly queries](https://github.com/lightningnetwork/lnd/pull/10601)
   (`FetchPendingInvoices`, `FilterInvoicesBySettleIndex`,

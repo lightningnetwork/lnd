@@ -254,9 +254,14 @@ func TestInvoices(t *testing.T) {
 		// that we also cover query pagination.
 		const testPaginationLimit = 3
 
+		queryCfg := &sqldb.QueryConfig{
+			MaxPageSize:  testPaginationLimit,
+			MaxBatchSize: testPaginationLimit,
+		}
+
 		return invpkg.NewSQLStore(
+			&invpkg.SQLStoreConfig{QueryCfg: queryCfg},
 			executor, testClock,
-			invpkg.WithPaginationLimit(testPaginationLimit),
 		)
 	}
 

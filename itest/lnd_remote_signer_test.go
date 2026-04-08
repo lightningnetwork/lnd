@@ -28,6 +28,10 @@ var remoteSignerTestCases = []*lntest.TestCase{
 		TestFunc: testRemoteSignerAccountImport,
 	},
 	{
+		Name:     "sparse account import",
+		TestFunc: testRemoteSignerSparseAccountImport,
+	},
+	{
 		Name:     "tapscript import",
 		TestFunc: testRemoteSignerTapscriptImport,
 	},
@@ -116,6 +120,7 @@ type remoteSignerTestCase struct {
 	randomSeed bool
 	sendCoins  bool
 	commitType lnrpc.CommitmentType
+	accounts   []*lnrpc.WatchOnlyAccount
 	fn         func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode)
 }
 
@@ -135,6 +140,10 @@ func prepareRemoteSignerTest(ht *lntest.HarnessTest, tc remoteSignerTestCase) (
 		signer            *node.HarnessNode
 		err               error
 	)
+	if len(tc.accounts) > 0 {
+		watchOnlyAccounts = tc.accounts
+	}
+
 	if !tc.randomSeed {
 		signer = ht.RestoreNodeWithSeed(
 			"Signer", nil, password, nil, rootKey, 0, nil,
@@ -230,6 +239,35 @@ func testRemoteSignerAccountImport(ht *lntest.HarnessTest) {
 
 	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
 	tc.fn(ht, watchOnly, carol)
+}
+
+// testRemoteSignerSparseAccountImport verifies that a sparse custom key family
+// account is preserved when initializing a watch-only wallet for remote signer
+// mode, so DeriveKey on the watch-only node matches the signer node.
+func testRemoteSignerSparseAccountImport(ht *lntest.HarnessTest) {
+	const sparseAccount = 43210
+
+	tc := remoteSignerTestCase{
+		name:     "sparse account import",
+		accounts: deriveCustomScopeAccounts(ht.T, sparseAccount),
+	}
+
+	signer, watchOnly, _ := prepareRemoteSignerTest(ht, tc)
+
+	keyLoc := &signrpc.KeyLocator{
+		KeyFamily: sparseAccount,
+		KeyIndex:  0,
+	}
+	signerKey := signer.RPC.DeriveKey(keyLoc)
+	watchOnlyKey := watchOnly.RPC.DeriveKey(keyLoc)
+
+	require.Equal(
+		ht, signerKey.KeyLoc.KeyFamily, watchOnlyKey.KeyLoc.KeyFamily,
+	)
+	require.Equal(
+		ht, signerKey.KeyLoc.KeyIndex, watchOnlyKey.KeyLoc.KeyIndex,
+	)
+	require.Equal(ht, signerKey.RawKeyBytes, watchOnlyKey.RawKeyBytes)
 }
 
 func testRemoteSignerTapscriptImport(ht *lntest.HarnessTest) {
@@ -421,10 +459,14 @@ func testRemoteSignerTaproot(ht *lntest.HarnessTest) {
 	tc.fn(ht, watchOnly, carol)
 }
 
-// deriveCustomScopeAccounts derives the first 255 default accounts of the custom lnd
-// internal key scope.
-func deriveCustomScopeAccounts(t *testing.T) []*lnrpc.WatchOnlyAccount {
-	allAccounts := make([]*lnrpc.WatchOnlyAccount, 0, 255+len(accounts))
+// deriveCustomScopeAccounts derives the first 255 default accounts of the
+// custom lnd internal key scope. Additional account indices can be passed in to
+// include sparse accounts as needed by specific tests.
+func deriveCustomScopeAccounts(t *testing.T,
+	extraAccounts ...uint32) []*lnrpc.WatchOnlyAccount {
+
+	maxCap := 255 + len(accounts) + len(extraAccounts)
+	allAccounts := make([]*lnrpc.WatchOnlyAccount, 0, maxCap)
 	allAccounts = append(allAccounts, accounts...)
 
 	extendedRootKey, err := hdkeychain.NewKeyFromString(rootKey)
@@ -436,7 +478,26 @@ func deriveCustomScopeAccounts(t *testing.T) []*lnrpc.WatchOnlyAccount {
 	}
 	coinTypeKey, err := derivePath(extendedRootKey, path)
 	require.NoError(t, err)
+
+	// Add default accounts.
 	for idx := uint32(0); idx <= 255; idx++ {
+		accountPath := []uint32{idx + hdkeychain.HardenedKeyStart}
+		accountKey, err := derivePath(coinTypeKey, accountPath)
+		require.NoError(t, err)
+
+		accountXPub, err := accountKey.Neuter()
+		require.NoError(t, err)
+
+		allAccounts = append(allAccounts, &lnrpc.WatchOnlyAccount{
+			Purpose:  keychain.BIP0043Purpose,
+			CoinType: harnessNetParams.HDCoinType,
+			Account:  idx,
+			Xpub:     accountXPub.String(),
+		})
+	}
+
+	// Add sparse accounts.
+	for _, idx := range extraAccounts {
 		accountPath := []uint32{idx + hdkeychain.HardenedKeyStart}
 		accountKey, err := derivePath(coinTypeKey, accountPath)
 		require.NoError(t, err)

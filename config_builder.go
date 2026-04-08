@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -82,6 +83,12 @@ const (
 	// paymentMigration is the version number for the payments migration
 	// that migrates KV payments to the native SQL schema.
 	paymentMigration = 14
+)
+
+var (
+	// waddrmgrNamespaceKey is the namespace key where btcwallet stores the
+	// address manager state.
+	waddrmgrNamespaceKey = []byte("waddrmgr")
 )
 
 // GrpcRegistrar is an interface that must be satisfied by an external subserver
@@ -1554,7 +1561,9 @@ func waitForWalletPassword(cfg *Config,
 func importWatchOnlyAccounts(wallet *wallet.Wallet,
 	initMsg *walletunlocker.WalletInitMsg) error {
 
-	scopes := make([]waddrmgr.ScopedIndex, 0, len(initMsg.WatchOnlyAccounts))
+	scopes := make(
+		[]waddrmgr.ScopedIndex, 0, len(initMsg.WatchOnlyAccounts),
+	)
 	for scope := range initMsg.WatchOnlyAccounts {
 		scopes = append(scopes, scope)
 	}
@@ -1587,18 +1596,134 @@ func importWatchOnlyAccounts(wallet *wallet.Wallet,
 			name = "default"
 		}
 
-		_, err := wallet.ImportAccountWithScope(
-			name, initMsg.WatchOnlyAccounts[scope],
-			initMsg.WatchOnlyMasterFingerprint, scope.Scope,
-			addrSchema,
+		err := importWatchOnlyAccount(
+			wallet, scope, name, initMsg.WatchOnlyAccounts[scope],
+			initMsg.WatchOnlyMasterFingerprint, addrSchema,
 		)
 		if err != nil {
+			// Each account import runs in its own db transaction
+			// (as with the previous import path), so an error here
+			// does not roll back accounts imported before.
 			return fmt.Errorf("could not import account %v: %w",
 				name, err)
 		}
 	}
 
 	return nil
+}
+
+// importWatchOnlyAccount imports a single watch-only account.
+//
+// Account index 0 uses ImportAccountWithScope, which allocates the next
+// sequential account number internally. This preserves the "default" account
+// semantics and naming that the rest of lnd expects for on-chain operations.
+//
+// Non-zero accounts use NewRawAccountWatchingOnly to create the account at an
+// explicit account number matching the key family index. This is critical for
+// remote-signer setups where DeriveKey(KeyFamily=N) must resolve to btcwallet
+// account N. Without explicit placement, btcwallet would assign contiguous
+// numbers (1, 2, 3, ...) regardless of the intended key family, breaking
+// sparse families like N=43210.
+//
+// After NewRawAccountWatchingOnly creates the account, it has the synthetic
+// name "act:<index>". We rename it to lnd's human-readable format
+// (e.g. "1017'/1'/43210'") so the account appears correctly in RPCs and UI.
+//
+// NOTE: Each account import runs in its own walletdb transaction. For the
+// explicit (non-zero) path, both the account creation and rename happen in the
+// same transaction: if any step fails, that account is rolled back atomically.
+// However, accounts imported before a failure are already committed.
+func importWatchOnlyAccount(wallet *wallet.Wallet, scope waddrmgr.ScopedIndex,
+	name string, accountPubKey *hdkeychain.ExtendedKey,
+	masterKeyFingerprint uint32,
+	addrSchema waddrmgr.ScopeAddrSchema) error {
+
+	if scope.Index == 0 {
+		_, err := wallet.ImportAccountWithScope(
+			name, accountPubKey, masterKeyFingerprint, scope.Scope,
+			addrSchema,
+		)
+
+		return err
+	}
+
+	// Validate the account xpub using btcwallet's own dry-run import
+	// path. This avoids duplicating btcwallet's internal validation
+	// (validateExtendedPubKey / isPubKeyForNet) while keeping the same
+	// rejection semantics as ImportAccountWithScope. The dry-run rolls
+	// back its database transaction, so no persistent state is created.
+	//
+	// We pass WitnessPubKey as the address type because custom-scope
+	// keys use standard version bytes (tpub/xpub) that require an
+	// explicit type for btcwallet's scope detection; the actual scope
+	// is handled by our own walletdb transaction below.
+	addrType := waddrmgr.WitnessPubKey
+	_, _, _, err := wallet.ImportAccountDryRun(
+		name, accountPubKey, masterKeyFingerprint, &addrType, 1,
+	)
+	if err != nil {
+		return err
+	}
+
+	db := wallet.Database()
+
+	return walletdb.Update(db, func(tx walletdb.ReadWriteTx) error {
+		addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)
+		if addrmgrNs == nil {
+			return fmt.Errorf("waddrmgr namespace not found")
+		}
+
+		// Mirror what ImportAccountWithScope in btcwallet itself does:
+		// try to find an already-registered manager for this key scope.
+		// If the scope was already set up, we reuse it. Otherwise we
+		// create the scope in the DB and register the in-memory
+		// manager.
+		scopedMgr, err := wallet.Manager.FetchScopedKeyManager(
+			scope.Scope,
+		)
+		if err != nil {
+			var manErr waddrmgr.ManagerError
+			if !errors.As(err, &manErr) ||
+				manErr.ErrorCode != waddrmgr.ErrScopeNotFound {
+
+				return err
+			}
+
+			scopedMgr, err = wallet.Manager.NewScopedKeyManager(
+				addrmgrNs, scope.Scope, addrSchema,
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Ensure we don't accidentally overwrite an existing account.
+		_, err = scopedMgr.AccountName(addrmgrNs, scope.Index)
+		if err == nil {
+			return fmt.Errorf("account %d already exists in "+
+				"scope %v", scope.Index, scope.Scope)
+		}
+
+		var manErr waddrmgr.ManagerError
+		if !errors.As(err, &manErr) ||
+			manErr.ErrorCode != waddrmgr.ErrAccountNotFound {
+
+			return err
+		}
+
+		err = scopedMgr.NewRawAccountWatchingOnly(
+			addrmgrNs, scope.Index, accountPubKey,
+			masterKeyFingerprint, &addrSchema,
+		)
+		if err != nil {
+			return err
+		}
+
+		// NewRawAccountWatchingOnly assigns the synthetic account name
+		// "act:<index>". Rename it to lnd's expected human-readable
+		// account name to preserve existing RPC/UI naming behavior.
+		return scopedMgr.RenameAccount(addrmgrNs, scope.Index, name)
+	})
 }
 
 // handleNeutrinoPostgresDBMigration handles the migration of the neutrino db

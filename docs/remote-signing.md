@@ -190,9 +190,19 @@ watching-only`):
 - Purpose: 49, coin type 0, account 0 (`m/49'/0'/0'`, np2wkh)
 - Purpose: 84, coin type 0, account 0 (`m/84'/0'/0'`, p2wkh)
 - Purpose: 86, coin type 0, account 0 (`m/86'/0'/0'`, p2tr)
-- Purpose: 1017, coin type X (mainnet: 0, testnet/regtest: 1), account 0 to 255 
-  (`m/1017'/X'/0'` up to `m/1017'/X'/255'`, internal to `lnd`, used for node
-  identity, channel keys, watchtower sessions and so on).
+- Purpose: 1017, coin type X (mainnet: 0, testnet/regtest: 1), account 0 to
+  255 (`m/1017'/X'/0'` up to `m/1017'/X'/255'`, internal to `lnd`, used for
+  node identity, channel keys, watchtower sessions and so on).
+- Any additional custom `m/1017'/X'/N'` accounts that your signer actively
+  uses (for example `N=43210`). Starting with `lnd v0.21.0`, these explicit
+  account numbers are preserved in watch-only wallets, so
+  `DeriveKey(KeyFamily=N)` works without requiring contiguous account creation.
+
+**Note on older versions:** `lnd` versions before `v0.21.0` import watch-only
+accounts contiguously, so a watch-only wallet *created* on an older version
+will have sparse accounts remapped (e.g. account 43210 becomes account 1).
+Downgrading after wallet creation is safe: accounts are already persisted at
+the correct indices and are not re-imported on unlock.
 
 ## Example initialization script
 

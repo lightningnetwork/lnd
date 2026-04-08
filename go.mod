@@ -230,3 +230,6 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 go 1.25.5
 
 retract v0.0.2
+
+// TODO(Boris): remove this when https://github.com/btcsuite/btcwallet/pull/1207 is merged
+replace github.com/btcsuite/btcwallet => github.com/starius/btcwallet v0.16.17-fix-side-effects

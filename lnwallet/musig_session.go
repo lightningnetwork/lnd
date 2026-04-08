@@ -328,7 +328,7 @@ func (m *MusigSession) FinalizeSession(signingNonce musig2.Nonces) error {
 		m.nonces.VerificationNonce.PubNonce,
 	})
 	if err != nil {
-		return nil
+		return err
 	}
 
 	m.combinedNonce = aggNonce

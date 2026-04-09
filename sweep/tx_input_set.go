@@ -367,7 +367,9 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 		return utxos[i].Value < utxos[j].Value
 	})
 
-	// Save the current number of inputs so we can roll back on error.
+	// We'll track the initial number of inputs to ensure we can restore the
+	// set to its original state if we fail to add the required wallet
+	// inputs.
 	inputsBefore := len(b.inputs)
 
 	// Add wallet inputs to the set until the specified budget is covered.
@@ -386,7 +388,6 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 
 	// Exit if there are no inputs can contribute to the fees.
 	if !b.hasNormalInput() {
-		b.inputs = b.inputs[:inputsBefore]
 		return ErrNotEnoughInputs
 	}
 

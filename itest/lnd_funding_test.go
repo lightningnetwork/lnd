@@ -198,13 +198,18 @@ func runBasicFundingTest(ht *lntest.HarnessTest, carolCommitType,
 		privateChan = true
 	}
 
-	// If carol wants taproot, but dave wants something else (excluding
-	// SIMPLE_TAPROOT_FINAL which is allowed via cross-type negotiation),
-	// then we'll assert that the channel negotiation attempt fails.
-	if carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT &&
-		daveCommitType != lnrpc.CommitmentType_SIMPLE_TAPROOT &&
-		daveCommitType != lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
+	// If carol wants taproot (staging or final), but dave wants something
+	// that doesn't enable taproot support, then we'll assert that the
+	// channel negotiation attempt fails. Cross-type negotiation between
+	// SIMPLE_TAPROOT and SIMPLE_TAPROOT_FINAL succeeds because both
+	// staging and final feature bits are advertised when taproot is
+	// enabled.
+	carolWantsTaproot := carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT || //nolint:ll
+		carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+	daveHasTaproot := daveCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT || //nolint:ll
+		daveCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
 
+	if carolWantsTaproot && !daveHasTaproot {
 		expectedErr := fmt.Errorf("requested channel type " +
 			"not supported")
 		amt := funding.MaxBtcFundingAmount

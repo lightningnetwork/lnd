@@ -699,9 +699,9 @@ func (u *UtxoNursery) NurseryReport(
 					fallthrough
 				case input.TaprootHtlcOfferedTimeoutSecondLevel:
 					fallthrough
-				case input.TaprootHtlcAcceptedSuccessSecondLevelFinal:
+				case input.TaprootHtlcAcceptedSuccessSecondLevelFinal: //nolint:ll
 					fallthrough
-				case input.TaprootHtlcOfferedTimeoutSecondLevelFinal:
+				case input.TaprootHtlcOfferedTimeoutSecondLevelFinal: //nolint:ll
 					fallthrough
 				case input.HtlcAcceptedSuccessSecondLevel:
 					fallthrough

@@ -563,6 +563,12 @@
 
 ## Code Health
 
+* [`Future` and `Promise` types have been moved](https://github.com/lightningnetwork/lnd/pull/10727)
+  from the `actor` package into the `fn` package, where they better belong as
+  general-purpose async primitives. Callers of `actor.Future[T]`,
+  `actor.Promise[T]`, and `actor.NewPromise[T]` should use the `fn/v2`
+  equivalents.
+
 * [Update taproot detection](https://github.com/lightningnetwork/lnd/pull/10683)
   to accommodate buried activation (and modified RPC `getdeploymentinfo`
   response) beginning in Bitcoin Core v32.

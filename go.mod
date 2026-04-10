@@ -204,6 +204,9 @@ require (
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
 
+// TODO(abdulkbk): remove once fn/v2 Future/Promise changes are released.
+replace github.com/lightningnetwork/lnd/fn/v2 => ./fn
+
 // TODO(gijs): remove once new queue package is released.
 replace github.com/lightningnetwork/lnd/queue => ./queue
 

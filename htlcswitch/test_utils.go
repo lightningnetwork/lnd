@@ -391,6 +391,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		return nil, nil, err
 	}
 	alicePool.Start()
+	t.Cleanup(func() { require.NoError(t, alicePool.Stop()) })
 
 	bobPool := lnwallet.NewSigPool(runtime.NumCPU(), bobSigner)
 	channelBob, err := lnwallet.NewLightningChannel(
@@ -401,6 +402,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		return nil, nil, err
 	}
 	bobPool.Start()
+	t.Cleanup(func() { require.NoError(t, bobPool.Stop()) })
 
 	// Now that the channel are open, simulate the start of a session by
 	// having Alice and Bob extend their revocation windows to each other.

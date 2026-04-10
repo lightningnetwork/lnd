@@ -1075,6 +1075,11 @@ func newMockRegistry(t testing.TB) *mockInvoiceRegistry {
 		},
 	)
 	registry.Start()
+	t.Cleanup(func() {
+		if err := registry.Stop(); err != nil {
+			t.Errorf("registry.Stop: %v", err)
+		}
+	})
 
 	return &mockInvoiceRegistry{
 		registry: registry,

@@ -159,7 +159,7 @@ func AskThen[M Message, R any, S Message](ctx context.Context,
 	// From inside a turn the Ask can't park, as it takes the in-turn path
 	// of the target's mailbox. From any other goroutine it would, so use
 	// the non-blocking form instead.
-	var fut Future[R]
+	var fut fn.Future[R]
 	if _, inTurn := activeTurn(ctx); inTurn {
 		fut = ref.Ask(askCtx, msg)
 	} else {

@@ -22,7 +22,6 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/neutrino/cache"
 	"github.com/lightninglabs/neutrino/cache/lru"
-	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -184,7 +183,7 @@ type networkMsg struct {
 
 	isRemote bool
 
-	errPromise actor.Promise[error]
+	errPromise fn.Promise[error]
 }
 
 // chanPolicyUpdateRequest is a request that is sent to the server when a caller
@@ -193,7 +192,7 @@ type networkMsg struct {
 // updates committed to the lower layer.
 type chanPolicyUpdateRequest struct {
 	edgesToUpdate []EdgeWithInfo
-	errPromise    actor.Promise[error]
+	errPromise    fn.Promise[error]
 }
 
 // PinnedSyncers is a set of node pubkeys for which we will maintain an active
@@ -655,7 +654,7 @@ type EdgeWithInfo struct {
 func (d *AuthenticatedGossiper) PropagateChanPolicyUpdate(
 	edgesToUpdate []EdgeWithInfo) error {
 
-	promise := actor.NewPromise[error]()
+	promise := fn.NewPromise[error]()
 	policyUpdate := &chanPolicyUpdateRequest{
 		edgesToUpdate: edgesToUpdate,
 		errPromise:    promise,
@@ -893,9 +892,9 @@ func (d *AuthenticatedGossiper) stop() {
 // peers.  Remote channel announcements should contain the announcement proof
 // and be fully validated.
 func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(ctx context.Context,
-	msg lnwire.Message, peer lnpeer.Peer) actor.Future[error] {
+	msg lnwire.Message, peer lnpeer.Peer) fn.Future[error] {
 
-	promise := actor.NewPromise[error]()
+	promise := fn.NewPromise[error]()
 
 	// For messages in the known set of channel series queries, we'll
 	// dispatch the message directly to the GossipSyncer, and skip the main
@@ -1009,7 +1008,7 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(ctx context.Context,
 // entire channel announcement and update messages will be re-constructed and
 // broadcast to the rest of the network.
 func (d *AuthenticatedGossiper) ProcessLocalAnnouncement(msg lnwire.Message,
-	optionalFields ...OptionalMsgField) actor.Future[error] {
+	optionalFields ...OptionalMsgField) fn.Future[error] {
 
 	optionalMsgFields := &optionalMsgFields{}
 	optionalMsgFields.apply(optionalFields...)
@@ -1019,7 +1018,7 @@ func (d *AuthenticatedGossiper) ProcessLocalAnnouncement(msg lnwire.Message,
 		optionalMsgFields: optionalMsgFields,
 		isRemote:          false,
 		source:            d.selfKey,
-		errPromise:        actor.NewPromise[error](),
+		errPromise:        fn.NewPromise[error](),
 	}
 
 	select {
@@ -2253,7 +2252,7 @@ func (d *AuthenticatedGossiper) isPremature(chanID lnwire.ShortChannelID,
 		msg:               msg.msg,
 		optionalMsgFields: msg.optionalMsgFields,
 		isRemote:          msg.isRemote,
-		errPromise:        actor.NewPromise[error](),
+		errPromise:        fn.NewPromise[error](),
 	}
 
 	// Create the cached message.

@@ -16,7 +16,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -6040,7 +6039,7 @@ func TestChanCloseErrChan(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 
-		req := &ChanClose{Err: actor.NewPromise[error]()}
+		req := &ChanClose{Err: fn.NewPromise[error]()}
 		errChan := req.ErrChan(ctx)
 
 		req.CompleteErr(errResolved)
@@ -6063,7 +6062,7 @@ func TestChanCloseErrChan(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 
-		req := &ChanClose{Err: actor.NewPromise[error]()}
+		req := &ChanClose{Err: fn.NewPromise[error]()}
 		errChan := req.ErrChan(ctx)
 
 		req.CompleteErr(nil)
@@ -6083,7 +6082,7 @@ func TestChanCloseErrChan(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(t.Context())
-		req := &ChanClose{Err: actor.NewPromise[error]()}
+		req := &ChanClose{Err: fn.NewPromise[error]()}
 		errChan := req.ErrChan(ctx)
 
 		cancel()
@@ -6105,7 +6104,7 @@ func TestChanCloseErrChan(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 
-		req := &ChanClose{Err: actor.NewPromise[error]()}
+		req := &ChanClose{Err: fn.NewPromise[error]()}
 		errChan := req.ErrChan(ctx)
 
 		require.True(t, req.Err.Complete(fn.Ok[error](errResolved)))

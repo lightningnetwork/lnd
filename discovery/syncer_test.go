@@ -2458,7 +2458,7 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 // surfaces a syncer shutdown that occurs while it is awaiting the syncer's
 // reply as the historical ErrGossipSyncerExiting sentinel, rather than the
 // raw context.Canceled error from the bridge context. This locks in the
-// pre-actor.Future error contract for callers using errors.Is to detect
+// pre-fn.Future error contract for callers using errors.Is to detect
 // shutdown.
 func TestProcessSyncTransitionShutdown(t *testing.T) {
 	t.Parallel()

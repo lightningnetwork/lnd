@@ -215,7 +215,8 @@ There are two main ways to send messages using an `ActorRef`:
     block for too long.
 
 2.  **Ask (Request-Response)**: Used when you need a response from the actor.
-    This returns a `Future[R]`, which represents the eventual reply.
+    This returns an `fn.Future[R]` (from the `fn/v2` package), which
+    represents the eventual reply.
 
     ```go
     // Assuming 'actorRef' is an ActorRef[*MyRequest, *MyResponse].

@@ -2007,6 +2007,12 @@ type HtlcRetribution struct {
 	// ResolutionBlob is a blob used for aux channels that permits a
 	// spender of this output to claim all funds.
 	ResolutionBlob fn.Option[tlv.Blob]
+
+	// ResolveReq is the resolution request template used to generate
+	// the ResolutionBlob. It is preserved so the breach arbiter can
+	// re-resolve with a different witness type when an HTLC is taken
+	// to the second level.
+	ResolveReq *ResolutionReq
 }
 
 // BreachRetribution contains all the data necessary to bring a channel
@@ -2537,6 +2543,7 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 	// Only taproot channels can be modified by aux channels, so we
 	// only need to resolve the aux blob for taproot channel types.
 	var resolutionBlob fn.Option[tlv.Blob]
+	var savedResolveReq *ResolutionReq
 	if isTaproot {
 		htlcIDOpt := fn.MapOption(
 			func(v tlv.BigSizeT[uint64]) input.HtlcIndex {
@@ -2559,6 +2566,7 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 			KeyRing:             keyRing,
 			CsvDelay:            theirDelay,
 			CommitFee:           cs.RemoteCommitment.CommitFee,
+			HtlcAmt:             htlc.Amt.Val.Int(),
 			PayHash: fn.Some(
 				[32]byte(htlc.RHash.Val),
 			),
@@ -2581,6 +2589,15 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 		}
 
 		resolutionBlob = resolveBlob.OkToSome()
+
+		// Save the resolve request template so the breach arbiter
+		// can re-resolve when an HTLC is taken to second level.
+		// We deep-copy the key ring to prevent any potential
+		// mutation from affecting the saved request.
+		keyRingCopy := *keyRing
+		resolveReqCopy := resolveReq
+		resolveReqCopy.KeyRing = &keyRingCopy
+		savedResolveReq = &resolveReqCopy
 	}
 
 	return HtlcRetribution{
@@ -2593,6 +2610,7 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 		IsIncoming:               htlc.Incoming.Val,
 		SecondLevelTapTweak:      secondLevelTapTweak,
 		ResolutionBlob:           resolutionBlob,
+		ResolveReq:               savedResolveReq,
 	}, nil
 }
 
@@ -7419,6 +7437,15 @@ type IncomingHtlcResolution struct {
 	// spender of the output to properly resolve it in the case of a force
 	// close.
 	ResolutionBlob fn.Option[tlv.Blob]
+
+	// ResolveReq is the resolution request template used to generate the
+	// ResolutionBlob. It is preserved so the htlc success resolver can
+	// re-resolve with a second-level witness type once the pre-signed
+	// second-level HTLC tx confirms (under DeterministicHTLCs the
+	// resolver publishes the second-level tx directly via PublishTx,
+	// bypassing the sweeper's NotifyBroadcast, so tapd must import the
+	// second-level proof retroactively before the output sweep runs).
+	ResolveReq *ResolutionReq
 }
 
 // OutgoingHtlcResolution houses the information necessary to sweep any
@@ -7473,6 +7500,10 @@ type OutgoingHtlcResolution struct {
 	// spender of the output to properly resolve it in the case of a force
 	// close.
 	ResolutionBlob fn.Option[tlv.Blob]
+
+	// ResolveReq is the resolution request template used to generate the
+	// ResolutionBlob. See IncomingHtlcResolution.ResolveReq for details.
+	ResolveReq *ResolutionReq
 }
 
 // HtlcResolutions contains the items necessary to sweep HTLC's on chain
@@ -7804,39 +7835,37 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	// This might be an aux channel, so we'll go ahead and attempt to
 	// generate the resolution blob for the channel so we can pass along to
 	// the sweeping sub-system.
+	resReq := ResolutionReq{
+		ChanPoint:           chanState.FundingOutpoint,
+		ChanType:            chanType,
+		ShortChanID:         chanState.ShortChanID(),
+		Initiator:           chanState.IsInitiator,
+		CommitBlob:          chanState.LocalCommitment.CustomBlob,
+		FundingBlob:         chanState.CustomBlob,
+		Type:                input.TaprootHtlcLocalOfferedTimeout,
+		CloseType:           LocalForceClose,
+		CommitTx:            commitTx,
+		CommitTxBlockHeight: commitTxHeight,
+		ContractPoint:       op,
+		SignDesc:            sweepSignDesc,
+		KeyRing:             keyRing,
+		CsvDelay:            htlcCsvDelay,
+		HtlcAmt:             btcutil.Amount(txOut.Value),
+		CommitCsvDelay:      csvDelay,
+		CltvDelay:           fn.Some(htlc.RefundTimeout),
+		CommitFee:           chanState.LocalCommitment.CommitFee,
+		HtlcID:              fn.Some(htlc.HtlcIndex),
+		PayHash:             fn.Some(htlc.RHash),
+		AuxSigDesc: fn.Some(AuxSigDesc{
+			SignDetails: *txSignDetails,
+			AuxSig: func() []byte {
+				tlvType := htlcCustomSigType.TypeVal()
+				return htlc.CustomRecords[uint64(tlvType)]
+			}(),
+		}),
+	}
 	resolveRes := fn.MapOptionZ(
 		auxResolver, func(a AuxContractResolver) fn.Result[tlv.Blob] {
-			//nolint:ll
-			resReq := ResolutionReq{
-				ChanPoint:           chanState.FundingOutpoint,
-				ChanType:            chanType,
-				ShortChanID:         chanState.ShortChanID(),
-				Initiator:           chanState.IsInitiator,
-				CommitBlob:          chanState.LocalCommitment.CustomBlob,
-				FundingBlob:         chanState.CustomBlob,
-				Type:                input.TaprootHtlcLocalOfferedTimeout,
-				CloseType:           LocalForceClose,
-				CommitTx:            commitTx,
-				CommitTxBlockHeight: commitTxHeight,
-				ContractPoint:       op,
-				SignDesc:            sweepSignDesc,
-				KeyRing:             keyRing,
-				CsvDelay:            htlcCsvDelay,
-				HtlcAmt:             btcutil.Amount(txOut.Value),
-				CommitCsvDelay:      csvDelay,
-				CltvDelay:           fn.Some(htlc.RefundTimeout),
-				CommitFee:           chanState.LocalCommitment.CommitFee,
-				HtlcID:              fn.Some(htlc.HtlcIndex),
-				PayHash:             fn.Some(htlc.RHash),
-				AuxSigDesc: fn.Some(AuxSigDesc{
-					SignDetails: *txSignDetails,
-					AuxSig: func() []byte {
-						tlvType := htlcCustomSigType.TypeVal()
-						return htlc.CustomRecords[uint64(tlvType)]
-					}(),
-				}),
-			}
-
 			return a.ResolveContract(resReq)
 		},
 	)
@@ -7845,12 +7874,15 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	}
 	resolutionBlob := resolveRes.OkToSome()
 
+	resReqCopy := resReq
+
 	return &OutgoingHtlcResolution{
 		Expiry:          htlc.RefundTimeout,
 		SignedTimeoutTx: timeoutTx,
 		SignDetails:     txSignDetails,
 		CsvDelay:        csvDelay,
 		ResolutionBlob:  resolutionBlob,
+		ResolveReq:      &resReqCopy,
 		ClaimOutpoint: wire.OutPoint{
 			Hash:  timeoutTx.TxHash(),
 			Index: 0,
@@ -8168,39 +8200,37 @@ func newIncomingHtlcResolution(signer input.Signer,
 		}, nil
 	}
 
+	resReq := ResolutionReq{
+		ChanPoint:           chanState.FundingOutpoint,
+		ChanType:            chanType,
+		ShortChanID:         chanState.ShortChanID(),
+		Initiator:           chanState.IsInitiator,
+		CommitBlob:          chanState.LocalCommitment.CustomBlob,
+		Type:                input.TaprootHtlcAcceptedLocalSuccess,
+		FundingBlob:         chanState.CustomBlob,
+		CloseType:           LocalForceClose,
+		CommitTx:            commitTx,
+		CommitTxBlockHeight: commitTxHeight,
+		ContractPoint:       op,
+		SignDesc:            sweepSignDesc,
+		KeyRing:             keyRing,
+		HtlcID:              fn.Some(htlc.HtlcIndex),
+		CsvDelay:            htlcCsvDelay,
+		CommitFee:           chanState.LocalCommitment.CommitFee,
+		PayHash:             fn.Some(htlc.RHash),
+		AuxSigDesc: fn.Some(AuxSigDesc{
+			SignDetails: *txSignDetails,
+			AuxSig: func() []byte {
+				tlvType := htlcCustomSigType.TypeVal()
+				return htlc.CustomRecords[uint64(tlvType)]
+			}(),
+		}),
+		CommitCsvDelay: csvDelay,
+		HtlcAmt:        btcutil.Amount(txOut.Value),
+		CltvDelay:      fn.Some(htlc.RefundTimeout),
+	}
 	resolveRes := fn.MapOptionZ(
 		auxResolver, func(a AuxContractResolver) fn.Result[tlv.Blob] {
-			//nolint:ll
-			resReq := ResolutionReq{
-				ChanPoint:           chanState.FundingOutpoint,
-				ChanType:            chanType,
-				ShortChanID:         chanState.ShortChanID(),
-				Initiator:           chanState.IsInitiator,
-				CommitBlob:          chanState.LocalCommitment.CustomBlob,
-				Type:                input.TaprootHtlcAcceptedLocalSuccess,
-				FundingBlob:         chanState.CustomBlob,
-				CloseType:           LocalForceClose,
-				CommitTx:            commitTx,
-				CommitTxBlockHeight: commitTxHeight,
-				ContractPoint:       op,
-				SignDesc:            sweepSignDesc,
-				KeyRing:             keyRing,
-				HtlcID:              fn.Some(htlc.HtlcIndex),
-				CsvDelay:            htlcCsvDelay,
-				CommitFee:           chanState.LocalCommitment.CommitFee,
-				PayHash:             fn.Some(htlc.RHash),
-				AuxSigDesc: fn.Some(AuxSigDesc{
-					SignDetails: *txSignDetails,
-					AuxSig: func() []byte {
-						tlvType := htlcCustomSigType.TypeVal()
-						return htlc.CustomRecords[uint64(tlvType)]
-					}(),
-				}),
-				CommitCsvDelay: csvDelay,
-				HtlcAmt:        btcutil.Amount(txOut.Value),
-				CltvDelay:      fn.Some(htlc.RefundTimeout),
-			}
-
 			return a.ResolveContract(resReq)
 		},
 	)
@@ -8210,11 +8240,14 @@ func newIncomingHtlcResolution(signer input.Signer,
 
 	resolutionBlob := resolveRes.OkToSome()
 
+	resReqCopy := resReq
+
 	return &IncomingHtlcResolution{
 		SignedSuccessTx: successTx,
 		SignDetails:     txSignDetails,
 		CsvDelay:        csvDelay,
 		ResolutionBlob:  resolutionBlob,
+		ResolveReq:      &resReqCopy,
 		ClaimOutpoint: wire.OutPoint{
 			Hash:  successTx.TxHash(),
 			Index: 0,
@@ -8245,6 +8278,116 @@ func (r *OutgoingHtlcResolution) HtlcPoint() wire.OutPoint {
 	}
 
 	return r.ClaimOutpoint
+}
+
+// NewSecondLevelResolveReq reconstructs a ResolutionReq for re-resolving a
+// second-level HTLC sweep after the pre-signed second-level tx has confirmed
+// on chain. It is intended to be called from the htlc success / timeout
+// resolvers when, under DeterministicHTLCs, the resolver published the
+// pre-signed second-level tx directly via PublishTx (bypassing the aux
+// sweeper's NotifyBroadcast) and the upcoming second-level output sweep
+// would otherwise fail to fetch its input proof from the aux sweeper's
+// archive.
+//
+// The ResolveReq returned mirrors the live request that
+// newIncomingHtlcResolution / newOutgoingHtlcResolution built at
+// force-close time. We rebuild it here from the persisted channel state
+// because IncomingHtlcResolution / OutgoingHtlcResolution don't currently
+// round-trip the original ResolveReq through the briefcase log.
+//
+// chanState must be the historical channel state (e.g. via
+// FetchHistoricalChannel). htlc is the HTLC entry whose second-level
+// sweep we're about to perform. signDetails is the SignDetails captured
+// on the resolution at force-close time. htlcCsvDelay is the CSV delay
+// for the second-level output (taken from
+// IncomingHtlcResolution.CsvDelay / OutgoingHtlcResolution.CsvDelay).
+// commitTxBlockHeight is the height at which the force-close commitment
+// confirmed. secondLevelTx and secondLevelTxBlockHeight describe the
+// just-confirmed second-level tx. witType is the second-level output
+// witness type LND is about to offer to the sweeper
+// (TaprootHtlcAcceptedSuccessSecondLevel for the success path or
+// TaprootHtlcOfferedTimeoutSecondLevel for the timeout path).
+//
+// We always treat this as the local commitment because the success /
+// timeout resolvers only run for HTLCs on our local force-close
+// commitment.
+func NewSecondLevelResolveReq(chanState *channeldb.OpenChannel,
+	htlc *channeldb.HTLC, signDetails *input.SignDetails,
+	sweepSignDesc input.SignDescriptor, htlcCsvDelay,
+	commitTxBlockHeight uint32, secondLevelTx *wire.MsgTx,
+	secondLevelTxBlockHeight uint32,
+	witType input.WitnessType) (*ResolutionReq, error) {
+
+	if chanState == nil {
+		return nil, fmt.Errorf("chanState is nil")
+	}
+	if secondLevelTx == nil || len(secondLevelTx.TxIn) == 0 {
+		return nil, fmt.Errorf("invalid second-level tx")
+	}
+
+	revocation, err := chanState.RevocationProducer.AtIndex(
+		chanState.LocalCommitment.CommitHeight,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("derive revocation: %w", err)
+	}
+	commitPoint := input.ComputeCommitmentPoint(revocation[:])
+	keyRing := DeriveCommitmentKeys(
+		commitPoint, lntypes.Local, chanState.ChanType,
+		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+	)
+	keyRingCopy := *keyRing
+
+	htlcAmt := htlc.Amt.ToSatoshis()
+	commitCsvDelay := uint32(chanState.LocalChanCfg.CsvDelay)
+	contractPoint := secondLevelTx.TxIn[0].PreviousOutPoint
+
+	// AuxSigDesc is populated when we have both the SignDetails captured
+	// on the resolution and the remote party's aux sig in the HTLC's
+	// custom records. signSecondLevelImport uses the breach-style
+	// 2-of-2 witness construction when AuxSigDesc is present, producing
+	// a fully verifiable proof transition; the placeholder-witness
+	// fallback is reserved for the breach path where we don't have the
+	// remote sig.
+	var auxSigDesc fn.Option[AuxSigDesc]
+	if signDetails != nil {
+		sigType := htlcCustomSigType.TypeVal()
+		auxSig := htlc.CustomRecords[uint64(sigType)]
+		if len(auxSig) > 0 {
+			auxSigDesc = fn.Some(AuxSigDesc{
+				SignDetails: *signDetails,
+				AuxSig:      auxSig,
+			})
+		}
+	}
+
+	return &ResolutionReq{
+		ChanPoint:           chanState.FundingOutpoint,
+		ChanType:            chanState.ChanType,
+		ShortChanID:         chanState.ShortChanID(),
+		Initiator:           chanState.IsInitiator,
+		CommitBlob:          chanState.LocalCommitment.CustomBlob,
+		FundingBlob:         chanState.CustomBlob,
+		HtlcID:              fn.Some(htlc.HtlcIndex),
+		HtlcAmt:             htlcAmt,
+		Type:                witType,
+		CloseType:           LocalForceClose,
+		CommitTx:            chanState.LocalCommitment.CommitTx,
+		CommitTxBlockHeight: commitTxBlockHeight,
+		CommitFee:           chanState.LocalCommitment.CommitFee,
+		ContractPoint:       contractPoint,
+		SignDesc:            sweepSignDesc,
+		KeyRing:             &keyRingCopy,
+		CsvDelay:            htlcCsvDelay,
+		CommitCsvDelay:      commitCsvDelay,
+		CltvDelay:           fn.Some(htlc.RefundTimeout),
+		PayHash:             fn.Some(htlc.RHash),
+		AuxSigDesc:          auxSigDesc,
+		SecondLevel: fn.Some(SecondLevelInfo{
+			Tx:          secondLevelTx,
+			BlockHeight: secondLevelTxBlockHeight,
+		}),
+	}, nil
 }
 
 // extractHtlcResolutions creates a series of outgoing HTLC resolutions, and

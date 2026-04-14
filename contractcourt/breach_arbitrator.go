@@ -913,11 +913,16 @@ func (b *BreachArbitrator) notifyConfirmedJusticeTx(spends []spend,
 			err := fn.MapOptionZ(
 				b.cfg.AuxSweeper,
 				func(aux sweep.AuxSweeper) error {
-					// The transaction is already confirmed,
-					// so we pass skipBroadcast=true.
+					// The tx is already confirmed, so
+					// skip broadcast and proof verify
+					// (placeholder witnesses).
 					return aux.NotifyBroadcast(
 						&bumpReq, s.detail.SpendingTx,
-						justiceCtx.fee, nil, true,
+						justiceCtx.fee, nil,
+						sweep.AuxNotifyOpts{
+							SkipBroadcast:   true,
+							SkipProofVerify: true,
+						},
 					)
 				},
 			)

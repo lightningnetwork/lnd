@@ -418,6 +418,64 @@ func (h *htlcSuccessResolver) isZeroFeeOutput() bool {
 		h.htlcResolution.SignDetails != nil
 }
 
+// isSigHashDefault returns true when the second-level HTLC transaction
+// was signed with SigHashDefault. See isSecondLevelSigHashDefault.
+func (h *htlcSuccessResolver) isSigHashDefault() bool {
+	return isSecondLevelSigHashDefault(
+		h.htlcResolution.SignDetails, h.chanType,
+	)
+}
+
+// buildSecondLevelResolveReq returns a ResolutionReq targeting the
+// just-confirmed second-level HTLC tx. The fast path clones the
+// ResolveReq preserved on htlcResolution at force-close time and updates
+// only the fields that differ for a second-level sweep. The slow path
+// (used when the resolver was recovered from the briefcase and the
+// in-memory ResolveReq is gone) reconstructs the request from historical
+// channel state.
+func (h *htlcSuccessResolver) buildSecondLevelResolveReq(
+	witType input.WitnessType, secondLevelTx *wire.MsgTx,
+	spendingHeight uint32) (*lnwallet.ResolutionReq, error) {
+
+	if h.htlcResolution.ResolveReq != nil {
+		req := *h.htlcResolution.ResolveReq
+		req.Type = witType
+		req.SecondLevel = fn.Some(lnwallet.SecondLevelInfo{
+			Tx:          secondLevelTx,
+			BlockHeight: spendingHeight,
+		})
+
+		return &req, nil
+	}
+
+	chanState, err := h.FetchHistoricalChannel()
+	if err != nil {
+		return nil, fmt.Errorf("fetch historical channel: %w", err)
+	}
+
+	return lnwallet.NewSecondLevelResolveReq(
+		chanState, &h.htlc, h.htlcResolution.SignDetails,
+		h.htlcResolution.SweepSignDesc, h.htlcResolution.CsvDelay,
+		h.broadcastHeight, secondLevelTx, spendingHeight, witType,
+	)
+}
+
+// publishSuccessTx directly broadcasts the pre-signed second-level HTLC
+// success transaction. This is used when the transaction was signed with
+// SigHashDefault (baked-in fees), where the sweeper's normal tx-rebuilding
+// flow would invalidate the peer's signature.
+func (h *htlcSuccessResolver) publishSuccessTx() error {
+	h.log.Infof("publishing pre-signed 2nd-level HTLC success tx=%v "+
+		"(SigHashDefault, baked-in fees)",
+		h.htlcResolution.SignedSuccessTx.TxHash())
+
+	label := labels.MakeLabel(
+		labels.LabelTypeChannelClose, &h.ShortChanID,
+	)
+
+	return h.PublishTx(h.htlcResolution.SignedSuccessTx, label)
+}
+
 // isTaproot returns true if the resolver is for a taproot output.
 func (h *htlcSuccessResolver) isTaproot() bool {
 	return txscript.IsPayToTaproot(
@@ -604,12 +662,59 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	default:
 		witType = input.HtlcAcceptedSuccessSecondLevel
 	}
+
+	// Under DeterministicHTLCs the pre-signed second-level HTLC tx was
+	// published directly via PublishTx, bypassing the sweeper's
+	// NotifyBroadcast hook. As a result the aux sweeper never imported
+	// the second-level proof transition into its archive, and the
+	// upcoming output sweep would fail to fetch its input proof. Give
+	// the aux resolver a chance to import the second-level tx into its
+	// proof archive before we offer the output sweep to the sweeper.
+	//
+	// We prefer the ResolveReq preserved on htlcResolution at force-close
+	// time and only fall back to reconstructing it from historical
+	// channel state when that field is unavailable — the briefcase
+	// encoder doesn't currently round-trip ResolveReq, so resolvers
+	// recovered from a checkpoint have it nil.
+	resolutionBlob := h.htlcResolution.ResolutionBlob
+	h.AuxResolver.WhenSome(func(a lnwallet.AuxContractResolver) {
+		secondLevelReq, err := h.buildSecondLevelResolveReq(
+			witType, h.htlcResolution.SignedSuccessTx,
+			uint32(commitSpend.SpendingHeight),
+		)
+		if err != nil {
+			h.log.Errorf("Unable to build second-level success "+
+				"ResolveReq (htlcID=%v): %v — falling back "+
+				"to original blob", h.htlc.HtlcIndex, err)
+
+			return
+		}
+
+		resolveBlob := a.ResolveContract(*secondLevelReq)
+		if err := resolveBlob.Err(); err != nil {
+			h.log.Errorf("Unable to re-resolve aux blob for "+
+				"second-level success output sweep "+
+				"(htlcID=%v): %v — falling back to original "+
+				"blob; output sweep may fail aux proof "+
+				"verification",
+				h.htlc.HtlcIndex, err)
+
+			return
+		}
+		h.log.Infof("sweepSuccessTxOutput: re-resolved aux blob "+
+			"for second-level success output sweep "+
+			"(htlcID=%v, secondLevelTxid=%v)",
+			h.htlc.HtlcIndex,
+			h.htlcResolution.SignedSuccessTx.TxHash())
+		resolutionBlob = resolveBlob.OkToSome()
+	})
+
 	inp := h.makeSweepInput(
 		op, witType,
 		input.LeaseHtlcAcceptedSuccessSecondLevel,
 		&h.htlcResolution.SweepSignDesc,
 		h.htlcResolution.CsvDelay, uint32(commitSpend.SpendingHeight),
-		h.htlc.RHash, h.htlcResolution.ResolutionBlob,
+		h.htlc.RHash, resolutionBlob,
 	)
 
 	// Calculate the budget for this sweep.
@@ -795,6 +900,14 @@ func (h *htlcSuccessResolver) Launch() error {
 		// can go ahead and sweep its output.
 		if h.outputIncubating {
 			return h.sweepSuccessTxOutput()
+		}
+
+		// When the peer signed with SigHashDefault the pre-signed
+		// second-level tx has baked-in fees and cannot be modified
+		// (adding wallet inputs would invalidate the signature).
+		// Publish it directly instead of going through the sweeper.
+		if h.isSigHashDefault() {
+			return h.publishSuccessTx()
 		}
 
 		// Otherwise, sweep the second level tx.

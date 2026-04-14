@@ -373,3 +373,16 @@ func ResolveHtlcSigHashType(chanType channeldb.ChannelType,
 
 	return override
 }
+
+// IsSigHashDefault returns true if the resolved HTLC sighash type for the
+// given channel is SigHashDefault. This is used to determine whether
+// second-level HTLC transactions must carry their own fee (since the sweeper
+// cannot add wallet inputs under SigHashDefault).
+func IsSigHashDefault(chanType channeldb.ChannelType,
+	auxSigner fn.Option[AuxSigner],
+	req HtlcSigHashReq) bool {
+
+	return ResolveHtlcSigHashType(
+		chanType, auxSigner, req,
+	) == txscript.SigHashDefault
+}

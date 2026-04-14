@@ -3438,7 +3438,8 @@ func (lc *LightningChannel) evaluateNoOpHtlc(entry *paymentDescriptor,
 func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 	chanState *channeldb.OpenChannel, leaseExpiry uint32,
 	remoteCommitView *commitment,
-	leafStore fn.Option[AuxLeafStore]) ([]SignJob, []AuxSigJob,
+	leafStore fn.Option[AuxLeafStore],
+	auxSigner fn.Option[AuxSigner]) ([]SignJob, []AuxSigJob,
 	chan struct{}, error) {
 
 	var (
@@ -3451,7 +3452,14 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 	txHash := remoteCommitView.txn.TxHash()
 	dustLimit := remoteChanCfg.DustLimit
 	feePerKw := remoteCommitView.feePerKw
-	sigHashType := HtlcSigHashType(chanType)
+	sigHashType := ResolveHtlcSigHashType(
+		chanType, auxSigner, HtlcSigHashReq{
+			ChanID: fn.Some(lnwire.NewChanIDFromOutPoint(
+				chanState.FundingOutpoint,
+			)),
+			CommitBlob: remoteCommitView.customBlob,
+		},
+	)
 
 	// With the keys generated, we'll make a slice with enough capacity to
 	// hold potentially all the HTLCs. The actual slice may be a bit
@@ -4314,7 +4322,7 @@ func (lc *LightningChannel) SignNextCommitment(
 	}
 	sigBatch, auxSigBatch, cancelChan, err := genRemoteHtlcSigJobs(
 		keyRing, lc.channelState, leaseExpiry, newCommitView,
-		lc.leafStore,
+		lc.leafStore, lc.auxSigner,
 	)
 	if err != nil {
 		return nil, err
@@ -5080,7 +5088,14 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 
 	txHash := localCommitmentView.txn.TxHash()
 	feePerKw := localCommitmentView.feePerKw
-	sigHashType := HtlcSigHashType(chanType)
+	sigHashType := ResolveHtlcSigHashType(
+		chanType, auxSigner, HtlcSigHashReq{
+			ChanID: fn.Some(lnwire.NewChanIDFromOutPoint(
+				chanState.FundingOutpoint,
+			)),
+			CommitBlob: localCommitmentView.customBlob,
+		},
+	)
 
 	// With the required state generated, we'll create a slice with large
 	// enough capacity to hold verification jobs for all HTLC's in this
@@ -7174,7 +7189,8 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, //nolint:funlen
 	signer input.Signer, commitSpend *chainntnfs.SpendDetail,
 	remoteCommit channeldb.ChannelCommitment, commitPoint *btcec.PublicKey,
 	leafStore fn.Option[AuxLeafStore],
-	auxResolver fn.Option[AuxContractResolver]) (*UnilateralCloseSummary,
+	auxResolver fn.Option[AuxContractResolver],
+	auxSigner fn.Option[AuxSigner]) (*UnilateralCloseSummary,
 	error) {
 
 	// First, we'll generate the commitment point and the revocation point
@@ -7217,7 +7233,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, //nolint:funlen
 		&chanState.RemoteChanCfg, commitSpend.SpendingTx,
 		commitTxHeight, chanState.ChanType,
 		isRemoteInitiator, leaseExpiry, chanState, auxResult.AuxLeaves,
-		auxResolver,
+		auxResolver, auxSigner,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create htlc resolutions: %w",
@@ -7527,6 +7543,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	chanType channeldb.ChannelType, chanState *channeldb.OpenChannel,
 	auxLeaves fn.Option[CommitAuxLeaves],
 	auxResolver fn.Option[AuxContractResolver],
+	auxSigner fn.Option[AuxSigner],
 ) (*OutgoingHtlcResolution, error) {
 
 	op := wire.OutPoint{
@@ -7691,7 +7708,11 @@ func newOutgoingHtlcResolution(signer input.Signer,
 
 	// With the sign desc created, we can now construct the full witness
 	// for the timeout transaction, and populate it as well.
-	sigHashType := HtlcSigHashType(chanType)
+	sigHashType := ResolveHtlcSigHashType(
+		chanType, auxSigner, HtlcSigHashReq{
+			CommitBlob: chanState.LocalCommitment.CustomBlob,
+		},
+	)
 	var timeoutWitness wire.TxWitness
 	if scriptTree, ok := htlcScriptInfo.(input.TapscriptDescriptor); ok {
 		timeoutSignDesc.SignMethod = input.TaprootScriptSpendSignMethod
@@ -7902,6 +7923,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 	chanType channeldb.ChannelType, chanState *channeldb.OpenChannel,
 	auxLeaves fn.Option[CommitAuxLeaves],
 	auxResolver fn.Option[AuxContractResolver],
+	auxSigner fn.Option[AuxSigner],
 ) (*IncomingHtlcResolution, error) {
 
 	op := wire.OutPoint{
@@ -8064,7 +8086,11 @@ func newIncomingHtlcResolution(signer input.Signer,
 	// will be supplied by the contract resolver, either directly or when it
 	// becomes known.
 	var successWitness wire.TxWitness
-	sigHashType := HtlcSigHashType(chanType)
+	sigHashType := ResolveHtlcSigHashType(
+		chanType, auxSigner, HtlcSigHashReq{
+			CommitBlob: chanState.LocalCommitment.CustomBlob,
+		},
+	)
 	if scriptTree, ok := scriptInfo.(input.TapscriptDescriptor); ok {
 		successSignDesc.SignMethod = input.TaprootScriptSpendSignMethod
 
@@ -8395,7 +8421,8 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 	chanType channeldb.ChannelType, isCommitFromInitiator bool,
 	leaseExpiry uint32, chanState *channeldb.OpenChannel,
 	auxLeaves fn.Option[CommitAuxLeaves],
-	auxResolver fn.Option[AuxContractResolver]) (*HtlcResolutions, error) {
+	auxResolver fn.Option[AuxContractResolver],
+	auxSigner fn.Option[AuxSigner]) (*HtlcResolutions, error) {
 
 	// TODO(roasbeef): don't need to swap csv delay?
 	dustLimit := remoteChanCfg.DustLimit
@@ -8431,6 +8458,7 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 				&htlc, keyRing, feePerKw, uint32(csvDelay),
 				leaseExpiry, whoseCommit, isCommitFromInitiator,
 				chanType, chanState, auxLeaves, auxResolver,
+				auxSigner,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("incoming resolution "+
@@ -8445,7 +8473,7 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 			signer, localChanCfg, commitTx, commitTxHeight, &htlc,
 			keyRing, feePerKw, uint32(csvDelay), leaseExpiry,
 			whoseCommit, isCommitFromInitiator, chanType, chanState,
-			auxLeaves, auxResolver,
+			auxLeaves, auxResolver, auxSigner,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("outgoing resolution "+
@@ -8592,7 +8620,7 @@ func (lc *LightningChannel) ForceClose(opts ...ForceCloseOpt) (
 	summary, err := NewLocalForceCloseSummary(
 		lc.channelState, lc.Signer, commitTx,
 		0, localCommitment.CommitHeight, lc.leafStore,
-		lc.auxResolver,
+		lc.auxResolver, lc.auxSigner,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen force close "+
@@ -8611,8 +8639,8 @@ func (lc *LightningChannel) ForceClose(opts ...ForceCloseOpt) (
 func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	signer input.Signer, commitTx *wire.MsgTx, commitTxHeight uint32,
 	stateNum uint64, leafStore fn.Option[AuxLeafStore],
-	auxResolver fn.Option[AuxContractResolver]) (*LocalForceCloseSummary,
-	error) {
+	auxResolver fn.Option[AuxContractResolver],
+	auxSigner fn.Option[AuxSigner]) (*LocalForceCloseSummary, error) {
 
 	// Re-derive the original pkScript for to-self output within the
 	// commitment transaction. We'll need this to find the corresponding
@@ -8781,7 +8809,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 		signer, localCommit.Htlcs, keyRing, &chanState.LocalChanCfg,
 		&chanState.RemoteChanCfg, commitTx, commitTxHeight,
 		chanState.ChanType, chanState.IsInitiator, leaseExpiry,
-		chanState, auxResult.AuxLeaves, auxResolver,
+		chanState, auxResult.AuxLeaves, auxResolver, auxSigner,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen htlc resolution: %w", err)

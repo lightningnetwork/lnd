@@ -376,8 +376,11 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 	}
 }
 
-// HtlcSigHashType returns the sighash type to use for HTLC success and timeout
-// transactions given the channel type.
+// HtlcSigHashType returns the default sighash type to use for HTLC success
+// and timeout transactions given the channel type. For channels where an
+// AuxSigner is available, use ResolveHtlcSigHashType instead, which queries
+// the aux signer for a channel-specific override based on negotiated feature
+// bits.
 func HtlcSigHashType(chanType channeldb.ChannelType) txscript.SigHashType {
 	if chanType.HasAnchors() {
 		return txscript.SigHashSingle | txscript.SigHashAnyOneCanPay

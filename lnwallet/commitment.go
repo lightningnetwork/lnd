@@ -509,12 +509,71 @@ func CommitWeight(chanType channeldb.ChannelType) lntypes.WeightUnit {
 	}
 }
 
+// SecondLevelTimeoutWeight is the weight of a pre-signed second-level HTLC
+// timeout transaction under DeterministicHTLCs, including the appended CPFP
+// anchor output.
+func SecondLevelTimeoutWeight() lntypes.WeightUnit {
+	return lntypes.WeightUnit(input.TaprootHtlcTimeoutWeight) +
+		lntypes.WeightUnit(input.TaprootCommitmentAnchorOutput*4)
+}
+
+// SecondLevelSuccessWeight is the weight of a pre-signed second-level HTLC
+// success transaction under DeterministicHTLCs, including the appended CPFP
+// anchor output.
+func SecondLevelSuccessWeight() lntypes.WeightUnit {
+	return lntypes.WeightUnit(input.TaprootHtlcSuccessWeight) +
+		lntypes.WeightUnit(input.TaprootCommitmentAnchorOutput*4)
+}
+
+// secondLevelMinFee is the fee a pre-signed second-level HTLC tx of the given
+// weight carries: 1.1x the relay floor, which is enough for the tx to clear
+// min-relay on its own even for nodes that compute the fee rate over the raw
+// serialized size. A parent the mempool rejects outright cannot be CPFP'd by
+// its own anchor, so this is a hard lower bound.
+//
+// It is also the upper bound. The fee cannot instead track the negotiated
+// commitment fee rate, even though that would be equally deterministic,
+// because the whole on-chain BTC value of an aux-channel HTLC is a small
+// fixed budget that is already fully allocated: it pays this fee, funds the
+// CPFP anchor (AnchorSize), and must still leave a second-level output large
+// enough to be non-dust AND to fund the third-level sweep (the CSV sweep, or
+// the justice sweep after a breach) that finally claims it. For the ~1200 sat
+// budget aux channels use, a commitment fee rate of a few sat/vB alone
+// exceeds the entire budget, and even capping the fee at what keeps the
+// second-level output non-dust leaves that output unable to pay for its own
+// sweep, stranding the asset value it carries.
+//
+// Adapting to the fee market is therefore the CPFP child's job, not the
+// parent's. Where that is not enough (a mempool minimum above the parent's
+// own rate, which no child can fix), the answer is package relay: submitting
+// the parent together with its fee-paying child, which lnd can now do via
+// walletrpc.SubmitPackage.
+func secondLevelMinFee(weight lntypes.WeightUnit) btcutil.Amount {
+	const numerator, denominator = 11, 10
+
+	return (chainfee.FeePerKwFloor * numerator / denominator).FeeForWeight(
+		weight,
+	)
+}
+
 // HtlcTimeoutFee returns the fee in satoshis required for an HTLC timeout
-// transaction based on the current fee rate.
+// transaction based on the current fee rate. When sigHashDefault is true and
+// the channel is taproot, this is the fee baked into the pre-signed
+// second-level transaction, which is also what defines the dust threshold for
+// the HTLC; see secondLevelMinFee for why it is pinned to the relay floor.
 func HtlcTimeoutFee(chanType channeldb.ChannelType,
-	feePerKw chainfee.SatPerKWeight) btcutil.Amount {
+	feePerKw chainfee.SatPerKWeight,
+	sigHashDefault bool) btcutil.Amount {
 
 	switch {
+	// For taproot channels with SigHashDefault, the second-level tx is
+	// pre-signed with baked-in fees and cannot be RBF'd, so it must
+	// always be able to clear min-relay on its own. This is also the
+	// value HtlcIsDust measures the HTLC against, since the fee is
+	// carved out of the HTLC's on-chain value.
+	case chanType.IsTaproot() && sigHashDefault:
+		return secondLevelMinFee(SecondLevelTimeoutWeight())
+
 	// For zero-fee HTLC channels, this will always be zero, regardless of
 	// feerate.
 	case chanType.ZeroHtlcTxFee() || chanType.IsTaproot():
@@ -529,11 +588,18 @@ func HtlcTimeoutFee(chanType channeldb.ChannelType,
 }
 
 // HtlcSuccessFee returns the fee in satoshis required for an HTLC success
-// transaction based on the current fee rate.
+// transaction based on the current fee rate. When sigHashDefault is true and
+// the channel is taproot, this is the fee baked into the pre-signed
+// second-level transaction (see HtlcTimeoutFee).
 func HtlcSuccessFee(chanType channeldb.ChannelType,
-	feePerKw chainfee.SatPerKWeight) btcutil.Amount {
+	feePerKw chainfee.SatPerKWeight,
+	sigHashDefault bool) btcutil.Amount {
 
 	switch {
+	// See HtlcTimeoutFee for the min-relay rationale.
+	case chanType.IsTaproot() && sigHashDefault:
+		return secondLevelMinFee(SecondLevelSuccessWeight())
+
 	// For zero-fee HTLC channels, this will always be zero, regardless of
 	// feerate.
 	case chanType.ZeroHtlcTxFee() || chanType.IsTaproot():
@@ -648,11 +714,16 @@ type CommitmentBuilder struct {
 	// auxLeafStore is an interface that allows us to fetch auxiliary
 	// tapscript leaves for the commitment output.
 	auxLeafStore fn.Option[AuxLeafStore]
+
+	// sigHashDefault indicates whether HTLC second-level transactions
+	// for this channel use SigHashDefault.
+	sigHashDefault bool
 }
 
 // NewCommitmentBuilder creates a new CommitmentBuilder from chanState.
 func NewCommitmentBuilder(chanState *chanstate.OpenChannel,
-	leafStore fn.Option[AuxLeafStore]) *CommitmentBuilder {
+	leafStore fn.Option[AuxLeafStore],
+	sigHashDefault bool) *CommitmentBuilder {
 
 	// The anchor channel type MUST be tweakless.
 	if chanState.ChanType.HasAnchors() && !chanState.ChanType.IsTweakless() {
@@ -660,9 +731,10 @@ func NewCommitmentBuilder(chanState *chanstate.OpenChannel,
 	}
 
 	return &CommitmentBuilder{
-		chanState:    chanState,
-		obfuscator:   createStateHintObfuscator(chanState),
-		auxLeafStore: leafStore,
+		chanState:      chanState,
+		obfuscator:     createStateHintObfuscator(chanState),
+		auxLeafStore:   leafStore,
+		sigHashDefault: sigHashDefault,
 	}
 }
 
@@ -731,6 +803,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
+			cb.sigHashDefault,
 		) {
 
 			continue
@@ -742,6 +815,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		if HtlcIsDust(
 			cb.chanState.ChanType, true, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
+			cb.sigHashDefault,
 		) {
 
 			continue
@@ -856,6 +930,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
+			cb.sigHashDefault,
 		) {
 
 			continue
@@ -884,6 +959,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		if HtlcIsDust(
 			cb.chanState.ChanType, true, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
+			cb.sigHashDefault,
 		) {
 
 			continue

@@ -847,7 +847,9 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend,
 // haven't already notified about it, we call NotifyBroadcast on the aux sweeper
 // to generate asset-level proofs.
 func (b *BreachArbitrator) notifyConfirmedJusticeTx(spends []spend,
-	justiceTxs *justiceTxVariants, notifiedTxs map[chainhash.Hash]bool) {
+	justiceTxs *justiceTxVariants,
+	historicJusticeTxs map[chainhash.Hash]*justiceTxCtx,
+	notifiedTxs map[chainhash.Hash]bool) {
 
 	// Check each spend to see if it's from one of our justice txs.
 	for _, s := range spends {
@@ -891,6 +893,14 @@ func (b *BreachArbitrator) notifyConfirmedJusticeTx(spends []spend,
 			}
 		}
 
+		// Check the historic map of all justice tx variants ever
+		// created. This handles the case where the confirmed tx
+		// was from a previous rebuild cycle and the current
+		// justiceTxs has been replaced with newer variants.
+		if justiceCtx == nil {
+			justiceCtx = historicJusticeTxs[spendingTxHash]
+		}
+
 		// If this is one of our justice txs, notify the aux sweeper.
 		if justiceCtx != nil {
 			bumpReq := sweep.BumpRequest{
@@ -920,6 +930,28 @@ func (b *BreachArbitrator) notifyConfirmedJusticeTx(spends []spend,
 				notifiedTxs[spendingTxHash] = true
 			}
 		}
+	}
+}
+
+// recordJusticeTxVariants records all non-nil justice tx variants into the
+// historic map keyed by their txid. This allows notifyConfirmedJusticeTx to
+// match confirmed spends against justice txs from previous rebuild cycles.
+func recordJusticeTxVariants(variants *justiceTxVariants,
+	history map[chainhash.Hash]*justiceTxCtx) {
+
+	record := func(jtx *justiceTxCtx) {
+		if jtx == nil {
+			return
+		}
+		hash := jtx.justiceTx.TxHash()
+		history[hash] = jtx
+	}
+
+	record(variants.spendAll)
+	record(variants.spendCommitOuts)
+	record(variants.spendHTLCs)
+	for _, tx := range variants.spendSecondLevelHTLCs {
+		record(tx)
 	}
 }
 
@@ -978,6 +1010,13 @@ func (b *BreachArbitrator) exactRetribution(
 	// handle duplicate calls idempotently.
 	notifiedJusticeTxs := make(map[chainhash.Hash]bool)
 
+	// Track all historically created justice tx contexts by their txid.
+	// This is needed because justiceTxs is rebuilt after each spend
+	// detection, and the tx that actually confirmed may have been from
+	// an earlier rebuild cycle. Without this history, we can't match
+	// the confirmed tx to call NotifyBroadcast on the aux sweeper.
+	historicJusticeTxs := make(map[chainhash.Hash]*justiceTxCtx)
+
 	// Compute both the total value of funds being swept and the
 	// amount of funds that were revoked from the counter party.
 	var totalFunds, revokedFunds btcutil.Amount
@@ -991,6 +1030,7 @@ justiceTxBroadcast:
 		brarLog.Errorf("Unable to create justice tx: %v", err)
 		return
 	}
+	recordJusticeTxVariants(justiceTxs, historicJusticeTxs)
 	finalTx := justiceTxs.spendAll
 
 	brarLog.Debugf("Broadcasting justice tx: %v", lnutils.SpewLogClosure(
@@ -1044,7 +1084,9 @@ Loop:
 			// justice transaction, and if so, notify the aux
 			// sweeper.
 			b.notifyConfirmedJusticeTx(
-				spends, justiceTxs, notifiedJusticeTxs,
+				spends, justiceTxs,
+				historicJusticeTxs,
+				notifiedJusticeTxs,
 			)
 
 			// Update the breach info with the new spends.
@@ -1111,6 +1153,44 @@ Loop:
 				"justice tx confirming (breached at "+
 				"height %v), splitting justice tx.",
 				epoch.Height, breachInfo.breachHeight)
+
+			// Rebuild justice tx variants from the current
+			// breach info, which may have been updated by
+			// spend detection (e.g. second-level HTLC spends
+			// replacing commit-level outputs).
+			justiceTxs, err = b.createJusticeTx(
+				breachInfo.breachedOutputs,
+			)
+			if err != nil {
+				brarLog.Errorf("Unable to recreate "+
+					"justice tx for split: %v", err)
+				continue Loop
+			}
+			recordJusticeTxVariants(
+				justiceTxs, historicJusticeTxs,
+			)
+
+			// Re-attempt the spendAll variant first, in
+			// case the breach info was updated since the
+			// initial broadcast. This avoids splitting into
+			// small txs that can't pay fees when a combined
+			// tx would work.
+			if justiceTxs.spendAll != nil {
+				label := labels.MakeLabel(
+					labels.LabelTypeJusticeTransaction,
+					nil,
+				)
+				err = b.cfg.PublishTransaction(
+					justiceTxs.spendAll.justiceTx,
+					label,
+				)
+				if err != nil {
+					brarLog.Warnf("Unable to "+
+						"broadcast updated "+
+						"spendAll justice "+
+						"tx: %v", err)
+				}
+			}
 
 			// Otherwise we'll attempt to publish the two separate
 			// justice transactions that sweeps the commitment
@@ -1715,6 +1795,10 @@ func (b *BreachArbitrator) createJusticeTx(
 		}
 	}
 
+	brarLog.Infof("createJusticeTx: %d total inputs (%d commit, "+
+		"%d htlc, %d second-level)", len(allInputs),
+		len(commitInputs), len(htlcInputs), len(secondLevelInputs))
+
 	var (
 		txs = &justiceTxVariants{}
 		err error
@@ -1725,31 +1809,42 @@ func (b *BreachArbitrator) createJusticeTx(
 	if err != nil {
 		return nil, err
 	}
+	brarLog.Infof("createJusticeTx: spendAll created successfully "+
+		"(%d inputs, txid=%v)", len(allInputs),
+		txs.spendAll.justiceTx.TxHash())
 
 	txs.spendCommitOuts, err = b.createSweepTx(commitInputs...)
 	if err != nil {
 		brarLog.Errorf("could not create sweep tx for commitment "+
 			"outputs: %v", err)
+	} else if txs.spendCommitOuts != nil {
+		brarLog.Infof("createJusticeTx: spendCommitOuts created "+
+			"successfully (%d inputs)", len(commitInputs))
 	}
 
 	txs.spendHTLCs, err = b.createSweepTx(htlcInputs...)
 	if err != nil {
 		brarLog.Errorf("could not create sweep tx for HTLC outputs: %v",
 			err)
+	} else if txs.spendHTLCs != nil {
+		brarLog.Infof("createJusticeTx: spendHTLCs created "+
+			"successfully (%d inputs)", len(htlcInputs))
 	}
 
 	// TODO(roasbeef): only register one of them?
 
 	secondLevelSweeps := make([]*justiceTxCtx, 0, len(secondLevelInputs))
-	for _, input := range secondLevelInputs {
+	for i, input := range secondLevelInputs {
 		sweepTx, err := b.createSweepTx(input)
 		if err != nil {
 			brarLog.Errorf("could not create sweep tx for "+
-				"second-level HTLC output: %v", err)
+				"second-level HTLC output %d: %v", i, err)
 
 			continue
 		}
 
+		brarLog.Infof("createJusticeTx: individual second-level "+
+			"sweep %d created successfully", i)
 		secondLevelSweeps = append(secondLevelSweeps, sweepTx)
 	}
 	txs.spendSecondLevelHTLCs = secondLevelSweeps

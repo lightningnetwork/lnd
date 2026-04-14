@@ -1108,6 +1108,12 @@ func (l *channelLink) syncChanStates(ctx context.Context) error {
 			},
 		)
 
+		// The aux negotiator now knows the features negotiated for
+		// this channel, which it may not have when the channel state
+		// machine was created. Pick up the HTLC sighash type that
+		// follows from them before any new commitment is created.
+		l.refreshHtlcSigHashType()
+
 		var (
 			openedCircuits []CircuitKey
 			closedCircuits []CircuitKey
@@ -2276,6 +2282,20 @@ func (l *channelLink) getDustSum(whoseCommit lntypes.ChannelParty,
 // NOTE: Part of the dustHandler interface.
 func (l *channelLink) getFeeRate() chainfee.SatPerKWeight {
 	return l.channel.CommitFeeRate()
+}
+
+// refreshHtlcSigHashType re-resolves the HTLC sighash type of the channel
+// from the live feature negotiation and hands the mailbox a dust closure that
+// reflects it. The mailbox captured the closure when it was attached, before
+// the channel was reestablished, so without the refresh it would keep
+// classifying HTLCs with the old dust threshold while the channel uses the
+// new one, and the dust exposure check would mix the two.
+func (l *channelLink) refreshHtlcSigHashType() {
+	l.channel.RefreshHtlcSigHashType()
+
+	if l.mailBox != nil {
+		l.mailBox.SetDustClosure(l.getDustClosure())
+	}
 }
 
 // getDustClosure returns a closure that can be used by the switch or mailbox

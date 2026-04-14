@@ -738,8 +738,10 @@ func (t *TxPublisher) broadcast(record *monitorRecord) (*BumpResult, error) {
 	// Before we go to broadcast, we'll notify the aux sweeper, if it's
 	// present of this new broadcast attempt.
 	err := fn.MapOptionZ(t.cfg.AuxSweeper, func(aux AuxSweeper) error {
+		const skipBroadcast = false
 		return aux.NotifyBroadcast(
 			record.req, tx, record.fee, record.outpointToTxIndex,
+			skipBroadcast,
 		)
 	})
 	if err != nil {

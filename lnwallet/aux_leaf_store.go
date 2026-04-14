@@ -190,8 +190,12 @@ type AuxLeafStore interface {
 
 	// FetchLeavesFromRevocation attempts to fetch the auxiliary leaves
 	// from a channel revocation that stores balance + blob information.
-	FetchLeavesFromRevocation(
-		r *channeldb.RevocationLog) fn.Result[CommitDiffAuxResult]
+	// The additional parameters (chanState, keys, commitTx) are needed
+	// to compute second-level HTLC auxiliary leaves at runtime, since
+	// these are not stored in the commitment blob.
+	FetchLeavesFromRevocation(r *channeldb.RevocationLog,
+		chanState AuxChanState, keys CommitmentKeyRing,
+		commitTx *wire.MsgTx) fn.Result[CommitDiffAuxResult]
 
 	// ApplyHtlcView serves as the state transition function for the custom
 	// channel's blob. Given the old blob, and an HTLC view, then a new

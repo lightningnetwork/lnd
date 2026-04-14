@@ -117,6 +117,16 @@ type ResolutionReq struct {
 	// AuxSigDesc is an optional field that contains additional information
 	// needed to sweep second level HTLCs.
 	AuxSigDesc fn.Option[AuxSigDesc]
+
+	// SecondLevelTx is the second-level HTLC transaction, set only when
+	// resolving a TaprootHtlcSecondLevelRevoke. This allows the resolver
+	// to re-anchor proofs to the second-level tx rather than the
+	// commitment tx.
+	SecondLevelTx *wire.MsgTx
+
+	// SecondLevelTxBlockHeight is the block height where the second-level
+	// HTLC transaction was confirmed.
+	SecondLevelTxBlockHeight uint32
 }
 
 // AuxContractResolver is an interface that is used to resolve contracts that

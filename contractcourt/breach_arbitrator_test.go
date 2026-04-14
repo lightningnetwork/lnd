@@ -2981,7 +2981,7 @@ func (m *mockAuxSweeperWithOutput) ExtraBudgetForInputs(
 func (m *mockAuxSweeperWithOutput) NotifyBroadcast(
 	_ *sweep.BumpRequest, _ *wire.MsgTx,
 	_ btcutil.Amount, _ map[wire.OutPoint]int,
-	_ bool) error {
+	_ sweep.AuxNotifyOpts) error {
 
 	return nil
 }
@@ -2995,10 +2995,10 @@ type mockAuxSweeperNotify struct {
 
 // notifyCall records the parameters of a NotifyBroadcast call.
 type notifyCall struct {
-	req           *sweep.BumpRequest
-	tx            *wire.MsgTx
-	fee           btcutil.Amount
-	skipBroadcast bool
+	req  *sweep.BumpRequest
+	tx   *wire.MsgTx
+	fee  btcutil.Amount
+	opts sweep.AuxNotifyOpts
 }
 
 // DeriveSweepAddr implements sweep.AuxSweeper.
@@ -3018,13 +3018,13 @@ func (m *mockAuxSweeperNotify) ExtraBudgetForInputs(
 // NotifyBroadcast implements sweep.AuxSweeper and records the call.
 func (m *mockAuxSweeperNotify) NotifyBroadcast(req *sweep.BumpRequest,
 	tx *wire.MsgTx, fee btcutil.Amount,
-	_ map[wire.OutPoint]int, skipBroadcast bool) error {
+	_ map[wire.OutPoint]int, opts sweep.AuxNotifyOpts) error {
 
 	m.notifyCalls = append(m.notifyCalls, notifyCall{
-		req:           req,
-		tx:            tx,
-		fee:           fee,
-		skipBroadcast: skipBroadcast,
+		req:  req,
+		tx:   tx,
+		fee:  fee,
+		opts: opts,
 	})
 
 	return m.notifyErr
@@ -3235,11 +3235,14 @@ func TestNotifyConfirmedJusticeTx(t *testing.T) {
 						"unexpected fee for call %d", i)
 				}
 
-				// Verify skipBroadcast is always true for
+				// Verify skip flags are set for
 				// confirmed justice txs.
 				require.Equal(t, tc.expectedSkipFlag,
-					call.skipBroadcast,
-					"skipBroadcast should be true")
+					call.opts.SkipBroadcast,
+					"SkipBroadcast should be true")
+				require.Equal(t, tc.expectedSkipFlag,
+					call.opts.SkipProofVerify,
+					"SkipProofVerify should be true")
 			}
 		})
 	}

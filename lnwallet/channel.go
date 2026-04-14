@@ -2608,6 +2608,48 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 			HtlcID:    htlcIDOpt,
 			CltvDelay: fn.Some(htlc.RefundTimeout.Val),
 		}
+
+		// Populate the AuxSigDesc if the HTLC has custom
+		// records (containing the remote's asset-level
+		// sig for the second-level tx). This allows the
+		// aux subsystem to construct a valid proof with
+		// real witnesses instead of placeholders.
+		htlc.CustomBlob.WhenSome(
+			func(r tlv.RecordT[tlv.TlvType5, tlv.Blob]) {
+				customRecords, err := lnwire.
+					ParseCustomRecords(r.Val)
+				if err != nil {
+					return
+				}
+
+				sigType := htlcCustomSigType.TypeVal()
+				auxSig := customRecords[uint64(sigType)]
+				if len(auxSig) > 0 {
+					// Construct the HTLC sign
+					// descriptor that the aux
+					// subsystem needs to sign the
+					// second-level transition proof.
+					htlcSignDesc := input.SignDescriptor{
+						KeyDesc: chanState.
+							LocalChanCfg.
+							HtlcBasePoint,
+						SingleTweak: keyRing.
+							LocalHtlcKeyTweak,
+						SignMethod: input.
+							TaprootScriptSpendSignMethod,
+					}
+
+					resolveReq.AuxSigDesc = fn.Some(
+						AuxSigDesc{
+							AuxSig: auxSig,
+							SignDetails: input.SignDetails{
+								SignDesc: htlcSignDesc,
+							},
+						},
+					)
+				}
+			},
+		)
 		if revokedLog != nil {
 			resolveReq.CommitBlob = revokedLog.CustomBlob.ValOpt()
 		}

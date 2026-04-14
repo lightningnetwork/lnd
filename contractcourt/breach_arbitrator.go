@@ -179,6 +179,11 @@ type BreachConfig struct {
 	// AuxSweeper is an optional interface that can be used to modify the
 	// way sweep transaction are generated.
 	AuxSweeper fn.Option[sweep.AuxSweeper]
+
+	// AuxResolver is an optional interface for resolving auxiliary
+	// contract data. Used to generate resolution blobs for second-level
+	// HTLC revocations at morph time.
+	AuxResolver fn.Option[lnwallet.AuxContractResolver]
 }
 
 // BreachArbitrator is a special subsystem which is responsible for watching and
@@ -539,13 +544,72 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 	}
 }
 
+// findSecondLevelOutputIndex searches the spending (second-level) transaction's
+// outputs for the one that matches the expected second-level HTLC output
+// script. This is necessary because SpenderInputIndex (which identifies the
+// input that spent our output) does NOT necessarily correspond to the output
+// index — the second-level tx may contain additional inputs (e.g. wallet UTXOs
+// for fees) that shift the input indices.
+func findSecondLevelOutputIndex(bo *breachedOutput,
+	spendingTx *wire.MsgTx) (uint32, error) {
+
+	isTaproot := txscript.IsPayToTaproot(bo.signDesc.Output.PkScript)
+	if !isTaproot || bo.signDesc.DoubleTweak == nil {
+		return 0, fmt.Errorf("cannot derive expected pkScript: " +
+			"non-taproot or missing DoubleTweak")
+	}
+
+	// For taproot outputs we derive the expected pkScript from the
+	// revocation key and the second-level tap tweak.
+	//
+	// Derive the revocation public key from the revocation base point
+	// and the commitment secret (DoubleTweak).
+	commitPoint := bo.signDesc.DoubleTweak.PubKey()
+	revokeKey := input.DeriveRevocationPubkey(
+		bo.signDesc.KeyDesc.PubKey, commitPoint,
+	)
+
+	// Compute the expected taproot output key using the revocation key
+	// as internal key and the second-level tap tweak.
+	expectedOutputKey := txscript.ComputeTaprootOutputKey(
+		revokeKey, bo.secondLevelTapTweak[:],
+	)
+	expectedPkScript, err := input.PayToTaprootScript(expectedOutputKey)
+	if err != nil {
+		return 0, fmt.Errorf("unable to compute expected pkScript: %w",
+			err)
+	}
+
+	// Search the spending tx outputs for the matching pkScript.
+	for i, txOut := range spendingTx.TxOut {
+		if bytes.Equal(txOut.PkScript, expectedPkScript) {
+			return uint32(i), nil
+		}
+	}
+
+	// Log details to help diagnose why no match was found.
+	brarLog.Warnf("Expected second-level pkScript %x (revokeKey=%x, "+
+		"tapTweak=%x) not found among %d outputs of tx %s",
+		expectedPkScript, revokeKey.SerializeCompressed(),
+		bo.secondLevelTapTweak[:], len(spendingTx.TxOut),
+		spendingTx.TxHash())
+	for i, txOut := range spendingTx.TxOut {
+		brarLog.Warnf("  output %d: pkScript=%x value=%d",
+			i, txOut.PkScript, txOut.Value)
+	}
+
+	return 0, fmt.Errorf("no output matching expected second-level "+
+		"taproot pkScript found in tx %s", spendingTx.TxHash())
+}
+
 // convertToSecondLevelRevoke takes a breached output, and a transaction that
 // spends it to the second level, and mutates the breach output into one that
 // is able to properly sweep that second level output. We'll use this function
 // when we go to sweep a breached commitment transaction, but the cheating
 // party has already attempted to take it to the second level.
 func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
-	spendDetails *chainntnfs.SpendDetail) {
+	spendDetails *chainntnfs.SpendDetail,
+	auxResolver fn.Option[lnwallet.AuxContractResolver]) {
 
 	// In this case, we'll modify the witness type of this output to
 	// actually prepare for a second level revoke.
@@ -556,24 +620,49 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 		bo.witnessType = input.HtlcSecondLevelRevoke
 	}
 
-	// We'll also redirect the outpoint to this second level output, so the
-	// spending transaction updates it inputs accordingly.
+	// Find the correct output index in the spending (second-level) tx.
+	//
+	// On aux (taproot-asset) channels the second-level tx may bundle
+	// multiple HTLCs and/or wallet UTXOs for fees, so input index no
+	// longer matches output index. We script-match our expected
+	// second-level pkScript to locate the right output.
+	//
+	// On non-aux channels (regular legacy/anchor/taproot) we keep the
+	// legacy behavior of using SpenderInputIndex directly. The
+	// script-matching code path only runs for aux channels so we don't
+	// regress sweep behavior on normal channels.
 	spendingTx := spendDetails.SpendingTx
-	spendInputIndex := spendDetails.SpenderInputIndex
+	isAuxChannel := bo.resolveReq != nil
+
+	var outputIndex uint32
+	if isAuxChannel {
+		idx, err := findSecondLevelOutputIndex(bo, spendingTx)
+		if err != nil {
+			brarLog.Errorf("BUG: cannot locate second-level "+
+				"taproot output by script match for "+
+				"aux-channel breach %v: %v", bo.outpoint, err)
+
+			return
+		}
+		outputIndex = idx
+	} else {
+		outputIndex = spendDetails.SpenderInputIndex
+	}
+
 	oldOp := bo.outpoint
 	bo.outpoint = wire.OutPoint{
 		Hash:  spendingTx.TxHash(),
-		Index: spendInputIndex,
+		Index: outputIndex,
 	}
 
 	// Next, we need to update the amount so we can do fee estimation
 	// properly, and also so we can generate a valid signature as we need
 	// to know the new input value (the second level transactions shaves
 	// off some funds to fees).
-	newAmt := spendingTx.TxOut[spendInputIndex].Value
+	newAmt := spendingTx.TxOut[outputIndex].Value
 	bo.amt = btcutil.Amount(newAmt)
 	bo.signDesc.Output.Value = newAmt
-	bo.signDesc.Output.PkScript = spendingTx.TxOut[spendInputIndex].PkScript
+	bo.signDesc.Output.PkScript = spendingTx.TxOut[outputIndex].PkScript
 
 	// For taproot outputs, the taptweak also needs to be swapped out. We
 	// do this unconditionally as this field isn't used at all for segwit
@@ -584,15 +673,78 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 	// SignDescriptor.
 	bo.signDesc.WitnessScript = bo.secondLevelWitnessScript
 
+	// Re-resolve the aux contract blob for the second-level witness
+	// type. Aborts the conversion if the re-resolve fails so we don't
+	// leave bo half-converted with a stale blob.
+	if err := reresolveAuxBlobForSecondLevel(
+		bo, spendingTx, spendDetails, auxResolver,
+	); err != nil {
+		return
+	}
+
 	brarLog.Warnf("HTLC(%v) for ChannelPoint(%v) has been spent to the "+
 		"second-level, adjusting -> %v", oldOp, breachInfo.chanPoint,
 		bo.outpoint)
 }
 
+// reresolveAuxBlobForSecondLevel re-runs the aux contract resolution against
+// the now-known second-level transaction so the breach output's resolution
+// blob targets the second-level witness path. No-op for non-aux channels
+// (resolveReq is nil). Returns a non-nil error when the caller should bail
+// out of the surrounding convertToSecondLevelRevoke (e.g. a resolver error
+// would leave bo with a stale blob; better to skip the output entirely).
+func reresolveAuxBlobForSecondLevel(bo *breachedOutput,
+	spendingTx *wire.MsgTx, spendDetails *chainntnfs.SpendDetail,
+	auxResolver fn.Option[lnwallet.AuxContractResolver]) error {
+
+	if bo.resolveReq == nil {
+		brarLog.Warnf("No resolve request template available " +
+			"for second-level HTLC, skipping blob update")
+
+		return nil
+	}
+	if bo.resolveReq.KeyRing == nil {
+		return nil
+	}
+
+	secondLevelReq := *bo.resolveReq
+	secondLevelReq.CommitTx = bo.resolveReq.CommitTx.Copy()
+	secondLevelReq.Type = input.TaprootHtlcSecondLevelRevoke
+	secondLevelReq.SecondLevel = fn.Some(lnwallet.SecondLevelInfo{
+		Tx:          spendingTx,
+		BlockHeight: uint32(spendDetails.SpendingHeight),
+	})
+
+	brarLog.Infof("Re-resolving HTLC blob for second-level revoke, "+
+		"htlcID=%v, htlcAmt=%v, keyRing=%v, revokeKey=%v",
+		secondLevelReq.HtlcID, secondLevelReq.HtlcAmt,
+		secondLevelReq.KeyRing != nil,
+		secondLevelReq.KeyRing.RevocationKey != nil)
+
+	resolveBlob := fn.MapOptionZ(
+		auxResolver,
+		func(a lnwallet.AuxContractResolver) fn.Result[tlv.Blob] {
+			return a.ResolveContract(secondLevelReq)
+		},
+	)
+	if err := resolveBlob.Err(); err != nil {
+		brarLog.Errorf("Unable to re-resolve second-level HTLC blob "+
+			"for %v: %v -- output will be skipped",
+			bo.outpoint, err)
+
+		return err
+	}
+
+	bo.resolutionBlob = resolveBlob.OkToSome()
+
+	return nil
+}
+
 // updateBreachInfo mutates the passed breachInfo by removing or converting any
 // outputs among the spends. It also counts the total and revoked funds swept
 // by our justice spends.
-func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
+func updateBreachInfo(breachInfo *retributionInfo, spends []spend,
+	auxResolver fn.Option[lnwallet.AuxContractResolver]) (
 	btcutil.Amount, btcutil.Amount) {
 
 	inputs := breachInfo.breachedOutputs
@@ -641,6 +793,7 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
 			// process.
 			convertToSecondLevelRevoke(
 				breachedOutput, breachInfo, s.detail,
+				auxResolver,
 			)
 
 			continue
@@ -737,6 +890,17 @@ func (b *BreachArbitrator) notifyConfirmedJusticeTx(spends []spend,
 
 		case matchesJusticeTx(justiceTxs.spendHTLCs):
 			justiceCtx = justiceTxs.spendHTLCs
+		}
+
+		// Also check the individual second-level sweeps.
+		if justiceCtx == nil {
+			for _, tx := range justiceTxs.spendSecondLevelHTLCs {
+				if matchesJusticeTx(tx) {
+					justiceCtx = tx
+
+					break
+				}
+			}
 		}
 
 		// If this is one of our justice txs, notify the aux sweeper.
@@ -877,7 +1041,9 @@ Loop:
 			)
 
 			// Update the breach info with the new spends.
-			t, r := updateBreachInfo(breachInfo, spends)
+			t, r := updateBreachInfo(
+				breachInfo, spends, b.cfg.AuxResolver,
+			)
 			totalFunds += t
 			revokedFunds += r
 
@@ -1169,6 +1335,12 @@ type breachedOutput struct {
 	secondLevelWitnessScript []byte
 	secondLevelTapTweak      [32]byte
 
+	// resolveReq is a template ResolutionReq populated at breach
+	// detection time. It is used when an HTLC is taken to the second
+	// level and we need to re-resolve the contract with the updated
+	// witness type and the actual second-level spending tx.
+	resolveReq *lnwallet.ResolutionReq
+
 	witnessFunc input.WitnessGenerator
 
 	resolutionBlob fn.Option[tlv.Blob]
@@ -1455,9 +1627,10 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 		)
 
 		// For taproot outputs, we also need to hold onto the second
-		// level tap tweak as well.
+		// level tap tweak and resolution request template.
 		//nolint:ll
 		htlcOutput.secondLevelTapTweak = breachedHtlc.SecondLevelTapTweak
+		htlcOutput.resolveReq = breachedHtlc.ResolveReq
 
 		breachedOutputs = append(breachedOutputs, htlcOutput)
 	}
@@ -1573,6 +1746,12 @@ func (b *BreachArbitrator) createJusticeTx(
 		secondLevelSweeps = append(secondLevelSweeps, sweepTx)
 	}
 	txs.spendSecondLevelHTLCs = secondLevelSweeps
+
+	brarLog.Infof("createJusticeTx: variants summary — spendAll=%v, "+
+		"spendCommitOuts=%v, spendHTLCs=%v, "+
+		"spendSecondLevelHTLCs=%d",
+		txs.spendAll != nil, txs.spendCommitOuts != nil,
+		txs.spendHTLCs != nil, len(txs.spendSecondLevelHTLCs))
 
 	return txs, nil
 }
@@ -1707,19 +1886,37 @@ func (b *BreachArbitrator) sweepSpendableOutputsTxn(txWeight lntypes.WeightUnit,
 
 	// First, we'll add the extra sweep output if it exists, subtracting the
 	// amount from the sweep amt.
+	var hasAuxOut bool
 	if b.cfg.AuxSweeper.IsSome() {
 		extraChangeOut.WhenOk(func(o sweep.SweepOutput) {
 			sweepAmt -= o.Value
 
 			txn.AddTxOut(&o.TxOut)
+			hasAuxOut = true
 		})
 	}
 
-	// Next, we'll add the output to which our funds will be deposited.
-	txn.AddTxOut(&wire.TxOut{
-		PkScript: pkScript.DeliveryAddress,
-		Value:    sweepAmt,
-	})
+	// If the sweep amount is positive, add the regular sweep output as
+	// usual. If it's non-positive but we have an aux output, we skip
+	// the BTC sweep output entirely — for custom (asset) channels the
+	// real value is carried by the aux output and the remaining BTC
+	// can all go towards fees.
+	switch {
+	case sweepAmt > 0:
+		txn.AddTxOut(&wire.TxOut{
+			PkScript: pkScript.DeliveryAddress,
+			Value:    sweepAmt,
+		})
+
+	case hasAuxOut:
+		brarLog.Infof("Dropping BTC sweep output (amount=%d), "+
+			"all input BTC (%v) goes to fee + aux output",
+			sweepAmt, totalAmt)
+
+	default:
+		return nil, fmt.Errorf("sweep amount is non-positive "+
+			"(%d) and no aux output exists", sweepAmt)
+	}
 
 	// TODO(roasbeef): add other output change modify sweep amt
 

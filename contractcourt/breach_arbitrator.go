@@ -1998,13 +1998,15 @@ func (b *BreachArbitrator) sweepSpendableOutputsTxn(txWeight lntypes.WeightUnit,
 		})
 	}
 
-	// If the sweep amount is positive, add the regular sweep output as
-	// usual. If it's non-positive but we have an aux output, we skip
-	// the BTC sweep output entirely — for custom (asset) channels the
-	// real value is carried by the aux output and the remaining BTC
-	// can all go towards fees.
+	// If the sweep amount exceeds the dust limit, add the regular sweep
+	// output. If it's at or below dust but we have an aux output, we
+	// skip the BTC sweep output entirely — for custom (asset) channels
+	// the real value is carried by the aux output and the remaining BTC
+	// can all go towards fees. Using the dust limit instead of zero
+	// prevents the mempool from rejecting the transaction.
+	dustLimit := int64(lnwallet.DustLimitForSize(input.UnknownWitnessSize))
 	switch {
-	case sweepAmt > 0:
+	case sweepAmt > dustLimit:
 		txn.AddTxOut(&wire.TxOut{
 			PkScript: pkScript.DeliveryAddress,
 			Value:    sweepAmt,

@@ -3219,7 +3219,8 @@ func TestNotifyConfirmedJusticeTx(t *testing.T) {
 			// Call the function under test.
 			historicTxs := make(map[chainhash.Hash]*justiceTxCtx)
 			brar.notifyConfirmedJusticeTx(
-				tc.spends, tc.justiceTxs, historicTxs,
+				tc.spends, tc.justiceTxs,
+				historicTxs, nil,
 			)
 
 			// Verify the number of NotifyBroadcast calls.
@@ -3240,9 +3241,12 @@ func TestNotifyConfirmedJusticeTx(t *testing.T) {
 				require.Equal(t, tc.expectedSkipFlag,
 					call.opts.SkipBroadcast,
 					"SkipBroadcast should be true")
-				require.Equal(t, tc.expectedSkipFlag,
+				// SkipProofVerify is NOT set —
+				// proof verification must run to
+				// ensure valid anchor metadata.
+				require.False(t,
 					call.opts.SkipProofVerify,
-					"SkipProofVerify should be true")
+					"SkipProofVerify should be false")
 			}
 		})
 	}
@@ -3281,6 +3285,6 @@ func TestNotifyConfirmedJusticeTxNoAuxSweeper(t *testing.T) {
 	// Should not panic when there's no aux sweeper to notify.
 	historicTxs := make(map[chainhash.Hash]*justiceTxCtx)
 	brar.notifyConfirmedJusticeTx(
-		spends, justiceTxs, historicTxs,
+		spends, justiceTxs, historicTxs, nil,
 	)
 }

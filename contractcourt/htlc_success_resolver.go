@@ -419,6 +419,30 @@ func (h *htlcSuccessResolver) isZeroFeeOutput() bool {
 		h.htlcResolution.SignDetails != nil
 }
 
+// isSigHashDefault returns true when the second-level HTLC transaction
+// was signed with SigHashDefault. See isSecondLevelSigHashDefault.
+func (h *htlcSuccessResolver) isSigHashDefault() bool {
+	return isSecondLevelSigHashDefault(
+		h.htlcResolution.SignDetails, h.chanType,
+	)
+}
+
+// publishSuccessTx directly broadcasts the pre-signed second-level HTLC
+// success transaction. This is used when the transaction was signed with
+// SigHashDefault (baked-in fees), where the sweeper's normal tx-rebuilding
+// flow would invalidate the peer's signature.
+func (h *htlcSuccessResolver) publishSuccessTx() error {
+	h.log.Infof("publishing pre-signed 2nd-level HTLC success tx=%v "+
+		"(SigHashDefault, baked-in fees)",
+		h.htlcResolution.SignedSuccessTx.TxHash())
+
+	label := labels.MakeLabel(
+		labels.LabelTypeChannelClose, &h.ShortChanID,
+	)
+
+	return h.PublishTx(h.htlcResolution.SignedSuccessTx, label)
+}
+
 // isTaproot returns true if the resolver is for a taproot output.
 func (h *htlcSuccessResolver) isTaproot() bool {
 	return txscript.IsPayToTaproot(
@@ -605,12 +629,15 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	default:
 		witType = input.HtlcAcceptedSuccessSecondLevel
 	}
+
+	resolutionBlob := h.htlcResolution.ResolutionBlob
+
 	inp := h.makeSweepInput(
 		op, witType,
 		input.LeaseHtlcAcceptedSuccessSecondLevel,
 		&h.htlcResolution.SweepSignDesc,
 		h.htlcResolution.CsvDelay, uint32(commitSpend.SpendingHeight),
-		h.htlc.RHash, h.htlcResolution.ResolutionBlob,
+		h.htlc.RHash, resolutionBlob,
 	)
 
 	// Calculate the budget for this sweep.
@@ -796,6 +823,25 @@ func (h *htlcSuccessResolver) Launch() error {
 		// can go ahead and sweep its output.
 		if h.outputIncubating {
 			return h.sweepSuccessTxOutput()
+		}
+
+		// When the peer signed with SigHashDefault the pre-signed
+		// second-level tx has baked-in fees and cannot be modified
+		// (adding wallet inputs would invalidate the signature).
+		// Publish it directly instead of going through the sweeper.
+		if h.isSigHashDefault() {
+			// A synchronous failure here (block epoch
+			// registration) means nothing was scheduled at all,
+			// and unlike the sweeper paths there is no other
+			// component that retries. Clear the launched flag so
+			// the next Launch attempt can retry instead of
+			// no-op'ing until restart.
+			err := h.publishSuccessTx()
+			if err != nil {
+				h.clearLaunched()
+			}
+
+			return err
 		}
 
 		// Otherwise, sweep the second level tx.

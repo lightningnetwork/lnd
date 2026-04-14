@@ -28,10 +28,16 @@ const (
 // AuxSigDesc stores optional information related to 2nd level HTLCs for aux
 // channels.
 type AuxSigDesc struct {
-	// AuxSig is the second-level signature for the HTLC that we are trying
-	// to resolve. This is only present if this is a resolution request for
-	// an HTLC on our commitment transaction.
+	// AuxSig is the second-level signature for the HTLC's primary
+	// spending path (success for incoming, timeout for outgoing).
 	AuxSig []byte
+
+	// AuxSigAlt is the second-level signature for the HTLC's
+	// alternate spending path (timeout for incoming, success for
+	// outgoing). At breach time, the honest party uses the BTC-level
+	// witness to determine which path was used and selects the
+	// matching sig.
+	AuxSigAlt []byte
 
 	// SignDetails is the sign details for the second-level HTLC. This may
 	// be used to generate the second signature needed for broadcast.

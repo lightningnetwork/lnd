@@ -11,7 +11,6 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
-
 // SignDescriptor houses the necessary information required to successfully
 // sign a given segwit output. This struct is used by the Signer interface in
 // order to gain access to critical data needed to generate a valid signature.

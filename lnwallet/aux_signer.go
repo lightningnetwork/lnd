@@ -194,8 +194,19 @@ type BaseAuxJob struct {
 	HTLC AuxHtlcDescriptor
 
 	// Incoming is a boolean that indicates if the HTLC is incoming or
-	// outgoing.
+	// outgoing from the LOCAL party's perspective. This is used with
+	// WhoseCommit to determine the correct HTLC script variant
+	// (sender vs receiver).
 	Incoming bool
+
+	// IncomingHTLCLookup controls which HTLC aux output list in the
+	// commitment blob the signer uses to find the aux outputs.
+	// When true, the signer looks in IncomingHtlcAssets; when false,
+	// in OutgoingHtlcAssets. This is normally the same as Incoming,
+	// but differs for revocation self-signing where the Incoming
+	// flag is flipped for script generation but the aux output lookup
+	// must still use the original direction.
+	IncomingHTLCLookup bool
 
 	// CommitBlob is the commitment transaction blob that contains the aux
 	// information for this channel.
@@ -204,6 +215,16 @@ type BaseAuxJob struct {
 	// HtlcLeaf is the aux tap leaf that corresponds to the HTLC being
 	// signed/verified.
 	HtlcLeaf input.AuxTapLeaf
+
+	// WhoseCommit indicates which party's commitment transaction the
+	// second-level HTLC belongs to.
+	WhoseCommit lntypes.ChannelParty
+
+	// HtlcTimeout, if set, overrides the timeout logic in
+	// generateHtlcSignature and verifyHtlcSignature. When nil,
+	// the timeout is derived from Incoming (the normal CommitSig
+	// convention). When set, it is used directly.
+	HtlcTimeout fn.Option[uint32]
 }
 
 // AuxSigJob is a struct that contains all the information needed to sign an
@@ -224,20 +245,24 @@ type AuxSigJob struct {
 	Cancel <-chan struct{}
 }
 
-// NewAuxSigJob creates a new AuxSigJob.
+// NewAuxSigJob creates a new AuxSigJob. The whoseCommit parameter indicates
+// which party's commitment the HTLC belongs to.
 func NewAuxSigJob(sigJob SignJob, keyRing CommitmentKeyRing, incoming bool,
 	htlc AuxHtlcDescriptor, commitBlob fn.Option[tlv.Blob],
-	htlcLeaf input.AuxTapLeaf, cancelChan <-chan struct{}) AuxSigJob {
+	htlcLeaf input.AuxTapLeaf, whoseCommit lntypes.ChannelParty,
+	cancelChan <-chan struct{}) AuxSigJob {
 
 	return AuxSigJob{
 		SignDesc: sigJob.SignDesc,
 		BaseAuxJob: BaseAuxJob{
-			OutputIndex: sigJob.OutputIndex,
-			KeyRing:     keyRing,
-			HTLC:        htlc,
-			Incoming:    incoming,
-			CommitBlob:  commitBlob,
-			HtlcLeaf:    htlcLeaf,
+			OutputIndex:        sigJob.OutputIndex,
+			KeyRing:            keyRing,
+			HTLC:               htlc,
+			Incoming:           incoming,
+			IncomingHTLCLookup: incoming,
+			CommitBlob:         commitBlob,
+			HtlcLeaf:           htlcLeaf,
+			WhoseCommit:        whoseCommit,
 		},
 		Resp:   make(chan AuxSigJobResp, 1),
 		Cancel: cancelChan,
@@ -353,11 +378,12 @@ func ResolveHtlcSigHashType(chanType channeldb.ChannelType,
 	return sigHash.UnwrapOr(HtlcSigHashType(chanType))
 }
 
-// IsSigHashDefault returns true if the resolved HTLC sighash type for the
-// given channel is SigHashDefault. This is used to determine whether
-// second-level HTLC transactions must carry their own fee (since the sweeper
-// cannot add wallet inputs under SigHashDefault).
-func IsSigHashDefault(chanType channeldb.ChannelType,
+// IsDeterministicHTLCs returns true if the DeterministicHTLCs feature is
+// active for the given channel. When true, second-level HTLC transactions
+// use SigHashDefault (making them fully deterministic), must carry their
+// own fees, and the revoking party includes dual-path AuxSigs in
+// RevokeAndAck for breach proof reconstruction.
+func IsDeterministicHTLCs(chanType channeldb.ChannelType,
 	auxSigner fn.Option[AuxSigner],
 	req HtlcSigHashReq) bool {
 

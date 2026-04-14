@@ -2307,7 +2307,8 @@ func (l *channelLink) getDustClosure() dustClosure {
 	remoteDustLimit := l.channel.State().RemoteChanCfg.DustLimit
 	chanType := l.channel.State().ChanType
 
-	return dustHelper(chanType, localDustLimit, remoteDustLimit)
+	return dustHelper(chanType, localDustLimit, remoteDustLimit,
+		l.channel.IsChanSigHashDefault())
 }
 
 // getCommitFee returns either the local or remote CommitFee in satoshis. This
@@ -2475,7 +2476,7 @@ type dustClosure func(feerate chainfee.SatPerKWeight, incoming bool,
 
 // dustHelper is used to construct the dustClosure.
 func dustHelper(chantype chanstate.ChannelType, localDustLimit,
-	remoteDustLimit btcutil.Amount) dustClosure {
+	remoteDustLimit btcutil.Amount, sigHashDefault bool) dustClosure {
 
 	isDust := func(feerate chainfee.SatPerKWeight, incoming bool,
 		whoseCommit lntypes.ChannelParty, amt btcutil.Amount) bool {
@@ -2489,7 +2490,7 @@ func dustHelper(chantype chanstate.ChannelType, localDustLimit,
 
 		return lnwallet.HtlcIsDust(
 			chantype, incoming, whoseCommit, feerate, amt,
-			dustLimit,
+			dustLimit, sigHashDefault,
 		)
 	}
 

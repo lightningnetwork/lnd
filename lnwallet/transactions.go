@@ -49,10 +49,15 @@ var (
 // In order to spend the segwit v1 (taproot) HTLC output, the witness for the
 // passed transaction should be:
 //   - <sender sig> <receiver sig> <preimage> <success_script> <control_block>
+//
+// When addAnchor is true, a taproot anchor output is appended that the
+// broadcaster can sweep for CPFP fee bumping. AnchorSize sats are taken
+// from htlcAmt to fund it. addAnchor is only set on DeterministicHTLCs
+// (SigHashDefault) paths, where the pre-signed tx can't be RBF'd.
 func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
 	htlcOutput wire.OutPoint, htlcAmt btcutil.Amount, csvDelay,
 	leaseExpiry uint32, revocationKey, delayKey *btcec.PublicKey,
-	auxLeaf input.AuxTapLeaf) (*wire.MsgTx, error) {
+	auxLeaf input.AuxTapLeaf, addAnchor bool) (*wire.MsgTx, error) {
 
 	// Create a version two transaction (as the success version of this
 	// spends an output with a CSV timeout).
@@ -78,14 +83,61 @@ func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
 		return nil, err
 	}
 
+	// The HTLC output absorbs the anchor's AnchorSize when an anchor is
+	// being added; otherwise the full htlcAmt goes to the HTLC output.
+	htlcOutValue := htlcAmt
+	if addAnchor {
+		htlcOutValue -= AnchorSize
+	}
+
 	// Finally, the output is simply the amount of the HTLC (minus the
 	// required fees), paying to the timeout script.
 	successTx.AddTxOut(&wire.TxOut{
-		Value:    int64(htlcAmt),
+		Value:    int64(htlcOutValue),
 		PkScript: scriptInfo.PkScript(),
 	})
 
+	if addAnchor {
+		_, anchorPkScript, err := SecondLevelAnchorScript(delayKey)
+		if err != nil {
+			return nil, err
+		}
+		successTx.AddTxOut(&wire.TxOut{
+			Value:    int64(AnchorSize),
+			PkScript: anchorPkScript,
+		})
+	}
+
 	return successTx, nil
+}
+
+// SecondLevelAnchorScript returns the script tree and the output script of
+// the CPFP anchor appended to a pre-signed (SigHashDefault) second-level HTLC
+// transaction. The anchor is keyed to the delay key of the party that
+// broadcasts the transaction, the same key its HTLC output is swept with, so
+// that party can spend it via key path right away while anyone can sweep it
+// after 16 blocks. The builders of the second-level transactions and the
+// resolvers that later reconstruct the anchor input must agree on this
+// script, which is why there is a single place computing it.
+func SecondLevelAnchorScript(
+	delayKey *btcec.PublicKey) (*input.AnchorScriptTree, []byte, error) {
+
+	if delayKey == nil {
+		return nil, nil, fmt.Errorf("second-level anchor needs a " +
+			"delay key")
+	}
+
+	anchorTree, err := input.NewAnchorScriptTree(delayKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	anchorPkScript, err := input.PayToTaprootScript(anchorTree.TaprootKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return anchorTree, anchorPkScript, nil
 }
 
 // CreateHtlcTimeoutTx creates a transaction that spends the HTLC output on the
@@ -108,11 +160,14 @@ func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
 // NOTE: The passed amount for the HTLC should take into account the required
 // fee rate at the time the HTLC was created. The fee should be able to
 // entirely pay for this (tiny: 1-in 1-out) transaction.
+//
+// When addAnchor is true, a taproot anchor output is appended that the
+// broadcaster can sweep for CPFP fee bumping. See CreateHtlcSuccessTx.
 func CreateHtlcTimeoutTx(chanType channeldb.ChannelType, initiator bool,
 	htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
 	cltvExpiry, csvDelay, leaseExpiry uint32,
 	revocationKey, delayKey *btcec.PublicKey,
-	auxLeaf input.AuxTapLeaf) (*wire.MsgTx, error) {
+	auxLeaf input.AuxTapLeaf, addAnchor bool) (*wire.MsgTx, error) {
 
 	// Create a version two transaction (as the success version of this
 	// spends an output with a CSV timeout), and set the lock-time to the
@@ -142,12 +197,30 @@ func CreateHtlcTimeoutTx(chanType channeldb.ChannelType, initiator bool,
 		return nil, err
 	}
 
+	// The HTLC output absorbs the anchor's AnchorSize when an anchor is
+	// being added; otherwise the full htlcAmt goes to the HTLC output.
+	htlcOutValue := htlcAmt
+	if addAnchor {
+		htlcOutValue -= AnchorSize
+	}
+
 	// Finally, the output is simply the amount of the HTLC (minus the
 	// required fees), paying to the regular second level HTLC script.
 	timeoutTx.AddTxOut(&wire.TxOut{
-		Value:    int64(htlcAmt),
+		Value:    int64(htlcOutValue),
 		PkScript: scriptInfo.PkScript(),
 	})
+
+	if addAnchor {
+		_, anchorPkScript, err := SecondLevelAnchorScript(delayKey)
+		if err != nil {
+			return nil, err
+		}
+		timeoutTx.AddTxOut(&wire.TxOut{
+			Value:    int64(AnchorSize),
+			PkScript: anchorPkScript,
+		})
+	}
 
 	return timeoutTx, nil
 }

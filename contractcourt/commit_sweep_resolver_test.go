@@ -120,6 +120,13 @@ type mockSweeper struct {
 	createSweepTxChan chan *wire.MsgTx
 
 	deadlines []int
+
+	// preSignedReqs records every pre-signed tx handed to the sweeper.
+	preSignedReqs chan sweep.PreSignedTxRequest
+
+	// preSignedErr, if set, is returned synchronously by
+	// PublishPreSignedTx.
+	preSignedErr error
 }
 
 func newMockSweeper() *mockSweeper {
@@ -128,8 +135,27 @@ func newMockSweeper() *mockSweeper {
 		updatedInputs:     make(chan wire.OutPoint),
 		sweepTx:           &wire.MsgTx{},
 		createSweepTxChan: make(chan *wire.MsgTx),
+		preSignedReqs:     make(chan sweep.PreSignedTxRequest, 3),
 		deadlines:         []int{},
 	}
+}
+
+func (s *mockSweeper) PublishPreSignedTx(
+	req sweep.PreSignedTxRequest) (<-chan sweep.Result, error) {
+
+	if s.preSignedErr != nil {
+		return nil, s.preSignedErr
+	}
+
+	s.preSignedReqs <- req
+
+	result := make(chan sweep.Result, 1)
+	result <- sweep.Result{
+		Tx:  s.sweepTx,
+		Err: s.sweepErr,
+	}
+
+	return result, nil
 }
 
 func (s *mockSweeper) SweepInput(input input.Input, params sweep.Params) (

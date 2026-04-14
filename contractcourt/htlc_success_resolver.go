@@ -410,6 +410,7 @@ func (h *htlcSuccessResolver) Stop() {
 	defer h.log.Debugf("stopped")
 
 	close(h.quit)
+	h.wg.Wait()
 }
 
 // report returns a report on the resolution state of the contract.
@@ -585,6 +586,34 @@ func (h *htlcSuccessResolver) isZeroFeeOutput() bool {
 	// attach fees at will.
 	return h.htlcResolution.SignedSuccessTx != nil &&
 		h.htlcResolution.SignDetails != nil
+}
+
+// isSigHashDefault returns true when the second-level HTLC transaction
+// was signed with SigHashDefault. See isSecondLevelSigHashDefault.
+func (h *htlcSuccessResolver) isSigHashDefault() bool {
+	return isSecondLevelSigHashDefault(
+		h.htlcResolution.SignDetails, h.chanType,
+	)
+}
+
+// publishSuccessTx directly broadcasts the pre-signed second-level HTLC
+// success transaction. This is used when the transaction was signed with
+// SigHashDefault (baked-in fees), where the sweeper's normal tx-rebuilding
+// flow would invalidate the peer's signature.
+func (h *htlcSuccessResolver) publishSuccessTx() error {
+	parentTx := h.htlcResolution.SignedSuccessTx
+	h.log.Infof("publishing pre-signed 2nd-level HTLC success tx=%v "+
+		"(SigHashDefault, baked-in fees)", parentTx.TxHash())
+
+	// The deadline is the HTLC's refund timeout so the sweeper prioritises
+	// confirmation before the HTLC expires.
+	return h.publishPreSignedHtlcTx(sweep.PreSignedTxRequest{
+		Tx: parentTx,
+		Label: labels.MakeLabel(
+			labels.LabelTypeChannelClose, &h.ShortChanID,
+		),
+		DeadlineHeight: fn.Some(int32(h.htlc.RefundTimeout)),
+	})
 }
 
 // isTaproot returns true if the resolver is for a taproot output.
@@ -874,12 +903,15 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	default:
 		witType = input.HtlcAcceptedSuccessSecondLevel
 	}
+
+	resolutionBlob := h.htlcResolution.ResolutionBlob
+
 	inp := h.makeSweepInput(
 		&secondLevelOutpoint, witType,
 		input.LeaseHtlcAcceptedSuccessSecondLevel,
 		&h.htlcResolution.SweepSignDesc,
 		h.htlcResolution.CsvDelay, uint32(commitSpend.SpendingHeight),
-		h.htlc.RHash, h.htlcResolution.ResolutionBlob,
+		h.htlc.RHash, resolutionBlob,
 	)
 
 	// Calculate the budget for this sweep.
@@ -1070,6 +1102,25 @@ func (h *htlcSuccessResolver) Launch() error {
 		// output to the sweeper.
 		if h.outputIncubating {
 			return h.sweepSuccessTxOutput()
+		}
+
+		// When the peer signed with SigHashDefault the pre-signed
+		// second-level tx has baked-in fees and cannot be modified
+		// (adding wallet inputs would invalidate the signature).
+		// Publish it directly instead of going through the sweeper.
+		if h.isSigHashDefault() {
+			// A synchronous failure here (block epoch
+			// registration) means nothing was scheduled at all,
+			// and unlike the sweeper paths there is no other
+			// component that retries. Clear the launched flag so
+			// the next Launch attempt can retry instead of
+			// no-op'ing until restart.
+			err := h.publishSuccessTx()
+			if err != nil {
+				h.clearLaunched()
+			}
+
+			return err
 		}
 
 		// Otherwise, sweep the second level tx.

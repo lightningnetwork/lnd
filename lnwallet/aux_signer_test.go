@@ -59,6 +59,7 @@ func TestResolveHtlcSigHashTypeCustomOnly(t *testing.T) {
 	got := ResolveHtlcSigHashType(taprootChanType, signer, req)
 	require.Equal(t, HtlcSigHashType(taprootChanType), got,
 		"non-custom taproot channel must ignore aux signer sighash")
+	require.False(t, IsSigHashDefault(taprootChanType, signer, req))
 
 	// Same for a legacy (non-taproot) channel type.
 	legacyChanType := channeldb.SingleFunderTweaklessBit
@@ -70,12 +71,14 @@ func TestResolveHtlcSigHashTypeCustomOnly(t *testing.T) {
 	// SigHashDefault.
 	got = ResolveHtlcSigHashType(customChanType, signer, req)
 	require.Equal(t, txscript.SigHashDefault, got)
+	require.True(t, IsSigHashDefault(customChanType, signer, req))
 
 	// A custom channel without an aux signer falls back to the standard
 	// flags.
 	noSigner := fn.None[AuxSigner]()
 	got = ResolveHtlcSigHashType(customChanType, noSigner, req)
 	require.Equal(t, HtlcSigHashType(customChanType), got)
+	require.False(t, IsSigHashDefault(customChanType, noSigner, req))
 }
 
 // TestResolveHtlcSigHashTypeRejectsUnknownOverride asserts that the only
@@ -103,4 +106,5 @@ func TestResolveHtlcSigHashTypeRejectsUnknownOverride(t *testing.T) {
 	got := ResolveHtlcSigHashType(customChanType, signer, req)
 	require.Equal(t, HtlcSigHashType(customChanType), got,
 		"unsupported override must fall back to standard flags")
+	require.False(t, IsSigHashDefault(customChanType, signer, req))
 }

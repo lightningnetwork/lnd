@@ -1899,10 +1899,17 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	}
 
 	// Now mine another block without the justice tx confirming. This
-	// should lead to the BreachArbitrator publishing the split justice tx
-	// variants.
+	// should lead to the BreachArbitrator re-broadcasting the spendAll
+	// variant and then publishing the split justice tx variants.
 	notifier.EpochChan <- &chainntnfs.BlockEpoch{
 		Height: blockHeight + 4,
+	}
+
+	// First, drain the re-broadcast of the spendAll variant.
+	select {
+	case <-publTx:
+	case <-time.After(defaultTimeout):
+		t.Fatalf("spendAll re-broadcast not published")
 	}
 
 	var (
@@ -3210,8 +3217,9 @@ func TestNotifyConfirmedJusticeTx(t *testing.T) {
 			}
 
 			// Call the function under test.
+			historicTxs := make(map[chainhash.Hash]*justiceTxCtx)
 			brar.notifyConfirmedJusticeTx(
-				tc.spends, tc.justiceTxs,
+				tc.spends, tc.justiceTxs, historicTxs,
 			)
 
 			// Verify the number of NotifyBroadcast calls.
@@ -3268,7 +3276,8 @@ func TestNotifyConfirmedJusticeTxNoAuxSweeper(t *testing.T) {
 	}
 
 	// Should not panic when there's no aux sweeper to notify.
+	historicTxs := make(map[chainhash.Hash]*justiceTxCtx)
 	brar.notifyConfirmedJusticeTx(
-		spends, justiceTxs,
+		spends, justiceTxs, historicTxs,
 	)
 }

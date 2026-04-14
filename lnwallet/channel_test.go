@@ -10118,6 +10118,7 @@ func TestCreateHtlcRetribution(t *testing.T) {
 	hr, err := createHtlcRetribution(
 		aliceChannel.channelState, keyRing, commitHash,
 		dummyPrivate, leaseExpiry, htlc, fn.None[CommitAuxLeaves](),
+		nil, fn.None[AuxContractResolver](), nil,
 	)
 	// Expect no error.
 	require.NoError(t, err)
@@ -10324,6 +10325,7 @@ func TestCreateBreachRetribution(t *testing.T) {
 				aliceChannel.channelState, keyRing,
 				dummyPrivate, leaseExpiry,
 				fn.None[CommitAuxLeaves](),
+				fn.None[AuxContractResolver](),
 			)
 
 			// Check the error if expected.
@@ -10382,6 +10384,7 @@ func TestCreateBreachRetributionLegacy(t *testing.T) {
 	br, ourAmt, theirAmt, err := createBreachRetributionLegacy(
 		&revokedLog, aliceChannel.channelState, keyRing,
 		dummyPrivate, ourScript, theirScript, leaseExpiry,
+		fn.None[AuxContractResolver](),
 	)
 	require.NoError(t, err)
 

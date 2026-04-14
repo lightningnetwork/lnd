@@ -1,7 +1,9 @@
 package lnwallet
 
 import (
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -305,4 +307,48 @@ type AuxSigner interface {
 	// sig jobs.
 	VerifySecondLevelSigs(chanState AuxChanState, commitTx *wire.MsgTx,
 		verifyJob []AuxVerifyJob) error
+
+	// HtlcSigHashType returns the sighash type to use for HTLC
+	// second-level transactions for the given channel. The caller
+	// populates HtlcSigHashReq with either a ChanID (for live
+	// feature-negotiation lookups on new commitments) or a CommitBlob
+	// (for existing commitments where the blob is the source of truth),
+	// or both. The implementation decides the lookup strategy.
+	HtlcSigHashType(
+		req HtlcSigHashReq,
+	) fn.Option[txscript.SigHashType]
+}
+
+// HtlcSigHashReq is the request passed to AuxSigner.HtlcSigHashType.
+// Callers populate either ChanID (for next-commitment signing/verification
+// where live feature negotiation is authoritative) or CommitBlob (for
+// existing commitments where the blob records what was actually used), or
+// both.
+type HtlcSigHashReq struct {
+	// ChanID identifies the channel for live feature-negotiation lookups.
+	// Set when determining the sighash for a new commitment being
+	// signed or verified.
+	ChanID fn.Option[lnwire.ChannelID]
+
+	// CommitBlob is the commitment custom blob that may contain a cached
+	// SigHashDefault flag. Set when resolving the sighash for an
+	// already-persisted commitment (breach, resolution).
+	CommitBlob fn.Option[tlv.Blob]
+}
+
+// ResolveHtlcSigHashType determines the sighash type to use for HTLC
+// second-level transactions. It queries the aux signer (if present) with the
+// given request. If the aux signer returns None (or is not present), it falls
+// back to the default HtlcSigHashType based on channel type.
+func ResolveHtlcSigHashType(chanType channeldb.ChannelType,
+	auxSigner fn.Option[AuxSigner],
+	req HtlcSigHashReq) txscript.SigHashType {
+
+	sigHash := fn.FlatMapOption(
+		func(s AuxSigner) fn.Option[txscript.SigHashType] {
+			return s.HtlcSigHashType(req)
+		},
+	)(auxSigner)
+
+	return sigHash.UnwrapOr(HtlcSigHashType(chanType))
 }

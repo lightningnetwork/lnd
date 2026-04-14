@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	base "github.com/btcsuite/btcwallet/wallet"
@@ -523,6 +524,13 @@ func (a *MockAuxSigner) VerifySecondLevelSigs(chanState AuxChanState,
 	args := a.Called(chanState, tx, jobs)
 
 	return args.Error(0)
+}
+
+// HtlcSigHashType returns None, deferring to the default sighash behavior.
+func (a *MockAuxSigner) HtlcSigHashType(
+	_ HtlcSigHashReq) fn.Option[txscript.SigHashType] {
+
+	return fn.None[txscript.SigHashType]()
 }
 
 type MockAuxContractResolver struct{}

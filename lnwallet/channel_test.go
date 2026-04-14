@@ -6483,6 +6483,7 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 		aliceChannel.channelState.RemoteCurrentRevocation,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.NoError(t, err, "unable to create alice close summary")
 
@@ -6629,6 +6630,7 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 		aliceChannel.channelState.RemoteCurrentRevocation,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.NoError(t, err, "unable to create alice close summary")
 
@@ -6648,6 +6650,7 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 		aliceChannel.channelState.RemoteNextRevocation,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.NoError(t, err, "unable to create alice close summary")
 

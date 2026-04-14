@@ -430,7 +430,7 @@ func (*MockAuxLeafStore) FetchLeavesFromCommit(_ AuxChanState,
 // FetchLeavesFromRevocation attempts to fetch the auxiliary leaves
 // from a channel revocation that stores balance + blob information.
 func (*MockAuxLeafStore) FetchLeavesFromRevocation(
-	_ *channeldb.RevocationLog) fn.Result[CommitDiffAuxResult] {
+	_ RevocationLeavesReq) fn.Result[CommitDiffAuxResult] {
 
 	return fn.Ok(CommitDiffAuxResult{})
 }

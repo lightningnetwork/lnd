@@ -273,6 +273,10 @@ type chainWatcherConfig struct {
 	// auxResolver is used to supplement contract resolution.
 	auxResolver fn.Option[lnwallet.AuxContractResolver]
 
+	// auxSigner is an optional signer that can be used to determine
+	// channel-specific HTLC sighash types based on negotiated features.
+	auxSigner fn.Option[lnwallet.AuxSigner]
+
 	// auxCloser is used to finalize cooperative closes.
 	auxCloser fn.Option[AuxChanCloser]
 
@@ -1574,7 +1578,7 @@ func (c *chainWatcher) dispatchLocalForceClose(
 	forceClose, err := lnwallet.NewLocalForceCloseSummary(
 		c.cfg.chanState, c.cfg.signer, commitSpend.SpendingTx,
 		uint32(commitSpend.SpendingHeight), stateNum,
-		c.cfg.auxLeafStore, c.cfg.auxResolver,
+		c.cfg.auxLeafStore, c.cfg.auxResolver, c.cfg.auxSigner,
 	)
 	if err != nil {
 		return err
@@ -1681,6 +1685,7 @@ func (c *chainWatcher) dispatchRemoteForceClose(
 	uniClose, err := lnwallet.NewUnilateralCloseSummary(
 		c.cfg.chanState, c.cfg.signer, commitSpend, remoteCommit,
 		commitPoint, c.cfg.auxLeafStore, c.cfg.auxResolver,
+		c.cfg.auxSigner,
 	)
 	if err != nil {
 		return err

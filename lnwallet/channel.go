@@ -2317,7 +2317,7 @@ func NewBreachRetribution(chanState *chanstate.OpenChannel, stateNum uint64,
 		br, ourAmt, theirAmt, err = createBreachRetribution(
 			revokedLog, spendTx, chanState, keyRing,
 			commitmentSecret, leaseExpiry, auxResult.AuxLeaves,
-			auxResolver,
+			auxResolver, breachHeight,
 		)
 		if err != nil {
 			return nil, err
@@ -2333,7 +2333,7 @@ func NewBreachRetribution(chanState *chanstate.OpenChannel, stateNum uint64,
 		br, ourAmt, theirAmt, err = createBreachRetributionLegacy(
 			revokedLogLegacy, chanState, keyRing, commitmentSecret,
 			ourScript, theirScript, leaseExpiry, auxResolver,
-			auxSigner,
+			auxSigner, breachHeight,
 		)
 		if err != nil {
 			return nil, err
@@ -2525,7 +2525,8 @@ func createHtlcRetribution(chanState *chanstate.OpenChannel,
 	commitmentSecret *btcec.PrivateKey, leaseExpiry uint32,
 	htlc *channeldb.HTLCEntry, auxLeaves fn.Option[CommitAuxLeaves],
 	spendTx *wire.MsgTx, auxResolver fn.Option[AuxContractResolver],
-	revokedLog *channeldb.RevocationLog) (HtlcRetribution, error) {
+	revokedLog *channeldb.RevocationLog,
+	breachHeight uint32) (HtlcRetribution, error) {
 
 	var emptyRetribution HtlcRetribution
 
@@ -2656,22 +2657,26 @@ func createHtlcRetribution(chanState *chanstate.OpenChannel,
 			},
 		)(htlc.HtlcIndex.ValOpt())
 
+		cs := chanState
 		resolveReq := ResolutionReq{
-			ChanPoint:   chanState.FundingOutpoint,
-			ChanType:    chanState.ChanType,
-			ShortChanID: chanState.ShortChanID(),
-			Initiator:   chanState.IsInitiator,
-			FundingBlob: chanState.CustomBlob,
-			Type:        htlcWitnessType,
-			CloseType:   Breach,
-			CommitTx:    spendTx,
-			SignDesc:    signDesc,
-			KeyRing:     keyRing,
-			CsvDelay:    theirDelay,
-			CommitFee:   chanState.RemoteCommitment.CommitFee,
-			PayHash:     fn.Some([32]byte(htlc.RHash.Val)),
-			HtlcID:      htlcIDOpt,
-			CltvDelay:   fn.Some(htlc.RefundTimeout.Val),
+			ChanPoint:           cs.FundingOutpoint,
+			ChanType:            cs.ChanType,
+			ShortChanID:         cs.ShortChanID(),
+			Initiator:           cs.IsInitiator,
+			FundingBlob:         cs.CustomBlob,
+			Type:                htlcWitnessType,
+			CloseType:           Breach,
+			CommitTx:            spendTx,
+			CommitTxBlockHeight: breachHeight,
+			SignDesc:            signDesc,
+			KeyRing:             keyRing,
+			CsvDelay:            theirDelay,
+			CommitFee:           cs.RemoteCommitment.CommitFee,
+			PayHash: fn.Some(
+				[32]byte(htlc.RHash.Val),
+			),
+			HtlcID:    htlcIDOpt,
+			CltvDelay: fn.Some(htlc.RefundTimeout.Val),
 		}
 		if revokedLog != nil {
 			resolveReq.CommitBlob = revokedLog.CustomBlob.ValOpt()
@@ -2715,8 +2720,8 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 	spendTx *wire.MsgTx, chanState *chanstate.OpenChannel,
 	keyRing *CommitmentKeyRing, commitmentSecret *btcec.PrivateKey,
 	leaseExpiry uint32, auxLeaves fn.Option[CommitAuxLeaves],
-	auxResolver fn.Option[AuxContractResolver]) (*BreachRetribution,
-	int64, int64, error) {
+	auxResolver fn.Option[AuxContractResolver],
+	breachHeight uint32) (*BreachRetribution, int64, int64, error) {
 
 	commitHash := revokedLog.CommitTxHash
 
@@ -2726,7 +2731,7 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 		hr, err := createHtlcRetribution(
 			chanState, keyRing, commitHash.Val,
 			commitmentSecret, leaseExpiry, htlc, auxLeaves, spendTx,
-			auxResolver, revokedLog,
+			auxResolver, revokedLog, breachHeight,
 		)
 		if err != nil {
 			return nil, 0, 0, err
@@ -2834,8 +2839,8 @@ func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 	commitmentSecret *btcec.PrivateKey,
 	ourScript, theirScript input.ScriptDescriptor, leaseExpiry uint32,
 	auxResolver fn.Option[AuxContractResolver],
-	auxSigner fn.Option[AuxSigner]) (*BreachRetribution, int64, int64,
-	error) {
+	auxSigner fn.Option[AuxSigner],
+	breachHeight uint32) (*BreachRetribution, int64, int64, error) {
 
 	commitHash := revokedLog.CommitTx.TxHash()
 	ourOutpoint := wire.OutPoint{
@@ -2912,7 +2917,7 @@ func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 			chanState, keyRing, commitHash,
 			commitmentSecret, leaseExpiry, entry,
 			fn.None[CommitAuxLeaves](),
-			revokedLog.CommitTx, auxResolver, nil,
+			revokedLog.CommitTx, auxResolver, nil, breachHeight,
 		)
 		if err != nil {
 			return nil, 0, 0, err

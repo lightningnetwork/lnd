@@ -2,7 +2,6 @@ package input
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 
@@ -12,11 +11,6 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
-var (
-	// ErrTweakOverdose signals a SignDescriptor is invalid because both of its
-	// SingleTweak and DoubleTweak are non-nil.
-	ErrTweakOverdose = errors.New("sign descriptor should only have one tweak")
-)
 
 // SignDescriptor houses the necessary information required to successfully
 // sign a given segwit output. This struct is used by the Signer interface in
@@ -287,11 +281,6 @@ func ReadSignDescriptor(r io.Reader, sd *SignDescriptor) error {
 		sd.DoubleTweak = nil
 	} else {
 		sd.DoubleTweak, _ = btcec.PrivKeyFromBytes(doubleTweakBytes)
-	}
-
-	// Only one tweak should ever be set, fail if both are present.
-	if sd.SingleTweak != nil && sd.DoubleTweak != nil {
-		return ErrTweakOverdose
 	}
 
 	witnessScript, err := wire.ReadVarBytes(r, 0, 500, "witnessScript")

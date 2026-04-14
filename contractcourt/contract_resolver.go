@@ -7,11 +7,13 @@ import (
 	"io"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/sweep"
 )
 
@@ -179,8 +181,40 @@ func (r *contractResolverKit) markLaunched() {
 	r.launched.Store(true)
 }
 
+// clearLaunched clears the launched flag, allowing a later Launch call to
+// retry after a synchronous launch failure. Without this, a resolver whose
+// launch failed before anything was handed to the sweeper (or scheduled for
+// publish) would no-op every subsequent Launch until a restart.
+func (r *contractResolverKit) clearLaunched() {
+	r.launched.Store(false)
+}
+
 var (
 	// errResolverShuttingDown is returned when the resolver stops
 	// progressing because it received the quit signal.
 	errResolverShuttingDown = errors.New("resolver shutting down")
 )
+
+// isSecondLevelSigHashDefault returns true when a pre-signed second-level
+// HTLC transaction was signed with SigHashDefault. In this case the tx
+// has baked-in fees and must be broadcast as-is: the sweeper cannot add
+// wallet inputs or change outputs without invalidating the peer's
+// signature.
+//
+// The sighash check alone filters every channel that populates sign
+// details today: legacy channels sign second levels with SIGHASH_ALL
+// (0x01), anchor and taproot channels with SIGHASH_SINGLE|ANYONECANPAY
+// (0x83), and taproot asset channels that did not negotiate
+// DeterministicHTLCs also carry 0x83. The channel type gate
+// (TapscriptRootBit, only ever set for aux/custom channels) is layered
+// on top for two reasons: it makes the custom-channel-only isolation of
+// this path explicit, and it protects against SigHashDefault being the
+// zero value of SigHashType, so no present or future code path that
+// leaves the field unset can ever steer a non-custom channel in here.
+func isSecondLevelSigHashDefault(signDetails *input.SignDetails,
+	chanType channeldb.ChannelType) bool {
+
+	return signDetails != nil &&
+		signDetails.SigHashType == txscript.SigHashDefault &&
+		chanType.HasTapscriptRoot()
+}

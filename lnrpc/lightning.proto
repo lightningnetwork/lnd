@@ -711,22 +711,18 @@ message OnionMessageUpdate {
 }
 
 message SendOnionMessageRequest {
-    // Peer to send the message to
-    bytes peer = 1;
+    // The compressed public key of the destination node. Graph-based
+    // pathfinding is used to route the message; a direct send is attempted
+    // as a fallback if no graph route exists.
+    bytes destination = 1;
 
-    // PathKey is used to derive the blinded node id by tweaking the hop's
-    // static public key. The hop uses the corresponding blinded private key
-    // together with the sender's ephemeral key to perform ECDH and obtain the
-    // shared secret for decrypting the onion payload. Separately, for
-    // decrypting `encrypted_recipient_data`, the recipient performs ECDH
-    // between its static node private key and the path_key to derive the
-    // decryption key.
-    bytes path_key = 2;
+    // Application-level TLV records for the destination node. Keys must
+    // be >= 64 per the BOLT 12 spec (e.g. invoice request namespace = 64).
+    map<uint64, bytes> final_hop_tlvs = 2;
 
-    // Serialized Sphinx onion packet (BOLT 4) containing the layered, per-hop
-    // encrypted payloads and routing instructions used to forward this message
-    // along its designated path.
-    bytes onion = 3;
+    // An optional blinded path the destination should use to reply to this
+    // message.
+    BlindedPath reply_path = 3;
 }
 
 message SendOnionMessageResponse {

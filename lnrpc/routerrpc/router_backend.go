@@ -557,6 +557,13 @@ func unmarshalBlindedPayment(rpcPayment *lnrpc.BlindedPaymentPath) (
 	}, nil
 }
 
+// UnmarshalBlindedPath converts an lnrpc.BlindedPath to a sphinx.BlindedPath.
+func UnmarshalBlindedPath(rpcPath *lnrpc.BlindedPath) (
+	*sphinx.BlindedPath, error) {
+
+	return unmarshalBlindedPaymentPaths(rpcPath)
+}
+
 func unmarshalBlindedPaymentPaths(rpcPath *lnrpc.BlindedPath) (
 	*sphinx.BlindedPath, error) {
 

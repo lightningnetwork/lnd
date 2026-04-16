@@ -6607,6 +6607,41 @@
         }
       }
     },
+    "lnrpcOnionMessageStats": {
+      "type": "object",
+      "properties": {
+        "bytes_recv": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total on-the-wire size of onion messages from this peer that were\nadmitted past the ingress pipeline."
+        },
+        "bytes_sent": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total on-the-wire size of onion messages we sent to this peer."
+        },
+        "dropped_peer": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The count of onion messages from this peer rejected by the per-peer\nbyte bucket."
+        },
+        "dropped_freebie": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The count of onion messages from this peer rejected by the shared\nfreebie bucket. Non-zero only for peers with no fully-open channel,\nwhen the freebie slot is enabled."
+        },
+        "dropped_global": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The count of onion messages from this peer rejected by the global\nbyte bucket."
+        },
+        "dropped_no_channel": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The count of onion messages from this peer rejected by the\nchannel-presence gate because the peer has no fully-open channel and\neither freebie is disabled or its bucket was empty."
+        }
+      }
+    },
     "lnrpcOnionMessageUpdate": {
       "type": "object",
       "properties": {
@@ -7104,6 +7139,10 @@
           "type": "string",
           "format": "byte",
           "description": "The last ping payload the peer has sent to us."
+        },
+        "onion_message_stats": {
+          "$ref": "#/definitions/lnrpcOnionMessageStats",
+          "description": "Per-peer onion message byte and drop counters, cumulative over the\nlifetime of the current peer connection. Counters reset when the peer\nreconnects. Populated from the per-peer atomic counters bumped by the\nonion message ingress pipeline; drop counts are attributed to the\nsentinel error returned by the admission policy."
         }
       }
     },

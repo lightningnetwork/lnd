@@ -503,6 +503,14 @@ func TestPrepareLspRouteHints(t *testing.T) {
 		ChannelID:                 2,
 	}
 
+	aliceHopHint3 := zpay32.HopHint{
+		NodeID:                    alicePubKey,
+		FeeBaseMSat:               300,
+		FeeProportionalMillionths: 3_000,
+		CLTVExpiryDelta:           60,
+		ChannelID:                 8,
+	}
+
 	bobHopHint := zpay32.HopHint{
 		NodeID:                    bobPubKey,
 		FeeBaseMSat:               500,
@@ -644,6 +652,37 @@ func TestPrepareLspRouteHints(t *testing.T) {
 
 				// Should use worst-case CLTV delta.
 				require.Equal(t, aliceHopHint2.CLTVExpiryDelta,
+					group.LspHopHint.CLTVExpiryDelta)
+			},
+		},
+		{
+			name: "single LSP keeps fee and cltv paired to highest fee hint",
+			routeHints: [][]zpay32.HopHint{
+				{bobHopHint, aliceHopHint2},
+				{carolHopHint, aliceHopHint3},
+			},
+			expectedGrps: 1,
+			validateFunc: func(t *testing.T,
+				groups map[route.Vertex]*LspRouteGroup) {
+
+				aliceKey := route.NewVertex(alicePubKey)
+				group, ok := groups[aliceKey]
+				require.True(t, ok, "alice group not found")
+
+				fee2 := aliceHopHint2.HopFee(amt)
+				fee3 := aliceHopHint3.HopFee(amt)
+				require.Greater(t, fee3, fee2,
+					"hint3 should have higher fees")
+				require.Greater(t, aliceHopHint2.CLTVExpiryDelta,
+					aliceHopHint3.CLTVExpiryDelta,
+					"hint2 should have the higher cltv")
+
+				require.Equal(t, aliceHopHint3.FeeBaseMSat,
+					group.LspHopHint.FeeBaseMSat)
+				require.Equal(t,
+					aliceHopHint3.FeeProportionalMillionths,
+					group.LspHopHint.FeeProportionalMillionths)
+				require.Equal(t, aliceHopHint3.CLTVExpiryDelta,
 					group.LspHopHint.CLTVExpiryDelta)
 			},
 		},

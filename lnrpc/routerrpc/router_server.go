@@ -886,16 +886,16 @@ func prepareLspRouteHints(routeHints [][]zpay32.HopHint,
 			lspGroups[lspKey] = group
 		}
 
-		// Update the LSP hop hint with worst-case (max) fees and CLTV.
+		// Keep fee and CLTV paired from the same hint so we don't
+		// synthesize an impossible combination across multiple routes.
 		hopFee := destHop.HopFee(amt)
 		currentMaxFee := group.LspHopHint.HopFee(amt)
-		if hopFee > currentMaxFee {
+		if hopFee > currentMaxFee || (hopFee == currentMaxFee &&
+			destHop.CLTVExpiryDelta > group.LspHopHint.CLTVExpiryDelta) {
+
 			group.LspHopHint.FeeBaseMSat = destHop.FeeBaseMSat
 			group.LspHopHint.FeeProportionalMillionths = destHop.
 				FeeProportionalMillionths
-		}
-
-		if destHop.CLTVExpiryDelta > group.LspHopHint.CLTVExpiryDelta {
 			group.LspHopHint.CLTVExpiryDelta = destHop.
 				CLTVExpiryDelta
 		}

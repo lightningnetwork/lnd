@@ -50,6 +50,25 @@ func (s *stubIngressLimiter) FirstPeerDropClaim() bool { return true }
 // FirstGlobalDropClaim always returns true for the same reason.
 func (s *stubIngressLimiter) FirstGlobalDropClaim() bool { return true }
 
+// AllowFreebie records the call and dispatches to the configured
+// predicate, matching the AllowN behavior so stub callers that drive
+// allowOnionMessage through either admission path share a single
+// decision function.
+func (s *stubIngressLimiter) AllowFreebie(peer [33]byte,
+	n int) fn.Result[fn.Unit] {
+
+	s.calls.Add(1)
+	if err := s.decide(peer, n); err != nil {
+		return fn.Err[fn.Unit](err)
+	}
+
+	return fn.Ok(fn.Unit{})
+}
+
+// FirstFreebieDropClaim always returns true so the log-path test can
+// observe the one-shot dispatch, matching the other First* stubs.
+func (s *stubIngressLimiter) FirstFreebieDropClaim() bool { return true }
+
 // acceptAll constructs a stubIngressLimiter whose AllowN always accepts.
 func acceptAll() *stubIngressLimiter {
 	return &stubIngressLimiter{
@@ -155,7 +174,7 @@ func TestAllowOnionMessagePeerRejectsFirst(t *testing.T) {
 		calls: &globalCalls,
 	}
 
-	limiter := onionmessage.NewIngressLimiter(peerLim, global)
+	limiter := onionmessage.NewIngressLimiter(peerLim, global, nil)
 
 	var key [33]byte
 	key[0] = 0x03
@@ -208,7 +227,7 @@ func TestAllowOnionMessageGlobalRejects(t *testing.T) {
 		allow: func() bool { return false },
 		calls: &globalCalls,
 	}
-	limiter := onionmessage.NewIngressLimiter(peerLim, global)
+	limiter := onionmessage.NewIngressLimiter(peerLim, global, nil)
 
 	var key [33]byte
 	key[0] = 0x02
@@ -236,7 +255,7 @@ func TestAllowOnionMessageHappyPath(t *testing.T) {
 		allow: func() bool { return true },
 		calls: &globalCalls,
 	}
-	limiter := onionmessage.NewIngressLimiter(peerLim, global)
+	limiter := onionmessage.NewIngressLimiter(peerLim, global, nil)
 
 	var key [33]byte
 	key[0] = 0x04
@@ -263,7 +282,7 @@ func TestAllowOnionMessagePeerIsolation(t *testing.T) {
 		allow: func() bool { return true },
 		calls: &globalCalls,
 	}
-	limiter := onionmessage.NewIngressLimiter(peerLim, global)
+	limiter := onionmessage.NewIngressLimiter(peerLim, global, nil)
 
 	var keyA, keyB [33]byte
 	keyA[0] = 0x02
@@ -305,7 +324,7 @@ func TestAllowOnionMessageConcurrent(t *testing.T) {
 		allow: func() bool { return true },
 		calls: &globalCalls,
 	}
-	limiter := onionmessage.NewIngressLimiter(peerLim, global)
+	limiter := onionmessage.NewIngressLimiter(peerLim, global, nil)
 
 	var key [33]byte
 	key[0] = 0x05

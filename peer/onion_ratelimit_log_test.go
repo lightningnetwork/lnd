@@ -30,7 +30,7 @@ func newRealIngressLimiter(t *testing.T) onionmessage.IngressLimiter {
 	peerLim := onionmessage.NewPeerRateLimiter(1, testMsgBytes)
 	globalLim := onionmessage.NewGlobalLimiter(1, testMsgBytes)
 
-	return onionmessage.NewIngressLimiter(peerLim, globalLim)
+	return onionmessage.NewIngressLimiter(peerLim, globalLim, nil)
 }
 
 // TestLogFirstOnionDropGlobalOneShot verifies that logFirstOnionDrop

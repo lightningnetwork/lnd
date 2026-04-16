@@ -2439,7 +2439,7 @@ func (s *server) Start(ctx context.Context) error {
 				s.cfg.ProtocolOptions.OnionMsgGlobalBurstBytes,
 			)
 			s.onionLimiter = onionmessage.NewIngressLimiter(
-				onionPeerLim, onionGlobalLim,
+				onionPeerLim, onionGlobalLim, nil,
 			)
 		}
 

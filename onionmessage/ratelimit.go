@@ -22,6 +22,14 @@ var (
 	// incoming onion message. Callers match on it with errors.Is to
 	// distinguish global drops from per-peer drops.
 	ErrGlobalRateLimit = errors.New("global rate limit exceeded")
+
+	// ErrFreebieRateLimit is the sentinel error returned by
+	// IngressLimiter.AllowFreebie when the shared freebie token
+	// bucket — which admits onion messages from peers that do NOT
+	// have a fully open channel with us — is empty. Callers match
+	// on it with errors.Is to distinguish "freebie drained" from a
+	// strictly-gated rejection (ErrNoChannel at the peer layer).
+	ErrFreebieRateLimit = errors.New("freebie rate limit exceeded")
 )
 
 // kbpsToBytesPerSecond converts a configured kilobits-per-second value into
@@ -249,27 +257,51 @@ type IngressLimiter interface {
 	// the first call, and is intended to gate a one-shot info log
 	// when the global limiter first trips.
 	FirstGlobalDropClaim() bool
+
+	// AllowFreebie reports whether an onion message of n bytes from
+	// the given no-channel peer is permitted through the shared
+	// freebie bucket. On success the global limiter is also debited
+	// so the freebie lane is a sub-cap of the global cap, not a
+	// parallel pipeline. A rejection wraps either ErrFreebieRateLimit
+	// or ErrGlobalRateLimit depending on which bucket fired. The
+	// peer argument is accepted for symmetry with AllowN and future
+	// per-stranger observability; it is not used for rate decisions.
+	AllowFreebie(peer [33]byte, n int) fn.Result[fn.Unit]
+
+	// FirstFreebieDropClaim atomically returns true exactly once,
+	// on the first call, and is intended to gate a one-shot info
+	// log when the freebie bucket first trips. Returns false when
+	// the freebie limiter is disabled or the flag has already been
+	// claimed.
+	FirstFreebieDropClaim() bool
 }
 
 // ingressLimiter is the stock IngressLimiter implementation that
-// composes a PeerRateLimiter with a global RateLimiter. Either side may
-// be nil / disabled independently.
+// composes a PeerRateLimiter with a global RateLimiter and an optional
+// freebie RateLimiter. Any of the three sides may be nil / disabled
+// independently.
 type ingressLimiter struct {
-	peer   *PeerRateLimiter
-	global RateLimiter
+	peer    *PeerRateLimiter
+	global  RateLimiter
+	freebie RateLimiter
 }
 
 // NewIngressLimiter constructs an IngressLimiter that first consults the
 // given per-peer limiter and then the given global limiter for each
-// incoming onion message. Either argument may be nil (or the zero-value
-// disabled limiter returned by the constructors in this package) in
-// which case that side of the check is skipped.
-func NewIngressLimiter(peer *PeerRateLimiter,
-	global RateLimiter) IngressLimiter {
+// incoming onion message from a channel peer. The freebie limiter is a
+// separate shared token bucket consulted via AllowFreebie (not AllowN)
+// for messages from peers that do not have an open channel; on a
+// freebie pass the global limiter is also debited so the freebie lane
+// stays a sub-cap of the global cap. Any of the three arguments may be
+// nil (or the zero-value disabled limiter returned by the constructors
+// in this package) in which case that side of the check is skipped.
+func NewIngressLimiter(peer *PeerRateLimiter, global RateLimiter,
+	freebie RateLimiter) IngressLimiter {
 
 	return &ingressLimiter{
-		peer:   peer,
-		global: global,
+		peer:    peer,
+		global:  global,
+		freebie: freebie,
 	}
 }
 
@@ -312,6 +344,47 @@ func (l *ingressLimiter) FirstPeerDropClaim() bool {
 // interface and only the countingLimiter implementation tracks drops.
 func (l *ingressLimiter) FirstGlobalDropClaim() bool {
 	cl, ok := l.global.(*countingLimiter)
+	if !ok {
+		return false
+	}
+
+	return cl.FirstDropClaim()
+}
+
+// AllowFreebie checks the freebie bucket first and, on a pass, debits
+// the global bucket second. The ordering is load-bearing and mirrors
+// the rationale for AllowN: consulting the freebie bucket first means
+// over-limit traffic from no-channel peers is rejected before it can
+// touch the global bucket, so the global bucket only accounts for
+// freebie traffic that was within the freebie allowance. Debiting the
+// global bucket only on a freebie pass keeps the freebie lane a
+// sub-cap of the global cap rather than a parallel pipeline. A nil or
+// disabled freebie limiter closes the lane entirely: every call
+// returns ErrFreebieRateLimit since strangers have no other admission
+// path at this layer.
+func (l *ingressLimiter) AllowFreebie(peer [33]byte,
+	n int) fn.Result[fn.Unit] {
+
+	if l.freebie == nil || !l.freebie.AllowN(n) {
+		return fn.Err[fn.Unit](ErrFreebieRateLimit)
+	}
+	if l.global != nil && !l.global.AllowN(n) {
+		return fn.Err[fn.Unit](ErrGlobalRateLimit)
+	}
+
+	return fn.Ok(fn.Unit{})
+}
+
+// FirstFreebieDropClaim atomically returns true exactly once, on the
+// first call, when the freebie limiter is an enabled countingLimiter
+// that has just recorded its first rejection. A noop (disabled)
+// freebie limiter, a nil freebie limiter, and a countingLimiter whose
+// flag has already been claimed all return false. The type assertion
+// is inlined here because the freebie limiter is consulted through
+// the RateLimiter interface and only the countingLimiter
+// implementation tracks drops.
+func (l *ingressLimiter) FirstFreebieDropClaim() bool {
+	cl, ok := l.freebie.(*countingLimiter)
 	if !ok {
 		return false
 	}

@@ -1,6 +1,7 @@
 package onionmessage
 
 import (
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -196,7 +197,7 @@ func TestPeerRateLimiterFirstDropClaimOnce(t *testing.T) {
 func TestFirstGlobalDropClaimNoopLimiter(t *testing.T) {
 	t.Parallel()
 
-	ingress := NewIngressLimiter(nil, NewGlobalLimiter(0, 0))
+	ingress := NewIngressLimiter(nil, NewGlobalLimiter(0, 0), nil)
 	require.False(t, ingress.FirstGlobalDropClaim())
 }
 
@@ -244,4 +245,207 @@ func TestPeerRateLimiterConcurrentAllowN(t *testing.T) {
 // accounting it cares about.
 func peerMapLen(p *PeerRateLimiter) int {
 	return p.peers.Len()
+}
+
+// TestAllowFreebieNilReturnsFreebieErr verifies that when the freebie
+// limiter is nil the AllowFreebie lane is closed: every call returns
+// ErrFreebieRateLimit regardless of the state of the global bucket,
+// because no-channel peers have no other admission path at this layer.
+func TestAllowFreebieNilReturnsFreebieErr(t *testing.T) {
+	t.Parallel()
+
+	ingress := NewIngressLimiter(
+		nil, NewGlobalLimiter(1_000_000, 100*msgBytes), nil,
+	)
+	var peer [33]byte
+	peer[0] = 0x02
+
+	result := ingress.AllowFreebie(peer, msgBytes)
+	require.Error(t, result.Err())
+	require.True(t,
+		errors.Is(result.Err(), ErrFreebieRateLimit),
+	)
+}
+
+// TestAllowFreebieEnabledDebitsGlobal verifies that a successful
+// freebie pass also debits the global bucket, so the freebie lane is
+// a sub-cap of the global cap rather than a parallel pipeline.
+func TestAllowFreebieEnabledDebitsGlobal(t *testing.T) {
+	t.Parallel()
+
+	// Plenty of freebie budget so only global accounting is observable.
+	freebie := NewGlobalLimiter(1_000_000, 100*msgBytes)
+	global, ok := NewGlobalLimiter(
+		1, 2*msgBytes,
+	).(*countingLimiter)
+	require.True(t, ok)
+
+	ingress := NewIngressLimiter(nil, global, freebie)
+	var peer [33]byte
+	peer[0] = 0x02
+
+	// Two successful freebies should consume two messages of global
+	// budget.
+	result := ingress.AllowFreebie(peer, msgBytes)
+	require.NoError(t, result.Err())
+	result = ingress.AllowFreebie(peer, msgBytes)
+	require.NoError(t, result.Err())
+
+	// A third call must now fail on the global bucket, not the
+	// freebie bucket, because the freebie side still has tokens but
+	// the global side is drained.
+	result = ingress.AllowFreebie(peer, msgBytes)
+	require.Error(t, result.Err())
+	require.True(t,
+		errors.Is(result.Err(), ErrGlobalRateLimit),
+	)
+	require.Equal(t, uint64(1), global.Dropped())
+}
+
+// TestAllowFreebieDrained verifies that once the freebie bucket is
+// exhausted AllowFreebie returns ErrFreebieRateLimit and does not
+// touch the global bucket (the freebie side is consulted first).
+func TestAllowFreebieDrained(t *testing.T) {
+	t.Parallel()
+
+	const burstMessages = 3
+	freebie, ok := NewGlobalLimiter(
+		1, burstMessages*msgBytes,
+	).(*countingLimiter)
+	require.True(t, ok)
+
+	// Large global budget so any global drop would be obviously
+	// wrong.
+	global, ok := NewGlobalLimiter(
+		1_000_000, 100*msgBytes,
+	).(*countingLimiter)
+	require.True(t, ok)
+
+	ingress := NewIngressLimiter(nil, global, freebie)
+	var peer [33]byte
+	peer[0] = 0x02
+
+	// Drain the freebie bucket.
+	for i := 0; i < burstMessages; i++ {
+		result := ingress.AllowFreebie(peer, msgBytes)
+		require.NoError(t, result.Err(), "slot %d", i)
+	}
+
+	// The next call must fail on the freebie side.
+	result := ingress.AllowFreebie(peer, msgBytes)
+	require.Error(t, result.Err())
+	require.True(t,
+		errors.Is(result.Err(), ErrFreebieRateLimit),
+	)
+	require.Equal(t, uint64(1), freebie.Dropped())
+
+	// The global bucket must NOT have recorded a drop; it was never
+	// consulted on the rejected call.
+	require.Equal(t, uint64(0), global.Dropped())
+}
+
+// TestAllowFreebieGlobalDrained verifies that when the freebie bucket
+// has tokens but the global bucket is drained, AllowFreebie surfaces
+// ErrGlobalRateLimit.
+func TestAllowFreebieGlobalDrained(t *testing.T) {
+	t.Parallel()
+
+	freebie := NewGlobalLimiter(1_000_000, 100*msgBytes)
+	global, ok := NewGlobalLimiter(
+		1, msgBytes,
+	).(*countingLimiter)
+	require.True(t, ok)
+
+	ingress := NewIngressLimiter(nil, global, freebie)
+	var peer [33]byte
+	peer[0] = 0x02
+
+	// First call drains the single-message global bucket.
+	result := ingress.AllowFreebie(peer, msgBytes)
+	require.NoError(t, result.Err())
+
+	// Second call has freebie budget but no global budget.
+	result = ingress.AllowFreebie(peer, msgBytes)
+	require.Error(t, result.Err())
+	require.True(t,
+		errors.Is(result.Err(), ErrGlobalRateLimit),
+	)
+	require.Equal(t, uint64(1), global.Dropped())
+}
+
+// TestAllowFreebieByteAccounting verifies that each call debits the
+// requested byte count from the freebie bucket rather than a
+// per-message fixed charge. A bucket exactly sized for one msgBytes
+// must refuse a msgBytes+1 call on the first attempt.
+func TestAllowFreebieByteAccounting(t *testing.T) {
+	t.Parallel()
+
+	freebie, ok := NewGlobalLimiter(1, msgBytes).(*countingLimiter)
+	require.True(t, ok)
+	global := NewGlobalLimiter(1_000_000, 100*msgBytes)
+
+	ingress := NewIngressLimiter(nil, global, freebie)
+	var peer [33]byte
+	peer[0] = 0x02
+
+	// A request one byte larger than the burst must fail.
+	result := ingress.AllowFreebie(peer, msgBytes+1)
+	require.Error(t, result.Err())
+	require.True(t,
+		errors.Is(result.Err(), ErrFreebieRateLimit),
+	)
+
+	// A request of exactly the burst size must pass, and a
+	// subsequent 1-byte request must then fail — the first call
+	// debited all tokens.
+	result = ingress.AllowFreebie(peer, msgBytes)
+	require.NoError(t, result.Err())
+	result = ingress.AllowFreebie(peer, 1)
+	require.Error(t, result.Err())
+	require.True(t,
+		errors.Is(result.Err(), ErrFreebieRateLimit),
+	)
+}
+
+// TestFirstFreebieDropClaimNil verifies that FirstFreebieDropClaim
+// returns false when the freebie limiter is nil.
+func TestFirstFreebieDropClaimNil(t *testing.T) {
+	t.Parallel()
+
+	ingress := NewIngressLimiter(nil, nil, nil)
+	require.False(t, ingress.FirstFreebieDropClaim())
+}
+
+// TestFirstFreebieDropClaimNoopLimiter verifies that
+// FirstFreebieDropClaim returns false when the freebie limiter is a
+// disabled noopLimiter: a disabled limiter never produces drops and
+// must not claim the first-drop flag.
+func TestFirstFreebieDropClaimNoopLimiter(t *testing.T) {
+	t.Parallel()
+
+	ingress := NewIngressLimiter(nil, nil, NewGlobalLimiter(0, 0))
+	require.False(t, ingress.FirstFreebieDropClaim())
+}
+
+// TestFirstFreebieDropClaimOnce verifies that once the freebie bucket
+// has dropped a message the first-drop flag is claimable exactly once
+// and subsequent calls return false.
+func TestFirstFreebieDropClaimOnce(t *testing.T) {
+	t.Parallel()
+
+	freebie := NewGlobalLimiter(1, msgBytes)
+	ingress := NewIngressLimiter(nil, nil, freebie)
+	var peer [33]byte
+	peer[0] = 0x02
+
+	// Drain the freebie bucket and trigger a drop.
+	result := ingress.AllowFreebie(peer, msgBytes)
+	require.NoError(t, result.Err())
+	result = ingress.AllowFreebie(peer, msgBytes)
+	require.Error(t, result.Err())
+
+	// First claim wins, subsequent claims return false.
+	require.True(t, ingress.FirstFreebieDropClaim())
+	require.False(t, ingress.FirstFreebieDropClaim())
+	require.False(t, ingress.FirstFreebieDropClaim())
 }

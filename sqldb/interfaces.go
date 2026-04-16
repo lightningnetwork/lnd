@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	prand "math/rand"
 	"time"
 
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
@@ -132,12 +131,6 @@ func defaultTxExecutorOptions() *txExecutorOptions {
 		numRetries: DefaultNumTxRetries,
 		retryDelay: DefaultRetryDelay,
 	}
-}
-
-// randRetryDelay returns a random retry delay between 0 and the configured max
-// delay.
-func (t *txExecutorOptions) randRetryDelay() time.Duration {
-	return time.Duration(prand.Int63n(int64(t.retryDelay))) //nolint:gosec
 }
 
 // TxExecutorOption is a functional option that allows us to pass in optional

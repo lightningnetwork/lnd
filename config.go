@@ -1145,6 +1145,29 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	); err != nil {
 		return nil, mkErr("%s", err)
 	}
+	if err := validateOnionMsgLimiter(
+		"protocol.onion-msg-freebie",
+		cfg.ProtocolOptions.OnionMsgFreebieKbps,
+		cfg.ProtocolOptions.OnionMsgFreebieBurstBytes,
+	); err != nil {
+		return nil, mkErr("%s", err)
+	}
+
+	// The freebie bucket and relay-all are mutually exclusive: relay-all
+	// already admits strangers into the full per-peer onion message
+	// pipeline, so layering a narrower shared freebie bucket on top has
+	// no effect. validateOnionMsgLimiter above has already enforced the
+	// both-zero-or-both-positive invariant on the freebie pair, so it is
+	// sufficient to check a single field to detect "freebie enabled".
+	freebieEnabled := cfg.ProtocolOptions.OnionMsgFreebieKbps > 0 ||
+		cfg.ProtocolOptions.OnionMsgFreebieBurstBytes > 0
+	if cfg.ProtocolOptions.OnionMsgRelayAll && freebieEnabled {
+		return nil, mkErr("protocol.onion-msg-relay-all and " +
+			"protocol.onion-msg-freebie-kbps are mutually " +
+			"exclusive: relay-all already admits strangers to " +
+			"the full per-peer pipeline, so layering a freebie " +
+			"bucket on top has no effect")
+	}
 
 	// Ensure that --maxchansize is properly handled when set by user.
 	// For non-Wumbo channels this limit remains 16777215 satoshis by default

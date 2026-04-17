@@ -52,12 +52,14 @@ var setCfgCommand = cli.Command{
 	Flags: []cli.Flag{
 		// General settings.
 		cli.UintFlag{
-			Name: "pmtnr",
+			Name:  "pmtnr",
+			Value: routing.DefaultMaxMcHistory,
 			Usage: "the number of payments mission control " +
 				"should store",
 		},
 		cli.DurationFlag{
-			Name: "failrelax",
+			Name:  "failrelax",
+			Value: routing.DefaultMinFailureRelaxInterval,
 			Usage: "the amount of time to wait after a failure " +
 				"before raising failure amount",
 		},
@@ -70,23 +72,27 @@ var setCfgCommand = cli.Command{
 		},
 		// Apriori config.
 		cli.DurationFlag{
-			Name: "apriorihalflife",
+			Name:  "apriorihalflife",
+			Value: routing.DefaultAprioriConfig().PenaltyHalfLife,
 			Usage: "the amount of time taken to restore a node " +
 				"or channel to 50% probability of success.",
 		},
 		cli.Float64Flag{
-			Name: "apriorihopprob",
+			Name:  "apriorihopprob",
+			Value: routing.DefaultAprioriConfig().AprioriHopProbability,
 			Usage: "the probability of success assigned " +
 				"to hops that we have no information about",
 		},
 		cli.Float64Flag{
-			Name: "aprioriweight",
+			Name:  "aprioriweight",
+			Value: routing.DefaultAprioriConfig().AprioriWeight,
 			Usage: "the degree to which mission control should " +
 				"rely on historical results, expressed as " +
 				"value in [0, 1]",
 		},
 		cli.Float64Flag{
-			Name: "aprioricapacityfraction",
+			Name:  "aprioricapacityfraction",
+			Value: routing.DefaultAprioriConfig().CapacityFraction,
 			Usage: "the fraction of channels' capacities that is " +
 				"considered liquid in pathfinding, a value " +
 				"between [0.75-1.0]. a value of 1.0 disables " +
@@ -94,19 +100,22 @@ var setCfgCommand = cli.Command{
 		},
 		// Bimodal config.
 		cli.DurationFlag{
-			Name: "bimodaldecaytime",
+			Name:  "bimodaldecaytime",
+			Value: routing.DefaultBimodalConfig().BimodalDecayTime,
 			Usage: "the time span after which we phase out " +
 				"learnings from previous payment attempts",
 		},
 		cli.Uint64Flag{
-			Name: "bimodalscale",
+			Name:  "bimodalscale",
+			Value: uint64(routing.DefaultBimodalConfig().BimodalScaleMsat),
 			Usage: "controls the assumed channel liquidity " +
 				"imbalance in the network, measured in msat. " +
 				"a low value (compared to typical channel " +
 				"capacity) anticipates unbalanced channels.",
 		},
 		cli.Float64Flag{
-			Name: "bimodalweight",
+			Name:  "bimodalweight",
+			Value: routing.DefaultBimodalConfig().BimodalNodeWeight,
 			Usage: "controls the degree to which the probability " +
 				"estimator takes into account other channels " +
 				"of a router",

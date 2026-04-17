@@ -2,6 +2,7 @@ package peer
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/mock"
@@ -75,6 +77,37 @@ func TestPeerChannelClosureShutdownResponseLinkRemoved(t *testing.T) {
 	}
 
 	require.NotEqualValues(t, shutdownMsg.Address, dummyDeliveryScript)
+}
+
+type mockMsgRouter struct {
+	unregistered []msgmux.EndpointName
+}
+
+func (m *mockMsgRouter) RegisterEndpoint(msgmux.Endpoint) error { return nil }
+func (m *mockMsgRouter) UnregisterEndpoint(
+	name msgmux.EndpointName) error {
+
+	m.unregistered = append(m.unregistered, name)
+	return nil
+}
+
+func (m *mockMsgRouter) RouteMsg(msgmux.PeerMsg) error { return nil }
+func (m *mockMsgRouter) Start(context.Context)         {}
+func (m *mockMsgRouter) Stop()                         {}
+
+func TestUnregisterMsgRouterEndpoint(t *testing.T) {
+	t.Parallel()
+
+	router := &mockMsgRouter{}
+	p := &Brontide{
+		msgRouter: fn.Some[msgmux.Router](router),
+		log:       peerLog,
+	}
+
+	p.unregisterMsgRouterEndpoint("rbf-closer")
+
+	require.Equal(t, []msgmux.EndpointName{"rbf-closer"},
+		router.unregistered)
 }
 
 // TestPeerChannelClosureAcceptFeeResponder tests the shutdown responder's

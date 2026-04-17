@@ -1100,6 +1100,15 @@ func (p *Brontide) rbfCoopCloseAllowed() bool {
 		bothHaveBit(lnwire.RbfCoopCloseOptionalStaging)
 }
 
+func (p *Brontide) unregisterMsgRouterEndpoint(name msgmux.EndpointName) {
+	p.msgRouter.WhenSome(func(router msgmux.Router) {
+		if err := router.UnregisterEndpoint(name); err != nil {
+			p.log.Debugf("unable to unregister msg router endpoint %s: %v",
+				name, err)
+		}
+	})
+}
+
 // QuitSignal is a method that should return a channel which will be sent upon
 // or closed once the backing peer exits. This allows callers using the
 // interface to cancel any processing in the event the backing implementation
@@ -3955,6 +3964,7 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 				chanID := lnwire.NewChanIDFromOutPoint(
 					*closeReq.ChanPoint,
 				)
+				p.unregisterMsgRouterEndpoint(chanCloser.Name())
 				p.activeChanCloses.Delete(chanID)
 
 				return
@@ -5211,6 +5221,9 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 			chanCloser.CloseRequest().Err <- err
 		}
 
+		chanCloser.WhenRight(func(rbfCloser *chancloser.RbfChanCloser) {
+			p.unregisterMsgRouterEndpoint(rbfCloser.Name())
+		})
 		p.activeChanCloses.Delete(msg.cid)
 
 		p.Disconnect(err)

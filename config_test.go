@@ -2,6 +2,7 @@ package lnd
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -116,6 +117,51 @@ func TestSupplyEnvValue(t *testing.T) {
 			require.Equal(t, test.expected, result)
 		})
 	}
+}
+
+func TestExtractBtcdRPCParamsExpandsEnvValues(t *testing.T) {
+	t.Setenv("BTCD_RPCUSER", "btcd-user")
+	t.Setenv("BTCD_RPCPASS", "btcd-pass")
+
+	conf, err := os.CreateTemp(t.TempDir(), "btcd-*.conf")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conf.Close() })
+
+	_, err = conf.WriteString("rpcuser=$BTCD_RPCUSER\nrpcpass=${BTCD_RPCPASS}\n")
+	require.NoError(t, err)
+	require.NoError(t, conf.Close())
+
+	user, password, err := extractBtcdRPCParams(conf.Name())
+	require.NoError(t, err)
+	require.Equal(t, "btcd-user", user)
+	require.Equal(t, "btcd-pass", password)
+}
+
+func TestExtractBitcoindRPCParamsExpandsEnvValues(t *testing.T) {
+	t.Setenv("BITCOIND_RPCUSER", "bitcoind-user")
+	t.Setenv("BITCOIND_RPCPASS", "bitcoind-pass")
+
+	conf, err := os.CreateTemp(t.TempDir(), "bitcoind-*.conf")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conf.Close() })
+
+	_, err = conf.WriteString(
+		"rpcuser=${BITCOIND_RPCUSER}\n" +
+			"rpcpassword=${BITCOIND_RPCPASS:-fallback}\n" +
+			"zmqpubrawblock=tcp://127.0.0.1:28332\n" +
+			"zmqpubrawtx=tcp://127.0.0.1:28333\n",
+	)
+	require.NoError(t, err)
+	require.NoError(t, conf.Close())
+
+	user, password, zmqBlockHost, zmqTxHost, err := extractBitcoindRPCParams(
+		"mainnet", t.TempDir(), conf.Name(), "",
+	)
+	require.NoError(t, err)
+	require.Equal(t, "bitcoind-user", user)
+	require.Equal(t, "bitcoind-pass", password)
+	require.Equal(t, "tcp://127.0.0.1:28332", zmqBlockHost)
+	require.Equal(t, "tcp://127.0.0.1:28333", zmqTxHost)
 }
 
 // TestValidateConfigTrickleDelay tests that the TrickleDelay configuration

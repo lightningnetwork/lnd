@@ -77,6 +77,14 @@ func TestPeerChannelClosureShutdownResponseLinkRemoved(t *testing.T) {
 	require.NotEqualValues(t, shutdownMsg.Address, dummyDeliveryScript)
 }
 
+func TestRbfCoopCloseDisabledError(t *testing.T) {
+	t.Parallel()
+
+	err := rbfCoopCloseDisabledError()
+	require.ErrorContains(t, err, "--protocol.rbf-coop-close")
+	require.ErrorContains(t, err, "before starting lnd")
+}
+
 // TestPeerChannelClosureAcceptFeeResponder tests the shutdown responder's
 // behavior if we can agree on the fee immediately.
 func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {

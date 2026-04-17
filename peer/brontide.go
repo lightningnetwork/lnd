@@ -1100,6 +1100,11 @@ func (p *Brontide) rbfCoopCloseAllowed() bool {
 		bothHaveBit(lnwire.RbfCoopCloseOptionalStaging)
 }
 
+func rbfCoopCloseDisabledError() error {
+	return fmt.Errorf("rbf coop close fee bump requires enabling " +
+		"--protocol.rbf-coop-close before starting lnd")
+}
+
 // QuitSignal is a method that should return a channel which will be sent upon
 // or closed once the backing peer exits. This allows callers using the
 // interface to cancel any processing in the event the backing implementation
@@ -5828,8 +5833,7 @@ func (p *Brontide) TriggerCoopCloseRbfBump(ctx context.Context,
 
 	// If RBF coop close isn't permitted, then we'll an error.
 	if !p.rbfCoopCloseAllowed() {
-		return nil, fmt.Errorf("rbf coop close not enabled for " +
-			"channel")
+		return nil, rbfCoopCloseDisabledError()
 	}
 
 	closeUpdates := &CoopCloseUpdates{

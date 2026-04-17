@@ -30,7 +30,7 @@ in `lnd` to help improve the overall readability.
 - Function comments must always begin with the name of the function per
     [Effective Go](https://golang.org/doc/effective_go.html)
 - Function comments should be complete sentences since they allow a wide
-    variety of automated presentations such as [godoc.org](https://godoc.org)
+    variety of automated presentations such as [pkg.go.dev](https://pkg.go.dev)
 - The general rule of thumb is to look at it as if you were completely
   unfamiliar with the code and ask yourself, would this give me enough
   information to understand what this function does and how I'd probably want to
@@ -564,19 +564,19 @@ A quick summary of test practices follows:
 - When you fix a bug, it should be accompanied by tests which exercise the bug
   to both prove it has been resolved and to prevent future regressions.
 - Changes to publicly exported packages such as
-  [brontide](https://github.com/lightningnetwork/lnd/tree/master/brontide) should
+  [brontide](../brontide) should
   be accompanied by unit tests exercising the new or changed behavior.
 - Changes to behavior within the daemon's interaction with the P2P protocol,
   or RPC's will need to be accompanied by integration tests which use the
-  [`networkHarness`framework](https://github.com/lightningnetwork/lnd/blob/master/lntest/harness.go)
+  [`networkHarness`framework](../lntest/harness.go)
   contained within `lnd`. For example integration tests, see
-  [`lnd_test.go`](https://github.com/lightningnetwork/lnd/blob/master/itest/lnd_test.go).
+  [`lnd_test.go`](../itest/lnd_test.go).
 - The itest log files are automatically scanned for `[ERR]` lines. There
   shouldn't be any of those in the logs, see [Use of Log Levels](#use-of-log-levels).
 
 Throughout the process of contributing to `lnd`, you'll likely also be
 extensively using the commands within our `Makefile`. As a result, we recommend
-[perusing the make file documentation](https://github.com/lightningnetwork/lnd/blob/master/docs/MAKEFILE.md).
+[perusing the make file documentation](./MAKEFILE.md).
 
 
 Before committing the changes made, you should run unit tests to validate the

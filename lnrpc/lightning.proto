@@ -1755,6 +1755,12 @@ message ListChannelsRequest {
     */
     bytes peer = 5;
 
+    /*
+    Filters the response for a channel with a target short channel id.
+    If short channel_id and peer is empty, all channels will be returned.
+    */
+    uint64 scid = 7;
+
     // Informs the server if the peer alias lookup per channel should be
     // enabled. It is turned off by default in order to avoid degradation of
     // performance for existing clients.

@@ -2,7 +2,7 @@ lnrpc
 =====
 
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/lightningnetwork/lnd/blob/master/LICENSE)
-[![GoDoc](https://img.shields.io/badge/godoc-reference-blue.svg)](http://godoc.org/github.com/lightningnetwork/lnd/lnrpc)
+[![Go Reference](https://pkg.go.dev/badge/github.com/lightningnetwork/lnd/lnrpc)](https://pkg.go.dev/github.com/lightningnetwork/lnd/lnrpc)
 
 This lnrpc package implements both a client and server for `lnd`s RPC system
 which is based off of the high-performance cross-platform

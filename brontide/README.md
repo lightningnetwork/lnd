@@ -3,7 +3,7 @@ brontide
 
 [![Build Status](http://img.shields.io/travis/lightningnetwork/lnd.svg)](https://travis-ci.org/lightningnetwork/lnd) 
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/lightningnetwork/lnd/blob/master/LICENSE)
-[![GoDoc](https://img.shields.io/badge/godoc-reference-blue.svg)](http://godoc.org/github.com/lightningnetwork/lnd/brontide)
+[![Go Reference](https://pkg.go.dev/badge/github.com/lightningnetwork/lnd/brontide)](https://pkg.go.dev/github.com/lightningnetwork/lnd/brontide)
 
 The brontide package implements a secure crypto messaging protocol based off of
 the [Noise Protocol Framework](http://noiseprotocol.org/noise.html). The

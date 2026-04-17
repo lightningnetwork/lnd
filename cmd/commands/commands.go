@@ -1038,6 +1038,14 @@ var closeChannelCommand = cli.Command{
 	comparison is the end boundary of the fee negotiation, if not specified
 	it's always x3 of the starting value. Increasing this value increases
 	the chance of a successful negotiation.
+
+	RBF cooperative close fee bumping requires starting lnd with
+	--protocol.rbf-coop-close enabled and only works if the remote peer also
+	supports the protocol. When the initial cooperative close attempt is in
+	progress, the same closechannel RPC can be reissued with a higher fee
+	(via --conf_target, --sat_per_vbyte, or --max_fee_rate) to request an
+	RBF bump for the existing close negotiation.
+
 	Moreover if the channel has active HTLCs on it, the coop close will
 	wait until all HTLCs are resolved and will not allow any new HTLCs on
 	the channel. The channel will appear as disabled in the listchannels

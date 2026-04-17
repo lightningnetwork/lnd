@@ -249,6 +249,12 @@ service Lightning {
     then the user can specify either a target number of blocks until the
     closure transaction is confirmed, or a manual fee rate. If neither are
     specified, then a default lax, block confirmation target is used.
+
+    RBF cooperative close fee bumping requires starting lnd with
+    `--protocol.rbf-coop-close` enabled and only works if the remote peer also
+    supports the protocol. While a cooperative close is already in progress,
+    callers can reissue CloseChannel with a higher fee target or fee rate to
+    request an RBF bump for the existing negotiation.
     */
     rpc CloseChannel (CloseChannelRequest) returns (stream CloseStatusUpdate);
 
@@ -2261,6 +2267,10 @@ message CloseChannelRequest {
     uint64 sat_per_vbyte = 6;
 
     // The maximum fee rate the closer is willing to pay.
+    //
+    // For cooperative closes, this caps the negotiation range. During an RBF
+    // cooperative close retry, callers can increase this value (or the target
+    // fee rate) and reissue CloseChannel to request a higher-fee replacement.
     //
     // NOTE: This field is only respected if we're the initiator of the channel.
     uint64 max_fee_per_vbyte = 7;

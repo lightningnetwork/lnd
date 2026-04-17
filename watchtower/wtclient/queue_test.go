@@ -15,7 +15,7 @@ import (
 
 const (
 	maxInMemItems = 5
-	waitTime      = time.Second * 2
+	waitTime      = dbErrorBackoff + 2*time.Second
 )
 
 // TestDiskOverflowQueue tests that the DiskOverflowQueue behaves as expected.

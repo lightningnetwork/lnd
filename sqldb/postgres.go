@@ -95,6 +95,10 @@ type PostgresStore struct {
 // NewPostgresStore creates a new store that is backed by a Postgres database
 // backend.
 func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	sanitizedDSN, err := replacePasswordInDSN(cfg.Dsn)
 	if err != nil {
 		return nil, err

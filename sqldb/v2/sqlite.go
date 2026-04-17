@@ -56,6 +56,10 @@ type SqliteStore struct {
 // NewSqliteStore attempts to open a new sqlite database based on the passed
 // config.
 func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	// The set of pragma options are accepted using query options. For now
 	// we only want to ensure that foreign key constraints are properly
 	// enforced.

@@ -129,6 +129,10 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 		return nil, fmt.Errorf("postgres config is required")
 	}
 
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	// Copy the caller config so we can enforce RequireSSL on the DSN
 	// without mutating a config value that may be reused elsewhere.
 	effectiveCfg := *cfg

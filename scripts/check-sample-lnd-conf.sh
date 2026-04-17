@@ -15,19 +15,36 @@ CONF_FILE=${2:-sample-lnd.conf}
 # issues the width of the terminal is set to 240. This needs a workaround for
 # CI where we don't have an interactive terminal.
 FILE_TMP=$(mktemp)
+run_lnd_help() {
+    go run -tags="$TAGS" github.com/lightningnetwork/lnd/cmd/lnd --help > \
+        "$FILE_TMP"
+}
+
 if [ -t 0 ]; then
     size=($(stty size))
     stty cols 240
-    go run -tags="$TAGS" github.com/lightningnetwork/lnd/cmd/lnd --help > \
-        $FILE_TMP
+    run_lnd_help
     stty cols ${size[1]}
 else
-    tmux new-session -d -s simulated-terminal -x 240 -y 9999
-    tmux send-keys -t simulated-terminal.0 "go run -tags=\"$TAGS\" \
-        github.com/lightningnetwork/lnd/cmd/lnd --help >"$FILE_TMP"; \
-        tmux wait -S run" ENTER
-    tmux wait-for run
-    tmux kill-session -t simulated-terminal
+    if command -v tmux >/dev/null 2>&1; then
+        tmux new-session -d -s simulated-terminal -x 240 -y 9999
+        tmux send-keys -t simulated-terminal.0 "go run -tags=\"$TAGS\" \
+            github.com/lightningnetwork/lnd/cmd/lnd --help >"$FILE_TMP"; \
+            tmux wait -S run" ENTER
+        tmux wait-for run
+        tmux kill-session -t simulated-terminal
+    elif command -v script >/dev/null 2>&1; then
+        if script --version >/dev/null 2>&1; then
+            COLUMNS=240 LINES=9999 script -q -c \
+                "go run -tags=\"$TAGS\" github.com/lightningnetwork/lnd/cmd/lnd --help > \"$FILE_TMP\"" \
+                /dev/null
+        else
+            COLUMNS=240 LINES=9999 script -q /dev/null \
+                bash -lc "go run -tags=\"$TAGS\" github.com/lightningnetwork/lnd/cmd/lnd --help > \"$FILE_TMP\""
+        fi
+    else
+        COLUMNS=240 LINES=9999 run_lnd_help
+    fi
 fi
 
 LND_HELP="$(cat $FILE_TMP) --end"

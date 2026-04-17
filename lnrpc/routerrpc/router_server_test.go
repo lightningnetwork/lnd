@@ -764,3 +764,43 @@ func TestPrepareLspRouteHints(t *testing.T) {
 		require.Contains(t, err.Error(), "no public LSP nodes found")
 	})
 }
+
+func TestSortedLspProbeTargets(t *testing.T) {
+	t.Parallel()
+
+	makeVertex := func(seed byte) route.Vertex {
+		var v route.Vertex
+		v[0] = seed
+		return v
+	}
+
+	amt := lnwire.MilliSatoshi(1_000_000)
+	targets := sortedLspProbeTargets(map[route.Vertex]*LspRouteGroup{
+		makeVertex(3): {
+			LspHopHint: &zpay32.HopHint{
+				FeeBaseMSat:               100,
+				FeeProportionalMillionths: 500,
+				CLTVExpiryDelta:           144,
+			},
+		},
+		makeVertex(1): {
+			LspHopHint: &zpay32.HopHint{
+				FeeBaseMSat:               200,
+				FeeProportionalMillionths: 500,
+				CLTVExpiryDelta:           40,
+			},
+		},
+		makeVertex(2): {
+			LspHopHint: &zpay32.HopHint{
+				FeeBaseMSat:               200,
+				FeeProportionalMillionths: 500,
+				CLTVExpiryDelta:           80,
+			},
+		},
+	}, amt)
+
+	require.Len(t, targets, 3)
+	require.Equal(t, byte(2), targets[0].dest[0])
+	require.Equal(t, byte(1), targets[1].dest[0])
+	require.Equal(t, byte(3), targets[2].dest[0])
+}

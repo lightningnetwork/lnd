@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -604,12 +605,14 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 		probeCount       int
 	)
 
-	for lspKey, group := range lspGroups {
+	for _, target := range sortedLspProbeTargets(lspGroups, amtMsat) {
 		if probeCount >= MaxLspsToProbe {
 			break
 		}
 		probeCount++
 
+		lspKey := target.dest
+		group := target.group
 		lspHint := group.LspHopHint
 
 		log.Infof("Probing LSP with destination: %v", lspKey)
@@ -814,6 +817,44 @@ type LspRouteGroup struct {
 
 	// AdjustedRouteHints are the route hints with the LSP hop stripped off.
 	AdjustedRouteHints [][]zpay32.HopHint
+}
+
+type lspProbeTarget struct {
+	dest  route.Vertex
+	group *LspRouteGroup
+}
+
+func sortedLspProbeTargets(lspGroups map[route.Vertex]*LspRouteGroup,
+	amt lnwire.MilliSatoshi) []lspProbeTarget {
+
+	targets := make([]lspProbeTarget, 0, len(lspGroups))
+	for dest, group := range lspGroups {
+		targets = append(targets, lspProbeTarget{
+			dest:  dest,
+			group: group,
+		})
+	}
+
+	sort.Slice(targets, func(i, j int) bool {
+		left := targets[i]
+		right := targets[j]
+
+		leftFee := left.group.LspHopHint.HopFee(amt)
+		rightFee := right.group.LspHopHint.HopFee(amt)
+		if leftFee != rightFee {
+			return leftFee > rightFee
+		}
+
+		leftCltv := left.group.LspHopHint.CLTVExpiryDelta
+		rightCltv := right.group.LspHopHint.CLTVExpiryDelta
+		if leftCltv != rightCltv {
+			return leftCltv > rightCltv
+		}
+
+		return string(left.dest[:]) < string(right.dest[:])
+	})
+
+	return targets
 }
 
 // prepareLspRouteHints assumes that the isLsp heuristic returned true for the

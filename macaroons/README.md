@@ -8,9 +8,13 @@ For a more high-level overview see
 
 ## Root key
 
-At startup, if the option `--no-macaroons` is **not** used, a Bolt DB key/value
-store named `data/macaroons.db` is created with a bucket named `macrootkeys`.
-In this DB the following two key/value pairs are stored:
+At startup, if the option `--no-macaroons` is **not** used, lnd stores
+macaroon root keys in the configured macaroon kvdb backend. With the default
+bbolt backend this is the key/value store `data/macaroons.db` with the bucket
+named `macrootkeys`. With sqlite, postgres and etcd backends, the same root key
+material is stored in the configured macaroon database namespace or table
+instead of a local Bolt file. In this root key store the following two key/value
+pairs are stored:
 
 * Key `0`: the encrypted root key (32 bytes).
   * If the root key does not exist yet, 32 bytes of pseudo-random data is

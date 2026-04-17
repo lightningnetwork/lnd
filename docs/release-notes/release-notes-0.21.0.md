@@ -408,6 +408,11 @@
     compiled into mainline builds and available to all users who have the
     `native-sql` setting enabled.
 
+* Added [WaitForPostgresReady](https://github.com/lightningnetwork/lnd/pull/10564)
+  to wait for the Postgres database to become available before opening the
+  connection. This is necessary in environments where the database may not be
+  ready when LND starts. Also added `startup-max-retries` and
+  `startup-retry-delay` configuration options to control the retry behavior.
 
 ## Code Health
 
@@ -445,6 +450,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Abdulkbk
 * bitromortac
 * Boris Nagaev
 * Elle Mouton

@@ -110,17 +110,28 @@ DOCKER_TOOLS_LINT_BASE = $(DOCKER_TOOLS_BASE) $(GIT_VOLUME)
 DOCKER_TOOLS_LINT = $(DOCKER_TOOLS_LINT_BASE) lnd-tools
 endif
 
-GREEN := \033[0;32m
-BLUE  := \033[0;34m
-CYAN  := \033[0;36m
-NC    := \033[0m
+# Command echo control. Recipes only print their MSG status lines by
+# default. Run make with V=1 to echo every command, which is useful for
+# debugging build failures and for CI logs.
+ifeq ($(V),1)
+Q :=
+else
+Q := @
+endif
 
-define print
-	@printf "$(BLUE)[%s]$(NC) $(GREEN)%s$(NC)\n" "$1" "$2"
+# MSG prints a status message with a padded section tag:
+#   [SECTION] message
+# Colors are only used when stdout is a terminal and NO_COLOR is unset
+# (https://no-color.org). The check runs inside the recipe because make
+# captures stdout of $(shell ...) calls, so it cannot be done at parse
+# time.
+define MSG
+	@if [ -t 1 ] && [ -z "$$NO_COLOR" ]; then \
+		printf "\033[0;34m[%-7s]\033[0m \033[0;32m%s\033[0m\n" "$1" "$2"; \
+	else \
+		printf "[%-7s] %s\n" "$1" "$2"; \
+	fi
 endef
-
-# Macro for consistent status messages
-MSG = $(call print,$1,$2)
 
 default: scratch
 
@@ -131,7 +142,7 @@ all: scratch check install
 # ============
 $(BTCD_BIN):
 	$(call MSG,INSTALL,Installing btcd.)
-	@cd $(TOOLS_DIR); $(GOCC) install -trimpath $(BTCD_PKG)
+	$(Q) cd $(TOOLS_DIR); $(GOCC) install -trimpath $(BTCD_PKG)
 
 # ============
 # INSTALLATION
@@ -140,37 +151,37 @@ $(BTCD_BIN):
 #? build: Build lnd and lncli binaries, place them in project directory
 build:
 	$(call MSG,BUILD,Building debug lnd and lncli.)
-	@$(GOBUILD) -tags="$(DEV_TAGS)" -o lnd-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/lnd
-	@$(GOBUILD) -tags="$(DEV_TAGS)" -o lncli-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/lncli
+	$(Q) $(GOBUILD) -tags="$(DEV_TAGS)" -o lnd-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/lnd
+	$(Q) $(GOBUILD) -tags="$(DEV_TAGS)" -o lncli-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/lncli
 
 #? build-itest: Build integration test binaries, place them in itest directory
 build-itest:
 	$(call MSG,ITEST,Building itest btcd and lnd.)
-	@CGO_ENABLED=0 $(GOBUILD) -tags="integration" -o itest/btcd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(BTCD_PKG)
-	@CGO_ENABLED=0 $(GOBUILD) -tags="$(ITEST_TAGS)" $(ITEST_COVERAGE) -o itest/lnd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(PKG)/cmd/lnd
+	$(Q) CGO_ENABLED=0 $(GOBUILD) -tags="integration" -o itest/btcd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(BTCD_PKG)
+	$(Q) CGO_ENABLED=0 $(GOBUILD) -tags="$(ITEST_TAGS)" $(ITEST_COVERAGE) -o itest/lnd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(PKG)/cmd/lnd
 
 	$(call MSG,ITEST,Building itest binary for ${backend} backend.)
-	@CGO_ENABLED=0 $(GOTEST) -v ./itest -tags="$(DEV_TAGS) $(RPC_TAGS) integration $(backend)" -c -o itest/itest.test$(EXEC_SUFFIX)
+	$(Q) CGO_ENABLED=0 $(GOTEST) -v ./itest -tags="$(DEV_TAGS) $(RPC_TAGS) integration $(backend)" -c -o itest/itest.test$(EXEC_SUFFIX)
 
 #? build-itest-race: Build integration test binaries in race detector mode, place them in itest directory
 build-itest-race:
 	$(call MSG,ITEST,Building itest btcd and lnd with race detector.)
-	@CGO_ENABLED=0 $(GOBUILD) -tags="integration" -o itest/btcd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(BTCD_PKG)
-	@CGO_ENABLED=1 $(GOBUILD) -race -tags="$(ITEST_TAGS)" -o itest/lnd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(PKG)/cmd/lnd
+	$(Q) CGO_ENABLED=0 $(GOBUILD) -tags="integration" -o itest/btcd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(BTCD_PKG)
+	$(Q) CGO_ENABLED=1 $(GOBUILD) -race -tags="$(ITEST_TAGS)" -o itest/lnd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(PKG)/cmd/lnd
 
 	$(call MSG,ITEST,Building itest binary for ${backend} backend.)
-	@CGO_ENABLED=0 $(GOTEST) -v ./itest -tags="$(DEV_TAGS) $(RPC_TAGS) integration $(backend)" -c -o itest/itest.test$(EXEC_SUFFIX)
+	$(Q) CGO_ENABLED=0 $(GOTEST) -v ./itest -tags="$(DEV_TAGS) $(RPC_TAGS) integration $(backend)" -c -o itest/itest.test$(EXEC_SUFFIX)
 
 #? install-binaries: Build and install lnd and lncli binaries, place them in $GOPATH/bin
 install-binaries:
 	$(call MSG,INSTALL,Installing lnd and lncli.)
-	@$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/lnd
-	@$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/lncli
+	$(Q) $(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/lnd
+	$(Q) $(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/lncli
 
 #? manpages: generate and install man pages
 manpages:
 	$(call MSG,DOCS,Generating man pages lncli.1 and lnd.1.)
-	@./scripts/gen_man_pages.sh $(DESTDIR) $(PREFIX)
+	$(Q) ./scripts/gen_man_pages.sh $(DESTDIR) $(PREFIX)
 
 #? install: Build and install lnd and lncli binaries and place them in $GOPATH/bin.
 install: install-binaries
@@ -181,13 +192,13 @@ install-all: install manpages
 #? release-install: Build and install lnd and lncli release binaries, place them in $GOPATH/bin
 release-install:
 	$(call MSG,RELEASE,Installing release lnd and lncli.)
-	@env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/lnd
-	@env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/lncli
+	$(Q) env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/lnd
+	$(Q) env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/lncli
 
 #? cross-release-install: Build lnd and lncli release binaries for single/all supported platforms to /tmp (useful for checking cross compilation or priming release build cache).
 cross-release-install:
 	$(call MSG,RELEASE,Cross compiling release lnd and lncli.)
-	@for sys in $(BUILD_SYSTEM); do \
+	$(Q) for sys in $(BUILD_SYSTEM); do \
 		echo "Building lnd and lncli for $$sys"; \
 		export CGO_ENABLED=0 GOOS=$$(echo $$sys | cut -d- -f1) GOARCH=$$(echo $$sys | cut -d- -f2); \
 		if [ "$$GOARCH" = "armv6" ]; then \
@@ -203,8 +214,8 @@ cross-release-install:
 #? release: Build the full set of reproducible release binaries for all supported platforms. Make sure the generated mobile RPC stubs don't influence our vendor package by removing them first in the clean-mobile target.
 release: clean-mobile
 	$(call MSG,RELEASE,Releasing lnd and lncli binaries.)
-	@$(VERSION_CHECK)
-	@./scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)" "$(GO_VERSION)"
+	$(VERSION_CHECK)
+	$(Q) ./scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)" "$(GO_VERSION)"
 
 #? docker-release: Same as release but within a docker container to support reproducible builds on BSD/MacOS platforms
 docker-release-cache:
@@ -213,7 +224,7 @@ docker-release-cache:
 
 docker-release: docker-release-cache
 	$(call MSG,DOCKER,Building release helper docker image.)
-	@if [ "$(tag)" = "" ]; then echo "Must specify tag=<commit_or_tag>!"; exit 1; fi
+	$(Q) if [ "$(tag)" = "" ]; then echo "Must specify tag=<commit_or_tag>!"; exit 1; fi
 
 	docker build -t lnd-release-helper -f make/builder.Dockerfile make/
 
@@ -223,7 +234,7 @@ docker-release: docker-release-cache
 
 docker-tools:
 	$(call MSG,DOCKER,Building tools docker image.)
-	@docker build -q -t lnd-tools $(TOOLS_DIR)
+	$(Q) docker build -q -t lnd-tools $(TOOLS_DIR)
 
 scratch: build
 
@@ -265,8 +276,8 @@ clean-itest-logs:
 #? itest-only: Only run integration tests without re-building binaries
 itest-only: clean-itest-logs db-instance
 	$(call MSG,ITEST,Running integration tests with ${backend} backend.)
-	@date
-	@EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_part.sh 0 1 $(SHUFFLE_SEED) $(TEST_FLAGS) $(ITEST_FLAGS) -test.v
+	$(Q) date
+	$(Q) EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_part.sh 0 1 $(SHUFFLE_SEED) $(TEST_FLAGS) $(ITEST_FLAGS) -test.v
 	$(COLLECT_ITEST_COVERAGE)
 
 #? itest: Build and run integration tests
@@ -278,44 +289,44 @@ itest-race: build-itest-race itest-only
 #? itest-parallel: Build and run integration tests in parallel mode, running up to ITEST_PARALLELISM test tranches in parallel (default 4)
 itest-parallel: clean-itest-logs build-itest db-instance
 	$(call MSG,ITEST,Running tests)
-	@date
-	@EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_parallel.sh $(ITEST_PARALLELISM) $(NUM_ITEST_TRANCHES) $(SHUFFLE_SEED) $(TEST_FLAGS) $(ITEST_FLAGS)
+	$(Q) date
+	$(Q) EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_parallel.sh $(ITEST_PARALLELISM) $(NUM_ITEST_TRANCHES) $(SHUFFLE_SEED) $(TEST_FLAGS) $(ITEST_FLAGS)
 	$(COLLECT_ITEST_COVERAGE)
 
 #? itest-clean: Kill all running itest processes
 itest-clean:
 	$(call MSG,ITEST,Cleaning old itest processes)
-	@killall lnd-itest || echo "no running lnd-itest process found";
+	$(Q) killall lnd-itest || echo "no running lnd-itest process found";
 
 #? unit: Run unit tests
 unit: $(BTCD_BIN)
 	$(call MSG,UNIT,Running unit tests.)
-	@$(UNIT)
+	$(Q) $(UNIT)
 
 #? unit-module: Run unit tests of all submodules
 unit-module:
 	$(call MSG,UNIT,Running submodule unit tests.)
-	@scripts/unit_test_modules.sh
+	$(Q) scripts/unit_test_modules.sh
 
 #? unit-debug: Run unit tests with debug log output enabled
 unit-debug: $(BTCD_BIN)
 	$(call MSG,UNIT,Running debug unit tests.)
-	@$(UNIT_DEBUG)
+	$(Q) $(UNIT_DEBUG)
 
 #? unit-cover: Run unit tests in coverage mode
 unit-cover: $(BTCD_BIN)
 	$(call MSG,UNIT,Running unit coverage tests.)
-	@$(UNIT_COVER)
+	$(Q) $(UNIT_COVER)
 
 #? unit-race: Run unit tests in race detector mode
 unit-race: $(BTCD_BIN)
 	$(call MSG,UNIT,Running unit race tests.)
-	@env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)
+	$(Q) env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)
 
 #? unit-bench: Run benchmark tests
 unit-bench: $(BTCD_BIN)
 	$(call MSG,UNIT,Running benchmark tests.)
-	@$(UNIT_BENCH)
+	$(Q) $(UNIT_BENCH)
 
 # =============
 # FLAKE HUNTING
@@ -324,27 +335,27 @@ unit-bench: $(BTCD_BIN)
 #? flakehunter-itest: Run the integration tests continuously until one fails
 flakehunter-itest: build-itest
 	$(call MSG,FLAKE,Flake hunting ${backend} integration tests.)
-	@while [ $$? -eq 0 ]; do make itest-only icase='${icase}' backend='${backend}'; done
+	$(Q) while [ $$? -eq 0 ]; do make itest-only icase='${icase}' backend='${backend}'; done
 
 #? flakehunter-unit: Run the unit tests continuously until one fails
 flakehunter-unit:
 	$(call MSG,FLAKE,Flake hunting unit test.)
-	@scripts/unit-test-flake-hunter.sh ${pkg} ${case}
+	$(Q) scripts/unit-test-flake-hunter.sh ${pkg} ${case}
 
 #? flakehunter-unit-all: Run all unit tests continuously until one fails
 flakehunter-unit-all: $(BTCD_BIN)
 	$(call MSG,FLAKE,Flake hunting unit tests.)
-	@while [ $$? -eq 0 ]; do make unit; done
+	$(Q) while [ $$? -eq 0 ]; do make unit; done
 
 #? flakehunter-unit-race: Run all unit tests in race detector mode continuously until one fails
 flakehunter-unit-race: $(BTCD_BIN)
 	$(call MSG,FLAKE,Flake hunting unit tests in race detector mode.)
-	@while [ $$? -eq 0 ]; do make unit-race; done
+	$(Q) while [ $$? -eq 0 ]; do make unit-race; done
 
 #? flakehunter-itest-parallel: Run the integration tests continuously until one fails, running up to ITEST_PARALLELISM test tranches in parallel (default 4)
 flakehunter-itest-parallel:
 	$(call MSG,FLAKE,Flake hunting ${backend} integration tests in parallel.)
-	@while [ $$? -eq 0 ]; do make itest-parallel tranches=1 parallel=${ITEST_PARALLELISM} icase='${icase}' backend='${backend}'; done
+	$(Q) while [ $$? -eq 0 ]; do make itest-parallel tranches=1 parallel=${ITEST_PARALLELISM} icase='${icase}' backend='${backend}'; done
 
 # =============
 # FUZZING
@@ -353,7 +364,7 @@ flakehunter-itest-parallel:
 #? fuzz: Run the fuzzing tests
 fuzz:
 	$(call MSG,FUZZ,Fuzzing packages '$(FUZZPKG)'.)
-	@scripts/fuzz.sh run "$(FUZZPKG)" "$(FUZZ_TEST_RUN_TIME)" "$(FUZZ_NUM_PROCESSES)"
+	$(Q) scripts/fuzz.sh run "$(FUZZPKG)" "$(FUZZ_TEST_RUN_TIME)" "$(FUZZ_NUM_PROCESSES)"
 
 # =========
 # UTILITIES
@@ -362,24 +373,24 @@ fuzz:
 #? fmt: Format source code and fix imports
 fmt:
 	$(call MSG,FMT,Fixing imports.)
-	@$(GOTOOL) $(GOIMPORTS_PKG) -w $(GOFILES_NOVENDOR) 
+	$(Q) $(GOTOOL) $(GOIMPORTS_PKG) -w $(GOFILES_NOVENDOR) 
 	$(call MSG,FMT,Formatting source.)
-	@gofmt -l -w -s $(GOFILES_NOVENDOR)
+	$(Q) gofmt -l -w -s $(GOFILES_NOVENDOR)
 
 #? fmt-check: Make sure source code is formatted and imports are correct
 fmt-check: fmt
 	$(call MSG,FMT,Checking fmt results.)
-	@if test -n "$$(git status --porcelain)"; then echo "code not formatted correctly, please run `make fmt` again!"; git status; git diff; exit 1; fi
+	$(Q) if test -n "$$(git status --porcelain)"; then echo "code not formatted correctly, please run `make fmt` again!"; git status; git diff; exit 1; fi
 
 #? check-go-version-yaml: Verify that the Go version is correct in all YAML files
 check-go-version-yaml:
 	$(call MSG,CHECK,Checking for target Go version (v$(GO_VERSION)) in YAML files (*.yaml, *.yml))
-	@./scripts/check-go-version-yaml.sh $(GO_VERSION)
+	$(Q) ./scripts/check-go-version-yaml.sh $(GO_VERSION)
 
 #? check-go-version-dockerfile: Verify that the Go version is correct in all Dockerfile files
 check-go-version-dockerfile:
 	$(call MSG,CHECK,Checking for target Go version (v$(GO_VERSION)) in Dockerfile files (*Dockerfile))
-	@./scripts/check-go-version-dockerfile.sh $(GO_VERSION)
+	$(Q) ./scripts/check-go-version-dockerfile.sh $(GO_VERSION)
 
 #? check-go-version: Verify that the Go version is correct in all project files
 check-go-version: check-go-version-dockerfile check-go-version-yaml
@@ -387,14 +398,14 @@ check-go-version: check-go-version-dockerfile check-go-version-yaml
 #? lint-source: Run static code analysis
 lint-source: docker-tools
 	$(call MSG,LINT,Linting source.)
-	@$(DOCKER_TOOLS_LINT) custom-gcl run -v $(LINT_WORKERS)
+	$(Q) $(DOCKER_TOOLS_LINT) custom-gcl run -v $(LINT_WORKERS)
 
 #? lint-config-check: Verify that the lint config is up to date
 #  We use the official linter here not our custom one because for checking the
 #  config file it does not matter.
 lint-config-check:
 	$(call MSG,LINT,Checking lint config is up to date.)
-	@$(GOTOOL) $(GOLINT_PKG) config verify -v
+	$(Q) $(GOTOOL) $(GOLINT_PKG) config verify -v
 
 #? lint: Run static code analysis
 lint: check-go-version lint-config-check lint-source
@@ -402,18 +413,18 @@ lint: check-go-version lint-config-check lint-source
 #? build-native-linter: Build the custom golangci-lint binary natively
 build-native-linter:
 	$(call MSG,LINT,Building custom linter natively.)
-	@cd tools && CGO_ENABLED=0 $(GOCC) tool $(GOLINT_PKG) custom
+	$(Q) cd tools && CGO_ENABLED=0 $(GOCC) tool $(GOLINT_PKG) custom
 
 #? lint-native: Run static code analysis without Docker (faster on macOS)
 lint-native: check-go-version lint-config-check build-native-linter
 	$(call MSG,LINT,Linting source (native).)
-	@GOWORK=off ./tools/custom-gcl run -v $(LINT_WORKERS) \
+	$(Q) GOWORK=off ./tools/custom-gcl run -v $(LINT_WORKERS) \
 	  --new-from-rev=$$(git merge-base HEAD master)
 
 #? lint-module: Run static code analysis on all submodules (or specify module=<name> for a specific one)
 lint-module: docker-tools
 	$(call MSG,LINT,Linting submodules.)
-	@LINT_MODULE_MAKE="$(MAKE)" LINT_MODULE_WORKERS="$(workers)" \
+	$(Q) LINT_MODULE_MAKE="$(MAKE)" LINT_MODULE_WORKERS="$(workers)" \
 		scripts/lint_modules.sh "$(module)"
 
 # lint-module-run runs the linter for one module. It is called by
@@ -428,7 +439,7 @@ lint-module-run:
 #? protolint: Lint proto files using protolint
 protolint:
 	$(call MSG,LINT,Linting proto files.)
-	@docker run --rm --volume "$$(pwd):/workspace" --workdir /workspace yoheimuta/protolint lint lnrpc/
+	$(Q) docker run --rm --volume "$$(pwd):/workspace" --workdir /workspace yoheimuta/protolint lint lnrpc/
 
 #? tidy-module: Run `go mod` tidy for all modules
 tidy-module:
@@ -442,90 +453,116 @@ tidy-module-check: tidy-module
 #? list: List all available make targets
 list:
 	$(call MSG,HELP,Listing commands:)
-	@$(MAKE) -qp | \
+	$(Q) $(MAKE) -qp | \
 		awk -F':' '/^[a-zA-Z0-9][^$$#\/\t=]*:([^=]|$$)/ {split($$1,A,/ /);for(i in A)print A[i]}' | \
 		grep -v Makefile | \
 		sort
 
-#? help: List all available make targets with their descriptions
+#? help: List all available make targets with their descriptions, grouped by section
 help: Makefile
 	$(call MSG,HELP,Listing commands:)
-	@sed -n 's/^#?//p' $< | sort | awk -F ':' '{printf "  \033[0;36m%-30s\033[0m %s\n", $$1, $$2}'
+	$(Q) c=""; [ -t 1 ] && [ -z "$$NO_COLOR" ] && c=1; \
+		awk -v color="$$c" ' \
+		BEGIN { \
+			if (color != "") { \
+				B = "\033[0;34m"; C = "\033[0;36m"; N = "\033[0m"; \
+			} \
+		} \
+		/^# =+$$/ { banner = 1; next } \
+		banner && /^# [A-Z][A-Z &]+$$/ { \
+			section = substr($$0, 3); \
+			gsub(/[[:space:]]+$$/, "", section); \
+			banner = 0; next; \
+		} \
+		{ banner = 0 } \
+		/^#\?[[:space:]]/ { \
+			line = substr($$0, 3); \
+			idx = index(line, ":"); \
+			target = substr(line, 1, idx - 1); \
+			desc = substr(line, idx + 1); \
+			gsub(/^[[:space:]]+|[[:space:]]+$$/, "", target); \
+			gsub(/^[[:space:]]+/, "", desc); \
+			if (section != last) { \
+				printf "\n%s%s%s\n", B, section, N; \
+				last = section; \
+			} \
+			printf "  %s%-30s%s %s\n", C, target, N, desc; \
+		}' $<
 
 #? backwards-compat-test: Run basic backwards compatibility test
 backwards-compat-test:
 	$(call MSG,TEST,Running backwards compatability test)
-	@./scripts/bw-compatibility-test/test.sh
+	$(Q) ./scripts/bw-compatibility-test/test.sh
 
 #? sqlc: Generate sql models and queries in Go
 sqlc:
 	$(call MSG,SQLC,Generating sql models and queries in Go)
-	@./scripts/gen_sqlc_docker.sh
+	$(Q) ./scripts/gen_sqlc_docker.sh
 
 #? sqlc-check: Make sure sql models and queries are up to date
 sqlc-check: sqlc
 	$(call MSG,SQLC,Verifying sql code generation.)
-	@if test -n "$$(git status --porcelain '*.go')"; then echo "SQL models not properly generated!"; git status --porcelain '*.go'; exit 1; fi
+	$(Q) if test -n "$$(git status --porcelain '*.go')"; then echo "SQL models not properly generated!"; git status --porcelain '*.go'; exit 1; fi
 
 #? rpc: Compile protobuf definitions and generate REST proxy stubs
 rpc:
 	$(call MSG,RPC,Compiling protos.)
-	@cd ./lnrpc; ./gen_protos_docker.sh
+	$(Q) cd ./lnrpc; ./gen_protos_docker.sh
 
 #? rpc-format: Format protobuf definition files
 rpc-format:
 	$(call MSG,RPC,Formatting protos.)
-	@cd ./lnrpc; find . -name "*.proto" | xargs clang-format --style=file -i
+	$(Q) cd ./lnrpc; find . -name "*.proto" | xargs clang-format --style=file -i
 
 #? rpc-check: Make sure protobuf definitions are up to date
 rpc-check: rpc
 	$(call MSG,RPC,Verifying protos.)
-	@cd ./lnrpc; ../scripts/check-rest-annotations.sh
-	@if test -n "$$(git status --porcelain)"; then echo "Protos not properly formatted or not compiled with v3.4.0"; git status; git diff; exit 1; fi
+	$(Q) cd ./lnrpc; ../scripts/check-rest-annotations.sh
+	$(Q) if test -n "$$(git status --porcelain)"; then echo "Protos not properly formatted or not compiled with v3.4.0"; git status; git diff; exit 1; fi
 
 #? rpc-js-compile: Compile protobuf definitions and generate JSON/WASM stubs
 rpc-js-compile:
 	$(call MSG,RPC,Compiling JSON/WASM stubs.)
-	@GOOS=js GOARCH=wasm $(GOBUILD) -tags="$(WASM_RELEASE_TAGS)" $(PKG)/lnrpc/...
+	$(Q) GOOS=js GOARCH=wasm $(GOBUILD) -tags="$(WASM_RELEASE_TAGS)" $(PKG)/lnrpc/...
 
 #? sample-conf-check: Make sure default values in the sample-lnd.conf file are set correctly
 sample-conf-check:
 	$(call MSG,CHECK,Checking that default values in the sample-lnd.conf file are set correctly)
-	@scripts/check-sample-lnd-conf.sh "$(RELEASE_TAGS)"
+	$(Q) scripts/check-sample-lnd-conf.sh "$(RELEASE_TAGS)"
 
 #? mobile-rpc: Compile mobile RPC stubs from the protobuf definitions
 mobile-rpc:
 	$(call MSG,RPC,Creating mobile RPC from protos.)
-	@cd ./lnrpc; COMPILE_MOBILE=1 SUBSERVER_PREFIX=1 ./gen_protos_docker.sh
+	$(Q) cd ./lnrpc; COMPILE_MOBILE=1 SUBSERVER_PREFIX=1 ./gen_protos_docker.sh
 
 #? vendor: Create a vendor directory with all dependencies
 vendor:
 	$(call MSG,VENDOR,Re-creating vendor directory.)
-	@rm -r vendor/; $(GOCC) mod vendor
+	$(Q) rm -r vendor/; $(GOCC) mod vendor
 
 #? apple: Build mobile RPC stubs and project template for iOS and macOS
 apple: mobile-rpc
 	$(call MSG,MOBILE,Building iOS and macOS cxframework ($(IOS_BUILD)).)
-	@mkdir -p $(IOS_BUILD_DIR)
-	@$(GOMOBILE_BIN) bind -target=ios,iossimulator,macos -tags="mobile $(DEV_TAGS) $(RPC_TAGS)" -ldflags "$(RELEASE_LDFLAGS)" -v -o $(IOS_BUILD) $(MOBILE_PKG)
+	$(Q) mkdir -p $(IOS_BUILD_DIR)
+	$(Q) $(GOMOBILE_BIN) bind -target=ios,iossimulator,macos -tags="mobile $(DEV_TAGS) $(RPC_TAGS)" -ldflags "$(RELEASE_LDFLAGS)" -v -o $(IOS_BUILD) $(MOBILE_PKG)
 
 #? ios: Build mobile RPC stubs and project template for iOS
 ios: mobile-rpc
 	$(call MSG,MOBILE,Building iOS cxframework ($(IOS_BUILD)).)
-	@mkdir -p $(IOS_BUILD_DIR)
-	@$(GOMOBILE_BIN) bind -target=ios,iossimulator -tags="mobile $(DEV_TAGS) $(RPC_TAGS)" -ldflags "$(RELEASE_LDFLAGS)" -v -o $(IOS_BUILD) $(MOBILE_PKG)
+	$(Q) mkdir -p $(IOS_BUILD_DIR)
+	$(Q) $(GOMOBILE_BIN) bind -target=ios,iossimulator -tags="mobile $(DEV_TAGS) $(RPC_TAGS)" -ldflags "$(RELEASE_LDFLAGS)" -v -o $(IOS_BUILD) $(MOBILE_PKG)
 
 #? macos: Build mobile RPC stubs and project template for macOS
 macos: mobile-rpc
 	$(call MSG,MOBILE,Building macOS cxframework ($(IOS_BUILD)).)
-	@mkdir -p $(IOS_BUILD_DIR)
-	@$(GOMOBILE_BIN) bind -target=macos -tags="mobile $(DEV_TAGS) $(RPC_TAGS)" -ldflags "$(RELEASE_LDFLAGS)" -v -o $(IOS_BUILD) $(MOBILE_PKG)
+	$(Q) mkdir -p $(IOS_BUILD_DIR)
+	$(Q) $(GOMOBILE_BIN) bind -target=macos -tags="mobile $(DEV_TAGS) $(RPC_TAGS)" -ldflags "$(RELEASE_LDFLAGS)" -v -o $(IOS_BUILD) $(MOBILE_PKG)
 
 #? android: Build mobile RPC stubs and project template for Android
 android: mobile-rpc
 	$(call MSG,MOBILE,Building Android library ($(ANDROID_BUILD)).)
-	@mkdir -p $(ANDROID_BUILD_DIR)
-	@$(GOMOBILE_BIN) bind -target=android -androidapi 21 -tags="mobile $(DEV_TAGS) $(RPC_TAGS)" -ldflags "$(RELEASE_LDFLAGS)" -v -o $(ANDROID_BUILD) $(MOBILE_PKG)
+	$(Q) mkdir -p $(ANDROID_BUILD_DIR)
+	$(Q) $(GOMOBILE_BIN) bind -target=android -androidapi 21 -tags="mobile $(DEV_TAGS) $(RPC_TAGS)" -ldflags "$(RELEASE_LDFLAGS)" -v -o $(ANDROID_BUILD) $(MOBILE_PKG)
 
 #? mobile: Build mobile RPC stubs and project templates for iOS and Android
 mobile: ios android
@@ -533,20 +570,20 @@ mobile: ios android
 #? clean: Remove all generated files
 clean:
 	$(call MSG,CLEAN,Cleaning source.)
-	@$(RM) ./lnd-debug ./lncli-debug
-	@$(RM) ./lnd-itest ./lncli-itest
-	@$(RM) -r ./vendor .vendor-new
+	$(Q) $(RM) ./lnd-debug ./lncli-debug
+	$(Q) $(RM) ./lnd-itest ./lncli-itest
+	$(Q) $(RM) -r ./vendor .vendor-new
 
 #? clean-mobile: Remove all generated mobile files
 clean-mobile:
 	$(call MSG,CLEAN,Cleaning autogenerated mobile RPC stubs.)
-	@$(RM) -r mobile/build
-	@$(RM) mobile/*_generated.go
+	$(Q) $(RM) -r mobile/build
+	$(Q) $(RM) mobile/*_generated.go
 
 #? clean-docker-volumes: Remove Docker cache volumes used for local development
 clean-docker-volumes:
 	$(call MSG,CLEAN,Removing Docker cache volumes.)
-	@docker volume rm lnd-go-build-cache lnd-go-mod-cache lnd-go-lint-cache 2>/dev/null || true
+	$(Q) docker volume rm lnd-go-build-cache lnd-go-mod-cache lnd-go-lint-cache 2>/dev/null || true
 
 .PHONY: all \
 	btcd \

@@ -3887,6 +3887,87 @@ func TestFundingManagerRejectPush(t *testing.T) {
 	)
 }
 
+// TestFundingManagerPushAmountExceedsCapacity asserts that the fundee
+// rejects an incoming OpenChannel whose push_msat exceeds
+// 1000 * funding_satoshis, as required by BOLT-02.
+func TestFundingManagerPushAmountExceedsCapacity(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	// Build an OpenChannel directly with a push amount that strictly
+	// exceeds 1000 * funding_satoshis. We only need the fields that
+	// Bob's fundeeProcessOpenChannel inspects before the BOLT-02 bound
+	// check, so other fields are left zero.
+	const fundingAmt = btcutil.Amount(500000)
+	openChannelReq := &lnwire.OpenChannel{
+		ChainHash:        *fundingNetParams.GenesisHash,
+		PendingChannelID: [32]byte{0x01},
+		FundingAmount:    fundingAmt,
+		PushAmount:       lnwire.NewMSatFromSatoshis(fundingAmt) + 1,
+	}
+
+	bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
+
+	// Bob should respond with an Error that carries the
+	// ErrPushAmountTooLarge message.
+	msg := assertFundingMsgSent(t, bob.msgChan, "Error")
+	err, ok := msg.(*lnwire.Error)
+	require.True(t, ok, "expected *lnwire.Error, got %T", msg)
+
+	expected := lnwallet.ErrPushAmountTooLarge(
+		openChannelReq.PushAmount, openChannelReq.FundingAmount,
+	)
+	require.Equal(t, expected.Error(), string(err.Data))
+}
+
+// TestFundingManagerPushAmountAtCapacity asserts that the fundee does NOT
+// reject an incoming OpenChannel with the BOLT-02 push-bound error when
+// push_msat exactly equals 1000 * funding_satoshis. The spec permits this
+// boundary (push_msat MUST be <= 1000 * funding_satoshis), so the check
+// added in fundeeProcessOpenChannel must not fire on equality. The flow
+// may still fail downstream for unrelated reasons (e.g. funder balance
+// dust after fees), but never with ErrPushAmountTooLarge.
+func TestFundingManagerPushAmountAtCapacity(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	const fundingAmt = btcutil.Amount(500000)
+	openChannelReq := &lnwire.OpenChannel{
+		ChainHash:        *fundingNetParams.GenesisHash,
+		PendingChannelID: [32]byte{0x01},
+		FundingAmount:    fundingAmt,
+		PushAmount:       lnwire.NewMSatFromSatoshis(fundingAmt),
+	}
+
+	bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
+
+	// Whatever response Bob produces, it must not be the BOLT-02
+	// push-bound error: the boundary is spec-legal.
+	forbidden := lnwallet.ErrPushAmountTooLarge(
+		openChannelReq.PushAmount, openChannelReq.FundingAmount,
+	).Error()
+
+	select {
+	case msg := <-bob.msgChan:
+		errMsg, ok := msg.(*lnwire.Error)
+		if !ok {
+			return
+		}
+		require.NotEqual(t, forbidden, string(errMsg.Data),
+			"fundee rejected spec-legal boundary push_msat == "+
+				"1000 * funding_satoshis")
+	case <-time.After(time.Second):
+	}
+}
+
 // TestFundingManagerMaxConfs ensures that we don't accept a funding proposal
 // that proposes a MinAcceptDepth greater than the maximum number of
 // confirmations we're willing to accept.

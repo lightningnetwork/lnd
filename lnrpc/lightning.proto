@@ -3360,6 +3360,13 @@ message QueryRoutesRequest {
     channel may be used.
     */
     repeated uint64 outgoing_chan_ids = 20;
+
+    /*
+    An optional payment address to be included in the MPP record for the
+    queried route. This is used for multi-path payments where the same
+    payment_addr must be used across all subpayments.
+    */
+    bytes payment_addr = 21;
 }
 
 message NodePair {

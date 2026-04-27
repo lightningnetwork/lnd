@@ -70,6 +70,13 @@
   the chain watch filter on restart. This was a pre-existing bug since
   private taproot channels were first introduced.
 
+- [Fixed `BudgetInputSet.AddWalletInputs` to roll back partially-added
+  wallet inputs on error](https://github.com/lightningnetwork/lnd/pull/10723).
+  Previously, if adding a wallet input failed midway through the loop, any
+  inputs already appended to the set would remain, leaving it in an
+  inconsistent state. The method now restores the input set to its original
+  state before returning the error.
+
 # New Features
 
 - [Basic Support](https://github.com/lightningnetwork/lnd/pull/9868) for onion

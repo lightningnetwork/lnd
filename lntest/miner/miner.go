@@ -589,13 +589,29 @@ func (h *HarnessMiner) AssertOutpointInMempool(op wire.OutPoint) *wire.MsgTx {
 // GetNumTxsFromMempool polls until finding the desired number of transactions
 // in the miner's mempool and returns the full transactions to the caller.
 func (h *HarnessMiner) GetNumTxsFromMempool(n int) []*wire.MsgTx {
-	txids := h.AssertNumTxsInMempool(n)
-
 	var txes []*wire.MsgTx
-	for _, txid := range txids {
-		tx := h.GetRawTransaction(txid)
-		txes = append(txes, tx.MsgTx())
-	}
+
+	err := wait.NoError(func() error {
+		txids := h.AssertNumTxsInMempool(n)
+
+		txes = nil
+		for _, txid := range txids {
+			// The mempool can change between listing its txids
+			// and fetching a transaction. For example, sweep
+			// tests may RBF-replace a tx while we iterate over
+			// the snapshot. Retry with a fresh snapshot when
+			// that happens.
+			tx, err := h.backend.GetRawTransaction(&txid)
+			if err != nil {
+				return err
+			}
+
+			txes = append(txes, tx.MsgTx())
+		}
+
+		return nil
+	}, wait.MinerMempoolTimeout)
+	require.NoError(h, err, "get txs from mempool")
 
 	return txes
 }

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"os/user"
@@ -41,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/onionmessage"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/tor"
@@ -583,6 +585,43 @@ type GRPCConfig struct {
 	ClientAllowPingWithoutStream bool `long:"client-allow-ping-without-stream" description:"If true, the server allows keepalive pings from the client even when there are no active gRPC streams. This might be useful to keep the underlying HTTP/2 connection open for future requests."`
 }
 
+// maxOnionMsgWireSize is the largest on-the-wire size in bytes, including
+// the 2-byte message type prefix, that an OnionMessage can take. This is
+// the value the rate limiter charges via OnionMessage.WireSize() for a
+// max-sized message and therefore the tightest meaningful lower bound on
+// the configured burst: anything smaller would reject every max-sized
+// message even though the configured rate is positive.
+const maxOnionMsgWireSize = 2 + lnwire.MaxMsgBody
+
+// validateOnionMsgLimiter validates a single onion message rate limiter
+// kbps/burst-bytes pair. Both zero means "disabled"; both strictly positive
+// means "enabled"; a mismatched pair is rejected so that operator typos
+// surface at startup instead of silently disabling the limiter via the
+// constructor fallback path. When enabled, burst-bytes must also be at
+// least maxOnionMsgWireSize so that a single max-sized onion message
+// (lnwire.MaxMsgBody bytes of body plus the 2-byte message-type prefix
+// that WireSize charges for) can always fit in the token bucket;
+// otherwise rate.Limiter.AllowN would reject every call and silently
+// disable onion message forwarding.
+func validateOnionMsgLimiter(name string, kbps, burstBytes uint64) error {
+	if (kbps > 0) != (burstBytes > 0) {
+		return fmt.Errorf("%s kbps and burst-bytes must both be "+
+			"positive or both be zero; got kbps=%v "+
+			"burst-bytes=%v", name, kbps, burstBytes)
+	}
+	if burstBytes > 0 && burstBytes < maxOnionMsgWireSize {
+		return fmt.Errorf("%s burst-bytes=%v must be at least %v "+
+			"so a single max-sized onion message can fit in "+
+			"the bucket", name, burstBytes, maxOnionMsgWireSize)
+	}
+	if burstBytes > uint64(math.MaxInt) {
+		return fmt.Errorf("%s burst-bytes=%v exceeds maximum %v",
+			name, burstBytes, math.MaxInt)
+	}
+
+	return nil
+}
+
 // DefaultConfig returns all default values for the Config struct.
 //
 //nolint:ll
@@ -726,6 +765,16 @@ func DefaultConfig() Config {
 				Attempts: defaultLeaderCheckAttempts,
 				Backoff:  defaultLeaderCheckBackoff,
 			},
+		},
+		// Only the onion message rate limiter fields are explicitly
+		// initialized here; all other ProtocolOptions fields rely on
+		// Go zero values, which happen to be the historical defaults
+		// for those flags.
+		ProtocolOptions: &lncfg.ProtocolOptions{
+			OnionMsgPeerKbps:         onionmessage.DefaultPeerOnionMsgKbps,
+			OnionMsgPeerBurstBytes:   onionmessage.DefaultPeerOnionMsgBurstBytes,
+			OnionMsgGlobalKbps:       onionmessage.DefaultGlobalOnionMsgKbps,
+			OnionMsgGlobalBurstBytes: onionmessage.DefaultGlobalOnionMsgBurstBytes,
 		},
 		Gossip: &lncfg.Gossip{
 			MaxChannelUpdateBurst: discovery.DefaultMaxChannelUpdateBurst,
@@ -1074,6 +1123,27 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 
 	if _, err := validateAtplCfg(cfg.Autopilot); err != nil {
 		return nil, mkErr("error validating autopilot: %v", err)
+	}
+
+	// Validate the onion message rate limiter configuration. We reject
+	// the mismatched case where one of kbps/burst-bytes is strictly
+	// positive but the other is zero, which would silently disable the
+	// limiter and leave the operator unprotected. Both zero is fine and
+	// explicitly means "disabled"; both positive is fine and enables
+	// the limiter.
+	if err := validateOnionMsgLimiter(
+		"protocol.onion-msg-peer",
+		cfg.ProtocolOptions.OnionMsgPeerKbps,
+		cfg.ProtocolOptions.OnionMsgPeerBurstBytes,
+	); err != nil {
+		return nil, mkErr("%s", err)
+	}
+	if err := validateOnionMsgLimiter(
+		"protocol.onion-msg-global",
+		cfg.ProtocolOptions.OnionMsgGlobalKbps,
+		cfg.ProtocolOptions.OnionMsgGlobalBurstBytes,
+	); err != nil {
+		return nil, mkErr("%s", err)
 	}
 
 	// Ensure that --maxchansize is properly handled when set by user.

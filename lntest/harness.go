@@ -1438,6 +1438,12 @@ func (h *HarnessTest) IsNeutrinoBackend() bool {
 	return h.manager.chainBackend.Name() == NeutrinoBackendName
 }
 
+// IsPostgresBackend returns true if the test harness is configured to use a
+// Postgres database backend.
+func (h *HarnessTest) IsPostgresBackend() bool {
+	return h.manager.dbBackend == node.BackendPostgres
+}
+
 // fundCoins attempts to send amt satoshis from the internal mining node to the
 // targeted lightning node. The confirmed boolean indicates whether the
 // transaction that pays to the target should confirm. For neutrino backend,
@@ -1724,7 +1730,9 @@ func (h *HarnessTest) OpenChannelPsbt(srcNode, destNode *node.HarnessNode,
 	require.NoError(h, err)
 
 	switch p.CommitmentType {
-	case lnrpc.CommitmentType_SIMPLE_TAPROOT:
+	case lnrpc.CommitmentType_SIMPLE_TAPROOT,
+		lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL:
+
 		require.IsType(h, &btcutil.AddressTaproot{}, fundingAddr)
 
 	default:
@@ -2580,6 +2588,7 @@ func (h *HarnessTest) DeriveFundingShim(alice, bob *node.HarnessNode,
 	)
 
 	if commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL ||
 		commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY {
 
 		var carolKey, daveKey *btcec.PublicKey

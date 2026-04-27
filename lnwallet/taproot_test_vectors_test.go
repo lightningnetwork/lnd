@@ -1,0 +1,1777 @@
+package lnwallet
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"net"
+	"os"
+	"sort"
+	"testing"
+
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/stretchr/testify/require"
+)
+
+// bip340Signer wraps a Signer and overrides SignOutputRaw for taproot script
+// spends to use BIP-340 standard nonce derivation (with zero auxrand) instead
+// of RFC6979. This ensures HTLC signatures in test vectors are deterministic
+// and reproducible across MuSig2/Schnorr implementations (e.g. libsecp256k1).
+type bip340Signer struct {
+	input.Signer
+
+	// privKeys maps compressed pubkey bytes to private keys, allowing the
+	// wrapper to look up the signing key for BIP-340 re-signing.
+	privKeys map[[33]byte]*btcec.PrivateKey
+}
+
+// newBIP340Signer creates a bip340Signer that wraps the given signer. The
+// provided private keys are indexed by their compressed public key for lookup
+// during taproot script spend signing.
+func newBIP340Signer(inner input.Signer,
+	keys []*btcec.PrivateKey) *bip340Signer {
+
+	keyMap := make(map[[33]byte]*btcec.PrivateKey, len(keys))
+	for _, k := range keys {
+		var pub [33]byte
+		copy(pub[:], k.PubKey().SerializeCompressed())
+		keyMap[pub] = k
+	}
+
+	return &bip340Signer{
+		Signer:   inner,
+		privKeys: keyMap,
+	}
+}
+
+// SignOutputRaw overrides the embedded signer's method. For taproot script
+// path spends, it computes the sighash and signs using schnorr.CustomNonce
+// with zero auxrand (BIP-340 deterministic). All other signing paths delegate
+// to the wrapped signer unchanged.
+func (s *bip340Signer) SignOutputRaw(tx *wire.MsgTx,
+	signDesc *input.SignDescriptor) (input.Signature, error) {
+
+	// Only override taproot script spends. Everything else (including
+	// MuSig2 key spends) delegates to the inner signer.
+	if signDesc.SignMethod != input.TaprootScriptSpendSignMethod {
+		return s.Signer.SignOutputRaw(tx, signDesc)
+	}
+
+	// Resolve the private key. The SignDescriptor's KeyDesc.PubKey is
+	// the base key before any tweaking. We apply the same single-tweak
+	// that MockSigner uses to derive the actual signing key.
+	basePub := signDesc.KeyDesc.PubKey
+	if basePub == nil {
+		return nil, fmt.Errorf("bip340Signer: no pubkey in " +
+			"sign descriptor")
+	}
+
+	var pubBytes [33]byte
+	copy(pubBytes[:], basePub.SerializeCompressed())
+	basePriv, ok := s.privKeys[pubBytes]
+	if !ok {
+		return nil, fmt.Errorf("bip340Signer: unknown key %x",
+			pubBytes)
+	}
+
+	// Apply the single tweak if present (used for HTLC key derivation).
+	privKey := basePriv
+	if signDesc.SingleTweak != nil {
+		privKey = input.TweakPrivKey(basePriv, signDesc.SingleTweak)
+	}
+
+	// Compute the tapscript sighash.
+	sigHashes := txscript.NewTxSigHashes(
+		tx, signDesc.PrevOutputFetcher,
+	)
+	leaf := txscript.TapLeaf{
+		LeafVersion: txscript.BaseLeafVersion,
+		Script:      signDesc.WitnessScript,
+	}
+	sigHash, err := txscript.CalcTapscriptSignaturehash(
+		sigHashes, signDesc.HashType, tx, signDesc.InputIndex,
+		signDesc.PrevOutputFetcher, leaf,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Sign using BIP-340 nonce derivation with zero auxrand.
+	sig, err := schnorr.Sign(
+		privKey, sigHash, schnorr.CustomNonce([32]byte{}),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return sig, nil
+}
+
+// generateTaprootVectors controls whether to generate test vectors and write
+// them to disk, or to verify the stored vectors match regenerated values.
+var generateTaprootVectors = flag.Bool(
+	"generate-taproot-vectors", false,
+	"generate taproot test vectors and write to "+taprootVectorFile,
+)
+
+const (
+	// taprootVectorSeedHex is the single deterministic seed from which all
+	// test vector keys are derived.
+	taprootVectorSeedHex = "000102030405060708090a0b0c0d0e0f" +
+		"101112131415161718191a1b1c1d1e1f"
+
+	// taprootVectorFile is the JSON file where test vectors are stored.
+	taprootVectorFile = "test_vectors_taproot.json"
+)
+
+// deriveKeyFromSeed derives a deterministic private key from a seed and a
+// label string. The key is computed as SHA256(seed || label).
+func deriveKeyFromSeed(seed []byte, label string) *btcec.PrivateKey {
+	h := sha256.New()
+	h.Write(seed)
+	h.Write([]byte(label))
+	keyBytes := h.Sum(nil)
+
+	privKey, _ := btcec.PrivKeyFromBytes(keyBytes)
+
+	return privKey
+}
+
+// pubHex returns the compressed hex encoding of a public key.
+func pubHex(pub *btcec.PublicKey) string {
+	return hex.EncodeToString(pub.SerializeCompressed())
+}
+
+// privHex returns the hex encoding of a private key scalar.
+func privHex(priv *btcec.PrivateKey) string {
+	return hex.EncodeToString(priv.Serialize())
+}
+
+// scriptHex returns the hex encoding of a byte slice (script, hash, etc.).
+func scriptHex(b []byte) string {
+	return hex.EncodeToString(b)
+}
+
+// leafHash computes the TapHash of a tap leaf script.
+func leafHash(script []byte) string {
+	leaf := txscript.NewBaseTapLeaf(script)
+	h := leaf.TapHash()
+	return hex.EncodeToString(h[:])
+}
+
+// taprootTestContext holds all deterministic keys and parameters for taproot
+// test vector generation.
+type taprootTestContext struct {
+	seed []byte
+
+	localFundingPrivkey                *btcec.PrivateKey
+	remoteFundingPrivkey               *btcec.PrivateKey
+	localPaymentBasepointSecret        *btcec.PrivateKey
+	remotePaymentBasepointSecret       *btcec.PrivateKey
+	localDelayedPaymentBasepointSecret *btcec.PrivateKey
+	remoteRevocationBasepointSecret    *btcec.PrivateKey
+	localHtlcBasepointSecret           *btcec.PrivateKey
+	remoteHtlcBasepointSecret          *btcec.PrivateKey
+
+	localPerCommitSecret lntypes.Hash
+
+	fundingAmount btcutil.Amount
+	dustLimit     btcutil.Amount
+	localCsvDelay uint16
+	commitHeight  uint64
+
+	t *testing.T
+}
+
+// newTaprootTestContext creates a new test context with all keys derived
+// deterministically from the single seed.
+func newTaprootTestContext(t *testing.T) *taprootTestContext {
+	seed, err := hex.DecodeString(taprootVectorSeedHex)
+	require.NoError(t, err)
+
+	tc := &taprootTestContext{
+		seed:          seed,
+		fundingAmount: 10_000_000,
+		dustLimit:     354,
+		localCsvDelay: 144,
+		commitHeight:  42,
+		t:             t,
+	}
+
+	tc.localFundingPrivkey = deriveKeyFromSeed(seed, "local-funding")
+	tc.remoteFundingPrivkey = deriveKeyFromSeed(seed, "remote-funding")
+	tc.localPaymentBasepointSecret = deriveKeyFromSeed(
+		seed, "local-payment-basepoint",
+	)
+	tc.remotePaymentBasepointSecret = deriveKeyFromSeed(
+		seed, "remote-payment-basepoint",
+	)
+	tc.localDelayedPaymentBasepointSecret = deriveKeyFromSeed(
+		seed, "local-delayed-payment-basepoint",
+	)
+	tc.remoteRevocationBasepointSecret = deriveKeyFromSeed(
+		seed, "remote-revocation-basepoint",
+	)
+	tc.localHtlcBasepointSecret = deriveKeyFromSeed(
+		seed, "local-htlc-basepoint",
+	)
+	tc.remoteHtlcBasepointSecret = deriveKeyFromSeed(
+		seed, "remote-htlc-basepoint",
+	)
+
+	// Derive per-commitment secret from the seed as well.
+	h := sha256.New()
+	h.Write(seed)
+	h.Write([]byte("local-per-commit-secret"))
+	copy(tc.localPerCommitSecret[:], h.Sum(nil))
+
+	return tc
+}
+
+// commitPoint returns the per-commitment point derived from the secret.
+func (tc *taprootTestContext) commitPoint() *btcec.PublicKey {
+	return input.ComputeCommitmentPoint(tc.localPerCommitSecret[:])
+}
+
+// TaprootTestVectors is the top-level JSON structure for taproot test vectors.
+type TaprootTestVectors struct {
+	Params       TestVectorParams      `json:"params"`
+	Scripts      ScriptVectors         `json:"scripts"`
+	Transactions []TransactionTestCase `json:"transactions"`
+}
+
+// TestVectorParams holds the seed, channel parameters, and all keys.
+type TestVectorParams struct {
+	Seed                  string `json:"seed"`
+	FundingAmountSatoshis int64  `json:"funding_amount_satoshis"`
+	DustLimitSatoshis     int64  `json:"dust_limit_satoshis"`
+	CsvDelay              uint16 `json:"csv_delay"`
+	CommitHeight          uint64 `json:"commit_height"`
+	NumsPoint             string `json:"nums_point"`
+	Keys                  KeySet `json:"keys"`
+}
+
+// KeySet contains all base point keys and derived per-commitment keys.
+type KeySet struct {
+	LocalFundingPrivkey  string `json:"local_funding_privkey"`
+	LocalFundingPubkey   string `json:"local_funding_pubkey"`
+	RemoteFundingPrivkey string `json:"remote_funding_privkey"`
+	RemoteFundingPubkey  string `json:"remote_funding_pubkey"`
+
+	LocalPaymentBasepointSecret  string `json:"local_payment_basepoint_secret"` //nolint:ll
+	LocalPaymentBasepoint        string `json:"local_payment_basepoint"`
+	RemotePaymentBasepointSecret string `json:"remote_payment_basepoint_secret"` //nolint:ll
+	RemotePaymentBasepoint       string `json:"remote_payment_basepoint"`
+
+	LocalDelayedPaymentBasepointSecret string `json:"local_delayed_payment_basepoint_secret"` //nolint:ll
+	LocalDelayedPaymentBasepoint       string `json:"local_delayed_payment_basepoint"`        //nolint:ll
+	RemoteRevocationBasepointSecret    string `json:"remote_revocation_basepoint_secret"`     //nolint:ll
+	RemoteRevocationBasepoint          string `json:"remote_revocation_basepoint"`            //nolint:ll
+
+	LocalHtlcBasepointSecret  string `json:"local_htlc_basepoint_secret"`
+	LocalHtlcBasepoint        string `json:"local_htlc_basepoint"`
+	RemoteHtlcBasepointSecret string `json:"remote_htlc_basepoint_secret"`
+	RemoteHtlcBasepoint       string `json:"remote_htlc_basepoint"`
+
+	LocalPerCommitSecret string `json:"local_per_commit_secret"`
+	LocalPerCommitPoint  string `json:"local_per_commit_point"`
+
+	// Derived per-commitment keys.
+	DerivedLocalDelayedPubkey  string `json:"derived_local_delayed_pubkey"`
+	DerivedRevocationPubkey    string `json:"derived_revocation_pubkey"`
+	DerivedLocalHtlcPubkey     string `json:"derived_local_htlc_pubkey"`
+	DerivedRemoteHtlcPubkey    string `json:"derived_remote_htlc_pubkey"`
+	DerivedRemotePaymentPubkey string `json:"derived_remote_payment_pubkey"`
+}
+
+// ScriptVectorEntry represents a single tapscript tree decomposition.
+type ScriptVectorEntry struct {
+	// For scripts with named leaves.
+	Scripts    map[string]string `json:"scripts,omitempty"`
+	LeafHashes map[string]string `json:"leaf_hashes,omitempty"`
+
+	TapscriptRoot string `json:"tapscript_root"`
+	InternalKey   string `json:"internal_key"`
+	OutputKey     string `json:"output_key"`
+	PkScript      string `json:"pkscript"`
+}
+
+// FundingScriptVector holds the funding output vector.
+type FundingScriptVector struct {
+	FundingTxHex string `json:"funding_tx_hex"`
+	CombinedKey  string `json:"combined_key"`
+	PkScript     string `json:"pkscript"`
+}
+
+// ScriptVectors holds all script test vectors.
+type ScriptVectors struct {
+	Funding                  FundingScriptVector `json:"funding"`
+	ToLocal                  ScriptVectorEntry   `json:"to_local"`
+	ToRemote                 ScriptVectorEntry   `json:"to_remote"`
+	LocalAnchor              ScriptVectorEntry   `json:"local_anchor"`
+	RemoteAnchor             ScriptVectorEntry   `json:"remote_anchor"`
+	OfferedHtlcLocalCommit   ScriptVectorEntry   `json:"offered_htlc_local_commit"`   //nolint:ll
+	OfferedHtlcRemoteCommit  ScriptVectorEntry   `json:"offered_htlc_remote_commit"`  //nolint:ll
+	AcceptedHtlcLocalCommit  ScriptVectorEntry   `json:"accepted_htlc_local_commit"`  //nolint:ll
+	AcceptedHtlcRemoteCommit ScriptVectorEntry   `json:"accepted_htlc_remote_commit"` //nolint:ll
+	SecondLevelHtlcSuccess   ScriptVectorEntry   `json:"second_level_htlc_success"`   //nolint:ll
+	SecondLevelHtlcTimeout   ScriptVectorEntry   `json:"second_level_htlc_timeout"`   //nolint:ll
+}
+
+// HtlcDesc describes an HTLC resolution in the transaction vectors.
+type HtlcDesc struct {
+	RemotePartialSigHex string `json:"remote_partial_sig_hex"`
+	ResolutionTxHex     string `json:"resolution_tx_hex"`
+}
+
+// HtlcInput describes an HTLC added to the channel for a test case.
+type HtlcInput struct {
+	Incoming   bool   `json:"incoming"`
+	AmountMsat uint64 `json:"amount_msat"`
+	Expiry     uint32 `json:"expiry"`
+	Preimage   string `json:"preimage"`
+}
+
+// TransactionTestCase is one transaction test vector.
+type TransactionTestCase struct {
+	Name                    string      `json:"name"`
+	LocalBalanceMsat        uint64      `json:"local_balance_msat"`
+	RemoteBalanceMsat       uint64      `json:"remote_balance_msat"`
+	FeePerKw                int64       `json:"fee_per_kw"`
+	DustLimitSatoshis       int64       `json:"dust_limit_satoshis,omitempty"` //nolint:ll
+	Htlcs                   []HtlcInput `json:"htlcs"`
+	LocalSecNonce           string      `json:"local_sec_nonce"`
+	RemoteSecNonce          string      `json:"remote_sec_nonce"`
+	LocalNonce              string      `json:"local_nonce"`
+	RemoteNonce             string      `json:"remote_nonce"`
+	RemotePartialSig        string      `json:"remote_partial_sig"`
+	ExpectedCommitmentTxHex string      `json:"expected_commitment_tx_hex"`
+	HtlcDescs               []HtlcDesc  `json:"htlc_descs"`
+}
+
+// generateParams populates the params section of the test vectors.
+func (tc *taprootTestContext) generateParams() TestVectorParams {
+	commitPt := tc.commitPoint()
+
+	// Derive per-commitment tweaked keys.
+	localDelayedPubkey := input.TweakPubKey(
+		tc.localDelayedPaymentBasepointSecret.PubKey(), commitPt,
+	)
+	revocationPubkey := input.DeriveRevocationPubkey(
+		tc.remoteRevocationBasepointSecret.PubKey(), commitPt,
+	)
+	localHtlcPubkey := input.TweakPubKey(
+		tc.localHtlcBasepointSecret.PubKey(), commitPt,
+	)
+	remoteHtlcPubkey := input.TweakPubKey(
+		tc.remoteHtlcBasepointSecret.PubKey(), commitPt,
+	)
+
+	// For tweakless channels, the remote payment key is untweaked.
+	remotePaymentPubkey := tc.remotePaymentBasepointSecret.PubKey()
+
+	return TestVectorParams{
+		Seed:                  taprootVectorSeedHex,
+		FundingAmountSatoshis: int64(tc.fundingAmount),
+		DustLimitSatoshis:     int64(tc.dustLimit),
+		CsvDelay:              tc.localCsvDelay,
+		CommitHeight:          tc.commitHeight,
+		NumsPoint:             input.TaprootNUMSHex,
+		Keys: KeySet{
+			LocalFundingPrivkey: privHex(tc.localFundingPrivkey),
+			LocalFundingPubkey: pubHex(
+				tc.localFundingPrivkey.PubKey(),
+			),
+			RemoteFundingPrivkey: privHex(tc.remoteFundingPrivkey),
+			RemoteFundingPubkey: pubHex(
+				tc.remoteFundingPrivkey.PubKey(),
+			),
+
+			LocalPaymentBasepointSecret: privHex(
+				tc.localPaymentBasepointSecret,
+			),
+			LocalPaymentBasepoint: pubHex(
+				tc.localPaymentBasepointSecret.PubKey(),
+			),
+			RemotePaymentBasepointSecret: privHex(
+				tc.remotePaymentBasepointSecret,
+			),
+			RemotePaymentBasepoint: pubHex(
+				tc.remotePaymentBasepointSecret.PubKey(),
+			),
+
+			LocalDelayedPaymentBasepointSecret: privHex(
+				tc.localDelayedPaymentBasepointSecret,
+			),
+			LocalDelayedPaymentBasepoint: pubHex(
+				tc.localDelayedPaymentBasepointSecret.PubKey(),
+			),
+			RemoteRevocationBasepointSecret: privHex(
+				tc.remoteRevocationBasepointSecret,
+			),
+			RemoteRevocationBasepoint: pubHex(
+				tc.remoteRevocationBasepointSecret.PubKey(),
+			),
+
+			LocalHtlcBasepointSecret: privHex(
+				tc.localHtlcBasepointSecret,
+			),
+			LocalHtlcBasepoint: pubHex(
+				tc.localHtlcBasepointSecret.PubKey(),
+			),
+			RemoteHtlcBasepointSecret: privHex(
+				tc.remoteHtlcBasepointSecret,
+			),
+			RemoteHtlcBasepoint: pubHex(
+				tc.remoteHtlcBasepointSecret.PubKey(),
+			),
+
+			LocalPerCommitSecret: hex.EncodeToString(
+				tc.localPerCommitSecret[:],
+			),
+			LocalPerCommitPoint: pubHex(commitPt),
+
+			DerivedLocalDelayedPubkey:  pubHex(localDelayedPubkey),
+			DerivedRevocationPubkey:    pubHex(revocationPubkey),
+			DerivedLocalHtlcPubkey:     pubHex(localHtlcPubkey),
+			DerivedRemoteHtlcPubkey:    pubHex(remoteHtlcPubkey),
+			DerivedRemotePaymentPubkey: pubHex(remotePaymentPubkey),
+		},
+	}
+}
+
+// generateFundingVector generates the funding output script vector.
+func (tc *taprootTestContext) generateFundingVector() FundingScriptVector {
+	t := tc.t
+
+	pkScript, _, err := input.GenTaprootFundingScript(
+		tc.localFundingPrivkey.PubKey(),
+		tc.remoteFundingPrivkey.PubKey(),
+		int64(tc.fundingAmount),
+		fn.None[chainhash.Hash](),
+	)
+	require.NoError(t, err)
+
+	// Build a minimal funding transaction with the P2TR output.
+	fundingTx := wire.NewMsgTx(2)
+	fundingTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{
+			Hash:  chainhash.Hash{},
+			Index: 0,
+		},
+	})
+	fundingTx.AddTxOut(&wire.TxOut{
+		Value:    int64(tc.fundingAmount),
+		PkScript: pkScript,
+	})
+
+	var txBuf bytes.Buffer
+	require.NoError(t, fundingTx.Serialize(&txBuf))
+
+	// Extract the combined key from the pkScript. For P2TR, the pkScript
+	// is OP_1 <32-byte-key>, so the key starts at byte 2.
+	combinedKeyBytes := pkScript[2:]
+
+	return FundingScriptVector{
+		FundingTxHex: hex.EncodeToString(txBuf.Bytes()),
+		CombinedKey:  hex.EncodeToString(combinedKeyBytes),
+		PkScript:     scriptHex(pkScript),
+	}
+}
+
+// commitScriptTreeToEntry converts a CommitScriptTree into a ScriptVectorEntry.
+func commitScriptTreeToEntry(
+	tree *input.CommitScriptTree) ScriptVectorEntry {
+
+	scripts := make(map[string]string)
+	leafHashes := make(map[string]string)
+
+	settleScript := tree.SettleLeaf.Script
+	scripts["settle"] = scriptHex(settleScript)
+	leafHashes["settle"] = leafHash(settleScript)
+
+	if tree.RevocationLeaf.Script != nil {
+		revokeScript := tree.RevocationLeaf.Script
+		scripts["revocation"] = scriptHex(revokeScript)
+		leafHashes["revocation"] = leafHash(revokeScript)
+	}
+
+	return ScriptVectorEntry{
+		Scripts:       scripts,
+		LeafHashes:    leafHashes,
+		TapscriptRoot: scriptHex(tree.TapscriptRoot),
+		InternalKey:   pubHex(tree.InternalKey),
+		OutputKey:     pubHex(tree.TaprootKey),
+		PkScript:      scriptHex(tree.PkScript()),
+	}
+}
+
+// htlcScriptTreeToEntry converts an HtlcScriptTree into a ScriptVectorEntry.
+func htlcScriptTreeToEntry(tree *input.HtlcScriptTree) ScriptVectorEntry {
+	scripts := make(map[string]string)
+	leafHashes := make(map[string]string)
+
+	successScript := tree.SuccessTapLeaf.Script
+	scripts["success"] = scriptHex(successScript)
+	leafHashes["success"] = leafHash(successScript)
+
+	timeoutScript := tree.TimeoutTapLeaf.Script
+	scripts["timeout"] = scriptHex(timeoutScript)
+	leafHashes["timeout"] = leafHash(timeoutScript)
+
+	return ScriptVectorEntry{
+		Scripts:       scripts,
+		LeafHashes:    leafHashes,
+		TapscriptRoot: scriptHex(tree.TapscriptRoot),
+		InternalKey:   pubHex(tree.InternalKey),
+		OutputKey:     pubHex(tree.TaprootKey),
+		PkScript:      scriptHex(tree.PkScript()),
+	}
+}
+
+// secondLevelScriptTreeToEntry converts a SecondLevelScriptTree into a
+// ScriptVectorEntry.
+func secondLevelScriptTreeToEntry(
+	tree *input.SecondLevelScriptTree) ScriptVectorEntry {
+
+	scripts := make(map[string]string)
+	leafHashes := make(map[string]string)
+
+	successScript := tree.SuccessTapLeaf.Script
+	scripts["success"] = scriptHex(successScript)
+	leafHashes["success"] = leafHash(successScript)
+
+	return ScriptVectorEntry{
+		Scripts:       scripts,
+		LeafHashes:    leafHashes,
+		TapscriptRoot: scriptHex(tree.TapscriptRoot),
+		InternalKey:   pubHex(tree.InternalKey),
+		OutputKey:     pubHex(tree.TaprootKey),
+		PkScript:      scriptHex(tree.PkScript()),
+	}
+}
+
+// anchorScriptTreeToEntry converts an AnchorScriptTree into a
+// ScriptVectorEntry.
+func anchorScriptTreeToEntry(
+	tree *input.AnchorScriptTree) ScriptVectorEntry {
+
+	scripts := make(map[string]string)
+	leafHashes := make(map[string]string)
+
+	sweepScript := tree.SweepLeaf.Script
+	scripts["sweep"] = scriptHex(sweepScript)
+	leafHashes["sweep"] = leafHash(sweepScript)
+
+	return ScriptVectorEntry{
+		Scripts:       scripts,
+		LeafHashes:    leafHashes,
+		TapscriptRoot: scriptHex(tree.TapscriptRoot),
+		InternalKey:   pubHex(tree.InternalKey),
+		OutputKey:     pubHex(tree.TaprootKey),
+		PkScript:      scriptHex(tree.PkScript()),
+	}
+}
+
+// generateScriptVectors generates all script-only test vectors.
+func (tc *taprootTestContext) generateScriptVectors() ScriptVectors {
+	t := tc.t
+	commitPt := tc.commitPoint()
+
+	// Derive per-commitment tweaked keys.
+	localDelayedPubkey := input.TweakPubKey(
+		tc.localDelayedPaymentBasepointSecret.PubKey(), commitPt,
+	)
+	revocationPubkey := input.DeriveRevocationPubkey(
+		tc.remoteRevocationBasepointSecret.PubKey(), commitPt,
+	)
+	localHtlcPubkey := input.TweakPubKey(
+		tc.localHtlcBasepointSecret.PubKey(), commitPt,
+	)
+	remoteHtlcPubkey := input.TweakPubKey(
+		tc.remoteHtlcBasepointSecret.PubKey(), commitPt,
+	)
+	remotePaymentPubkey := tc.remotePaymentBasepointSecret.PubKey()
+
+	noAux := fn.None[txscript.TapLeaf]()
+
+	// 1. to_local script tree.
+	toLocalTree, err := input.NewLocalCommitScriptTree(
+		uint32(tc.localCsvDelay), localDelayedPubkey,
+		revocationPubkey, noAux, input.WithProdScripts(),
+	)
+	require.NoError(t, err)
+
+	// 2. to_remote script tree.
+	toRemoteTree, err := input.NewRemoteCommitScriptTree(
+		remotePaymentPubkey, noAux, input.WithProdScripts(),
+	)
+	require.NoError(t, err)
+
+	// 3. Anchor script trees.
+	localAnchorTree, err := input.NewAnchorScriptTree(
+		localDelayedPubkey,
+	)
+	require.NoError(t, err)
+
+	remoteAnchorTree, err := input.NewAnchorScriptTree(
+		remotePaymentPubkey,
+	)
+	require.NoError(t, err)
+
+	// Use HTLC 0 for offered/accepted HTLC vectors.
+	preimage0, err := lntypes.MakePreimageFromStr(
+		"00000000000000000000000000000000000000000000" +
+			"00000000000000000000",
+	)
+	require.NoError(t, err)
+	payHash0 := preimage0.Hash()
+
+	// 4. Offered HTLC (local commit).
+	offeredLocalTree, err := input.SenderHTLCScriptTaproot(
+		localHtlcPubkey, remoteHtlcPubkey, revocationPubkey,
+		payHash0[:], lntypes.Local, noAux,
+		input.WithProdScripts(),
+	)
+	require.NoError(t, err)
+
+	// 5. Offered HTLC (remote commit).
+	offeredRemoteTree, err := input.SenderHTLCScriptTaproot(
+		localHtlcPubkey, remoteHtlcPubkey, revocationPubkey,
+		payHash0[:], lntypes.Remote, noAux,
+		input.WithProdScripts(),
+	)
+	require.NoError(t, err)
+
+	// 6. Accepted HTLC (local commit).
+	acceptedLocalTree, err := input.ReceiverHTLCScriptTaproot(
+		500, localHtlcPubkey, remoteHtlcPubkey, revocationPubkey,
+		payHash0[:], lntypes.Local, noAux,
+		input.WithProdScripts(),
+	)
+	require.NoError(t, err)
+
+	// 7. Accepted HTLC (remote commit).
+	acceptedRemoteTree, err := input.ReceiverHTLCScriptTaproot(
+		500, localHtlcPubkey, remoteHtlcPubkey, revocationPubkey,
+		payHash0[:], lntypes.Remote, noAux,
+		input.WithProdScripts(),
+	)
+	require.NoError(t, err)
+
+	// 8. Second-level HTLC success.
+	secondLevelSuccess, err := input.TaprootSecondLevelScriptTree(
+		revocationPubkey, localDelayedPubkey,
+		uint32(tc.localCsvDelay), noAux,
+		input.WithProdScripts(),
+	)
+	require.NoError(t, err)
+
+	// 9. Second-level HTLC timeout (same function, different keys in a real
+	//    scenario, but for vectors we show the construction with the same
+	//    delay key since second-level success and timeout share the same
+	//    script tree structure).
+	secondLevelTimeout, err := input.TaprootSecondLevelScriptTree(
+		revocationPubkey, localDelayedPubkey,
+		uint32(tc.localCsvDelay), noAux,
+		input.WithProdScripts(),
+	)
+	require.NoError(t, err)
+
+	return ScriptVectors{
+		Funding:     tc.generateFundingVector(),
+		ToLocal:     commitScriptTreeToEntry(toLocalTree),
+		ToRemote:    commitScriptTreeToEntry(toRemoteTree),
+		LocalAnchor: anchorScriptTreeToEntry(localAnchorTree),
+		RemoteAnchor: anchorScriptTreeToEntry(
+			remoteAnchorTree,
+		),
+		OfferedHtlcLocalCommit: htlcScriptTreeToEntry(offeredLocalTree),
+		OfferedHtlcRemoteCommit: htlcScriptTreeToEntry(
+			offeredRemoteTree,
+		),
+		AcceptedHtlcLocalCommit: htlcScriptTreeToEntry(
+			acceptedLocalTree,
+		),
+		AcceptedHtlcRemoteCommit: htlcScriptTreeToEntry(
+			acceptedRemoteTree,
+		),
+		SecondLevelHtlcSuccess: secondLevelScriptTreeToEntry(
+			secondLevelSuccess,
+		),
+		SecondLevelHtlcTimeout: secondLevelScriptTreeToEntry(
+			secondLevelTimeout,
+		),
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Transaction vector generation (Section B)
+// ---------------------------------------------------------------------------
+
+// taprootChanType is the channel type used for taproot test vectors.
+var taprootChanType = channeldb.SingleFunderTweaklessBit |
+	channeldb.AnchorOutputsBit |
+	channeldb.ZeroHtlcTxFeeBit |
+	channeldb.SimpleTaprootFeatureBit |
+	channeldb.TaprootFinalBit
+
+// createTaprootTestChannelsForVectors creates a pair of LightningChannel
+// instances configured for taproot test vector generation. All keys are
+// deterministic.
+func createTaprootTestChannelsForVectors(tc *taprootTestContext,
+	feeRate btcutil.Amount, remoteBalance,
+	localBalance btcutil.Amount) (*LightningChannel, *LightningChannel) {
+
+	t := tc.t
+
+	// Build the funding transaction with a P2TR output.
+	pkScript, _, err := input.GenTaprootFundingScript(
+		tc.localFundingPrivkey.PubKey(),
+		tc.remoteFundingPrivkey.PubKey(),
+		int64(tc.fundingAmount),
+		fn.None[chainhash.Hash](),
+	)
+	require.NoError(t, err)
+
+	fundingTx := wire.NewMsgTx(2)
+	fundingTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{
+			Hash:  chainhash.Hash{},
+			Index: 0,
+		},
+	})
+	fundingTx.AddTxOut(&wire.TxOut{
+		Value:    int64(tc.fundingAmount),
+		PkScript: pkScript,
+	})
+	btcFundingTx := btcutil.NewTx(fundingTx)
+
+	prevOut := &wire.OutPoint{
+		Hash:  *btcFundingTx.Hash(),
+		Index: 0,
+	}
+	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
+
+	chanType := taprootChanType
+
+	// Channel configurations using all deterministic keys.
+	remoteCfg := channeldb.ChannelConfig{
+		ChannelStateBounds: channeldb.ChannelStateBounds{
+			MaxPendingAmount: lnwire.NewMSatFromSatoshis(
+				tc.fundingAmount,
+			),
+			ChanReserve:      0,
+			MinHTLC:          0,
+			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
+		},
+		CommitmentParams: channeldb.CommitmentParams{
+			DustLimit: tc.dustLimit,
+			CsvDelay:  tc.localCsvDelay,
+		},
+		MultiSigKey: keychain.KeyDescriptor{
+			PubKey: tc.remoteFundingPrivkey.PubKey(),
+		},
+		PaymentBasePoint: keychain.KeyDescriptor{
+			PubKey: tc.remotePaymentBasepointSecret.PubKey(),
+		},
+		HtlcBasePoint: keychain.KeyDescriptor{
+			PubKey: tc.remoteHtlcBasepointSecret.PubKey(),
+		},
+		DelayBasePoint: keychain.KeyDescriptor{
+			PubKey: tc.remotePaymentBasepointSecret.PubKey(),
+		},
+		RevocationBasePoint: keychain.KeyDescriptor{
+			PubKey: tc.remoteRevocationBasepointSecret.PubKey(),
+		},
+	}
+	localCfg := channeldb.ChannelConfig{
+		ChannelStateBounds: channeldb.ChannelStateBounds{
+			MaxPendingAmount: lnwire.NewMSatFromSatoshis(
+				tc.fundingAmount,
+			),
+			ChanReserve:      0,
+			MinHTLC:          0,
+			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
+		},
+		CommitmentParams: channeldb.CommitmentParams{
+			DustLimit: tc.dustLimit,
+			CsvDelay:  tc.localCsvDelay,
+		},
+		MultiSigKey: keychain.KeyDescriptor{
+			PubKey: tc.localFundingPrivkey.PubKey(),
+		},
+		PaymentBasePoint: keychain.KeyDescriptor{
+			PubKey: tc.localPaymentBasepointSecret.PubKey(),
+		},
+		HtlcBasePoint: keychain.KeyDescriptor{
+			PubKey: tc.localHtlcBasepointSecret.PubKey(),
+		},
+		DelayBasePoint: keychain.KeyDescriptor{
+			PubKey: tc.localDelayedPaymentBasepointSecret.PubKey(),
+		},
+		RevocationBasePoint: keychain.KeyDescriptor{
+			PubKey: tc.localPaymentBasepointSecret.PubKey(),
+		},
+	}
+
+	// Create mock producers for deterministic revocation secrets.
+	remotePreimageProducer := &mockProducer{
+		secret: chainhash.Hash(tc.localPerCommitSecret),
+	}
+	remoteCommitPoint := input.ComputeCommitmentPoint(
+		tc.localPerCommitSecret[:],
+	)
+
+	localPreimageProducer := &mockProducer{
+		secret: chainhash.Hash(tc.localPerCommitSecret),
+	}
+	localCommitPoint := input.ComputeCommitmentPoint(
+		tc.localPerCommitSecret[:],
+	)
+
+	// Create temporary databases.
+	dbRemote := channeldb.OpenForTesting(t, t.TempDir())
+	dbLocal := channeldb.OpenForTesting(t, t.TempDir())
+
+	// Create initial commitment transactions.
+	feePerKw := chainfee.SatPerKWeight(feeRate)
+	commitWeight := lntypes.WeightUnit(input.AnchorCommitWeight)
+	commitFee := feePerKw.FeeForWeight(commitWeight)
+	anchorAmt := btcutil.Amount(2 * AnchorSize) //nolint:unconvert
+
+	remoteCommitTx, localCommitTx, err := CreateCommitmentTxns(
+		remoteBalance, localBalance-commitFee,
+		&remoteCfg, &localCfg, remoteCommitPoint,
+		localCommitPoint, *fundingTxIn, chanType, true, 0,
+	)
+	require.NoError(t, err)
+
+	var commitHeight = tc.commitHeight - 1
+
+	remoteCommit := channeldb.ChannelCommitment{
+		CommitHeight: commitHeight,
+		LocalBalance: lnwire.NewMSatFromSatoshis(remoteBalance),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(
+			localBalance - commitFee - anchorAmt,
+		),
+		CommitFee: commitFee,
+		FeePerKw:  btcutil.Amount(feePerKw),
+		CommitTx:  remoteCommitTx,
+		CommitSig: testSigBytes,
+	}
+	localCommit := channeldb.ChannelCommitment{
+		CommitHeight: commitHeight,
+		LocalBalance: lnwire.NewMSatFromSatoshis(
+			localBalance - commitFee - anchorAmt,
+		),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(remoteBalance),
+		CommitFee:     commitFee,
+		FeePerKw:      btcutil.Amount(feePerKw),
+		CommitTx:      localCommitTx,
+		CommitSig:     testSigBytes,
+	}
+
+	shortChanID := lnwire.NewShortChanIDFromInt(0xdeadbeef)
+
+	remoteChannelState := &channeldb.OpenChannel{
+		LocalChanCfg:            remoteCfg,
+		RemoteChanCfg:           localCfg,
+		IdentityPub:             tc.remoteFundingPrivkey.PubKey(),
+		FundingOutpoint:         *prevOut,
+		ShortChannelID:          shortChanID,
+		ChanType:                chanType,
+		IsInitiator:             false,
+		Capacity:                tc.fundingAmount,
+		RemoteCurrentRevocation: localCommitPoint,
+		RevocationProducer:      remotePreimageProducer,
+		RevocationStore:         shachain.NewRevocationStore(),
+		LocalCommitment:         remoteCommit,
+		RemoteCommitment:        remoteCommit,
+		Db:                      dbRemote.ChannelStateDB(),
+		Packager: channeldb.NewChannelPackager(
+			shortChanID,
+		),
+		FundingTxn: fundingTx,
+	}
+	localChannelState := &channeldb.OpenChannel{
+		LocalChanCfg:            localCfg,
+		RemoteChanCfg:           remoteCfg,
+		IdentityPub:             tc.localFundingPrivkey.PubKey(),
+		FundingOutpoint:         *prevOut,
+		ShortChannelID:          shortChanID,
+		ChanType:                chanType,
+		IsInitiator:             true,
+		Capacity:                tc.fundingAmount,
+		RemoteCurrentRevocation: remoteCommitPoint,
+		RevocationProducer:      localPreimageProducer,
+		RevocationStore:         shachain.NewRevocationStore(),
+		LocalCommitment:         localCommit,
+		RemoteCommitment:        localCommit,
+		Db:                      dbLocal.ChannelStateDB(),
+		Packager: channeldb.NewChannelPackager(
+			shortChanID,
+		),
+		FundingTxn: fundingTx,
+	}
+
+	// Create mock signers with all deterministic keys. The funding key must
+	// be at index 0 because the MusigSessionManager's key fetcher always
+	// returns Privkeys[0] as the MuSig2 signing key.
+	localKeys := []*btcec.PrivateKey{
+		tc.localFundingPrivkey,
+		tc.localPaymentBasepointSecret,
+		tc.localDelayedPaymentBasepointSecret,
+		tc.localHtlcBasepointSecret,
+	}
+	remoteKeys := []*btcec.PrivateKey{
+		tc.remoteFundingPrivkey,
+		tc.remoteRevocationBasepointSecret,
+		tc.remotePaymentBasepointSecret,
+		tc.remoteHtlcBasepointSecret,
+	}
+
+	// Wrap the mock signers with bip340Signer so that taproot script
+	// spend signatures (used for HTLC second-level transactions) use
+	// BIP-340 standard nonce derivation instead of RFC6979. This makes
+	// the HTLC signatures deterministic and reproducible across different
+	// Schnorr implementations (e.g. libsecp256k1 vs btcd).
+	localSigner := newBIP340Signer(
+		input.NewMockSigner(localKeys, nil), localKeys,
+	)
+	remoteSigner := newBIP340Signer(
+		input.NewMockSigner(remoteKeys, nil), remoteKeys,
+	)
+
+	// Derive deterministic signing rand for JIT nonces so MuSig2
+	// signatures are reproducible across runs.
+	localRandHash := sha256.Sum256(
+		append(tc.seed, []byte("local-signing-rand")...),
+	)
+	remoteRandHash := sha256.Sum256(
+		append(tc.seed, []byte("remote-signing-rand")...),
+	)
+
+	auxSigner := NewDefaultAuxSignerMock(t)
+	remotePool := NewSigPool(1, remoteSigner)
+	channelRemote, err := NewLightningChannel(
+		remoteSigner, remoteChannelState, remotePool,
+		WithLeafStore(&MockAuxLeafStore{}),
+		WithAuxSigner(auxSigner),
+		WithCustomSigningRand(bytes.NewReader(remoteRandHash[:])),
+	)
+	require.NoError(t, err)
+	require.NoError(t, remotePool.Start())
+
+	localPool := NewSigPool(1, localSigner)
+	channelLocal, err := NewLightningChannel(
+		localSigner, localChannelState, localPool,
+		WithLeafStore(&MockAuxLeafStore{}),
+		WithAuxSigner(auxSigner),
+		WithCustomSigningRand(bytes.NewReader(localRandHash[:])),
+	)
+	require.NoError(t, err)
+	require.NoError(t, localPool.Start())
+
+	// Create state hint obfuscator.
+	obfuscator := createStateHintObfuscator(remoteChannelState)
+	err = SetStateNumHint(remoteCommitTx, commitHeight, obfuscator)
+	require.NoError(t, err)
+	err = SetStateNumHint(localCommitTx, commitHeight, obfuscator)
+	require.NoError(t, err)
+
+	// Initialize the databases.
+	addr := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18556,
+	}
+	require.NoError(t, channelRemote.channelState.SyncPending(addr, 101))
+
+	addr = &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18555,
+	}
+	require.NoError(t, channelLocal.channelState.SyncPending(addr, 101))
+
+	// Initialize revocation windows and musig nonces.
+	err = initRevocationWindows(channelRemote, channelLocal)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		dbLocal.Close()
+		dbRemote.Close()
+
+		require.NoError(t, remotePool.Stop())
+		require.NoError(t, localPool.Stop())
+	})
+
+	return channelRemote, channelLocal
+}
+
+// taprootTransactionTestCases defines the set of transaction test cases.
+var taprootTransactionTestCases = []struct {
+	name          string
+	localBalance  lnwire.MilliSatoshi
+	remoteBalance lnwire.MilliSatoshi
+	feePerKw      btcutil.Amount
+	dustLimit     btcutil.Amount
+	useTestHtlcs  bool
+}{
+	{
+		name:          "simple commitment tx with no HTLCs",
+		localBalance:  7_000_000_000,
+		remoteBalance: 3_000_000_000,
+		feePerKw:      15_000,
+		useTestHtlcs:  false,
+	},
+	{
+		name:          "commitment tx with five HTLCs untrimmed",
+		localBalance:  6_988_000_000,
+		remoteBalance: 3_000_000_000,
+		feePerKw:      644,
+		useTestHtlcs:  true,
+	},
+	{
+		name:          "commitment tx with some HTLCs trimmed",
+		localBalance:  6_988_000_000,
+		remoteBalance: 3_000_000_000,
+		feePerKw:      644,
+		dustLimit:     2500,
+		useTestHtlcs:  true,
+	},
+}
+
+// generateTransactionVectors generates all transaction test vectors.
+func (tc *taprootTestContext) generateTransactionVectors() []TransactionTestCase { //nolint:ll
+	t := tc.t
+	var results []TransactionTestCase
+
+	for _, testCase := range taprootTransactionTestCases {
+		// Override dust limit if specified in the test case.
+		origDust := tc.dustLimit
+		if testCase.dustLimit != 0 {
+			tc.dustLimit = testCase.dustLimit
+		}
+
+		// Compute spendable balances by adding back in-flight HTLCs.
+		remoteBalance := testCase.remoteBalance
+		localBalance := testCase.localBalance
+		if testCase.useTestHtlcs {
+			for _, htlc := range testHtlcsSet1 {
+				if htlc.incoming {
+					remoteBalance += htlc.amount
+				} else {
+					localBalance += htlc.amount
+				}
+			}
+		}
+
+		// Verify balances add up to channel capacity.
+		require.EqualValues(t,
+			lnwire.NewMSatFromSatoshis(tc.fundingAmount),
+			remoteBalance+localBalance,
+		)
+
+		remoteChannel, localChannel := createTaprootTestChannelsForVectors( //nolint:ll
+			tc, testCase.feePerKw,
+			remoteBalance.ToSatoshis(),
+			localBalance.ToSatoshis(),
+		)
+
+		// Add HTLCs if needed.
+		var hash160map map[[20]byte]lntypes.Preimage
+		if testCase.useTestHtlcs {
+			hash160map = addTestHtlcs(
+				t, remoteChannel, localChannel,
+				testHtlcsSet1,
+			)
+		}
+
+		// Execute commit dance.
+		localNewCommit, err := localChannel.SignNextCommitment(ctxb)
+		require.NoError(t, err)
+
+		// Discard the local JIT signing nonce (used for remote's
+		// commitment, not local's).
+		localChannel.musigSessions.RemoteSession.lastSigningSecNonce()
+
+		// Capture local's verification nonce for local's own
+		// commitment. This is the nonce local contributes to the MuSig2
+		// session for the commitment tx stored in the test vector
+		// (which is local's commitment, obtained via ForceClose). We
+		// must capture it BEFORE ReceiveNewCommitment finalizes the
+		// local session.
+		localVerifNonce := localChannel.musigSessions.LocalSession.VerificationNonce() //nolint:ll
+		localNonceHex := hex.EncodeToString(
+			localVerifNonce.PubNonce[:],
+		)
+		localSecNonceHex := hex.EncodeToString(
+			localVerifNonce.SecNonce[:],
+		)
+
+		err = remoteChannel.ReceiveNewCommitment(
+			localNewCommit.CommitSigs,
+		)
+		require.NoError(t, err)
+
+		revMsg, _, _, err := remoteChannel.RevokeCurrentCommitment()
+		require.NoError(t, err)
+
+		_, _, err = localChannel.ReceiveRevocation(revMsg)
+		require.NoError(t, err)
+
+		remoteNewCommit, err := remoteChannel.SignNextCommitment(ctxb)
+		require.NoError(t, err)
+
+		// Capture the remote secret nonce from the musig session.
+		remoteSecNonceBytes := remoteChannel.musigSessions.RemoteSession.lastSigningSecNonce().UnwrapOrFail(t) //nolint:ll
+		remoteSecNonceHex := hex.EncodeToString(
+			remoteSecNonceBytes[:],
+		)
+
+		// Capture the remote partial signature and nonce from the
+		// musig2 partial sig (not CommitSig which is zero for
+		// taproot channels).
+		remotePartialSig := remoteNewCommit.PartialSig.UnwrapOrFailV(t)
+		sigBytes := remotePartialSig.Sig.Bytes()
+		remoteSigHex := hex.EncodeToString(sigBytes[:])
+		remoteNonceHex := hex.EncodeToString(
+			remotePartialSig.Nonce[:],
+		)
+
+		err = localChannel.ReceiveNewCommitment(
+			remoteNewCommit.CommitSigs,
+		)
+		require.NoError(t, err)
+
+		_, _, _, err = localChannel.RevokeCurrentCommitment()
+		require.NoError(t, err)
+
+		// Force close to get the commitment transaction.
+		forceCloseSum, err := localChannel.ForceClose()
+		require.NoError(t, err)
+
+		var txBytes bytes.Buffer
+		require.NoError(t, forceCloseSum.CloseTx.Serialize(&txBytes))
+
+		// Collect HTLC resolution transactions.
+		var htlcDescs []HtlcDesc
+		if testCase.useTestHtlcs {
+			resolutions := forceCloseSum.ContractResolutions.UnwrapOrFail(t) //nolint:ll
+			htlcResolutions := resolutions.HtlcResolutions
+
+			// Build a map from commitment tx output index to
+			// the second-level transaction and remote sig.
+			// HtlcSigs are sorted by output index (BIP 69),
+			// so we collect all HTLC output indices, sort
+			// them, and map each to the correct sig.
+			type htlcEntry struct {
+				outputIdx uint32
+				tx        *wire.MsgTx
+			}
+			var allHtlcs []htlcEntry
+
+			for _, r := range htlcResolutions.IncomingHTLCs {
+				successTx := r.SignedSuccessTx
+
+				// Complete the witness with the preimage.
+				// Witness layout for HTLC-success:
+				//   [0]=remoteSig [1]=localSig
+				//   [2]=preimage [3]=script
+				//   [4]=controlBlock
+				//
+				// Parse the success script to extract the
+				// RIPEMD160 hash using the script tokenizer
+				// rather than hardcoded offsets.
+				script := successTx.TxIn[0].Witness[3]
+				payHash := extractHash160FromScript(t, script)
+				preimage := hash160map[payHash]
+				successTx.TxIn[0].Witness[2] = preimage[:]
+
+				allHtlcs = append(allHtlcs, htlcEntry{
+					outputIdx: r.HtlcPoint().Index,
+					tx:        successTx,
+				})
+			}
+			for _, r := range htlcResolutions.OutgoingHTLCs {
+				allHtlcs = append(allHtlcs, htlcEntry{
+					outputIdx: r.HtlcPoint().Index,
+					tx:        r.SignedTimeoutTx,
+				})
+			}
+
+			// Sort by output index to match HtlcSigs ordering.
+			sort.Slice(allHtlcs, func(a, b int) bool {
+				return allHtlcs[a].outputIdx < allHtlcs[b].outputIdx //nolint:ll
+			})
+
+			require.Equal(t,
+				len(allHtlcs),
+				len(remoteNewCommit.HtlcSigs),
+				"htlc sig count mismatch",
+			)
+
+			for i, entry := range allHtlcs {
+				sigHex := hex.EncodeToString(
+					remoteNewCommit.HtlcSigs[i].ToSignatureBytes(), //nolint:ll
+				)
+
+				var b bytes.Buffer
+				err := entry.tx.Serialize(&b)
+				require.NoError(t, err)
+
+				htlcDescs = append(htlcDescs, HtlcDesc{
+					RemotePartialSigHex: sigHex,
+					ResolutionTxHex: hex.EncodeToString(
+						b.Bytes(),
+					),
+				})
+			}
+		}
+
+		// Build the HTLC input list.
+		var htlcInputs []HtlcInput
+		if testCase.useTestHtlcs {
+			for _, h := range testHtlcsSet1 {
+				htlcInputs = append(htlcInputs, HtlcInput{
+					Incoming:   h.incoming,
+					AmountMsat: uint64(h.amount),
+					Expiry:     h.expiry,
+					Preimage:   h.preimage,
+				})
+			}
+		}
+
+		result := TransactionTestCase{
+			Name:              testCase.name,
+			LocalBalanceMsat:  uint64(testCase.localBalance),
+			RemoteBalanceMsat: uint64(testCase.remoteBalance),
+			FeePerKw:          int64(testCase.feePerKw),
+			Htlcs:             htlcInputs,
+			LocalSecNonce:     localSecNonceHex,
+			RemoteSecNonce:    remoteSecNonceHex,
+			LocalNonce:        localNonceHex,
+			RemoteNonce:       remoteNonceHex,
+			RemotePartialSig:  remoteSigHex,
+			ExpectedCommitmentTxHex: hex.EncodeToString(
+				txBytes.Bytes(),
+			),
+			HtlcDescs: htlcDescs,
+		}
+		if testCase.dustLimit != 0 {
+			result.DustLimitSatoshis = int64(testCase.dustLimit)
+		}
+
+		results = append(results, result)
+
+		// Restore dust limit.
+		tc.dustLimit = origDust
+	}
+
+	return results
+}
+
+// TestTaprootVectors either generates or verifies taproot test vectors
+// depending on the -generate-taproot-vectors flag.
+func TestTaprootVectors(t *testing.T) {
+	if *generateTaprootVectors {
+		t.Log("Generating taproot test vectors...")
+		generateAndWriteTaprootVectors(t)
+		return
+	}
+
+	t.Log("Verifying taproot test vectors...")
+	verifyTaprootVectors(t)
+}
+
+// generateAndWriteTaprootVectors generates all taproot test vectors and writes
+// them to the JSON file.
+func generateAndWriteTaprootVectors(t *testing.T) {
+	tc := newTaprootTestContext(t)
+
+	vectors := TaprootTestVectors{
+		Params:       tc.generateParams(),
+		Scripts:      tc.generateScriptVectors(),
+		Transactions: tc.generateTransactionVectors(),
+	}
+
+	jsonData, err := json.MarshalIndent(vectors, "", "  ")
+	require.NoError(t, err)
+
+	err = os.WriteFile(taprootVectorFile, jsonData, 0644)
+	require.NoError(t, err)
+
+	t.Logf("Wrote taproot test vectors to %s (%d bytes)",
+		taprootVectorFile, len(jsonData))
+}
+
+// verifyTaprootVectors reads the stored test vectors and verifies them by
+// regenerating all values from the seed.
+func verifyTaprootVectors(t *testing.T) {
+	jsonData, err := os.ReadFile(taprootVectorFile)
+	require.NoError(t, err, "test vectors file not found, run with "+
+		"-generate-taproot-vectors first")
+
+	var stored TaprootTestVectors
+	err = json.Unmarshal(jsonData, &stored)
+	require.NoError(t, err)
+
+	tc := newTaprootTestContext(t)
+
+	// Verify params.
+	t.Run("params", func(t *testing.T) {
+		params := tc.generateParams()
+		require.Equal(t, stored.Params, params)
+	})
+
+	// Verify script vectors.
+	t.Run("scripts", func(t *testing.T) {
+		scripts := tc.generateScriptVectors()
+
+		t.Run("funding", func(t *testing.T) {
+			require.Equal(t,
+				stored.Scripts.Funding.CombinedKey,
+				scripts.Funding.CombinedKey,
+			)
+			require.Equal(t,
+				stored.Scripts.Funding.PkScript,
+				scripts.Funding.PkScript,
+			)
+		})
+
+		t.Run("to_local", func(t *testing.T) {
+			require.Equal(t,
+				stored.Scripts.ToLocal, scripts.ToLocal,
+			)
+		})
+
+		t.Run("to_remote", func(t *testing.T) {
+			require.Equal(t,
+				stored.Scripts.ToRemote, scripts.ToRemote,
+			)
+		})
+
+		t.Run("local_anchor", func(t *testing.T) {
+			require.Equal(t,
+				stored.Scripts.LocalAnchor,
+				scripts.LocalAnchor,
+			)
+		})
+
+		t.Run("remote_anchor", func(t *testing.T) {
+			require.Equal(t,
+				stored.Scripts.RemoteAnchor,
+				scripts.RemoteAnchor,
+			)
+		})
+
+		t.Run("offered_htlc_local_commit", func(t *testing.T) {
+			require.Equal(t,
+				stored.Scripts.OfferedHtlcLocalCommit,
+				scripts.OfferedHtlcLocalCommit,
+			)
+		})
+
+		t.Run("offered_htlc_remote_commit", func(t *testing.T) {
+			require.Equal(t,
+				stored.Scripts.OfferedHtlcRemoteCommit,
+				scripts.OfferedHtlcRemoteCommit,
+			)
+		})
+
+		t.Run("accepted_htlc_local_commit", func(t *testing.T) {
+			require.Equal(t,
+				stored.Scripts.AcceptedHtlcLocalCommit,
+				scripts.AcceptedHtlcLocalCommit,
+			)
+		})
+
+		t.Run("accepted_htlc_remote_commit", func(t *testing.T) {
+			require.Equal(t,
+				stored.Scripts.AcceptedHtlcRemoteCommit,
+				scripts.AcceptedHtlcRemoteCommit,
+			)
+		})
+
+		t.Run("second_level_htlc_success", func(t *testing.T) {
+			require.Equal(t,
+				stored.Scripts.SecondLevelHtlcSuccess,
+				scripts.SecondLevelHtlcSuccess,
+			)
+		})
+
+		t.Run("second_level_htlc_timeout", func(t *testing.T) {
+			require.Equal(t,
+				stored.Scripts.SecondLevelHtlcTimeout,
+				scripts.SecondLevelHtlcTimeout,
+			)
+		})
+	})
+
+	// Verify transaction vectors.
+	t.Run("transactions", func(t *testing.T) {
+		txVectors := tc.generateTransactionVectors()
+		require.Equal(t, len(stored.Transactions), len(txVectors))
+
+		for i, storedTx := range stored.Transactions {
+			genTx := txVectors[i]
+			t.Run(storedTx.Name, func(t *testing.T) {
+				require.Equal(t,
+					storedTx.ExpectedCommitmentTxHex,
+					genTx.ExpectedCommitmentTxHex,
+					"commitment tx mismatch",
+				)
+				require.Equal(t,
+					storedTx.RemotePartialSig,
+					genTx.RemotePartialSig,
+					"remote partial sig mismatch",
+				)
+				require.Equal(t,
+					len(storedTx.HtlcDescs),
+					len(genTx.HtlcDescs),
+					"htlc desc count mismatch",
+				)
+				for j, storedHtlc := range storedTx.HtlcDescs {
+					require.Equal(t,
+						storedHtlc.ResolutionTxHex,
+						genTx.HtlcDescs[j].ResolutionTxHex, //nolint:ll
+						fmt.Sprintf(
+							"htlc %d resolution "+
+								"tx mismatch", j, //nolint:ll
+						),
+					)
+				}
+			})
+		}
+	})
+
+	// Verify signatures cryptographically as a third party would.
+	t.Run("signature_verification", func(t *testing.T) {
+		fundingPkScript, err := hex.DecodeString(
+			stored.Scripts.Funding.PkScript,
+		)
+		require.NoError(t, err)
+
+		for _, storedTx := range stored.Transactions {
+			t.Run(storedTx.Name, func(t *testing.T) {
+				verifyCommitmentTxSig(
+					t, storedTx, fundingPkScript,
+					tc.fundingAmount,
+				)
+			})
+		}
+	})
+
+	// Replay MuSig2 signing from the secret nonces and private keys
+	// to verify that partial signatures are independently reproducible.
+	t.Run("musig2_partial_sig_replay", func(t *testing.T) {
+		fundingPkScript, err := hex.DecodeString(
+			stored.Scripts.Funding.PkScript,
+		)
+		require.NoError(t, err)
+
+		for _, storedTx := range stored.Transactions {
+			t.Run(storedTx.Name, func(t *testing.T) {
+				verifyMusig2PartialSigs(
+					t, storedTx, fundingPkScript,
+					tc.fundingAmount,
+					tc.localFundingPrivkey,
+					tc.remoteFundingPrivkey,
+				)
+			})
+		}
+	})
+}
+
+// verifyMusig2PartialSigs replays MuSig2 signing from the secret nonces and
+// private keys in the test vectors, verifying that the partial signatures can
+// be independently reproduced and that the combined signature matches the
+// witness in the commitment transaction.
+func verifyMusig2PartialSigs(t *testing.T, txCase TransactionTestCase,
+	fundingPkScript []byte, fundingAmt btcutil.Amount,
+	localPrivKey, remotePrivKey *btcec.PrivateKey) {
+
+	t.Helper()
+
+	// Decode secret nonces (97 bytes each).
+	localSecNonceBytes, err := hex.DecodeString(txCase.LocalSecNonce)
+	require.NoError(t, err)
+	require.Len(t, localSecNonceBytes, musig2.SecNonceSize)
+
+	remoteSecNonceBytes, err := hex.DecodeString(txCase.RemoteSecNonce)
+	require.NoError(t, err)
+	require.Len(t, remoteSecNonceBytes, musig2.SecNonceSize)
+
+	var localSecNonce, remoteSecNonce [musig2.SecNonceSize]byte
+	copy(localSecNonce[:], localSecNonceBytes)
+	copy(remoteSecNonce[:], remoteSecNonceBytes)
+
+	// Decode public nonces (66 bytes each).
+	localPubNonceBytes, err := hex.DecodeString(txCase.LocalNonce)
+	require.NoError(t, err)
+	require.Len(t, localPubNonceBytes, musig2.PubNonceSize)
+
+	remotePubNonceBytes, err := hex.DecodeString(txCase.RemoteNonce)
+	require.NoError(t, err)
+	require.Len(t, remotePubNonceBytes, musig2.PubNonceSize)
+
+	var localPubNonce, remotePubNonce [musig2.PubNonceSize]byte
+	copy(localPubNonce[:], localPubNonceBytes)
+	copy(remotePubNonce[:], remotePubNonceBytes)
+
+	// Aggregate the public nonces.
+	combinedNonce, err := musig2.AggregateNonces(
+		[][musig2.PubNonceSize]byte{localPubNonce, remotePubNonce},
+	)
+	require.NoError(t, err)
+
+	// Deserialize the commitment transaction and compute the sighash.
+	commitTxBytes, err := hex.DecodeString(
+		txCase.ExpectedCommitmentTxHex,
+	)
+	require.NoError(t, err)
+
+	commitTx := wire.NewMsgTx(2)
+	err = commitTx.Deserialize(bytes.NewReader(commitTxBytes))
+	require.NoError(t, err)
+
+	prevOutFetcher := txscript.NewCannedPrevOutputFetcher(
+		fundingPkScript, int64(fundingAmt),
+	)
+	sigHash, err := txscript.CalcTaprootSignatureHash(
+		txscript.NewTxSigHashes(commitTx, prevOutFetcher),
+		txscript.SigHashDefault, commitTx, 0, prevOutFetcher,
+	)
+	require.NoError(t, err)
+
+	var sigHashMsg [32]byte
+	copy(sigHashMsg[:], sigHash)
+
+	pubKeys := []*btcec.PublicKey{
+		localPrivKey.PubKey(), remotePrivKey.PubKey(),
+	}
+	signOpts := []musig2.SignOption{
+		musig2.WithSortedKeys(),
+		musig2.WithBip86SignTweak(),
+	}
+
+	// Replay the remote partial signature using the secret nonce.
+	remotePartialSig, err := musig2.Sign(
+		remoteSecNonce, remotePrivKey, combinedNonce,
+		pubKeys, sigHashMsg, signOpts...,
+	)
+	require.NoError(t, err)
+
+	// Verify the replayed remote partial sig matches the stored value.
+	storedRemoteSigBytes, err := hex.DecodeString(
+		txCase.RemotePartialSig,
+	)
+	require.NoError(t, err)
+
+	replayedSigBytes := remotePartialSig.S.Bytes()
+	require.Equal(t,
+		storedRemoteSigBytes,
+		replayedSigBytes[:],
+		"replayed remote partial sig does not match stored value",
+	)
+
+	t.Logf("remote partial sig replayed and matched successfully")
+
+	// Also replay the local partial signature.
+	localPartialSig, err := musig2.Sign(
+		localSecNonce, localPrivKey, combinedNonce,
+		pubKeys, sigHashMsg, signOpts...,
+	)
+	require.NoError(t, err)
+
+	// Verify the local partial sig against its public nonce.
+	valid := localPartialSig.Verify(
+		localPubNonce, combinedNonce, pubKeys,
+		localPrivKey.PubKey(), sigHashMsg, signOpts...,
+	)
+	require.True(t, valid, "local partial sig verification failed")
+
+	t.Logf("local partial sig replayed and verified successfully")
+
+	// Combine both partial signatures into the final Schnorr sig using
+	// the Session API, which handles nonce aggregation internally.
+	localCtx, err := musig2.NewContext(
+		localPrivKey, true,
+		musig2.WithKnownSigners(pubKeys),
+		musig2.WithBip86TweakCtx(),
+	)
+	require.NoError(t, err)
+
+	localNonces := &musig2.Nonces{
+		PubNonce: localPubNonce,
+		SecNonce: localSecNonce,
+	}
+	localSession, err := localCtx.NewSession(
+		musig2.WithPreGeneratedNonce(localNonces),
+	)
+	require.NoError(t, err)
+
+	allNoncesKnown, err := localSession.RegisterPubNonce(remotePubNonce)
+	require.NoError(t, err)
+	require.True(t, allNoncesKnown)
+
+	// Sign with local to advance the session state, then feed in
+	// remote's partial sig to combine.
+	_, err = localSession.Sign(sigHashMsg)
+	require.NoError(t, err)
+
+	haveAll, err := localSession.CombineSig(remotePartialSig)
+	require.NoError(t, err)
+	require.True(t, haveAll)
+
+	finalSig := localSession.FinalSig()
+	require.NotNil(t, finalSig)
+
+	// The commitment tx witness should contain the 64-byte Schnorr sig.
+	require.GreaterOrEqual(t, len(commitTx.TxIn[0].Witness), 1,
+		"commitment tx has no witness")
+
+	witnessSig := commitTx.TxIn[0].Witness[0]
+	require.Len(t, witnessSig, 64,
+		"witness sig should be 64 bytes")
+
+	require.Equal(t,
+		finalSig.Serialize(),
+		witnessSig,
+		"combined MuSig2 sig does not match commitment tx witness",
+	)
+
+	t.Logf("combined MuSig2 signature matches commitment tx witness")
+}
+
+// extractHash160FromScript uses the script tokenizer to find and extract the
+// 20-byte RIPEMD160 payment hash from an HTLC success script. The script
+// contains: OP_SIZE 32 OP_EQUALVERIFY OP_HASH160 <20-byte-hash> OP_EQUALVERIFY
+// followed by checksig operations.
+func extractHash160FromScript(t *testing.T, script []byte) [20]byte {
+	t.Helper()
+
+	tokenizer := txscript.MakeScriptTokenizer(0, script)
+	for tokenizer.Next() {
+		if tokenizer.Opcode() == txscript.OP_HASH160 {
+			// The next token should be the 20-byte push data.
+			require.True(t, tokenizer.Next(),
+				"expected data push after OP_HASH160")
+
+			data := tokenizer.Data()
+			require.Len(t, data, 20,
+				"expected 20-byte hash after OP_HASH160")
+
+			var hash160 [20]byte
+			copy(hash160[:], data)
+
+			return hash160
+		}
+	}
+
+	require.NoError(t, tokenizer.Err(), "script tokenizer error")
+	t.Fatal("OP_HASH160 not found in script")
+
+	var zero [20]byte
+
+	return zero
+}
+
+// verifyCommitmentTxSig performs third-party verification of the commitment
+// transaction and all HTLC resolution transactions by executing the taproot
+// script verification engine against the provided witnesses.
+func verifyCommitmentTxSig(t *testing.T, txCase TransactionTestCase,
+	fundingPkScript []byte, fundingAmt btcutil.Amount) {
+
+	// Deserialize the commitment transaction.
+	commitTxBytes, err := hex.DecodeString(
+		txCase.ExpectedCommitmentTxHex,
+	)
+	require.NoError(t, err)
+
+	commitTx := wire.NewMsgTx(2)
+	err = commitTx.Deserialize(bytes.NewReader(commitTxBytes))
+	require.NoError(t, err)
+
+	// Verify the commitment tx witness against the funding output.
+	prevOutFetcher := txscript.NewCannedPrevOutputFetcher(
+		fundingPkScript, int64(fundingAmt),
+	)
+	sigHashes := txscript.NewTxSigHashes(commitTx, prevOutFetcher)
+
+	vm, err := txscript.NewEngine(
+		fundingPkScript, commitTx, 0,
+		txscript.StandardVerifyFlags, nil,
+		sigHashes, int64(fundingAmt), prevOutFetcher,
+	)
+	require.NoError(t, err, "failed to create script engine for "+
+		"commitment tx")
+
+	err = vm.Execute()
+	require.NoError(t, err, "commitment tx signature verification "+
+		"failed")
+
+	t.Logf("commitment tx signature verified successfully")
+
+	// Verify each HTLC resolution transaction against its commitment
+	// output.
+	for i, htlcDesc := range txCase.HtlcDescs {
+		htlcTxBytes, err := hex.DecodeString(
+			htlcDesc.ResolutionTxHex,
+		)
+		require.NoError(t, err)
+
+		htlcTx := wire.NewMsgTx(2)
+		err = htlcTx.Deserialize(bytes.NewReader(htlcTxBytes))
+		require.NoError(t, err)
+
+		// The HTLC tx spends from the commitment tx. Find the
+		// output it references.
+		prevOutIdx := htlcTx.TxIn[0].PreviousOutPoint.Index
+		require.Less(t, int(prevOutIdx), len(commitTx.TxOut),
+			"HTLC tx references invalid output index")
+
+		prevOut := commitTx.TxOut[prevOutIdx]
+		htlcPrevFetcher := txscript.NewCannedPrevOutputFetcher(
+			prevOut.PkScript, prevOut.Value,
+		)
+		htlcSigHashes := txscript.NewTxSigHashes(
+			htlcTx, htlcPrevFetcher,
+		)
+
+		htlcVM, err := txscript.NewEngine(
+			prevOut.PkScript, htlcTx, 0,
+			txscript.StandardVerifyFlags, nil,
+			htlcSigHashes, prevOut.Value,
+			htlcPrevFetcher,
+		)
+		require.NoError(t, err,
+			fmt.Sprintf("failed to create script engine for "+
+				"HTLC resolution tx %d", i))
+
+		err = htlcVM.Execute()
+		require.NoError(t, err,
+			fmt.Sprintf("HTLC resolution tx %d signature "+
+				"verification failed", i))
+
+		t.Logf("HTLC resolution tx %d signature verified "+
+			"successfully", i)
+	}
+}

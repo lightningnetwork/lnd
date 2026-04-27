@@ -2,6 +2,8 @@ package funding
 
 import (
 	"bytes"
+	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,6 +24,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -29,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -474,16 +479,18 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			return testSig, nil
 		},
 		SendAnnouncement: func(msg lnwire.Message,
-			_ ...discovery.OptionalMsgField) chan error {
+			_ ...discovery.OptionalMsgField) actor.Future[error] {
 
-			errChan := make(chan error, 1)
+			promise := actor.NewPromise[error]()
+			var sendErr error
 			select {
 			case sentAnnouncements <- msg:
-				errChan <- nil
 			case <-shutdownChan:
-				errChan <- fmt.Errorf("shutting down")
+				sendErr = fmt.Errorf("shutting down")
 			}
-			return errChan
+			actor.CompleteWith(promise, sendErr)
+
+			return promise.Future()
 		},
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement1,
 			error) {
@@ -649,16 +656,18 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 			return testSig, nil
 		},
 		SendAnnouncement: func(msg lnwire.Message,
-			_ ...discovery.OptionalMsgField) chan error {
+			_ ...discovery.OptionalMsgField) actor.Future[error] {
 
-			errChan := make(chan error, 1)
+			promise := actor.NewPromise[error]()
+			var sendErr error
 			select {
 			case aliceAnnounceChan <- msg:
-				errChan <- nil
 			case <-shutdownChan:
-				errChan <- fmt.Errorf("shutting down")
+				sendErr = fmt.Errorf("shutting down")
 			}
-			return errChan
+			actor.CompleteWith(promise, sendErr)
+
+			return promise.Future()
 		},
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement1,
 			error) {
@@ -1980,11 +1989,15 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 
 	// Intentionally make the channel announcements fail
 	alice.fundingMgr.cfg.SendAnnouncement = func(msg lnwire.Message,
-		_ ...discovery.OptionalMsgField) chan error {
+		_ ...discovery.OptionalMsgField) actor.Future[error] {
 
-		errChan := make(chan error, 1)
-		errChan <- fmt.Errorf("intentional error in SendAnnouncement")
-		return errChan
+		promise := actor.NewPromise[error]()
+		actor.CompleteWith(
+			promise,
+			fmt.Errorf("intentional error in SendAnnouncement"),
+		)
+
+		return promise.Future()
 	}
 
 	channelReadyAlice, ok := assertFundingMsgSent(
@@ -4804,13 +4817,23 @@ func TestCommitmentTypeFundmaxSanityCheck(t *testing.T) {
 		"SCRIPT_ENFORCED_LEASE":   4,
 		"SIMPLE_TAPROOT":          5,
 		"SIMPLE_TAPROOT_OVERLAY":  6,
+		"SIMPLE_TAPROOT_FINAL":    7,
 	}
 
-	for commitmentType := range lnrpc.CommitmentType_value {
-		if _, ok := allCommitmentTypes[commitmentType]; !ok {
+	for commitmentType, protoValue := range lnrpc.CommitmentType_value {
+		expectedValue, ok := allCommitmentTypes[commitmentType]
+		if !ok {
 			t.Fatalf("Commitment type %s hasn't been considered "+
 				"in the context of the --fundmax flag for "+
 				"channel openings.", commitmentType)
+		}
+
+		// Verify the proto enum integer values match to catch
+		// accidental renumbering.
+		if int(protoValue) != expectedValue {
+			t.Fatalf("Commitment type %s has proto value %d "+
+				"but expected %d", commitmentType,
+				protoValue, expectedValue)
 		}
 	}
 }
@@ -5102,4 +5125,133 @@ func TestFundingManagerCoinbase(t *testing.T) {
 	// Check that they notify the breach arbiter and peer about the new
 	// channel.
 	assertHandleChannelReady(t, alice, bob)
+}
+
+// TestMapGossipError verifies that mapGossipError correctly translates gossip
+// result errors into funding manager errors.
+func TestMapGossipError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		inErr   error
+		wantErr error
+	}{
+		{
+			name:    "nil error",
+			inErr:   nil,
+			wantErr: nil,
+		},
+		{
+			name:    "context canceled maps to shutdown",
+			inErr:   context.Canceled,
+			wantErr: ErrFundingManagerShuttingDown,
+		},
+		{
+			name:    "gossiper shutting down maps to shutdown",
+			inErr:   discovery.ErrGossiperShuttingDown,
+			wantErr: ErrFundingManagerShuttingDown,
+		},
+		{
+			name:    "graph outdated treated as non-fatal",
+			inErr:   graph.NewErrf(graph.ErrOutdated, "outdated"),
+			wantErr: nil,
+		},
+		{
+			name:    "graph ignored treated as non-fatal",
+			inErr:   graph.NewErrf(graph.ErrIgnored, "ignored"),
+			wantErr: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := mapGossipError(tc.inErr, "TestMsg")
+
+			if tc.wantErr == nil {
+				require.NoError(t, got)
+				return
+			}
+
+			require.Error(t, got)
+			require.ErrorIs(t, got, tc.wantErr)
+		})
+	}
+
+	// Verify that unrecognized errors pass through unchanged.
+	t.Run("other errors passed through", func(t *testing.T) {
+		t.Parallel()
+
+		sentinel := errors.New("unexpected failure")
+		got := mapGossipError(sentinel, "TestMsg")
+		require.ErrorIs(t, got, sentinel)
+	})
+}
+
+// TestChannelReadyUnknownChannelID verifies that channel_ready messages
+// referencing ChannelIDs unknown to the funding manager are consumed without
+// stalling the coordinator. After a batch of such messages drains through,
+// the manager must still be able to process a legitimate channel-open flow.
+func TestChannelReadyUnknownChannelID(t *testing.T) {
+	t.Parallel()
+
+	// Count FindChannel invocations so we can wait for every message to
+	// actually reach the coordinator's handler (ProcessFundingMsg is
+	// buffered and returns before processing).
+	var findChannelCalls atomic.Uint64
+
+	alice, bob := setupFundingManagers(
+		t, func(cfg *Config) {
+			origFindChannel := cfg.FindChannel
+			cfg.FindChannel = func(
+				node *btcec.PublicKey,
+				chanID lnwire.ChannelID,
+			) (*channeldb.OpenChannel, error) {
+
+				findChannelCalls.Add(1)
+
+				return origFindChannel(node, chanID)
+			}
+		},
+	)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	// Send a batch of channel_ready messages with random (unknown)
+	// ChannelIDs to Alice from Bob.
+	const numUnknownMessages = 100
+	for i := 0; i < numUnknownMessages; i++ {
+		var randomChanID lnwire.ChannelID
+		_, err := rand.Read(randomChanID[:])
+		require.NoError(t, err)
+
+		unknownMsg := &lnwire.ChannelReady{
+			ChanID:                 randomChanID,
+			NextPerCommitmentPoint: bobAddr.IdentityKey,
+		}
+		alice.fundingMgr.ProcessFundingMsg(unknownMsg, bob)
+	}
+
+	// Wait for every message to flow through the coordinator's handler.
+	err := wait.NoError(func() error {
+		calls := findChannelCalls.Load()
+		if calls < numUnknownMessages {
+			return fmt.Errorf("FindChannel called %d times, "+
+				"want %d", calls, numUnknownMessages)
+		}
+
+		return nil
+	}, time.Second*15)
+	require.NoError(t, err)
+
+	// Confirm the coordinator is still able to drive a real funding
+	// flow. If any of the earlier messages had wedged the coordinator,
+	// this call would hang.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	openChannel(
+		t, alice, bob, 500000, 0, 1, updateChan, true, nil,
+	)
 }

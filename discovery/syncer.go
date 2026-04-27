@@ -13,10 +13,12 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnpeer"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"golang.org/x/time/rate"
 )
@@ -210,7 +212,7 @@ var (
 // syncTransitionReq encapsulates a request for a gossip syncer sync transition.
 type syncTransitionReq struct {
 	newSyncType SyncerType
-	errChan     chan error
+	errPromise  actor.Promise[error]
 }
 
 // historicalSyncReq encapsulates a request for a gossip syncer to perform a
@@ -699,7 +701,10 @@ func (g *GossipSyncer) channelGraphSyncer(ctx context.Context) {
 		case syncerIdle:
 			select {
 			case req := <-g.syncTransitionReqs:
-				req.errChan <- g.handleSyncTransition(ctx, req)
+				completeGossipResult(
+					req.errPromise,
+					g.handleSyncTransition(ctx, req),
+				)
 
 			case req := <-g.historicalSyncReqs:
 				g.handleHistoricalSync(req)
@@ -1776,11 +1781,12 @@ func (g *GossipSyncer) ResetSyncedSignal() chan struct{} {
 // NOTE: This can only be done once the gossip syncer has reached its final
 // chansSynced state.
 func (g *GossipSyncer) ProcessSyncTransition(newSyncType SyncerType) error {
-	errChan := make(chan error, 1)
+	promise := actor.NewPromise[error]()
+
 	select {
 	case g.syncTransitionReqs <- &syncTransitionReq{
 		newSyncType: newSyncType,
-		errChan:     errChan,
+		errPromise:  promise,
 	}:
 	case <-time.After(syncTransitionTimeout):
 		return ErrSyncTransitionTimeout
@@ -1788,12 +1794,25 @@ func (g *GossipSyncer) ProcessSyncTransition(newSyncType SyncerType) error {
 		return ErrGossipSyncerExiting
 	}
 
-	select {
-	case err := <-errChan:
-		return err
-	case <-g.cg.Done():
+	// Derive a context from the syncer's quit channel so the await exits
+	// only when the syncer itself shuts down. This matches the prior
+	// errChan-based behavior, which had no upper bound on the time spent
+	// waiting for the syncer to process the transition request once it had
+	// been accepted onto the queue. The syncTransitionTimeout above bounds
+	// only the enqueue step, as it did before this migration.
+	quitCtx, quitCancel := lnutils.ContextFromQuit(g.cg.Done())
+	defer quitCancel()
+
+	err := AwaitGossipResult(quitCtx, promise.Future())
+
+	// Re-map the bridge context cancellation back to the historical
+	// sentinel so any caller (or third-party fork) using errors.Is to
+	// detect syncer shutdown continues to match.
+	if errors.Is(err, context.Canceled) {
 		return ErrGossipSyncerExiting
 	}
+
+	return err
 }
 
 // handleSyncTransition handles a new sync type transition request.

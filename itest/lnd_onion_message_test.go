@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -15,7 +16,11 @@ import (
 
 // testOnionMessage tests sending and receiving of the onion message type.
 func testOnionMessage(ht *lntest.HarnessTest) {
-	alice := ht.NewNode("Alice", nil)
+	// Alice needs coins to fund a channel with Bob: onion message ingress
+	// is gated on the sender and receiver sharing at least one fully open
+	// channel as the Sybil-resistance layer on top of the byte-granular
+	// rate limiter.
+	alice := ht.NewNodeWithCoins("Alice", nil)
 	bob := ht.NewNode("Bob", nil)
 
 	// Subscribe Alice to onion messages before we send any, so that we
@@ -45,8 +50,14 @@ func testOnionMessage(ht *lntest.HarnessTest) {
 		}
 	}()
 
-	// Connect alice and bob so that they can exchange messages.
+	// Connect alice and bob and open a channel between them. Onion message
+	// ingress is gated on having at least one fully open channel with the
+	// sending peer, so without a channel Alice would silently drop Bob's
+	// message and the test would time out.
 	ht.EnsureConnected(alice, bob)
+	ht.OpenChannel(alice, bob, lntest.OpenChannelParams{
+		Amt: btcutil.Amount(100_000),
+	})
 
 	// Build a valid onion message destined for Alice.
 	alicePubKey, err := btcec.ParsePubKey(alice.PubKey[:])

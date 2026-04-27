@@ -585,7 +585,9 @@ func marshallTower(tower *wtclient.RegisteredTower, policyType PolicyType,
 
 func blobTypeToPolicyType(t blob.Type) (PolicyType, error) {
 	switch t {
-	case blob.TypeAltruistTaprootCommit:
+	case blob.TypeAltruistTaprootCommit,
+		blob.TypeAltruistTaprootFinalCommit:
+
 		return PolicyType_TAPROOT, nil
 
 	case blob.TypeAltruistAnchorCommit:

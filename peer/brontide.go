@@ -315,6 +315,28 @@ type Config struct {
 	// message actor. If nil, onion messaging is disabled.
 	SpawnOnionActor onionmessage.OnionActorFactory
 
+	// OnionLimiter is the combined per-peer + global onion message
+	// ingress rate limiter. It hides the split between the two
+	// underlying buckets behind a single interface: callers invoke
+	// OnionLimiter.AllowN on every incoming onion message and it
+	// consults the per-peer bucket first (so a hostile peer whose own
+	// budget is empty cannot drain the shared budget on rejected
+	// attempts) and then the global bucket. Per-peer state is retained
+	// across disconnect so a peer cannot reset its bucket by cycling
+	// the connection; see the PeerRateLimiter doc for the memory-bound
+	// argument. A nil value means onion message rate limiting is
+	// disabled.
+	OnionLimiter onionmessage.IngressLimiter
+
+	// OnionRelayAll, when true, disables the channel-presence gate on
+	// incoming onion messages: messages from peers with no fully open
+	// channel are admitted to the rate-limiter pipeline instead of
+	// being dropped at ingress. The default (false) keeps the gate in
+	// place so that a no-cost Sybil identity cannot burn a full
+	// per-peer byte budget on each of many connections and saturate
+	// the global limiter through sheer identity count.
+	OnionRelayAll bool
+
 	// OnionActorOpts returns ActorOptions for the onion peer actor
 	// being spawned for the given peer. This allows per-peer
 	// customization of mailbox size, drop predicates, etc.
@@ -599,6 +621,17 @@ type Brontide struct {
 	// or having an extra nil-check per access.
 	activeChannels *lnutils.SyncMap[
 		lnwire.ChannelID, *lnwallet.LightningChannel]
+
+	// numActiveChans shadows the count of non-pending entries in
+	// activeChannels as an atomic integer. It exists so that hot-path
+	// callers — notably the onion message ingress gate, which runs on
+	// every incoming onion packet — can ask "does this peer have any
+	// active channel with us" in O(1) instead of iterating the
+	// activeChannels registry. It is maintained in lockstep with
+	// activeChannels via Swap and LoadAndDelete at every mutation
+	// site, so transitions from pending (nil value) to active and
+	// from active to closed are reflected atomically.
+	numActiveChans atomic.Int32
 
 	// addedChannels tracks any new channels opened during this peer's
 	// lifecycle. We use this to filter out these new channels when the time
@@ -1326,7 +1359,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		// channels. Adding them here would just be extra work as we'll
 		// tear them down when creating + adding the final link.
 		if lnChan.IsPending() {
-			p.activeChannels.Store(chanID, nil)
+			p.markPendingChannel(chanID)
 
 			continue
 		}
@@ -1417,7 +1450,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 				"switch: %v", chanPoint, err)
 		}
 
-		p.activeChannels.Store(chanID, lnChan)
+		p.storeActiveChannel(chanID, lnChan)
 
 		// We're using the old co-op close, so we don't need to init
 		// the new RBF chan closer.
@@ -2114,13 +2147,11 @@ func newDiscMsgStream(p *Brontide) *msgStream {
 		// deleted.
 		p.log.Debugf("Processing remote msg %T", msg)
 
-		// TODO(ziggie): ProcessRemoteAnnouncement returns an error
-		// channel, but we cannot rely on it being written to.
-		// Because some messages might never be processed (e.g.
-		// premature channel updates). We should change the design here
-		// and use the actor model pattern as soon as it is available.
-		// So for now we should NOT use the error channel.
-		// See https://github.com/lightningnetwork/lnd/pull/9820.
+		// The returned Future[error] is intentionally not awaited
+		// here. Remote gossip messages are fire-and-forget from the
+		// peer's perspective: the gossiper processes them
+		// asynchronously, and an unawaited Future carries no cost
+		// (no goroutine, no channel leak).
 		p.cfg.AuthGossiper.ProcessRemoteAnnouncement(ctx, msg, p)
 	}
 
@@ -2333,6 +2364,35 @@ out:
 			discStream.AddMsg(msg)
 
 		case *lnwire.OnionMessage:
+			// Charge the limiter the on-the-wire size of the
+			// message so the byte-granular bucket reflects
+			// actual ingress bandwidth rather than raw message
+			// counts. The channel-gate hint is sourced from the
+			// atomic active-channel counter so the check is
+			// O(1) on the hot path. A rejection surfaces as a
+			// sentinel error wrapped in fn.Result; errors.Is
+			// lets us pick the right first-drop log path.
+			result := allowOnionMessage(
+				p.cfg.OnionLimiter, p.PubKey(),
+				msg.WireSize(), p.hasActiveChannels(),
+				p.cfg.OnionRelayAll,
+			)
+			if err := result.Err(); err != nil {
+				logFirstOnionDrop(
+					peerLog, p.log, err,
+					p.cfg.OnionLimiter,
+				)
+				// Keep repeated drops at trace so a
+				// sustained attack does not flood debug;
+				// the first-drop info log above already
+				// gives operators a clear "limiter
+				// engaged" signal.
+				p.log.Tracef("dropping onion message: %v",
+					err)
+
+				break
+			}
+
 			p.onionActorRef.WhenSome(
 				func(ref onionmessage.OnionPeerActorRef) {
 					// TODO(elle): thread contexts through
@@ -2447,6 +2507,51 @@ func (p *Brontide) isPendingChannel(chanID lnwire.ChannelID) bool {
 func (p *Brontide) hasChannel(chanID lnwire.ChannelID) bool {
 	_, ok := p.activeChannels.Load(chanID)
 	return ok
+}
+
+// hasActiveChannels reports whether this peer has at least one fully open
+// (non-pending) channel with us. Pending channels are excluded because
+// they do not yet provide the Sybil-resistance guarantees the onion
+// message ingress gate relies on. The check reads an atomic counter
+// maintained alongside activeChannels at every mutation site, so it is
+// O(1) and cheap enough to run on every incoming onion message without
+// iterating a map.
+func (p *Brontide) hasActiveChannels() bool {
+	return p.numActiveChans.Load() > 0
+}
+
+// markPendingChannel records chanID in activeChannels as a pending (nil)
+// entry; numActiveChans is unchanged.
+func (p *Brontide) markPendingChannel(chanID lnwire.ChannelID) {
+	p.activeChannels.Store(chanID, nil)
+}
+
+// storeActiveChannel installs lnChan under chanID and bumps
+// numActiveChans iff the prior entry was absent or pending (nil).
+func (p *Brontide) storeActiveChannel(chanID lnwire.ChannelID,
+	lnChan *lnwallet.LightningChannel) {
+
+	prev, loaded := p.activeChannels.Swap(chanID, lnChan)
+	if !loaded || prev == nil {
+		p.numActiveChans.Add(1)
+	}
+}
+
+// removeActiveChannel deletes chanID and decrements numActiveChans only
+// when the removed entry was a fully open (non-nil) channel.
+func (p *Brontide) removeActiveChannel(chanID lnwire.ChannelID) {
+	prev, loaded := p.activeChannels.LoadAndDelete(chanID)
+	if loaded && prev != nil {
+		p.numActiveChans.Add(-1)
+	}
+}
+
+// deletePendingChannel deletes a pending entry owned by the
+// channelManager goroutine; no counter check since pending entries never
+// contribute to numActiveChans. External callers must use
+// removeActiveChannel so a racing promotion is handled correctly.
+func (p *Brontide) deletePendingChannel(chanID lnwire.ChannelID) {
+	p.activeChannels.Delete(chanID)
 }
 
 // storeError stores an error in our peer's buffer of recent errors with the
@@ -4031,7 +4136,18 @@ func (p *Brontide) initRbfChanCloser(
 	peerPub := *p.IdentityKey()
 
 	msgMapper := chancloser.NewRbfMsgMapper(
-		uint32(startingHeight), chanID, peerPub,
+		func() uint32 {
+			_, height, err := p.cfg.ChainIO.GetBestBlock()
+			if err != nil {
+				peerLog.Errorf("Unable to get best block "+
+					"height: %v", err)
+
+				return uint32(startingHeight)
+			}
+
+			return uint32(height)
+		},
+		chanID, peerPub,
 	)
 
 	initialState := chancloser.ChannelActive{}
@@ -4664,7 +4780,10 @@ func WaitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
 func (p *Brontide) WipeChannel(chanPoint *wire.OutPoint) {
 	chanID := lnwire.NewChanIDFromOutPoint(*chanPoint)
 
-	p.activeChannels.Delete(chanID)
+	// Remove the entry and adjust the active-channel counter atomically
+	// via the helper; it skips the decrement for pending (nil) entries
+	// since they never contributed to the counter in the first place.
+	p.removeActiveChannel(chanID)
 
 	// Instruct the HtlcSwitch to close this link as the channel is no
 	// longer active.
@@ -5369,7 +5488,8 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 		func(ts htlcswitch.AuxTrafficShaper) {
 			val := p.createHtlcValidator(c.OpenChannel, ts)
 			chanOpts = append(
-				chanOpts, lnwallet.WithAuxHtlcValidator(val),
+				chanOpts,
+				lnwallet.WithAuxHtlcValidator(val),
 			)
 		},
 	)
@@ -5384,8 +5504,11 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 		return fmt.Errorf("unable to create LightningChannel: %w", err)
 	}
 
-	// Store the channel in the activeChannels map.
-	p.activeChannels.Store(chanID, lnChan)
+	// Install the channel via the helper so the active-channel counter
+	// stays in lockstep: new inserts and pending-to-active promotions
+	// both bump the counter by exactly one, while the rare
+	// already-present case is a no-op.
+	p.storeActiveChannel(chanID, lnChan)
 
 	p.log.Infof("New channel active ChannelPoint(%v) with peer", chanPoint)
 
@@ -5508,7 +5631,7 @@ func (p *Brontide) handleNewPendingChannel(req *newChannelMsg) {
 	// This is a new channel, we now add it to the map `activeChannels`
 	// with nil value and mark it as a newly added channel in
 	// `addedChannels`.
-	p.activeChannels.Store(chanID, nil)
+	p.markPendingChannel(chanID)
 	p.addedChannels.Store(chanID, struct{}{})
 }
 
@@ -5535,8 +5658,16 @@ func (p *Brontide) handleRemovePendingChannel(req *newChannelMsg) {
 		p.log.Warnf("Channel(%v) not found, removing it anyway", chanID)
 	}
 
-	// Remove the record of this pending channel.
-	p.activeChannels.Delete(chanID)
+	// Delete the pending entry. handleRemovePendingChannel and
+	// handleNewActiveChannel are both arms of the channelManager
+	// select loop, so the Go runtime serializes them and the entry we
+	// delete here is guaranteed to be the pending (nil) one we stored
+	// via markPendingChannel — it cannot have been promoted behind our
+	// back. That rules out any numActiveChans decrement on this path,
+	// so we drop the defensive LoadAndDelete + conditional check the
+	// refactor left in place and use a plain Delete via
+	// deletePendingChannel.
+	p.deletePendingChannel(chanID)
 	p.addedChannels.Delete(chanID)
 }
 

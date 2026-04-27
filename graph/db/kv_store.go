@@ -2723,7 +2723,12 @@ func (c *KVStore) NodeUpdatesInHorizon(_ context.Context,
 // channels another peer knows of that we don't. The ChannelUpdateInfos for the
 // known zombies is also returned.
 func (c *KVStore) FilterKnownChanIDs(_ context.Context,
+	v lnwire.GossipVersion,
 	chansInfo []ChannelUpdateInfo) ([]uint64, []ChannelUpdateInfo, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return nil, nil, ErrVersionNotSupportedForKVDB
+	}
 
 	var (
 		newChanIDs   []uint64

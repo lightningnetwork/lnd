@@ -255,6 +255,53 @@ const (
 	// settled output of a malicious counterparty's who broadcasts a
 	// revoked taproot commitment transaction.
 	TaprootCommitmentRevoke StandardWitnessType = 34
+
+	// TaprootLocalCommitSpendFinal is a witness type that
+	// allows us to spend our settled local commitment after
+	// a CSV delay when we force close a final taproot
+	// channel (using production scripts).
+	TaprootLocalCommitSpendFinal StandardWitnessType = 35
+
+	// TaprootRemoteCommitSpendFinal is a witness type that
+	// allows us to spend our settled remote commitment
+	// after a CSV delay when the remote party has force
+	// closed a final taproot channel (using production
+	// scripts).
+	TaprootRemoteCommitSpendFinal StandardWitnessType = 36
+
+	// TaprootHtlcOfferedTimeoutSecondLevelFinal is a
+	// witness that allows us to timeout an HTLC we offered
+	// to the remote party on our commitment transaction
+	// for final taproot channels (using production
+	// scripts).
+	TaprootHtlcOfferedTimeoutSecondLevelFinal StandardWitnessType = 37
+
+	// TaprootHtlcAcceptedSuccessSecondLevelFinal is a
+	// witness that allows us to sweep an HTLC we accepted
+	// on our commitment transaction after we go to the
+	// second level on chain for final taproot channels
+	// (using production scripts).
+	TaprootHtlcAcceptedSuccessSecondLevelFinal StandardWitnessType = 38
+
+	// TaprootHtlcOfferedRemoteTimeoutFinal is a witness
+	// that allows us to sweep an HTLC we offered to the
+	// remote party that lies on the commitment transaction
+	// for the remote party for final taproot channels
+	// (using production scripts).
+	TaprootHtlcOfferedRemoteTimeoutFinal StandardWitnessType = 39
+
+	// TaprootHtlcAcceptedRemoteSuccessFinal is a witness
+	// that allows us to sweep an HTLC that was offered to
+	// us by the remote party for final taproot channels
+	// (using production scripts).
+	TaprootHtlcAcceptedRemoteSuccessFinal StandardWitnessType = 40
+
+	// TaprootCommitmentRevokeFinal is a witness that
+	// allows us to sweep the settled output of a malicious
+	// counterparty's who broadcasts a revoked final
+	// taproot commitment transaction (using production
+	// scripts).
+	TaprootCommitmentRevokeFinal StandardWitnessType = 41
 )
 
 // String returns a human readable version of the target WitnessType.
@@ -366,6 +413,27 @@ func (wt StandardWitnessType) String() string {
 
 	case TaprootCommitmentRevoke:
 		return "TaprootCommitmentRevoke"
+
+	case TaprootLocalCommitSpendFinal:
+		return "TaprootLocalCommitSpendFinal"
+
+	case TaprootRemoteCommitSpendFinal:
+		return "TaprootRemoteCommitSpendFinal"
+
+	case TaprootHtlcOfferedTimeoutSecondLevelFinal:
+		return "TaprootHtlcOfferedTimeoutSecondLevelFinal"
+
+	case TaprootHtlcAcceptedSuccessSecondLevelFinal:
+		return "TaprootHtlcAcceptedSuccessSecondLevelFinal"
+
+	case TaprootHtlcOfferedRemoteTimeoutFinal:
+		return "TaprootHtlcOfferedRemoteTimeoutFinal"
+
+	case TaprootHtlcAcceptedRemoteSuccessFinal:
+		return "TaprootHtlcAcceptedRemoteSuccessFinal"
+
+	case TaprootCommitmentRevokeFinal:
+		return "TaprootCommitmentRevokeFinal"
 
 	default:
 		return fmt.Sprintf("Unknown WitnessType: %v", uint32(wt))
@@ -516,9 +584,16 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 		case NestedWitnessKeyHash:
 			return signer.ComputeInputScript(tx, desc)
 
-		case TaprootLocalCommitSpend:
-			// Ensure that the sign desc has the proper sign method
-			// set, and a valid prev output fetcher.
+		case TaprootLocalCommitSpend, TaprootLocalCommitSpendFinal:
+			// Production (Final) taproot witness types share the
+			// same generation logic as their staging counterparts.
+			// The script differences between staging and final
+			// are captured in the SignDescriptor's script tree
+			// (ControlBlock, TapLeaf, etc.) at commitment
+			// construction time, so the witness generator here
+			// simply signs against whatever scripts were
+			// pre-populated — no channel-type awareness is needed
+			// at this layer.
 			desc.SignMethod = TaprootScriptSpendSignMethod
 
 			// The control block bytes must be set at this point.
@@ -538,7 +613,7 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 				Witness: witness,
 			}, nil
 
-		case TaprootRemoteCommitSpend:
+		case TaprootRemoteCommitSpend, TaprootRemoteCommitSpendFinal:
 			// Ensure that the sign desc has the proper sign method
 			// set, and a valid prev output fetcher.
 			desc.SignMethod = TaprootScriptSpendSignMethod
@@ -583,7 +658,9 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 			}, nil
 
 		case TaprootHtlcOfferedTimeoutSecondLevel,
-			TaprootHtlcAcceptedSuccessSecondLevel:
+			TaprootHtlcAcceptedSuccessSecondLevel,
+			TaprootHtlcOfferedTimeoutSecondLevelFinal,
+			TaprootHtlcAcceptedSuccessSecondLevelFinal:
 			// Ensure that the sign desc has the proper sign method
 			// set, and a valid prev output fetcher.
 			desc.SignMethod = TaprootScriptSpendSignMethod
@@ -671,7 +748,8 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 				Witness: witness,
 			}, nil
 
-		case TaprootHtlcOfferedRemoteTimeout:
+		case TaprootHtlcOfferedRemoteTimeout,
+			TaprootHtlcOfferedRemoteTimeoutFinal:
 			// Ensure that the sign desc has the proper sign method
 			// set, and a valid prev output fetcher.
 			desc.SignMethod = TaprootScriptSpendSignMethod
@@ -693,7 +771,7 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 				Witness: witness,
 			}, nil
 
-		case TaprootCommitmentRevoke:
+		case TaprootCommitmentRevoke, TaprootCommitmentRevokeFinal:
 			// Ensure that the sign desc has the proper sign method
 			// set, and a valid prev output fetcher.
 			desc.SignMethod = TaprootScriptSpendSignMethod
@@ -706,6 +784,26 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 
 			witness, err := TaprootCommitSpendRevoke(
 				signer, desc, tx, nil,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &Script{
+				Witness: witness,
+			}, nil
+
+		case TaprootHtlcAcceptedRemoteSuccess,
+			TaprootHtlcAcceptedRemoteSuccessFinal:
+			desc.SignMethod = TaprootScriptSpendSignMethod
+
+			if desc.ControlBlock == nil {
+				return nil, fmt.Errorf("control block " +
+					"must be set for taproot spend")
+			}
+
+			witness, err := SenderHTLCScriptTaprootRedeem(
+				signer, desc, tx, nil, nil, nil,
 			)
 			if err != nil {
 				return nil, err
@@ -832,10 +930,16 @@ func (wt StandardWitnessType) SizeUpperBound() (lntypes.WeightUnit,
 	case TaprootLocalCommitSpend:
 		return TaprootToLocalWitnessSize, false, nil
 
-	// Sweeping a self output after the remote party fro ce closes. Must
+	case TaprootLocalCommitSpendFinal:
+		return TaprootToLocalWitnessSizeFinal, false, nil
+
+	// Sweeping a self output after the remote party force closes. Must
 	// wait 1 CSV.
 	case TaprootRemoteCommitSpend:
 		return TaprootToRemoteWitnessSize, false, nil
+
+	case TaprootRemoteCommitSpendFinal:
+		return TaprootToRemoteWitnessSizeFinal, false, nil
 
 	// Sweeping our anchor output with a key spend witness.
 	case TaprootAnchorSweepSpend:
@@ -845,6 +949,11 @@ func (wt StandardWitnessType) SizeUpperBound() (lntypes.WeightUnit,
 		TaprootHtlcAcceptedSuccessSecondLevel:
 
 		return TaprootSecondLevelHtlcWitnessSize, false, nil
+
+	case TaprootHtlcOfferedTimeoutSecondLevelFinal,
+		TaprootHtlcAcceptedSuccessSecondLevelFinal:
+
+		return TaprootSecondLevelHtlcWitnessSizeFinal, false, nil
 
 	case TaprootHtlcSecondLevelRevoke:
 		return TaprootSecondLevelRevokeWitnessSize, false, nil
@@ -858,16 +967,24 @@ func (wt StandardWitnessType) SizeUpperBound() (lntypes.WeightUnit,
 	case TaprootHtlcOfferedRemoteTimeout:
 		return TaprootHtlcOfferedRemoteTimeoutWitnessSize, false, nil
 
+	case TaprootHtlcOfferedRemoteTimeoutFinal:
+		return TaprootHtlcOfferedRemoteTimeoutWitnessSizeFinal, false,
+			nil
+
 	case TaprootHtlcLocalOfferedTimeout:
 		return TaprootOfferedLocalTimeoutWitnessSize, false, nil
 
 	case TaprootHtlcAcceptedRemoteSuccess:
 		return TaprootHtlcAcceptedRemoteSuccessWitnessSize, false, nil
 
+	case TaprootHtlcAcceptedRemoteSuccessFinal:
+		return TaprootHtlcAcceptedRemoteSuccessWitnessSizeFinal, false,
+			nil
+
 	case TaprootHtlcAcceptedLocalSuccess:
 		return TaprootHtlcAcceptedLocalSuccessWitnessSize, false, nil
 
-	case TaprootCommitmentRevoke:
+	case TaprootCommitmentRevoke, TaprootCommitmentRevokeFinal:
 		return TaprootToLocalRevokeWitnessSize, false, nil
 	}
 

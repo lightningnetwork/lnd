@@ -2,6 +2,7 @@ package funding
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -406,7 +408,8 @@ type Config struct {
 	// any information within the graph that is not included in the gossip
 	// message.
 	SendAnnouncement func(msg lnwire.Message,
-		optionalFields ...discovery.OptionalMsgField) chan error
+		optionalFields ...discovery.OptionalMsgField,
+	) actor.Future[error]
 
 	// NotifyWhenOnline allows the FundingManager to register with a
 	// subsystem that will notify it when the peer comes online. This is
@@ -1057,8 +1060,7 @@ func (f *Manager) reservationCoordinator() {
 				f.funderProcessFundingSigned(fmsg.peer, msg)
 
 			case *lnwire.ChannelReady:
-				f.wg.Add(1)
-				go f.handleChannelReady(fmsg.peer, msg)
+				f.handleChannelReady(fmsg.peer, msg)
 
 			case *lnwire.Warning:
 				f.handleWarningMsg(fmsg.peer, msg)
@@ -3650,7 +3652,7 @@ func (f *Manager) receivedChannelReady(node *btcec.PublicKey,
 	}
 
 	// Finally, the barrier signal is removed once we finish
-	// `handleChannelReady`. If we can still find the signal, we haven't
+	// `processChannelReady`. If we can still find the signal, we haven't
 	// finished processing it yet.
 	_, loaded := f.handleChannelReadyBarriers.Load(chanID)
 
@@ -3687,6 +3689,30 @@ func (f *Manager) extractAnnounceParams(c *channeldb.OpenChannel) (
 	return fwdMinHTLC, fwdMaxHTLC
 }
 
+// mapGossipError inspects a gossip result error and translates shutdown
+// signals into ErrFundingManagerShuttingDown. Graph-rejected errors (outdated,
+// ignored) are logged at debug level and treated as non-fatal (nil is
+// returned). All other non-nil errors are returned as-is for the caller to
+// handle.
+func mapGossipError(err error, msgType string) error {
+	if err == nil {
+		return nil
+	}
+
+	if errors.Is(err, context.Canceled) ||
+		errors.Is(err, discovery.ErrGossiperShuttingDown) {
+
+		return ErrFundingManagerShuttingDown
+	}
+
+	if graph.IsError(err, graph.ErrOutdated, graph.ErrIgnored) {
+		log.Debugf("Graph rejected %s: %v", msgType, err)
+		return nil
+	}
+
+	return err
+}
+
 // addToGraph sends a ChannelAnnouncement and a ChannelUpdate to the
 // gossiper so that the channel is added to the graph builder's internal graph.
 // These announcement messages are NOT broadcasted to the greater network,
@@ -3716,48 +3742,34 @@ func (f *Manager) addToGraph(completeChan *channeldb.OpenChannel,
 			"announcement: %v", err)
 	}
 
+	// Create a context tied to the manager's quit channel so that both
+	// gossip awaits below respect shutdown.
+	ctx, cancel := lnutils.ContextFromQuit(f.quit)
+	defer cancel()
+
 	// Send ChannelAnnouncement and ChannelUpdate to the gossiper to add
 	// to the Router's topology.
-	errChan := f.cfg.SendAnnouncement(
-		ann.chanAnn, discovery.ChannelCapacity(completeChan.Capacity),
-		discovery.ChannelPoint(completeChan.FundingOutpoint),
-		discovery.TapscriptRoot(completeChan.TapscriptRoot),
-	)
-	select {
-	case err := <-errChan:
-		if err != nil {
-			if graph.IsError(err, graph.ErrOutdated,
-				graph.ErrIgnored) {
-
-				log.Debugf("Graph rejected "+
-					"ChannelAnnouncement: %v", err)
-			} else {
-				return fmt.Errorf("error sending channel "+
-					"announcement: %v", err)
-			}
-		}
-	case <-f.quit:
-		return ErrFundingManagerShuttingDown
+	err = mapGossipError(discovery.AwaitGossipResult(ctx,
+		f.cfg.SendAnnouncement(
+			ann.chanAnn,
+			discovery.ChannelCapacity(completeChan.Capacity),
+			discovery.ChannelPoint(completeChan.FundingOutpoint),
+			discovery.TapscriptRoot(completeChan.TapscriptRoot),
+		),
+	), "ChannelAnnouncement")
+	if err != nil {
+		return fmt.Errorf("error sending channel announcement: %w",
+			err)
 	}
 
-	errChan = f.cfg.SendAnnouncement(
-		ann.chanUpdateAnn, discovery.RemoteAlias(peerAlias),
-	)
-	select {
-	case err := <-errChan:
-		if err != nil {
-			if graph.IsError(err, graph.ErrOutdated,
-				graph.ErrIgnored) {
-
-				log.Debugf("Graph rejected "+
-					"ChannelUpdate: %v", err)
-			} else {
-				return fmt.Errorf("error sending channel "+
-					"update: %v", err)
-			}
-		}
-	case <-f.quit:
-		return ErrFundingManagerShuttingDown
+	err = mapGossipError(discovery.AwaitGossipResult(ctx,
+		f.cfg.SendAnnouncement(
+			ann.chanUpdateAnn,
+			discovery.RemoteAlias(peerAlias),
+		),
+	), "ChannelUpdate")
+	if err != nil {
+		return fmt.Errorf("error sending channel update: %w", err)
 	}
 
 	return nil
@@ -4038,10 +4050,8 @@ func genFirstStateMusigNonce(channel *channeldb.OpenChannel,
 
 // handleChannelReady finalizes the channel funding process and enables the
 // channel to enter normal operating mode.
-func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
+func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 	msg *lnwire.ChannelReady) {
-
-	defer f.wg.Done()
 
 	// Notify the aux hook that the specified peer just established a
 	// channel with us, identified by the given channel ID.
@@ -4050,6 +4060,118 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 			acn.ProcessChannelReady(msg.ChanID, peer.PubKey())
 		},
 	)
+
+	log.Debugf("Received ChannelReady for ChannelID(%v) from "+
+		"peer %x", msg.ChanID,
+		peer.IdentityKey().SerializeCompressed())
+
+	// We now load or create a new channel barrier for this channel. If
+	// we are currently in the process of handling a channel_ready message
+	// for this channel, ignore the duplicate.
+	_, loaded := f.handleChannelReadyBarriers.LoadOrStore(
+		msg.ChanID, struct{}{},
+	)
+	if loaded {
+		log.Infof("Already handling channelReady for "+
+			"ChannelID(%v), ignoring.", msg.ChanID)
+		return
+	}
+
+	// Check whether we need to wait for the local funding confirmation flow
+	// to finish before we can proceed with this message. The
+	// localDiscoverySignal is only present for channels that we are
+	// actively funding and is bounded by the maximum number of pending
+	// channels.
+	localDiscoverySignal, ok := f.localDiscoverySignals.Load(msg.ChanID)
+	if ok {
+		f.wg.Add(1)
+		go func() {
+			defer f.wg.Done()
+			defer f.handleChannelReadyBarriers.Delete(
+				msg.ChanID,
+			)
+
+			// Wait for the local waitForFundingConfirmation
+			// goroutine to signal that it has the necessary state
+			// in place. Otherwise, we may be missing critical
+			// information required to handle forwarded HTLC's.
+			select {
+			case <-localDiscoverySignal:
+			case <-f.quit:
+				return
+			}
+
+			f.localDiscoverySignals.Delete(msg.ChanID)
+			f.processChannelReady(peer, msg)
+		}()
+
+		return
+	}
+
+	// No signal wait needed. Perform a lightweight channel lookup inline
+	// to short-circuit bogus or already-established channels without
+	// blocking the coordinator on heavier processing.
+	chanID := msg.ChanID
+	channel, err := f.cfg.FindChannel(peer.IdentityKey(), chanID)
+	if err != nil {
+		f.handleChannelReadyBarriers.Delete(msg.ChanID)
+
+		log.Errorf("Unable to locate ChannelID(%v), cannot "+
+			"complete funding", chanID)
+
+		return
+	}
+
+	// If the RemoteNextRevocation is non-nil, then the channel has
+	// already been fully established and we've processed channel_ready
+	// for it at least once. We short-circuit inline to avoid redoing the
+	// heavy work in processChannelReady (DB writes, nonce generation,
+	// AddNewChannel) on every duplicate channel_ready the peer sends.
+	// Note that the happy path where the channel is actively being
+	// funded goes through the localDiscoverySignal branch above.
+	if channel.RemoteNextRevocation != nil {
+		// Even though we're ignoring the rest of the message, we
+		// still need to refresh the peer's alias if they negotiated
+		// the option_scid_alias feature and sent a (possibly updated)
+		// AliasScid. The peer may resend channel_ready to rotate or
+		// update their alias for invoice route hints.
+		if channel.NegotiatedAliasFeature() && msg.AliasScid != nil {
+			err := f.cfg.AliasManager.PutPeerAlias(
+				chanID, *msg.AliasScid,
+			)
+			if err != nil {
+				log.Errorf("unable to store peer's alias: "+
+					"%v", err)
+			}
+		}
+
+		f.handleChannelReadyBarriers.Delete(msg.ChanID)
+
+		log.Infof("Received duplicate channelReady for "+
+			"ChannelID(%v), ignoring.", chanID)
+
+		return
+	}
+
+	// Channel exists and hasn't been fully established yet — this is a
+	// legitimate first channel_ready. Dispatch the remaining work (DB
+	// writes, nonce generation, AddNewChannel) in a goroutine to avoid
+	// blocking the coordinator.
+	f.wg.Add(1)
+	go func() {
+		defer f.wg.Done()
+		defer f.handleChannelReadyBarriers.Delete(msg.ChanID)
+
+		f.processChannelReady(peer, msg)
+	}()
+}
+
+// processChannelReady completes the channel_ready handling after any required
+// signal waits. It looks up the channel in the database and finalizes the
+// funding flow by inserting the remote party's next revocation point and
+// handing the channel off to the peer for normal operation.
+func (f *Manager) processChannelReady(peer lnpeer.Peer,
+	msg *lnwire.ChannelReady) {
 
 	// If we are in development mode, we'll wait for specified duration
 	// before processing the channel ready message.
@@ -4068,51 +4190,10 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 		}
 	}
 
-	log.Debugf("Received ChannelReady for ChannelID(%v) from "+
-		"peer %x", msg.ChanID,
-		peer.IdentityKey().SerializeCompressed())
-
-	// We now load or create a new channel barrier for this channel.
-	_, loaded := f.handleChannelReadyBarriers.LoadOrStore(
-		msg.ChanID, struct{}{},
-	)
-
-	// If we are currently in the process of handling a channel_ready
-	// message for this channel, ignore.
-	if loaded {
-		log.Infof("Already handling channelReady for "+
-			"ChannelID(%v), ignoring.", msg.ChanID)
-		return
-	}
-
-	// If not already handling channelReady for this channel, then the
-	// `LoadOrStore` has set up a barrier, and it will be removed once this
-	// function exits.
-	defer f.handleChannelReadyBarriers.Delete(msg.ChanID)
-
-	localDiscoverySignal, ok := f.localDiscoverySignals.Load(msg.ChanID)
-	if ok {
-		// Before we proceed with processing the channel_ready
-		// message, we'll wait for the local waitForFundingConfirmation
-		// goroutine to signal that it has the necessary state in
-		// place. Otherwise, we may be missing critical information
-		// required to handle forwarded HTLC's.
-		select {
-		case <-localDiscoverySignal:
-			// Fallthrough
-		case <-f.quit:
-			return
-		}
-
-		// With the signal received, we can now safely delete the entry
-		// from the map.
-		f.localDiscoverySignals.Delete(msg.ChanID)
-	}
-
-	// First, we'll attempt to locate the channel whose funding workflow is
-	// being finalized by this message. We go to the database rather than
-	// our reservation map as we may have restarted, mid funding flow. Also
-	// provide the node's public key to make the search faster.
+	// We'll attempt to locate the channel whose funding workflow is being
+	// finalized by this message. We go to the database rather than our
+	// reservation map as we may have restarted mid funding flow. The
+	// node's public key is provided to scope the search.
 	chanID := msg.ChanID
 	channel, err := f.cfg.FindChannel(peer.IdentityKey(), chanID)
 	if err != nil {
@@ -4137,7 +4218,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 	// during invoice creation. In the zero-conf case, it is also used to
 	// provide a ChannelUpdate to the remote peer. This is done before the
 	// call to InsertNextRevocation in case the call to PutPeerAlias fails.
-	// If it were to fail on the first call to handleChannelReady, we
+	// If it were to fail on the first call to processChannelReady, we
 	// wouldn't want the channel to be usable yet.
 	if channel.NegotiatedAliasFeature() {
 		// If the AliasScid field is nil, we must fail out. We will
@@ -4701,28 +4782,21 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 		return err
 	}
 
+	// Create a context tied to the manager's quit channel so that both
+	// gossip awaits below respect shutdown.
+	ctx, cancel := lnutils.ContextFromQuit(f.quit)
+	defer cancel()
+
 	// We only send the channel proof announcement and the node announcement
 	// because addToGraph previously sent the ChannelAnnouncement and
 	// the ChannelUpdate announcement messages. The channel proof and node
 	// announcements are broadcast to the greater network.
-	errChan := f.cfg.SendAnnouncement(ann.chanProof)
-	select {
-	case err := <-errChan:
-		if err != nil {
-			if graph.IsError(err, graph.ErrOutdated,
-				graph.ErrIgnored) {
-
-				log.Debugf("Graph rejected "+
-					"AnnounceSignatures: %v", err)
-			} else {
-				log.Errorf("Unable to send channel "+
-					"proof: %v", err)
-				return err
-			}
-		}
-
-	case <-f.quit:
-		return ErrFundingManagerShuttingDown
+	err = mapGossipError(discovery.AwaitGossipResult(
+		ctx, f.cfg.SendAnnouncement(ann.chanProof),
+	), "AnnounceSignatures")
+	if err != nil {
+		log.Errorf("Unable to send channel proof: %v", err)
+		return err
 	}
 
 	// Now that the channel is announced to the network, we will also
@@ -4735,24 +4809,12 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 		return err
 	}
 
-	errChan = f.cfg.SendAnnouncement(&nodeAnn)
-	select {
-	case err := <-errChan:
-		if err != nil {
-			if graph.IsError(err, graph.ErrOutdated,
-				graph.ErrIgnored) {
-
-				log.Debugf("Graph rejected "+
-					"NodeAnnouncement1: %v", err)
-			} else {
-				log.Errorf("Unable to send node "+
-					"announcement: %v", err)
-				return err
-			}
-		}
-
-	case <-f.quit:
-		return ErrFundingManagerShuttingDown
+	err = mapGossipError(discovery.AwaitGossipResult(
+		ctx, f.cfg.SendAnnouncement(&nodeAnn),
+	), "NodeAnnouncement")
+	if err != nil {
+		log.Errorf("Unable to send node announcement: %v", err)
+		return err
 	}
 
 	return nil

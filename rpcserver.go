@@ -2401,6 +2401,29 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 
 		*channelType = lnwire.ChannelType(*fv)
 
+	case lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL:
+		// If the final taproot channel type is being set, then the
+		// channel MUST be private (unadvertised) for now.
+		if !in.Private {
+			return nil, fmt.Errorf("taproot channels must be " +
+				"private")
+		}
+
+		channelType = new(lnwire.ChannelType)
+		fv := lnwire.NewRawFeatureVector(
+			lnwire.SimpleTaprootChannelsRequiredFinal,
+		)
+
+		if in.ZeroConf {
+			fv.Set(lnwire.ZeroConfRequired)
+		}
+
+		if in.ScidAlias {
+			fv.Set(lnwire.ScidAliasRequired)
+		}
+
+		*channelType = lnwire.ChannelType(*fv)
+
 	case lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY:
 		// If the taproot overlay channel type is being set, then the
 		// channel MUST be private.
@@ -4897,6 +4920,9 @@ func rpcCommitmentType(chanType channeldb.ChannelType) lnrpc.CommitmentType {
 	switch {
 	case chanType.HasTapscriptRoot():
 		return lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY
+
+	case chanType.IsTaprootFinal():
+		return lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
 
 	case chanType.IsTaproot():
 		return lnrpc.CommitmentType_SIMPLE_TAPROOT

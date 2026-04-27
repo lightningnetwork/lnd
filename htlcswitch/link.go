@@ -629,8 +629,20 @@ func (l *channelLink) Stop() {
 
 	l.log.Info("stopping")
 
-	// As the link is stopping, we are no longer interested in htlc
-	// resolutions coming from the invoice registry.
+	// Stop the htlcManager goroutine first. This is critical: htlcManager
+	// is the sole caller of NotifyExitHopHtlc, which registers new hodl
+	// subscriptions. We must guarantee it has fully exited before we
+	// remove subscriptions and stop the hodlQueue. Without this ordering,
+	// a RevokeAndAck processed in the race window between hodlQueue.Stop()
+	// and cg.Quit() can register an orphaned subscription against a dead
+	// queue, causing notifyHodlSubscribers to block permanently and
+	// deadlock the entire invoice registry.
+	l.cg.Quit()
+	l.cg.WgWait()
+
+	// htlcManager has fully exited — no new hodl subscriptions can be
+	// registered from this point on. It is now safe to remove all
+	// subscriptions and tear down the queue.
 	l.cfg.Registry.HodlUnsubscribeAll(l.hodlQueue.ChanIn())
 
 	if l.cfg.ChainEvents.Cancel != nil {
@@ -650,9 +662,6 @@ func (l *channelLink) Stop() {
 	if l.hodlQueue != nil {
 		l.hodlQueue.Stop()
 	}
-
-	l.cg.Quit()
-	l.cg.WgWait()
 
 	// Now that the htlcManager has completely exited, reset the packet
 	// courier. This allows the mailbox to revaluate any lingering Adds that
@@ -909,7 +918,8 @@ func (l *channelLink) syncChanStates(ctx context.Context) error {
 
 	// First, we'll generate our ChanSync message to send to the other
 	// side. Based on this message, the remote party will decide if they
-	// need to retransmit any data or not.
+	// need to retransmit any data or not. The nonce format is derived from
+	// the channel type internally.
 	localChanSyncMsg, err := chanState.ChanSyncMsg()
 	if err != nil {
 		return fmt.Errorf("unable to generate chan sync message for "+
@@ -959,10 +969,21 @@ func (l *channelLink) syncChanStates(ctx context.Context) error {
 
 			// If this is a taproot channel, then we'll send the
 			// very same nonce that we sent above, as they should
-			// take the latest verification nonce we send.
+			// take the latest verification nonce we send. We use
+			// LocalVerNonce to extract from the correct field
+			// (map-based for final, legacy for staging).
 			if chanState.ChanType.IsTaproot() {
-				//nolint:ll
-				channelReadyMsg.NextLocalNonce = localChanSyncMsg.LocalNonce
+				nonce, err := localChanSyncMsg.LocalVerNonce(
+					chanState.FundingOutpoint.Hash,
+				)
+				if err != nil {
+					return fmt.Errorf("unable to "+
+						"extract nonce for "+
+						"channel_ready resend: %w",
+						err)
+				}
+
+				channelReadyMsg.NextLocalNonce = lnwire.SomeMusig2Nonce(nonce) //nolint:ll
 			}
 
 			// For channels that negotiated the option-scid-alias

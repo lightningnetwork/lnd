@@ -709,7 +709,9 @@ func runAsyncPayments(ht *lntest.HarnessTest, alice, bob *node.HarnessNode,
 	if commitType != nil {
 		chanArgs.CommitmentType = *commitType
 
-		if *commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		if *commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+			*commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL { //nolint:ll
+
 			chanArgs.Private = true
 		}
 	}

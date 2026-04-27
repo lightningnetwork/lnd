@@ -77,13 +77,44 @@ type MigrationSet struct {
 	LatestMigrationVersion uint
 
 	// Descriptors defines a list of migrations to be applied to the
-	// database. Each migration is assigned a version number, determining
-	// its execution order.
+	// database. Each migration is assigned a version number that documents
+	// and validates the expected execution order.
 	// The schema version, tracked by golang-migrate, ensures migrations are
 	// applied to the correct schema. For migrations involving only schema
 	// changes, the migration function can be left nil. For custom
 	// migrations an implemented migration function is required.
 	Descriptors []MigrationDescriptor
+}
+
+// validate checks that the migration metadata is internally consistent.
+func (m MigrationSet) validate() error {
+	if len(m.Descriptors) == 0 {
+		if m.LatestMigrationVersion != 0 {
+			return fmt.Errorf("latest migration version %d requires "+
+				"at least one descriptor",
+				m.LatestMigrationVersion)
+		}
+
+		return nil
+	}
+
+	for i, descriptor := range m.Descriptors {
+		expectedVersion := i + 1
+		if descriptor.Version != expectedVersion {
+			return fmt.Errorf("migration descriptor version %d is out "+
+				"of order, expected %d", descriptor.Version,
+				expectedVersion)
+		}
+	}
+
+	lastDescriptor := m.Descriptors[len(m.Descriptors)-1]
+	if uint(lastDescriptor.Version) != m.LatestMigrationVersion {
+		return fmt.Errorf("latest migration version %d does not "+
+			"match last descriptor version %d",
+			m.LatestMigrationVersion, lastDescriptor.Version)
+	}
+
+	return nil
 }
 
 // MigrationTarget is a functional option that can be passed to applyMigrations

@@ -520,6 +520,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSimpleTaprootChannelActivation,
 	},
 	{
+		Name:     "simple taproot final channel activation",
+		TestFunc: testSimpleTaprootFinalChannelActivation,
+	},
+	{
 		Name:     "wallet import pubkey",
 		TestFunc: testWalletImportPubKey,
 	},
@@ -790,6 +794,10 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "estimate on chain fee auto selected inputs",
 		TestFunc: testEstimateOnChainFeeAutoSelectedInputs,
+	},
+	{
+		Name:     "postgres network separation",
+		TestFunc: testPostgresNetworkSeparation,
 	},
 }
 

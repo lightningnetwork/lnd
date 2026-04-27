@@ -16,6 +16,7 @@
     - [Testing](#testing)
     - [Database](#database)
     - [Code Health](#code-health)
+    - [Robustness](#robustness)
     - [Tooling and Documentation](#tooling-and-documentation)
 - [Contributors (Alphabetical Order)](#contributors)
 
@@ -70,6 +71,23 @@
   the chain watch filter on restart. This was a pre-existing bug since
   private taproot channels were first introduced.
 
+* [Fixed a shutdown race in the
+  channel link](https://github.com/lightningnetwork/lnd/pull/10719)
+  that could deadlock the invoice registry during concurrent peer disconnect.
+  The link now waits for `htlcManager` to fully exit before tearing down hodl
+  subscriptions and the hodl queue, preventing orphaned subscriptions from
+  blocking invoice resolution.
+
+* [Fixed two follow-ups to the production taproot channels
+  work](https://github.com/lightningnetwork/lnd/pull/10763). The RPC channel
+  acceptor switch now maps `SIMPLE_TAPROOT_FINAL` (with every combination of
+  the `scid-alias` / `zero-conf` modifiers) so final-taproot opens are
+  reported to external acceptor clients with the correct commitment type
+  instead of `UNKNOWN_COMMITMENT_TYPE`. The taproot RBF cooperative-close
+  auto-enable is also narrowed to skip taproot-overlay channels, since the
+  RBF close state machine does not yet thread through the `AuxCloser` hook
+  that overlay channels rely on to build aux-aware close transactions.
+
 - [Fixed `BudgetInputSet.AddWalletInputs` to roll back partially-added
   wallet inputs on error](https://github.com/lightningnetwork/lnd/pull/10723).
   Previously, if adding a wallet input failed midway through the loop, any
@@ -95,6 +113,16 @@
   non-wumbo channel size (~0.168 BTC), with wumbo channels always requiring
   6 confirmations.
 
+* [Added support for production (final) simple taproot
+  channels](https://github.com/lightningnetwork/lnd/pull/9985) using the
+  finalized taproot channel scripts with feature bits 80/81. Production taproot
+  channels use optimized scripts (`OP_CHECKSIGVERIFY` instead of `OP_CHECKSIG` +
+  `OP_DROP`) and a map-based nonce encoding in `channel_reestablish` and
+  `revoke_and_ack` keyed by funding TXID, laying the groundwork for splice
+  support. The nonce type is now auto-detected from the negotiated channel type
+  rather than peer feature bits, ensuring correct behavior across all recovery
+  and resynchronization paths.
+
 * [Added taproot channel support for RBF cooperative
   close](https://github.com/lightningnetwork/lnd/pull/10063). The new RBF-based
   cooperative close protocol (enabled with `--protocol.rbf-coop-close`) now
@@ -105,6 +133,28 @@
   prevents nonce reuse across RBF rounds by storing the `MusigPartialSig` in the
   protocol state machine and invalidating nonces after each signing round
   completes.
+
+* [Added rate limiting and a channel-presence gate for incoming onion
+  messages](https://github.com/lightningnetwork/lnd/pull/10713). Two new
+  byte-denominated token-bucket limiters run at ingress — one per peer, one
+  global — so small onion messages pay proportionally less of the budget
+  than spec-max ones. Defaults are `0.5 Mbps` (512 Kbps, 256 KiB burst) per
+  peer and `5 Mbps` (5120 Kbps, 1600 KiB burst) globally, tunable via
+  `protocol.onion-msg-peer-kbps`,
+  `protocol.onion-msg-peer-burst-bytes`,
+  `protocol.onion-msg-global-kbps`, and
+  `protocol.onion-msg-global-burst-bytes`. Setting both the rate and the
+  burst of a given limiter to `0` disables it; setting only one to `0`, or
+  a burst smaller than a maximum-sized onion message, is rejected at
+  startup. Incoming onion messages from peers with no fully open channel
+  are also dropped at ingress as a Sybil-resistance layer; pending
+  channels are excluded. Operators who want to accept onion messages
+  from peers regardless of channel state can set
+  `protocol.onion-msg-relay-all=true` to skip the channel-presence gate;
+  the rate limiters still apply. See
+  [docs/onion_message_rate_limiting.md](../onion_message_rate_limiting.md)
+  for the adversary model, the layers, the defaults, and operator
+  recipes.
 
 ## RPC Additions
 
@@ -307,7 +357,15 @@
 
 ## Database
 
-* Freeze the [graph SQL migration 
+* [Prevent silent data corruption](https://github.com/lightningnetwork/lnd/pull/10684)
+  when reusing the same database across different Bitcoin networks. On first
+  startup the active network is persisted in a new `chain_params` table; on
+  every subsequent restart lnd compares the stored value against the configured
+  network and refuses to start if they differ, printing a clear error message
+  with remediation steps. This safeguard applies to both the PostgreSQL and
+  SQLite native-SQL backends when running with `--db.use-native-sql`.
+
+* Freeze the [graph SQL migration
   code](https://github.com/lightningnetwork/lnd/pull/10338) to prevent the 
   need for maintenance as the sqlc code evolves. 
 * Prepare the graph DB for handling gossip V2
@@ -323,6 +381,10 @@
   The v1 end-time bound is corrected from inclusive to exclusive to match the
   BOLT 07 `gossip_timestamp_filter` spec. New SQL queries and composite indexes
   are added for efficient v2 block-height range scans.
+* [Version `FilterKnownChanIDs` and fix `FetchChannelEdgesByID` zombie
+  fallback](https://github.com/lightningnetwork/lnd/pull/10717) so that gossip
+  channel filtering and zombie edge lookups use the correct gossip version
+  instead of hardcoding v1.
 * Updated waiting proof persistence for gossip upgrades by introducing typed
   waiting proof keys and payloads, with a DB migration to rewrite legacy
   waiting proof records to the new key/value format
@@ -371,6 +433,24 @@
   to accommodate buried activation (and modified RPC `getdeploymentinfo`
   response) beginning in Bitcoin Core v32.
 
+* [Migrated gossip result handling from `chan error` to
+  `actor.Future[error]`](https://github.com/lightningnetwork/lnd/pull/10589).
+  The three buffered-channel patterns in the discovery package are replaced
+  with idempotent promises, eliminating a class of latent deadlock bugs when a
+  deferred message copy was re-enqueued and processed a second time. A new
+  `lnutils.ContextFromQuit` helper bridges the existing `quit` channels to
+  `context.Context`, so all gossip awaits now respect shutdown uniformly.
+
+## Robustness
+
+* [Drop onion messages that would cycle back to the sending
+  peer](https://github.com/lightningnetwork/lnd/pull/10754). When the
+  resolved next hop of an incoming onion message is the same peer that
+  delivered it, the message is now dropped instead of being forwarded
+  back over the connection it arrived on. This closes a trivial
+  traffic-amplification vector and covers both the direct next-node-ID
+  and SCID-resolved paths.
+
 ## Tooling and Documentation
 
 * [Added missing `lncli:` tags](https://github.com/lightningnetwork/lnd/pull/10658)
@@ -385,17 +465,40 @@
   and transitioning the documentation to focus on a more reliable "Simnet" 
   workflow while removing obsolete faucet references.
 
+* [Android Lndmobile 16 KB page size for native libraries](https://github.com/lightningnetwork/lnd/pull/10517)
+  The Android `Lndmobile.aar` build now passes `-Wl,-z,max-page-size=16384` to
+  the linker, keeping the generated native library compatible with newer
+  Android devices that use 16 KB memory pages while preserving compatibility
+  with existing 4 KB page-size devices.
+
 # Contributors (Alphabetical Order)
 
+* Abdulkbk
+* AbelLykens
+* ajaysehwal
+* Andras Banki-Horvath
 * bitromortac
 * Boris Nagaev
+* Calvin Zachman
+* Dario Anongba
 * Elle Mouton
+* elnosh
 * Erick Cestari
+* Euler-B
+* ffranr
+* George Tsagkarelis
 * Gijs van Dam
 * hieblmi
+* Liongrass
+* Matt Morehouse
 * Matthew Zipkin
 * Mohamed Awnallah
 * Nishant Bansal
+* Olaoluwa Osuntokun
+* Oliver Gugger
 * Pins
 * Suheb
+* ViktorT-11
+* Yash Bhutwala
+* Yong Yu
 * Ziggie

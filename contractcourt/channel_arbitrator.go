@@ -2434,6 +2434,13 @@ func (c *ChannelArbitrator) prepContractResolutions(
 		return htlcResolvers, nil
 	}
 
+	// Determine the channel type once before the resolution loop so we
+	// don't repeat the nil check on every iteration.
+	var chanType channeldb.ChannelType
+	if chanState != nil {
+		chanType = chanState.ChanType
+	}
+
 	// For each HTLC, we'll either act immediately, meaning we'll instantly
 	// fail the HTLC, or we'll act only once the transaction has been
 	// confirmed, in which case we'll need an HTLC resolver.
@@ -2460,7 +2467,8 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				}
 
 				resolver := newSuccessResolver(
-					resolution, height, htlc, resolverCfg,
+					resolution, height, htlc, chanType,
+					resolverCfg,
 				)
 				if chanState != nil {
 					resolver.SupplementState(chanState)
@@ -2488,7 +2496,8 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				}
 
 				resolver := newTimeoutResolver(
-					resolution, height, htlc, resolverCfg,
+					resolution, height, htlc, chanType,
+					resolverCfg,
 				)
 				if chanState != nil {
 					resolver.SupplementState(chanState)
@@ -2528,7 +2537,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				}
 
 				resolver := newIncomingContestResolver(
-					resolution, height, htlc,
+					resolution, height, htlc, chanType,
 					resolverCfg,
 				)
 				if chanState != nil {
@@ -2560,7 +2569,8 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				}
 
 				resolver := newOutgoingContestResolver(
-					resolution, height, htlc, resolverCfg,
+					resolution, height, htlc, chanType,
+					resolverCfg,
 				)
 				if chanState != nil {
 					resolver.SupplementState(chanState)

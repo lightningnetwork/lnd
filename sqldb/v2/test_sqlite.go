@@ -1,4 +1,4 @@
-//go:build !test_db_postgres
+//go:build !test_db_postgres && !js && !(windows && (arm || 386)) && !(linux && (ppc64 || mips || mipsle || mips64))
 
 package sqldb
 

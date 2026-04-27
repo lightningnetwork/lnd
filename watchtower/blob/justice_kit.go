@@ -295,6 +295,12 @@ func (a *anchorJusticeKit) ToRemoteOutputSpendInfo() (*txscript.PkScript,
 // be used for backing up commitments of taproot channels.
 type taprootJusticeKit struct {
 	justiceKitPacketV1
+
+	// isFinal indicates whether this is a production taproot channel
+	// using final scripts (OP_CHECKSIGVERIFY optimizations). This
+	// determines which script variant to use when reconstructing
+	// scripts for justice transactions.
+	isFinal bool
 }
 
 // A compile-time check to ensure that taprootJusticeKit implements the
@@ -310,9 +316,17 @@ func newTaprootJusticeKit(sweepScript []byte,
 
 	// TODO(roasbeef): aux leaf tower updates needed
 
+	// Use production scripts if this is a final taproot channel.
+	var scriptOpts []input.TaprootScriptOpt
+	isFinal := breachInfo.ChanType.IsTaprootFinal()
+	if isFinal {
+		scriptOpts = append(scriptOpts, input.WithProdScripts())
+	}
+
 	tree, err := input.NewLocalCommitScriptTree(
 		breachInfo.RemoteDelay, keyRing.ToLocalKey,
 		keyRing.RevocationKey, fn.None[txscript.TapLeaf](),
+		scriptOpts...,
 	)
 	if err != nil {
 		return nil, err
@@ -331,7 +345,10 @@ func newTaprootJusticeKit(sweepScript []byte,
 		packet.commitToRemotePubKey = toBlobPubKey(keyRing.ToRemoteKey)
 	}
 
-	return &taprootJusticeKit{packet}, nil
+	return &taprootJusticeKit{
+		justiceKitPacketV1: packet,
+		isFinal:            isFinal,
+	}, nil
 }
 
 // ToLocalOutputSpendInfo returns the info required to send the to-local
@@ -352,8 +369,14 @@ func (t *taprootJusticeKit) ToLocalOutputSpendInfo() (*txscript.PkScript,
 		return nil, nil, err
 	}
 
+	// Use production scripts if this is a final taproot channel.
+	var scriptOpts []input.TaprootScriptOpt
+	if t.isFinal {
+		scriptOpts = append(scriptOpts, input.WithProdScripts())
+	}
+
 	revokeScript, err := input.TaprootLocalCommitRevokeScript(
-		localDelayedPubKey, revocationPubKey,
+		localDelayedPubKey, revocationPubKey, scriptOpts...,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -419,8 +442,14 @@ func (t *taprootJusticeKit) ToRemoteOutputSpendInfo() (*txscript.PkScript,
 		return nil, nil, 0, err
 	}
 
+	// Use production scripts if this is a final taproot channel.
+	var scriptOpts []input.TaprootScriptOpt
+	if t.isFinal {
+		scriptOpts = append(scriptOpts, input.WithProdScripts())
+	}
+
 	scriptTree, err := input.NewRemoteCommitScriptTree(
-		toRemotePk, fn.None[txscript.TapLeaf](),
+		toRemotePk, fn.None[txscript.TapLeaf](), scriptOpts...,
 	)
 	if err != nil {
 		return nil, nil, 0, err

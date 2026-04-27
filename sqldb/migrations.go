@@ -93,7 +93,7 @@ var (
 			// user if necessary.
 		},
 		{
-			Name:          "000009_graph_v2_columns",
+			Name:          "000009_graph_v2",
 			Version:       11,
 			SchemaVersion: 9,
 		},
@@ -125,6 +125,16 @@ var (
 			Name:          "000013_payments_index_improvements",
 			Version:       16,
 			SchemaVersion: 13,
+		},
+		{
+			Name:          "000014_payments_no_fail_reason_index",
+			Version:       17,
+			SchemaVersion: 14,
+		},
+		{
+			Name:          "000015_chain_params",
+			Version:       18,
+			SchemaVersion: 15,
 		},
 	}, migrationAdditions...)
 

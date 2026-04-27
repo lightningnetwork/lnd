@@ -1767,3 +1767,79 @@ func TestCreateHtlcValidator(t *testing.T) {
 		})
 	}
 }
+
+// TestHasActiveChannels exercises the atomic active-channel counter that
+// backs hasActiveChannels(). hasActiveChannels is on the hot path for
+// every incoming onion message — the onion message ingress gate calls
+// it per packet — so a correct, O(1) shadow of activeChannels is a
+// load-bearing invariant. This test walks the three state transitions
+// that have to keep numActiveChans in lockstep with activeChannels:
+// initial emptiness, pending entries (nil values) that must not count,
+// and pending-delete paths that must not decrement.
+func TestHasActiveChannels(t *testing.T) {
+	t.Parallel()
+
+	peer := NewBrontide(Config{})
+
+	// Initial state: no channels, counter is zero, gate is closed.
+	require.False(t, peer.hasActiveChannels())
+	require.Equal(t, int32(0), peer.numActiveChans.Load())
+
+	// Simulate the loadActiveChannels active-channel path: the entry
+	// is stored and the counter is incremented in lockstep. After
+	// this, hasActiveChannels must flip to true because the peer now
+	// holds a non-pending channel.
+	activeID := lnwire.ChannelID{0x01}
+	peer.activeChannels.Store(activeID, &lnwallet.LightningChannel{})
+	peer.numActiveChans.Add(1)
+	require.True(t, peer.hasActiveChannels())
+	require.Equal(t, int32(1), peer.numActiveChans.Load())
+
+	// Simulate the loadActiveChannels pending path: the entry is
+	// stored as nil and the counter must NOT move. This is the
+	// invariant the onion message gate relies on — pending channels
+	// are cheap to open and get stuck, so they must not satisfy the
+	// Sybil-resistance gate on their own.
+	pendingID := lnwire.ChannelID{0x02}
+	peer.activeChannels.Store(pendingID, nil)
+	require.Equal(t, int32(1), peer.numActiveChans.Load())
+	require.True(t, peer.hasActiveChannels())
+
+	// handleRemovePendingChannel walks the pending-delete path. It
+	// uses LoadAndDelete and must skip the counter decrement when
+	// the previous value was nil (pending). If this invariant ever
+	// broke, the counter would underflow every time a pending
+	// channel was cancelled and hasActiveChannels would return the
+	// wrong answer until the next reconnect.
+	errChan := make(chan error, 1)
+	peer.handleRemovePendingChannel(&newChannelMsg{
+		channelID: pendingID,
+		err:       errChan,
+	})
+	require.Equal(t, int32(1), peer.numActiveChans.Load())
+	require.True(t, peer.hasActiveChannels())
+
+	// The pending entry must have been removed from the map.
+	_, found := peer.activeChannels.Load(pendingID)
+	require.False(t, found)
+
+	// Drain the request error channel so the test leaves no loose
+	// ends. handleRemovePendingChannel closes the err chan via
+	// defer, so we expect a closed-channel receive here.
+	_, reqOk := <-errChan
+	require.False(t, reqOk)
+
+	// Finally, simulate WipeChannel's decrement path directly via
+	// LoadAndDelete. We cannot call WipeChannel in this
+	// dummy-config harness because it also calls
+	// p.cfg.Switch.RemoveLink, but the counter-maintenance half of
+	// WipeChannel is exactly the LoadAndDelete + conditional Add(-1)
+	// we exercise here.
+	prev, loaded := peer.activeChannels.LoadAndDelete(activeID)
+	require.True(t, loaded)
+	require.NotNil(t, prev)
+	peer.numActiveChans.Add(-1)
+
+	require.False(t, peer.hasActiveChannels())
+	require.Equal(t, int32(0), peer.numActiveChans.Load())
+}

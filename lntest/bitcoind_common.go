@@ -181,6 +181,14 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 		//
 		// TODO: Remove once btcd supports v2 P2P transport.
 		"-v2transport=0",
+		// Pin the pre-v30 mempool policy defaults (1 sat/vB)
+		// so the itest suite keeps exercising the fee math it
+		// was written against. v30 lowered minrelaytxfee and
+		// incrementalrelayfee to 100 sat/kvB, which breaks
+		// integer sat/vByte assertions and alters RBF bump
+		// thresholds across the sweeper/bumpfee tests.
+		"-minrelaytxfee=0.00001",
+		"-incrementalrelayfee=0.00001",
 	}
 	cmdArgs = append(cmdArgs, extraArgs...)
 	bitcoind := exec.Command("bitcoind", cmdArgs...)

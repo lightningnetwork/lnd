@@ -2544,14 +2544,21 @@ func (s *SQLStore) FetchChannelEdgesByID(ctx context.Context,
 			if err != nil {
 				return err
 			}
-			zombieEdge, err := models.NewV1Channel(
-				0, chainhash.Hash{}, node1, node2,
-				&models.ChannelV1Fields{},
-			)
+			switch v {
+			case gossipV1:
+				edge, err = models.NewV1Channel(
+					0, chainhash.Hash{}, node1,
+					node2, &models.ChannelV1Fields{},
+				)
+			case gossipV2:
+				edge, err = models.NewV2Channel(
+					0, chainhash.Hash{}, node1,
+					node2, &models.ChannelV2Fields{},
+				)
+			}
 			if err != nil {
 				return err
 			}
-			edge = zombieEdge
 
 			return ErrZombieEdge
 		} else if err != nil {
@@ -3121,6 +3128,7 @@ func (s *SQLStore) forEachChanWithPoliciesInSCIDList(ctx context.Context,
 //
 // NOTE: part of the Store interface.
 func (s *SQLStore) FilterKnownChanIDs(ctx context.Context,
+	v lnwire.GossipVersion,
 	chansInfo []ChannelUpdateInfo) ([]uint64, []ChannelUpdateInfo, error) {
 
 	var (
@@ -3141,7 +3149,8 @@ func (s *SQLStore) FilterKnownChanIDs(ctx context.Context,
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		// The call-back function deletes known channels from
 		// infoLookup, so that we can later check which channels are
-		// zombies by only looking at the remaining channels in the set.
+		// zombies by only looking at the remaining channels in the
+		// set.
 		cb := func(ctx context.Context,
 			channel sqlc.GraphChannel) error {
 
@@ -3150,16 +3159,18 @@ func (s *SQLStore) FilterKnownChanIDs(ctx context.Context,
 			return nil
 		}
 
-		err := s.forEachChanInSCIDList(ctx, db, cb, chansInfo)
+		err := s.forEachChanInSCIDList(
+			ctx, db, v, cb, chansInfo,
+		)
 		if err != nil {
-			return fmt.Errorf("unable to iterate through "+
+			return fmt.Errorf("unable to iterate "+
 				"channels: %w", err)
 		}
 
 		// We want to ensure that we deal with the channels in the
-		// same order that they were passed in, so we iterate over the
-		// original chansInfo slice and then check if that channel is
-		// still in the infoLookup map.
+		// same order that they were passed in, so we iterate over
+		// the original chansInfo slice and then check if that
+		// channel is still in the infoLookup map.
 		for _, chanInfo := range chansInfo {
 			channelID := chanInfo.ShortChannelID.ToUint64()
 			if _, ok := infoLookup[channelID]; !ok {
@@ -3169,16 +3180,18 @@ func (s *SQLStore) FilterKnownChanIDs(ctx context.Context,
 			isZombie, err := db.IsZombieChannel(
 				ctx, sqlc.IsZombieChannelParams{
 					Scid:    channelIDToBytes(channelID),
-					Version: int16(lnwire.GossipVersion1),
+					Version: int16(v),
 				},
 			)
 			if err != nil {
-				return fmt.Errorf("unable to fetch zombie "+
-					"channel: %w", err)
+				return fmt.Errorf("unable to fetch "+
+					"zombie channel: %w", err)
 			}
 
 			if isZombie {
-				knownZombies = append(knownZombies, chanInfo)
+				knownZombies = append(
+					knownZombies, chanInfo,
+				)
 
 				continue
 			}
@@ -3204,10 +3217,11 @@ func (s *SQLStore) FilterKnownChanIDs(ctx context.Context,
 }
 
 // forEachChanInSCIDList is a helper method that executes a paged query
-// against the database to fetch all channels that match the passed
-// ChannelUpdateInfo slice. The callback function is called for each channel
-// that is found.
+// against the database to fetch all channels of the given gossip version that
+// match the passed ChannelUpdateInfo slice. The callback function is called
+// for each channel that is found.
 func (s *SQLStore) forEachChanInSCIDList(ctx context.Context, db SQLQueries,
+	v lnwire.GossipVersion,
 	cb func(ctx context.Context, channel sqlc.GraphChannel) error,
 	chansInfo []ChannelUpdateInfo) error {
 
@@ -3216,7 +3230,7 @@ func (s *SQLStore) forEachChanInSCIDList(ctx context.Context, db SQLQueries,
 
 		return db.GetChannelsBySCIDs(
 			ctx, sqlc.GetChannelsBySCIDsParams{
-				Version: int16(lnwire.GossipVersion1),
+				Version: int16(v),
 				Scids:   scids,
 			},
 		)

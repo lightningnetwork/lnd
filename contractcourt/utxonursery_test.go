@@ -1457,3 +1457,178 @@ func TestPatchZeroHeightHint(t *testing.T) {
 		})
 	}
 }
+
+// TestMakeBabyOutputWitnessType verifies that makeBabyOutput selects the
+// correct witness type based on the channel type (non-taproot, staging taproot,
+// production taproot).
+func TestMakeBabyOutputWitnessType(t *testing.T) {
+	t.Parallel()
+
+	// A P2TR pkscript (OP_1 <32-byte-key>).
+	taprootPkScript := make([]byte, 34)
+	taprootPkScript[0] = txscript.OP_1
+	taprootPkScript[1] = 32
+
+	// A non-taproot pkscript (P2WSH).
+	legacyPkScript := make([]byte, 34)
+	legacyPkScript[0] = txscript.OP_0
+	legacyPkScript[1] = 32
+
+	chanPoint := wire.OutPoint{}
+
+	tests := []struct {
+		name            string
+		pkScript        []byte
+		isFinalTaproot  bool
+		expectedWitType input.StandardWitnessType
+	}{
+		{
+			name:            "non-taproot",
+			pkScript:        legacyPkScript,
+			isFinalTaproot:  false,
+			expectedWitType: input.HtlcOfferedTimeoutSecondLevel,
+		},
+		{
+			name:            "staging taproot",
+			pkScript:        taprootPkScript,
+			isFinalTaproot:  false,
+			expectedWitType: input.TaprootHtlcOfferedTimeoutSecondLevel, //nolint:ll
+		},
+		{
+			name:            "production taproot final",
+			pkScript:        taprootPkScript,
+			isFinalTaproot:  true,
+			expectedWitType: input.TaprootHtlcOfferedTimeoutSecondLevelFinal, //nolint:ll
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			htlcRes := &lnwallet.OutgoingHtlcResolution{
+				Expiry:   500,
+				CsvDelay: 144,
+				SweepSignDesc: input.SignDescriptor{
+					Output: &wire.TxOut{
+						Value:    10000,
+						PkScript: tc.pkScript,
+					},
+				},
+				SignedTimeoutTx: &wire.MsgTx{
+					TxIn: []*wire.TxIn{{
+						Witness: [][]byte{{}},
+					}},
+					TxOut: []*wire.TxOut{{}},
+				},
+			}
+
+			baby := makeBabyOutput(
+				&chanPoint, htlcRes, fn.None[int32](),
+				tc.isFinalTaproot,
+			)
+
+			require.Equal(
+				t, tc.expectedWitType,
+				baby.WitnessType(),
+				"wrong witness type for %s", tc.name,
+			)
+		})
+	}
+}
+
+// TestIncubateConfigWitnessTypeSelection verifies that the IncubateConfig
+// correctly determines isFinalTaproot based on the channel type passed via
+// WithChanType, which drives witness type selection in IncubateOutputs.
+func TestIncubateConfigWitnessTypeSelection(t *testing.T) {
+	t.Parallel()
+
+	// A P2TR pkscript (OP_1 <32-byte-key>).
+	taprootPkScript := make([]byte, 34)
+	taprootPkScript[0] = txscript.OP_1
+	taprootPkScript[1] = 32
+
+	// Non-taproot pkscript.
+	legacyPkScript := make([]byte, 34)
+	legacyPkScript[0] = txscript.OP_0
+	legacyPkScript[1] = 32
+
+	tests := []struct {
+		name string
+
+		// pkScript determines if the output looks like taproot.
+		pkScript []byte
+
+		// chanType to pass via WithChanType.
+		chanType channeldb.ChannelType
+
+		// Expected witness types for incoming and outgoing-remote.
+		expectedIncoming input.StandardWitnessType
+		expectedOutgoing input.StandardWitnessType
+	}{
+		{
+			name:             "non-taproot incoming+outgoing",
+			pkScript:         legacyPkScript,
+			expectedIncoming: input.HtlcAcceptedSuccessSecondLevel,
+			expectedOutgoing: input.HtlcOfferedRemoteTimeout,
+		},
+		{
+			name:             "staging taproot incoming+outgoing",
+			pkScript:         taprootPkScript,
+			expectedIncoming: input.TaprootHtlcAcceptedSuccessSecondLevel, //nolint:ll
+			expectedOutgoing: input.TaprootHtlcOfferedRemoteTimeout,
+		},
+		{
+			name:     "production taproot incoming+outgoing",
+			pkScript: taprootPkScript,
+			chanType: channeldb.SimpleTaprootFeatureBit |
+				channeldb.AnchorOutputsBit |
+				channeldb.SingleFunderTweaklessBit |
+				channeldb.TaprootFinalBit,
+			expectedIncoming: input.TaprootHtlcAcceptedSuccessSecondLevelFinal, //nolint:ll
+			expectedOutgoing: input.TaprootHtlcOfferedRemoteTimeoutFinal,       //nolint:ll
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Build the IncubateConfig to check witness type
+			// selection logic.
+			cfg := IncubateConfig{}
+			if tc.chanType != 0 {
+				opt := WithChanType(tc.chanType)
+				opt(&cfg)
+			}
+
+			isFinal := cfg.chanType.UnwrapOr(
+				0,
+			).IsTaprootFinal()
+
+			// Verify incoming HTLC witness type.
+			isTaproot := txscript.IsPayToTaproot(
+				tc.pkScript,
+			)
+
+			var inWit input.StandardWitnessType
+			switch {
+			case isFinal:
+				inWit = input.TaprootHtlcAcceptedSuccessSecondLevelFinal //nolint:ll
+			case isTaproot:
+				inWit = input.TaprootHtlcAcceptedSuccessSecondLevel //nolint:ll
+			default:
+				inWit = input.HtlcAcceptedSuccessSecondLevel //nolint:ll
+			}
+			require.Equal(t, tc.expectedIncoming, inWit)
+
+			// Verify outgoing remote HTLC witness type.
+			var outWit input.StandardWitnessType
+			switch {
+			case isFinal:
+				outWit = input.TaprootHtlcOfferedRemoteTimeoutFinal //nolint:ll
+			case isTaproot:
+				outWit = input.TaprootHtlcOfferedRemoteTimeout //nolint:ll
+			default:
+				outWit = input.HtlcOfferedRemoteTimeout
+			}
+			require.Equal(t, tc.expectedOutgoing, outWit)
+		})
+	}
+}

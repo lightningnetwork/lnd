@@ -59,6 +59,11 @@ const (
 	// channel with a top level tapscript commitment.
 	TapscriptRootVersion = 6
 
+	// SimpleTaprootFinalVersion is a version that denotes this channel is
+	// using the production musig2 based taproot commitment format with
+	// final scripts (OP_CHECKSIGVERIFY instead of OP_CHECKSIG + OP_DROP).
+	SimpleTaprootFinalVersion = 7
+
 	// closeTxVersionMask is the byte mask used that is ORed to version byte
 	// on wire indicating that the backup has CloseTxInputs.
 	closeTxVersionMask = 1 << 7
@@ -94,7 +99,8 @@ func DecodeVersion(encoded byte) (SingleBackupVersion, bool) {
 // IsTaproot returns if this is a backup of a taproot channel. This will also be
 // true for simple taproot overlay channels when a version is added.
 func (v SingleBackupVersion) IsTaproot() bool {
-	return v == SimpleTaprootVersion || v == TapscriptRootVersion
+	return v == SimpleTaprootVersion || v == TapscriptRootVersion ||
+		v == SimpleTaprootFinalVersion
 }
 
 // HasTapscriptRoot returns true if the channel is using a top level tapscript
@@ -302,6 +308,9 @@ func NewSingle(channel *channeldb.OpenChannel,
 	}
 
 	switch {
+	case channel.ChanType.IsTaprootFinal():
+		single.Version = SimpleTaprootFinalVersion
+
 	case channel.ChanType.IsTaproot():
 		if channel.ChanType.HasTapscriptRoot() {
 			single.Version = TapscriptRootVersion
@@ -351,6 +360,7 @@ func (s *Single) Serialize(w io.Writer) error {
 	case ScriptEnforcedLeaseVersion:
 	case SimpleTaprootVersion:
 	case TapscriptRootVersion:
+	case SimpleTaprootFinalVersion:
 	default:
 		return fmt.Errorf("unable to serialize w/ unknown "+
 			"version: %v", s.Version)
@@ -585,6 +595,7 @@ func (s *Single) Deserialize(r io.Reader) error {
 	case ScriptEnforcedLeaseVersion:
 	case SimpleTaprootVersion:
 	case TapscriptRootVersion:
+	case SimpleTaprootFinalVersion:
 	default:
 		return fmt.Errorf("unable to de-serialize w/ unknown "+
 			"version: %v", s.Version)

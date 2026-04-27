@@ -442,6 +442,15 @@ type server struct {
 		*onionmessage.Request, *onionmessage.Response,
 	]
 
+	// onionLimiter is the combined per-peer + global onion message
+	// ingress limiter. It hides the split between the two underlying
+	// buckets behind a single interface so peer.Config only needs to
+	// carry one field and brontide.readHandler only needs one call
+	// per incoming onion message. Nil means onion message rate
+	// limiting is disabled (e.g. when onion messaging itself is
+	// turned off).
+	onionLimiter onionmessage.IngressLimiter
+
 	// txPublisher is a publisher with fee-bumping capability.
 	txPublisher *sweep.TxPublisher
 
@@ -659,6 +668,22 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		return nil, fmt.Errorf("taproot overlay flag set, but " +
 			"overlay channels are not supported " +
 			"in a standalone lnd build")
+	}
+
+	// If taproot channels are enabled, we also enable the RBF cooperative
+	// close protocol, as it is required for taproot channel
+	// interoperability.
+	//
+	// Exception: when taproot-overlay channels are enabled we do NOT
+	// auto-enable RBF, because the RBF coop close state machine does not
+	// yet thread through the AuxCloser hook that overlay channels rely on
+	// to build the aux-aware close transaction. Forcing RBF on for a
+	// node that holds overlay channels would silently break their coop
+	// closes.
+	if cfg.ProtocolOptions.TaprootChans &&
+		!cfg.ProtocolOptions.TaprootOverlayChans {
+
+		cfg.ProtocolOptions.RbfCoopClose = true
 	}
 
 	//nolint:ll
@@ -1311,11 +1336,13 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			outHtlcRes fn.Option[lnwallet.OutgoingHtlcResolution],
 			inHtlcRes fn.Option[lnwallet.IncomingHtlcResolution],
 			broadcastHeight uint32,
-			deadlineHeight fn.Option[int32]) error {
+			deadlineHeight fn.Option[int32],
+			opts ...contractcourt.IncubateOption) error {
 
 			return s.utxoNursery.IncubateOutputs(
 				chanPoint, outHtlcRes, inHtlcRes,
 				broadcastHeight, deadlineHeight,
+				opts...,
 			)
 		},
 		PreimageDB:   s.witnessBeacon,
@@ -1766,6 +1793,13 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			blob.FlagTaprootChannel,
 		)
 
+		// Copy the policy for legacy channels and set the blob flags
+		// signalling support for production taproot channels.
+		taprootFinalPolicy := policy
+		taprootFinalPolicy.TxPolicy.BlobType |= blob.Type(
+			blob.FlagTaprootChannel | blob.FlagTaprootFinalChannel,
+		)
+
 		s.towerClientMgr, err = wtclient.NewManager(&wtclient.Config{
 			FetchClosedChannel:     fetchClosedChannel,
 			BuildBreachRetribution: buildBreachRetribution,
@@ -1796,7 +1830,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			MinBackoff:         10 * time.Second,
 			MaxBackoff:         5 * time.Minute,
 			MaxTasksInMemQueue: cfg.WtClient.MaxTasksInMemQueue,
-		}, policy, anchorPolicy, taprootPolicy)
+		}, policy, anchorPolicy, taprootPolicy, taprootFinalPolicy)
 		if err != nil {
 			return nil, err
 		}
@@ -2392,6 +2426,28 @@ func (s *server) Start(ctx context.Context) error {
 
 			s.defaultOnionActorOpts = onionmessage.
 				DefaultOnionActorOpts()
+
+			// Build the global and per-peer onion message rate
+			// limiters from the configured values, then compose
+			// them behind a single IngressLimiter so the peer
+			// package only needs to carry one field. A zero
+			// kbps or a zero burst-bytes disables the
+			// corresponding bucket; rates are expressed in
+			// decimal kilobits per second and bursts in bytes
+			// so operators can reason about onion message
+			// ingress in terms of bandwidth rather than raw
+			// message counts.
+			onionPeerLim := onionmessage.NewPeerRateLimiter(
+				s.cfg.ProtocolOptions.OnionMsgPeerKbps,
+				s.cfg.ProtocolOptions.OnionMsgPeerBurstBytes,
+			)
+			onionGlobalLim := onionmessage.NewGlobalLimiter(
+				s.cfg.ProtocolOptions.OnionMsgGlobalKbps,
+				s.cfg.ProtocolOptions.OnionMsgGlobalBurstBytes,
+			)
+			s.onionLimiter = onionmessage.NewIngressLimiter(
+				onionPeerLim, onionGlobalLim,
+			)
 		}
 
 		cleanup = cleanup.add(s.chanStatusMgr.Stop)
@@ -4461,6 +4517,8 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		RoutingPolicy:           s.cc.RoutingPolicy,
 		SphinxPayment:           s.sphinxPayment,
 		SpawnOnionActor:         s.onionActorFactory,
+		OnionLimiter:            s.onionLimiter,
+		OnionRelayAll:           s.cfg.ProtocolOptions.OnionMsgRelayAll,
 		OnionActorOpts: func(_ [33]byte) []actor.ActorOption[
 			*onionmessage.Request, *onionmessage.Response,
 		] {
@@ -5342,15 +5400,14 @@ func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate1,
 		}
 	}
 
-	errChan := s.authGossiper.ProcessLocalAnnouncement(
+	fut := s.authGossiper.ProcessLocalAnnouncement(
 		update, discovery.RemoteAlias(peerAlias),
 	)
-	select {
-	case err := <-errChan:
-		return err
-	case <-s.quit:
-		return ErrServerShuttingDown
-	}
+
+	ctx, cancel := lnutils.ContextFromQuit(s.quit)
+	defer cancel()
+
+	return discovery.AwaitGossipResult(ctx, fut)
 }
 
 // SendCustomMessage sends a custom message to the peer with the specified

@@ -81,7 +81,8 @@ func newHtlcResolverTestContext(t *testing.T,
 			IncubateOutputs: func(wire.OutPoint,
 				fn.Option[lnwallet.OutgoingHtlcResolution],
 				fn.Option[lnwallet.IncomingHtlcResolution],
-				uint32, fn.Option[int32]) error {
+				uint32, fn.Option[int32],
+				...IncubateOption) error {
 
 				return nil
 			},

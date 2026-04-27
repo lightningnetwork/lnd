@@ -82,9 +82,26 @@ func (o *OnionMessage) MsgType() MessageType {
 	return MsgOnionMessage
 }
 
+// WireSize returns the on-the-wire size of the message in bytes, including
+// the 2-byte message type prefix, the 33-byte compressed path key, the
+// 2-byte onion blob length prefix, and the onion blob itself. It computes
+// the size directly from the in-memory fields rather than round-tripping
+// through Encode, so callers in the hot ingress path — notably the onion
+// message rate limiter — can charge the right number of byte tokens
+// without paying for a full serialization.
+func (o *OnionMessage) WireSize() int {
+	const (
+		msgTypeBytes  = 2
+		pathKeyBytes  = 33
+		onionLenBytes = 2
+	)
+
+	return msgTypeBytes + pathKeyBytes + onionLenBytes + len(o.OnionBlob)
+}
+
 // SerializedSize returns the serialized size of the message in bytes.
 //
 // This is part of the lnwire.SizeableMessage interface.
 func (o *OnionMessage) SerializedSize() (uint32, error) {
-	return MessageSerializedSize(o)
+	return uint32(o.WireSize()), nil
 }

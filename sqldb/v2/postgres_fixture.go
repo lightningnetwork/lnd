@@ -45,8 +45,12 @@ func NewTestPgFixture(t testing.TB, expiry time.Duration) *TestPgFixture {
 	pool, err := dockertest.NewPool("")
 	require.NoError(t, err, "Could not connect to docker")
 
-	// Create a predictable container name.
-	containerName := sanitizeDockerName(t.Name() + "-postgresql-container")
+	// Create a Docker-safe container name and add a random suffix so
+	// concurrently running tests do not collide.
+	containerName := sanitizeDockerName(
+		fmt.Sprintf("%s-%s-postgresql-container", t.Name(),
+			RandomDBName(t)),
+	)
 
 	// Pulls an image, creates a container based on it and runs it.
 	resource, err := pool.RunWithOptions(&dockertest.RunOptions{
@@ -112,10 +116,33 @@ func NewTestPgFixture(t testing.TB, expiry time.Duration) *TestPgFixture {
 	return fixture
 }
 
-// sanitizeDockerName returns a Docker-safe container name by replacing
-// disallowed path separators ("/") with underscores.
+// sanitizeDockerName returns a Docker-safe container name.
 func sanitizeDockerName(name string) string {
-	return strings.ReplaceAll(name, "/", "_")
+	sanitized := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return r
+
+		case r >= 'A' && r <= 'Z':
+			return r
+
+		case r >= '0' && r <= '9':
+			return r
+
+		case r == '_', r == '-':
+			return r
+
+		default:
+			return '_'
+		}
+	}, name)
+
+	sanitized = strings.Trim(sanitized, "_.-")
+	if sanitized == "" {
+		return "postgresql-container"
+	}
+
+	return sanitized
 }
 
 // GetConfig returns the full config of the Postgres node.

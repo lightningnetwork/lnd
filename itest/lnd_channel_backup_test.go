@@ -86,6 +86,30 @@ var channelRestoreTestCases = []*lntest.TestCase{
 		},
 	},
 	{
+		// Restore a channel back up of a confirmed production
+		// taproot channel.
+		Name: "restore simple taproot final",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			runChanRestoreScenarioCommitTypes(
+				ht,
+				lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
+				false,
+			)
+		},
+	},
+	{
+		// Restore a channel back up of an unconfirmed production
+		// taproot channel.
+		Name: "restore simple taproot final zero conf",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			runChanRestoreScenarioCommitTypes(
+				ht,
+				lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
+				true,
+			)
+		},
+	},
+	{
 		Name:     "restore from rpc",
 		TestFunc: testChannelBackupRestoreFromRPC,
 	},
@@ -193,7 +217,9 @@ func newChanRestoreScenario(ht *lntest.HarnessTest, ct lnrpc.CommitmentType,
 	// If the commitment type is taproot, then the channel must also be
 	// private.
 	var privateChan bool
-	if ct == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+	if ct == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		ct == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
+
 		privateChan = true
 	}
 
@@ -639,7 +665,9 @@ func runChanRestoreScenarioCommitTypes(ht *lntest.HarnessTest,
 	// If this was a zero conf taproot channel, then since it's private,
 	// we'll need to mine an extra block (framework won't mine extra blocks
 	// otherwise).
-	if ct == lnrpc.CommitmentType_SIMPLE_TAPROOT && zeroConf {
+	if (ct == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		ct == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL) && zeroConf {
+
 		ht.MineBlocksAndAssertNumTxes(1, 1)
 	}
 

@@ -84,20 +84,12 @@ func ReadTxOpt() TxOptions {
 	}
 }
 
-// BaseQuerier is a generic interface that represents the base methods that any
-// database backend implementation which uses a Querier for its operations must
-// implement.
-type BaseQuerier interface {
-	// Backend returns the type of the database backend used.
-	Backend() BackendType
-}
-
 // BatchedTx is a generic interface that represents the ability to execute
 // several operations to a given storage interface in a single atomic
 // transaction. Typically, Q here will be some subset of the main sqlc.Querier
 // interface allowing it to only depend on the routines it needs to implement
 // any additional business logic.
-type BatchedTx[Q BaseQuerier] interface {
+type BatchedTx[Q any] interface {
 	// ExecTx will execute the passed txBody, operating upon generic
 	// parameter Q (usually a storage interface) in a single transaction.
 	//
@@ -137,6 +129,9 @@ type BatchedQuerier interface {
 	// BeginTx creates a new database transaction given the set of
 	// transaction options.
 	BeginTx(ctx context.Context, options TxOptions) (*sql.Tx, error)
+
+	// Backend returns the type of the database backend used.
+	Backend() BackendType
 }
 
 // txExecutorOptions is a struct that holds the options for the transaction
@@ -156,12 +151,6 @@ func defaultTxExecutorOptions() *txExecutorOptions {
 		initialRetryDelay: DefaultInitialRetryDelay,
 		maxRetryDelay:     DefaultMaxRetryDelay,
 	}
-}
-
-// randRetryDelay returns a random retry delay between 0 and the configured max
-// delay.
-func (t *txExecutorOptions) randRetryDelay() time.Duration {
-	return time.Duration(rand.Int63n(int64(t.maxRetryDelay))) //nolint:gosec
 }
 
 // TxExecutorOption is a functional option that allows us to pass in optional
@@ -188,7 +177,7 @@ func WithTxRetryDelay(delay time.Duration) TxExecutorOption {
 // query a type needs to run under a database transaction, and also the set of
 // options for that transaction. The QueryCreator is used to create a query
 // given a database transaction created by the BatchedQuerier.
-type TransactionExecutor[Query BaseQuerier] struct {
+type TransactionExecutor[Query any] struct {
 	BatchedQuerier
 
 	createQuery QueryCreator[Query]
@@ -196,10 +185,14 @@ type TransactionExecutor[Query BaseQuerier] struct {
 	opts *txExecutorOptions
 }
 
+// A compile-time assertion to ensure TransactionExecutor satisfies the
+// batched transaction interface.
+var _ BatchedTx[any] = (*TransactionExecutor[any])(nil)
+
 // NewTransactionExecutor creates a new instance of a TransactionExecutor given
 // a Querier query object and a concrete type for the type of transactions the
 // Querier understands.
-func NewTransactionExecutor[Querier BaseQuerier](db BatchedQuerier,
+func NewTransactionExecutor[Querier any](db BatchedQuerier,
 	createQuery QueryCreator[Querier],
 	opts ...TxExecutorOption) *TransactionExecutor[Querier] {
 
@@ -213,6 +206,11 @@ func NewTransactionExecutor[Querier BaseQuerier](db BatchedQuerier,
 		createQuery:    createQuery,
 		opts:           txOpts,
 	}
+}
+
+// Backend returns the type of database backend used by the executor.
+func (t *TransactionExecutor[Q]) Backend() BackendType {
+	return t.BatchedQuerier.Backend()
 }
 
 // randRetryDelay returns a random retry delay between -50% and +50% of the
@@ -268,6 +266,55 @@ type RollbackTx func(tx Tx) error
 // the delay before the next retry.
 type OnBackoff func(retry int, delay time.Duration)
 
+// executeTxAttempt runs a single transaction attempt and reports whether the
+// caller should retry it.
+func executeTxAttempt(tx Tx, txBody TxBody, rollbackTx RollbackTx,
+	waitBeforeRetry func(int) bool, attempt int) (bool, error) {
+
+	// Rollback is safe to call even if the tx is already closed, so if the tx
+	// commits successfully, this is a no-op.
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	if bodyErr := txBody(tx); bodyErr != nil {
+		log.Tracef("Error in txBody: %v", bodyErr)
+
+		// Roll back the transaction, then attempt a random backoff and try
+		// again if the error was a serialization error.
+		if err := rollbackTx(tx); err != nil {
+			return false, MapSQLError(err)
+		}
+
+		dbErr := MapSQLError(bodyErr)
+		if IsSerializationOrDeadlockError(dbErr) {
+			return waitBeforeRetry(attempt), dbErr
+		}
+
+		return false, dbErr
+	}
+
+	// Commit transaction.
+	if commitErr := tx.Commit(); commitErr != nil {
+		log.Tracef("Failed to commit tx: %v", commitErr)
+
+		// Roll back the transaction, then attempt a random backoff and try
+		// again if the error was a serialization error.
+		if err := rollbackTx(tx); err != nil {
+			return false, MapSQLError(err)
+		}
+
+		dbErr := MapSQLError(commitErr)
+		if IsSerializationOrDeadlockError(dbErr) {
+			return waitBeforeRetry(attempt), dbErr
+		}
+
+		return false, dbErr
+	}
+
+	return false, nil
+}
+
 // ExecuteSQLTransactionWithRetry is a helper function that executes a
 // transaction with retry logic. It will retry the transaction if it fails with
 // a serialization error. The function will return an error if the transaction
@@ -316,51 +363,15 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 			return dbErr
 		}
 
-		// Rollback is safe to call even if the tx is already closed,
-		// so if the tx commits successfully, this is a no-op.
-		defer func() {
-			_ = tx.Rollback()
-		}()
-
-		if bodyErr := txBody(tx); bodyErr != nil {
-			log.Tracef("Error in txBody: %v", bodyErr)
-
-			// Roll back the transaction, then attempt a random
-			// backoff and try again if the error was a
-			// serialization error.
-			if err := rollbackTx(tx); err != nil {
-				return MapSQLError(err)
-			}
-
-			dbErr := MapSQLError(bodyErr)
-			if IsSerializationOrDeadlockError(dbErr) {
-				if waitBeforeRetry(i) {
-					continue
-				}
-			}
-
-			return dbErr
+		retry, err := executeTxAttempt(
+			tx, txBody, rollbackTx, waitBeforeRetry, i,
+		)
+		if retry {
+			// Transient serialization error, discard this attempt and retry.
+			continue
 		}
-
-		// Commit transaction.
-		if commitErr := tx.Commit(); commitErr != nil {
-			log.Tracef("Failed to commit tx: %v", commitErr)
-
-			// Roll back the transaction, then attempt a random
-			// backoff and try again if the error was a
-			// serialization error.
-			if err := rollbackTx(tx); err != nil {
-				return MapSQLError(err)
-			}
-
-			dbErr := MapSQLError(commitErr)
-			if IsSerializationOrDeadlockError(dbErr) {
-				if waitBeforeRetry(i) {
-					continue
-				}
-			}
-
-			return dbErr
+		if err != nil {
+			return err
 		}
 
 		return nil

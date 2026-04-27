@@ -170,6 +170,13 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 		chanType |= channeldb.SimpleTaprootFeatureBit
 		chanType |= channeldb.TapscriptRootBit
 
+	case chanbackup.SimpleTaprootFinalVersion:
+		chanType = channeldb.ZeroHtlcTxFeeBit
+		chanType |= channeldb.AnchorOutputsBit
+		chanType |= channeldb.SingleFunderTweaklessBit
+		chanType |= channeldb.SimpleTaprootFeatureBit
+		chanType |= channeldb.TaprootFinalBit
+
 	default:
 		return nil, fmt.Errorf("unknown Single version: %w", err)
 	}

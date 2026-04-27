@@ -46,6 +46,26 @@ func parsePostgresError(pqErr *pgconn.PgError) error {
 			DBError: pqErr,
 		}
 
+	// In failed SQL transaction because we didn't catch a previous
+	// serialization error, so return this one as a serialization error.
+	case pgerrcode.InFailedSQLTransaction:
+		return &ErrSerializationError{
+			DBError: pqErr,
+		}
+
+	// Deadlock detected because of a serialization error, so return this
+	// one as a serialization error.
+	case pgerrcode.DeadlockDetected:
+		return &ErrSerializationError{
+			DBError: pqErr,
+		}
+
+	// Handle schema error.
+	case pgerrcode.UndefinedColumn, pgerrcode.UndefinedTable:
+		return &ErrSchemaError{
+			DBError: pqErr,
+		}
+
 	default:
 		return fmt.Errorf("unknown postgres error: %w", pqErr)
 	}
@@ -83,4 +103,35 @@ func (e ErrSerializationError) Error() string {
 func IsSerializationError(err error) bool {
 	var serializationError *ErrSerializationError
 	return errors.As(err, &serializationError)
+}
+
+// IsSerializationOrDeadlockError returns true if the given error is either a
+// deadlock error or a serialization error.
+//
+// DeadlockDetected errors are already mapped to ErrSerializationError above,
+// so checking for serialization errors is sufficient on no-SQLite targets.
+func IsSerializationOrDeadlockError(err error) bool {
+	return IsSerializationError(err)
+}
+
+// ErrSchemaError is an error type which represents a database agnostic error
+// that the schema of the database is incorrect for the given query.
+type ErrSchemaError struct {
+	DBError error
+}
+
+// Unwrap returns the wrapped error.
+func (e ErrSchemaError) Unwrap() error {
+	return e.DBError
+}
+
+// Error returns the error message.
+func (e ErrSchemaError) Error() string {
+	return e.DBError.Error()
+}
+
+// IsSchemaError returns true if the given error is a schema error.
+func IsSchemaError(err error) bool {
+	var schemaError *ErrSchemaError
+	return errors.As(err, &schemaError)
 }

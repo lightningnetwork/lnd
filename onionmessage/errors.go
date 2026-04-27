@@ -14,4 +14,9 @@ var (
 	// ErrSCIDEmpty is returned when the short channel ID is missing from
 	// the route data.
 	ErrSCIDEmpty = errors.New("short channel ID empty")
+
+	// ErrSamePeerCycle is returned when a forwarding onion message
+	// would be sent back to the same peer it was received from.
+	ErrSamePeerCycle = errors.New("onion message cycle: next " +
+		"hop is the sending peer")
 )

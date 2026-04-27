@@ -3,7 +3,6 @@
 package sqldb
 
 import (
-	"context"
 	"fmt"
 )
 
@@ -27,7 +26,7 @@ type SqliteStore struct {
 // NewSqliteStore attempts to open a new sqlite database based on the passed
 // config.
 func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
-	return nil, fmt.Errorf("SQLite backend not supported in WebAssembly")
+	return nil, fmt.Errorf("SQLite backend not supported on this platform")
 }
 
 // GetBaseDB returns the underlying BaseDB instance for the SQLite store.
@@ -36,10 +35,9 @@ func (s *SqliteStore) GetBaseDB() *BaseDB {
 	return s.BaseDB
 }
 
-// ApplyAllMigrations applies both the SQLC and custom in-code migrations to
-// the SQLite database.
-func (s *SqliteStore) ApplyAllMigrations(context.Context,
-	[]MigrationSet) error {
+// ExecuteMigrations returns an error because the SQLite backend is unavailable
+// on this platform.
+func (s *SqliteStore) ExecuteMigrations(MigrationSet) error {
 
-	return fmt.Errorf("SQLite backend not supported in WebAssembly")
+	return fmt.Errorf("SQLite backend not supported on this platform")
 }

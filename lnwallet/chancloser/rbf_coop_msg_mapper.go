@@ -11,10 +11,11 @@ import (
 // rbf-coop close state machine. This enables the state machine to be used with
 // protofsm.
 type RbfMsgMapper struct {
-	// blockHeight is the height of the block when the co-op close request
-	// was initiated. This is used to validate conditions related to the
-	// thaw height.
-	blockHeight uint32
+	// bestHeight returns the current best block height. This is used
+	// instead of a static height so that thaw height checks reflect the
+	// actual chain state when messages are received, not the height at
+	// FSM creation time.
+	bestHeight func() uint32
 
 	// chanID is the channel ID of the channel being closed.
 	chanID lnwire.ChannelID
@@ -24,15 +25,15 @@ type RbfMsgMapper struct {
 	peerPub btcec.PublicKey
 }
 
-// NewRbfMsgMapper creates a new RbfMsgMapper instance given the current block
-// height when the co-op close request was initiated.
-func NewRbfMsgMapper(blockHeight uint32,
+// NewRbfMsgMapper creates a new RbfMsgMapper instance given a function that
+// returns the current best block height.
+func NewRbfMsgMapper(bestHeight func() uint32,
 	chanID lnwire.ChannelID, peerPub btcec.PublicKey) *RbfMsgMapper {
 
 	return &RbfMsgMapper{
-		blockHeight: blockHeight,
-		chanID:      chanID,
-		peerPub:     peerPub,
+		bestHeight: bestHeight,
+		chanID:     chanID,
+		peerPub:    peerPub,
 	}
 }
 
@@ -64,7 +65,7 @@ func (r *RbfMsgMapper) MapMsg(wireMsg msgmux.PeerMsg) fn.Option[ProtocolEvent] {
 		})
 
 		return someEvent(&ShutdownReceived{
-			BlockHeight:         r.blockHeight,
+			BlockHeight:         r.bestHeight(),
 			ShutdownScript:      msg.Address,
 			RemoteShutdownNonce: remoteShutdownNonce,
 		})

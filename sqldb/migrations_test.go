@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -667,7 +668,7 @@ func TestMigrationConfigConsistency(t *testing.T) {
 	seenVersions := make(map[int]string)
 	seenSchemaVersions := make(map[int]string)
 
-	for _, m := range migrations {
+	for i, m := range migrations {
 		// 1. Verify no duplicate global versions.
 		if existing, ok := seenVersions[m.Version]; ok {
 			t.Fatalf("duplicate global version %d: %q and %q",
@@ -680,20 +681,29 @@ func TestMigrationConfigConsistency(t *testing.T) {
 		//    and no two config entries claim the same schema version
 		//    with different file prefixes.
 		prevSchema := 0
-		if m.Version > 1 {
-			prevSchema = migrations[m.Version-2].SchemaVersion
+		if i > 0 {
+			prevSchema = migrations[i-1].SchemaVersion
 		}
+
+		require.GreaterOrEqual(t, m.SchemaVersion, prevSchema,
+			"migration %q regresses schema version from %d to %d",
+			m.Name, prevSchema, m.SchemaVersion)
 
 		// A migration advances the schema if its SchemaVersion is
 		// higher than the previous migration's SchemaVersion.
 		if m.SchemaVersion > prevSchema {
-			_, hasFile := fileSchemaVersions[m.SchemaVersion]
+			fileName, hasFile := fileSchemaVersions[m.SchemaVersion]
 			require.True(t, hasFile,
 				"migration %q (version %d) declares "+
 					"SchemaVersion=%d but no %06d_*.up.sql"+
 					" file exists in the embedded FS",
 				m.Name, m.Version, m.SchemaVersion,
 				m.SchemaVersion)
+			require.Equal(t, strings.TrimSuffix(fileName, ".up.sql"),
+				m.Name, "migration %q (version %d) has "+
+					"SchemaVersion=%d but its name does not "+
+					"match embedded file %q",
+				m.Name, m.Version, m.SchemaVersion, fileName)
 
 			if existing, ok := seenSchemaVersions[m.SchemaVersion]; ok {
 				t.Fatalf("duplicate schema version %d: "+

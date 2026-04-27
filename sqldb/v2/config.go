@@ -7,12 +7,18 @@ import (
 )
 
 const (
-	// defaultMaxConns is the number of permitted active and idle
+	// DefaultSqliteMaxConns is the default number of maximum open
+	// connections for SQLite. SQLite only supports a single writer, so a
+	// low default reduces contention on the busy_timeout and limits
+	// resource usage.
+	DefaultSqliteMaxConns = 2
+
+	// DefaultPostgresMaxConns is the number of permitted active and idle
 	// connections. We want to limit this so it isn't unlimited. We use the
 	// same value for the number of idle connections as, this can speed up
 	// queries given a new connection doesn't need to be established each
 	// time.
-	defaultMaxConns = 25
+	DefaultPostgresMaxConns = 25
 
 	// defaultMaxIdleConns is the number of permitted idle connections.
 	defaultMaxIdleConns = 6
@@ -60,6 +66,25 @@ func (s *SqliteConfig) busyTimeoutMs() int64 {
 	}
 
 	return DefaultSqliteBusyTimeout.Milliseconds()
+}
+
+// MaxConns returns the effective maximum number of SQLite connections.
+func (s *SqliteConfig) MaxConns() int {
+	if s.MaxConnections > 0 {
+		return s.MaxConnections
+	}
+
+	return DefaultSqliteMaxConns
+}
+
+// MaxIdleConns returns the effective maximum number of idle SQLite
+// connections.
+func (s *SqliteConfig) MaxIdleConns() int {
+	if s.MaxIdleConnections > 0 {
+		return s.MaxIdleConnections
+	}
+
+	return s.MaxConns()
 }
 
 // Validate checks that the SqliteConfig values are valid.

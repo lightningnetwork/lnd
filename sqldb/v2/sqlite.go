@@ -136,23 +136,13 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 			err)
 	}
 
-	maxConns := defaultMaxConns
-	if cfg.MaxConnections > 0 {
-		maxConns = cfg.MaxConnections
-	}
-
-	maxIdleConns := defaultMaxIdleConns
-	if cfg.MaxIdleConnections > 0 {
-		maxIdleConns = cfg.MaxIdleConnections
-	}
-
 	connMaxLifetime := defaultConnMaxLifetime
 	if cfg.ConnMaxLifetime > 0 {
 		connMaxLifetime = cfg.ConnMaxLifetime
 	}
 
-	db.SetMaxOpenConns(maxConns)
-	db.SetMaxIdleConns(maxIdleConns)
+	db.SetMaxOpenConns(cfg.MaxConns())
+	db.SetMaxIdleConns(cfg.MaxIdleConns())
 	db.SetConnMaxLifetime(connMaxLifetime)
 
 	s := &SqliteStore{
@@ -254,7 +244,7 @@ func (s *SqliteStore) backupAndMigrate(mig *migrate.Migrate,
 // ExecuteMigrations runs migrations for the sqlite database using the default
 // production migration target.
 func (s *SqliteStore) ExecuteMigrations(set MigrationSet) error {
-	if s.Config.SkipMigrations {
+	if s.SkipMigrations {
 		return nil
 	}
 
@@ -265,6 +255,10 @@ func (s *SqliteStore) ExecuteMigrations(set MigrationSet) error {
 // target given, either all migrations or up to a given version.
 func (s *SqliteStore) executeMigrations(target MigrationTarget,
 	set MigrationSet) error {
+
+	if err := set.validate(); err != nil {
+		return err
+	}
 
 	driver, err := sqlite_migrate.WithInstance(
 		s.DB, &sqlite_migrate.Config{
@@ -282,7 +276,7 @@ func (s *SqliteStore) executeMigrations(target MigrationTarget,
 	if set.MakeProgrammaticMigrations != nil {
 		postMigSteps, err := set.MakeProgrammaticMigrations(s.BaseDB)
 		if err != nil {
-			return errPostgresMigration(err)
+			return errSqliteMigration(err)
 		}
 		opts.programmaticMigrs = postMigSteps
 	}

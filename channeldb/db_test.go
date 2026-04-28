@@ -253,7 +253,7 @@ func TestFetchChannel(t *testing.T) {
 
 	// Next, attempt to fetch the channel by its channel ID.
 	chanID := lnwire.NewChanIDFromOutPoint(channelState.FundingOutpoint)
-	dbChannel, err = cdb.FetchChannelByID(nil, chanID)
+	dbChannel, err = cdb.FetchChannelByID(chanID)
 	require.NoError(t, err, "unable to fetch channel")
 
 	// The decoded channel state should be identical to what we stored
@@ -272,7 +272,7 @@ func TestFetchChannel(t *testing.T) {
 	require.ErrorIs(t, err, ErrChannelNotFound)
 
 	chanID2 := lnwire.NewChanIDFromOutPoint(channelState2.FundingOutpoint)
-	_, err = cdb.FetchChannelByID(nil, chanID2)
+	_, err = cdb.FetchChannelByID(chanID2)
 	require.ErrorIs(t, err, ErrChannelNotFound)
 }
 

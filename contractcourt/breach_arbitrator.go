@@ -655,6 +655,7 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
 		// or an offered HTLC output, its amount contributes to the
 		// value of funds being revoked from the counter party.
 		case input.CommitmentRevoke, input.TaprootCommitmentRevoke,
+			input.TaprootCommitmentRevokeFinal,
 			input.HtlcSecondLevelRevoke,
 			input.TaprootHtlcSecondLevelRevoke,
 			input.TaprootHtlcOfferedRevoke, input.HtlcOfferedRevoke:
@@ -1196,7 +1197,10 @@ func (bo *breachedOutput) BlocksToMaturity() uint32 {
 	// confirmed type (or is a taproot channel that always has the CSV 1),
 	// we must wait one block before claiming it.
 	switch bo.witnessType {
-	case input.CommitmentToRemoteConfirmed, input.TaprootRemoteCommitSpend:
+	case input.CommitmentToRemoteConfirmed,
+		input.TaprootRemoteCommitSpend,
+		input.TaprootRemoteCommitSpendFinal:
+
 		return 1
 	}
 
@@ -1279,6 +1283,11 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 	if breachInfo.LocalOutputSignDesc != nil {
 		var witnessType input.StandardWitnessType
 		switch {
+		// Check the final channel type before the generic taproot case,
+		// since the pkScript check below is true for both variants.
+		case breachInfo.ChanType.IsTaprootFinal():
+			witnessType = input.TaprootRemoteCommitSpendFinal
+
 		case isTaproot:
 			witnessType = input.TaprootRemoteCommitSpend
 
@@ -1318,9 +1327,14 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 	// the funds from the commitment transaction immediately.
 	if breachInfo.RemoteOutputSignDesc != nil {
 		var witType input.StandardWitnessType
-		if isTaproot {
+		switch {
+		case breachInfo.ChanType.IsTaprootFinal():
+			witType = input.TaprootCommitmentRevokeFinal
+
+		case isTaproot:
 			witType = input.TaprootCommitmentRevoke
-		} else {
+
+		default:
 			witType = input.CommitmentRevoke
 		}
 
@@ -1728,7 +1742,9 @@ func taprootBriefcaseFromRetInfo(retInfo *retributionInfo) *taprootBriefcase {
 		switch bo.WitnessType() {
 		// For spending from our commitment output on the remote
 		// commitment, we'll need to stash the control block.
-		case input.TaprootRemoteCommitSpend:
+		case input.TaprootRemoteCommitSpend,
+			input.TaprootRemoteCommitSpendFinal:
+
 			//nolint:ll
 			tapCase.CtrlBlocks.Val.CommitSweepCtrlBlock = bo.signDesc.ControlBlock
 
@@ -1742,7 +1758,9 @@ func taprootBriefcaseFromRetInfo(retInfo *retributionInfo) *taprootBriefcase {
 
 		// To spend the revoked output again, we'll store the same
 		// control block value as above, but in a different place.
-		case input.TaprootCommitmentRevoke:
+		case input.TaprootCommitmentRevoke,
+			input.TaprootCommitmentRevokeFinal:
+
 			//nolint:ll
 			tapCase.CtrlBlocks.Val.RevokeSweepCtrlBlock = bo.signDesc.ControlBlock
 
@@ -1787,7 +1805,9 @@ func applyTaprootRetInfo(tapCase *taprootBriefcase,
 		switch bo.WitnessType() {
 		// For spending from our commitment output on the remote
 		// commitment, we'll apply the control block.
-		case input.TaprootRemoteCommitSpend:
+		case input.TaprootRemoteCommitSpend,
+			input.TaprootRemoteCommitSpendFinal:
+
 			//nolint:ll
 			bo.signDesc.ControlBlock = tapCase.CtrlBlocks.Val.CommitSweepCtrlBlock
 
@@ -1799,7 +1819,9 @@ func applyTaprootRetInfo(tapCase *taprootBriefcase,
 
 		// To spend the revoked output again, we'll apply the same
 		// control block value as above, but to a different place.
-		case input.TaprootCommitmentRevoke:
+		case input.TaprootCommitmentRevoke,
+			input.TaprootCommitmentRevokeFinal:
+
 			//nolint:ll
 			bo.signDesc.ControlBlock = tapCase.CtrlBlocks.Val.RevokeSweepCtrlBlock
 

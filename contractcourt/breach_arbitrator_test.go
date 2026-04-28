@@ -32,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -2441,4 +2442,184 @@ func createHTLC(data int, amount lnwire.MilliSatoshi) (*lnwire.UpdateAddHTLC, [3
 		Amount:      amount,
 		Expiry:      uint32(5),
 	}, returnPreimage
+}
+
+// testTaprootBreachSignDesc creates a minimal taproot sign descriptor for
+// breach-arbitrator unit tests that only need a taproot output script.
+func testTaprootBreachSignDesc(t *testing.T) *input.SignDescriptor {
+	t.Helper()
+
+	pkScript, err := input.PayToTaprootScript(&input.TaprootNUMSKey)
+	require.NoError(t, err)
+
+	return &input.SignDescriptor{
+		Output: &wire.TxOut{
+			Value:    1000,
+			PkScript: pkScript,
+		},
+	}
+}
+
+// TestNewRetributionInfoTaprootFinalWitnessTypes verifies that final taproot
+// breaches use the final witness enums for the settled commitment outputs and
+// preserve their auxiliary resolution blobs.
+func TestNewRetributionInfoTaprootFinalWitnessTypes(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Create a final taproot breach with both settled commitment
+	// outputs present and auxiliary blobs attached.
+	settledBlob := tlv.Blob("settled-blob")
+	breachedBlob := tlv.Blob("breached-blob")
+	chanType := channeldb.SimpleTaprootFeatureBit |
+		channeldb.TaprootFinalBit
+
+	breachInfo := &lnwallet.BreachRetribution{
+		LocalOutpoint:        wire.OutPoint{Index: 1},
+		RemoteOutpoint:       wire.OutPoint{Index: 2},
+		LocalOutputSignDesc:  testTaprootBreachSignDesc(t),
+		RemoteOutputSignDesc: testTaprootBreachSignDesc(t),
+		ChanType:             chanType,
+		LocalResolutionBlob:  fn.Some(settledBlob),
+		RemoteResolutionBlob: fn.Some(breachedBlob),
+	}
+
+	// Act: Convert the wallet retribution into the breach-arbitrator form.
+	retInfo := newRetributionInfo(&wire.OutPoint{}, breachInfo)
+
+	// Assert: The final taproot witness enums, blobs, and CSV maturity are
+	// preserved.
+	require.Len(t, retInfo.breachedOutputs, 2)
+
+	require.Equal(
+		t, input.TaprootRemoteCommitSpendFinal,
+		retInfo.breachedOutputs[0].witnessType,
+	)
+	require.Equal(
+		t, uint32(1), retInfo.breachedOutputs[0].BlocksToMaturity(),
+	)
+	require.Equal(
+		t, input.TaprootCommitmentRevokeFinal,
+		retInfo.breachedOutputs[1].witnessType,
+	)
+	require.Equal(
+		t, settledBlob,
+		retInfo.breachedOutputs[0].resolutionBlob.UnsafeFromSome(),
+	)
+	require.Equal(
+		t, breachedBlob,
+		retInfo.breachedOutputs[1].resolutionBlob.UnsafeFromSome(),
+	)
+}
+
+// TestTaprootBriefcaseRoundTripFinalWitnessTypes verifies that final taproot
+// breach outputs survive taproot briefcase encoding and decoding with their
+// control blocks and auxiliary blobs intact.
+func TestTaprootBriefcaseRoundTripFinalWitnessTypes(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Build a retribution with final taproot witness enums and the
+	// corresponding control blocks/blobs that must survive persistence.
+	commitCtrlBlock := []byte("commit-ctrl-block")
+	revokeCtrlBlock := []byte("revoke-ctrl-block")
+	settledBlob := tlv.Blob("settled-blob")
+	breachedBlob := tlv.Blob("breached-blob")
+
+	retInfo := &retributionInfo{
+		breachedOutputs: []breachedOutput{
+			{
+				outpoint: wire.OutPoint{Index: 1},
+				witnessType: input.
+					TaprootRemoteCommitSpendFinal,
+				signDesc: input.SignDescriptor{
+					ControlBlock: commitCtrlBlock,
+				},
+				resolutionBlob: fn.Some(settledBlob),
+			},
+			{
+				outpoint:    wire.OutPoint{Index: 2},
+				witnessType: input.TaprootCommitmentRevokeFinal,
+				signDesc: input.SignDescriptor{
+					ControlBlock: revokeCtrlBlock,
+				},
+				resolutionBlob: fn.Some(breachedBlob),
+			},
+		},
+	}
+
+	// Act: Persist the taproot briefcase, decode it again, then apply it
+	// back to a fresh retribution shell.
+	tapCase := taprootBriefcaseFromRetInfo(retInfo)
+
+	var b bytes.Buffer
+	require.NoError(t, tapCase.Encode(&b))
+
+	decoded := newTaprootBriefcase()
+	require.NoError(t, decoded.Decode(&b))
+
+	restored := &retributionInfo{
+		breachedOutputs: []breachedOutput{
+			{
+				outpoint: wire.OutPoint{Index: 1},
+				witnessType: input.
+					TaprootRemoteCommitSpendFinal,
+			},
+			{
+				outpoint:    wire.OutPoint{Index: 2},
+				witnessType: input.TaprootCommitmentRevokeFinal,
+			},
+		},
+	}
+
+	// Assert: The final taproot control blocks and blobs round-trip intact.
+	require.NoError(t, applyTaprootRetInfo(decoded, restored))
+	require.Equal(
+		t, commitCtrlBlock,
+		restored.breachedOutputs[0].signDesc.ControlBlock,
+	)
+	require.Equal(
+		t, revokeCtrlBlock,
+		restored.breachedOutputs[1].signDesc.ControlBlock,
+	)
+	require.Equal(
+		t, settledBlob,
+		restored.breachedOutputs[0].resolutionBlob.UnsafeFromSome(),
+	)
+	require.Equal(
+		t, breachedBlob,
+		restored.breachedOutputs[1].resolutionBlob.UnsafeFromSome(),
+	)
+}
+
+// TestUpdateBreachInfoCountsFinalTaprootRevokedFunds verifies that final
+// taproot revoked commitment outputs are included in the revoked-funds tally.
+func TestUpdateBreachInfoCountsFinalTaprootRevokedFunds(t *testing.T) {
+	t.Parallel()
+
+	const revokedAmt = btcutil.Amount(1234)
+
+	// Arrange: Create a breach with a single final taproot revoked output.
+	breachInfo := &retributionInfo{
+		breachedOutputs: []breachedOutput{
+			{
+				amt:         revokedAmt,
+				outpoint:    wire.OutPoint{Index: 1},
+				witnessType: input.TaprootCommitmentRevokeFinal,
+			},
+		},
+	}
+
+	// Act: Process a spend for that revoked output.
+	total, revoked := updateBreachInfo(breachInfo, []spend{{
+		index: 0,
+		detail: &chainntnfs.SpendDetail{
+			SpendingTx:        &wire.MsgTx{TxIn: []*wire.TxIn{{}}},
+			SpenderInputIndex: 0,
+		},
+	}})
+
+	// Assert: The amount contributes to both the total and revoked-funds
+	// tallies and is removed from the remaining breach set.
+	require.Equal(t, revokedAmt, total)
+	require.Equal(t, revokedAmt, revoked)
+	require.Empty(t, breachInfo.breachedOutputs)
 }

@@ -18,7 +18,7 @@
     - [Code Health](#code-health)
     - [Robustness](#robustness)
     - [Tooling and Documentation](#tooling-and-documentation)
-- [Contributors (Alphabetical Order)](#contributors)
+- [Contributors (Alphabetical Order)](#contributors-alphabetical-order)
 
 # Bug Fixes
 

@@ -167,7 +167,11 @@ type AddHoldInvoiceRequest struct {
 	// field of the encoded payment request if the description_hash field is not
 	// being used.
 	Memo string `protobuf:"bytes,1,opt,name=memo,proto3" json:"memo,omitempty"`
-	// The hash of the preimage
+	// The hash of the preimage. Optional: when omitted, the server generates
+	// a random preimage locally, derives the hash, and returns the preimage
+	// in the response (see payment_preimage). The generated preimage is not
+	// persisted by the server, so the caller must save the returned value to
+	// settle the invoice later.
 	Hash []byte `protobuf:"bytes,2,opt,name=hash,proto3" json:"hash,omitempty"`
 	// The value of this invoice in satoshis
 	//
@@ -311,7 +315,16 @@ type AddHoldInvoiceResp struct {
 	// the payment secret in specifications (e.g. BOLT 11). This value should
 	// be used in all payments for this invoice as we require it for end to end
 	// security.
-	PaymentAddr   []byte `protobuf:"bytes,3,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
+	PaymentAddr []byte `protobuf:"bytes,3,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
+	// The preimage for this invoice. Populated only when the server
+	// auto-generates the preimage (i.e. the request was made without a
+	// hash). The server does not persist this preimage — callers must
+	// save it and supply it to SettleInvoice later. Empty when the
+	// caller provided a hash, since the server does not know the
+	// preimage in that case.
+	PaymentPreimage []byte `protobuf:"bytes,4,opt,name=payment_preimage,json=paymentPreimage,proto3" json:"payment_preimage,omitempty"`
+	// The payment hash for this invoice. Always populated.
+	PaymentHash   []byte `protobuf:"bytes,5,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -363,6 +376,20 @@ func (x *AddHoldInvoiceResp) GetAddIndex() uint64 {
 func (x *AddHoldInvoiceResp) GetPaymentAddr() []byte {
 	if x != nil {
 		return x.PaymentAddr
+	}
+	return nil
+}
+
+func (x *AddHoldInvoiceResp) GetPaymentPreimage() []byte {
+	if x != nil {
+		return x.PaymentPreimage
+	}
+	return nil
+}
+
+func (x *AddHoldInvoiceResp) GetPaymentHash() []byte {
+	if x != nil {
+		return x.PaymentHash
 	}
 	return nil
 }
@@ -840,11 +867,13 @@ const file_invoicesrpc_invoices_proto_rawDesc = "" +
 	"cltvExpiry\x121\n" +
 	"\vroute_hints\x18\b \x03(\v2\x10.lnrpc.RouteHintR\n" +
 	"routeHints\x12\x18\n" +
-	"\aprivate\x18\t \x01(\bR\aprivate\"}\n" +
+	"\aprivate\x18\t \x01(\bR\aprivate\"\xcb\x01\n" +
 	"\x12AddHoldInvoiceResp\x12'\n" +
 	"\x0fpayment_request\x18\x01 \x01(\tR\x0epaymentRequest\x12\x1b\n" +
 	"\tadd_index\x18\x02 \x01(\x04R\baddIndex\x12!\n" +
-	"\fpayment_addr\x18\x03 \x01(\fR\vpaymentAddr\".\n" +
+	"\fpayment_addr\x18\x03 \x01(\fR\vpaymentAddr\x12)\n" +
+	"\x10payment_preimage\x18\x04 \x01(\fR\x0fpaymentPreimage\x12!\n" +
+	"\fpayment_hash\x18\x05 \x01(\fR\vpaymentHash\".\n" +
 	"\x10SettleInvoiceMsg\x12\x1a\n" +
 	"\bpreimage\x18\x01 \x01(\fR\bpreimage\"\x13\n" +
 	"\x11SettleInvoiceResp\"<\n" +

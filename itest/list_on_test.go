@@ -251,6 +251,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testHoldInvoicePersistence,
 	},
 	{
+		Name:     "hold invoice auto generate",
+		TestFunc: testHoldInvoiceAutoGenerate,
+	},
+	{
 		Name:     "maximum channel size",
 		TestFunc: testMaxChannelSize,
 	},

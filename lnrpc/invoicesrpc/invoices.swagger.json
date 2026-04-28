@@ -282,7 +282,7 @@
         "hash": {
           "type": "string",
           "format": "byte",
-          "title": "The hash of the preimage"
+          "description": "The hash of the preimage. Optional: when omitted, the server generates\na random preimage locally, derives the hash, and returns the preimage\nin the response (see payment_preimage). The generated preimage is not\npersisted by the server, so the caller must save the returned value to\nsettle the invoice later."
         },
         "value": {
           "type": "string",
@@ -345,6 +345,16 @@
           "type": "string",
           "format": "byte",
           "description": "The payment address of the generated invoice. This is also called\nthe payment secret in specifications (e.g. BOLT 11). This value should\nbe used in all payments for this invoice as we require it for end to end\nsecurity."
+        },
+        "payment_preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "The preimage for this invoice. Populated only when the server\nauto-generates the preimage (i.e. the request was made without a\nhash). The server does not persist this preimage — callers must\nsave it and supply it to SettleInvoice later. Empty when the\ncaller provided a hash, since the server does not know the\npreimage in that case."
+        },
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment hash for this invoice. Always populated."
         }
       }
     },

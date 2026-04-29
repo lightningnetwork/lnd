@@ -1072,6 +1072,15 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		)
 	}
 
+	// KV-over-SQL backends (sqlite, postgres) opt in to closing channels
+	// via tombstone markers because nested-bucket deletes inside a write
+	// transaction translate into a long-running ON DELETE CASCADE on the
+	// kvdb-on-SQL schema, holding the database write-lock for many seconds
+	// on long-lived channels. bbolt and etcd keep the synchronous one-shot
+	// close path, where nested-bucket deletion is already cheap.
+	tombstoneClosedChans := cfg.DB.Backend == lncfg.SqliteBackend ||
+		cfg.DB.Backend == lncfg.PostgresBackend
+
 	dbOptions := []channeldb.OptionModifier{
 		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
 		channeldb.OptionStoreFinalHtlcResolutions(
@@ -1081,6 +1090,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		channeldb.OptionNoRevLogAmtData(cfg.DB.NoRevLogAmtData),
 		channeldb.OptionGcDecayedLog(cfg.DB.NoGcDecayedLog),
 		channeldb.OptionWithDecayedLogDB(dbs.DecayedLogDB),
+		channeldb.OptionTombstoneClosedChannels(tombstoneClosedChans),
 	}
 
 	// Otherwise, we'll open two instances, one for the state we only need

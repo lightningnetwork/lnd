@@ -85,13 +85,28 @@ func testWipeForwardingPackages(ht *lntest.HarnessTest) {
 	// close channel should now become pending force closed channel.
 	pendingAB = ht.AssertChannelPendingForceClose(bob, chanPointAB).Channel
 
-	// Check the forwarding pacakges are deleted.
-	require.Zero(ht, pendingAB.NumForwardingPackages)
+	// On backends that close channels via tombstone markers (sqlite,
+	// postgres), the per-channel forwarding-package bucket is left on
+	// disk by design — the synchronous close path's nested-bucket
+	// delete is exactly what tombstoning avoids. The bytes are reclaimed
+	// by the upcoming native-SQL channel-state migration. The unit-test
+	// suite in channeldb covers the tombstone semantics directly, so
+	// here we just skip the post-close fwd-pkg assertions on those
+	// backends while still exercising the rest of the close flow for
+	// backend symmetry.
+	if !ht.UsesClosedChanTombstones() {
+		require.Zero(ht, pendingAB.NumForwardingPackages)
 
-	// For Alice, the forwarding packages should have been wiped too.
-	pending := ht.AssertChannelPendingForceClose(alice, chanPointAB)
-	pendingAB = pending.Channel
-	require.Zero(ht, pendingAB.NumForwardingPackages)
+		// For Alice, the forwarding packages should have been wiped
+		// too.
+		pending := ht.AssertChannelPendingForceClose(alice, chanPointAB)
+		pendingAB = pending.Channel
+		require.Zero(ht, pendingAB.NumForwardingPackages)
+	} else {
+		// Still drive Alice's pending-force-close lookup so the rest
+		// of the test stays backend-symmetric.
+		ht.AssertChannelPendingForceClose(alice, chanPointAB)
+	}
 
 	// Alice should one pending sweep.
 	ht.AssertNumPendingSweeps(alice, 1)

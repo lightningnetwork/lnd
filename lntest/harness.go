@@ -1444,6 +1444,18 @@ func (h *HarnessTest) IsPostgresBackend() bool {
 	return h.manager.dbBackend == node.BackendPostgres
 }
 
+// UsesClosedChanTombstones reports whether the test harness's database
+// backend closes channels via tombstone markers rather than cascading the
+// nested-bucket delete. This is true on the KV-over-SQL backends (sqlite,
+// postgres) and false on bbolt. Tests that observe forwarding-package or
+// revocation-log deletion immediately after a channel close should consult
+// this predicate; on tombstone backends the bulk state remains on disk
+// until the upcoming native-SQL channel-state migration reclaims it.
+func (h *HarnessTest) UsesClosedChanTombstones() bool {
+	return h.manager.dbBackend == node.BackendSqlite ||
+		h.manager.dbBackend == node.BackendPostgres
+}
+
 // fundCoins attempts to send amt satoshis from the internal mining node to the
 // targeted lightning node. The confirmed boolean indicates whether the
 // transaction that pays to the target should confirm. For neutrino backend,

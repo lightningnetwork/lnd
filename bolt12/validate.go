@@ -200,6 +200,22 @@ var (
 	// distinguish from a missing-field violation.
 	ErrZeroInvoiceAmount = errors.New("invoice_amount must be greater " +
 		"than zero")
+
+	// ErrMissingError is returned when an invoice_error omits the error
+	// field.
+	ErrMissingError = errors.New("invoice_error missing error field")
+
+	// ErrEmptyError is returned when an invoice_error carries a zero-length
+	// error field.
+	ErrEmptyError = errors.New(
+		"invoice_error error field is empty",
+	)
+
+	// ErrSuggestedWithoutField is returned when suggested_value is set
+	// without erroneous_field.
+	ErrSuggestedWithoutField = errors.New(
+		"suggested_value set without erroneous_field",
+	)
 )
 
 const (
@@ -238,7 +254,85 @@ const (
 	invoiceFallbacksType      tlv.Type = 172
 	invoiceFeaturesType       tlv.Type = 174
 	invoiceNodeIDType         tlv.Type = 176
+
+	// InvoiceError TLV types.
+	invoiceErrorErroneousFieldType tlv.Type = 1
+	invoiceErrorSuggestedValueType tlv.Type = 3
+	invoiceErrorErrorType          tlv.Type = 5
 )
+
+// ValidateInvoiceErrorWrite validates an invoice_error per the BOLT 12 writer
+// requirements. The checks follow the spec's writer section in order. The
+// caller must check that the suggested value, if present, contains a valid
+// type.
+func ValidateInvoiceErrorWrite(ie *InvoiceError) error {
+	// - MUST set error to an explanatory string.
+	if !ie.Error.IsSome() {
+		return ErrMissingError
+	}
+
+	// The spec's "explanatory string" is a type-5 UTF-8 message, so an
+	// empty or non-UTF-8 blob carries no explanation and fails the
+	// requirement even though IsSome passes. checkUTF8 mirrors the
+	// treatment every other BOLT 12 UTF-8 field receives.
+	if len(ie.Error.ValOpt().UnwrapOr(nil)) == 0 {
+		return ErrEmptyError
+	}
+	if err := checkUTF8(ie.Error, "error"); err != nil {
+		return err
+	}
+
+	// - MAY set erroneous_field to a specific field number in the invoice
+	//   or invoice_request which had a problem.
+	// No presence check: erroneous_field is optional for the writer.
+	hasErrField := ie.ErroneousField.IsSome()
+
+	// - if it sets erroneous_field:
+	//   - MAY set suggested_value.
+	// - otherwise:
+	//   - MUST NOT set suggested_value.
+	if ie.SuggestedValue.IsSome() && !hasErrField {
+		return ErrSuggestedWithoutField
+	}
+
+	//   - if it sets suggested_value:
+	//     - MUST set suggested_value to a valid field for that
+	//       tlv_fieldnum.
+	// NOT CHECKED HERE: verifying the replacement is a valid encoding for
+	// the erroneous field needs the schema of the rejected invoice or
+	// invoice_request, which is caller context this validator does not
+	// have.
+
+	return nil
+}
+
+// isKnownInvoiceErrorTLVType reports whether typ is a defined invoice_error
+// TLV type (1, 3, 5).
+func isKnownInvoiceErrorTLVType(typ tlv.Type) bool {
+	switch typ {
+	case invoiceErrorErroneousFieldType,
+		invoiceErrorSuggestedValueType,
+		invoiceErrorErrorType:
+
+		return true
+	default:
+		return false
+	}
+}
+
+// ValidateInvoiceErrorRead applies the BOLT 1 must-understand rule to a decoded
+// invoice_error: reject unknown even TLV types, tolerate unknown odd ones. It
+// is the only read-side check, since BOLT 12 leaves the semantic reader
+// requirements undefined (FIXME).
+func ValidateInvoiceErrorRead(ie *InvoiceError) error {
+	for _, t := range sortedTypes(ie.decodedTLVs) {
+		if !isKnownInvoiceErrorTLVType(t) && t%2 == 0 {
+			return fmt.Errorf("%w: type %d", ErrUnknownEvenType, t)
+		}
+	}
+
+	return nil
+}
 
 // isKnownInvreqTLVType determines if a TLV type is defined in the
 // invoice_request specification.

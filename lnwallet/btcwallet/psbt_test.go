@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
 )
@@ -377,6 +378,11 @@ func TestEstimateInputWeight(t *testing.T) {
 		name string
 		in   *psbt.PInput
 
+		// witnessSizeHint is the optional caller-supplied witness size
+		// hint passed to EstimateInputWeight. A zero value means no
+		// hint, which exercises the default fallback behavior.
+		witnessSizeHint lntypes.WeightUnit
+
 		expectedErr       error
 		expectedErrString string
 
@@ -442,7 +448,7 @@ func TestEstimateInputWeight(t *testing.T) {
 		//nolint:ll
 		expectedWitnessWeight: input.TaprootKeyPathCustomSighashWitnessSize,
 	}, {
-		name: "p2tr script spend",
+		name: "p2tr script spend default hint",
 		in: &psbt.PInput{
 			WitnessUtxo: &wire.TxOut{
 				PkScript: p2trScript,
@@ -462,11 +468,41 @@ func TestEstimateInputWeight(t *testing.T) {
 				},
 			},
 		},
-		// Script path witness: element count (1) + control block base
-		// (33) + control block len prefix (1) + script (19) + script
-		// len prefix (1) + leaf witness size (19, the script length).
-		expectedWitnessWeight: 1 + 33 + 1 + len(dummyLeaf.Script) + 1 +
-			len(dummyLeaf.Script),
+		// With no hint we fall back to the default heuristic of a
+		// single Schnorr signature for the leaf witness. The control
+		// block + revealed script are derived internally:
+		// element count (1) + control block base (33) + control block
+		// length prefix (1) + script length prefix (1) + script length
+		// + leaf witness (TaprootSignatureWitnessSize).
+		expectedWitnessWeight: 1 + 33 + 1 + 1 + len(dummyLeaf.Script) +
+			input.TaprootSignatureWitnessSize,
+	}, {
+		name: "p2tr script spend custom hint",
+		in: &psbt.PInput{
+			WitnessUtxo: &wire.TxOut{
+				PkScript: p2trScript,
+			},
+			TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{
+				{
+					LeafHashes: [][]byte{
+						dummyLeafHash[:],
+					},
+				},
+			},
+			TaprootLeafScript: []*psbt.TaprootTapLeafScript{
+				{
+					ControlBlock: dummyCtrlBlock,
+					LeafVersion:  dummyLeaf.LeafVersion,
+					Script:       dummyLeaf.Script,
+				},
+			},
+		},
+		// The caller knows the exact witness size for this leaf and
+		// passes it as a hint, simulating a 2-of-2 multisig leaf
+		// (two signatures).
+		witnessSizeHint: 2 * input.TaprootSignatureWitnessSize,
+		expectedWitnessWeight: 1 + 33 + 1 + 1 + len(dummyLeaf.Script) +
+			2*input.TaprootSignatureWitnessSize,
 	}}
 
 	// The non-witness weight for a TX with a single input.
@@ -481,7 +517,9 @@ func TestEstimateInputWeight(t *testing.T) {
 
 		t.Run(tc.name, func(tt *testing.T) {
 			estimator := input.TxWeightEstimator{}
-			err := EstimateInputWeight(tc.in, &estimator)
+			err := EstimateInputWeight(
+				tc.in, &estimator, tc.witnessSizeHint,
+			)
 
 			if tc.expectedErr != nil {
 				require.Error(tt, err)

@@ -1502,7 +1502,33 @@ message FundPsbtRequest {
     // specified duration. The lock duration is specified in seconds. If not
     // set, the default lock duration will be used.
     uint64 lock_expiration_seconds = 14;
+
+    // An optional list of per-input witness size hints. When funding a PSBT
+    // that contains taproot script path inputs, the wallet does not know
+    // the exact size of the witness stack elements (e.g. signatures) that
+    // will be used to satisfy the revealed leaf script. By default, a
+    // single Schnorr signature is assumed. Callers that know the exact
+    // expected witness size for a given input (for example, multi-signature
+    // tapscripts) can specify it here for a more accurate fee estimation.
+    repeated TxWitnessSizeHint witness_size_hints = 15;
 }
+
+message TxWitnessSizeHint {
+    // The outpoint of the input the hint applies to.
+    lnrpc.OutPoint outpoint = 1;
+
+    // The expected witness size, in weight units, of the witness stack
+    // elements that satisfy the revealed leaf script (e.g. signatures).
+    // Each element must include its single-byte length prefix as it
+    // appears on the witness stack (for example, a Schnorr signature
+    // contributes 1 + 64 = 65 weight units). The leading byte that
+    // encodes the *number* of witness elements is NOT included here; it
+    // is added by the weight estimator. The revealed script itself and
+    // the control block are also excluded, since their sizes are
+    // derived directly from the PSBT's TaprootLeafScript field.
+    uint64 witness_size = 2;
+}
+
 message FundPsbtResponse {
     /*
     The funded but not yet signed PSBT packet.

@@ -1626,6 +1626,14 @@
           "type": "string",
           "format": "uint64",
           "description": "If set, then the inputs in the funded PSBT will be locked for the\nspecified duration. The lock duration is specified in seconds. If not\nset, the default lock duration will be used."
+        },
+        "witness_size_hints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/walletrpcTxWitnessSizeHint"
+          },
+          "description": "An optional list of per-input witness size hints. When funding a PSBT\nthat contains taproot script path inputs, the wallet does not know\nthe exact size of the witness stack elements (e.g. signatures) that\nwill be used to satisfy the revealed leaf script. By default, a\nsingle Schnorr signature is assumed. Callers that know the exact\nexpected witness size for a given input (for example, multi-signature\ntapscripts) can specify it here for a more accurate fee estimation."
         }
       }
     },
@@ -2254,6 +2262,20 @@
             "format": "uint64"
           },
           "description": "A map of all addresses and the amounts to send to in the funded PSBT."
+        }
+      }
+    },
+    "walletrpcTxWitnessSizeHint": {
+      "type": "object",
+      "properties": {
+        "outpoint": {
+          "$ref": "#/definitions/lnrpcOutPoint",
+          "description": "The outpoint of the input the hint applies to."
+        },
+        "witness_size": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The expected witness size, in weight units, of the witness stack\nelements that satisfy the revealed leaf script (e.g. signatures).\nEach element must include its single-byte length prefix as it\nappears on the witness stack (for example, a Schnorr signature\ncontributes 1 + 64 = 65 weight units). The leading byte that\nencodes the *number* of witness elements is NOT included here; it\nis added by the weight estimator. The revealed script itself and\nthe control block are also excluded, since their sizes are\nderived directly from the PSBT's TaprootLeafScript field."
         }
       }
     },

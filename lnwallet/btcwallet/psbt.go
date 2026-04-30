@@ -394,8 +394,18 @@ func validateSigningMethod(in *psbt.PInput) (input.SignMethod, error) {
 // EstimateInputWeight estimates the weight of a PSBT input and adds it to the
 // passed in TxWeightEstimator. It returns an error if the input type is
 // unknown or unsupported. Only inputs that have a known witness size are
-// supported, which is P2WKH, NP2WKH and P2TR (key spend path).
-func EstimateInputWeight(in *psbt.PInput, w *input.TxWeightEstimator) error {
+// supported, which is P2WKH, NP2WKH and P2TR (key spend and script spend).
+//
+// For taproot script path inputs, the size of the witness elements that
+// satisfy the revealed leaf script (e.g. signatures) is not derivable from
+// the script alone. If witnessSizeHint is non-zero it is used as the leaf
+// witness size, otherwise we fall back to assuming a single Schnorr
+// signature (input.TaprootSignatureWitnessSize). The revealed script and
+// control block sizes are always derived from the PSBT's TaprootLeafScript
+// field, regardless of the hint.
+func EstimateInputWeight(in *psbt.PInput, w *input.TxWeightEstimator,
+	witnessSizeHint lntypes.WeightUnit) error {
+
 	if in.WitnessUtxo == nil {
 		return ErrInputMissingUTXOInfo
 	}
@@ -452,11 +462,15 @@ func EstimateInputWeight(in *psbt.PInput, w *input.TxWeightEstimator) error {
 				RevealedScript: leafScript.Script,
 			}
 
-			// The leaf witness size is the size of the serialized
-			// script itself.
-			leafWitnessSize := lntypes.WeightUnit(
-				len(leafScript.Script),
-			)
+			// If the caller has not supplied an explicit hint for
+			// the witness size, fall back to assuming a single
+			// Schnorr signature, which is the most common script
+			// path spend (e.g. a simple OP_CHECKSIG leaf).
+			leafWitnessSize := witnessSizeHint
+			if leafWitnessSize == 0 {
+				leafWitnessSize =
+					input.TaprootSignatureWitnessSize
+			}
 
 			w.AddTapscriptInput(leafWitnessSize, tapscript)
 

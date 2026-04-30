@@ -23,6 +23,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/stretchr/testify/require"
 )
@@ -2048,8 +2050,10 @@ func testFundPsbtCustomLock(ht *lntest.HarnessTest) {
 func testFundPsbtTaprootScriptPath(ht *lntest.HarnessTest) {
 	alice := ht.NewNodeWithCoins("Alice", nil)
 
-	// Derive the signing key and its derivation path.
-	keyDesc, leafSigningKey, derivationPath := deriveInternalKey(ht, alice)
+	// Derive the signing key and its derivation path. We discard the key
+	// descriptor since we drive the tapscript directly from the parsed
+	// public key.
+	_, leafSigningKey, derivationPath := deriveInternalKey(ht, alice)
 
 	// Create a simple OP_CHECKSIG tapscript leaf.
 	leaf := testScriptSchnorrSig(ht.T, leafSigningKey)
@@ -2110,14 +2114,15 @@ func testFundPsbtTaprootScriptPath(ht *lntest.HarnessTest) {
 	}}
 	in.SighashType = txscript.SigHashDefault
 
-	_ = keyDesc // Suppress unused warning
-
 	var buf bytes.Buffer
 	require.NoError(ht, packet.Serialize(&buf))
 
-	// Call FundPsbt with the script path input.
-	// This previously would fail with "cannot estimate witness size for
-	// script spend". Now it should succeed.
+	// Call FundPsbt with the script path input. Before the fix in this PR
+	// the request would fail outright with "cannot estimate fee for
+	// script spend inputs" because EstimateInputWeight rejected any
+	// TaprootScriptSpendSignMethod input. The successful response below
+	// is itself the regression check; the equality assertion that follows
+	// nails down the precise fee.
 	change := &walletrpc.PsbtCoinSelect_ExistingOutputIndex{
 		ExistingOutputIndex: 0,
 	}
@@ -2133,55 +2138,129 @@ func testFundPsbtTaprootScriptPath(ht *lntest.HarnessTest) {
 		},
 	})
 
-	// Parse the funded PSBT.
 	fundedPacket, err := psbt.NewFromRawBytes(
 		bytes.NewReader(fundResp.FundedPsbt), false,
 	)
 	require.NoError(ht, err)
 
-	// Verify that the fee was calculated correctly for a script path spend.
-	// Script path witness is ~136 WU vs 67 WU for key path, so the fee
-	// should be noticeably higher than a key path estimate.
-	//
-	// Calculate expected weight for script path:
-	// - Base input: 41 bytes * 4 = 164 WU
-	// - Witness: sig (65) + script length (1) + script (~35) + control
-	//   block length (1) + control block (33) + element count (1) = ~136 WU
-	// - Output: ~31 bytes * 4 = 124 WU
-	// - Base tx: 8 bytes * 4 = 32 WU
-	// Total: ~456 WU = ~114 vbytes
-	//
-	// With 10 sat/vbyte, fee should be around 1140 sats for the input.
 	fee, err := fundedPacket.GetTxFee()
 	require.NoError(ht, err)
 
-	// The fee should be at least higher than what a key path would cost.
-	// Key path: ~67 WU witness, ~80 vbytes total = 800 sats at 10 sat/vb.
-	// Script path should be at least 900+ sats.
-	require.Greater(
-		ht, int64(fee), int64(900),
-		"fee %d should be higher than key path estimate (900 sats)",
-		fee,
-	)
-
-	ht.Logf("FundPsbt with script path input succeeded! Fee: %d sats "+
-		"(~%d vbytes at 10 sat/vbyte)", fee, fee/10)
-
-	// Calculate expected weight for script path using the same estimator
-	// that lnd uses internally.
+	// Compute the expected fee using the same estimator the wallet uses
+	// internally. The leaf is a single OP_CHECKSIG satisfied by one
+	// Schnorr signature, so the default heuristic
+	// (input.TaprootSignatureWitnessSize) must match the realized witness
+	// exactly, with no slack.
+	feeRate := chainfee.SatPerVByte(10).FeePerKWeight()
 	estimator := input.TxWeightEstimator{}
 	estimator.AddTapscriptInput(
 		input.TaprootSignatureWitnessSize, tapscript,
 	)
 	estimator.AddP2WKHOutput()
-	expectedVSize := estimator.VSize()
-	expectedFee := int64(10 * expectedVSize)
+	expectedFee := feeRate.FeeForWeight(estimator.Weight())
 
-	// Verify the fee is close to our expected calculation (within 20%).
-	require.InDelta(ht, expectedFee, int64(fee), float64(expectedFee)*0.2,
-		"fee should be close to script-path estimate")
+	require.Equal(ht, expectedFee, fee,
+		"default-hint fee should match script-path estimate exactly "+
+			"(sweep destination=%s)", sweepAddr)
 
-	ht.Logf("Script path FundPsbt test completed! Expected vsize=%d, "+
-		"expected fee=%d, actual fee=%d, sweep destination=%s",
-		expectedVSize, expectedFee, fee, sweepAddr)
+	// Now we'll exercise the per-input witness_size_hint RPC field. We
+	// send a second UTXO to the same tapscript address and call FundPsbt
+	// again, this time supplying a hint that simulates a leaf satisfied
+	// by 5 signatures. The fee paid must reflect the hinted witness
+	// weight exactly: a passive hint that is ignored, double-counted, or
+	// otherwise mis-applied would break the equality below.
+	hintOutpoint, hintPkScript := sendToTaprootOutput(ht, alice, taprootKey)
+
+	hintTx := wire.NewMsgTx(2)
+	hintTx.TxIn = []*wire.TxIn{{
+		PreviousOutPoint: hintOutpoint,
+	}}
+	hintTx.TxOut = []*wire.TxOut{{
+		PkScript: sweepPkScript,
+		Value:    1,
+	}}
+
+	hintPacket, err := psbt.New(
+		[]*wire.OutPoint{&hintOutpoint},
+		[]*wire.TxOut{hintTx.TxOut[0]}, 2, 0, []uint32{0},
+	)
+	require.NoError(ht, err)
+
+	hintIn := &hintPacket.Inputs[0]
+	hintIn.WitnessUtxo = &wire.TxOut{
+		PkScript: hintPkScript,
+		Value:    testAmount,
+	}
+	hintIn.TaprootLeafScript = []*psbt.TaprootTapLeafScript{{
+		ControlBlock: controlBlockBytes,
+		Script:       leaf.Script,
+		LeafVersion:  leaf.LeafVersion,
+	}}
+	hintIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{{
+		XOnlyPubKey: schnorr.SerializePubKey(leafSigningKey),
+		LeafHashes:  [][]byte{leafHash[:]},
+		Bip32Path:   derivationPath,
+	}}
+	hintIn.SighashType = txscript.SigHashDefault
+
+	var hintBuf bytes.Buffer
+	require.NoError(ht, hintPacket.Serialize(&hintBuf))
+
+	// Pretend the leaf needs five Schnorr signatures to be satisfied.
+	const numSigs = 5
+	sizeHint := uint64(numSigs * input.TaprootSignatureWitnessSize)
+
+	hintFundResp := alice.RPC.FundPsbt(&walletrpc.FundPsbtRequest{
+		Template: &walletrpc.FundPsbtRequest_CoinSelect{
+			CoinSelect: &walletrpc.PsbtCoinSelect{
+				Psbt: hintBuf.Bytes(),
+				ChangeOutput: &walletrpc.
+					PsbtCoinSelect_ExistingOutputIndex{
+					ExistingOutputIndex: 0,
+				},
+			},
+		},
+		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: 10,
+		},
+		WitnessSizeHints: []*walletrpc.TxWitnessSizeHint{{
+			Outpoint: &lnrpc.OutPoint{
+				TxidBytes:   hintOutpoint.Hash[:],
+				OutputIndex: hintOutpoint.Index,
+			},
+			WitnessSize: sizeHint,
+		}},
+	})
+
+	hintFundedPacket, err := psbt.NewFromRawBytes(
+		bytes.NewReader(hintFundResp.FundedPsbt), false,
+	)
+	require.NoError(ht, err)
+
+	hintFee, err := hintFundedPacket.GetTxFee()
+	require.NoError(ht, err)
+
+	// Cross-check against the same on-the-fly estimator that the wallet
+	// uses internally, this time with the larger leaf witness size.
+	hintEstimator := input.TxWeightEstimator{}
+	hintEstimator.AddTapscriptInput(
+		lntypes.WeightUnit(sizeHint), tapscript,
+	)
+	hintEstimator.AddP2WKHOutput()
+	expectedHintFee := feeRate.FeeForWeight(hintEstimator.Weight())
+
+	require.Equal(ht, expectedHintFee, hintFee,
+		"hinted fee should match script-path estimate exactly")
+
+	// Finally, the delta between the hinted and default-hint fee must be
+	// exactly the fee for the extra (numSigs-1) signatures. Anything else
+	// would mean the hint was not propagated end-to-end through the coin
+	// selector, the weight estimator, and the fee calculation.
+	extraWeight := lntypes.WeightUnit(
+		(numSigs - 1) * input.TaprootSignatureWitnessSize,
+	)
+	expectedDelta := feeRate.FeeForWeight(extraWeight)
+	require.Equal(ht, expectedDelta, hintFee-fee,
+		"hint must change the fee by exactly the extra witness "+
+			"weight it requests")
 }

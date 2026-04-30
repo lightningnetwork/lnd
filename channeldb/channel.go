@@ -368,6 +368,37 @@ const (
 	outpointClosed indexStatus = 1
 )
 
+// isOutpointClosed reports whether the supplied chanKey has been flipped to
+// outpointClosed in the supplied outpointBucket. The flip is performed in the
+// same transaction as the rest of CloseChannel (sync and tombstone paths
+// alike), so a true result is the authoritative "this channel went through
+// CloseChannel" signal. On tombstone-enabled backends the chanBucket may still
+// exist on disk; readers consult this helper to skip those entries. Callers
+// fetch outpointBucket once and pass it in, which lets loop-style readers
+// hoist the bucket lookup out of the inner loop.
+func isOutpointClosed(opBucket kvdb.RBucket, chanKey []byte) (bool, error) {
+	if opBucket == nil {
+		return false, nil
+	}
+	raw := opBucket.Get(chanKey)
+	if raw == nil {
+		return false, nil
+	}
+
+	var status uint8
+	statusRecord := tlv.MakePrimitiveRecord(indexStatusType, &status)
+	stream, err := tlv.NewStream(statusRecord)
+	if err != nil {
+		return false, err
+	}
+	if err := stream.Decode(bytes.NewReader(raw)); err != nil {
+		return false, fmt.Errorf("decode outpoint status for "+
+			"chan_key=%x: %w", chanKey, err)
+	}
+
+	return indexStatus(status) == outpointClosed, nil
+}
+
 // ChannelType is an enum-like type that describes one of several possible
 // channel types. Each open channel is associated with a particular type as the
 // channel type may determine how higher level operations are conducted such as

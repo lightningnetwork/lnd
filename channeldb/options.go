@@ -71,6 +71,16 @@ type Options struct {
 	// storeFinalHtlcResolutions determines whether to persistently store
 	// the final resolution of incoming htlcs.
 	storeFinalHtlcResolutions bool
+
+	// tombstoneClosedChannels, when true, instructs CloseChannel to skip
+	// the cascading deletion of nested per-channel state and rely on the
+	// outpoint-index flip to mark the channel as closed. KV-over-SQL
+	// backends (sqlite, postgres) opt in because nested-bucket deletes
+	// inside a write transaction translate into a long-running
+	// ON DELETE CASCADE that holds the database write-lock for many
+	// seconds on long-lived channels. bbolt and etcd leave this off; the
+	// synchronous delete is already cheap there.
+	tombstoneClosedChannels bool
 }
 
 // DefaultOptions returns an Options populated with default values.
@@ -149,5 +159,16 @@ func OptionWithDecayedLogDB(decayedLog kvdb.Backend) OptionModifier {
 func OptionGcDecayedLog(noGc bool) OptionModifier {
 	return func(o *Options) {
 		o.OptionalMiragtionConfig.MigrationFlags[1] = !noGc
+	}
+}
+
+// OptionTombstoneClosedChannels controls whether CloseChannel skips the
+// cascading deletion of nested per-channel state and relies on the
+// outpoint-index flip to mark the channel as closed. Set this to true on
+// KV-over-SQL backends (sqlite, postgres); leave it false for bbolt and
+// etcd.
+func OptionTombstoneClosedChannels(enabled bool) OptionModifier {
+	return func(o *Options) {
+		o.tombstoneClosedChannels = enabled
 	}
 }

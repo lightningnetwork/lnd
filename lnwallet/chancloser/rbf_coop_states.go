@@ -274,8 +274,10 @@ type ChanStateObserver interface {
 	// channel.
 	DisableChannel() error
 
-	// MarkCoopBroadcasted persistently marks that the channel close
-	// transaction has been broadcast.
+	// MarkCoopBroadcasted persistently marks that the channel
+	// close transaction has been broadcast. The tx MUST be
+	// non-nil; callers must not invoke this until a concrete
+	// close tx has been constructed.
 	MarkCoopBroadcasted(*wire.MsgTx, bool) error
 
 	// MarkShutdownSent persists the given ShutdownInfo. The existence of

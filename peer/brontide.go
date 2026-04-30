@@ -3627,13 +3627,15 @@ func chooseDeliveryScript(upfront, requested lnwire.DeliveryAddress,
 func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	*lnwire.Shutdown, error) {
 
-	// If this channel has status ChanStatusCoopBroadcasted and does not
-	// have a closing transaction, then the cooperative close process was
-	// started but never finished. We'll re-create the chanCloser state
-	// machine and resend Shutdown. BOLT#2 requires that we retransmit
-	// Shutdown exactly, but doing so would mean persisting the RPC
-	// provided close script. Instead use the LocalUpfrontShutdownScript
-	// or generate a script.
+	// If this channel has status ChanStatusCoopBroadcasted and a closing
+	// transaction was recorded, we just need to rebroadcast (handled by
+	// the chain arbitrator) and exit. If the status is set but no closing
+	// tx exists, fall through and re-drive the close negotiation via
+	// ShutdownInfo or LocalUpfrontShutdownScript.
+	//
+	// BOLT#2 requires that we retransmit Shutdown exactly, but doing so
+	// would mean persisting the RPC-provided close script.  Instead use
+	// the LocalUpfrontShutdownScript or generate a script.
 	c := lnChan.State()
 	_, err := c.BroadcastedCooperative()
 	if err != nil && err != channeldb.ErrNoCloseTx {

@@ -2208,21 +2208,20 @@ func (c *OpenChannel) MarkCoopBroadcasted(closeTx *wire.MsgTx,
 func (c *OpenChannel) markBroadcasted(status ChannelStatus, key []byte,
 	closeTx *wire.MsgTx, closer lntypes.ChannelParty) error {
 
+	if closeTx == nil {
+		return fmt.Errorf("closeTx must be non-nil")
+	}
+
 	c.Lock()
 	defer c.Unlock()
 
-	// If a closing tx is provided, we'll generate a closure to write the
-	// transaction in the appropriate bucket under the given key.
-	var putClosingTx func(kvdb.RwBucket) error
-	if closeTx != nil {
-		var b bytes.Buffer
-		if err := WriteElement(&b, closeTx); err != nil {
-			return err
-		}
+	var b bytes.Buffer
+	if err := WriteElement(&b, closeTx); err != nil {
+		return err
+	}
 
-		putClosingTx = func(chanBucket kvdb.RwBucket) error {
-			return chanBucket.Put(key, b.Bytes())
-		}
+	putClosingTx := func(chanBucket kvdb.RwBucket) error {
+		return chanBucket.Put(key, b.Bytes())
 	}
 
 	// Add the initiator status to the status provided. These statuses are

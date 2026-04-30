@@ -585,18 +585,6 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 		chancloserLog.Infof("ChannelPoint(%v): channel flushed! "+
 			"proceeding with co-op close", env.ChanPoint)
 
-		// Now that the channel has been flushed, we'll mark on disk
-		// that we're approaching the point of no return where we'll
-		// send a new signature to the remote party.
-		//
-		// TODO(roasbeef): doesn't actually matter if initiator here?
-		if msg.FreshFlush {
-			err := env.ChanObserver.MarkCoopBroadcasted(nil, true)
-			if err != nil {
-				return nil, err
-			}
-		}
-
 		// If an ideal fee rate was specified, then we'll use that,
 		// otherwise we'll fall back to the default value given in the
 		// env.

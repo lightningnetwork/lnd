@@ -1,4 +1,4 @@
-FUZZPKG = brontide lnwire watchtower/wtwire zpay32
+FUZZPKG = bolt12 brontide lnwire watchtower/wtwire zpay32
 FUZZ_TEST_RUN_TIME = 30s
 FUZZ_NUM_PROCESSES = 4
 

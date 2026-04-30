@@ -12,7 +12,7 @@ import (
 
 // validInvoice returns an Invoice populated with the minimum set of fields
 // required to satisfy ValidateInvoiceWrite.
-func validInvoice(t *testing.T) *Invoice {
+func validInvoice(t testing.TB) *Invoice {
 	t.Helper()
 
 	_, pub := bobKey()

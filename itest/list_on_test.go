@@ -592,6 +592,14 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testOnionMessageForwarding,
 	},
 	{
+		Name:     "create offer",
+		TestFunc: testCreateOffer,
+	},
+	{
+		Name:     "bolt12 invoice request",
+		TestFunc: testBolt12InvoiceRequest,
+	},
+	{
 		Name:     "sign verify message with addr",
 		TestFunc: testSignVerifyMessageWithAddr,
 	},

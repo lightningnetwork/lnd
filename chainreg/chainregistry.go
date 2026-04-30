@@ -235,7 +235,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		MinHtlcIn: cfg.Bitcoin.MinHTLCIn,
 		FeeEstimator: chainfee.NewStaticEstimator(
 			DefaultBitcoinStaticFeePerKW,
-			DefaultBitcoinStaticMinRelayFeeRate,
+			cfg.Fee.FeeFloorKW(),
 		),
 	}
 
@@ -409,6 +409,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			cc.FeeEstimator, err = chainfee.NewBitcoindEstimator(
 				*rpcConfig, bitcoindMode.EstimateMode,
 				fallBackFeeRate.FeePerKWeight(),
+				cfg.Fee.FeeFloorKW(),
 			)
 			if err != nil {
 				return nil, nil, err
@@ -672,6 +673,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			fallBackFeeRate := chainfee.SatPerKVByte(25 * 1000)
 			cc.FeeEstimator, err = chainfee.NewBtcdEstimator(
 				*rpcConfig, fallBackFeeRate.FeePerKWeight(),
+				cfg.Fee.FeeFloorKW(),
 			)
 			if err != nil {
 				return nil, nil, err
@@ -729,6 +731,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			!cacheFees,
 			cfg.Fee.MinUpdateTimeout,
 			cfg.Fee.MaxUpdateTimeout,
+			cfg.Fee.MinRelayFeeRate.FeePerKVByte(),
 		)
 		if err != nil {
 			return nil, nil, err

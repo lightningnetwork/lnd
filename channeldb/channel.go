@@ -3982,140 +3982,170 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
 	c.Lock()
 	defer c.Unlock()
 
-	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
-		openChanBucket := tx.ReadWriteBucket(openChannelBucket)
-		if openChanBucket == nil {
-			return ErrNoChanDBExists
-		}
+	return c.Db.CloseChannel(c, summary, statuses...)
+}
 
-		nodePub := c.IdentityPub.SerializeCompressed()
-		nodeChanBucket := openChanBucket.NestedReadWriteBucket(nodePub)
-		if nodeChanBucket == nil {
-			return ErrNoActiveChannels
-		}
+// CloseChannel closes the supplied channel by deleting its per-channel state
+// — the revocation log, the per-channel forwarding-package bucket, and the
+// chanBucket itself — inline within a single write transaction, then
+// archiving the historical record and close summary.
+func (c *ChannelStateDB) CloseChannel(channel *OpenChannel,
+	summary *ChannelCloseSummary, statuses ...ChannelStatus) error {
 
-		chainBucket := nodeChanBucket.NestedReadWriteBucket(c.ChainHash[:])
-		if chainBucket == nil {
-			return ErrNoActiveChannels
-		}
+	return c.closeChannelSync(channel, summary, statuses...)
+}
 
-		var chanPointBuf bytes.Buffer
-		err := graphdb.WriteOutpoint(&chanPointBuf, &c.FundingOutpoint)
+// locateOpenChannel performs the open-channel-bucket descent for a
+// CloseChannel transaction: it returns the chain bucket, the channel bucket,
+// and the serialized chanKey for the supplied OpenChannel.
+func locateOpenChannel(tx kvdb.RwTx, channel *OpenChannel) (kvdb.RwBucket,
+	kvdb.RwBucket, []byte, error) {
+
+	openChanBucket := tx.ReadWriteBucket(openChannelBucket)
+	if openChanBucket == nil {
+		return nil, nil, nil, ErrNoChanDBExists
+	}
+
+	nodePub := channel.IdentityPub.SerializeCompressed()
+	nodeChanBucket := openChanBucket.NestedReadWriteBucket(nodePub)
+	if nodeChanBucket == nil {
+		return nil, nil, nil, ErrNoActiveChannels
+	}
+
+	chainBucket := nodeChanBucket.NestedReadWriteBucket(
+		channel.ChainHash[:],
+	)
+	if chainBucket == nil {
+		return nil, nil, nil, ErrNoActiveChannels
+	}
+
+	var chanPointBuf bytes.Buffer
+	if err := graphdb.WriteOutpoint(
+		&chanPointBuf, &channel.FundingOutpoint,
+	); err != nil {
+		return nil, nil, nil, err
+	}
+	chanKey := chanPointBuf.Bytes()
+
+	chanBucket := chainBucket.NestedReadWriteBucket(chanKey)
+	if chanBucket == nil {
+		return nil, nil, nil, ErrNoActiveChannels
+	}
+
+	return chainBucket, chanBucket, chanKey, nil
+}
+
+// updateClosedOutpointIndex flips the outpoint index entry for chanKey from
+// open to closed. The index entry must already exist; it was placed there
+// when the channel was opened.
+func updateClosedOutpointIndex(tx kvdb.RwTx, chanKey []byte) error {
+	opBucket := tx.ReadWriteBucket(outpointBucket)
+	if opBucket == nil {
+		return ErrNoChanDBExists
+	}
+	if opBucket.Get(chanKey) == nil {
+		return ErrMissingIndexEntry
+	}
+
+	status := uint8(outpointClosed)
+	statusRecord := tlv.MakePrimitiveRecord(indexStatusType, &status)
+	opStream, err := tlv.NewStream(statusRecord)
+	if err != nil {
+		return err
+	}
+
+	var b bytes.Buffer
+	if err := opStream.Encode(&b); err != nil {
+		return err
+	}
+
+	return opBucket.Put(chanKey, b.Bytes())
+}
+
+// archiveClosedChannel writes the immutable close-time records of the
+// channel: a copy of the open-channel state under historicalChannelBucket
+// (with the supplied close statuses OR'd into chanStatus) and the close
+// summary under closeSummaryBucket.
+func archiveClosedChannel(tx kvdb.RwTx, chanKey []byte,
+	chanState *OpenChannel, summary *ChannelCloseSummary,
+	statuses ...ChannelStatus) error {
+
+	historicalBucket, err := tx.CreateTopLevelBucket(
+		historicalChannelBucket,
+	)
+	if err != nil {
+		return err
+	}
+	historicalChanBucket, err := historicalBucket.CreateBucketIfNotExists(
+		chanKey,
+	)
+	if err != nil {
+		return err
+	}
+
+	for _, s := range statuses {
+		chanState.chanStatus |= s
+	}
+
+	if err := putOpenChannel(historicalChanBucket, chanState); err != nil {
+		return err
+	}
+
+	return putChannelCloseSummary(tx, chanKey, summary, chanState)
+}
+
+// closeChannelSync performs the synchronous close path: in a single write
+// transaction it wipes the forwarding-package state, deletes the channel
+// bucket and its nested revocation log entries, updates the outpoint index,
+// and archives the close summary.
+func (c *ChannelStateDB) closeChannelSync(channel *OpenChannel,
+	summary *ChannelCloseSummary, statuses ...ChannelStatus) error {
+
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		chainBucket, chanBucket, chanKey, err := locateOpenChannel(
+			tx, channel,
+		)
 		if err != nil {
 			return err
 		}
-		chanKey := chanPointBuf.Bytes()
-		chanBucket := chainBucket.NestedReadWriteBucket(
-			chanKey,
-		)
-		if chanBucket == nil {
-			return ErrNoActiveChannels
-		}
 
-		// Before we delete the channel state, we'll read out the full
-		// details, as we'll also store portions of this information
-		// for record keeping.
 		chanState, err := fetchOpenChannel(
-			chanBucket, &c.FundingOutpoint,
+			chanBucket, &channel.FundingOutpoint,
 		)
 		if err != nil {
 			return err
 		}
 
-		// Delete all the forwarding packages stored for this particular
-		// channel.
 		if err = chanState.Packager.Wipe(tx); err != nil {
 			return err
 		}
 
-		// Now that the index to this channel has been deleted, purge
-		// the remaining channel metadata from the database.
-		err = deleteOpenChannel(chanBucket)
-		if err != nil {
+		if err := deleteOpenChannel(chanBucket); err != nil {
 			return err
 		}
 
-		// We'll also remove the channel from the frozen channel bucket
-		// if we need to.
-		if c.ChanType.IsFrozen() || c.ChanType.HasLeaseExpiration() {
-			err := deleteThawHeight(chanBucket)
-			if err != nil {
+		if channel.ChanType.IsFrozen() ||
+			channel.ChanType.HasLeaseExpiration() {
+
+			if err := deleteThawHeight(chanBucket); err != nil {
 				return err
 			}
 		}
 
-		// With the base channel data deleted, attempt to delete the
-		// information stored within the revocation log.
 		if err := deleteLogBucket(chanBucket); err != nil {
 			return err
 		}
 
-		err = chainBucket.DeleteNestedBucket(chanPointBuf.Bytes())
-		if err != nil {
+		if err := chainBucket.DeleteNestedBucket(chanKey); err != nil {
 			return err
 		}
 
-		// Fetch the outpoint bucket to see if the outpoint exists or
-		// not.
-		opBucket := tx.ReadWriteBucket(outpointBucket)
-		if opBucket == nil {
-			return ErrNoChanDBExists
-		}
-
-		// Add the closed outpoint to our outpoint index. This should
-		// replace an open outpoint in the index.
-		if opBucket.Get(chanPointBuf.Bytes()) == nil {
-			return ErrMissingIndexEntry
-		}
-
-		status := uint8(outpointClosed)
-
-		// Write the IndexStatus of this outpoint as the first entry in a tlv
-		// stream.
-		statusRecord := tlv.MakePrimitiveRecord(indexStatusType, &status)
-		opStream, err := tlv.NewStream(statusRecord)
-		if err != nil {
+		if err := updateClosedOutpointIndex(tx, chanKey); err != nil {
 			return err
 		}
 
-		var b bytes.Buffer
-		if err := opStream.Encode(&b); err != nil {
-			return err
-		}
-
-		// Finally add the closed outpoint and tlv stream to the index.
-		if err := opBucket.Put(chanPointBuf.Bytes(), b.Bytes()); err != nil {
-			return err
-		}
-
-		// Add channel state to the historical channel bucket.
-		historicalBucket, err := tx.CreateTopLevelBucket(
-			historicalChannelBucket,
-		)
-		if err != nil {
-			return err
-		}
-
-		historicalChanBucket, err :=
-			historicalBucket.CreateBucketIfNotExists(chanKey)
-		if err != nil {
-			return err
-		}
-
-		// Apply any additional statuses to the channel state.
-		for _, status := range statuses {
-			chanState.chanStatus |= status
-		}
-
-		err = putOpenChannel(historicalChanBucket, chanState)
-		if err != nil {
-			return err
-		}
-
-		// Finally, create a summary of this channel in the closed
-		// channel bucket for this node.
-		return putChannelCloseSummary(
-			tx, chanPointBuf.Bytes(), summary, chanState,
+		return archiveClosedChannel(
+			tx, chanKey, chanState, summary, statuses...,
 		)
 	}, func() {})
 }

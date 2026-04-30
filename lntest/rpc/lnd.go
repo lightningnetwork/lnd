@@ -766,6 +766,19 @@ func (h *HarnessRPC) SubscribeOnionMessages() (OnionMessageClient,
 	return stream, cancel
 }
 
+// CreateOffer makes a RPC call to the node's dev CreateOffer and asserts.
+func (h *HarnessRPC) CreateOffer(
+	req *devrpc.CreateOfferRequest) *devrpc.CreateOfferResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.Dev.CreateOffer(ctxt, req)
+	h.NoError(err, "CreateOffer")
+
+	return resp
+}
+
 // GetChanInfo makes a RPC call to the node's GetChanInfo and returns the
 // response.
 func (h *HarnessRPC) GetChanInfo(

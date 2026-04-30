@@ -110,7 +110,7 @@ var loadOffersVectorsOnce = sync.OnceValues(
 
 // loadOffersVectors returns the parsed offers-test.json vectors, failing the
 // test if the file is unreadable or malformed.
-func loadOffersVectors(t *testing.T) []offersTestVector {
+func loadOffersVectors(t testing.TB) []offersTestVector {
 	t.Helper()
 
 	vectors, err := loadOffersVectorsOnce()
@@ -217,7 +217,7 @@ var loadSignatureVectorsOnce = sync.OnceValues(
 
 // loadSignatureVectors returns the parsed sigTestVector slice, failing the
 // test if signature-test.json is unreadable or malformed.
-func loadSignatureVectors(t *testing.T) []sigTestVector {
+func loadSignatureVectors(t testing.TB) []sigTestVector {
 	t.Helper()
 
 	vectors, err := loadSignatureVectorsOnce()

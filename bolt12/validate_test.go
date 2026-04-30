@@ -709,7 +709,7 @@ func addAmountAndDescription(o *Offer) {
 // each table row mutates to isolate the rule under test. The request is
 // encoded, decoded, and signed with Bob's key, so reader validation sees
 // the same wire form a peer would send.
-func validInvoiceRequest(t *testing.T) *InvoiceRequest {
+func validInvoiceRequest(t testing.TB) *InvoiceRequest {
 	t.Helper()
 
 	priv, _ := bobKey()

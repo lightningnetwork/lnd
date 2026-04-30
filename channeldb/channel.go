@@ -4000,13 +4000,16 @@ type ChannelCloseSummary struct {
 	LastChanSyncMsg *lnwire.ChannelReestablish
 }
 
-// CloseChannel closes a previously active Lightning channel. Closing a channel
-// entails deleting all saved state within the database concerning this
-// channel. This method also takes a struct that summarizes the state of the
-// channel at closing, this compact representation will be the only component
-// of a channel left over after a full closing. It takes an optional set of
-// channel statuses which will be written to the historical channel bucket.
-// These statuses are used to record close initiators.
+// CloseChannel closes a previously active Lightning channel. Closing a
+// channel entails persisting a record of the close while either purging the
+// nested per-channel state inline (synchronous backends like bbolt and etcd)
+// or skipping the cascading delete on tombstone-enabled backends, where the
+// outpoint-index flip to outpointClosed is the authoritative marker. The
+// compact summary written to closedChannelBucket and the historical record
+// under historicalChannelBucket are populated identically across both paths,
+// so historical reads remain uniform regardless of backend. The optional set
+// of channel statuses is OR'd into the chanStatus written to the historical
+// bucket and is used to record close initiators.
 func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
 	statuses ...ChannelStatus) error {
 
@@ -4016,19 +4019,27 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
 	return c.Db.CloseChannel(c, summary, statuses...)
 }
 
-// CloseChannel closes the supplied channel by deleting its per-channel state
-// — the revocation log, the per-channel forwarding-package bucket, and the
-// chanBucket itself — inline within a single write transaction, then
-// archiving the historical record and close summary.
+// CloseChannel closes the supplied channel via the strategy selected at DB
+// construction. On synchronous backends the channel's nested state — the
+// revocation log, the per-channel forwarding-package bucket, and the
+// chanBucket itself — is deleted inline. On tombstone-enabled backends none
+// of the bulk state is touched; the outpointBucket flip to outpointClosed
+// signals that the channel is logically closed.
 func (c *ChannelStateDB) CloseChannel(channel *OpenChannel,
 	summary *ChannelCloseSummary, statuses ...ChannelStatus) error {
+
+	if c.tombstoneClosedChannels {
+		return c.closeChannelTombstone(channel, summary, statuses...)
+	}
 
 	return c.closeChannelSync(channel, summary, statuses...)
 }
 
 // locateOpenChannel performs the open-channel-bucket descent for a
 // CloseChannel transaction: it returns the chain bucket, the channel bucket,
-// and the serialized chanKey for the supplied OpenChannel.
+// and the serialized chanKey for the supplied OpenChannel. A chanKey already
+// flipped to outpointClosed surfaces ErrChannelNotFound so a redundant
+// CloseChannel does not re-archive or re-flip the index.
 func locateOpenChannel(tx kvdb.RwTx, channel *OpenChannel) (kvdb.RwBucket,
 	kvdb.RwBucket, []byte, error) {
 
@@ -4061,6 +4072,18 @@ func locateOpenChannel(tx kvdb.RwTx, channel *OpenChannel) (kvdb.RwBucket,
 	chanBucket := chainBucket.NestedReadWriteBucket(chanKey)
 	if chanBucket == nil {
 		return nil, nil, nil, ErrNoActiveChannels
+	}
+
+	// A channel whose outpoint is already flipped to outpointClosed must
+	// not be re-closed: on tombstone backends the chanBucket survives a
+	// previous close, but the index flip is the authoritative record that
+	// the channel is gone from the open-channel view.
+	closed, err := isOutpointClosed(tx.ReadBucket(outpointBucket), chanKey)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if closed {
+		return nil, nil, nil, ErrChannelNotFound
 	}
 
 	return chainBucket, chanBucket, chanKey, nil
@@ -4125,10 +4148,11 @@ func archiveClosedChannel(tx kvdb.RwTx, chanKey []byte,
 	return putChannelCloseSummary(tx, chanKey, summary, chanState)
 }
 
-// closeChannelSync performs the synchronous close path: in a single write
-// transaction it wipes the forwarding-package state, deletes the channel
-// bucket and its nested revocation log entries, updates the outpoint index,
-// and archives the close summary.
+// closeChannelSync performs the historical synchronous close path: in a
+// single write transaction it wipes the forwarding-package state, deletes
+// the channel bucket and its nested revocation log entries, updates the
+// outpoint index, and archives the close summary. It is used by backends
+// where nested-bucket deletion is cheap (bbolt, etcd).
 func (c *ChannelStateDB) closeChannelSync(channel *OpenChannel,
 	summary *ChannelCloseSummary, statuses ...ChannelStatus) error {
 
@@ -4168,6 +4192,39 @@ func (c *ChannelStateDB) closeChannelSync(channel *OpenChannel,
 		}
 
 		if err := chainBucket.DeleteNestedBucket(chanKey); err != nil {
+			return err
+		}
+
+		if err := updateClosedOutpointIndex(tx, chanKey); err != nil {
+			return err
+		}
+
+		return archiveClosedChannel(
+			tx, chanKey, chanState, summary, statuses...,
+		)
+	}, func() {})
+}
+
+// closeChannelTombstone performs the tombstone close path used by
+// KV-over-SQL backends. The channel's per-channel state is left intact —
+// touching it would trigger the cascading nested-bucket delete this path
+// exists to avoid — and the outpointBucket flip from outpointOpen to
+// outpointClosed serves as the authoritative closed-channel marker. The
+// disk space is reclaimed wholesale by the upcoming native-SQL
+// channel-state migration.
+func (c *ChannelStateDB) closeChannelTombstone(channel *OpenChannel,
+	summary *ChannelCloseSummary, statuses ...ChannelStatus) error {
+
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		_, chanBucket, chanKey, err := locateOpenChannel(tx, channel)
+		if err != nil {
+			return err
+		}
+
+		chanState, err := fetchOpenChannel(
+			chanBucket, &channel.FundingOutpoint,
+		)
+		if err != nil {
 			return err
 		}
 

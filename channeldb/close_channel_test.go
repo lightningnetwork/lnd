@@ -260,6 +260,109 @@ func TestCloseChannelTombstoneRedundantClose(t *testing.T) {
 	require.ErrorIs(t, cdb.CloseChannel(ch, summary), ErrChannelNotFound)
 }
 
+// TestCloseChannelTombstoneRemovesFromOpenScans verifies that after a
+// tombstone close the channel disappears from every open-channel scan
+// (FetchAllChannels, FetchOpenChannels, FetchPermAndTempPeers) while the
+// outpoint index reflects the close. The bulk historical state remains on
+// disk — that is the entire point of the tombstone path.
+func TestCloseChannelTombstoneRemovesFromOpenScans(t *testing.T) {
+	t.Parallel()
+
+	fullDB, err := MakeTestDB(t, OptionTombstoneClosedChannels(true))
+	require.NoError(t, err)
+
+	cdb := fullDB.ChannelStateDB()
+	require.True(t, cdb.tombstoneClosedChannels)
+
+	// Two channels share an identity pubkey via createTestChannel, so we
+	// can verify the closed one disappears while the other is still
+	// surfaced by per-peer lookups.
+	ch1 := createTestChannel(t, cdb, openChannelOption())
+	ch2 := createTestChannel(t, cdb, openChannelOption())
+
+	const numRevlogEntries = 5
+	writeTestRevlogEntries(t, ch1, numRevlogEntries)
+
+	openChans, err := cdb.FetchAllChannels()
+	require.NoError(t, err)
+	require.Len(t, openChans, 2)
+
+	closeChannelForTest(t, cdb, ch1)
+
+	openChans, err = cdb.FetchAllChannels()
+	require.NoError(t, err)
+	require.Len(t, openChans, 1)
+	require.Equal(
+		t, ch2.FundingOutpoint, openChans[0].FundingOutpoint,
+	)
+
+	openChans, err = cdb.FetchOpenChannels(ch1.IdentityPub)
+	require.NoError(t, err)
+	require.Len(t, openChans, 1)
+	require.Equal(
+		t, ch2.FundingOutpoint, openChans[0].FundingOutpoint,
+	)
+
+	// FetchPermAndTempPeers should still mark the peer as having a closed
+	// channel (via the historical-channel second pass), even though the
+	// open-channel-bucket pass now skips the closed chanKey.
+	peers, err := cdb.FetchPermAndTempPeers(ch1.ChainHash[:])
+	require.NoError(t, err)
+	peerKey := string(ch1.IdentityPub.SerializeCompressed())
+	require.True(t, peers[peerKey].HasOpenOrClosedChan)
+
+	// The bulk historical state stays put — that is the whole point of
+	// the tombstone path on these backends.
+	require.Equal(t, numRevlogEntries, countRevlogEntries(t, ch1))
+
+	// The outpoint index for ch1 must flip to closed; ch2's stays open.
+	require.Equal(t, outpointClosed, readOutpointStatus(
+		t, cdb, ch1.FundingOutpoint,
+	))
+	require.Equal(t, outpointOpen, readOutpointStatus(
+		t, cdb, ch2.FundingOutpoint,
+	))
+}
+
+// TestClosedChannelHiddenFromFetchChannel verifies that a targeted
+// FetchChannel lookup returns ErrChannelNotFound for a closed channel.
+// FetchChannel goes through channelScanner, exercising the closed-state
+// check inside that iteration site rather than the direct fetchChanBucket
+// lookup path.
+func TestClosedChannelHiddenFromFetchChannel(t *testing.T) {
+	t.Parallel()
+
+	fullDB, err := MakeTestDB(t, OptionTombstoneClosedChannels(true))
+	require.NoError(t, err)
+
+	cdb := fullDB.ChannelStateDB()
+	ch := createTestChannel(t, cdb, openChannelOption())
+
+	closeChannelForTest(t, cdb, ch)
+
+	_, err = cdb.FetchChannel(ch.FundingOutpoint)
+	require.ErrorIs(t, err, ErrChannelNotFound)
+}
+
+// TestClosedChannelHiddenFromDirectMethods verifies that direct OpenChannel
+// methods which descend through fetchChanBucket / fetchChanBucketRw observe
+// the closed-state flip and return ErrChannelNotFound rather than reading
+// stale per-channel state.
+func TestClosedChannelHiddenFromDirectMethods(t *testing.T) {
+	t.Parallel()
+
+	fullDB, err := MakeTestDB(t, OptionTombstoneClosedChannels(true))
+	require.NoError(t, err)
+
+	cdb := fullDB.ChannelStateDB()
+	ch := createTestChannel(t, cdb, openChannelOption())
+
+	closeChannelForTest(t, cdb, ch)
+
+	require.ErrorIs(t, ch.Refresh(), ErrChannelNotFound)
+	require.ErrorIs(t, ch.MarkBorked(), ErrChannelNotFound)
+}
+
 // TestCloseChannelSync exercises the synchronous one-shot close path used by
 // backends that do not opt in to tombstones (bbolt, etcd). It locks in the
 // invariant that after CloseChannel returns the channel bucket and its

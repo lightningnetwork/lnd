@@ -1452,7 +1452,20 @@ func fetchChanBucket(tx kvdb.RTx, nodeKey *btcec.PublicKey,
 	if err := graphdb.WriteOutpoint(&chanPointBuf, outPoint); err != nil {
 		return nil, err
 	}
-	chanBucket := chainBucket.NestedReadBucket(chanPointBuf.Bytes())
+	chanKey := chanPointBuf.Bytes()
+
+	// Treat already-closed channels as gone. The chanBucket may still
+	// exist on tombstone-enabled backends; the outpoint flip is the
+	// source of truth.
+	closed, err := isOutpointClosed(tx.ReadBucket(outpointBucket), chanKey)
+	if err != nil {
+		return nil, err
+	}
+	if closed {
+		return nil, ErrChannelNotFound
+	}
+
+	chanBucket := chainBucket.NestedReadBucket(chanKey)
 	if chanBucket == nil {
 		return nil, ErrChannelNotFound
 	}
@@ -1499,7 +1512,20 @@ func fetchChanBucketRw(tx kvdb.RwTx, nodeKey *btcec.PublicKey,
 	if err := graphdb.WriteOutpoint(&chanPointBuf, outPoint); err != nil {
 		return nil, err
 	}
-	chanBucket := chainBucket.NestedReadWriteBucket(chanPointBuf.Bytes())
+	chanKey := chanPointBuf.Bytes()
+
+	// Treat already-closed channels as gone. The chanBucket may still
+	// exist on tombstone-enabled backends; the outpoint flip is the
+	// source of truth.
+	closed, err := isOutpointClosed(tx.ReadBucket(outpointBucket), chanKey)
+	if err != nil {
+		return nil, err
+	}
+	if closed {
+		return nil, ErrChannelNotFound
+	}
+
+	chanBucket := chainBucket.NestedReadWriteBucket(chanKey)
 	if chanBucket == nil {
 		return nil, ErrChannelNotFound
 	}

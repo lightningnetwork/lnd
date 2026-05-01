@@ -2,7 +2,6 @@ package bolt12
 
 import (
 	"bytes"
-	"encoding/hex"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -171,10 +170,10 @@ func TestNewInvoiceRequestFromOfferMirrorsUnknownFields(t *testing.T) {
 	require.True(t, found, "unknown offer TLV not mirrored into request")
 }
 
-// TestDecodeInvoiceRequestBech32String decodes the invoice_request string and
-// verifies key fields. This exercises the low-level Decode plus
-// DecodeInvoiceRequest path.
-func TestDecodeInvoiceRequestBech32String(t *testing.T) {
+// TestDecodeInvoiceRequestString decodes the signature-test.json
+// invoice_request string through the bech32 wrapper, reader gates included,
+// and verifies key fields.
+func TestDecodeInvoiceRequestString(t *testing.T) {
 	t.Parallel()
 
 	// From upstream lightning/bolts signature-test.json: the
@@ -187,10 +186,7 @@ func TestDecodeInvoiceRequestBech32String(t *testing.T) {
 		"k95tzeswywffxlkeyhml0hh46kndmwf4m6xma3tkq2lu0" +
 		"4qz3slje2rfthc89vss"
 
-	_, tlvBytes, err := Decode(lnrStr)
-	require.NoError(t, err)
-
-	ir, err := DecodeInvoiceRequest(tlvBytes)
+	ir, err := DecodeInvoiceRequestString(lnrStr, bitcoinMainnetGenesisHash)
 	require.NoError(t, err)
 
 	// Verify invreq_metadata is set (8 zero bytes).
@@ -228,45 +224,76 @@ func TestDecodeInvoiceRequestBech32String(t *testing.T) {
 		},
 	)
 	require.Equal(t, "A Mathematical Treatise", string(desc))
+}
 
-	// Verify invreq_payer_id is Bob's compressed pubkey (0x424242...
-	// privkey).
-	var payerIDSet bool
-	ir.InvreqPayerID.WhenSome(
-		func(r tlv.RecordT[tlv.TlvType88, *btcec.PublicKey]) {
-			payerIDSet = true
-		},
-	)
-	require.True(t, payerIDSet)
+// TestInvoiceRequestStringRoundTrip pins the encode→decode identity of the
+// lnr wrapper pair: the recovered request must re-encode to the original TLV
+// stream byte-for-byte.
+func TestInvoiceRequestStringRoundTrip(t *testing.T) {
+	t.Parallel()
 
-	// Verify signature is present.
-	var (
-		sig    [64]byte
-		sigSet bool
-	)
-	ir.Signature.WhenSome(
-		func(r tlv.RecordT[tlv.TlvType240, [64]byte]) {
-			sig = r.Val
-			sigSet = true
-		},
-	)
-	require.True(t, sigSet)
+	ir := validInvoiceRequest(t)
 
-	expectedSig := "b8f83ea3288cfd6ea510cdb481472575141e8d87" +
-		"44157f98562d162cc1c472526fdb24befefbdebab4dbb" +
-		"726bbd1b7d8aec057f8fa805187e5950d2bbe0e5642"
-	require.Equal(t, expectedSig, hex.EncodeToString(sig[:]))
-
-	// Verify decode populated the canonical record set used by the Merkle
-	// tree, so every wire TLV must be reachable through AllRecords for
-	// signature verification to find them.
-	require.NotEmpty(t, ir.AllRecords())
-
-	// Re-encode must be byte-identical to the decoded wire bytes: the
-	// signature is over the Merkle root of this canonical encoding, so any
-	// reordering, dropped TLV, or non-canonical integer would invalidate
-	// it.
-	reencoded, err := ir.Encode()
+	encoded, err := EncodeInvoiceRequestString(ir)
 	require.NoError(t, err)
-	require.Equal(t, tlvBytes, reencoded)
+	require.NotEmpty(t, encoded)
+
+	decoded, err := DecodeInvoiceRequestString(
+		encoded, bitcoinMainnetGenesisHash,
+	)
+	require.NoError(t, err)
+
+	originalBytes, err := ir.Encode()
+	require.NoError(t, err)
+	decodedBytes, err := decoded.Encode()
+	require.NoError(t, err)
+	require.Equal(t, originalBytes, decodedBytes)
+}
+
+// TestEncodeInvoiceRequestStringInvalid asserts the wrapper refuses to emit
+// a request that fails writer validation.
+func TestEncodeInvoiceRequestStringInvalid(t *testing.T) {
+	t.Parallel()
+
+	ir := validInvoiceRequest(t)
+	ir.InvreqPayerID = tlv.OptionalRecordT[
+		tlv.TlvType88, *btcec.PublicKey,
+	]{}
+
+	encoded, err := EncodeInvoiceRequestString(ir)
+	require.ErrorIs(t, err, ErrMissingPayerID)
+	require.Empty(t, encoded)
+}
+
+// TestEncodeInvoiceRequestStringUnsigned asserts the wire-string layer
+// refuses to emit an unsigned invoice request: the signature becomes
+// mandatory at the bech32 boundary even though pre-sign Encode is permitted.
+func TestEncodeInvoiceRequestStringUnsigned(t *testing.T) {
+	t.Parallel()
+
+	ir := validInvoiceRequest(t)
+	ir.Signature = tlv.OptionalRecordT[tlv.TlvType240, [64]byte]{}
+
+	encoded, err := EncodeInvoiceRequestString(ir)
+	require.ErrorIs(t, err, ErrMissingSignature)
+	require.Empty(t, encoded)
+}
+
+// TestEncodeInvoiceRequestStringInvalidSignature asserts the wire-string
+// layer refuses to emit a request whose signature does not verify against
+// invreq_payer_id.
+func TestEncodeInvoiceRequestStringInvalidSignature(t *testing.T) {
+	t.Parallel()
+
+	ir := validInvoiceRequest(t)
+
+	// The post-sign mutation leaves the signature stale: it covers a
+	// Merkle root this request no longer produces.
+	ir.InvreqAmount = tlv.SomeRecordT(
+		tlv.NewRecordT[tlv.TlvType82, TUint64](TUint64(2000)),
+	)
+
+	encoded, err := EncodeInvoiceRequestString(ir)
+	require.ErrorIs(t, err, ErrInvalidSignature)
+	require.Empty(t, encoded)
 }

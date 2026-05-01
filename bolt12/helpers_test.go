@@ -119,6 +119,22 @@ func loadOffersVectors(t *testing.T) []offersTestVector {
 	return vectors
 }
 
+// findTestVector returns the offers-test.json vector matching desc, failing
+// the test if no match is found.
+func findTestVector(t *testing.T, desc string) offersTestVector {
+	t.Helper()
+
+	for _, v := range loadOffersVectors(t) {
+		if v.Description == desc {
+			return v
+		}
+	}
+
+	t.Fatalf("test vector not found: %s", desc)
+
+	return offersTestVector{}
+}
+
 // streamToRecords parses an arbitrary TLV byte stream into tlv.Record values
 // whose Encode method reproduces the original wire bytes, without going
 // through a typed message decoder.

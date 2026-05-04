@@ -286,6 +286,37 @@
     public-only path sees a ~42% speedup; on the previous code it could stall
     for minutes.
 
+* [Tombstone closed channels on KV-over-SQL
+  backends](https://github.com/lightningnetwork/lnd/pull/10780). Closing a
+  long-lived channel previously issued a single `DeleteNestedBucket` inside
+  the close transaction. On the kvdb-on-SQL schema (sqlite, postgres) that
+  delete fans out into a row-by-row `ON DELETE CASCADE` over the channel's
+  revocation log and forwarding-package bucket, holding the database
+  write-lock for many seconds — long enough on channels with millions of
+  states to stall HTLC forwarding, time out htlcswitch retries, and trigger
+  force-close cycles. `CloseChannel` now skips the cascading delete on
+  these backends; the outpoint-index flip from `outpointOpen` to
+  `outpointClosed` (already performed by the existing close path) is the
+  authoritative closed-channel marker, and every reader of the open-channel
+  bucket consults it before treating a channel as open. The bulk historical
+  state — the chanBucket itself, the revocation log, and the per-channel
+  forwarding-package bucket — remains on disk for the channel's lifetime in
+  this database and is reclaimed wholesale by the upcoming native-SQL
+  channel-state migration. bbolt and etcd retain the synchronous one-shot
+  close path, where nested-bucket deletion is already cheap.
+
+  > ⚠️ **Downgrade warning.** On sqlite/postgres, once a channel is
+  > closed under this build the chanBucket and its nested state remain
+  > on disk; the close is signalled only by the `outpointClosed` flip
+  > in the outpoint index. Earlier `lnd` releases do not consult that
+  > flip when iterating `openChannelBucket`, so downgrading to a
+  > pre-0.21 binary after closing channels on these backends will
+  > resurrect those channels as open in `listchannels`,
+  > `pendingchannels`, and the chain-watch path. Operators who close
+  > channels on sqlite/postgres after upgrading should treat the
+  > upgrade as one-way for that database; bbolt and etcd users are unaffected 
+  > because the close path on those backends still deletes the chanBucket.
+
 ## Deprecations
 
 ### ⚠️ **Warning:** Deprecated fields in `lnrpc.Hop` will be removed in release version **0.22**

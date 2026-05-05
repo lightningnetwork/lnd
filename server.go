@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanfitness"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/cluster"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -325,7 +326,8 @@ type server struct {
 	graphDB *graphdb.ChannelGraph
 	v1Graph *graphdb.VersionedGraph
 
-	chanStateDB *channeldb.ChannelStateDB
+	chanStateDB chanstate.Store
+	linkNodeDB  *channeldb.LinkNodeDB
 
 	addrSource channeldb.AddrSource
 
@@ -728,13 +730,15 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	)
 
 	addrSource := channeldb.NewMultiAddrSource(dbs.ChanStateDB, v1Graph)
+	chanStateDB := dbs.ChanStateDB.ChannelStateDB()
 
 	s := &server{
 		cfg:            cfg,
 		implCfg:        implCfg,
 		graphDB:        dbs.GraphDB,
 		v1Graph:        v1Graph,
-		chanStateDB:    dbs.ChanStateDB.ChannelStateDB(),
+		chanStateDB:    chanStateDB,
+		linkNodeDB:     chanStateDB.LinkNodeDB(),
 		addrSource:     addrSource,
 		miscDB:         dbs.ChanStateDB,
 		invoicesDB:     dbs.InvoiceDB,
@@ -748,9 +752,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		blockbeatDispatcher: chainio.NewBlockbeatDispatcher(
 			cc.ChainNotifier,
 		),
-		channelNotifier: channelnotifier.New(
-			dbs.ChanStateDB.ChannelStateDB(),
-		),
+		channelNotifier: channelnotifier.New(chanStateDB),
 
 		identityECDH:   nodeKeyECDH,
 		identityKeyLoc: nodeKeyDesc.KeyLocator,
@@ -3610,7 +3612,7 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 	// Iterate through the list of LinkNodes to find addresses we should
 	// attempt to connect to based on our set of previous connections. Set
 	// the reconnection port to the default peer port.
-	linkNodes, err := s.chanStateDB.LinkNodeDB().FetchAllLinkNodes()
+	linkNodes, err := s.linkNodeDB.FetchAllLinkNodes()
 	if err != nil && !errors.Is(err, channeldb.ErrLinkNodesNotFound) {
 		return fmt.Errorf("failed to fetch all link nodes: %w", err)
 	}

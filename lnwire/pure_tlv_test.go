@@ -387,3 +387,89 @@ func (g *MsgV2) AllRecords() []tlv.Record {
 
 	return ProduceRecordsSorted(recordProducers...)
 }
+
+// mockPureTLVMessage is a minimal PureTLVMessage backed by a fixed record
+// slice, used to exercise the predicate-driven helpers.
+type mockPureTLVMessage struct {
+	records []tlv.Record
+}
+
+func (m *mockPureTLVMessage) AllRecords() []tlv.Record {
+	return m.records
+}
+
+// TestSerialiseFieldsToSignFn verifies that the serialiser correctly filters
+// records based on the provided predicate before encoding.
+func TestSerialiseFieldsToSignFn(t *testing.T) {
+	t.Parallel()
+
+	var (
+		signedVal   uint16 = 11
+		unsignedVal uint16 = 22
+	)
+
+	msg := &mockPureTLVMessage{
+		records: []tlv.Record{
+			tlv.MakePrimitiveRecord(5, &signedVal),
+			tlv.MakePrimitiveRecord(10, &unsignedVal),
+		},
+	}
+
+	// Predicate that defines type 10 as unsigned (excluded).
+	isUnsigned := func(typ tlv.Type) bool {
+		return typ == 10
+	}
+
+	encoded, err := SerialiseFieldsToSignFn(msg, isUnsigned)
+	require.NoError(t, err)
+
+	// Only type 5 should be encoded (type 5, length 2, value 11).
+	require.Equal(t, []byte{0x05, 0x02, 0x00, 0x0b}, encoded)
+}
+
+// TestExtraSignedFieldsFromTypeMapFn confirms the predicate-driven variant
+// keeps and drops the right type ranges for callers whose signed range is not
+// the BOLT 7 v2 default. It also locks in the round-trip identity with the
+// convenience wrapper.
+func TestExtraSignedFieldsFromTypeMapFn(t *testing.T) {
+	t.Parallel()
+
+	// Bolt12 signature TLVs sit at 240-1000 and are excluded from the
+	// signed Merkle tree. Everything else is signed.
+	bolt12Unsigned := func(typ tlv.Type) bool {
+		return typ >= 240 && typ <= 1000
+	}
+
+	typeMap := tlv.TypeMap{
+		// Handled by a typed record on the receiver.
+		tlv.Type(2): nil,
+
+		// Unknown type in the bolt12 signed range — must survive.
+		tlv.Type(99): {
+			0x01,
+		},
+
+		// Bolt12 signature TLV — must be dropped.
+		tlv.Type(240): {
+			0x02,
+		},
+
+		// Bolt12 second-range type — signed for bolt12, signed for the
+		// BOLT 7 v2 default too.
+		tlv.Type(1_500_000_000): {
+			0x03,
+		},
+	}
+
+	gotBolt12 := ExtraSignedFieldsFromTypeMapFn(typeMap, bolt12Unsigned)
+	require.Len(t, gotBolt12, 2)
+	require.Equal(t, []byte{0x01}, gotBolt12[99])
+	require.Equal(t, []byte{0x03}, gotBolt12[1_500_000_000])
+
+	gotDefault := ExtraSignedFieldsFromTypeMap(typeMap)
+	// In the BOLT 7 v2 range, type 99 is signed but type 240 is unsigned.
+	require.Len(t, gotDefault, 2)
+	require.Equal(t, []byte{0x01}, gotDefault[99])
+	require.Equal(t, []byte{0x03}, gotDefault[1_500_000_000])
+	require.NotContains(t, gotDefault, uint64(240))
+}

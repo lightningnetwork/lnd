@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -35,7 +36,7 @@ const (
 // need the secret key chain in order obtain the prior shachain root so we can
 // verify the DLP protocol as initiated by the remote node.
 type chanDBRestorer struct {
-	db *channeldb.ChannelStateDB
+	db chanstate.OpenChannelStore
 
 	secretKeys keychain.SecretKeyRing
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/subscribe"
 )
 
@@ -17,7 +18,7 @@ type ChannelNotifier struct {
 
 	ntfnServer *subscribe.Server
 
-	chanDB *channeldb.ChannelStateDB
+	chanDB chanstate.Store
 }
 
 // PendingOpenChannelEvent represents a new event where a new channel has
@@ -97,7 +98,7 @@ type FundingTimeoutEvent struct {
 // New creates a new channel notifier. The ChannelNotifier gets channel
 // events from peers and from the chain arbitrator, and dispatches them to
 // its clients.
-func New(chanDB *channeldb.ChannelStateDB) *ChannelNotifier {
+func New(chanDB chanstate.Store) *ChannelNotifier {
 	return &ChannelNotifier{
 		ntfnServer: subscribe.NewServer(),
 		chanDB:     chanDB,

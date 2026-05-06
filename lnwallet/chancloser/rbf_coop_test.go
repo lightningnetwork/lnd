@@ -1780,84 +1780,74 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 		},
 	}
 
-	// If send in the channel flushed event, but the local party can't pay
-	// for fees, then we should just head to the negotiation state.
-	for _, isFreshFlush := range []bool{true, false} {
+	// When the channel is flushed but the local party cannot cover
+	// the closing fee, we should transition directly to
+	// ClosingNegotiation without any further intermediate state
+	// transitions.
+	t.Run("local_cannot_pay_for_fee", func(t *testing.T) {
+		firstState := *startingState
 		chanFlushedEvent := *flushTemplate
-		chanFlushedEvent.FreshFlush = isFreshFlush
 
-		testName := fmt.Sprintf("local_cannot_pay_for_fee/"+
-			"fresh_flush=%v", isFreshFlush)
-
-		t.Run(testName, func(t *testing.T) {
-			firstState := *startingState
-
-			closeHarness := newCloser(t, &harnessCfg{
-				initialState: fn.Some[ProtocolState](
-					&firstState,
-				),
-			})
-			defer closeHarness.stopAndAssert()
-
-			// As part of the set up for this state, we'll have the
-			// final absolute fee required be greater than the
-			// balance of the local party.
-			closeHarness.expectFeeEstimate(absoluteFee, 1)
-
-			// We'll now send in the event which should trigger
-			// this code path.
-			closeHarness.chanCloser.SendEvent(
-				ctx, &chanFlushedEvent,
-			)
-
-			// With the event sent, we should now transition
-			// straight to the ClosingNegotiation state, with no
-			// further state transitions.
-			closeHarness.assertStateTransitions(
-				&ClosingNegotiation{},
-			)
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				&firstState,
+			),
 		})
-	}
+		defer closeHarness.stopAndAssert()
 
-	for _, isFreshFlush := range []bool{true, false} {
+		// As part of the set up for this state, we'll have the
+		// final absolute fee required be greater than the
+		// balance of the local party.
+		closeHarness.expectFeeEstimate(absoluteFee, 1)
+
+		// We'll now send in the event which should trigger
+		// this code path.
+		closeHarness.chanCloser.SendEvent(
+			ctx, &chanFlushedEvent,
+		)
+
+		// With the event sent, we should now transition
+		// straight to the ClosingNegotiation state, with no
+		// further state transitions.
+		closeHarness.assertStateTransitions(
+			&ClosingNegotiation{},
+		)
+	})
+
+	// When the local party can cover the closing fee,
+	// ChannelFlushed drives a normal half-signer iteration: we
+	// move to ClosingNegotiation and send a ClosingComplete
+	// message.
+	t.Run("local_can_pay_for_fee", func(t *testing.T) {
+		firstState := *startingState
 		flushEvent := *flushTemplate
-		flushEvent.FreshFlush = isFreshFlush
 
-		// We'll modify the starting balance to be 3x the required fee
-		// to ensure that we can pay for the fee.
+		// We'll modify the starting balance to be 3x the required
+		// fee to ensure that we can pay for the fee.
 		flushEvent.ShutdownBalances.LocalBalance = lnwire.NewMSatFromSatoshis( //nolint:ll
 			absoluteFee * 3,
 		)
 
-		testName := fmt.Sprintf("local_can_pay_for_fee/"+
-			"fresh_flush=%v", isFreshFlush)
-
-		// This scenario, we'll have the local party be able to pay for
-		// the fees, which will trigger additional state transitions.
-		t.Run(testName, func(t *testing.T) {
-			firstState := *startingState
-
-			closeHarness := newCloser(t, &harnessCfg{
-				initialState: fn.Some[ProtocolState](
-					&firstState,
-				),
-			})
-			defer closeHarness.stopAndAssert()
-
-			localBalance := flushEvent.ShutdownBalances.LocalBalance
-			balanceAfterClose := localBalance.ToSatoshis() - absoluteFee //nolint:ll
-
-			// From here, we expect the state transition to go
-			// back to closing negotiated, for a ClosingComplete
-			// message to be sent and then for us to terminate at
-			// that state. This is 1/2 of the normal RBF signer
-			// flow.
-			closeHarness.expectHalfSignerIteration(
-				&flushEvent, balanceAfterClose, absoluteFee,
-				noDustExpect, false,
-			)
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				&firstState,
+			),
 		})
-	}
+		defer closeHarness.stopAndAssert()
+
+		localBalance := flushEvent.ShutdownBalances.LocalBalance
+		balanceAfterClose := localBalance.ToSatoshis() - absoluteFee
+
+		// From here, we expect the state transition to go
+		// back to closing negotiated, for a ClosingComplete
+		// message to be sent and then for us to terminate at
+		// that state. This is 1/2 of the normal RBF signer
+		// flow.
+		closeHarness.expectHalfSignerIteration(
+			&flushEvent, balanceAfterClose, absoluteFee,
+			noDustExpect, false,
+		)
+	})
 
 	// This tests that if we receive an `OfferReceivedEvent` while in the
 	// flushing state, then we'll cache that, and once we receive

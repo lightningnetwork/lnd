@@ -4131,7 +4131,6 @@ func (p *Brontide) chanFlushEventSentinel(chanCloser *chancloser.RbfChanCloser,
 		ctx := context.Background()
 		chanCloser.SendEvent(ctx, &chancloser.ChannelFlushed{
 			ShutdownBalances: chanBalances,
-			FreshFlush:       true,
 		})
 	}
 

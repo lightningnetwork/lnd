@@ -175,10 +175,6 @@ var unknownBalance = ShutdownBalances{}
 //   - fromState: ChannelFlushing
 //   - toState: ClosingNegotiation
 type ChannelFlushed struct {
-	// FreshFlush indicates if this is the first time the channel has been
-	// flushed, or if this is a flush as part of an RBF iteration.
-	FreshFlush bool
-
 	// ShutdownBalances is the balances of the channel once it has been
 	// flushed. We tie this to the ChannelFlushed state as this may not be
 	// the same as the starting value.

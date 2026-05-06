@@ -97,6 +97,10 @@ func (o *Offer) allRecordProducers() []tlv.RecordProducer {
 
 // Encode serialises the offer into a canonical TLV byte stream.
 func (o *Offer) Encode() ([]byte, error) {
+	if err := ValidateOfferWrite(o); err != nil {
+		return nil, fmt.Errorf("validate offer: %w", err)
+	}
+
 	var buf bytes.Buffer
 	if err := lnwire.EncodePureTLVMessage(o, &buf); err != nil {
 		return nil, err

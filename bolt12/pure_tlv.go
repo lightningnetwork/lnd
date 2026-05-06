@@ -1,6 +1,8 @@
 package bolt12
 
 import (
+	"slices"
+
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -35,4 +37,16 @@ func allRecordsFromTypeMap(producers []tlv.RecordProducer,
 	}
 
 	return lnwire.ProduceRecordsSorted(producers...)
+}
+
+// sortedTypes returns the keys of tm in ascending order. Validators iterate the
+// result for deterministic out-of-range and unknown-even error messages.
+func sortedTypes(tm tlv.TypeMap) []tlv.Type {
+	out := make([]tlv.Type, 0, len(tm))
+	for t := range tm {
+		out = append(out, t)
+	}
+	slices.Sort(out)
+
+	return out
 }

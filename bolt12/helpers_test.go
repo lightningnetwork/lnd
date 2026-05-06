@@ -14,3 +14,11 @@ func bobKey() (*btcec.PrivateKey, *btcec.PublicKey) {
 
 	return priv, pub
 }
+
+// aliceKey returns the deterministic spec test key for Alice, whose 32-byte
+// scalar is 0x41 repeated.
+func aliceKey() (*btcec.PrivateKey, *btcec.PublicKey) {
+	priv, pub := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{0x41}, 32))
+
+	return priv, pub
+}

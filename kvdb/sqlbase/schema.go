@@ -21,7 +21,7 @@ func newKVSchemaCreationCmd(table, schema string,
 	)
 	if schema != "" {
 		finalCmd = fmt.Sprintf(
-			`CREATE SCHEMA IF NOT EXISTS ` + schema + `;`,
+			"%s", `CREATE SCHEMA IF NOT EXISTS `+schema+`;`,
 		)
 
 		tableInSchema = fmt.Sprintf("%s.%s", schema, table)
@@ -44,26 +44,26 @@ func newKVSchemaCreationCmd(table, schema string,
 	//
 	// The replacements map can be used to replace any sqlite keywords.
 	// Callers should note that the sqlite keywords are case-sensitive.
-	finalCmd += fmt.Sprintf(`
-CREATE TABLE IF NOT EXISTS ` + tableInSchema + `
+	finalCmd += fmt.Sprintf("%s", `
+CREATE TABLE IF NOT EXISTS `+tableInSchema+`
 (
     key BLOB NOT NULL,
     value BLOB,
     parent_id BIGINT,
     id INTEGER PRIMARY KEY,
     sequence BIGINT,
-    CONSTRAINT ` + table + `_parent FOREIGN KEY (parent_id)
-        REFERENCES ` + tableInSchema + ` (id)
+    CONSTRAINT `+table+`_parent FOREIGN KEY (parent_id)
+        REFERENCES `+tableInSchema+` (id)
         ON UPDATE NO ACTION
         ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ` + table + `_p
-    ON ` + tableInSchema + ` (parent_id);
-CREATE UNIQUE INDEX IF NOT EXISTS ` + table + `_up
-    ON ` + tableInSchema + `
+CREATE INDEX IF NOT EXISTS `+table+`_p
+    ON `+tableInSchema+` (parent_id);
+CREATE UNIQUE INDEX IF NOT EXISTS `+table+`_up
+    ON `+tableInSchema+`
     (parent_id, key) WHERE parent_id IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS ` + table + `_unp 
-    ON ` + tableInSchema + ` (key) WHERE parent_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS `+table+`_unp 
+    ON `+tableInSchema+` (key) WHERE parent_id IS NULL;
 `)
 
 	for from, to := range replacements {

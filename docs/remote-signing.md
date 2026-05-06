@@ -202,7 +202,7 @@ bitcoin.node=nochainbackend
 # Specify that signer will make an outbound connection to the watch-only node.
 watchonlynode.enable=true
 
-# The watch-only node's RPC host.
+# The watch-only node's dedicated remote signer RPC host.
 watchonlynode.rpchost=zane.example.internal:10019
 
 # A macaroon and TLS certificate for the watch-only node.
@@ -271,6 +271,10 @@ remotesigner.enable=true
 # Specify that the watch-only node will accept an incoming connection from the
 # remote signer.
 remotesigner.allowinboundconnection=true
+
+# Dedicated RPC listen address for the remote signer connection. This should
+# match the watchonlynode.rpchost configured on the signer node in step 1.
+remotesigner.rpclisten=zane.example.internal:10019
 ```
 
 It is also recommended to set the following parameter, which defines the

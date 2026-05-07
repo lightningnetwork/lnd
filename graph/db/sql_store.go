@@ -1769,7 +1769,7 @@ func (s *SQLStore) ForEachNodeCached(ctx context.Context,
 			// page.
 			allChannels, err := db.ListChannelsForNodeIDs(
 				ctx, sqlc.ListChannelsForNodeIDsParams{
-					Version:  int16(lnwire.GossipVersion1),
+					Version:  int16(v),
 					Node1Ids: nodeIDs,
 					Node2Ids: nodeIDs,
 				},

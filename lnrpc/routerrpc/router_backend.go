@@ -447,19 +447,16 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 		BlindedPaymentPathSet: blindedPathSet,
 	}
 
-	// We set the outgoing channel restrictions if the user provides a
-	// list of channel ids. We also handle the case where the user
-	// provides the deprecated `OutgoingChanId` field.
-	switch {
-	case len(in.OutgoingChanIds) > 0 && in.OutgoingChanId != 0:
-		return nil, errors.New("outgoing_chan_id and " +
-			"outgoing_chan_ids cannot both be set")
+	// The deprecated single outgoing_chan_id field is no longer
+	// honored. Reject requests that still set it so that callers do
+	// not silently get an unrestricted route.
+	if in.OutgoingChanId != 0 {
+		return nil, errors.New("outgoing_chan_id is deprecated, " +
+			"use outgoing_chan_ids")
+	}
 
-	case len(in.OutgoingChanIds) > 0:
+	if len(in.OutgoingChanIds) > 0 {
 		restrictions.OutgoingChannelIDs = in.OutgoingChanIds
-
-	case in.OutgoingChanId != 0:
-		restrictions.OutgoingChannelIDs = []uint64{in.OutgoingChanId}
 	}
 
 	// Pass along a last hop restriction if specified.
@@ -880,20 +877,15 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	}
 	payIntent.TimePref = rpcPayReq.TimePref
 
-	// Pass along restrictions on the outgoing channels that may be used.
-	payIntent.OutgoingChannelIDs = rpcPayReq.OutgoingChanIds
-
-	// Add the deprecated single outgoing channel restriction if present.
+	// The deprecated single outgoing_chan_id field is no longer
+	// honored. Reject requests that still set it so that callers do
+	// not silently get an unrestricted payment.
 	if rpcPayReq.OutgoingChanId != 0 {
-		if payIntent.OutgoingChannelIDs != nil {
-			return nil, errors.New("outgoing_chan_id and " +
-				"outgoing_chan_ids are mutually exclusive")
-		}
-
-		payIntent.OutgoingChannelIDs = append(
-			payIntent.OutgoingChannelIDs, rpcPayReq.OutgoingChanId,
-		)
+		return nil, errors.New("outgoing_chan_id is deprecated, " +
+			"use outgoing_chan_ids")
 	}
+
+	payIntent.OutgoingChannelIDs = rpcPayReq.OutgoingChanIds
 
 	// Pass along a last hop restriction if specified.
 	if len(rpcPayReq.LastHopPubkey) > 0 {

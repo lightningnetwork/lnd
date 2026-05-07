@@ -1,6 +1,7 @@
 package contractcourt
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -46,6 +47,14 @@ type chainWatcherTestHarness struct {
 	// blockbeatProcessed is a channel that signals when a blockbeat has
 	// been processed.
 	blockbeatProcessed chan struct{}
+
+	// earlyCoopCloseMu guards earlyCoopCloseSummaries.
+	earlyCoopCloseMu sync.Mutex
+
+	// earlyCoopCloseSummaries records every invocation of the
+	// notifyEarlyCoopClose callback when captureEarlyCoopClose was
+	// enabled. Tests assert against length and contents.
+	earlyCoopCloseSummaries []*channeldb.ChannelCloseSummary
 }
 
 // mockChainNotifier extends the standard mock with additional channels for
@@ -136,6 +145,11 @@ type harnessOpt func(*harnessConfig)
 // harnessConfig holds configuration for the test harness.
 type harnessConfig struct {
 	requiredConfs fn.Option[uint32]
+
+	// captureEarlyCoopClose, when true, wires a notifyEarlyCoopClose
+	// callback into the chain watcher that records each invocation onto
+	// the harness's earlyCoopCloseSummaries slice for assertions.
+	captureEarlyCoopClose bool
 }
 
 // withRequiredConfs sets the number of confirmations required for channel
@@ -143,6 +157,15 @@ type harnessConfig struct {
 func withRequiredConfs(confs uint32) harnessOpt {
 	return func(cfg *harnessConfig) {
 		cfg.requiredConfs = fn.Some(confs)
+	}
+}
+
+// withEarlyCoopCloseCapture enables recording of every invocation of the
+// chain watcher's notifyEarlyCoopClose callback on the harness so tests can
+// assert when, how often, and with which summary the early-dispatch fires.
+func withEarlyCoopCloseCapture() harnessOpt {
+	return func(cfg *harnessConfig) {
+		cfg.captureEarlyCoopClose = true
 	}
 }
 
@@ -194,13 +217,38 @@ func newChainWatcherTestHarnessFromReporter(t *testing.T,
 		spendRegistered: make(chan struct{}, 10),
 	}
 
+	harness := &chainWatcherTestHarness{
+		t:                  reporter,
+		aliceChannel:       aliceChannel,
+		bobChannel:         bobChannel,
+		notifier:           notifier,
+		currentHeight:      100,
+		blockbeatProcessed: make(chan struct{}),
+	}
+
+	// If the test wants to observe early-dispatch invocations, install
+	// a callback that records each summary onto the harness.
+	var notifyEarlyCoopClose func(*channeldb.ChannelCloseSummary)
+	if cfg.captureEarlyCoopClose {
+		notifyEarlyCoopClose = func(
+			s *channeldb.ChannelCloseSummary) {
+
+			harness.earlyCoopCloseMu.Lock()
+			harness.earlyCoopCloseSummaries = append(
+				harness.earlyCoopCloseSummaries, s,
+			)
+			harness.earlyCoopCloseMu.Unlock()
+		}
+	}
+
 	// Create chain watcher.
 	chainWatcher, err := newChainWatcher(chainWatcherConfig{
-		chanState:           aliceChannel.State(),
-		notifier:            notifier,
-		signer:              aliceChannel.Signer,
-		extractStateNumHint: lnwallet.GetStateNumHint,
-		chanCloseConfs:      cfg.requiredConfs,
+		chanState:            aliceChannel.State(),
+		notifier:             notifier,
+		signer:               aliceChannel.Signer,
+		extractStateNumHint:  lnwallet.GetStateNumHint,
+		chanCloseConfs:       cfg.requiredConfs,
+		notifyEarlyCoopClose: notifyEarlyCoopClose,
 		contractBreach: func(
 			retInfo *lnwallet.BreachRetribution,
 		) error {
@@ -222,16 +270,8 @@ func newChainWatcherTestHarnessFromReporter(t *testing.T,
 	// Subscribe to channel events.
 	chanEvents := chainWatcher.SubscribeChannelEvents()
 
-	harness := &chainWatcherTestHarness{
-		t:                  reporter,
-		aliceChannel:       aliceChannel,
-		bobChannel:         bobChannel,
-		chainWatcher:       chainWatcher,
-		notifier:           notifier,
-		chanEvents:         chanEvents,
-		currentHeight:      100,
-		blockbeatProcessed: make(chan struct{}),
-	}
+	harness.chainWatcher = chainWatcher
+	harness.chanEvents = chanEvents
 
 	// Wait for the initial spend registration that happens in Start().
 	harness.waitForSpendRegistration()
@@ -405,6 +445,56 @@ func (h *chainWatcherTestHarness) triggerReorg(tx *wire.MsgTx,
 // mineBlocks advances the current block height.
 func (h *chainWatcherTestHarness) mineBlocks(n int32) {
 	h.currentHeight += n
+}
+
+// earlyCoopCloseCount returns how many times the early-dispatch callback has
+// fired since the harness started.
+func (h *chainWatcherTestHarness) earlyCoopCloseCount() int {
+	h.earlyCoopCloseMu.Lock()
+	defer h.earlyCoopCloseMu.Unlock()
+
+	return len(h.earlyCoopCloseSummaries)
+}
+
+// earlyCoopCloseAt returns the early-dispatch summary recorded at the given
+// index. The harness fails the test if the index is out of range.
+func (h *chainWatcherTestHarness) earlyCoopCloseAt(
+	idx int) *channeldb.ChannelCloseSummary {
+
+	h.earlyCoopCloseMu.Lock()
+	defer h.earlyCoopCloseMu.Unlock()
+
+	if idx >= len(h.earlyCoopCloseSummaries) {
+		h.t.Fatalf("expected early-dispatch index %d, only %d "+
+			"summaries recorded", idx,
+			len(h.earlyCoopCloseSummaries))
+	}
+
+	return h.earlyCoopCloseSummaries[idx]
+}
+
+// waitForEarlyCoopClose blocks until at least the supplied count of
+// early-dispatch invocations have been recorded, or the timeout elapses.
+func (h *chainWatcherTestHarness) waitForEarlyCoopClose(want int,
+	timeout time.Duration) {
+
+	h.t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for {
+		if h.earlyCoopCloseCount() >= want {
+			return
+		}
+		if time.Now().After(deadline) {
+			h.t.Fatalf("expected %d early-dispatch invocations, "+
+				"got %d after %v", want,
+				h.earlyCoopCloseCount(), timeout)
+
+			return
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // waitForCoopClose waits for a cooperative close event and returns it.

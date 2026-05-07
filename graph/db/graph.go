@@ -308,9 +308,8 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(ctx context.Context,
 		return c.cache.graphCache.ForEachChannel(node, cb)
 	}
 
-	// Without the in-memory cache, traversal stays version-scoped. Both
-	// SQL and KV stores support v1 adjacency reads here; cross-version
-	// merging is reserved for the cache-backed path above.
+	// The no-cache path only runs against the KV backend, which is
+	// v1-only.
 	return c.db.ForEachNodeDirectedChannel(
 		ctx, gossipV1, node, cb, reset,
 	)
@@ -329,22 +328,9 @@ func (c *ChannelGraph) FetchNodeFeatures(ctx context.Context,
 		return c.cache.graphCache.GetFeatures(node), nil
 	}
 
-	// Try v2 first, fall back to v1 if the v2 features are empty.
-	for _, v := range []lnwire.GossipVersion{gossipV2, gossipV1} {
-		features, err := c.db.FetchNodeFeatures(ctx, v, node)
-		if errors.Is(err, ErrVersionNotSupportedForKVDB) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		if !features.IsEmpty() {
-			return features, nil
-		}
-	}
-
-	return lnwire.EmptyFeatureVector(), nil
+	// The no-cache path only runs against the KV backend, which is
+	// v1-only.
+	return c.db.FetchNodeFeatures(ctx, gossipV1, node)
 }
 
 // GraphSession will provide the call-back with access to a NodeTraverser
@@ -991,7 +977,7 @@ func (c *VersionedGraph) ChannelView(ctx context.Context) ([]EdgePoint,
 // for performing queries against the channel graph. If the graph cache is
 // enabled, the callback receives the VersionedGraph directly (which implements
 // NodeTraverser using the cache). Otherwise a read-only database session is
-// used, and that session remains v1-only for now.
+// used; the no-cache path only runs against the KV backend, which is v1-only.
 func (c *VersionedGraph) GraphSession(ctx context.Context,
 	cb func(graph NodeTraverser) error, reset func()) error {
 

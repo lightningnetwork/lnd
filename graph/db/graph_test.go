@@ -7309,3 +7309,65 @@ func TestPreferredForEachChannel(t *testing.T) {
 	require.Nil(t, gotShellPref.p1)
 	require.Nil(t, gotShellPref.p2)
 }
+
+// TestForEachNodeCachedHonoursVersion verifies that
+// SQLStore.ForEachNodeCached uses the requested gossip version when looking
+// up channels for the iterated nodes, rather than silently falling back to
+// v1 channels for v2 nodes.
+func TestForEachNodeCachedHonoursVersion(t *testing.T) {
+	t.Parallel()
+
+	if !isSQLDB {
+		t.Skip("test only meaningful for SQL backend")
+	}
+
+	ctx := t.Context()
+	graph := MakeTestGraph(t, WithUseGraphCache(false))
+
+	// Create two nodes that exist under both v1 and v2.
+	priv1, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	priv2, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	require.NoError(t, graph.AddNode(
+		ctx, createNode(t, lnwire.GossipVersion1, priv1),
+	))
+	require.NoError(t, graph.AddNode(
+		ctx, createNode(t, lnwire.GossipVersion1, priv2),
+	))
+	node1V2 := createNode(t, lnwire.GossipVersion2, priv1)
+	node2V2 := createNode(t, lnwire.GossipVersion2, priv2)
+	require.NoError(t, graph.AddNode(ctx, node1V2))
+	require.NoError(t, graph.AddNode(ctx, node2V2))
+
+	// Add a channel only under v2 between the two nodes. If
+	// ForEachNodeCached honours its version parameter, callers asking for
+	// v2 nodes must see this channel; if it instead hardcodes v1 in the
+	// channel lookup, the channel will be missing.
+	edgeV2, _ := createEdge(
+		lnwire.GossipVersion2, 100, 1, 0, 1, node1V2, node2V2,
+	)
+	require.NoError(t, graph.AddChannelEdge(ctx, edgeV2))
+
+	store := graph.db
+	chansSeen := 0
+	err = store.ForEachNodeCached(
+		ctx, lnwire.GossipVersion2,
+		func(_ context.Context, n route.Vertex,
+			chans map[uint64]*DirectedChannel) error {
+
+			if n == node1V2.PubKeyBytes ||
+				n == node2V2.PubKeyBytes {
+
+				chansSeen += len(chans)
+			}
+
+			return nil
+		}, func() { chansSeen = 0 },
+	)
+	require.NoError(t, err)
+	require.Equal(t, 2, chansSeen,
+		"v2 ForEachNodeCached should report the v2 channel for "+
+			"each endpoint")
+}

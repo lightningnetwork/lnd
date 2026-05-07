@@ -318,6 +318,25 @@ type Store interface { //nolint:interfacebloat
 		*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy, error)
 
+	// FetchChannelEdgesByIDPreferred behaves like FetchChannelEdgesByID
+	// but is version-agnostic: if the channel exists under multiple gossip
+	// versions it returns the preferred record. Preferred means the highest
+	// version with policies, falling back to the highest bare version.
+	FetchChannelEdgesByIDPreferred(ctx context.Context,
+		chanID uint64) (
+		*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy, error)
+
+	// FetchChannelEdgesByOutpointPreferred behaves like
+	// FetchChannelEdgesByOutpoint but is version-agnostic: if the channel
+	// exists under multiple gossip versions it returns the preferred
+	// record. Preferred means the highest version with policies, falling
+	// back to the highest bare version.
+	FetchChannelEdgesByOutpointPreferred(ctx context.Context,
+		op *wire.OutPoint) (
+		*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy, error)
+
 	// ChannelView returns the verifiable edge information for each active
 	// channel within the known channel graph for the given gossip version.
 	// The set of UTXO's (along with their scripts) returned are the ones

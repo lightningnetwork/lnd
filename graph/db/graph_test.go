@@ -6776,3 +6776,153 @@ func TestUpdateRangeValidateForVersion(t *testing.T) {
 		})
 	}
 }
+
+// TestPreferredChannelFetch tests the two new Store methods:
+// FetchChannelEdgesByIDPreferred and FetchChannelEdgesByOutpointPreferred.
+func TestPreferredChannelFetch(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	graph := MakeTestGraph(t)
+	store := graph.db
+
+	node1Priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	node2Priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	node1V1 := createNode(t, lnwire.GossipVersion1, node1Priv)
+	node2V1 := createNode(t, lnwire.GossipVersion1, node2Priv)
+
+	require.NoError(t, graph.AddNode(ctx, node1V1))
+	require.NoError(t, graph.AddNode(ctx, node2V1))
+
+	// Create and add a v1 channel edge.
+	edgeInfo, scid := createEdge(
+		lnwire.GossipVersion1, 100, 1, 0, 1, node1V1, node2V1,
+	)
+	require.NoError(t, graph.AddChannelEdge(ctx, edgeInfo))
+
+	chanID := scid.ToUint64()
+	op := edgeInfo.ChannelPoint
+
+	// FetchChannelEdgesByIDPreferred should return the v1 channel.
+	info, _, _, err := store.FetchChannelEdgesByIDPreferred(
+		ctx, chanID,
+	)
+	require.NoError(t, err)
+	require.Equal(t, chanID, info.ChannelID)
+
+	// FetchChannelEdgesByOutpointPreferred should also return it.
+	info, _, _, err = store.FetchChannelEdgesByOutpointPreferred(
+		ctx, &op,
+	)
+	require.NoError(t, err)
+	require.Equal(t, chanID, info.ChannelID)
+
+	// Querying a non-existent channel should return ErrEdgeNotFound for
+	// both the SCID and outpoint lookups.
+	_, _, _, err = store.FetchChannelEdgesByIDPreferred(ctx, 999999)
+	require.ErrorIs(t, err, ErrEdgeNotFound)
+
+	unknownOutpoint := wire.OutPoint{
+		Hash:  chainhash.Hash{1},
+		Index: 99,
+	}
+	_, _, _, err = store.FetchChannelEdgesByOutpointPreferred(
+		ctx, &unknownOutpoint,
+	)
+	require.ErrorIs(t, err, ErrEdgeNotFound)
+
+	zombieChanID := uint64(888888)
+	err = store.MarkEdgeZombie(
+		ctx, lnwire.GossipVersion1, zombieChanID,
+		node1V1.PubKeyBytes, node2V1.PubKeyBytes,
+	)
+	require.NoError(t, err)
+
+	info, _, _, err = store.FetchChannelEdgesByIDPreferred(
+		ctx, zombieChanID,
+	)
+	require.ErrorIs(t, err, ErrZombieEdge)
+	require.NotNil(t, info)
+	require.Equal(t, route.Vertex(node1V1.PubKeyBytes), info.NodeKey1Bytes)
+	require.Equal(t, route.Vertex(node2V1.PubKeyBytes), info.NodeKey2Bytes)
+
+	if !isSQLDB {
+		return
+	}
+
+	node1V2 := createNode(t, lnwire.GossipVersion2, node1Priv)
+	node2V2 := createNode(t, lnwire.GossipVersion2, node2Priv)
+	require.NoError(t, graph.AddNode(ctx, node1V2))
+	require.NoError(t, graph.AddNode(ctx, node2V2))
+
+	// Add a duplicate v1/v2 channel and verify preferred lookup chooses
+	// the v2 edge for both the SCID and outpoint lookups.
+	dupV1, dupSCID := createEdge(
+		lnwire.GossipVersion1, 101, 1, 0, 2, node1V1, node2V1,
+	)
+	dupV2, _ := createEdge(
+		lnwire.GossipVersion2, 101, 1, 0, 2, node1V2, node2V2,
+	)
+	require.NoError(t, graph.AddChannelEdge(ctx, dupV1))
+	require.NoError(t, graph.AddChannelEdge(ctx, dupV2))
+
+	dupChanID := dupSCID.ToUint64()
+	dupOutpoint := dupV1.ChannelPoint
+
+	info, _, _, err = store.FetchChannelEdgesByIDPreferred(
+		ctx, dupChanID,
+	)
+	require.NoError(t, err)
+	require.Equal(t, dupChanID, info.ChannelID)
+	require.Equal(t, lnwire.GossipVersion2, info.Version)
+
+	info, _, _, err = store.FetchChannelEdgesByOutpointPreferred(
+		ctx, &dupOutpoint,
+	)
+	require.NoError(t, err)
+	require.Equal(t, dupChanID, info.ChannelID)
+	require.Equal(t, lnwire.GossipVersion2, info.Version)
+
+	// Add another duplicate v1/v2 channel where only the v1 version has a
+	// policy. Preferred lookup should return the lower version with usable
+	// policy data instead of the higher version shell.
+	policyPrefV1, policyPrefSCID := createEdge(
+		lnwire.GossipVersion1, 102, 1, 0, 3, node1V1, node2V1,
+	)
+	policyPrefV2, _ := createEdge(
+		lnwire.GossipVersion2, 102, 1, 0, 3, node1V2, node2V2,
+	)
+	require.NoError(t, graph.AddChannelEdge(ctx, policyPrefV1))
+	require.NoError(t, graph.AddChannelEdge(ctx, policyPrefV2))
+
+	policyOnlyV1 := newEdgePolicy(
+		lnwire.GossipVersion1, policyPrefV1.ChannelID, 1000, true,
+	)
+	policyOnlyV1.ToNode = node2V1.PubKeyBytes
+	policyOnlyV1.SigBytes = testSig.Serialize()
+	require.NoError(t, graph.UpdateEdgePolicy(ctx, policyOnlyV1))
+
+	policyPrefChanID := policyPrefSCID.ToUint64()
+	policyPrefOutpoint := policyPrefV1.ChannelPoint
+
+	info, p1, p2, err := store.FetchChannelEdgesByIDPreferred(
+		ctx, policyPrefChanID,
+	)
+	require.NoError(t, err)
+	require.Equal(t, policyPrefChanID, info.ChannelID)
+	require.Equal(t, lnwire.GossipVersion1, info.Version)
+	require.NotNil(t, p1)
+	require.Nil(t, p2)
+
+	info, p1, p2, err = store.FetchChannelEdgesByOutpointPreferred(
+		ctx, &policyPrefOutpoint,
+	)
+	require.NoError(t, err)
+	require.Equal(t, policyPrefChanID, info.ChannelID)
+	require.Equal(t, lnwire.GossipVersion1, info.Version)
+	require.NotNil(t, p1)
+	require.Nil(t, p2)
+}

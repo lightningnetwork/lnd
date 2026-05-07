@@ -347,8 +347,7 @@ func TestPopulateDBs(t *testing.T) {
 	// graph.
 	countNodes := func(graph *ChannelGraph) int {
 		numNodes := 0
-		v1Graph := NewVersionedGraph(graph, lnwire.GossipVersion1)
-		err := v1Graph.ForEachNode(
+		err := graph.ForEachNode(
 			ctx,
 			func(node *models.Node) error {
 				numNodes++

@@ -146,76 +146,6 @@ func (FailureDetail) EnumDescriptor() ([]byte, []int) {
 	return file_routerrpc_router_proto_rawDescGZIP(), []int{0}
 }
 
-type PaymentState int32
-
-const (
-	// Payment is still in flight.
-	PaymentState_IN_FLIGHT PaymentState = 0
-	// Payment completed successfully.
-	PaymentState_SUCCEEDED PaymentState = 1
-	// There are more routes to try, but the payment timeout was exceeded.
-	PaymentState_FAILED_TIMEOUT PaymentState = 2
-	// All possible routes were tried and failed permanently. Or were no
-	// routes to the destination at all.
-	PaymentState_FAILED_NO_ROUTE PaymentState = 3
-	// A non-recoverable error has occurred.
-	PaymentState_FAILED_ERROR PaymentState = 4
-	// Payment details incorrect (unknown hash, invalid amt or
-	// invalid final cltv delta)
-	PaymentState_FAILED_INCORRECT_PAYMENT_DETAILS PaymentState = 5
-	// Insufficient local balance.
-	PaymentState_FAILED_INSUFFICIENT_BALANCE PaymentState = 6
-)
-
-// Enum value maps for PaymentState.
-var (
-	PaymentState_name = map[int32]string{
-		0: "IN_FLIGHT",
-		1: "SUCCEEDED",
-		2: "FAILED_TIMEOUT",
-		3: "FAILED_NO_ROUTE",
-		4: "FAILED_ERROR",
-		5: "FAILED_INCORRECT_PAYMENT_DETAILS",
-		6: "FAILED_INSUFFICIENT_BALANCE",
-	}
-	PaymentState_value = map[string]int32{
-		"IN_FLIGHT":                        0,
-		"SUCCEEDED":                        1,
-		"FAILED_TIMEOUT":                   2,
-		"FAILED_NO_ROUTE":                  3,
-		"FAILED_ERROR":                     4,
-		"FAILED_INCORRECT_PAYMENT_DETAILS": 5,
-		"FAILED_INSUFFICIENT_BALANCE":      6,
-	}
-)
-
-func (x PaymentState) Enum() *PaymentState {
-	p := new(PaymentState)
-	*p = x
-	return p
-}
-
-func (x PaymentState) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (PaymentState) Descriptor() protoreflect.EnumDescriptor {
-	return file_routerrpc_router_proto_enumTypes[1].Descriptor()
-}
-
-func (PaymentState) Type() protoreflect.EnumType {
-	return &file_routerrpc_router_proto_enumTypes[1]
-}
-
-func (x PaymentState) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use PaymentState.Descriptor instead.
-func (PaymentState) EnumDescriptor() ([]byte, []int) {
-	return file_routerrpc_router_proto_rawDescGZIP(), []int{1}
-}
-
 type ResolveHoldForwardAction int32
 
 const (
@@ -258,11 +188,11 @@ func (x ResolveHoldForwardAction) String() string {
 }
 
 func (ResolveHoldForwardAction) Descriptor() protoreflect.EnumDescriptor {
-	return file_routerrpc_router_proto_enumTypes[2].Descriptor()
+	return file_routerrpc_router_proto_enumTypes[1].Descriptor()
 }
 
 func (ResolveHoldForwardAction) Type() protoreflect.EnumType {
-	return &file_routerrpc_router_proto_enumTypes[2]
+	return &file_routerrpc_router_proto_enumTypes[1]
 }
 
 func (x ResolveHoldForwardAction) Number() protoreflect.EnumNumber {
@@ -271,7 +201,7 @@ func (x ResolveHoldForwardAction) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ResolveHoldForwardAction.Descriptor instead.
 func (ResolveHoldForwardAction) EnumDescriptor() ([]byte, []int) {
-	return file_routerrpc_router_proto_rawDescGZIP(), []int{2}
+	return file_routerrpc_router_proto_rawDescGZIP(), []int{1}
 }
 
 type ChanStatusAction int32
@@ -307,11 +237,11 @@ func (x ChanStatusAction) String() string {
 }
 
 func (ChanStatusAction) Descriptor() protoreflect.EnumDescriptor {
-	return file_routerrpc_router_proto_enumTypes[3].Descriptor()
+	return file_routerrpc_router_proto_enumTypes[2].Descriptor()
 }
 
 func (ChanStatusAction) Type() protoreflect.EnumType {
-	return &file_routerrpc_router_proto_enumTypes[3]
+	return &file_routerrpc_router_proto_enumTypes[2]
 }
 
 func (x ChanStatusAction) Number() protoreflect.EnumNumber {
@@ -320,7 +250,7 @@ func (x ChanStatusAction) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ChanStatusAction.Descriptor instead.
 func (ChanStatusAction) EnumDescriptor() ([]byte, []int) {
-	return file_routerrpc_router_proto_rawDescGZIP(), []int{3}
+	return file_routerrpc_router_proto_rawDescGZIP(), []int{2}
 }
 
 type MissionControlConfig_ProbabilityModel int32
@@ -353,11 +283,11 @@ func (x MissionControlConfig_ProbabilityModel) String() string {
 }
 
 func (MissionControlConfig_ProbabilityModel) Descriptor() protoreflect.EnumDescriptor {
-	return file_routerrpc_router_proto_enumTypes[4].Descriptor()
+	return file_routerrpc_router_proto_enumTypes[3].Descriptor()
 }
 
 func (MissionControlConfig_ProbabilityModel) Type() protoreflect.EnumType {
-	return &file_routerrpc_router_proto_enumTypes[4]
+	return &file_routerrpc_router_proto_enumTypes[3]
 }
 
 func (x MissionControlConfig_ProbabilityModel) Number() protoreflect.EnumNumber {
@@ -405,11 +335,11 @@ func (x HtlcEvent_EventType) String() string {
 }
 
 func (HtlcEvent_EventType) Descriptor() protoreflect.EnumDescriptor {
-	return file_routerrpc_router_proto_enumTypes[5].Descriptor()
+	return file_routerrpc_router_proto_enumTypes[4].Descriptor()
 }
 
 func (HtlcEvent_EventType) Type() protoreflect.EnumType {
-	return &file_routerrpc_router_proto_enumTypes[5]
+	return &file_routerrpc_router_proto_enumTypes[4]
 }
 
 func (x HtlcEvent_EventType) Number() protoreflect.EnumNumber {
@@ -2879,69 +2809,6 @@ func (x *LinkFailEvent) GetFailureString() string {
 	return ""
 }
 
-type PaymentStatus struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Current state the payment is in.
-	State PaymentState `protobuf:"varint,1,opt,name=state,proto3,enum=routerrpc.PaymentState" json:"state,omitempty"`
-	// The pre-image of the payment when state is SUCCEEDED.
-	Preimage []byte `protobuf:"bytes,2,opt,name=preimage,proto3" json:"preimage,omitempty"`
-	// The HTLCs made in attempt to settle the payment [EXPERIMENTAL].
-	Htlcs         []*lnrpc.HTLCAttempt `protobuf:"bytes,4,rep,name=htlcs,proto3" json:"htlcs,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *PaymentStatus) Reset() {
-	*x = PaymentStatus{}
-	mi := &file_routerrpc_router_proto_msgTypes[35]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *PaymentStatus) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*PaymentStatus) ProtoMessage() {}
-
-func (x *PaymentStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_routerrpc_router_proto_msgTypes[35]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use PaymentStatus.ProtoReflect.Descriptor instead.
-func (*PaymentStatus) Descriptor() ([]byte, []int) {
-	return file_routerrpc_router_proto_rawDescGZIP(), []int{35}
-}
-
-func (x *PaymentStatus) GetState() PaymentState {
-	if x != nil {
-		return x.State
-	}
-	return PaymentState_IN_FLIGHT
-}
-
-func (x *PaymentStatus) GetPreimage() []byte {
-	if x != nil {
-		return x.Preimage
-	}
-	return nil
-}
-
-func (x *PaymentStatus) GetHtlcs() []*lnrpc.HTLCAttempt {
-	if x != nil {
-		return x.Htlcs
-	}
-	return nil
-}
-
 type CircuitKey struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// / The id of the channel that the is part of this circuit.
@@ -2954,7 +2821,7 @@ type CircuitKey struct {
 
 func (x *CircuitKey) Reset() {
 	*x = CircuitKey{}
-	mi := &file_routerrpc_router_proto_msgTypes[36]
+	mi := &file_routerrpc_router_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2966,7 +2833,7 @@ func (x *CircuitKey) String() string {
 func (*CircuitKey) ProtoMessage() {}
 
 func (x *CircuitKey) ProtoReflect() protoreflect.Message {
-	mi := &file_routerrpc_router_proto_msgTypes[36]
+	mi := &file_routerrpc_router_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2979,7 +2846,7 @@ func (x *CircuitKey) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CircuitKey.ProtoReflect.Descriptor instead.
 func (*CircuitKey) Descriptor() ([]byte, []int) {
-	return file_routerrpc_router_proto_rawDescGZIP(), []int{36}
+	return file_routerrpc_router_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *CircuitKey) GetChanId() uint64 {
@@ -3032,7 +2899,7 @@ type ForwardHtlcInterceptRequest struct {
 
 func (x *ForwardHtlcInterceptRequest) Reset() {
 	*x = ForwardHtlcInterceptRequest{}
-	mi := &file_routerrpc_router_proto_msgTypes[37]
+	mi := &file_routerrpc_router_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3044,7 +2911,7 @@ func (x *ForwardHtlcInterceptRequest) String() string {
 func (*ForwardHtlcInterceptRequest) ProtoMessage() {}
 
 func (x *ForwardHtlcInterceptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_routerrpc_router_proto_msgTypes[37]
+	mi := &file_routerrpc_router_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3057,7 +2924,7 @@ func (x *ForwardHtlcInterceptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForwardHtlcInterceptRequest.ProtoReflect.Descriptor instead.
 func (*ForwardHtlcInterceptRequest) Descriptor() ([]byte, []int) {
-	return file_routerrpc_router_proto_rawDescGZIP(), []int{37}
+	return file_routerrpc_router_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ForwardHtlcInterceptRequest) GetIncomingCircuitKey() *CircuitKey {
@@ -3189,7 +3056,7 @@ type ForwardHtlcInterceptResponse struct {
 
 func (x *ForwardHtlcInterceptResponse) Reset() {
 	*x = ForwardHtlcInterceptResponse{}
-	mi := &file_routerrpc_router_proto_msgTypes[38]
+	mi := &file_routerrpc_router_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3201,7 +3068,7 @@ func (x *ForwardHtlcInterceptResponse) String() string {
 func (*ForwardHtlcInterceptResponse) ProtoMessage() {}
 
 func (x *ForwardHtlcInterceptResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_routerrpc_router_proto_msgTypes[38]
+	mi := &file_routerrpc_router_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3214,7 +3081,7 @@ func (x *ForwardHtlcInterceptResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ForwardHtlcInterceptResponse.ProtoReflect.Descriptor instead.
 func (*ForwardHtlcInterceptResponse) Descriptor() ([]byte, []int) {
-	return file_routerrpc_router_proto_rawDescGZIP(), []int{38}
+	return file_routerrpc_router_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ForwardHtlcInterceptResponse) GetIncomingCircuitKey() *CircuitKey {
@@ -3283,7 +3150,7 @@ type UpdateChanStatusRequest struct {
 
 func (x *UpdateChanStatusRequest) Reset() {
 	*x = UpdateChanStatusRequest{}
-	mi := &file_routerrpc_router_proto_msgTypes[39]
+	mi := &file_routerrpc_router_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3295,7 +3162,7 @@ func (x *UpdateChanStatusRequest) String() string {
 func (*UpdateChanStatusRequest) ProtoMessage() {}
 
 func (x *UpdateChanStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_routerrpc_router_proto_msgTypes[39]
+	mi := &file_routerrpc_router_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3308,7 +3175,7 @@ func (x *UpdateChanStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateChanStatusRequest.ProtoReflect.Descriptor instead.
 func (*UpdateChanStatusRequest) Descriptor() ([]byte, []int) {
-	return file_routerrpc_router_proto_rawDescGZIP(), []int{39}
+	return file_routerrpc_router_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *UpdateChanStatusRequest) GetChanPoint() *lnrpc.ChannelPoint {
@@ -3333,7 +3200,7 @@ type UpdateChanStatusResponse struct {
 
 func (x *UpdateChanStatusResponse) Reset() {
 	*x = UpdateChanStatusResponse{}
-	mi := &file_routerrpc_router_proto_msgTypes[40]
+	mi := &file_routerrpc_router_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3345,7 +3212,7 @@ func (x *UpdateChanStatusResponse) String() string {
 func (*UpdateChanStatusResponse) ProtoMessage() {}
 
 func (x *UpdateChanStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_routerrpc_router_proto_msgTypes[40]
+	mi := &file_routerrpc_router_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3358,7 +3225,7 @@ func (x *UpdateChanStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateChanStatusResponse.ProtoReflect.Descriptor instead.
 func (*UpdateChanStatusResponse) Descriptor() ([]byte, []int) {
-	return file_routerrpc_router_proto_rawDescGZIP(), []int{40}
+	return file_routerrpc_router_proto_rawDescGZIP(), []int{39}
 }
 
 type AddAliasesRequest struct {
@@ -3370,7 +3237,7 @@ type AddAliasesRequest struct {
 
 func (x *AddAliasesRequest) Reset() {
 	*x = AddAliasesRequest{}
-	mi := &file_routerrpc_router_proto_msgTypes[41]
+	mi := &file_routerrpc_router_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3382,7 +3249,7 @@ func (x *AddAliasesRequest) String() string {
 func (*AddAliasesRequest) ProtoMessage() {}
 
 func (x *AddAliasesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_routerrpc_router_proto_msgTypes[41]
+	mi := &file_routerrpc_router_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3395,7 +3262,7 @@ func (x *AddAliasesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddAliasesRequest.ProtoReflect.Descriptor instead.
 func (*AddAliasesRequest) Descriptor() ([]byte, []int) {
-	return file_routerrpc_router_proto_rawDescGZIP(), []int{41}
+	return file_routerrpc_router_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *AddAliasesRequest) GetAliasMaps() []*lnrpc.AliasMap {
@@ -3414,7 +3281,7 @@ type AddAliasesResponse struct {
 
 func (x *AddAliasesResponse) Reset() {
 	*x = AddAliasesResponse{}
-	mi := &file_routerrpc_router_proto_msgTypes[42]
+	mi := &file_routerrpc_router_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3426,7 +3293,7 @@ func (x *AddAliasesResponse) String() string {
 func (*AddAliasesResponse) ProtoMessage() {}
 
 func (x *AddAliasesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_routerrpc_router_proto_msgTypes[42]
+	mi := &file_routerrpc_router_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3439,7 +3306,7 @@ func (x *AddAliasesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddAliasesResponse.ProtoReflect.Descriptor instead.
 func (*AddAliasesResponse) Descriptor() ([]byte, []int) {
-	return file_routerrpc_router_proto_rawDescGZIP(), []int{42}
+	return file_routerrpc_router_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *AddAliasesResponse) GetAliasMaps() []*lnrpc.AliasMap {
@@ -3458,7 +3325,7 @@ type DeleteAliasesRequest struct {
 
 func (x *DeleteAliasesRequest) Reset() {
 	*x = DeleteAliasesRequest{}
-	mi := &file_routerrpc_router_proto_msgTypes[43]
+	mi := &file_routerrpc_router_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3470,7 +3337,7 @@ func (x *DeleteAliasesRequest) String() string {
 func (*DeleteAliasesRequest) ProtoMessage() {}
 
 func (x *DeleteAliasesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_routerrpc_router_proto_msgTypes[43]
+	mi := &file_routerrpc_router_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3483,7 +3350,7 @@ func (x *DeleteAliasesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteAliasesRequest.ProtoReflect.Descriptor instead.
 func (*DeleteAliasesRequest) Descriptor() ([]byte, []int) {
-	return file_routerrpc_router_proto_rawDescGZIP(), []int{43}
+	return file_routerrpc_router_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *DeleteAliasesRequest) GetAliasMaps() []*lnrpc.AliasMap {
@@ -3502,7 +3369,7 @@ type DeleteAliasesResponse struct {
 
 func (x *DeleteAliasesResponse) Reset() {
 	*x = DeleteAliasesResponse{}
-	mi := &file_routerrpc_router_proto_msgTypes[44]
+	mi := &file_routerrpc_router_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3514,7 +3381,7 @@ func (x *DeleteAliasesResponse) String() string {
 func (*DeleteAliasesResponse) ProtoMessage() {}
 
 func (x *DeleteAliasesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_routerrpc_router_proto_msgTypes[44]
+	mi := &file_routerrpc_router_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3527,7 +3394,7 @@ func (x *DeleteAliasesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteAliasesResponse.ProtoReflect.Descriptor instead.
 func (*DeleteAliasesResponse) Descriptor() ([]byte, []int) {
-	return file_routerrpc_router_proto_rawDescGZIP(), []int{44}
+	return file_routerrpc_router_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *DeleteAliasesResponse) GetAliasMaps() []*lnrpc.AliasMap {
@@ -3547,7 +3414,7 @@ type FindBaseAliasRequest struct {
 
 func (x *FindBaseAliasRequest) Reset() {
 	*x = FindBaseAliasRequest{}
-	mi := &file_routerrpc_router_proto_msgTypes[45]
+	mi := &file_routerrpc_router_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3559,7 +3426,7 @@ func (x *FindBaseAliasRequest) String() string {
 func (*FindBaseAliasRequest) ProtoMessage() {}
 
 func (x *FindBaseAliasRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_routerrpc_router_proto_msgTypes[45]
+	mi := &file_routerrpc_router_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3572,7 +3439,7 @@ func (x *FindBaseAliasRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FindBaseAliasRequest.ProtoReflect.Descriptor instead.
 func (*FindBaseAliasRequest) Descriptor() ([]byte, []int) {
-	return file_routerrpc_router_proto_rawDescGZIP(), []int{45}
+	return file_routerrpc_router_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *FindBaseAliasRequest) GetAlias() uint64 {
@@ -3592,7 +3459,7 @@ type FindBaseAliasResponse struct {
 
 func (x *FindBaseAliasResponse) Reset() {
 	*x = FindBaseAliasResponse{}
-	mi := &file_routerrpc_router_proto_msgTypes[46]
+	mi := &file_routerrpc_router_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3604,7 +3471,7 @@ func (x *FindBaseAliasResponse) String() string {
 func (*FindBaseAliasResponse) ProtoMessage() {}
 
 func (x *FindBaseAliasResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_routerrpc_router_proto_msgTypes[46]
+	mi := &file_routerrpc_router_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3617,7 +3484,7 @@ func (x *FindBaseAliasResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FindBaseAliasResponse.ProtoReflect.Descriptor instead.
 func (*FindBaseAliasResponse) Descriptor() ([]byte, []int) {
-	return file_routerrpc_router_proto_rawDescGZIP(), []int{46}
+	return file_routerrpc_router_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *FindBaseAliasResponse) GetBase() uint64 {
@@ -3643,7 +3510,7 @@ type DeleteForwardingHistoryRequest struct {
 
 func (x *DeleteForwardingHistoryRequest) Reset() {
 	*x = DeleteForwardingHistoryRequest{}
-	mi := &file_routerrpc_router_proto_msgTypes[47]
+	mi := &file_routerrpc_router_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3655,7 +3522,7 @@ func (x *DeleteForwardingHistoryRequest) String() string {
 func (*DeleteForwardingHistoryRequest) ProtoMessage() {}
 
 func (x *DeleteForwardingHistoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_routerrpc_router_proto_msgTypes[47]
+	mi := &file_routerrpc_router_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3668,7 +3535,7 @@ func (x *DeleteForwardingHistoryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteForwardingHistoryRequest.ProtoReflect.Descriptor instead.
 func (*DeleteForwardingHistoryRequest) Descriptor() ([]byte, []int) {
-	return file_routerrpc_router_proto_rawDescGZIP(), []int{47}
+	return file_routerrpc_router_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *DeleteForwardingHistoryRequest) GetTimeSpec() isDeleteForwardingHistoryRequest_TimeSpec {
@@ -3738,7 +3605,7 @@ type DeleteForwardingHistoryResponse struct {
 
 func (x *DeleteForwardingHistoryResponse) Reset() {
 	*x = DeleteForwardingHistoryResponse{}
-	mi := &file_routerrpc_router_proto_msgTypes[48]
+	mi := &file_routerrpc_router_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3750,7 +3617,7 @@ func (x *DeleteForwardingHistoryResponse) String() string {
 func (*DeleteForwardingHistoryResponse) ProtoMessage() {}
 
 func (x *DeleteForwardingHistoryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_routerrpc_router_proto_msgTypes[48]
+	mi := &file_routerrpc_router_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3763,7 +3630,7 @@ func (x *DeleteForwardingHistoryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteForwardingHistoryResponse.ProtoReflect.Descriptor instead.
 func (*DeleteForwardingHistoryResponse) Descriptor() ([]byte, []int) {
-	return file_routerrpc_router_proto_rawDescGZIP(), []int{48}
+	return file_routerrpc_router_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *DeleteForwardingHistoryResponse) GetEventsDeleted() uint64 {
@@ -3966,11 +3833,7 @@ const file_routerrpc_router_proto_rawDesc = "" +
 	"\x04info\x18\x01 \x01(\v2\x13.routerrpc.HtlcInfoR\x04info\x12=\n" +
 	"\fwire_failure\x18\x02 \x01(\x0e2\x1a.lnrpc.Failure.FailureCodeR\vwireFailure\x12?\n" +
 	"\x0efailure_detail\x18\x03 \x01(\x0e2\x18.routerrpc.FailureDetailR\rfailureDetail\x12%\n" +
-	"\x0efailure_string\x18\x04 \x01(\tR\rfailureString\"\x8a\x01\n" +
-	"\rPaymentStatus\x12-\n" +
-	"\x05state\x18\x01 \x01(\x0e2\x17.routerrpc.PaymentStateR\x05state\x12\x1a\n" +
-	"\bpreimage\x18\x02 \x01(\fR\bpreimage\x12(\n" +
-	"\x05htlcs\x18\x04 \x03(\v2\x12.lnrpc.HTLCAttemptR\x05htlcsJ\x04\b\x03\x10\x04\">\n" +
+	"\x0efailure_string\x18\x04 \x01(\tR\rfailureString\">\n" +
 	"\n" +
 	"CircuitKey\x12\x17\n" +
 	"\achan_id\x18\x01 \x01(\x04R\x06chanId\x12\x17\n" +
@@ -4065,15 +3928,7 @@ const file_routerrpc_router_proto_rawDesc = "" +
 	"\x1aHTLC_INVOICE_TYPE_MISMATCH\x10\x18\x12\r\n" +
 	"\tAMP_ERROR\x10\x19\x12\x16\n" +
 	"\x12AMP_RECONSTRUCTION\x10\x1a\x12\x1e\n" +
-	"\x1aEXTERNAL_VALIDATION_FAILED\x10\x1b*\xae\x01\n" +
-	"\fPaymentState\x12\r\n" +
-	"\tIN_FLIGHT\x10\x00\x12\r\n" +
-	"\tSUCCEEDED\x10\x01\x12\x12\n" +
-	"\x0eFAILED_TIMEOUT\x10\x02\x12\x13\n" +
-	"\x0fFAILED_NO_ROUTE\x10\x03\x12\x10\n" +
-	"\fFAILED_ERROR\x10\x04\x12$\n" +
-	" FAILED_INCORRECT_PAYMENT_DETAILS\x10\x05\x12\x1f\n" +
-	"\x1bFAILED_INSUFFICIENT_BALANCE\x10\x06*Q\n" +
+	"\x1aEXTERNAL_VALIDATION_FAILED\x10\x1b*Q\n" +
 	"\x18ResolveHoldForwardAction\x12\n" +
 	"\n" +
 	"\x06SETTLE\x10\x00\x12\b\n" +
@@ -4085,13 +3940,12 @@ const file_routerrpc_router_proto_rawDesc = "" +
 	"\n" +
 	"\x06ENABLE\x10\x00\x12\v\n" +
 	"\aDISABLE\x10\x01\x12\b\n" +
-	"\x04AUTO\x10\x022\xb8\x0f\n" +
+	"\x04AUTO\x10\x022\xc5\r\n" +
 	"\x06Router\x12@\n" +
 	"\rSendPaymentV2\x12\x1d.routerrpc.SendPaymentRequest\x1a\x0e.lnrpc.Payment0\x01\x12B\n" +
 	"\x0eTrackPaymentV2\x12\x1e.routerrpc.TrackPaymentRequest\x1a\x0e.lnrpc.Payment0\x01\x12B\n" +
 	"\rTrackPayments\x12\x1f.routerrpc.TrackPaymentsRequest\x1a\x0e.lnrpc.Payment0\x01\x12K\n" +
-	"\x10EstimateRouteFee\x12\x1a.routerrpc.RouteFeeRequest\x1a\x1b.routerrpc.RouteFeeResponse\x12Q\n" +
-	"\vSendToRoute\x12\x1d.routerrpc.SendToRouteRequest\x1a\x1e.routerrpc.SendToRouteResponse\"\x03\x88\x02\x01\x12B\n" +
+	"\x10EstimateRouteFee\x12\x1a.routerrpc.RouteFeeRequest\x1a\x1b.routerrpc.RouteFeeResponse\x12B\n" +
 	"\rSendToRouteV2\x12\x1d.routerrpc.SendToRouteRequest\x1a\x12.lnrpc.HTLCAttempt\x12d\n" +
 	"\x13ResetMissionControl\x12%.routerrpc.ResetMissionControlRequest\x1a&.routerrpc.ResetMissionControlResponse\x12d\n" +
 	"\x13QueryMissionControl\x12%.routerrpc.QueryMissionControlRequest\x1a&.routerrpc.QueryMissionControlResponse\x12j\n" +
@@ -4101,9 +3955,7 @@ const file_routerrpc_router_proto_rawDesc = "" +
 	"\x10QueryProbability\x12\".routerrpc.QueryProbabilityRequest\x1a#.routerrpc.QueryProbabilityResponse\x12I\n" +
 	"\n" +
 	"BuildRoute\x12\x1c.routerrpc.BuildRouteRequest\x1a\x1d.routerrpc.BuildRouteResponse\x12T\n" +
-	"\x13SubscribeHtlcEvents\x12%.routerrpc.SubscribeHtlcEventsRequest\x1a\x14.routerrpc.HtlcEvent0\x01\x12M\n" +
-	"\vSendPayment\x12\x1d.routerrpc.SendPaymentRequest\x1a\x18.routerrpc.PaymentStatus\"\x03\x88\x02\x010\x01\x12O\n" +
-	"\fTrackPayment\x12\x1e.routerrpc.TrackPaymentRequest\x1a\x18.routerrpc.PaymentStatus\"\x03\x88\x02\x010\x01\x12f\n" +
+	"\x13SubscribeHtlcEvents\x12%.routerrpc.SubscribeHtlcEventsRequest\x1a\x14.routerrpc.HtlcEvent0\x01\x12f\n" +
 	"\x0fHtlcInterceptor\x12'.routerrpc.ForwardHtlcInterceptResponse\x1a&.routerrpc.ForwardHtlcInterceptRequest(\x010\x01\x12[\n" +
 	"\x10UpdateChanStatus\x12\".routerrpc.UpdateChanStatusRequest\x1a#.routerrpc.UpdateChanStatusResponse\x12S\n" +
 	"\x14XAddLocalChanAliases\x12\x1c.routerrpc.AddAliasesRequest\x1a\x1d.routerrpc.AddAliasesResponse\x12\\\n" +
@@ -4123,177 +3975,167 @@ func file_routerrpc_router_proto_rawDescGZIP() []byte {
 	return file_routerrpc_router_proto_rawDescData
 }
 
-var file_routerrpc_router_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_routerrpc_router_proto_msgTypes = make([]protoimpl.MessageInfo, 56)
+var file_routerrpc_router_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_routerrpc_router_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
 var file_routerrpc_router_proto_goTypes = []any{
 	(FailureDetail)(0),                         // 0: routerrpc.FailureDetail
-	(PaymentState)(0),                          // 1: routerrpc.PaymentState
-	(ResolveHoldForwardAction)(0),              // 2: routerrpc.ResolveHoldForwardAction
-	(ChanStatusAction)(0),                      // 3: routerrpc.ChanStatusAction
-	(MissionControlConfig_ProbabilityModel)(0), // 4: routerrpc.MissionControlConfig.ProbabilityModel
-	(HtlcEvent_EventType)(0),                   // 5: routerrpc.HtlcEvent.EventType
-	(*SendPaymentRequest)(nil),                 // 6: routerrpc.SendPaymentRequest
-	(*TrackPaymentRequest)(nil),                // 7: routerrpc.TrackPaymentRequest
-	(*TrackPaymentsRequest)(nil),               // 8: routerrpc.TrackPaymentsRequest
-	(*RouteFeeRequest)(nil),                    // 9: routerrpc.RouteFeeRequest
-	(*RouteFeeResponse)(nil),                   // 10: routerrpc.RouteFeeResponse
-	(*SendToRouteRequest)(nil),                 // 11: routerrpc.SendToRouteRequest
-	(*SendToRouteResponse)(nil),                // 12: routerrpc.SendToRouteResponse
-	(*ResetMissionControlRequest)(nil),         // 13: routerrpc.ResetMissionControlRequest
-	(*ResetMissionControlResponse)(nil),        // 14: routerrpc.ResetMissionControlResponse
-	(*QueryMissionControlRequest)(nil),         // 15: routerrpc.QueryMissionControlRequest
-	(*QueryMissionControlResponse)(nil),        // 16: routerrpc.QueryMissionControlResponse
-	(*XImportMissionControlRequest)(nil),       // 17: routerrpc.XImportMissionControlRequest
-	(*XImportMissionControlResponse)(nil),      // 18: routerrpc.XImportMissionControlResponse
-	(*PairHistory)(nil),                        // 19: routerrpc.PairHistory
-	(*PairData)(nil),                           // 20: routerrpc.PairData
-	(*GetMissionControlConfigRequest)(nil),     // 21: routerrpc.GetMissionControlConfigRequest
-	(*GetMissionControlConfigResponse)(nil),    // 22: routerrpc.GetMissionControlConfigResponse
-	(*SetMissionControlConfigRequest)(nil),     // 23: routerrpc.SetMissionControlConfigRequest
-	(*SetMissionControlConfigResponse)(nil),    // 24: routerrpc.SetMissionControlConfigResponse
-	(*MissionControlConfig)(nil),               // 25: routerrpc.MissionControlConfig
-	(*BimodalParameters)(nil),                  // 26: routerrpc.BimodalParameters
-	(*AprioriParameters)(nil),                  // 27: routerrpc.AprioriParameters
-	(*QueryProbabilityRequest)(nil),            // 28: routerrpc.QueryProbabilityRequest
-	(*QueryProbabilityResponse)(nil),           // 29: routerrpc.QueryProbabilityResponse
-	(*BuildRouteRequest)(nil),                  // 30: routerrpc.BuildRouteRequest
-	(*BuildRouteResponse)(nil),                 // 31: routerrpc.BuildRouteResponse
-	(*SubscribeHtlcEventsRequest)(nil),         // 32: routerrpc.SubscribeHtlcEventsRequest
-	(*HtlcEvent)(nil),                          // 33: routerrpc.HtlcEvent
-	(*HtlcInfo)(nil),                           // 34: routerrpc.HtlcInfo
-	(*ForwardEvent)(nil),                       // 35: routerrpc.ForwardEvent
-	(*ForwardFailEvent)(nil),                   // 36: routerrpc.ForwardFailEvent
-	(*SettleEvent)(nil),                        // 37: routerrpc.SettleEvent
-	(*FinalHtlcEvent)(nil),                     // 38: routerrpc.FinalHtlcEvent
-	(*SubscribedEvent)(nil),                    // 39: routerrpc.SubscribedEvent
-	(*LinkFailEvent)(nil),                      // 40: routerrpc.LinkFailEvent
-	(*PaymentStatus)(nil),                      // 41: routerrpc.PaymentStatus
-	(*CircuitKey)(nil),                         // 42: routerrpc.CircuitKey
-	(*ForwardHtlcInterceptRequest)(nil),        // 43: routerrpc.ForwardHtlcInterceptRequest
-	(*ForwardHtlcInterceptResponse)(nil),       // 44: routerrpc.ForwardHtlcInterceptResponse
-	(*UpdateChanStatusRequest)(nil),            // 45: routerrpc.UpdateChanStatusRequest
-	(*UpdateChanStatusResponse)(nil),           // 46: routerrpc.UpdateChanStatusResponse
-	(*AddAliasesRequest)(nil),                  // 47: routerrpc.AddAliasesRequest
-	(*AddAliasesResponse)(nil),                 // 48: routerrpc.AddAliasesResponse
-	(*DeleteAliasesRequest)(nil),               // 49: routerrpc.DeleteAliasesRequest
-	(*DeleteAliasesResponse)(nil),              // 50: routerrpc.DeleteAliasesResponse
-	(*FindBaseAliasRequest)(nil),               // 51: routerrpc.FindBaseAliasRequest
-	(*FindBaseAliasResponse)(nil),              // 52: routerrpc.FindBaseAliasResponse
-	(*DeleteForwardingHistoryRequest)(nil),     // 53: routerrpc.DeleteForwardingHistoryRequest
-	(*DeleteForwardingHistoryResponse)(nil),    // 54: routerrpc.DeleteForwardingHistoryResponse
-	nil,                                        // 55: routerrpc.SendPaymentRequest.DestCustomRecordsEntry
-	nil,                                        // 56: routerrpc.SendPaymentRequest.FirstHopCustomRecordsEntry
-	nil,                                        // 57: routerrpc.SendToRouteRequest.FirstHopCustomRecordsEntry
-	nil,                                        // 58: routerrpc.BuildRouteRequest.FirstHopCustomRecordsEntry
-	nil,                                        // 59: routerrpc.ForwardHtlcInterceptRequest.CustomRecordsEntry
-	nil,                                        // 60: routerrpc.ForwardHtlcInterceptRequest.InWireCustomRecordsEntry
-	nil,                                        // 61: routerrpc.ForwardHtlcInterceptResponse.OutWireCustomRecordsEntry
-	(*lnrpc.RouteHint)(nil),                    // 62: lnrpc.RouteHint
-	(lnrpc.FeatureBit)(0),                      // 63: lnrpc.FeatureBit
-	(lnrpc.PaymentFailureReason)(0),            // 64: lnrpc.PaymentFailureReason
-	(*lnrpc.Route)(nil),                        // 65: lnrpc.Route
-	(*lnrpc.Failure)(nil),                      // 66: lnrpc.Failure
-	(lnrpc.Failure_FailureCode)(0),             // 67: lnrpc.Failure.FailureCode
-	(*lnrpc.HTLCAttempt)(nil),                  // 68: lnrpc.HTLCAttempt
-	(*lnrpc.ChannelPoint)(nil),                 // 69: lnrpc.ChannelPoint
-	(*lnrpc.AliasMap)(nil),                     // 70: lnrpc.AliasMap
-	(*lnrpc.Payment)(nil),                      // 71: lnrpc.Payment
+	(ResolveHoldForwardAction)(0),              // 1: routerrpc.ResolveHoldForwardAction
+	(ChanStatusAction)(0),                      // 2: routerrpc.ChanStatusAction
+	(MissionControlConfig_ProbabilityModel)(0), // 3: routerrpc.MissionControlConfig.ProbabilityModel
+	(HtlcEvent_EventType)(0),                   // 4: routerrpc.HtlcEvent.EventType
+	(*SendPaymentRequest)(nil),                 // 5: routerrpc.SendPaymentRequest
+	(*TrackPaymentRequest)(nil),                // 6: routerrpc.TrackPaymentRequest
+	(*TrackPaymentsRequest)(nil),               // 7: routerrpc.TrackPaymentsRequest
+	(*RouteFeeRequest)(nil),                    // 8: routerrpc.RouteFeeRequest
+	(*RouteFeeResponse)(nil),                   // 9: routerrpc.RouteFeeResponse
+	(*SendToRouteRequest)(nil),                 // 10: routerrpc.SendToRouteRequest
+	(*SendToRouteResponse)(nil),                // 11: routerrpc.SendToRouteResponse
+	(*ResetMissionControlRequest)(nil),         // 12: routerrpc.ResetMissionControlRequest
+	(*ResetMissionControlResponse)(nil),        // 13: routerrpc.ResetMissionControlResponse
+	(*QueryMissionControlRequest)(nil),         // 14: routerrpc.QueryMissionControlRequest
+	(*QueryMissionControlResponse)(nil),        // 15: routerrpc.QueryMissionControlResponse
+	(*XImportMissionControlRequest)(nil),       // 16: routerrpc.XImportMissionControlRequest
+	(*XImportMissionControlResponse)(nil),      // 17: routerrpc.XImportMissionControlResponse
+	(*PairHistory)(nil),                        // 18: routerrpc.PairHistory
+	(*PairData)(nil),                           // 19: routerrpc.PairData
+	(*GetMissionControlConfigRequest)(nil),     // 20: routerrpc.GetMissionControlConfigRequest
+	(*GetMissionControlConfigResponse)(nil),    // 21: routerrpc.GetMissionControlConfigResponse
+	(*SetMissionControlConfigRequest)(nil),     // 22: routerrpc.SetMissionControlConfigRequest
+	(*SetMissionControlConfigResponse)(nil),    // 23: routerrpc.SetMissionControlConfigResponse
+	(*MissionControlConfig)(nil),               // 24: routerrpc.MissionControlConfig
+	(*BimodalParameters)(nil),                  // 25: routerrpc.BimodalParameters
+	(*AprioriParameters)(nil),                  // 26: routerrpc.AprioriParameters
+	(*QueryProbabilityRequest)(nil),            // 27: routerrpc.QueryProbabilityRequest
+	(*QueryProbabilityResponse)(nil),           // 28: routerrpc.QueryProbabilityResponse
+	(*BuildRouteRequest)(nil),                  // 29: routerrpc.BuildRouteRequest
+	(*BuildRouteResponse)(nil),                 // 30: routerrpc.BuildRouteResponse
+	(*SubscribeHtlcEventsRequest)(nil),         // 31: routerrpc.SubscribeHtlcEventsRequest
+	(*HtlcEvent)(nil),                          // 32: routerrpc.HtlcEvent
+	(*HtlcInfo)(nil),                           // 33: routerrpc.HtlcInfo
+	(*ForwardEvent)(nil),                       // 34: routerrpc.ForwardEvent
+	(*ForwardFailEvent)(nil),                   // 35: routerrpc.ForwardFailEvent
+	(*SettleEvent)(nil),                        // 36: routerrpc.SettleEvent
+	(*FinalHtlcEvent)(nil),                     // 37: routerrpc.FinalHtlcEvent
+	(*SubscribedEvent)(nil),                    // 38: routerrpc.SubscribedEvent
+	(*LinkFailEvent)(nil),                      // 39: routerrpc.LinkFailEvent
+	(*CircuitKey)(nil),                         // 40: routerrpc.CircuitKey
+	(*ForwardHtlcInterceptRequest)(nil),        // 41: routerrpc.ForwardHtlcInterceptRequest
+	(*ForwardHtlcInterceptResponse)(nil),       // 42: routerrpc.ForwardHtlcInterceptResponse
+	(*UpdateChanStatusRequest)(nil),            // 43: routerrpc.UpdateChanStatusRequest
+	(*UpdateChanStatusResponse)(nil),           // 44: routerrpc.UpdateChanStatusResponse
+	(*AddAliasesRequest)(nil),                  // 45: routerrpc.AddAliasesRequest
+	(*AddAliasesResponse)(nil),                 // 46: routerrpc.AddAliasesResponse
+	(*DeleteAliasesRequest)(nil),               // 47: routerrpc.DeleteAliasesRequest
+	(*DeleteAliasesResponse)(nil),              // 48: routerrpc.DeleteAliasesResponse
+	(*FindBaseAliasRequest)(nil),               // 49: routerrpc.FindBaseAliasRequest
+	(*FindBaseAliasResponse)(nil),              // 50: routerrpc.FindBaseAliasResponse
+	(*DeleteForwardingHistoryRequest)(nil),     // 51: routerrpc.DeleteForwardingHistoryRequest
+	(*DeleteForwardingHistoryResponse)(nil),    // 52: routerrpc.DeleteForwardingHistoryResponse
+	nil,                                        // 53: routerrpc.SendPaymentRequest.DestCustomRecordsEntry
+	nil,                                        // 54: routerrpc.SendPaymentRequest.FirstHopCustomRecordsEntry
+	nil,                                        // 55: routerrpc.SendToRouteRequest.FirstHopCustomRecordsEntry
+	nil,                                        // 56: routerrpc.BuildRouteRequest.FirstHopCustomRecordsEntry
+	nil,                                        // 57: routerrpc.ForwardHtlcInterceptRequest.CustomRecordsEntry
+	nil,                                        // 58: routerrpc.ForwardHtlcInterceptRequest.InWireCustomRecordsEntry
+	nil,                                        // 59: routerrpc.ForwardHtlcInterceptResponse.OutWireCustomRecordsEntry
+	(*lnrpc.RouteHint)(nil),                    // 60: lnrpc.RouteHint
+	(lnrpc.FeatureBit)(0),                      // 61: lnrpc.FeatureBit
+	(lnrpc.PaymentFailureReason)(0),            // 62: lnrpc.PaymentFailureReason
+	(*lnrpc.Route)(nil),                        // 63: lnrpc.Route
+	(*lnrpc.Failure)(nil),                      // 64: lnrpc.Failure
+	(lnrpc.Failure_FailureCode)(0),             // 65: lnrpc.Failure.FailureCode
+	(*lnrpc.ChannelPoint)(nil),                 // 66: lnrpc.ChannelPoint
+	(*lnrpc.AliasMap)(nil),                     // 67: lnrpc.AliasMap
+	(*lnrpc.Payment)(nil),                      // 68: lnrpc.Payment
+	(*lnrpc.HTLCAttempt)(nil),                  // 69: lnrpc.HTLCAttempt
 }
 var file_routerrpc_router_proto_depIdxs = []int32{
-	62, // 0: routerrpc.SendPaymentRequest.route_hints:type_name -> lnrpc.RouteHint
-	55, // 1: routerrpc.SendPaymentRequest.dest_custom_records:type_name -> routerrpc.SendPaymentRequest.DestCustomRecordsEntry
-	63, // 2: routerrpc.SendPaymentRequest.dest_features:type_name -> lnrpc.FeatureBit
-	56, // 3: routerrpc.SendPaymentRequest.first_hop_custom_records:type_name -> routerrpc.SendPaymentRequest.FirstHopCustomRecordsEntry
-	64, // 4: routerrpc.RouteFeeResponse.failure_reason:type_name -> lnrpc.PaymentFailureReason
-	65, // 5: routerrpc.SendToRouteRequest.route:type_name -> lnrpc.Route
-	57, // 6: routerrpc.SendToRouteRequest.first_hop_custom_records:type_name -> routerrpc.SendToRouteRequest.FirstHopCustomRecordsEntry
-	66, // 7: routerrpc.SendToRouteResponse.failure:type_name -> lnrpc.Failure
-	19, // 8: routerrpc.QueryMissionControlResponse.pairs:type_name -> routerrpc.PairHistory
-	19, // 9: routerrpc.XImportMissionControlRequest.pairs:type_name -> routerrpc.PairHistory
-	20, // 10: routerrpc.PairHistory.history:type_name -> routerrpc.PairData
-	25, // 11: routerrpc.GetMissionControlConfigResponse.config:type_name -> routerrpc.MissionControlConfig
-	25, // 12: routerrpc.SetMissionControlConfigRequest.config:type_name -> routerrpc.MissionControlConfig
-	4,  // 13: routerrpc.MissionControlConfig.model:type_name -> routerrpc.MissionControlConfig.ProbabilityModel
-	27, // 14: routerrpc.MissionControlConfig.apriori:type_name -> routerrpc.AprioriParameters
-	26, // 15: routerrpc.MissionControlConfig.bimodal:type_name -> routerrpc.BimodalParameters
-	20, // 16: routerrpc.QueryProbabilityResponse.history:type_name -> routerrpc.PairData
-	58, // 17: routerrpc.BuildRouteRequest.first_hop_custom_records:type_name -> routerrpc.BuildRouteRequest.FirstHopCustomRecordsEntry
-	65, // 18: routerrpc.BuildRouteResponse.route:type_name -> lnrpc.Route
-	5,  // 19: routerrpc.HtlcEvent.event_type:type_name -> routerrpc.HtlcEvent.EventType
-	35, // 20: routerrpc.HtlcEvent.forward_event:type_name -> routerrpc.ForwardEvent
-	36, // 21: routerrpc.HtlcEvent.forward_fail_event:type_name -> routerrpc.ForwardFailEvent
-	37, // 22: routerrpc.HtlcEvent.settle_event:type_name -> routerrpc.SettleEvent
-	40, // 23: routerrpc.HtlcEvent.link_fail_event:type_name -> routerrpc.LinkFailEvent
-	39, // 24: routerrpc.HtlcEvent.subscribed_event:type_name -> routerrpc.SubscribedEvent
-	38, // 25: routerrpc.HtlcEvent.final_htlc_event:type_name -> routerrpc.FinalHtlcEvent
-	34, // 26: routerrpc.ForwardEvent.info:type_name -> routerrpc.HtlcInfo
-	34, // 27: routerrpc.LinkFailEvent.info:type_name -> routerrpc.HtlcInfo
-	67, // 28: routerrpc.LinkFailEvent.wire_failure:type_name -> lnrpc.Failure.FailureCode
+	60, // 0: routerrpc.SendPaymentRequest.route_hints:type_name -> lnrpc.RouteHint
+	53, // 1: routerrpc.SendPaymentRequest.dest_custom_records:type_name -> routerrpc.SendPaymentRequest.DestCustomRecordsEntry
+	61, // 2: routerrpc.SendPaymentRequest.dest_features:type_name -> lnrpc.FeatureBit
+	54, // 3: routerrpc.SendPaymentRequest.first_hop_custom_records:type_name -> routerrpc.SendPaymentRequest.FirstHopCustomRecordsEntry
+	62, // 4: routerrpc.RouteFeeResponse.failure_reason:type_name -> lnrpc.PaymentFailureReason
+	63, // 5: routerrpc.SendToRouteRequest.route:type_name -> lnrpc.Route
+	55, // 6: routerrpc.SendToRouteRequest.first_hop_custom_records:type_name -> routerrpc.SendToRouteRequest.FirstHopCustomRecordsEntry
+	64, // 7: routerrpc.SendToRouteResponse.failure:type_name -> lnrpc.Failure
+	18, // 8: routerrpc.QueryMissionControlResponse.pairs:type_name -> routerrpc.PairHistory
+	18, // 9: routerrpc.XImportMissionControlRequest.pairs:type_name -> routerrpc.PairHistory
+	19, // 10: routerrpc.PairHistory.history:type_name -> routerrpc.PairData
+	24, // 11: routerrpc.GetMissionControlConfigResponse.config:type_name -> routerrpc.MissionControlConfig
+	24, // 12: routerrpc.SetMissionControlConfigRequest.config:type_name -> routerrpc.MissionControlConfig
+	3,  // 13: routerrpc.MissionControlConfig.model:type_name -> routerrpc.MissionControlConfig.ProbabilityModel
+	26, // 14: routerrpc.MissionControlConfig.apriori:type_name -> routerrpc.AprioriParameters
+	25, // 15: routerrpc.MissionControlConfig.bimodal:type_name -> routerrpc.BimodalParameters
+	19, // 16: routerrpc.QueryProbabilityResponse.history:type_name -> routerrpc.PairData
+	56, // 17: routerrpc.BuildRouteRequest.first_hop_custom_records:type_name -> routerrpc.BuildRouteRequest.FirstHopCustomRecordsEntry
+	63, // 18: routerrpc.BuildRouteResponse.route:type_name -> lnrpc.Route
+	4,  // 19: routerrpc.HtlcEvent.event_type:type_name -> routerrpc.HtlcEvent.EventType
+	34, // 20: routerrpc.HtlcEvent.forward_event:type_name -> routerrpc.ForwardEvent
+	35, // 21: routerrpc.HtlcEvent.forward_fail_event:type_name -> routerrpc.ForwardFailEvent
+	36, // 22: routerrpc.HtlcEvent.settle_event:type_name -> routerrpc.SettleEvent
+	39, // 23: routerrpc.HtlcEvent.link_fail_event:type_name -> routerrpc.LinkFailEvent
+	38, // 24: routerrpc.HtlcEvent.subscribed_event:type_name -> routerrpc.SubscribedEvent
+	37, // 25: routerrpc.HtlcEvent.final_htlc_event:type_name -> routerrpc.FinalHtlcEvent
+	33, // 26: routerrpc.ForwardEvent.info:type_name -> routerrpc.HtlcInfo
+	33, // 27: routerrpc.LinkFailEvent.info:type_name -> routerrpc.HtlcInfo
+	65, // 28: routerrpc.LinkFailEvent.wire_failure:type_name -> lnrpc.Failure.FailureCode
 	0,  // 29: routerrpc.LinkFailEvent.failure_detail:type_name -> routerrpc.FailureDetail
-	1,  // 30: routerrpc.PaymentStatus.state:type_name -> routerrpc.PaymentState
-	68, // 31: routerrpc.PaymentStatus.htlcs:type_name -> lnrpc.HTLCAttempt
-	42, // 32: routerrpc.ForwardHtlcInterceptRequest.incoming_circuit_key:type_name -> routerrpc.CircuitKey
-	59, // 33: routerrpc.ForwardHtlcInterceptRequest.custom_records:type_name -> routerrpc.ForwardHtlcInterceptRequest.CustomRecordsEntry
-	60, // 34: routerrpc.ForwardHtlcInterceptRequest.in_wire_custom_records:type_name -> routerrpc.ForwardHtlcInterceptRequest.InWireCustomRecordsEntry
-	42, // 35: routerrpc.ForwardHtlcInterceptResponse.incoming_circuit_key:type_name -> routerrpc.CircuitKey
-	2,  // 36: routerrpc.ForwardHtlcInterceptResponse.action:type_name -> routerrpc.ResolveHoldForwardAction
-	67, // 37: routerrpc.ForwardHtlcInterceptResponse.failure_code:type_name -> lnrpc.Failure.FailureCode
-	61, // 38: routerrpc.ForwardHtlcInterceptResponse.out_wire_custom_records:type_name -> routerrpc.ForwardHtlcInterceptResponse.OutWireCustomRecordsEntry
-	69, // 39: routerrpc.UpdateChanStatusRequest.chan_point:type_name -> lnrpc.ChannelPoint
-	3,  // 40: routerrpc.UpdateChanStatusRequest.action:type_name -> routerrpc.ChanStatusAction
-	70, // 41: routerrpc.AddAliasesRequest.alias_maps:type_name -> lnrpc.AliasMap
-	70, // 42: routerrpc.AddAliasesResponse.alias_maps:type_name -> lnrpc.AliasMap
-	70, // 43: routerrpc.DeleteAliasesRequest.alias_maps:type_name -> lnrpc.AliasMap
-	70, // 44: routerrpc.DeleteAliasesResponse.alias_maps:type_name -> lnrpc.AliasMap
-	6,  // 45: routerrpc.Router.SendPaymentV2:input_type -> routerrpc.SendPaymentRequest
-	7,  // 46: routerrpc.Router.TrackPaymentV2:input_type -> routerrpc.TrackPaymentRequest
-	8,  // 47: routerrpc.Router.TrackPayments:input_type -> routerrpc.TrackPaymentsRequest
-	9,  // 48: routerrpc.Router.EstimateRouteFee:input_type -> routerrpc.RouteFeeRequest
-	11, // 49: routerrpc.Router.SendToRoute:input_type -> routerrpc.SendToRouteRequest
-	11, // 50: routerrpc.Router.SendToRouteV2:input_type -> routerrpc.SendToRouteRequest
-	13, // 51: routerrpc.Router.ResetMissionControl:input_type -> routerrpc.ResetMissionControlRequest
-	15, // 52: routerrpc.Router.QueryMissionControl:input_type -> routerrpc.QueryMissionControlRequest
-	17, // 53: routerrpc.Router.XImportMissionControl:input_type -> routerrpc.XImportMissionControlRequest
-	21, // 54: routerrpc.Router.GetMissionControlConfig:input_type -> routerrpc.GetMissionControlConfigRequest
-	23, // 55: routerrpc.Router.SetMissionControlConfig:input_type -> routerrpc.SetMissionControlConfigRequest
-	28, // 56: routerrpc.Router.QueryProbability:input_type -> routerrpc.QueryProbabilityRequest
-	30, // 57: routerrpc.Router.BuildRoute:input_type -> routerrpc.BuildRouteRequest
-	32, // 58: routerrpc.Router.SubscribeHtlcEvents:input_type -> routerrpc.SubscribeHtlcEventsRequest
-	6,  // 59: routerrpc.Router.SendPayment:input_type -> routerrpc.SendPaymentRequest
-	7,  // 60: routerrpc.Router.TrackPayment:input_type -> routerrpc.TrackPaymentRequest
-	44, // 61: routerrpc.Router.HtlcInterceptor:input_type -> routerrpc.ForwardHtlcInterceptResponse
-	45, // 62: routerrpc.Router.UpdateChanStatus:input_type -> routerrpc.UpdateChanStatusRequest
-	47, // 63: routerrpc.Router.XAddLocalChanAliases:input_type -> routerrpc.AddAliasesRequest
-	49, // 64: routerrpc.Router.XDeleteLocalChanAliases:input_type -> routerrpc.DeleteAliasesRequest
-	51, // 65: routerrpc.Router.XFindBaseLocalChanAlias:input_type -> routerrpc.FindBaseAliasRequest
-	53, // 66: routerrpc.Router.DeleteForwardingHistory:input_type -> routerrpc.DeleteForwardingHistoryRequest
-	71, // 67: routerrpc.Router.SendPaymentV2:output_type -> lnrpc.Payment
-	71, // 68: routerrpc.Router.TrackPaymentV2:output_type -> lnrpc.Payment
-	71, // 69: routerrpc.Router.TrackPayments:output_type -> lnrpc.Payment
-	10, // 70: routerrpc.Router.EstimateRouteFee:output_type -> routerrpc.RouteFeeResponse
-	12, // 71: routerrpc.Router.SendToRoute:output_type -> routerrpc.SendToRouteResponse
-	68, // 72: routerrpc.Router.SendToRouteV2:output_type -> lnrpc.HTLCAttempt
-	14, // 73: routerrpc.Router.ResetMissionControl:output_type -> routerrpc.ResetMissionControlResponse
-	16, // 74: routerrpc.Router.QueryMissionControl:output_type -> routerrpc.QueryMissionControlResponse
-	18, // 75: routerrpc.Router.XImportMissionControl:output_type -> routerrpc.XImportMissionControlResponse
-	22, // 76: routerrpc.Router.GetMissionControlConfig:output_type -> routerrpc.GetMissionControlConfigResponse
-	24, // 77: routerrpc.Router.SetMissionControlConfig:output_type -> routerrpc.SetMissionControlConfigResponse
-	29, // 78: routerrpc.Router.QueryProbability:output_type -> routerrpc.QueryProbabilityResponse
-	31, // 79: routerrpc.Router.BuildRoute:output_type -> routerrpc.BuildRouteResponse
-	33, // 80: routerrpc.Router.SubscribeHtlcEvents:output_type -> routerrpc.HtlcEvent
-	41, // 81: routerrpc.Router.SendPayment:output_type -> routerrpc.PaymentStatus
-	41, // 82: routerrpc.Router.TrackPayment:output_type -> routerrpc.PaymentStatus
-	43, // 83: routerrpc.Router.HtlcInterceptor:output_type -> routerrpc.ForwardHtlcInterceptRequest
-	46, // 84: routerrpc.Router.UpdateChanStatus:output_type -> routerrpc.UpdateChanStatusResponse
-	48, // 85: routerrpc.Router.XAddLocalChanAliases:output_type -> routerrpc.AddAliasesResponse
-	50, // 86: routerrpc.Router.XDeleteLocalChanAliases:output_type -> routerrpc.DeleteAliasesResponse
-	52, // 87: routerrpc.Router.XFindBaseLocalChanAlias:output_type -> routerrpc.FindBaseAliasResponse
-	54, // 88: routerrpc.Router.DeleteForwardingHistory:output_type -> routerrpc.DeleteForwardingHistoryResponse
-	67, // [67:89] is the sub-list for method output_type
-	45, // [45:67] is the sub-list for method input_type
-	45, // [45:45] is the sub-list for extension type_name
-	45, // [45:45] is the sub-list for extension extendee
-	0,  // [0:45] is the sub-list for field type_name
+	40, // 30: routerrpc.ForwardHtlcInterceptRequest.incoming_circuit_key:type_name -> routerrpc.CircuitKey
+	57, // 31: routerrpc.ForwardHtlcInterceptRequest.custom_records:type_name -> routerrpc.ForwardHtlcInterceptRequest.CustomRecordsEntry
+	58, // 32: routerrpc.ForwardHtlcInterceptRequest.in_wire_custom_records:type_name -> routerrpc.ForwardHtlcInterceptRequest.InWireCustomRecordsEntry
+	40, // 33: routerrpc.ForwardHtlcInterceptResponse.incoming_circuit_key:type_name -> routerrpc.CircuitKey
+	1,  // 34: routerrpc.ForwardHtlcInterceptResponse.action:type_name -> routerrpc.ResolveHoldForwardAction
+	65, // 35: routerrpc.ForwardHtlcInterceptResponse.failure_code:type_name -> lnrpc.Failure.FailureCode
+	59, // 36: routerrpc.ForwardHtlcInterceptResponse.out_wire_custom_records:type_name -> routerrpc.ForwardHtlcInterceptResponse.OutWireCustomRecordsEntry
+	66, // 37: routerrpc.UpdateChanStatusRequest.chan_point:type_name -> lnrpc.ChannelPoint
+	2,  // 38: routerrpc.UpdateChanStatusRequest.action:type_name -> routerrpc.ChanStatusAction
+	67, // 39: routerrpc.AddAliasesRequest.alias_maps:type_name -> lnrpc.AliasMap
+	67, // 40: routerrpc.AddAliasesResponse.alias_maps:type_name -> lnrpc.AliasMap
+	67, // 41: routerrpc.DeleteAliasesRequest.alias_maps:type_name -> lnrpc.AliasMap
+	67, // 42: routerrpc.DeleteAliasesResponse.alias_maps:type_name -> lnrpc.AliasMap
+	5,  // 43: routerrpc.Router.SendPaymentV2:input_type -> routerrpc.SendPaymentRequest
+	6,  // 44: routerrpc.Router.TrackPaymentV2:input_type -> routerrpc.TrackPaymentRequest
+	7,  // 45: routerrpc.Router.TrackPayments:input_type -> routerrpc.TrackPaymentsRequest
+	8,  // 46: routerrpc.Router.EstimateRouteFee:input_type -> routerrpc.RouteFeeRequest
+	10, // 47: routerrpc.Router.SendToRouteV2:input_type -> routerrpc.SendToRouteRequest
+	12, // 48: routerrpc.Router.ResetMissionControl:input_type -> routerrpc.ResetMissionControlRequest
+	14, // 49: routerrpc.Router.QueryMissionControl:input_type -> routerrpc.QueryMissionControlRequest
+	16, // 50: routerrpc.Router.XImportMissionControl:input_type -> routerrpc.XImportMissionControlRequest
+	20, // 51: routerrpc.Router.GetMissionControlConfig:input_type -> routerrpc.GetMissionControlConfigRequest
+	22, // 52: routerrpc.Router.SetMissionControlConfig:input_type -> routerrpc.SetMissionControlConfigRequest
+	27, // 53: routerrpc.Router.QueryProbability:input_type -> routerrpc.QueryProbabilityRequest
+	29, // 54: routerrpc.Router.BuildRoute:input_type -> routerrpc.BuildRouteRequest
+	31, // 55: routerrpc.Router.SubscribeHtlcEvents:input_type -> routerrpc.SubscribeHtlcEventsRequest
+	42, // 56: routerrpc.Router.HtlcInterceptor:input_type -> routerrpc.ForwardHtlcInterceptResponse
+	43, // 57: routerrpc.Router.UpdateChanStatus:input_type -> routerrpc.UpdateChanStatusRequest
+	45, // 58: routerrpc.Router.XAddLocalChanAliases:input_type -> routerrpc.AddAliasesRequest
+	47, // 59: routerrpc.Router.XDeleteLocalChanAliases:input_type -> routerrpc.DeleteAliasesRequest
+	49, // 60: routerrpc.Router.XFindBaseLocalChanAlias:input_type -> routerrpc.FindBaseAliasRequest
+	51, // 61: routerrpc.Router.DeleteForwardingHistory:input_type -> routerrpc.DeleteForwardingHistoryRequest
+	68, // 62: routerrpc.Router.SendPaymentV2:output_type -> lnrpc.Payment
+	68, // 63: routerrpc.Router.TrackPaymentV2:output_type -> lnrpc.Payment
+	68, // 64: routerrpc.Router.TrackPayments:output_type -> lnrpc.Payment
+	9,  // 65: routerrpc.Router.EstimateRouteFee:output_type -> routerrpc.RouteFeeResponse
+	69, // 66: routerrpc.Router.SendToRouteV2:output_type -> lnrpc.HTLCAttempt
+	13, // 67: routerrpc.Router.ResetMissionControl:output_type -> routerrpc.ResetMissionControlResponse
+	15, // 68: routerrpc.Router.QueryMissionControl:output_type -> routerrpc.QueryMissionControlResponse
+	17, // 69: routerrpc.Router.XImportMissionControl:output_type -> routerrpc.XImportMissionControlResponse
+	21, // 70: routerrpc.Router.GetMissionControlConfig:output_type -> routerrpc.GetMissionControlConfigResponse
+	23, // 71: routerrpc.Router.SetMissionControlConfig:output_type -> routerrpc.SetMissionControlConfigResponse
+	28, // 72: routerrpc.Router.QueryProbability:output_type -> routerrpc.QueryProbabilityResponse
+	30, // 73: routerrpc.Router.BuildRoute:output_type -> routerrpc.BuildRouteResponse
+	32, // 74: routerrpc.Router.SubscribeHtlcEvents:output_type -> routerrpc.HtlcEvent
+	41, // 75: routerrpc.Router.HtlcInterceptor:output_type -> routerrpc.ForwardHtlcInterceptRequest
+	44, // 76: routerrpc.Router.UpdateChanStatus:output_type -> routerrpc.UpdateChanStatusResponse
+	46, // 77: routerrpc.Router.XAddLocalChanAliases:output_type -> routerrpc.AddAliasesResponse
+	48, // 78: routerrpc.Router.XDeleteLocalChanAliases:output_type -> routerrpc.DeleteAliasesResponse
+	50, // 79: routerrpc.Router.XFindBaseLocalChanAlias:output_type -> routerrpc.FindBaseAliasResponse
+	52, // 80: routerrpc.Router.DeleteForwardingHistory:output_type -> routerrpc.DeleteForwardingHistoryResponse
+	62, // [62:81] is the sub-list for method output_type
+	43, // [43:62] is the sub-list for method input_type
+	43, // [43:43] is the sub-list for extension type_name
+	43, // [43:43] is the sub-list for extension extendee
+	0,  // [0:43] is the sub-list for field type_name
 }
 
 func init() { file_routerrpc_router_proto_init() }
@@ -4313,7 +4155,7 @@ func file_routerrpc_router_proto_init() {
 		(*HtlcEvent_SubscribedEvent)(nil),
 		(*HtlcEvent_FinalHtlcEvent)(nil),
 	}
-	file_routerrpc_router_proto_msgTypes[47].OneofWrappers = []any{
+	file_routerrpc_router_proto_msgTypes[46].OneofWrappers = []any{
 		(*DeleteForwardingHistoryRequest_DeleteBeforeTime)(nil),
 		(*DeleteForwardingHistoryRequest_DeleteBeforeDuration)(nil),
 	}
@@ -4322,8 +4164,8 @@ func file_routerrpc_router_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_routerrpc_router_proto_rawDesc), len(file_routerrpc_router_proto_rawDesc)),
-			NumEnums:      6,
-			NumMessages:   56,
+			NumEnums:      5,
+			NumMessages:   55,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

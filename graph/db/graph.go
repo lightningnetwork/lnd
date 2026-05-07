@@ -711,6 +711,14 @@ func (c *ChannelGraph) ForEachChannel(ctx context.Context,
 	return c.db.ForEachChannel(ctx, cb, reset)
 }
 
+// ForEachNode iterates through all stored vertices/nodes in the graph across
+// all gossip versions.
+func (c *ChannelGraph) ForEachNode(ctx context.Context,
+	cb func(*models.Node) error, reset func()) error {
+
+	return c.db.ForEachNode(ctx, cb, reset)
+}
+
 // DisabledChannelIDs returns the channel ids of disabled channels.
 func (c *ChannelGraph) DisabledChannelIDs(ctx context.Context,
 	v lnwire.GossipVersion) (
@@ -889,6 +897,14 @@ func (c *ChannelGraph) PruneTip(ctx context.Context) (*chainhash.Hash,
 
 // VersionedGraph is a wrapper around ChannelGraph that will call underlying
 // Store methods with a specific gossip version.
+//
+// NOTE: ForEachNode and ForEachChannel are the exception. They are promoted
+// from the embedded ChannelGraph and iterate every gossip version, yielding
+// the preferred record per pub key or SCID. Both callers that reach them
+// through this wrapper want exactly that: autopilot ranks every candidate node
+// for channel opening, and the discovery bootstrapper dials every known
+// address, so neither has a reason to ignore a v2 announcement. A caller that
+// does need one version must use a version-taking Store method instead.
 type VersionedGraph struct {
 	*ChannelGraph
 	v lnwire.GossipVersion
@@ -944,16 +960,6 @@ func (c *VersionedGraph) ForEachNodeCached(ctx context.Context,
 	reset func()) error {
 
 	return c.ChannelGraph.ForEachNodeCached(ctx, c.v, cb, reset)
-}
-
-// ForEachNode iterates through all stored vertices/nodes in the graph across
-// all gossip versions, returning the preferred version for each pub_key. Note
-// that this intentionally ignores c.v — cross-version iteration is the desired
-// behaviour for callers that enumerate graph topology.
-func (c *VersionedGraph) ForEachNode(ctx context.Context,
-	cb func(*models.Node) error, reset func()) error {
-
-	return c.db.ForEachNode(ctx, cb, reset)
 }
 
 // NumZombies returns the current number of zombie channels in the graph.
@@ -1124,16 +1130,6 @@ func (c *VersionedGraph) ForEachNodeChannel(ctx context.Context,
 		*models.ChannelEdgePolicy) error, reset func()) error {
 
 	return c.db.ForEachNodeChannel(ctx, c.v, nodePub, cb, reset)
-}
-
-// ForEachChannel iterates through all channel edges stored within the graph
-// across all gossip versions, returning the preferred version for each SCID.
-// See ForEachNode for the rationale on ignoring c.v.
-func (c *VersionedGraph) ForEachChannel(ctx context.Context,
-	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error, reset func()) error {
-
-	return c.db.ForEachChannel(ctx, cb, reset)
 }
 
 // ForEachNodeCacheable iterates through all stored vertices/nodes in the graph.

@@ -84,10 +84,10 @@ type ChannelGraph interface {
 
 	// ForEachNodesChannels iterates through all connected nodes, and for
 	// each node, all the channels that connect to it. The passed callback
-	// will be called with the context, the Node itself, and a slice of
+	// will be called with the context, the node's pubkey, and a slice of
 	// ChannelEdge that connect to the node.
 	ForEachNodesChannels(ctx context.Context,
-		cb func(context.Context, Node, []*ChannelEdge) error,
+		cb func(context.Context, NodeID, []*ChannelEdge) error,
 		reset func()) error
 }
 

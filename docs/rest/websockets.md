@@ -130,8 +130,8 @@ ws.on('open', function() {
     // This empty message will be ignored by the channel acceptor though, this
     // is just for telling the grpc-gateway library that it can forward the
     // request to the gRPC interface now. If this were an RPC where the client
-    // always sends the first message (for example the streaming payment RPC
-    // /v1/channels/transaction-stream), we'd simply send the first "real"
+    // always sends the first message (for example the HTLC interceptor RPC
+    // /v2/router/htlcinterceptor), we'd simply send the first "real"
     // message here when needed.
     ws.send('{}');
 });

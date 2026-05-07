@@ -447,14 +447,6 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 		BlindedPaymentPathSet: blindedPathSet,
 	}
 
-	// The deprecated single outgoing_chan_id field is no longer
-	// honored. Reject requests that still set it so that callers do
-	// not silently get an unrestricted route.
-	if in.OutgoingChanId != 0 {
-		return nil, errors.New("outgoing_chan_id is deprecated, " +
-			"use outgoing_chan_ids")
-	}
-
 	if len(in.OutgoingChanIds) > 0 {
 		restrictions.OutgoingChannelIDs = in.OutgoingChanIds
 	}
@@ -876,14 +868,6 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		return nil, errors.New("time preference out of range")
 	}
 	payIntent.TimePref = rpcPayReq.TimePref
-
-	// The deprecated single outgoing_chan_id field is no longer
-	// honored. Reject requests that still set it so that callers do
-	// not silently get an unrestricted payment.
-	if rpcPayReq.OutgoingChanId != 0 {
-		return nil, errors.New("outgoing_chan_id is deprecated, " +
-			"use outgoing_chan_ids")
-	}
 
 	payIntent.OutgoingChannelIDs = rpcPayReq.OutgoingChanIds
 

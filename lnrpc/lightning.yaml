@@ -75,17 +75,6 @@ http:
       delete: "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}"
     - selector: lnrpc.Lightning.AbandonChannel
       delete: "/v1/channels/abandon/{channel_point.funding_txid_str}/{channel_point.output_index}"
-    - selector: lnrpc.Lightning.SendPayment
-      post: "/v1/channels/transaction-stream"
-      body: "*"
-    - selector: lnrpc.Lightning.SendPaymentSync
-      post: "/v1/channels/transactions"
-      body: "*"
-    - selector: lnrpc.Lightning.SendToRoute
-      # deprecated, no REST endpoint
-    - selector: lnrpc.Lightning.SendToRouteSync
-      post: "/v1/channels/transactions/route"
-      body: "*"
     - selector: lnrpc.Lightning.AddInvoice
       post: "/v1/invoices"
       body: "*"

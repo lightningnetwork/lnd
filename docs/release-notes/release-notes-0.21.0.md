@@ -252,6 +252,42 @@
   `lncli getdebuginfo` and `lncli encryptdebugpackage` commands similarly
   require the `--include_log` flag to include logs in the output.
 
+* [Removed the deprecated payment and tracking
+  RPCs](https://github.com/lightningnetwork/lnd/pull/10795) that were
+  [announced for removal in 0.21](https://github.com/lightningnetwork/lnd/blob/master/docs/release-notes/release-notes-0.20.0.md#deprecations)
+  via the 0.20 release notes. Callers must migrate to the V2 equivalents:
+
+  | Removed RPC | Replacement |
+  |-------------|-------------|
+  | `lnrpc.SendPayment` (streaming) | `routerrpc.SendPaymentV2` |
+  | `lnrpc.SendPaymentSync` | `routerrpc.SendPaymentV2` |
+  | `lnrpc.SendToRoute` (streaming) | `routerrpc.SendToRouteV2` |
+  | `lnrpc.SendToRouteSync` | `routerrpc.SendToRouteV2` |
+  | `routerrpc.SendPayment` (streaming) | `routerrpc.SendPaymentV2` |
+  | `routerrpc.SendToRoute` | `routerrpc.SendToRouteV2` |
+  | `routerrpc.TrackPayment` (streaming) | `routerrpc.TrackPaymentV2` |
+
+  This also removes the corresponding REST routes
+  `POST /v1/channels/transaction-stream`, `POST /v1/channels/transactions`,
+  and `POST /v1/channels/transactions/route`. The orphan
+  `routerrpc.SendToRouteResponse` message (only used by the removed
+  `routerrpc.SendToRoute` RPC) is also dropped.
+
+* [Removed the deprecated `outgoing_chan_id`
+  field](https://github.com/lightningnetwork/lnd/pull/10795) from
+  `lnrpc.QueryRoutesRequest` and `routerrpc.SendPaymentRequest`. Proto tags
+  14 and 8 respectively are now reserved. Callers must use the multi-channel
+  `outgoing_chan_ids` field introduced in 0.20.
+
+* [Removed the deprecated `--tor.v2` configuration
+  flag](https://github.com/lightningnetwork/lnd/pull/10795). Tor v2 onion
+  services have been obsolete since October 2021 when the Tor network dropped
+  support for them; only v3 is supported now. The wire/storage encoders for
+  v2 onion addresses (in `lnwire`, `graph/db`) and the `tor.OnionHostToFakeIP`
+  helper have also been removed; lnd no longer produces v2 addresses on any
+  code path. Decoders for v2 addresses are retained for backwards
+  compatibility with existing graph databases and peer gossip.
+
 ## Performance Improvements
 
 * Let the [channel graph cache be populated

@@ -2521,12 +2521,12 @@ func (s *SQLStore) FetchChannelEdgesByID(ctx context.Context,
 			switch v {
 			case gossipV1:
 				edge, err = models.NewV1Channel(
-					0, chainhash.Hash{}, node1,
+					chanID, chainhash.Hash{}, node1,
 					node2, &models.ChannelV1Fields{},
 				)
 			case gossipV2:
 				edge, err = models.NewV2Channel(
-					0, chainhash.Hash{}, node1,
+					chanID, chainhash.Hash{}, node1,
 					node2, &models.ChannelV2Fields{},
 				)
 			}

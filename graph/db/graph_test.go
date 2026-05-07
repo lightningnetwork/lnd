@@ -2178,8 +2178,7 @@ func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 
 func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
 	numNodes := 0
-	v1Graph := NewVersionedGraph(graph, lnwire.GossipVersion1)
-	err := v1Graph.ForEachNode(t.Context(), func(_ *models.Node) error {
+	err := graph.ForEachNode(t.Context(), func(_ *models.Node) error {
 		numNodes++
 
 		return nil

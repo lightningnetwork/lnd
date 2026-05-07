@@ -713,6 +713,14 @@ func (c *ChannelGraph) ForEachChannel(ctx context.Context,
 	return c.db.ForEachChannel(ctx, cb, reset)
 }
 
+// ForEachNode iterates through all stored vertices/nodes in the graph across
+// all gossip versions.
+func (c *ChannelGraph) ForEachNode(ctx context.Context,
+	cb func(*models.Node) error, reset func()) error {
+
+	return c.db.ForEachNode(ctx, cb, reset)
+}
+
 // DisabledChannelIDs returns the channel ids of disabled channels.
 func (c *ChannelGraph) DisabledChannelIDs(ctx context.Context,
 	v lnwire.GossipVersion) (
@@ -948,16 +956,6 @@ func (c *VersionedGraph) ForEachNodeCached(ctx context.Context,
 	return c.ChannelGraph.ForEachNodeCached(ctx, c.v, cb, reset)
 }
 
-// ForEachNode iterates through all stored vertices/nodes in the graph across
-// all gossip versions, returning the preferred version for each pub_key. Note
-// that this intentionally ignores c.v — cross-version iteration is the desired
-// behaviour for callers that enumerate graph topology.
-func (c *VersionedGraph) ForEachNode(ctx context.Context,
-	cb func(*models.Node) error, reset func()) error {
-
-	return c.db.ForEachNode(ctx, cb, reset)
-}
-
 // NumZombies returns the current number of zombie channels in the graph.
 func (c *VersionedGraph) NumZombies(ctx context.Context) (uint64, error) {
 	return c.db.NumZombies(ctx, c.v)
@@ -1126,16 +1124,6 @@ func (c *VersionedGraph) ForEachNodeChannel(ctx context.Context,
 		*models.ChannelEdgePolicy) error, reset func()) error {
 
 	return c.db.ForEachNodeChannel(ctx, c.v, nodePub, cb, reset)
-}
-
-// ForEachChannel iterates through all channel edges stored within the graph
-// across all gossip versions, returning the preferred version for each SCID.
-// See ForEachNode for the rationale on ignoring c.v.
-func (c *VersionedGraph) ForEachChannel(ctx context.Context,
-	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error, reset func()) error {
-
-	return c.db.ForEachChannel(ctx, cb, reset)
 }
 
 // ForEachNodeCacheable iterates through all stored vertices/nodes in the graph.

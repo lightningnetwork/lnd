@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	privateKey = []byte("RSA1024 hide_me_plz")
+	privateKey = []byte("ED25519-V3 hide_me_plz")
 	anotherKey = []byte("another_key")
 )
 
@@ -139,14 +139,14 @@ func TestPrepareAddOnion(t *testing.T) {
 			name:            "empty target IP and ports",
 			targetIPAddress: "",
 			cfg:             AddOnionConfig{VirtualPort: 9735},
-			expectedCmd:     "ADD_ONION NEW:RSA1024 Port=9735,9735 ",
+			expectedCmd:     "ADD_ONION NEW:ED25519-V3 Port=9735,9735 ",
 			expectedErr:     nil,
 		},
 		{
 			name:            "specified target IP and empty ports",
 			targetIPAddress: "127.0.0.1",
 			cfg:             AddOnionConfig{VirtualPort: 9735},
-			expectedCmd: "ADD_ONION NEW:RSA1024 " +
+			expectedCmd: "ADD_ONION NEW:ED25519-V3 " +
 				"Port=9735,127.0.0.1:9735 ",
 			expectedErr: nil,
 		},
@@ -157,7 +157,7 @@ func TestPrepareAddOnion(t *testing.T) {
 				VirtualPort: 9735,
 				TargetPorts: []int{18000, 18001},
 			},
-			expectedCmd: "ADD_ONION NEW:RSA1024 " +
+			expectedCmd: "ADD_ONION NEW:ED25519-V3 " +
 				"Port=9735,127.0.0.1:18000 " +
 				"Port=9735,127.0.0.1:18001 ",
 			expectedErr: nil,

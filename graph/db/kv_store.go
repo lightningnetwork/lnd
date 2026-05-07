@@ -4193,6 +4193,33 @@ func (c *KVStore) FetchChannelEdgesByID(_ context.Context,
 	return edgeInfo, policy1, policy2, nil
 }
 
+// FetchChannelEdgesByIDPreferred looks up the channel by ID. The KV store
+// only supports gossip v1, so this simply delegates to the versioned fetch.
+//
+// NOTE: part of the Store interface.
+func (c *KVStore) FetchChannelEdgesByIDPreferred(ctx context.Context,
+	chanID uint64) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	return c.FetchChannelEdgesByID(ctx, lnwire.GossipVersion1, chanID)
+}
+
+// FetchChannelEdgesByOutpointPreferred looks up the channel by funding
+// outpoint. The KV store only supports gossip v1, so this simply delegates to
+// the versioned fetch.
+//
+// NOTE: part of the Store interface.
+func (c *KVStore) FetchChannelEdgesByOutpointPreferred(
+	ctx context.Context, op *wire.OutPoint) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	return c.FetchChannelEdgesByOutpoint(
+		ctx, lnwire.GossipVersion1, op,
+	)
+}
+
 // IsPublicNode is a helper method that determines whether the node with the
 // given public key is seen as a public node in the graph from the graph's
 // source node's point of view.

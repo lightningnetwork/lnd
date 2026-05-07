@@ -165,6 +165,15 @@ type ChainArbitratorConfig struct {
 	// will use to notify the ChannelNotifier about a newly closed channel.
 	NotifyClosedChannel func(wire.OutPoint)
 
+	// NotifyEarlyClosedChannel is invoked by the chain watcher when a
+	// cooperative close spend is first detected on chain, before the close
+	// summary has been persisted to the closed-channel bucket. It allows
+	// the channel notifier to dispatch a CLOSED_CHANNEL event over RPC at
+	// the same depth it did before the multi-confirmation reorg-aware
+	// dispatch was introduced. The follow-up persist + state advance still
+	// waits for the full required confirmation count.
+	NotifyEarlyClosedChannel func(*channeldb.ChannelCloseSummary)
+
 	// NotifyFullyResolvedChannel is a function closure that the
 	// ChainArbitrator will use to notify the ChannelNotifier about a newly
 	// resolved channel. The main difference to NotifyClosedChannel is that
@@ -424,6 +433,18 @@ func (a *arbChannel) ForceCloseChan() (*wire.MsgTx, error) {
 	return closeSummary.CloseTx, nil
 }
 
+// shouldSuppressClosedChannelNotify reports whether MarkChannelClosed should
+// skip firing NotifyClosedChannel because the chain watcher already emitted a
+// preliminary CLOSED_CHANNEL via the early-dispatch path. Only the
+// cooperative-close path is gated; force, breach, and abandon closes never
+// take the early-dispatch path, so their NotifyClosedChannel must always
+// fire from MarkChannelClosed.
+func shouldSuppressClosedChannelNotify(closeType channeldb.ClosureType,
+	earlyDispatched bool) bool {
+
+	return closeType == channeldb.CooperativeClose && earlyDispatched
+}
+
 // newActiveChannelArbitrator creates a new instance of an active channel
 // arbitrator given the state of the target channel.
 func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
@@ -451,7 +472,35 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 			if err != nil {
 				return err
 			}
+
+			// In the async multi-conf path the chain watcher
+			// already fires a preliminary CLOSED_CHANNEL event
+			// over the channel notifier as soon as the coop
+			// close spend lands on chain. Suppressing the
+			// duplicate notify here keeps the
+			// SubscribeChannelEvents stream emitting a single
+			// CLOSED_CHANNEL per close, matching the v0.20.1
+			// surface. In the fast path (numConfs == 1) no early
+			// dispatch fires, so we still need to fire the
+			// CLOSED_CHANNEL event from here. Force/breach
+			// closes never take the early-dispatch path and so
+			// always notify here.
+			c.Lock()
+			w := c.activeWatchers[summary.ChanPoint]
+			c.Unlock()
+
+			earlyDispatched := w != nil &&
+				w.EarlyCoopCloseDispatched()
+
+			if shouldSuppressClosedChannelNotify(
+				summary.CloseType, earlyDispatched,
+			) {
+
+				return nil
+			}
+
 			c.cfg.NotifyClosedChannel(summary.ChanPoint)
+
 			return nil
 		},
 		IsPendingClose:        false,
@@ -1145,11 +1194,12 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 					chanPoint, retInfo,
 				)
 			},
-			extractStateNumHint: lnwallet.GetStateNumHint,
-			auxLeafStore:        c.cfg.AuxLeafStore,
-			auxResolver:         c.cfg.AuxResolver,
-			auxCloser:           c.cfg.AuxCloser,
-			chanCloseConfs:      c.cfg.ChannelCloseConfs,
+			extractStateNumHint:  lnwallet.GetStateNumHint,
+			auxLeafStore:         c.cfg.AuxLeafStore,
+			auxResolver:          c.cfg.AuxResolver,
+			auxCloser:            c.cfg.AuxCloser,
+			chanCloseConfs:       c.cfg.ChannelCloseConfs,
+			notifyEarlyCoopClose: c.cfg.NotifyEarlyClosedChannel,
 		},
 	)
 	if err != nil {
@@ -1317,18 +1367,20 @@ func (c *ChainArbitrator) loadOpenChannels() error {
 			return c.cfg.ContractBreach(chanPoint, ret)
 		}
 
+		notifyEarlyClose := c.cfg.NotifyEarlyClosedChannel
 		chainWatcher, err := newChainWatcher(
 			chainWatcherConfig{
-				chanState:           channel,
-				notifier:            c.cfg.Notifier,
-				signer:              c.cfg.Signer,
-				isOurAddr:           c.cfg.IsOurAddress,
-				contractBreach:      breachClosure,
-				extractStateNumHint: lnwallet.GetStateNumHint,
-				auxLeafStore:        c.cfg.AuxLeafStore,
-				auxResolver:         c.cfg.AuxResolver,
-				auxCloser:           c.cfg.AuxCloser,
-				chanCloseConfs:      c.cfg.ChannelCloseConfs,
+				chanState:            channel,
+				notifier:             c.cfg.Notifier,
+				signer:               c.cfg.Signer,
+				isOurAddr:            c.cfg.IsOurAddress,
+				contractBreach:       breachClosure,
+				extractStateNumHint:  lnwallet.GetStateNumHint,
+				auxLeafStore:         c.cfg.AuxLeafStore,
+				auxResolver:          c.cfg.AuxResolver,
+				auxCloser:            c.cfg.AuxCloser,
+				chanCloseConfs:       c.cfg.ChannelCloseConfs,
+				notifyEarlyCoopClose: notifyEarlyClose,
 			},
 		)
 		if err != nil {

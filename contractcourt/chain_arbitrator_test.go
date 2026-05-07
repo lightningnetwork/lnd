@@ -219,3 +219,69 @@ func TestResolveContract(t *testing.T) {
 	err = chainArb.ResolveContract(channel.FundingOutpoint)
 	require.NoError(t, err, "second resolve call shouldn't fail")
 }
+
+// TestShouldSuppressClosedChannelNotify pins down the gate that prevents
+// MarkChannelClosed from firing a duplicate NotifyClosedChannel after the
+// chain watcher has already emitted a preliminary CLOSED_CHANNEL via the
+// early-dispatch path. Only the cooperative-close path can be suppressed;
+// every other CloseType (force, breach, abandon) must always notify here
+// regardless of the early-dispatched flag. The fast path (numConfs==1)
+// never sets the early-dispatched flag, so cooperative closes on that path
+// also fall through to NotifyClosedChannel.
+func TestShouldSuppressClosedChannelNotify(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name            string
+		closeType       channeldb.ClosureType
+		earlyDispatched bool
+		wantSuppress    bool
+	}{
+		{
+			name:            "coop close with early dispatch",
+			closeType:       channeldb.CooperativeClose,
+			earlyDispatched: true,
+			wantSuppress:    true,
+		},
+		{
+			name: "coop close without early dispatch " +
+				"(fast path or no watcher)",
+			closeType:       channeldb.CooperativeClose,
+			earlyDispatched: false,
+			wantSuppress:    false,
+		},
+		{
+			name:            "local force close",
+			closeType:       channeldb.LocalForceClose,
+			earlyDispatched: true,
+			wantSuppress:    false,
+		},
+		{
+			name:            "remote force close",
+			closeType:       channeldb.RemoteForceClose,
+			earlyDispatched: true,
+			wantSuppress:    false,
+		},
+		{
+			name:            "breach close",
+			closeType:       channeldb.BreachClose,
+			earlyDispatched: true,
+			wantSuppress:    false,
+		},
+		{
+			name:            "abandoned close",
+			closeType:       channeldb.Abandoned,
+			earlyDispatched: true,
+			wantSuppress:    false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := shouldSuppressClosedChannelNotify(
+				tc.closeType, tc.earlyDispatched,
+			)
+			require.Equal(t, tc.wantSuppress, got)
+		})
+	}
+}

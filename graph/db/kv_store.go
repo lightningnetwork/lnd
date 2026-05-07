@@ -4147,7 +4147,7 @@ func (c *KVStore) FetchChannelEdgesByID(_ context.Context,
 			// party as this is the only information we have about
 			// it and return an error signaling so.
 			zombieEdge, err := models.NewV1Channel(
-				0, chainhash.Hash{}, pubKey1, pubKey2,
+				chanID, chainhash.Hash{}, pubKey1, pubKey2,
 				&models.ChannelV1Fields{},
 			)
 			if err != nil {

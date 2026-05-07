@@ -22,168 +22,70 @@ import (
 
 var sendToRouteTestCases = []*lntest.TestCase{
 	{
-		Name: "single hop with sync",
-		TestFunc: func(ht *lntest.HarnessTest) {
-			// useStream: false, routerrpc: false.
-			testSingleHopSendToRouteCase(ht, false, false)
-		},
-	},
-	{
-		Name: "single hop with stream",
-		TestFunc: func(ht *lntest.HarnessTest) {
-			// useStream: true, routerrpc: false.
-			testSingleHopSendToRouteCase(ht, true, false)
-		},
-	},
-	{
-		Name: "single hop with v2",
-		TestFunc: func(ht *lntest.HarnessTest) {
-			// useStream: false, routerrpc: true.
-			testSingleHopSendToRouteCase(ht, false, true)
-		},
+		Name:     "single hop",
+		TestFunc: testSingleHopSendToRoute,
 	},
 }
 
-// testSingleHopSendToRouteCase tests that payments are properly processed
-// through a provided route with a single hop. We'll create the following
-// network topology:
+// testSingleHopSendToRoute tests that payments are properly processed through
+// a provided route with a single hop. We'll create the following network
+// topology:
 //
 //	Carol --100k--> Dave
 //
 // We'll query the daemon for routes from Carol to Dave and then send payments
-// by feeding the route back into the various SendToRoute RPC methods. Here we
-// test all three SendToRoute endpoints, forcing each to perform both a regular
-// payment and an MPP payment.
-func testSingleHopSendToRouteCase(ht *lntest.HarnessTest,
-	useStream, useRPC bool) {
-
+// by feeding the route back into SendToRouteV2.
+func testSingleHopSendToRoute(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 	const paymentAmtSat = 1000
 	const numPayments = 5
 	const amountPaid = int64(numPayments * paymentAmtSat)
 
-	// Create Carol and Dave, then establish a channel between them. Carol
-	// is the sole funder of the channel with 100k satoshis. The network
-	// topology should look like:
-	// Carol -> 100k -> Dave
 	carol := ht.NewNode("Carol", nil)
 	dave := ht.NewNode("Dave", nil)
 
 	ht.ConnectNodes(carol, dave)
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
-	// Open a channel with 100k satoshis between Carol and Dave with Carol
-	// being the sole funder of the channel.
 	chanPointCarol := ht.OpenChannel(
 		carol, dave, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
-	// Create invoices for Dave, which expect a payment from Carol.
-	payReqs, rHashes, _ := ht.CreatePayReqs(
-		dave, paymentAmtSat, numPayments,
-	)
+	payReqs, rHashes, _ := ht.CreatePayReqs(dave, paymentAmtSat,
+		numPayments)
 
-	// Reconstruct payment addresses.
 	var payAddrs [][]byte
 	for _, payReq := range payReqs {
 		resp := dave.RPC.DecodePayReq(payReq)
 		payAddrs = append(payAddrs, resp.PaymentAddr)
 	}
 
-	// Assert Carol and Dave are synced to the chain before proceeding, to
-	// ensure the queried route will have a valid final CLTV once the HTLC
-	// reaches Dave.
 	minerHeight := int32(ht.CurrentHeight())
 	ht.WaitForNodeBlockHeight(carol, minerHeight)
 	ht.WaitForNodeBlockHeight(dave, minerHeight)
 
-	// Query for routes to pay from Carol to Dave using the default CLTV
-	// config.
 	routesReq := &lnrpc.QueryRoutesRequest{
 		PubKey: dave.PubKeyStr,
 		Amt:    paymentAmtSat,
 	}
 	routes := carol.RPC.QueryRoutes(routesReq)
-
-	// There should only be one route to try, so take the first item.
 	r := routes.Routes[0]
 
-	// Construct a closure that will set MPP fields on the route, which
-	// allows us to test MPP payments.
-	setMPPFields := func(i int) {
+	for i, rHash := range rHashes {
 		hop := r.Hops[len(r.Hops)-1]
 		hop.TlvPayload = true
 		hop.MppRecord = &lnrpc.MPPRecord{
 			PaymentAddr:  payAddrs[i],
 			TotalAmtMsat: paymentAmtSat * 1000,
 		}
-	}
 
-	// Construct closures for each of the payment types covered:
-	//  - main rpc server sync
-	//  - main rpc server streaming
-	//  - routerrpc server sync
-	sendToRouteSync := func() {
-		for i, rHash := range rHashes {
-			setMPPFields(i)
-
-			sendReq := &lnrpc.SendToRouteRequest{
-				PaymentHash: rHash,
-				Route:       r,
-			}
-			resp := carol.RPC.SendToRouteSync(sendReq)
-			require.Emptyf(ht, resp.PaymentError,
-				"received payment error from %s: %v",
-				carol.Name(), resp.PaymentError)
+		sendReq := &routerrpc.SendToRouteRequest{
+			PaymentHash: rHash,
+			Route:       r,
 		}
-	}
-	sendToRouteStream := func() {
-		alicePayStream := carol.RPC.SendToRoute()
-
-		for i, rHash := range rHashes {
-			setMPPFields(i)
-
-			sendReq := &lnrpc.SendToRouteRequest{
-				PaymentHash: rHash,
-				Route:       routes.Routes[0],
-			}
-			err := alicePayStream.Send(sendReq)
-			require.NoError(ht, err, "unable to send payment")
-
-			resp, err := ht.ReceiveSendToRouteUpdate(alicePayStream)
-			require.NoError(ht, err, "unable to receive stream")
-			require.Emptyf(ht, resp.PaymentError,
-				"received payment error from %s: %v",
-				carol.Name(), resp.PaymentError)
-		}
-	}
-	sendToRouteRouterRPC := func() {
-		for i, rHash := range rHashes {
-			setMPPFields(i)
-
-			sendReq := &routerrpc.SendToRouteRequest{
-				PaymentHash: rHash,
-				Route:       r,
-			}
-			resp := carol.RPC.SendToRouteV2(sendReq)
-			require.Nilf(ht, resp.Failure, "received payment "+
-				"error from %s", carol.Name())
-		}
-	}
-
-	// Using Carol as the node as the source, send the payments
-	// synchronously via the routerrpc's SendToRoute, or via the main RPC
-	// server's SendToRoute streaming or sync calls.
-	switch {
-	case !useRPC && useStream:
-		sendToRouteStream()
-	case !useRPC && !useStream:
-		sendToRouteSync()
-	case useRPC && !useStream:
-		sendToRouteRouterRPC()
-	default:
-		require.Fail(ht, "routerrpc does not support "+
-			"streaming send_to_route")
+		resp := carol.RPC.SendToRouteV2(sendReq)
+		require.Nilf(ht, resp.Failure, "received payment error from %s",
+			carol.Name())
 	}
 
 	// Verify that the payment's from Carol's PoV have the correct payment
@@ -431,22 +333,15 @@ func testSendToRouteErrorPropagation(ht *lntest.HarnessTest) {
 	resp := bob.RPC.AddInvoice(invoice)
 	rHash := resp.RHash
 
-	// Using Alice as the source, pay to the invoice from Bob.
-	alicePayStream := alice.RPC.SendToRoute()
-
-	sendReq := &lnrpc.SendToRouteRequest{
+	// Using Alice as the source, send to the invoice from Bob via a fake
+	// route - we expect this to fail with UnknownNextPeer.
+	sendReq := &routerrpc.SendToRouteRequest{
 		PaymentHash: rHash,
 		Route:       fakeRoute.Routes[0],
 	}
-	err := alicePayStream.Send(sendReq)
-	require.NoError(ht, err, "unable to send payment")
-
-	// At this place we should get an rpc error with notification
-	// that edge is not found on hop(0)
-	event, err := ht.ReceiveSendToRouteUpdate(alicePayStream)
-	require.NoError(ht, err, "payment stream has been closed but fake "+
-		"route has consumed")
-	require.Contains(ht, event.PaymentError, "UnknownNextPeer")
+	event := alice.RPC.SendToRouteV2(sendReq)
+	require.NotNil(ht, event.Failure, "expected payment failure")
+	require.Equal(ht, lnrpc.Failure_UNKNOWN_NEXT_PEER, event.Failure.Code)
 }
 
 // testPrivateChannels tests that a private channel can be used for

@@ -7001,98 +7001,58 @@ func TestDeleteNodePreferredRecomputation(t *testing.T) {
 		"node should be gone after deleting all versions")
 }
 
-// TestPreferredNodeTraversal verifies that ChannelGraph's
-// ForEachNodeDirectedChannel and FetchNodeFeatures correctly prefer v2 over v1
-// when the graph cache is disabled (exercising the no-cache code paths).
-func TestPreferredNodeTraversal(t *testing.T) {
+// TestNoCacheNodeTraversal verifies that the no-cache fallback paths of
+// ChannelGraph.FetchNodeFeatures and ChannelGraph.ForEachNodeDirectedChannel
+// return v1 data correctly. The no-cache path is only ever reached on the KV
+// backend in production (which is v1-only), so cross-version semantics are
+// the cache path's job, not this one's.
+func TestNoCacheNodeTraversal(t *testing.T) {
 	t.Parallel()
 
 	if !isSQLDB {
-		t.Skip("preferred lookup requires SQL backend")
+		t.Skip("test only meaningful for SQL backend")
 	}
 
 	ctx := t.Context()
 
-	// Disable the cache so we exercise the no-cache code paths in
-	// ChannelGraph.ForEachNodeDirectedChannel and FetchNodeFeatures.
+	// Disable the cache so we exercise the no-cache code paths.
 	graph := MakeTestGraph(t, WithUseGraphCache(false))
 
-	// --- FetchNodeFeatures ---
-
-	// Create a v1-only node and verify its features are returned.
-	privV1, err := btcec.NewPrivateKey()
+	priv1, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	priv2, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
-	nodeV1 := createNode(t, lnwire.GossipVersion1, privV1)
-	require.NoError(t, graph.AddNode(ctx, nodeV1))
+	node1 := createNode(t, lnwire.GossipVersion1, priv1)
+	node2 := createNode(t, lnwire.GossipVersion1, priv2)
+	require.NoError(t, graph.AddNode(ctx, node1))
+	require.NoError(t, graph.AddNode(ctx, node2))
 
-	features, err := graph.FetchNodeFeatures(ctx, nodeV1.PubKeyBytes)
-	require.NoError(t, err)
-	require.False(t, features.IsEmpty(),
-		"v1-only node should have features")
-
-	// Create a v2-only node and verify its features are returned
-	// (exercises the v2 fallback).
-	privV2, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-
-	nodeV2 := createNode(t, lnwire.GossipVersion2, privV2)
-	require.NoError(t, graph.AddNode(ctx, nodeV2))
-
-	features, err = graph.FetchNodeFeatures(ctx, nodeV2.PubKeyBytes)
+	// FetchNodeFeatures should return the node's v1 features.
+	features, err := graph.FetchNodeFeatures(ctx, node1.PubKeyBytes)
 	require.NoError(t, err)
 	require.False(t, features.IsEmpty(),
-		"v2-only node should have features")
+		"v1 node should have features")
 
-	// Create a node with both v1 and v2 announcements.
-	privBoth, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-
-	nodeBothV1 := createNode(t, lnwire.GossipVersion1, privBoth)
-	v1Features := lnwire.NewFeatureVector(
-		lnwire.NewRawFeatureVector(lnwire.GossipQueriesRequired),
-		lnwire.Features,
-	)
-	nodeBothV1.Features = v1Features
-	require.NoError(t, graph.AddNode(ctx, nodeBothV1))
-
-	nodeBothV2 := createNode(t, lnwire.GossipVersion2, privBoth)
-	v2Features := lnwire.NewFeatureVector(
-		lnwire.NewRawFeatureVector(lnwire.TLVOnionPayloadRequired),
-		lnwire.Features,
-	)
-	nodeBothV2.Features = v2Features
-	require.NoError(t, graph.AddNode(ctx, nodeBothV2))
-
-	features, err = graph.FetchNodeFeatures(
-		ctx, nodeBothV1.PubKeyBytes,
-	)
-	require.NoError(t, err)
-	require.Equal(t, v2Features, features)
-	require.NotEqual(t, v1Features, features)
-
-	// --- ForEachNodeDirectedChannel ---
-
-	// Add a v1 channel between nodeV1 and nodeBothV1.
+	// Add a v1 channel and verify ForEachNodeDirectedChannel sees it.
 	edge, _ := createEdge(
-		lnwire.GossipVersion1, 100, 0, 0, 0,
-		nodeV1, nodeBothV1,
+		lnwire.GossipVersion1, 100, 0, 0, 0, node1, node2,
 	)
 	require.NoError(t, graph.AddChannelEdge(ctx, edge))
 
 	pol := newEdgePolicy(
 		lnwire.GossipVersion1, edge.ChannelID, 1000, true,
 	)
-	pol.ToNode = nodeBothV1.PubKeyBytes
+	pol.ToNode = node2.PubKeyBytes
 	pol.SigBytes = testSig.Serialize()
 	require.NoError(t, graph.UpdateEdgePolicy(ctx, pol))
 
-	// ForEachNodeDirectedChannel should find the channel.
 	var foundChannels int
 	err = graph.ForEachNodeDirectedChannel(
-		ctx, nodeV1.PubKeyBytes,
+		ctx, node1.PubKeyBytes,
 		func(_ *DirectedChannel) error {
 			foundChannels++
+
 			return nil
 		}, func() {
 			foundChannels = 0

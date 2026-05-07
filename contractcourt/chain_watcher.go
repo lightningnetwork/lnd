@@ -279,6 +279,16 @@ type chainWatcherConfig struct {
 	// the normal capacity-based scaling. This is only available in
 	// dev/integration builds for testing purposes.
 	chanCloseConfs fn.Option[uint32]
+
+	// notifyEarlyCoopClose, if set, is invoked with a synthesized
+	// ChannelCloseSummary the first time a cooperative close spend is
+	// detected on chain. It dispatches a CLOSED_CHANNEL event over the
+	// channel notifier so RPC subscribers see the close at the same
+	// block depth they did before the multi-confirmation reorg-aware
+	// dispatch was introduced. The follow-up state transition (DB persist
+	// + state machine advance + FULLY_RESOLVED_CHANNEL) still waits for
+	// the full required confirmation depth via the existing async path.
+	notifyEarlyCoopClose func(*channeldb.ChannelCloseSummary)
 }
 
 // chainWatcher is a system that's assigned to every active channel. The duty
@@ -329,6 +339,26 @@ type chainWatcher struct {
 	// ensure that the outpoint+pkscript pair is confirmed before calling
 	// `RegisterSpendNtfn`.
 	fundingConfirmedNtfn *chainntnfs.ConfirmationEvent
+
+	// coopCloseEarlyDispatched is set when we have already insta-dispatched
+	// a preliminary CLOSED_CHANNEL event for a coop close upon first spend
+	// detection. It is cleared on a deep reorg of the close so a re-mined
+	// close still re-fires the early event. The closeObserver goroutine is
+	// the only writer, but the channel arbitrator's MarkChannelClosed
+	// callback reads it from its own goroutine to decide whether to
+	// suppress the duplicate notify at full conf depth, so the field is an
+	// atomic.Bool to make that cross-goroutine read race-free.
+	coopCloseEarlyDispatched atomic.Bool
+}
+
+// EarlyCoopCloseDispatched reports whether the chain watcher already fired the
+// preliminary CLOSED_CHANNEL event for the in-flight cooperative close. The
+// channel arbitrator uses this to gate the duplicate CLOSED_CHANNEL that
+// MarkChannelClosed would otherwise fire at full conf depth. The flag is only
+// ever set on the async multi-conf path; the fast-path (numConfs == 1) leaves
+// it false and so the regular MarkChannelClosed-driven notify still fires.
+func (c *chainWatcher) EarlyCoopCloseDispatched() bool {
+	return c.coopCloseEarlyDispatched.Load()
 }
 
 // newChainWatcher returns a new instance of a chainWatcher for a channel given
@@ -711,13 +741,21 @@ type spendProcessResult struct {
 //
 // For single-confirmation mode (numConfs == 1), it immediately dispatches the
 // close event and returns empty result. For multi-confirmation mode, it
-// registers for confirmations and returns the new pending state.
+// registers for confirmations and returns the new pending state. In the
+// async path, a coop close also triggers an early CLOSED_CHANNEL event over
+// the channel notifier so RPC subscribers see the close at the same depth
+// they did before the multi-confirmation reorg-aware dispatch was introduced.
 func (c *chainWatcher) processDetectedSpend(
 	spend *chainntnfs.SpendDetail, source string,
 	currentPendingSpend *chainntnfs.SpendDetail,
 	currentConfNtfn *chainntnfs.ConfirmationEvent) spendProcessResult {
 
-	// FAST PATH: Single confirmation mode dispatches immediately.
+	// FAST PATH: Single confirmation mode dispatches immediately. In this
+	// mode the existing flow already drives MarkChannelClosed at the
+	// single conf, which fires CLOSED_CHANNEL with a fully populated
+	// summary (including close initiator from the historical bucket), so
+	// the early dispatch is not needed and would actually deliver a
+	// summary with an unknown close initiator to subscribers.
 	if c.handleSpendDispatch(spend, source) {
 		if currentConfNtfn != nil {
 			currentConfNtfn.Cancel()
@@ -726,7 +764,15 @@ func (c *chainWatcher) processDetectedSpend(
 		return spendProcessResult{}
 	}
 
-	// ASYNC PATH: Multiple confirmations (production).
+	// ASYNC PATH: Multiple confirmations (production). Fire a preliminary
+	// CLOSED_CHANNEL event over the channel notifier as soon as the spend
+	// is first detected so SubscribeChannelEvents subscribers see the
+	// close at the same depth they did before the multi-confirmation
+	// reorg-aware dispatch was introduced. The suppression of the
+	// duplicate notify at MarkChannelClosed time is handled in
+	// chain_arbitrator.go via a CloseType check.
+	c.maybeDispatchEarlyCoopClose(spend)
+
 	// STATE TRANSITION: None -> Pending.
 	log.Infof("ChannelPoint(%v): detected spend from %s, "+
 		"transitioning to %v", c.cfg.chanState.FundingOutpoint,
@@ -746,7 +792,8 @@ func (c *chainWatcher) processDetectedSpend(
 			}
 		}
 
-		// Different spend detected. Cancel existing confNtfn.
+		// Different spend detected (e.g. an RBF replacement). Cancel
+		// the existing confNtfn so we can re-register for the new tx.
 		log.Warnf("ChannelPoint(%v): detected different spend tx %v, "+
 			"replacing pending tx %v",
 			c.cfg.chanState.FundingOutpoint,
@@ -942,6 +989,11 @@ func (c *chainWatcher) closeObserver() {
 			confNtfn.Cancel()
 			confNtfn = nil
 			pendingSpend = nil
+
+			// Clear the early-dispatch flag so a re-mined coop
+			// close re-fires the preliminary CLOSED_CHANNEL event
+			// with its own close summary.
+			c.coopCloseEarlyDispatched.Store(false)
 
 			// Reset the close confirmation height since the spend
 			// was reorged out.
@@ -1347,26 +1399,70 @@ func (c *chainWatcher) requiredConfsForSpend() uint32 {
 	})
 }
 
-// dispatchCooperativeClose processed a detect cooperative channel closure.
-// We'll use the spending transaction to locate our output within the
-// transaction, then clean up the database state. We'll also dispatch a
-// notification to all subscribers that the channel has been closed in this
-// manner.
-func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDetail) error {
+// isCoopCloseSpend reports whether the supplied spending tx looks like a
+// cooperative close. A coop close has a finalized input sequence number
+// (either MaxTxInSequenceNum or MaxRBFSequence); regular commitment txns
+// carry an obfuscated state hint in the sequence + locktime fields and
+// won't match either constant.
+func isCoopCloseSpend(spendingTx *wire.MsgTx) bool {
+	if len(spendingTx.TxIn) == 0 {
+		return false
+	}
+
+	switch spendingTx.TxIn[0].Sequence {
+	case wire.MaxTxInSequenceNum:
+		return true
+	case mempool.MaxRBFSequence:
+		return true
+	}
+
+	return false
+}
+
+// maybeDispatchEarlyCoopClose fires a preliminary CLOSED_CHANNEL event over
+// the channel notifier the first time a coop close spend is detected on
+// chain. It is a no-op if no early-dispatch callback was wired in, the spend
+// is not a coop close, or an early dispatch has already happened for this
+// close. The flag is cleared on a deep reorg of the close (in the closeObserver
+// negativeConfChan handler) so a re-mined close re-fires.
+func (c *chainWatcher) maybeDispatchEarlyCoopClose(
+	spend *chainntnfs.SpendDetail) {
+
+	if c.coopCloseEarlyDispatched.Load() {
+		return
+	}
+	if c.cfg.notifyEarlyCoopClose == nil {
+		return
+	}
+	if !isCoopCloseSpend(spend.SpendingTx) {
+		return
+	}
+
+	summary := c.buildCoopCloseSummary(spend)
+
+	log.Infof("ChannelPoint(%v): dispatching early CLOSED_CHANNEL "+
+		"event for coop close tx %v at height %d",
+		c.cfg.chanState.FundingOutpoint, spend.SpenderTxHash,
+		spend.SpendingHeight)
+
+	c.cfg.notifyEarlyCoopClose(summary)
+	c.coopCloseEarlyDispatched.Store(true)
+}
+
+// buildCoopCloseSummary constructs a ChannelCloseSummary for a cooperative
+// close from the supplied spend detail. The summary is returned with
+// IsPending=true; the channel arbitrator's MarkChannelClosed callback flips
+// this to false after the close reaches the required confirmation depth. This
+// helper is shared between the early insta-dispatch path (first conf, no DB
+// persist) and the post-N-conf dispatch path so both surfaces produce
+// equivalent summaries.
+func (c *chainWatcher) buildCoopCloseSummary(
+	commitSpend *chainntnfs.SpendDetail) *channeldb.ChannelCloseSummary {
+
 	broadcastTx := commitSpend.SpendingTx
-
-	log.Infof("Cooperative closure for ChannelPoint(%v): %v",
-		c.cfg.chanState.FundingOutpoint,
-		lnutils.SpewLogClosure(broadcastTx))
-
-	// If the input *is* final, then we'll check to see which output is
-	// ours.
 	localAmt := c.toSelfAmount(broadcastTx)
 
-	// Once this is known, we'll mark the state as fully closed in the
-	// database. For cooperative closes, we wait for a confirmation depth
-	// determined by channel capacity before dispatching this event.
-	closeSummary := &channeldb.ChannelCloseSummary{
+	summary := &channeldb.ChannelCloseSummary{
 		ChanPoint:               c.cfg.chanState.FundingOutpoint,
 		ChainHash:               c.cfg.chanState.ChainHash,
 		ClosingTXID:             *commitSpend.SpenderTxHash,
@@ -1388,8 +1484,27 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 		log.Errorf("ChannelPoint(%v): unable to create channel sync "+
 			"message: %v", c.cfg.chanState.FundingOutpoint, err)
 	} else {
-		closeSummary.LastChanSyncMsg = chanSync
+		summary.LastChanSyncMsg = chanSync
 	}
+
+	return summary
+}
+
+// dispatchCooperativeClose processed a detect cooperative channel closure.
+// We'll use the spending transaction to locate our output within the
+// transaction, then clean up the database state. We'll also dispatch a
+// notification to all subscribers that the channel has been closed in this
+// manner.
+func (c *chainWatcher) dispatchCooperativeClose(
+	commitSpend *chainntnfs.SpendDetail) error {
+
+	broadcastTx := commitSpend.SpendingTx
+
+	log.Infof("Cooperative closure for ChannelPoint(%v): %v",
+		c.cfg.chanState.FundingOutpoint,
+		lnutils.SpewLogClosure(broadcastTx))
+
+	closeSummary := c.buildCoopCloseSummary(commitSpend)
 
 	// Create a summary of all the information needed to handle the
 	// cooperative closure.
@@ -1399,7 +1514,7 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 
 	// If we have an aux closer, finalize the cooperative close now that
 	// it's confirmed.
-	err = fn.MapOptionZ(
+	err := fn.MapOptionZ(
 		c.cfg.auxCloser, func(aux AuxChanCloser) error {
 			return c.finalizeCoopClose(aux, broadcastTx)
 		},

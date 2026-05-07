@@ -534,7 +534,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// specified, make a tor controller and pass it into both the watchtower
 	// server and the regular lnd server.
 	var torController *tor.Controller
-	if cfg.Tor.Active && (cfg.Tor.V2 || cfg.Tor.V3) {
+	if cfg.Tor.Active && cfg.Tor.V3 {
 		torController = tor.NewController(
 			cfg.Tor.Control, cfg.Tor.TargetIPAddress,
 			cfg.Tor.Password,
@@ -592,12 +592,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			wtCfg.EncryptKey = cfg.Tor.EncryptKey
 			wtCfg.KeyRing = activeChainControl.KeyRing
 
-			switch {
-			case cfg.Tor.V2:
-				wtCfg.Type = tor.V2
-			case cfg.Tor.V3:
-				wtCfg.Type = tor.V3
-			}
+			wtCfg.Type = tor.V3
 		}
 
 		wtConfig, err := cfg.Watchtower.Apply(

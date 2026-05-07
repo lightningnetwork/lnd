@@ -25,17 +25,11 @@ var (
 type OnionType int
 
 const (
-	// V2 denotes that the onion service is V2.
-	V2 OnionType = iota
-
 	// V3 denotes that the onion service is V3.
-	V3
+	V3 OnionType = iota
 )
 
 const (
-	// V2KeyParam is a parameter that Tor accepts for a new V2 service.
-	V2KeyParam = "RSA1024"
-
 	// V3KeyParam is a parameter that Tor accepts for a new V3 service.
 	V3KeyParam = "ED25519-V3"
 )
@@ -128,11 +122,9 @@ func (f *OnionFile) PrivateKey() ([]byte, error) {
 		return nil, err
 	}
 
-	// If the privateKey starts with either v2 or v3 key params then
-	// it's likely not encrypted and we can return the data as is.
-	if bytes.HasPrefix(privateKeyContent, []byte(V2KeyParam)) ||
-		bytes.HasPrefix(privateKeyContent, []byte(V3KeyParam)) {
-
+	// If the privateKey starts with the v3 key param then it's likely
+	// not encrypted and we can return the data as is.
+	if bytes.HasPrefix(privateKeyContent, []byte(V3KeyParam)) {
 		return privateKeyContent, nil
 	}
 
@@ -192,14 +184,7 @@ func (c *Controller) prepareKeyparam(cfg AddOnionConfig) (string, error) {
 	// create a new onion service and return its private key. Otherwise,
 	// we'll request the server to recreate the onion server from our
 	// private key.
-	var keyParam string
-	switch cfg.Type {
-	// TODO(yy): drop support for v2.
-	case V2:
-		keyParam = "NEW:" + V2KeyParam
-	case V3:
-		keyParam = "NEW:" + V3KeyParam
-	}
+	keyParam := "NEW:" + V3KeyParam
 
 	if cfg.Store != nil {
 		privateKey, err := cfg.Store.PrivateKey()
@@ -273,13 +258,9 @@ func (c *Controller) prepareAddOnion(cfg AddOnionConfig) (string, string,
 // creating new service via `ADD_ONION`.
 func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 	// Before sending the request to create an onion service to the Tor
-	// server, we'll make sure that it supports V3 onion services if that
-	// was the type requested.
-	// TODO(yy): drop support for v2.
-	if cfg.Type == V3 {
-		if err := supportsV3(c.version); err != nil {
-			return nil, err
-		}
+	// server, we'll make sure that it supports V3 onion services.
+	if err := supportsV3(c.version); err != nil {
+		return nil, err
 	}
 
 	// Construct the cmd command.
@@ -298,13 +279,13 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 	// If successful, the reply from the server should be of the following
 	// format, depending on whether a private key has been requested:
 	//
-	//	C: ADD_ONION RSA1024:[Blob Redacted] Port=80,8080
+	//	C: ADD_ONION ED25519-V3:[Blob Redacted] Port=80,8080
 	//	S: 250-ServiceID=testonion1234567
 	//	S: 250 OK
 	//
-	//	C: ADD_ONION NEW:RSA1024 Port=80,8080
+	//	C: ADD_ONION NEW:ED25519-V3 Port=80,8080
 	//	S: 250-ServiceID=testonion1234567
-	//	S: 250-PrivateKey=RSA1024:[Blob Redacted]
+	//	S: 250-PrivateKey=ED25519-V3:[Blob Redacted]
 	//	S: 250 OK
 	//
 	// We're interested in retrieving the service ID, which is the public

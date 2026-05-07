@@ -3408,12 +3408,7 @@ func (s *server) createNewHiddenService(ctx context.Context) error {
 		),
 	}
 
-	switch {
-	case s.cfg.Tor.V2:
-		onionCfg.Type = tor.V2
-	case s.cfg.Tor.V3:
-		onionCfg.Type = tor.V3
-	}
+	onionCfg.Type = tor.V3
 
 	addr, err := s.torController.AddOnion(onionCfg)
 	if err != nil {

@@ -111,17 +111,11 @@ func (d *databaseChannelGraph) ForEachNodesChannels(ctx context.Context,
 	cb func(context.Context, Node, []*ChannelEdge) error,
 	reset func()) error {
 
+	// The channel-scoring callers only need topology data here. Address
+	// filtering happens through ForEachNode before connecting to peers.
 	return d.db.ForEachNodeCached(
-		ctx, true, func(ctx context.Context, node route.Vertex,
-			addrs []net.Addr,
+		ctx, func(ctx context.Context, node route.Vertex,
 			chans map[uint64]*graphdb.DirectedChannel) error {
-
-			// We'll skip over any node that doesn't have any
-			// advertised addresses. As we won't be able to reach
-			// them to actually open any channels.
-			if len(addrs) == 0 {
-				return nil
-			}
 
 			edges := make([]*ChannelEdge, 0, len(chans))
 			for _, channel := range chans {
@@ -135,8 +129,7 @@ func (d *databaseChannelGraph) ForEachNodesChannels(ctx context.Context,
 			}
 
 			return cb(ctx, &dbNode{
-				pub:   node,
-				addrs: addrs,
+				pub: node,
 			}, edges)
 		}, reset,
 	)
@@ -196,8 +189,8 @@ func (nc dbNodeCached) Addrs() []net.Addr {
 func (dc *databaseChannelGraphCached) ForEachNode(ctx context.Context,
 	cb func(context.Context, Node) error, reset func()) error {
 
-	return dc.db.ForEachNodeCached(ctx, false, func(ctx context.Context,
-		n route.Vertex, _ []net.Addr,
+	return dc.db.ForEachNodeCached(ctx, func(ctx context.Context,
+		n route.Vertex,
 		channels map[uint64]*graphdb.DirectedChannel) error {
 
 		if len(channels) > 0 {
@@ -223,8 +216,8 @@ func (dc *databaseChannelGraphCached) ForEachNodesChannels(ctx context.Context,
 	cb func(context.Context, Node, []*ChannelEdge) error,
 	reset func()) error {
 
-	return dc.db.ForEachNodeCached(ctx, false, func(ctx context.Context,
-		n route.Vertex, _ []net.Addr,
+	return dc.db.ForEachNodeCached(ctx, func(ctx context.Context,
+		n route.Vertex,
 		channels map[uint64]*graphdb.DirectedChannel) error {
 
 		edges := make([]*ChannelEdge, 0, len(channels))

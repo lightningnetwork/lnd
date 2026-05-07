@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net"
 	"path"
 	"sync"
 	"testing"
@@ -698,10 +697,9 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 			fn: func(b testing.TB, store Store) {
 				//nolint:ll
 				err := store.ForEachNodeCached(
-					ctx, lnwire.GossipVersion1, false,
+					ctx, lnwire.GossipVersion1,
 					func(context.Context,
 						route.Vertex,
-						[]net.Addr,
 						map[uint64]*DirectedChannel) error {
 
 						// Increment the counter to

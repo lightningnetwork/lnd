@@ -2658,6 +2658,281 @@ func (s *SQLStore) FetchChannelEdgesByOutpoint(ctx context.Context,
 	return edge, policy1, policy2, nil
 }
 
+var preferredGossipVersionsDescending = []lnwire.GossipVersion{
+	gossipV2, gossipV1,
+}
+
+// FetchChannelEdgesByIDPreferred tries each known gossip version from highest
+// to lowest and returns the first result that has at least one policy. If no
+// version has policies, the highest version found is returned. This prevents a
+// v2 channel with no policies from hiding a v1 channel that has valid policy
+// data.
+//
+// If no live edge is found across versions but at least one version reports
+// the channel as a zombie, ErrZombieEdge is returned with the zombie edge info
+// populated so callers can resurrect it.
+//
+// NOTE: part of the Store interface.
+func (s *SQLStore) FetchChannelEdgesByIDPreferred(ctx context.Context,
+	chanID uint64) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	var (
+		bestInfo      *models.ChannelEdgeInfo
+		bestP1        *models.ChannelEdgePolicy
+		bestP2        *models.ChannelEdgePolicy
+		bestZombie    *models.ChannelEdgeInfo
+		chanIDB       = channelIDToBytes(chanID)
+		buildLiveEdge = func(ctx context.Context, db SQLQueries,
+			row sqlc.GetChannelBySCIDWithPoliciesRow) (
+			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+			*models.ChannelEdgePolicy, error) {
+
+			node1, node2, err := buildNodeVertices(
+				row.GraphNode.PubKey, row.GraphNode_2.PubKey,
+			)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+
+			edge, err := getAndBuildEdgeInfo(
+				ctx, s.cfg, db, row.GraphChannel, node1, node2,
+			)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("unable to "+
+					"build channel info: %w", err)
+			}
+
+			dbPol1, dbPol2, err := extractChannelPolicies(row)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("unable to "+
+					"extract channel policies: %w", err)
+			}
+
+			policy1, policy2, err := getAndBuildChanPolicies(
+				ctx, s.cfg.QueryCfg, db, dbPol1, dbPol2,
+				edge.ChannelID, node1, node2,
+			)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("unable to "+
+					"build channel policies: %w", err)
+			}
+
+			return edge, policy1, policy2, nil
+		}
+	)
+
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		for _, v := range preferredGossipVersionsDescending {
+			row, err := db.GetChannelBySCIDWithPolicies(
+				ctx, sqlc.GetChannelBySCIDWithPoliciesParams{
+					Scid:    chanIDB,
+					Version: int16(v),
+				},
+			)
+			if errors.Is(err, sql.ErrNoRows) {
+				zombie, err := db.GetZombieChannel(
+					ctx, sqlc.GetZombieChannelParams{
+						Scid:    chanIDB,
+						Version: int16(v),
+					},
+				)
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				}
+				if err != nil {
+					return fmt.Errorf("unable to check if "+
+						"channel is zombie: %w", err)
+				}
+
+				if bestZombie == nil {
+					var err error
+					bestZombie, err = buildZombieEdge(
+						v, chanID, zombie.NodeKey1,
+						zombie.NodeKey2,
+					)
+					if err != nil {
+						return err
+					}
+				}
+
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf("unable to fetch channel: %w",
+					err)
+			}
+
+			info, p1, p2, err := buildLiveEdge(ctx, db, row)
+			if err != nil {
+				return err
+			}
+
+			if p1 != nil || p2 != nil {
+				bestInfo, bestP1, bestP2 = info, p1, p2
+
+				return nil
+			}
+
+			if bestInfo == nil {
+				bestInfo, bestP1, bestP2 = info, p1, p2
+			}
+		}
+
+		if bestInfo != nil {
+			return nil
+		}
+
+		if bestZombie != nil {
+			return ErrZombieEdge
+		}
+
+		return ErrEdgeNotFound
+	}, sqldb.NoOpReset)
+	if errors.Is(err, ErrZombieEdge) {
+		return bestZombie, nil, nil, ErrZombieEdge
+	}
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("could not fetch preferred "+
+			"channel: %w", err)
+	}
+
+	return bestInfo, bestP1, bestP2, nil
+}
+
+// FetchChannelEdgesByOutpointPreferred tries each known gossip version from
+// highest to lowest and returns the first result that has at least one policy.
+// If no version has policies, the highest version found is returned. This
+// prevents a v2 channel with no policies from hiding a v1 channel that has
+// valid policy data.
+//
+// NOTE: part of the Store interface.
+func (s *SQLStore) FetchChannelEdgesByOutpointPreferred(
+	ctx context.Context, op *wire.OutPoint) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	var (
+		bestInfo      *models.ChannelEdgeInfo
+		bestP1        *models.ChannelEdgePolicy
+		bestP2        *models.ChannelEdgePolicy
+		buildLiveEdge = func(ctx context.Context, db SQLQueries,
+			row sqlc.GetChannelByOutpointWithPoliciesRow) (
+			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+			*models.ChannelEdgePolicy, error) {
+
+			node1, node2, err := buildNodeVertices(
+				row.Node1Pubkey, row.Node2Pubkey,
+			)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+
+			edge, err := getAndBuildEdgeInfo(
+				ctx, s.cfg, db, row.GraphChannel, node1, node2,
+			)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("unable to "+
+					"build channel info: %w", err)
+			}
+
+			dbPol1, dbPol2, err := extractChannelPolicies(row)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("unable to "+
+					"extract channel policies: %w", err)
+			}
+
+			policy1, policy2, err := getAndBuildChanPolicies(
+				ctx, s.cfg.QueryCfg, db, dbPol1, dbPol2,
+				edge.ChannelID, node1, node2,
+			)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("unable to "+
+					"build channel policies: %w", err)
+			}
+
+			return edge, policy1, policy2, nil
+		}
+	)
+
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		for _, v := range preferredGossipVersionsDescending {
+			params := sqlc.GetChannelByOutpointWithPoliciesParams{
+				Outpoint: op.String(),
+				Version:  int16(v),
+			}
+			row, err := db.GetChannelByOutpointWithPolicies(
+				ctx, params,
+			)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf("unable to fetch channel: %w",
+					err)
+			}
+
+			info, p1, p2, err := buildLiveEdge(ctx, db, row)
+			if err != nil {
+				return err
+			}
+
+			if p1 != nil || p2 != nil {
+				bestInfo, bestP1, bestP2 = info, p1, p2
+
+				return nil
+			}
+
+			if bestInfo == nil {
+				bestInfo, bestP1, bestP2 = info, p1, p2
+			}
+		}
+
+		if bestInfo != nil {
+			return nil
+		}
+
+		return ErrEdgeNotFound
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("could not fetch preferred "+
+			"channel: %w", err)
+	}
+
+	return bestInfo, bestP1, bestP2, nil
+}
+
+func buildZombieEdge(v lnwire.GossipVersion, chanID uint64, nodeKey1,
+	nodeKey2 []byte) (*models.ChannelEdgeInfo, error) {
+
+	node1, err := route.NewVertexFromBytes(nodeKey1)
+	if err != nil {
+		return nil, err
+	}
+	node2, err := route.NewVertexFromBytes(nodeKey2)
+	if err != nil {
+		return nil, err
+	}
+
+	switch v {
+	case gossipV1:
+		return models.NewV1Channel(
+			chanID, chainhash.Hash{}, node1, node2,
+			&models.ChannelV1Fields{},
+		)
+
+	case gossipV2:
+		return models.NewV2Channel(
+			chanID, chainhash.Hash{}, node1, node2,
+			&models.ChannelV2Fields{},
+		)
+
+	default:
+		return nil, fmt.Errorf("unsupported gossip version: %d", v)
+	}
+}
+
 // HasV1ChannelEdge returns true if the database knows of a channel edge
 // with the passed channel ID, and false otherwise. If an edge with that ID
 // is found within the graph, then two time stamps representing the last time

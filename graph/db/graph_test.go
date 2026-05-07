@@ -5510,6 +5510,7 @@ func testFetchZombieEdgeVersioning(t *testing.T, v lnwire.GossipVersion) {
 	require.ErrorIs(t, err, ErrZombieEdge)
 	require.NotNil(t, info)
 	require.Equal(t, v, info.Version)
+	require.Equal(t, edge.ChannelID, info.ChannelID)
 	require.Equal(t, edge.NodeKey1Bytes, info.NodeKey1Bytes)
 	require.Equal(t, edge.NodeKey2Bytes, info.NodeKey2Bytes)
 }

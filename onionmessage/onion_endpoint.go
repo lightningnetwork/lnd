@@ -1,7 +1,7 @@
 package onionmessage
 
 import (
-	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 )
 
@@ -26,7 +26,7 @@ type OnionMessageUpdate struct {
 	CustomRecords record.CustomSet
 
 	// ReplyPath contains the reply path information for the onion message.
-	ReplyPath *sphinx.BlindedPath
+	ReplyPath *lnwire.BlindedPath
 
 	// EncryptedRecipientData contains the encrypted recipient data for the
 	// onion message, created by the creator of the blinded route. This is

@@ -9570,15 +9570,19 @@ func (r *rpcServer) SubscribeOnionMessages(
 
 			//nolint:ll
 			if oMsg.ReplyPath != nil {
-				bp.IntroductionNode = oMsg.ReplyPath.IntroductionPoint.SerializeCompressed()
+				// TODO(bolt12): resolve sciddir intros via
+				// sciddirResolver so this field is uniformly a
+				// 33-byte pubkey?
+				bp.IntroductionNode = oMsg.ReplyPath.IntroductionNode.Bytes()
 				bp.BlindingPoint = oMsg.ReplyPath.BlindingPoint.SerializeCompressed()
 
-				for _, hop := range oMsg.ReplyPath.BlindedHops {
-					rpcHop := &lnrpc.BlindedHop{
-						BlindedNode:   hop.BlindedNodePub.SerializeCompressed(),
-						EncryptedData: hop.CipherText,
-					}
-					bp.BlindedHops = append(bp.BlindedHops, rpcHop)
+				for _, hop := range oMsg.ReplyPath.Hops {
+					bp.BlindedHops = append(
+						bp.BlindedHops, &lnrpc.BlindedHop{
+							BlindedNode:   hop.BlindedNodeID.SerializeCompressed(),
+							EncryptedData: hop.EncryptedData,
+						},
+					)
 				}
 			}
 

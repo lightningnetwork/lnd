@@ -7,7 +7,6 @@ import (
 	"io"
 	"sort"
 
-	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -36,22 +35,15 @@ const (
 	InvoiceErrorNamespaceType tlv.Type = 68
 )
 
-var (
-	// ErrNotFinalPayload is returned when a final hop payload is not
-	// within the correct range.
-	ErrNotFinalPayload = errors.New("final hop payloads type should be " +
-		">= 64")
-
-	// ErrNoHops is returned when we handle a reply path that does not
-	// have any hops (this makes no sense).
-	ErrNoHops = errors.New("reply path requires hops")
-)
+// ErrNotFinalPayload is returned when a final hop payload is not within the
+// correct range.
+var ErrNotFinalPayload = errors.New("final hop payloads type should be >= 64")
 
 // OnionMessagePayload contains the contents of an onion message payload.
 type OnionMessagePayload struct {
 	// ReplyPath contains a blinded path that can be used to respond to an
 	// onion message.
-	ReplyPath *sphinx.BlindedPath
+	ReplyPath *BlindedPath
 
 	// EncryptedData contains encrypted data for the recipient.
 	EncryptedData []byte
@@ -73,7 +65,7 @@ func (o *OnionMessagePayload) Encode() ([]byte, error) {
 	var records []tlv.Record
 
 	if o.ReplyPath != nil {
-		records = append(records, replyPathRecord(o.ReplyPath))
+		records = append(records, o.ReplyPath.Record())
 	}
 
 	if len(o.EncryptedData) != 0 {
@@ -131,11 +123,13 @@ func (o *OnionMessagePayload) Decode(r io.Reader) (map[tlv.Type][]byte, error) {
 			TLVType: InvoiceRequestNamespaceType,
 		}
 	)
-	// Create a non-nil entry so that we can directly decode into it.
-	o.ReplyPath = &sphinx.BlindedPath{}
+
+	// replyPath is used for decoding, we will later check if it was
+	// actually present and assign it to the message struct.
+	var replyPath BlindedPath
 
 	records := []tlv.Record{
-		replyPathRecord(o.ReplyPath),
+		replyPath.Record(),
 		tlv.MakePrimitiveRecord(
 			encryptedDataTLVType, &o.EncryptedData,
 		),
@@ -171,9 +165,8 @@ func (o *OnionMessagePayload) Decode(r io.Reader) (map[tlv.Type][]byte, error) {
 		return tlvMap, fmt.Errorf("decode stream: %w", err)
 	}
 
-	// If our reply path wasn't populated, replace it with a nil entry.
-	if _, ok := tlvMap[replyPathType]; !ok {
-		o.ReplyPath = nil
+	if _, ok := tlvMap[replyPathType]; ok {
+		o.ReplyPath = &replyPath
 	}
 
 	// Once we're decoded our message, we want to also include any tlvs
@@ -257,156 +250,4 @@ func (f *FinalHopTLV) Validate() error {
 	}
 
 	return nil
-}
-
-// replyPathRecord produces a tlv record for a reply path.
-func replyPathRecord(r *sphinx.BlindedPath) tlv.Record {
-	return tlv.MakeDynamicRecord(
-		replyPathType, r, replyPathSize(r), encodeReplyPath,
-		decodeReplyPath,
-	)
-}
-
-// replyPathSize returns the encoded size of a reply path.
-func replyPathSize(r *sphinx.BlindedPath) func() uint64 {
-	return func() uint64 {
-		// First node pubkey 33 + blinding point pubkey 33 + 1 byte for
-		// uint8 for our hop count.
-		size := uint64(33 + 33 + 1)
-
-		// Add each hop's size to our total.
-		for _, hop := range r.BlindedHops {
-			size += blindedHopSize(hop)
-		}
-
-		return size
-	}
-}
-
-// encodeReplyPath encodes a reply path tlv.
-func encodeReplyPath(w io.Writer, val interface{}, buf *[8]byte) error {
-	if p, ok := val.(*sphinx.BlindedPath); ok {
-		err := tlv.EPubKey(w, &p.IntroductionPoint, buf)
-		if err != nil {
-			return fmt.Errorf("encode first node id: %w", err)
-		}
-
-		if err := tlv.EPubKey(w, &p.BlindingPoint, buf); err != nil {
-			return fmt.Errorf("encode blinding point: %w", err)
-		}
-
-		hopCount := uint8(len(p.BlindedHops))
-		if hopCount == 0 {
-			return ErrNoHops
-		}
-
-		if err := tlv.EUint8(w, &hopCount, buf); err != nil {
-			return fmt.Errorf("encode hop count: %w", err)
-		}
-
-		for i, hop := range p.BlindedHops {
-			if err := encodeBlindedHop(w, hop, buf); err != nil {
-				return fmt.Errorf("hop %v: %w", i, err)
-			}
-		}
-
-		return nil
-	}
-
-	return tlv.NewTypeForEncodingErr(val, "*sphinx.BlindedPath")
-}
-
-// decodeReplyPath decodes a reply path tlv.
-func decodeReplyPath(r io.Reader, val interface{}, buf *[8]byte,
-	l uint64) error {
-
-	// If we have the correct type, and the length exceeds the fixed header
-	// size (first node pubkey (33) + blinding point (33) + hop count (1) =
-	// 67 bytes) to accommodate at least one hop, decode the reply path.
-	if p, ok := val.(*sphinx.BlindedPath); ok && l > 67 {
-		err := tlv.DPubKey(r, &p.IntroductionPoint, buf, 33)
-		if err != nil {
-			return fmt.Errorf("decode first id: %w", err)
-		}
-
-		err = tlv.DPubKey(r, &p.BlindingPoint, buf, 33)
-		if err != nil {
-			return fmt.Errorf("decode blinding point:  %w", err)
-		}
-
-		var hopCount uint8
-		if err := tlv.DUint8(r, &hopCount, buf, 1); err != nil {
-			return fmt.Errorf("decode hop count: %w", err)
-		}
-
-		if hopCount == 0 {
-			return ErrNoHops
-		}
-
-		for i := 0; i < int(hopCount); i++ {
-			hop := &sphinx.BlindedHopInfo{}
-			if err := decodeBlindedHop(r, hop, buf); err != nil {
-				return fmt.Errorf("decode hop: %w", err)
-			}
-
-			p.BlindedHops = append(p.BlindedHops, hop)
-		}
-
-		return nil
-	}
-
-	return tlv.NewTypeForDecodingErr(val, "*sphinx.BlindedPath", l, l)
-}
-
-// blindedHopSize returns the encoded size of a blinded hop.
-func blindedHopSize(b *sphinx.BlindedHopInfo) uint64 {
-	// 33 byte pubkey + 2 bytes uint16 length + var bytes.
-	return uint64(33 + 2 + len(b.CipherText))
-}
-
-// encodeBlindedHop encodes a blinded hop tlv.
-func encodeBlindedHop(w io.Writer, val interface{}, buf *[8]byte) error {
-	if b, ok := val.(*sphinx.BlindedHopInfo); ok {
-		if err := tlv.EPubKey(w, &b.BlindedNodePub, buf); err != nil {
-			return fmt.Errorf("encode blinded id: %w", err)
-		}
-
-		dataLen := uint16(len(b.CipherText))
-		if err := tlv.EUint16(w, &dataLen, buf); err != nil {
-			return fmt.Errorf("data len: %w", err)
-		}
-
-		if err := tlv.EVarBytes(w, &b.CipherText, buf); err != nil {
-			return fmt.Errorf("encode encrypted data: %w", err)
-		}
-
-		return nil
-	}
-
-	return tlv.NewTypeForEncodingErr(val, "*sphinx.BlindedHopInfo")
-}
-
-// decodeBlindedHop decodes a blinded hop tlv.
-func decodeBlindedHop(r io.Reader, val interface{}, buf *[8]byte) error {
-	if b, ok := val.(*sphinx.BlindedHopInfo); ok {
-		err := tlv.DPubKey(r, &b.BlindedNodePub, buf, 33)
-		if err != nil {
-			return fmt.Errorf("decode blinded id: %w", err)
-		}
-
-		var dataLen uint16
-		err = tlv.DUint16(r, &dataLen, buf, 2)
-		if err != nil {
-			return fmt.Errorf("decode data len: %w", err)
-		}
-
-		err = tlv.DVarBytes(r, &b.CipherText, buf, uint64(dataLen))
-		if err != nil {
-			return fmt.Errorf("decode data: %w", err)
-		}
-
-		return nil
-	}
-
-	return tlv.NewTypeForDecodingErr(val, "*sphinx.BlindedHopInfo", 0, 0)
 }

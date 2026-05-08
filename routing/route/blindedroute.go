@@ -13,7 +13,7 @@ import (
 // payloads used to encoding the routing data for each hop in the route. This
 // method also accepts final hop payloads.
 func OnionMessageBlindedPathToSphinxPath(blindedPath *sphinx.BlindedPath,
-	replyPath *sphinx.BlindedPath, finalHopTLVs []*lnwire.FinalHopTLV) (
+	replyPath *lnwire.BlindedPath, finalHopTLVs []*lnwire.FinalHopTLV) (
 	*sphinx.PaymentPath, error) {
 
 	var path sphinx.PaymentPath

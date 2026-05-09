@@ -68,26 +68,32 @@ type WalletKitClient interface {
 	// wallet accounts and return the addresses of only those matching.
 	ListAddresses(ctx context.Context, in *ListAddressesRequest, opts ...grpc.CallOption) (*ListAddressesResponse, error)
 	// lncli: `wallet addresses signmessage`
-	// SignMessageWithAddr returns the compact signature (base64 encoded) created
-	// with the private key of the provided address. This requires the address
-	// to be solely based on a public key lock (no scripts). Obviously the internal
-	// lnd wallet has to possess the private key of the address otherwise
-	// an error is returned.
+	// SignMessageWithAddr returns the compact (legacy) or BIP-0322 signature
+	// (base64 encoded) created with the private key of the provided address. For
+	// the legacy format, this requires the address to be solely based on a public
+	// key lock (no scripts). Obviously, the internal lnd wallet has to possess the
+	// private key of the address, otherwise an error is returned.
 	//
-	// This method aims to provide full compatibility with the bitcoin-core and
-	// btcd implementation. Bitcoin-core's algorithm is not specified in a
-	// BIP and only applicable for legacy addresses. This method enhances the
-	// signing for additional address types: P2WKH, NP2WKH, P2TR.
-	// For P2TR addresses this represents a special case. ECDSA is used to create
-	// a compact signature which makes the public key of the signature recoverable.
+	// The legacy method aims to provide full compatibility with the bitcoin-core
+	// and btcd implementation. Bitcoin-core's legacy algorithm is not specified in
+	// a BIP and only applicable for legacy addresses. The legacy method enhances
+	// the signing for additional address types, which might not be widely
+	// compatible: P2WKH, NP2WKH, P2TR.
+	// For P2TR addresses this legacy method represents a special case. ECDSA is
+	// used to create a compact signature which makes the public key of the
+	// signature recoverable.
+	//
+	// It is generally recommended to use the new, standardized BIP-0322 signing
+	// method wherever applicable (verifiers need to support the signature format).
+	// BIP-0322 signatures are compatible with any address type.
 	SignMessageWithAddr(ctx context.Context, in *SignMessageWithAddrRequest, opts ...grpc.CallOption) (*SignMessageWithAddrResponse, error)
 	// lncli: `wallet addresses verifymessage`
 	// VerifyMessageWithAddr returns the validity and the recovered public key of
 	// the provided compact signature (base64 encoded). The verification is
-	// twofold. First the validity of the signature itself is checked and then
+	// twofold. First, the validity of the signature itself is checked and then
 	// it is verified that the recovered public key of the signature equals
 	// the public key of the provided address. There is no dependence on the
-	// private key of the address therefore also external addresses are allowed
+	// private key of the address. Therefore, also external addresses are allowed
 	// to verify signatures.
 	// Supported address types are P2PKH, P2WKH, NP2WKH, P2TR.
 	//
@@ -98,7 +104,7 @@ type WalletKitClient interface {
 	// the address types: P2PKH, P2WKH, NP2WKH, P2TR.
 	//
 	// The verification for P2TR addresses is a special case and requires the
-	// ECDSA compact signature to compare the reovered public key to the internal
+	// ECDSA compact signature to compare the recovered public key to the internal
 	// taproot key. The compact ECDSA signature format was used because there
 	// are still no known compact signature schemes for schnorr signatures.
 	VerifyMessageWithAddr(ctx context.Context, in *VerifyMessageWithAddrRequest, opts ...grpc.CallOption) (*VerifyMessageWithAddrResponse, error)
@@ -594,26 +600,32 @@ type WalletKitServer interface {
 	// wallet accounts and return the addresses of only those matching.
 	ListAddresses(context.Context, *ListAddressesRequest) (*ListAddressesResponse, error)
 	// lncli: `wallet addresses signmessage`
-	// SignMessageWithAddr returns the compact signature (base64 encoded) created
-	// with the private key of the provided address. This requires the address
-	// to be solely based on a public key lock (no scripts). Obviously the internal
-	// lnd wallet has to possess the private key of the address otherwise
-	// an error is returned.
+	// SignMessageWithAddr returns the compact (legacy) or BIP-0322 signature
+	// (base64 encoded) created with the private key of the provided address. For
+	// the legacy format, this requires the address to be solely based on a public
+	// key lock (no scripts). Obviously, the internal lnd wallet has to possess the
+	// private key of the address, otherwise an error is returned.
 	//
-	// This method aims to provide full compatibility with the bitcoin-core and
-	// btcd implementation. Bitcoin-core's algorithm is not specified in a
-	// BIP and only applicable for legacy addresses. This method enhances the
-	// signing for additional address types: P2WKH, NP2WKH, P2TR.
-	// For P2TR addresses this represents a special case. ECDSA is used to create
-	// a compact signature which makes the public key of the signature recoverable.
+	// The legacy method aims to provide full compatibility with the bitcoin-core
+	// and btcd implementation. Bitcoin-core's legacy algorithm is not specified in
+	// a BIP and only applicable for legacy addresses. The legacy method enhances
+	// the signing for additional address types, which might not be widely
+	// compatible: P2WKH, NP2WKH, P2TR.
+	// For P2TR addresses this legacy method represents a special case. ECDSA is
+	// used to create a compact signature which makes the public key of the
+	// signature recoverable.
+	//
+	// It is generally recommended to use the new, standardized BIP-0322 signing
+	// method wherever applicable (verifiers need to support the signature format).
+	// BIP-0322 signatures are compatible with any address type.
 	SignMessageWithAddr(context.Context, *SignMessageWithAddrRequest) (*SignMessageWithAddrResponse, error)
 	// lncli: `wallet addresses verifymessage`
 	// VerifyMessageWithAddr returns the validity and the recovered public key of
 	// the provided compact signature (base64 encoded). The verification is
-	// twofold. First the validity of the signature itself is checked and then
+	// twofold. First, the validity of the signature itself is checked and then
 	// it is verified that the recovered public key of the signature equals
 	// the public key of the provided address. There is no dependence on the
-	// private key of the address therefore also external addresses are allowed
+	// private key of the address. Therefore, also external addresses are allowed
 	// to verify signatures.
 	// Supported address types are P2PKH, P2WKH, NP2WKH, P2TR.
 	//
@@ -624,7 +636,7 @@ type WalletKitServer interface {
 	// the address types: P2PKH, P2WKH, NP2WKH, P2TR.
 	//
 	// The verification for P2TR addresses is a special case and requires the
-	// ECDSA compact signature to compare the reovered public key to the internal
+	// ECDSA compact signature to compare the recovered public key to the internal
 	// taproot key. The compact ECDSA signature format was used because there
 	// are still no known compact signature schemes for schnorr signatures.
 	VerifyMessageWithAddr(context.Context, *VerifyMessageWithAddrRequest) (*VerifyMessageWithAddrResponse, error)

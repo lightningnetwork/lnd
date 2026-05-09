@@ -165,8 +165,8 @@
     },
     "/v2/wallet/address/signmessage": {
       "post": {
-        "summary": "lncli: `wallet addresses signmessage`\nSignMessageWithAddr returns the compact signature (base64 encoded) created\nwith the private key of the provided address. This requires the address\nto be solely based on a public key lock (no scripts). Obviously the internal\nlnd wallet has to possess the private key of the address otherwise\nan error is returned.",
-        "description": "This method aims to provide full compatibility with the bitcoin-core and\nbtcd implementation. Bitcoin-core's algorithm is not specified in a\nBIP and only applicable for legacy addresses. This method enhances the\nsigning for additional address types: P2WKH, NP2WKH, P2TR.\nFor P2TR addresses this represents a special case. ECDSA is used to create\na compact signature which makes the public key of the signature recoverable.",
+        "summary": "lncli: `wallet addresses signmessage`\nSignMessageWithAddr returns the compact (legacy) or BIP-0322 signature\n(base64 encoded) created with the private key of the provided address. For\nthe legacy format, this requires the address to be solely based on a public\nkey lock (no scripts). Obviously, the internal lnd wallet has to possess the\nprivate key of the address, otherwise an error is returned.",
+        "description": "The legacy method aims to provide full compatibility with the bitcoin-core\nand btcd implementation. Bitcoin-core's legacy algorithm is not specified in\na BIP and only applicable for legacy addresses. The legacy method enhances\nthe signing for additional address types, which might not be widely\ncompatible: P2WKH, NP2WKH, P2TR.\nFor P2TR addresses this legacy method represents a special case. ECDSA is\nused to create a compact signature which makes the public key of the\nsignature recoverable.\n\nIt is generally recommended to use the new, standardized BIP-0322 signing\nmethod wherever applicable (verifiers need to support the signature format).\nBIP-0322 signatures are compatible with any address type.",
         "operationId": "WalletKit_SignMessageWithAddr",
         "responses": {
           "200": {
@@ -199,8 +199,8 @@
     },
     "/v2/wallet/address/verifymessage": {
       "post": {
-        "summary": "lncli: `wallet addresses verifymessage`\nVerifyMessageWithAddr returns the validity and the recovered public key of\nthe provided compact signature (base64 encoded). The verification is\ntwofold. First the validity of the signature itself is checked and then\nit is verified that the recovered public key of the signature equals\nthe public key of the provided address. There is no dependence on the\nprivate key of the address therefore also external addresses are allowed\nto verify signatures.\nSupported address types are P2PKH, P2WKH, NP2WKH, P2TR.",
-        "description": "This method is the counterpart of the related signing method\n(SignMessageWithAddr) and aims to provide full compatibility to\nbitcoin-core's implementation. Although bitcoin-core/btcd only provide\nthis functionality for legacy addresses this function enhances it to\nthe address types: P2PKH, P2WKH, NP2WKH, P2TR.\n\nThe verification for P2TR addresses is a special case and requires the\nECDSA compact signature to compare the reovered public key to the internal\ntaproot key. The compact ECDSA signature format was used because there\nare still no known compact signature schemes for schnorr signatures.",
+        "summary": "lncli: `wallet addresses verifymessage`\nVerifyMessageWithAddr returns the validity and the recovered public key of\nthe provided compact signature (base64 encoded). The verification is\ntwofold. First, the validity of the signature itself is checked and then\nit is verified that the recovered public key of the signature equals\nthe public key of the provided address. There is no dependence on the\nprivate key of the address. Therefore, also external addresses are allowed\nto verify signatures.\nSupported address types are P2PKH, P2WKH, NP2WKH, P2TR.",
+        "description": "This method is the counterpart of the related signing method\n(SignMessageWithAddr) and aims to provide full compatibility to\nbitcoin-core's implementation. Although bitcoin-core/btcd only provide\nthis functionality for legacy addresses this function enhances it to\nthe address types: P2PKH, P2WKH, NP2WKH, P2TR.\n\nThe verification for P2TR addresses is a special case and requires the\nECDSA compact signature to compare the recovered public key to the internal\ntaproot key. The compact ECDSA signature format was used because there\nare still no known compact signature schemes for schnorr signatures.",
         "operationId": "WalletKit_VerifyMessageWithAddr",
         "responses": {
           "200": {
@@ -1925,6 +1925,36 @@
         }
       }
     },
+    "walletrpcMsgSignatureTimeConstraints": {
+      "type": "object",
+      "properties": {
+        "constrained": {
+          "type": "boolean",
+          "description": "Indicates that a time lock constraint was used in the signature. One or\nboth of the fields below are non-zero."
+        },
+        "valid_at_time": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Indicates the LockTime value that must be satisfied for the witness stack\nof a signature to be valid."
+        },
+        "valid_at_age": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Indicates the Sequence value that must be satisfied for the witness\nstack of a signature to be valid."
+        }
+      }
+    },
+    "walletrpcMsgSignatureType": {
+      "type": "string",
+      "enum": [
+        "MSG_SIGNATURE_TYPE_LEGACY",
+        "MSG_SIGNATURE_TYPE_BIP0322_SIMPLE",
+        "MSG_SIGNATURE_TYPE_BIP0322_FULL",
+        "MSG_SIGNATURE_TYPE_BIP0322_POF"
+      ],
+      "default": "MSG_SIGNATURE_TYPE_LEGACY",
+      "description": " - MSG_SIGNATURE_TYPE_LEGACY: The legacy signature format initially used by Bitcoin Core but never\nfully standardized in a BIP.\n - MSG_SIGNATURE_TYPE_BIP0322_SIMPLE: The 'simple' variant of the BIP-0322 generic message signature\nspecification, compatible with native SegWit address types, such as\nP2WPKH, P2WSH, P2TR.\n - MSG_SIGNATURE_TYPE_BIP0322_FULL: The 'full' variant of the BIP-0322 generic message signature\nspecification, compatible with legacy (P2PKH, P2SH), compatibility\n(NP2WPKH, NP2WSH) or time lock based script (P2SH, P2WSH) address types.\n - MSG_SIGNATURE_TYPE_BIP0322_POF: The 'proof of funds' variant of the BIP-0322 generic message signature\nspecification, supports the same address types as the 'full' variant but\ncan include additional UTXOs for which spendability should be attested."
+    },
     "walletrpcPendingSweep": {
       "type": "object",
       "properties": {
@@ -2140,6 +2170,10 @@
         "addr": {
           "type": "string",
           "description": "The address which will be used to look up the private key and sign the\ncorresponding message."
+        },
+        "bip322": {
+          "type": "boolean",
+          "description": "Use the new, BIP-0322 standardized signature format that is compatible\nwith any address type but might be less widely adopted by verifiers."
         }
       }
     },
@@ -2148,7 +2182,7 @@
       "properties": {
         "signature": {
           "type": "string",
-          "description": "The compact ECDSA signature for the given message encoded in base64."
+          "description": "The compact ECDSA signature or BIP-0322 signature for the given message\nencoded in base64."
         }
       }
     },
@@ -2296,7 +2330,7 @@
         },
         "signature": {
           "type": "string",
-          "description": "The compact ECDSA signature to be verified over the given message\necoded in base64."
+          "description": "The compact ECDSA signature or BIP-0322 signature to be verified over the\ngiven message, encoded in base64."
         },
         "addr": {
           "type": "string",
@@ -2314,7 +2348,15 @@
         "pubkey": {
           "type": "string",
           "format": "byte",
-          "description": "The pubkey recovered from the signature."
+          "description": "The pubkey recovered from the legacy compact ECDSA signature. This is not\nset for BIP-0322 signatures."
+        },
+        "signature_type": {
+          "$ref": "#/definitions/walletrpcMsgSignatureType",
+          "description": "The type of signature that was detected."
+        },
+        "time_constraints": {
+          "$ref": "#/definitions/walletrpcMsgSignatureTimeConstraints",
+          "description": "The optional time constraints that might apply to a BIP-0322 signature.\nThis will only ever be set on a BIP-0322 'full' or 'proof of funds' type\nsignature that was created for a scripted address that uses LockTime or\nSequence check opcodes. A verifier must decide themselves if they want to\naccept such a time or age-based constraint on a signature. lnd does not\ninterpret these values, as checking the signature is a fully offline\noperation."
         }
       }
     },

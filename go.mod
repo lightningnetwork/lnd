@@ -6,6 +6,7 @@ require (
 	github.com/andybalholm/brotli v1.0.4
 	github.com/btcsuite/btcd v0.26.0
 	github.com/btcsuite/btcd/address/v2 v2.0.0
+	github.com/btcsuite/btcd/bip322 v0.0.0
 	github.com/btcsuite/btcd/btcec/v2 v2.5.0
 	github.com/btcsuite/btcd/btcutil v1.2.0
 	github.com/btcsuite/btcd/btcutil/v2 v2.0.0
@@ -110,7 +111,7 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/golang-migrate/migrate/v4 v4.17.0 // indirect
-	github.com/golang/protobuf v1.5.4 // indirect
+	github.com/golang/protobuf v1.5.4
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/btree v1.0.1 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
@@ -213,6 +214,15 @@ replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.36.11-hex-display
+
+// TODO(guggero): Remove this when https://github.com/btcsuite/btcd/pull/2521 is
+// merged.
+replace (
+	github.com/btcsuite/btcd/bip322 => github.com/guggero/btcd/bip322 v0.0.0-20260916132011-e385217fe438
+	github.com/btcsuite/btcd/psbt/v2 => github.com/guggero/btcd/psbt/v2 v2.0.0-20260916132011-e385217fe438
+	github.com/btcsuite/btcd/txscript/v2 => github.com/guggero/btcd/txscript/v2 v2.0.0-20260916132011-e385217fe438
+	github.com/btcsuite/btcd/wire/v2 => github.com/guggero/btcd/wire/v2 v2.0.0-20260916132011-e385217fe438
+)
 
 // If you change this please also update docs/INSTALL.md and all other go.mod
 // files. The release build toolchain version is tracked separately by

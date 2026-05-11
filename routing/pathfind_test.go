@@ -3319,27 +3319,28 @@ func dbFindPath(graph *graphdb.VersionedGraph,
 		return nil, err
 	}
 
-	var route []*unifiedEdge
+	var routeEdges []*unifiedEdge
 	err = graph.GraphSession(ctx, func(graph graphdb.NodeTraverser) error {
-		route, _, err = findPath(
+		_, routeEdges, _, err = findPath(
 			&graphParams{
 				additionalEdges: additionalEdges,
 				bandwidthHints:  bandwidthHints,
 				graph:           graph,
 			},
-			r, cfg, sourceNode.PubKeyBytes, source, target, amt,
+			r, cfg, sourceNode.PubKeyBytes,
+			source, target, amt,
 			timePref, finalHtlcExpiry,
 		)
 
 		return err
 	}, func() {
-		route = nil
+		routeEdges = nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return route, nil
+	return routeEdges, nil
 }
 
 // dbFindBlindedPaths calls findBlindedPaths after getting a db transaction from

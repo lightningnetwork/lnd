@@ -38,6 +38,16 @@
 
 ## Functional Enhancements
 
+* Introduced a [`RouteOrigin`
+  interface](https://github.com/lightningnetwork/lnd/pull/10764) that
+  generalizes where routes can originate from. The pathfinder previously
+  terminated at a single concrete source vertex; `RouteOrigin` replaces this
+  with a predicate so the backward search can terminate at any vertex in a
+  caller-provided set, selecting whichever provides the cheapest path. The
+  default `singleOrigin` preserves existing behavior for all callers. This is
+  the source-end counterpart to `AdditionalEdge`, which extends the graph at
+  the destination end via route hints.
+
 ## RPC Additions
 
 * The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates

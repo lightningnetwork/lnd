@@ -600,7 +600,7 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 		return nil, 0, errors.New("time preference out of range")
 	}
 
-	path, probability, err := findPath(
+	source, path, probability, err := findPath(
 		&graphParams{
 			additionalEdges: req.RouteHints,
 			bandwidthHints:  bandwidthHints,
@@ -616,7 +616,7 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 
 	// Create the route with absolute time lock values.
 	route, err := newRoute(
-		req.Source, path, uint32(currentHeight),
+		source, path, uint32(currentHeight),
 		finalHopParams{
 			amt:       req.Amount,
 			totalAmt:  req.Amount,

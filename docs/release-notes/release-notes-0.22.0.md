@@ -47,6 +47,13 @@
 
 ## BOLT Spec Updates
 
+* The fundee now [enforces the BOLT-02 bound on
+  `push_msat`](https://github.com/lightningnetwork/lnd/pull/10765),
+  rejecting incoming `open_channel` messages where `push_msat` exceeds
+  `1000 * funding_satoshis`. Oversized pushes were previously caught
+  later in the reservation flow as a funder-balance-dust error; they now
+  surface a clearer, spec-aligned error string up front.
+
 ## Testing
 
 ## Database
@@ -56,3 +63,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Erick Cestari

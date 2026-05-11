@@ -454,6 +454,183 @@ func TestMigrationWithDuplicates(t *testing.T) {
 	require.Empty(t, duplicates[1].SettlePreimage)
 }
 
+// TestMigrationWithLegacyZeroAttemptIDs verifies that very old payments whose
+// HTLC attempt ID was migrated as the legacy "unknown" value zero do not
+// collide in the SQL attempt index.
+func TestMigrationWithLegacyZeroAttemptIDs(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		switchSequence   uint64
+		expectedAttempts []uint64
+		expectedSequence uint64
+	}{
+		{
+			name:             "zero switch sequence",
+			expectedAttempts: []uint64{1, 2},
+			expectedSequence: 3,
+		},
+		{
+			name:             "advanced switch sequence",
+			switchSequence:   10,
+			expectedAttempts: []uint64{10, 11},
+			expectedSequence: 12,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx := context.Background()
+			kvDB := setupTestKVDB(t)
+
+			hash1 := createTestPaymentHash(t, 10)
+			hash2 := createTestPaymentHash(t, 11)
+
+			err := kvdb.Update(kvDB, func(tx kvdb.RwTx) error {
+				paymentsBucket, err := tx.CreateTopLevelBucket(
+					paymentsRootBucket,
+				)
+				if err != nil {
+					return err
+				}
+
+				indexBucket, err := tx.CreateTopLevelBucket(
+					paymentsIndexBucket,
+				)
+				if err != nil {
+					return err
+				}
+
+				seqBucket, err := tx.CreateTopLevelBucket(
+					switchNextPaymentIDKey,
+				)
+				if err != nil {
+					return err
+				}
+				if testCase.switchSequence > 0 {
+					err := seqBucket.SetSequence(
+						testCase.switchSequence,
+					)
+					if err != nil {
+						return err
+					}
+				}
+
+				if err := createTestPaymentInKVWithAttemptID(
+					t, paymentsBucket, indexBucket, 3, hash1, 0,
+				); err != nil {
+					return err
+				}
+
+				return createTestPaymentInKVWithAttemptID(
+					t, paymentsBucket, indexBucket, 6, hash2, 0,
+				)
+			}, func() {})
+			require.NoError(t, err)
+
+			sqlStore := setupTestSQLDB(t)
+			err = runPaymentsMigration(ctx, kvDB, sqlStore)
+			require.NoError(t, err)
+
+			payment1, err := sqlStore.FetchPayment(ctx, hash1)
+			require.NoError(t, err)
+			require.Len(t, payment1.HTLCs, 1)
+
+			payment2, err := sqlStore.FetchPayment(ctx, hash2)
+			require.NoError(t, err)
+			require.Len(t, payment2.HTLCs, 1)
+
+			attempt1 := payment1.HTLCs[0].AttemptID
+			attempt2 := payment2.HTLCs[0].AttemptID
+			require.NotZero(t, attempt1)
+			require.NotZero(t, attempt2)
+			require.Equal(t, testCase.expectedAttempts[0], attempt1)
+			require.Equal(t, testCase.expectedAttempts[1], attempt2)
+			require.NotEqual(t, attempt1, attempt2)
+
+			var seq uint64
+			err = kvdb.View(kvDB, func(tx kvdb.RTx) error {
+				seqBucket := tx.ReadBucket(switchNextPaymentIDKey)
+				require.NotNil(t, seqBucket)
+				seq = seqBucket.Sequence()
+
+				return nil
+			}, func() {})
+			require.NoError(t, err)
+
+			maxAttemptID := attempt1
+			if attempt2 > maxAttemptID {
+				maxAttemptID = attempt2
+			}
+			require.Greater(t, seq, maxAttemptID)
+			require.Equal(t, testCase.expectedSequence, seq)
+
+			for _, kvPayment := range fetchAllPaymentsFromKV(t, kvDB) {
+				comparePaymentData(t, ctx, sqlStore, kvPayment)
+			}
+		})
+	}
+}
+
+// TestMigrationWithUnresolvedLegacyZeroAttemptID verifies that the migration
+// fails unresolved legacy zero-ID HTLC attempts instead of remapping them into
+// resumable synthetic attempts.
+func TestMigrationWithUnresolvedLegacyZeroAttemptID(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	kvDB := setupTestKVDB(t)
+
+	hash := createTestPaymentHash(t, 13)
+
+	err := kvdb.Update(kvDB, func(tx kvdb.RwTx) error {
+		paymentsBucket, err := tx.CreateTopLevelBucket(
+			paymentsRootBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		indexBucket, err := tx.CreateTopLevelBucket(paymentsIndexBucket)
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.CreateTopLevelBucket(
+			switchNextPaymentIDKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		return createInFlightPaymentWithAttemptID(
+			t, paymentsBucket, indexBucket, hash, 0,
+		)
+	}, func() {})
+	require.NoError(t, err)
+
+	sqlStore := setupTestSQLDB(t)
+	err = runPaymentsMigration(ctx, kvDB, sqlStore)
+	require.NoError(t, err)
+
+	payment, err := sqlStore.FetchPayment(ctx, hash)
+	require.NoError(t, err)
+	require.Equal(t, StatusFailed, payment.Status)
+	require.NotNil(t, payment.FailureReason)
+	require.Equal(t, FailureReasonError, *payment.FailureReason)
+	require.Len(t, payment.HTLCs, 1)
+	require.NotZero(t, payment.HTLCs[0].AttemptID)
+	require.Nil(t, payment.HTLCs[0].Settle)
+	require.NotNil(t, payment.HTLCs[0].Failure)
+	require.Equal(t, HTLCFailUnknown, payment.HTLCs[0].Failure.Reason)
+
+	inFlight, err := sqlStore.FetchInFlightPayments(ctx)
+	require.NoError(t, err)
+	require.Empty(t, inFlight)
+}
+
 // TestDuplicatePaymentsWithoutAttemptInfo verifies duplicate payments without
 // attempt info are migrated with terminal failure reasons.
 func TestDuplicatePaymentsWithoutAttemptInfo(t *testing.T) {
@@ -1214,6 +1391,23 @@ func createTestPaymentInKV(t *testing.T, paymentsBucket,
 
 	t.Helper()
 
+	// Increment global attempt ID and create HTLC attempt. So we have a
+	// globally unique attempt ID for the HTLC attempt.
+	*globalAttemptID++
+
+	return createTestPaymentInKVWithAttemptID(
+		t, paymentsBucket, indexBucket, seqNum, hash, *globalAttemptID,
+	)
+}
+
+// createTestPaymentInKVWithAttemptID creates a single payment in the KV store
+// with a specific HTLC attempt ID.
+func createTestPaymentInKVWithAttemptID(t *testing.T, paymentsBucket,
+	indexBucket kvdb.RwBucket, seqNum uint64, hash [32]byte,
+	attemptID uint64) error {
+
+	t.Helper()
+
 	// Create payment bucket.
 	paymentBucket, err := paymentsBucket.CreateBucketIfNotExists(hash[:])
 	if err != nil {
@@ -1258,11 +1452,8 @@ func createTestPaymentInKV(t *testing.T, paymentsBucket,
 		return err
 	}
 
-	// Increment global attempt ID and create HTLC attempt. So we have a
-	// globally unique attempt ID for the HTLC attempt.
-	*globalAttemptID++
 	err = createTestHTLCAttempt(
-		t, htlcBucket, hash, *globalAttemptID, seqNum%3 == 0,
+		t, htlcBucket, hash, attemptID, seqNum%3 == 0,
 	)
 	if err != nil {
 		return err
@@ -1635,6 +1826,10 @@ func fetchAllPaymentsFromKV(t *testing.T, kvDB kvdb.Backend) []*MPPayment {
 // normalizePaymentData makes sure that the payment data is normalized for
 // comparison using the same logic as in-migration validation.
 func normalizePaymentData(payment *MPPayment) {
+	if payment.Status == StatusInFlight {
+		_, _ = terminalizeUnresolvedLegacyZeroAttempts(payment)
+	}
+
 	normalizePaymentForCompare(payment)
 }
 
@@ -1653,7 +1848,16 @@ func comparePaymentData(t *testing.T, ctx context.Context, sqlStore *SQLStore,
 	require.NoError(t, err, "SQL payment should exist for %x",
 		paymentHash[:8])
 
-	// Normalize time precision to microseconds.
+	if kvPayment.Status == StatusInFlight {
+		// Normalize legacy payment state before remapped zero attempt
+		// IDs are aligned, because unresolved legacy zero-ID attempts
+		// are intentionally failed during migration.
+		_, _ = terminalizeUnresolvedLegacyZeroAttempts(kvPayment)
+	}
+
+	// Normalize expected KV/SQL representation differences before the
+	// deep equality check.
+	normalizeLegacyZeroAttemptIDsForCompare(kvPayment, sqlPayment)
 	normalizePaymentData(kvPayment)
 	normalizePaymentData(sqlPayment)
 
@@ -2649,8 +2853,8 @@ func createPaymentWithFeatureSet(t *testing.T, paymentsBucket,
 }
 
 // TestMigrateInFlightPayment tests that a payment with an active (in-flight)
-// HTLC attempt — i.e. a node that upgrades while a payment is still pending on
-// the network — is migrated correctly. The HTLC attempt must appear in SQL
+// HTLC attempt, such as a node that upgrades while a payment is still pending
+// on the network, is migrated correctly. The HTLC attempt must appear in SQL
 // without a settlement or failure resolution, and FetchInFlightPayments must
 // return the payment after migration.
 func TestMigrateInFlightPayment(t *testing.T) {
@@ -2713,6 +2917,14 @@ func TestMigrateInFlightPayment(t *testing.T) {
 func createInFlightPayment(t *testing.T, paymentsBucket,
 	indexBucket kvdb.RwBucket, hash [32]byte) error {
 
+	return createInFlightPaymentWithAttemptID(
+		t, paymentsBucket, indexBucket, hash, 1,
+	)
+}
+
+func createInFlightPaymentWithAttemptID(t *testing.T, paymentsBucket,
+	indexBucket kvdb.RwBucket, hash [32]byte, attemptID uint64) error {
+
 	t.Helper()
 
 	paymentBucket, err := paymentsBucket.CreateBucketIfNotExists(hash[:])
@@ -2763,7 +2975,6 @@ func createInFlightPayment(t *testing.T, paymentsBucket,
 		return err
 	}
 
-	const attemptID = 1
 	attemptInfo := &HTLCAttemptInfo{
 		AttemptID:  attemptID,
 		sessionKey: sessionKeyBytes,

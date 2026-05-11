@@ -44,6 +44,11 @@ type SessionSource struct {
 	// PathFindingConfig defines global parameters that control the
 	// trade-off in path finding between fees and probability.
 	PathFindingConfig PathFindingConfig
+
+	// Origin is an optional RouteOrigin that determines where routes can
+	// start. When set, the pathfinder terminates at any vertex for which
+	// IsOrigin returns true. When unset, routes originate from SourceNode.
+	Origin fn.Option[RouteOrigin]
 }
 
 // NewPaymentSession creates a new payment session backed by the latest prune
@@ -62,9 +67,15 @@ func (m *SessionSource) NewPaymentSession(p *LightningPayment,
 		)
 	}
 
+	var options []sessionOption
+	m.Origin.WhenSome(func(o RouteOrigin) {
+		options = append(options, withOrigin(o))
+	})
+
 	session, err := newPaymentSession(
 		p, m.SourceNode.PubKeyBytes, getBandwidthHints,
 		m.GraphSessionFactory, m.MissionControl, m.PathFindingConfig,
+		options...,
 	)
 	if err != nil {
 		return nil, err

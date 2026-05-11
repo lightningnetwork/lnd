@@ -45,6 +45,13 @@
   channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
   `outgoing_chan_ids` field in `RouteFeeRequest`.
 
+* [Added a `raw_tx_hex` field to the `PendingSweep`
+  response](https://github.com/lightningnetwork/lnd/pull/10670) returned by
+  `walletrpc.PendingSweeps`. The field contains the serialized hex of the most
+  recent sweep transaction spending the input, allowing callers (notably
+  consumers of `BumpFee`) to inspect or rebroadcast the in-flight sweep
+  without having to scrape the mempool.
+
 ## lncli Additions
 
 * The `estimateroutefee` command now supports [restricting fee estimates to
@@ -59,6 +66,11 @@
 ## RPC Updates
 
 ## lncli Updates
+
+* `lncli wallet bumpfee` now prints a hint pointing users at `lncli wallet
+  pendingsweeps` to inspect the in-flight sweep transaction, including its
+  raw hex
+  ([#10670](https://github.com/lightningnetwork/lnd/pull/10670)).
 
 ## Breaking Changes
 

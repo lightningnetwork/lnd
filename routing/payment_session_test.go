@@ -208,7 +208,8 @@ func TestRequestRoute(t *testing.T) {
 
 	// Override pathfinder with a mock.
 	session.pathFinder = func(_ *graphParams, r *RestrictParams,
-		_ *PathFindingConfig, self, _, _ route.Vertex,
+		_ *PathFindingConfig, self route.Vertex,
+		_ RouteOrigin, _ route.Vertex,
 		_ lnwire.MilliSatoshi, _ float64,
 		_ int32) (route.Vertex, []*unifiedEdge, float64, error) {
 
@@ -250,6 +251,98 @@ func TestRequestRoute(t *testing.T) {
 		t.Fatalf("unexpected total time lock of %v",
 			route.TotalTimeLock)
 	}
+}
+
+// TestRequestRouteWithOrigin verifies that a custom IsRouteOrigin provided via
+// the withOrigin option is forwarded to the pathfinder and that the source
+// vertex it returns is used as the route's SourcePubKey.
+func TestRequestRouteWithOrigin(t *testing.T) {
+	t.Parallel()
+
+	// selfNode is the local coordinator node. It is deliberately different
+	// from the gateway vertex that the custom origin will select, so we
+	// can verify the returned route uses the gateway, not self.
+	selfNode := route.Vertex{0xaa}
+	gatewayNode := route.Vertex{0xbb}
+
+	payment := &LightningPayment{
+		Amount:   1000,
+		FeeLimit: 1000,
+	}
+
+	var paymentHash [32]byte
+	err := payment.SetPaymentHash(paymentHash)
+	require.NoError(t, err, "unable to set payment hash")
+
+	// Build a trivial one-hop path for the mock to return.
+	mockPath := []*unifiedEdge{
+		{
+			policy: &models.CachedEdgePolicy{
+				ToNodePubKey: func() route.Vertex {
+					return route.Vertex{0xcc}
+				},
+				ToNodeFeatures: lnwire.NewFeatureVector(
+					nil, nil,
+				),
+			},
+		},
+	}
+
+	// Create a custom origin that only accepts gatewayNode.
+	customOrigin := &singleOrigin{source: gatewayNode}
+
+	// Create a session with the withOrigin option.
+	session, err := newPaymentSession(
+		payment, selfNode,
+		func(Graph) (bandwidthHints, error) {
+			return &mockBandwidthHints{}, nil
+		},
+		&sessionGraph{},
+		&MissionControl{},
+		PathFindingConfig{},
+		withOrigin(customOrigin),
+	)
+	require.NoError(t, err, "unable to create payment session")
+
+	// Override the pathfinder with a mock that asserts the origin it
+	// receives is the custom one (not the default singleOrigin{selfNode})
+	// and returns gatewayNode as the settled source.
+	session.pathFinder = func(_ *graphParams, _ *RestrictParams,
+		_ *PathFindingConfig, self route.Vertex,
+		origin RouteOrigin, _ route.Vertex,
+		_ lnwire.MilliSatoshi, _ float64,
+		_ int32) (route.Vertex, []*unifiedEdge, float64, error) {
+
+		// The self parameter should still be the session's own node.
+		require.Equal(t, selfNode, self, "self should be selfNode")
+
+		// The origin must accept gatewayNode and reject selfNode.
+		require.True(
+			t, origin.IsOrigin(gatewayNode),
+			"origin should accept gatewayNode",
+		)
+		require.False(
+			t, origin.IsOrigin(selfNode),
+			"origin should reject selfNode",
+		)
+
+		return gatewayNode, mockPath, 1.0, nil
+	}
+
+	rt, err := session.RequestRoute(
+		payment.Amount, payment.FeeLimit, 0, 10,
+		lnwire.CustomRecords{
+			lnwire.MinCustomRecordsTlvType + 123: []byte{1, 2, 3},
+		},
+	)
+	require.NoError(t, err)
+
+	// The route's SourcePubKey must be the gateway returned by the
+	// pathfinder, not the session's selfNode.
+	require.Equal(
+		t, gatewayNode, rt.SourcePubKey,
+		"SourcePubKey should be the gateway, not selfNode",
+	)
 }
 
 type sessionGraph struct {

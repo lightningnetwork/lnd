@@ -79,6 +79,20 @@ func validateMigratedPaymentBatch(ctx context.Context,
 					hash[:8], err)
 			}
 
+			if kvPayment.Status == StatusInFlight {
+				// Mirror the migration's legacy terminalization
+				// before comparing KV with SQL.
+				//
+				//nolint:ll
+				_, err = terminalizeUnresolvedLegacyZeroAttempts(
+					kvPayment,
+				)
+				if err != nil {
+					return fmt.Errorf("normalize KV "+
+						"payment %x: %w", hash[:8], err)
+				}
+			}
+
 			err = structuralCompare(kvPayment, row)
 			if err != nil {
 				// On structural mismatch, perform a deep
@@ -191,6 +205,16 @@ func deepComparePayment(ctx context.Context, cfg *SQLStoreConfig,
 			paymentHash[:8], err)
 	}
 
+	if kvPayment.Status == StatusInFlight {
+		// Mirror the migration's legacy terminalization before
+		// comparing KV with SQL.
+		_, err = terminalizeUnresolvedLegacyZeroAttempts(kvPayment)
+		if err != nil {
+			return fmt.Errorf("normalize KV payment %x: %w",
+				paymentHash[:8], err)
+		}
+	}
+	normalizeLegacyZeroAttemptIDsForCompare(kvPayment, sqlPayment)
 	normalizePaymentForCompare(kvPayment)
 	normalizePaymentForCompare(sqlPayment)
 
@@ -219,6 +243,60 @@ func deepComparePayment(ctx context.Context, cfg *SQLStoreConfig,
 	}
 
 	return nil
+}
+
+// normalizeLegacyZeroAttemptIDsForCompare aligns expected legacy attempt ID
+// remaps before deep comparison.
+//
+// Legacy KV payments can use attempt ID zero to represent an unknown ID. During
+// migration those attempts are assigned synthetic SQL attempt indexes, while
+// the source KV payment is left unchanged. Match by session key and copy the
+// SQL attempt ID into the KV object so fallback deep comparison still reports
+// real data mismatches instead of this expected migration repair.
+func normalizeLegacyZeroAttemptIDsForCompare(kvPayment,
+	sqlPayment *MPPayment) {
+
+	if kvPayment == nil || sqlPayment == nil {
+		return
+	}
+
+	sqlAttemptsBySessionKey := make(map[string]uint64)
+	for i := range sqlPayment.HTLCs {
+		htlc := &sqlPayment.HTLCs[i]
+		sessionKey := htlc.SessionKey()
+		if sessionKey == nil {
+			// Leave normalization incomplete so the deep comparison
+			// reports the malformed attempt instead of panicking.
+			continue
+		}
+
+		sessionKeyBytes := sessionKey.Serialize()
+		sessionKeyStr := string(sessionKeyBytes)
+		sqlAttemptsBySessionKey[sessionKeyStr] = htlc.AttemptID
+	}
+
+	for i := range kvPayment.HTLCs {
+		htlc := &kvPayment.HTLCs[i]
+		if htlc.AttemptID != 0 {
+			continue
+		}
+
+		sessionKey := htlc.SessionKey()
+		if sessionKey == nil {
+			// Leave normalization incomplete so the deep comparison
+			// reports the malformed attempt instead of panicking.
+			continue
+		}
+
+		sessionKeyBytes := sessionKey.Serialize()
+		sessionKeyStr := string(sessionKeyBytes)
+		attemptID, ok := sqlAttemptsBySessionKey[sessionKeyStr]
+		if !ok {
+			continue
+		}
+
+		htlc.AttemptID = attemptID
+	}
 }
 
 // normalizePaymentForCompare normalizes fields that are expected to differ

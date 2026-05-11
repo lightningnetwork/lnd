@@ -308,7 +308,10 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		maxAmt = *p.payment.MaxShardAmt
 	}
 
-	var path []*unifiedEdge
+	var (
+		sourceVertex route.Vertex
+		path         []*unifiedEdge
+	)
 	findPath := func(graph graphdb.NodeTraverser) error {
 		// We'll also obtain a set of bandwidthHints from the lower
 		// layer for each of our outbound channels. This will allow the
@@ -324,7 +327,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		p.log.Debugf("pathfinding for amt=%v", maxAmt)
 
 		// Find a route for the current amount.
-		path, _, err = p.pathFinder(
+		sourceVertex, path, _, err = p.pathFinder(
 			&graphParams{
 				additionalEdges: p.additionalEdges,
 				bandwidthHints:  bandwidthHints,
@@ -347,6 +350,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		err := p.graphSessFactory.GraphSession(
 			context.TODO(),
 			findPath, func() {
+				sourceVertex = route.Vertex{}
 				path = nil
 			},
 		)
@@ -440,7 +444,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		// this into a route by applying the time-lock and fee
 		// requirements.
 		route, err := newRoute(
-			p.selfNode, path, height,
+			sourceVertex, path, height,
 			finalHopParams{
 				amt:         maxAmt,
 				totalAmt:    p.payment.Amount,

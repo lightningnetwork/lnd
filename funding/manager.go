@@ -1438,13 +1438,63 @@ func (f *Manager) ProcessFundingMsg(msg lnwire.Message, peer lnpeer.Peer) {
 func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	msg *lnwire.OpenChannel) {
 
+	amt := msg.FundingAmount
+
+	// Create the channel identifier.
+	cid := newChanIdentifier(msg.PendingChannelID)
+
+	// Enforce BOLT-02: push_msat MUST be <= 1000 * funding_satoshis. We
+	// compare in satoshi space so neither side can overflow uint64 for
+	// any non-negative funding amount: split push_msat into its
+	// integer-satoshi and sub-satoshi parts and reject when it strictly
+	// exceeds the funding amount.
+	pushSat := uint64(msg.PushAmount) / 1000
+	pushSubSat := uint64(msg.PushAmount) % 1000
+	fundingSat := uint64(msg.FundingAmount)
+	if pushSat > fundingSat || (pushSat == fundingSat && pushSubSat > 0) {
+		f.failFundingFlow(
+			peer, cid,
+			lnwallet.ErrPushAmountTooLarge(
+				msg.PushAmount, msg.FundingAmount,
+			),
+		)
+
+		return
+	}
+
+	// If request specifies non-zero push amount and 'rejectpush' is set,
+	// signal an error.
+	if f.cfg.RejectPush && msg.PushAmount > 0 {
+		f.failFundingFlow(peer, cid, lnwallet.ErrNonZeroPushAmount())
+		return
+	}
+
+	// Ensure that the remote party respects our maximum channel size.
+	if amt > f.cfg.MaxChanSize {
+		f.failFundingFlow(
+			peer, cid,
+			lnwallet.ErrChanTooLarge(amt, f.cfg.MaxChanSize),
+		)
+
+		return
+	}
+
+	// We'll, also ensure that the remote party isn't attempting to propose
+	// a channel that's below our current min channel size.
+	if amt < f.cfg.MinChanSize {
+		f.failFundingFlow(
+			peer, cid,
+			lnwallet.ErrChanTooSmall(amt, f.cfg.MinChanSize),
+		)
+
+		return
+	}
+
 	// Check number of pending channels to be smaller than maximum allowed
 	// number and send ErrorGeneric to remote peer if condition is
 	// violated.
 	peerPubKey := peer.IdentityKey()
 	peerIDKey := newSerializedKey(peerPubKey)
-
-	amt := msg.FundingAmount
 
 	// We get all pending channels for this peer. This is the list of the
 	// active reservations and the channels pending open in the database.
@@ -1461,9 +1511,6 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		}
 	}
 	f.resMtx.RUnlock()
-
-	// Create the channel identifier.
-	cid := newChanIdentifier(msg.PendingChannelID)
 
 	// Also count the channels that are already pending. There we don't know
 	// the underlying intent anymore, unfortunately.
@@ -1515,32 +1562,6 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		}
 		err := errors.New("Synchronizing blockchain")
 		f.failFundingFlow(peer, cid, err)
-		return
-	}
-
-	// Ensure that the remote party respects our maximum channel size.
-	if amt > f.cfg.MaxChanSize {
-		f.failFundingFlow(
-			peer, cid,
-			lnwallet.ErrChanTooLarge(amt, f.cfg.MaxChanSize),
-		)
-		return
-	}
-
-	// We'll, also ensure that the remote party isn't attempting to propose
-	// a channel that's below our current min channel size.
-	if amt < f.cfg.MinChanSize {
-		f.failFundingFlow(
-			peer, cid,
-			lnwallet.ErrChanTooSmall(amt, f.cfg.MinChanSize),
-		)
-		return
-	}
-
-	// If request specifies non-zero push amount and 'rejectpush' is set,
-	// signal an error.
-	if f.cfg.RejectPush && msg.PushAmount > 0 {
-		f.failFundingFlow(peer, cid, lnwallet.ErrNonZeroPushAmount())
 		return
 	}
 

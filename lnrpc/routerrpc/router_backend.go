@@ -224,6 +224,10 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 
 	// If payment_addr was provided inject MPP into final hop (BOLT 11)
 	if in.PaymentAddr != nil {
+		if len(in.PaymentAddr) != 32 {
+			return nil, errors.New("payment_addr must be 32 bytes")
+		}
+
 		finalHop.MPP = record.NewMPP(finalHop.AmtToForward, [32]byte(in.PaymentAddr))
 	}
 

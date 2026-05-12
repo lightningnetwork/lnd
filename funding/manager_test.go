@@ -1118,7 +1118,7 @@ func assertConfirmationHeight(t *testing.T, node *testNode,
 
 	err := wait.NoError(func() error {
 		pendingChannel, err := node.fundingMgr.cfg.Wallet.Cfg.Database.
-			FetchChannelByID(nil, chanID)
+			FetchChannelByID(chanID)
 		if err != nil {
 			return fmt.Errorf("unable to fetch pending channel: %w",
 				err)

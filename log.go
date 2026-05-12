@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanfitness"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/cluster"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
@@ -177,6 +178,7 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	AddSubLogger(root, "IRPC", interceptor, invoicesrpc.UseLogger)
 	AddSubLogger(root, "CHNF", interceptor, channelnotifier.UseLogger)
 	AddSubLogger(root, "CHBU", interceptor, chanbackup.UseLogger)
+	AddSubLogger(root, "CHST", interceptor, chanstate.UseLogger)
 	AddSubLogger(root, "PROM", interceptor, monitoring.UseLogger)
 	AddSubLogger(root, "WTCL", interceptor, wtclient.UseLogger)
 	AddSubLogger(root, "PRNF", interceptor, peernotifier.UseLogger)

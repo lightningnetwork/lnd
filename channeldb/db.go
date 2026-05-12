@@ -729,9 +729,8 @@ func (c *ChannelStateDB) FetchChannel(chanPoint wire.OutPoint) (*OpenChannel,
 
 // FetchChannelByID attempts to locate a channel specified by the passed channel
 // ID. If the channel cannot be found, then an error will be returned.
-// Optionally an existing db tx can be supplied.
-func (c *ChannelStateDB) FetchChannelByID(tx kvdb.RTx, id lnwire.ChannelID) (
-	*OpenChannel, error) {
+func (c *ChannelStateDB) FetchChannelByID(id lnwire.ChannelID) (*OpenChannel,
+	error) {
 
 	selector := func(chainBkt walletdb.ReadBucket) ([]byte, *wire.OutPoint,
 		error) {
@@ -774,7 +773,7 @@ func (c *ChannelStateDB) FetchChannelByID(tx kvdb.RTx, id lnwire.ChannelID) (
 		return targetChanPointBytes, targetChanPoint, nil
 	}
 
-	return c.channelScanner(tx, selector)
+	return c.channelScanner(nil, selector)
 }
 
 // ChanCount is used by the server in determining access control.

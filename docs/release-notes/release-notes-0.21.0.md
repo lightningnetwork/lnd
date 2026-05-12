@@ -265,6 +265,13 @@
   is fully populated. This new behaviour can be opted out of via the new
   `--db.sync-graph-cache-load` option.
 
+* Autopilot's graph-wide channel scoring traversal [no longer requests node
+  addresses](https://github.com/lightningnetwork/lnd/pull/10796) from the
+  graph backend, since the scoring code does not consume them. This removes
+  an unnecessary address batch-load on the SQL backend, and lets the kvdb
+  backend serve the traversal from the in-memory graph cache when it is
+  loaded.
+
 * [Invoice pagination queries no longer use
   `OFFSET`](https://github.com/lightningnetwork/lnd/pull/10700). The five
   invoice filter queries previously used `LIMIT+OFFSET` for internal batching,

@@ -81,17 +81,11 @@ type Store interface { //nolint:interfacebloat
 			*models.ChannelEdgePolicy) error, reset func()) error
 
 	// ForEachNodeCached is similar to forEachNode, but it returns
-	// DirectedChannel data to the call-back. If withAddrs is true, then
-	// the call-back will also be provided with the addresses associated
-	// with the node. The address retrieval will likely result in an
-	// additional round-trip to the database, so it should only be used if
-	// the addresses are actually needed.
+	// DirectedChannel data to the call-back.
 	//
 	// NOTE: The callback contents MUST not be modified.
 	ForEachNodeCached(ctx context.Context, v lnwire.GossipVersion,
-		withAddrs bool,
 		cb func(ctx context.Context, node route.Vertex,
-			addrs []net.Addr,
 			chans map[uint64]*DirectedChannel) error,
 		reset func()) error
 

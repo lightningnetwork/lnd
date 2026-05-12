@@ -2,8 +2,6 @@ package autopilot
 
 import (
 	"context"
-
-	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // diameterCutoff is used to discard nodes in the diameter calculation.
@@ -35,12 +33,11 @@ func NewSimpleGraph(ctx context.Context, g ChannelGraph) (*SimpleGraph, error) {
 	// The returned index is then used to create a simplified adjacency list
 	// where each node is identified by its index instead of its pubkey, and
 	// also to create a mapping from node index to node pubkey.
-	getNodeIndex := func(node route.Vertex) int {
-		key := NodeID(node)
-		nodeIndex, ok := nodes[key]
+	getNodeIndex := func(node NodeID) int {
+		nodeIndex, ok := nodes[node]
 
 		if !ok {
-			nodes[key] = nextIndex
+			nodes[node] = nextIndex
 			nodeIndex = nextIndex
 			nextIndex++
 		}
@@ -51,12 +48,12 @@ func NewSimpleGraph(ctx context.Context, g ChannelGraph) (*SimpleGraph, error) {
 	// Iterate over each node and each channel and update the adj and the
 	// node index.
 	err := g.ForEachNodesChannels(ctx, func(_ context.Context,
-		node Node, channels []*ChannelEdge) error {
+		node NodeID, channels []*ChannelEdge) error {
 
-		u := getNodeIndex(node.PubKey())
+		u := getNodeIndex(node)
 
 		for _, edge := range channels {
-			v := getNodeIndex(edge.Peer)
+			v := getNodeIndex(NodeID(edge.Peer))
 			adj[u] = append(adj[u], v)
 		}
 

@@ -342,21 +342,21 @@ func (c *ChannelGraph) GraphSession(ctx context.Context,
 //
 // NOTE: The callback contents MUST not be modified.
 func (c *ChannelGraph) ForEachNodeCached(ctx context.Context,
-	v lnwire.GossipVersion, withAddrs bool,
-	cb func(ctx context.Context, node route.Vertex, addrs []net.Addr,
+	v lnwire.GossipVersion,
+	cb func(ctx context.Context, node route.Vertex,
 		chans map[uint64]*DirectedChannel) error, reset func()) error {
 
-	if !withAddrs && c.cache != nil && c.cache.isLoaded() {
+	if c.cache != nil && c.cache.isLoaded() {
 		return c.cache.graphCache.ForEachNode(
 			func(node route.Vertex,
 				channels map[uint64]*DirectedChannel) error {
 
-				return cb(ctx, node, nil, channels)
+				return cb(ctx, node, channels)
 			},
 		)
 	}
 
-	return c.db.ForEachNodeCached(ctx, v, withAddrs, cb, reset)
+	return c.db.ForEachNodeCached(ctx, v, cb, reset)
 }
 
 // AddNode adds a vertex/node to the graph database. If the node is not
@@ -919,12 +919,11 @@ func (c *VersionedGraph) ForEachNodeDirectedChannel(ctx context.Context,
 // ForEachNodeCached iterates through all stored vertices/nodes in the graph,
 // delegating to the embedded ChannelGraph.
 func (c *VersionedGraph) ForEachNodeCached(ctx context.Context,
-	withAddrs bool, cb func(ctx context.Context, node route.Vertex,
-		addrs []net.Addr,
+	cb func(ctx context.Context, node route.Vertex,
 		chans map[uint64]*DirectedChannel) error,
 	reset func()) error {
 
-	return c.ChannelGraph.ForEachNodeCached(ctx, c.v, withAddrs, cb, reset)
+	return c.ChannelGraph.ForEachNodeCached(ctx, c.v, cb, reset)
 }
 
 // ForEachNode iterates through all stored vertices/nodes in the graph.

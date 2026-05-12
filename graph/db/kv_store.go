@@ -703,8 +703,8 @@ func (c *KVStore) FetchNodeFeatures(_ context.Context, v lnwire.GossipVersion,
 //
 // NOTE: The callback contents MUST not be modified.
 func (c *KVStore) ForEachNodeCached(ctx context.Context,
-	v lnwire.GossipVersion, withAddrs bool,
-	cb func(ctx context.Context, node route.Vertex, addrs []net.Addr,
+	v lnwire.GossipVersion,
+	cb func(ctx context.Context, node route.Vertex,
 		chans map[uint64]*DirectedChannel) error, reset func()) error {
 
 	if v != lnwire.GossipVersion1 {
@@ -769,12 +769,7 @@ func (c *KVStore) ForEachNodeCached(ctx context.Context,
 			return err
 		}
 
-		var addrs []net.Addr
-		if withAddrs {
-			addrs = node.Addresses
-		}
-
-		return cb(ctx, node.PubKeyBytes, addrs, channels)
+		return cb(ctx, node.PubKeyBytes, channels)
 	}, reset)
 }
 

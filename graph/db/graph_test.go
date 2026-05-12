@@ -449,24 +449,6 @@ func testNodeInsertionAndDeletion(t *testing.T, v lnwire.GossipVersion) {
 	dbNode, err = graph.FetchNode(ctx, testPub)
 	require.NoError(t, err)
 	require.Equal(t, expAddrs, dbNode.Addresses)
-
-	// Also check that the withAddr param of ForEachNodeCached correctly
-	// returns the addresses we expect for this node.
-	err = graph.ForEachNodeCached(
-		ctx, true, func(ctx context.Context, node route.Vertex,
-			addrs []net.Addr,
-			chans map[uint64]*DirectedChannel) error {
-
-			if node != dbNode.PubKeyBytes {
-				return nil
-			}
-
-			require.Equal(t, expAddrs, addrs)
-
-			return nil
-		}, func() {},
-	)
-	require.NoError(t, err)
 }
 
 // testPartialNode tests that partial/shell nodes are correctly created when
@@ -1799,8 +1781,8 @@ func TestGraphTraversal(t *testing.T) {
 		nodeIndex[node.PubKeyBytes] = struct{}{}
 	}
 
-	err := graph.ForEachNodeCached(ctx, lnwire.GossipVersion1, false,
-		func(_ context.Context, node route.Vertex, _ []net.Addr,
+	err := graph.ForEachNodeCached(ctx, lnwire.GossipVersion1,
+		func(_ context.Context, node route.Vertex,
 			chans map[uint64]*DirectedChannel) error {
 
 			if _, ok := nodeIndex[node]; !ok {
@@ -6026,9 +6008,8 @@ func TestAsyncGraphCache(t *testing.T) {
 		// assert that we get the expected number of nodes and
 		// channels.
 		err := graph.ForEachNodeCached(
-			ctx, lnwire.GossipVersion1, false,
+			ctx, lnwire.GossipVersion1,
 			func(_ context.Context, node route.Vertex,
-				_ []net.Addr,
 				chans map[uint64]*DirectedChannel) error {
 
 				numNodes++

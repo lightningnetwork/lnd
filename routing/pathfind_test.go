@@ -1782,14 +1782,8 @@ func TestNewRoute(t *testing.T) {
 					testCase.expectedMPP, finalHop.MPP)
 			}
 
-			if !reflect.DeepEqual(
-				finalHop.AMP, testCase.expectedAMP,
-			) {
-
-				t.Errorf("Expected final hop amp field: %v, "+
-					" but got: %v instead",
-					testCase.expectedAMP, finalHop.AMP)
-			}
+			require.Equal(t, testCase.expectedAMP, finalHop.AMP,
+				"Expected final hop amp field")
 
 			if !bytes.Equal(finalHop.Metadata, testCase.metadata) {
 				t.Errorf("Expected final metadata field: %v, "+

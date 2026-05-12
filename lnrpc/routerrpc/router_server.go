@@ -1681,8 +1681,8 @@ func (s *Server) BuildRoute(_ context.Context,
 	}
 
 	// Enforce payment_addr
-	if req.PaymentAddr == nil {
-		return nil, errors.New("payment_addr must be set")
+	if len(req.PaymentAddr) != 32 {
+		return nil, errors.New("payment_addr must be 32 bytes")
 	}
 
 	var payAddr fn.Option[[32]byte]

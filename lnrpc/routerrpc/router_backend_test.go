@@ -300,7 +300,7 @@ func testQueryRoutes(t *testing.T, useMissionControl, useMsat,
 		t.Fatal("expected a single route response")
 	}
 
-	// If we are using MPP (Bolt 11) then we should expect the last hop to have one set
+	// If we are using MPP then we should expect the last hop to have one set
 	if useMPP {
 		finalHop := resp.Routes[0].Hops[len(resp.Routes[0].Hops)-1]
 		require.NotNil(t, finalHop.MppRecord)

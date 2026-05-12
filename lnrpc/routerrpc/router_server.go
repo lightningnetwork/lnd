@@ -1073,7 +1073,6 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 		return nil, err
 	}
 
-	// Enforce MPP (Bolt 11)
 	if route.FinalHop().MPP == nil {
 		return nil, fmt.Errorf("unable to send, no MPP provided")
 	}
@@ -1681,7 +1680,6 @@ func (s *Server) BuildRoute(_ context.Context,
 		outgoingChan = &req.OutgoingChanId
 	}
 
-	// Enforce payment_addr (bolt 11)
 	if len(req.PaymentAddr) != 32 {
 		return nil, errors.New("payment_addr must be 32 bytes")
 	}

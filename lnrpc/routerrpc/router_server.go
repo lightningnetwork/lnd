@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -1680,7 +1681,7 @@ func (s *Server) BuildRoute(_ context.Context,
 	}
 
 	// Enforce payment_addr
-	if len(req.PaymentAddr) == 0 {
+	if req.PaymentAddr == nil {
 		return nil, errors.New("payment_addr must be set")
 	}
 
@@ -1690,14 +1691,13 @@ func (s *Server) BuildRoute(_ context.Context,
 	payAddr = fn.Some(backingPayAddr)
 
 	// Optional AMP record
+	var ampRecord *record.AMP
 	if req.AmpRecord != nil {
-		return nil, errors.New("payment_addr must be set when " +
-			"amp_record is provided")
-	}
-
-	ampRecord, err := UnmarshalAMP(req.AmpRecord)
-	if err != nil {
-		return nil, err
+		var err error
+		ampRecord, err = UnmarshalAMP(req.AmpRecord)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if req.FinalCltvDelta == 0 {

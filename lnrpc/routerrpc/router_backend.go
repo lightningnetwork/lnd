@@ -220,15 +220,16 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		return nil, err
 	}
 
+	finalHop := route.FinalHop()
+
 	// If payment_addr was provided inject MPP into final hop (BOLT 11)
 	if in.PaymentAddr != nil {
-		finalHop := route.FinalHop()
 		finalHop.MPP = record.NewMPP(finalHop.AmtToForward, [32]byte(in.PaymentAddr))
 	}
 
 	// If AMP was provided inject into final hop alongside MPP record.
 	if in.AmpRecord != nil {
-		if len(in.PaymentAddr) == 0 {
+		if in.PaymentAddr == nil {
 			return nil, errors.New("payment_addr must be set when " +
 				"amp_record is provided")
 		}
@@ -238,7 +239,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 			return nil, err
 		}
 
-		route.FinalHop().AMP = amp
+		finalHop.AMP = amp
 	}
 
 	// For each valid route, we'll convert the result into the format

@@ -633,6 +633,49 @@ func (lc *LightningChannel) extractPayDescs(feeRate chainfee.SatPerKWeight,
 	return incomingHtlcs, outgoingHtlcs, nil
 }
 
+// initialCommitmentKeyRing derives the key ring for the initial commitment
+// state at height 0. This is distinct from the live key ring after
+// channel_ready, which already moved on to the next per-commitment point.
+// If the initial commitment point can't be derived, then nil is returned and
+// the caller should fall back to the live key ring.
+func initialCommitmentKeyRingFromState(chanState *channeldb.OpenChannel,
+	whoseCommit lntypes.ChannelParty) *CommitmentKeyRing {
+
+	switch {
+	case whoseCommit.IsLocal():
+		revocation, err := chanState.RevocationProducer.AtIndex(0)
+		if err != nil {
+			return nil
+		}
+
+		commitPoint := input.ComputeCommitmentPoint(revocation[:])
+		return DeriveCommitmentKeys(
+			commitPoint, lntypes.Local, chanState.ChanType,
+			&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+		)
+
+	case whoseCommit.IsRemote():
+		if chanState.RemoteCurrentRevocation == nil {
+			return nil
+		}
+
+		return DeriveCommitmentKeys(
+			chanState.RemoteCurrentRevocation, lntypes.Remote,
+			chanState.ChanType, &chanState.LocalChanCfg,
+			&chanState.RemoteChanCfg,
+		)
+
+	default:
+		return nil
+	}
+}
+
+func (lc *LightningChannel) initialCommitmentKeyRing(
+	whoseCommit lntypes.ChannelParty) *CommitmentKeyRing {
+
+	return initialCommitmentKeyRingFromState(lc.channelState, whoseCommit)
+}
+
 // diskCommitToMemCommit converts the on-disk commitment format to our
 // in-memory commitment format which is needed in order to properly resume
 // channel operations after a restart.
@@ -8539,8 +8582,11 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 					ContractPoint:       commitResolution.SelfOutPoint,
 					SignDesc:            commitResolution.SelfOutputSignDesc,
 					KeyRing:             keyRing,
-					CsvDelay:            csvTimeout,
-					CommitFee:           chanState.LocalCommitment.CommitFee,
+					InitialKeyRing: initialCommitmentKeyRingFromState(
+						chanState, lntypes.Local,
+					),
+					CsvDelay:  csvTimeout,
+					CommitFee: chanState.LocalCommitment.CommitFee,
 				})
 			},
 		)

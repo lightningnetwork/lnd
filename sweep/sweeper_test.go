@@ -150,7 +150,7 @@ func TestMarkInputsPublished(t *testing.T) {
 	// First, check that when an error is returned from db, it's properly
 	// returned here.
 	mockStore.On("StoreTx", dummyTR).Return(dummyErr).Once()
-	err := s.markInputsPublished(dummyTR, nil)
+	err := s.markInputsPublished(dummyTR, nil, nil)
 	require.ErrorIs(err, dummyErr)
 
 	// We also expect the record has been marked as published.
@@ -167,7 +167,7 @@ func TestMarkInputsPublished(t *testing.T) {
 	// published.
 	set.On("Inputs").Return([]input.Input{inputInit, inputPendingPublish})
 
-	err = s.markInputsPublished(dummyTR, set)
+	err = s.markInputsPublished(dummyTR, nil, set)
 	require.NoError(err)
 
 	// We expect unchanged number of pending inputs.

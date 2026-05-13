@@ -2800,8 +2800,12 @@ type PendingSweep struct {
 	// The block height which the input's locktime will expire at. Zero if the
 	// input has no locktime.
 	MaturityHeight uint32 `protobuf:"varint,15,opt,name=maturity_height,json=maturityHeight,proto3" json:"maturity_height,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// The raw hex-encoded sweep transaction that currently spends this input.
+	// This may be empty if the input has not yet been included in a published
+	// sweep transaction.
+	RawTxHex      string `protobuf:"bytes,16,opt,name=raw_tx_hex,json=rawTxHex,proto3" json:"raw_tx_hex,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PendingSweep) Reset() {
@@ -2942,6 +2946,13 @@ func (x *PendingSweep) GetMaturityHeight() uint32 {
 		return x.MaturityHeight
 	}
 	return 0
+}
+
+func (x *PendingSweep) GetRawTxHex() string {
+	if x != nil {
+		return x.RawTxHex
+	}
+	return ""
 }
 
 type PendingSweepsRequest struct {
@@ -4664,7 +4675,7 @@ const file_walletrpc_walletkit_proto_rawDesc = "" +
 	"\x13EstimateFeeResponse\x12\x1c\n" +
 	"\n" +
 	"sat_per_kw\x18\x01 \x01(\x03R\bsatPerKw\x125\n" +
-	"\x18min_relay_fee_sat_per_kw\x18\x02 \x01(\x03R\x13minRelayFeeSatPerKw\"\x90\x05\n" +
+	"\x18min_relay_fee_sat_per_kw\x18\x02 \x01(\x03R\x13minRelayFeeSatPerKw\"\xae\x05\n" +
 	"\fPendingSweep\x12+\n" +
 	"\boutpoint\x18\x01 \x01(\v2\x0f.lnrpc.OutPointR\boutpoint\x129\n" +
 	"\fwitness_type\x18\x02 \x01(\x0e2\x16.walletrpc.WitnessTypeR\vwitnessType\x12\x1d\n" +
@@ -4683,7 +4694,9 @@ const file_walletrpc_walletkit_proto_rawDesc = "" +
 	"\timmediate\x18\f \x01(\bR\timmediate\x12\x16\n" +
 	"\x06budget\x18\r \x01(\x04R\x06budget\x12'\n" +
 	"\x0fdeadline_height\x18\x0e \x01(\rR\x0edeadlineHeight\x12'\n" +
-	"\x0fmaturity_height\x18\x0f \x01(\rR\x0ematurityHeight\"\x16\n" +
+	"\x0fmaturity_height\x18\x0f \x01(\rR\x0ematurityHeight\x12\x1c\n" +
+	"\n" +
+	"raw_tx_hex\x18\x10 \x01(\tR\brawTxHex\"\x16\n" +
 	"\x14PendingSweepsRequest\"W\n" +
 	"\x15PendingSweepsResponse\x12>\n" +
 	"\x0epending_sweeps\x18\x01 \x03(\v2\x17.walletrpc.PendingSweepR\rpendingSweeps\"\x9f\x02\n" +

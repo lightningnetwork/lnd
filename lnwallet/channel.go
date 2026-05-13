@@ -8564,6 +8564,13 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 
 		// At this point, we'll check to see if we need any extra
 		// resolution data for this output.
+		var initialKeyRing *CommitmentKeyRing
+		if chanState.LocalCommitment.CommitHeight == 0 {
+			initialKeyRing = initialCommitmentKeyRingFromState(
+				chanState, lntypes.Local,
+			)
+		}
+
 		resolveBlob := fn.MapOptionZ(
 			auxResolver,
 			func(a AuxContractResolver) fn.Result[tlv.Blob] {
@@ -8582,9 +8589,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 					ContractPoint:       commitResolution.SelfOutPoint,
 					SignDesc:            commitResolution.SelfOutputSignDesc,
 					KeyRing:             keyRing,
-					InitialKeyRing: initialCommitmentKeyRingFromState(
-						chanState, lntypes.Local,
-					),
+					InitialKeyRing:      initialKeyRing,
 					CsvDelay:  csvTimeout,
 					CommitFee: chanState.LocalCommitment.CommitFee,
 				})

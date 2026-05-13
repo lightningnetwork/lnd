@@ -649,6 +649,7 @@ func initialCommitmentKeyRingFromState(chanState *channeldb.OpenChannel,
 		}
 
 		commitPoint := input.ComputeCommitmentPoint(revocation[:])
+
 		return DeriveCommitmentKeys(
 			commitPoint, lntypes.Local, chanState.ChanType,
 			&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
@@ -668,12 +669,6 @@ func initialCommitmentKeyRingFromState(chanState *channeldb.OpenChannel,
 	default:
 		return nil
 	}
-}
-
-func (lc *LightningChannel) initialCommitmentKeyRing(
-	whoseCommit lntypes.ChannelParty) *CommitmentKeyRing {
-
-	return initialCommitmentKeyRingFromState(lc.channelState, whoseCommit)
 }
 
 // diskCommitToMemCommit converts the on-disk commitment format to our
@@ -8590,8 +8585,8 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 					SignDesc:            commitResolution.SelfOutputSignDesc,
 					KeyRing:             keyRing,
 					InitialKeyRing:      initialKeyRing,
-					CsvDelay:  csvTimeout,
-					CommitFee: chanState.LocalCommitment.CommitFee,
+					CsvDelay:            csvTimeout,
+					CommitFee:           chanState.LocalCommitment.CommitFee,
 				})
 			},
 		)

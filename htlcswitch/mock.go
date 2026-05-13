@@ -33,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -321,17 +322,45 @@ func (s *mockServer) QuitSignal() <-chan struct{} {
 	return s.quit
 }
 
+// onionFailMode selects which branch of processRemoteAdds the mock onion
+// pipeline should fail in. Used by fuzz/test harnesses to exercise the
+// error-handling paths of processRemoteAdds.
+type onionFailMode int
+
+const (
+	onionFailNone    onionFailMode = 0
+	onionFailDecode  onionFailMode = 1
+	onionFailPayload onionFailMode = 2
+	onionFailExtract onionFailMode = 3
+)
+
 // mockHopIterator represents the test version of hop iterator which instead
 // of encrypting the path in onion blob just stores the path as a list of hops.
 type mockHopIterator struct {
 	hops []*hop.Payload
+
+	// payloadFail, when true, makes HopPayload return a
+	// hop.ErrInvalidPayload instead of the next hop. Used by the bad-onion
+	// fuzz event.
+	payloadFail bool
+
+	// extractFail, when true, makes ExtractErrorEncrypter return a
+	// non-CodeNone failcode. Used by the bad-onion fuzz event.
+	extractFail bool
 }
 
-func newMockHopIterator(hops ...*hop.Payload) hop.Iterator {
+func newMockHopIterator(hops ...*hop.Payload) *mockHopIterator {
 	return &mockHopIterator{hops: hops}
 }
 
 func (r *mockHopIterator) HopPayload() (*hop.Payload, hop.RouteRole, error) {
+	if r.payloadFail {
+		return nil, hop.RouteRoleCleartext, hop.ErrInvalidPayload{
+			Type:      record.AmtOnionType,
+			Violation: hop.OmittedViolation,
+			FinalHop:  true,
+		}
+	}
 	h := r.hops[0]
 	r.hops = r.hops[1:]
 	return h, hop.RouteRoleCleartext, nil
@@ -345,6 +374,9 @@ func (r *mockHopIterator) ExtractErrorEncrypter(
 	extracter hop.ErrorEncrypterExtracter, _ bool) (hop.ErrorEncrypter,
 	lnwire.FailCode) {
 
+	if r.extractFail {
+		return nil, lnwire.CodeInvalidOnionVersion
+	}
 	return extracter(nil)
 }
 
@@ -482,6 +514,11 @@ type mockIteratorDecoder struct {
 	responses map[[32]byte][]hop.DecodeHopIteratorResponse
 
 	decodeFail bool
+
+	// nextOnionFailMode, when non-zero, makes the next DecodeHopIterator
+	// call produce an iterator that fails in the matching processRemoteAdds
+	// branch. The flag is one-shot: it is cleared after being consumed.
+	nextOnionFailMode onionFailMode
 }
 
 func newMockIteratorDecoder() *mockIteratorDecoder {
@@ -492,6 +529,17 @@ func newMockIteratorDecoder() *mockIteratorDecoder {
 
 func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, rHash []byte,
 	cltv uint32) (hop.Iterator, lnwire.FailCode) {
+
+	// Consume any pending one-shot fail-mode set by the bad-onion fuzz
+	// event. The mode applies to this single decode call only.
+	p.mu.Lock()
+	mode := p.nextOnionFailMode
+	p.nextOnionFailMode = onionFailNone
+	p.mu.Unlock()
+
+	if mode == onionFailDecode {
+		return nil, lnwire.CodeTemporaryChannelFailure
+	}
 
 	var b [4]byte
 	_, err := r.Read(b[:])
@@ -518,7 +566,15 @@ func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, rHash []byte,
 		})
 	}
 
-	return newMockHopIterator(hops...), lnwire.CodeNone
+	iterator := newMockHopIterator(hops...)
+	switch mode {
+	case onionFailPayload:
+		iterator.payloadFail = true
+	case onionFailExtract:
+		iterator.extractFail = true
+	}
+
+	return iterator, lnwire.CodeNone
 }
 
 func (p *mockIteratorDecoder) DecodeHopIterators(id []byte,

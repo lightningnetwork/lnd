@@ -60,6 +60,9 @@
 
 ## Code Health
 
+* Updated `github.com/opencontainers/runc` to `v1.2.8`, which includes
+  fixes for CVE-2025-31133, CVE-2025-52565, and CVE-2025-52881.
+
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)

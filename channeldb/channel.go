@@ -3157,17 +3157,26 @@ func (c *OpenChannel) InsertNextRevocation(revKey *btcec.PublicKey) error {
 	c.Lock()
 	defer c.Unlock()
 
-	c.RemoteNextRevocation = revKey
+	return c.Db.InsertNextRevocation(c, revKey)
+}
 
-	err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+// InsertNextRevocation inserts the next commitment point into the persisted
+// channel state.
+func (c *ChannelStateDB) InsertNextRevocation(channel *OpenChannel,
+	revKey *btcec.PublicKey) error {
+
+	channel.RemoteNextRevocation = revKey
+
+	err := kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
 		}
 
-		return putChanRevocationState(chanBucket, c)
+		return putChanRevocationState(chanBucket, channel)
 	}, func() {})
 	if err != nil {
 		return err

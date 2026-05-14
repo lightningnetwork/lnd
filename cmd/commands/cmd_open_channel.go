@@ -172,7 +172,7 @@ var openChannelCommand = cli.Command{
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Int64Flag{
+		cli.Uint64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
@@ -802,7 +802,7 @@ var batchOpenChannelCommand = cli.Command{
 				"transaction *should* confirm in, will be " +
 				"used for fee estimation",
 		},
-		cli.Int64Flag{
+		cli.Uint64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vByte that should be used when crafting " +

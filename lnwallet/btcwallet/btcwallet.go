@@ -1481,7 +1481,7 @@ func unminedTransactionsToDetail(
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
-	accountFilter string, indexOffset uint32,
+	accountFilter string, labelFilter string, indexOffset uint32,
 	maxTransactions uint32) ([]*lnwallet.TransactionDetail, uint64, uint64,
 	error) {
 
@@ -1521,6 +1521,18 @@ func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
 		}
 
 		txDetails = append(txDetails, detail)
+	}
+
+	// If a label filter is specified, only include transactions whose label
+	// matches exactly.
+	if labelFilter != "" {
+		filtered := txDetails[:0]
+		for _, tx := range txDetails {
+			if tx.Label == labelFilter {
+				filtered = append(filtered, tx)
+			}
+		}
+		txDetails = filtered
 	}
 
 	// Return empty transaction list, if offset is more than all

@@ -6965,7 +6965,7 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 	txns, firstIdx, lastIdx, err :=
 		r.server.cc.Wallet.ListTransactionDetails(
 			req.StartHeight, endHeight, req.Account,
-			req.IndexOffset, req.MaxTransactions,
+			req.Label, req.IndexOffset, req.MaxTransactions,
 		)
 	if err != nil {
 		return nil, err

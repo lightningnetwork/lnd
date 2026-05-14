@@ -2173,7 +2173,7 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 
 	pCache := newMockPreimageCache()
 
-	aliceDb := aliceLc.channel.State().Db.GetParentDB()
+	aliceDb := testChannelStateDB(t, aliceLc.channel).GetParentDB()
 	aliceSwitch, err := initSwitchWithDB(testStartingHeight, aliceDb)
 	if err != nil {
 		return singleLinkTestHarness{}, err
@@ -4853,7 +4853,7 @@ func (h *persistentLinkHarness) restartLink(
 		pCache = newMockPreimageCache()
 	)
 
-	aliceDb := aliceChannel.State().Db.GetParentDB()
+	aliceDb := testChannelStateDB(t, aliceChannel).GetParentDB()
 	if restartSwitch {
 		var err error
 		h.hSwitch, err = initSwitchWithDB(testStartingHeight, aliceDb)

@@ -2348,16 +2348,26 @@ func (c *OpenChannel) SyncPending(addr net.Addr, pendingHeight uint32) error {
 	c.Lock()
 	defer c.Unlock()
 
-	c.FundingBroadcastHeight = pendingHeight
+	return c.Db.SyncPendingChannel(c, addr, pendingHeight)
+}
 
-	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
-		return syncNewChannel(tx, c, []net.Addr{addr})
+// SyncPendingChannel writes a pending channel to the store and records the
+// funding broadcast height.
+func (c *ChannelStateDB) SyncPendingChannel(channel *OpenChannel,
+	addr net.Addr, pendingHeight uint32) error {
+
+	channel.FundingBroadcastHeight = pendingHeight
+
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		return syncNewChannel(tx, channel, []net.Addr{addr}, c.backend)
 	}, func() {})
 }
 
 // syncNewChannel will write the passed channel to disk, and also create a
 // LinkNode (if needed) for the channel peer.
-func syncNewChannel(tx kvdb.RwTx, c *OpenChannel, addrs []net.Addr) error {
+func syncNewChannel(tx kvdb.RwTx, c *OpenChannel, addrs []net.Addr,
+	backend kvdb.Backend) error {
+
 	// First, sync all the persistent channel state to disk.
 	if err := fullSyncOpenChannel(tx, c); err != nil {
 		return err
@@ -2379,8 +2389,8 @@ func syncNewChannel(tx kvdb.RwTx, c *OpenChannel, addrs []net.Addr) error {
 	// for this channel. The LinkNode metadata contains reachability,
 	// up-time, and service bits related information.
 	linkNode := NewLinkNode(
-		&LinkNodeDB{backend: c.Db.backend},
-		wire.MainNet, c.IdentityPub, addrs...,
+		&LinkNodeDB{backend: backend}, wire.MainNet, c.IdentityPub,
+		addrs...,
 	)
 
 	// TODO(roasbeef): do away with link node all together?

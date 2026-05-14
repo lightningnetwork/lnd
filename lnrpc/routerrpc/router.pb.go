@@ -2151,8 +2151,11 @@ type BuildRouteRequest struct {
 	// the custom range >= 65536. When using REST, the values must be encoded as
 	// base64.
 	FirstHopCustomRecords map[uint64][]byte `protobuf:"bytes,6,rep,name=first_hop_custom_records,json=firstHopCustomRecords,proto3" json:"first_hop_custom_records,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// An optional AMP record to be included within the last hop of the route.
+	// If set, payment_addr must also be set. See AMPRecord for details.
+	AmpRecord     *lnrpc.AMPRecord `protobuf:"bytes,7,opt,name=amp_record,json=ampRecord,proto3" json:"amp_record,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BuildRouteRequest) Reset() {
@@ -2223,6 +2226,13 @@ func (x *BuildRouteRequest) GetPaymentAddr() []byte {
 func (x *BuildRouteRequest) GetFirstHopCustomRecords() map[uint64][]byte {
 	if x != nil {
 		return x.FirstHopCustomRecords
+	}
+	return nil
+}
+
+func (x *BuildRouteRequest) GetAmpRecord() *lnrpc.AMPRecord {
+	if x != nil {
+		return x.AmpRecord
 	}
 	return nil
 }
@@ -3912,7 +3922,7 @@ const file_routerrpc_router_proto_rawDesc = "" +
 	"\bamt_msat\x18\x03 \x01(\x03R\aamtMsat\"k\n" +
 	"\x18QueryProbabilityResponse\x12 \n" +
 	"\vprobability\x18\x01 \x01(\x01R\vprobability\x12-\n" +
-	"\ahistory\x18\x02 \x01(\v2\x13.routerrpc.PairDataR\ahistory\"\x86\x03\n" +
+	"\ahistory\x18\x02 \x01(\v2\x13.routerrpc.PairDataR\ahistory\"\xb7\x03\n" +
 	"\x11BuildRouteRequest\x12\x19\n" +
 	"\bamt_msat\x18\x01 \x01(\x03R\aamtMsat\x12(\n" +
 	"\x10final_cltv_delta\x18\x02 \x01(\x05R\x0efinalCltvDelta\x12,\n" +
@@ -3920,7 +3930,9 @@ const file_routerrpc_router_proto_rawDesc = "" +
 	"\vhop_pubkeys\x18\x04 \x03(\fR\n" +
 	"hopPubkeys\x12!\n" +
 	"\fpayment_addr\x18\x05 \x01(\fR\vpaymentAddr\x12p\n" +
-	"\x18first_hop_custom_records\x18\x06 \x03(\v27.routerrpc.BuildRouteRequest.FirstHopCustomRecordsEntryR\x15firstHopCustomRecords\x1aH\n" +
+	"\x18first_hop_custom_records\x18\x06 \x03(\v27.routerrpc.BuildRouteRequest.FirstHopCustomRecordsEntryR\x15firstHopCustomRecords\x12/\n" +
+	"\n" +
+	"amp_record\x18\a \x01(\v2\x10.lnrpc.AMPRecordR\tampRecord\x1aH\n" +
 	"\x1aFirstHopCustomRecordsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\x04R\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"8\n" +
@@ -4193,11 +4205,12 @@ var file_routerrpc_router_proto_goTypes = []any{
 	(lnrpc.PaymentFailureReason)(0),            // 64: lnrpc.PaymentFailureReason
 	(*lnrpc.Route)(nil),                        // 65: lnrpc.Route
 	(*lnrpc.Failure)(nil),                      // 66: lnrpc.Failure
-	(lnrpc.Failure_FailureCode)(0),             // 67: lnrpc.Failure.FailureCode
-	(*lnrpc.HTLCAttempt)(nil),                  // 68: lnrpc.HTLCAttempt
-	(*lnrpc.ChannelPoint)(nil),                 // 69: lnrpc.ChannelPoint
-	(*lnrpc.AliasMap)(nil),                     // 70: lnrpc.AliasMap
-	(*lnrpc.Payment)(nil),                      // 71: lnrpc.Payment
+	(*lnrpc.AMPRecord)(nil),                    // 67: lnrpc.AMPRecord
+	(lnrpc.Failure_FailureCode)(0),             // 68: lnrpc.Failure.FailureCode
+	(*lnrpc.HTLCAttempt)(nil),                  // 69: lnrpc.HTLCAttempt
+	(*lnrpc.ChannelPoint)(nil),                 // 70: lnrpc.ChannelPoint
+	(*lnrpc.AliasMap)(nil),                     // 71: lnrpc.AliasMap
+	(*lnrpc.Payment)(nil),                      // 72: lnrpc.Payment
 }
 var file_routerrpc_router_proto_depIdxs = []int32{
 	62, // 0: routerrpc.SendPaymentRequest.route_hints:type_name -> lnrpc.RouteHint
@@ -4218,82 +4231,83 @@ var file_routerrpc_router_proto_depIdxs = []int32{
 	26, // 15: routerrpc.MissionControlConfig.bimodal:type_name -> routerrpc.BimodalParameters
 	20, // 16: routerrpc.QueryProbabilityResponse.history:type_name -> routerrpc.PairData
 	58, // 17: routerrpc.BuildRouteRequest.first_hop_custom_records:type_name -> routerrpc.BuildRouteRequest.FirstHopCustomRecordsEntry
-	65, // 18: routerrpc.BuildRouteResponse.route:type_name -> lnrpc.Route
-	5,  // 19: routerrpc.HtlcEvent.event_type:type_name -> routerrpc.HtlcEvent.EventType
-	35, // 20: routerrpc.HtlcEvent.forward_event:type_name -> routerrpc.ForwardEvent
-	36, // 21: routerrpc.HtlcEvent.forward_fail_event:type_name -> routerrpc.ForwardFailEvent
-	37, // 22: routerrpc.HtlcEvent.settle_event:type_name -> routerrpc.SettleEvent
-	40, // 23: routerrpc.HtlcEvent.link_fail_event:type_name -> routerrpc.LinkFailEvent
-	39, // 24: routerrpc.HtlcEvent.subscribed_event:type_name -> routerrpc.SubscribedEvent
-	38, // 25: routerrpc.HtlcEvent.final_htlc_event:type_name -> routerrpc.FinalHtlcEvent
-	34, // 26: routerrpc.ForwardEvent.info:type_name -> routerrpc.HtlcInfo
-	34, // 27: routerrpc.LinkFailEvent.info:type_name -> routerrpc.HtlcInfo
-	67, // 28: routerrpc.LinkFailEvent.wire_failure:type_name -> lnrpc.Failure.FailureCode
-	0,  // 29: routerrpc.LinkFailEvent.failure_detail:type_name -> routerrpc.FailureDetail
-	1,  // 30: routerrpc.PaymentStatus.state:type_name -> routerrpc.PaymentState
-	68, // 31: routerrpc.PaymentStatus.htlcs:type_name -> lnrpc.HTLCAttempt
-	42, // 32: routerrpc.ForwardHtlcInterceptRequest.incoming_circuit_key:type_name -> routerrpc.CircuitKey
-	59, // 33: routerrpc.ForwardHtlcInterceptRequest.custom_records:type_name -> routerrpc.ForwardHtlcInterceptRequest.CustomRecordsEntry
-	60, // 34: routerrpc.ForwardHtlcInterceptRequest.in_wire_custom_records:type_name -> routerrpc.ForwardHtlcInterceptRequest.InWireCustomRecordsEntry
-	42, // 35: routerrpc.ForwardHtlcInterceptResponse.incoming_circuit_key:type_name -> routerrpc.CircuitKey
-	2,  // 36: routerrpc.ForwardHtlcInterceptResponse.action:type_name -> routerrpc.ResolveHoldForwardAction
-	67, // 37: routerrpc.ForwardHtlcInterceptResponse.failure_code:type_name -> lnrpc.Failure.FailureCode
-	61, // 38: routerrpc.ForwardHtlcInterceptResponse.out_wire_custom_records:type_name -> routerrpc.ForwardHtlcInterceptResponse.OutWireCustomRecordsEntry
-	69, // 39: routerrpc.UpdateChanStatusRequest.chan_point:type_name -> lnrpc.ChannelPoint
-	3,  // 40: routerrpc.UpdateChanStatusRequest.action:type_name -> routerrpc.ChanStatusAction
-	70, // 41: routerrpc.AddAliasesRequest.alias_maps:type_name -> lnrpc.AliasMap
-	70, // 42: routerrpc.AddAliasesResponse.alias_maps:type_name -> lnrpc.AliasMap
-	70, // 43: routerrpc.DeleteAliasesRequest.alias_maps:type_name -> lnrpc.AliasMap
-	70, // 44: routerrpc.DeleteAliasesResponse.alias_maps:type_name -> lnrpc.AliasMap
-	6,  // 45: routerrpc.Router.SendPaymentV2:input_type -> routerrpc.SendPaymentRequest
-	7,  // 46: routerrpc.Router.TrackPaymentV2:input_type -> routerrpc.TrackPaymentRequest
-	8,  // 47: routerrpc.Router.TrackPayments:input_type -> routerrpc.TrackPaymentsRequest
-	9,  // 48: routerrpc.Router.EstimateRouteFee:input_type -> routerrpc.RouteFeeRequest
-	11, // 49: routerrpc.Router.SendToRoute:input_type -> routerrpc.SendToRouteRequest
-	11, // 50: routerrpc.Router.SendToRouteV2:input_type -> routerrpc.SendToRouteRequest
-	13, // 51: routerrpc.Router.ResetMissionControl:input_type -> routerrpc.ResetMissionControlRequest
-	15, // 52: routerrpc.Router.QueryMissionControl:input_type -> routerrpc.QueryMissionControlRequest
-	17, // 53: routerrpc.Router.XImportMissionControl:input_type -> routerrpc.XImportMissionControlRequest
-	21, // 54: routerrpc.Router.GetMissionControlConfig:input_type -> routerrpc.GetMissionControlConfigRequest
-	23, // 55: routerrpc.Router.SetMissionControlConfig:input_type -> routerrpc.SetMissionControlConfigRequest
-	28, // 56: routerrpc.Router.QueryProbability:input_type -> routerrpc.QueryProbabilityRequest
-	30, // 57: routerrpc.Router.BuildRoute:input_type -> routerrpc.BuildRouteRequest
-	32, // 58: routerrpc.Router.SubscribeHtlcEvents:input_type -> routerrpc.SubscribeHtlcEventsRequest
-	6,  // 59: routerrpc.Router.SendPayment:input_type -> routerrpc.SendPaymentRequest
-	7,  // 60: routerrpc.Router.TrackPayment:input_type -> routerrpc.TrackPaymentRequest
-	44, // 61: routerrpc.Router.HtlcInterceptor:input_type -> routerrpc.ForwardHtlcInterceptResponse
-	45, // 62: routerrpc.Router.UpdateChanStatus:input_type -> routerrpc.UpdateChanStatusRequest
-	47, // 63: routerrpc.Router.XAddLocalChanAliases:input_type -> routerrpc.AddAliasesRequest
-	49, // 64: routerrpc.Router.XDeleteLocalChanAliases:input_type -> routerrpc.DeleteAliasesRequest
-	51, // 65: routerrpc.Router.XFindBaseLocalChanAlias:input_type -> routerrpc.FindBaseAliasRequest
-	53, // 66: routerrpc.Router.DeleteForwardingHistory:input_type -> routerrpc.DeleteForwardingHistoryRequest
-	71, // 67: routerrpc.Router.SendPaymentV2:output_type -> lnrpc.Payment
-	71, // 68: routerrpc.Router.TrackPaymentV2:output_type -> lnrpc.Payment
-	71, // 69: routerrpc.Router.TrackPayments:output_type -> lnrpc.Payment
-	10, // 70: routerrpc.Router.EstimateRouteFee:output_type -> routerrpc.RouteFeeResponse
-	12, // 71: routerrpc.Router.SendToRoute:output_type -> routerrpc.SendToRouteResponse
-	68, // 72: routerrpc.Router.SendToRouteV2:output_type -> lnrpc.HTLCAttempt
-	14, // 73: routerrpc.Router.ResetMissionControl:output_type -> routerrpc.ResetMissionControlResponse
-	16, // 74: routerrpc.Router.QueryMissionControl:output_type -> routerrpc.QueryMissionControlResponse
-	18, // 75: routerrpc.Router.XImportMissionControl:output_type -> routerrpc.XImportMissionControlResponse
-	22, // 76: routerrpc.Router.GetMissionControlConfig:output_type -> routerrpc.GetMissionControlConfigResponse
-	24, // 77: routerrpc.Router.SetMissionControlConfig:output_type -> routerrpc.SetMissionControlConfigResponse
-	29, // 78: routerrpc.Router.QueryProbability:output_type -> routerrpc.QueryProbabilityResponse
-	31, // 79: routerrpc.Router.BuildRoute:output_type -> routerrpc.BuildRouteResponse
-	33, // 80: routerrpc.Router.SubscribeHtlcEvents:output_type -> routerrpc.HtlcEvent
-	41, // 81: routerrpc.Router.SendPayment:output_type -> routerrpc.PaymentStatus
-	41, // 82: routerrpc.Router.TrackPayment:output_type -> routerrpc.PaymentStatus
-	43, // 83: routerrpc.Router.HtlcInterceptor:output_type -> routerrpc.ForwardHtlcInterceptRequest
-	46, // 84: routerrpc.Router.UpdateChanStatus:output_type -> routerrpc.UpdateChanStatusResponse
-	48, // 85: routerrpc.Router.XAddLocalChanAliases:output_type -> routerrpc.AddAliasesResponse
-	50, // 86: routerrpc.Router.XDeleteLocalChanAliases:output_type -> routerrpc.DeleteAliasesResponse
-	52, // 87: routerrpc.Router.XFindBaseLocalChanAlias:output_type -> routerrpc.FindBaseAliasResponse
-	54, // 88: routerrpc.Router.DeleteForwardingHistory:output_type -> routerrpc.DeleteForwardingHistoryResponse
-	67, // [67:89] is the sub-list for method output_type
-	45, // [45:67] is the sub-list for method input_type
-	45, // [45:45] is the sub-list for extension type_name
-	45, // [45:45] is the sub-list for extension extendee
-	0,  // [0:45] is the sub-list for field type_name
+	67, // 18: routerrpc.BuildRouteRequest.amp_record:type_name -> lnrpc.AMPRecord
+	65, // 19: routerrpc.BuildRouteResponse.route:type_name -> lnrpc.Route
+	5,  // 20: routerrpc.HtlcEvent.event_type:type_name -> routerrpc.HtlcEvent.EventType
+	35, // 21: routerrpc.HtlcEvent.forward_event:type_name -> routerrpc.ForwardEvent
+	36, // 22: routerrpc.HtlcEvent.forward_fail_event:type_name -> routerrpc.ForwardFailEvent
+	37, // 23: routerrpc.HtlcEvent.settle_event:type_name -> routerrpc.SettleEvent
+	40, // 24: routerrpc.HtlcEvent.link_fail_event:type_name -> routerrpc.LinkFailEvent
+	39, // 25: routerrpc.HtlcEvent.subscribed_event:type_name -> routerrpc.SubscribedEvent
+	38, // 26: routerrpc.HtlcEvent.final_htlc_event:type_name -> routerrpc.FinalHtlcEvent
+	34, // 27: routerrpc.ForwardEvent.info:type_name -> routerrpc.HtlcInfo
+	34, // 28: routerrpc.LinkFailEvent.info:type_name -> routerrpc.HtlcInfo
+	68, // 29: routerrpc.LinkFailEvent.wire_failure:type_name -> lnrpc.Failure.FailureCode
+	0,  // 30: routerrpc.LinkFailEvent.failure_detail:type_name -> routerrpc.FailureDetail
+	1,  // 31: routerrpc.PaymentStatus.state:type_name -> routerrpc.PaymentState
+	69, // 32: routerrpc.PaymentStatus.htlcs:type_name -> lnrpc.HTLCAttempt
+	42, // 33: routerrpc.ForwardHtlcInterceptRequest.incoming_circuit_key:type_name -> routerrpc.CircuitKey
+	59, // 34: routerrpc.ForwardHtlcInterceptRequest.custom_records:type_name -> routerrpc.ForwardHtlcInterceptRequest.CustomRecordsEntry
+	60, // 35: routerrpc.ForwardHtlcInterceptRequest.in_wire_custom_records:type_name -> routerrpc.ForwardHtlcInterceptRequest.InWireCustomRecordsEntry
+	42, // 36: routerrpc.ForwardHtlcInterceptResponse.incoming_circuit_key:type_name -> routerrpc.CircuitKey
+	2,  // 37: routerrpc.ForwardHtlcInterceptResponse.action:type_name -> routerrpc.ResolveHoldForwardAction
+	68, // 38: routerrpc.ForwardHtlcInterceptResponse.failure_code:type_name -> lnrpc.Failure.FailureCode
+	61, // 39: routerrpc.ForwardHtlcInterceptResponse.out_wire_custom_records:type_name -> routerrpc.ForwardHtlcInterceptResponse.OutWireCustomRecordsEntry
+	70, // 40: routerrpc.UpdateChanStatusRequest.chan_point:type_name -> lnrpc.ChannelPoint
+	3,  // 41: routerrpc.UpdateChanStatusRequest.action:type_name -> routerrpc.ChanStatusAction
+	71, // 42: routerrpc.AddAliasesRequest.alias_maps:type_name -> lnrpc.AliasMap
+	71, // 43: routerrpc.AddAliasesResponse.alias_maps:type_name -> lnrpc.AliasMap
+	71, // 44: routerrpc.DeleteAliasesRequest.alias_maps:type_name -> lnrpc.AliasMap
+	71, // 45: routerrpc.DeleteAliasesResponse.alias_maps:type_name -> lnrpc.AliasMap
+	6,  // 46: routerrpc.Router.SendPaymentV2:input_type -> routerrpc.SendPaymentRequest
+	7,  // 47: routerrpc.Router.TrackPaymentV2:input_type -> routerrpc.TrackPaymentRequest
+	8,  // 48: routerrpc.Router.TrackPayments:input_type -> routerrpc.TrackPaymentsRequest
+	9,  // 49: routerrpc.Router.EstimateRouteFee:input_type -> routerrpc.RouteFeeRequest
+	11, // 50: routerrpc.Router.SendToRoute:input_type -> routerrpc.SendToRouteRequest
+	11, // 51: routerrpc.Router.SendToRouteV2:input_type -> routerrpc.SendToRouteRequest
+	13, // 52: routerrpc.Router.ResetMissionControl:input_type -> routerrpc.ResetMissionControlRequest
+	15, // 53: routerrpc.Router.QueryMissionControl:input_type -> routerrpc.QueryMissionControlRequest
+	17, // 54: routerrpc.Router.XImportMissionControl:input_type -> routerrpc.XImportMissionControlRequest
+	21, // 55: routerrpc.Router.GetMissionControlConfig:input_type -> routerrpc.GetMissionControlConfigRequest
+	23, // 56: routerrpc.Router.SetMissionControlConfig:input_type -> routerrpc.SetMissionControlConfigRequest
+	28, // 57: routerrpc.Router.QueryProbability:input_type -> routerrpc.QueryProbabilityRequest
+	30, // 58: routerrpc.Router.BuildRoute:input_type -> routerrpc.BuildRouteRequest
+	32, // 59: routerrpc.Router.SubscribeHtlcEvents:input_type -> routerrpc.SubscribeHtlcEventsRequest
+	6,  // 60: routerrpc.Router.SendPayment:input_type -> routerrpc.SendPaymentRequest
+	7,  // 61: routerrpc.Router.TrackPayment:input_type -> routerrpc.TrackPaymentRequest
+	44, // 62: routerrpc.Router.HtlcInterceptor:input_type -> routerrpc.ForwardHtlcInterceptResponse
+	45, // 63: routerrpc.Router.UpdateChanStatus:input_type -> routerrpc.UpdateChanStatusRequest
+	47, // 64: routerrpc.Router.XAddLocalChanAliases:input_type -> routerrpc.AddAliasesRequest
+	49, // 65: routerrpc.Router.XDeleteLocalChanAliases:input_type -> routerrpc.DeleteAliasesRequest
+	51, // 66: routerrpc.Router.XFindBaseLocalChanAlias:input_type -> routerrpc.FindBaseAliasRequest
+	53, // 67: routerrpc.Router.DeleteForwardingHistory:input_type -> routerrpc.DeleteForwardingHistoryRequest
+	72, // 68: routerrpc.Router.SendPaymentV2:output_type -> lnrpc.Payment
+	72, // 69: routerrpc.Router.TrackPaymentV2:output_type -> lnrpc.Payment
+	72, // 70: routerrpc.Router.TrackPayments:output_type -> lnrpc.Payment
+	10, // 71: routerrpc.Router.EstimateRouteFee:output_type -> routerrpc.RouteFeeResponse
+	12, // 72: routerrpc.Router.SendToRoute:output_type -> routerrpc.SendToRouteResponse
+	69, // 73: routerrpc.Router.SendToRouteV2:output_type -> lnrpc.HTLCAttempt
+	14, // 74: routerrpc.Router.ResetMissionControl:output_type -> routerrpc.ResetMissionControlResponse
+	16, // 75: routerrpc.Router.QueryMissionControl:output_type -> routerrpc.QueryMissionControlResponse
+	18, // 76: routerrpc.Router.XImportMissionControl:output_type -> routerrpc.XImportMissionControlResponse
+	22, // 77: routerrpc.Router.GetMissionControlConfig:output_type -> routerrpc.GetMissionControlConfigResponse
+	24, // 78: routerrpc.Router.SetMissionControlConfig:output_type -> routerrpc.SetMissionControlConfigResponse
+	29, // 79: routerrpc.Router.QueryProbability:output_type -> routerrpc.QueryProbabilityResponse
+	31, // 80: routerrpc.Router.BuildRoute:output_type -> routerrpc.BuildRouteResponse
+	33, // 81: routerrpc.Router.SubscribeHtlcEvents:output_type -> routerrpc.HtlcEvent
+	41, // 82: routerrpc.Router.SendPayment:output_type -> routerrpc.PaymentStatus
+	41, // 83: routerrpc.Router.TrackPayment:output_type -> routerrpc.PaymentStatus
+	43, // 84: routerrpc.Router.HtlcInterceptor:output_type -> routerrpc.ForwardHtlcInterceptRequest
+	46, // 85: routerrpc.Router.UpdateChanStatus:output_type -> routerrpc.UpdateChanStatusResponse
+	48, // 86: routerrpc.Router.XAddLocalChanAliases:output_type -> routerrpc.AddAliasesResponse
+	50, // 87: routerrpc.Router.XDeleteLocalChanAliases:output_type -> routerrpc.DeleteAliasesResponse
+	52, // 88: routerrpc.Router.XFindBaseLocalChanAlias:output_type -> routerrpc.FindBaseAliasResponse
+	54, // 89: routerrpc.Router.DeleteForwardingHistory:output_type -> routerrpc.DeleteForwardingHistoryResponse
+	68, // [68:90] is the sub-list for method output_type
+	46, // [46:68] is the sub-list for method input_type
+	46, // [46:46] is the sub-list for extension type_name
+	46, // [46:46] is the sub-list for extension extendee
+	0,  // [0:46] is the sub-list for field type_name
 }
 
 func init() { file_routerrpc_router_proto_init() }

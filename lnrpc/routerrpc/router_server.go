@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -1072,6 +1073,10 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 		return nil, err
 	}
 
+	if route.FinalHop().MPP == nil {
+		return nil, fmt.Errorf("unable to send, no MPP provided")
+	}
+
 	hash, err := lntypes.MakeHash(req.PaymentHash)
 	if err != nil {
 		return nil, err
@@ -1675,12 +1680,23 @@ func (s *Server) BuildRoute(_ context.Context,
 		outgoingChan = &req.OutgoingChanId
 	}
 
-	var payAddr fn.Option[[32]byte]
-	if len(req.PaymentAddr) != 0 {
-		var backingPayAddr [32]byte
-		copy(backingPayAddr[:], req.PaymentAddr)
+	if len(req.PaymentAddr) != 32 {
+		return nil, errors.New("payment_addr must be 32 bytes")
+	}
 
-		payAddr = fn.Some(backingPayAddr)
+	var payAddr fn.Option[[32]byte]
+	var backingPayAddr [32]byte
+	copy(backingPayAddr[:], req.PaymentAddr)
+	payAddr = fn.Some(backingPayAddr)
+
+	// Optional AMP record
+	var ampRecord *record.AMP
+	if req.AmpRecord != nil {
+		var err error
+		ampRecord, err = UnmarshalAMP(req.AmpRecord)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if req.FinalCltvDelta == 0 {
@@ -1708,7 +1724,7 @@ func (s *Server) BuildRoute(_ context.Context,
 	// Build the route and return it to the caller.
 	route, err := s.cfg.Router.BuildRoute(
 		amt, hops, outgoingChan, req.FinalCltvDelta, payAddr,
-		firstHopBlob,
+		ampRecord, firstHopBlob,
 	)
 	if err != nil {
 		return nil, err

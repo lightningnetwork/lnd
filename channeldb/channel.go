@@ -238,6 +238,10 @@ type (
 	// LogUpdate represents a pending update to the remote commitment
 	// chain.
 	LogUpdate = cstate.LogUpdate
+
+	// CommitDiff represents the delta needed to apply the state
+	// transition between two subsequent commitment states.
+	CommitDiff = cstate.CommitDiff
 )
 
 // openChannelTlvData houses the new data fields that are stored for each
@@ -2755,61 +2759,6 @@ func deserializeLogUpdate(r io.Reader) (*LogUpdate, error) {
 	}
 
 	return l, nil
-}
-
-// CommitDiff represents the delta needed to apply the state transition between
-// two subsequent commitment states. Given state N and state N+1, one is able
-// to apply the set of messages contained within the CommitDiff to N to arrive
-// at state N+1. Each time a new commitment is extended, we'll write a new
-// commitment (along with the full commitment state) to disk so we can
-// re-transmit the state in the case of a connection loss or message drop.
-type CommitDiff struct {
-	// ChannelCommitment is the full commitment state that one would arrive
-	// at by applying the set of messages contained in the UpdateDiff to
-	// the prior accepted commitment.
-	Commitment ChannelCommitment
-
-	// LogUpdates is the set of messages sent prior to the commitment state
-	// transition in question. Upon reconnection, if we detect that they
-	// don't have the commitment, then we re-send this along with the
-	// proper signature.
-	LogUpdates []LogUpdate
-
-	// CommitSig is the exact CommitSig message that should be sent after
-	// the set of LogUpdates above has been retransmitted. The signatures
-	// within this message should properly cover the new commitment state
-	// and also the HTLC's within the new commitment state.
-	CommitSig *lnwire.CommitSig
-
-	// OpenedCircuitKeys is a set of unique identifiers for any downstream
-	// Add packets included in this commitment txn. After a restart, this
-	// set of htlcs is acked from the link's incoming mailbox to ensure
-	// there isn't an attempt to re-add them to this commitment txn.
-	OpenedCircuitKeys []models.CircuitKey
-
-	// ClosedCircuitKeys records the unique identifiers for any settle/fail
-	// packets that were resolved by this commitment txn. After a restart,
-	// this is used to ensure those circuits are removed from the circuit
-	// map, and the downstream packets in the link's mailbox are removed.
-	ClosedCircuitKeys []models.CircuitKey
-
-	// AddAcks specifies the locations (commit height, pkg index) of any
-	// Adds that were failed/settled in this commit diff. This will ack
-	// entries in *this* channel's forwarding packages.
-	//
-	// NOTE: This value is not serialized, it is used to atomically mark the
-	// resolution of adds, such that they will not be reprocessed after a
-	// restart.
-	AddAcks []AddRef
-
-	// SettleFailAcks specifies the locations (chan id, commit height, pkg
-	// index) of any Settles or Fails that were locked into this commit
-	// diff, and originate from *another* channel, i.e. the outgoing link.
-	//
-	// NOTE: This value is not serialized, it is used to atomically acks
-	// settles and fails from the forwarding packages of other channels,
-	// such that they will not be reforwarded internally after a restart.
-	SettleFailAcks []SettleFailRef
 }
 
 // serializeLogUpdates serializes provided list of updates to a stream.

@@ -255,6 +255,7 @@ const (
 	bitcoindBackendName = "bitcoind"
 	btcdBackendName     = "btcd"
 	neutrinoBackendName = "neutrino"
+	esploraBackendName  = "esplora"
 
 	defaultPrunedNodeMaxPeers = 4
 	defaultNeutrinoMaxPeers   = 8
@@ -385,6 +386,7 @@ type Config struct {
 	BtcdMode     *lncfg.Btcd     `group:"btcd" namespace:"btcd"`
 	BitcoindMode *lncfg.Bitcoind `group:"bitcoind" namespace:"bitcoind"`
 	NeutrinoMode *lncfg.Neutrino `group:"neutrino" namespace:"neutrino"`
+	EsploraMode  *lncfg.Esplora  `group:"esplora" namespace:"esplora"`
 
 	BlockCacheSize uint64 `long:"blockcachesize" description:"The maximum capacity of the block cache"`
 
@@ -666,6 +668,7 @@ func DefaultConfig() Config {
 			UserAgentVersion: neutrino.UserAgentVersion,
 			MaxPeers:         defaultNeutrinoMaxPeers,
 		},
+		EsploraMode:        lncfg.DefaultEsploraConfig(),
 		BlockCacheSize:     defaultBlockCacheSize,
 		MaxPendingChannels: lncfg.DefaultMaxPendingChannels,
 		NoSeedBackup:       defaultNoSeedBackup,
@@ -1420,13 +1423,21 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	case neutrinoBackendName:
 		// No need to get RPC parameters.
 
+	case esploraBackendName:
+		// Validate that an Esplora URL was provided.
+		if cfg.EsploraMode.URL == "" {
+			return nil, mkErr("esplora.url must be set when " +
+				"using esplora mode (e.g., " +
+				"http://localhost:3002 or https://blockstream.info/api)")
+		}
+
 	case "nochainbackend":
 		// Nothing to configure, we're running without any chain
 		// backend whatsoever (pure signing mode).
 
 	default:
-		str := "only btcd, bitcoind, and neutrino mode " +
-			"supported for bitcoin at this time"
+		str := "only btcd, bitcoind, neutrino, and esplora " +
+			"mode supported for bitcoin at this time"
 
 		return nil, mkErr(str)
 	}

@@ -15,6 +15,16 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
+// UtxoSource is an interface that wraps the GetUtxo method needed
+// from chain clients like Esplora. This interface allows us to avoid import
+// cycles between the btcwallet and chain client packages.
+type UtxoSource interface {
+	// GetUtxo returns the original output referenced by the passed
+	// outpoint if it is still unspent.
+	GetUtxo(op *wire.OutPoint, pkScript []byte, heightHint uint32,
+		cancel <-chan struct{}) (*wire.TxOut, error)
+}
+
 var (
 	// ErrOutputSpent is returned by the GetUtxo method if the target output
 	// for lookup has already been spent.
@@ -123,6 +133,13 @@ func (b *BtcWallet) GetUtxo(op *wire.OutPoint, pkScript []byte,
 		}, nil
 
 	default:
+		// Check if the backend implements UtxoSource interface.
+		// This allows chain clients like Esplora to be used without
+		// creating an import cycle.
+		if utxoBackend, ok := b.chain.(UtxoSource); ok {
+			return utxoBackend.GetUtxo(op, pkScript, heightHint, cancel)
+		}
+
 		return nil, fmt.Errorf("unknown backend")
 	}
 }

@@ -9703,11 +9703,6 @@ type QueryRoutesRequest struct {
 	// Record types are required to be in the custom range >= 65536. When using
 	// REST, the values must be encoded as base64.
 	DestCustomRecords map[uint64][]byte `protobuf:"bytes,13,rep,name=dest_custom_records,json=destCustomRecords,proto3" json:"dest_custom_records,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// Deprecated, use outgoing_chan_ids. The channel id of the channel that must
-	// be taken to the first hop. If zero, any channel may be used.
-	//
-	// Deprecated: Marked as deprecated in lightning.proto.
-	OutgoingChanId uint64 `protobuf:"varint,14,opt,name=outgoing_chan_id,json=outgoingChanId,proto3" json:"outgoing_chan_id,omitempty"`
 	// The pubkey of the last hop of the route. If empty, any hop may be used.
 	LastHopPubkey []byte `protobuf:"bytes,15,opt,name=last_hop_pubkey,json=lastHopPubkey,proto3" json:"last_hop_pubkey,omitempty"`
 	// Optional route hints to reach the destination through private channels.
@@ -9847,14 +9842,6 @@ func (x *QueryRoutesRequest) GetDestCustomRecords() map[uint64][]byte {
 		return x.DestCustomRecords
 	}
 	return nil
-}
-
-// Deprecated: Marked as deprecated in lightning.proto.
-func (x *QueryRoutesRequest) GetOutgoingChanId() uint64 {
-	if x != nil {
-		return x.OutgoingChanId
-	}
-	return 0
 }
 
 func (x *QueryRoutesRequest) GetLastHopPubkey() []byte {
@@ -19240,7 +19227,7 @@ const file_lightning_proto_rawDesc = "" +
 	"\x18unsettled_remote_balance\x18\x06 \x01(\v2\r.lnrpc.AmountR\x16unsettledRemoteBalance\x12J\n" +
 	"\x1apending_open_local_balance\x18\a \x01(\v2\r.lnrpc.AmountR\x17pendingOpenLocalBalance\x12L\n" +
 	"\x1bpending_open_remote_balance\x18\b \x01(\v2\r.lnrpc.AmountR\x18pendingOpenRemoteBalance\x12.\n" +
-	"\x13custom_channel_data\x18\t \x01(\fR\x11customChannelData\"\xc8\a\n" +
+	"\x13custom_channel_data\x18\t \x01(\fR\x11customChannelData\"\x9e\a\n" +
 	"\x12QueryRoutesRequest\x12\x17\n" +
 	"\apub_key\x18\x01 \x01(\tR\x06pubKey\x12\x10\n" +
 	"\x03amt\x18\x02 \x01(\x03R\x03amt\x12\x19\n" +
@@ -19255,8 +19242,7 @@ const file_lightning_proto_rawDesc = "" +
 	" \x03(\v2\x0f.lnrpc.NodePairR\fignoredPairs\x12\x1d\n" +
 	"\n" +
 	"cltv_limit\x18\v \x01(\rR\tcltvLimit\x12`\n" +
-	"\x13dest_custom_records\x18\r \x03(\v20.lnrpc.QueryRoutesRequest.DestCustomRecordsEntryR\x11destCustomRecords\x12.\n" +
-	"\x10outgoing_chan_id\x18\x0e \x01(\x04B\x04\x18\x010\x01R\x0eoutgoingChanId\x12&\n" +
+	"\x13dest_custom_records\x18\r \x03(\v20.lnrpc.QueryRoutesRequest.DestCustomRecordsEntryR\x11destCustomRecords\x12&\n" +
 	"\x0flast_hop_pubkey\x18\x0f \x01(\fR\rlastHopPubkey\x121\n" +
 	"\vroute_hints\x18\x10 \x03(\v2\x10.lnrpc.RouteHintR\n" +
 	"routeHints\x12M\n" +
@@ -19266,7 +19252,7 @@ const file_lightning_proto_rawDesc = "" +
 	"\x11outgoing_chan_ids\x18\x14 \x03(\x04R\x0foutgoingChanIds\x1aD\n" +
 	"\x16DestCustomRecordsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\x04R\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01J\x04\b\x03\x10\x04\".\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01J\x04\b\x03\x10\x04J\x04\b\x0e\x10\x0f\".\n" +
 	"\bNodePair\x12\x12\n" +
 	"\x04from\x18\x01 \x01(\fR\x04from\x12\x0e\n" +
 	"\x02to\x18\x02 \x01(\fR\x02to\"]\n" +

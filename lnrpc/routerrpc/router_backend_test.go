@@ -48,9 +48,6 @@ func TestQueryRoutes(t *testing.T) {
 	t.Run("no mission control bad cltv limit", func(t *testing.T) {
 		testQueryRoutes(t, false, false, false)
 	})
-	t.Run("multiple outgoing chan ids", func(t *testing.T) {
-		testQueryRoutes(t, false, true, true)
-	})
 }
 
 func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,

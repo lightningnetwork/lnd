@@ -5,6 +5,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -31,6 +32,12 @@ type Store[Channel any] interface {
 	// OpenChannelStatusStore owns persisted status flags for open channel
 	// records.
 	OpenChannelStatusStore[Channel]
+
+	// OpenChannelShutdownStore owns persisted shutdown state.
+	OpenChannelShutdownStore[Channel]
+
+	// OpenChannelCloseTxStore owns persisted closing transaction state.
+	OpenChannelCloseTxStore[Channel]
 
 	// ClosedChannelStore owns closed-channel summaries and lifecycle
 	// mutations.
@@ -166,6 +173,41 @@ type OpenChannelStatusStore[Channel any] interface {
 
 	// MarkChannelBorked marks the channel as irreconcilable.
 	MarkChannelBorked(channel Channel) error
+}
+
+// OpenChannelShutdownStore owns persisted shutdown state.
+type OpenChannelShutdownStore[Channel any] interface {
+	// StoreChannelShutdownInfo persists the ShutdownInfo for the target
+	// channel.
+	StoreChannelShutdownInfo(channel Channel, info *ShutdownInfo) error
+
+	// FetchChannelShutdownInfo fetches the persisted ShutdownInfo for the
+	// target channel.
+	FetchChannelShutdownInfo(channel Channel) (fn.Option[ShutdownInfo],
+		error)
+}
+
+// OpenChannelCloseTxStore owns persisted closing transaction state.
+type OpenChannelCloseTxStore[Channel any] interface {
+	// MarkChannelCommitmentBroadcasted marks the channel as having a
+	// commitment transaction broadcast.
+	MarkChannelCommitmentBroadcasted(channel Channel, closeTx *wire.MsgTx,
+		closer lntypes.ChannelParty) error
+
+	// MarkChannelCoopBroadcasted marks the channel as having a
+	// cooperative close transaction broadcast.
+	MarkChannelCoopBroadcasted(channel Channel, closeTx *wire.MsgTx,
+		closer lntypes.ChannelParty) error
+
+	// FetchChannelBroadcastedCommitment fetches the stored unilateral
+	// closing transaction.
+	FetchChannelBroadcastedCommitment(channel Channel) (*wire.MsgTx,
+		error)
+
+	// FetchChannelBroadcastedCooperative fetches the stored cooperative
+	// closing transaction.
+	FetchChannelBroadcastedCooperative(channel Channel) (*wire.MsgTx,
+		error)
 }
 
 // ClosedChannelStore owns closed-channel summaries and lifecycle mutations.

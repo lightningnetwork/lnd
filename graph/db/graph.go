@@ -1125,21 +1125,6 @@ func (c *VersionedGraph) ChannelView(ctx context.Context) ([]EdgePoint,
 	return c.db.ChannelView(ctx, c.v)
 }
 
-// GraphSession provides the callback with access to a NodeTraverser instance
-// for performing queries against the channel graph. If the graph cache is
-// enabled, the callback receives the VersionedGraph directly (which implements
-// NodeTraverser using the cache). Otherwise a read-only database session is
-// used, which applies the same cross-version precedence as the cache.
-func (c *VersionedGraph) GraphSession(ctx context.Context,
-	cb func(graph NodeTraverser) error, reset func()) error {
-
-	if c.cache != nil && c.cache.isLoaded() {
-		return cb(c)
-	}
-
-	return c.db.GraphSession(ctx, cb, reset)
-}
-
 // FetchNode attempts to look up a target node by its identity public key.
 func (c *VersionedGraph) FetchNode(ctx context.Context,
 	nodePub route.Vertex) (*models.Node, error) {

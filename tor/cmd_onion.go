@@ -19,6 +19,14 @@ var (
 	// ErrNoPrivateKey is an error returned by the OnionStore.PrivateKey
 	// method when a private key hasn't yet been stored.
 	ErrNoPrivateKey = errors.New("private key not found")
+
+	// ErrNonV3OnionKey is returned when a restored onion private key is
+	// not a v3 (ED25519-V3) key. lnd no longer creates or recovers v2
+	// onion services; users with an old v2 key file must remove it so
+	// a fresh v3 service can be generated.
+	ErrNonV3OnionKey = errors.New("restored onion private key is not a " +
+		"v3 (ED25519-V3) key; remove the old onion key file to " +
+		"generate a new v3 service")
 )
 
 // OnionType denotes the type of the onion service.
@@ -193,7 +201,16 @@ func (c *Controller) prepareKeyparam(cfg AddOnionConfig) (string, error) {
 		case ErrNoPrivateKey:
 
 		// Recover the onion service with the private key found.
+		// Refuse to hand a non-v3 key (for example, a legacy
+		// RSA1024:... v2 key) to Tor; the caller must remove the old
+		// key file rather than silently regenerate a fresh v3
+		// service, which would change the advertised onion identity.
 		case nil:
+			if !bytes.HasPrefix(
+				privateKey, []byte(V3KeyParam+":"),
+			) {
+				return "", ErrNonV3OnionKey
+			}
 			keyParam = string(privateKey)
 
 		default:

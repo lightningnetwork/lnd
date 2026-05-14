@@ -501,25 +501,13 @@ func TestWriteOnionAddr(t *testing.T) {
 			// the error is returned.
 			name: "invalid base32 encoding",
 			addr: &tor.OnionAddr{
-				OnionService: "1234567890123456.onion",
+				OnionService: "1111111111" +
+					"11111111111111111111" +
+					"11111111111111111111" +
+					"111111.onion",
 			},
 			expectedErr:   base32.CorruptInputError(0),
 			expectedBytes: nil,
-		},
-		{
-			// Check write onion v2.
-			name: "onion address v2",
-			addr: &tor.OnionAddr{
-				OnionService: "abcdefghijklmnop.onion",
-				Port:         9065,
-			},
-			expectedErr: nil,
-			expectedBytes: []byte{
-				0x3,                         // The descriptor.
-				0x0, 0x44, 0x32, 0x14, 0xc7, // The host.
-				0x42, 0x54, 0xb6, 0x35, 0xcf,
-				0x23, 0x69, // The port.
-			},
 		},
 		{
 			// Check write onion v3.
@@ -566,8 +554,11 @@ func TestWriteNetAddrs(t *testing.T) {
 		Port: 8080,
 	}
 	onionAddr := &tor.OnionAddr{
-		OnionService: "abcdefghijklmnop.onion",
-		Port:         9065,
+		OnionService: "abcdefghij" +
+			"abcdefghijabcdefghij" +
+			"abcdefghijabcdefghij" +
+			"234567.onion",
+		Port: 9065,
 	}
 	dnsAddr := &DNSAddress{
 		Hostname: "example.com",
@@ -602,14 +593,18 @@ func TestWriteNetAddrs(t *testing.T) {
 			addr:        []net.Addr{tcpAddr, onionAddr, dnsAddr},
 			expectedErr: nil,
 			expectedBytes: []byte{
-				// 7 bytes for TCP and 13 bytes for onion,
+				// 7 bytes for TCP, 38 bytes for v3 onion,
 				// 15 bytes for DNS.
-				0x0, 0x23,
+				0x0, 0x3c,
 				// TCP address.
 				0x1, 0x7f, 0x0, 0x0, 0x1, 0x1f, 0x90,
-				// Onion address.
-				0x3, 0x0, 0x44, 0x32, 0x14, 0xc7, 0x42,
-				0x54, 0xb6, 0x35, 0xcf, 0x23, 0x69,
+				// V3 onion address.
+				0x4, 0x0, 0x44, 0x32, 0x14, 0xc7, 0x42, 0x40,
+				0x11, 0xc, 0x85, 0x31, 0xd0, 0x90, 0x4,
+				0x43, 0x21, 0x4c, 0x74, 0x24, 0x1, 0x10,
+				0xc8, 0x53, 0x1d, 0x9, 0x0, 0x44, 0x32,
+				0x14, 0xc7, 0x42, 0x75, 0xbe, 0x77, 0xdf,
+				0x23, 0x69,
 				// DNS address.
 				0x5, 0xb, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c,
 				0x65, 0x2e, 0x63, 0x6f, 0x6d, 0x1f, 0x90,

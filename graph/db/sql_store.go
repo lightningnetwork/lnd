@@ -4821,7 +4821,6 @@ func collectAddressRecords(addresses []net.Addr) (map[dbAddressType][]string,
 	newAddresses := map[dbAddressType][]string{
 		addressTypeIPv4:   {},
 		addressTypeIPv6:   {},
-		addressTypeTorV2:  {},
 		addressTypeTorV3:  {},
 		addressTypeDNS:    {},
 		addressTypeOpaque: {},
@@ -4844,8 +4843,6 @@ func collectAddressRecords(addresses []net.Addr) (map[dbAddressType][]string,
 
 		case *tor.OnionAddr:
 			switch len(addr.OnionService) {
-			case tor.V2Len:
-				addAddr(addressTypeTorV2, addr)
 			case tor.V3Len:
 				addAddr(addressTypeTorV3, addr)
 			default:

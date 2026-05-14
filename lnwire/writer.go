@@ -336,10 +336,6 @@ func WriteOnionAddr(buf *bytes.Buffer, addr *tor.OnionAddr) error {
 
 	// Decide the suffixIndex and descriptor.
 	switch len(addr.OnionService) {
-	case tor.V2Len:
-		descriptor = []byte{byte(v2OnionAddr)}
-		suffixIndex = tor.V2Len - tor.OnionSuffixLen
-
 	case tor.V3Len:
 		descriptor = []byte{byte(v3OnionAddr)}
 		suffixIndex = tor.V3Len - tor.OnionSuffixLen

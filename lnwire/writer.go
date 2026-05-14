@@ -44,6 +44,14 @@ var (
 	// ErrUnknownServiceLength is returned when the onion service length is
 	// unknown.
 	ErrUnknownServiceLength = errors.New("unknown onion service length")
+
+	// ErrV2OnionAddrNotSupported is returned by the wire-format encoder
+	// when a message references a v2 onion address. lnd no longer relays
+	// or persists v2 onion addresses since Tor dropped support for v2
+	// services in October 2021.
+	ErrV2OnionAddrNotSupported = errors.New(
+		"v2 onion addresses are no longer supported",
+	)
 )
 
 // ErrOutpointIndexTooBig is used when the outpoint index exceeds the max value
@@ -336,13 +344,12 @@ func WriteOnionAddr(buf *bytes.Buffer, addr *tor.OnionAddr) error {
 
 	// Decide the suffixIndex and descriptor.
 	switch len(addr.OnionService) {
-	case tor.V2Len:
-		descriptor = []byte{byte(v2OnionAddr)}
-		suffixIndex = tor.V2Len - tor.OnionSuffixLen
-
 	case tor.V3Len:
 		descriptor = []byte{byte(v3OnionAddr)}
 		suffixIndex = tor.V3Len - tor.OnionSuffixLen
+
+	case tor.V2Len:
+		return ErrV2OnionAddrNotSupported
 
 	default:
 		return ErrUnknownServiceLength

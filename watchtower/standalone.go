@@ -158,8 +158,8 @@ func (w *Standalone) Stop() error {
 	return nil
 }
 
-// createNewHiddenService automatically sets up a v2 or v3 onion service in
-// order to listen for inbound connections over Tor.
+// createNewHiddenService automatically sets up a v3 onion service in order to
+// listen for inbound connections over Tor.
 func (w *Standalone) createNewHiddenService() error {
 	// Get all the ports the watchtower is listening on. These will be used to
 	// map the hidden service's virtual port.

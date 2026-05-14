@@ -7,6 +7,8 @@ import (
 	"io"
 	"net"
 	"unicode/utf8"
+
+	"github.com/lightningnetwork/lnd/tor"
 )
 
 // ErrUnknownAddrType is an error returned if we encounter an unknown address type
@@ -131,7 +133,30 @@ func (a *NodeAnnouncement1) Decode(r io.Reader, _ uint32) error {
 		return err
 	}
 
+	// Strip any v2 onion addresses post-decode. lnd no longer relays,
+	// persists, or re-encodes v2 onion addresses since Tor dropped
+	// support for v2 services in October 2021; keeping the remaining
+	// valid addresses lets the rest of the announcement (node identity,
+	// v3, IPv4/IPv6) round-trip through the wire codec.
+	a.Addresses = stripLegacyV2OnionAddrs(a.Addresses)
+
 	return a.ExtraOpaqueData.ValidateTLV()
+}
+
+// stripLegacyV2OnionAddrs returns addrs with any legacy v2 onion addresses
+// removed. Tor v2 onion services have been obsolete since October 2021 and
+// lnd no longer relays or persists them.
+func stripLegacyV2OnionAddrs(addrs []net.Addr) []net.Addr {
+	filtered := addrs[:0]
+	for _, addr := range addrs {
+		onion, ok := addr.(*tor.OnionAddr)
+		if ok && len(onion.OnionService) == tor.V2Len {
+			continue
+		}
+		filtered = append(filtered, addr)
+	}
+
+	return filtered
 }
 
 // Encode serializes the target NodeAnnouncement1 into the passed io.Writer

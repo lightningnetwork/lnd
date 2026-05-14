@@ -29,11 +29,6 @@ var (
 		Port: 65535,
 	}
 
-	testOnionV2Addr = &tor.OnionAddr{
-		OnionService: "3g2upl4pq6kufc4m.onion",
-		Port:         9735,
-	}
-
 	testOnionV3Addr = &tor.OnionAddr{
 		OnionService: "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd.onion", //nolint:ll
 		Port:         80,
@@ -62,9 +57,6 @@ var addrTests = []struct {
 	},
 	{
 		expAddr: testIPV6Addr,
-	},
-	{
-		expAddr: testOnionV2Addr,
 	},
 	{
 		expAddr: testOnionV3Addr,

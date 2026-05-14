@@ -3379,8 +3379,8 @@ func (s *server) initialPeerBootstrap(ctx context.Context,
 	}
 }
 
-// createNewHiddenService automatically sets up a v2 or v3 onion service in
-// order to listen for inbound connections over Tor.
+// createNewHiddenService automatically sets up a v3 onion service in order to
+// listen for inbound connections over Tor.
 func (s *server) createNewHiddenService(ctx context.Context) error {
 	// Determine the different ports the server is listening on. The onion
 	// service's virtual port will map to these ports and one will be picked

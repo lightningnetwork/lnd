@@ -964,24 +964,6 @@ func randTCP6Addr(t testing.TB, r *rand.Rand) *net.TCPAddr {
 	return &net.TCPAddr{IP: addrIP, Port: addrPort}
 }
 
-func randV2OnionAddr(t testing.TB, r *rand.Rand) *tor.OnionAddr {
-	t.Helper()
-
-	var serviceID [tor.V2DecodedLen]byte
-	_, err := r.Read(serviceID[:])
-	require.NoError(t, err, "unable to read serviceID")
-
-	var port [2]byte
-	_, err = r.Read(port[:])
-	require.NoError(t, err, "unable to read port")
-
-	onionService := tor.Base32Encoding.EncodeToString(serviceID[:])
-	onionService += tor.OnionSuffix
-	addrPort := int(binary.BigEndian.Uint16(port[:]))
-
-	return &tor.OnionAddr{OnionService: onionService, Port: addrPort}
-}
-
 func randV3OnionAddr(t testing.TB, r *rand.Rand) *tor.OnionAddr {
 	t.Helper()
 
@@ -1021,11 +1003,10 @@ func randDNSAddr(t testing.TB, r *rand.Rand) *lnwire.DNSAddress {
 func randAddrs(t testing.TB, r *rand.Rand) []net.Addr {
 	tcp4Addr := randTCP4Addr(t, r)
 	tcp6Addr := randTCP6Addr(t, r)
-	v2OnionAddr := randV2OnionAddr(t, r)
 	v3OnionAddr := randV3OnionAddr(t, r)
 	dnsAddr := randDNSAddr(t, r)
 
-	return []net.Addr{tcp4Addr, tcp6Addr, v2OnionAddr, v3OnionAddr, dnsAddr}
+	return []net.Addr{tcp4Addr, tcp6Addr, v3OnionAddr, dnsAddr}
 }
 
 func randAlias(r *rand.Rand) lnwire.NodeAlias {

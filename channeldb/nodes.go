@@ -358,13 +358,14 @@ func serializeLinkNode(w io.Writer, l *LinkNode) error {
 		return err
 	}
 
-	numAddrs := uint32(len(l.Addresses))
+	addresses := graphdb.FilterSerializableAddrs(l.Addresses)
+	numAddrs := uint32(len(addresses))
 	byteOrder.PutUint32(buf[:4], numAddrs)
 	if _, err := w.Write(buf[:4]); err != nil {
 		return err
 	}
 
-	for _, addr := range l.Addresses {
+	for _, addr := range addresses {
 		if err := graphdb.SerializeAddr(w, addr); err != nil {
 			return err
 		}

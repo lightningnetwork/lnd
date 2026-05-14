@@ -4699,13 +4699,14 @@ func putLightningNode(nodeBucket, aliasBucket, updateIndex kvdb.RwBucket,
 		return err
 	}
 
-	numAddresses := uint16(len(node.Addresses))
+	addresses := FilterSerializableAddrs(node.Addresses)
+	numAddresses := uint16(len(addresses))
 	byteOrder.PutUint16(scratch[:2], numAddresses)
 	if _, err := b.Write(scratch[:2]); err != nil {
 		return err
 	}
 
-	for _, address := range node.Addresses {
+	for _, address := range addresses {
 		if err := SerializeAddr(&b, address); err != nil {
 			return err
 		}

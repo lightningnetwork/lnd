@@ -19,6 +19,14 @@ var (
 	// ErrNoPrivateKey is an error returned by the OnionStore.PrivateKey
 	// method when a private key hasn't yet been stored.
 	ErrNoPrivateKey = errors.New("private key not found")
+
+	// ErrNonV3OnionKey is returned when a restored onion private key is
+	// not a v3 (ED25519-V3) key. lnd no longer creates or recovers v2
+	// onion services; users with an old v2 key file must remove it so
+	// a fresh v3 service can be generated.
+	ErrNonV3OnionKey = errors.New("restored onion private key is not a " +
+		"v3 (ED25519-V3) key; remove the old onion key file to " +
+		"generate a new v3 service")
 )
 
 // OnionType denotes the type of the onion service.
@@ -32,6 +40,12 @@ const (
 const (
 	// V3KeyParam is a parameter that Tor accepts for a new V3 service.
 	V3KeyParam = "ED25519-V3"
+
+	// v2KeyParam is the parameter Tor used for legacy v2 onion service
+	// private keys. lnd no longer generates or restores v2 services, but
+	// the prefix is still used to detect stale on-disk keys and surface a
+	// clear error.
+	v2KeyParam = "RSA1024"
 )
 
 // OnionStore is a store containing information about a particular onion
@@ -128,6 +142,13 @@ func (f *OnionFile) PrivateKey() ([]byte, error) {
 		return privateKeyContent, nil
 	}
 
+	// A plaintext legacy v2 (RSA1024) key on disk is unsupported.
+	// Surface a dedicated error so the user can act on it instead of
+	// being redirected to --tor.encryptkey.
+	if bytes.HasPrefix(privateKeyContent, []byte(v2KeyParam)) {
+		return nil, ErrNonV3OnionKey
+	}
+
 	// If the privateKeyContent is encrypted but --tor.encryptkey
 	// wasn't set we return an error.
 	if !f.encryptKey {
@@ -141,6 +162,13 @@ func (f *OnionFile) PrivateKey() ([]byte, error) {
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// Run the same validator over the decrypted contents so an encrypted
+	// legacy key is rejected with a clear error rather than being passed
+	// to Tor.
+	if !bytes.HasPrefix(privateKeyContent, []byte(V3KeyParam)) {
+		return nil, ErrNonV3OnionKey
 	}
 
 	return privateKeyContent, nil
@@ -193,7 +221,16 @@ func (c *Controller) prepareKeyparam(cfg AddOnionConfig) (string, error) {
 		case ErrNoPrivateKey:
 
 		// Recover the onion service with the private key found.
+		// Refuse to hand a non-v3 key (for example, a legacy
+		// RSA1024:... v2 key) to Tor; the caller must remove the old
+		// key file rather than silently regenerate a fresh v3
+		// service, which would change the advertised onion identity.
 		case nil:
+			if !bytes.HasPrefix(
+				privateKey, []byte(V3KeyParam+":"),
+			) {
+				return "", ErrNonV3OnionKey
+			}
 			keyParam = string(privateKey)
 
 		default:

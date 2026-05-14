@@ -15,13 +15,13 @@ by using Tor for anonymous networking to establish connections.
 
 With widespread usage of Onion Services within the network, concerns about the
 difficulty of proper NAT traversal are alleviated, as usage of onion services
-allows nodes to accept inbound connections even if they're behind a NAT. At the
-time of writing this documentation, `lnd` supports both types of onion services:
-v2 and v3.
+allows nodes to accept inbound connections even if they're behind a NAT. `lnd`
+supports v3 onion services only; legacy v2 onion service support has been
+removed.
 
-Before following the remainder of this documentation, you should ensure that you
-already have Tor installed locally. **If you want to run v3 Onion Services, make
-sure that you run at least version 0.3.3.6.**
+Before following the remainder of this documentation, you should ensure that
+you already have Tor installed locally. **Make sure that you run at least
+version 0.3.3.6 of Tor in order to use v3 Onion Services.**
 Official instructions to install the latest release of Tor can be found
 [here](https://www.torproject.org/docs/tor-doc-unix.html.en).
 

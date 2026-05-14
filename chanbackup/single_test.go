@@ -38,8 +38,9 @@ var (
 	addr1, _ = net.ResolveTCPAddr("tcp", "10.0.0.2:9000")
 	addr2, _ = net.ResolveTCPAddr("tcp", "10.0.0.3:9000")
 	addr3    = &tor.OnionAddr{
-		OnionService: "3g2upl4pq6kufc4m.onion",
-		Port:         9735,
+		OnionService: "vww6ybal4bd7szmgncyruucpgfkqahzd" +
+			"di37ktceo3ah7ngmcopnpyyd.onion",
+		Port: 9735,
 	}
 	addr4 = &lnwire.DNSAddress{
 		Hostname: "example.com",

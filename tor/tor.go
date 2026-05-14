@@ -300,27 +300,6 @@ func IsOnionFakeIP(addr net.Addr) bool {
 	return err == nil
 }
 
-// OnionHostToFakeIP encodes an Onion v2 address into a fake IPv6 address that
-// encodes the same information but can be used for libraries that operate on an
-// IP address base only, like btcd's address manager. For example, this will
-// turn the onion host ld47qlr6h2b7hrrf.onion into the ip6 address
-// fd87:d87e:eb43:58f9:f82e:3e3e:83f3:c625.
-func OnionHostToFakeIP(host string) (net.IP, error) {
-	if len(host) != V2Len {
-		return nil, fmt.Errorf("invalid onion v2 host: %v", host)
-	}
-
-	data, err := Base32Encoding.DecodeString(host[:V2Len-OnionSuffixLen])
-	if err != nil {
-		return nil, err
-	}
-
-	ip := make([]byte, len(onionPrefixBytes)+len(data))
-	copy(ip, onionPrefixBytes)
-	copy(ip[len(onionPrefixBytes):], data)
-	return ip, nil
-}
-
 // FakeIPToOnionHost turns a fake IPv6 address that encodes an Onion v2 address
 // back into its onion host address representation. For example, this will turn
 // the fake tcp6 address [fd87:d87e:eb43:58f9:f82e:3e3e:83f3:c625]:8333 back

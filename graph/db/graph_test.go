@@ -400,8 +400,7 @@ func testNodeInsertionAndDeletion(t *testing.T, v lnwire.GossipVersion) {
 		// Add 2 IPV6 addresses.
 		testIPV6Addr,
 		anotherAddr,
-		// Add one v2 and one v3 onion address.
-		testOnionV2Addr,
+		// Add a v3 onion address.
 		testOnionV3Addr,
 		// Add a DNS host address.
 		testDNSAddr,
@@ -439,7 +438,6 @@ func testNodeInsertionAndDeletion(t *testing.T, v lnwire.GossipVersion) {
 
 	// Finally, update the set to only contain the Tor addresses.
 	expAddrs = []net.Addr{
-		testOnionV2Addr,
 		testOnionV3Addr,
 	}
 	node = nodeWithAddrs(expAddrs)

@@ -3,6 +3,7 @@ package chanstate
 import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -22,6 +23,10 @@ type Store[Channel any] interface {
 
 	// HistoricalChannelStore owns the post-close historical channel view.
 	HistoricalChannelStore[Channel]
+
+	// OpenChannelLifecycleStore owns persisted lifecycle state for open
+	// channel records.
+	OpenChannelLifecycleStore[Channel]
 
 	// ClosedChannelStore owns closed-channel summaries and lifecycle
 	// mutations.
@@ -101,6 +106,38 @@ type HistoricalChannelStore[Channel any] interface {
 	// FetchHistoricalChannel fetches open channel data from the
 	// historical channel bucket.
 	FetchHistoricalChannel(outPoint *wire.OutPoint) (Channel, error)
+}
+
+// OpenChannelLifecycleStore owns persisted lifecycle state for open channel
+// records.
+type OpenChannelLifecycleStore[Channel any] interface {
+	// RefreshChannel updates the in-memory channel state using the latest
+	// state observed on disk.
+	RefreshChannel(channel Channel) error
+
+	// MarkChannelConfirmationHeight updates the channel's confirmation
+	// height once the channel opening transaction receives one
+	// confirmation.
+	MarkChannelConfirmationHeight(channel Channel, height uint32) error
+
+	// MarkChannelCloseConfirmationHeight updates the channel's close
+	// confirmation height when the closing transaction is first detected
+	// in a block.
+	MarkChannelCloseConfirmationHeight(channel Channel,
+		height fn.Option[uint32]) error
+
+	// MarkChannelOpen marks a channel as fully open given a locator that
+	// uniquely describes its location within the chain.
+	MarkChannelOpen(channel Channel, openLoc lnwire.ShortChannelID) error
+
+	// MarkChannelRealScid marks the zero-conf channel's confirmed
+	// ShortChannelID.
+	MarkChannelRealScid(channel Channel,
+		realScid lnwire.ShortChannelID) error
+
+	// MarkChannelScidAliasNegotiated marks that the scid-alias feature
+	// bit was negotiated during the lifetime of the channel.
+	MarkChannelScidAliasNegotiated(channel Channel) error
 }
 
 // ClosedChannelStore owns closed-channel summaries and lifecycle mutations.

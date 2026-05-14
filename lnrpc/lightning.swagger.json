@@ -2701,6 +2701,13 @@
             "required": false,
             "type": "integer",
             "format": "int64"
+          },
+          {
+            "name": "label",
+            "description": "An optional filter to only include transactions with a matching label.",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "tags": [

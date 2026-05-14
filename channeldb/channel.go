@@ -2327,11 +2327,29 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 		return nil, ErrNoRestoredChannelMutation
 	}
 
+	finalHtlcs, err := c.Db.UpdateChannelCommitment(
+		c, newCommitment, unsignedAckedUpdates,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	c.LocalCommitment = *newCommitment
+
+	return finalHtlcs, nil
+}
+
+// UpdateChannelCommitment updates the local commitment state.
+func (c *ChannelStateDB) UpdateChannelCommitment(channel *OpenChannel,
+	newCommitment *ChannelCommitment,
+	unsignedAckedUpdates []LogUpdate) (map[uint64]bool, error) {
+
 	var finalHtlcs = make(map[uint64]bool)
 
-	err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
@@ -2339,7 +2357,7 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 
 		// If the channel is marked as borked, then for safety reasons,
 		// we shouldn't attempt any further updates.
-		isBorked, err := c.isBorked(chanBucket)
+		isBorked, err := channel.isBorked(chanBucket)
 		if err != nil {
 			return err
 		}
@@ -2347,7 +2365,7 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 			return ErrChanBorked
 		}
 
-		if err = putChanInfo(chanBucket, c); err != nil {
+		if err = putChanInfo(chanBucket, channel); err != nil {
 			return fmt.Errorf("unable to store chan info: %w", err)
 		}
 
@@ -2402,9 +2420,9 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 		// Get the bucket where settled htlcs are recorded if the user
 		// opted in to storing this information.
 		var finalHtlcsBucket kvdb.RwBucket
-		if c.Db.parent.storeFinalHtlcResolutions {
+		if c.parent.storeFinalHtlcResolutions {
 			bucket, err := fetchFinalHtlcsBucketRw(
-				tx, c.ShortChannelID,
+				tx, channel.ShortChannelID,
 			)
 			if err != nil {
 				return err
@@ -2452,8 +2470,6 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 	if err != nil {
 		return nil, err
 	}
-
-	c.LocalCommitment = *newCommitment
 
 	return finalHtlcs, nil
 }

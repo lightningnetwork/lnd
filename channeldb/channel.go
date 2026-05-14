@@ -3596,12 +3596,24 @@ func (c *OpenChannel) CommitmentHeight() (uint64, error) {
 	c.RLock()
 	defer c.RUnlock()
 
+	return c.Db.CommitmentHeight(c)
+}
+
+// CommitmentHeight returns the current commitment height. The commitment
+// height represents the number of updates to the commitment state to date.
+// This value is always monotonically increasing. This method is provided in
+// order to allow multiple instances of a particular open channel to obtain a
+// consistent view of the number of channel updates to date.
+func (c *ChannelStateDB) CommitmentHeight(channel *OpenChannel) (
+	uint64, error) {
+
 	var height uint64
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		// Get the bucket dedicated to storing the metadata for open
 		// channels.
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
@@ -4090,21 +4102,32 @@ func (c *OpenChannel) Copy() *OpenChannel {
 // latest fully committed state is returned. The first commitment returned is
 // the local commitment, and the second returned is the remote commitment.
 func (c *OpenChannel) LatestCommitments() (*ChannelCommitment, *ChannelCommitment, error) {
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	return c.Db.LatestCommitments(c)
+}
+
+// LatestCommitments returns the two latest commitments for both the local and
+// remote party. These commitments are read from disk to ensure that only the
+// latest fully committed state is returned. The first commitment returned is
+// the local commitment, and the second returned is the remote commitment.
+func (c *ChannelStateDB) LatestCommitments(channel *OpenChannel) (
+	*ChannelCommitment, *ChannelCommitment, error) {
+
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
 		}
 
-		return fetchChanCommitments(chanBucket, c)
+		return fetchChanCommitments(chanBucket, channel)
 	}, func() {})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return &c.LocalCommitment, &c.RemoteCommitment, nil
+	return &channel.LocalCommitment, &channel.RemoteCommitment, nil
 }
 
 // RemoteRevocationStore returns the most up to date commitment version of the
@@ -4112,21 +4135,32 @@ func (c *OpenChannel) LatestCommitments() (*ChannelCommitment, *ChannelCommitmen
 // acting on a possible contract breach to ensure, that the caller has the most
 // up to date information required to deliver justice.
 func (c *OpenChannel) RemoteRevocationStore() (shachain.Store, error) {
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	return c.Db.RemoteRevocationStore(c)
+}
+
+// RemoteRevocationStore returns the most up to date commitment version of the
+// revocation storage tree for the remote party. This method can be used when
+// acting on a possible contract breach to ensure, that the caller has the most
+// up to date information required to deliver justice.
+func (c *ChannelStateDB) RemoteRevocationStore(channel *OpenChannel) (
+	shachain.Store, error) {
+
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
 		}
 
-		return fetchChanRevocationState(chanBucket, c)
+		return fetchChanRevocationState(chanBucket, channel)
 	}, func() {})
 	if err != nil {
 		return nil, err
 	}
 
-	return c.RevocationStore, nil
+	return channel.RevocationStore, nil
 }
 
 // AbsoluteThawHeight determines a frozen channel's absolute thaw height. If the

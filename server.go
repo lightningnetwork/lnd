@@ -326,7 +326,7 @@ type server struct {
 	graphDB *graphdb.ChannelGraph
 	v1Graph *graphdb.VersionedGraph
 
-	chanStateDB chanstate.Store
+	chanStateDB chanstate.Store[*channeldb.OpenChannel]
 	linkNodeDB  *channeldb.LinkNodeDB
 
 	addrSource channeldb.AddrSource

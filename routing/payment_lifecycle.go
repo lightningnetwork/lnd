@@ -20,9 +20,15 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
-// ErrPaymentLifecycleExiting is used when waiting for htlc attempt result, but
-// the payment lifecycle is exiting .
-var ErrPaymentLifecycleExiting = errors.New("payment lifecycle exiting")
+var (
+	// ErrPaymentLifecycleExiting is used when waiting for htlc attempt
+	// result, but the payment lifecycle is exiting .
+	ErrPaymentLifecycleExiting = errors.New("payment lifecycle exiting")
+
+	// ErrPaymentLifecycleStale is returned when a payment lifecycle detects
+	// that its payment hash now points to a newer payment sequence number.
+	ErrPaymentLifecycleStale = errors.New("payment lifecycle stale")
+)
 
 // switchResult is the result sent back from the switch after processing the
 // HTLC.
@@ -41,6 +47,7 @@ type paymentLifecycle struct {
 	router                *ChannelRouter
 	feeLimit              lnwire.MilliSatoshi
 	identifier            lntypes.Hash
+	sequenceNum           uint64
 	paySession            PaymentSession
 	shardTracker          shards.ShardTracker
 	currentHeight         int32
@@ -214,6 +221,10 @@ func (p *paymentLifecycle) resumePayment(ctx context.Context) ([32]byte,
 		return [32]byte{}, nil, err
 	}
 
+	if err := p.checkPaymentSequenceNum(payment); err != nil {
+		return [32]byte{}, nil, err
+	}
+
 	// Get the payment status.
 	status := payment.GetStatus()
 
@@ -357,6 +368,27 @@ lifecycle:
 
 	// Otherwise return the payment failure reason.
 	return [32]byte{}, nil, *failure
+}
+
+// checkPaymentSequenceNum binds the lifecycle to its first observed payment
+// sequence number, then returns an error if later reloads observe a different
+// sequence number for the same payment hash.
+func (p *paymentLifecycle) checkPaymentSequenceNum(
+	payment paymentsdb.DBMPPayment) error {
+
+	sequenceNum := payment.GetSequenceNum()
+	if p.sequenceNum == 0 {
+		p.sequenceNum = sequenceNum
+		return nil
+	}
+
+	if sequenceNum == p.sequenceNum {
+		return nil
+	}
+
+	return fmt.Errorf("%w: payment %v sequence number changed from %d "+
+		"to %d", ErrPaymentLifecycleStale, p.identifier,
+		p.sequenceNum, sequenceNum)
 }
 
 // checkContext checks whether the payment context has been canceled.
@@ -1171,6 +1203,9 @@ func (p *paymentLifecycle) reloadPayment(
 	// Read the db to get the latest state of the payment.
 	payment, err := p.router.cfg.Control.FetchPayment(ctx, p.identifier)
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := p.checkPaymentSequenceNum(payment); err != nil {
 		return nil, nil, err
 	}
 

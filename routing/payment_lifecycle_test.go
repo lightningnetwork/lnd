@@ -149,6 +149,7 @@ func setupTestPaymentLifecycle(t *testing.T) (*paymentLifecycle, *mockers) {
 
 	htlcs := []paymentsdb.HTLCAttempt{}
 	m.payment.On("InFlightHTLCs").Return(htlcs).Once()
+	m.payment.On("GetSequenceNum").Return(uint64(1))
 
 	return p, m
 }
@@ -798,6 +799,29 @@ func TestResumePaymentFailOnFetchPayment(t *testing.T) {
 	sendPaymentAndAssertError(t, t.Context(), p, errDummy)
 
 	// Expected collectResultAsync to not be called.
+	require.Zero(t, m.collectResultsCount)
+}
+
+// TestResumePaymentFailOnStaleSequenceNum checks that a lifecycle exits before
+// making more attempts when its payment hash has been recycled by a newer
+// InitPayment.
+func TestResumePaymentFailOnStaleSequenceNum(t *testing.T) {
+	t.Parallel()
+
+	p, m := setupTestPaymentLifecycle(t)
+
+	m.payment.On("GetStatus").Return(paymentsdb.StatusInFlight).Once()
+	newPayment := &mockMPPayment{}
+	m.control.On("FetchPayment", p.identifier).Return(
+		newPayment, nil,
+	).Once()
+	newPayment.On("GetSequenceNum").Return(uint64(2)).Once()
+	defer newPayment.AssertExpectations(t)
+
+	sendPaymentAndAssertError(
+		t, t.Context(), p, ErrPaymentLifecycleStale,
+	)
+
 	require.Zero(t, m.collectResultsCount)
 }
 

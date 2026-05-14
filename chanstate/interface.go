@@ -45,6 +45,10 @@ type Store[Channel any] interface {
 	// channel records.
 	OpenChannelCommitmentStore[Channel]
 
+	// OpenChannelFwdPkgStore owns forwarding packages tied to open
+	// channel records.
+	OpenChannelFwdPkgStore[Channel]
+
 	// ClosedChannelStore owns closed-channel summaries and lifecycle
 	// mutations.
 	ClosedChannelStore[Channel]
@@ -260,6 +264,27 @@ type OpenChannelCommitmentStore[Channel any] interface {
 	AdvanceCommitChainTail(channel Channel, fwdPkg *FwdPkg,
 		updates []LogUpdate, ourOutputIndex,
 		theirOutputIndex uint32) error
+}
+
+// OpenChannelFwdPkgStore owns forwarding packages tied to open channel records.
+type OpenChannelFwdPkgStore[Channel any] interface {
+	// LoadFwdPkgs loads forwarding packages that have not been processed.
+	LoadFwdPkgs(channel Channel) ([]*FwdPkg, error)
+
+	// AckAddHtlcs marks add HTLCs in forwarding packages as resolved.
+	AckAddHtlcs(channel Channel, addRefs ...AddRef) error
+
+	// AckSettleFails marks settles or fails as delivered to the incoming
+	// link.
+	AckSettleFails(channel Channel, settleFailRefs ...SettleFailRef) error
+
+	// SetFwdFilter writes the forwarding filter for the forwarding package
+	// identified by height.
+	SetFwdFilter(channel Channel, height uint64, fwdFilter *PkgFilter) error
+
+	// RemoveFwdPkgs removes forwarding packages by remote commitment
+	// height.
+	RemoveFwdPkgs(channel Channel, heights ...uint64) error
 }
 
 // ClosedChannelStore owns closed-channel summaries and lifecycle mutations.

@@ -3422,10 +3422,19 @@ func (c *OpenChannel) LoadFwdPkgs() ([]*FwdPkg, error) {
 	c.RLock()
 	defer c.RUnlock()
 
+	return c.Db.LoadFwdPkgs(c)
+}
+
+// LoadFwdPkgs scans the forwarding log for any packages that haven't been
+// processed, and returns their deserialized log updates in map indexed by the
+// remote commitment height at which the updates were locked in.
+func (c *ChannelStateDB) LoadFwdPkgs(channel *OpenChannel) ([]*FwdPkg,
+	error) {
+
 	var fwdPkgs []*FwdPkg
-	if err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	if err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		var err error
-		fwdPkgs, err = c.Packager.LoadFwdPkgs(tx)
+		fwdPkgs, err = channel.Packager.LoadFwdPkgs(tx)
 		return err
 	}, func() {
 		fwdPkgs = nil
@@ -3443,8 +3452,17 @@ func (c *OpenChannel) AckAddHtlcs(addRefs ...AddRef) error {
 	c.Lock()
 	defer c.Unlock()
 
-	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
-		return c.Packager.AckAddHtlcs(tx, addRefs...)
+	return c.Db.AckAddHtlcs(c, addRefs...)
+}
+
+// AckAddHtlcs updates the AckAddFilter containing any of the provided AddRefs
+// indicating that a response to this Add has been committed to the remote party.
+// Doing so will prevent these Add HTLCs from being reforwarded internally.
+func (c *ChannelStateDB) AckAddHtlcs(channel *OpenChannel,
+	addRefs ...AddRef) error {
+
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		return channel.Packager.AckAddHtlcs(tx, addRefs...)
 	}, func() {})
 }
 
@@ -3456,8 +3474,18 @@ func (c *OpenChannel) AckSettleFails(settleFailRefs ...SettleFailRef) error {
 	c.Lock()
 	defer c.Unlock()
 
-	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
-		return c.Packager.AckSettleFails(tx, settleFailRefs...)
+	return c.Db.AckSettleFails(c, settleFailRefs...)
+}
+
+// AckSettleFails updates the SettleFailFilter containing any of the provided
+// SettleFailRefs, indicating that the response has been delivered to the
+// incoming link, corresponding to a particular AddRef. Doing so will prevent
+// the responses from being retransmitted internally.
+func (c *ChannelStateDB) AckSettleFails(channel *OpenChannel,
+	settleFailRefs ...SettleFailRef) error {
+
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		return channel.Packager.AckSettleFails(tx, settleFailRefs...)
 	}, func() {})
 }
 
@@ -3467,8 +3495,16 @@ func (c *OpenChannel) SetFwdFilter(height uint64, fwdFilter *PkgFilter) error {
 	c.Lock()
 	defer c.Unlock()
 
-	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
-		return c.Packager.SetFwdFilter(tx, height, fwdFilter)
+	return c.Db.SetFwdFilter(c, height, fwdFilter)
+}
+
+// SetFwdFilter atomically sets the forwarding filter for the forwarding package
+// identified by `height`.
+func (c *ChannelStateDB) SetFwdFilter(channel *OpenChannel, height uint64,
+	fwdFilter *PkgFilter) error {
+
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		return channel.Packager.SetFwdFilter(tx, height, fwdFilter)
 	}, func() {})
 }
 
@@ -3481,9 +3517,20 @@ func (c *OpenChannel) RemoveFwdPkgs(heights ...uint64) error {
 	c.Lock()
 	defer c.Unlock()
 
-	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+	return c.Db.RemoveFwdPkgs(c, heights...)
+}
+
+// RemoveFwdPkgs atomically removes forwarding packages specified by the remote
+// commitment heights. If one of the intermediate RemovePkg calls fails, then the
+// later packages won't be removed.
+//
+// NOTE: This method should only be called on packages marked FwdStateCompleted.
+func (c *ChannelStateDB) RemoveFwdPkgs(channel *OpenChannel,
+	heights ...uint64) error {
+
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		for _, height := range heights {
-			err := c.Packager.RemovePkg(tx, height)
+			err := channel.Packager.RemovePkg(tx, height)
 			if err != nil {
 				return err
 			}

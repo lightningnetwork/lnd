@@ -629,3 +629,125 @@ func TestBip32DerivationFromAddress(t *testing.T) {
 		require.Equal(t, tc.expectedBip32Path, trD.Bip32Path)
 	}
 }
+
+// TestFinalize2of2Multisig tests that FinalizePsbt correctly handles a 2-of-2
+// P2WSH multisig PSBT that already carries the external cosigner's partial
+// signature. Previously (issue #10575), this would fail with "Unsupported
+// script type" because FinalizePsbt relied solely on FetchInputInfo (UTXO DB
+// lookup) to identify signable inputs. For a multisig P2WSH the wallet doesn't
+// own the script address, so FetchInputInfo would fail, the input would be
+// skipped, and MaybeFinalizeAll would be called with only 1 of 2 partial sigs.
+// The fix is to call SignPsbt (which consults BIP32 derivation info) before
+// finalization so that the wallet's partial signature is added.
+func TestFinalize2of2Multisig(t *testing.T) {
+	w, _ := newTestWallet(t, netParams, seedBytes)
+
+	// Derive a key from the wallet (simulates lnd's cosigner key).
+	walletKeyPath := []uint32{
+		hardenedKey(keychain.BIP0043Purpose),
+		hardenedKey(netParams.HDCoinType),
+		hardenedKey(uint32(keychain.KeyFamilyMultiSig)),
+		0, 0,
+	}
+	walletPrivKey, err := w.deriveKeyByBIP32Path(walletKeyPath)
+	require.NoError(t, err)
+
+	walletPub := walletPrivKey.PubKey()
+
+	// Generate an external cosigner key (not in lnd's wallet).
+	externalPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	externalPub := externalPrivKey.PubKey()
+
+	// Build a 2-of-2 multisig witness script.
+	addr1, err := btcutil.NewAddressPubKey(
+		walletPub.SerializeCompressed(), netParams,
+	)
+	require.NoError(t, err)
+	addr2, err := btcutil.NewAddressPubKey(
+		externalPub.SerializeCompressed(), netParams,
+	)
+	require.NoError(t, err)
+
+	witnessScript, err := txscript.MultiSigScript(
+		[]*btcutil.AddressPubKey{addr1, addr2}, 2,
+	)
+	require.NoError(t, err)
+
+	// Create the P2WSH output.
+	witnessScriptHash := sha256.Sum256(witnessScript)
+	p2wshAddr, err := btcutil.NewAddressWitnessScriptHash(
+		witnessScriptHash[:], netParams,
+	)
+	require.NoError(t, err)
+	p2wshPkScript, err := txscript.PayToAddrScript(p2wshAddr)
+	require.NoError(t, err)
+
+	// Create a funding tx and a spend tx.
+	const fundingAmount int64 = 1_000_000
+	fundingTx := wire.NewMsgTx(2)
+	fundingTx.AddTxIn(&wire.TxIn{})
+	fundingTx.AddTxOut(&wire.TxOut{
+		Value:    fundingAmount,
+		PkScript: p2wshPkScript,
+	})
+
+	spendTx := wire.NewMsgTx(2)
+	spendTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{
+			Hash:  fundingTx.TxHash(),
+			Index: 0,
+		},
+	})
+	spendTx.AddTxOut(&wire.TxOut{
+		Value:    fundingAmount - 1000,
+		PkScript: p2wshPkScript,
+	})
+
+	// Wrap in a PSBT and populate the input.
+	packet, err := psbt.NewFromUnsignedTx(spendTx)
+	require.NoError(t, err)
+
+	packet.Inputs[0].WitnessUtxo = fundingTx.TxOut[0]
+	packet.Inputs[0].WitnessScript = witnessScript
+	packet.Inputs[0].SighashType = txscript.SigHashAll
+	packet.Inputs[0].Bip32Derivation = []*psbt.Bip32Derivation{{
+		PubKey:    walletPub.SerializeCompressed(),
+		Bip32Path: walletKeyPath,
+	}}
+
+	// The external cosigner signs first and adds a partial sig.
+	prevOutFetcher := txscript.NewCannedPrevOutputFetcher(
+		p2wshPkScript, fundingAmount,
+	)
+	sigHashes := txscript.NewTxSigHashes(spendTx, prevOutFetcher)
+	externalSig, err := txscript.RawTxInWitnessSignature(
+		spendTx, sigHashes, 0, fundingAmount,
+		witnessScript, txscript.SigHashAll, externalPrivKey,
+	)
+	require.NoError(t, err)
+
+	packet.Inputs[0].PartialSigs = []*psbt.PartialSig{{
+		PubKey:    externalPub.SerializeCompressed(),
+		Signature: externalSig,
+	}}
+
+	// Call FinalizePsbt which should now succeed because it calls SignPsbt
+	// (which consults BIP32 derivation info) before finalization.
+	err = w.FinalizePsbt(packet, lnwallet.DefaultAccountName)
+	require.NoError(t, err)
+
+	// Extract and verify the final transaction.
+	finalTx, err := psbt.Extract(packet)
+	require.NoError(t, err)
+
+	vm, err := txscript.NewEngine(
+		p2wshPkScript, finalTx, 0,
+		txscript.StandardVerifyFlags, nil, nil,
+		fundingAmount, txscript.NewCannedPrevOutputFetcher(
+			p2wshPkScript, fundingAmount,
+		),
+	)
+	require.NoError(t, err)
+	require.NoError(t, vm.Execute())
+}

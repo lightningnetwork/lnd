@@ -878,7 +878,7 @@ func TestChannelStateTransition(t *testing.T) {
 
 	// The state number recovered from the tail of the revocation log
 	// should be identical to this current state.
-	logTailHeight, err := channel.revocationLogTailCommitHeight()
+	logTailHeight, err := cdb.revocationLogTailCommitHeight(channel)
 	require.NoError(t, err, "unable to retrieve log")
 	if logTailHeight != oldRemoteCommit.CommitHeight {
 		t.Fatal("update number doesn't match")
@@ -921,7 +921,7 @@ func TestChannelStateTransition(t *testing.T) {
 
 	// Once again, state number recovered from the tail of the revocation
 	// log should be identical to this current state.
-	logTailHeight, err = channel.revocationLogTailCommitHeight()
+	logTailHeight, err = cdb.revocationLogTailCommitHeight(channel)
 	require.NoError(t, err, "unable to retrieve log")
 	if logTailHeight != oldRemoteCommit.CommitHeight {
 		t.Fatal("update number doesn't match")

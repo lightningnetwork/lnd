@@ -41,6 +41,10 @@ type Store[Channel any] interface {
 	// OpenChannelCloseTxStore owns persisted closing transaction state.
 	OpenChannelCloseTxStore[Channel]
 
+	// OpenChannelCommitmentStore owns persisted commitment state for open
+	// channel records.
+	OpenChannelCommitmentStore[Channel]
+
 	// ClosedChannelStore owns closed-channel summaries and lifecycle
 	// mutations.
 	ClosedChannelStore[Channel]
@@ -215,6 +219,19 @@ type OpenChannelCloseTxStore[Channel any] interface {
 	// closing transaction.
 	FetchChannelBroadcastedCooperative(channel Channel) (*wire.MsgTx,
 		error)
+}
+
+// OpenChannelCommitmentStore owns persisted commitment state for open channel
+// records.
+type OpenChannelCommitmentStore[Channel any] interface {
+	// UpdateChannelCommitment updates the local commitment state. It
+	// locks in pending local updates received from the remote party and
+	// persists remote log updates that have been acked, but not signed
+	// for yet. The returned map contains all HTLC resolutions locked into
+	// this commitment, keyed by HTLC index.
+	UpdateChannelCommitment(channel Channel,
+		newCommitment *ChannelCommitment,
+		unsignedAckedUpdates []LogUpdate) (map[uint64]bool, error)
 }
 
 // ClosedChannelStore owns closed-channel summaries and lifecycle mutations.

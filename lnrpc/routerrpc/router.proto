@@ -236,12 +236,7 @@ message SendPaymentRequest {
     */
     int64 fee_limit_sat = 7;
 
-    /*
-    Deprecated, use outgoing_chan_ids. The channel id of the channel that must
-    be taken to the first hop. If zero, any channel may be used (unless
-    outgoing_chan_ids are set).
-    */
-    uint64 outgoing_chan_id = 8 [jstype = JS_STRING, deprecated = true];
+    reserved 8;
 
     /*
     An optional maximum total time lock for the route. This should not
@@ -461,14 +456,6 @@ message SendToRouteRequest {
     base64.
     */
     map<uint64, bytes> first_hop_custom_records = 4;
-}
-
-message SendToRouteResponse {
-    // The preimage obtained by making the payment.
-    bytes preimage = 1;
-
-    // The failure message in case the payment failed.
-    lnrpc.Failure failure = 2;
 }
 
 message ResetMissionControlRequest {

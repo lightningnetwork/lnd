@@ -4177,6 +4177,14 @@ func (s *SQLStore) GraphSession(ctx context.Context,
 
 // sqlNodeTraverser implements the NodeTraverser interface but with a backing
 // read only transaction for a consistent view of the graph.
+//
+// The read methods below hardcode gossipV1: this type is only constructed by
+// SQLStore.GraphSession, which is itself only invoked when the in-memory graph
+// cache is unavailable (see ChannelGraph.GraphSession). The SQL backend always
+// runs with the cache enabled in production, so this fallback is never reached
+// at runtime; the cache-backed NodeTraverser is what real callers use, and it
+// already merges v1+v2 with v2 precedence. The only paths that exercise this
+// code are tests, which operate on v1 data.
 type sqlNodeTraverser struct {
 	db    SQLQueries
 	chain chainhash.Hash
@@ -4205,7 +4213,7 @@ func (s *sqlNodeTraverser) ForEachNodeDirectedChannel(
 	cb func(channel *DirectedChannel) error, _ func()) error {
 
 	return forEachNodeDirectedChannel(
-		ctx, s.db, lnwire.GossipVersion1, nodePub, cb,
+		ctx, s.db, gossipV1, nodePub, cb,
 	)
 }
 
@@ -4217,7 +4225,7 @@ func (s *sqlNodeTraverser) FetchNodeFeatures(ctx context.Context,
 	nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
-	return fetchNodeFeatures(ctx, s.db, lnwire.GossipVersion1, nodePub)
+	return fetchNodeFeatures(ctx, s.db, gossipV1, nodePub)
 }
 
 // forEachNodeDirectedChannel iterates through all channels of a given

@@ -387,7 +387,7 @@ type Config struct {
 
 	// ChannelDB is the database that keeps track of channel state used by
 	// the funding flow.
-	ChannelDB chanstate.Store
+	ChannelDB chanstate.Store[*channeldb.OpenChannel]
 
 	// SignMessage signs an arbitrary message with a given public key. The
 	// actual digest signed is the double sha-256 of the message. In the

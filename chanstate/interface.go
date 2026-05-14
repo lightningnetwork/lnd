@@ -3,7 +3,6 @@ package chanstate
 import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -17,16 +16,16 @@ import (
 // concrete channeldb.ChannelStateDB type during the migration. Once the channel
 // state implementation moves into this package and the old concrete type is no
 // longer part of consumer-facing code, this name can be revisited.
-type Store interface {
+type Store[Channel any] interface {
 	// OpenChannelStore owns open-channel records.
-	OpenChannelStore
+	OpenChannelStore[Channel]
 
 	// HistoricalChannelStore owns the post-close historical channel view.
-	HistoricalChannelStore
+	HistoricalChannelStore[Channel]
 
 	// ClosedChannelStore owns closed-channel summaries and lifecycle
 	// mutations.
-	ClosedChannelStore
+	ClosedChannelStore[Channel]
 
 	// FinalHTLCStore owns final HTLC outcome data.
 	FinalHTLCStore
@@ -41,54 +40,52 @@ type Store interface {
 }
 
 // OpenChannelStore owns open-channel records.
-type OpenChannelStore interface {
+type OpenChannelStore[Channel any] interface {
 	// FetchOpenChannels starts a new database transaction and returns
 	// all stored currently active/open channels associated with the
 	// target nodeID. In the case that no active channels are known to
 	// have been created with this node, then a zero-length slice is
 	// returned.
-	FetchOpenChannels(nodeID *btcec.PublicKey) (
-		[]*channeldb.OpenChannel, error)
+	FetchOpenChannels(nodeID *btcec.PublicKey) ([]Channel, error)
 
 	// FetchChannel attempts to locate a channel specified by the passed
 	// channel point. If the channel cannot be found, then an error will
 	// be returned.
-	FetchChannel(chanPoint wire.OutPoint) (*channeldb.OpenChannel, error)
+	FetchChannel(chanPoint wire.OutPoint) (Channel, error)
 
 	// FetchChannelByID attempts to locate a channel specified by the
 	// passed channel ID. If the channel cannot be found, then an error
 	// will be returned.
-	FetchChannelByID(id lnwire.ChannelID) (*channeldb.OpenChannel, error)
+	FetchChannelByID(id lnwire.ChannelID) (Channel, error)
 
 	// FetchAllChannels attempts to retrieve all open channels currently
 	// stored within the database, including pending open, fully open and
 	// channels waiting for a closing transaction to confirm.
-	FetchAllChannels() ([]*channeldb.OpenChannel, error)
+	FetchAllChannels() ([]Channel, error)
 
 	// FetchAllOpenChannels will return all channels that have the
 	// funding transaction confirmed, and is not waiting for a closing
 	// transaction to be confirmed.
-	FetchAllOpenChannels() ([]*channeldb.OpenChannel, error)
+	FetchAllOpenChannels() ([]Channel, error)
 
 	// FetchPendingChannels will return channels that have completed the
 	// process of generating and broadcasting funding transactions, but
 	// whose funding transactions have yet to be confirmed on the
 	// blockchain.
-	FetchPendingChannels() ([]*channeldb.OpenChannel, error)
+	FetchPendingChannels() ([]Channel, error)
 
 	// FetchWaitingCloseChannels will return all channels that have been
 	// opened, but are now waiting for a closing transaction to be
 	// confirmed.
 	//
 	// NOTE: This includes channels that are also pending to be opened.
-	FetchWaitingCloseChannels() ([]*channeldb.OpenChannel, error)
+	FetchWaitingCloseChannels() ([]Channel, error)
 
 	// FetchPermAndTempPeers returns a map where the key is the remote
 	// node's public key and the value is a struct that has a tally of
 	// the pending-open channels and whether the peer has an open or
 	// closed channel with us.
-	FetchPermAndTempPeers(chainHash []byte) (
-		map[string]channeldb.ChanCount, error)
+	FetchPermAndTempPeers(chainHash []byte) (map[string]ChanCount, error)
 
 	// RestoreChannelShells reconstructs the state of an OpenChannel from
 	// the ChannelShell. We'll attempt to write the new channel to disk,
@@ -96,19 +93,18 @@ type OpenChannelStore interface {
 	// finally create an edge within the graph for the channel as well.
 	// This method is idempotent, so repeated calls with the same set of
 	// channel shells won't modify the database after the initial call.
-	RestoreChannelShells(channelShells ...*channeldb.ChannelShell) error
+	RestoreChannelShells(channelShells ...*ChannelShell[Channel]) error
 }
 
 // HistoricalChannelStore owns the post-close historical channel view.
-type HistoricalChannelStore interface {
+type HistoricalChannelStore[Channel any] interface {
 	// FetchHistoricalChannel fetches open channel data from the
 	// historical channel bucket.
-	FetchHistoricalChannel(outPoint *wire.OutPoint) (
-		*channeldb.OpenChannel, error)
+	FetchHistoricalChannel(outPoint *wire.OutPoint) (Channel, error)
 }
 
 // ClosedChannelStore owns closed-channel summaries and lifecycle mutations.
-type ClosedChannelStore interface {
+type ClosedChannelStore[Channel any] interface {
 	// FetchClosedChannels attempts to fetch all closed channels from the
 	// database. The pendingOnly bool toggles if channels that aren't yet
 	// fully closed should be returned in the response or not. When a
@@ -117,17 +113,17 @@ type ClosedChannelStore interface {
 	// become fully closed after _all_ the pending funds (if any) have
 	// been swept.
 	FetchClosedChannels(pendingOnly bool) (
-		[]*channeldb.ChannelCloseSummary, error)
+		[]*ChannelCloseSummary, error)
 
 	// FetchClosedChannel queries for a channel close summary using the
 	// channel point of the channel in question.
 	FetchClosedChannel(chanID *wire.OutPoint) (
-		*channeldb.ChannelCloseSummary, error)
+		*ChannelCloseSummary, error)
 
 	// FetchClosedChannelForID queries for a channel close summary using
 	// the channel ID of the channel in question.
 	FetchClosedChannelForID(cid lnwire.ChannelID) (
-		*channeldb.ChannelCloseSummary, error)
+		*ChannelCloseSummary, error)
 
 	// MarkChanFullyClosed marks a channel as fully closed within the
 	// database. A channel should be marked as fully closed if the
@@ -142,9 +138,8 @@ type ClosedChannelStore interface {
 	// FetchClosedChannel and FetchClosedChannelForID. Any ChannelStatus
 	// values are merged into the archived summary. Returns
 	// ErrChannelCloseSummaryNil if summary is nil.
-	CloseChannel(channel *channeldb.OpenChannel,
-		summary *channeldb.ChannelCloseSummary,
-		statuses ...channeldb.ChannelStatus) error
+	CloseChannel(channel Channel, summary *ChannelCloseSummary,
+		statuses ...ChannelStatus) error
 
 	// AbandonChannel attempts to remove the target channel from the open
 	// channel database. If the channel was already removed (has a closed
@@ -159,7 +154,7 @@ type FinalHTLCStore interface {
 	// database. If the htlc has no final resolution yet, ErrHtlcUnknown
 	// is returned.
 	LookupFinalHtlc(chanID lnwire.ShortChannelID,
-		htlcIndex uint64) (*channeldb.FinalHtlcInfo, error)
+		htlcIndex uint64) (*FinalHtlcInfo, error)
 
 	// PutOnchainFinalHtlcOutcome stores the final on-chain outcome of an
 	// htlc in the database.
@@ -211,18 +206,3 @@ type LinkNodeMaintainer interface {
 	// called on startup to ensure that our database is consistent.
 	RepairLinkNodes(network wire.BitcoinNet) error
 }
-
-// Compile-time assertion that channeldb.ChannelStateDB satisfies the Store
-// contract. If a method signature drifts on the concrete type,
-// this assertion will fail to build before any consumer migration.
-//
-// NOTE: This assertion lives in the interface file as a temporary exception to
-// the established pattern (see invoices/sql_store.go, payments/db/kv_store.go,
-// graph/db/kv_store.go), where each implementation asserts itself in its own
-// file. The implementation still lives in channeldb/, and channeldb must not
-// import chanstate to avoid a cycle, so the assertion has no local
-// implementation file to live in yet. When the KV implementation moves into
-// this package (chanstate/kv_store.go), this assertion MUST be removed from
-// here and re-stated next to the local implementation, matching the precedent
-// packages.
-var _ Store = (*channeldb.ChannelStateDB)(nil)

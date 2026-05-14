@@ -237,6 +237,18 @@ type OpenChannelCommitmentStore[Channel any] interface {
 	// party's commitment chain. This is used after preparing a new remote
 	// commitment state, before transmitting it to the remote party.
 	AppendRemoteCommitChain(channel Channel, diff *CommitDiff) error
+
+	// RemoteCommitChainTip returns the "tip" of the current remote
+	// commitment chain.
+	RemoteCommitChainTip(channel Channel) (*CommitDiff, error)
+
+	// UnsignedAckedUpdates retrieves the persisted unsigned acked remote
+	// log updates that still need to be signed for.
+	UnsignedAckedUpdates(channel Channel) ([]LogUpdate, error)
+
+	// RemoteUnsignedLocalUpdates retrieves the persisted, unsigned local
+	// log updates that the remote still needs to sign for.
+	RemoteUnsignedLocalUpdates(channel Channel) ([]LogUpdate, error)
 }
 
 // ClosedChannelStore owns closed-channel summaries and lifecycle mutations.

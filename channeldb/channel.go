@@ -3014,10 +3014,19 @@ func (c *ChannelStateDB) AppendRemoteCommitChain(channel *OpenChannel,
 // this new pending commitment. Once they revoked their prior state, we'll swap
 // these pointers, causing the tip and the tail to point to the same entry.
 func (c *OpenChannel) RemoteCommitChainTip() (*CommitDiff, error) {
+	return c.Db.RemoteCommitChainTip(c)
+}
+
+// RemoteCommitChainTip returns the "tip" of the current remote commitment
+// chain.
+func (c *ChannelStateDB) RemoteCommitChainTip(channel *OpenChannel) (
+	*CommitDiff, error) {
+
 	var cd *CommitDiff
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		switch err {
 		case nil:
@@ -3053,10 +3062,19 @@ func (c *OpenChannel) RemoteCommitChainTip() (*CommitDiff, error) {
 // UnsignedAckedUpdates retrieves the persisted unsigned acked remote log
 // updates that still need to be signed for.
 func (c *OpenChannel) UnsignedAckedUpdates() ([]LogUpdate, error) {
+	return c.Db.UnsignedAckedUpdates(c)
+}
+
+// UnsignedAckedUpdates retrieves the persisted unsigned acked remote log
+// updates that still need to be signed for.
+func (c *ChannelStateDB) UnsignedAckedUpdates(channel *OpenChannel) (
+	[]LogUpdate, error) {
+
 	var updates []LogUpdate
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		switch err {
 		case nil:
@@ -3087,10 +3105,19 @@ func (c *OpenChannel) UnsignedAckedUpdates() ([]LogUpdate, error) {
 // RemoteUnsignedLocalUpdates retrieves the persisted, unsigned local log
 // updates that the remote still needs to sign for.
 func (c *OpenChannel) RemoteUnsignedLocalUpdates() ([]LogUpdate, error) {
+	return c.Db.RemoteUnsignedLocalUpdates(c)
+}
+
+// RemoteUnsignedLocalUpdates retrieves the persisted, unsigned local log
+// updates that the remote still needs to sign for.
+func (c *ChannelStateDB) RemoteUnsignedLocalUpdates(channel *OpenChannel) (
+	[]LogUpdate, error) {
+
 	var updates []LogUpdate
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		switch err {
 		case nil:

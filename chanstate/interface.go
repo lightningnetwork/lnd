@@ -249,6 +249,10 @@ type OpenChannelCommitmentStore[Channel any] interface {
 	// RemoteUnsignedLocalUpdates retrieves the persisted, unsigned local
 	// log updates that the remote still needs to sign for.
 	RemoteUnsignedLocalUpdates(channel Channel) ([]LogUpdate, error)
+
+	// InsertNextRevocation inserts the next commitment point into the
+	// persisted channel state.
+	InsertNextRevocation(channel Channel, revKey *btcec.PublicKey) error
 }
 
 // ClosedChannelStore owns closed-channel summaries and lifecycle mutations.

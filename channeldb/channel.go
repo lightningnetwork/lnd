@@ -3541,19 +3541,6 @@ func (c *ChannelStateDB) RemoveFwdPkgs(channel *OpenChannel,
 }
 
 // revocationLogTailCommitHeight returns the commit height at the end of the
-// revocation log. This entry represents the last previous state for the remote
-// node's commitment chain. The ChannelDelta returned by this method will
-// always lag one state behind the most current (unrevoked) state of the remote
-// node's commitment chain.
-// NOTE: used in unit test only.
-func (c *OpenChannel) revocationLogTailCommitHeight() (uint64, error) {
-	c.RLock()
-	defer c.RUnlock()
-
-	return c.Db.revocationLogTailCommitHeight(c)
-}
-
-// revocationLogTailCommitHeight returns the commit height at the end of the
 // revocation log.
 func (c *ChannelStateDB) revocationLogTailCommitHeight(
 	channel *OpenChannel) (uint64, error) {

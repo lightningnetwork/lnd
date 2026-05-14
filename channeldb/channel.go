@@ -3207,11 +3207,24 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 		return ErrNoRestoredChannelMutation
 	}
 
+	return c.Db.AdvanceCommitChainTail(
+		c, fwdPkg, updates, ourOutputIndex, theirOutputIndex,
+	)
+}
+
+// AdvanceCommitChainTail records the new state transition within the
+// revocation log and promotes the pending remote commitment to the current
+// remote commitment.
+func (c *ChannelStateDB) AdvanceCommitChainTail(channel *OpenChannel,
+	fwdPkg *FwdPkg, updates []LogUpdate, ourOutputIndex,
+	theirOutputIndex uint32) error {
+
 	var newRemoteCommit *ChannelCommitment
 
-	err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
@@ -3219,7 +3232,7 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 
 		// If the channel is marked as borked, then for safety reasons,
 		// we shouldn't attempt any further updates.
-		isBorked, err := c.isBorked(chanBucket)
+		isBorked, err := channel.isBorked(chanBucket)
 		if err != nil {
 			return err
 		}
@@ -3230,7 +3243,7 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 		// Persist the latest preimage state to disk as the remote peer
 		// has just added to our local preimage store, and given us a
 		// new pending revocation key.
-		if err := putChanRevocationState(chanBucket, c); err != nil {
+		if err := putChanRevocationState(chanBucket, channel); err != nil {
 			return err
 		}
 
@@ -3269,8 +3282,8 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 		// With the commitment pointer swapped, we can now add the
 		// revoked (prior) state to the revocation log.
 		err = putRevocationLog(
-			logBucket, &c.RemoteCommitment, ourOutputIndex,
-			theirOutputIndex, c.Db.parent.noRevLogAmtData,
+			logBucket, &channel.RemoteCommitment, ourOutputIndex,
+			theirOutputIndex, c.parent.noRevLogAmtData,
 		)
 		if err != nil {
 			return err
@@ -3279,7 +3292,7 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 		// Lastly, we write the forwarding package to disk so that we
 		// can properly recover from failures and reforward HTLCs that
 		// have not received a corresponding settle/fail.
-		if err := c.Packager.AddFwdPkg(tx, fwdPkg); err != nil {
+		if err := channel.Packager.AddFwdPkg(tx, fwdPkg); err != nil {
 			return err
 		}
 
@@ -3351,7 +3364,7 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 	// With the db transaction complete, we'll swap over the in-memory
 	// pointer of the new remote commitment, which was previously the tip
 	// of the commit chain.
-	c.RemoteCommitment = *newRemoteCommit
+	channel.RemoteCommitment = *newRemoteCommit
 
 	return nil
 }

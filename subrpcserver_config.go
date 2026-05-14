@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -115,7 +116,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	routerBackend *routerrpc.RouterBackend,
 	nodeSigner *netann.NodeSigner,
 	graphDB *graphdb.ChannelGraph,
-	chanStateDB chanstate.Store,
+	chanStateDB chanstate.Store[*channeldb.OpenChannel],
 	sweeper *sweep.UtxoSweeper,
 	tower *watchtower.Standalone,
 	towerClientMgr *wtclient.Manager,

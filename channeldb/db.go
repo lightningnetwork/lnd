@@ -32,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration34"
 	"github.com/lightningnetwork/lnd/channeldb/migration35"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -777,10 +778,7 @@ func (c *ChannelStateDB) FetchChannelByID(id lnwire.ChannelID) (*OpenChannel,
 }
 
 // ChanCount is used by the server in determining access control.
-type ChanCount struct {
-	HasOpenOrClosedChan bool
-	PendingOpenCount    uint64
-}
+type ChanCount = chanstate.ChanCount
 
 // FetchPermAndTempPeers returns a map where the key is the remote node's
 // public key and the value is a struct that has a tally of the pending-open
@@ -1678,17 +1676,8 @@ func (c *ChannelStateDB) RepairLinkNodes(network wire.BitcoinNet) error {
 }
 
 // ChannelShell is a shell of a channel that is meant to be used for channel
-// recovery purposes. It contains a minimal OpenChannel instance along with
-// addresses for that target node.
-type ChannelShell struct {
-	// NodeAddrs the set of addresses that this node has known to be
-	// reachable at in the past.
-	NodeAddrs []net.Addr
-
-	// Chan is a shell of an OpenChannel, it contains only the items
-	// required to restore the channel on disk.
-	Chan *OpenChannel
-}
+// recovery purposes.
+type ChannelShell = chanstate.ChannelShell[*OpenChannel]
 
 // RestoreChannelShells is a method that allows the caller to reconstruct the
 // state of an OpenChannel from the ChannelShell. We'll attempt to write the

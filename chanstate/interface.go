@@ -28,6 +28,10 @@ type Store[Channel any] interface {
 	// channel records.
 	OpenChannelLifecycleStore[Channel]
 
+	// OpenChannelStatusStore owns persisted status flags for open channel
+	// records.
+	OpenChannelStatusStore[Channel]
+
 	// ClosedChannelStore owns closed-channel summaries and lifecycle
 	// mutations.
 	ClosedChannelStore[Channel]
@@ -138,6 +142,30 @@ type OpenChannelLifecycleStore[Channel any] interface {
 	// MarkChannelScidAliasNegotiated marks that the scid-alias feature
 	// bit was negotiated during the lifetime of the channel.
 	MarkChannelScidAliasNegotiated(channel Channel) error
+}
+
+// OpenChannelStatusStore owns persisted status flags for open channel records.
+type OpenChannelStatusStore[Channel any] interface {
+	// ApplyChannelStatus adds the target status to the channel's
+	// persisted status bit field.
+	ApplyChannelStatus(channel Channel, status ChannelStatus) error
+
+	// ClearChannelStatus clears the target status from the channel's
+	// persisted status bit field.
+	ClearChannelStatus(channel Channel, status ChannelStatus) error
+
+	// MarkChannelDataLoss marks the channel as local-data-loss and stores
+	// the commit point needed if the remote force closes.
+	MarkChannelDataLoss(channel Channel,
+		commitPoint *btcec.PublicKey) error
+
+	// FetchChannelDataLossCommitPoint retrieves the commit point stored
+	// when the channel was marked as local-data-loss.
+	FetchChannelDataLossCommitPoint(channel Channel) (
+		*btcec.PublicKey, error)
+
+	// MarkChannelBorked marks the channel as irreconcilable.
+	MarkChannelBorked(channel Channel) error
 }
 
 // ClosedChannelStore owns closed-channel summaries and lifecycle mutations.

@@ -801,8 +801,11 @@ type OpenChannel struct {
 	// immutable.
 	CustomBlob fn.Option[tlv.Blob]
 
-	// TODO(roasbeef): eww
-	Db *ChannelStateDB
+	// Db persists channel state through the chanstate Store contract. This
+	// field intentionally keeps the existing name while the code moves from
+	// channeldb toward chanstate so call sites can become backend
+	// independent before the OpenChannel type itself is moved.
+	Db cstate.Store[*OpenChannel]
 
 	// TODO(roasbeef): just need to store local and remote HTLC's?
 

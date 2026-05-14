@@ -367,10 +367,16 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 		return utxos[i].Value < utxos[j].Value
 	})
 
+	// We'll track the initial number of inputs to ensure we can restore the
+	// set to its original state if we fail to add the required wallet
+	// inputs.
+	inputsBefore := len(b.inputs)
+
 	// Add wallet inputs to the set until the specified budget is covered.
 	for _, utxo := range utxos {
 		err := b.addWalletInput(utxo)
 		if err != nil {
+			b.inputs = b.inputs[:inputsBefore]
 			return err
 		}
 

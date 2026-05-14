@@ -71,7 +71,7 @@
   the chain watch filter on restart. This was a pre-existing bug since
   private taproot channels were first introduced.
 
-* [Fixed a shutdown race in the 
+* [Fixed a shutdown race in the
   channel link](https://github.com/lightningnetwork/lnd/pull/10719)
   that could deadlock the invoice registry during concurrent peer disconnect.
   The link now waits for `htlcManager` to fully exit before tearing down hodl
@@ -87,6 +87,13 @@
   auto-enable is also narrowed to skip taproot-overlay channels, since the
   RBF close state machine does not yet thread through the `AuxCloser` hook
   that overlay channels rely on to build aux-aware close transactions.
+
+- [Fixed `BudgetInputSet.AddWalletInputs` to roll back partially-added
+  wallet inputs on error](https://github.com/lightningnetwork/lnd/pull/10723).
+  Previously, if adding a wallet input failed midway through the loop, any
+  inputs already appended to the set would remain, leaving it in an
+  inconsistent state. The method now restores the input set to its original
+  state before returning the error.
 
 # New Features
 

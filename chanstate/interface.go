@@ -232,6 +232,11 @@ type OpenChannelCommitmentStore[Channel any] interface {
 	UpdateChannelCommitment(channel Channel,
 		newCommitment *ChannelCommitment,
 		unsignedAckedUpdates []LogUpdate) (map[uint64]bool, error)
+
+	// AppendRemoteCommitChain appends a new CommitDiff to the remote
+	// party's commitment chain. This is used after preparing a new remote
+	// commitment state, before transmitting it to the remote party.
+	AppendRemoteCommitChain(channel Channel, diff *CommitDiff) error
 }
 
 // ClosedChannelStore owns closed-channel summaries and lifecycle mutations.

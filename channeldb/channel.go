@@ -234,6 +234,10 @@ type (
 
 	// HTLC is the on-disk representation of a hash time-locked contract.
 	HTLC = cstate.HTLC
+
+	// LogUpdate represents a pending update to the remote commitment
+	// chain.
+	LogUpdate = cstate.LogUpdate
 )
 
 // openChannelTlvData houses the new data fields that are stored for each
@@ -2720,20 +2724,6 @@ func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 	}
 
 	return htlcs, nil
-}
-
-// LogUpdate represents a pending update to the remote commitment chain. The
-// log update may be an add, fail, or settle entry. We maintain this data in
-// order to be able to properly retransmit our proposed state if necessary.
-type LogUpdate struct {
-	// LogIndex is the log index of this proposed commitment update entry.
-	LogIndex uint64
-
-	// UpdateMsg is the update message that was included within our
-	// local update log. The LogIndex value denotes the log index of this
-	// update which will be used when restoring our local update log if
-	// we're left with a dangling update on restart.
-	UpdateMsg lnwire.Message
 }
 
 // serializeLogUpdate writes a log update to the provided io.Writer.

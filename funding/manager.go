@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph"
@@ -384,8 +385,9 @@ type Config struct {
 	// so that the channel creation process can be completed.
 	Notifier chainntnfs.ChainNotifier
 
-	// ChannelDB is the database that keeps track of all channel state.
-	ChannelDB *channeldb.ChannelStateDB
+	// ChannelDB is the database that keeps track of channel state used by
+	// the funding flow.
+	ChannelDB chanstate.Store
 
 	// SignMessage signs an arbitrary message with a given public key. The
 	// actual digest signed is the double sha-256 of the message. In the

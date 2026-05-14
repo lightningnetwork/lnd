@@ -1917,21 +1917,23 @@ func (c *OpenChannel) MarkShutdownSent(info *ShutdownInfo) error {
 	c.Lock()
 	defer c.Unlock()
 
-	return c.storeShutdownInfo(info)
+	return c.Db.StoreChannelShutdownInfo(c, info)
 }
 
-// storeShutdownInfo serialises the ShutdownInfo and persists it under the
-// shutdownInfoKey.
-func (c *OpenChannel) storeShutdownInfo(info *ShutdownInfo) error {
+// StoreChannelShutdownInfo persists the ShutdownInfo for the target channel.
+func (c *ChannelStateDB) StoreChannelShutdownInfo(channel *OpenChannel,
+	info *ShutdownInfo) error {
+
 	var b bytes.Buffer
 	err := encodeShutdownInfo(info, &b)
 	if err != nil {
 		return err
 	}
 
-	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
@@ -1948,10 +1950,19 @@ func (c *OpenChannel) ShutdownInfo() (fn.Option[ShutdownInfo], error) {
 	c.RLock()
 	defer c.RUnlock()
 
+	return c.Db.FetchChannelShutdownInfo(c)
+}
+
+// FetchChannelShutdownInfo fetches the persisted ShutdownInfo for the target
+// channel.
+func (c *ChannelStateDB) FetchChannelShutdownInfo(
+	channel *OpenChannel) (fn.Option[ShutdownInfo], error) {
+
 	var shutdownInfo *ShutdownInfo
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		switch {
 		case err == nil:
@@ -2005,9 +2016,18 @@ func (c *OpenChannel) isBorked(chanBucket kvdb.RBucket) (bool, error) {
 func (c *OpenChannel) MarkCommitmentBroadcasted(closeTx *wire.MsgTx,
 	closer lntypes.ChannelParty) error {
 
+	return c.Db.MarkChannelCommitmentBroadcasted(c, closeTx, closer)
+}
+
+// MarkChannelCommitmentBroadcasted marks the channel as having a commitment
+// transaction broadcast.
+func (c *ChannelStateDB) MarkChannelCommitmentBroadcasted(
+	channel *OpenChannel, closeTx *wire.MsgTx,
+	closer lntypes.ChannelParty) error {
+
 	return c.markBroadcasted(
-		ChanStatusCommitBroadcasted, forceCloseTxKey, closeTx,
-		closer,
+		channel, ChanStatusCommitBroadcasted, forceCloseTxKey,
+		closeTx, closer,
 	)
 }
 
@@ -2021,21 +2041,29 @@ func (c *OpenChannel) MarkCommitmentBroadcasted(closeTx *wire.MsgTx,
 func (c *OpenChannel) MarkCoopBroadcasted(closeTx *wire.MsgTx,
 	closer lntypes.ChannelParty) error {
 
+	return c.Db.MarkChannelCoopBroadcasted(c, closeTx, closer)
+}
+
+// MarkChannelCoopBroadcasted marks the channel as having a cooperative close
+// transaction broadcast.
+func (c *ChannelStateDB) MarkChannelCoopBroadcasted(channel *OpenChannel,
+	closeTx *wire.MsgTx, closer lntypes.ChannelParty) error {
+
 	return c.markBroadcasted(
-		ChanStatusCoopBroadcasted, coopCloseTxKey, closeTx,
-		closer,
+		channel, ChanStatusCoopBroadcasted, coopCloseTxKey,
+		closeTx, closer,
 	)
 }
 
-// markBroadcasted is a helper function which modifies the channel status of the
-// receiving channel and inserts a close transaction under the requested key,
-// which should specify either a coop or force close. It adds a status which
-// indicates the party that initiated the channel close.
-func (c *OpenChannel) markBroadcasted(status ChannelStatus, key []byte,
-	closeTx *wire.MsgTx, closer lntypes.ChannelParty) error {
+// markBroadcasted modifies the channel status and inserts a close transaction
+// under the requested key, which should specify either a coop or force close.
+// It adds a status which indicates the party that initiated the channel close.
+func (c *ChannelStateDB) markBroadcasted(channel *OpenChannel,
+	status ChannelStatus, key []byte, closeTx *wire.MsgTx,
+	closer lntypes.ChannelParty) error {
 
-	c.Lock()
-	defer c.Unlock()
+	channel.Lock()
+	defer channel.Unlock()
 
 	// If a closing tx is provided, we'll generate a closure to write the
 	// transaction in the appropriate bucket under the given key.
@@ -2060,29 +2088,48 @@ func (c *OpenChannel) markBroadcasted(status ChannelStatus, key []byte,
 		status |= ChanStatusRemoteCloseInitiator
 	}
 
-	return c.Db.putChanStatus(c, status, putClosingTx)
+	return c.putChanStatus(channel, status, putClosingTx)
 }
 
 // BroadcastedCommitment retrieves the stored unilateral closing tx set during
 // MarkCommitmentBroadcasted. If not found ErrNoCloseTx is returned.
 func (c *OpenChannel) BroadcastedCommitment() (*wire.MsgTx, error) {
-	return c.getClosingTx(forceCloseTxKey)
+	return c.Db.FetchChannelBroadcastedCommitment(c)
+}
+
+// FetchChannelBroadcastedCommitment fetches the stored unilateral closing
+// transaction.
+func (c *ChannelStateDB) FetchChannelBroadcastedCommitment(
+	channel *OpenChannel) (*wire.MsgTx, error) {
+
+	return c.getClosingTx(channel, forceCloseTxKey)
 }
 
 // BroadcastedCooperative retrieves the stored cooperative closing tx set during
 // MarkCoopBroadcasted. If not found ErrNoCloseTx is returned.
 func (c *OpenChannel) BroadcastedCooperative() (*wire.MsgTx, error) {
-	return c.getClosingTx(coopCloseTxKey)
+	return c.Db.FetchChannelBroadcastedCooperative(c)
 }
 
-// getClosingTx is a helper method which returns the stored closing transaction
-// for key. The caller should use either the force or coop closing keys.
-func (c *OpenChannel) getClosingTx(key []byte) (*wire.MsgTx, error) {
+// FetchChannelBroadcastedCooperative fetches the stored cooperative closing
+// transaction.
+func (c *ChannelStateDB) FetchChannelBroadcastedCooperative(
+	channel *OpenChannel) (*wire.MsgTx, error) {
+
+	return c.getClosingTx(channel, coopCloseTxKey)
+}
+
+// getClosingTx returns the stored closing transaction for key. The caller
+// should use either the force or coop closing keys.
+func (c *ChannelStateDB) getClosingTx(channel *OpenChannel,
+	key []byte) (*wire.MsgTx, error) {
+
 	var closeTx *wire.MsgTx
 
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		switch err {
 		case nil:

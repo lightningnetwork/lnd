@@ -398,6 +398,11 @@ lint-native: check-go-version lint-config-check build-native-linter
 	GOWORK=off ./tools/custom-gcl run -v $(LINT_WORKERS) \
 	  --new-from-rev=$$(git merge-base HEAD master)
 
+#? lint-module: Run static code analysis on all submodules (or specify module=<name> for a specific one)
+lint-module:
+	@$(call print, "Linting submodules.")
+	scripts/lint_modules.sh $(module)
+
 #? protolint: Lint proto files using protolint
 protolint:
 	@$(call print, "Linting proto files.")

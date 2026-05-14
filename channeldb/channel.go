@@ -2933,11 +2933,20 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 		return ErrNoRestoredChannelMutation
 	}
 
-	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+	return c.Db.AppendRemoteCommitChain(c, diff)
+}
+
+// AppendRemoteCommitChain appends a new CommitDiff to the remote party's
+// commitment chain.
+func (c *ChannelStateDB) AppendRemoteCommitChain(channel *OpenChannel,
+	diff *CommitDiff) error {
+
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		// First, we'll grab the writable bucket where this channel's
 		// data resides.
 		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
@@ -2945,7 +2954,7 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 
 		// If the channel is marked as borked, then for safety reasons,
 		// we shouldn't attempt any further updates.
-		isBorked, err := c.isBorked(chanBucket)
+		isBorked, err := channel.isBorked(chanBucket)
 		if err != nil {
 			return err
 		}
@@ -2958,7 +2967,7 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 		// Mark all of these as being fully processed in our forwarding
 		// package, which prevents us from reprocessing them after
 		// startup.
-		err = c.Packager.AckAddHtlcs(tx, diff.AddAcks...)
+		err = channel.Packager.AckAddHtlcs(tx, diff.AddAcks...)
 		if err != nil {
 			return err
 		}
@@ -2968,7 +2977,9 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 		// prevents the same fails and settles from being retransmitted
 		// after restarts. The actual fail or settle we need to
 		// propagate to the remote party is now in the commit diff.
-		err = c.Packager.AckSettleFails(tx, diff.SettleFailAcks...)
+		err = channel.Packager.AckSettleFails(
+			tx, diff.SettleFailAcks...,
+		)
 		if err != nil {
 			return err
 		}

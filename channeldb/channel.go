@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -19,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/walletdb"
+	cstate "github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -556,105 +555,16 @@ func (c ChannelType) IsTaprootFinal() bool {
 }
 
 // ChannelStateBounds are the parameters from OpenChannel and AcceptChannel
-// that are responsible for providing bounds on the state space of the abstract
-// channel state. These values must be remembered for normal channel operation
-// but they do not impact how we compute the commitment transactions themselves.
-type ChannelStateBounds struct {
-	// ChanReserve is an absolute reservation on the channel for the
-	// owner of this set of constraints. This means that the current
-	// settled balance for this node CANNOT dip below the reservation
-	// amount. This acts as a defense against costless attacks when
-	// either side no longer has any skin in the game.
-	ChanReserve btcutil.Amount
+// that bound the abstract channel state.
+type ChannelStateBounds = cstate.ChannelStateBounds
 
-	// MaxPendingAmount is the maximum pending HTLC value that the
-	// owner of these constraints can offer the remote node at a
-	// particular time.
-	MaxPendingAmount lnwire.MilliSatoshi
+// CommitmentParams are the parameters from OpenChannel and AcceptChannel that
+// are required to render an abstract channel state to a concrete commitment
+// transaction.
+type CommitmentParams = cstate.CommitmentParams
 
-	// MinHTLC is the minimum HTLC value that the owner of these
-	// constraints can offer the remote node. If any HTLCs below this
-	// amount are offered, then the HTLC will be rejected. This, in
-	// tandem with the dust limit allows a node to regulate the
-	// smallest HTLC that it deems economically relevant.
-	MinHTLC lnwire.MilliSatoshi
-
-	// MaxAcceptedHtlcs is the maximum number of HTLCs that the owner of
-	// this set of constraints can offer the remote node. This allows each
-	// node to limit their over all exposure to HTLCs that may need to be
-	// acted upon in the case of a unilateral channel closure or a contract
-	// breach.
-	MaxAcceptedHtlcs uint16
-}
-
-// CommitmentParams are the parameters from OpenChannel and
-// AcceptChannel that are required to render an abstract channel state to a
-// concrete commitment transaction. These values are necessary to (re)compute
-// the commitment transaction. We treat these differently than the state space
-// bounds because their history needs to be stored in order to properly handle
-// chain resolution.
-type CommitmentParams struct {
-	// DustLimit is the threshold (in satoshis) below which any outputs
-	// should be trimmed. When an output is trimmed, it isn't materialized
-	// as an actual output, but is instead burned to miner's fees.
-	DustLimit btcutil.Amount
-
-	// CsvDelay is the relative time lock delay expressed in blocks. Any
-	// settled outputs that pay to the owner of this channel configuration
-	// MUST ensure that the delay branch uses this value as the relative
-	// time lock. Similarly, any HTLC's offered by this node should use
-	// this value as well.
-	CsvDelay uint16
-}
-
-// ChannelConfig is a struct that houses the various configuration opens for
-// channels. Each side maintains an instance of this configuration file as it
-// governs: how the funding and commitment transaction to be created, the
-// nature of HTLC's allotted, the keys to be used for delivery, and relative
-// time lock parameters.
-type ChannelConfig struct {
-	// ChannelStateBounds is the set of constraints that must be
-	// upheld for the duration of the channel for the owner of this channel
-	// configuration. Constraints govern a number of flow control related
-	// parameters, also including the smallest HTLC that will be accepted
-	// by a participant.
-	ChannelStateBounds
-
-	// CommitmentParams is an embedding of the parameters
-	// required to render an abstract channel state into a concrete
-	// commitment transaction.
-	CommitmentParams
-
-	// MultiSigKey is the key to be used within the 2-of-2 output script
-	// for the owner of this channel config.
-	MultiSigKey keychain.KeyDescriptor
-
-	// RevocationBasePoint is the base public key to be used when deriving
-	// revocation keys for the remote node's commitment transaction. This
-	// will be combined along with a per commitment secret to derive a
-	// unique revocation key for each state.
-	RevocationBasePoint keychain.KeyDescriptor
-
-	// PaymentBasePoint is the base public key to be used when deriving
-	// the key used within the non-delayed pay-to-self output on the
-	// commitment transaction for a node. This will be combined with a
-	// tweak derived from the per-commitment point to ensure unique keys
-	// for each commitment transaction.
-	PaymentBasePoint keychain.KeyDescriptor
-
-	// DelayBasePoint is the base public key to be used when deriving the
-	// key used within the delayed pay-to-self output on the commitment
-	// transaction for a node. This will be combined with a tweak derived
-	// from the per-commitment point to ensure unique keys for each
-	// commitment transaction.
-	DelayBasePoint keychain.KeyDescriptor
-
-	// HtlcBasePoint is the base public key to be used when deriving the
-	// local HTLC key. The derived key (combined with the tweak derived
-	// from the per-commitment point) is used within the "to self" clause
-	// within any HTLC output scripts.
-	HtlcBasePoint keychain.KeyDescriptor
-}
+// ChannelConfig houses the channel configuration for one side of a channel.
+type ChannelConfig = cstate.ChannelConfig
 
 // commitTlvData stores all the optional data that may be stored as a TLV stream
 // at the _end_ of the normal serialized commit on disk.
@@ -834,107 +744,40 @@ func (c *ChannelCommitment) copy() ChannelCommitment {
 
 // ChannelStatus is a bit vector used to indicate whether an OpenChannel is in
 // the default usable state, or a state where it shouldn't be used.
-type ChannelStatus uint64
+type ChannelStatus = cstate.ChannelStatus
 
 var (
 	// ChanStatusDefault is the normal state of an open channel.
-	ChanStatusDefault ChannelStatus
+	ChanStatusDefault = cstate.ChanStatusDefault
 
 	// ChanStatusBorked indicates that the channel has entered an
-	// irreconcilable state, triggered by a state desynchronization or
-	// channel breach.  Channels in this state should never be added to the
-	// htlc switch.
-	ChanStatusBorked ChannelStatus = 1
+	// irreconcilable state.
+	ChanStatusBorked = cstate.ChanStatusBorked
 
 	// ChanStatusCommitBroadcasted indicates that a commitment for this
 	// channel has been broadcasted.
-	ChanStatusCommitBroadcasted ChannelStatus = 1 << 1
+	ChanStatusCommitBroadcasted = cstate.ChanStatusCommitBroadcasted
 
 	// ChanStatusLocalDataLoss indicates that we have lost channel state
-	// for this channel, and broadcasting our latest commitment might be
-	// considered a breach.
-	//
-	// TODO(halseh): actually enforce that we are not force closing such a
+	// for this channel.
+	ChanStatusLocalDataLoss = cstate.ChanStatusLocalDataLoss
+
+	// ChanStatusRestored signals that the channel has been restored and
+	// doesn't have all fields a typical channel will have.
+	ChanStatusRestored = cstate.ChanStatusRestored
+
+	// ChanStatusCoopBroadcasted indicates that a cooperative close for this
+	// channel has been broadcasted.
+	ChanStatusCoopBroadcasted = cstate.ChanStatusCoopBroadcasted
+
+	// ChanStatusLocalCloseInitiator indicates that we initiated closing the
 	// channel.
-	ChanStatusLocalDataLoss ChannelStatus = 1 << 2
-
-	// ChanStatusRestored is a status flag that signals that the channel
-	// has been restored, and doesn't have all the fields a typical channel
-	// will have.
-	ChanStatusRestored ChannelStatus = 1 << 3
-
-	// ChanStatusCoopBroadcasted indicates that a cooperative close for
-	// this channel has been broadcasted. Older cooperatively closed
-	// channels will only have this status set. Newer ones will also have
-	// close initiator information stored using the local/remote initiator
-	// status. This status is set in conjunction with the initiator status
-	// so that we do not need to check multiple channel statues for
-	// cooperative closes.
-	ChanStatusCoopBroadcasted ChannelStatus = 1 << 4
-
-	// ChanStatusLocalCloseInitiator indicates that we initiated closing
-	// the channel.
-	ChanStatusLocalCloseInitiator ChannelStatus = 1 << 5
+	ChanStatusLocalCloseInitiator = cstate.ChanStatusLocalCloseInitiator
 
 	// ChanStatusRemoteCloseInitiator indicates that the remote node
 	// initiated closing the channel.
-	ChanStatusRemoteCloseInitiator ChannelStatus = 1 << 6
+	ChanStatusRemoteCloseInitiator = cstate.ChanStatusRemoteCloseInitiator
 )
-
-// chanStatusStrings maps a ChannelStatus to a human friendly string that
-// describes that status.
-var chanStatusStrings = map[ChannelStatus]string{
-	ChanStatusDefault:              "ChanStatusDefault",
-	ChanStatusBorked:               "ChanStatusBorked",
-	ChanStatusCommitBroadcasted:    "ChanStatusCommitBroadcasted",
-	ChanStatusLocalDataLoss:        "ChanStatusLocalDataLoss",
-	ChanStatusRestored:             "ChanStatusRestored",
-	ChanStatusCoopBroadcasted:      "ChanStatusCoopBroadcasted",
-	ChanStatusLocalCloseInitiator:  "ChanStatusLocalCloseInitiator",
-	ChanStatusRemoteCloseInitiator: "ChanStatusRemoteCloseInitiator",
-}
-
-// orderedChanStatusFlags is an in-order list of all that channel status flags.
-var orderedChanStatusFlags = []ChannelStatus{
-	ChanStatusBorked,
-	ChanStatusCommitBroadcasted,
-	ChanStatusLocalDataLoss,
-	ChanStatusRestored,
-	ChanStatusCoopBroadcasted,
-	ChanStatusLocalCloseInitiator,
-	ChanStatusRemoteCloseInitiator,
-}
-
-// String returns a human-readable representation of the ChannelStatus.
-func (c ChannelStatus) String() string {
-	// If no flags are set, then this is the default case.
-	if c == ChanStatusDefault {
-		return chanStatusStrings[ChanStatusDefault]
-	}
-
-	// Add individual bit flags.
-	statusStr := ""
-	for _, flag := range orderedChanStatusFlags {
-		if c&flag == flag {
-			statusStr += chanStatusStrings[flag] + "|"
-			c -= flag
-		}
-	}
-
-	// Remove anything to the right of the final bar, including it as well.
-	statusStr = strings.TrimRight(statusStr, "|")
-
-	// Add any remaining flags which aren't accounted for as hex.
-	if c != 0 {
-		statusStr += "|0x" + strconv.FormatUint(uint64(c), 16)
-	}
-
-	// If this was purely an unknown flag, then remove the extra bar at the
-	// start of the string.
-	statusStr = strings.TrimLeft(statusStr, "|")
-
-	return statusStr
-}
 
 // FinalHtlcByte defines a byte type that encodes information about the final
 // htlc resolution.
@@ -3653,15 +3496,7 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 }
 
 // FinalHtlcInfo contains information about the final outcome of an htlc.
-type FinalHtlcInfo struct {
-	// Settled is true is the htlc was settled. If false, the htlc was
-	// failed.
-	Settled bool
-
-	// Offchain indicates whether the htlc was resolved off-chain or
-	// on-chain.
-	Offchain bool
-}
+type FinalHtlcInfo = cstate.FinalHtlcInfo
 
 // putFinalHtlc writes the final htlc outcome to the database. Additionally it
 // records whether the htlc was resolved off-chain or on-chain.
@@ -3909,122 +3744,39 @@ func (c *OpenChannel) FindPreviousState(
 	return rl, commit, nil
 }
 
-// ClosureType is an enum like structure that details exactly _how_ a channel
-// was closed. Three closure types are currently possible: none, cooperative,
-// local force close, remote force close, and (remote) breach.
-type ClosureType uint8
+// ClosureType is an enum like structure that details exactly how a channel was
+// closed.
+type ClosureType = cstate.ClosureType
 
 const (
 	// CooperativeClose indicates that a channel has been closed
-	// cooperatively.  This means that both channel peers were online and
-	// signed a new transaction paying out the settled balance of the
-	// contract.
-	CooperativeClose ClosureType = 0
+	// cooperatively.
+	CooperativeClose = cstate.CooperativeClose
 
 	// LocalForceClose indicates that we have unilaterally broadcast our
 	// current commitment state on-chain.
-	LocalForceClose ClosureType = 1
+	LocalForceClose = cstate.LocalForceClose
 
 	// RemoteForceClose indicates that the remote peer has unilaterally
 	// broadcast their current commitment state on-chain.
-	RemoteForceClose ClosureType = 4
+	RemoteForceClose = cstate.RemoteForceClose
 
 	// BreachClose indicates that the remote peer attempted to broadcast a
-	// prior _revoked_ channel state.
-	BreachClose ClosureType = 2
+	// prior revoked channel state.
+	BreachClose = cstate.BreachClose
 
 	// FundingCanceled indicates that the channel never was fully opened
-	// before it was marked as closed in the database. This can happen if
-	// we or the remote fail at some point during the opening workflow, or
-	// we timeout waiting for the funding transaction to be confirmed.
-	FundingCanceled ClosureType = 3
+	// before it was marked as closed in the database.
+	FundingCanceled = cstate.FundingCanceled
 
-	// Abandoned indicates that the channel state was removed without
-	// any further actions. This is intended to clean up unusable
-	// channels during development.
-	Abandoned ClosureType = 5
+	// Abandoned indicates that the channel state was removed without any
+	// further actions.
+	Abandoned = cstate.Abandoned
 )
 
 // ChannelCloseSummary contains the final state of a channel at the point it
-// was closed. Once a channel is closed, all the information pertaining to that
-// channel within the openChannelBucket is deleted, and a compact summary is
-// put in place instead.
-type ChannelCloseSummary struct {
-	// ChanPoint is the outpoint for this channel's funding transaction,
-	// and is used as a unique identifier for the channel.
-	ChanPoint wire.OutPoint
-
-	// ShortChanID encodes the exact location in the chain in which the
-	// channel was initially confirmed. This includes: the block height,
-	// transaction index, and the output within the target transaction.
-	ShortChanID lnwire.ShortChannelID
-
-	// ChainHash is the hash of the genesis block that this channel resides
-	// within.
-	ChainHash chainhash.Hash
-
-	// ClosingTXID is the txid of the transaction which ultimately closed
-	// this channel.
-	ClosingTXID chainhash.Hash
-
-	// RemotePub is the public key of the remote peer that we formerly had
-	// a channel with.
-	RemotePub *btcec.PublicKey
-
-	// Capacity was the total capacity of the channel.
-	Capacity btcutil.Amount
-
-	// CloseHeight is the height at which the funding transaction was
-	// spent.
-	CloseHeight uint32
-
-	// SettledBalance is our total balance settled balance at the time of
-	// channel closure. This _does not_ include the sum of any outputs that
-	// have been time-locked as a result of the unilateral channel closure.
-	SettledBalance btcutil.Amount
-
-	// TimeLockedBalance is the sum of all the time-locked outputs at the
-	// time of channel closure. If we triggered the force closure of this
-	// channel, then this value will be non-zero if our settled output is
-	// above the dust limit. If we were on the receiving side of a channel
-	// force closure, then this value will be non-zero if we had any
-	// outstanding outgoing HTLC's at the time of channel closure.
-	TimeLockedBalance btcutil.Amount
-
-	// CloseType details exactly _how_ the channel was closed. Five closure
-	// types are possible: cooperative, local force, remote force, breach
-	// and funding canceled.
-	CloseType ClosureType
-
-	// IsPending indicates whether this channel is in the 'pending close'
-	// state, which means the channel closing transaction has been
-	// confirmed, but not yet been fully resolved. In the case of a channel
-	// that has been cooperatively closed, it will go straight into the
-	// fully resolved state as soon as the closing transaction has been
-	// confirmed. However, for channels that have been force closed, they'll
-	// stay marked as "pending" until _all_ the pending funds have been
-	// swept.
-	IsPending bool
-
-	// RemoteCurrentRevocation is the current revocation for their
-	// commitment transaction. However, since this is the derived public key,
-	// we don't yet have the private key so we aren't yet able to verify
-	// that it's actually in the hash chain.
-	RemoteCurrentRevocation *btcec.PublicKey
-
-	// RemoteNextRevocation is the revocation key to be used for the *next*
-	// commitment transaction we create for the local node. Within the
-	// specification, this value is referred to as the
-	// per-commitment-point.
-	RemoteNextRevocation *btcec.PublicKey
-
-	// LocalChanConfig is the channel configuration for the local node.
-	LocalChanConfig ChannelConfig
-
-	// LastChanSyncMsg is the ChannelReestablish message for this channel
-	// for the state at the point where it was closed.
-	LastChanSyncMsg *lnwire.ChannelReestablish
-}
+// was closed.
+type ChannelCloseSummary = cstate.ChannelCloseSummary
 
 // CloseChannel closes a previously active Lightning channel. Closing a
 // channel entails persisting a record of the close while either purging the

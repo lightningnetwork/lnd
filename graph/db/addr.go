@@ -104,11 +104,6 @@ func encodeOnionAddr(w io.Writer, addr *tor.OnionAddr) error {
 	var suffixIndex int
 	hostLen := len(addr.OnionService)
 	switch hostLen {
-	case tor.V2Len:
-		if _, err := w.Write([]byte{byte(v2OnionAddr)}); err != nil {
-			return err
-		}
-		suffixIndex = tor.V2Len - tor.OnionSuffixLen
 	case tor.V3Len:
 		if _, err := w.Write([]byte{byte(v3OnionAddr)}); err != nil {
 			return err
@@ -131,12 +126,7 @@ func encodeOnionAddr(w io.Writer, addr *tor.OnionAddr) error {
 	}
 
 	// Sanity check the decoded length.
-	switch {
-	case hostLen == tor.V2Len && len(host) != tor.V2DecodedLen:
-		return fmt.Errorf("onion service %v decoded to invalid host %x",
-			addr.OnionService, host)
-
-	case hostLen == tor.V3Len && len(host) != tor.V3DecodedLen:
+	if hostLen == tor.V3Len && len(host) != tor.V3DecodedLen {
 		return fmt.Errorf("onion service %v decoded to invalid host %x",
 			addr.OnionService, host)
 	}

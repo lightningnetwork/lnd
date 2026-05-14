@@ -59,24 +59,6 @@ func randTCP6Addr(r *rand.Rand) (*net.TCPAddr, error) {
 	return &net.TCPAddr{IP: addrIP, Port: addrPort}, nil
 }
 
-func randV2OnionAddr(r *rand.Rand) (*tor.OnionAddr, error) {
-	var serviceID [tor.V2DecodedLen]byte
-	if _, err := r.Read(serviceID[:]); err != nil {
-		return nil, err
-	}
-
-	var port [2]byte
-	if _, err := r.Read(port[:]); err != nil {
-		return nil, err
-	}
-
-	onionService := tor.Base32Encoding.EncodeToString(serviceID[:])
-	onionService += tor.OnionSuffix
-	addrPort := int(binary.BigEndian.Uint16(port[:]))
-
-	return &tor.OnionAddr{OnionService: onionService, Port: addrPort}, nil
-}
-
 func randV3OnionAddr(r *rand.Rand) (*tor.OnionAddr, error) {
 	var serviceID [tor.V3DecodedLen]byte
 	if _, err := r.Read(serviceID[:]); err != nil {
@@ -106,17 +88,12 @@ func randAddrs(r *rand.Rand) ([]net.Addr, error) {
 		return nil, err
 	}
 
-	v2OnionAddr, err := randV2OnionAddr(r)
-	if err != nil {
-		return nil, err
-	}
-
 	v3OnionAddr, err := randV3OnionAddr(r)
 	if err != nil {
 		return nil, err
 	}
 
-	return []net.Addr{tcp4Addr, tcp6Addr, v2OnionAddr, v3OnionAddr}, nil
+	return []net.Addr{tcp4Addr, tcp6Addr, v3OnionAddr}, nil
 }
 
 // dbObject is abstract object support encoding and decoding.

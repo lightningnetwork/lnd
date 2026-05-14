@@ -7,6 +7,8 @@ import (
 	"io"
 	"net"
 	"unicode/utf8"
+
+	"github.com/lightningnetwork/lnd/tor"
 )
 
 // ErrUnknownAddrType is an error returned if we encounter an unknown address type
@@ -129,6 +131,20 @@ func (a *NodeAnnouncement1) Decode(r io.Reader, _ uint32) error {
 	)
 	if err != nil {
 		return err
+	}
+
+	// Reject any node announcement that advertises a v2 onion address so
+	// it is never relayed onward or persisted to the graph DB. Tor v2
+	// onion services have been obsolete since October 2021.
+	for _, addr := range a.Addresses {
+		onion, ok := addr.(*tor.OnionAddr)
+		if !ok {
+			continue
+		}
+
+		if len(onion.OnionService) == tor.V2Len {
+			return ErrV2OnionAddrNotSupported
+		}
 	}
 
 	return a.ExtraOpaqueData.ValidateTLV()

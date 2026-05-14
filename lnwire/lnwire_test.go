@@ -137,8 +137,11 @@ func TestDecodeUnknownAddressType(t *testing.T) {
 
 	// Add an onion address.
 	onionAddr := &tor.OnionAddr{
-		OnionService: "abcdefghijklmnop.onion",
-		Port:         9065,
+		OnionService: "abcdefghij" +
+			"abcdefghijabcdefghij" +
+			"abcdefghijabcdefghij" +
+			"234567.onion",
+		Port: 9065,
 	}
 
 	// Now add an address with an unknown type.

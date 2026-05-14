@@ -336,7 +336,8 @@ func (c *ChannelGraph) FetchNodeFeatures(ctx context.Context,
 // GraphSession will provide the call-back with access to a NodeTraverser
 // instance which can be used to perform queries against the channel graph. If
 // the graph cache is not enabled, then the call-back will be provided with
-// access to the graph via a consistent read-only transaction.
+// access to the graph via a consistent read-only transaction; the no-cache
+// path only runs against the KV backend, which is v1-only.
 func (c *ChannelGraph) GraphSession(ctx context.Context,
 	cb func(graph NodeTraverser) error, reset func()) error {
 
@@ -971,21 +972,6 @@ func (c *VersionedGraph) ChannelView(ctx context.Context) ([]EdgePoint,
 	error) {
 
 	return c.db.ChannelView(ctx, c.v)
-}
-
-// GraphSession provides the callback with access to a NodeTraverser instance
-// for performing queries against the channel graph. If the graph cache is
-// enabled, the callback receives the VersionedGraph directly (which implements
-// NodeTraverser using the cache). Otherwise a read-only database session is
-// used; the no-cache path only runs against the KV backend, which is v1-only.
-func (c *VersionedGraph) GraphSession(ctx context.Context,
-	cb func(graph NodeTraverser) error, reset func()) error {
-
-	if c.cache != nil && c.cache.isLoaded() {
-		return cb(c)
-	}
-
-	return c.db.GraphSession(ctx, cb, reset)
 }
 
 // FetchNode attempts to look up a target node by its identity public key.

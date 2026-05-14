@@ -952,7 +952,8 @@ func initBreachedState(t *testing.T) (*BreachArbitrator,
 	contractBreaches := make(chan *ContractBreachEvent)
 
 	brar, err := createTestArbiter(
-		t, contractBreaches, alice.State().Db.GetParentDB(),
+		t, contractBreaches,
+		testChannelStateDB(t, alice.State()).GetParentDB(),
 	)
 	require.NoError(t, err, "unable to initialize test breach arbiter")
 
@@ -1118,7 +1119,8 @@ func TestBreachHandoffFail(t *testing.T) {
 	assertNotPendingClosed(t, alice)
 
 	brar, err := createTestArbiter(
-		t, contractBreaches, alice.State().Db.GetParentDB(),
+		t, contractBreaches,
+		testChannelStateDB(t, alice.State()).GetParentDB(),
 	)
 	require.NoError(t, err, "unable to initialize test breach arbiter")
 
@@ -1763,7 +1765,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	}
 
 	// Assert that the channel is fully resolved.
-	assertBrarCleanup(t, brar, &chanPoint, alice.State().Db)
+	assertBrarCleanup(t, brar, &chanPoint, testChannelStateDB(t, alice.State()))
 }
 
 // TestBreachDelayedJusticeConfirmation tests that the breach arbiter will
@@ -1968,7 +1970,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	}
 
 	// Assert that the channel is fully resolved.
-	assertBrarCleanup(t, brar, &chanPoint, alice.State().Db)
+	assertBrarCleanup(t, brar, &chanPoint, testChannelStateDB(t, alice.State()))
 }
 
 // findInputIndex returns the index of the input that spends from the given
@@ -2080,7 +2082,7 @@ func assertBrarCleanup(t *testing.T, brar *BreachArbitrator,
 func assertPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
 	t.Helper()
 
-	closedChans, err := c.State().Db.FetchClosedChannels(true)
+	closedChans, err := testChannelStateDB(t, c.State()).FetchClosedChannels(true)
 	require.NoError(t, err, "unable to load pending closed channels")
 
 	for _, chanSummary := range closedChans {
@@ -2097,7 +2099,7 @@ func assertPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
 func assertNotPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
 	t.Helper()
 
-	closedChans, err := c.State().Db.FetchClosedChannels(true)
+	closedChans, err := testChannelStateDB(t, c.State()).FetchClosedChannels(true)
 	require.NoError(t, err, "unable to load pending closed channels")
 
 	for _, chanSummary := range closedChans {

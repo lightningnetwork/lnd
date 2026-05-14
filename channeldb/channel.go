@@ -3549,17 +3549,26 @@ func (c *OpenChannel) revocationLogTailCommitHeight() (uint64, error) {
 	c.RLock()
 	defer c.RUnlock()
 
+	return c.Db.revocationLogTailCommitHeight(c)
+}
+
+// revocationLogTailCommitHeight returns the commit height at the end of the
+// revocation log.
+func (c *ChannelStateDB) revocationLogTailCommitHeight(
+	channel *OpenChannel) (uint64, error) {
+
 	var height uint64
 
 	// If we haven't created any state updates yet, then we'll exit early as
 	// there's nothing to be found on disk in the revocation bucket.
-	if c.RemoteCommitment.CommitHeight == 0 {
+	if channel.RemoteCommitment.CommitHeight == 0 {
 		return height, nil
 	}
 
-	if err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	if err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
@@ -3646,12 +3655,24 @@ func (c *OpenChannel) FindPreviousState(
 	c.RLock()
 	defer c.RUnlock()
 
+	return c.Db.FindPreviousState(c, updateNum)
+}
+
+// FindPreviousState scans through the append-only log in an attempt to recover
+// the previous channel state indicated by the update number. This method is
+// intended to be used for obtaining the relevant data needed to claim all
+// funds rightfully spendable in the case of an on-chain broadcast of the
+// commitment transaction.
+func (c *ChannelStateDB) FindPreviousState(channel *OpenChannel,
+	updateNum uint64) (*RevocationLog, *ChannelCommitment, error) {
+
 	commit := &ChannelCommitment{}
 	rl := &RevocationLog{}
 
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err

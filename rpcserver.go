@@ -3637,6 +3637,13 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 			serverPeer.RemoteFeatures(),
 		)
 
+		// Snapshot the per-peer onion message byte and drop counters
+		// so operators can observe which peers are actually relaying
+		// onion messages and why drops are happening. The counters
+		// are cumulative over the current connection and reset when
+		// the peer reconnects.
+		onionStats := serverPeer.OnionStats()
+
 		rpcPeer := &lnrpc.Peer{
 			PubKey:          hex.EncodeToString(nodePub[:]),
 			Address:         serverPeer.Conn().RemoteAddr().String(),
@@ -3649,6 +3656,14 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 			SyncType:        lnrpcSyncType,
 			Features:        features,
 			LastPingPayload: serverPeer.LastRemotePingPayload(),
+			OnionMessageStats: &lnrpc.OnionMessageStats{
+				BytesRecv:        onionStats.BytesRecv,
+				BytesSent:        onionStats.BytesSent,
+				DroppedPeer:      onionStats.DroppedPeer,
+				DroppedFreebie:   onionStats.DroppedFreebie,
+				DroppedGlobal:    onionStats.DroppedGlobal,
+				DroppedNoChannel: onionStats.DroppedNoChannel,
+			},
 		}
 
 		var peerErrors []interface{}

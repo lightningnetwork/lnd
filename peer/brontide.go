@@ -338,6 +338,15 @@ type Config struct {
 	// the global limiter through sheer identity count.
 	OnionRelayAll bool
 
+	// OnionFreebieEnabled, when true, routes onion messages from peers
+	// that have no fully open channel with us through the
+	// IngressLimiter's shared freebie bucket instead of dropping them
+	// outright. Meaningless when OnionRelayAll is true (startup config
+	// validation rejects both being set). When both are false,
+	// no-channel peers remain strictly gated and their messages are
+	// dropped with ErrNoChannel.
+	OnionFreebieEnabled bool
+
 	// OnionActorOpts returns ActorOptions for the onion peer actor
 	// being spawned for the given peer. This allows per-peer
 	// customization of mailbox size, drop predicates, etc.
@@ -560,6 +569,19 @@ type Brontide struct {
 	// MUST be used atomically.
 	bytesReceived uint64
 	bytesSent     uint64
+
+	// Onion-message byte and per-reason drop counters. Lifetime
+	// matches the connection: they are reset on reconnect along
+	// with the rest of the Brontide state. The readHandler and
+	// send path bump these atomically so the cost on the hot
+	// path is a single add. Drop reasons mirror the sentinel
+	// errors returned by allowOnionMessage.
+	onionBytesRecv      atomic.Uint64
+	onionBytesSent      atomic.Uint64
+	onionDroppedPeer    atomic.Uint64
+	onionDroppedFreebie atomic.Uint64
+	onionDroppedGlobal  atomic.Uint64
+	onionDroppedNoChan  atomic.Uint64
 
 	// isTorConnection is a flag that indicates whether or not we believe
 	// the remote peer is a tor connection. It is not always possible to
@@ -2420,17 +2442,20 @@ out:
 			// Charge the limiter the on-the-wire size of the
 			// message so the byte-granular bucket reflects
 			// actual ingress bandwidth rather than raw message
-			// counts. The channel-gate hint is sourced from the
-			// atomic active-channel counter so the check is
-			// O(1) on the hot path. A rejection surfaces as a
-			// sentinel error wrapped in fn.Result; errors.Is
-			// lets us pick the right first-drop log path.
+			// counts. allowOnionMessage picks one of three
+			// admission paths (channel gate, relay-all,
+			// freebie) based on the three policy bools below.
+			// A rejection surfaces as a sentinel error wrapped
+			// in fn.Result; errors.Is lets us pick the right
+			// first-drop log path.
 			result := allowOnionMessage(
 				p.cfg.OnionLimiter, p.PubKey(),
 				msg.WireSize(), p.hasActiveChannels(),
 				p.cfg.OnionRelayAll,
+				p.cfg.OnionFreebieEnabled,
 			)
 			if err := result.Err(); err != nil {
+				p.recordOnionDrop(err)
 				logFirstOnionDrop(
 					peerLog, p.log, err,
 					p.cfg.OnionLimiter,
@@ -2445,6 +2470,8 @@ out:
 
 				break
 			}
+
+			p.onionBytesRecv.Add(uint64(msg.WireSize()))
 
 			p.onionActorRef.WhenSome(
 				func(ref onionmessage.OnionPeerActorRef) {
@@ -2571,6 +2598,38 @@ func (p *Brontide) hasChannel(chanID lnwire.ChannelID) bool {
 // iterating a map.
 func (p *Brontide) hasActiveChannels() bool {
 	return p.numActiveChans.Load() > 0
+}
+
+// OnionStats returns a snapshot of the per-peer
+// onion-message byte and drop counters for this connection.
+// The returned values are point-in-time atomic loads; the
+// counters continue to advance after the snapshot.
+func (p *Brontide) OnionStats() OnionMessageStats {
+	return OnionMessageStats{
+		BytesRecv:        p.onionBytesRecv.Load(),
+		BytesSent:        p.onionBytesSent.Load(),
+		DroppedPeer:      p.onionDroppedPeer.Load(),
+		DroppedFreebie:   p.onionDroppedFreebie.Load(),
+		DroppedGlobal:    p.onionDroppedGlobal.Load(),
+		DroppedNoChannel: p.onionDroppedNoChan.Load(),
+	}
+}
+
+// recordOnionDrop bumps the correct per-reason drop counter
+// for err. Unknown errors are ignored so the counter set
+// stays pinned to the sentinels returned by
+// allowOnionMessage.
+func (p *Brontide) recordOnionDrop(err error) {
+	switch {
+	case errors.Is(err, ErrNoChannel):
+		p.onionDroppedNoChan.Add(1)
+	case errors.Is(err, onionmessage.ErrPeerRateLimit):
+		p.onionDroppedPeer.Add(1)
+	case errors.Is(err, onionmessage.ErrFreebieRateLimit):
+		p.onionDroppedFreebie.Add(1)
+	case errors.Is(err, onionmessage.ErrGlobalRateLimit):
+		p.onionDroppedGlobal.Add(1)
+	}
 }
 
 // markPendingChannel records chanID in activeChannels as a pending (nil)
@@ -5079,6 +5138,18 @@ func (p *Brontide) SendMessageLazy(sync bool, msgs ...lnwire.Message) error {
 // messages have been sent to the remote peer or an error is returned, otherwise
 // it returns immediately after queueing.
 func (p *Brontide) sendMessage(sync, priority bool, msgs ...lnwire.Message) error {
+	// Bump the outbound onion-message byte counter once per onion
+	// message passed through the peer's own send surface. We do
+	// this here rather than in queueMsg because queueMsg is also
+	// invoked by internal machinery (pings, shutdowns, replays)
+	// that should not be attributed to the peer's onion-message
+	// bandwidth.
+	for _, msg := range msgs {
+		if om, ok := msg.(*lnwire.OnionMessage); ok {
+			p.onionBytesSent.Add(uint64(om.WireSize()))
+		}
+	}
+
 	// Add all incoming messages to the outgoing queue. A list of error
 	// chans is populated for each message if the caller requested a sync
 	// send.

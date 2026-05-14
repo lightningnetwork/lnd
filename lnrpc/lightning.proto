@@ -2026,6 +2026,54 @@ message Peer {
     The last ping payload the peer has sent to us.
     */
     bytes last_ping_payload = 15;
+
+    /*
+    Per-peer onion message byte and drop counters, cumulative over the
+    lifetime of the current peer connection. Counters reset when the peer
+    reconnects. Populated from the per-peer atomic counters bumped by the
+    onion message ingress pipeline; drop counts are attributed to the
+    sentinel error returned by the admission policy.
+    */
+    OnionMessageStats onion_message_stats = 16;
+}
+
+message OnionMessageStats {
+    /*
+    The total on-the-wire size of onion messages from this peer that were
+    admitted past the ingress pipeline.
+    */
+    uint64 bytes_recv = 1;
+
+    /*
+    The total on-the-wire size of onion messages we sent to this peer.
+    */
+    uint64 bytes_sent = 2;
+
+    /*
+    The count of onion messages from this peer rejected by the per-peer
+    byte bucket.
+    */
+    uint64 dropped_peer = 3;
+
+    /*
+    The count of onion messages from this peer rejected by the shared
+    freebie bucket. Non-zero only for peers with no fully-open channel,
+    when the freebie slot is enabled.
+    */
+    uint64 dropped_freebie = 4;
+
+    /*
+    The count of onion messages from this peer rejected by the global
+    byte bucket.
+    */
+    uint64 dropped_global = 5;
+
+    /*
+    The count of onion messages from this peer rejected by the
+    channel-presence gate because the peer has no fully-open channel and
+    either freebie is disabled or its bucket was empty.
+    */
+    uint64 dropped_no_channel = 6;
 }
 
 message TimestampedError {

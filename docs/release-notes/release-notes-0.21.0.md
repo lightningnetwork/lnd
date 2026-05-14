@@ -153,7 +153,33 @@
   for the adversary model, the layers, the defaults, and operator
   recipes.
 
+* Added a shared "freebie" onion message bucket as a narrower third
+  admission path for peers without a fully open channel, tunable via
+  `protocol.onion-msg-freebie-kbps` and
+  `protocol.onion-msg-freebie-burst-bytes`. Both default to `0`, which
+  disables the freebie slot and restores strict channel gating.
+  Setting only one of the pair is rejected at startup, as is enabling
+  the freebie slot alongside `protocol.onion-msg-relay-all` (which
+  already admits strangers to the full per-peer pipeline, so layering
+  a narrower bucket on top has no effect). When the freebie slot is
+  enabled, onion messages from no-channel peers are routed through
+  the freebie bucket first; on a pass the global bucket is also
+  debited, keeping the freebie lane a sub-cap of the global cap
+  rather than a parallel pipeline. Once the bucket is drained,
+  stranger traffic is dropped again with the same `ErrNoChannel`
+  semantics as strict gating.
+
 ## RPC Additions
+
+* The `Peer` message returned by `ListPeers` now includes a new
+  `onion_message_stats` field carrying six `uint64` counters for the
+  current connection: the on-the-wire bytes of admitted onion traffic
+  in each direction, plus per-reason drop counts split between the
+  per-peer bucket, the freebie bucket, the global bucket, and the
+  channel-presence gate. Counters are cumulative for the lifetime of
+  the current connection and reset when the peer reconnects, giving
+  operators a per-peer view of where the onion-message admission
+  policy is actually engaging.
 
 * [Added `DeleteForwardingHistory`
   RPC](https://github.com/lightningnetwork/lnd/pull/10666) to the router

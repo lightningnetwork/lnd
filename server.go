@@ -2436,7 +2436,10 @@ func (s *server) Start(ctx context.Context) error {
 			// decimal kilobits per second and bursts in bytes
 			// so operators can reason about onion message
 			// ingress in terms of bandwidth rather than raw
-			// message counts.
+			// message counts. The IngressLimiter also accepts a
+			// third freebie bucket that admits peers with no
+			// fully-open channel through a shared byte budget
+			// when enabled.
 			onionPeerLim := onionmessage.NewPeerRateLimiter(
 				s.cfg.ProtocolOptions.OnionMsgPeerKbps,
 				s.cfg.ProtocolOptions.OnionMsgPeerBurstBytes,
@@ -2445,8 +2448,20 @@ func (s *server) Start(ctx context.Context) error {
 				s.cfg.ProtocolOptions.OnionMsgGlobalKbps,
 				s.cfg.ProtocolOptions.OnionMsgGlobalBurstBytes,
 			)
+			// The freebie bucket is structurally identical to
+			// the global limiter — a single shared counting
+			// limiter over bytes — and is built the same way.
+			// It is consulted only for peers with no fully-open
+			// channel, and only when the feature is enabled.
+			// Zero-valued config fields disable it (a
+			// noopLimiter), in which case no-channel peers
+			// remain strictly gated.
+			onionFreebieLim := onionmessage.NewGlobalLimiter(
+				s.cfg.ProtocolOptions.OnionMsgFreebieKbps,
+				s.cfg.ProtocolOptions.OnionMsgFreebieBurstBytes,
+			)
 			s.onionLimiter = onionmessage.NewIngressLimiter(
-				onionPeerLim, onionGlobalLim,
+				onionPeerLim, onionGlobalLim, onionFreebieLim,
 			)
 		}
 
@@ -4525,6 +4540,8 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		SpawnOnionActor:         s.onionActorFactory,
 		OnionLimiter:            s.onionLimiter,
 		OnionRelayAll:           s.cfg.ProtocolOptions.OnionMsgRelayAll,
+		OnionFreebieEnabled: s.cfg.ProtocolOptions.OnionMsgFreebieKbps > 0 &&
+			s.cfg.ProtocolOptions.OnionMsgFreebieBurstBytes > 0,
 		OnionActorOpts: func(_ [33]byte) []actor.ActorOption[
 			*onionmessage.Request, *onionmessage.Response,
 		] {

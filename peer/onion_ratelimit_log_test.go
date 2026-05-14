@@ -18,19 +18,21 @@ func newCapturingLogger() (btclog.Logger, *bytes.Buffer) {
 }
 
 // newRealIngressLimiter constructs a real ingressLimiter backed by real
-// per-peer and global limiters sized so the first message passes and
-// every subsequent one trips the named side of the limiter. It is used
-// by the log tests to exercise the one-shot claim path against real
-// FirstDropClaim bookkeeping rather than a stub.
+// per-peer, global, and freebie limiters sized so the first message
+// passes and every subsequent one trips the named side of the
+// limiter. It is used by the log tests to exercise the one-shot
+// claim path against real FirstDropClaim bookkeeping rather than a
+// stub.
 func newRealIngressLimiter(t *testing.T) onionmessage.IngressLimiter {
 	t.Helper()
 
-	// Burst == one max-sized message for both sides; rate of 1 Kbps
-	// ensures neither bucket refills within the test window.
+	// Burst == one max-sized message for all three sides; rate of
+	// 1 Kbps ensures no bucket refills within the test window.
 	peerLim := onionmessage.NewPeerRateLimiter(1, testMsgBytes)
 	globalLim := onionmessage.NewGlobalLimiter(1, testMsgBytes)
+	freebieLim := onionmessage.NewGlobalLimiter(1, testMsgBytes)
 
-	return onionmessage.NewIngressLimiter(peerLim, globalLim)
+	return onionmessage.NewIngressLimiter(peerLim, globalLim, freebieLim)
 }
 
 // TestLogFirstOnionDropGlobalOneShot verifies that logFirstOnionDrop
@@ -94,6 +96,39 @@ func TestLogFirstOnionDropPeerOneShot(t *testing.T) {
 	sizeAfterFirst := peerBuf.Len()
 	logFirstOnionDrop(
 		pkgLog, peerLog, onionmessage.ErrPeerRateLimit, limiter,
+	)
+	require.Equal(t, sizeAfterFirst, peerBuf.Len())
+}
+
+// TestLogFirstOnionDropFreebieOneShot verifies the same one-shot
+// property for the freebie limiter. The freebie first-drop line must
+// land on the peer-prefix logger because a freebie drop is still
+// attributable to a specific peer identity (just one without a
+// channel), so operators can see which stranger exhausted the slot.
+func TestLogFirstOnionDropFreebieOneShot(t *testing.T) {
+	t.Parallel()
+
+	pkgLog, pkgBuf := newCapturingLogger()
+	peerLog, peerBuf := newCapturingLogger()
+
+	// Nil limiter: must not panic and must not log to either logger.
+	logFirstOnionDrop(
+		pkgLog, peerLog, onionmessage.ErrFreebieRateLimit, nil,
+	)
+	require.Empty(t, pkgBuf.String())
+	require.Empty(t, peerBuf.String())
+
+	// Real limiter: emit once to the peer logger, then silent.
+	limiter := newRealIngressLimiter(t)
+	logFirstOnionDrop(
+		pkgLog, peerLog, onionmessage.ErrFreebieRateLimit, limiter,
+	)
+	require.Contains(t, peerBuf.String(), "freebie slot exhausted")
+	require.Empty(t, pkgBuf.String(),
+		"freebie drop must not land on the package-level log")
+	sizeAfterFirst := peerBuf.Len()
+	logFirstOnionDrop(
+		pkgLog, peerLog, onionmessage.ErrFreebieRateLimit, limiter,
 	)
 	require.Equal(t, sizeAfterFirst, peerBuf.Len())
 }

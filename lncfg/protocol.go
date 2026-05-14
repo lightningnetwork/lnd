@@ -97,6 +97,21 @@ type ProtocolOptions struct {
 	// with a zero rate, disables the global limiter.
 	OnionMsgGlobalBurstBytes uint64 `long:"onion-msg-global-burst-bytes" description:"token bucket burst for the global onion message limiter, in bytes; set both this and onion-msg-global-kbps to 0 to disable the global limiter"`
 
+	// OnionMsgFreebieKbps is the sustained rate, in decimal kilobits
+	// per second (1 Kbps = 1000 bits/s), of a single shared freebie
+	// token bucket that admits onion messages from peers without a
+	// fully open channel. Setting this to zero, together with a zero
+	// burst, disables the freebie slot (the default) and restores
+	// strict channel gating for strangers. This option is mutually
+	// exclusive with onion-msg-relay-all, which already admits
+	// strangers into the full per-peer pipeline.
+	OnionMsgFreebieKbps uint64 `long:"onion-msg-freebie-kbps" description:"sustained rate for the shared freebie onion message bucket that admits peers without a fully open channel, in decimal kilobits per second; set both this and onion-msg-freebie-burst-bytes to 0 to disable the freebie slot (the default); mutually exclusive with onion-msg-relay-all"`
+
+	// OnionMsgFreebieBurstBytes is the token bucket depth, in bytes,
+	// of the shared freebie onion message bucket. A value of zero,
+	// paired with a zero rate, disables the freebie slot.
+	OnionMsgFreebieBurstBytes uint64 `long:"onion-msg-freebie-burst-bytes" description:"token bucket burst for the shared freebie onion message bucket that admits peers without a fully open channel, in bytes; set both this and onion-msg-freebie-kbps to 0 to disable the freebie slot (the default)"`
+
 	// OnionMsgRelayAll disables the channel-presence gate on the onion
 	// message ingress path. When false (the default), incoming onion
 	// messages from peers that do not have at least one fully open
@@ -105,7 +120,10 @@ type ProtocolOptions struct {
 	// and the global rate limiter alone is easy to saturate. Setting
 	// this to true admits onion messages from any peer into the
 	// limiter pipeline, at the cost of that Sybil-resistance property.
-	OnionMsgRelayAll bool `long:"onion-msg-relay-all" description:"accept incoming onion messages from peers with no fully open channel; by default only peers with at least one active channel are admitted to the onion message ingress path"`
+	// This option is mutually exclusive with onion-msg-freebie-kbps,
+	// which covers the stranger-admission case via a narrower shared
+	// bucket instead of the full per-peer pipeline.
+	OnionMsgRelayAll bool `long:"onion-msg-relay-all" description:"accept incoming onion messages from peers with no fully open channel; by default only peers with at least one active channel are admitted to the onion message ingress path; mutually exclusive with onion-msg-freebie-kbps"`
 
 	// NoExperimentalAccountabilityOption disables experimental accountability.
 	NoExperimentalAccountabilityOption bool `long:"no-experimental-accountability" description:"do not forward experimental accountability signals"`

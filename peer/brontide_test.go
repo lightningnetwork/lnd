@@ -2,6 +2,7 @@ package peer
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/onionmessage"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/mock"
@@ -1842,4 +1844,120 @@ func TestHasActiveChannels(t *testing.T) {
 
 	require.False(t, peer.hasActiveChannels())
 	require.Equal(t, int32(0), peer.numActiveChans.Load())
+}
+
+// TestBrontideRecordOnionDrop verifies that recordOnionDrop
+// bumps exactly the counter that matches the supplied
+// sentinel error and leaves every other per-reason counter
+// pinned at zero.
+func TestBrontideRecordOnionDrop(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		err   error
+		check func(s OnionMessageStats) bool
+	}{
+		{
+			name: "no-channel",
+			err:  ErrNoChannel,
+			check: func(s OnionMessageStats) bool {
+				return s.DroppedNoChannel == 1 &&
+					s.DroppedPeer == 0 &&
+					s.DroppedFreebie == 0 &&
+					s.DroppedGlobal == 0
+			},
+		},
+		{
+			name: "per-peer",
+			err:  onionmessage.ErrPeerRateLimit,
+			check: func(s OnionMessageStats) bool {
+				return s.DroppedPeer == 1 &&
+					s.DroppedNoChannel == 0 &&
+					s.DroppedFreebie == 0 &&
+					s.DroppedGlobal == 0
+			},
+		},
+		{
+			name: "freebie",
+			err:  onionmessage.ErrFreebieRateLimit,
+			check: func(s OnionMessageStats) bool {
+				return s.DroppedFreebie == 1 &&
+					s.DroppedNoChannel == 0 &&
+					s.DroppedPeer == 0 &&
+					s.DroppedGlobal == 0
+			},
+		},
+		{
+			name: "global",
+			err:  onionmessage.ErrGlobalRateLimit,
+			check: func(s OnionMessageStats) bool {
+				return s.DroppedGlobal == 1 &&
+					s.DroppedNoChannel == 0 &&
+					s.DroppedPeer == 0 &&
+					s.DroppedFreebie == 0
+			},
+		},
+		{
+			name: "unknown",
+			err:  errors.New("unrelated error"),
+			check: func(s OnionMessageStats) bool {
+				return s.DroppedNoChannel == 0 &&
+					s.DroppedPeer == 0 &&
+					s.DroppedFreebie == 0 &&
+					s.DroppedGlobal == 0
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &Brontide{}
+			p.recordOnionDrop(tc.err)
+
+			snap := p.OnionStats()
+			require.True(t, tc.check(snap),
+				"unexpected stats: %+v", snap)
+
+			// Byte counters remain untouched by drops.
+			require.Equal(t, uint64(0), snap.BytesRecv)
+			require.Equal(t, uint64(0), snap.BytesSent)
+		})
+	}
+}
+
+// TestBrontideOnionStatsSnapshot confirms that OnionStats
+// returns the current atomic values for every field. We bump
+// each counter a distinct number of times and verify the
+// snapshot reflects all six values at once.
+func TestBrontideOnionStatsSnapshot(t *testing.T) {
+	t.Parallel()
+
+	p := &Brontide{}
+
+	p.onionBytesRecv.Add(1000)
+	p.onionBytesSent.Add(2000)
+	p.onionDroppedPeer.Add(3)
+	p.onionDroppedFreebie.Add(4)
+	p.onionDroppedGlobal.Add(5)
+	p.onionDroppedNoChan.Add(6)
+
+	snap := p.OnionStats()
+
+	require.Equal(t, uint64(1000), snap.BytesRecv)
+	require.Equal(t, uint64(2000), snap.BytesSent)
+	require.Equal(t, uint64(3), snap.DroppedPeer)
+	require.Equal(t, uint64(4), snap.DroppedFreebie)
+	require.Equal(t, uint64(5), snap.DroppedGlobal)
+	require.Equal(t, uint64(6), snap.DroppedNoChannel)
+
+	// A subsequent bump should not affect the prior snapshot
+	// (value-type return), but a fresh snapshot should pick it
+	// up.
+	p.onionBytesRecv.Add(500)
+	require.Equal(t, uint64(1000), snap.BytesRecv)
+	require.Equal(t, uint64(1500), p.OnionStats().BytesRecv)
 }

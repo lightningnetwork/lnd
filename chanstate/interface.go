@@ -277,6 +277,11 @@ type OpenChannelCommitmentStore[Channel any] interface {
 	// RemoteRevocationStore returns the most up to date commitment version
 	// of the revocation storage tree for the remote party.
 	RemoteRevocationStore(channel Channel) (shachain.Store, error)
+
+	// FindPreviousState scans through the append-only log in an attempt to
+	// recover the previous channel state indicated by the update number.
+	FindPreviousState(channel Channel, updateNum uint64) (
+		*RevocationLog, *ChannelCommitment, error)
 }
 
 // OpenChannelFwdPkgStore owns forwarding packages tied to open channel records.

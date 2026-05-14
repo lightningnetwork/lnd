@@ -962,68 +962,70 @@ func (c *OpenChannel) SetBroadcastHeight(height uint32) {
 	c.FundingBroadcastHeight = height
 }
 
-// amendTlvData updates the channel with the given auxiliary TLV data.
-func (c *OpenChannel) amendTlvData(auxData openChannelTlvData) {
-	c.RevocationKeyLocator = auxData.revokeKeyLoc.Val.KeyLocator
-	c.InitialLocalBalance = lnwire.MilliSatoshi(
+// amendOpenChannelTlvData updates the channel with the given auxiliary TLV
+// data.
+func amendOpenChannelTlvData(channel *OpenChannel, auxData openChannelTlvData) {
+	channel.RevocationKeyLocator = auxData.revokeKeyLoc.Val.KeyLocator
+	channel.InitialLocalBalance = lnwire.MilliSatoshi(
 		auxData.initialLocalBalance.Val,
 	)
-	c.InitialRemoteBalance = lnwire.MilliSatoshi(
+	channel.InitialRemoteBalance = lnwire.MilliSatoshi(
 		auxData.initialRemoteBalance.Val,
 	)
-	c.confirmedScid = auxData.realScid.Val
-	c.ConfirmationHeight = auxData.confirmationHeight.Val
+	channel.confirmedScid = auxData.realScid.Val
+	channel.ConfirmationHeight = auxData.confirmationHeight.Val
 
 	auxData.memo.WhenSomeV(func(memo []byte) {
-		c.Memo = memo
+		channel.Memo = memo
 	})
 	auxData.tapscriptRoot.WhenSomeV(func(h [32]byte) {
-		c.TapscriptRoot = fn.Some[chainhash.Hash](h)
+		channel.TapscriptRoot = fn.Some[chainhash.Hash](h)
 	})
 	auxData.customBlob.WhenSomeV(func(blob tlv.Blob) {
-		c.CustomBlob = fn.Some(blob)
+		channel.CustomBlob = fn.Some(blob)
 	})
 	auxData.closeConfirmationHeight.WhenSomeV(func(h uint32) {
-		c.CloseConfirmationHeight = fn.Some(h)
+		channel.CloseConfirmationHeight = fn.Some(h)
 	})
 }
 
-// extractTlvData creates a new openChannelTlvData from the given channel.
-func (c *OpenChannel) extractTlvData() openChannelTlvData {
+// extractOpenChannelTlvData creates a new openChannelTlvData from the given
+// channel.
+func extractOpenChannelTlvData(channel *OpenChannel) openChannelTlvData {
 	auxData := openChannelTlvData{
 		revokeKeyLoc: tlv.NewRecordT[tlv.TlvType1](
-			keyLocRecord{c.RevocationKeyLocator},
+			keyLocRecord{channel.RevocationKeyLocator},
 		),
 		initialLocalBalance: tlv.NewPrimitiveRecord[tlv.TlvType2](
-			uint64(c.InitialLocalBalance),
+			uint64(channel.InitialLocalBalance),
 		),
 		initialRemoteBalance: tlv.NewPrimitiveRecord[tlv.TlvType3](
-			uint64(c.InitialRemoteBalance),
+			uint64(channel.InitialRemoteBalance),
 		),
 		realScid: tlv.NewRecordT[tlv.TlvType4](
-			c.confirmedScid,
+			channel.confirmedScid,
 		),
 		confirmationHeight: tlv.NewPrimitiveRecord[tlv.TlvType8](
-			c.ConfirmationHeight,
+			channel.ConfirmationHeight,
 		),
 	}
 
-	if len(c.Memo) != 0 {
+	if len(channel.Memo) != 0 {
 		auxData.memo = tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[tlv.TlvType5](c.Memo),
+			tlv.NewPrimitiveRecord[tlv.TlvType5](channel.Memo),
 		)
 	}
-	c.TapscriptRoot.WhenSome(func(h chainhash.Hash) {
+	channel.TapscriptRoot.WhenSome(func(h chainhash.Hash) {
 		auxData.tapscriptRoot = tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType6, [32]byte](h),
 		)
 	})
-	c.CustomBlob.WhenSome(func(blob tlv.Blob) {
+	channel.CustomBlob.WhenSome(func(blob tlv.Blob) {
 		auxData.customBlob = tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType7](blob),
 		)
 	})
-	c.CloseConfirmationHeight.WhenSome(func(h uint32) {
+	channel.CloseConfirmationHeight.WhenSome(func(h uint32) {
 		auxData.closeConfirmationHeight = tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType9](h),
 		)
@@ -1904,18 +1906,20 @@ func (c *ChannelStateDB) FetchChannelShutdownInfo(
 	return fn.Some[ShutdownInfo](*shutdownInfo), nil
 }
 
-// isBorked returns true if the channel has been marked as borked in the
+// isChannelBorked returns true if the channel has been marked as borked in the
 // database. This requires an existing database transaction to already be
 // active.
 //
 // NOTE: The primary mutex should already be held before this method is called.
-func (c *OpenChannel) isBorked(chanBucket kvdb.RBucket) (bool, error) {
-	channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
+func isChannelBorked(channel *OpenChannel, chanBucket kvdb.RBucket) (
+	bool, error) {
+
+	diskChannel, err := fetchOpenChannel(chanBucket, &channel.FundingOutpoint)
 	if err != nil {
 		return false, err
 	}
 
-	return channel.chanStatus != ChanStatusDefault, nil
+	return diskChannel.chanStatus != ChanStatusDefault, nil
 }
 
 // MarkCommitmentBroadcasted marks the channel as a commitment transaction has
@@ -2364,7 +2368,7 @@ func (c *ChannelStateDB) UpdateChannelCommitment(channel *OpenChannel,
 
 		// If the channel is marked as borked, then for safety reasons,
 		// we shouldn't attempt any further updates.
-		isBorked, err := channel.isBorked(chanBucket)
+		isBorked, err := isChannelBorked(channel, chanBucket)
 		if err != nil {
 			return err
 		}
@@ -2958,7 +2962,7 @@ func (c *ChannelStateDB) AppendRemoteCommitChain(channel *OpenChannel,
 
 		// If the channel is marked as borked, then for safety reasons,
 		// we shouldn't attempt any further updates.
-		isBorked, err := channel.isBorked(chanBucket)
+		isBorked, err := isChannelBorked(channel, chanBucket)
 		if err != nil {
 			return err
 		}
@@ -3235,7 +3239,7 @@ func (c *ChannelStateDB) AdvanceCommitChainTail(channel *OpenChannel,
 
 		// If the channel is marked as borked, then for safety reasons,
 		// we shouldn't attempt any further updates.
-		isBorked, err := channel.isBorked(chanBucket)
+		isBorked, err := isChannelBorked(channel, chanBucket)
 		if err != nil {
 			return err
 		}
@@ -4449,7 +4453,7 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 		return err
 	}
 
-	auxData := channel.extractTlvData()
+	auxData := extractOpenChannelTlvData(channel)
 	if err := auxData.encode(&w); err != nil {
 		return fmt.Errorf("unable to encode aux data: %w", err)
 	}
@@ -4653,7 +4657,7 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 
 	// Assign all the relevant fields from the aux data into the actual
 	// open channel.
-	channel.amendTlvData(auxData)
+	amendOpenChannelTlvData(channel, auxData)
 
 	channel.Packager = NewChannelPackager(channel.ShortChannelID)
 

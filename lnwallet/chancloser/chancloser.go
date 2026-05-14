@@ -253,9 +253,10 @@ type ChanCloser struct {
 }
 
 // calcCoopCloseFee computes an "ideal" absolute co-op close fee given the
-// delivery scripts of both parties and our ideal fee rate.
+// delivery scripts of both parties, any extra (e.g. auxiliary) close outputs
+// to include in the weight estimate, and our ideal fee rate.
 func calcCoopCloseFee(chanType channeldb.ChannelType,
-	localOutput, remoteOutput *wire.TxOut,
+	localOutput, remoteOutput *wire.TxOut, extraOutputs []*wire.TxOut,
 	idealFeeRate chainfee.SatPerKWeight) btcutil.Amount {
 
 	var weightEstimator input.TxWeightEstimator
@@ -276,6 +277,9 @@ func calcCoopCloseFee(chanType channeldb.ChannelType,
 	if remoteOutput != nil {
 		weightEstimator.AddTxOutput(remoteOutput)
 	}
+	for _, extraOutput := range extraOutputs {
+		weightEstimator.AddTxOutput(extraOutput)
+	}
 
 	totalWeight := weightEstimator.Weight()
 
@@ -295,7 +299,64 @@ func (d *SimpleCoopFeeEstimator) EstimateFee(chanType channeldb.ChannelType,
 	localTxOut, remoteTxOut *wire.TxOut,
 	idealFeeRate chainfee.SatPerKWeight) btcutil.Amount {
 
-	return calcCoopCloseFee(chanType, localTxOut, remoteTxOut, idealFeeRate)
+	return calcCoopCloseFee(
+		chanType, localTxOut, remoteTxOut, nil, idealFeeRate,
+	)
+}
+
+// estimateCloseFee computes a close fee for the given fee rate while taking
+// into account any optional auxiliary close outputs.
+func (c *ChanCloser) estimateCloseFee(localTxOut, remoteTxOut *wire.TxOut,
+	feeRate chainfee.SatPerKWeight) (btcutil.Amount, error) {
+
+	// Historical behavior uses the default channel type here and doesn't
+	// differentiate between channel feature variants.
+	var defaultChanType channeldb.ChannelType
+	fee := c.cfg.FeeEstimator.EstimateFee(
+		defaultChanType, localTxOut, remoteTxOut, feeRate,
+	)
+
+	if c.cfg.AuxCloser.IsNone() {
+		return fee, nil
+	}
+
+	// Aux output selection can depend on CloseFee. After we bump the fee,
+	// the aux closer can return a different output set (for example
+	// around dust thresholds). Run a second pass so the fee and output
+	// set are self-consistent, while keeping this bounded.
+	for range 2 {
+		auxOutputs, err := c.auxCloseOutputs(fee)
+		if err != nil {
+			return 0, err
+		}
+
+		var extraOutputs []*wire.TxOut
+		auxOutputs.WhenSome(func(outs AuxCloseOutputs) {
+			extraOutputs = make(
+				[]*wire.TxOut, 0, len(outs.ExtraCloseOutputs),
+			)
+			for _, closeOutput := range outs.ExtraCloseOutputs {
+				txOut := closeOutput.TxOut
+				extraOutputs = append(extraOutputs, &txOut)
+			}
+		})
+
+		if len(extraOutputs) == 0 {
+			return fee, nil
+		}
+
+		feeWithAuxOutputs := calcCoopCloseFee(
+			defaultChanType, localTxOut, remoteTxOut,
+			extraOutputs, feeRate,
+		)
+		if feeWithAuxOutputs <= fee {
+			return fee, nil
+		}
+
+		fee = feeWithAuxOutputs
+	}
+
+	return fee, nil
 }
 
 // NewChanCloser creates a new instance of the channel closure given the passed
@@ -326,8 +387,10 @@ func NewChanCloser(cfg ChanCloseCfg, deliveryScript DeliveryAddrWithKey,
 }
 
 // initFeeBaseline computes our ideal fee rate, and also the largest fee we'll
-// accept given information about the delivery script of the remote party.
-func (c *ChanCloser) initFeeBaseline() {
+// accept given information about the delivery script of the remote party. It
+// returns an error if the auxiliary close outputs cannot be enumerated to
+// include in the fee estimate.
+func (c *ChanCloser) initFeeBaseline() error {
 	// Depending on if a balance ends up being dust or not, we'll pass a
 	// nil TxOut into the EstimateFee call which can handle it.
 	var localTxOut, remoteTxOut *wire.TxOut
@@ -346,18 +409,25 @@ func (c *ChanCloser) initFeeBaseline() {
 
 	// Given the target fee-per-kw, we'll compute what our ideal _total_
 	// fee will be starting at for this fee negotiation.
-	c.idealFeeSat = c.cfg.FeeEstimator.EstimateFee(
-		0, localTxOut, remoteTxOut, c.idealFeeRate,
+	var err error
+	c.idealFeeSat, err = c.estimateCloseFee(
+		localTxOut, remoteTxOut, c.idealFeeRate,
 	)
+	if err != nil {
+		return err
+	}
 
 	// When we're the initiator, we'll want to also factor in the highest
 	// fee we want to pay. This'll either be 3x the ideal fee, or the
 	// specified explicit max fee.
 	c.maxFee = c.idealFeeSat * defaultMaxFeeMultiplier
 	if c.cfg.MaxFee > 0 {
-		c.maxFee = c.cfg.FeeEstimator.EstimateFee(
-			0, localTxOut, remoteTxOut, c.cfg.MaxFee,
+		c.maxFee, err = c.estimateCloseFee(
+			localTxOut, remoteTxOut, c.cfg.MaxFee,
 		)
+		if err != nil {
+			return err
+		}
 	}
 
 	// TODO(ziggie): Make sure the ideal fee is not higher than the max fee.
@@ -366,6 +436,8 @@ func (c *ChanCloser) initFeeBaseline() {
 	chancloserLog.Infof("Ideal fee for closure of ChannelPoint(%v) "+
 		"is: %v sat (max_fee=%v sat)", c.cfg.Channel.ChannelPoint(),
 		int64(c.idealFeeSat), int64(c.maxFee))
+
+	return nil
 }
 
 // initChanShutdown begins the shutdown process by un-registering the channel,
@@ -740,14 +812,17 @@ func (c *ChanCloser) BeginNegotiation() (fn.Option[lnwire.ClosingSigned],
 	case closeAwaitingFlush:
 		// Now that we know their desired delivery script, we can
 		// compute what our max/ideal fee will be.
-		c.initFeeBaseline()
+		err := c.initFeeBaseline()
+		if err != nil {
+			return noClosingSigned, err
+		}
 
 		// Before continuing, mark the channel as cooperatively closed
 		// with a nil txn. Even though we haven't negotiated the final
 		// txn, this guarantees that our listchannels rpc will be
 		// externally consistent, and reflect that the channel is being
 		// shutdown by the time the closing request returns.
-		err := c.cfg.Channel.MarkCoopBroadcasted(
+		err = c.cfg.Channel.MarkCoopBroadcasted(
 			nil, c.closer,
 		)
 		if err != nil {

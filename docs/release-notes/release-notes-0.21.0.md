@@ -22,7 +22,7 @@
 
 # Bug Fixes
 
-* [Fixed `OpenChannel` with
+- [Fixed `OpenChannel` with
   `fund_max`](https://github.com/lightningnetwork/lnd/pull/10488) to use the
   protocol-level maximum channel size instead of the user-configured
   `maxchansize`. The `maxchansize` config option is intended only for limiting
@@ -87,6 +87,10 @@
   auto-enable is also narrowed to skip taproot-overlay channels, since the
   RBF close state machine does not yet thread through the `AuxCloser` hook
   that overlay channels rely on to build aux-aware close transactions.
+
+* [Fixed coop close fee baseline for channels with auxiliary close outputs](https://github.com/lightningnetwork/lnd/pull/10615)
+  by including extra outputs in initial fee estimation, preventing underpriced
+  taproot/custom channel cooperative closes from failing mempool acceptance.
 
 # New Features
 

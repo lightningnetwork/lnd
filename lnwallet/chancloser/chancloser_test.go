@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	wallettypes "github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
@@ -308,6 +309,38 @@ func (m *mockMusigSession) ClosingNonce() (*musig2.Nonces, error) {
 	}, nil
 }
 
+type mockAuxChanCloser struct {
+	extraScript []byte
+}
+
+func (m *mockAuxChanCloser) ShutdownBlob(
+	req wallettypes.AuxShutdownReq,
+) (fn.Option[lnwire.CustomRecords], error) {
+
+	return fn.None[lnwire.CustomRecords](), nil
+}
+
+func (m *mockAuxChanCloser) AuxCloseOutputs(
+	desc wallettypes.AuxCloseDesc) (fn.Option[AuxCloseOutputs], error) {
+
+	closeOutputs := []lnwallet.CloseOutput{{
+		TxOut: wire.TxOut{
+			PkScript: m.extraScript,
+			Value:    0,
+		},
+	}}
+
+	return fn.Some(AuxCloseOutputs{
+		ExtraCloseOutputs: closeOutputs,
+	}), nil
+}
+
+func (m *mockAuxChanCloser) FinalizeClose(desc wallettypes.AuxCloseDesc,
+	closeTx *wire.MsgTx) error {
+
+	return nil
+}
+
 type mockCoopFeeEstimator struct {
 	targetFee btcutil.Amount
 }
@@ -375,11 +408,75 @@ func TestMaxFeeClamp(t *testing.T) {
 
 			// We'll call initFeeBaseline early here since we need
 			// the populate these internal variables.
-			chanCloser.initFeeBaseline()
+			require.NoError(t, chanCloser.initFeeBaseline())
 
 			require.Equal(t, test.maxFee, chanCloser.maxFee)
 		})
 	}
+}
+
+// TestInitFeeBaselineWithAuxCloseOutputs tests that aux close outputs are
+// accounted for in the initial fee baseline calculation.
+func TestInitFeeBaselineWithAuxCloseOutputs(t *testing.T) {
+	t.Parallel()
+
+	localScript := bytes.Repeat([]byte{0x11}, 34)
+	remoteScript := bytes.Repeat([]byte{0x22}, 34)
+	extraScript := bytes.Repeat([]byte{0x33}, 34)
+
+	channel := &mockChannel{
+		initiator: true,
+	}
+
+	newCloser := func(auxCloser fn.Option[AuxChanCloser]) *ChanCloser {
+		closer := NewChanCloser(
+			ChanCloseCfg{
+				Channel:      channel,
+				FeeEstimator: &SimpleCoopFeeEstimator{},
+				AuxCloser:    auxCloser,
+			},
+			DeliveryAddrWithKey{
+				DeliveryAddress: localScript,
+			},
+			chainfee.FeePerKwFloor, 0, nil, lntypes.Local,
+		)
+		closer.remoteDeliveryScript = remoteScript
+
+		return closer
+	}
+
+	closerNoAux := newCloser(fn.None[AuxChanCloser]())
+	require.NoError(t, closerNoAux.initFeeBaseline())
+
+	closerWithAux := newCloser(fn.Some[AuxChanCloser](&mockAuxChanCloser{
+		extraScript: extraScript,
+	}))
+	require.NoError(t, closerWithAux.initFeeBaseline())
+
+	localOutput := &wire.TxOut{
+		PkScript: localScript,
+		Value:    0,
+	}
+	remoteOutput := &wire.TxOut{
+		PkScript: remoteScript,
+		Value:    0,
+	}
+	extraOutput := &wire.TxOut{
+		PkScript: extraScript,
+		Value:    0,
+	}
+
+	expectedFeeNoAux := calcCoopCloseFee(
+		0, localOutput, remoteOutput, nil, chainfee.FeePerKwFloor,
+	)
+	expectedFeeWithAux := calcCoopCloseFee(
+		0, localOutput, remoteOutput, []*wire.TxOut{extraOutput},
+		chainfee.FeePerKwFloor,
+	)
+
+	require.Equal(t, expectedFeeNoAux, closerNoAux.idealFeeSat)
+	require.Equal(t, expectedFeeWithAux, closerWithAux.idealFeeSat)
+	require.Greater(t, closerWithAux.idealFeeSat, closerNoAux.idealFeeSat)
 }
 
 // TestMaxFeeBailOut tests that once the negotiated fee rate rises above our
@@ -541,7 +638,7 @@ func TestTaprootFastClose(t *testing.T) {
 			},
 		}, DeliveryAddrWithKey{}, idealFee, 0, nil, lntypes.Local,
 	)
-	aliceCloser.initFeeBaseline()
+	require.NoError(t, aliceCloser.initFeeBaseline())
 
 	bobCloser := NewChanCloser(
 		ChanCloseCfg{
@@ -558,7 +655,7 @@ func TestTaprootFastClose(t *testing.T) {
 			},
 		}, DeliveryAddrWithKey{}, idealFee, 0, nil, lntypes.Remote,
 	)
-	bobCloser.initFeeBaseline()
+	require.NoError(t, bobCloser.initFeeBaseline())
 
 	// With our set up complete, we'll now initialize the shutdown
 	// procedure kicked off by Alice.

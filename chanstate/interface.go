@@ -1,6 +1,8 @@
 package chanstate
 
 import (
+	"net"
+
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -122,6 +124,11 @@ type HistoricalChannelStore[Channel any] interface {
 // OpenChannelLifecycleStore owns persisted lifecycle state for open channel
 // records.
 type OpenChannelLifecycleStore[Channel any] interface {
+	// SyncPendingChannel writes a pending channel to the store and records
+	// the funding broadcast height.
+	SyncPendingChannel(channel Channel, addr net.Addr,
+		pendingHeight uint32) error
+
 	// RefreshChannel updates the in-memory channel state using the latest
 	// state observed on disk.
 	RefreshChannel(channel Channel) error

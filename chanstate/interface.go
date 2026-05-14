@@ -9,6 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/shachain"
 )
 
 // Store is the full persistence contract for the channel-state subsystem.
@@ -264,6 +265,18 @@ type OpenChannelCommitmentStore[Channel any] interface {
 	AdvanceCommitChainTail(channel Channel, fwdPkg *FwdPkg,
 		updates []LogUpdate, ourOutputIndex,
 		theirOutputIndex uint32) error
+
+	// CommitmentHeight returns the current persisted commitment height.
+	CommitmentHeight(channel Channel) (uint64, error)
+
+	// LatestCommitments returns the two latest commitments for both the
+	// local and remote party.
+	LatestCommitments(channel Channel) (*ChannelCommitment,
+		*ChannelCommitment, error)
+
+	// RemoteRevocationStore returns the most up to date commitment version
+	// of the revocation storage tree for the remote party.
+	RemoteRevocationStore(channel Channel) (shachain.Store, error)
 }
 
 // OpenChannelFwdPkgStore owns forwarding packages tied to open channel records.

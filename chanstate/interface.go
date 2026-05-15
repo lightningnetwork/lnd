@@ -120,7 +120,7 @@ type OpenChannelStore[Channel any] interface {
 	// finally create an edge within the graph for the channel as well.
 	// This method is idempotent, so repeated calls with the same set of
 	// channel shells won't modify the database after the initial call.
-	RestoreChannelShells(channelShells ...*ChannelShell[Channel]) error
+	RestoreChannelShells(channelShells ...*ChannelShell) error
 }
 
 // HistoricalChannelStore owns the post-close historical channel view.

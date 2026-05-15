@@ -21,6 +21,19 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+// ChannelShell is a shell of a channel that is meant to be used for channel
+// recovery purposes. It contains a minimal OpenChannel instance along with
+// addresses for that target node.
+type ChannelShell struct {
+	// NodeAddrs the set of addresses that this node has known to be
+	// reachable at in the past.
+	NodeAddrs []net.Addr
+
+	// Chan is a shell of an OpenChannel, it contains only the items
+	// required to restore the channel on disk.
+	Chan *OpenChannel
+}
+
 // OpenChannel encapsulates the persistent and dynamic state of an open channel
 // with a remote node. An open channel supports several options for on-disk
 // serialization depending on the exact context. Full (upon channel creation)
@@ -216,7 +229,7 @@ type OpenChannel struct {
 	// channels through the channeldb compatibility alias. The store
 	// interface keeps receiver methods backend independent while the KV
 	// implementation remains in channeldb.
-	Db Store[*OpenChannel]
+	Db Store
 
 	// TODO(roasbeef): just need to store local and remote HTLC's?
 

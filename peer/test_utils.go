@@ -253,7 +253,6 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		LocalCommitment:         aliceCommit,
 		RemoteCommitment:        aliceCommit,
 		Db:                      dbAlice.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
 		FundingTxn:              channels.TestFundingTx,
 	}
 	bobChannelState := &channeldb.OpenChannel{
@@ -270,7 +269,6 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		LocalCommitment:         bobCommit,
 		RemoteCommitment:        bobCommit,
 		Db:                      dbBob.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
 	// Set custom values on the channel states.

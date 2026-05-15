@@ -414,7 +414,6 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 		RevocationProducer:      producer,
 		RevocationStore:         store,
 		Db:                      cdb,
-		Packager:                NewChannelPackager(chanID),
 		FundingTxn:              channels.TestFundingTx,
 		ThawHeight:              uint32(defaultPendingHeight),
 		InitialLocalBalance:     lnwire.MilliSatoshi(9000),
@@ -939,7 +938,9 @@ func TestChannelStateTransition(t *testing.T) {
 	}
 
 	// At this point, we should have 2 forwarding packages added.
-	fwdPkgs := loadFwdPkgs(t, cdb.backend, channel.Packager)
+	fwdPkgs := loadFwdPkgs(
+		t, cdb.backend, NewChannelPackager(channel.ShortChanID()),
+	)
 	require.Len(t, fwdPkgs, 2, "wrong number of forwarding packages")
 
 	// Now attempt to delete the channel from the database.
@@ -974,7 +975,9 @@ func TestChannelStateTransition(t *testing.T) {
 	}
 
 	// All forwarding packages of this channel has been deleted too.
-	fwdPkgs = loadFwdPkgs(t, cdb.backend, channel.Packager)
+	fwdPkgs = loadFwdPkgs(
+		t, cdb.backend, NewChannelPackager(channel.ShortChanID()),
+	)
 	require.Empty(t, fwdPkgs, "no forwarding packages should exist")
 }
 
@@ -1424,16 +1427,6 @@ func TestRefresh(t *testing.T) {
 			"updated before refreshing short_chan_id")
 	}
 
-	// Now that the receiver's short channel id has been updated, check to
-	// ensure that the channel packager's source has been updated as well.
-	// This ensures that the packager will read and write to buckets
-	// corresponding to the new short chan id, instead of the prior.
-	if state.Packager.(*ChannelPackager).source != chanOpenLoc {
-		t.Fatalf("channel packager source was not updated: want %v, "+
-			"got %v", chanOpenLoc,
-			state.Packager.(*ChannelPackager).source)
-	}
-
 	// Now, refresh the state of the pending channel.
 	err = pendingChannel.Refresh()
 	require.NoError(t, err, "unable to refresh short_chan_id")
@@ -1444,16 +1437,6 @@ func TestRefresh(t *testing.T) {
 		t.Fatalf("expected pending channel short_chan_id to be "+
 			"refreshed: want %v, got %v", state.ShortChanID(),
 			pendingChannel.ShortChanID())
-	}
-
-	// Check to ensure that the _other_ OpenChannel channel packager's
-	// source has also been updated after the refresh. This ensures that the
-	// other packagers will read and write to buckets corresponding to the
-	// updated short chan id.
-	if pendingChannel.Packager.(*ChannelPackager).source != chanOpenLoc {
-		t.Fatalf("channel packager source was not updated: want %v, "+
-			"got %v", chanOpenLoc,
-			pendingChannel.Packager.(*ChannelPackager).source)
 	}
 
 	// Check to ensure that this channel is no longer pending and this field

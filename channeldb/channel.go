@@ -742,11 +742,6 @@ type OpenChannel struct {
 	// implementation of secret store is shachain store.
 	RevocationStore shachain.Store
 
-	// Packager is used to create and update forwarding packages for this
-	// channel, which encodes all necessary information to recover from
-	// failures and reforward HTLCs that were not fully processed.
-	Packager FwdPackager
-
 	// FundingTxn is the transaction containing this channel's funding
 	// outpoint. Upon restarts, this txn will be rebroadcast if the channel
 	// is found to be pending.
@@ -1457,7 +1452,6 @@ func (c *OpenChannel) MarkAsOpen(openLoc lnwire.ShortChannelID) error {
 
 	c.IsPending = false
 	c.ShortChannelID = openLoc
-	c.Packager = NewChannelPackager(openLoc)
 
 	return nil
 }
@@ -2287,8 +2281,6 @@ func fetchOpenChannel(chanBucket kvdb.RBucket,
 			err)
 	}
 
-	channel.Packager = NewChannelPackager(channel.ShortChannelID)
-
 	return channel, nil
 }
 
@@ -2968,6 +2960,10 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 	return &d, nil
 }
 
+func newChannelPackager(channel *OpenChannel) *ChannelPackager {
+	return NewChannelPackager(channel.ShortChannelID)
+}
+
 // AppendRemoteCommitChain appends a new CommitDiff to the end of the
 // commitment chain for the remote party. This method is to be used once we
 // have prepared a new commitment state for the remote party, but before we
@@ -3019,7 +3015,9 @@ func (c *ChannelStateDB) AppendRemoteCommitChain(channel *OpenChannel,
 		// Mark all of these as being fully processed in our forwarding
 		// package, which prevents us from reprocessing them after
 		// startup.
-		err = channel.Packager.AckAddHtlcs(tx, diff.AddAcks...)
+		packager := newChannelPackager(channel)
+
+		err = packager.AckAddHtlcs(tx, diff.AddAcks...)
 		if err != nil {
 			return err
 		}
@@ -3029,7 +3027,7 @@ func (c *ChannelStateDB) AppendRemoteCommitChain(channel *OpenChannel,
 		// prevents the same fails and settles from being retransmitted
 		// after restarts. The actual fail or settle we need to
 		// propagate to the remote party is now in the commit diff.
-		err = channel.Packager.AckSettleFails(
+		err = packager.AckSettleFails(
 			tx, diff.SettleFailAcks...,
 		)
 		if err != nil {
@@ -3344,7 +3342,8 @@ func (c *ChannelStateDB) AdvanceCommitChainTail(channel *OpenChannel,
 		// Lastly, we write the forwarding package to disk so that we
 		// can properly recover from failures and reforward HTLCs that
 		// have not received a corresponding settle/fail.
-		if err := channel.Packager.AddFwdPkg(tx, fwdPkg); err != nil {
+		err = newChannelPackager(channel).AddFwdPkg(tx, fwdPkg)
+		if err != nil {
 			return err
 		}
 
@@ -3485,7 +3484,7 @@ func (c *ChannelStateDB) LoadFwdPkgs(channel *OpenChannel) ([]*FwdPkg,
 	var fwdPkgs []*FwdPkg
 	if err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		var err error
-		fwdPkgs, err = channel.Packager.LoadFwdPkgs(tx)
+		fwdPkgs, err = newChannelPackager(channel).LoadFwdPkgs(tx)
 		return err
 	}, func() {
 		fwdPkgs = nil
@@ -3513,7 +3512,7 @@ func (c *ChannelStateDB) AckAddHtlcs(channel *OpenChannel,
 	addRefs ...AddRef) error {
 
 	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		return channel.Packager.AckAddHtlcs(tx, addRefs...)
+		return newChannelPackager(channel).AckAddHtlcs(tx, addRefs...)
 	}, func() {})
 }
 
@@ -3536,7 +3535,9 @@ func (c *ChannelStateDB) AckSettleFails(channel *OpenChannel,
 	settleFailRefs ...SettleFailRef) error {
 
 	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		return channel.Packager.AckSettleFails(tx, settleFailRefs...)
+		return newChannelPackager(channel).AckSettleFails(
+			tx, settleFailRefs...,
+		)
 	}, func() {})
 }
 
@@ -3555,7 +3556,9 @@ func (c *ChannelStateDB) SetFwdFilter(channel *OpenChannel, height uint64,
 	fwdFilter *PkgFilter) error {
 
 	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		return channel.Packager.SetFwdFilter(tx, height, fwdFilter)
+		return newChannelPackager(channel).SetFwdFilter(
+			tx, height, fwdFilter,
+		)
 	}, func() {})
 }
 
@@ -3580,8 +3583,10 @@ func (c *ChannelStateDB) RemoveFwdPkgs(channel *OpenChannel,
 	heights ...uint64) error {
 
 	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		packager := newChannelPackager(channel)
+
 		for _, height := range heights {
-			err := channel.Packager.RemovePkg(tx, height)
+			err := packager.RemovePkg(tx, height)
 			if err != nil {
 				return err
 			}
@@ -3944,7 +3949,7 @@ func (c *ChannelStateDB) closeChannelSync(channel *OpenChannel,
 			return err
 		}
 
-		if err = chanState.Packager.Wipe(tx); err != nil {
+		if err = newChannelPackager(chanState).Wipe(tx); err != nil {
 			return err
 		}
 
@@ -4117,7 +4122,6 @@ func (c *OpenChannel) Copy() *OpenChannel {
 		RemoteNextRevocation:    c.RemoteNextRevocation,
 		RevocationProducer:      c.RevocationProducer,
 		RevocationStore:         c.RevocationStore,
-		Packager:                c.Packager,
 		ThawHeight:              c.ThawHeight,
 		LastWasRevoke:           c.LastWasRevoke,
 		RevocationKeyLocator:    c.RevocationKeyLocator,
@@ -4707,8 +4711,6 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	// Assign all the relevant fields from the aux data into the actual
 	// open channel.
 	amendOpenChannelTlvData(channel, auxData)
-
-	channel.Packager = NewChannelPackager(channel.ShortChannelID)
 
 	// Finally, read the optional shutdown scripts.
 	if err := getOptionalUpfrontShutdownScript(

@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -83,7 +84,7 @@ func newChanEventStoreTestCtx(t *testing.T) *chanEventStoreTestCtx {
 		SubscribePeerEvents: func() (subscribe.Subscription, error) {
 			return testCtx.peerSubscription, nil
 		},
-		GetOpenChannels: func() ([]*channeldb.OpenChannel, error) {
+		GetOpenChannels: func() ([]*chanstate.OpenChannel, error) {
 			return nil, nil
 		},
 		WriteFlapCount: func(updates map[route.Vertex]*channeldb.FlapCount) error {
@@ -192,7 +193,7 @@ func (c *chanEventStoreTestCtx) closeChannel(channel wire.OutPoint,
 	peer *btcec.PublicKey) {
 
 	update := channelnotifier.ClosedChannelEvent{
-		CloseSummary: &channeldb.ChannelCloseSummary{
+		CloseSummary: &chanstate.ChannelCloseSummary{
 			ChanPoint: channel,
 			RemotePub: peer,
 		},
@@ -232,7 +233,7 @@ func (c *chanEventStoreTestCtx) sendChannelOpenedUpdate(pubkey *btcec.PublicKey,
 	channel wire.OutPoint) {
 
 	update := channelnotifier.OpenChannelEvent{
-		Channel: &channeldb.OpenChannel{
+		Channel: &chanstate.OpenChannel{
 			FundingOutpoint: channel,
 			IdentityPub:     pubkey,
 		},

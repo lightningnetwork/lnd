@@ -15,7 +15,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -51,14 +51,14 @@ func randOutpoint(t *testing.T) wire.OutPoint {
 
 var shortChanIDs uint64
 
-// createChannel generates a channeldb.OpenChannel with a random chanpoint and
+// createChannel generates a chanstate.OpenChannel with a random chanpoint and
 // short channel id.
-func createChannel(t *testing.T) *channeldb.OpenChannel {
+func createChannel(t *testing.T) *chanstate.OpenChannel {
 	t.Helper()
 
 	sid := atomic.AddUint64(&shortChanIDs, 1)
 
-	return &channeldb.OpenChannel{
+	return &chanstate.OpenChannel{
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(sid),
 		ChannelFlags:    lnwire.FFAnnounceChannel,
 		FundingOutpoint: randOutpoint(t),
@@ -69,7 +69,7 @@ func createChannel(t *testing.T) *channeldb.OpenChannel {
 // The remote party's public key is generated randomly, and then sorted against
 // our `pubkey` with the direction bit set appropriately in the policies. Our
 // update will be created with the disabled bit set if startEnabled is false.
-func createEdgePolicies(t *testing.T, channel *channeldb.OpenChannel,
+func createEdgePolicies(t *testing.T, channel *chanstate.OpenChannel,
 	pubkey *btcec.PublicKey, startEnabled bool) (*models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) {
 
@@ -134,7 +134,7 @@ func createEdgePolicies(t *testing.T, channel *channeldb.OpenChannel,
 
 type mockGraph struct {
 	mu        sync.Mutex
-	channels  []*channeldb.OpenChannel
+	channels  []*chanstate.OpenChannel
 	chanInfos map[wire.OutPoint]*models.ChannelEdgeInfo
 	chanPols1 map[wire.OutPoint]*models.ChannelEdgePolicy
 	chanPols2 map[wire.OutPoint]*models.ChannelEdgePolicy
@@ -147,7 +147,7 @@ func newMockGraph(t *testing.T, numChannels int, startEnabled bool,
 	pubKey *btcec.PublicKey) *mockGraph {
 
 	g := &mockGraph{
-		channels:  make([]*channeldb.OpenChannel, 0, numChannels),
+		channels:  make([]*chanstate.OpenChannel, 0, numChannels),
 		chanInfos: make(map[wire.OutPoint]*models.ChannelEdgeInfo),
 		chanPols1: make(map[wire.OutPoint]*models.ChannelEdgePolicy),
 		chanPols2: make(map[wire.OutPoint]*models.ChannelEdgePolicy),
@@ -169,7 +169,7 @@ func newMockGraph(t *testing.T, numChannels int, startEnabled bool,
 	return g
 }
 
-func (g *mockGraph) FetchAllOpenChannels() ([]*channeldb.OpenChannel, error) {
+func (g *mockGraph) FetchAllOpenChannels() ([]*chanstate.OpenChannel, error) {
 	return g.chans(), nil
 }
 
@@ -246,24 +246,24 @@ func (g *mockGraph) ApplyChannelUpdate(update *lnwire.ChannelUpdate1,
 	return nil
 }
 
-func (g *mockGraph) chans() []*channeldb.OpenChannel {
+func (g *mockGraph) chans() []*chanstate.OpenChannel {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	channels := make([]*channeldb.OpenChannel, 0, len(g.channels))
+	channels := make([]*chanstate.OpenChannel, 0, len(g.channels))
 	channels = append(channels, g.channels...)
 
 	return channels
 }
 
-func (g *mockGraph) addChannel(channel *channeldb.OpenChannel) {
+func (g *mockGraph) addChannel(channel *chanstate.OpenChannel) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
 	g.channels = append(g.channels, channel)
 }
 
-func (g *mockGraph) addEdgePolicy(c *channeldb.OpenChannel,
+func (g *mockGraph) addEdgePolicy(c *chanstate.OpenChannel,
 	info *models.ChannelEdgeInfo,
 	pol1, pol2 *models.ChannelEdgePolicy) {
 
@@ -276,7 +276,7 @@ func (g *mockGraph) addEdgePolicy(c *channeldb.OpenChannel,
 	g.sidToCid[c.ShortChanID()] = c.FundingOutpoint
 }
 
-func (g *mockGraph) removeChannel(channel *channeldb.OpenChannel) {
+func (g *mockGraph) removeChannel(channel *chanstate.OpenChannel) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -401,7 +401,7 @@ func newHarness(t *testing.T, numChannels int,
 
 // markActive updates the active status of the passed channels within the mock
 // switch to active.
-func (h *testHarness) markActive(channels []*channeldb.OpenChannel) {
+func (h *testHarness) markActive(channels []*chanstate.OpenChannel) {
 	h.t.Helper()
 
 	for _, channel := range channels {
@@ -412,7 +412,7 @@ func (h *testHarness) markActive(channels []*channeldb.OpenChannel) {
 
 // markInactive updates the active status of the passed channels within the mock
 // switch to inactive.
-func (h *testHarness) markInactive(channels []*channeldb.OpenChannel) {
+func (h *testHarness) markInactive(channels []*chanstate.OpenChannel) {
 	h.t.Helper()
 
 	for _, channel := range channels {
@@ -423,8 +423,8 @@ func (h *testHarness) markInactive(channels []*channeldb.OpenChannel) {
 
 // assertEnables requests enables for all of the passed channels, and asserts
 // that the errors returned from RequestEnable matches expErr.
-func (h *testHarness) assertEnables(channels []*channeldb.OpenChannel, expErr error,
-	manual bool) {
+func (h *testHarness) assertEnables(channels []*chanstate.OpenChannel,
+	expErr error, manual bool) {
 
 	h.t.Helper()
 
@@ -435,8 +435,8 @@ func (h *testHarness) assertEnables(channels []*channeldb.OpenChannel, expErr er
 
 // assertDisables requests disables for all of the passed channels, and asserts
 // that the errors returned from RequestDisable matches expErr.
-func (h *testHarness) assertDisables(channels []*channeldb.OpenChannel, expErr error,
-	manual bool) {
+func (h *testHarness) assertDisables(channels []*chanstate.OpenChannel,
+	expErr error, manual bool) {
 
 	h.t.Helper()
 
@@ -447,7 +447,7 @@ func (h *testHarness) assertDisables(channels []*channeldb.OpenChannel, expErr e
 
 // assertAutos requests auto state management for all of the passed channels, and
 // asserts that the errors returned from RequestAuto matches expErr.
-func (h *testHarness) assertAutos(channels []*channeldb.OpenChannel,
+func (h *testHarness) assertAutos(channels []*chanstate.OpenChannel,
 	expErr error) {
 
 	h.t.Helper()
@@ -506,7 +506,7 @@ func (h *testHarness) assertNoUpdates(duration time.Duration) {
 // are receive on the network for each of the passed OpenChannels, and that all
 // of their disable bits are set to match expEnabled. The expEnabled parameter
 // is ignored if channels is nil.
-func (h *testHarness) assertUpdates(channels []*channeldb.OpenChannel,
+func (h *testHarness) assertUpdates(channels []*chanstate.OpenChannel,
 	expEnabled bool, duration time.Duration) {
 
 	h.t.Helper()
@@ -554,7 +554,7 @@ func (h *testHarness) assertUpdates(channels []*channeldb.OpenChannel,
 // sidsFromChans returns an index contain the short channel ids of each channel
 // provided in the list of OpenChannels.
 func sidsFromChans(
-	channels []*channeldb.OpenChannel) map[lnwire.ShortChannelID]struct{} {
+	channels []*chanstate.OpenChannel) map[lnwire.ShortChannelID]struct{} {
 
 	sids := make(map[lnwire.ShortChannelID]struct{})
 	for _, channel := range channels {
@@ -703,7 +703,7 @@ var stateMachineTests = []stateMachineTest{
 		startEnabled: false,
 		fn: func(h testHarness) {
 			// Create channels unknown to the graph.
-			unknownChans := []*channeldb.OpenChannel{
+			unknownChans := []*chanstate.OpenChannel{
 				createChannel(h.t),
 				createChannel(h.t),
 				createChannel(h.t),
@@ -723,7 +723,7 @@ var stateMachineTests = []stateMachineTest{
 		startEnabled: false,
 		fn: func(h testHarness) {
 			// Create channels unknown to the graph.
-			unknownChans := []*channeldb.OpenChannel{
+			unknownChans := []*chanstate.OpenChannel{
 				createChannel(h.t),
 				createChannel(h.t),
 				createChannel(h.t),
@@ -749,7 +749,7 @@ var stateMachineTests = []stateMachineTest{
 			// Add a new channels to the graph, but don't yet add
 			// the edge policies. We should see no updates sent
 			// since the manager can't access the policies.
-			newChans := []*channeldb.OpenChannel{
+			newChans := []*chanstate.OpenChannel{
 				createChannel(h.t),
 				createChannel(h.t),
 				createChannel(h.t),

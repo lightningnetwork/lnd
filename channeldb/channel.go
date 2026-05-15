@@ -908,6 +908,27 @@ func (c *OpenChannel) ChanStatus() ChannelStatus {
 	return c.chanStatus
 }
 
+// ChannelStatusForStore returns the in-memory channel status without taking
+// the channel mutex.
+//
+// NOTE: This is a preliminary migration hook for KV-backed store code that
+// still lives in channeldb while OpenChannel moves toward chanstate. Callers
+// are responsible for synchronization. Normal callers should use ChanStatus.
+func (c *OpenChannel) ChannelStatusForStore() ChannelStatus {
+	return c.chanStatus
+}
+
+// SetChannelStatusForStore updates the in-memory channel status without taking
+// the channel mutex.
+//
+// NOTE: This is a preliminary migration hook for KV-backed store code that
+// still lives in channeldb while OpenChannel moves toward chanstate. Callers
+// are responsible for synchronization. Normal callers should use
+// ApplyChanStatus or ClearChanStatus when the status change must be persisted.
+func (c *OpenChannel) SetChannelStatusForStore(status ChannelStatus) {
+	c.chanStatus = status
+}
+
 // ApplyChanStatus allows the caller to modify the internal channel state in a
 // thead-safe manner.
 func (c *OpenChannel) ApplyChanStatus(status ChannelStatus) error {
@@ -946,6 +967,27 @@ func (c *OpenChannel) hasChanStatus(status ChannelStatus) bool {
 	return c.chanStatus&status == status
 }
 
+// ConfirmedScidForStore returns the in-memory confirmed SCID without taking
+// the channel mutex.
+//
+// NOTE: This is a preliminary migration hook for KV-backed store code that
+// still lives in channeldb while OpenChannel moves toward chanstate. Callers
+// are responsible for synchronization. Normal callers should use
+// ZeroConfRealScid.
+func (c *OpenChannel) ConfirmedScidForStore() lnwire.ShortChannelID {
+	return c.confirmedScid
+}
+
+// SetConfirmedScidForStore updates the in-memory confirmed SCID without taking
+// the channel mutex.
+//
+// NOTE: This is a preliminary migration hook for KV-backed store code that
+// still lives in channeldb while OpenChannel moves toward chanstate. Callers
+// are responsible for synchronization.
+func (c *OpenChannel) SetConfirmedScidForStore(scid lnwire.ShortChannelID) {
+	c.confirmedScid = scid
+}
+
 // BroadcastHeight returns the height at which the funding tx was broadcast.
 func (c *OpenChannel) BroadcastHeight() uint32 {
 	c.RLock()
@@ -972,7 +1014,7 @@ func amendOpenChannelTlvData(channel *OpenChannel, auxData openChannelTlvData) {
 	channel.InitialRemoteBalance = lnwire.MilliSatoshi(
 		auxData.initialRemoteBalance.Val,
 	)
-	channel.confirmedScid = auxData.realScid.Val
+	channel.SetConfirmedScidForStore(auxData.realScid.Val)
 	channel.ConfirmationHeight = auxData.confirmationHeight.Val
 
 	auxData.memo.WhenSomeV(func(memo []byte) {
@@ -1003,7 +1045,7 @@ func extractOpenChannelTlvData(channel *OpenChannel) openChannelTlvData {
 			uint64(channel.InitialRemoteBalance),
 		),
 		realScid: tlv.NewRecordT[tlv.TlvType4](
-			channel.confirmedScid,
+			channel.ConfirmedScidForStore(),
 		),
 		confirmationHeight: tlv.NewPrimitiveRecord[tlv.TlvType8](
 			channel.ConfirmationHeight,
@@ -1483,7 +1525,7 @@ func (c *ChannelStateDB) MarkChannelRealScid(channel *OpenChannel,
 			return err
 		}
 
-		diskChannel.confirmedScid = realScid
+		diskChannel.SetConfirmedScidForStore(realScid)
 
 		return putOpenChannel(chanBucket, diskChannel)
 	}, func() {})
@@ -1919,7 +1961,7 @@ func isChannelBorked(channel *OpenChannel, chanBucket kvdb.RBucket) (
 		return false, err
 	}
 
-	return diskChannel.chanStatus != ChanStatusDefault, nil
+	return diskChannel.ChannelStatusForStore() != ChanStatusDefault, nil
 }
 
 // MarkCommitmentBroadcasted marks the channel as a commitment transaction has
@@ -2101,8 +2143,8 @@ func (c *ChannelStateDB) putChanStatus(channel *OpenChannel,
 		}
 
 		// Add this status to the existing bitvector found in the DB.
-		status = diskChannel.chanStatus | status
-		diskChannel.chanStatus = status
+		status = diskChannel.ChannelStatusForStore() | status
+		diskChannel.SetChannelStatusForStore(status)
 
 		if err := putOpenChannel(chanBucket, diskChannel); err != nil {
 			return err
@@ -2125,7 +2167,7 @@ func (c *ChannelStateDB) putChanStatus(channel *OpenChannel,
 	}
 
 	// Update the in-memory representation to keep it in sync with the DB.
-	channel.chanStatus = status
+	channel.SetChannelStatusForStore(status)
 
 	return nil
 }
@@ -2152,8 +2194,8 @@ func (c *ChannelStateDB) ClearChannelStatus(channel *OpenChannel,
 		}
 
 		// Unset this bit in the bitvector on disk.
-		status = diskChannel.chanStatus & ^status
-		diskChannel.chanStatus = status
+		status = diskChannel.ChannelStatusForStore() & ^status
+		diskChannel.SetChannelStatusForStore(status)
 
 		return putOpenChannel(chanBucket, diskChannel)
 	}, func() {}); err != nil {
@@ -2161,7 +2203,7 @@ func (c *ChannelStateDB) ClearChannelStatus(channel *OpenChannel,
 	}
 
 	// Update the in-memory representation to keep it in sync with the DB.
-	channel.chanStatus = status
+	channel.SetChannelStatusForStore(status)
 
 	return nil
 }
@@ -3864,7 +3906,9 @@ func archiveClosedChannel(tx kvdb.RwTx, chanKey []byte,
 	}
 
 	for _, s := range statuses {
-		chanState.chanStatus |= s
+		chanState.SetChannelStatusForStore(
+			chanState.ChannelStatusForStore() | s,
+		)
 	}
 
 	if err := putOpenChannel(historicalChanBucket, chanState); err != nil {
@@ -4430,7 +4474,7 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 	if err := WriteElements(&w,
 		channel.ChanType, channel.ChainHash, channel.FundingOutpoint,
 		channel.ShortChannelID, channel.IsPending, channel.IsInitiator,
-		channel.chanStatus, channel.FundingBroadcastHeight,
+		channel.ChannelStatusForStore(), channel.FundingBroadcastHeight,
 		channel.NumConfsRequired, channel.ChannelFlags,
 		channel.IdentityPub, channel.Capacity, channel.TotalMSatSent,
 		channel.TotalMSatReceived,
@@ -4609,16 +4653,18 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	}
 	r := bytes.NewReader(infoBytes)
 
+	var chanStatus ChannelStatus
 	if err := ReadElements(r,
 		&channel.ChanType, &channel.ChainHash, &channel.FundingOutpoint,
 		&channel.ShortChannelID, &channel.IsPending, &channel.IsInitiator,
-		&channel.chanStatus, &channel.FundingBroadcastHeight,
+		&chanStatus, &channel.FundingBroadcastHeight,
 		&channel.NumConfsRequired, &channel.ChannelFlags,
 		&channel.IdentityPub, &channel.Capacity, &channel.TotalMSatSent,
 		&channel.TotalMSatReceived,
 	); err != nil {
 		return err
 	}
+	channel.SetChannelStatusForStore(chanStatus)
 
 	// For single funder channels that we initiated and have the funding
 	// transaction to, read the funding txn.

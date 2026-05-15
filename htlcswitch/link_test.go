@@ -2241,7 +2241,7 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 		MaxFeeAllocation:           DefaultMaxLinkFeeAllocation,
 		NotifyActiveLink:           func(wire.OutPoint) {},
 		NotifyActiveChannel:        func(wire.OutPoint) {},
-		NotifyChannelUpdate:        func(*channeldb.OpenChannel) {},
+		NotifyChannelUpdate:        func(*cstate.OpenChannel) {},
 		NotifyInactiveChannel:      func(wire.OutPoint) {},
 		NotifyInactiveLinkEvent:    func(wire.OutPoint) {},
 		HtlcNotifier:               aliceSwitch.cfg.HtlcNotifier,
@@ -4932,7 +4932,7 @@ func (h *persistentLinkHarness) restartLink(
 		NotifyActiveChannel:        func(wire.OutPoint) {},
 		NotifyInactiveChannel:      func(wire.OutPoint) {},
 		NotifyInactiveLinkEvent:    func(wire.OutPoint) {},
-		NotifyChannelUpdate:        func(*channeldb.OpenChannel) {},
+		NotifyChannelUpdate:        func(*cstate.OpenChannel) {},
 		HtlcNotifier:               h.hSwitch.cfg.HtlcNotifier,
 		SyncStates:                 syncStates,
 		GetAliases:                 getAliases,
@@ -5774,7 +5774,7 @@ type mockFailLoadFwdPkgStore struct {
 }
 
 func (m *mockFailLoadFwdPkgStore) LoadFwdPkgs(
-	*channeldb.OpenChannel) ([]*channeldb.FwdPkg, error) {
+	*cstate.OpenChannel) ([]*channeldb.FwdPkg, error) {
 
 	return nil, fmt.Errorf("failing LoadFwdPkgs")
 }

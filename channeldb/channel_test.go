@@ -1542,7 +1542,7 @@ func TestCloseInitiator(t *testing.T) {
 				if !dbChans[0].HasChanStatus(status) {
 					t.Fatalf("expected channel to have "+
 						"status: %v, has status: %v",
-						status, dbChans[0].chanStatus)
+						status, dbChans[0].ChanStatus())
 				}
 			}
 		})
@@ -1625,9 +1625,8 @@ func TestHasChanStatus(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
-			c := &OpenChannel{
-				chanStatus: test.status,
-			}
+			c := &OpenChannel{}
+			c.SetChannelStatusForStore(test.status)
 
 			for status, expHas := range test.expHas {
 				has := c.HasChanStatus(status)

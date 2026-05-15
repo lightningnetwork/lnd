@@ -5772,7 +5772,7 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 // LoadFwdPkgs. This lets the link startup test inject a forwarding-package
 // load failure through OpenChannel.Db without replacing the rest of the store.
 type mockFailLoadFwdPkgStore struct {
-	cstate.Store[*channeldb.OpenChannel]
+	cstate.Store
 }
 
 // LoadFwdPkgs fails the forwarding-package load to exercise link startup

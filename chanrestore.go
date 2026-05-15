@@ -36,7 +36,7 @@ const (
 // need the secret key chain in order obtain the prior shachain root so we can
 // verify the DLP protocol as initiated by the remote node.
 type chanDBRestorer struct {
-	db chanstate.OpenChannelStore[*channeldb.OpenChannel]
+	db chanstate.OpenChannelStore
 
 	secretKeys keychain.SecretKeyRing
 

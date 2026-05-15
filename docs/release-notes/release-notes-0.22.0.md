@@ -32,6 +32,11 @@
 
 ## RPC Additions
 
+* The chain notifier subserver now exposes `RegisterPkScriptNtfn`, a
+  bidirectional stream that lets clients dynamically add and remove watched
+  pkScripts and receive confirmation, spend, partial confirmation, historical
+  scan, and reorg notifications for matching outputs.
+
 ## lncli Additions
 
 # Improvements
@@ -67,7 +72,12 @@
 
 ## Tooling and Documentation
 
+* Added `docs/pkscriptnotifier.md`, which documents the pkScript notifier RPC
+  semantics, historical scans, reorg handling, resource bounds, and backend
+  support.
+
 # Contributors (Alphabetical Order)
 
 * Boris Nagaev
 * Erick Cestari
+* hieblmi

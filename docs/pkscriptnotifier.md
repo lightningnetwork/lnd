@@ -37,6 +37,106 @@ The server sends three kinds of response events:
 Reorgs are reported on the same notification stream by setting
 `disconnected=true` on the event that is being invalidated.
 
+## In-Process Go Example
+
+The backend notifier exposes the same stream through the `chainntnfs`
+`PkScriptNotifier` interface. The example below registers a stream, defers
+cleanup, adds pkScripts with every option enabled, and reads notifications until
+the caller's context is canceled or the stream closes.
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/lightningnetwork/lnd/chainntnfs"
+)
+
+func watchPkScripts(ctx context.Context, notifier chainntnfs.PkScriptNotifier,
+	pkScripts [][]byte) error {
+
+	reg, err := notifier.RegisterPkScriptNotifier()
+	if err != nil {
+		return err
+	}
+	defer reg.Cancel()
+
+	result, err := reg.AddPkScripts(
+		pkScripts,
+		chainntnfs.WithEvents(
+			chainntnfs.PkScriptEventConfirm|
+				chainntnfs.PkScriptEventSpend,
+		),
+		chainntnfs.WithNumConfs(6),
+		chainntnfs.WithHistoricalScanFrom(800000),
+		chainntnfs.WithIncludeConfirmationUpdates(),
+		chainntnfs.WithIncludeTx(),
+		chainntnfs.WithIncludeBlock(),
+	)
+	if err != nil {
+		return err
+	}
+
+	if result.HistoricalScanQueued {
+		log.Printf("queued historical pkScript scan id=%d range=%d-%d",
+			result.HistoricalScanID,
+			result.HistoricalScanStartHeight,
+			result.HistoricalScanEndHeight)
+	}
+
+	for {
+		select {
+		case ntfn, ok := <-reg.Notifications:
+			if !ok {
+				if reg.Err != nil && reg.Err() != nil {
+					return reg.Err()
+				}
+
+				return nil
+			}
+
+			switch ntfn.Type {
+			case chainntnfs.PkScriptNotificationConfirmUpdate:
+				log.Printf("pkScript update tx=%v confs=%d/%d "+
+					"disconnected=%v", ntfn.TxHash,
+					ntfn.NumConfirmations, ntfn.RequiredConfs,
+					ntfn.Disconnected)
+
+			case chainntnfs.PkScriptNotificationConfirm:
+				log.Printf("pkScript confirmed outpoint=%v height=%d "+
+					"disconnected=%v", ntfn.UTXO.OutPoint,
+					ntfn.Height, ntfn.Disconnected)
+
+			case chainntnfs.PkScriptNotificationSpend:
+				log.Printf("pkScript spent outpoint=%v spend_tx=%v "+
+					"input=%d disconnected=%v", ntfn.UTXO.OutPoint,
+					ntfn.TxHash, ntfn.InputIndex,
+					ntfn.Disconnected)
+
+			case chainntnfs.PkScriptNotificationHistoricalScanComplete:
+				scan := ntfn.HistoricalScan
+				if scan.Error != "" {
+					return fmt.Errorf("historical pkScript scan "+
+						"%d failed at height %d: %s",
+						scan.ScanID, scan.CompletedHeight,
+						scan.Error)
+				}
+
+				log.Printf("historical pkScript scan %d complete "+
+					"through height %d", scan.ScanID,
+					scan.CompletedHeight)
+			}
+
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+```
+
 ## Historical Scans
 
 An add request can set `historical_scan_from`. When set, the backend scans from

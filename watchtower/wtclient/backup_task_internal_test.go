@@ -9,7 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -64,7 +64,7 @@ type backupTaskTest struct {
 	bindErr          error
 	expSweepScript   []byte
 	signer           input.Signer
-	chanType         channeldb.ChannelType
+	chanType         chanstate.ChannelType
 	commitType       blob.CommitmentType
 }
 
@@ -84,7 +84,7 @@ func genTaskTest(
 	expSweepAmt int64,
 	expRewardAmt int64,
 	bindErr error,
-	chanType channeldb.ChannelType) backupTaskTest {
+	chanType chanstate.ChannelType) backupTaskTest {
 
 	// Set the anchor or taproot flag in the blob type if the session needs
 	// to support anchor or taproot channels.
@@ -330,11 +330,11 @@ var (
 func TestBackupTask(t *testing.T) {
 	t.Parallel()
 
-	chanTypes := []channeldb.ChannelType{
-		channeldb.SingleFunderBit,
-		channeldb.SingleFunderTweaklessBit,
-		channeldb.AnchorOutputsBit,
-		channeldb.SimpleTaprootFeatureBit,
+	chanTypes := []chanstate.ChannelType{
+		chanstate.SingleFunderBit,
+		chanstate.SingleFunderTweaklessBit,
+		chanstate.AnchorOutputsBit,
+		chanstate.SimpleTaprootFeatureBit,
 	}
 
 	var backupTaskTests []backupTaskTest
@@ -573,7 +573,7 @@ func testBackupTask(t *testing.T, test backupTaskTest) {
 	// getBreachInfo is a helper closure that returns the breach retribution
 	// info and channel type for the given channel and commit height.
 	getBreachInfo := func(id lnwire.ChannelID, commitHeight uint64) (
-		*lnwallet.BreachRetribution, channeldb.ChannelType, error) {
+		*lnwallet.BreachRetribution, chanstate.ChannelType, error) {
 
 		return test.breachInfo, test.chanType, nil
 	}

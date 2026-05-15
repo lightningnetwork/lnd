@@ -906,10 +906,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 		LocalCommitment:         remoteCommit,
 		RemoteCommitment:        remoteCommit,
 		Db:                      dbRemote.ChannelStateDB(),
-		Packager: channeldb.NewChannelPackager(
-			shortChanID,
-		),
-		FundingTxn: fundingTx,
+		FundingTxn:              fundingTx,
 	}
 	localChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            localCfg,
@@ -926,10 +923,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 		LocalCommitment:         localCommit,
 		RemoteCommitment:        localCommit,
 		Db:                      dbLocal.ChannelStateDB(),
-		Packager: channeldb.NewChannelPackager(
-			shortChanID,
-		),
-		FundingTxn: fundingTx,
+		FundingTxn:              fundingTx,
 	}
 
 	// Create mock signers with all deterministic keys. The funding key must

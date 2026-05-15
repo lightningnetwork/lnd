@@ -6,7 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,7 +27,7 @@ func TestChannelUpdateEvent(t *testing.T) {
 	defer sub.Cancel()
 
 	// Create a mock channel state.
-	channel := &channeldb.OpenChannel{}
+	channel := &chanstate.OpenChannel{}
 
 	// Notify the server of a channel update event.
 	ntfnServer.NotifyChannelUpdateEvent(channel)
@@ -69,9 +69,9 @@ func TestNotifyEarlyClosedChannelEvent(t *testing.T) {
 		Hash:  chainhash.Hash{0x01, 0x02, 0x03},
 		Index: 4,
 	}
-	summary := &channeldb.ChannelCloseSummary{
+	summary := &chanstate.ChannelCloseSummary{
 		ChanPoint: chanPoint,
-		CloseType: channeldb.CooperativeClose,
+		CloseType: chanstate.CooperativeClose,
 		IsPending: true,
 	}
 
@@ -111,9 +111,9 @@ func TestNotifyEarlyClosedChannelEventSingleEvent(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(sub.Cancel)
 
-	summary := &channeldb.ChannelCloseSummary{
+	summary := &chanstate.ChannelCloseSummary{
 		ChanPoint: wire.OutPoint{Index: 7},
-		CloseType: channeldb.CooperativeClose,
+		CloseType: chanstate.CooperativeClose,
 		IsPending: true,
 	}
 	ntfnServer.NotifyEarlyClosedChannelEvent(summary)

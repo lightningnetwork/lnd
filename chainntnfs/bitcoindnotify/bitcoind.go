@@ -52,6 +52,9 @@ type BitcoindNotifier struct {
 	notificationCancels  chan interface{}
 	notificationRegistry chan interface{}
 
+	historicalPkScriptDispatches    chan *chainntnfs.HistoricalPkScriptDispatch
+	historicalPkScriptDispatchSlots chan struct{}
+
 	txNotifier *chainntnfs.TxNotifier
 
 	blockEpochClients map[uint64]*blockEpochRegistration
@@ -99,6 +102,14 @@ func New(chainConn *chain.BitcoindConn, chainParams *chaincfg.Params,
 
 		notificationCancels:  make(chan interface{}),
 		notificationRegistry: make(chan interface{}),
+		historicalPkScriptDispatches: make(
+			chan *chainntnfs.HistoricalPkScriptDispatch,
+			chainntnfs.MaxPkScriptHistoricalDispatchQueueSize,
+		),
+		historicalPkScriptDispatchSlots: make(
+			chan struct{},
+			chainntnfs.MaxPkScriptHistoricalDispatchQueueSize,
+		),
 
 		blockEpochClients: make(map[uint64]*blockEpochRegistration),
 
@@ -205,6 +216,9 @@ func (b *BitcoindNotifier) startNotifier() error {
 
 	b.wg.Add(1)
 	go b.notificationDispatcher()
+
+	b.wg.Add(1)
+	go b.historicalPkScriptDispatcher()
 
 	// Set the active flag now that we've completed the full
 	// startup.
@@ -350,6 +364,16 @@ out:
 							msg.SpendRequest, err)
 					}
 				}(msg)
+
+			case *chainntnfs.HistoricalPkScriptDispatch:
+				err := b.queueHistoricalPkScriptDispatch(msg)
+				if err != nil {
+					chainntnfs.Log.Errorf("Unable to queue "+
+						"historical pkScript dispatch for "+
+						"sub=%d within range %d-%d: %v",
+						msg.SubscriptionID, msg.StartHeight,
+						msg.EndHeight, err)
+				}
 
 			case *blockEpochRegistration:
 				chainntnfs.Log.Infof("New block epoch subscription")
@@ -917,6 +941,128 @@ func (b *BitcoindNotifier) historicalSpendDetails(
 	return nil, nil
 }
 
+// queueHistoricalPkScriptDispatch reserves capacity and queues a historical
+// pkScript scan for the bitcoind backend.
+func (b *BitcoindNotifier) queueHistoricalPkScriptDispatch(
+	msg *chainntnfs.HistoricalPkScriptDispatch) error {
+
+	if msg == nil {
+		return nil
+	}
+
+	err := b.reserveHistoricalPkScriptDispatchSlot()
+	if err != nil {
+		return err
+	}
+
+	return b.queueReservedHistoricalPkScriptDispatch(msg)
+}
+
+// reserveHistoricalPkScriptDispatchSlot reserves one pending historical pkScript
+// scan slot.
+func (b *BitcoindNotifier) reserveHistoricalPkScriptDispatchSlot() error {
+	select {
+	case <-b.quit:
+		return chainntnfs.ErrChainNotifierShuttingDown
+	default:
+	}
+
+	select {
+	case b.historicalPkScriptDispatchSlots <- struct{}{}:
+		return nil
+
+	case <-b.quit:
+		return chainntnfs.ErrChainNotifierShuttingDown
+
+	default:
+		return fmt.Errorf("%w: pending scans %d exceeds limit %d",
+			chainntnfs.ErrTooManyHistoricalPkScriptScans,
+			len(b.historicalPkScriptDispatchSlots),
+			chainntnfs.MaxPkScriptHistoricalDispatchQueueSize)
+	}
+}
+
+// releaseHistoricalPkScriptDispatchSlot releases one pending historical pkScript
+// scan slot.
+func (b *BitcoindNotifier) releaseHistoricalPkScriptDispatchSlot() {
+	select {
+	case <-b.historicalPkScriptDispatchSlots:
+	default:
+	}
+}
+
+// queueReservedHistoricalPkScriptDispatch queues a dispatch after capacity has
+// already been reserved.
+func (b *BitcoindNotifier) queueReservedHistoricalPkScriptDispatch(
+	msg *chainntnfs.HistoricalPkScriptDispatch) error {
+
+	select {
+	case b.historicalPkScriptDispatches <- msg:
+		return nil
+
+	case <-b.quit:
+		b.releaseHistoricalPkScriptDispatchSlot()
+
+		return chainntnfs.ErrChainNotifierShuttingDown
+	}
+}
+
+// historicalPkScriptDispatcher serially executes queued historical pkScript
+// scans.
+func (b *BitcoindNotifier) historicalPkScriptDispatcher() {
+	defer b.wg.Done()
+
+	for {
+		select {
+		case msg := <-b.historicalPkScriptDispatches:
+			err := b.historicalPkScriptDispatch(msg)
+			b.releaseHistoricalPkScriptDispatchSlot()
+			if err != nil {
+				chainntnfs.Log.Errorf("Historical pkScript dispatch "+
+					"for sub=%d within range %d-%d failed: %v",
+					msg.SubscriptionID, msg.StartHeight,
+					msg.EndHeight, err)
+			}
+
+		case <-b.quit:
+			return
+		}
+	}
+}
+
+// historicalPkScriptDispatch manually scans blocks for pkScript activity for a
+// single subscription.
+func (b *BitcoindNotifier) historicalPkScriptDispatch(
+	msg *chainntnfs.HistoricalPkScriptDispatch) error {
+
+	return b.txNotifier.SyncHistoricalPkScriptDispatch(
+		msg,
+		func(height uint32) error {
+			select {
+			case <-b.quit:
+				return chainntnfs.ErrChainNotifierShuttingDown
+			default:
+			}
+
+			blockHash, err := b.chainConn.GetBlockHash(int64(height))
+			if err != nil {
+				return fmt.Errorf("unable to retrieve hash for block "+
+					"with height %d: %v", height, err)
+			}
+
+			block, err := b.GetBlock(blockHash)
+			if err != nil {
+				return fmt.Errorf("unable to retrieve block with hash "+
+					"%v: %v", blockHash, err)
+			}
+
+			return b.txNotifier.ProcessHistoricalPkScriptBlockWithDispatch(
+				msg, btcutil.NewBlock(block), height,
+			)
+		},
+	)
+}
+
 // RegisterConfirmationsNtfn registers an intent to be notified once the target
 // txid/output script has reached numConfs confirmations on-chain. When
 // intending to be notified of the confirmation of an output script, a nil txid
@@ -951,6 +1097,49 @@ func (b *BitcoindNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	case <-b.quit:
 		return nil, chainntnfs.ErrChainNotifierShuttingDown
 	}
+}
+
+// RegisterPkScriptNotifier creates a new pkScript notification stream.
+func (b *BitcoindNotifier) RegisterPkScriptNotifier() (
+	*chainntnfs.PkScriptNotificationRegistration, error) {
+
+	reg, err := b.txNotifier.RegisterPkScriptNotifier()
+	if err != nil {
+		return nil, err
+	}
+
+	reg.Event.AddPkScripts = func(pkScripts [][]byte,
+		opts ...chainntnfs.NotifierOption) (*chainntnfs.PkScriptAddResult,
+		error) {
+
+		dispatch, _, addedScripts, err := reg.AddPkScripts(
+			pkScripts, opts...,
+		)
+		if err != nil {
+			return nil, err
+		}
+		result := chainntnfs.NewPkScriptAddResult(dispatch, addedScripts)
+
+		err = b.queueHistoricalPkScriptDispatch(dispatch)
+		if err != nil {
+			removeErr := reg.RemovePkScripts(addedScripts)
+			if removeErr != nil {
+				return nil, fmt.Errorf("unable to queue historical "+
+					"pkScript scan: %w, rollback failed: %v",
+					err, removeErr)
+			}
+
+			return nil, err
+		}
+
+		return result, nil
+	}
+
+	reg.Event.RemovePkScripts = func(pkScripts [][]byte) error {
+		return reg.RemovePkScripts(pkScripts)
+	}
+
+	return reg.Event, nil
 }
 
 // blockEpochRegistration represents a client's intent to receive a

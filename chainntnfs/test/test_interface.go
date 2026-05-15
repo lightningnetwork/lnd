@@ -11,10 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required to auto-register the boltdb walletdb implementation.
@@ -29,6 +31,215 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/stretchr/testify/require"
 )
+
+// requirePkScriptNotifier asserts that the test notifier supports the pkScript
+// notifier interface.
+func requirePkScriptNotifier(t *testing.T,
+	notifier chainntnfs.TestChainNotifier) chainntnfs.PkScriptNotifier {
+
+	t.Helper()
+
+	pkScriptNotifier, ok := notifier.(chainntnfs.PkScriptNotifier)
+	require.True(t, ok, "notifier does not implement PkScriptNotifier")
+
+	return pkScriptNotifier
+}
+
+// registerPkScriptNotifier registers scripts with a historical scan height and
+// returns the resulting notification registration.
+func registerPkScriptNotifier(t *testing.T,
+	notifier chainntnfs.PkScriptNotifier, pkScripts [][]byte,
+	events chainntnfs.PkScriptEventType, numConfs,
+	historicalScanFrom uint32,
+	opts ...chainntnfs.NotifierOption,
+) *chainntnfs.PkScriptNotificationRegistration {
+
+	t.Helper()
+
+	reg, err := notifier.RegisterPkScriptNotifier()
+	require.NoError(t, err)
+
+	addOpts := []chainntnfs.NotifierOption{
+		chainntnfs.WithEvents(events),
+		chainntnfs.WithNumConfs(numConfs),
+		chainntnfs.WithHistoricalScanFrom(historicalScanFrom),
+	}
+	addOpts = append(addOpts, opts...)
+
+	_, err = reg.AddPkScripts(pkScripts, addOpts...)
+	require.NoError(t, err)
+
+	return reg
+}
+
+// newPkScriptTestScript creates a fresh P2WPKH pkScript and corresponding
+// private key for tests.
+func newPkScriptTestScript(t *testing.T) ([]byte, *btcec.PrivateKey) {
+	t.Helper()
+
+	privKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	pubKeyHash := btcutil.Hash160(privKey.PubKey().SerializeCompressed())
+	addr, err := btcutil.NewAddressWitnessPubKeyHash(
+		pubKeyHash, unittest.NetParams,
+	)
+	require.NoError(t, err)
+
+	pkScript, err := txscript.PayToAddrScript(addr)
+	require.NoError(t, err)
+
+	return pkScript, privKey
+}
+
+// newEpochClient registers a block epoch client and consumes its initial tip
+// notification.
+func newEpochClient(t *testing.T,
+	notifier chainntnfs.TestChainNotifier) *chainntnfs.BlockEpochEvent {
+
+	t.Helper()
+
+	epochClient, err := notifier.RegisterBlockEpochNtfn(nil)
+	require.NoError(t, err)
+
+	select {
+	case _, ok := <-epochClient.Epochs:
+		require.True(t, ok, "epoch channel closed")
+	case <-time.After(15 * time.Second):
+		t.Fatal("did not receive current tip epoch")
+	}
+
+	return epochClient
+}
+
+// waitForEpochs blocks until the expected number of block epoch notifications
+// is received.
+func waitForEpochs(t *testing.T, epochClient *chainntnfs.BlockEpochEvent,
+	numBlocks int) {
+
+	t.Helper()
+
+	for i := 0; i < numBlocks; i++ {
+		select {
+		case _, ok := <-epochClient.Epochs:
+			require.True(t, ok, "epoch channel closed")
+		case <-time.After(20 * time.Second):
+			t.Fatalf(
+				"did not receive block epoch %d/%d", i+1,
+				numBlocks,
+			)
+		}
+	}
+}
+
+// sendOutputToScript sends a wallet output paying directly to pkScript.
+func sendOutputToScript(t *testing.T, miner *rpctest.Harness, pkScript []byte,
+	value int64) (*chainhash.Hash, *wire.OutPoint, *wire.TxOut) {
+
+	t.Helper()
+
+	output := &wire.TxOut{
+		Value:    value,
+		PkScript: pkScript,
+	}
+	txid, err := miner.SendOutputsWithoutChange([]*wire.TxOut{output}, 10)
+	require.NoError(t, err)
+
+	return txid, wire.NewOutPoint(txid, 0), output
+}
+
+// recvPkScriptNotification waits for a single non-lifecycle pkScript
+// notification.
+func recvPkScriptNotification(t *testing.T,
+	reg *chainntnfs.PkScriptNotificationRegistration,
+) *chainntnfs.PkScriptNotification {
+
+	t.Helper()
+
+	timeout := time.After(20 * time.Second)
+	scanComplete :=
+		chainntnfs.PkScriptNotificationHistoricalScanComplete
+	for {
+		select {
+		case ntfn, ok := <-reg.Notifications:
+			require.True(
+				t, ok, "pkScript notification channel closed",
+			)
+
+			if ntfn.Type == scanComplete {
+
+				continue
+			}
+
+			return ntfn
+
+		case <-timeout:
+			t.Fatal("pkScript notification never received")
+			return nil
+		}
+	}
+}
+
+// recvPkScriptNotifications waits for count pkScript notifications.
+func recvPkScriptNotifications(t *testing.T,
+	reg *chainntnfs.PkScriptNotificationRegistration,
+	count int) []*chainntnfs.PkScriptNotification {
+
+	t.Helper()
+
+	ntfns := make([]*chainntnfs.PkScriptNotification, 0, count)
+	for i := 0; i < count; i++ {
+		ntfns = append(ntfns, recvPkScriptNotification(t, reg))
+	}
+
+	return ntfns
+}
+
+// assertNoPkScriptNotification asserts that no non-lifecycle pkScript
+// notification is received before timeout.
+func assertNoPkScriptNotification(t *testing.T,
+	reg *chainntnfs.PkScriptNotificationRegistration,
+	timeout time.Duration) {
+
+	t.Helper()
+
+	select {
+	case ntfn := <-reg.Notifications:
+		if ntfn.Type ==
+			chainntnfs.PkScriptNotificationHistoricalScanComplete {
+
+			assertNoPkScriptNotification(t, reg, timeout)
+			return
+		}
+
+		t.Fatalf("received unexpected pkScript notification: %v", ntfn)
+	case <-time.After(timeout):
+	}
+}
+
+// assertPkScriptNotification verifies the common fields of a pkScript
+// notification.
+func assertPkScriptNotification(t *testing.T,
+	ntfn *chainntnfs.PkScriptNotification,
+	expectedType chainntnfs.PkScriptNotificationType,
+	disconnected bool, height, numConfs uint32,
+	txHash, blockHash *chainhash.Hash, outpoint wire.OutPoint) {
+
+	t.Helper()
+
+	require.NotNil(t, ntfn)
+	require.Equal(t, expectedType, ntfn.Type)
+	require.Equal(t, disconnected, ntfn.Disconnected)
+	require.Equal(t, height, ntfn.Height)
+	require.Equal(t, numConfs, ntfn.NumConfirmations)
+
+	require.NotNil(t, ntfn.TxHash)
+	require.True(t, ntfn.TxHash.IsEqual(txHash))
+	require.NotNil(t, ntfn.BlockHash)
+	require.True(t, ntfn.BlockHash.IsEqual(blockHash))
+	require.NotNil(t, ntfn.UTXO)
+	require.Equal(t, outpoint, ntfn.UTXO.OutPoint)
+}
 
 func testSingleConfirmationNotification(miner *rpctest.Harness,
 	notifier chainntnfs.TestChainNotifier, scriptDispatch bool, t *testing.T) {
@@ -1784,10 +1995,756 @@ func testIncludeBlockAsymmetry(miner *rpctest.Harness,
 	assertNtfns()
 }
 
+// testPkScriptHistoricalConfirmSpend verifies historical pkScript confirmation
+// and spend replay for one watched script.
+func testPkScriptHistoricalConfirmSpend(miner *rpctest.Harness,
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
+
+	pkScriptNotifier := requirePkScriptNotifier(t, notifier)
+	epochClient := newEpochClient(t, notifier)
+	defer epochClient.Cancel()
+
+	pkScript, privKey := newPkScriptTestScript(t)
+	txid, outpoint, output := sendOutputToScript(t, miner, pkScript, 2e8)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, txid))
+
+	fundingBlocks, err := miner.Client.Generate(1)
+	require.NoError(t, err)
+	waitForEpochs(t, epochClient, 1)
+	_, fundingHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	confBlocks, err := miner.Client.Generate(1)
+	require.NoError(t, err)
+	waitForEpochs(t, epochClient, 1)
+
+	spendTx := chainntnfs.CreateSpendTx(t, outpoint, output, privKey)
+	spendHash, err := miner.Client.SendRawTransaction(spendTx, true)
+	require.NoError(t, err)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, spendHash))
+
+	spendBlocks, err := miner.Client.Generate(1)
+	require.NoError(t, err)
+	waitForEpochs(t, epochClient, 1)
+	_, spendHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	reg := registerPkScriptNotifier(
+		t, pkScriptNotifier,
+		[][]byte{pkScript},
+		chainntnfs.PkScriptEventConfirm|
+			chainntnfs.PkScriptEventSpend,
+		2, uint32(fundingHeight),
+		chainntnfs.WithIncludeTx(), chainntnfs.WithIncludeBlock(),
+	)
+	defer reg.Cancel()
+
+	confirmNtfn := recvPkScriptNotification(t, reg)
+	assertPkScriptNotification(
+		t, confirmNtfn, chainntnfs.PkScriptNotificationConfirm,
+		false, uint32(fundingHeight+1), 2, txid, confBlocks[0],
+		*outpoint,
+	)
+	require.NotNil(t, confirmNtfn.Tx)
+	require.Equal(t, *txid, confirmNtfn.Tx.TxHash())
+	require.NotNil(t, confirmNtfn.Block)
+	require.Equal(t, *confBlocks[0], confirmNtfn.Block.BlockHash())
+
+	spendNtfn := recvPkScriptNotification(t, reg)
+	assertPkScriptNotification(
+		t, spendNtfn, chainntnfs.PkScriptNotificationSpend,
+		false, uint32(spendHeight), 0, spendHash, spendBlocks[0],
+		*outpoint,
+	)
+	require.NotNil(t, spendNtfn.Tx)
+	require.Equal(t, *spendHash, spendNtfn.Tx.TxHash())
+	require.NotNil(t, spendNtfn.Block)
+	require.Equal(t, *spendBlocks[0], spendNtfn.Block.BlockHash())
+
+	assertNoPkScriptNotification(t, reg, 2*time.Second)
+
+	// Ensure the historical confirm references the original funding block,
+	// not the block where it reached its target depth.
+	require.NotEqual(t, *fundingBlocks[0], *confirmNtfn.BlockHash)
+}
+
+// testPkScriptHistoricalMultiScriptRegister verifies historical replay for
+// multiple scripts registered in a single request.
+func testPkScriptHistoricalMultiScriptRegister(miner *rpctest.Harness,
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
+
+	pkScriptNotifier := requirePkScriptNotifier(t, notifier)
+	epochClient := newEpochClient(t, notifier)
+	defer epochClient.Cancel()
+
+	scriptA, privKeyA := newPkScriptTestScript(t)
+	scriptB, privKeyB := newPkScriptTestScript(t)
+
+	txidA, outpointA, outputA := sendOutputToScript(t, miner, scriptA, 2e8)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, txidA))
+	txidB, outpointB, outputB := sendOutputToScript(t, miner, scriptB, 3e8)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, txidB))
+
+	fundingBlocks, err := miner.Client.Generate(1)
+	require.NoError(t, err)
+	waitForEpochs(t, epochClient, 1)
+	_, fundingHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	spendTxA := chainntnfs.CreateSpendTx(t, outpointA, outputA, privKeyA)
+	spendHashA, err := miner.Client.SendRawTransaction(spendTxA, true)
+	require.NoError(t, err)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, spendHashA))
+
+	spendTxB := chainntnfs.CreateSpendTx(t, outpointB, outputB, privKeyB)
+	spendHashB, err := miner.Client.SendRawTransaction(spendTxB, true)
+	require.NoError(t, err)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, spendHashB))
+
+	spendBlocks, err := miner.Client.Generate(1)
+	require.NoError(t, err)
+	waitForEpochs(t, epochClient, 1)
+	_, spendHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	reg := registerPkScriptNotifier(
+		t, pkScriptNotifier,
+		[][]byte{scriptA, scriptB},
+		chainntnfs.PkScriptEventConfirm|
+			chainntnfs.PkScriptEventSpend,
+		1, uint32(fundingHeight),
+	)
+	defer reg.Cancel()
+
+	ntfns := recvPkScriptNotifications(t, reg, 4)
+	seen := make(map[string]struct{}, 4)
+	for _, ntfn := range ntfns {
+		switch ntfn.UTXO.OutPoint {
+		case *outpointA:
+			switch ntfn.Type {
+			case chainntnfs.PkScriptNotificationConfirm:
+				assertPkScriptNotification(
+					t, ntfn,
+					chainntnfs.PkScriptNotificationConfirm,
+					false, uint32(fundingHeight), 1, txidA,
+					fundingBlocks[0], *outpointA,
+				)
+				seen["confirmA"] = struct{}{}
+			case chainntnfs.PkScriptNotificationSpend:
+				assertPkScriptNotification(
+					t, ntfn,
+					chainntnfs.PkScriptNotificationSpend,
+					false, uint32(spendHeight), 0,
+					spendHashA,
+					spendBlocks[0], *outpointA,
+				)
+				seen["spendA"] = struct{}{}
+			}
+
+		case *outpointB:
+			switch ntfn.Type {
+			case chainntnfs.PkScriptNotificationConfirm:
+				assertPkScriptNotification(
+					t, ntfn,
+					chainntnfs.PkScriptNotificationConfirm,
+					false, uint32(fundingHeight), 1, txidB,
+					fundingBlocks[0], *outpointB,
+				)
+				seen["confirmB"] = struct{}{}
+			case chainntnfs.PkScriptNotificationSpend:
+				assertPkScriptNotification(
+					t, ntfn,
+					chainntnfs.PkScriptNotificationSpend,
+					false, uint32(spendHeight), 0,
+					spendHashB,
+					spendBlocks[0], *outpointB,
+				)
+				seen["spendB"] = struct{}{}
+			}
+		}
+	}
+	require.Len(t, seen, 4)
+}
+
+// testPkScriptAddRemove verifies dynamic add and remove behavior for pkScript
+// notifications.
+func testPkScriptAddRemove(miner *rpctest.Harness,
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
+
+	pkScriptNotifier := requirePkScriptNotifier(t, notifier)
+	epochClient := newEpochClient(t, notifier)
+	defer epochClient.Cancel()
+
+	reg, err := pkScriptNotifier.RegisterPkScriptNotifier()
+	require.NoError(t, err)
+	defer reg.Cancel()
+
+	liveScript, livePrivKey := newPkScriptTestScript(t)
+	_, currentHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	_, err = reg.AddPkScripts(
+		[][]byte{liveScript},
+		chainntnfs.WithHistoricalScanFrom(uint32(currentHeight)),
+	)
+	require.NoError(t, err)
+
+	liveTxid, liveOutpoint, liveOutput := sendOutputToScript(
+		t, miner, liveScript, 2e8,
+	)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, liveTxid))
+
+	liveConfBlocks, err := miner.Client.Generate(1)
+	require.NoError(t, err)
+	waitForEpochs(t, epochClient, 1)
+	_, liveConfHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	assertPkScriptNotification(
+		t, recvPkScriptNotification(t, reg),
+		chainntnfs.PkScriptNotificationConfirm, false,
+		uint32(liveConfHeight), 1, liveTxid, liveConfBlocks[0],
+		*liveOutpoint,
+	)
+
+	err = reg.RemovePkScripts([][]byte{liveScript})
+	require.NoError(t, err)
+
+	liveSpendTx := chainntnfs.CreateSpendTx(
+		t, liveOutpoint, liveOutput, livePrivKey,
+	)
+	liveSpendHash, err := miner.Client.SendRawTransaction(liveSpendTx, true)
+	require.NoError(t, err)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(
+		miner, liveSpendHash,
+	))
+
+	_, err = miner.Client.Generate(1)
+	require.NoError(t, err)
+	waitForEpochs(t, epochClient, 1)
+
+	assertNoPkScriptNotification(t, reg, 2*time.Second)
+
+	historicalScript, historicalPrivKey := newPkScriptTestScript(t)
+	historicalTxid, historicalOutpoint, historicalOutput :=
+		sendOutputToScript(t, miner, historicalScript, 2e8)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, historicalTxid))
+
+	historicalConfBlocks, err := miner.Client.Generate(1)
+	require.NoError(t, err)
+	waitForEpochs(t, epochClient, 1)
+	_, historicalConfHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	_, err = reg.AddPkScripts(
+		[][]byte{historicalScript},
+		chainntnfs.WithHistoricalScanFrom(uint32(historicalConfHeight)),
+	)
+	require.NoError(t, err)
+
+	assertPkScriptNotification(
+		t, recvPkScriptNotification(t, reg),
+		chainntnfs.PkScriptNotificationConfirm, false,
+		uint32(historicalConfHeight), 1, historicalTxid,
+		historicalConfBlocks[0], *historicalOutpoint,
+	)
+
+	historicalSpendTx := chainntnfs.CreateSpendTx(
+		t, historicalOutpoint, historicalOutput, historicalPrivKey,
+	)
+	historicalSpendHash, err := miner.Client.SendRawTransaction(
+		historicalSpendTx, true,
+	)
+	require.NoError(t, err)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(
+		miner, historicalSpendHash,
+	))
+
+	historicalSpendBlocks, err := miner.Client.Generate(1)
+	require.NoError(t, err)
+	waitForEpochs(t, epochClient, 1)
+	_, historicalSpendHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	assertPkScriptNotification(
+		t, recvPkScriptNotification(t, reg),
+		chainntnfs.PkScriptNotificationSpend, false,
+		uint32(historicalSpendHeight), 0, historicalSpendHash,
+		historicalSpendBlocks[0], *historicalOutpoint,
+	)
+}
+
+// testPkScriptAddMultipleScriptsHistorical verifies historical replay for
+// multiple scripts added to an existing registration.
+func testPkScriptAddMultipleScriptsHistorical(miner *rpctest.Harness,
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
+
+	pkScriptNotifier := requirePkScriptNotifier(t, notifier)
+	epochClient := newEpochClient(t, notifier)
+	defer epochClient.Cancel()
+
+	reg, err := pkScriptNotifier.RegisterPkScriptNotifier()
+	require.NoError(t, err)
+	defer reg.Cancel()
+
+	scriptA, privKeyA := newPkScriptTestScript(t)
+	scriptB, privKeyB := newPkScriptTestScript(t)
+
+	txidA, outpointA, outputA := sendOutputToScript(t, miner, scriptA, 2e8)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, txidA))
+	txidB, outpointB, outputB := sendOutputToScript(t, miner, scriptB, 3e8)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, txidB))
+
+	fundingBlocks, err := miner.Client.Generate(1)
+	require.NoError(t, err)
+	waitForEpochs(t, epochClient, 1)
+	_, fundingHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	_, err = reg.AddPkScripts(
+		[][]byte{scriptA, scriptB},
+		chainntnfs.WithHistoricalScanFrom(uint32(fundingHeight)),
+	)
+	require.NoError(t, err)
+
+	confirmNtfns := recvPkScriptNotifications(t, reg, 2)
+	seenConfirm := make(map[wire.OutPoint]struct{}, 2)
+	for _, ntfn := range confirmNtfns {
+		switch ntfn.UTXO.OutPoint {
+		case *outpointA:
+			assertPkScriptNotification(
+				t, ntfn, chainntnfs.PkScriptNotificationConfirm,
+				false, uint32(fundingHeight), 1, txidA,
+				fundingBlocks[0], *outpointA,
+			)
+			seenConfirm[*outpointA] = struct{}{}
+
+		case *outpointB:
+			assertPkScriptNotification(
+				t, ntfn, chainntnfs.PkScriptNotificationConfirm,
+				false, uint32(fundingHeight), 1, txidB,
+				fundingBlocks[0], *outpointB,
+			)
+			seenConfirm[*outpointB] = struct{}{}
+		}
+	}
+	require.Len(t, seenConfirm, 2)
+
+	spendTxA := chainntnfs.CreateSpendTx(t, outpointA, outputA, privKeyA)
+	spendHashA, err := miner.Client.SendRawTransaction(spendTxA, true)
+	require.NoError(t, err)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, spendHashA))
+
+	spendTxB := chainntnfs.CreateSpendTx(t, outpointB, outputB, privKeyB)
+	spendHashB, err := miner.Client.SendRawTransaction(spendTxB, true)
+	require.NoError(t, err)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, spendHashB))
+
+	spendBlocks, err := miner.Client.Generate(1)
+	require.NoError(t, err)
+	waitForEpochs(t, epochClient, 1)
+	_, spendHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	spendNtfns := recvPkScriptNotifications(t, reg, 2)
+	seenSpend := make(map[wire.OutPoint]struct{}, 2)
+	for _, ntfn := range spendNtfns {
+		switch ntfn.UTXO.OutPoint {
+		case *outpointA:
+			assertPkScriptNotification(
+				t, ntfn, chainntnfs.PkScriptNotificationSpend,
+				false, uint32(spendHeight), 0, spendHashA,
+				spendBlocks[0], *outpointA,
+			)
+			seenSpend[*outpointA] = struct{}{}
+
+		case *outpointB:
+			assertPkScriptNotification(
+				t, ntfn, chainntnfs.PkScriptNotificationSpend,
+				false, uint32(spendHeight), 0, spendHashB,
+				spendBlocks[0], *outpointB,
+			)
+			seenSpend[*outpointB] = struct{}{}
+		}
+	}
+	require.Len(t, seenSpend, 2)
+}
+
+// testPkScriptMultipleEventsPerBlock verifies multiple pkScript notifications
+// can be emitted from the same block.
+func testPkScriptMultipleEventsPerBlock(miner *rpctest.Harness,
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
+
+	pkScriptNotifier := requirePkScriptNotifier(t, notifier)
+	scriptA, privKeyA := newPkScriptTestScript(t)
+	scriptB, privKeyB := newPkScriptTestScript(t)
+
+	_, currentHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	reg := registerPkScriptNotifier(
+		t, pkScriptNotifier,
+		[][]byte{scriptA, scriptB},
+		chainntnfs.PkScriptEventConfirm|
+			chainntnfs.PkScriptEventSpend,
+		1, uint32(currentHeight),
+	)
+	defer reg.Cancel()
+
+	txidA, outpointA, outputA := sendOutputToScript(t, miner, scriptA, 2e8)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, txidA))
+	txidB, outpointB, outputB := sendOutputToScript(t, miner, scriptB, 2e8)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, txidB))
+
+	confBlocks, err := miner.Client.Generate(1)
+	require.NoError(t, err)
+	_, confHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	confNtfns := recvPkScriptNotifications(t, reg, 2)
+	seenConf := make(map[wire.OutPoint]struct{}, 2)
+	for _, ntfn := range confNtfns {
+		require.Equal(
+			t, chainntnfs.PkScriptNotificationConfirm, ntfn.Type,
+		)
+		require.False(t, ntfn.Disconnected)
+		require.Equal(t, uint32(confHeight), ntfn.Height)
+		require.Equal(t, uint32(1), ntfn.NumConfirmations)
+
+		switch ntfn.UTXO.OutPoint {
+		case *outpointA:
+			require.True(t, ntfn.TxHash.IsEqual(txidA))
+			require.True(t, ntfn.BlockHash.IsEqual(confBlocks[0]))
+			seenConf[*outpointA] = struct{}{}
+
+		case *outpointB:
+			require.True(t, ntfn.TxHash.IsEqual(txidB))
+			require.True(t, ntfn.BlockHash.IsEqual(confBlocks[0]))
+			seenConf[*outpointB] = struct{}{}
+
+		default:
+			t.Fatalf("unexpected confirm outpoint: %v",
+				ntfn.UTXO.OutPoint)
+		}
+	}
+	require.Len(t, seenConf, 2)
+
+	spendTxA := chainntnfs.CreateSpendTx(t, outpointA, outputA, privKeyA)
+	spendHashA, err := miner.Client.SendRawTransaction(spendTxA, true)
+	require.NoError(t, err)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, spendHashA))
+
+	spendTxB := chainntnfs.CreateSpendTx(t, outpointB, outputB, privKeyB)
+	spendHashB, err := miner.Client.SendRawTransaction(spendTxB, true)
+	require.NoError(t, err)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, spendHashB))
+
+	spendBlocks, err := miner.Client.Generate(1)
+	require.NoError(t, err)
+	_, spendHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	spendNtfns := recvPkScriptNotifications(t, reg, 2)
+	seenSpend := make(map[wire.OutPoint]struct{}, 2)
+	for _, ntfn := range spendNtfns {
+		require.Equal(
+			t, chainntnfs.PkScriptNotificationSpend, ntfn.Type,
+		)
+		require.False(t, ntfn.Disconnected)
+		require.Equal(t, uint32(spendHeight), ntfn.Height)
+
+		switch ntfn.UTXO.OutPoint {
+		case *outpointA:
+			require.True(t, ntfn.TxHash.IsEqual(spendHashA))
+			require.True(t, ntfn.BlockHash.IsEqual(spendBlocks[0]))
+			seenSpend[*outpointA] = struct{}{}
+
+		case *outpointB:
+			require.True(t, ntfn.TxHash.IsEqual(spendHashB))
+			require.True(t, ntfn.BlockHash.IsEqual(spendBlocks[0]))
+			seenSpend[*outpointB] = struct{}{}
+
+		default:
+			t.Fatalf("unexpected spend outpoint: %v",
+				ntfn.UTXO.OutPoint)
+		}
+	}
+	require.Len(t, seenSpend, 2)
+}
+
+// testPkScriptReorg verifies pkScript notifications are invalidated and
+// redelivered across reorgs.
+func testPkScriptReorg(miner *rpctest.Harness,
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
+
+	pkScriptNotifier := requirePkScriptNotifier(t, notifier)
+	pkScript, privKey := newPkScriptTestScript(t)
+
+	miner2 := unittest.NewMiner(
+		t, unittest.NetParams, []string{"--txindex"}, false, 0,
+	)
+
+	err := rpctest.ConnectNode(miner, miner2)
+	require.NoError(t, err)
+	err = rpctest.JoinNodes([]*rpctest.Harness{miner, miner2}, rpctest.Blocks)
+	require.NoError(t, err)
+
+	err = miner.Client.AddNode(miner2.P2PAddress(), rpcclient.ANRemove)
+	require.NoError(t, err)
+
+	_, currentHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	reg := registerPkScriptNotifier(
+		t, pkScriptNotifier,
+		[][]byte{pkScript},
+		chainntnfs.PkScriptEventConfirm|
+			chainntnfs.PkScriptEventSpend,
+		1, uint32(currentHeight),
+	)
+	defer reg.Cancel()
+
+	txid, outpoint, output := sendOutputToScript(t, miner, pkScript, 2e8)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, txid))
+
+	fundingTx, err := miner.Client.GetRawTransaction(txid)
+	require.NoError(t, err)
+
+	fundingBlocks, err := miner.Client.Generate(1)
+	require.NoError(t, err)
+	_, fundingHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	assertPkScriptNotification(
+		t, recvPkScriptNotification(t, reg),
+		chainntnfs.PkScriptNotificationConfirm, false,
+		uint32(fundingHeight), 1, txid, fundingBlocks[0], *outpoint,
+	)
+
+	spendTx := chainntnfs.CreateSpendTx(t, outpoint, output, privKey)
+	spendHash, err := miner.Client.SendRawTransaction(spendTx, true)
+	require.NoError(t, err)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, spendHash))
+
+	spendBlocks, err := miner.Client.Generate(1)
+	require.NoError(t, err)
+	_, spendHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	assertPkScriptNotification(
+		t, recvPkScriptNotification(t, reg),
+		chainntnfs.PkScriptNotificationSpend, false,
+		uint32(spendHeight), 0, spendHash, spendBlocks[0], *outpoint,
+	)
+
+	_, err = miner2.Client.Generate(3)
+	require.NoError(t, err)
+
+	err = rpctest.ConnectNode(miner, miner2)
+	require.NoError(t, err)
+	err = rpctest.JoinNodes([]*rpctest.Harness{miner, miner2}, rpctest.Blocks)
+	require.NoError(t, err)
+
+	disconnectedNtfns := recvPkScriptNotifications(t, reg, 2)
+	seenDisconnected := make(
+		map[chainntnfs.PkScriptNotificationType]struct{}, 2,
+	)
+	spendType := chainntnfs.PkScriptNotificationSpend
+	confirmType := chainntnfs.PkScriptNotificationConfirm
+	for _, ntfn := range disconnectedNtfns {
+		require.True(t, ntfn.Disconnected)
+
+		switch ntfn.Type {
+		case spendType:
+			assertPkScriptNotification(
+				t, ntfn, spendType,
+				true, uint32(spendHeight), 0, spendHash,
+				spendBlocks[0], *outpoint,
+			)
+			seenDisconnected[spendType] = struct{}{}
+
+		case confirmType:
+			assertPkScriptNotification(
+				t, ntfn, confirmType,
+				true, uint32(fundingHeight), 1, txid,
+				fundingBlocks[0], *outpoint,
+			)
+			seenDisconnected[confirmType] = struct{}{}
+
+		default:
+			t.Fatalf(
+				"unexpected disconnected ntfn: %v",
+				ntfn.Type,
+			)
+		}
+	}
+	require.Len(t, seenDisconnected, 2)
+
+	_, err = miner2.Client.SendRawTransaction(fundingTx.MsgTx(), false)
+	require.NoError(t, err)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, txid))
+
+	refundingBlocks, err := miner2.Client.Generate(1)
+	require.NoError(t, err)
+	_, refundingHeight, err := miner2.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	assertPkScriptNotification(
+		t, recvPkScriptNotification(t, reg),
+		chainntnfs.PkScriptNotificationConfirm, false,
+		uint32(refundingHeight), 1, txid, refundingBlocks[0], *outpoint,
+	)
+
+	_, err = miner2.Client.SendRawTransaction(spendTx, true)
+	require.NoError(t, err)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, spendHash))
+
+	respendBlocks, err := miner2.Client.Generate(1)
+	require.NoError(t, err)
+	_, respendHeight, err := miner2.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	assertPkScriptNotification(
+		t, recvPkScriptNotification(t, reg),
+		chainntnfs.PkScriptNotificationSpend, false,
+		uint32(respendHeight), 0, spendHash, respendBlocks[0],
+		*outpoint,
+	)
+}
+
+// testPkScriptHistoricalAndLiveSpend verifies historical replay catches live
+// spends that arrive while a script is still being scanned.
+func testPkScriptHistoricalAndLiveSpend(miner *rpctest.Harness,
+	notifier chainntnfs.TestChainNotifier, t *testing.T) {
+
+	pkScriptNotifier := requirePkScriptNotifier(t, notifier)
+	epochClient := newEpochClient(t, notifier)
+	defer epochClient.Cancel()
+
+	liveScript, livePrivKey := newPkScriptTestScript(t)
+	historicalScript, historicalPrivKey := newPkScriptTestScript(t)
+
+	_, currentHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	reg := registerPkScriptNotifier(
+		t, pkScriptNotifier,
+		[][]byte{liveScript}, chainntnfs.PkScriptEventSpend,
+		0, uint32(currentHeight),
+	)
+	defer reg.Cancel()
+
+	historicalTxid, historicalOutpoint, historicalOutput := sendOutputToScript(
+		t, miner, historicalScript, 2e8,
+	)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, historicalTxid))
+
+	historicalFundingBlocks, err := miner.Client.Generate(1)
+	require.NoError(t, err)
+	waitForEpochs(t, epochClient, 1)
+	_, historicalFundingHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+	historicalStart := uint32(historicalFundingHeight)
+
+	const fillerBlocks = 60
+	_, err = miner.Client.Generate(fillerBlocks)
+	require.NoError(t, err)
+	waitForEpochs(t, epochClient, fillerBlocks)
+
+	historicalSpendTx := chainntnfs.CreateSpendTx(
+		t, historicalOutpoint, historicalOutput, historicalPrivKey,
+	)
+	historicalSpendHash, err := miner.Client.SendRawTransaction(
+		historicalSpendTx, true,
+	)
+	require.NoError(t, err)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(
+		miner, historicalSpendHash,
+	))
+
+	historicalSpendBlocks, err := miner.Client.Generate(1)
+	require.NoError(t, err)
+	waitForEpochs(t, epochClient, 1)
+	historicalSpendHeight := historicalStart + fillerBlocks + 1
+
+	_, err = reg.AddPkScripts(
+		[][]byte{historicalScript},
+		chainntnfs.WithEvents(chainntnfs.PkScriptEventSpend),
+		chainntnfs.WithHistoricalScanFrom(historicalStart),
+	)
+	require.NoError(t, err)
+
+	liveTxid, liveOutpoint, liveOutput := sendOutputToScript(
+		t, miner, liveScript, 2e8,
+	)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, liveTxid))
+
+	_, err = miner.Client.Generate(1)
+	require.NoError(t, err)
+	waitForEpochs(t, epochClient, 1)
+
+	liveSpendTx := chainntnfs.CreateSpendTx(
+		t, liveOutpoint, liveOutput, livePrivKey,
+	)
+	liveSpendHash, err := miner.Client.SendRawTransaction(liveSpendTx, true)
+	require.NoError(t, err)
+	require.NoError(t, chainntnfs.WaitForMempoolTx(miner, liveSpendHash))
+
+	liveSpendBlocks, err := miner.Client.Generate(1)
+	require.NoError(t, err)
+	waitForEpochs(t, epochClient, 1)
+	_, liveSpendHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	spendNtfns := recvPkScriptNotifications(t, reg, 2)
+	seenSpend := make(map[wire.OutPoint]struct{}, 2)
+	for _, ntfn := range spendNtfns {
+		switch ntfn.UTXO.OutPoint {
+		case *liveOutpoint:
+			assertPkScriptNotification(
+				t, ntfn, chainntnfs.PkScriptNotificationSpend,
+				false, uint32(liveSpendHeight), 0,
+				liveSpendHash, liveSpendBlocks[0],
+				*liveOutpoint,
+			)
+			seenSpend[*liveOutpoint] = struct{}{}
+
+		case *historicalOutpoint:
+			assertPkScriptNotification(
+				t, ntfn, chainntnfs.PkScriptNotificationSpend,
+				false,
+				historicalSpendHeight, 0,
+				historicalSpendHash, historicalSpendBlocks[0],
+				*historicalOutpoint,
+			)
+
+			// Replay should report the original spend block
+			// while another live script is watched concurrently.
+			require.NotEqual(
+				t, *historicalFundingBlocks[0], *ntfn.BlockHash,
+			)
+			seenSpend[*historicalOutpoint] = struct{}{}
+
+		default:
+			t.Fatalf(
+				"unexpected spend outpoint: %v",
+				ntfn.UTXO.OutPoint,
+			)
+		}
+	}
+	require.Len(t, seenSpend, 2)
+}
+
 type txNtfnTestCase struct {
 	name string
 	test func(node *rpctest.Harness, notifier chainntnfs.TestChainNotifier,
 		scriptDispatch bool, t *testing.T)
+}
+
+type pkScriptNtfnTestCase struct {
+	name string
+	test func(node *rpctest.Harness, notifier chainntnfs.TestChainNotifier,
+		t *testing.T)
 }
 
 type blockNtfnTestCase struct {
@@ -1853,6 +2810,37 @@ var txNtfnTests = []txNtfnTestCase{
 	},
 }
 
+var pkScriptNtfnTests = []pkScriptNtfnTestCase{
+	{
+		name: "pkScript historical confirm spend",
+		test: testPkScriptHistoricalConfirmSpend,
+	},
+	{
+		name: "pkScript historical multi-script register",
+		test: testPkScriptHistoricalMultiScriptRegister,
+	},
+	{
+		name: "pkScript add remove",
+		test: testPkScriptAddRemove,
+	},
+	{
+		name: "pkScript add multi-script historical",
+		test: testPkScriptAddMultipleScriptsHistorical,
+	},
+	{
+		name: "pkScript multiple events per block",
+		test: testPkScriptMultipleEventsPerBlock,
+	},
+	{
+		name: "pkScript reorg",
+		test: testPkScriptReorg,
+	},
+	{
+		name: "pkScript historical and live spend",
+		test: testPkScriptHistoricalAndLiveSpend,
+	},
+}
+
 var blockNtfnTests = []blockNtfnTestCase{
 	{
 		name: "block epoch",
@@ -1900,7 +2888,8 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 	p2pAddr := miner.P2PAddress()
 
 	log.Printf("Running %v ChainNotifier interface tests",
-		2*len(txNtfnTests)+len(blockNtfnTests)+len(blockCatchupTests))
+		2*len(txNtfnTests)+len(pkScriptNtfnTests)+len(blockNtfnTests)+
+			len(blockCatchupTests))
 
 	for _, notifierDriver := range chainntnfs.RegisteredNotifiers() {
 		notifierType := notifierDriver.NotifierType
@@ -2012,6 +3001,17 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 				blockNtfnTest.name)
 			success := t.Run(testName, func(t *testing.T) {
 				blockNtfnTest.test(miner, notifier, t)
+			})
+			if !success {
+				break
+			}
+		}
+
+		for _, pkScriptNtfnTest := range pkScriptNtfnTests {
+			testName := fmt.Sprintf("%v %v", notifierType,
+				pkScriptNtfnTest.name)
+			success := t.Run(testName, func(t *testing.T) {
+				pkScriptNtfnTest.test(miner, notifier, t)
 			})
 			if !success {
 				break

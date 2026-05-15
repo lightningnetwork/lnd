@@ -21,6 +21,104 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type PkScriptEventType int32
+
+const (
+	PkScriptEventType_PK_SCRIPT_EVENT_TYPE_CONFIRM             PkScriptEventType = 0
+	PkScriptEventType_PK_SCRIPT_EVENT_TYPE_SPEND               PkScriptEventType = 1
+	PkScriptEventType_PK_SCRIPT_EVENT_TYPE_CONFIRMATION_UPDATE PkScriptEventType = 2
+)
+
+// Enum value maps for PkScriptEventType.
+var (
+	PkScriptEventType_name = map[int32]string{
+		0: "PK_SCRIPT_EVENT_TYPE_CONFIRM",
+		1: "PK_SCRIPT_EVENT_TYPE_SPEND",
+		2: "PK_SCRIPT_EVENT_TYPE_CONFIRMATION_UPDATE",
+	}
+	PkScriptEventType_value = map[string]int32{
+		"PK_SCRIPT_EVENT_TYPE_CONFIRM":             0,
+		"PK_SCRIPT_EVENT_TYPE_SPEND":               1,
+		"PK_SCRIPT_EVENT_TYPE_CONFIRMATION_UPDATE": 2,
+	}
+)
+
+func (x PkScriptEventType) Enum() *PkScriptEventType {
+	p := new(PkScriptEventType)
+	*p = x
+	return p
+}
+
+func (x PkScriptEventType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (PkScriptEventType) Descriptor() protoreflect.EnumDescriptor {
+	return file_chainrpc_chainnotifier_proto_enumTypes[0].Descriptor()
+}
+
+func (PkScriptEventType) Type() protoreflect.EnumType {
+	return &file_chainrpc_chainnotifier_proto_enumTypes[0]
+}
+
+func (x PkScriptEventType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use PkScriptEventType.Descriptor instead.
+func (PkScriptEventType) EnumDescriptor() ([]byte, []int) {
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{0}
+}
+
+type PkScriptMutationAction int32
+
+const (
+	PkScriptMutationAction_PK_SCRIPT_MUTATION_ACTION_REGISTER PkScriptMutationAction = 0
+	PkScriptMutationAction_PK_SCRIPT_MUTATION_ACTION_ADD      PkScriptMutationAction = 1
+	PkScriptMutationAction_PK_SCRIPT_MUTATION_ACTION_REMOVE   PkScriptMutationAction = 2
+)
+
+// Enum value maps for PkScriptMutationAction.
+var (
+	PkScriptMutationAction_name = map[int32]string{
+		0: "PK_SCRIPT_MUTATION_ACTION_REGISTER",
+		1: "PK_SCRIPT_MUTATION_ACTION_ADD",
+		2: "PK_SCRIPT_MUTATION_ACTION_REMOVE",
+	}
+	PkScriptMutationAction_value = map[string]int32{
+		"PK_SCRIPT_MUTATION_ACTION_REGISTER": 0,
+		"PK_SCRIPT_MUTATION_ACTION_ADD":      1,
+		"PK_SCRIPT_MUTATION_ACTION_REMOVE":   2,
+	}
+)
+
+func (x PkScriptMutationAction) Enum() *PkScriptMutationAction {
+	p := new(PkScriptMutationAction)
+	*p = x
+	return p
+}
+
+func (x PkScriptMutationAction) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (PkScriptMutationAction) Descriptor() protoreflect.EnumDescriptor {
+	return file_chainrpc_chainnotifier_proto_enumTypes[1].Descriptor()
+}
+
+func (PkScriptMutationAction) Type() protoreflect.EnumType {
+	return &file_chainrpc_chainnotifier_proto_enumTypes[1]
+}
+
+func (x PkScriptMutationAction) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use PkScriptMutationAction.Descriptor instead.
+func (PkScriptMutationAction) EnumDescriptor() ([]byte, []int) {
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{1}
+}
+
 type ConfRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The transaction hash for which we should request a confirmation notification
@@ -664,6 +762,835 @@ func (x *BlockEpoch) GetHeight() uint32 {
 	return 0
 }
 
+type PkScriptRegisterRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PkScriptRegisterRequest) Reset() {
+	*x = PkScriptRegisterRequest{}
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PkScriptRegisterRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PkScriptRegisterRequest) ProtoMessage() {}
+
+func (x *PkScriptRegisterRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PkScriptRegisterRequest.ProtoReflect.Descriptor instead.
+func (*PkScriptRegisterRequest) Descriptor() ([]byte, []int) {
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{9}
+}
+
+type AddPkScriptRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Additional pkScripts to watch on this stream. Scripts already watched by
+	// this stream are ignored and keep their original options.
+	PkScripts [][]byte `protobuf:"bytes,1,rep,name=pk_scripts,json=pkScripts,proto3" json:"pk_scripts,omitempty"`
+	// The event types to watch for the added pkScripts. If omitted, both
+	// confirmations and spends are watched.
+	Events []PkScriptEventType `protobuf:"varint,2,rep,packed,name=events,proto3,enum=chainrpc.PkScriptEventType" json:"events,omitempty"`
+	// The number of confirmations matched outputs should reach before
+	// confirmation notifications are dispatched. If unset, the default is 1.
+	NumConfs uint32 `protobuf:"varint,3,opt,name=num_confs,json=numConfs,proto3" json:"num_confs,omitempty"`
+	// If true, then the relevant block for each pkScript notification will be
+	// included in the event payload.
+	IncludeBlock bool `protobuf:"varint,4,opt,name=include_block,json=includeBlock,proto3" json:"include_block,omitempty"`
+	// If true, then the relevant transaction for each pkScript notification will
+	// be included in the event payload.
+	IncludeTx bool `protobuf:"varint,5,opt,name=include_tx,json=includeTx,proto3" json:"include_tx,omitempty"`
+	// If set, the notifier scans historical blocks from this height through the
+	// current chain tip for the added pkScripts. If omitted, only future chain
+	// activity is watched. Setting this to 0 explicitly scans from genesis.
+	//
+	// Historical scans run per add request, not per pkScript: all newly accepted
+	// scripts in this add request are scanned together. Backend notifiers execute
+	// one historical pkScript scan at a time, so large backfills can delay later
+	// historical add requests.
+	//
+	// Types that are valid to be assigned to HistoricalScan:
+	//
+	//	*AddPkScriptRequest_HistoricalScanFrom
+	HistoricalScan isAddPkScriptRequest_HistoricalScan `protobuf_oneof:"historical_scan"`
+	// If true, partial confirmation progress events will be sent before the final
+	// confirmation notification reaches num_confs.
+	IncludeConfirmationUpdates bool `protobuf:"varint,7,opt,name=include_confirmation_updates,json=includeConfirmationUpdates,proto3" json:"include_confirmation_updates,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
+}
+
+func (x *AddPkScriptRequest) Reset() {
+	*x = AddPkScriptRequest{}
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddPkScriptRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddPkScriptRequest) ProtoMessage() {}
+
+func (x *AddPkScriptRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddPkScriptRequest.ProtoReflect.Descriptor instead.
+func (*AddPkScriptRequest) Descriptor() ([]byte, []int) {
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *AddPkScriptRequest) GetPkScripts() [][]byte {
+	if x != nil {
+		return x.PkScripts
+	}
+	return nil
+}
+
+func (x *AddPkScriptRequest) GetEvents() []PkScriptEventType {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+func (x *AddPkScriptRequest) GetNumConfs() uint32 {
+	if x != nil {
+		return x.NumConfs
+	}
+	return 0
+}
+
+func (x *AddPkScriptRequest) GetIncludeBlock() bool {
+	if x != nil {
+		return x.IncludeBlock
+	}
+	return false
+}
+
+func (x *AddPkScriptRequest) GetIncludeTx() bool {
+	if x != nil {
+		return x.IncludeTx
+	}
+	return false
+}
+
+func (x *AddPkScriptRequest) GetHistoricalScan() isAddPkScriptRequest_HistoricalScan {
+	if x != nil {
+		return x.HistoricalScan
+	}
+	return nil
+}
+
+func (x *AddPkScriptRequest) GetHistoricalScanFrom() uint32 {
+	if x != nil {
+		if x, ok := x.HistoricalScan.(*AddPkScriptRequest_HistoricalScanFrom); ok {
+			return x.HistoricalScanFrom
+		}
+	}
+	return 0
+}
+
+func (x *AddPkScriptRequest) GetIncludeConfirmationUpdates() bool {
+	if x != nil {
+		return x.IncludeConfirmationUpdates
+	}
+	return false
+}
+
+type isAddPkScriptRequest_HistoricalScan interface {
+	isAddPkScriptRequest_HistoricalScan()
+}
+
+type AddPkScriptRequest_HistoricalScanFrom struct {
+	HistoricalScanFrom uint32 `protobuf:"varint,6,opt,name=historical_scan_from,json=historicalScanFrom,proto3,oneof"`
+}
+
+func (*AddPkScriptRequest_HistoricalScanFrom) isAddPkScriptRequest_HistoricalScan() {}
+
+type RemovePkScriptRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// PkScripts to stop watching on this stream.
+	PkScripts     [][]byte `protobuf:"bytes,1,rep,name=pk_scripts,json=pkScripts,proto3" json:"pk_scripts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemovePkScriptRequest) Reset() {
+	*x = RemovePkScriptRequest{}
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemovePkScriptRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemovePkScriptRequest) ProtoMessage() {}
+
+func (x *RemovePkScriptRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemovePkScriptRequest.ProtoReflect.Descriptor instead.
+func (*RemovePkScriptRequest) Descriptor() ([]byte, []int) {
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *RemovePkScriptRequest) GetPkScripts() [][]byte {
+	if x != nil {
+		return x.PkScripts
+	}
+	return nil
+}
+
+type PkScriptRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Request:
+	//
+	//	*PkScriptRequest_Register
+	//	*PkScriptRequest_Add
+	//	*PkScriptRequest_Remove
+	Request       isPkScriptRequest_Request `protobuf_oneof:"request"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PkScriptRequest) Reset() {
+	*x = PkScriptRequest{}
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PkScriptRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PkScriptRequest) ProtoMessage() {}
+
+func (x *PkScriptRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PkScriptRequest.ProtoReflect.Descriptor instead.
+func (*PkScriptRequest) Descriptor() ([]byte, []int) {
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *PkScriptRequest) GetRequest() isPkScriptRequest_Request {
+	if x != nil {
+		return x.Request
+	}
+	return nil
+}
+
+func (x *PkScriptRequest) GetRegister() *PkScriptRegisterRequest {
+	if x != nil {
+		if x, ok := x.Request.(*PkScriptRequest_Register); ok {
+			return x.Register
+		}
+	}
+	return nil
+}
+
+func (x *PkScriptRequest) GetAdd() *AddPkScriptRequest {
+	if x != nil {
+		if x, ok := x.Request.(*PkScriptRequest_Add); ok {
+			return x.Add
+		}
+	}
+	return nil
+}
+
+func (x *PkScriptRequest) GetRemove() *RemovePkScriptRequest {
+	if x != nil {
+		if x, ok := x.Request.(*PkScriptRequest_Remove); ok {
+			return x.Remove
+		}
+	}
+	return nil
+}
+
+type isPkScriptRequest_Request interface {
+	isPkScriptRequest_Request()
+}
+
+type PkScriptRequest_Register struct {
+	Register *PkScriptRegisterRequest `protobuf:"bytes,1,opt,name=register,proto3,oneof"`
+}
+
+type PkScriptRequest_Add struct {
+	Add *AddPkScriptRequest `protobuf:"bytes,2,opt,name=add,proto3,oneof"`
+}
+
+type PkScriptRequest_Remove struct {
+	Remove *RemovePkScriptRequest `protobuf:"bytes,3,opt,name=remove,proto3,oneof"`
+}
+
+func (*PkScriptRequest_Register) isPkScriptRequest_Request() {}
+
+func (*PkScriptRequest_Add) isPkScriptRequest_Request() {}
+
+func (*PkScriptRequest_Remove) isPkScriptRequest_Request() {}
+
+type PkScriptMutationAck struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The mutation that was accepted for this stream.
+	Action PkScriptMutationAction `protobuf:"varint,1,opt,name=action,proto3,enum=chainrpc.PkScriptMutationAction" json:"action,omitempty"`
+	// The number of new scripts accepted by this mutation.
+	NumAdded uint32 `protobuf:"varint,2,opt,name=num_added,json=numAdded,proto3" json:"num_added,omitempty"`
+	// True if this add mutation queued a historical scan.
+	HistoricalScanQueued bool `protobuf:"varint,3,opt,name=historical_scan_queued,json=historicalScanQueued,proto3" json:"historical_scan_queued,omitempty"`
+	// The ID of the queued historical scan, if any.
+	HistoricalScanId uint64 `protobuf:"varint,4,opt,name=historical_scan_id,json=historicalScanId,proto3" json:"historical_scan_id,omitempty"`
+	// The first height scanned by the queued historical scan.
+	HistoricalScanStartHeight uint32 `protobuf:"varint,5,opt,name=historical_scan_start_height,json=historicalScanStartHeight,proto3" json:"historical_scan_start_height,omitempty"`
+	// The best-known final height of the queued historical scan at queue time.
+	HistoricalScanEndHeight uint32 `protobuf:"varint,6,opt,name=historical_scan_end_height,json=historicalScanEndHeight,proto3" json:"historical_scan_end_height,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *PkScriptMutationAck) Reset() {
+	*x = PkScriptMutationAck{}
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PkScriptMutationAck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PkScriptMutationAck) ProtoMessage() {}
+
+func (x *PkScriptMutationAck) ProtoReflect() protoreflect.Message {
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PkScriptMutationAck.ProtoReflect.Descriptor instead.
+func (*PkScriptMutationAck) Descriptor() ([]byte, []int) {
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *PkScriptMutationAck) GetAction() PkScriptMutationAction {
+	if x != nil {
+		return x.Action
+	}
+	return PkScriptMutationAction_PK_SCRIPT_MUTATION_ACTION_REGISTER
+}
+
+func (x *PkScriptMutationAck) GetNumAdded() uint32 {
+	if x != nil {
+		return x.NumAdded
+	}
+	return 0
+}
+
+func (x *PkScriptMutationAck) GetHistoricalScanQueued() bool {
+	if x != nil {
+		return x.HistoricalScanQueued
+	}
+	return false
+}
+
+func (x *PkScriptMutationAck) GetHistoricalScanId() uint64 {
+	if x != nil {
+		return x.HistoricalScanId
+	}
+	return 0
+}
+
+func (x *PkScriptMutationAck) GetHistoricalScanStartHeight() uint32 {
+	if x != nil {
+		return x.HistoricalScanStartHeight
+	}
+	return 0
+}
+
+func (x *PkScriptMutationAck) GetHistoricalScanEndHeight() uint32 {
+	if x != nil {
+		return x.HistoricalScanEndHeight
+	}
+	return 0
+}
+
+type PkScriptUtxo struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The outpoint paying to the watched script.
+	Outpoint *Outpoint `protobuf:"bytes,1,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
+	// The value of the watched output in satoshis.
+	Value int64 `protobuf:"varint,2,opt,name=value,proto3" json:"value,omitempty"`
+	// The watched output script.
+	PkScript []byte `protobuf:"bytes,3,opt,name=pk_script,json=pkScript,proto3" json:"pk_script,omitempty"`
+	// The height at which the watched output was created.
+	BlockHeight uint32 `protobuf:"varint,4,opt,name=block_height,json=blockHeight,proto3" json:"block_height,omitempty"`
+	// The hash of the block that created the watched output.
+	BlockHash []byte `protobuf:"bytes,5,opt,name=block_hash,json=blockHash,proto3" json:"block_hash,omitempty"`
+	// The transaction index of the funding transaction in block_hash.
+	TxIndex       uint32 `protobuf:"varint,6,opt,name=tx_index,json=txIndex,proto3" json:"tx_index,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PkScriptUtxo) Reset() {
+	*x = PkScriptUtxo{}
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PkScriptUtxo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PkScriptUtxo) ProtoMessage() {}
+
+func (x *PkScriptUtxo) ProtoReflect() protoreflect.Message {
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PkScriptUtxo.ProtoReflect.Descriptor instead.
+func (*PkScriptUtxo) Descriptor() ([]byte, []int) {
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *PkScriptUtxo) GetOutpoint() *Outpoint {
+	if x != nil {
+		return x.Outpoint
+	}
+	return nil
+}
+
+func (x *PkScriptUtxo) GetValue() int64 {
+	if x != nil {
+		return x.Value
+	}
+	return 0
+}
+
+func (x *PkScriptUtxo) GetPkScript() []byte {
+	if x != nil {
+		return x.PkScript
+	}
+	return nil
+}
+
+func (x *PkScriptUtxo) GetBlockHeight() uint32 {
+	if x != nil {
+		return x.BlockHeight
+	}
+	return 0
+}
+
+func (x *PkScriptUtxo) GetBlockHash() []byte {
+	if x != nil {
+		return x.BlockHash
+	}
+	return nil
+}
+
+func (x *PkScriptUtxo) GetTxIndex() uint32 {
+	if x != nil {
+		return x.TxIndex
+	}
+	return 0
+}
+
+type PkScriptNotification struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The kind of notification being delivered.
+	EventType PkScriptEventType `protobuf:"varint,1,opt,name=event_type,json=eventType,proto3,enum=chainrpc.PkScriptEventType" json:"event_type,omitempty"`
+	// The height relevant to this event.
+	Height uint32 `protobuf:"varint,2,opt,name=height,proto3" json:"height,omitempty"`
+	// The hash of the relevant block for this event.
+	BlockHash []byte `protobuf:"bytes,3,opt,name=block_hash,json=blockHash,proto3" json:"block_hash,omitempty"`
+	// The hash of the relevant transaction for this event.
+	TxHash []byte `protobuf:"bytes,4,opt,name=tx_hash,json=txHash,proto3" json:"tx_hash,omitempty"`
+	// The index of the relevant transaction in the block that mined it. For
+	// confirmation notifications this is the funding transaction's index in the
+	// UTXO block. For spend notifications this is the spending transaction's
+	// index in block_hash.
+	TxIndex uint32 `protobuf:"varint,5,opt,name=tx_index,json=txIndex,proto3" json:"tx_index,omitempty"`
+	// The number of confirmations reached by the watched output.
+	NumConfirmations uint32 `protobuf:"varint,6,opt,name=num_confirmations,json=numConfirmations,proto3" json:"num_confirmations,omitempty"`
+	// True if this notification invalidates a previously sent event.
+	Disconnected bool `protobuf:"varint,7,opt,name=disconnected,proto3" json:"disconnected,omitempty"`
+	// The watched output associated with this event.
+	Utxo *PkScriptUtxo `protobuf:"bytes,8,opt,name=utxo,proto3" json:"utxo,omitempty"`
+	// The raw bytes of the relevant transaction, if include_tx was requested.
+	// For confirmation notifications this is the funding transaction. For spend
+	// notifications this is the spending transaction.
+	RawTx []byte `protobuf:"bytes,9,opt,name=raw_tx,json=rawTx,proto3" json:"raw_tx,omitempty"`
+	// The raw bytes of the relevant block, if include_block was requested. For
+	// confirmation notifications this is the block at which the output reached
+	// the requested confirmation depth. For spend notifications this is the
+	// block containing the spend.
+	RawBlock []byte `protobuf:"bytes,10,opt,name=raw_block,json=rawBlock,proto3" json:"raw_block,omitempty"`
+	// The spending input index. This is only set for spend notifications.
+	InputIndex uint32 `protobuf:"varint,11,opt,name=input_index,json=inputIndex,proto3" json:"input_index,omitempty"`
+	// The requested confirmation target. This is set for final confirmation and
+	// partial confirmation progress notifications.
+	RequiredConfirmations uint32 `protobuf:"varint,12,opt,name=required_confirmations,json=requiredConfirmations,proto3" json:"required_confirmations,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *PkScriptNotification) Reset() {
+	*x = PkScriptNotification{}
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PkScriptNotification) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PkScriptNotification) ProtoMessage() {}
+
+func (x *PkScriptNotification) ProtoReflect() protoreflect.Message {
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PkScriptNotification.ProtoReflect.Descriptor instead.
+func (*PkScriptNotification) Descriptor() ([]byte, []int) {
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *PkScriptNotification) GetEventType() PkScriptEventType {
+	if x != nil {
+		return x.EventType
+	}
+	return PkScriptEventType_PK_SCRIPT_EVENT_TYPE_CONFIRM
+}
+
+func (x *PkScriptNotification) GetHeight() uint32 {
+	if x != nil {
+		return x.Height
+	}
+	return 0
+}
+
+func (x *PkScriptNotification) GetBlockHash() []byte {
+	if x != nil {
+		return x.BlockHash
+	}
+	return nil
+}
+
+func (x *PkScriptNotification) GetTxHash() []byte {
+	if x != nil {
+		return x.TxHash
+	}
+	return nil
+}
+
+func (x *PkScriptNotification) GetTxIndex() uint32 {
+	if x != nil {
+		return x.TxIndex
+	}
+	return 0
+}
+
+func (x *PkScriptNotification) GetNumConfirmations() uint32 {
+	if x != nil {
+		return x.NumConfirmations
+	}
+	return 0
+}
+
+func (x *PkScriptNotification) GetDisconnected() bool {
+	if x != nil {
+		return x.Disconnected
+	}
+	return false
+}
+
+func (x *PkScriptNotification) GetUtxo() *PkScriptUtxo {
+	if x != nil {
+		return x.Utxo
+	}
+	return nil
+}
+
+func (x *PkScriptNotification) GetRawTx() []byte {
+	if x != nil {
+		return x.RawTx
+	}
+	return nil
+}
+
+func (x *PkScriptNotification) GetRawBlock() []byte {
+	if x != nil {
+		return x.RawBlock
+	}
+	return nil
+}
+
+func (x *PkScriptNotification) GetInputIndex() uint32 {
+	if x != nil {
+		return x.InputIndex
+	}
+	return 0
+}
+
+func (x *PkScriptNotification) GetRequiredConfirmations() uint32 {
+	if x != nil {
+		return x.RequiredConfirmations
+	}
+	return 0
+}
+
+type PkScriptHistoricalScan struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The ID assigned to the historical scan when it was queued.
+	ScanId uint64 `protobuf:"varint,1,opt,name=scan_id,json=scanId,proto3" json:"scan_id,omitempty"`
+	// The first height requested for the historical scan.
+	StartHeight uint32 `protobuf:"varint,2,opt,name=start_height,json=startHeight,proto3" json:"start_height,omitempty"`
+	// The final height scanned before completion or failure.
+	EndHeight uint32 `protobuf:"varint,3,opt,name=end_height,json=endHeight,proto3" json:"end_height,omitempty"`
+	// The last height processed successfully.
+	CompletedHeight uint32 `protobuf:"varint,4,opt,name=completed_height,json=completedHeight,proto3" json:"completed_height,omitempty"`
+	// A non-empty error means the historical scan failed before completion.
+	Error         string `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PkScriptHistoricalScan) Reset() {
+	*x = PkScriptHistoricalScan{}
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PkScriptHistoricalScan) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PkScriptHistoricalScan) ProtoMessage() {}
+
+func (x *PkScriptHistoricalScan) ProtoReflect() protoreflect.Message {
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PkScriptHistoricalScan.ProtoReflect.Descriptor instead.
+func (*PkScriptHistoricalScan) Descriptor() ([]byte, []int) {
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *PkScriptHistoricalScan) GetScanId() uint64 {
+	if x != nil {
+		return x.ScanId
+	}
+	return 0
+}
+
+func (x *PkScriptHistoricalScan) GetStartHeight() uint32 {
+	if x != nil {
+		return x.StartHeight
+	}
+	return 0
+}
+
+func (x *PkScriptHistoricalScan) GetEndHeight() uint32 {
+	if x != nil {
+		return x.EndHeight
+	}
+	return 0
+}
+
+func (x *PkScriptHistoricalScan) GetCompletedHeight() uint32 {
+	if x != nil {
+		return x.CompletedHeight
+	}
+	return 0
+}
+
+func (x *PkScriptHistoricalScan) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+type PkScriptEvent struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Event:
+	//
+	//	*PkScriptEvent_Ack
+	//	*PkScriptEvent_Notification
+	//	*PkScriptEvent_HistoricalScan
+	Event         isPkScriptEvent_Event `protobuf_oneof:"event"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PkScriptEvent) Reset() {
+	*x = PkScriptEvent{}
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PkScriptEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PkScriptEvent) ProtoMessage() {}
+
+func (x *PkScriptEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_chainrpc_chainnotifier_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PkScriptEvent.ProtoReflect.Descriptor instead.
+func (*PkScriptEvent) Descriptor() ([]byte, []int) {
+	return file_chainrpc_chainnotifier_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *PkScriptEvent) GetEvent() isPkScriptEvent_Event {
+	if x != nil {
+		return x.Event
+	}
+	return nil
+}
+
+func (x *PkScriptEvent) GetAck() *PkScriptMutationAck {
+	if x != nil {
+		if x, ok := x.Event.(*PkScriptEvent_Ack); ok {
+			return x.Ack
+		}
+	}
+	return nil
+}
+
+func (x *PkScriptEvent) GetNotification() *PkScriptNotification {
+	if x != nil {
+		if x, ok := x.Event.(*PkScriptEvent_Notification); ok {
+			return x.Notification
+		}
+	}
+	return nil
+}
+
+func (x *PkScriptEvent) GetHistoricalScan() *PkScriptHistoricalScan {
+	if x != nil {
+		if x, ok := x.Event.(*PkScriptEvent_HistoricalScan); ok {
+			return x.HistoricalScan
+		}
+	}
+	return nil
+}
+
+type isPkScriptEvent_Event interface {
+	isPkScriptEvent_Event()
+}
+
+type PkScriptEvent_Ack struct {
+	// Acknowledges that a stream mutation was accepted.
+	Ack *PkScriptMutationAck `protobuf:"bytes,1,opt,name=ack,proto3,oneof"`
+}
+
+type PkScriptEvent_Notification struct {
+	// A notification for a watched output script.
+	Notification *PkScriptNotification `protobuf:"bytes,2,opt,name=notification,proto3,oneof"`
+}
+
+type PkScriptEvent_HistoricalScan struct {
+	// A historical scan lifecycle event.
+	HistoricalScan *PkScriptHistoricalScan `protobuf:"bytes,3,opt,name=historical_scan,json=historicalScan,proto3,oneof"`
+}
+
+func (*PkScriptEvent_Ack) isPkScriptEvent_Event() {}
+
+func (*PkScriptEvent_Notification) isPkScriptEvent_Event() {}
+
+func (*PkScriptEvent_HistoricalScan) isPkScriptEvent_Event() {}
+
 var File_chainrpc_chainnotifier_proto protoreflect.FileDescriptor
 
 const file_chainrpc_chainnotifier_proto_rawDesc = "" +
@@ -710,11 +1637,84 @@ const file_chainrpc_chainnotifier_proto_rawDesc = "" +
 	"\n" +
 	"BlockEpoch\x12\x12\n" +
 	"\x04hash\x18\x01 \x01(\fR\x04hash\x12\x16\n" +
-	"\x06height\x18\x02 \x01(\rR\x06height2\xe7\x01\n" +
+	"\x06height\x18\x02 \x01(\rR\x06height\"\x19\n" +
+	"\x17PkScriptRegisterRequest\"\xd2\x02\n" +
+	"\x12AddPkScriptRequest\x12\x1d\n" +
+	"\n" +
+	"pk_scripts\x18\x01 \x03(\fR\tpkScripts\x123\n" +
+	"\x06events\x18\x02 \x03(\x0e2\x1b.chainrpc.PkScriptEventTypeR\x06events\x12\x1b\n" +
+	"\tnum_confs\x18\x03 \x01(\rR\bnumConfs\x12#\n" +
+	"\rinclude_block\x18\x04 \x01(\bR\fincludeBlock\x12\x1d\n" +
+	"\n" +
+	"include_tx\x18\x05 \x01(\bR\tincludeTx\x122\n" +
+	"\x14historical_scan_from\x18\x06 \x01(\rH\x00R\x12historicalScanFrom\x12@\n" +
+	"\x1cinclude_confirmation_updates\x18\a \x01(\bR\x1aincludeConfirmationUpdatesB\x11\n" +
+	"\x0fhistorical_scan\"6\n" +
+	"\x15RemovePkScriptRequest\x12\x1d\n" +
+	"\n" +
+	"pk_scripts\x18\x01 \x03(\fR\tpkScripts\"\xca\x01\n" +
+	"\x0fPkScriptRequest\x12?\n" +
+	"\bregister\x18\x01 \x01(\v2!.chainrpc.PkScriptRegisterRequestH\x00R\bregister\x120\n" +
+	"\x03add\x18\x02 \x01(\v2\x1c.chainrpc.AddPkScriptRequestH\x00R\x03add\x129\n" +
+	"\x06remove\x18\x03 \x01(\v2\x1f.chainrpc.RemovePkScriptRequestH\x00R\x06removeB\t\n" +
+	"\arequest\"\xce\x02\n" +
+	"\x13PkScriptMutationAck\x128\n" +
+	"\x06action\x18\x01 \x01(\x0e2 .chainrpc.PkScriptMutationActionR\x06action\x12\x1b\n" +
+	"\tnum_added\x18\x02 \x01(\rR\bnumAdded\x124\n" +
+	"\x16historical_scan_queued\x18\x03 \x01(\bR\x14historicalScanQueued\x12,\n" +
+	"\x12historical_scan_id\x18\x04 \x01(\x04R\x10historicalScanId\x12?\n" +
+	"\x1chistorical_scan_start_height\x18\x05 \x01(\rR\x19historicalScanStartHeight\x12;\n" +
+	"\x1ahistorical_scan_end_height\x18\x06 \x01(\rR\x17historicalScanEndHeight\"\xce\x01\n" +
+	"\fPkScriptUtxo\x12.\n" +
+	"\boutpoint\x18\x01 \x01(\v2\x12.chainrpc.OutpointR\boutpoint\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value\x12\x1b\n" +
+	"\tpk_script\x18\x03 \x01(\fR\bpkScript\x12!\n" +
+	"\fblock_height\x18\x04 \x01(\rR\vblockHeight\x12\x1d\n" +
+	"\n" +
+	"block_hash\x18\x05 \x01(\fR\tblockHash\x12\x19\n" +
+	"\btx_index\x18\x06 \x01(\rR\atxIndex\"\xc6\x03\n" +
+	"\x14PkScriptNotification\x12:\n" +
+	"\n" +
+	"event_type\x18\x01 \x01(\x0e2\x1b.chainrpc.PkScriptEventTypeR\teventType\x12\x16\n" +
+	"\x06height\x18\x02 \x01(\rR\x06height\x12\x1d\n" +
+	"\n" +
+	"block_hash\x18\x03 \x01(\fR\tblockHash\x12\x17\n" +
+	"\atx_hash\x18\x04 \x01(\fR\x06txHash\x12\x19\n" +
+	"\btx_index\x18\x05 \x01(\rR\atxIndex\x12+\n" +
+	"\x11num_confirmations\x18\x06 \x01(\rR\x10numConfirmations\x12\"\n" +
+	"\fdisconnected\x18\a \x01(\bR\fdisconnected\x12*\n" +
+	"\x04utxo\x18\b \x01(\v2\x16.chainrpc.PkScriptUtxoR\x04utxo\x12\x15\n" +
+	"\x06raw_tx\x18\t \x01(\fR\x05rawTx\x12\x1b\n" +
+	"\traw_block\x18\n" +
+	" \x01(\fR\brawBlock\x12\x1f\n" +
+	"\vinput_index\x18\v \x01(\rR\n" +
+	"inputIndex\x125\n" +
+	"\x16required_confirmations\x18\f \x01(\rR\x15requiredConfirmations\"\xb4\x01\n" +
+	"\x16PkScriptHistoricalScan\x12\x17\n" +
+	"\ascan_id\x18\x01 \x01(\x04R\x06scanId\x12!\n" +
+	"\fstart_height\x18\x02 \x01(\rR\vstartHeight\x12\x1d\n" +
+	"\n" +
+	"end_height\x18\x03 \x01(\rR\tendHeight\x12)\n" +
+	"\x10completed_height\x18\x04 \x01(\rR\x0fcompletedHeight\x12\x14\n" +
+	"\x05error\x18\x05 \x01(\tR\x05error\"\xde\x01\n" +
+	"\rPkScriptEvent\x121\n" +
+	"\x03ack\x18\x01 \x01(\v2\x1d.chainrpc.PkScriptMutationAckH\x00R\x03ack\x12D\n" +
+	"\fnotification\x18\x02 \x01(\v2\x1e.chainrpc.PkScriptNotificationH\x00R\fnotification\x12K\n" +
+	"\x0fhistorical_scan\x18\x03 \x01(\v2 .chainrpc.PkScriptHistoricalScanH\x00R\x0ehistoricalScanB\a\n" +
+	"\x05event*\x83\x01\n" +
+	"\x11PkScriptEventType\x12 \n" +
+	"\x1cPK_SCRIPT_EVENT_TYPE_CONFIRM\x10\x00\x12\x1e\n" +
+	"\x1aPK_SCRIPT_EVENT_TYPE_SPEND\x10\x01\x12,\n" +
+	"(PK_SCRIPT_EVENT_TYPE_CONFIRMATION_UPDATE\x10\x02*\x89\x01\n" +
+	"\x16PkScriptMutationAction\x12&\n" +
+	"\"PK_SCRIPT_MUTATION_ACTION_REGISTER\x10\x00\x12!\n" +
+	"\x1dPK_SCRIPT_MUTATION_ACTION_ADD\x10\x01\x12$\n" +
+	" PK_SCRIPT_MUTATION_ACTION_REMOVE\x10\x022\xb7\x02\n" +
 	"\rChainNotifier\x12I\n" +
 	"\x19RegisterConfirmationsNtfn\x12\x15.chainrpc.ConfRequest\x1a\x13.chainrpc.ConfEvent0\x01\x12C\n" +
 	"\x11RegisterSpendNtfn\x12\x16.chainrpc.SpendRequest\x1a\x14.chainrpc.SpendEvent0\x01\x12F\n" +
-	"\x16RegisterBlockEpochNtfn\x12\x14.chainrpc.BlockEpoch\x1a\x14.chainrpc.BlockEpoch0\x01B0Z.github.com/lightningnetwork/lnd/lnrpc/chainrpcb\x06proto3"
+	"\x16RegisterBlockEpochNtfn\x12\x14.chainrpc.BlockEpoch\x1a\x14.chainrpc.BlockEpoch0\x01\x12N\n" +
+	"\x14RegisterPkScriptNtfn\x12\x19.chainrpc.PkScriptRequest\x1a\x17.chainrpc.PkScriptEvent(\x010\x01B0Z.github.com/lightningnetwork/lnd/lnrpc/chainrpcb\x06proto3"
 
 var (
 	file_chainrpc_chainnotifier_proto_rawDescOnce sync.Once
@@ -728,36 +1728,61 @@ func file_chainrpc_chainnotifier_proto_rawDescGZIP() []byte {
 	return file_chainrpc_chainnotifier_proto_rawDescData
 }
 
-var file_chainrpc_chainnotifier_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_chainrpc_chainnotifier_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_chainrpc_chainnotifier_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_chainrpc_chainnotifier_proto_goTypes = []any{
-	(*ConfRequest)(nil),  // 0: chainrpc.ConfRequest
-	(*ConfDetails)(nil),  // 1: chainrpc.ConfDetails
-	(*Reorg)(nil),        // 2: chainrpc.Reorg
-	(*ConfEvent)(nil),    // 3: chainrpc.ConfEvent
-	(*Outpoint)(nil),     // 4: chainrpc.Outpoint
-	(*SpendRequest)(nil), // 5: chainrpc.SpendRequest
-	(*SpendDetails)(nil), // 6: chainrpc.SpendDetails
-	(*SpendEvent)(nil),   // 7: chainrpc.SpendEvent
-	(*BlockEpoch)(nil),   // 8: chainrpc.BlockEpoch
+	(PkScriptEventType)(0),          // 0: chainrpc.PkScriptEventType
+	(PkScriptMutationAction)(0),     // 1: chainrpc.PkScriptMutationAction
+	(*ConfRequest)(nil),             // 2: chainrpc.ConfRequest
+	(*ConfDetails)(nil),             // 3: chainrpc.ConfDetails
+	(*Reorg)(nil),                   // 4: chainrpc.Reorg
+	(*ConfEvent)(nil),               // 5: chainrpc.ConfEvent
+	(*Outpoint)(nil),                // 6: chainrpc.Outpoint
+	(*SpendRequest)(nil),            // 7: chainrpc.SpendRequest
+	(*SpendDetails)(nil),            // 8: chainrpc.SpendDetails
+	(*SpendEvent)(nil),              // 9: chainrpc.SpendEvent
+	(*BlockEpoch)(nil),              // 10: chainrpc.BlockEpoch
+	(*PkScriptRegisterRequest)(nil), // 11: chainrpc.PkScriptRegisterRequest
+	(*AddPkScriptRequest)(nil),      // 12: chainrpc.AddPkScriptRequest
+	(*RemovePkScriptRequest)(nil),   // 13: chainrpc.RemovePkScriptRequest
+	(*PkScriptRequest)(nil),         // 14: chainrpc.PkScriptRequest
+	(*PkScriptMutationAck)(nil),     // 15: chainrpc.PkScriptMutationAck
+	(*PkScriptUtxo)(nil),            // 16: chainrpc.PkScriptUtxo
+	(*PkScriptNotification)(nil),    // 17: chainrpc.PkScriptNotification
+	(*PkScriptHistoricalScan)(nil),  // 18: chainrpc.PkScriptHistoricalScan
+	(*PkScriptEvent)(nil),           // 19: chainrpc.PkScriptEvent
 }
 var file_chainrpc_chainnotifier_proto_depIdxs = []int32{
-	1, // 0: chainrpc.ConfEvent.conf:type_name -> chainrpc.ConfDetails
-	2, // 1: chainrpc.ConfEvent.reorg:type_name -> chainrpc.Reorg
-	4, // 2: chainrpc.SpendRequest.outpoint:type_name -> chainrpc.Outpoint
-	4, // 3: chainrpc.SpendDetails.spending_outpoint:type_name -> chainrpc.Outpoint
-	6, // 4: chainrpc.SpendEvent.spend:type_name -> chainrpc.SpendDetails
-	2, // 5: chainrpc.SpendEvent.reorg:type_name -> chainrpc.Reorg
-	0, // 6: chainrpc.ChainNotifier.RegisterConfirmationsNtfn:input_type -> chainrpc.ConfRequest
-	5, // 7: chainrpc.ChainNotifier.RegisterSpendNtfn:input_type -> chainrpc.SpendRequest
-	8, // 8: chainrpc.ChainNotifier.RegisterBlockEpochNtfn:input_type -> chainrpc.BlockEpoch
-	3, // 9: chainrpc.ChainNotifier.RegisterConfirmationsNtfn:output_type -> chainrpc.ConfEvent
-	7, // 10: chainrpc.ChainNotifier.RegisterSpendNtfn:output_type -> chainrpc.SpendEvent
-	8, // 11: chainrpc.ChainNotifier.RegisterBlockEpochNtfn:output_type -> chainrpc.BlockEpoch
-	9, // [9:12] is the sub-list for method output_type
-	6, // [6:9] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	3,  // 0: chainrpc.ConfEvent.conf:type_name -> chainrpc.ConfDetails
+	4,  // 1: chainrpc.ConfEvent.reorg:type_name -> chainrpc.Reorg
+	6,  // 2: chainrpc.SpendRequest.outpoint:type_name -> chainrpc.Outpoint
+	6,  // 3: chainrpc.SpendDetails.spending_outpoint:type_name -> chainrpc.Outpoint
+	8,  // 4: chainrpc.SpendEvent.spend:type_name -> chainrpc.SpendDetails
+	4,  // 5: chainrpc.SpendEvent.reorg:type_name -> chainrpc.Reorg
+	0,  // 6: chainrpc.AddPkScriptRequest.events:type_name -> chainrpc.PkScriptEventType
+	11, // 7: chainrpc.PkScriptRequest.register:type_name -> chainrpc.PkScriptRegisterRequest
+	12, // 8: chainrpc.PkScriptRequest.add:type_name -> chainrpc.AddPkScriptRequest
+	13, // 9: chainrpc.PkScriptRequest.remove:type_name -> chainrpc.RemovePkScriptRequest
+	1,  // 10: chainrpc.PkScriptMutationAck.action:type_name -> chainrpc.PkScriptMutationAction
+	6,  // 11: chainrpc.PkScriptUtxo.outpoint:type_name -> chainrpc.Outpoint
+	0,  // 12: chainrpc.PkScriptNotification.event_type:type_name -> chainrpc.PkScriptEventType
+	16, // 13: chainrpc.PkScriptNotification.utxo:type_name -> chainrpc.PkScriptUtxo
+	15, // 14: chainrpc.PkScriptEvent.ack:type_name -> chainrpc.PkScriptMutationAck
+	17, // 15: chainrpc.PkScriptEvent.notification:type_name -> chainrpc.PkScriptNotification
+	18, // 16: chainrpc.PkScriptEvent.historical_scan:type_name -> chainrpc.PkScriptHistoricalScan
+	2,  // 17: chainrpc.ChainNotifier.RegisterConfirmationsNtfn:input_type -> chainrpc.ConfRequest
+	7,  // 18: chainrpc.ChainNotifier.RegisterSpendNtfn:input_type -> chainrpc.SpendRequest
+	10, // 19: chainrpc.ChainNotifier.RegisterBlockEpochNtfn:input_type -> chainrpc.BlockEpoch
+	14, // 20: chainrpc.ChainNotifier.RegisterPkScriptNtfn:input_type -> chainrpc.PkScriptRequest
+	5,  // 21: chainrpc.ChainNotifier.RegisterConfirmationsNtfn:output_type -> chainrpc.ConfEvent
+	9,  // 22: chainrpc.ChainNotifier.RegisterSpendNtfn:output_type -> chainrpc.SpendEvent
+	10, // 23: chainrpc.ChainNotifier.RegisterBlockEpochNtfn:output_type -> chainrpc.BlockEpoch
+	19, // 24: chainrpc.ChainNotifier.RegisterPkScriptNtfn:output_type -> chainrpc.PkScriptEvent
+	21, // [21:25] is the sub-list for method output_type
+	17, // [17:21] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_chainrpc_chainnotifier_proto_init() }
@@ -773,18 +1798,32 @@ func file_chainrpc_chainnotifier_proto_init() {
 		(*SpendEvent_Spend)(nil),
 		(*SpendEvent_Reorg)(nil),
 	}
+	file_chainrpc_chainnotifier_proto_msgTypes[10].OneofWrappers = []any{
+		(*AddPkScriptRequest_HistoricalScanFrom)(nil),
+	}
+	file_chainrpc_chainnotifier_proto_msgTypes[12].OneofWrappers = []any{
+		(*PkScriptRequest_Register)(nil),
+		(*PkScriptRequest_Add)(nil),
+		(*PkScriptRequest_Remove)(nil),
+	}
+	file_chainrpc_chainnotifier_proto_msgTypes[17].OneofWrappers = []any{
+		(*PkScriptEvent_Ack)(nil),
+		(*PkScriptEvent_Notification)(nil),
+		(*PkScriptEvent_HistoricalScan)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_chainrpc_chainnotifier_proto_rawDesc), len(file_chainrpc_chainnotifier_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   9,
+			NumEnums:      2,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_chainrpc_chainnotifier_proto_goTypes,
 		DependencyIndexes: file_chainrpc_chainnotifier_proto_depIdxs,
+		EnumInfos:         file_chainrpc_chainnotifier_proto_enumTypes,
 		MessageInfos:      file_chainrpc_chainnotifier_proto_msgTypes,
 	}.Build()
 	File_chainrpc_chainnotifier_proto = out.File

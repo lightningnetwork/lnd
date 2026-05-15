@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/gcs/builder"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/txscript"
@@ -56,6 +57,9 @@ type NeutrinoNotifier struct {
 	notificationCancels  chan interface{}
 	notificationRegistry chan interface{}
 
+	historicalPkScriptDispatches    chan *chainntnfs.HistoricalPkScriptDispatch
+	historicalPkScriptDispatchSlots chan struct{}
+
 	txNotifier *chainntnfs.TxNotifier
 
 	blockEpochClients map[uint64]*blockEpochRegistration
@@ -98,6 +102,14 @@ func New(node *neutrino.ChainService, spendHintCache chainntnfs.SpendHintCache,
 	return &NeutrinoNotifier{
 		notificationCancels:  make(chan interface{}),
 		notificationRegistry: make(chan interface{}),
+		historicalPkScriptDispatches: make(
+			chan *chainntnfs.HistoricalPkScriptDispatch,
+			chainntnfs.MaxPkScriptHistoricalDispatchQueueSize,
+		),
+		historicalPkScriptDispatchSlots: make(
+			chan struct{},
+			chainntnfs.MaxPkScriptHistoricalDispatchQueueSize,
+		),
 
 		blockEpochClients: make(map[uint64]*blockEpochRegistration),
 
@@ -231,6 +243,9 @@ func (n *NeutrinoNotifier) startNotifier() error {
 
 	n.wg.Add(1)
 	go n.notificationDispatcher()
+
+	n.wg.Add(1)
+	go n.historicalPkScriptDispatcher()
 
 	// Set the active flag now that we've completed the full
 	// startup.
@@ -470,6 +485,16 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 						chainntnfs.Log.Error(err)
 					}
 				}(msg)
+
+			case *chainntnfs.HistoricalPkScriptDispatch:
+				err := n.queueHistoricalPkScriptDispatch(msg)
+				if err != nil {
+					chainntnfs.Log.Errorf("Unable to queue "+
+						"historical pkScript dispatch for "+
+						"sub=%d within range %d-%d: %v",
+						msg.SubscriptionID, msg.StartHeight,
+						msg.EndHeight, err)
+				}
 
 			case *blockEpochRegistration:
 				chainntnfs.Log.Infof("New block epoch subscription")
@@ -918,6 +943,124 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	return ntfn.Event, nil
 }
 
+// pkScriptsToAddrs converts scripts into the unique set of addresses that
+// neutrino can watch for compact filter matching.
+func pkScriptsToAddrs(pkScripts [][]byte,
+	params chaincfg.Params) ([]btcutil.Address, error) {
+
+	dedup := make(map[string]btcutil.Address)
+
+	for _, pkScript := range pkScripts {
+		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+			pkScript, &params,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to extract script: %w", err)
+		}
+		if len(addrs) == 0 {
+			return nil, fmt.Errorf("%w: script cannot be watched "+
+				"by neutrino compact filters",
+				chainntnfs.ErrUnsupportedPkScript)
+		}
+
+		for _, addr := range addrs {
+			dedup[addr.EncodeAddress()] = addr
+		}
+	}
+
+	addrs := make([]btcutil.Address, 0, len(dedup))
+	for _, addr := range dedup {
+		addrs = append(addrs, addr)
+	}
+
+	return addrs, nil
+}
+
+// pkScriptsToAddrs converts scripts into neutrino filter addresses using
+// the notifier's active chain parameters.
+func (n *NeutrinoNotifier) pkScriptsToAddrs(
+	pkScripts [][]byte) ([]btcutil.Address, error) {
+
+	params := n.p2pNode.ChainParams()
+
+	return pkScriptsToAddrs(pkScripts, params)
+}
+
+// updatePkScriptFilter updates neutrino's rescan filter to watch for the given
+// pkScripts.
+func (n *NeutrinoNotifier) updatePkScriptFilter(pkScripts [][]byte,
+	rewindHeight uint32) error {
+
+	addrs, err := n.pkScriptsToAddrs(pkScripts)
+	if err != nil {
+		return err
+	}
+	if len(addrs) == 0 {
+		return nil
+	}
+
+	errChan := make(chan error, 1)
+	select {
+	case n.notificationRegistry <- &rescanFilterUpdate{
+		updateOptions: []neutrino.UpdateOption{
+			neutrino.AddAddrs(addrs...),
+			neutrino.Rewind(rewindHeight),
+			neutrino.DisableDisconnectedNtfns(true),
+		},
+		errChan: errChan,
+	}:
+	case <-n.quit:
+		return chainntnfs.ErrChainNotifierShuttingDown
+	}
+
+	select {
+	case err = <-errChan:
+	case <-n.quit:
+		return chainntnfs.ErrChainNotifierShuttingDown
+	}
+	if err != nil {
+		return fmt.Errorf("unable to update filter: %w", err)
+	}
+
+	return nil
+}
+
+// validatePkScriptFilterUpdate validates that scripts can be added to the
+// compact filter watch set.
+func (n *NeutrinoNotifier) validatePkScriptFilterUpdate(pkScripts [][]byte) error {
+
+	if len(pkScripts) == 0 {
+		return chainntnfs.ErrNoScript
+	}
+	if len(pkScripts) > chainntnfs.MaxPkScriptsPerBatch {
+		return fmt.Errorf("%w: batch size %d exceeds limit %d",
+			chainntnfs.ErrTooManyPkScripts, len(pkScripts),
+			chainntnfs.MaxPkScriptsPerBatch)
+	}
+
+	var batchBytes uint64
+	for _, pkScript := range pkScripts {
+		if len(pkScript) == 0 {
+			return chainntnfs.ErrNoScript
+		}
+		if len(pkScript) > txscript.MaxScriptSize {
+			return fmt.Errorf("%w: script size %d exceeds limit %d",
+				chainntnfs.ErrPkScriptTooLarge, len(pkScript),
+				txscript.MaxScriptSize)
+		}
+		batchBytes += uint64(len(pkScript))
+		if batchBytes > chainntnfs.MaxPkScriptBatchBytes {
+			return fmt.Errorf("%w: batch byte size %d exceeds limit %d",
+				chainntnfs.ErrTooManyPkScripts, batchBytes,
+				chainntnfs.MaxPkScriptBatchBytes)
+		}
+	}
+
+	_, err := n.pkScriptsToAddrs(pkScripts)
+
+	return err
+}
+
 // RegisterConfirmationsNtfn registers an intent to be notified once the target
 // txid/output script has reached numConfs confirmations on-chain. When
 // intending to be notified of the confirmation of an output script, a nil txid
@@ -1005,6 +1148,229 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	}
 
 	return ntfn.Event, nil
+}
+
+// queueHistoricalPkScriptDispatch reserves capacity and queues a historical
+// pkScript scan for the neutrino backend.
+func (n *NeutrinoNotifier) queueHistoricalPkScriptDispatch(
+	msg *chainntnfs.HistoricalPkScriptDispatch) error {
+
+	if msg == nil {
+		return nil
+	}
+
+	err := n.reserveHistoricalPkScriptDispatchSlot()
+	if err != nil {
+		return err
+	}
+
+	return n.queueReservedHistoricalPkScriptDispatch(msg)
+}
+
+// reserveHistoricalPkScriptDispatchSlot reserves one pending historical pkScript
+// scan slot.
+func (n *NeutrinoNotifier) reserveHistoricalPkScriptDispatchSlot() error {
+	select {
+	case <-n.quit:
+		return chainntnfs.ErrChainNotifierShuttingDown
+	default:
+	}
+
+	select {
+	case n.historicalPkScriptDispatchSlots <- struct{}{}:
+		return nil
+
+	case <-n.quit:
+		return chainntnfs.ErrChainNotifierShuttingDown
+
+	default:
+		return fmt.Errorf("%w: pending scans %d exceeds limit %d",
+			chainntnfs.ErrTooManyHistoricalPkScriptScans,
+			len(n.historicalPkScriptDispatchSlots),
+			chainntnfs.MaxPkScriptHistoricalDispatchQueueSize)
+	}
+}
+
+// releaseHistoricalPkScriptDispatchSlot releases one pending historical pkScript
+// scan slot.
+func (n *NeutrinoNotifier) releaseHistoricalPkScriptDispatchSlot() {
+	select {
+	case <-n.historicalPkScriptDispatchSlots:
+	default:
+	}
+}
+
+// queueReservedHistoricalPkScriptDispatch queues a dispatch after capacity has
+// already been reserved.
+func (n *NeutrinoNotifier) queueReservedHistoricalPkScriptDispatch(
+	msg *chainntnfs.HistoricalPkScriptDispatch) error {
+
+	select {
+	case n.historicalPkScriptDispatches <- msg:
+		return nil
+
+	case <-n.quit:
+		n.releaseHistoricalPkScriptDispatchSlot()
+
+		return chainntnfs.ErrChainNotifierShuttingDown
+	}
+}
+
+// historicalPkScriptDispatcher serially executes queued historical pkScript
+// scans.
+func (n *NeutrinoNotifier) historicalPkScriptDispatcher() {
+	defer n.wg.Done()
+
+	for {
+		select {
+		case msg := <-n.historicalPkScriptDispatches:
+			err := n.historicalPkScriptDispatch(msg)
+			n.releaseHistoricalPkScriptDispatchSlot()
+			if err != nil {
+				chainntnfs.Log.Errorf("Historical pkScript dispatch "+
+					"for sub=%d within range %d-%d failed: %v",
+					msg.SubscriptionID, msg.StartHeight,
+					msg.EndHeight, err)
+			}
+
+		case <-n.quit:
+			return
+		}
+	}
+}
+
+// historicalPkScriptDispatch scans historical blocks for pkScript activity for a
+// single subscription.
+func (n *NeutrinoNotifier) historicalPkScriptDispatch(
+	msg *chainntnfs.HistoricalPkScriptDispatch) error {
+
+	return n.txNotifier.SyncHistoricalPkScriptDispatch(
+		msg,
+		func(height uint32) error {
+			select {
+			case <-n.quit:
+				return chainntnfs.ErrChainNotifierShuttingDown
+			default:
+			}
+
+			blockHash, err := n.p2pNode.GetBlockHash(int64(height))
+			if err != nil {
+				return fmt.Errorf("unable to retrieve hash for block "+
+					"with height %d: %v", height, err)
+			}
+
+			block, err := n.GetBlock(*blockHash)
+			if err != nil {
+				return fmt.Errorf("unable to retrieve block with hash "+
+					"%v: %v", blockHash, err)
+			}
+
+			return n.txNotifier.ProcessHistoricalPkScriptBlockWithDispatch(
+				msg, block, height,
+			)
+		},
+	)
+}
+
+// pkScriptRollbackErr reports a mutation failure where undoing the partial
+// registration also failed.
+func pkScriptRollbackErr(action string, err, rollbackErr error) error {
+	return fmt.Errorf(
+		"unable to %s: %w, rollback failed: %v",
+		action, err, rollbackErr,
+	)
+}
+
+// RegisterPkScriptNotifier creates a new pkScript notification stream.
+func (n *NeutrinoNotifier) RegisterPkScriptNotifier() (
+	*chainntnfs.PkScriptNotificationRegistration, error) {
+
+	reg, err := n.txNotifier.RegisterPkScriptNotifier()
+	if err != nil {
+		return nil, err
+	}
+
+	reg.Event.AddPkScripts = func(pkScripts [][]byte,
+		opts ...chainntnfs.NotifierOption) (*chainntnfs.PkScriptAddResult,
+		error) {
+
+		err := n.validatePkScriptFilterUpdate(pkScripts)
+		if err != nil {
+			return nil, err
+		}
+
+		dispatch, addHeight, addedScripts, err := reg.AddPkScripts(
+			pkScripts, opts...,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		scanReserved := false
+		if dispatch != nil {
+			n.bestBlockMtx.RLock()
+			dispatch.EndHeight = uint32(n.bestBlock.Height)
+			n.bestBlockMtx.RUnlock()
+
+			err = n.reserveHistoricalPkScriptDispatchSlot()
+			if err != nil {
+				removeErr := reg.RemovePkScripts(addedScripts)
+				if removeErr != nil {
+					return nil, pkScriptRollbackErr(
+						"queue historical scan",
+						err, removeErr,
+					)
+				}
+
+				return nil, err
+			}
+			scanReserved = true
+		}
+
+		result := chainntnfs.NewPkScriptAddResult(dispatch, addedScripts)
+
+		if len(addedScripts) > 0 {
+			err := n.updatePkScriptFilter(addedScripts, addHeight)
+			if err != nil {
+				if scanReserved {
+					n.releaseHistoricalPkScriptDispatchSlot()
+				}
+
+				removeErr := reg.RemovePkScripts(addedScripts)
+				if removeErr != nil {
+					return nil, pkScriptRollbackErr(
+						"update filter",
+						err, removeErr,
+					)
+				}
+
+				return nil, err
+			}
+		}
+
+		if scanReserved {
+			err := n.queueReservedHistoricalPkScriptDispatch(dispatch)
+			if err != nil {
+				removeErr := reg.RemovePkScripts(addedScripts)
+				if removeErr != nil {
+					return nil, pkScriptRollbackErr(
+						"queue historical scan",
+						err, removeErr,
+					)
+				}
+
+				return nil, err
+			}
+		}
+
+		return result, nil
+	}
+
+	reg.Event.RemovePkScripts = func(pkScripts [][]byte) error {
+		return reg.RemovePkScripts(pkScripts)
+	}
+
+	return reg.Event, nil
 }
 
 // GetBlock is used to retrieve the block with the given hash. Since the block

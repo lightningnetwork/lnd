@@ -962,6 +962,17 @@ func (c *OpenChannel) hasChanStatus(status ChannelStatus) bool {
 	return c.chanStatus&status == status
 }
 
+// HasChanStatusForStore returns true if the internal bitfield channel status
+// has the specified status bit set, without taking the channel mutex.
+//
+// NOTE: This is a preliminary migration hook for KV-backed store code that
+// still lives in channeldb while OpenChannel moves toward chanstate. Callers
+// are responsible for synchronization. Normal callers should use
+// HasChanStatus.
+func (c *OpenChannel) HasChanStatusForStore(status ChannelStatus) bool {
+	return c.hasChanStatus(status)
+}
+
 // ConfirmedScidForStore returns the in-memory confirmed SCID without taking
 // the channel mutex.
 //
@@ -4391,7 +4402,7 @@ func fundingTxPresent(channel *OpenChannel) bool {
 
 	return chanType.IsSingleFunder() && chanType.HasFundingTx() &&
 		channel.IsInitiator &&
-		!channel.hasChanStatus(ChanStatusRestored)
+		!channel.HasChanStatusForStore(ChanStatusRestored)
 }
 
 func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
@@ -4523,7 +4534,7 @@ func putChanCommitment(chanBucket kvdb.RwBucket, c *ChannelCommitment,
 func putChanCommitments(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 	// If this is a restored channel, then we don't have any commitments to
 	// write.
-	if channel.hasChanStatus(ChanStatusRestored) {
+	if channel.HasChanStatusForStore(ChanStatusRestored) {
 		return nil
 	}
 
@@ -4702,7 +4713,7 @@ func fetchChanCommitments(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 
 	// If this is a restored channel, then we don't have any commitments to
 	// read.
-	if channel.hasChanStatus(ChanStatusRestored) {
+	if channel.HasChanStatusForStore(ChanStatusRestored) {
 		return nil
 	}
 

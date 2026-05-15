@@ -10,7 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/neutrino/cache"
 	"github.com/lightninglabs/neutrino/cache/lru"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -67,7 +67,7 @@ type GraphCloser interface {
 type NodeInfoInquirer interface {
 	// FetchOpenChannels returns the set of channels that we have with the
 	// peer identified by the passed-in public key.
-	FetchOpenChannels(*btcec.PublicKey) ([]*channeldb.OpenChannel, error)
+	FetchOpenChannels(*btcec.PublicKey) ([]*chanstate.OpenChannel, error)
 }
 
 // ScidCloserMan helps the gossiper handle closed channels that are in the

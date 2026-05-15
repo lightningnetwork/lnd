@@ -6,7 +6,6 @@ package walletrpc
 import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcwallet/wallet"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -80,5 +79,5 @@ type Config struct {
 	CoinSelectionStrategy wallet.CoinSelectionStrategy
 
 	// ChanStateDB is the reference to the open channel store.
-	ChanStateDB chanstate.OpenChannelStore[*channeldb.OpenChannel]
+	ChanStateDB chanstate.OpenChannelStore
 }

@@ -21,38 +21,38 @@ import (
 // concrete channeldb.ChannelStateDB type during the migration. Once the channel
 // state implementation moves into this package and the old concrete type is no
 // longer part of consumer-facing code, this name can be revisited.
-type Store[Channel any] interface {
+type Store interface {
 	// OpenChannelStore owns open-channel records.
-	OpenChannelStore[Channel]
+	OpenChannelStore
 
 	// HistoricalChannelStore owns the post-close historical channel view.
-	HistoricalChannelStore[Channel]
+	HistoricalChannelStore
 
 	// OpenChannelLifecycleStore owns persisted lifecycle state for open
 	// channel records.
-	OpenChannelLifecycleStore[Channel]
+	OpenChannelLifecycleStore
 
 	// OpenChannelStatusStore owns persisted status flags for open channel
 	// records.
-	OpenChannelStatusStore[Channel]
+	OpenChannelStatusStore
 
 	// OpenChannelShutdownStore owns persisted shutdown state.
-	OpenChannelShutdownStore[Channel]
+	OpenChannelShutdownStore
 
 	// OpenChannelCloseTxStore owns persisted closing transaction state.
-	OpenChannelCloseTxStore[Channel]
+	OpenChannelCloseTxStore
 
 	// OpenChannelCommitmentStore owns persisted commitment state for open
 	// channel records.
-	OpenChannelCommitmentStore[Channel]
+	OpenChannelCommitmentStore
 
 	// OpenChannelFwdPkgStore owns forwarding packages tied to open
 	// channel records.
-	OpenChannelFwdPkgStore[Channel]
+	OpenChannelFwdPkgStore
 
 	// ClosedChannelStore owns closed-channel summaries and lifecycle
 	// mutations.
-	ClosedChannelStore[Channel]
+	ClosedChannelStore
 
 	// FinalHTLCStore owns final HTLC outcome data.
 	FinalHTLCStore
@@ -67,46 +67,46 @@ type Store[Channel any] interface {
 }
 
 // OpenChannelStore owns open-channel records.
-type OpenChannelStore[Channel any] interface {
+type OpenChannelStore interface {
 	// FetchOpenChannels starts a new database transaction and returns
 	// all stored currently active/open channels associated with the
 	// target nodeID. In the case that no active channels are known to
 	// have been created with this node, then a zero-length slice is
 	// returned.
-	FetchOpenChannels(nodeID *btcec.PublicKey) ([]Channel, error)
+	FetchOpenChannels(nodeID *btcec.PublicKey) ([]*OpenChannel, error)
 
 	// FetchChannel attempts to locate a channel specified by the passed
 	// channel point. If the channel cannot be found, then an error will
 	// be returned.
-	FetchChannel(chanPoint wire.OutPoint) (Channel, error)
+	FetchChannel(chanPoint wire.OutPoint) (*OpenChannel, error)
 
 	// FetchChannelByID attempts to locate a channel specified by the
 	// passed channel ID. If the channel cannot be found, then an error
 	// will be returned.
-	FetchChannelByID(id lnwire.ChannelID) (Channel, error)
+	FetchChannelByID(id lnwire.ChannelID) (*OpenChannel, error)
 
 	// FetchAllChannels attempts to retrieve all open channels currently
 	// stored within the database, including pending open, fully open and
 	// channels waiting for a closing transaction to confirm.
-	FetchAllChannels() ([]Channel, error)
+	FetchAllChannels() ([]*OpenChannel, error)
 
 	// FetchAllOpenChannels will return all channels that have the
 	// funding transaction confirmed, and is not waiting for a closing
 	// transaction to be confirmed.
-	FetchAllOpenChannels() ([]Channel, error)
+	FetchAllOpenChannels() ([]*OpenChannel, error)
 
 	// FetchPendingChannels will return channels that have completed the
 	// process of generating and broadcasting funding transactions, but
 	// whose funding transactions have yet to be confirmed on the
 	// blockchain.
-	FetchPendingChannels() ([]Channel, error)
+	FetchPendingChannels() ([]*OpenChannel, error)
 
 	// FetchWaitingCloseChannels will return all channels that have been
 	// opened, but are now waiting for a closing transaction to be
 	// confirmed.
 	//
 	// NOTE: This includes channels that are also pending to be opened.
-	FetchWaitingCloseChannels() ([]Channel, error)
+	FetchWaitingCloseChannels() ([]*OpenChannel, error)
 
 	// FetchPermAndTempPeers returns a map where the key is the remote
 	// node's public key and the value is a struct that has a tally of
@@ -120,193 +120,197 @@ type OpenChannelStore[Channel any] interface {
 	// finally create an edge within the graph for the channel as well.
 	// This method is idempotent, so repeated calls with the same set of
 	// channel shells won't modify the database after the initial call.
-	RestoreChannelShells(channelShells ...*ChannelShell[Channel]) error
+	RestoreChannelShells(channelShells ...*ChannelShell) error
 }
 
 // HistoricalChannelStore owns the post-close historical channel view.
-type HistoricalChannelStore[Channel any] interface {
+type HistoricalChannelStore interface {
 	// FetchHistoricalChannel fetches open channel data from the
 	// historical channel bucket.
-	FetchHistoricalChannel(outPoint *wire.OutPoint) (Channel, error)
+	FetchHistoricalChannel(outPoint *wire.OutPoint) (*OpenChannel, error)
 }
 
 // OpenChannelLifecycleStore owns persisted lifecycle state for open channel
 // records.
-type OpenChannelLifecycleStore[Channel any] interface {
+type OpenChannelLifecycleStore interface {
 	// SyncPendingChannel writes a pending channel to the store and records
 	// the funding broadcast height.
-	SyncPendingChannel(channel Channel, addr net.Addr,
+	SyncPendingChannel(channel *OpenChannel, addr net.Addr,
 		pendingHeight uint32) error
 
 	// RefreshChannel updates the in-memory channel state using the latest
 	// state observed on disk.
-	RefreshChannel(channel Channel) error
+	RefreshChannel(channel *OpenChannel) error
 
 	// MarkChannelConfirmationHeight updates the channel's confirmation
 	// height once the channel opening transaction receives one
 	// confirmation.
-	MarkChannelConfirmationHeight(channel Channel, height uint32) error
+	MarkChannelConfirmationHeight(channel *OpenChannel, height uint32) error
 
 	// MarkChannelCloseConfirmationHeight updates the channel's close
 	// confirmation height when the closing transaction is first detected
 	// in a block.
-	MarkChannelCloseConfirmationHeight(channel Channel,
+	MarkChannelCloseConfirmationHeight(channel *OpenChannel,
 		height fn.Option[uint32]) error
 
 	// MarkChannelOpen marks a channel as fully open given a locator that
 	// uniquely describes its location within the chain.
-	MarkChannelOpen(channel Channel, openLoc lnwire.ShortChannelID) error
+	MarkChannelOpen(channel *OpenChannel,
+		openLoc lnwire.ShortChannelID) error
 
 	// MarkChannelRealScid marks the zero-conf channel's confirmed
 	// ShortChannelID.
-	MarkChannelRealScid(channel Channel,
+	MarkChannelRealScid(channel *OpenChannel,
 		realScid lnwire.ShortChannelID) error
 
 	// MarkChannelScidAliasNegotiated marks that the scid-alias feature
 	// bit was negotiated during the lifetime of the channel.
-	MarkChannelScidAliasNegotiated(channel Channel) error
+	MarkChannelScidAliasNegotiated(channel *OpenChannel) error
 }
 
 // OpenChannelStatusStore owns persisted status flags for open channel records.
-type OpenChannelStatusStore[Channel any] interface {
+type OpenChannelStatusStore interface {
 	// ApplyChannelStatus adds the target status to the channel's
 	// persisted status bit field.
-	ApplyChannelStatus(channel Channel, status ChannelStatus) error
+	ApplyChannelStatus(channel *OpenChannel, status ChannelStatus) error
 
 	// ClearChannelStatus clears the target status from the channel's
 	// persisted status bit field.
-	ClearChannelStatus(channel Channel, status ChannelStatus) error
+	ClearChannelStatus(channel *OpenChannel, status ChannelStatus) error
 
 	// MarkChannelDataLoss marks the channel as local-data-loss and stores
 	// the commit point needed if the remote force closes.
-	MarkChannelDataLoss(channel Channel,
+	MarkChannelDataLoss(channel *OpenChannel,
 		commitPoint *btcec.PublicKey) error
 
 	// FetchChannelDataLossCommitPoint retrieves the commit point stored
 	// when the channel was marked as local-data-loss.
-	FetchChannelDataLossCommitPoint(channel Channel) (
+	FetchChannelDataLossCommitPoint(channel *OpenChannel) (
 		*btcec.PublicKey, error)
 
 	// MarkChannelBorked marks the channel as irreconcilable.
-	MarkChannelBorked(channel Channel) error
+	MarkChannelBorked(channel *OpenChannel) error
 }
 
 // OpenChannelShutdownStore owns persisted shutdown state.
-type OpenChannelShutdownStore[Channel any] interface {
+type OpenChannelShutdownStore interface {
 	// StoreChannelShutdownInfo persists the ShutdownInfo for the target
 	// channel.
-	StoreChannelShutdownInfo(channel Channel, info *ShutdownInfo) error
+	StoreChannelShutdownInfo(channel *OpenChannel, info *ShutdownInfo) error
 
 	// FetchChannelShutdownInfo fetches the persisted ShutdownInfo for the
 	// target channel.
-	FetchChannelShutdownInfo(channel Channel) (fn.Option[ShutdownInfo],
-		error)
+	FetchChannelShutdownInfo(channel *OpenChannel) (
+		fn.Option[ShutdownInfo], error)
 }
 
 // OpenChannelCloseTxStore owns persisted closing transaction state.
-type OpenChannelCloseTxStore[Channel any] interface {
+type OpenChannelCloseTxStore interface {
 	// MarkChannelCommitmentBroadcasted marks the channel as having a
 	// commitment transaction broadcast.
-	MarkChannelCommitmentBroadcasted(channel Channel, closeTx *wire.MsgTx,
-		closer lntypes.ChannelParty) error
+	MarkChannelCommitmentBroadcasted(channel *OpenChannel,
+		closeTx *wire.MsgTx, closer lntypes.ChannelParty) error
 
 	// MarkChannelCoopBroadcasted marks the channel as having a
 	// cooperative close transaction broadcast.
-	MarkChannelCoopBroadcasted(channel Channel, closeTx *wire.MsgTx,
+	MarkChannelCoopBroadcasted(channel *OpenChannel, closeTx *wire.MsgTx,
 		closer lntypes.ChannelParty) error
 
 	// FetchChannelBroadcastedCommitment fetches the stored unilateral
 	// closing transaction.
-	FetchChannelBroadcastedCommitment(channel Channel) (*wire.MsgTx,
+	FetchChannelBroadcastedCommitment(channel *OpenChannel) (*wire.MsgTx,
 		error)
 
 	// FetchChannelBroadcastedCooperative fetches the stored cooperative
 	// closing transaction.
-	FetchChannelBroadcastedCooperative(channel Channel) (*wire.MsgTx,
+	FetchChannelBroadcastedCooperative(channel *OpenChannel) (*wire.MsgTx,
 		error)
 }
 
 // OpenChannelCommitmentStore owns persisted commitment state for open channel
 // records.
-type OpenChannelCommitmentStore[Channel any] interface {
+type OpenChannelCommitmentStore interface {
 	// UpdateChannelCommitment updates the local commitment state. It
 	// locks in pending local updates received from the remote party and
 	// persists remote log updates that have been acked, but not signed
 	// for yet. The returned map contains all HTLC resolutions locked into
 	// this commitment, keyed by HTLC index.
-	UpdateChannelCommitment(channel Channel,
+	UpdateChannelCommitment(channel *OpenChannel,
 		newCommitment *ChannelCommitment,
 		unsignedAckedUpdates []LogUpdate) (map[uint64]bool, error)
 
 	// AppendRemoteCommitChain appends a new CommitDiff to the remote
 	// party's commitment chain. This is used after preparing a new remote
 	// commitment state, before transmitting it to the remote party.
-	AppendRemoteCommitChain(channel Channel, diff *CommitDiff) error
+	AppendRemoteCommitChain(channel *OpenChannel, diff *CommitDiff) error
 
 	// RemoteCommitChainTip returns the "tip" of the current remote
 	// commitment chain.
-	RemoteCommitChainTip(channel Channel) (*CommitDiff, error)
+	RemoteCommitChainTip(channel *OpenChannel) (*CommitDiff, error)
 
 	// UnsignedAckedUpdates retrieves the persisted unsigned acked remote
 	// log updates that still need to be signed for.
-	UnsignedAckedUpdates(channel Channel) ([]LogUpdate, error)
+	UnsignedAckedUpdates(channel *OpenChannel) ([]LogUpdate, error)
 
 	// RemoteUnsignedLocalUpdates retrieves the persisted, unsigned local
 	// log updates that the remote still needs to sign for.
-	RemoteUnsignedLocalUpdates(channel Channel) ([]LogUpdate, error)
+	RemoteUnsignedLocalUpdates(channel *OpenChannel) ([]LogUpdate, error)
 
 	// InsertNextRevocation inserts the next commitment point into the
 	// persisted channel state.
-	InsertNextRevocation(channel Channel, revKey *btcec.PublicKey) error
+	InsertNextRevocation(channel *OpenChannel,
+		revKey *btcec.PublicKey) error
 
 	// AdvanceCommitChainTail records the new state transition within the
 	// revocation log and promotes the pending remote commitment to the
 	// current remote commitment.
-	AdvanceCommitChainTail(channel Channel, fwdPkg *FwdPkg,
+	AdvanceCommitChainTail(channel *OpenChannel, fwdPkg *FwdPkg,
 		updates []LogUpdate, ourOutputIndex,
 		theirOutputIndex uint32) error
 
 	// CommitmentHeight returns the current persisted commitment height.
-	CommitmentHeight(channel Channel) (uint64, error)
+	CommitmentHeight(channel *OpenChannel) (uint64, error)
 
 	// LatestCommitments returns the two latest commitments for both the
 	// local and remote party.
-	LatestCommitments(channel Channel) (*ChannelCommitment,
+	LatestCommitments(channel *OpenChannel) (*ChannelCommitment,
 		*ChannelCommitment, error)
 
 	// RemoteRevocationStore returns the most up to date commitment version
 	// of the revocation storage tree for the remote party.
-	RemoteRevocationStore(channel Channel) (shachain.Store, error)
+	RemoteRevocationStore(channel *OpenChannel) (shachain.Store, error)
 
 	// FindPreviousState scans through the append-only log in an attempt to
 	// recover the previous channel state indicated by the update number.
-	FindPreviousState(channel Channel, updateNum uint64) (
+	FindPreviousState(channel *OpenChannel, updateNum uint64) (
 		*RevocationLog, *ChannelCommitment, error)
 }
 
 // OpenChannelFwdPkgStore owns forwarding packages tied to open channel records.
-type OpenChannelFwdPkgStore[Channel any] interface {
+type OpenChannelFwdPkgStore interface {
 	// LoadFwdPkgs loads forwarding packages that have not been processed.
-	LoadFwdPkgs(channel Channel) ([]*FwdPkg, error)
+	LoadFwdPkgs(channel *OpenChannel) ([]*FwdPkg, error)
 
 	// AckAddHtlcs marks add HTLCs in forwarding packages as resolved.
-	AckAddHtlcs(channel Channel, addRefs ...AddRef) error
+	AckAddHtlcs(channel *OpenChannel, addRefs ...AddRef) error
 
 	// AckSettleFails marks settles or fails as delivered to the incoming
 	// link.
-	AckSettleFails(channel Channel, settleFailRefs ...SettleFailRef) error
+	AckSettleFails(channel *OpenChannel,
+		settleFailRefs ...SettleFailRef) error
 
 	// SetFwdFilter writes the forwarding filter for the forwarding package
 	// identified by height.
-	SetFwdFilter(channel Channel, height uint64, fwdFilter *PkgFilter) error
+	SetFwdFilter(channel *OpenChannel, height uint64,
+		fwdFilter *PkgFilter) error
 
 	// RemoveFwdPkgs removes forwarding packages by remote commitment
 	// height.
-	RemoveFwdPkgs(channel Channel, heights ...uint64) error
+	RemoveFwdPkgs(channel *OpenChannel, heights ...uint64) error
 }
 
 // ClosedChannelStore owns closed-channel summaries and lifecycle mutations.
-type ClosedChannelStore[Channel any] interface {
+type ClosedChannelStore interface {
 	// FetchClosedChannels attempts to fetch all closed channels from the
 	// database. The pendingOnly bool toggles if channels that aren't yet
 	// fully closed should be returned in the response or not. When a
@@ -340,7 +344,7 @@ type ClosedChannelStore[Channel any] interface {
 	// FetchClosedChannel and FetchClosedChannelForID. Any ChannelStatus
 	// values are merged into the archived summary. Returns
 	// ErrChannelCloseSummaryNil if summary is nil.
-	CloseChannel(channel Channel, summary *ChannelCloseSummary,
+	CloseChannel(channel *OpenChannel, summary *ChannelCloseSummary,
 		statuses ...ChannelStatus) error
 
 	// AbandonChannel attempts to remove the target channel from the open

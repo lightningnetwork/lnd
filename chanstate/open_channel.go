@@ -216,7 +216,7 @@ type OpenChannel struct {
 	// channels through the channeldb compatibility alias. The store
 	// interface keeps receiver methods backend independent while the KV
 	// implementation remains in channeldb.
-	Db Store[*OpenChannel]
+	Db Store
 
 	// TODO(roasbeef): just need to store local and remote HTLC's?
 

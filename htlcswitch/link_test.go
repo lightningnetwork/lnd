@@ -5770,7 +5770,7 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 }
 
 type mockFailLoadFwdPkgStore struct {
-	cstate.Store[*channeldb.OpenChannel]
+	cstate.Store
 }
 
 func (m *mockFailLoadFwdPkgStore) LoadFwdPkgs(

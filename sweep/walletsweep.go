@@ -112,23 +112,24 @@ func (f FeeEstimateInfo) Estimate(estimator chainfee.Estimator,
 	case f.FeeRate != 0:
 		feeRate = f.FeeRate
 
-		// Because the user can specify 1 sat/vByte on the RPC
-		// interface, which corresponds to 250 sat/kw, we need to bump
-		// that to the minimum "safe" fee rate which is 253 sat/kw.
-		if feeRate == chainfee.AbsoluteFeePerKwFloor {
-			log.Infof("Manual fee rate input of %d sat/kw is "+
-				"too low, using %d sat/kw instead", feeRate,
-				chainfee.FeePerKwFloor)
+		// When the user specifies exactly 1 sat/vb (250 sat/kw, i.e.
+		// AbsoluteFeePerKwFloor) and the configured relay floor is
+		// above that value, silently bump to the floor. This preserves
+		// the historical behaviour for default configurations while
+		// allowing sub-1 sat/vb inputs to pass through unchanged when
+		// the operator has explicitly lowered the floor.
+		if feeRate == chainfee.AbsoluteFeePerKwFloor &&
+			estimator.RelayFeePerKW() > chainfee.AbsoluteFeePerKwFloor {
 
-			feeRate = chainfee.FeePerKwFloor
+			feeRate = estimator.RelayFeePerKW()
 		}
 	}
 
 	// Get the relay fee as the min fee rate.
 	minFeeRate := estimator.RelayFeePerKW()
 
-	// If that bumped fee rate of at least 253 sat/kw is still lower than
-	// the relay fee rate, we return an error to let the user know. Note
+	// If the fee rate is still lower than the relay fee rate, return an
+	// error to let the user know. Note
 	// that "Relay fee rate" may mean slightly different things depending
 	// on the backend. For bitcoind, it is effectively max(relay fee, min
 	// mempool fee).

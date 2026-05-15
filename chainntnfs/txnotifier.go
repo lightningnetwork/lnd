@@ -154,6 +154,8 @@ type spendNtfnSet struct {
 	details *SpendDetail
 }
 
+type pkScriptHeightIndex map[uint32]map[uint64]map[wire.OutPoint]struct{}
+
 // newSpendNtfnSet constructs a new spend notification set.
 func newSpendNtfnSet() *spendNtfnSet {
 	return &spendNtfnSet{
@@ -480,8 +482,10 @@ type SpendRegistration struct {
 // The TxNotifier will watch the blockchain as new blocks come in, in order to
 // satisfy its client requests.
 type TxNotifier struct {
-	confClientCounter  uint64 // To be used atomically.
-	spendClientCounter uint64 // To be used atomically.
+	confClientCounter             uint64 // To be used atomically.
+	spendClientCounter            uint64 // To be used atomically.
+	pkScriptClientCounter         uint64 // To be used atomically.
+	pkScriptHistoricalScanCounter uint64 // To be used atomically.
 
 	// currentHeight is the height of the tracked blockchain. It is used to
 	// determine the number of confirmations a tx has and ensure blocks are
@@ -520,6 +524,55 @@ type TxNotifier struct {
 	// per outpoint/output script.
 	spendNotifications map[SpendRequest]*spendNtfnSet
 
+	// pkScriptNotifications is an index of all active pkScript subscription
+	// requests.
+	pkScriptNotifications map[uint64]*pkScriptSubscription
+
+	// pkScriptHistoricalDispatchMtx serializes historical pkScript scans
+	// globally so they cannot overwhelm the backend or starve live notifier
+	// work.
+	pkScriptHistoricalDispatchMtx sync.Mutex
+
+	// pkScriptByScript maps a pkScript to a set of pkScript subscriptions.
+	pkScriptByScript map[string]map[uint64]struct{}
+
+	// numPkScriptWatches tracks the total number of pkScript watches
+	// across all active pkScript subscriptions.
+	numPkScriptWatches int
+
+	// numPkScriptWatchBytes tracks the total byte size of pkScript
+	// watches across all active pkScript subscriptions.
+	numPkScriptWatchBytes uint64
+
+	// pkScriptByOutpoint maps an outpoint to the set of subscriptions that
+	// currently track the UTXO for future spend detection.
+	pkScriptByOutpoint map[wire.OutPoint]map[uint64]struct{}
+
+	// pkScriptConfsByHeight tracks outputs by the height at which they will
+	// reach the configured confirmation depth.
+	pkScriptConfsByHeight pkScriptHeightIndex
+
+	// pkScriptConfirmedByHeight tracks pkScript confirmation notifications by
+	// the block height at which they were dispatched so they can be
+	// invalidated during reorgs.
+	pkScriptConfirmedByHeight pkScriptHeightIndex
+
+	// pkScriptConfUpdatesByHeight tracks partial confirmation updates that
+	// should be dispatched at a future height.
+	pkScriptConfUpdatesByHeight pkScriptHeightIndex
+
+	// pkScriptConfUpdatesDispatchedByHeight tracks dispatched partial
+	// confirmation updates so they can be invalidated during reorgs.
+	pkScriptConfUpdatesDispatchedByHeight pkScriptHeightIndex
+
+	// pkScriptReceivesByHeight tracks new UTXOs created at each height for
+	// reorg handling.
+	pkScriptReceivesByHeight pkScriptHeightIndex
+
+	// pkScriptSpendsByHeight tracks spends at each height for reorg
+	// handling.
+	pkScriptSpendsByHeight pkScriptHeightIndex
+
 	// spendsByHeight is an index that keeps tracks of the spending height
 	// of outpoints/output scripts we are currently tracking notifications
 	// for. This is used in order to recover from spending transactions
@@ -553,16 +606,37 @@ func NewTxNotifier(startHeight uint32, reorgSafetyLimit uint32,
 	spendHintCache SpendHintCache) *TxNotifier {
 
 	return &TxNotifier{
-		currentHeight:        startHeight,
-		reorgSafetyLimit:     reorgSafetyLimit,
-		confNotifications:    make(map[ConfRequest]*confNtfnSet),
-		confsByInitialHeight: make(map[uint32]map[ConfRequest]struct{}),
+		currentHeight:     startHeight,
+		reorgSafetyLimit:  reorgSafetyLimit,
+		confNotifications: make(map[ConfRequest]*confNtfnSet),
+		confsByInitialHeight: make(
+			map[uint32]map[ConfRequest]struct{},
+		),
 		ntfnsByConfirmHeight: make(map[uint32]map[*ConfNtfn]struct{}),
 		spendNotifications:   make(map[SpendRequest]*spendNtfnSet),
-		spendsByHeight:       make(map[uint32]map[SpendRequest]struct{}),
-		confirmHintCache:     confirmHintCache,
-		spendHintCache:       spendHintCache,
-		quit:                 make(chan struct{}),
+		spendsByHeight: make(
+			map[uint32]map[SpendRequest]struct{},
+		),
+		pkScriptNotifications: make(map[uint64]*pkScriptSubscription),
+		pkScriptByScript:      make(map[string]map[uint64]struct{}),
+		pkScriptByOutpoint: make(
+			map[wire.OutPoint]map[uint64]struct{},
+		),
+		pkScriptConfsByHeight: make(pkScriptHeightIndex),
+		pkScriptConfirmedByHeight: make(
+			pkScriptHeightIndex,
+		),
+		pkScriptConfUpdatesByHeight: make(
+			pkScriptHeightIndex,
+		),
+		pkScriptConfUpdatesDispatchedByHeight: make(
+			pkScriptHeightIndex,
+		),
+		pkScriptReceivesByHeight: make(pkScriptHeightIndex),
+		pkScriptSpendsByHeight:   make(pkScriptHeightIndex),
+		confirmHintCache:         confirmHintCache,
+		spendHintCache:           spendHintCache,
+		quit:                     make(chan struct{}),
 	}
 }
 
@@ -1465,18 +1539,38 @@ func (n *TxNotifier) ConnectTip(block *btcutil.Block,
 
 	// First, we'll iterate over all the transactions found in this block to
 	// determine if it includes any relevant transactions to the TxNotifier.
+	var blockHash *chainhash.Hash
+	processPkScriptEvents := n.numPkScriptWatches > 0
 	if block != nil {
 		Log.Debugf("Filtering %d txns for %d spend requests at "+
 			"height %d", len(block.Transactions()),
 			len(n.spendNotifications), blockHeight)
 
-		for _, tx := range block.Transactions() {
+		blockHash = block.Hash()
+
+		for txIdx, tx := range block.Transactions() {
 			n.filterTx(
 				block, tx, blockHeight,
 				n.handleConfDetailsAtTip,
 				n.handleSpendDetailsAtTip,
 			)
+
+			if processPkScriptEvents {
+				err := n.processPkScriptTxAtTip(
+					tx, uint32(txIdx), blockHeight, block,
+				)
+				if err != nil {
+					return err
+				}
+			}
 		}
+	}
+
+	err := n.dispatchPkScriptNotificationsAtTip(
+		blockHeight, blockHash, block,
+	)
+	if err != nil {
+		return err
 	}
 
 	// Now that we've determined which requests were confirmed and spent
@@ -1518,6 +1612,8 @@ func (n *TxNotifier) ConnectTip(block *btcutil.Block,
 			delete(n.spendNotifications, spendRequest)
 		}
 		delete(n.spendsByHeight, matureBlockHeight)
+
+		n.pruneMaturePkScriptState(matureBlockHeight)
 	}
 
 	return nil
@@ -1931,6 +2027,11 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 	delete(n.confsByInitialHeight, blockHeight)
 	delete(n.spendsByHeight, blockHeight)
 
+	err := n.disconnectPkScriptTip(blockHeight)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -2134,6 +2235,12 @@ func (n *TxNotifier) TearDown() {
 			delete(spendSet.ntfns, spendID)
 		}
 	}
+
+	for subID := range n.pkScriptNotifications {
+		n.cancelPkScriptLocked(subID)
+	}
+	n.numPkScriptWatches = 0
+	n.numPkScriptWatchBytes = 0
 }
 
 // notifyNumConfsLeft sends the number of confirmations left to the

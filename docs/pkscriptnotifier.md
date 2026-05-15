@@ -137,6 +137,106 @@ func watchPkScripts(ctx context.Context, notifier chainntnfs.PkScriptNotifier,
 }
 ```
 
+## Reorg Handling Example
+
+`Disconnected` is not a separate event type. It is set on the same notification
+type that is being invalidated. A client should therefore key its local state by
+the watched UTXO outpoint and undo the prior confirmation, confirmation update,
+or spend effect when `Disconnected` is true.
+
+The example below is intentionally small. In production, persist each state
+change in one database transaction with any application-specific side effects.
+
+```go
+package main
+
+import (
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/chainntnfs"
+)
+
+type trackedOutput struct {
+	UTXO *chainntnfs.PkScriptUTXO
+
+	Confirmations uint32
+	Confirmed     bool
+
+	Spent       bool
+	SpendTx     *chainhash.Hash
+	SpendHeight uint32
+}
+
+func applyPkScriptNotification(ntfn *chainntnfs.PkScriptNotification,
+	outputs map[wire.OutPoint]*trackedOutput) {
+
+	if ntfn == nil || ntfn.UTXO == nil {
+		return
+	}
+
+	outpoint := ntfn.UTXO.OutPoint
+	output := outputs[outpoint]
+	if output == nil {
+		output = &trackedOutput{}
+		outputs[outpoint] = output
+	}
+	output.UTXO = ntfn.UTXO
+
+	switch ntfn.Type {
+	case chainntnfs.PkScriptNotificationConfirmUpdate:
+		if ntfn.Disconnected {
+			// This invalidates a previously delivered partial
+			// confirmation update. If you persist updates by height,
+			// delete that exact update here instead.
+			if ntfn.NumConfirmations > 0 {
+				output.Confirmations = ntfn.NumConfirmations - 1
+			}
+			return
+		}
+
+		output.Confirmations = ntfn.NumConfirmations
+
+	case chainntnfs.PkScriptNotificationConfirm:
+		if ntfn.Disconnected {
+			// The final confirmation is no longer valid. The output may
+			// confirm again later, and the notifier will send a new
+			// confirmation notification if it reaches the target again.
+			output.Confirmed = false
+			if ntfn.RequiredConfs > 0 {
+				output.Confirmations = ntfn.RequiredConfs - 1
+			}
+			return
+		}
+
+		output.Confirmed = true
+		output.Confirmations = ntfn.RequiredConfs
+
+	case chainntnfs.PkScriptNotificationSpend:
+		if ntfn.Disconnected {
+			// The spending transaction was reorged out. Treat the output
+			// as unspent until another spend notification arrives.
+			output.Spent = false
+			output.SpendTx = nil
+			output.SpendHeight = 0
+			return
+		}
+
+		output.Spent = true
+		output.SpendTx = copyHash(ntfn.TxHash)
+		output.SpendHeight = ntfn.Height
+	}
+}
+
+func copyHash(hash *chainhash.Hash) *chainhash.Hash {
+	if hash == nil {
+		return nil
+	}
+
+	hashCopy := *hash
+	return &hashCopy
+}
+```
+
 ## Historical Scans
 
 An add request can set `historical_scan_from`. When set, the backend scans from

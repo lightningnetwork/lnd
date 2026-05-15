@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
 )
@@ -31,7 +31,7 @@ type Swapper interface {
 // ChannelWithAddrs bundles an open channel along with all the addresses for
 // the channel peer.
 type ChannelWithAddrs struct {
-	*channeldb.OpenChannel
+	*chanstate.OpenChannel
 
 	// Addrs is the set of addresses that we can use to reach the target
 	// peer.

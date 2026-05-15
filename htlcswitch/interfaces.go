@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -354,7 +355,7 @@ type TowerClient interface {
 	// parameters within the client. This should be called during link
 	// startup to ensure that the client is able to support the link during
 	// operation.
-	RegisterChannel(lnwire.ChannelID, channeldb.ChannelType) error
+	RegisterChannel(lnwire.ChannelID, chanstate.ChannelType) error
 
 	// BackupState initiates a request to back up a particular revoked
 	// state. If the method returns nil, the backup is guaranteed to be

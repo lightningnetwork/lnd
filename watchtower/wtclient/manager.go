@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -67,7 +68,7 @@ type ClientManager interface {
 	// parameters within the client. This should be called during link
 	// startup to ensure that the client is able to support the link during
 	// operation.
-	RegisterChannel(lnwire.ChannelID, channeldb.ChannelType) error
+	RegisterChannel(lnwire.ChannelID, chanstate.ChannelType) error
 
 	// BackupState initiates a request to back up a particular revoked
 	// state. If the method returns nil, the backup is guaranteed to be
@@ -93,7 +94,7 @@ type Config struct {
 	// channel. If the channel is not found or not yet closed then
 	// channeldb.ErrClosedChannelNotFound will be returned.
 	FetchClosedChannel func(cid lnwire.ChannelID) (
-		*channeldb.ChannelCloseSummary, error)
+		*chanstate.ChannelCloseSummary, error)
 
 	// ChainNotifier can be used to subscribe to block notifications.
 	ChainNotifier chainntnfs.ChainNotifier
@@ -597,7 +598,7 @@ func (m *Manager) Policy(blobType blob.Type) (wtpolicy.Policy, error) {
 // within the client. This should be called during link startup to ensure that
 // the client is able to support the link during operation.
 func (m *Manager) RegisterChannel(id lnwire.ChannelID,
-	chanType channeldb.ChannelType) error {
+	chanType chanstate.ChannelType) error {
 
 	blobType := blob.TypeFromChannel(chanType)
 

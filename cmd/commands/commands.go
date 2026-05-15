@@ -2288,6 +2288,12 @@ var listChainTxnsCommand = cli.Command{
 				"all transactions",
 			Value: 0,
 		},
+		cli.StringFlag{
+			Name: "label",
+			Usage: "an optional label to filter " +
+				"transactions by; only transactions with " +
+				"a matching label will be returned",
+		},
 	},
 	Description: `
 	List all transactions an address of the wallet was involved in.
@@ -2338,6 +2344,7 @@ func listChainTxns(ctx *cli.Context) error {
 		MaxTransactions: uint32(ctx.Uint64("max_transactions")),
 		StartHeight:     startHeight,
 		EndHeight:       endHeight,
+		Label:           ctx.String("label"),
 	}
 
 	resp, err := client.GetTransactions(ctxc, req)

@@ -201,7 +201,7 @@ func assertTxInWallet(t *testing.T, w *lnwallet.LightningWallet,
 	// finding the expected transaction with its expected confirmation
 	// status.
 	txs, _, _, err := w.ListTransactionDetails(
-		0, btcwallet.UnconfirmedHeight, "", 0, 1000,
+		0, btcwallet.UnconfirmedHeight, "", "", 0, 1000,
 	)
 	require.NoError(t, err, "unable to retrieve transactions")
 	for _, tx := range txs {
@@ -1101,7 +1101,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	err = waitForWalletSync(miner, alice)
 	require.NoError(t, err, "Couldn't sync Alice's wallet")
 	txDetails, _, _, err := alice.ListTransactionDetails(
-		startHeight, chainTip, "", 0, 1000,
+		startHeight, chainTip, "", "", 0, 1000,
 	)
 	require.NoError(t, err, "unable to fetch tx details")
 
@@ -1213,7 +1213,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	// with a confirmation height of 0, indicating that it has not been
 	// mined yet.
 	txDetails, _, _, err = alice.ListTransactionDetails(
-		chainTip, btcwallet.UnconfirmedHeight, "", 0, 1000,
+		chainTip, btcwallet.UnconfirmedHeight, "", "", 0, 1000,
 	)
 	require.NoError(t, err, "unable to fetch tx details")
 	var mempoolTxFound bool
@@ -1266,7 +1266,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	err = waitForWalletSync(miner, alice)
 	require.NoError(t, err, "Couldn't sync Alice's wallet")
 	txDetails, _, _, err = alice.ListTransactionDetails(
-		chainTip, chainTip, "", 0, 1000,
+		chainTip, chainTip, "", "", 0, 1000,
 	)
 	require.NoError(t, err, "unable to fetch tx details")
 	var burnTxFound bool
@@ -1309,7 +1309,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	// Query for transactions only in the latest block. We do not expect
 	// any transactions to be returned.
 	txDetails, _, _, err = alice.ListTransactionDetails(
-		chainTip, chainTip, "", 0, 1000,
+		chainTip, chainTip, "", "", 0, 1000,
 	)
 	require.NoError(t, err, "unexpected error")
 	if len(txDetails) != 0 {
@@ -1364,7 +1364,7 @@ func testListTransactionDetailsOffset(miner *rpctest.Harness,
 	// Query for transactions, setting max_transactions to 5. We expect 5
 	// transactions to be returned.
 	txDetails, firstIdx, lastIdx, err := alice.ListTransactionDetails(
-		startHeight, chainTip, "", 0, 5,
+		startHeight, chainTip, "", "", 0, 5,
 	)
 	require.NoError(t, err)
 	require.Len(t, txDetails, 5)
@@ -1374,7 +1374,7 @@ func testListTransactionDetailsOffset(miner *rpctest.Harness,
 	// Query for transactions, setting max_transactions to less than the
 	// number of transactions we have (5).
 	txDetails, _, _, err = alice.ListTransactionDetails(
-		startHeight, chainTip, "", 0, 1,
+		startHeight, chainTip, "", "", 0, 1,
 	)
 	require.NoError(t, err)
 	require.Len(t, txDetails, 1)
@@ -1382,7 +1382,7 @@ func testListTransactionDetailsOffset(miner *rpctest.Harness,
 	// Query for transactions, setting indexOffset to 5 (equal to number
 	// of transactions we have) and max_transactions to 0.
 	txDetails, _, _, err = alice.ListTransactionDetails(
-		startHeight, chainTip, "", 5, 0,
+		startHeight, chainTip, "", "", 5, 0,
 	)
 	require.NoError(t, err)
 	require.Len(t, txDetails, 0)
@@ -1390,21 +1390,21 @@ func testListTransactionDetailsOffset(miner *rpctest.Harness,
 	// Query for transactions, setting indexOffset to 4 (edge offset) and
 	// max_transactions to 0.
 	txDetails, _, _, err = alice.ListTransactionDetails(
-		startHeight, chainTip, "", 4, 0,
+		startHeight, chainTip, "", "", 4, 0,
 	)
 	require.NoError(t, err)
 	require.Len(t, txDetails, 1)
 
 	// Query for transactions, setting max_transactions to 0.
 	txDetails, _, _, err = alice.ListTransactionDetails(
-		startHeight, chainTip, "", 0, 0,
+		startHeight, chainTip, "", "", 0, 0,
 	)
 	require.NoError(t, err)
 	require.Len(t, txDetails, 5)
 
 	// Query for transactions, more than we have in the wallet (5).
 	txDetails, _, _, err = alice.ListTransactionDetails(
-		startHeight, chainTip, "", 0, 10,
+		startHeight, chainTip, "", "", 0, 10,
 	)
 	require.NoError(t, err)
 	require.Len(t, txDetails, 5)
@@ -1412,10 +1412,140 @@ func testListTransactionDetailsOffset(miner *rpctest.Harness,
 	// Query for transactions where the offset is greater than the number
 	// of transactions available.
 	txDetails, _, _, err = alice.ListTransactionDetails(
-		startHeight, chainTip, "", 10, 100,
+		startHeight, chainTip, "", "", 10, 100,
 	)
 	require.NoError(t, err)
 	require.Len(t, txDetails, 0)
+}
+
+func testListTransactionDetailsLabelFilter(miner *rpctest.Harness,
+	alice, _ *lnwallet.LightningWallet, t *testing.T) {
+
+	const outputAmt = btcutil.SatoshiPerBitcoin
+
+	// Fund Alice's wallet by having the miner send to several of her
+	// addresses.
+	const numFundingTxns = 4
+	for i := 0; i < numFundingTxns; i++ {
+		addr, err := alice.NewAddress(
+			lnwallet.WitnessPubKey, false,
+			lnwallet.DefaultAccountName,
+		)
+		require.NoError(t, err)
+
+		script, err := txscript.PayToAddrScript(addr)
+		require.NoError(t, err)
+
+		output := &wire.TxOut{
+			Value:    outputAmt,
+			PkScript: script,
+		}
+		_, err = miner.SendOutputs([]*wire.TxOut{output}, 2500)
+		require.NoError(t, err)
+	}
+
+	// Mine blocks to confirm the funding transactions and sync the wallet.
+	const numFundingBlocks = 10
+	_, err := miner.Client.Generate(numFundingBlocks)
+	require.NoError(t, err)
+
+	err = waitForWalletSync(miner, alice)
+	require.NoError(t, err)
+
+	// Record the current chain height so we only query transactions from
+	// this point forward, excluding the funding transactions.
+	_, startHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err)
+
+	// Fetch an external address from the miner to act as a recipient.
+	minerAddr, err := miner.NewAddress()
+	require.NoError(t, err)
+
+	outputScript, err := txscript.PayToAddrScript(minerAddr)
+	require.NoError(t, err)
+
+	const (
+		labelA       = "pay-alice"
+		labelB       = "pay-bob"
+		numLabelTxns = 2
+	)
+
+	// Send two transactions labelled with labelA.
+	labelATxIDs := make(map[chainhash.Hash]struct{})
+	for i := 0; i < numLabelTxns; i++ {
+		tx, err := alice.SendOutputs(
+			nil,
+			[]*wire.TxOut{{Value: outputAmt / 4, PkScript: outputScript}},
+			2500, 1, labelA, alice.Cfg.CoinSelectionStrategy,
+		)
+		require.NoError(t, err)
+		txid := tx.TxHash()
+		labelATxIDs[txid] = struct{}{}
+		err = waitForMempoolTx(miner, &txid)
+		require.NoError(t, err)
+	}
+
+	// Send two transactions labelled with labelB.
+	labelBTxIDs := make(map[chainhash.Hash]struct{})
+	for i := 0; i < numLabelTxns; i++ {
+		tx, err := alice.SendOutputs(
+			nil,
+			[]*wire.TxOut{{Value: outputAmt / 4, PkScript: outputScript}},
+			2500, 1, labelB, alice.Cfg.CoinSelectionStrategy,
+		)
+		require.NoError(t, err)
+		txid := tx.TxHash()
+		labelBTxIDs[txid] = struct{}{}
+		err = waitForMempoolTx(miner, &txid)
+		require.NoError(t, err)
+	}
+
+	// Mine a block to confirm all label transactions and sync.
+	_, err = miner.Client.Generate(1)
+	require.NoError(t, err)
+
+	chainTip := startHeight + 1
+
+	err = waitForWalletSync(miner, alice)
+	require.NoError(t, err)
+
+	// Filtering by labelA should return only the two matching transactions.
+	txDetails, _, _, err := alice.ListTransactionDetails(
+		startHeight, chainTip, "", labelA, 0, 0,
+	)
+	require.NoError(t, err)
+	require.Len(t, txDetails, numLabelTxns)
+	for _, tx := range txDetails {
+		require.Equal(t, labelA, tx.Label)
+		_, ok := labelATxIDs[tx.Hash]
+		require.True(t, ok, "unexpected tx %v in labelA results", tx.Hash)
+	}
+
+	// Filtering by labelB should return only the two matching transactions.
+	txDetails, _, _, err = alice.ListTransactionDetails(
+		startHeight, chainTip, "", labelB, 0, 0,
+	)
+	require.NoError(t, err)
+	require.Len(t, txDetails, numLabelTxns)
+	for _, tx := range txDetails {
+		require.Equal(t, labelB, tx.Label)
+		_, ok := labelBTxIDs[tx.Hash]
+		require.True(t, ok, "unexpected tx %v in labelB results", tx.Hash)
+	}
+
+	// No label filter should return all four transactions.
+	txDetails, _, _, err = alice.ListTransactionDetails(
+		startHeight, chainTip, "", "", 0, 0,
+	)
+	require.NoError(t, err)
+	require.Len(t, txDetails, numLabelTxns*2)
+
+	// A non-existent label should return no transactions.
+	txDetails, _, _, err = alice.ListTransactionDetails(
+		startHeight, chainTip, "", "no-such-label", 0, 0,
+	)
+	require.NoError(t, err)
+	require.Empty(t, txDetails)
 }
 
 func testTransactionSubscriptions(miner *rpctest.Harness,
@@ -2919,6 +3049,10 @@ var walletTests = []walletTestCase{
 	{
 		name: "transaction details offset",
 		test: testListTransactionDetailsOffset,
+	},
+	{
+		name: "transaction details label filter",
+		test: testListTransactionDetailsLabelFilter,
 	},
 	{
 		name: "get transaction details",

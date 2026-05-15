@@ -856,6 +856,9 @@ message GetTransactionsRequest {
     This value should be set to 0 to return all transactions.
     */
     uint32 max_transactions = 5;
+
+    // An optional filter to only include transactions with a matching label.
+    string label = 6;
 }
 
 message TransactionDetails {

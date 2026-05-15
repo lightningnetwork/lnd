@@ -400,9 +400,11 @@ type WalletController interface {
 	// the tip of the chain until the start height (inclusive) and
 	// unconfirmed transactions. The account parameter serves as a filter to
 	// retrieve the transactions relevant to a specific account. When
-	// empty, transactions of all wallet accounts are returned.
+	// empty, transactions of all wallet accounts are returned. The label
+	// parameter serves as an optional filter to retrieve only transactions
+	// with a matching label. When empty, all transactions are returned.
 	ListTransactionDetails(startHeight, endHeight int32,
-		accountFilter string, indexOffset uint32,
+		accountFilter string, labelFilter string, indexOffset uint32,
 		maxTransactions uint32) ([]*TransactionDetail, uint64, uint64,
 		error)
 

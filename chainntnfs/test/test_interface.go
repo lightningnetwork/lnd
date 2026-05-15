@@ -148,19 +148,35 @@ func sendOutputToScript(t *testing.T, miner *rpctest.Harness, pkScript []byte,
 	return txid, wire.NewOutPoint(txid, 0), output
 }
 
-// recvPkScriptNotification waits for a single pkScript notification.
+// recvPkScriptNotification waits for a single non-lifecycle pkScript
+// notification.
 func recvPkScriptNotification(t *testing.T,
-	reg *chainntnfs.PkScriptNotificationRegistration) *chainntnfs.PkScriptNotification {
+	reg *chainntnfs.PkScriptNotificationRegistration,
+) *chainntnfs.PkScriptNotification {
 
 	t.Helper()
 
-	select {
-	case ntfn, ok := <-reg.Notifications:
-		require.True(t, ok, "pkScript notification channel closed")
-		return ntfn
-	case <-time.After(20 * time.Second):
-		t.Fatal("pkScript notification never received")
-		return nil
+	timeout := time.After(20 * time.Second)
+	scanComplete :=
+		chainntnfs.PkScriptNotificationHistoricalScanComplete
+	for {
+		select {
+		case ntfn, ok := <-reg.Notifications:
+			require.True(
+				t, ok, "pkScript notification channel closed",
+			)
+
+			if ntfn.Type == scanComplete {
+
+				continue
+			}
+
+			return ntfn
+
+		case <-timeout:
+			t.Fatal("pkScript notification never received")
+			return nil
+		}
 	}
 }
 

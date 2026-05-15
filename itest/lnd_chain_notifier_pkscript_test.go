@@ -1227,7 +1227,19 @@ func testPkScriptNotifierReorgRPC(ht *lntest.HarnessTest) {
 	require.NoError(ht, ht.Miner().InvalidateBlock(&spendBlockHashF))
 	require.NoError(ht, ht.Miner().InvalidateBlock(&confirmBlockHashF))
 
-	newBlocks := ht.MineEmptyBlocks(2)
+	// Mine a distinct first replacement block. MineEmptyBlocks uses a
+	// deterministic empty block template for btcd, which can recreate the
+	// invalidated empty confirmation block and be rejected as already known.
+	fillerAddr, _, _ := newPkScriptTestAddress(ht)
+	fillerScript, err := txscript.PayToAddrScript(fillerAddr)
+	require.NoError(ht, err)
+	fillerTxID := ht.SendOutputsWithoutChange(
+		[]*wire.TxOut{wire.NewTxOut(10_000, fillerScript)}, 10,
+	)
+	fillerTx := ht.AssertTxInMempool(*fillerTxID)
+
+	newBlocks := []*wire.MsgBlock{ht.MineBlockWithTx(fillerTx)}
+	newBlocks = append(newBlocks, ht.MineEmptyBlocks(1)...)
 	reconfirmBlockHashF := newBlocks[0].BlockHash()
 
 	reorgNtfns := stream.requireNotifications(3)

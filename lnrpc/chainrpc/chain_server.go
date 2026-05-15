@@ -7,9 +7,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
@@ -29,6 +31,15 @@ const (
 	// SubServerConfigDispatcher instance recognize this as the name of the
 	// config file that we need.
 	subServerName = "ChainRPC"
+
+	// pkScriptRPCSendQueueSize is the maximum number of pkScript events
+	// that may wait for the stream writer before the RPC applies
+	// slow-client backpressure.
+	pkScriptRPCSendQueueSize = 100
+
+	// pkScriptRPCSendTimeout is the maximum time a pkScript RPC send may
+	// wait for a client to accept response events.
+	pkScriptRPCSendTimeout = 30 * time.Second
 )
 
 var (
@@ -68,6 +79,10 @@ var (
 			Action: "read",
 		}},
 		"/chainrpc.ChainNotifier/RegisterBlockEpochNtfn": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
+		"/chainrpc.ChainNotifier/RegisterPkScriptNtfn": {{
 			Entity: "onchain",
 			Action: "read",
 		}},
@@ -586,6 +601,605 @@ func (s *Server) RegisterSpendNtfn(in *SpendRequest,
 		case <-s.quit:
 			return ErrChainNotifierServerShuttingDown
 		}
+	}
+}
+
+// rpcPkScriptEventTypesToNotifier converts RPC event type filters into
+// chainntnfs pkScript event flags.
+func rpcPkScriptEventTypesToNotifier(eventTypes []PkScriptEventType) (
+	chainntnfs.PkScriptEventType, error) {
+
+	var ntfnType chainntnfs.PkScriptEventType
+	for _, eventType := range eventTypes {
+		switch eventType {
+		case PkScriptEventType_PK_SCRIPT_EVENT_TYPE_CONFIRM:
+			ntfnType |= chainntnfs.PkScriptEventConfirm
+
+		case PkScriptEventType_PK_SCRIPT_EVENT_TYPE_SPEND:
+			ntfnType |= chainntnfs.PkScriptEventSpend
+
+		case PkScriptEventType_PK_SCRIPT_EVENT_TYPE_CONFIRMATION_UPDATE:
+			return 0, status.Error(
+				codes.InvalidArgument,
+				"confirmation updates are requested with "+
+					"include_confirmation_updates",
+			)
+
+		default:
+			return 0, status.Errorf(
+				codes.InvalidArgument,
+				"unknown pkScript event type: %v", eventType,
+			)
+		}
+	}
+
+	return ntfnType, nil
+}
+
+// rpcAddPkScriptOptions converts an RPC add request into notifier options.
+func rpcAddPkScriptOptions(add *AddPkScriptRequest) (
+	[]chainntnfs.NotifierOption, error) {
+
+	if add == nil {
+		return nil, status.Error(
+			codes.InvalidArgument, "add request must be set",
+		)
+	}
+
+	var opts []chainntnfs.NotifierOption
+
+	if len(add.Events) > 0 {
+		events, err := rpcPkScriptEventTypesToNotifier(add.Events)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, chainntnfs.WithEvents(events))
+	}
+	if add.NumConfs != 0 {
+		opts = append(opts, chainntnfs.WithNumConfs(add.NumConfs))
+	}
+	if add.IncludeBlock {
+		opts = append(opts, chainntnfs.WithIncludeBlock())
+	}
+	if add.IncludeTx {
+		opts = append(opts, chainntnfs.WithIncludeTx())
+	}
+	if add.IncludeConfirmationUpdates {
+		opts = append(opts, chainntnfs.WithIncludeConfirmationUpdates())
+	}
+
+	return opts, nil
+}
+
+// rpcPkScriptNotification converts a chain notifier pkScript notification into
+// its RPC representation.
+func rpcPkScriptNotification(ntfn *chainntnfs.PkScriptNotification) (
+	*PkScriptNotification, error) {
+
+	if ntfn == nil {
+		return nil, nil
+	}
+
+	rpcNtfn := &PkScriptNotification{
+		Height:                ntfn.Height,
+		TxIndex:               ntfn.TxIndex,
+		InputIndex:            ntfn.InputIndex,
+		NumConfirmations:      ntfn.NumConfirmations,
+		RequiredConfirmations: ntfn.RequiredConfs,
+		Disconnected:          ntfn.Disconnected,
+	}
+
+	switch ntfn.Type {
+	case chainntnfs.PkScriptNotificationConfirm:
+		rpcNtfn.EventType =
+			PkScriptEventType_PK_SCRIPT_EVENT_TYPE_CONFIRM
+
+	case chainntnfs.PkScriptNotificationSpend:
+		rpcNtfn.EventType = PkScriptEventType_PK_SCRIPT_EVENT_TYPE_SPEND
+
+	case chainntnfs.PkScriptNotificationConfirmUpdate:
+		rpcNtfn.EventType =
+			PkScriptEventType_PK_SCRIPT_EVENT_TYPE_CONFIRMATION_UPDATE
+
+	default:
+		return nil, status.Errorf(
+			codes.Internal, "unknown pkScript notification "+
+				"type: %v",
+			ntfn.Type,
+		)
+	}
+
+	if ntfn.BlockHash != nil {
+		rpcNtfn.BlockHash = ntfn.BlockHash[:]
+	}
+	if ntfn.TxHash != nil {
+		rpcNtfn.TxHash = ntfn.TxHash[:]
+	}
+	if ntfn.UTXO != nil {
+		rpcNtfn.Utxo = &PkScriptUtxo{
+			Outpoint: &Outpoint{
+				Hash:  ntfn.UTXO.OutPoint.Hash[:],
+				Index: ntfn.UTXO.OutPoint.Index,
+			},
+			Value:       int64(ntfn.UTXO.Value),
+			PkScript:    ntfn.UTXO.PkScript,
+			BlockHeight: ntfn.UTXO.BlockHeight,
+			TxIndex:     ntfn.UTXO.TxIndex,
+		}
+		if ntfn.UTXO.BlockHash != nil {
+			rpcNtfn.Utxo.BlockHash = ntfn.UTXO.BlockHash[:]
+		}
+	}
+
+	if ntfn.Tx != nil {
+		var txBuf bytes.Buffer
+		err := ntfn.Tx.Serialize(&txBuf)
+		if err != nil {
+			return nil, err
+		}
+		rpcNtfn.RawTx = txBuf.Bytes()
+	}
+
+	if ntfn.Block != nil {
+		var blockBuf bytes.Buffer
+		err := ntfn.Block.Serialize(&blockBuf)
+		if err != nil {
+			return nil, err
+		}
+		rpcNtfn.RawBlock = blockBuf.Bytes()
+	}
+
+	return rpcNtfn, nil
+}
+
+// rpcPkScriptAck converts mutation result metadata into an RPC acknowledgement.
+func rpcPkScriptAck(action PkScriptMutationAction,
+	result *chainntnfs.PkScriptAddResult) *PkScriptMutationAck {
+
+	ack := &PkScriptMutationAck{
+		Action: action,
+	}
+	if result == nil {
+		return ack
+	}
+
+	ack.NumAdded = result.NumAdded
+
+	return ack
+}
+
+type pkScriptRPCSendRequest struct {
+	event  *PkScriptEvent
+	result chan error
+}
+
+type pkScriptRPCEventSender struct {
+	stream   ChainNotifier_RegisterPkScriptNtfnServer
+	quit     <-chan struct{}
+	done     chan struct{}
+	stopOnce sync.Once
+
+	queue chan *pkScriptRPCSendRequest
+	err   chan error
+
+	timeout time.Duration
+}
+
+// newPkScriptRPCEventSender creates a serialized sender for pkScript RPC stream
+// events.
+func newPkScriptRPCEventSender(
+	stream ChainNotifier_RegisterPkScriptNtfnServer,
+	quit <-chan struct{}, timeout time.Duration) *pkScriptRPCEventSender {
+
+	sender := &pkScriptRPCEventSender{
+		stream: stream,
+		quit:   quit,
+		done:   make(chan struct{}),
+		queue: make(
+			chan *pkScriptRPCSendRequest, pkScriptRPCSendQueueSize,
+		),
+		err:     make(chan error, 1),
+		timeout: timeout,
+	}
+
+	go sender.run()
+
+	return sender
+}
+
+// stop terminates the RPC event sender.
+func (s *pkScriptRPCEventSender) stop() {
+	s.stopOnce.Do(func() {
+		close(s.done)
+	})
+}
+
+// reportErr stores the first RPC send error observed by the sender.
+func (s *pkScriptRPCEventSender) reportErr(err error) {
+	if err == nil {
+		return
+	}
+
+	select {
+	case s.err <- err:
+	default:
+	}
+}
+
+// run serializes queued stream.Send calls.
+func (s *pkScriptRPCEventSender) run() {
+	for {
+		select {
+		case req := <-s.queue:
+			select {
+			case <-s.done:
+				return
+			default:
+			}
+
+			err := s.stream.Send(req.event)
+			s.reportErr(err)
+
+			select {
+			case req.result <- err:
+			case <-s.done:
+				return
+			}
+
+			if err != nil {
+				return
+			}
+
+		case <-s.done:
+			return
+		}
+	}
+}
+
+// send queues an event and waits for it to be sent or timed out.
+func (s *pkScriptRPCEventSender) send(event *PkScriptEvent) error {
+	req := &pkScriptRPCSendRequest{
+		event:  event,
+		result: make(chan error, 1),
+	}
+
+	timer := time.NewTimer(s.timeout)
+	defer timer.Stop()
+
+	select {
+	case s.queue <- req:
+
+	case err := <-s.err:
+		return err
+
+	case <-timer.C:
+		return status.Error(
+			codes.ResourceExhausted,
+			"pkScript notification client is not reading responses",
+		)
+
+	case <-s.stream.Context().Done():
+		return s.stream.Context().Err()
+
+	case <-s.quit:
+		return ErrChainNotifierServerShuttingDown
+	}
+
+	select {
+	case err := <-req.result:
+		return err
+
+	case err := <-s.err:
+		return err
+
+	case <-timer.C:
+		return status.Error(
+			codes.ResourceExhausted,
+			"pkScript notification client is not reading responses",
+		)
+
+	case <-s.stream.Context().Done():
+		return s.stream.Context().Err()
+
+	case <-s.quit:
+		return ErrChainNotifierServerShuttingDown
+	}
+}
+
+// pkScriptNotificationStreamClosedErr maps the notifier-side terminal
+// reason for a closed stream into the RPC error returned to the client.
+func pkScriptNotificationStreamClosedErr(
+	reg *chainntnfs.PkScriptNotificationRegistration) error {
+
+	if reg != nil && reg.Err != nil {
+		err := reg.Err()
+		if errors.Is(err, chainntnfs.ErrPkScriptNotificationQueueFull) {
+			return status.Error(
+				codes.ResourceExhausted,
+				"pkScript notification client is not reading "+
+					"responses",
+			)
+		}
+		if errors.Is(err, chainntnfs.ErrPkScriptMatchLimit) {
+			return status.Error(
+				codes.ResourceExhausted,
+				"pkScript match resource limit exceeded",
+			)
+		}
+		if err != nil && !errors.Is(
+			err, chainntnfs.ErrTxNotifierExiting,
+		) {
+
+			return err
+		}
+	}
+
+	return chainntnfs.ErrChainNotifierShuttingDown
+}
+
+// RegisterPkScriptNtfn is a bidirectional streaming RPC that registers a
+// pkScript notification stream and allows the caller to add/remove pkScripts on
+// the fly over the same gRPC stream.
+//
+// NOTE: This is part of the chainrpc.ChainNotifierServer interface.
+func (s *Server) RegisterPkScriptNtfn(
+	stream ChainNotifier_RegisterPkScriptNtfnServer) error {
+
+	if !s.cfg.ChainNotifier.Started() {
+		return ErrChainNotifierServerNotActive
+	}
+
+	firstReq, err := stream.Recv()
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return status.Error(
+				codes.InvalidArgument,
+				"first pkScript request must register",
+			)
+		}
+
+		return err
+	}
+
+	registerReq := firstReq.GetRegister()
+	if registerReq == nil {
+		return status.Error(
+			codes.InvalidArgument,
+			"first pkScript request must be a register action",
+		)
+	}
+
+	reg, err := s.cfg.PkScriptNotifier.RegisterPkScriptNotifier()
+	if err != nil {
+		return err
+	}
+	defer reg.Cancel()
+
+	eventSender := newPkScriptRPCEventSender(
+		stream, s.quit, pkScriptRPCSendTimeout,
+	)
+	defer eventSender.stop()
+
+	err = eventSender.send(&PkScriptEvent{
+		Event: &PkScriptEvent_Ack{
+			Ack: rpcPkScriptRegisterAck(),
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	ackChan := make(chan *PkScriptMutationAck, 10)
+	errChan := make(chan error, 1)
+
+	go s.recvPkScriptMutations(stream, reg, ackChan, errChan)
+
+	for {
+		select {
+		case ntfn, ok := <-reg.Notifications:
+			if !ok {
+				return pkScriptNotificationStreamClosedErr(reg)
+			}
+
+			rpcNtfn, err := rpcPkScriptNotification(ntfn)
+			if err != nil {
+				return err
+			}
+
+			err = eventSender.send(&PkScriptEvent{
+				Event: &PkScriptEvent_Notification{
+					Notification: rpcNtfn,
+				},
+			})
+			if err != nil {
+				return err
+			}
+
+		case ack := <-ackChan:
+			err := eventSender.send(&PkScriptEvent{
+				Event: &PkScriptEvent_Ack{Ack: ack},
+			})
+			if err != nil {
+				return err
+			}
+
+		case err := <-errChan:
+			return err
+
+		case <-stream.Context().Done():
+			if errors.Is(stream.Context().Err(), context.Canceled) {
+				return nil
+			}
+
+			return stream.Context().Err()
+
+		case <-s.quit:
+			return ErrChainNotifierServerShuttingDown
+		}
+	}
+}
+
+// recvPkScriptMutations receives add/remove requests from a pkScript stream and
+// forwards mutation acknowledgments or terminal errors to the main send loop.
+func (s *Server) recvPkScriptMutations(
+	stream ChainNotifier_RegisterPkScriptNtfnServer,
+	reg *chainntnfs.PkScriptNotificationRegistration,
+	ackChan chan<- *PkScriptMutationAck,
+	errChan chan<- error) {
+
+	for {
+		req, err := stream.Recv()
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				sendPkScriptStreamErr(errChan, err)
+			}
+
+			return
+		}
+
+		switch update := req.Request.(type) {
+		case *PkScriptRequest_Register:
+			err := duplicatePkScriptRegisterErr()
+			sendPkScriptStreamErr(errChan, err)
+
+			return
+
+		case *PkScriptRequest_Add:
+			result, err := addPkScriptsFromRPC(reg, update.Add)
+			if err != nil {
+				sendPkScriptStreamErr(errChan, err)
+
+				return
+			}
+
+			if !sendPkScriptAddAck(
+				stream.Context(), s.quit,
+				ackChan, result,
+			) {
+
+				return
+			}
+
+		case *PkScriptRequest_Remove:
+			err := removePkScriptsFromRPC(reg, update.Remove)
+			if err != nil {
+				sendPkScriptStreamErr(errChan, err)
+
+				return
+			}
+
+			if !sendPkScriptRemoveAck(
+				stream.Context(), s.quit, ackChan,
+			) {
+
+				return
+			}
+
+		default:
+			err := invalidPkScriptRequestErr()
+			sendPkScriptStreamErr(errChan, err)
+
+			return
+		}
+	}
+}
+
+// sendPkScriptStreamErr forwards a terminal stream error without blocking if
+// another terminal error has already been reported.
+func sendPkScriptStreamErr(errChan chan<- error, err error) {
+	select {
+	case errChan <- err:
+	default:
+	}
+}
+
+// addPkScriptsFromRPC applies an RPC add mutation to the notifier.
+func addPkScriptsFromRPC(reg *chainntnfs.PkScriptNotificationRegistration,
+	add *AddPkScriptRequest) (*chainntnfs.PkScriptAddResult, error) {
+
+	opts, err := rpcAddPkScriptOptions(add)
+	if err != nil {
+		return nil, err
+	}
+
+	return reg.AddPkScripts(add.PkScripts, opts...)
+}
+
+// removePkScriptsFromRPC applies an RPC remove mutation to the notifier.
+func removePkScriptsFromRPC(reg *chainntnfs.PkScriptNotificationRegistration,
+	remove *RemovePkScriptRequest) error {
+
+	if remove == nil {
+		return status.Error(
+			codes.InvalidArgument, "remove request must be set",
+		)
+	}
+
+	return reg.RemovePkScripts(remove.PkScripts)
+}
+
+func rpcPkScriptRegisterAck() *PkScriptMutationAck {
+	return rpcPkScriptAck(
+		PkScriptMutationAction_PK_SCRIPT_MUTATION_ACTION_REGISTER,
+		nil,
+	)
+}
+
+func duplicatePkScriptRegisterErr() error {
+	return status.Error(
+		codes.InvalidArgument,
+		"pkScript register action may only be sent once",
+	)
+}
+
+func invalidPkScriptRequestErr() error {
+	return status.Error(
+		codes.InvalidArgument,
+		"pkScript request must contain register, add, or remove",
+	)
+}
+
+func sendPkScriptAddAck(
+	ctx context.Context, quit <-chan struct{},
+	ackChan chan<- *PkScriptMutationAck,
+	result *chainntnfs.PkScriptAddResult,
+) bool {
+
+	return sendPkScriptMutationAck(
+		ctx, quit, ackChan,
+		PkScriptMutationAction_PK_SCRIPT_MUTATION_ACTION_ADD,
+		result,
+	)
+}
+
+func sendPkScriptRemoveAck(
+	ctx context.Context, quit <-chan struct{},
+	ackChan chan<- *PkScriptMutationAck,
+) bool {
+
+	return sendPkScriptMutationAck(
+		ctx, quit, ackChan,
+		PkScriptMutationAction_PK_SCRIPT_MUTATION_ACTION_REMOVE,
+		nil,
+	)
+}
+
+// sendPkScriptMutationAck forwards a mutation acknowledgment unless the stream
+// or server has exited.
+func sendPkScriptMutationAck(
+	ctx context.Context, quit <-chan struct{},
+	ackChan chan<- *PkScriptMutationAck,
+	action PkScriptMutationAction,
+	result *chainntnfs.PkScriptAddResult,
+) bool {
+
+	select {
+	case ackChan <- rpcPkScriptAck(action, result):
+		return true
+	case <-ctx.Done():
+		return false
+	case <-quit:
+		return false
 	}
 }
 

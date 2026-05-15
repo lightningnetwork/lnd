@@ -207,12 +207,29 @@ func (h *HTLC) Copy() HTLC {
 		Amt:           h.Amt,
 		RefundTimeout: h.RefundTimeout,
 		OutputIndex:   h.OutputIndex,
+		RHash:         h.RHash,
+		OnionBlob:     h.OnionBlob,
+		HtlcIndex:     h.HtlcIndex,
+		LogIndex:      h.LogIndex,
 	}
-	copy(clone.Signature, h.Signature)
-	copy(clone.RHash[:], h.RHash[:])
-	copy(clone.ExtraData, h.ExtraData)
+	if len(h.Signature) > 0 {
+		clone.Signature = make([]byte, len(h.Signature))
+		copy(clone.Signature, h.Signature)
+	}
+	if len(h.ExtraData) > 0 {
+		clone.ExtraData = make(lnwire.ExtraOpaqueData, len(h.ExtraData))
+		copy(clone.ExtraData, h.ExtraData)
+	}
 	clone.BlindingPoint = h.BlindingPoint
-	clone.CustomRecords = h.CustomRecords.Copy()
+	if h.CustomRecords != nil {
+		clone.CustomRecords = make(
+			lnwire.CustomRecords, len(h.CustomRecords),
+		)
+		for k, v := range h.CustomRecords {
+			clone.CustomRecords[k] = make([]byte, len(v))
+			copy(clone.CustomRecords[k], v)
+		}
+	}
 
 	return clone
 }

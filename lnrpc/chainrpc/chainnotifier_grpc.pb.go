@@ -45,6 +45,22 @@ type ChainNotifierClient interface {
 	// point. This allows clients to be idempotent by ensuring that they do not
 	// missing processing a single block within the chain.
 	RegisterBlockEpochNtfn(ctx context.Context, in *BlockEpoch, opts ...grpc.CallOption) (ChainNotifier_RegisterBlockEpochNtfnClient, error)
+	// RegisterPkScriptNtfn is a bidirectional streaming RPC that registers an
+	// intent for a client to receive spend and/or confirmation notifications for
+	// outputs paying to watched pkScripts.
+	//
+	// The first client message must be an empty registration request. After the
+	// stream is established, the client can dynamically add or remove pkScripts by
+	// sending mutation requests on the same stream. Notifications are delivered on
+	// the response stream and reorg invalidations are surfaced by setting
+	// disconnected=true on the notification.
+	//
+	// Add acknowledgments only mean the scripts were accepted and any requested
+	// historical scan was queued; they do not mean historical backfill has
+	// completed. Confirmation notifications are only sent once the requested
+	// confirmation depth is reached. Reorg invalidations are sent on the same
+	// stream with disconnected=true.
+	RegisterPkScriptNtfn(ctx context.Context, opts ...grpc.CallOption) (ChainNotifier_RegisterPkScriptNtfnClient, error)
 }
 
 type chainNotifierClient struct {
@@ -151,6 +167,37 @@ func (x *chainNotifierRegisterBlockEpochNtfnClient) Recv() (*BlockEpoch, error) 
 	return m, nil
 }
 
+func (c *chainNotifierClient) RegisterPkScriptNtfn(ctx context.Context, opts ...grpc.CallOption) (ChainNotifier_RegisterPkScriptNtfnClient, error) {
+	stream, err := c.cc.NewStream(ctx, &ChainNotifier_ServiceDesc.Streams[3], "/chainrpc.ChainNotifier/RegisterPkScriptNtfn", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &chainNotifierRegisterPkScriptNtfnClient{stream}
+	return x, nil
+}
+
+type ChainNotifier_RegisterPkScriptNtfnClient interface {
+	Send(*PkScriptRequest) error
+	Recv() (*PkScriptEvent, error)
+	grpc.ClientStream
+}
+
+type chainNotifierRegisterPkScriptNtfnClient struct {
+	grpc.ClientStream
+}
+
+func (x *chainNotifierRegisterPkScriptNtfnClient) Send(m *PkScriptRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *chainNotifierRegisterPkScriptNtfnClient) Recv() (*PkScriptEvent, error) {
+	m := new(PkScriptEvent)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // ChainNotifierServer is the server API for ChainNotifier service.
 // All implementations must embed UnimplementedChainNotifierServer
 // for forward compatibility
@@ -182,6 +229,22 @@ type ChainNotifierServer interface {
 	// point. This allows clients to be idempotent by ensuring that they do not
 	// missing processing a single block within the chain.
 	RegisterBlockEpochNtfn(*BlockEpoch, ChainNotifier_RegisterBlockEpochNtfnServer) error
+	// RegisterPkScriptNtfn is a bidirectional streaming RPC that registers an
+	// intent for a client to receive spend and/or confirmation notifications for
+	// outputs paying to watched pkScripts.
+	//
+	// The first client message must be an empty registration request. After the
+	// stream is established, the client can dynamically add or remove pkScripts by
+	// sending mutation requests on the same stream. Notifications are delivered on
+	// the response stream and reorg invalidations are surfaced by setting
+	// disconnected=true on the notification.
+	//
+	// Add acknowledgments only mean the scripts were accepted and any requested
+	// historical scan was queued; they do not mean historical backfill has
+	// completed. Confirmation notifications are only sent once the requested
+	// confirmation depth is reached. Reorg invalidations are sent on the same
+	// stream with disconnected=true.
+	RegisterPkScriptNtfn(ChainNotifier_RegisterPkScriptNtfnServer) error
 	mustEmbedUnimplementedChainNotifierServer()
 }
 
@@ -197,6 +260,9 @@ func (UnimplementedChainNotifierServer) RegisterSpendNtfn(*SpendRequest, ChainNo
 }
 func (UnimplementedChainNotifierServer) RegisterBlockEpochNtfn(*BlockEpoch, ChainNotifier_RegisterBlockEpochNtfnServer) error {
 	return status.Errorf(codes.Unimplemented, "method RegisterBlockEpochNtfn not implemented")
+}
+func (UnimplementedChainNotifierServer) RegisterPkScriptNtfn(ChainNotifier_RegisterPkScriptNtfnServer) error {
+	return status.Errorf(codes.Unimplemented, "method RegisterPkScriptNtfn not implemented")
 }
 func (UnimplementedChainNotifierServer) mustEmbedUnimplementedChainNotifierServer() {}
 
@@ -274,6 +340,32 @@ func (x *chainNotifierRegisterBlockEpochNtfnServer) Send(m *BlockEpoch) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _ChainNotifier_RegisterPkScriptNtfn_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ChainNotifierServer).RegisterPkScriptNtfn(&chainNotifierRegisterPkScriptNtfnServer{stream})
+}
+
+type ChainNotifier_RegisterPkScriptNtfnServer interface {
+	Send(*PkScriptEvent) error
+	Recv() (*PkScriptRequest, error)
+	grpc.ServerStream
+}
+
+type chainNotifierRegisterPkScriptNtfnServer struct {
+	grpc.ServerStream
+}
+
+func (x *chainNotifierRegisterPkScriptNtfnServer) Send(m *PkScriptEvent) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *chainNotifierRegisterPkScriptNtfnServer) Recv() (*PkScriptRequest, error) {
+	m := new(PkScriptRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // ChainNotifier_ServiceDesc is the grpc.ServiceDesc for ChainNotifier service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -296,6 +388,12 @@ var ChainNotifier_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "RegisterBlockEpochNtfn",
 			Handler:       _ChainNotifier_RegisterBlockEpochNtfn_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "RegisterPkScriptNtfn",
+			Handler:       _ChainNotifier_RegisterPkScriptNtfn_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "chainrpc/chainnotifier.proto",

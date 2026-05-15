@@ -12,3 +12,6 @@ http:
     - selector: chainrpc.ChainNotifier.RegisterBlockEpochNtfn
       post: "/v2/chainnotifier/register/blocks"
       body: "*"
+    - selector: chainrpc.ChainNotifier.RegisterPkScriptNtfn
+      post: "/v2/chainnotifier/register/pkscript"
+      body: "*"

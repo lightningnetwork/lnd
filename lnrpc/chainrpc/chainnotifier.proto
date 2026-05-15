@@ -42,6 +42,26 @@ service ChainNotifier {
     missing processing a single block within the chain.
     */
     rpc RegisterBlockEpochNtfn (BlockEpoch) returns (stream BlockEpoch);
+
+    /*
+    RegisterPkScriptNtfn is a bidirectional streaming RPC that registers an
+    intent for a client to receive spend and/or confirmation notifications for
+    outputs paying to watched pkScripts.
+
+    The first client message must be an empty registration request. After the
+    stream is established, the client can dynamically add or remove pkScripts by
+    sending mutation requests on the same stream. Notifications are delivered on
+    the response stream and reorg invalidations are surfaced by setting
+    disconnected=true on the notification.
+
+    Add acknowledgments only mean the scripts were accepted and any requested
+    historical scan was queued; they do not mean historical backfill has
+    completed. Confirmation notifications are only sent once the requested
+    confirmation depth is reached. Reorg invalidations are sent on the same
+    stream with disconnected=true.
+    */
+    rpc RegisterPkScriptNtfn (stream PkScriptRequest)
+        returns (stream PkScriptEvent);
 }
 
 message ConfRequest {
@@ -197,4 +217,209 @@ message BlockEpoch {
 
     // The height of the block.
     uint32 height = 2;
+}
+
+enum PkScriptEventType {
+    PK_SCRIPT_EVENT_TYPE_CONFIRM = 0;
+    PK_SCRIPT_EVENT_TYPE_SPEND = 1;
+    PK_SCRIPT_EVENT_TYPE_CONFIRMATION_UPDATE = 2;
+}
+
+message PkScriptRegisterRequest {
+}
+
+message AddPkScriptRequest {
+    /*
+    Additional pkScripts to watch on this stream. Scripts already watched by
+    this stream are ignored and keep their original options.
+    */
+    repeated bytes pk_scripts = 1;
+
+    /*
+    The event types to watch for the added pkScripts. If omitted, both
+    confirmations and spends are watched.
+    */
+    repeated PkScriptEventType events = 2;
+
+    /*
+    The number of confirmations matched outputs should reach before
+    confirmation notifications are dispatched. If unset, the default is 1.
+    */
+    uint32 num_confs = 3;
+
+    /*
+    If true, then the relevant block for each pkScript notification will be
+    included in the event payload.
+    */
+    bool include_block = 4;
+
+    /*
+    If true, then the relevant transaction for each pkScript notification will
+    be included in the event payload.
+    */
+    bool include_tx = 5;
+
+    /*
+    If set, the notifier scans historical blocks from this height through the
+    current chain tip for the added pkScripts. If omitted, only future chain
+    activity is watched. Setting this to 0 explicitly scans from genesis.
+
+    Historical scans run per add request, not per pkScript: all newly accepted
+    scripts in this add request are scanned together. Backend notifiers execute
+    one historical pkScript scan at a time, so large backfills can delay later
+    historical add requests.
+    */
+    oneof historical_scan {
+        uint32 historical_scan_from = 6;
+    }
+
+    /*
+    If true, partial confirmation progress events will be sent before the final
+    confirmation notification reaches num_confs.
+    */
+    bool include_confirmation_updates = 7;
+}
+
+message RemovePkScriptRequest {
+    // PkScripts to stop watching on this stream.
+    repeated bytes pk_scripts = 1;
+}
+
+message PkScriptRequest {
+    oneof request {
+        PkScriptRegisterRequest register = 1;
+        AddPkScriptRequest add = 2;
+        RemovePkScriptRequest remove = 3;
+    }
+}
+
+enum PkScriptMutationAction {
+    PK_SCRIPT_MUTATION_ACTION_REGISTER = 0;
+    PK_SCRIPT_MUTATION_ACTION_ADD = 1;
+    PK_SCRIPT_MUTATION_ACTION_REMOVE = 2;
+}
+
+message PkScriptMutationAck {
+    // The mutation that was accepted for this stream.
+    PkScriptMutationAction action = 1;
+
+    // The number of new scripts accepted by this mutation.
+    uint32 num_added = 2;
+
+    // True if this add mutation queued a historical scan.
+    bool historical_scan_queued = 3;
+
+    // The ID of the queued historical scan, if any.
+    uint64 historical_scan_id = 4;
+
+    // The first height scanned by the queued historical scan.
+    uint32 historical_scan_start_height = 5;
+
+    // The best-known final height of the queued historical scan at queue time.
+    uint32 historical_scan_end_height = 6;
+}
+
+message PkScriptUtxo {
+    // The outpoint paying to the watched script.
+    Outpoint outpoint = 1;
+
+    // The value of the watched output in satoshis.
+    int64 value = 2;
+
+    // The watched output script.
+    bytes pk_script = 3;
+
+    // The height at which the watched output was created.
+    uint32 block_height = 4;
+
+    // The hash of the block that created the watched output.
+    bytes block_hash = 5;
+
+    // The transaction index of the funding transaction in block_hash.
+    uint32 tx_index = 6;
+}
+
+message PkScriptNotification {
+    // The kind of notification being delivered.
+    PkScriptEventType event_type = 1;
+
+    // The height relevant to this event.
+    uint32 height = 2;
+
+    // The hash of the relevant block for this event.
+    bytes block_hash = 3;
+
+    // The hash of the relevant transaction for this event.
+    bytes tx_hash = 4;
+
+    /*
+    The index of the relevant transaction in the block that mined it. For
+    confirmation notifications this is the funding transaction's index in the
+    UTXO block. For spend notifications this is the spending transaction's
+    index in block_hash.
+    */
+    uint32 tx_index = 5;
+
+    // The number of confirmations reached by the watched output.
+    uint32 num_confirmations = 6;
+
+    // True if this notification invalidates a previously sent event.
+    bool disconnected = 7;
+
+    // The watched output associated with this event.
+    PkScriptUtxo utxo = 8;
+
+    /*
+    The raw bytes of the relevant transaction, if include_tx was requested.
+    For confirmation notifications this is the funding transaction. For spend
+    notifications this is the spending transaction.
+    */
+    bytes raw_tx = 9;
+
+    /*
+    The raw bytes of the relevant block, if include_block was requested. For
+    confirmation notifications this is the block at which the output reached
+    the requested confirmation depth. For spend notifications this is the
+    block containing the spend.
+    */
+    bytes raw_block = 10;
+
+    // The spending input index. This is only set for spend notifications.
+    uint32 input_index = 11;
+
+    /*
+    The requested confirmation target. This is set for final confirmation and
+    partial confirmation progress notifications.
+    */
+    uint32 required_confirmations = 12;
+}
+
+message PkScriptHistoricalScan {
+    // The ID assigned to the historical scan when it was queued.
+    uint64 scan_id = 1;
+
+    // The first height requested for the historical scan.
+    uint32 start_height = 2;
+
+    // The final height scanned before completion or failure.
+    uint32 end_height = 3;
+
+    // The last height processed successfully.
+    uint32 completed_height = 4;
+
+    // A non-empty error means the historical scan failed before completion.
+    string error = 5;
+}
+
+message PkScriptEvent {
+    oneof event {
+        // Acknowledges that a stream mutation was accepted.
+        PkScriptMutationAck ack = 1;
+
+        // A notification for a watched output script.
+        PkScriptNotification notification = 2;
+
+        // A historical scan lifecycle event.
+        PkScriptHistoricalScan historical_scan = 3;
+    }
 }

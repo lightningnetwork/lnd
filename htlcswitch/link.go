@@ -4585,6 +4585,26 @@ func (l *channelLink) processRemoteError(msg *lnwire.Error) {
 	// Error received from remote, MUST fail channel, but should only print
 	// the contents of the error message if all characters are printable
 	// ASCII.
+
+	// Before tearing the link down, attempt to re-derive the commitment
+	// transaction and sighash we last computed for the remote party. If
+	// the peer sent a rejected-commitment error, logging our view alongside
+	// theirs makes it possible to compare the two transactions
+	// byte-for-byte and immediately identify any discrepancy.
+	commitTx, err := l.channel.BuildLastSignedRemoteCommitTx()
+	switch {
+	case err != nil:
+		l.log.Errorf("ChannelPoint(%v): unable to re-derive last "+
+			"signed remote commit tx: %v",
+			l.channel.ChannelPoint(), err)
+
+	case commitTx != nil:
+		l.log.Errorf("ChannelPoint(%v): signer-side commit_tx=%x "+
+			"(compare with commit_tx in the peer error if present "+
+			"to identify any state divergence)",
+			l.channel.ChannelPoint(), commitTx)
+	}
+
 	l.failf(
 		// TODO(halseth): we currently don't fail the channel
 		// permanently, as there are some sync issues with other

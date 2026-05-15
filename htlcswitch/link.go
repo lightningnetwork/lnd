@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -258,7 +259,7 @@ type ChannelLinkConfig struct {
 
 	// NotifyChannelUpdate allows the link to tell the ChannelNotifier when
 	// a channel's state has been updated.
-	NotifyChannelUpdate func(*channeldb.OpenChannel)
+	NotifyChannelUpdate func(*chanstate.OpenChannel)
 
 	// HtlcNotifier is an instance of a htlcNotifier which we will pipe htlc
 	// events through.
@@ -2372,7 +2373,7 @@ type dustClosure func(feerate chainfee.SatPerKWeight, incoming bool,
 	whoseCommit lntypes.ChannelParty, amt btcutil.Amount) bool
 
 // dustHelper is used to construct the dustClosure.
-func dustHelper(chantype channeldb.ChannelType, localDustLimit,
+func dustHelper(chantype chanstate.ChannelType, localDustLimit,
 	remoteDustLimit btcutil.Amount) dustClosure {
 
 	isDust := func(feerate chainfee.SatPerKWeight, incoming bool,

@@ -1677,7 +1677,7 @@ func (c *ChannelStateDB) RepairLinkNodes(network wire.BitcoinNet) error {
 
 // ChannelShell is a shell of a channel that is meant to be used for channel
 // recovery purposes.
-type ChannelShell = chanstate.ChannelShell[*OpenChannel]
+type ChannelShell = chanstate.ChannelShell
 
 // RestoreChannelShells is a method that allows the caller to reconstruct the
 // state of an OpenChannel from the ChannelShell. We'll attempt to write the

@@ -14,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -143,7 +142,7 @@ type BreachConfig struct {
 
 	// DB provides access to the user's closed channels, allowing the breach
 	// arbiter to determine how it should respond to channel closure.
-	DB chanstate.ClosedChannelStore[*channeldb.OpenChannel]
+	DB chanstate.ClosedChannelStore
 
 	// Estimator is used by the breach arbiter to determine an appropriate
 	// fee level when generating, signing, and broadcasting sweep

@@ -72,7 +72,7 @@ type AddInvoiceConfig struct {
 	DefaultCLTVExpiry uint32
 
 	// ChanDB is used to access open channel state.
-	ChanDB chanstate.OpenChannelStore[*channeldb.OpenChannel]
+	ChanDB chanstate.OpenChannelStore
 
 	// Graph gives the invoice server access to various graph related
 	// queries.

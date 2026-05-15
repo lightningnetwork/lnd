@@ -13,7 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btclog/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -94,7 +94,7 @@ type RegisteredTower struct {
 // BreachRetribution from a channel ID and a commitment height.
 type BreachRetributionBuilder func(id lnwire.ChannelID,
 	commitHeight uint64) (*lnwallet.BreachRetribution,
-	channeldb.ChannelType, error)
+	chanstate.ChannelType, error)
 
 // newTowerMsg is an internal message we'll use within the client to signal
 // that a new tower can be considered.

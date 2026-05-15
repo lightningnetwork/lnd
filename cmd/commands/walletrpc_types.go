@@ -16,8 +16,10 @@ type PendingSweep struct {
 	WitnessType          string       `json:"witness_type"`
 	AmountSat            uint32       `json:"amount_sat"`
 	SatPerVByte          uint32       `json:"sat_per_vbyte"`
+	SatPerKw             uint64       `json:"sat_per_kw"`
 	BroadcastAttempts    uint32       `json:"broadcast_attempts"`
 	RequestedSatPerVByte uint32       `json:"requested_sat_per_vbyte"`
+	RequestedSatPerKw    uint64       `json:"requested_sat_per_kw"`
 	Immediate            bool         `json:"immediate"`
 	Budget               uint64       `json:"budget"`
 	DeadlineHeight       uint32       `json:"deadline_height"`
@@ -38,8 +40,10 @@ func NewPendingSweepFromProto(pendingSweep *walletrpc.PendingSweep) *PendingSwee
 		WitnessType:          pendingSweep.WitnessType.String(),
 		AmountSat:            pendingSweep.AmountSat,
 		SatPerVByte:          uint32(pendingSweep.SatPerVbyte),
+		SatPerKw:             pendingSweep.SatPerKw,
 		BroadcastAttempts:    pendingSweep.BroadcastAttempts,
 		RequestedSatPerVByte: uint32(pendingSweep.RequestedSatPerVbyte),
+		RequestedSatPerKw:    pendingSweep.RequestedSatPerKw,
 		Immediate:            pendingSweep.Immediate,
 		Budget:               pendingSweep.Budget,
 		DeadlineHeight:       pendingSweep.DeadlineHeight,

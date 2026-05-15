@@ -172,7 +172,7 @@ var openChannelCommand = cli.Command{
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Int64Flag{
+		cli.Float64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
@@ -306,9 +306,15 @@ func openChannel(ctx *cli.Context) error {
 
 	// Check that only the field sat_per_vbyte or the deprecated field
 	// sat_per_byte is used.
-	feeRateFlag, err := checkNotBothSet(
+	_, err = checkNotBothSet(
 		ctx, "sat_per_vbyte", "sat_per_byte",
 	)
+	if err != nil {
+		return err
+	}
+
+	// Parse fee rate from --sat_per_vbyte and convert to sat/kw.
+	satPerKw, err := parseFeeRate(ctx, "sat_per_vbyte")
 	if err != nil {
 		return err
 	}
@@ -316,7 +322,6 @@ func openChannel(ctx *cli.Context) error {
 	minConfs := int32(ctx.Uint64("min_confs"))
 	req := &lnrpc.OpenChannelRequest{
 		TargetConf:                 int32(ctx.Int64("conf_target")),
-		SatPerVbyte:                ctx.Uint64(feeRateFlag),
 		MinHtlcMsat:                ctx.Int64("min_htlc_msat"),
 		RemoteCsvDelay:             uint32(ctx.Uint64("remote_csv_delay")),
 		MinConfs:                   minConfs,
@@ -329,6 +334,7 @@ func openChannel(ctx *cli.Context) error {
 		RemoteChanReserveSat:       ctx.Uint64("remote_reserve_sats"),
 		FundMax:                    ctx.Bool("fundmax"),
 		Memo:                       ctx.String("memo"),
+		SatPerKw:                   satPerKw,
 	}
 
 	switch {
@@ -802,7 +808,7 @@ var batchOpenChannelCommand = cli.Command{
 				"transaction *should* confirm in, will be " +
 				"used for fee estimation",
 		},
-		cli.Int64Flag{
+		cli.Float64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vByte that should be used when crafting " +
@@ -855,14 +861,20 @@ func batchOpenChannel(ctx *cli.Context) error {
 		return err
 	}
 
+	// Parse fee rate from --sat_per_vbyte and convert to sat/kw.
+	satPerKw, err := parseFeeRate(ctx, "sat_per_vbyte")
+	if err != nil {
+		return err
+	}
+
 	minConfs := int32(ctx.Uint64("min_confs"))
 	req := &lnrpc.BatchOpenChannelRequest{
 		TargetConf:            int32(ctx.Int64("conf_target")),
-		SatPerVbyte:           int64(ctx.Uint64("sat_per_vbyte")),
 		MinConfs:              minConfs,
 		SpendUnconfirmed:      minConfs == 0,
 		Label:                 ctx.String("label"),
 		CoinSelectionStrategy: coinSelectionStrategy,
+		SatPerKw:              satPerKw,
 	}
 
 	// Let's try and parse the JSON part of the CLI now. Fortunately we can
@@ -1062,7 +1074,9 @@ func checkPsbtFlags(req *lnrpc.OpenChannelRequest) error {
 		return fmt.Errorf("specifying minimum confirmations for PSBT " +
 			"funding is not supported")
 	}
-	if req.TargetConf != 0 || req.SatPerByte != 0 || req.SatPerVbyte != 0 { // nolint:staticcheck
+	if req.TargetConf != 0 || req.SatPerByte != 0 || req.SatPerVbyte != 0 ||
+		req.SatPerKw != 0 {
+
 		return fmt.Errorf("setting fee estimation parameters not " +
 			"supported for PSBT funding")
 	}

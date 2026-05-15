@@ -459,6 +459,30 @@ func (h *HarnessRPC) SendCoinsAssertErr(req *lnrpc.SendCoinsRequest) error {
 	return err
 }
 
+// SendMany sends a given amount of money to the specified address from the
+// passed node.
+func (h *HarnessRPC) SendMany(
+	req *lnrpc.SendManyRequest) *lnrpc.SendManyResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.SendMany(ctxt, req)
+	h.NoError(err, "SendMany")
+
+	return resp
+}
+
+// SendManyAssertErr sends a given amount of money to the specified address
+// from the passed node and asserts an error has returned.
+func (h *HarnessRPC) SendManyAssertErr(req *lnrpc.SendManyRequest) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.SendMany(ctxt, req)
+	require.Error(h, err, "node %s didn't not return an error", h.Name)
+}
+
 // GetTransactions makes a RPC call to GetTransactions and asserts.
 func (h *HarnessRPC) GetTransactions(
 	req *lnrpc.GetTransactionsRequest) *lnrpc.TransactionDetails {

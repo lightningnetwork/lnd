@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -138,28 +139,29 @@ func TestManager(t *testing.T) {
 		return nil
 	}
 
-	fetchChannel := func(chanPoint wire.OutPoint) (*channeldb.OpenChannel,
+	fetchChannel := func(chanPoint wire.OutPoint) (*chanstate.OpenChannel,
 		error) {
 
 		if chanPoint == chanPointMissing {
-			return &channeldb.OpenChannel{}, channeldb.ErrChannelNotFound
+			return &chanstate.OpenChannel{},
+				channeldb.ErrChannelNotFound
 		}
 
-		bounds := channeldb.ChannelStateBounds{
+		bounds := chanstate.ChannelStateBounds{
 			MaxPendingAmount: maxPendingAmount,
 			MinHTLC:          minHTLC,
 		}
 
-		return &channeldb.OpenChannel{
+		return &chanstate.OpenChannel{
 			FundingOutpoint: chanPointValid,
 			IdentityPub:     remotepub,
-			LocalChanCfg: channeldb.ChannelConfig{
+			LocalChanCfg: chanstate.ChannelConfig{
 				ChannelStateBounds: bounds,
 				MultiSigKey: keychain.KeyDescriptor{
 					PubKey: localMultisigKey,
 				},
 			},
-			RemoteChanCfg: channeldb.ChannelConfig{
+			RemoteChanCfg: chanstate.ChannelConfig{
 				ChannelStateBounds: bounds,
 				MultiSigKey: keychain.KeyDescriptor{
 					PubKey: remoteMultisigKey,
@@ -413,14 +415,14 @@ func TestCreateEdgeLower(t *testing.T) {
 		TimeLockDelta: 7,
 	}
 
-	channel := &channeldb.OpenChannel{
+	channel := &chanstate.OpenChannel{
 		IdentityPub: remotepub,
-		LocalChanCfg: channeldb.ChannelConfig{
+		LocalChanCfg: chanstate.ChannelConfig{
 			MultiSigKey: keychain.KeyDescriptor{
 				PubKey: localMultisigKey,
 			},
 		},
-		RemoteChanCfg: channeldb.ChannelConfig{
+		RemoteChanCfg: chanstate.ChannelConfig{
 			MultiSigKey: keychain.KeyDescriptor{
 				PubKey: remoteMultisigKey,
 			},
@@ -504,14 +506,14 @@ func TestCreateEdgeHigher(t *testing.T) {
 		TimeLockDelta: 7,
 	}
 
-	channel := &channeldb.OpenChannel{
+	channel := &chanstate.OpenChannel{
 		IdentityPub: remotepub,
-		LocalChanCfg: channeldb.ChannelConfig{
+		LocalChanCfg: chanstate.ChannelConfig{
 			MultiSigKey: keychain.KeyDescriptor{
 				PubKey: localMultisigKey,
 			},
 		},
-		RemoteChanCfg: channeldb.ChannelConfig{
+		RemoteChanCfg: chanstate.ChannelConfig{
 			MultiSigKey: keychain.KeyDescriptor{
 				PubKey: remoteMultisigKey,
 			},

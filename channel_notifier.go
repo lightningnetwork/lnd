@@ -8,6 +8,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/chanstate"
 )
 
 // channelNotifier is an implementation of the chanbackup.ChannelNotifier
@@ -46,7 +47,7 @@ func (c *channelNotifier) SubscribeChans(ctx context.Context,
 	// sendChanOpenUpdate is a closure that sends a ChannelEvent to the
 	// chanUpdates channel to inform subscribers about new pending or
 	// confirmed channels.
-	sendChanOpenUpdate := func(newOrPendingChan *channeldb.OpenChannel) {
+	sendChanOpenUpdate := func(newOrPendingChan *chanstate.OpenChannel) {
 		_, nodeAddrs, err := c.addrs.AddrsForNode(
 			ctx, newOrPendingChan.IdentityPub,
 		)

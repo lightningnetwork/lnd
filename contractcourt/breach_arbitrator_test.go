@@ -2322,7 +2322,6 @@ func createInitChannels(t *testing.T) (
 		LocalCommitment:         aliceCommit,
 		RemoteCommitment:        aliceCommit,
 		Db:                      dbAlice.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
 		FundingTxn:              channels.TestFundingTx,
 	}
 	bobChannelState := &channeldb.OpenChannel{
@@ -2340,7 +2339,6 @@ func createInitChannels(t *testing.T) (
 		LocalCommitment:         bobCommit,
 		RemoteCommitment:        bobCommit,
 		Db:                      dbBob.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
 	aliceSigner := input.NewMockSigner(

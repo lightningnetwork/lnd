@@ -985,7 +985,6 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		LocalCommitment:         remoteCommit,
 		RemoteCommitment:        remoteCommit,
 		Db:                      dbRemote.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
 		FundingTxn:              tc.fundingTx.MsgTx(),
 	}
 	localChannelState := &channeldb.OpenChannel{
@@ -1003,7 +1002,6 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		LocalCommitment:         localCommit,
 		RemoteCommitment:        localCommit,
 		Db:                      dbLocal.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
 		FundingTxn:              tc.fundingTx.MsgTx(),
 	}
 

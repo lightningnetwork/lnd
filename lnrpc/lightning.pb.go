@@ -3921,7 +3921,9 @@ type SendCoinsRequest struct {
 	// The strategy to use for selecting coins.
 	CoinSelectionStrategy CoinSelectionStrategy `protobuf:"varint,10,opt,name=coin_selection_strategy,json=coinSelectionStrategy,proto3,enum=lnrpc.CoinSelectionStrategy" json:"coin_selection_strategy,omitempty"`
 	// A list of selected outpoints as inputs for the transaction.
-	Outpoints     []*OutPoint `protobuf:"bytes,11,rep,name=outpoints,proto3" json:"outpoints,omitempty"`
+	Outpoints []*OutPoint `protobuf:"bytes,11,rep,name=outpoints,proto3" json:"outpoints,omitempty"`
+	// Destination address for the change UTXO
+	ChangeAddress string `protobuf:"bytes,12,opt,name=change_address,json=changeAddress,proto3" json:"change_address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4032,6 +4034,13 @@ func (x *SendCoinsRequest) GetOutpoints() []*OutPoint {
 		return x.Outpoints
 	}
 	return nil
+}
+
+func (x *SendCoinsRequest) GetChangeAddress() string {
+	if x != nil {
+		return x.ChangeAddress
+	}
+	return ""
 }
 
 type SendCoinsResponse struct {
@@ -19056,7 +19065,7 @@ const file_lightning_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"&\n" +
 	"\x10SendManyResponse\x12\x12\n" +
-	"\x04txid\x18\x01 \x01(\tR\x04txid\"\xa9\x03\n" +
+	"\x04txid\x18\x01 \x01(\tR\x04txid\"\xd0\x03\n" +
 	"\x10SendCoinsRequest\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12\x16\n" +
 	"\x06amount\x18\x02 \x01(\x03R\x06amount\x12\x1f\n" +
@@ -19071,7 +19080,8 @@ const file_lightning_proto_rawDesc = "" +
 	"\x11spend_unconfirmed\x18\t \x01(\bR\x10spendUnconfirmed\x12T\n" +
 	"\x17coin_selection_strategy\x18\n" +
 	" \x01(\x0e2\x1c.lnrpc.CoinSelectionStrategyR\x15coinSelectionStrategy\x12-\n" +
-	"\toutpoints\x18\v \x03(\v2\x0f.lnrpc.OutPointR\toutpoints\"'\n" +
+	"\toutpoints\x18\v \x03(\v2\x0f.lnrpc.OutPointR\toutpoints\x12%\n" +
+	"\x0echange_address\x18\f \x01(\tR\rchangeAddress\"'\n" +
 	"\x11SendCoinsResponse\x12\x12\n" +
 	"\x04txid\x18\x01 \x01(\tR\x04txid\"h\n" +
 	"\x12ListUnspentRequest\x12\x1b\n" +

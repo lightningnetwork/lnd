@@ -1155,6 +1155,9 @@ message SendCoinsRequest {
 
     // A list of selected outpoints as inputs for the transaction.
     repeated OutPoint outpoints = 11;
+
+    // Destination address for the change UTXO
+    string change_address = 12;
 }
 message SendCoinsResponse {
     // The transaction ID of the transaction

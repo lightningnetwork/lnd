@@ -1661,7 +1661,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			}
 			return delay
 		},
-		WatchNewChannel: func(channel *channeldb.OpenChannel,
+		WatchNewChannel: func(channel *chanstate.OpenChannel,
 			peerKey *btcec.PublicKey) error {
 
 			// First, we'll mark this new peer as a persistent peer
@@ -3509,7 +3509,7 @@ func (s *server) createNewHiddenService(ctx context.Context) error {
 // optimization that is quicker than seeking for a channel given only the
 // ChannelID.
 func (s *server) findChannel(node *btcec.PublicKey, chanID lnwire.ChannelID) (
-	*channeldb.OpenChannel, error) {
+	*chanstate.OpenChannel, error) {
 
 	nodeChans, err := s.chanStateDB.FetchOpenChannels(node)
 	if err != nil {
@@ -4435,7 +4435,7 @@ func (s *server) notifyOpenChannelPeerEvent(op wire.OutPoint,
 // notifyPendingOpenChannelPeerEvent updates the access manager's maps and then
 // calls the channelNotifier's NotifyPendingOpenChannelEvent.
 func (s *server) notifyPendingOpenChannelPeerEvent(op wire.OutPoint,
-	pendingChan *channeldb.OpenChannel, remotePub *btcec.PublicKey) {
+	pendingChan *chanstate.OpenChannel, remotePub *btcec.PublicKey) {
 
 	// Call newPendingOpenChan to update the access manager's maps for this
 	// peer.

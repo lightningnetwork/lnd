@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -967,7 +968,7 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		binary.BigEndian.Uint64(chanIDBytes[:]),
 	)
 
-	remoteChannelState := &channeldb.OpenChannel{
+	remoteChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            remoteCfg,
 		RemoteChanCfg:           localCfg,
 		IdentityPub:             remoteDummy2.PubKey(),
@@ -984,7 +985,7 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		Db:                      dbRemote.ChannelStateDB(),
 		FundingTxn:              tc.fundingTx.MsgTx(),
 	}
-	localChannelState := &channeldb.OpenChannel{
+	localChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            localCfg,
 		RemoteChanCfg:           remoteCfg,
 		IdentityPub:             localDummy2.PubKey(),

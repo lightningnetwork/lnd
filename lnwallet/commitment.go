@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -635,7 +636,7 @@ type CommitmentBuilder struct {
 	// chanState is the underlying channel's state struct, used to
 	// determine the type of channel we are dealing with, and relevant
 	// parameters.
-	chanState *channeldb.OpenChannel
+	chanState *chanstate.OpenChannel
 
 	// obfuscator is a 48-bit state hint that's used to obfuscate the
 	// current state number on the commitment transactions.
@@ -647,7 +648,7 @@ type CommitmentBuilder struct {
 }
 
 // NewCommitmentBuilder creates a new CommitmentBuilder from chanState.
-func NewCommitmentBuilder(chanState *channeldb.OpenChannel,
+func NewCommitmentBuilder(chanState *chanstate.OpenChannel,
 	leafStore fn.Option[AuxLeafStore]) *CommitmentBuilder {
 
 	// The anchor channel type MUST be tweakless.
@@ -665,7 +666,9 @@ func NewCommitmentBuilder(chanState *channeldb.OpenChannel,
 // createStateHintObfuscator derives and assigns the state hint obfuscator for
 // the channel, which is used to encode the commitment height in the sequence
 // number of commitment transaction inputs.
-func createStateHintObfuscator(state *channeldb.OpenChannel) [StateHintSize]byte {
+func createStateHintObfuscator(
+	state *chanstate.OpenChannel) [StateHintSize]byte {
+
 	if state.IsInitiator {
 		return DeriveStateHintObfuscator(
 			state.LocalChanCfg.PaymentBasePoint.PubKey,
@@ -1320,7 +1323,7 @@ func addHTLC(commitTx *wire.MsgTx, whoseCommit lntypes.ChannelParty,
 // output scripts and compares them against the outputs inside the commitment
 // to find the match.
 func findOutputIndexesFromRemote(revocationPreimage *chainhash.Hash,
-	chanState *channeldb.OpenChannel,
+	chanState *chanstate.OpenChannel,
 	leafStore fn.Option[AuxLeafStore]) (uint32, uint32, error) {
 
 	// Init the output indexes as empty.

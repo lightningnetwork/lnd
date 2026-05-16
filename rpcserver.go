@@ -1431,7 +1431,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			return nil, err
 		}
 
-		// Send all requires default interal wallet address to preserve
+		// Send all requires default internal wallet address to preserve
 		// internal reserved value mechanism
 		if in.SendAll {
 			return nil, fmt.Errorf("change_address cannot be set when " +
@@ -1671,6 +1671,16 @@ func (r *rpcServer) SendMany(ctx context.Context,
 	rpcsLog.Infof("[sendmany] outputs=%v, sat/kw=%v",
 		lnutils.SpewLogClosure(in.AddrToAmount), int64(feePerKw))
 
+	var changeAddr btcutil.Address
+	if in.ChangeAddress != "" {
+		changeAddr, err = decodeAndValidateAddr(
+			in.ChangeAddress, r.cfg.ActiveNetParams.Params,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	var txid *chainhash.Hash
 
 	// We'll attempt to send to the target set of outputs, ensuring that we
@@ -1680,7 +1690,7 @@ func (r *rpcServer) SendMany(ctx context.Context,
 	err = wallet.WithCoinSelectLock(func() error {
 		sendManyTXID, err := r.sendCoinsOnChain(
 			in.AddrToAmount, feePerKw, minConfs, label,
-			coinSelectionStrategy, nil, nil,
+			coinSelectionStrategy, nil, changeAddr,
 		)
 		if err != nil {
 			return err

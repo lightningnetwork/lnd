@@ -26,6 +26,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
@@ -9268,7 +9269,7 @@ func TestEvaluateView(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			isInitiator := test.channelInitiator == lntypes.Local
 			lc := LightningChannel{
-				channelState: &channeldb.OpenChannel{
+				channelState: &chanstate.OpenChannel{
 					IsInitiator:       isInitiator,
 					TotalMSatSent:     0,
 					TotalMSatReceived: 0,
@@ -10060,7 +10061,7 @@ func testGetDustSum(t *testing.T, chantype channeldb.ChannelType) {
 
 // deriveDummyRetributionParams is a helper function that derives a list of
 // dummy params to assist retribution creation related tests.
-func deriveDummyRetributionParams(chanState *channeldb.OpenChannel) (uint32,
+func deriveDummyRetributionParams(chanState *chanstate.OpenChannel) (uint32,
 	*CommitmentKeyRing, chainhash.Hash) {
 
 	config := chanState.RemoteChanCfg

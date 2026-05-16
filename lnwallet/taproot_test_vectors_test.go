@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -891,7 +892,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 
 	shortChanID := lnwire.NewShortChanIDFromInt(0xdeadbeef)
 
-	remoteChannelState := &channeldb.OpenChannel{
+	remoteChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            remoteCfg,
 		RemoteChanCfg:           localCfg,
 		IdentityPub:             tc.remoteFundingPrivkey.PubKey(),
@@ -908,7 +909,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 		Db:                      dbRemote.ChannelStateDB(),
 		FundingTxn:              fundingTx,
 	}
-	localChannelState := &channeldb.OpenChannel{
+	localChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            localCfg,
 		RemoteChanCfg:           remoteCfg,
 		IdentityPub:             tc.localFundingPrivkey.PubKey(),

@@ -2787,6 +2787,76 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 	}
 }
 
+// testCreateSimpleTxChangeAddr verifies that when a custom change address is
+// provided to CreateSimpleTx and SendOutputs, the resulting transaction sends
+// change to that address rather than a wallet-derived one.
+func testCreateSimpleTxChangeAddr(r *rpctest.Harness,
+	w *lnwallet.LightningWallet, _ *lnwallet.LightningWallet,
+	t *testing.T) {
+
+	err := loadTestCredits(r, w, 20, 4)
+	require.NoError(t, err, "unable to load test credits")
+
+	// Use a miner address as the change destination — it is external to
+	// the wallet, simulating a user-supplied change address.
+	changeAddr, err := r.NewAddress()
+	require.NoError(t, err, "unable to get miner address for change")
+
+	changeScript, err := txscript.PayToAddrScript(changeAddr)
+	require.NoError(t, err, "unable to build change script")
+
+	// Build a payment output to send 1 BTC. The funded wallet has 20 BTC
+	// so a change output must be produced.
+	destAddr, err := r.NewAddress()
+	require.NoError(t, err, "unable to get destination address")
+
+	destScript, err := txscript.PayToAddrScript(destAddr)
+	require.NoError(t, err, "unable to build dest script")
+
+	outputs := []*wire.TxOut{{
+		Value:    btcutil.SatoshiPerBitcoin,
+		PkScript: destScript,
+	}}
+
+	const feeRate = chainfee.SatPerKWeight(2500)
+
+	// Dry-run first: CreateSimpleTx should produce a tx whose change
+	// output uses the caller-supplied script.
+	createTx, err := w.CreateSimpleTx(
+		nil, outputs, changeAddr, feeRate, 1,
+		w.Cfg.CoinSelectionStrategy, true,
+	)
+	require.NoError(t, err, "CreateSimpleTx with change addr failed")
+	require.NotEqual(t, createTx.ChangeIndex, -1,
+		"expected a change output in dry-run tx")
+
+	dryChangeOut := createTx.Tx.TxOut[createTx.ChangeIndex]
+	require.Equal(t, changeScript, dryChangeOut.PkScript,
+		"dry-run change output does not use the custom change address")
+
+	// Now broadcast via SendOutputs and confirm the change output in the
+	// actual transaction also goes to the custom address.
+	tx, err := w.SendOutputs(
+		nil, outputs, changeAddr, feeRate, 1, labels.External,
+		w.Cfg.CoinSelectionStrategy,
+	)
+	require.NoError(t, err, "SendOutputs with change addr failed")
+
+	txid := tx.TxHash()
+	err = waitForMempoolTx(r, &txid)
+	require.NoError(t, err, "tx not relayed to miner")
+
+	var changeOut *wire.TxOut
+	for _, out := range tx.TxOut {
+		if bytes.Equal(out.PkScript, changeScript) {
+			changeOut = out
+			break
+		}
+	}
+	require.NotNil(t, changeOut,
+		"broadcasted tx missing change output to custom address")
+}
+
 // testSignOutputCreateAccount tests that we're able to properly sign for an
 // output if the target account hasn't yet been created on disk. In this case,
 // we'll create the account, then sign.
@@ -2947,6 +3017,10 @@ var walletTests = []walletTestCase{
 	{
 		name: "create simple tx",
 		test: testCreateSimpleTx,
+	},
+	{
+		name: "create simple tx change addr",
+		test: testCreateSimpleTxChangeAddr,
 	},
 	{
 		name: "test sign create account",

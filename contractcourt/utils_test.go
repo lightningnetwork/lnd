@@ -10,10 +10,11 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 )
 
 func testChannelStateDB(t testing.TB,
-	state *channeldb.OpenChannel) *channeldb.ChannelStateDB {
+	state *chanstate.OpenChannel) *channeldb.ChannelStateDB {
 
 	t.Helper()
 
@@ -65,8 +66,8 @@ func copyFile(dest, src string) error {
 
 // copyChannelState copies the OpenChannel state by copying the database and
 // creating a new struct from it. The copied state is returned.
-func copyChannelState(t *testing.T, state *channeldb.OpenChannel) (
-	*channeldb.OpenChannel, error) {
+func copyChannelState(t *testing.T, state *chanstate.OpenChannel) (
+	*chanstate.OpenChannel, error) {
 
 	// Make a copy of the DB.
 	dbFile := filepath.Join(

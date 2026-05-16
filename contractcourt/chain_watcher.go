@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -239,7 +240,7 @@ type chainWatcherConfig struct {
 	// chanState is a snapshot of the persistent state of the channel that
 	// we're watching. In the event of an on-chain event, we'll query the
 	// database to ensure that we act using the most up to date state.
-	chanState *channeldb.OpenChannel
+	chanState *chanstate.OpenChannel
 
 	// notifier is a reference to the channel notifier that we'll use to be
 	// notified of output spends and when transactions are confirmed.
@@ -627,7 +628,7 @@ type chainSet struct {
 
 // newChainSet creates a new chainSet given the current up to date channel
 // state.
-func newChainSet(chanState *channeldb.OpenChannel) (*chainSet, error) {
+func newChainSet(chanState *chanstate.OpenChannel) (*chainSet, error) {
 	// First, we'll grab the current unrevoked commitments for ourselves
 	// and the remote party.
 	localCommit, remoteCommit, err := chanState.LatestCommitments()
@@ -1698,7 +1699,7 @@ func (c *chainWatcher) waitForCommitmentPoint() *btcec.PublicKey {
 }
 
 // deriveFundingPkScript derives the script used in the funding output.
-func deriveFundingPkScript(chanState *channeldb.OpenChannel) ([]byte, error) {
+func deriveFundingPkScript(chanState *chanstate.OpenChannel) ([]byte, error) {
 	localKey := chanState.LocalChanCfg.MultiSigKey.PubKey
 	remoteKey := chanState.RemoteChanCfg.MultiSigKey.PubKey
 

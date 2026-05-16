@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
@@ -264,11 +265,11 @@ type dlpTestCase struct {
 // state) are returned.
 func executeStateTransitions(t *testing.T, htlcAmount lnwire.MilliSatoshi,
 	aliceChannel, bobChannel *lnwallet.LightningChannel,
-	numUpdates uint8) ([]*channeldb.OpenChannel, error) {
+	numUpdates uint8) ([]*chanstate.OpenChannel, error) {
 
 	// We'll make a copy of the channel state before each transition.
 	var (
-		chanStates []*channeldb.OpenChannel
+		chanStates []*chanstate.OpenChannel
 	)
 
 	state, err := copyChannelState(t, aliceChannel.State())

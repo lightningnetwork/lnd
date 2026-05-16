@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/sweep"
 )
@@ -59,7 +60,7 @@ type ContractResolver interface {
 
 	// SupplementState allows the user of a ContractResolver to supplement
 	// it with state required for the proper resolution of a contract.
-	SupplementState(*channeldb.OpenChannel)
+	SupplementState(*chanstate.OpenChannel)
 
 	// IsResolved returns true if the stored state in the resolve is fully
 	// resolved. In this case the target output can be forgotten.

@@ -22,6 +22,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -2315,7 +2316,7 @@ func createInitChannels(t *testing.T) (
 		binary.BigEndian.Uint64(chanIDBytes[:]),
 	)
 
-	aliceChannelState := &channeldb.OpenChannel{
+	aliceChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeyPub,
@@ -2332,7 +2333,7 @@ func createInitChannels(t *testing.T) (
 		Db:                      dbAlice.ChannelStateDB(),
 		FundingTxn:              channels.TestFundingTx,
 	}
-	bobChannelState := &channeldb.OpenChannel{
+	bobChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            bobCfg,
 		RemoteChanCfg:           aliceCfg,
 		IdentityPub:             bobKeyPub,

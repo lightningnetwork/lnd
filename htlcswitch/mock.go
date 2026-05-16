@@ -1019,6 +1019,7 @@ func newMockRegistry(t testing.TB) *mockInvoiceRegistry {
 		},
 	)
 	registry.Start()
+	t.Cleanup(func() { _ = registry.Stop() })
 
 	return &mockInvoiceRegistry{
 		registry: registry,
@@ -1100,7 +1101,11 @@ func (m *mockCircuitMap) DeleteCircuits(inKeys ...CircuitKey) error {
 func (m *mockCircuitMap) CommitCircuits(
 	circuit ...*PaymentCircuit) (*CircuitFwdActions, error) {
 
-	return nil, nil
+	return &CircuitFwdActions{
+		Adds:  circuit,
+		Drops: nil,
+		Fails: nil,
+	}, nil
 }
 
 func (m *mockCircuitMap) CloseCircuit(outKey CircuitKey) (*PaymentCircuit,
@@ -1179,3 +1184,76 @@ func (h *mockHTLCNotifier) NotifyFinalHtlcEvent(key models.CircuitKey,
 	info channeldb.FinalHtlcInfo) {
 
 }
+
+// mockMailBox is a no-op mailbox for testing.
+type mockMailBox struct{}
+
+func (m *mockMailBox) AddMessage(msg lnwire.Message) error {
+	return nil
+}
+
+func (m *mockMailBox) AddPacket(packet *htlcPacket) error {
+	return nil
+}
+
+func (m *mockMailBox) HasPacket(CircuitKey) bool {
+	return false
+}
+
+func (m *mockMailBox) AckPacket(CircuitKey) bool {
+	return false
+}
+
+func (m *mockMailBox) FailAdd(packet *htlcPacket) {
+
+}
+
+func (m *mockMailBox) MessageOutBox() chan lnwire.Message {
+	return make(chan lnwire.Message)
+}
+
+func (m *mockMailBox) PacketOutBox() chan *htlcPacket {
+	return make(chan *htlcPacket)
+}
+
+func (m *mockMailBox) ResetMessages() error {
+	return nil
+}
+
+func (m *mockMailBox) ResetPackets() error {
+	return nil
+}
+
+func (m *mockMailBox) SetDustClosure(isDust dustClosure) {
+
+}
+
+func (m *mockMailBox) SetFeeRate(feerate chainfee.SatPerKWeight) {
+
+}
+
+func (m *mockMailBox) DustPackets() (lnwire.MilliSatoshi, lnwire.MilliSatoshi) {
+	return 0, 0
+}
+
+func (m *mockMailBox) Start() {
+
+}
+
+func (m *mockMailBox) Stop() {
+
+}
+
+type noopTicker struct{}
+
+func (n *noopTicker) Ticks() <-chan time.Time {
+	return nil
+}
+
+func (n *noopTicker) Stop() {}
+
+func (n *noopTicker) Pause() {}
+
+func (n *noopTicker) Resume() {}
+
+func (n *noopTicker) ForceTick() {}

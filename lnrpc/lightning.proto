@@ -1282,6 +1282,12 @@ message SendManyRequest {
 
     // The strategy to use for selecting coins during sending many requests.
     CoinSelectionStrategy coin_selection_strategy = 9;
+
+    /*
+    An optional address to send change to. If not set, a wallet-derived
+    address is used.
+    */
+    string change_address = 10;
 }
 message SendManyResponse {
     // The id of the transaction

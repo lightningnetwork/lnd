@@ -868,6 +868,12 @@ var sendManyCommand = cli.Command{
 		},
 		coinSelectionStrategyFlag,
 		txLabelFlag,
+		cli.StringFlag{
+			Name: "change_address",
+			Usage: "(optional) a bitcoin address to send change to. " +
+				"If not set, change is sent to a wallet-derived " +
+				"address.",
+		},
 	},
 	Action: actionDecorator(sendMany),
 }
@@ -914,6 +920,7 @@ func sendMany(ctx *cli.Context) error {
 		MinConfs:              minConfs,
 		SpendUnconfirmed:      minConfs == 0,
 		CoinSelectionStrategy: coinSelectionStrategy,
+		ChangeAddress:         ctx.String("change_address"),
 	})
 	if err != nil {
 		return err

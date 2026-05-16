@@ -2522,10 +2522,11 @@ type SendOutputsRequest struct {
 	SpendUnconfirmed bool `protobuf:"varint,5,opt,name=spend_unconfirmed,json=spendUnconfirmed,proto3" json:"spend_unconfirmed,omitempty"`
 	// The strategy to use for selecting coins during sending the outputs.
 	CoinSelectionStrategy lnrpc.CoinSelectionStrategy `protobuf:"varint,6,opt,name=coin_selection_strategy,json=coinSelectionStrategy,proto3,enum=lnrpc.CoinSelectionStrategy" json:"coin_selection_strategy,omitempty"`
-	// An optional address to send change to. If not set, a wallet-derived address is used.
-	ChangeAddress         string                      `protobuf:"bytes,7,opt,name=change_address,json=changeAddress,proto3" json:"change_address,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// An optional address to send change to. If not set, a wallet-derived
+	// address is used.
+	ChangeAddress string `protobuf:"bytes,7,opt,name=change_address,json=changeAddress,proto3" json:"change_address,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SendOutputsRequest) Reset() {
@@ -4656,7 +4657,7 @@ const file_walletrpc_walletkit_proto_rawDesc = "" +
 	"\x0fPublishResponse\x12#\n" +
 	"\rpublish_error\x18\x01 \x01(\tR\fpublishError\"3\n" +
 	"\x19RemoveTransactionResponse\x12\x16\n" +
-	"\x06status\x18\x01 \x01(\tR\x06status\"\x92\x02\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\"\xb9\x02\n" +
 	"\x12SendOutputsRequest\x12\x1c\n" +
 	"\n" +
 	"sat_per_kw\x18\x01 \x01(\x03R\bsatPerKw\x12(\n" +
@@ -4664,7 +4665,8 @@ const file_walletrpc_walletkit_proto_rawDesc = "" +
 	"\x05label\x18\x03 \x01(\tR\x05label\x12\x1b\n" +
 	"\tmin_confs\x18\x04 \x01(\x05R\bminConfs\x12+\n" +
 	"\x11spend_unconfirmed\x18\x05 \x01(\bR\x10spendUnconfirmed\x12T\n" +
-	"\x17coin_selection_strategy\x18\x06 \x01(\x0e2\x1c.lnrpc.CoinSelectionStrategyR\x15coinSelectionStrategy\",\n" +
+	"\x17coin_selection_strategy\x18\x06 \x01(\x0e2\x1c.lnrpc.CoinSelectionStrategyR\x15coinSelectionStrategy\x12%\n" +
+	"\x0echange_address\x18\a \x01(\tR\rchangeAddress\",\n" +
 	"\x13SendOutputsResponse\x12\x15\n" +
 	"\x06raw_tx\x18\x01 \x01(\fR\x05rawTx\"5\n" +
 	"\x12EstimateFeeRequest\x12\x1f\n" +

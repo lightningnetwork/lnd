@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 )
 
 // breachResolver is a resolver that will handle breached closes. In the
@@ -88,7 +88,7 @@ func (b *breachResolver) Stop() {
 }
 
 // SupplementState adds additional state to the breachResolver.
-func (b *breachResolver) SupplementState(_ *channeldb.OpenChannel) {
+func (b *breachResolver) SupplementState(_ *chanstate.OpenChannel) {
 }
 
 // Encode encodes the breachResolver to the passed writer.

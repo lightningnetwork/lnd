@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lntest/mock"
@@ -26,7 +27,7 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 
 	// Create 10 test channels and sync them to the database.
 	const numChans = 10
-	var channels []*channeldb.OpenChannel
+	var channels []*chanstate.OpenChannel
 	for i := 0; i < numChans; i++ {
 		lChannel, _, err := lnwallet.CreateTestChannels(
 			t, channeldb.SingleFunderTweaklessBit,

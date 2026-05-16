@@ -1089,6 +1089,34 @@ func addrPairsToOutputs(addrPairs map[string]int64,
 	return outputs, nil
 }
 
+// decodeAndValidateAddr decodes a Bitcoin address string, validates it is for
+// the given network, and rejects raw pubkey hex strings to prevent unintended
+// transfers.
+func decodeAndValidateAddr(addrStr string,
+	params *chaincfg.Params) (btcutil.Address, error) {
+
+	addr, err := btcutil.DecodeAddress(addrStr, params)
+	if err != nil {
+		return nil, err
+	}
+
+	if !addr.IsForNet(params) {
+		return nil, fmt.Errorf("address: %v is not valid for this "+
+			"network: %v", addr.String(), params.Name)
+	}
+
+	// If the address parses to a valid pubkey, we assume the user
+	// accidentally tried to send funds to a bare pubkey address. This
+	// check is here to prevent unintended transfers.
+	decodedAddr, _ := hex.DecodeString(addrStr)
+	_, err = btcec.ParsePubKey(decodedAddr)
+	if err == nil {
+		return nil, fmt.Errorf("cannot send coins to pubkeys")
+	}
+
+	return addr, nil
+}
+
 // allowCORS wraps the given http.Handler with a function that adds the
 // Access-Control-Allow-Origin header to the response.
 func allowCORS(handler http.Handler, origins []string) http.Handler {
@@ -1398,34 +1426,26 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		return nil, err
 	}
 
-	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v, sat/kw=%v, min_confs=%v, "+
+	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v, sat/kw=%v, change_addr=%v, min_confs=%v, "+
 		"send_all=%v, select_outpoints=%v",
-		in.Addr, btcutil.Amount(in.Amount), int64(feePerKw), minConfs,
+		in.Addr, btcutil.Amount(in.Amount), int64(feePerKw), in.ChangeAddress, minConfs,
 		in.SendAll, len(in.Outpoints))
 
-	// Decode the address receiving the coins, we need to check whether the
-	// address is valid for this network.
-	targetAddr, err := btcutil.DecodeAddress(
+	targetAddr, err := decodeAndValidateAddr(
 		in.Addr, r.cfg.ActiveNetParams.Params,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	// Make the check on the decoded address according to the active network.
-	if !targetAddr.IsForNet(r.cfg.ActiveNetParams.Params) {
-		return nil, fmt.Errorf("address: %v is not valid for this "+
-			"network: %v", targetAddr.String(),
-			r.cfg.ActiveNetParams.Params.Name)
-	}
-
-	// If the destination address parses to a valid pubkey, we assume the user
-	// accidentally tried to send funds to a bare pubkey address. This check is
-	// here to prevent unintended transfers.
-	decodedAddr, _ := hex.DecodeString(in.Addr)
-	_, err = btcec.ParsePubKey(decodedAddr)
-	if err == nil {
-		return nil, fmt.Errorf("cannot send coins to pubkeys")
+	var changeAddr btcutil.Address
+	if in.ChangeAddress != "" {
+		changeAddr, err = decodeAndValidateAddr(
+			in.ChangeAddress, r.cfg.ActiveNetParams.Params,
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	label, err := labels.ValidateAPI(in.Label)
@@ -1517,16 +1537,18 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 				"send_all, trying with change output",
 				reservedVal)
 
-			// We'll request a change address from the wallet,
-			// where we'll send this reserved value back to. This
-			// ensures this is an address the wallet knows about,
-			// allowing us to pass the reserved value check.
-			changeAddr, err := r.server.cc.Wallet.NewAddress(
-				lnwallet.TaprootPubkey, true,
-				lnwallet.DefaultAccountName,
-			)
-			if err != nil {
-				return nil, err
+			if changeAddr.String() == "" {
+				// We'll request a change address from the wallet,
+				// where we'll send this reserved value back to. This
+				// ensures this is an address the wallet knows about,
+				// allowing us to pass the reserved value check.
+				changeAddr, err = r.server.cc.Wallet.NewAddress(
+					lnwallet.TaprootPubkey, true,
+					lnwallet.DefaultAccountName,
+				)
+				if err != nil {
+					return nil, err
+				}
 			}
 
 			// Send the reserved value to this change address, the

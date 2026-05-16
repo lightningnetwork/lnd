@@ -2522,6 +2522,8 @@ type SendOutputsRequest struct {
 	SpendUnconfirmed bool `protobuf:"varint,5,opt,name=spend_unconfirmed,json=spendUnconfirmed,proto3" json:"spend_unconfirmed,omitempty"`
 	// The strategy to use for selecting coins during sending the outputs.
 	CoinSelectionStrategy lnrpc.CoinSelectionStrategy `protobuf:"varint,6,opt,name=coin_selection_strategy,json=coinSelectionStrategy,proto3,enum=lnrpc.CoinSelectionStrategy" json:"coin_selection_strategy,omitempty"`
+	// An optional address to send change to. If not set, a wallet-derived address is used.
+	ChangeAddress         string                      `protobuf:"bytes,7,opt,name=change_address,json=changeAddress,proto3" json:"change_address,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -2596,6 +2598,13 @@ func (x *SendOutputsRequest) GetCoinSelectionStrategy() lnrpc.CoinSelectionStrat
 		return x.CoinSelectionStrategy
 	}
 	return lnrpc.CoinSelectionStrategy(0)
+}
+
+func (x *SendOutputsRequest) GetChangeAddress() string {
+	if x != nil {
+		return x.ChangeAddress
+	}
+	return ""
 }
 
 type SendOutputsResponse struct {

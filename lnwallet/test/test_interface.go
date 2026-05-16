@@ -2668,7 +2668,7 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 
 		// Now try creating a tx spending to these outputs.
 		createTx, createErr := w.CreateSimpleTx(
-			nil, outputs, feeRate, minConfs,
+			nil, outputs, nil, feeRate, minConfs,
 			w.Cfg.CoinSelectionStrategy, true,
 		)
 		switch {

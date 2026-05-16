@@ -24,6 +24,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -305,7 +306,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 	}
 
-	aliceChannelState := &channeldb.OpenChannel{
+	aliceChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeyPub,
@@ -323,7 +324,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		FundingTxn:              channels.TestFundingTx,
 	}
 
-	bobChannelState := &channeldb.OpenChannel{
+	bobChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            bobCfg,
 		RemoteChanCfg:           aliceCfg,
 		IdentityPub:             bobKeyPub,
@@ -415,7 +416,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 				"channel: %w", err)
 		}
 
-		var aliceStoredChannel *channeldb.OpenChannel
+		var aliceStoredChannel *chanstate.OpenChannel
 		for _, channel := range aliceStoredChannels {
 			if channel.FundingOutpoint.String() == prevOut.String() {
 				aliceStoredChannel = channel
@@ -463,7 +464,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 				"%w", err)
 		}
 
-		var bobStoredChannel *channeldb.OpenChannel
+		var bobStoredChannel *chanstate.OpenChannel
 		for _, channel := range bobStoredChannels {
 			if channel.FundingOutpoint.String() == prevOut.String() {
 				bobStoredChannel = channel
@@ -1187,7 +1188,7 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 			NotifyActiveChannel:        func(wire.OutPoint) {},
 			NotifyInactiveChannel:      func(wire.OutPoint) {},
 			NotifyInactiveLinkEvent:    func(wire.OutPoint) {},
-			NotifyChannelUpdate:        func(*channeldb.OpenChannel) {},
+			NotifyChannelUpdate:        func(*chanstate.OpenChannel) {},
 			HtlcNotifier:               server.htlcSwitch.cfg.HtlcNotifier,
 			GetAliases:                 getAliases,
 			ShouldFwdExpAccountability: func() bool { return true },

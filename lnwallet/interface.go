@@ -353,7 +353,8 @@ type WalletController interface {
 	//
 	// NOTE: This method requires the global coin selection lock to be held.
 	SendOutputs(inputs fn.Set[wire.OutPoint], outputs []*wire.TxOut,
-		feeRate chainfee.SatPerKWeight, minConfs int32, label string,
+		changeAddr btcutil.Address, feeRate chainfee.SatPerKWeight,
+		minConfs int32, label string,
 		strategy base.CoinSelectionStrategy) (*wire.MsgTx, error)
 
 	// CreateSimpleTx creates a Bitcoin transaction paying to the specified
@@ -369,8 +370,10 @@ type WalletController interface {
 	//
 	// NOTE: This method requires the global coin selection lock to be held.
 	CreateSimpleTx(inputs fn.Set[wire.OutPoint], outputs []*wire.TxOut,
-		feeRate chainfee.SatPerKWeight, minConfs int32,
-		strategy base.CoinSelectionStrategy, dryRun bool) (
+		changeAddr btcutil.Address, feeRate chainfee.SatPerKWeight,
+		minConfs int32, strategy base.CoinSelectionStrategy,
+		dryRun bool,
+	) (
 		*txauthor.AuthoredTx, error)
 
 	// GetTransactionDetails returns a detailed description of a transaction

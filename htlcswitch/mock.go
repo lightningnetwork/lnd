@@ -167,7 +167,9 @@ type mockServer struct {
 
 var _ lnpeer.Peer = (*mockServer)(nil)
 
-func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) {
+func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (
+	*Switch, error) {
+
 	signAliasUpdate := func(u *lnwire.ChannelUpdate1) (*ecdsa.Signature,
 		error) {
 
@@ -375,7 +377,8 @@ func encodeFwdInfo(w io.Writer, f *hop.ForwardingInfo) error {
 		return err
 	}
 
-	if err := binary.Write(w, binary.BigEndian, f.OutgoingCTLV); err != nil {
+	if err := binary.Write(
+		w, binary.BigEndian, f.OutgoingCTLV); err != nil {
 		return err
 	}
 
@@ -438,10 +441,11 @@ func (o *mockObfuscator) IntermediateEncrypt(reason lnwire.OpaqueReason) lnwire.
 	return reason
 }
 
-func (o *mockObfuscator) EncryptMalformedError(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
+func (o *mockObfuscator) EncryptMalformedError(
+	reason lnwire.OpaqueReason) lnwire.OpaqueReason {
+
 	var b bytes.Buffer
 	b.Write(fakeHmac)
-
 	b.Write(reason)
 
 	return b.Bytes()
@@ -508,7 +512,9 @@ func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, rHash []byte,
 		}
 
 		var nextHopBytes [8]byte
-		binary.BigEndian.PutUint64(nextHopBytes[:], f.NextHop.ToUint64())
+		binary.BigEndian.PutUint64(
+			nextHopBytes[:], f.NextHop.ToUint64(),
+		)
 
 		hops[i] = hop.NewLegacyPayload(&sphinx.HopData{
 			Realm:         [1]byte{}, // hop.BitcoinNetwork
@@ -569,7 +575,8 @@ func decodeFwdInfo(r io.Reader, f *hop.ForwardingInfo) error {
 		return err
 	}
 
-	if err := binary.Read(r, binary.BigEndian, &f.OutgoingCTLV); err != nil {
+	if err := binary.Read(
+		r, binary.BigEndian, &f.OutgoingCTLV); err != nil {
 		return err
 	}
 
@@ -910,7 +917,18 @@ func (f *mockChannelLink) ShortChanID() lnwire.ShortChannelID {
 	return f.shortChanID
 }
 
+// Bandwidth returns a hardcoded amount of milli-satoshis for the mock link.
+//
+// NOTE: Part of the ChannelLink interface.
 func (f *mockChannelLink) Bandwidth() lnwire.MilliSatoshi {
+	return 99999999
+}
+
+// RemoteBandwidth returns a hardcoded amount of milli-satoshis for
+// the mock link.
+//
+// NOTE: Part of the ChannelLink interface.
+func (f *mockChannelLink) RemoteBandwidth() lnwire.MilliSatoshi {
 	return 99999999
 }
 

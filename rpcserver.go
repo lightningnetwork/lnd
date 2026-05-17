@@ -1449,7 +1449,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			return nil, err
 		}
 
-		// Send all requires default interal wallet address to preserve
+		// Send all requires default internal wallet address to preserve
 		// internal reserved value mechanism
 		if in.SendAll {
 			return nil, fmt.Errorf("change_address cannot be set when " +

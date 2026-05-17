@@ -373,8 +373,7 @@ type WalletController interface {
 		changeAddr btcutil.Address, feeRate chainfee.SatPerKWeight,
 		minConfs int32, strategy base.CoinSelectionStrategy,
 		dryRun bool,
-	) (
-		*txauthor.AuthoredTx, error)
+	) (*txauthor.AuthoredTx, error)
 
 	// GetTransactionDetails returns a detailed description of a transaction
 	// given its transaction hash.

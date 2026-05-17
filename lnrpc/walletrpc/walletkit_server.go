@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
@@ -835,6 +836,11 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 			return nil, fmt.Errorf("change_address %v is not valid "+
 				"for network %v", req.ChangeAddress,
 				w.cfg.ChainParams.Name)
+		}
+		decodedChangeAddr, _ := hex.DecodeString(req.ChangeAddress)
+		if _, err = btcec.ParsePubKey(decodedChangeAddr); err == nil {
+			return nil, fmt.Errorf("cannot send change to a bare " +
+				"public key")
 		}
 	}
 

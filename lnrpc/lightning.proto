@@ -1283,10 +1283,9 @@ message SendManyRequest {
     // The strategy to use for selecting coins during sending many requests.
     CoinSelectionStrategy coin_selection_strategy = 9;
 
-    /*
-    An optional address to send change to. If not set, a wallet-derived
-    address is used.
-    */
+    
+    // An optional address to send change to. If not set, a wallet-derived
+    // address is used.
     string change_address = 10;
 }
 message SendManyResponse {
@@ -1336,10 +1335,8 @@ message SendCoinsRequest {
     // A list of selected outpoints as inputs for the transaction.
     repeated OutPoint outpoints = 11;
 
-    /*
-    An optional address to send change to. If not set, a wallet-derived
-    address is used.
-    */
+    // An optional address to send change to. If not set, a wallet-derived
+    // address is used.
     string change_address = 12;
 }
 message SendCoinsResponse {

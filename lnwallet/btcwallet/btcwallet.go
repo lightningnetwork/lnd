@@ -904,8 +904,8 @@ func (b *BtcWallet) ImportTaprootScript(scope waddrmgr.KeyScope,
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(inputs fn.Set[wire.OutPoint],
-	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
-	minConfs int32, label string,
+	outputs []*wire.TxOut, changeAddr btcutil.Address,
+	feeRate chainfee.SatPerKWeight, minConfs int32, label string,
 	strategy base.CoinSelectionStrategy) (*wire.MsgTx, error) {
 
 	// Convert our fee rate from sat/kw to sat/kb since it's required by
@@ -922,17 +922,22 @@ func (b *BtcWallet) SendOutputs(inputs fn.Set[wire.OutPoint],
 		return nil, lnwallet.ErrInvalidMinconf
 	}
 
+	var opts []base.TxCreateOption
+	if changeAddr != nil {
+		opts = append(opts, base.WithChangeAddress(changeAddr))
+	}
+
 	// Use selected UTXOs if specified, otherwise default selection.
 	if len(inputs) != 0 {
 		return b.wallet.SendOutputsWithInput(
 			outputs, nil, defaultAccount, minConfs, feeSatPerKB,
-			strategy, label, inputs.ToSlice(),
+			strategy, label, inputs.ToSlice(), opts...,
 		)
 	}
 
 	return b.wallet.SendOutputs(
 		outputs, nil, defaultAccount, minConfs, feeSatPerKB,
-		strategy, label,
+		strategy, label, opts...,
 	)
 }
 
@@ -950,7 +955,8 @@ func (b *BtcWallet) SendOutputs(inputs fn.Set[wire.OutPoint],
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) CreateSimpleTx(inputs fn.Set[wire.OutPoint],
-	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight, minConfs int32,
+	outputs []*wire.TxOut, changeAddr btcutil.Address,
+	feeRate chainfee.SatPerKWeight, minConfs int32,
 	strategy base.CoinSelectionStrategy, dryRun bool) (
 	*txauthor.AuthoredTx, error) {
 
@@ -982,12 +988,17 @@ func (b *BtcWallet) CreateSimpleTx(inputs fn.Set[wire.OutPoint],
 		}
 	}
 
-	// Add the optional inputs to the transaction.
-	optFunc := base.WithCustomSelectUtxos(inputs.ToSlice())
+	opts := []base.TxCreateOption{
+		base.WithCustomSelectUtxos(inputs.ToSlice()),
+	}
+
+	if changeAddr != nil {
+		opts = append(opts, base.WithChangeAddress(changeAddr))
+	}
 
 	return b.wallet.CreateSimpleTx(
 		nil, defaultAccount, outputs, minConfs, feeSatPerKB,
-		strategy, dryRun, []base.TxCreateOption{optFunc}...,
+		strategy, dryRun, opts...,
 	)
 }
 

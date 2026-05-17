@@ -30,9 +30,38 @@
 
 ## Functional Enhancements
 
+* When making an on-chain send, callers can now specify a
+  [`change_address`](https://github.com/lightningnetwork/lnd/pull/10810) to
+  control where any change output is sent. This enables workflows where a user
+  wants to drain a specific address across multiple transactions — by pinning
+  the change address, every sweep transaction returns leftover funds to a
+  known, controlled address rather than a fresh wallet-derived one. The field
+  is mutually exclusive with `send_all`.
+
 ## RPC Additions
 
+* [`SendCoins`](https://github.com/lightningnetwork/lnd/pull/10810) now accepts
+  a `change_address` field on `SendCoinsRequest`. When set, change is sent to
+  the specified address instead of a wallet-derived one. Cannot be combined
+  with `send_all`.
+
+* [`SendMany`](https://github.com/lightningnetwork/lnd/pull/10810) now accepts
+  a `change_address` field on `SendManyRequest` with the same semantics.
+
+* [`WalletKit.SendOutputs`](https://github.com/lightningnetwork/lnd/pull/10810)
+  now accepts a `change_address` field on `SendOutputsRequest` with the same
+  semantics.
+
 ## lncli Additions
+
+* `sendcoins` now accepts a
+  [`--change_address`](https://github.com/lightningnetwork/lnd/pull/10810) flag
+  to specify a custom destination for change. Mutually exclusive with
+  `--sweepall`.
+
+* `sendmany` now accepts a
+  [`--change_address`](https://github.com/lightningnetwork/lnd/pull/10810) flag
+  with the same semantics.
 
 # Improvements
 

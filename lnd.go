@@ -15,6 +15,7 @@ import (
 	"os"
 	"runtime"
 	runtimePprof "runtime/pprof"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +30,9 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/watchonlyrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/rpcperms"
@@ -314,6 +317,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		defer cleanUp()
 	}
 
+	baseServerOpts := append([]grpc.ServerOption{}, serverOpts...)
+
 	// If we have chosen to start with a dedicated listener for the
 	// rpc server, we set it directly.
 	grpcListeners := append([]*ListenerWithSignal{}, lisCfg.RPCListeners...)
@@ -493,14 +498,75 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	defer cleanUp()
 
-	activeChainControl, cleanUp, err := implCfg.BuildChainControl(
+	chainControlResult, err := implCfg.BuildChainControl(
 		partialChainControl, walletConfig,
 	)
 	if err != nil {
+		if chainControlResult != nil &&
+			chainControlResult.CleanUp != nil {
+
+			chainControlResult.CleanUp()
+		}
+
 		return mkErr("error loading chain control", err)
 	}
 
-	defer cleanUp()
+	defer chainControlResult.CleanUp()
+
+	activeChainControl := chainControlResult.ChainControl
+
+	// If the chain control returned an inbound remote signer connection,
+	// start the dedicated RPC server for it. This RPC is not served by
+	// the main RPC server.
+	if chainControlResult.InboundRemoteSignerConn != nil {
+		rsGRPCServer, rsListeners,
+			rsInterceptor, err := startInboundWatchOnlyRPCServer(
+			cfg, baseServerOpts, serverKeepalive, clientKeepalive,
+			interceptorChain,
+			chainControlResult.InboundRemoteSignerConn,
+		)
+		if err != nil {
+			return mkErr("error starting inbound remote signer "+
+				"RPC server", err)
+		}
+		if rsGRPCServer != nil {
+			defer rsGRPCServer.Stop()
+		}
+		if rsInterceptor != nil {
+			defer func() {
+				if err := rsInterceptor.Stop(); err != nil {
+					ltndLog.Warnf("error stopping remote "+
+						"signer RPC interceptor "+
+						"chain: %v", err)
+				}
+			}()
+		}
+		for _, lis := range rsListeners {
+			defer lis.Close()
+		}
+	}
+
+	// We'll wait until the wallet is fully ready to be used before we
+	// proceed to derive keys from it.
+	select {
+	case err = <-activeChainControl.Wallet.WalletController.ReadySignal(
+		ctx,
+	):
+		if err != nil {
+			return mkErr("error when waiting for wallet to be "+
+				"ready", err)
+		}
+
+	case <-interceptor.ShutdownChannel():
+		// If we receive a shutdown signal while waiting for the wallet
+		// to be ready, we must stop blocking so that all the deferred
+		// clean up functions can be executed. That will also shut down
+		// the wallet.
+		// We can't continue to execute the code below as we can't
+		// do any operations which requires private keys.
+		return mkErr("Shutting down", errors.New("shutdown signal "+
+			"received while waiting for wallet to be ready"))
+	}
 
 	// TODO(roasbeef): add rotation
 	idKeyDesc, err := activeChainControl.KeyRing.DeriveKey(
@@ -623,13 +689,24 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		multiAcceptor = chanacceptor.NewChainedAcceptor()
 	}
 
+	rscBuilder := rpcwallet.NewRemoteSignerClientBuilder(cfg.WatchOnlyNode)
+
+	// We pass a factory instead of a concrete RemoteSignerClient because
+	// the builder needs rpcServer.subServers (WalletKit/Signer), and those
+	// sub-servers are only instantiated in rpcServer.addDeps() later in
+	// startup. The server calls this factory in server.Start(), after that.
+	remoteSignerClientFactory :=
+		func() (rpcwallet.RemoteSignerClient, error) {
+			return rscBuilder.Build(rpcServer.subServers)
+		}
+
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	server, err := newServer(
 		ctx, cfg, cfg.Listeners, dbs, activeChainControl, &idKeyDesc,
 		activeChainControl.Cfg.WalletUnlockParams.ChansToRestore,
 		multiAcceptor, torController, tlsManager, leaderElector,
-		implCfg,
+		implCfg, remoteSignerClientFactory,
 	)
 	if err != nil {
 		return mkErr("unable to create server", err)
@@ -1061,4 +1138,181 @@ func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
 	wg.Wait()
 
 	return shutdown, nil
+}
+
+// makeRemoteSignerListeners normalizes and binds the listeners for the
+// dedicated remote signer RPC server. A nil or empty listener set indicates
+// the inbound watch-only signer endpoint is disabled.
+func makeRemoteSignerListeners(cfg *Config) ([]*ListenerWithSignal, error) {
+	addrs, err := normalizeRemoteSignerListenAddrs(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if len(addrs) == 0 {
+		return nil, nil
+	}
+
+	listeners := make([]*ListenerWithSignal, 0, len(addrs))
+	for _, addr := range addrs {
+		lis, err := lncfg.ListenOnAddress(addr)
+		if err != nil {
+			for _, openLis := range listeners {
+				_ = openLis.Close()
+			}
+
+			return nil, fmt.Errorf("unable to listen on remote "+
+				"signer RPC endpoint %s: %w", addr, err)
+		}
+
+		listeners = append(listeners, &ListenerWithSignal{
+			Listener: lis,
+			Ready:    make(chan struct{}),
+		})
+	}
+
+	return listeners, nil
+}
+
+// normalizeRemoteSignerListenAddrs normalizes the configured dedicated remote
+// signer listener addresses and applies the dedicated remote signer default
+// port when no port is specified.
+func normalizeRemoteSignerListenAddrs(cfg *Config) ([]net.Addr, error) {
+	if cfg.RemoteSigner == nil || len(cfg.RemoteSigner.RPCListeners) == 0 {
+		return nil, nil
+	}
+
+	addrs, err := lncfg.NormalizeAddresses(
+		cfg.RemoteSigner.RPCListeners,
+		strconv.Itoa(lncfg.DefaultRemoteSignerListenPort),
+		cfg.net.ResolveTCPAddr,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error normalizing remote signer RPC "+
+			"listen addrs: %w", err)
+	}
+
+	return addrs, nil
+}
+
+// startInboundWatchOnlyRPCServer starts the dedicated gRPC server that serves
+// the inbound watch-only signer stream. The server uses its own interceptor
+// chain and listeners so remote signing can be exposed independently from the
+// main RPC server while still sharing the main macaroon service.
+func startInboundWatchOnlyRPCServer(cfg *Config,
+	baseServerOpts []grpc.ServerOption,
+	serverKeepalive keepalive.ServerParameters,
+	clientKeepalive keepalive.EnforcementPolicy,
+	mainInterceptor *rpcperms.InterceptorChain,
+	conn rpcwallet.InboundRemoteSignerConnection) (*grpc.Server,
+	[]*ListenerWithSignal, *rpcperms.InterceptorChain, error) {
+
+	var (
+		cleanups []func()
+		success  bool
+	)
+
+	cleanup := func() {
+		for i := len(cleanups) - 1; i >= 0; i-- {
+			cleanups[i]()
+		}
+	}
+	defer func() {
+		if !success {
+			cleanup()
+		}
+	}()
+
+	listeners, err := makeRemoteSignerListeners(cfg)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if len(listeners) == 0 {
+		return nil, nil, nil, nil
+	}
+
+	cleanups = append(cleanups, func() {
+		for _, lis := range listeners {
+			_ = lis.Close()
+		}
+	})
+
+	// This dedicated server cannot host middleware registrations itself,
+	// so mandatory middleware enforcement must remain disabled here.
+	interceptor := rpcperms.NewInterceptorChain(
+		rpcsLog, cfg.NoMacaroons, nil,
+	)
+	if err := interceptor.Start(); err != nil {
+		return nil, nil, nil, fmt.Errorf("error starting remote "+
+			"signer interceptor chain: %w", err)
+	}
+
+	cleanups = append(cleanups, func() {
+		_ = interceptor.Stop()
+	})
+
+	interceptor.AddMacaroonService(mainInterceptor.MacaroonService())
+	if err := interceptor.AddPermission(
+		watchonlyrpc.FullMethodSignCoordinatorStreams,
+		watchonlyrpc.SignCoordinatorStreamsPermissions,
+	); err != nil {
+		return nil, nil, nil, fmt.Errorf("error adding remote signer "+
+			"RPC permission: %w", err)
+	}
+
+	// This dedicated server is only intended to serve the inbound remote
+	// signer stream during startup and runtime, so it can be active
+	// immediately.
+	interceptor.SetRPCActive()
+
+	serverOpts := append([]grpc.ServerOption{}, baseServerOpts...)
+	serverOpts = append(serverOpts, interceptor.CreateServerOpts()...)
+	serverOpts = append(
+		serverOpts,
+		grpc.KeepaliveParams(serverKeepalive),
+		grpc.KeepaliveEnforcementPolicy(clientKeepalive),
+		grpc.MaxRecvMsgSize(lnrpc.MaxGrpcMsgSize),
+	)
+
+	grpcServer := grpc.NewServer(serverOpts...)
+	cleanups = append(cleanups, grpcServer.Stop)
+	watchonlyrpc.RegisterWatchOnlyServer(grpcServer,
+		&watchonlyrpc.InboundServer{Conn: conn})
+
+	err = startGrpcListenNoPrometheus(grpcServer, listeners)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	success = true
+
+	return grpcServer, listeners, interceptor, nil
+}
+
+// startGrpcListenNoPrometheus starts a gRPC server on the passed listeners
+// without exporting Prometheus metrics. This is used by the dedicated remote
+// signer RPC server because Prometheus registration must remain a single-shot
+// operation on the main RPC server.
+func startGrpcListenNoPrometheus(grpcServer *grpc.Server,
+	listeners []*ListenerWithSignal) error {
+
+	// We only use the wait group to wait until each listener has signaled
+	// readiness, not until the serving goroutines exit.
+	var wg sync.WaitGroup
+
+	for _, lis := range listeners {
+		wg.Add(1)
+		go func() {
+			rpcsLog.Infof("Remote signer RPC server listening "+
+				"on %s", lis.Addr())
+
+			close(lis.Ready)
+			wg.Done()
+
+			_ = grpcServer.Serve(lis)
+		}()
+	}
+
+	wg.Wait()
+
+	return nil
 }

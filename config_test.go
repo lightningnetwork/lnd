@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 )
 
@@ -114,6 +116,53 @@ func TestSupplyEnvValue(t *testing.T) {
 		t.Run(test.description, func(t *testing.T) {
 			result := supplyEnvValue(test.input)
 			require.Equal(t, test.expected, result)
+		})
+	}
+}
+
+// TestNormalizeRemoteSignerListenAddrs makes sure lnd preserves explicitly
+// configured dedicated inbound remote signer listener ports and applies the
+// dedicated default port when none is specified. We keep the default-port case
+// as a unit test because an itest would need to bind the real default port
+// 10019, which becomes flaky under the parallel CI tranche runner where
+// multiple test processes can contend for the same host port. The remote
+// signer itests also covers the end-to-end dedicated listener path, but they
+// do so with explicit dynamically assigned ports instead of the fixed default.
+func TestNormalizeRemoteSignerListenAddrs(t *testing.T) {
+	tests := []struct {
+		name     string
+		listener string
+		expected string
+	}{
+		{
+			name:     "default port",
+			listener: "localhost",
+			expected: "127.0.0.1:10019",
+		},
+		{
+			name:     "explicit port",
+			listener: "localhost:12019",
+			expected: "127.0.0.1:12019",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			inboundCfg := lncfg.InboundWatchOnlyCfg{
+				RPCListeners: []string{test.listener},
+			}
+
+			cfg := &Config{
+				RemoteSigner: &lncfg.RemoteSigner{
+					InboundWatchOnlyCfg: inboundCfg,
+				},
+				net: &tor.ClearNet{},
+			}
+
+			addrs, err := normalizeRemoteSignerListenAddrs(cfg)
+			require.NoError(t, err)
+			require.Len(t, addrs, 1)
+			require.Equal(t, test.expected, addrs[0].String())
 		})
 	}
 }

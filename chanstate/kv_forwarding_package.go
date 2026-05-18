@@ -3,6 +3,7 @@ package chanstate
 import (
 	"bytes"
 	"errors"
+	"io"
 
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -200,13 +201,13 @@ func (*ChannelPackager) AddFwdPkg(tx kvdb.RwTx, fwdPkg *FwdPkg) error {
 		return err
 	}
 
-	source := makeLogKey(fwdPkg.Source.ToUint64())
+	source := forwardingLogKey(fwdPkg.Source.ToUint64())
 	sourceBkt, err := fwdPkgBkt.CreateBucketIfNotExists(source[:])
 	if err != nil {
 		return err
 	}
 
-	heightKey := makeLogKey(fwdPkg.Height)
+	heightKey := forwardingLogKey(fwdPkg.Height)
 	heightBkt, err := sourceBkt.CreateBucketIfNotExists(heightKey[:])
 	if err != nil {
 		return err
@@ -273,6 +274,21 @@ func putLogUpdate(bkt kvdb.RwBucket, idx uint16, htlc *LogUpdate) error {
 	return bkt.Put(uint16Key(idx), b.Bytes())
 }
 
+// serializeLogUpdate writes a log update to the provided io.Writer.
+func serializeLogUpdate(w io.Writer, l *LogUpdate) error {
+	return WriteElements(w, l.LogIndex, l.UpdateMsg)
+}
+
+// deserializeLogUpdate reads a log update from the provided io.Reader.
+func deserializeLogUpdate(r io.Reader) (*LogUpdate, error) {
+	l := &LogUpdate{}
+	if err := ReadElements(r, &l.LogIndex, &l.UpdateMsg); err != nil {
+		return nil, err
+	}
+
+	return l, nil
+}
+
 // LoadFwdPkgs scans the forwarding log for any packages that haven't been
 // processed, and returns their deserialized log updates in a map indexed by the
 // remote commitment height at which the updates were locked in.
@@ -289,7 +305,7 @@ func loadChannelFwdPkgs(tx kvdb.RTx,
 		return nil, nil
 	}
 
-	sourceKey := makeLogKey(source.ToUint64())
+	sourceKey := forwardingLogKey(source.ToUint64())
 	sourceBkt := fwdPkgBkt.NestedReadBucket(sourceKey[:])
 	if sourceBkt == nil {
 		return nil, nil
@@ -327,13 +343,13 @@ func loadChannelFwdPkgs(tx kvdb.RTx,
 func loadFwdPkg(fwdPkgBkt kvdb.RBucket, source lnwire.ShortChannelID,
 	height uint64) (*FwdPkg, error) {
 
-	sourceKey := makeLogKey(source.ToUint64())
+	sourceKey := forwardingLogKey(source.ToUint64())
 	sourceBkt := fwdPkgBkt.NestedReadBucket(sourceKey[:])
 	if sourceBkt == nil {
 		return nil, ErrCorruptedFwdPkg
 	}
 
-	heightKey := makeLogKey(height)
+	heightKey := forwardingLogKey(height)
 	heightBkt := sourceBkt.NestedReadBucket(heightKey[:])
 	if heightBkt == nil {
 		return nil, ErrCorruptedFwdPkg
@@ -470,13 +486,13 @@ func (p *ChannelPackager) SetFwdFilter(tx kvdb.RwTx, height uint64,
 		return ErrCorruptedFwdPkg
 	}
 
-	source := makeLogKey(p.source.ToUint64())
+	source := forwardingLogKey(p.source.ToUint64())
 	sourceBkt := fwdPkgBkt.NestedReadWriteBucket(source[:])
 	if sourceBkt == nil {
 		return ErrCorruptedFwdPkg
 	}
 
-	heightKey := makeLogKey(height)
+	heightKey := forwardingLogKey(height)
 	heightBkt := sourceBkt.NestedReadWriteBucket(heightKey[:])
 	if heightBkt == nil {
 		return ErrCorruptedFwdPkg
@@ -511,7 +527,7 @@ func (p *ChannelPackager) AckAddHtlcs(tx kvdb.RwTx, addRefs ...AddRef) error {
 		return ErrCorruptedFwdPkg
 	}
 
-	sourceKey := makeLogKey(p.source.ToUint64())
+	sourceKey := forwardingLogKey(p.source.ToUint64())
 	sourceBkt := fwdPkgBkt.NestedReadWriteBucket(sourceKey[:])
 	if sourceBkt == nil {
 		return ErrCorruptedFwdPkg
@@ -544,7 +560,7 @@ func (p *ChannelPackager) AckAddHtlcs(tx kvdb.RwTx, addRefs ...AddRef) error {
 func ackAddHtlcsAtHeight(sourceBkt kvdb.RwBucket, height uint64,
 	indexes []uint16) error {
 
-	heightKey := makeLogKey(height)
+	heightKey := forwardingLogKey(height)
 	heightBkt := sourceBkt.NestedReadWriteBucket(heightKey[:])
 	if heightBkt == nil {
 		// If the height bucket isn't found, this could be because the
@@ -621,7 +637,7 @@ func ackSettleFails(tx kvdb.RwTx, settleFailRefs []SettleFailRef) error {
 	// each remote bucket, and update the settle fail filter for any
 	// settle/fail htlcs.
 	for dest, destHeights := range destHeightDiffs {
-		destKey := makeLogKey(dest.ToUint64())
+		destKey := forwardingLogKey(dest.ToUint64())
 		destBkt := fwdPkgBkt.NestedReadWriteBucket(destKey[:])
 		if destBkt == nil {
 			// If the destination bucket is not found, this is
@@ -648,7 +664,7 @@ func ackSettleFails(tx kvdb.RwTx, settleFailRefs []SettleFailRef) error {
 func ackSettleFailsAtHeight(destBkt kvdb.RwBucket, height uint64,
 	indexes []uint16) error {
 
-	heightKey := makeLogKey(height)
+	heightKey := forwardingLogKey(height)
 	heightBkt := destBkt.NestedReadWriteBucket(heightKey[:])
 	if heightBkt == nil {
 		// If the height bucket isn't found, this could be because the
@@ -691,13 +707,13 @@ func (p *ChannelPackager) RemovePkg(tx kvdb.RwTx, height uint64) error {
 		return nil
 	}
 
-	sourceBytes := makeLogKey(p.source.ToUint64())
+	sourceBytes := forwardingLogKey(p.source.ToUint64())
 	sourceBkt := fwdPkgBkt.NestedReadWriteBucket(sourceBytes[:])
 	if sourceBkt == nil {
 		return ErrCorruptedFwdPkg
 	}
 
-	heightKey := makeLogKey(height)
+	heightKey := forwardingLogKey(height)
 
 	return sourceBkt.DeleteNestedBucket(heightKey[:])
 }
@@ -710,7 +726,7 @@ func (p *ChannelPackager) Wipe(tx kvdb.RwTx) error {
 		return nil
 	}
 
-	sourceBytes := makeLogKey(p.source.ToUint64())
+	sourceBytes := forwardingLogKey(p.source.ToUint64())
 
 	// If the nested bucket doesn't exist, there's no need to delete.
 	if fwdPkgBkt.NestedReadWriteBucket(sourceBytes[:]) == nil {
@@ -724,6 +740,13 @@ func (p *ChannelPackager) Wipe(tx kvdb.RwTx) error {
 func uint16Key(i uint16) []byte {
 	key := make([]byte, 2)
 	byteOrder.PutUint16(key, i)
+	return key
+}
+
+// forwardingLogKey converts a uint64 into an 8 byte forwarding package key.
+func forwardingLogKey(updateNum uint64) [8]byte {
+	var key [8]byte
+	byteOrder.PutUint64(key[:], updateNum)
 	return key
 }
 

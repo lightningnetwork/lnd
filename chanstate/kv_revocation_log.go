@@ -100,7 +100,7 @@ func PutRevocationLog(bucket kvdb.RwBucket, commit *ChannelCommitment,
 		return err
 	}
 
-	logEntrykey := makeLogKey(commit.CommitHeight)
+	logEntrykey := revocationLogKey(commit.CommitHeight)
 
 	return bucket.Put(logEntrykey[:], b.Bytes())
 }
@@ -110,7 +110,7 @@ func PutRevocationLog(bucket kvdb.RwBucket, commit *ChannelCommitment,
 func FetchRevocationLog(log kvdb.RBucket,
 	updateNum uint64) (RevocationLog, error) {
 
-	logEntrykey := makeLogKey(updateNum)
+	logEntrykey := revocationLogKey(updateNum)
 	commitBytes := log.Get(logEntrykey[:])
 	if commitBytes == nil {
 		return RevocationLog{}, ErrLogEntryNotFound
@@ -119,4 +119,11 @@ func FetchRevocationLog(log kvdb.RBucket,
 	commitReader := bytes.NewReader(commitBytes)
 
 	return DeserializeRevocationLog(commitReader)
+}
+
+// revocationLogKey converts a uint64 into an 8 byte revocation log key.
+func revocationLogKey(updateNum uint64) [8]byte {
+	var key [8]byte
+	byteOrder.PutUint64(key[:], updateNum)
+	return key
 }

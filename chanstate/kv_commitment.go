@@ -316,6 +316,43 @@ func extractCommitTlvData(c *ChannelCommitment) commitTlvData {
 	return auxData
 }
 
+// SerializeLogUpdates serializes provided list of updates to a stream.
+func SerializeLogUpdates(w io.Writer, logUpdates []LogUpdate) error {
+	numUpdates := uint16(len(logUpdates))
+	if err := binary.Write(w, byteOrder, numUpdates); err != nil {
+		return err
+	}
+
+	for _, diff := range logUpdates {
+		err := WriteElements(w, diff.LogIndex, diff.UpdateMsg)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// DeserializeLogUpdates deserializes a list of updates from a stream.
+func DeserializeLogUpdates(r io.Reader) ([]LogUpdate, error) {
+	var numUpdates uint16
+	if err := binary.Read(r, byteOrder, &numUpdates); err != nil {
+		return nil, err
+	}
+
+	logUpdates := make([]LogUpdate, numUpdates)
+	for i := 0; i < int(numUpdates); i++ {
+		err := ReadElements(r,
+			&logUpdates[i].LogIndex, &logUpdates[i].UpdateMsg,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return logUpdates, nil
+}
+
 // SerializeCommitDiff serializes the commit diff.
 func SerializeCommitDiff(w io.Writer, diff *CommitDiff) error {
 	if err := SerializeChanCommit(w, &diff.Commitment); err != nil {

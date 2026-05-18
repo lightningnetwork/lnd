@@ -1722,6 +1722,7 @@ func (c *ChannelStateDB) RestoreChannelShells(channelShells ...*ChannelShell) er
 			channel.Db = c
 			err := syncNewChannel(
 				tx, channel, channelShell.NodeAddrs, c.backend,
+				channel.FundingBroadcastHeight,
 			)
 			if err != nil {
 				return err

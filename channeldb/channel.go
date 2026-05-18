@@ -262,12 +262,6 @@ func fetchFinalHtlcsBucketRw(tx kvdb.RwTx,
 	return cstate.FetchFinalHtlcsBucketRw(tx, chanID)
 }
 
-// fullSyncOpenChannel syncs the contents of an OpenChannel while re-using an
-// existing database transaction.
-func fullSyncOpenChannel(tx kvdb.RwTx, c *OpenChannel) error {
-	return cstate.FullSyncOpenChannel(tx, c)
-}
-
 // MarkChannelConfirmationHeight updates the channel's confirmation height once
 // the channel opening transaction receives one confirmation.
 func (c *ChannelStateDB) MarkChannelConfirmationHeight(channel *OpenChannel,
@@ -429,20 +423,22 @@ func fetchOpenChannel(chanBucket kvdb.RBucket,
 func (c *ChannelStateDB) SyncPendingChannel(channel *OpenChannel,
 	addr net.Addr, pendingHeight uint32) error {
 
-	channel.FundingBroadcastHeight = pendingHeight
-
 	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		return syncNewChannel(tx, channel, []net.Addr{addr}, c.backend)
+		return syncNewChannel(
+			tx, channel, []net.Addr{addr}, c.backend,
+			pendingHeight,
+		)
 	}, func() {})
 }
 
 // syncNewChannel will write the passed channel to disk, and also create a
 // LinkNode (if needed) for the channel peer.
 func syncNewChannel(tx kvdb.RwTx, c *OpenChannel, addrs []net.Addr,
-	backend kvdb.Backend) error {
+	backend kvdb.Backend, pendingHeight uint32) error {
 
 	// First, sync all the persistent channel state to disk.
-	if err := fullSyncOpenChannel(tx, c); err != nil {
+	err := cstate.SyncPendingOpenChannel(tx, c, pendingHeight)
+	if err != nil {
 		return err
 	}
 

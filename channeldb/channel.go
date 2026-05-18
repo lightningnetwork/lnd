@@ -460,9 +460,8 @@ func (c *ChannelStateDB) UpdateChannelCommitment(channel *OpenChannel,
 	newCommitment *ChannelCommitment,
 	unsignedAckedUpdates []LogUpdate) (map[uint64]bool, error) {
 
-	return cstate.UpdateChannelCommitment(
-		c.backend, channel, newCommitment, unsignedAckedUpdates,
-		c.parent.storeFinalHtlcResolutions,
+	return c.kvStore.UpdateChannelCommitment(
+		channel, newCommitment, unsignedAckedUpdates,
 	)
 }
 
@@ -510,7 +509,7 @@ func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 func (c *ChannelStateDB) AppendRemoteCommitChain(channel *OpenChannel,
 	diff *CommitDiff) error {
 
-	return cstate.AppendRemoteCommitChain(c.backend, channel, diff)
+	return c.kvStore.AppendRemoteCommitChain(channel, diff)
 }
 
 // RemoteCommitChainTip returns the "tip" of the current remote commitment
@@ -518,7 +517,7 @@ func (c *ChannelStateDB) AppendRemoteCommitChain(channel *OpenChannel,
 func (c *ChannelStateDB) RemoteCommitChainTip(channel *OpenChannel) (
 	*CommitDiff, error) {
 
-	return cstate.RemoteCommitChainTip(c.backend, channel)
+	return c.kvStore.RemoteCommitChainTip(channel)
 }
 
 // UnsignedAckedUpdates retrieves the persisted unsigned acked remote log
@@ -526,7 +525,7 @@ func (c *ChannelStateDB) RemoteCommitChainTip(channel *OpenChannel) (
 func (c *ChannelStateDB) UnsignedAckedUpdates(channel *OpenChannel) (
 	[]LogUpdate, error) {
 
-	return cstate.UnsignedAckedUpdates(c.backend, channel)
+	return c.kvStore.UnsignedAckedUpdates(channel)
 }
 
 // RemoteUnsignedLocalUpdates retrieves the persisted, unsigned local log
@@ -534,7 +533,7 @@ func (c *ChannelStateDB) UnsignedAckedUpdates(channel *OpenChannel) (
 func (c *ChannelStateDB) RemoteUnsignedLocalUpdates(channel *OpenChannel) (
 	[]LogUpdate, error) {
 
-	return cstate.RemoteUnsignedLocalUpdates(c.backend, channel)
+	return c.kvStore.RemoteUnsignedLocalUpdates(channel)
 }
 
 // InsertNextRevocation inserts the next commitment point into the persisted
@@ -542,7 +541,7 @@ func (c *ChannelStateDB) RemoteUnsignedLocalUpdates(channel *OpenChannel) (
 func (c *ChannelStateDB) InsertNextRevocation(channel *OpenChannel,
 	revKey *btcec.PublicKey) error {
 
-	return cstate.InsertNextRevocation(c.backend, channel, revKey)
+	return c.kvStore.InsertNextRevocation(channel, revKey)
 }
 
 // AdvanceCommitChainTail records the new state transition within the
@@ -552,9 +551,8 @@ func (c *ChannelStateDB) AdvanceCommitChainTail(channel *OpenChannel,
 	fwdPkg *FwdPkg, updates []LogUpdate, ourOutputIndex,
 	theirOutputIndex uint32) error {
 
-	return cstate.AdvanceCommitChainTail(
-		c.backend, channel, fwdPkg, updates, ourOutputIndex,
-		theirOutputIndex, c.parent.noRevLogAmtData,
+	return c.kvStore.AdvanceCommitChainTail(
+		channel, fwdPkg, updates, ourOutputIndex, theirOutputIndex,
 	)
 }
 
@@ -636,7 +634,7 @@ func (c *ChannelStateDB) revocationLogTailCommitHeight(
 func (c *ChannelStateDB) CommitmentHeight(channel *OpenChannel) (
 	uint64, error) {
 
-	return cstate.CommitmentHeight(c.backend, channel)
+	return c.kvStore.CommitmentHeight(channel)
 }
 
 // FindPreviousState scans through the append-only log in an attempt to recover
@@ -647,7 +645,7 @@ func (c *ChannelStateDB) CommitmentHeight(channel *OpenChannel) (
 func (c *ChannelStateDB) FindPreviousState(channel *OpenChannel,
 	updateNum uint64) (*RevocationLog, *ChannelCommitment, error) {
 
-	return cstate.FindPreviousState(c.backend, channel, updateNum)
+	return c.kvStore.FindPreviousState(channel, updateNum)
 }
 
 // ClosureType is an enum like structure that details exactly how a channel was
@@ -709,7 +707,7 @@ type ChannelSnapshot = cstate.ChannelSnapshot
 func (c *ChannelStateDB) LatestCommitments(channel *OpenChannel) (
 	*ChannelCommitment, *ChannelCommitment, error) {
 
-	return cstate.LatestCommitments(c.backend, channel)
+	return c.kvStore.LatestCommitments(channel)
 }
 
 // RemoteRevocationStore returns the most up to date commitment version of the
@@ -719,7 +717,7 @@ func (c *ChannelStateDB) LatestCommitments(channel *OpenChannel) (
 func (c *ChannelStateDB) RemoteRevocationStore(channel *OpenChannel) (
 	shachain.Store, error) {
 
-	return cstate.RemoteRevocationStore(c.backend, channel)
+	return c.kvStore.RemoteRevocationStore(channel)
 }
 
 func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {

@@ -4,13 +4,16 @@ import (
 	"errors"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/stretchr/testify/require"
 )
 
@@ -479,6 +482,11 @@ func TestAddWalletInputsNotEnoughInputs(t *testing.T) {
 	wallet.On("ListUnspentWitnessFromDefaultAccount",
 		min, max).Return([]*lnwallet.Utxo{utxo}, nil).Once()
 
+	// The utxo will be leased on the wallet to prevent collisions
+	// with sibling InputSets.
+	wallet.On("LeaseOutput", LndSweeperLockID, utxo.OutPoint,
+		chanfunding.DefaultLockDuration).Return(time.Time{}, nil).Once()
+
 	// Initialize an input set with the pending input.
 	set := BudgetInputSet{inputs: []*SweeperInput{pi}}
 
@@ -603,6 +611,12 @@ func TestAddWalletInputsSuccess(t *testing.T) {
 	wallet.On("ListUnspentWitnessFromDefaultAccount",
 		min, max).Return([]*lnwallet.Utxo{utxo, utxo}, nil).Once()
 
+	// Both utxos will be leased on the wallet to prevent collisions
+	// with sibling InputSets.
+	wallet.On("LeaseOutput", LndSweeperLockID, utxo.OutPoint,
+		chanfunding.DefaultLockDuration).Return(
+		time.Time{}, nil).Twice()
+
 	// Initialize an input set with the pending input.
 	set, err := NewBudgetInputSet(
 		[]SweeperInput{*pi}, deadline, fn.None[AuxSweeper](),
@@ -632,4 +646,120 @@ func TestAddWalletInputsSuccess(t *testing.T) {
 	require.Equal(t, deadline, set.DeadlineHeight())
 	// Weak check, a strong check is to open the slice and check each item.
 	require.Len(t, set.inputs, 3)
+}
+
+// TestAddWalletInputsLeasesOutput asserts that AddWalletInputs leases each
+// selected wallet UTXO under the sweeper's lock ID. This is what prevents a
+// sibling InputSet processed in the same coin-select-lock cycle from picking
+// the same fee UTXO and producing a "tx has no output" collision when the
+// winning sweep spends the shared input.
+func TestAddWalletInputsLeasesOutput(t *testing.T) {
+	t.Parallel()
+
+	wallet := &MockWallet{}
+	defer wallet.AssertExpectations(t)
+
+	minConf, maxConf := int32(1), int32(math.MaxInt32)
+
+	const budget = 10_000
+
+	mockInput := &input.MockInput{}
+	mockInput.On("RequiredTxOut").Return(&wire.TxOut{})
+	defer mockInput.AssertExpectations(t)
+
+	sd := &input.SignDescriptor{
+		Output: &wire.TxOut{Value: budget},
+	}
+	mockInput.On("SignDesc").Return(sd).Once()
+
+	pi := &SweeperInput{
+		Input:  mockInput,
+		params: Params{Budget: budget},
+	}
+
+	utxo := &lnwallet.Utxo{
+		AddressType: lnwallet.WitnessPubKey,
+		Value:       budget - 1,
+		OutPoint: wire.OutPoint{
+			Hash:  chainhash.Hash{0xab},
+			Index: 7,
+		},
+	}
+
+	wallet.On("ListUnspentWitnessFromDefaultAccount",
+		minConf, maxConf).Return([]*lnwallet.Utxo{utxo}, nil).Once()
+
+	// The wallet must observe a LeaseOutput call for the selected utxo
+	// under the sweeper's lock ID.
+	wallet.On("LeaseOutput", LndSweeperLockID, utxo.OutPoint,
+		chanfunding.DefaultLockDuration).Return(time.Time{}, nil).Once()
+
+	set := BudgetInputSet{inputs: []*SweeperInput{pi}}
+
+	require.NoError(t, set.AddWalletInputs(wallet))
+	require.Len(t, set.inputs, 2)
+}
+
+// TestAddWalletInputsSkipsAlreadyLeased asserts that when a candidate wallet
+// UTXO is already leased by some other subsystem, AddWalletInputs rolls back
+// the in-memory add for that UTXO and continues with the next candidate.
+func TestAddWalletInputsSkipsAlreadyLeased(t *testing.T) {
+	t.Parallel()
+
+	wallet := &MockWallet{}
+	defer wallet.AssertExpectations(t)
+
+	minConf, maxConf := int32(1), int32(math.MaxInt32)
+
+	const budget = 10_000
+
+	mockInput := &input.MockInput{}
+	mockInput.On("RequiredTxOut").Return(&wire.TxOut{})
+	defer mockInput.AssertExpectations(t)
+
+	sd := &input.SignDescriptor{
+		Output: &wire.TxOut{Value: budget},
+	}
+	mockInput.On("SignDesc").Return(sd).Once()
+
+	pi := &SweeperInput{
+		Input:  mockInput,
+		params: Params{Budget: budget},
+	}
+
+	lockedUTXO := &lnwallet.Utxo{
+		AddressType: lnwallet.WitnessPubKey,
+		Value:       budget - 1,
+		OutPoint: wire.OutPoint{
+			Hash:  chainhash.Hash{0xaa},
+			Index: 1,
+		},
+	}
+	freeUTXO := &lnwallet.Utxo{
+		AddressType: lnwallet.WitnessPubKey,
+		Value:       budget - 1,
+		OutPoint: wire.OutPoint{
+			Hash:  chainhash.Hash{0xbb},
+			Index: 2,
+		},
+	}
+
+	// AddWalletInputs sorts by value ascending; both utxos have the same
+	// value so the order matches the input slice order.
+	wallet.On("ListUnspentWitnessFromDefaultAccount", minConf, maxConf).
+		Return([]*lnwallet.Utxo{lockedUTXO, freeUTXO}, nil).Once()
+
+	wallet.On("LeaseOutput", LndSweeperLockID, lockedUTXO.OutPoint,
+		chanfunding.DefaultLockDuration).Return(
+		time.Time{}, wtxmgr.ErrOutputAlreadyLocked).Once()
+	wallet.On("LeaseOutput", LndSweeperLockID, freeUTXO.OutPoint,
+		chanfunding.DefaultLockDuration).Return(time.Time{}, nil).Once()
+
+	set := BudgetInputSet{inputs: []*SweeperInput{pi}}
+
+	require.NoError(t, set.AddWalletInputs(wallet))
+
+	// Only the free UTXO should have been added; the locked one was
+	// rolled back.
+	require.Len(t, set.inputs, 2)
 }

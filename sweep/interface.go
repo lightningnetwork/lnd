@@ -1,9 +1,12 @@
 package sweep
 
 import (
+	"time"
+
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -60,6 +63,18 @@ type Wallet interface {
 	// which could be e.g. btcd, bitcoind, neutrino, or another consensus
 	// service.
 	BackEnd() string
+
+	// LeaseOutput leases a wallet output for the given lock ID and
+	// duration, preventing it from being returned by subsequent coin
+	// selection calls (including ListUnspentWitnessFromDefaultAccount).
+	// The sweeper uses this so that wallet UTXOs it selects as fee inputs
+	// for one InputSet are not also selected for a sibling InputSet
+	// processed under the same coin-select lock cycle. The lease's expiry
+	// reclaims the UTXO if a sweep is abandoned, so no companion release
+	// API is needed here -- add one if and when an explicit-release
+	// caller emerges.
+	LeaseOutput(id wtxmgr.LockID, op wire.OutPoint,
+		duration time.Duration) (time.Time, error)
 }
 
 // SweepOutput is an output used to sweep funds from a channel output.

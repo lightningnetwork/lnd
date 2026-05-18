@@ -1,6 +1,7 @@
 package sweep
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -8,10 +9,12 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 )
 
 var (
@@ -368,10 +371,39 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 	})
 
 	// Add wallet inputs to the set until the specified budget is covered.
+	// Each successfully added wallet UTXO is also leased on the wallet so
+	// that a sibling InputSet processed under the same coin-select lock
+	// cycle (or before this sweep's tx confirms) does not pick the same
+	// UTXO and collide. The lease's duration is bounded; if the sweep is
+	// abandoned, the UTXO returns to the available pool on expiry.
 	for _, utxo := range utxos {
 		err := b.addWalletInput(utxo)
 		if err != nil {
 			return err
+		}
+
+		_, err = wallet.LeaseOutput(
+			LndSweeperLockID, utxo.OutPoint,
+			chanfunding.DefaultLockDuration,
+		)
+		switch {
+		// Another lnd subsystem already holds this UTXO. Treat the
+		// in-memory add as a no-op and try the next UTXO. We don't
+		// fail the sweep because the next UTXO is just as good.
+		case errors.Is(err, wtxmgr.ErrOutputAlreadyLocked):
+			log.Debugf("UTXO %v already leased, skipping",
+				utxo.OutPoint)
+
+			// Roll back the addWalletInput so the in-memory set
+			// stays consistent with what the wallet considers
+			// claimable for this sweep.
+			b.inputs = b.inputs[:len(b.inputs)-1]
+
+			continue
+
+		case err != nil:
+			return fmt.Errorf("lease wallet output %v: %w",
+				utxo.OutPoint, err)
 		}
 
 		// Return if we've reached the minimum output amount.

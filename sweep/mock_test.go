@@ -1,9 +1,12 @@
 package sweep
 
 import (
+	"time"
+
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -202,6 +205,15 @@ func (m *MockWallet) GetTransactionDetails(txHash *chainhash.Hash) (
 	}
 
 	return args.Get(0).(*lnwallet.TransactionDetail), args.Error(1)
+}
+
+// LeaseOutput leases a wallet output for the given lock ID and duration.
+func (m *MockWallet) LeaseOutput(id wtxmgr.LockID, op wire.OutPoint,
+	duration time.Duration) (time.Time, error) {
+
+	args := m.Called(id, op, duration)
+
+	return args.Get(0).(time.Time), args.Error(1)
 }
 
 // MockInputSet is a mock implementation of the InputSet interface.

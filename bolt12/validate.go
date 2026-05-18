@@ -340,6 +340,7 @@ func checkFeatures[T tlv.TlvType](
 
 			// Sort for deterministic errors.
 			slices.Sort(unknown)
+
 			return fmt.Errorf("%w: bit %d",
 				ErrUnknownEvenFeature, unknown[0])
 		},

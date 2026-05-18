@@ -59,6 +59,11 @@
   later in the reservation flow as a funder-balance-dust error; they now
   surface a clearer, spec-aligned error string up front.
 
+* [Initial BOLT 12 Offer codec](https://github.com/lightningnetwork/lnd/pull/10789):
+  add a new `bolt12/` package with the BOLT 12 `offer` TLV codec and full
+  reader/writer validation, plus a typed `lnwire.BlindedPath` introduction-node
+  codec shared by HTLC routing and onion messaging.
+
 ## Testing
 
 ## Database
@@ -69,5 +74,6 @@
 
 # Contributors (Alphabetical Order)
 
+* bitromortac
 * Boris Nagaev
 * Erick Cestari

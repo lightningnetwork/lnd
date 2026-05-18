@@ -681,6 +681,16 @@ func FetchOpenChannel(chanBucket kvdb.RBucket,
 	return channel, nil
 }
 
+// SyncPendingOpenChannel writes a pending channel to the store and records the
+// funding broadcast height using an existing database transaction.
+func SyncPendingOpenChannel(tx kvdb.RwTx, channel *OpenChannel,
+	pendingHeight uint32) error {
+
+	channel.FundingBroadcastHeight = pendingHeight
+
+	return FullSyncOpenChannel(tx, channel)
+}
+
 // RefreshChannel updates the in-memory channel state using the latest state
 // observed on disk.
 func RefreshChannel(backend kvdb.Backend, channel *OpenChannel) error {

@@ -412,6 +412,7 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB,
 			linkNodeDB: &LinkNodeDB{
 				backend: backend,
 			},
+			kvStore:                 chanstate.NewKVStore(backend),
 			backend:                 backend,
 			tombstoneClosedChannels: opts.tombstoneClosedChannels,
 		},
@@ -543,6 +544,10 @@ type ChannelStateDB struct {
 	// backend points to the actual backend holding the channel state
 	// database. This may be a real backend or a cache middleware.
 	backend kvdb.Backend
+
+	// kvStore is the chanstate-owned KV implementation. ChannelStateDB
+	// keeps compatibility wrappers while callers still import channeldb.
+	kvStore *chanstate.KVStore
 
 	// tombstoneClosedChannels is set by OptionTombstoneClosedChannels.
 	// When true, CloseChannel skips deleting nested per-channel state and
@@ -1793,11 +1798,7 @@ func (c *ChannelStateDB) AbandonChannel(chanPoint *wire.OutPoint,
 func (c *ChannelStateDB) SaveChannelOpeningState(outPoint,
 	serializedState []byte) error {
 
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		return chanstate.SaveChannelOpeningState(
-			tx, outPoint, serializedState,
-		)
-	}, func() {})
+	return c.kvStore.SaveChannelOpeningState(outPoint, serializedState)
 }
 
 // GetChannelOpeningState fetches the serialized channel state for the provided
@@ -1806,25 +1807,12 @@ func (c *ChannelStateDB) SaveChannelOpeningState(outPoint,
 func (c *ChannelStateDB) GetChannelOpeningState(outPoint []byte) ([]byte,
 	error) {
 
-	var serializedState []byte
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		var err error
-		serializedState, err = chanstate.GetChannelOpeningState(
-			tx, outPoint,
-		)
-
-		return err
-	}, func() {
-		serializedState = nil
-	})
-	return serializedState, err
+	return c.kvStore.GetChannelOpeningState(outPoint)
 }
 
 // DeleteChannelOpeningState removes any state for outPoint from the database.
 func (c *ChannelStateDB) DeleteChannelOpeningState(outPoint []byte) error {
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		return chanstate.DeleteChannelOpeningState(tx, outPoint)
-	}, func() {})
+	return c.kvStore.DeleteChannelOpeningState(outPoint)
 }
 
 // syncVersions function is used for safe db version synchronization. It

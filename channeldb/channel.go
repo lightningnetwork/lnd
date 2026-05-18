@@ -2,7 +2,6 @@ package channeldb
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -14,7 +13,6 @@ import (
 	cstate "github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
-	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -341,73 +339,6 @@ type CommitmentParams = cstate.CommitmentParams
 
 // ChannelConfig houses the channel configuration for one side of a channel.
 type ChannelConfig = cstate.ChannelConfig
-
-// commitTlvData stores all the optional data that may be stored as a TLV stream
-// at the _end_ of the normal serialized commit on disk.
-type commitTlvData struct {
-	// customBlob is a custom blob that may store extra data for custom
-	// channels.
-	customBlob tlv.OptionalRecordT[tlv.TlvType1, tlv.Blob]
-}
-
-// encode encodes the aux data into the passed io.Writer.
-func (c *commitTlvData) encode(w io.Writer) error {
-	var tlvRecords []tlv.Record
-	c.customBlob.WhenSome(func(blob tlv.RecordT[tlv.TlvType1, tlv.Blob]) {
-		tlvRecords = append(tlvRecords, blob.Record())
-	})
-
-	// Create the tlv stream.
-	tlvStream, err := tlv.NewStream(tlvRecords...)
-	if err != nil {
-		return err
-	}
-
-	return tlvStream.Encode(w)
-}
-
-// decode attempts to decode the aux data from the passed io.Reader.
-func (c *commitTlvData) decode(r io.Reader) error {
-	blob := c.customBlob.Zero()
-
-	tlvStream, err := tlv.NewStream(
-		blob.Record(),
-	)
-	if err != nil {
-		return err
-	}
-
-	tlvs, err := tlvStream.DecodeWithParsedTypes(r)
-	if err != nil {
-		return err
-	}
-
-	if _, ok := tlvs[c.customBlob.TlvType()]; ok {
-		c.customBlob = tlv.SomeRecordT(blob)
-	}
-
-	return nil
-}
-
-// amendCommitTlvData updates the commitment with the given auxiliary TLV data.
-func amendCommitTlvData(c *ChannelCommitment, auxData commitTlvData) {
-	auxData.customBlob.WhenSomeV(func(blob tlv.Blob) {
-		c.CustomBlob = fn.Some(blob)
-	})
-}
-
-// extractCommitTlvData creates a new commitTlvData from the given commitment.
-func extractCommitTlvData(c *ChannelCommitment) commitTlvData {
-	var auxData commitTlvData
-
-	c.CustomBlob.WhenSome(func(blob tlv.Blob) {
-		auxData.customBlob = tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[tlv.TlvType1](blob),
-		)
-	})
-
-	return auxData
-}
 
 // ChannelStatus is a bit vector used to indicate whether an OpenChannel is in
 // the default usable state, or a state where it shouldn't be used.
@@ -1456,125 +1387,6 @@ func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 	return cstate.DeserializeHtlcs(r)
 }
 
-func serializeCommitDiff(w io.Writer, diff *CommitDiff) error { // nolint: dupl
-	if err := cstate.SerializeChanCommit(w, &diff.Commitment); err != nil {
-		return err
-	}
-
-	if err := WriteElements(w, diff.CommitSig); err != nil {
-		return err
-	}
-
-	if err := cstate.SerializeLogUpdates(w, diff.LogUpdates); err != nil {
-		return err
-	}
-
-	numOpenRefs := uint16(len(diff.OpenedCircuitKeys))
-	if err := binary.Write(w, byteOrder, numOpenRefs); err != nil {
-		return err
-	}
-
-	for _, openRef := range diff.OpenedCircuitKeys {
-		err := WriteElements(w, openRef.ChanID, openRef.HtlcID)
-		if err != nil {
-			return err
-		}
-	}
-
-	numClosedRefs := uint16(len(diff.ClosedCircuitKeys))
-	if err := binary.Write(w, byteOrder, numClosedRefs); err != nil {
-		return err
-	}
-
-	for _, closedRef := range diff.ClosedCircuitKeys {
-		err := WriteElements(w, closedRef.ChanID, closedRef.HtlcID)
-		if err != nil {
-			return err
-		}
-	}
-
-	// We'll also encode the commit aux data stream here. We do this here
-	// rather than above (at the call to serializeChanCommit), to ensure
-	// backwards compat for reads to existing non-custom channels.
-	auxData := extractCommitTlvData(&diff.Commitment)
-	if err := auxData.encode(w); err != nil {
-		return fmt.Errorf("unable to write aux data: %w", err)
-	}
-
-	return nil
-}
-
-func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
-	var (
-		d   CommitDiff
-		err error
-	)
-
-	d.Commitment, err = cstate.DeserializeChanCommit(r)
-	if err != nil {
-		return nil, err
-	}
-
-	var msg lnwire.Message
-	if err := ReadElements(r, &msg); err != nil {
-		return nil, err
-	}
-	commitSig, ok := msg.(*lnwire.CommitSig)
-	if !ok {
-		return nil, fmt.Errorf("expected lnwire.CommitSig, instead "+
-			"read: %T", msg)
-	}
-	d.CommitSig = commitSig
-
-	d.LogUpdates, err = cstate.DeserializeLogUpdates(r)
-	if err != nil {
-		return nil, err
-	}
-
-	var numOpenRefs uint16
-	if err := binary.Read(r, byteOrder, &numOpenRefs); err != nil {
-		return nil, err
-	}
-
-	d.OpenedCircuitKeys = make([]models.CircuitKey, numOpenRefs)
-	for i := 0; i < int(numOpenRefs); i++ {
-		err := ReadElements(r,
-			&d.OpenedCircuitKeys[i].ChanID,
-			&d.OpenedCircuitKeys[i].HtlcID)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	var numClosedRefs uint16
-	if err := binary.Read(r, byteOrder, &numClosedRefs); err != nil {
-		return nil, err
-	}
-
-	d.ClosedCircuitKeys = make([]models.CircuitKey, numClosedRefs)
-	for i := 0; i < int(numClosedRefs); i++ {
-		err := ReadElements(r,
-			&d.ClosedCircuitKeys[i].ChanID,
-			&d.ClosedCircuitKeys[i].HtlcID)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// As a final step, we'll read out any aux commit data that we have at
-	// the end of this byte stream. We do this here to ensure backward
-	// compatibility, as otherwise we risk erroneously reading into the
-	// wrong field.
-	var auxData commitTlvData
-	if err := auxData.decode(r); err != nil {
-		return nil, fmt.Errorf("unable to decode aux data: %w", err)
-	}
-
-	amendCommitTlvData(&d.Commitment, auxData)
-
-	return &d, nil
-}
-
 func newChannelPackager(channel *OpenChannel) *ChannelPackager {
 	return NewChannelPackager(channel.ShortChannelID)
 }
@@ -1644,7 +1456,7 @@ func (c *ChannelStateDB) AppendRemoteCommitChain(channel *OpenChannel,
 		// With the bucket retrieved, we'll now serialize the commit
 		// diff itself, and write it to disk.
 		var b2 bytes.Buffer
-		if err := serializeCommitDiff(&b2, diff); err != nil {
+		if err := cstate.SerializeCommitDiff(&b2, diff); err != nil {
 			return err
 		}
 		return chanBucket.Put(commitDiffKey, b2.Bytes())
@@ -1676,7 +1488,7 @@ func (c *ChannelStateDB) RemoteCommitChainTip(channel *OpenChannel) (
 		}
 
 		tipReader := bytes.NewReader(tipBytes)
-		dcd, err := deserializeCommitDiff(tipReader)
+		dcd, err := cstate.DeserializeCommitDiff(tipReader)
 		if err != nil {
 			return err
 		}
@@ -1847,7 +1659,7 @@ func (c *ChannelStateDB) AdvanceCommitChainTail(channel *OpenChannel,
 		// with the current locked-in commitment for the remote party.
 		tipBytes := chanBucket.Get(commitDiffKey)
 		tipReader := bytes.NewReader(tipBytes)
-		newCommit, err := deserializeCommitDiff(tipReader)
+		newCommit, err := cstate.DeserializeCommitDiff(tipReader)
 		if err != nil {
 			return err
 		}
@@ -2728,8 +2540,7 @@ func putChanCommitment(chanBucket kvdb.RwBucket, c *ChannelCommitment,
 	}
 
 	// Before we write to disk, we'll also write our aux data as well.
-	auxData := extractCommitTlvData(c)
-	if err := auxData.encode(&b); err != nil {
+	if err := cstate.EncodeCommitTlvData(&b, c); err != nil {
 		return fmt.Errorf("unable to write aux data: %w", err)
 	}
 
@@ -2886,13 +2697,10 @@ func fetchChanCommitment(chanBucket kvdb.RBucket,
 
 	// We'll also check to see if we have any aux data stored as the end of
 	// the stream.
-	var auxData commitTlvData
-	if err := auxData.decode(r); err != nil {
+	if err := cstate.DecodeCommitTlvData(r, &chanCommit); err != nil {
 		return ChannelCommitment{}, fmt.Errorf("unable to decode "+
 			"chan aux data: %w", err)
 	}
-
-	amendCommitTlvData(&chanCommit, auxData)
 
 	return chanCommit, nil
 }

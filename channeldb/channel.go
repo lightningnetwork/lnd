@@ -109,14 +109,6 @@ var (
 	// preimage producer and their preimage store.
 	revocationStateKey = []byte("revocation-state-key")
 
-	// forceCloseTxKey points to a the unilateral closing tx that we
-	// broadcasted when moving the channel to state CommitBroadcasted.
-	forceCloseTxKey = []byte("closing-tx-key")
-
-	// coopCloseTxKey points to a the cooperative closing tx that we
-	// broadcasted when moving the channel to state CoopBroadcasted.
-	coopCloseTxKey = []byte("coop-closing-tx-key")
-
 	// commitDiffKey stores the current pending commitment state we've
 	// extended to the remote party (if any). Each time we propose a new
 	// state, we store the information necessary to reconstruct this state
@@ -1175,7 +1167,7 @@ func (c *ChannelStateDB) MarkChannelCommitmentBroadcasted(
 	closer lntypes.ChannelParty) error {
 
 	return c.markBroadcasted(
-		channel, ChanStatusCommitBroadcasted, forceCloseTxKey,
+		channel, ChanStatusCommitBroadcasted, cstate.ForceCloseTxKey(),
 		closeTx, closer,
 	)
 }
@@ -1186,7 +1178,7 @@ func (c *ChannelStateDB) MarkChannelCoopBroadcasted(channel *OpenChannel,
 	closeTx *wire.MsgTx, closer lntypes.ChannelParty) error {
 
 	return c.markBroadcasted(
-		channel, ChanStatusCoopBroadcasted, coopCloseTxKey,
+		channel, ChanStatusCoopBroadcasted, cstate.CoopCloseTxKey(),
 		closeTx, closer,
 	)
 }
@@ -1205,13 +1197,10 @@ func (c *ChannelStateDB) markBroadcasted(channel *OpenChannel,
 	// transaction in the appropriate bucket under the given key.
 	var putClosingTx func(kvdb.RwBucket) error
 	if closeTx != nil {
-		var b bytes.Buffer
-		if err := WriteElement(&b, closeTx); err != nil {
-			return err
-		}
-
 		putClosingTx = func(chanBucket kvdb.RwBucket) error {
-			return chanBucket.Put(key, b.Bytes())
+			return cstate.PutChannelCloseTx(
+				chanBucket, key, closeTx,
+			)
 		}
 	}
 
@@ -1232,7 +1221,7 @@ func (c *ChannelStateDB) markBroadcasted(channel *OpenChannel,
 func (c *ChannelStateDB) FetchChannelBroadcastedCommitment(
 	channel *OpenChannel) (*wire.MsgTx, error) {
 
-	return c.getClosingTx(channel, forceCloseTxKey)
+	return c.getClosingTx(channel, cstate.ForceCloseTxKey())
 }
 
 // FetchChannelBroadcastedCooperative fetches the stored cooperative closing
@@ -1240,7 +1229,7 @@ func (c *ChannelStateDB) FetchChannelBroadcastedCommitment(
 func (c *ChannelStateDB) FetchChannelBroadcastedCooperative(
 	channel *OpenChannel) (*wire.MsgTx, error) {
 
-	return c.getClosingTx(channel, coopCloseTxKey)
+	return c.getClosingTx(channel, cstate.CoopCloseTxKey())
 }
 
 // getClosingTx returns the stored closing transaction for key. The caller
@@ -1263,12 +1252,9 @@ func (c *ChannelStateDB) getClosingTx(channel *OpenChannel,
 			return err
 		}
 
-		bs := chanBucket.Get(key)
-		if bs == nil {
-			return ErrNoCloseTx
-		}
-		r := bytes.NewReader(bs)
-		return ReadElement(r, &closeTx)
+		closeTx, err = cstate.FetchChannelCloseTx(chanBucket, key)
+
+		return err
 	}, func() {
 		closeTx = nil
 	})

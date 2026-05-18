@@ -488,6 +488,13 @@
 
 ## Tooling and Documentation
 
+* [Improved Makefile command visibility and help
+  format](https://github.com/lightningnetwork/lnd/pull/10636). Build targets
+  now use a structured `MSG` macro that prints a consistent, prefixed label
+  (e.g. `[BUILD]`, `[TEST]`, `[MOBILE]`) before each step, replacing the
+  previous ad-hoc `print` calls. The `help` target output is now sorted and
+  rendered with aligned, color-coded columns for easier readability.
+
 * [Added missing `lncli:` tags](https://github.com/lightningnetwork/lnd/pull/10658)
   for `SendPaymentV2`, `SendToRouteV2`, and `EstimateRouteFee` in the
   `routerrpc` proto definitions so that the generated API documentation

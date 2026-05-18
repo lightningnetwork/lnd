@@ -110,10 +110,6 @@ var (
 	// preimage producer and their preimage store.
 	revocationStateKey = []byte("revocation-state-key")
 
-	// dataLossCommitPointKey stores the commitment point received from the
-	// remote peer during a channel sync in case we have lost channel state.
-	dataLossCommitPointKey = []byte("data-loss-commit-point-key")
-
 	// forceCloseTxKey points to a the unilateral closing tx that we
 	// broadcasted when moving the channel to state CommitBroadcasted.
 	forceCloseTxKey = []byte("closing-tx-key")
@@ -1044,13 +1040,10 @@ func (c *ChannelStateDB) MarkChannelScidAliasNegotiated(
 func (c *ChannelStateDB) MarkChannelDataLoss(channel *OpenChannel,
 	commitPoint *btcec.PublicKey) error {
 
-	var b bytes.Buffer
-	if err := WriteElement(&b, commitPoint); err != nil {
-		return err
-	}
-
 	putCommitPoint := func(chanBucket kvdb.RwBucket) error {
-		return chanBucket.Put(dataLossCommitPointKey, b.Bytes())
+		return cstate.PutChannelDataLossCommitPoint(
+			chanBucket, commitPoint,
+		)
 	}
 
 	return c.putChanStatus(channel, ChanStatusLocalDataLoss, putCommitPoint)
@@ -1076,16 +1069,11 @@ func (c *ChannelStateDB) FetchChannelDataLossCommitPoint(
 			return err
 		}
 
-		bs := chanBucket.Get(dataLossCommitPointKey)
-		if bs == nil {
-			return ErrNoCommitPoint
-		}
-		r := bytes.NewReader(bs)
-		if err := ReadElements(r, &commitPoint); err != nil {
-			return err
-		}
+		commitPoint, err = cstate.FetchChannelDataLossCommitPoint(
+			chanBucket,
+		)
 
-		return nil
+		return err
 	}, func() {
 		commitPoint = nil
 	})

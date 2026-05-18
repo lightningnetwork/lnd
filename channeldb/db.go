@@ -1909,60 +1909,17 @@ func getMigrationsToApply(versions []mandatoryVersion,
 	return migrations, migrationVersions
 }
 
-// fetchHistoricalChanBucket returns a the channel bucket for a given outpoint
-// from the historical channel bucket. If the bucket does not exist,
-// ErrNoHistoricalBucket is returned.
-func fetchHistoricalChanBucket(tx kvdb.RTx,
-	outPoint *wire.OutPoint) (kvdb.RBucket, error) {
-
-	// First fetch the top level bucket which stores all data related to
-	// historically stored channels.
-	historicalChanBucket := tx.ReadBucket(historicalChannelBucket)
-	if historicalChanBucket == nil {
-		return nil, ErrNoHistoricalBucket
-	}
-
-	// With the bucket for the node and chain fetched, we can now go down
-	// another level, for the channel itself.
-	var chanPointBuf bytes.Buffer
-	if err := graphdb.WriteOutpoint(&chanPointBuf, outPoint); err != nil {
-		return nil, err
-	}
-	chanBucket := historicalChanBucket.NestedReadBucket(
-		chanPointBuf.Bytes(),
-	)
-	if chanBucket == nil {
-		return nil, ErrChannelNotFound
-	}
-
-	return chanBucket, nil
-}
-
 // FetchHistoricalChannel fetches open channel data from the historical channel
 // bucket.
 func (c *ChannelStateDB) FetchHistoricalChannel(outPoint *wire.OutPoint) (
 	*OpenChannel, error) {
 
-	var channel *OpenChannel
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := fetchHistoricalChanBucket(tx, outPoint)
-		if err != nil {
-			return err
-		}
-
-		channel, err = fetchOpenChannel(chanBucket, outPoint)
-		if err != nil {
-			return err
-		}
-
-		channel.Db = c
-		return nil
-	}, func() {
-		channel = nil
-	})
+	channel, err := c.kvStore.FetchHistoricalChannel(outPoint)
 	if err != nil {
 		return nil, err
 	}
+
+	channel.Db = c
 
 	return channel, nil
 }

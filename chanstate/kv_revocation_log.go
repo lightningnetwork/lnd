@@ -8,6 +8,7 @@ import (
 	"math"
 
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -121,6 +122,90 @@ func FetchRevocationLog(log kvdb.RBucket,
 	commitReader := bytes.NewReader(commitBytes)
 
 	return DeserializeRevocationLog(commitReader)
+}
+
+// Record returns a tlv record for the SparsePayHash.
+func (s *SparsePayHash) Record() tlv.Record {
+	// We use a zero for the type here, as this'll be used along with the
+	// RecordT type.
+	return tlv.MakeDynamicRecord(
+		0, s, s.hashLen,
+		sparseHashEncoder, sparseHashDecoder,
+	)
+}
+
+// hashLen is used by MakeDynamicRecord to return the size of the RHash.
+//
+// NOTE: for zero hash, we return a length 0.
+func (s *SparsePayHash) hashLen() uint64 {
+	if bytes.Equal(s[:], lntypes.ZeroHash[:]) {
+		return 0
+	}
+
+	return 32
+}
+
+// sparseHashEncoder is the customized encoder which skips encoding the empty
+// hash.
+func sparseHashEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
+	v, ok := val.(*SparsePayHash)
+	if !ok {
+		return tlv.NewTypeForEncodingErr(val, "SparsePayHash")
+	}
+
+	// If the value is an empty hash, we will skip encoding it.
+	if bytes.Equal(v[:], lntypes.ZeroHash[:]) {
+		return nil
+	}
+
+	vArray := (*[32]byte)(v)
+
+	return tlv.EBytes32(w, vArray, buf)
+}
+
+// sparseHashDecoder is the customized decoder which skips decoding the empty
+// hash.
+func sparseHashDecoder(r io.Reader, val interface{}, buf *[8]byte,
+	l uint64) error {
+
+	v, ok := val.(*SparsePayHash)
+	if !ok {
+		return tlv.NewTypeForEncodingErr(val, "SparsePayHash")
+	}
+
+	// If the length is zero, we will skip encoding the empty hash.
+	if l == 0 {
+		return nil
+	}
+
+	vArray := (*[32]byte)(v)
+
+	return tlv.DBytes32(r, vArray, buf, 32)
+}
+
+// toTlvStream converts an HTLCEntry record into a tlv representation.
+func (h *HTLCEntry) toTlvStream() (*tlv.Stream, error) {
+	records := []tlv.Record{
+		h.RHash.Record(),
+		h.RefundTimeout.Record(),
+		h.OutputIndex.Record(),
+		h.Incoming.Record(),
+		h.Amt.Record(),
+	}
+
+	h.CustomBlob.WhenSome(func(r tlv.RecordT[tlv.TlvType5, tlv.Blob]) {
+		records = append(records, r.Record())
+	})
+
+	h.HtlcIndex.WhenSome(func(r tlv.RecordT[tlv.TlvType6,
+		tlv.BigSizeT[uint64]]) {
+
+		records = append(records, r.Record())
+	})
+
+	tlv.SortRecords(records)
+
+	return tlv.NewStream(records...)
 }
 
 // SerializeRevocationLog serializes a RevocationLog record based on tlv

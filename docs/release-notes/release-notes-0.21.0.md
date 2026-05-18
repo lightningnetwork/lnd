@@ -252,6 +252,32 @@
   `lncli getdebuginfo` and `lncli encryptdebugpackage` commands similarly
   require the `--include_log` flag to include logs in the output.
 
+* [Removed the deprecated payment RPCs and `outgoing_chan_id`
+  field](https://github.com/lightningnetwork/lnd/pull/10814) that were
+  [announced for removal in 0.21](https://github.com/lightningnetwork/lnd/blob/master/docs/release-notes/release-notes-0.20.0.md#deprecations)
+  via the 0.20 release notes. Callers must migrate to the V2 equivalents:
+
+  | Removed RPC | Replacement |
+  |-------------|-------------|
+  | `lnrpc.SendPayment` (streaming) | `routerrpc.SendPaymentV2` |
+  | `lnrpc.SendPaymentSync` | `routerrpc.SendPaymentV2` |
+  | `lnrpc.SendToRoute` (streaming) | `routerrpc.SendToRouteV2` |
+  | `lnrpc.SendToRouteSync` | `routerrpc.SendToRouteV2` |
+  | `routerrpc.SendPayment` (streaming) | `routerrpc.SendPaymentV2` |
+  | `routerrpc.SendToRoute` | `routerrpc.SendToRouteV2` |
+  | `routerrpc.TrackPayment` (streaming) | `routerrpc.TrackPaymentV2` |
+
+  This also removes the corresponding REST routes
+  `POST /v1/channels/transaction-stream`, `POST /v1/channels/transactions`,
+  and `POST /v1/channels/transactions/route`. The orphan
+  `routerrpc.SendToRouteResponse` message (only used by the removed
+  `routerrpc.SendToRoute` RPC) is also dropped.
+
+  In addition, the deprecated `outgoing_chan_id` field is removed from
+  `lnrpc.QueryRoutesRequest` and `routerrpc.SendPaymentRequest` (proto tags
+  14 and 8 respectively, now reserved). Callers must use the multi-channel
+  `outgoing_chan_ids` field introduced in 0.20.
+
 ## Performance Improvements
 
 * Let the [channel graph cache be populated
@@ -331,7 +357,7 @@
 
 ### ⚠️ **Warning:** Deprecated fields in `lnrpc.Hop` will be removed in release version **0.22**
 
-  The following deprecated fields in the [`lnrpc.Hop`](https://lightning.engineering/api-docs/api/lnd/lightning/send-to-route-sync/#lnrpchop)
+  The following deprecated fields in the [`lnrpc.Hop`](https://lightning.engineering/api-docs/api/lnd/lightning/query-routes/#lnrpchop)
   message will be removed:
 
   | Field | Deprecated Since | Replacement |

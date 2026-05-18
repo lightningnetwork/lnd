@@ -13,6 +13,16 @@ import (
 )
 
 var (
+	// revocationLogBucketDeprecated is dedicated for storing the necessary
+	// delta state between channel updates required to re-construct a past
+	// state in order to punish a counterparty attempting a non-cooperative
+	// channel closure. This key should be accessed from within the
+	// sub-bucket of a target channel, identified by its channel point.
+	//
+	// Deprecated: This bucket is kept for read-only in case the user
+	// choose not to migrate the old data.
+	revocationLogBucketDeprecated = []byte("revocation-log-key")
+
 	// revocationLogBucket is a sub-bucket under openChannelBucket. This
 	// sub-bucket is dedicated for storing the minimal info required to
 	// re-construct a past state in order to punish a counterparty
@@ -32,6 +42,12 @@ var (
 // revocation log format.
 func RevocationLogBucketKey() []byte {
 	return revocationLogBucket
+}
+
+// RevocationLogBucketDeprecatedKey returns the deprecated revocation-log bucket
+// key.
+func RevocationLogBucketDeprecatedKey() []byte {
+	return revocationLogBucketDeprecated
 }
 
 // PutRevocationLog uses the fields `CommitTx` and `Htlcs` from a
@@ -122,6 +138,203 @@ func FetchRevocationLog(log kvdb.RBucket,
 	commitReader := bytes.NewReader(commitBytes)
 
 	return DeserializeRevocationLog(commitReader)
+}
+
+// FetchOldRevocationLog finds the revocation log from the deprecated
+// sub-bucket.
+func FetchOldRevocationLog(log kvdb.RBucket,
+	updateNum uint64) (ChannelCommitment, error) {
+
+	logEntrykey := revocationLogKey(updateNum)
+	commitBytes := log.Get(logEntrykey[:])
+	if commitBytes == nil {
+		return ChannelCommitment{}, ErrLogEntryNotFound
+	}
+
+	commitReader := bytes.NewReader(commitBytes)
+
+	return DeserializeChanCommit(commitReader)
+}
+
+// FetchRevocationLogCompatible finds the revocation log from both the
+// revocationLogBucket and revocationLogBucketDeprecated for compatibility
+// concern. It returns three values,
+//   - RevocationLog, if this is non-nil, it means we've found the log in the
+//     new bucket.
+//   - ChannelCommitment, if this is non-nil, it means we've found the log
+//     in the old bucket.
+//   - error, this can happen if the log cannot be found in neither buckets.
+func FetchRevocationLogCompatible(chanBucket kvdb.RBucket,
+	updateNum uint64) (*RevocationLog, *ChannelCommitment, error) {
+
+	// Look into the new bucket first.
+	logBucket := chanBucket.NestedReadBucket(revocationLogBucket)
+	if logBucket != nil {
+		rl, err := FetchRevocationLog(logBucket, updateNum)
+		// We've found the record, no need to visit the old bucket.
+		if err == nil {
+			return &rl, nil, nil
+		}
+
+		// Return the error if it doesn't say the log cannot be found.
+		if !errors.Is(err, ErrLogEntryNotFound) {
+			return nil, nil, err
+		}
+	}
+
+	// Otherwise, look into the old bucket and try to find the log there.
+	oldBucket := chanBucket.NestedReadBucket(revocationLogBucketDeprecated)
+	if oldBucket != nil {
+		c, err := FetchOldRevocationLog(oldBucket, updateNum)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// Found an old record and return it.
+		return nil, &c, nil
+	}
+
+	// If both the buckets are nil, then the sub-buckets haven't been
+	// created yet.
+	if logBucket == nil && oldBucket == nil {
+		return nil, nil, ErrNoPastDeltas
+	}
+
+	// Otherwise, we've tried to query the new bucket but the log cannot be
+	// found.
+	return nil, nil, ErrLogEntryNotFound
+}
+
+// FetchLogBucket returns a read bucket by visiting both the new and the old
+// bucket.
+func FetchLogBucket(chanBucket kvdb.RBucket) (kvdb.RBucket, error) {
+	logBucket := chanBucket.NestedReadBucket(revocationLogBucket)
+	if logBucket == nil {
+		logBucket = chanBucket.NestedReadBucket(
+			revocationLogBucketDeprecated,
+		)
+		if logBucket == nil {
+			return nil, ErrNoPastDeltas
+		}
+	}
+
+	return logBucket, nil
+}
+
+// DeleteLogBucket deletes the both the new and old revocation log buckets.
+func DeleteLogBucket(chanBucket kvdb.RwBucket) error {
+	// Check if the bucket exists and delete it.
+	logBucket := chanBucket.NestedReadWriteBucket(
+		revocationLogBucket,
+	)
+	if logBucket != nil {
+		err := chanBucket.DeleteNestedBucket(revocationLogBucket)
+		if err != nil {
+			return err
+		}
+	}
+
+	// We also check whether the old revocation log bucket exists
+	// and delete it if so.
+	oldLogBucket := chanBucket.NestedReadWriteBucket(
+		revocationLogBucketDeprecated,
+	)
+	if oldLogBucket != nil {
+		err := chanBucket.DeleteNestedBucket(
+			revocationLogBucketDeprecated,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// RevocationLogTailCommitHeight returns the commit height at the end of the
+// revocation log.
+func RevocationLogTailCommitHeight(backend kvdb.Backend,
+	channel *OpenChannel) (uint64, error) {
+
+	var height uint64
+
+	// If we haven't created any state updates yet, then we'll exit early as
+	// there's nothing to be found on disk in the revocation bucket.
+	if channel.RemoteCommitment.CommitHeight == 0 {
+		return height, nil
+	}
+
+	if err := kvdb.View(backend, func(tx kvdb.RTx) error {
+		chanBucket, err := FetchChanBucket(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		logBucket, err := FetchLogBucket(chanBucket)
+		if err != nil {
+			return err
+		}
+
+		// Once we have the bucket that stores the revocation log from
+		// this channel, we'll jump to the _last_ key in bucket. Since
+		// the key is the commit height, we'll decode the bytes and
+		// return it.
+		cursor := logBucket.ReadCursor()
+		rawHeight, _ := cursor.Last()
+		height = byteOrder.Uint64(rawHeight)
+
+		return nil
+	}, func() {}); err != nil {
+		return height, err
+	}
+
+	return height, nil
+}
+
+// FindPreviousState scans through the append-only log in an attempt to recover
+// the previous channel state indicated by the update number. This method is
+// intended to be used for obtaining the relevant data needed to claim all
+// funds rightfully spendable in the case of an on-chain broadcast of the
+// commitment transaction.
+func FindPreviousState(backend kvdb.Backend, channel *OpenChannel,
+	updateNum uint64) (*RevocationLog, *ChannelCommitment, error) {
+
+	commit := &ChannelCommitment{}
+	rl := &RevocationLog{}
+
+	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+		chanBucket, err := FetchChanBucket(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Find the revocation log from both the new and the old
+		// bucket.
+		r, c, err := FetchRevocationLogCompatible(
+			chanBucket, updateNum,
+		)
+		if err != nil {
+			return err
+		}
+
+		rl = r
+		commit = c
+
+		return nil
+	}, func() {})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Either the `rl` or the `commit` is nil here. We return them as-is
+	// and leave it to the caller to decide its following action.
+	return rl, commit, nil
 }
 
 // Record returns a tlv record for the SparsePayHash.

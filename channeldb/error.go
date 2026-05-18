@@ -30,7 +30,7 @@ var (
 
 	// ErrNoPastDeltas is returned when the channel delta bucket hasn't been
 	// created.
-	ErrNoPastDeltas = fmt.Errorf("channel has no recorded deltas")
+	ErrNoPastDeltas = cstate.ErrNoPastDeltas
 
 	// ErrNodeNotFound is returned when node bucket exists, but node with
 	// specific identity can't be found.

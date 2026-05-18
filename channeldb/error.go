@@ -13,8 +13,7 @@ var (
 
 	// ErrNoHistoricalBucket is returned when the historical channel bucket
 	// not been created yet.
-	ErrNoHistoricalBucket = fmt.Errorf("historical channel bucket has " +
-		"not yet been created")
+	ErrNoHistoricalBucket = cstate.ErrNoHistoricalBucket
 
 	// ErrDBReversion is returned when detecting an attempt to revert to a
 	// prior database version.

@@ -495,11 +495,11 @@ func DeleteOpenChannel(chanBucket kvdb.RwBucket) error {
 
 // RemoteCommitChainTip returns the "tip" of the current remote commitment
 // chain.
-func RemoteCommitChainTip(backend kvdb.Backend,
+func (s *KVStore) RemoteCommitChainTip(
 	channel *OpenChannel) (*CommitDiff, error) {
 
 	var cd *CommitDiff
-	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := FetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
@@ -541,11 +541,11 @@ func RemoteCommitChainTip(backend kvdb.Backend,
 
 // UnsignedAckedUpdates retrieves the persisted unsigned acked remote log
 // updates that still need to be signed for.
-func UnsignedAckedUpdates(backend kvdb.Backend,
+func (s *KVStore) UnsignedAckedUpdates(
 	channel *OpenChannel) ([]LogUpdate, error) {
 
 	var updates []LogUpdate
-	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := FetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
@@ -582,11 +582,11 @@ func UnsignedAckedUpdates(backend kvdb.Backend,
 
 // RemoteUnsignedLocalUpdates retrieves the persisted, unsigned local log
 // updates that the remote still needs to sign for.
-func RemoteUnsignedLocalUpdates(backend kvdb.Backend,
+func (s *KVStore) RemoteUnsignedLocalUpdates(
 	channel *OpenChannel) ([]LogUpdate, error) {
 
 	var updates []LogUpdate
-	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := FetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
@@ -623,12 +623,12 @@ func RemoteUnsignedLocalUpdates(backend kvdb.Backend,
 
 // InsertNextRevocation inserts the next commitment point into the persisted
 // channel state.
-func InsertNextRevocation(backend kvdb.Backend, channel *OpenChannel,
+func (s *KVStore) InsertNextRevocation(channel *OpenChannel,
 	revKey *btcec.PublicKey) error {
 
 	channel.RemoteNextRevocation = revKey
 
-	err := kvdb.Update(backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := FetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
@@ -647,14 +647,14 @@ func InsertNextRevocation(backend kvdb.Backend, channel *OpenChannel,
 }
 
 // UpdateChannelCommitment updates the local commitment state.
-func UpdateChannelCommitment(backend kvdb.Backend, channel *OpenChannel,
+func (s *KVStore) UpdateChannelCommitment(channel *OpenChannel,
 	newCommitment *ChannelCommitment,
-	unsignedAckedUpdates []LogUpdate, storeFinalHtlcResolutions bool) (
+	unsignedAckedUpdates []LogUpdate) (
 	map[uint64]bool, error) {
 
 	var finalHtlcs = make(map[uint64]bool)
 
-	err := kvdb.Update(backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := FetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
@@ -731,7 +731,7 @@ func UpdateChannelCommitment(backend kvdb.Backend, channel *OpenChannel,
 		// Get the bucket where settled htlcs are recorded if the user
 		// opted in to storing this information.
 		var finalHtlcsBucket kvdb.RwBucket
-		if storeFinalHtlcResolutions {
+		if s.storeFinalHtlcResolutions {
 			bucket, err := FetchFinalHtlcsBucketRw(
 				tx, channel.ShortChannelID,
 			)
@@ -787,10 +787,10 @@ func UpdateChannelCommitment(backend kvdb.Backend, channel *OpenChannel,
 
 // AppendRemoteCommitChain appends a new CommitDiff to the remote party's
 // commitment chain.
-func AppendRemoteCommitChain(backend kvdb.Backend, channel *OpenChannel,
+func (s *KVStore) AppendRemoteCommitChain(channel *OpenChannel,
 	diff *CommitDiff) error {
 
-	return kvdb.Update(backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
 		// First, we'll grab the writable bucket where this channel's
 		// data resides.
 		chanBucket, err := FetchChanBucketRw(
@@ -863,13 +863,13 @@ func AppendRemoteCommitChain(backend kvdb.Backend, channel *OpenChannel,
 // AdvanceCommitChainTail records the new state transition within the
 // revocation log and promotes the pending remote commitment to the current
 // remote commitment.
-func AdvanceCommitChainTail(backend kvdb.Backend, channel *OpenChannel,
+func (s *KVStore) AdvanceCommitChainTail(channel *OpenChannel,
 	fwdPkg *FwdPkg, updates []LogUpdate, ourOutputIndex,
-	theirOutputIndex uint32, noRevLogAmtData bool) error {
+	theirOutputIndex uint32) error {
 
 	var newRemoteCommit *ChannelCommitment
 
-	err := kvdb.Update(backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := FetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
@@ -932,7 +932,7 @@ func AdvanceCommitChainTail(backend kvdb.Backend, channel *OpenChannel,
 		// revoked (prior) state to the revocation log.
 		err = PutRevocationLog(
 			logBucket, &channel.RemoteCommitment, ourOutputIndex,
-			theirOutputIndex, noRevLogAmtData,
+			theirOutputIndex, s.noRevLogAmtData,
 		)
 		if err != nil {
 			return err
@@ -1026,11 +1026,11 @@ func AdvanceCommitChainTail(backend kvdb.Backend, channel *OpenChannel,
 // This value is always monotonically increasing. This method is provided in
 // order to allow multiple instances of a particular open channel to obtain a
 // consistent view of the number of channel updates to date.
-func CommitmentHeight(backend kvdb.Backend, channel *OpenChannel) (
+func (s *KVStore) CommitmentHeight(channel *OpenChannel) (
 	uint64, error) {
 
 	var height uint64
-	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
 		// Get the bucket dedicated to storing the metadata for open
 		// channels.
 		chanBucket, err := FetchChanBucket(
@@ -1063,10 +1063,10 @@ func CommitmentHeight(backend kvdb.Backend, channel *OpenChannel) (
 // remote party. These commitments are read from disk to ensure that only the
 // latest fully committed state is returned. The first commitment returned is
 // the local commitment, and the second returned is the remote commitment.
-func LatestCommitments(backend kvdb.Backend, channel *OpenChannel) (
+func (s *KVStore) LatestCommitments(channel *OpenChannel) (
 	*ChannelCommitment, *ChannelCommitment, error) {
 
-	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := FetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
@@ -1088,10 +1088,10 @@ func LatestCommitments(backend kvdb.Backend, channel *OpenChannel) (
 // revocation storage tree for the remote party. This method can be used when
 // acting on a possible contract breach to ensure, that the caller has the most
 // up to date information required to deliver justice.
-func RemoteRevocationStore(backend kvdb.Backend,
+func (s *KVStore) RemoteRevocationStore(
 	channel *OpenChannel) (shachain.Store, error) {
 
-	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := FetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,

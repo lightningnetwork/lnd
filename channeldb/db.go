@@ -342,11 +342,6 @@ var (
 	// Big endian is the preferred byte order, due to cursor scans over
 	// integer keys iterating in order.
 	byteOrder = binary.BigEndian
-
-	// channelOpeningStateBucket is the database bucket used to store the
-	// channelOpeningState for each channel that is currently in the process
-	// of being opened.
-	channelOpeningStateBucket = []byte("channelOpeningState")
 )
 
 // DB is the primary datastore for the lnd daemon. The database stores
@@ -1798,12 +1793,9 @@ func (c *ChannelStateDB) SaveChannelOpeningState(outPoint,
 	serializedState []byte) error {
 
 	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		bucket, err := tx.CreateTopLevelBucket(channelOpeningStateBucket)
-		if err != nil {
-			return err
-		}
-
-		return bucket.Put(outPoint, serializedState)
+		return chanstate.SaveChannelOpeningState(
+			tx, outPoint, serializedState,
+		)
 	}, func() {})
 }
 
@@ -1815,21 +1807,12 @@ func (c *ChannelStateDB) GetChannelOpeningState(outPoint []byte) ([]byte,
 
 	var serializedState []byte
 	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		bucket := tx.ReadBucket(channelOpeningStateBucket)
-		if bucket == nil {
-			// If the bucket does not exist, it means we never added
-			//  a channel to the db, so return ErrChannelNotFound.
-			return ErrChannelNotFound
-		}
+		var err error
+		serializedState, err = chanstate.GetChannelOpeningState(
+			tx, outPoint,
+		)
 
-		stateBytes := bucket.Get(outPoint)
-		if stateBytes == nil {
-			return ErrChannelNotFound
-		}
-
-		serializedState = append(serializedState, stateBytes...)
-
-		return nil
+		return err
 	}, func() {
 		serializedState = nil
 	})
@@ -1839,12 +1822,7 @@ func (c *ChannelStateDB) GetChannelOpeningState(outPoint []byte) ([]byte,
 // DeleteChannelOpeningState removes any state for outPoint from the database.
 func (c *ChannelStateDB) DeleteChannelOpeningState(outPoint []byte) error {
 	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		bucket := tx.ReadWriteBucket(channelOpeningStateBucket)
-		if bucket == nil {
-			return ErrChannelNotFound
-		}
-
-		return bucket.Delete(outPoint)
+		return chanstate.DeleteChannelOpeningState(tx, outPoint)
 	}, func() {})
 }
 

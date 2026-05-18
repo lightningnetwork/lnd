@@ -58,17 +58,76 @@ const (
 	// A tlv type definition used to serialize an outpoint's indexStatus
 	// for use in the outpoint index.
 	indexStatusType tlv.Type = 0
+
+	// IndexStatusType is the TLV type used to serialize an outpoint's
+	// indexStatus for use in the outpoint index.
+	IndexStatusType = indexStatusType
 )
 
 // indexStatus is an enum-like type that describes what state the outpoint is
 // in. Currently only two possible values.
 type indexStatus uint8
 
+// IndexStatus is an enum-like type that describes what state the outpoint is
+// in. Currently only two possible values.
+type IndexStatus = indexStatus
+
 const (
+	// outpointOpen represents an outpoint that is open in the outpoint
+	// index.
+	outpointOpen indexStatus = 0
+
+	// OutpointOpen represents an outpoint that is open in the outpoint
+	// index.
+	OutpointOpen = outpointOpen
+
 	// outpointClosed represents an outpoint that is closed in the outpoint
 	// index.
 	outpointClosed indexStatus = 1
+
+	// OutpointClosed represents an outpoint that is closed in the outpoint
+	// index.
+	OutpointClosed = outpointClosed
 )
+
+func putOutpointIndexStatus(opBucket kvdb.RwBucket, chanKey []byte,
+	status indexStatus) error {
+
+	statusByte := uint8(status)
+	statusRecord := tlv.MakePrimitiveRecord(indexStatusType, &statusByte)
+	opStream, err := tlv.NewStream(statusRecord)
+	if err != nil {
+		return err
+	}
+
+	var b bytes.Buffer
+	if err := opStream.Encode(&b); err != nil {
+		return err
+	}
+
+	return opBucket.Put(chanKey, b.Bytes())
+}
+
+// PutOpenOutpointIndex stores chanKey in the outpoint index as an open
+// outpoint.
+func PutOpenOutpointIndex(opBucket kvdb.RwBucket, chanKey []byte) error {
+	return putOutpointIndexStatus(opBucket, chanKey, outpointOpen)
+}
+
+// UpdateClosedOutpointIndex flips the outpoint index entry for chanKey from
+// open to closed. The index entry must already exist; it was placed there when
+// the channel was opened.
+func UpdateClosedOutpointIndex(tx kvdb.RwTx, chanKey []byte) error {
+	opBucket := tx.ReadWriteBucket(outpointBucket)
+	if opBucket == nil {
+		return ErrNoChanDBExists
+	}
+	if opBucket.Get(chanKey) == nil {
+		return ErrMissingIndexEntry
+	}
+
+	return putOutpointIndexStatus(opBucket, chanKey, outpointClosed)
+}
 
 // IsOutpointClosed reports whether the supplied chanKey has been flipped to
 // outpointClosed in the supplied outpointBucket. The flip is performed in the

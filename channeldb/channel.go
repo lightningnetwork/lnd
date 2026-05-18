@@ -113,18 +113,6 @@ const (
 	outpointClosed  = cstate.OutpointClosed
 )
 
-// isOutpointClosed reports whether the supplied chanKey has been flipped to
-// outpointClosed in the supplied outpointBucket. The flip is performed in the
-// same transaction as the rest of CloseChannel (sync and tombstone paths
-// alike), so a true result is the authoritative "this channel went through
-// CloseChannel" signal. On tombstone-enabled backends the chanBucket may still
-// exist on disk; readers consult this helper to skip those entries. Callers
-// fetch outpointBucket once and pass it in, which lets loop-style readers
-// hoist the bucket lookup out of the inner loop.
-func isOutpointClosed(opBucket kvdb.RBucket, chanKey []byte) (bool, error) {
-	return cstate.IsOutpointClosed(opBucket, chanKey)
-}
-
 // ChannelType is an enum-like type that describes one of several possible
 // channel types.
 type ChannelType = cstate.ChannelType

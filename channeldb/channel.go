@@ -355,8 +355,8 @@ func (c *ChannelStateDB) MarkChannelCommitmentBroadcasted(
 	channel *OpenChannel, closeTx *wire.MsgTx,
 	closer lntypes.ChannelParty) error {
 
-	return cstate.MarkChannelCommitmentBroadcasted(
-		c.backend, channel, closeTx, closer,
+	return c.kvStore.MarkChannelCommitmentBroadcasted(
+		channel, closeTx, closer,
 	)
 }
 
@@ -365,9 +365,7 @@ func (c *ChannelStateDB) MarkChannelCommitmentBroadcasted(
 func (c *ChannelStateDB) MarkChannelCoopBroadcasted(channel *OpenChannel,
 	closeTx *wire.MsgTx, closer lntypes.ChannelParty) error {
 
-	return cstate.MarkChannelCoopBroadcasted(
-		c.backend, channel, closeTx, closer,
-	)
+	return c.kvStore.MarkChannelCoopBroadcasted(channel, closeTx, closer)
 }
 
 // FetchChannelBroadcastedCommitment fetches the stored unilateral closing
@@ -375,7 +373,7 @@ func (c *ChannelStateDB) MarkChannelCoopBroadcasted(channel *OpenChannel,
 func (c *ChannelStateDB) FetchChannelBroadcastedCommitment(
 	channel *OpenChannel) (*wire.MsgTx, error) {
 
-	return c.getClosingTx(channel, cstate.ForceCloseTxKey())
+	return c.kvStore.FetchChannelBroadcastedCommitment(channel)
 }
 
 // FetchChannelBroadcastedCooperative fetches the stored cooperative closing
@@ -383,15 +381,7 @@ func (c *ChannelStateDB) FetchChannelBroadcastedCommitment(
 func (c *ChannelStateDB) FetchChannelBroadcastedCooperative(
 	channel *OpenChannel) (*wire.MsgTx, error) {
 
-	return c.getClosingTx(channel, cstate.CoopCloseTxKey())
-}
-
-// getClosingTx returns the stored closing transaction for key. The caller
-// should use either the force or coop closing keys.
-func (c *ChannelStateDB) getClosingTx(channel *OpenChannel,
-	key []byte) (*wire.MsgTx, error) {
-
-	return cstate.FetchClosingTx(c.backend, channel, key)
+	return c.kvStore.FetchChannelBroadcastedCooperative(channel)
 }
 
 // ApplyChannelStatus adds the target status to the channel's persisted status

@@ -2,6 +2,7 @@ package chanstate
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 
@@ -280,6 +281,87 @@ func FetchChanBucketRw(tx kvdb.RwTx, nodeKey *btcec.PublicKey,
 	}
 
 	return chanBucket, nil
+}
+
+// FullSyncOpenChannel syncs the contents of an OpenChannel while re-using an
+// existing database transaction.
+func FullSyncOpenChannel(tx kvdb.RwTx, c *OpenChannel) error {
+	// Fetch the outpoint bucket and check if the outpoint already exists.
+	opBucket := tx.ReadWriteBucket(outpointBucket)
+	if opBucket == nil {
+		return ErrNoChanDBExists
+	}
+	cidBucket := tx.ReadWriteBucket(chanIDBucket)
+	if cidBucket == nil {
+		return ErrNoChanDBExists
+	}
+
+	var chanPointBuf bytes.Buffer
+	err := graphdb.WriteOutpoint(&chanPointBuf, &c.FundingOutpoint)
+	if err != nil {
+		return err
+	}
+
+	// Now, check if the outpoint exists in our index.
+	if opBucket.Get(chanPointBuf.Bytes()) != nil {
+		return ErrChanAlreadyExists
+	}
+
+	cid := lnwire.NewChanIDFromOutPoint(c.FundingOutpoint)
+	if cidBucket.Get(cid[:]) != nil {
+		return ErrChanAlreadyExists
+	}
+
+	// Add the outpoint to our outpoint index with the tlv stream.
+	if err := PutOpenOutpointIndex(
+		opBucket, chanPointBuf.Bytes(),
+	); err != nil {
+		return err
+	}
+
+	if err := cidBucket.Put(cid[:], []byte{}); err != nil {
+		return err
+	}
+
+	// First fetch the top level bucket which stores all data related to
+	// current, active channels.
+	openChanBucket, err := tx.CreateTopLevelBucket(openChannelBucket)
+	if err != nil {
+		return err
+	}
+
+	// Within this top level bucket, fetch the bucket dedicated to storing
+	// open channel data specific to the remote node.
+	nodePub := c.IdentityPub.SerializeCompressed()
+	nodeChanBucket, err := openChanBucket.CreateBucketIfNotExists(nodePub)
+	if err != nil {
+		return err
+	}
+
+	// We'll then recurse down an additional layer in order to fetch the
+	// bucket for this particular chain.
+	chainBucket, err := nodeChanBucket.CreateBucketIfNotExists(
+		c.ChainHash[:],
+	)
+	if err != nil {
+		return err
+	}
+
+	// With the bucket for the node fetched, we can now go down another
+	// level, creating the bucket for this channel itself.
+	chanBucket, err := chainBucket.CreateBucket(
+		chanPointBuf.Bytes(),
+	)
+	switch {
+	case errors.Is(err, kvdb.ErrBucketExists):
+		// If this channel already exists, then in order to avoid
+		// overriding it, we'll return an error back up to the caller.
+		return ErrChanAlreadyExists
+	case err != nil:
+		return err
+	}
+
+	return PutOpenChannel(chanBucket, c)
 }
 
 // keyLocRecord is a wrapper struct around keychain.KeyLocator to implement the

@@ -22,6 +22,11 @@ var (
 	// for a specific chain, but it is not found.
 	ErrChannelNotFound = fmt.Errorf("channel not found")
 
+	// ErrChanAlreadyExists is return when the caller attempts to create a
+	// channel with a channel point that is already present in the
+	// database.
+	ErrChanAlreadyExists = fmt.Errorf("channel already exists")
+
 	// ErrNoRevocationsFound is returned when revocation state for a
 	// particular channel cannot be found.
 	ErrNoRevocationsFound = fmt.Errorf("no revocations found")

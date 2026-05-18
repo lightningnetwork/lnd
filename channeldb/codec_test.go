@@ -9,33 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestWriteElementSingleAddrRejectsV2 ensures that the scalar net.Addr write
-// path returns an explicit error when handed an unserializable address (here,
-// a legacy v2 onion) instead of silently emitting zero bytes. A silent skip
-// would corrupt the byte stream because the matching ReadElement(*net.Addr)
-// case has no length prefix to recover from.
-func TestWriteElementSingleAddrRejectsV2(t *testing.T) {
-	t.Parallel()
-
-	v2 := &tor.OnionAddr{
-		// 16 base32 chars + ".onion" = 22 chars = tor.V2Len.
-		OnionService: "aaaaaaaaaaaaaaaa.onion",
-		Port:         9735,
-	}
-	require.Len(t, v2.OnionService, tor.V2Len)
-
-	var buf bytes.Buffer
-	err := WriteElement(&buf, net.Addr(v2))
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unsupported address")
-	require.Zero(
-		t, buf.Len(),
-		"no bytes should be written when serialization is refused",
-	)
-}
-
-// TestWriteElementSingleAddrRoundTrip confirms that supported addresses still
-// round-trip through the scalar net.Addr path after the v2 rejection change.
+// TestWriteElementSingleAddrRoundTrip ensures the scalar net.Addr write path
+// round-trips a supported address through the channeldb codec.
 func TestWriteElementSingleAddrRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -49,15 +24,16 @@ func TestWriteElementSingleAddrRoundTrip(t *testing.T) {
 	require.Equal(t, want.String(), got.String())
 }
 
-// TestWriteElementAddrSliceDropsV2 documents that the length-prefixed
-// []net.Addr path still filters v2 silently. The leading count is rewritten
-// from the filtered slice, so the reader stays in sync and the stream is not
-// corrupted.
-func TestWriteElementAddrSliceDropsV2(t *testing.T) {
+// TestWriteElementAddrSlicePreservesV2 verifies that the length-prefixed
+// []net.Addr write path persists legacy v2 onion entries instead of dropping
+// them. Storage must round-trip the exact address set a peer signed, so v2 is
+// kept on disk and filtered only at consumption time (dial logic, RPC).
+func TestWriteElementAddrSlicePreservesV2(t *testing.T) {
 	t.Parallel()
 
 	v2 := &tor.OnionAddr{
-		OnionService: "aaaaaaaaaaaaaaaa.onion",
+		// 16 base32 chars + ".onion" = 22 chars = tor.V2Len.
+		OnionService: "abcdefghijklmnop.onion",
 		Port:         9735,
 	}
 	tcp := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 9735}
@@ -67,15 +43,7 @@ func TestWriteElementAddrSliceDropsV2(t *testing.T) {
 
 	var got []net.Addr
 	require.NoError(t, ReadElement(&buf, &got))
-	require.Len(t, got, 1)
-	require.Equal(t, tcp.String(), got[0].String())
-
-	// Sanity check that the v2-only slice round-trips as an empty slice
-	// rather than producing an error.
-	buf.Reset()
-	require.NoError(t, WriteElement(&buf, []net.Addr{v2}))
-
-	got = nil
-	require.NoError(t, ReadElement(&buf, &got))
-	require.Empty(t, got)
+	require.Len(t, got, 2)
+	require.Equal(t, v2.String(), got[0].String())
+	require.Equal(t, tcp.String(), got[1].String())
 }

@@ -76,23 +76,28 @@ func TestNodeAnnSignatureWithLegacyV2OnionAddr(t *testing.T) {
 	require.Len(t, decoded.Addresses, 3)
 	require.NoError(t, netann.ValidateNodeAnnSignature(&decoded))
 
-	// Conversion to a models.Node drops the v2 onion entry while
-	// preserving the v3 onion and IPv4 entries.
+	// Conversion to a models.Node preserves v2 so the announcement can
+	// be re-broadcast after a restart with the same signed bytes.
+	// Consumption-side filtering (dial logic, RPC display) is where
+	// v2 is dropped, not at storage entry.
 	node := models.NodeFromWireAnnouncement(&decoded)
-	require.Len(t, node.Addresses, 2)
+	require.Len(t, node.Addresses, 3)
 
-	var sawV3, sawTCP bool
+	var sawV2, sawV3, sawTCP bool
 	for _, addr := range node.Addresses {
 		switch a := addr.(type) {
 		case *tor.OnionAddr:
-			require.NotEqual(t, tor.V2Len, len(a.OnionService))
-			if len(a.OnionService) == tor.V3Len {
+			switch len(a.OnionService) {
+			case tor.V2Len:
+				sawV2 = true
+			case tor.V3Len:
 				sawV3 = true
 			}
 		case *net.TCPAddr:
 			sawTCP = true
 		}
 	}
-	require.True(t, sawV3, "expected v3 onion address to be preserved")
-	require.True(t, sawTCP, "expected ipv4 address to be preserved")
+	require.True(t, sawV2, "v2 onion address must be preserved on the Node")
+	require.True(t, sawV3, "v3 onion address must be preserved on the Node")
+	require.True(t, sawTCP, "ipv4 address must be preserved on the Node")
 }

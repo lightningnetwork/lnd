@@ -189,25 +189,16 @@ func WriteElement(w io.Writer, element interface{}) error {
 		}
 
 	case net.Addr:
-		// No length prefix here, so silently skipping an
-		// unserializable address would desync the matching
-		// ReadElement. Reject explicitly instead.
-		filtered := graphdb.FilterSerializableAddrs([]net.Addr{e})
-		if len(filtered) == 0 {
-			return fmt.Errorf("cannot serialize unsupported "+
-				"address %v", e)
-		}
-		if err := graphdb.SerializeAddr(w, filtered[0]); err != nil {
+		if err := graphdb.SerializeAddr(w, e); err != nil {
 			return err
 		}
 
 	case []net.Addr:
-		addrs := graphdb.FilterSerializableAddrs(e)
-		if err := WriteElement(w, uint32(len(addrs))); err != nil {
+		if err := WriteElement(w, uint32(len(e))); err != nil {
 			return err
 		}
 
-		for _, addr := range addrs {
+		for _, addr := range e {
 			if err := graphdb.SerializeAddr(w, addr); err != nil {
 				return err
 			}

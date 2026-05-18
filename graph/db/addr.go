@@ -99,11 +99,19 @@ func encodeTCPAddr(w io.Writer, addr *net.TCPAddr) error {
 }
 
 // encodeOnionAddr serializes an onion address into its compact raw bytes
-// representation.
+// representation. v2 entries are still serialized so that previously stored
+// or peer-announced v2 addresses round-trip faithfully through the database
+// and through Node.NodeAnnouncement re-broadcasts; lnd does not produce v2
+// addresses itself anymore.
 func encodeOnionAddr(w io.Writer, addr *tor.OnionAddr) error {
 	var suffixIndex int
 	hostLen := len(addr.OnionService)
 	switch hostLen {
+	case tor.V2Len:
+		if _, err := w.Write([]byte{byte(v2OnionAddr)}); err != nil {
+			return err
+		}
+		suffixIndex = tor.V2Len - tor.OnionSuffixLen
 	case tor.V3Len:
 		if _, err := w.Write([]byte{byte(v3OnionAddr)}); err != nil {
 			return err
@@ -126,7 +134,12 @@ func encodeOnionAddr(w io.Writer, addr *tor.OnionAddr) error {
 	}
 
 	// Sanity check the decoded length.
-	if hostLen == tor.V3Len && len(host) != tor.V3DecodedLen {
+	switch {
+	case hostLen == tor.V2Len && len(host) != tor.V2DecodedLen:
+		return fmt.Errorf("onion service %v decoded to invalid host %x",
+			addr.OnionService, host)
+
+	case hostLen == tor.V3Len && len(host) != tor.V3DecodedLen:
 		return fmt.Errorf("onion service %v decoded to invalid host %x",
 			addr.OnionService, host)
 	}
@@ -313,21 +326,16 @@ func SerializeAddr(w io.Writer, address net.Addr) error {
 	}
 }
 
-// FilterSerializableAddrs returns the subset of addresses that this package
-// can currently serialize. Legacy Tor v2 onion addresses are dropped (with a
-// warning) since lnd no longer persists them; pre-existing v2 addresses on
-// disk can still be deserialized, but any rewrite path must call this helper
-// before counting and encoding the address slice so that node updates do not
-// fail when a stale v2 address is present.
-func FilterSerializableAddrs(addrs []net.Addr) []net.Addr {
+// FilterReachableAddrs returns the subset of addrs that lnd can actually
+// reach today. Legacy Tor v2 onion entries are stored faithfully (so we can
+// reproduce the signed bytes of peer announcements that included them) but
+// callers that intend to dial or surface addresses should drop them, since
+// Tor stopped serving v2 services in October 2021.
+func FilterReachableAddrs(addrs []net.Addr) []net.Addr {
 	out := make([]net.Addr, 0, len(addrs))
 	for _, a := range addrs {
 		onion, ok := a.(*tor.OnionAddr)
 		if ok && len(onion.OnionService) == tor.V2Len {
-			log.Warnf("Dropping legacy v2 onion address %v "+
-				"during serialization; v2 is no longer "+
-				"supported", onion)
-
 			continue
 		}
 		out = append(out, a)

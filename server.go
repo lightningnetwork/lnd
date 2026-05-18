@@ -3642,9 +3642,15 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 
 		// Add all unique addresses from channel
 		// graph/NodeAnnouncements to the list of addresses we'll
-		// connect to for this peer.
+		// connect to for this peer. Legacy v2 onion entries are
+		// preserved in the graph for signature-bytes fidelity but
+		// dropped here so the dialer doesn't burn attempts on Tor
+		// services that stopped resolving in October 2021.
 		addrSet := make(map[string]net.Addr)
-		for _, addr := range channelPeer.Addresses {
+		for _, addr := range graphdb.FilterReachableAddrs(
+			channelPeer.Addresses,
+		) {
+
 			switch addr.(type) {
 			case *net.TCPAddr:
 				addrSet[addr.String()] = addr
@@ -3662,7 +3668,10 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 		// additional addresses that have not already been selected.
 		linkNodeAddrs, ok := nodeAddrsMap[pubStr]
 		if ok {
-			for _, lnAddress := range linkNodeAddrs.addresses {
+			for _, lnAddress := range graphdb.FilterReachableAddrs(
+				linkNodeAddrs.addresses,
+			) {
+
 				switch lnAddress.(type) {
 				case *net.TCPAddr:
 					addrSet[lnAddress.String()] = lnAddress
@@ -5354,11 +5363,16 @@ func (s *server) fetchNodeAdvertisedAddrs(ctx context.Context,
 		return nil, err
 	}
 
-	if len(node.Addresses) == 0 {
+	// Drop legacy v2 onion entries before handing the slice to the
+	// dialer. We keep v2 in storage so that gossip relay can reproduce
+	// the bytes a peer signed, but Tor stopped serving v2 in October
+	// 2021 so dialing one would only burn a connection attempt.
+	addrs := graphdb.FilterReachableAddrs(node.Addresses)
+	if len(addrs) == 0 {
 		return nil, errNoAdvertisedAddr
 	}
 
-	return node.Addresses, nil
+	return addrs, nil
 }
 
 // fetchLastChanUpdate returns a function which is able to retrieve our latest

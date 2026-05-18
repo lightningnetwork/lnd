@@ -281,16 +281,25 @@
 
 * [Removed the deprecated `--tor.v2` configuration
   flag](https://github.com/lightningnetwork/lnd/pull/10795). Tor v2 onion
-  services have been obsolete since October 2021 when the Tor network dropped
-  support for them; only v3 is supported now. Incoming
-  `NodeAnnouncement` messages still decode successfully, but any v2 onion
-  addresses they carry are stripped post-decode so they are never relayed
-  onward or persisted to the graph DB. The wire/storage encoders for v2
-  onion addresses (in
-  `lnwire`, `graph/db`) and the `tor.OnionHostToFakeIP` helper have been
-  removed. The `lnwire` and `graph/db` v2 decoders themselves are
-  retained so legacy graph databases (and the existing KV-to-SQL graph
-  migration that re-parses opaque address payloads) continue to load.
+  services have been obsolete since October 2021 when the Tor network
+  dropped support for them; only v3 is supported now. lnd no longer
+  produces v2 onion addresses on any code path: `lncfg` refuses v2 as
+  configuration input, and the self-announcement builder filters out any
+  v2 entry inherited from a previously stored self-node. The
+  `tor.OnionHostToFakeIP` helper has been removed.
+
+  Inbound `NodeAnnouncement` messages that still carry v2 entries
+  alongside v3/clearnet addresses are handled faithfully end-to-end:
+  the `lnwire` and `graph/db` codecs round-trip v2 bytes so
+  `DataToSign` reproduces the bytes the remote peer signed, signature
+  validation succeeds, and the announcement is persisted and
+  re-broadcast across restarts byte-for-byte. v2 is dropped only at
+  consumption sites that act on the address set (the dialer, via
+  `fetchNodeAdvertisedAddrs` and `establishPersistentConnections`), so
+  no connection attempt is wasted on a Tor service Tor stopped serving
+  in 2021. RPC surfaces (`GetNodeInfo`, `DescribeGraph`) continue to
+  expose the full address set so external tools can independently
+  reproduce and verify the signed bytes.
 
 ## Performance Improvements
 

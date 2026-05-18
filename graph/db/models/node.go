@@ -10,7 +10,6 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/lightningnetwork/lnd/tor"
 )
 
 // Node represents an individual vertex/node within the channel graph.
@@ -232,11 +231,11 @@ func (n *Node) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement1,
 // NodeFromWireAnnouncement creates a Node instance from an
 // lnwire.NodeAnnouncement1 message.
 //
-// Legacy Tor v2 onion entries are dropped here rather than in the lnwire
-// codec: keeping Decode/Encode/DataToSign wire-faithful is what lets
-// signature verification and gossip relay work on inbound announcements
-// that still carry v2 alongside v3/clearnet addresses. v2 simply never
-// reaches storage or downstream consumers of Node.Addresses.
+// The full address set (including any legacy v2 onion entries) is preserved
+// so that Node.NodeAnnouncement can reproduce the exact bytes the peer
+// signed when we relay this node's announcement after a restart. Callers
+// that need a "reachable" view (e.g. dial logic) should filter v2 at
+// consumption time instead.
 func NodeFromWireAnnouncement(msg *lnwire.NodeAnnouncement1) *Node {
 	timestamp := time.Unix(int64(msg.Timestamp), 0)
 
@@ -244,7 +243,7 @@ func NodeFromWireAnnouncement(msg *lnwire.NodeAnnouncement1) *Node {
 		msg.NodeID,
 		&NodeV1Fields{
 			LastUpdate:      timestamp,
-			Addresses:       stripLegacyV2OnionAddrs(msg.Addresses),
+			Addresses:       msg.Addresses,
 			Alias:           msg.Alias.String(),
 			AuthSigBytes:    msg.Signature.ToSignatureBytes(),
 			Features:        msg.Features,
@@ -252,17 +251,4 @@ func NodeFromWireAnnouncement(msg *lnwire.NodeAnnouncement1) *Node {
 			ExtraOpaqueData: msg.ExtraOpaqueData,
 		},
 	)
-}
-
-func stripLegacyV2OnionAddrs(addrs []net.Addr) []net.Addr {
-	filtered := make([]net.Addr, 0, len(addrs))
-	for _, addr := range addrs {
-		onion, ok := addr.(*tor.OnionAddr)
-		if ok && len(onion.OnionService) == tor.V2Len {
-			continue
-		}
-		filtered = append(filtered, addr)
-	}
-
-	return filtered
 }

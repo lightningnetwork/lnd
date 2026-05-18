@@ -1059,48 +1059,7 @@ func (d *DB) AddrsForNode(_ context.Context, nodePub *btcec.PublicKey) (bool,
 func (c *ChannelStateDB) AbandonChannel(chanPoint *wire.OutPoint,
 	bestHeight uint32) error {
 
-	// With the chanPoint constructed, we'll attempt to find the target
-	// channel in the database. If we can't find the channel, then we'll
-	// return the error back to the caller.
-	dbChan, err := c.FetchChannel(*chanPoint)
-	switch {
-	// If the channel wasn't found, then it's possible that it was already
-	// abandoned from the database.
-	case err == ErrChannelNotFound:
-		_, closedErr := c.FetchClosedChannel(chanPoint)
-		if closedErr != nil {
-			return closedErr
-		}
-
-		// If the channel was already closed, then we don't return an
-		// error as we'd like this step to be repeatable.
-		return nil
-	case err != nil:
-		return err
-	}
-
-	// Now that we've found the channel, we'll populate a close summary for
-	// the channel, so we can store as much information for this abounded
-	// channel as possible. We also ensure that we set Pending to false, to
-	// indicate that this channel has been "fully" closed.
-	summary := &ChannelCloseSummary{
-		CloseType:               Abandoned,
-		ChanPoint:               *chanPoint,
-		ChainHash:               dbChan.ChainHash,
-		CloseHeight:             bestHeight,
-		RemotePub:               dbChan.IdentityPub,
-		Capacity:                dbChan.Capacity,
-		SettledBalance:          dbChan.LocalCommitment.LocalBalance.ToSatoshis(),
-		ShortChanID:             dbChan.ShortChanID(),
-		RemoteCurrentRevocation: dbChan.RemoteCurrentRevocation,
-		RemoteNextRevocation:    dbChan.RemoteNextRevocation,
-		LocalChanConfig:         dbChan.LocalChanCfg,
-	}
-
-	// Finally, we'll close the channel in the DB, and return back to the
-	// caller. We set ourselves as the close initiator because we abandoned
-	// the channel.
-	return dbChan.CloseChannel(summary, ChanStatusLocalCloseInitiator)
+	return c.kvStore.AbandonChannel(chanPoint, bestHeight)
 }
 
 // SaveChannelOpeningState saves the serialized channel state for the provided

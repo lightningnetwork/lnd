@@ -261,11 +261,11 @@ func newChannelPackager(channel *OpenChannel) *ChannelPackager {
 // LoadFwdPkgs scans the forwarding log for any packages that haven't been
 // processed, and returns their deserialized log updates in map indexed by the
 // remote commitment height at which the updates were locked in.
-func LoadFwdPkgs(backend kvdb.Backend, channel *OpenChannel) ([]*FwdPkg,
+func (s *KVStore) LoadFwdPkgs(channel *OpenChannel) ([]*FwdPkg,
 	error) {
 
 	var fwdPkgs []*FwdPkg
-	if err := kvdb.View(backend, func(tx kvdb.RTx) error {
+	if err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
 		var err error
 		fwdPkgs, err = newChannelPackager(channel).LoadFwdPkgs(tx)
 		return err
@@ -282,10 +282,10 @@ func LoadFwdPkgs(backend kvdb.Backend, channel *OpenChannel) ([]*FwdPkg,
 // indicating that a response to this Add has been committed to the remote
 // party. Doing so will prevent these Add HTLCs from being reforwarded
 // internally.
-func AckAddHtlcs(backend kvdb.Backend, channel *OpenChannel,
+func (s *KVStore) AckAddHtlcs(channel *OpenChannel,
 	addRefs ...AddRef) error {
 
-	return kvdb.Update(backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
 		return newChannelPackager(channel).AckAddHtlcs(tx, addRefs...)
 	}, func() {})
 }
@@ -294,10 +294,10 @@ func AckAddHtlcs(backend kvdb.Backend, channel *OpenChannel,
 // SettleFailRefs, indicating that the response has been delivered to the
 // incoming link, corresponding to a particular AddRef. Doing so will prevent
 // the responses from being retransmitted internally.
-func AckSettleFails(backend kvdb.Backend, channel *OpenChannel,
+func (s *KVStore) AckSettleFails(channel *OpenChannel,
 	settleFailRefs ...SettleFailRef) error {
 
-	return kvdb.Update(backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
 		return newChannelPackager(channel).AckSettleFails(
 			tx, settleFailRefs...,
 		)
@@ -306,10 +306,10 @@ func AckSettleFails(backend kvdb.Backend, channel *OpenChannel,
 
 // SetFwdFilter atomically sets the forwarding filter for the forwarding package
 // identified by `height`.
-func SetFwdFilter(backend kvdb.Backend, channel *OpenChannel, height uint64,
+func (s *KVStore) SetFwdFilter(channel *OpenChannel, height uint64,
 	fwdFilter *PkgFilter) error {
 
-	return kvdb.Update(backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
 		return newChannelPackager(channel).SetFwdFilter(
 			tx, height, fwdFilter,
 		)
@@ -321,10 +321,10 @@ func SetFwdFilter(backend kvdb.Backend, channel *OpenChannel, height uint64,
 // the later packages won't be removed.
 //
 // NOTE: This method should only be called on packages marked FwdStateCompleted.
-func RemoveFwdPkgs(backend kvdb.Backend, channel *OpenChannel,
+func (s *KVStore) RemoveFwdPkgs(channel *OpenChannel,
 	heights ...uint64) error {
 
-	return kvdb.Update(backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
 		packager := newChannelPackager(channel)
 
 		for _, height := range heights {

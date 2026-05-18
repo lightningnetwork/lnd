@@ -1439,7 +1439,8 @@ func TestRefresh(t *testing.T) {
 	}
 
 	require.Equal(
-		t, chanOpenLoc, NewChannelPackager(state.ShortChanID()).Source(),
+		t, chanOpenLoc,
+		NewChannelPackager(state.ShortChanID()).Source(),
 	)
 }
 

@@ -146,26 +146,6 @@ var (
 	// sent was a revocation and false when it was a commitment signature.
 	// This is nil in the case of new channels with no updates exchanged.
 	lastWasRevokeKey = []byte("last-was-revoke")
-
-	// finalHtlcsBucket contains the htlcs that have been resolved
-	// definitively. Within this bucket, there is a sub-bucket for each
-	// channel. In each channel bucket, the htlc indices are stored along
-	// with final outcome.
-	//
-	// final-htlcs -> chanID -> htlcIndex -> outcome
-	//
-	// 'outcome' is a byte value that encodes:
-	//
-	//       | true      false
-	// ------+------------------
-	// bit 0 | settled   failed
-	// bit 1 | offchain  onchain
-	//
-	// This bucket is positioned at the root level, because its contents
-	// will be kept independent of the channel lifecycle. This is to avoid
-	// the situation where a channel force-closes autonomously and the user
-	// not being able to query for htlc outcomes anymore.
-	finalHtlcsBucket = []byte("final-htlcs")
 )
 
 var (
@@ -591,18 +571,18 @@ var (
 	ChanStatusRemoteCloseInitiator = cstate.ChanStatusRemoteCloseInitiator
 )
 
-// FinalHtlcByte defines a byte type that encodes information about the final
-// htlc resolution.
-type FinalHtlcByte byte
+// FinalHtlcByte is a type alias for a byte that encodes information about the
+// final htlc resolution.
+type FinalHtlcByte = cstate.FinalHtlcByte
 
 const (
 	// FinalHtlcSettledBit is the bit that encodes whether the htlc was
 	// settled or failed.
-	FinalHtlcSettledBit FinalHtlcByte = 1 << 0
+	FinalHtlcSettledBit = cstate.FinalHtlcSettledBit
 
 	// FinalHtlcOffchainBit is the bit that encodes whether the htlc was
 	// resolved offchain or onchain.
-	FinalHtlcOffchainBit FinalHtlcByte = 1 << 1
+	FinalHtlcOffchainBit = cstate.FinalHtlcOffchainBit
 )
 
 // amendOpenChannelTlvData updates the channel with the given auxiliary TLV
@@ -835,21 +815,7 @@ func fetchChanBucketRw(tx kvdb.RwTx, nodeKey *btcec.PublicKey,
 func fetchFinalHtlcsBucketRw(tx kvdb.RwTx,
 	chanID lnwire.ShortChannelID) (kvdb.RwBucket, error) {
 
-	finalHtlcsBucket, err := tx.CreateTopLevelBucket(finalHtlcsBucket)
-	if err != nil {
-		return nil, err
-	}
-
-	var chanIDBytes [8]byte
-	byteOrder.PutUint64(chanIDBytes[:], chanID.ToUint64())
-	chanBucket, err := finalHtlcsBucket.CreateBucketIfNotExists(
-		chanIDBytes[:],
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return chanBucket, nil
+	return cstate.FetchFinalHtlcsBucketRw(tx, chanID)
 }
 
 // fullSyncOpenChannel syncs the contents of an OpenChannel while re-using an
@@ -1702,48 +1668,10 @@ func (c *ChannelStateDB) UpdateChannelCommitment(channel *OpenChannel,
 
 // processFinalHtlc stores a final htlc outcome in the database if signaled via
 // the supplied log update. An in-memory htlcs map is updated too.
-func processFinalHtlc(finalHtlcsBucket walletdb.ReadWriteBucket, upd LogUpdate,
+func processFinalHtlc(finalHtlcsBucket kvdb.RwBucket, upd LogUpdate,
 	finalHtlcs map[uint64]bool) error {
 
-	var (
-		settled bool
-		id      uint64
-	)
-
-	switch msg := upd.UpdateMsg.(type) {
-	case *lnwire.UpdateFulfillHTLC:
-		settled = true
-		id = msg.ID
-
-	case *lnwire.UpdateFailHTLC:
-		settled = false
-		id = msg.ID
-
-	case *lnwire.UpdateFailMalformedHTLC:
-		settled = false
-		id = msg.ID
-
-	default:
-		return nil
-	}
-
-	// Store the final resolution in the database if a bucket is provided.
-	if finalHtlcsBucket != nil {
-		err := putFinalHtlc(
-			finalHtlcsBucket, id,
-			FinalHtlcInfo{
-				Settled:  settled,
-				Offchain: true,
-			},
-		)
-		if err != nil {
-			return err
-		}
-	}
-
-	finalHtlcs[id] = settled
-
-	return nil
+	return cstate.ProcessFinalHtlc(finalHtlcsBucket, upd, finalHtlcs)
 }
 
 // serializeHtlcExtraData encodes a TLV stream of extra data to be stored with a
@@ -2482,18 +2410,7 @@ type FinalHtlcInfo = cstate.FinalHtlcInfo
 func putFinalHtlc(finalHtlcsBucket kvdb.RwBucket, id uint64,
 	info FinalHtlcInfo) error {
 
-	var key [8]byte
-	byteOrder.PutUint64(key[:], id)
-
-	var finalHtlcByte FinalHtlcByte
-	if info.Settled {
-		finalHtlcByte |= FinalHtlcSettledBit
-	}
-	if info.Offchain {
-		finalHtlcByte |= FinalHtlcOffchainBit
-	}
-
-	return finalHtlcsBucket.Put(key[:], []byte{byte(finalHtlcByte)})
+	return cstate.PutFinalHtlc(finalHtlcsBucket, id, info)
 }
 
 // LoadFwdPkgs scans the forwarding log for any packages that haven't been

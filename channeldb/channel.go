@@ -1317,7 +1317,7 @@ func (c *ChannelStateDB) UpdateChannelCommitment(channel *OpenChannel,
 		// Persist unsigned but acked remote updates that need to be
 		// restored after a restart.
 		var b bytes.Buffer
-		err = serializeLogUpdates(&b, unsignedAckedUpdates)
+		err = cstate.SerializeLogUpdates(&b, unsignedAckedUpdates)
 		if err != nil {
 			return err
 		}
@@ -1347,7 +1347,7 @@ func (c *ChannelStateDB) UpdateChannelCommitment(channel *OpenChannel,
 		}
 
 		r := bytes.NewReader(updateBytes)
-		updates, err := deserializeLogUpdates(r)
+		updates, err := cstate.DeserializeLogUpdates(r)
 		if err != nil {
 			return err
 		}
@@ -1386,7 +1386,7 @@ func (c *ChannelStateDB) UpdateChannelCommitment(channel *OpenChannel,
 		}
 
 		var b3 bytes.Buffer
-		err = serializeLogUpdates(&b3, unsignedUpdates)
+		err = cstate.SerializeLogUpdates(&b3, unsignedUpdates)
 		if err != nil {
 			return fmt.Errorf("unable to serialize log updates: %w",
 				err)
@@ -1456,57 +1456,6 @@ func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 	return cstate.DeserializeHtlcs(r)
 }
 
-// serializeLogUpdate writes a log update to the provided io.Writer.
-func serializeLogUpdate(w io.Writer, l *LogUpdate) error {
-	return WriteElements(w, l.LogIndex, l.UpdateMsg)
-}
-
-// deserializeLogUpdate reads a log update from the provided io.Reader.
-func deserializeLogUpdate(r io.Reader) (*LogUpdate, error) {
-	l := &LogUpdate{}
-	if err := ReadElements(r, &l.LogIndex, &l.UpdateMsg); err != nil {
-		return nil, err
-	}
-
-	return l, nil
-}
-
-// serializeLogUpdates serializes provided list of updates to a stream.
-func serializeLogUpdates(w io.Writer, logUpdates []LogUpdate) error {
-	numUpdates := uint16(len(logUpdates))
-	if err := binary.Write(w, byteOrder, numUpdates); err != nil {
-		return err
-	}
-
-	for _, diff := range logUpdates {
-		err := WriteElements(w, diff.LogIndex, diff.UpdateMsg)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// deserializeLogUpdates deserializes a list of updates from a stream.
-func deserializeLogUpdates(r io.Reader) ([]LogUpdate, error) {
-	var numUpdates uint16
-	if err := binary.Read(r, byteOrder, &numUpdates); err != nil {
-		return nil, err
-	}
-
-	logUpdates := make([]LogUpdate, numUpdates)
-	for i := 0; i < int(numUpdates); i++ {
-		err := ReadElements(r,
-			&logUpdates[i].LogIndex, &logUpdates[i].UpdateMsg,
-		)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return logUpdates, nil
-}
-
 func serializeCommitDiff(w io.Writer, diff *CommitDiff) error { // nolint: dupl
 	if err := serializeChanCommit(w, &diff.Commitment); err != nil {
 		return err
@@ -1516,7 +1465,7 @@ func serializeCommitDiff(w io.Writer, diff *CommitDiff) error { // nolint: dupl
 		return err
 	}
 
-	if err := serializeLogUpdates(w, diff.LogUpdates); err != nil {
+	if err := cstate.SerializeLogUpdates(w, diff.LogUpdates); err != nil {
 		return err
 	}
 
@@ -1577,7 +1526,7 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 	}
 	d.CommitSig = commitSig
 
-	d.LogUpdates, err = deserializeLogUpdates(r)
+	d.LogUpdates, err = cstate.DeserializeLogUpdates(r)
 	if err != nil {
 		return nil, err
 	}
@@ -1769,7 +1718,7 @@ func (c *ChannelStateDB) UnsignedAckedUpdates(channel *OpenChannel) (
 		}
 
 		r := bytes.NewReader(updateBytes)
-		updates, err = deserializeLogUpdates(r)
+		updates, err = cstate.DeserializeLogUpdates(r)
 		return err
 	}, func() {
 		updates = nil
@@ -1807,7 +1756,7 @@ func (c *ChannelStateDB) RemoteUnsignedLocalUpdates(channel *OpenChannel) (
 		}
 
 		r := bytes.NewReader(updateBytes)
-		updates, err = deserializeLogUpdates(r)
+		updates, err = cstate.DeserializeLogUpdates(r)
 		return err
 	}, func() {
 		updates = nil
@@ -1942,7 +1891,7 @@ func (c *ChannelStateDB) AdvanceCommitChainTail(channel *OpenChannel,
 		}
 
 		r := bytes.NewReader(updateBytes)
-		unsignedUpdates, err := deserializeLogUpdates(r)
+		unsignedUpdates, err := cstate.DeserializeLogUpdates(r)
 		if err != nil {
 			return err
 		}
@@ -1959,7 +1908,7 @@ func (c *ChannelStateDB) AdvanceCommitChainTail(channel *OpenChannel,
 		}
 
 		var b bytes.Buffer
-		err = serializeLogUpdates(&b, validUpdates)
+		err = cstate.SerializeLogUpdates(&b, validUpdates)
 		if err != nil {
 			return fmt.Errorf("unable to serialize log updates: %w",
 				err)
@@ -1974,7 +1923,7 @@ func (c *ChannelStateDB) AdvanceCommitChainTail(channel *OpenChannel,
 		// Persist the local updates the peer hasn't yet signed so they
 		// can be restored after restart.
 		var b2 bytes.Buffer
-		err = serializeLogUpdates(&b2, updates)
+		err = cstate.SerializeLogUpdates(&b2, updates)
 		if err != nil {
 			return err
 		}

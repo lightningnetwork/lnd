@@ -1,57 +1,62 @@
 package chanstate
 
 import (
-	"bytes"
 	"encoding/binary"
 	"io"
-
-	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 var byteOrder = binary.BigEndian
 
 // serializeLogUpdate writes a log update to the provided io.Writer.
 func serializeLogUpdate(w io.Writer, l *LogUpdate) error {
-	if err := binary.Write(w, byteOrder, l.LogIndex); err != nil {
-		return err
-	}
-
-	var msgBuf bytes.Buffer
-	if _, err := lnwire.WriteMessage(&msgBuf, l.UpdateMsg, 0); err != nil {
-		return err
-	}
-
-	msgLen := uint16(msgBuf.Len())
-	if err := binary.Write(w, byteOrder, msgLen); err != nil {
-		return err
-	}
-
-	_, err := w.Write(msgBuf.Bytes())
-
-	return err
+	return WriteElements(w, l.LogIndex, l.UpdateMsg)
 }
 
 // deserializeLogUpdate reads a log update from the provided io.Reader.
 func deserializeLogUpdate(r io.Reader) (*LogUpdate, error) {
 	l := &LogUpdate{}
-	if err := binary.Read(r, byteOrder, &l.LogIndex); err != nil {
+	if err := ReadElements(r, &l.LogIndex, &l.UpdateMsg); err != nil {
 		return nil, err
 	}
-
-	var msgLen uint16
-	if err := binary.Read(r, byteOrder, &msgLen); err != nil {
-		return nil, err
-	}
-
-	msgReader := io.LimitReader(r, int64(msgLen))
-	msg, err := lnwire.ReadMessage(msgReader, 0)
-	if err != nil {
-		return nil, err
-	}
-
-	l.UpdateMsg = msg
 
 	return l, nil
+}
+
+// SerializeLogUpdates serializes provided list of updates to a stream.
+func SerializeLogUpdates(w io.Writer, logUpdates []LogUpdate) error {
+	numUpdates := uint16(len(logUpdates))
+	if err := binary.Write(w, byteOrder, numUpdates); err != nil {
+		return err
+	}
+
+	for _, diff := range logUpdates {
+		err := WriteElements(w, diff.LogIndex, diff.UpdateMsg)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// DeserializeLogUpdates deserializes a list of updates from a stream.
+func DeserializeLogUpdates(r io.Reader) ([]LogUpdate, error) {
+	var numUpdates uint16
+	if err := binary.Read(r, byteOrder, &numUpdates); err != nil {
+		return nil, err
+	}
+
+	logUpdates := make([]LogUpdate, numUpdates)
+	for i := 0; i < int(numUpdates); i++ {
+		err := ReadElements(r,
+			&logUpdates[i].LogIndex, &logUpdates[i].UpdateMsg,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return logUpdates, nil
 }
 
 // makeLogKey converts a uint64 into an 8 byte array.

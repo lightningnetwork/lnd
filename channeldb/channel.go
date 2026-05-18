@@ -623,7 +623,7 @@ func (c *ChannelStateDB) RemoveFwdPkgs(channel *OpenChannel,
 func (c *ChannelStateDB) revocationLogTailCommitHeight(
 	channel *OpenChannel) (uint64, error) {
 
-	return cstate.RevocationLogTailCommitHeight(c.backend, channel)
+	return c.kvStore.RevocationLogTailCommitHeight(channel)
 }
 
 // CommitmentHeight returns the current commitment height. The commitment

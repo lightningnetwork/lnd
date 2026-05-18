@@ -592,14 +592,7 @@ func (c *ChannelStateDB) FetchChannelShutdownInfo(
 func isChannelBorked(channel *OpenChannel, chanBucket kvdb.RBucket) (
 	bool, error) {
 
-	diskChannel, err := fetchOpenChannel(
-		chanBucket, &channel.FundingOutpoint,
-	)
-	if err != nil {
-		return false, err
-	}
-
-	return diskChannel.ChannelStatusForStore() != ChanStatusDefault, nil
+	return cstate.IsChannelBorked(channel, chanBucket)
 }
 
 // MarkChannelCommitmentBroadcasted marks the channel as having a commitment

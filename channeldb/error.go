@@ -2,6 +2,8 @@ package channeldb
 
 import (
 	"fmt"
+
+	cstate "github.com/lightningnetwork/lnd/chanstate"
 )
 
 var (
@@ -36,7 +38,7 @@ var (
 
 	// ErrChannelNotFound is returned when we attempt to locate a channel
 	// for a specific chain, but it is not found.
-	ErrChannelNotFound = fmt.Errorf("channel not found")
+	ErrChannelNotFound = cstate.ErrChannelNotFound
 
 	// ErrMetaNotFound is returned when meta bucket hasn't been
 	// created.

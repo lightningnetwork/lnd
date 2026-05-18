@@ -14,6 +14,10 @@ var (
 	// have any channels state.
 	ErrNoChanInfoFound = fmt.Errorf("no chan info found")
 
+	// ErrChannelNotFound is returned when we attempt to locate a channel
+	// for a specific chain, but it is not found.
+	ErrChannelNotFound = fmt.Errorf("channel not found")
+
 	// ErrNoRevocationsFound is returned when revocation state for a
 	// particular channel cannot be found.
 	ErrNoRevocationsFound = fmt.Errorf("no revocations found")

@@ -27,7 +27,17 @@
 
 ## RPC Additions
 
+* The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates
+  to specific first-hop outgoing
+  channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
+  `outgoing_chan_ids` field in `RouteFeeRequest`.
+
 ## lncli Additions
+
+* The `estimateroutefee` command now supports [restricting fee estimates to
+  specific first-hop outgoing
+  channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
+  `--outgoing_chan_id` flag.
 
 # Improvements
 

@@ -23,9 +23,9 @@ var (
 	dataLossCommitPointKey = []byte("data-loss-commit-point-key")
 )
 
-// PutChannelDataLossCommitPoint stores the data-loss commit point in the
+// putChannelDataLossCommitPoint stores the data-loss commit point in the
 // target channel bucket.
-func PutChannelDataLossCommitPoint(chanBucket kvdb.RwBucket,
+func putChannelDataLossCommitPoint(chanBucket kvdb.RwBucket,
 	commitPoint *btcec.PublicKey) error {
 
 	return chanBucket.Put(
@@ -33,9 +33,9 @@ func PutChannelDataLossCommitPoint(chanBucket kvdb.RwBucket,
 	)
 }
 
-// FetchChannelDataLossCommitPoint retrieves the data-loss commit point from the
+// fetchChannelDataLossCommitPoint retrieves the data-loss commit point from the
 // target channel bucket.
-func FetchChannelDataLossCommitPoint(
+func fetchChannelDataLossCommitPoint(
 	chanBucket kvdb.RBucket) (*btcec.PublicKey, error) {
 
 	bs := chanBucket.Get(dataLossCommitPointKey)
@@ -800,6 +800,56 @@ func ApplyChannelStatus(backend kvdb.Backend, channel *OpenChannel,
 	status ChannelStatus) error {
 
 	return PutChanStatus(backend, channel, status)
+}
+
+// MarkChannelDataLoss marks the channel as local-data-loss and stores the
+// commit point needed if the remote force closes.
+func MarkChannelDataLoss(backend kvdb.Backend, channel *OpenChannel,
+	commitPoint *btcec.PublicKey) error {
+
+	putCommitPoint := func(chanBucket kvdb.RwBucket) error {
+		return putChannelDataLossCommitPoint(chanBucket, commitPoint)
+	}
+
+	return PutChanStatus(
+		backend, channel, ChanStatusLocalDataLoss, putCommitPoint,
+	)
+}
+
+// FetchDataLossCommitPoint retrieves the commit point stored when the channel
+// was marked as local-data-loss.
+func FetchDataLossCommitPoint(backend kvdb.Backend,
+	channel *OpenChannel) (*btcec.PublicKey, error) {
+
+	var commitPoint *btcec.PublicKey
+
+	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+		chanBucket, err := FetchChanBucket(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		switch {
+		case err == nil:
+		case errors.Is(err, ErrNoChanDBExists),
+			errors.Is(err, ErrNoActiveChannels),
+			errors.Is(err, ErrChannelNotFound):
+
+			return ErrNoCommitPoint
+		default:
+			return err
+		}
+
+		commitPoint, err = fetchChannelDataLossCommitPoint(chanBucket)
+
+		return err
+	}, func() {
+		commitPoint = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return commitPoint, nil
 }
 
 // PutChanStatus appends the given status to the channel. fs is an optional

@@ -960,10 +960,10 @@ func MarkChannelScidAliasNegotiated(backend kvdb.Backend,
 
 // ApplyChannelStatus adds the target status to the channel's persisted status
 // bit field.
-func ApplyChannelStatus(backend kvdb.Backend, channel *OpenChannel,
+func (s *KVStore) ApplyChannelStatus(channel *OpenChannel,
 	status ChannelStatus) error {
 
-	return PutChanStatus(backend, channel, status)
+	return s.putChanStatus(channel, status)
 }
 
 // PutChannelDataLossCommitPoint stores the data-loss commit point in the
@@ -997,26 +997,26 @@ func FetchChannelDataLossCommitPoint(
 
 // MarkChannelDataLoss marks the channel as local-data-loss and stores the
 // commit point needed if the remote force closes.
-func MarkChannelDataLoss(backend kvdb.Backend, channel *OpenChannel,
+func (s *KVStore) MarkChannelDataLoss(channel *OpenChannel,
 	commitPoint *btcec.PublicKey) error {
 
 	putCommitPoint := func(chanBucket kvdb.RwBucket) error {
 		return PutChannelDataLossCommitPoint(chanBucket, commitPoint)
 	}
 
-	return PutChanStatus(
-		backend, channel, ChanStatusLocalDataLoss, putCommitPoint,
+	return s.putChanStatus(
+		channel, ChanStatusLocalDataLoss, putCommitPoint,
 	)
 }
 
-// FetchDataLossCommitPoint retrieves the commit point stored when the channel
-// was marked as local-data-loss.
-func FetchDataLossCommitPoint(backend kvdb.Backend,
+// FetchChannelDataLossCommitPoint retrieves the commit point stored when the
+// channel was marked as local-data-loss.
+func (s *KVStore) FetchChannelDataLossCommitPoint(
 	channel *OpenChannel) (*btcec.PublicKey, error) {
 
 	var commitPoint *btcec.PublicKey
 
-	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := FetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
@@ -1045,13 +1045,18 @@ func FetchDataLossCommitPoint(backend kvdb.Backend,
 	return commitPoint, nil
 }
 
-// PutChanStatus appends the given status to the channel. fs is an optional
+// MarkChannelBorked marks the channel as irreconcilable.
+func (s *KVStore) MarkChannelBorked(channel *OpenChannel) error {
+	return s.ApplyChannelStatus(channel, ChanStatusBorked)
+}
+
+// putChanStatus appends the given status to the channel. fs is an optional
 // list of closures that are given the chanBucket in order to atomically add
 // extra information together with the new status.
-func PutChanStatus(backend kvdb.Backend, channel *OpenChannel,
+func (s *KVStore) putChanStatus(channel *OpenChannel,
 	status ChannelStatus, fs ...func(kvdb.RwBucket) error) error {
 
-	if err := kvdb.Update(backend, func(tx kvdb.RwTx) error {
+	if err := kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := FetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
@@ -1099,10 +1104,10 @@ func PutChanStatus(backend kvdb.Backend, channel *OpenChannel,
 
 // ClearChannelStatus clears the target status from the channel's persisted
 // status bit field.
-func ClearChannelStatus(backend kvdb.Backend, channel *OpenChannel,
+func (s *KVStore) ClearChannelStatus(channel *OpenChannel,
 	status ChannelStatus) error {
 
-	if err := kvdb.Update(backend, func(tx kvdb.RwTx) error {
+	if err := kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := FetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,

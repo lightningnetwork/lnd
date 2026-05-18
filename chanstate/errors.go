@@ -6,6 +6,10 @@ import (
 )
 
 var (
+	// ErrNoChanDBExists is returned when a channel bucket hasn't been
+	// created.
+	ErrNoChanDBExists = fmt.Errorf("channel db has not yet been created")
+
 	// ErrNoCommitmentsFound is returned when a channel has not set
 	// commitment states.
 	ErrNoCommitmentsFound = fmt.Errorf("no commitments found")
@@ -27,6 +31,10 @@ var (
 	// each time we write a new state in order to be properly fault
 	// tolerant.
 	ErrNoPendingCommit = fmt.Errorf("no pending commits found")
+
+	// ErrNoActiveChannels is returned when there is no active (open)
+	// channels within the database.
+	ErrNoActiveChannels = fmt.Errorf("no active channels exist")
 
 	// ErrNoCommitPoint is returned when no data loss commit point is found
 	// in the database.

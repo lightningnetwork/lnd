@@ -1505,7 +1505,7 @@ func deserializeLogUpdates(r io.Reader) ([]LogUpdate, error) {
 }
 
 func serializeCommitDiff(w io.Writer, diff *CommitDiff) error { // nolint: dupl
-	if err := serializeChanCommit(w, &diff.Commitment); err != nil {
+	if err := cstate.SerializeChanCommit(w, &diff.Commitment); err != nil {
 		return err
 	}
 
@@ -1558,7 +1558,7 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 		err error
 	)
 
-	d.Commitment, err = deserializeChanCommit(r)
+	d.Commitment, err = cstate.DeserializeChanCommit(r)
 	if err != nil {
 		return nil, err
 	}
@@ -2755,16 +2755,7 @@ func getOptionalUpfrontShutdownScript(chanBucket kvdb.RBucket, key []byte,
 }
 
 func serializeChanCommit(w io.Writer, c *ChannelCommitment) error {
-	if err := WriteElements(w,
-		c.CommitHeight, c.LocalLogIndex, c.LocalHtlcIndex,
-		c.RemoteLogIndex, c.RemoteHtlcIndex, c.LocalBalance,
-		c.RemoteBalance, c.CommitFee, c.FeePerKw, c.CommitTx,
-		c.CommitSig,
-	); err != nil {
-		return err
-	}
-
-	return SerializeHtlcs(w, c.Htlcs...)
+	return cstate.SerializeChanCommit(w, c)
 }
 
 func putChanCommitment(chanBucket kvdb.RwBucket, c *ChannelCommitment,
@@ -2778,7 +2769,7 @@ func putChanCommitment(chanBucket kvdb.RwBucket, c *ChannelCommitment,
 	}
 
 	var b bytes.Buffer
-	if err := serializeChanCommit(&b, c); err != nil {
+	if err := cstate.SerializeChanCommit(&b, c); err != nil {
 		return err
 	}
 
@@ -2914,23 +2905,7 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 }
 
 func deserializeChanCommit(r io.Reader) (ChannelCommitment, error) {
-	var c ChannelCommitment
-
-	err := ReadElements(r,
-		&c.CommitHeight, &c.LocalLogIndex, &c.LocalHtlcIndex, &c.RemoteLogIndex,
-		&c.RemoteHtlcIndex, &c.LocalBalance, &c.RemoteBalance,
-		&c.CommitFee, &c.FeePerKw, &c.CommitTx, &c.CommitSig,
-	)
-	if err != nil {
-		return c, err
-	}
-
-	c.Htlcs, err = DeserializeHtlcs(r)
-	if err != nil {
-		return c, err
-	}
-
-	return c, nil
+	return cstate.DeserializeChanCommit(r)
 }
 
 func fetchChanCommitment(chanBucket kvdb.RBucket,
@@ -2949,7 +2924,7 @@ func fetchChanCommitment(chanBucket kvdb.RBucket,
 	}
 
 	r := bytes.NewReader(commitBytes)
-	chanCommit, err := deserializeChanCommit(r)
+	chanCommit, err := cstate.DeserializeChanCommit(r)
 	if err != nil {
 		return ChannelCommitment{}, fmt.Errorf("unable to decode "+
 			"chan commit: %w", err)

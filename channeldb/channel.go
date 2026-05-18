@@ -3556,6 +3556,10 @@ func deleteOpenChannel(chanBucket kvdb.RwBucket) error {
 }
 
 // makeLogKey converts a uint64 into an 8 byte array.
+//
+// TODO(chanstate): remove together with the deprecated revocation log
+// bucket. chanstate owns the forwarding and revocation key helpers now,
+// and fetchOldRevocationLog is the only caller left here.
 func makeLogKey(updateNum uint64) [8]byte {
 	var key [8]byte
 	byteOrder.PutUint64(key[:], updateNum)

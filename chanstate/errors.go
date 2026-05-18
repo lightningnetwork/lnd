@@ -41,6 +41,10 @@ var (
 	// channels within the database.
 	ErrNoActiveChannels = fmt.Errorf("no active channels exist")
 
+	// ErrNoPastDeltas is returned when the channel delta bucket hasn't
+	// been created.
+	ErrNoPastDeltas = fmt.Errorf("channel has no recorded deltas")
+
 	// ErrNoCommitPoint is returned when no data loss commit point is found
 	// in the database.
 	ErrNoCommitPoint = fmt.Errorf("no commit point found")

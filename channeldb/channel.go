@@ -253,7 +253,7 @@ const (
 // RefreshChannel updates the in-memory channel state using the latest state
 // observed on disk.
 func (c *ChannelStateDB) RefreshChannel(channel *OpenChannel) error {
-	return cstate.RefreshChannel(c.backend, channel)
+	return c.kvStore.RefreshChannel(channel)
 }
 
 func fetchFinalHtlcsBucketRw(tx kvdb.RwTx,
@@ -267,7 +267,7 @@ func fetchFinalHtlcsBucketRw(tx kvdb.RwTx,
 func (c *ChannelStateDB) MarkChannelConfirmationHeight(channel *OpenChannel,
 	height uint32) error {
 
-	return cstate.MarkChannelConfirmationHeight(c.backend, channel, height)
+	return c.kvStore.MarkChannelConfirmationHeight(channel, height)
 }
 
 // MarkChannelCloseConfirmationHeight updates the channel's close confirmation
@@ -275,9 +275,7 @@ func (c *ChannelStateDB) MarkChannelConfirmationHeight(channel *OpenChannel,
 func (c *ChannelStateDB) MarkChannelCloseConfirmationHeight(
 	channel *OpenChannel, height fn.Option[uint32]) error {
 
-	return cstate.MarkChannelCloseConfirmationHeight(
-		c.backend, channel, height,
-	)
+	return c.kvStore.MarkChannelCloseConfirmationHeight(channel, height)
 }
 
 // MarkChannelOpen marks a channel as fully open given a locator that uniquely
@@ -285,14 +283,14 @@ func (c *ChannelStateDB) MarkChannelCloseConfirmationHeight(
 func (c *ChannelStateDB) MarkChannelOpen(channel *OpenChannel,
 	openLoc lnwire.ShortChannelID) error {
 
-	return cstate.MarkChannelOpen(c.backend, channel, openLoc)
+	return c.kvStore.MarkChannelOpen(channel, openLoc)
 }
 
 // MarkChannelRealScid marks the zero-conf channel's confirmed ShortChannelID.
 func (c *ChannelStateDB) MarkChannelRealScid(channel *OpenChannel,
 	realScid lnwire.ShortChannelID) error {
 
-	return cstate.MarkChannelRealScid(c.backend, channel, realScid)
+	return c.kvStore.MarkChannelRealScid(channel, realScid)
 }
 
 // MarkChannelScidAliasNegotiated adds ScidAliasFeatureBit to ChanType in the
@@ -300,7 +298,7 @@ func (c *ChannelStateDB) MarkChannelRealScid(channel *OpenChannel,
 func (c *ChannelStateDB) MarkChannelScidAliasNegotiated(
 	channel *OpenChannel) error {
 
-	return cstate.MarkChannelScidAliasNegotiated(c.backend, channel)
+	return c.kvStore.MarkChannelScidAliasNegotiated(channel)
 }
 
 // MarkChannelDataLoss marks the channel as local-data-loss and stores the

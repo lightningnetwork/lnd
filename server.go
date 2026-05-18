@@ -617,7 +617,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	chanPredicate chanacceptor.ChannelAcceptor,
 	torController *tor.Controller, tlsManager *TLSManager,
 	leaderElector cluster.LeaderElector,
-	implCfg *ImplementationCfg) (*server, error) {
+	implCfg *ImplementationCfg,
+	localTowerPubKey *btcec.PublicKey) (*server, error) {
 
 	var (
 		err         error
@@ -1830,6 +1831,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			MinBackoff:         10 * time.Second,
 			MaxBackoff:         5 * time.Minute,
 			MaxTasksInMemQueue: cfg.WtClient.MaxTasksInMemQueue,
+			LocalTowerPubKey:   localTowerPubKey,
 		}, policy, anchorPolicy, taprootPolicy, taprootFinalPolicy)
 		if err != nil {
 			return nil, err

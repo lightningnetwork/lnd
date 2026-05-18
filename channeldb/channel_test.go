@@ -1522,9 +1522,7 @@ func TestCloseInitiator(t *testing.T) {
 			}
 
 			// Lookup open channels in the database.
-			dbChans, err := fetchChannels(
-				cdb, pendingChannelFilter(false),
-			)
+			dbChans, err := cdb.FetchAllChannels()
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

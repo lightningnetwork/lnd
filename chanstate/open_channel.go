@@ -429,6 +429,16 @@ func (c *OpenChannel) BroadcastHeight() uint32 {
 	return c.FundingBroadcastHeight
 }
 
+// FundingTxPresent returns true if expect the funding transcation to be found
+// on disk or already populated within the passed open channel struct.
+func (c *OpenChannel) FundingTxPresent() bool {
+	chanType := c.ChanType
+
+	return chanType.IsSingleFunder() && chanType.HasFundingTx() &&
+		c.IsInitiator &&
+		!c.HasChanStatusForStore(ChanStatusRestored)
+}
+
 // SetBroadcastHeight sets the FundingBroadcastHeight.
 func (c *OpenChannel) SetBroadcastHeight(height uint32) {
 	c.Lock()

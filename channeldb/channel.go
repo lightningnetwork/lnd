@@ -3172,16 +3172,6 @@ func writeChanConfig(b io.Writer, c *ChannelConfig) error {
 	)
 }
 
-// fundingTxPresent returns true if expect the funding transcation to be found
-// on disk or already populated within the passed open channel struct.
-func fundingTxPresent(channel *OpenChannel) bool {
-	chanType := channel.ChanType
-
-	return chanType.IsSingleFunder() && chanType.HasFundingTx() &&
-		channel.IsInitiator &&
-		!channel.HasChanStatusForStore(ChanStatusRestored)
-}
-
 func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 	var w bytes.Buffer
 	if err := WriteElements(&w,
@@ -3197,7 +3187,7 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 
 	// For single funder channels that we initiated, and we have the
 	// funding transaction, then write the funding txn.
-	if fundingTxPresent(channel) {
+	if channel.FundingTxPresent() {
 		if err := WriteElement(&w, channel.FundingTxn); err != nil {
 			return err
 		}
@@ -3381,7 +3371,7 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 
 	// For single funder channels that we initiated and have the funding
 	// transaction to, read the funding txn.
-	if fundingTxPresent(channel) {
+	if channel.FundingTxPresent() {
 		if err := ReadElement(r, &channel.FundingTxn); err != nil {
 			return err
 		}

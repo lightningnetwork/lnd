@@ -266,6 +266,85 @@ func TestUnlock(t *testing.T) {
 			},
 		},
 
+		// Password piped via stdin contains an embedded newline.
+		// Reading must consume everything up to EOF, preserving the
+		// embedded newline byte.
+		{
+			name:       "success_stdin_embedded_newline",
+			args:       []string{"--stdin"},
+			stdinInput: "first\nsecond\n",
+			stateStreams: []stateStreamSpec{
+				{
+					states: []lnrpc.WalletState{
+						lnrpc.WalletState_LOCKED,
+					},
+				},
+				{
+					states: []lnrpc.WalletState{
+						lnrpc.WalletState_RPC_ACTIVE,
+					},
+				},
+			},
+			expectReadPasswordCalls: 0,
+			expectUnlockCalls:       1,
+			expectSubscribeCalls:    2,
+			expectReq: &lnrpc.UnlockWalletRequest{
+				WalletPassword: []byte("first\nsecond"),
+			},
+		},
+
+		// Password piped via stdin without any trailing newline (e.g.
+		// `printf %s pw | lncli unlock --stdin`).
+		{
+			name:       "success_stdin_no_trailing_newline",
+			args:       []string{"--stdin"},
+			stdinInput: "secret",
+			stateStreams: []stateStreamSpec{
+				{
+					states: []lnrpc.WalletState{
+						lnrpc.WalletState_LOCKED,
+					},
+				},
+				{
+					states: []lnrpc.WalletState{
+						lnrpc.WalletState_RPC_ACTIVE,
+					},
+				},
+			},
+			expectReadPasswordCalls: 0,
+			expectUnlockCalls:       1,
+			expectSubscribeCalls:    2,
+			expectReq: &lnrpc.UnlockWalletRequest{
+				WalletPassword: []byte("secret"),
+			},
+		},
+
+		// Password piped via stdin with a CRLF terminator: only the
+		// final \r\n pair is stripped.
+		{
+			name:       "success_stdin_crlf_terminator",
+			args:       []string{"--stdin"},
+			stdinInput: "secret\r\n",
+			stateStreams: []stateStreamSpec{
+				{
+					states: []lnrpc.WalletState{
+						lnrpc.WalletState_LOCKED,
+					},
+				},
+				{
+					states: []lnrpc.WalletState{
+						lnrpc.WalletState_RPC_ACTIVE,
+					},
+				},
+			},
+			expectReadPasswordCalls: 0,
+			expectUnlockCalls:       1,
+			expectSubscribeCalls:    2,
+			expectReq: &lnrpc.UnlockWalletRequest{
+				WalletPassword: []byte("secret"),
+			},
+		},
+
 		// Uses positional recovery window argument.
 		{
 			name:            "success_arg_recovery_window",

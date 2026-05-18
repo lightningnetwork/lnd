@@ -543,11 +543,16 @@ func unlockWithDeps(ctx *cli.Context,
 	// password manager. If the user types the password instead, it will be
 	// echoed in the console.
 	case ctx.IsSet("stdin"):
-		reader := bufio.NewReader(stdin)
-		pw, err = reader.ReadBytes('\n')
-
-		// Remove carriage return and newline characters.
-		pw = bytes.Trim(pw, "\r\n")
+		// Read until EOF so passwords containing newline bytes are
+		// preserved. A single trailing newline (with optional CR) is
+		// stripped so the common `echo "pw" | lncli unlock --stdin`
+		// usage keeps working.
+		pw, err = io.ReadAll(stdin)
+		if err != nil {
+			return err
+		}
+		pw = bytes.TrimSuffix(pw, []byte{'\n'})
+		pw = bytes.TrimSuffix(pw, []byte{'\r'})
 
 	// Read the password from a terminal by default. This requires the
 	// terminal to be a real tty and will fail if a string is piped into

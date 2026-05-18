@@ -282,6 +282,22 @@
   14 and 8 respectively, now reserved). Callers must use the multi-channel
   `outgoing_chan_ids` field introduced in 0.20.
 
+* [Removed the deprecated `--tor.v2` configuration
+  flag](https://github.com/lightningnetwork/lnd/pull/10813). Tor stopped
+  serving v2 onion services in October 2021, and lnd no longer produces
+  v2 on any code path; `tor.OnionHostToFakeIP` is also gone. Operator
+  input is rejected at the boundary: `--externalip`, `--listen`,
+  `lncli connect`, and `lncli wtclient towers add` fail fast on a v2
+  `.onion` string, so operators upgrading with a v2 entry in
+  `lnd.conf` must remove it before lnd will start.
+
+  Peer-signed announcements that still carry v2 are handled
+  byte-for-byte: the `lnwire` and `graph/db` codecs round-trip v2 so
+  `DataToSign` reproduces the signed bytes, signatures validate, and
+  the announcement is persisted and re-broadcast unchanged. RPCs like
+  `GetNodeInfo` and `DescribeGraph` still expose the full address
+  set.
+
 ## Performance Improvements
 
 * Let the [channel graph cache be populated

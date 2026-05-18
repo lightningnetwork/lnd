@@ -2,9 +2,11 @@ package chanstate
 
 import (
 	"bytes"
+	"errors"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lntypes"
 )
 
 var (
@@ -55,6 +57,97 @@ func FetchChannelCloseTx(chanBucket kvdb.RBucket,
 	closeTx := wire.NewMsgTx(2)
 	r := bytes.NewReader(bs)
 	if err := closeTx.Deserialize(r); err != nil {
+		return nil, err
+	}
+
+	return closeTx, nil
+}
+
+// MarkChannelCommitmentBroadcasted marks the channel as having a commitment
+// transaction broadcast.
+func MarkChannelCommitmentBroadcasted(backend kvdb.Backend,
+	channel *OpenChannel, closeTx *wire.MsgTx,
+	closer lntypes.ChannelParty) error {
+
+	return markBroadcasted(
+		backend, channel, ChanStatusCommitBroadcasted, forceCloseTxKey,
+		closeTx, closer,
+	)
+}
+
+// MarkChannelCoopBroadcasted marks the channel as having a cooperative close
+// transaction broadcast.
+func MarkChannelCoopBroadcasted(backend kvdb.Backend,
+	channel *OpenChannel, closeTx *wire.MsgTx,
+	closer lntypes.ChannelParty) error {
+
+	return markBroadcasted(
+		backend, channel, ChanStatusCoopBroadcasted, coopCloseTxKey,
+		closeTx, closer,
+	)
+}
+
+// markBroadcasted modifies the channel status and inserts a close transaction
+// under the requested key, which should specify either a coop or force close.
+// It adds a status which indicates the party that initiated the channel close.
+func markBroadcasted(backend kvdb.Backend, channel *OpenChannel,
+	status ChannelStatus, key []byte, closeTx *wire.MsgTx,
+	closer lntypes.ChannelParty) error {
+
+	channel.Lock()
+	defer channel.Unlock()
+
+	// If a closing tx is provided, we'll generate a closure to write the
+	// transaction in the appropriate bucket under the given key.
+	var putClosingTx func(kvdb.RwBucket) error
+	if closeTx != nil {
+		putClosingTx = func(chanBucket kvdb.RwBucket) error {
+			return PutChannelCloseTx(chanBucket, key, closeTx)
+		}
+	}
+
+	// Add the initiator status to the status provided. These statuses are
+	// set in addition to the broadcast status so that we do not need to
+	// migrate the original logic which does not store initiator.
+	if closer.IsLocal() {
+		status |= ChanStatusLocalCloseInitiator
+	} else {
+		status |= ChanStatusRemoteCloseInitiator
+	}
+
+	return PutChanStatus(backend, channel, status, putClosingTx)
+}
+
+// FetchClosingTx returns the stored closing transaction for key. The caller
+// should use either the force or coop closing keys.
+func FetchClosingTx(backend kvdb.Backend, channel *OpenChannel,
+	key []byte) (*wire.MsgTx, error) {
+
+	var closeTx *wire.MsgTx
+
+	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+		chanBucket, err := FetchChanBucket(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		switch {
+		case err == nil:
+		case errors.Is(err, ErrNoChanDBExists),
+			errors.Is(err, ErrNoActiveChannels),
+			errors.Is(err, ErrChannelNotFound):
+
+			return ErrNoCloseTx
+		default:
+			return err
+		}
+
+		closeTx, err = FetchChannelCloseTx(chanBucket, key)
+
+		return err
+	}, func() {
+		closeTx = nil
+	})
+	if err != nil {
 		return nil, err
 	}
 

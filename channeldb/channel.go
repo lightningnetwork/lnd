@@ -470,9 +470,8 @@ func (c *ChannelStateDB) MarkChannelCommitmentBroadcasted(
 	channel *OpenChannel, closeTx *wire.MsgTx,
 	closer lntypes.ChannelParty) error {
 
-	return c.markBroadcasted(
-		channel, ChanStatusCommitBroadcasted, cstate.ForceCloseTxKey(),
-		closeTx, closer,
+	return cstate.MarkChannelCommitmentBroadcasted(
+		c.backend, channel, closeTx, closer,
 	)
 }
 
@@ -481,43 +480,9 @@ func (c *ChannelStateDB) MarkChannelCommitmentBroadcasted(
 func (c *ChannelStateDB) MarkChannelCoopBroadcasted(channel *OpenChannel,
 	closeTx *wire.MsgTx, closer lntypes.ChannelParty) error {
 
-	return c.markBroadcasted(
-		channel, ChanStatusCoopBroadcasted, cstate.CoopCloseTxKey(),
-		closeTx, closer,
+	return cstate.MarkChannelCoopBroadcasted(
+		c.backend, channel, closeTx, closer,
 	)
-}
-
-// markBroadcasted modifies the channel status and inserts a close transaction
-// under the requested key, which should specify either a coop or force close.
-// It adds a status which indicates the party that initiated the channel close.
-func (c *ChannelStateDB) markBroadcasted(channel *OpenChannel,
-	status ChannelStatus, key []byte, closeTx *wire.MsgTx,
-	closer lntypes.ChannelParty) error {
-
-	channel.Lock()
-	defer channel.Unlock()
-
-	// If a closing tx is provided, we'll generate a closure to write the
-	// transaction in the appropriate bucket under the given key.
-	var putClosingTx func(kvdb.RwBucket) error
-	if closeTx != nil {
-		putClosingTx = func(chanBucket kvdb.RwBucket) error {
-			return cstate.PutChannelCloseTx(
-				chanBucket, key, closeTx,
-			)
-		}
-	}
-
-	// Add the initiator status to the status provided. These statuses are
-	// set in addition to the broadcast status so that we do not need to
-	// migrate the original logic which does not store initiator.
-	if closer.IsLocal() {
-		status |= ChanStatusLocalCloseInitiator
-	} else {
-		status |= ChanStatusRemoteCloseInitiator
-	}
-
-	return c.putChanStatus(channel, status, putClosingTx)
 }
 
 // FetchChannelBroadcastedCommitment fetches the stored unilateral closing
@@ -541,35 +506,7 @@ func (c *ChannelStateDB) FetchChannelBroadcastedCooperative(
 func (c *ChannelStateDB) getClosingTx(channel *OpenChannel,
 	key []byte) (*wire.MsgTx, error) {
 
-	var closeTx *wire.MsgTx
-
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := fetchChanBucket(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		switch {
-		case err == nil:
-		case errors.Is(err, ErrNoChanDBExists),
-			errors.Is(err, ErrNoActiveChannels),
-			errors.Is(err, ErrChannelNotFound):
-
-			return ErrNoCloseTx
-		default:
-			return err
-		}
-
-		closeTx, err = cstate.FetchChannelCloseTx(chanBucket, key)
-
-		return err
-	}, func() {
-		closeTx = nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return closeTx, nil
+	return cstate.FetchClosingTx(c.backend, channel, key)
 }
 
 // ApplyChannelStatus adds the target status to the channel's persisted status
@@ -578,15 +515,6 @@ func (c *ChannelStateDB) ApplyChannelStatus(channel *OpenChannel,
 	status ChannelStatus) error {
 
 	return cstate.ApplyChannelStatus(c.backend, channel, status)
-}
-
-// putChanStatus appends the given status to the channel. fs is an optional list
-// of closures that are given the chanBucket in order to atomically add extra
-// information together with the new status.
-func (c *ChannelStateDB) putChanStatus(channel *OpenChannel,
-	status ChannelStatus, fs ...func(kvdb.RwBucket) error) error {
-
-	return cstate.PutChanStatus(c.backend, channel, status, fs...)
 }
 
 // ClearChannelStatus clears the target status from the channel's persisted

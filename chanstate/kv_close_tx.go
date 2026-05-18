@@ -115,7 +115,7 @@ func (s *KVStore) markBroadcasted(channel *OpenChannel,
 		status |= ChanStatusRemoteCloseInitiator
 	}
 
-	return PutChanStatus(s.backend, channel, status, putClosingTx)
+	return s.putChanStatus(channel, status, putClosingTx)
 }
 
 // FetchChannelBroadcastedCommitment fetches the stored unilateral closing

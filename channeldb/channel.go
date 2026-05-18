@@ -376,13 +376,7 @@ func (c *ChannelStateDB) MarkChannelScidAliasNegotiated(
 func (c *ChannelStateDB) MarkChannelDataLoss(channel *OpenChannel,
 	commitPoint *btcec.PublicKey) error {
 
-	putCommitPoint := func(chanBucket kvdb.RwBucket) error {
-		return cstate.PutChannelDataLossCommitPoint(
-			chanBucket, commitPoint,
-		)
-	}
-
-	return c.putChanStatus(channel, ChanStatusLocalDataLoss, putCommitPoint)
+	return cstate.MarkChannelDataLoss(c.backend, channel, commitPoint)
 }
 
 // FetchChannelDataLossCommitPoint retrieves the commit point stored when the
@@ -390,37 +384,7 @@ func (c *ChannelStateDB) MarkChannelDataLoss(channel *OpenChannel,
 func (c *ChannelStateDB) FetchChannelDataLossCommitPoint(
 	channel *OpenChannel) (*btcec.PublicKey, error) {
 
-	var commitPoint *btcec.PublicKey
-
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := fetchChanBucket(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		switch {
-		case err == nil:
-		case errors.Is(err, ErrNoChanDBExists),
-			errors.Is(err, ErrNoActiveChannels),
-			errors.Is(err, ErrChannelNotFound):
-
-			return ErrNoCommitPoint
-		default:
-			return err
-		}
-
-		commitPoint, err = cstate.FetchChannelDataLossCommitPoint(
-			chanBucket,
-		)
-
-		return err
-	}, func() {
-		commitPoint = nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return commitPoint, nil
+	return cstate.FetchDataLossCommitPoint(c.backend, channel)
 }
 
 // MarkChannelBorked marks the channel as irreconcilable.

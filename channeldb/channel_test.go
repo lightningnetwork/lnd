@@ -1438,10 +1438,8 @@ func TestRefresh(t *testing.T) {
 		t.Fatalf("channel pending state wasn't updated: want false got true")
 	}
 
-	require.Equal(
-		t, chanOpenLoc,
-		NewChannelPackager(state.ShortChanID()).Source(),
-	)
+	source := NewChannelPackager(state.ShortChanID()).Source()
+	require.Equal(t, chanOpenLoc, source)
 }
 
 // TestCloseInitiator tests the setting of close initiator statuses for

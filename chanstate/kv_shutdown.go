@@ -53,10 +53,10 @@ func FetchChannelShutdownInfo(chanBucket kvdb.RBucket) (
 }
 
 // StoreChannelShutdownInfo persists the ShutdownInfo for the target channel.
-func StoreChannelShutdownInfo(backend kvdb.Backend, channel *OpenChannel,
+func (s *KVStore) StoreChannelShutdownInfo(channel *OpenChannel,
 	info *ShutdownInfo) error {
 
-	return kvdb.Update(backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := FetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
@@ -69,12 +69,13 @@ func StoreChannelShutdownInfo(backend kvdb.Backend, channel *OpenChannel,
 	}, func() {})
 }
 
-// FetchShutdownInfo fetches the persisted ShutdownInfo for the target channel.
-func FetchShutdownInfo(backend kvdb.Backend,
+// FetchChannelShutdownInfo fetches the persisted ShutdownInfo for the target
+// channel.
+func (s *KVStore) FetchChannelShutdownInfo(
 	channel *OpenChannel) (fn.Option[ShutdownInfo], error) {
 
 	var shutdownInfo *ShutdownInfo
-	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := FetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,

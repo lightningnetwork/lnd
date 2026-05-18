@@ -331,6 +331,27 @@ func DKeyLocator(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 	return tlv.NewTypeForDecodingErr(val, "keychain.KeyLocator", l, 8)
 }
 
+// WriteChanConfig serializes a channel config.
+func WriteChanConfig(b io.Writer, c *ChannelConfig) error {
+	return WriteElements(b,
+		c.DustLimit, c.MaxPendingAmount, c.ChanReserve, c.MinHTLC,
+		c.MaxAcceptedHtlcs, c.CsvDelay, c.MultiSigKey,
+		c.RevocationBasePoint, c.PaymentBasePoint, c.DelayBasePoint,
+		c.HtlcBasePoint,
+	)
+}
+
+// ReadChanConfig deserializes a channel config.
+func ReadChanConfig(b io.Reader, c *ChannelConfig) error {
+	return ReadElements(b,
+		&c.DustLimit, &c.MaxPendingAmount, &c.ChanReserve,
+		&c.MinHTLC, &c.MaxAcceptedHtlcs, &c.CsvDelay,
+		&c.MultiSigKey, &c.RevocationBasePoint,
+		&c.PaymentBasePoint, &c.DelayBasePoint,
+		&c.HtlcBasePoint,
+	)
+}
+
 // openChannelTlvData houses the new data fields that are stored for each
 // channel in a TLV stream within the root bucket. This is stored as a TLV
 // stream appended to the existing hard-coded fields in the channel's root

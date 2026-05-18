@@ -1,8 +1,6 @@
 package chanstate
 
 import (
-	"io"
-
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -107,25 +105,4 @@ type ChannelConfig struct {
 	// from the per-commitment point) is used within the "to self" clause
 	// within any HTLC output scripts.
 	HtlcBasePoint keychain.KeyDescriptor
-}
-
-// WriteChanConfig serializes a channel config.
-func WriteChanConfig(b io.Writer, c *ChannelConfig) error {
-	return WriteElements(b,
-		c.DustLimit, c.MaxPendingAmount, c.ChanReserve, c.MinHTLC,
-		c.MaxAcceptedHtlcs, c.CsvDelay, c.MultiSigKey,
-		c.RevocationBasePoint, c.PaymentBasePoint, c.DelayBasePoint,
-		c.HtlcBasePoint,
-	)
-}
-
-// ReadChanConfig deserializes a channel config.
-func ReadChanConfig(b io.Reader, c *ChannelConfig) error {
-	return ReadElements(b,
-		&c.DustLimit, &c.MaxPendingAmount, &c.ChanReserve,
-		&c.MinHTLC, &c.MaxAcceptedHtlcs, &c.CsvDelay,
-		&c.MultiSigKey, &c.RevocationBasePoint,
-		&c.PaymentBasePoint, &c.DelayBasePoint,
-		&c.HtlcBasePoint,
-	)
 }

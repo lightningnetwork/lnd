@@ -7,15 +7,17 @@ import "github.com/lightningnetwork/lnd/kvdb"
 // compatibility wrappers for callers that still depend on the old package.
 type KVStore struct {
 	backend                   kvdb.Backend
+	noRevLogAmtData           bool
 	storeFinalHtlcResolutions bool
 }
 
 // NewKVStore creates a KV-backed channel-state store.
 func NewKVStore(backend kvdb.Backend,
-	storeFinalHtlcResolutions bool) *KVStore {
+	storeFinalHtlcResolutions, noRevLogAmtData bool) *KVStore {
 
 	return &KVStore{
 		backend:                   backend,
+		noRevLogAmtData:           noRevLogAmtData,
 		storeFinalHtlcResolutions: storeFinalHtlcResolutions,
 	}
 }
@@ -26,3 +28,4 @@ var _ OpenChannelFwdPkgStore = (*KVStore)(nil)
 var _ OpenChannelShutdownStore = (*KVStore)(nil)
 var _ OpenChannelCloseTxStore = (*KVStore)(nil)
 var _ OpenChannelStatusStore = (*KVStore)(nil)
+var _ OpenChannelCommitmentStore = (*KVStore)(nil)

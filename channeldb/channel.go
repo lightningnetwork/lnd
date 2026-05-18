@@ -308,7 +308,7 @@ func (c *ChannelStateDB) MarkChannelScidAliasNegotiated(
 func (c *ChannelStateDB) MarkChannelDataLoss(channel *OpenChannel,
 	commitPoint *btcec.PublicKey) error {
 
-	return cstate.MarkChannelDataLoss(c.backend, channel, commitPoint)
+	return c.kvStore.MarkChannelDataLoss(channel, commitPoint)
 }
 
 // FetchChannelDataLossCommitPoint retrieves the commit point stored when the
@@ -316,12 +316,12 @@ func (c *ChannelStateDB) MarkChannelDataLoss(channel *OpenChannel,
 func (c *ChannelStateDB) FetchChannelDataLossCommitPoint(
 	channel *OpenChannel) (*btcec.PublicKey, error) {
 
-	return cstate.FetchDataLossCommitPoint(c.backend, channel)
+	return c.kvStore.FetchChannelDataLossCommitPoint(channel)
 }
 
 // MarkChannelBorked marks the channel as irreconcilable.
 func (c *ChannelStateDB) MarkChannelBorked(channel *OpenChannel) error {
-	return c.ApplyChannelStatus(channel, ChanStatusBorked)
+	return c.kvStore.MarkChannelBorked(channel)
 }
 
 var (
@@ -389,7 +389,7 @@ func (c *ChannelStateDB) FetchChannelBroadcastedCooperative(
 func (c *ChannelStateDB) ApplyChannelStatus(channel *OpenChannel,
 	status ChannelStatus) error {
 
-	return cstate.ApplyChannelStatus(c.backend, channel, status)
+	return c.kvStore.ApplyChannelStatus(channel, status)
 }
 
 // ClearChannelStatus clears the target status from the channel's persisted
@@ -397,7 +397,7 @@ func (c *ChannelStateDB) ApplyChannelStatus(channel *OpenChannel,
 func (c *ChannelStateDB) ClearChannelStatus(channel *OpenChannel,
 	status ChannelStatus) error {
 
-	return cstate.ClearChannelStatus(c.backend, channel, status)
+	return c.kvStore.ClearChannelStatus(channel, status)
 }
 
 // fetchOpenChannel retrieves, and deserializes (including decrypting

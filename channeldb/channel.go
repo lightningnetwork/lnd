@@ -334,26 +334,7 @@ func fullSyncOpenChannel(tx kvdb.RwTx, c *OpenChannel) error {
 func (c *ChannelStateDB) MarkChannelConfirmationHeight(channel *OpenChannel,
 	height uint32) error {
 
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := fetchChanBucketRw(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		diskChannel, err := fetchOpenChannel(
-			chanBucket, &channel.FundingOutpoint,
-		)
-		if err != nil {
-			return err
-		}
-
-		diskChannel.ConfirmationHeight = height
-
-		return putOpenChannel(chanBucket, diskChannel)
-	}, func() {})
+	return cstate.MarkChannelConfirmationHeight(c.backend, channel, height)
 }
 
 // MarkChannelCloseConfirmationHeight updates the channel's close confirmation
@@ -361,26 +342,9 @@ func (c *ChannelStateDB) MarkChannelConfirmationHeight(channel *OpenChannel,
 func (c *ChannelStateDB) MarkChannelCloseConfirmationHeight(
 	channel *OpenChannel, height fn.Option[uint32]) error {
 
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := fetchChanBucketRw(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		diskChannel, err := fetchOpenChannel(
-			chanBucket, &channel.FundingOutpoint,
-		)
-		if err != nil {
-			return err
-		}
-
-		diskChannel.CloseConfirmationHeight = height
-
-		return putOpenChannel(chanBucket, diskChannel)
-	}, func() {})
+	return cstate.MarkChannelCloseConfirmationHeight(
+		c.backend, channel, height,
+	)
 }
 
 // MarkChannelOpen marks a channel as fully open given a locator that uniquely
@@ -388,53 +352,14 @@ func (c *ChannelStateDB) MarkChannelCloseConfirmationHeight(
 func (c *ChannelStateDB) MarkChannelOpen(channel *OpenChannel,
 	openLoc lnwire.ShortChannelID) error {
 
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := fetchChanBucketRw(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		diskChannel, err := fetchOpenChannel(
-			chanBucket, &channel.FundingOutpoint,
-		)
-		if err != nil {
-			return err
-		}
-
-		diskChannel.IsPending = false
-		diskChannel.ShortChannelID = openLoc
-
-		return putOpenChannel(chanBucket, diskChannel)
-	}, func() {})
+	return cstate.MarkChannelOpen(c.backend, channel, openLoc)
 }
 
 // MarkChannelRealScid marks the zero-conf channel's confirmed ShortChannelID.
 func (c *ChannelStateDB) MarkChannelRealScid(channel *OpenChannel,
 	realScid lnwire.ShortChannelID) error {
 
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := fetchChanBucketRw(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		diskChannel, err := fetchOpenChannel(
-			chanBucket, &channel.FundingOutpoint,
-		)
-		if err != nil {
-			return err
-		}
-
-		diskChannel.SetConfirmedScidForStore(realScid)
-
-		return putOpenChannel(chanBucket, diskChannel)
-	}, func() {})
+	return cstate.MarkChannelRealScid(c.backend, channel, realScid)
 }
 
 // MarkChannelScidAliasNegotiated adds ScidAliasFeatureBit to ChanType in the
@@ -442,26 +367,7 @@ func (c *ChannelStateDB) MarkChannelRealScid(channel *OpenChannel,
 func (c *ChannelStateDB) MarkChannelScidAliasNegotiated(
 	channel *OpenChannel) error {
 
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := fetchChanBucketRw(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		diskChannel, err := fetchOpenChannel(
-			chanBucket, &channel.FundingOutpoint,
-		)
-		if err != nil {
-			return err
-		}
-
-		diskChannel.ChanType |= ScidAliasFeatureBit
-
-		return putOpenChannel(chanBucket, diskChannel)
-	}, func() {})
+	return cstate.MarkChannelScidAliasNegotiated(c.backend, channel)
 }
 
 // MarkChannelDataLoss marks the channel as local-data-loss and stores the

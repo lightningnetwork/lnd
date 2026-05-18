@@ -2,10 +2,15 @@ package chanstate
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var (
@@ -47,4 +52,170 @@ func FetchChannelDataLossCommitPoint(
 	}
 
 	return btcec.ParsePubKey(b[:])
+}
+
+const (
+	// A tlv type definition used to serialize an outpoint's indexStatus
+	// for use in the outpoint index.
+	indexStatusType tlv.Type = 0
+)
+
+// indexStatus is an enum-like type that describes what state the outpoint is
+// in. Currently only two possible values.
+type indexStatus uint8
+
+const (
+	// outpointClosed represents an outpoint that is closed in the outpoint
+	// index.
+	outpointClosed indexStatus = 1
+)
+
+// IsOutpointClosed reports whether the supplied chanKey has been flipped to
+// outpointClosed in the supplied outpointBucket. The flip is performed in the
+// same transaction as the rest of CloseChannel (sync and tombstone paths
+// alike), so a true result is the authoritative "this channel went through
+// CloseChannel" signal. On tombstone-enabled backends the chanBucket may still
+// exist on disk; readers consult this helper to skip those entries. Callers
+// fetch outpointBucket once and pass it in, which lets loop-style readers
+// hoist the bucket lookup out of the inner loop.
+func IsOutpointClosed(opBucket kvdb.RBucket, chanKey []byte) (bool, error) {
+	if opBucket == nil {
+		return false, nil
+	}
+	raw := opBucket.Get(chanKey)
+	if raw == nil {
+		return false, nil
+	}
+
+	var status uint8
+	statusRecord := tlv.MakePrimitiveRecord(indexStatusType, &status)
+	stream, err := tlv.NewStream(statusRecord)
+	if err != nil {
+		return false, err
+	}
+	if err := stream.Decode(bytes.NewReader(raw)); err != nil {
+		return false, fmt.Errorf("decode outpoint status for "+
+			"chan_key=%x: %w", chanKey, err)
+	}
+
+	return indexStatus(status) == outpointClosed, nil
+}
+
+// FetchChanBucket is a helper function that returns the bucket where a
+// channel's data resides in given: the public key for the node, the outpoint,
+// and the chainhash that the channel resides on.
+func FetchChanBucket(tx kvdb.RTx, nodeKey *btcec.PublicKey,
+	outPoint *wire.OutPoint, chainHash chainhash.Hash) (
+	kvdb.RBucket, error) {
+
+	// First fetch the top level bucket which stores all data related to
+	// current, active channels.
+	openChanBucket := tx.ReadBucket(openChannelBucket)
+	if openChanBucket == nil {
+		return nil, ErrNoChanDBExists
+	}
+
+	// TODO(roasbeef): CreateTopLevelBucket on the interface isn't like
+	// CreateIfNotExists, will return error.
+
+	// Within this top level bucket, fetch the bucket dedicated to storing
+	// open channel data specific to the remote node.
+	nodePub := nodeKey.SerializeCompressed()
+	nodeChanBucket := openChanBucket.NestedReadBucket(nodePub)
+	if nodeChanBucket == nil {
+		return nil, ErrNoActiveChannels
+	}
+
+	// We'll then recurse down an additional layer in order to fetch the
+	// bucket for this particular chain.
+	chainBucket := nodeChanBucket.NestedReadBucket(chainHash[:])
+	if chainBucket == nil {
+		return nil, ErrNoActiveChannels
+	}
+
+	// With the bucket for the node and chain fetched, we can now go down
+	// another level, for this channel itself.
+	var chanPointBuf bytes.Buffer
+	if err := graphdb.WriteOutpoint(&chanPointBuf, outPoint); err != nil {
+		return nil, err
+	}
+	chanKey := chanPointBuf.Bytes()
+
+	// Treat already-closed channels as gone. The chanBucket may still
+	// exist on tombstone-enabled backends; the outpoint flip is the
+	// source of truth.
+	closed, err := IsOutpointClosed(tx.ReadBucket(outpointBucket), chanKey)
+	if err != nil {
+		return nil, err
+	}
+	if closed {
+		return nil, ErrChannelNotFound
+	}
+
+	chanBucket := chainBucket.NestedReadBucket(chanKey)
+	if chanBucket == nil {
+		return nil, ErrChannelNotFound
+	}
+
+	return chanBucket, nil
+}
+
+// FetchChanBucketRw is a helper function that returns the bucket where a
+// channel's data resides in given: the public key for the node, the outpoint,
+// and the chainhash that the channel resides on. This differs from
+// FetchChanBucket in that it returns a writeable bucket.
+func FetchChanBucketRw(tx kvdb.RwTx, nodeKey *btcec.PublicKey,
+	outPoint *wire.OutPoint, chainHash chainhash.Hash) (kvdb.RwBucket,
+	error) {
+
+	// First fetch the top level bucket which stores all data related to
+	// current, active channels.
+	openChanBucket := tx.ReadWriteBucket(openChannelBucket)
+	if openChanBucket == nil {
+		return nil, ErrNoChanDBExists
+	}
+
+	// TODO(roasbeef): CreateTopLevelBucket on the interface isn't like
+	// CreateIfNotExists, will return error.
+
+	// Within this top level bucket, fetch the bucket dedicated to storing
+	// open channel data specific to the remote node.
+	nodePub := nodeKey.SerializeCompressed()
+	nodeChanBucket := openChanBucket.NestedReadWriteBucket(nodePub)
+	if nodeChanBucket == nil {
+		return nil, ErrNoActiveChannels
+	}
+
+	// We'll then recurse down an additional layer in order to fetch the
+	// bucket for this particular chain.
+	chainBucket := nodeChanBucket.NestedReadWriteBucket(chainHash[:])
+	if chainBucket == nil {
+		return nil, ErrNoActiveChannels
+	}
+
+	// With the bucket for the node and chain fetched, we can now go down
+	// another level, for this channel itself.
+	var chanPointBuf bytes.Buffer
+	if err := graphdb.WriteOutpoint(&chanPointBuf, outPoint); err != nil {
+		return nil, err
+	}
+	chanKey := chanPointBuf.Bytes()
+
+	// Treat already-closed channels as gone. The chanBucket may still
+	// exist on tombstone-enabled backends; the outpoint flip is the
+	// source of truth.
+	closed, err := IsOutpointClosed(tx.ReadBucket(outpointBucket), chanKey)
+	if err != nil {
+		return nil, err
+	}
+	if closed {
+		return nil, ErrChannelNotFound
+	}
+
+	chanBucket := chainBucket.NestedReadWriteBucket(chanKey)
+	if chanBucket == nil {
+		return nil, ErrChannelNotFound
+	}
+
+	return chanBucket, nil
 }

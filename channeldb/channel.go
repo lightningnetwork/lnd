@@ -2258,12 +2258,7 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 }
 
 func writeChanConfig(b io.Writer, c *ChannelConfig) error {
-	return WriteElements(b,
-		c.DustLimit, c.MaxPendingAmount, c.ChanReserve, c.MinHTLC,
-		c.MaxAcceptedHtlcs, c.CsvDelay, c.MultiSigKey,
-		c.RevocationBasePoint, c.PaymentBasePoint, c.DelayBasePoint,
-		c.HtlcBasePoint,
-	)
+	return cstate.WriteChanConfig(b, c)
 }
 
 // fundingTxPresent returns true if expect the funding transcation to be found
@@ -2433,13 +2428,7 @@ func putChanRevocationState(chanBucket kvdb.RwBucket, channel *OpenChannel) erro
 }
 
 func readChanConfig(b io.Reader, c *ChannelConfig) error {
-	return ReadElements(b,
-		&c.DustLimit, &c.MaxPendingAmount, &c.ChanReserve,
-		&c.MinHTLC, &c.MaxAcceptedHtlcs, &c.CsvDelay,
-		&c.MultiSigKey, &c.RevocationBasePoint,
-		&c.PaymentBasePoint, &c.DelayBasePoint,
-		&c.HtlcBasePoint,
-	)
+	return cstate.ReadChanConfig(b, c)
 }
 
 func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {

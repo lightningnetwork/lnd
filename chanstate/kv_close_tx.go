@@ -66,24 +66,24 @@ func FetchChannelCloseTx(chanBucket kvdb.RBucket,
 
 // MarkChannelCommitmentBroadcasted marks the channel as having a commitment
 // transaction broadcast.
-func MarkChannelCommitmentBroadcasted(backend kvdb.Backend,
+func (s *KVStore) MarkChannelCommitmentBroadcasted(
 	channel *OpenChannel, closeTx *wire.MsgTx,
 	closer lntypes.ChannelParty) error {
 
-	return markBroadcasted(
-		backend, channel, ChanStatusCommitBroadcasted, forceCloseTxKey,
+	return s.markBroadcasted(
+		channel, ChanStatusCommitBroadcasted, forceCloseTxKey,
 		closeTx, closer,
 	)
 }
 
 // MarkChannelCoopBroadcasted marks the channel as having a cooperative close
 // transaction broadcast.
-func MarkChannelCoopBroadcasted(backend kvdb.Backend,
+func (s *KVStore) MarkChannelCoopBroadcasted(
 	channel *OpenChannel, closeTx *wire.MsgTx,
 	closer lntypes.ChannelParty) error {
 
-	return markBroadcasted(
-		backend, channel, ChanStatusCoopBroadcasted, coopCloseTxKey,
+	return s.markBroadcasted(
+		channel, ChanStatusCoopBroadcasted, coopCloseTxKey,
 		closeTx, closer,
 	)
 }
@@ -91,7 +91,7 @@ func MarkChannelCoopBroadcasted(backend kvdb.Backend,
 // markBroadcasted modifies the channel status and inserts a close transaction
 // under the requested key, which should specify either a coop or force close.
 // It adds a status which indicates the party that initiated the channel close.
-func markBroadcasted(backend kvdb.Backend, channel *OpenChannel,
+func (s *KVStore) markBroadcasted(channel *OpenChannel,
 	status ChannelStatus, key []byte, closeTx *wire.MsgTx,
 	closer lntypes.ChannelParty) error {
 
@@ -115,17 +115,33 @@ func markBroadcasted(backend kvdb.Backend, channel *OpenChannel,
 		status |= ChanStatusRemoteCloseInitiator
 	}
 
-	return PutChanStatus(backend, channel, status, putClosingTx)
+	return PutChanStatus(s.backend, channel, status, putClosingTx)
 }
 
-// FetchClosingTx returns the stored closing transaction for key. The caller
+// FetchChannelBroadcastedCommitment fetches the stored unilateral closing
+// transaction.
+func (s *KVStore) FetchChannelBroadcastedCommitment(
+	channel *OpenChannel) (*wire.MsgTx, error) {
+
+	return s.fetchClosingTx(channel, forceCloseTxKey)
+}
+
+// FetchChannelBroadcastedCooperative fetches the stored cooperative closing
+// transaction.
+func (s *KVStore) FetchChannelBroadcastedCooperative(
+	channel *OpenChannel) (*wire.MsgTx, error) {
+
+	return s.fetchClosingTx(channel, coopCloseTxKey)
+}
+
+// fetchClosingTx returns the stored closing transaction for key. The caller
 // should use either the force or coop closing keys.
-func FetchClosingTx(backend kvdb.Backend, channel *OpenChannel,
+func (s *KVStore) fetchClosingTx(channel *OpenChannel,
 	key []byte) (*wire.MsgTx, error) {
 
 	var closeTx *wire.MsgTx
 
-	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := FetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,

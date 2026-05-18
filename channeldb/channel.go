@@ -1,14 +1,11 @@
 package channeldb
 
 import (
-	"fmt"
 	"io"
 	"net"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/btcsuite/btcwallet/walletdb"
 	cstate "github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -256,48 +253,7 @@ const (
 // RefreshChannel updates the in-memory channel state using the latest state
 // observed on disk.
 func (c *ChannelStateDB) RefreshChannel(channel *OpenChannel) error {
-	return kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := fetchChanBucket(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		// We'll re-populating the in-memory channel with the info
-		// fetched from disk.
-		if err := fetchChanInfo(chanBucket, channel); err != nil {
-			return fmt.Errorf("unable to fetch chan info: %w", err)
-		}
-
-		// Also populate the channel's commitment states for both sides
-		// of the channel.
-		err = fetchChanCommitments(chanBucket, channel)
-		if err != nil {
-			return fmt.Errorf("unable to fetch chan commitments: "+
-				"%v", err)
-		}
-
-		// Also retrieve the current revocation state.
-		err = fetchChanRevocationState(chanBucket, channel)
-		if err != nil {
-			return fmt.Errorf("unable to fetch chan revocations: "+
-				"%v", err)
-		}
-
-		return nil
-	}, func() {})
-}
-
-// fetchChanBucket is a helper function that returns the bucket where a
-// channel's data resides in given: the public key for the node, the outpoint,
-// and the chainhash that the channel resides on.
-func fetchChanBucket(tx kvdb.RTx, nodeKey *btcec.PublicKey,
-	outPoint *wire.OutPoint, chainHash chainhash.Hash) (
-	kvdb.RBucket, error) {
-
-	return cstate.FetchChanBucket(tx, nodeKey, outPoint, chainHash)
+	return cstate.RefreshChannel(c.backend, channel)
 }
 
 func fetchFinalHtlcsBucketRw(tx kvdb.RwTx,
@@ -792,18 +748,6 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 
 func serializeChanCommit(w io.Writer, c *ChannelCommitment) error {
 	return cstate.SerializeChanCommit(w, c)
-}
-
-func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
-	return cstate.FetchChanInfo(chanBucket, channel)
-}
-
-func fetchChanCommitments(chanBucket kvdb.RBucket, channel *OpenChannel) error {
-	return cstate.FetchChanCommitments(chanBucket, channel)
-}
-
-func fetchChanRevocationState(chanBucket kvdb.RBucket, channel *OpenChannel) error {
-	return cstate.FetchChanRevocationState(chanBucket, channel)
 }
 
 // makeLogKey converts a uint64 into an 8 byte array.

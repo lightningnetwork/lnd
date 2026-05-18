@@ -101,13 +101,9 @@ var (
 	ErrOnionBlobLength = cstate.ErrOnionBlobLength
 )
 
-const (
-	// A tlv type definition used to serialize an outpoint's indexStatus
-	// for use in the outpoint index.
-	indexStatusType tlv.Type = 0
-)
-
 type (
+	indexStatus = cstate.IndexStatus
+
 	// OpenChannel encapsulates the persistent and dynamic state of an open
 	// channel with a remote node.
 	OpenChannel = cstate.OpenChannel
@@ -126,6 +122,12 @@ type (
 	// CommitDiff represents the delta needed to apply the state
 	// transition between two subsequent commitment states.
 	CommitDiff = cstate.CommitDiff
+)
+
+const (
+	indexStatusType = cstate.IndexStatusType
+	outpointOpen    = cstate.OutpointOpen
+	outpointClosed  = cstate.OutpointClosed
 )
 
 // openChannelTlvData houses the new data fields that are stored for each
@@ -253,19 +255,6 @@ func (c *openChannelTlvData) decode(r io.Reader) error {
 
 	return nil
 }
-
-// indexStatus is an enum-like type that describes what state the
-// outpoint is in. Currently only two possible values.
-type indexStatus uint8
-
-const (
-	// outpointOpen represents an outpoint that is open in the outpoint index.
-	outpointOpen indexStatus = 0
-
-	// outpointClosed represents an outpoint that is closed in the outpoint
-	// index.
-	outpointClosed indexStatus = 1
-)
 
 // isOutpointClosed reports whether the supplied chanKey has been flipped to
 // outpointClosed in the supplied outpointBucket. The flip is performed in the
@@ -635,23 +624,10 @@ func fullSyncOpenChannel(tx kvdb.RwTx, c *OpenChannel) error {
 		return ErrChanAlreadyExists
 	}
 
-	status := uint8(outpointOpen)
-
-	// Write the status of this outpoint as the first entry in a tlv
-	// stream.
-	statusRecord := tlv.MakePrimitiveRecord(indexStatusType, &status)
-	opStream, err := tlv.NewStream(statusRecord)
-	if err != nil {
-		return err
-	}
-
-	var b bytes.Buffer
-	if err := opStream.Encode(&b); err != nil {
-		return err
-	}
-
 	// Add the outpoint to our outpoint index with the tlv stream.
-	if err := opBucket.Put(chanPointBuf.Bytes(), b.Bytes()); err != nil {
+	if err := cstate.PutOpenOutpointIndex(
+		opBucket, chanPointBuf.Bytes(),
+	); err != nil {
 		return err
 	}
 
@@ -2487,27 +2463,7 @@ func locateOpenChannel(tx kvdb.RwTx, channel *OpenChannel) (kvdb.RwBucket,
 // open to closed. The index entry must already exist; it was placed there
 // when the channel was opened.
 func updateClosedOutpointIndex(tx kvdb.RwTx, chanKey []byte) error {
-	opBucket := tx.ReadWriteBucket(outpointBucket)
-	if opBucket == nil {
-		return ErrNoChanDBExists
-	}
-	if opBucket.Get(chanKey) == nil {
-		return ErrMissingIndexEntry
-	}
-
-	status := uint8(outpointClosed)
-	statusRecord := tlv.MakePrimitiveRecord(indexStatusType, &status)
-	opStream, err := tlv.NewStream(statusRecord)
-	if err != nil {
-		return err
-	}
-
-	var b bytes.Buffer
-	if err := opStream.Encode(&b); err != nil {
-		return err
-	}
-
-	return opBucket.Put(chanKey, b.Bytes())
+	return cstate.UpdateClosedOutpointIndex(tx, chanKey)
 }
 
 // archiveClosedChannel writes the immutable close-time records of the

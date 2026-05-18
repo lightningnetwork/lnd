@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -29,6 +30,203 @@ func PutChannelCloseSummary(tx kvdb.RwTx, chanID []byte,
 	}
 
 	return closedChanBucket.Put(chanID, b.Bytes())
+}
+
+// CloseChannel closes the supplied channel via the selected close strategy. On
+// synchronous backends the channel's nested state — the revocation log, the
+// per-channel forwarding-package bucket, and the chanBucket itself — is deleted
+// inline. On tombstone-enabled backends none of the bulk state is touched; the
+// outpointBucket flip to outpointClosed signals that the channel is logically
+// closed.
+func CloseChannel(backend kvdb.Backend, channel *OpenChannel,
+	summary *ChannelCloseSummary, tombstoneClosedChannels bool,
+	statuses ...ChannelStatus) error {
+
+	if tombstoneClosedChannels {
+		return CloseChannelTombstone(
+			backend, channel, summary, statuses...,
+		)
+	}
+
+	return CloseChannelSync(backend, channel, summary, statuses...)
+}
+
+// LocateOpenChannel performs the open-channel-bucket descent for a CloseChannel
+// transaction: it returns the chain bucket, the channel bucket, and the
+// serialized chanKey for the supplied OpenChannel. A chanKey already flipped to
+// outpointClosed surfaces ErrChannelNotFound so a redundant CloseChannel does
+// not re-archive or re-flip the index.
+func LocateOpenChannel(tx kvdb.RwTx, channel *OpenChannel) (kvdb.RwBucket,
+	kvdb.RwBucket, []byte, error) {
+
+	openChanBucket := tx.ReadWriteBucket(openChannelBucket)
+	if openChanBucket == nil {
+		return nil, nil, nil, ErrNoChanDBExists
+	}
+
+	nodePub := channel.IdentityPub.SerializeCompressed()
+	nodeChanBucket := openChanBucket.NestedReadWriteBucket(nodePub)
+	if nodeChanBucket == nil {
+		return nil, nil, nil, ErrNoActiveChannels
+	}
+
+	chainBucket := nodeChanBucket.NestedReadWriteBucket(
+		channel.ChainHash[:],
+	)
+	if chainBucket == nil {
+		return nil, nil, nil, ErrNoActiveChannels
+	}
+
+	var chanPointBuf bytes.Buffer
+	if err := graphdb.WriteOutpoint(
+		&chanPointBuf, &channel.FundingOutpoint,
+	); err != nil {
+		return nil, nil, nil, err
+	}
+	chanKey := chanPointBuf.Bytes()
+
+	chanBucket := chainBucket.NestedReadWriteBucket(chanKey)
+	if chanBucket == nil {
+		return nil, nil, nil, ErrNoActiveChannels
+	}
+
+	// A channel whose outpoint is already flipped to outpointClosed must
+	// not be re-closed: on tombstone backends the chanBucket survives a
+	// previous close, but the index flip is the authoritative record that
+	// the channel is gone from the open-channel view.
+	closed, err := IsOutpointClosed(tx.ReadBucket(outpointBucket), chanKey)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if closed {
+		return nil, nil, nil, ErrChannelNotFound
+	}
+
+	return chainBucket, chanBucket, chanKey, nil
+}
+
+// ArchiveClosedChannel writes the immutable close-time records of the channel:
+// a copy of the open-channel state under historicalChannelBucket (with the
+// supplied close statuses OR'd into chanStatus) and the close summary under
+// closeSummaryBucket.
+func ArchiveClosedChannel(tx kvdb.RwTx, chanKey []byte,
+	chanState *OpenChannel, summary *ChannelCloseSummary,
+	statuses ...ChannelStatus) error {
+
+	historicalBucket, err := tx.CreateTopLevelBucket(
+		historicalChannelBucket,
+	)
+	if err != nil {
+		return err
+	}
+	historicalChanBucket, err := historicalBucket.CreateBucketIfNotExists(
+		chanKey,
+	)
+	if err != nil {
+		return err
+	}
+
+	for _, s := range statuses {
+		chanState.SetChannelStatusForStore(
+			chanState.ChannelStatusForStore() | s,
+		)
+	}
+
+	if err := PutOpenChannel(historicalChanBucket, chanState); err != nil {
+		return err
+	}
+
+	return PutChannelCloseSummary(tx, chanKey, summary, chanState)
+}
+
+// CloseChannelSync performs the historical synchronous close path: in a single
+// write transaction it wipes the forwarding-package state, deletes the channel
+// bucket and its nested revocation log entries, updates the outpoint index, and
+// archives the close summary. It is used by backends where nested-bucket
+// deletion is cheap (bbolt, etcd).
+func CloseChannelSync(backend kvdb.Backend, channel *OpenChannel,
+	summary *ChannelCloseSummary, statuses ...ChannelStatus) error {
+
+	return kvdb.Update(backend, func(tx kvdb.RwTx) error {
+		chainBucket, chanBucket, chanKey, err := LocateOpenChannel(
+			tx, channel,
+		)
+		if err != nil {
+			return err
+		}
+
+		chanState, err := FetchOpenChannel(
+			chanBucket, &channel.FundingOutpoint,
+		)
+		if err != nil {
+			return err
+		}
+
+		packager := NewChannelPackager(chanState.ShortChannelID)
+		if err = packager.Wipe(tx); err != nil {
+			return err
+		}
+
+		if err := DeleteOpenChannel(chanBucket); err != nil {
+			return err
+		}
+
+		if channel.ChanType.IsFrozen() ||
+			channel.ChanType.HasLeaseExpiration() {
+
+			if err := DeleteThawHeight(chanBucket); err != nil {
+				return err
+			}
+		}
+
+		if err := DeleteLogBucket(chanBucket); err != nil {
+			return err
+		}
+
+		if err := chainBucket.DeleteNestedBucket(chanKey); err != nil {
+			return err
+		}
+
+		if err := UpdateClosedOutpointIndex(tx, chanKey); err != nil {
+			return err
+		}
+
+		return ArchiveClosedChannel(
+			tx, chanKey, chanState, summary, statuses...,
+		)
+	}, func() {})
+}
+
+// CloseChannelTombstone performs the tombstone close path used by KV-over-SQL
+// backends. The channel's per-channel state is left intact — touching it would
+// trigger the cascading nested-bucket delete this path exists to avoid — and
+// the outpointBucket flip from outpointOpen to outpointClosed serves as the
+// authoritative closed-channel marker. The disk space is reclaimed wholesale by
+// the upcoming native-SQL channel-state migration.
+func CloseChannelTombstone(backend kvdb.Backend, channel *OpenChannel,
+	summary *ChannelCloseSummary, statuses ...ChannelStatus) error {
+
+	return kvdb.Update(backend, func(tx kvdb.RwTx) error {
+		_, chanBucket, chanKey, err := LocateOpenChannel(tx, channel)
+		if err != nil {
+			return err
+		}
+
+		chanState, err := FetchOpenChannel(
+			chanBucket, &channel.FundingOutpoint,
+		)
+		if err != nil {
+			return err
+		}
+
+		if err := UpdateClosedOutpointIndex(tx, chanKey); err != nil {
+			return err
+		}
+
+		return ArchiveClosedChannel(
+			tx, chanKey, chanState, summary, statuses...,
+		)
+	}, func() {})
 }
 
 // SerializeChannelCloseSummary serializes a channel close summary.

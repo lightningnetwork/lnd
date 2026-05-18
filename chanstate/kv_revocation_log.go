@@ -299,13 +299,13 @@ func RevocationLogTailCommitHeight(backend kvdb.Backend,
 // intended to be used for obtaining the relevant data needed to claim all
 // funds rightfully spendable in the case of an on-chain broadcast of the
 // commitment transaction.
-func FindPreviousState(backend kvdb.Backend, channel *OpenChannel,
+func (s *KVStore) FindPreviousState(channel *OpenChannel,
 	updateNum uint64) (*RevocationLog, *ChannelCommitment, error) {
 
 	commit := &ChannelCommitment{}
 	rl := &RevocationLog{}
 
-	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := FetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,

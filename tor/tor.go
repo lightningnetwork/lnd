@@ -1,7 +1,6 @@
 package tor
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -14,42 +13,31 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-var (
-	// dnsCodes maps the DNS response codes to a friendly description. This
-	// does not include the BADVERS code because of duplicate keys and the
-	// underlying DNS (miekg/dns) package not using it. For more info, see
-	// https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml.
-	dnsCodes = map[int]string{
-		0:  "no error",
-		1:  "format error",
-		2:  "server failure",
-		3:  "non-existent domain",
-		4:  "not implemented",
-		5:  "query refused",
-		6:  "name exists when it should not",
-		7:  "RR set exists when it should not",
-		8:  "RR set that should exist does not",
-		9:  "server not authoritative for zone",
-		10: "name not contained in zone",
-		16: "TSIG signature failure",
-		17: "key not recognized",
-		18: "signature out of time window",
-		19: "bad TKEY mode",
-		20: "duplicate key name",
-		21: "algorithm not supported",
-		22: "bad truncation",
-		23: "bad/missing server cookie",
-	}
-
-	// onionPrefixBytes is a special purpose IPv6 prefix to encode Onion v2
-	// addresses with. Because Neutrino uses the address manager of btcd
-	// which only understands net.IP addresses instead of net.Addr, we need
-	// to convert any .onion addresses into fake IPv6 addresses if we want
-	// to use a Tor hidden service as a Neutrino backend. This is the same
-	// range used by OnionCat, which is part part of the RFC4193 unique
-	// local IPv6 unicast address range.
-	onionPrefixBytes = []byte{0xfd, 0x87, 0xd8, 0x7e, 0xeb, 0x43}
-)
+// dnsCodes maps the DNS response codes to a friendly description. This does
+// not include the BADVERS code because of duplicate keys and the underlying
+// DNS (miekg/dns) package not using it. For more info, see
+// https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml.
+var dnsCodes = map[int]string{
+	0:  "no error",
+	1:  "format error",
+	2:  "server failure",
+	3:  "non-existent domain",
+	4:  "not implemented",
+	5:  "query refused",
+	6:  "name exists when it should not",
+	7:  "RR set exists when it should not",
+	8:  "RR set that should exist does not",
+	9:  "server not authoritative for zone",
+	10: "name not contained in zone",
+	16: "TSIG signature failure",
+	17: "key not recognized",
+	18: "signature out of time window",
+	19: "bad TKEY mode",
+	20: "duplicate key name",
+	21: "algorithm not supported",
+	22: "bad truncation",
+	23: "bad/missing server cookie",
+}
 
 // proxyConn is a wrapper around net.Conn that allows us to expose the actual
 // remote address we're dialing, rather than the proxy's address.
@@ -291,61 +279,4 @@ func IsOnionHost(host string) bool {
 	}
 
 	return true
-}
-
-// IsOnionFakeIP checks whether a given net.Addr is a fake IPv6 address that
-// encodes an Onion v2 address.
-func IsOnionFakeIP(addr net.Addr) bool {
-	_, err := FakeIPToOnionHost(addr)
-	return err == nil
-}
-
-// OnionHostToFakeIP encodes an Onion v2 address into a fake IPv6 address that
-// encodes the same information but can be used for libraries that operate on an
-// IP address base only, like btcd's address manager. For example, this will
-// turn the onion host ld47qlr6h2b7hrrf.onion into the ip6 address
-// fd87:d87e:eb43:58f9:f82e:3e3e:83f3:c625.
-func OnionHostToFakeIP(host string) (net.IP, error) {
-	if len(host) != V2Len {
-		return nil, fmt.Errorf("invalid onion v2 host: %v", host)
-	}
-
-	data, err := Base32Encoding.DecodeString(host[:V2Len-OnionSuffixLen])
-	if err != nil {
-		return nil, err
-	}
-
-	ip := make([]byte, len(onionPrefixBytes)+len(data))
-	copy(ip, onionPrefixBytes)
-	copy(ip[len(onionPrefixBytes):], data)
-	return ip, nil
-}
-
-// FakeIPToOnionHost turns a fake IPv6 address that encodes an Onion v2 address
-// back into its onion host address representation. For example, this will turn
-// the fake tcp6 address [fd87:d87e:eb43:58f9:f82e:3e3e:83f3:c625]:8333 back
-// into ld47qlr6h2b7hrrf.onion:8333.
-func FakeIPToOnionHost(fakeIP net.Addr) (net.Addr, error) {
-	tcpAddr, ok := fakeIP.(*net.TCPAddr)
-	if !ok {
-		return nil, fmt.Errorf("invalid fake onion IP address: %v",
-			fakeIP)
-	}
-
-	ip := tcpAddr.IP
-	if len(ip) != len(onionPrefixBytes)+V2DecodedLen {
-		return nil, fmt.Errorf("invalid fake onion IP address length: "+
-			"%v", fakeIP)
-	}
-
-	if !bytes.Equal(ip[:len(onionPrefixBytes)], onionPrefixBytes) {
-		return nil, fmt.Errorf("invalid fake onion IP address prefix: "+
-			"%v", fakeIP)
-	}
-
-	host := Base32Encoding.EncodeToString(ip[len(onionPrefixBytes):])
-	return &OnionAddr{
-		OnionService: host + ".onion",
-		Port:         tcpAddr.Port,
-	}, nil
 }

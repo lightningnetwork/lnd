@@ -824,6 +824,56 @@ func ApplyChannelStatus(backend kvdb.Backend, channel *OpenChannel,
 	return PutChanStatus(backend, channel, status)
 }
 
+// MarkChannelDataLoss marks the channel as local-data-loss and stores the
+// commit point needed if the remote force closes.
+func MarkChannelDataLoss(backend kvdb.Backend, channel *OpenChannel,
+	commitPoint *btcec.PublicKey) error {
+
+	putCommitPoint := func(chanBucket kvdb.RwBucket) error {
+		return PutChannelDataLossCommitPoint(chanBucket, commitPoint)
+	}
+
+	return PutChanStatus(
+		backend, channel, ChanStatusLocalDataLoss, putCommitPoint,
+	)
+}
+
+// FetchDataLossCommitPoint retrieves the commit point stored when the channel
+// was marked as local-data-loss.
+func FetchDataLossCommitPoint(backend kvdb.Backend,
+	channel *OpenChannel) (*btcec.PublicKey, error) {
+
+	var commitPoint *btcec.PublicKey
+
+	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+		chanBucket, err := FetchChanBucket(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		switch {
+		case err == nil:
+		case errors.Is(err, ErrNoChanDBExists),
+			errors.Is(err, ErrNoActiveChannels),
+			errors.Is(err, ErrChannelNotFound):
+
+			return ErrNoCommitPoint
+		default:
+			return err
+		}
+
+		commitPoint, err = FetchChannelDataLossCommitPoint(chanBucket)
+
+		return err
+	}, func() {
+		commitPoint = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return commitPoint, nil
+}
+
 // PutChanStatus appends the given status to the channel. fs is an optional
 // list of closures that are given the chanBucket in order to atomically add
 // extra information together with the new status.

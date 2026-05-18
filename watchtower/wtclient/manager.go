@@ -155,8 +155,10 @@ type Config struct {
 	// be kept in-memory. Any more tasks will overflow to disk.
 	MaxTasksInMemQueue uint64
 
-	// Public key of the local tower if running local watchtower.
-	// Used to check if client is connecting to local node
+	// LocalTowerPubKey is the public key of the watchtower server running
+	// in the same process, or nil if no local tower is active. When set,
+	// AddTower will warn if the client attempts to register the local tower,
+	// since it shares the same failure domain as this node.
 	LocalTowerPubKey *btcec.PublicKey
 }
 

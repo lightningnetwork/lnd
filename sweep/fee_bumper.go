@@ -1114,20 +1114,13 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 
 	// When the error is due to budget being used up, we'll send a TxFailed
 	// so these inputs can be retried with a different group in the next
-	// block.
+	// block. The error is fee-related (the linear fee function has run
+	// past its budget), so we still calculate a retry fee rate.
 	case errors.Is(err, ErrMaxPosition):
-		fallthrough
-
-	// If the tx doesn't not have enough budget, or if the inputs amounts
-	// are not sufficient to cover the budget, we will return a TxFailed
-	// event so the sweeper can handle it by re-clustering the utxos.
-	case errors.Is(err, ErrNotEnoughInputs),
-		errors.Is(err, ErrNotEnoughBudget):
-
 		result.Event = TxFailed
 
-		// Calculate the starting fee rate to be used when retry
-		// sweeping these inputs.
+		// Calculate the starting fee rate to be used when retrying
+		// to sweep these inputs.
 		feeRate, err := t.calculateRetryFeeRate(r)
 		if err != nil {
 			result.Event = TxFatal
@@ -1136,6 +1129,21 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 
 		// Attach the new fee rate.
 		result.FeeRate = feeRate
+
+	// If the tx doesn't have enough budget, or if there aren't enough
+	// wallet inputs available to cover fees, we return a TxFailed event
+	// so the sweeper can re-cluster and retry on the next block. We
+	// intentionally do NOT call calculateRetryFeeRate here: these
+	// failures have no fee-rate dimension to them (an absent wallet
+	// UTXO is a resource problem, not a fee problem), and ratcheting
+	// the starting fee rate upward on each retry can permanently
+	// strand an input whose intrinsic budget cannot cover the higher
+	// starting rate. Leaving FeeRate at zero signals the sweeper to
+	// preserve the input's existing starting fee rate.
+	case errors.Is(err, ErrNotEnoughInputs),
+		errors.Is(err, ErrNotEnoughBudget):
+
+		result.Event = TxFailed
 
 	// When there are missing inputs, we'll create a TxUnknownSpend bump
 	// result here so the rest of the inputs can be retried.
@@ -1857,10 +1865,31 @@ func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 		return fn.Some(*bumpResult)
 	}
 
-	// Return a failed event to retry the sweep.
-	event := TxFailed
+	// If the tx doesn't have enough budget, or if there aren't enough
+	// wallet inputs available to cover fees, we return a TxFailed event
+	// so the sweeper can re-cluster and retry on the next block. We
+	// intentionally do NOT call calculateRetryFeeRate for these failure
+	// modes: they have no fee-rate dimension to them (an absent wallet
+	// UTXO is a resource problem, not a fee problem). Leaving FeeRate
+	// at zero signals the sweeper to preserve the input's existing
+	// starting fee rate; otherwise repeated resource failures would
+	// ratchet the rate past the input's intrinsic budget and strand it.
+	if errors.Is(err, ErrNotEnoughBudget) ||
+		errors.Is(err, ErrNotEnoughInputs) {
 
-	// Calculate the next fee rate for the retry.
+		log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(), err)
+		return fn.Some(BumpResult{
+			Event:     TxFailed,
+			Tx:        oldTx,
+			Err:       err,
+			requestID: r.requestID,
+		})
+	}
+
+	// For all other fee-bump failures, treat them as fee-related: ask
+	// the fee function for the next rate and carry it on the result so
+	// the sweeper can use it as the starting rate on retry.
+	event := TxFailed
 	feeRate, ferr := t.calculateRetryFeeRate(r)
 	if ferr != nil {
 		// If there's an error with the fee calculation, we need to
@@ -1868,8 +1897,6 @@ func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 		event = TxFatal
 	}
 
-	// If the error is not fee related, we will return a `TxFailed` event so
-	// this input can be retried.
 	result := fn.Some(BumpResult{
 		Event:     event,
 		Tx:        oldTx,
@@ -1878,18 +1905,7 @@ func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 		FeeRate:   feeRate,
 	})
 
-	// If the tx doesn't not have enough budget, or if the inputs amounts
-	// are not sufficient to cover the budget, we will return a result so
-	// the sweeper can handle it by re-clustering the utxos.
-	if errors.Is(err, ErrNotEnoughBudget) ||
-		errors.Is(err, ErrNotEnoughInputs) {
-
-		log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(), err)
-		return result
-	}
-
-	// Otherwise, an unexpected error occurred, we will log an error and let
-	// the sweeper retry the whole process.
+	// Log an error and let the sweeper retry the whole process.
 	log.Errorf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
 
 	return result

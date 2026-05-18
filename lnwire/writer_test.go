@@ -510,15 +510,23 @@ func TestWriteOnionAddr(t *testing.T) {
 			expectedBytes: nil,
 		},
 		{
-			// A valid-length v2 onion address must be rejected
-			// since lnd no longer encodes v2 services on the wire.
-			name: "onion address v2 rejected",
+			// A v2 onion address must still round-trip on the
+			// wire even though lnd does not generate one itself:
+			// signature verification and gossip relay depend on
+			// re-encoding peer-announced address sets byte-for-
+			// byte.
+			name: "onion address v2",
 			addr: &tor.OnionAddr{
 				OnionService: "abcdefghijklmnop.onion",
 				Port:         9065,
 			},
-			expectedErr:   ErrV2OnionAddrNotSupported,
-			expectedBytes: nil,
+			expectedErr: nil,
+			expectedBytes: []byte{
+				0x3, // The descriptor.
+				0x0, 0x44, 0x32, 0x14, 0xc7, 0x42, 0x54, 0xb6,
+				0x35, 0xcf,
+				0x23, 0x69, // The port.
+			},
 		},
 		{
 			// Check write onion v3.

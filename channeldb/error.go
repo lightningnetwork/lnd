@@ -46,7 +46,11 @@ var (
 
 	// ErrNoClosedChannels is returned when a node is queries for all the
 	// channels it has closed, but it hasn't yet closed any channels.
-	ErrNoClosedChannels = fmt.Errorf("no channel have been closed yet")
+	ErrNoClosedChannels = cstate.ErrNoClosedChannels
+
+	// ErrClosedChannelNotFound signals that a closed channel could not be
+	// found in the channeldb.
+	ErrClosedChannelNotFound = cstate.ErrClosedChannelNotFound
 
 	// ErrNoForwardingEvents is returned in the case that a query fails due
 	// to the log not having any recorded events.

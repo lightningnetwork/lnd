@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/btcsuite/btcd/wire"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -46,21 +47,19 @@ func PutChannelCloseSummary(tx kvdb.RwTx, chanID []byte,
 
 // CloseChannel closes the supplied channel via the selected close strategy. On
 // synchronous backends the channel's nested state — the revocation log, the
-// per-channel forwarding-package bucket, and the chanBucket itself — is deleted
-// inline. On tombstone-enabled backends none of the bulk state is touched; the
-// outpointBucket flip to outpointClosed signals that the channel is logically
-// closed.
-func CloseChannel(backend kvdb.Backend, channel *OpenChannel,
-	summary *ChannelCloseSummary, tombstoneClosedChannels bool,
+// per-channel forwarding-package bucket, and the chanBucket itself — is
+// deleted inline. On tombstone-enabled backends none of the bulk state is
+// touched; the outpointBucket flip to outpointClosed signals that the channel
+// is logically closed.
+func (s *KVStore) CloseChannel(channel *OpenChannel,
+	summary *ChannelCloseSummary,
 	statuses ...ChannelStatus) error {
 
-	if tombstoneClosedChannels {
-		return CloseChannelTombstone(
-			backend, channel, summary, statuses...,
-		)
+	if s.tombstoneClosedChannels {
+		return s.closeChannelTombstone(channel, summary, statuses...)
 	}
 
-	return CloseChannelSync(backend, channel, summary, statuses...)
+	return s.closeChannelSync(channel, summary, statuses...)
 }
 
 // LocateOpenChannel performs the open-channel-bucket descent for a CloseChannel
@@ -151,15 +150,15 @@ func ArchiveClosedChannel(tx kvdb.RwTx, chanKey []byte,
 	return PutChannelCloseSummary(tx, chanKey, summary, chanState)
 }
 
-// CloseChannelSync performs the historical synchronous close path: in a single
+// closeChannelSync performs the historical synchronous close path: in a single
 // write transaction it wipes the forwarding-package state, deletes the channel
 // bucket and its nested revocation log entries, updates the outpoint index, and
 // archives the close summary. It is used by backends where nested-bucket
 // deletion is cheap (bbolt, etcd).
-func CloseChannelSync(backend kvdb.Backend, channel *OpenChannel,
+func (s *KVStore) closeChannelSync(channel *OpenChannel,
 	summary *ChannelCloseSummary, statuses ...ChannelStatus) error {
 
-	return kvdb.Update(backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
 		chainBucket, chanBucket, chanKey, err := LocateOpenChannel(
 			tx, channel,
 		)
@@ -209,16 +208,16 @@ func CloseChannelSync(backend kvdb.Backend, channel *OpenChannel,
 	}, func() {})
 }
 
-// CloseChannelTombstone performs the tombstone close path used by KV-over-SQL
-// backends. The channel's per-channel state is left intact — touching it would
-// trigger the cascading nested-bucket delete this path exists to avoid — and
-// the outpointBucket flip from outpointOpen to outpointClosed serves as the
-// authoritative closed-channel marker. The disk space is reclaimed wholesale by
-// the upcoming native-SQL channel-state migration.
-func CloseChannelTombstone(backend kvdb.Backend, channel *OpenChannel,
+// closeChannelTombstone performs the tombstone close path used by KV-over-SQL
+// backends. The channel's per-channel state is left intact — touching it
+// would trigger the cascading nested-bucket delete this path exists to avoid
+// — and the outpointBucket flip from outpointOpen to outpointClosed serves as
+// the authoritative closed-channel marker. The disk space is reclaimed
+// wholesale by the upcoming native-SQL channel-state migration.
+func (s *KVStore) closeChannelTombstone(channel *OpenChannel,
 	summary *ChannelCloseSummary, statuses ...ChannelStatus) error {
 
-	return kvdb.Update(backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
 		_, chanBucket, chanKey, err := LocateOpenChannel(tx, channel)
 		if err != nil {
 			return err
@@ -239,6 +238,146 @@ func CloseChannelTombstone(backend kvdb.Backend, channel *OpenChannel,
 			tx, chanKey, chanState, summary, statuses...,
 		)
 	}, func() {})
+}
+
+// FetchClosedChannels attempts to fetch all closed channels from the database.
+// The pendingOnly bool toggles if channels that aren't yet fully closed should
+// be returned in the response or not. When a channel was cooperatively closed,
+// it becomes fully closed after a single confirmation. When a channel was
+// forcibly closed, it will become fully closed after _all_ the pending funds
+// (if any) have been swept.
+func (s *KVStore) FetchClosedChannels(pendingOnly bool) (
+	[]*ChannelCloseSummary, error) {
+
+	var chanSummaries []*ChannelCloseSummary
+
+	if err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
+		closeBucket := tx.ReadBucket(closedChannelBucket)
+		if closeBucket == nil {
+			return ErrNoClosedChannels
+		}
+
+		return closeBucket.ForEach(func(chanID []byte,
+			summaryBytes []byte) error {
+
+			summaryReader := bytes.NewReader(summaryBytes)
+			chanSummary, err := DeserializeCloseChannelSummary(
+				summaryReader,
+			)
+			if err != nil {
+				return err
+			}
+
+			// If the query specified to only include pending
+			// channels, then we'll skip any channels which aren't
+			// currently pending.
+			if !chanSummary.IsPending && pendingOnly {
+				return nil
+			}
+
+			chanSummaries = append(chanSummaries, chanSummary)
+
+			return nil
+		})
+	}, func() {
+		chanSummaries = nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return chanSummaries, nil
+}
+
+// FetchClosedChannel queries for a channel close summary using the channel
+// point of the channel in question.
+func (s *KVStore) FetchClosedChannel(chanID *wire.OutPoint) (
+	*ChannelCloseSummary, error) {
+
+	var chanSummary *ChannelCloseSummary
+	if err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
+		closeBucket := tx.ReadBucket(closedChannelBucket)
+		if closeBucket == nil {
+			return ErrClosedChannelNotFound
+		}
+
+		var b bytes.Buffer
+		var err error
+		if err = graphdb.WriteOutpoint(&b, chanID); err != nil {
+			return err
+		}
+
+		summaryBytes := closeBucket.Get(b.Bytes())
+		if summaryBytes == nil {
+			return ErrClosedChannelNotFound
+		}
+
+		summaryReader := bytes.NewReader(summaryBytes)
+		chanSummary, err = DeserializeCloseChannelSummary(
+			summaryReader,
+		)
+
+		return err
+	}, func() {
+		chanSummary = nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return chanSummary, nil
+}
+
+// FetchClosedChannelForID queries for a channel close summary using the
+// channel ID of the channel in question.
+func (s *KVStore) FetchClosedChannelForID(cid lnwire.ChannelID) (
+	*ChannelCloseSummary, error) {
+
+	var chanSummary *ChannelCloseSummary
+	if err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
+		closeBucket := tx.ReadBucket(closedChannelBucket)
+		if closeBucket == nil {
+			return ErrClosedChannelNotFound
+		}
+
+		// The first 30 bytes of the channel ID and outpoint will be
+		// equal.
+		cursor := closeBucket.ReadCursor()
+		op, c := cursor.Seek(cid[:30])
+
+		// We scan over all possible candidates for this channel ID.
+		for op != nil && bytes.Compare(cid[:30], op[:30]) <= 0 {
+			var outPoint wire.OutPoint
+			err := graphdb.ReadOutpoint(
+				bytes.NewReader(op), &outPoint,
+			)
+			if err != nil {
+				return err
+			}
+
+			// If the found outpoint corresponds to this channel ID,
+			// deserialize the close summary and return.
+			if cid.IsChanPoint(&outPoint) {
+				r := bytes.NewReader(c)
+				cs, err := DeserializeCloseChannelSummary(r)
+				if err != nil {
+					return err
+				}
+
+				chanSummary = cs
+
+				return nil
+			}
+
+			op, c = cursor.Next()
+		}
+
+		return ErrClosedChannelNotFound
+	}, func() {
+		chanSummary = nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return chanSummary, nil
 }
 
 // SerializeChannelCloseSummary serializes a channel close summary.

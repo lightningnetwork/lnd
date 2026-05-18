@@ -9,16 +9,19 @@ type KVStore struct {
 	backend                   kvdb.Backend
 	noRevLogAmtData           bool
 	storeFinalHtlcResolutions bool
+	tombstoneClosedChannels   bool
 }
 
 // NewKVStore creates a KV-backed channel-state store.
 func NewKVStore(backend kvdb.Backend,
-	storeFinalHtlcResolutions, noRevLogAmtData bool) *KVStore {
+	storeFinalHtlcResolutions, noRevLogAmtData,
+	tombstoneClosedChannels bool) *KVStore {
 
 	return &KVStore{
 		backend:                   backend,
 		noRevLogAmtData:           noRevLogAmtData,
 		storeFinalHtlcResolutions: storeFinalHtlcResolutions,
+		tombstoneClosedChannels:   tombstoneClosedChannels,
 	}
 }
 

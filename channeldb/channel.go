@@ -691,10 +691,7 @@ type ChannelCloseSummary = cstate.ChannelCloseSummary
 func (c *ChannelStateDB) CloseChannel(channel *OpenChannel,
 	summary *ChannelCloseSummary, statuses ...ChannelStatus) error {
 
-	return cstate.CloseChannel(
-		c.backend, channel, summary, c.tombstoneClosedChannels,
-		statuses...,
-	)
+	return c.kvStore.CloseChannel(channel, summary, statuses...)
 }
 
 // ChannelSnapshot is a frozen snapshot of the current channel state.

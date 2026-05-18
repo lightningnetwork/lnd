@@ -51,6 +51,18 @@ var (
 	// upfront shutdown script for the remote peer.
 	remoteUpfrontShutdownKey = []byte("remote-upfront-shutdown-key")
 
+	// chanCommitmentKey can be accessed within the sub-bucket for a
+	// particular channel. This key stores the up to date commitment state
+	// for a particular channel party. Appending a 0 to the end of this key
+	// indicates it's the commitment for the local party, and appending a 1
+	// to the end of this key indicates it's the commitment for the remote
+	// party.
+	chanCommitmentKey = []byte("chan-commitment-key")
+
+	// revocationStateKey stores their current revocation hash, our
+	// preimage producer and their preimage store.
+	revocationStateKey = []byte("revocation-state-key")
+
 	// unsignedAckedUpdatesKey is an entry in the channel bucket that
 	// contains the remote updates that we have acked, but not yet signed
 	// for in one of our remote commits.
@@ -103,14 +115,6 @@ func ChanIDBucketKey() []byte {
 // key.
 func HistoricalChannelBucketKey() []byte {
 	return historicalChannelBucket
-}
-
-// ChanInfoKey returns the channel-bucket key for static channel information.
-//
-// NOTE: channeldb still deletes this record directly; the accessor goes away
-// once that path moves over.
-func ChanInfoKey() []byte {
-	return chanInfoKey
 }
 
 // UnsignedAckedUpdatesKey returns the channel-bucket key for unsigned acked

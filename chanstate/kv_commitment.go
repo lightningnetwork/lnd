@@ -3,6 +3,7 @@ package chanstate
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 
@@ -412,6 +413,159 @@ func DeleteOpenChannel(chanBucket kvdb.RwBucket) error {
 
 	if diff := chanBucket.Get(commitDiffKey); diff != nil {
 		return chanBucket.Delete(commitDiffKey)
+	}
+
+	return nil
+}
+
+// RemoteCommitChainTip returns the "tip" of the current remote commitment
+// chain.
+func RemoteCommitChainTip(backend kvdb.Backend,
+	channel *OpenChannel) (*CommitDiff, error) {
+
+	var cd *CommitDiff
+	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+		chanBucket, err := FetchChanBucket(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		switch {
+		case err == nil:
+		case errors.Is(err, ErrNoChanDBExists),
+			errors.Is(err, ErrNoActiveChannels),
+			errors.Is(err, ErrChannelNotFound):
+
+			return ErrNoPendingCommit
+		default:
+			return err
+		}
+
+		tipBytes := chanBucket.Get(commitDiffKey)
+		if tipBytes == nil {
+			return ErrNoPendingCommit
+		}
+
+		tipReader := bytes.NewReader(tipBytes)
+		dcd, err := DeserializeCommitDiff(tipReader)
+		if err != nil {
+			return err
+		}
+
+		cd = dcd
+
+		return nil
+	}, func() {
+		cd = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return cd, nil
+}
+
+// UnsignedAckedUpdates retrieves the persisted unsigned acked remote log
+// updates that still need to be signed for.
+func UnsignedAckedUpdates(backend kvdb.Backend,
+	channel *OpenChannel) ([]LogUpdate, error) {
+
+	var updates []LogUpdate
+	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+		chanBucket, err := FetchChanBucket(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		switch {
+		case err == nil:
+		case errors.Is(err, ErrNoChanDBExists),
+			errors.Is(err, ErrNoActiveChannels),
+			errors.Is(err, ErrChannelNotFound):
+
+			return nil
+		default:
+			return err
+		}
+
+		updateBytes := chanBucket.Get(unsignedAckedUpdatesKey)
+		if updateBytes == nil {
+			return nil
+		}
+
+		r := bytes.NewReader(updateBytes)
+		updates, err = DeserializeLogUpdates(r)
+
+		return err
+	}, func() {
+		updates = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updates, nil
+}
+
+// RemoteUnsignedLocalUpdates retrieves the persisted, unsigned local log
+// updates that the remote still needs to sign for.
+func RemoteUnsignedLocalUpdates(backend kvdb.Backend,
+	channel *OpenChannel) ([]LogUpdate, error) {
+
+	var updates []LogUpdate
+	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+		chanBucket, err := FetchChanBucket(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		switch {
+		case err == nil:
+		case errors.Is(err, ErrNoChanDBExists),
+			errors.Is(err, ErrNoActiveChannels),
+			errors.Is(err, ErrChannelNotFound):
+
+			return nil
+		default:
+			return err
+		}
+
+		updateBytes := chanBucket.Get(remoteUnsignedLocalUpdatesKey)
+		if updateBytes == nil {
+			return nil
+		}
+
+		r := bytes.NewReader(updateBytes)
+		updates, err = DeserializeLogUpdates(r)
+
+		return err
+	}, func() {
+		updates = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updates, nil
+}
+
+// InsertNextRevocation inserts the next commitment point into the persisted
+// channel state.
+func InsertNextRevocation(backend kvdb.Backend, channel *OpenChannel,
+	revKey *btcec.PublicKey) error {
+
+	channel.RemoteNextRevocation = revKey
+
+	err := kvdb.Update(backend, func(tx kvdb.RwTx) error {
+		chanBucket, err := FetchChanBucketRw(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		return PutChanRevocationState(chanBucket, channel)
+	}, func() {})
+	if err != nil {
+		return err
 	}
 
 	return nil

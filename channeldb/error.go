@@ -9,7 +9,7 @@ import (
 var (
 	// ErrNoChanDBExists is returned when a channel bucket hasn't been
 	// created.
-	ErrNoChanDBExists = fmt.Errorf("channel db has not yet been created")
+	ErrNoChanDBExists = cstate.ErrNoChanDBExists
 
 	// ErrNoHistoricalBucket is returned when the historical channel bucket
 	// not been created yet.
@@ -26,7 +26,7 @@ var (
 
 	// ErrNoActiveChannels  is returned when there is no active (open)
 	// channels within the database.
-	ErrNoActiveChannels = fmt.Errorf("no active channels exist")
+	ErrNoActiveChannels = cstate.ErrNoActiveChannels
 
 	// ErrNoPastDeltas is returned when the channel delta bucket hasn't been
 	// created.

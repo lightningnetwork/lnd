@@ -352,6 +352,169 @@ func ReadChanConfig(b io.Reader, c *ChannelConfig) error {
 	)
 }
 
+// PutChanInfo serializes the static channel info into the channel bucket.
+func PutChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
+	var w bytes.Buffer
+	if err := WriteElements(&w,
+		channel.ChanType, channel.ChainHash, channel.FundingOutpoint,
+		channel.ShortChannelID, channel.IsPending, channel.IsInitiator,
+		channel.ChannelStatusForStore(), channel.FundingBroadcastHeight,
+		channel.NumConfsRequired, channel.ChannelFlags,
+		channel.IdentityPub, channel.Capacity, channel.TotalMSatSent,
+		channel.TotalMSatReceived,
+	); err != nil {
+		return err
+	}
+
+	// For single funder channels that we initiated, and we have the
+	// funding transaction, then write the funding txn.
+	if channel.FundingTxPresent() {
+		if err := WriteElement(&w, channel.FundingTxn); err != nil {
+			return err
+		}
+	}
+
+	if err := WriteChanConfig(&w, &channel.LocalChanCfg); err != nil {
+		return err
+	}
+	if err := WriteChanConfig(&w, &channel.RemoteChanCfg); err != nil {
+		return err
+	}
+
+	if err := EncodeOpenChannelTlvData(&w, channel); err != nil {
+		return fmt.Errorf("unable to encode aux data: %w", err)
+	}
+
+	if err := chanBucket.Put(chanInfoKey, w.Bytes()); err != nil {
+		return err
+	}
+
+	// Finally, add optional shutdown scripts for the local and remote peer
+	// if they are present.
+	if err := putOptionalUpfrontShutdownScript(
+		chanBucket, localUpfrontShutdownKey,
+		channel.LocalShutdownScript,
+	); err != nil {
+		return err
+	}
+
+	return putOptionalUpfrontShutdownScript(
+		chanBucket, remoteUpfrontShutdownKey,
+		channel.RemoteShutdownScript,
+	)
+}
+
+// putOptionalUpfrontShutdownScript adds a shutdown script under the key
+// provided if it has a non-zero length.
+func putOptionalUpfrontShutdownScript(chanBucket kvdb.RwBucket, key []byte,
+	script []byte) error {
+
+	// If the script is empty, we do not need to add anything.
+	if len(script) == 0 {
+		return nil
+	}
+
+	var w bytes.Buffer
+	if err := WriteElement(&w, script); err != nil {
+		return err
+	}
+
+	return chanBucket.Put(key, w.Bytes())
+}
+
+// FetchChanInfo deserializes the static channel info from the channel bucket.
+func FetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
+	infoBytes := chanBucket.Get(chanInfoKey)
+	if infoBytes == nil {
+		return ErrNoChanInfoFound
+	}
+	r := bytes.NewReader(infoBytes)
+
+	var chanStatus ChannelStatus
+	if err := ReadElements(r,
+		&channel.ChanType, &channel.ChainHash, &channel.FundingOutpoint,
+		&channel.ShortChannelID, &channel.IsPending,
+		&channel.IsInitiator,
+		&chanStatus, &channel.FundingBroadcastHeight,
+		&channel.NumConfsRequired, &channel.ChannelFlags,
+		&channel.IdentityPub, &channel.Capacity, &channel.TotalMSatSent,
+		&channel.TotalMSatReceived,
+	); err != nil {
+		return err
+	}
+	channel.SetChannelStatusForStore(chanStatus)
+
+	// For single funder channels that we initiated and have the funding
+	// transaction to, read the funding txn.
+	if channel.FundingTxPresent() {
+		if err := ReadElement(r, &channel.FundingTxn); err != nil {
+			return err
+		}
+	}
+
+	if err := ReadChanConfig(r, &channel.LocalChanCfg); err != nil {
+		return err
+	}
+	if err := ReadChanConfig(r, &channel.RemoteChanCfg); err != nil {
+		return err
+	}
+
+	// Retrieve the boolean stored under lastWasRevokeKey.
+	lastWasRevokeBytes := chanBucket.Get(lastWasRevokeKey)
+	if lastWasRevokeBytes == nil {
+		// If nothing has been stored under this key, we store false
+		// in the OpenChannel struct.
+		channel.LastWasRevoke = false
+	} else {
+		// Otherwise, read the value into the LastWasRevoke field.
+		revokeReader := bytes.NewReader(lastWasRevokeBytes)
+		err := ReadElements(revokeReader, &channel.LastWasRevoke)
+		if err != nil {
+			return err
+		}
+	}
+
+	if err := DecodeOpenChannelTlvData(r, channel); err != nil {
+		return fmt.Errorf("unable to decode aux data: %w", err)
+	}
+
+	// Finally, read the optional shutdown scripts.
+	if err := getOptionalUpfrontShutdownScript(
+		chanBucket, localUpfrontShutdownKey,
+		&channel.LocalShutdownScript,
+	); err != nil {
+		return err
+	}
+
+	return getOptionalUpfrontShutdownScript(
+		chanBucket, remoteUpfrontShutdownKey,
+		&channel.RemoteShutdownScript,
+	)
+}
+
+// getOptionalUpfrontShutdownScript reads the shutdown script stored under the
+// key provided if it is present. Upfront shutdown scripts are optional, so the
+// function returns with no error if the key is not present.
+func getOptionalUpfrontShutdownScript(chanBucket kvdb.RBucket, key []byte,
+	script *lnwire.DeliveryAddress) error {
+
+	// Return early if the bucket does not exit, a shutdown script was not
+	// set.
+	bs := chanBucket.Get(key)
+	if bs == nil {
+		return nil
+	}
+
+	var tempScript []byte
+	r := bytes.NewReader(bs)
+	if err := ReadElement(r, &tempScript); err != nil {
+		return err
+	}
+	*script = tempScript
+
+	return nil
+}
+
 // openChannelTlvData houses the new data fields that are stored for each
 // channel in a TLV stream within the root bucket. This is stored as a TLV
 // stream appended to the existing hard-coded fields in the channel's root

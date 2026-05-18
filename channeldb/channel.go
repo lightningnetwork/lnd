@@ -338,7 +338,7 @@ var (
 func (c *ChannelStateDB) StoreChannelShutdownInfo(channel *OpenChannel,
 	info *ShutdownInfo) error {
 
-	return cstate.StoreChannelShutdownInfo(c.backend, channel, info)
+	return c.kvStore.StoreChannelShutdownInfo(channel, info)
 }
 
 // FetchChannelShutdownInfo fetches the persisted ShutdownInfo for the target
@@ -346,7 +346,7 @@ func (c *ChannelStateDB) StoreChannelShutdownInfo(channel *OpenChannel,
 func (c *ChannelStateDB) FetchChannelShutdownInfo(
 	channel *OpenChannel) (fn.Option[ShutdownInfo], error) {
 
-	return cstate.FetchShutdownInfo(c.backend, channel)
+	return c.kvStore.FetchChannelShutdownInfo(channel)
 }
 
 // MarkChannelCommitmentBroadcasted marks the channel as having a commitment

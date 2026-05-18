@@ -681,6 +681,24 @@ func FetchOpenChannel(chanBucket kvdb.RBucket,
 	return channel, nil
 }
 
+// IsChannelBorked returns true if the channel has been marked as borked in the
+// database. This requires an existing database transaction to already be
+// active.
+//
+// NOTE: The primary mutex should already be held before this method is called.
+func IsChannelBorked(channel *OpenChannel, chanBucket kvdb.RBucket) (
+	bool, error) {
+
+	diskChannel, err := FetchOpenChannel(
+		chanBucket, &channel.FundingOutpoint,
+	)
+	if err != nil {
+		return false, err
+	}
+
+	return diskChannel.ChannelStatusForStore() != ChanStatusDefault, nil
+}
+
 // openChannelTlvData houses the new data fields that are stored for each
 // channel in a TLV stream within the root bucket. This is stored as a TLV
 // stream appended to the existing hard-coded fields in the channel's root

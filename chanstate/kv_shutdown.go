@@ -2,8 +2,10 @@ package chanstate
 
 import (
 	"bytes"
+	"errors"
 	"io"
 
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -48,6 +50,57 @@ func FetchChannelShutdownInfo(chanBucket kvdb.RBucket) (
 	}
 
 	return DecodeShutdownInfo(shutdownInfoBytes)
+}
+
+// StoreChannelShutdownInfo persists the ShutdownInfo for the target channel.
+func StoreChannelShutdownInfo(backend kvdb.Backend, channel *OpenChannel,
+	info *ShutdownInfo) error {
+
+	return kvdb.Update(backend, func(tx kvdb.RwTx) error {
+		chanBucket, err := FetchChanBucketRw(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		return PutChannelShutdownInfo(chanBucket, info)
+	}, func() {})
+}
+
+// FetchShutdownInfo fetches the persisted ShutdownInfo for the target channel.
+func FetchShutdownInfo(backend kvdb.Backend,
+	channel *OpenChannel) (fn.Option[ShutdownInfo], error) {
+
+	var shutdownInfo *ShutdownInfo
+	err := kvdb.View(backend, func(tx kvdb.RTx) error {
+		chanBucket, err := FetchChanBucket(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		switch {
+		case err == nil:
+		case errors.Is(err, ErrNoChanDBExists),
+			errors.Is(err, ErrNoActiveChannels),
+			errors.Is(err, ErrChannelNotFound):
+
+			return ErrNoShutdownInfo
+		default:
+			return err
+		}
+
+		shutdownInfo, err = FetchChannelShutdownInfo(chanBucket)
+
+		return err
+	}, func() {
+		shutdownInfo = nil
+	})
+	if err != nil {
+		return fn.None[ShutdownInfo](), err
+	}
+
+	return fn.Some[ShutdownInfo](*shutdownInfo), nil
 }
 
 // EncodeShutdownInfo serialises the ShutdownInfo to the given io.Writer.

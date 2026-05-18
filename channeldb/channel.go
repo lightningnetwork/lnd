@@ -874,37 +874,7 @@ func (c *ChannelStateDB) ClearChannelStatus(channel *OpenChannel,
 // putOpenChannel serializes, and stores the current state of the channel in its
 // entirety.
 func putOpenChannel(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
-	// First, we'll write out all the relatively static fields, that are
-	// decided upon initial channel creation.
-	if err := putChanInfo(chanBucket, channel); err != nil {
-		return fmt.Errorf("unable to store chan info: %w", err)
-	}
-
-	// With the static channel info written out, we'll now write out the
-	// current commitment state for both parties.
-	if err := putChanCommitments(chanBucket, channel); err != nil {
-		return fmt.Errorf("unable to store chan commitments: %w", err)
-	}
-
-	// Next, if this is a frozen channel, we'll add in the axillary
-	// information we need to store.
-	if channel.ChanType.IsFrozen() || channel.ChanType.HasLeaseExpiration() {
-		err := storeThawHeight(
-			chanBucket, channel.ThawHeight,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to store thaw height: %w",
-				err)
-		}
-	}
-
-	// Finally, we'll write out the revocation state for both parties
-	// within a distinct key space.
-	if err := putChanRevocationState(chanBucket, channel); err != nil {
-		return fmt.Errorf("unable to store chan revocations: %w", err)
-	}
-
-	return nil
+	return cstate.PutOpenChannel(chanBucket, channel)
 }
 
 // fetchOpenChannel retrieves, and deserializes (including decrypting
@@ -912,43 +882,7 @@ func putOpenChannel(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 func fetchOpenChannel(chanBucket kvdb.RBucket,
 	chanPoint *wire.OutPoint) (*OpenChannel, error) {
 
-	channel := &OpenChannel{
-		FundingOutpoint: *chanPoint,
-	}
-
-	// First, we'll read all the static information that changes less
-	// frequently from disk.
-	if err := fetchChanInfo(chanBucket, channel); err != nil {
-		return nil, fmt.Errorf("unable to fetch chan info: %w", err)
-	}
-
-	// With the static information read, we'll now read the current
-	// commitment state for both sides of the channel.
-	if err := fetchChanCommitments(chanBucket, channel); err != nil {
-		return nil, fmt.Errorf("unable to fetch chan commitments: %w",
-			err)
-	}
-
-	// Next, if this is a frozen channel, we'll add in the axillary
-	// information we need to store.
-	if channel.ChanType.IsFrozen() || channel.ChanType.HasLeaseExpiration() {
-		thawHeight, err := fetchThawHeight(chanBucket)
-		if err != nil {
-			return nil, fmt.Errorf("unable to store thaw "+
-				"height: %v", err)
-		}
-
-		channel.ThawHeight = thawHeight
-	}
-
-	// Finally, we'll retrieve the current revocation state so we can
-	// properly
-	if err := fetchChanRevocationState(chanBucket, channel); err != nil {
-		return nil, fmt.Errorf("unable to fetch chan revocations: %w",
-			err)
-	}
-
-	return channel, nil
+	return cstate.FetchOpenChannel(chanBucket, chanPoint)
 }
 
 // SyncPendingChannel writes a pending channel to the store and records the
@@ -1188,10 +1122,6 @@ func serializeLogUpdates(w io.Writer, logUpdates []LogUpdate) error {
 // deserializeLogUpdates deserializes a list of updates from a stream.
 func deserializeLogUpdates(r io.Reader) ([]LogUpdate, error) {
 	return cstate.DeserializeLogUpdates(r)
-}
-
-func newChannelPackager(channel *OpenChannel) *ChannelPackager {
-	return NewChannelPackager(channel.ShortChannelID)
 }
 
 // AppendRemoteCommitChain appends a new CommitDiff to the remote party's

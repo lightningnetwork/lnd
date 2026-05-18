@@ -16,6 +16,80 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+var (
+	// chanCommitmentKey can be accessed within the sub-bucket for a
+	// particular channel. This key stores the up to date commitment state
+	// for a particular channel party. Appending a 0 to the end of this key
+	// indicates it's the commitment for the local party, and appending a 1
+	// to the end of this key indicates it's the commitment for the remote
+	// party.
+	chanCommitmentKey = []byte("chan-commitment-key")
+
+	// unsignedAckedUpdatesKey is an entry in the channel bucket that
+	// contains the remote updates that we have acked, but not yet signed
+	// for in one of our remote commits.
+	unsignedAckedUpdatesKey = []byte("unsigned-acked-updates-key")
+
+	// remoteUnsignedLocalUpdatesKey is an entry in the channel bucket that
+	// contains the local updates that the remote party has acked, but
+	// has not yet signed for in one of their local commits.
+	remoteUnsignedLocalUpdatesKey = []byte(
+		"remote-unsigned-local-updates-key",
+	)
+
+	// revocationStateKey stores their current revocation hash, our
+	// preimage producer and their preimage store.
+	revocationStateKey = []byte("revocation-state-key")
+
+	// commitDiffKey stores the current pending commitment state we've
+	// extended to the remote party (if any). Each time we propose a new
+	// state, we store the information necessary to reconstruct this state
+	// from the prior commitment. This allows us to resync the remote party
+	// to their expected state in the case of message loss.
+	//
+	// TODO(roasbeef): rename to commit chain?
+	commitDiffKey = []byte("commit-diff-key")
+
+	// lastWasRevokeKey is a key that stores true when the last update we
+	// sent was a revocation and false when it was a commitment signature.
+	// This is nil in the case of new channels with no updates exchanged.
+	lastWasRevokeKey = []byte("last-was-revoke")
+)
+
+// ChanCommitmentKey returns the channel-bucket key prefix for channel
+// commitments.
+func ChanCommitmentKey() []byte {
+	return chanCommitmentKey
+}
+
+// UnsignedAckedUpdatesKey returns the channel-bucket key for unsigned acked
+// remote updates.
+func UnsignedAckedUpdatesKey() []byte {
+	return unsignedAckedUpdatesKey
+}
+
+// RemoteUnsignedLocalUpdatesKey returns the channel-bucket key for remote
+// unsigned local updates.
+func RemoteUnsignedLocalUpdatesKey() []byte {
+	return remoteUnsignedLocalUpdatesKey
+}
+
+// RevocationStateKey returns the channel-bucket key for revocation state.
+func RevocationStateKey() []byte {
+	return revocationStateKey
+}
+
+// CommitDiffKey returns the channel-bucket key for the current pending
+// commitment diff.
+func CommitDiffKey() []byte {
+	return commitDiffKey
+}
+
+// LastWasRevokeKey returns the channel-bucket key for the last update type.
+func LastWasRevokeKey() []byte {
+	return lastWasRevokeKey
+}
+
 // serializeHtlcExtraData encodes a TLV stream of extra data to be stored with a
 // HTLC. It uses the update_add_htlc TLV types, because this is where extra
 // data is passed with a HTLC. At present blinding points are the only extra

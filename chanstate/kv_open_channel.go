@@ -2,6 +2,7 @@ package chanstate
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -18,44 +19,109 @@ import (
 )
 
 var (
+	// openChannelBucket stores all the currently open channels. This bucket
+	// has a second, nested bucket which is keyed by a node's ID. Within
+	// that node ID bucket, all attributes required to track, update, and
+	// close a channel are stored.
+	//
+	// openChan -> nodeID -> chanPoint
+	//
+	// TODO(roasbeef): flesh out comment.
+	openChannelBucket = []byte("open-chan-bucket")
+
+	// outpointBucket stores all of our channel outpoints and a tlv
+	// stream containing channel data.
+	//
+	// outpoint -> tlv stream.
+	//
+	outpointBucket = []byte("outpoint-bucket")
+
+	// chanIDBucket stores all of the 32-byte channel ID's we know about.
+	// These could be derived from outpointBucket, but it is more
+	// convenient to have these in their own bucket.
+	//
+	// chanID -> tlv stream.
+	//
+	chanIDBucket = []byte("chan-id-bucket")
+
+	// historicalChannelBucket stores all channels that have seen their
+	// commitment tx confirm. All information from their previous open state
+	// is retained.
+	historicalChannelBucket = []byte("historical-chan-bucket")
+
+	// chanInfoKey can be accessed within the bucket for a channel
+	// (identified by its chanPoint). This key stores all the static
+	// information for a channel which is decided at the end of  the
+	// funding flow.
+	chanInfoKey = []byte("chan-info-key")
+
+	// localUpfrontShutdownKey can be accessed within the bucket for a
+	// channel (identified by its chanPoint). This key stores an optional
+	// upfront shutdown script for the local peer.
+	localUpfrontShutdownKey = []byte("local-upfront-shutdown-key")
+
+	// remoteUpfrontShutdownKey can be accessed within the bucket for a
+	// channel (identified by its chanPoint). This key stores an optional
+	// upfront shutdown script for the remote peer.
+	remoteUpfrontShutdownKey = []byte("remote-upfront-shutdown-key")
+
+	// frozenChanKey is the key where we store the information for any
+	// active "frozen" channels. This key is present only in the leaf
+	// bucket for a given channel.
+	frozenChanKey = []byte("frozen-chans")
+
 	// dataLossCommitPointKey stores the commitment point received from the
 	// remote peer during a channel sync in case we have lost channel state.
 	dataLossCommitPointKey = []byte("data-loss-commit-point-key")
 )
 
+// OpenChannelBucketKey returns the top-level open-channel bucket key.
+func OpenChannelBucketKey() []byte {
+	return openChannelBucket
+}
+
+// OutpointBucketKey returns the top-level outpoint index bucket key.
+func OutpointBucketKey() []byte {
+	return outpointBucket
+}
+
+// ChanIDBucketKey returns the top-level channel ID index bucket key.
+func ChanIDBucketKey() []byte {
+	return chanIDBucket
+}
+
+// HistoricalChannelBucketKey returns the top-level historical channel bucket
+// key.
+func HistoricalChannelBucketKey() []byte {
+	return historicalChannelBucket
+}
+
+// ChanInfoKey returns the channel-bucket key for static channel information.
+func ChanInfoKey() []byte {
+	return chanInfoKey
+}
+
+// LocalUpfrontShutdownKey returns the channel-bucket key for the local upfront
+// shutdown script.
+func LocalUpfrontShutdownKey() []byte {
+	return localUpfrontShutdownKey
+}
+
+// RemoteUpfrontShutdownKey returns the channel-bucket key for the remote
+// upfront shutdown script.
+func RemoteUpfrontShutdownKey() []byte {
+	return remoteUpfrontShutdownKey
+}
+
+// FrozenChanKey returns the key used to store a channel's thaw height.
+func FrozenChanKey() []byte {
+	return frozenChanKey
+}
+
 // DataLossCommitPointKey returns the key used to store the data-loss commit
 // point in a channel bucket.
 func DataLossCommitPointKey() []byte {
 	return dataLossCommitPointKey
-}
-
-// PutChannelDataLossCommitPoint stores the data-loss commit point in the
-// target channel bucket.
-func PutChannelDataLossCommitPoint(chanBucket kvdb.RwBucket,
-	commitPoint *btcec.PublicKey) error {
-
-	return chanBucket.Put(
-		dataLossCommitPointKey, commitPoint.SerializeCompressed(),
-	)
-}
-
-// FetchChannelDataLossCommitPoint retrieves the data-loss commit point from the
-// target channel bucket.
-func FetchChannelDataLossCommitPoint(
-	chanBucket kvdb.RBucket) (*btcec.PublicKey, error) {
-
-	bs := chanBucket.Get(dataLossCommitPointKey)
-	if bs == nil {
-		return nil, ErrNoCommitPoint
-	}
-
-	var b [btcec.PubKeyBytesLenCompressed]byte
-	r := bytes.NewReader(bs)
-	if _, err := io.ReadFull(r, b[:]); err != nil {
-		return nil, err
-	}
-
-	return btcec.ParsePubKey(b[:])
 }
 
 const (
@@ -281,6 +347,35 @@ func FetchChanBucketRw(tx kvdb.RwTx, nodeKey *btcec.PublicKey,
 	}
 
 	return chanBucket, nil
+}
+
+// FetchThawHeight fetches a channel's thaw height from the channel bucket.
+func FetchThawHeight(chanBucket kvdb.RBucket) (uint32, error) {
+	var height uint32
+
+	heightBytes := chanBucket.Get(frozenChanKey)
+	heightReader := bytes.NewReader(heightBytes)
+
+	if err := binary.Read(heightReader, byteOrder, &height); err != nil {
+		return 0, err
+	}
+
+	return height, nil
+}
+
+// StoreThawHeight stores a channel's thaw height in the channel bucket.
+func StoreThawHeight(chanBucket kvdb.RwBucket, height uint32) error {
+	var heightBuf bytes.Buffer
+	if err := binary.Write(&heightBuf, byteOrder, height); err != nil {
+		return err
+	}
+
+	return chanBucket.Put(frozenChanKey, heightBuf.Bytes())
+}
+
+// DeleteThawHeight deletes a channel's thaw height from the channel bucket.
+func DeleteThawHeight(chanBucket kvdb.RwBucket) error {
+	return chanBucket.Delete(frozenChanKey)
 }
 
 // FullSyncOpenChannel syncs the contents of an OpenChannel while re-using an
@@ -869,6 +964,35 @@ func ApplyChannelStatus(backend kvdb.Backend, channel *OpenChannel,
 	status ChannelStatus) error {
 
 	return PutChanStatus(backend, channel, status)
+}
+
+// PutChannelDataLossCommitPoint stores the data-loss commit point in the
+// target channel bucket.
+func PutChannelDataLossCommitPoint(chanBucket kvdb.RwBucket,
+	commitPoint *btcec.PublicKey) error {
+
+	return chanBucket.Put(
+		dataLossCommitPointKey, commitPoint.SerializeCompressed(),
+	)
+}
+
+// FetchChannelDataLossCommitPoint retrieves the data-loss commit point from the
+// target channel bucket.
+func FetchChannelDataLossCommitPoint(
+	chanBucket kvdb.RBucket) (*btcec.PublicKey, error) {
+
+	bs := chanBucket.Get(dataLossCommitPointKey)
+	if bs == nil {
+		return nil, ErrNoCommitPoint
+	}
+
+	var b [btcec.PubKeyBytesLenCompressed]byte
+	r := bytes.NewReader(bs)
+	if _, err := io.ReadFull(r, b[:]); err != nil {
+		return nil, err
+	}
+
+	return btcec.ParsePubKey(b[:])
 }
 
 // MarkChannelDataLoss marks the channel as local-data-loss and stores the

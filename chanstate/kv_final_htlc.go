@@ -2,6 +2,7 @@ package chanstate
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -146,6 +147,66 @@ func FetchFinalHtlc(finalHtlcsBucket kvdb.RBucket,
 	}
 
 	return &info, nil
+}
+
+// LookupFinalHtlc retrieves a final htlc resolution from the database. If the
+// htlc has no final resolution yet, ErrHtlcUnknown is returned.
+func (s *KVStore) LookupFinalHtlc(chanID lnwire.ShortChannelID,
+	htlcIndex uint64) (*FinalHtlcInfo, error) {
+
+	var info *FinalHtlcInfo
+
+	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
+		finalHtlcsBucket, err := FetchFinalHtlcsBucket(tx, chanID)
+		switch {
+		case errors.Is(err, ErrFinalHtlcsBucketNotFound):
+			fallthrough
+
+		case errors.Is(err, ErrFinalChannelBucketNotFound):
+			return ErrHtlcUnknown
+
+		case err != nil:
+			return fmt.Errorf("cannot fetch final htlcs bucket: %w",
+				err)
+		}
+
+		info, err = FetchFinalHtlc(finalHtlcsBucket, htlcIndex)
+
+		return err
+	}, func() {
+		info = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return info, nil
+}
+
+// PutOnchainFinalHtlcOutcome stores the final on-chain outcome of an htlc in
+// the database.
+func (s *KVStore) PutOnchainFinalHtlcOutcome(chanID lnwire.ShortChannelID,
+	htlcID uint64, settled bool) error {
+
+	// Skip if the user did not opt in to storing final resolutions.
+	if !s.storeFinalHtlcResolutions {
+		return nil
+	}
+
+	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
+		finalHtlcsBucket, err := FetchFinalHtlcsBucketRw(tx, chanID)
+		if err != nil {
+			return err
+		}
+
+		return PutFinalHtlc(
+			finalHtlcsBucket, htlcID,
+			FinalHtlcInfo{
+				Settled:  settled,
+				Offchain: false,
+			},
+		)
+	}, func() {})
 }
 
 // ProcessFinalHtlc stores a final htlc outcome in the database if signaled via

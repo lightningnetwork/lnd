@@ -398,14 +398,6 @@ func (c *ChannelStateDB) ClearChannelStatus(channel *OpenChannel,
 	return c.kvStore.ClearChannelStatus(channel, status)
 }
 
-// fetchOpenChannel retrieves, and deserializes (including decrypting
-// sensitive) the complete channel currently active with the passed nodeID.
-func fetchOpenChannel(chanBucket kvdb.RBucket,
-	chanPoint *wire.OutPoint) (*OpenChannel, error) {
-
-	return cstate.FetchOpenChannel(chanBucket, chanPoint)
-}
-
 // SyncPendingChannel writes a pending channel to the store and records the
 // funding broadcast height.
 func (c *ChannelStateDB) SyncPendingChannel(channel *OpenChannel,

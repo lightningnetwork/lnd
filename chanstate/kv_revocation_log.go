@@ -253,7 +253,7 @@ func DeleteLogBucket(chanBucket kvdb.RwBucket) error {
 
 // RevocationLogTailCommitHeight returns the commit height at the end of the
 // revocation log.
-func RevocationLogTailCommitHeight(backend kvdb.Backend,
+func (s *KVStore) RevocationLogTailCommitHeight(
 	channel *OpenChannel) (uint64, error) {
 
 	var height uint64
@@ -264,7 +264,7 @@ func RevocationLogTailCommitHeight(backend kvdb.Backend,
 		return height, nil
 	}
 
-	if err := kvdb.View(backend, func(tx kvdb.RTx) error {
+	if err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := FetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,

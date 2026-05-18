@@ -681,6 +681,43 @@ func FetchOpenChannel(chanBucket kvdb.RBucket,
 	return channel, nil
 }
 
+// RefreshChannel updates the in-memory channel state using the latest state
+// observed on disk.
+func RefreshChannel(backend kvdb.Backend, channel *OpenChannel) error {
+	return kvdb.View(backend, func(tx kvdb.RTx) error {
+		chanBucket, err := FetchChanBucket(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		// We'll re-populating the in-memory channel with the info
+		// fetched from disk.
+		if err := FetchChanInfo(chanBucket, channel); err != nil {
+			return fmt.Errorf("unable to fetch chan info: %w", err)
+		}
+
+		// Also populate the channel's commitment states for both sides
+		// of the channel.
+		err = FetchChanCommitments(chanBucket, channel)
+		if err != nil {
+			return fmt.Errorf("unable to fetch chan commitments: "+
+				"%v", err)
+		}
+
+		// Also retrieve the current revocation state.
+		err = FetchChanRevocationState(chanBucket, channel)
+		if err != nil {
+			return fmt.Errorf("unable to fetch chan revocations: "+
+				"%v", err)
+		}
+
+		return nil
+	}, func() {})
+}
+
 // MarkChannelConfirmationHeight updates the channel's confirmation height once
 // the channel opening transaction receives one confirmation.
 func MarkChannelConfirmationHeight(backend kvdb.Backend,

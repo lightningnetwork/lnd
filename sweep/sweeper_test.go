@@ -237,7 +237,7 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	// Mark the test inputs. We expect the non-exist input and the
 	// inputInit to be skipped, and the final input to be marked as
 	// published.
-	s.markInputsPublishFailed(set, feeRate)
+	s.markInputsPublishFailed(set, fn.Some(feeRate))
 
 	// We expect unchanged number of pending inputs.
 	require.Len(s.inputs, 7)
@@ -279,6 +279,46 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	require.True(pi.params.StartingFeeRate.IsNone())
 
 	// Assert mocked statements are executed as expected.
+	mockStore.AssertExpectations(t)
+}
+
+// TestMarkInputsPublishFailedPreservesRateOnNone asserts that when
+// markInputsPublishFailed is invoked with fn.None, the input's existing
+// StartingFeeRate is preserved instead of being overwritten. This is the
+// sweeper-side contract that resource-failure callers (handleInitialTxError
+// and handleReplacementTxError for ErrNotEnoughInputs / ErrNotEnoughBudget)
+// rely on: those failures carry no fee-rate signal, so ratcheting the
+// starting rate upward on each retry would be incorrect.
+func TestMarkInputsPublishFailedPreservesRateOnNone(t *testing.T) {
+	t.Parallel()
+
+	mockStore := NewMockSweeperStore()
+	s := New(&UtxoSweeperConfig{Store: mockStore})
+
+	// Stage an input in PendingPublish with an existing starting fee
+	// rate. The rate we set here must not be touched by the call below.
+	existingRate := chainfee.SatPerKWeight(2500)
+	inp := createMockInput(t, s, PendingPublish)
+	s.inputs[inp.OutPoint()].params.StartingFeeRate =
+		fn.Some(existingRate)
+
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+	set.On("Inputs").Return([]input.Input{inp})
+
+	// Mark the input as publish-failed with fn.None, signalling a
+	// non-fee failure (e.g. ErrNotEnoughInputs).
+	s.markInputsPublishFailed(set, fn.None[chainfee.SatPerKWeight]())
+
+	// The input must still be in PublishFailed (state transition is
+	// independent of the rate signal) but its StartingFeeRate must
+	// remain the value we set above, not Some(0).
+	pi := s.inputs[inp.OutPoint()]
+	require.Equal(t, PublishFailed, pi.state)
+	require.True(t, pi.params.StartingFeeRate.IsSome())
+	require.Equal(t, existingRate,
+		pi.params.StartingFeeRate.UnsafeFromSome())
+
 	mockStore.AssertExpectations(t)
 }
 

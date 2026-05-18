@@ -118,11 +118,6 @@ var (
 	// TODO(roasbeef): rename to commit chain?
 	commitDiffKey = []byte("commit-diff-key")
 
-	// frozenChanKey is the key where we store the information for any
-	// active "frozen" channels. This key is present only in the leaf
-	// bucket for a given channel.
-	frozenChanKey = []byte("frozen-chans")
-
 	// lastWasRevokeKey is a key that stores true when the last update we
 	// sent was a revocation and false when it was a commitment signature.
 	// This is nil in the case of new channels with no updates exchanged.
@@ -3429,29 +3424,15 @@ func makeLogKey(updateNum uint64) [8]byte {
 }
 
 func fetchThawHeight(chanBucket kvdb.RBucket) (uint32, error) {
-	var height uint32
-
-	heightBytes := chanBucket.Get(frozenChanKey)
-	heightReader := bytes.NewReader(heightBytes)
-
-	if err := ReadElements(heightReader, &height); err != nil {
-		return 0, err
-	}
-
-	return height, nil
+	return cstate.FetchThawHeight(chanBucket)
 }
 
 func storeThawHeight(chanBucket kvdb.RwBucket, height uint32) error {
-	var heightBuf bytes.Buffer
-	if err := WriteElements(&heightBuf, height); err != nil {
-		return err
-	}
-
-	return chanBucket.Put(frozenChanKey, heightBuf.Bytes())
+	return cstate.StoreThawHeight(chanBucket, height)
 }
 
 func deleteThawHeight(chanBucket kvdb.RwBucket) error {
-	return chanBucket.Delete(frozenChanKey)
+	return cstate.DeleteThawHeight(chanBucket)
 }
 
 // keyLocRecord is a wrapper struct around keychain.KeyLocator to implement the

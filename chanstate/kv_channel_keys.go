@@ -35,6 +35,22 @@ var (
 	// is retained.
 	historicalChannelBucket = []byte("historical-chan-bucket")
 
+	// chanInfoKey can be accessed within the bucket for a channel
+	// (identified by its chanPoint). This key stores all the static
+	// information for a channel which is decided at the end of  the
+	// funding flow.
+	chanInfoKey = []byte("chan-info-key")
+
+	// localUpfrontShutdownKey can be accessed within the bucket for a
+	// channel (identified by its chanPoint). This key stores an optional
+	// upfront shutdown script for the local peer.
+	localUpfrontShutdownKey = []byte("local-upfront-shutdown-key")
+
+	// remoteUpfrontShutdownKey can be accessed within the bucket for a
+	// channel (identified by its chanPoint). This key stores an optional
+	// upfront shutdown script for the remote peer.
+	remoteUpfrontShutdownKey = []byte("remote-upfront-shutdown-key")
+
 	// unsignedAckedUpdatesKey is an entry in the channel bucket that
 	// contains the remote updates that we have acked, but not yet signed
 	// for in one of our remote commits.
@@ -87,6 +103,14 @@ func ChanIDBucketKey() []byte {
 // key.
 func HistoricalChannelBucketKey() []byte {
 	return historicalChannelBucket
+}
+
+// ChanInfoKey returns the channel-bucket key for static channel information.
+//
+// NOTE: channeldb still deletes this record directly; the accessor goes away
+// once that path moves over.
+func ChanInfoKey() []byte {
+	return chanInfoKey
 }
 
 // UnsignedAckedUpdatesKey returns the channel-bucket key for unsigned acked

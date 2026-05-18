@@ -579,18 +579,7 @@ func (c *ChannelStateDB) LoadFwdPkgs(channel *OpenChannel) ([]*FwdPkg,
 // CountFwdPkgs returns the number of forwarding packages without loading their
 // contents.
 func (c *ChannelStateDB) CountFwdPkgs(channel *OpenChannel) (int, error) {
-	var count int
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		var err error
-		packager := NewChannelPackager(channel.ShortChannelID)
-		count, err = packager.CountFwdPkgs(tx)
-
-		return err
-	}, func() {
-		count = 0
-	})
-
-	return count, err
+	return c.kvStore.CountFwdPkgs(channel)
 }
 
 // AckAddHtlcs updates the AckAddFilter containing any of the provided AddRefs
@@ -708,10 +697,7 @@ type ChannelCloseSummary = cstate.ChannelCloseSummary
 func (c *ChannelStateDB) CloseChannel(channel *OpenChannel,
 	summary *ChannelCloseSummary, statuses ...ChannelStatus) error {
 
-	return cstate.CloseChannel(
-		c.backend, channel, summary, c.tombstoneClosedChannels,
-		extractFwdResponses, statuses...,
-	)
+	return c.kvStore.CloseChannel(channel, summary, statuses...)
 }
 
 // ChannelSnapshot is a frozen snapshot of the current channel state.

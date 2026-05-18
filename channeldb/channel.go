@@ -613,7 +613,7 @@ func (c *ChannelStateDB) getClosingTx(channel *OpenChannel,
 func (c *ChannelStateDB) ApplyChannelStatus(channel *OpenChannel,
 	status ChannelStatus) error {
 
-	return c.putChanStatus(channel, status)
+	return cstate.ApplyChannelStatus(c.backend, channel, status)
 }
 
 // putChanStatus appends the given status to the channel. fs is an optional list
@@ -622,50 +622,7 @@ func (c *ChannelStateDB) ApplyChannelStatus(channel *OpenChannel,
 func (c *ChannelStateDB) putChanStatus(channel *OpenChannel,
 	status ChannelStatus, fs ...func(kvdb.RwBucket) error) error {
 
-	if err := kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := fetchChanBucketRw(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		diskChannel, err := fetchOpenChannel(
-			chanBucket, &channel.FundingOutpoint,
-		)
-		if err != nil {
-			return err
-		}
-
-		// Add this status to the existing bitvector found in the DB.
-		status = diskChannel.ChannelStatusForStore() | status
-		diskChannel.SetChannelStatusForStore(status)
-
-		if err := putOpenChannel(chanBucket, diskChannel); err != nil {
-			return err
-		}
-
-		for _, f := range fs {
-			// Skip execution of nil closures.
-			if f == nil {
-				continue
-			}
-
-			if err := f(chanBucket); err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}, func() {}); err != nil {
-		return err
-	}
-
-	// Update the in-memory representation to keep it in sync with the DB.
-	channel.SetChannelStatusForStore(status)
-
-	return nil
+	return cstate.PutChanStatus(c.backend, channel, status, fs...)
 }
 
 // ClearChannelStatus clears the target status from the channel's persisted
@@ -673,35 +630,7 @@ func (c *ChannelStateDB) putChanStatus(channel *OpenChannel,
 func (c *ChannelStateDB) ClearChannelStatus(channel *OpenChannel,
 	status ChannelStatus) error {
 
-	if err := kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := fetchChanBucketRw(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		diskChannel, err := fetchOpenChannel(
-			chanBucket, &channel.FundingOutpoint,
-		)
-		if err != nil {
-			return err
-		}
-
-		// Unset this bit in the bitvector on disk.
-		status = diskChannel.ChannelStatusForStore() & ^status
-		diskChannel.SetChannelStatusForStore(status)
-
-		return putOpenChannel(chanBucket, diskChannel)
-	}, func() {}); err != nil {
-		return err
-	}
-
-	// Update the in-memory representation to keep it in sync with the DB.
-	channel.SetChannelStatusForStore(status)
-
-	return nil
+	return cstate.ClearChannelStatus(c.backend, channel, status)
 }
 
 // putOpenChannel serializes, and stores the current state of the channel in its

@@ -55,5 +55,5 @@ var (
 	// ErrChanAlreadyExists is return when the caller attempts to create a
 	// channel with a channel point that is already present in the
 	// database.
-	ErrChanAlreadyExists = fmt.Errorf("channel already exists")
+	ErrChanAlreadyExists = cstate.ErrChanAlreadyExists
 )

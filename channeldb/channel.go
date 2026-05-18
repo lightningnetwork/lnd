@@ -1,7 +1,6 @@
 package channeldb
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"net"
@@ -11,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	cstate "github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
-	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -461,12 +459,6 @@ func (c *ChannelStateDB) ClearChannelStatus(channel *OpenChannel,
 	return cstate.ClearChannelStatus(c.backend, channel, status)
 }
 
-// putOpenChannel serializes, and stores the current state of the channel in its
-// entirety.
-func putOpenChannel(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
-	return cstate.PutOpenChannel(chanBucket, channel)
-}
-
 // fetchOpenChannel retrieves, and deserializes (including decrypting
 // sensitive) the complete channel currently active with the passed nodeID.
 func fetchOpenChannel(chanBucket kvdb.RBucket,
@@ -572,16 +564,6 @@ func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 	return cstate.DeserializeHtlcs(r)
 }
 
-// serializeLogUpdates serializes provided list of updates to a stream.
-func serializeLogUpdates(w io.Writer, logUpdates []LogUpdate) error {
-	return cstate.SerializeLogUpdates(w, logUpdates)
-}
-
-// deserializeLogUpdates deserializes a list of updates from a stream.
-func deserializeLogUpdates(r io.Reader) ([]LogUpdate, error) {
-	return cstate.DeserializeLogUpdates(r)
-}
-
 // AppendRemoteCommitChain appends a new CommitDiff to the remote party's
 // commitment chain.
 func (c *ChannelStateDB) AppendRemoteCommitChain(channel *OpenChannel,
@@ -658,6 +640,8 @@ func (c *ChannelStateDB) LoadFwdPkgs(channel *OpenChannel) ([]*FwdPkg,
 // AckAddHtlcs updates the AckAddFilter containing any of the provided AddRefs
 // indicating that a response to this Add has been committed to the remote party.
 // Doing so will prevent these Add HTLCs from being reforwarded internally.
+//
+//nolint:ll
 func (c *ChannelStateDB) AckAddHtlcs(channel *OpenChannel,
 	addRefs ...AddRef) error {
 
@@ -687,6 +671,8 @@ func (c *ChannelStateDB) SetFwdFilter(channel *OpenChannel, height uint64,
 // later packages won't be removed.
 //
 // NOTE: This method should only be called on packages marked FwdStateCompleted.
+//
+//nolint:ll
 func (c *ChannelStateDB) RemoveFwdPkgs(channel *OpenChannel,
 	heights ...uint64) error {
 
@@ -766,197 +752,10 @@ type ChannelCloseSummary = cstate.ChannelCloseSummary
 func (c *ChannelStateDB) CloseChannel(channel *OpenChannel,
 	summary *ChannelCloseSummary, statuses ...ChannelStatus) error {
 
-	if c.tombstoneClosedChannels {
-		return c.closeChannelTombstone(channel, summary, statuses...)
-	}
-
-	return c.closeChannelSync(channel, summary, statuses...)
-}
-
-// locateOpenChannel performs the open-channel-bucket descent for a
-// CloseChannel transaction: it returns the chain bucket, the channel bucket,
-// and the serialized chanKey for the supplied OpenChannel. A chanKey already
-// flipped to outpointClosed surfaces ErrChannelNotFound so a redundant
-// CloseChannel does not re-archive or re-flip the index.
-func locateOpenChannel(tx kvdb.RwTx, channel *OpenChannel) (kvdb.RwBucket,
-	kvdb.RwBucket, []byte, error) {
-
-	openChanBucket := tx.ReadWriteBucket(openChannelBucket)
-	if openChanBucket == nil {
-		return nil, nil, nil, ErrNoChanDBExists
-	}
-
-	nodePub := channel.IdentityPub.SerializeCompressed()
-	nodeChanBucket := openChanBucket.NestedReadWriteBucket(nodePub)
-	if nodeChanBucket == nil {
-		return nil, nil, nil, ErrNoActiveChannels
-	}
-
-	chainBucket := nodeChanBucket.NestedReadWriteBucket(
-		channel.ChainHash[:],
+	return cstate.CloseChannel(
+		c.backend, channel, summary, c.tombstoneClosedChannels,
+		statuses...,
 	)
-	if chainBucket == nil {
-		return nil, nil, nil, ErrNoActiveChannels
-	}
-
-	var chanPointBuf bytes.Buffer
-	if err := graphdb.WriteOutpoint(
-		&chanPointBuf, &channel.FundingOutpoint,
-	); err != nil {
-		return nil, nil, nil, err
-	}
-	chanKey := chanPointBuf.Bytes()
-
-	chanBucket := chainBucket.NestedReadWriteBucket(chanKey)
-	if chanBucket == nil {
-		return nil, nil, nil, ErrNoActiveChannels
-	}
-
-	// A channel whose outpoint is already flipped to outpointClosed must
-	// not be re-closed: on tombstone backends the chanBucket survives a
-	// previous close, but the index flip is the authoritative record that
-	// the channel is gone from the open-channel view.
-	closed, err := isOutpointClosed(tx.ReadBucket(outpointBucket), chanKey)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	if closed {
-		return nil, nil, nil, ErrChannelNotFound
-	}
-
-	return chainBucket, chanBucket, chanKey, nil
-}
-
-// updateClosedOutpointIndex flips the outpoint index entry for chanKey from
-// open to closed. The index entry must already exist; it was placed there
-// when the channel was opened.
-func updateClosedOutpointIndex(tx kvdb.RwTx, chanKey []byte) error {
-	return cstate.UpdateClosedOutpointIndex(tx, chanKey)
-}
-
-// archiveClosedChannel writes the immutable close-time records of the
-// channel: a copy of the open-channel state under historicalChannelBucket
-// (with the supplied close statuses OR'd into chanStatus) and the close
-// summary under closeSummaryBucket.
-func archiveClosedChannel(tx kvdb.RwTx, chanKey []byte,
-	chanState *OpenChannel, summary *ChannelCloseSummary,
-	statuses ...ChannelStatus) error {
-
-	historicalBucket, err := tx.CreateTopLevelBucket(
-		historicalChannelBucket,
-	)
-	if err != nil {
-		return err
-	}
-	historicalChanBucket, err := historicalBucket.CreateBucketIfNotExists(
-		chanKey,
-	)
-	if err != nil {
-		return err
-	}
-
-	for _, s := range statuses {
-		chanState.SetChannelStatusForStore(
-			chanState.ChannelStatusForStore() | s,
-		)
-	}
-
-	if err := putOpenChannel(historicalChanBucket, chanState); err != nil {
-		return err
-	}
-
-	return putChannelCloseSummary(tx, chanKey, summary, chanState)
-}
-
-// closeChannelSync performs the historical synchronous close path: in a
-// single write transaction it wipes the forwarding-package state, deletes
-// the channel bucket and its nested revocation log entries, updates the
-// outpoint index, and archives the close summary. It is used by backends
-// where nested-bucket deletion is cheap (bbolt, etcd).
-func (c *ChannelStateDB) closeChannelSync(channel *OpenChannel,
-	summary *ChannelCloseSummary, statuses ...ChannelStatus) error {
-
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		chainBucket, chanBucket, chanKey, err := locateOpenChannel(
-			tx, channel,
-		)
-		if err != nil {
-			return err
-		}
-
-		chanState, err := fetchOpenChannel(
-			chanBucket, &channel.FundingOutpoint,
-		)
-		if err != nil {
-			return err
-		}
-
-		packager := NewChannelPackager(chanState.ShortChannelID)
-		if err = packager.Wipe(tx); err != nil {
-			return err
-		}
-
-		if err := deleteOpenChannel(chanBucket); err != nil {
-			return err
-		}
-
-		if channel.ChanType.IsFrozen() ||
-			channel.ChanType.HasLeaseExpiration() {
-
-			if err := deleteThawHeight(chanBucket); err != nil {
-				return err
-			}
-		}
-
-		if err := deleteLogBucket(chanBucket); err != nil {
-			return err
-		}
-
-		if err := chainBucket.DeleteNestedBucket(chanKey); err != nil {
-			return err
-		}
-
-		if err := updateClosedOutpointIndex(tx, chanKey); err != nil {
-			return err
-		}
-
-		return archiveClosedChannel(
-			tx, chanKey, chanState, summary, statuses...,
-		)
-	}, func() {})
-}
-
-// closeChannelTombstone performs the tombstone close path used by
-// KV-over-SQL backends. The channel's per-channel state is left intact —
-// touching it would trigger the cascading nested-bucket delete this path
-// exists to avoid — and the outpointBucket flip from outpointOpen to
-// outpointClosed serves as the authoritative closed-channel marker. The
-// disk space is reclaimed wholesale by the upcoming native-SQL
-// channel-state migration.
-func (c *ChannelStateDB) closeChannelTombstone(channel *OpenChannel,
-	summary *ChannelCloseSummary, statuses ...ChannelStatus) error {
-
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		_, chanBucket, chanKey, err := locateOpenChannel(tx, channel)
-		if err != nil {
-			return err
-		}
-
-		chanState, err := fetchOpenChannel(
-			chanBucket, &channel.FundingOutpoint,
-		)
-		if err != nil {
-			return err
-		}
-
-		if err := updateClosedOutpointIndex(tx, chanKey); err != nil {
-			return err
-		}
-
-		return archiveClosedChannel(
-			tx, chanKey, chanState, summary, statuses...,
-		)
-	}, func() {})
 }
 
 // ChannelSnapshot is a frozen snapshot of the current channel state.
@@ -982,14 +781,6 @@ func (c *ChannelStateDB) RemoteRevocationStore(channel *OpenChannel) (
 	return cstate.RemoteRevocationStore(c.backend, channel)
 }
 
-func putChannelCloseSummary(tx kvdb.RwTx, chanID []byte,
-	summary *ChannelCloseSummary, lastChanState *OpenChannel) error {
-
-	return cstate.PutChannelCloseSummary(
-		tx, chanID, summary, lastChanState,
-	)
-}
-
 func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 	return cstate.SerializeChannelCloseSummary(w, cs)
 }
@@ -1002,36 +793,8 @@ func serializeChanCommit(w io.Writer, c *ChannelCommitment) error {
 	return cstate.SerializeChanCommit(w, c)
 }
 
-func putChanCommitment(chanBucket kvdb.RwBucket, c *ChannelCommitment,
-	local bool) error {
-
-	return cstate.PutChanCommitment(chanBucket, c, local)
-}
-
-func putChanCommitments(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
-	return cstate.PutChanCommitments(chanBucket, channel)
-}
-
-func putChanRevocationState(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
-	return cstate.PutChanRevocationState(chanBucket, channel)
-}
-
-func readChanConfig(b io.Reader, c *ChannelConfig) error {
-	return cstate.ReadChanConfig(b, c)
-}
-
 func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	return cstate.FetchChanInfo(chanBucket, channel)
-}
-
-func deserializeChanCommit(r io.Reader) (ChannelCommitment, error) {
-	return cstate.DeserializeChanCommit(r)
-}
-
-func fetchChanCommitment(chanBucket kvdb.RBucket,
-	local bool) (ChannelCommitment, error) {
-
-	return cstate.FetchChanCommitment(chanBucket, local)
 }
 
 func fetchChanCommitments(chanBucket kvdb.RBucket, channel *OpenChannel) error {
@@ -1040,10 +803,6 @@ func fetchChanCommitments(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 
 func fetchChanRevocationState(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	return cstate.FetchChanRevocationState(chanBucket, channel)
-}
-
-func deleteOpenChannel(chanBucket kvdb.RwBucket) error {
-	return cstate.DeleteOpenChannel(chanBucket)
 }
 
 // makeLogKey converts a uint64 into an 8 byte array.
@@ -1059,10 +818,6 @@ func fetchThawHeight(chanBucket kvdb.RBucket) (uint32, error) {
 
 func storeThawHeight(chanBucket kvdb.RwBucket, height uint32) error {
 	return cstate.StoreThawHeight(chanBucket, height)
-}
-
-func deleteThawHeight(chanBucket kvdb.RwBucket) error {
-	return cstate.DeleteThawHeight(chanBucket)
 }
 
 // EKeyLocator is an encoder for keychain.KeyLocator.

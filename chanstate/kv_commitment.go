@@ -572,6 +572,145 @@ func InsertNextRevocation(backend kvdb.Backend, channel *OpenChannel,
 	return nil
 }
 
+// UpdateChannelCommitment updates the local commitment state.
+func UpdateChannelCommitment(backend kvdb.Backend, channel *OpenChannel,
+	newCommitment *ChannelCommitment,
+	unsignedAckedUpdates []LogUpdate, storeFinalHtlcResolutions bool) (
+	map[uint64]bool, error) {
+
+	var finalHtlcs = make(map[uint64]bool)
+
+	err := kvdb.Update(backend, func(tx kvdb.RwTx) error {
+		chanBucket, err := FetchChanBucketRw(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		// If the channel is marked as borked, then for safety reasons,
+		// we shouldn't attempt any further updates.
+		isBorked, err := IsChannelBorked(channel, chanBucket)
+		if err != nil {
+			return err
+		}
+		if isBorked {
+			return ErrChanBorked
+		}
+
+		if err = PutChanInfo(chanBucket, channel); err != nil {
+			return fmt.Errorf("unable to store chan info: %w", err)
+		}
+
+		// With the proper bucket fetched, we'll now write the latest
+		// commitment state to disk for the target party.
+		err = PutChanCommitment(
+			chanBucket, newCommitment, true,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to store chan "+
+				"revocations: %v", err)
+		}
+
+		// Persist unsigned but acked remote updates that need to be
+		// restored after a restart.
+		var b bytes.Buffer
+		err = SerializeLogUpdates(&b, unsignedAckedUpdates)
+		if err != nil {
+			return err
+		}
+
+		err = chanBucket.Put(unsignedAckedUpdatesKey, b.Bytes())
+		if err != nil {
+			return fmt.Errorf("unable to store dangline remote "+
+				"updates: %v", err)
+		}
+
+		//nolint:ll
+		// Since we have just sent the counterparty a revocation, store true
+		// under lastWasRevokeKey.
+		var b2 bytes.Buffer
+		if err := WriteElements(&b2, true); err != nil {
+			return err
+		}
+
+		err = chanBucket.Put(lastWasRevokeKey, b2.Bytes())
+		if err != nil {
+			return err
+		}
+
+		//nolint:ll
+		// Persist the remote unsigned local updates that are not included
+		// in our new commitment.
+		updateBytes := chanBucket.Get(remoteUnsignedLocalUpdatesKey)
+		if updateBytes == nil {
+			return nil
+		}
+
+		r := bytes.NewReader(updateBytes)
+		updates, err := DeserializeLogUpdates(r)
+		if err != nil {
+			return err
+		}
+
+		// Get the bucket where settled htlcs are recorded if the user
+		// opted in to storing this information.
+		var finalHtlcsBucket kvdb.RwBucket
+		if storeFinalHtlcResolutions {
+			bucket, err := FetchFinalHtlcsBucketRw(
+				tx, channel.ShortChannelID,
+			)
+			if err != nil {
+				return err
+			}
+
+			finalHtlcsBucket = bucket
+		}
+
+		var unsignedUpdates []LogUpdate
+		for _, upd := range updates {
+			// Gather updates that are not on our local commitment.
+			if upd.LogIndex >= newCommitment.LocalLogIndex {
+				unsignedUpdates = append(unsignedUpdates, upd)
+
+				continue
+			}
+
+			// The update was locked in. If the update was a
+			// resolution, then store it in the database.
+			err := ProcessFinalHtlc(
+				finalHtlcsBucket, upd, finalHtlcs,
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		var b3 bytes.Buffer
+		err = SerializeLogUpdates(&b3, unsignedUpdates)
+		if err != nil {
+			return fmt.Errorf("unable to serialize log updates: %w",
+				err)
+		}
+
+		err = chanBucket.Put(remoteUnsignedLocalUpdatesKey, b3.Bytes())
+		if err != nil {
+			return fmt.Errorf("unable to restore chanbucket: %w",
+				err)
+		}
+
+		return nil
+	}, func() {
+		finalHtlcs = make(map[uint64]bool)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return finalHtlcs, nil
+}
+
 // AppendRemoteCommitChain appends a new CommitDiff to the remote party's
 // commitment chain.
 func AppendRemoteCommitChain(backend kvdb.Backend, channel *OpenChannel,

@@ -300,7 +300,8 @@ func (c *ChannelStateDB) RefreshChannel(channel *OpenChannel) error {
 // channel's data resides in given: the public key for the node, the outpoint,
 // and the chainhash that the channel resides on.
 func fetchChanBucket(tx kvdb.RTx, nodeKey *btcec.PublicKey,
-	outPoint *wire.OutPoint, chainHash chainhash.Hash) (kvdb.RBucket, error) {
+	outPoint *wire.OutPoint, chainHash chainhash.Hash) (
+	kvdb.RBucket, error) {
 
 	return cstate.FetchChanBucket(tx, nodeKey, outPoint, chainHash)
 }
@@ -325,80 +326,7 @@ func fetchFinalHtlcsBucketRw(tx kvdb.RwTx,
 // fullSyncOpenChannel syncs the contents of an OpenChannel while re-using an
 // existing database transaction.
 func fullSyncOpenChannel(tx kvdb.RwTx, c *OpenChannel) error {
-	// Fetch the outpoint bucket and check if the outpoint already exists.
-	opBucket := tx.ReadWriteBucket(outpointBucket)
-	if opBucket == nil {
-		return ErrNoChanDBExists
-	}
-	cidBucket := tx.ReadWriteBucket(chanIDBucket)
-	if cidBucket == nil {
-		return ErrNoChanDBExists
-	}
-
-	var chanPointBuf bytes.Buffer
-	err := graphdb.WriteOutpoint(&chanPointBuf, &c.FundingOutpoint)
-	if err != nil {
-		return err
-	}
-
-	// Now, check if the outpoint exists in our index.
-	if opBucket.Get(chanPointBuf.Bytes()) != nil {
-		return ErrChanAlreadyExists
-	}
-
-	cid := lnwire.NewChanIDFromOutPoint(c.FundingOutpoint)
-	if cidBucket.Get(cid[:]) != nil {
-		return ErrChanAlreadyExists
-	}
-
-	// Add the outpoint to our outpoint index with the tlv stream.
-	if err := cstate.PutOpenOutpointIndex(
-		opBucket, chanPointBuf.Bytes(),
-	); err != nil {
-		return err
-	}
-
-	if err := cidBucket.Put(cid[:], []byte{}); err != nil {
-		return err
-	}
-
-	// First fetch the top level bucket which stores all data related to
-	// current, active channels.
-	openChanBucket, err := tx.CreateTopLevelBucket(openChannelBucket)
-	if err != nil {
-		return err
-	}
-
-	// Within this top level bucket, fetch the bucket dedicated to storing
-	// open channel data specific to the remote node.
-	nodePub := c.IdentityPub.SerializeCompressed()
-	nodeChanBucket, err := openChanBucket.CreateBucketIfNotExists(nodePub)
-	if err != nil {
-		return err
-	}
-
-	// We'll then recurse down an additional layer in order to fetch the
-	// bucket for this particular chain.
-	chainBucket, err := nodeChanBucket.CreateBucketIfNotExists(c.ChainHash[:])
-	if err != nil {
-		return err
-	}
-
-	// With the bucket for the node fetched, we can now go down another
-	// level, creating the bucket for this channel itself.
-	chanBucket, err := chainBucket.CreateBucket(
-		chanPointBuf.Bytes(),
-	)
-	switch {
-	case err == kvdb.ErrBucketExists:
-		// If this channel already exists, then in order to avoid
-		// overriding it, we'll return an error back up to the caller.
-		return ErrChanAlreadyExists
-	case err != nil:
-		return err
-	}
-
-	return putOpenChannel(chanBucket, c)
+	return cstate.FullSyncOpenChannel(tx, c)
 }
 
 // MarkChannelConfirmationHeight updates the channel's confirmation height once
@@ -757,9 +685,12 @@ func (c *ChannelStateDB) getClosingTx(channel *OpenChannel,
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
-		switch err {
-		case nil:
-		case ErrNoChanDBExists, ErrNoActiveChannels, ErrChannelNotFound:
+		switch {
+		case err == nil:
+		case errors.Is(err, ErrNoChanDBExists),
+			errors.Is(err, ErrNoActiveChannels),
+			errors.Is(err, ErrChannelNotFound):
+
 			return ErrNoCloseTx
 		default:
 			return err
@@ -2006,10 +1937,6 @@ func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 
 func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 	return cstate.DeserializeCloseChannelSummary(r)
-}
-
-func writeChanConfig(b io.Writer, c *ChannelConfig) error {
-	return cstate.WriteChanConfig(b, c)
 }
 
 func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {

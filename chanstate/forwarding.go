@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"io"
 
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -19,24 +18,6 @@ type AddRef struct {
 	//
 	// NOTE: This index is static over the lifetime of a forwarding package.
 	Index uint16
-}
-
-// Encode serializes the AddRef to the given io.Writer.
-func (a *AddRef) Encode(w io.Writer) error {
-	if err := binary.Write(w, binary.BigEndian, a.Height); err != nil {
-		return err
-	}
-
-	return binary.Write(w, binary.BigEndian, a.Index)
-}
-
-// Decode deserializes the AddRef from the given io.Reader.
-func (a *AddRef) Decode(r io.Reader) error {
-	if err := binary.Read(r, binary.BigEndian, &a.Height); err != nil {
-		return err
-	}
-
-	return binary.Read(r, binary.BigEndian, &a.Index)
 }
 
 // SettleFailRef is used to locate a Settle/Fail in another channel's FwdPkg. A
@@ -158,36 +139,6 @@ func (f *PkgFilter) IsFull() bool {
 	}
 
 	return true
-}
-
-// Size returns number of bytes produced when the PkgFilter is serialized.
-func (f *PkgFilter) Size() uint16 {
-	// 2 bytes for uint16 `count`, then round up number of bytes required to
-	// represent `count` bits.
-	return 2 + (f.count+7)/8
-}
-
-// Encode writes the filter to the provided io.Writer.
-func (f *PkgFilter) Encode(w io.Writer) error {
-	if err := binary.Write(w, binary.BigEndian, f.count); err != nil {
-		return err
-	}
-
-	_, err := w.Write(f.filter)
-
-	return err
-}
-
-// Decode reads the filter from the provided io.Reader.
-func (f *PkgFilter) Decode(r io.Reader) error {
-	if err := binary.Read(r, binary.BigEndian, &f.count); err != nil {
-		return err
-	}
-
-	f.filter = make([]byte, f.Size()-2)
-	_, err := io.ReadFull(r, f.filter)
-
-	return err
 }
 
 // String returns a human-readable string.

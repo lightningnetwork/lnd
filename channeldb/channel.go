@@ -852,42 +852,7 @@ func (c *ChannelStateDB) RemoveFwdPkgs(channel *OpenChannel,
 func (c *ChannelStateDB) revocationLogTailCommitHeight(
 	channel *OpenChannel) (uint64, error) {
 
-	var height uint64
-
-	// If we haven't created any state updates yet, then we'll exit early as
-	// there's nothing to be found on disk in the revocation bucket.
-	if channel.RemoteCommitment.CommitHeight == 0 {
-		return height, nil
-	}
-
-	if err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := fetchChanBucket(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		logBucket, err := fetchLogBucket(chanBucket)
-		if err != nil {
-			return err
-		}
-
-		// Once we have the bucket that stores the revocation log from
-		// this channel, we'll jump to the _last_ key in bucket. Since
-		// the key is the commit height, we'll decode the bytes and
-		// return it.
-		cursor := logBucket.ReadCursor()
-		rawHeight, _ := cursor.Last()
-		height = byteOrder.Uint64(rawHeight)
-
-		return nil
-	}, func() {}); err != nil {
-		return height, err
-	}
-
-	return height, nil
+	return cstate.RevocationLogTailCommitHeight(c.backend, channel)
 }
 
 // CommitmentHeight returns the current commitment height. The commitment
@@ -909,36 +874,7 @@ func (c *ChannelStateDB) CommitmentHeight(channel *OpenChannel) (
 func (c *ChannelStateDB) FindPreviousState(channel *OpenChannel,
 	updateNum uint64) (*RevocationLog, *ChannelCommitment, error) {
 
-	commit := &ChannelCommitment{}
-	rl := &RevocationLog{}
-
-	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := fetchChanBucket(
-			tx, channel.IdentityPub, &channel.FundingOutpoint,
-			channel.ChainHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		// Find the revocation log from both the new and the old
-		// bucket.
-		r, c, err := fetchRevocationLogCompatible(chanBucket, updateNum)
-		if err != nil {
-			return err
-		}
-
-		rl = r
-		commit = c
-		return nil
-	}, func() {})
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Either the `rl` or the `commit` is nil here. We return them as-is
-	// and leave it to the caller to decide its following action.
-	return rl, commit, nil
+	return cstate.FindPreviousState(c.backend, channel, updateNum)
 }
 
 // ClosureType is an enum like structure that details exactly how a channel was

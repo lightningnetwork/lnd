@@ -1125,18 +1125,7 @@ func putFinalHtlc(finalHtlcsBucket kvdb.RwBucket, id uint64,
 func (c *ChannelStateDB) LoadFwdPkgs(channel *OpenChannel) ([]*FwdPkg,
 	error) {
 
-	var fwdPkgs []*FwdPkg
-	if err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		var err error
-		fwdPkgs, err = newChannelPackager(channel).LoadFwdPkgs(tx)
-		return err
-	}, func() {
-		fwdPkgs = nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return fwdPkgs, nil
+	return cstate.LoadFwdPkgs(c.backend, channel)
 }
 
 // AckAddHtlcs updates the AckAddFilter containing any of the provided AddRefs
@@ -1145,9 +1134,7 @@ func (c *ChannelStateDB) LoadFwdPkgs(channel *OpenChannel) ([]*FwdPkg,
 func (c *ChannelStateDB) AckAddHtlcs(channel *OpenChannel,
 	addRefs ...AddRef) error {
 
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		return newChannelPackager(channel).AckAddHtlcs(tx, addRefs...)
-	}, func() {})
+	return cstate.AckAddHtlcs(c.backend, channel, addRefs...)
 }
 
 // AckSettleFails updates the SettleFailFilter containing any of the provided
@@ -1157,11 +1144,7 @@ func (c *ChannelStateDB) AckAddHtlcs(channel *OpenChannel,
 func (c *ChannelStateDB) AckSettleFails(channel *OpenChannel,
 	settleFailRefs ...SettleFailRef) error {
 
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		return newChannelPackager(channel).AckSettleFails(
-			tx, settleFailRefs...,
-		)
-	}, func() {})
+	return cstate.AckSettleFails(c.backend, channel, settleFailRefs...)
 }
 
 // SetFwdFilter atomically sets the forwarding filter for the forwarding package
@@ -1169,11 +1152,7 @@ func (c *ChannelStateDB) AckSettleFails(channel *OpenChannel,
 func (c *ChannelStateDB) SetFwdFilter(channel *OpenChannel, height uint64,
 	fwdFilter *PkgFilter) error {
 
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		return newChannelPackager(channel).SetFwdFilter(
-			tx, height, fwdFilter,
-		)
-	}, func() {})
+	return cstate.SetFwdFilter(c.backend, channel, height, fwdFilter)
 }
 
 // RemoveFwdPkgs atomically removes forwarding packages specified by the remote
@@ -1184,18 +1163,7 @@ func (c *ChannelStateDB) SetFwdFilter(channel *OpenChannel, height uint64,
 func (c *ChannelStateDB) RemoveFwdPkgs(channel *OpenChannel,
 	heights ...uint64) error {
 
-	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		packager := newChannelPackager(channel)
-
-		for _, height := range heights {
-			err := packager.RemovePkg(tx, height)
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}, func() {})
+	return cstate.RemoveFwdPkgs(c.backend, channel, heights...)
 }
 
 // revocationLogTailCommitHeight returns the commit height at the end of the

@@ -39,11 +39,8 @@ var (
 	outpointBucket                = cstate.OutpointBucketKey()
 	chanIDBucket                  = cstate.ChanIDBucketKey()
 	historicalChannelBucket       = cstate.HistoricalChannelBucketKey()
-	chanInfoKey                   = cstate.ChanInfoKey()
-	chanCommitmentKey             = cstate.ChanCommitmentKey()
 	unsignedAckedUpdatesKey       = cstate.UnsignedAckedUpdatesKey()
 	remoteUnsignedLocalUpdatesKey = cstate.RemoteUnsignedLocalUpdatesKey()
-	revocationStateKey            = cstate.RevocationStateKey()
 	commitDiffKey                 = cstate.CommitDiffKey()
 	lastWasRevokeKey              = cstate.LastWasRevokeKey()
 )
@@ -2092,65 +2089,15 @@ func serializeChanCommit(w io.Writer, c *ChannelCommitment) error {
 func putChanCommitment(chanBucket kvdb.RwBucket, c *ChannelCommitment,
 	local bool) error {
 
-	var commitKey []byte
-	if local {
-		commitKey = append(chanCommitmentKey, byte(0x00))
-	} else {
-		commitKey = append(chanCommitmentKey, byte(0x01))
-	}
-
-	var b bytes.Buffer
-	if err := cstate.SerializeChanCommit(&b, c); err != nil {
-		return err
-	}
-
-	// Before we write to disk, we'll also write our aux data as well.
-	if err := cstate.EncodeCommitTlvData(&b, c); err != nil {
-		return fmt.Errorf("unable to write aux data: %w", err)
-	}
-
-	return chanBucket.Put(commitKey, b.Bytes())
+	return cstate.PutChanCommitment(chanBucket, c, local)
 }
 
 func putChanCommitments(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
-	// If this is a restored channel, then we don't have any commitments to
-	// write.
-	if channel.HasChanStatusForStore(ChanStatusRestored) {
-		return nil
-	}
-
-	err := putChanCommitment(
-		chanBucket, &channel.LocalCommitment, true,
-	)
-	if err != nil {
-		return err
-	}
-
-	return putChanCommitment(
-		chanBucket, &channel.RemoteCommitment, false,
-	)
+	return cstate.PutChanCommitments(chanBucket, channel)
 }
 
 func putChanRevocationState(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
-	var b bytes.Buffer
-	err := WriteElements(
-		&b, channel.RemoteCurrentRevocation, channel.RevocationProducer,
-		channel.RevocationStore,
-	)
-	if err != nil {
-		return err
-	}
-
-	// If the next revocation is present, which is only the case after the
-	// ChannelReady message has been sent, then we'll write it to disk.
-	if channel.RemoteNextRevocation != nil {
-		err = WriteElements(&b, channel.RemoteNextRevocation)
-		if err != nil {
-			return err
-		}
-	}
-
-	return chanBucket.Put(revocationStateKey, b.Bytes())
+	return cstate.PutChanRevocationState(chanBucket, channel)
 }
 
 func readChanConfig(b io.Reader, c *ChannelConfig) error {
@@ -2168,105 +2115,19 @@ func deserializeChanCommit(r io.Reader) (ChannelCommitment, error) {
 func fetchChanCommitment(chanBucket kvdb.RBucket,
 	local bool) (ChannelCommitment, error) {
 
-	var commitKey []byte
-	if local {
-		commitKey = append(chanCommitmentKey, byte(0x00))
-	} else {
-		commitKey = append(chanCommitmentKey, byte(0x01))
-	}
-
-	commitBytes := chanBucket.Get(commitKey)
-	if commitBytes == nil {
-		return ChannelCommitment{}, ErrNoCommitmentsFound
-	}
-
-	r := bytes.NewReader(commitBytes)
-	chanCommit, err := cstate.DeserializeChanCommit(r)
-	if err != nil {
-		return ChannelCommitment{}, fmt.Errorf("unable to decode "+
-			"chan commit: %w", err)
-	}
-
-	// We'll also check to see if we have any aux data stored as the end of
-	// the stream.
-	if err := cstate.DecodeCommitTlvData(r, &chanCommit); err != nil {
-		return ChannelCommitment{}, fmt.Errorf("unable to decode "+
-			"chan aux data: %w", err)
-	}
-
-	return chanCommit, nil
+	return cstate.FetchChanCommitment(chanBucket, local)
 }
 
 func fetchChanCommitments(chanBucket kvdb.RBucket, channel *OpenChannel) error {
-	var err error
-
-	// If this is a restored channel, then we don't have any commitments to
-	// read.
-	if channel.HasChanStatusForStore(ChanStatusRestored) {
-		return nil
-	}
-
-	channel.LocalCommitment, err = fetchChanCommitment(chanBucket, true)
-	if err != nil {
-		return err
-	}
-	channel.RemoteCommitment, err = fetchChanCommitment(chanBucket, false)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return cstate.FetchChanCommitments(chanBucket, channel)
 }
 
 func fetchChanRevocationState(chanBucket kvdb.RBucket, channel *OpenChannel) error {
-	revBytes := chanBucket.Get(revocationStateKey)
-	if revBytes == nil {
-		return ErrNoRevocationsFound
-	}
-	r := bytes.NewReader(revBytes)
-
-	err := ReadElements(
-		r, &channel.RemoteCurrentRevocation, &channel.RevocationProducer,
-		&channel.RevocationStore,
-	)
-	if err != nil {
-		return err
-	}
-
-	// If there aren't any bytes left in the buffer, then we don't yet have
-	// the next remote revocation, so we can exit early here.
-	if r.Len() == 0 {
-		return nil
-	}
-
-	// Otherwise we'll read the next revocation for the remote party which
-	// is always the last item within the buffer.
-	return ReadElements(r, &channel.RemoteNextRevocation)
+	return cstate.FetchChanRevocationState(chanBucket, channel)
 }
 
 func deleteOpenChannel(chanBucket kvdb.RwBucket) error {
-	if err := chanBucket.Delete(chanInfoKey); err != nil {
-		return err
-	}
-
-	err := chanBucket.Delete(append(chanCommitmentKey, byte(0x00)))
-	if err != nil {
-		return err
-	}
-	err = chanBucket.Delete(append(chanCommitmentKey, byte(0x01)))
-	if err != nil {
-		return err
-	}
-
-	if err := chanBucket.Delete(revocationStateKey); err != nil {
-		return err
-	}
-
-	if diff := chanBucket.Get(commitDiffKey); diff != nil {
-		return chanBucket.Delete(commitDiffKey)
-	}
-
-	return nil
+	return cstate.DeleteOpenChannel(chanBucket)
 }
 
 // makeLogKey converts a uint64 into an 8 byte array.

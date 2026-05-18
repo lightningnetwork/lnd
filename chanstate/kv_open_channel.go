@@ -49,23 +49,66 @@ func FetchChannelDataLossCommitPoint(
 }
 
 const (
-	// A tlv type definition used to serialize an outpoint's indexStatus
+	// A tlv type definition used to serialize an outpoint's IndexStatus
 	// for use in the outpoint index.
-	indexStatusType tlv.Type = 0
+	IndexStatusType tlv.Type = 0
 )
 
-// indexStatus is an enum-like type that describes what state the outpoint is
+// IndexStatus is an enum-like type that describes what state the outpoint is
 // in. Currently only two possible values.
-type indexStatus uint8
+type IndexStatus uint8
 
 const (
-	// outpointClosed represents an outpoint that is closed in the outpoint
+	// OutpointOpen represents an outpoint that is open in the outpoint
 	// index.
-	outpointClosed indexStatus = 1
+	OutpointOpen IndexStatus = 0
+
+	// OutpointClosed represents an outpoint that is closed in the outpoint
+	// index.
+	OutpointClosed IndexStatus = 1
 )
 
+func putOutpointIndexStatus(opBucket kvdb.RwBucket, chanKey []byte,
+	status IndexStatus) error {
+
+	statusByte := uint8(status)
+	statusRecord := tlv.MakePrimitiveRecord(IndexStatusType, &statusByte)
+	opStream, err := tlv.NewStream(statusRecord)
+	if err != nil {
+		return err
+	}
+
+	var b bytes.Buffer
+	if err := opStream.Encode(&b); err != nil {
+		return err
+	}
+
+	return opBucket.Put(chanKey, b.Bytes())
+}
+
+// PutOpenOutpointIndex stores chanKey in the outpoint index as an open
+// outpoint.
+func PutOpenOutpointIndex(opBucket kvdb.RwBucket, chanKey []byte) error {
+	return putOutpointIndexStatus(opBucket, chanKey, OutpointOpen)
+}
+
+// UpdateClosedOutpointIndex flips the outpoint index entry for chanKey from
+// open to closed. The index entry must already exist; it was placed there when
+// the channel was opened.
+func UpdateClosedOutpointIndex(tx kvdb.RwTx, chanKey []byte) error {
+	opBucket := tx.ReadWriteBucket(outpointBucket)
+	if opBucket == nil {
+		return ErrNoChanDBExists
+	}
+	if opBucket.Get(chanKey) == nil {
+		return ErrMissingIndexEntry
+	}
+
+	return putOutpointIndexStatus(opBucket, chanKey, OutpointClosed)
+}
+
 // IsOutpointClosed reports whether the supplied chanKey has been flipped to
-// outpointClosed in the supplied outpointBucket. The flip is performed in the
+// OutpointClosed in the supplied outpointBucket. The flip is performed in the
 // same transaction as the rest of CloseChannel (sync and tombstone paths
 // alike), so a true result is the authoritative "this channel went through
 // CloseChannel" signal. On tombstone-enabled backends the chanBucket may still
@@ -82,7 +125,7 @@ func IsOutpointClosed(opBucket kvdb.RBucket, chanKey []byte) (bool, error) {
 	}
 
 	var status uint8
-	statusRecord := tlv.MakePrimitiveRecord(indexStatusType, &status)
+	statusRecord := tlv.MakePrimitiveRecord(IndexStatusType, &status)
 	stream, err := tlv.NewStream(statusRecord)
 	if err != nil {
 		return false, err
@@ -92,7 +135,7 @@ func IsOutpointClosed(opBucket kvdb.RBucket, chanKey []byte) (bool, error) {
 			"chan_key=%x: %w", chanKey, err)
 	}
 
-	return indexStatus(status) == outpointClosed, nil
+	return IndexStatus(status) == OutpointClosed, nil
 }
 
 // FetchChanBucket is a helper function that returns the bucket where a

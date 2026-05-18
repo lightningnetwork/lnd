@@ -1066,7 +1066,7 @@ func (c *OpenChannel) FindPreviousState(
 // channel entails persisting a record of the close while either purging the
 // nested per-channel state inline (synchronous backends like bbolt and etcd)
 // or skipping the cascading delete on tombstone-enabled backends, where the
-// outpoint-index flip to outpointClosed is the authoritative marker. The
+// outpoint-index flip to OutpointClosed is the authoritative marker. The
 // compact summary written to closedChannelBucket and the historical record
 // under historicalChannelBucket are populated identically across both paths,
 // so historical reads remain uniform regardless of backend. The optional set

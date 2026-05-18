@@ -10,6 +10,18 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
+var (
+	// closedChannelBucket stores summarization information concerning
+	// previously open, but now closed channels.
+	closedChannelBucket = []byte("closed-chan-bucket")
+)
+
+// ClosedChannelBucketKey returns the top-level closed-channel summary bucket
+// key.
+func ClosedChannelBucketKey() []byte {
+	return closedChannelBucket
+}
+
 // PutChannelCloseSummary writes the immutable close-time summary of a channel
 // under the closed channel bucket.
 func PutChannelCloseSummary(tx kvdb.RwTx, chanID []byte,

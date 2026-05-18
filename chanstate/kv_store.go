@@ -22,3 +22,4 @@ func NewKVStore(backend kvdb.Backend,
 
 var _ ChannelSetupStore = (*KVStore)(nil)
 var _ FinalHTLCStore = (*KVStore)(nil)
+var _ OpenChannelFwdPkgStore = (*KVStore)(nil)

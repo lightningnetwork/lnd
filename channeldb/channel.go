@@ -587,7 +587,7 @@ func putFinalHtlc(finalHtlcsBucket kvdb.RwBucket, id uint64,
 func (c *ChannelStateDB) LoadFwdPkgs(channel *OpenChannel) ([]*FwdPkg,
 	error) {
 
-	return cstate.LoadFwdPkgs(c.backend, channel)
+	return c.kvStore.LoadFwdPkgs(channel)
 }
 
 // CountFwdPkgs returns the number of forwarding packages without loading their
@@ -615,7 +615,7 @@ func (c *ChannelStateDB) CountFwdPkgs(channel *OpenChannel) (int, error) {
 func (c *ChannelStateDB) AckAddHtlcs(channel *OpenChannel,
 	addRefs ...AddRef) error {
 
-	return cstate.AckAddHtlcs(c.backend, channel, addRefs...)
+	return c.kvStore.AckAddHtlcs(channel, addRefs...)
 }
 
 // AckSettleFails updates the SettleFailFilter containing any of the provided
@@ -625,7 +625,7 @@ func (c *ChannelStateDB) AckAddHtlcs(channel *OpenChannel,
 func (c *ChannelStateDB) AckSettleFails(channel *OpenChannel,
 	settleFailRefs ...SettleFailRef) error {
 
-	return cstate.AckSettleFails(c.backend, channel, settleFailRefs...)
+	return c.kvStore.AckSettleFails(channel, settleFailRefs...)
 }
 
 // SetFwdFilter atomically sets the forwarding filter for the forwarding package
@@ -633,7 +633,7 @@ func (c *ChannelStateDB) AckSettleFails(channel *OpenChannel,
 func (c *ChannelStateDB) SetFwdFilter(channel *OpenChannel, height uint64,
 	fwdFilter *PkgFilter) error {
 
-	return cstate.SetFwdFilter(c.backend, channel, height, fwdFilter)
+	return c.kvStore.SetFwdFilter(channel, height, fwdFilter)
 }
 
 // RemoveFwdPkgs atomically removes forwarding packages specified by the remote
@@ -646,7 +646,7 @@ func (c *ChannelStateDB) SetFwdFilter(channel *OpenChannel, height uint64,
 func (c *ChannelStateDB) RemoveFwdPkgs(channel *OpenChannel,
 	heights ...uint64) error {
 
-	return cstate.RemoveFwdPkgs(c.backend, channel, heights...)
+	return c.kvStore.RemoveFwdPkgs(channel, heights...)
 }
 
 // revocationLogTailCommitHeight returns the commit height at the end of the

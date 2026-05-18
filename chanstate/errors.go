@@ -41,6 +41,15 @@ var (
 	// channels within the database.
 	ErrNoActiveChannels = fmt.Errorf("no active channels exist")
 
+	// ErrNoClosedChannels is returned when a node is queries for all the
+	// channels it has closed, but it hasn't yet closed any channels.
+	ErrNoClosedChannels = fmt.Errorf("no channel have been closed yet")
+
+	// ErrClosedChannelNotFound signals that a closed channel could not be
+	// found in the channel state store.
+	ErrClosedChannelNotFound = errors.New("unable to find closed " +
+		"channel summary")
+
 	// ErrNoPastDeltas is returned when the channel delta bucket hasn't
 	// been created.
 	ErrNoPastDeltas = fmt.Errorf("channel has no recorded deltas")

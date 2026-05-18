@@ -515,6 +515,90 @@ func getOptionalUpfrontShutdownScript(chanBucket kvdb.RBucket, key []byte,
 	return nil
 }
 
+// PutOpenChannel serializes, and stores the current state of the channel in
+// its entirety.
+func PutOpenChannel(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
+	// First, we'll write out all the relatively static fields, that are
+	// decided upon initial channel creation.
+	if err := PutChanInfo(chanBucket, channel); err != nil {
+		return fmt.Errorf("unable to store chan info: %w", err)
+	}
+
+	// With the static channel info written out, we'll now write out the
+	// current commitment state for both parties.
+	if err := PutChanCommitments(chanBucket, channel); err != nil {
+		return fmt.Errorf("unable to store chan commitments: %w", err)
+	}
+
+	// Next, if this is a frozen channel, we'll add in the axillary
+	// information we need to store.
+	if channel.ChanType.IsFrozen() ||
+		channel.ChanType.HasLeaseExpiration() {
+
+		err := StoreThawHeight(
+			chanBucket, channel.ThawHeight,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to store thaw height: %w",
+				err)
+		}
+	}
+
+	// Finally, we'll write out the revocation state for both parties
+	// within a distinct key space.
+	if err := PutChanRevocationState(chanBucket, channel); err != nil {
+		return fmt.Errorf("unable to store chan revocations: %w", err)
+	}
+
+	return nil
+}
+
+// FetchOpenChannel retrieves, and deserializes (including decrypting
+// sensitive) the complete channel currently active with the passed nodeID.
+func FetchOpenChannel(chanBucket kvdb.RBucket,
+	chanPoint *wire.OutPoint) (*OpenChannel, error) {
+
+	channel := &OpenChannel{
+		FundingOutpoint: *chanPoint,
+	}
+
+	// First, we'll read all the static information that changes less
+	// frequently from disk.
+	if err := FetchChanInfo(chanBucket, channel); err != nil {
+		return nil, fmt.Errorf("unable to fetch chan info: %w", err)
+	}
+
+	// With the static information read, we'll now read the current
+	// commitment state for both sides of the channel.
+	if err := FetchChanCommitments(chanBucket, channel); err != nil {
+		return nil, fmt.Errorf("unable to fetch chan commitments: %w",
+			err)
+	}
+
+	// Next, if this is a frozen channel, we'll add in the axillary
+	// information we need to store.
+	if channel.ChanType.IsFrozen() ||
+		channel.ChanType.HasLeaseExpiration() {
+
+		thawHeight, err := FetchThawHeight(chanBucket)
+		if err != nil {
+			return nil, fmt.Errorf("unable to store thaw "+
+				"height: %v", err)
+		}
+
+		channel.ThawHeight = thawHeight
+	}
+
+	// Finally, we'll retrieve the current revocation state so we can
+	// properly
+	if err := FetchChanRevocationState(chanBucket, channel); err != nil {
+		return nil, fmt.Errorf("unable to fetch chan revocations: %w",
+			err)
+	}
+
+	return channel, nil
+}
+
 // openChannelTlvData houses the new data fields that are stored for each
 // channel in a TLV stream within the root bucket. This is stored as a TLV
 // stream appended to the existing hard-coded fields in the channel's root

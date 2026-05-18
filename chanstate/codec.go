@@ -18,6 +18,8 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+var byteOrder = binary.BigEndian
+
 // UnknownElementType is an error returned when the codec is unable to encode or
 // decode a particular type.
 type UnknownElementType struct {

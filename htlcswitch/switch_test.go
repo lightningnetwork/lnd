@@ -8,6 +8,7 @@ import (
 	"io"
 	mrand "math/rand"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -3158,6 +3159,60 @@ func TestSwitchGetAttemptResult(t *testing.T) {
 	}
 }
 
+// TestSwitchGetAttemptResultStress runs series of GetAttemptResult and Stop in
+// parallel to make sure there is no race condition between these actions.
+func TestSwitchGetAttemptResultStress(t *testing.T) {
+	t.Parallel()
+
+	const paymentID = 123
+
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
+	require.NoError(t, err, "unable to init switch")
+	require.NoError(t, s.Start(), "unable to start switch")
+
+	lookup := make(chan *PaymentCircuit, 1)
+	s.circuits = &mockCircuitMap{
+		lookup: lookup,
+	}
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		for range 1000 {
+			// Next let the lookup find the circuit in the circuit
+			// map. It should subscribe to payment results, and
+			// return the result when available.
+			lookup <- &PaymentCircuit{}
+			_, err := s.GetAttemptResult(
+				paymentID, lntypes.Hash{},
+				newMockDeobfuscator(),
+			)
+			require.NoError(t, err, "unable to get payment result")
+		}
+	}()
+
+	// Run s.Stop() in parallel with consecutive GetAttemptResult calls to
+	// make sure this doesn't result in a race condition.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		// Sleep 10ms to let several GetAttemptResult calls happen, so
+		// s.Stop() happens in the middle of GetAttemptResult series.
+		// The value 10ms was found empirically - this time is needed
+		// to expose the race condition (as a crash under -race) in the
+		// version of Switch before GoroutineManager was added.
+		time.Sleep(10 * time.Millisecond)
+
+		require.NoError(t, s.Stop())
+	}()
+
+	wg.Wait()
+}
+
 // TestInvalidFailure tests that the switch returns an unreadable failure error
 // if the failure cannot be decrypted.
 func TestInvalidFailure(t *testing.T) {
@@ -4952,7 +5007,7 @@ func testSwitchForwardFailAlias(t *testing.T, zeroConf bool) {
 	// Pull packet from Bob's link, and do nothing with it.
 	select {
 	case <-bobLink.packets:
-	case <-s.quit:
+	case <-s.gm.Done():
 		t.Fatal("switch shutting down, failed to forward packet")
 	}
 
@@ -5011,7 +5066,8 @@ func testSwitchForwardFailAlias(t *testing.T, zeroConf bool) {
 		failMsg, ok := msg.(*lnwire.FailTemporaryChannelFailure)
 		require.True(t, ok)
 		require.Equal(t, aliceAlias, failMsg.Update.ShortChannelID)
-	case <-s2.quit:
+
+	case <-s2.gm.Done():
 		t.Fatal("switch shutting down, failed to forward packet")
 	}
 }
@@ -5192,7 +5248,8 @@ func testSwitchAliasFailAdd(t *testing.T, zeroConf, private, useAlias bool) {
 		failMsg, ok := msg.(*lnwire.FailTemporaryChannelFailure)
 		require.True(t, ok)
 		require.Equal(t, outgoingChanID, failMsg.Update.ShortChannelID)
-	case <-s.quit:
+
+	case <-s.gm.Done():
 		t.Fatal("switch shutting down, failed to receive fail packet")
 	}
 }
@@ -5392,7 +5449,8 @@ func testSwitchHandlePacketForward(t *testing.T, zeroConf, private,
 		failMsg, ok := msg.(*lnwire.FailAmountBelowMinimum)
 		require.True(t, ok)
 		require.Equal(t, outgoingChanID, failMsg.Update.ShortChannelID)
-	case <-s.quit:
+
+	case <-s.gm.Done():
 		t.Fatal("switch shutting down, failed to receive failure")
 	}
 }
@@ -5548,7 +5606,7 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 		isAlias := failScid == aliceAlias || failScid == aliceAlias2
 		require.True(t, isAlias)
 
-	case <-s.quit:
+	case <-s.gm.Done():
 		t.Fatalf("switch shutting down, failed to receive failure")
 	}
 

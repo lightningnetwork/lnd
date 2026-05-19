@@ -5,8 +5,13 @@ package lncfg
 import (
 	"time"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
+	"github.com/lightningnetwork/lnd/lnwallet/types"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // IsDevBuild returns a bool to indicate whether we are in a development
@@ -30,6 +35,63 @@ type DevConfig struct {
 	UnsafeConnect               bool          `long:"unsafeconnect" description:"Allow the rpcserver to connect to a peer even if there's already a connection."`
 	ForceChannelCloseConfs      uint32        `long:"force-channel-close-confs" description:"Force a specific number of confirmations for channel closes (dev/test only)"`
 	MinFwdHistoryAge            time.Duration `long:"min-fwd-history-age" description:"Minimum age of forwarding events before they can be deleted via DeleteForwardingHistory (dev/test only, default: 1h)"`
+	MockAuxChanCloser           bool          `long:"mock-aux-chan-closer" description:"Set the mock AuxChanCloser for tests."`
+}
+
+// NeedMockAuxChanCloser returns the config value for MockAuxChanCloser,
+// indicating whether the integration test needs a mock AuxChanCloser.
+func (d *DevConfig) NeedMockAuxChanCloser() bool {
+	return d.MockAuxChanCloser
+}
+
+// GetMockAuxChanCloserValueForTest returns the mock AuxChanCloser value
+// that can be used in integration tests.
+//
+//nolint:ll
+func (d *DevConfig) GetMockAuxChanCloserValueForTest() fn.Option[chancloser.AuxChanCloser] {
+	return fn.Some[chancloser.AuxChanCloser](&mockAuxChanCloser{})
+}
+
+// Mock implementation for AuxChanCloser.
+type mockAuxChanCloser struct{}
+
+func (m *mockAuxChanCloser) ShutdownBlob(
+	req types.AuxShutdownReq,
+) (fn.Option[lnwire.CustomRecords], error) {
+
+	return fn.None[lnwire.CustomRecords](), nil
+}
+
+func (m *mockAuxChanCloser) AuxCloseOutputs(
+	desc types.AuxCloseDesc,
+) (fn.Option[chancloser.AuxCloseOutputs], error) {
+
+	return fn.Some[chancloser.AuxCloseOutputs](
+		chancloser.AuxCloseOutputs{
+			ExtraCloseOutputs: []lnwallet.CloseOutput{
+				{
+					TxOut: wire.TxOut{
+						Value: 50_000,
+						PkScript: []byte{
+							0x00, 0x14, 0x11, 0x11,
+							0x11, 0x11, 0x11, 0x11,
+							0x11, 0x11, 0x11, 0x11,
+							0x11, 0x11, 0x11, 0x11,
+							0x11, 0x11, 0x11, 0x11,
+							0x11, 0x11,
+						},
+					},
+					IsLocal: desc.Initiator,
+				},
+			},
+		},
+	), nil
+}
+
+func (m *mockAuxChanCloser) FinalizeClose(desc types.AuxCloseDesc,
+	closeTx *wire.MsgTx) error {
+
+	return nil
 }
 
 // ChannelReadyWait returns the config value `ProcessChannelReadyWait`.

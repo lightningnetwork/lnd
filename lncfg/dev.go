@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 )
 
@@ -20,6 +21,18 @@ func IsDevBuild() bool {
 // DevConfig specifies development configs used for production. This struct
 // should always remain empty.
 type DevConfig struct{}
+
+// NeedMockAuxChanCloser returns the config value for MockAuxChanCloser,
+// which is always false for production build.
+func (d *DevConfig) NeedMockAuxChanCloser() bool {
+	return false
+}
+
+// GetMockAuxChanCloserValueForTest returns the mock AuxChanCloser value
+// which is always None for production build
+func (d *DevConfig) GetMockAuxChanCloserValueForTest() fn.Option[chancloser.AuxChanCloser] {
+	return fn.None[chancloser.AuxChanCloser]()
+}
 
 // ChannelReadyWait returns the config value, which is always 0 for production
 // build.

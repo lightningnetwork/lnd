@@ -734,6 +734,18 @@
       ],
       "default": "APRIORI"
     },
+    "PaymentPaymentStatus": {
+      "type": "string",
+      "enum": [
+        "UNKNOWN",
+        "IN_FLIGHT",
+        "SUCCEEDED",
+        "FAILED",
+        "INITIATED"
+      ],
+      "default": "UNKNOWN",
+      "description": " - UNKNOWN: Deprecated. This status will never be returned.\n - IN_FLIGHT: Payment has inflight HTLCs.\n - SUCCEEDED: Payment is settled.\n - FAILED: Payment is failed.\n - INITIATED: Payment is created and has not attempted any HTLCs."
+    },
     "lnrpcAMPRecord": {
       "type": "object",
       "properties": {
@@ -1129,7 +1141,7 @@
           "description": "The optional payment request being fulfilled."
         },
         "status": {
-          "$ref": "#/definitions/lnrpcPaymentPaymentStatus",
+          "$ref": "#/definitions/PaymentPaymentStatus",
           "description": "The status of the payment."
         },
         "fee_sat": {
@@ -1186,18 +1198,6 @@
       ],
       "default": "FAILURE_REASON_NONE",
       "description": " - FAILURE_REASON_NONE: Payment isn't failed (yet).\n - FAILURE_REASON_TIMEOUT: There are more routes to try, but the payment timeout was exceeded.\n - FAILURE_REASON_NO_ROUTE: All possible routes were tried and failed permanently. Or were no\nroutes to the destination at all.\n - FAILURE_REASON_ERROR: A non-recoverable error has occured.\n - FAILURE_REASON_INCORRECT_PAYMENT_DETAILS: Payment details incorrect (unknown hash, invalid amt or\ninvalid final cltv delta)\n - FAILURE_REASON_INSUFFICIENT_BALANCE: Insufficient local balance.\n - FAILURE_REASON_CANCELED: The payment was canceled."
-    },
-    "lnrpcPaymentPaymentStatus": {
-      "type": "string",
-      "enum": [
-        "UNKNOWN",
-        "IN_FLIGHT",
-        "SUCCEEDED",
-        "FAILED",
-        "INITIATED"
-      ],
-      "default": "UNKNOWN",
-      "description": " - UNKNOWN: Deprecated. This status will never be returned.\n - IN_FLIGHT: Payment has inflight HTLCs.\n - SUCCEEDED: Payment is settled.\n - FAILED: Payment is failed.\n - INITIATED: Payment is created and has not attempted any HTLCs."
     },
     "lnrpcRoute": {
       "type": "object",
@@ -1870,42 +1870,6 @@
       },
       "description": "PairHistory contains the mission control state for a particular node pair."
     },
-    "routerrpcPaymentState": {
-      "type": "string",
-      "enum": [
-        "IN_FLIGHT",
-        "SUCCEEDED",
-        "FAILED_TIMEOUT",
-        "FAILED_NO_ROUTE",
-        "FAILED_ERROR",
-        "FAILED_INCORRECT_PAYMENT_DETAILS",
-        "FAILED_INSUFFICIENT_BALANCE"
-      ],
-      "default": "IN_FLIGHT",
-      "description": " - IN_FLIGHT: Payment is still in flight.\n - SUCCEEDED: Payment completed successfully.\n - FAILED_TIMEOUT: There are more routes to try, but the payment timeout was exceeded.\n - FAILED_NO_ROUTE: All possible routes were tried and failed permanently. Or were no\nroutes to the destination at all.\n - FAILED_ERROR: A non-recoverable error has occurred.\n - FAILED_INCORRECT_PAYMENT_DETAILS: Payment details incorrect (unknown hash, invalid amt or\ninvalid final cltv delta)\n - FAILED_INSUFFICIENT_BALANCE: Insufficient local balance."
-    },
-    "routerrpcPaymentStatus": {
-      "type": "object",
-      "properties": {
-        "state": {
-          "$ref": "#/definitions/routerrpcPaymentState",
-          "description": "Current state the payment is in."
-        },
-        "preimage": {
-          "type": "string",
-          "format": "byte",
-          "description": "The pre-image of the payment when state is SUCCEEDED."
-        },
-        "htlcs": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/lnrpcHTLCAttempt"
-          },
-          "description": "The HTLCs made in attempt to settle the payment [EXPERIMENTAL]."
-        }
-      }
-    },
     "routerrpcQueryMissionControlResponse": {
       "type": "object",
       "properties": {
@@ -2039,11 +2003,6 @@
           "format": "int64",
           "description": "The maximum number of satoshis that will be paid as a fee of the payment.\nIf this field is left to the default value of 0, only zero-fee routes will\nbe considered. This usually means single hop routes connecting directly to\nthe destination. To send the payment without a fee limit, use max int here.\n\nThe fields fee_limit_sat and fee_limit_msat are mutually exclusive."
         },
-        "outgoing_chan_id": {
-          "type": "string",
-          "format": "uint64",
-          "description": "Deprecated, use outgoing_chan_ids. The channel id of the channel that must\nbe taken to the first hop. If zero, any channel may be used (unless\noutgoing_chan_ids are set)."
-        },
         "cltv_limit": {
           "type": "integer",
           "format": "int32",
@@ -2164,20 +2123,6 @@
             "format": "byte"
           },
           "description": "An optional field that can be used to pass an arbitrary set of TLV records\nto the first hop peer of this payment. This can be used to pass application\nspecific data during the payment attempt. Record types are required to be in\nthe custom range \u003e= 65536. When using REST, the values must be encoded as\nbase64."
-        }
-      }
-    },
-    "routerrpcSendToRouteResponse": {
-      "type": "object",
-      "properties": {
-        "preimage": {
-          "type": "string",
-          "format": "byte",
-          "description": "The preimage obtained by making the payment."
-        },
-        "failure": {
-          "$ref": "#/definitions/lnrpcFailure",
-          "description": "The failure message in case the payment failed."
         }
       }
     },

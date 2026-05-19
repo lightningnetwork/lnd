@@ -96,10 +96,6 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
-		"/routerrpc.Router/SendToRoute": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
 		"/routerrpc.Router/TrackPaymentV2": {{
 			Entity: "offchain",
 			Action: "read",
@@ -141,14 +137,6 @@ var (
 			Action: "read",
 		}},
 		"/routerrpc.Router/SubscribeHtlcEvents": {{
-			Entity: "offchain",
-			Action: "read",
-		}},
-		"/routerrpc.Router/SendPayment": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
-		"/routerrpc.Router/TrackPayment": {{
 			Entity: "offchain",
 			Action: "read",
 		}},

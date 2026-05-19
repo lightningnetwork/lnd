@@ -11,7 +11,6 @@ var (
 	// runtime so we need to keep a hard coded list here.
 	LndClientStreamingURIs = []*regexp.Regexp{
 		regexp.MustCompile("^/v1/channels/acceptor$"),
-		regexp.MustCompile("^/v1/channels/transaction-stream$"),
 		regexp.MustCompile("^/v2/router/htlcinterceptor$"),
 		regexp.MustCompile("^/v1/middleware$"),
 	}

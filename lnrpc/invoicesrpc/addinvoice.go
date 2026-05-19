@@ -17,7 +17,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -730,7 +729,7 @@ type HopHintInfo struct {
 	ScidAliasFeature bool
 }
 
-func newHopHintInfo(c *channeldb.OpenChannel, isActive bool) *HopHintInfo {
+func newHopHintInfo(c *chanstate.OpenChannel, isActive bool) *HopHintInfo {
 	isPublic := c.ChannelFlags&lnwire.FFAnnounceChannel != 0
 
 	return &HopHintInfo{
@@ -781,7 +780,7 @@ type SelectHopHintsCfg struct {
 
 	// FetchAllChannels retrieves all open channels currently stored
 	// within the database.
-	FetchAllChannels func() ([]*channeldb.OpenChannel, error)
+	FetchAllChannels func() ([]*chanstate.OpenChannel, error)
 
 	// IsChannelActive checks whether the channel identified by the provided
 	// ChannelID is considered active.
@@ -844,7 +843,7 @@ func sufficientHints(nHintsLeft int, currentAmount,
 // getPotentialHints returns a slice of open channels that should be considered
 // for the hopHint list in an invoice. The slice is sorted in descending order
 // based on the remote balance.
-func getPotentialHints(cfg *SelectHopHintsCfg) ([]*channeldb.OpenChannel,
+func getPotentialHints(cfg *SelectHopHintsCfg) ([]*chanstate.OpenChannel,
 	error) {
 
 	// TODO(positiveblue): get the channels slice already filtered by
@@ -854,7 +853,7 @@ func getPotentialHints(cfg *SelectHopHintsCfg) ([]*channeldb.OpenChannel,
 		return nil, err
 	}
 
-	privateChannels := make([]*channeldb.OpenChannel, 0, len(openChannels))
+	privateChannels := make([]*chanstate.OpenChannel, 0, len(openChannels))
 	for _, oc := range openChannels {
 		isPublic := oc.ChannelFlags&lnwire.FFAnnounceChannel != 0
 		if !isPublic {
@@ -876,7 +875,7 @@ func getPotentialHints(cfg *SelectHopHintsCfg) ([]*channeldb.OpenChannel,
 // shouldIncludeChannel returns true if the channel passes all the checks to
 // be a hopHint in a given invoice.
 func shouldIncludeChannel(cfg *SelectHopHintsCfg,
-	channel *channeldb.OpenChannel,
+	channel *chanstate.OpenChannel,
 	alreadyIncluded map[uint64]bool) (zpay32.HopHint, lnwire.MilliSatoshi,
 	bool) {
 
@@ -922,7 +921,7 @@ func shouldIncludeChannel(cfg *SelectHopHintsCfg,
 // descending priority.
 func selectHopHints(cfg *SelectHopHintsCfg, nHintsLeft int,
 	targetBandwidth lnwire.MilliSatoshi,
-	potentialHints []*channeldb.OpenChannel,
+	potentialHints []*chanstate.OpenChannel,
 	alreadyIncluded map[uint64]bool) [][]zpay32.HopHint {
 
 	currentBandwidth := lnwire.MilliSatoshi(0)

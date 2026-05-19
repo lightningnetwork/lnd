@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -84,7 +85,7 @@ type Config struct {
 	// GetOpenChannels provides a list of existing open channels which is
 	// used to populate the ChannelEventStore with a set of channels on
 	// startup.
-	GetOpenChannels func() ([]*channeldb.OpenChannel, error)
+	GetOpenChannels func() ([]*chanstate.OpenChannel, error)
 
 	// Clock is the time source that the subsystem uses, provided here
 	// for ease of testing.

@@ -22,6 +22,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -952,7 +953,8 @@ func initBreachedState(t *testing.T) (*BreachArbitrator,
 	contractBreaches := make(chan *ContractBreachEvent)
 
 	brar, err := createTestArbiter(
-		t, contractBreaches, alice.State().Db.GetParentDB(),
+		t, contractBreaches,
+		testChannelStateDB(t, alice.State()).GetParentDB(),
 	)
 	require.NoError(t, err, "unable to initialize test breach arbiter")
 
@@ -1118,7 +1120,8 @@ func TestBreachHandoffFail(t *testing.T) {
 	assertNotPendingClosed(t, alice)
 
 	brar, err := createTestArbiter(
-		t, contractBreaches, alice.State().Db.GetParentDB(),
+		t, contractBreaches,
+		testChannelStateDB(t, alice.State()).GetParentDB(),
 	)
 	require.NoError(t, err, "unable to initialize test breach arbiter")
 
@@ -1763,7 +1766,9 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	}
 
 	// Assert that the channel is fully resolved.
-	assertBrarCleanup(t, brar, &chanPoint, alice.State().Db)
+	assertBrarCleanup(
+		t, brar, &chanPoint, testChannelStateDB(t, alice.State()),
+	)
 }
 
 // TestBreachDelayedJusticeConfirmation tests that the breach arbiter will
@@ -1968,7 +1973,9 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	}
 
 	// Assert that the channel is fully resolved.
-	assertBrarCleanup(t, brar, &chanPoint, alice.State().Db)
+	assertBrarCleanup(
+		t, brar, &chanPoint, testChannelStateDB(t, alice.State()),
+	)
 }
 
 // findInputIndex returns the index of the input that spends from the given
@@ -2080,7 +2087,9 @@ func assertBrarCleanup(t *testing.T, brar *BreachArbitrator,
 func assertPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
 	t.Helper()
 
-	closedChans, err := c.State().Db.FetchClosedChannels(true)
+	closedChans, err := testChannelStateDB(
+		t, c.State(),
+	).FetchClosedChannels(true)
 	require.NoError(t, err, "unable to load pending closed channels")
 
 	for _, chanSummary := range closedChans {
@@ -2097,7 +2106,9 @@ func assertPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
 func assertNotPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
 	t.Helper()
 
-	closedChans, err := c.State().Db.FetchClosedChannels(true)
+	closedChans, err := testChannelStateDB(
+		t, c.State(),
+	).FetchClosedChannels(true)
 	require.NoError(t, err, "unable to load pending closed channels")
 
 	for _, chanSummary := range closedChans {
@@ -2305,7 +2316,7 @@ func createInitChannels(t *testing.T) (
 		binary.BigEndian.Uint64(chanIDBytes[:]),
 	)
 
-	aliceChannelState := &channeldb.OpenChannel{
+	aliceChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeyPub,
@@ -2320,10 +2331,9 @@ func createInitChannels(t *testing.T) (
 		LocalCommitment:         aliceCommit,
 		RemoteCommitment:        aliceCommit,
 		Db:                      dbAlice.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
 		FundingTxn:              channels.TestFundingTx,
 	}
-	bobChannelState := &channeldb.OpenChannel{
+	bobChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            bobCfg,
 		RemoteChanCfg:           aliceCfg,
 		IdentityPub:             bobKeyPub,
@@ -2338,7 +2348,6 @@ func createInitChannels(t *testing.T) (
 		LocalCommitment:         bobCommit,
 		RemoteCommitment:        bobCommit,
 		Db:                      dbBob.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
 	aliceSigner := input.NewMockSigner(

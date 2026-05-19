@@ -12,7 +12,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -765,7 +765,7 @@ func TestCustomShutdownScript(t *testing.T) {
 
 	// setShutdown is a function which sets the upfront shutdown address for
 	// the local channel.
-	setShutdown := func(a, b *channeldb.OpenChannel) {
+	setShutdown := func(a, b *chanstate.OpenChannel) {
 		a.LocalShutdownScript = script
 		b.RemoteShutdownScript = script
 	}
@@ -775,7 +775,7 @@ func TestCustomShutdownScript(t *testing.T) {
 
 		// update is a function used to set values on the channel set up for the
 		// test. It is used to set values for upfront shutdown addresses.
-		update func(a, b *channeldb.OpenChannel)
+		update func(a, b *chanstate.OpenChannel)
 
 		// userCloseScript is the address specified by the user.
 		userCloseScript lnwire.DeliveryAddress
@@ -1225,8 +1225,8 @@ func assertMsgSent(t *testing.T, conn *mockMessageConn,
 func TestAlwaysSendChannelUpdate(t *testing.T) {
 	require := require.New(t)
 
-	var channel *channeldb.OpenChannel
-	channelIntercept := func(a, b *channeldb.OpenChannel) {
+	var channel *chanstate.OpenChannel
+	channelIntercept := func(a, b *chanstate.OpenChannel) {
 		channel = a
 	}
 
@@ -1437,8 +1437,8 @@ func TestStartupWriteMessageRace(t *testing.T) {
 	// createTestPeerWithChannel, so we can mark it borked below.
 	// We can't mark it borked within the callback, since the channel hasn't
 	// been saved to the DB yet when the callback executes.
-	var channel *channeldb.OpenChannel
-	getChannels := func(a, b *channeldb.OpenChannel) {
+	var channel *chanstate.OpenChannel
+	getChannels := func(a, b *chanstate.OpenChannel) {
 		channel = a
 	}
 
@@ -1638,7 +1638,7 @@ func TestCreateHtlcValidator(t *testing.T) {
 	}
 
 	// Create a mock channel with minimal required fields.
-	dbChan := &channeldb.OpenChannel{
+	dbChan := &chanstate.OpenChannel{
 		ShortChannelID: lnwire.NewShortChanIDFromInt(123),
 	}
 

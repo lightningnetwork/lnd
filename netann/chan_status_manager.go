@@ -8,7 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -600,14 +600,14 @@ func (m *ChanStatusManager) disableInactiveChannels() {
 // fetchChannels returns the working set of channels managed by the
 // ChanStatusManager. The returned channels are filtered to only contain public
 // channels.
-func (m *ChanStatusManager) fetchChannels() ([]*channeldb.OpenChannel, error) {
+func (m *ChanStatusManager) fetchChannels() ([]*chanstate.OpenChannel, error) {
 	allChannels, err := m.cfg.DB.FetchAllOpenChannels()
 	if err != nil {
 		return nil, err
 	}
 
 	// Filter out private channels.
-	var channels []*channeldb.OpenChannel
+	var channels []*chanstate.OpenChannel
 	for _, c := range allChannels {
 		// We'll skip any private channels, as they aren't used for
 		// routing within the network by other nodes.

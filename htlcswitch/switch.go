@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -150,16 +151,16 @@ type Config struct {
 
 	// FetchAllOpenChannels is a function that fetches all currently open
 	// channels from the channel database.
-	FetchAllOpenChannels func() ([]*channeldb.OpenChannel, error)
+	FetchAllOpenChannels func() ([]*chanstate.OpenChannel, error)
 
 	// FetchAllChannels is a function that fetches all pending open, open,
 	// and waiting close channels from the database.
-	FetchAllChannels func() ([]*channeldb.OpenChannel, error)
+	FetchAllChannels func() ([]*chanstate.OpenChannel, error)
 
 	// FetchClosedChannels is a function that fetches all closed channels
 	// from the channel database.
 	FetchClosedChannels func(
-		pendingOnly bool) ([]*channeldb.ChannelCloseSummary, error)
+		pendingOnly bool) ([]*chanstate.ChannelCloseSummary, error)
 
 	// SwitchPackager provides access to the forwarding packages of all
 	// active channels. This gives the switch the ability to read arbitrary

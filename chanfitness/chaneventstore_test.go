@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/subscribe"
@@ -35,7 +36,7 @@ func TestStartStoreError(t *testing.T) {
 		name          string
 		ChannelEvents func() (subscribe.Subscription, error)
 		PeerEvents    func() (subscribe.Subscription, error)
-		GetChannels   func() ([]*channeldb.OpenChannel, error)
+		GetChannels   func() ([]*chanstate.OpenChannel, error)
 	}{
 		{
 			name:          "Channel events fail",
@@ -50,7 +51,7 @@ func TestStartStoreError(t *testing.T) {
 			name:          "Get open channels fails",
 			ChannelEvents: okSubscribeFunc,
 			PeerEvents:    okSubscribeFunc,
-			GetChannels: func() ([]*channeldb.OpenChannel, error) {
+			GetChannels: func() ([]*chanstate.OpenChannel, error) {
 				return nil, errors.New("intentional test err")
 			},
 		},

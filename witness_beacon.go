@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -59,7 +60,7 @@ func newPreimageBeacon(wCache witnessCache,
 // SubscribeUpdates returns a channel that will be sent upon *each* time a new
 // preimage is discovered.
 func (p *preimageBeacon) SubscribeUpdates(
-	chanID lnwire.ShortChannelID, htlc *channeldb.HTLC,
+	chanID lnwire.ShortChannelID, htlc *chanstate.HTLC,
 	payload *hop.Payload,
 	nextHopOnionBlob []byte) (*contractcourt.WitnessSubscription, error) {
 

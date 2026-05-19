@@ -24,6 +24,7 @@ import (
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
@@ -795,7 +796,7 @@ type LightningChannel struct {
 	// state, which we are able to broadcast safely.
 	commitChains lntypes.Dual[*commitmentChain]
 
-	channelState *channeldb.OpenChannel
+	channelState *chanstate.OpenChannel
 
 	commitBuilder *CommitmentBuilder
 
@@ -953,7 +954,7 @@ func defaultChannelOpts() *channelOpts {
 // automatically persist pertinent state to the database in an efficient
 // manner.
 func NewLightningChannel(signer input.Signer,
-	state *channeldb.OpenChannel,
+	state *chanstate.OpenChannel,
 	sigPool *SigPool, chanOpts ...ChannelOpt) (*LightningChannel, error) {
 
 	opts := defaultChannelOpts()
@@ -2098,7 +2099,9 @@ type BreachRetribution struct {
 // nil, then the revocation log will be checked to see if it contains the info
 // required to construct the BreachRetribution. If the revocation log is missing
 // the required fields then ErrRevLogDataMissing will be returned.
-func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
+//
+//nolint:funlen
+func NewBreachRetribution(chanState *chanstate.OpenChannel, stateNum uint64,
 	breachHeight uint32, spendTx *wire.MsgTx,
 	leafStore fn.Option[AuxLeafStore],
 	auxResolver fn.Option[AuxContractResolver]) (*BreachRetribution,
@@ -2398,7 +2401,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 // createHtlcRetribution is a helper function to construct an HtlcRetribution
 // based on the passed params.
-func createHtlcRetribution(chanState *channeldb.OpenChannel,
+func createHtlcRetribution(chanState *chanstate.OpenChannel,
 	keyRing *CommitmentKeyRing, commitHash chainhash.Hash,
 	commitmentSecret *btcec.PrivateKey, leaseExpiry uint32,
 	htlc *channeldb.HTLCEntry,
@@ -2525,7 +2528,7 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 // see if these fields are present there. If they are not, then
 // ErrRevLogDataMissing is returned.
 func createBreachRetribution(revokedLog *channeldb.RevocationLog,
-	spendTx *wire.MsgTx, chanState *channeldb.OpenChannel,
+	spendTx *wire.MsgTx, chanState *chanstate.OpenChannel,
 	keyRing *CommitmentKeyRing, commitmentSecret *btcec.PrivateKey,
 	leaseExpiry uint32,
 	auxLeaves fn.Option[CommitAuxLeaves]) (*BreachRetribution, int64, int64,
@@ -2642,7 +2645,7 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 // BreachRetribution using a ChannelCommitment. Returns the constructed
 // retribution, our amount, their amount, and a possible non-nil error.
 func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
-	chanState *channeldb.OpenChannel, keyRing *CommitmentKeyRing,
+	chanState *chanstate.OpenChannel, keyRing *CommitmentKeyRing,
 	commitmentSecret *btcec.PrivateKey,
 	ourScript, theirScript input.ScriptDescriptor,
 	leaseExpiry uint32) (*BreachRetribution, int64, int64, error) {
@@ -2995,7 +2998,7 @@ func (lc *LightningChannel) fetchCommitmentView(
 // fundingTxIn returns the funding output as a transaction input. The input
 // returned by this function uses a max sequence number, so it isn't able to be
 // used with RBF by default.
-func fundingTxIn(chanState *channeldb.OpenChannel) wire.TxIn {
+func fundingTxIn(chanState *chanstate.OpenChannel) wire.TxIn {
 	return *wire.NewTxIn(&chanState.FundingOutpoint, nil, nil)
 }
 
@@ -3251,7 +3254,7 @@ func (lc *LightningChannel) fetchParent(entry *paymentDescriptor,
 // configured reserve. It also uses the balance delta for the party, to account
 // for entry amounts that have been processed already.
 func balanceAboveReserve(party lntypes.ChannelParty, delta int64,
-	channel *channeldb.OpenChannel) bool {
+	channel *chanstate.OpenChannel) bool {
 
 	// We're going to access the channel state, so let's make sure we're
 	// holding the lock.
@@ -3340,7 +3343,7 @@ func (lc *LightningChannel) evaluateNoOpHtlc(entry *paymentDescriptor,
 // signature can be submitted to the sigPool to generate all the signatures
 // asynchronously and in parallel.
 func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
-	chanState *channeldb.OpenChannel, leaseExpiry uint32,
+	chanState *chanstate.OpenChannel, leaseExpiry uint32,
 	remoteCommitView *commitment,
 	leafStore fn.Option[AuxLeafStore]) ([]SignJob, []AuxSigJob,
 	chan struct{}, error) {
@@ -4970,7 +4973,7 @@ func (lc *LightningChannel) recordSettlement(
 // directly into the pool of workers.
 //
 //nolint:funlen
-func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
+func genHtlcSigValidationJobs(chanState *chanstate.OpenChannel,
 	localCommitmentView *commitment, keyRing *CommitmentKeyRing,
 	htlcSigs []lnwire.Sig, leaseExpiry uint32,
 	leafStore fn.Option[AuxLeafStore], auxSigner fn.Option[AuxSigner],
@@ -6761,10 +6764,10 @@ func (lc *LightningChannel) ChannelPoint() wire.OutPoint {
 	return lc.channelState.FundingOutpoint
 }
 
-// ChannelState returns a copy of the internal channeldb.OpenChannel state
+// ChannelState returns a copy of the internal chanstate.OpenChannel state
 // struct. Modifications to the returned struct will not be reflected within
 // the LightningChannel.
-func (lc *LightningChannel) ChannelState() *channeldb.OpenChannel {
+func (lc *LightningChannel) ChannelState() *chanstate.OpenChannel {
 	return lc.channelState.Copy()
 }
 
@@ -7074,7 +7077,7 @@ type UnilateralCloseSummary struct {
 // happen in case we have lost state) it should be set to an empty struct, in
 // which case we will attempt to sweep the non-HTLC output using the passed
 // commitPoint.
-func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, //nolint:funlen
+func NewUnilateralCloseSummary(chanState *chanstate.OpenChannel,
 	signer input.Signer, commitSpend *chainntnfs.SpendDetail,
 	remoteCommit channeldb.ChannelCommitment, commitPoint *btcec.PublicKey,
 	leafStore fn.Option[AuxLeafStore],
@@ -7415,7 +7418,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	commitTxHeight uint32, htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
 	feePerKw chainfee.SatPerKWeight, csvDelay, leaseExpiry uint32,
 	whoseCommit lntypes.ChannelParty, isCommitFromInitiator bool,
-	chanType channeldb.ChannelType, chanState *channeldb.OpenChannel,
+	chanType channeldb.ChannelType, chanState *chanstate.OpenChannel,
 	auxLeaves fn.Option[CommitAuxLeaves],
 	auxResolver fn.Option[AuxContractResolver],
 ) (*OutgoingHtlcResolution, error) {
@@ -7789,7 +7792,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 	commitTxHeight uint32, htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
 	feePerKw chainfee.SatPerKWeight, csvDelay, leaseExpiry uint32,
 	whoseCommit lntypes.ChannelParty, isCommitFromInitiator bool,
-	chanType channeldb.ChannelType, chanState *channeldb.OpenChannel,
+	chanType channeldb.ChannelType, chanState *chanstate.OpenChannel,
 	auxLeaves fn.Option[CommitAuxLeaves],
 	auxResolver fn.Option[AuxContractResolver],
 ) (*IncomingHtlcResolution, error) {
@@ -8174,7 +8177,7 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
 	commitTx *wire.MsgTx, commitTxHeight uint32,
 	chanType channeldb.ChannelType, isCommitFromInitiator bool,
-	leaseExpiry uint32, chanState *channeldb.OpenChannel,
+	leaseExpiry uint32, chanState *chanstate.OpenChannel,
 	auxLeaves fn.Option[CommitAuxLeaves],
 	auxResolver fn.Option[AuxContractResolver]) (*HtlcResolutions, error) {
 
@@ -8389,7 +8392,7 @@ func (lc *LightningChannel) ForceClose(opts ...ForceCloseOpt) (
 // NewLocalForceCloseSummary generates a LocalForceCloseSummary from the given
 // channel state. The passed commitTx must be a fully signed commitment
 // transaction corresponding to localCommit.
-func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
+func NewLocalForceCloseSummary(chanState *chanstate.OpenChannel,
 	signer input.Signer, commitTx *wire.MsgTx, commitTxHeight uint32,
 	stateNum uint64, leafStore fn.Option[AuxLeafStore],
 	auxResolver fn.Option[AuxContractResolver]) (*LocalForceCloseSummary,
@@ -9044,7 +9047,7 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 
 // NewAnchorResolution returns the information that is required to sweep the
 // local anchor.
-func NewAnchorResolution(chanState *channeldb.OpenChannel,
+func NewAnchorResolution(chanState *chanstate.OpenChannel,
 	commitTx *wire.MsgTx, keyRing *CommitmentKeyRing,
 	whoseCommit lntypes.ChannelParty) (*AnchorResolution, error) {
 
@@ -10088,7 +10091,7 @@ func (lc *LightningChannel) IsPending() bool {
 }
 
 // State provides access to the channel's internal state.
-func (lc *LightningChannel) State() *channeldb.OpenChannel {
+func (lc *LightningChannel) State() *chanstate.OpenChannel {
 	return lc.channelState
 }
 

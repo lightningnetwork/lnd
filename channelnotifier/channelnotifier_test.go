@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,7 +25,7 @@ func TestChannelUpdateEvent(t *testing.T) {
 	defer sub.Cancel()
 
 	// Create a mock channel state.
-	channel := &channeldb.OpenChannel{}
+	channel := &chanstate.OpenChannel{}
 
 	// Notify the server of a channel update event.
 	ntfnServer.NotifyChannelUpdateEvent(channel)

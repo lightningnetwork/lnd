@@ -307,33 +307,37 @@ func genRandomChannelShell() (*ChannelShell, error) {
 		CsvDelay: uint16(rand.Int63()),
 	}
 
+	channel := &OpenChannel{
+		ChainHash:       rev,
+		FundingOutpoint: chanPoint,
+		ShortChannelID: lnwire.NewShortChanIDFromInt(
+			uint64(rand.Int63()),
+		),
+		IdentityPub: pub,
+		LocalChanCfg: ChannelConfig{
+			CommitmentParams: commitParams,
+			PaymentBasePoint: keychain.KeyDescriptor{
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamily(
+						rand.Int63(),
+					),
+					Index: uint32(rand.Int63()),
+				},
+			},
+		},
+		RemoteCurrentRevocation: pub,
+		IsPending:               false,
+		RevocationStore:         shachain.NewRevocationStore(),
+		RevocationProducer:      shaChainProducer,
+	}
+	channel.SetChannelStatusForStore(chanStatus)
+
 	return &ChannelShell{
 		NodeAddrs: []net.Addr{&net.TCPAddr{
 			IP:   net.ParseIP("127.0.0.1"),
 			Port: 18555,
 		}},
-		Chan: &OpenChannel{
-			chanStatus:      chanStatus,
-			ChainHash:       rev,
-			FundingOutpoint: chanPoint,
-			ShortChannelID: lnwire.NewShortChanIDFromInt(
-				uint64(rand.Int63()),
-			),
-			IdentityPub: pub,
-			LocalChanCfg: ChannelConfig{
-				CommitmentParams: commitParams,
-				PaymentBasePoint: keychain.KeyDescriptor{
-					KeyLocator: keychain.KeyLocator{
-						Family: keychain.KeyFamily(rand.Int63()),
-						Index:  uint32(rand.Int63()),
-					},
-				},
-			},
-			RemoteCurrentRevocation: pub,
-			IsPending:               false,
-			RevocationStore:         shachain.NewRevocationStore(),
-			RevocationProducer:      shaChainProducer,
-		},
+		Chan: channel,
 	}, nil
 }
 
@@ -403,7 +407,7 @@ func TestRestoreChannelShells(t *testing.T) {
 	}
 	if !nodeChans[0].HasChanStatus(ChanStatusRestored) {
 		t.Fatalf("node has wrong status flags: %v",
-			nodeChans[0].chanStatus)
+			nodeChans[0].ChanStatus())
 	}
 
 	// We should also be able to find the channel if we query for it
@@ -473,12 +477,12 @@ func TestAbandonChannel(t *testing.T) {
 	require.NoError(t, err, "unable to abandon channel")
 }
 
-// TestFetchChannels tests the filtering of open channels in fetchChannels.
-// It tests the case where no filters are provided (which is equivalent to
-// FetchAllOpenChannels) and every combination of pending and waiting close.
+// TestFetchChannels tests the filtering of open channels exposed by the
+// public fetch methods.
 func TestFetchChannels(t *testing.T) {
 	// Create static channel IDs for each kind of channel retrieved by
-	// fetchChannels so that the expected channel IDs can be set in tests.
+	// the fetch methods so that the expected channel IDs can be set in
+	// tests.
 	var (
 		// Pending is a channel that is pending open, and has not had
 		// a close initiated.
@@ -498,12 +502,12 @@ func TestFetchChannels(t *testing.T) {
 
 	tests := []struct {
 		name             string
-		filters          []fetchChannelsFilter
+		fetch            func(*ChannelStateDB) ([]*OpenChannel, error)
 		expectedChannels map[lnwire.ShortChannelID]bool
 	}{
 		{
-			name:    "get all channels",
-			filters: []fetchChannelsFilter{},
+			name:  "get all channels",
+			fetch: (*ChannelStateDB).FetchAllChannels,
 			expectedChannels: map[lnwire.ShortChannelID]bool{
 				pendingChan:        true,
 				pendingWaitingChan: true,
@@ -512,30 +516,22 @@ func TestFetchChannels(t *testing.T) {
 			},
 		},
 		{
-			name: "pending channels",
-			filters: []fetchChannelsFilter{
-				pendingChannelFilter(true),
-			},
+			name:  "pending channels",
+			fetch: (*ChannelStateDB).FetchPendingChannels,
 			expectedChannels: map[lnwire.ShortChannelID]bool{
-				pendingChan:        true,
-				pendingWaitingChan: true,
+				pendingChan: true,
 			},
 		},
 		{
-			name: "open channels",
-			filters: []fetchChannelsFilter{
-				pendingChannelFilter(false),
-			},
+			name:  "open channels",
+			fetch: (*ChannelStateDB).FetchAllOpenChannels,
 			expectedChannels: map[lnwire.ShortChannelID]bool{
-				openChan:        true,
-				openWaitingChan: true,
+				openChan: true,
 			},
 		},
 		{
-			name: "waiting close channels",
-			filters: []fetchChannelsFilter{
-				waitingCloseFilter(true),
-			},
+			name:  "waiting close channels",
+			fetch: (*ChannelStateDB).FetchWaitingCloseChannels,
 			expectedChannels: map[lnwire.ShortChannelID]bool{
 				pendingWaitingChan: true,
 				openWaitingChan:    true,
@@ -543,52 +539,28 @@ func TestFetchChannels(t *testing.T) {
 		},
 		{
 			name: "not waiting close channels",
-			filters: []fetchChannelsFilter{
-				waitingCloseFilter(false),
+			fetch: func(cdb *ChannelStateDB) (
+				[]*OpenChannel, error) {
+
+				pendingChans, err := cdb.FetchPendingChannels()
+				if err != nil {
+					return nil, err
+				}
+
+				openChannels, err := cdb.FetchAllOpenChannels()
+				if err != nil {
+					return nil, err
+				}
+
+				pendingChans = append(
+					pendingChans, openChannels...,
+				)
+
+				return pendingChans, nil
 			},
 			expectedChannels: map[lnwire.ShortChannelID]bool{
 				pendingChan: true,
 				openChan:    true,
-			},
-		},
-		{
-			name: "pending waiting",
-			filters: []fetchChannelsFilter{
-				pendingChannelFilter(true),
-				waitingCloseFilter(true),
-			},
-			expectedChannels: map[lnwire.ShortChannelID]bool{
-				pendingWaitingChan: true,
-			},
-		},
-		{
-			name: "pending, not waiting",
-			filters: []fetchChannelsFilter{
-				pendingChannelFilter(true),
-				waitingCloseFilter(false),
-			},
-			expectedChannels: map[lnwire.ShortChannelID]bool{
-				pendingChan: true,
-			},
-		},
-		{
-			name: "open waiting",
-			filters: []fetchChannelsFilter{
-				pendingChannelFilter(false),
-				waitingCloseFilter(true),
-			},
-			expectedChannels: map[lnwire.ShortChannelID]bool{
-				openWaitingChan: true,
-			},
-		},
-		{
-			name: "open, not waiting",
-			filters: []fetchChannelsFilter{
-				pendingChannelFilter(false),
-				waitingCloseFilter(false),
-			},
-			expectedChannels: map[lnwire.ShortChannelID]bool{
-				openChan: true,
 			},
 		},
 	}
@@ -649,7 +621,7 @@ func TestFetchChannels(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			channels, err := fetchChannels(cdb, test.filters...)
+			channels, err := test.fetch(cdb)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

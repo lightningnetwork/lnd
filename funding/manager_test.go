@@ -31,6 +31,7 @@ import (
 	acpt "github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph"
@@ -250,7 +251,7 @@ func (m *mockChanEvent) NotifyOpenChannelEvent(outpoint wire.OutPoint,
 }
 
 func (m *mockChanEvent) NotifyPendingOpenChannelEvent(outpoint wire.OutPoint,
-	pendingChannel *channeldb.OpenChannel,
+	pendingChannel *chanstate.OpenChannel,
 	remotePub *btcec.PublicKey) {
 
 	m.pendingOpenEvent <- channelnotifier.PendingOpenChannelEvent{
@@ -499,7 +500,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		},
 		TempChanIDSeed: chanIDSeed,
 		FindChannel: func(node *btcec.PublicKey,
-			chanID lnwire.ChannelID) (*channeldb.OpenChannel,
+			chanID lnwire.ChannelID) (*chanstate.OpenChannel,
 			error) {
 
 			nodeChans, err := cdb.FetchOpenChannels(node)
@@ -549,7 +550,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		RequiredRemoteMaxHTLCs: func(chanAmt btcutil.Amount) uint16 {
 			return uint16(input.MaxHTLCNumber / 2)
 		},
-		WatchNewChannel: func(*channeldb.OpenChannel,
+		WatchNewChannel: func(*chanstate.OpenChannel,
 			*btcec.PublicKey) error {
 
 			return nil
@@ -5289,7 +5290,7 @@ func TestChannelReadyUnknownChannelID(t *testing.T) {
 			cfg.FindChannel = func(
 				node *btcec.PublicKey,
 				chanID lnwire.ChannelID,
-			) (*channeldb.OpenChannel, error) {
+			) (*chanstate.OpenChannel, error) {
 
 				findChannelCalls.Add(1)
 

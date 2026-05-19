@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -891,7 +892,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 
 	shortChanID := lnwire.NewShortChanIDFromInt(0xdeadbeef)
 
-	remoteChannelState := &channeldb.OpenChannel{
+	remoteChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            remoteCfg,
 		RemoteChanCfg:           localCfg,
 		IdentityPub:             tc.remoteFundingPrivkey.PubKey(),
@@ -906,12 +907,9 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 		LocalCommitment:         remoteCommit,
 		RemoteCommitment:        remoteCommit,
 		Db:                      dbRemote.ChannelStateDB(),
-		Packager: channeldb.NewChannelPackager(
-			shortChanID,
-		),
-		FundingTxn: fundingTx,
+		FundingTxn:              fundingTx,
 	}
-	localChannelState := &channeldb.OpenChannel{
+	localChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            localCfg,
 		RemoteChanCfg:           remoteCfg,
 		IdentityPub:             tc.localFundingPrivkey.PubKey(),
@@ -926,10 +924,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 		LocalCommitment:         localCommit,
 		RemoteCommitment:        localCommit,
 		Db:                      dbLocal.ChannelStateDB(),
-		Packager: channeldb.NewChannelPackager(
-			shortChanID,
-		),
-		FundingTxn: fundingTx,
+		FundingTxn:              fundingTx,
 	}
 
 	// Create mock signers with all deterministic keys. The funding key must

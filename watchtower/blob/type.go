@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 )
 
 // Flag represents a specify option that can be present in a Type.
@@ -97,7 +97,7 @@ const (
 
 // TypeFromChannel returns the appropriate blob Type for the given channel
 // type.
-func TypeFromChannel(chanType channeldb.ChannelType) Type {
+func TypeFromChannel(chanType chanstate.ChannelType) Type {
 	switch {
 	case chanType.IsTaprootFinal():
 		return TypeAltruistTaprootFinalCommit
@@ -130,7 +130,7 @@ func (t Type) Identifier() (string, error) {
 
 // CommitmentType returns the appropriate CommitmentType for the given blob Type
 // and channel type.
-func (t Type) CommitmentType(chanType *channeldb.ChannelType) (CommitmentType,
+func (t Type) CommitmentType(chanType *chanstate.ChannelType) (CommitmentType,
 	error) {
 
 	switch {

@@ -11,7 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnencrypt"
@@ -169,7 +169,7 @@ type Single struct {
 	//
 	// NOTE: Of the items in the ChannelConstraints, we only write the CSV
 	// delay.
-	LocalChanCfg channeldb.ChannelConfig
+	LocalChanCfg chanstate.ChannelConfig
 
 	// RemoteChanCfg is the remote channel confirmation. We store this as
 	// well since we'll need some of their keys to re-derive things like
@@ -178,7 +178,7 @@ type Single struct {
 	//
 	// NOTE: Of the items in the ChannelConstraints, we only write the CSV
 	// delay.
-	RemoteChanCfg channeldb.ChannelConfig
+	RemoteChanCfg chanstate.ChannelConfig
 
 	// ShaChainRootDesc describes how to derive the private key that was
 	// used as the shachain root for this channel.
@@ -234,7 +234,7 @@ type CloseTxInputs struct {
 // connect to the channel peer. If possible, we include the data needed to
 // produce a force close transaction from the most recent state using externally
 // provided private key.
-func NewSingle(channel *channeldb.OpenChannel,
+func NewSingle(channel *chanstate.OpenChannel,
 	nodeAddrs []net.Addr) Single {
 
 	var shaChainRootDesc keychain.KeyDescriptor

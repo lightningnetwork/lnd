@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -308,7 +309,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		binary.BigEndian.Uint64(chanIDBytes[:]),
 	)
 
-	aliceChannelState := &channeldb.OpenChannel{
+	aliceChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeys[0].PubKey(),
@@ -323,10 +324,9 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		LocalCommitment:         aliceLocalCommit,
 		RemoteCommitment:        aliceRemoteCommit,
 		Db:                      dbAlice.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
 		FundingTxn:              testTx,
 	}
-	bobChannelState := &channeldb.OpenChannel{
+	bobChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            bobCfg,
 		RemoteChanCfg:           aliceCfg,
 		IdentityPub:             bobKeys[0].PubKey(),
@@ -341,7 +341,6 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		LocalCommitment:         bobLocalCommit,
 		RemoteCommitment:        bobRemoteCommit,
 		Db:                      dbBob.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
 	// If the channel type has a tapscript root, then we'll also specify

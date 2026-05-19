@@ -5,6 +5,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -55,7 +56,7 @@ type CommitAuxLeaves struct {
 }
 
 // AuxChanState is a struct that holds certain fields of the
-// channeldb.OpenChannel struct that are used by the aux components. The data
+// chanstate.OpenChannel struct that are used by the aux components. The data
 // is copied over to prevent accidental mutation of the original channel state.
 type AuxChanState struct {
 	// ChanType denotes which type of channel this is.
@@ -110,7 +111,7 @@ type AuxChanState struct {
 }
 
 // NewAuxChanState creates a new AuxChanState from the given channel state.
-func NewAuxChanState(chanState *channeldb.OpenChannel) AuxChanState {
+func NewAuxChanState(chanState *chanstate.OpenChannel) AuxChanState {
 	peerPub := chanState.IdentityPub.SerializeCompressed()
 
 	return AuxChanState{
@@ -202,7 +203,7 @@ type AuxLeafStore interface {
 // auxLeavesFromView is used to derive the set of commit aux leaves (if any),
 // that are needed to create a new commitment transaction using the original
 // (unfiltered) htlc view.
-func auxLeavesFromView(leafStore AuxLeafStore, chanState *channeldb.OpenChannel,
+func auxLeavesFromView(leafStore AuxLeafStore, chanState *chanstate.OpenChannel,
 	prevBlob fn.Option[tlv.Blob], originalView *HtlcView,
 	whoseCommit lntypes.ChannelParty, ourBalance,
 	theirBalance lnwire.MilliSatoshi,
@@ -225,7 +226,7 @@ func auxLeavesFromView(leafStore AuxLeafStore, chanState *channeldb.OpenChannel,
 
 // updateAuxBlob is a helper function that attempts to update the aux blob
 // given the prior and current state information.
-func updateAuxBlob(leafStore AuxLeafStore, chanState *channeldb.OpenChannel,
+func updateAuxBlob(leafStore AuxLeafStore, chanState *chanstate.OpenChannel,
 	prevBlob fn.Option[tlv.Blob], nextViewUnfiltered *HtlcView,
 	whoseCommit lntypes.ChannelParty, ourBalance,
 	theirBalance lnwire.MilliSatoshi,

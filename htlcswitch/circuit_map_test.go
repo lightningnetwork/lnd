@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -362,7 +363,7 @@ func createTestCloseChannelSummery(tx kvdb.RwTx, isPending bool,
 	}
 	outputPoint := wire.OutPoint{Hash: hash1, Index: 1}
 
-	ccs := &channeldb.ChannelCloseSummary{
+	ccs := &chanstate.ChannelCloseSummary{
 		ChanPoint:      outputPoint,
 		ShortChanID:    chanID,
 		ChainHash:      hash1,
@@ -371,7 +372,7 @@ func createTestCloseChannelSummery(tx kvdb.RwTx, isPending bool,
 		RemotePub:      testEphemeralKey,
 		Capacity:       btcutil.Amount(10000),
 		SettledBalance: btcutil.Amount(50000),
-		CloseType:      channeldb.RemoteForceClose,
+		CloseType:      chanstate.RemoteForceClose,
 		IsPending:      isPending,
 	}
 	var b bytes.Buffer
@@ -389,7 +390,7 @@ func createTestCloseChannelSummery(tx kvdb.RwTx, isPending bool,
 
 func serializeChannelCloseSummary(
 	w io.Writer,
-	cs *channeldb.ChannelCloseSummary) error {
+	cs *chanstate.ChannelCloseSummary) error {
 
 	err := channeldb.WriteElements(
 		w,

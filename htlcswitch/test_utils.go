@@ -24,6 +24,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -42,6 +43,19 @@ import (
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/stretchr/testify/require"
 )
+
+func testChannelStateDB(t testing.TB,
+	channel *lnwallet.LightningChannel) *channeldb.ChannelStateDB {
+
+	t.Helper()
+
+	cdb, ok := channel.State().Db.(*channeldb.ChannelStateDB)
+	if !ok {
+		t.Fatalf("expected ChannelStateDB, got %T", channel.State().Db)
+	}
+
+	return cdb
+}
 
 // maxInflightHtlcs specifies the max number of inflight HTLCs. This number is
 // chosen to be smaller than the default 483 so the test can run faster.
@@ -291,7 +305,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 	}
 
-	aliceChannelState := &channeldb.OpenChannel{
+	aliceChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeyPub,
@@ -306,11 +320,10 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		RemoteCommitment:        aliceCommit,
 		ShortChannelID:          chanID,
 		Db:                      dbAlice.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(chanID),
 		FundingTxn:              channels.TestFundingTx,
 	}
 
-	bobChannelState := &channeldb.OpenChannel{
+	bobChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            bobCfg,
 		RemoteChanCfg:           aliceCfg,
 		IdentityPub:             bobKeyPub,
@@ -325,7 +338,6 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		RemoteCommitment:        bobCommit,
 		ShortChannelID:          chanID,
 		Db:                      dbBob.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(chanID),
 	}
 
 	if err := aliceChannelState.SyncPending(bobAddr, broadcastHeight); err != nil {
@@ -403,7 +415,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 				"channel: %w", err)
 		}
 
-		var aliceStoredChannel *channeldb.OpenChannel
+		var aliceStoredChannel *chanstate.OpenChannel
 		for _, channel := range aliceStoredChannels {
 			if channel.FundingOutpoint.String() == prevOut.String() {
 				aliceStoredChannel = channel
@@ -451,7 +463,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 				"%w", err)
 		}
 
-		var bobStoredChannel *channeldb.OpenChannel
+		var bobStoredChannel *chanstate.OpenChannel
 		for _, channel := range bobStoredChannels {
 			if channel.FundingOutpoint.String() == prevOut.String() {
 				bobStoredChannel = channel
@@ -954,9 +966,9 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	secondBobChannel, carolChannel *lnwallet.LightningChannel,
 	startingHeight uint32, opts ...serverOption) *threeHopNetwork {
 
-	aliceDb := aliceChannel.State().Db.GetParentDB()
-	bobDb := firstBobChannel.State().Db.GetParentDB()
-	carolDb := carolChannel.State().Db.GetParentDB()
+	aliceDb := testChannelStateDB(t, aliceChannel).GetParentDB()
+	bobDb := testChannelStateDB(t, firstBobChannel).GetParentDB()
+	carolDb := testChannelStateDB(t, carolChannel).GetParentDB()
 
 	hopNetwork := newHopNetwork()
 
@@ -1175,7 +1187,7 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 			NotifyActiveChannel:        func(wire.OutPoint) {},
 			NotifyInactiveChannel:      func(wire.OutPoint) {},
 			NotifyInactiveLinkEvent:    func(wire.OutPoint) {},
-			NotifyChannelUpdate:        func(*channeldb.OpenChannel) {},
+			NotifyChannelUpdate:        func(*chanstate.OpenChannel) {},
 			HtlcNotifier:               server.htlcSwitch.cfg.HtlcNotifier,
 			GetAliases:                 getAliases,
 			ShouldFwdExpAccountability: func() bool { return true },
@@ -1233,8 +1245,8 @@ func newTwoHopNetwork(t testing.TB,
 	aliceChannel, bobChannel *lnwallet.LightningChannel,
 	startingHeight uint32) *twoHopNetwork {
 
-	aliceDb := aliceChannel.State().Db.GetParentDB()
-	bobDb := bobChannel.State().Db.GetParentDB()
+	aliceDb := testChannelStateDB(t, aliceChannel).GetParentDB()
+	bobDb := testChannelStateDB(t, bobChannel).GetParentDB()
 
 	hopNetwork := newHopNetwork()
 

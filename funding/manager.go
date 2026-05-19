@@ -425,7 +425,7 @@ type Config struct {
 	// channel ID. Providing the node's public key is an optimization that
 	// prevents deserializing and scanning through all possible channels.
 	FindChannel func(node *btcec.PublicKey,
-		chanID lnwire.ChannelID) (*channeldb.OpenChannel, error)
+		chanID lnwire.ChannelID) (*chanstate.OpenChannel, error)
 
 	// TempChanIDSeed is a cryptographically random string of bytes that's
 	// used as a seed to generate pending channel ID's.
@@ -475,7 +475,7 @@ type Config struct {
 	// the channel to the ChainArbitrator so it can watch for any on-chain
 	// events related to the channel. We also provide the public key of the
 	// node we're establishing a channel with for reconnection purposes.
-	WatchNewChannel func(*channeldb.OpenChannel, *btcec.PublicKey) error
+	WatchNewChannel func(*chanstate.OpenChannel, *btcec.PublicKey) error
 
 	// ReportShortChanID allows the funding manager to report the confirmed
 	// short channel ID of a formerly pending zero-conf channel to outside
@@ -525,7 +525,7 @@ type Config struct {
 	// NotifyPendingOpenChannelEvent informs the ChannelNotifier when
 	// channels enter a pending state.
 	NotifyPendingOpenChannelEvent func(wire.OutPoint,
-		*channeldb.OpenChannel, *btcec.PublicKey)
+		*chanstate.OpenChannel, *btcec.PublicKey)
 
 	// NotifyFundingTimeout informs the ChannelNotifier when a pending-open
 	// channel times out because the funding transaction hasn't confirmed.
@@ -811,7 +811,7 @@ func (f *Manager) Stop() error {
 
 // rebroadcastFundingTx publishes the funding tx on startup for each
 // unconfirmed channel.
-func (f *Manager) rebroadcastFundingTx(c *channeldb.OpenChannel) {
+func (f *Manager) rebroadcastFundingTx(c *chanstate.OpenChannel) {
 	var fundingTxBuf bytes.Buffer
 	err := c.FundingTxn.Serialize(&fundingTxBuf)
 	if err != nil {
@@ -1090,7 +1090,7 @@ func (f *Manager) reservationCoordinator() {
 // OpenStatusUpdates.
 //
 // NOTE: This MUST be run as a goroutine.
-func (f *Manager) advanceFundingState(channel *channeldb.OpenChannel,
+func (f *Manager) advanceFundingState(channel *chanstate.OpenChannel,
 	pendingChanID PendingChanID,
 	updateChan chan<- *lnrpc.OpenStatusUpdate) {
 
@@ -1171,7 +1171,7 @@ func (f *Manager) advanceFundingState(channel *channeldb.OpenChannel,
 // machine. This method is synchronous and the new channel opening state will
 // have been written to the database when it successfully returns. The
 // updateChan can be set non-nil to get OpenStatusUpdates.
-func (f *Manager) stateStep(channel *channeldb.OpenChannel,
+func (f *Manager) stateStep(channel *chanstate.OpenChannel,
 	lnChannel *lnwallet.LightningChannel,
 	shortChanID *lnwire.ShortChannelID, pendingChanID PendingChanID,
 	channelState channelOpeningState,
@@ -1296,7 +1296,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 
 // advancePendingChannelState waits for a pending channel's funding tx to
 // confirm, and marks it open in the database when that happens.
-func (f *Manager) advancePendingChannelState(channel *channeldb.OpenChannel,
+func (f *Manager) advancePendingChannelState(channel *chanstate.OpenChannel,
 	pendingChanID PendingChanID) error {
 
 	if channel.IsZeroConf() {
@@ -2962,7 +2962,7 @@ type confirmedChannel struct {
 // an ErrConfirmationTimeout. It is used to clean-up channel state and mark the
 // channel as closed. The error is only returned for the responder of the
 // channel flow.
-func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
+func (f *Manager) fundingTimeout(c *chanstate.OpenChannel,
 	pendingID PendingChanID) error {
 
 	// We'll get a timeout if the number of blocks mined since the channel
@@ -3039,7 +3039,7 @@ func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
 // funding broadcast height. In case of confirmation, the short channel ID of
 // the channel and the funding transaction will be returned.
 func (f *Manager) waitForFundingWithTimeout(
-	ch *channeldb.OpenChannel) (*confirmedChannel, error) {
+	ch *chanstate.OpenChannel) (*confirmedChannel, error) {
 
 	confChan := make(chan *confirmedChannel)
 	timeoutChan := make(chan error, 1)
@@ -3080,7 +3080,7 @@ func (f *Manager) waitForFundingWithTimeout(
 
 // MakeFundingScript re-creates the funding script for the funding transaction
 // of the target channel.
-func MakeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
+func MakeFundingScript(channel *chanstate.OpenChannel) ([]byte, error) {
 	localKey := channel.LocalChanCfg.MultiSigKey.PubKey
 	remoteKey := channel.RemoteChanCfg.MultiSigKey.PubKey
 
@@ -3118,7 +3118,7 @@ func MakeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
 //
 // NOTE: This MUST be run as a goroutine.
 func (f *Manager) waitForFundingConfirmation(
-	completeChan *channeldb.OpenChannel, cancelChan <-chan struct{},
+	completeChan *chanstate.OpenChannel, cancelChan <-chan struct{},
 	confChan chan<- *confirmedChannel) {
 
 	defer f.wg.Done()
@@ -3283,7 +3283,7 @@ func (f *Manager) waitForFundingConfirmation(
 // based on the confirmation details and sends this information, along with the
 // funding transaction, to the provided confirmation channel.
 func (f *Manager) handleConfirmation(confDetails *chainntnfs.TxConfirmation,
-	completeChan *channeldb.OpenChannel,
+	completeChan *chanstate.OpenChannel,
 	confChan chan<- *confirmedChannel) error {
 
 	fundingPoint := completeChan.FundingOutpoint
@@ -3318,7 +3318,7 @@ func (f *Manager) handleConfirmation(confDetails *chainntnfs.TxConfirmation,
 //
 // NOTE: timeoutChan MUST be buffered.
 // NOTE: This MUST be run as a goroutine.
-func (f *Manager) waitForTimeout(completeChan *channeldb.OpenChannel,
+func (f *Manager) waitForTimeout(completeChan *chanstate.OpenChannel,
 	cancelChan <-chan struct{}, timeoutChan chan<- error) {
 
 	defer f.wg.Done()
@@ -3390,7 +3390,7 @@ func (f *Manager) waitForTimeout(completeChan *channeldb.OpenChannel,
 // our short channel ID, which is known now that our funding transaction has
 // confirmed. We do not label transactions we did not publish, because our
 // wallet has no knowledge of them.
-func (f *Manager) makeLabelForTx(c *channeldb.OpenChannel) {
+func (f *Manager) makeLabelForTx(c *chanstate.OpenChannel) {
 	if c.IsInitiator && c.ChanType.HasFundingTx() {
 		shortChanID := c.ShortChanID()
 
@@ -3416,7 +3416,7 @@ func (f *Manager) makeLabelForTx(c *channeldb.OpenChannel) {
 // decided short channel ID to the switch, and close the local discovery signal
 // for this channel.
 func (f *Manager) handleFundingConfirmation(
-	completeChan *channeldb.OpenChannel,
+	completeChan *chanstate.OpenChannel,
 	confChannel *confirmedChannel) error {
 
 	fundingPoint := completeChan.FundingOutpoint
@@ -3495,7 +3495,7 @@ func (f *Manager) handleFundingConfirmation(
 // sendChannelReady creates and sends the channelReady message.
 // This should be called after the funding transaction has been confirmed,
 // and the channelState is 'markedOpen'.
-func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
+func (f *Manager) sendChannelReady(completeChan *chanstate.OpenChannel,
 	channel *lnwallet.LightningChannel) error {
 
 	chanID := lnwire.NewChanIDFromOutPoint(completeChan.FundingOutpoint)
@@ -3685,7 +3685,7 @@ func (f *Manager) receivedChannelReady(node *btcec.PublicKey,
 // extractAnnounceParams extracts the various channel announcement and update
 // parameters that will be needed to construct a ChannelAnnouncement and a
 // ChannelUpdate.
-func (f *Manager) extractAnnounceParams(c *channeldb.OpenChannel) (
+func (f *Manager) extractAnnounceParams(c *chanstate.OpenChannel) (
 	lnwire.MilliSatoshi, lnwire.MilliSatoshi) {
 
 	// We'll obtain the min HTLC value we can forward in our direction, as
@@ -3744,7 +3744,7 @@ func mapGossipError(err error, msgType string) error {
 // The peerAlias is used for zero-conf channels to give the counter-party a
 // ChannelUpdate they understand. ourPolicy may be set for various
 // option-scid-alias channels to re-use the same policy.
-func (f *Manager) addToGraph(completeChan *channeldb.OpenChannel,
+func (f *Manager) addToGraph(completeChan *chanstate.OpenChannel,
 	shortChanID *lnwire.ShortChannelID,
 	peerAlias *lnwire.ShortChannelID,
 	ourPolicy *models.ChannelEdgePolicy) error {
@@ -3804,7 +3804,7 @@ func (f *Manager) addToGraph(completeChan *channeldb.OpenChannel,
 // 'addedToGraph') and the channel is ready to be used. This is the last
 // step in the channel opening process, and the opening state will be deleted
 // from the database if successful.
-func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
+func (f *Manager) annAfterSixConfs(completeChan *chanstate.OpenChannel,
 	shortChanID *lnwire.ShortChannelID) error {
 
 	// If this channel is not meant to be announced to the greater network,
@@ -3954,7 +3954,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 // waitForZeroConfChannel is called when the state is addedToGraph with
 // a zero-conf channel. This will wait for the real confirmation, add the
 // confirmed SCID to the router graph, and then announce after six confs.
-func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel) error {
+func (f *Manager) waitForZeroConfChannel(c *chanstate.OpenChannel) error {
 	// First we'll check whether the channel is confirmed on-chain. If it
 	// is already confirmed, the chainntnfs subsystem will return with the
 	// confirmed tx. Otherwise, we'll wait here until confirmation occurs.
@@ -4045,7 +4045,7 @@ func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel) error {
 // genFirstStateMusigNonce generates a nonces for the "first" local state. This
 // is the verification nonce for the state created for us after the initial
 // commitment transaction signed as part of the funding flow.
-func genFirstStateMusigNonce(channel *channeldb.OpenChannel,
+func genFirstStateMusigNonce(channel *chanstate.OpenChannel,
 ) (*musig2.Nonces, error) {
 
 	musig2ShaChain, err := channeldb.DeriveMusig2Shachain(
@@ -4420,7 +4420,7 @@ func (f *Manager) processChannelReady(peer lnpeer.Peer,
 // channelReady message, once the remote's channelReady is processed, the
 // channel is now active, thus we change its state to `addedToGraph` to
 // let the channel start handling routing.
-func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
+func (f *Manager) handleChannelReadyReceived(channel *chanstate.OpenChannel,
 	scid *lnwire.ShortChannelID, pendingChanID PendingChanID,
 	updateChan chan<- *lnrpc.OpenStatusUpdate) error {
 
@@ -4516,7 +4516,7 @@ func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
 // policy set for the given channel. If we don't, we'll fall back to the default
 // values.
 func (f *Manager) ensureInitialForwardingPolicy(chanID lnwire.ChannelID,
-	channel *channeldb.OpenChannel) error {
+	channel *chanstate.OpenChannel) error {
 
 	// Before we can add the channel to the peer, we'll need to ensure that
 	// we have an initial forwarding policy set. This should always be the

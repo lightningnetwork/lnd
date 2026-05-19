@@ -3,7 +3,7 @@ package lnd
 import (
 	"testing"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -30,7 +30,7 @@ func TestWitnessBeaconIntercept(t *testing.T) {
 
 	subscription, err := p.SubscribeUpdates(
 		lnwire.NewShortChanIDFromInt(1),
-		&channeldb.HTLC{
+		&chanstate.HTLC{
 			RHash: hash,
 		},
 		&hop.Payload{},

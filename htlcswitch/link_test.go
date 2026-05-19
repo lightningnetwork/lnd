@@ -25,6 +25,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
+	cstate "github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -32,7 +33,6 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	invpkg "github.com/lightningnetwork/lnd/invoices"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -2174,7 +2174,7 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 
 	pCache := newMockPreimageCache()
 
-	aliceDb := aliceLc.channel.State().Db.GetParentDB()
+	aliceDb := testChannelStateDB(t, aliceLc.channel).GetParentDB()
 	aliceSwitch, err := initSwitchWithDB(testStartingHeight, aliceDb)
 	if err != nil {
 		return singleLinkTestHarness{}, err
@@ -2241,7 +2241,7 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 		MaxFeeAllocation:           DefaultMaxLinkFeeAllocation,
 		NotifyActiveLink:           func(wire.OutPoint) {},
 		NotifyActiveChannel:        func(wire.OutPoint) {},
-		NotifyChannelUpdate:        func(*channeldb.OpenChannel) {},
+		NotifyChannelUpdate:        func(*cstate.OpenChannel) {},
 		NotifyInactiveChannel:      func(wire.OutPoint) {},
 		NotifyInactiveLinkEvent:    func(wire.OutPoint) {},
 		HtlcNotifier:               aliceSwitch.cfg.HtlcNotifier,
@@ -4854,7 +4854,7 @@ func (h *persistentLinkHarness) restartLink(
 		pCache = newMockPreimageCache()
 	)
 
-	aliceDb := aliceChannel.State().Db.GetParentDB()
+	aliceDb := testChannelStateDB(t, aliceChannel).GetParentDB()
 	if restartSwitch {
 		var err error
 		h.hSwitch, err = initSwitchWithDB(testStartingHeight, aliceDb)
@@ -4932,7 +4932,7 @@ func (h *persistentLinkHarness) restartLink(
 		NotifyActiveChannel:        func(wire.OutPoint) {},
 		NotifyInactiveChannel:      func(wire.OutPoint) {},
 		NotifyInactiveLinkEvent:    func(wire.OutPoint) {},
-		NotifyChannelUpdate:        func(*channeldb.OpenChannel) {},
+		NotifyChannelUpdate:        func(*cstate.OpenChannel) {},
 		HtlcNotifier:               h.hSwitch.cfg.HtlcNotifier,
 		SyncStates:                 syncStates,
 		GetAliases:                 getAliases,
@@ -5769,42 +5769,14 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 	}
 }
 
-type mockPackager struct {
-	failLoadFwdPkgs bool
+type mockFailLoadFwdPkgStore struct {
+	cstate.Store
 }
 
-func (*mockPackager) AddFwdPkg(tx kvdb.RwTx, fwdPkg *channeldb.FwdPkg) error {
-	return nil
-}
+func (m *mockFailLoadFwdPkgStore) LoadFwdPkgs(
+	*cstate.OpenChannel) ([]*channeldb.FwdPkg, error) {
 
-func (*mockPackager) SetFwdFilter(tx kvdb.RwTx, height uint64,
-	fwdFilter *channeldb.PkgFilter) error {
-	return nil
-}
-
-func (*mockPackager) AckAddHtlcs(tx kvdb.RwTx,
-	addRefs ...channeldb.AddRef) error {
-	return nil
-}
-
-func (m *mockPackager) LoadFwdPkgs(tx kvdb.RTx) ([]*channeldb.FwdPkg, error) {
-	if m.failLoadFwdPkgs {
-		return nil, fmt.Errorf("failing LoadFwdPkgs")
-	}
-	return nil, nil
-}
-
-func (*mockPackager) RemovePkg(tx kvdb.RwTx, height uint64) error {
-	return nil
-}
-
-func (*mockPackager) Wipe(tx kvdb.RwTx) error {
-	return nil
-}
-
-func (*mockPackager) AckSettleFails(tx kvdb.RwTx,
-	settleFailRefs ...channeldb.SettleFailRef) error {
-	return nil
+	return nil, fmt.Errorf("failing LoadFwdPkgs")
 }
 
 // TestChannelLinkFail tests that we will fail the channel, and force close the
@@ -5880,10 +5852,10 @@ func TestChannelLinkFail(t *testing.T) {
 			func(c *channelLink) {
 				// We make the call to resolveFwdPkgs fail by
 				// making the underlying forwarder fail.
-				pkg := &mockPackager{
-					failLoadFwdPkgs: true,
+				state := c.channel.State()
+				state.Db = &mockFailLoadFwdPkgStore{
+					Store: state.Db,
 				}
-				c.channel.State().Packager = pkg
 			},
 			func(*testing.T, *Switch, *channelLink,
 				*lnwallet.LightningChannel) {

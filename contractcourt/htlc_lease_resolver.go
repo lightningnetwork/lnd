@@ -3,7 +3,7 @@ package contractcourt
 import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -76,7 +76,7 @@ func (h *htlcLeaseResolver) makeSweepInput(op *wire.OutPoint,
 // state required for the proper resolution of a contract.
 //
 // NOTE: Part of the ContractResolver interface.
-func (h *htlcLeaseResolver) SupplementState(state *channeldb.OpenChannel) {
+func (h *htlcLeaseResolver) SupplementState(state *chanstate.OpenChannel) {
 	if state.ChanType.HasLeaseExpiration() {
 		h.leaseExpiry = state.ThawHeight
 	}

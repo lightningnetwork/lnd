@@ -42,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanfitness"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
@@ -4009,7 +4010,7 @@ type (
 // 1. The current blockchain height
 // 2. The block height at which the funding transaction was first confirmed
 // 3. The total number of confirmations required for the channel.
-func calcRemainingConfs(pendingChan *channeldb.OpenChannel,
+func calcRemainingConfs(pendingChan *chanstate.OpenChannel,
 	currentHeight uint32) uint32 {
 
 	// If the funding transaction hasn't been confirmed yet,
@@ -4314,7 +4315,7 @@ func (r *rpcServer) fetchWaitingCloseChannels(
 	// getClosingTx is a helper closure that tries to find the closing tx of
 	// a given waiting close channel. Notice that if the remote closes the
 	// channel, we may not have the closing tx.
-	getClosingTx := func(c *channeldb.OpenChannel) (*wire.MsgTx, error) {
+	getClosingTx := func(c *chanstate.OpenChannel) (*wire.MsgTx, error) {
 		var (
 			tx  *wire.MsgTx
 			err error
@@ -4954,7 +4955,7 @@ func createChannelConstraint(
 
 // isPrivate evaluates the ChannelFlags of the db channel to determine if the
 // channel is private or not.
-func isPrivate(dbChannel *channeldb.OpenChannel) bool {
+func isPrivate(dbChannel *chanstate.OpenChannel) bool {
 	if dbChannel == nil {
 		return false
 	}
@@ -4963,7 +4964,7 @@ func isPrivate(dbChannel *channeldb.OpenChannel) bool {
 
 // encodeCustomChanData encodes the custom channel data for the open channel.
 // It encodes that data as a pair of var bytes blobs.
-func encodeCustomChanData(lnChan *channeldb.OpenChannel) ([]byte, error) {
+func encodeCustomChanData(lnChan *chanstate.OpenChannel) ([]byte, error) {
 	customOpenChanData := lnChan.CustomBlob.UnwrapOr(nil)
 	customLocalCommitData := lnChan.LocalCommitment.CustomBlob.UnwrapOr(nil)
 
@@ -4994,7 +4995,7 @@ func encodeCustomChanData(lnChan *channeldb.OpenChannel) ([]byte, error) {
 //
 //nolint:funlen
 func createRPCOpenChannel(ctx context.Context, r *rpcServer,
-	dbChannel *channeldb.OpenChannel,
+	dbChannel *chanstate.OpenChannel,
 	isActive, peerAliasLookup bool) (*lnrpc.Channel, error) {
 
 	nodePub := dbChannel.IdentityPub

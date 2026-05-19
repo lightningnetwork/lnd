@@ -5,7 +5,7 @@ require (
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344
 	github.com/andybalholm/brotli v1.0.4
 	github.com/btcsuite/btcd v0.25.1-0.20260310163610-1c55c7c18179
-	github.com/btcsuite/btcd/btcec/v2 v2.3.6
+	github.com/btcsuite/btcd/btcec/v2 v2.4.0
 	github.com/btcsuite/btcd/btcutil v1.1.6
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.10
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0

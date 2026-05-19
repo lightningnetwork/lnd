@@ -951,42 +951,9 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 
 	// We need to add witness information for all inputs! Otherwise, we'll
 	// have a problem when attempting to sign a taproot input!
-	for idx := range packet.Inputs {
-		// Skip the input we're signing for, that will get a special
-		// treatment later on.
-		if idx == signDesc.InputIndex {
-			continue
-		}
-
-		txIn := tx.TxIn[idx]
-		info, err := r.WalletController.FetchOutpointInfo(
-			&txIn.PreviousOutPoint,
-		)
-		if err != nil {
-			// Maybe we have an UTXO in the previous output fetcher?
-			if signDesc.PrevOutputFetcher != nil {
-				utxo := signDesc.PrevOutputFetcher.FetchPrevOutput(
-					txIn.PreviousOutPoint,
-				)
-				if utxo != nil && utxo.Value != 0 &&
-					len(utxo.PkScript) > 0 {
-
-					packet.Inputs[idx].WitnessUtxo = utxo
-					continue
-				}
-			}
-
-			log.Warnf("No UTXO info found for index %d "+
-				"(prev_outpoint=%v), won't be able to sign "+
-				"for taproot output!", idx,
-				txIn.PreviousOutPoint)
-			continue
-		}
-		packet.Inputs[idx].WitnessUtxo = &wire.TxOut{
-			Value:    int64(info.Value),
-			PkScript: info.PkScript,
-		}
-	}
+	populateNonSignedInputWitnessUtxos(
+		packet, tx, signDesc, r.WalletController.FetchOutpointInfo,
+	)
 
 	// Catch incorrect signing input index, just in case.
 	if signDesc.InputIndex < 0 || signDesc.InputIndex >= len(packet.Inputs) {
@@ -1370,6 +1337,72 @@ func connectRPC(hostPort, tlsCertPath, macaroonPath string,
 	}
 
 	return conn, nil
+}
+
+// fetchOutpointInfoFn looks up the wallet's local knowledge of an outpoint.
+// Mirrors lnwallet.WalletController.FetchOutpointInfo so the helper below can
+// be exercised in unit tests without standing up a full wallet.
+type fetchOutpointInfoFn func(*wire.OutPoint) (*lnwallet.Utxo, error)
+
+// populateNonSignedInputWitnessUtxos walks every non-signed PSBT input and
+// fills in its WitnessUtxo. The signing path that ultimately ships this PSBT
+// to the remote signer is walletkit.SignPsbt, which rejects any PSBT that
+// has an input without a WitnessUtxo or NonWitnessUtxo set — even when the
+// remote signer is only being asked to sign one of the inputs — because
+// taproot sighash computation requires all prev outputs.
+//
+// Resolution order for each non-signed input:
+//
+//  1. fetchInfo (the local wallet's knowledge of the outpoint).
+//  2. signDesc.PrevOutputFetcher, when the local wallet does not own or
+//     track the outpoint (e.g. funding-flow channel TXs that haven't been
+//     published yet, or BIP-322 virtual to_spend outputs).
+//
+// A zero Value is accepted from the fetcher. BIP-322 mandates that the
+// to_spend output is exactly value=0 with the message commitment as
+// pk_script, and that output is referenced as input 0 of every BIP-322
+// to_sign transaction. Refusing zero-value fetched outputs would silently
+// leave that input's WitnessUtxo unpopulated, causing walletkit.SignPsbt
+// to later reject the resulting PSBT with "input (index=N) doesn't specify
+// any UTXO info".
+func populateNonSignedInputWitnessUtxos(packet *psbt.Packet, tx *wire.MsgTx,
+	signDesc *input.SignDescriptor, fetchInfo fetchOutpointInfoFn) {
+
+	for idx := range packet.Inputs {
+		// Skip the input we're signing for, that will get a special
+		// treatment by the caller.
+		if idx == signDesc.InputIndex {
+			continue
+		}
+
+		txIn := tx.TxIn[idx]
+		info, err := fetchInfo(&txIn.PreviousOutPoint)
+		if err != nil {
+			// The wallet doesn't know about this outpoint. Fall
+			// back to the caller-supplied PrevOutputFetcher.
+			if signDesc.PrevOutputFetcher != nil {
+				fetcher := signDesc.PrevOutputFetcher
+				utxo := fetcher.FetchPrevOutput(
+					txIn.PreviousOutPoint,
+				)
+				if utxo != nil && len(utxo.PkScript) > 0 {
+					packet.Inputs[idx].WitnessUtxo = utxo
+					continue
+				}
+			}
+
+			log.Warnf("No UTXO info found for index %d "+
+				"(prev_outpoint=%v), won't be able to sign "+
+				"for taproot output!", idx,
+				txIn.PreviousOutPoint)
+
+			continue
+		}
+		packet.Inputs[idx].WitnessUtxo = &wire.TxOut{
+			Value:    int64(info.Value),
+			PkScript: info.PkScript,
+		}
+	}
 }
 
 // packetFromTx creates a PSBT from a tx that potentially already contains

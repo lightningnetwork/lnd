@@ -4000,9 +4000,13 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 				// update to the client.
 				closingTxid := closeState.ConfirmedTx.TxHash()
 				if closeReq != nil {
+					//nolint:ll
 					closeReq.Updates <- &ChannelCloseUpdate{
-						ClosingTxid: closingTxid[:],
-						Success:     true,
+						ClosingTxid:       closingTxid[:],
+						Success:           true,
+						LocalCloseOutput:  closeState.LocalCloseOutput,
+						RemoteCloseOutput: closeState.RemoteCloseOutput,
+						AuxOutputs:        closeState.AuxOutputs,
 					}
 				}
 				chanID := lnwire.NewChanIDFromOutPoint(
@@ -4232,11 +4236,22 @@ func (p *Brontide) initRbfChanCloser(
 			return p.genDeliveryScript()
 		},
 		FeeEstimator: &chancloser.SimpleCoopFeeEstimator{},
+		AuxCloser:    p.cfg.AuxChanCloser,
+		FundingBlob:  channel.FundingBlob(),
+		CommitBlob:   channel.LocalCommitmentBlob(),
+		CommitFee:    channel.CommitFee(),
+		Initiator:    channel.IsInitiator(),
 		CloseSigner:  channel,
 		ChanObserver: newChanObserver(
 			channel, link, p.cfg.ChanStatusMgr,
 		),
 	}
+
+	_, dustAmt := channel.LocalBalanceDust()
+	env.DustLimit = dustAmt
+
+	localBalance, _ := channel.CommitBalances()
+	env.Amt = localBalance
 
 	// For taproot channels, we need to set both LocalMusigSession and
 	// RemoteMusigSession to handle nonce exchange during RBF cooperative
@@ -4245,6 +4260,20 @@ func (p *Brontide) initRbfChanCloser(
 		env.LocalMusigSession = NewMusigChanCloser(channel)
 		env.RemoteMusigSession = NewMusigChanCloser(channel)
 	}
+
+	shutdownAddr, err := env.LocalUpfrontShutdown.UnwrapOrFuncErr(
+		env.NewDeliveryScript,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	addrWithInternalKey, err := p.addrWithInternalKey(shutdownAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	env.LocalInternalKey = addrWithInternalKey.InternalKey
 
 	spendEvent := protofsm.RegisterSpend[chancloser.ProtocolEvent]{
 		OutPoint:   channel.ChannelPoint(),

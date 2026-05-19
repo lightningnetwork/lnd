@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/protofsm"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -42,6 +43,25 @@ var (
 		[]byte{txscript.OP_1, txscript.OP_DATA_32},
 		bytes.Repeat([]byte{0x02}, 32)...,
 	))
+
+	localCustomRecords = lnwire.CustomRecords{
+		0: []byte("local"),
+	}
+	remoteCustomRecords = lnwire.CustomRecords{
+		1: []byte("remote"),
+	}
+
+	expectedAuxOutputs = lnwallet.CloseOutput{
+		TxOut: wire.TxOut{
+			Value: 50_000,
+			PkScript: []byte{
+				0x00, 0x14, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+				0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+				0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+			},
+		},
+		IsLocal: false,
+	}
 
 	localSigBytes = fromHex("3045022100cd496f2ab4fe124f977ffe3caa09f757" +
 		"6d8a34156b4e55d326b4dffc0399a094022013500a0510b5094bff220c7" +
@@ -544,6 +564,10 @@ func (r *rbfCloserTestHarness) assertLocalClosePending() {
 	require.True(r.T, ok)
 
 	require.Equal(r.T, closeTx, closePendingState.CloseTx)
+
+	require.Contains(r.T,
+		closePendingState.AuxOutputs.UnsafeFromSome().ExtraCloseOutputs,
+		expectedAuxOutputs)
 }
 
 type dustExpectation uint
@@ -720,6 +744,10 @@ func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 		// For non-taproot channels, we expect the exact ECDSA signature
 		require.Equal(r.T, localSigWire, offerSentState.LocalSig)
 	}
+
+	require.Contains(r.T,
+		offerSentState.AuxOutputs.UnsafeFromSome().ExtraCloseOutputs,
+		expectedAuxOutputs)
 }
 
 func (r *rbfCloserTestHarness) assertSingleRbfIteration(
@@ -875,6 +903,10 @@ func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 	// The proposed fee, as well as our local signature should be properly
 	// stashed in the state.
 	require.Equal(r.T, closeTx, pendingState.CloseTx)
+
+	require.Contains(r.T,
+		pendingState.AuxOutputs.UnsafeFromSome().ExtraCloseOutputs,
+		expectedAuxOutputs)
 }
 
 // TestSelectTaprootPartialSigWithNonce tests the selection logic for taproot
@@ -942,6 +974,46 @@ func assertStateT[T ProtocolState](h *rbfCloserTestHarness) T {
 	return currentState
 }
 
+type mockAuxChanCloser struct{}
+
+func (m *mockAuxChanCloser) ShutdownBlob(
+	req types.AuxShutdownReq,
+) (fn.Option[lnwire.CustomRecords], error) {
+
+	return fn.Some[lnwire.CustomRecords](localCustomRecords), nil
+}
+
+func (m *mockAuxChanCloser) AuxCloseOutputs(
+	desc types.AuxCloseDesc) (fn.Option[AuxCloseOutputs], error) {
+
+	return fn.Some[AuxCloseOutputs](
+		AuxCloseOutputs{
+			ExtraCloseOutputs: []lnwallet.CloseOutput{
+				{
+					TxOut: wire.TxOut{
+						Value: 50_000,
+						PkScript: []byte{
+							0x00, 0x14, 0x11, 0x11,
+							0x11, 0x11, 0x11, 0x11,
+							0x11, 0x11, 0x11, 0x11,
+							0x11, 0x11, 0x11, 0x11,
+							0x11, 0x11, 0x11, 0x11,
+							0x11, 0x11,
+						},
+					},
+					IsLocal: desc.Initiator,
+				},
+			},
+		},
+	), nil
+}
+
+func (m *mockAuxChanCloser) FinalizeClose(desc types.AuxCloseDesc,
+	closeTx *wire.MsgTx) error {
+
+	return nil
+}
+
 // newRbfCloserTestHarness creates a new test harness for the RBF closer.
 func newRbfCloserTestHarness(t *testing.T,
 	cfg *harnessCfg) *rbfCloserTestHarness {
@@ -994,8 +1066,10 @@ func newRbfCloserTestHarness(t *testing.T,
 		LocalUpfrontShutdown:  cfg.localUpfrontAddr,
 		NewDeliveryScript:     harness.newAddrFunc,
 		FeeEstimator:          feeEstimator,
-		ChanObserver:          mockObserver,
-		CloseSigner:           mockSigner,
+		AuxCloser: fn.Some[AuxChanCloser](
+			&mockAuxChanCloser{}),
+		ChanObserver: mockObserver,
+		CloseSigner:  mockSigner,
 	}
 
 	// If musig sessions are provided, we set them in the environment.
@@ -1075,6 +1149,10 @@ func testInitiatorShutdownRecvOkNonTap(t *testing.T, ctx context.Context,
 			LocalDeliveryScript:  localAddr,
 			RemoteDeliveryScript: remoteAddr,
 		}
+		firstState.ShutdownCustomRecords = ShutdownCustomRecords{
+			LocalCustomRecords:  localCustomRecords,
+			RemoteCustomRecords: remoteCustomRecords,
+		}
 
 		cfg := &harnessCfg{
 			initialState: fn.Some[ProtocolState](
@@ -1095,6 +1173,7 @@ func testInitiatorShutdownRecvOkNonTap(t *testing.T, ctx context.Context,
 		// Create shutdown event.
 		shutdownEvent := &ShutdownReceived{
 			ShutdownScript: remoteAddr,
+			CustomRecords:  remoteCustomRecords,
 		}
 
 		// We'll send in a shutdown received event, with the expected
@@ -1114,6 +1193,16 @@ func testInitiatorShutdownRecvOkNonTap(t *testing.T, ctx context.Context,
 		require.Equal(
 			t, remoteAddr, currentState.RemoteDeliveryScript,
 		)
+
+		require.Equal(
+			t, localCustomRecords, currentState.LocalCustomRecords,
+		)
+		require.Equal(
+			t,
+			remoteCustomRecords,
+			currentState.RemoteCustomRecords,
+		)
+
 		require.Equal(
 			t, firstState.IdealFeeRate, currentState.IdealFeeRate,
 		)
@@ -1133,6 +1222,10 @@ func testInitiatorShutdownRecvOkTaproot(t *testing.T, ctx context.Context,
 		firstState.ShutdownScripts = ShutdownScripts{
 			LocalDeliveryScript:  localAddr,
 			RemoteDeliveryScript: remoteAddr,
+		}
+		firstState.ShutdownCustomRecords = ShutdownCustomRecords{
+			LocalCustomRecords:  localCustomRecords,
+			RemoteCustomRecords: remoteCustomRecords,
 		}
 
 		localCloseeNonce := lnwire.Musig2Nonce{1, 2, 3}
@@ -1171,6 +1264,7 @@ func testInitiatorShutdownRecvOkTaproot(t *testing.T, ctx context.Context,
 		// Create shutdown event with nonce for taproot channel.
 		shutdownEvent := &ShutdownReceived{
 			ShutdownScript: remoteAddr,
+			CustomRecords:  remoteCustomRecords,
 			RemoteShutdownNonce: fn.Some(
 				remoteCloseeNonce,
 			),
@@ -1193,6 +1287,16 @@ func testInitiatorShutdownRecvOkTaproot(t *testing.T, ctx context.Context,
 		require.Equal(
 			t, remoteAddr, currentState.RemoteDeliveryScript,
 		)
+
+		require.Equal(
+			t, localCustomRecords, currentState.LocalCustomRecords,
+		)
+		require.Equal(
+			t,
+			remoteCustomRecords,
+			currentState.RemoteCustomRecords,
+		)
+
 		require.Equal(
 			t, firstState.IdealFeeRate, currentState.IdealFeeRate,
 		)
@@ -1260,6 +1364,7 @@ func testRemoteInitiatedCloseOkNonTap(t *testing.T, ctx context.Context) {
 		// Create shutdown event.
 		shutdownEvent := &ShutdownReceived{
 			ShutdownScript: remoteAddr,
+			CustomRecords:  remoteCustomRecords,
 		}
 
 		// Next, we'll emit the recv event, with the addr of the remote
@@ -1279,6 +1384,15 @@ func testRemoteInitiatedCloseOkNonTap(t *testing.T, ctx context.Context) {
 		require.Equal(
 			t, remoteAddr,
 			currentState.ShutdownScripts.RemoteDeliveryScript,
+		)
+
+		require.Equal(
+			t, localCustomRecords, currentState.LocalCustomRecords,
+		)
+		require.Equal(
+			t,
+			remoteCustomRecords,
+			currentState.RemoteCustomRecords,
 		)
 	})
 }
@@ -1318,6 +1432,7 @@ func testRemoteInitiatedCloseOkTaproot(t *testing.T, ctx context.Context) {
 		// Create shutdown event with nonce for taproot channel.
 		shutdownEvent := &ShutdownReceived{
 			ShutdownScript: remoteAddr,
+			CustomRecords:  remoteCustomRecords,
 			RemoteShutdownNonce: fn.Some(
 				remoteCloseeNonce,
 			),
@@ -1340,6 +1455,15 @@ func testRemoteInitiatedCloseOkTaproot(t *testing.T, ctx context.Context) {
 		require.Equal(
 			t, remoteAddr,
 			currentState.ShutdownScripts.RemoteDeliveryScript,
+		)
+
+		require.Equal(
+			t, localCustomRecords, currentState.LocalCustomRecords,
+		)
+		require.Equal(
+			t,
+			remoteCustomRecords,
+			currentState.RemoteCustomRecords,
 		)
 
 		// Verify nonce state was set with remote's closee nonce.
@@ -1444,6 +1568,10 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 			t, localAddr,
 			currentState.ShutdownScripts.LocalDeliveryScript,
 		)
+		require.Equal(
+			t, localCustomRecords,
+			currentState.ShutdownCustomRecords.LocalCustomRecords,
+		)
 
 		// Wait till the msg has been sent to assert our expectations.
 		//
@@ -1502,6 +1630,7 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 		// shutdown nonce. This should result in an error.
 		shutdownEvent := &ShutdownReceived{
 			ShutdownScript:      remoteAddr,
+			CustomRecords:       remoteCustomRecords,
 			RemoteShutdownNonce: fn.None[lnwire.Musig2Nonce](),
 		}
 		closeHarness.sendEventAndExpectFailure(
@@ -1559,6 +1688,7 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 		// should result in an error.
 		event := &ShutdownReceived{
 			ShutdownScript: localAddr,
+			CustomRecords:  localCustomRecords,
 		}
 
 		closeHarness.sendEventAndExpectFailure(
@@ -1585,6 +1715,10 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 		firstState.ShutdownScripts = ShutdownScripts{
 			LocalDeliveryScript:  localAddr,
 			RemoteDeliveryScript: remoteAddr,
+		}
+		firstState.ShutdownCustomRecords = ShutdownCustomRecords{
+			LocalCustomRecords:  localCustomRecords,
+			RemoteCustomRecords: remoteCustomRecords,
 		}
 
 		// Set up taproot channel with nonce state
@@ -1618,6 +1752,7 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 		// should fail.
 		shutdownEvent := &ShutdownReceived{
 			ShutdownScript:      remoteAddr,
+			CustomRecords:       remoteCustomRecords,
 			RemoteShutdownNonce: fn.None[lnwire.Musig2Nonce](),
 		}
 		closeHarness.sendEventAndExpectFailure(
@@ -1637,6 +1772,10 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 		firstState.ShutdownScripts = ShutdownScripts{
 			LocalDeliveryScript:  localAddr,
 			RemoteDeliveryScript: remoteAddr,
+		}
+		firstState.ShutdownCustomRecords = ShutdownCustomRecords{
+			LocalCustomRecords:  localCustomRecords,
+			RemoteCustomRecords: remoteCustomRecords,
 		}
 
 		closeHarness := newCloser(t, &harnessCfg{
@@ -1668,6 +1807,10 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 		firstState.ShutdownScripts = ShutdownScripts{
 			LocalDeliveryScript:  localAddr,
 			RemoteDeliveryScript: remoteAddr,
+		}
+		firstState.ShutdownCustomRecords = ShutdownCustomRecords{
+			LocalCustomRecords:  localCustomRecords,
+			RemoteCustomRecords: remoteCustomRecords,
 		}
 
 		closeHarness := newCloser(t, &harnessCfg{
@@ -1715,6 +1858,10 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 		firstState.ShutdownScripts = ShutdownScripts{
 			LocalDeliveryScript:  localAddr,
 			RemoteDeliveryScript: remoteAddr,
+		}
+		firstState.ShutdownCustomRecords = ShutdownCustomRecords{
+			LocalCustomRecords:  localCustomRecords,
+			RemoteCustomRecords: remoteCustomRecords,
 		}
 
 		closeHarness := newCloser(t, &harnessCfg{
@@ -1775,6 +1922,10 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 		ShutdownScripts: ShutdownScripts{
 			LocalDeliveryScript:  localAddr,
 			RemoteDeliveryScript: remoteAddr,
+		},
+		ShutdownCustomRecords: ShutdownCustomRecords{
+			LocalCustomRecords:  localCustomRecords,
+			RemoteCustomRecords: remoteCustomRecords,
 		},
 	}
 
@@ -2320,6 +2471,10 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 			LocalDeliveryScript:  localAddr,
 			RemoteDeliveryScript: remoteAddr,
 		},
+		ShutdownCustomRecords: ShutdownCustomRecords{
+			LocalCustomRecords:  localCustomRecords,
+			RemoteCustomRecords: remoteCustomRecords,
+		},
 	}
 	startingState := &ClosingNegotiation{
 		PeerState: lntypes.Dual[AsymmetricPeerState]{
@@ -2666,6 +2821,10 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 			LocalDeliveryScript:  localAddr,
 			RemoteDeliveryScript: remoteAddr,
 		},
+		ShutdownCustomRecords: ShutdownCustomRecords{
+			LocalCustomRecords:  localCustomRecords,
+			RemoteCustomRecords: remoteCustomRecords,
+		},
 	}
 	startingState := &ClosingNegotiation{
 		PeerState: lntypes.Dual[AsymmetricPeerState]{
@@ -2939,6 +3098,10 @@ func TestRbfCloseErr(t *testing.T) {
 			LocalDeliveryScript:  localAddr,
 			RemoteDeliveryScript: remoteAddr,
 		},
+		ShutdownCustomRecords: ShutdownCustomRecords{
+			LocalCustomRecords:  localCustomRecords,
+			RemoteCustomRecords: remoteCustomRecords,
+		},
 	}
 	startingState := &ClosingNegotiation{
 		PeerState: lntypes.Dual[AsymmetricPeerState]{
@@ -3064,6 +3227,7 @@ func TestTaprootNonceHandling(t *testing.T) {
 	remoteNonce := generateTestNonce(t)
 	shutdownEvent := &ShutdownReceived{
 		ShutdownScript: remoteAddr,
+		CustomRecords:  remoteCustomRecords,
 		BlockHeight:    100,
 		RemoteShutdownNonce: fn.Some(lnwire.Musig2Nonce(
 			remoteNonce.PubNonce,
@@ -3103,6 +3267,10 @@ func TestNextCloseeNonceStorageFromClosingSig(t *testing.T) {
 		ShutdownScripts: ShutdownScripts{
 			LocalDeliveryScript:  localAddr,
 			RemoteDeliveryScript: remoteAddr,
+		},
+		ShutdownCustomRecords: ShutdownCustomRecords{
+			LocalCustomRecords:  localCustomRecords,
+			RemoteCustomRecords: remoteCustomRecords,
 		},
 		NonceState: NonceState{
 			LocalCloseeNonce:  fn.Some(lnwire.Musig2Nonce{1, 2, 3}),
@@ -3275,6 +3443,10 @@ func TestLocalOfferSentUsesStoredSig(t *testing.T) {
 		ShutdownScripts: ShutdownScripts{
 			LocalDeliveryScript:  localAddr,
 			RemoteDeliveryScript: remoteAddr,
+		},
+		ShutdownCustomRecords: ShutdownCustomRecords{
+			LocalCustomRecords:  localCustomRecords,
+			RemoteCustomRecords: remoteCustomRecords,
 		},
 		NonceState: NonceState{
 			LocalCloseeNonce: fn.Some(lnwire.Musig2Nonce{1, 2, 3}),

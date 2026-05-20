@@ -455,32 +455,16 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 }
 
 // implicitNegotiateCommitmentType negotiates the commitment type of a channel
-// implicitly by choosing the latest type supported by the local and remote
-// features.
+// implicitly by choosing the latest non-taproot type supported by the local and
+// remote features. Taproot channels must be requested explicitly, keeping
+// implicit opens on channel types that can be used for both public and private
+// channels.
+//
+// TODO(yy): Revisit implicit taproot negotiation once public taproot channel
+// announcements are supported.
 func implicitNegotiateCommitmentType(local,
 	remote *lnwire.FeatureVector) (*lnwire.ChannelType,
 	lnwallet.CommitmentType) {
-
-	// Taproot channels are checked before anchors intentionally: when both
-	// peers support taproot, we prefer the newer channel type. Production
-	// (final) feature bits take priority over staging bits.
-	if hasFeatures(local, remote, lnwire.SimpleTaprootChannelsOptionalFinal) { //nolint:ll
-		chanType := lnwire.ChannelType(*lnwire.NewRawFeatureVector(
-			lnwire.SimpleTaprootChannelsRequiredFinal,
-		))
-
-		return &chanType, lnwallet.CommitmentTypeSimpleTaprootFinal
-	}
-
-	// If both peers are signalling support for simple taproot channels with
-	// staging feature bits, use those.
-	if hasFeatures(local, remote, lnwire.SimpleTaprootChannelsOptionalStaging) { //nolint:ll
-		chanType := lnwire.ChannelType(*lnwire.NewRawFeatureVector(
-			lnwire.SimpleTaprootChannelsRequiredStaging,
-		))
-
-		return &chanType, lnwallet.CommitmentTypeSimpleTaproot
-	}
 
 	// If both peers are signalling support for anchor commitments with
 	// zero-fee HTLC transactions, we'll use this type.

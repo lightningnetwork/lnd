@@ -432,33 +432,36 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			expectsErr: errUnsupportedChannelType,
 		},
 
-		// Test cases for implicit negotiation preferring
-		// final over staging.
+		// Test cases for implicit negotiation ignoring taproot feature
+		// bits. Taproot channels require an explicit channel type.
 		{
-			name: "implicit final taproot preferred " +
-				"over staging",
+			//nolint:ll
+			name:            "implicit anchors preferred over taproot",
 			channelFeatures: nil,
 			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
 				lnwire.SimpleTaprootChannelsOptionalFinal,
 				lnwire.SimpleTaprootChannelsOptionalStaging,
 				lnwire.ExplicitChannelTypeOptional,
 			),
 			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.AnchorsZeroFeeHtlcTxOptional,
 				lnwire.SimpleTaprootChannelsOptionalFinal,
 				lnwire.SimpleTaprootChannelsOptionalStaging,
 				lnwire.ExplicitChannelTypeOptional,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal, //nolint:ll
+			expectsCommitType: lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx, //nolint:ll
 			expectsChanType: (*lnwire.ChannelType)(
 				lnwire.NewRawFeatureVector(
-					lnwire.SimpleTaprootChannelsRequiredFinal, //nolint:ll
+					lnwire.StaticRemoteKeyRequired,
+					lnwire.AnchorsZeroFeeHtlcTxRequired,
 				),
 			),
 			expectsErr: nil,
 		},
 		{
-			name: "implicit staging taproot when final " +
-				"not supported",
+			//nolint:ll
+			name:            "implicit ignores staging taproot without anchors",
 			channelFeatures: nil,
 			localFeatures: lnwire.NewRawFeatureVector(
 				lnwire.SimpleTaprootChannelsOptionalFinal,
@@ -469,16 +472,15 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.SimpleTaprootChannelsOptionalStaging,
 				lnwire.ExplicitChannelTypeOptional,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeSimpleTaproot,
+			expectsCommitType: lnwallet.CommitmentTypeLegacy,
 			expectsChanType: (*lnwire.ChannelType)(
-				lnwire.NewRawFeatureVector(
-					lnwire.SimpleTaprootChannelsRequiredStaging, //nolint:ll
-				),
+				lnwire.NewRawFeatureVector(),
 			),
 			expectsErr: nil,
 		},
 		{
-			name:            "implicit final taproot only",
+			//nolint:ll
+			name:            "implicit ignores final taproot without anchors",
 			channelFeatures: nil,
 			localFeatures: lnwire.NewRawFeatureVector(
 				lnwire.SimpleTaprootChannelsOptionalFinal,
@@ -488,11 +490,9 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.SimpleTaprootChannelsOptionalFinal,
 				lnwire.ExplicitChannelTypeOptional,
 			),
-			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal, //nolint:ll
+			expectsCommitType: lnwallet.CommitmentTypeLegacy,
 			expectsChanType: (*lnwire.ChannelType)(
-				lnwire.NewRawFeatureVector(
-					lnwire.SimpleTaprootChannelsRequiredFinal, //nolint:ll
-				),
+				lnwire.NewRawFeatureVector(),
 			),
 			expectsErr: nil,
 		},

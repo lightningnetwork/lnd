@@ -99,6 +99,10 @@
   RBF close state machine does not yet thread through the `AuxCloser` hook
   that overlay channels rely on to build aux-aware close transactions.
 
+* [Fixed `EstimateRouteFee`](https://github.com/lightningnetwork/lnd/pull/10771)
+  to use independent probe payment hashes when probing multiple LSPs, preventing
+  later probes from reusing the first probe's CLTV delta.
+
 # New Features
 
 - [Basic Support](https://github.com/lightningnetwork/lnd/pull/9868) for onion

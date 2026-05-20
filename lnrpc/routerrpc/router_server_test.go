@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
@@ -763,4 +766,136 @@ func TestPrepareLspRouteHints(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "no public LSP nodes found")
 	})
+}
+
+// TestProbePaymentRequestUsesUniqueHashPerLSP verifies that each LSP probe is
+// isolated from the other probes by using a distinct payment hash.
+func TestProbePaymentRequestUsesUniqueHashPerLSP(t *testing.T) {
+	// Arrange: create three public LSPs and an invoice whose private
+	// destination can be reached through any of them.
+	destPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	bobPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	bobPubKey := bobPrivKey.PubKey()
+
+	evePrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	evePubKey := evePrivKey.PubKey()
+
+	davePrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	davePubKey := davePrivKey.PubKey()
+
+	bobVertex := route.NewVertex(bobPubKey)
+	eveVertex := route.NewVertex(evePubKey)
+	daveVertex := route.NewVertex(davePubKey)
+
+	publicNodes := map[route.Vertex]struct{}{
+		bobVertex:  {},
+		eveVertex:  {},
+		daveVertex: {},
+	}
+	hasNode := func(nodePub route.Vertex) (bool, error) {
+		_, ok := publicNodes[nodePub]
+
+		return ok, nil
+	}
+
+	server := &Server{
+		cfg: &Config{
+			RouterBackend: &RouterBackend{
+				ActiveNetParams: &chaincfg.RegressionNetParams,
+				HasNode:         hasNode,
+			},
+		},
+	}
+
+	lspHint := func(pubKey *btcec.PublicKey, chanID uint64,
+		cltv uint16) zpay32.HopHint {
+
+		return zpay32.HopHint{
+			NodeID:                    pubKey,
+			ChannelID:                 chanID,
+			FeeBaseMSat:               uint32(chanID * 1_000),
+			FeeProportionalMillionths: uint32(chanID),
+			CLTVExpiryDelta:           cltv,
+		}
+	}
+
+	bobHint := lspHint(bobPubKey, 1, 100)
+	eveHint := lspHint(evePubKey, 2, 200)
+	daveHint := lspHint(davePubKey, 3, 120)
+
+	var paymentHash [32]byte
+	paymentHash[0] = 1
+	invoice, err := zpay32.NewInvoice(
+		&chaincfg.RegressionNetParams, paymentHash, time.Unix(1, 0),
+		zpay32.Amount(lnwire.MilliSatoshi(100_000)),
+		zpay32.Description("multi lsp probe"),
+		zpay32.Destination(destPrivKey.PubKey()),
+		zpay32.RouteHint([]zpay32.HopHint{bobHint}),
+		zpay32.RouteHint([]zpay32.HopHint{eveHint}),
+		zpay32.RouteHint([]zpay32.HopHint{daveHint}),
+	)
+	require.NoError(t, err)
+
+	signer := zpay32.MessageSigner{
+		SignCompact: func(msg []byte) ([]byte, error) {
+			hash := chainhash.HashB(msg)
+
+			return ecdsa.SignCompact(destPrivKey, hash, true), nil
+		},
+	}
+	payReq, err := invoice.Encode(signer)
+	require.NoError(t, err)
+
+	seenHashes := make(map[[32]byte]struct{})
+	probedDests := make(map[route.Vertex]struct{})
+	expectedCltv := map[route.Vertex]int32{
+		bobVertex:  int32(bobHint.CLTVExpiryDelta),
+		eveVertex:  int32(eveHint.CLTVExpiryDelta),
+		daveVertex: int32(daveHint.CLTVExpiryDelta),
+	}
+
+	sendProbe := func(_ context.Context,
+		req *SendPaymentRequest) (*RouteFeeResponse, error) {
+
+		require.Len(t, req.PaymentHash, 32)
+
+		var reqHash [32]byte
+		copy(reqHash[:], req.PaymentHash)
+		_, hashExists := seenHashes[reqHash]
+		require.False(t, hashExists, "reused payment hash")
+		seenHashes[reqHash] = struct{}{}
+
+		var dest route.Vertex
+		copy(dest[:], req.Dest)
+		probedDests[dest] = struct{}{}
+
+		require.Equal(t, expectedCltv[dest], req.FinalCltvDelta)
+
+		return &RouteFeeResponse{
+			RoutingFeeMsat: int64(req.FinalCltvDelta),
+			TimeLockDelay:  int64(req.FinalCltvDelta),
+			FailureReason: lnrpc.
+				PaymentFailureReason_FAILURE_REASON_NONE,
+		}, nil
+	}
+
+	// Act: estimate the route fee with a stubbed probe sender that records
+	// the generated per-LSP probe requests.
+	_, err = server.probePaymentRequestWithSender(
+		t.Context(), payReq, 1, sendProbe,
+	)
+
+	// Assert: all LSPs were probed, each probe had a unique payment hash,
+	// and the probe request kept the CLTV delta for its target LSP.
+	require.NoError(t, err)
+	require.Len(t, seenHashes, MaxLspsToProbe)
+	require.Len(t, probedDests, MaxLspsToProbe)
+	require.Contains(t, probedDests, bobVertex)
+	require.Contains(t, probedDests, eveVertex)
+	require.Contains(t, probedDests, daveVertex)
 }

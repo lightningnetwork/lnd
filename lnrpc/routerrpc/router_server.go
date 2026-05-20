@@ -517,6 +517,25 @@ func (s *Server) probeDestination(dest []byte, amtSat int64,
 func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 	timeout uint32, outgoingChanIDs []uint64) (*RouteFeeResponse, error) {
 
+	return s.probePaymentRequestWithSender(
+		ctx, paymentRequest, timeout, s.sendProbePayment,
+	)
+}
+
+// probePaymentSender dispatches a probe payment request and returns the
+// resulting fee estimate. It exists as a test seam so tests can inject a stub
+// sender and inspect generated probe requests without running the payment
+// lifecycle.
+type probePaymentSender func(context.Context,
+	*SendPaymentRequest) (*RouteFeeResponse, error)
+
+// probePaymentRequestWithSender contains the implementation of
+// probePaymentRequest. The sender is injected so tests can inspect generated
+// probe requests without invoking the full payment lifecycle.
+func (s *Server) probePaymentRequestWithSender(ctx context.Context,
+	paymentRequest string, timeout uint32,
+	sendProbePayment probePaymentSender) (*RouteFeeResponse, error) {
+
 	payReq, err := zpay32.Decode(
 		paymentRequest, s.cfg.RouterBackend.ActiveNetParams,
 	)
@@ -570,7 +589,8 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 			probeRequest.Dest)
 
 		probeRequest.RouteHints = invoicesrpc.CreateRPCRouteHints(hints)
-		return s.sendProbePayment(ctx, probeRequest)
+
+		return sendProbePayment(ctx, probeRequest)
 	}
 
 	// If the heuristic indicates an LSP, we filter and group route hints by
@@ -606,6 +626,16 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 
 		lspHint := group.LspHopHint
 
+		// Each LSP probe must use a unique payment hash, otherwise the
+		// payment lifecycle will treat later probes as attempts on the
+		// first probe's payment and reuse its payment-level parameters.
+		var lspPaymentHash lntypes.Hash
+		_, err := crand.Read(lspPaymentHash[:])
+		if err != nil {
+			return nil, fmt.Errorf("cannot generate random probe "+
+				"preimage: %w", err)
+		}
+
 		log.Infof("Probing LSP with destination: %v", lspKey)
 
 		// Create a new probe request for this LSP.
@@ -615,7 +645,7 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 			MaxParts:         probeRequest.MaxParts,
 			AllowSelfPayment: probeRequest.AllowSelfPayment,
 			AmtMsat:          amtMsat,
-			PaymentHash:      probeRequest.PaymentHash,
+			PaymentHash:      lspPaymentHash[:],
 			FeeLimitSat:      probeRequest.FeeLimitSat,
 			FinalCltvDelta:   int32(lspHint.CLTVExpiryDelta),
 			DestFeatures:     probeRequest.DestFeatures,
@@ -647,7 +677,7 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 		lspProbeRequest.AmtMsat += int64(hopFee)
 
 		// Dispatch the payment probe for this LSP.
-		resp, err := s.sendProbePayment(ctx, lspProbeRequest)
+		resp, err := sendProbePayment(ctx, lspProbeRequest)
 		if err != nil {
 			log.Warnf("Failed to probe LSP %v: %v", lspKey, err)
 			continue

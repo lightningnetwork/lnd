@@ -7001,11 +7001,13 @@ func (*CloseStatusUpdate_ChanClose) isCloseStatusUpdate_Update() {}
 func (*CloseStatusUpdate_CloseInstant) isCloseStatusUpdate_Update() {}
 
 type PendingUpdate struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Txid          []byte                 `protobuf:"bytes,1,opt,name=txid,proto3" json:"txid,omitempty"`
-	OutputIndex   uint32                 `protobuf:"varint,2,opt,name=output_index,json=outputIndex,proto3" json:"output_index,omitempty"`
-	FeePerVbyte   int64                  `protobuf:"varint,3,opt,name=fee_per_vbyte,json=feePerVbyte,proto3" json:"fee_per_vbyte,omitempty"`
-	LocalCloseTx  bool                   `protobuf:"varint,4,opt,name=local_close_tx,json=localCloseTx,proto3" json:"local_close_tx,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Txid        []byte                 `protobuf:"bytes,1,opt,name=txid,proto3" json:"txid,omitempty"`
+	OutputIndex uint32                 `protobuf:"varint,2,opt,name=output_index,json=outputIndex,proto3" json:"output_index,omitempty"`
+	// The update carries the fee rate in sat/vbyte and sat/kw
+	FeePerVbyte   int64  `protobuf:"varint,3,opt,name=fee_per_vbyte,json=feePerVbyte,proto3" json:"fee_per_vbyte,omitempty"`
+	FeePerKw      uint64 `protobuf:"varint,5,opt,name=fee_per_kw,json=feePerKw,proto3" json:"fee_per_kw,omitempty"`
+	LocalCloseTx  bool   `protobuf:"varint,4,opt,name=local_close_tx,json=localCloseTx,proto3" json:"local_close_tx,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7057,6 +7059,13 @@ func (x *PendingUpdate) GetOutputIndex() uint32 {
 func (x *PendingUpdate) GetFeePerVbyte() int64 {
 	if x != nil {
 		return x.FeePerVbyte
+	}
+	return 0
+}
+
+func (x *PendingUpdate) GetFeePerKw() uint64 {
+	if x != nil {
+		return x.FeePerKw
 	}
 	return 0
 }
@@ -18959,11 +18968,13 @@ const file_lightning_proto_rawDesc = "" +
 	"\n" +
 	"chan_close\x18\x03 \x01(\v2\x19.lnrpc.ChannelCloseUpdateH\x00R\tchanClose\x12;\n" +
 	"\rclose_instant\x18\x04 \x01(\v2\x14.lnrpc.InstantUpdateH\x00R\fcloseInstantB\b\n" +
-	"\x06update\"\x90\x01\n" +
+	"\x06update\"\xae\x01\n" +
 	"\rPendingUpdate\x12\x12\n" +
 	"\x04txid\x18\x01 \x01(\fR\x04txid\x12!\n" +
 	"\foutput_index\x18\x02 \x01(\rR\voutputIndex\x12\"\n" +
-	"\rfee_per_vbyte\x18\x03 \x01(\x03R\vfeePerVbyte\x12$\n" +
+	"\rfee_per_vbyte\x18\x03 \x01(\x03R\vfeePerVbyte\x12\x1c\n" +
+	"\n" +
+	"fee_per_kw\x18\x05 \x01(\x04R\bfeePerKw\x12$\n" +
 	"\x0elocal_close_tx\x18\x04 \x01(\bR\flocalCloseTx\";\n" +
 	"\rInstantUpdate\x12*\n" +
 	"\x11num_pending_htlcs\x18\x01 \x01(\x05R\x0fnumPendingHtlcs\"y\n" +

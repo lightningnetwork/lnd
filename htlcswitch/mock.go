@@ -341,11 +341,18 @@ func (r *mockHopIterator) ExtraOnionBlob() []byte {
 	return nil
 }
 
-func (r *mockHopIterator) ExtractErrorEncrypter(
-	extracter hop.ErrorEncrypterExtracter, _ bool) (hop.ErrorEncrypter,
-	lnwire.FailCode) {
+func (r *mockHopIterator) ExtractEncrypterParams(
+	extracter hop.SharedSecretGenerator) (*btcec.PublicKey, sphinx.Hash256,
+	lnwire.BlindingPointRecord, lnwire.FailCode) {
 
-	return extracter(nil)
+	sharedSecret, failCode := extracter(nil)
+	if failCode != lnwire.CodeNone {
+		return nil, sphinx.Hash256{}, lnwire.BlindingPointRecord{},
+			failCode
+	}
+
+	return &btcec.PublicKey{}, sharedSecret, lnwire.BlindingPointRecord{},
+		lnwire.CodeNone
 }
 
 func (r *mockHopIterator) EncodeNextHop(w io.Writer) error {
@@ -412,16 +419,14 @@ func (o *mockObfuscator) Decode(r io.Reader) error {
 	return nil
 }
 
-func (o *mockObfuscator) Reextract(
-	extracter hop.ErrorEncrypterExtracter) error {
-
+func (o *mockObfuscator) Reextract(extracter hop.SharedSecretGenerator) error {
 	return nil
 }
 
 var fakeHmac = []byte("hmachmachmachmachmachmachmachmac")
 
 func (o *mockObfuscator) EncryptFirstHop(failure lnwire.FailureMessage) (
-	lnwire.OpaqueReason, error) {
+	lnwire.OpaqueReason, []byte, error) {
 
 	o.failure = failure
 
@@ -429,22 +434,27 @@ func (o *mockObfuscator) EncryptFirstHop(failure lnwire.FailureMessage) (
 	b.Write(fakeHmac)
 
 	if err := lnwire.EncodeFailure(&b, failure, 0); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return b.Bytes(), nil
+
+	return b.Bytes(), nil, nil
 }
 
-func (o *mockObfuscator) IntermediateEncrypt(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
-	return reason
+func (o *mockObfuscator) IntermediateEncrypt(reason lnwire.OpaqueReason,
+	attrData []byte) (lnwire.OpaqueReason, []byte, error) {
+
+	return reason, nil, nil
 }
 
-func (o *mockObfuscator) EncryptMalformedError(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
+func (o *mockObfuscator) EncryptMalformedError(
+	reason lnwire.OpaqueReason) (lnwire.OpaqueReason, []byte, error) {
+
 	var b bytes.Buffer
 	b.Write(fakeHmac)
 
 	b.Write(reason)
 
-	return b.Bytes()
+	return b.Bytes(), nil, nil
 }
 
 // mockDeobfuscator mock implementation of the failure deobfuscator which
@@ -455,8 +465,8 @@ func newMockDeobfuscator() ErrorDecrypter {
 	return &mockDeobfuscator{}
 }
 
-func (o *mockDeobfuscator) DecryptError(reason lnwire.OpaqueReason) (
-	*ForwardingError, error) {
+func (o *mockDeobfuscator) DecryptError(reason lnwire.OpaqueReason,
+	attrData []byte) (*ForwardingError, error) {
 
 	if !bytes.Equal(reason[:32], fakeHmac) {
 		return nil, errors.New("fake decryption error")
@@ -469,7 +479,7 @@ func (o *mockDeobfuscator) DecryptError(reason lnwire.OpaqueReason) (
 		return nil, err
 	}
 
-	return NewForwardingError(failure, 1), nil
+	return NewForwardingError(failure, 1, nil), nil
 }
 
 var _ ErrorDecrypter = (*mockDeobfuscator)(nil)
@@ -1131,21 +1141,6 @@ func (m *mockCircuitMap) NumPending() int {
 
 func (m *mockCircuitMap) NumOpen() int {
 	return 0
-}
-
-type mockOnionErrorDecryptor struct {
-	sourceIdx int
-	message   []byte
-	err       error
-}
-
-func (m *mockOnionErrorDecryptor) DecryptError(encryptedData []byte) (
-	*sphinx.DecryptedError, error) {
-
-	return &sphinx.DecryptedError{
-		SenderIdx: m.sourceIdx,
-		Message:   m.message,
-	}, m.err
 }
 
 var _ htlcNotifier = (*mockHTLCNotifier)(nil)

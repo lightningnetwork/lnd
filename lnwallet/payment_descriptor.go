@@ -246,6 +246,10 @@ type paymentDescriptor struct {
 	// CustomRecords also stores the set of optional custom records that
 	// may have been attached to a sent HTLC.
 	CustomRecords lnwire.CustomRecords
+
+	// FailExtraData stores any extra opaque data that may have been present
+	// when receiving an UpdateFailHTLC message.
+	FailExtraData lnwire.ExtraOpaqueData
 }
 
 // toLogUpdate recovers the underlying LogUpdate from the paymentDescriptor.
@@ -274,9 +278,10 @@ func (pd *paymentDescriptor) toLogUpdate() channeldb.LogUpdate {
 		}
 	case Fail:
 		msg = &lnwire.UpdateFailHTLC{
-			ChanID: pd.ChanID,
-			ID:     pd.ParentIndex,
-			Reason: pd.FailReason,
+			ChanID:    pd.ChanID,
+			ID:        pd.ParentIndex,
+			Reason:    pd.FailReason,
+			ExtraData: pd.FailExtraData,
 		}
 	case MalformedFail:
 		msg = &lnwire.UpdateFailMalformedHTLC{

@@ -5023,6 +5023,14 @@
           "type": "integer",
           "format": "int64",
           "description": "A failure type-dependent block height."
+        },
+        "hold_times": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "description": "An array of hold times (in 100ms units) as reported by the nodes along\nthe route via attributable errors. The first element corresponds to the\nfirst hop after the sender, with greater indices indicating nodes\nfurther along the route. Multiply by 100 to get milliseconds. This\nfield is only populated when the error includes attribution data."
         }
       }
     },

@@ -419,6 +419,14 @@
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 
+* [Implemented attributable failures (feature
+  36/37)](https://github.com/lightningnetwork/lnd/pull/9888) per BOLT #1044.
+  Failure messages now carry per-hop hold times and authentication codes
+  inside an `attribution_data` TLV on `update_fail_htlc`, letting the sender
+  pinpoint the failing hop and reason about latency along the route. Per-hop
+  hold times are exposed on the `Failure` proto as the new `hold_times` field
+  populated for `SendPaymentV2` results.
+
 ## Testing
 
 * [Added unit tests for TLV length validation across multiple packages](https://github.com/lightningnetwork/lnd/pull/10249).

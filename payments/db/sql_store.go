@@ -1687,6 +1687,7 @@ func (s *SQLStore) FailAttempt(ctx context.Context, paymentHash lntypes.Hash,
 			),
 			HtlcFailReason: sqldb.SQLInt32(failInfo.Reason),
 			FailureMsg:     failureMsg.Bytes(),
+			HoldTimes:      encodeHoldTimes(failInfo.HoldTimes),
 		})
 		if err != nil {
 			return fmt.Errorf("failed to fail attempt: %w", err)

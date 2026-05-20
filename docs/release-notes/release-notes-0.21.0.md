@@ -133,7 +133,10 @@
   `revoke_and_ack` keyed by funding TXID, laying the groundwork for splice
   support. The nonce type is now auto-detected from the negotiated channel type
   rather than peer feature bits, ensuring correct behavior across all recovery
-  and resynchronization paths.
+  and resynchronization paths. Taproot channels must be requested explicitly
+  with `lncli openchannel --channel_type=taproot-final` (or `taproot` for
+  staging), and must remain private until announced taproot channels are
+  supported.
 
 * [Added taproot channel support for RBF cooperative
   close](https://github.com/lightningnetwork/lnd/pull/10063). The new RBF-based

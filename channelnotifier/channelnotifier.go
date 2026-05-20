@@ -130,6 +130,11 @@ func (c *ChannelNotifier) Stop() error {
 // any time the Server is made aware of a new event. The subscription provides
 // channel events from the point of subscription onwards.
 //
+// NOTE: This subscription includes both channel lifecycle events and higher
+// frequency channel state updates, such as ChannelUpdateEvent. Callers that
+// only need lifecycle updates should explicitly filter for the event types they
+// consume.
+//
 // TODO(carlaKC): update  to allow subscriptions to specify a block height from
 // which we would like to subscribe to events.
 func (c *ChannelNotifier) SubscribeChannelEvents() (*subscribe.Client, error) {

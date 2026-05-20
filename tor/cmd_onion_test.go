@@ -3,6 +3,7 @@ package tor
 import (
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -11,8 +12,8 @@ import (
 )
 
 var (
-	privateKey = []byte("RSA1024 hide_me_plz")
-	anotherKey = []byte("another_key")
+	privateKey = []byte("ED25519-V3:hide_me_plz")
+	anotherKey = []byte("ED25519-V3:another_key")
 )
 
 // TestOnionFile tests that the File implementation of the OnionStore
@@ -67,30 +68,48 @@ func TestOnionFile(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestOnionFilePrivateKeyRejectsLegacyV2 ensures the file-backed store
+// surfaces ErrNonV3OnionKey when the on-disk key is a plaintext legacy
+// v2 (RSA1024) blob, rather than handing the bytes back to Tor.
+func TestOnionFilePrivateKeyRejectsLegacyV2(t *testing.T) {
+	t.Parallel()
+
+	privateKeyPath := filepath.Join(t.TempDir(), "secret")
+	require.NoError(t, os.WriteFile(
+		privateKeyPath,
+		[]byte("RSA1024:legacy-v2-key-bytes"),
+		0600,
+	))
+
+	onionFile := NewOnionFile(privateKeyPath, 0600, false, MockEncrypter{})
+	_, err := onionFile.PrivateKey()
+	require.ErrorIs(t, err, ErrNonV3OnionKey)
+}
+
 // TestPrepareKeyParam checks that the key param is created as expected.
 func TestPrepareKeyParam(t *testing.T) {
-	testKey := []byte("hide_me_plz")
+	v3Key := []byte("ED25519-V3:hide_me_plz")
 	dummyErr := errors.New("dummy")
 
 	// Create a dummy controller.
 	controller := NewController("", "", "")
 
 	// Test that a V3 keyParam is used.
-	cfg := AddOnionConfig{Type: V3}
+	cfg := AddOnionConfig{}
 	keyParam, err := controller.prepareKeyparam(cfg)
 
 	require.Equal(t, "NEW:ED25519-V3", keyParam)
 	require.NoError(t, err)
 
-	// Create a mock store which returns the test private key.
+	// Create a mock store which returns a valid v3 private key.
 	store := &mockStore{}
-	store.On("PrivateKey").Return(testKey, nil)
+	store.On("PrivateKey").Return(v3Key, nil)
 
-	// Check that the test private is returned.
-	cfg = AddOnionConfig{Type: V3, Store: store}
+	// Check that the stored v3 private key is returned.
+	cfg = AddOnionConfig{Store: store}
 	keyParam, err = controller.prepareKeyparam(cfg)
 
-	require.Equal(t, string(testKey), keyParam)
+	require.Equal(t, string(v3Key), keyParam)
 	require.NoError(t, err)
 	store.AssertExpectations(t)
 
@@ -99,7 +118,7 @@ func TestPrepareKeyParam(t *testing.T) {
 	store.On("PrivateKey").Return(nil, ErrNoPrivateKey)
 
 	// Check that the V3 keyParam is returned.
-	cfg = AddOnionConfig{Type: V3, Store: store}
+	cfg = AddOnionConfig{Store: store}
 	keyParam, err = controller.prepareKeyparam(cfg)
 
 	require.Equal(t, "NEW:ED25519-V3", keyParam)
@@ -111,11 +130,26 @@ func TestPrepareKeyParam(t *testing.T) {
 	store.On("PrivateKey").Return(nil, dummyErr)
 
 	// Check that an error is returned.
-	cfg = AddOnionConfig{Type: V3, Store: store}
+	cfg = AddOnionConfig{Store: store}
 	keyParam, err = controller.prepareKeyparam(cfg)
 
 	require.Empty(t, keyParam)
 	require.ErrorIs(t, dummyErr, err)
+	store.AssertExpectations(t)
+
+	// A restored legacy v2 (RSA1024) onion key must be rejected; lnd no
+	// longer creates or recovers v2 services, and silently regenerating
+	// a fresh v3 service would change the advertised onion identity.
+	store = &mockStore{}
+	store.On("PrivateKey").Return(
+		[]byte("RSA1024:legacy-v2-key-bytes"), nil,
+	)
+
+	cfg = AddOnionConfig{Store: store}
+	keyParam, err = controller.prepareKeyparam(cfg)
+
+	require.Empty(t, keyParam)
+	require.ErrorIs(t, err, ErrNonV3OnionKey)
 	store.AssertExpectations(t)
 }
 
@@ -126,7 +160,7 @@ func TestPrepareAddOnion(t *testing.T) {
 
 	// Create a mock store.
 	store := &mockStore{}
-	testKey := []byte("hide_me_plz")
+	testKey := []byte("ED25519-V3:hide_me_plz")
 
 	testCases := []struct {
 		name            string
@@ -139,14 +173,14 @@ func TestPrepareAddOnion(t *testing.T) {
 			name:            "empty target IP and ports",
 			targetIPAddress: "",
 			cfg:             AddOnionConfig{VirtualPort: 9735},
-			expectedCmd:     "ADD_ONION NEW:RSA1024 Port=9735,9735 ",
+			expectedCmd:     "ADD_ONION NEW:ED25519-V3 Port=9735,9735 ",
 			expectedErr:     nil,
 		},
 		{
 			name:            "specified target IP and empty ports",
 			targetIPAddress: "127.0.0.1",
 			cfg:             AddOnionConfig{VirtualPort: 9735},
-			expectedCmd: "ADD_ONION NEW:RSA1024 " +
+			expectedCmd: "ADD_ONION NEW:ED25519-V3 " +
 				"Port=9735,127.0.0.1:9735 ",
 			expectedErr: nil,
 		},
@@ -157,7 +191,7 @@ func TestPrepareAddOnion(t *testing.T) {
 				VirtualPort: 9735,
 				TargetPorts: []int{18000, 18001},
 			},
-			expectedCmd: "ADD_ONION NEW:RSA1024 " +
+			expectedCmd: "ADD_ONION NEW:ED25519-V3 " +
 				"Port=9735,127.0.0.1:18000 " +
 				"Port=9735,127.0.0.1:18001 ",
 			expectedErr: nil,
@@ -169,7 +203,7 @@ func TestPrepareAddOnion(t *testing.T) {
 				VirtualPort: 9735,
 				Store:       store,
 			},
-			expectedCmd: "ADD_ONION hide_me_plz " +
+			expectedCmd: "ADD_ONION ED25519-V3:hide_me_plz " +
 				"Port=9735,9735 ",
 			expectedErr: nil,
 		},
@@ -212,7 +246,15 @@ func (m *mockStore) StorePrivateKey(key []byte) error {
 
 func (m *mockStore) PrivateKey() ([]byte, error) {
 	args := m.Called()
-	return []byte("hide_me_plz"), args.Error(1)
+
+	// Allow callers to set the returned key bytes via the mock's first
+	// return value; fall back to a valid v3 key prefix for tests that
+	// only care about a successful key load.
+	if key, ok := args.Get(0).([]byte); ok && key != nil {
+		return key, args.Error(1)
+	}
+
+	return []byte("ED25519-V3:hide_me_plz"), args.Error(1)
 }
 
 func (m *mockStore) DeletePrivateKey() error {

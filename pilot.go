@@ -209,6 +209,11 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 				ChainNet:    netParams.Net,
 			}
 
+			// Strip persisted Tor v2 .onion entries: Tor stopped
+			// serving them in 2021 and the dial would never
+			// succeed. Covered by TestWithoutV2Onion.
+			addrs = withoutV2Onion(addrs)
+
 			// We'll attempt to successively connect to each of the
 			// advertised IP addresses until we've either exhausted
 			// the advertised IP addresses, or have made a

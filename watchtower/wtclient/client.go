@@ -303,6 +303,15 @@ func getTowerAndSessionCandidates(db DB, keyRing ECDHKeyRing,
 	candidateSessions := make(map[wtdb.SessionID]*ClientSession)
 	for _, dbTower := range towers {
 		tower, err := NewTowerFromDBTower(dbTower)
+		if errors.Is(err, ErrTowerOnlyV2Onion) {
+			log.Warnf("Skipping tower %x: all persisted "+
+				"addresses are Tor v2 .onion which is no "+
+				"longer supported; add a fresh v3 address "+
+				"to re-activate this tower",
+				dbTower.IdentityKey.SerializeCompressed())
+
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}

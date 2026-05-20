@@ -9,10 +9,10 @@ Tor daemon. So far, supported functions include:
 * Limited Tor Control functionality (synchronous messages only). So far, this
 includes:
   * Support for SAFECOOKIE, HASHEDPASSWORD, and NULL authentication methods.
-  * Creating v2 and v3 onion services.
+  * Creating v3 onion services.
 
-In the future, the Tor Control functionality will be extended to support v3
-onion services, asynchronous messages, etc.
+In the future, the Tor Control functionality will be extended to support
+asynchronous messages, etc.
 
 ## Installation and Updating
 

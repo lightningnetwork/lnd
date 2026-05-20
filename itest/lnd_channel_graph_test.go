@@ -378,7 +378,6 @@ func testNodeAnnouncement(ht *lntest.HarnessTest) {
 	advertisedAddrs := []string{
 		"192.168.1.1:8333",
 		"[2001:db8:85a3:8d3:1319:8a2e:370:7348]:8337",
-		"bkb6azqggsaiskzi.onion:9735",
 		"fomvuglh6h6vcag73xo5t5gv56ombih3zr2xvplkpbfd7wrog4swj" +
 			"wid.onion:1234",
 	}
@@ -435,7 +434,6 @@ func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
 	extraAddrs := []string{
 		"192.168.1.1:8333",
 		"[2001:db8:85a3:8d3:1319:8a2e:370:7348]:8337",
-		"bkb6azqggsaiskzi.onion:9735",
 		"fomvuglh6h6vcag73xo5t5gv56ombih3zr2xvplkpbfd7wrog4swj" +
 			"wid.onion:1234",
 	}

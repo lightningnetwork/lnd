@@ -1305,7 +1305,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			Store: contractcourt.NewRetributionStore(
 				dbs.ChanStateDB,
 			),
-			AuxSweeper: s.implCfg.AuxSweeper,
+			AuxSweeper:  s.implCfg.AuxSweeper,
+			AuxResolver: s.implCfg.AuxContractResolver,
 		},
 	)
 
@@ -1771,6 +1772,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 				channel, commitHeight, 0, nil,
 				implCfg.AuxLeafStore,
 				implCfg.AuxContractResolver,
+				implCfg.AuxSigner,
 			)
 			if err != nil {
 				return nil, 0, err

@@ -307,6 +307,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testFundPsbtCustomLock,
 	},
 	{
+		Name:     "fund psbt taproot script path",
+		TestFunc: testFundPsbtTaprootScriptPath,
+	},
+	{
 		Name:     "resolution handoff",
 		TestFunc: testResHandoff,
 	},

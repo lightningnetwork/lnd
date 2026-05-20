@@ -3638,8 +3638,19 @@ type FundPsbtRequest struct {
 	// specified duration. The lock duration is specified in seconds. If not
 	// set, the default lock duration will be used.
 	LockExpirationSeconds uint64 `protobuf:"varint,14,opt,name=lock_expiration_seconds,json=lockExpirationSeconds,proto3" json:"lock_expiration_seconds,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// An optional list of per-input witness size hints. When funding a PSBT
+	// that contains taproot script path inputs, the wallet does not know
+	// the exact size of the witness stack elements (e.g. signatures) that
+	// will be used to satisfy the revealed leaf script. By default, a
+	// single Schnorr signature is assumed. Callers that know the exact
+	// expected witness size for a given input (for example, multi-signature
+	// tapscripts) can specify it here for a more accurate fee estimation.
+	// The size only covers the witness elements consumed by the revealed
+	// script; the revealed script itself and the control block size are
+	// derived automatically from the PSBT's TaprootLeafScript field.
+	WitnessSizeHints []*TxWitnessSizeHint `protobuf:"bytes,15,rep,name=witness_size_hints,json=witnessSizeHints,proto3" json:"witness_size_hints,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *FundPsbtRequest) Reset() {
@@ -3796,6 +3807,13 @@ func (x *FundPsbtRequest) GetLockExpirationSeconds() uint64 {
 	return 0
 }
 
+func (x *FundPsbtRequest) GetWitnessSizeHints() []*TxWitnessSizeHint {
+	if x != nil {
+		return x.WitnessSizeHints
+	}
+	return nil
+}
+
 type isFundPsbtRequest_Template interface {
 	isFundPsbtRequest_Template()
 }
@@ -3870,6 +3888,63 @@ func (*FundPsbtRequest_SatPerVbyte) isFundPsbtRequest_Fees() {}
 
 func (*FundPsbtRequest_SatPerKw) isFundPsbtRequest_Fees() {}
 
+type TxWitnessSizeHint struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The outpoint of the input the hint applies to.
+	Outpoint *lnrpc.OutPoint `protobuf:"bytes,1,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
+	// The expected witness size in weight units of the witness stack
+	// elements that satisfy the revealed leaf script (e.g. signatures).
+	// The revealed script and control block are not included in this
+	// size, since those are derived from the PSBT's TaprootLeafScript.
+	WitnessSize   uint64 `protobuf:"varint,2,opt,name=witness_size,json=witnessSize,proto3" json:"witness_size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TxWitnessSizeHint) Reset() {
+	*x = TxWitnessSizeHint{}
+	mi := &file_walletrpc_walletkit_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TxWitnessSizeHint) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TxWitnessSizeHint) ProtoMessage() {}
+
+func (x *TxWitnessSizeHint) ProtoReflect() protoreflect.Message {
+	mi := &file_walletrpc_walletkit_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TxWitnessSizeHint.ProtoReflect.Descriptor instead.
+func (*TxWitnessSizeHint) Descriptor() ([]byte, []int) {
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *TxWitnessSizeHint) GetOutpoint() *lnrpc.OutPoint {
+	if x != nil {
+		return x.Outpoint
+	}
+	return nil
+}
+
+func (x *TxWitnessSizeHint) GetWitnessSize() uint64 {
+	if x != nil {
+		return x.WitnessSize
+	}
+	return 0
+}
+
 type FundPsbtResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The funded but not yet signed PSBT packet.
@@ -3886,7 +3961,7 @@ type FundPsbtResponse struct {
 
 func (x *FundPsbtResponse) Reset() {
 	*x = FundPsbtResponse{}
-	mi := &file_walletrpc_walletkit_proto_msgTypes[51]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3898,7 +3973,7 @@ func (x *FundPsbtResponse) String() string {
 func (*FundPsbtResponse) ProtoMessage() {}
 
 func (x *FundPsbtResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[51]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3911,7 +3986,7 @@ func (x *FundPsbtResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FundPsbtResponse.ProtoReflect.Descriptor instead.
 func (*FundPsbtResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{51}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *FundPsbtResponse) GetFundedPsbt() []byte {
@@ -3953,7 +4028,7 @@ type TxTemplate struct {
 
 func (x *TxTemplate) Reset() {
 	*x = TxTemplate{}
-	mi := &file_walletrpc_walletkit_proto_msgTypes[52]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3965,7 +4040,7 @@ func (x *TxTemplate) String() string {
 func (*TxTemplate) ProtoMessage() {}
 
 func (x *TxTemplate) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[52]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3978,7 +4053,7 @@ func (x *TxTemplate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TxTemplate.ProtoReflect.Descriptor instead.
 func (*TxTemplate) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{52}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *TxTemplate) GetInputs() []*lnrpc.OutPoint {
@@ -4018,7 +4093,7 @@ type PsbtCoinSelect struct {
 
 func (x *PsbtCoinSelect) Reset() {
 	*x = PsbtCoinSelect{}
-	mi := &file_walletrpc_walletkit_proto_msgTypes[53]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4030,7 +4105,7 @@ func (x *PsbtCoinSelect) String() string {
 func (*PsbtCoinSelect) ProtoMessage() {}
 
 func (x *PsbtCoinSelect) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[53]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4043,7 +4118,7 @@ func (x *PsbtCoinSelect) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PsbtCoinSelect.ProtoReflect.Descriptor instead.
 func (*PsbtCoinSelect) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{53}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *PsbtCoinSelect) GetPsbt() []byte {
@@ -4119,7 +4194,7 @@ type UtxoLease struct {
 
 func (x *UtxoLease) Reset() {
 	*x = UtxoLease{}
-	mi := &file_walletrpc_walletkit_proto_msgTypes[54]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4131,7 +4206,7 @@ func (x *UtxoLease) String() string {
 func (*UtxoLease) ProtoMessage() {}
 
 func (x *UtxoLease) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[54]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4144,7 +4219,7 @@ func (x *UtxoLease) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UtxoLease.ProtoReflect.Descriptor instead.
 func (*UtxoLease) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{54}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *UtxoLease) GetId() []byte {
@@ -4193,7 +4268,7 @@ type SignPsbtRequest struct {
 
 func (x *SignPsbtRequest) Reset() {
 	*x = SignPsbtRequest{}
-	mi := &file_walletrpc_walletkit_proto_msgTypes[55]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4205,7 +4280,7 @@ func (x *SignPsbtRequest) String() string {
 func (*SignPsbtRequest) ProtoMessage() {}
 
 func (x *SignPsbtRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[55]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4218,7 +4293,7 @@ func (x *SignPsbtRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignPsbtRequest.ProtoReflect.Descriptor instead.
 func (*SignPsbtRequest) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{55}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *SignPsbtRequest) GetFundedPsbt() []byte {
@@ -4240,7 +4315,7 @@ type SignPsbtResponse struct {
 
 func (x *SignPsbtResponse) Reset() {
 	*x = SignPsbtResponse{}
-	mi := &file_walletrpc_walletkit_proto_msgTypes[56]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4252,7 +4327,7 @@ func (x *SignPsbtResponse) String() string {
 func (*SignPsbtResponse) ProtoMessage() {}
 
 func (x *SignPsbtResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[56]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4265,7 +4340,7 @@ func (x *SignPsbtResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignPsbtResponse.ProtoReflect.Descriptor instead.
 func (*SignPsbtResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{56}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *SignPsbtResponse) GetSignedPsbt() []byte {
@@ -4297,7 +4372,7 @@ type FinalizePsbtRequest struct {
 
 func (x *FinalizePsbtRequest) Reset() {
 	*x = FinalizePsbtRequest{}
-	mi := &file_walletrpc_walletkit_proto_msgTypes[57]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4309,7 +4384,7 @@ func (x *FinalizePsbtRequest) String() string {
 func (*FinalizePsbtRequest) ProtoMessage() {}
 
 func (x *FinalizePsbtRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[57]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4322,7 +4397,7 @@ func (x *FinalizePsbtRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizePsbtRequest.ProtoReflect.Descriptor instead.
 func (*FinalizePsbtRequest) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{57}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *FinalizePsbtRequest) GetFundedPsbt() []byte {
@@ -4351,7 +4426,7 @@ type FinalizePsbtResponse struct {
 
 func (x *FinalizePsbtResponse) Reset() {
 	*x = FinalizePsbtResponse{}
-	mi := &file_walletrpc_walletkit_proto_msgTypes[58]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4363,7 +4438,7 @@ func (x *FinalizePsbtResponse) String() string {
 func (*FinalizePsbtResponse) ProtoMessage() {}
 
 func (x *FinalizePsbtResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[58]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4376,7 +4451,7 @@ func (x *FinalizePsbtResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizePsbtResponse.ProtoReflect.Descriptor instead.
 func (*FinalizePsbtResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{58}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *FinalizePsbtResponse) GetSignedPsbt() []byte {
@@ -4401,7 +4476,7 @@ type ListLeasesRequest struct {
 
 func (x *ListLeasesRequest) Reset() {
 	*x = ListLeasesRequest{}
-	mi := &file_walletrpc_walletkit_proto_msgTypes[59]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4413,7 +4488,7 @@ func (x *ListLeasesRequest) String() string {
 func (*ListLeasesRequest) ProtoMessage() {}
 
 func (x *ListLeasesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[59]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4426,7 +4501,7 @@ func (x *ListLeasesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLeasesRequest.ProtoReflect.Descriptor instead.
 func (*ListLeasesRequest) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{59}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{60}
 }
 
 type ListLeasesResponse struct {
@@ -4439,7 +4514,7 @@ type ListLeasesResponse struct {
 
 func (x *ListLeasesResponse) Reset() {
 	*x = ListLeasesResponse{}
-	mi := &file_walletrpc_walletkit_proto_msgTypes[60]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4451,7 +4526,7 @@ func (x *ListLeasesResponse) String() string {
 func (*ListLeasesResponse) ProtoMessage() {}
 
 func (x *ListLeasesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[60]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4464,7 +4539,7 @@ func (x *ListLeasesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLeasesResponse.ProtoReflect.Descriptor instead.
 func (*ListLeasesResponse) Descriptor() ([]byte, []int) {
-	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{60}
+	return file_walletrpc_walletkit_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *ListLeasesResponse) GetLockedUtxos() []*UtxoLease {
@@ -4486,7 +4561,7 @@ type ListSweepsResponse_TransactionIDs struct {
 
 func (x *ListSweepsResponse_TransactionIDs) Reset() {
 	*x = ListSweepsResponse_TransactionIDs{}
-	mi := &file_walletrpc_walletkit_proto_msgTypes[61]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4498,7 +4573,7 @@ func (x *ListSweepsResponse_TransactionIDs) String() string {
 func (*ListSweepsResponse_TransactionIDs) ProtoMessage() {}
 
 func (x *ListSweepsResponse_TransactionIDs) ProtoReflect() protoreflect.Message {
-	mi := &file_walletrpc_walletkit_proto_msgTypes[61]
+	mi := &file_walletrpc_walletkit_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4725,7 +4800,7 @@ const file_walletrpc_walletkit_proto_rawDesc = "" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x1c\n" +
 	"\toverwrite\x18\x03 \x01(\bR\toverwrite\"2\n" +
 	"\x18LabelTransactionResponse\x12\x16\n" +
-	"\x06status\x18\x01 \x01(\tR\x06status\"\x88\x05\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\"\xd4\x05\n" +
 	"\x0fFundPsbtRequest\x12\x14\n" +
 	"\x04psbt\x18\x01 \x01(\fH\x00R\x04psbt\x12)\n" +
 	"\x03raw\x18\x02 \x01(\v2\x15.walletrpc.TxTemplateH\x00R\x03raw\x12<\n" +
@@ -4745,10 +4820,14 @@ const file_walletrpc_walletkit_proto_rawDesc = "" +
 	" \x01(\x0e2\x1c.lnrpc.CoinSelectionStrategyR\x15coinSelectionStrategy\x12\"\n" +
 	"\rmax_fee_ratio\x18\f \x01(\x01R\vmaxFeeRatio\x12$\n" +
 	"\x0ecustom_lock_id\x18\r \x01(\fR\fcustomLockId\x126\n" +
-	"\x17lock_expiration_seconds\x18\x0e \x01(\x04R\x15lockExpirationSecondsB\n" +
+	"\x17lock_expiration_seconds\x18\x0e \x01(\x04R\x15lockExpirationSeconds\x12J\n" +
+	"\x12witness_size_hints\x18\x0f \x03(\v2\x1c.walletrpc.TxWitnessSizeHintR\x10witnessSizeHintsB\n" +
 	"\n" +
 	"\btemplateB\x06\n" +
-	"\x04fees\"\x9c\x01\n" +
+	"\x04fees\"c\n" +
+	"\x11TxWitnessSizeHint\x12+\n" +
+	"\boutpoint\x18\x01 \x01(\v2\x0f.lnrpc.OutPointR\boutpoint\x12!\n" +
+	"\fwitness_size\x18\x02 \x01(\x04R\vwitnessSize\"\x9c\x01\n" +
 	"\x10FundPsbtResponse\x12\x1f\n" +
 	"\vfunded_psbt\x18\x01 \x01(\fR\n" +
 	"fundedPsbt\x12.\n" +
@@ -4892,7 +4971,7 @@ func file_walletrpc_walletkit_proto_rawDescGZIP() []byte {
 }
 
 var file_walletrpc_walletkit_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_walletrpc_walletkit_proto_msgTypes = make([]protoimpl.MessageInfo, 63)
+var file_walletrpc_walletkit_proto_msgTypes = make([]protoimpl.MessageInfo, 64)
 var file_walletrpc_walletkit_proto_goTypes = []any{
 	(AddressType)(0),                          // 0: walletrpc.AddressType
 	(WitnessType)(0),                          // 1: walletrpc.WitnessType
@@ -4948,32 +5027,33 @@ var file_walletrpc_walletkit_proto_goTypes = []any{
 	(*LabelTransactionRequest)(nil),           // 51: walletrpc.LabelTransactionRequest
 	(*LabelTransactionResponse)(nil),          // 52: walletrpc.LabelTransactionResponse
 	(*FundPsbtRequest)(nil),                   // 53: walletrpc.FundPsbtRequest
-	(*FundPsbtResponse)(nil),                  // 54: walletrpc.FundPsbtResponse
-	(*TxTemplate)(nil),                        // 55: walletrpc.TxTemplate
-	(*PsbtCoinSelect)(nil),                    // 56: walletrpc.PsbtCoinSelect
-	(*UtxoLease)(nil),                         // 57: walletrpc.UtxoLease
-	(*SignPsbtRequest)(nil),                   // 58: walletrpc.SignPsbtRequest
-	(*SignPsbtResponse)(nil),                  // 59: walletrpc.SignPsbtResponse
-	(*FinalizePsbtRequest)(nil),               // 60: walletrpc.FinalizePsbtRequest
-	(*FinalizePsbtResponse)(nil),              // 61: walletrpc.FinalizePsbtResponse
-	(*ListLeasesRequest)(nil),                 // 62: walletrpc.ListLeasesRequest
-	(*ListLeasesResponse)(nil),                // 63: walletrpc.ListLeasesResponse
-	(*ListSweepsResponse_TransactionIDs)(nil), // 64: walletrpc.ListSweepsResponse.TransactionIDs
-	nil,                              // 65: walletrpc.TxTemplate.OutputsEntry
-	(*lnrpc.Utxo)(nil),               // 66: lnrpc.Utxo
-	(*lnrpc.OutPoint)(nil),           // 67: lnrpc.OutPoint
-	(*signrpc.TxOut)(nil),            // 68: signrpc.TxOut
-	(lnrpc.CoinSelectionStrategy)(0), // 69: lnrpc.CoinSelectionStrategy
-	(*lnrpc.ChannelPoint)(nil),       // 70: lnrpc.ChannelPoint
-	(*lnrpc.TransactionDetails)(nil), // 71: lnrpc.TransactionDetails
-	(*signrpc.KeyLocator)(nil),       // 72: signrpc.KeyLocator
-	(*signrpc.KeyDescriptor)(nil),    // 73: signrpc.KeyDescriptor
-	(*lnrpc.Transaction)(nil),        // 74: lnrpc.Transaction
+	(*TxWitnessSizeHint)(nil),                 // 54: walletrpc.TxWitnessSizeHint
+	(*FundPsbtResponse)(nil),                  // 55: walletrpc.FundPsbtResponse
+	(*TxTemplate)(nil),                        // 56: walletrpc.TxTemplate
+	(*PsbtCoinSelect)(nil),                    // 57: walletrpc.PsbtCoinSelect
+	(*UtxoLease)(nil),                         // 58: walletrpc.UtxoLease
+	(*SignPsbtRequest)(nil),                   // 59: walletrpc.SignPsbtRequest
+	(*SignPsbtResponse)(nil),                  // 60: walletrpc.SignPsbtResponse
+	(*FinalizePsbtRequest)(nil),               // 61: walletrpc.FinalizePsbtRequest
+	(*FinalizePsbtResponse)(nil),              // 62: walletrpc.FinalizePsbtResponse
+	(*ListLeasesRequest)(nil),                 // 63: walletrpc.ListLeasesRequest
+	(*ListLeasesResponse)(nil),                // 64: walletrpc.ListLeasesResponse
+	(*ListSweepsResponse_TransactionIDs)(nil), // 65: walletrpc.ListSweepsResponse.TransactionIDs
+	nil,                              // 66: walletrpc.TxTemplate.OutputsEntry
+	(*lnrpc.Utxo)(nil),               // 67: lnrpc.Utxo
+	(*lnrpc.OutPoint)(nil),           // 68: lnrpc.OutPoint
+	(*signrpc.TxOut)(nil),            // 69: signrpc.TxOut
+	(lnrpc.CoinSelectionStrategy)(0), // 70: lnrpc.CoinSelectionStrategy
+	(*lnrpc.ChannelPoint)(nil),       // 71: lnrpc.ChannelPoint
+	(*lnrpc.TransactionDetails)(nil), // 72: lnrpc.TransactionDetails
+	(*signrpc.KeyLocator)(nil),       // 73: signrpc.KeyLocator
+	(*signrpc.KeyDescriptor)(nil),    // 74: signrpc.KeyDescriptor
+	(*lnrpc.Transaction)(nil),        // 75: lnrpc.Transaction
 }
 var file_walletrpc_walletkit_proto_depIdxs = []int32{
-	66, // 0: walletrpc.ListUnspentResponse.utxos:type_name -> lnrpc.Utxo
-	67, // 1: walletrpc.LeaseOutputRequest.outpoint:type_name -> lnrpc.OutPoint
-	67, // 2: walletrpc.ReleaseOutputRequest.outpoint:type_name -> lnrpc.OutPoint
+	67, // 0: walletrpc.ListUnspentResponse.utxos:type_name -> lnrpc.Utxo
+	68, // 1: walletrpc.LeaseOutputRequest.outpoint:type_name -> lnrpc.OutPoint
+	68, // 2: walletrpc.ReleaseOutputRequest.outpoint:type_name -> lnrpc.OutPoint
 	0,  // 3: walletrpc.AddrRequest.type:type_name -> walletrpc.AddressType
 	0,  // 4: walletrpc.Account.address_type:type_name -> walletrpc.AddressType
 	0,  // 5: walletrpc.AccountWithAddresses.address_type:type_name -> walletrpc.AddressType
@@ -4988,85 +5068,87 @@ var file_walletrpc_walletkit_proto_depIdxs = []int32{
 	33, // 14: walletrpc.ImportTapscriptRequest.partial_reveal:type_name -> walletrpc.TapscriptPartialReveal
 	32, // 15: walletrpc.TapscriptFullTree.all_leaves:type_name -> walletrpc.TapLeaf
 	32, // 16: walletrpc.TapscriptPartialReveal.revealed_leaf:type_name -> walletrpc.TapLeaf
-	68, // 17: walletrpc.SendOutputsRequest.outputs:type_name -> signrpc.TxOut
-	69, // 18: walletrpc.SendOutputsRequest.coin_selection_strategy:type_name -> lnrpc.CoinSelectionStrategy
-	67, // 19: walletrpc.PendingSweep.outpoint:type_name -> lnrpc.OutPoint
+	69, // 17: walletrpc.SendOutputsRequest.outputs:type_name -> signrpc.TxOut
+	70, // 18: walletrpc.SendOutputsRequest.coin_selection_strategy:type_name -> lnrpc.CoinSelectionStrategy
+	68, // 19: walletrpc.PendingSweep.outpoint:type_name -> lnrpc.OutPoint
 	1,  // 20: walletrpc.PendingSweep.witness_type:type_name -> walletrpc.WitnessType
 	42, // 21: walletrpc.PendingSweepsResponse.pending_sweeps:type_name -> walletrpc.PendingSweep
-	67, // 22: walletrpc.BumpFeeRequest.outpoint:type_name -> lnrpc.OutPoint
-	70, // 23: walletrpc.BumpForceCloseFeeRequest.chan_point:type_name -> lnrpc.ChannelPoint
-	71, // 24: walletrpc.ListSweepsResponse.transaction_details:type_name -> lnrpc.TransactionDetails
-	64, // 25: walletrpc.ListSweepsResponse.transaction_ids:type_name -> walletrpc.ListSweepsResponse.TransactionIDs
-	55, // 26: walletrpc.FundPsbtRequest.raw:type_name -> walletrpc.TxTemplate
-	56, // 27: walletrpc.FundPsbtRequest.coin_select:type_name -> walletrpc.PsbtCoinSelect
+	68, // 22: walletrpc.BumpFeeRequest.outpoint:type_name -> lnrpc.OutPoint
+	71, // 23: walletrpc.BumpForceCloseFeeRequest.chan_point:type_name -> lnrpc.ChannelPoint
+	72, // 24: walletrpc.ListSweepsResponse.transaction_details:type_name -> lnrpc.TransactionDetails
+	65, // 25: walletrpc.ListSweepsResponse.transaction_ids:type_name -> walletrpc.ListSweepsResponse.TransactionIDs
+	56, // 26: walletrpc.FundPsbtRequest.raw:type_name -> walletrpc.TxTemplate
+	57, // 27: walletrpc.FundPsbtRequest.coin_select:type_name -> walletrpc.PsbtCoinSelect
 	2,  // 28: walletrpc.FundPsbtRequest.change_type:type_name -> walletrpc.ChangeAddressType
-	69, // 29: walletrpc.FundPsbtRequest.coin_selection_strategy:type_name -> lnrpc.CoinSelectionStrategy
-	57, // 30: walletrpc.FundPsbtResponse.locked_utxos:type_name -> walletrpc.UtxoLease
-	67, // 31: walletrpc.TxTemplate.inputs:type_name -> lnrpc.OutPoint
-	65, // 32: walletrpc.TxTemplate.outputs:type_name -> walletrpc.TxTemplate.OutputsEntry
-	67, // 33: walletrpc.UtxoLease.outpoint:type_name -> lnrpc.OutPoint
-	57, // 34: walletrpc.ListLeasesResponse.locked_utxos:type_name -> walletrpc.UtxoLease
-	3,  // 35: walletrpc.WalletKit.ListUnspent:input_type -> walletrpc.ListUnspentRequest
-	5,  // 36: walletrpc.WalletKit.LeaseOutput:input_type -> walletrpc.LeaseOutputRequest
-	7,  // 37: walletrpc.WalletKit.ReleaseOutput:input_type -> walletrpc.ReleaseOutputRequest
-	62, // 38: walletrpc.WalletKit.ListLeases:input_type -> walletrpc.ListLeasesRequest
-	9,  // 39: walletrpc.WalletKit.DeriveNextKey:input_type -> walletrpc.KeyReq
-	72, // 40: walletrpc.WalletKit.DeriveKey:input_type -> signrpc.KeyLocator
-	10, // 41: walletrpc.WalletKit.NextAddr:input_type -> walletrpc.AddrRequest
-	21, // 42: walletrpc.WalletKit.GetTransaction:input_type -> walletrpc.GetTransactionRequest
-	15, // 43: walletrpc.WalletKit.ListAccounts:input_type -> walletrpc.ListAccountsRequest
-	17, // 44: walletrpc.WalletKit.RequiredReserve:input_type -> walletrpc.RequiredReserveRequest
-	19, // 45: walletrpc.WalletKit.ListAddresses:input_type -> walletrpc.ListAddressesRequest
-	22, // 46: walletrpc.WalletKit.SignMessageWithAddr:input_type -> walletrpc.SignMessageWithAddrRequest
-	24, // 47: walletrpc.WalletKit.VerifyMessageWithAddr:input_type -> walletrpc.VerifyMessageWithAddrRequest
-	26, // 48: walletrpc.WalletKit.ImportAccount:input_type -> walletrpc.ImportAccountRequest
-	28, // 49: walletrpc.WalletKit.ImportPublicKey:input_type -> walletrpc.ImportPublicKeyRequest
-	30, // 50: walletrpc.WalletKit.ImportTapscript:input_type -> walletrpc.ImportTapscriptRequest
-	35, // 51: walletrpc.WalletKit.PublishTransaction:input_type -> walletrpc.Transaction
-	21, // 52: walletrpc.WalletKit.RemoveTransaction:input_type -> walletrpc.GetTransactionRequest
-	38, // 53: walletrpc.WalletKit.SendOutputs:input_type -> walletrpc.SendOutputsRequest
-	40, // 54: walletrpc.WalletKit.EstimateFee:input_type -> walletrpc.EstimateFeeRequest
-	43, // 55: walletrpc.WalletKit.PendingSweeps:input_type -> walletrpc.PendingSweepsRequest
-	45, // 56: walletrpc.WalletKit.BumpFee:input_type -> walletrpc.BumpFeeRequest
-	47, // 57: walletrpc.WalletKit.BumpForceCloseFee:input_type -> walletrpc.BumpForceCloseFeeRequest
-	49, // 58: walletrpc.WalletKit.ListSweeps:input_type -> walletrpc.ListSweepsRequest
-	51, // 59: walletrpc.WalletKit.LabelTransaction:input_type -> walletrpc.LabelTransactionRequest
-	53, // 60: walletrpc.WalletKit.FundPsbt:input_type -> walletrpc.FundPsbtRequest
-	58, // 61: walletrpc.WalletKit.SignPsbt:input_type -> walletrpc.SignPsbtRequest
-	60, // 62: walletrpc.WalletKit.FinalizePsbt:input_type -> walletrpc.FinalizePsbtRequest
-	4,  // 63: walletrpc.WalletKit.ListUnspent:output_type -> walletrpc.ListUnspentResponse
-	6,  // 64: walletrpc.WalletKit.LeaseOutput:output_type -> walletrpc.LeaseOutputResponse
-	8,  // 65: walletrpc.WalletKit.ReleaseOutput:output_type -> walletrpc.ReleaseOutputResponse
-	63, // 66: walletrpc.WalletKit.ListLeases:output_type -> walletrpc.ListLeasesResponse
-	73, // 67: walletrpc.WalletKit.DeriveNextKey:output_type -> signrpc.KeyDescriptor
-	73, // 68: walletrpc.WalletKit.DeriveKey:output_type -> signrpc.KeyDescriptor
-	11, // 69: walletrpc.WalletKit.NextAddr:output_type -> walletrpc.AddrResponse
-	74, // 70: walletrpc.WalletKit.GetTransaction:output_type -> lnrpc.Transaction
-	16, // 71: walletrpc.WalletKit.ListAccounts:output_type -> walletrpc.ListAccountsResponse
-	18, // 72: walletrpc.WalletKit.RequiredReserve:output_type -> walletrpc.RequiredReserveResponse
-	20, // 73: walletrpc.WalletKit.ListAddresses:output_type -> walletrpc.ListAddressesResponse
-	23, // 74: walletrpc.WalletKit.SignMessageWithAddr:output_type -> walletrpc.SignMessageWithAddrResponse
-	25, // 75: walletrpc.WalletKit.VerifyMessageWithAddr:output_type -> walletrpc.VerifyMessageWithAddrResponse
-	27, // 76: walletrpc.WalletKit.ImportAccount:output_type -> walletrpc.ImportAccountResponse
-	29, // 77: walletrpc.WalletKit.ImportPublicKey:output_type -> walletrpc.ImportPublicKeyResponse
-	34, // 78: walletrpc.WalletKit.ImportTapscript:output_type -> walletrpc.ImportTapscriptResponse
-	36, // 79: walletrpc.WalletKit.PublishTransaction:output_type -> walletrpc.PublishResponse
-	37, // 80: walletrpc.WalletKit.RemoveTransaction:output_type -> walletrpc.RemoveTransactionResponse
-	39, // 81: walletrpc.WalletKit.SendOutputs:output_type -> walletrpc.SendOutputsResponse
-	41, // 82: walletrpc.WalletKit.EstimateFee:output_type -> walletrpc.EstimateFeeResponse
-	44, // 83: walletrpc.WalletKit.PendingSweeps:output_type -> walletrpc.PendingSweepsResponse
-	46, // 84: walletrpc.WalletKit.BumpFee:output_type -> walletrpc.BumpFeeResponse
-	48, // 85: walletrpc.WalletKit.BumpForceCloseFee:output_type -> walletrpc.BumpForceCloseFeeResponse
-	50, // 86: walletrpc.WalletKit.ListSweeps:output_type -> walletrpc.ListSweepsResponse
-	52, // 87: walletrpc.WalletKit.LabelTransaction:output_type -> walletrpc.LabelTransactionResponse
-	54, // 88: walletrpc.WalletKit.FundPsbt:output_type -> walletrpc.FundPsbtResponse
-	59, // 89: walletrpc.WalletKit.SignPsbt:output_type -> walletrpc.SignPsbtResponse
-	61, // 90: walletrpc.WalletKit.FinalizePsbt:output_type -> walletrpc.FinalizePsbtResponse
-	63, // [63:91] is the sub-list for method output_type
-	35, // [35:63] is the sub-list for method input_type
-	35, // [35:35] is the sub-list for extension type_name
-	35, // [35:35] is the sub-list for extension extendee
-	0,  // [0:35] is the sub-list for field type_name
+	70, // 29: walletrpc.FundPsbtRequest.coin_selection_strategy:type_name -> lnrpc.CoinSelectionStrategy
+	54, // 30: walletrpc.FundPsbtRequest.witness_size_hints:type_name -> walletrpc.TxWitnessSizeHint
+	68, // 31: walletrpc.TxWitnessSizeHint.outpoint:type_name -> lnrpc.OutPoint
+	58, // 32: walletrpc.FundPsbtResponse.locked_utxos:type_name -> walletrpc.UtxoLease
+	68, // 33: walletrpc.TxTemplate.inputs:type_name -> lnrpc.OutPoint
+	66, // 34: walletrpc.TxTemplate.outputs:type_name -> walletrpc.TxTemplate.OutputsEntry
+	68, // 35: walletrpc.UtxoLease.outpoint:type_name -> lnrpc.OutPoint
+	58, // 36: walletrpc.ListLeasesResponse.locked_utxos:type_name -> walletrpc.UtxoLease
+	3,  // 37: walletrpc.WalletKit.ListUnspent:input_type -> walletrpc.ListUnspentRequest
+	5,  // 38: walletrpc.WalletKit.LeaseOutput:input_type -> walletrpc.LeaseOutputRequest
+	7,  // 39: walletrpc.WalletKit.ReleaseOutput:input_type -> walletrpc.ReleaseOutputRequest
+	63, // 40: walletrpc.WalletKit.ListLeases:input_type -> walletrpc.ListLeasesRequest
+	9,  // 41: walletrpc.WalletKit.DeriveNextKey:input_type -> walletrpc.KeyReq
+	73, // 42: walletrpc.WalletKit.DeriveKey:input_type -> signrpc.KeyLocator
+	10, // 43: walletrpc.WalletKit.NextAddr:input_type -> walletrpc.AddrRequest
+	21, // 44: walletrpc.WalletKit.GetTransaction:input_type -> walletrpc.GetTransactionRequest
+	15, // 45: walletrpc.WalletKit.ListAccounts:input_type -> walletrpc.ListAccountsRequest
+	17, // 46: walletrpc.WalletKit.RequiredReserve:input_type -> walletrpc.RequiredReserveRequest
+	19, // 47: walletrpc.WalletKit.ListAddresses:input_type -> walletrpc.ListAddressesRequest
+	22, // 48: walletrpc.WalletKit.SignMessageWithAddr:input_type -> walletrpc.SignMessageWithAddrRequest
+	24, // 49: walletrpc.WalletKit.VerifyMessageWithAddr:input_type -> walletrpc.VerifyMessageWithAddrRequest
+	26, // 50: walletrpc.WalletKit.ImportAccount:input_type -> walletrpc.ImportAccountRequest
+	28, // 51: walletrpc.WalletKit.ImportPublicKey:input_type -> walletrpc.ImportPublicKeyRequest
+	30, // 52: walletrpc.WalletKit.ImportTapscript:input_type -> walletrpc.ImportTapscriptRequest
+	35, // 53: walletrpc.WalletKit.PublishTransaction:input_type -> walletrpc.Transaction
+	21, // 54: walletrpc.WalletKit.RemoveTransaction:input_type -> walletrpc.GetTransactionRequest
+	38, // 55: walletrpc.WalletKit.SendOutputs:input_type -> walletrpc.SendOutputsRequest
+	40, // 56: walletrpc.WalletKit.EstimateFee:input_type -> walletrpc.EstimateFeeRequest
+	43, // 57: walletrpc.WalletKit.PendingSweeps:input_type -> walletrpc.PendingSweepsRequest
+	45, // 58: walletrpc.WalletKit.BumpFee:input_type -> walletrpc.BumpFeeRequest
+	47, // 59: walletrpc.WalletKit.BumpForceCloseFee:input_type -> walletrpc.BumpForceCloseFeeRequest
+	49, // 60: walletrpc.WalletKit.ListSweeps:input_type -> walletrpc.ListSweepsRequest
+	51, // 61: walletrpc.WalletKit.LabelTransaction:input_type -> walletrpc.LabelTransactionRequest
+	53, // 62: walletrpc.WalletKit.FundPsbt:input_type -> walletrpc.FundPsbtRequest
+	59, // 63: walletrpc.WalletKit.SignPsbt:input_type -> walletrpc.SignPsbtRequest
+	61, // 64: walletrpc.WalletKit.FinalizePsbt:input_type -> walletrpc.FinalizePsbtRequest
+	4,  // 65: walletrpc.WalletKit.ListUnspent:output_type -> walletrpc.ListUnspentResponse
+	6,  // 66: walletrpc.WalletKit.LeaseOutput:output_type -> walletrpc.LeaseOutputResponse
+	8,  // 67: walletrpc.WalletKit.ReleaseOutput:output_type -> walletrpc.ReleaseOutputResponse
+	64, // 68: walletrpc.WalletKit.ListLeases:output_type -> walletrpc.ListLeasesResponse
+	74, // 69: walletrpc.WalletKit.DeriveNextKey:output_type -> signrpc.KeyDescriptor
+	74, // 70: walletrpc.WalletKit.DeriveKey:output_type -> signrpc.KeyDescriptor
+	11, // 71: walletrpc.WalletKit.NextAddr:output_type -> walletrpc.AddrResponse
+	75, // 72: walletrpc.WalletKit.GetTransaction:output_type -> lnrpc.Transaction
+	16, // 73: walletrpc.WalletKit.ListAccounts:output_type -> walletrpc.ListAccountsResponse
+	18, // 74: walletrpc.WalletKit.RequiredReserve:output_type -> walletrpc.RequiredReserveResponse
+	20, // 75: walletrpc.WalletKit.ListAddresses:output_type -> walletrpc.ListAddressesResponse
+	23, // 76: walletrpc.WalletKit.SignMessageWithAddr:output_type -> walletrpc.SignMessageWithAddrResponse
+	25, // 77: walletrpc.WalletKit.VerifyMessageWithAddr:output_type -> walletrpc.VerifyMessageWithAddrResponse
+	27, // 78: walletrpc.WalletKit.ImportAccount:output_type -> walletrpc.ImportAccountResponse
+	29, // 79: walletrpc.WalletKit.ImportPublicKey:output_type -> walletrpc.ImportPublicKeyResponse
+	34, // 80: walletrpc.WalletKit.ImportTapscript:output_type -> walletrpc.ImportTapscriptResponse
+	36, // 81: walletrpc.WalletKit.PublishTransaction:output_type -> walletrpc.PublishResponse
+	37, // 82: walletrpc.WalletKit.RemoveTransaction:output_type -> walletrpc.RemoveTransactionResponse
+	39, // 83: walletrpc.WalletKit.SendOutputs:output_type -> walletrpc.SendOutputsResponse
+	41, // 84: walletrpc.WalletKit.EstimateFee:output_type -> walletrpc.EstimateFeeResponse
+	44, // 85: walletrpc.WalletKit.PendingSweeps:output_type -> walletrpc.PendingSweepsResponse
+	46, // 86: walletrpc.WalletKit.BumpFee:output_type -> walletrpc.BumpFeeResponse
+	48, // 87: walletrpc.WalletKit.BumpForceCloseFee:output_type -> walletrpc.BumpForceCloseFeeResponse
+	50, // 88: walletrpc.WalletKit.ListSweeps:output_type -> walletrpc.ListSweepsResponse
+	52, // 89: walletrpc.WalletKit.LabelTransaction:output_type -> walletrpc.LabelTransactionResponse
+	55, // 90: walletrpc.WalletKit.FundPsbt:output_type -> walletrpc.FundPsbtResponse
+	60, // 91: walletrpc.WalletKit.SignPsbt:output_type -> walletrpc.SignPsbtResponse
+	62, // 92: walletrpc.WalletKit.FinalizePsbt:output_type -> walletrpc.FinalizePsbtResponse
+	65, // [65:93] is the sub-list for method output_type
+	37, // [37:65] is the sub-list for method input_type
+	37, // [37:37] is the sub-list for extension type_name
+	37, // [37:37] is the sub-list for extension extendee
+	0,  // [0:37] is the sub-list for field type_name
 }
 
 func init() { file_walletrpc_walletkit_proto_init() }
@@ -5092,7 +5174,7 @@ func file_walletrpc_walletkit_proto_init() {
 		(*FundPsbtRequest_SatPerVbyte)(nil),
 		(*FundPsbtRequest_SatPerKw)(nil),
 	}
-	file_walletrpc_walletkit_proto_msgTypes[53].OneofWrappers = []any{
+	file_walletrpc_walletkit_proto_msgTypes[54].OneofWrappers = []any{
 		(*PsbtCoinSelect_ExistingOutputIndex)(nil),
 		(*PsbtCoinSelect_Add)(nil),
 	}
@@ -5102,7 +5184,7 @@ func file_walletrpc_walletkit_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_walletrpc_walletkit_proto_rawDesc), len(file_walletrpc_walletkit_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   63,
+			NumMessages:   64,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

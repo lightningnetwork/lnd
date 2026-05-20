@@ -1305,6 +1305,11 @@ message HTLC {
 }
 
 enum CommitmentType {
+    // Allow multiple enum names to map to the same numeric value so the
+    // taproot channel types can expose short, canonical aliases without
+    // breaking on-wire compatibility with the historic names.
+    option allow_alias = true;
+
     /*
     Returned when the commitment type isn't known or unavailable.
     */
@@ -1341,18 +1346,27 @@ enum CommitmentType {
     SCRIPT_ENFORCED_LEASE = 4;
 
     /*
-    A channel that uses musig2 for the funding output, and the new tapscript
-    features where relevant. This is the staging version using development
-    scripts.
+    The production taproot channel type that uses musig2 for the funding
+    output and the new tapscript features, with final scripts and feature
+    bits 80/81. This is the recommended taproot variant; new integrations
+    should select this enum value.
     */
-    SIMPLE_TAPROOT = 5;
+    TAPROOT = 7;
 
     /*
-    A channel that uses musig2 for the funding output, and the new tapscript
-    features where relevant. This is the production version using final scripts
-    and feature bits 80/81.
+    Deprecated alias for TAPROOT, preserved so existing clients that select
+    the production taproot channel type by its historic name continue to
+    compile and serialize against the same wire value.
     */
     SIMPLE_TAPROOT_FINAL = 7;
+
+    /*
+    A legacy taproot channel type that uses musig2 for the funding output and
+    the new tapscript features, but with development scripts and the staging
+    feature bits. Retained for compatibility with peers that have not upgraded
+    to TAPROOT; new integrations should prefer TAPROOT.
+    */
+    SIMPLE_TAPROOT = 5;
 
     /*
     Identical to the SIMPLE_TAPROOT channel type, but with extra functionality.

@@ -126,9 +126,12 @@
   support. The nonce type is now auto-detected from the negotiated channel type
   rather than peer feature bits, ensuring correct behavior across all recovery
   and resynchronization paths. Taproot channels must be requested explicitly
-  with `lncli openchannel --channel_type=taproot-final` (or `taproot` for
-  staging), and must remain private until announced taproot channels are
-  supported.
+  with `lncli openchannel --channel_type=taproot` (the bare `taproot` string
+  now selects the production variant; `taproot-staging` opens the legacy
+  staging variant, and `taproot-final` is kept as a deprecated alias for
+  `taproot`), and must remain private until announced taproot channels are
+  supported. The RPC `CommitmentType` enum gains a `TAPROOT` alias for
+  `SIMPLE_TAPROOT_FINAL` so new RPC clients can use the same short name.
 
 * [Added taproot channel support for RBF cooperative
   close](https://github.com/lightningnetwork/lnd/pull/10063). The new RBF-based

@@ -26,6 +26,15 @@
   [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ
   port-mismatch warnings so they no longer suggest that the connection failed.
 
+* The sweeper [now leases wallet UTXOs](https://github.com/lightningnetwork/lnd/pull/10816)
+  it claims for fee-paying inputs, preventing concurrent sweeps within a
+  single node from contending for the same UTXO. It also no longer
+  ratchets the starting fee rate on failures that are not fee-related
+  (e.g. when there are no UTXOs available to cover the fees), so inputs
+  whose intrinsic budget cannot accommodate a higher rate are not
+  stranded. This resolves [#7397](https://github.com/lightningnetwork/lnd/issues/7397)
+  and addresses item 3 of [#8680](https://github.com/lightningnetwork/lnd/issues/8680).
+
 # New Features
 
 ## Functional Enhancements
@@ -81,3 +90,4 @@
 
 * Boris Nagaev
 * Erick Cestari
+* Jared Tobin

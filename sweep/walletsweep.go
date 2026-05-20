@@ -31,6 +31,19 @@ var (
 	// ErrUnknownUTXO is returned when creating a sweeping tx using an UTXO
 	// that's unknown to the wallet.
 	ErrUnknownUTXO = errors.New("unknown utxo")
+
+	// LndSweeperLockID is the binary representation of the SHA256 hash of
+	// the string "lnd-sweeper-lock-id" and is used by the utxo sweeper to
+	// lease wallet UTXOs it has selected as fee inputs for a pending
+	// sweep. Distinct from chanfunding.LndInternalLockID so that sweeper
+	// leases do not interfere with channel-funding leases. The hex value
+	// is 3884133f5717d2edd2a4be4e142306698297ab317b60be037cd496ecad6442e8.
+	LndSweeperLockID = wtxmgr.LockID{
+		0x38, 0x84, 0x13, 0x3f, 0x57, 0x17, 0xd2, 0xed,
+		0xd2, 0xa4, 0xbe, 0x4e, 0x14, 0x23, 0x06, 0x69,
+		0x82, 0x97, 0xab, 0x31, 0x7b, 0x60, 0xbe, 0x03,
+		0x7c, 0xd4, 0x96, 0xec, 0xad, 0x64, 0x42, 0xe8,
+	}
 )
 
 // FeePreference defines an interface that allows the caller to specify how the

@@ -94,6 +94,12 @@ type ResolutionReq struct {
 	// KeyRing is the key ring for the channel.
 	KeyRing *CommitmentKeyRing
 
+	// InitialKeyRing is the key ring for the initial commitment state at
+	// height 0. This lets downstream resolvers distinguish "just opened"
+	// commitment outputs from later states that use the post-channel_ready
+	// commitment point.
+	InitialKeyRing *CommitmentKeyRing
+
 	// CsvDelay is the CSV delay for the local output for this commitment.
 	CsvDelay uint32
 

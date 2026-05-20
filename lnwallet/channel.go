@@ -633,6 +633,44 @@ func (lc *LightningChannel) extractPayDescs(feeRate chainfee.SatPerKWeight,
 	return incomingHtlcs, outgoingHtlcs, nil
 }
 
+// initialCommitmentKeyRing derives the key ring for the initial commitment
+// state at height 0. This is distinct from the live key ring after
+// channel_ready, which already moved on to the next per-commitment point.
+// If the initial commitment point can't be derived, then nil is returned and
+// the caller should fall back to the live key ring.
+func initialCommitmentKeyRingFromState(chanState *channeldb.OpenChannel,
+	whoseCommit lntypes.ChannelParty) *CommitmentKeyRing {
+
+	switch {
+	case whoseCommit.IsLocal():
+		revocation, err := chanState.RevocationProducer.AtIndex(0)
+		if err != nil {
+			return nil
+		}
+
+		commitPoint := input.ComputeCommitmentPoint(revocation[:])
+
+		return DeriveCommitmentKeys(
+			commitPoint, lntypes.Local, chanState.ChanType,
+			&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+		)
+
+	case whoseCommit.IsRemote():
+		if chanState.RemoteCurrentRevocation == nil {
+			return nil
+		}
+
+		return DeriveCommitmentKeys(
+			chanState.RemoteCurrentRevocation, lntypes.Remote,
+			chanState.ChanType, &chanState.LocalChanCfg,
+			&chanState.RemoteChanCfg,
+		)
+
+	default:
+		return nil
+	}
+}
+
 // diskCommitToMemCommit converts the on-disk commitment format to our
 // in-memory commitment format which is needed in order to properly resume
 // channel operations after a restart.
@@ -8521,6 +8559,13 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 
 		// At this point, we'll check to see if we need any extra
 		// resolution data for this output.
+		var initialKeyRing *CommitmentKeyRing
+		if chanState.LocalCommitment.CommitHeight == 0 {
+			initialKeyRing = initialCommitmentKeyRingFromState(
+				chanState, lntypes.Local,
+			)
+		}
+
 		resolveBlob := fn.MapOptionZ(
 			auxResolver,
 			func(a AuxContractResolver) fn.Result[tlv.Blob] {
@@ -8539,6 +8584,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 					ContractPoint:       commitResolution.SelfOutPoint,
 					SignDesc:            commitResolution.SelfOutputSignDesc,
 					KeyRing:             keyRing,
+					InitialKeyRing:      initialKeyRing,
 					CsvDelay:            csvTimeout,
 					CommitFee:           chanState.LocalCommitment.CommitFee,
 				})

@@ -337,6 +337,11 @@ func (s *server) ConnectPeer(nodePub *btcec.PublicKey, addrs []net.Addr) error {
 			"with chan restore", nodePub.SerializeCompressed())
 	}
 
+	// Strip persisted Tor v2 .onion entries that may have been carried
+	// over in an old static channel backup: Tor stopped serving v2 in 2021
+	// and the dial would never succeed. Covered by TestWithoutV2Onion.
+	addrs = withoutV2Onion(addrs)
+
 	// For each of the known addresses, we'll attempt to launch a
 	// persistent connection to the (pub, addr) pair. In the event that any
 	// of them connect, all the other stale requests will be canceled.

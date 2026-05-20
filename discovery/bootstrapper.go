@@ -222,8 +222,19 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(_ context.Context,
 				// If we haven't yet reached our limit, then
 				// we'll copy over the details of this node
 				// into the set of addresses to be returned.
-				switch nodeAddr.(type) {
-				case *net.TCPAddr, *tor.OnionAddr:
+				switch onion := nodeAddr.(type) {
+				case *net.TCPAddr:
+				case *tor.OnionAddr:
+					// Skip persisted Tor v2 .onion
+					// entries: Tor stopped serving them
+					// in 2021 and the dial would never
+					// succeed. Other addresses of the
+					// same node may still be usable.
+					if len(onion.OnionService) ==
+						tor.V2Len {
+
+						continue
+					}
 				default:
 					// If this isn't a valid address
 					// supported by the protocol, then we'll

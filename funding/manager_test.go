@@ -5011,6 +5011,7 @@ func TestCommitmentTypeFundmaxSanityCheck(t *testing.T) {
 		"SCRIPT_ENFORCED_LEASE":   4,
 		"SIMPLE_TAPROOT":          5,
 		"SIMPLE_TAPROOT_OVERLAY":  6,
+		"TAPROOT":                 7,
 		"SIMPLE_TAPROOT_FINAL":    7,
 	}
 

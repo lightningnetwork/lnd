@@ -26,6 +26,10 @@
   [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ
   port-mismatch warnings so they no longer suggest that the connection failed.
 
+* [`lncli unlock --stdin`](https://github.com/lightningnetwork/lnd/pull/10784)
+  now reads the password until EOF instead of stopping at the first newline,
+  so passwords containing embedded newline bytes are accepted.
+
 # New Features
 
 ## Functional Enhancements

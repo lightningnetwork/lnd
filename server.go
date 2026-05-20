@@ -5781,8 +5781,10 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 
 		// If the `externalip` is not specified in the config, it means
 		// `addrs` will be empty, we'll use the source node's addresses.
+		// Filter out any persisted Tor v2 onion entries so an upgraded
+		// node never re-signs or re-broadcasts a legacy v2 address.
 		if len(s.cfg.ExternalIPs) == 0 {
-			addrs = srcNode.Addresses
+			addrs = withoutV2Onion(srcNode.Addresses)
 		}
 
 	case errors.Is(err, graphdb.ErrSourceNodeNotSet):

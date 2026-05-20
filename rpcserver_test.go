@@ -1,14 +1,22 @@
 package lnd
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"testing"
+	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -122,4 +130,71 @@ func TestRpcCommitmentType(t *testing.T) {
 			)
 		})
 	}
+}
+
+// TestConnectPeerNoHost tests that ConnectPeer returns a descriptive error
+// when no host is provided.
+func TestConnectPeerNoHost(t *testing.T) {
+	t.Parallel()
+
+	// Create mock ECDH key for identity checking.
+	mockPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	// Create minimal mock for tor.Net interface.
+	mockNet := &mockTorNet{}
+
+	// Create rpcServer instance with proper mocks.
+	cfg := &Config{
+		net:             mockNet,
+		ActiveNetParams: chainreg.BitcoinTestNetParams,
+	}
+
+	server := &server{
+		active:       1,
+		identityECDH: &keychain.PrivKeyECDH{PrivKey: mockPrivKey},
+	}
+
+	rpcServer := &rpcServer{
+		cfg:    cfg,
+		server: server,
+	}
+
+	// Test with empty host should trigger our error.
+	req := &lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+			Host:   "",
+		},
+	}
+
+	_, err = rpcServer.ConnectPeer(context.Background(), req)
+
+	// Verify error contains expected message.
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no addresses known for peer")
+	require.Contains(t, err.Error(), req.Addr.Pubkey)
+
+	// Verify correct gRPC error code.
+	grpcErr := status.Convert(err)
+	require.Equal(t, codes.InvalidArgument, grpcErr.Code())
+}
+
+// mockTorNet implements the tor.Net interface for testing.
+type mockTorNet struct{}
+
+func (m *mockTorNet) Dial(network, address string, timeout time.Duration) (net.Conn, error) {
+	return nil, fmt.Errorf("mock dial")
+}
+
+func (m *mockTorNet) LookupHost(host string) ([]string, error) {
+	return nil, fmt.Errorf("mock lookup")
+}
+
+func (m *mockTorNet) LookupSRV(service, proto, name string, timeout time.Duration) (string, []*net.SRV, error) {
+	return "", nil, fmt.Errorf("mock srv")
+}
+
+func (m *mockTorNet) ResolveTCPAddr(network, address string) (*net.TCPAddr, error) {
+	return nil, fmt.Errorf("mock resolve")
 }

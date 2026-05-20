@@ -1239,21 +1239,16 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 			t.Fatalf("unable to mark commitment broadcast: %v", err)
 		}
 
-		// Now try to marking a coop close with a nil tx. This should
-		// succeed, but it shouldn't exit when queried.
-		if err = channel.MarkCoopBroadcasted(
+		// A nil close tx must be rejected.
+		err = channel.MarkCoopBroadcasted(
 			nil, lntypes.Local,
-		); err != nil {
-			t.Fatalf("unable to mark nil coop broadcast: %v", err)
-		}
-		_, err := channel.BroadcastedCooperative()
-		if err != ErrNoCloseTx {
-			t.Fatalf("expected no closing tx error, got: %v", err)
-		}
+		)
+		require.Error(t, err, "nil tx should be rejected")
 
-		// Finally, modify the close tx deterministically  and also mark
+		// Modify the close tx deterministically and also mark
 		// it as coop closed. Later we will test that distinct
-		// transactions are returned for both coop and force closes.
+		// transactions are returned for both coop and force
+		// closes.
 		closeTx.TxIn[0].PreviousOutPoint.Index ^= 1
 		if err := channel.MarkCoopBroadcasted(
 			closeTx, lntypes.Local,

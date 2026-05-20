@@ -26,6 +26,14 @@
   [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ
   port-mismatch warnings so they no longer suggest that the connection failed.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10782)
+  that could be encountered during co-op closes whereby
+  `ChanStatusCoopBroadcasted` was set before a close transaction
+  actually existed. As a side effect, channels in shutdown
+  negotiation now remain in `ListChannels` (as inactive) until
+  the close transaction is actually broadcast, and
+  `WaitingCloseChannel.ClosingTx` is never empty.
+
 # New Features
 
 ## Functional Enhancements

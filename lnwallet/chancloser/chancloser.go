@@ -742,18 +742,6 @@ func (c *ChanCloser) BeginNegotiation() (fn.Option[lnwire.ClosingSigned],
 		// compute what our max/ideal fee will be.
 		c.initFeeBaseline()
 
-		// Before continuing, mark the channel as cooperatively closed
-		// with a nil txn. Even though we haven't negotiated the final
-		// txn, this guarantees that our listchannels rpc will be
-		// externally consistent, and reflect that the channel is being
-		// shutdown by the time the closing request returns.
-		err := c.cfg.Channel.MarkCoopBroadcasted(
-			nil, c.closer,
-		)
-		if err != nil {
-			return noClosingSigned, err
-		}
-
 		// At this point, we can now start the fee negotiation state, by
 		// constructing and sending our initial signature for what we
 		// think the closing transaction should look like.
@@ -764,7 +752,7 @@ func (c *ChanCloser) BeginNegotiation() (fn.Option[lnwire.ClosingSigned],
 			// to check if we have a cached remote offer to process.
 			// If we do, we'll process it here.
 			res := noClosingSigned
-			err = nil
+			var err error
 			c.cachedClosingSigned.WhenSome(
 				func(cs lnwire.ClosingSigned) {
 					res, err = c.ReceiveClosingSigned(cs)

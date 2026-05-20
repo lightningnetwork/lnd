@@ -289,7 +289,13 @@
   input is rejected at the boundary: `--externalip`, `--listen`,
   `lncli connect`, and `lncli wtclient towers add` fail fast on a v2
   `.onion` string, so operators upgrading with a v2 entry in
-  `lnd.conf` must remove it before lnd will start.
+  `lnd.conf` must remove it before lnd will start. Persisted state
+  carried over from a previous version is also filtered before use:
+  the self-node announcement strips any v2 entry from the source-node
+  record before signing, and the watchtower client drops v2 entries
+  from each persisted tower's address list (skipping the tower
+  entirely if no non-v2 address remains so the operator can attach a
+  fresh v3 address). The on-disk records are left intact.
 
   Peer-signed announcements that still carry v2 are handled
   byte-for-byte: the `lnwire` and `graph/db` codecs round-trip v2 so

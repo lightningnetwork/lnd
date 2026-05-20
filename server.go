@@ -612,6 +612,11 @@ func parseAddr(address string, netCfg tor.Net) (net.Addr, error) {
 // serving v2 onion services in October 2021, so callers skip these on dial
 // paths. Storage and gossip re-broadcast still preserve v2 byte-for-byte to
 // keep peer-signed NodeAnnouncement signatures verifiable.
+//
+// TODO: move this helper into the `tor` module (as `tor.IsV2Onion`) and
+// remove this copy along with the duplicate in
+// watchtower/wtclient/interface.go once a new `tor` module version is cut
+// and the dependency is bumped.
 func isV2OnionAddr(addr net.Addr) bool {
 	onion, ok := addr.(*tor.OnionAddr)
 	if !ok {
@@ -623,6 +628,10 @@ func isV2OnionAddr(addr net.Addr) bool {
 
 // withoutV2Onion returns addrs with any Tor v2 .onion entries removed. See
 // isV2OnionAddr for the rationale.
+//
+// TODO: move this helper into the `tor` module and remove this copy along
+// with the duplicate in watchtower/wtclient/interface.go once a new `tor`
+// module version is cut and the dependency is bumped.
 func withoutV2Onion(addrs []net.Addr) []net.Addr {
 	filtered := make([]net.Addr, 0, len(addrs))
 	for _, addr := range addrs {

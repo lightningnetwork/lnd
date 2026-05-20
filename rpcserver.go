@@ -8048,23 +8048,33 @@ func (r *rpcServer) SubscribeChannelBackups(req *lnrpc.ChannelBackupSubscription
 		select {
 		// A new event has been sent by the channel notifier, we'll
 		// assemble, then sling out a new event to the client.
-		case e := <-chanSubscription.Updates():
+		case e, ok := <-chanSubscription.Updates():
+			if !ok {
+				// The subscription server closes the updates
+				// channel during shutdown or cancellation, so
+				// end the stream gracefully.
+				return nil
+			}
+
 			// TODO(roasbeef): batch dispatch ntnfs
 
 			switch e.(type) {
 
-			// We only care about new/closed channels, so we'll
-			// skip any events for active/inactive channels.
-			// To make the subscription behave the same way as the
-			// synchronous call and the file based backup, we also
-			// include pending channels in the update.
-			case channelnotifier.ActiveChannelEvent:
-				continue
-			case channelnotifier.InactiveChannelEvent:
-				continue
-			case channelnotifier.ActiveLinkEvent:
-				continue
-			case channelnotifier.InactiveLinkEvent:
+			// Only channel lifecycle events should trigger this
+			// subscription. Commitment updates can affect
+			// close-tx inputs embedded in an exported SCB, but
+			// emitting on that frequency would make this stream
+			// too noisy. To make the subscription behave the same
+			// way as the synchronous call and the file based
+			// backup, we also include pending channels in the
+			// update.
+			case channelnotifier.PendingOpenChannelEvent,
+				channelnotifier.OpenChannelEvent,
+				channelnotifier.ClosedChannelEvent,
+				channelnotifier.FullyResolvedChannelEvent,
+				channelnotifier.FundingTimeoutEvent:
+
+			default:
 				continue
 			}
 

@@ -853,6 +853,7 @@ func TestProbePaymentRequestUsesUniqueHashPerLSP(t *testing.T) {
 
 	seenHashes := make(map[[32]byte]struct{})
 	probedDests := make(map[route.Vertex]struct{})
+	outgoingChanIDs := []uint64{123, 456}
 	expectedCltv := map[route.Vertex]int32{
 		bobVertex:  int32(bobHint.CLTVExpiryDelta),
 		eveVertex:  int32(eveHint.CLTVExpiryDelta),
@@ -875,6 +876,7 @@ func TestProbePaymentRequestUsesUniqueHashPerLSP(t *testing.T) {
 		probedDests[dest] = struct{}{}
 
 		require.Equal(t, expectedCltv[dest], req.FinalCltvDelta)
+		require.Equal(t, outgoingChanIDs, req.OutgoingChanIds)
 
 		return &RouteFeeResponse{
 			RoutingFeeMsat: int64(req.FinalCltvDelta),
@@ -887,7 +889,7 @@ func TestProbePaymentRequestUsesUniqueHashPerLSP(t *testing.T) {
 	// Act: estimate the route fee with a stubbed probe sender that records
 	// the generated per-LSP probe requests.
 	_, err = server.probePaymentRequestWithSender(
-		t.Context(), payReq, 1, sendProbe,
+		t.Context(), payReq, 1, outgoingChanIDs, sendProbe,
 	)
 
 	// Assert: all LSPs were probed, each probe had a unique payment hash,

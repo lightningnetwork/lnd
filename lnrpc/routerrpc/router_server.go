@@ -518,7 +518,8 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 	timeout uint32, outgoingChanIDs []uint64) (*RouteFeeResponse, error) {
 
 	return s.probePaymentRequestWithSender(
-		ctx, paymentRequest, timeout, s.sendProbePayment,
+		ctx, paymentRequest, timeout, outgoingChanIDs,
+		s.sendProbePayment,
 	)
 }
 
@@ -533,7 +534,7 @@ type probePaymentSender func(context.Context,
 // probePaymentRequest. The sender is injected so tests can inspect generated
 // probe requests without invoking the full payment lifecycle.
 func (s *Server) probePaymentRequestWithSender(ctx context.Context,
-	paymentRequest string, timeout uint32,
+	paymentRequest string, timeout uint32, outgoingChanIDs []uint64,
 	sendProbePayment probePaymentSender) (*RouteFeeResponse, error) {
 
 	payReq, err := zpay32.Decode(

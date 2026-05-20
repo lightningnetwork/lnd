@@ -240,6 +240,16 @@
   subsequent SendOnion call with the same attempt ID to succeed. Clients should
   only delete attempt IDs they have fully finalized and will never reuse.
 
+* Introduced a [`RouteOrigin`
+  interface](https://github.com/lightningnetwork/lnd/pull/10764) that
+  generalizes where routes can originate from. The pathfinder previously
+  terminated at a single concrete source vertex; `RouteOrigin` replaces this
+  with a predicate so backward Dijkstra can terminate at any vertex in a
+  caller-provided set, selecting whichever provides the cheapest path. The
+  default `singleOrigin` preserves existing behavior for all callers. This is
+  the source-end counterpart to `AdditionalEdge`, which extends the graph at
+  the destination end via route hints.
+
 ## RPC Additions
 
 * [Added `DeleteForwardingHistory`

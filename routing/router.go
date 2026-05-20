@@ -477,6 +477,11 @@ type RouteRequest struct {
 	// parameters used to reach a target node blinded paths. This field is
 	// mutually exclusive with the Target field.
 	BlindedPathSet *BlindedPaymentPathSet
+
+	// Origin is an optional RouteOrigin that determines where the
+	// route can start. When set, it overrides Source for path-finding
+	// termination. When nil, a singleOrigin wrapping Source is used.
+	Origin RouteOrigin
 }
 
 // RouteHints is an alias type for a set of route hints, with the source node
@@ -600,15 +605,20 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 		return nil, 0, errors.New("time preference out of range")
 	}
 
-	path, probability, err := findPath(
+	origin := RouteOrigin(&singleOrigin{req.Source})
+	if req.Origin != nil {
+		origin = req.Origin
+	}
+
+	source, path, probability, err := findPath(
 		&graphParams{
 			additionalEdges: req.RouteHints,
 			bandwidthHints:  bandwidthHints,
 			graph:           r.cfg.RoutingGraph,
 		},
 		req.Restrictions, &r.cfg.PathFindingConfig,
-		r.cfg.SelfNode, req.Source, req.Target, req.Amount,
-		req.TimePreference, finalHtlcExpiry,
+		r.cfg.SelfNode, origin, req.Target,
+		req.Amount, req.TimePreference, finalHtlcExpiry,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -616,7 +626,7 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 
 	// Create the route with absolute time lock values.
 	route, err := newRoute(
-		req.Source, path, uint32(currentHeight),
+		source, path, uint32(currentHeight),
 		finalHopParams{
 			amt:       req.Amount,
 			totalAmt:  req.Amount,

@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -1739,6 +1740,11 @@ func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 	}
 	cfg.Routing.AssumeChannelValid = !cfg.NeutrinoMode.ValidateChannels
 
+	// Validate neutrino headers import configuration.
+	if err := cfg.NeutrinoMode.Validate(); err != nil {
+		return nil, nil, err
+	}
+
 	// First we'll open the database file for neutrino, creating the
 	// database if needed. We append the normalized network name here to
 	// match the behavior of btcwallet.
@@ -1840,6 +1846,24 @@ func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 		PersistToDisk:      cfg.NeutrinoMode.PersistFilters,
 	}
 
+	// Configure headers import if both sources are specified. The
+	// chainimport package handles both HTTP URLs and local file paths
+	// transparently based on the source string prefix.
+	blockHdrSrc := cfg.NeutrinoMode.BlockHeadersSource
+	filterHdrSrc := cfg.NeutrinoMode.FilterHeadersSource
+	if blockHdrSrc != "" && filterHdrSrc != "" {
+		importCfg := &neutrino.HeadersImportConfig{
+			BlockHeadersSource:  blockHdrSrc,
+			FilterHeadersSource: filterHdrSrc,
+		}
+
+		importCfg.ValidationFlags = neutrinoHeadersImportValidationFlags(
+			cfg.Bitcoin,
+		)
+
+		config.HeadersImport = importCfg
+	}
+
 	if cfg.NeutrinoMode.MaxPeers <= 0 {
 		return nil, nil, fmt.Errorf("a non-zero number must be set " +
 			"for neutrino max peers")
@@ -1870,6 +1894,21 @@ func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 	}
 
 	return neutrinoCS, cleanUp, nil
+}
+
+// neutrinoHeadersImportValidationFlags returns the blockchain validation
+// flags to use when importing block headers via neutrino's chainimport
+// package. Local test networks fall back to BFFastAdd to keep harness
+// imports cheap; public networks keep contextual header validation enabled
+// so the imported chain is held to the same standard as P2P headers.
+func neutrinoHeadersImportValidationFlags(
+	chainCfg *lncfg.Chain) blockchain.BehaviorFlags {
+
+	if chainCfg.IsLocalNetwork() {
+		return blockchain.BFFastAdd
+	}
+
+	return blockchain.BFNone
 }
 
 // parseHeaderStateAssertion parses the user-specified neutrino header state

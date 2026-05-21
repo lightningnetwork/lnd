@@ -27,7 +27,7 @@ func TestBackpressureMailboxDropsWhenThresholdReached(t *testing.T) {
 	})
 
 	mbox := NewBackpressureMailbox[TestMessage, int](
-		ctx, capacity, shouldDrop,
+		ctx, capacity, shouldDrop, BackpressureMailboxCfg{},
 	)
 
 	// Fill up to the drop threshold — these should all succeed.
@@ -61,7 +61,7 @@ func TestBackpressureMailboxTrySendDrops(t *testing.T) {
 	})
 
 	mbox := NewBackpressureMailbox[TestMessage, int](
-		ctx, capacity, shouldDrop,
+		ctx, capacity, shouldDrop, BackpressureMailboxCfg{},
 	)
 
 	// Fill to threshold.
@@ -94,7 +94,7 @@ func TestBackpressureMailboxNeverDropPassesThrough(t *testing.T) {
 	})
 
 	mbox := NewBackpressureMailbox[TestMessage, int](
-		ctx, capacity, neverDrop,
+		ctx, capacity, neverDrop, BackpressureMailboxCfg{},
 	)
 
 	// Fill the entire capacity.
@@ -120,7 +120,7 @@ func TestBackpressureMailboxDelegatesReceive(t *testing.T) {
 		return false
 	})
 	mbox := NewBackpressureMailbox[TestMessage, int](
-		ctx, capacity, neverDrop,
+		ctx, capacity, neverDrop, BackpressureMailboxCfg{},
 	)
 
 	// Send two messages.
@@ -153,7 +153,7 @@ func TestBackpressureMailboxDelegatesDrain(t *testing.T) {
 		return false
 	})
 	mbox := NewBackpressureMailbox[TestMessage, int](
-		ctx, capacity, neverDrop,
+		ctx, capacity, neverDrop, BackpressureMailboxCfg{},
 	)
 
 	// Send messages and close.
@@ -188,6 +188,7 @@ func TestBackpressureMailboxSendRespectsActorCtx(t *testing.T) {
 	})
 	mbox := NewBackpressureMailbox[TestMessage, int](
 		actorCtx, capacity, neverDrop,
+		BackpressureMailboxCfg{},
 	)
 
 	// Fill the mailbox to capacity.
@@ -218,7 +219,7 @@ func TestBackpressureMailboxReceiveAfterClose(t *testing.T) {
 		return false
 	})
 	mbox := NewBackpressureMailbox[TestMessage, int](
-		ctx, capacity, neverDrop,
+		ctx, capacity, neverDrop, BackpressureMailboxCfg{},
 	)
 
 	mbox.Close()
@@ -248,7 +249,7 @@ func TestBackpressureMailboxDrainAfterDrain(t *testing.T) {
 		return false
 	})
 	mbox := NewBackpressureMailbox[TestMessage, int](
-		ctx, capacity, neverDrop,
+		ctx, capacity, neverDrop, BackpressureMailboxCfg{},
 	)
 
 	// Send one message and close.
@@ -289,7 +290,7 @@ func TestBackpressureMailboxConcurrentSendClose(t *testing.T) {
 	})
 
 	mbox := NewBackpressureMailbox[TestMessage, int](
-		ctx, capacity, neverDrop,
+		ctx, capacity, neverDrop, BackpressureMailboxCfg{},
 	)
 
 	var wg sync.WaitGroup
@@ -356,6 +357,236 @@ func TestBackpressureMailboxConcurrentSendClose(t *testing.T) {
 	require.False(t, mbox.TrySend(env))
 }
 
+// TestBackpressureMailboxDroppedCounter verifies that the Dropped counter
+// increments for each predicate rejection across Send and TrySend.
+func TestBackpressureMailboxDroppedCounter(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	const capacity = 10
+	const dropThreshold = 3
+
+	shouldDrop := queue.DropCheckFunc(func(queueLen int) bool {
+		return queueLen >= dropThreshold
+	})
+
+	mbox := NewBackpressureMailbox[TestMessage, int](
+		ctx, capacity, shouldDrop, BackpressureMailboxCfg{},
+	)
+
+	require.Zero(t, mbox.Dropped(), "initial drop count must be 0")
+
+	// Fill up to the drop threshold — these should all succeed.
+	for i := range dropThreshold {
+		env := envelope[TestMessage, int]{
+			message: TestMessage{Value: i},
+		}
+		require.True(t, mbox.Send(ctx, env))
+	}
+
+	require.Zero(t, mbox.Dropped(),
+		"no drops should have occurred yet")
+
+	// Send two more; both should be dropped by the predicate.
+	for i := range 2 {
+		env := envelope[TestMessage, int]{
+			message: TestMessage{Value: 100 + i},
+		}
+		require.False(t, mbox.Send(ctx, env))
+	}
+
+	require.Equal(t, uint64(2), mbox.Dropped())
+
+	// TrySend another — also dropped.
+	env := envelope[TestMessage, int]{
+		message: TestMessage{Value: 200},
+	}
+	require.False(t, mbox.TrySend(env))
+
+	require.Equal(t, uint64(3), mbox.Dropped())
+}
+
+// TestBackpressureMailboxFirstDropClaim verifies that FirstDropClaim
+// returns true exactly once, only after at least one message has been
+// dropped, and that the flag is independent of the internal first-log
+// flag used by the auto-log path.
+func TestBackpressureMailboxFirstDropClaim(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	const capacity = 10
+	const dropThreshold = 2
+
+	shouldDrop := queue.DropCheckFunc(func(queueLen int) bool {
+		return queueLen >= dropThreshold
+	})
+
+	// Unnamed mailbox: FirstDropClaim is a standalone one-shot
+	// that only succeeds after a real drop.
+	mbox := NewBackpressureMailbox[TestMessage, int](
+		ctx, capacity, shouldDrop, BackpressureMailboxCfg{},
+	)
+
+	require.False(t, mbox.FirstDropClaim(),
+		"must not claim before any drop has occurred")
+
+	// Fill to threshold, then trigger one drop.
+	for i := range dropThreshold {
+		env := envelope[TestMessage, int]{
+			message: TestMessage{Value: i},
+		}
+		require.True(t, mbox.Send(ctx, env))
+	}
+	env := envelope[TestMessage, int]{
+		message: TestMessage{Value: 99},
+	}
+	require.False(t, mbox.Send(ctx, env))
+
+	require.True(t, mbox.FirstDropClaim(),
+		"first call after a drop should claim the flag")
+	require.False(t, mbox.FirstDropClaim(),
+		"second call must return false")
+
+	// Named mailbox: the internal auto-log consumes firstLog,
+	// but FirstDropClaim uses a separate firstDrop flag, so the
+	// caller can still claim it independently.
+	mbox2 := NewBackpressureMailbox[TestMessage, int](
+		ctx, capacity, shouldDrop,
+		BackpressureMailboxCfg{Name: "test-mailbox"},
+	)
+
+	// Fill to threshold so the next send is dropped.
+	for i := range dropThreshold {
+		env := envelope[TestMessage, int]{
+			message: TestMessage{Value: i},
+		}
+		require.True(t, mbox2.Send(ctx, env))
+	}
+
+	// This send triggers the predicate, which internally
+	// CAS-flips firstLog (because Name is set).
+	env = envelope[TestMessage, int]{
+		message: TestMessage{Value: 99},
+	}
+	require.False(t, mbox2.Send(ctx, env))
+
+	// FirstDropClaim must still succeed because it uses the
+	// separate firstDrop flag.
+	require.True(t, mbox2.FirstDropClaim(),
+		"firstDrop should be independent of firstLog")
+	require.False(t, mbox2.FirstDropClaim(),
+		"second call must return false")
+	require.Equal(t, uint64(1), mbox2.Dropped())
+}
+
+// TestBackpressureMailboxNamedVsUnnamed verifies that a named mailbox
+// logs on first drop (consuming firstLog) while an unnamed mailbox
+// leaves firstLog untouched. Both must count drops identically.
+func TestBackpressureMailboxNamedVsUnnamed(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	const capacity = 5
+	const dropThreshold = 2
+
+	shouldDrop := queue.DropCheckFunc(func(queueLen int) bool {
+		return queueLen >= dropThreshold
+	})
+
+	// Unnamed mailbox: zero-value config.
+	unnamed := NewBackpressureMailbox[TestMessage, int](
+		ctx, capacity, shouldDrop, BackpressureMailboxCfg{},
+	)
+
+	// Named mailbox.
+	named := NewBackpressureMailbox[TestMessage, int](
+		ctx, capacity, shouldDrop,
+		BackpressureMailboxCfg{Name: "test"},
+	)
+
+	// Fill both to threshold, then send one more to trigger a
+	// drop on each.
+	for _, mb := range []*BackpressureMailbox[TestMessage, int]{
+		unnamed, named,
+	} {
+		for i := range dropThreshold {
+			env := envelope[TestMessage, int]{
+				message: TestMessage{Value: i},
+			}
+			require.True(t, mb.Send(ctx, env))
+		}
+
+		env := envelope[TestMessage, int]{
+			message: TestMessage{Value: 99},
+		}
+		require.False(t, mb.Send(ctx, env))
+	}
+
+	// Both should have exactly 1 drop counted.
+	require.Equal(t, uint64(1), unnamed.Dropped())
+	require.Equal(t, uint64(1), named.Dropped())
+
+	// FirstDropClaim should be available on both (independent
+	// of the internal firstLog flag).
+	require.True(t, unnamed.FirstDropClaim())
+	require.True(t, named.FirstDropClaim())
+}
+
+// TestBackpressureMailboxConcurrentDropCounter verifies that the drop
+// counter is accurate under concurrent send contention.
+func TestBackpressureMailboxConcurrentDropCounter(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	const capacity = 10
+
+	// Always-drop predicate: every send is a predicate rejection.
+	alwaysDrop := queue.DropCheckFunc(func(int) bool {
+		return true
+	})
+
+	mbox := NewBackpressureMailbox[TestMessage, int](
+		ctx, capacity, alwaysDrop,
+		BackpressureMailboxCfg{Name: "concurrent-test"},
+	)
+
+	const numGoroutines = 20
+	const sendsPerGoroutine = 500
+
+	var wg sync.WaitGroup
+	for i := range numGoroutines {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			for j := range sendsPerGoroutine {
+				env := envelope[TestMessage, int]{
+					message: TestMessage{
+						Value: i*sendsPerGoroutine + j,
+					},
+				}
+
+				// Alternate between Send and TrySend.
+				if j%2 == 0 {
+					mbox.Send(ctx, env)
+				} else {
+					mbox.TrySend(env)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	expected := uint64(numGoroutines * sendsPerGoroutine)
+	require.Equal(t, expected, mbox.Dropped(),
+		"every send should have been counted as a drop")
+
+	// FirstDropClaim should have been left unclaimed (it's
+	// independent of the internal firstLog that the named
+	// mailbox consumed).
+	require.True(t, mbox.FirstDropClaim())
+}
+
 // TestBackpressureMailboxConcurrentMultiClose verifies that calling Close
 // from multiple goroutines simultaneously does not panic.
 func TestBackpressureMailboxConcurrentMultiClose(t *testing.T) {
@@ -367,7 +598,7 @@ func TestBackpressureMailboxConcurrentMultiClose(t *testing.T) {
 	})
 
 	mbox := NewBackpressureMailbox[TestMessage, int](
-		ctx, 10, neverDrop,
+		ctx, 10, neverDrop, BackpressureMailboxCfg{},
 	)
 
 	// Send a few messages first.

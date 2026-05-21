@@ -9,10 +9,31 @@ import (
 	"github.com/lightningnetwork/lnd/queue"
 )
 
+// BackpressureMailboxCfg holds optional configuration for a
+// BackpressureMailbox. A zero-value config is valid and disables
+// automatic first-drop logging.
+type BackpressureMailboxCfg struct {
+	// Name is a human-readable label included in the first-drop log
+	// line. When empty, no automatic logging is performed and the
+	// caller is expected to use FirstDropClaim() to drive its own
+	// logging.
+	Name string
+}
+
 // BackpressureMailbox implements the Mailbox interface using a
 // queue.BackpressureQueue as its core buffer. The BackpressureQueue's drop
 // predicate is consulted on every Send/TrySend, allowing RED-style load
 // shedding before the mailbox is full.
+//
+// Every predicate rejection is counted and exposed via Dropped(). Two
+// independent one-shot flags exist for first-drop signaling:
+//
+//   - When a Name is configured, the mailbox emits a single info-level
+//     log the first time the predicate fires (gated by firstLog).
+//   - FirstDropClaim() exposes a separate one-shot flag (firstDrop)
+//     for callers that want to emit their own log at the call site.
+//
+// The two flags are independent: using one does not consume the other.
 type BackpressureMailbox[M Message, R any] struct {
 	// queue is the underlying backpressure-aware buffer.
 	queue *queue.BackpressureQueue[envelope[M, R]]
@@ -20,8 +41,27 @@ type BackpressureMailbox[M Message, R any] struct {
 	// closed tracks whether the mailbox has been closed.
 	closed atomic.Bool
 
-	// mu protects Send/TrySend operations to prevent send-on-closed-channel
-	// panics. Close() acquires write lock, Send/TrySend acquire read lock.
+	// dropped counts the total number of messages rejected by the
+	// drop predicate since the mailbox was created.
+	dropped atomic.Uint64
+
+	// firstLog is consumed internally by the counting predicate
+	// wrapper. When Name is set, the wrapper CAS-flips this flag
+	// on the first rejection and emits an info-level log line.
+	firstLog atomic.Bool
+
+	// firstDrop is exposed to callers via FirstDropClaim(). It is
+	// independent of firstLog so that the internal auto-log and an
+	// external caller-driven log can coexist without racing for
+	// the same flag.
+	firstDrop atomic.Bool
+
+	// name is the optional label from BackpressureMailboxCfg.Name.
+	name string
+
+	// mu protects Send/TrySend operations to prevent
+	// send-on-closed-channel panics. Close() acquires write lock,
+	// Send/TrySend acquire read lock.
 	mu sync.RWMutex
 
 	// closeOnce ensures Close() executes exactly once.
@@ -31,25 +71,71 @@ type BackpressureMailbox[M Message, R any] struct {
 	actorCtx context.Context
 }
 
-// NewBackpressureMailbox creates a new mailbox backed by a BackpressureQueue.
-// The shouldDrop function is called with the current queue depth on every send
-// attempt; if it returns true the message is silently dropped.
+// NewBackpressureMailbox creates a new mailbox backed by a
+// BackpressureQueue. The shouldDrop function is called with the current
+// queue depth on every send attempt; if it returns true the message is
+// dropped and the internal drop counter is incremented.
 func NewBackpressureMailbox[M Message, R any](
 	actorCtx context.Context,
 	capacity int,
 	shouldDrop queue.DropCheckFunc,
+	cfg BackpressureMailboxCfg,
 ) *BackpressureMailbox[M, R] {
 
 	if capacity <= 0 {
 		capacity = 1
 	}
 
-	pred := queue.AsDropPredicate[envelope[M, R]](shouldDrop)
-
-	return &BackpressureMailbox[M, R]{
-		queue:    queue.NewBackpressureQueue(capacity, pred),
+	mb := &BackpressureMailbox[M, R]{
 		actorCtx: actorCtx,
+		name:     cfg.Name,
 	}
+
+	// Wrap the caller's predicate so every rejection increments
+	// the drop counter and, when a name is configured, emits a
+	// one-shot info log on the first drop.
+	inner := queue.AsDropPredicate[envelope[M, R]](shouldDrop)
+	counting := func(queueLen int, item envelope[M, R]) bool {
+		if !inner(queueLen, item) {
+			return false
+		}
+
+		mb.dropped.Add(1)
+
+		if mb.name != "" &&
+			mb.firstLog.CompareAndSwap(false, true) {
+
+			log.Infof("Mailbox(%s): first message "+
+				"dropped (queue_depth=%d)",
+				mb.name, queueLen)
+		}
+
+		return true
+	}
+
+	mb.queue = queue.NewBackpressureQueue(capacity, counting)
+
+	return mb
+}
+
+// Dropped returns the total number of messages rejected by the drop
+// predicate since the mailbox was created.
+func (m *BackpressureMailbox[M, R]) Dropped() uint64 {
+	return m.dropped.Load()
+}
+
+// FirstDropClaim atomically returns true exactly once, and only after
+// at least one message has actually been dropped by the predicate. It
+// is intended for call sites that want to emit a one-shot log or
+// metric when the mailbox first starts shedding load. This flag is
+// independent of the built-in first-drop log gated by
+// BackpressureMailboxCfg.Name; using one does not consume the other.
+func (m *BackpressureMailbox[M, R]) FirstDropClaim() bool {
+	if m.dropped.Load() == 0 {
+		return false
+	}
+
+	return m.firstDrop.CompareAndSwap(false, true)
 }
 
 // Send attempts to send an envelope to the mailbox. The BackpressureQueue's

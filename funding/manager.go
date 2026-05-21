@@ -5018,6 +5018,16 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		}
 	}
 
+	// The current variant of taproot channels can only be used with
+	// unadvertised channels for now.
+	if commitType.IsTaproot() && !msg.Private {
+		err = fmt.Errorf("taproot channel type for public channel")
+		log.Error(err)
+		msg.Err <- err
+
+		return
+	}
+
 	// First, we'll query the fee estimator for a fee that should get the
 	// commitment transaction confirmed by the next few blocks (conf target
 	// of 3). We target the near blocks here to ensure that we'll be able

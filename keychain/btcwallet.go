@@ -2,6 +2,7 @@ package keychain
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -12,6 +13,8 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightninglabs/neutrino/cache"
+	"github.com/lightninglabs/neutrino/cache/lru"
 )
 
 const (
@@ -22,6 +25,13 @@ const (
 	// CoinTypeTestnet specifies the BIP44 coin type for all testnet key
 	// derivation.
 	CoinTypeTestnet = 1
+
+	// ecdhPrivKeyCacheSize bounds the number of derived ECDH private keys
+	// that we'll keep memoized at any one time. In practice ECDH is only
+	// invoked against a handful of our own keys (one per key family used
+	// for onion decryption), so this size is well above the expected
+	// working set.
+	ecdhPrivKeyCacheSize = 1000
 )
 
 var (
@@ -57,6 +67,28 @@ type BtcWalletKeyRing struct {
 	// lightningScope is a pointer to the scope that we'll be using as a
 	// sub key manager to derive all the keys that we require.
 	lightningScope *waddrmgr.ScopedKeyManager
+
+	// ecdhPrivKeyCache memoizes the private keys derived for ECDH so that
+	// each subsequent ECDH call against the same key avoids the read-write
+	// wallet DB transaction (and the bbolt fdatasync that transaction
+	// forces). The cache is keyed by the compressed-serialized public key
+	// and bounded by ecdhPrivKeyCacheSize via an LRU eviction policy.
+	ecdhPrivKeyCache *lru.Cache[
+		[btcec.PubKeyBytesLenCompressed]byte, *cachedPrivKey,
+	]
+}
+
+// cachedPrivKey stores a btcec.PrivateKey by value so it can be stored in the
+// LRU cache, which requires values to implement the cache.Value interface.
+type cachedPrivKey struct {
+	key btcec.PrivateKey
+}
+
+// Size returns the "size" of an entry. We return 1 so that the LRU cache
+// bounds the total number of entries rather than doing byte-accurate
+// accounting.
+func (c *cachedPrivKey) Size() (uint64, error) {
+	return 1, nil
 }
 
 // NewBtcWalletKeyRing creates a new implementation of the
@@ -76,6 +108,9 @@ func NewBtcWalletKeyRing(w wallet.Interface, coinType uint32) SecretKeyRing {
 	return &BtcWalletKeyRing{
 		wallet:        w,
 		chainKeyScope: chainKeyScope,
+		ecdhPrivKeyCache: lru.NewCache[
+			[btcec.PubKeyBytesLenCompressed]byte, *cachedPrivKey,
+		](ecdhPrivKeyCacheSize),
 	}
 }
 
@@ -385,11 +420,15 @@ func (b *BtcWalletKeyRing) DerivePrivKey(keyDesc KeyDescriptor) (
 //
 //	sx := k*P s := sha256(sx.SerializeCompressed())
 //
+// The derived private key for keyDesc is memoized after the first call so
+// repeated ECDH operations against the same key avoid reopening a read-write
+// wallet DB transaction (and the bbolt fdatasync per call) on the hot path.
+//
 // NOTE: This is part of the keychain.ECDHRing interface.
 func (b *BtcWalletKeyRing) ECDH(keyDesc KeyDescriptor,
 	pub *btcec.PublicKey) ([32]byte, error) {
 
-	privKey, err := b.DerivePrivKey(keyDesc)
+	privKey, err := b.derivePrivKeyForECDH(keyDesc)
 	if err != nil {
 		return [32]byte{}, err
 	}
@@ -406,6 +445,44 @@ func (b *BtcWalletKeyRing) ECDH(keyDesc KeyDescriptor,
 	h := sha256.Sum256(sPubKey.SerializeCompressed())
 
 	return h, nil
+}
+
+// derivePrivKeyForECDH returns the private key for keyDesc, consulting and
+// populating the per-keyring ECDH cache. The cache is keyed by the
+// compressed-serialized public key, which uniquely identifies the private key
+// regardless of whether DerivePrivKey takes the path-based or the PubKey-scan
+// branch. When the descriptor has no public key set we cannot cache (we have
+// nothing collision-free to key on without first deriving) and forward to
+// DerivePrivKey directly. Production ECDH callers always supply a PubKey, so
+// the no-PubKey path is not on the hot path.
+func (b *BtcWalletKeyRing) derivePrivKeyForECDH(keyDesc KeyDescriptor) (
+	*btcec.PrivateKey, error) {
+
+	if keyDesc.PubKey == nil {
+		return b.DerivePrivKey(keyDesc)
+	}
+
+	var cacheKey [btcec.PubKeyBytesLenCompressed]byte
+	copy(cacheKey[:], keyDesc.PubKey.SerializeCompressed())
+
+	if v, err := b.ecdhPrivKeyCache.Get(cacheKey); err == nil {
+		privKey := v.key
+		return &privKey, nil
+	} else if !errors.Is(err, cache.ErrElementNotFound) {
+		return nil, err
+	}
+
+	priv, err := b.DerivePrivKey(keyDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	// Insertion is best-effort: a Put failure (e.g. the entry exceeds
+	// capacity, which can't happen here since each entry is size 1) only
+	// means the next ECDH against this key takes the slow path again.
+	_, _ = b.ecdhPrivKeyCache.Put(cacheKey, &cachedPrivKey{key: *priv})
+
+	return priv, nil
 }
 
 // SignMessage signs the given message, single or double SHA256 hashing it

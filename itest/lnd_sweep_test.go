@@ -689,8 +689,20 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	// contractcourt will offer the HTLC to his sweeper. We are not testing
 	// the HTLC sweeping behaviors so we just perform a simple check and
 	// exit the test.
-	ht.AssertNumPendingSweeps(bob, 1)
-	ht.MineBlocksAndAssertNumTxes(1, 1)
+	htlcSweep := ht.AssertNumPendingSweeps(bob, 1)[0]
+	htlcSweepOutpointHash, err := chainhash.NewHashFromStr(
+		htlcSweep.Outpoint.TxidStr,
+	)
+	require.NoError(ht, err)
+	htlcSweepOutpoint := wire.OutPoint{
+		Hash:  *htlcSweepOutpointHash,
+		Index: htlcSweep.Outpoint.OutputIndex,
+	}
+
+	// The final sweep may be RBFed between the mempool check and block
+	// generation, so assert that the mined tx spends the pending sweep's
+	// outpoint instead of asserting the txid observed before mining.
+	ht.MineBlockAndAssertOutpointSpent(1, htlcSweepOutpoint)
 
 	// Finally, clean the mempool for the next test.
 	ht.CleanShutDown()

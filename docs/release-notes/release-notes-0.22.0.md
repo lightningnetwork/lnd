@@ -38,6 +38,8 @@
 
 ## Functional Enhancements
 
+* [Extend the RBF cooperative close flow to support auxiliary channel closers](https://github.com/lightningnetwork/lnd/pull/10817) by propagating shutdown custom records, deriving and preserving auxiliary close outputs across fee updates, exposing final close output details in close notifications.
+
 ## RPC Additions
 
 * The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates

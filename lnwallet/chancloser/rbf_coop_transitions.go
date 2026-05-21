@@ -40,12 +40,14 @@ func sendShutdownEvents(chanID lnwire.ChannelID, chanPoint wire.OutPoint,
 	deliveryAddr lnwire.DeliveryAddress, peerPub btcec.PublicKey,
 	postSendEvent fn.Option[ProtocolEvent], chanState ChanStateObserver,
 	env *Environment, localCloseeNonce fn.Option[lnwire.Musig2Nonce],
+	shutdownCustomRecords lnwire.CustomRecords,
 ) (protofsm.DaemonEventSet, fn.Option[lnwire.Musig2Nonce], error) {
 
 	// Create the shutdown message.
 	shutdownMsg := &lnwire.Shutdown{
-		ChannelID: chanID,
-		Address:   deliveryAddr,
+		ChannelID:     chanID,
+		Address:       deliveryAddr,
+		CustomRecords: shutdownCustomRecords,
 	}
 
 	none := fn.None[lnwire.Musig2Nonce]()
@@ -240,6 +242,11 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 			return nil, err
 		}
 
+		shutdownCustomRecords, err := env.ShutdownCustomRecords(true)
+		if err != nil {
+			return nil, err
+		}
+
 		// We'll emit some daemon events to send the shutdown message
 		// and disable the channel on the network level. In this case,
 		// we don't need a post send event as receive their shutdown is
@@ -248,6 +255,7 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 			env.ChanID, env.ChanPoint, shutdownScript,
 			env.ChanPeer, fn.None[ProtocolEvent](),
 			env.ChanObserver, env, msg.CloseeNonce,
+			shutdownCustomRecords,
 		)
 		if err != nil {
 			return nil, err
@@ -259,11 +267,15 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 		// From here, we'll transition to the shutdown pending state. In
 		// this state we await their shutdown message (self loop), then
 		// also the flushing event.
+		//nolint:ll
 		return &CloseStateTransition{
 			NextState: &ShutdownPending{
 				IdealFeeRate: fn.Some(msg.IdealFeeRate),
 				ShutdownScripts: ShutdownScripts{
 					LocalDeliveryScript: shutdownScript,
+				},
+				ShutdownCustomRecords: ShutdownCustomRecords{
+					LocalCustomRecords: shutdownCustomRecords,
 				},
 				NonceState: NonceState{
 					LocalCloseeNonce: closeeNonce,
@@ -308,6 +320,11 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 		chancloserLog.Infof("ChannelPoint(%v): sending shutdown msg "+
 			"at next clean commit state", env.ChanPoint)
 
+		shutdownCustomRecords, err := env.ShutdownCustomRecords(false)
+		if err != nil {
+			return nil, err
+		}
+
 		// Now that we know the shutdown message is valid, we'll obtain
 		// the set of daemon events we need to emit. We'll also specify
 		// that once the message has actually been sent, that we
@@ -317,6 +334,7 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 			env.ChanPeer,
 			fn.Some[ProtocolEvent](&ShutdownComplete{}),
 			env.ChanObserver, env, fn.None[lnwire.Musig2Nonce](),
+			shutdownCustomRecords,
 		)
 		if err != nil {
 			return nil, err
@@ -338,11 +356,16 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 		// This prepares the session for when we act as closer.
 		initLocalMusigCloseeNonce(env, msg.RemoteShutdownNonce)
 
+		//nolint:ll
 		return &CloseStateTransition{
 			NextState: &ShutdownPending{
 				ShutdownScripts: ShutdownScripts{
 					LocalDeliveryScript:  shutdownAddr,
 					RemoteDeliveryScript: remoteAddr,
+				},
+				ShutdownCustomRecords: ShutdownCustomRecords{
+					LocalCustomRecords:  shutdownCustomRecords,
+					RemoteCustomRecords: msg.CustomRecords,
 				},
 				NonceState: NonceState{
 					RemoteCloseeNonce: msg.RemoteShutdownNonce, //nolint:ll
@@ -469,12 +492,17 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 
 		// We transition to the ChannelFlushing state, where we await
 		// the ChannelFlushed event.
+		//nolint:ll
 		return &CloseStateTransition{
 			NextState: &ChannelFlushing{
 				IdealFeeRate: s.IdealFeeRate,
 				ShutdownScripts: ShutdownScripts{
 					LocalDeliveryScript:  s.LocalDeliveryScript, //nolint:ll
 					RemoteDeliveryScript: msg.ShutdownScript,    //nolint:ll
+				},
+				ShutdownCustomRecords: ShutdownCustomRecords{
+					LocalCustomRecords:  s.LocalCustomRecords,
+					RemoteCustomRecords: msg.CustomRecords,
 				},
 				NonceState: updatedNonceState,
 			},
@@ -519,9 +547,10 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 		// We'll stay here until we receive the ChannelFlushed event.
 		return &CloseStateTransition{
 			NextState: &ChannelFlushing{
-				IdealFeeRate:    s.IdealFeeRate,
-				ShutdownScripts: s.ShutdownScripts,
-				NonceState:      s.NonceState,
+				IdealFeeRate:          s.IdealFeeRate,
+				ShutdownScripts:       s.ShutdownScripts,
+				ShutdownCustomRecords: s.ShutdownCustomRecords,
+				NonceState:            s.NonceState,
 			},
 			NewEvents: newEvents,
 		}, nil
@@ -577,9 +606,10 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 		// we'll be using to close the channel, so we'll create them
 		// here.
 		closeTerms := CloseChannelTerms{
-			ShutdownScripts:  c.ShutdownScripts,
-			ShutdownBalances: msg.ShutdownBalances,
-			NonceState:       c.NonceState,
+			ShutdownScripts:       c.ShutdownScripts,
+			ShutdownCustomRecords: c.ShutdownCustomRecords,
+			ShutdownBalances:      msg.ShutdownBalances,
+			NonceState:            c.NonceState,
 		}
 
 		chancloserLog.Infof("ChannelPoint(%v): channel flushed! "+
@@ -1170,6 +1200,34 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 			closeOpts = append(closeOpts, musigOpts...)
 		}
 
+		localCloseOutput := env.CloseOutput(
+			l.LocalDeliveryScript,
+			l.LocalCustomRecords)
+		remoteCloseOutput := env.CloseOutput(
+			l.RemoteDeliveryScript,
+			l.RemoteCustomRecords)
+
+		var err error
+		l.AuxOutputs, err = env.AuxCloseOutputs(
+			absoluteFee,
+			localCloseOutput,
+			remoteCloseOutput)
+		if err != nil {
+			return nil, err
+		}
+		l.AuxOutputs.WhenSome(func(outs AuxCloseOutputs) {
+			closeOpts = append(
+				closeOpts, lnwallet.WithExtraCloseOutputs(
+					outs.ExtraCloseOutputs,
+				),
+			)
+			closeOpts = append(
+				closeOpts, lnwallet.WithCustomCoopSort(
+					outs.CustomSort,
+				),
+			)
+		})
+
 		rawSig, closeTx, closeBalance, err := env.CloseSigner.CreateCloseProposal( //nolint:ll
 			absoluteFee, localScript, l.RemoteDeliveryScript,
 			closeOpts...,
@@ -1559,6 +1617,33 @@ func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent, env *Environment,
 				"to prepare closing sigs: %w", err)
 		}
 		closeOpts = append(closeOpts, musigOpts...)
+
+		localCloseOutput := env.CloseOutput(
+			l.LocalDeliveryScript,
+			l.LocalCustomRecords)
+		remoteCloseOutput := env.CloseOutput(
+			l.RemoteDeliveryScript,
+			l.RemoteCustomRecords)
+
+		l.AuxOutputs, err = env.AuxCloseOutputs(
+			l.ProposedFee,
+			localCloseOutput,
+			remoteCloseOutput)
+		if err != nil {
+			return nil, err
+		}
+		l.AuxOutputs.WhenSome(func(outs AuxCloseOutputs) {
+			closeOpts = append(
+				closeOpts, lnwallet.WithExtraCloseOutputs(
+					outs.ExtraCloseOutputs,
+				),
+			)
+			closeOpts = append(
+				closeOpts, lnwallet.WithCustomCoopSort(
+					outs.CustomSort,
+				),
+			)
+		})
 
 		// Now that we have their signature, we'll attempt to validate
 		// it, then extract a valid closing signature from it.
@@ -2027,6 +2112,33 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 			l.LocalDeliveryScript[:], l.RemoteDeliveryScript[:],
 			msg.SigMsg.FeeSatoshis, msg.SigMsg.LockTime)
 
+		localCloseOutput := env.CloseOutput(
+			l.LocalDeliveryScript,
+			l.LocalCustomRecords)
+		remoteCloseOutput := env.CloseOutput(
+			l.RemoteDeliveryScript,
+			l.RemoteCustomRecords)
+
+		l.AuxOutputs, err = env.AuxCloseOutputs(
+			msg.SigMsg.FeeSatoshis,
+			localCloseOutput,
+			remoteCloseOutput)
+		if err != nil {
+			return nil, err
+		}
+		l.AuxOutputs.WhenSome(func(outs AuxCloseOutputs) {
+			chanOpts = append(
+				chanOpts, lnwallet.WithExtraCloseOutputs(
+					outs.ExtraCloseOutputs,
+				),
+			)
+			chanOpts = append(
+				chanOpts, lnwallet.WithCustomCoopSort(
+					outs.CustomSort,
+				),
+			)
+		})
+
 		// Now that we have the remote sig, we'll sign the version they
 		// signed, then attempt to complete the cooperative close
 		// process.
@@ -2137,9 +2249,18 @@ func (c *ClosePending) ProcessEvent(event ProtocolEvent, env *Environment,
 	// If we can a spend while waiting for the close, then we'll go to our
 	// terminal state.
 	case *SpendEvent:
+		localCloseOutput := env.CloseOutput(
+			c.LocalDeliveryScript,
+			c.LocalCustomRecords)
+		remoteCloseOutput := env.CloseOutput(
+			c.RemoteDeliveryScript,
+			c.RemoteCustomRecords)
 		return &CloseStateTransition{
 			NextState: &CloseFin{
-				ConfirmedTx: msg.Tx,
+				ConfirmedTx:       msg.Tx,
+				LocalCloseOutput:  localCloseOutput,
+				RemoteCloseOutput: remoteCloseOutput,
+				AuxOutputs:        c.AuxOutputs,
 			},
 		}, nil
 

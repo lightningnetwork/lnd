@@ -1,11 +1,13 @@
 package itest
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
@@ -204,6 +206,83 @@ func testCoopCloseRbf(ht *lntest.HarnessTest) {
 			st.Shutdown(bob)
 		})
 	}
+}
+
+// testCoopCloseRbfWithAuxCloseOutputs tests that
+// AuxCloseOutputs are included in the TxOuts when AuxChanCloser exists
+// and are preserved across fee updates.
+func testCoopCloseRbfWithAuxCloseOutputs(ht *lntest.HarnessTest) {
+	ht.SetFeeEstimate(250)
+	ht.SetFeeEstimateWithConf(250, 6)
+
+	rbfCoopFlags := []string{
+		"--protocol.rbf-coop-close",
+		"--dev.mock-aux-chan-closer"}
+	params := lntest.OpenChannelParams{
+		Amt:     btcutil.Amount(10_000_000),
+		PushAmt: btcutil.Amount(5_000_000),
+	}
+	cfgs := [][]string{rbfCoopFlags, rbfCoopFlags}
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, params)
+	alice, bob := nodes[0], nodes[1]
+	chanPoint := chanPoints[0]
+
+	aliceFeeRate := chainfee.SatPerVByte(5)
+	aliceCloseStream, aliceCloseUpdate := ht.CloseChannelAssertPending(
+		alice, chanPoint, false,
+		lntest.WithCoopCloseFeeRate(aliceFeeRate),
+		lntest.WithLocalTxNotify(),
+	)
+
+	alicePendingUpdate := aliceCloseUpdate.GetClosePending()
+	checkAdditionalOutputs(ht, chainhash.Hash(alicePendingUpdate.Txid))
+
+	bobFeeRate := aliceFeeRate * 2
+	_, bobCloseUpdate := ht.CloseChannelAssertPending(
+		bob, chanPoint, false, lntest.WithCoopCloseFeeRate(bobFeeRate),
+		lntest.WithLocalTxNotify(),
+	)
+
+	bobPendingUpdate := bobCloseUpdate.GetClosePending()
+	checkAdditionalOutputs(ht, chainhash.Hash(bobPendingUpdate.Txid))
+
+	aliceCloseUpdate, err := ht.ReceiveCloseChannelUpdate(aliceCloseStream)
+	require.NoError(ht, err)
+	alicePendingUpdate = aliceCloseUpdate.GetClosePending()
+	checkAdditionalOutputs(ht, chainhash.Hash(alicePendingUpdate.Txid))
+
+	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+
+	aliceClosingTxid := ht.WaitForChannelCloseEvent(aliceCloseStream)
+	checkAdditionalOutputs(ht, aliceClosingTxid)
+	ht.AssertTxInBlock(block, aliceClosingTxid)
+}
+
+func checkAdditionalOutputs(ht *lntest.HarnessTest, txid chainhash.Hash) {
+	tx := ht.Miner().GetRawTransaction(txid)
+	txOuts := tx.MsgTx().TxOut
+	require.Equal(ht, 3, len(txOuts))
+
+	expectedTxOut := wire.TxOut{
+		Value: 50_000,
+		PkScript: []byte{
+			0x00, 0x14, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+			0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+			0x11, 0x11, 0x11, 0x11,
+		},
+	}
+	contains := false
+	for _, txOut := range txOuts {
+		if txOut.Value == expectedTxOut.Value &&
+			bytes.Equal(
+				txOut.PkScript,
+				expectedTxOut.PkScript,
+			) {
+
+			contains = true
+		}
+	}
+	require.True(ht, contains)
 }
 
 // testRBFCoopCloseDisconnect tests that when a node disconnects that the node

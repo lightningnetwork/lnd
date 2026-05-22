@@ -546,6 +546,11 @@ func (a *TorV3Addrs) Record() tlv.Record {
 func torV3AddrsEncoder(w io.Writer, val interface{}, _ *[8]byte) error {
 	if v, ok := val.(*TorV3Addrs); ok {
 		for _, addr := range *v {
+			if addr.Port == 0 {
+				return fmt.Errorf("tor_v3_address port " +
+					"must not be 0")
+			}
+
 			encodedHostLen := tor.V3Len - tor.OnionSuffixLen
 			host, err := tor.Base32Encoding.DecodeString(
 				addr.OnionService[:encodedHostLen],
@@ -610,6 +615,10 @@ func torV3AddrsDecoder(r io.Reader, val interface{}, _ *[8]byte,
 			}
 
 			port := int(binary.BigEndian.Uint16(p[:]))
+			if port == 0 {
+				return fmt.Errorf("tor_v3_address port " +
+					"must not be 0")
+			}
 			addrs = append(addrs, &tor.OnionAddr{
 				OnionService: onionService,
 				Port:         port,

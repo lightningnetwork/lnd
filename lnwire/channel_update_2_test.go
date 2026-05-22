@@ -73,8 +73,18 @@ func TestChanUpdate2EncodeDecode(t *testing.T) {
 		0x4,                // length.
 		0x0, 0x0, 0x1, 0x0, // value.
 
+		// InboundFeeBaseMsat record.
+		0x14,               // type.
+		0x4,                // length.
+		0x0, 0x0, 0x0, 0x5, // value (5).
+
+		// InboundFeeProportionalMillionths record.
+		0x16,               // type.
+		0x4,                // length.
+		0x0, 0x0, 0x0, 0x3, // value (3).
+
 		// Extra Opaque Data - Unknown Record.
-		0x14,       // type.
+		0x18,       // type.
 		0x2,        // length.
 		0x79, 0x79, // value.
 

@@ -61,7 +61,7 @@ type ChannelAnnouncement2 struct {
 
 	// Signature is a Schnorr signature over serialised signed-range TLV
 	// stream of the message.
-	Signature tlv.RecordT[tlv.TlvType160, Sig]
+	Signature tlv.RecordT[tlv.TlvType240, Sig]
 
 	// Any extra fields in the signed range that we do not yet know about,
 	// but we need to keep them for signature validation and to produce a

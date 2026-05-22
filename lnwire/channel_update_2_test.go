@@ -2,11 +2,120 @@ package lnwire
 
 import (
 	"bytes"
+	"fmt"
+	"math"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
+
+// TestChanUpdate2FeeEncoding checks each fee against canonical tu32 vectors
+// and rejects non-minimal or oversized values received from peers.
+func TestChanUpdate2FeeEncoding(t *testing.T) {
+	t.Parallel()
+
+	// defaults holds the value each fee field takes when its TLV is
+	// absent. A fee equal to its default is not encoded.
+	defaults := map[uint64]uint32{
+		16: defaultFeeBaseMsat,
+		18: defaultFeeProportionalMillionths,
+		20: defaultInboundFeeBaseMsat,
+		22: defaultInboundFeeProportionalMillionths,
+	}
+
+	tests := []struct {
+		name    string
+		raw     []byte
+		value   uint32
+		wantErr bool
+	}{
+		{name: "zero"},
+		{name: "one byte", raw: []byte{0xff}, value: 255},
+		{name: "two bytes", raw: []byte{1, 0}, value: 256},
+		{name: "three bytes", raw: []byte{1, 0, 0}, value: 65536},
+		{
+			name:  "four bytes",
+			raw:   []byte{0xff, 0xff, 0xff, 0xff},
+			value: math.MaxUint32,
+		},
+		{name: "non-minimal zero", raw: []byte{0}, wantErr: true},
+		{name: "leading zero", raw: []byte{0, 1}, wantErr: true},
+		{
+			name:    "oversized",
+			raw:     []byte{1, 0, 0, 0, 0},
+			wantErr: true,
+		},
+	}
+	for _, typ := range []uint64{20, 22} {
+		for _, test := range tests {
+			name := fmt.Sprintf("%d/%s", typ, test.name)
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
+				data, err := EncodeRecords(tlv.MapToRecords(
+					map[uint64][]byte{
+						2:   make([]byte, scidLen),
+						4:   make([]byte, 4),
+						240: make([]byte, 64),
+						typ: test.raw,
+					},
+				))
+				require.NoError(t, err)
+
+				var msg ChannelUpdate2
+				err = msg.Decode(bytes.NewReader(data), 0)
+				if test.wantErr {
+					require.Error(t, err)
+
+					return
+				}
+				require.NoError(t, err)
+
+				// The TLV under test fills its own field. The
+				// other fee fields keep their defaults.
+				fields := map[uint64]uint32{
+					16: msg.FeeBaseMsat.Val,
+					18: msg.FeeProportionalMillionths.Val,
+					20: msg.InboundFeeBaseMsat.Val,
+					22: msg.InboundFeeProportionalMillionths.Val, //nolint: ll
+				}
+				for fieldType, got := range fields {
+					want := defaults[fieldType]
+					if fieldType == typ {
+						want = test.value
+					}
+					require.Equalf(
+						t, want, got, "fee TLV %d",
+						fieldType,
+					)
+				}
+
+				var found bool
+				for _, record := range msg.AllRecords() {
+					if uint64(record.Type()) != typ {
+						continue
+					}
+
+					found = true
+					var encoded bytes.Buffer
+					require.NoError(
+						t, record.Encode(&encoded),
+					)
+					require.Equal(
+						t, test.raw, encoded.Bytes(),
+					)
+				}
+
+				// The record is encoded only when the fee
+				// differs from its default.
+				require.Equal(
+					t, test.value != defaults[typ], found,
+				)
+			})
+		}
+	}
+}
 
 // TestChanUpdate2EncodeDecode tests the encoding and decoding of the
 // ChannelUpdate2 message using hardcoded byte slices.
@@ -73,8 +182,18 @@ func TestChanUpdate2EncodeDecode(t *testing.T) {
 		0x4,                // length.
 		0x0, 0x0, 0x1, 0x0, // value.
 
+		// InboundFeeBaseMsat record.
+		0x14, // type.
+		0x1,  // length.
+		0x5,  // value (5).
+
+		// InboundFeeProportionalMillionths record.
+		0x16, // type.
+		0x1,  // length.
+		0x3,  // value (3).
+
 		// Extra Opaque Data - Unknown Record.
-		0x14,       // type.
+		0x18,       // type.
 		0x2,        // length.
 		0x79, 0x79, // value.
 

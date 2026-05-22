@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -30,6 +31,14 @@ type AnnounceSignatures2 struct {
 	// for the node's node ID key.
 	PartialSignature tlv.RecordT[tlv.TlvType4, PartialSig]
 
+	// FundingTxID is the txid of the funding transaction that this
+	// announcement signature covers.
+	//
+	// The txid is in the internal byte order of chainhash.Hash, which is
+	// the order Bitcoin uses on the wire and the reverse of the displayed
+	// txid string.
+	FundingTxID tlv.RecordT[tlv.TlvType6, chainhash.Hash]
+
 	// Any extra fields in the signed range that we do not yet know about,
 	// but we need to keep them for signature validation and to produce a
 	// valid message.
@@ -38,7 +47,8 @@ type AnnounceSignatures2 struct {
 
 // NewAnnSigs2 is a constructor for AnnounceSignatures2.
 func NewAnnSigs2(chanID ChannelID, scid ShortChannelID,
-	partialSig PartialSig) *AnnounceSignatures2 {
+	partialSig PartialSig,
+	fundingTxID chainhash.Hash) *AnnounceSignatures2 {
 
 	return &AnnounceSignatures2{
 		ChannelID: tlv.NewRecordT[tlv.TlvType0, ChannelID](chanID),
@@ -47,6 +57,9 @@ func NewAnnSigs2(chanID ChannelID, scid ShortChannelID,
 		),
 		PartialSignature: tlv.NewRecordT[tlv.TlvType4, PartialSig](
 			partialSig,
+		),
+		FundingTxID: tlv.NewPrimitiveRecord[tlv.TlvType6](
+			fundingTxID,
 		),
 		ExtraSignedFields: make(ExtraSignedFields),
 	}
@@ -69,8 +82,13 @@ var _ PureTLVMessage = (*AnnounceSignatures2)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *AnnounceSignatures2) Decode(r io.Reader, _ uint32) error {
+	// The tlv package cannot encode a chainhash.Hash, so the txid goes
+	// through a [32]byte record, as the chain hash of ChannelAnnouncement2
+	// does.
+	fundingTxID := tlv.ZeroRecordT[tlv.TlvType6, [32]byte]()
 	stream, err := tlv.NewStream(ProduceRecordsSorted(
 		&a.ChannelID, &a.ShortChannelID, &a.PartialSignature,
+		&fundingTxID,
 	)...)
 	if err != nil {
 		return err
@@ -80,6 +98,17 @@ func (a *AnnounceSignatures2) Decode(r io.Reader, _ uint32) error {
 	if err != nil {
 		return err
 	}
+
+	if err := assertRequiredPresent(
+		typeMap,
+		a.ChannelID.TlvType(),
+		a.ShortChannelID.TlvType(),
+		a.PartialSignature.TlvType(),
+		a.FundingTxID.TlvType(),
+	); err != nil {
+		return err
+	}
+	a.FundingTxID.Val = chainhash.Hash(fundingTxID.Val)
 
 	a.ExtraSignedFields = ExtraSignedFieldsFromTypeMap(typeMap)
 
@@ -122,9 +151,12 @@ func (a *AnnounceSignatures2) SerializedSize() (uint32, error) {
 //
 // NOTE: this is part of the PureTLVMessage interface.
 func (a *AnnounceSignatures2) AllRecords() []tlv.Record {
+	fundingTxID := tlv.NewPrimitiveRecord[tlv.TlvType6, [32]byte](
+		[32]byte(a.FundingTxID.Val),
+	)
 	recordProducers := []tlv.RecordProducer{
 		&a.ChannelID, &a.ShortChannelID,
-		&a.PartialSignature,
+		&a.PartialSignature, &fundingTxID,
 	}
 
 	recordProducers = append(recordProducers, RecordsAsProducers(

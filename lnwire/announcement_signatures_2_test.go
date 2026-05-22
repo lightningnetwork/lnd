@@ -39,6 +39,17 @@ func TestAnnSigs2EncodeDecode(t *testing.T) {
 	}...)
 	rawBytes = append(rawBytes, make([]byte, 32)...) // value
 
+	// FundingTxID. Distinct bytes, so the test can check their order.
+	var fundingTxID [32]byte
+	for i := range fundingTxID {
+		fundingTxID[i] = byte(i + 1)
+	}
+	rawBytes = append(rawBytes, []byte{
+		0x06, // type
+		0x20, // length
+	}...)
+	rawBytes = append(rawBytes, fundingTxID[:]...) // value
+
 	// Extra field in the first signed range.
 	rawBytes = append(rawBytes, []byte{
 		0x30,       // type
@@ -66,6 +77,10 @@ func TestAnnSigs2EncodeDecode(t *testing.T) {
 
 	// At this point, we expect 2 extra signed fields.
 	require.Len(t, msg.ExtraSignedFields, 2)
+
+	// The wire bytes are the internal byte order of chainhash.Hash, so
+	// they land in the hash unchanged.
+	require.Equal(t, fundingTxID, [32]byte(msg.FundingTxID.Val))
 
 	// Next, encode the message back into a new byte buffer.
 	var b bytes.Buffer

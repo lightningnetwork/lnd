@@ -6,6 +6,19 @@ TOOLS_MOD := $(TOOLS_DIR)/go.mod
 GOCC ?= go
 PREFIX ?= /usr/local
 
+# Force every `go build`, `go test`, `go install`, etc. to operate in readonly
+# mode so they cannot silently mutate go.mod / go.sum just because a developer
+# added an import locally. The only sanctioned path for module updates is
+# `make tidy-module`, which explicitly clears GOFLAGS for its `go mod tidy`
+# invocation.
+export GOFLAGS := -mod=readonly $(GOFLAGS)
+
+# Pin the Go toolchain to whatever is already installed so a malicious or
+# accidental `toolchain` directive in any (transitive) module cannot cause the
+# `go` command to silently download and execute a different Go binary. See
+# https://go.dev/doc/toolchain.
+export GOTOOLCHAIN := local
+
 GOTOOL := GOWORK=off $(GOCC) tool -modfile=$(TOOLS_MOD)
 
 
@@ -406,7 +419,7 @@ protolint:
 #? tidy-module: Run `go mod` tidy for all modules
 tidy-module:
 	echo "Running 'go mod tidy' for all modules"
-	scripts/tidy_modules.sh
+	GOFLAGS= scripts/tidy_modules.sh
 
 #? tidy-module-check: Make sure all modules are up to date
 tidy-module-check: tidy-module
@@ -474,7 +487,7 @@ mobile-rpc:
 #? vendor: Create a vendor directory with all dependencies
 vendor:
 	@$(call print, "Re-creating vendor directory.")
-	rm -r vendor/; $(GOCC) mod vendor
+	rm -r vendor/; GOFLAGS= $(GOCC) mod vendor
 
 #? apple: Build mobile RPC stubs and project template for iOS and macOS
 apple: mobile-rpc

@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"syscall"
 
-	"github.com/coreos/go-systemd/daemon"
+	"github.com/lightningnetwork/lnd/signal/internal/sdnotify"
 )
 
 var (
@@ -26,7 +26,7 @@ var (
 // the operation or possible error. Besides logging, systemd being unavailable
 // is ignored.
 func systemdNotifyReady() error {
-	notified, err := daemon.SdNotify(false, daemon.SdNotifyReady)
+	notified, err := sdnotify.SdNotify(false, sdnotify.SdNotifyReady)
 	if err != nil {
 		err := fmt.Errorf("failed to notify systemd %v (if you aren't "+
 			"running systemd clear the environment variable "+
@@ -52,7 +52,7 @@ func systemdNotifyReady() error {
 // the notification failed. It also logs if the notification was actually sent.
 // Systemd being unavailable is intentionally ignored.
 func systemdNotifyStop() {
-	notified, err := daemon.SdNotify(false, daemon.SdNotifyStopping)
+	notified, err := sdnotify.SdNotify(false, sdnotify.SdNotifyStopping)
 
 	// Just log - we're stopping anyway.
 	if err != nil {
@@ -80,9 +80,9 @@ func (notifier *Notifier) NotifyReady(walletUnlocked bool) error {
 		notifier.notifiedReady = true
 	}
 	if walletUnlocked {
-		_, _ = daemon.SdNotify(false, "STATUS=Wallet unlocked")
+		_, _ = sdnotify.SdNotify(false, "STATUS=Wallet unlocked")
 	} else {
-		_, _ = daemon.SdNotify(false, "STATUS=Wallet locked")
+		_, _ = sdnotify.SdNotify(false, "STATUS=Wallet locked")
 	}
 
 	return nil

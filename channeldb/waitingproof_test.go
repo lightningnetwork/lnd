@@ -109,6 +109,7 @@ func TestWaitingProofV2RoundTrip(t *testing.T) {
 		lnwire.ChannelID{1, 2, 3},
 		lnwire.NewShortChanIDFromInt(42),
 		partialSig,
+		[32]byte{1, 2, 3},
 	)
 
 	// Generate a deterministic public key for the combined nonce.
@@ -208,6 +209,7 @@ func TestWaitingProofV2Store(t *testing.T) {
 		lnwire.ChannelID{5, 6, 7},
 		lnwire.NewShortChanIDFromInt(100),
 		partialSig,
+		[32]byte{5, 6, 7},
 	)
 
 	proof := NewV2WaitingProof(true, annSig2, pubKey)
@@ -254,6 +256,7 @@ func TestWaitingProofCrossVersionKeyIsolation(t *testing.T) {
 		lnwire.ChannelID{9, 9, 9},
 		scid,
 		partialSig,
+		[32]byte{9, 9, 9},
 	)
 	v2Proof := NewV2WaitingProof(true, v2AnnSig, pubKey)
 

@@ -132,9 +132,10 @@ var _ TestMessage = (*AnnounceSignatures2)(nil)
 // This is part of the TestMessage interface.
 func (a *AnnounceSignatures2) RandTestMessage(t *rapid.T) Message {
 	var (
-		chanID = RandChannelID(t)
-		scid   = RandShortChannelID(t)
-		pSig   = RandPartialSig(t)
+		chanID      = RandChannelID(t)
+		scid        = RandShortChannelID(t)
+		pSig        = RandPartialSig(t)
+		fundingTxID = RandChainHash(t)
 	)
 
 	msg := &AnnounceSignatures2{
@@ -144,6 +145,9 @@ func (a *AnnounceSignatures2) RandTestMessage(t *rapid.T) Message {
 		ShortChannelID: tlv.NewRecordT[tlv.TlvType2](scid),
 		PartialSignature: tlv.NewRecordT[tlv.TlvType4, PartialSig](
 			*pSig,
+		),
+		FundingTxID: tlv.NewPrimitiveRecord[tlv.TlvType6, [32]byte](
+			[32]byte(fundingTxID),
 		),
 		ExtraSignedFields: make(map[uint64][]byte),
 	}

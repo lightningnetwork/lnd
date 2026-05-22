@@ -39,6 +39,13 @@ func TestAnnSigs2EncodeDecode(t *testing.T) {
 	}...)
 	rawBytes = append(rawBytes, make([]byte, 32)...) // value
 
+	// FundingTxID.
+	rawBytes = append(rawBytes, []byte{
+		0x06, // type
+		0x20, // length
+	}...)
+	rawBytes = append(rawBytes, make([]byte, 32)...) // value
+
 	// Extra field in the first signed range.
 	rawBytes = append(rawBytes, []byte{
 		0x30,       // type

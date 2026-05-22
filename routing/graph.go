@@ -46,7 +46,9 @@ func FetchAmountPairCapacity(graph Graph, source, nodeFrom, nodeTo route.Vertex,
 	//
 	// Note: Inbound fees are not used here because this method is only used
 	// by a deprecated router rpc.
-	u := newNodeEdgeUnifier(source, nodeTo, false, nil)
+	u := newNodeEdgeUnifier(
+		source, nodeTo, &singleOrigin{source: source}, false, nil,
+	)
 
 	err := u.addGraphPolicies(graph)
 	if err != nil {

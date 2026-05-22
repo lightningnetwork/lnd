@@ -1105,7 +1105,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// Create unified policies for all incoming connections. Don't
 		// use inbound fees for the exit hop.
 		u := newNodeEdgeUnifier(
-			self, pivot, !isExitHop, outgoingChanMap,
+			self, pivot, origin, !isExitHop, outgoingChanMap,
 		)
 
 		err := u.addGraphPolicies(g.graph)

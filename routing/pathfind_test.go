@@ -897,6 +897,9 @@ func TestPathFinding(t *testing.T) {
 		name: "multi origin circular route",
 		fn:   runMultiOriginCircularRoute,
 	}, {
+		name: "multi origin outgoing restriction",
+		fn:   runMultiOriginOutgoingRestriction,
+	}, {
 		name: "with metadata",
 		fn:   runFindPathWithMetadata,
 	}, {
@@ -3491,6 +3494,105 @@ func runMultiOriginCheapestPath(t *testing.T, useCache bool) {
 		t, ctx.testGraphInstance.aliasMap, multiPath,
 		"cheap1", "cheap2", "dest",
 	)
+}
+
+// runMultiOriginOutgoingRestriction tests that OutgoingChannelIDs correctly
+// restricts which gateway is selected in a multi-origin setup. This verifies
+// the decoupled isOriginEdge predicate in nodeEdgeUnifier: the restriction
+// fires for any origin edge, while the selection algorithm (getEdgeLocal vs
+// getEdgeNetwork) remains gated on localChan (self only).
+func runMultiOriginOutgoingRestriction(t *testing.T, useCache bool) {
+	// Same diamond topology as runMultiOrigin.
+	//
+	//   proxy (self, no channels)
+	//   gw1 ---- alice ---- dest    (chan 1, chan 3)
+	//   gw2 ---- bob ------/        (chan 2, chan 4)
+	//
+	// gw1→alice→dest is cheaper (alice=500) than gw2→bob→dest (bob=2000).
+	testChannels := []*testChannel{
+		symmetricTestChannel("gw1", "alice", 100000,
+			&testChannelPolicy{
+				Expiry:      144,
+				FeeBaseMsat: 500,
+			}, 1,
+		),
+		symmetricTestChannel("gw2", "bob", 100000,
+			&testChannelPolicy{
+				Expiry:      144,
+				FeeBaseMsat: 500,
+			}, 2,
+		),
+		symmetricTestChannel("alice", "dest", 100000,
+			&testChannelPolicy{
+				Expiry:      144,
+				FeeBaseMsat: 500,
+			}, 3,
+		),
+		symmetricTestChannel("bob", "dest", 100000,
+			&testChannelPolicy{
+				Expiry:      144,
+				FeeBaseMsat: 2000,
+			}, 4,
+		),
+	}
+
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "proxy")
+
+	gw1 := ctx.keyFromAlias("gw1")
+	gw2 := ctx.keyFromAlias("gw2")
+	target := ctx.keyFromAlias("dest")
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+
+	bothOrigins := &multiOrigin{sources: map[route.Vertex]struct{}{
+		gw1: {},
+		gw2: {},
+	}}
+
+	// Subtest 1: No restriction — cheapest gateway (gw1) wins.
+	ctx.restrictParams.OutgoingChannelIDs = nil
+	source, path, err := findPathWithOrigin(
+		t, ctx, bothOrigins, target, paymentAmt,
+	)
+	require.NoError(t, err)
+	require.Equal(t, gw1, source,
+		"unrestricted should pick cheapest gateway")
+	assertExpectedPath(
+		t, ctx.testGraphInstance.aliasMap, path, "alice", "dest",
+	)
+
+	// Subtest 2: Restrict to gw2's channel — forces the expensive path.
+	ctx.restrictParams.OutgoingChannelIDs = []uint64{2}
+	source, path, err = findPathWithOrigin(
+		t, ctx, bothOrigins, target, paymentAmt,
+	)
+	require.NoError(t, err)
+	require.Equal(t, gw2, source,
+		"restriction to chan 2 should force gw2")
+	assertExpectedPath(
+		t, ctx.testGraphInstance.aliasMap, path, "bob", "dest",
+	)
+
+	// Subtest 3: Restrict to gw1's channel — picks gw1 explicitly.
+	ctx.restrictParams.OutgoingChannelIDs = []uint64{1}
+	source, path, err = findPathWithOrigin(
+		t, ctx, bothOrigins, target, paymentAmt,
+	)
+	require.NoError(t, err)
+	require.Equal(t, gw1, source,
+		"restriction to chan 1 should force gw1")
+	assertExpectedPath(
+		t, ctx.testGraphInstance.aliasMap, path, "alice", "dest",
+	)
+
+	// Subtest 4: Restrict to invalid channel — no path found.
+	ctx.restrictParams.OutgoingChannelIDs = []uint64{999}
+	_, _, err = findPathWithOrigin(
+		t, ctx, bothOrigins, target, paymentAmt,
+	)
+	require.ErrorIs(t, err, errNoPathFound)
+
+	// Reset for other tests.
+	ctx.restrictParams.OutgoingChannelIDs = nil
 }
 
 // runInboundFees tests whether correct routes are built when inbound fees

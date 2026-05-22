@@ -34,7 +34,6 @@ require (
 	github.com/jedib0t/go-pretty/v6 v6.2.7
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/jrick/logrotate v1.1.2
-	github.com/kkdai/bstream v1.0.0
 	github.com/lightninglabs/neutrino v0.18.0
 	github.com/lightninglabs/neutrino/cache v1.1.4
 	github.com/lightningnetwork/lightning-onion v1.4.0
@@ -72,6 +71,7 @@ require (
 require (
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/kcalvinalvin/anet v0.0.0-20251112173137-d8ddc1f6dbee // indirect
+	github.com/kkdai/bstream v1.0.0 // indirect
 )
 
 require (

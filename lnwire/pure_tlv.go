@@ -10,11 +10,11 @@ const (
 	// pureTLVUnsignedRangeOneStart defines the start of the first unsigned
 	// TLV range used for pure TLV messages. The range is inclusive of this
 	// number.
-	pureTLVUnsignedRangeOneStart = 160
+	pureTLVUnsignedRangeOneStart = 240
 
 	// pureTLVSignedSecondRangeStart defines the start of the second signed
 	// TLV range used for pure TLV messages. The range is inclusive of this
-	// number. Note that the first range is the inclusive range of 0-159.
+	// number. Note that the first range is the inclusive range of 0-239.
 	pureTLVSignedSecondRangeStart = 1000000000
 
 	// pureTLVUnsignedRangeTwoStart defines the start of the second unsigned
@@ -73,8 +73,8 @@ func SerialiseFieldsToSignFn(msg PureTLVMessage,
 }
 
 // InUnsignedRange is the BOLT 7 v2 UnsignedRangeFunc: it returns true for types
-// in 160-999_999_999 or 3_000_000_000+, which sit outside the BOLT 7 v2 signed
-// ranges (0-159 and 1_000_000_000-2_999_999_999).
+// in 240-999_999_999 or 3_000_000_000+, which sit outside the BOLT 7 v2 signed
+// ranges (0-239 and 1_000_000_000-2_999_999_999).
 func InUnsignedRange(t tlv.Type) bool {
 	return (t >= pureTLVUnsignedRangeOneStart &&
 		t < pureTLVSignedSecondRangeStart) ||

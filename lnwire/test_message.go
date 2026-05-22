@@ -235,9 +235,6 @@ func (c *ChannelAnnouncement2) RandTestMessage(t *rapid.T) Message {
 		ChainHash: tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
 			chainHashObj,
 		),
-		Features: tlv.NewRecordT[tlv.TlvType2, RawFeatureVector](
-			*features,
-		),
 		ShortChannelID: tlv.NewRecordT[tlv.TlvType4, ShortChannelID](
 			shortChanID,
 		),
@@ -262,6 +259,14 @@ func (c *ChannelAnnouncement2) RandTestMessage(t *rapid.T) Message {
 	}
 
 	// Randomly include optional fields
+	if rapid.Bool().Draw(t, "includeFeatures") {
+		msg.Features = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType2, RawFeatureVector](
+				*features,
+			),
+		)
+	}
+
 	if rapid.Bool().Draw(t, "includeBitcoinKey1") {
 		var bitcoinKey1 [33]byte
 		copy(bitcoinKey1[:], RandPubKey(t).SerializeCompressed())

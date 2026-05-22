@@ -16,8 +16,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/jedib0t/go-pretty/v6/text"
+	"github.com/lightningnetwork/lnd/cmd/commands/internal/asciitable"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -823,18 +822,18 @@ func formatMsat(amt int64) string {
 func formatPayment(ctxc context.Context, payment *lnrpc.Payment,
 	aliases *aliasCache) string {
 
-	t := table.NewWriter()
+	t := asciitable.NewWriter()
 
 	// Build table header.
-	t.AppendHeader(table.Row{
+	t.AppendHeader(asciitable.Row{
 		"HTLC_STATE", "ATTEMPT_TIME", "RESOLVE_TIME", "RECEIVER_AMT",
 		"FEE", "TIMELOCK", "CHAN_OUT", "ROUTE",
 	})
-	t.SetColumnConfigs([]table.ColumnConfig{
-		{Name: "ATTEMPT_TIME", Align: text.AlignRight},
-		{Name: "RESOLVE_TIME", Align: text.AlignRight},
-		{Name: "CHAN_OUT", Align: text.AlignLeft,
-			AlignHeader: text.AlignLeft},
+	t.SetColumnConfigs([]asciitable.ColumnConfig{
+		{Name: "ATTEMPT_TIME", Align: asciitable.AlignRight},
+		{Name: "RESOLVE_TIME", Align: asciitable.AlignRight},
+		{Name: "CHAN_OUT", Align: asciitable.AlignLeft,
+			AlignHeader: asciitable.AlignLeft},
 	})
 
 	// Add all htlcs as rows.
@@ -874,7 +873,7 @@ func formatPayment(ctxc context.Context, payment *lnrpc.Payment,
 			)
 		}
 
-		t.AppendRow([]interface{}{
+		t.AppendRow(asciitable.Row{
 			state, attemptTime, resolveTime,
 			formatMsat(lastHop.AmtToForwardMsat),
 			formatMsat(route.TotalFeesMsat),

@@ -59,7 +59,7 @@ type NodeAnnouncement2 struct {
 
 	// Signature is used to validate the announced data and prove the
 	// ownership of node id.
-	Signature tlv.RecordT[tlv.TlvType160, Sig]
+	Signature tlv.RecordT[tlv.TlvType240, Sig]
 
 	// Any extra fields in the signed range that we do not yet know about,
 	// but we need to keep them for signature validation and to produce a

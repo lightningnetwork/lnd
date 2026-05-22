@@ -8797,25 +8797,8 @@ func (r *rpcServer) SubscribeOnionMessages(
 					"failed type assertion: %T", update)
 			}
 
-			bp := &lnrpc.BlindedPath{}
-
-			//nolint:ll
-			if oMsg.ReplyPath != nil {
-				// TODO(bolt12): resolve sciddir intros via
-				// sciddirResolver so this field is uniformly a
-				// 33-byte pubkey?
-				bp.IntroductionNode = oMsg.ReplyPath.IntroductionNode.Bytes()
-				bp.BlindingPoint = oMsg.ReplyPath.BlindingPoint.SerializeCompressed()
-
-				for _, hop := range oMsg.ReplyPath.Hops {
-					bp.BlindedHops = append(
-						bp.BlindedHops, &lnrpc.BlindedHop{
-							BlindedNode:   hop.BlindedNodeID.SerializeCompressed(),
-							EncryptedData: hop.EncryptedData,
-						},
-					)
-				}
-			}
+			// Perform a verbatim pass-through of any reply path.
+			bp := marshallBlindedPath(oMsg.ReplyPath)
 
 			//nolint:ll
 			err := server.Send(&lnrpc.OnionMessageUpdate{
@@ -8831,6 +8814,34 @@ func (r *rpcServer) SubscribeOnionMessages(
 			}
 		}
 	}
+}
+
+// marshallBlindedPath converts a wire-form blinded path into its RPC
+// counterpart. If the input is nil, nil is returned.
+func marshallBlindedPath(p *lnwire.BlindedPath) *lnrpc.BlindedPath {
+	if p == nil {
+		return nil
+	}
+
+	bp := &lnrpc.BlindedPath{
+		// The introduction node may be a short-channel-id direction
+		// rather than a node public key. We pass it through verbatim
+		// instead of resolving it, which would need a graph db query.
+		IntroductionNode: p.IntroductionNode.Bytes(),
+		BlindingPoint:    p.BlindingPoint.SerializeCompressed(),
+	}
+
+	for _, hop := range p.Hops {
+		blindedNode := hop.BlindedNodeID.SerializeCompressed()
+		bp.BlindedHops = append(
+			bp.BlindedHops, &lnrpc.BlindedHop{
+				BlindedNode:   blindedNode,
+				EncryptedData: hop.EncryptedData,
+			},
+		)
+	}
+
+	return bp
 }
 
 // ListAliases returns the set of all aliases we have ever allocated along with

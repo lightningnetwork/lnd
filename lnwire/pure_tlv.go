@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -79,6 +80,28 @@ func InUnsignedRange(t tlv.Type) bool {
 	return (t >= pureTLVUnsignedRangeOneStart &&
 		t < pureTLVSignedSecondRangeStart) ||
 		t >= pureTLVUnsignedRangeTwoStart
+}
+
+// assertRequiredPresent returns an error if any of the given TLV types is
+// missing from the parsed type map (as returned by the various
+// DecodeWithParsedTypes helpers). It is used to enforce the spec's
+// reader-side requirement that compulsory TLVs are present in a received
+// pure-TLV message.
+func assertRequiredPresent(typeMap tlv.TypeMap, required ...tlv.Type) error {
+	for _, t := range required {
+		if _, ok := typeMap[t]; !ok {
+			return fmt.Errorf("required TLV type %d missing", t)
+		}
+	}
+
+	return nil
+}
+
+// AssertRequiredPresent forwards to the package-private helper. It remains
+// available until all readers introduced later in this commit series use the
+// private name.
+func AssertRequiredPresent(typeMap tlv.TypeMap, required ...tlv.Type) error {
+	return assertRequiredPresent(typeMap, required...)
 }
 
 // ExtraSignedFields is a type that stores a map from TLV types in the signed

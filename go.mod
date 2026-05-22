@@ -48,7 +48,6 @@ require (
 	github.com/miekg/dns v1.1.43
 	github.com/prometheus/client_golang v1.11.1
 	github.com/stretchr/testify v1.11.1
-	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
 	github.com/urfave/cli v1.22.9
 	go.etcd.io/etcd/client/pkg/v3 v3.5.12
 	go.etcd.io/etcd/client/v3 v3.5.12

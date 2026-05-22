@@ -5432,10 +5432,12 @@ func rpcChannelResolution(report *channeldb.ResolverReport) (*lnrpc.Resolution,
 }
 
 // getInitiators returns an initiator enum that provides information about the
-// party that initiated channel's open and close. This information is obtained
-// from the historical channel bucket, so unknown values are returned when the
-// channel is not present (which indicates that it was closed before we started
-// writing channels to the historical close bucket).
+// party that initiated channel's open and close. The information is normally
+// read from the historical channel bucket; for early-dispatched coop closes
+// the channel is still live in the open bucket at notify time (the historical
+// bucket is only populated at MarkChannelClosed time), so we fall back to the
+// open channel state in that case. Unknown values are returned when neither
+// bucket can provide the channel.
 func (r *rpcServer) getInitiators(chanPoint *wire.OutPoint) (
 	lnrpc.Initiator,
 	lnrpc.Initiator, error) {
@@ -5455,10 +5457,20 @@ func (r *rpcServer) getInitiators(chanPoint *wire.OutPoint) (
 	case err == channeldb.ErrNoHistoricalBucket:
 		return openInitiator, closeInitiator, nil
 
-	// The channel was closed before we started storing historical
-	// channels. Do  not return an error, initiator values are unknown.
+	// The channel was either closed before we started storing
+	// historical channels OR the historical bucket has not been
+	// populated yet because this is an early-dispatched
+	// CLOSED_CHANNEL event for a coop close that hasn't reached its
+	// full confirmation depth. Try the open channel bucket so the
+	// early dispatch still carries close-initiator info.
 	case err == channeldb.ErrChannelNotFound:
-		return openInitiator, closeInitiator, nil
+		openChan, openErr := r.server.chanStateDB.FetchChannel(
+			*chanPoint,
+		)
+		if openErr != nil {
+			return openInitiator, closeInitiator, nil
+		}
+		histChan = openChan
 
 	case err != nil:
 		return 0, 0, err

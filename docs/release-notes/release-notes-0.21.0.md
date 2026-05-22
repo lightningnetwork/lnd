@@ -99,6 +99,20 @@
   RBF close state machine does not yet thread through the `AuxCloser` hook
   that overlay channels rely on to build aux-aware close transactions.
 
+* [Fixed `EstimateRouteFee`](https://github.com/lightningnetwork/lnd/pull/10771)
+  to use independent probe payment hashes when probing multiple LSPs, preventing
+  later probes from reusing the first probe's CLTV delta.
+
+* [Restored insta-dispatch of `CLOSED_CHANNEL` on the first confirmation of a
+  cooperative close](https://github.com/lightningnetwork/lnd/pull/10794).
+  After the multi-conf reorg-aware close dispatch landed,
+  `SubscribeChannelEvents` no longer emitted `CLOSED_CHANNEL` until the full
+  required confirmation depth was reached. The chain watcher now fires an
+  early `CLOSED_CHANNEL` event over the channel notifier as soon as the coop
+  close spend lands on chain, restoring the v0.20.1 behavior, while the
+  channel arbitrator suppresses the duplicate event that would otherwise be
+  emitted from `MarkChannelClosed` at the final confirmation depth.
+
 # New Features
 
 - [Basic Support](https://github.com/lightningnetwork/lnd/pull/9868) for onion

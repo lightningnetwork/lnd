@@ -464,6 +464,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testZeroConfChannelOpen,
 	},
 	{
+		Name:     "zero conf coop close subscribe events",
+		TestFunc: testZeroConfCoopCloseSubscribeEvents,
+	},
+	{
 		Name:     "option scid alias",
 		TestFunc: testOptionScidAlias,
 	},

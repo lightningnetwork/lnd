@@ -191,6 +191,23 @@ func (c *ChannelNotifier) NotifyClosedChannelEvent(chanPoint wire.OutPoint) {
 	}
 }
 
+// NotifyEarlyClosedChannelEvent dispatches a ClosedChannelEvent built from the
+// supplied close summary, without consulting the channel database. This is
+// used by the chain watcher to insta-dispatch CLOSED_CHANNEL events to RPC
+// subscribers as soon as a coop close is first detected on chain, before the
+// async N-conf path has persisted the close in the database. The summary's
+// IsPending field will typically be true at this point; callers should set it
+// accordingly.
+func (c *ChannelNotifier) NotifyEarlyClosedChannelEvent(
+	summary *channeldb.ChannelCloseSummary) {
+
+	event := ClosedChannelEvent{CloseSummary: summary}
+	if err := c.ntfnServer.SendUpdate(event); err != nil {
+		log.Warnf("Unable to send early closed channel update: %v",
+			err)
+	}
+}
+
 // NotifyFullyResolvedChannelEvent notifies the channelEventNotifier goroutine
 // that a channel was fully resolved on chain.
 func (c *ChannelNotifier) NotifyFullyResolvedChannelEvent(

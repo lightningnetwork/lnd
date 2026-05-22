@@ -6,8 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackpal/gateway"
-	natpmp "github.com/jackpal/go-nat-pmp"
+	natpmp "github.com/lightningnetwork/lnd/nat/internal/pmp"
 )
 
 // Compile-time check to ensure PMP implements the Traversal interface.
@@ -26,7 +25,7 @@ type PMP struct {
 // within the given timeout.
 func DiscoverPMP(timeout time.Duration) (*PMP, error) {
 	// Retrieve the gateway IP address of the local network.
-	gatewayIP, err := gateway.DiscoverGateway()
+	gatewayIP, err := natpmp.DiscoverGateway()
 	if err != nil {
 		return nil, err
 	}

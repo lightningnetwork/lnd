@@ -55,25 +55,15 @@ var (
 			false,
 			false,
 		},
-		{
-			"3g2upl4pq6kufc4m.onion",
-			"tcp",
-			"3g2upl4pq6kufc4m.onion:1234",
-			false,
-			false,
-		},
-		{
-			"3g2upl4pq6kufc4m.onion:9735",
-			"tcp",
-			"3g2upl4pq6kufc4m.onion:9735",
-			false,
-			false,
-		},
 	}
 	invalidTestVectors = []string{
 		"some string",
 		"://",
 		"12.12.12.12.12",
+		// v2 onion services were retired by Tor in October 2021 and
+		// must be rejected at the input boundary.
+		"3g2upl4pq6kufc4m.onion",
+		"3g2upl4pq6kufc4m.onion:9735",
 	}
 )
 

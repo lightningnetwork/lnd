@@ -30,7 +30,7 @@ require (
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/jrick/logrotate v1.1.2
 	github.com/kkdai/bstream v1.0.0
-	github.com/lightninglabs/neutrino v0.16.3-0.20260508212153-0f87fa7c4b36
+	github.com/lightninglabs/neutrino v0.17.1
 	github.com/lightninglabs/neutrino/cache v1.1.3
 	github.com/lightningnetwork/lightning-onion v1.3.0
 	github.com/lightningnetwork/lnd/actor v0.0.6

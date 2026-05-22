@@ -1735,7 +1735,8 @@ func getEdgeUnifiers(source route.Vertex, hops []route.Vertex,
 		// is not the last hop.
 		isExitHop := i == len(hops)-1
 		u := newNodeEdgeUnifier(
-			source, toNode, !isExitHop, outgoingChans,
+			source, toNode, &singleOrigin{source: source},
+			!isExitHop, outgoingChans,
 		)
 
 		err := u.addGraphPolicies(graph)

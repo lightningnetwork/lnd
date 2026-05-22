@@ -154,6 +154,16 @@ func (n *NodeAnnouncement2) Decode(r io.Reader, _ uint32) error {
 		return err
 	}
 
+	if err := AssertRequiredPresent(
+		typeMap,
+		n.Features.TlvType(),
+		n.BlockHeight.TlvType(),
+		n.NodeID.TlvType(),
+		n.Signature.TlvType(),
+	); err != nil {
+		return err
+	}
+
 	if _, ok := typeMap[n.Alias.TlvType()]; ok {
 		n.Alias = tlv.SomeRecordT(alias)
 	}

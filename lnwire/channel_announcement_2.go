@@ -166,6 +166,18 @@ func (c *ChannelAnnouncement2) Decode(r io.Reader, _ uint32) error {
 		return err
 	}
 
+	if err := AssertRequiredPresent(
+		typeMap,
+		c.ShortChannelID.TlvType(),
+		c.Outpoint.TlvType(),
+		c.Capacity.TlvType(),
+		c.NodeID1.TlvType(),
+		c.NodeID2.TlvType(),
+		c.Signature.TlvType(),
+	); err != nil {
+		return err
+	}
+
 	// By default, the chain-hash is the bitcoin mainnet genesis block hash.
 	c.ChainHash.Val = *chaincfg.MainNetParams.GenesisHash
 	if _, ok := typeMap[c.ChainHash.TlvType()]; ok {

@@ -19,22 +19,22 @@ var (
 	// ErrNoPrivateKey is an error returned by the OnionStore.PrivateKey
 	// method when a private key hasn't yet been stored.
 	ErrNoPrivateKey = errors.New("private key not found")
-)
 
-// OnionType denotes the type of the onion service.
-type OnionType int
-
-const (
-	// V2 denotes that the onion service is V2.
-	V2 OnionType = iota
-
-	// V3 denotes that the onion service is V3.
-	V3
+	// ErrNonV3OnionKey is returned when a restored onion private key is
+	// not a v3 (ED25519-V3) key. lnd no longer creates or recovers v2
+	// onion services; users with an old v2 key file must remove it so
+	// a fresh v3 service can be generated.
+	ErrNonV3OnionKey = errors.New("restored onion private key is not a " +
+		"v3 (ED25519-V3) key; remove the old onion key file to " +
+		"generate a new v3 service")
 )
 
 const (
-	// V2KeyParam is a parameter that Tor accepts for a new V2 service.
-	V2KeyParam = "RSA1024"
+	// v2KeyParam is the parameter Tor used for legacy v2 onion service
+	// private keys. lnd no longer generates or restores v2 services, but
+	// the prefix is still used to detect stale on-disk keys and surface a
+	// clear error.
+	v2KeyParam = "RSA1024"
 
 	// V3KeyParam is a parameter that Tor accepts for a new V3 service.
 	V3KeyParam = "ED25519-V3"
@@ -128,12 +128,17 @@ func (f *OnionFile) PrivateKey() ([]byte, error) {
 		return nil, err
 	}
 
-	// If the privateKey starts with either v2 or v3 key params then
-	// it's likely not encrypted and we can return the data as is.
-	if bytes.HasPrefix(privateKeyContent, []byte(V2KeyParam)) ||
-		bytes.HasPrefix(privateKeyContent, []byte(V3KeyParam)) {
-
+	// If the privateKey starts with the v3 key param then it's likely
+	// not encrypted and we can return the data as is.
+	if bytes.HasPrefix(privateKeyContent, []byte(V3KeyParam)) {
 		return privateKeyContent, nil
+	}
+
+	// A plaintext legacy v2 (RSA1024) key on disk is unsupported.
+	// Surface a dedicated error so the user can act on it instead of
+	// being redirected to --tor.encryptkey.
+	if bytes.HasPrefix(privateKeyContent, []byte(v2KeyParam)) {
+		return nil, ErrNonV3OnionKey
 	}
 
 	// If the privateKeyContent is encrypted but --tor.encryptkey
@@ -151,6 +156,13 @@ func (f *OnionFile) PrivateKey() ([]byte, error) {
 		return nil, err
 	}
 
+	// Run the same validator over the decrypted contents so an encrypted
+	// legacy key is rejected with a clear error rather than being passed
+	// to Tor.
+	if !bytes.HasPrefix(privateKeyContent, []byte(V3KeyParam)) {
+		return nil, ErrNonV3OnionKey
+	}
+
 	return privateKeyContent, nil
 }
 
@@ -162,9 +174,6 @@ func (f *OnionFile) DeletePrivateKey() error {
 // AddOnionConfig houses all of the required parameters in order to
 // successfully create a new onion service or restore an existing one.
 type AddOnionConfig struct {
-	// Type denotes the type of the onion service that should be created.
-	Type OnionType
-
 	// VirtualPort is the externally reachable port of the onion address.
 	VirtualPort int
 
@@ -192,14 +201,7 @@ func (c *Controller) prepareKeyparam(cfg AddOnionConfig) (string, error) {
 	// create a new onion service and return its private key. Otherwise,
 	// we'll request the server to recreate the onion server from our
 	// private key.
-	var keyParam string
-	switch cfg.Type {
-	// TODO(yy): drop support for v2.
-	case V2:
-		keyParam = "NEW:" + V2KeyParam
-	case V3:
-		keyParam = "NEW:" + V3KeyParam
-	}
+	keyParam := "NEW:" + V3KeyParam
 
 	if cfg.Store != nil {
 		privateKey, err := cfg.Store.PrivateKey()
@@ -208,7 +210,16 @@ func (c *Controller) prepareKeyparam(cfg AddOnionConfig) (string, error) {
 		case ErrNoPrivateKey:
 
 		// Recover the onion service with the private key found.
+		// Refuse to hand a non-v3 key (for example, a legacy
+		// RSA1024:... v2 key) to Tor; the caller must remove the old
+		// key file rather than silently regenerate a fresh v3
+		// service, which would change the advertised onion identity.
 		case nil:
+			if !bytes.HasPrefix(
+				privateKey, []byte(V3KeyParam+":"),
+			) {
+				return "", ErrNonV3OnionKey
+			}
 			keyParam = string(privateKey)
 
 		default:
@@ -273,13 +284,9 @@ func (c *Controller) prepareAddOnion(cfg AddOnionConfig) (string, string,
 // creating new service via `ADD_ONION`.
 func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 	// Before sending the request to create an onion service to the Tor
-	// server, we'll make sure that it supports V3 onion services if that
-	// was the type requested.
-	// TODO(yy): drop support for v2.
-	if cfg.Type == V3 {
-		if err := supportsV3(c.version); err != nil {
-			return nil, err
-		}
+	// server, we'll make sure that it supports V3 onion services.
+	if err := supportsV3(c.version); err != nil {
+		return nil, err
 	}
 
 	// Construct the cmd command.
@@ -298,13 +305,13 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 	// If successful, the reply from the server should be of the following
 	// format, depending on whether a private key has been requested:
 	//
-	//	C: ADD_ONION RSA1024:[Blob Redacted] Port=80,8080
-	//	S: 250-ServiceID=testonion1234567
+	//	C: ADD_ONION ED25519-V3:[Blob Redacted] Port=80,8080
+	//	S: 250-ServiceID=<56-char-v3-service-id>
 	//	S: 250 OK
 	//
-	//	C: ADD_ONION NEW:RSA1024 Port=80,8080
-	//	S: 250-ServiceID=testonion1234567
-	//	S: 250-PrivateKey=RSA1024:[Blob Redacted]
+	//	C: ADD_ONION NEW:ED25519-V3 Port=80,8080
+	//	S: 250-ServiceID=<56-char-v3-service-id>
+	//	S: 250-PrivateKey=ED25519-V3:[Blob Redacted]
 	//	S: 250 OK
 	//
 	// We're interested in retrieving the service ID, which is the public

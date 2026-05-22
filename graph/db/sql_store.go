@@ -4817,7 +4817,8 @@ const (
 func collectAddressRecords(addresses []net.Addr) (map[dbAddressType][]string,
 	error) {
 
-	// Copy the nodes latest set of addresses.
+	// Copy the nodes latest set of addresses. v2 is stored for wire
+	// fidelity even though lnd no longer produces it.
 	newAddresses := map[dbAddressType][]string{
 		addressTypeIPv4:   {},
 		addressTypeIPv6:   {},

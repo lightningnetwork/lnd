@@ -29,7 +29,6 @@ require (
 	github.com/jedib0t/go-pretty/v6 v6.2.7
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/jrick/logrotate v1.1.2
-	github.com/kkdai/bstream v1.0.0
 	github.com/lightninglabs/neutrino v0.17.1
 	github.com/lightninglabs/neutrino/cache v1.1.3
 	github.com/lightningnetwork/lightning-onion v1.3.0
@@ -64,7 +63,10 @@ require (
 	pgregory.net/rapid v1.2.0
 )
 
-require github.com/btcsuite/btcd/v2transport v1.0.1 // indirect
+require (
+	github.com/btcsuite/btcd/v2transport v1.0.1 // indirect
+	github.com/kkdai/bstream v1.0.0 // indirect
+)
 
 require (
 	dario.cat/mergo v1.0.1 // indirect

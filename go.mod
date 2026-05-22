@@ -39,7 +39,6 @@ require (
 	github.com/lightningnetwork/lnd/ticker v1.1.1
 	github.com/lightningnetwork/lnd/tlv v1.3.2
 	github.com/lightningnetwork/lnd/tor v1.1.6
-	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/miekg/dns v1.1.43
 	github.com/prometheus/client_golang v1.11.1
 	github.com/stretchr/testify v1.11.1

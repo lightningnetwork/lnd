@@ -11,10 +11,12 @@ import (
 )
 
 const (
-	defaultCltvExpiryDelta           = uint16(80)
-	defaultHtlcMinMsat               = MilliSatoshi(1)
-	defaultFeeBaseMsat               = uint32(1000)
-	defaultFeeProportionalMillionths = uint32(1)
+	defaultCltvExpiryDelta                  = uint16(80)
+	defaultHtlcMinMsat                      = MilliSatoshi(1)
+	defaultFeeBaseMsat                      = uint32(1000)
+	defaultFeeProportionalMillionths        = uint32(1)
+	defaultInboundFeeBaseMsat               = uint32(0)
+	defaultInboundFeeProportionalMillionths = uint32(0)
 )
 
 // ChannelUpdate2 message is used after taproot channel has been initially
@@ -70,10 +72,16 @@ type ChannelUpdate2 struct {
 	// millionth of a satoshi.
 	FeeProportionalMillionths tlv.RecordT[tlv.TlvType18, uint32]
 
-	// InboundFee is an optional TLV record that contains the fee
-	// information for incoming HTLCs.
-	// TODO(elle): assign normal tlv type?
-	InboundFee tlv.OptionalRecordT[tlv.TlvType55555, Fee]
+	// InboundFeeBaseMsat is the base fee (in millisatoshis) added by this
+	// node for HTLCs forwarded *in* via this channel, regardless of which
+	// channel they are forwarded out on. Default 0. Positive-only: this
+	// version of gossip does not support negative inbound fees.
+	InboundFeeBaseMsat tlv.RecordT[tlv.TlvType20, uint32]
+
+	// InboundFeeProportionalMillionths is the proportional inbound fee (in
+	// millionths of a satoshi) added by this node per transferred satoshi
+	// for HTLCs forwarded *in* via this channel. Default 0. Positive-only.
+	InboundFeeProportionalMillionths tlv.RecordT[tlv.TlvType22, uint32]
 
 	// Signature is used to validate the announced data and prove the
 	// ownership of node id.
@@ -114,13 +122,13 @@ func (c *ChannelUpdate2) Decode(r io.Reader, _ uint32) error {
 	var (
 		chainHash  = tlv.ZeroRecordT[tlv.TlvType0, [32]byte]()
 		secondPeer = tlv.ZeroRecordT[tlv.TlvType8, TrueBoolean]()
-		inboundFee = tlv.ZeroRecordT[tlv.TlvType55555, Fee]()
 	)
 	typeMap, err := tlvRecords.ExtractRecords(
 		&chainHash, &c.ShortChannelID, &c.BlockHeight, &c.DisabledFlags,
 		&secondPeer, &c.CLTVExpiryDelta, &c.HTLCMinimumMsat,
 		&c.HTLCMaximumMsat, &c.FeeBaseMsat,
-		&c.FeeProportionalMillionths, &inboundFee,
+		&c.FeeProportionalMillionths,
+		&c.InboundFeeBaseMsat, &c.InboundFeeProportionalMillionths,
 		&c.Signature,
 	)
 	if err != nil {
@@ -171,9 +179,14 @@ func (c *ChannelUpdate2) Decode(r io.Reader, _ uint32) error {
 		c.FeeProportionalMillionths.Val = defaultFeeProportionalMillionths //nolint:ll
 	}
 
-	// If the inbound fee was encoded, set it.
-	if _, ok := typeMap[c.InboundFee.TlvType()]; ok {
-		c.InboundFee = tlv.SomeRecordT(inboundFee)
+	// If the inbound base fee was not encoded, default to 0.
+	if _, ok := typeMap[c.InboundFeeBaseMsat.TlvType()]; !ok {
+		c.InboundFeeBaseMsat.Val = defaultInboundFeeBaseMsat
+	}
+
+	// If the inbound proportional fee was not encoded, default to 0.
+	if _, ok := typeMap[c.InboundFeeProportionalMillionths.TlvType()]; !ok {
+		c.InboundFeeProportionalMillionths.Val = defaultInboundFeeProportionalMillionths //nolint:ll
 	}
 
 	c.ExtraSignedFields = ExtraSignedFieldsFromTypeMap(typeMap)
@@ -234,9 +247,15 @@ func (c *ChannelUpdate2) AllRecords() []tlv.Record {
 		)
 	}
 
-	c.InboundFee.WhenSome(func(r tlv.RecordT[tlv.TlvType55555, Fee]) {
-		recordProducers = append(recordProducers, &r)
-	})
+	if c.InboundFeeBaseMsat.Val != defaultInboundFeeBaseMsat {
+		recordProducers = append(recordProducers, &c.InboundFeeBaseMsat)
+	}
+
+	if c.InboundFeeProportionalMillionths.Val != defaultInboundFeeProportionalMillionths { //nolint:ll
+		recordProducers = append(
+			recordProducers, &c.InboundFeeProportionalMillionths,
+		)
+	}
 
 	recordProducers = append(recordProducers, RecordsAsProducers(
 		tlv.MapToRecords(c.ExtraSignedFields),

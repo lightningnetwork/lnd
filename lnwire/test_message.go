@@ -1283,22 +1283,20 @@ func (g *GossipTimestampRange) RandTestMessage(t *rapid.T) Message {
 		ExtraData:      RandExtraOpaqueData(t, nil),
 	}
 
-	includeFirstBlockHeight := rapid.Bool().Draw(
-		t, "includeFirstBlockHeight",
+	includeBlockHeightRange := rapid.Bool().Draw(
+		t, "includeBlockHeightRange",
 	)
-	includeBlockRange := rapid.Bool().Draw(t, "includeBlockRange")
 
-	if includeFirstBlockHeight {
+	if includeBlockHeightRange {
 		height := rapid.Uint32().Draw(t, "firstBlockHeight")
-		msg.FirstBlockHeight = tlv.SomeRecordT(
-			tlv.RecordT[tlv.TlvType2, uint32]{Val: height},
-		)
-	}
-
-	if includeBlockRange {
-		blockRange := rapid.Uint32().Draw(t, "blockRange")
-		msg.BlockRange = tlv.SomeRecordT(
-			tlv.RecordT[tlv.TlvType4, uint32]{Val: blockRange},
+		numBlocks := rapid.Uint32().Draw(t, "numBlocks")
+		msg.BlockHeightRange = tlv.SomeRecordT(
+			tlv.RecordT[tlv.TlvType2, BlockHeightRange]{
+				Val: BlockHeightRange{
+					FirstBlockHeight: height,
+					NumBlocks:        numBlocks,
+				},
+			},
 		)
 	}
 

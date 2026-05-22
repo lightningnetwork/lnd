@@ -97,13 +97,6 @@ func assertRequiredPresent(typeMap tlv.TypeMap, required ...tlv.Type) error {
 	return nil
 }
 
-// AssertRequiredPresent forwards to the package-private helper. It remains
-// available until all readers introduced later in this commit series use the
-// private name.
-func AssertRequiredPresent(typeMap tlv.TypeMap, required ...tlv.Type) error {
-	return assertRequiredPresent(typeMap, required...)
-}
-
 // ExtraSignedFields is a type that stores a map from TLV types in the signed
 // range (for PureMessages) to their corresponding serialised values. This type
 // can be used to keep around data that we don't yet understand but that we need

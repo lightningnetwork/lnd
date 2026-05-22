@@ -289,6 +289,22 @@ func SetOptFromMap[T tlv.TlvType, V any](typeMap tlv.TypeMap,
 	}
 }
 
+// truncatedUint32Record preserves a typed record's value and type while using
+// BOLT's tu32 encoding, which omits leading zero bytes.
+func truncatedUint32Record[T tlv.TlvType](
+	value *tlv.RecordT[T, uint32]) *tlv.Record {
+
+	record := tlv.MakeDynamicRecord(
+		value.TlvType(), &value.Val,
+		func() uint64 {
+			return tlv.SizeTUint32(value.Val)
+		},
+		tlv.ETUint32, tlv.DTUint32,
+	)
+
+	return &record
+}
+
 // AssertUniqueTypes asserts that the given records have unique types.
 func AssertUniqueTypes(r []tlv.Record) error {
 	seen := make(fn.Set[tlv.Type], len(r))

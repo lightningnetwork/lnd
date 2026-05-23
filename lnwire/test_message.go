@@ -570,13 +570,16 @@ func (c *ChannelUpdate2) RandTestMessage(t *rapid.T) Message {
 	var chainHashObj chainhash.Hash
 	copy(chainHashObj[:], chainHash[:])
 
+	isSecondPeer := rapid.Bool().Draw(t, "isSecondPeer")
+	sciddir := NewSciddir(shortChanID, isSecondPeer)
+
 	//nolint:ll
 	msg := &ChannelUpdate2{
 		ChainHash: tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
 			chainHashObj,
 		),
-		ShortChannelID: tlv.NewRecordT[tlv.TlvType2, ShortChannelID](
-			shortChanID,
+		ShortChannelID: tlv.NewRecordT[tlv.TlvType2, Sciddir](
+			sciddir,
 		),
 		BlockHeight: tlv.NewPrimitiveRecord[tlv.TlvType4, uint32](
 			blockHeight,
@@ -617,12 +620,6 @@ func (c *ChannelUpdate2) RandTestMessage(t *rapid.T) Message {
 
 	msg.Signature.Val = RandSignature(t)
 	msg.Signature.Val.ForceSchnorr()
-
-	if rapid.Bool().Draw(t, "isSecondPeer") {
-		msg.SecondPeer = tlv.SomeRecordT(
-			tlv.RecordT[tlv.TlvType8, TrueBoolean]{},
-		)
-	}
 
 	return msg
 }

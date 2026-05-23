@@ -30,8 +30,13 @@ type ChannelUpdate2 struct {
 	// channel globally in a blockchain.
 	ChainHash tlv.RecordT[tlv.TlvType0, chainhash.Hash]
 
-	// ShortChannelID is the unique description of the funding transaction.
-	ShortChannelID tlv.RecordT[tlv.TlvType2, ShortChannelID]
+	// ShortChannelID identifies the channel and the side of it that sent
+	// this update. It is BOLT 1's `sciddir_or_pubkey` type constrained to
+	// the `sciddir` form: 9 wire bytes of `<dirbyte><scid>`, where the
+	// direction byte is `0` for `node_id_1` and `1` for `node_id_2`. The
+	// previous separate `second_peer` flag TLV at type 8 is no longer
+	// emitted; its information is now carried by the direction byte.
+	ShortChannelID tlv.RecordT[tlv.TlvType2, Sciddir]
 
 	// BlockHeight allows ordering in the case of multiple announcements. We
 	// should ignore the message if block height is not greater than the
@@ -44,11 +49,6 @@ type ChannelUpdate2 struct {
 	// that the node is communicating that the channel should be considered
 	// disabled.
 	DisabledFlags tlv.RecordT[tlv.TlvType6, ChanUpdateDisableFlags]
-
-	// SecondPeer is used to indicate which node the channel node has
-	// created and signed this message. If this field is present, it was
-	// node 2 otherwise it was node 1.
-	SecondPeer tlv.OptionalRecordT[tlv.TlvType8, TrueBoolean]
 
 	// CLTVExpiryDelta is the minimum number of blocks this node requires to
 	// be added to the expiry of HTLCs. This is a security parameter
@@ -119,13 +119,10 @@ func (c *ChannelUpdate2) Decode(r io.Reader, _ uint32) error {
 		return err
 	}
 
-	var (
-		chainHash  = tlv.ZeroRecordT[tlv.TlvType0, [32]byte]()
-		secondPeer = tlv.ZeroRecordT[tlv.TlvType8, TrueBoolean]()
-	)
+	chainHash := tlv.ZeroRecordT[tlv.TlvType0, [32]byte]()
 	typeMap, err := tlvRecords.ExtractRecords(
 		&chainHash, &c.ShortChannelID, &c.BlockHeight, &c.DisabledFlags,
-		&secondPeer, &c.CLTVExpiryDelta, &c.HTLCMinimumMsat,
+		&c.CLTVExpiryDelta, &c.HTLCMinimumMsat,
 		&c.HTLCMaximumMsat, &c.FeeBaseMsat,
 		&c.FeeProportionalMillionths,
 		&c.InboundFeeBaseMsat, &c.InboundFeeProportionalMillionths,
@@ -149,11 +146,6 @@ func (c *ChannelUpdate2) Decode(r io.Reader, _ uint32) error {
 	c.ChainHash.Val = *chaincfg.MainNetParams.GenesisHash
 	if _, ok := typeMap[c.ChainHash.TlvType()]; ok {
 		c.ChainHash.Val = chainHash.Val
-	}
-
-	// The presence of the second_peer tlv type indicates "true".
-	if _, ok := typeMap[c.SecondPeer.TlvType()]; ok {
-		c.SecondPeer = tlv.SomeRecordT(secondPeer)
 	}
 
 	// If the CLTV expiry delta was not encoded, then set it to the default
@@ -220,11 +212,6 @@ func (c *ChannelUpdate2) AllRecords() []tlv.Record {
 		recordProducers = append(recordProducers, &c.DisabledFlags)
 	}
 
-	// We only need to encode the second peer boolean if it is true
-	c.SecondPeer.WhenSome(func(r tlv.RecordT[tlv.TlvType8, TrueBoolean]) {
-		recordProducers = append(recordProducers, &r)
-	})
-
 	// We only encode the cltv expiry delta if it is not equal to the
 	// default.
 	if c.CLTVExpiryDelta.Val != defaultCltvExpiryDelta {
@@ -287,19 +274,21 @@ var _ Message = (*ChannelUpdate2)(nil)
 // lnwire.PureTLVMessage interface.
 var _ PureTLVMessage = (*ChannelUpdate2)(nil)
 
-// SCID returns the ShortChannelID of the channel that the update applies to.
+// SCID returns the ShortChannelID of the channel that the update applies to,
+// projecting away the direction byte that the wire encoding carries.
 //
 // NOTE: this is part of the ChannelUpdate interface.
 func (c *ChannelUpdate2) SCID() ShortChannelID {
-	return c.ShortChannelID.Val
+	return c.ShortChannelID.Val.ID
 }
 
 // IsNode1 is true if the update was produced by node 1 of the channel peers.
-// Node 1 is the node with the lexicographically smaller public key.
+// Node 1 is the node with the lexicographically smaller public key, and is
+// indicated by a direction byte of 0 in the encoded ShortChannelID.
 //
 // NOTE: this is part of the ChannelUpdate interface.
 func (c *ChannelUpdate2) IsNode1() bool {
-	return c.SecondPeer.IsNone()
+	return c.ShortChannelID.Val.IsNode1()
 }
 
 // IsDisabled is true if the update is announcing that the channel should be
@@ -366,11 +355,12 @@ func (c *ChannelUpdate2) SetDisabledFlag(disabled bool) {
 	}
 }
 
-// SetSCID can be used to overwrite the SCID of the update.
+// SetSCID can be used to overwrite the SCID of the update, leaving the
+// existing direction byte in place.
 //
 // NOTE: this is part of the ChannelUpdate interface.
 func (c *ChannelUpdate2) SetSCID(scid ShortChannelID) {
-	c.ShortChannelID.Val = scid
+	c.ShortChannelID.Val.ID = scid
 }
 
 // A compile time check to ensure ChannelUpdate2 implements the

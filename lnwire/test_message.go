@@ -134,18 +134,21 @@ func (a *AnnounceSignatures2) RandTestMessage(t *rapid.T) Message {
 	var (
 		chanID      = RandChannelID(t)
 		scid        = RandShortChannelID(t)
-		pSig        = RandPartialSig(t)
+		nodeSig     = RandPartialSig(t)
+		bitcoinSig  = RandPartialSig(t)
 		fundingTxID = RandChainHash(t)
 	)
+
+	sigs := NewAnnouncementSigPair(nodeSig.Sig, bitcoinSig.Sig)
 
 	msg := &AnnounceSignatures2{
 		ChannelID: tlv.NewRecordT[tlv.TlvType0, ChannelID](
 			chanID,
 		),
 		ShortChannelID: tlv.NewRecordT[tlv.TlvType2](scid),
-		PartialSignature: tlv.NewRecordT[tlv.TlvType4, PartialSig](
-			*pSig,
-		),
+		PartialSignatures: tlv.NewRecordT[
+			tlv.TlvType4, AnnouncementSigPair,
+		](sigs),
 		FundingTxID: tlv.NewPrimitiveRecord[tlv.TlvType6, [32]byte](
 			[32]byte(fundingTxID),
 		),

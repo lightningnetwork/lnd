@@ -179,7 +179,7 @@ require (
 	go.uber.org/zap v1.17.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/mod v0.38.0 // indirect
-	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/net v0.57.0
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0
 	golang.org/x/tools v0.48.0 // indirect
@@ -226,5 +226,8 @@ replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
 replace github.com/lightningnetwork/lnd/queue => ./queue
 
 replace github.com/lightningnetwork/lnd/ticker => ./ticker
+
+// TODO: Remove once a tor module release includes the dnsclient package.
+replace github.com/lightningnetwork/lnd/tor => ./tor
 
 replace github.com/lightningnetwork/lnd/tlv => ./tlv

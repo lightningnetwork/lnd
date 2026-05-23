@@ -999,7 +999,7 @@ func testMarkChannelClosed(h *clientDBHarness) {
 	require.EqualValues(h.t, 1, lastApplied)
 	h.ackUpdate(&session1.ID, 2, 2, nil)
 
-	// Add an update for channel 3 in session 1. But dont ack it yet.
+	// Add an update for channel 3 in session 1. But don't ack it yet.
 	update = randCommittedUpdateForChannel(h.t, chanID2, 3)
 	lastApplied = h.commitUpdate(&session1.ID, update, nil)
 	require.EqualValues(h.t, 2, lastApplied)

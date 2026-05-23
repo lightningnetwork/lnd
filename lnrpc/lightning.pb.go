@@ -644,7 +644,7 @@ const (
 	// All possible routes were tried and failed permanently. Or were no
 	// routes to the destination at all.
 	PaymentFailureReason_FAILURE_REASON_NO_ROUTE PaymentFailureReason = 2
-	// A non-recoverable error has occured.
+	// A non-recoverable error has occurred.
 	PaymentFailureReason_FAILURE_REASON_ERROR PaymentFailureReason = 3
 	// Payment details incorrect (unknown hash, invalid amt or
 	// invalid final cltv delta)

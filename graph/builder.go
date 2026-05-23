@@ -1093,7 +1093,7 @@ func (b *Builder) AddEdge(ctx context.Context, edge *models.ChannelEdgeInfo,
 // addEdge does some validation on the new channel edge against what we
 // currently have persisted in the graph, and then adds it to the graph. The
 // Chain View is updated with the new edge if it is successfully added to the
-// graph. We only persist the channel if we currently dont have it at all in
+// graph. We only persist the channel if we currently don't have it at all in
 // our graph.
 func (b *Builder) addEdge(ctx context.Context, edge *models.ChannelEdgeInfo,
 	op ...batch.SchedulerOption) error {

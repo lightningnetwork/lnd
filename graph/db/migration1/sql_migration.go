@@ -1440,7 +1440,7 @@ func forEachClosedSCID(db kvdb.Backend,
 // SQL migration. No error is expected if the node already exists. Unlike the
 // main upsertNode function, this function does not require that a new node
 // update have a newer timestamp than the existing one. This is because we want
-// the migration to be idempotent and dont want to error out if we re-insert the
+// the migration to be idempotent and don't want to error out if we re-insert the
 // exact same node.
 func insertNodeSQLMig(ctx context.Context, db SQLQueries,
 	node *models.Node) (int64, error) {

@@ -2453,7 +2453,7 @@ func testSpendUnconfirmed(miner *rpctest.Harness,
 	}
 
 	// Finally, send the remainder of bob's wallet balance back to him so
-	// that these money movements dont mess up later tests.
+	// that these money movements don't mess up later tests.
 	output = &wire.TxOut{
 		Value:    int64(bobBalance) - (btcutil.SatoshiPerBitcoin * 0.4),
 		PkScript: bobPkScript,

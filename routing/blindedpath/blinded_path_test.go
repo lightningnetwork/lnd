@@ -924,7 +924,7 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 	require.Equal(t, []byte{1, 2, 3}, data.PathID.UnwrapOrFail(t).Val)
 
 	// Demonstrate that BuildBlindedPaymentPaths continues to use any
-	// functioning paths even if some routes cant be used to build a blinded
+	// functioning paths even if some routes can't be used to build a blinded
 	// path. We do this by forcing FetchChannelEdgesByID to error out for
 	// the first 2 calls. FindRoutes returns 3 routes and so by the end, we
 	// still get 1 valid path.

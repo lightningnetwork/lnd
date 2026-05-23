@@ -147,6 +147,8 @@ type mockChannel struct {
 	chanType  channeldb.ChannelType
 	localKey  keychain.KeyDescriptor
 	remoteKey keychain.KeyDescriptor
+
+	coopBroadcastTxns []*wire.MsgTx
 }
 
 func (m *mockChannel) ChannelPoint() wire.OutPoint {
@@ -161,8 +163,10 @@ func (m *mockChannel) FundingBlob() fn.Option[tlv.Blob] {
 	return fn.None[tlv.Blob]()
 }
 
-func (m *mockChannel) MarkCoopBroadcasted(*wire.MsgTx,
-	lntypes.ChannelParty) error {
+func (m *mockChannel) MarkCoopBroadcasted(tx *wire.MsgTx,
+	_ lntypes.ChannelParty) error {
+
+	m.coopBroadcastTxns = append(m.coopBroadcastTxns, tx)
 
 	return nil
 }
@@ -643,4 +647,23 @@ func TestTaprootFastClose(t *testing.T) {
 	tx, _ = bobCloser.ClosingTx()
 	require.NotNil(t, tx)
 	require.True(t, oClosingSigned.IsNone())
+
+	// Every MarkCoopBroadcasted call must have a real close tx.
+	// A nil tx would set ChanStatusCoopBroadcasted without a
+	// stored transaction, creating the limbo state described in
+	// https://github.com/lightninglabs/taproot-assets/issues/2108.
+	require.NotEmpty(t, aliceChan.coopBroadcastTxns,
+		"expected at least one MarkCoopBroadcasted call "+
+			"from alice")
+	require.NotEmpty(t, bobChan.coopBroadcastTxns,
+		"expected at least one MarkCoopBroadcasted call "+
+			"from bob")
+	for i, broadcastTx := range aliceChan.coopBroadcastTxns {
+		require.NotNilf(t, broadcastTx,
+			"alice MarkCoopBroadcasted call %d had nil tx", i)
+	}
+	for i, broadcastTx := range bobChan.coopBroadcastTxns {
+		require.NotNilf(t, broadcastTx,
+			"bob MarkCoopBroadcasted call %d had nil tx", i)
+	}
 }

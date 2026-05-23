@@ -3,7 +3,6 @@ package itest
 import (
 	"context"
 	"database/sql"
-	"net"
 
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -66,9 +65,9 @@ func testGraphMigration(ht *lntest.HarnessTest) {
 			numNodes int
 			edges    = make(map[uint64]bool)
 		)
-		err := db.ForEachNodeCached(ctx, lnwire.GossipVersion1, false,
+		err := db.ForEachNodeCached(ctx, lnwire.GossipVersion1,
 			func(_ context.Context,
-				_ route.Vertex, _ []net.Addr,
+				_ route.Vertex,
 				chans map[uint64]*graphdb.DirectedChannel,
 			) error {
 

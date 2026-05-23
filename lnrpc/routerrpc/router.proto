@@ -59,17 +59,6 @@ service Router {
     */
     rpc EstimateRouteFee (RouteFeeRequest) returns (RouteFeeResponse);
 
-    /*
-    Deprecated, use SendToRouteV2. SendToRoute attempts to make a payment via
-    the specified route. This method differs from SendPayment in that it
-    allows users to specify a full route manually. This can be used for
-    things like rebalancing, and atomic swaps. It differs from the newer
-    SendToRouteV2 in that it doesn't return the full HTLC information.
-    */
-    rpc SendToRoute (SendToRouteRequest) returns (SendToRouteResponse) {
-        option deprecated = true;
-    }
-
     /* lncli: `sendtoroute`
     SendToRouteV2 attempts to make a payment via the specified route. This
     method differs from SendPayment in that it allows users to specify a full
@@ -140,23 +129,6 @@ service Router {
     */
     rpc SubscribeHtlcEvents (SubscribeHtlcEventsRequest)
         returns (stream HtlcEvent);
-
-    /*
-    Deprecated, use SendPaymentV2. SendPayment attempts to route a payment
-    described by the passed PaymentRequest to the final destination. The call
-    returns a stream of payment status updates.
-    */
-    rpc SendPayment (SendPaymentRequest) returns (stream PaymentStatus) {
-        option deprecated = true;
-    }
-
-    /*
-    Deprecated, use TrackPaymentV2. TrackPayment returns an update stream for
-    the payment identified by the payment hash.
-    */
-    rpc TrackPayment (TrackPaymentRequest) returns (stream PaymentStatus) {
-        option deprecated = true;
-    }
 
     /**
     HtlcInterceptor dispatches a bi-directional streaming RPC in which
@@ -264,12 +236,7 @@ message SendPaymentRequest {
     */
     int64 fee_limit_sat = 7;
 
-    /*
-    Deprecated, use outgoing_chan_ids. The channel id of the channel that must
-    be taken to the first hop. If zero, any channel may be used (unless
-    outgoing_chan_ids are set).
-    */
-    uint64 outgoing_chan_id = 8 [jstype = JS_STRING, deprecated = true];
+    reserved 8;
 
     /*
     An optional maximum total time lock for the route. This should not
@@ -443,6 +410,14 @@ message RouteFeeRequest {
     controlled by the timeout parameter.
     */
     uint32 timeout = 4;
+
+    /*
+    The channel ids of the channels that are allowed for the first hop. If
+    empty, any channel may be used. This field is applicable to both
+    graph-based fee estimation (using dest + amt_sat) and probe-based
+    estimation (using payment_request).
+    */
+    repeated uint64 outgoing_chan_ids = 5;
 }
 
 message RouteFeeResponse {
@@ -489,14 +464,6 @@ message SendToRouteRequest {
     base64.
     */
     map<uint64, bytes> first_hop_custom_records = 4;
-}
-
-message SendToRouteResponse {
-    // The preimage obtained by making the payment.
-    bytes preimage = 1;
-
-    // The failure message in case the payment failed.
-    lnrpc.Failure failure = 2;
 }
 
 message ResetMissionControlRequest {
@@ -934,62 +901,6 @@ enum FailureDetail {
     AMP_ERROR = 25;
     AMP_RECONSTRUCTION = 26;
     EXTERNAL_VALIDATION_FAILED = 27;
-}
-
-enum PaymentState {
-    /*
-    Payment is still in flight.
-    */
-    IN_FLIGHT = 0;
-
-    /*
-    Payment completed successfully.
-    */
-    SUCCEEDED = 1;
-
-    /*
-    There are more routes to try, but the payment timeout was exceeded.
-    */
-    FAILED_TIMEOUT = 2;
-
-    /*
-    All possible routes were tried and failed permanently. Or were no
-    routes to the destination at all.
-    */
-    FAILED_NO_ROUTE = 3;
-
-    /*
-    A non-recoverable error has occurred.
-    */
-    FAILED_ERROR = 4;
-
-    /*
-    Payment details incorrect (unknown hash, invalid amt or
-    invalid final cltv delta)
-    */
-    FAILED_INCORRECT_PAYMENT_DETAILS = 5;
-
-    /*
-    Insufficient local balance.
-    */
-    FAILED_INSUFFICIENT_BALANCE = 6;
-}
-
-message PaymentStatus {
-    // Current state the payment is in.
-    PaymentState state = 1;
-
-    /*
-    The pre-image of the payment when state is SUCCEEDED.
-    */
-    bytes preimage = 2;
-
-    reserved 3;
-
-    /*
-    The HTLCs made in attempt to settle the payment [EXPERIMENTAL].
-    */
-    repeated lnrpc.HTLCAttempt htlcs = 4;
 }
 
 message CircuitKey {

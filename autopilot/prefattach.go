@@ -90,7 +90,7 @@ func (p *PrefAttachment) NodeScores(ctx context.Context, g ChannelGraph,
 		seenChans = make(map[uint64]struct{})
 	)
 	err := g.ForEachNodesChannels(
-		ctx, func(_ context.Context, node Node,
+		ctx, func(_ context.Context, node NodeID,
 			channels []*ChannelEdge) error {
 
 			for _, e := range channels {
@@ -121,7 +121,7 @@ func (p *PrefAttachment) NodeScores(ctx context.Context, g ChannelGraph,
 	var maxChans int
 	nodeChanNum := make(map[NodeID]int)
 	err = g.ForEachNodesChannels(
-		ctx, func(ctx context.Context, node Node,
+		ctx, func(ctx context.Context, node NodeID,
 			edges []*ChannelEdge) error {
 
 			var nodeChans int
@@ -154,17 +154,16 @@ func (p *PrefAttachment) NodeScores(ctx context.Context, g ChannelGraph,
 
 			// If this node is not among our nodes to score, we can
 			// return early.
-			nID := NodeID(node.PubKey())
-			if _, ok := nodes[nID]; !ok {
+			if _, ok := nodes[node]; !ok {
 				log.Tracef("Node %x not among nodes to score, "+
-					"ignoring", nID[:])
+					"ignoring", node[:])
 				return nil
 			}
 
 			// Otherwise we'll record the number of channels.
-			nodeChanNum[nID] = nodeChans
+			nodeChanNum[node] = nodeChans
 			log.Tracef("Counted %v channels for node %x", nodeChans,
-				nID[:])
+				node[:])
 
 			return nil
 		}, func() {

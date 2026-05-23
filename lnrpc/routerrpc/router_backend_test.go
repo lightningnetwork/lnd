@@ -34,39 +34,25 @@ var (
 	node2 = route.Vertex{11}
 )
 
-var (
-	singleChanID = "singleChanID"
-	multiChanID  = "multiChanID"
-	bothChanIds  = "bothChanIds"
-)
-
 // TestQueryRoutes asserts that query routes rpc parameters are properly parsed
 // and passed onto path finding.
 func TestQueryRoutes(t *testing.T) {
 	t.Run("no mission control", func(t *testing.T) {
-		testQueryRoutes(t, false, false, true, false, singleChanID)
+		testQueryRoutes(t, false, false, true, false)
 	})
 	t.Run("no mission control, using msat and MPP", func(t *testing.T) {
-		testQueryRoutes(t, false, true, true, true, singleChanID)
+		testQueryRoutes(t, false, true, true, true)
 	})
 	t.Run("with mission control", func(t *testing.T) {
-		testQueryRoutes(t, true, false, true, false, singleChanID)
+		testQueryRoutes(t, true, false, true, false)
 	})
 	t.Run("no mission control bad cltv limit", func(t *testing.T) {
-		testQueryRoutes(t, false, false, false, false, singleChanID)
-	})
-
-	t.Run("both outgoing chan id and chan ids", func(t *testing.T) {
-		testQueryRoutes(t, true, false, true, false, bothChanIds)
-	})
-
-	t.Run("multiple outgoing chan ids", func(t *testing.T) {
-		testQueryRoutes(t, false, true, true, false, multiChanID)
+		testQueryRoutes(t, false, false, false, false)
 	})
 }
 
 func testQueryRoutes(t *testing.T, useMissionControl, useMsat,
-	setTimelock, useMPP bool, outgoingChanConfig string) {
+	setTimelock, useMPP bool) {
 
 	ignoreNodeBytes, err := hex.DecodeString(ignoreNodeKey)
 	if err != nil {
@@ -83,7 +69,6 @@ func testQueryRoutes(t *testing.T, useMissionControl, useMsat,
 
 	var (
 		lastHop         = route.Vertex{64}
-		outgoingChan    = uint64(383322)
 		outgoingChanIds = []uint64{383322, 383323}
 	)
 
@@ -147,17 +132,7 @@ func testQueryRoutes(t *testing.T, useMissionControl, useMsat,
 		}
 	}
 
-	switch outgoingChanConfig {
-	case singleChanID:
-		request.OutgoingChanId = outgoingChan
-
-	case multiChanID:
-		request.OutgoingChanIds = outgoingChanIds
-
-	case bothChanIds:
-		request.OutgoingChanId = outgoingChan
-		request.OutgoingChanIds = outgoingChanIds
-	}
+	request.OutgoingChanIds = outgoingChanIds
 
 	findRoute := func(req *routing.RouteRequest) (*route.Route, float64,
 		error) {
@@ -200,19 +175,9 @@ func testQueryRoutes(t *testing.T, useMissionControl, useMsat,
 			t.Fatal("unexpected last hop")
 		}
 
-		switch outgoingChanConfig {
-		case singleChanID:
-			require.Equal(
-				t, restrictions.OutgoingChannelIDs,
-				[]uint64{outgoingChan},
-			)
-
-		case multiChanID:
-			require.Equal(
-				t, restrictions.OutgoingChannelIDs,
-				outgoingChanIds,
-			)
-		}
+		require.Equal(
+			t, restrictions.OutgoingChannelIDs, outgoingChanIds,
+		)
 
 		if !restrictions.DestFeatures.HasFeature(lnwire.MPPOptional) {
 			t.Fatal("unexpected dest features")
@@ -278,13 +243,6 @@ func testQueryRoutes(t *testing.T, useMissionControl, useMsat,
 	}
 
 	resp, err := backend.QueryRoutes(t.Context(), request)
-
-	// If we're using both OutgoingChanId and OutgoingChanIds, we should get
-	// an error.
-	if outgoingChanConfig == bothChanIds {
-		require.Error(t, err)
-		return
-	}
 
 	// If no MaxTotalTimelock was set for the QueryRoutes request, make
 	// sure an error was returned.
@@ -594,17 +552,6 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 			},
 			valid:            false,
 			expectedErrorMsg: "time preference out of range",
-		},
-		{
-			name:    "Outgoing channel exclusivity violation",
-			backend: &RouterBackend{},
-			sendReq: &SendPaymentRequest{
-				OutgoingChanId:  38484,
-				OutgoingChanIds: []uint64{383322},
-			},
-			valid: false,
-			expectedErrorMsg: "outgoing_chan_id and " +
-				"outgoing_chan_ids are mutually exclusive",
 		},
 		{
 			name:    "Invalid last hop pubkey length",

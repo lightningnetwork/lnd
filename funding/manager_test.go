@@ -1009,6 +1009,8 @@ func assertFundingMsgSent(t *testing.T, msgChan chan lnwire.Message,
 		ok      bool
 	)
 	switch msgType {
+	case "OpenChannel":
+		sentMsg, ok = msg.(*lnwire.OpenChannel)
 	case "AcceptChannel":
 		sentMsg, ok = msg.(*lnwire.AcceptChannel)
 	case "FundingCreated":
@@ -1118,7 +1120,7 @@ func assertConfirmationHeight(t *testing.T, node *testNode,
 
 	err := wait.NoError(func() error {
 		pendingChannel, err := node.fundingMgr.cfg.Wallet.Cfg.Database.
-			FetchChannelByID(nil, chanID)
+			FetchChannelByID(chanID)
 		if err != nil {
 			return fmt.Errorf("unable to fetch pending channel: %w",
 				err)
@@ -3887,6 +3889,198 @@ func TestFundingManagerRejectPush(t *testing.T) {
 	)
 }
 
+// TestFundingManagerPushAmountExceedsCapacity asserts that the fundee
+// rejects an incoming OpenChannel whose push_msat exceeds
+// 1000 * funding_satoshis, as required by BOLT-02.
+func TestFundingManagerPushAmountExceedsCapacity(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	// Build an OpenChannel directly with a push amount that strictly
+	// exceeds 1000 * funding_satoshis. We only need the fields that
+	// Bob's fundeeProcessOpenChannel inspects before the BOLT-02 bound
+	// check, so other fields are left zero.
+	const fundingAmt = btcutil.Amount(500000)
+	openChannelReq := &lnwire.OpenChannel{
+		ChainHash:        *fundingNetParams.GenesisHash,
+		PendingChannelID: [32]byte{0x01},
+		FundingAmount:    fundingAmt,
+		PushAmount:       lnwire.NewMSatFromSatoshis(fundingAmt) + 1,
+	}
+
+	bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
+
+	// Bob should respond with an Error that carries the
+	// ErrPushAmountTooLarge message.
+	msg := assertFundingMsgSent(t, bob.msgChan, "Error")
+	err, ok := msg.(*lnwire.Error)
+	require.True(t, ok, "expected *lnwire.Error, got %T", msg)
+
+	expected := lnwallet.ErrPushAmountTooLarge(
+		openChannelReq.PushAmount, openChannelReq.FundingAmount,
+	)
+	require.Equal(t, expected.Error(), string(err.Data))
+}
+
+// TestFundingManagerPushAmountAtCapacity asserts that the fundee does NOT
+// reject an incoming OpenChannel with the BOLT-02 push-bound error when
+// push_msat exactly equals 1000 * funding_satoshis. The spec permits this
+// boundary (push_msat MUST be <= 1000 * funding_satoshis), so the check
+// added in fundeeProcessOpenChannel must not fire on equality. The flow
+// may still fail downstream for unrelated reasons (e.g. funder balance
+// dust after fees), but never with ErrPushAmountTooLarge.
+func TestFundingManagerPushAmountAtCapacity(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	const fundingAmt = btcutil.Amount(500000)
+	openChannelReq := &lnwire.OpenChannel{
+		ChainHash:        *fundingNetParams.GenesisHash,
+		PendingChannelID: [32]byte{0x01},
+		FundingAmount:    fundingAmt,
+		PushAmount:       lnwire.NewMSatFromSatoshis(fundingAmt),
+	}
+
+	bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
+
+	// Whatever response Bob produces, it must not be the BOLT-02
+	// push-bound error: the boundary is spec-legal.
+	forbidden := lnwallet.ErrPushAmountTooLarge(
+		openChannelReq.PushAmount, openChannelReq.FundingAmount,
+	).Error()
+
+	select {
+	case msg := <-bob.msgChan:
+		errMsg, ok := msg.(*lnwire.Error)
+		if !ok {
+			return
+		}
+		require.NotEqual(t, forbidden, string(errMsg.Data),
+			"fundee rejected spec-legal boundary push_msat == "+
+				"1000 * funding_satoshis")
+	case <-time.After(time.Second):
+	}
+}
+
+// TestFundingManagerRejectPublicTaprootInitiator checks that a public taproot
+// channel request is rejected by the initiator before an OpenChannel message is
+// sent to the peer.
+func TestFundingManagerRejectPublicTaprootInitiator(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	featureBits := []lnwire.FeatureBit{
+		lnwire.ExplicitChannelTypeOptional,
+		lnwire.SimpleTaprootChannelsOptionalFinal,
+	}
+	alice.localFeatures = featureBits
+	alice.remoteFeatures = featureBits
+	bob.localFeatures = featureBits
+	bob.remoteFeatures = featureBits
+
+	chanType := lnwire.ChannelType(*lnwire.NewRawFeatureVector(
+		lnwire.SimpleTaprootChannelsRequiredFinal,
+	))
+
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	errChan := make(chan error, 1)
+	initReq := &InitFundingMsg{
+		Peer:            bob,
+		TargetPubkey:    bob.privKey.PubKey(),
+		ChainHash:       *fundingNetParams.GenesisHash,
+		LocalFundingAmt: 500000,
+		Private:         false,
+		ChannelType:     &chanType,
+		Updates:         updateChan,
+		Err:             errChan,
+	}
+
+	alice.fundingMgr.InitFundingWorkflow(initReq)
+
+	select {
+	case err := <-errChan:
+		require.ErrorContains(
+			t, err, "taproot channel type for public channel",
+		)
+
+	case msg := <-bob.msgChan:
+		t.Fatalf("expected local error, got %T", msg)
+
+	case <-time.After(time.Second * 5):
+		t.Fatalf("timed out waiting for public taproot error")
+	}
+}
+
+// TestFundingManagerRejectPublicTaprootResponder checks that the responder
+// rejects a public taproot OpenChannel message.
+func TestFundingManagerRejectPublicTaprootResponder(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	featureBits := []lnwire.FeatureBit{
+		lnwire.ExplicitChannelTypeOptional,
+		lnwire.SimpleTaprootChannelsOptionalFinal,
+	}
+	alice.localFeatures = featureBits
+	alice.remoteFeatures = featureBits
+	bob.localFeatures = featureBits
+	bob.remoteFeatures = featureBits
+
+	chanType := lnwire.ChannelType(*lnwire.NewRawFeatureVector(
+		lnwire.SimpleTaprootChannelsRequiredFinal,
+	))
+
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	errChan := make(chan error, 1)
+	initReq := &InitFundingMsg{
+		Peer:            bob,
+		TargetPubkey:    bob.privKey.PubKey(),
+		ChainHash:       *fundingNetParams.GenesisHash,
+		LocalFundingAmt: 500000,
+		Private:         true,
+		ChannelType:     &chanType,
+		Updates:         updateChan,
+		Err:             errChan,
+	}
+
+	alice.fundingMgr.InitFundingWorkflow(initReq)
+
+	msg := assertFundingMsgSent(t, alice.msgChan, "OpenChannel")
+	openChannelReq, ok := msg.(*lnwire.OpenChannel)
+	require.True(t, ok)
+
+	// Flip the captured wire message to public so the responder path is
+	// exercised without being blocked by the initiator-side guard.
+	openChannelReq.ChannelFlags = lnwire.FFAnnounceChannel
+	bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
+
+	// The specific taproot/public failure is logged locally; the wire error
+	// carries the generic message used for non-whitelisted funding errors.
+	errMsg := assertFundingMsgSent(t, bob.msgChan, "Error")
+	err, ok := errMsg.(*lnwire.Error)
+	require.True(t, ok)
+	require.ErrorContains(
+		t, err, "funding failed due to internal error",
+	)
+	assertNumPendingReservations(t, bob, alicePubKey, 0)
+}
+
 // TestFundingManagerMaxConfs ensures that we don't accept a funding proposal
 // that proposes a MinAcceptDepth greater than the maximum number of
 // confirmations we're willing to accept.
@@ -4817,6 +5011,7 @@ func TestCommitmentTypeFundmaxSanityCheck(t *testing.T) {
 		"SCRIPT_ENFORCED_LEASE":   4,
 		"SIMPLE_TAPROOT":          5,
 		"SIMPLE_TAPROOT_OVERLAY":  6,
+		"TAPROOT":                 7,
 		"SIMPLE_TAPROOT_FINAL":    7,
 	}
 

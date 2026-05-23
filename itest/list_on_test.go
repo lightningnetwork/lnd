@@ -235,6 +235,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testNeutrino,
 	},
 	{
+		Name:     "neutrino headers import",
+		TestFunc: testNeutrinoHeadersImport,
+	},
+	{
 		Name:     "etcd failover",
 		TestFunc: testEtcdFailover,
 	},
@@ -462,6 +466,10 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "zero conf channel open",
 		TestFunc: testZeroConfChannelOpen,
+	},
+	{
+		Name:     "zero conf coop close subscribe events",
+		TestFunc: testZeroConfCoopCloseSubscribeEvents,
 	},
 	{
 		Name:     "option scid alias",

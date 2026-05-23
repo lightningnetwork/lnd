@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/subscribe"
 )
 
@@ -17,7 +18,7 @@ type ChannelNotifier struct {
 
 	ntfnServer *subscribe.Server
 
-	chanDB *channeldb.ChannelStateDB
+	chanDB chanstate.Store
 }
 
 // PendingOpenChannelEvent represents a new event where a new channel has
@@ -97,7 +98,7 @@ type FundingTimeoutEvent struct {
 // New creates a new channel notifier. The ChannelNotifier gets channel
 // events from peers and from the chain arbitrator, and dispatches them to
 // its clients.
-func New(chanDB *channeldb.ChannelStateDB) *ChannelNotifier {
+func New(chanDB chanstate.Store) *ChannelNotifier {
 	return &ChannelNotifier{
 		ntfnServer: subscribe.NewServer(),
 		chanDB:     chanDB,
@@ -129,6 +130,11 @@ func (c *ChannelNotifier) Stop() error {
 // SubscribeChannelEvents returns a subscribe.Client that will receive updates
 // any time the Server is made aware of a new event. The subscription provides
 // channel events from the point of subscription onwards.
+//
+// NOTE: This subscription includes both channel lifecycle events and higher
+// frequency channel state updates, such as ChannelUpdateEvent. Callers that
+// only need lifecycle updates should explicitly filter for the event types they
+// consume.
 //
 // TODO(carlaKC): update  to allow subscriptions to specify a block height from
 // which we would like to subscribe to events.
@@ -183,6 +189,23 @@ func (c *ChannelNotifier) NotifyClosedChannelEvent(chanPoint wire.OutPoint) {
 	event := ClosedChannelEvent{CloseSummary: closeSummary}
 	if err := c.ntfnServer.SendUpdate(event); err != nil {
 		log.Warnf("Unable to send closed channel update: %v", err)
+	}
+}
+
+// NotifyEarlyClosedChannelEvent dispatches a ClosedChannelEvent built from the
+// supplied close summary, without consulting the channel database. This is
+// used by the chain watcher to insta-dispatch CLOSED_CHANNEL events to RPC
+// subscribers as soon as a coop close is first detected on chain, before the
+// async N-conf path has persisted the close in the database. The summary's
+// IsPending field will typically be true at this point; callers should set it
+// accordingly.
+func (c *ChannelNotifier) NotifyEarlyClosedChannelEvent(
+	summary *channeldb.ChannelCloseSummary) {
+
+	event := ClosedChannelEvent{CloseSummary: summary}
+	if err := c.ntfnServer.SendUpdate(event); err != nil {
+		log.Warnf("Unable to send early closed channel update: %v",
+			err)
 	}
 }
 

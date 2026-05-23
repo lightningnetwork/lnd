@@ -21,6 +21,19 @@
 
 # Bug Fixes
 
+* Bitcoind outbound peer health checks [now use](https://github.com/lightningnetwork/lnd/pull/10686)
+  `getnetworkinfo.connections_out` instead of `getpeerinfo`. The same PR also
+  [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ
+  port-mismatch warnings so they no longer suggest that the connection failed.
+
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10782)
+  that could be encountered during co-op closes whereby
+  `ChanStatusCoopBroadcasted` was set before a close transaction
+  actually existed. As a side effect, channels in shutdown
+  negotiation now remain in `ListChannels` (as inactive) until
+  the close transaction is actually broadcast, and
+  `WaitingCloseChannel.ClosingTx` is never empty.
+
 # New Features
 
 ## Functional Enhancements
@@ -42,8 +55,18 @@
   [enforces](https://github.com/lightningnetwork/lnd/issues/9952) that the
   final hop of the provided route includes an MPP record, as `payment_secret`
   is mandatory per the BOLT 11 spec.
+  
+* The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates
+  to specific first-hop outgoing
+  channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
+  `outgoing_chan_ids` field in `RouteFeeRequest`.
 
 ## lncli Additions
+
+* The `estimateroutefee` command now supports [restricting fee estimates to
+  specific first-hop outgoing
+  channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
+  `--outgoing_chan_id` flag.
 
 # Improvements
 
@@ -63,6 +86,13 @@
 
 ## BOLT Spec Updates
 
+* The fundee now [enforces the BOLT-02 bound on
+  `push_msat`](https://github.com/lightningnetwork/lnd/pull/10765),
+  rejecting incoming `open_channel` messages where `push_msat` exceeds
+  `1000 * funding_satoshis`. Oversized pushes were previously caught
+  later in the reservation flow as a funder-balance-dust error; they now
+  surface a clearer, spec-aligned error string up front.
+
 ## Testing
 
 ## Database
@@ -72,3 +102,6 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Boris Nagaev
+* Erick Cestari

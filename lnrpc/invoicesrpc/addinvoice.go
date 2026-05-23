@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -70,9 +71,8 @@ type AddInvoiceConfig struct {
 	// specified.
 	DefaultCLTVExpiry uint32
 
-	// ChanDB is a global boltdb instance which is needed to access the
-	// channel graph.
-	ChanDB *channeldb.ChannelStateDB
+	// ChanDB is used to access open channel state.
+	ChanDB chanstate.OpenChannelStore
 
 	// Graph gives the invoice server access to various graph related
 	// queries.

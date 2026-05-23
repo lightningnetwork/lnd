@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
@@ -259,8 +260,8 @@ type Config struct {
 	// ChannelLinkConfig.
 	InterceptSwitch *htlcswitch.InterceptableSwitch
 
-	// ChannelDB is used to fetch opened channels, and closed channels.
-	ChannelDB *channeldb.ChannelStateDB
+	// ChannelDB is used to fetch channel state needed by the peer.
+	ChannelDB chanstate.Store
 
 	// ChannelGraph is a pointer to the channel graph which is used to
 	// query information about the set of known active channels.
@@ -3626,13 +3627,15 @@ func chooseDeliveryScript(upfront, requested lnwire.DeliveryAddress,
 func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	*lnwire.Shutdown, error) {
 
-	// If this channel has status ChanStatusCoopBroadcasted and does not
-	// have a closing transaction, then the cooperative close process was
-	// started but never finished. We'll re-create the chanCloser state
-	// machine and resend Shutdown. BOLT#2 requires that we retransmit
-	// Shutdown exactly, but doing so would mean persisting the RPC
-	// provided close script. Instead use the LocalUpfrontShutdownScript
-	// or generate a script.
+	// If this channel has status ChanStatusCoopBroadcasted and a closing
+	// transaction was recorded, we just need to rebroadcast (handled by
+	// the chain arbitrator) and exit. If the status is set but no closing
+	// tx exists, fall through and re-drive the close negotiation via
+	// ShutdownInfo or LocalUpfrontShutdownScript.
+	//
+	// BOLT#2 requires that we retransmit Shutdown exactly, but doing so
+	// would mean persisting the RPC-provided close script.  Instead use
+	// the LocalUpfrontShutdownScript or generate a script.
 	c := lnChan.State()
 	_, err := c.BroadcastedCooperative()
 	if err != nil && err != channeldb.ErrNoCloseTx {
@@ -4128,7 +4131,6 @@ func (p *Brontide) chanFlushEventSentinel(chanCloser *chancloser.RbfChanCloser,
 		ctx := context.Background()
 		chanCloser.SendEvent(ctx, &chancloser.ChannelFlushed{
 			ShutdownBalances: chanBalances,
-			FreshFlush:       true,
 		})
 	}
 

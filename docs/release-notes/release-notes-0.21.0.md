@@ -22,6 +22,17 @@
 
 # Bug Fixes
 
+* The [remote-signer PSBT prep](https://github.com/lightningnetwork/lnd/pull/10815)
+  now accepts zero-value entries from a sign descriptor's
+  `PrevOutputFetcher` when populating `WitnessUtxo` on non-signed
+  inputs. This unblocks signing flows that reference virtual prev
+  outputs whose value is mandated to be zero, most notably BIP-322's
+  `to_spend` output (the prev of input 0 of every BIP-322 `to_sign`
+  transaction). Previously the prep stage silently skipped such
+  inputs and the resulting PSBT was rejected downstream by
+  `walletkit.SignPsbt` with `input (index=N) doesn't specify any
+  UTXO info`.
+
 * [Fixed `OpenChannel` with
   `fund_max`](https://github.com/lightningnetwork/lnd/pull/10488) to use the
   protocol-level maximum channel size instead of the user-configured
@@ -88,6 +99,20 @@
   RBF close state machine does not yet thread through the `AuxCloser` hook
   that overlay channels rely on to build aux-aware close transactions.
 
+* [Fixed `EstimateRouteFee`](https://github.com/lightningnetwork/lnd/pull/10771)
+  to use independent probe payment hashes when probing multiple LSPs, preventing
+  later probes from reusing the first probe's CLTV delta.
+
+* [Restored insta-dispatch of `CLOSED_CHANNEL` on the first confirmation of a
+  cooperative close](https://github.com/lightningnetwork/lnd/pull/10794).
+  After the multi-conf reorg-aware close dispatch landed,
+  `SubscribeChannelEvents` no longer emitted `CLOSED_CHANNEL` until the full
+  required confirmation depth was reached. The chain watcher now fires an
+  early `CLOSED_CHANNEL` event over the channel notifier as soon as the coop
+  close spend lands on chain, restoring the v0.20.1 behavior, while the
+  channel arbitrator suppresses the duplicate event that would otherwise be
+  emitted from `MarkChannelClosed` at the final confirmation depth.
+
 # New Features
 
 - [Basic Support](https://github.com/lightningnetwork/lnd/pull/9868) for onion
@@ -97,6 +122,26 @@
   for peer-to-peer communication.
 
 ## Functional Enhancements
+* Added [pathfinding support](https://github.com/lightningnetwork/lnd/pull/10612)
+  for routing onion messages. The router can now find paths through the channel 
+  graph specifically filtered for nodes that advertise support for onion
+  messaging (feature bit 38/39).
+
+* [Added fast initial sync for `neutrino`-backed nodes via header
+  import](https://github.com/lightningnetwork/lnd/pull/10552). On first startup,
+  the neutrino backend can now bootstrap its block and filter header chains
+  from a local file or HTTP(S) URL instead of fetching them over P2P,
+  dramatically reducing the time-to-sync on fresh installs (minutes instead of
+  hours on mainnet). After the import completes, the node transitions to the
+  normal P2P sync path to catch up to chain tip and stay current. The feature
+  is gated on the two new `neutrino.blockheaderssource` and
+  `neutrino.filterheaderssource` options, which must be specified together;
+  the import source already validates header linkage and proof-of-work, so
+  contextual timestamp checks are skipped during import to accommodate
+  rapidly-mined regtest/simnet headers. See
+  [docs/neutrino_headers_import.md](../neutrino_headers_import.md) for the
+  supported source URLs (e.g. `block-dn.org` for mainnet), file format, and
+  operator guidance.
 
 * [Added reorg protection for channel
   closes](https://github.com/lightningnetwork/lnd/pull/10331). Previously,
@@ -114,7 +159,13 @@
   `revoke_and_ack` keyed by funding TXID, laying the groundwork for splice
   support. The nonce type is now auto-detected from the negotiated channel type
   rather than peer feature bits, ensuring correct behavior across all recovery
-  and resynchronization paths.
+  and resynchronization paths. Taproot channels must be requested explicitly
+  with `lncli openchannel --channel_type=taproot` (the bare `taproot` string
+  now selects the production variant; `taproot-staging` opens the legacy
+  staging variant, and `taproot-final` is kept as a deprecated alias for
+  `taproot`), and must remain private until announced taproot channels are
+  supported. The RPC `CommitmentType` enum gains a `TAPROOT` alias for
+  `SIMPLE_TAPROOT_FINAL` so new RPC clients can use the same short name.
 
 * [Added taproot channel support for RBF cooperative
   close](https://github.com/lightningnetwork/lnd/pull/10063). The new RBF-based
@@ -252,6 +303,32 @@
   `lncli getdebuginfo` and `lncli encryptdebugpackage` commands similarly
   require the `--include_log` flag to include logs in the output.
 
+* [Removed the deprecated payment RPCs and `outgoing_chan_id`
+  field](https://github.com/lightningnetwork/lnd/pull/10814) that were
+  [announced for removal in 0.21](https://github.com/lightningnetwork/lnd/blob/master/docs/release-notes/release-notes-0.20.0.md#deprecations)
+  via the 0.20 release notes. Callers must migrate to the V2 equivalents:
+
+  | Removed RPC | Replacement |
+  |-------------|-------------|
+  | `lnrpc.SendPayment` (streaming) | `routerrpc.SendPaymentV2` |
+  | `lnrpc.SendPaymentSync` | `routerrpc.SendPaymentV2` |
+  | `lnrpc.SendToRoute` (streaming) | `routerrpc.SendToRouteV2` |
+  | `lnrpc.SendToRouteSync` | `routerrpc.SendToRouteV2` |
+  | `routerrpc.SendPayment` (streaming) | `routerrpc.SendPaymentV2` |
+  | `routerrpc.SendToRoute` | `routerrpc.SendToRouteV2` |
+  | `routerrpc.TrackPayment` (streaming) | `routerrpc.TrackPaymentV2` |
+
+  This also removes the corresponding REST routes
+  `POST /v1/channels/transaction-stream`, `POST /v1/channels/transactions`,
+  and `POST /v1/channels/transactions/route`. The orphan
+  `routerrpc.SendToRouteResponse` message (only used by the removed
+  `routerrpc.SendToRoute` RPC) is also dropped.
+
+  In addition, the deprecated `outgoing_chan_id` field is removed from
+  `lnrpc.QueryRoutesRequest` and `routerrpc.SendPaymentRequest` (proto tags
+  14 and 8 respectively, now reserved). Callers must use the multi-channel
+  `outgoing_chan_ids` field introduced in 0.20.
+
 ## Performance Improvements
 
 * Let the [channel graph cache be populated
@@ -260,6 +337,13 @@
   queries, but all read queries will be served from the database until the cache
   is fully populated. This new behaviour can be opted out of via the new
   `--db.sync-graph-cache-load` option.
+
+* Autopilot's graph-wide channel scoring traversal [no longer requests node
+  addresses](https://github.com/lightningnetwork/lnd/pull/10796) from the
+  graph backend, since the scoring code does not consume them. This removes
+  an unnecessary address batch-load on the SQL backend, and lets the kvdb
+  backend serve the traversal from the in-memory graph cache when it is
+  loaded.
 
 * [Invoice pagination queries no longer use
   `OFFSET`](https://github.com/lightningnetwork/lnd/pull/10700). The five
@@ -331,7 +415,7 @@
 
 ### ⚠️ **Warning:** Deprecated fields in `lnrpc.Hop` will be removed in release version **0.22**
 
-  The following deprecated fields in the [`lnrpc.Hop`](https://lightning.engineering/api-docs/api/lnd/lightning/send-to-route-sync/#lnrpchop)
+  The following deprecated fields in the [`lnrpc.Hop`](https://lightning.engineering/api-docs/api/lnd/lightning/query-routes/#lnrpchop)
   message will be removed:
 
   | Field | Deprecated Since | Replacement |

@@ -97,10 +97,6 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
-		"/routerrpc.Router/SendToRoute": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
 		"/routerrpc.Router/TrackPaymentV2": {{
 			Entity: "offchain",
 			Action: "read",
@@ -142,14 +138,6 @@ var (
 			Action: "read",
 		}},
 		"/routerrpc.Router/SubscribeHtlcEvents": {{
-			Entity: "offchain",
-			Action: "read",
-		}},
-		"/routerrpc.Router/SendPayment": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
-		"/routerrpc.Router/TrackPayment": {{
 			Entity: "offchain",
 			Action: "read",
 		}},
@@ -449,12 +437,15 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 			return nil, errors.New("amount must be greater than 0")
 
 		default:
-			return s.probeDestination(req.Dest, req.AmtSat)
+			return s.probeDestination(
+				req.Dest, req.AmtSat, req.OutgoingChanIds,
+			)
 		}
 
 	case isProbeInvoice:
 		return s.probePaymentRequest(
 			ctx, req.PaymentRequest, req.Timeout,
+			req.OutgoingChanIds,
 		)
 	}
 
@@ -463,8 +454,8 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 
 // probeDestination estimates fees along a route to a destination based on the
 // contents of the local graph.
-func (s *Server) probeDestination(dest []byte, amtSat int64) (*RouteFeeResponse,
-	error) {
+func (s *Server) probeDestination(dest []byte, amtSat int64,
+	outgoingChanIDs []uint64) (*RouteFeeResponse, error) {
 
 	destNode, err := route.NewVertexFromBytes(dest)
 	if err != nil {
@@ -479,14 +470,16 @@ func (s *Server) probeDestination(dest []byte, amtSat int64) (*RouteFeeResponse,
 	// that target amount, we'll only request a single route. Set a
 	// restriction for the default CLTV limit, otherwise we can find a route
 	// that exceeds it and is useless to us.
-	mc := s.cfg.RouterBackend.MissionControl
+	backend := s.cfg.RouterBackend
+	mc := backend.MissionControl
 	routeReq, err := routing.NewRouteRequest(
-		s.cfg.RouterBackend.SelfNode, &destNode, amtMsat, 0,
+		backend.SelfNode, &destNode, amtMsat, 0,
 		&routing.RestrictParams{
-			FeeLimit:          routeFeeLimitSat,
-			CltvLimit:         s.cfg.RouterBackend.MaxTotalTimelock,
-			ProbabilitySource: mc.GetProbability,
-		}, nil, nil, nil, s.cfg.RouterBackend.DefaultFinalCltvDelta,
+			FeeLimit:           routeFeeLimitSat,
+			CltvLimit:          backend.MaxTotalTimelock,
+			ProbabilitySource:  mc.GetProbability,
+			OutgoingChannelIDs: outgoingChanIDs,
+		}, nil, nil, nil, backend.DefaultFinalCltvDelta,
 	)
 	if err != nil {
 		return nil, err
@@ -523,7 +516,27 @@ func (s *Server) probeDestination(dest []byte, amtSat int64) (*RouteFeeResponse,
 // identify LSPs, the probe payment might use a different node id as the
 // final destination (the assumed LSP node id).
 func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
-	timeout uint32) (*RouteFeeResponse, error) {
+	timeout uint32, outgoingChanIDs []uint64) (*RouteFeeResponse, error) {
+
+	return s.probePaymentRequestWithSender(
+		ctx, paymentRequest, timeout, outgoingChanIDs,
+		s.sendProbePayment,
+	)
+}
+
+// probePaymentSender dispatches a probe payment request and returns the
+// resulting fee estimate. It exists as a test seam so tests can inject a stub
+// sender and inspect generated probe requests without running the payment
+// lifecycle.
+type probePaymentSender func(context.Context,
+	*SendPaymentRequest) (*RouteFeeResponse, error)
+
+// probePaymentRequestWithSender contains the implementation of
+// probePaymentRequest. The sender is injected so tests can inspect generated
+// probe requests without invoking the full payment lifecycle.
+func (s *Server) probePaymentRequestWithSender(ctx context.Context,
+	paymentRequest string, timeout uint32, outgoingChanIDs []uint64,
+	sendProbePayment probePaymentSender) (*RouteFeeResponse, error) {
 
 	payReq, err := zpay32.Decode(
 		paymentRequest, s.cfg.RouterBackend.ActiveNetParams,
@@ -557,6 +570,7 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 		FeeLimitSat:      routeFeeLimitSat,
 		FinalCltvDelta:   int32(payReq.MinFinalCLTVExpiry()),
 		DestFeatures:     MarshalFeatures(payReq.Features),
+		OutgoingChanIds:  outgoingChanIDs,
 	}
 
 	// If the payment addresses is specified, then we'll also populate that
@@ -577,7 +591,8 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 			probeRequest.Dest)
 
 		probeRequest.RouteHints = invoicesrpc.CreateRPCRouteHints(hints)
-		return s.sendProbePayment(ctx, probeRequest)
+
+		return sendProbePayment(ctx, probeRequest)
 	}
 
 	// If the heuristic indicates an LSP, we filter and group route hints by
@@ -613,6 +628,16 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 
 		lspHint := group.LspHopHint
 
+		// Each LSP probe must use a unique payment hash, otherwise the
+		// payment lifecycle will treat later probes as attempts on the
+		// first probe's payment and reuse its payment-level parameters.
+		var lspPaymentHash lntypes.Hash
+		_, err := crand.Read(lspPaymentHash[:])
+		if err != nil {
+			return nil, fmt.Errorf("cannot generate random probe "+
+				"preimage: %w", err)
+		}
+
 		log.Infof("Probing LSP with destination: %v", lspKey)
 
 		// Create a new probe request for this LSP.
@@ -622,10 +647,11 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 			MaxParts:         probeRequest.MaxParts,
 			AllowSelfPayment: probeRequest.AllowSelfPayment,
 			AmtMsat:          amtMsat,
-			PaymentHash:      probeRequest.PaymentHash,
+			PaymentHash:      lspPaymentHash[:],
 			FeeLimitSat:      probeRequest.FeeLimitSat,
 			FinalCltvDelta:   int32(lspHint.CLTVExpiryDelta),
 			DestFeatures:     probeRequest.DestFeatures,
+			OutgoingChanIds:  probeRequest.OutgoingChanIds,
 		}
 
 		// Copy the payment address if present.
@@ -653,7 +679,7 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 		lspProbeRequest.AmtMsat += int64(hopFee)
 
 		// Dispatch the payment probe for this LSP.
-		resp, err := s.sendProbePayment(ctx, lspProbeRequest)
+		resp, err := sendProbePayment(ctx, lspProbeRequest)
 		if err != nil {
 			log.Warnf("Failed to probe LSP %v: %v", lspKey, err)
 			continue

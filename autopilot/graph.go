@@ -101,25 +101,23 @@ func (d *databaseChannelGraph) ForEachNode(ctx context.Context,
 	}, reset)
 }
 
-// ForEachNodesChannels iterates through all connected nodes, and for each node,
-// all the channels that connect to it. The passed callback will be called with
-// the context, the Node itself, and a slice of ChannelEdge that connect to the
-// node.
+// ForEachNodesChannels iterates through all connected nodes, and for each
+// node, all the channels that connect to it. The passed callback will be
+// called with the context, the node's pubkey, and a slice of ChannelEdge
+// that connect to the node.
 //
 // NOTE: Part of the autopilot.ChannelGraph interface.
 func (d *databaseChannelGraph) ForEachNodesChannels(ctx context.Context,
-	cb func(context.Context, Node, []*ChannelEdge) error,
+	cb func(context.Context, NodeID, []*ChannelEdge) error,
 	reset func()) error {
 
+	// The channel-scoring callers only need topology data here. Address
+	// filtering happens through ForEachNode before connecting to peers.
 	return d.db.ForEachNodeCached(
-		ctx, true, func(ctx context.Context, node route.Vertex,
-			addrs []net.Addr,
+		ctx, func(ctx context.Context, node route.Vertex,
 			chans map[uint64]*graphdb.DirectedChannel) error {
 
-			// We'll skip over any node that doesn't have any
-			// advertised addresses. As we won't be able to reach
-			// them to actually open any channels.
-			if len(addrs) == 0 {
+			if len(chans) == 0 {
 				return nil
 			}
 
@@ -134,10 +132,7 @@ func (d *databaseChannelGraph) ForEachNodesChannels(ctx context.Context,
 				})
 			}
 
-			return cb(ctx, &dbNode{
-				pub:   node,
-				addrs: addrs,
-			}, edges)
+			return cb(ctx, NodeID(node), edges)
 		}, reset,
 	)
 }
@@ -196,8 +191,8 @@ func (nc dbNodeCached) Addrs() []net.Addr {
 func (dc *databaseChannelGraphCached) ForEachNode(ctx context.Context,
 	cb func(context.Context, Node) error, reset func()) error {
 
-	return dc.db.ForEachNodeCached(ctx, false, func(ctx context.Context,
-		n route.Vertex, _ []net.Addr,
+	return dc.db.ForEachNodeCached(ctx, func(ctx context.Context,
+		n route.Vertex,
 		channels map[uint64]*graphdb.DirectedChannel) error {
 
 		if len(channels) > 0 {
@@ -213,19 +208,23 @@ func (dc *databaseChannelGraphCached) ForEachNode(ctx context.Context,
 	}, reset)
 }
 
-// ForEachNodesChannels iterates through all connected nodes, and for each node,
-// all the channels that connect to it. The passed callback will be called with
-// the context, the Node itself, and a slice of ChannelEdge that connect to the
-// node.
+// ForEachNodesChannels iterates through all connected nodes, and for each
+// node, all the channels that connect to it. The passed callback will be
+// called with the context, the node's pubkey, and a slice of ChannelEdge
+// that connect to the node.
 //
 // NOTE: Part of the autopilot.ChannelGraph interface.
 func (dc *databaseChannelGraphCached) ForEachNodesChannels(ctx context.Context,
-	cb func(context.Context, Node, []*ChannelEdge) error,
+	cb func(context.Context, NodeID, []*ChannelEdge) error,
 	reset func()) error {
 
-	return dc.db.ForEachNodeCached(ctx, false, func(ctx context.Context,
-		n route.Vertex, _ []net.Addr,
+	return dc.db.ForEachNodeCached(ctx, func(ctx context.Context,
+		n route.Vertex,
 		channels map[uint64]*graphdb.DirectedChannel) error {
+
+		if len(channels) == 0 {
+			return nil
+		}
 
 		edges := make([]*ChannelEdge, 0, len(channels))
 		for cid, channel := range channels {
@@ -236,18 +235,7 @@ func (dc *databaseChannelGraphCached) ForEachNodesChannels(ctx context.Context,
 			})
 		}
 
-		if len(channels) > 0 {
-			node := dbNodeCached{
-				node:     n,
-				channels: channels,
-			}
-
-			if err := cb(ctx, node, edges); err != nil {
-				return err
-			}
-		}
-
-		return nil
+		return cb(ctx, NodeID(n), edges)
 	}, reset)
 }
 

@@ -38,7 +38,6 @@ require (
 	github.com/lightningnetwork/lnd/ticker v1.1.1
 	github.com/lightningnetwork/lnd/tlv v1.3.2
 	github.com/lightningnetwork/lnd/tor v1.1.6
-	github.com/miekg/dns v1.1.43
 	github.com/prometheus/client_golang v1.11.1
 	github.com/stretchr/testify v1.11.1
 	github.com/urfave/cli v1.22.9
@@ -169,7 +168,7 @@ require (
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.17.0 // indirect
 	golang.org/x/mod v0.30.0 // indirect
-	golang.org/x/net v0.48.0 // indirect
+	golang.org/x/net v0.48.0
 	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
 	golang.org/x/tools v0.39.0 // indirect
@@ -198,6 +197,10 @@ replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 
 // TODO: remove once kvdb with pgx/v5 is released.
 replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
+
+// TODO: remove once a new tor module version containing the dnsclient
+// package is released.
+replace github.com/lightningnetwork/lnd/tor => ./tor
 
 // This replace is for https://github.com/advisories/GHSA-25xm-hr59-7c27
 replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.11

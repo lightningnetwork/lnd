@@ -10,37 +10,12 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/connmgr"
-	"github.com/miekg/dns"
+	"github.com/lightningnetwork/lnd/tor/dnsclient"
+	"golang.org/x/net/dns/dnsmessage"
 	"golang.org/x/net/proxy"
 )
 
 var (
-	// dnsCodes maps the DNS response codes to a friendly description. This
-	// does not include the BADVERS code because of duplicate keys and the
-	// underlying DNS (miekg/dns) package not using it. For more info, see
-	// https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml.
-	dnsCodes = map[int]string{
-		0:  "no error",
-		1:  "format error",
-		2:  "server failure",
-		3:  "non-existent domain",
-		4:  "not implemented",
-		5:  "query refused",
-		6:  "name exists when it should not",
-		7:  "RR set exists when it should not",
-		8:  "RR set that should exist does not",
-		9:  "server not authoritative for zone",
-		10: "name not contained in zone",
-		16: "TSIG signature failure",
-		17: "key not recognized",
-		18: "signature out of time window",
-		19: "bad TKEY mode",
-		20: "duplicate key name",
-		21: "algorithm not supported",
-		22: "bad truncation",
-		23: "bad/missing server cookie",
-	}
-
 	// onionPrefixBytes is a special purpose IPv6 prefix to encode Onion v2
 	// addresses with. Because Neutrino uses the address manager of btcd
 	// which only understands net.IP addresses instead of net.Addr, we need
@@ -173,39 +148,20 @@ func LookupSRV(service, proto, name, socksAddr,
 		return "", nil, err
 	}
 
-	dnsConn := &dns.Conn{Conn: conn}
-	defer dnsConn.Close()
+	defer conn.Close()
 
 	// Once connected, we'll construct the SRV request for the host
 	// following the format _service._proto.name. as described in RFC #2782.
 	host := fmt.Sprintf("_%s._%s.%s.", service, proto, name)
-	msg := new(dns.Msg).SetQuestion(host, dns.TypeSRV)
-
-	// Send the request to the DNS server and read its response.
-	if err := dnsConn.WriteMsg(msg); err != nil {
-		return "", nil, err
-	}
-	resp, err := dnsConn.ReadMsg()
+	rrs, rcode, err := dnsclient.QuerySRV(conn, host)
 	if err != nil {
 		return "", nil, err
 	}
 
 	// We'll fail if we were unable to query the DNS server for our record.
-	if resp.Rcode != dns.RcodeSuccess {
+	if rcode != dnsmessage.RCodeSuccess {
 		return "", nil, fmt.Errorf("unable to query for SRV records: "+
-			"%s", dnsCodes[resp.Rcode])
-	}
-
-	// Retrieve the RR(s) of the Answer section.
-	var rrs []*net.SRV
-	for _, rr := range resp.Answer {
-		srv := rr.(*dns.SRV)
-		rrs = append(rrs, &net.SRV{
-			Target:   srv.Target,
-			Port:     srv.Port,
-			Priority: srv.Priority,
-			Weight:   srv.Weight,
-		})
+			"%s", dnsclient.RCodeText(rcode))
 	}
 
 	return "", rrs, nil

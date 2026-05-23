@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -248,4 +249,100 @@ func MaybePartialSigWithNonce(sig *PartialSigWithNonce,
 			*sig,
 		),
 	)
+}
+
+const (
+	// AnnouncementSigPairLen is the wire length of an AnnouncementSigPair:
+	// two concatenated 32-byte musig2 partial signatures.
+	AnnouncementSigPairLen = 64
+)
+
+// AnnouncementSigPair carries the two raw musig2 partial signatures that a
+// node emits in announcement_signatures_2 -- one over its node_id key and one
+// over its bitcoin key. They are encoded back-to-back as `node || bitcoin`
+// for a total of 64 bytes. Receivers can verify each signature independently
+// with the standard MuSig2 partial-signature verification routine.
+type AnnouncementSigPair struct {
+	// Node is the partial signature produced with the node_id key.
+	Node btcec.ModNScalar
+
+	// Bitcoin is the partial signature produced with the bitcoin key.
+	Bitcoin btcec.ModNScalar
+}
+
+// NewAnnouncementSigPair creates a new AnnouncementSigPair.
+func NewAnnouncementSigPair(node,
+	bitcoin btcec.ModNScalar) AnnouncementSigPair {
+
+	return AnnouncementSigPair{
+		Node:    node,
+		Bitcoin: bitcoin,
+	}
+}
+
+// Record returns the tlv record for the announcement-sig pair. The wrapping
+// RecordT supplies the real type number; the zero passed here is overridden.
+func (a *AnnouncementSigPair) Record() tlv.Record {
+	return tlv.MakeStaticRecord(
+		0, a, AnnouncementSigPairLen,
+		announcementSigPairEncoder, announcementSigPairDecoder,
+	)
+}
+
+// announcementSigPairEncoder encodes the node and bitcoin partial signatures
+// as two consecutive 32-byte scalars.
+func announcementSigPairEncoder(w io.Writer, val interface{},
+	_ *[8]byte) error {
+
+	v, ok := val.(*AnnouncementSigPair)
+	if !ok {
+		return tlv.NewTypeForEncodingErr(
+			val, "lnwire.AnnouncementSigPair",
+		)
+	}
+
+	nodeBytes := v.Node.Bytes()
+	if _, err := w.Write(nodeBytes[:]); err != nil {
+		return err
+	}
+	bitcoinBytes := v.Bitcoin.Bytes()
+	_, err := w.Write(bitcoinBytes[:])
+
+	return err
+}
+
+// announcementSigPairDecoder decodes the node and bitcoin partial signatures
+// and rejects scalars outside the curve order.
+func announcementSigPairDecoder(r io.Reader, val interface{}, buf *[8]byte,
+	l uint64) error {
+
+	v, ok := val.(*AnnouncementSigPair)
+	if !ok || l != AnnouncementSigPairLen {
+		return tlv.NewTypeForDecodingErr(
+			val, "lnwire.AnnouncementSigPair", l,
+			AnnouncementSigPairLen,
+		)
+	}
+
+	var nodeBytes, bitcoinBytes [32]byte
+	if err := tlv.DBytes32(r, &nodeBytes, buf, 32); err != nil {
+		return err
+	}
+	if err := tlv.DBytes32(r, &bitcoinBytes, buf, 32); err != nil {
+		return err
+	}
+
+	// A partial signature must be below the curve order. BIP-327 rejects
+	// one that is not, and so does musig2.PartialSignature.Decode. Without
+	// the check, SetBytes silently reduces it mod n.
+	if v.Node.SetBytes(&nodeBytes) != 0 {
+		return fmt.Errorf("node partial signature: %w",
+			musig2.ErrPartialSigInvalid)
+	}
+	if v.Bitcoin.SetBytes(&bitcoinBytes) != 0 {
+		return fmt.Errorf("bitcoin partial signature: %w",
+			musig2.ErrPartialSigInvalid)
+	}
+
+	return nil
 }

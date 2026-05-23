@@ -26,10 +26,12 @@ type AnnounceSignatures2 struct {
 	// index which pays to the channel.
 	ShortChannelID tlv.RecordT[tlv.TlvType2, ShortChannelID]
 
-	// PartialSignature is the combination of the partial Schnorr signature
-	// created for the node's bitcoin key with the partial signature created
-	// for the node's node ID key.
-	PartialSignature tlv.RecordT[tlv.TlvType4, PartialSig]
+	// PartialSignatures carries the two raw musig2 partial signatures
+	// produced by the sender (one with its node_id key, one with its
+	// bitcoin key), concatenated as `node || bitcoin` (64 bytes total).
+	// The receiver verifies each half independently with the standard
+	// MuSig2 partial-sig verify routine.
+	PartialSignatures tlv.RecordT[tlv.TlvType4, AnnouncementSigPair]
 
 	// FundingTxID is the txid of the funding transaction that this
 	// announcement signature covers.
@@ -47,7 +49,7 @@ type AnnounceSignatures2 struct {
 
 // NewAnnSigs2 is a constructor for AnnounceSignatures2.
 func NewAnnSigs2(chanID ChannelID, scid ShortChannelID,
-	partialSig PartialSig,
+	sigs AnnouncementSigPair,
 	fundingTxID chainhash.Hash) *AnnounceSignatures2 {
 
 	return &AnnounceSignatures2{
@@ -55,9 +57,9 @@ func NewAnnSigs2(chanID ChannelID, scid ShortChannelID,
 		ShortChannelID: tlv.NewRecordT[tlv.TlvType2, ShortChannelID](
 			scid,
 		),
-		PartialSignature: tlv.NewRecordT[tlv.TlvType4, PartialSig](
-			partialSig,
-		),
+		PartialSignatures: tlv.NewRecordT[
+			tlv.TlvType4, AnnouncementSigPair,
+		](sigs),
 		FundingTxID: tlv.NewPrimitiveRecord[tlv.TlvType6](
 			fundingTxID,
 		),
@@ -87,7 +89,7 @@ func (a *AnnounceSignatures2) Decode(r io.Reader, _ uint32) error {
 	// does.
 	fundingTxID := tlv.ZeroRecordT[tlv.TlvType6, [32]byte]()
 	stream, err := tlv.NewStream(ProduceRecordsSorted(
-		&a.ChannelID, &a.ShortChannelID, &a.PartialSignature,
+		&a.ChannelID, &a.ShortChannelID, &a.PartialSignatures,
 		&fundingTxID,
 	)...)
 	if err != nil {
@@ -103,7 +105,7 @@ func (a *AnnounceSignatures2) Decode(r io.Reader, _ uint32) error {
 		typeMap,
 		a.ChannelID.TlvType(),
 		a.ShortChannelID.TlvType(),
-		a.PartialSignature.TlvType(),
+		a.PartialSignatures.TlvType(),
 		a.FundingTxID.TlvType(),
 	); err != nil {
 		return err
@@ -156,7 +158,7 @@ func (a *AnnounceSignatures2) AllRecords() []tlv.Record {
 	)
 	recordProducers := []tlv.RecordProducer{
 		&a.ChannelID, &a.ShortChannelID,
-		&a.PartialSignature, &fundingTxID,
+		&a.PartialSignatures, &fundingTxID,
 	}
 
 	recordProducers = append(recordProducers, RecordsAsProducers(

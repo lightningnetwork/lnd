@@ -55,7 +55,7 @@ func TestChanUpdate2FeeEncoding(t *testing.T) {
 
 				data, err := EncodeRecords(tlv.MapToRecords(
 					map[uint64][]byte{
-						2:   make([]byte, scidLen),
+						2:   make([]byte, sciddirLen),
 						4:   make([]byte, 4),
 						240: make([]byte, 64),
 						typ: test.raw,
@@ -133,10 +133,11 @@ func TestChanUpdate2EncodeDecode(t *testing.T) {
 		0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1,
 		0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1,
 
-		// ShortChannelID record.
+		// ShortChannelID record (sciddir form: dir byte + 8-byte scid).
 		0x2,                                    // type.
-		0x8,                                    // length.
-		0x0, 0x0, 0x1, 0x0, 0x0, 0x2, 0x0, 0x3, // value.
+		0x9,                                    // length.
+		0x1,                                    // dir byte: node_id_2.
+		0x0, 0x0, 0x1, 0x0, 0x0, 0x2, 0x0, 0x3, // scid value.
 
 		// BlockHeight record.
 		0x4,                // type.
@@ -147,10 +148,6 @@ func TestChanUpdate2EncodeDecode(t *testing.T) {
 		0x6, // type.
 		0x1, // length.
 		0x1, // value.
-
-		// SecondPeer record.
-		0x8, // type.
-		0x0, // length.
 
 		// Unknown odd-type TLV record.
 		0x9,        // type.

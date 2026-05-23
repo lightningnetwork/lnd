@@ -124,9 +124,11 @@ func ChanEdgePolicyFromWire(scid uint64,
 		}, nil
 
 	case *lnwire.ChannelUpdate2:
-		// Inbound fees in gossip v2 are two required uint32 TLVs that
-		// default to 0. Treat the both-zero case as "no inbound fee"
-		// so the downstream Option semantics still hold.
+		// Inbound fees in gossip v2 are two uint32 TLVs that are
+		// suppressed on the wire when they take their default value
+		// of 0 (i.e. no inbound surcharge). Treat the both-zero case
+		// as "no inbound fee" so the downstream Option semantics
+		// still hold.
 		var inboundFee fn.Option[lnwire.Fee]
 		baseFee := upd.InboundFeeBaseMsat.Val
 		propFee := upd.InboundFeeProportionalMillionths.Val

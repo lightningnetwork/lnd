@@ -77,6 +77,24 @@
   later in the reservation flow as a funder-balance-dust error; they now
   surface a clearer, spec-aligned error string up front.
 
+* The gossip v2 wire messages in `lnwire`
+  ([#10837](https://github.com/lightningnetwork/lnd/pull/10837)) have been
+  pulled in line with the BOLT taproot-gossip extension
+  ([lightning/bolts#1059](https://github.com/lightning/bolts/pull/1059)):
+  signature TLVs move from type 160 to 240 (with the signed TLV range
+  widening from `0..=159` to `0..=239` to match BOLT 12); each gossip v2
+  reader now rejects messages missing any compulsory field; the
+  port-not-zero rule on `node_announcement_2` now also covers
+  `tor_v3_address`; `gossip_timestamp_filter`'s two block-height TLVs
+  collapse into a single `block_height_range` TLV;
+  `announcement_signatures_2` gains a required `funding_txid` TLV and
+  now carries two raw MuSig2 partial signatures (64 bytes) rather than a
+  single pre-aggregated 32-byte value; `channel_update_2`'s experimental
+  inbound-fee TLV is replaced with two properly typed `tu32` records at
+  types 20/22, and its `short_channel_id` now uses the `sciddir` form of
+  BOLT 1's `sciddir_or_pubkey` (the previous `second_peer` TLV is gone,
+  with direction folded into the leading dir byte).
+
 ## Testing
 
 ## Database

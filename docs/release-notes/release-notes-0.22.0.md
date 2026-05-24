@@ -107,6 +107,27 @@
   later in the reservation flow as a funder-balance-dust error; they now
   surface a clearer, spec-aligned error string up front.
 
+* The gossip v2 wire messages in `lnwire`
+  ([#11164](https://github.com/lightningnetwork/lnd/pull/11164)) have been
+  pulled in line with the BOLT taproot-gossip extension
+  ([lightning/bolts#1059](https://github.com/lightning/bolts/pull/1059)).
+  Signature TLVs move from type 160 to 240, and the signed TLV range widens
+  from `0..=159` to `0..=239` to match BOLT 12. Each gossip v2 reader now
+  rejects a message that is missing a compulsory field. `channel_update_2`
+  encodes its fees as `tu32` and its HTLC bounds as `tu64`. Its experimental
+  inbound-fee TLV is replaced by two `tu32` records at types 20 and 22, and
+  its `short_channel_id` uses the `sciddir` form of BOLT 1's
+  `sciddir_or_pubkey`, whose direction byte replaces the old `second_peer`
+  TLV. `channel_announcement_2` encodes its capacity as `tu64`, and encodes
+  its optional `features` only when the sender included them.
+  `node_announcement_2` encodes `dns_hostnames` as a list of length-prefixed
+  entries, and an address with a zero port is ignored instead of causing the
+  whole announcement to be rejected. `announcement_signatures_2` gains a
+  required `funding_txid` TLV and carries two raw MuSig2 partial signatures
+  (64 bytes) rather than a single pre-aggregated 32-byte value.
+  `gossip_timestamp_filter`'s two block-height TLVs collapse into a single
+  `block_height_range` TLV.
+
 ## BOLT 12 (Offers)
 
 * [Initial BOLT 12 Offer codec](https://github.com/lightningnetwork/lnd/pull/10789):

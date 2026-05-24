@@ -4,11 +4,12 @@ require (
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344
 	github.com/andybalholm/brotli v1.0.4
-	github.com/btcsuite/btcd v0.25.1-0.20260310163610-1c55c7c18179
-	github.com/btcsuite/btcd/btcec/v2 v2.3.6
-	github.com/btcsuite/btcd/btcutil v1.1.6
+	github.com/btcsuite/btcd v0.25.1-0.20260515004443-44d51eb043ec
+	github.com/btcsuite/btcd/btcec/v2 v2.5.0
+	github.com/btcsuite/btcd/btcutil v1.2.0
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.10
-	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
+	github.com/btcsuite/btcd/chaincfg/chainhash v1.2.0
+	github.com/btcsuite/btcd/silentpayments v0.0.0
 	github.com/btcsuite/btclog v1.0.0
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b
 	github.com/btcsuite/btcwallet v0.16.17-0.20260213031108-70a94ea39e9c
@@ -52,11 +53,11 @@ require (
 	github.com/urfave/cli v1.22.9
 	go.etcd.io/etcd/client/pkg/v3 v3.5.12
 	go.etcd.io/etcd/client/v3 v3.5.12
-	golang.org/x/crypto v0.46.0
+	golang.org/x/crypto v0.51.0
 	golang.org/x/exp v0.0.0-20250811191247-51f88131bc50
 	golang.org/x/mobile v0.0.0-20190719004257-d2bd2a29d028
-	golang.org/x/sync v0.19.0
-	golang.org/x/term v0.38.0
+	golang.org/x/sync v0.20.0
+	golang.org/x/term v0.43.0
 	golang.org/x/time v0.3.0
 	google.golang.org/grpc v1.79.1
 	google.golang.org/protobuf v1.36.10
@@ -65,7 +66,15 @@ require (
 	pgregory.net/rapid v1.2.0
 )
 
-require github.com/btcsuite/btcd/v2transport v1.0.1 // indirect
+require (
+	github.com/btcsuite/btcd/address/v2 v2.0.0 // indirect
+	github.com/btcsuite/btcd/chaincfg/v2 v2.0.0 // indirect
+	github.com/btcsuite/btcd/chainhash/v2 v2.0.0 // indirect
+	github.com/btcsuite/btcd/txscript/v2 v2.0.0 // indirect
+	github.com/btcsuite/btcd/v2transport v1.0.1 // indirect
+	github.com/btcsuite/btcd/wire/v2 v2.0.0 // indirect
+	github.com/kcalvinalvin/anet v0.0.0-20251112173137-d8ddc1f6dbee // indirect
+)
 
 require (
 	dario.cat/mergo v1.0.1 // indirect
@@ -102,7 +111,7 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/golang-migrate/migrate/v4 v4.17.0 // indirect
-	github.com/golang/protobuf v1.5.4 // indirect
+	github.com/golang/protobuf v1.5.4
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/btree v1.0.1 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
@@ -175,11 +184,11 @@ require (
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.17.0 // indirect
-	golang.org/x/mod v0.30.0 // indirect
-	golang.org/x/net v0.48.0 // indirect
-	golang.org/x/sys v0.39.0 // indirect
-	golang.org/x/text v0.32.0 // indirect
-	golang.org/x/tools v0.39.0 // indirect
+	golang.org/x/mod v0.35.0 // indirect
+	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/tools v0.44.0 // indirect
 	google.golang.org/genproto v0.0.0-20231016165738-49dd2c1f3d0b // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
@@ -216,6 +225,10 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display
+
+replace github.com/btcsuite/btcd/silentpayments => github.com/guggero/btcd/silentpayments v0.0.0-20260521062326-efafb1d8496b
+
+replace github.com/btcsuite/btcd/btcutil/psbt => github.com/guggero/btcd/btcutil/psbt v0.0.0-20260521062326-efafb1d8496b
 
 // If you change this please also update docs/INSTALL.md and GO_VERSION in
 // Makefile (then run `make lint` to see where else it needs to be updated as

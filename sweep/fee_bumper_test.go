@@ -1944,8 +1944,10 @@ func TestHandleInitialBroadcastFail(t *testing.T) {
 		t.Fatal("timeout waiting for subscriber to receive result")
 
 	case result := <-resultChan:
-		// We expect the first result to be TxFatal.
-		require.Equal(t, TxFatal, result.Event)
+		// A non-fee-related testmempoolaccept failure should be
+		// retried by the sweeper instead of terminally failing all
+		// inputs in the initial batch.
+		require.Equal(t, TxFailed, result.Event)
 	}
 
 	// Validate the record was NOT stored.

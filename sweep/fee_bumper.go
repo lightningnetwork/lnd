@@ -47,6 +47,11 @@ var (
 	// ErrInputMissing is returned when a given input no longer exists,
 	// e.g., spending from an orphan tx.
 	ErrInputMissing = errors.New("input no longer exists")
+
+	// ErrMempoolAcceptance is returned when a transaction fails
+	// testmempoolaccept for a reason that doesn't have a more specific
+	// sweeper error type.
+	ErrMempoolAcceptance = errors.New("mempool acceptance check failed")
 )
 
 var (
@@ -673,8 +678,8 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 		return sweepCtx, ErrInputMissing
 	}
 
-	return sweepCtx, fmt.Errorf("tx=%v failed mempool check: %w",
-		sweepCtx.tx.TxHash(), err)
+	return sweepCtx, fmt.Errorf("%w: tx=%v: %w",
+		ErrMempoolAcceptance, sweepCtx.tx.TxHash(), err)
 }
 
 // handleMissingInputs handles the case when the chain backend reports back a
@@ -1141,6 +1146,21 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	// result here so the rest of the inputs can be retried.
 	case errors.Is(err, ErrInputMissing):
 		result = t.handleMissingInputs(r)
+
+	// If testmempoolaccept rejects the initial sweep tx for a
+	// non-fee-related reason, don't terminally fail the entire input set.
+	// The failure may be caused by a single bad witness in a larger batch,
+	// so let the sweeper retry and re-cluster the inputs instead.
+	case errors.Is(err, ErrMempoolAcceptance):
+		result.Event = TxFailed
+
+		feeRate, err := t.calculateRetryFeeRate(r)
+		if err != nil {
+			result.Event = TxFatal
+			result.Err = err
+		}
+
+		result.FeeRate = feeRate
 
 	// Otherwise this is not a fee-related error and the tx cannot be
 	// retried. In that case we will fail ALL the inputs in this tx, which

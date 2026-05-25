@@ -121,6 +121,66 @@ func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 	return blocks
 }
 
+// MineBlockAndAssertOutpointSpent mines a block and asserts the given outpoint
+// was spent in it. Unlike MineBlocksAndAssertNumTxes, it does not require the
+// txids seen in the mempool before mining to be the txids that confirm. This is
+// useful for RBF-sensitive flows where a transaction may be replaced between
+// the mempool check and block generation.
+func (h *HarnessTest) MineBlockAndAssertOutpointSpent(numTxs int,
+	outpoint wire.OutPoint) *wire.MsgBlock {
+
+	// Update the harness's current height.
+	defer h.updateCurrentHeight()
+
+	// If we expect transactions to be included in the blocks we'll mine,
+	// wait until they are seen in the miner's mempool.
+	h.AssertNumTxsInMempool(numTxs)
+
+	// Mine a block.
+	block := h.miner.MineBlocks(1)[0]
+
+	// Assert that the expected number of non-coinbase transactions were
+	// included in the block.
+	require.Len(h, block.Transactions, numTxs+1)
+
+	// Assert that the expected outpoint was spent in the block.
+	h.assertOutpointSpentInBlock(block, outpoint)
+
+	// Finally, make sure all the active nodes are synced.
+	h.AssertActiveNodesSyncedTo(block.BlockHash())
+
+	return block
+}
+
+// assertOutpointSpentInBlock asserts that the given outpoint is spent by a
+// transaction in the passed block.
+func (h *HarnessTest) assertOutpointSpentInBlock(block *wire.MsgBlock,
+	outpoint wire.OutPoint) {
+
+	var txids []chainhash.Hash
+	var prevouts []wire.OutPoint
+
+	for _, tx := range block.Transactions {
+		if blockchain.IsCoinBaseTx(tx) {
+			continue
+		}
+
+		txids = append(txids, tx.TxHash())
+
+		for _, txIn := range tx.TxIn {
+			prevouts = append(prevouts, txIn.PreviousOutPoint)
+
+			if txIn.PreviousOutPoint == outpoint {
+				return
+			}
+		}
+	}
+
+	require.Failf(h, "outpoint was not spent in block",
+		"outpoint:%v, block:%v, txids:%v, prevouts:%v",
+		outpoint, block.BlockHash(), txids, prevouts)
+}
+
 // ConnectMiner connects the miner with the chain backend in the network.
 func (h *HarnessTest) ConnectMiner() {
 	err := h.manager.chainBackend.ConnectMiner()

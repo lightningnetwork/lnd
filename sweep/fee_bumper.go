@@ -52,6 +52,10 @@ var (
 	// checks. It is used internally to avoid probing unrelated construction
 	// or signing errors.
 	errMempoolRejected = errors.New("mempool rejected tx")
+
+	// errBadInputNotFound is returned when bad-input diagnosis finishes
+	// without finding a singleton input that fails mempool acceptance.
+	errBadInputNotFound = errors.New("bad input not found")
 )
 
 var (
@@ -285,6 +289,12 @@ type BumpResult struct {
 	// SpentInputs are the inputs spent by another tx which caused the
 	// current tx to be failed.
 	SpentInputs map[wire.OutPoint]*wire.MsgTx
+
+	// BadInputs are inputs that failed a singleton mempool acceptance
+	// probe. The fee bumper only diagnoses one bad input per failed batch,
+	// so this slice contains at most one outpoint. A nil slice means no bad
+	// input was diagnosed.
+	BadInputs []wire.OutPoint
 
 	// requestID is the ID of the request that created this record.
 	requestID uint64
@@ -674,8 +684,8 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 		return sweepCtx, ErrInputMissing
 	}
 
-	return sweepCtx, fmt.Errorf("tx=%v failed mempool check: %w",
-		sweepCtx.tx.TxHash(), err)
+	return sweepCtx, fmt.Errorf("%w: tx=%v failed mempool check: %w",
+		errMempoolRejected, sweepCtx.tx.TxHash(), err)
 }
 
 // shouldDiagnoseBadInputs returns true if a mempool rejection should be
@@ -683,16 +693,23 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 func (t *TxPublisher) shouldDiagnoseBadInputs(r *monitorRecord,
 	err error) bool {
 
+	// Only mempool rejections can be diagnosed with mempool probes. Other
+	// errors happen during construction or signing and keep their existing
+	// fatal handling.
 	if !errors.Is(err, errMempoolRejected) {
 		return false
 	}
 
+	// A singleton rejection already identifies the only input in the batch,
+	// so there is nothing to isolate with subset probes.
 	if len(r.req.Inputs) <= 1 {
 		return false
 	}
 
+	// Aux sweepers may derive addresses or other sweep details from the
+	// full input set, so probing subsets would bypass their custom logic.
 	if t.cfg.AuxSweeper.IsSome() {
-		log.Debugf(
+		log.Infof(
 			"Skipping bad-input diagnosis for requestID=%v: aux "+
 				"sweeper is active", r.requestID,
 		)
@@ -701,20 +718,6 @@ func (t *TxPublisher) shouldDiagnoseBadInputs(r *monitorRecord,
 	}
 
 	return true
-}
-
-// badInputProbeLimit returns the maximum number of no-broadcast probe txns used
-// to diagnose a failed batch. The limit is large enough to descend to all
-// singletons in normal batches while still bounding pathological retries.
-var badInputProbeLimit = defaultBadInputProbeLimit
-
-// defaultBadInputProbeLimit returns the default probe cap for a batch.
-func defaultBadInputProbeLimit(numInputs int) int {
-	if numInputs <= 1 {
-		return 0
-	}
-
-	return 2 * numInputs
 }
 
 // probeInputSet builds and mempool-tests a sweep transaction for the given
@@ -729,16 +732,14 @@ func (t *TxPublisher) probeInputSet(r *monitorRecord,
 		return fmt.Errorf("create probe sweep tx: %w", err)
 	}
 
-	if sweepCtx.fee > r.req.Budget {
-		return fmt.Errorf("%w: budget=%v, fee=%v",
-			ErrNotEnoughBudget, r.req.Budget, sweepCtx.fee)
-	}
-
 	err = t.cfg.Wallet.CheckMempoolAcceptance(sweepCtx.tx)
 	if err == nil {
 		return nil
 	}
 
+	// Missing-input failures have a dedicated handler that can inspect the
+	// spend and retry the unspent inputs. Keep that flow distinct from the
+	// generic mempool rejection sentinel below.
 	if errors.Is(err, chain.ErrMissingInputs) {
 		log.Debugf("Probe tx %v missing inputs", sweepCtx.tx.TxHash())
 
@@ -767,139 +768,71 @@ func isInputScriptFailure(err error) bool {
 		errors.Is(err, chain.ErrNonStandardInputs)
 }
 
-// probeFailureCanIdentifyBadInput returns true when a probe failure is evidence
-// that the subset should be split further. Fee, missing-input, and construction
-// failures are deliberately treated outside this category.
-func probeFailureCanIdentifyBadInput(err error) bool {
-	if err == nil {
-		return false
-	}
+// findBadInput binary-searches a rejected input batch with no-broadcast
+// mempool probes to find a single input that fails by itself. Each iteration
+// probes the left half of the current set. If that half is rejected, the search
+// narrows left; otherwise it searches the right half. The search stops as
+// soon as a singleton mempool rejection is found. If the final singleton is
+// accepted, then no individual bad input could be identified.
+func (t *TxPublisher) findBadInput(r *monitorRecord) (wire.OutPoint, error) {
+	var search func([]input.Input) (wire.OutPoint, error)
+	search = func(inputs []input.Input) (wire.OutPoint, error) {
+		switch len(inputs) {
+		case 0:
+			return wire.OutPoint{}, errBadInputNotFound
 
-	if errors.Is(err, errMempoolRejected) {
-		return true
-	}
+		case 1:
+			err := t.probeInputSet(r, inputs)
+			switch {
+			case err == nil:
+				log.Warnf(
+					"Bad-input diagnosis for requestID=%v "+
+						"found no singleton bad input",
+					r.requestID,
+				)
 
-	return false
-}
+				return wire.OutPoint{}, errBadInputNotFound
 
-// probeFailureIndeterminate returns true when a probe failure does not prove
-// that a subset contains a bad input.
-func probeFailureIndeterminate(err error) bool {
-	switch {
-	case errors.Is(err, lnwallet.ErrMempoolFee),
-		errors.Is(err, chain.ErrInsufficientFee),
-		errors.Is(err, chain.ErrMinRelayFeeNotMet),
-		errors.Is(err, chain.ErrMempoolMinFeeNotMet),
-		errors.Is(err, rpcclient.ErrBackendVersion),
-		errors.Is(err, chain.ErrUnimplemented),
-		errors.Is(err, ErrTxNoOutput),
-		errors.Is(err, ErrNotEnoughBudget),
-		errors.Is(err, ErrNotEnoughInputs),
-		errors.Is(err, ErrLocktimeImmature),
-		errors.Is(err, ErrLocktimeConflict):
+			case errors.Is(err, ErrInputMissing):
+				return wire.OutPoint{}, ErrInputMissing
 
-		return true
-	}
+			case errors.Is(err, errMempoolRejected):
+				return inputs[0].OutPoint(), nil
 
-	return false
-}
+			default:
+				log.Warnf(
+					"Stop diagnosis: requestID=%v, "+
+						"singleton probe err: %v",
+					r.requestID, err,
+				)
 
-// findBadInputs probes subsets of a failed input batch to find inputs that fail
-// by themselves. The returned bool is true only when probing completed without
-// indeterminate errors or hitting the probe cap.
-func (t *TxPublisher) findBadInputs(
-	r *monitorRecord) ([]wire.OutPoint, bool, error) {
-
-	var (
-		inputs    = r.req.Inputs
-		limit     = badInputProbeLimit(len(inputs))
-		probeCnt  int
-		complete  = true
-		badInputs []wire.OutPoint
-	)
-
-	var search func([]input.Input) error
-	search = func(inputs []input.Input) error {
-		if len(inputs) == 0 || !complete {
-			return nil
-		}
-
-		if probeCnt >= limit {
-			log.Warnf(
-				"Stop bad-input diagnosis: requestID=%v, "+
-					"probe cap %v hit",
-				r.requestID, limit,
-			)
-
-			complete = false
-
-			return nil
-		}
-
-		probeCnt++
-		err := t.probeInputSet(r, inputs)
-		switch {
-		case err == nil:
-			return nil
-
-		case errors.Is(err, ErrInputMissing):
-			return ErrInputMissing
-
-		case probeFailureIndeterminate(err):
-			log.Warnf(
-				"Stop bad-input diagnosis: requestID=%v, "+
-					"probe for %v inputs indeterminate: %v",
-				r.requestID, len(inputs), err,
-			)
-
-			complete = false
-
-			return nil
-
-		case !probeFailureCanIdentifyBadInput(err):
-			log.Warnf(
-				"Stop bad-input diagnosis: requestID=%v, "+
-					"unexpected probe error: %v",
-				r.requestID,
-				err,
-			)
-
-			complete = false
-
-			return nil
-		}
-
-		if len(inputs) == 1 {
-			badInputs = append(badInputs, inputs[0].OutPoint())
-			return nil
+				return wire.OutPoint{}, err
+			}
 		}
 
 		mid := len(inputs) / 2
-		if err := search(inputs[:mid]); err != nil {
-			return err
+		left := inputs[:mid]
+		err := t.probeInputSet(r, left)
+		switch {
+		case err == nil:
+			return search(inputs[mid:])
+
+		case errors.Is(err, ErrInputMissing):
+			return wire.OutPoint{}, ErrInputMissing
+
+		case errors.Is(err, errMempoolRejected):
+			return search(left)
+
+		default:
+			log.Warnf("Stopping bad-input diagnosis for "+
+				"requestID=%v: probe for %v inputs failed: %v",
+				r.requestID, len(left), err)
+
+			return wire.OutPoint{}, err
 		}
-
-		return search(inputs[mid:])
 	}
 
-	mid := len(inputs) / 2
-	if err := search(inputs[:mid]); err != nil {
-		return nil, false, err
-	}
-
-	if err := search(inputs[mid:]); err != nil {
-		return nil, false, err
-	}
-
-	if !complete {
-		return nil, false, nil
-	}
-
-	if len(badInputs) == 0 {
-		badInputs = []wire.OutPoint{}
-	}
-
-	return badInputs, true, nil
+	return search(r.req.Inputs)
 }
 
 // handleMissingInputs handles the case when the chain backend reports back a
@@ -939,7 +872,7 @@ func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
 	// current sweeping tx has been failed due to missing inputs, the
 	// spending tx must be a different tx, thus it should NOT be matched. We
 	// perform a sanity check here to catch the unexpected state.
-	if !t.isUnknownSpent(r, spends) {
+	if r.tx != nil && !t.isUnknownSpent(r, spends) {
 		log.Errorf("Sweeping tx %v has missing inputs, yet the "+
 			"spending tx is the sweeping tx itself: %v",
 			r.tx.TxHash(), r.spentInputs)
@@ -1315,6 +1248,41 @@ func (t *TxPublisher) handleTxConfirmed(r *monitorRecord) {
 	t.handleResult(result)
 }
 
+// handleBadInputs handles a non-fee mempool rejection by trying to identify a
+// single input that fails mempool acceptance by itself.
+func (t *TxPublisher) handleBadInputs(r *monitorRecord,
+	err error) *BumpResult {
+
+	result := &BumpResult{
+		Err:       err,
+		requestID: r.requestID,
+	}
+
+	if !t.shouldDiagnoseBadInputs(r, err) {
+		result.Event = TxFatal
+
+		return result
+	}
+
+	badInput, probeErr := t.findBadInput(r)
+	if errors.Is(probeErr, ErrInputMissing) {
+		return t.handleMissingInputs(r)
+	}
+
+	result.Event = TxFailed
+	if r.feeFunction != nil {
+		result.FeeRate = r.feeFunction.FeeRate()
+	}
+
+	if probeErr != nil {
+		return result
+	}
+
+	result.BadInputs = []wire.OutPoint{badInput}
+
+	return result
+}
+
 // handleInitialTxError takes the error from `initializeTx` and decides the
 // bump event. It will construct a BumpResult and handles it.
 func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
@@ -1367,15 +1335,11 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	case errors.Is(err, ErrInputMissing):
 		result = t.handleMissingInputs(r)
 
-	// Otherwise this is not a fee-related error and the tx cannot be
-	// retried. In that case we will fail ALL the inputs in this tx, which
-	// means they will be removed from the sweeper and never be tried
-	// again.
-	//
-	// TODO(yy): Find out which input is causing the failure and fail that
-	// one only.
+	// Otherwise this may be a non-fee mempool rejection. For multi-input
+	// batches, try to isolate singleton bad inputs before deciding whether
+	// the whole set is fatal.
 	default:
-		result.Event = TxFatal
+		result = t.handleBadInputs(r, err)
 	}
 
 	t.handleResult(result)

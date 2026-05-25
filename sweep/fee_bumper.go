@@ -47,6 +47,11 @@ var (
 	// ErrInputMissing is returned when a given input no longer exists,
 	// e.g., spending from an orphan tx.
 	ErrInputMissing = errors.New("input no longer exists")
+
+	// errMempoolRejected marks errors that came from mempool acceptance
+	// checks. It is used internally to avoid probing unrelated construction
+	// or signing errors.
+	errMempoolRejected = errors.New("mempool rejected tx")
 )
 
 var (
@@ -600,10 +605,6 @@ func (t *TxPublisher) createRBFCompliantTx(
 				}
 			}
 
-		// TODO(yy): suppose there's only one bad input, we can do a
-		// binary search to find out which input is causing this error
-		// by recreating a tx using half of the inputs and check its
-		// mempool acceptance.
 		default:
 			log.Debugf("Failed to create RBF-compliant tx: %v", err)
 			return nil, err
@@ -675,6 +676,230 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 
 	return sweepCtx, fmt.Errorf("tx=%v failed mempool check: %w",
 		sweepCtx.tx.TxHash(), err)
+}
+
+// shouldDiagnoseBadInputs returns true if a mempool rejection should be
+// isolated with no-broadcast subset probes.
+func (t *TxPublisher) shouldDiagnoseBadInputs(r *monitorRecord,
+	err error) bool {
+
+	if !errors.Is(err, errMempoolRejected) {
+		return false
+	}
+
+	if len(r.req.Inputs) <= 1 {
+		return false
+	}
+
+	if t.cfg.AuxSweeper.IsSome() {
+		log.Debugf(
+			"Skipping bad-input diagnosis for requestID=%v: aux "+
+				"sweeper is active", r.requestID,
+		)
+
+		return false
+	}
+
+	return true
+}
+
+// badInputProbeLimit returns the maximum number of no-broadcast probe txns used
+// to diagnose a failed batch. The limit is large enough to descend to all
+// singletons in normal batches while still bounding pathological retries.
+var badInputProbeLimit = defaultBadInputProbeLimit
+
+// defaultBadInputProbeLimit returns the default probe cap for a batch.
+func defaultBadInputProbeLimit(numInputs int) int {
+	if numInputs <= 1 {
+		return 0
+	}
+
+	return 2 * numInputs
+}
+
+// probeInputSet builds and mempool-tests a sweep transaction for the given
+// inputs without publishing, storing, or monitoring it.
+func (t *TxPublisher) probeInputSet(r *monitorRecord,
+	inputs []input.Input) error {
+
+	sweepCtx, err := t.createSweepTx(
+		inputs, r.req.DeliveryAddress, r.feeFunction.FeeRate(),
+	)
+	if err != nil {
+		return fmt.Errorf("create probe sweep tx: %w", err)
+	}
+
+	if sweepCtx.fee > r.req.Budget {
+		return fmt.Errorf("%w: budget=%v, fee=%v",
+			ErrNotEnoughBudget, r.req.Budget, sweepCtx.fee)
+	}
+
+	err = t.cfg.Wallet.CheckMempoolAcceptance(sweepCtx.tx)
+	if err == nil {
+		return nil
+	}
+
+	if errors.Is(err, chain.ErrMissingInputs) {
+		log.Debugf("Probe tx %v missing inputs", sweepCtx.tx.TxHash())
+
+		return ErrInputMissing
+	}
+
+	log.Infof("Probe tx=%v with %v inputs failed mempool check: %v",
+		sweepCtx.tx.TxHash(), len(inputs), err)
+
+	if isInputScriptFailure(err) {
+		return fmt.Errorf("%w: probe tx=%v failed mempool check: %w",
+			errMempoolRejected, sweepCtx.tx.TxHash(), err)
+	}
+
+	return err
+}
+
+// isInputScriptFailure returns true for mempool failures that can be attributed
+// to a single input's script or witness data.
+func isInputScriptFailure(err error) bool {
+	return errors.Is(err, chain.ErrScriptVerifyFlag) ||
+		errors.Is(err, chain.ErrNonMandatoryScriptVerifyFlag) ||
+		errors.Is(err, chain.ErrBadWitnessNonStandard) ||
+		errors.Is(err, chain.ErrScriptSigNotPushOnly) ||
+		errors.Is(err, chain.ErrScriptSigSize) ||
+		errors.Is(err, chain.ErrNonStandardInputs)
+}
+
+// probeFailureCanIdentifyBadInput returns true when a probe failure is evidence
+// that the subset should be split further. Fee, missing-input, and construction
+// failures are deliberately treated outside this category.
+func probeFailureCanIdentifyBadInput(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, errMempoolRejected) {
+		return true
+	}
+
+	return false
+}
+
+// probeFailureIndeterminate returns true when a probe failure does not prove
+// that a subset contains a bad input.
+func probeFailureIndeterminate(err error) bool {
+	switch {
+	case errors.Is(err, lnwallet.ErrMempoolFee),
+		errors.Is(err, chain.ErrInsufficientFee),
+		errors.Is(err, chain.ErrMinRelayFeeNotMet),
+		errors.Is(err, chain.ErrMempoolMinFeeNotMet),
+		errors.Is(err, rpcclient.ErrBackendVersion),
+		errors.Is(err, chain.ErrUnimplemented),
+		errors.Is(err, ErrTxNoOutput),
+		errors.Is(err, ErrNotEnoughBudget),
+		errors.Is(err, ErrNotEnoughInputs),
+		errors.Is(err, ErrLocktimeImmature),
+		errors.Is(err, ErrLocktimeConflict):
+
+		return true
+	}
+
+	return false
+}
+
+// findBadInputs probes subsets of a failed input batch to find inputs that fail
+// by themselves. The returned bool is true only when probing completed without
+// indeterminate errors or hitting the probe cap.
+func (t *TxPublisher) findBadInputs(
+	r *monitorRecord) ([]wire.OutPoint, bool, error) {
+
+	var (
+		inputs    = r.req.Inputs
+		limit     = badInputProbeLimit(len(inputs))
+		probeCnt  int
+		complete  = true
+		badInputs []wire.OutPoint
+	)
+
+	var search func([]input.Input) error
+	search = func(inputs []input.Input) error {
+		if len(inputs) == 0 || !complete {
+			return nil
+		}
+
+		if probeCnt >= limit {
+			log.Warnf(
+				"Stop bad-input diagnosis: requestID=%v, "+
+					"probe cap %v hit",
+				r.requestID, limit,
+			)
+
+			complete = false
+
+			return nil
+		}
+
+		probeCnt++
+		err := t.probeInputSet(r, inputs)
+		switch {
+		case err == nil:
+			return nil
+
+		case errors.Is(err, ErrInputMissing):
+			return ErrInputMissing
+
+		case probeFailureIndeterminate(err):
+			log.Warnf(
+				"Stop bad-input diagnosis: requestID=%v, "+
+					"probe for %v inputs indeterminate: %v",
+				r.requestID, len(inputs), err,
+			)
+
+			complete = false
+
+			return nil
+
+		case !probeFailureCanIdentifyBadInput(err):
+			log.Warnf(
+				"Stop bad-input diagnosis: requestID=%v, "+
+					"unexpected probe error: %v",
+				r.requestID,
+				err,
+			)
+
+			complete = false
+
+			return nil
+		}
+
+		if len(inputs) == 1 {
+			badInputs = append(badInputs, inputs[0].OutPoint())
+			return nil
+		}
+
+		mid := len(inputs) / 2
+		if err := search(inputs[:mid]); err != nil {
+			return err
+		}
+
+		return search(inputs[mid:])
+	}
+
+	mid := len(inputs) / 2
+	if err := search(inputs[:mid]); err != nil {
+		return nil, false, err
+	}
+
+	if err := search(inputs[mid:]); err != nil {
+		return nil, false, err
+	}
+
+	if !complete {
+		return nil, false, nil
+	}
+
+	if len(badInputs) == 0 {
+		badInputs = []wire.OutPoint{}
+	}
+
+	return badInputs, true, nil
 }
 
 // handleMissingInputs handles the case when the chain backend reports back a

@@ -971,6 +971,7 @@ func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,
 	// Reschedule sweep.
 	for _, inp := range set.Inputs() {
 		op := inp.OutPoint()
+
 		pi, ok := s.inputs[op]
 		if !ok {
 			// It could be that this input is an additional wallet
@@ -1714,6 +1715,11 @@ func (s *UtxoSweeper) handleBumpEventTxFailed(resp *bumpResp) {
 			err)
 	}
 
+	if r.BadInputs != nil {
+		s.handleBumpEventBadInputs(resp)
+		return
+	}
+
 	// NOTE: When marking the inputs as failed, we are using the input set
 	// instead of the inputs found in the tx. This is fine for current
 	// version of the sweeper because we always create a tx using ALL of
@@ -1721,6 +1727,46 @@ func (s *UtxoSweeper) handleBumpEventTxFailed(resp *bumpResp) {
 	//
 	// TODO(yy): should we also remove the failed tx from db?
 	s.markInputsPublishFailed(resp.set, resp.result.FeeRate)
+}
+
+// handleBumpEventBadInputs handles a failed tx after the fee bumper diagnosed
+// singleton bad inputs using no-broadcast mempool probes.
+func (s *UtxoSweeper) handleBumpEventBadInputs(resp *bumpResp) {
+	r := resp.result
+	inputs := resp.set.Inputs()
+
+	log.Warnf("Fee bump attempt failed for requestID=%v after "+
+		"bad-input diagnosis: %v; inputs:\n%v", r.requestID, r.Err,
+		inputTypeSummary(inputs))
+
+	if len(r.BadInputs) != 1 {
+		log.Errorf("Bad-input diagnosis for requestID=%v returned %v "+
+			"bad inputs; retrying full set", r.requestID,
+			len(r.BadInputs))
+
+		s.markInputsPublishFailed(resp.set, r.FeeRate)
+
+		return
+	}
+
+	badInput := r.BadInputs[0]
+	s.markInputsPublishFailed(resp.set, r.FeeRate)
+
+	pi, ok := s.inputs[badInput]
+	if !ok {
+		log.Tracef("Bad input %v not found; skip fatal", badInput)
+
+		return
+	}
+
+	if pi.terminated() {
+		log.Errorf("Skipped marking bad input=%v as fatal due to "+
+			"unexpected state=%v", badInput, pi.state)
+
+		return
+	}
+
+	s.markInputFatal(pi, nil, r.Err)
 }
 
 // handleBumpEventTxReplaced handles the case where the sweeping tx has been

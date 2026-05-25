@@ -38,6 +38,14 @@
 
 ## Functional Enhancements
 
+* Signing a message for an address [now supports the recently finalized BIP-0322
+  Generic Signed Message
+  Format](https://github.com/lightningnetwork/lnd/pull/10798). The new format
+  can be invoked by setting `Bip322: true` on the `SignMessageWithAddr` RPC or
+  by specifying the `--bip322` flag on the `lncli wallet addresses signmessage`
+  subcommand. Verification of the new address format works without any new flag
+  because the new format can be automatically detected based on its prefix.
+
 ## RPC Additions
 
 * The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates

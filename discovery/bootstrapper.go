@@ -16,11 +16,12 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/lightningnetwork/lnd/autopilot"
+	"github.com/lightningnetwork/lnd/tor/dnsclient"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tor"
-	"github.com/miekg/dns"
+	"golang.org/x/net/dns/dnsmessage"
 )
 
 func init() {
@@ -374,38 +375,19 @@ func (d *DNSSeedBootstrapper) fallBackSRVLookup(soaShim string,
 	}
 
 	dnsHost := fmt.Sprintf("_nodes._tcp.%v.", targetEndPoint)
-	dnsConn := &dns.Conn{Conn: conn}
-	defer dnsConn.Close()
+	defer conn.Close()
 
 	// With the connection established, we'll craft our SRV query, write
-	// toe request, then wait for the server to give our response.
-	msg := new(dns.Msg)
-	msg.SetQuestion(dnsHost, dns.TypeSRV)
-	if err := dnsConn.WriteMsg(msg); err != nil {
-		return nil, err
-	}
-	resp, err := dnsConn.ReadMsg()
+	// the request, then wait for the server to give our response.
+	rrs, rcode, err := dnsclient.QuerySRV(conn, dnsHost)
 	if err != nil {
 		return nil, err
 	}
 
 	// If the message response code was not the success code, fail.
-	if resp.Rcode != dns.RcodeSuccess {
+	if rcode != dnsmessage.RCodeSuccess {
 		return nil, fmt.Errorf("unsuccessful SRV request, "+
-			"received: %v", resp.Rcode)
-	}
-
-	// Retrieve the RR(s) of the Answer section, and convert to the format
-	// that net.LookupSRV would normally return.
-	var rrs []*net.SRV
-	for _, rr := range resp.Answer {
-		srv := rr.(*dns.SRV)
-		rrs = append(rrs, &net.SRV{
-			Target:   srv.Target,
-			Port:     srv.Port,
-			Priority: srv.Priority,
-			Weight:   srv.Weight,
-		})
+			"received: %v", dnsclient.RCodeText(rcode))
 	}
 
 	return rrs, nil

@@ -11,8 +11,20 @@ import (
 	lnwire "github.com/lightningnetwork/lnd/channeldb/migration/lnwire21"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11/zpay32"
 	"github.com/lightningnetwork/lnd/kvdb"
-	litecoinCfg "github.com/ltcsuite/ltcd/chaincfg"
 )
+
+// litecoinBech32HRPs is the set of bech32 HRP strings that litecoin used
+// for its mainnet, testnet4, simnet, and regtest networks. We inline them
+// here so this historical channeldb migration no longer needs to depend
+// on github.com/ltcsuite/ltcd/chaincfg (and its entire ltcsuite +
+// btcsuite/golangcrypto + btcsuite/snappy-go + btcsuite/goleveldb tail)
+// just to look up these four constant strings. lnd dropped litecoin
+// support years ago, but the migration still needs to recognize legacy
+// litecoin payment requests stored in any pre-version-11 channeldb so the
+// invoice deserializer can round-trip them through zpay32. Note that the
+// regtest HRP "bcrt" collides with bitcoin's regtest HRP; we preserve
+// that duplicate to keep iteration order identical to the original code.
+var litecoinBech32HRPs = []string{"ltc", "sltc", "bcrt", "tltc"}
 
 // MigrateInvoices adds invoice htlcs and a separate cltv delta field to the
 // invoices.
@@ -47,14 +59,10 @@ func MigrateInvoices(tx kvdb.RwTx) error {
 		&bitcoinCfg.RegressionNetParams, &bitcoinCfg.TestNet3Params,
 	}
 
-	ltcNets := []*litecoinCfg.Params{
-		&litecoinCfg.MainNetParams, &litecoinCfg.SimNetParams,
-		&litecoinCfg.RegressionNetParams, &litecoinCfg.TestNet4Params,
-	}
-	for _, net := range ltcNets {
-		var convertedNet bitcoinCfg.Params
-		convertedNet.Bech32HRPSegwit = net.Bech32HRPSegwit
-		nets = append(nets, &convertedNet)
+	for _, hrp := range litecoinBech32HRPs {
+		nets = append(nets, &bitcoinCfg.Params{
+			Bech32HRPSegwit: hrp,
+		})
 	}
 
 	// Iterate over all stored keys and migrate the invoices.

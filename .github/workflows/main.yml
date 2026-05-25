@@ -43,6 +43,21 @@ env:
   # `make lint` to see where else it needs to be updated as well).
   GO_VERSION: 1.25.5
 
+  # Pin the Go toolchain to whatever is installed on the runner. This prevents
+  # a malicious or accidental `toolchain` directive in any (transitive) module
+  # from causing the `go` command to silently download and execute a different
+  # Go binary. See https://go.dev/doc/toolchain.
+  GOTOOLCHAIN: local
+
+  # Force CI to use only the public Google-maintained, checksum-immortalized
+  # module proxy. The `,direct` fallback is intentionally omitted so a failed
+  # proxy lookup cannot silently fall through to a raw VCS fetch.
+  GOPROXY: https://proxy.golang.org
+
+  # Make CI builds fail loudly if anything tries to mutate go.mod / go.sum.
+  # The only sanctioned path for module updates is `make tidy-module`.
+  GOFLAGS: -mod=readonly
+
 jobs:
   static-checks:
     name: Static Checks
@@ -75,8 +90,30 @@ jobs:
       - name: Check code format
         run: make fmt-check
 
-      - name: Check go modules tidiness 
+      - name: Check go modules tidiness
         run: make tidy-module-check
+
+      ########################
+      # Supply-chain integrity checks.
+      ########################
+      #
+      # `go mod verify` re-hashes every module in the local module cache and
+      # compares against the hashes recorded in go.sum. This catches a
+      # tampered module cache that slipped past the proxy.
+      - name: Verify go module hashes
+        run: go mod verify
+
+      # `govulncheck` walks the call graph (not just go.sum) and reports
+      # known CVEs that actually reach our compiled code paths. Pinned to an
+      # explicit version so the install itself is reproducible.
+      - name: Check for known Go vulnerabilities
+        env:
+          # `go install pkg@version` operates outside the current module,
+          # so it must be allowed to write to its own (separate) cache.
+          GOFLAGS: ""
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          govulncheck ./...
 
       - name: Lint proto files
         run: make protolint

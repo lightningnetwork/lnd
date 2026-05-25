@@ -10,7 +10,6 @@ import (
 	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/zpay32"
-	litecoinCfg "github.com/ltcsuite/ltcd/chaincfg"
 )
 
 var (
@@ -70,8 +69,10 @@ func TestMigrateInvoices(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// litecoin mainnet HRP, inlined here so this historical migration
+	// test does not need to pull in ltcsuite/ltcd just for one string.
 	var ltcNetParams bitcoinCfg.Params
-	ltcNetParams.Bech32HRPSegwit = litecoinCfg.MainNetParams.Bech32HRPSegwit
+	ltcNetParams.Bech32HRPSegwit = "ltc"
 	payReqLtc, err := getPayReq(&ltcNetParams)
 	if err != nil {
 		t.Fatal(err)

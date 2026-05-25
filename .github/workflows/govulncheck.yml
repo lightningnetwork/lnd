@@ -1,0 +1,109 @@
+name: Vulnerability scan
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Run weekly to catch newly published vulnerabilities even when the code
+    # does not change.
+    - cron: "0 9 * * 1"
+  pull_request:
+    paths:
+      - ".github/workflows/govulncheck.yml"
+      - ".github/actions/setup-go/action.yml"
+      - "Makefile"
+      - "make/release_flags.mk"
+      - "**/*.go"
+      - "**/go.mod"
+      - "**/go.sum"
+  push:
+    branches:
+      - "master"
+    paths:
+      - ".github/workflows/govulncheck.yml"
+      - ".github/actions/setup-go/action.yml"
+      - "Makefile"
+      - "make/release_flags.mk"
+      - "**/*.go"
+      - "**/go.mod"
+      - "**/go.sum"
+  merge_group:
+    branches:
+      - "master"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # If you change this please also update GO_VERSION in Makefile (then run
+  # `make lint` to see where else it needs to be updated as well).
+  GO_VERSION: 1.26.3
+
+jobs:
+  govulncheck:
+    name: Scan release binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go ${{ env.GO_VERSION }}
+        uses: ./.github/actions/setup-go
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+          key-prefix: govulncheck
+          use-build-cache: 'no'
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
+
+      - name: Build release binaries
+        run: make release-install
+
+      - name: Run govulncheck
+        run: |
+          set +e
+
+          gopath="$(go env GOPATH)"
+          final_exit_code=0
+          advisory_findings=0
+
+          for binary in lnd lncli; do
+            output="govulncheck-${binary}.txt"
+            "${gopath}/bin/govulncheck" \
+              -mode=binary \
+              "${gopath}/bin/${binary}" 2>&1 | tee "${output}"
+            exit_code=${PIPESTATUS[0]}
+
+            {
+              echo "### govulncheck ${binary}"
+              echo
+              echo '```'
+              sed -n '1,200p' "${output}"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            if [ "$exit_code" -eq 3 ]; then
+              advisory_findings=1
+              continue
+            fi
+
+            if [ "$exit_code" -ne 0 ] && [ "$final_exit_code" -eq 0 ]; then
+              final_exit_code="$exit_code"
+            fi
+          done
+
+          if [ "$advisory_findings" -eq 1 ]; then
+            echo "::warning title=govulncheck findings::govulncheck found vulnerabilities; see the job summary for details."
+            {
+              echo
+              echo "> govulncheck exited with code 3 for one or more release binaries. This job is advisory while the existing vulnerability baseline is remediated."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          exit "$final_exit_code"

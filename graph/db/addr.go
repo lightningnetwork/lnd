@@ -99,7 +99,8 @@ func encodeTCPAddr(w io.Writer, addr *net.TCPAddr) error {
 }
 
 // encodeOnionAddr serializes an onion address into its compact raw bytes
-// representation.
+// representation. v2 round-trips for wire fidelity even though lnd no longer
+// produces it.
 func encodeOnionAddr(w io.Writer, addr *tor.OnionAddr) error {
 	var suffixIndex int
 	hostLen := len(addr.OnionService)

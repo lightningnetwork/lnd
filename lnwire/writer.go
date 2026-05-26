@@ -334,7 +334,8 @@ func WriteOnionAddr(buf *bytes.Buffer, addr *tor.OnionAddr) error {
 		descriptor  []byte
 	)
 
-	// Decide the suffixIndex and descriptor.
+	// Decide the suffixIndex and descriptor. v2 round-trips for wire
+	// fidelity even though lnd no longer produces it.
 	switch len(addr.OnionService) {
 	case tor.V2Len:
 		descriptor = []byte{byte(v2OnionAddr)}

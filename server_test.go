@@ -1,9 +1,11 @@
 package lnd
 
 import (
+	"net"
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 )
 
@@ -138,4 +140,101 @@ func TestNodeAnnouncementTimestampComparison(t *testing.T) {
 			)
 		})
 	}
+}
+
+// TestParseAddrRejectsTorV2 ensures that parseAddr rejects v2 .onion hosts at
+// the operator-input boundary. This is the path used by lncli connect (via
+// rpcserver.ConnectPeer) and the --addpeer config option, mirroring the
+// equivalent gate in lncfg.ParseAddressString.
+func TestParseAddrRejectsTorV2(t *testing.T) {
+	t.Parallel()
+
+	const (
+		v2Host = "3g2upl4pq6kufc4m.onion"
+		v3Host = "4acth47i6kxnvkewtm6q7ib2s3ufpo5sqbsnzjpb" +
+			"i7utijcltosqemad.onion"
+	)
+
+	netCfg := &tor.ClearNet{}
+
+	tests := []struct {
+		name      string
+		address   string
+		expectErr bool
+	}{
+		{
+			name:      "v2 without port is rejected",
+			address:   v2Host,
+			expectErr: true,
+		},
+		{
+			name:      "v2 with port is rejected",
+			address:   v2Host + ":9735",
+			expectErr: true,
+		},
+		{
+			name:      "v3 without port is accepted",
+			address:   v3Host,
+			expectErr: false,
+		},
+		{
+			name:      "v3 with port is accepted",
+			address:   v3Host + ":9735",
+			expectErr: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			addr, err := parseAddr(tc.address, netCfg)
+			if tc.expectErr {
+				require.Error(t, err)
+				require.Contains(
+					t, err.Error(), "tor v2 onion",
+				)
+				require.Nil(t, addr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			onionAddr, ok := addr.(*tor.OnionAddr)
+			require.True(t, ok)
+			require.Equal(t, v3Host, onionAddr.OnionService)
+		})
+	}
+}
+
+// TestWithoutV2Onion ensures that Tor v2 onion addresses are dropped from
+// reconnect/dial consumption paths (startup persistent reconnect, live
+// topology updates, fetchNodeAdvertisedAddrs) while non-onion and v3 onion
+// addresses pass through unchanged. Storage and gossip re-broadcast remain
+// byte-faithful elsewhere.
+func TestWithoutV2Onion(t *testing.T) {
+	t.Parallel()
+
+	v2 := &tor.OnionAddr{
+		OnionService: "3g2upl4pq6kufc4m.onion",
+		Port:         9735,
+	}
+	v3 := &tor.OnionAddr{
+		OnionService: "4acth47i6kxnvkewtm6q7ib2s3ufpo5sqbsnz" +
+			"jpbi7utijcltosqemad.onion",
+		Port: 9735,
+	}
+	tcp := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 9735,
+	}
+
+	require.True(t, isV2OnionAddr(v2))
+	require.False(t, isV2OnionAddr(v3))
+	require.False(t, isV2OnionAddr(tcp))
+
+	filtered := withoutV2Onion([]net.Addr{v2, v3, tcp, v2})
+	require.Equal(t, []net.Addr{v3, tcp}, filtered)
+
+	// An all-v2 input filters to an empty slice; callers such as
+	// fetchNodeAdvertisedAddrs treat this as "no advertised address".
+	require.Empty(t, withoutV2Onion([]net.Addr{v2, v2}))
 }

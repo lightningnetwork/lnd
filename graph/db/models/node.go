@@ -229,7 +229,12 @@ func (n *Node) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement1,
 }
 
 // NodeFromWireAnnouncement creates a Node instance from an
-// lnwire.NodeAnnouncement1 message.
+// lnwire.NodeAnnouncement1 message. The address list from msg.Addresses
+// is copied verbatim, including legacy entries such as tor v2 onion
+// addresses that lnd no longer produces itself. This is required so
+// that Node.NodeAnnouncement can later reconstruct the exact byte
+// sequence the remote peer signed, allowing signature verification and
+// re-broadcast to succeed across restarts.
 func NodeFromWireAnnouncement(msg *lnwire.NodeAnnouncement1) *Node {
 	timestamp := time.Unix(int64(msg.Timestamp), 0)
 

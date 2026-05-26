@@ -82,7 +82,6 @@ const (
 	defaultTorDNSHost              = "soa.nodes.lightning.directory"
 	defaultTorDNSPort              = 53
 	defaultTorControlPort          = 9051
-	defaultTorV2PrivateKeyFilename = "v2_onion_private_key"
 	defaultTorV3PrivateKeyFilename = "v3_onion_private_key"
 
 	// defaultZMQReadDeadline is the default read deadline to be used for
@@ -1239,41 +1238,22 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		return nil, mkErr(str)
 	}
 
-	switch {
-	case cfg.Tor.V2 && cfg.Tor.V3:
-		return nil, mkErr("either tor.v2 or tor.v3 can be set, " +
-			"but not both")
-	case cfg.DisableListen && (cfg.Tor.V2 || cfg.Tor.V3):
+	if cfg.DisableListen && cfg.Tor.V3 {
 		return nil, mkErr("listening must be enabled when enabling " +
 			"inbound connections over Tor")
 	}
 
-	if cfg.Tor.PrivateKeyPath == "" {
-		switch {
-		case cfg.Tor.V2:
-			cfg.Tor.PrivateKeyPath = filepath.Join(
-				lndDir, defaultTorV2PrivateKeyFilename,
-			)
-		case cfg.Tor.V3:
-			cfg.Tor.PrivateKeyPath = filepath.Join(
-				lndDir, defaultTorV3PrivateKeyFilename,
-			)
-		}
+	if cfg.Tor.PrivateKeyPath == "" && cfg.Tor.V3 {
+		cfg.Tor.PrivateKeyPath = filepath.Join(
+			lndDir, defaultTorV3PrivateKeyFilename,
+		)
 	}
 
-	if cfg.Tor.WatchtowerKeyPath == "" {
-		switch {
-		case cfg.Tor.V2:
-			cfg.Tor.WatchtowerKeyPath = filepath.Join(
-				cfg.Watchtower.TowerDir,
-				defaultTorV2PrivateKeyFilename,
-			)
-		case cfg.Tor.V3:
-			cfg.Tor.WatchtowerKeyPath = filepath.Join(
-				cfg.Watchtower.TowerDir,
-				defaultTorV3PrivateKeyFilename,
-			)
-		}
+	if cfg.Tor.WatchtowerKeyPath == "" && cfg.Tor.V3 {
+		cfg.Tor.WatchtowerKeyPath = filepath.Join(
+			cfg.Watchtower.TowerDir,
+			defaultTorV3PrivateKeyFilename,
+		)
 	}
 
 	// Set up the network-related functions that will be used throughout

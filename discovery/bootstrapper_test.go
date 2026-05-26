@@ -49,7 +49,7 @@ func (s *stubChannelGraph) ForEachNode(ctx context.Context,
 // ForEachNodesChannels is a no-op stub; SampleNodeAddrs does not exercise
 // the channel iteration path.
 func (s *stubChannelGraph) ForEachNodesChannels(_ context.Context,
-	_ func(context.Context, autopilot.NodeID,
+	_ func(context.Context, autopilot.Node,
 		[]*autopilot.ChannelEdge) error, _ func()) error {
 
 	return nil

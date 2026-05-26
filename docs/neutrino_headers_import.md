@@ -52,26 +52,21 @@ whether the value starts with `http`.
 
 The [block-dn.org](https://github.com/guggero/block-dn) service publishes
 pre-built header files for multiple Bitcoin networks. Each network exposes
-two endpoints:
+four endpoints:
 
-- `/headers/import/<end_block>` — block headers.
-- `/filter-headers/import/<end_block>` — compact filter headers.
+- `/headers/import/<end_block>` — block headers up to a specific block.
+- `/headers/import/latest` — block headers up to the latest block.
+- `/filter-headers/import/<end_block>` — compact filter headers up to a specific
+  block.
+- `/filter-headers/import/latest` — compact filter headers up to the latest
+  block.
 
 `<end_block>` is **non-inclusive** and must be divisible by the service's
 `entries_per_header_file` (currently `100,000`). It identifies the highest
 such boundary at or below the current chain tip.
 
 Each service also publishes a `/status` JSON endpoint that reports
-`best_block_height` and `entries_per_header_file`, so the correct
-`<end_block>` for the moment can be computed dynamically:
-
-```sh
-end_block=$(curl -fsSL https://block-dn.org/status | \
-  jq -r '((.best_block_height / .entries_per_header_file) | floor) * .entries_per_header_file')
-echo "$end_block"
-```
-
-Known-good targets at the time of writing are listed per-network below.
+`best_block_height` and `entries_per_header_file`.
 
 #### Mainnet
 
@@ -84,8 +79,8 @@ lnd \
   --bitcoin.mainnet \
   --bitcoin.node=neutrino \
   --fee.url=https://nodes.lightning.computer/fees/v1/btc-fee-estimates.json \
-  --neutrino.blockheaderssource=https://block-dn.org/headers/import/900000 \
-  --neutrino.filterheaderssource=https://block-dn.org/filter-headers/import/900000
+  --neutrino.blockheaderssource=https://block-dn.org/headers/import/latest \
+  --neutrino.filterheaderssource=https://block-dn.org/filter-headers/import/latest
 ```
 
 The equivalent `lnd.conf` stanza:
@@ -99,8 +94,8 @@ bitcoin.mainnet=true
 bitcoin.node=neutrino
 
 [neutrino]
-neutrino.blockheaderssource=https://block-dn.org/headers/import/900000
-neutrino.filterheaderssource=https://block-dn.org/filter-headers/import/900000
+neutrino.blockheaderssource=https://block-dn.org/headers/import/latest
+neutrino.filterheaderssource=https://block-dn.org/filter-headers/import/latest
 ```
 
 Without `fee.url`, lnd will complete the header import and then exit with
@@ -112,25 +107,18 @@ Without `fee.url`, lnd will complete the header import and then exit with
 lnd \
   --bitcoin.testnet \
   --bitcoin.node=neutrino \
-  --neutrino.blockheaderssource=https://testnet3.block-dn.org/headers/import/4700000 \
-  --neutrino.filterheaderssource=https://testnet3.block-dn.org/filter-headers/import/4700000
+  --neutrino.blockheaderssource=https://testnet3.block-dn.org/headers/import/latest \
+  --neutrino.filterheaderssource=https://testnet3.block-dn.org/filter-headers/import/latest
 ```
-
-> ⚠️ The current testnet3 `4900000` block-headers file on block-dn.org is
-> structurally broken: the chain linkage breaks inside the file around
-> height `4,783,810` (the recorded `prev` hash at `4,783,810` does not
-> match the hash at `4,783,809`). Until the source is regenerated, pin
-> testnet3 imports to `4700000`, which is the most recent target
-> validated end-to-end against this build.
 
 #### Testnet4
 
 ```sh
 lnd \
-  --bitcoin.testnet \
+  --bitcoin.testnet4 \
   --bitcoin.node=neutrino \
-  --neutrino.blockheaderssource=https://testnet4.block-dn.org/headers/import/200000 \
-  --neutrino.filterheaderssource=https://testnet4.block-dn.org/filter-headers/import/200000
+  --neutrino.blockheaderssource=https://testnet4.block-dn.org/headers/import/latest \
+  --neutrino.filterheaderssource=https://testnet4.block-dn.org/filter-headers/import/latest
 ```
 
 #### Signet
@@ -139,8 +127,8 @@ lnd \
 lnd \
   --bitcoin.signet \
   --bitcoin.node=neutrino \
-  --neutrino.blockheaderssource=https://signet.block-dn.org/headers/import/200000 \
-  --neutrino.filterheaderssource=https://signet.block-dn.org/filter-headers/import/200000
+  --neutrino.blockheaderssource=https://signet.block-dn.org/headers/import/latest \
+  --neutrino.filterheaderssource=https://signet.block-dn.org/filter-headers/import/latest
 ```
 
 Current service status and available end-block targets per network:
@@ -181,8 +169,8 @@ lnd \
   --bitcoin.mainnet \
   --bitcoin.node=neutrino \
   --fee.url=https://nodes.lightning.computer/fees/v1/btc-fee-estimates.json \
-  --neutrino.blockheaderssource=https://block-dn.org/headers/import/900000 \
-  --neutrino.filterheaderssource=https://block-dn.org/filter-headers/import/900000
+  --neutrino.blockheaderssource=https://block-dn.org/headers/import/latest \
+  --neutrino.filterheaderssource=https://block-dn.org/filter-headers/import/latest
 ```
 
 > ⚠️ `--configfile=/dev/null`, `--lnddir=/tmp/...`, `--no-macaroons`, and

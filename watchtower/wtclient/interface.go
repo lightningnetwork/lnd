@@ -1,6 +1,7 @@
 package wtclient
 
 import (
+	"errors"
 	"net"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -11,6 +12,12 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
 )
+
+// ErrTowerOnlyV2Onion is returned when a persisted tower has no usable
+// addresses left after Tor v2 .onion entries are filtered out. The tower
+// record is preserved on disk so an operator can attach a fresh v3 address
+// for the same identity key.
+var ErrTowerOnlyV2Onion = errors.New("tower has no non-v2-onion addresses")
 
 // DB abstracts the required database operations required by the watchtower
 // client.
@@ -184,10 +191,53 @@ type Tower struct {
 	Addresses AddressIterator
 }
 
+// isV2OnionAddr reports whether addr is a Tor v2 .onion address. Tor stopped
+// serving v2 onion services in October 2021, so callers skip these on dial
+// paths. Storage and gossip re-broadcast still preserve v2 byte-for-byte to
+// keep peer-signed NodeAnnouncement signatures verifiable.
+//
+// TODO: move this helper into the `tor` module (as `tor.IsV2Onion`) and remove
+// this copy along with the duplicate in the root server.go once a new `tor`
+// module version is cut and the dependency is bumped.
+func isV2OnionAddr(addr net.Addr) bool {
+	onion, ok := addr.(*tor.OnionAddr)
+	if !ok {
+		return false
+	}
+
+	return len(onion.OnionService) == tor.V2Len
+}
+
+// withoutV2Onion returns addrs with any Tor v2 .onion entries removed. See
+// isV2OnionAddr for the rationale.
+//
+// TODO: move this helper into the `tor` module and remove this copy along
+// with the duplicate in the root server.go once a new `tor` module version
+// is cut and the dependency is bumped.
+func withoutV2Onion(addrs []net.Addr) []net.Addr {
+	filtered := make([]net.Addr, 0, len(addrs))
+	for _, addr := range addrs {
+		if isV2OnionAddr(addr) {
+			continue
+		}
+		filtered = append(filtered, addr)
+	}
+
+	return filtered
+}
+
 // NewTowerFromDBTower converts a wtdb.Tower, which uses a static address list,
-// into a Tower which uses an address iterator.
+// into a Tower which uses an address iterator. Persisted Tor v2 .onion
+// addresses are filtered out so an upgraded node never attempts to dial them;
+// if filtering leaves zero usable addresses, ErrTowerOnlyV2Onion is returned
+// and the caller is expected to skip the tower without modifying the DB.
 func NewTowerFromDBTower(t *wtdb.Tower) (*Tower, error) {
-	addrs, err := newAddressIterator(t.Addresses...)
+	filtered := withoutV2Onion(t.Addresses)
+	if len(filtered) == 0 {
+		return nil, ErrTowerOnlyV2Onion
+	}
+
+	addrs, err := newAddressIterator(filtered...)
 	if err != nil {
 		return nil, err
 	}

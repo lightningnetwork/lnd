@@ -15,13 +15,13 @@ by using Tor for anonymous networking to establish connections.
 
 With widespread usage of Onion Services within the network, concerns about the
 difficulty of proper NAT traversal are alleviated, as usage of onion services
-allows nodes to accept inbound connections even if they're behind a NAT. At the
-time of writing this documentation, `lnd` supports both types of onion services:
-v2 and v3.
+allows nodes to accept inbound connections even if they're behind a NAT. `lnd`
+supports v3 onion services only; legacy v2 onion service support has been
+removed.
 
-Before following the remainder of this documentation, you should ensure that you
-already have Tor installed locally. **If you want to run v3 Onion Services, make
-sure that you run at least version 0.3.3.6.**
+Before following the remainder of this documentation, you should ensure that
+you already have Tor installed locally. **Make sure that you run at least
+version 0.3.3.6 of Tor in order to use v3 Onion Services.**
 Official instructions to install the latest release of Tor can be found
 [here](https://www.torproject.org/docs/tor-doc-unix.html.en).
 
@@ -81,7 +81,6 @@ Tor:
       --tor.control=                                          The host:port that Tor is listening on for Tor control connections (default: localhost:9051)
       --tor.targetipaddress=                                  IP address that Tor should use as the target of the hidden service
       --tor.password=                                         The password used to arrive at the HashedControlPassword for the control port. If provided, the HASHEDPASSWORD authentication method will be used instead of the SAFECOOKIE one.
-      --tor.v2                                                Automatically set up a v2 onion service to listen for inbound connections
       --tor.v3                                                Automatically set up a v3 onion service to listen for inbound connections
       --tor.privatekeypath=                                   The path to the private key of the onion service being created
 ```
@@ -103,11 +102,8 @@ service. A path to save the onion service's private key can be specified with
 the `--tor.privatekeypath` flag.
 
 Most of these arguments have defaults, so as long as they apply to you, routing
-all outbound and inbound connections through Tor can simply be done with either
-v2 or v3 onion services:
-```shell
-$  ./lnd --tor.active --tor.v2
-```
+all outbound and inbound connections through Tor can simply be done with v3
+onion services:
 ```shell
 $  ./lnd --tor.active --tor.v3
 ```
@@ -159,15 +155,13 @@ authentication methods (arguably, from most to least secure):
 ## Listening for Inbound Connections
 
 In order to listen for inbound connections through Tor, an onion service must be
-created. There are two types of onion services: v2 and v3. v3 onion services
-are the latest generation of onion services, and they provide a number of
-advantages over the legacy v2 onion services. To learn more about these
-benefits, see [Intro to Next Gen Onion Services](https://trac.torproject.org/projects/tor/wiki/doc/NextGenOnions).
+created. `lnd` supports v3 onion services, the latest generation of onion
+services. To learn more about these, see
+[Intro to Next Gen Onion Services](https://trac.torproject.org/projects/tor/wiki/doc/NextGenOnions).
 
-Both types can be created and used automatically by `lnd`. Specifying which type
-should be used can easily be done by either using the `tor.v2` or `tor.v3` flag.
-To prevent unintentional leaking of identifying information, it is also necessary
-to add the flag `listen=localhost`.  
+v3 onion services are created and used automatically by `lnd` via the `tor.v3`
+flag. To prevent unintentional leaking of identifying information, it is also
+necessary to add the flag `listen=localhost`.
 
 For example, v3 onion services can be used with the following flags:
 ```shell
@@ -176,9 +170,8 @@ $  ./lnd --tor.active --tor.v3 --listen=localhost
 
 This will automatically create a hidden service for your node to use to listen
 for inbound connections and advertise itself to the network. The onion service's
-private key is saved to a file named `v2_onion_private_key` or
-`v3_onion_private_key` depending on the type of onion service used in `lnd`'s
-base directory. This will allow `lnd` to recreate the same hidden service upon
+private key is saved to a file named `v3_onion_private_key` in `lnd`'s base
+directory. This will allow `lnd` to recreate the same hidden service upon
 restart. If you wish to generate a new onion service, you can simply delete this
 file. The path to this private key file can also be modified with the
 `--tor.privatekeypath` argument.

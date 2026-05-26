@@ -514,6 +514,10 @@ func (s *server) updatePersistentPeerAddrs() error {
 						len(update.Addresses))
 
 					for _, addr := range update.Addresses {
+						if isV2OnionAddr(addr) {
+							continue
+						}
+
 						addrs = append(addrs,
 							&lnwire.NetAddress{
 								IdentityKey: update.IdentityKey,
@@ -584,6 +588,15 @@ func parseAddr(address string, netCfg tor.Net) (net.Addr, error) {
 	}
 
 	if tor.IsOnionHost(host) {
+		// Reject v2 at the operator-input boundary; the wire codec
+		// still round-trips v2 from peer-signed announcements.
+		if len(host) == tor.V2Len {
+			return nil, fmt.Errorf("tor v2 onion services were "+
+				"retired in October 2021 and are no longer "+
+				"supported; use a v3 .onion address "+
+				"instead: %s", host)
+		}
+
 		return &tor.OnionAddr{OnionService: host, Port: port}, nil
 	}
 
@@ -593,6 +606,42 @@ func parseAddr(address string, netCfg tor.Net) (net.Addr, error) {
 	// address.
 	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
 	return netCfg.ResolveTCPAddr("tcp", hostPort)
+}
+
+// isV2OnionAddr reports whether addr is a Tor v2 .onion address. Tor stopped
+// serving v2 onion services in October 2021, so callers skip these on dial
+// paths. Storage and gossip re-broadcast still preserve v2 byte-for-byte to
+// keep peer-signed NodeAnnouncement signatures verifiable.
+//
+// TODO: move this helper into the `tor` module (as `tor.IsV2Onion`) and
+// remove this copy along with the duplicate in
+// watchtower/wtclient/interface.go once a new `tor` module version is cut
+// and the dependency is bumped.
+func isV2OnionAddr(addr net.Addr) bool {
+	onion, ok := addr.(*tor.OnionAddr)
+	if !ok {
+		return false
+	}
+
+	return len(onion.OnionService) == tor.V2Len
+}
+
+// withoutV2Onion returns addrs with any Tor v2 .onion entries removed. See
+// isV2OnionAddr for the rationale.
+//
+// TODO: move this helper into the `tor` module and remove this copy along
+// with the duplicate in watchtower/wtclient/interface.go once a new `tor`
+// module version is cut and the dependency is bumped.
+func withoutV2Onion(addrs []net.Addr) []net.Addr {
+	filtered := make([]net.Addr, 0, len(addrs))
+	for _, addr := range addrs {
+		if isV2OnionAddr(addr) {
+			continue
+		}
+		filtered = append(filtered, addr)
+	}
+
+	return filtered
 }
 
 // noiseDial is a factory function which creates a connmgr compliant dialing
@@ -3380,8 +3429,8 @@ func (s *server) initialPeerBootstrap(ctx context.Context,
 	}
 }
 
-// createNewHiddenService automatically sets up a v2 or v3 onion service in
-// order to listen for inbound connections over Tor.
+// createNewHiddenService automatically sets up a v3 onion service in order to
+// listen for inbound connections over Tor.
 func (s *server) createNewHiddenService(ctx context.Context) error {
 	// Determine the different ports the server is listening on. The onion
 	// service's virtual port will map to these ports and one will be picked
@@ -3407,13 +3456,6 @@ func (s *server) createNewHiddenService(ctx context.Context) error {
 			s.cfg.Tor.PrivateKeyPath, 0600, s.cfg.Tor.EncryptKey,
 			encrypter,
 		),
-	}
-
-	switch {
-	case s.cfg.Tor.V2:
-		onionCfg.Type = tor.V2
-	case s.cfg.Tor.V3:
-		onionCfg.Type = tor.V3
 	}
 
 	addr, err := s.torController.AddOnion(onionCfg)
@@ -3622,7 +3664,7 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 		pubStr := string(node.IdentityPub.SerializeCompressed())
 		nodeAddrs := &nodeAddresses{
 			pubKey:    node.IdentityPub,
-			addresses: node.Addresses,
+			addresses: withoutV2Onion(node.Addresses),
 		}
 		nodeAddrsMap[pubStr] = nodeAddrs
 	}
@@ -3651,6 +3693,10 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 		// connect to for this peer.
 		addrSet := make(map[string]net.Addr)
 		for _, addr := range channelPeer.Addresses {
+			if isV2OnionAddr(addr) {
+				continue
+			}
+
 			switch addr.(type) {
 			case *net.TCPAddr:
 				addrSet[addr.String()] = addr
@@ -3669,6 +3715,10 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 		linkNodeAddrs, ok := nodeAddrsMap[pubStr]
 		if ok {
 			for _, lnAddress := range linkNodeAddrs.addresses {
+				if isV2OnionAddr(lnAddress) {
+					continue
+				}
+
 				switch lnAddress.(type) {
 				case *net.TCPAddr:
 					addrSet[lnAddress.String()] = lnAddress
@@ -5360,11 +5410,12 @@ func (s *server) fetchNodeAdvertisedAddrs(ctx context.Context,
 		return nil, err
 	}
 
-	if len(node.Addresses) == 0 {
+	addrs := withoutV2Onion(node.Addresses)
+	if len(addrs) == 0 {
 		return nil, errNoAdvertisedAddr
 	}
 
-	return node.Addresses, nil
+	return addrs, nil
 }
 
 // fetchLastChanUpdate returns a function which is able to retrieve our latest
@@ -5740,8 +5791,10 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 
 		// If the `externalip` is not specified in the config, it means
 		// `addrs` will be empty, we'll use the source node's addresses.
+		// Filter out any persisted Tor v2 onion entries so an upgraded
+		// node never re-signs or re-broadcasts a legacy v2 address.
 		if len(s.cfg.ExternalIPs) == 0 {
-			addrs = srcNode.Addresses
+			addrs = withoutV2Onion(srcNode.Addresses)
 		}
 
 	case errors.Is(err, graphdb.ErrSourceNodeNotSet):

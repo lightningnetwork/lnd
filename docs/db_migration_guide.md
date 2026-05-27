@@ -44,10 +44,12 @@ flowchart TD
     M1_Sqlite["Migration #1 (lnd v0.19)<br>Invoices"]
     M2_Sqlite["Migration #2 (lnd v0.20)<br>Graph"]
     M3_Sqlite["Migration #3 (lnd v0.21)<br>Payments"]
+    M4_Sqlite["Migration #4 (lnd v0.22)<br>Btcwallet & Channel State"]
 
     M1_Postgres["Migration #1 (lnd v0.19)<br>Invoices"]
     M2_Postgres["Migration #2 (lnd v0.20)<br>Graph"]
     M3_Postgres["Migration #3 (lnd v0.21)<br>Payments"]
+    M4_Postgres["Migration #4 (lnd v0.22)<br>Btcwallet & Channel State"]
 
     %% 2. Define all links (within and between graphs)
     Bbolt --> SQLite
@@ -56,10 +58,12 @@ flowchart TD
     SQLite --> M1_Sqlite
     M1_Sqlite --> M2_Sqlite
     M2_Sqlite --> M3_Sqlite
+    M3_Sqlite --> M4_Sqlite
 
     Postgres --> M1_Postgres
     M1_Postgres --> M2_Postgres
     M2_Postgres --> M3_Postgres
+    M3_Postgres --> M4_Postgres
 
     %% 3. Group nodes into subgraphs
     subgraph "Step 1: Migration via lndinit"
@@ -72,9 +76,11 @@ flowchart TD
         M1_Sqlite
         M2_Sqlite
         M3_Sqlite
+        M4_Sqlite
         M1_Postgres
         M2_Postgres
         M3_Postgres
+        M4_Postgres
     end
 
     %% 4. Apply Styles
@@ -85,8 +91,8 @@ flowchart TD
 
     %% Apply classes to nodes
     class Bbolt bboltNode
-    class SQLite,M1_Sqlite,M2_Sqlite,M3_Sqlite sqliteNode
-    class Postgres,M1_Postgres,M2_Postgres,M3_Postgres postgresNode
+    class SQLite,M1_Sqlite,M2_Sqlite,M3_Sqlite,M4_Sqlite sqliteNode
+    class Postgres,M1_Postgres,M2_Postgres,M3_Postgres,M4_Postgres postgresNode
 ```
 
 - **Stage 1**: Migrate from bbolt to a SQL-based **kvdb** backend using the [lndinit](https://github.com/lightninglabs/lndinit/blob/main/docs/data-migration.md) tool.
@@ -136,9 +142,9 @@ You will see log lines from the `SQLD` subsystem about the migration, such as `S
 |---------------------|--------------------|------------------|--------|
 | Invoices            | ✅ Available        | ✅              | Available with **v0.19** |
 | Graph               | ✅ Available        | ✅              | Available with **v0.20** |
-| Payments            | 🚧 In Progress      | Planned          | Targeted with **v0.21**|
-| Btcwallet           | 🚧 In Progress      | Planned          | Targeted with **v0.21**|
-| Forwarding History  | ❌ TBD              | ❌ TBD            | Future work |
+| Payments            | ✅ Available        | ✅              | Available with **v0.21** |
+| Btcwallet           | 🚧 In Progress      | Planned          | Targeted with **v0.22**|
+| Channel State       | 🚧 In Progress      | Planned          | Targeted with **v0.22**|
 
 ---
 
@@ -150,9 +156,9 @@ both are on the same SQL engine (e.g., SQLite).
 - **Data loss risk**: Always **back up your `data/` directory** before migration.
 - **Downtime required**: Stage 1 requires LND to be offline. Stage 2 is done at startup, requiring a LND restart.
 - **Postgres kvdb performance**: Postgres performance on kvdb is sub-optimal. It is
-recommended to make the stage 2 migration immediately to avoid performance bottlenecks. Certain RPCs like `listpayments` may not perform well on Postgres if the node has a lot of payments data. If your node operation is heavy
-on payments and `listpayments` performance is critical for you, we'd recommend
-not doing any migration and wait till version 0.21.0 is released.
+recommended to make the stage 2 migration immediately to avoid performance bottlenecks. Certain RPCs like `listpayments` may not perform well on Postgres if the node has a lot of payments data. As of **v0.21**, the payments relational
+backend is available, so payment-heavy nodes can migrate payments to relational
+mode to restore good `listpayments` performance.
 - **No migration path between SQL backend**: Once migrated to either Postgres or
 SQLite, it is not possible to switch to the other, so choose your target backend carefully.
 ---
@@ -162,8 +168,8 @@ SQLite, it is not possible to switch to the other, so choose your target backend
 ### Choosing the Right Path
 
 - **For most users**: Choose SQLite, then migrate. Later, adopt relational backends subsystem-by-subsystem.
-- **Enterprise/Postgres users**: It is recommened to wait to start the migration 
-until **payments relational backend** is ready, then perform **Stage 1 + Stage 2 in quick succession**.
+- **Enterprise/Postgres users**: With the **payments relational backend** available
+as of **v0.21**, you can now perform **Stage 1 + Stage 2 in quick succession**.
 
 ### Timing Your Migration
 
@@ -226,9 +232,8 @@ Invoice migration completed successfully.
 
 The LND team is actively working on:
 
-- **Payments relational backend** and migration tooling (Stage 2)
 - **Btcwallet relational backend** and migration tooling (Stage 2)
-- **Forwarding history** relational schema (long-term)
+- **Channel state relational backend** and migration tooling (Stage 2)
 - **Automatic detection** of migration readiness in `lnd`
 
 Node operators should monitor:

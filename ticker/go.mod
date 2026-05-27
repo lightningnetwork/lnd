@@ -1,3 +1,3 @@
 module github.com/lightningnetwork/lnd/ticker
 
-go 1.25.5
+go 1.25.10

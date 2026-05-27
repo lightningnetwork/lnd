@@ -73,11 +73,12 @@ When ready to begin a major release:
 
 ### Release Candidate Cycle
 
-Create the first release candidate by tagging the version bump commit:
+Create the first release candidate by tagging the version bump commit with the
+release tagging helper:
 
 ```bash
-git tag -s v0.21.0-beta.rc1 -m "lnd v0.21.0-beta.rc1"
-git push origin v0.21.0-beta.rc1
+./scripts/tag-release.sh v0.21.0-beta.rc1 --branch v0.21.x-branch
+git push <upstream-remote> v0.21.0-beta.rc1
 ```
 
 This triggers CI to build release artifacts and Docker images.
@@ -90,8 +91,10 @@ conflicts occur, CI creates backport PRs for manual resolution.
 When ready for the next release candidate:
 
 1. Create a pull request against the release branch to update `build/version.go` to `0.21.0-beta.rc2`
-2. After merging the PR, tag the merge commit on the release branch: `git tag -s v0.21.0-beta.rc2 -m "lnd v0.21.0-beta.rc2"`
-3. Push the new tag: `git push origin v0.21.0-beta.rc2`
+2. After merging the PR, check out the release branch and tag the merge commit:
+   `./scripts/tag-release.sh v0.21.0-beta.rc2 --branch v0.21.x-branch`
+3. Push the new tag to the upstream remote printed by the helper:
+   `git push <upstream-remote> v0.21.0-beta.rc2`
 
 Repeat this cycle (rc3, rc4, etc.) until the release is stable.
 
@@ -100,11 +103,19 @@ Repeat this cycle (rc3, rc4, etc.) until the release is stable.
 For the final release, remove the RC suffix:
 
 1. Create a pull request against the release branch to update `build/version.go` to `0.21.0-beta`
-2. After merging the PR, tag the merge commit on the release branch: `git tag -s v0.21.0-beta -m "lnd v0.21.0-beta"`
-3. Push the new tag: `git push origin v0.21.0-beta`
+2. After merging the PR, check out the release branch and tag the merge commit:
+   `./scripts/tag-release.sh v0.21.0-beta --branch v0.21.x-branch`
+3. Push the new tag to the upstream remote printed by the helper:
+   `git push <upstream-remote> v0.21.0-beta`
 
 The `v0.21.x-branch` branch now enters maintenance mode for future patch
 releases.
+
+### Release Tagging Helper
+
+Use `scripts/tag-release.sh` whenever creating release tags. The helper performs
+the required safety checks before creating the signed tag, then prints the push
+command to run as the final explicit maintainer step.
 
 ## Minor Release Process
 
@@ -119,8 +130,10 @@ When a critical fix is needed for version 0.21.0:
 2. Tag the PR with the `v0.21.1` milestone
 3. CI automation backports to `v0.21.x-branch`
 4. Create a pull request against the release branch to update `build/version.go` to `0.21.1-beta.rc1`
-5. After merging the PR, tag the merge commit: `git tag -s v0.21.1-beta.rc1 -m "lnd v0.21.1-beta.rc1"`
-6. Push the new tag: `git push origin v0.21.1-beta.rc1`
+5. After merging the PR, check out the release branch and tag the merge commit:
+   `./scripts/tag-release.sh v0.21.1-beta.rc1 --branch v0.21.x-branch`
+6. Push the new tag to the upstream remote printed by the helper:
+   `git push <upstream-remote> v0.21.1-beta.rc1`
 
 If additional fixes are needed, follow the same process, incrementing through
 rc2, rc3, etc.
@@ -128,8 +141,10 @@ rc2, rc3, etc.
 For the final patch release:
 
 1. Create a pull request against the release branch to update `build/version.go` to `0.21.1-beta`
-2. After merging the PR, tag the merge commit: `git tag -s v0.21.1-beta -m "lnd v0.21.1-beta"`
-3. Push the new tag: `git push origin v0.21.1-beta`
+2. After merging the PR, check out the release branch and tag the merge commit:
+   `./scripts/tag-release.sh v0.21.1-beta --branch v0.21.x-branch`
+3. Push the new tag to the upstream remote printed by the helper:
+   `git push <upstream-remote> v0.21.1-beta`
 
 Multiple patch releases (0.21.1, 0.21.2, 0.21.3) can be created on the same
 `v0.21.x-branch` branch throughout the version's lifetime.

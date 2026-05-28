@@ -129,27 +129,6 @@ ORDER BY p.id ASC;
 -- Fetch all non-terminal payments using pagination. A payment is
 -- non-terminal if it has an unresolved attempt, or if it has not been
 -- permanently failed and has no settled attempt yet.
-WITH non_terminal_ids AS (
-    SELECT p.id
-    FROM payments p
-    WHERE p.fail_reason IS NULL
-    AND NOT EXISTS (
-        SELECT 1 FROM payment_htlc_attempt_resolutions hr
-        JOIN payment_htlc_attempts ha
-            ON ha.attempt_index = hr.attempt_index
-        WHERE ha.payment_id = p.id
-        AND hr.resolution_type = 1
-    )
-
-    UNION
-
-    SELECT DISTINCT ha.payment_id AS id
-    FROM payment_htlc_attempts ha
-    WHERE NOT EXISTS (
-        SELECT 1 FROM payment_htlc_attempt_resolutions hr
-        WHERE hr.attempt_index = ha.attempt_index
-    )
-)
 SELECT
     p.id,
     p.amount_msat,
@@ -158,12 +137,33 @@ SELECT
     p.fail_reason,
     pi.intent_type,
     pi.intent_payload
-FROM non_terminal_ids n
-JOIN payments p
-    ON p.id = n.id
+FROM payments p
 LEFT JOIN payment_intents pi
     ON pi.payment_id = p.id
 WHERE p.id > $1
+AND (
+    (
+        p.fail_reason IS NULL
+        AND NOT EXISTS (
+            SELECT 1
+            FROM payment_htlc_attempts ha
+            JOIN payment_htlc_attempt_resolutions hr
+                ON hr.attempt_index = ha.attempt_index
+            WHERE ha.payment_id = p.id
+            AND hr.resolution_type = 1
+        )
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM payment_htlc_attempts ha
+        WHERE ha.payment_id = p.id
+        AND NOT EXISTS (
+            SELECT 1
+            FROM payment_htlc_attempt_resolutions hr
+            WHERE hr.attempt_index = ha.attempt_index
+        )
+    )
+)
 ORDER BY p.id ASC
 LIMIT $2;
 

@@ -467,6 +467,7 @@ func Main() {
 		walletBalanceCommand,
 		ChannelBalanceCommand,
 		getInfoCommand,
+		nodeInfoCommand,
 		getDebugInfoCommand,
 		encryptDebugPackageCommand,
 		decryptDebugPackageCommand,

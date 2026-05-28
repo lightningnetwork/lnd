@@ -39,7 +39,7 @@ require (
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.9
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6
 	github.com/lightningnetwork/lnd/kvdb v1.4.16
-	github.com/lightningnetwork/lnd/queue v1.1.1
+	github.com/lightningnetwork/lnd/queue v1.2.0
 	github.com/lightningnetwork/lnd/sqldb v1.0.11
 	github.com/lightningnetwork/lnd/ticker v1.1.1
 	github.com/lightningnetwork/lnd/tlv v1.3.2
@@ -203,9 +203,6 @@ require (
 	modernc.org/token v1.1.0 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
-
-// TODO(gijs): remove once new queue package is released.
-replace github.com/lightningnetwork/lnd/queue => ./queue
 
 // TODO(elle): remove once the gossip V2 sqldb changes have been made.
 replace github.com/lightningnetwork/lnd/sqldb => ./sqldb

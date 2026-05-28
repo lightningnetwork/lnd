@@ -550,7 +550,7 @@ jobs:
       fail-fast: false
       matrix:
         pinned_dep:
-          - google.golang.org/grpc v1.79.1
+          - google.golang.org/grpc v1.79.3
           - github.com/golang/protobuf v1.5.4
 
     steps:

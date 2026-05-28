@@ -474,6 +474,7 @@ func Main() {
 		pendingChannelsCommand,
 		SendPaymentCommand,
 		payInvoiceCommand,
+		rebalanceCommand,
 		sendToRouteCommand,
 		AddInvoiceCommand,
 		lookupInvoiceCommand,

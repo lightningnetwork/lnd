@@ -333,12 +333,10 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 			},
 		},
 		TxOut: []*wire.TxOut{
-			{
-				Value:    123,
-				PkScript: []byte{0xff, 0xff},
-			},
+			cloneTxOut(testSignDesc.Output),
 		},
 	}
+	successHash := successTx.TxHash()
 
 	reSignedSuccessTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
@@ -365,7 +363,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 			successTx.TxOut[0],
 		},
 	}
-	reSignedHash := successTx.TxHash()
+	reSignedHash := reSignedSuccessTx.TxHash()
 
 	sweepTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
@@ -400,7 +398,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 		Amount:          testHtlcAmt.ToSatoshis(),
 		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 		ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
-		SpendTxID:       &reSignedHash,
+		SpendTxID:       &successHash,
 	}
 
 	secondStage := &channeldb.ResolverReport{
@@ -532,6 +530,14 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 	}
 
 	testHtlcSuccess(t, twoStageResolution, checkpoints)
+}
+
+func cloneTxOut(txOut *wire.TxOut) *wire.TxOut {
+	pkScript := append([]byte(nil), txOut.PkScript...)
+	return &wire.TxOut{
+		Value:    txOut.Value,
+		PkScript: pkScript,
+	}
 }
 
 // checkpoint holds expected data we expect the resolver to checkpoint itself

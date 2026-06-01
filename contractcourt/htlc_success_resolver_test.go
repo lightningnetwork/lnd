@@ -2,12 +2,14 @@ package contractcourt
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -31,11 +33,18 @@ type htlcResolverTestContext struct {
 	checkpoint func(_ ContractResolver,
 		_ ...*channeldb.ResolverReport) error
 
-	notifier           *mock.ChainNotifier
+	notifier *mock.ChainNotifier
+
+	// htlcNotifier records final HTLC events for assertions.
+	htlcNotifier *mockHTLCNotifier
+
 	resolverResultChan chan resolveResult
 	resolutionChan     chan ResolutionMsg
 
 	finalHtlcOutcomeStored bool
+
+	// finalHtlcSettled records the last stored final HTLC outcome.
+	finalHtlcSettled bool
 
 	t *testing.T
 }
@@ -58,15 +67,15 @@ func newHtlcResolverTestContext(t *testing.T,
 		SpendChan: make(chan *chainntnfs.SpendDetail, 1),
 		ConfChan:  make(chan *chainntnfs.TxConfirmation, 1),
 	}
+	htlcNotifier := &mockHTLCNotifier{}
 
 	testCtx := &htlcResolverTestContext{
 		checkpoint:     nil,
 		notifier:       notifier,
+		htlcNotifier:   htlcNotifier,
 		resolutionChan: make(chan ResolutionMsg, 1),
 		t:              t,
 	}
-
-	htlcNotifier := &mockHTLCNotifier{}
 
 	witnessBeacon := newMockWitnessBeacon()
 	chainCfg := ChannelArbitratorConfig{
@@ -99,6 +108,7 @@ func newHtlcResolverTestContext(t *testing.T,
 				htlcId uint64, settled bool) error {
 
 				testCtx.finalHtlcOutcomeStored = true
+				testCtx.finalHtlcSettled = settled
 
 				return nil
 			},
@@ -507,6 +517,325 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 	testHtlcSuccess(t, twoStageResolution, checkpoints)
 }
 
+// TestHtlcSuccessResolverRejectsForeignSpend asserts that a spend which does
+// not create the expected second-level success output fails the resolver
+// instead of handing a phantom output to the sweeper.
+func TestHtlcSuccessResolverRejectsForeignSpend(t *testing.T) {
+	defer timeout()()
+
+	// Build a success resolution whose expected second-level output can be
+	// distinguished from the foreign spender below.
+	commitOutpoint := wire.OutPoint{
+		Hash:  chainhash.Hash{0x01},
+		Index: 2,
+	}
+	resolution := newTestAnchorSuccessResolution(commitOutpoint)
+	foreignTx, foreignHash := newForeignSuccessSpend(commitOutpoint)
+	expectedReport := &channeldb.ResolverReport{
+		OutPoint:        commitOutpoint,
+		Amount:          testHtlcAmt.ToSatoshis(),
+		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+		ResolverOutcome: channeldb.ResolverOutcomeTimeout,
+		SpendTxID:       &foreignHash,
+	}
+	ctx := newTestHtlcSuccessContext(t, resolution, false)
+
+	checkpointChan := make(chan struct{}, 1)
+	ctx.checkpoint = func(resolver ContractResolver,
+		reports ...*channeldb.ResolverReport) error {
+
+		successResolver, ok := resolver.(*htlcSuccessResolver)
+		require.True(t, ok)
+
+		require.True(t, successResolver.IsResolved())
+		require.False(t, successResolver.outputIncubating)
+		require.True(t, ctx.finalHtlcOutcomeStored)
+		require.False(t, ctx.finalHtlcSettled)
+		require.Equal(t, []*channeldb.ResolverReport{
+			expectedReport,
+		}, reports)
+
+		checkpointChan <- struct{}{}
+
+		return nil
+	}
+
+	// Start the resolver and wait for it to offer the commitment HTLC as a
+	// success input to the sweeper.
+	ctx.resolve()
+
+	resolver := successResolverFromContext(t, ctx)
+	sweeper := mockSweeperFromResolver(t, resolver)
+	select {
+	case inp := <-sweeper.sweptInputs:
+		require.Equal(t, commitOutpoint, inp.OutPoint())
+	case <-time.After(time.Second):
+		t.Fatal("expected first-stage input to be swept")
+	}
+
+	// Notify that a different transaction spent the commitment HTLC without
+	// creating the expected success output.
+	ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+		SpendingTx:        foreignTx,
+		SpenderTxHash:     &foreignHash,
+		SpenderInputIndex: 0,
+		SpendingHeight:    10,
+		SpentOutPoint:     &commitOutpoint,
+	}
+
+	select {
+	case <-checkpointChan:
+	case <-time.After(time.Second):
+		t.Fatal("expected foreign spend checkpoint")
+	}
+	ctx.waitForResult()
+
+	// The resolver should checkpoint the foreign spend as a final failure.
+	// It should not offer a derived second-level output to the sweeper.
+	assertNoSweptInput(t, sweeper)
+	assertFinalHtlcFailed(t, ctx)
+}
+
+// TestHtlcSuccessResolverRejectsForeignSpendOnRestart asserts that a restarted
+// resolver with outputIncubating already set still rejects a foreign
+// first-stage spender instead of sweeping a derived phantom output.
+func TestHtlcSuccessResolverRejectsForeignSpendOnRestart(t *testing.T) {
+	defer timeout()()
+
+	// Start from an incubating resolver to exercise the restart
+	// fast-forward path that immediately waits for the commitment HTLC
+	// spend.
+	commitOutpoint := wire.OutPoint{
+		Hash:  chainhash.Hash{0x02},
+		Index: 3,
+	}
+	resolution := newTestAnchorSuccessResolution(commitOutpoint)
+	foreignTx, foreignHash := newForeignSuccessSpend(commitOutpoint)
+	expectedReport := &channeldb.ResolverReport{
+		OutPoint:        commitOutpoint,
+		Amount:          testHtlcAmt.ToSatoshis(),
+		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+		ResolverOutcome: channeldb.ResolverOutcomeTimeout,
+		SpendTxID:       &foreignHash,
+	}
+	ctx := newTestHtlcSuccessContext(t, resolution, true)
+
+	checkpointChan := make(chan struct{}, 1)
+	ctx.checkpoint = func(resolver ContractResolver,
+		reports ...*channeldb.ResolverReport) error {
+
+		successResolver, ok := resolver.(*htlcSuccessResolver)
+		require.True(t, ok)
+
+		require.True(t, successResolver.IsResolved())
+		require.False(t, successResolver.outputIncubating)
+		require.True(t, ctx.finalHtlcOutcomeStored)
+		require.False(t, ctx.finalHtlcSettled)
+		require.Equal(t, []*channeldb.ResolverReport{
+			expectedReport,
+		}, reports)
+
+		checkpointChan <- struct{}{}
+
+		return nil
+	}
+
+	// Notify a foreign spender twice. Launch validates the historical
+	// spend but leaves terminal checkpointing to Resolve, which waits for
+	// the same spend again in this mock setup.
+	ctx.resolve()
+	foreignSpend := &chainntnfs.SpendDetail{
+		SpendingTx:        foreignTx,
+		SpenderTxHash:     &foreignHash,
+		SpenderInputIndex: 0,
+		SpendingHeight:    10,
+		SpentOutPoint:     &commitOutpoint,
+	}
+	go func() {
+		ctx.notifier.SpendChan <- foreignSpend
+		ctx.notifier.SpendChan <- foreignSpend
+	}()
+
+	select {
+	case <-checkpointChan:
+	case <-time.After(time.Second):
+		t.Fatal("expected foreign spend checkpoint")
+	}
+	ctx.waitForResult()
+
+	// The restart path should checkpoint the same final failed outcome as
+	// the non-restart path.
+	resolver := successResolverFromContext(t, ctx)
+	assertNoSweptInput(t, mockSweeperFromResolver(t, resolver))
+	assertFinalHtlcFailed(t, ctx)
+}
+
+// TestHtlcSuccessResolverForeignSpendCheckpointError asserts that the final
+// HTLC event is emitted only after the foreign-spend checkpoint succeeds.
+func TestHtlcSuccessResolverForeignSpendCheckpointError(t *testing.T) {
+	defer timeout()()
+
+	// Return a checkpoint error after the resolver prepares its terminal
+	// foreign-spend state. This simulates the DB rejecting the checkpoint.
+	commitOutpoint := wire.OutPoint{
+		Hash:  chainhash.Hash{0x03},
+		Index: 4,
+	}
+	resolution := newTestAnchorSuccessResolution(commitOutpoint)
+	foreignTx, foreignHash := newForeignSuccessSpend(commitOutpoint)
+	errCheckpoint := errors.New("checkpoint failed")
+	ctx := newTestHtlcSuccessContext(t, resolution, false)
+
+	checkpointChan := make(chan struct{}, 1)
+	ctx.checkpoint = func(resolver ContractResolver,
+		reports ...*channeldb.ResolverReport) error {
+
+		successResolver, ok := resolver.(*htlcSuccessResolver)
+		require.True(t, ok)
+
+		require.True(t, successResolver.IsResolved())
+		require.Len(t, reports, 1)
+
+		checkpointChan <- struct{}{}
+
+		return errCheckpoint
+	}
+
+	// Drive the resolver until it offers the first-stage success input,
+	// then notify a foreign spender that triggers the failing checkpoint
+	// path.
+	ctx.resolve()
+
+	resolver := successResolverFromContext(t, ctx)
+	sweeper := mockSweeperFromResolver(t, resolver)
+	select {
+	case inp := <-sweeper.sweptInputs:
+		require.Equal(t, commitOutpoint, inp.OutPoint())
+	case <-time.After(time.Second):
+		t.Fatal("expected first-stage input to be swept")
+	}
+
+	ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+		SpendingTx:        foreignTx,
+		SpenderTxHash:     &foreignHash,
+		SpenderInputIndex: 0,
+		SpendingHeight:    10,
+		SpentOutPoint:     &commitOutpoint,
+	}
+
+	select {
+	case <-checkpointChan:
+	case <-time.After(time.Second):
+		t.Fatal("expected foreign spend checkpoint")
+	}
+
+	result := <-ctx.resolverResultChan
+	require.ErrorIs(t, result.err, errCheckpoint)
+	require.Nil(t, result.nextResolver)
+	require.True(t, resolver.IsResolved())
+	require.Empty(t, ctx.htlcNotifier.finalHtlcEvents)
+}
+
+// newTestHtlcSuccessContext creates a success resolver test context with the
+// supplied incoming HTLC resolution and incubation state.
+func newTestHtlcSuccessContext(t *testing.T,
+	resolution lnwallet.IncomingHtlcResolution,
+	outputIncubating bool) *htlcResolverTestContext {
+
+	return newHtlcResolverTestContext(
+		t, func(htlc channeldb.HTLC,
+			cfg ResolverConfig) ContractResolver {
+
+			r := newSuccessResolver(
+				resolution, 0, htlc, 0, cfg,
+			)
+			r.outputIncubating = outputIncubating
+
+			return r
+		},
+	)
+}
+
+// successResolverFromContext returns the success resolver installed in a test
+// context.
+func successResolverFromContext(t *testing.T,
+	ctx *htlcResolverTestContext) *htlcSuccessResolver {
+
+	t.Helper()
+
+	resolver, ok := ctx.resolver.(*htlcSuccessResolver)
+	require.True(t, ok)
+
+	return resolver
+}
+
+// mockSweeperFromResolver returns the mock sweeper used by a success resolver.
+func mockSweeperFromResolver(t *testing.T,
+	resolver *htlcSuccessResolver) *mockSweeper {
+
+	t.Helper()
+
+	sweeper, ok := resolver.Sweeper.(*mockSweeper)
+	require.True(t, ok)
+
+	return sweeper
+}
+
+// newTestAnchorSuccessResolution returns an anchor-channel success resolution
+// whose success transaction creates the expected second-level output.
+func newTestAnchorSuccessResolution(
+	commitOutpoint wire.OutPoint) lnwallet.IncomingHtlcResolution {
+
+	successTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: commitOutpoint,
+			},
+		},
+		TxOut: []*wire.TxOut{
+			cloneTxOut(testSignDesc.Output),
+		},
+	}
+	successHash := successTx.TxHash()
+
+	return lnwallet.IncomingHtlcResolution{
+		Preimage:        [32]byte{},
+		CsvDelay:        4,
+		SignedSuccessTx: successTx,
+		SignDetails: &input.SignDetails{
+			SignDesc: testSignDesc,
+			PeerSig:  testSig,
+		},
+		ClaimOutpoint: wire.OutPoint{
+			Hash:  successHash,
+			Index: 0,
+		},
+		SweepSignDesc: testSignDesc,
+	}
+}
+
+// newForeignSuccessSpend returns a transaction that spends the commitment HTLC
+// without creating the expected second-level success output.
+func newForeignSuccessSpend(
+	commitOutpoint wire.OutPoint) (*wire.MsgTx, chainhash.Hash) {
+
+	foreignTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: commitOutpoint,
+			},
+		},
+		TxOut: []*wire.TxOut{
+			{
+				Value:    testSignDesc.Output.Value,
+				PkScript: []byte{0x51},
+			},
+		},
+	}
+
+	return foreignTx, foreignTx.TxHash()
+}
+
 // cloneTxOut returns a copy of a transaction output.
 func cloneTxOut(txOut *wire.TxOut) *wire.TxOut {
 	pkScript := append([]byte(nil), txOut.PkScript...)
@@ -514,6 +843,25 @@ func cloneTxOut(txOut *wire.TxOut) *wire.TxOut {
 		Value:    txOut.Value,
 		PkScript: pkScript,
 	}
+}
+
+// assertNoSweptInput asserts that the sweeper was not offered another input.
+func assertNoSweptInput(t *testing.T, sweeper *mockSweeper) {
+	t.Helper()
+
+	select {
+	case inp := <-sweeper.sweptInputs:
+		t.Fatalf("unexpected swept input: %v", inp.OutPoint())
+	default:
+	}
+}
+
+// assertFinalHtlcFailed asserts that the final HTLC outcome was failed.
+func assertFinalHtlcFailed(t *testing.T, ctx *htlcResolverTestContext) {
+	t.Helper()
+
+	require.True(t, ctx.finalHtlcOutcomeStored)
+	require.False(t, ctx.finalHtlcSettled)
 }
 
 // checkpoint holds expected data we expect the resolver to checkpoint itself

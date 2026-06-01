@@ -52,3 +52,9 @@ func (r *mockRegistry) LookupInvoice(context.Context, lntypes.Hash) (
 
 	return invoices.Invoice{}, invoices.ErrInvoiceNotFound
 }
+
+func (r *mockRegistry) LookupInvoiceByRef(_ context.Context,
+	_ invoices.InvoiceRef) (invoices.Invoice, error) {
+
+	return invoices.Invoice{}, invoices.ErrInvoiceNotFound
+}

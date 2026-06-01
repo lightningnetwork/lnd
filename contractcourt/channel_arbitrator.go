@@ -646,6 +646,9 @@ func maybeAugmentTaprootResolvers(chanType channeldb.ChannelType,
 			if r.htlcResolution.ClaimOutpoint ==
 				htlcRes.ClaimOutpoint {
 
+				preserveIncomingHtlcPreimage(
+					r.htlcResolution, &htlcRes,
+				)
 				r.htlcResolution = htlcRes
 			}
 		}
@@ -658,9 +661,24 @@ func maybeAugmentTaprootResolvers(chanType channeldb.ChannelType,
 			if r.htlcResolution.ClaimOutpoint ==
 				htlcRes.ClaimOutpoint {
 
+				preserveIncomingHtlcPreimage(
+					r.htlcResolution, &htlcRes,
+				)
 				r.htlcResolution = htlcRes
 			}
 		}
+	}
+}
+
+// preserveIncomingHtlcPreimage keeps the learned preimage from the decoded
+// resolver when taproot augmentation replaces the resolution with a close
+// summary resolution that only carries taproot control-block data.
+func preserveIncomingHtlcPreimage(
+	current lnwallet.IncomingHtlcResolution,
+	augmented *lnwallet.IncomingHtlcResolution) {
+
+	if augmented.Preimage == [32]byte{} {
+		augmented.Preimage = current.Preimage
 	}
 }
 
@@ -1579,19 +1597,22 @@ func (c *ChannelArbitrator) resolveContracts(resolvers []ContractResolver) {
 	c.activeResolversLock.Unlock()
 
 	// Launch all resolvers.
-	c.launchResolvers()
+	launchErrs := c.launchResolvers()
 
 	for _, contract := range resolvers {
 		c.wg.Add(1)
-		go c.resolveContract(contract)
+		go c.resolveContract(contract, launchErrs[contract])
 	}
 }
 
 // launchResolvers launches all the active resolvers concurrently.
-func (c *ChannelArbitrator) launchResolvers() {
+func (c *ChannelArbitrator) launchResolvers() map[ContractResolver]error {
 	c.activeResolversLock.Lock()
 	resolvers := c.activeResolvers
 	c.activeResolversLock.Unlock()
+
+	launchErrs := make(map[ContractResolver]error)
+	observed := make(map[ContractResolver]struct{})
 
 	// errChans is a map of channels that will be used to receive errors
 	// returned from launching the resolvers.
@@ -1623,9 +1644,11 @@ func (c *ChannelArbitrator) launchResolvers() {
 	for r, errChan := range errChans {
 		select {
 		case err := <-errChan:
+			observed[r] = struct{}{}
 			if err == nil {
 				continue
 			}
+			launchErrs[r] = err
 
 			log.Errorf("ChannelArbitrator(%v): unable to launch "+
 				"contract resolver(%T): %v", c.cfg.ChanPoint, r,
@@ -1635,9 +1658,19 @@ func (c *ChannelArbitrator) launchResolvers() {
 			log.Debugf("ChannelArbitrator quit signal received, " +
 				"exit launchResolvers")
 
-			return
+			for resolver := range errChans {
+				if _, ok := observed[resolver]; ok {
+					continue
+				}
+
+				launchErrs[resolver] = errResolverShuttingDown
+			}
+
+			return launchErrs
 		}
 	}
+
+	return launchErrs
 }
 
 // advanceState is the main driver of our state machine. This method is an
@@ -2632,11 +2665,26 @@ func (c *ChannelArbitrator) replaceResolver(oldResolver,
 // contracts.
 //
 // NOTE: This MUST be run as a goroutine.
-func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
+func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver,
+	launchErr error) {
+
 	defer c.wg.Done()
 
 	log.Tracef("ChannelArbitrator(%v): attempting to resolve %T",
 		c.cfg.ChanPoint, currentContract)
+
+	// Launch may have reached the terminal checkpoint. Only delete the
+	// resolver after a successful launch. A failed checkpoint can set the
+	// resolved bit before returning the persistence error.
+	if currentContract.IsResolved() {
+		if launchErr != nil {
+			return
+		}
+
+		c.markContractResolved(currentContract)
+
+		return
+	}
 
 	// Until the contract is fully resolved, we'll continue to iteratively
 	// resolve the contract one step at a time.
@@ -2707,31 +2755,43 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 				if err != nil {
 					log.Errorf("Failed to launch %T: %v",
 						currentContract, err)
+
+					if currentContract.IsResolved() {
+						return
+					}
+				}
+
+				// Nested Launch can resolve too. Delete it only
+				// after a successful launch.
+				if currentContract.IsResolved() {
+					c.markContractResolved(currentContract)
+					return
 				}
 
 			// If this contract is actually fully resolved, then
 			// we'll mark it as such within the database.
 			case currentContract.IsResolved():
-				log.Debugf("ChannelArbitrator(%v): marking "+
-					"contract %T fully resolved",
-					c.cfg.ChanPoint, currentContract)
-
-				err := c.log.ResolveContract(currentContract)
-				if err != nil {
-					log.Errorf("unable to resolve contract: %v",
-						err)
-				}
-
-				// Now that the contract has been resolved,
-				// well signal to the main goroutine.
-				select {
-				case c.resolutionSignal <- struct{}{}:
-				case <-c.quit:
-					return
-				}
+				c.markContractResolved(currentContract)
 			}
 
 		}
+	}
+}
+
+// markContractResolved removes a fully resolved contract from the unresolved
+// log and signals the arbitrator state machine to check if all contracts are
+// done.
+func (c *ChannelArbitrator) markContractResolved(contract ContractResolver) {
+	log.Debugf("ChannelArbitrator(%v): marking contract %T fully resolved",
+		c.cfg.ChanPoint, contract)
+
+	if err := c.log.ResolveContract(contract); err != nil {
+		log.Errorf("unable to resolve contract: %v", err)
+	}
+
+	select {
+	case c.resolutionSignal <- struct{}{}:
+	case <-c.quit:
 	}
 }
 

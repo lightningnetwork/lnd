@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/wire"
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -19,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/stretchr/testify/require"
 )
 
@@ -109,11 +111,281 @@ func TestHtlcIncomingResolverFwdTimeout(t *testing.T) {
 	t.Parallel()
 	defer timeout()()
 
-	ctx := newIncomingResolverTestContext(t, true)
-	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
+	// Arrange: start an already expired forwarded HTLC without a known
+	// preimage.
+	ctx := newIncomingResolverTestContext(t, false)
 	ctx.resolver.htlcExpiry = 90
+
+	// Act: resolve the expired HTLC.
 	ctx.resolve()
+
+	// Assert: no success resolver is returned and the HTLC is failed.
 	ctx.waitForResult(false)
+}
+
+// TestHtlcIncomingResolverLaunchUsesKnownPreimageAfterExpiry asserts that
+// Launch still offers the HTLC to the sweeper when the preimage was already
+// learned before restart, even if the HTLC is now expired.
+func TestHtlcIncomingResolverLaunchUsesKnownPreimageAfterExpiry(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	tests := []struct {
+		name   string
+		isExit bool
+		setup  func(*incomingResolverTestContext)
+		assert func(*testing.T, *incomingResolverTestContext)
+	}{
+		{
+			name:   "preimage db",
+			isExit: false,
+			setup: func(ctx *incomingResolverTestContext) {
+				ctx.witnessBeacon.lookupPreimage[testResHash] =
+					testResPreimage
+			},
+			assert: func(t *testing.T,
+				ctx *incomingResolverTestContext) {
+
+				require.Empty(t, ctx.registry.immediateNotify)
+			},
+		},
+		{
+			name:   "settled invoice lookup",
+			isExit: true,
+			setup: func(ctx *incomingResolverTestContext) {
+				ctx.registry.lookupInvoiceSet = true
+				ctx.registry.lookupInvoice =
+					settledTestInvoice()
+			},
+			assert: func(t *testing.T,
+				ctx *incomingResolverTestContext) {
+
+				require.Equal(t, 1, ctx.registry.lookupCount)
+				require.Empty(t, ctx.registry.immediateNotify)
+			},
+		},
+		{
+			name:   "settled AMP invoice lookup",
+			isExit: true,
+			setup: func(ctx *incomingResolverTestContext) {
+				ctx.onionProcessor.payload = ampTestPayload()
+				ctx.registry.lookupInvoiceSet = true
+				ctx.registry.lookupInvoice =
+					settledAMPTestInvoice()
+			},
+			assert: func(t *testing.T,
+				ctx *incomingResolverTestContext) {
+
+				require.Equal(t, 1, ctx.registry.lookupCount)
+				require.Empty(t, ctx.registry.immediateNotify)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: restart at the HTLC expiry with the preimage
+			// already available from this test's source.
+			ctx := newIncomingResolverTestContext(t, test.isExit)
+			ctx.resolver.htlcExpiry = testInitialBlockHeight
+			test.setup(ctx)
+
+			// Act: launch the resolver, then enter the production
+			// Resolve path at the HTLC expiry height.
+			require.NoError(t, ctx.resolver.Launch())
+			resolveResultChan := make(chan resolveResult, 1)
+			go func() {
+				nextResolver, err := ctx.resolver.Resolve()
+				resolveResultChan <- resolveResult{
+					nextResolver: nextResolver,
+					err:          err,
+				}
+			}()
+			ctx.notifyEpoch(testInitialBlockHeight)
+
+			// Assert: the known preimage still starts a sweep after
+			// expiry. Resolve also returns the launched success
+			// resolver instead of timing out.
+			require.True(t, ctx.resolver.isLaunched())
+			preimage := lntypes.Preimage(
+				ctx.resolver.htlcResolution.Preimage,
+			)
+			require.Equal(
+				t, testResPreimage, preimage,
+			)
+
+			sweeper, ok := ctx.resolver.Sweeper.(*mockSweeper)
+			require.True(t, ok)
+			select {
+			case <-sweeper.sweptInputs:
+			case <-time.After(time.Second):
+				t.Fatal("expected known preimage sweep")
+			}
+
+			select {
+			case result := <-resolveResultChan:
+				require.NoError(t, result.err)
+				require.Same(
+					t, ctx.resolver.htlcSuccessResolver,
+					result.nextResolver,
+				)
+			case <-time.After(time.Second):
+				t.Fatal("expected launched success resolver")
+			}
+
+			test.assert(t, ctx)
+		})
+	}
+}
+
+// TestHtlcIncomingResolverLaunchIgnoresOtherSettledCircuitAfterExpiry asserts
+// that Launch only consumes settled invoices for this exact circuit.
+func TestHtlcIncomingResolverLaunchIgnoresOtherSettledCircuitAfterExpiry(
+	t *testing.T) {
+
+	t.Parallel()
+	defer timeout()()
+
+	// Arrange: set up an expired exit-hop resolver where another HTLC on
+	// the same invoice has already settled.
+	ctx := newIncomingResolverTestContext(t, true)
+	ctx.resolver.htlcExpiry = testInitialBlockHeight
+	ctx.registry.lookupInvoiceSet = true
+	ctx.registry.lookupInvoice = settledOtherCircuitTestInvoice()
+
+	// Act: launch runs the immediate lookup, then Resolve runs at expiry.
+	require.NoError(t, ctx.resolver.Launch())
+	ctx.resolveErr = make(chan error, 1)
+	go func() {
+		var err error
+		ctx.nextResolver, err = ctx.resolver.Resolve()
+		ctx.resolveErr <- err
+	}()
+	ctx.notifyEpoch(testInitialBlockHeight)
+
+	// Assert: the other settled HTLC was not consumed by Launch and the
+	// expired HTLC fails rather than returning a success resolver.
+	require.Equal(t, 1, ctx.registry.lookupCount)
+	require.Empty(t, ctx.registry.immediateNotify)
+	require.False(t, ctx.resolver.isLaunched())
+	ctx.waitForResult(false)
+}
+
+// TestHtlcIncomingResolverLaunchUsesSideEffectFreeLookup asserts that Launch
+// uses a side-effect-free invoice-registry lookup.
+func TestHtlcIncomingResolverLaunchUsesSideEffectFreeLookup(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	// Arrange: set up an expired exit-hop resolver with a settled invoice
+	// that Launch can consume immediately.
+	ctx := newIncomingResolverTestContext(t, true)
+	ctx.resolver.htlcExpiry = testInitialBlockHeight
+	ctx.chainIO.BestHeight = testInitialBlockHeight + 1
+	ctx.registry.lookupInvoiceSet = true
+	ctx.registry.lookupInvoice = settledTestInvoice()
+
+	// Act: launch performs the immediate invoice lookup.
+	require.NoError(t, ctx.resolver.Launch())
+
+	// Assert: the immediate lookup did not use the mutating registry path.
+	require.Equal(t, 1, ctx.registry.lookupCount)
+	require.Empty(t, ctx.registry.immediateNotify)
+	require.True(t, ctx.resolver.isLaunched())
+}
+
+// TestHtlcIncomingResolverLaunchIgnoresOpenInvoiceAfterExpiry asserts that an
+// immediate launch-time invoice lookup does not bypass expiry checks by
+// consuming an open invoice.
+func TestHtlcIncomingResolverLaunchIgnoresOpenInvoiceAfterExpiry(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	// Arrange: set up an expired exit-hop resolver where the invoice lookup
+	// finds an open invoice with a known preimage.
+	ctx := newIncomingResolverTestContext(t, true)
+	ctx.resolver.htlcExpiry = testInitialBlockHeight
+	ctx.registry.lookupInvoiceSet = true
+	ctx.registry.lookupInvoice = invoices.Invoice{
+		State: invoices.ContractOpen,
+		Terms: invoices.ContractTerm{
+			PaymentPreimage: &testResPreimage,
+		},
+	}
+
+	// Act: launch runs the immediate lookup, then Resolve runs at expiry.
+	require.NoError(t, ctx.resolver.Launch())
+	ctx.resolveErr = make(chan error, 1)
+	go func() {
+		var err error
+		ctx.nextResolver, err = ctx.resolver.Resolve()
+		ctx.resolveErr <- err
+	}()
+	ctx.notifyEpoch(testInitialBlockHeight)
+
+	// Assert: the open invoice was not consumed by Launch and the expired
+	// HTLC fails rather than returning a success resolver.
+	require.Equal(t, 1, ctx.registry.lookupCount)
+	require.Empty(t, ctx.registry.immediateNotify)
+	require.False(t, ctx.resolver.isLaunched())
+	ctx.waitForResult(false)
+}
+
+// settledTestInvoice returns a settled invoice with the test preimage.
+func settledTestInvoice() invoices.Invoice {
+	return invoices.Invoice{
+		State: invoices.ContractSettled,
+		Terms: invoices.ContractTerm{
+			PaymentPreimage: &testResPreimage,
+		},
+		Htlcs: map[models.CircuitKey]*invoices.InvoiceHTLC{
+			testResCircuitKey: {
+				State: invoices.HtlcStateSettled,
+			},
+		},
+	}
+}
+
+// settledOtherCircuitTestInvoice returns a settled invoice whose settled HTLC
+// is not the circuit used by the resolver.
+func settledOtherCircuitTestInvoice() invoices.Invoice {
+	invoice := settledTestInvoice()
+	invoice.Htlcs = map[models.CircuitKey]*invoices.InvoiceHTLC{
+		{HtlcID: 99}: {
+			State: invoices.HtlcStateSettled,
+		},
+	}
+
+	return invoice
+}
+
+// settledAMPTestInvoice returns a settled AMP invoice with the test preimage on
+// the exact HTLC rather than the invoice terms.
+func settledAMPTestInvoice() invoices.Invoice {
+	return invoices.Invoice{
+		State: invoices.ContractSettled,
+		Htlcs: map[models.CircuitKey]*invoices.InvoiceHTLC{
+			testResCircuitKey: {
+				State: invoices.HtlcStateSettled,
+				AMP: &invoices.InvoiceHtlcAMPData{
+					Preimage: &testResPreimage,
+				},
+			},
+		},
+	}
+}
+
+// ampTestPayload returns an exit-hop AMP payload.
+func ampTestPayload() *hop.Payload {
+	return &hop.Payload{
+		FwdInfo: hop.ForwardingInfo{
+			NextHop: hop.Exit,
+		},
+		MPP: record.NewMPP(
+			lnwire.MilliSatoshi(testHtlcAmount), [32]byte{1},
+		),
+		AMP: record.NewAMP([32]byte{2}, [32]byte{3}, 4),
+	}
 }
 
 // TestHtlcIncomingResolverExitSettle tests resolution of an exit hop htlc for
@@ -261,11 +533,16 @@ func TestHtlcIncomingResolverExitCancelHodl(t *testing.T) {
 }
 
 type mockHopIterator struct {
-	isExit bool
+	isExit  bool
+	payload *hop.Payload
 	hop.Iterator
 }
 
 func (h *mockHopIterator) HopPayload() (*hop.Payload, hop.RouteRole, error) {
+	if h.payload != nil {
+		return h.payload, hop.RouteRoleCleartext, nil
+	}
+
 	var nextAddress [8]byte
 	if !h.isExit {
 		nextAddress = [8]byte{0x01}
@@ -286,6 +563,7 @@ func (h *mockHopIterator) EncodeNextHop(w io.Writer) error {
 
 type mockOnionProcessor struct {
 	isExit           bool
+	payload          *hop.Payload
 	offeredOnionBlob []byte
 }
 
@@ -298,7 +576,7 @@ func (o *mockOnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte,
 	}
 	o.offeredOnionBlob = data
 
-	return &mockHopIterator{isExit: o.isExit}, nil
+	return &mockHopIterator{isExit: o.isExit, payload: o.payload}, nil
 }
 
 type incomingResolverTestContext struct {
@@ -306,6 +584,7 @@ type incomingResolverTestContext struct {
 	witnessBeacon          *mockWitnessBeacon
 	resolver               *htlcIncomingContestResolver
 	notifier               *mock.ChainNotifier
+	chainIO                *mock.ChainIO
 	onionProcessor         *mockOnionProcessor
 	resolveErr             chan error
 	nextResolver           ContractResolver
@@ -320,6 +599,9 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 		ConfChan:  make(chan *chainntnfs.TxConfirmation),
 	}
 	witnessBeacon := newMockWitnessBeacon()
+	chainIO := &mock.ChainIO{
+		BestHeight: testInitialBlockHeight,
+	}
 	registry := &mockRegistry{
 		notifyChan: make(chan notifyExitHopData, 1),
 	}
@@ -332,6 +614,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 		registry:       registry,
 		witnessBeacon:  witnessBeacon,
 		notifier:       notifier,
+		chainIO:        chainIO,
 		onionProcessor: onionProcessor,
 		t:              t,
 	}
@@ -359,6 +642,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 				return nil
 			},
 			Sweeper: newMockSweeper(),
+			ChainIO: chainIO,
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
 			_ *channeldb.ResolverReport) error {

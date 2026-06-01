@@ -1546,6 +1546,31 @@ func testListTransactionDetailsLabelFilter(miner *rpctest.Harness,
 	)
 	require.NoError(t, err)
 	require.Empty(t, txDetails)
+
+	// Pagination should operate on the already-filtered set. With
+	// maxTransactions=1 and labelA, only the first matching transaction
+	// should be returned.
+	txDetails, _, _, err = alice.ListTransactionDetails(
+		startHeight, chainTip, "", labelA, 0, 1,
+	)
+	require.NoError(t, err)
+	require.Len(t, txDetails, 1)
+	require.Equal(t, labelA, txDetails[0].Label)
+	_, ok := labelATxIDs[txDetails[0].Hash]
+	require.True(t, ok, "unexpected tx %v in paginated labelA results",
+		txDetails[0].Hash)
+
+	// With indexOffset=1 and maxTransactions=1, the second labelA
+	// transaction should be returned.
+	txDetails, _, _, err = alice.ListTransactionDetails(
+		startHeight, chainTip, "", labelA, 1, 1,
+	)
+	require.NoError(t, err)
+	require.Len(t, txDetails, 1)
+	require.Equal(t, labelA, txDetails[0].Label)
+	_, ok = labelATxIDs[txDetails[0].Hash]
+	require.True(t, ok, "unexpected tx %v in paginated labelA results",
+		txDetails[0].Hash)
 }
 
 func testTransactionSubscriptions(miner *rpctest.Harness,

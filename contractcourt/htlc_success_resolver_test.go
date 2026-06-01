@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
-	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -324,7 +323,6 @@ func TestHtlcSuccessSecondStageResolution(t *testing.T) {
 //nolint:ll
 func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 	commitOutpoint := wire.OutPoint{Index: 2}
-	htlcOutpoint := wire.OutPoint{Index: 3}
 
 	successTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
@@ -333,47 +331,22 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 			},
 		},
 		TxOut: []*wire.TxOut{
-			{
-				Value:    123,
-				PkScript: []byte{0xff, 0xff},
-			},
+			cloneTxOut(testSignDesc.Output),
 		},
 	}
-
-	reSignedSuccessTx := &wire.MsgTx{
-		TxIn: []*wire.TxIn{
-			{
-				PreviousOutPoint: wire.OutPoint{
-					Hash:  chainhash.Hash{0xaa, 0xbb},
-					Index: 0,
-				},
-			},
-			successTx.TxIn[0],
-			{
-				PreviousOutPoint: wire.OutPoint{
-					Hash:  chainhash.Hash{0xaa, 0xbb},
-					Index: 2,
-				},
-			},
-		},
-
-		TxOut: []*wire.TxOut{
-			{
-				Value:    111,
-				PkScript: []byte{0xaa, 0xaa},
-			},
-			successTx.TxOut[0],
-		},
+	successHash := successTx.TxHash()
+	htlcOutpoint := wire.OutPoint{
+		Hash:  successHash,
+		Index: 0,
 	}
-	reSignedHash := successTx.TxHash()
 
 	sweepTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
 
 			{
 				PreviousOutPoint: wire.OutPoint{
-					Hash:  reSignedHash,
-					Index: 1,
+					Hash:  successHash,
+					Index: 0,
 				},
 			},
 		},
@@ -400,7 +373,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 		Amount:          testHtlcAmt.ToSatoshis(),
 		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 		ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
-		SpendTxID:       &reSignedHash,
+		SpendTxID:       &successHash,
 	}
 
 	secondStage := &channeldb.ResolverReport{
@@ -441,9 +414,9 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 				}
 
 				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
-					SpendingTx:        reSignedSuccessTx,
-					SpenderTxHash:     &reSignedHash,
-					SpenderInputIndex: 1,
+					SpendingTx:        successTx,
+					SpenderTxHash:     &successHash,
+					SpenderInputIndex: 0,
 					SpendingHeight:    10,
 					SpentOutPoint:     &commitOutpoint,
 				}
@@ -464,9 +437,9 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 				// spend, hence we must resend it.
 				if resumed {
 					ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
-						SpendingTx:        reSignedSuccessTx,
-						SpenderTxHash:     &reSignedHash,
-						SpenderInputIndex: 1,
+						SpendingTx:        successTx,
+						SpenderTxHash:     &successHash,
+						SpenderInputIndex: 0,
 						SpendingHeight:    10,
 						SpentOutPoint:     &commitOutpoint,
 					}
@@ -479,9 +452,9 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 				// Mock `waitForSpend` to return the commit
 				// spend.
 				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
-					SpendingTx:        reSignedSuccessTx,
-					SpenderTxHash:     &reSignedHash,
-					SpenderInputIndex: 1,
+					SpendingTx:        successTx,
+					SpenderTxHash:     &successHash,
+					SpenderInputIndex: 0,
 					SpendingHeight:    10,
 					SpentOutPoint:     &commitOutpoint,
 				}
@@ -501,8 +474,8 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 
 				op := inp.OutPoint()
 				exp := wire.OutPoint{
-					Hash:  reSignedHash,
-					Index: 1,
+					Hash:  successHash,
+					Index: 0,
 				}
 				if op != exp {
 					return fmt.Errorf("swept outpoint %v, expected %v",
@@ -532,6 +505,15 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 	}
 
 	testHtlcSuccess(t, twoStageResolution, checkpoints)
+}
+
+// cloneTxOut returns a copy of a transaction output.
+func cloneTxOut(txOut *wire.TxOut) *wire.TxOut {
+	pkScript := append([]byte(nil), txOut.PkScript...)
+	return &wire.TxOut{
+		Value:    txOut.Value,
+		PkScript: pkScript,
+	}
 }
 
 // checkpoint holds expected data we expect the resolver to checkpoint itself

@@ -3,6 +3,7 @@ package contractcourt
 import (
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -152,6 +153,101 @@ func (b *mockArbitratorLog) WipeHistory() error {
 	return nil
 }
 
+type launchResolvedResolver struct {
+	contractResolverKit
+
+	key           []byte
+	launchCalled  chan struct{}
+	resolveCalled chan struct{}
+	launchErr     error
+	launchBlock   chan struct{}
+}
+
+func newLaunchResolvedResolver() *launchResolvedResolver {
+	return newLaunchResolvedResolverWithErr(nil)
+}
+
+func newLaunchResolvedResolverWithErr(err error) *launchResolvedResolver {
+	return &launchResolvedResolver{
+		contractResolverKit: *newContractResolverKit(ResolverConfig{}),
+		key:                 []byte{1},
+		launchCalled:        make(chan struct{}),
+		resolveCalled:       make(chan struct{}),
+		launchErr:           err,
+	}
+}
+
+func (l *launchResolvedResolver) ResolverKey() []byte {
+	return l.key
+}
+
+func (l *launchResolvedResolver) Launch() error {
+	l.markResolved()
+	close(l.launchCalled)
+	if l.launchBlock != nil {
+		<-l.launchBlock
+	}
+
+	return l.launchErr
+}
+
+func (l *launchResolvedResolver) Resolve() (ContractResolver, error) {
+	close(l.resolveCalled)
+
+	return nil, nil
+}
+
+func (*launchResolvedResolver) Stop() {
+}
+
+func (*launchResolvedResolver) SupplementState(*channeldb.OpenChannel) {
+}
+
+func (*launchResolvedResolver) Encode(io.Writer) error {
+	return nil
+}
+
+type swapResolver struct {
+	contractResolverKit
+
+	key           []byte
+	next          ContractResolver
+	resolveCalled chan struct{}
+}
+
+func newSwapResolver(next ContractResolver) *swapResolver {
+	return &swapResolver{
+		contractResolverKit: *newContractResolverKit(ResolverConfig{}),
+		key:                 []byte{2},
+		next:                next,
+		resolveCalled:       make(chan struct{}),
+	}
+}
+
+func (s *swapResolver) ResolverKey() []byte {
+	return s.key
+}
+
+func (*swapResolver) Launch() error {
+	return nil
+}
+
+func (s *swapResolver) Resolve() (ContractResolver, error) {
+	close(s.resolveCalled)
+
+	return s.next, nil
+}
+
+func (*swapResolver) Stop() {
+}
+
+func (*swapResolver) SupplementState(*channeldb.OpenChannel) {
+}
+
+func (*swapResolver) Encode(io.Writer) error {
+	return nil
+}
+
 // testArbLog is a wrapper around an existing (ideally fully concrete
 // ArbitratorLog) that lets us intercept certain calls like transitioning to a
 // new state.
@@ -274,6 +370,284 @@ func (c *chanArbTestCtx) AssertStateTransitions(expectedStates ...ArbitratorStat
 func (c *chanArbTestCtx) AssertState(expected ArbitratorState) {
 	if c.chanArb.state != expected {
 		c.t.Fatalf("expected state %v, was %v", expected, c.chanArb.state)
+	}
+}
+
+// TestResolveContractsRemovesLaunchResolvedContract asserts that a resolver
+// which reaches its terminal checkpoint during Launch is still removed from the
+// unresolved-contract log.
+func TestResolveContractsRemovesLaunchResolvedContract(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: install a resolver in the unresolved log that marks itself
+	// resolved during Launch.
+	arbLog := &mockArbitratorLog{
+		newStates: make(chan ArbitratorState, 5),
+		resolvers: make(map[ContractResolver]struct{}),
+	}
+	chanArbCtx, err := createTestChannelArbitrator(t, arbLog)
+	require.NoError(t, err, "unable to create ChannelArbitrator")
+
+	resolver := newLaunchResolvedResolver()
+	require.NoError(t, arbLog.InsertUnresolvedContracts(nil, resolver))
+
+	// Act: resolveContracts launches the resolver before starting the
+	// resolveContract goroutine, matching the production ordering.
+	chanArbCtx.chanArb.resolveContracts([]ContractResolver{resolver})
+
+	select {
+	case <-resolver.launchCalled:
+	case <-time.After(defaultTimeout):
+		t.Fatal("resolver was not launched")
+	}
+
+	select {
+	case <-chanArbCtx.chanArb.resolutionSignal:
+	case <-time.After(defaultTimeout):
+		t.Fatal("resolved contract was not signaled")
+	}
+
+	chanArbCtx.chanArb.wg.Wait()
+
+	// Assert: the resolved resolver was deleted without calling Resolve.
+	arbLog.Lock()
+	_, ok := arbLog.resolvers[resolver]
+	arbLog.Unlock()
+	require.False(t, ok)
+
+	select {
+	case <-resolver.resolveCalled:
+		t.Fatal("already-resolved contract should not call Resolve")
+	default:
+	}
+}
+
+// TestResolveContractsKeepsLaunchErrorResolvedContract asserts that a resolver
+// which marks itself resolved but then returns a Launch error remains in the
+// unresolved-contract log.
+func TestResolveContractsKeepsLaunchErrorResolvedContract(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: install a resolver that fails Launch after setting its
+	// resolved bit.
+	arbLog := &mockArbitratorLog{
+		newStates: make(chan ArbitratorState, 5),
+		resolvers: make(map[ContractResolver]struct{}),
+	}
+	chanArbCtx, err := createTestChannelArbitrator(t, arbLog)
+	require.NoError(t, err, "unable to create ChannelArbitrator")
+
+	launchErr := errors.New("launch failed")
+	resolver := newLaunchResolvedResolverWithErr(launchErr)
+	require.NoError(t, arbLog.InsertUnresolvedContracts(nil, resolver))
+
+	// Act: resolveContracts observes the launch failure before starting the
+	// resolveContract goroutine.
+	chanArbCtx.chanArb.resolveContracts([]ContractResolver{resolver})
+
+	select {
+	case <-resolver.launchCalled:
+	case <-time.After(defaultTimeout):
+		t.Fatal("resolver was not launched")
+	}
+
+	chanArbCtx.chanArb.wg.Wait()
+
+	// Assert: the resolver remains in the log so restart can retry the
+	// terminal checkpoint.
+	arbLog.Lock()
+	_, ok := arbLog.resolvers[resolver]
+	arbLog.Unlock()
+	require.True(t, ok)
+
+	select {
+	case <-chanArbCtx.chanArb.resolutionSignal:
+		t.Fatal("failed launch should not signal resolution")
+	default:
+	}
+
+	select {
+	case <-resolver.resolveCalled:
+		t.Fatal("already-resolved contract should not call Resolve")
+	default:
+	}
+}
+
+// TestResolveContractsKeepsUnobservedLaunchResolvedContract asserts that a
+// resolver is not deleted if shutdown wins before its Launch result is read.
+func TestResolveContractsKeepsUnobservedLaunchResolvedContract(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: install a resolver that resolves itself during Launch, then
+	// blocks before launchResolvers can observe the result.
+	arbLog := &mockArbitratorLog{
+		newStates: make(chan ArbitratorState, 5),
+		resolvers: make(map[ContractResolver]struct{}),
+	}
+	chanArbCtx, err := createTestChannelArbitrator(t, arbLog)
+	require.NoError(t, err, "unable to create ChannelArbitrator")
+
+	resolver := newLaunchResolvedResolver()
+	resolver.launchBlock = make(chan struct{})
+	require.NoError(t, arbLog.InsertUnresolvedContracts(nil, resolver))
+
+	done := make(chan struct{})
+
+	// Act: start resolution, wait until Launch has marked the resolver
+	// resolved, then shut down before Launch returns.
+	go func() {
+		chanArbCtx.chanArb.resolveContracts(
+			[]ContractResolver{resolver},
+		)
+		close(done)
+	}()
+
+	select {
+	case <-resolver.launchCalled:
+	case <-time.After(defaultTimeout):
+		t.Fatal("resolver was not launched")
+	}
+
+	close(chanArbCtx.chanArb.quit)
+	select {
+	case <-done:
+	case <-time.After(defaultTimeout):
+		t.Fatal("resolveContracts did not return")
+	}
+	chanArbCtx.chanArb.wg.Wait()
+	close(resolver.launchBlock)
+
+	// Assert: the resolver remains in the unresolved log because its Launch
+	// result was not observed.
+	arbLog.Lock()
+	_, ok := arbLog.resolvers[resolver]
+	arbLog.Unlock()
+	require.True(t, ok)
+
+	select {
+	case <-resolver.resolveCalled:
+		t.Fatal("already-resolved contract should not call Resolve")
+	default:
+	}
+}
+
+// TestResolveContractsRemovesNestedLaunchResolvedContract asserts that a
+// swapped-in resolver that reaches its terminal checkpoint during Launch is
+// removed from the unresolved-contract log.
+func TestResolveContractsRemovesNestedLaunchResolvedContract(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: install a resolver that swaps to a nested one. The nested
+	// resolver resolves itself during Launch.
+	arbLog := &mockArbitratorLog{
+		newStates: make(chan ArbitratorState, 5),
+		resolvers: make(map[ContractResolver]struct{}),
+	}
+	chanArbCtx, err := createTestChannelArbitrator(t, arbLog)
+	require.NoError(t, err, "unable to create ChannelArbitrator")
+
+	nestedResolver := newLaunchResolvedResolver()
+	resolver := newSwapResolver(nestedResolver)
+	require.NoError(t, arbLog.InsertUnresolvedContracts(nil, resolver))
+
+	// Act: resolveContracts runs the parent resolver, swaps in the nested
+	// resolver, then launches the nested resolver.
+	chanArbCtx.chanArb.resolveContracts([]ContractResolver{resolver})
+
+	select {
+	case <-resolver.resolveCalled:
+	case <-time.After(defaultTimeout):
+		t.Fatal("parent resolver was not resolved")
+	}
+
+	select {
+	case <-nestedResolver.launchCalled:
+	case <-time.After(defaultTimeout):
+		t.Fatal("nested resolver was not launched")
+	}
+
+	select {
+	case <-chanArbCtx.chanArb.resolutionSignal:
+	case <-time.After(defaultTimeout):
+		t.Fatal("resolved nested contract was not signaled")
+	}
+
+	chanArbCtx.chanArb.wg.Wait()
+
+	// Assert: the parent and nested resolver were deleted from the log, and
+	// the already-resolved nested resolver did not call Resolve.
+	arbLog.Lock()
+	_, parentFound := arbLog.resolvers[resolver]
+	_, nestedFound := arbLog.resolvers[nestedResolver]
+	arbLog.Unlock()
+	require.False(t, parentFound)
+	require.False(t, nestedFound)
+
+	select {
+	case <-nestedResolver.resolveCalled:
+		t.Fatal("nested Resolve should not be called")
+	default:
+	}
+}
+
+// TestResolveContractsKeepsNestedLaunchErrorResolvedContract asserts that a
+// swapped-in resolver that fails Launch after setting its resolved bit remains
+// in the unresolved-contract log.
+func TestResolveContractsKeepsNestedLaunchErrorResolvedContract(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: install a resolver that swaps to a nested resolver. The
+	// nested resolver fails Launch after resolving itself.
+	arbLog := &mockArbitratorLog{
+		newStates: make(chan ArbitratorState, 5),
+		resolvers: make(map[ContractResolver]struct{}),
+	}
+	chanArbCtx, err := createTestChannelArbitrator(t, arbLog)
+	require.NoError(t, err, "unable to create ChannelArbitrator")
+
+	nestedResolver := newLaunchResolvedResolverWithErr(
+		errors.New("launch failed"),
+	)
+	resolver := newSwapResolver(nestedResolver)
+	require.NoError(t, arbLog.InsertUnresolvedContracts(nil, resolver))
+
+	// Act: resolveContracts runs the parent resolver, swaps in the nested
+	// resolver, then sees the nested Launch error.
+	chanArbCtx.chanArb.resolveContracts([]ContractResolver{resolver})
+
+	select {
+	case <-resolver.resolveCalled:
+	case <-time.After(defaultTimeout):
+		t.Fatal("parent resolver was not resolved")
+	}
+
+	select {
+	case <-nestedResolver.launchCalled:
+	case <-time.After(defaultTimeout):
+		t.Fatal("nested resolver was not launched")
+	}
+
+	chanArbCtx.chanArb.wg.Wait()
+
+	// Assert: the parent was swapped out, but the failed nested resolver
+	// remains in the log for restart retry.
+	arbLog.Lock()
+	_, parentFound := arbLog.resolvers[resolver]
+	_, nestedFound := arbLog.resolvers[nestedResolver]
+	arbLog.Unlock()
+	require.False(t, parentFound)
+	require.True(t, nestedFound)
+
+	select {
+	case <-chanArbCtx.chanArb.resolutionSignal:
+		t.Fatal("failed nested launch should not signal resolution")
+	default:
+	}
+
+	select {
+	case <-nestedResolver.resolveCalled:
+		t.Fatal("nested Resolve should not be called")
+	default:
 	}
 }
 

@@ -167,7 +167,6 @@ func (r *resolverCtrlBlocks) Encode(w io.Writer) error {
 	}
 
 	for id, ctrlBlock := range *r {
-		ctrlBlock := ctrlBlock
 
 		if _, err := w.Write(id[:]); err != nil {
 			return err
@@ -486,7 +485,6 @@ func (h *htlcTapTweaks) Encode(w io.Writer) error {
 	}
 
 	for id, tweak := range *h {
-		tweak := tweak
 
 		if _, err := w.Write(id[:]); err != nil {
 			return err

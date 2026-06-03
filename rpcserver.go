@@ -6016,7 +6016,6 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 		LastIndexOffset:  invoiceSlice.LastIndexOffset,
 	}
 	for i, invoice := range invoiceSlice.Invoices {
-		invoice := invoice
 		resp.Invoices[i], err = invoicesrpc.CreateRPCInvoice(
 			&invoice, r.cfg.ActiveNetParams.Params,
 		)
@@ -7027,7 +7026,6 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 	}
 
 	for _, payment := range paymentsQuerySlice.Payments {
-		payment := payment
 
 		rpcPayment, err := r.routerBackend.MarshallPayment(payment)
 		if err != nil {

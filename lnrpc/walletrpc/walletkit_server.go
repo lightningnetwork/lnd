@@ -2273,7 +2273,6 @@ func (w *WalletKit) handleChange(packet *psbt.Packet, changeIndex int32,
 func marshallLeases(locks []*base.ListLeasedOutputResult) []*UtxoLease {
 	rpcLocks := make([]*UtxoLease, len(locks))
 	for idx, lock := range locks {
-		lock := lock
 
 		rpcLocks[idx] = &UtxoLease{
 			Id:         lock.LockID[:],

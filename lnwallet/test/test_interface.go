@@ -3540,8 +3540,6 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 	// wallet state after each step.
 	for _, walletTest := range walletTests {
 
-		walletTest := walletTest
-
 		testName := fmt.Sprintf("%v/%v:%v", walletType, backEnd,
 			walletTest.name)
 		success := t.Run(testName, func(t *testing.T) {

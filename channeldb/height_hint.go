@@ -91,7 +91,6 @@ func (c *HeightHintCache) CommitSpendHint(height uint32,
 		}
 
 		for _, spendRequest := range spendRequests {
-			spendRequest := spendRequest
 			spendHintKey, err := spendHintKey(&spendRequest)
 			if err != nil {
 				return err
@@ -161,7 +160,6 @@ func (c *HeightHintCache) PurgeSpendHint(
 		}
 
 		for _, spendRequest := range spendRequests {
-			spendRequest := spendRequest
 			spendHintKey, err := spendHintKey(&spendRequest)
 			if err != nil {
 				return err
@@ -198,7 +196,6 @@ func (c *HeightHintCache) CommitConfirmHint(height uint32,
 		}
 
 		for _, confRequest := range confRequests {
-			confRequest := confRequest
 			confHintKey, err := confHintKey(&confRequest)
 			if err != nil {
 				return err
@@ -269,7 +266,6 @@ func (c *HeightHintCache) PurgeConfirmHint(
 		}
 
 		for _, confRequest := range confRequests {
-			confRequest := confRequest
 			confHintKey, err := confHintKey(&confRequest)
 			if err != nil {
 				return err

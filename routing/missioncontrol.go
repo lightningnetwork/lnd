@@ -709,7 +709,6 @@ func (m *MissionControl) applyPaymentResult(
 	}
 
 	for pair, pairResult := range i.pairResults {
-		pairResult := pairResult
 
 		if pairResult.success {
 			m.log.Debugf("Reporting pair success to Mission "+

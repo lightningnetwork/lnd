@@ -1582,7 +1582,6 @@ func encodeTaprootAuxData(w io.Writer, c *ContractResolutions) error {
 
 	htlcBlobs := newAuxHtlcBlobs()
 	for _, htlc := range c.HtlcResolutions.IncomingHTLCs {
-		htlc := htlc
 
 		htlcSignDesc := htlc.SweepSignDesc
 		ctrlBlock := htlcSignDesc.ControlBlock
@@ -1619,7 +1618,6 @@ func encodeTaprootAuxData(w io.Writer, c *ContractResolutions) error {
 		})
 	}
 	for _, htlc := range c.HtlcResolutions.OutgoingHTLCs {
-		htlc := htlc
 
 		htlcSignDesc := htlc.SweepSignDesc
 		ctrlBlock := htlcSignDesc.ControlBlock

@@ -114,7 +114,6 @@ linters:
     - testifylint
     - perfsprint
     - inamedparam
-    - copyloopvar
     - tagalign
     - protogetter
     - revive

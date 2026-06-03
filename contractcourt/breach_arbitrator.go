@@ -912,7 +912,6 @@ Loop:
 			}
 
 			for _, tx := range justiceTxs.spendSecondLevelHTLCs {
-				tx := tx
 
 				brarLog.Debugf("Broadcasting justice tx "+
 					"spending second-level HTLC output: %v",

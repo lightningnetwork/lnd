@@ -2813,7 +2813,7 @@ func testDeleteCanceledInvoices(t *testing.T,
 
 		// Cancel every second invoice.
 		if i%2 == 0 {
-			invoice, err = db.UpdateInvoice(
+			_, err = db.UpdateInvoice(
 				ctxb, invpkg.InvoiceRefByHash(paymentHash), nil,
 				updateFunc,
 			)

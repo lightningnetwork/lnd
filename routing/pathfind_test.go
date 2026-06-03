@@ -797,8 +797,6 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				return nil, err
 			}
 		}
-
-		channelID++
 	}
 
 	return &testGraphInstance{

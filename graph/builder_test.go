@@ -2074,7 +2074,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			}
 		}
 
-		channelID++ //nolint:ineffassign
+		channelID++ //nolint:ineffassign,wastedassign
 	}
 
 	return &testGraphInstance{

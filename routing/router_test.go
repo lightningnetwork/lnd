@@ -165,6 +165,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 			&mockTrafficShaper{},
 		),
 	})
+	require.NoError(t, err, "unable to create router")
 	require.NoError(t, router.Start(), "unable to start router")
 
 	ctx := &testCtx{

@@ -997,7 +997,7 @@ func runChannelForceClosureTestRestart(ht *lntest.HarnessTest,
 	sweeps = ht.AssertNumPendingSweeps(alice, 2)
 	commitSweep, anchorSweep := sweeps[0], sweeps[1]
 	if commitSweep.AmountSat < anchorSweep.AmountSat {
-		commitSweep, anchorSweep = anchorSweep, commitSweep
+		commitSweep = anchorSweep
 	}
 
 	// Alice's sweeping transaction should now be broadcast. So we fetch the

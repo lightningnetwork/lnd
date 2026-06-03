@@ -261,7 +261,6 @@ func TestInvoices(t *testing.T) {
 	}
 
 	for _, test := range testList {
-		test := test
 		t.Run(test.name+"_KV", func(t *testing.T) {
 			test.test(t, makeKeyValueDB)
 		})
@@ -340,7 +339,6 @@ func testInvoiceWorkflow(t *testing.T,
 	t.Parallel()
 
 	for _, test := range invWorkflowTests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			testInvoiceWorkflowImpl(t, test, makeDB)
@@ -2618,7 +2616,6 @@ func testUpdateHTLCPreimages(t *testing.T,
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			testUpdateHTLCPreimagesImpl(t, test, makeDB)

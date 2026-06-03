@@ -273,7 +273,6 @@ func TestNewSigFromRawSignature(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			result, err := NewSigFromECDSARawSignature(tc.rawSig)
 			require.Equal(t, tc.expectedErr, err)

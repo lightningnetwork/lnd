@@ -157,7 +157,6 @@ func testCoopCloseRbf(ht *lntest.HarnessTest) {
 	}
 
 	for _, chanType := range channelTypes {
-		chanType := chanType
 		ht.Run(chanType.name, func(t1 *testing.T) {
 			st := ht.Subtest(t1)
 			// Set the fee estimate to 1sat/vbyte. This ensures that

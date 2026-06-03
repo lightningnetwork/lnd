@@ -168,7 +168,6 @@ func TestDecidePaymentStatus(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -228,7 +227,6 @@ func TestPaymentStatusActions(t *testing.T) {
 	}
 
 	for i, tc := range testCases {
-		i, tc := i, tc
 
 		ps := tc.status
 		name := fmt.Sprintf("test_%d_%s", i, ps.String())

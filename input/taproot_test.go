@@ -388,8 +388,6 @@ func testTaprootSenderHtlcSpend(t *testing.T, auxLeaf AuxTapLeaf,
 	}
 
 	for i, testCase := range testCases {
-		i := i
-		testCase := testCase
 
 		spendTxCopy := spendTx.Copy()
 
@@ -883,8 +881,6 @@ func testTaprootReceiverHtlcSpend(t *testing.T, auxLeaf AuxTapLeaf,
 		},
 	}
 	for i, testCase := range testCases {
-		i := i
-		testCase := testCase
 		spendTxCopy := spendTx.Copy()
 
 		t.Run(testCase.name, func(t *testing.T) {
@@ -1225,8 +1221,6 @@ func testTaprootCommitScriptToSelf(t *testing.T, auxLeaf AuxTapLeaf,
 	}
 
 	for i, testCase := range testCases {
-		i := i
-		testCase := testCase
 		spendTxCopy := spendTx.Copy()
 
 		t.Run(testCase.name, func(t *testing.T) {
@@ -1439,8 +1433,6 @@ func testTaprootCommitScriptRemote(t *testing.T, auxLeaf AuxTapLeaf,
 	}
 
 	for i, testCase := range testCases {
-		i := i
-		testCase := testCase
 		spendTxCopy := spendTx.Copy()
 
 		t.Run(testCase.name, func(t *testing.T) {
@@ -1695,8 +1687,6 @@ func TestTaprootAnchorScript(t *testing.T) {
 	}
 
 	for i, testCase := range testCases {
-		i := i
-		testCase := testCase
 		spendTxCopy := spendTx.Copy()
 
 		t.Run(testCase.name, func(t *testing.T) {
@@ -1984,8 +1974,6 @@ func testTaprootSecondLevelHtlcScript(t *testing.T, auxLeaf AuxTapLeaf,
 	}
 
 	for i, testCase := range testCases {
-		i := i
-		testCase := testCase
 		spendTxCopy := spendTx.Copy()
 
 		t.Run(testCase.name, func(t *testing.T) {

@@ -123,7 +123,6 @@ func TestCalculateFees(t *testing.T) {
 	fundingOutputEstimate.AddP2WSHOutput()
 
 	for _, test := range testCases {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			feeNoChange, feeWithChange, err := calculateFees(
 				test.utxos, feeRate, fundingOutputEstimate,
@@ -309,7 +308,6 @@ func TestCoinSelect(t *testing.T) {
 	fundingOutputEstimate.AddP2WSHOutput()
 
 	for _, test := range testCases {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -451,7 +449,6 @@ func TestCalculateChangeAmount(t *testing.T) {
 	}}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(tt *testing.T) {
 			changeAmt, needMore, err := CalculateChangeAmount(
 				tc.totalInputAmt, tc.requiredAmt,
@@ -644,7 +641,6 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 	fundingOutputEstimate.AddP2WSHOutput()
 
 	for _, test := range testCases {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			feeRate := feeRate
@@ -893,7 +889,6 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 	fundingOutputEstimate.AddP2WSHOutput()
 
 	for _, test := range testCases {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

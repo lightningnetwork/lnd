@@ -155,7 +155,6 @@ func TestMigrateHtlcAttempts(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		migtest.ApplyMigration(
 			t,

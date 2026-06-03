@@ -277,7 +277,6 @@ func TestSignPsbt(t *testing.T) {
 	}}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		// This is the private key we're going to sign with.
 		privKey, err := w.deriveKeyByBIP32Path(tc.inputType.keyPath())
@@ -465,7 +464,6 @@ func TestEstimateInputWeight(t *testing.T) {
 		input.WitnessHeaderSize
 
 	for _, tc := range testCases {
-		tc := tc
 
 		t.Run(tc.name, func(tt *testing.T) {
 			estimator := input.TxWeightEstimator{}
@@ -551,7 +549,6 @@ func TestBip32DerivationFromKeyDesc(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		t.Run(tc.name, func(tt *testing.T) {
 			d, trD, path := Bip32DerivationFromKeyDesc(
@@ -607,7 +604,6 @@ func TestBip32DerivationFromAddress(t *testing.T) {
 
 	w, _ := newTestWallet(t, netParams, seedBytes)
 	for _, tc := range testCases {
-		tc := tc
 
 		addr, err := w.NewAddress(
 			tc.addrType, false, lnwallet.DefaultAccountName,

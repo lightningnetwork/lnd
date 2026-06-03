@@ -43,7 +43,6 @@ func testDeleteForwardingHistory(ht *lntest.HarnessTest) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		success := ht.Run(tc.name, func(t *testing.T) {
 			st := ht.Subtest(t)
 			tc.test(st)

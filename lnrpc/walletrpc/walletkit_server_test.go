@@ -43,8 +43,6 @@ func TestWitnessTypeMapping(t *testing.T) {
 	for witnessType, witnessTypeProto := range allWitnessTypes {
 		// Redeclare to avoid loop variables being captured
 		// by func literal.
-		witnessType := witnessType
-		witnessTypeProto := witnessTypeProto
 
 		t.Run(witnessType.String(), func(tt *testing.T) {
 			tt.Parallel()
@@ -629,7 +627,6 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 	}}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		privKey, err := btcec.NewPrivateKey()
 		require.NoError(t, err)

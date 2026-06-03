@@ -1678,7 +1678,6 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		test := test
 
 		log := &mockArbitratorLog{
 			state:      StateDefault,
@@ -1889,7 +1888,6 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 		testName := fmt.Sprintf("testCase: htlcExpired=%v,"+
 			"remotePendingHTLC=%v,remotePendingCommitConf=%v",
 			testCase.htlcExpired, testCase.remotePendingHTLC,
@@ -2214,7 +2212,6 @@ func TestRemoteCloseInitiator(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -2479,7 +2476,6 @@ func TestFindCommitmentDeadlineAndValue(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			// Mock the method `FindOutgoingHTLCDeadline`.
 			tc.mockFindOutgoingHTLCDeadline()
@@ -3074,7 +3070,6 @@ func TestChannelArbitratorStartForceCloseFail(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

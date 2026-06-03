@@ -901,7 +901,6 @@ func TestDecodeEncode(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		test := test
 
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
 			t.Parallel()
@@ -1050,7 +1049,6 @@ func TestNewInvoice(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		test := test
 
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
 			t.Parallel()

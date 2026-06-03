@@ -43,7 +43,6 @@ var sharerTests = []sharerTest{
 // receiver, produce identical child hashes and preimages as the sender.
 func TestSharer(t *testing.T) {
 	for _, test := range sharerTests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 

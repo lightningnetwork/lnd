@@ -72,7 +72,6 @@ func testCoopCloseWithHtlcs(ht *lntest.HarnessTest) {
 	testCases := createFlagCombos()
 
 	for _, testCase := range testCases {
-		testCase := testCase // Capture range variable.
 		ht.Run(testCase.testName, func(t *testing.T) {
 			tt := ht.Subtest(t)
 
@@ -94,7 +93,6 @@ func testCoopCloseWithHtlcsWithRestart(ht *lntest.HarnessTest) {
 	testCases := createFlagCombos()
 
 	for _, testCase := range testCases {
-		testCase := testCase // Capture range variable.
 		ht.Run(testCase.testName, func(t *testing.T) {
 			tt := ht.Subtest(t)
 

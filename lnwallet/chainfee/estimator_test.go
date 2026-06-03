@@ -261,7 +261,6 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 	require.NoError(t, estimator.Start(), "unable to start fee estimator")
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			est, err := estimator.EstimateFeePerKW(tc.target)
 
@@ -361,7 +360,6 @@ func TestGetCachedFee(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		t.Run(tc.name, func(t *testing.T) {
 			cachedFee, err := estimator.getCachedFee(tc.confTarget)

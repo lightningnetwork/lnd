@@ -566,7 +566,6 @@ func TestOptionalShutdown(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			fullDB, err := MakeTestDB(t)
@@ -1325,7 +1324,6 @@ func TestShutdownInfo(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -1513,7 +1511,6 @@ func TestCloseInitiator(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -1634,7 +1631,6 @@ func TestHasChanStatus(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			c := &OpenChannel{
@@ -1817,7 +1813,6 @@ func TestHTLCsExtraData(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()

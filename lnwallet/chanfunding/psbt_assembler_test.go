@@ -456,7 +456,6 @@ func TestPsbtVerify(t *testing.T) {
 
 	// Loop through all our test cases.
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			// Reset the state from a previous test and create a new
 			// pending PSBT that we can manipulate.
@@ -622,7 +621,6 @@ func TestPsbtFinalize(t *testing.T) {
 
 	// Loop through all our test cases.
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			// Reset the state from a previous test and create a new
 			// pending PSBT that we can manipulate.
@@ -739,7 +737,6 @@ func TestVerifyAllInputsSegWit(t *testing.T) {
 	}}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		t.Run(tc.name, func(t *testing.T) {
 			r := strings.NewReader(tc.packet)

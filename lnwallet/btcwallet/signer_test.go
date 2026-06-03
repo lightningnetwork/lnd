@@ -188,7 +188,6 @@ func TestBip32KeyDerivation(t *testing.T) {
 
 	// Let's go through the test cases now that we know our wallet is ready.
 	for _, tc := range testCases {
-		tc := tc
 
 		t.Run(tc.name, func(t *testing.T) {
 			privKey, err := w.deriveKeyByBIP32Path(tc.path)
@@ -513,7 +512,6 @@ func TestMaybeTweakPrivKey(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			// Create a sign descriptor with the test tweaks.
 			signDesc := &input.SignDescriptor{

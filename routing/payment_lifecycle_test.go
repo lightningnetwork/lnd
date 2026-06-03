@@ -574,7 +574,6 @@ func TestDecideNextStep(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		// Create a test paymentLifecycle.
 		p, _ := newTestPaymentLifecycle(t)

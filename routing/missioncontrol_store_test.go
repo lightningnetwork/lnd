@@ -276,7 +276,6 @@ func BenchmarkMissionControlStoreFlushing(b *testing.B) {
 	const testMaxRecords = 1000
 
 	for _, tc := range tests {
-		tc := tc
 		name := fmt.Sprintf("%v additional results", tc)
 		b.Run(name, func(b *testing.B) {
 			h := newMCStoreTestHarness(

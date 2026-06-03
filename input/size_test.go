@@ -1579,7 +1579,6 @@ var witnessSizeTests = []witnessSizeTest{
 // aren't under estimating or our transactions could get stuck.
 func TestWitnessSizes(t *testing.T) {
 	for _, test := range witnessSizeTests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			size := test.genWitness(t).SerializeSize()
 			if size != test.expSize {
@@ -1793,7 +1792,6 @@ var txSizeTests = []txSizeTest{
 // TestTxSizes asserts the correctness of our magic tx size constants.
 func TestTxSizes(t *testing.T) {
 	for _, test := range txSizeTests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			tx := test.genTx(t)
 

@@ -83,7 +83,6 @@ func TestTopCentrality(t *testing.T) {
 	}
 
 	for _, chanGraph := range chanGraphs {
-		chanGraph := chanGraph
 
 		success := t.Run(chanGraph.name, func(t1 *testing.T) {
 			t1.Parallel()

@@ -220,7 +220,6 @@ func TestBumpRequestMaxFeeRateAllowed(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		t.Run(tc.name, func(t *testing.T) {
 			// Check the method under test.
@@ -503,7 +502,6 @@ func TestCreateAndCheckTx(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		r := &monitorRecord{
 			req:         tc.req,
@@ -674,7 +672,6 @@ func TestCreateRBFCompliantTx(t *testing.T) {
 
 	var requestCounter atomic.Uint64
 	for _, tc := range testCases {
-		tc := tc
 
 		rid := requestCounter.Add(1)
 
@@ -798,7 +795,6 @@ func TestTxPublisherBroadcast(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		t.Run(tc.name, func(t *testing.T) {
 			tc.setupMock()
@@ -931,7 +927,6 @@ func TestRemoveResult(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		t.Run(tc.name, func(t *testing.T) {
 			requestID := tc.setupRecord()

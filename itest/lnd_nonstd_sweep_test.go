@@ -62,7 +62,6 @@ func testNonstdSweep(ht *lntest.HarnessTest) {
 	}
 
 	for _, test := range tests {
-		test := test
 		success := ht.Run(test.name, func(t *testing.T) {
 			st := ht.Subtest(t)
 

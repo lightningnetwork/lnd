@@ -499,7 +499,6 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 		ok := t.Run(testCase.name, func(t *testing.T) {
 			localFeatures := lnwire.NewFeatureVector(
 				testCase.localFeatures, lnwire.Features,

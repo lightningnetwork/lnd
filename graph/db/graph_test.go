@@ -252,8 +252,6 @@ func TestVersionedDBs(t *testing.T) {
 
 	// Run all v1 tests.
 	for _, vt := range versionedTests {
-		vt := vt
-
 		t.Run(vt.name+"/v1", func(t *testing.T) {
 			vt.test(t, lnwire.GossipVersion1)
 		})
@@ -1954,7 +1952,6 @@ func TestGraphCacheTraversal(t *testing.T) {
 	// properly been reached.
 	numNodeChans := 0
 	for _, node := range nodeList {
-		node := node
 
 		err := graph.ForEachNodeDirectedChannel(
 			ctx, node.PubKeyBytes, func(d *DirectedChannel) error {
@@ -4142,7 +4139,6 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 	)
 
 	for i := 0; i < concurrencyLevel; i++ {
-		i := i
 
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
 			t.Parallel()
@@ -4347,7 +4343,6 @@ func TestFilterChannelRange(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

@@ -123,7 +123,6 @@ func TestLocateChanBucket(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			err := testLocator(tc.locator)
 			require.Equal(t, tc.expectedErr, err)
@@ -283,7 +282,6 @@ func TestFindNextMigrateHeight(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			// Create a test channel.
 			c := createTestChannel(nil)
@@ -658,7 +656,6 @@ func TestLocalNextUpdateNum(t *testing.T) {
 		cdb, err := migtest.MakeDB(t)
 		require.NoError(t, err)
 
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			// Setup the test case.
 			c, height := tc.setup(cdb)

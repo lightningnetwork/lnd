@@ -922,7 +922,6 @@ func TestChannelLinkCancelFullCommitment(t *testing.T) {
 
 	// Now, settle all htlcs held by bob and clear the commitment of htlcs.
 	for _, preimage := range preimages {
-		preimage := preimage
 
 		// It's possible that the HTLCs have not been delivered to the
 		// invoice registry at this point, so we poll until we are able

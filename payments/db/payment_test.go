@@ -783,8 +783,6 @@ func TestPaymentRegistrable(t *testing.T) {
 	}
 
 	for i, tc := range testCases {
-		i, tc := i, tc
-
 		p := &MPPayment{
 			Status: tc.status,
 			State: &MPPaymentState{
@@ -901,8 +899,6 @@ func TestPaymentSetState(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
-
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -1034,8 +1030,6 @@ func TestNeedWaitAttempts(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
-
 		p := &MPPayment{
 			Info: &PaymentCreationInfo{
 				PaymentIdentifier: [32]byte{1, 2, 3},
@@ -1212,8 +1206,6 @@ func TestAllowMoreAttempts(t *testing.T) {
 	}
 
 	for i, tc := range testCases {
-		tc := tc
-
 		p := &MPPayment{
 			Info: &PaymentCreationInfo{
 				PaymentIdentifier: [32]byte{1, 2, 3},

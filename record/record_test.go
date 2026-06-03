@@ -73,7 +73,6 @@ var recordEncDecTests = []recordEncDecTest{
 // the original record matches the decoded record.
 func TestRecordEncodeDecode(t *testing.T) {
 	for _, test := range recordEncDecTests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			r := test.encRecord()
 			r2 := test.decRecord()

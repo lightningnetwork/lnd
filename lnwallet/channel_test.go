@@ -387,7 +387,6 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	t.Parallel()
 
 	for _, tweakless := range []bool{true, false} {
-		tweakless := tweakless
 
 		t.Run(fmt.Sprintf("tweakless=%v", tweakless), func(t *testing.T) {
 			testAddSettleWorkflow(t, tweakless, 0, false)
@@ -8927,7 +8926,6 @@ func TestFetchParent(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			// Create a lightning channel with newly initialized
@@ -9274,7 +9272,6 @@ func TestEvaluateView(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			isInitiator := test.channelInitiator == lntypes.Local
@@ -10312,7 +10309,6 @@ func TestCreateBreachRetribution(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			tx := spendTx
 			if tc.noSpendTx {
@@ -10741,7 +10737,6 @@ func TestApplyCommitmentFee(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			//nolint:ll
 			balance, bufferAmt, commitFee, err := tc.channel.applyCommitFee(

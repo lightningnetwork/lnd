@@ -65,7 +65,6 @@ var managerTests = []managerTest{
 // including that the proper features are removed in response to config changes.
 func TestManager(t *testing.T) {
 	for _, test := range managerTests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			testManager(t, test)
 		})
@@ -260,7 +259,6 @@ func TestUpdateFeatureSets(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 

@@ -391,7 +391,6 @@ func testMacaroonAuthentication(ht *lntest.HarnessTest) {
 	}}
 
 	for _, tc := range testCases {
-		tc := tc
 		ht.Run(tc.name, func(tt *testing.T) {
 			ctxt, cancel := context.WithTimeout(
 				ht.Context(), defaultTimeout,
@@ -607,7 +606,6 @@ func testBakeMacaroon(ht *lntest.HarnessTest) {
 	}}
 
 	for _, tc := range testCases {
-		tc := tc
 		ht.Run(tc.name, func(tt *testing.T) {
 			ctxt, cancel := context.WithTimeout(
 				ht.Context(), defaultTimeout,

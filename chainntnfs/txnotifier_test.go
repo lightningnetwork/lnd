@@ -172,7 +172,6 @@ func TestTxNotifierRegistrationValidation(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 		success := t.Run(testCase.name, func(t *testing.T) {
 			hintCache := newMockHintCache()
 			n := chainntnfs.NewTxNotifier(

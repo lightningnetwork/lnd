@@ -769,7 +769,6 @@ func listUnspent(ctx *cli.Context) error {
 			cli.ShowCommandHelp(ctx, "listunspent")
 			return nil
 		}
-		args = args.Tail()
 	}
 
 	unconfirmedOnly := ctx.Bool("unconfirmed_only")

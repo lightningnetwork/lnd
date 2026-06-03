@@ -9059,8 +9059,7 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 		return nil, err
 	}
 	if chanState.ChanType.IsTaproot() && whoseCommit.IsRemote() {
-		//nolint:ineffassign
-		localAnchor, remoteAnchor = remoteAnchor, localAnchor
+		localAnchor = remoteAnchor
 	}
 
 	// TODO(roasbeef): remote anchor not needed above

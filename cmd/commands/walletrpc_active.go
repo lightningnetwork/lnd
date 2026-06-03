@@ -2013,7 +2013,6 @@ func signMessageWithAddr(ctx *cli.Context) error {
 
 	case ctx.Args().Present():
 		msg = []byte(args.First())
-		args = args.Tail()
 
 	default:
 		return fmt.Errorf("msg argument missing")
@@ -2121,7 +2120,6 @@ func verifyMessageWithAddr(ctx *cli.Context) error {
 
 	case ctx.Args().Present():
 		msg = []byte(args.First())
-		args = args.Tail()
 
 	default:
 		return fmt.Errorf("msg argument missing")

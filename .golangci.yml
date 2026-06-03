@@ -55,7 +55,6 @@ linters:
     - sqlclosecheck
     - tparallel
     - unparam
-    - wastedassign
 
     # Disable whitespace linters as it has conflict rules against our
     # contribution guidelines.

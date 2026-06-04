@@ -12,7 +12,10 @@ VERSION_FILE="build/version.go"
 
 # Match the canonical upstream URL across https / git@ / ssh:// forms, with or
 # without a `.git` suffix. We identify the remote by URL because `origin` is
-# conventionally the fork in a `gh repo fork` setup.
+# conventionally the fork in a `gh repo fork` setup. The URL is lower-cased
+# before matching (see below), so this pattern stays lower-case: GitHub treats
+# the org/repo as case-insensitive, and `origin` is often the mixed-case
+# `LightningNetwork/lnd`.
 UPSTREAM_URL_REGEX='[:/]lightningnetwork/lnd(\.git)?$'
 
 usage() {
@@ -59,7 +62,7 @@ UPSTREAM_REMOTES=()
 while IFS= read -r line; do
   UPSTREAM_REMOTES+=("$line")
 done < <(git remote -v | awk -v re="${UPSTREAM_URL_REGEX}" \
-  '$3 == "(fetch)" && $2 ~ re { print $1 }' | sort -u)
+  '$3 == "(fetch)" && tolower($2) ~ re { print $1 }' | sort -u)
 
 case "${#UPSTREAM_REMOTES[@]}" in
   0) echo "Error: no git remote points at lightningnetwork/lnd. Add one with" \

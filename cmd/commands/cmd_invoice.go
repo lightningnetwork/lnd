@@ -3,10 +3,12 @@ package commands
 import (
 	"encoding/hex"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
+	qrterminal "github.com/mdp/qrterminal/v3"
 	"github.com/urfave/cli"
 	"google.golang.org/protobuf/proto"
 )
@@ -124,6 +126,11 @@ var AddInvoiceCommand = cli.Command{
 				"id (separated by commas), starting from a " +
 				"channel which points to the self node.",
 		},
+		cli.BoolFlag{
+			Name: "qr",
+			Usage: "display a QR code of the payment request " +
+				"in the terminal",
+		},
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -201,6 +208,15 @@ func addInvoice(ctx *cli.Context) error {
 	}
 
 	printRespJSON(resp)
+
+	if ctx.Bool("qr") {
+		// If the user requested it, we'll also print a QR code that
+		// encodes the payment request for easy scanning.
+		fmt.Println()
+		qrterminal.GenerateHalfBlock(
+			resp.PaymentRequest, qrterminal.L, os.Stdout,
+		)
+	}
 
 	return nil
 }

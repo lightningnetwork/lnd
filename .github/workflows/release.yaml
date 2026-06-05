@@ -81,10 +81,11 @@ jobs:
 
             ## Verifying the Release Timestamp 
 
-            From this new version onwards, in addition time-stamping the _git tag_ with [OpenTimestamps](https://opentimestamps.org/), we'll also now timestamp the manifest file along with its signature. Two new files are now included along with the rest of our release artifacts: ` manifest-roasbeef-${{ env.RELEASE_VERSION }}.txt.asc.ots`.
+            From this new version onwards, in addition to time-stamping the _git tag_ with [OpenTimestamps](https://opentimestamps.org/), we'll also now timestamp the manifest file along with the `roasbeef` release signature. For final releases, and for release candidates when these optional artifacts are uploaded, timestamp proof files are included along with the rest of our release artifacts: `manifest-${{ env.RELEASE_VERSION }}.txt.ots` and `manifest-roasbeef-${{ env.RELEASE_VERSION }}.sig.ots`.
 
             Assuming you have the opentimestamps client installed locally, the timestamps can be verified with the following commands: 
             ```
+            ots verify manifest-${{ env.RELEASE_VERSION }}.txt.ots -f manifest-${{ env.RELEASE_VERSION }}.txt
             ots verify manifest-roasbeef-${{ env.RELEASE_VERSION }}.sig.ots -f manifest-roasbeef-${{ env.RELEASE_VERSION }}.sig
             ```
 

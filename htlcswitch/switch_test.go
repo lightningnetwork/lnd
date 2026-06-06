@@ -2143,7 +2143,7 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 		// None of the channels is eligible.
 		{
 			name:          "not eligible",
-			expectedReply: lnwire.CodeUnknownNextPeer,
+			expectedReply: lnwire.CodeTemporaryChannelFailure,
 		},
 
 		// Channel one has a policy failure and the other channel isn't

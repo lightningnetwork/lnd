@@ -2682,7 +2682,7 @@ func (s *Switch) temporaryChannelFailure(
 	if update == nil {
 		var err error
 		update, err = s.cfg.FetchLastChannelUpdate(scid)
-		if err != nil {
+		if err != nil || update == nil {
 			return &lnwire.FailTemporaryNodeFailure{}
 		}
 	}

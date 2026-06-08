@@ -288,8 +288,8 @@ github.com/lightninglabs/neutrino v0.17.1 h1:lNhgq7ix/N81R6oATroP/kHMzH1qzVVF2dE
 github.com/lightninglabs/neutrino v0.17.1/go.mod h1:tcwCgRTGWcaua0L/xzdwllW8eslHDbux4XkiYsivvHE=
 github.com/lightninglabs/neutrino/cache v1.1.3 h1:rgnabC41W+XaPuBTQrdeFjFCCAVKh1yctAgmb3Se9zA=
 github.com/lightninglabs/neutrino/cache v1.1.3/go.mod h1:qxkJb+pUxR5p84jl5uIGFCR4dGdFkhNUwMSxw3EUWls=
-github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display h1:Y2WiPkBS/00EiEg0qp0FhehxnQfk3vv8U6Xt3nN+rTY=
-github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display/go.mod h1:c6P6GXX6sHbq/GpV6MGZEdwhWPcYBgnhAHhKbcUYpos=
+github.com/lightninglabs/protobuf-go-hex-display v1.36.11-hex-display h1:fjePiMfYbg3KodAiSXwkpGZpYdPeNd9VnggJWiY6AaY=
+github.com/lightninglabs/protobuf-go-hex-display v1.36.11-hex-display/go.mod h1:HTf+CrKn2C3g5S8VImy6tdcUvCska2kB7j23XfzDpco=
 github.com/lightningnetwork/lightning-onion v1.3.0 h1:FqILgHjD6euc/Muo1VOzZ4+XDPuFnw6EYROBq0rR/5c=
 github.com/lightningnetwork/lightning-onion v1.3.0/go.mod h1:nP85zMHG7c0si/eHBbSQpuDCtnIXfSvFrK3tW6YWzmU=
 github.com/lightningnetwork/lnd/actor v0.0.6 h1:Ge8N2wivARG+27qJBwTlB0vwsypStZYZy8vk4Zl38sU=

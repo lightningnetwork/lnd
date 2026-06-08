@@ -59,7 +59,7 @@ require (
 	golang.org/x/term v0.38.0
 	golang.org/x/time v0.3.0
 	google.golang.org/grpc v1.79.3
-	google.golang.org/protobuf v1.36.10
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/macaroon-bakery.v2 v2.0.1
 	gopkg.in/macaroon.v2 v2.0.0
 	pgregory.net/rapid v1.2.0
@@ -203,7 +203,7 @@ replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
-replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display
+replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.36.11-hex-display
 
 // If you change this please also update docs/INSTALL.md and all other go.mod
 // files. The release build toolchain version is tracked separately by

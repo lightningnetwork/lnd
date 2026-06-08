@@ -2424,6 +2424,10 @@ func TestQueryPayments(t *testing.T) {
 		firstIndex uint64
 		lastIndex  uint64
 
+		// expectedTotal is the expected TotalCount when CountTotal is
+		// set. A zero value means the unfiltered total is expected.
+		expectedTotal uint64
+
 		// expectedSeqNrs contains the set of sequence numbers we expect
 		// our query to return.
 		expectedSeqNrs []uint64
@@ -2705,7 +2709,7 @@ func TestQueryPayments(t *testing.T) {
 			expectedSeqNrs: []uint64{5, 6},
 		},
 		{
-			name: "count total with filters",
+			name: "count total excludes incomplete payments",
 			query: Query{
 				IndexOffset:       0,
 				MaxPayments:       math.MaxUint64,
@@ -2715,6 +2719,39 @@ func TestQueryPayments(t *testing.T) {
 			},
 			firstIndex:     6,
 			lastIndex:      6,
+			expectedTotal:  1,
+			expectedSeqNrs: []uint64{6},
+		},
+		{
+			name: "count total with date filters and incomplete",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+				CountTotal:        true,
+				CreationDateStart: 3,
+				CreationDateEnd:   5,
+			},
+			firstIndex:     3,
+			lastIndex:      4,
+			expectedTotal:  3,
+			expectedSeqNrs: []uint64{3, 4},
+		},
+		{
+			name: "count total with date filters excludes incomplete",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: false,
+				CountTotal:        true,
+				CreationDateStart: 3,
+				CreationDateEnd:   6,
+			},
+			firstIndex:     6,
+			lastIndex:      6,
+			expectedTotal:  1,
 			expectedSeqNrs: []uint64{6},
 		},
 	}
@@ -2870,6 +2907,9 @@ func TestQueryPayments(t *testing.T) {
 				// We should have 5 total payments
 				// (6 created - 1 deleted).
 				expectedTotal := uint64(5)
+				if tt.expectedTotal != 0 {
+					expectedTotal = tt.expectedTotal
+				}
 				require.Equal(
 					t, expectedTotal, querySlice.TotalCount,
 					"expected total count %v, got %v",
@@ -2882,6 +2922,97 @@ func TestQueryPayments(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestQueryPaymentsCountTotalMixedInflight asserts that CountTotal uses the
+// same succeeded-only semantics as the returned payment list when
+// IncludeIncomplete is false. A payment with one settled HTLC and one
+// unresolved HTLC is still in-flight and must not be counted as succeeded.
+func TestQueryPaymentsCountTotalMixedInflight(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	paymentDB, _ := NewTestDB(t)
+
+	succeededInfo, _ := genInfo(t)
+	succeededInfo.CreationTime = time.Unix(10, 0)
+	err := paymentDB.InitPayment(
+		ctx, succeededInfo.PaymentIdentifier, succeededInfo,
+	)
+	require.NoError(t, err)
+
+	settledAttempt, err := NewHtlcAttempt(
+		1, genSessionKey(t), testRoute, time.Unix(11, 0),
+		&succeededInfo.PaymentIdentifier,
+	)
+	require.NoError(t, err)
+
+	_, err = paymentDB.RegisterAttempt(
+		ctx, succeededInfo.PaymentIdentifier,
+		&settledAttempt.HTLCAttemptInfo,
+	)
+	require.NoError(t, err)
+
+	preimg := genPreimage(t)
+	_, err = paymentDB.SettleAttempt(
+		ctx, succeededInfo.PaymentIdentifier, settledAttempt.AttemptID,
+		&HTLCSettleInfo{
+			Preimage: preimg,
+		},
+	)
+	require.NoError(t, err)
+
+	mixedInfo, _ := genInfo(t)
+	mixedInfo.CreationTime = time.Unix(20, 0)
+	mixedInfo.Value = testRoute.ReceiverAmt() * 2
+	err = paymentDB.InitPayment(ctx, mixedInfo.PaymentIdentifier, mixedInfo)
+	require.NoError(t, err)
+
+	mixedSettledAttempt, err := NewHtlcAttempt(
+		2, genSessionKey(t), testRoute, time.Unix(21, 0),
+		&mixedInfo.PaymentIdentifier,
+	)
+	require.NoError(t, err)
+
+	_, err = paymentDB.RegisterAttempt(
+		ctx, mixedInfo.PaymentIdentifier,
+		&mixedSettledAttempt.HTLCAttemptInfo,
+	)
+	require.NoError(t, err)
+
+	mixedInflightAttempt, err := NewHtlcAttempt(
+		3, genSessionKey(t), testRoute, time.Unix(22, 0),
+		&mixedInfo.PaymentIdentifier,
+	)
+	require.NoError(t, err)
+
+	_, err = paymentDB.RegisterAttempt(
+		ctx, mixedInfo.PaymentIdentifier,
+		&mixedInflightAttempt.HTLCAttemptInfo,
+	)
+	require.NoError(t, err)
+
+	preimg = genPreimage(t)
+	_, err = paymentDB.SettleAttempt(
+		ctx, mixedInfo.PaymentIdentifier, mixedSettledAttempt.AttemptID,
+		&HTLCSettleInfo{
+			Preimage: preimg,
+		},
+	)
+	require.NoError(t, err)
+
+	resp, err := paymentDB.QueryPayments(ctx, Query{
+		IndexOffset:       0,
+		MaxPayments:       math.MaxUint64,
+		IncludeIncomplete: false,
+		CountTotal:        true,
+		CreationDateStart: 1,
+		CreationDateEnd:   30,
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Payments, 1)
+	require.Equal(t, StatusSucceeded, resp.Payments[0].Status)
+	require.Equal(t, uint64(1), resp.TotalCount)
 }
 
 // TestFetchInFlightPayments tests that FetchInFlightPayments correctly returns

@@ -1053,6 +1053,26 @@ func (p *KVStore) QueryPayments(_ context.Context,
 
 	var resp Response
 
+	matchesCreationDate := func(creationTime time.Time) bool {
+		// Get the creation time in Unix seconds, this always rounds down
+		// the nanoseconds to full seconds.
+		createTime := creationTime.Unix()
+
+		// Skip any payments that were created before the specified time.
+		if createTime < query.CreationDateStart {
+			return false
+		}
+
+		// Skip any payments that were created after the specified time.
+		if query.CreationDateEnd != 0 &&
+			createTime > query.CreationDateEnd {
+
+			return false
+		}
+
+		return true
+	}
+
 	if err := kvdb.View(p.db, func(tx kvdb.RTx) error {
 		// Get the root payments bucket.
 		paymentsBucket := tx.ReadBucket(paymentsRootBucket)
@@ -1096,21 +1116,7 @@ func (p *KVStore) QueryPayments(_ context.Context,
 				return false, err
 			}
 
-			// Get the creation time in Unix seconds, this always
-			// rounds down the nanoseconds to full seconds.
-			createTime := payment.Info.CreationTime.Unix()
-
-			// Skip any payments that were created before the
-			// specified time.
-			if createTime < query.CreationDateStart {
-				return false, nil
-			}
-
-			// Skip any payments that were created after the
-			// specified time.
-			if query.CreationDateEnd != 0 &&
-				createTime > query.CreationDateEnd {
-
+			if !matchesCreationDate(payment.Info.CreationTime) {
 				return false, nil
 			}
 
@@ -1141,7 +1147,35 @@ func (p *KVStore) QueryPayments(_ context.Context,
 				totalPayments uint64
 				err           error
 			)
-			countFn := func(_, _ []byte) error {
+			countFn := func(sequenceKey, hash []byte) error {
+				if query.CreationDateStart != 0 ||
+					query.CreationDateEnd != 0 ||
+					!query.IncludeIncomplete {
+
+					r := bytes.NewReader(hash)
+					paymentHash, err := deserializePaymentIndex(r)
+					if err != nil {
+						return err
+					}
+
+					creationTime, status, err := fetchPaymentQueryMetadata(
+						tx, paymentHash, sequenceKey,
+					)
+					if err != nil {
+						return err
+					}
+
+					if !matchesCreationDate(creationTime) {
+						return nil
+					}
+
+					if status != StatusSucceeded &&
+						!query.IncludeIncomplete {
+
+						return nil
+					}
+				}
+
 				totalPayments++
 
 				return nil
@@ -1187,6 +1221,151 @@ func (p *KVStore) QueryPayments(_ context.Context,
 	}
 
 	return resp, nil
+}
+
+// fetchPaymentQueryMetadata gets the creation time and status for the payment
+// that matches the payment hash and sequence number. This is the lightweight
+// counterpart to fetchPaymentWithSequenceNumber for callers that only need
+// query metadata and should avoid loading/deserializing all HTLC attempts.
+func fetchPaymentQueryMetadata(tx kvdb.RTx,
+	paymentHash lntypes.Hash,
+	sequenceNumber []byte) (time.Time, PaymentStatus, error) {
+
+	bucket, err := fetchPaymentBucket(tx, paymentHash)
+	if err != nil {
+		return time.Time{}, 0, err
+	}
+
+	seqBytes := bucket.Get(paymentSequenceKey)
+	if seqBytes == nil {
+		return time.Time{}, 0, ErrNoSequenceNumber
+	}
+
+	if bytes.Equal(seqBytes, sequenceNumber) {
+		creationInfo, err := fetchCreationInfo(bucket)
+		if err != nil {
+			return time.Time{}, 0, err
+		}
+
+		status, err := fetchPaymentQueryStatus(bucket)
+		if err != nil {
+			return time.Time{}, 0, err
+		}
+
+		return creationInfo.CreationTime, status, nil
+	}
+
+	dup := bucket.NestedReadBucket(duplicatePaymentsBucket)
+	if dup == nil {
+		return time.Time{}, 0, ErrNoDuplicateBucket
+	}
+
+	var (
+		creationTime time.Time
+		status       PaymentStatus
+		found        bool
+	)
+	err = dup.ForEach(func(k, _ []byte) error {
+		if found {
+			return nil
+		}
+
+		subBucket := dup.NestedReadBucket(k)
+		if subBucket == nil {
+			return ErrNoDuplicateNestedBucket
+		}
+
+		seqBytes := subBucket.Get(duplicatePaymentSequenceKey)
+		if seqBytes == nil {
+			return ErrNoDuplicateSequenceNumber
+		}
+
+		if !bytes.Equal(seqBytes, sequenceNumber) {
+			return nil
+		}
+
+		b := subBucket.Get(duplicatePaymentCreationInfoKey)
+		if b == nil {
+			return fmt.Errorf("creation info not found")
+		}
+
+		creationInfo, err := deserializeDuplicatePaymentCreationInfo(
+			bytes.NewReader(b),
+		)
+		if err != nil {
+			return err
+		}
+
+		status, err = fetchDuplicatePaymentStatus(subBucket)
+		if err != nil {
+			return err
+		}
+
+		creationTime = creationInfo.CreationTime
+		found = true
+
+		return nil
+	})
+	if err != nil {
+		return time.Time{}, 0, err
+	}
+
+	if !found {
+		return time.Time{}, 0, ErrDuplicateNotFound
+	}
+
+	return creationTime, status, nil
+}
+
+func fetchPaymentQueryStatus(bucket kvdb.RBucket) (PaymentStatus, error) {
+	if bucket.Get(paymentCreationInfoKey) == nil {
+		return 0, ErrPaymentNotInitiated
+	}
+
+	var failureReason *FailureReason
+	if failInfo := bucket.Get(paymentFailInfoKey); failInfo != nil {
+		reason := FailureReason(failInfo[0])
+		failureReason = &reason
+	}
+
+	htlcsBucket := bucket.NestedReadBucket(paymentHtlcsBucket)
+	if htlcsBucket == nil {
+		return decidePaymentStatus(nil, failureReason)
+	}
+
+	htlcs := make(map[uint64]*HTLCAttempt)
+	err := htlcsBucket.ForEach(func(k, _ []byte) error {
+		aid := byteOrder.Uint64(k[len(k)-8:])
+		if _, ok := htlcs[aid]; !ok {
+			htlcs[aid] = &HTLCAttempt{}
+		}
+
+		switch {
+		case bytes.HasPrefix(k, htlcAttemptInfoKey):
+			return nil
+
+		case bytes.HasPrefix(k, htlcSettleInfoKey):
+			htlcs[aid].Settle = &HTLCSettleInfo{}
+
+		case bytes.HasPrefix(k, htlcFailInfoKey):
+			htlcs[aid].Failure = &HTLCFailInfo{}
+
+		default:
+			return fmt.Errorf("unknown htlc attempt key")
+		}
+
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	htlcList := make([]HTLCAttempt, 0, len(htlcs))
+	for _, htlc := range htlcs {
+		htlcList = append(htlcList, *htlc)
+	}
+
+	return decidePaymentStatus(htlcList, failureReason)
 }
 
 // fetchPaymentWithSequenceNumber get the payment which matches the payment hash

@@ -1054,11 +1054,12 @@ func (p *KVStore) QueryPayments(_ context.Context,
 	var resp Response
 
 	matchesCreationDate := func(creationTime time.Time) bool {
-		// Get the creation time in Unix seconds, this always rounds down
-		// the nanoseconds to full seconds.
+		// Get the creation time in Unix seconds, this always rounds
+		// down the nanoseconds to full seconds.
 		createTime := creationTime.Unix()
 
-		// Skip any payments that were created before the specified time.
+		// Skip any payments that were created before the specified
+		// time.
 		if createTime < query.CreationDateStart {
 			return false
 		}
@@ -1147,20 +1148,57 @@ func (p *KVStore) QueryPayments(_ context.Context,
 				totalPayments uint64
 				err           error
 			)
+
+			type paymentIndexEntry struct {
+				sequenceKey []byte
+				hash        []byte
+			}
+
+			var paymentIndexes []paymentIndexEntry
+			collectIndex := func(sequenceKey, hash []byte) error {
+				paymentIndexes = append(
+					paymentIndexes, paymentIndexEntry{
+						sequenceKey: append(
+							[]byte(nil), sequenceKey...,
+						),
+						hash: append([]byte(nil), hash...),
+					},
+				)
+
+				return nil
+			}
+
+			// In non-boltdb database backends, there's a faster
+			// ForAll query that allows for batch fetching items.
+			fastBucket, ok := indexes.(kvdb.ExtendedRBucket)
+			if ok {
+				err = fastBucket.ForAll(collectIndex)
+			} else {
+				err = indexes.ForEach(collectIndex)
+			}
+			if err != nil {
+				return fmt.Errorf("error collecting payment "+
+					"indexes: %w", err)
+			}
+
 			countFn := func(sequenceKey, hash []byte) error {
 				if query.CreationDateStart != 0 ||
 					query.CreationDateEnd != 0 ||
 					!query.IncludeIncomplete {
 
 					r := bytes.NewReader(hash)
-					paymentHash, err := deserializePaymentIndex(r)
+					paymentHash, err := deserializePaymentIndex(
+						r,
+					)
 					if err != nil {
 						return err
 					}
 
-					creationTime, status, err := fetchPaymentQueryMetadata(
-						tx, paymentHash, sequenceKey,
-					)
+					creationTime, status, err :=
+						fetchPaymentQueryMetadata(
+							tx, paymentHash,
+							sequenceKey,
+						)
 					if err != nil {
 						return err
 					}
@@ -1181,17 +1219,12 @@ func (p *KVStore) QueryPayments(_ context.Context,
 				return nil
 			}
 
-			// In non-boltdb database backends, there's a faster
-			// ForAll query that allows for batch fetching items.
-			fastBucket, ok := indexes.(kvdb.ExtendedRBucket)
-			if ok {
-				err = fastBucket.ForAll(countFn)
-			} else {
-				err = indexes.ForEach(countFn)
-			}
-			if err != nil {
-				return fmt.Errorf("error counting payments: %w",
-					err)
+			for _, index := range paymentIndexes {
+				err = countFn(index.sequenceKey, index.hash)
+				if err != nil {
+					return fmt.Errorf("error counting "+
+						"payments: %w", err)
+				}
 			}
 
 			resp.TotalCount = totalPayments

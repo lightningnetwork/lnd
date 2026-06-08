@@ -52,7 +52,8 @@ type SQLQueries interface {
 	FetchNonTerminalPayments(ctx context.Context, arg sqlc.FetchNonTerminalPaymentsParams) ([]sqlc.FetchNonTerminalPaymentsRow, error)
 
 	CountPayments(ctx context.Context) (int64, error)
-	CountFilteredPayments(ctx context.Context, query sqlc.CountFilteredPaymentsParams) (int64, error)
+	CountFilteredPayments(ctx context.Context,
+		query sqlc.CountFilteredPaymentsParams) (int64, error)
 
 	FetchHtlcAttemptsForPayments(ctx context.Context, paymentIDs []int64) ([]sqlc.FetchHtlcAttemptsForPaymentsRow, error)
 	FetchHtlcAttemptResolutionsForPayments(ctx context.Context, paymentIDs []int64) ([]sqlc.FetchHtlcAttemptResolutionsForPaymentsRow, error)

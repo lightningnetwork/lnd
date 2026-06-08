@@ -200,9 +200,6 @@ require (
 // TODO(elle): remove once the gossip V2 sqldb changes have been made.
 replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 
-// This replace is for https://github.com/advisories/GHSA-25xm-hr59-7c27
-replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.11
-
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display

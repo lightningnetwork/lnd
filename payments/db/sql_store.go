@@ -52,6 +52,7 @@ type SQLQueries interface {
 	FetchNonTerminalPayments(ctx context.Context, arg sqlc.FetchNonTerminalPaymentsParams) ([]sqlc.FetchNonTerminalPaymentsRow, error)
 
 	CountPayments(ctx context.Context) (int64, error)
+	CountFilteredPayments(ctx context.Context, query sqlc.CountFilteredPaymentsParams) (int64, error)
 
 	FetchHtlcAttemptsForPayments(ctx context.Context, paymentIDs []int64) ([]sqlc.FetchHtlcAttemptsForPaymentsRow, error)
 	FetchHtlcAttemptResolutionsForPayments(ctx context.Context, paymentIDs []int64) ([]sqlc.FetchHtlcAttemptResolutionsForPaymentsRow, error)
@@ -690,11 +691,36 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 		return row.Payment.ID
 	}
 
+	// Default date bounds: epoch start and far future. These are always
+	// provided so the SQL query uses simple comparisons instead of COALESCE
+	// (which causes type mismatch on Postgres) or OR-based optional filters
+	// (which can prevent index usage).
+	createdAfter := time.Unix(0, 0).UTC()
+	if query.CreationDateStart != 0 {
+		createdAfter = time.Unix(query.CreationDateStart, 0).UTC()
+	}
+
+	createdBefore := time.Date(
+		9999, 12, 31, 23, 59, 59, 0, time.UTC,
+	)
+	if query.CreationDateEnd != 0 {
+		createdBefore = time.Unix(query.CreationDateEnd, 0).UTC()
+	}
+
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		// We first count all payments to determine the total count
 		// if requested.
 		if query.CountTotal {
-			totalPayments, err := db.CountPayments(ctx)
+			totalPayments, err := db.CountFilteredPayments(
+				ctx, sqlc.CountFilteredPaymentsParams{
+					CreatedAfter:      createdAfter,
+					CreatedBefore:     createdBefore,
+					IncludeIncomplete: query.IncludeIncomplete,
+					IntentType: sqldb.SQLInt16(
+						PaymentIntentTypeBolt11,
+					),
+				},
+			)
 			if err != nil {
 				return fmt.Errorf("failed to count "+
 					"payments: %w", err)
@@ -767,28 +793,6 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 
 		queryFunc := func(ctx context.Context, lastID int64,
 			limit int32) ([]sqlc.FilterPaymentsRow, error) {
-
-			// Default date bounds: epoch start and far
-			// future. These are always provided so the SQL
-			// query uses simple comparisons instead of
-			// COALESCE (which causes type mismatch on
-			// Postgres) or OR-based optional filters (which
-			// can prevent index usage).
-			createdAfter := time.Unix(0, 0).UTC()
-			if query.CreationDateStart != 0 {
-				createdAfter = time.Unix(
-					query.CreationDateStart, 0,
-				).UTC()
-			}
-
-			createdBefore := time.Date(
-				9999, 12, 31, 23, 59, 59, 0, time.UTC,
-			)
-			if query.CreationDateEnd != 0 {
-				createdBefore = time.Unix(
-					query.CreationDateEnd, 0,
-				).UTC()
-			}
 
 			filterParams := sqlc.FilterPaymentsParams{
 				NumLimit:      limit,

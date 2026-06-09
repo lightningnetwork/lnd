@@ -48,6 +48,8 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/sweep"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -1055,19 +1057,12 @@ func validateBumpFeeRequest(in *BumpFeeRequest, estimator chainfee.Estimator) (
 	// Get the specified fee rate if set.
 	satPerKwOpt := fn.None[chainfee.SatPerKWeight]()
 
-	// We only allow using either the deprecated field or the new field.
-	switch {
-	case in.SatPerByte != 0 && in.SatPerVbyte != 0:
-		return satPerKwOpt, false, fmt.Errorf("either SatPerByte or " +
-			"SatPerVbyte should be set, but not both")
+	// The deprecated sat_per_byte field is no longer honored.
+	if in.SatPerByte != 0 {
+		return satPerKwOpt, false, lnrpc.ErrSatPerByteRemoved
+	}
 
-	case in.SatPerByte != 0:
-		satPerKw := chainfee.SatPerVByte(
-			in.SatPerByte,
-		).FeePerKWeight()
-		satPerKwOpt = fn.Some(satPerKw)
-
-	case in.SatPerVbyte != 0:
+	if in.SatPerVbyte != 0 {
 		satPerKw := chainfee.SatPerVByte(
 			in.SatPerVbyte,
 		).FeePerKWeight()
@@ -1242,6 +1237,14 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 	// - the budget of this input was not enough to RBF the existing tx.
 	params, existing, err := w.prepareSweepParams(in, *op, currentHeight)
 	if err != nil {
+		// Surface the removal of the deprecated sat_per_byte field as
+		// InvalidArgument.
+		if errors.Is(err, lnrpc.ErrSatPerByteRemoved) {
+			return nil, status.Error(
+				codes.InvalidArgument, err.Error(),
+			)
+		}
+
 		return nil, err
 	}
 

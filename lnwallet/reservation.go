@@ -902,11 +902,25 @@ func (r *ChannelReservation) Cancel() error {
 	return <-errChan
 }
 
+// populateChanConfigs maps the negotiated contribution configs into the partial
+// channel state. Aux funding callers need these values before the reservation
+// is fully completed and persisted.
+func (r *ChannelReservation) populateChanConfigs() {
+	if r.ourContribution != nil {
+		r.partialState.LocalChanCfg = r.ourContribution.toChanConfig()
+	}
+	if r.theirContribution != nil {
+		r.partialState.RemoteChanCfg = r.theirContribution.
+			toChanConfig()
+	}
+}
+
 // ChanState the current open channel state.
 func (r *ChannelReservation) ChanState() *channeldb.OpenChannel {
-	r.RLock()
-	defer r.RUnlock()
+	r.Lock()
+	defer r.Unlock()
 
+	r.populateChanConfigs()
 	return r.partialState
 }
 

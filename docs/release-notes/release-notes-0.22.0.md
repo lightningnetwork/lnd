@@ -55,6 +55,12 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10888) where
+  configuring a `protocol.custom-init` or `protocol.custom-nodeann` feature bit
+  that lnd already advertises by default caused startup to fail with a
+  `feature bit: X already set` error. Such a duplicate now yields an identical
+  feature vector and is treated as a no-op.
+
 # New Features
 
 ## Functional Enhancements
@@ -148,3 +154,4 @@
 * Boris Nagaev
 * Erick Cestari
 * Jared Tobin
+* Lrifton92

@@ -498,11 +498,6 @@ var sendCoinsCommand = cli.Command{
 				"used for fee estimation",
 		},
 		cli.Int64Flag{
-			Name:   "sat_per_byte",
-			Usage:  "Deprecated, use sat_per_vbyte instead.",
-			Hidden: true,
-		},
-		cli.Int64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
@@ -555,18 +550,9 @@ func sendCoins(ctx *cli.Context) error {
 		return nil
 	}
 
-	// Check that only the field sat_per_vbyte or the deprecated field
-	// sat_per_byte is used.
-	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
-	)
-	if err != nil {
-		return err
-	}
-
-	// Only fee rate flag or conf_target should be set, not both.
+	// Check that only one of sat_per_vbyte or conf_target is set, not both.
 	if _, err := checkNotBothSet(
-		ctx, feeRateFlag, "conf_target",
+		ctx, "sat_per_vbyte", "conf_target",
 	); err != nil {
 		return err
 	}
@@ -675,7 +661,7 @@ func sendCoins(ctx *cli.Context) error {
 		Addr:                  addr,
 		Amount:                amt,
 		TargetConf:            int32(ctx.Int64("conf_target")),
-		SatPerVbyte:           ctx.Uint64(feeRateFlag),
+		SatPerVbyte:           ctx.Uint64("sat_per_vbyte"),
 		SendAll:               ctx.Bool("sweepall"),
 		Label:                 ctx.String(txLabelFlag.Name),
 		MinConfs:              minConfs,
@@ -836,11 +822,6 @@ var sendManyCommand = cli.Command{
 				"confirm in, will be used for fee estimation",
 		},
 		cli.Int64Flag{
-			Name:   "sat_per_byte",
-			Usage:  "Deprecated, use sat_per_vbyte instead.",
-			Hidden: true,
-		},
-		cli.Int64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
@@ -868,18 +849,9 @@ func sendMany(ctx *cli.Context) error {
 		return err
 	}
 
-	// Check that only the field sat_per_vbyte or the deprecated field
-	// sat_per_byte is used.
-	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
-	)
-	if err != nil {
-		return err
-	}
-
-	// Only fee rate flag or conf_target should be set, not both.
+	// Check that only one of sat_per_vbyte or conf_target is set, not both.
 	if _, err := checkNotBothSet(
-		ctx, feeRateFlag, "conf_target",
+		ctx, "sat_per_vbyte", "conf_target",
 	); err != nil {
 		return err
 	}
@@ -896,7 +868,7 @@ func sendMany(ctx *cli.Context) error {
 	txid, err := client.SendMany(ctxc, &lnrpc.SendManyRequest{
 		AddrToAmount:          amountToAddr,
 		TargetConf:            int32(ctx.Int64("conf_target")),
-		SatPerVbyte:           ctx.Uint64(feeRateFlag),
+		SatPerVbyte:           ctx.Uint64("sat_per_vbyte"),
 		Label:                 ctx.String(txLabelFlag.Name),
 		MinConfs:              minConfs,
 		SpendUnconfirmed:      minConfs == 0,
@@ -1087,11 +1059,6 @@ var closeChannelCommand = cli.Command{
 				"lnd config will be used.",
 		},
 		cli.Int64Flag{
-			Name:   "sat_per_byte",
-			Usage:  "Deprecated, use sat_per_vbyte instead.",
-			Hidden: true,
-		},
-		cli.Int64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
@@ -1128,15 +1095,6 @@ func closeChannel(ctx *cli.Context) error {
 		return nil
 	}
 
-	// Check that only the field sat_per_vbyte or the deprecated field
-	// sat_per_byte is used.
-	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
-	)
-	if err != nil {
-		return err
-	}
-
 	channelPoint, err := parseChannelPoint(ctx)
 	if err != nil {
 		return err
@@ -1147,7 +1105,7 @@ func closeChannel(ctx *cli.Context) error {
 		ChannelPoint:    channelPoint,
 		Force:           ctx.Bool("force"),
 		TargetConf:      int32(ctx.Int64("conf_target")),
-		SatPerVbyte:     ctx.Uint64(feeRateFlag),
+		SatPerVbyte:     ctx.Uint64("sat_per_vbyte"),
 		DeliveryAddress: ctx.String("delivery_addr"),
 		MaxFeePerVbyte:  ctx.Uint64("max_fee_rate"),
 		// This makes sure that a coop close will also be executed if
@@ -1291,11 +1249,6 @@ var closeAllChannelsCommand = cli.Command{
 				"used for fee estimation",
 		},
 		cli.Int64Flag{
-			Name:   "sat_per_byte",
-			Usage:  "Deprecated, use sat_per_vbyte instead.",
-			Hidden: true,
-		},
-		cli.Int64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
@@ -1314,15 +1267,6 @@ func closeAllChannels(ctx *cli.Context) error {
 	ctxc := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
-
-	// Check that only the field sat_per_vbyte or the deprecated field
-	// sat_per_byte is used.
-	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
-	)
-	if err != nil {
-		return err
-	}
 
 	prompt := "Do you really want to close ALL channels? (yes/no): "
 	if !ctx.Bool("skip_confirmation") && !promptForConfirmation(prompt) {
@@ -1457,7 +1401,7 @@ func closeAllChannels(ctx *cli.Context) error {
 				},
 				Force:       !channel.GetActive(),
 				TargetConf:  int32(ctx.Int64("conf_target")),
-				SatPerVbyte: ctx.Uint64(feeRateFlag),
+				SatPerVbyte: ctx.Uint64("sat_per_vbyte"),
 			}
 
 			txidChan := make(chan string, 1)

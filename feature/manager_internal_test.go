@@ -291,3 +291,33 @@ func TestUpdateFeatureSets(t *testing.T) {
 		})
 	}
 }
+
+// TestManagerCustomFeatureAlreadyDefault asserts that configuring a custom
+// feature bit which lnd already advertises by default does not prevent the
+// feature manager from initializing. The resulting feature vector is identical,
+// so the duplicate must be treated as a no-op rather than a fatal error.
+//
+// See: https://github.com/lightningnetwork/lnd/issues/10883
+func TestManagerCustomFeatureAlreadyDefault(t *testing.T) {
+	t.Parallel()
+
+	// TLVOnionPayloadRequired is advertised by default in the Init set per
+	// testSetDesc, so configuring it as a custom feature for the same set
+	// duplicates an already-set bit. This previously failed startup with a
+	// "feature bit: ... already set" error.
+	cfg := Config{
+		CustomFeatures: map[Set][]lnwire.FeatureBit{
+			SetInit: {lnwire.TLVOnionPayloadRequired},
+		},
+	}
+
+	m, err := newManager(cfg, testSetDesc)
+	require.NoError(t, err)
+
+	// The required bit must still be advertised, and the duplicate must not
+	// have introduced its optional variant (which would form an invalid
+	// pairing). Check the exact bits via the raw vector.
+	rawInit := m.GetRaw(SetInit)
+	require.True(t, rawInit.IsSet(lnwire.TLVOnionPayloadRequired))
+	require.False(t, rawInit.IsSet(lnwire.TLVOnionPayloadOptional))
+}

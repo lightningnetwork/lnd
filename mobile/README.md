@@ -103,7 +103,7 @@ following commands:
 
 ```
 RUN apt-get install -y wget \
-    && wget -c https://golang.org/dl/go1.17.6.linux-amd64.tar.gz -O - \
+    && wget -c https://dl.google.com/go/go1.26.4.linux-amd64.tar.gz -O - \
     | tar -xz -C /usr/local
 ENV GOPATH=/go
 ENV PATH=$PATH:/usr/local/go/bin:/go/bin

@@ -71,4 +71,4 @@ require (
 // did not yet make it into the upstream repository.
 replace github.com/golang-migrate/migrate/v4 => github.com/lightninglabs/migrate/v4 v4.18.2-9023d66a-fork-pr-2.0.20251211093704-71c1eef09789
 
-go 1.25.10
+go 1.25.11

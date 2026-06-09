@@ -214,6 +214,6 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 // If you change this please also update docs/INSTALL.md and all other go.mod
 // files. The release build toolchain version is tracked separately by
 // GO_VERSION in Makefile.
-go 1.25.10
+go 1.25.11
 
 retract v0.0.2

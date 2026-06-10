@@ -6223,11 +6223,10 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 		}
 	}
 
-	// Obtain the pointer to the V1 channel graph. This will provide a
-	// consistent view of the graph due to bolt db's transactional model.
-	//
-	// TODO(elle): switch to a cross-version graph view when available.
-	graph := r.server.v1Graph
+	// Obtain the pointer to the cross-version channel graph. This will
+	// provide a consistent view of the graph due to bolt db's
+	// transactional model.
+	graph := r.server.graphDB
 
 	// First iterate through all the known nodes (connected or unconnected
 	// within the graph), collating their current state into the RPC

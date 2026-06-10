@@ -123,6 +123,10 @@
   in `SubscribeOnionMessages`, ensuring a nil reply path remains nil in the
   RPC response rather than being emitted as an empty struct.
 
+* LND now [fail BOLT-11 payments](https://github.com/lightning/bolts/pull/1243)
+  if any mandatory field (`p`, `h`, `s`, `n`) does not have the correct length
+  (52, 52, 52, 53) in the BOLT 11 invoice.
+
 ## Testing
 
 ## Database
@@ -148,3 +152,4 @@
 * Boris Nagaev
 * Erick Cestari
 * Jared Tobin
+* Pins

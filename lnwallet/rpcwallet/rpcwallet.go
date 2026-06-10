@@ -122,12 +122,12 @@ func (r *RPCKeyRing) NewAddress(addrType lnwallet.AddressType, change bool,
 //
 // NOTE: This method only signs with BIP49/84 keys.
 func (r *RPCKeyRing) SendOutputs(inputs fn.Set[wire.OutPoint],
-	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
-	minConfs int32, label string,
+	outputs []*wire.TxOut, changeAddr btcutil.Address,
+	feeRate chainfee.SatPerKWeight, minConfs int32, label string,
 	strategy basewallet.CoinSelectionStrategy) (*wire.MsgTx, error) {
 
 	tx, err := r.WalletController.SendOutputs(
-		inputs, outputs, feeRate, minConfs, label, strategy,
+		inputs, outputs, changeAddr, feeRate, minConfs, label, strategy,
 	)
 	if err != nil && err != basewallet.ErrTxUnsigned {
 		return nil, err

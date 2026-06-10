@@ -3413,8 +3413,11 @@ type SendManyRequest struct {
 	SpendUnconfirmed bool `protobuf:"varint,8,opt,name=spend_unconfirmed,json=spendUnconfirmed,proto3" json:"spend_unconfirmed,omitempty"`
 	// The strategy to use for selecting coins during sending many requests.
 	CoinSelectionStrategy CoinSelectionStrategy `protobuf:"varint,9,opt,name=coin_selection_strategy,json=coinSelectionStrategy,proto3,enum=lnrpc.CoinSelectionStrategy" json:"coin_selection_strategy,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// An optional address to send change to. If not set, a wallet-derived
+	// address is used.
+	ChangeAddress string `protobuf:"bytes,10,opt,name=change_address,json=changeAddress,proto3" json:"change_address,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SendManyRequest) Reset() {
@@ -3504,6 +3507,13 @@ func (x *SendManyRequest) GetCoinSelectionStrategy() CoinSelectionStrategy {
 	return CoinSelectionStrategy_STRATEGY_USE_GLOBAL_CONFIG
 }
 
+func (x *SendManyRequest) GetChangeAddress() string {
+	if x != nil {
+		return x.ChangeAddress
+	}
+	return ""
+}
+
 type SendManyResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The id of the transaction
@@ -3580,7 +3590,10 @@ type SendCoinsRequest struct {
 	// The strategy to use for selecting coins.
 	CoinSelectionStrategy CoinSelectionStrategy `protobuf:"varint,10,opt,name=coin_selection_strategy,json=coinSelectionStrategy,proto3,enum=lnrpc.CoinSelectionStrategy" json:"coin_selection_strategy,omitempty"`
 	// A list of selected outpoints as inputs for the transaction.
-	Outpoints     []*OutPoint `protobuf:"bytes,11,rep,name=outpoints,proto3" json:"outpoints,omitempty"`
+	Outpoints []*OutPoint `protobuf:"bytes,11,rep,name=outpoints,proto3" json:"outpoints,omitempty"`
+	// An optional address to send change to. If not set, a wallet-derived
+	// address is used.
+	ChangeAddress string `protobuf:"bytes,12,opt,name=change_address,json=changeAddress,proto3" json:"change_address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3691,6 +3704,13 @@ func (x *SendCoinsRequest) GetOutpoints() []*OutPoint {
 		return x.Outpoints
 	}
 	return nil
+}
+
+func (x *SendCoinsRequest) GetChangeAddress() string {
+	if x != nil {
+		return x.ChangeAddress
+	}
+	return ""
 }
 
 type SendCoinsResponse struct {
@@ -18654,7 +18674,7 @@ const file_lightning_proto_rawDesc = "" +
 	"\afee_sat\x18\x01 \x01(\x03R\x06feeSat\x123\n" +
 	"\x14feerate_sat_per_byte\x18\x02 \x01(\x03B\x02\x18\x01R\x11feerateSatPerByte\x12\"\n" +
 	"\rsat_per_vbyte\x18\x03 \x01(\x04R\vsatPerVbyte\x12'\n" +
-	"\x06inputs\x18\x04 \x03(\v2\x0f.lnrpc.OutPointR\x06inputs\"\xc1\x03\n" +
+	"\x06inputs\x18\x04 \x03(\v2\x0f.lnrpc.OutPointR\x06inputs\"\xe8\x03\n" +
 	"\x0fSendManyRequest\x12L\n" +
 	"\fAddrToAmount\x18\x01 \x03(\v2(.lnrpc.SendManyRequest.AddrToAmountEntryR\fAddrToAmount\x12\x1f\n" +
 	"\vtarget_conf\x18\x03 \x01(\x05R\n" +
@@ -18665,12 +18685,14 @@ const file_lightning_proto_rawDesc = "" +
 	"\x05label\x18\x06 \x01(\tR\x05label\x12\x1b\n" +
 	"\tmin_confs\x18\a \x01(\x05R\bminConfs\x12+\n" +
 	"\x11spend_unconfirmed\x18\b \x01(\bR\x10spendUnconfirmed\x12T\n" +
-	"\x17coin_selection_strategy\x18\t \x01(\x0e2\x1c.lnrpc.CoinSelectionStrategyR\x15coinSelectionStrategy\x1a?\n" +
+	"\x17coin_selection_strategy\x18\t \x01(\x0e2\x1c.lnrpc.CoinSelectionStrategyR\x15coinSelectionStrategy\x12%\n" +
+	"\x0echange_address\x18\n" +
+	" \x01(\tR\rchangeAddress\x1a?\n" +
 	"\x11AddrToAmountEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"&\n" +
 	"\x10SendManyResponse\x12\x12\n" +
-	"\x04txid\x18\x01 \x01(\tR\x04txid\"\xa9\x03\n" +
+	"\x04txid\x18\x01 \x01(\tR\x04txid\"\xd0\x03\n" +
 	"\x10SendCoinsRequest\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12\x16\n" +
 	"\x06amount\x18\x02 \x01(\x03R\x06amount\x12\x1f\n" +
@@ -18685,7 +18707,8 @@ const file_lightning_proto_rawDesc = "" +
 	"\x11spend_unconfirmed\x18\t \x01(\bR\x10spendUnconfirmed\x12T\n" +
 	"\x17coin_selection_strategy\x18\n" +
 	" \x01(\x0e2\x1c.lnrpc.CoinSelectionStrategyR\x15coinSelectionStrategy\x12-\n" +
-	"\toutpoints\x18\v \x03(\v2\x0f.lnrpc.OutPointR\toutpoints\"'\n" +
+	"\toutpoints\x18\v \x03(\v2\x0f.lnrpc.OutPointR\toutpoints\x12%\n" +
+	"\x0echange_address\x18\f \x01(\tR\rchangeAddress\"'\n" +
 	"\x11SendCoinsResponse\x12\x12\n" +
 	"\x04txid\x18\x01 \x01(\tR\x04txid\"h\n" +
 	"\x12ListUnspentRequest\x12\x1b\n" +

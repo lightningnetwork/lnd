@@ -1864,9 +1864,6 @@ func TestRbfCoopCloseAllowed(t *testing.T) {
 		rbfBit = lnwire.NewRawFeatureVector(
 			lnwire.RbfCoopCloseOptional,
 		)
-		stagingBit = lnwire.NewRawFeatureVector(
-			lnwire.RbfCoopCloseOptionalStaging,
-		)
 
 		overlayChan = chanstate.SimpleTaprootFeatureBit |
 			chanstate.TapscriptRootBit
@@ -1885,12 +1882,6 @@ func TestRbfCoopCloseAllowed(t *testing.T) {
 			allowed:  true,
 		},
 		{
-			name:     "both signal staging, plain channel",
-			peer:     newPeer(stagingBit, stagingBit),
-			chanType: chanstate.SingleFunderTweaklessBit,
-			allowed:  true,
-		},
-		{
 			name:     "both signal, simple taproot channel",
 			peer:     newPeer(rbfBit, rbfBit),
 			chanType: chanstate.SimpleTaprootFeatureBit,
@@ -1899,12 +1890,6 @@ func TestRbfCoopCloseAllowed(t *testing.T) {
 		{
 			name:     "both signal, aux (overlay) channel",
 			peer:     newPeer(rbfBit, rbfBit),
-			chanType: overlayChan,
-			allowed:  false,
-		},
-		{
-			name:     "both signal staging, aux (overlay) channel",
-			peer:     newPeer(stagingBit, stagingBit),
 			chanType: overlayChan,
 			allowed:  false,
 		},

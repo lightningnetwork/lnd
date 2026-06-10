@@ -41,7 +41,11 @@ func (h *heldHtlcSet) popAll(cb func(InterceptedForward)) {
 // equal or less then the specified pop height and removes them from the set.
 func (h *heldHtlcSet) popAutoFails(height uint32, cb func(InterceptedForward)) {
 	for key, fwd := range h.set {
-		if uint32(fwd.Packet().AutoFailHeight) > height {
+		// A zero or negative auto-fail height means no deadline was
+		// set for this forward. Never auto-fail it, otherwise it would
+		// be evicted on the first block after being held.
+		autoFailHeight := fwd.Packet().AutoFailHeight
+		if autoFailHeight <= 0 || uint32(autoFailHeight) > height {
 			continue
 		}
 

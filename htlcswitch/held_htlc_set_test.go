@@ -124,3 +124,51 @@ func TestHeldHtlcSetAutoFails(t *testing.T) {
 		},
 	)
 }
+
+// TestHeldHtlcSetAutoFailNoDeadline asserts that the auto-fail sweep only
+// pops forwards whose auto-fail height has been reached, and never pops
+// forwards without an auto-fail deadline (such as on-chain intercepts, which
+// cannot be failed back and must remain available to the interceptor until
+// they expire).
+func TestHeldHtlcSetAutoFailNoDeadline(t *testing.T) {
+	set := newHeldHtlcSet()
+
+	keyNoDeadline := models.CircuitKey{
+		ChanID: lnwire.NewShortChanIDFromInt(1),
+		HtlcID: 1,
+	}
+	keyWithDeadline := models.CircuitKey{
+		ChanID: lnwire.NewShortChanIDFromInt(1),
+		HtlcID: 2,
+	}
+
+	// A forward without an auto-fail height, as held by the on-chain
+	// interception flow.
+	require.NoError(t, set.push(keyNoDeadline, &interceptedForward{
+		htlc:   &lnwire.UpdateAddHTLC{},
+		packet: &htlcPacket{},
+	}))
+
+	require.NoError(t, set.push(keyWithDeadline, &interceptedForward{
+		htlc:           &lnwire.UpdateAddHTLC{},
+		packet:         &htlcPacket{},
+		autoFailHeight: 100,
+	}))
+
+	// Before the deadline, nothing should be popped.
+	set.popAutoFails(99, func(_ InterceptedForward) {
+		require.Fail(t, "unexpected fwd")
+	})
+	require.True(t, set.exists(keyNoDeadline))
+	require.True(t, set.exists(keyWithDeadline))
+
+	// At the deadline, only the forward with the deadline should be
+	// popped.
+	var popped int
+	set.popAutoFails(100, func(_ InterceptedForward) {
+		popped++
+	})
+	require.Equal(t, 1, popped)
+	require.True(t, set.exists(keyNoDeadline))
+	require.False(t, set.exists(keyWithDeadline))
+}

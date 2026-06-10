@@ -111,10 +111,6 @@ var defaultSetDesc = setDesc{
 	lnwire.ExperimentalAccountabilityOptional: {
 		SetNodeAnn: {}, // N
 	},
-	lnwire.RbfCoopCloseOptionalStaging: {
-		SetInit:    {}, // I
-		SetNodeAnn: {}, // N
-	},
 	lnwire.RbfCoopCloseOptional: {
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N

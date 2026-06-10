@@ -143,6 +143,10 @@
   invoice requests and invoices, and verify the signature on read so a decoded
   message with an invalid signature is rejected.
 
+* LND now [fail BOLT-11 payments](https://github.com/lightning/bolts/pull/1243)
+  if any mandatory field (`p`, `h`, `s`, `n`) does not have the correct length
+  (52, 52, 52, 53) in the BOLT 11 invoice.
+
 ## Testing
 
 * [BOLT 12 spec test vectors](https://github.com/lightningnetwork/lnd/pull/11001):
@@ -178,3 +182,4 @@
 * Erick Cestari
 * Jared Tobin
 * Nishant Bansal
+* Pins

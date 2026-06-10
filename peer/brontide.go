@@ -1105,8 +1105,7 @@ func (p *Brontide) rbfCoopCloseAllowed(chanType chanstate.ChannelType) bool {
 			p.LocalFeatures().HasFeature(bit)
 	}
 
-	featureNegotiated := bothHaveBit(lnwire.RbfCoopCloseOptional) ||
-		bothHaveBit(lnwire.RbfCoopCloseOptionalStaging)
+	featureNegotiated := bothHaveBit(lnwire.RbfCoopCloseOptional)
 
 	return featureNegotiated && !chanType.HasTapscriptRoot()
 }

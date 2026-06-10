@@ -4370,6 +4370,40 @@ func (lc *LightningChannel) SignNextCommitment(
 	}, nil
 }
 
+// BuildLastSignedRemoteCommitTx returns the serialized commitment transaction
+// most recently signed for the remote party. The remote commit chain holds
+// all commitments we have signed but the remote has not yet revoked. Its tip
+// is the newest entry — added by the last SignNextCommitment call — and is
+// only removed once the remote sends a RevokeAndAck for the preceding
+// commitment. On the error path the remote sends an Error instead of a
+// RevokeAndAck, so the tip is guaranteed to be the commitment the remote
+// rejected.
+//
+// This method is intended exclusively for error-path diagnostics. When the
+// remote rejects our CommitSig, logging our commit TX alongside the one
+// embedded in the peer's error message makes it possible to determine
+// immediately whether the two sides derived different transactions (state
+// divergence) or agreed on the same transaction but the signature still
+// failed (signing bug).
+func (lc *LightningChannel) BuildLastSignedRemoteCommitTx() ([]byte, error) {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	// tip() is the back of the list — the most recently signed
+	// commitment.
+	lastCommit := lc.commitChains.Remote.tip()
+	if lastCommit == nil {
+		return nil, nil
+	}
+
+	var buf bytes.Buffer
+	if err := lastCommit.txn.Serialize(&buf); err != nil {
+		return nil, fmt.Errorf("serializing remote commit tx: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
 // resignMusigCommit is used to resign a commitment transaction for taproot
 // channels when we need to retransmit a signature after a channel reestablish
 // message. Taproot channels use musig2, which means we must use fresh nonces

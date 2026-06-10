@@ -3,18 +3,16 @@ package itest
 import (
 	"time"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
-	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/onionmessage"
-	"github.com/lightningnetwork/lnd/record"
 	"github.com/stretchr/testify/require"
 )
 
 // testOnionMessage tests sending and receiving of the onion message type.
+//
+//nolint:ll
 func testOnionMessage(ht *lntest.HarnessTest) {
 	// Alice needs coins to fund a channel with Bob: onion message ingress
 	// is gated on the sender and receiver sharing at least one fully open
@@ -59,42 +57,14 @@ func testOnionMessage(ht *lntest.HarnessTest) {
 		Amt: btcutil.Amount(100_000),
 	})
 
-	// Build a valid onion message destined for Alice.
-	alicePubKey, err := btcec.ParsePubKey(alice.PubKey[:])
-	require.NoError(ht.T, err)
-
-	// Alice is the final destination, so her route data is empty.
-	aliceData := &record.BlindedRouteData{}
-
-	hops := []*sphinx.HopInfo{
-		{
-			NodePub: alicePubKey,
-			PlainText: onionmessage.EncodeBlindedRouteData(
-				ht.T, aliceData,
-			),
-		},
-	}
-
-	blindedPath := onionmessage.BuildBlindedPath(ht.T, hops)
-
-	// Add a custom payload to verify it's received correctly.
-	finalHopTLVs := []*lnwire.FinalHopTLV{
-		{
-			TLVType: lnwire.InvoiceRequestNamespaceType,
-			Value:   []byte{1, 2, 3},
-		},
-	}
-
-	onionMsg, _ := onionmessage.BuildOnionMessage(
-		ht.T, blindedPath, finalHopTLVs,
-	)
-
-	// Send it from Bob to Alice.
-	pathKey := blindedPath.SessionKey.PubKey().SerializeCompressed()
+	// Bob sends an onion message to Alice using the send API. The server
+	// handles pathfinding and blinded path construction automatically.
+	finalPayload := []byte{1, 2, 3}
 	bobMsg := &lnrpc.SendOnionMessageRequest{
-		Peer:    alice.PubKey[:],
-		PathKey: pathKey,
-		Onion:   onionMsg.OnionBlob,
+		Destination: alice.PubKey[:],
+		FinalHopTlvs: map[uint64][]byte{
+			uint64(lnwire.InvoiceRequestNamespaceType): finalPayload,
+		},
 	}
 	bob.RPC.SendOnionMessage(bobMsg)
 
@@ -103,6 +73,10 @@ func testOnionMessage(ht *lntest.HarnessTest) {
 	case msg := <-messages:
 		// Check we received the message from Bob.
 		require.Equal(ht, bob.PubKey[:], msg.Peer, "msg peer wrong")
+		require.Equal(
+			ht, finalPayload,
+			msg.CustomRecords[uint64(lnwire.InvoiceRequestNamespaceType)],
+		)
 
 	case <-time.After(lntest.DefaultTimeout):
 		ht.Fatalf("alice did not receive onion message: %v", bobMsg)

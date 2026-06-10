@@ -2895,6 +2895,137 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	require.NoError(t, err, "bob unable to process alice's revocation")
 }
 
+// TestChanSyncUpdateFeeRestartAfterRevoke tests a scenario where Alice (channel
+// initiator) sends update_fee and commit_sig, Bob responds with revoke_and_ack
+// and commit_sig, but Alice receives only the revoke_and_ack and then restarts
+// before Bob's commit_sig arrives.
+//
+// After restarting, channel reestablishment causes Bob to retransmit his
+// commit_sig. Alice should be able to validate it, but currently fails because
+// the fee update is not properly restored in her update log from disk.
+//
+// Root cause: during ReceiveRevocation, the fee update is persisted under
+// remoteUnsignedLocalUpdatesKey. However, restoreStateLogs only handles
+// HTLC-type updates (UpdateFulfillHTLC, UpdateFailHTLC, etc.) in that
+// restoration path and silently skips UpdateFee via "default: continue". So
+// after restart Alice's update log is empty, she computes the expected
+// commitment with the old fee rate, Bob's signature (covering the new fee
+// rate) fails verification, and LND incorrectly triggers a force close.
+func TestChanSyncUpdateFeeRestartAfterRevoke(t *testing.T) {
+	t.Parallel()
+
+	aliceChannel, bobChannel, err := CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err, "unable to create test channels")
+
+	// Alice is the channel initiator and sends an update_fee to Bob.
+	newFee := chainfee.SatPerKWeight(12500)
+	err = aliceChannel.UpdateFee(newFee)
+	require.NoError(t, err, "alice unable to update fee")
+	err = bobChannel.ReceiveUpdateFee(newFee)
+	require.NoError(t, err, "bob unable to receive fee update")
+
+	// Alice signs the next commitment, which includes the fee update.
+	aliceNewCommit, err := aliceChannel.SignNextCommitment(ctxb)
+	require.NoError(t, err, "alice unable to sign commitment")
+
+	// Bob receives and processes Alice's commitment.
+	err = bobChannel.ReceiveNewCommitment(aliceNewCommit.CommitSigs)
+	require.NoError(t, err, "bob unable to process alice's new commitment")
+
+	// Bob revokes his old commitment (producing a revoke_and_ack)...
+	bobRevocation, _, _, err := bobChannel.RevokeCurrentCommitment()
+	require.NoError(t, err, "bob unable to revoke commitment")
+
+	// ...and signs a new commitment for Alice.
+	_, err = bobChannel.SignNextCommitment(ctxb)
+	require.NoError(t, err, "bob unable to sign alice's commitment")
+
+	// Alice receives Bob's revoke_and_ack. This advances Bob's remote tail
+	// in Alice's view. During ReceiveRevocation, the still-unacknowledged
+	// fee update is written to disk under remoteUnsignedLocalUpdatesKey.
+	//
+	// The connection then drops before Alice receives Bob's commit_sig.
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	require.NoError(t, err, "alice unable to process bob's revocation")
+
+	// Alice restarts. Due to the bug, the fee update stored under
+	// remoteUnsignedLocalUpdatesKey is not restored into Alice's update
+	// log (UpdateFee is skipped by the default: continue in restoreStateLogs).
+	aliceChannel, err = restartChannel(aliceChannel)
+	require.NoError(t, err, "unable to restart alice channel")
+
+	// Both sides produce their ChannelReestablish messages.
+	aliceSyncMsg, err := aliceChannel.channelState.ChanSyncMsg()
+	require.NoError(t, err, "alice unable to produce chan sync msg")
+	bobSyncMsg, err := bobChannel.channelState.ChanSyncMsg()
+	require.NoError(t, err, "bob unable to produce chan sync msg")
+
+	// Alice processes Bob's ChannelReestablish. Bob's NextLocalCommitHeight
+	// is 2, and Alice's remoteTipHeight is 1, so 2 == 1+1: Alice concludes
+	// the remote side is in sync and has nothing to retransmit.
+	aliceMsgsToSend, _, _, err := aliceChannel.ProcessChanSyncMsg(
+		ctxb, bobSyncMsg,
+	)
+	require.NoError(t, err, "alice unable to process bob's chan sync msg")
+	require.Empty(t, aliceMsgsToSend,
+		"alice should have no messages to retransmit after reestablish",
+	)
+
+	// Bob processes Alice's ChannelReestablish. Alice's NextLocalCommitHeight
+	// is 1, which equals Bob's remoteTipHeight (1), so Bob detects he owes
+	// Alice a commitment signature and prepares to retransmit it.
+	bobMsgsToSend, _, _, err := bobChannel.ProcessChanSyncMsg(
+		ctxb, aliceSyncMsg,
+	)
+	require.NoError(t, err, "bob unable to process alice's chan sync msg")
+	require.Len(t, bobMsgsToSend, 1,
+		"bob should retransmit exactly one message (his commit_sig)",
+	)
+
+	retransmittedSig, ok := bobMsgsToSend[0].(*lnwire.CommitSig)
+	require.True(t, ok, "expected bob to retransmit a CommitSig")
+
+	// Alice receives Bob's retransmitted commit_sig. This should succeed:
+	// Alice must have the fee update in her update log to compute the
+	// correct commitment and verify Bob's signature.
+	//
+	// Currently this FAILS because the fee update is not restored after
+	// restart, so Alice uses the old fee rate and Bob's signature (covering
+	// the new fee rate) does not verify. In the link layer this causes
+	// LinkFailureForceClose — an incorrect force close of a healthy channel.
+	err = aliceChannel.ReceiveNewCommitment(&CommitSigs{
+		CommitSig: retransmittedSig.CommitSig,
+		HtlcSigs:  retransmittedSig.HtlcSigs,
+	})
+	require.NoError(t, err,
+		"alice should process bob's retransmitted commit_sig without "+
+			"error; fee update not restored after restart causes "+
+			"spurious force close",
+	)
+
+	// Complete the commit dance and verify the fee is locked in on both sides.
+	aliceRevocation, _, _, err := aliceChannel.RevokeCurrentCommitment()
+	require.NoError(t, err, "alice unable to revoke commitment")
+
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	require.NoError(t, err, "bob unable to process alice's revocation")
+
+	require.Equal(t, newFee,
+		chainfee.SatPerKWeight(
+			aliceChannel.channelState.LocalCommitment.FeePerKw,
+		),
+		"alice's fee rate was not properly locked in",
+	)
+	require.Equal(t, newFee,
+		chainfee.SatPerKWeight(
+			bobChannel.channelState.LocalCommitment.FeePerKw,
+		),
+		"bob's fee rate was not properly locked in",
+	)
+}
+
 // TestUpdateFeeReceiverSendsUpdate tests that receiving a fee update as channel
 // initiator fails, and that trying to initiate fee update as non-initiation
 // fails.

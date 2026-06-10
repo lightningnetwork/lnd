@@ -88,6 +88,13 @@ type AuxSweeper interface {
 	// should be allocated to sweep the given set of inputs. This can be
 	// used to add extra funds to the sweep transaction, for example to
 	// cover fees for additional outputs of custom channels.
+	//
+	// The returned amount must be non-negative, and the contribution
+	// must be additive across inputs: the result for a slice of inputs
+	// must equal the sum of the per-input results, so that callers may
+	// query the contribution of a single input by passing a singleton
+	// slice. The budget aggregator relies on this when pre-filtering
+	// inputs by their own budget plus their individual aux contribution.
 	ExtraBudgetForInputs(inputs []input.Input) fn.Result[btcutil.Amount]
 
 	// NotifyBroadcast is used to notify external callers of the broadcast

@@ -114,6 +114,16 @@
   is removed; if the RPC caller doesn't request a type, a default is derived
   from both peers' features and signaled explicitly.
 
+* BOLT 11 invoice decoding [now
+  fails](https://github.com/lightningnetwork/lnd/pull/10326) if any field with
+  a fixed length (`p`, `h`, `s`, `n`) does not have the correct length (52, 52,
+  52, 53), instead of skipping the field, and if the invoice has no payment
+  secret (`s`) and no blinded paths, as the BOLT 11 reader requirements
+  demand. The length rule was clarified in
+  [lightning/bolts#1243](https://github.com/lightning/bolts/pull/1243).
+  Stored invoices created by lnd versions before v0.9.0, which have no payment
+  secret, are still returned by the invoice RPCs.
+
 ## BOLT 12 (Offers)
 
 * [Initial BOLT 12 Offer codec](https://github.com/lightningnetwork/lnd/pull/10789):
@@ -195,3 +205,4 @@
 * Erick Cestari
 * Jared Tobin
 * Nishant Bansal
+* Pins

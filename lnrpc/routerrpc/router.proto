@@ -464,6 +464,13 @@ message SendToRouteRequest {
     base64.
     */
     map<uint64, bytes> first_hop_custom_records = 4;
+
+    /*
+    An optional MPP record to include with the payment. This allows sending
+    multi-path payments via SendToRoute by specifying the payment address
+    and total amount.
+    */
+    lnrpc.MPPRecord mpp_record = 5;
 }
 
 message ResetMissionControlRequest {

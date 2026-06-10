@@ -205,7 +205,6 @@ func middlewareRegistrationRestrictionTests(t *testing.T,
 	}}
 
 	for idx, tc := range testCases {
-		tc := tc
 
 		t.Run(fmt.Sprintf("%d", idx), func(tt *testing.T) {
 			invalidName := registerMiddleware(

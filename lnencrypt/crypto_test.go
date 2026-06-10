@@ -66,9 +66,7 @@ func TestEncryptDecryptPayload(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, payloadCase := range payloadCases {
-		payloadCase := payloadCase
 		for _, enc := range []*Encrypter{keyRingEnc, privKeyEnc} {
-			enc := enc
 
 			// First, we'll encrypt the passed payload with our
 			// scheme.

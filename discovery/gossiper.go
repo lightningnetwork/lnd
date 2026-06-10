@@ -1457,7 +1457,6 @@ func (d *AuthenticatedGossiper) sendRemoteBatch(ctx context.Context,
 	}
 
 	for _, msgChunk := range annBatch {
-		msgChunk := msgChunk
 
 		// With the syncers taken care of, we'll merge the sender map
 		// with the set of syncers, so we don't send out duplicate

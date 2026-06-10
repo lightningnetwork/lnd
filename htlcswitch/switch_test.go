@@ -441,7 +441,6 @@ func TestSwitchForwardMapping(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			testSwitchForwardMapping(
@@ -661,7 +660,6 @@ func TestSwitchSendHTLCMapping(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			testSwitchSendHtlcMapping(
@@ -1917,7 +1915,6 @@ func TestCircularForwards(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -2099,7 +2096,6 @@ func TestCheckCircularForward(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -2183,7 +2179,6 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			testSkipIneligibleLinksMultiHopForward(t, &test)
 		})
@@ -3371,7 +3366,6 @@ func TestHtlcNotifier(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			testHtcNotifier(
@@ -4864,7 +4858,6 @@ func TestSwitchForwardFailAlias(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			testSwitchForwardFailAlias(t, test.zeroConf)
@@ -5074,7 +5067,6 @@ func TestSwitchAliasFailAdd(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			testSwitchAliasFailAdd(
@@ -5263,7 +5255,6 @@ func TestSwitchHandlePacketForward(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			testSwitchHandlePacketForward(
@@ -5420,7 +5411,6 @@ func TestSwitchAliasInterceptFail(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			testSwitchAliasInterceptFail(t, test.zeroConf)

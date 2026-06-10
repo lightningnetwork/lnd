@@ -1920,7 +1920,7 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// Consume the "channel pending" update. This waits until the funding
 	// transaction was fully compiled.
 	updateResp = ht.ReceiveOpenChannelUpdate(chanUpdates)
-	upd, ok = updateResp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	_, ok = updateResp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
 	require.True(ht, ok)
 
 	err = finalTx.Deserialize(bytes.NewReader(finalizeRes.RawFinalTx))

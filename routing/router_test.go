@@ -165,6 +165,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 			&mockTrafficShaper{},
 		),
 	})
+	require.NoError(t, err, "unable to create router")
 	require.NoError(t, router.Start(), "unable to start router")
 
 	ctx := &testCtx{
@@ -1423,8 +1424,6 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	}
 
 	for failIndex, errorType := range testCases {
-		failIndex := failIndex
-		errorType := errorType
 
 		t.Run(fmt.Sprintf("%T", errorType), func(t *testing.T) {
 			// We'll modify the SendToSwitch method so that it
@@ -2086,7 +2085,6 @@ func TestInboundOutbound(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 
 		t.Run(tc.name, func(tt *testing.T) {
 			testInboundOutboundFee(
@@ -2692,7 +2690,6 @@ func TestNewRouteRequest(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()

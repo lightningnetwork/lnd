@@ -192,7 +192,6 @@ func genAfterMigration(afterBytes []byte) func(kvdb.RwTx) error {
 // final struct, but verifies that the field is properly removed.
 func TestTLVInvoiceMigration(t *testing.T) {
 	for _, test := range migrationTests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			migtest.ApplyMigration(
 				t,

@@ -91,7 +91,6 @@ func TestPrefAttachmentSelectEmptyGraph(t *testing.T) {
 	}
 
 	for _, chanGraph := range chanGraphs {
-		chanGraph := chanGraph
 		graph, err := chanGraph.genFunc(t)
 		require.NoError(t, err, "unable to create graph")
 
@@ -128,7 +127,6 @@ func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 	)
 
 	for _, chanGraph := range chanGraphs {
-		chanGraph := chanGraph
 		graph, err := chanGraph.genFunc(t)
 		require.NoError(t, err, "unable to create graph")
 
@@ -215,7 +213,6 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 	)
 
 	for _, chanGraph := range chanGraphs {
-		chanGraph := chanGraph
 		graph, err := chanGraph.genFunc(t)
 		require.NoError(t, err, "unable to create graph")
 
@@ -328,7 +325,6 @@ func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 	)
 
 	for _, chanGraph := range chanGraphs {
-		chanGraph := chanGraph
 		graph, err := chanGraph.genFunc(t)
 		require.NoError(t, err, "unable to create graph")
 

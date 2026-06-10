@@ -12,7 +12,6 @@ import (
 // that contains duplicate or unsorted ids returns an ErrUnsortedSIDs failure.
 func TestReplyChannelRangeUnsorted(t *testing.T) {
 	for _, test := range unsortedSidTests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			req := &ReplyChannelRange{
 				EncodingType: test.encType,
@@ -63,7 +62,6 @@ func TestReplyChannelRangeEmpty(t *testing.T) {
 	}
 
 	for _, test := range emptyChannelsTests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			req := ReplyChannelRange{
 				FirstBlockHeight: 1,
@@ -210,7 +208,6 @@ func TestReplyChannelRangeEncode(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -327,7 +324,6 @@ func TestReplyChannelRangeDecode(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 

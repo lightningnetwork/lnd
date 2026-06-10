@@ -341,7 +341,6 @@ func TestSerializeAndDeserializeRevLog(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -586,7 +585,6 @@ func TestPutRevocationLog(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		fullDB, err := MakeTestDB(t)
 		require.NoError(t, err)
@@ -686,7 +684,6 @@ func TestFetchRevocationLogCompatible(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		fullDB, err := MakeTestDB(t)
 		require.NoError(t, err)

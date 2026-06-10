@@ -55,7 +55,6 @@ func TestParseDerivationPath(t *testing.T) {
 	}}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		t.Run(tc.name, func(tt *testing.T) {
 			result, err := parseDerivationPath(tc.path)

@@ -345,7 +345,7 @@ func TestSecretKeyRingDerivation(t *testing.T) {
 
 				// If we attempt to query for this key, then we
 				// should get ErrCannotDerivePrivKey.
-				privKey, err = secretKeyRing.DerivePrivKey(
+				_, err = secretKeyRing.DerivePrivKey(
 					keyDesc,
 				)
 				if err != ErrCannotDerivePrivKey {

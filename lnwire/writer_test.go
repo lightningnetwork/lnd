@@ -457,7 +457,6 @@ func TestWriteTCPAddr(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			oldLen := buf.Len()
 
@@ -545,7 +544,6 @@ func TestWriteOnionAddr(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			oldLen := buf.Len()
 
@@ -618,7 +616,6 @@ func TestWriteNetAddrs(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			buf := new(bytes.Buffer)
 

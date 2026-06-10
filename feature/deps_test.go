@@ -150,7 +150,6 @@ var depTests = []depTest{
 // dependencies.
 func TestValidateDeps(t *testing.T) {
 	for _, test := range depTests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			testValidateDeps(t, test)
 		})

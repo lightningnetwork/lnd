@@ -46,16 +46,28 @@ linters:
     # Init functions are used by loggers throughout the codebase.
     - gochecknoinits
 
-    # Deprecated linters. See https://golangci-lint.run/usage/linters/.
-    - bodyclose
+    # contextcheck requires threading context.Context through many existing
+    # function signatures (including test harnesses), so we leave it off for
+    # now.
     - contextcheck
-    - nilerr
-    - noctx
-    - rowserrcheck
-    - sqlclosecheck
+
+    # tparallel requires adding t.Parallel() to a large number of existing
+    # subtests, which can surface shared-state races. Disabled until we can
+    # address it carefully.
     - tparallel
+
+    # unparam has a sizeable backlog of unused parameters to clean up before it
+    # can be enabled.
     - unparam
-    - wastedassign
+
+    # nilerr is too noisy for our code base: most reports are intentional error
+    # swallowing (documented with comments) or false positives where a boolean
+    # check is mistaken for an error check.
+    - nilerr
+
+    # noctx would only flag a couple of interface methods and a test helper that
+    # have no context to thread through, so it adds little value for now.
+    - noctx
 
     # Disable whitespace linters as it has conflict rules against our
     # contribution guidelines.
@@ -114,7 +126,6 @@ linters:
     - testifylint
     - perfsprint
     - inamedparam
-    - copyloopvar
     - tagalign
     - protogetter
     - revive

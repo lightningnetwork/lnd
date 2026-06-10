@@ -1148,8 +1148,6 @@ func (p *paymentLifecycle) reloadInflightAttempts(
 	}
 
 	for _, a := range payment.InFlightHTLCs() {
-		a := a
-
 		log.Infof("Resuming HTLC attempt %v for payment %v",
 			a.AttemptID, p.identifier)
 

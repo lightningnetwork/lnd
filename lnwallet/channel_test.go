@@ -387,7 +387,6 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	t.Parallel()
 
 	for _, tweakless := range []bool{true, false} {
-		tweakless := tweakless
 
 		t.Run(fmt.Sprintf("tweakless=%v", tweakless), func(t *testing.T) {
 			testAddSettleWorkflow(t, tweakless, 0, false)
@@ -1385,7 +1384,6 @@ func TestForceCloseDustOutput(t *testing.T) {
 
 	htlcAmount := lnwire.NewMSatFromSatoshis(500)
 
-	aliceAmount := aliceChannel.channelState.LocalCommitment.LocalBalance
 	bobAmount := bobChannel.channelState.LocalCommitment.LocalBalance
 
 	// Have Bobs' to-self output be below her dust limit and check
@@ -1410,8 +1408,7 @@ func TestForceCloseDustOutput(t *testing.T) {
 		t.Fatalf("Can't update the channel state: %v", err)
 	}
 
-	aliceAmount = aliceChannel.channelState.LocalCommitment.LocalBalance
-	bobAmount = bobChannel.channelState.LocalCommitment.RemoteBalance
+	aliceAmount := aliceChannel.channelState.LocalCommitment.LocalBalance
 
 	closeSummary, err := aliceChannel.ForceClose()
 	require.NoError(t, err, "unable to force close channel")
@@ -7106,7 +7103,6 @@ func TestChanReserve(t *testing.T) {
 	//	Bob:	5.0
 	htlcAmt := lnwire.NewMSatFromSatoshis(0.5 * btcutil.SatoshiPerBitcoin)
 	htlc, _ := createHTLC(aliceIndex, htlcAmt)
-	aliceIndex++
 	addAndReceiveHTLC(t, aliceChannel, bobChannel, htlc, nil)
 
 	// Force a state transition, making sure this HTLC is considered valid
@@ -7128,7 +7124,6 @@ func TestChanReserve(t *testing.T) {
 	//	Alice:	4.5
 	//	Bob:	5.0
 	htlc, _ = createHTLC(bobIndex, htlcAmt)
-	bobIndex++
 	_, err := bobChannel.AddHTLC(htlc, nil)
 	require.ErrorIs(t, err, ErrBelowChanReserve)
 
@@ -7141,7 +7136,6 @@ func TestChanReserve(t *testing.T) {
 	aliceChannel, bobChannel = setupChannels()
 
 	aliceIndex = 0
-	bobIndex = 0
 
 	// Now we'll add HTLC of 3.5 BTC to Alice's commitment, this should put
 	// Alice's balance at 1.5 BTC.
@@ -7162,7 +7156,6 @@ func TestChanReserve(t *testing.T) {
 	// balance dip below.
 	htlcAmt = lnwire.NewMSatFromSatoshis(1 * btcutil.SatoshiPerBitcoin)
 	htlc, _ = createHTLC(aliceIndex, htlcAmt)
-	aliceIndex++
 	_, err = aliceChannel.AddHTLC(htlc, nil)
 	require.ErrorIs(t, err, ErrBelowChanReserve)
 
@@ -7183,7 +7176,6 @@ func TestChanReserve(t *testing.T) {
 	//	Bob:	7.0
 	htlcAmt = lnwire.NewMSatFromSatoshis(2 * btcutil.SatoshiPerBitcoin)
 	htlc, preimage := createHTLC(aliceIndex, htlcAmt)
-	aliceIndex++
 	aliceHtlcIndex, err := aliceChannel.AddHTLC(htlc, nil)
 	require.NoError(t, err, "unable to add htlc")
 	bobHtlcIndex, err := bobChannel.ReceiveHTLC(htlc)
@@ -7219,7 +7211,6 @@ func TestChanReserve(t *testing.T) {
 	// the fee this is okay.
 	htlcAmt = lnwire.NewMSatFromSatoshis(1 * btcutil.SatoshiPerBitcoin)
 	htlc, _ = createHTLC(bobIndex, htlcAmt)
-	bobIndex++
 	addAndReceiveHTLC(t, bobChannel, aliceChannel, htlc, nil)
 
 	// Do a last state transition, which should succeed.
@@ -7623,7 +7614,7 @@ func TestChannelRestoreUpdateLogs(t *testing.T) {
 	// and remote commit chains are updated in an async fashion. Since the
 	// remote chain was updated with the latest state (since Bob sent the
 	// revocation earlier) we can keep advancing the remote commit chain.
-	aliceNewCommit, err = aliceChannel.SignNextCommitment(ctxb)
+	_, err = aliceChannel.SignNextCommitment(ctxb)
 	require.NoError(t, err, "unable to sign commitment")
 
 	// After Alice has signed this commitment, her local commitment will
@@ -8927,7 +8918,6 @@ func TestFetchParent(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			// Create a lightning channel with newly initialized
@@ -9274,7 +9264,6 @@ func TestEvaluateView(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			isInitiator := test.channelInitiator == lntypes.Local
@@ -10312,7 +10301,6 @@ func TestCreateBreachRetribution(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			tx := spendTx
 			if tc.noSpendTx {
@@ -10741,7 +10729,6 @@ func TestApplyCommitmentFee(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			//nolint:ll
 			balance, bufferAmt, commitFee, err := tc.channel.applyCommitFee(

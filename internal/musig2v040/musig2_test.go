@@ -1048,7 +1048,6 @@ func testMultiPartySign(t *testing.T, taprootTweak []byte,
 	// signer.
 	var wg sync.WaitGroup
 	for i, signCtx := range signers {
-		signCtx := signCtx
 
 		wg.Add(1)
 		go func(idx int, signer *Session) {

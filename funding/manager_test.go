@@ -3609,7 +3609,6 @@ func TestFundingManagerInvalidChanReserve(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -4355,7 +4354,6 @@ func TestFundingManagerFundMax(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -4464,7 +4462,6 @@ func TestGetUpfrontShutdownScript(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			var mockPeer testNode
@@ -4742,7 +4739,6 @@ func TestFundingManagerUpfrontShutdown(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			testUpfrontFailure(t, test.pkscript, test.expectErr)

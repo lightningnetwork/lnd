@@ -93,7 +93,6 @@ func TestEncodeDecodeTlv(t *testing.T) {
 	t.Parallel()
 
 	for _, testFailure := range onionFailures {
-		testFailure := testFailure
 		code := testFailure.Code().String()
 
 		t.Run(code, func(t *testing.T) {

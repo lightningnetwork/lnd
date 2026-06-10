@@ -47,7 +47,6 @@ func testEtcdFailover(ht *lntest.HarnessTest) {
 	}}
 
 	for _, test := range testCases {
-		test := test
 
 		success := ht.Run(test.name, func(t1 *testing.T) {
 			st := ht.Subtest(t1)

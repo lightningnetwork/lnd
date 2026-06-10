@@ -298,8 +298,6 @@ func (m *MempoolNotifier) notifySpent(spentInputs inputsWithTx) {
 
 	// Iterate the spent inputs to notify the subscribers concurrently.
 	for op, tx := range spentInputs {
-		op, tx := op, tx
-
 		m.wg.Add(1)
 		go notifyAll(tx, op)
 	}

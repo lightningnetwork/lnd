@@ -29,7 +29,6 @@ func TestGlobalLimiterDisabled(t *testing.T) {
 		{"both zero", 0, 0},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			lim := NewGlobalLimiter(tc.kbps, tc.burstBytes)
@@ -84,7 +83,6 @@ func TestPeerRateLimiterDisabled(t *testing.T) {
 		{"both zero", 0, 0},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := NewPeerRateLimiter(tc.kbps, tc.burstBytes)
@@ -217,7 +215,6 @@ func TestPeerRateLimiterConcurrentAllowN(t *testing.T) {
 	var wg sync.WaitGroup
 	var ops atomic.Uint64
 	for w := 0; w < workers; w++ {
-		w := w
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

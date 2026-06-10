@@ -737,7 +737,6 @@ func TestChooseDeliveryScript(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			script, err := chooseDeliveryScript(
@@ -817,7 +816,6 @@ func TestCustomShutdownScript(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			// Open a channel.
@@ -985,7 +983,6 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			params := createTestPeer(t)
@@ -1288,7 +1285,6 @@ func TestHandleNewPendingChannel(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		// Create a request for testing.
 		errChan := make(chan error, 1)
@@ -1373,7 +1369,6 @@ func TestHandleRemovePendingChannel(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		// Create a request for testing.
 		errChan := make(chan error, 1)

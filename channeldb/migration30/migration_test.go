@@ -78,7 +78,6 @@ func TestMigrateRevocationLog(t *testing.T) {
 	fmt.Printf("withAmtData is set to: %v\n", withAmtData)
 
 	for i, tc := range testCases {
-		tc := tc
 
 		// Construct a test case name that can be easily traced.
 		name := fmt.Sprintf("case_%d", i)
@@ -169,7 +168,6 @@ func TestValidateMigration(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		// Create a test db.
 		cdb, err := migtest.MakeDB(t)

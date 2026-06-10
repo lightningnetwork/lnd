@@ -603,8 +603,6 @@ func (lc *LightningChannel) extractPayDescs(feeRate chainfee.SatPerKWeight,
 		// persist state w.r.t to if forwarded or not, or can
 		// inadvertently trigger replays
 
-		htlc := htlc
-
 		auxLeaf := fn.FlatMapOption(
 			func(l CommitAuxLeaves) input.AuxTapLeaf {
 				leaves := l.OutgoingHtlcLeaves
@@ -1774,7 +1772,6 @@ func (lc *LightningChannel) restorePendingRemoteUpdates(
 		len(unsignedAckedUpdates))
 
 	for _, logUpdate := range unsignedAckedUpdates {
-		logUpdate := logUpdate
 
 		payDesc, err := lc.remoteLogUpdateToPayDesc(
 			&logUpdate, lc.updateLogs.Local, localCommitmentHeight,
@@ -1854,7 +1851,6 @@ func (lc *LightningChannel) restorePeerLocalUpdates(updates []channeldb.LogUpdat
 		len(updates))
 
 	for _, logUpdate := range updates {
-		logUpdate := logUpdate
 
 		payDesc, err := lc.localLogUpdateToPayDesc(
 			&logUpdate, lc.updateLogs.Remote,
@@ -1908,7 +1904,6 @@ func (lc *LightningChannel) restorePendingLocalUpdates(
 	// If we did have a dangling commit, then we'll examine which updates
 	// we included in that state and re-insert them into our update log.
 	for _, logUpdate := range pendingRemoteCommitDiff.LogUpdates {
-		logUpdate := logUpdate
 
 		payDesc, err := lc.logUpdateToPayDesc(
 			&logUpdate, lc.updateLogs.Remote, pendingHeight,
@@ -8189,7 +8184,6 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 	incomingResolutions := make([]IncomingHtlcResolution, 0, len(htlcs))
 	outgoingResolutions := make([]OutgoingHtlcResolution, 0, len(htlcs))
 	for _, htlc := range htlcs {
-		htlc := htlc
 
 		// We'll skip any HTLC's which were dust on the commitment
 		// transaction, as these don't have a corresponding output
@@ -9065,8 +9059,7 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 		return nil, err
 	}
 	if chanState.ChanType.IsTaproot() && whoseCommit.IsRemote() {
-		//nolint:ineffassign
-		localAnchor, remoteAnchor = remoteAnchor, localAnchor
+		localAnchor = remoteAnchor
 	}
 
 	// TODO(roasbeef): remote anchor not needed above

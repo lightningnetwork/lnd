@@ -334,7 +334,6 @@ func (c *mockChannel) createRemoteCommitTx(t *testing.T) {
 			SignMethod:    input.TaprootScriptSpendSignMethod,
 			ControlBlock:  ctrlBytes,
 		}
-		outputIndex++
 	}
 
 	txid := commitTxn.TxHash()
@@ -357,7 +356,6 @@ func (c *mockChannel) createRemoteCommitTx(t *testing.T) {
 			Hash:  txid,
 			Index: uint32(outputIndex),
 		}
-		outputIndex++
 	}
 
 	commitKeyRing := &lnwallet.CommitmentKeyRing{

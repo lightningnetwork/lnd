@@ -270,7 +270,6 @@ func (s *Server) ImportGraph(ctx context.Context,
 	}
 
 	for _, rpcEdge := range graph.Edges {
-		rpcEdge := rpcEdge
 
 		node1, err := parsePubKey(rpcEdge.Node1Pub)
 		if err != nil {

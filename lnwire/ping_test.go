@@ -19,7 +19,6 @@ func TestPingDecodeAllowsNoReplyPongSizes(t *testing.T) {
 	testCases := []uint16{65532, 65535}
 
 	for _, numPongBytes := range testCases {
-		numPongBytes := numPongBytes
 		testName := strconv.FormatUint(uint64(numPongBytes), 10)
 
 		t.Run(testName, func(t *testing.T) {

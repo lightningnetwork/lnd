@@ -5,15 +5,14 @@ import (
 	"fmt"
 	"testing"
 
-	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
 
 // makeBlindedPath creates a BlindedPath with the given number of hops for
-// testing. Each hop has a random blinded node pub and some cipher text.
-func makeBlindedPath(t *testing.T, numHops int) *sphinx.BlindedPath {
+// testing. Each hop has a random blinded node ID and some cipher text.
+func makeBlindedPath(t *testing.T, numHops int) *BlindedPath {
 	t.Helper()
 
 	introKey, err := randPubKey()
@@ -22,55 +21,48 @@ func makeBlindedPath(t *testing.T, numHops int) *sphinx.BlindedPath {
 	blindingKey, err := randPubKey()
 	require.NoError(t, err)
 
-	hops := make([]*sphinx.BlindedHopInfo, numHops)
+	hops := make([]BlindedHop, numHops)
 	for i := range hops {
 		nodePub, err := randPubKey()
 		require.NoError(t, err)
 
-		hops[i] = &sphinx.BlindedHopInfo{
-			BlindedNodePub: nodePub,
-			CipherText:     bytes.Repeat([]byte{byte(i + 1)}, 32),
-		}
+		hops[i].BlindedNodeID = nodePub
+		hops[i].EncryptedData = bytes.Repeat([]byte{byte(i + 1)}, 32)
 	}
 
-	return &sphinx.BlindedPath{
-		IntroductionPoint: introKey,
-		BlindingPoint:     blindingKey,
-		BlindedHops:       hops,
+	return &BlindedPath{
+		IntroductionNode: PubkeyIntro{Pubkey: introKey},
+		BlindingPoint:    blindingKey,
+		Hops:             hops,
 	}
 }
 
-// assertBlindedPathEqual compares two BlindedPaths for equality, checking each
-// field.
-func assertBlindedPathEqual(t *testing.T, expected,
-	actual *sphinx.BlindedPath) {
-
+// assertBlindedPathEqual compares two BlindedPaths field-by-field. Direct
+// require.Equal would also work, but the per-field assertions surface
+// localised mismatches for easier triage.
+func assertBlindedPathEqual(t *testing.T, expected, actual *BlindedPath) {
 	t.Helper()
 
-	require.True(
-		t,
-		expected.IntroductionPoint.IsEqual(actual.IntroductionPoint),
-		"IntroductionPoint mismatch",
+	require.Equal(
+		t, expected.IntroductionNode, actual.IntroductionNode,
+		"IntroductionNode mismatch",
 	)
-	require.True(
-		t, expected.BlindingPoint.IsEqual(actual.BlindingPoint),
+	require.Equal(
+		t, expected.BlindingPoint, actual.BlindingPoint,
 		"BlindingPoint mismatch",
 	)
-	require.Len(t, actual.BlindedHops, len(expected.BlindedHops))
+	require.Len(t, actual.Hops, len(expected.Hops))
 
-	for i, expectedHop := range expected.BlindedHops {
-		actualHop := actual.BlindedHops[i]
-
-		require.True(
-			t,
-			expectedHop.BlindedNodePub.IsEqual(
-				actualHop.BlindedNodePub,
-			),
-			"hop %d: BlindedNodePub mismatch", i,
+	for i := range expected.Hops {
+		require.Equal(
+			t, expected.Hops[i].BlindedNodeID,
+			actual.Hops[i].BlindedNodeID,
+			"hop %d: BlindedNodeID mismatch", i,
 		)
 		require.Equal(
-			t, expectedHop.CipherText, actualHop.CipherText,
-			"hop %d: CipherText mismatch", i,
+			t, expected.Hops[i].EncryptedData,
+			actual.Hops[i].EncryptedData,
+			"hop %d: EncryptedData mismatch", i,
 		)
 	}
 }
@@ -110,6 +102,29 @@ func TestOnionMessagePayloadRoundTrip(t *testing.T) {
 		assertBlindedPathEqual(t, original.ReplyPath, decoded.ReplyPath)
 		require.Empty(t, decoded.EncryptedData)
 		require.Empty(t, decoded.FinalHopTLVs)
+	})
+
+	t.Run("sciddir intro reply path", func(t *testing.T) {
+		t.Parallel()
+
+		path := makeBlindedPath(t, 2)
+		path.IntroductionNode = SciddirIntro{
+			Direction: 0x01,
+			SCID: [scidLen]byte{
+				0x00, 0x11, 0x22, 0x33,
+				0x44, 0x55, 0x66, 0x77,
+			},
+		}
+
+		original := &OnionMessagePayload{ReplyPath: path}
+
+		decoded := encodeAndDecode(t, original)
+
+		require.NotNil(t, decoded.ReplyPath)
+		require.IsType(
+			t, SciddirIntro{}, decoded.ReplyPath.IntroductionNode,
+		)
+		assertBlindedPathEqual(t, original.ReplyPath, decoded.ReplyPath)
 	})
 
 	t.Run("only encrypted data", func(t *testing.T) {
@@ -351,15 +366,15 @@ func TestOnionMessagePayloadEncodeReplyPathNoHops(t *testing.T) {
 	require.NoError(t, err)
 
 	payload := &OnionMessagePayload{
-		ReplyPath: &sphinx.BlindedPath{
-			IntroductionPoint: introKey,
-			BlindingPoint:     blindingKey,
-			BlindedHops:       nil,
+		ReplyPath: &BlindedPath{
+			IntroductionNode: PubkeyIntro{Pubkey: introKey},
+			BlindingPoint:    blindingKey,
+			Hops:             nil,
 		},
 	}
 
 	_, err = payload.Encode()
-	require.ErrorIs(t, err, ErrNoHops)
+	require.ErrorIs(t, err, ErrEmptyBlindedPath)
 }
 
 // TestOnionMessagePayloadEmpty tests that an empty payload roundtrips
@@ -442,35 +457,9 @@ func TestOnionMessagePayloadRoundTripQuickCheck(t *testing.T) {
 			require.Nil(t, decoded.ReplyPath)
 		} else {
 			require.NotNil(t, decoded.ReplyPath)
-			require.True(
-				t,
-				original.ReplyPath.IntroductionPoint.IsEqual(
-					decoded.ReplyPath.IntroductionPoint,
-				),
+			require.Equal(
+				t, original.ReplyPath, decoded.ReplyPath,
 			)
-			require.True(
-				t,
-				original.ReplyPath.BlindingPoint.IsEqual(
-					decoded.ReplyPath.BlindingPoint,
-				),
-			)
-			require.Len(
-				t, decoded.ReplyPath.BlindedHops,
-				len(original.ReplyPath.BlindedHops),
-			)
-			for i, hop := range original.ReplyPath.BlindedHops {
-				dHop := decoded.ReplyPath.BlindedHops[i]
-				require.True(
-					t,
-					hop.BlindedNodePub.IsEqual(
-						dHop.BlindedNodePub,
-					),
-				)
-				require.Equal(
-					t, hop.CipherText,
-					dHop.CipherText,
-				)
-			}
 		}
 
 		// Verify encrypted data.

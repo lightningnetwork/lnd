@@ -70,6 +70,9 @@
 
 ## BOLT Spec Updates
 
+* LND now [enforces](https://github.com/lightning/bolts/pull/1284) low-S
+  canonical signatures when the `n` field is present in a BOLT11 invoice.
+
 * The fundee now [enforces the BOLT-02 bound on
   `push_msat`](https://github.com/lightningnetwork/lnd/pull/10765),
   rejecting incoming `open_channel` messages where `push_msat` exceeds
@@ -89,3 +92,4 @@
 
 * Boris Nagaev
 * Erick Cestari
+* Pins

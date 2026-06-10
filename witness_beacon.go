@@ -106,6 +106,14 @@ func (p *preimageBeacon) SubscribeUpdates(
 		OutgoingAmount:       payload.FwdInfo.AmountToForward,
 		InOnionCustomRecords: payload.CustomRecords(),
 		InWireCustomRecords:  htlc.CustomRecords,
+
+		// An on-chain intercept cannot be failed back, only settled.
+		// Keep it available to the interceptor until the htlc expires
+		// on-chain, after which a settle can no longer win the race
+		// against the remote's timeout claim. Leaving this unset would
+		// cause the held forward to be evicted on the next block by
+		// the auto-fail sweep.
+		AutoFailHeight: int32(htlc.RefundTimeout),
 	}
 	copy(packet.OnionBlob[:], nextHopOnionBlob)
 

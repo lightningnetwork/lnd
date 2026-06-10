@@ -777,7 +777,8 @@ type RouteFeeRequest struct {
 	// timeout is reached. Note that the probing process itself can take longer
 	// than the timeout if the HTLC becomes delayed or stuck. Canceling the context
 	// of this call will not cancel the payment loop, the duration is only
-	// controlled by the timeout parameter.
+	// controlled by the timeout parameter. If the field is not set or is
+	// explicitly set to zero, the default value of 60 seconds will be applied.
 	Timeout uint32 `protobuf:"varint,4,opt,name=timeout,proto3" json:"timeout,omitempty"`
 	// The channel ids of the channels that are allowed for the first hop. If
 	// empty, any channel may be used. This field is applicable to both

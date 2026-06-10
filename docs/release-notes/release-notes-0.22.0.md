@@ -34,6 +34,16 @@
   the close transaction is actually broadcast, and
   `WaitingCloseChannel.ClosingTx` is never empty.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/issues/10892) where
+  HTLCs offered to the interceptor through the on-chain resolution flow were
+  evicted from the held set on the first new block, because their auto-fail
+  height was never set. A settle sent by the interceptor after that point
+  failed with `fwd not found` and the preimage never reached the witness
+  beacon, so the HTLC could be lost to the remote's timeout claim. On-chain
+  intercepts are now kept available to the interceptor until the htlc expires
+  on-chain, and the auto-fail sweep no longer evicts forwards that have no
+  deadline set.
+
 # New Features
 
 ## Functional Enhancements
@@ -89,3 +99,4 @@
 
 * Boris Nagaev
 * Erick Cestari
+* Kevin Piotrkowski

@@ -129,6 +129,22 @@
 
 ## Code Health
 
+* [Stopped signaling and
+  negotiating](https://github.com/lightningnetwork/lnd/pull/10891) the staging
+  feature bits for the RBF-based co-op close protocol (`rbf-coop-close-x`,
+  bits 160/161). The final feature bits (`rbf-coop-close`, bits 60/61) have
+  been signaled since `v0.20.0`, so the staging bits are no longer advertised
+  by `lnd` nor taken into account when deciding whether the RBF co-op close
+  protocol can be used. Peers that only advertise `rbf-coop-close-x` (`lnd`
+  `v0.19.x`) will fall back to the legacy co-op close flow; the bits are still
+  recognized on the wire, so no connection is rejected because of them. Note
+  that a co-op close that is already in flight with such a peer at the time of
+  the upgrade also falls back to the legacy flow on both ends, since the closer
+  is re-derived from the negotiated features when the peer reconnects. If the
+  RBF flow had already broadcast a closing transaction, that transaction can no
+  longer be fee-bumped through RBF and has to confirm at its current fee rate
+  or be bumped with a child transaction spending the local close output.
+
 ## Tooling and Documentation
 
 * [`dev.Dockerfile` now uses](https://github.com/lightningnetwork/lnd/pull/10903)
@@ -148,3 +164,4 @@
 * Boris Nagaev
 * Erick Cestari
 * Jared Tobin
+* Pins

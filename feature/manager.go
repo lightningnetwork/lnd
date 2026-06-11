@@ -224,7 +224,6 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.ExperimentalAccountabilityRequired)
 		}
 		if cfg.NoRbfCoopClose {
-			raw.Unset(lnwire.RbfCoopCloseOptionalStaging)
 			raw.Unset(lnwire.RbfCoopCloseOptional)
 		}
 		if cfg.NoOnionMessages {

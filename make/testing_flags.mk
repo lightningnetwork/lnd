@@ -10,6 +10,7 @@ COVER_PKG = $$($(GOCC) list -deps -tags="$(DEV_TAGS)" ./... | grep '$(PKG)')
 COVER_FLAGS = -coverprofile=coverage.txt -covermode=atomic -coverpkg=$(PKG)/...
 NUM_ITEST_TRANCHES = 4
 ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
+ITEST_TRANCHE_OFFSET = 0
 POSTGRES_START_DELAY = 5
 SHUFFLE_SEED = 0
 
@@ -27,6 +28,12 @@ endif
 # Give the ability to run the same tranche multiple times at the same time.
 ifneq ($(parallel),)
 ITEST_PARALLELISM = $(parallel)
+endif
+
+# Run only a subset of the total tranches, starting at this offset. This
+# allows a single itest run to be spread over multiple machines.
+ifneq ($(trancheoffset),)
+ITEST_TRANCHE_OFFSET = $(trancheoffset)
 endif
 
 # Set the seed for shuffling the test cases.

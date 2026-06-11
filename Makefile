@@ -263,12 +263,15 @@ itest: build-itest itest-only
 #? itest-race: Build and run integration tests in race detector mode
 itest-race: build-itest-race itest-only
 
-#? itest-parallel: Build and run integration tests in parallel mode, running up to ITEST_PARALLELISM test tranches in parallel (default 4)
-itest-parallel: clean-itest-logs build-itest db-instance
+#? itest-only-parallel: Run integration tests in parallel mode without re-building binaries, running up to ITEST_PARALLELISM test tranches in parallel starting at the tranche given by trancheoffset (default 0)
+itest-only-parallel: clean-itest-logs db-instance
 	@$(call print, "Running tests")
 	date
-	EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_parallel.sh $(ITEST_PARALLELISM) $(NUM_ITEST_TRANCHES) $(SHUFFLE_SEED) $(TEST_FLAGS) $(ITEST_FLAGS)
+	EXEC_SUFFIX=$(EXEC_SUFFIX) ITEST_TRANCHE_OFFSET=$(ITEST_TRANCHE_OFFSET) scripts/itest_parallel.sh $(ITEST_PARALLELISM) $(NUM_ITEST_TRANCHES) $(SHUFFLE_SEED) $(TEST_FLAGS) $(ITEST_FLAGS)
 	$(COLLECT_ITEST_COVERAGE)
+
+#? itest-parallel: Build and run integration tests in parallel mode, running up to ITEST_PARALLELISM test tranches in parallel (default 4)
+itest-parallel: build-itest itest-only-parallel
 
 #? itest-clean: Kill all running itest processes
 itest-clean:

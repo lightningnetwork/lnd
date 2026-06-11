@@ -42,6 +42,13 @@
   regardless of peer connectivity. Uptime is now seeded from the peer's
   actual connection state.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10897) in the
+  sweeper whereby inputs that receive an extra budget from an aux sweeper
+  (such as custom channel outputs, whose value is mostly carried off-chain)
+  were filtered against their own budget alone. This could permanently
+  exclude such inputs from sweeping even though their input set could
+  comfortably pay its fees.
+
 # New Features
 
 ## Functional Enhancements
@@ -116,3 +123,4 @@
 * bitromortac
 * Boris Nagaev
 * Erick Cestari
+* Jared Tobin

@@ -45,12 +45,20 @@
   channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
   `outgoing_chan_ids` field in `RouteFeeRequest`.
 
+* [`GetTransactions`](https://github.com/lightningnetwork/lnd/pull/10806)
+  now accepts an optional `label` field to filter returned transactions by
+  their label. Only transactions whose label exactly matches the provided
+  value are returned; omitting the field returns all transactions as before.
+
 ## lncli Additions
 
 * The `estimateroutefee` command now supports [restricting fee estimates to
   specific first-hop outgoing
   channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
   `--outgoing_chan_id` flag.
+
+* `listchaintxns` now accepts an optional `--label` flag to filter returned
+  transactions by their label.
 
 # Improvements
 
@@ -89,3 +97,4 @@
 
 * Boris Nagaev
 * Erick Cestari
+* saraogiraj94

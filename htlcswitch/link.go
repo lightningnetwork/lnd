@@ -329,6 +329,10 @@ type channelLink struct {
 	// sure we don't process any more updates.
 	failed bool
 
+	// failReason stores the formatted reason string from the most recent
+	// failf call, for diagnostic use in tests.
+	failReason string
+
 	// keystoneBatch represents a volatile list of keystones that must be
 	// written before attempting to sign the next commitment txn. These
 	// represent all the HTLC's forwarded to the link from the switch. Once
@@ -3765,6 +3769,7 @@ func (l *channelLink) failf(linkErr LinkFailureError, format string,
 	// Set failed, such that we won't process any more updates, and notify
 	// the peer about the failure.
 	l.failed = true
+	l.failReason = reason.Error()
 	l.cfg.OnChannelFailure(l.ChanID(), l.ShortChanID(), linkErr)
 }
 

@@ -3,6 +3,7 @@ package bolt12
 import (
 	"bytes"
 	"fmt"
+	"maps"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -12,6 +13,9 @@ import (
 // InvoiceRequest represents a BOLT 12 invoice_request message. It mirrors offer
 // fields from the original offer. It also adds payer-specific fields and a
 // Schnorr signature.
+//
+// An invoice request should be constructed from an offer (e.g., using
+// NewInvoiceRequestFromOffer) unless it is a spontaneous invoice request.
 type InvoiceRequest struct {
 	// OfferChains are the chains that the mirrored offer is valid for.
 	OfferChains tlv.OptionalRecordT[tlv.TlvType2, ChainsRecord]
@@ -212,4 +216,64 @@ func DecodeInvoiceRequest(data []byte) (*InvoiceRequest, error) {
 	ir.decodedTLVs = tm
 
 	return &ir, nil
+}
+
+// NewInvoiceRequestFromOffer constructs a new InvoiceRequest by copying
+// (mirroring) all fields from the provided Offer. It assigns the payer ID and
+// payer metadata; the caller should subsequently sign the request.
+//
+// Per "MUST copy all fields from the offer (including unknown fields)", the
+// offer's unknown TLVs are carried via the decodedTLVs sidecar so they are
+// signed and mirrored into the invoice.
+//
+// chain is the genesis hash the payer intends to pay on. invreq_chain is set
+// only when chain is not Bitcoin mainnet (absent defaults to mainnet); writer
+// validation enforces that it is one of the offer's chains.
+func NewInvoiceRequestFromOffer(offer *Offer, payerID *btcec.PublicKey,
+	metadata []byte, chain [32]byte) *InvoiceRequest {
+
+	ir := &InvoiceRequest{
+		OfferChains:         offer.OfferChains,
+		OfferMetadata:       offer.OfferMetadata,
+		OfferCurrency:       offer.OfferCurrency,
+		OfferAmount:         offer.OfferAmount,
+		OfferDescription:    offer.OfferDescription,
+		OfferFeatures:       offer.OfferFeatures,
+		OfferAbsoluteExpiry: offer.OfferAbsoluteExpiry,
+		OfferPaths:          offer.OfferPaths,
+		OfferIssuer:         offer.OfferIssuer,
+		OfferQuantityMax:    offer.OfferQuantityMax,
+		OfferIssuerID:       offer.OfferIssuerID,
+
+		// Carry the offer's unknown signed-range TLVs. Known offer
+		// types appear in the map with nil values and are skipped when
+		// the sidecar is merged, so this re-emits only the unknowns and
+		// never duplicates the typed fields copied above.
+		decodedTLVs: maps.Clone(offer.decodedTLVs),
+	}
+
+	// Set invreq_chain only for non-bitcoin chains; for bitcoin mainnet the
+	// spec says SHOULD omit, and an absent invreq_chain defaults back to
+	// mainnet on the read side.
+	if chain != bitcoinMainnetGenesisHash {
+		ir.InvreqChain = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType80, [32]byte](chain),
+		)
+	}
+
+	if len(metadata) > 0 {
+		ir.InvreqMetadata = tlv.SomeRecordT(
+			tlv.RecordT[tlv.TlvType0, tlv.Blob]{
+				Val: metadata,
+			},
+		)
+	}
+
+	if payerID != nil {
+		ir.InvreqPayerID = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType88](payerID),
+		)
+	}
+
+	return ir
 }

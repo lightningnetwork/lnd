@@ -39,6 +39,12 @@ const (
 // correct range.
 var ErrNotFinalPayload = errors.New("final hop payloads type should be >= 64")
 
+// ErrUnknownEvenType is returned when an onion message payload contains an
+// unknown even TLV type. BOLT 4 requires the whole message to be ignored in
+// this case, because even types are "must understand".
+var ErrUnknownEvenType = errors.New("onion message payload contains unknown " +
+	"even tlv type")
+
 // OnionMessagePayload contains the contents of an onion message payload.
 type OnionMessagePayload struct {
 	// ReplyPath contains a blinded path that can be used to respond to an
@@ -174,11 +180,6 @@ func (o *OnionMessagePayload) Decode(r io.Reader) (map[tlv.Type][]byte, error) {
 	// recognized. We'll just directly read these out and allow higher
 	// application layers to deal with them.
 	for tlvType, tlvBytes := range tlvMap {
-		// Skip any tlvs that are not in our range.
-		if tlvType < finalHopPayloadStart {
-			continue
-		}
-
 		// Skip any tlvs that have been recognized in our decoding.
 		// DecodeWithParsedTypesP2P stores a nil entry for known types
 		// that it decoded into a dedicated field above, and the raw
@@ -189,7 +190,25 @@ func (o *OnionMessagePayload) Decode(r io.Reader) (map[tlv.Type][]byte, error) {
 			continue
 		}
 
-		// Add the payload to our message's final hop payloads.
+		// BOLT 4: if the onionmsg_tlv contains unknown even types, the
+		// whole message must be ignored, since even types are
+		// "must understand". This applies regardless of the type range,
+		// so we check it before skipping types outside the final hop
+		// range.
+		if tlvType%2 == 0 {
+			return tlvMap, fmt.Errorf("%w: %v", ErrUnknownEvenType,
+				tlvType)
+		}
+
+		// Skip any unknown odd tlvs outside the final hop payload
+		// range: they are not addressed to the final hop's application
+		// layer, and odd types are safe to ignore.
+		if tlvType < finalHopPayloadStart {
+			continue
+		}
+
+		// Add the unknown odd final hop payload to our message so that
+		// higher application layers can deal with it.
 		payload := &FinalHopTLV{
 			TLVType: tlvType,
 			Value:   tlvBytes,

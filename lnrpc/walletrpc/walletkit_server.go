@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -90,6 +91,10 @@ var (
 			Action: "read",
 		}},
 		"/walletrpc.WalletKit/PublishTransaction": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
+		"/walletrpc.WalletKit/SubmitPackage": {{
 			Entity: "onchain",
 			Action: "write",
 		}},
@@ -693,6 +698,80 @@ func (w *WalletKit) PublishTransaction(ctx context.Context,
 	}
 
 	return &PublishResponse{}, nil
+}
+
+// packageSubmitter is the subset of the wallet controller that can submit a
+// package of transactions for atomic validation/acceptance. The
+// btcwallet-backed WalletController implements it; other controllers do not.
+type packageSubmitter interface {
+	SubmitPackage([]*wire.MsgTx,
+		*float64) (*btcjson.SubmitPackageResult, error)
+}
+
+// SubmitPackage submits a package of related transactions (topologically
+// sorted, unconfirmed parents first and the child last) to the wallet's chain
+// backend for atomic validation and acceptance. This lets a zero-fee v3/TRUC
+// parent confirm via its fee-paying CPFP child without the caller needing a
+// separate connection to the chain backend.
+func (w *WalletKit) SubmitPackage(_ context.Context,
+	req *SubmitPackageRequest) (*SubmitPackageResponse, error) {
+
+	if len(req.RawTxs) == 0 {
+		return nil, fmt.Errorf("must provide at least one transaction")
+	}
+
+	txns := make([]*wire.MsgTx, 0, len(req.RawTxs))
+	for _, raw := range req.RawTxs {
+		tx := &wire.MsgTx{}
+		if err := tx.Deserialize(bytes.NewReader(raw)); err != nil {
+			return nil, fmt.Errorf("unable to decode tx: %w", err)
+		}
+
+		txns = append(txns, tx)
+	}
+
+	submitter, ok := w.cfg.Wallet.(packageSubmitter)
+	if !ok {
+		return nil, fmt.Errorf("wallet backend does not support " +
+			"package submission")
+	}
+
+	// An unset max fee rate uses the node's default; an explicit value
+	// (including 0, meaning no limit) is passed through unchanged.
+	result, err := submitter.SubmitPackage(txns, req.MaxFeeRate)
+	if err != nil {
+		return nil, err
+	}
+
+	// Some backends (e.g. the no-chain source or mocks) may return a nil
+	// result; guard against a nil dereference below.
+	if result == nil {
+		return nil, fmt.Errorf("nil result from wallet backend")
+	}
+
+	numResults := len(result.TxResults)
+	resp := &SubmitPackageResponse{
+		PackageMsg: result.PackageMsg,
+		TxResults:  make(map[string]*SubmitPackageTxResult, numResults),
+		ReplacedTransactions: make(
+			[]string, 0, len(result.ReplacedTransactions),
+		),
+	}
+	for _, replaced := range result.ReplacedTransactions {
+		resp.ReplacedTransactions = append(
+			resp.ReplacedTransactions, replaced.String(),
+		)
+	}
+	for wtxid, txResult := range result.TxResults {
+		entry := &SubmitPackageTxResult{Txid: txResult.TxID.String()}
+		if txResult.Error != nil {
+			entry.Error = *txResult.Error
+		}
+
+		resp.TxResults[wtxid] = entry
+	}
+
+	return resp, nil
 }
 
 // RemoveTransaction attempts to remove the transaction and all of its

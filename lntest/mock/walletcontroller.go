@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -238,6 +239,18 @@ func (w *WalletController) DecorateInputs(*psbt.Packet, bool) error {
 func (w *WalletController) PublishTransaction(tx *wire.MsgTx, _ string) error {
 	w.PublishedTransactions <- tx
 	return nil
+}
+
+// SubmitPackage publishes each transaction in the package individually,
+// mirroring PublishTransaction.
+func (w *WalletController) SubmitPackage(txns []*wire.MsgTx,
+	_ *float64) (*btcjson.SubmitPackageResult, error) {
+
+	for _, tx := range txns {
+		w.PublishedTransactions <- tx
+	}
+
+	return &btcjson.SubmitPackageResult{}, nil
 }
 
 // GetTransactionDetails currently does nothing.

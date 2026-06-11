@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -439,6 +440,18 @@ type WalletController interface {
 	// backend. It takes an optional label which will save a label with the
 	// published transaction.
 	PublishTransaction(tx *wire.MsgTx, label string) error
+
+	// SubmitPackage submits a package of related transactions
+	// (topologically sorted, unconfirmed parents first and the child
+	// last) to the chain backend for atomic validation and acceptance.
+	// This lets a zero-fee v3/TRUC parent be accepted via its fee-paying
+	// CPFP child, which a standalone broadcast rejects. maxFeeRate is an
+	// optional per-transaction fee-rate ceiling in BTC/kvB (nil leaves the
+	// node default unchanged). Backends without a mempool (e.g. neutrino)
+	// broadcast each transaction individually and rely on P2P 1p1c package
+	// relay instead.
+	SubmitPackage(txns []*wire.MsgTx,
+		maxFeeRate *float64) (*btcjson.SubmitPackageResult, error)
 
 	// LabelTransaction adds a label to a transaction. If the tx already
 	// has a label, this call will fail unless the overwrite parameter

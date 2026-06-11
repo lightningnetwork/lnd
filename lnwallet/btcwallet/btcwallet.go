@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -1228,6 +1229,43 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	}
 
 	return mapRpcclientError(err)
+}
+
+// SubmitPackage submits a package of related transactions (topologically
+// sorted, parents first and child last) for atomic validation and acceptance.
+//
+// For bitcoind/btcd backends it uses the node's submitpackage RPC, which lets
+// a zero-fee v3/TRUC parent be accepted via its fee-paying CPFP child (which
+// sendrawtransaction rejects on its own). For neutrino, which has no mempool
+// and no submitpackage, it broadcasts each transaction over the P2P network
+// and relies on the connected full node's 1p1c package relay; a synthetic
+// success result is returned since a light client cannot report per-tx package
+// acceptance.
+func (b *BtcWallet) SubmitPackage(txns []*wire.MsgTx,
+	maxFeeRate *float64) (*btcjson.SubmitPackageResult, error) {
+
+	if b.chain.BackEnd() == "neutrino" {
+		for _, tx := range txns {
+			if err := b.PublishTransaction(tx, ""); err != nil {
+				return nil, err
+			}
+		}
+
+		results := make(
+			map[string]btcjson.SubmitPackageTxResult, len(txns),
+		)
+		for _, tx := range txns {
+			results[tx.WitnessHash().String()] =
+				btcjson.SubmitPackageTxResult{TxID: tx.TxHash()}
+		}
+
+		return &btcjson.SubmitPackageResult{
+			PackageMsg: "success",
+			TxResults:  results,
+		}, nil
+	}
+
+	return b.chain.SubmitPackage(txns, maxFeeRate)
 }
 
 // LabelTransaction adds a label to a transaction. If the tx already

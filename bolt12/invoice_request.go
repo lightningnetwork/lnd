@@ -134,11 +134,13 @@ func (ir *InvoiceRequest) allRecordProducers() []tlv.RecordProducer {
 	return p
 }
 
-// Encode serialises the invoice request via the PureTLVMessage shape.
-// The per-record canonicalisation is pure: a struct mutated and
-// re-encoded reflects the new bytes without any sidecar rehydration
-// step.
+// Encode validates the invoice request per writer requirements and serialises
+// it via the PureTLVMessage shape.
 func (ir *InvoiceRequest) Encode() ([]byte, error) {
+	if err := ValidateInvoiceRequestWrite(ir); err != nil {
+		return nil, fmt.Errorf("validate invoice request: %w", err)
+	}
+
 	var buf bytes.Buffer
 	if err := lnwire.EncodePureTLVMessage(ir, &buf); err != nil {
 		return nil, err

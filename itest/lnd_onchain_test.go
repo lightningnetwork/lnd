@@ -898,3 +898,138 @@ func testListSweeps(ht *lntest.HarnessTest) {
 	}
 	ht.AssertNumSweeps(alice, req4, 0)
 }
+
+// testSendCoinsFeerate tests that we can create transaction with a specified
+// feerate in either sats_per_vbyte and sats_per_kweight.
+func testSendCoinsFeerate(ht *lntest.HarnessTest) {
+	alice := ht.NewNode("Alice", nil)
+	// Send Alice enough coins to be able to call SendCoins.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+	minerAddr := alice.RPC.NewAddress(
+		&lnrpc.NewAddressRequest{
+			Type: lnrpc.AddressType_TAPROOT_PUBKEY,
+		},
+	).Address
+
+	sweepReq := &lnrpc.SendCoinsRequest{
+		Addr:        minerAddr,
+		SatPerVbyte: 2,
+		Amount:      10001,
+	}
+	_ = alice.RPC.SendCoins(sweepReq)
+
+	// We'll mine a block which should include the sweep transaction we
+	// generated above.
+	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+	sweepTx := block.Transactions[1].TxHash()
+
+	// Calculate the feerate of the funding transaction in sat_per_vbyte.
+	rawTx := ht.Miner().GetRawTransaction(sweepTx)
+	feerate := ht.CalculateFeeRateSatPerVByte(rawTx.MsgTx())
+
+	// Allow some deviation because weight estimates during tx generation
+	// are estimates (ECDSA signature size estimate).
+	require.Equal(ht, int64(sweepReq.SatPerVbyte), feerate)
+
+	// Send coins with a defined feerate in sat_per_kw.
+	sweepReq = &lnrpc.SendCoinsRequest{
+		Addr:     minerAddr,
+		SatPerKw: 5000,
+		Amount:   10002,
+	}
+	_ = alice.RPC.SendCoins(sweepReq)
+
+	// We'll mine a block which should include the sweep transaction we
+	// generated above.
+	block = ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+	sweepTx = block.Transactions[1].TxHash()
+
+	// Calculate the feerate of the funding transaction in sat_per_kw.
+	rawTx = ht.Miner().GetRawTransaction(sweepTx)
+	feerate = ht.CalculateFeeRateSatPerKWeight(rawTx.MsgTx())
+
+	// Allow some deviation because weight estimates during tx generation
+	// are estimates (ECDSA signature size estimate).
+	require.InEpsilon(ht, int64(sweepReq.SatPerKw), feerate, 0.01)
+
+	// Try sending coins with both feerate options sat_per_kw and
+	// sat_per_vbyte specified.
+	sweepReq = &lnrpc.SendCoinsRequest{
+		Addr:        minerAddr,
+		SatPerKw:    500,
+		SatPerVbyte: 2,
+		SendAll:     true,
+	}
+
+	// This should fail because only one feerate option makes sense.
+	err := alice.RPC.SendCoinsAssertErr(sweepReq)
+	require.Error(ht, err, "either SatPerKW or SatPerVByte should "+
+		"be set, but not both")
+}
+
+// testSendManyFeerate tests that we can create transaction with many outputs
+// with a specified feerate in either sats_per_vbyte and sats_per_kweight.
+func testSendManyFeerate(ht *lntest.HarnessTest) {
+	alice := ht.NewNode("Alice", nil)
+	// Send Alice enough coins to be able to call SendCoins.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+	addr1 := ht.Miner().NewMinerAddress().String()
+	addr2 := ht.Miner().NewMinerAddress().String()
+
+	addrAmtMap := map[string]int64{
+		addr1: 50000,
+		addr2: 50000,
+	}
+
+	// We create the transaction specifying the feerate in sats_per_vbyte.
+	sendManyReq := &lnrpc.SendManyRequest{
+		AddrToAmount: addrAmtMap,
+		SatPerVbyte:  2,
+	}
+	_ = alice.RPC.SendMany(sendManyReq)
+
+	// We'll mine a block which should include the sweep transaction we
+	// generated above.
+	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+	sweepTx := block.Transactions[1].TxHash()
+
+	// Calculate the feerate of the funding transaction in sat_per_vbyte.
+	rawTx := ht.Miner().GetRawTransaction(sweepTx)
+	feerate := ht.CalculateFeeRateSatPerVByte(rawTx.MsgTx())
+
+	// Allow some deviation because weight estimates during tx generation
+	// are estimates (ECDSA signature size estimate).
+	require.InEpsilon(ht, int64(sendManyReq.SatPerVbyte), feerate, 0.01)
+
+	// We create the transaction specifying the feerate in
+	// sats_per_kweight.
+	sendManyReq = &lnrpc.SendManyRequest{
+		AddrToAmount: addrAmtMap,
+		SatPerKw:     2000,
+	}
+	_ = alice.RPC.SendMany(sendManyReq)
+
+	// We'll mine a block which should include the sweep transaction we
+	// generated above.
+	block = ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+	sweepTx = block.Transactions[1].TxHash()
+
+	// Calculate the feerate of the funding transaction in sats_per_kweight.
+	rawTx = ht.Miner().GetRawTransaction(sweepTx)
+	feerate = ht.CalculateFeeRateSatPerKWeight(rawTx.MsgTx())
+
+	// Allow some deviation because weight estimates during tx generation
+	// are estimates (ECDSA signature size estimate).
+	require.InEpsilon(ht, int64(sendManyReq.SatPerKw), feerate, 0.01)
+
+	// Try sending coins with both feerate options sat_per_kw and
+	// sat_per_vbyte specified.
+	sendManyReq = &lnrpc.SendManyRequest{
+		AddrToAmount: addrAmtMap,
+		SatPerKw:     2000,
+		SatPerVbyte:  3,
+	}
+
+	// This should fail because only one feerate option makes sense.
+	alice.RPC.SendManyAssertErr(sendManyReq)
+}

@@ -3,7 +3,6 @@ package lnrpc
 import (
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"sort"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -55,6 +54,12 @@ var (
 	RESTJsonUnmarshalOpts = &protojson.UnmarshalOptions{
 		AllowPartial: false,
 	}
+
+	// ErrSatPerByteRemoved is returned when a request still sets the
+	// deprecated sat_per_byte field. The field was deprecated in v0.13.0
+	// in favor of sat_per_vbyte and is no longer honored.
+	ErrSatPerByteRemoved = errors.New("sat_per_byte is no longer " +
+		"supported, use sat_per_vbyte instead")
 )
 
 // RPCTransaction returns a rpc transaction.
@@ -227,28 +232,13 @@ func GetChannelOutPoint(chanPoint *ChannelPoint) (*OutPoint, error) {
 	}, nil
 }
 
-// CalculateFeeRate uses either satPerByte or satPerVByte, but not both, from a
-// request to calculate the fee rate. It provides compatibility for the
-// deprecated field, satPerByte. Once the field is safe to be removed, the
-// check can then be deleted.
-func CalculateFeeRate(satPerByte, satPerVByte uint64, targetConf uint32,
+// CalculateFeeRate uses satPerVByte from a request to calculate the fee rate.
+func CalculateFeeRate(satPerVByte uint64, targetConf uint32,
 	estimator chainfee.Estimator) (chainfee.SatPerKWeight, error) {
 
 	var feeRate chainfee.SatPerKWeight
 
-	// We only allow using either the deprecated field or the new field.
-	if satPerByte != 0 && satPerVByte != 0 {
-		return feeRate, fmt.Errorf("either SatPerByte or " +
-			"SatPerVByte should be set, but not both")
-	}
-
-	// Default to satPerVByte, and overwrite it if satPerByte is set.
 	satPerKw := chainfee.SatPerKVByte(satPerVByte * 1000).FeePerKWeight()
-	if satPerByte != 0 {
-		satPerKw = chainfee.SatPerKVByte(
-			satPerByte * 1000,
-		).FeePerKWeight()
-	}
 
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for this transaction.

@@ -172,6 +172,8 @@ linters:
         - google.golang.org/protobuf
         - github.com/lightningnetwork/lnd/sqldb
         - github.com/lightningnetwork/lightning-onion
+        - github.com/btcsuite/btcwallet
+        - github.com/btcsuite/btcd
       replace-local: true
 
     gosec:

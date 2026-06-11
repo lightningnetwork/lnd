@@ -6506,7 +6506,7 @@
         },
         "reply_path": {
           "$ref": "#/definitions/lnrpcBlindedPath",
-          "description": "reply_path is the blinded path that should be used when replying to a\nreceived message."
+          "description": "reply_path is the blinded path that should be used when replying to a\nreceived message. The introduction_node field is passed through verbatim\nfrom the wire. It may carry either the 33-byte SEC1 compressed pubkey\nform or the 9-byte sciddir form. The sciddir form consists of a 1-byte\ndirection selector (0x00 or 0x01) followed by an 8-byte short channel ID.\nSubscribers that intend to reply resolve the sciddir form against their\nlocal channel graph."
         },
         "encrypted_recipient_data": {
           "type": "string",

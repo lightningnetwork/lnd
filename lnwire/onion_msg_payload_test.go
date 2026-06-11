@@ -301,6 +301,49 @@ func TestOnionMessagePayloadRoundTrip(t *testing.T) {
 		require.Equal(t, tlv.Type(65), decoded.FinalHopTLVs[0].TLVType)
 		require.Empty(t, decoded.FinalHopTLVs[0].Value)
 	})
+
+	t.Run("unknown even final hop type rejected", func(t *testing.T) {
+		t.Parallel()
+
+		// Type 70 is in the final hop range but is an unknown even
+		// type, so BOLT 4 requires the message to be ignored.
+		original := &OnionMessagePayload{
+			FinalHopTLVs: []*FinalHopTLV{
+				{
+					TLVType: 70,
+					Value:   []byte("must-understand"),
+				},
+			},
+		}
+
+		encoded, err := original.Encode()
+		require.NoError(t, err)
+
+		decoded := NewOnionMessagePayload()
+		_, err = decoded.Decode(bytes.NewReader(encoded))
+		require.ErrorIs(t, err, ErrUnknownEvenType)
+	})
+
+	t.Run("unknown even type below range rejected", func(t *testing.T) {
+		t.Parallel()
+
+		// An unknown even type outside the final hop range must also be
+		// rejected: the must-understand rule applies regardless of the
+		// tlv range. We build the stream directly because the encoder's
+		// FinalHopTLV.Validate would reject a sub-64 type.
+		val := []byte("data")
+		record := tlv.MakePrimitiveRecord(tlv.Type(6), &val)
+
+		stream, err := tlv.NewStream(record)
+		require.NoError(t, err)
+
+		var b bytes.Buffer
+		require.NoError(t, stream.Encode(&b))
+
+		decoded := NewOnionMessagePayload()
+		_, err = decoded.Decode(bytes.NewReader(b.Bytes()))
+		require.ErrorIs(t, err, ErrUnknownEvenType)
+	})
 }
 
 // TestFinalHopTLVValidate tests that FinalHopTLV.Validate correctly rejects

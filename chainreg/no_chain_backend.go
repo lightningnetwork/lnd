@@ -221,6 +221,15 @@ func (n *NoChainSource) TestMempoolAccept([]*wire.MsgTx,
 	return nil, nil
 }
 
+// SubmitPackage is a stub implementation of the chain.Interface method for
+// NoChainSource; there is no chain backend, so it always returns
+// errNotImplemented.
+func (n *NoChainSource) SubmitPackage([]*wire.MsgTx,
+	*float64) (*btcjson.SubmitPackageResult, error) {
+
+	return nil, errNotImplemented
+}
+
 func (n *NoChainSource) MapRPCErr(err error) error {
 	return err
 }

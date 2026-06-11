@@ -208,6 +208,20 @@ service WalletKit {
     */
     rpc PublishTransaction (Transaction) returns (PublishResponse);
 
+    /* lncli: `wallet submitpackage`
+    SubmitPackage submits a package of related transactions (topologically
+    sorted, unconfirmed parents first and the child last) for atomic
+    validation and acceptance. Real package submission is only performed by
+    the bitcoind backend, via the node's submitpackage RPC, which lets a
+    zero-fee v3/TRUC parent be accepted via its fee-paying CPFP child. The
+    btcd backend does not support submitpackage and returns an error. A
+    neutrino light client has no mempool and cannot atomically accept a
+    package; as a best effort it broadcasts the transactions individually and
+    relies on a peer's 1p1c package relay, returning an unverified result
+    (not a package-accept verdict).
+    */
+    rpc SubmitPackage (SubmitPackageRequest) returns (SubmitPackageResponse);
+
     /* lncli: `wallet removetx`
     RemoveTransaction attempts to remove the provided transaction from the
     internal transaction store of the wallet.
@@ -799,6 +813,48 @@ message PublishResponse {
     TODO(roasbeef): map to a proper enum type
     */
     string publish_error = 1;
+}
+
+message SubmitPackageRequest {
+    /*
+    The raw serialized transactions forming the package, topologically sorted
+    with unconfirmed parents first and the child last.
+    */
+    repeated bytes raw_txs = 1;
+
+    /*
+    Optional per-transaction fee-rate ceiling in sat/vByte (mapped onto the
+    submitpackage maxfeerate). When unset the node's default is used; an
+    explicit 0 means no limit, which is required for a CPFP child whose
+    standalone feerate is high.
+    */
+    optional uint64 sat_per_vbyte = 2;
+}
+
+message SubmitPackageTxResult {
+    // The transaction id (txid) in hex.
+    string txid = 1;
+
+    // If non-empty, the reason this transaction was rejected.
+    string error = 2;
+
+    /*
+    If non-empty, the wtxid (in hex) of a transaction with the same txid but a
+    different witness that was already in the mempool; the submitted
+    transaction was ignored as a duplicate (witness replacement).
+    */
+    string other_wtxid = 3;
+}
+
+message SubmitPackageResponse {
+    // A summary message; "success" when the whole package was accepted.
+    string package_msg = 1;
+
+    // Per-transaction results keyed by wtxid (hex).
+    map<string, SubmitPackageTxResult> tx_results = 2;
+
+    // The txids of transactions evicted via package RBF.
+    repeated string replaced_transactions = 3;
 }
 
 message RemoveTransactionResponse {

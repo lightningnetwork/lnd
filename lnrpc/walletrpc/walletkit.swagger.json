@@ -832,6 +832,39 @@
         ]
       }
     },
+    "/v2/wallet/tx/package": {
+      "post": {
+        "summary": "lncli: `wallet submitpackage`\nSubmitPackage submits a package of related transactions (topologically\nsorted, unconfirmed parents first and the child last) for atomic\nvalidation and acceptance. Real package submission is only performed by\nthe bitcoind backend, via the node's submitpackage RPC, which lets a\nzero-fee v3/TRUC parent be accepted via its fee-paying CPFP child. The\nbtcd backend does not support submitpackage and returns an error. A\nneutrino light client has no mempool and cannot atomically accept a\npackage; as a best effort it broadcasts the transactions individually and\nrelies on a peer's 1p1c package relay, returning an unverified result\n(not a package-accept verdict).",
+        "operationId": "WalletKit_SubmitPackage",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcSubmitPackageResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/walletrpcSubmitPackageRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
     "/v2/wallet/utxos": {
       "post": {
         "summary": "ListUnspent returns a list of all utxos spendable by the wallet with a\nnumber of confirmations between the specified minimum and maximum. By\ndefault, all utxos are listed. To list only the unconfirmed utxos, set\nthe unconfirmed_only to true.",
@@ -2177,6 +2210,64 @@
             "format": "int64"
           },
           "description": "The indices of signed inputs."
+        }
+      }
+    },
+    "walletrpcSubmitPackageRequest": {
+      "type": "object",
+      "properties": {
+        "raw_txs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The raw serialized transactions forming the package, topologically sorted\nwith unconfirmed parents first and the child last."
+        },
+        "sat_per_vbyte": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Optional per-transaction fee-rate ceiling in sat/vByte (mapped onto the\nsubmitpackage maxfeerate). When unset the node's default is used; an\nexplicit 0 means no limit, which is required for a CPFP child whose\nstandalone feerate is high."
+        }
+      }
+    },
+    "walletrpcSubmitPackageResponse": {
+      "type": "object",
+      "properties": {
+        "package_msg": {
+          "type": "string",
+          "description": "A summary message; \"success\" when the whole package was accepted."
+        },
+        "tx_results": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/walletrpcSubmitPackageTxResult"
+          },
+          "description": "Per-transaction results keyed by wtxid (hex)."
+        },
+        "replaced_transactions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The txids of transactions evicted via package RBF."
+        }
+      }
+    },
+    "walletrpcSubmitPackageTxResult": {
+      "type": "object",
+      "properties": {
+        "txid": {
+          "type": "string",
+          "description": "The transaction id (txid) in hex."
+        },
+        "error": {
+          "type": "string",
+          "description": "If non-empty, the reason this transaction was rejected."
+        },
+        "other_wtxid": {
+          "type": "string",
+          "description": "If non-empty, the wtxid (in hex) of a transaction with the same txid but a\ndifferent witness that was already in the mempool; the submitted\ntransaction was ignored as a duplicate (witness replacement)."
         }
       }
     },

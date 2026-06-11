@@ -34,6 +34,10 @@
   the close transaction is actually broadcast, and
   `WaitingCloseChannel.ClosingTx` is never empty.
 
+* [Fixed `ListPayments`](https://github.com/lightningnetwork/lnd/pull/10874)
+  so `count_total_payments` respects the `creation_date_start` and
+  `creation_date_end` filters.
+
 # New Features
 
 ## Functional Enhancements

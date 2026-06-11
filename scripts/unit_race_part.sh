@@ -51,11 +51,21 @@ HEAVY_PKGS=(
   "${PKG_PREFIX}/peer"
 )
 
+# Capture the package list via command substitution so a go list
+# failure aborts the script (set -e -o pipefail) instead of silently
+# yielding an empty list and a vacuously green test run.
+pkg_list=$(go list -tags="${DEV_TAGS}" -deps "${PKG_PREFIX}/..." | \
+  grep "${PKG_PREFIX}" | grep -v "/vendor/")
+
 all_pkgs=()
 while IFS= read -r pkg; do
   all_pkgs+=("${pkg}")
-done < <(go list -tags="${DEV_TAGS}" -deps "${PKG_PREFIX}/..." | \
-  grep "${PKG_PREFIX}" | grep -v "/vendor/")
+done <<< "${pkg_list}"
+
+if (( ${#all_pkgs[@]} == 0 )); then
+  echo "go list produced no packages" >&2
+  exit 1
+fi
 
 # Only treat heavy packages that actually appear in the package list as
 # heavy, so a stale entry above cannot select a nonexistent package.

@@ -300,6 +300,13 @@ unit-race: $(BTCD_BIN)
 	@$(call print, "Running unit race tests.")
 	env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)
 
+#? unit-race-parallel: Run one tranche of the unit tests in race detector mode (tranche=<index> tranches=<total>)
+unit-race-parallel: $(BTCD_BIN)
+	@$(call print, "Running unit race tests tranche ${tranche} of ${tranches}.")
+	PKG="$(PKG)" DEV_TAGS="$(DEV_TAGS)" \
+		scripts/unit_race_part.sh $(tranche) $(tranches) \
+		-tags="$(DEV_TAGS) $(RPC_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
+
 #? unit-bench: Run benchmark tests
 unit-bench: $(BTCD_BIN)
 	@$(call print, "Running benchmark tests.")

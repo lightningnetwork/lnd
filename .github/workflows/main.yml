@@ -43,6 +43,11 @@ env:
   # `make lint` to see where else it needs to be updated as well).
   GO_VERSION: 1.26.4
 
+  # NUM_UNIT_RACE_TRANCHES defines the number of tranches the race detector
+  # unit tests are split into, each tranche running on its own runner. Must
+  # match the tranche list in the unit-race matrix.
+  NUM_UNIT_RACE_TRANCHES: 4
+
 jobs:
   static-checks:
     name: Static Checks
@@ -212,9 +217,6 @@ jobs:
           - unit tags="kvdb_sqlite"
           - unit tags="test_db_sqlite"
           - unit tags="test_db_postgres"
-          - unit-race
-          - unit-race tags="test_db_sqlite"
-          - unit-race tags="test_db_postgres"
           - unit-module
 
     steps:
@@ -265,6 +267,60 @@ jobs:
           format: 'golang'
           parallel: true
 
+
+  ########################
+  # run unit tests in race detector mode
+  ########################
+  unit-race:
+    name: Unit race (${{ matrix.flavor.name }}, ${{ matrix.tranche }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Allow other tests in the matrix to continue if one fails.
+      fail-fast: false
+      matrix:
+        # This list must contain NUM_UNIT_RACE_TRANCHES entries.
+        tranche: [0, 1, 2, 3]
+        flavor:
+          - name: unit-race
+            args: ''
+          - name: unit-race-sqlite
+            args: tags="test_db_sqlite"
+          - name: unit-race-postgres
+            args: tags="test_db_postgres"
+
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
+
+      - name: Fetch and rebase on ${{ github.base_ref }}
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/rebase
+
+      - name: Git checkout fuzzing seeds
+        uses: actions/checkout@v5
+        with:
+          repository: lightninglabs/lnd-fuzz
+          path: lnd-fuzz
+
+      - name: Rsync fuzzing seeds
+        run: rsync -a --ignore-existing lnd-fuzz/ ./
+
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: ./.github/actions/setup-go
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+          key-prefix: unit-test
+
+      - name: Install bitcoind
+        run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
+
+      - name: Run ${{ matrix.flavor.name }} tranche ${{ matrix.tranche }}
+        run: make unit-race-parallel tranche=${{ matrix.tranche }} tranches=${{ env.NUM_UNIT_RACE_TRANCHES }} ${{ matrix.flavor.args }}
 
   ########################
   # run integration tests with TRANCHES

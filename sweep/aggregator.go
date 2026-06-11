@@ -232,12 +232,35 @@ func (b *BudgetAggregator) filterInputs(inputs InputsMap) InputsMap {
 		// https://github.com/lightning/bolts/blob/master/03-transactions.md#appendix-a-expected-weights
 		wu := lntypes.VByte(input.InputSize).ToWU() + witnessSize
 
+		// If an aux sweeper is set, it may contribute an extra budget
+		// to any input set this input becomes part of. The input's own
+		// budget may be tiny (e.g. for custom channel outputs whose
+		// value is mostly carried off-chain), so without accounting
+		// for the extra budget here we'd filter such inputs out
+		// permanently, even though their input set could comfortably
+		// pay its fees.
+		extraBudget, err := fn.MapOptionZ(
+			b.auxSweeper,
+			func(aux AuxSweeper) fn.Result[btcutil.Amount] {
+				return aux.ExtraBudgetForInputs(
+					[]input.Input{pi.Input},
+				)
+			},
+		).Unpack()
+		if err != nil {
+			log.Errorf("Unable to fetch extra budget for "+
+				"input=%v: %v", op, err)
+
+			continue
+		}
+		budget := pi.params.Budget + extraBudget
+
 		// Skip inputs that has too little budget.
 		minFee := minFeeRate.FeeForWeight(wu)
-		if pi.params.Budget < minFee {
+		if budget < minFee {
 			log.Warnf("Skipped input=%v: has budget=%v, but the "+
 				"min fee requires %v (feerate=%v), size=%v", op,
-				pi.params.Budget, minFee,
+				budget, minFee,
 				minFeeRate.FeePerVByte(), wu.ToVB())
 
 			continue
@@ -248,10 +271,10 @@ func (b *BudgetAggregator) filterInputs(inputs InputsMap) InputsMap {
 			chainfee.SatPerKWeight(0),
 		)
 		startingFee := startingFeeRate.FeeForWeight(wu)
-		if pi.params.Budget < startingFee {
+		if budget < startingFee {
 			log.Errorf("Skipped input=%v: has budget=%v, but the "+
 				"starting fee requires %v (feerate=%v), "+
-				"size=%v", op, pi.params.Budget, startingFee,
+				"size=%v", op, budget, startingFee,
 				startingFeeRate.FeePerVByte(), wu.ToVB())
 
 			continue

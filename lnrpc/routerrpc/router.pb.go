@@ -2834,7 +2834,8 @@ type ForwardHtlcInterceptRequest struct {
 	// The onion blob for the next hop
 	OnionBlob []byte `protobuf:"bytes,9,opt,name=onion_blob,json=onionBlob,proto3" json:"onion_blob,omitempty"`
 	// The block height at which this htlc will be auto-failed to prevent the
-	// channel from force-closing.
+	// channel from force-closing. For on-chain htlcs, this field is the
+	// settlement deadline instead and no automatic fail-back is attempted.
 	AutoFailHeight int32 `protobuf:"varint,10,opt,name=auto_fail_height,json=autoFailHeight,proto3" json:"auto_fail_height,omitempty"`
 	// The custom records of the peer's incoming p2p wire message.
 	InWireCustomRecords map[uint64][]byte `protobuf:"bytes,11,rep,name=in_wire_custom_records,json=inWireCustomRecords,proto3" json:"in_wire_custom_records,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`

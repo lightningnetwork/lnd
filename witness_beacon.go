@@ -64,20 +64,19 @@ func (p *preimageBeacon) SubscribeUpdates(
 	nextHopOnionBlob []byte) (*contractcourt.WitnessSubscription, error) {
 
 	p.Lock()
-	defer p.Unlock()
-
 	clientID := p.clientCounter
 	client := &preimageSubscriber{
 		updateChan: make(chan lntypes.Preimage, 10),
 		quit:       make(chan struct{}),
 	}
 
-	p.subscribers[p.clientCounter] = client
+	p.subscribers[clientID] = client
 
 	p.clientCounter++
+	p.Unlock()
 
 	srvrLog.Debugf("Creating new witness beacon subscriber, id=%v",
-		p.clientCounter)
+		clientID)
 
 	sub := &contractcourt.WitnessSubscription{
 		WitnessUpdates: client.updateChan,
@@ -116,6 +115,8 @@ func (p *preimageBeacon) SubscribeUpdates(
 
 	err := p.interceptor(fwd)
 	if err != nil {
+		sub.CancelSubscription()
+
 		return nil, err
 	}
 

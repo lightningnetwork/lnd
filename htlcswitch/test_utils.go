@@ -150,6 +150,39 @@ type testLightningChannel struct {
 type testChannelConfig struct {
 	signerFactory func(*btcec.PrivateKey) input.Signer
 	chanOpts      []lnwallet.ChannelOpt
+	shape         testChannelShape
+}
+
+// testChannelShape holds the channel type, initial fee rate and per-side
+// channel parameters createTestChannel opens the channel with.
+type testChannelShape struct {
+	chanType channeldb.ChannelType
+	feePerKw chainfee.SatPerKWeight
+
+	aliceDustLimit, bobDustLimit               btcutil.Amount
+	aliceMinHTLC, bobMinHTLC                   lnwire.MilliSatoshi
+	aliceMaxAcceptedHtlcs, bobMaxAcceptedHtlcs uint16
+}
+
+// defaultTestChannelShape is the shape every createTestChannel caller gets
+// unless it passes withTestChanShape.
+func defaultTestChannelShape() testChannelShape {
+	return testChannelShape{
+		chanType:              channeldb.SingleFunderTweaklessBit,
+		feePerKw:              6000,
+		aliceDustLimit:        200,
+		bobDustLimit:          800,
+		aliceMaxAcceptedHtlcs: maxInflightHtlcs,
+		bobMaxAcceptedHtlcs:   maxInflightHtlcs,
+	}
+}
+
+// withTestChanShape overrides the channel type, initial fee rate and
+// per-side channel parameters.
+func withTestChanShape(shape testChannelShape) testChannelOpt {
+	return func(c *testChannelConfig) {
+		c.shape = shape
+	}
 }
 
 // testChannelOpt is a functional option for createTestChannel.
@@ -179,6 +212,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		signerFactory: func(k *btcec.PrivateKey) input.Signer {
 			return input.NewMockSigner([]*btcec.PrivateKey{k}, nil)
 		},
+		shape: defaultTestChannelShape(),
 	}
 	for _, o := range opts {
 		o(cfg)
@@ -196,11 +230,11 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 			channelCapacity),
 		ChanReserve:      aliceReserve,
-		MinHTLC:          0,
-		MaxAcceptedHtlcs: maxInflightHtlcs,
+		MinHTLC:          cfg.shape.aliceMinHTLC,
+		MaxAcceptedHtlcs: cfg.shape.aliceMaxAcceptedHtlcs,
 	}
 	aliceCommitParams := channeldb.CommitmentParams{
-		DustLimit: btcutil.Amount(200),
+		DustLimit: cfg.shape.aliceDustLimit,
 		CsvDelay:  uint16(csvTimeoutAlice),
 	}
 
@@ -208,11 +242,11 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 			channelCapacity),
 		ChanReserve:      bobReserve,
-		MinHTLC:          0,
-		MaxAcceptedHtlcs: maxInflightHtlcs,
+		MinHTLC:          cfg.shape.bobMinHTLC,
+		MaxAcceptedHtlcs: cfg.shape.bobMaxAcceptedHtlcs,
 	}
 	bobCommitParams := channeldb.CommitmentParams{
-		DustLimit: btcutil.Amount(800),
+		DustLimit: cfg.shape.bobDustLimit,
 		CsvDelay:  uint16(csvTimeoutBob),
 	}
 
@@ -292,7 +326,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(
 		aliceAmount, bobAmount, &aliceCfg, &bobCfg, aliceCommitPoint,
-		bobCommitPoint, *fundingTxIn, channeldb.SingleFunderTweaklessBit,
+		bobCommitPoint, *fundingTxIn, cfg.shape.chanType,
 		isAliceInitiator, 0,
 	)
 	if err != nil {
@@ -302,12 +336,16 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	dbAlice := channeldb.OpenForTesting(t, t.TempDir())
 	dbBob := channeldb.OpenForTesting(t, t.TempDir())
 
-	estimator := chainfee.NewStaticEstimator(6000, 0)
-	feePerKw, err := estimator.EstimateFeePerKW(1)
-	if err != nil {
-		return nil, nil, err
+	// The initiator pays the commitment fee for an empty commitment of
+	// this type and, with anchors, both anchor outputs.
+	feePerKw := cfg.shape.feePerKw
+	commitFee := feePerKw.FeeForWeight(
+		lnwallet.CommitWeight(cfg.shape.chanType),
+	)
+	initiatorDebit := commitFee
+	if cfg.shape.chanType.HasAnchors() {
+		initiatorDebit += 2 * lnwallet.AnchorSize
 	}
-	commitFee := feePerKw.FeeForWeight(724)
 
 	const broadcastHeight = 1
 	bobAddr := &net.TCPAddr{
@@ -320,9 +358,10 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		Port: 18556,
 	}
 
+	aliceBalance := lnwire.NewMSatFromSatoshis(aliceAmount - initiatorDebit)
 	aliceCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
-		LocalBalance:  lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
+		LocalBalance:  aliceBalance,
 		RemoteBalance: lnwire.NewMSatFromSatoshis(bobAmount),
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
@@ -332,7 +371,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	bobCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(bobAmount),
-		RemoteBalance: lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
+		RemoteBalance: aliceBalance,
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitTx:      bobCommitTx,
@@ -351,7 +390,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
-		ChanType:                channeldb.SingleFunderTweaklessBit,
+		ChanType:                cfg.shape.chanType,
 		IsInitiator:             isAliceInitiator,
 		Capacity:                channelCapacity,
 		RemoteCurrentRevocation: bobCommitPoint,
@@ -369,7 +408,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		RemoteChanCfg:           aliceCfg,
 		IdentityPub:             bobKeyPub,
 		FundingOutpoint:         *prevOut,
-		ChanType:                channeldb.SingleFunderTweaklessBit,
+		ChanType:                cfg.shape.chanType,
 		IsInitiator:             !isAliceInitiator,
 		Capacity:                channelCapacity,
 		RemoteCurrentRevocation: aliceCommitPoint,
@@ -1280,6 +1319,8 @@ func (h *hopNetwork) newFuzzLink(t testing.TB,
 	bestHeight func() uint32,
 	maxFeeExposure lnwire.MilliSatoshi,
 	maxFeeAllocation float64,
+	feeEstimator chainfee.Estimator,
+	onFailure func(LinkFailureError),
 ) (*channelLink, chan lnwire.Message) {
 
 	const (
@@ -1288,6 +1329,12 @@ func (h *hopNetwork) newFuzzLink(t testing.TB,
 	)
 
 	upstream := make(chan lnwire.Message, 1)
+
+	onChannelFailure := func(_ lnwire.ChannelID, _ lnwire.ShortChannelID,
+		linkErr LinkFailureError) {
+
+		onFailure(linkErr)
+	}
 
 	//nolint:ll
 	l := NewChannelLink(
@@ -1307,7 +1354,7 @@ func (h *hopNetwork) newFuzzLink(t testing.TB,
 			},
 			FetchLastChannelUpdate: mockGetChanUpdateMessage,
 			Registry:               registry,
-			FeeEstimator:           h.feeEstimator,
+			FeeEstimator:           feeEstimator,
 			PreimageCache:          pCache,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
@@ -1323,7 +1370,7 @@ func (h *hopNetwork) newFuzzLink(t testing.TB,
 			PendingCommitTicker:        &noopTicker{},
 			MinUpdateTimeout:           minFeeUpdateTimeout,
 			MaxUpdateTimeout:           maxFeeUpdateTimeout,
-			OnChannelFailure:           func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
+			OnChannelFailure:           onChannelFailure,
 			OutgoingCltvRejectDelta:    3,
 			MaxOutgoingCltvExpiry:      DefaultMaxOutgoingCltvExpiry,
 			MaxFeeAllocation:           maxFeeAllocation,

@@ -994,6 +994,20 @@ func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,
 		// Update the input's state.
 		pi.state = PublishFailed
 
+		// Only ratchet the starting fee rate when the BumpResult
+		// carries an actual rate. Failures with no fee dimension to
+		// them (e.g. ErrNotEnoughInputs from the wallet) leave
+		// FeeRate at zero; preserving the input's existing starting
+		// rate in that case avoids stranding inputs whose intrinsic
+		// budget can't accommodate a higher rate.
+		if feeRate == 0 {
+			log.Debugf("Input(%v): preserving starting fee rate "+
+				"%v across non-fee failure", op,
+				pi.params.StartingFeeRate)
+
+			continue
+		}
+
 		log.Debugf("Input(%v): updating params: starting fee rate "+
 			"[%v -> %v]", op, pi.params.StartingFeeRate,
 			feeRate)

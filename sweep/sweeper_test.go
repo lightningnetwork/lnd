@@ -282,6 +282,46 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	mockStore.AssertExpectations(t)
 }
 
+// TestMarkInputsPublishFailedPreservesRateOnZero asserts that when
+// markInputsPublishFailed is invoked with feeRate=0, the input's existing
+// StartingFeeRate is preserved instead of being overwritten. This is the
+// sweeper-side contract that resource-failure callers (handleInitialTxError
+// and handleReplacementTxError for ErrNotEnoughInputs / ErrNotEnoughBudget)
+// rely on: those failures carry no fee-rate signal, so ratcheting the
+// starting rate upward on each retry would be incorrect.
+func TestMarkInputsPublishFailedPreservesRateOnZero(t *testing.T) {
+	t.Parallel()
+
+	mockStore := NewMockSweeperStore()
+	s := New(&UtxoSweeperConfig{Store: mockStore})
+
+	// Stage an input in PendingPublish with an existing starting fee
+	// rate. The rate we set here must not be touched by the call below.
+	existingRate := chainfee.SatPerKWeight(2500)
+	inp := createMockInput(t, s, PendingPublish)
+	s.inputs[inp.OutPoint()].params.StartingFeeRate =
+		fn.Some(existingRate)
+
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+	set.On("Inputs").Return([]input.Input{inp})
+
+	// Mark the input as publish-failed with feeRate=0, signalling a
+	// non-fee failure (e.g. ErrNotEnoughInputs).
+	s.markInputsPublishFailed(set, 0)
+
+	// The input must still be in PublishFailed (state transition is
+	// independent of the rate signal) but its StartingFeeRate must
+	// remain the value we set above, not Some(0).
+	pi := s.inputs[inp.OutPoint()]
+	require.Equal(t, PublishFailed, pi.state)
+	require.True(t, pi.params.StartingFeeRate.IsSome())
+	require.Equal(t, existingRate,
+		pi.params.StartingFeeRate.UnsafeFromSome())
+
+	mockStore.AssertExpectations(t)
+}
+
 // TestMarkInputsSwept checks that given a list of inputs with different
 // states, only the non-terminal state will be marked as `Swept`.
 func TestMarkInputsSwept(t *testing.T) {

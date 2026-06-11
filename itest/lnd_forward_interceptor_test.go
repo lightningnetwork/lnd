@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -482,6 +484,184 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 			return nil
 		},
 	)
+}
+
+// onChainInterceptTestScenario contains the shared state for the on-chain
+// forward interceptor settlement tests.
+type onChainInterceptTestScenario struct {
+	alice *node.HarnessNode
+	bob   *node.HarnessNode
+
+	chanPoint *lnrpc.ChannelPoint
+
+	interceptor       rpc.InterceptorClient
+	cancelInterceptor context.CancelFunc
+
+	intercepted *routerrpc.ForwardHtlcInterceptRequest
+	preimage    []byte
+	payHash     lntypes.Hash
+}
+
+// newOnChainInterceptTestScenario creates a three-hop network with Bob holding
+// the forwarded HTLC at the interceptor.
+func newOnChainInterceptTestScenario(
+	ht *lntest.HarnessTest) *onChainInterceptTestScenario {
+
+	const (
+		chanAmt    = btcutil.Amount(300000)
+		invoiceAmt = int64(100000)
+	)
+
+	// Bob requires an interceptor so the forwarded HTLC remains held until
+	// the test explicitly resolves it.
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+	cfgs := [][]string{nil, {"--requireinterceptor"}, nil}
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, p)
+	alice, bob, carol := nodes[0], nodes[1], nodes[2]
+	cpAB := chanPoints[0]
+
+	// Fund Bob so he can publish the on-chain HTLC success sweep once the
+	// interceptor supplies the preimage.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+
+	interceptor, cancelInterceptor := bob.RPC.HtlcInterceptor()
+
+	addResp := carol.RPC.AddInvoice(&lnrpc.Invoice{
+		Value: invoiceAmt,
+	})
+	invoice := carol.RPC.LookupInvoice(addResp.RHash)
+
+	payHash, err := lntypes.MakeHash(invoice.RHash)
+	require.NoError(ht, err)
+
+	req := &routerrpc.SendPaymentRequest{
+		PaymentRequest: invoice.PaymentRequest,
+		FeeLimitMsat:   noFeeLimitMsat,
+	}
+	ht.SendPaymentAssertInflight(alice, req)
+
+	intercepted := ht.ReceiveHtlcInterceptor(interceptor)
+	ht.AssertIncomingHTLCActive(bob, cpAB, invoice.RHash)
+	ht.AssertPaymentStatus(alice, payHash, lnrpc.Payment_IN_FLIGHT)
+
+	return &onChainInterceptTestScenario{
+		alice:             alice,
+		bob:               bob,
+		chanPoint:         cpAB,
+		interceptor:       interceptor,
+		cancelInterceptor: cancelInterceptor,
+		intercepted:       intercepted,
+		preimage:          invoice.RPreimage,
+		payHash:           payHash,
+	}
+}
+
+// forceCloseIncoming force-closes Alice's channel to Bob so Bob's incoming
+// HTLC moves to the on-chain resolver.
+func (s *onChainInterceptTestScenario) forceCloseIncoming(
+	ht *lntest.HarnessTest) {
+
+	closeStream, _ := ht.CloseChannelAssertPending(
+		s.alice, s.chanPoint, true,
+	)
+	ht.AssertStreamChannelForceClosed(
+		s.alice, s.chanPoint, false, closeStream,
+	)
+	ht.AssertChannelPendingForceClose(s.bob, s.chanPoint)
+}
+
+// settleAndAssertSuccessSweep settles the held HTLC and asserts that Bob
+// sweeps the incoming HTLC success path.
+func (s *onChainInterceptTestScenario) settleAndAssertSuccessSweep(
+	ht *lntest.HarnessTest) {
+
+	clearMempool(ht)
+
+	err := s.interceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
+		IncomingCircuitKey: s.intercepted.IncomingCircuitKey,
+		Action:             routerrpc.ResolveHoldForwardAction_SETTLE,
+		Preimage:           s.preimage,
+	})
+	require.NoError(ht, err, "failed to settle intercepted HTLC")
+
+	// The preimage should reach the contest resolver and register Bob's
+	// HTLC success input with the sweeper.
+	ht.AssertAtLeastNumPendingSweeps(s.bob, 1)
+
+	// Give the sweeper another blockbeat to publish the sweep transaction.
+	ht.MineEmptyBlocks(1)
+
+	err = wait.NoError(func() error {
+		if len(ht.GetRawMempool()) == 0 {
+			return fmt.Errorf("expected Bob's HTLC success sweep")
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(ht, err)
+
+	numTxes := len(ht.GetRawMempool())
+	ht.MineBlocksAndAssertNumTxes(1, numTxes)
+	ht.AssertPaymentStatus(s.alice, s.payHash, lnrpc.Payment_SUCCEEDED)
+
+	// Bob's sweep is mined above. Clean up Alice's force close so the next
+	// test starts with an empty mempool.
+	ht.CleanupForceClose(s.alice)
+}
+
+// clearMempool mines any transactions currently waiting in the mempool.
+func clearMempool(ht *lntest.HarnessTest) {
+	numTxes := len(ht.GetRawMempool())
+	if numTxes == 0 {
+		return
+	}
+
+	ht.MineBlocksAndAssertNumTxes(1, numTxes)
+}
+
+// testForwardInterceptorOnChainSettleAfterRestart tests that an HTLC offered
+// to the interceptor by the on-chain resolver remains settleable after a new
+// block is mined. This reproduces the incident path where Bob restarted after
+// the force-close, so only the on-chain interceptor entry exists.
+func testForwardInterceptorOnChainSettleAfterRestart(ht *lntest.HarnessTest) {
+	scenario := newOnChainInterceptTestScenario(ht)
+
+	scenario.forceCloseIncoming(ht)
+
+	scenario.cancelInterceptor()
+	restartBob := ht.SuspendNode(scenario.bob)
+	require.NoError(ht, restartBob(), "failed to restart bob")
+
+	// Re-register the interceptor after restart. The previous stream was
+	// cancelled before Bob went down. The incoming contest resolver only
+	// re-offers the on-chain HTLC to the active stream.
+	interceptor, cancelInterceptor := scenario.bob.RPC.HtlcInterceptor()
+	defer cancelInterceptor()
+	scenario.interceptor = interceptor
+
+	// After restart, the incoming contest resolver re-offers the HTLC to
+	// the interceptor through the on-chain path.
+	scenario.intercepted = ht.ReceiveHtlcInterceptor(interceptor)
+
+	// Mine one block after the on-chain intercept has been offered. With
+	// the current bug, the held entry is evicted here because the on-chain
+	// packet has no auto-fail height.
+	ht.MineEmptyBlocks(1)
+
+	scenario.settleAndAssertSuccessSweep(ht)
+}
+
+// testForwardInterceptorOnChainSettleNoRestart tests that an HTLC which was
+// first held off-chain can still be settled after the incoming channel
+// force-closes without restarting Bob. This covers the duplicate-entry path:
+// the old off-chain held entry must not prevent settlement from reaching the
+// on-chain contest resolver.
+func testForwardInterceptorOnChainSettleNoRestart(ht *lntest.HarnessTest) {
+	scenario := newOnChainInterceptTestScenario(ht)
+	defer scenario.cancelInterceptor()
+
+	scenario.forceCloseIncoming(ht)
+	scenario.settleAndAssertSuccessSweep(ht)
 }
 
 // interceptorTestScenario is a helper struct to hold the test context and

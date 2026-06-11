@@ -22,6 +22,11 @@ type Registry interface {
 	// byte payment hash.
 	LookupInvoice(context.Context, lntypes.Hash) (invoices.Invoice, error)
 
+	// LookupInvoiceByRef attempts to look up an invoice according to the
+	// given invoice reference.
+	LookupInvoiceByRef(context.Context, invoices.InvoiceRef) (
+		invoices.Invoice, error)
+
 	// NotifyExitHopHtlc attempts to mark an invoice as settled. If the
 	// invoice is a debug invoice, then this method is a noop as debug
 	// invoices are never fully settled. The return value describes how the

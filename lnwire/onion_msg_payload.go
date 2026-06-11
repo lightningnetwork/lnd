@@ -186,9 +186,13 @@ func (o *OnionMessagePayload) Decode(r io.Reader) (map[tlv.Type][]byte, error) {
 			continue
 		}
 
-		// Skip any tlvs that have been recognized in our decoding (a
-		// zero entry means that we recognized the entry).
-		if len(tlvBytes) == 0 {
+		// Skip any tlvs that have been recognized in our decoding.
+		// DecodeWithParsedTypesP2P stores a nil entry for known types
+		// that it decoded into a dedicated field above, and the raw
+		// bytes for unknown types. A nil check (rather than a length
+		// check) is required so that a valid unknown odd tlv with a
+		// zero-length value is not mistaken for a recognized type.
+		if tlvBytes == nil {
 			continue
 		}
 
@@ -206,7 +210,7 @@ func (o *OnionMessagePayload) Decode(r io.Reader) (map[tlv.Type][]byte, error) {
 	// If we read out an invoice, invoice error or invoice request tlv
 	// sub-namespace, add it to our set of final payloads. This value won't
 	// have been added in the loop above, because we recognized the TLV so
-	// len(tlvMap[invoiceType].tlvBytes) will be zero (thus, skipped above).
+	// tlvMap[invoiceType].tlvBytes will be nil (thus, skipped above).
 	if _, ok := tlvMap[InvoiceNamespaceType]; ok {
 		o.FinalHopTLVs = append(
 			o.FinalHopTLVs, invoicePayload,

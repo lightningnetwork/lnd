@@ -39,6 +39,7 @@ import (
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -960,6 +961,37 @@ func UnmarshallOutPoint(op *lnrpc.OutPoint) (*wire.OutPoint, error) {
 	}, nil
 }
 
+// unmarshallWitnessSizeHints converts a slice of TxWitnessSizeHint RPC
+// messages into a map keyed by outpoint for efficient lookup during fee
+// estimation. Duplicate outpoints in the request are rejected to avoid
+// ambiguity about which hint to apply.
+func unmarshallWitnessSizeHints(
+	hints []*TxWitnessSizeHint) (map[wire.OutPoint]lntypes.WeightUnit,
+	error) {
+
+	if len(hints) == 0 {
+		return nil, nil
+	}
+
+	out := make(map[wire.OutPoint]lntypes.WeightUnit, len(hints))
+	for _, h := range hints {
+		op, err := UnmarshallOutPoint(h.Outpoint)
+		if err != nil {
+			return nil, fmt.Errorf("invalid outpoint in "+
+				"witness size hint: %w", err)
+		}
+
+		if _, ok := out[*op]; ok {
+			return nil, fmt.Errorf("duplicate witness size "+
+				"hint for outpoint %v", op)
+		}
+
+		out[*op] = lntypes.WeightUnit(h.WitnessSize)
+	}
+
+	return out, nil
+}
+
 // validateBumpFeeRequest makes sure the deprecated fields are not used when
 // the new fields are set.
 func validateBumpFeeRequest(in *BumpFeeRequest, estimator chainfee.Estimator) (
@@ -1624,6 +1656,17 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 			time.Second
 	}
 
+	// Parse any caller-supplied per-input witness size hints. These are
+	// used to override the default witness size estimation for taproot
+	// script path inputs where the caller knows the exact expected size.
+	witnessSizeHints, err := unmarshallWitnessSizeHints(
+		req.WitnessSizeHints,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing witness size hints: %w",
+			err)
+	}
+
 	// There are three ways a user can specify what we call the template (a
 	// list of inputs and outputs to use in the PSBT): Either as a PSBT
 	// packet directly with no coin selection, a PSBT with coin selection or
@@ -1726,7 +1769,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		return w.fundPsbtCoinSelect(
 			account, changeIndex, packet, minConfs, changeType,
 			feeSatPerKW, coinSelectionStrategy, maxFeeRatio,
-			customLockID, customLockDuration,
+			customLockID, customLockDuration, witnessSizeHints,
 		)
 
 	// The template is specified as a RPC message. We need to create a new
@@ -1934,7 +1977,9 @@ func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 	changeType chanfunding.ChangeAddressType,
 	feeRate chainfee.SatPerKWeight, strategy base.CoinSelectionStrategy,
 	maxFeeRatio float64, customLockID *wtxmgr.LockID,
-	customLockDuration time.Duration) (*FundPsbtResponse, error) {
+	customLockDuration time.Duration,
+	witnessSizeHints map[wire.OutPoint]lntypes.WeightUnit) (
+	*FundPsbtResponse, error) {
 
 	// We want to make sure we don't select any inputs that are already
 	// specified in the template. To do that, we require those inputs to
@@ -1966,7 +2011,13 @@ func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 	for i := range packet.Inputs {
 		in := packet.Inputs[i]
 
-		err := btcwallet.EstimateInputWeight(&in, &estimator)
+		// Look up the optional caller-supplied witness size hint by
+		// outpoint. A zero value tells EstimateInputWeight to fall
+		// back to the default heuristic for taproot script paths.
+		outpoint := packet.UnsignedTx.TxIn[i].PreviousOutPoint
+		hint := witnessSizeHints[outpoint]
+
+		err := btcwallet.EstimateInputWeight(&in, &estimator, hint)
 		if err != nil {
 			return nil, fmt.Errorf("error estimating input "+
 				"weight: %w", err)

@@ -106,6 +106,9 @@ func (p *preimageBeacon) SubscribeUpdates(
 		OutgoingAmount:       payload.FwdInfo.AmountToForward,
 		InOnionCustomRecords: payload.CustomRecords(),
 		InWireCustomRecords:  htlc.CustomRecords,
+		// Keep the on-chain intercept available to the
+		// interceptor until the HTLC expires on chain.
+		AutoFailHeight: int32(htlc.RefundTimeout),
 	}
 	copy(packet.OnionBlob[:], nextHopOnionBlob)
 

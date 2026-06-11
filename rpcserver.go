@@ -4814,7 +4814,8 @@ func (r *rpcServer) LookupHtlcResolution(
 }
 
 // ListChannels returns a description of all the open channels that this node
-// is a participant in.
+// is participating. Also provides options to filter open channel returns by
+// a specific node public key or short channel id
 func (r *rpcServer) ListChannels(ctx context.Context,
 	in *lnrpc.ListChannelsRequest) (*lnrpc.ListChannelsResponse, error) {
 
@@ -4847,10 +4848,17 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		nodePub := dbChannel.IdentityPub
 		nodePubBytes := nodePub.SerializeCompressed()
 		chanPoint := dbChannel.FundingOutpoint
+		chanScid := dbChannel.ShortChannelID.ToUint64()
 
-		// If the caller requested channels for a target node, skip any
+		// If the caller requested channels for a target node. Skip any
 		// that don't match the provided pubkey.
 		if len(in.Peer) > 0 && !bytes.Equal(nodePubBytes, in.Peer) {
+			continue
+		}
+
+		// If the caller requested a specific channel for a target
+		// short channel ID. Skip any that don't match the provided scid.
+		if in.Scid != 0 && chanScid != in.Scid {
 			continue
 		}
 

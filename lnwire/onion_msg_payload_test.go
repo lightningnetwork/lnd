@@ -294,6 +294,28 @@ func TestOnionMessagePayloadRoundTrip(t *testing.T) {
 			decoded.FinalHopTLVs[0].Value,
 		)
 	})
+
+	t.Run("odd unknown zero-length final hop TLV", func(t *testing.T) {
+		t.Parallel()
+
+		// A valid unknown odd tlv with a zero-length value must be
+		// preserved rather than mistaken for a recognized type, which
+		// is why decode keys off a nil entry instead of an empty one.
+		original := &OnionMessagePayload{
+			FinalHopTLVs: []*FinalHopTLV{
+				{
+					TLVType: 65,
+					Value:   []byte{},
+				},
+			},
+		}
+
+		decoded := encodeAndDecode(t, original)
+
+		require.Len(t, decoded.FinalHopTLVs, 1)
+		require.Equal(t, tlv.Type(65), decoded.FinalHopTLVs[0].TLVType)
+		require.Empty(t, decoded.FinalHopTLVs[0].Value)
+	})
 }
 
 // TestFinalHopTLVValidate tests that FinalHopTLV.Validate correctly rejects

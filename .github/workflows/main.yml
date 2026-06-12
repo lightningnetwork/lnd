@@ -654,7 +654,7 @@ jobs:
 
       - name: Run itest
         if: steps.check-label.outputs.skip != 'true'
-        run: make itest-only-parallel tranches=${{ env.SMALL_TRANCHES }} windows=1 shuffleseed=${{ github.run_id }}
+        run: make itest-only-parallel tranches=${{ env.TRANCHES }} windows=1 shuffleseed=${{ github.run_id }}
         
       - name: Kill any remaining lnd processes
         if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}

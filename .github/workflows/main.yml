@@ -74,9 +74,6 @@ jobs:
           # Needed for some checks.
           fetch-depth: 0
 
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
-
       - name: Setup Go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
         with:
@@ -169,9 +166,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
-
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
         with:
@@ -196,9 +190,6 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
 
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
@@ -230,9 +221,6 @@ jobs:
     steps:
       - name: Git checkout
         uses: actions/checkout@v5
-
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
 
       - name: Setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
@@ -268,9 +256,6 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
 
       - name: Fetch and rebase on ${{ github.base_ref }}
         if: github.event_name == 'pull_request'
@@ -365,9 +350,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
-
       - name: Fetch and rebase on ${{ github.base_ref }}
         if: github.event_name == 'pull_request'
         uses: ./.github/actions/rebase
@@ -426,10 +408,6 @@ jobs:
         with:
           label: 'no-itest'
           skip-message: "Tests auto-passed due to 'no-itest' label"
-
-      - name: Clean up runner space
-        if: steps.check-label.outputs.skip != 'true'
-        uses: ./.github/actions/cleanup-space
 
       - name: Fetch and rebase on ${{ github.base_ref }}
         if: github.event_name == 'pull_request' && steps.check-label.outputs.skip != 'true'
@@ -511,10 +489,6 @@ jobs:
           label: 'no-itest'
           skip-message: "Tests auto-passed due to 'no-itest' label"
 
-      - name: Clean up runner space
-        if: steps.check-label.outputs.skip != 'true'
-        uses: ./.github/actions/cleanup-space
-
       - name: Fetch and rebase on ${{ github.base_ref }}
         if: github.event_name == 'pull_request' && steps.check-label.outputs.skip != 'true'
         uses: ./.github/actions/rebase
@@ -588,10 +562,6 @@ jobs:
         with:
           label: 'no-itest'
           skip-message: "Tests auto-passed due to 'no-itest' label"
-
-      - name: Clean up runner space
-        if: steps.check-label.outputs.skip != 'true'
-        uses: ./.github/actions/cleanup-space
 
       - name: Fetch and rebase on ${{ github.base_ref }}
         if: github.event_name == 'pull_request' && steps.check-label.outputs.skip != 'true'

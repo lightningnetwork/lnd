@@ -527,10 +527,10 @@ jobs:
 
 
   ########################
-  # build binaries for tranche-split integration tests
+  # build binaries for itest jobs that run prebuilt binaries
   ########################
   build-split-itest:
-    name: Build split itest binaries
+    name: Build itest binaries
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -540,6 +540,13 @@ jobs:
             args: backend=bitcoind dbbackend=postgres
           - name: bitcoind-postgres-experiment
             args: backend=bitcoind dbbackend=postgres tags=test_native_sql
+          # The windows binaries are cross-compiled here since building
+          # them on the (much slower) windows runner dominated that
+          # job's running time. All itest binaries are built with
+          # CGO_ENABLED=0, so cross-compilation is safe.
+          - name: windows
+            args: windows=1
+            goos: windows
     steps:
       - name: Git checkout
         uses: actions/checkout@v5
@@ -566,6 +573,8 @@ jobs:
 
       - name: Build itest binaries for ${{ matrix.name }}
         if: steps.check-label.outputs.skip != 'true'
+        env:
+          GOOS: ${{ matrix.goos }}
         run: make build-itest ${{ matrix.args }}
 
       - name: Upload itest binaries
@@ -574,9 +583,9 @@ jobs:
         with:
           name: itest-binaries-${{ matrix.name }}
           path: |
-            itest/itest.test
-            itest/lnd-itest
-            itest/btcd-itest
+            itest/itest.test*
+            itest/lnd-itest*
+            itest/btcd-itest*
           retention-days: 1
 
   ########################
@@ -657,11 +666,10 @@ jobs:
   windows-integration-test:
     name: Run windows itest
     runs-on: windows-latest
+    needs: build-split-itest
     steps:
       - name: Git checkout
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Check for no-itest label
         id: check-label
@@ -670,20 +678,16 @@ jobs:
           label: 'no-itest'
           skip-message: "Tests auto-passed due to 'no-itest' label"
 
-      - name: Fetch and rebase on ${{ github.base_ref }}
-        if: github.event_name == 'pull_request' && steps.check-label.outputs.skip != 'true'
-        uses: ./.github/actions/rebase
-
-      - name: Setup go ${{ env.GO_VERSION }}
+      - name: Download itest binaries
         if: steps.check-label.outputs.skip != 'true'
-        uses: ./.github/actions/setup-go
+        uses: actions/download-artifact@v4
         with:
-          go-version: '${{ env.GO_VERSION }}'
-          key-prefix: integration-test
+          name: itest-binaries-windows
+          path: itest
 
       - name: Run itest
         if: steps.check-label.outputs.skip != 'true'
-        run: make itest-parallel tranches=${{ env.SMALL_TRANCHES }} windows=1 shuffleseed=${{ github.run_id }}
+        run: make itest-only-parallel tranches=${{ env.SMALL_TRANCHES }} windows=1 shuffleseed=${{ github.run_id }}
         
       - name: Kill any remaining lnd processes
         if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}

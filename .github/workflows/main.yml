@@ -52,10 +52,18 @@ env:
   # `make lint` to see where else it needs to be updated as well).
   GO_VERSION: 1.26.4
 
-  # NUM_UNIT_RACE_TRANCHES defines the number of tranches the race detector
-  # unit tests are split into, each tranche running on its own runner. Must
-  # match the tranche list in the unit-race matrix.
-  NUM_UNIT_RACE_TRANCHES: 4
+  # DB_UNIT_PKGS is the list of packages whose unit tests exercise the
+  # configurable database backends, i.e. the packages whose tests behave
+  # differently under the kvdb_* and test_db_* build tags (they construct
+  # test stores via kvdb.GetTestBackend, channeldb.MakeTestDB, the sqldb
+  # test constructors or their wrappers). The DB-variant unit and race
+  # jobs run only these packages; all other packages run identically in
+  # the plain unit jobs.
+  DB_UNIT_PKGS: >-
+    autopilot batch chainparams channeldb cluster contractcourt graph
+    graph/db graph/db/migration1 invoices kvdb kvdb/etcd kvdb/postgres
+    kvdb/sqlbase kvdb/sqlite payments/db payments/db/migration1 routing
+    sqldb sweep
 
 jobs:
   static-checks:
@@ -221,11 +229,11 @@ jobs:
       matrix:
         unit_type:
           - unit-cover
-          - unit tags="kvdb_etcd"
-          - unit tags="kvdb_postgres"
-          - unit tags="kvdb_sqlite"
-          - unit tags="test_db_sqlite"
-          - unit tags="test_db_postgres"
+          - unit tags="kvdb_etcd" pkg="$DB_UNIT_PKGS"
+          - unit tags="kvdb_postgres" pkg="$DB_UNIT_PKGS"
+          - unit tags="kvdb_sqlite" pkg="$DB_UNIT_PKGS"
+          - unit tags="test_db_sqlite" pkg="$DB_UNIT_PKGS"
+          - unit tags="test_db_postgres" pkg="$DB_UNIT_PKGS"
           - unit-module
 
     steps:
@@ -281,21 +289,48 @@ jobs:
   # run unit tests in race detector mode
   ########################
   unit-race:
-    name: Unit race (${{ matrix.flavor.name }}, ${{ matrix.tranche }})
+    name: Unit race (${{ matrix.name }}, ${{ matrix.tranche }})
     runs-on: ubuntu-latest
     strategy:
       # Allow other tests in the matrix to continue if one fails.
       fail-fast: false
       matrix:
-        # This list must contain NUM_UNIT_RACE_TRANCHES entries.
-        tranche: [0, 1, 2, 3]
-        flavor:
+        # The plain flavor runs the full suite split into four tranches.
+        # The DB flavors only run the DB-touching packages (see
+        # DB_UNIT_PKGS), split into two tranches each.
+        include:
           - name: unit-race
             args: ''
+            tranche: 0
+            tranches: 4
+          - name: unit-race
+            args: ''
+            tranche: 1
+            tranches: 4
+          - name: unit-race
+            args: ''
+            tranche: 2
+            tranches: 4
+          - name: unit-race
+            args: ''
+            tranche: 3
+            tranches: 4
           - name: unit-race-sqlite
-            args: tags="test_db_sqlite"
+            args: tags="test_db_sqlite" pkg="$DB_UNIT_PKGS"
+            tranche: 0
+            tranches: 2
+          - name: unit-race-sqlite
+            args: tags="test_db_sqlite" pkg="$DB_UNIT_PKGS"
+            tranche: 1
+            tranches: 2
           - name: unit-race-postgres
-            args: tags="test_db_postgres"
+            args: tags="test_db_postgres" pkg="$DB_UNIT_PKGS"
+            tranche: 0
+            tranches: 2
+          - name: unit-race-postgres
+            args: tags="test_db_postgres" pkg="$DB_UNIT_PKGS"
+            tranche: 1
+            tranches: 2
 
     steps:
       - name: Git checkout
@@ -328,8 +363,8 @@ jobs:
       - name: Install bitcoind
         run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
 
-      - name: Run ${{ matrix.flavor.name }} tranche ${{ matrix.tranche }}
-        run: make unit-race-parallel tranche=${{ matrix.tranche }} tranches=${{ env.NUM_UNIT_RACE_TRANCHES }} ${{ matrix.flavor.args }}
+      - name: Run ${{ matrix.name }} tranche ${{ matrix.tranche }}
+        run: make unit-race-parallel tranche=${{ matrix.tranche }} tranches=${{ matrix.tranches }} ${{ matrix.args }}
 
   ########################
   # run integration tests with TRANCHES

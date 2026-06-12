@@ -306,7 +306,7 @@ unit-race: $(BTCD_BIN)
 #? unit-race-parallel: Run one tranche of the unit tests in race detector mode (tranche=<index> tranches=<total>)
 unit-race-parallel: $(BTCD_BIN)
 	@$(call print, "Running unit race tests tranche ${tranche} of ${tranches}.")
-	PKG="$(PKG)" DEV_TAGS="$(DEV_TAGS)" \
+	PKG="$(PKG)" DEV_TAGS="$(DEV_TAGS)" UNIT_RACE_PKGS="$(pkg)" \
 		scripts/unit_race_part.sh $(tranche) $(tranches) \
 		-tags="$(DEV_TAGS) $(RPC_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
 

@@ -52,12 +52,12 @@ ifneq ($(windows),)
 EXEC_SUFFIX = .exe
 endif
 
-# If specific package is being unit tested, construct the full name of the
-# subpackage.
+# If specific packages are being unit tested, construct the full names of
+# the subpackages.
 ifneq ($(pkg),)
-UNITPKG := $(PKG)/$(pkg)
+UNITPKG := $(addprefix $(PKG)/,$(pkg))
 UNIT_TARGETED = yes
-COVER_PKG = $(PKG)/$(pkg)
+COVER_PKG = $(addprefix $(PKG)/,$(pkg))
 endif
 
 # If a specific unit test case is being target, construct test.run filter.

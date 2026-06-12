@@ -51,16 +51,24 @@ HEAVY_PKGS=(
   "${PKG_PREFIX}/peer"
 )
 
-# Capture the package list via command substitution so a go list
-# failure aborts the script (set -e -o pipefail) instead of silently
-# yielding an empty list and a vacuously green test run.
-pkg_list=$(go list -tags="${DEV_TAGS}" -deps "${PKG_PREFIX}/..." | \
-  grep "${PKG_PREFIX}" | grep -v "/vendor/")
-
 all_pkgs=()
-while IFS= read -r pkg; do
-  all_pkgs+=("${pkg}")
-done <<< "${pkg_list}"
+if [[ -n "${UNIT_RACE_PKGS:-}" ]]; then
+  # An explicit package list (relative to PKG) restricts the run, e.g.
+  # to the database-touching packages for the DB-variant race jobs.
+  for pkg in ${UNIT_RACE_PKGS}; do
+    all_pkgs+=("${PKG_PREFIX}/${pkg}")
+  done
+else
+  # Capture the package list via command substitution so a go list
+  # failure aborts the script (set -e -o pipefail) instead of silently
+  # yielding an empty list and a vacuously green test run.
+  pkg_list=$(go list -tags="${DEV_TAGS}" -deps "${PKG_PREFIX}/..." | \
+    grep "${PKG_PREFIX}" | grep -v "/vendor/")
+
+  while IFS= read -r pkg; do
+    all_pkgs+=("${pkg}")
+  done <<< "${pkg_list}"
+fi
 
 if (( ${#all_pkgs[@]} == 0 )); then
   echo "go list produced no packages" >&2

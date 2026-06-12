@@ -496,7 +496,7 @@ jobs:
 
       - name: Run ${{ matrix.name }}
         if: steps.check-label.outputs.skip != 'true'
-        run: make itest-parallel tranches=${{ env.SMALL_TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
+        run: make itest-parallel tranches=${{ env.TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
 
       - name: Clean coverage
         run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt

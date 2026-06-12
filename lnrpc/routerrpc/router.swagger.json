@@ -111,7 +111,7 @@
         "parameters": [
           {
             "name": "body",
-            "description": "*\nForwardHtlcInterceptResponse enables the caller to resolve a previously hold\nforward. The caller can choose either to:\n- `Resume`: Execute the default behavior (usually forward).\n- `ResumeModified`: Execute the default behavior (usually forward) with HTLC\nfield modifications.\n- `Reject`: Fail the htlc backwards.\n- `Settle`: Settle this htlc with a given preimage. (streaming inputs)",
+            "description": "*\nForwardHtlcInterceptResponse enables the caller to resolve a previously hold\nforward. The caller can choose either to:\n- `Resume`: Execute the default behavior (usually forward).\n- `ResumeModified`: Execute the default behavior (usually forward) with HTLC\nfield modifications.\n- `Reject`: Fail the htlc backwards.\n- `Settle`: Settle this htlc with a given preimage.\n\nOnce the incoming channel has force-closed and the HTLC is being resolved\non-chain (see auto_fail_height), only `Settle` has any effect. The HTLC can no\nlonger be resumed or failed back off-chain, so `Resume`, `ResumeModified` and\n`Fail` are silently ignored: the call returns success but the HTLC stays held\nuntil it is settled with a preimage, the on-chain resolver completes, or it\nexpires on-chain. (streaming inputs)",
             "in": "body",
             "required": true,
             "schema": {
@@ -1656,7 +1656,7 @@
           "description": "Any custom records that should be set on the p2p wire message message of\nthe resumed HTLC. This field is ignored if the action is not\nRESUME_MODIFIED.\n\nThis map will merge with the existing set of custom records (if any),\nreplacing any conflicting types. Note that there currently is no support\nfor deleting existing custom records (they can only be replaced)."
         }
       },
-      "description": "*\nForwardHtlcInterceptResponse enables the caller to resolve a previously hold\nforward. The caller can choose either to:\n- `Resume`: Execute the default behavior (usually forward).\n- `ResumeModified`: Execute the default behavior (usually forward) with HTLC\nfield modifications.\n- `Reject`: Fail the htlc backwards.\n- `Settle`: Settle this htlc with a given preimage."
+      "description": "*\nForwardHtlcInterceptResponse enables the caller to resolve a previously hold\nforward. The caller can choose either to:\n- `Resume`: Execute the default behavior (usually forward).\n- `ResumeModified`: Execute the default behavior (usually forward) with HTLC\nfield modifications.\n- `Reject`: Fail the htlc backwards.\n- `Settle`: Settle this htlc with a given preimage.\n\nOnce the incoming channel has force-closed and the HTLC is being resolved\non-chain (see auto_fail_height), only `Settle` has any effect. The HTLC can no\nlonger be resumed or failed back off-chain, so `Resume`, `ResumeModified` and\n`Fail` are silently ignored: the call returns success but the HTLC stays held\nuntil it is settled with a preimage, the on-chain resolver completes, or it\nexpires on-chain."
     },
     "routerrpcGetMissionControlConfigResponse": {
       "type": "object",

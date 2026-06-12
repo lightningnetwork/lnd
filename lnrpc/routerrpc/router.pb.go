@@ -2958,6 +2958,13 @@ func (x *ForwardHtlcInterceptRequest) GetInWireCustomRecords() map[uint64][]byte
 // field modifications.
 // - `Reject`: Fail the htlc backwards.
 // - `Settle`: Settle this htlc with a given preimage.
+//
+// Once the incoming channel has force-closed and the HTLC is being resolved
+// on-chain (see auto_fail_height), only `Settle` has any effect. The HTLC can no
+// longer be resumed or failed back off-chain, so `Resume`, `ResumeModified` and
+// `Fail` are silently ignored: the call returns success but the HTLC stays held
+// until it is settled with a preimage, the on-chain resolver completes, or it
+// expires on-chain.
 type ForwardHtlcInterceptResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// *

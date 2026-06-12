@@ -132,18 +132,25 @@ var _ TestMessage = (*AnnounceSignatures2)(nil)
 // This is part of the TestMessage interface.
 func (a *AnnounceSignatures2) RandTestMessage(t *rapid.T) Message {
 	var (
-		chanID = RandChannelID(t)
-		scid   = RandShortChannelID(t)
-		pSig   = RandPartialSig(t)
+		chanID      = RandChannelID(t)
+		scid        = RandShortChannelID(t)
+		nodeSig     = RandPartialSig(t)
+		bitcoinSig  = RandPartialSig(t)
+		fundingTxID = RandChainHash(t)
 	)
+
+	sigs := NewAnnouncementSigPair(nodeSig.Sig, bitcoinSig.Sig)
 
 	msg := &AnnounceSignatures2{
 		ChannelID: tlv.NewRecordT[tlv.TlvType0, ChannelID](
 			chanID,
 		),
 		ShortChannelID: tlv.NewRecordT[tlv.TlvType2](scid),
-		PartialSignature: tlv.NewRecordT[tlv.TlvType4, PartialSig](
-			*pSig,
+		PartialSignatures: tlv.NewRecordT[
+			tlv.TlvType4, AnnouncementSigPair,
+		](sigs),
+		FundingTxID: tlv.NewPrimitiveRecord[tlv.TlvType6, [32]byte](
+			[32]byte(fundingTxID),
 		),
 		ExtraSignedFields: make(map[uint64][]byte),
 	}
@@ -563,13 +570,16 @@ func (c *ChannelUpdate2) RandTestMessage(t *rapid.T) Message {
 	var chainHashObj chainhash.Hash
 	copy(chainHashObj[:], chainHash[:])
 
+	isSecondPeer := rapid.Bool().Draw(t, "isSecondPeer")
+	sciddir := NewSciddir(shortChanID, isSecondPeer)
+
 	//nolint:ll
 	msg := &ChannelUpdate2{
 		ChainHash: tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
 			chainHashObj,
 		),
-		ShortChannelID: tlv.NewRecordT[tlv.TlvType2, ShortChannelID](
-			shortChanID,
+		ShortChannelID: tlv.NewRecordT[tlv.TlvType2, Sciddir](
+			sciddir,
 		),
 		BlockHeight: tlv.NewPrimitiveRecord[tlv.TlvType4, uint32](
 			blockHeight,
@@ -596,25 +606,20 @@ func (c *ChannelUpdate2) RandTestMessage(t *rapid.T) Message {
 	}
 
 	if rapid.Bool().Draw(t, "includeInboundFee") {
-		base := rapid.IntRange(-1000, 1000).Draw(t, "inFeeBase")
-		rate := rapid.IntRange(-1000, 1000).Draw(t, "inFeeProp")
-		fee := Fee{
-			BaseFee: int32(base),
-			FeeRate: int32(rate),
-		}
-		msg.InboundFee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType55555](fee),
+		base := uint32(
+			rapid.IntRange(1, 0x7FFFFFFF).Draw(t, "inFeeBase"),
 		)
+		rate := uint32(
+			rapid.IntRange(1, 0x7FFFFFFF).Draw(t, "inFeeProp"),
+		)
+		msg.InboundFeeBaseMsat =
+			tlv.NewPrimitiveRecord[tlv.TlvType20](base)
+		msg.InboundFeeProportionalMillionths =
+			tlv.NewPrimitiveRecord[tlv.TlvType22](rate)
 	}
 
 	msg.Signature.Val = RandSignature(t)
 	msg.Signature.Val.ForceSchnorr()
-
-	if rapid.Bool().Draw(t, "isSecondPeer") {
-		msg.SecondPeer = tlv.SomeRecordT(
-			tlv.RecordT[tlv.TlvType8, TrueBoolean]{},
-		)
-	}
 
 	return msg
 }
@@ -1283,22 +1288,20 @@ func (g *GossipTimestampRange) RandTestMessage(t *rapid.T) Message {
 		ExtraData:      RandExtraOpaqueData(t, nil),
 	}
 
-	includeFirstBlockHeight := rapid.Bool().Draw(
-		t, "includeFirstBlockHeight",
+	includeBlockHeightRange := rapid.Bool().Draw(
+		t, "includeBlockHeightRange",
 	)
-	includeBlockRange := rapid.Bool().Draw(t, "includeBlockRange")
 
-	if includeFirstBlockHeight {
+	if includeBlockHeightRange {
 		height := rapid.Uint32().Draw(t, "firstBlockHeight")
-		msg.FirstBlockHeight = tlv.SomeRecordT(
-			tlv.RecordT[tlv.TlvType2, uint32]{Val: height},
-		)
-	}
-
-	if includeBlockRange {
-		blockRange := rapid.Uint32().Draw(t, "blockRange")
-		msg.BlockRange = tlv.SomeRecordT(
-			tlv.RecordT[tlv.TlvType4, uint32]{Val: blockRange},
+		numBlocks := rapid.Uint32().Draw(t, "numBlocks")
+		msg.BlockHeightRange = tlv.SomeRecordT(
+			tlv.RecordT[tlv.TlvType2, BlockHeightRange]{
+				Val: BlockHeightRange{
+					FirstBlockHeight: height,
+					NumBlocks:        numBlocks,
+				},
+			},
 		)
 	}
 

@@ -129,6 +129,35 @@ jobs:
       - name: Check mobile specific code
         run: go build --tags="mobile" ./mobile
 
+      ########################
+      # check pinned dependencies
+      ########################
+      - name: Check pinned dependencies
+        run: |
+          while read -r dep; do
+            if ! grep -q "$dep" go.mod; then
+              echo "dependency $dep should not be altered"
+              exit 1
+            fi
+          done <<EOF
+          google.golang.org/grpc v1.79.3
+          github.com/golang/protobuf v1.5.4
+          EOF
+
+      ########################
+      # check PR updates release notes
+      ########################
+      - name: Check for no-changelog label
+        id: check-changelog-label
+        uses: ./.github/actions/check-label
+        with:
+          label: 'no-changelog'
+          skip-message: "Changelog check auto-passed due to 'no-changelog' label"
+
+      - name: Release notes check
+        if: steps.check-changelog-label.outputs.skip != 'true'
+        run: scripts/check-release-notes.sh
+
   ########################
   # check commits
   ########################
@@ -766,55 +795,6 @@ jobs:
           name: logs-itest-macos
           path: logs-itest-macos.zip
           retention-days: 5
-
-  ########################
-  # check pinned dependencies
-  ########################
-  dep-pin:
-    name: Check pinned dependencies
-    runs-on: ubuntu-latest
-    strategy:
-      # Allow other tests in the matrix to continue if one fails.
-      fail-fast: false
-      matrix:
-        pinned_dep:
-          - google.golang.org/grpc v1.79.3
-          - github.com/golang/protobuf v1.5.4
-
-    steps:
-      - name: Git checkout
-        uses: actions/checkout@v5
-
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
-
-      - name: Ensure dependencies at correct version
-        run: if ! grep -q "${{ matrix.pinned_dep }}" go.mod; then echo dependency ${{ matrix.pinned_dep }} should not be altered ; exit 1 ; fi
-
-  ########################
-  # check PR updates release notes
-  ########################
-  milestone-check:
-    name: Check release notes updated
-    runs-on: ubuntu-latest
-    steps:
-      - name: Git checkout
-        uses: actions/checkout@v5
-
-      - name: Check for no-changelog label
-        id: check-label
-        uses: ./.github/actions/check-label
-        with:
-          label: 'no-changelog'
-          skip-message: "Changelog check auto-passed due to 'no-changelog' label"
-
-      - name: Clean up runner space
-        if: steps.check-label.outputs.skip != 'true'
-        uses: ./.github/actions/cleanup-space
-
-      - name: Release notes check
-        if: steps.check-label.outputs.skip != 'true'
-        run: scripts/check-release-notes.sh
 
   ########################
   # Backwards Compatibility Test

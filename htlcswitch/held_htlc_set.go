@@ -33,10 +33,6 @@ type heldEntry interface {
 	// external interceptor.
 	interceptedForward() InterceptedForward
 
-	// release handles an interceptor disconnect when interception is no
-	// longer required.
-	release() error
-
 	// resolve applies an interceptor resolution to the held entry.
 	resolve(*FwdResolution) error
 
@@ -173,13 +169,6 @@ func (h *onChainHeld) interceptedForward() InterceptedForward {
 	return h.fwd
 }
 
-// release prunes the held on-chain HTLC locally. There is no live link flow to
-// resume; the contest resolver remains responsible for resolving the HTLC on
-// chain.
-func (h *onChainHeld) release() error {
-	return nil
-}
-
 // resolve applies an interceptor resolution to the held on-chain HTLC.
 func (h *onChainHeld) resolve(res *FwdResolution) error {
 	if res.Action != FwdActionSettle {
@@ -228,21 +217,29 @@ func (h *heldHtlcSet) forEach(cb func(InterceptedForward)) {
 	}
 }
 
-// releaseAll releases all held entries and removes them from the set. Off-chain
-// entries are resumed, while on-chain entries are only pruned locally.
+// releaseAll releases entries that can be released when the optional
+// interceptor disconnects. Off-chain entries are resumed and removed, while
+// on-chain entries are kept because there is no link flow to resume. Keeping
+// them preserves the replay/settle handle while contractcourt waits for the
+// preimage or on-chain expiry.
 func (h *heldHtlcSet) releaseAll() []heldHtlcReleaseError {
 	var errs []heldHtlcReleaseError
 
 	for key, entry := range h.set {
-		if err := entry.release(); err != nil {
+		offChain, ok := entry.(*offChainHeld)
+		if !ok {
+			continue
+		}
+
+		if err := offChain.release(); err != nil {
 			errs = append(errs, heldHtlcReleaseError{
 				key: key,
 				err: err,
 			})
 		}
-	}
 
-	h.set = make(map[models.CircuitKey]heldEntry)
+		delete(h.set, key)
+	}
 
 	return errs
 }

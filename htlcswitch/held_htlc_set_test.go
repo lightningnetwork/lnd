@@ -154,9 +154,9 @@ func TestHeldHtlcSetResolveKeepsEntryOnError(t *testing.T) {
 	require.Equal(t, 1, fwd.settleCount)
 }
 
-// TestHeldHtlcSetReleaseAll verifies releasing off-chain entries resumes their
-// backing forwards and clears the set.
-func TestHeldHtlcSetReleaseAll(t *testing.T) {
+// TestHeldHtlcSetReleaseAllOffChain verifies an optional interceptor
+// disconnect resumes off-chain entries and clears them from the set.
+func TestHeldHtlcSetReleaseAllOffChain(t *testing.T) {
 	set := newHeldHtlcSet()
 	key := testCircuitKey()
 	fwd := newMockInterceptedForward(key, 100)
@@ -167,16 +167,17 @@ func TestHeldHtlcSetReleaseAll(t *testing.T) {
 	require.Equal(t, 1, fwd.resumeCount)
 }
 
-// TestHeldHtlcSetReleaseAllOnChainPrunes verifies releasing on-chain entries
-// only prunes local interceptor state.
-func TestHeldHtlcSetReleaseAllOnChainPrunes(t *testing.T) {
+// TestHeldHtlcSetReleaseAllKeepsOnChain verifies an optional interceptor
+// disconnect keeps on-chain entries available for replay if the interceptor
+// reconnects before expiry.
+func TestHeldHtlcSetReleaseAllKeepsOnChain(t *testing.T) {
 	set := newHeldHtlcSet()
 	key := testCircuitKey()
 	fwd := newMockInterceptedForward(key, 100)
 
 	require.NoError(t, set.addOnChain(fwd))
 	require.Empty(t, set.releaseAll())
-	require.False(t, set.exists(key))
+	require.True(t, set.exists(key))
 	require.Zero(t, fwd.resumeCount)
 }
 
@@ -318,5 +319,32 @@ func TestInterceptableSwitchForwardOnChain(t *testing.T) {
 		}))
 		require.Zero(t, offChain.settleCount)
 		require.Equal(t, 1, onChain.settleCount)
+	})
+
+	t.Run("on-chain htlc replays after disconnect", func(t *testing.T) {
+		intercepted = nil
+		s := &InterceptableSwitch{
+			heldHtlcSet: newHeldHtlcSet(),
+			interceptor: interceptor,
+		}
+		fwd := newMockInterceptedForward(key, 100)
+
+		require.NoError(t, s.forwardOnChain(fwd))
+		require.Len(t, intercepted, 1)
+
+		s.setInterceptor(nil)
+		require.True(t, s.heldHtlcSet.exists(key))
+
+		intercepted = nil
+		s.setInterceptor(interceptor)
+		require.Len(t, intercepted, 1)
+		require.Equal(t, key, intercepted[0].IncomingCircuit)
+
+		require.NoError(t, s.resolve(&FwdResolution{
+			Key:    key,
+			Action: FwdActionSettle,
+		}))
+		require.Equal(t, 1, fwd.settleCount)
+		require.False(t, s.heldHtlcSet.exists(key))
 	})
 }

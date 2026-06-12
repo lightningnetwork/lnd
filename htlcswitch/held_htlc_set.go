@@ -19,10 +19,11 @@ var (
 		"invalid held htlc interceptor deadline",
 	)
 
-	// errInvalidOnChainResolution is returned when an interceptor attempts
-	// to resolve an on-chain held HTLC with anything other than settle.
-	errInvalidOnChainResolution = errors.New(
-		"invalid on-chain htlc resolution",
+	// errIgnoreOnChainResolution is an internal signal used when a
+	// non-settle resolution for an on-chain HTLC should be ignored without
+	// removing the held entry.
+	errIgnoreOnChainResolution = errors.New(
+		"ignore non-settle on-chain resolution",
 	)
 )
 
@@ -172,7 +173,10 @@ func (h *onChainHeld) interceptedForward() InterceptedForward {
 // resolve applies an interceptor resolution to the held on-chain HTLC.
 func (h *onChainHeld) resolve(res *FwdResolution) error {
 	if res.Action != FwdActionSettle {
-		return errInvalidOnChainResolution
+		log.Infof("Ignoring non-settle resolution %v for on-chain "+
+			"held htlc %v", res.Action, res.Key)
+
+		return errIgnoreOnChainResolution
 	}
 
 	return h.fwd.Settle(res.Preimage)
@@ -276,6 +280,10 @@ func (h *heldHtlcSet) resolve(res *FwdResolution) error {
 	}
 
 	if err := entry.resolve(res); err != nil {
+		if errors.Is(err, errIgnoreOnChainResolution) {
+			return nil
+		}
+
 		return err
 	}
 

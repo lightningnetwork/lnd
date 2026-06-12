@@ -216,20 +216,27 @@ func TestHeldHtlcSetOffChainExpireKeepsEntryOnError(t *testing.T) {
 	require.True(t, set.exists(key))
 }
 
-// TestHeldHtlcSetOnChainResolve verifies on-chain entries only allow settle
-// resolutions and remain held after invalid resolutions.
+// TestHeldHtlcSetOnChainResolve verifies on-chain entries ignore non-settle
+// resolutions and remain held until settlement.
 func TestHeldHtlcSetOnChainResolve(t *testing.T) {
 	set := newHeldHtlcSet()
 	key := testCircuitKey()
 	fwd := newMockInterceptedForward(key, 100)
 
 	require.NoError(t, set.addOnChain(fwd))
-	require.ErrorIs(t, set.resolve(&FwdResolution{
+	require.NoError(t, set.resolve(&FwdResolution{
 		Key:    key,
 		Action: FwdActionFail,
-	}), errInvalidOnChainResolution)
+	}))
 	require.True(t, set.exists(key))
 	require.Zero(t, fwd.failCodeCount)
+
+	require.NoError(t, set.resolve(&FwdResolution{
+		Key:    key,
+		Action: FwdActionResume,
+	}))
+	require.True(t, set.exists(key))
+	require.Zero(t, fwd.resumeCount)
 
 	require.NoError(t, set.resolve(&FwdResolution{
 		Key:    key,

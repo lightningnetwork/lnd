@@ -44,15 +44,19 @@ type preimageBeacon struct {
 	subscribers   map[uint64]*preimageSubscriber
 
 	interceptor func(htlcswitch.InterceptedForward) error
+
+	cancelInterceptor func(models.CircuitKey) error
 }
 
 func newPreimageBeacon(wCache witnessCache,
-	interceptor func(htlcswitch.InterceptedForward) error) *preimageBeacon {
+	interceptor func(htlcswitch.InterceptedForward) error,
+	cancelInterceptor func(models.CircuitKey) error) *preimageBeacon {
 
 	return &preimageBeacon{
-		wCache:      wCache,
-		interceptor: interceptor,
-		subscribers: make(map[uint64]*preimageSubscriber),
+		wCache:            wCache,
+		interceptor:       interceptor,
+		cancelInterceptor: cancelInterceptor,
+		subscribers:       make(map[uint64]*preimageSubscriber),
 	}
 }
 
@@ -78,28 +82,36 @@ func (p *preimageBeacon) SubscribeUpdates(
 	srvrLog.Debugf("Creating new witness beacon subscriber, id=%v",
 		clientID)
 
+	inKey := models.CircuitKey{
+		ChanID: chanID,
+		HtlcID: htlc.HtlcIndex,
+	}
+
 	sub := &contractcourt.WitnessSubscription{
 		WitnessUpdates: client.updateChan,
 		CancelSubscription: func() {
 			p.Lock()
-			defer p.Unlock()
 
 			delete(p.subscribers, clientID)
 
 			close(client.quit)
+			p.Unlock()
+
+			err := p.cancelInterceptor(inKey)
+			if err != nil {
+				srvrLog.Errorf("Cannot remove on-chain "+
+					"intercept %v: %v", inKey, err)
+			}
 		},
 	}
 
 	// Notify the htlc interceptor. There may be a client connected
 	// and willing to supply a preimage.
 	packet := &htlcswitch.InterceptedPacket{
-		Hash:           htlc.RHash,
-		IncomingExpiry: htlc.RefundTimeout,
-		IncomingAmount: htlc.Amt,
-		IncomingCircuit: models.CircuitKey{
-			ChanID: chanID,
-			HtlcID: htlc.HtlcIndex,
-		},
+		Hash:                 htlc.RHash,
+		IncomingExpiry:       htlc.RefundTimeout,
+		IncomingAmount:       htlc.Amt,
+		IncomingCircuit:      inKey,
 		OutgoingChanID:       payload.FwdInfo.NextHop,
 		OutgoingExpiry:       payload.FwdInfo.OutgoingCTLV,
 		OutgoingAmount:       payload.FwdInfo.AmountToForward,

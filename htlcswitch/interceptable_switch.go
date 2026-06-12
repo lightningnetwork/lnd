@@ -52,6 +52,10 @@ type InterceptableSwitch struct {
 
 	onchainIntercepted chan InterceptedForward
 
+	// onchainInterceptDone receives circuit keys for on-chain intercepted
+	// forwards whose contractcourt resolver has finished.
+	onchainInterceptDone chan models.CircuitKey
+
 	// interceptorRegistration is a channel that we use to synchronize
 	// client connect and disconnect.
 	interceptorRegistration chan ForwardInterceptor
@@ -196,6 +200,7 @@ func NewInterceptableSwitch(cfg *InterceptableSwitchConfig) (
 		htlcSwitch:              cfg.Switch,
 		intercepted:             make(chan *interceptedPackets),
 		onchainIntercepted:      make(chan InterceptedForward),
+		onchainInterceptDone:    make(chan models.CircuitKey),
 		interceptorRegistration: make(chan ForwardInterceptor),
 		heldHtlcSet:             newHeldHtlcSet(),
 		resolutionChan:          make(chan *fwdResolution),
@@ -322,6 +327,9 @@ func (s *InterceptableSwitch) run() error {
 				log.Errorf("Cannot hold on-chain intercepted "+
 					"htlc: %v", err)
 			}
+
+		case key := <-s.onchainInterceptDone:
+			s.removeOnChainIntercept(key)
 
 		case res := <-s.resolutionChan:
 			res.errChan <- s.resolve(res.resolution)
@@ -463,6 +471,21 @@ func (s *InterceptableSwitch) ForwardPacket(
 	return nil
 }
 
+// RemoveOnChainIntercept removes an on-chain intercepted forward from the held
+// set once its contractcourt resolver has finished.
+func (s *InterceptableSwitch) RemoveOnChainIntercept(
+	key models.CircuitKey) error {
+
+	select {
+	case s.onchainInterceptDone <- key:
+
+	case <-s.quit:
+		return errors.New("interceptable switch quit")
+	}
+
+	return nil
+}
+
 // interceptForward forwards the packet to the external interceptor after
 // checking the interception criteria.
 func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
@@ -591,6 +614,14 @@ func (s *InterceptableSwitch) forwardOnChain(fwd InterceptedForward) error {
 	}
 
 	return nil
+}
+
+// removeOnChainIntercept removes an on-chain held HTLC after contractcourt no
+// longer needs the interceptor replay handle.
+func (s *InterceptableSwitch) removeOnChainIntercept(key models.CircuitKey) {
+	if s.heldHtlcSet.removeOnChain(key) {
+		log.Debugf("Removed on-chain held htlc %v", key)
+	}
 }
 
 // handleExpired checks that the htlc isn't too close to the channel

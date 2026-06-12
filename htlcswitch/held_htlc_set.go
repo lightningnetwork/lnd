@@ -248,6 +248,19 @@ func (h *heldHtlcSet) releaseAll() []heldHtlcReleaseError {
 	return errs
 }
 
+// removeOnChain removes an on-chain held entry by circuit key. Off-chain
+// entries are left untouched because their lifecycle is owned by the link flow,
+// not contractcourt.
+func (h *heldHtlcSet) removeOnChain(key models.CircuitKey) bool {
+	if _, ok := h.set[key].(*onChainHeld); !ok {
+		return false
+	}
+
+	delete(h.set, key)
+
+	return true
+}
+
 // expire expires held forwards whose deadline has passed.
 func (h *heldHtlcSet) expire(height uint32) []heldHtlcExpireError {
 	var errs []heldHtlcExpireError

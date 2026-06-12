@@ -3,9 +3,12 @@ package htlcswitch
 import (
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -181,6 +184,24 @@ func TestHeldHtlcSetReleaseAllKeepsOnChain(t *testing.T) {
 	require.Zero(t, fwd.resumeCount)
 }
 
+// TestHeldHtlcSetRemoveOnChain verifies contractcourt teardown only removes
+// on-chain entries.
+func TestHeldHtlcSetRemoveOnChain(t *testing.T) {
+	set := newHeldHtlcSet()
+	key := testCircuitKey()
+
+	offChain := newMockInterceptedForward(key, 100)
+	require.NoError(t, set.addOffChain(offChain))
+	require.False(t, set.removeOnChain(key))
+	require.True(t, set.exists(key))
+
+	onChain := newMockInterceptedForward(key, 100)
+	require.NoError(t, set.addOnChain(onChain))
+	require.True(t, set.removeOnChain(key))
+	require.False(t, set.exists(key))
+	require.False(t, set.removeOnChain(key))
+}
+
 // TestHeldHtlcSetOffChainExpire verifies off-chain expiry fails the HTLC back.
 func TestHeldHtlcSetOffChainExpire(t *testing.T) {
 	set := newHeldHtlcSet()
@@ -354,4 +375,81 @@ func TestInterceptableSwitchForwardOnChain(t *testing.T) {
 		require.Equal(t, 1, fwd.settleCount)
 		require.False(t, s.heldHtlcSet.exists(key))
 	})
+
+	t.Run("on-chain htlc removed after teardown", func(t *testing.T) {
+		intercepted = nil
+		s := &InterceptableSwitch{
+			heldHtlcSet: newHeldHtlcSet(),
+			interceptor: interceptor,
+		}
+		fwd := newMockInterceptedForward(key, 100)
+
+		require.NoError(t, s.forwardOnChain(fwd))
+		require.Len(t, intercepted, 1)
+
+		s.removeOnChainIntercept(key)
+		require.False(t, s.heldHtlcSet.exists(key))
+
+		intercepted = nil
+		s.setInterceptor(interceptor)
+		require.Empty(t, intercepted)
+	})
+}
+
+// TestInterceptableSwitchRemoveOnChainIntercept verifies that the public
+// teardown path removes an on-chain hold through the switch run loop.
+func TestInterceptableSwitchRemoveOnChainIntercept(t *testing.T) {
+	notifier := &mock.ChainNotifier{
+		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
+	}
+	notifier.EpochChan <- &chainntnfs.BlockEpoch{Height: 1}
+
+	s, err := NewInterceptableSwitch(&InterceptableSwitchConfig{
+		Notifier:           notifier,
+		CltvRejectDelta:    10,
+		CltvInterceptDelta: 13,
+	})
+	require.NoError(t, err)
+	require.NoError(t, s.Start())
+	defer func() {
+		require.NoError(t, s.Stop())
+	}()
+
+	intercepted := make(chan InterceptedPacket, 2)
+	s.SetInterceptor(func(packet InterceptedPacket) error {
+		intercepted <- packet
+
+		return nil
+	})
+
+	key := testCircuitKey()
+	require.NoError(t, s.ForwardPacket(newMockInterceptedForward(key, 100)))
+	select {
+	case packet := <-intercepted:
+		require.Equal(t, key, packet.IncomingCircuit)
+
+	case <-time.After(time.Second):
+		require.Fail(t, "on-chain hold not intercepted")
+	}
+
+	require.NoError(t, s.RemoveOnChainIntercept(key))
+
+	// Re-registering the interceptor replays all currently held HTLCs.
+	// The removed on-chain hold should not be replayed.
+	s.SetInterceptor(func(packet InterceptedPacket) error {
+		intercepted <- packet
+
+		return nil
+	})
+
+	// Synchronize with the switch event loop so any replay triggered by the
+	// interceptor registration above has already run.
+	require.NoError(t, s.RemoveOnChainIntercept(models.CircuitKey{}))
+
+	select {
+	case packet := <-intercepted:
+		require.Failf(t, "unexpected replay", "packet=%v", packet)
+
+	default:
+	}
 }

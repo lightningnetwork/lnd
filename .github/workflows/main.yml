@@ -439,8 +439,6 @@ jobs:
         include:
           - name: bitcoind-sqlite
             args: backend=bitcoind dbbackend=sqlite
-          - name: bitcoind-sqlite=nativesql-experiment
-            args: backend=bitcoind dbbackend=sqlite nativesql=true tags=test_native_sql
     steps:
       - name: Git checkout
         uses: actions/checkout@v5
@@ -511,8 +509,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: bitcoind-postgres
-            args: backend=bitcoind dbbackend=postgres
           - name: bitcoind-postgres-experiment
             args: backend=bitcoind dbbackend=postgres tags=test_native_sql
           # The windows binaries are cross-compiled here since building
@@ -579,10 +575,6 @@ jobs:
         # entries.
         tranche_group: [0, 1, 2, 3]
         config:
-          - name: bitcoind-postgres
-            binaries: bitcoind-postgres
-            seed: 1
-            args: backend=bitcoind dbbackend=postgres
           - name: bitcoind-postgres-nativesql-experiment
             binaries: bitcoind-postgres-experiment
             seed: 3

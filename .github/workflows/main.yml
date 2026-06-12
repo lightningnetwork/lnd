@@ -39,11 +39,14 @@ env:
   # TODO(yy): remove this value and use TRANCHES.
   SMALL_TRANCHES: 8
 
+  # SPLIT_TRANCHES defines the total number of tranches used by the
+  # tranche-split itest configurations, spread over
+  # SPLIT_TRANCHES / SPLIT_ITEST_PARALLELISM runner jobs.
+  SPLIT_TRANCHES: 16
+
   # SPLIT_ITEST_PARALLELISM defines the number of tranches each runner job
-  # of a tranche-split itest configuration runs in parallel. Split configs
-  # run SMALL_TRANCHES tranches in total, spread over
-  # SMALL_TRANCHES / SPLIT_ITEST_PARALLELISM runner jobs.
-  SPLIT_ITEST_PARALLELISM: 2
+  # of a tranche-split itest configuration runs in parallel.
+  SPLIT_ITEST_PARALLELISM: 4
 
   # If you change this please also update GO_VERSION in Makefile (then run
   # `make lint` to see where else it needs to be updated as well).
@@ -566,7 +569,7 @@ jobs:
       fail-fast: false
       matrix:
         # Each tranche group runs SPLIT_ITEST_PARALLELISM tranches, so
-        # this list must contain SMALL_TRANCHES / SPLIT_ITEST_PARALLELISM
+        # this list must contain SPLIT_TRANCHES / SPLIT_ITEST_PARALLELISM
         # entries.
         tranche_group: [0, 1, 2, 3]
         config:
@@ -612,7 +615,7 @@ jobs:
         if: steps.check-label.outputs.skip != 'true'
         run: |
           OFFSET=$((${{ matrix.tranche_group }} * ${{ env.SPLIT_ITEST_PARALLELISM }}))
-          make itest-only-parallel tranches=${{ env.SMALL_TRANCHES }} \
+          make itest-only-parallel tranches=${{ env.SPLIT_TRANCHES }} \
             parallel=${{ env.SPLIT_ITEST_PARALLELISM }} trancheoffset=$OFFSET \
             ${{ matrix.config.args }} \
             shuffleseed=${{ github.run_id }}${{ matrix.config.seed }}

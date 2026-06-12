@@ -34,6 +34,13 @@
   the close transaction is actually broadcast, and
   `WaitingCloseChannel.ClosingTx` is never empty.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10890)
+  where `ListChannels` reported 100% `uptime` for channels whose peer
+  was offline. The channel fitness store assumed a peer was online when
+  it first started tracking it, but channels are loaded on startup
+  regardless of peer connectivity. Uptime is now seeded from the peer's
+  actual connection state.
+
 # New Features
 
 ## Functional Enhancements

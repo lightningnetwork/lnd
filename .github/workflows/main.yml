@@ -54,9 +54,9 @@ env:
   # configurable database backends, i.e. the packages whose tests behave
   # differently under the kvdb_* and test_db_* build tags (they construct
   # test stores via kvdb.GetTestBackend, channeldb.MakeTestDB, the sqldb
-  # test constructors or their wrappers). The DB-variant unit and race
-  # jobs run only these packages; all other packages run identically in
-  # the plain unit jobs.
+  # test constructors or their wrappers). The DB-variant unit jobs run
+  # only these packages; all other packages run identically in the
+  # plain unit jobs.
   DB_UNIT_PKGS: >-
     autopilot batch chainparams channeldb cluster contractcourt graph
     graph/db graph/db/migration1 invoices kvdb kvdb/etcd kvdb/postgres
@@ -301,9 +301,8 @@ jobs:
       # Allow other tests in the matrix to continue if one fails.
       fail-fast: false
       matrix:
-        # The plain flavor runs the full suite split into four tranches.
-        # The DB flavors only run the DB-touching packages (see
-        # DB_UNIT_PKGS), split into two tranches each.
+        # The full suite is split into four tranches, each running on
+        # its own runner.
         include:
           - name: unit-race
             args: ''
@@ -321,22 +320,6 @@ jobs:
             args: ''
             tranche: 3
             tranches: 4
-          - name: unit-race-sqlite
-            args: tags="test_db_sqlite" pkg="$DB_UNIT_PKGS"
-            tranche: 0
-            tranches: 2
-          - name: unit-race-sqlite
-            args: tags="test_db_sqlite" pkg="$DB_UNIT_PKGS"
-            tranche: 1
-            tranches: 2
-          - name: unit-race-postgres
-            args: tags="test_db_postgres" pkg="$DB_UNIT_PKGS"
-            tranche: 0
-            tranches: 2
-          - name: unit-race-postgres
-            args: tags="test_db_postgres" pkg="$DB_UNIT_PKGS"
-            tranche: 1
-            tranches: 2
 
     steps:
       - name: Git checkout

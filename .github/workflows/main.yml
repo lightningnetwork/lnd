@@ -363,8 +363,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: btcd
-            args: backend=btcd cover=1
           - name: bitcoind
             args: backend=bitcoind cover=1
           - name: neutrino

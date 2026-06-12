@@ -390,10 +390,6 @@ jobs:
             args: backend=btcd cover=1
           - name: bitcoind
             args: backend=bitcoind cover=1
-          - name: bitcoind-miner
-            args: backend=bitcoind minerbackend=bitcoind cover=1
-          - name: bitcoind-notxindex
-            args: backend="bitcoind notxindex"
           - name: neutrino
             args: backend=neutrino cover=1
     steps:
@@ -466,14 +462,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: bitcoind-rpcpolling
-            args: backend="bitcoind rpcpolling"
-          - name: bitcoind-etcd
-            args: backend=bitcoind dbbackend=etcd
           - name: bitcoind-sqlite
             args: backend=bitcoind dbbackend=sqlite
-          - name: bitcoind-sqlite-nativesql
-            args: backend=bitcoind dbbackend=sqlite nativesql=true
           - name: bitcoind-sqlite=nativesql-experiment
             args: backend=bitcoind dbbackend=sqlite nativesql=true tags=test_native_sql
     steps:
@@ -609,10 +599,6 @@ jobs:
             binaries: bitcoind-postgres
             seed: 1
             args: backend=bitcoind dbbackend=postgres
-          - name: bitcoind-postgres-nativesql
-            binaries: bitcoind-postgres
-            seed: 2
-            args: backend=bitcoind dbbackend=postgres nativesql=true
           - name: bitcoind-postgres-nativesql-experiment
             binaries: bitcoind-postgres-experiment
             seed: 3

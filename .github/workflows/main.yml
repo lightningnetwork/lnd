@@ -207,17 +207,6 @@ jobs:
   cross-compile:
     name: Cross compilation
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: true
-      matrix:
-        # Please keep this list in sync with make/release_flags.mk!
-        include:
-          - name: i386
-            sys: freebsd-386 linux-386 windows-386
-          - name: amd64
-            sys: darwin-amd64 freebsd-amd64 linux-amd64 netbsd-amd64 openbsd-amd64 windows-amd64
-          - name: arm
-            sys: darwin-arm64 freebsd-arm linux-armv6 linux-armv7 linux-arm64 windows-arm64
     steps:
       - name: Git checkout
         uses: actions/checkout@v5
@@ -229,8 +218,13 @@ jobs:
           key-prefix: cross-compile
           use-build-cache: 'no'
 
-      - name: Build release for all architectures
-        run: make release sys="${{ matrix.sys }}"
+      # Build a representative subset of the release targets: one per
+      # OS family plus a 32-bit and an ARM target, which together cover
+      # the distinct classes of platform-specific compile errors. The
+      # full target list from make/release_flags.mk is still built by
+      # the release workflow.
+      - name: Build release for representative architectures
+        run: make release sys="linux-386 linux-amd64 linux-armv6 darwin-arm64 freebsd-amd64 windows-amd64"
 
   ########################
   # run unit tests

@@ -36,19 +36,21 @@ PKG_PREFIX=${PKG:-github.com/lightningnetwork/lnd}
 DEV_TAGS=${DEV_TAGS:-dev}
 
 # Heavy packages listed first so the round-robin split distributes them
-# across different tranches. Ordered by approximate descending test
-# duration. Update periodically if the profile shifts.
+# across different tranches. The order is chosen so that the heaviest
+# packages (by measured CI duration; channeldb leads by a wide margin)
+# do not share a tranche under the four-tranche split used in CI.
+# Update periodically if the profile shifts.
 HEAVY_PKGS=(
+  "${PKG_PREFIX}/channeldb"
   "${PKG_PREFIX}/lnwallet"
   "${PKG_PREFIX}/htlcswitch"
-  "${PKG_PREFIX}/chainntnfs"
-  "${PKG_PREFIX}/channeldb"
+  "${PKG_PREFIX}/invoices"
+  "${PKG_PREFIX}/graph/db"
   "${PKG_PREFIX}/contractcourt"
   "${PKG_PREFIX}/routing"
-  "${PKG_PREFIX}/graph/db"
-  "${PKG_PREFIX}/invoices"
-  "${PKG_PREFIX}/watchtower/wtclient"
+  "${PKG_PREFIX}/chainntnfs"
   "${PKG_PREFIX}/peer"
+  "${PKG_PREFIX}/watchtower/wtclient"
 )
 
 all_pkgs=()

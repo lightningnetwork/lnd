@@ -631,9 +631,17 @@ jobs:
   # run windows integration test
   ########################
   windows-integration-test:
-    name: Run windows itest
+    name: Run windows itest (${{ matrix.tranche_group }})
     runs-on: windows-latest
     needs: build-split-itest
+    strategy:
+      # Allow the other group to continue if one fails.
+      fail-fast: false
+      matrix:
+        # The windows runner is machine-bound rather than wait-bound,
+        # so the suite is spread over two runners with half of the
+        # TRANCHES (16) tranches each.
+        tranche_group: [0, 1]
     steps:
       - name: Git checkout
         uses: actions/checkout@v5
@@ -652,10 +660,14 @@ jobs:
           name: itest-binaries-windows
           path: itest
 
-      - name: Run itest
+      - name: Run itest tranche group ${{ matrix.tranche_group }}
         if: steps.check-label.outputs.skip != 'true'
-        run: make itest-only-parallel tranches=${{ env.TRANCHES }} windows=1 shuffleseed=${{ github.run_id }}
-        
+        run: |
+          OFFSET=$((${{ matrix.tranche_group }} * 8))
+          make itest-only-parallel tranches=${{ env.TRANCHES }} \
+            parallel=8 trancheoffset=$OFFSET windows=1 \
+            shuffleseed=${{ github.run_id }}
+
       - name: Kill any remaining lnd processes
         if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         shell: powershell
@@ -664,14 +676,14 @@ jobs:
       - name: Zip log files on failure
         if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         timeout-minutes: 5 # timeout after 5 minute
-        run: 7z a logs-itest-windows.zip itest/**/*.log
+        run: 7z a logs-itest-windows-${{ matrix.tranche_group }}.zip itest/**/*.log
 
       - name: Upload log files on failure
         uses: actions/upload-artifact@v4
         if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         with:
-          name: logs-itest-windows
-          path: logs-itest-windows.zip
+          name: logs-itest-windows-${{ matrix.tranche_group }}
+          path: logs-itest-windows-${{ matrix.tranche_group }}.zip
           retention-days: 5
 
   ########################

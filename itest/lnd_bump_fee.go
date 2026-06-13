@@ -1,6 +1,8 @@
 package itest
 
 import (
+	"bytes"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -14,6 +16,38 @@ import (
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/stretchr/testify/require"
 )
+
+// assertRawTxSpendsInput decodes the hex-encoded raw sweep transaction
+// returned by PendingSweeps and asserts it is a valid transaction that spends
+// the given outpoint.
+//
+// Note we deliberately don't assert an exact match against the sweep tx
+// currently in the mempool. The sweeper records the input's sweep tx
+// asynchronously from the fee bumper's broadcast, so while the tx is being
+// RBF-bumped the mempool and the RPC view can be one version apart. Every
+// version spends the same input though, so we assert that invariant instead.
+func assertRawTxSpendsInput(ht *lntest.HarnessTest, rawTxHex string,
+	outpoint wire.OutPoint) {
+
+	require.NotEmpty(ht, rawTxHex, "raw tx hex is empty")
+
+	rawBytes, err := hex.DecodeString(rawTxHex)
+	require.NoError(ht, err, "decode raw tx hex")
+
+	var sweepTx wire.MsgTx
+	require.NoError(ht, sweepTx.Deserialize(bytes.NewReader(rawBytes)),
+		"deserialize raw tx")
+
+	var found bool
+	for _, txIn := range sweepTx.TxIn {
+		if txIn.PreviousOutPoint == outpoint {
+			found = true
+			break
+		}
+	}
+	require.Truef(ht, found, "raw tx %v does not spend input %v",
+		sweepTx.TxHash(), outpoint)
+}
 
 // testBumpFeeLowBudget checks that when the requested ideal budget cannot be
 // met, the sweeper still sweeps the input with the actual budget.
@@ -62,31 +96,6 @@ func testBumpFeeLowBudget(ht *lntest.HarnessTest) {
 	assertPendingSweepResp := func(budget uint64,
 		deadline uint32) *wire.MsgTx {
 
-		// Alice should still have one pending sweep.
-		pendingSweep := ht.AssertNumPendingSweeps(alice, 1)[0]
-
-		// Validate all fields returned from `PendingSweeps` are as
-		// expected.
-		require.Equal(ht, op.TxidBytes, pendingSweep.Outpoint.TxidBytes)
-		require.Equal(ht, op.OutputIndex,
-			pendingSweep.Outpoint.OutputIndex)
-		require.Equal(ht, walletrpc.WitnessType_TAPROOT_PUB_KEY_SPEND,
-			pendingSweep.WitnessType)
-		require.EqualValuesf(ht, value, pendingSweep.AmountSat,
-			"amount not matched: want=%d, got=%d", value,
-			pendingSweep.AmountSat)
-		require.True(ht, pendingSweep.Immediate)
-
-		require.EqualValuesf(ht, budget, pendingSweep.Budget,
-			"budget not matched: want=%d, got=%d", budget,
-			pendingSweep.Budget)
-
-		// Since the request doesn't specify a deadline, we expect the
-		// existing deadline to be used.
-		require.Equalf(ht, deadline, pendingSweep.DeadlineHeight,
-			"deadline height not matched: want=%d, got=%d",
-			deadline, pendingSweep.DeadlineHeight)
-
 		// We expect to see Alice's original tx and her CPFP tx in the
 		// mempool.
 		txns := ht.GetNumTxsFromMempool(2)
@@ -97,6 +106,52 @@ func testBumpFeeLowBudget(ht *lntest.HarnessTest) {
 		if sweepTx.TxHash() == tx.TxHash() {
 			sweepTx = txns[1]
 		}
+
+		// Validate the pending sweep response. The RawTxHex field is
+		// populated asynchronously after the sweep is published, so we
+		// retry until it's set.
+		var ps *walletrpc.PendingSweep
+		err := wait.NoError(func() error {
+			// Alice should still have one pending sweep.
+			ps = ht.AssertNumPendingSweeps(alice, 1)[0]
+
+			// Validate all fields returned from `PendingSweeps`
+			// are as expected. These fields don't change during
+			// the test so we assert them without retrying.
+			require.Equal(ht, op.TxidBytes, ps.Outpoint.TxidBytes)
+			require.Equal(ht, op.OutputIndex,
+				ps.Outpoint.OutputIndex)
+			require.Equal(ht,
+				walletrpc.WitnessType_TAPROOT_PUB_KEY_SPEND,
+				ps.WitnessType)
+			require.EqualValuesf(ht, value, ps.AmountSat,
+				"amount not matched: want=%d, got=%d", value,
+				ps.AmountSat)
+			require.True(ht, ps.Immediate)
+			require.EqualValuesf(ht, budget, ps.Budget,
+				"budget not matched: want=%d, got=%d", budget,
+				ps.Budget)
+
+			// Since the request doesn't specify a deadline, we
+			// expect the existing deadline to be used.
+			require.Equalf(ht, deadline, ps.DeadlineHeight,
+				"deadline height not matched: want=%d, got=%d",
+				deadline, ps.DeadlineHeight)
+
+			if ps.RawTxHex == "" {
+				return fmt.Errorf("raw tx hex is empty")
+			}
+
+			return nil
+		}, wait.DefaultTimeout)
+		require.NoError(ht, err, "raw tx hex not populated")
+
+		// Validate that the raw tx hex decodes to a transaction that
+		// spends the input being swept.
+		assertRawTxSpendsInput(ht, ps.RawTxHex, wire.OutPoint{
+			Hash:  tx.TxHash(),
+			Index: op.OutputIndex,
+		})
 
 		return sweepTx
 	}
@@ -300,6 +355,27 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 		if sweepTx.TxHash() == tx.TxHash() {
 			sweepTx = txns[1]
 		}
+
+		// Validate that the raw tx hex is populated. The field is
+		// populated asynchronously after the sweep is published, so we
+		// retry until it's set.
+		var ps *walletrpc.PendingSweep
+		err = wait.NoError(func() error {
+			ps = ht.AssertNumPendingSweeps(alice, 1)[0]
+			if ps.RawTxHex == "" {
+				return fmt.Errorf("raw tx hex is empty")
+			}
+
+			return nil
+		}, wait.DefaultTimeout)
+		require.NoError(ht, err, "raw tx hex not populated")
+
+		// Validate that the raw tx hex decodes to a transaction that
+		// spends the input being swept.
+		assertRawTxSpendsInput(ht, ps.RawTxHex, wire.OutPoint{
+			Hash:  tx.TxHash(),
+			Index: op.OutputIndex,
+		})
 
 		return sweepTx
 	}

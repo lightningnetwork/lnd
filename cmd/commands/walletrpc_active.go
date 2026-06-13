@@ -368,6 +368,10 @@ func bumpFee(ctx *cli.Context) error {
 
 	printRespJSON(resp)
 
+	fmt.Println("\nSweep parameters updated successfully. Use " +
+		"`lncli wallet pendingsweeps` to monitor the sweep " +
+		"transaction and obtain the raw transaction hex if needed.")
+
 	return nil
 }
 

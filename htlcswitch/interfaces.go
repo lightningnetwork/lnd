@@ -420,7 +420,8 @@ type InterceptedPacket struct {
 	InWireCustomRecords lnwire.CustomRecords
 
 	// AutoFailHeight is the block height at which this intercept will be
-	// failed back automatically.
+	// failed back automatically for off-chain forwards. For on-chain
+	// forwards, this is the deadline until which the HTLC can be settled.
 	AutoFailHeight int32
 }
 

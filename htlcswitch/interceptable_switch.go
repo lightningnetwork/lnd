@@ -52,6 +52,10 @@ type InterceptableSwitch struct {
 
 	onchainIntercepted chan InterceptedForward
 
+	// onchainInterceptDone receives circuit keys for on-chain intercepted
+	// forwards whose contractcourt resolver has finished.
+	onchainInterceptDone chan models.CircuitKey
+
 	// interceptorRegistration is a channel that we use to synchronize
 	// client connect and disconnect.
 	interceptorRegistration chan ForwardInterceptor
@@ -196,6 +200,7 @@ func NewInterceptableSwitch(cfg *InterceptableSwitchConfig) (
 		htlcSwitch:              cfg.Switch,
 		intercepted:             make(chan *interceptedPackets),
 		onchainIntercepted:      make(chan InterceptedForward),
+		onchainInterceptDone:    make(chan models.CircuitKey),
 		interceptorRegistration: make(chan ForwardInterceptor),
 		heldHtlcSet:             newHeldHtlcSet(),
 		resolutionChan:          make(chan *fwdResolution),
@@ -318,16 +323,13 @@ func (s *InterceptableSwitch) run() error {
 			}
 
 		case fwd := <-s.onchainIntercepted:
-			// For on-chain interceptions, we don't know if it has
-			// already been offered before. This information is in
-			// the forwarding package which isn't easily accessible
-			// from contractcourt. It is likely though that it was
-			// already intercepted in the off-chain flow. And even
-			// if not, it is safe to signal replay so that we won't
-			// unexpectedly skip over this htlc.
-			if _, err := s.forward(fwd, true); err != nil {
-				return err
+			if err := s.forwardOnChain(fwd); err != nil {
+				log.Errorf("Cannot hold on-chain intercepted "+
+					"htlc: %v", err)
 			}
+
+		case key := <-s.onchainInterceptDone:
+			s.removeOnChainIntercept(key)
 
 		case res := <-s.resolutionChan:
 			res.errChan <- s.resolve(res.resolution)
@@ -339,8 +341,10 @@ func (s *InterceptableSwitch) run() error {
 
 			s.currentHeight = currentBlock.Height
 
-			// A new block is appended. Fail any held htlcs that
-			// expire at this height to prevent channel force-close.
+			// A new block is appended. Expire any held HTLCs whose
+			// deadline has passed. Off-chain HTLCs fail back, while
+			// on-chain HTLCs are only pruned from the local hold
+			// set.
 			s.failExpiredHtlcs()
 
 		case <-s.quit:
@@ -350,17 +354,11 @@ func (s *InterceptableSwitch) run() error {
 }
 
 func (s *InterceptableSwitch) failExpiredHtlcs() {
-	s.heldHtlcSet.popAutoFails(
-		uint32(s.currentHeight),
-		func(fwd InterceptedForward) {
-			err := fwd.FailWithCode(
-				lnwire.CodeTemporaryChannelFailure,
-			)
-			if err != nil {
-				log.Errorf("Cannot fail packet: %v", err)
-			}
-		},
-	)
+	errs := s.heldHtlcSet.expire(uint32(s.currentHeight))
+	for _, expireErr := range errs {
+		log.Errorf("Cannot expire held htlc %v: %v", expireErr.key,
+			expireErr.err)
+	}
 }
 
 func (s *InterceptableSwitch) sendForward(fwd InterceptedForward) {
@@ -397,45 +395,17 @@ func (s *InterceptableSwitch) setInterceptor(interceptor ForwardInterceptor) {
 	// Interceptor is not required. Release held forwards.
 	log.Infof("Interceptor disconnected, resolving held packets")
 
-	s.heldHtlcSet.popAll(func(fwd InterceptedForward) {
-		err := fwd.Resume()
-		if err != nil {
-			log.Errorf("Failed to resume hold forward %v", err)
-		}
-	})
+	errs := s.heldHtlcSet.releaseAll()
+	for _, releaseErr := range errs {
+		log.Errorf("Failed to resume hold forward %v: %v",
+			releaseErr.key, releaseErr.err)
+	}
 }
 
 // resolve processes a HTLC given the resolution type specified by the
 // intercepting client.
 func (s *InterceptableSwitch) resolve(res *FwdResolution) error {
-	intercepted, err := s.heldHtlcSet.pop(res.Key)
-	if err != nil {
-		return err
-	}
-
-	switch res.Action {
-	case FwdActionResume:
-		return intercepted.Resume()
-
-	case FwdActionResumeModified:
-		return intercepted.ResumeModified(
-			res.InAmountMsat, res.OutAmountMsat,
-			res.OutWireCustomRecords,
-		)
-
-	case FwdActionSettle:
-		return intercepted.Settle(res.Preimage)
-
-	case FwdActionFail:
-		if len(res.FailureMessage) > 0 {
-			return intercepted.Fail(res.FailureMessage)
-		}
-
-		return intercepted.FailWithCode(res.FailureCode)
-
-	default:
-		return fmt.Errorf("unrecognized action %v", res.Action)
-	}
+	return s.heldHtlcSet.resolve(res)
 }
 
 // Resolve resolves an intercepted packet.
@@ -501,6 +471,21 @@ func (s *InterceptableSwitch) ForwardPacket(
 	return nil
 }
 
+// RemoveOnChainIntercept removes an on-chain intercepted forward from the held
+// set once its contractcourt resolver has finished.
+func (s *InterceptableSwitch) RemoveOnChainIntercept(
+	key models.CircuitKey) error {
+
+	select {
+	case s.onchainInterceptDone <- key:
+
+	case <-s.quit:
+		return errors.New("interceptable switch quit")
+	}
+
+	return nil
+}
+
 // interceptForward forwards the packet to the external interceptor after
 // checking the interception criteria.
 func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
@@ -542,15 +527,16 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 			return true, nil
 		}
 
-		return s.forward(intercepted, isReplay)
+		return s.forwardOffChain(intercepted, isReplay)
 
 	default:
 		return false, nil
 	}
 }
 
-// forward records the intercepted htlc and forwards it to the interceptor.
-func (s *InterceptableSwitch) forward(
+// forwardOffChain records an off-chain intercepted htlc and forwards it to the
+// interceptor if needed.
+func (s *InterceptableSwitch) forwardOffChain(
 	fwd InterceptedForward, isReplay bool) (bool, error) {
 
 	inKey := fwd.Packet().IncomingCircuit
@@ -585,22 +571,57 @@ func (s *InterceptableSwitch) forward(
 		// This packet is a replay. It is not safe to fail back, because the
 		// interceptor may still signal otherwise upon reconnect. Keep the
 		// packet in the queue until then.
-		if err := s.heldHtlcSet.push(inKey, fwd); err != nil {
+		if err := s.heldHtlcSet.addOffChain(fwd); err != nil {
 			return false, err
 		}
 
 		return true, nil
 	}
 
-	// There is an interceptor registered. We can forward the packet right now.
-	// Hold it in the queue too to track what is outstanding.
-	if err := s.heldHtlcSet.push(inKey, fwd); err != nil {
+	// There is an interceptor registered. We can notify it right now. Hold
+	// the packet in the queue too to track what is outstanding.
+	if err := s.heldHtlcSet.addOffChain(fwd); err != nil {
 		return false, err
 	}
 
 	s.sendForward(fwd)
 
 	return true, nil
+}
+
+// forwardOnChain records an on-chain intercepted htlc. This doesn't resume or
+// forward the htlc through the link. If this HTLC is not already held, the
+// interceptor is notified so the client can settle it. If it is already held
+// off-chain, we replace the stored entry so future resolutions go to the
+// on-chain witness beacon path, and skip re-notifying because the client still
+// has the circuit key from the existing hold.
+//
+// Note that the skip only applies while that hold is still present: if the
+// off-chain hold was already released or auto-failed before the channel went
+// on-chain, wasHeld is false and the client is notified again for the same
+// circuit key. Interceptor clients must therefore treat offers as idempotent
+// per circuit key (reconnect replays already require this).
+func (s *InterceptableSwitch) forwardOnChain(fwd InterceptedForward) error {
+	inKey := fwd.Packet().IncomingCircuit
+	wasHeld := s.heldHtlcSet.exists(inKey)
+
+	if err := s.heldHtlcSet.addOnChain(fwd); err != nil {
+		return err
+	}
+
+	if s.interceptor != nil && !wasHeld {
+		s.sendForward(fwd)
+	}
+
+	return nil
+}
+
+// removeOnChainIntercept removes an on-chain held HTLC after contractcourt no
+// longer needs the interceptor replay handle.
+func (s *InterceptableSwitch) removeOnChainIntercept(key models.CircuitKey) {
+	if s.heldHtlcSet.removeOnChain(key) {
+		log.Debugf("Removed on-chain held htlc %v", key)
+	}
 }
 
 // handleExpired checks that the htlc isn't too close to the channel

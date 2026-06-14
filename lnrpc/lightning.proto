@@ -3196,6 +3196,19 @@ message QueryRoutesRequest {
     channel may be used.
     */
     repeated uint64 outgoing_chan_ids = 20;
+
+    /*
+    An optional payment address included in the invoice (also called payment
+    secret). If set, an MPP record containing this value will be included in
+    the final hop of the returned route.
+    */
+    bytes payment_addr = 21;
+
+    /*
+    An optional AMP record to be included within the last hop of the route.
+    If set, payment_addr must also be set. See AMPRecord for details.
+    */
+    AMPRecord amp_record = 22;
 }
 
 message NodePair {

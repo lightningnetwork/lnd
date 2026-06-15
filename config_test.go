@@ -147,7 +147,9 @@ func TestNormalizeRemoteSignerListenAddrs(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			inboundCfg := lncfg.InboundWatchOnlyCfg{
-				RPCListeners: []string{test.listener},
+				ExperimentalRPCListeners: []string{
+					test.listener,
+				},
 			}
 
 			cfg := &Config{

@@ -304,14 +304,16 @@ func prepareOutboundRemoteSignerTest(ht *lntest.HarnessTest,
 	// that the watch-only node expects the signer to make an
 	// outbound connection to it.
 	rsHost := fmt.Sprintf("localhost:%d", port.NextAvailablePort())
-	rsRpcListen := fmt.Sprintf("--remotesigner.rpclisten=%s", rsHost)
+	rsRpcListen := fmt.Sprintf(
+		"--remotesigner.experimentalrpclisten=%s", rsHost,
+	)
 
 	watchOnly := ht.CreateNewNode(
 		"WatchOnly", append([]string{
 			"--remotesigner.enable",
-			"--remotesigner.allowinboundconnection",
+			"--remotesigner.experimentalallowinboundconnection",
 			"--remotesigner.timeout=30s",
-			"--remotesigner.requesttimeout=30s",
+			"--remotesigner.experimentalrequesttimeout=30s",
 			rsRpcListen,
 		}, commitArgs...),
 		password, true,
@@ -321,9 +323,9 @@ func prepareOutboundRemoteSignerTest(ht *lntest.HarnessTest,
 	// watch-only node, we must specify the watch-only node's RPC
 	// connection details in the signer's configuration.
 	signerArgs := []string{
-		"--watchonlynode.enable",
+		"--watchonlynode.experimentalenable",
 		"--watchonlynode.timeout=30s",
-		"--watchonlynode.requesttimeout=10s",
+		"--watchonlynode.experimentalrequesttimeout=10s",
 		fmt.Sprintf(
 			"--watchonlynode.rpchost=%s",
 			rsHost,
@@ -725,10 +727,11 @@ func testOutboundRSMacaroonEnforcement(ht *lntest.HarnessTest) {
 	)
 	watchOnlyArgs := []string{
 		"--remotesigner.enable",
-		"--remotesigner.allowinboundconnection",
-		fmt.Sprintf("--remotesigner.rpclisten=%s", remoteSignerHost),
+		"--remotesigner.experimentalallowinboundconnection",
+		fmt.Sprintf("--remotesigner.experimentalrpclisten=%s",
+			remoteSignerHost),
 		"--remotesigner.timeout=15s",
-		"--remotesigner.requesttimeout=15s",
+		"--remotesigner.experimentalrequesttimeout=15s",
 	}
 
 	// Create the watch-only node. Note that we require authentication for
@@ -759,11 +762,11 @@ func testOutboundRSMacaroonEnforcement(ht *lntest.HarnessTest) {
 	// lacks the `remotesigner` entity required when the signer node
 	// connects to the watch-only node.
 	connectionCfg := lncfg.ConnectionCfg{
-		RPCHost:        remoteSignerHost,
-		MacaroonPath:   watchOnly.Cfg.InvoiceMacPath,
-		TLSCertPath:    watchOnly.Cfg.TLSCertPath,
-		Timeout:        10 * time.Second,
-		RequestTimeout: 10 * time.Second,
+		RPCHost:                    remoteSignerHost,
+		MacaroonPath:               watchOnly.Cfg.InvoiceMacPath,
+		TLSCertPath:                watchOnly.Cfg.TLSCertPath,
+		Timeout:                    10 * time.Second,
+		ExperimentalRequestTimeout: 10 * time.Second,
 	}
 
 	streamFeeder := rpcwallet.NewStreamFeeder(connectionCfg)
@@ -787,9 +790,9 @@ func testOutboundRSMacaroonEnforcement(ht *lntest.HarnessTest) {
 	// Finally, connect a real signer to the watch-only node so that
 	// it can start up properly.
 	signerArgs := []string{
-		"--watchonlynode.enable",
+		"--watchonlynode.experimentalenable",
 		"--watchonlynode.timeout=30s",
-		"--watchonlynode.requesttimeout=10s",
+		"--watchonlynode.experimentalrequesttimeout=10s",
 		fmt.Sprintf(
 			"--watchonlynode.rpchost=%s",
 			remoteSignerHost,

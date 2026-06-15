@@ -1926,7 +1926,9 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 
 	// Validate that the node isn't configured as both a remote signer and a
 	// watch-only node.
-	if cfg.RemoteSigner.Enable && cfg.WatchOnlyNode.Enable {
+	if cfg.RemoteSigner.Enable &&
+		cfg.WatchOnlyNode.ExperimentalEnable {
+
 		return nil, fmt.Errorf("cannot be configured as both a " +
 			"watchonly node and a remote signer node " +
 			"simultaneously")

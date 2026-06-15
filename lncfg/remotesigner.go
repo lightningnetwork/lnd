@@ -20,8 +20,9 @@ const (
 	DefaultRemoteSignerRequestTimeout = 5 * time.Second
 
 	// DefaultStartupTimeout is the default startup timeout used when a
-	// watch-only node with 'remotesigner.allowinboundconnection' set to
-	// true waits for the remote signer to connect.
+	// watch-only node with
+	// 'remotesigner.experimentalallowinboundconnection' set to true waits
+	// for the remote signer to connect.
 	DefaultStartupTimeout = 5 * time.Minute
 )
 
@@ -34,9 +35,9 @@ type RemoteSigner struct {
 	// setup.
 	Enable bool `long:"enable" description:"Use a remote signer for signing any on-chain related transactions or messages. Only recommended if local wallet is initialized as watch-only. Remote signer must use the same seed/root key as the local watch-only wallet but must have private keys."`
 
-	// AllowInboundConnection is true if the remote signer node will connect
-	// to this node.
-	AllowInboundConnection bool `long:"allowinboundconnection" description:"Signals that we allow an inbound connection from a remote signer to this node."`
+	// ExperimentalAllowInboundConnection is true if the remote signer node
+	// will connect to this node.
+	ExperimentalAllowInboundConnection bool `long:"experimentalallowinboundconnection" description:"EXPERIMENTAL: Signals that we allow an inbound connection from a remote signer to this node."`
 
 	// MigrateWatchOnly migrates the wallet to a watch-only wallet by
 	// purging all private keys from the wallet after first unlock with this
@@ -57,11 +58,11 @@ type RemoteSigner struct {
 // DefaultRemoteSignerCfg returns the default RemoteSigner config.
 func DefaultRemoteSignerCfg() *RemoteSigner {
 	return &RemoteSigner{
-		Enable:                 false,
-		AllowInboundConnection: false,
-		ConnectionCfg:          defaultConnectionCfg(),
+		Enable:                             false,
+		ExperimentalAllowInboundConnection: false,
+		ConnectionCfg:                      defaultConnectionCfg(),
 		InboundWatchOnlyCfg: InboundWatchOnlyCfg{
-			StartupTimeout: DefaultStartupTimeout,
+			ExperimentalStartupTimeout: DefaultStartupTimeout,
 		},
 	}
 }
@@ -75,25 +76,28 @@ func (r *RemoteSigner) Validate() error {
 				"signing is not enabled")
 		}
 
-		if r.AllowInboundConnection {
+		if r.ExperimentalAllowInboundConnection {
 			return fmt.Errorf("remote signer: cannot enable " +
-				"'allowinboundconnection' if remote signing " +
-				"is not enabled")
+				"'experimentalallowinboundconnection' if " +
+				"remote signing is not enabled")
 		}
 
 		return nil
 	}
 
-	if r.AllowInboundConnection {
-		if len(r.RPCListeners) == 0 {
-			return fmt.Errorf("remotesigner.rpclisten must be " +
-				"set when allowinboundconnection is enabled")
+	if r.ExperimentalAllowInboundConnection {
+		if len(r.ExperimentalRPCListeners) == 0 {
+			//nolint:ll
+			return fmt.Errorf("remotesigner.experimentalrpclisten " +
+				"must be set when " +
+				"experimentalallowinboundconnection is enabled")
 		}
 
-		if r.StartupTimeout < 0 {
-			return fmt.Errorf("remotesigner.startuptimeout of "+
-				"%v is invalid, cannot be smaller than %v",
-				r.StartupTimeout, 0)
+		if r.ExperimentalStartupTimeout < 0 {
+			return fmt.Errorf("remotesigner."+
+				"experimentalstartuptimeout of %v is "+
+				"invalid, cannot be smaller than %v",
+				r.ExperimentalStartupTimeout, 0)
 		}
 	}
 
@@ -106,7 +110,7 @@ func (r *RemoteSigner) Validate() error {
 	// The host and credential settings are required only when the
 	// watch-only node initiates the outbound connection to the remote
 	// signer.
-	if r.AllowInboundConnection {
+	if r.ExperimentalAllowInboundConnection {
 		return nil
 	}
 
@@ -119,18 +123,19 @@ func (r *RemoteSigner) Validate() error {
 }
 
 // InboundWatchOnlyCfg holds the configuration options specific for watch-only
-// nodes with the `allowinboundconnection` option set.
+// nodes with the `experimentalallowinboundconnection` option set.
 //
 //nolint:ll
 type InboundWatchOnlyCfg struct {
-	StartupTimeout time.Duration `long:"startuptimeout" description:"The time the watch-only node will wait for the remote signer to connect during startup. If the timeout expires before the remote signer connects, the watch-only node will shut down. If set to 0, no timeout will not expire. Valid time units are {s, m, h}."`
+	ExperimentalStartupTimeout time.Duration `long:"experimentalstartuptimeout" description:"EXPERIMENTAL: The time the watch-only node will wait for the remote signer to connect during startup. If the timeout expires before the remote signer connects, the watch-only node will shut down. If set to 0, no timeout will not expire. Valid time units are {s, m, h}."`
 
 	// RPCListeners is the set of dedicated gRPC listener addresses that
 	// serve only the SignCoordinatorStreams RPC for inbound remote signer
-	// connections. This must be set when allowinboundconnection is enabled.
+	// connections. This must be set when
+	// experimentalallowinboundconnection is enabled.
 	// If a listener omits a port, the default remote signer RPC port is
 	// used.
-	RPCListeners []string `long:"rpclisten" description:"Dedicated RPC listen address(es) for inbound remote signer connections. When allowinboundconnection is enabled, lnd starts a separate gRPC server on these listeners that serves only the SignCoordinatorStreams RPC. If no port is specified, the default remote signer RPC port 10019 is used."`
+	ExperimentalRPCListeners []string `long:"experimentalrpclisten" description:"EXPERIMENTAL: Dedicated RPC listen address(es) for inbound remote signer connections. When experimentalallowinboundconnection is enabled, lnd starts a separate gRPC server on these listeners that serves only the SignCoordinatorStreams RPC. If no port is specified, the default remote signer RPC port 10019 is used."`
 }
 
 // WatchOnlyNode holds the configuration options for how to connect to a watch
@@ -140,7 +145,7 @@ type InboundWatchOnlyCfg struct {
 type WatchOnlyNode struct {
 	// Enable signals if this node a signer node and is expected to connect
 	// to a watch-only node.
-	Enable bool `long:"enable" description:"Signals that this node functions as a remote signer that will to connect with a watch-only node."`
+	ExperimentalEnable bool `long:"experimentalenable" description:"EXPERIMENTAL: Signals that this node functions as a remote signer that will to connect with a watch-only node."`
 
 	// ConnectionCfg holds the connection configuration options that the
 	// remote signer node will use when setting up the connection to the
@@ -151,14 +156,14 @@ type WatchOnlyNode struct {
 // DefaultWatchOnlyNodeCfg returns the default WatchOnlyNode config.
 func DefaultWatchOnlyNodeCfg() *WatchOnlyNode {
 	return &WatchOnlyNode{
-		Enable:        false,
-		ConnectionCfg: defaultConnectionCfg(),
+		ExperimentalEnable: false,
+		ConnectionCfg:      defaultConnectionCfg(),
 	}
 }
 
 // Validate checks the values set in the WatchOnlyNode config are valid.
 func (w *WatchOnlyNode) Validate() error {
-	if !w.Enable {
+	if !w.ExperimentalEnable {
 		return nil
 	}
 
@@ -176,18 +181,18 @@ func (w *WatchOnlyNode) Validate() error {
 //
 //nolint:ll
 type ConnectionCfg struct {
-	RPCHost        string        `long:"rpchost" description:"The RPC host:port of the remote signer or watch-only node. For watch-only nodes with 'remotesigner.allowinboundconnection' set to false (the default value if not specifically set), this should be set to the remote signer's RPC host:port. For remote signer nodes connecting to a watch-only node with 'remotesigner.allowinboundconnection' set to true, this should be set to the watch-only node's RPC host:port."`
-	MacaroonPath   string        `long:"macaroonpath" description:"The macaroon to use for authenticating with the remote signer or the watch-only node. For watch-only nodes with 'remotesigner.allowinboundconnection' set to false (the default value if not specifically set), this should be set to the remote signer's macaroon. For remote signer nodes connecting to a watch-only node with 'remotesigner.allowinboundconnection' set to true, this should be set to the watch-only node's macaroon."`
-	TLSCertPath    string        `long:"tlscertpath" description:"The TLS certificate to use for establishing the remote signer's or watch-only node's identity. For watch-only nodes with 'remotesigner.allowinboundconnection' set to false (the default value if not specifically set), this should be set to the remote signer's TLS certificate. For remote signer nodes connecting to a watch-only node with 'remotesigner.allowinboundconnection' set to true, this should be set to the watch-only node's TLS certificate."`
-	Timeout        time.Duration `long:"timeout" description:"The timeout for making the connection to the remote signer or watch-only node, depending on whether the node acts as a watch-only node or a signer. For watch-only nodes with 'remotesigner.allowinboundconnection' set to true, this timeout value has no effect. Valid time units are {s, m, h}."`
-	RequestTimeout time.Duration `long:"requesttimeout" description:"The time we will wait when making requests to the remote signer or watch-only node, depending on whether the node acts as a watch-only node or a signer. Valid time units are {s, m, h}."`
+	RPCHost                    string        `long:"rpchost" description:"The RPC host:port of the remote signer or watch-only node. For watch-only nodes with 'remotesigner.experimentalallowinboundconnection' set to false (the default value if not specifically set), this should be set to the remote signer's RPC host:port. For remote signer nodes connecting to a watch-only node with 'remotesigner.experimentalallowinboundconnection' set to true, this should be set to the watch-only node's RPC host:port."`
+	MacaroonPath               string        `long:"macaroonpath" description:"The macaroon to use for authenticating with the remote signer or the watch-only node. For watch-only nodes with 'remotesigner.experimentalallowinboundconnection' set to false (the default value if not specifically set), this should be set to the remote signer's macaroon. For remote signer nodes connecting to a watch-only node with 'remotesigner.experimentalallowinboundconnection' set to true, this should be set to the watch-only node's macaroon."`
+	TLSCertPath                string        `long:"tlscertpath" description:"The TLS certificate to use for establishing the remote signer's or watch-only node's identity. For watch-only nodes with 'remotesigner.experimentalallowinboundconnection' set to false (the default value if not specifically set), this should be set to the remote signer's TLS certificate. For remote signer nodes connecting to a watch-only node with 'remotesigner.experimentalallowinboundconnection' set to true, this should be set to the watch-only node's TLS certificate."`
+	Timeout                    time.Duration `long:"timeout" description:"The timeout for making the connection to the remote signer or watch-only node, depending on whether the node acts as a watch-only node or a signer. For watch-only nodes with 'remotesigner.experimentalallowinboundconnection' set to true, this timeout value has no effect. Valid time units are {s, m, h}."`
+	ExperimentalRequestTimeout time.Duration `long:"experimentalrequesttimeout" description:"EXPERIMENTAL: The time we will wait when making requests to the remote signer or watch-only node, depending on whether the node acts as a watch-only node or a signer. Valid time units are {s, m, h}."`
 }
 
 // defaultConnectionCfg returns the default ConnectionCfg config.
 func defaultConnectionCfg() ConnectionCfg {
 	return ConnectionCfg{
-		Timeout:        DefaultRemoteSignerRPCTimeout,
-		RequestTimeout: DefaultRemoteSignerRequestTimeout,
+		Timeout:                    DefaultRemoteSignerRPCTimeout,
+		ExperimentalRequestTimeout: DefaultRemoteSignerRequestTimeout,
 	}
 }
 
@@ -209,9 +214,10 @@ func (c *ConnectionCfg) validateTimeouts() error {
 			"smaller than %v", c.Timeout, time.Millisecond)
 	}
 
-	if c.RequestTimeout < time.Second {
-		return fmt.Errorf("requesttimeout of %v is invalid, cannot "+
-			"be smaller than %v", c.RequestTimeout, time.Second)
+	if c.ExperimentalRequestTimeout < time.Second {
+		return fmt.Errorf("experimentalrequesttimeout of %v is "+
+			"invalid, cannot be smaller than %v",
+			c.ExperimentalRequestTimeout, time.Second)
 	}
 
 	return nil

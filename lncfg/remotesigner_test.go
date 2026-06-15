@@ -12,12 +12,14 @@ import (
 func TestRemoteSignerValidateInboundRequiresListeners(t *testing.T) {
 	cfg := lncfg.DefaultRemoteSignerCfg()
 	cfg.Enable = true
-	cfg.AllowInboundConnection = true
+	cfg.ExperimentalAllowInboundConnection = true
 
 	err := cfg.Validate()
-	require.ErrorContains(t, err, "remotesigner.rpclisten must be set")
+	require.ErrorContains(
+		t, err, "remotesigner.experimentalrpclisten must be set",
+	)
 
-	cfg.RPCListeners = []string{"localhost"}
+	cfg.ExperimentalRPCListeners = []string{"localhost"}
 
 	require.NoError(t, cfg.Validate())
 }

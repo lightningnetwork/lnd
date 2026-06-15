@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -10,11 +11,11 @@ const (
 	// pureTLVUnsignedRangeOneStart defines the start of the first unsigned
 	// TLV range used for pure TLV messages. The range is inclusive of this
 	// number.
-	pureTLVUnsignedRangeOneStart = 160
+	pureTLVUnsignedRangeOneStart = 240
 
 	// pureTLVSignedSecondRangeStart defines the start of the second signed
 	// TLV range used for pure TLV messages. The range is inclusive of this
-	// number. Note that the first range is the inclusive range of 0-159.
+	// number. Note that the first range is the inclusive range of 0-239.
 	pureTLVSignedSecondRangeStart = 1000000000
 
 	// pureTLVUnsignedRangeTwoStart defines the start of the second unsigned
@@ -24,7 +25,7 @@ const (
 
 // PureTLVMessage describes an LN message that is a pure TLV stream. If the
 // message includes a signature, it will sign all the TLV records in the
-// inclusive ranges: 0 to 159 and 1000000000 to 2999999999.
+// inclusive ranges: 0 to 239 and 1000000000 to 2999999999.
 type PureTLVMessage interface {
 	// AllRecords returns all the TLV records for the message. This will
 	// include all the records we know about along with any that we don't
@@ -64,6 +65,21 @@ func InUnsignedRange(t tlv.Type) bool {
 	return (t >= pureTLVUnsignedRangeOneStart &&
 		t < pureTLVSignedSecondRangeStart) ||
 		t >= pureTLVUnsignedRangeTwoStart
+}
+
+// AssertRequiredPresent returns an error if any of the given TLV types is
+// missing from the parsed type map (as returned by the various
+// DecodeWithParsedTypes helpers). It is used to enforce the spec's
+// reader-side requirement that compulsory TLVs are present in a received
+// pure-TLV message.
+func AssertRequiredPresent(typeMap tlv.TypeMap, required ...tlv.Type) error {
+	for _, t := range required {
+		if _, ok := typeMap[t]; !ok {
+			return fmt.Errorf("required TLV type %d missing", t)
+		}
+	}
+
+	return nil
 }
 
 // ExtraSignedFields is a type that stores a map from TLV types in the signed

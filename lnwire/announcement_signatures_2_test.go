@@ -32,9 +32,16 @@ func TestAnnSigs2EncodeDecode(t *testing.T) {
 		0, 0, 1, 0, 0, 2, 0, 3, // value
 	}...)
 
-	// PartialSignature.
+	// PartialSignatures (node || bitcoin, 64 bytes total).
 	rawBytes = append(rawBytes, []byte{
 		0x04, // type
+		0x40, // length
+	}...)
+	rawBytes = append(rawBytes, make([]byte, 64)...) // value
+
+	// FundingTxID.
+	rawBytes = append(rawBytes, []byte{
+		0x06, // type
 		0x20, // length
 	}...)
 	rawBytes = append(rawBytes, make([]byte, 32)...) // value

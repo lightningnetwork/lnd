@@ -287,6 +287,59 @@ func TestGetChanInfo(t *testing.T) {
 	ctx.stop()
 }
 
+// TestGetChanInfoOfflinePeer tests that a channel whose peer is offline when we
+// start tracking it reports zero uptime, rather than assuming the peer is
+// online (which would incorrectly report 100% uptime).
+func TestGetChanInfoOfflinePeer(t *testing.T) {
+	ctx := newChanEventStoreTestCtx(t)
+
+	// Report the peer as offline so that the channel open seeds an offline
+	// event instead of assuming the peer is connected.
+	ctx.peerOnline = func(route.Vertex) bool { return false }
+
+	ctx.start()
+
+	now := ctx.clock.Now()
+
+	peer, pk, channel := ctx.newChannel()
+	ctx.sendChannelOpenedUpdate(pk, channel)
+
+	// Wait for our channel to be recognized by our store.
+	require.Eventually(t, func() bool {
+		_, err := ctx.store.GetChanInfo(channel, peer)
+		return err == nil
+	}, timeout, time.Millisecond*20)
+
+	// Advance our clock by an hour. Since the peer has been offline the
+	// whole time, we expect the channel to have a full hour of lifetime but
+	// zero uptime.
+	now = now.Add(time.Hour)
+	ctx.clock.SetTime(now)
+
+	info, err := ctx.store.GetChanInfo(channel, peer)
+	require.NoError(t, err)
+	require.Equal(t, time.Hour, info.Lifetime)
+	require.Equal(t, time.Duration(0), info.Uptime)
+
+	// Once the peer comes online, uptime should start accruing from that
+	// point. We issue a blocking GetChanInfo afterwards to ensure the
+	// online event has been fully processed (and timestamped at the current
+	// time) by the store's main loop before we advance the clock.
+	ctx.peerEvent(peer, true)
+	_, err = ctx.store.GetChanInfo(channel, peer)
+	require.NoError(t, err)
+
+	now = now.Add(time.Hour)
+	ctx.clock.SetTime(now)
+
+	info, err = ctx.store.GetChanInfo(channel, peer)
+	require.NoError(t, err)
+	require.Equal(t, time.Hour*2, info.Lifetime)
+	require.Equal(t, time.Hour, info.Uptime)
+
+	ctx.stop()
+}
+
 // TestFlapCount tests querying the store for peer flap counts, covering the
 // case where the peer is tracked in memory, and the case where we need to
 // lookup the peer on disk.

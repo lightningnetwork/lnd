@@ -8,14 +8,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/watchonlyrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"gopkg.in/macaroon.v2"
 )
@@ -170,34 +168,24 @@ func (r *OutboundConnection) Ready(_ context.Context) chan error {
 // Ping verifies that the remote signer is still responsive.
 //
 // NOTE: This is part of the RemoteSignerConnection interface.
-func (r *OutboundConnection) Ping(ctx context.Context, _ time.Duration) error {
-	if r.conn == nil || r.conn.GetState() != connectivity.Ready {
-		return errors.New("remote signer is not connected")
+func (r *OutboundConnection) Ping(ctx context.Context,
+	timeout time.Duration) error {
+
+	newConn, err := r.connectRPC(ctx, timeout)
+	if err != nil {
+		return fmt.Errorf("error connecting to the remote "+
+			"signing node through RPC: %v", err)
 	}
 
-	pingMsg := []byte("ping test")
+	defer func() {
+		err = newConn.Close()
+		if err != nil {
+			log.Warnf("Failed to ping connection check to remote "+
+				"signing node: %v", err)
+		}
+	}()
 
-	// To simulate a ping, we send a sign message request to the remote
-	// signer to check that it is responding. Note that we do not care what
-	// sign response we actually get from the remote signer, as long as it's
-	// actually responding. Therefore, we request that the signer signs
-	// with a "random" key, in this case the family node key & index 1
-	// to not use any channel keys for the ping request.
-	keyLoc := &signrpc.KeyLocator{
-		KeyFamily: int32(keychain.KeyFamilyNodeKey),
-		KeyIndex:  1,
-	}
-
-	// Sign a message with the default ECDSA.
-	signMsgReq := &signrpc.SignMessageReq{
-		Msg:        pingMsg,
-		KeyLoc:     keyLoc,
-		SchnorrSig: false,
-	}
-
-	_, err := r.SignMessage(ctx, signMsgReq)
-
-	return err
+	return nil
 }
 
 // Timeout returns the set connection timeout for the remote signer.
@@ -225,51 +213,9 @@ func (r *OutboundConnection) Stop() {
 func (r *OutboundConnection) connect(ctx context.Context,
 	cfg lncfg.ConnectionCfg) error {
 
-	certBytes, err := os.ReadFile(cfg.TLSCertPath)
+	conn, err := r.connectRPC(ctx, cfg.Timeout)
 	if err != nil {
-		return fmt.Errorf("error reading TLS cert file %v: %w",
-			cfg.TLSCertPath, err)
-	}
-
-	cp := x509.NewCertPool()
-	if !cp.AppendCertsFromPEM(certBytes) {
-		return fmt.Errorf("credentials: failed to append certificate")
-	}
-
-	macBytes, err := os.ReadFile(cfg.MacaroonPath)
-	if err != nil {
-		return fmt.Errorf("error reading macaroon file %v: %w",
-			cfg.MacaroonPath, err)
-	}
-	mac := &macaroon.Macaroon{}
-	if err := mac.UnmarshalBinary(macBytes); err != nil {
-		return fmt.Errorf("error decoding macaroon: %w", err)
-	}
-
-	macCred, err := macaroons.NewMacaroonCredential(mac)
-	if err != nil {
-		return fmt.Errorf("error creating creds: %w", err)
-	}
-
-	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(credentials.NewClientTLSFromCert(
-			cp, "",
-		)),
-		grpc.WithPerRPCCredentials(macCred),
-		grpc.WithBlock(),
-	}
-
-	ctxt, cancel := context.WithTimeout(ctx, cfg.Timeout)
-
-	// In the blocking case, ctx can be used to cancel or expire the pending
-	// connection. Once this function returns, the cancellation and
-	// expiration of ctx will be noop. Users should call ClientConn.Close to
-	// terminate all the pending operations after this function returns.
-	defer cancel()
-
-	conn, err := grpc.DialContext(ctxt, cfg.RPCHost, opts...)
-	if err != nil {
-		return fmt.Errorf("unable to connect to RPC server: %w", err)
+		return fmt.Errorf("unable to connect to remote signer: %w", err)
 	}
 
 	// If we were able to connect to the remote signer, we store the
@@ -280,6 +226,58 @@ func (r *OutboundConnection) connect(ctx context.Context,
 	r.WatchOnlyClient = watchonlyrpc.NewWatchOnlyClient(conn)
 
 	return nil
+}
+
+// connectRPC tries to establish an RPC connection to the given host:port with
+// the supplied certificate and macaroon.
+func (r *OutboundConnection) connectRPC(ctx context.Context,
+	timeout time.Duration) (*grpc.ClientConn, error) {
+
+	certBytes, err := os.ReadFile(r.cfg.TLSCertPath)
+	if err != nil {
+		return nil, fmt.Errorf("error reading TLS cert file %v: %w",
+			r.cfg.TLSCertPath, err)
+	}
+
+	cp := x509.NewCertPool()
+	if !cp.AppendCertsFromPEM(certBytes) {
+		return nil, fmt.Errorf("credentials: failed to append " +
+			"certificate")
+	}
+
+	macBytes, err := os.ReadFile(r.cfg.MacaroonPath)
+	if err != nil {
+		return nil, fmt.Errorf("error reading macaroon file %v: %w",
+			r.cfg.MacaroonPath, err)
+	}
+	mac := &macaroon.Macaroon{}
+	if err := mac.UnmarshalBinary(macBytes); err != nil {
+		return nil, fmt.Errorf("error decoding macaroon: %w", err)
+	}
+
+	macCred, err := macaroons.NewMacaroonCredential(mac)
+	if err != nil {
+		return nil, fmt.Errorf("error creating creds: %w", err)
+	}
+
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(credentials.NewClientTLSFromCert(
+			cp, "",
+		)),
+		grpc.WithPerRPCCredentials(macCred),
+		grpc.WithBlock(),
+	}
+
+	ctxt, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	conn, err := grpc.DialContext(ctxt, r.cfg.RPCHost, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("unable to connect to RPC server: %w",
+			err)
+	}
+
+	return conn, nil
 }
 
 // A compile time assertion to ensure OutboundConnection meets the

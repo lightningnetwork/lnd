@@ -133,7 +133,7 @@ remotesigner.macaroonpath=/home/watch-only/example/signer.custom.macaroon
 # Optionally, specify that the watch-only doesn't allow any inbound connections
 # from the remote signer.
 # However, since this is the default behaviour, this isn't required.
-remotesigner.allowinboundconnection=false
+remotesigner.experimentalallowinboundconnection=false
 ```
 
 After starting "watch-only", the wallet can be created in watch-only mode by
@@ -200,7 +200,7 @@ bitcoin.mainnet=true
 bitcoin.node=nochainbackend
 
 # Specify that signer will make an outbound connection to the watch-only node.
-watchonlynode.enable=true
+watchonlynode.experimentalenable=true
 
 # The watch-only node's dedicated remote signer RPC host.
 watchonlynode.rpchost=zane.example.internal:10019
@@ -270,11 +270,12 @@ remotesigner.enable=true
 
 # Specify that the watch-only node will accept an incoming connection from the
 # remote signer.
-remotesigner.allowinboundconnection=true
+remotesigner.experimentalallowinboundconnection=true
 
 # Dedicated RPC listen address for the remote signer connection. This should
-# match the watchonlynode.rpchost configured on the signer node in step 1.
-remotesigner.rpclisten=zane.example.internal:10019
+# match the watchonlynode.rpchost configured on the signer node in
+# step 1.
+remotesigner.experimentalrpclisten=zane.example.internal:10019
 ```
 
 It is also recommended to set the following parameter, which defines the

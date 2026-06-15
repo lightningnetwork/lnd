@@ -51,7 +51,7 @@ func (b *rscBuilder) Build(subServers []lnrpc.SubServer) (
 		return &NoOpClient{}, nil
 	}
 
-	if !b.cfg.Enable {
+	if !b.cfg.ExperimentalEnable {
 		log.Debugf("Using a No Op remote signer client due to the " +
 			"current watchonly config")
 
@@ -64,6 +64,7 @@ func (b *rscBuilder) Build(subServers []lnrpc.SubServer) (
 	streamFeeder := NewStreamFeeder(b.cfg.ConnectionCfg)
 
 	return NewOutboundClient(
-		walletServer, signerServer, streamFeeder, b.cfg.RequestTimeout,
+		walletServer, signerServer, streamFeeder,
+		b.cfg.ExperimentalRequestTimeout,
 	)
 }

@@ -1170,12 +1170,14 @@ func makeRemoteSignerListeners(cfg *Config) ([]*ListenerWithSignal, error) {
 // signer listener addresses and applies the dedicated remote signer default
 // port when no port is specified.
 func normalizeRemoteSignerListenAddrs(cfg *Config) ([]net.Addr, error) {
-	if cfg.RemoteSigner == nil || len(cfg.RemoteSigner.RPCListeners) == 0 {
+	if cfg.RemoteSigner == nil ||
+		len(cfg.RemoteSigner.ExperimentalRPCListeners) == 0 {
+
 		return nil, nil
 	}
 
 	addrs, err := lncfg.NormalizeAddresses(
-		cfg.RemoteSigner.RPCListeners,
+		cfg.RemoteSigner.ExperimentalRPCListeners,
 		strconv.Itoa(lncfg.DefaultRemoteSignerListenPort),
 		cfg.net.ResolveTCPAddr,
 	)

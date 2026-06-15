@@ -232,7 +232,8 @@
 
 * [SignCoordinatorStreams](https://github.com/lightningnetwork/lnd/pull/8754)
   allows a remote signer to connect to the lnd node, if the
-  `remotesigner.allowinboundconnection` cfg value has been set to `true`.
+  `remotesigner.experimentalallowinboundconnection` cfg value has been set to
+  `true`.
 
 ## lncli Additions
 

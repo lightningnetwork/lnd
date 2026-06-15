@@ -3,10 +3,12 @@ package lnd
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/signal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -72,6 +74,34 @@ func TestAuxDataParser(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.Equal(t, []byte{0x00, 0x00}, resp.CustomChannelData)
+}
+
+// TestStopDaemonBeforeRPCStartup makes sure StopDaemon can be called during
+// the wallet-unlocked startup window, before addDeps has populated the
+// rpcServer's server dependencies and while r.server is still nil. That
+// startup state can last for an extended period when lnd is waiting for an
+// outbound remote signer to connect before the full RPC server becomes active
+// when lnd is configured to use an outbound remote signer.
+func TestStopDaemonBeforeRPCStartup(t *testing.T) {
+	interceptor, err := signal.Intercept()
+	require.NoError(t, err)
+
+	r := &rpcServer{
+		interceptor: interceptor,
+		server:      nil,
+	}
+
+	resp, err := r.StopDaemon(t.Context(), &lnrpc.StopRequest{})
+	require.NoError(t, err)
+	require.Equal(t, "shutdown initiated, check logs for progress",
+		resp.Status)
+
+	select {
+	case <-interceptor.ShutdownChannel():
+
+	case <-time.After(time.Second):
+		t.Fatal("expected shutdown request to be delivered")
+	}
 }
 
 // TestRpcCommitmentType tests the rpcCommitmentType returns the corect

@@ -9,7 +9,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
@@ -59,30 +58,48 @@ func RandPubKey(t *rapid.T) *btcec.PublicKey {
 	return pub
 }
 
-// RandBlindedPath generates a random blinded path with 1-5 hops.
-func RandBlindedPath(t *rapid.T) *sphinx.BlindedPath {
-	introKey := RandPubKey(t)
-	blindingKey := RandPubKey(t)
+// RandBlindedPath generates a random blinded path with 1-5 hops, alternating
+// between the pubkey and sciddir introduction-node variants per draw.
+func RandBlindedPath(t *rapid.T) *BlindedPath {
+	useSciddir := rapid.Bool().Draw(t, "introIsSciddir")
+
+	var intro IntroductionNode
+	if useSciddir {
+		var scid [scidLen]byte
+		copy(scid[:], rapid.SliceOfN(
+			rapid.Byte(), scidLen, scidLen,
+		).Draw(t, "introScid"))
+
+		dir := byte(rapid.IntRange(0, 1).Draw(t, "introDir"))
+		sciddir, err := NewSciddirIntro(dir, scid)
+		require.NoError(t, err)
+		intro = sciddir
+	} else {
+		pubkey, err := NewPubkeyIntro(RandPubKey(t))
+		require.NoError(t, err)
+		intro = pubkey
+	}
+
+	blindingPoint := RandPubKey(t)
 
 	numHops := rapid.IntRange(1, 5).Draw(t, "numBlindedHops")
-	hops := make([]*sphinx.BlindedHopInfo, numHops)
+	hops := make([]BlindedHop, numHops)
 	for i := range hops {
 		cipherLen := rapid.IntRange(1, 128).Draw(
 			t, fmt.Sprintf("cipherLen-%d", i),
 		)
 
-		hops[i] = &sphinx.BlindedHopInfo{
-			BlindedNodePub: RandPubKey(t),
-			CipherText: rapid.SliceOfN(
-				rapid.Byte(), cipherLen, cipherLen,
-			).Draw(t, fmt.Sprintf("cipherText-%d", i)),
-		}
+		hops[i].BlindedNodeID = RandPubKey(t)
+
+		hops[i].EncryptedData = rapid.SliceOfN(
+			rapid.Byte(), cipherLen, cipherLen,
+		).Draw(t, fmt.Sprintf("cipherText-%d", i))
 	}
 
-	return &sphinx.BlindedPath{
-		IntroductionPoint: introKey,
-		BlindingPoint:     blindingKey,
-		BlindedHops:       hops,
+	return &BlindedPath{
+		IntroductionNode: intro,
+		BlindingPoint:    blindingPoint,
+		Hops:             hops,
 	}
 }
 
@@ -299,11 +316,16 @@ func RandTLVRecords(t *rapid.T, ignoreRecords fn.Set[uint64],
 	return customRecords, ignoreSet
 }
 
-// RandMusig2Nonce generates a random musig2 nonce.
+// RandMusig2Nonce generates a random musig2 nonce containing two valid
+// compressed secp256k1 public keys.
 func RandMusig2Nonce(t *rapid.T) Musig2Nonce {
+	// A MuSig2 public nonce is two 33-byte compressed public keys.
+	pub1 := RandPubKey(t)
+	pub2 := RandPubKey(t)
+
 	var nonce Musig2Nonce
-	bytes := rapid.SliceOfN(rapid.Byte(), 32, 32).Draw(t, "nonce")
-	copy(nonce[:], bytes)
+	copy(nonce[:33], pub1.SerializeCompressed())
+	copy(nonce[33:], pub2.SerializeCompressed())
 
 	return nonce
 }

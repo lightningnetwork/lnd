@@ -499,7 +499,6 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 		testName := fmt.Sprintf("num_updates=%v,broadcast_state_num=%v",
 			testCase.NumUpdates, testCase.BroadcastStateNum)
 
-		testCase := testCase
 		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
 
@@ -724,7 +723,6 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 			testCase.localOutputOnly,
 		)
 
-		testCase := testCase
 		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
 

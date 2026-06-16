@@ -229,6 +229,17 @@ func ParseAddressString(strAddress string, defaultPort string,
 		// an onion addresses, if so, we can directly pass the raw
 		// address and port to create the proper address.
 		if tor.IsOnionHost(rawHost) {
+			// Reject v2 at the operator-input boundary; the wire
+			// codec still round-trips v2 from peer-signed
+			// announcements.
+			if len(rawHost) == tor.V2Len {
+				return nil, fmt.Errorf("tor v2 onion "+
+					"services were retired in October "+
+					"2021 and are no longer supported; "+
+					"use a v3 .onion address instead: %s",
+					rawHost)
+			}
+
 			portNum, err := strconv.Atoi(rawPort)
 			if err != nil {
 				return nil, err

@@ -448,7 +448,6 @@ var shouldIncludeChannelTestCases = []struct {
 
 func TestShouldIncludeChannel(t *testing.T) {
 	for _, tc := range shouldIncludeChannelTestCases {
-		tc := tc
 
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -514,7 +513,6 @@ var sufficientHintsTestCases = []struct {
 
 func TestSufficientHints(t *testing.T) {
 	for _, tc := range sufficientHintsTestCases {
-		tc := tc
 
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -881,7 +879,6 @@ func setupMockTwoChannels(h *hopHintsConfigMock) (lnwire.ChannelID,
 
 func TestPopulateHopHints(t *testing.T) {
 	for _, tc := range populateHopHintsTestCases {
-		tc := tc
 
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

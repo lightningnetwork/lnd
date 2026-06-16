@@ -27,7 +27,8 @@ defaults:
     shell: bash
 
 env:
-  BITCOIN_VERSION: "29"
+  # Accepts either a major image tag like "30" or a patch tag like "29.1".
+  BITCOIN_VERSION: "31"
   
   # TRANCHES defines the number of tranches used in the itests.
   TRANCHES: 16
@@ -40,7 +41,7 @@ env:
 
   # If you change this please also update GO_VERSION in Makefile (then run
   # `make lint` to see where else it needs to be updated as well).
-  GO_VERSION: 1.25.5
+  GO_VERSION: 1.26.4
 
 jobs:
   static-checks:
@@ -176,7 +177,7 @@ jobs:
           - name: amd64
             sys: darwin-amd64 freebsd-amd64 linux-amd64 netbsd-amd64 openbsd-amd64 windows-amd64
           - name: arm
-            sys: darwin-arm64 freebsd-arm linux-armv6 linux-armv7 linux-arm64 windows-arm
+            sys: darwin-arm64 freebsd-arm linux-armv6 linux-armv7 linux-arm64 windows-arm64
     steps:
       - name: Git checkout
         uses: actions/checkout@v5
@@ -280,6 +281,8 @@ jobs:
             args: backend=btcd cover=1
           - name: bitcoind
             args: backend=bitcoind cover=1
+          - name: bitcoind-miner
+            args: backend=bitcoind minerbackend=bitcoind cover=1
           - name: bitcoind-notxindex
             args: backend="bitcoind notxindex"
           - name: neutrino
@@ -548,7 +551,7 @@ jobs:
       fail-fast: false
       matrix:
         pinned_dep:
-          - google.golang.org/grpc v1.79.1
+          - google.golang.org/grpc v1.79.3
           - github.com/golang/protobuf v1.5.4
 
     steps:

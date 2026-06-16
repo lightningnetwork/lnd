@@ -69,20 +69,23 @@ SELECT
     invoices.id, invoices.hash, invoices.preimage, invoices.settle_index, invoices.settled_at, invoices.memo, invoices.amount_msat, invoices.cltv_delta, invoices.expiry, invoices.payment_addr, invoices.payment_request, invoices.payment_request_hash, invoices.state, invoices.amount_paid_msat, invoices.is_amp, invoices.is_hodl, invoices.is_keysend, invoices.created_at
 FROM invoices
 WHERE state IN (0, 3) -- 0 = ContractOpen, 3 = ContractAccepted
+  AND id > $1
 ORDER BY id ASC
-LIMIT $2 OFFSET $1
+LIMIT $2
 `
 
 type FetchPendingInvoicesParams struct {
-	NumOffset int32
-	NumLimit  int32
+	IDCursor int64
+	NumLimit int32
 }
 
 // FetchPendingInvoices returns all invoices in a pending state (open or
 // accepted). The invoices_state_idx index on the state column makes this a
-// fast index scan rather than a full table scan.
+// fast index scan rather than a full table scan. id_cursor is an exclusive
+// lower bound on the primary key used for cursor-based pagination; the caller
+// must supply 0 when starting from the beginning.
 func (q *Queries) FetchPendingInvoices(ctx context.Context, arg FetchPendingInvoicesParams) ([]Invoice, error) {
-	rows, err := q.db.QueryContext(ctx, fetchPendingInvoices, arg.NumOffset, arg.NumLimit)
+	rows, err := q.db.QueryContext(ctx, fetchPendingInvoices, arg.IDCursor, arg.NumLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -129,21 +132,21 @@ SELECT
 FROM invoices
 WHERE id >= $1
 ORDER BY id ASC
-LIMIT $3 OFFSET $2
+LIMIT $2
 `
 
 type FilterInvoicesByAddIndexParams struct {
 	AddIndexGet int64
-	NumOffset   int32
 	NumLimit    int32
 }
 
 // FilterInvoicesByAddIndex returns invoices whose add_index (primary key id)
 // is greater than or equal to the given value, ordered by id. Because id is
 // the primary key, this is always an efficient range scan on the clustered
-// index.
+// index. For cursor-based pagination the caller advances add_index_get to
+// last_returned_id + 1 on each subsequent page.
 func (q *Queries) FilterInvoicesByAddIndex(ctx context.Context, arg FilterInvoicesByAddIndexParams) ([]Invoice, error) {
-	rows, err := q.db.QueryContext(ctx, filterInvoicesByAddIndex, arg.AddIndexGet, arg.NumOffset, arg.NumLimit)
+	rows, err := q.db.QueryContext(ctx, filterInvoicesByAddIndex, arg.AddIndexGet, arg.NumLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -189,22 +192,25 @@ SELECT
     invoices.id, invoices.hash, invoices.preimage, invoices.settle_index, invoices.settled_at, invoices.memo, invoices.amount_msat, invoices.cltv_delta, invoices.expiry, invoices.payment_addr, invoices.payment_request, invoices.payment_request_hash, invoices.state, invoices.amount_paid_msat, invoices.is_amp, invoices.is_hodl, invoices.is_keysend, invoices.created_at
 FROM invoices
 WHERE settle_index >= $1
+  AND id > $2
 ORDER BY id ASC
-LIMIT $3 OFFSET $2
+LIMIT $3
 `
 
 type FilterInvoicesBySettleIndexParams struct {
 	SettleIndexGet sql.NullInt64
-	NumOffset      int32
+	IDCursor       int64
 	NumLimit       int32
 }
 
 // FilterInvoicesBySettleIndex returns settled invoices whose settle_index is
 // greater than or equal to the given value, ordered by id. The caller must
 // always supply a concrete lower bound so the invoices_settle_index_idx index
-// can be used.
+// can be used. id_cursor is an exclusive lower bound on the primary key used
+// for cursor-based pagination; the caller must supply 0 when starting from
+// the beginning.
 func (q *Queries) FilterInvoicesBySettleIndex(ctx context.Context, arg FilterInvoicesBySettleIndexParams) ([]Invoice, error) {
-	rows, err := q.db.QueryContext(ctx, filterInvoicesBySettleIndex, arg.SettleIndexGet, arg.NumOffset, arg.NumLimit)
+	rows, err := q.db.QueryContext(ctx, filterInvoicesBySettleIndex, arg.SettleIndexGet, arg.IDCursor, arg.NumLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +260,7 @@ WHERE id >= $1
   AND created_at >= $3
   AND created_at < $4
 ORDER BY id ASC
-LIMIT $6 OFFSET $5
+LIMIT $5
 `
 
 type FilterInvoicesForwardParams struct {
@@ -262,25 +268,25 @@ type FilterInvoicesForwardParams struct {
 	PendingOnly   interface{}
 	CreatedAfter  time.Time
 	CreatedBefore time.Time
-	NumOffset     int32
 	NumLimit      int32
 }
 
-// FilterInvoicesForward returns invoices in ascending id order starting from
-// add_index_get. All parameters are non-nullable so the planner always sees
-// plain range predicates and can use the primary-key index. The caller is
-// responsible for supplying Go-side defaults when a filter is not needed:
+// FilterInvoicesForward returns invoices in ascending id order. All parameters
+// are non-nullable so the planner always sees plain range predicates and can
+// use the primary-key index. For cursor-based pagination the caller advances
+// add_index_get to last_returned_id + 1 on each subsequent page. The caller
+// is responsible for supplying Go-side defaults when a filter is not needed:
 //
-//	created_after  → time.Unix(0, 0).UTC()       (epoch – before any invoice)
-//	created_before → time.Date(9999, …)            (far future – no upper cap)
-//	pending_only   → false                         (include all states)
+//	add_index_get  → 1                             (first valid invoice id)
+//	created_after  → time.Unix(0, 0).UTC()         (epoch – before any invoice)
+//	created_before → time.Date(9999, …)             (far future – no upper cap)
+//	pending_only   → false                          (include all states)
 func (q *Queries) FilterInvoicesForward(ctx context.Context, arg FilterInvoicesForwardParams) ([]Invoice, error) {
 	rows, err := q.db.QueryContext(ctx, filterInvoicesForward,
 		arg.AddIndexGet,
 		arg.PendingOnly,
 		arg.CreatedAfter,
 		arg.CreatedBefore,
-		arg.NumOffset,
 		arg.NumLimit,
 	)
 	if err != nil {
@@ -332,7 +338,7 @@ WHERE id <= $1
   AND created_at >= $3
   AND created_at < $4
 ORDER BY id DESC
-LIMIT $6 OFFSET $5
+LIMIT $5
 `
 
 type FilterInvoicesReverseParams struct {
@@ -340,20 +346,20 @@ type FilterInvoicesReverseParams struct {
 	PendingOnly   interface{}
 	CreatedAfter  time.Time
 	CreatedBefore time.Time
-	NumOffset     int32
 	NumLimit      int32
 }
 
 // FilterInvoicesReverse is the descending counterpart of FilterInvoicesForward.
-// It returns invoices in descending id order up to and including add_index_let.
-// See FilterInvoicesForward for the expected Go-side defaults.
+// It returns invoices in descending id order. For cursor-based pagination the
+// caller advances add_index_let to last_returned_id - 1 on each subsequent
+// page; pass math.MaxInt64 to start from the most recent invoice. See
+// FilterInvoicesForward for the expected Go-side defaults.
 func (q *Queries) FilterInvoicesReverse(ctx context.Context, arg FilterInvoicesReverseParams) ([]Invoice, error) {
 	rows, err := q.db.QueryContext(ctx, filterInvoicesReverse,
 		arg.AddIndexLet,
 		arg.PendingOnly,
 		arg.CreatedAfter,
 		arg.CreatedBefore,
-		arg.NumOffset,
 		arg.NumLimit,
 	)
 	if err != nil {

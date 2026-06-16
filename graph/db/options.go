@@ -1,6 +1,12 @@
 package graphdb
 
-import "time"
+import (
+	"fmt"
+	"time"
+
+	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lnwire"
+)
 
 const (
 	// DefaultRejectCacheSize is the default number of rejectCacheEntries to
@@ -37,6 +43,182 @@ type iterConfig struct {
 	// iterPublicNodes is used to make an iterator that only iterates over
 	// public nodes.
 	iterPublicNodes bool
+}
+
+// ChanUpdateRange describes a range for channel updates. Only one of the time
+// or height ranges should be set depending on the gossip version.
+type ChanUpdateRange struct {
+	// StartTime is the inclusive lower time bound (v1 gossip only).
+	StartTime fn.Option[time.Time]
+
+	// EndTime is the exclusive upper time bound (v1 gossip only).
+	EndTime fn.Option[time.Time]
+
+	// StartHeight is the inclusive lower block-height bound (v2 gossip
+	// only).
+	StartHeight fn.Option[uint32]
+
+	// EndHeight is the exclusive upper block-height bound (v2 gossip
+	// only).
+	EndHeight fn.Option[uint32]
+}
+
+// validateForVersion checks that the range fields are consistent with the
+// given gossip version: v1 requires time bounds, v2 requires block-height
+// bounds, and mixing the two is rejected.
+func (r ChanUpdateRange) validateForVersion(v lnwire.GossipVersion) error {
+	var (
+		hasStartTime = r.StartTime.IsSome()
+		hasEndTime   = r.EndTime.IsSome()
+		hasTimeRange = hasStartTime || hasEndTime
+
+		hasStartHeight = r.StartHeight.IsSome()
+		hasEndHeight   = r.EndHeight.IsSome()
+		hasBlockRange  = hasStartHeight || hasEndHeight
+	)
+
+	if hasTimeRange && hasBlockRange {
+		return fmt.Errorf("chan update range has both time and block " +
+			"ranges")
+	}
+
+	switch v {
+	case gossipV1:
+		if hasBlockRange {
+			return fmt.Errorf("v1 chan update range must use time")
+		}
+
+		if !hasTimeRange {
+			return fmt.Errorf("v1 chan update range missing time")
+		}
+
+		if !hasStartTime || !hasEndTime {
+			return fmt.Errorf("v1 chan update range " +
+				"missing time bounds")
+		}
+
+		start := r.StartTime.UnwrapOr(time.Time{})
+		end := r.EndTime.UnwrapOr(time.Time{})
+
+		if start.After(end) {
+			return fmt.Errorf("v1 chan update range: " +
+				"start time after end time")
+		}
+
+	case gossipV2:
+		if hasTimeRange {
+			return fmt.Errorf("v2 chan update range must use " +
+				"blocks")
+		}
+
+		if !hasBlockRange {
+			return fmt.Errorf("v2 chan update range missing " +
+				"block range")
+		}
+
+		if !hasStartHeight || !hasEndHeight {
+			return fmt.Errorf("v2 chan update range " +
+				"missing block bounds")
+		}
+
+		start := r.StartHeight.UnwrapOr(0)
+		end := r.EndHeight.UnwrapOr(0)
+		if start > end {
+			return fmt.Errorf("v2 chan update range: " +
+				"start height after end height")
+		}
+
+	default:
+		return fmt.Errorf("unknown gossip version: %v", v)
+	}
+
+	return nil
+}
+
+// NodeUpdateRange describes a range for node updates. Only one of the time or
+// height ranges should be set depending on the gossip version.
+type NodeUpdateRange struct {
+	// StartTime is the inclusive lower time bound (v1 gossip only).
+	StartTime fn.Option[time.Time]
+
+	// EndTime is the exclusive upper time bound (v1 gossip only).
+	EndTime fn.Option[time.Time]
+
+	// StartHeight is the inclusive lower block-height bound (v2 gossip
+	// only).
+	StartHeight fn.Option[uint32]
+
+	// EndHeight is the exclusive upper block-height bound (v2 gossip
+	// only).
+	EndHeight fn.Option[uint32]
+}
+
+// validateForVersion checks that the range fields are consistent with the
+// given gossip version: v1 requires time bounds, v2 requires block-height
+// bounds, and mixing the two is rejected.
+func (r NodeUpdateRange) validateForVersion(v lnwire.GossipVersion) error {
+	var (
+		hasStartTime = r.StartTime.IsSome()
+		hasEndTime   = r.EndTime.IsSome()
+
+		hasStartHeight = r.StartHeight.IsSome()
+		hasEndHeight   = r.EndHeight.IsSome()
+
+		hasTimeRange  = hasStartTime || hasEndTime
+		hasBlockRange = hasStartHeight || hasEndHeight
+	)
+
+	if hasTimeRange && hasBlockRange {
+		return fmt.Errorf("node update range has both " +
+			"time and block ranges")
+	}
+
+	switch v {
+	case gossipV1:
+		if hasBlockRange {
+			return fmt.Errorf("v1 node update range must use time")
+		}
+
+		if !hasTimeRange {
+			return fmt.Errorf("v1 node update range missing time")
+		}
+		if !hasStartTime || !hasEndTime {
+			return fmt.Errorf("v1 node update range missing " +
+				"time bounds")
+		}
+
+		start := r.StartTime.UnwrapOr(time.Time{})
+		end := r.EndTime.UnwrapOr(time.Time{})
+		if start.After(end) {
+			return fmt.Errorf("v1 node update range: start time " +
+				"after end time")
+		}
+
+	case gossipV2:
+		if hasTimeRange {
+			return fmt.Errorf("v2 node update range must use " +
+				"height")
+		}
+		if !hasBlockRange {
+			return fmt.Errorf("v2 node update range missing height")
+		}
+		if !hasStartHeight || !hasEndHeight {
+			return fmt.Errorf("v2 node update range missing " +
+				"height bounds")
+		}
+
+		start := r.StartHeight.UnwrapOr(0)
+		end := r.EndHeight.UnwrapOr(0)
+		if start > end {
+			return fmt.Errorf("v2 node update range: start " +
+				"height after end height")
+		}
+
+	default:
+		return fmt.Errorf("unknown gossip version: %d", v)
+	}
+
+	return nil
 }
 
 // defaultIteratorConfig returns the default configuration.
@@ -85,14 +267,21 @@ type chanGraphOptions struct {
 	// preAllocCacheNumNodes is the number of nodes we expect to be in the
 	// graph cache, so we can pre-allocate the map accordingly.
 	preAllocCacheNumNodes int
+
+	// asyncGraphCachePopulation indicates whether the graph cache
+	// should be populated asynchronously or if the Start method should
+	// block until the cache is fully populated. This is true by
+	// default.
+	asyncGraphCachePopulation bool
 }
 
 // defaultChanGraphOptions returns a new chanGraphOptions instance populated
 // with default values.
 func defaultChanGraphOptions() *chanGraphOptions {
 	return &chanGraphOptions{
-		useGraphCache:         true,
-		preAllocCacheNumNodes: DefaultPreAllocCacheNumNodes,
+		useGraphCache:             true,
+		asyncGraphCachePopulation: true,
+		preAllocCacheNumNodes:     DefaultPreAllocCacheNumNodes,
 	}
 }
 
@@ -112,6 +301,25 @@ func WithUseGraphCache(use bool) ChanGraphOption {
 func WithPreAllocCacheNumNodes(n int) ChanGraphOption {
 	return func(o *chanGraphOptions) {
 		o.preAllocCacheNumNodes = n
+	}
+}
+
+// WithAsyncGraphCachePopulation sets whether the graph cache should be
+// populated asynchronously or if the Start method should block until the
+// cache is fully populated.
+func WithAsyncGraphCachePopulation(async bool) ChanGraphOption {
+	return func(o *chanGraphOptions) {
+		o.asyncGraphCachePopulation = async
+	}
+}
+
+// WithSyncGraphCachePopulation will cause the ChannelGraph to block
+// until the graph cache is fully populated before returning from the Start
+// method. This is useful for tests that need to ensure the graph cache is
+// fully populated before proceeding with further operations.
+func WithSyncGraphCachePopulation() ChanGraphOption {
+	return func(o *chanGraphOptions) {
+		o.asyncGraphCachePopulation = false
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -13,6 +14,19 @@ import (
 	"github.com/lightningnetwork/lnd/payments/db/migration1/lnwire"
 	"github.com/lightningnetwork/lnd/payments/db/migration1/sqlc"
 	"golang.org/x/time/rate"
+)
+
+const (
+	// defaultRateWindowDuration is the rolling window used for ETA
+	// calculation during migration progress reporting.
+	defaultRateWindowDuration = 300 * time.Second
+)
+
+var (
+	// switchNextPaymentIDKey is the switch sequencer bucket key. This is
+	// intentionally kept in sync with htlcswitch.nextPaymentIDKey without
+	// importing htlcswitch into the migration package.
+	switchNextPaymentIDKey = []byte("next-payment-id-key")
 )
 
 // MigrationStats tracks migration progress.
@@ -33,6 +47,71 @@ type MigrationStats struct {
 	MigrationDuration  time.Duration
 }
 
+// migrationProgressReporter tracks rolling-window ETA state and logs
+// periodic progress lines during the payment migration.
+type migrationProgressReporter struct {
+	startTime          time.Time
+	stats              *MigrationStats
+	indexedPayments    int64
+	rateWindowDuration time.Duration
+	windowStart        time.Time
+	windowPayments     int64
+	prevWindowRate     float64
+}
+
+// report logs a progress line showing the current migration rate and ETA.
+func (p *migrationProgressReporter) report() {
+	elapsed := time.Since(p.startTime)
+	if elapsed <= 0 || p.stats.TotalPayments == 0 {
+		return
+	}
+
+	paymentRate := float64(p.stats.TotalPayments) / elapsed.Seconds()
+	attemptRate := float64(p.stats.TotalAttempts) / elapsed.Seconds()
+
+	var pctStr string
+	if p.indexedPayments > 0 {
+		pct := float64(p.stats.TotalPayments) /
+			float64(p.indexedPayments) * 100
+		pctStr = fmt.Sprintf(" (~%.1f%%)", pct)
+	}
+
+	// Compute ETA using the rolling window rate so it responds to
+	// recent throughput changes. When the window expires we save
+	// the previous rate as a fallback for the reset tick.
+	windowElapsed := time.Since(p.windowStart)
+	if windowElapsed >= p.rateWindowDuration {
+		n := p.stats.TotalPayments - p.windowPayments
+		p.prevWindowRate = float64(n) / windowElapsed.Seconds()
+		p.windowPayments = p.stats.TotalPayments
+		p.windowStart = time.Now()
+		windowElapsed = 0
+	}
+
+	var etaStr string
+	if p.indexedPayments > 0 {
+		windowRate := p.prevWindowRate
+		if windowElapsed > 0 {
+			n := p.stats.TotalPayments - p.windowPayments
+			windowRate = float64(n) / windowElapsed.Seconds()
+		}
+
+		if windowRate > 0 {
+			remaining := p.indexedPayments - p.stats.TotalPayments
+			secs := float64(remaining) / windowRate
+			eta := time.Duration(secs) * time.Second
+			etaStr = fmt.Sprintf(
+				" | ETA: ~%v", eta.Round(time.Second),
+			)
+		}
+	}
+
+	log.Infof("Progress: %d payments%s, %d attempts, %d hops | Rate: %.1f "+
+		"pmt/s, %.1f att/s | Elapsed: %v%s", p.stats.TotalPayments,
+		pctStr, p.stats.TotalAttempts, p.stats.TotalHops,
+		paymentRate, attemptRate, elapsed.Round(time.Second), etaStr)
+}
+
 // MigratePaymentsKVToSQL migrates payments from KV to SQL and validates
 // migrated data in batches. Callers are responsible for executing this within
 // a single SQL transaction if atomicity is required.
@@ -44,13 +123,11 @@ func MigratePaymentsKVToSQL(ctx context.Context, kvBackend kvdb.Backend,
 	}
 
 	if cfg.QueryCfg == nil {
-		return fmt.Errorf("missing SQL store config for " +
-			"validation")
+		return fmt.Errorf("missing SQL store config for validation")
 	}
 
 	if cfg.QueryCfg.MaxBatchSize == 0 {
-		return fmt.Errorf("invalid max batch size for " +
-			"validation")
+		return fmt.Errorf("invalid max batch size for validation")
 	}
 
 	stats := &MigrationStats{}
@@ -59,15 +136,34 @@ func MigratePaymentsKVToSQL(ctx context.Context, kvBackend kvdb.Backend,
 	log.Infof("Starting payment migration from KV to SQL...")
 
 	var (
-		validationBatch   []migratedPaymentRef
-		validatedPayments int64
+		validationBatch []migratedPaymentRef
 
-		reportInterval     = rate.Sometimes{Interval: 5 * time.Second}
-		validationInterval = rate.Sometimes{Interval: 5 * time.Second}
+		reportInterval = rate.Sometimes{Interval: 5 * time.Second}
 	)
 
+	indexedPayments, nextSwitchPaymentID, err := collectMigrationState(
+		kvBackend,
+	)
+	if err != nil {
+		return fmt.Errorf("collect payment migration state: %w", err)
+	}
+
+	attemptIDAllocator := newAttemptIDAllocator(nextSwitchPaymentID)
+
+	log.Infof("Found ~%d index entries to migrate (includes duplicates)",
+		indexedPayments)
+
+	// Set up a progress reporter with rolling-window ETA.
+	reporter := &migrationProgressReporter{
+		startTime:          startTime,
+		stats:              stats,
+		indexedPayments:    indexedPayments,
+		rateWindowDuration: defaultRateWindowDuration,
+		windowStart:        startTime,
+	}
+
 	// Open the KV backend in read-only mode.
-	err := kvBackend.View(func(kvTx kvdb.RTx) error {
+	err = kvBackend.View(func(kvTx kvdb.RTx) error {
 		// In case we start with an empty database, there are no
 		// payments to migrate.
 		paymentsBucket := kvTx.ReadBucket(paymentsRootBucket)
@@ -90,138 +186,13 @@ func MigratePaymentsKVToSQL(ctx context.Context, kvBackend kvdb.Backend,
 		// payments not in the chronological order but rather the
 		// lexicographical order of the payment hashes.
 		return indexes.ForEach(func(seqKey, indexVal []byte) error {
-			// Progress reporting based on time + actual work done.
-			reportProgress := func() {
-				elapsed := time.Since(startTime)
-				if elapsed <= 0 {
-					return
-				}
+			reportInterval.Do(reporter.report)
 
-				if stats.TotalPayments == 0 {
-					return
-				}
-
-				paymentRate := float64(stats.TotalPayments) /
-					elapsed.Seconds()
-				attemptRate := float64(stats.TotalAttempts) /
-					elapsed.Seconds()
-
-				log.Infof("Progress: %d payments, %d "+
-					"attempts, %d hops | Rate: %.1f "+
-					"pmt/s, %.1f att/s | Elapsed: %v",
-					stats.TotalPayments,
-					stats.TotalAttempts, stats.TotalHops,
-					paymentRate, attemptRate,
-					elapsed.Round(time.Second),
-				)
-			}
-
-			reportInterval.Do(reportProgress)
-
-			r := bytes.NewReader(indexVal)
-			paymentHash, err := deserializePaymentIndex(r)
-			if err != nil {
-				return err
-			}
-
-			paymentBucket := paymentsBucket.NestedReadBucket(
-				paymentHash[:],
+			return migrateIndexEntry(
+				ctx, seqKey, indexVal, paymentsBucket,
+				kvBackend, sqlDB, cfg, stats, &validationBatch,
+				attemptIDAllocator,
 			)
-			if paymentBucket == nil {
-				// We skip the entry in case this sequence
-				// number does not have a corresponding
-				// payment bucket. But aborting would not help
-				// either because it is just a db inconsistency.
-				log.Warnf("Missing bucket for payment %x",
-					paymentHash[:8])
-
-				stats.SkippedPayments++
-
-				return nil
-			}
-
-			// Every payment bucket should have a sequence number
-			// which is also important to check for duplicates.
-			seqBytes := paymentBucket.Get(paymentSequenceKey)
-			if seqBytes == nil {
-				return ErrNoSequenceNumber
-			}
-
-			// Skip duplicates. They are migrated into the
-			// payment_duplicates table when the primary payment is
-			// processed.
-			if !bytes.Equal(seqBytes, seqKey) {
-				return nil
-			}
-
-			// Fetch the payment from the kv store.
-			payment, err := fetchPayment(paymentBucket)
-			if err != nil {
-				return fmt.Errorf("fetch payment %x: %w",
-					paymentHash[:8], err)
-			}
-
-			// Migrate the payment to the SQL database.
-			paymentID, err := migratePayment(
-				ctx, payment, paymentHash, sqlDB, stats,
-			)
-			if err != nil {
-				return fmt.Errorf("migrate payment %x: %w",
-					paymentHash[:8], err)
-			}
-
-			// Check for duplicates.
-			dupBucket := paymentBucket.NestedReadBucket(
-				duplicatePaymentsBucket,
-			)
-			if dupBucket != nil {
-				err = migrateDuplicatePayments(
-					ctx, dupBucket, paymentHash,
-					paymentID, sqlDB, stats,
-				)
-				if err != nil {
-					return fmt.Errorf("migrate duplicates "+
-						"%x: %w", paymentHash[:8],
-						err)
-				}
-			}
-
-			// Add the payment to the validation batch.
-			validationBatch = append(
-				validationBatch, migratedPaymentRef{
-					Hash:      paymentHash,
-					PaymentID: paymentID,
-				},
-			)
-			if uint32(len(validationBatch)) >=
-				cfg.QueryCfg.MaxBatchSize {
-
-				err := validateMigratedPaymentBatch(
-					ctx, kvBackend, sqlDB,
-					cfg,
-					validationBatch,
-				)
-				if err != nil {
-					return err
-				}
-
-				validatedPayments += int64(
-					len(validationBatch),
-				)
-
-				// Log validation progress periodically.
-				validationInterval.Do(func() {
-					log.Infof("Validated %d/%d "+
-						"payments",
-						validatedPayments,
-						stats.TotalPayments,
-					)
-				})
-
-				validationBatch = validationBatch[:0]
-			}
-
-			return nil
 		})
 	}, func() {})
 
@@ -236,10 +207,6 @@ func MigratePaymentsKVToSQL(ctx context.Context, kvBackend kvdb.Backend,
 		); err != nil {
 			return err
 		}
-
-		validatedPayments += int64(len(validationBatch))
-		log.Infof("Validated %d/%d payments", validatedPayments,
-			stats.TotalPayments)
 	}
 
 	// Validate the total number of payments as an additional sanity check.
@@ -247,6 +214,12 @@ func MigratePaymentsKVToSQL(ctx context.Context, kvBackend kvdb.Backend,
 		ctx, sqlDB, stats.TotalPayments,
 	); err != nil {
 		return err
+	}
+
+	if err := advanceSwitchPaymentIDSequence(
+		kvBackend, attemptIDAllocator.nextID,
+	); err != nil {
+		return fmt.Errorf("advance switch payment ID sequence: %w", err)
 	}
 
 	stats.MigrationDuration = time.Since(startTime)
@@ -270,9 +243,258 @@ func normalizeTimeForSQL(t time.Time) time.Time {
 	return time.Unix(0, t.UnixNano()).UTC()
 }
 
+// collectMigrationState scans the payment index once to gather progress
+// information and reads the switch sequencer horizon used for legacy attempt
+// ID allocation.
+func collectMigrationState(kvBackend kvdb.Backend) (int64, uint64, error) {
+	var (
+		indexedPayments     int64
+		nextSwitchPaymentID uint64
+	)
+	err := kvBackend.View(func(kvTx kvdb.RTx) error {
+		// Read the switch sequencer horizon that legacy zero-ID
+		// attempts will allocate from if needed.
+		seqBucket := kvTx.ReadBucket(switchNextPaymentIDKey)
+		if seqBucket != nil {
+			nextSwitchPaymentID = seqBucket.Sequence()
+		}
+
+		// If there are no payments, there is nothing to count or
+		// migrate.
+		paymentsBucket := kvTx.ReadBucket(paymentsRootBucket)
+		if paymentsBucket == nil {
+			log.Infof("No payments bucket found - database is " +
+				"empty")
+
+			return nil
+		}
+
+		// Count index entries for approximate progress reporting. The
+		// main migration still streams over this index in order.
+		indexes := kvTx.ReadBucket(paymentsIndexBucket)
+		if indexes == nil {
+			return fmt.Errorf("index bucket does not exist")
+		}
+
+		return indexes.ForEach(func(_, _ []byte) error {
+			indexedPayments++
+			return nil
+		})
+	}, func() {
+		indexedPayments = 0
+		nextSwitchPaymentID = 0
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return indexedPayments, nextSwitchPaymentID, nil
+}
+
+// attemptIDAllocator tracks the next switch payment ID that is safe to hand
+// out after migration.
+type attemptIDAllocator struct {
+	// nextID is the in-memory counter used for the next synthetic attempt
+	// ID and the final switch sequencer horizon to persist.
+	nextID uint64
+}
+
+// newAttemptIDAllocator creates a new attempt ID allocator.
+//
+// The SQL schema requires payment_htlc_attempts.attempt_index to be globally
+// unique because attempt-related rows use it as their stable identifier. Very
+// old KV payments can contain attempt ID zero, which represented an unknown
+// legacy value and cannot be preserved in SQL without colliding with every
+// other such legacy attempt.
+//
+// Non-zero attempt IDs were allocated from the switch sequencer. The sequencer
+// persists a horizon: it reads Sequence() as the next ID to hand out, then
+// writes a higher value before returning that ID. This means the value stored
+// in switchNextPaymentIDKey is already beyond all IDs it handed out. We
+// therefore allocate replacement IDs for legacy zero attempts from that horizon
+// and persist the final next-unused value once migration succeeds. These old
+// attempts may receive high attempt_index values, which means that within a
+// payment that mixes remapped and non-remapped attempts the remapped ones will
+// sort after the originals when SQL queries order by attempt_index. This is
+// acceptable because it only affects very old payments whose attempt IDs were
+// already unknown, and intra-payment attempt ordering is not a load-bearing
+// user-visible invariant; uniqueness and future non-collision with the switch
+// sequencer are the actual invariants we need to preserve.
+func newAttemptIDAllocator(nextSwitchPaymentID uint64) *attemptIDAllocator {
+	return &attemptIDAllocator{
+		nextID: nextSwitchPaymentID,
+	}
+}
+
+// allocateLegacyAttemptID returns a new unique attempt ID for a legacy payment.
+// It uses the in-memory counter initialized from the switch payment ID
+// sequencer horizon.
+func (a *attemptIDAllocator) allocateLegacyAttemptID() (uint64, error) {
+	// The runtime switch sequencer never hands out ID zero: when its
+	// persisted sequence is zero, it starts by issuing ID one. Mirror
+	// that behavior for legacy attempts on otherwise idle nodes whose
+	// switch sequencer bucket has not allocated a batch yet.
+	if a.nextID == 0 {
+		a.nextID = 1
+	}
+
+	if a.nextID == ^uint64(0) {
+		return 0, fmt.Errorf("cannot allocate legacy attempt ID: "+
+			"switch payment ID sequence is %d", a.nextID)
+	}
+
+	attemptID := a.nextID
+	a.nextID++
+
+	return attemptID, nil
+}
+
+// advanceSwitchPaymentIDSequence makes sure the switch sequencer cannot later
+// hand out an ID that was already present in a migrated payment attempt.
+func advanceSwitchPaymentIDSequence(kvBackend kvdb.Backend,
+	nextID uint64) error {
+
+	return kvdb.Update(kvBackend, func(tx kvdb.RwTx) error {
+		seqBucket := tx.ReadWriteBucket(switchNextPaymentIDKey)
+		if seqBucket == nil {
+			if nextID <= 1 {
+				return nil
+			}
+
+			var err error
+			seqBucket, err = tx.CreateTopLevelBucket(
+				switchNextPaymentIDKey,
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		currentSeq := seqBucket.Sequence()
+		if currentSeq == nextID {
+			// No synthetic IDs were allocated, so the sequencer is
+			// already at the migration cursor.
+			return nil
+		}
+		if currentSeq > nextID {
+			// Migration runs exclusively, so the sequencer should
+			// not move beyond the cursor computed by migration.
+			return fmt.Errorf("switch payment ID sequence above "+
+				"migration horizon: current=%d, expected=%d",
+				currentSeq, nextID)
+		}
+
+		// Synthetic IDs were allocated, so advance the sequencer to
+		// the final next-unused ID.
+		return seqBucket.SetSequence(nextID)
+	}, func() {})
+}
+
+// migrateIndexEntry processes a single entry from the payments index bucket,
+// migrating the corresponding payment to SQL and appending it to the
+// validation batch.
+func migrateIndexEntry(ctx context.Context, seqKey, indexVal []byte,
+	paymentsBucket kvdb.RBucket, kvBackend kvdb.Backend,
+	sqlDB SQLMigrationQueries, cfg *SQLStoreConfig, stats *MigrationStats,
+	validationBatch *[]migratedPaymentRef,
+	attemptIDAllocator *attemptIDAllocator) error {
+
+	r := bytes.NewReader(indexVal)
+	paymentHash, err := deserializePaymentIndex(r)
+	if err != nil {
+		return err
+	}
+
+	paymentBucket := paymentsBucket.NestedReadBucket(paymentHash[:])
+	if paymentBucket == nil {
+		// We skip the entry in case this sequence number does not
+		// have a corresponding payment bucket. But aborting would
+		// not help either because it is just a db inconsistency.
+		log.Warnf("Missing bucket for payment %x", paymentHash[:8])
+		stats.SkippedPayments++
+
+		return nil
+	}
+
+	// Every payment bucket should have a sequence number which is
+	// also important to check for duplicates.
+	seqBytes := paymentBucket.Get(paymentSequenceKey)
+	if seqBytes == nil {
+		return ErrNoSequenceNumber
+	}
+
+	// Skip duplicates. They are migrated into the payment_duplicates
+	// table when the primary payment is processed.
+	if !bytes.Equal(seqBytes, seqKey) {
+		return nil
+	}
+
+	// Fetch the payment from the kv store.
+	payment, err := fetchPayment(paymentBucket)
+	if err != nil {
+		return fmt.Errorf("fetch payment %x: %w", paymentHash[:8], err)
+	}
+
+	// Migrate the payment to the SQL database.
+	paymentID, err := migratePayment(
+		ctx, payment, paymentHash, sqlDB, stats, attemptIDAllocator,
+	)
+	if err != nil {
+		return fmt.Errorf("migrate payment %x: %w", paymentHash[:8],
+			err)
+	}
+
+	// Migrate any duplicate payments for this hash.
+	dupBucket := paymentBucket.NestedReadBucket(duplicatePaymentsBucket)
+	if dupBucket != nil {
+		err = migrateDuplicatePayments(
+			ctx, dupBucket, paymentHash, paymentID, sqlDB, stats,
+		)
+		if err != nil {
+			return fmt.Errorf("migrate duplicates %x: %w",
+				paymentHash[:8], err)
+		}
+	}
+
+	// Add the payment to the validation batch.
+	*validationBatch = append(*validationBatch, migratedPaymentRef{
+		Hash:      paymentHash,
+		PaymentID: paymentID,
+	})
+	if uint32(len(*validationBatch)) >= cfg.QueryCfg.MaxBatchSize {
+		err := validateMigratedPaymentBatch(
+			ctx, kvBackend, sqlDB, cfg, *validationBatch,
+		)
+		if err != nil {
+			return err
+		}
+
+		*validationBatch = (*validationBatch)[:0]
+	}
+
+	return nil
+}
+
 // migratePayment migrates a single payment from KV to SQL.
 func migratePayment(ctx context.Context, payment *MPPayment, hash lntypes.Hash,
-	sqlDB SQLMigrationQueries, stats *MigrationStats) (int64, error) {
+	sqlDB SQLMigrationQueries, stats *MigrationStats,
+	attemptIDAllocator *attemptIDAllocator) (int64, error) {
+
+	if payment.Status == StatusInFlight {
+		terminalizedLegacyAttempts, err :=
+			terminalizeUnresolvedLegacyZeroAttempts(payment)
+		if err != nil {
+			return 0, err
+		}
+		if terminalizedLegacyAttempts > 0 {
+			log.Warnf("Terminalized %d unresolved legacy HTLC "+
+				"attempt(s) with unknown attempt ID zero for "+
+				"payment %x; the parent payment was failed if "+
+				"no other settled or in-flight HTLC kept "+
+				"it active", terminalizedLegacyAttempts,
+				hash[:8])
+		}
+	}
 
 	// Update migration stats based on payment status.
 	switch payment.Status {
@@ -347,6 +569,7 @@ func migratePayment(ctx context.Context, payment *MPPayment, hash lntypes.Hash,
 	for _, htlc := range payment.HTLCs {
 		err = migrateHTLCAttempt(
 			ctx, paymentID, hash, &htlc, sqlDB, stats,
+			attemptIDAllocator,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("migrate attempt %d: %w",
@@ -359,10 +582,64 @@ func migratePayment(ctx context.Context, payment *MPPayment, hash lntypes.Hash,
 	return paymentID, nil
 }
 
+// terminalizeUnresolvedLegacyZeroAttempts marks unresolved legacy zero-ID HTLC
+// attempts failed and fails the parent payment if no other resolved or
+// recoverable in-flight HTLC keeps it active.
+//
+// Attempt ID zero was written by an old KV migration as an unknown legacy
+// value. If such an attempt has no settle/fail resolution, it cannot be safely
+// resumed after SQL migration because the live switch state would not know the
+// synthetic attempt ID assigned below.
+//
+// Callers only need this for in-flight payments: any unresolved HTLC makes the
+// parent payment in-flight, while terminal historical payments can use the
+// regular zero-ID remap path.
+func terminalizeUnresolvedLegacyZeroAttempts(payment *MPPayment) (int, error) {
+	var (
+		terminalizedLegacyAttempts int
+		hasSettled                 bool
+		hasNonZeroInFlight         bool
+	)
+
+	for i := range payment.HTLCs {
+		htlc := &payment.HTLCs[i]
+		switch {
+		case htlc.Settle != nil:
+			hasSettled = true
+
+		case htlc.Failure != nil:
+
+		case htlc.AttemptID == 0:
+			htlc.Failure = &HTLCFailInfo{
+				Reason: HTLCFailUnknown,
+			}
+			terminalizedLegacyAttempts++
+
+		default:
+			hasNonZeroInFlight = true
+		}
+	}
+
+	if terminalizedLegacyAttempts == 0 {
+		return 0, nil
+	}
+
+	if !hasSettled && !hasNonZeroInFlight && payment.FailureReason == nil {
+		reason := FailureReasonError
+		payment.FailureReason = &reason
+	}
+
+	if err := payment.setState(); err != nil {
+		return 0, err
+	}
+
+	return terminalizedLegacyAttempts, nil
+}
+
 // migrateHTLCAttempt migrates a single HTLC attempt.
 func migrateHTLCAttempt(ctx context.Context, paymentID int64,
 	parentPaymentHash lntypes.Hash, htlc *HTLCAttempt, sqlDB SQLQueries,
-	stats *MigrationStats) error {
+	stats *MigrationStats, attemptIDAllocator *attemptIDAllocator) error {
 
 	// Determine the payment hash for this HTLC attempt.
 	//
@@ -385,13 +662,41 @@ func migrateHTLCAttempt(ctx context.Context, paymentID int64,
 
 	firstHopAmountMsat := int64(htlc.Route.FirstHopAmount.Val.Int())
 
-	// Get the session key bytes.
-	sessionKeyBytes := htlc.SessionKey().Serialize()
+	sessionKey := htlc.SessionKey()
+	if sessionKey == nil {
+		return fmt.Errorf("HTLC attempt %d for payment %x is "+
+			"missing session key", htlc.AttemptID,
+			parentPaymentHash[:8])
+	}
+
+	sessionKeyBytes := sessionKey.Serialize()
+
+	attemptID := htlc.AttemptID
+	if attemptID == 0 {
+		var err error
+		attemptID, err = attemptIDAllocator.allocateLegacyAttemptID()
+		if err != nil {
+			return fmt.Errorf("allocate legacy attempt ID: %w", err)
+		}
+
+		log.Warnf("Allocated HTLC attempt index %d from switch "+
+			"sequencer for legacy payment %x with unknown "+
+			"attempt ID", attemptID,
+			parentPaymentHash[:8])
+	}
+
+	if attemptID > math.MaxInt64 {
+		return fmt.Errorf("unable to convert HTLC attempt ID to "+
+			"SQL attempt index: attempt_id=%d payment=%x max=%d",
+			attemptID, parentPaymentHash[:8], uint64(math.MaxInt64))
+	}
+
+	attemptIndex := int64(attemptID)
 
 	// Insert HTLC attempt.
 	_, err := sqlDB.InsertHtlcAttempt(ctx, sqlc.InsertHtlcAttemptParams{
 		PaymentID:          paymentID,
-		AttemptIndex:       int64(htlc.AttemptID),
+		AttemptIndex:       attemptIndex,
 		SessionKey:         sessionKeyBytes,
 		AttemptTime:        normalizeTimeForSQL(htlc.AttemptTime),
 		PaymentHash:        paymentHash,
@@ -401,7 +706,13 @@ func migrateHTLCAttempt(ctx context.Context, paymentID int64,
 		RouteSourceKey:     htlc.Route.SourcePubKey[:],
 	})
 	if err != nil {
-		return fmt.Errorf("insert HTLC attempt: %w", err)
+		// SQL unique constraint errors do not include the conflicting
+		// value. Include the attempted index so failures point directly
+		// at the problematic legacy attempt.
+		return fmt.Errorf("unable to insert HTLC attempt: "+
+			"index=%d payment=%x original_attempt_id=%d: %w",
+			attemptIndex, parentPaymentHash[:8],
+			htlc.AttemptID, err)
 	}
 
 	// Insert the route-level first hop custom records.
@@ -409,7 +720,7 @@ func migrateHTLCAttempt(ctx context.Context, paymentID int64,
 		err = sqlDB.InsertPaymentAttemptFirstHopCustomRecord(
 			ctx,
 			sqlc.InsertPaymentAttemptFirstHopCustomRecordParams{
-				HtlcAttemptIndex: int64(htlc.AttemptID),
+				HtlcAttemptIndex: attemptIndex,
 				Key:              int64(key),
 				Value:            value,
 			},
@@ -424,7 +735,7 @@ func migrateHTLCAttempt(ctx context.Context, paymentID int64,
 	for hopIndex := range htlc.Route.Hops {
 		hop := htlc.Route.Hops[hopIndex]
 		err = migrateRouteHop(
-			ctx, int64(htlc.AttemptID), hopIndex, hop,
+			ctx, attemptIndex, hopIndex, hop,
 			sqlDB, stats,
 		)
 		if err != nil {
@@ -437,7 +748,7 @@ func migrateHTLCAttempt(ctx context.Context, paymentID int64,
 	case htlc.Settle != nil:
 		// Settled
 		err = sqlDB.SettleAttempt(ctx, sqlc.SettleAttemptParams{
-			AttemptIndex: int64(htlc.AttemptID),
+			AttemptIndex: attemptIndex,
 			ResolutionTime: normalizeTimeForSQL(
 				htlc.Settle.SettleTime,
 			),
@@ -463,7 +774,7 @@ func migrateHTLCAttempt(ctx context.Context, paymentID int64,
 		}
 
 		err = sqlDB.FailAttempt(ctx, sqlc.FailAttemptParams{
-			AttemptIndex: int64(htlc.AttemptID),
+			AttemptIndex: attemptIndex,
 			ResolutionTime: normalizeTimeForSQL(
 				htlc.Failure.FailTime,
 			),
@@ -614,9 +925,7 @@ func migrateDuplicatePayments(ctx context.Context, dupBucket kvdb.RBucket,
 		if len(seqBytes) != 8 {
 			log.Warnf("Skipping unexpected key in duplicates "+
 				"bucket for payment %x: key length %d, "+
-				"expected 8",
-				hash[:8], len(seqBytes),
-			)
+				"expected 8", hash[:8], len(seqBytes))
 
 			return nil
 		}
@@ -636,10 +945,8 @@ func migrateDuplicatePayments(ctx context.Context, dupBucket kvdb.RBucket,
 			sqlDB,
 		)
 		if err != nil {
-			return fmt.Errorf(
-				"migrate duplicate payment seq=%d: %w",
-				seqNum, err,
-			)
+			return fmt.Errorf("migrate duplicate payment "+
+				"seq=%d: %w", seqNum, err)
 		}
 
 		return nil

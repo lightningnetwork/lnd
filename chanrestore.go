@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -35,7 +36,7 @@ const (
 // need the secret key chain in order obtain the prior shachain root so we can
 // verify the DLP protocol as initiated by the remote node.
 type chanDBRestorer struct {
-	db *channeldb.ChannelStateDB
+	db chanstate.OpenChannelStore
 
 	secretKeys keychain.SecretKeyRing
 
@@ -169,6 +170,13 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 		chanType |= channeldb.SingleFunderTweaklessBit
 		chanType |= channeldb.SimpleTaprootFeatureBit
 		chanType |= channeldb.TapscriptRootBit
+
+	case chanbackup.SimpleTaprootFinalVersion:
+		chanType = channeldb.ZeroHtlcTxFeeBit
+		chanType |= channeldb.AnchorOutputsBit
+		chanType |= channeldb.SingleFunderTweaklessBit
+		chanType |= channeldb.SimpleTaprootFeatureBit
+		chanType |= channeldb.TaprootFinalBit
 
 	default:
 		return nil, fmt.Errorf("unknown Single version: %w", err)
@@ -328,6 +336,11 @@ func (s *server) ConnectPeer(nodePub *btcec.PublicKey, addrs []net.Addr) error {
 		ltndLog.Infof("Peer(%x) is already connected, proceeding "+
 			"with chan restore", nodePub.SerializeCompressed())
 	}
+
+	// Strip persisted Tor v2 .onion entries that may have been carried
+	// over in an old static channel backup: Tor stopped serving v2 in 2021
+	// and the dial would never succeed. Covered by TestWithoutV2Onion.
+	addrs = withoutV2Onion(addrs)
 
 	// For each of the known addresses, we'll attempt to launch a
 	// persistent connection to the (pub, addr) pair. In the event that any

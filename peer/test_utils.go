@@ -559,6 +559,20 @@ func (m *mockMessageConn) Close() error {
 	return nil
 }
 
+// mockBestBlockView is a mock implementation of chainntnfs.BestBlockView for
+// testing.
+type mockBestBlockView struct{}
+
+// BestHeight returns a dummy block height.
+func (m *mockBestBlockView) BestHeight() (uint32, error) {
+	return 0, nil
+}
+
+// BestBlockHeader returns a dummy block header.
+func (m *mockBestBlockView) BestBlockHeader() (*wire.BlockHeader, error) {
+	return &wire.BlockHeader{}, nil
+}
+
 // createTestPeer creates a new peer for testing and returns a context struct
 // containing necessary handles and mock objects for conducting tests on peer
 // functionalities.
@@ -739,7 +753,8 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 
 			return nil
 		},
-		PongBuf: make([]byte, lnwire.MaxPongBytes),
+		PongBuf:       make([]byte, lnwire.MaxPongBytes),
+		BestBlockView: &mockBestBlockView{},
 		FetchLastChanUpdate: func(chanID lnwire.ShortChannelID,
 		) (*lnwire.ChannelUpdate1, error) {
 

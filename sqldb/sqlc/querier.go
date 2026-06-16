@@ -23,7 +23,9 @@ type Querier interface {
 	DeleteChannels(ctx context.Context, ids []int64) error
 	DeleteExtraNodeType(ctx context.Context, arg DeleteExtraNodeTypeParams) error
 	// Delete all failed HTLC attempts for the given payment. Resolution type 2
-	// indicates a failed attempt.
+	// indicates a failed attempt. Uses EXISTS to scope the resolution lookup to
+	// only this payment's attempts, avoiding an O(N) scan of all failed
+	// resolutions across all payments.
 	DeleteFailedAttempts(ctx context.Context, paymentID int64) error
 	DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) (sql.Result, error)
 	DeleteNode(ctx context.Context, id int64) error
@@ -38,9 +40,6 @@ type Querier interface {
 	FailPayment(ctx context.Context, arg FailPaymentParams) (sql.Result, error)
 	FetchAMPSubInvoiceHTLCs(ctx context.Context, arg FetchAMPSubInvoiceHTLCsParams) ([]FetchAMPSubInvoiceHTLCsRow, error)
 	FetchAMPSubInvoices(ctx context.Context, arg FetchAMPSubInvoicesParams) ([]AmpSubInvoice, error)
-	// Fetch all inflight attempts with their payment data using pagination.
-	// Returns attempt data joined with payment and intent data to avoid separate queries.
-	FetchAllInflightAttempts(ctx context.Context, arg FetchAllInflightAttemptsParams) ([]PaymentHtlcAttempt, error)
 	FetchHopLevelCustomRecords(ctx context.Context, hopIds []int64) ([]PaymentHopCustomRecord, error)
 	FetchHopsForAttempts(ctx context.Context, htlcAttemptIndices []int64) ([]FetchHopsForAttemptsRow, error)
 	// Batch query to fetch only HTLC resolution status for multiple payments.
@@ -48,6 +47,10 @@ type Querier interface {
 	// group the resolutions by payment_id in the background.
 	FetchHtlcAttemptResolutionsForPayments(ctx context.Context, paymentIds []int64) ([]FetchHtlcAttemptResolutionsForPaymentsRow, error)
 	FetchHtlcAttemptsForPayments(ctx context.Context, paymentIds []int64) ([]FetchHtlcAttemptsForPaymentsRow, error)
+	// Fetch all non-terminal payments using pagination. A payment is
+	// non-terminal if it has an unresolved attempt, or if it has not been
+	// permanently failed and has no settled attempt yet.
+	FetchNonTerminalPayments(ctx context.Context, arg FetchNonTerminalPaymentsParams) ([]FetchNonTerminalPaymentsRow, error)
 	FetchPayment(ctx context.Context, paymentIdentifier []byte) (FetchPaymentRow, error)
 	// Fetch all duplicate payment records from the payment_duplicates table for
 	// a given payment ID.
@@ -62,34 +65,45 @@ type Querier interface {
 	FetchPaymentsByIDsMig(ctx context.Context, paymentIds []int64) ([]FetchPaymentsByIDsMigRow, error)
 	// FetchPendingInvoices returns all invoices in a pending state (open or
 	// accepted). The invoices_state_idx index on the state column makes this a
-	// fast index scan rather than a full table scan.
+	// fast index scan rather than a full table scan. id_cursor is an exclusive
+	// lower bound on the primary key used for cursor-based pagination; the caller
+	// must supply 0 when starting from the beginning.
 	FetchPendingInvoices(ctx context.Context, arg FetchPendingInvoicesParams) ([]Invoice, error)
 	FetchRouteLevelFirstHopCustomRecords(ctx context.Context, htlcAttemptIndices []int64) ([]PaymentAttemptFirstHopCustomRecord, error)
 	FetchSettledAMPSubInvoices(ctx context.Context, arg FetchSettledAMPSubInvoicesParams) ([]FetchSettledAMPSubInvoicesRow, error)
 	// FilterInvoicesByAddIndex returns invoices whose add_index (primary key id)
 	// is greater than or equal to the given value, ordered by id. Because id is
 	// the primary key, this is always an efficient range scan on the clustered
-	// index.
+	// index. For cursor-based pagination the caller advances add_index_get to
+	// last_returned_id + 1 on each subsequent page.
 	FilterInvoicesByAddIndex(ctx context.Context, arg FilterInvoicesByAddIndexParams) ([]Invoice, error)
 	// FilterInvoicesBySettleIndex returns settled invoices whose settle_index is
 	// greater than or equal to the given value, ordered by id. The caller must
 	// always supply a concrete lower bound so the invoices_settle_index_idx index
-	// can be used.
+	// can be used. id_cursor is an exclusive lower bound on the primary key used
+	// for cursor-based pagination; the caller must supply 0 when starting from
+	// the beginning.
 	FilterInvoicesBySettleIndex(ctx context.Context, arg FilterInvoicesBySettleIndexParams) ([]Invoice, error)
-	// FilterInvoicesForward returns invoices in ascending id order starting from
-	// add_index_get. All parameters are non-nullable so the planner always sees
-	// plain range predicates and can use the primary-key index. The caller is
-	// responsible for supplying Go-side defaults when a filter is not needed:
-	//   created_after  → time.Unix(0, 0).UTC()       (epoch – before any invoice)
-	//   created_before → time.Date(9999, …)            (far future – no upper cap)
-	//   pending_only   → false                         (include all states)
+	// FilterInvoicesForward returns invoices in ascending id order. All parameters
+	// are non-nullable so the planner always sees plain range predicates and can
+	// use the primary-key index. For cursor-based pagination the caller advances
+	// add_index_get to last_returned_id + 1 on each subsequent page. The caller
+	// is responsible for supplying Go-side defaults when a filter is not needed:
+	//   add_index_get  → 1                             (first valid invoice id)
+	//   created_after  → time.Unix(0, 0).UTC()         (epoch – before any invoice)
+	//   created_before → time.Date(9999, …)             (far future – no upper cap)
+	//   pending_only   → false                          (include all states)
 	FilterInvoicesForward(ctx context.Context, arg FilterInvoicesForwardParams) ([]Invoice, error)
 	// FilterInvoicesReverse is the descending counterpart of FilterInvoicesForward.
-	// It returns invoices in descending id order up to and including add_index_let.
-	// See FilterInvoicesForward for the expected Go-side defaults.
+	// It returns invoices in descending id order. For cursor-based pagination the
+	// caller advances add_index_let to last_returned_id - 1 on each subsequent
+	// page; pass math.MaxInt64 to start from the most recent invoice. See
+	// FilterInvoicesForward for the expected Go-side defaults.
 	FilterInvoicesReverse(ctx context.Context, arg FilterInvoicesReverseParams) ([]Invoice, error)
 	FilterPayments(ctx context.Context, arg FilterPaymentsParams) ([]FilterPaymentsRow, error)
+	FilterPaymentsDesc(ctx context.Context, arg FilterPaymentsDescParams) ([]FilterPaymentsDescRow, error)
 	GetAMPInvoiceID(ctx context.Context, setID []byte) (int64, error)
+	GetChainNetwork(ctx context.Context) (string, error)
 	GetChannelAndNodesBySCID(ctx context.Context, arg GetChannelAndNodesBySCIDParams) (GetChannelAndNodesBySCIDRow, error)
 	GetChannelByOutpointWithPolicies(ctx context.Context, arg GetChannelByOutpointWithPoliciesParams) (GetChannelByOutpointWithPoliciesRow, error)
 	GetChannelBySCID(ctx context.Context, arg GetChannelBySCIDParams) (GraphChannel, error)
@@ -100,6 +114,7 @@ type Querier interface {
 	GetChannelPolicyExtraTypesBatch(ctx context.Context, policyIds []int64) ([]GetChannelPolicyExtraTypesBatchRow, error)
 	GetChannelsByIDs(ctx context.Context, ids []int64) ([]GetChannelsByIDsRow, error)
 	GetChannelsByOutpoints(ctx context.Context, outpoints []string) ([]GetChannelsByOutpointsRow, error)
+	GetChannelsByPolicyBlockRange(ctx context.Context, arg GetChannelsByPolicyBlockRangeParams) ([]GetChannelsByPolicyBlockRangeRow, error)
 	GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg GetChannelsByPolicyLastUpdateRangeParams) ([]GetChannelsByPolicyLastUpdateRangeRow, error)
 	GetChannelsBySCIDRange(ctx context.Context, arg GetChannelsBySCIDRangeParams) ([]GetChannelsBySCIDRangeRow, error)
 	GetChannelsBySCIDWithPolicies(ctx context.Context, arg GetChannelsBySCIDWithPoliciesParams) ([]GetChannelsBySCIDWithPoliciesRow, error)
@@ -125,12 +140,20 @@ type Querier interface {
 	GetNodeFeaturesBatch(ctx context.Context, ids []int64) ([]GraphNodeFeature, error)
 	GetNodeFeaturesByPubKey(ctx context.Context, arg GetNodeFeaturesByPubKeyParams) ([]int32, error)
 	GetNodeIDByPubKey(ctx context.Context, arg GetNodeIDByPubKeyParams) (int64, error)
+	GetNodesByBlockHeightRange(ctx context.Context, arg GetNodesByBlockHeightRangeParams) ([]GraphNode, error)
 	GetNodesByIDs(ctx context.Context, ids []int64) ([]GraphNode, error)
 	GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByLastUpdateRangeParams) ([]GraphNode, error)
 	GetPruneEntriesForHeights(ctx context.Context, heights []int64) ([]GraphPruneLog, error)
 	GetPruneHashByHeight(ctx context.Context, blockHeight int64) ([]byte, error)
 	GetPruneTip(ctx context.Context) (GraphPruneLog, error)
+	// Returns only public V1 nodes within the given last_update range. A V1 node
+	// is public if it has at least one channel with a bitcoin_1_signature set. The
+	// public check uses two separate EXISTS probes (one per node_id column)
+	// instead of a single OR on node_id_1/node_id_2 so the planner can use the
+	// channel node-id indexes directly.
+	GetPublicNodesByLastUpdateRange(ctx context.Context, arg GetPublicNodesByLastUpdateRangeParams) ([]GraphNode, error)
 	GetPublicV1ChannelsBySCID(ctx context.Context, arg GetPublicV1ChannelsBySCIDParams) ([]GraphChannel, error)
+	GetPublicV2ChannelsBySCID(ctx context.Context, arg GetPublicV2ChannelsBySCIDParams) ([]GraphChannel, error)
 	GetSCIDByOutpoint(ctx context.Context, arg GetSCIDByOutpointParams) ([]byte, error)
 	GetSourceNodesByVersion(ctx context.Context, version int16) ([]GetSourceNodesByVersionRow, error)
 	// NOTE: this is V1 specific since for V1, disabled is a
@@ -146,6 +169,7 @@ type Querier interface {
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 	InsertAMPSubInvoice(ctx context.Context, arg InsertAMPSubInvoiceParams) error
 	InsertAMPSubInvoiceHTLC(ctx context.Context, arg InsertAMPSubInvoiceHTLCParams) error
+	InsertChainNetwork(ctx context.Context, network string) error
 	InsertChannelFeature(ctx context.Context, arg InsertChannelFeatureParams) error
 	// NOTE: This query is only meant to be used by the graph SQL migration since
 	// for that migration, in order to be retry-safe, we don't want to error out if
@@ -202,6 +226,7 @@ type Querier interface {
 	ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNodeIDParams) ([]ListChannelsByNodeIDRow, error)
 	ListChannelsForNodeIDs(ctx context.Context, arg ListChannelsForNodeIDsParams) ([]ListChannelsForNodeIDsRow, error)
 	ListChannelsPaginated(ctx context.Context, arg ListChannelsPaginatedParams) ([]ListChannelsPaginatedRow, error)
+	ListChannelsPaginatedV2(ctx context.Context, arg ListChannelsPaginatedV2Params) ([]ListChannelsPaginatedV2Row, error)
 	ListChannelsWithPoliciesForCachePaginated(ctx context.Context, arg ListChannelsWithPoliciesForCachePaginatedParams) ([]ListChannelsWithPoliciesForCachePaginatedRow, error)
 	ListChannelsWithPoliciesPaginated(ctx context.Context, arg ListChannelsWithPoliciesPaginatedParams) ([]ListChannelsWithPoliciesPaginatedRow, error)
 	ListNodeIDsAndPubKeys(ctx context.Context, arg ListNodeIDsAndPubKeysParams) ([]ListNodeIDsAndPubKeysRow, error)

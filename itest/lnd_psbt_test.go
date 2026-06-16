@@ -145,7 +145,9 @@ func runPsbtChanFundingWithNodes(ht *lntest.HarnessTest, carol,
 
 	// If this is a taproot channel, then we'll decode the PSBT to assert
 	// that an internal key is included.
-	if commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+	if commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
+
 		decodedPSBT, err := psbt.NewFromRawBytes(
 			bytes.NewReader(tempPsbt), false,
 		)
@@ -1918,7 +1920,7 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// Consume the "channel pending" update. This waits until the funding
 	// transaction was fully compiled.
 	updateResp = ht.ReceiveOpenChannelUpdate(chanUpdates)
-	upd, ok = updateResp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	_, ok = updateResp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
 	require.True(ht, ok)
 
 	err = finalTx.Deserialize(bytes.NewReader(finalizeRes.RawFinalTx))

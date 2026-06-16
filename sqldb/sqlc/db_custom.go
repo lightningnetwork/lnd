@@ -241,3 +241,32 @@ func (r FetchPaymentsByIDsRow) GetPaymentIntent() PaymentIntent {
 		IntentPayload: r.IntentPayload,
 	}
 }
+
+// GetPayment returns the Payment associated with this interface.
+//
+// NOTE: This method is part of the PaymentAndIntent interface.
+func (r FetchNonTerminalPaymentsRow) GetPayment() Payment {
+	return Payment{
+		ID:                r.ID,
+		AmountMsat:        r.AmountMsat,
+		CreatedAt:         r.CreatedAt,
+		PaymentIdentifier: r.PaymentIdentifier,
+		FailReason:        r.FailReason,
+	}
+}
+
+// GetPaymentIntent returns the PaymentIntent associated with this payment.
+// If the payment has no intent (IntentType is NULL), this returns a zero-value
+// PaymentIntent.
+//
+// NOTE: This method is part of the PaymentAndIntent interface.
+func (r FetchNonTerminalPaymentsRow) GetPaymentIntent() PaymentIntent {
+	if !r.IntentType.Valid {
+		return PaymentIntent{}
+	}
+
+	return PaymentIntent{
+		IntentType:    r.IntentType.Int16,
+		IntentPayload: r.IntentPayload,
+	}
+}

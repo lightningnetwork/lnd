@@ -123,7 +123,6 @@ func TestMaybeMatchScript(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -147,6 +146,8 @@ type mockChannel struct {
 	chanType  channeldb.ChannelType
 	localKey  keychain.KeyDescriptor
 	remoteKey keychain.KeyDescriptor
+
+	coopBroadcastTxns []*wire.MsgTx
 }
 
 func (m *mockChannel) ChannelPoint() wire.OutPoint {
@@ -161,8 +162,10 @@ func (m *mockChannel) FundingBlob() fn.Option[tlv.Blob] {
 	return fn.None[tlv.Blob]()
 }
 
-func (m *mockChannel) MarkCoopBroadcasted(*wire.MsgTx,
-	lntypes.ChannelParty) error {
+func (m *mockChannel) MarkCoopBroadcasted(tx *wire.MsgTx,
+	_ lntypes.ChannelParty) error {
+
+	m.coopBroadcastTxns = append(m.coopBroadcastTxns, tx)
 
 	return nil
 }
@@ -273,6 +276,8 @@ func newMockTaprootChan(t *testing.T, initiator bool) *mockChannel {
 }
 
 type mockMusigSession struct {
+	remoteNonceInited bool
+	remoteNonce       musig2.Nonces
 }
 
 func newMockMusigSession() *mockMusigSession {
@@ -293,11 +298,17 @@ func (m *mockMusigSession) CombineClosingOpts(localSig,
 		nil
 }
 
-func (m *mockMusigSession) ClosingNonce() (*musig2.Nonces, error) {
-	return &musig2.Nonces{}, nil
+func (m *mockMusigSession) InitRemoteNonce(nonce *musig2.Nonces) {
+	m.remoteNonceInited = true
+	m.remoteNonce = *nonce
 }
 
-func (m *mockMusigSession) InitRemoteNonce(nonce *musig2.Nonces) {
+func (m *mockMusigSession) InvalidateNonce() {}
+
+func (m *mockMusigSession) ClosingNonce() (*musig2.Nonces, error) {
+	return &musig2.Nonces{
+		PubNonce: [66]byte{1, 2, 3},
+	}, nil
 }
 
 type mockCoopFeeEstimator struct {
@@ -349,7 +360,6 @@ func TestMaxFeeClamp(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -386,7 +396,6 @@ func TestMaxFeeBailOut(t *testing.T) {
 	)
 
 	for _, isInitiator := range []bool{true, false} {
-		isInitiator := isInitiator
 
 		t.Run(fmt.Sprintf("initiator=%v", isInitiator), func(t *testing.T) {
 			t.Parallel()
@@ -482,7 +491,6 @@ func TestParseUpfrontShutdownAddress(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -635,4 +643,23 @@ func TestTaprootFastClose(t *testing.T) {
 	tx, _ = bobCloser.ClosingTx()
 	require.NotNil(t, tx)
 	require.True(t, oClosingSigned.IsNone())
+
+	// Every MarkCoopBroadcasted call must have a real close tx.
+	// A nil tx would set ChanStatusCoopBroadcasted without a
+	// stored transaction, creating the limbo state described in
+	// https://github.com/lightninglabs/taproot-assets/issues/2108.
+	require.NotEmpty(t, aliceChan.coopBroadcastTxns,
+		"expected at least one MarkCoopBroadcasted call "+
+			"from alice")
+	require.NotEmpty(t, bobChan.coopBroadcastTxns,
+		"expected at least one MarkCoopBroadcasted call "+
+			"from bob")
+	for i, broadcastTx := range aliceChan.coopBroadcastTxns {
+		require.NotNilf(t, broadcastTx,
+			"alice MarkCoopBroadcasted call %d had nil tx", i)
+	}
+	for i, broadcastTx := range bobChan.coopBroadcastTxns {
+		require.NotNilf(t, broadcastTx,
+			"bob MarkCoopBroadcasted call %d had nil tx", i)
+	}
 }

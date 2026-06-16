@@ -370,7 +370,6 @@ func TestBudgetAggregatorCreateInputSets(t *testing.T) {
 
 	// Iterate over the test cases.
 	for _, tc := range testCases {
-		tc := tc
 
 		t.Run(tc.name, func(t *testing.T) {
 			// Setup the mocks.

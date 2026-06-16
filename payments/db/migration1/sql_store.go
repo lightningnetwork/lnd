@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"time"
 
@@ -138,7 +139,7 @@ type SQLStoreConfig struct {
 }
 
 // NewSQLStore creates a new SQLStore instance given an open
-// BatchedSQLPaymentsQueries storage backend.
+// BatchedSQLQueries storage backend.
 func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries,
 	options ...OptionModifier) (*SQLStore, error) {
 
@@ -1122,11 +1123,17 @@ func (s *SQLStore) FetchInFlightPayments(ctx context.Context) ([]*MPPayment,
 			return err
 		}
 
-		// Convert map to slice.
+		// Convert map to slice and sort by sequence number to
+		// produce a deterministic ordering.
 		mpPayments = make([]*MPPayment, 0, len(processedPayments))
 		for _, payment := range processedPayments {
 			mpPayments = append(mpPayments, payment)
 		}
+
+		sort.Slice(mpPayments, func(i, j int) bool {
+			return mpPayments[i].SequenceNum <
+				mpPayments[j].SequenceNum
+		})
 
 		return nil
 	}, func() {
@@ -1691,7 +1698,7 @@ func (s *SQLStore) SettleAttempt(ctx context.Context, paymentHash lntypes.Hash,
 
 		err = db.SettleAttempt(ctx, sqlc.SettleAttemptParams{
 			AttemptIndex:   int64(attemptID),
-			ResolutionTime: time.Now(),
+			ResolutionTime: settleInfo.SettleTime.UTC(),
 			ResolutionType: int32(HTLCAttemptResolutionSettled),
 			SettlePreimage: settleInfo.Preimage[:],
 		})
@@ -1778,7 +1785,7 @@ func (s *SQLStore) FailAttempt(ctx context.Context, paymentHash lntypes.Hash,
 
 		err = db.FailAttempt(ctx, sqlc.FailAttemptParams{
 			AttemptIndex:   int64(attemptID),
-			ResolutionTime: time.Now(),
+			ResolutionTime: failInfo.FailTime.UTC(),
 			ResolutionType: int32(HTLCAttemptResolutionFailed),
 			FailureSourceIndex: sqldb.SQLInt32(
 				failInfo.FailureSourceIndex,

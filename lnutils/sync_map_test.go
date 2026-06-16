@@ -202,3 +202,46 @@ func TestSyncMapLoadOrStore(t *testing.T) {
 	require.True(t, loaded)
 	require.Equal(t, "two", item)
 }
+
+// TestSyncMapSwap tests the Swap method of the SyncMap type.
+func TestSyncMapSwap(t *testing.T) {
+	t.Parallel()
+
+	// Create a new SyncMap of string keys and integer values.
+	m := &lnutils.SyncMap[string, int]{}
+
+	// Swapping into an empty key should store the value and report no
+	// previous entry.
+	prev, loaded := m.Swap("foo", 42)
+	require.False(t, loaded)
+	require.Equal(t, 0, prev)
+
+	// The value should now be retrievable via Load.
+	value, ok := m.Load("foo")
+	require.True(t, ok)
+	require.Equal(t, 42, value)
+
+	// Swapping an existing key should return the previous value and
+	// report that it was present.
+	prev, loaded = m.Swap("foo", 99)
+	require.True(t, loaded)
+	require.Equal(t, 42, prev)
+
+	// Load should now return the new value.
+	value, ok = m.Load("foo")
+	require.True(t, ok)
+	require.Equal(t, 99, value)
+
+	// Swapping a second key should not affect the first.
+	prev, loaded = m.Swap("bar", 7)
+	require.False(t, loaded)
+	require.Equal(t, 0, prev)
+
+	value, ok = m.Load("foo")
+	require.True(t, ok)
+	require.Equal(t, 99, value)
+
+	value, ok = m.Load("bar")
+	require.True(t, ok)
+	require.Equal(t, 7, value)
+}

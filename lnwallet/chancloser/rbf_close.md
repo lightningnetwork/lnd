@@ -178,6 +178,43 @@ The `CloseErr` state provides recovery paths when protocol violations occur:
 
 Recovery typically involves restarting the negotiation with a new closing offer.
 
+### RBF Nonce Flow Example
+
+Here's how nonces flow through an RBF cooperative close with taproot:
+
+1. **Initial Shutdown**:
+   - Alice sends `shutdown` with her closee nonce `NA`
+   - Bob sends `shutdown` with his closee nonce `NB`
+
+2. **First Close Attempt** (Alice as closer):
+   - Alice sends `closing_complete`:
+     - Uses Bob's closee nonce NB (from his shutdown) as the closee nonce
+     - Generates her own closer nonce NC locally
+     - Signs with aggregate nonce R = NB + NC
+     - Includes `PartialSigWithNonce` = partial_sig (32 bytes) + closer nonce NC (66 bytes)
+   - Bob sends `closing_sig`:
+     - Extracts Alice's closer nonce NC from `PartialSigWithNonce`
+     - Uses his own closee nonce NB (from his shutdown)
+     - Signs with aggregate nonce R = NC + NB
+     - Includes `PartialSig` (32 bytes) + `NextCloseeNonce` NB2 for future RBF
+
+3. **RBF Iteration** (Bob as closer):
+   - Bob sends `closing_complete`:
+     - Uses Alice's next closee nonce NA2 (from her previous `NextCloseeNonce`) as closee nonce
+     - Generates his own closer nonce NC2 locally
+     - Signs with aggregate nonce R = NA2 + NC2
+     - Includes `PartialSigWithNonce` = partial_sig + closer nonce NC2
+   - Alice sends `closing_sig`:
+     - Extracts Bob's closer nonce NC2 from `PartialSigWithNonce`
+     - Uses her own closee nonce NA2 (from her previous `NextCloseeNonce`)
+     - Signs with aggregate nonce R = NC2 + NA2
+     - Includes `PartialSig` + `NextCloseeNonce` NA3 for future RBF
+
+The pattern continues: the closer always uses the peer's closee nonce (from
+shutdown or previous NextCloseeNonce) combined with a fresh local closer nonce.
+The closee extracts the closer nonce from PartialSigWithNonce and combines it
+with their own closee nonce.
+
 ## Example Scenarios
 
 ### Standard Cooperative Close
@@ -211,9 +248,135 @@ Recovery typically involves restarting the negotiation with a new closing offer.
 5. When agreement is reached on new fees: `ClosePending` → `CloseFin` (via
    `txn_confirmation`)
 
+## Taproot Channel Support
+
+### MuSig2 Nonce Handling
+
+For taproot channels, the cooperative close process requires coordination for
+MuSig2 signature creation using a JIT (Just-In-Time) nonce pattern:
+
+#### Nonce Exchange During Shutdown
+
+For taproot channels using the modern RBF cooperative close flow:
+- The `shutdown` message includes a single nonce field:
+  - `shutdown_nonce` (TLV type 8): The sender's "closee nonce" used when they
+  send `closing_sig`
+- This simplified approach works because nonces are sent JIT with signatures
+
+#### JIT (Just-In-Time) Nonce Pattern
+
+The protocol uses an asymmetric signature pattern for taproot channels that
+optimizes nonce delivery:
+
+**Asymmetric Roles**:
+- **Closer**: The party proposing a fee (sends `closing_complete`)
+- **Closee**: The party accepting the fee (sends `closing_sig`)
+
+**ClosingComplete (from Closer)**:
+- Uses `PartialSigWithNonce` (98 bytes total):
+  - The partial signature (32 bytes)
+  - The sender's closer nonce (66 bytes)
+- Bundles the closer nonce because the closee hasn't seen it yet
+- TLV types 5, 6, 7 (distinct from non-taproot types 1, 2, 3)
+
+**ClosingSig (from Closee)**:
+- Uses `PartialSig` (32 bytes) + separate `NextCloseeNonce`:
+  - The partial signature in TLV types 5, 6, 7
+  - The next closee nonce in TLV type 22 (66 bytes)
+- Separates the nonce because the closer already knows the current nonce from
+  shutdown or previous `PartialSigWithNonce`
+
+This asymmetric pattern minimizes redundancy while ensuring both parties always
+have the nonces they need for signing.
+
+#### Nonce State Management
+
+The state machine maintains a simplified `NonceState` structure with only 2 fields:
+- `LocalCloseeNonce`: Our closee nonce sent in our shutdown message
+- `RemoteCloseeNonce`: The peer's closee nonce from their shutdown message
+
+The JIT pattern eliminates complex nonce rotation:
+- New nonces arrive with signatures, not pre-generated
+- Remote nonces are updated automatically from `PartialSigWithNonce` in
+  `closing_complete`
+- Local nonces are generated on-demand when creating signatures
+
+### Wire Message Extensions
+
+The following messages have been extended with optional TLV fields for taproot:
+
+**shutdown**:
+- Type 8: `shutdown_nonce` - Sender's closee nonce for cooperative close signing
+
+**closing_complete**:
+- Types 5, 6, 7: `PartialSigWithNonce` - Partial signature with embedded closer nonce
+  - Type 5: `closer_no_closee` (closer has output, closee is dust)
+  - Type 6: `no_closer_closee` (closer is dust, closee has output)
+  - Type 7: `closer_and_closee` (both have outputs)
+
+**closing_sig**:
+- Types 5, 6, 7: `PartialSig` - Just the partial signature (32 bytes)
+  - Same TLV type meanings as above
+- Type 22: `NextCloseeNonce` - Next closee nonce for RBF iterations (66 bytes)
+
+### Validation Requirements
+
+For taproot channels:
+- Shutdown messages MUST include the sender's closee nonce
+- ClosingComplete messages MUST use PartialSigWithNonce (includes next nonce
+  bundled with signature)
+- ClosingSig messages MUST use PartialSig with separate NextCloseeNonce field
+- ClosingSig messages MUST always include NextCloseeNonce for RBF readiness
+
+### Implementation Notes for Nonce Handling
+
+The MuSig2 session's `InitRemoteNonce` method is called at specific times
+depending on our role:
+
+**When we're the Closer (LocalMusigSession)**:
+1. During `ShutdownReceived`: Store their closee nonce in `NonceState.RemoteCloseeNonce`
+2. During `SendOfferEvent`: Call `initLocalMusigCloseeNonce` with stored closee nonce,
+   generate JIT closer nonce via `ClosingNonce()`, sign via `ProposalClosingOpts()`
+3. Store the full `MusigPartialSig` in `LocalOfferSent` state to avoid re-signing
+4. During `LocalSigReceived` (when receiving their ClosingSig):
+   - Use the stored `MusigPartialSig` via `CombineClosingOpts()` — no second signing
+   - AFTER `CompleteCooperativeClose` succeeds, call `InvalidateNonce()` to force
+     fresh nonce generation for the next RBF round
+   - Update `NonceState.RemoteCloseeNonce` with `NextCloseeNonce` for future RBF
+
+**When we're the Closee (RemoteMusigSession)**:
+1. Our closee nonce was generated during shutdown and sent in the `Shutdown` message
+2. During `OfferReceivedEvent`: Receive their JIT closer nonce in `ClosingComplete`,
+   call `initRemoteMusigCloserNonce`, then sign via `ProposalClosingOpts()`
+3. After signing, call `InvalidateNonce()` before generating the next closee nonce
+4. `createClosingSigMessage` calls `ClosingNonce()` which generates a fresh nonce
+   for `NextCloseeNonce` in `ClosingSig`
+
+**Nonce Safety**: Each RBF round uses a unique nonce. The `InvalidateNonce()` call
+clears the cached nonce after signing, ensuring `ClosingNonce()` generates fresh
+on the next round. The closer's `MusigPartialSig` is stored in state so
+`LocalOfferSent` can combine signatures without calling `CreateCloseProposal` a
+second time (which would reuse the nonce).
+
+### Helper Function Reference
+
+The following helper functions manage nonce initialization:
+
+| Function | Session | Sets | Called When |
+|----------|---------|------|-------------|
+| `initLocalMusigCloseeNonce` | LocalMusigSession | Remote's closee nonce | We're closer, preparing to sign |
+| `initRemoteMusigCloserNonce` | RemoteMusigSession | Remote's closer nonce | We're closee, received ClosingComplete |
+
+Note: The function names now correctly reflect what nonce is being set:
+- `initLocalMusigCloseeNonce`: Sets remote's **closee** nonce (from their shutdown)
+- `initRemoteMusigCloserNonce`: Sets remote's **closer** nonce (from their JIT nonce in ClosingComplete)
+
 ## Implementation Notes
 
-- This state machine is implemented in the `peer.go` and `channel.go` files
-within the lnd codebase
+- This state machine is implemented in `rbf_coop_transitions.go` and
+  `rbf_coop_states.go` within the `lnwallet/chancloser` package
+- The `MusigChanCloser` adapter in `peer/musig_chan_closer.go` implements the
+  `MusigSession` interface for managing MuSig2 nonces
 - State transitions are logged at the debug level
 - The `ChanCloser` interface manages the state machine execution
+- Taproot support requires the `MusigSession` interface for nonce coordination

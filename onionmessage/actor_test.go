@@ -474,6 +474,105 @@ func TestOnionPeerActorRouting(t *testing.T) {
 	}
 }
 
+// TestOnionPeerActorSamePeerCycle verifies that the actor rejects onion
+// messages whose next hop is the same peer that sent them. Both the direct
+// next-node-ID and the SCID-resolved paths are covered.
+func TestOnionPeerActorSamePeerCycle(t *testing.T) {
+	t.Parallel()
+
+	type nextNodeFn func(h *actorHarness,
+		pub *btcec.PublicKey) fn.Either[*btcec.PublicKey,
+		lnwire.ShortChannelID]
+
+	tests := []struct {
+		name     string
+		nextNode nextNodeFn
+	}{
+		{
+			name: "via next node ID",
+			nextNode: func(_ *actorHarness,
+				pub *btcec.PublicKey) fn.Either[
+				*btcec.PublicKey, lnwire.ShortChannelID] {
+
+				return fn.NewLeft[*btcec.PublicKey,
+					lnwire.ShortChannelID](pub)
+			},
+		},
+		{
+			name: "via SCID",
+			nextNode: func(h *actorHarness,
+				pub *btcec.PublicKey) fn.Either[
+				*btcec.PublicKey, lnwire.ShortChannelID] {
+
+				scid := lnwire.NewShortChanIDFromInt(999)
+				h.resolver.addPeer(scid, pub)
+
+				return fn.NewRight[*btcec.PublicKey](scid)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newActorHarness(t)
+
+			// Generate a key for the next hop, then set the
+			// actor's peerPubKey to the same key to simulate
+			// the message arriving from that peer.
+			nextNodeKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+			nextNodePub := nextNodeKey.PubKey()
+
+			h.actor.peerPubKey = pubKeyToArray(nextNodePub)
+
+			nextNode := tc.nextNode(h, nextNodePub)
+			rdA := record.NewNonFinalBlindedRouteDataOnionMessage(
+				nextNode, nil, nil,
+			)
+			rdB := &record.BlindedRouteData{}
+
+			plainA := EncodeBlindedRouteData(t, rdA)
+			plainB := EncodeBlindedRouteData(t, rdB)
+			hops := []*sphinx.HopInfo{
+				{
+					NodePub:   h.nodeKey.PubKey(),
+					PlainText: plainA,
+				},
+				{NodePub: nextNodePub, PlainText: plainB},
+			}
+
+			blindedPath := BuildBlindedPath(t, hops)
+			onionMsg, _ := BuildOnionMessage(t, blindedPath, nil)
+
+			req := &Request{msg: *onionMsg}
+			result := h.actor.Receive(t.Context(), req)
+
+			// The actor must return an error.
+			require.True(t, result.IsErr())
+			result.WhenErr(func(err error) {
+				require.ErrorIs(t, err, ErrSamePeerCycle)
+			})
+
+			// No message should have been forwarded.
+			select {
+			case <-h.sender.sent:
+				require.FailNow(t, "message should not have "+
+					"been forwarded back to the sending "+
+					"peer")
+			default:
+			}
+
+			// No update should have been dispatched.
+			select {
+			case <-h.dispatcher.updates:
+				require.FailNow(t, "update should not be "+
+					"dispatched for a cyclic message")
+			default:
+			}
+		})
+	}
+}
+
 // TestOnionPeerActorReceiveContextCanceled tests that OnionPeerActor.Receive
 // returns an error when the context is canceled.
 func TestOnionPeerActorReceiveContextCanceled(t *testing.T) {

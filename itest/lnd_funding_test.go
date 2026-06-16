@@ -33,6 +33,10 @@ var basicFundingTestCases = []*lntest.TestCase{
 		Name:     "basic flow simple taproot",
 		TestFunc: testBasicChannelFundingSimpleTaproot,
 	},
+	{
+		Name:     "basic flow simple taproot final",
+		TestFunc: testBasicChannelFundingSimpleTaprootFinal,
+	},
 }
 
 // allFundingTypes defines the channel types to test for the basic funding
@@ -41,6 +45,7 @@ var allFundingTypes = []lnrpc.CommitmentType{
 	lnrpc.CommitmentType_STATIC_REMOTE_KEY,
 	lnrpc.CommitmentType_ANCHORS,
 	lnrpc.CommitmentType_SIMPLE_TAPROOT,
+	lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
 }
 
 // testBasicChannelFundingStaticRemote performs a test exercising expected
@@ -130,6 +135,35 @@ func testBasicChannelFundingSimpleTaproot(ht *lntest.HarnessTest) {
 	}
 }
 
+// testBasicChannelFundingSimpleTaprootFinal performs a test exercising expected
+// behavior from a basic funding workflow. The test creates a new channel
+// between Carol and Dave, with Carol using the production simple taproot
+// commitment type, and Dave using allFundingTypes.
+func testBasicChannelFundingSimpleTaprootFinal(ht *lntest.HarnessTest) {
+	carolCommitType := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	// We'll test all possible combinations of the feature bit presence
+	// that both nodes can signal for this new channel type. We'll make a
+	// new Carol+Dave for each test instance as well.
+	for _, daveCommitType := range allFundingTypes {
+		cc := carolCommitType
+		dc := daveCommitType
+
+		testName := fmt.Sprintf(
+			"carol_commit=%v,dave_commit=%v", cc, dc,
+		)
+
+		success := ht.Run(testName, func(t *testing.T) {
+			st := ht.Subtest(t)
+			runBasicFundingTest(st, cc, dc)
+		})
+
+		if !success {
+			break
+		}
+	}
+}
+
 // runBasicFundingTest is a helper function that takes Carol and Dave's
 // commitment types and test the funding flow.
 func runBasicFundingTest(ht *lntest.HarnessTest, carolCommitType,
@@ -158,15 +192,24 @@ func runBasicFundingTest(ht *lntest.HarnessTest, carolCommitType,
 	// private, otherwise it'll be rejected by Dave.
 	//
 	// TODO(roasbeef): lift after gossip 1.75
-	if carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+	if carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
+
 		privateChan = true
 	}
 
-	// If carol wants taproot, but dave wants something else, then we'll
-	// assert that the channel negotiation attempt fails.
-	if carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT &&
-		daveCommitType != lnrpc.CommitmentType_SIMPLE_TAPROOT {
+	// If carol wants taproot (staging or final), but dave wants something
+	// that doesn't enable taproot support, then we'll assert that the
+	// channel negotiation attempt fails. Cross-type negotiation between
+	// SIMPLE_TAPROOT and SIMPLE_TAPROOT_FINAL succeeds because both
+	// staging and final feature bits are advertised when taproot is
+	// enabled.
+	carolWantsTaproot := carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT || //nolint:ll
+		carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+	daveHasTaproot := daveCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT || //nolint:ll
+		daveCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
 
+	if carolWantsTaproot && !daveHasTaproot {
 		expectedErr := fmt.Errorf("requested channel type " +
 			"not supported")
 		amt := funding.MaxBtcFundingAmount
@@ -180,6 +223,12 @@ func runBasicFundingTest(ht *lntest.HarnessTest, carolCommitType,
 
 		return
 	}
+
+	// NOTE: With both staging and final feature bits advertised by default,
+	// cross-type negotiation (e.g., Carol wants FINAL, Dave prefers
+	// STAGING) will succeed because explicit channel_type takes precedence.
+	// The channel will be created with Carol's requested type (FINAL) since
+	// Dave advertises support for it.
 
 	carolChan, daveChan := basicChannelFundingTest(
 		ht, carol, dave, nil, privateChan, &carolCommitType,
@@ -196,6 +245,9 @@ func runBasicFundingTest(ht *lntest.HarnessTest, carolCommitType,
 	expType := carolCommitType
 
 	switch daveCommitType {
+	// Dave supports production taproot, type will be what Carol supports.
+	case lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL:
+
 	// Dave supports taproot, type will be what Carol supports.
 	case lnrpc.CommitmentType_SIMPLE_TAPROOT:
 
@@ -206,6 +258,9 @@ func runBasicFundingTest(ht *lntest.HarnessTest, carolCommitType,
 		if expType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
 			expType = lnrpc.CommitmentType_ANCHORS
 		}
+		if expType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
+			expType = lnrpc.CommitmentType_ANCHORS
+		}
 
 	// Dave only supports tweakless, channel will be downgraded to this
 	// type if Carol supports anchors.
@@ -214,6 +269,8 @@ func runBasicFundingTest(ht *lntest.HarnessTest, carolCommitType,
 		case lnrpc.CommitmentType_ANCHORS:
 			expType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
 		case lnrpc.CommitmentType_SIMPLE_TAPROOT:
+			expType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
+		case lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL:
 			expType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
 		}
 
@@ -239,6 +296,9 @@ func runBasicFundingTest(ht *lntest.HarnessTest, carolCommitType,
 
 	case expType == lnrpc.CommitmentType_SIMPLE_TAPROOT &&
 		chansCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT:
+
+	case expType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL &&
+		chansCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL:
 
 	default:
 		ht.Fatalf("expected nodes to signal commit type %v, instead "+
@@ -289,10 +349,13 @@ func basicChannelFundingTest(ht *lntest.HarnessTest,
 	// explicit commitment type. This allows us to continue supporting the
 	// existing min version comparison for implicit negotiation.
 	var commitTypeParam lnrpc.CommitmentType
-	if commitType != nil &&
-		*commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+	if commitType != nil {
+		switch *commitType {
+		case lnrpc.CommitmentType_SIMPLE_TAPROOT,
+			lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL:
 
-		commitTypeParam = *commitType
+			commitTypeParam = *commitType
+		}
 	}
 
 	// First establish a channel with a capacity of 0.5 BTC between Alice
@@ -834,9 +897,38 @@ func runExternalFundingTaproot(ht *lntest.HarnessTest) {
 	// HTLCs.
 	ht.AssertInvoiceSettled(dave, resp.PaymentAddr)
 
+	// Mine past the thaw height so the channel can be cooperatively
+	// closed. With RBF cooperative close (auto-enabled for taproot
+	// channels), both sides enforce the thaw height check during
+	// shutdown negotiation.
+	ht.MineBlocks(int(thawHeight))
+
 	// Next we'll try but this time with Dave (the responder) as the
-	// initiator. This time the channel should be closed as normal.
-	ht.CloseChannel(dave, chanPoint2)
+	// initiator. With RBF close auto-enabled for taproot channels,
+	// both sides create competing closing txs. Only one makes it
+	// to the mempool (the other is rejected as a same-fee RBF).
+	// We skip the mempool check since the local tx may not be the
+	// one that made it in.
+	closeStream, _ := ht.CloseChannelAssertPending(
+		dave, chanPoint2, false,
+		lntest.WithSkipMempoolCheck(),
+	)
+
+	// Mine a block to confirm whichever closing tx is in the mempool.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Consume updates until we get the final ChanClose event. The
+	// RBF close protocol may send multiple ClosePending updates
+	// (one per side's closing tx proposal) before the final close.
+	for {
+		event, err := ht.ReceiveCloseChannelUpdate(closeStream)
+		require.NoError(ht, err)
+
+		//nolint:ll
+		if _, ok := event.Update.(*lnrpc.CloseStatusUpdate_ChanClose); ok {
+			break
+		}
+	}
 
 	// Let's make sure we can abandon it.
 	carol.RPC.AbandonChannel(&lnrpc.AbandonChannelRequest{

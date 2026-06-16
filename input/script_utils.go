@@ -783,8 +783,8 @@ func senderHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 // unilaterally spend the created output.
 func SenderHTLCScriptTaproot(senderHtlcKey, receiverHtlcKey,
 	revokeKey *btcec.PublicKey, payHash []byte,
-	whoseCommit lntypes.ChannelParty, auxLeaf AuxTapLeaf) (*HtlcScriptTree,
-	error) {
+	whoseCommit lntypes.ChannelParty, auxLeaf AuxTapLeaf,
+	opts ...TaprootScriptOpt) (*HtlcScriptTree, error) {
 
 	var hType htlcType
 	if whoseCommit.IsLocal() {
@@ -798,7 +798,7 @@ func SenderHTLCScriptTaproot(senderHtlcKey, receiverHtlcKey,
 	// tap leaf paths.
 	return senderHtlcTapScriptTree(
 		senderHtlcKey, receiverHtlcKey, revokeKey, payHash, hType,
-		auxLeaf,
+		auxLeaf, opts...,
 	)
 }
 
@@ -1311,7 +1311,7 @@ func receiverHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 func ReceiverHTLCScriptTaproot(cltvExpiry uint32,
 	senderHtlcKey, receiverHtlcKey, revocationKey *btcec.PublicKey,
 	payHash []byte, whoseCommit lntypes.ChannelParty,
-	auxLeaf AuxTapLeaf) (*HtlcScriptTree, error) {
+	auxLeaf AuxTapLeaf, opts ...TaprootScriptOpt) (*HtlcScriptTree, error) {
 
 	var hType htlcType
 	if whoseCommit.IsLocal() {
@@ -1325,7 +1325,7 @@ func ReceiverHTLCScriptTaproot(cltvExpiry uint32,
 	// tap leaf paths.
 	return receiverHtlcTapScriptTree(
 		senderHtlcKey, receiverHtlcKey, revocationKey, payHash,
-		cltvExpiry, hType, auxLeaf,
+		cltvExpiry, hType, auxLeaf, opts...,
 	)
 }
 
@@ -1549,8 +1549,8 @@ func TaprootSecondLevelTapLeaf(delayKey *btcec.PublicKey,
 
 // SecondLevelHtlcTapscriptTree construct the indexed tapscript tree needed to
 // generate the tap tweak to create the final output and also control block.
-func SecondLevelHtlcTapscriptTree(delayKey *btcec.PublicKey, csvDelay uint32,
-	auxLeaf AuxTapLeaf,
+func SecondLevelHtlcTapscriptTree(delayKey *btcec.PublicKey,
+	csvDelay uint32, auxLeaf AuxTapLeaf,
 	opts ...TaprootScriptOpt) (*txscript.IndexedTapScriptTree, error) {
 
 	// First grab the second level leaf script we need to create the top
@@ -1589,12 +1589,13 @@ func SecondLevelHtlcTapscriptTree(delayKey *btcec.PublicKey, csvDelay uint32,
 //
 // The keyspend path require knowledge of the top level revocation private key.
 func TaprootSecondLevelHtlcScript(revokeKey, delayKey *btcec.PublicKey,
-	csvDelay uint32, auxLeaf AuxTapLeaf) (*btcec.PublicKey, error) {
+	csvDelay uint32, auxLeaf AuxTapLeaf,
+	opts ...TaprootScriptOpt) (*btcec.PublicKey, error) {
 
 	// First, we'll make the tapscript tree that commits to the redemption
 	// path.
 	tapScriptTree, err := SecondLevelHtlcTapscriptTree(
-		delayKey, csvDelay, auxLeaf,
+		delayKey, csvDelay, auxLeaf, opts...,
 	)
 	if err != nil {
 		return nil, err
@@ -1628,12 +1629,13 @@ type SecondLevelScriptTree struct {
 // TaprootSecondLevelScriptTree constructs the tapscript tree used to spend the
 // second level HTLC output.
 func TaprootSecondLevelScriptTree(revokeKey, delayKey *btcec.PublicKey,
-	csvDelay uint32, auxLeaf AuxTapLeaf) (*SecondLevelScriptTree, error) {
+	csvDelay uint32, auxLeaf AuxTapLeaf,
+	opts ...TaprootScriptOpt) (*SecondLevelScriptTree, error) {
 
 	// First, we'll make the tapscript tree that commits to the redemption
 	// path.
 	tapScriptTree, err := SecondLevelHtlcTapscriptTree(
-		delayKey, csvDelay, auxLeaf,
+		delayKey, csvDelay, auxLeaf, opts...,
 	)
 	if err != nil {
 		return nil, err

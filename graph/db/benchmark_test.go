@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net"
 	"path"
 	"sync"
 	"testing"
@@ -348,8 +347,10 @@ func TestPopulateDBs(t *testing.T) {
 	// graph.
 	countNodes := func(graph *ChannelGraph) int {
 		numNodes := 0
-		err := graph.ForEachNode(
-			ctx, func(node *models.Node) error {
+		v1Graph := NewVersionedGraph(graph, lnwire.GossipVersion1)
+		err := v1Graph.ForEachNode(
+			ctx,
+			func(node *models.Node) error {
 				numNodes++
 
 				return nil
@@ -455,7 +456,8 @@ func syncGraph(t *testing.T, src, dest *ChannelGraph) {
 	}
 
 	var wgNodes sync.WaitGroup
-	err := src.ForEachNode(ctx, func(node *models.Node) error {
+	v1Src := NewVersionedGraph(src, lnwire.GossipVersion1)
+	err := v1Src.ForEachNode(ctx, func(node *models.Node) error {
 		wgNodes.Add(1)
 		go func() {
 			defer wgNodes.Done()
@@ -621,7 +623,7 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 			name: "ForEachNode",
 			fn: func(b testing.TB, store Store) {
 				err := store.ForEachNode(
-					ctx,
+					ctx, lnwire.GossipVersion1,
 					func(_ *models.Node) error {
 						// Increment the counter to
 						// ensure the callback is doing
@@ -659,7 +661,13 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 			name: "NodeUpdatesInHorizon",
 			fn: func(b testing.TB, store Store) {
 				iter := store.NodeUpdatesInHorizon(
-					ctx, time.Unix(0, 0), time.Now(),
+					ctx, lnwire.GossipVersion1,
+					NodeUpdateRange{
+						StartTime: fn.Some(
+							time.Unix(0, 0),
+						),
+						EndTime: fn.Some(time.Now()),
+					},
 				)
 				_, err := fn.CollectErr(iter)
 				require.NoError(b, err)
@@ -689,9 +697,9 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 			fn: func(b testing.TB, store Store) {
 				//nolint:ll
 				err := store.ForEachNodeCached(
-					ctx, false, func(context.Context,
+					ctx, lnwire.GossipVersion1,
+					func(context.Context,
 						route.Vertex,
-						[]net.Addr,
 						map[uint64]*DirectedChannel) error {
 
 						// Increment the counter to
@@ -709,7 +717,13 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 			name: "ChanUpdatesInHorizon",
 			fn: func(b testing.TB, store Store) {
 				iter := store.ChanUpdatesInHorizon(
-					ctx, time.Unix(0, 0), time.Now(),
+					ctx, lnwire.GossipVersion1,
+					ChanUpdateRange{
+						StartTime: fn.Some(
+							time.Unix(0, 0),
+						),
+						EndTime: fn.Some(time.Now()),
+					},
 				)
 				_, err := fn.CollectErr(iter)
 				require.NoError(b, err)
@@ -730,6 +744,173 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 					test.fn(b, store)
 				}
 			})
+		}
+	}
+}
+
+// BenchmarkNodeHorizonIndex benchmarks the NodeUpdatesInHorizon query under
+// different index configurations to measure the performance impact of the
+// composite (version, last_update, pub_key) index vs the old single-column
+// (last_update) index.
+//
+// NOTE: this is to be run against a local native SQL database. The
+// TestPopulateDBs test helper can be used to populate the test DB.
+func BenchmarkNodeHorizonIndex(b *testing.B) {
+	ctx := b.Context()
+
+	// NOTE: uncomment the line below to run this benchmark locally.
+	b.Skipf("Skipping local benchmark test")
+
+	// NOTE: Set this to true to also benchmark against postgres.
+	testPostgres := false
+
+	// sqlBackend holds a Store for queries and a raw *sql.DB handle for
+	// index DDL manipulation between benchmark runs.
+	type sqlBackend struct {
+		name  string
+		rawDB *sql.DB
+		store Store
+	}
+
+	// openRawDB opens a raw *sql.DB connection to the same database that
+	// the given dbConnection targets. This is used for DDL operations
+	// (DROP/CREATE INDEX) that are not exposed through the Store interface.
+	openSQLiteRawDB := func(b testing.TB) *sql.DB {
+		sqliteStore, err := sqldb.NewSqliteStore(
+			&sqldb.SqliteConfig{
+				MaxConnections: testMaxSQLiteConnections,
+				BusyTimeout:    testSQLBusyTimeout,
+				PragmaOptions:  testSqlitePragmaOpts,
+			},
+			path.Join(nativeSQLSqlitePath, nativeSQLSqliteFile),
+		)
+		require.NoError(b, err)
+		b.Cleanup(func() {
+			require.NoError(b, sqliteStore.Close())
+		})
+
+		return sqliteStore.GetBaseDB().DB
+	}
+
+	openPostgresRawDB := func(b testing.TB) *sql.DB {
+		pgStore, err := sqldb.NewPostgresStore(
+			&sqldb.PostgresConfig{
+				Dsn:            nativeSQLPostgresDNS,
+				MaxConnections: testMaxPostgresConnections,
+			},
+		)
+		require.NoError(b, err)
+		b.Cleanup(func() {
+			require.NoError(b, pgStore.Close())
+		})
+
+		return pgStore.GetBaseDB().DB
+	}
+
+	backends := []sqlBackend{
+		{
+			name:  nativeSQLSqliteConn.name,
+			rawDB: openSQLiteRawDB(b),
+			store: nativeSQLSqliteConn.open(b),
+		},
+	}
+	if testPostgres {
+		backends = append(backends, sqlBackend{
+			name:  nativeSQLPostgresConn.name,
+			rawDB: openPostgresRawDB(b),
+			store: nativeSQLPostgresConn.open(b),
+		})
+	}
+
+	// Index configurations to compare.
+	type indexConfig struct {
+		name  string
+		setup string
+	}
+
+	configs := []indexConfig{
+		{
+			name: "old-indexes",
+			setup: `
+DROP INDEX IF EXISTS graph_node_last_update_idx;
+CREATE INDEX IF NOT EXISTS graph_node_last_update_idx
+    ON graph_nodes(last_update);
+DROP INDEX IF EXISTS graph_channels_node_id_1_idx;
+DROP INDEX IF EXISTS graph_channels_node_id_2_idx;
+CREATE INDEX IF NOT EXISTS graph_channels_node_id_1_idx
+    ON graph_channels(node_id_1);
+CREATE INDEX IF NOT EXISTS graph_channels_node_id_2_idx
+    ON graph_channels(node_id_2);
+`,
+		},
+		{
+			name: "new-indexes",
+			setup: `
+DROP INDEX IF EXISTS graph_node_last_update_idx;
+CREATE INDEX IF NOT EXISTS graph_node_last_update_idx
+    ON graph_nodes(version, last_update, pub_key);
+DROP INDEX IF EXISTS graph_channels_node_id_1_idx;
+DROP INDEX IF EXISTS graph_channels_node_id_2_idx;
+CREATE INDEX IF NOT EXISTS graph_channels_node_id_1_idx
+    ON graph_channels(node_id_1, version);
+CREATE INDEX IF NOT EXISTS graph_channels_node_id_2_idx
+    ON graph_channels(node_id_2, version);
+`,
+		},
+	}
+
+	// Query variants to benchmark.
+	type queryVariant struct {
+		name string
+		opts []IteratorOption
+	}
+
+	variants := []queryVariant{
+		{
+			name: "all-nodes",
+		},
+		{
+			name: "public-only",
+			opts: []IteratorOption{WithIterPublicNodesOnly()},
+		},
+	}
+
+	for _, backend := range backends {
+		for _, cfg := range configs {
+			for _, variant := range variants {
+				name := fmt.Sprintf("%s/%s/%s",
+					backend.name, cfg.name,
+					variant.name,
+				)
+				b.Run(name, func(b *testing.B) {
+					// Apply the index configuration.
+					_, err := backend.rawDB.ExecContext(
+						ctx, cfg.setup,
+					)
+					require.NoError(b, err)
+
+					b.ResetTimer()
+
+					//nolint:ll
+					for i := 0; i < b.N; i++ {
+						iter := backend.store.NodeUpdatesInHorizon(
+							ctx,
+							lnwire.GossipVersion1,
+							NodeUpdateRange{
+								StartTime: fn.Some(time.Unix(0, 0)),
+								EndTime:   fn.Some(time.Now()),
+							},
+							variant.opts...,
+						)
+						nodes, err := fn.CollectErr(iter)
+						require.NoError(b, err)
+
+						// Prevent the compiler from
+						// optimizing away the result.
+						_ = len(nodes)
+					}
+				})
+			}
 		}
 	}
 }
@@ -813,7 +994,7 @@ func BenchmarkFindOptimalSQLQueryConfig(b *testing.B) {
 					)
 
 					err := store.ForEachNode(
-						ctx,
+						ctx, lnwire.GossipVersion1,
 						func(_ *models.Node) error {
 							numNodes++
 

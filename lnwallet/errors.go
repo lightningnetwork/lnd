@@ -85,6 +85,18 @@ func ErrNonZeroPushAmount() ReservationError {
 	return ReservationError{errors.New("non-zero push amounts are disabled")}
 }
 
+// ErrPushAmountTooLarge is returned when the push amount exceeds the channel's
+// funding amount, which violates BOLT-02 (push_msat MUST be <=
+// 1000 * funding_satoshis).
+func ErrPushAmountTooLarge(pushAmt lnwire.MilliSatoshi,
+	fundingAmt btcutil.Amount) ReservationError {
+
+	return ReservationError{
+		fmt.Errorf("push amount %v exceeds funding amount %v",
+			pushAmt, lnwire.NewMSatFromSatoshis(fundingAmt)),
+	}
+}
+
 // ErrMinHtlcTooLarge returns an error indicating that the MinHTLC value the
 // remote required is too large to be accepted.
 func ErrMinHtlcTooLarge(minHtlc,

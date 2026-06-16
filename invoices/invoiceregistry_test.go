@@ -159,7 +159,6 @@ func TestInvoiceRegistry(t *testing.T) {
 	}
 
 	for _, test := range testList {
-		test := test
 
 		t.Run(test.name+"_KV", func(t *testing.T) {
 			test.test(t, makeKeyValueDB)
@@ -1924,7 +1923,6 @@ func testSpontaneousAmpPayment(t *testing.T,
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			testSpontaneousAmpPaymentImpl(
 				t, test.ampEnabled, test.failReconstruction,

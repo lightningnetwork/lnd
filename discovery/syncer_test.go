@@ -31,7 +31,6 @@ var (
 )
 
 type horizonQuery struct {
-	chain chainhash.Hash
 	start time.Time
 	end   time.Time
 }
@@ -87,12 +86,12 @@ func (m *mockChannelGraphTimeSeries) HighestChanID(_ context.Context,
 	return &m.highestID, nil
 }
 
-func (m *mockChannelGraphTimeSeries) UpdatesInHorizon(chain chainhash.Hash,
+func (m *mockChannelGraphTimeSeries) UpdatesInHorizon(_ context.Context,
 	startTime, endTime time.Time) iter.Seq2[lnwire.Message, error] {
 
 	return func(yield func(lnwire.Message, error) bool) {
 		m.horizonReq <- horizonQuery{
-			chain, startTime, endTime,
+			startTime, endTime,
 		}
 
 		// We'll get the response from the channel, then yield it
@@ -108,7 +107,7 @@ func (m *mockChannelGraphTimeSeries) UpdatesInHorizon(chain chainhash.Hash,
 
 func (m *mockChannelGraphTimeSeries) FilterKnownChanIDs(chain chainhash.Hash,
 	superSet []graphdb.ChannelUpdateInfo,
-	isZombieChan func(time.Time, time.Time) bool) (
+	isZombieChan func(graphdb.ChannelUpdateInfo) bool) (
 	[]lnwire.ShortChannelID, error) {
 
 	m.filterReq <- superSet
@@ -2297,7 +2296,6 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -2322,7 +2320,8 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 			syncer.Start()
 			defer syncer.Stop()
 
-			syncer.ProcessSyncTransition(test.finalSyncType)
+			err := syncer.ProcessSyncTransition(test.finalSyncType)
+			require.NoError(t, err)
 
 			// The syncer should now have the expected final
 			// SyncerType that the test expects.
@@ -2337,6 +2336,62 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 			// after processing its sync transition.
 			test.assert(t, msgChan, syncer)
 		})
+	}
+}
+
+// TestProcessSyncTransitionShutdown asserts that ProcessSyncTransition
+// surfaces a syncer shutdown that occurs while it is awaiting the syncer's
+// reply as the historical ErrGossipSyncerExiting sentinel, rather than the
+// raw context.Canceled error from the bridge context. This locks in the
+// pre-actor.Future error contract for callers using errors.Is to detect
+// shutdown.
+func TestProcessSyncTransitionShutdown(t *testing.T) {
+	t.Parallel()
+
+	// Spin up a syncer that is in chansSynced so it is willing to accept
+	// a transition request, but DON'T call Start so the syncer's
+	// channelGraphSyncer goroutine will never drain syncTransitionReqs.
+	// This deterministically forces ProcessSyncTransition into the await
+	// path with no chance of the request being processed before we close
+	// the syncer's quit channel.
+	_, syncer, _ := newTestSyncer(
+		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
+		defaultEncoding, defaultChunkSize,
+	)
+	syncer.setSyncState(chansSynced)
+	syncer.setSyncType(PassiveSync)
+
+	// Buffer the request channel so the enqueue select succeeds without
+	// any consumer present, mirroring how the gossip syncer is wired in
+	// production (syncTransitionReqs is unbuffered there, but here we
+	// only need the enqueue arm to win).
+	syncer.syncTransitionReqs = make(chan *syncTransitionReq, 1)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- syncer.ProcessSyncTransition(ActiveSync)
+	}()
+
+	// Give the goroutine a moment to enqueue the request and enter the
+	// await path. We deliberately wait longer than syncTransitionTimeout
+	// to prove the await is no longer bounded by it.
+	select {
+	case err := <-errCh:
+		t.Fatalf("ProcessSyncTransition returned early before "+
+			"shutdown: %v", err)
+	case <-time.After(syncTransitionTimeout + 100*time.Millisecond):
+	}
+
+	// Now signal the syncer's quit and assert that the await unblocks
+	// with the historical sentinel.
+	syncer.cg.Quit()
+
+	select {
+	case err := <-errCh:
+		require.ErrorIs(t, err, ErrGossipSyncerExiting)
+	case <-time.After(time.Second):
+		t.Fatal("ProcessSyncTransition did not return after syncer " +
+			"shutdown")
 	}
 }
 
@@ -2570,7 +2625,6 @@ func TestGossipSyncerStateHandlerErrors(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 

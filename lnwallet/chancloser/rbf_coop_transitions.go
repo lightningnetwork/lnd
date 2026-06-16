@@ -5,10 +5,13 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
@@ -22,28 +25,60 @@ import (
 )
 
 var (
-	// ErrThawHeightNotReached is returned if the remote party tries to
+	// ErrInvalidStateTransition is returned if the remote party tries to
 	// close, but the thaw height hasn't been matched yet.
 	ErrThawHeightNotReached = fmt.Errorf("thaw height not reached")
 )
 
-// sendShutdownEvents is a helper function that returns a set of daemon events
-// we need to emit when we decide that we should send a shutdown message. We'll
-// also mark the channel as borked as well, as at this point, we no longer want
-// to continue with normal operation.
+// sendShutdownEvents is a helper function that returns a set of daemon
+// events we need to emit when we decide that we should send a shutdown
+// message. We'll also mark the channel as borked as well, as at this
+// point, we no longer want to continue with normal operation. This
+// function also returns the actual closee nonce used (either provided
+// or auto-generated) for taproot channels.
 func sendShutdownEvents(chanID lnwire.ChannelID, chanPoint wire.OutPoint,
 	deliveryAddr lnwire.DeliveryAddress, peerPub btcec.PublicKey,
-	postSendEvent fn.Option[ProtocolEvent],
-	chanState ChanStateObserver) (protofsm.DaemonEventSet, error) {
+	postSendEvent fn.Option[ProtocolEvent], chanState ChanStateObserver,
+	env *Environment, localCloseeNonce fn.Option[lnwire.Musig2Nonce],
+) (protofsm.DaemonEventSet, fn.Option[lnwire.Musig2Nonce], error) {
 
-	// We'll emit a daemon event that instructs the daemon to send out a
-	// new shutdown message to the remote peer.
+	// Create the shutdown message.
+	shutdownMsg := &lnwire.Shutdown{
+		ChannelID: chanID,
+		Address:   deliveryAddr,
+	}
+
+	none := fn.None[lnwire.Musig2Nonce]()
+
+	// For taproot channels using modern RBF flow, auto-generate closee
+	// nonce if not provided. The shutdown message only contains our closee
+	// nonce - the nonce the remote party will use when they act as closer.
+	if env.IsTaproot() && localCloseeNonce.IsNone() {
+		// Generate closee nonce now. Note how we generate it using the
+		// RemoteMusigSession, as that'll set our localNonce, we'll
+		// receive their remoteNonce for this session once we get their
+		// ClosingComplete message.
+		closeeNonces, err := env.RemoteMusigSession.ClosingNonce()
+		if err != nil {
+			return nil, none, fmt.Errorf("unable to generate "+
+				"closee nonce: %w", err)
+		}
+		localCloseeNonce = fn.Some(
+			lnwire.Musig2Nonce(closeeNonces.PubNonce),
+		)
+	}
+
+	// If we have a closee nonce, then make sure to include it in the
+	// shutdown message.
+	localCloseeNonce.WhenSome(func(nonce lnwire.Musig2Nonce) {
+		shutdownMsg.ShutdownNonce = lnwire.SomeShutdownNonce(nonce)
+	})
+
+	// We'll emit a daemon event that instructs the daemon to send out a new
+	// shutdown message to the remote peer.
 	msgsToSend := &protofsm.SendMsgEvent[ProtocolEvent]{
 		TargetPeer: peerPub,
-		Msgs: []lnwire.Message{&lnwire.Shutdown{
-			ChannelID: chanID,
-			Address:   deliveryAddr,
-		}},
+		Msgs:       []lnwire.Message{shutdownMsg},
 		SendWhen: fn.Some(func() bool {
 			ok := chanState.NoDanglingUpdates()
 			if ok {
@@ -60,14 +95,16 @@ func sendShutdownEvents(chanID lnwire.ChannelID, chanPoint wire.OutPoint,
 	// If a close is already in process (we're in the RBF loop), then we
 	// can skip everything below, and just send out the shutdown message.
 	if chanState.FinalBalances().IsSome() {
-		return protofsm.DaemonEventSet{msgsToSend}, nil
+		return protofsm.DaemonEventSet{msgsToSend},
+			localCloseeNonce, nil
 	}
 
 	// Before closing, we'll attempt to send a disable update for the
 	// channel.  We do so before closing the channel as otherwise the
 	// current edge policy won't be retrievable from the graph.
 	if err := chanState.DisableChannel(); err != nil {
-		return nil, fmt.Errorf("unable to disable channel: %w", err)
+		return nil, none, fmt.Errorf("unable to disable "+
+			"channel: %w", err)
 	}
 
 	// If we have a post-send event, then this means that we're the
@@ -80,21 +117,53 @@ func sendShutdownEvents(chanID lnwire.ChannelID, chanPoint wire.OutPoint,
 	// As we're about to send a shutdown, we'll disable adds in the
 	// outgoing direction.
 	if err := chanState.DisableOutgoingAdds(); err != nil {
-		return nil, fmt.Errorf("unable to disable outgoing "+
-			"adds: %w", err)
+		return nil, none, fmt.Errorf("unable to disable "+
+			"outgoing adds: %w", err)
 	}
 
 	// To be able to survive a restart, we'll also write to disk
 	// information about the shutdown we're about to send out.
 	err := chanState.MarkShutdownSent(deliveryAddr, isInitiator)
 	if err != nil {
-		return nil, fmt.Errorf("unable to mark shutdown sent: %w", err)
+		return nil, none, fmt.Errorf("unable to mark "+
+			"shutdown sent: %w", err)
 	}
 
 	chancloserLog.Debugf("ChannelPoint(%v): marking channel as borked",
 		chanPoint)
 
-	return protofsm.DaemonEventSet{msgsToSend}, nil
+	return protofsm.DaemonEventSet{msgsToSend}, localCloseeNonce, nil
+}
+
+// initLocalMusigCloseeNonce initializes the LocalMusigSession with the remote's
+// closee nonce. This is used when we act as the closer to create a closing
+// transaction.
+func initLocalMusigCloseeNonce(env *Environment,
+	remoteCloseeNonce fn.Option[lnwire.Musig2Nonce]) {
+
+	if env.LocalMusigSession != nil {
+		remoteCloseeNonce.WhenSome(func(nonce lnwire.Musig2Nonce) {
+			remoteMusigNonce := musig2.Nonces{PubNonce: nonce}
+			env.LocalMusigSession.InitRemoteNonce(&remoteMusigNonce)
+		})
+	}
+}
+
+// initRemoteMusigCloserNonce initializes the RemoteMusigSession with the
+// remote party's closer nonce. This is called when we receive ClosingComplete
+// and we're acting as closee. The nonce passed in is the remote's JIT closer
+// nonce from their ClosingComplete message.
+func initRemoteMusigCloserNonce(env *Environment,
+	remoteCloserNonce fn.Option[lnwire.Musig2Nonce]) {
+
+	if env.RemoteMusigSession != nil {
+		remoteCloserNonce.WhenSome(func(nonce lnwire.Musig2Nonce) {
+			remoteMusigNonce := musig2.Nonces{PubNonce: nonce}
+			env.RemoteMusigSession.InitRemoteNonce(
+				&remoteMusigNonce,
+			)
+		})
+	}
 }
 
 // validateShutdown is a helper function that validates that the shutdown has a
@@ -103,7 +172,7 @@ func sendShutdownEvents(chanID lnwire.ChannelID, chanPoint wire.OutPoint,
 func validateShutdown(chanThawHeight fn.Option[uint32],
 	upfrontAddr fn.Option[lnwire.DeliveryAddress],
 	msg *ShutdownReceived, chanPoint wire.OutPoint,
-	chainParams chaincfg.Params) error {
+	chainParams chaincfg.Params, isTaproot bool) error {
 
 	// If we've received a shutdown message, and we have a thaw height,
 	// then we need to make sure that the channel can now be co-op closed.
@@ -125,6 +194,12 @@ func validateShutdown(chanThawHeight fn.Option[uint32],
 		return err
 	}
 
+	// For taproot channels, validate that the shutdown message includes
+	// the required nonce for the RBF cooperative close flow.
+	if isTaproot && !msg.RemoteShutdownNonce.IsSome() {
+		return ErrTaprootShutdownNonceMissing
+	}
+
 	// Next, we'll verify that the remote party is sending the expected
 	// shutdown script.
 	return fn.MapOption(func(addr lnwire.DeliveryAddress) error {
@@ -138,8 +213,8 @@ func validateShutdown(chanThawHeight fn.Option[uint32],
 // the state. From this state, we can receive two possible incoming events:
 // SendShutdown and ShutdownReceived. Both of these will transition us to the
 // ChannelFlushing state.
-func (c *ChannelActive) ProcessEvent(event ProtocolEvent,
-	env *Environment) (*CloseStateTransition, error) {
+func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
+) (*CloseStateTransition, error) {
 
 	switch msg := event.(type) {
 	// If we get a confirmation, then a prior transaction we broadcasted
@@ -169,10 +244,10 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent,
 		// and disable the channel on the network level. In this case,
 		// we don't need a post send event as receive their shutdown is
 		// what'll move us beyond the ShutdownPending state.
-		daemonEvents, err := sendShutdownEvents(
+		daemonEvents, closeeNonce, err := sendShutdownEvents(
 			env.ChanID, env.ChanPoint, shutdownScript,
 			env.ChanPeer, fn.None[ProtocolEvent](),
-			env.ChanObserver,
+			env.ChanObserver, env, msg.CloseeNonce,
 		)
 		if err != nil {
 			return nil, err
@@ -189,6 +264,9 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent,
 				IdealFeeRate: fn.Some(msg.IdealFeeRate),
 				ShutdownScripts: ShutdownScripts{
 					LocalDeliveryScript: shutdownScript,
+				},
+				NonceState: NonceState{
+					LocalCloseeNonce: closeeNonce,
 				},
 			},
 			NewEvents: fn.Some(RbfEvent{
@@ -209,7 +287,7 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent,
 		// shutdown addr.
 		err := validateShutdown(
 			env.ThawHeight, env.RemoteUpfrontShutdown, msg,
-			env.ChanPoint, env.ChainParams,
+			env.ChanPoint, env.ChainParams, env.IsTaproot(),
 		)
 		if err != nil {
 			chancloserLog.Errorf("ChannelPoint(%v): rejecting "+
@@ -234,11 +312,11 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent,
 		// the set of daemon events we need to emit. We'll also specify
 		// that once the message has actually been sent, that we
 		// generate receive an input event of a ShutdownComplete.
-		daemonEvents, err := sendShutdownEvents(
+		daemonEvents, closeeNonce, err := sendShutdownEvents(
 			env.ChanID, env.ChanPoint, shutdownAddr,
 			env.ChanPeer,
 			fn.Some[ProtocolEvent](&ShutdownComplete{}),
-			env.ChanObserver,
+			env.ChanObserver, env, fn.None[lnwire.Musig2Nonce](),
 		)
 		if err != nil {
 			return nil, err
@@ -256,11 +334,19 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent,
 
 		remoteAddr := msg.ShutdownScript
 
+		// Initialize our LocalMusigSession with their closee nonce.
+		// This prepares the session for when we act as closer.
+		initLocalMusigCloseeNonce(env, msg.RemoteShutdownNonce)
+
 		return &CloseStateTransition{
 			NextState: &ShutdownPending{
 				ShutdownScripts: ShutdownScripts{
 					LocalDeliveryScript:  shutdownAddr,
 					RemoteDeliveryScript: remoteAddr,
+				},
+				NonceState: NonceState{
+					RemoteCloseeNonce: msg.RemoteShutdownNonce, //nolint:ll
+					LocalCloseeNonce:  closeeNonce,
 				},
 			},
 			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
@@ -283,8 +369,8 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent,
 // forward once we receive the ShutdownComplete event. Receiving
 // ShutdownComplete means that we've sent our shutdown, as this was specified
 // as a post send event.
-func (s *ShutdownPending) ProcessEvent(event ProtocolEvent,
-	env *Environment) (*CloseStateTransition, error) {
+func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
+) (*CloseStateTransition, error) {
 
 	switch msg := event.(type) {
 	// If we get a confirmation, then a prior transaction we broadcasted
@@ -323,7 +409,7 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent,
 		// shutdown addr.
 		err := validateShutdown(
 			env.ThawHeight, env.RemoteUpfrontShutdown, msg,
-			env.ChanPoint, env.ChainParams,
+			env.ChanPoint, env.ChainParams, env.IsTaproot(),
 		)
 		if err != nil {
 			chancloserLog.Errorf("ChannelPoint(%v): rejecting "+
@@ -345,6 +431,10 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent,
 			})
 			eventsToEmit = append(eventsToEmit, channelFlushed)
 		}
+
+		// Initialize our LocalMusigSession with their closee nonce.
+		// This prepares the session for when we act as closer.
+		initLocalMusigCloseeNonce(env, msg.RemoteShutdownNonce)
 
 		chancloserLog.Infof("ChannelPoint(%v): disabling incoming adds",
 			env.ChanPoint)
@@ -372,6 +462,11 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent,
 			})
 		}
 
+		// Make sure that we stash their closee nonce, so we can make a
+		// sig if needed in the next state transition.
+		updatedNonceState := s.NonceState
+		updatedNonceState.RemoteCloseeNonce = msg.RemoteShutdownNonce
+
 		// We transition to the ChannelFlushing state, where we await
 		// the ChannelFlushed event.
 		return &CloseStateTransition{
@@ -381,6 +476,7 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent,
 					LocalDeliveryScript:  s.LocalDeliveryScript, //nolint:ll
 					RemoteDeliveryScript: msg.ShutdownScript,    //nolint:ll
 				},
+				NonceState: updatedNonceState,
 			},
 			NewEvents: newEvents,
 		}, nil
@@ -425,6 +521,7 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent,
 			NextState: &ChannelFlushing{
 				IdealFeeRate:    s.IdealFeeRate,
 				ShutdownScripts: s.ShutdownScripts,
+				NonceState:      s.NonceState,
 			},
 			NewEvents: newEvents,
 		}, nil
@@ -442,8 +539,8 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent,
 // a ShutdownReceived event, then we'll stay in the ChannelFlushing state, as
 // we haven't yet fully cleared the channel. Otherwise, we can move to the
 // CloseReady state which'll being the channel closing process.
-func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent,
-	env *Environment) (*CloseStateTransition, error) {
+func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
+) (*CloseStateTransition, error) {
 
 	switch msg := event.(type) {
 	// If we get a confirmation, then a prior transaction we broadcasted
@@ -482,22 +579,11 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent,
 		closeTerms := CloseChannelTerms{
 			ShutdownScripts:  c.ShutdownScripts,
 			ShutdownBalances: msg.ShutdownBalances,
+			NonceState:       c.NonceState,
 		}
 
 		chancloserLog.Infof("ChannelPoint(%v): channel flushed! "+
 			"proceeding with co-op close", env.ChanPoint)
-
-		// Now that the channel has been flushed, we'll mark on disk
-		// that we're approaching the point of no return where we'll
-		// send a new signature to the remote party.
-		//
-		// TODO(roasbeef): doesn't actually matter if initiator here?
-		if msg.FreshFlush {
-			err := env.ChanObserver.MarkCoopBroadcasted(nil, true)
-			if err != nil {
-				return nil, err
-			}
-		}
 
 		// If an ideal fee rate was specified, then we'll use that,
 		// otherwise we'll fall back to the default value given in the
@@ -577,8 +663,8 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent,
 // processNegotiateEvent is a helper function that processes a new event to
 // local channel state once we're in the ClosingNegotiation state.
 func processNegotiateEvent(c *ClosingNegotiation, event ProtocolEvent,
-	env *Environment,
-	chanPeer lntypes.ChannelParty) (*CloseStateTransition, error) {
+	env *Environment, chanPeer lntypes.ChannelParty,
+) (*CloseStateTransition, error) {
 
 	targetPeerState := c.PeerState.GetForParty(chanPeer)
 
@@ -607,11 +693,216 @@ func processNegotiateEvent(c *ClosingNegotiation, event ProtocolEvent,
 	}, nil
 }
 
+// partialSigToWireSig converts a PartialSig to a wire Sig format for taproot.
+func partialSigToWireSig(partialSig lnwire.PartialSig) lnwire.Sig {
+	var wireSig lnwire.Sig
+	sigBytes := partialSig.Sig.Bytes()
+	copy(wireSig.RawBytes()[:32], sigBytes[:])
+	wireSig.ForceSchnorr()
+
+	return wireSig
+}
+
+// extractTaprootSigAndNonce extracts the partial signature and closee nonce
+// from a taproot ClosingSig message.
+func extractTaprootSigAndNonce(
+	msg lnwire.ClosingSig) (fn.Result[lnwire.Sig],
+	fn.Option[lnwire.Musig2Nonce]) {
+
+	// Count how many taproot sig fields are populated.
+	taprootSigInts := []bool{
+		msg.TaprootPartialSigs.CloserNoClosee.IsSome(),
+		msg.TaprootPartialSigs.NoCloserClosee.IsSome(),
+		msg.TaprootPartialSigs.CloserAndClosee.IsSome(),
+	}
+	numTaprootSigs := fn.Foldl(
+		0, taprootSigInts,
+		func(acc int, sigInt bool) int {
+			if sigInt {
+				return acc + 1
+			}
+
+			return acc
+		},
+	)
+
+	// Validate exactly one sig is set.
+	if numTaprootSigs != 1 {
+		return fn.Errf[lnwire.Sig](
+			"%w: only one sig should be set, got %v",
+			ErrTooManySigs, numTaprootSigs,
+		), fn.None[lnwire.Musig2Nonce]()
+	}
+
+	tapSigs := msg.TaprootPartialSigs
+
+	// Extract the partial signature from whichever field has it.
+	var extractedSig lnwire.Sig
+	switch {
+	case msg.TaprootPartialSigs.CloserNoClosee.IsSome():
+		tapSigs.CloserNoClosee.WhenSomeV(func(ps lnwire.PartialSig) {
+			extractedSig = partialSigToWireSig(ps)
+		})
+
+	case msg.TaprootPartialSigs.NoCloserClosee.IsSome():
+		tapSigs.NoCloserClosee.WhenSomeV(func(ps lnwire.PartialSig) {
+			extractedSig = partialSigToWireSig(ps)
+		})
+
+	case msg.TaprootPartialSigs.CloserAndClosee.IsSome():
+		tapSigs.CloserAndClosee.WhenSomeV(func(ps lnwire.PartialSig) {
+			extractedSig = partialSigToWireSig(ps)
+		})
+	}
+
+	// Extract the closee nonce, for taproot channels, we expect this to
+	// always be present.
+	var nextCloseeNonce fn.Option[lnwire.Musig2Nonce]
+	msg.NextCloseeNonce.WhenSomeV(func(nonce lnwire.Musig2Nonce) {
+		nextCloseeNonce = fn.Some(nonce)
+	})
+
+	// Validate that NextCloseeNonce is always set for taproot channels.
+	if nextCloseeNonce.IsNone() {
+		return fn.Errf[lnwire.Sig]("NextCloseeNonce must be set for " +
+			"taproot channels"), fn.None[lnwire.Musig2Nonce]()
+	}
+
+	return fn.Ok(extractedSig), nextCloseeNonce
+}
+
+// extractRegularSig extracts the signature from a non-taproot ClosingSig
+// message.
+func extractRegularSig(msg lnwire.ClosingSig) fn.Result[lnwire.Sig] {
+	// Count how many regular sig fields are populated
+	regularSigInts := []bool{
+		msg.ClosingSigs.CloserNoClosee.IsSome(),
+		msg.ClosingSigs.NoCloserClosee.IsSome(),
+		msg.ClosingSigs.CloserAndClosee.IsSome(),
+	}
+	numRegularSigs := fn.Foldl(
+		0, regularSigInts,
+		func(acc int, sigInt bool) int {
+			if sigInt {
+				return acc + 1
+			}
+
+			return acc
+		},
+	)
+
+	// Validate exactly one sig is set
+	if numRegularSigs != 1 {
+		return fn.Errf[lnwire.Sig]("%w: only one sig should be "+
+			"set, got %v", ErrTooManySigs, numRegularSigs)
+	}
+
+	// Extract the signature from the appropriate field
+	switch {
+	case msg.ClosingSigs.CloserNoClosee.IsSome():
+		var sig lnwire.Sig
+		msg.ClosingSigs.CloserNoClosee.WhenSomeV(
+			func(s lnwire.Sig) {
+				sig = s
+			},
+		)
+
+		return fn.Ok(sig)
+
+	case msg.ClosingSigs.NoCloserClosee.IsSome():
+		var sig lnwire.Sig
+		msg.ClosingSigs.NoCloserClosee.WhenSomeV(
+			func(s lnwire.Sig) {
+				sig = s
+			},
+		)
+
+		return fn.Ok(sig)
+
+	case msg.ClosingSigs.CloserAndClosee.IsSome():
+		var sig lnwire.Sig
+		msg.ClosingSigs.CloserAndClosee.WhenSomeV(
+			func(s lnwire.Sig) {
+				sig = s
+			},
+		)
+
+		return fn.Ok(sig)
+
+	default:
+		return fn.Errf[lnwire.Sig]("no signature found")
+	}
+}
+
+// extractSigAndNonceFromClosingSig validates that the signature type in the
+// ClosingSig message matches the channel type (taproot vs non-taproot), then
+// extracts the partial signature and the NextCloseeNonce for the next RBF
+// round. This is used by the closer when receiving the closee's response.
+func extractSigAndNonceFromClosingSig(
+	msg lnwire.ClosingSig,
+) (fn.Result[lnwire.Sig], fn.Option[lnwire.Musig2Nonce]) {
+
+	// Check if this is a taproot or regular signature.
+	hasTaprootSigs := msg.TaprootPartialSigs.CloserNoClosee.IsSome() ||
+		msg.TaprootPartialSigs.NoCloserClosee.IsSome() ||
+		msg.TaprootPartialSigs.CloserAndClosee.IsSome()
+
+	hasRegularSigs := msg.ClosingSigs.CloserNoClosee.IsSome() ||
+		msg.ClosingSigs.NoCloserClosee.IsSome() ||
+		msg.ClosingSigs.CloserAndClosee.IsSome()
+
+	// Make sure that only a single set of signatures is present.
+	if hasTaprootSigs && hasRegularSigs {
+		return fn.Errf[lnwire.Sig]("both taproot and regular " +
+			"sigs present"), fn.None[lnwire.Musig2Nonce]()
+	}
+
+	// If it's a taproot sig, then we may need to also extract the nonce.
+	if hasTaprootSigs {
+		return extractTaprootSigAndNonce(msg)
+	}
+
+	return extractRegularSig(msg), fn.None[lnwire.Musig2Nonce]()
+}
+
+// validateAndExtractSigAndNonce validates that the signature type matches the
+// channel type and then extracts the signature and nonce.
+func validateAndExtractSigAndNonce(
+	msg lnwire.ClosingSig, isTaproot bool,
+) (fn.Result[lnwire.Sig], fn.Option[lnwire.Musig2Nonce]) {
+
+	// Check if this is a taproot or regular signature.
+	hasTaprootSigs := msg.TaprootPartialSigs.CloserNoClosee.IsSome() ||
+		msg.TaprootPartialSigs.NoCloserClosee.IsSome() ||
+		msg.TaprootPartialSigs.CloserAndClosee.IsSome()
+
+	hasRegularSigs := msg.ClosingSigs.CloserNoClosee.IsSome() ||
+		msg.ClosingSigs.NoCloserClosee.IsSome() ||
+		msg.ClosingSigs.CloserAndClosee.IsSome()
+
+	// Assert that the signature type matches the channel type.
+	switch {
+	case isTaproot && !hasTaprootSigs && hasRegularSigs:
+		return fn.Errf[lnwire.Sig]("taproot channel requires " +
+				"taproot signatures, got regular signatures"),
+			fn.None[lnwire.Musig2Nonce]()
+
+	case !isTaproot && hasTaprootSigs && !hasRegularSigs:
+		return fn.Errf[lnwire.Sig]("non-taproot channel requires " +
+				"regular signatures, got taproot signatures"),
+			fn.None[lnwire.Musig2Nonce]()
+	}
+
+	// If everything is clear, then we'll go ahead and extract the
+	// signatures.
+	return extractSigAndNonceFromClosingSig(msg)
+}
+
 // updateAndValidateCloseTerms is a helper function that validates examines the
 // incoming event, and decide if we need to update the remote party's address,
 // or reject it if it doesn't include our latest address.
-func (c *ClosingNegotiation) updateAndValidateCloseTerms(
-	event ProtocolEvent) error {
+func (c *ClosingNegotiation) updateAndValidateCloseTerms(event ProtocolEvent,
+	isTaproot bool) error {
 
 	assertLocalScriptMatches := func(localScriptInMsg []byte) error {
 		if !bytes.Equal(
@@ -668,8 +959,8 @@ func (c *ClosingNegotiation) updateAndValidateCloseTerms(
 // party in response to new events. From this state, we'll continue to drive
 // forward the local and remote states until we arrive at the StateFin stage,
 // or we loop back up to the ShutdownPending state.
-func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent,
-	env *Environment) (*CloseStateTransition, error) {
+func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
+) (*CloseStateTransition, error) {
 
 	// There're two classes of events that can break us out of this state:
 	// we receive a confirmation event, or we receive a signal to restart
@@ -695,7 +986,8 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent,
 	// At this point, we know its a new signature message. We'll validate,
 	// and maybe update the set of close terms based on what we receive. We
 	// might update the remote party's address for example.
-	if err := c.updateAndValidateCloseTerms(event); err != nil {
+	err := c.updateAndValidateCloseTerms(event, env.IsTaproot())
+	if err != nil {
 		return nil, fmt.Errorf("event violates close terms: %w", err)
 	}
 
@@ -721,8 +1013,8 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent,
 
 	case shouldRouteTo(lntypes.Remote):
 		chancloserLog.Infof("ChannelPoint(%v): routing %T to remote "+
-			"chan state", env.ChanPoint, event)
 
+			"chan state", env.ChanPoint, event)
 		// Drive forward the remote state based on the next event.
 		return processNegotiateEvent(c, event, env, lntypes.Remote)
 	}
@@ -737,10 +1029,73 @@ func newSigTlv[T tlv.TlvType](s lnwire.Sig) tlv.OptionalRecordT[T, lnwire.Sig] {
 	return tlv.SomeRecordT(tlv.NewRecordT[T](s))
 }
 
+// encodeClosingSignatures is a helper function that creates the appropriate
+// signature structures for the closing_complete message based on the channel
+// type and dust status.
+func encodeClosingSignatures(env *Environment, wireSig lnwire.Sig,
+	musigPartialSig *lnwallet.MusigPartialSig, noCloser, noClosee bool,
+) (lnwire.ClosingSigs, lnwire.TaprootClosingSigs, error) {
+
+	var (
+		closingSigs        lnwire.ClosingSigs
+		taprootClosingSigs lnwire.TaprootClosingSigs
+	)
+
+	// If this is a taproot channel, then we'll return the taproot specific
+	// closing sigs variant.
+	if env.IsTaproot() {
+		if musigPartialSig == nil {
+			return closingSigs, taprootClosingSigs,
+				fmt.Errorf("missing partial signature for " +
+					"taproot channel")
+		}
+
+		// Convert the musig partial sig to wire format.
+		// This already includes our JIT closer nonce that we
+		// used to sign.
+		partialSigWithNonce := musigPartialSig.ToWireSig()
+
+		switch {
+		case noCloser:
+			taprootClosingSigs.NoCloserClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType6](
+					*partialSigWithNonce,
+				),
+			)
+		case noClosee:
+			taprootClosingSigs.CloserNoClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType5](
+					*partialSigWithNonce,
+				),
+			)
+		default:
+			taprootClosingSigs.CloserAndClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType7](
+					*partialSigWithNonce,
+				),
+			)
+		}
+
+		return closingSigs, taprootClosingSigs, nil
+	}
+
+	// For non-taproot channels, we'll populate the normal ECDSA signatures.
+	switch {
+	case noClosee:
+		closingSigs.CloserNoClosee = newSigTlv[tlv.TlvType1](wireSig)
+	case noCloser:
+		closingSigs.NoCloserClosee = newSigTlv[tlv.TlvType2](wireSig)
+	default:
+		closingSigs.CloserAndClosee = newSigTlv[tlv.TlvType3](wireSig)
+	}
+
+	return closingSigs, taprootClosingSigs, nil
+}
+
 // ProcessEvent implements the event processing to kick off the process of
 // obtaining a new (possibly RBF'd) signature for our commitment transaction.
-func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent,
-	env *Environment) (*CloseStateTransition, error) {
+func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
+) (*CloseStateTransition, error) {
 
 	switch msg := event.(type) { //nolint:gocritic
 	// If we receive a SendOfferEvent, then we'll use the specified fee
@@ -780,17 +1135,82 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent,
 		// proposals, we'll just always use the known RBF sequence
 		// value.
 		localScript := l.LocalDeliveryScript
-		rawSig, closeTx, closeBalance, err := env.CloseSigner.CreateCloseProposal( //nolint:ll
-			absoluteFee, localScript, l.RemoteDeliveryScript,
+
+		var closeOpts []lnwallet.ChanCloseOpt
+		closeOpts = append(closeOpts,
 			lnwallet.WithCustomSequence(mempool.MaxRBFSequence),
 			lnwallet.WithCustomPayer(lntypes.Local),
 		)
-		if err != nil {
-			return nil, err
+
+		// For taproot channels, we need to use the LocalMusigSession
+		// for signing when we're the closer (sending closing_complete).
+		if env.IsTaproot() {
+			// Initialize with the remote's closee nonce for
+			// signing. This may be using the very first nonce they
+			// send in shutdown, or the nonce they sent in
+			// ClosingSig after responding to our prior offer.
+			initLocalMusigCloseeNonce(
+				env, l.NonceState.RemoteCloseeNonce,
+			)
+
+			// Generate our JIT closer nonce. This sets the internal
+			// localNonce field in LocalMusigSession.
+			_, err := env.LocalMusigSession.ClosingNonce()
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate "+
+					"JIT closer nonce: %w", err)
+			}
+
+			//nolint:ll
+			musigOpts, err := env.LocalMusigSession.ProposalClosingOpts()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get musig "+
+					"closing opts: %w", err)
+			}
+			closeOpts = append(closeOpts, musigOpts...)
 		}
-		wireSig, err := lnwire.NewSigFromSignature(rawSig)
+
+		rawSig, closeTx, closeBalance, err := env.CloseSigner.CreateCloseProposal( //nolint:ll
+			absoluteFee, localScript, l.RemoteDeliveryScript,
+			closeOpts...,
+		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to create close "+
+				"proposal: %w", err)
+		}
+
+		// Depending on the channel type, we'll be encoding a normal
+		// sig, or a musig2 partial sig.
+		var (
+			wireSig         lnwire.Sig
+			musigPartialSig *lnwallet.MusigPartialSig
+		)
+
+		// Depending on the channel type, we'll either have a partial
+		// signature, or a regular signature.
+		switch {
+		case env.IsTaproot():
+			var ok bool
+			musigPartialSig, ok = rawSig.(*lnwallet.MusigPartialSig)
+			if !ok {
+				return nil, fmt.Errorf("expected "+
+					"MusigPartialSig for taproot "+
+					"channel, got %T", rawSig)
+			}
+
+			// Convert to schnorr shell format for wire sig.
+			schnorrSig := musigPartialSig.ToSchnorrShell()
+			wireSig, err = lnwire.NewSigFromSignature(schnorrSig)
+			if err != nil {
+				return nil, err
+			}
+		default:
+			// For non-taproot channels, use regular signature
+			// conversion.
+			wireSig, err = lnwire.NewSigFromSignature(rawSig)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		chancloserLog.Infof("closing w/ local_addr=%x, "+
@@ -798,62 +1218,58 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent,
 			l.RemoteDeliveryScript[:], absoluteFee)
 
 		chancloserLog.Infof("proposing closing_tx=%v",
-			lnutils.SpewLogClosure(closeTx))
+			spew.Sdump(closeTx))
 
-		// Now that we have our signature, we'll set the proper
-		// closingSigs field based on if the remote party's output is
-		// dust or not.
-		var closingSigs lnwire.ClosingSigs
+		var noClosee, noCloser bool
 		switch {
-		// If the remote party's output is dust, then we'll set the
-		// CloserNoClosee field.
 		case remoteTxOut == nil:
-			closingSigs.CloserNoClosee = newSigTlv[tlv.TlvType1](
-				wireSig,
-			)
-
-		// If after paying for fees, our balance is below dust, then
-		// we'll set the NoCloserClosee field.
+			noClosee = true
 		case closeBalance < lnwallet.DustLimitForSize(len(localScript)):
-			closingSigs.NoCloserClosee = newSigTlv[tlv.TlvType2](
-				wireSig,
-			)
-
-		// Otherwise, we'll set the CloserAndClosee field.
-		//
-		// TODO(roasbeef): should actually set both??
-		default:
-			closingSigs.CloserAndClosee = newSigTlv[tlv.TlvType3](
-				wireSig,
-			)
+			noCloser = true
 		}
 
-		// Now that we have our sig, we'll emit a daemon event to send
-		// it to the remote party, then transition to the
-		// LocalOfferSent state.
-		//
+		// Create the appropriate signature structures based on channel
+		// type.
+		closingSigs, taprootClosingSigs, err := encodeClosingSignatures(
+			env, wireSig, musigPartialSig, noCloser, noClosee,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		closingCompleteMsg := &lnwire.ClosingComplete{
+			ChannelID:          env.ChanID,
+			CloserScript:       l.LocalDeliveryScript,
+			CloseeScript:       l.RemoteDeliveryScript,
+			FeeSatoshis:        absoluteFee,
+			LockTime:           env.BlockHeight,
+			ClosingSigs:        closingSigs,
+			TaprootClosingSigs: taprootClosingSigs,
+		}
+
 		// TODO(roasbeef): type alias for protocol event
 		sendEvent := protofsm.DaemonEventSet{&protofsm.SendMsgEvent[ProtocolEvent]{ //nolint:ll
 			TargetPeer: env.ChanPeer,
-			Msgs: []lnwire.Message{&lnwire.ClosingComplete{
-				ChannelID:    env.ChanID,
-				CloserScript: l.LocalDeliveryScript,
-				CloseeScript: l.RemoteDeliveryScript,
-				FeeSatoshis:  absoluteFee,
-				LockTime:     env.BlockHeight,
-				ClosingSigs:  closingSigs,
-			}},
+			Msgs:       []lnwire.Message{closingCompleteMsg},
 		}}
 
 		chancloserLog.Infof("ChannelPoint(%v): sending closing sig "+
 			"to remote party, fee_sats=%v", env.ChanPoint,
 			absoluteFee)
 
+		// For taproot channels, stash the full MusigPartialSig so
+		// LocalOfferSent can combine signatures without re-signing.
+		var localMusigSig fn.Option[lnwallet.MusigPartialSig]
+		if musigPartialSig != nil {
+			localMusigSig = fn.Some(*musigPartialSig)
+		}
+
 		return &CloseStateTransition{
 			NextState: &LocalOfferSent{
 				ProposedFee:       absoluteFee,
 				ProposedFeeRate:   msg.TargetFeeRate,
 				LocalSig:          wireSig,
+				LocalMusigSig:     localMusigSig,
 				CloseChannelTerms: l.CloseChannelTerms,
 			},
 			NewEvents: fn.Some(RbfEvent{
@@ -866,77 +1282,300 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent,
 		ErrInvalidStateTransition, event)
 }
 
-// extractSig extracts the expected signature from the closing sig message.
-// Only one of them should actually be populated as the closing sig message is
-// sent in response to a ClosingComplete message, it should only sign the same
-// version of the co-op close tx as the sender did.
-func extractSig(msg lnwire.ClosingSig) fn.Result[lnwire.Sig] {
-	// First, we'll validate that only one signature is included in their
-	// response to our initial offer. If not, then we'll exit here, and
-	// trigger a recycle of the connection.
-	sigInts := []bool{
-		msg.CloserNoClosee.IsSome(), msg.NoCloserClosee.IsSome(),
-		msg.CloserAndClosee.IsSome(),
-	}
-	numSigs := fn.Foldl(0, sigInts, func(acc int, sigInt bool) int {
-		if sigInt {
-			return acc + 1
+// selectTaprootPartialSigWithNonce selects the PartialSigWithNonce to use from
+// TaprootClosingSigs based on whether the closee output is omitted.
+func selectTaprootPartialSigWithNonce(
+	sigs lnwire.TaprootClosingSigs,
+	noClosee bool) (lnwire.PartialSigWithNonce, error) {
+
+	var ps lnwire.PartialSigWithNonce
+
+	if noClosee {
+		if sigs.CloserNoClosee.IsNone() {
+			return ps, ErrCloserNoClosee
 		}
 
-		return acc
-	})
-	if numSigs != 1 {
-		return fn.Errf[lnwire.Sig]("%w: only one sig should be set, "+
-			"got %v", ErrTooManySigs, numSigs)
+		sigs.CloserNoClosee.WhenSomeV(
+			func(p lnwire.PartialSigWithNonce) {
+				ps = p
+			},
+		)
+
+		return ps, nil
 	}
 
-	// The final sig is the one that's actually set.
-	sig := msg.CloserAndClosee.ValOpt().Alt(
-		msg.NoCloserClosee.ValOpt(),
-	).Alt(
-		msg.CloserNoClosee.ValOpt(),
+	if sigs.CloserAndClosee.IsSome() {
+		sigs.CloserAndClosee.WhenSomeV(
+			func(p lnwire.PartialSigWithNonce) {
+				ps = p
+			},
+		)
+
+		return ps, nil
+	}
+
+	if sigs.NoCloserClosee.IsSome() {
+		sigs.NoCloserClosee.WhenSomeV(
+			func(p lnwire.PartialSigWithNonce) {
+				ps = p
+			},
+		)
+
+		return ps, nil
+	}
+
+	return ps, ErrNoSig
+}
+
+// createClosingSigMessage creates the ClosingSig message response for the
+// closee role.
+func createClosingSigMessage(env *Environment, wireSig lnwire.Sig,
+	localSig input.Signature,
+	localScript, remoteScript lnwire.DeliveryAddress, fee btcutil.Amount,
+	lockTime uint32, noClosee bool) (*lnwire.ClosingSig, error) {
+
+	var (
+		closingSigs        lnwire.ClosingSigs
+		taprootPartialSigs lnwire.TaprootPartialSigs
+		nextCloseeNonce    tlv.OptionalRecordT[
+			tlv.TlvType22, lnwire.Musig2Nonce,
+		]
 	)
 
-	return fn.NewResult(sig.UnwrapOrErr(ErrNoSig))
+	// For taproot channels, use PartialSig (no nonce) since receiver knows
+	// our nonce.
+	if env.IsTaproot() {
+		// We already have the MusigPartialSig from earlier.
+		musigSig, ok := localSig.(*lnwallet.MusigPartialSig)
+		if !ok {
+			return nil, fmt.Errorf("expected "+
+				"MusigPartialSig for taproot channel, "+
+				"got %T", localSig)
+		}
+		wireSigWithNonce := musigSig.ToWireSig()
+		partialSig := wireSigWithNonce.PartialSig
+
+		if noClosee {
+			taprootPartialSigs.CloserNoClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType5](partialSig),
+			)
+		} else {
+			taprootPartialSigs.CloserAndClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType7](partialSig),
+			)
+		}
+
+		// Generate our next closee nonce for the next RBF iteration.
+		// This is the nonce the closer should use for our closee
+		// signature in the next RBF round. We always include this since
+		// RBF could occur.
+		nextNonces, err := env.RemoteMusigSession.ClosingNonce()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate next "+
+				"closee nonce: %w", err)
+		}
+		nextCloseeNonce = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType22](
+				lnwire.Musig2Nonce(nextNonces.PubNonce),
+			),
+		)
+	} else {
+		// Non-taproot: use regular signatures.
+		if noClosee {
+			closingSigs.CloserNoClosee = newSigTlv[tlv.TlvType1](
+				wireSig,
+			)
+		} else {
+			closingSigs.CloserAndClosee = newSigTlv[tlv.TlvType3](
+				wireSig,
+			)
+		}
+	}
+
+	return &lnwire.ClosingSig{
+		ChannelID:          env.ChanID,
+		CloserScript:       remoteScript,
+		CloseeScript:       localScript,
+		FeeSatoshis:        fee,
+		LockTime:           lockTime,
+		ClosingSigs:        closingSigs,
+		TaprootPartialSigs: taprootPartialSigs,
+		NextCloseeNonce:    nextCloseeNonce,
+	}, nil
+}
+
+// extractTaprootPartialSig extracts just the PartialSig from
+// TaprootPartialSigs. This is useful when we need the actual
+// partial sig for combining.
+func extractTaprootPartialSig(
+	sigs lnwire.TaprootPartialSigs,
+) fn.Option[lnwire.PartialSig] {
+
+	if sigs.CloserNoClosee.IsSome() {
+		var ps lnwire.PartialSig
+		sigs.CloserNoClosee.WhenSomeV(
+			func(p lnwire.PartialSig) {
+				ps = p
+			},
+		)
+
+		return fn.Some(ps)
+	}
+
+	if sigs.NoCloserClosee.IsSome() {
+		var ps lnwire.PartialSig
+		sigs.NoCloserClosee.WhenSomeV(
+			func(p lnwire.PartialSig) {
+				ps = p
+			},
+		)
+
+		return fn.Some(ps)
+	}
+
+	if sigs.CloserAndClosee.IsSome() {
+		var ps lnwire.PartialSig
+		sigs.CloserAndClosee.WhenSomeV(
+			func(p lnwire.PartialSig) {
+				ps = p
+			},
+		)
+
+		return fn.Some(ps)
+	}
+
+	return fn.None[lnwire.PartialSig]()
+}
+
+// prepareClosingSignatures prepares the local and remote signatures for the
+// closing transaction. For taproot channels, it handles musig signature
+// combination. For non-taproot channels, it converts wire signatures to regular
+// signatures.
+func prepareClosingSignatures(env *Environment,
+	l *LocalOfferSent, msg *LocalSigReceived,
+	sig lnwire.Sig,
+	closeOpts []lnwallet.ChanCloseOpt,
+) (input.Signature, input.Signature,
+	[]lnwallet.ChanCloseOpt, error) {
+
+	if env.IsTaproot() {
+		// Use the stored MusigPartialSig from LocalCloseStart rather
+		// than re-signing. This prevents nonce reuse across the two
+		// state transitions within a closer round.
+		storedSig, err := l.LocalMusigSig.UnwrapOrErr(
+			fmt.Errorf("missing stored musig partial sig " +
+				"for taproot channel"),
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		localPartialSig := storedSig.ToWireSig().PartialSig
+
+		// Extract the remote's partial sig from their ClosingSig.
+		remotePartialSigOpt := extractTaprootPartialSig(
+			msg.SigMsg.TaprootPartialSigs,
+		)
+		if remotePartialSigOpt.IsNone() {
+			return nil, nil, nil, fmt.Errorf("no taproot " +
+				"partial sig found in message")
+		}
+
+		remotePartialSig := remotePartialSigOpt.UnwrapOr(
+			lnwire.PartialSig{},
+		)
+
+		// Combine both partial signatures using the musig session
+		// from the original ProposalClosingOpts call.
+		//nolint:ll
+		localCombined, remoteCombined, combinedOpts, err := env.LocalMusigSession.CombineClosingOpts(
+			localPartialSig, remotePartialSig,
+		)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to "+
+				"combine closing opts: %w", err)
+		}
+
+		return localCombined, remoteCombined, combinedOpts, nil
+	}
+
+	// For non-taproot channels, convert wire signatures to regular
+	// signatures.
+	remoteSig, err := sig.ToSignature()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	localSig, err := l.LocalSig.ToSignature()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return localSig, remoteSig, nil, nil
 }
 
 // ProcessEvent implements the state transition function for the
 // LocalOfferSent state. In this state, we'll wait for the remote party to
 // send a close_signed message which gives us the ability to broadcast a new
 // co-op close transaction.
-func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent,
-	env *Environment) (*CloseStateTransition, error) {
+func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent, env *Environment,
+) (*CloseStateTransition, error) {
 
 	switch msg := event.(type) { //nolint:gocritic
 	// If we receive a LocalSigReceived event, then we'll attempt to
 	// validate the signature from the remote party. If valid, then we can
 	// broadcast the transaction, and transition to the ClosePending state.
 	case *LocalSigReceived:
-		// Extract and validate that only one sig field is set.
-		sig, err := extractSig(msg.SigMsg).Unpack()
+		// Extract and validate that only one sig field is set. For
+		// taproot channels, we also extract the NextCloseeNonce.
+		sigResult, nextCloseeNonce := validateAndExtractSigAndNonce(
+			msg.SigMsg, env.IsTaproot(),
+		)
+		sig, err := sigResult.Unpack()
 		if err != nil {
 			return nil, err
 		}
 
-		remoteSig, err := sig.ToSignature()
-		if err != nil {
-			return nil, err
+		var closeOpts []lnwallet.ChanCloseOpt
+		closeOpts = append(closeOpts,
+			lnwallet.WithCustomSequence(mempool.MaxRBFSequence),
+			lnwallet.WithCustomPayer(lntypes.Local),
+		)
+
+		// For taproot channels, update NonceState with the new nonce
+		// from ClosingSig for potential future RBF iterations.
+		if env.IsTaproot() {
+			l.NonceState.RemoteCloseeNonce = nextCloseeNonce
 		}
-		localSig, err := l.LocalSig.ToSignature()
+
+		// Prepare the closing signatures. For taproot, this uses the
+		// stored MusigPartialSig from LocalCloseStart (no re-signing).
+		// The returned musigOpts contain the musig session needed by
+		// CompleteCooperativeClose.
+		localSig, remoteSig, musigOpts, err := prepareClosingSignatures(
+			env, l, msg, sig, closeOpts,
+		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("LocalOfferSent: unable "+
+				"to prepare closing sigs: %w", err)
 		}
+		closeOpts = append(closeOpts, musigOpts...)
 
 		// Now that we have their signature, we'll attempt to validate
 		// it, then extract a valid closing signature from it.
 		closeTx, _, err := env.CloseSigner.CompleteCooperativeClose(
 			localSig, remoteSig, l.LocalDeliveryScript,
-			l.RemoteDeliveryScript, l.ProposedFee,
-			lnwallet.WithCustomSequence(mempool.MaxRBFSequence),
-			lnwallet.WithCustomPayer(lntypes.Local),
+			l.RemoteDeliveryScript, l.ProposedFee, closeOpts...,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("LocalOfferSent: unable "+
+				"to complete coop close: %w", err)
+		}
+
+		// Invalidate the closer nonce now that the round is complete.
+		// The next RBF round will generate a fresh nonce in
+		// LocalCloseStart.
+		if env.IsTaproot() {
+			env.LocalMusigSession.InvalidateNonce()
 		}
 
 		// As we're about to broadcast a new version of the co-op close
@@ -976,12 +1615,347 @@ func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent,
 		ErrInvalidStateTransition, event)
 }
 
+// processRemoteTaprootSig handles the extraction and processing of a remote
+// taproot signature for the closee role. It extracts the partial sig with
+// nonce, initializes the musig session, and returns the remote signature.
+func processRemoteTaprootSig(env *Environment, msg lnwire.ClosingComplete,
+	jitNonce fn.Option[lnwire.Musig2Nonce], noClosee bool) (input.Signature,
+	error) {
+
+	// Initialize the RemoteMusigSession with their JIT closer nonce. We
+	// already added our local nonce either during shutdown, or with our
+	// last ClosingSig message.
+	initRemoteMusigCloserNonce(env, jitNonce)
+
+	remotePartialSig, err := selectTaprootPartialSigWithNonce(
+		msg.TaprootClosingSigs, noClosee,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a MusigPartialSig from the wire format. The nonce in
+	// PartialSigWithNonce is their JIT closer nonce used for the current
+	// session verification.
+	remoteSig := lnwallet.NewMusigPartialSig(
+		&musig2.PartialSignature{
+			S: &remotePartialSig.PartialSig.Sig,
+		},
+		remotePartialSig.Nonce, lnwire.Musig2Nonce{}, nil,
+		fn.None[chainhash.Hash](),
+	)
+
+	return remoteSig, nil
+}
+
+// createLocalCloseeSignature creates our local signature for the closee role.
+// It returns both the wire format signature and the input.Signature.
+func createLocalCloseeSignature(env *Environment, fee btcutil.Amount,
+	localScript, remoteScript lnwire.DeliveryAddress,
+	chanOpts []lnwallet.ChanCloseOpt) (lnwire.Sig, input.Signature, error) {
+
+	rawSig, _, _, err := env.CloseSigner.CreateCloseProposal(
+		fee, localScript, remoteScript, chanOpts...,
+	)
+	if err != nil {
+		return lnwire.Sig{}, nil, fmt.Errorf("failed to "+
+			"create close proposal: %w", err)
+	}
+
+	var (
+		wireSig  lnwire.Sig
+		localSig input.Signature
+	)
+
+	if env.IsTaproot() {
+		musigSig, ok := rawSig.(*lnwallet.MusigPartialSig)
+		if !ok {
+			return lnwire.Sig{}, nil, fmt.Errorf("expected "+
+				"MusigPartialSig for taproot channel, got %T",
+				rawSig)
+		}
+
+		// Convert to schnorr shell format for wire sig encoding.
+		schnorrSig := musigSig.ToSchnorrShell()
+		wireSig, err = lnwire.NewSigFromSignature(schnorrSig)
+		if err != nil {
+			return lnwire.Sig{}, nil, err
+		}
+
+		localSig = musigSig
+	} else {
+		wireSig, err = lnwire.NewSigFromSignature(rawSig)
+		if err != nil {
+			return lnwire.Sig{}, nil, err
+		}
+
+		localSig, err = wireSig.ToSignature()
+		if err != nil {
+			return lnwire.Sig{}, nil, err
+		}
+	}
+
+	return wireSig, localSig, nil
+}
+
+// SigType represents either a regular or taproot signature.
+// Left = regular signature, Right = taproot signature with nonce.
+type SigType = fn.Either[lnwire.Sig, lnwire.PartialSigWithNonce]
+
+// NewRegularSigType creates a SigType for a regular (non-taproot) signature.
+func NewRegularSigType(sig lnwire.Sig) SigType {
+	return fn.NewLeft[lnwire.Sig, lnwire.PartialSigWithNonce](sig)
+}
+
+// NewTaprootSigType creates a SigType for a taproot signature with nonce.
+func NewTaprootSigType(ps lnwire.PartialSigWithNonce) SigType {
+	return fn.NewRight[lnwire.Sig](ps)
+}
+
+// SigFieldSet represents which signature fields are present in a
+// ClosingComplete message.
+type SigFieldSet struct {
+	// CloserNoClosee contains the signature for a transaction with only
+	// the closer's output (closee's output is dust/excluded).
+	CloserNoClosee fn.Option[SigType]
+
+	// NoCloserClosee contains the signature for a transaction with only
+	// the closee's output (closer's output is dust/excluded).
+	NoCloserClosee fn.Option[SigType]
+
+	// CloserAndClosee contains the signature for a transaction with both
+	// outputs present.
+	CloserAndClosee fn.Option[SigType]
+}
+
+// IsTaproot returns true if any taproot signatures are present in the field
+// set.
+func (s SigFieldSet) IsTaproot() bool {
+	checkTaproot := func(opt fn.Option[SigType]) bool {
+		return fn.MapOptionZ(opt, func(sig SigType) bool {
+			return sig.IsRight()
+		})
+	}
+
+	return checkTaproot(s.CloserNoClosee) ||
+		checkTaproot(s.NoCloserClosee) ||
+		checkTaproot(s.CloserAndClosee)
+}
+
+// HasAnySig returns true if at least one signature field is present.
+func (s SigFieldSet) HasAnySig() bool {
+	return s.CloserNoClosee.IsSome() ||
+		s.NoCloserClosee.IsSome() ||
+		s.CloserAndClosee.IsSome()
+}
+
+// parseSigFields extracts signature fields from a ClosingComplete message and
+// returns a structured representation of which fields are present.
+func parseSigFields(msg lnwire.ClosingComplete) SigFieldSet {
+	var fields SigFieldSet
+
+	// createSigType is a helper function that creates a SigType based on
+	// field otpions.
+	createSigType := func(
+		taprootOpt fn.Option[lnwire.PartialSigWithNonce],
+		regularOpt fn.Option[lnwire.Sig],
+	) fn.Option[SigType] {
+
+		// The taproot takes precedence if present.
+		if taprootOpt.IsSome() {
+			var ps lnwire.PartialSigWithNonce
+			taprootOpt.WhenSome(func(p lnwire.PartialSigWithNonce) {
+				ps = p
+			})
+
+			return fn.Some(NewTaprootSigType(ps))
+		}
+
+		// Otherwise, check for a regular signature.
+		if regularOpt.IsSome() {
+			var sig lnwire.Sig
+			regularOpt.WhenSome(func(s lnwire.Sig) {
+				sig = s
+			})
+
+			return fn.Some(NewRegularSigType(sig))
+		}
+
+		return fn.None[SigType]()
+	}
+
+	fields.CloserNoClosee = createSigType(
+		msg.TaprootClosingSigs.CloserNoClosee.ValOpt(),
+		msg.ClosingSigs.CloserNoClosee.ValOpt(),
+	)
+
+	fields.NoCloserClosee = createSigType(
+		msg.TaprootClosingSigs.NoCloserClosee.ValOpt(),
+		msg.ClosingSigs.NoCloserClosee.ValOpt(),
+	)
+
+	fields.CloserAndClosee = createSigType(
+		msg.TaprootClosingSigs.CloserAndClosee.ValOpt(),
+		msg.ClosingSigs.CloserAndClosee.ValOpt(),
+	)
+
+	return fields
+}
+
+// validateSigFields validates that the signature field set conforms to BOLT
+// spec requirements based on the receiver's (closee's) output dust status.
+func validateSigFields(sigFields SigFieldSet, localIsDust bool) error {
+	// Check if any signature is present at all, if not then this is a
+	// terminal error.
+	if !sigFields.HasAnySig() {
+		return ErrNoSig
+	}
+
+	// Per BOLT spec for the receiver (closee) of closing_complete:
+	//
+	// "Select a signature for validation:
+	//   1. If the local output amount is dust: MUST use closer_output_only
+	//      (CloserNoClosee).
+	//   3. Otherwise, if closer_and_closee_outputs is present: MUST use
+	//      closer_and_closee_outputs (CloserAndClosee).
+	//   4. Otherwise: MUST use closee_output_only (NoCloserClosee)."
+	//
+	// We validate that the required signature field is present.
+	if localIsDust {
+		// Local output is dust, we need CloserNoClosee.
+		if sigFields.CloserNoClosee.IsNone() {
+			return fmt.Errorf("local output is dust but "+
+				"CloserNoClosee sig missing: %w",
+				ErrCloserNoClosee)
+		}
+	} else {
+		// Local output is not dust, we prefer CloserAndClosee, but can
+		// fall back to NoCloserClosee per spec step 4.
+		if sigFields.CloserAndClosee.IsNone() &&
+			sigFields.NoCloserClosee.IsNone() {
+
+			return fmt.Errorf("local output is not dust "+
+				"but no valid sig field present: %w",
+				ErrCloserAndClosee)
+		}
+	}
+
+	return nil
+}
+
+// selectAndExtractSig selects the appropriate signature field based on BOLT
+// spec priority and extracts the signature and nonce.
+func selectAndExtractSig(
+	fields SigFieldSet, localIsDust bool,
+) (lnwire.Sig, fn.Option[lnwire.Musig2Nonce], bool,
+	error) {
+
+	// Select which field to use based on BOLT spec priority.
+	var (
+		selectedField fn.Option[SigType]
+		isNoClosee    bool
+	)
+
+	if localIsDust {
+		// Spec step 1: Local output is dust, use
+		// CloserNoClosee.
+		selectedField = fields.CloserNoClosee
+		isNoClosee = true
+	} else {
+		// Spec step 3: Prefer CloserAndClosee if present.
+		if fields.CloserAndClosee.IsSome() {
+			selectedField = fields.CloserAndClosee
+			isNoClosee = false
+		} else {
+			// Spec step 4: Fallback to NoCloserClosee.
+			selectedField = fields.NoCloserClosee
+			isNoClosee = false
+		}
+	}
+
+	// If the selected field is none, this is an error.
+	sigType, err := selectedField.UnwrapOrErr(ErrNoSig)
+	if err != nil {
+		return lnwire.Sig{}, fn.None[lnwire.Musig2Nonce](),
+			false, err
+	}
+
+	// Check if this is a taproot signature (Right side of
+	// Either) or regular (Left side).
+	var sig lnwire.Sig
+	nonce := fn.None[lnwire.Musig2Nonce]()
+
+	// If this is a regular signature, extract it directly.
+	sigType.WhenLeft(func(regularSig lnwire.Sig) {
+		sig = regularSig
+	})
+
+	// Otherwise, for taproot, extract the partial sig and
+	// nonce.
+	sigType.WhenRight(func(ps lnwire.PartialSigWithNonce) {
+		nonce = fn.Some(ps.Nonce)
+		sig = partialSigToWireSig(ps.PartialSig)
+	})
+
+	return sig, nonce, isNoClosee, nil
+}
+
+// extractSigAndNonceFromClosingComplete extracts signature and optional
+// nonce from ClosingComplete using a three-phase approach: parse,
+// validate, and select.
+//
+// This function implements the BOLT spec requirements for the receiver (closee)
+// of a closing_complete message.
+func extractSigAndNonceFromClosingComplete(
+	msg lnwire.ClosingComplete,
+	localIsDust, isTaproot bool,
+) (lnwire.Sig, fn.Option[lnwire.Musig2Nonce], bool,
+	error) {
+
+	// First, parse the message to extract which signature fields are
+	// present.
+	fields := parseSigFields(msg)
+
+	// Validate that the signature type matches the channel type. Taproot
+	// channels must have taproot signatures, and non-taproot channels must
+	// have regular signatures.
+	switch {
+	case isTaproot && !fields.IsTaproot() && fields.HasAnySig():
+		return lnwire.Sig{}, fn.None[lnwire.Musig2Nonce](), false,
+			fmt.Errorf("taproot channel requires taproot " +
+				"signatures, got regular signatures")
+
+	case !isTaproot && fields.IsTaproot():
+		return lnwire.Sig{}, fn.None[lnwire.Musig2Nonce](), false,
+			fmt.Errorf("non-taproot channel requires regular " +
+				"signatures, got taproot signatures")
+	}
+
+	// Next, validate that the parsed fields conform to BOLT spec
+	// requirements based on our (closee's) output dust status.
+	if err := validateSigFields(fields, localIsDust); err != nil {
+		return lnwire.Sig{}, fn.None[lnwire.Musig2Nonce](), false, err
+	}
+
+	// Finally, select and extract the appropriate signature
+	// based on BOLT spec priority.
+	sig, nonce, isNoClosee, err := selectAndExtractSig(
+		fields, localIsDust,
+	)
+	if err != nil {
+		return lnwire.Sig{}, fn.None[lnwire.Musig2Nonce](),
+			false, err
+	}
+
+	return sig, nonce, isNoClosee, nil
+}
+
 // ProcessEvent implements the state transition function for the
 // RemoteCloseStart. In this state, we'll wait for the remote party to send a
 // closing_complete message. Assuming they can pay for the fees, we'll sign it
 // ourselves, then transition to the next state of ClosePending.
-func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent,
-	env *Environment) (*CloseStateTransition, error) {
+func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
+) (*CloseStateTransition, error) {
 
 	switch msg := event.(type) { //nolint:gocritic
 	// If we receive a OfferReceived event, we'll make sure they can
@@ -998,35 +1972,14 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent,
 				l.RemoteBalance.ToSatoshis())
 		}
 
-		// With the basic sanity checks out of the way, we'll now
-		// figure out which signature that we'll attempt to sign
-		// against.
-		var (
-			remoteSig input.Signature
-			noClosee  bool
+		// Extract the signature and JIT nonce from the ClosingComplete
+		// message. This function parses, validates, and selects the
+		// appropriate signature per BOLT spec.
+		sig, jitNonce, noClosee, err := extractSigAndNonceFromClosingComplete( //nolint:ll
+			msg.SigMsg, l.LocalAmtIsDust(), env.IsTaproot(),
 		)
-		switch {
-		// If our balance is dust, then we expect the CloserNoClosee
-		// sig to be set.
-		case l.LocalAmtIsDust():
-			if msg.SigMsg.CloserNoClosee.IsNone() {
-				return nil, ErrCloserNoClosee
-			}
-			msg.SigMsg.CloserNoClosee.WhenSomeV(func(s lnwire.Sig) {
-				remoteSig, _ = s.ToSignature()
-				noClosee = true
-			})
-
-		// Otherwise, we'll assume that CloseAndClosee is set.
-		//
-		// TODO(roasbeef): NoCloserClosee, but makes no sense?
-		default:
-			if msg.SigMsg.CloserAndClosee.IsNone() {
-				return nil, ErrCloserAndClosee
-			}
-			msg.SigMsg.CloserAndClosee.WhenSomeV(func(s lnwire.Sig) { //nolint:ll
-				remoteSig, _ = s.ToSignature()
-			})
+		if err != nil {
+			return nil, err
 		}
 
 		chanOpts := []lnwallet.ChanCloseOpt{
@@ -1035,10 +1988,44 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent,
 			lnwallet.WithCustomPayer(lntypes.Remote),
 		}
 
-		chancloserLog.Infof("responding to close w/ local_addr=%x, "+
-			"remote_addr=%x, fee=%v",
+		var remoteSig input.Signature
+
+		// For taproot channels, add MusigSession options if available.
+		// When we're the closee (sending closing_sig), we use
+		// RemoteMusigSession.
+		switch {
+		case env.IsTaproot():
+			// First, process the remote taproot signature which
+			// initializes the remote nonce via InitRemoteNonce().
+			// This must happen before ProposalClosingOpts() which
+			// requires the nonce to be set.
+			remoteSig, err = processRemoteTaprootSig(
+				env, msg.SigMsg, jitNonce, noClosee,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			// Now that the nonce is initialized, get the musig
+			// closing options.
+			session := env.RemoteMusigSession
+			musigOpts, err := session.ProposalClosingOpts()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get musig "+
+					"closing opts: %w", err)
+			}
+			chanOpts = append(chanOpts, musigOpts...)
+		default:
+			remoteSig, err = sig.ToSignature()
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		chancloserLog.Infof("RemoteCloseStart: responding to close w/ "+
+			"local_addr=%x, remote_addr=%x, fee=%v, locktime=%v",
 			l.LocalDeliveryScript[:], l.RemoteDeliveryScript[:],
-			msg.SigMsg.FeeSatoshis)
+			msg.SigMsg.FeeSatoshis, msg.SigMsg.LockTime)
 
 		// Now that we have the remote sig, we'll sign the version they
 		// signed, then attempt to complete the cooperative close
@@ -1046,21 +2033,13 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent,
 		//
 		// TODO(roasbeef): need to be able to omit an output when
 		// signing based on the above, as closing opt
-		rawSig, _, _, err := env.CloseSigner.CreateCloseProposal(
-			msg.SigMsg.FeeSatoshis, l.LocalDeliveryScript,
-			l.RemoteDeliveryScript, chanOpts...,
+		wireSig, localSig, err := createLocalCloseeSignature(
+			env, msg.SigMsg.FeeSatoshis, l.LocalDeliveryScript,
+			l.RemoteDeliveryScript, chanOpts,
 		)
 		if err != nil {
-			return nil, err
-		}
-		wireSig, err := lnwire.NewSigFromSignature(rawSig)
-		if err != nil {
-			return nil, err
-		}
-
-		localSig, err := wireSig.ToSignature()
-		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("RemoteCloseStart: unable "+
+				"to create closee sig: %w", err)
 		}
 
 		// With our signature created, we'll now attempt to finalize the
@@ -1071,7 +2050,8 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent,
 			chanOpts...,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("RemoteCloseStart: unable "+
+				"to complete coop close: %w", err)
 		}
 
 		chancloserLog.Infof("ChannelPoint(%v): received sig (fee=%v "+
@@ -1080,15 +2060,20 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent,
 			lnutils.SpewLogClosure(closeTx),
 		)
 
-		var closingSigs lnwire.ClosingSigs
-		if noClosee {
-			closingSigs.CloserNoClosee = newSigTlv[tlv.TlvType1](
-				wireSig,
-			)
-		} else {
-			closingSigs.CloserAndClosee = newSigTlv[tlv.TlvType3](
-				wireSig,
-			)
+		// Invalidate the closee nonce that was consumed for signing.
+		// This forces createClosingSigMessage to generate a fresh
+		// nonce for NextCloseeNonce in the next RBF round.
+		if env.IsTaproot() {
+			env.RemoteMusigSession.InvalidateNonce()
+		}
+
+		closingSigMsg, err := createClosingSigMessage(
+			env, wireSig, localSig, l.LocalDeliveryScript,
+			l.RemoteDeliveryScript, msg.SigMsg.FeeSatoshis,
+			msg.SigMsg.LockTime, noClosee,
+		)
+		if err != nil {
+			return nil, err
 		}
 
 		// As we're about to broadcast a new version of the co-op close
@@ -1101,19 +2086,9 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent,
 			return nil, err
 		}
 
-		// As we transition, we'll omit two events: one to broadcast
-		// the transaction, and the other to send our ClosingSig
-		// message to the remote party.
 		sendEvent := &protofsm.SendMsgEvent[ProtocolEvent]{
 			TargetPeer: env.ChanPeer,
-			Msgs: []lnwire.Message{&lnwire.ClosingSig{
-				ChannelID:    env.ChanID,
-				CloserScript: l.RemoteDeliveryScript,
-				CloseeScript: l.LocalDeliveryScript,
-				FeeSatoshis:  msg.SigMsg.FeeSatoshis,
-				LockTime:     msg.SigMsg.LockTime,
-				ClosingSigs:  closingSigs,
-			}},
+			Msgs:       []lnwire.Message{closingSigMsg},
 		}
 		broadcastEvent := &protofsm.BroadcastTxn{
 			Tx: closeTx,
@@ -1155,8 +2130,8 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent,
 // ProcessEvent is a semi-terminal state in the rbf-coop close state machine.
 // In this state, we're waiting for either a confirmation, or for either side
 // to attempt to create a new RBF'd co-op close transaction.
-func (c *ClosePending) ProcessEvent(event ProtocolEvent,
-	_ *Environment) (*CloseStateTransition, error) {
+func (c *ClosePending) ProcessEvent(event ProtocolEvent, env *Environment,
+) (*CloseStateTransition, error) {
 
 	switch msg := event.(type) {
 	// If we can a spend while waiting for the close, then we'll go to our
@@ -1204,8 +2179,8 @@ func (c *ClosePending) ProcessEvent(event ProtocolEvent,
 
 // ProcessEvent is the event processing for out terminal state. In this state,
 // we just keep looping back on ourselves.
-func (c *CloseFin) ProcessEvent(_ ProtocolEvent,
-	_ *Environment) (*CloseStateTransition, error) {
+func (c *CloseFin) ProcessEvent(event ProtocolEvent, env *Environment,
+) (*CloseStateTransition, error) {
 
 	return &CloseStateTransition{
 		NextState: c,
@@ -1216,8 +2191,8 @@ func (c *CloseFin) ProcessEvent(_ ProtocolEvent,
 // In this state, we hit a validation error in an earlier state, so we'll remain
 // in this state for the user to examine. We may also process new requests to
 // continue the state machine.
-func (c *CloseErr) ProcessEvent(event ProtocolEvent,
-	_ *Environment) (*CloseStateTransition, error) {
+func (c *CloseErr) ProcessEvent(event ProtocolEvent, env *Environment,
+) (*CloseStateTransition, error) {
 
 	switch msg := event.(type) {
 	// If we get a send offer event in this state, then we're doing a state
@@ -1245,7 +2220,6 @@ func (c *CloseErr) ProcessEvent(event ProtocolEvent,
 				InternalEvent: []ProtocolEvent{msg},
 			}),
 		}, nil
-
 	default:
 		return &CloseStateTransition{
 			NextState: c,

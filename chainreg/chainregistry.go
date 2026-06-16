@@ -2,7 +2,6 @@ package chainreg
 
 import (
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -452,18 +451,9 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 				return nil, nil, err
 			}
 
-			// Fetch all active zmq notifications from the bitcoind client.
-			resp, err := chainConn.RawRequest("getzmqnotifications", nil)
+			// Fetch all active ZMQ notifications from bitcoind.
+			zmq, err := chainConn.GetZmqNotifications()
 			if err != nil {
-				return nil, nil, err
-			}
-
-			zmq := []struct {
-				Type    string `json:"type"`
-				Address string `json:"address"`
-			}{}
-
-			if err = json.Unmarshal([]byte(resp), &zmq); err != nil {
 				return nil, nil, err
 			}
 
@@ -472,30 +462,34 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 
 			for i := range zmq {
 				if zmq[i].Type == "pubrawblock" {
-					url, err := url.Parse(zmq[i].Address)
-					if err != nil {
-						return nil, nil, err
-					}
-					if url.Port() != zmqPubRawBlockURL.Port() {
-						log.Warnf("zmq block event port mismatch: "+
-							"lnd is configured for %s but "+
-							"bitcoind reports %s -- ensure the "+
-							"ports match or are forwarded correctly",
-							zmqPubRawBlockURL.Host, url.Host)
+					if zmq[i].Address.Port() !=
+						zmqPubRawBlockURL.Port() {
+
+						log.Warnf("zmq block event "+
+							"port mismatch: lnd "+
+							"is configured for %s "+
+							"but bitcoind reports "+
+							"%s -- ensure the "+
+							"ports match or are "+
+							"forwarded correctly",
+							zmqPubRawBlockURL.Host,
+							zmq[i].Address.Host)
 					}
 					pubRawBlockActive = true
 				}
 				if zmq[i].Type == "pubrawtx" {
-					url, err := url.Parse(zmq[i].Address)
-					if err != nil {
-						return nil, nil, err
-					}
-					if url.Port() != zmqPubRawTxURL.Port() {
-						log.Warnf("zmq tx event port mismatch: "+
-							"lnd is configured for %s but "+
-							"bitcoind reports %s -- ensure the "+
-							"ports match or are forwarded correctly",
-							zmqPubRawTxURL.Host, url.Host)
+					if zmq[i].Address.Port() !=
+						zmqPubRawTxURL.Port() {
+
+						log.Warnf("zmq tx event port "+
+							"mismatch: lnd is "+
+							"configured for %s but "+
+							"bitcoind reports %s "+
+							"-- ensure the ports "+
+							"match or are "+
+							"forwarded correctly",
+							zmqPubRawTxURL.Host,
+							zmq[i].Address.Host)
 					}
 					pubRawTxActive = true
 				}
@@ -533,7 +527,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			// Make sure the bitcoind chain backend maintains a
 			// healthy connection to the network by checking the
 			// number of outbound peers.
-			return checkOutboundPeers(chainConn)
+			return checkOutboundPeersBitcoind(chainConn)
 		}
 
 	case "btcd":
@@ -800,16 +794,8 @@ func NewChainControl(walletConfig lnwallet.Config,
 // getblockchaininfo.
 func getBitcoindHealthCheckCmd(client *rpcclient.Client) (string, int64, error) {
 	// Query bitcoind to get our current version.
-	resp, err := client.RawRequest("getnetworkinfo", nil)
+	info, err := client.GetNetworkInfo()
 	if err != nil {
-		return "", 0, err
-	}
-
-	// Parse the response to retrieve bitcoind's version.
-	info := struct {
-		Version int64 `json:"version"`
-	}{}
-	if err := json.Unmarshal(resp, &info); err != nil {
 		return "", 0, err
 	}
 
@@ -820,10 +806,10 @@ func getBitcoindHealthCheckCmd(client *rpcclient.Client) (string, int64, error) 
 	// The uptime call was added in version 0.15.0, so we return it for
 	// any version value >= 150000, as per the above calculation.
 	if info.Version >= 150000 {
-		return "uptime", info.Version, nil
+		return "uptime", int64(info.Version), nil
 	}
 
-	return "getblockchaininfo", info.Version, nil
+	return "getblockchaininfo", int64(info.Version), nil
 }
 
 var (
@@ -907,6 +893,24 @@ var (
 	}
 )
 
+// checkOutboundPeersBitcoind checks the number of outbound peers connected to
+// a bitcoind backend. If the number of outbound peers is below 6, a warning is
+// logged. This function is intended to ensure that the chain backend maintains
+// a healthy connection to the network.
+//
+// This helper is bitcoind-specific because btcd does not currently implement
+// getnetworkinfo.
+func checkOutboundPeersBitcoind(client *rpcclient.Client) error {
+	info, err := client.GetNetworkInfo()
+	if err != nil {
+		return err
+	}
+
+	logOutboundPeerCount(int(info.ConnectionsOut))
+
+	return nil
+}
+
 // checkOutboundPeers checks the number of outbound peers connected to the
 // provided RPC client. If the number of outbound peers is below 6, a warning
 // is logged. This function is intended to ensure that the chain backend
@@ -924,6 +928,14 @@ func checkOutboundPeers(client *rpcclient.Client) error {
 		}
 	}
 
+	logOutboundPeerCount(outboundPeers)
+
+	return nil
+}
+
+// logOutboundPeerCount logs a warning when the number of outbound peers is
+// below the minimum threshold.
+func logOutboundPeerCount(outboundPeers int) {
 	if outboundPeers < DefaultMinOutboundPeers {
 		log.Warnf("The chain backend has an insufficient number "+
 			"of connected outbound peers (%d connected, expected "+
@@ -931,6 +943,4 @@ func checkOutboundPeers(client *rpcclient.Client) error {
 			"Connect to more trusted nodes manually if necessary.",
 			outboundPeers, DefaultMinOutboundPeers)
 	}
-
-	return nil
 }

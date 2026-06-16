@@ -91,7 +91,6 @@ func TestPrefAttachmentSelectEmptyGraph(t *testing.T) {
 	}
 
 	for _, chanGraph := range chanGraphs {
-		chanGraph := chanGraph
 		graph, err := chanGraph.genFunc(t)
 		require.NoError(t, err, "unable to create graph")
 
@@ -128,7 +127,6 @@ func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 	)
 
 	for _, chanGraph := range chanGraphs {
-		chanGraph := chanGraph
 		graph, err := chanGraph.genFunc(t)
 		require.NoError(t, err, "unable to create graph")
 
@@ -215,7 +213,6 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 	)
 
 	for _, chanGraph := range chanGraphs {
-		chanGraph := chanGraph
 		graph, err := chanGraph.genFunc(t)
 		require.NoError(t, err, "unable to create graph")
 
@@ -246,11 +243,11 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			twoChans := false
 			nodes := make(map[NodeID]struct{})
 			err = graph.ForEachNodesChannels(
-				ctx, func(_ context.Context, node Node,
+				ctx, func(_ context.Context, node NodeID,
 					edges []*ChannelEdge) error {
 
 					numNodes++
-					nodes[node.PubKey()] = struct{}{}
+					nodes[node] = struct{}{}
 					numChans := 0
 
 					for range edges {
@@ -328,7 +325,6 @@ func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 	)
 
 	for _, chanGraph := range chanGraphs {
-		chanGraph := chanGraph
 		graph, err := chanGraph.genFunc(t)
 		require.NoError(t, err, "unable to create graph")
 
@@ -619,14 +615,15 @@ func (m *memChannelGraph) ForEachNode(ctx context.Context,
 	return nil
 }
 
-// ForEachNodesChannels iterates through all connected nodes, and for each node,
-// all the channels that connect to it. The passed callback will be called with
-// the context, the Node itself, and a slice of ChannelEdge that connect to the
-// node.
+// ForEachNodesChannels iterates through all connected nodes, and for each
+// node, all the channels that connect to it. The passed callback will be
+// called with the context, the node's pubkey, and a slice of ChannelEdge
+// that connect to the node.
 //
 // NOTE: Part of the autopilot.ChannelGraph interface.
 func (m *memChannelGraph) ForEachNodesChannels(ctx context.Context,
-	cb func(context.Context, Node, []*ChannelEdge) error, _ func()) error {
+	cb func(context.Context, NodeID, []*ChannelEdge) error,
+	_ func()) error {
 
 	for _, node := range m.graph {
 		edges := make([]*ChannelEdge, 0, len(node.chans))
@@ -634,7 +631,7 @@ func (m *memChannelGraph) ForEachNodesChannels(ctx context.Context,
 			edges = append(edges, &node.chans[i])
 		}
 
-		if err := cb(ctx, node, edges); err != nil {
+		if err := cb(ctx, NewNodeID(node.pub), edges); err != nil {
 			return err
 		}
 	}

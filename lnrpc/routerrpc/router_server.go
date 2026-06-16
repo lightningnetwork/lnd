@@ -96,10 +96,6 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
-		"/routerrpc.Router/SendToRoute": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
 		"/routerrpc.Router/TrackPaymentV2": {{
 			Entity: "offchain",
 			Action: "read",
@@ -144,14 +140,6 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
-		"/routerrpc.Router/SendPayment": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
-		"/routerrpc.Router/TrackPayment": {{
-			Entity: "offchain",
-			Action: "read",
-		}},
 		"/routerrpc.Router/HtlcInterceptor": {{
 			Entity: "offchain",
 			Action: "write",
@@ -165,6 +153,10 @@ var (
 			Action: "write",
 		}},
 		"/routerrpc.Router/XDeleteLocalChanAliases": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/routerrpc.Router/DeleteForwardingHistory": {{
 			Entity: "offchain",
 			Action: "write",
 		}},
@@ -444,12 +436,15 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 			return nil, errors.New("amount must be greater than 0")
 
 		default:
-			return s.probeDestination(req.Dest, req.AmtSat)
+			return s.probeDestination(
+				req.Dest, req.AmtSat, req.OutgoingChanIds,
+			)
 		}
 
 	case isProbeInvoice:
 		return s.probePaymentRequest(
 			ctx, req.PaymentRequest, req.Timeout,
+			req.OutgoingChanIds,
 		)
 	}
 
@@ -458,8 +453,8 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 
 // probeDestination estimates fees along a route to a destination based on the
 // contents of the local graph.
-func (s *Server) probeDestination(dest []byte, amtSat int64) (*RouteFeeResponse,
-	error) {
+func (s *Server) probeDestination(dest []byte, amtSat int64,
+	outgoingChanIDs []uint64) (*RouteFeeResponse, error) {
 
 	destNode, err := route.NewVertexFromBytes(dest)
 	if err != nil {
@@ -474,14 +469,16 @@ func (s *Server) probeDestination(dest []byte, amtSat int64) (*RouteFeeResponse,
 	// that target amount, we'll only request a single route. Set a
 	// restriction for the default CLTV limit, otherwise we can find a route
 	// that exceeds it and is useless to us.
-	mc := s.cfg.RouterBackend.MissionControl
+	backend := s.cfg.RouterBackend
+	mc := backend.MissionControl
 	routeReq, err := routing.NewRouteRequest(
-		s.cfg.RouterBackend.SelfNode, &destNode, amtMsat, 0,
+		backend.SelfNode, &destNode, amtMsat, 0,
 		&routing.RestrictParams{
-			FeeLimit:          routeFeeLimitSat,
-			CltvLimit:         s.cfg.RouterBackend.MaxTotalTimelock,
-			ProbabilitySource: mc.GetProbability,
-		}, nil, nil, nil, s.cfg.RouterBackend.DefaultFinalCltvDelta,
+			FeeLimit:           routeFeeLimitSat,
+			CltvLimit:          backend.MaxTotalTimelock,
+			ProbabilitySource:  mc.GetProbability,
+			OutgoingChannelIDs: outgoingChanIDs,
+		}, nil, nil, nil, backend.DefaultFinalCltvDelta,
 	)
 	if err != nil {
 		return nil, err
@@ -518,7 +515,27 @@ func (s *Server) probeDestination(dest []byte, amtSat int64) (*RouteFeeResponse,
 // identify LSPs, the probe payment might use a different node id as the
 // final destination (the assumed LSP node id).
 func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
-	timeout uint32) (*RouteFeeResponse, error) {
+	timeout uint32, outgoingChanIDs []uint64) (*RouteFeeResponse, error) {
+
+	return s.probePaymentRequestWithSender(
+		ctx, paymentRequest, timeout, outgoingChanIDs,
+		s.sendProbePayment,
+	)
+}
+
+// probePaymentSender dispatches a probe payment request and returns the
+// resulting fee estimate. It exists as a test seam so tests can inject a stub
+// sender and inspect generated probe requests without running the payment
+// lifecycle.
+type probePaymentSender func(context.Context,
+	*SendPaymentRequest) (*RouteFeeResponse, error)
+
+// probePaymentRequestWithSender contains the implementation of
+// probePaymentRequest. The sender is injected so tests can inspect generated
+// probe requests without invoking the full payment lifecycle.
+func (s *Server) probePaymentRequestWithSender(ctx context.Context,
+	paymentRequest string, timeout uint32, outgoingChanIDs []uint64,
+	sendProbePayment probePaymentSender) (*RouteFeeResponse, error) {
 
 	payReq, err := zpay32.Decode(
 		paymentRequest, s.cfg.RouterBackend.ActiveNetParams,
@@ -552,6 +569,7 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 		FeeLimitSat:      routeFeeLimitSat,
 		FinalCltvDelta:   int32(payReq.MinFinalCLTVExpiry()),
 		DestFeatures:     MarshalFeatures(payReq.Features),
+		OutgoingChanIds:  outgoingChanIDs,
 	}
 
 	// If the payment addresses is specified, then we'll also populate that
@@ -572,7 +590,8 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 			probeRequest.Dest)
 
 		probeRequest.RouteHints = invoicesrpc.CreateRPCRouteHints(hints)
-		return s.sendProbePayment(ctx, probeRequest)
+
+		return sendProbePayment(ctx, probeRequest)
 	}
 
 	// If the heuristic indicates an LSP, we filter and group route hints by
@@ -608,6 +627,16 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 
 		lspHint := group.LspHopHint
 
+		// Each LSP probe must use a unique payment hash, otherwise the
+		// payment lifecycle will treat later probes as attempts on the
+		// first probe's payment and reuse its payment-level parameters.
+		var lspPaymentHash lntypes.Hash
+		_, err := crand.Read(lspPaymentHash[:])
+		if err != nil {
+			return nil, fmt.Errorf("cannot generate random probe "+
+				"preimage: %w", err)
+		}
+
 		log.Infof("Probing LSP with destination: %v", lspKey)
 
 		// Create a new probe request for this LSP.
@@ -617,10 +646,11 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 			MaxParts:         probeRequest.MaxParts,
 			AllowSelfPayment: probeRequest.AllowSelfPayment,
 			AmtMsat:          amtMsat,
-			PaymentHash:      probeRequest.PaymentHash,
+			PaymentHash:      lspPaymentHash[:],
 			FeeLimitSat:      probeRequest.FeeLimitSat,
 			FinalCltvDelta:   int32(lspHint.CLTVExpiryDelta),
 			DestFeatures:     probeRequest.DestFeatures,
+			OutgoingChanIds:  probeRequest.OutgoingChanIds,
 		}
 
 		// Copy the payment address if present.
@@ -648,7 +678,7 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 		lspProbeRequest.AmtMsat += int64(hopFee)
 
 		// Dispatch the payment probe for this LSP.
-		resp, err := s.sendProbePayment(ctx, lspProbeRequest)
+		resp, err := sendProbePayment(ctx, lspProbeRequest)
 		if err != nil {
 			log.Warnf("Failed to probe LSP %v: %v", lspKey, err)
 			continue
@@ -1971,4 +2001,91 @@ func (s *Server) UpdateChanStatus(_ context.Context,
 		return nil, err
 	}
 	return &UpdateChanStatusResponse{}, nil
+}
+
+// DeleteForwardingHistory deletes forwarding history events with a timestamp
+// at or before a specified time. This method is useful for implementing data
+// retention policies for privacy purposes.
+func (s *Server) DeleteForwardingHistory(ctx context.Context,
+	req *DeleteForwardingHistoryRequest) (*DeleteForwardingHistoryResponse,
+	error) {
+
+	now := s.cfg.RouterBackend.Clock.Now()
+
+	// Determine the deletion cutoff time from the request.
+	var deleteBeforeTime time.Time
+	switch timeSpec := req.TimeSpec.(type) {
+	case *DeleteForwardingHistoryRequest_DeleteBeforeTime:
+		deleteBeforeTime = time.Unix(
+			int64(timeSpec.DeleteBeforeTime), 0,
+		)
+
+	case *DeleteForwardingHistoryRequest_DeleteBeforeDuration:
+		// Parse duration using hybrid approach: try standard library
+		// first, fall back to custom units (d, w, M, y) if needed.
+		duration, err := parseDuration(timeSpec.DeleteBeforeDuration)
+		if err != nil {
+			return nil, fmt.Errorf("invalid duration format: %w",
+				err)
+		}
+
+		// Calculate the absolute time by adding the (negative)
+		// duration to now.
+		deleteBeforeTime = now.Add(duration)
+
+	default:
+		return nil, fmt.Errorf("time specification required: either " +
+			"delete_before_time or delete_before_duration must " +
+			"be provided")
+	}
+
+	// Guard against pre-epoch timestamps. A very large negative duration
+	// (e.g. -100y) would push deleteBeforeTime before the Unix epoch,
+	// causing uint64(endTime.UnixNano()) in the DB layer to wrap to a
+	// near-max value and delete the entire bucket.
+	if deleteBeforeTime.Before(time.Unix(0, 0)) {
+		return nil, fmt.Errorf("delete_before_time must not be " +
+			"before the Unix epoch")
+	}
+
+	// Require the cutoff to be at least minAge in the past to prevent
+	// accidental deletion of recent data. The default is 1 hour;
+	// integration tests may lower this via the dev config flag.
+	minAge := s.cfg.RouterBackend.MinForwardingHistoryAge
+	if minAge == 0 {
+		minAge = time.Hour
+	}
+	if now.Sub(deleteBeforeTime) < minAge {
+		return nil, fmt.Errorf("delete_before_time must be at "+
+			"least %v in the past to prevent accidental deletion "+
+			"of recent data (requested: %v, now: %v)",
+			minAge, deleteBeforeTime, now)
+	}
+
+	batchSize := s.cfg.RouterBackend.FwdHistoryDeleteBatchSize
+
+	log.Infof("DeleteForwardingHistory: deleting events at or before %v "+
+		"with batch size %d", deleteBeforeTime, batchSize)
+
+	// Call the database deletion method, threading the request context
+	// through so the operation can be aborted between batches if the
+	// caller disconnects or times out. A batch size of 0 is fine — the
+	// DB layer applies the default.
+	stats, err := s.cfg.RouterBackend.ForwardingLog.DeleteForwardingEvents(
+		ctx, deleteBeforeTime, batchSize,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete forwarding events: %w",
+			err)
+	}
+
+	log.Infof("DeleteForwardingHistory: deleted %d events, total fees: "+
+		"%d msat", stats.NumEventsDeleted, stats.TotalFeeMsat)
+
+	return &DeleteForwardingHistoryResponse{
+		EventsDeleted: stats.NumEventsDeleted,
+		TotalFeeMsat:  stats.TotalFeeMsat,
+		Status: fmt.Sprintf("Successfully deleted %d forwarding events",
+			stats.NumEventsDeleted),
+	}, nil
 }

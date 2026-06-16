@@ -2,6 +2,7 @@ package actor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -10,6 +11,10 @@ import (
 // ErrActorTerminated indicates that an operation failed because the target
 // actor was terminated or in the process of shutting down.
 var ErrActorTerminated = fmt.Errorf("actor terminated")
+
+// ErrMessageDropped indicates that a message was dropped by the mailbox's
+// backpressure mechanism (e.g., RED-style load shedding).
+var ErrMessageDropped = errors.New("message dropped by backpressure")
 
 // ErrEmptyActorID is returned when an actor is created with an empty ID.
 var ErrEmptyActorID = fmt.Errorf("actor ID must not be empty")

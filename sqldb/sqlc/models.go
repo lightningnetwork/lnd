@@ -28,6 +28,11 @@ type AmpSubInvoiceHtlc struct {
 	Preimage   []byte
 }
 
+type ChainParam struct {
+	SingleRow bool
+	Network   string
+}
+
 type GraphChannel struct {
 	ID                int64
 	Version           int16

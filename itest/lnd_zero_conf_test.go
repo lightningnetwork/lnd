@@ -281,7 +281,6 @@ func testOptionScidAlias(ht *lntest.HarnessTest) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 		success := ht.Run(testCase.name, func(t *testing.T) {
 			st := ht.Subtest(t)
 			optionScidAliasScenario(

@@ -4,17 +4,20 @@
 package lntest
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/port"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 )
 
 // logDirPattern is the pattern of the name of the temporary log directory.
@@ -67,12 +70,43 @@ func (b BitcoindBackendConfig) GenArgs() []string {
 
 // ConnectMiner is called to establish a connection to the test miner.
 func (b BitcoindBackendConfig) ConnectMiner() error {
-	return b.rpcClient.AddNode(b.minerAddr, rpcclient.ANAdd)
+	err := b.rpcClient.AddNode(b.minerAddr, rpcclient.ANOneTry)
+	if err != nil {
+		return err
+	}
+
+	return wait.NoError(func() error {
+		peerInfo, err := b.rpcClient.GetPeerInfo()
+		if err != nil {
+			return err
+		}
+
+		for _, peer := range peerInfo {
+			if strings.HasPrefix(peer.Addr, b.minerAddr) {
+				return nil
+			}
+		}
+
+		return fmt.Errorf("peer %s not connected", b.minerAddr)
+	}, wait.DefaultTimeout)
 }
 
 // DisconnectMiner is called to disconnect the miner.
 func (b BitcoindBackendConfig) DisconnectMiner() error {
-	return b.rpcClient.AddNode(b.minerAddr, rpcclient.ANRemove)
+	// `addnode remove` removes from the addnode list, but doesn't reliably
+	// disconnect an existing connection. Use `disconnectnode` first.
+	_, err := b.rpcClient.RawRequest(
+		"disconnectnode",
+		[]json.RawMessage{
+			[]byte(fmt.Sprintf("%q", b.minerAddr)),
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	_ = b.rpcClient.AddNode(b.minerAddr, rpcclient.ANRemove)
+	return nil
 }
 
 // Credentials returns the rpc username, password and host for the backend.
@@ -124,7 +158,8 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 
 	cmdArgs := []string{
 		"-datadir=" + tempBitcoindDir,
-		"-whitelist=127.0.0.1", // whitelist localhost to speed up relay
+		// Whitelist localhost to speed up relay.
+		"-whitelist=127.0.0.1",
 		"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6f" +
 			"d$507c670e800a95284294edb5773b05544b" +
 			"220110063096c221be9933c82d38e1",
@@ -138,6 +173,22 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 		"-debuglogfile=" + logFile,
 		"-blockfilterindex",
 		"-peerblockfilters",
+		// Disable v2 transport since the miner is btcd, which
+		// doesn't support v2 yet. Without this, bitcoind
+		// attempts a v2 handshake that hangs for 30s before
+		// falling back to v1, causing test flakes whenever a
+		// test reconnects to the miner under a timeout.
+		//
+		// TODO: Remove once btcd supports v2 P2P transport.
+		"-v2transport=0",
+		// Pin the pre-v30 mempool policy defaults (1 sat/vB)
+		// so the itest suite keeps exercising the fee math it
+		// was written against. v30 lowered minrelaytxfee and
+		// incrementalrelayfee to 100 sat/kvB, which breaks
+		// integer sat/vByte assertions and alters RBF bump
+		// thresholds across the sweeper/bumpfee tests.
+		"-minrelaytxfee=0.00001",
+		"-incrementalrelayfee=0.00001",
 	}
 	cmdArgs = append(cmdArgs, extraArgs...)
 	bitcoind := exec.Command("bitcoind", cmdArgs...)

@@ -33,39 +33,25 @@ var (
 	node2 = route.Vertex{11}
 )
 
-var (
-	singleChanID = "singleChanID"
-	multiChanID  = "multiChanID"
-	bothChanIds  = "bothChanIds"
-)
-
 // TestQueryRoutes asserts that query routes rpc parameters are properly parsed
 // and passed onto path finding.
 func TestQueryRoutes(t *testing.T) {
 	t.Run("no mission control", func(t *testing.T) {
-		testQueryRoutes(t, false, false, true, singleChanID)
+		testQueryRoutes(t, false, false, true)
 	})
 	t.Run("no mission control and msat", func(t *testing.T) {
-		testQueryRoutes(t, false, true, true, singleChanID)
+		testQueryRoutes(t, false, true, true)
 	})
 	t.Run("with mission control", func(t *testing.T) {
-		testQueryRoutes(t, true, false, true, singleChanID)
+		testQueryRoutes(t, true, false, true)
 	})
 	t.Run("no mission control bad cltv limit", func(t *testing.T) {
-		testQueryRoutes(t, false, false, false, singleChanID)
-	})
-
-	t.Run("both outgoing chan id and chan ids", func(t *testing.T) {
-		testQueryRoutes(t, true, false, true, bothChanIds)
-	})
-
-	t.Run("multiple outgoing chan ids", func(t *testing.T) {
-		testQueryRoutes(t, false, true, true, multiChanID)
+		testQueryRoutes(t, false, false, false)
 	})
 }
 
 func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
-	setTimelock bool, outgoingChanConfig string) {
+	setTimelock bool) {
 
 	ignoreNodeBytes, err := hex.DecodeString(ignoreNodeKey)
 	if err != nil {
@@ -82,7 +68,6 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 
 	var (
 		lastHop         = route.Vertex{64}
-		outgoingChan    = uint64(383322)
 		outgoingChanIds = []uint64{383322, 383323}
 	)
 
@@ -137,17 +122,7 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 		}
 	}
 
-	switch outgoingChanConfig {
-	case singleChanID:
-		request.OutgoingChanId = outgoingChan
-
-	case multiChanID:
-		request.OutgoingChanIds = outgoingChanIds
-
-	case bothChanIds:
-		request.OutgoingChanId = outgoingChan
-		request.OutgoingChanIds = outgoingChanIds
-	}
+	request.OutgoingChanIds = outgoingChanIds
 
 	findRoute := func(req *routing.RouteRequest) (*route.Route, float64,
 		error) {
@@ -190,19 +165,9 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 			t.Fatal("unexpected last hop")
 		}
 
-		switch outgoingChanConfig {
-		case singleChanID:
-			require.Equal(
-				t, restrictions.OutgoingChannelIDs,
-				[]uint64{outgoingChan},
-			)
-
-		case multiChanID:
-			require.Equal(
-				t, restrictions.OutgoingChannelIDs,
-				outgoingChanIds,
-			)
-		}
+		require.Equal(
+			t, restrictions.OutgoingChannelIDs, outgoingChanIds,
+		)
 
 		if !restrictions.DestFeatures.HasFeature(lnwire.MPPOptional) {
 			t.Fatal("unexpected dest features")
@@ -264,13 +229,6 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 	}
 
 	resp, err := backend.QueryRoutes(t.Context(), request)
-
-	// If we're using both OutgoingChanId and OutgoingChanIds, we should get
-	// an error.
-	if outgoingChanConfig == bothChanIds {
-		require.Error(t, err)
-		return
-	}
 
 	// If no MaxTotalTimelock was set for the QueryRoutes request, make
 	// sure an error was returned.
@@ -379,7 +337,6 @@ func TestUnmarshalMPP(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			testUnmarshalMPP(t, test)
 		})
@@ -489,7 +446,6 @@ func TestUnmarshalAMP(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			testUnmarshalAMP(t, test)
 		})
@@ -572,17 +528,6 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 			},
 			valid:            false,
 			expectedErrorMsg: "time preference out of range",
-		},
-		{
-			name:    "Outgoing channel exclusivity violation",
-			backend: &RouterBackend{},
-			sendReq: &SendPaymentRequest{
-				OutgoingChanId:  38484,
-				OutgoingChanIds: []uint64{383322},
-			},
-			valid: false,
-			expectedErrorMsg: "outgoing_chan_id and " +
-				"outgoing_chan_ids are mutually exclusive",
 		},
 		{
 			name:    "Invalid last hop pubkey length",
@@ -936,4 +881,56 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMarshallRouteChanCapacity verifies that MarshallRoute correctly sets the
+// ChanCapacity for each hop based on the incoming amount at that hop, not
+// the total route amount. This is a regression test to ensure the
+// incomingAmt is updated per hop.
+func TestMarshallRouteChanCapacity(t *testing.T) {
+	t.Parallel()
+
+	// Build a two-hop route: source -> hop1 -> hop2 -> dest.
+	//
+	// TotalAmount (incoming to hop1) = 1000 msat
+	// hop1.AmtToForward (incoming to hop2) = 900 msat (after fee)
+	const (
+		totalAmtMsat = lnwire.MilliSatoshi(1000)
+		hop1Forward  = lnwire.MilliSatoshi(900)
+		hop2Forward  = lnwire.MilliSatoshi(900)
+	)
+
+	hops := []*route.Hop{
+		{
+			ChannelID:    1,
+			AmtToForward: hop1Forward,
+			PubKeyBytes:  node1,
+		},
+		{
+			ChannelID:    2,
+			AmtToForward: hop2Forward,
+			PubKeyBytes:  node2,
+		},
+	}
+
+	r, err := route.NewRouteFromHops(totalAmtMsat, 100, sourceKey, hops)
+	require.NoError(t, err)
+
+	backend := &RouterBackend{}
+	rpcRoute, err := backend.MarshallRoute(r)
+	require.NoError(t, err)
+	require.Len(t, rpcRoute.Hops, 2)
+
+	// The first hop's capacity should reflect the total incoming amount
+	// (route.TotalAmount), converted to satoshis.
+	require.EqualValues(
+		t, totalAmtMsat.ToSatoshis(), rpcRoute.Hops[0].ChanCapacity,
+	)
+
+	// The second hop's capacity should reflect hop1's forwarded amount, not
+	// the total route amount. Before the fix, both hops incorrectly used
+	// the total route amount.
+	require.EqualValues(
+		t, hop1Forward.ToSatoshis(), rpcRoute.Hops[1].ChanCapacity,
+	)
 }

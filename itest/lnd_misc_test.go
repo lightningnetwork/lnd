@@ -1580,7 +1580,7 @@ func testReorgNotifications(ht *lntest.HarnessTest) {
 
 	// Reorg block1.
 	blockHash1 := block1.Header.BlockHash()
-	require.NoError(ht, ht.Miner().Client.InvalidateBlock(&blockHash1))
+	require.NoError(ht, ht.Miner().InvalidateBlock(&blockHash1))
 
 	// Mine empty blocks to evict block1 in bitcoin backend (e.g. bitcoind).
 	ht.Miner().MineEmptyBlocks(2)

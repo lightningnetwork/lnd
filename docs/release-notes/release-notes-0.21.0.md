@@ -16,10 +16,22 @@
     - [Testing](#testing)
     - [Database](#database)
     - [Code Health](#code-health)
+    - [Robustness](#robustness)
     - [Tooling and Documentation](#tooling-and-documentation)
-- [Contributors (Alphabetical Order)](#contributors)
+- [Contributors (Alphabetical Order)](#contributors-alphabetical-order)
 
 # Bug Fixes
+
+* The [remote-signer PSBT prep](https://github.com/lightningnetwork/lnd/pull/10815)
+  now accepts zero-value entries from a sign descriptor's
+  `PrevOutputFetcher` when populating `WitnessUtxo` on non-signed
+  inputs. This unblocks signing flows that reference virtual prev
+  outputs whose value is mandated to be zero, most notably BIP-322's
+  `to_spend` output (the prev of input 0 of every BIP-322 `to_sign`
+  transaction). Previously the prep stage silently skipped such
+  inputs and the resulting PSBT was rejected downstream by
+  `walletkit.SignPsbt` with `input (index=N) doesn't specify any
+  UTXO info`.
 
 * [Fixed `OpenChannel` with
   `fund_max`](https://github.com/lightningnetwork/lnd/pull/10488) to use the
@@ -31,19 +43,6 @@
   status](https://github.com/lightningnetwork/lnd/pull/10352) while the
   sub-server is still starting. This allows clients to reliably detect the
   transient condition and retry without brittle string matching.
-
-- [Fixed an issue](https://github.com/lightningnetwork/lnd/pull/10399) where the
-  TLS manager would fail to start if only one of the TLS pair files (certificate
-  or key) existed. The manager now correctly regenerates both files when either
-  is missing, preventing "file not found" errors on startup.
-
-- [Fixed race conditions](https://github.com/lightningnetwork/lnd/pull/10420) in
-  the channel graph database. The `Node.PubKey()` and
-  `ChannelEdgeInfo.NodeKey1/NodeKey2()` methods had check-then-act races when
-  caching parsed public keys. Additionally, `DisconnectBlockAtHeight` was
-  accessing the reject and channel caches without proper locking. The caching
-  has been removed from the public key parsing methods, and proper mutex
-  protection has been added to the cache access in `DisconnectBlockAtHeight`.
 
 - [Fixed TLV decoders to reject malformed records with incorrect lengths](https://github.com/lightningnetwork/lnd/pull/10249).
   TLV decoders now strictly enforce fixed-length requirements for Fee (8 bytes),
@@ -63,17 +62,56 @@
   millisecond if set to zero or a negative value, preventing `time.NewTicker`
   from panicking.
 
-- [Fixed a shutdown
-  deadlock](https://github.com/lightningnetwork/lnd/pull/10540) in the gossiper.
-  Certain gossip messages could cause multiple error messages to be sent on a
-  channel that was only expected to be used for a single message. The erring
-  goroutine would block on the second send, leading to a deadlock at shutdown.
-
 * [Fixed `lncli unlock` to wait until the wallet is ready to be
   unlocked](https://github.com/lightningnetwork/lnd/pull/10536)
   before sending the unlock request. The command now reports wallet state
   transitions during startup, avoiding lost unlocks during slow database
   initialization.
+
+* [Fixed handling of BOLT 1 pings requesting 65532 or more pong
+  bytes](https://github.com/lightningnetwork/lnd/pull/10674). LND now ignores
+  these valid no-reply pings instead of disconnecting peers, restoring
+  compatibility with implementations that pad `channel_reestablish` messages
+  with them.
+ 
+* [Fixed `FundingPKScript` to honor the taproot feature bit on v1 channel
+  edges](https://github.com/lightningnetwork/lnd/pull/10672). Private taproot
+  channels stored as v1 gossip objects with the taproot staging feature bit
+  were having their funding scripts incorrectly reconstructed as legacy P2WSH
+  multisig. This affected read paths such as `ChannelView`, which rebuilds
+  the chain watch filter on restart. This was a pre-existing bug since
+  private taproot channels were first introduced.
+
+* [Fixed a shutdown race in the 
+  channel link](https://github.com/lightningnetwork/lnd/pull/10719)
+  that could deadlock the invoice registry during concurrent peer disconnect.
+  The link now waits for `htlcManager` to fully exit before tearing down hodl
+  subscriptions and the hodl queue, preventing orphaned subscriptions from
+  blocking invoice resolution.
+
+* [Fixed two follow-ups to the production taproot channels
+  work](https://github.com/lightningnetwork/lnd/pull/10763). The RPC channel
+  acceptor switch now maps `SIMPLE_TAPROOT_FINAL` (with every combination of
+  the `scid-alias` / `zero-conf` modifiers) so final-taproot opens are
+  reported to external acceptor clients with the correct commitment type
+  instead of `UNKNOWN_COMMITMENT_TYPE`. The taproot RBF cooperative-close
+  auto-enable is also narrowed to skip taproot-overlay channels, since the
+  RBF close state machine does not yet thread through the `AuxCloser` hook
+  that overlay channels rely on to build aux-aware close transactions.
+
+* [Fixed `EstimateRouteFee`](https://github.com/lightningnetwork/lnd/pull/10771)
+  to use independent probe payment hashes when probing multiple LSPs, preventing
+  later probes from reusing the first probe's CLTV delta.
+
+* [Restored insta-dispatch of `CLOSED_CHANNEL` on the first confirmation of a
+  cooperative close](https://github.com/lightningnetwork/lnd/pull/10794).
+  After the multi-conf reorg-aware close dispatch landed,
+  `SubscribeChannelEvents` no longer emitted `CLOSED_CHANNEL` until the full
+  required confirmation depth was reached. The chain watcher now fires an
+  early `CLOSED_CHANNEL` event over the channel notifier as soon as the coop
+  close spend lands on chain, restoring the v0.20.1 behavior, while the
+  channel arbitrator suppresses the duplicate event that would otherwise be
+  emitted from `MarkChannelClosed` at the final confirmation depth.
 
 # New Features
 
@@ -84,8 +122,100 @@
   for peer-to-peer communication.
 
 ## Functional Enhancements
+* Added [pathfinding support](https://github.com/lightningnetwork/lnd/pull/10612)
+  for routing onion messages. The router can now find paths through the channel 
+  graph specifically filtered for nodes that advertise support for onion
+  messaging (feature bit 38/39).
+
+* [Added fast initial sync for `neutrino`-backed nodes via header
+  import](https://github.com/lightningnetwork/lnd/pull/10552). On first startup,
+  the neutrino backend can now bootstrap its block and filter header chains
+  from a local file or HTTP(S) URL instead of fetching them over P2P,
+  dramatically reducing the time-to-sync on fresh installs (minutes instead of
+  hours on mainnet). After the import completes, the node transitions to the
+  normal P2P sync path to catch up to chain tip and stay current. The feature
+  is gated on the two new `neutrino.blockheaderssource` and
+  `neutrino.filterheaderssource` options, which must be specified together;
+  the import source already validates header linkage and proof-of-work, so
+  contextual timestamp checks are skipped during import to accommodate
+  rapidly-mined regtest/simnet headers. See
+  [docs/neutrino_headers_import.md](../neutrino_headers_import.md) for the
+  supported source URLs (e.g. `block-dn.org` for mainnet), file format, and
+  operator guidance.
+
+* [Added reorg protection for channel
+  closes](https://github.com/lightningnetwork/lnd/pull/10331). Previously,
+  channel closes were considered final immediately on spend detection with no
+  confirmation waiting. Now, all channel closes require between 3 and 6
+  confirmations, scaled linearly with channel capacity up to the maximum
+  non-wumbo channel size (~0.168 BTC), with wumbo channels always requiring
+  6 confirmations.
+
+* [Added support for production (final) simple taproot
+  channels](https://github.com/lightningnetwork/lnd/pull/9985) using the
+  finalized taproot channel scripts with feature bits 80/81. Production taproot
+  channels use optimized scripts (`OP_CHECKSIGVERIFY` instead of `OP_CHECKSIG` +
+  `OP_DROP`) and a map-based nonce encoding in `channel_reestablish` and
+  `revoke_and_ack` keyed by funding TXID, laying the groundwork for splice
+  support. The nonce type is now auto-detected from the negotiated channel type
+  rather than peer feature bits, ensuring correct behavior across all recovery
+  and resynchronization paths. Taproot channels must be requested explicitly
+  with `lncli openchannel --channel_type=taproot` (the bare `taproot` string
+  now selects the production variant; `taproot-staging` opens the legacy
+  staging variant, and `taproot-final` is kept as a deprecated alias for
+  `taproot`), and must remain private until announced taproot channels are
+  supported. The RPC `CommitmentType` enum gains a `TAPROOT` alias for
+  `SIMPLE_TAPROOT_FINAL` so new RPC clients can use the same short name.
+
+* [Added taproot channel support for RBF cooperative
+  close](https://github.com/lightningnetwork/lnd/pull/10063). The new RBF-based
+  cooperative close protocol (enabled with `--protocol.rbf-coop-close`) now
+  fully supports simple taproot channels. This includes MuSig2 partial signature
+  handling with the JIT (just-in-time) nonce pattern, where closer nonces are
+  bundled with signatures in `ClosingComplete` and closee nonces are rotated via
+  `NextCloseeNonce` in `ClosingSig` for each RBF iteration. The implementation
+  prevents nonce reuse across RBF rounds by storing the `MusigPartialSig` in the
+  protocol state machine and invalidating nonces after each signing round
+  completes.
+
+* [Added rate limiting and a channel-presence gate for incoming onion
+  messages](https://github.com/lightningnetwork/lnd/pull/10713). Two new
+  byte-denominated token-bucket limiters run at ingress — one per peer, one
+  global — so small onion messages pay proportionally less of the budget
+  than spec-max ones. Defaults are `0.5 Mbps` (512 Kbps, 256 KiB burst) per
+  peer and `5 Mbps` (5120 Kbps, 1600 KiB burst) globally, tunable via
+  `protocol.onion-msg-peer-kbps`,
+  `protocol.onion-msg-peer-burst-bytes`,
+  `protocol.onion-msg-global-kbps`, and
+  `protocol.onion-msg-global-burst-bytes`. Setting both the rate and the
+  burst of a given limiter to `0` disables it; setting only one to `0`, or
+  a burst smaller than a maximum-sized onion message, is rejected at
+  startup. Incoming onion messages from peers with no fully open channel
+  are also dropped at ingress as a Sybil-resistance layer; pending
+  channels are excluded. Operators who want to accept onion messages
+  from peers regardless of channel state can set
+  `protocol.onion-msg-relay-all=true` to skip the channel-presence gate;
+  the rate limiters still apply. See
+  [docs/onion_message_rate_limiting.md](../onion_message_rate_limiting.md)
+  for the adversary model, the layers, the defaults, and operator
+  recipes.
 
 ## RPC Additions
+
+* [Added `DeleteForwardingHistory`
+  RPC](https://github.com/lightningnetwork/lnd/pull/10666) to the router
+  sub-server, allowing operators to selectively purge old forwarding events from
+  the database. Deletion requires the target cutoff timestamp to be at least 1
+  hour in the past, preventing accidental removal of recent data.
+
+* The `WaitingCloseChannel` response in `PendingChannels` now includes two
+  new fields via [#10509](https://github.com/lightningnetwork/lnd/pull/10509):
+  `blocks_til_close_confirmed`, showing the remaining confirmations until a
+  closed channel is considered fully resolved, and `close_height`, the block
+  height at which the closing transaction was first confirmed. These build on
+  the reorg-safe confirmation logic introduced in
+  [#10331](https://github.com/lightningnetwork/lnd/pull/10331), where the
+  required number of confirmations scales with channel capacity.
 
 * [Added support for coordinator-based MuSig2 signing
   patterns](https://github.com/lightningnetwork/lnd/pull/10436) with two new
@@ -104,9 +234,17 @@
 
 * The `estimatefee` command now supports the `--utxos` flag to specify explicit
   inputs for fee estimation.
+* The `walletrpc.SignPsbt` now has a [corresponding `lncli wallet psbt sign`
+  command, and can be used to sign a
+  PSBT](https://github.com/lightningnetwork/lnd/pull/10659).
+  
 
 # Improvements
 ## Functional Updates
+
+* [Allow multiple read-only RPC middleware
+  interceptors](https://github.com/lightningnetwork/lnd/pull/10611) to be
+  registered simultaneously.
 
 * [Added support](https://github.com/lightningnetwork/lnd/pull/9432) for the
   `upfront-shutdown-address` configuration in `lnd.conf`, allowing users to
@@ -150,13 +288,96 @@
 
 ## Breaking Changes
 
+* [Increased MinCLTVDelta from 18 to
+  24](https://github.com/lightningnetwork/lnd/pull/10331) to provide a larger
+  safety margin above the `DefaultFinalCltvRejectDelta` (19 blocks). This
+  affects users who create invoices with custom `cltv_expiry_delta` values
+  between 18-23, which will now require a minimum of 24. The default value of
+  80 blocks for invoice creation remains unchanged, so most users will not be
+  affected. Existing invoices created before the upgrade will continue to work
+  normally.
+
 * The [`GetDebugInfo`](https://github.com/lightningnetwork/lnd/pull/10613) RPC
   no longer returns log file content by default. Clients that rely on the `log`
   field must now explicitly set `include_log` to `true` in the request. The
   `lncli getdebuginfo` and `lncli encryptdebugpackage` commands similarly
   require the `--include_log` flag to include logs in the output.
 
+* [Removed the deprecated payment RPCs and `outgoing_chan_id`
+  field](https://github.com/lightningnetwork/lnd/pull/10814) that were
+  [announced for removal in 0.21](https://github.com/lightningnetwork/lnd/blob/master/docs/release-notes/release-notes-0.20.0.md#deprecations)
+  via the 0.20 release notes. Callers must migrate to the V2 equivalents:
+
+  | Removed RPC | Replacement |
+  |-------------|-------------|
+  | `lnrpc.SendPayment` (streaming) | `routerrpc.SendPaymentV2` |
+  | `lnrpc.SendPaymentSync` | `routerrpc.SendPaymentV2` |
+  | `lnrpc.SendToRoute` (streaming) | `routerrpc.SendToRouteV2` |
+  | `lnrpc.SendToRouteSync` | `routerrpc.SendToRouteV2` |
+  | `routerrpc.SendPayment` (streaming) | `routerrpc.SendPaymentV2` |
+  | `routerrpc.SendToRoute` | `routerrpc.SendToRouteV2` |
+  | `routerrpc.TrackPayment` (streaming) | `routerrpc.TrackPaymentV2` |
+
+  This also removes the corresponding REST routes
+  `POST /v1/channels/transaction-stream`, `POST /v1/channels/transactions`,
+  and `POST /v1/channels/transactions/route`. The orphan
+  `routerrpc.SendToRouteResponse` message (only used by the removed
+  `routerrpc.SendToRoute` RPC) is also dropped.
+
+  In addition, the deprecated `outgoing_chan_id` field is removed from
+  `lnrpc.QueryRoutesRequest` and `routerrpc.SendPaymentRequest` (proto tags
+  14 and 8 respectively, now reserved). Callers must use the multi-channel
+  `outgoing_chan_ids` field introduced in 0.20.
+
+* [Removed the deprecated `--tor.v2` configuration
+  flag](https://github.com/lightningnetwork/lnd/pull/10813). Tor stopped
+  serving v2 onion services in October 2021, and lnd no longer produces
+  v2 on any code path; `tor.OnionHostToFakeIP` is also gone. Operator
+  input is rejected at the boundary: `--externalip`, `--listen`,
+  `lncli connect`, and `lncli wtclient towers add` fail fast on a v2
+  `.onion` string, so operators upgrading with a v2 entry in
+  `lnd.conf` must remove it before lnd will start. Persisted state
+  carried over from a previous version is also filtered before use:
+  the self-node announcement strips any v2 entry from the source-node
+  record before signing; the watchtower client drops v2 entries from
+  each persisted tower's address list (skipping the tower entirely if
+  no non-v2 address remains, so the operator can attach a fresh v3
+  address); the autopilot connector, graph bootstrapper, and
+  static-channel backup restore paths skip v2 entries before attempting
+  outbound dials. The Tor controller's `ADD_ONION` path is restricted
+  to v3 keys, including the encrypted on-disk legacy-key fallback. The
+  on-disk records themselves are left intact.
+
+  Peer-signed announcements that still carry v2 are handled
+  byte-for-byte: the `lnwire` and `graph/db` codecs round-trip v2 so
+  `DataToSign` reproduces the signed bytes, signatures validate, and
+  the announcement is persisted and re-broadcast unchanged. RPCs like
+  `GetNodeInfo` and `DescribeGraph` still expose the full address
+  set.
+
 ## Performance Improvements
+
+* Let the [channel graph cache be populated
+  asynchronously](https://github.com/lightningnetwork/lnd/pull/10065) on
+  startup. While the cache is being populated, the graph is still available for
+  queries, but all read queries will be served from the database until the cache
+  is fully populated. This new behaviour can be opted out of via the new
+  `--db.sync-graph-cache-load` option.
+
+* Autopilot's graph-wide channel scoring traversal [no longer requests node
+  addresses](https://github.com/lightningnetwork/lnd/pull/10796) from the
+  graph backend, since the scoring code does not consume them. This removes
+  an unnecessary address batch-load on the SQL backend, and lets the kvdb
+  backend serve the traversal from the in-memory graph cache when it is
+  loaded.
+
+* [Invoice pagination queries no longer use
+  `OFFSET`](https://github.com/lightningnetwork/lnd/pull/10700). The five
+  invoice filter queries previously used `LIMIT+OFFSET` for internal batching,
+  which requires the database to scan and discard all preceding rows on every
+  page. All pagination is now cursor-based (`WHERE id >= cursor`), making every
+  page an efficient primary-key range scan regardless of how deep into the
+  result set the query is.
 
 * [Replace the catch-all `FilterInvoices` SQL query with five focused,
   index-friendly queries](https://github.com/lightningnetwork/lnd/pull/10601)
@@ -168,14 +389,66 @@
   only the parameters it actually needs and uses a direct `ORDER BY`, allowing
   the planner to perform efficient index range scans on the invoice table.
 
-*  [Fix full table scans on the HTLC settlement 
+* [Fix full table scans on the HTLC settlement
     hot path](https://github.com/lightningnetwork/lnd/pull/10619).
     Replace the catch-all `GetInvoice` query (which used `OR $1 IS NULL`
     predicates that forced full table scans) with three dedicated queries
-    targeting uniquely-constrained columns. Also drop four redundant indexes 
+    targeting uniquely-constrained columns. Also drop four redundant indexes
     that duplicated UNIQUE constraints or were never used as query filters.
 
+* [Optimize the v1 node horizon
+    query](https://github.com/lightningnetwork/lnd/pull/10692). Split the
+    `GetNodesByLastUpdateRange` query into separate all-nodes and public-only
+    variants, removing a dynamic `COALESCE`/`OR` branch that defeated the query
+    planner. The public-only `EXISTS` check is rewritten as two direct index
+    probes instead of `node_id_1 OR node_id_2`. Supporting indexes are upgraded
+    to composite keys matching the full query shapes. On SQLite, the hot
+    public-only path sees a ~42% speedup; on the previous code it could stall
+    for minutes.
+
+* [Tombstone closed channels on KV-over-SQL
+  backends](https://github.com/lightningnetwork/lnd/pull/10780). Closing a
+  long-lived channel previously issued a single `DeleteNestedBucket` inside
+  the close transaction. On the kvdb-on-SQL schema (sqlite, postgres) that
+  delete fans out into a row-by-row `ON DELETE CASCADE` over the channel's
+  revocation log and forwarding-package bucket, holding the database
+  write-lock for many seconds — long enough on channels with millions of
+  states to stall HTLC forwarding, time out htlcswitch retries, and trigger
+  force-close cycles. `CloseChannel` now skips the cascading delete on
+  these backends; the outpoint-index flip from `outpointOpen` to
+  `outpointClosed` (already performed by the existing close path) is the
+  authoritative closed-channel marker, and every reader of the open-channel
+  bucket consults it before treating a channel as open. The bulk historical
+  state — the chanBucket itself, the revocation log, and the per-channel
+  forwarding-package bucket — remains on disk for the channel's lifetime in
+  this database and is reclaimed wholesale by the upcoming native-SQL
+  channel-state migration. bbolt and etcd retain the synchronous one-shot
+  close path, where nested-bucket deletion is already cheap.
+
+  > ⚠️ **Downgrade warning.** On sqlite/postgres, once a channel is
+  > closed under this build the chanBucket and its nested state remain
+  > on disk; the close is signalled only by the `outpointClosed` flip
+  > in the outpoint index. Earlier `lnd` releases do not consult that
+  > flip when iterating `openChannelBucket`, so downgrading to a
+  > pre-0.21 binary after closing channels on these backends will
+  > resurrect those channels as open in `listchannels`,
+  > `pendingchannels`, and the chain-watch path. Operators who close
+  > channels on sqlite/postgres after upgrading should treat the
+  > upgrade as one-way for that database; bbolt and etcd users are unaffected 
+  > because the close path on those backends still deletes the chanBucket.
+
 ## Deprecations
+
+### ⚠️ **Warning:** Deprecated fields in `lnrpc.Hop` will be removed in release version **0.22**
+
+  The following deprecated fields in the [`lnrpc.Hop`](https://lightning.engineering/api-docs/api/lnd/lightning/query-routes/#lnrpchop)
+  message will be removed:
+
+  | Field | Deprecated Since | Replacement |
+  |-------|------------------|-------------|
+  | `chan_capacity` | 0.7.1 | None |
+  | `amt_to_forward` | 0.7.1 | `amt_to_forward_msat` |
+  | `fee` | 0.7.1 | `fee_msat` |
 
 ### ⚠️ **Warning:** The deprecated fee rate option `--sat_per_byte` will be removed in release version **0.22**
 
@@ -211,9 +484,22 @@
   invalid lengths, including roundtrip tests for Fee, Musig2Nonce,
   ShortChannelID and Vertex records.
 
+* [Added a bitcoind-backed miner backend to `lntest`](https://github.com/lightningnetwork/lnd/pull/10481).
+  Integration tests can now select the miner backend independently from the
+  chain backend, and CI now covers the `backend=bitcoind
+  minerbackend=bitcoind` path.
+
 ## Database
 
-* Freeze the [graph SQL migration 
+* [Prevent silent data corruption](https://github.com/lightningnetwork/lnd/pull/10684)
+  when reusing the same database across different Bitcoin networks. On first
+  startup the active network is persisted in a new `chain_params` table; on
+  every subsequent restart lnd compares the stored value against the configured
+  network and refuses to start if they differ, printing a clear error message
+  with remediation steps. This safeguard applies to both the PostgreSQL and
+  SQLite native-SQL backends when running with `--db.use-native-sql`.
+
+* Freeze the [graph SQL migration
   code](https://github.com/lightningnetwork/lnd/pull/10338) to prevent the 
   need for maintenance as the sqlc code evolves. 
 * Prepare the graph DB for handling gossip V2
@@ -221,7 +507,22 @@
     [2](https://github.com/lightningnetwork/lnd/pull/10379)
     [3](https://github.com/lightningnetwork/lnd/pull/10380)
     [4](https://github.com/lightningnetwork/lnd/pull/10542),
-    [5](https://github.com/lightningnetwork/lnd/pull/10572).
+    [5](https://github.com/lightningnetwork/lnd/pull/10572),
+    [6](https://github.com/lightningnetwork/lnd/pull/10582).
+* [Version the graph horizon queries (`NodeUpdatesInHorizon`,
+  `ChanUpdatesInHorizon`)](https://github.com/lightningnetwork/lnd/pull/10691)
+  to support both v1 (time-based) and v2 (block-height-based) gossip ranges.
+  The v1 end-time bound is corrected from inclusive to exclusive to match the
+  BOLT 07 `gossip_timestamp_filter` spec. New SQL queries and composite indexes
+  are added for efficient v2 block-height range scans.
+* [Version `FilterKnownChanIDs` and fix `FetchChannelEdgesByID` zombie
+  fallback](https://github.com/lightningnetwork/lnd/pull/10717) so that gossip
+  channel filtering and zombie edge lookups use the correct gossip version
+  instead of hardcoding v1.
+* Updated waiting proof persistence for gossip upgrades by introducing typed
+  waiting proof keys and payloads, with a DB migration to rewrite legacy
+  waiting proof records to the new key/value format
+  ([#10633](https://github.com/lightningnetwork/lnd/pull/10633)).
 
 * Payment Store SQL implementation and migration project:
   * Introduce an [abstract payment 
@@ -247,11 +548,50 @@
     migration](https://github.com/lightningnetwork/lnd/pull/10485) with
     comprehensive tests. The migration is currently dev-only, compiled behind
     the `test_db_postgres`, `test_db_sqlite`, or `test_native_sql` build tags.
+  * Various [SQL payment store
+    improvements](https://github.com/lightningnetwork/lnd/pull/10535):
+    optimize schema indexes, improve query performance for payment filtering
+    and failed attempt cleanup, fix cross-database timestamp handling, add
+    `omit_hops` option to `ListPayments` to reduce response size, and increase
+    the default SQLite cache size.
+  * The [SQL payments migration is promoted to production
+    code](https://github.com/lightningnetwork/lnd/pull/10627). Previously the
+    migration was hidden behind the `test_native_sql` build tag; it is now
+    compiled into mainline builds and available to all users who have the
+    `native-sql` setting enabled.
 
 
 ## Code Health
 
+* [Update taproot detection](https://github.com/lightningnetwork/lnd/pull/10683)
+  to accommodate buried activation (and modified RPC `getdeploymentinfo`
+  response) beginning in Bitcoin Core v32.
+
+* [Migrated gossip result handling from `chan error` to
+  `actor.Future[error]`](https://github.com/lightningnetwork/lnd/pull/10589).
+  The three buffered-channel patterns in the discovery package are replaced
+  with idempotent promises, eliminating a class of latent deadlock bugs when a
+  deferred message copy was re-enqueued and processed a second time. A new
+  `lnutils.ContextFromQuit` helper bridges the existing `quit` channels to
+  `context.Context`, so all gossip awaits now respect shutdown uniformly.
+
+## Robustness
+
+* [Drop onion messages that would cycle back to the sending
+  peer](https://github.com/lightningnetwork/lnd/pull/10754). When the
+  resolved next hop of an incoming onion message is the same peer that
+  delivered it, the message is now dropped instead of being forwarded
+  back over the connection it arrived on. This closes a trivial
+  traffic-amplification vector and covers both the direct next-node-ID
+  and SCID-resolved paths.
+
 ## Tooling and Documentation
+
+* [Added missing `lncli:` tags](https://github.com/lightningnetwork/lnd/pull/10658)
+  for `SendPaymentV2`, `SendToRouteV2`, and `EstimateRouteFee` in the
+  `routerrpc` proto definitions so that the generated API documentation
+  correctly links to their corresponding `lncli` commands (`sendpayment`,
+  `sendtoroute`, `estimateroutefee`).
 
 * [Overhauled Docker documentation and environment](https://github.com/lightningnetwork/lnd/pull/10461)
   to modernize the developer onboarding flow. Key updates include migrating 
@@ -259,16 +599,40 @@
   and transitioning the documentation to focus on a more reliable "Simnet" 
   workflow while removing obsolete faucet references.
 
+* [Android Lndmobile 16 KB page size for native libraries](https://github.com/lightningnetwork/lnd/pull/10517)
+  The Android `Lndmobile.aar` build now passes `-Wl,-z,max-page-size=16384` to
+  the linker, keeping the generated native library compatible with newer
+  Android devices that use 16 KB memory pages while preserving compatibility
+  with existing 4 KB page-size devices.
+
 # Contributors (Alphabetical Order)
 
+* Abdulkbk
+* AbelLykens
+* ajaysehwal
+* Andras Banki-Horvath
 * bitromortac
 * Boris Nagaev
+* Calvin Zachman
+* Dario Anongba
 * Elle Mouton
+* elnosh
 * Erick Cestari
+* Euler-B
+* ffranr
+* George Tsagkarelis
 * Gijs van Dam
 * hieblmi
+* Liongrass
 * Matt Morehouse
+* Matthew Zipkin
 * Mohamed Awnallah
 * Nishant Bansal
+* Olaoluwa Osuntokun
+* Oliver Gugger
 * Pins
+* Suheb
+* ViktorT-11
+* Yash Bhutwala
+* Yong Yu
 * Ziggie

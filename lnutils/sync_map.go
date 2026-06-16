@@ -96,3 +96,24 @@ func (m *SyncMap[K, V]) LoadOrStore(key K, value V) (V, bool) {
 
 	return item, loaded
 }
+
+// Swap stores value for the given key and returns the previously stored
+// value (if any). The second return value reports whether a previous
+// value was present. It is a thin typed wrapper around sync.Map.Swap so
+// callers that need to atomically read-modify-write a map entry — for
+// example, to update an atomic counter that shadows the map's
+// membership — can do so without dropping down to untyped interface{}
+// assertions.
+func (m *SyncMap[K, V]) Swap(key K, value V) (V, bool) {
+	prev, loaded := m.Map.Swap(key, value)
+	if !loaded {
+		return *new(V), false
+	}
+
+	item, ok := prev.(V)
+	if !ok {
+		return *new(V), false
+	}
+
+	return item, true
+}

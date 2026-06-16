@@ -92,7 +92,6 @@ func TestParseAndSetDebugLevels(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			m := &mockSubLogger{
 				subLogLevels: make(map[string]string),

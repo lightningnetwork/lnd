@@ -737,7 +737,6 @@ func TestChooseDeliveryScript(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			script, err := chooseDeliveryScript(
@@ -817,7 +816,6 @@ func TestCustomShutdownScript(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			// Open a channel.
@@ -985,7 +983,6 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			params := createTestPeer(t)
@@ -1071,6 +1068,96 @@ func TestPeerCustomMessage(t *testing.T) {
 	receivedCustom := <-receivedCustomChan
 	require.Equal(t, remoteKey, receivedCustom.peer)
 	require.Equal(t, receivedCustomMsg, &receivedCustom.msg)
+}
+
+// TestPeerIgnoresPingWithoutPongReply ensures we keep the connection alive for
+// pings using the BOLT 1 no-reply sentinel range.
+func TestPeerIgnoresPingWithoutPongReply(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Start a peer using the mock connection so we can
+	// inject incoming pings and observe any outgoing responses.
+	params := createTestPeer(t)
+
+	var (
+		mockConn  = params.mockConn
+		alicePeer = params.peer
+	)
+
+	startPeerDone := startPeer(t, mockConn, alicePeer)
+	_, err := fn.RecvOrTimeout(startPeerDone, 2*timeout)
+	require.NoError(t, err)
+
+	writePing := func(msg *lnwire.Ping) {
+		t.Helper()
+
+		var b bytes.Buffer
+		_, err := lnwire.WriteMessage(&b, msg, 0)
+		require.NoError(t, err)
+
+		select {
+		case mockConn.readMessages <- b.Bytes():
+		case <-time.After(timeout):
+			t.Fatal("timeout sending ping to peer")
+		}
+	}
+
+	// Act: Deliver a ping in the BOLT 1 no-reply range.
+	ignoredPayload := []byte{1, 2, 3}
+	writePing(&lnwire.Ping{
+		NumPongBytes: 65535,
+		PaddingBytes: ignoredPayload,
+	})
+
+	// Assert: The peer records the latest ping payload for observability.
+	require.Eventually(t, func() bool {
+		return bytes.Equal(
+			alicePeer.LastRemotePingPayload(), ignoredPayload,
+		)
+	}, timeout, 10*time.Millisecond)
+
+	// Assert: No pong is sent for the no-reply sentinel range.
+	select {
+	case rawMsg := <-mockConn.writtenMessages:
+		t.Fatalf("expected no pong reply, got %x", rawMsg)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Act: Send a normal ping afterward to prove the peer
+	// stayed connected and still handles standard ping/pong
+	// traffic.
+	writePing(&lnwire.Ping{NumPongBytes: 1})
+
+	rawMsg, err := fn.RecvOrTimeout(mockConn.writtenMessages, timeout)
+	require.NoError(t, err)
+
+	msg, err := lnwire.ReadMessage(bytes.NewReader(rawMsg), 0)
+	require.NoError(t, err)
+
+	// Assert: The follow-up ping receives the requested pong reply.
+	pong, ok := msg.(*lnwire.Pong)
+	require.True(t, ok)
+	require.Len(t, pong.PongBytes, 1)
+}
+
+// TestMessageSummaryPingIncludesNumPongBytes ensures the debug summary for a
+// ping exposes the requested pong size, which makes ignored no-reply pings
+// visible without requiring trace-level logging.
+func TestMessageSummaryPingIncludesNumPongBytes(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: Build a ping that uses the BOLT 1 no-reply sentinel range.
+	msg := &lnwire.Ping{
+		NumPongBytes: 65535,
+		PaddingBytes: []byte{1, 2, 3},
+	}
+
+	// Act: Generate the human-readable message summary.
+	summary := messageSummary(msg)
+
+	// Assert: The summary includes both the requested pong size and payload
+	// length so debug logs can explain why no pong was sent.
+	require.Equal(t, "num_pong_bytes=65535, len(ping_bytes)=3", summary)
 }
 
 // TestUpdateNextRevocation checks that the method `updateNextRevocation` is
@@ -1198,7 +1285,6 @@ func TestHandleNewPendingChannel(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		// Create a request for testing.
 		errChan := make(chan error, 1)
@@ -1283,7 +1369,6 @@ func TestHandleRemovePendingChannel(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		// Create a request for testing.
 		errChan := make(chan error, 1)
@@ -1676,4 +1761,80 @@ func TestCreateHtlcValidator(t *testing.T) {
 			m.AssertExpectations(t)
 		})
 	}
+}
+
+// TestHasActiveChannels exercises the atomic active-channel counter that
+// backs hasActiveChannels(). hasActiveChannels is on the hot path for
+// every incoming onion message — the onion message ingress gate calls
+// it per packet — so a correct, O(1) shadow of activeChannels is a
+// load-bearing invariant. This test walks the three state transitions
+// that have to keep numActiveChans in lockstep with activeChannels:
+// initial emptiness, pending entries (nil values) that must not count,
+// and pending-delete paths that must not decrement.
+func TestHasActiveChannels(t *testing.T) {
+	t.Parallel()
+
+	peer := NewBrontide(Config{})
+
+	// Initial state: no channels, counter is zero, gate is closed.
+	require.False(t, peer.hasActiveChannels())
+	require.Equal(t, int32(0), peer.numActiveChans.Load())
+
+	// Simulate the loadActiveChannels active-channel path: the entry
+	// is stored and the counter is incremented in lockstep. After
+	// this, hasActiveChannels must flip to true because the peer now
+	// holds a non-pending channel.
+	activeID := lnwire.ChannelID{0x01}
+	peer.activeChannels.Store(activeID, &lnwallet.LightningChannel{})
+	peer.numActiveChans.Add(1)
+	require.True(t, peer.hasActiveChannels())
+	require.Equal(t, int32(1), peer.numActiveChans.Load())
+
+	// Simulate the loadActiveChannels pending path: the entry is
+	// stored as nil and the counter must NOT move. This is the
+	// invariant the onion message gate relies on — pending channels
+	// are cheap to open and get stuck, so they must not satisfy the
+	// Sybil-resistance gate on their own.
+	pendingID := lnwire.ChannelID{0x02}
+	peer.activeChannels.Store(pendingID, nil)
+	require.Equal(t, int32(1), peer.numActiveChans.Load())
+	require.True(t, peer.hasActiveChannels())
+
+	// handleRemovePendingChannel walks the pending-delete path. It
+	// uses LoadAndDelete and must skip the counter decrement when
+	// the previous value was nil (pending). If this invariant ever
+	// broke, the counter would underflow every time a pending
+	// channel was cancelled and hasActiveChannels would return the
+	// wrong answer until the next reconnect.
+	errChan := make(chan error, 1)
+	peer.handleRemovePendingChannel(&newChannelMsg{
+		channelID: pendingID,
+		err:       errChan,
+	})
+	require.Equal(t, int32(1), peer.numActiveChans.Load())
+	require.True(t, peer.hasActiveChannels())
+
+	// The pending entry must have been removed from the map.
+	_, found := peer.activeChannels.Load(pendingID)
+	require.False(t, found)
+
+	// Drain the request error channel so the test leaves no loose
+	// ends. handleRemovePendingChannel closes the err chan via
+	// defer, so we expect a closed-channel receive here.
+	_, reqOk := <-errChan
+	require.False(t, reqOk)
+
+	// Finally, simulate WipeChannel's decrement path directly via
+	// LoadAndDelete. We cannot call WipeChannel in this
+	// dummy-config harness because it also calls
+	// p.cfg.Switch.RemoveLink, but the counter-maintenance half of
+	// WipeChannel is exactly the LoadAndDelete + conditional Add(-1)
+	// we exercise here.
+	prev, loaded := peer.activeChannels.LoadAndDelete(activeID)
+	require.True(t, loaded)
+	require.NotNil(t, prev)
+	peer.numActiveChans.Add(-1)
+
+	require.False(t, peer.hasActiveChannels())
+	require.Equal(t, int32(0), peer.numActiveChans.Load())
 }

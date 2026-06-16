@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
@@ -69,6 +70,10 @@ const (
 	//
 	// This MUST be a smaller value than the pingInterval.
 	pingTimeout = 30 * time.Second
+
+	// tellTimeout is the amount of time we will wait for a response to a
+	// tell.
+	tellTimeout = 30 * time.Second
 
 	// idleTimeout is the duration of inactivity before we time out a peer.
 	idleTimeout = 5 * time.Minute
@@ -255,8 +260,8 @@ type Config struct {
 	// ChannelLinkConfig.
 	InterceptSwitch *htlcswitch.InterceptableSwitch
 
-	// ChannelDB is used to fetch opened channels, and closed channels.
-	ChannelDB *channeldb.ChannelStateDB
+	// ChannelDB is used to fetch channel state needed by the peer.
+	ChannelDB chanstate.Store
 
 	// ChannelGraph is a pointer to the channel graph which is used to
 	// query information about the set of known active channels.
@@ -310,6 +315,35 @@ type Config struct {
 	// SpawnOnionActor is a factory function that spawns a per-peer onion
 	// message actor. If nil, onion messaging is disabled.
 	SpawnOnionActor onionmessage.OnionActorFactory
+
+	// OnionLimiter is the combined per-peer + global onion message
+	// ingress rate limiter. It hides the split between the two
+	// underlying buckets behind a single interface: callers invoke
+	// OnionLimiter.AllowN on every incoming onion message and it
+	// consults the per-peer bucket first (so a hostile peer whose own
+	// budget is empty cannot drain the shared budget on rejected
+	// attempts) and then the global bucket. Per-peer state is retained
+	// across disconnect so a peer cannot reset its bucket by cycling
+	// the connection; see the PeerRateLimiter doc for the memory-bound
+	// argument. A nil value means onion message rate limiting is
+	// disabled.
+	OnionLimiter onionmessage.IngressLimiter
+
+	// OnionRelayAll, when true, disables the channel-presence gate on
+	// incoming onion messages: messages from peers with no fully open
+	// channel are admitted to the rate-limiter pipeline instead of
+	// being dropped at ingress. The default (false) keeps the gate in
+	// place so that a no-cost Sybil identity cannot burn a full
+	// per-peer byte budget on each of many connections and saturate
+	// the global limiter through sheer identity count.
+	OnionRelayAll bool
+
+	// OnionActorOpts returns ActorOptions for the onion peer actor
+	// being spawned for the given peer. This allows per-peer
+	// customization of mailbox size, drop predicates, etc.
+	OnionActorOpts func(peerPubKey [33]byte) []actor.ActorOption[
+		*onionmessage.Request, *onionmessage.Response,
+	]
 
 	// ActorSystem is the actor system tasked with managing actors.
 	ActorSystem *actor.ActorSystem
@@ -589,6 +623,17 @@ type Brontide struct {
 	activeChannels *lnutils.SyncMap[
 		lnwire.ChannelID, *lnwallet.LightningChannel]
 
+	// numActiveChans shadows the count of non-pending entries in
+	// activeChannels as an atomic integer. It exists so that hot-path
+	// callers — notably the onion message ingress gate, which runs on
+	// every incoming onion packet — can ask "does this peer have any
+	// active channel with us" in O(1) instead of iterating the
+	// activeChannels registry. It is maintained in lockstep with
+	// activeChannels via Swap and LoadAndDelete at every mutation
+	// site, so transitions from pending (nil value) to active and
+	// from active to closed are reflected atomically.
+	numActiveChans atomic.Int32
+
 	// addedChannels tracks any new channels opened during this peer's
 	// lifecycle. We use this to filter out these new channels when the time
 	// comes to request a reenable for active channels, since they will have
@@ -734,7 +779,7 @@ func NewBrontide(cfg Config) *Brontide {
 		// used to cross-check our own view of the network to mitigate
 		// various types of eclipse attacks.
 		header, err := p.cfg.BestBlockView.BestBlockHeader()
-		if err != nil && header == lastBlockHeader {
+		if err != nil || header == lastBlockHeader {
 			return lastSerializedBlockHeader[:]
 		}
 
@@ -930,8 +975,25 @@ func (p *Brontide) Start() error {
 		p.log.Infof("Remote peer supports onion messages, " +
 			"spawning onion message actor")
 
+		// Fetch per-peer actor options. The OnionActorOpts
+		// callback is the extension point for per-peer
+		// customization of the drop predicate (e.g. choosing
+		// RED thresholds based on channel capacity or routing
+		// importance). Today the callback returns identical
+		// defaults for every peer; to differentiate, supply a
+		// callback that inspects peerPubKey and returns
+		// tailored options via
+		// onionmessage.DefaultOnionActorOpts with a
+		// peer-specific DropCheckFunc.
+		var opts []actor.ActorOption[
+			*onionmessage.Request, *onionmessage.Response,
+		]
+		if p.cfg.OnionActorOpts != nil {
+			opts = p.cfg.OnionActorOpts(p.PubKey())
+		}
+
 		ref, spawnErr := p.cfg.SpawnOnionActor(
-			p.cfg.ActorSystem, p.PubKey(),
+			p.cfg.ActorSystem, p.PubKey(), opts...,
 		)
 		if spawnErr != nil {
 			return fmt.Errorf("unable to spawn onion peer "+
@@ -1298,7 +1360,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		// channels. Adding them here would just be extra work as we'll
 		// tear them down when creating + adding the final link.
 		if lnChan.IsPending() {
-			p.activeChannels.Store(chanID, nil)
+			p.markPendingChannel(chanID)
 
 			continue
 		}
@@ -1308,17 +1370,14 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			return nil, err
 		}
 
-		isTaprootChan := lnChan.ChanType().IsTaproot()
-
 		var (
 			shutdownMsg     fn.Option[lnwire.Shutdown]
 			shutdownInfoErr error
 		)
 		shutdownInfo.WhenSome(func(info channeldb.ShutdownInfo) {
 			// If we can use the new RBF close feature, we don't
-			// need to create the legacy closer. However for taproot
-			// channels, we'll continue to use the legacy closer.
-			if p.rbfCoopCloseAllowed() && !isTaprootChan {
+			// need to create the legacy closer.
+			if p.rbfCoopCloseAllowed() {
 				return
 			}
 
@@ -1363,7 +1422,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			// Create the Shutdown message.
 			shutdown, err := negotiateChanCloser.ShutdownChan()
 			if err != nil {
-				p.activeChanCloses.Delete(chanID)
+				p.deleteActiveChanCloser(chanID, chanPoint)
 				shutdownInfoErr = err
 
 				return
@@ -1392,13 +1451,11 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 				"switch: %v", chanPoint, err)
 		}
 
-		p.activeChannels.Store(chanID, lnChan)
+		p.storeActiveChannel(chanID, lnChan)
 
 		// We're using the old co-op close, so we don't need to init
-		// the new RBF chan closer. If we have a taproot chan, then
-		// we'll also use the legacy type, so we don't need to make the
-		// new closer.
-		if !p.rbfCoopCloseAllowed() || isTaprootChan {
+		// the new RBF chan closer.
+		if !p.rbfCoopCloseAllowed() {
 			continue
 		}
 
@@ -1409,7 +1466,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		// Creating this here ensures that any shutdown messages sent
 		// will be automatically routed by the msg router.
 		if _, err := p.initRbfChanCloser(lnChan); err != nil {
-			p.activeChanCloses.Delete(chanID)
+			p.deleteActiveChanCloser(chanID, chanPoint)
 
 			return nil, fmt.Errorf("unable to init RBF chan "+
 				"closer during peer connect: %w", err)
@@ -1706,6 +1763,10 @@ func (p *Brontide) Disconnect(reason error) {
 	// Stop the onion peer actor if one was spawned.
 	p.StopOnionActorIfExists()
 
+	// Unregister any RBF close actors registered for channels of this
+	// peer so we don't leave stale entries in the actor system.
+	p.unregisterRbfCloseActors()
+
 	// Ensure that the TCP connection is properly closed before continuing.
 	p.cfg.Conn.Close()
 
@@ -1735,6 +1796,54 @@ func (p *Brontide) StopOnionActorIfExists() {
 			)
 		},
 	)
+}
+
+// unregisterRbfCloseActor removes any RBF close actor registered for the
+// given channel point from the actor system. This is idempotent and safe to
+// call whether or not an actor was registered for the channel point.
+func (p *Brontide) unregisterRbfCloseActor(chanPoint wire.OutPoint) {
+	if p.cfg.ActorSystem == nil {
+		return
+	}
+
+	actorKey := NewRbfCloserPeerServiceKey(chanPoint)
+	actorKey.UnregisterAll(p.cfg.ActorSystem)
+}
+
+// deleteActiveChanCloser removes the chan closer for the given channel ID and
+// also unregisters any RBF close actor associated with the channel point from
+// the actor system. Callers should prefer this over calling
+// activeChanCloses.Delete directly so the actor registry stays in sync with
+// the active closers map.
+func (p *Brontide) deleteActiveChanCloser(chanID lnwire.ChannelID,
+	chanPoint wire.OutPoint) {
+
+	p.activeChanCloses.Delete(chanID)
+	p.unregisterRbfCloseActor(chanPoint)
+}
+
+// unregisterRbfCloseActors removes any RBF close actors registered for this
+// peer's active channels from the actor system. This should be called on
+// disconnect so we don't leave stale RBF close actors for a peer that is no
+// longer connected. This is idempotent and safe to call multiple times.
+func (p *Brontide) unregisterRbfCloseActors() {
+	if p.cfg.ActorSystem == nil {
+		return
+	}
+
+	p.activeChannels.Range(func(_ lnwire.ChannelID,
+		channel *lnwallet.LightningChannel) bool {
+
+		// Pending channels are tracked with a nil value in the map,
+		// so skip those as they have no channel point to look up.
+		if channel == nil {
+			return true
+		}
+
+		p.unregisterRbfCloseActor(channel.ChannelPoint())
+
+		return true
+	})
 }
 
 // readNextMessage reads, and returns the next message on the wire along with
@@ -2091,13 +2200,11 @@ func newDiscMsgStream(p *Brontide) *msgStream {
 		// deleted.
 		p.log.Debugf("Processing remote msg %T", msg)
 
-		// TODO(ziggie): ProcessRemoteAnnouncement returns an error
-		// channel, but we cannot rely on it being written to.
-		// Because some messages might never be processed (e.g.
-		// premature channel updates). We should change the design here
-		// and use the actor model pattern as soon as it is available.
-		// So for now we should NOT use the error channel.
-		// See https://github.com/lightningnetwork/lnd/pull/9820.
+		// The returned Future[error] is intentionally not awaited
+		// here. Remote gossip messages are fire-and-forget from the
+		// peer's perspective: the gossiper processes them
+		// asynchronously, and an unawaited Future carries no cost
+		// (no goroutine, no channel leak).
 		p.cfg.AuthGossiper.ProcessRemoteAnnouncement(ctx, msg, p)
 	}
 
@@ -2220,6 +2327,13 @@ out:
 			// the relevant atomic variable.
 			p.lastPingPayload.Store(msg.PaddingBytes[:])
 
+			// BOLT 1 requires us to ignore pings requesting 65532
+			// or more pong bytes instead of replying or
+			// disconnecting.
+			if msg.NumPongBytes > lnwire.MaxPongBytes {
+				continue
+			}
+
 			// Next, we'll send over the amount of specified pong
 			// bytes.
 			pong := lnwire.NewPong(p.cfg.PongBuf[0:msg.NumPongBytes])
@@ -2303,12 +2417,50 @@ out:
 			discStream.AddMsg(msg)
 
 		case *lnwire.OnionMessage:
+			// Charge the limiter the on-the-wire size of the
+			// message so the byte-granular bucket reflects
+			// actual ingress bandwidth rather than raw message
+			// counts. The channel-gate hint is sourced from the
+			// atomic active-channel counter so the check is
+			// O(1) on the hot path. A rejection surfaces as a
+			// sentinel error wrapped in fn.Result; errors.Is
+			// lets us pick the right first-drop log path.
+			result := allowOnionMessage(
+				p.cfg.OnionLimiter, p.PubKey(),
+				msg.WireSize(), p.hasActiveChannels(),
+				p.cfg.OnionRelayAll,
+			)
+			if err := result.Err(); err != nil {
+				logFirstOnionDrop(
+					peerLog, p.log, err,
+					p.cfg.OnionLimiter,
+				)
+				// Keep repeated drops at trace so a
+				// sustained attack does not flood debug;
+				// the first-drop info log above already
+				// gives operators a clear "limiter
+				// engaged" signal.
+				p.log.Tracef("dropping onion message: %v",
+					err)
+
+				break
+			}
+
 			p.onionActorRef.WhenSome(
 				func(ref onionmessage.OnionPeerActorRef) {
 					// TODO(elle): thread contexts through
 					// the peer system properly so that a
 					// parent context can be passed in here.
-					ctx := context.TODO()
+
+					// Use a timeout context to prevent
+					// the readHandler from blocking
+					// indefinitely if the actor's mailbox
+					// is full.
+					ctx, cancel := context.WithTimeout(
+						context.Background(),
+						tellTimeout,
+					)
+					defer cancel()
 
 					req := onionmessage.NewRequest(*msg)
 					ref.Tell(ctx, req)
@@ -2408,6 +2560,51 @@ func (p *Brontide) isPendingChannel(chanID lnwire.ChannelID) bool {
 func (p *Brontide) hasChannel(chanID lnwire.ChannelID) bool {
 	_, ok := p.activeChannels.Load(chanID)
 	return ok
+}
+
+// hasActiveChannels reports whether this peer has at least one fully open
+// (non-pending) channel with us. Pending channels are excluded because
+// they do not yet provide the Sybil-resistance guarantees the onion
+// message ingress gate relies on. The check reads an atomic counter
+// maintained alongside activeChannels at every mutation site, so it is
+// O(1) and cheap enough to run on every incoming onion message without
+// iterating a map.
+func (p *Brontide) hasActiveChannels() bool {
+	return p.numActiveChans.Load() > 0
+}
+
+// markPendingChannel records chanID in activeChannels as a pending (nil)
+// entry; numActiveChans is unchanged.
+func (p *Brontide) markPendingChannel(chanID lnwire.ChannelID) {
+	p.activeChannels.Store(chanID, nil)
+}
+
+// storeActiveChannel installs lnChan under chanID and bumps
+// numActiveChans iff the prior entry was absent or pending (nil).
+func (p *Brontide) storeActiveChannel(chanID lnwire.ChannelID,
+	lnChan *lnwallet.LightningChannel) {
+
+	prev, loaded := p.activeChannels.Swap(chanID, lnChan)
+	if !loaded || prev == nil {
+		p.numActiveChans.Add(1)
+	}
+}
+
+// removeActiveChannel deletes chanID and decrements numActiveChans only
+// when the removed entry was a fully open (non-nil) channel.
+func (p *Brontide) removeActiveChannel(chanID lnwire.ChannelID) {
+	prev, loaded := p.activeChannels.LoadAndDelete(chanID)
+	if loaded && prev != nil {
+		p.numActiveChans.Add(-1)
+	}
+}
+
+// deletePendingChannel deletes a pending entry owned by the
+// channelManager goroutine; no counter check since pending entries never
+// contribute to numActiveChans. External callers must use
+// removeActiveChannel so a racing promotion is handled correctly.
+func (p *Brontide) deletePendingChannel(chanID lnwire.ChannelID) {
+	p.activeChannels.Delete(chanID)
 }
 
 // storeError stores an error in our peer's buffer of recent errors with the
@@ -2591,7 +2788,8 @@ func messageSummary(msg lnwire.Message) string {
 			msg.NodeID, time.Unix(int64(msg.Timestamp), 0))
 
 	case *lnwire.Ping:
-		return fmt.Sprintf("ping_bytes=%x", msg.PaddingBytes[:])
+		return fmt.Sprintf("num_pong_bytes=%d, len(ping_bytes)=%d",
+			msg.NumPongBytes, len(msg.PaddingBytes[:]))
 
 	case *lnwire.Pong:
 		return fmt.Sprintf("len(pong_bytes)=%d", len(msg.PongBytes[:]))
@@ -3429,15 +3627,15 @@ func chooseDeliveryScript(upfront, requested lnwire.DeliveryAddress,
 func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	*lnwire.Shutdown, error) {
 
-	isTaprootChan := lnChan.ChanType().IsTaproot()
-
-	// If this channel has status ChanStatusCoopBroadcasted and does not
-	// have a closing transaction, then the cooperative close process was
-	// started but never finished. We'll re-create the chanCloser state
-	// machine and resend Shutdown. BOLT#2 requires that we retransmit
-	// Shutdown exactly, but doing so would mean persisting the RPC
-	// provided close script. Instead use the LocalUpfrontShutdownScript
-	// or generate a script.
+	// If this channel has status ChanStatusCoopBroadcasted and a closing
+	// transaction was recorded, we just need to rebroadcast (handled by
+	// the chain arbitrator) and exit. If the status is set but no closing
+	// tx exists, fall through and re-drive the close negotiation via
+	// ShutdownInfo or LocalUpfrontShutdownScript.
+	//
+	// BOLT#2 requires that we retransmit Shutdown exactly, but doing so
+	// would mean persisting the RPC-provided close script.  Instead use
+	// the LocalUpfrontShutdownScript or generate a script.
 	c := lnChan.State()
 	_, err := c.BroadcastedCooperative()
 	if err != nil && err != channeldb.ErrNoCloseTx {
@@ -3483,8 +3681,8 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 
 	// If the new RBF co-op close is negotiated, then we'll init and start
 	// that state machine, skipping the steps for the negotiate machine
-	// below. We don't support this close type for taproot channels though.
-	if p.rbfCoopCloseAllowed() && !isTaprootChan {
+	// below.
+	if p.rbfCoopCloseAllowed() {
 		_, err := p.initRbfChanCloser(lnChan)
 		if err != nil {
 			return nil, fmt.Errorf("unable to init rbf chan "+
@@ -3536,7 +3734,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	shutdownMsg, err := chanCloser.ShutdownChan()
 	if err != nil {
 		p.log.Errorf("unable to create shutdown message: %v", err)
-		p.activeChanCloses.Delete(chanID)
+		p.deleteActiveChanCloser(chanID, c.FundingOutpoint)
 		return nil, err
 	}
 
@@ -3641,7 +3839,7 @@ func (p *Brontide) initNegotiateChanCloser(req *htlcswitch.ChanClose,
 		// back to its normal state.
 		defer channel.ResetState()
 
-		p.activeChanCloses.Delete(chanID)
+		p.deleteActiveChanCloser(chanID, channel.ChannelPoint())
 
 		return fmt.Errorf("unable to shutdown channel: %w", err)
 	}
@@ -3812,7 +4010,9 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 				chanID := lnwire.NewChanIDFromOutPoint(
 					*closeReq.ChanPoint,
 				)
-				p.activeChanCloses.Delete(chanID)
+				p.deleteActiveChanCloser(
+					chanID, *closeReq.ChanPoint,
+				)
 
 				return
 			}
@@ -3886,7 +4086,9 @@ func (c *chanErrorReporter) ReportError(chanErr error) {
 	}
 
 	if _, err := c.peer.initRbfChanCloser(lnChan); err != nil {
-		c.peer.activeChanCloses.Delete(c.chanID)
+		c.peer.deleteActiveChanCloser(
+			c.chanID, lnChan.ChannelPoint(),
+		)
 
 		c.peer.log.Errorf("unable to init RBF chan closer after "+
 			"error case: %v", err)
@@ -3929,7 +4131,6 @@ func (p *Brontide) chanFlushEventSentinel(chanCloser *chancloser.RbfChanCloser,
 		ctx := context.Background()
 		chanCloser.SendEvent(ctx, &chancloser.ChannelFlushed{
 			ShutdownBalances: chanBalances,
-			FreshFlush:       true,
 		})
 	}
 
@@ -3993,7 +4194,18 @@ func (p *Brontide) initRbfChanCloser(
 	peerPub := *p.IdentityKey()
 
 	msgMapper := chancloser.NewRbfMsgMapper(
-		uint32(startingHeight), chanID, peerPub,
+		func() uint32 {
+			_, height, err := p.cfg.ChainIO.GetBestBlock()
+			if err != nil {
+				peerLog.Errorf("Unable to get best block "+
+					"height: %v", err)
+
+				return uint32(startingHeight)
+			}
+
+			return uint32(height)
+		},
+		chanID, peerPub,
 	)
 
 	initialState := chancloser.ChannelActive{}
@@ -4025,6 +4237,14 @@ func (p *Brontide) initRbfChanCloser(
 		ChanObserver: newChanObserver(
 			channel, link, p.cfg.ChanStatusMgr,
 		),
+	}
+
+	// For taproot channels, we need to set both LocalMusigSession and
+	// RemoteMusigSession to handle nonce exchange during RBF cooperative
+	// close.
+	if channel.ChanType().IsTaproot() {
+		env.LocalMusigSession = NewMusigChanCloser(channel)
+		env.RemoteMusigSession = NewMusigChanCloser(channel)
 	}
 
 	spendEvent := protofsm.RegisterSpend[chancloser.ProtocolEvent]{
@@ -4071,7 +4291,29 @@ func (p *Brontide) initRbfChanCloser(
 			"close: %w", err)
 	}
 
+	// We store the closer first so that any lookups that race with actor
+	// registration will find the chan closer already in place.
 	p.activeChanCloses.Store(chanID, makeRbfCloser(&chanCloser))
+
+	// In addition to the message router, we'll register the state machine
+	// with the actor system.
+	if p.cfg.ActorSystem != nil {
+		p.log.Infof("Registering RBF actor for channel %v",
+			channel.ChannelPoint())
+
+		actorWrapper := newRbfCloseActor(
+			channel.ChannelPoint(), p, p.cfg.ActorSystem,
+		)
+		if err := actorWrapper.registerActor(); err != nil {
+			chanCloser.Stop()
+			p.deleteActiveChanCloser(
+				chanID, channel.ChannelPoint(),
+			)
+
+			return nil, fmt.Errorf("unable to register RBF close "+
+				"actor: %w", err)
+		}
+	}
 
 	// Now that we've created the rbf closer state machine, we'll launch a
 	// new goroutine to eventually send in the ChannelFlushed event once
@@ -4339,8 +4581,6 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 		return
 	}
 
-	isTaprootChan := channel.ChanType().IsTaproot()
-
 	switch req.CloseType {
 	// A type of CloseRegular indicates that the user has opted to close
 	// out this channel on-chain, so we execute the cooperative channel
@@ -4353,9 +4593,7 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 		// iteration, in which case we'll be obtaining a new
 		// transaction w/ a higher fee rate.
 		//
-		// We don't support this close type for taproot channels yet
-		// however.
-		case !isTaprootChan && p.rbfCoopCloseAllowed():
+		case p.rbfCoopCloseAllowed():
 			err = p.startRbfChanCloser(
 				newRPCShutdownInit(req), channel.ChannelPoint(),
 			)
@@ -4508,9 +4746,12 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 	chanPoint := chanCloser.Channel().ChannelPoint()
 	p.WipeChannel(&chanPoint)
 
-	// Also clear the activeChanCloses map of this channel.
+	// Also clear the activeChanCloses map of this channel, and unregister
+	// any RBF close actor that was registered for this channel point.
+	//
+	// TODO(roasbeef): existing race.
 	cid := lnwire.NewChanIDFromOutPoint(chanPoint)
-	p.activeChanCloses.Delete(cid) // TODO(roasbeef): existing race
+	p.deleteActiveChanCloser(cid, chanPoint)
 
 	// Next, we'll launch a goroutine which will request to be notified by
 	// the ChainNotifier once the closure transaction obtains a single
@@ -4622,7 +4863,10 @@ func WaitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
 func (p *Brontide) WipeChannel(chanPoint *wire.OutPoint) {
 	chanID := lnwire.NewChanIDFromOutPoint(*chanPoint)
 
-	p.activeChannels.Delete(chanID)
+	// Remove the entry and adjust the active-channel counter atomically
+	// via the helper; it skips the decrement for pending (nil) entries
+	// since they never contributed to the counter in the first place.
+	p.removeActiveChannel(chanID)
 
 	// Instruct the HtlcSwitch to close this link as the channel is no
 	// longer active.
@@ -5050,7 +5294,9 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 			chanCloser.CloseRequest().Err <- err
 		}
 
-		p.activeChanCloses.Delete(msg.cid)
+		p.deleteActiveChanCloser(
+			msg.cid, chanCloser.Channel().ChannelPoint(),
+		)
 
 		p.Disconnect(err)
 	}
@@ -5327,7 +5573,8 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 		func(ts htlcswitch.AuxTrafficShaper) {
 			val := p.createHtlcValidator(c.OpenChannel, ts)
 			chanOpts = append(
-				chanOpts, lnwallet.WithAuxHtlcValidator(val),
+				chanOpts,
+				lnwallet.WithAuxHtlcValidator(val),
 			)
 		},
 	)
@@ -5342,8 +5589,11 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 		return fmt.Errorf("unable to create LightningChannel: %w", err)
 	}
 
-	// Store the channel in the activeChannels map.
-	p.activeChannels.Store(chanID, lnChan)
+	// Install the channel via the helper so the active-channel counter
+	// stays in lockstep: new inserts and pending-to-active promotions
+	// both bump the counter by exactly one, while the rare
+	// already-present case is a no-op.
+	p.storeActiveChannel(chanID, lnChan)
 
 	p.log.Infof("New channel active ChannelPoint(%v) with peer", chanPoint)
 
@@ -5373,12 +5623,9 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 			"peer", chanPoint)
 	}
 
-	isTaprootChan := c.ChanType.IsTaproot()
-
 	// We're using the old co-op close, so we don't need to init the new RBF
-	// chan closer. If this is a taproot channel, then we'll also fall
-	// through, as we don't support this type yet w/ rbf close.
-	if !p.rbfCoopCloseAllowed() || isTaprootChan {
+	// chan closer.
+	if !p.rbfCoopCloseAllowed() {
 		return nil
 	}
 
@@ -5389,7 +5636,7 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 	// Creating this here ensures that any shutdown messages sent will be
 	// automatically routed by the msg router.
 	if _, err := p.initRbfChanCloser(lnChan); err != nil {
-		p.activeChanCloses.Delete(chanID)
+		p.deleteActiveChanCloser(chanID, lnChan.ChannelPoint())
 
 		return fmt.Errorf("unable to init RBF chan closer for new "+
 			"chan: %w", err)
@@ -5469,7 +5716,7 @@ func (p *Brontide) handleNewPendingChannel(req *newChannelMsg) {
 	// This is a new channel, we now add it to the map `activeChannels`
 	// with nil value and mark it as a newly added channel in
 	// `addedChannels`.
-	p.activeChannels.Store(chanID, nil)
+	p.markPendingChannel(chanID)
 	p.addedChannels.Store(chanID, struct{}{})
 }
 
@@ -5496,8 +5743,16 @@ func (p *Brontide) handleRemovePendingChannel(req *newChannelMsg) {
 		p.log.Warnf("Channel(%v) not found, removing it anyway", chanID)
 	}
 
-	// Remove the record of this pending channel.
-	p.activeChannels.Delete(chanID)
+	// Delete the pending entry. handleRemovePendingChannel and
+	// handleNewActiveChannel are both arms of the channelManager
+	// select loop, so the Go runtime serializes them and the entry we
+	// delete here is guaranteed to be the pending (nil) one we stored
+	// via markPendingChannel — it cannot have been promoted behind our
+	// back. That rules out any numActiveChans decrement on this path,
+	// so we drop the defensive LoadAndDelete + conditional check the
+	// refactor left in place and use a plain Delete via
+	// deletePendingChannel.
+	p.deletePendingChannel(chanID)
 	p.addedChannels.Delete(chanID)
 }
 
@@ -5646,43 +5901,4 @@ func (p *Brontide) ChanHasRbfCoopCloser(chanPoint wire.OutPoint) bool {
 	}
 
 	return chanCloser.IsRight()
-}
-
-// TriggerCoopCloseRbfBump given a chan ID, and the params needed to trigger a
-// new RBF co-op close update, a bump is attempted. A channel used for updates,
-// along with one used to o=communicate any errors is returned. If no chan
-// closer is found, then false is returned for the second argument.
-func (p *Brontide) TriggerCoopCloseRbfBump(ctx context.Context,
-	chanPoint wire.OutPoint, feeRate chainfee.SatPerKWeight,
-	deliveryScript lnwire.DeliveryAddress) (*CoopCloseUpdates, error) {
-
-	// If RBF coop close isn't permitted, then we'll an error.
-	if !p.rbfCoopCloseAllowed() {
-		return nil, fmt.Errorf("rbf coop close not enabled for " +
-			"channel")
-	}
-
-	closeUpdates := &CoopCloseUpdates{
-		UpdateChan: make(chan interface{}, 1),
-		ErrChan:    make(chan error, 1),
-	}
-
-	// We'll re-use the existing switch struct here, even though we're
-	// bypassing the switch entirely.
-	closeReq := htlcswitch.ChanClose{
-		CloseType:      contractcourt.CloseRegular,
-		ChanPoint:      &chanPoint,
-		TargetFeePerKw: feeRate,
-		DeliveryScript: deliveryScript,
-		Updates:        closeUpdates.UpdateChan,
-		Err:            closeUpdates.ErrChan,
-		Ctx:            ctx,
-	}
-
-	err := p.startRbfChanCloser(newRPCShutdownInit(&closeReq), chanPoint)
-	if err != nil {
-		return nil, err
-	}
-
-	return closeUpdates, nil
 }

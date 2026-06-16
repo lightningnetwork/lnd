@@ -35,7 +35,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ secrets.PR_SEVERITY_BOT_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
           # Allow any user since this workflow only reads PR metadata via API
           # and doesn't execute any code from the PR. Tool permissions are

@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanfitness"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/cluster"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -325,7 +326,8 @@ type server struct {
 	graphDB *graphdb.ChannelGraph
 	v1Graph *graphdb.VersionedGraph
 
-	chanStateDB *channeldb.ChannelStateDB
+	chanStateDB chanstate.Store
+	linkNodeDB  *channeldb.LinkNodeDB
 
 	addrSource channeldb.AddrSource
 
@@ -434,6 +436,23 @@ type server struct {
 	// each peer connection.
 	onionActorFactory onionmessage.OnionActorFactory
 
+	// defaultOnionActorOpts holds the default ActorOptions (backpressure
+	// mailbox with RED) applied to every onion peer actor. These are
+	// computed once during server start and returned by the per-peer
+	// OnionActorOpts callback.
+	defaultOnionActorOpts []actor.ActorOption[
+		*onionmessage.Request, *onionmessage.Response,
+	]
+
+	// onionLimiter is the combined per-peer + global onion message
+	// ingress limiter. It hides the split between the two underlying
+	// buckets behind a single interface so peer.Config only needs to
+	// carry one field and brontide.readHandler only needs one call
+	// per incoming onion message. Nil means onion message rate
+	// limiting is disabled (e.g. when onion messaging itself is
+	// turned off).
+	onionLimiter onionmessage.IngressLimiter
+
 	// txPublisher is a publisher with fee-bumping capability.
 	txPublisher *sweep.TxPublisher
 
@@ -495,6 +514,10 @@ func (s *server) updatePersistentPeerAddrs() error {
 						len(update.Addresses))
 
 					for _, addr := range update.Addresses {
+						if isV2OnionAddr(addr) {
+							continue
+						}
+
 						addrs = append(addrs,
 							&lnwire.NetAddress{
 								IdentityKey: update.IdentityKey,
@@ -565,6 +588,15 @@ func parseAddr(address string, netCfg tor.Net) (net.Addr, error) {
 	}
 
 	if tor.IsOnionHost(host) {
+		// Reject v2 at the operator-input boundary; the wire codec
+		// still round-trips v2 from peer-signed announcements.
+		if len(host) == tor.V2Len {
+			return nil, fmt.Errorf("tor v2 onion services were "+
+				"retired in October 2021 and are no longer "+
+				"supported; use a v3 .onion address "+
+				"instead: %s", host)
+		}
+
 		return &tor.OnionAddr{OnionService: host, Port: port}, nil
 	}
 
@@ -574,6 +606,42 @@ func parseAddr(address string, netCfg tor.Net) (net.Addr, error) {
 	// address.
 	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
 	return netCfg.ResolveTCPAddr("tcp", hostPort)
+}
+
+// isV2OnionAddr reports whether addr is a Tor v2 .onion address. Tor stopped
+// serving v2 onion services in October 2021, so callers skip these on dial
+// paths. Storage and gossip re-broadcast still preserve v2 byte-for-byte to
+// keep peer-signed NodeAnnouncement signatures verifiable.
+//
+// TODO: move this helper into the `tor` module (as `tor.IsV2Onion`) and
+// remove this copy along with the duplicate in
+// watchtower/wtclient/interface.go once a new `tor` module version is cut
+// and the dependency is bumped.
+func isV2OnionAddr(addr net.Addr) bool {
+	onion, ok := addr.(*tor.OnionAddr)
+	if !ok {
+		return false
+	}
+
+	return len(onion.OnionService) == tor.V2Len
+}
+
+// withoutV2Onion returns addrs with any Tor v2 .onion entries removed. See
+// isV2OnionAddr for the rationale.
+//
+// TODO: move this helper into the `tor` module and remove this copy along
+// with the duplicate in watchtower/wtclient/interface.go once a new `tor`
+// module version is cut and the dependency is bumped.
+func withoutV2Onion(addrs []net.Addr) []net.Addr {
+	filtered := make([]net.Addr, 0, len(addrs))
+	for _, addr := range addrs {
+		if isV2OnionAddr(addr) {
+			continue
+		}
+		filtered = append(filtered, addr)
+	}
+
+	return filtered
 }
 
 // noiseDial is a factory function which creates a connmgr compliant dialing
@@ -653,6 +721,22 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			"in a standalone lnd build")
 	}
 
+	// If taproot channels are enabled, we also enable the RBF cooperative
+	// close protocol, as it is required for taproot channel
+	// interoperability.
+	//
+	// Exception: when taproot-overlay channels are enabled we do NOT
+	// auto-enable RBF, because the RBF coop close state machine does not
+	// yet thread through the AuxCloser hook that overlay channels rely on
+	// to build the aux-aware close transaction. Forcing RBF on for a
+	// node that holds overlay channels would silently break their coop
+	// closes.
+	if cfg.ProtocolOptions.TaprootChans &&
+		!cfg.ProtocolOptions.TaprootOverlayChans {
+
+		cfg.ProtocolOptions.RbfCoopClose = true
+	}
+
 	//nolint:ll
 	featureMgr, err := feature.NewManager(feature.Config{
 		NoTLVOnion:                   cfg.ProtocolOptions.LegacyOnion(),
@@ -695,13 +779,15 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	)
 
 	addrSource := channeldb.NewMultiAddrSource(dbs.ChanStateDB, v1Graph)
+	chanStateDB := dbs.ChanStateDB.ChannelStateDB()
 
 	s := &server{
 		cfg:            cfg,
 		implCfg:        implCfg,
 		graphDB:        dbs.GraphDB,
 		v1Graph:        v1Graph,
-		chanStateDB:    dbs.ChanStateDB.ChannelStateDB(),
+		chanStateDB:    chanStateDB,
+		linkNodeDB:     chanStateDB.LinkNodeDB(),
 		addrSource:     addrSource,
 		miscDB:         dbs.ChanStateDB,
 		invoicesDB:     dbs.InvoiceDB,
@@ -715,9 +801,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		blockbeatDispatcher: chainio.NewBlockbeatDispatcher(
 			cc.ChainNotifier,
 		),
-		channelNotifier: channelnotifier.New(
-			dbs.ChanStateDB.ChannelStateDB(),
-		),
+		channelNotifier: channelnotifier.New(chanStateDB),
 
 		identityECDH:   nodeKeyECDH,
 		identityKeyLoc: nodeKeyDesc.KeyLocator,
@@ -1016,7 +1100,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		return nil, fmt.Errorf("error getting source node: %w", err)
 	}
 	paymentSessionSource := &routing.SessionSource{
-		GraphSessionFactory: dbs.GraphDB,
+		GraphSessionFactory: s.v1Graph,
 		SourceNode:          sourceNode,
 		MissionControl:      s.defaultMC,
 		GetLink:             s.htlcSwitch.GetLinkByShortID,
@@ -1047,7 +1131,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 	s.chanRouter, err = routing.New(routing.Config{
 		SelfNode:                  nodePubKey,
-		RoutingGraph:              dbs.GraphDB,
+		RoutingGraph:              s.v1Graph,
 		Chain:                     cc.ChainIO,
 		Payer:                     s.htlcSwitch,
 		Control:                   s.controlTower,
@@ -1303,11 +1387,13 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			outHtlcRes fn.Option[lnwallet.OutgoingHtlcResolution],
 			inHtlcRes fn.Option[lnwallet.IncomingHtlcResolution],
 			broadcastHeight uint32,
-			deadlineHeight fn.Option[int32]) error {
+			deadlineHeight fn.Option[int32],
+			opts ...contractcourt.IncubateOption) error {
 
 			return s.utxoNursery.IncubateOutputs(
 				chanPoint, outHtlcRes, inHtlcRes,
 				broadcastHeight, deadlineHeight,
+				opts...,
 			)
 		},
 		PreimageDB:   s.witnessBeacon,
@@ -1369,6 +1455,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		Sweeper:                       s.sweeper,
 		Registry:                      s.invoices,
 		NotifyClosedChannel:           s.channelNotifier.NotifyClosedChannelEvent,
+		NotifyEarlyClosedChannel:      s.channelNotifier.NotifyEarlyClosedChannelEvent,
 		NotifyFullyResolvedChannel:    s.channelNotifier.NotifyFullyResolvedChannelEvent,
 		OnionProcessor:                s.sphinxPayment,
 		PaymentsExpirationGracePeriod: cfg.PaymentsExpirationGracePeriod,
@@ -1685,6 +1772,10 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			return s.peerNotifier.SubscribePeerEvents()
 		},
 		GetOpenChannels: s.chanStateDB.FetchAllOpenChannels,
+		IsPeerOnline: func(peer route.Vertex) bool {
+			_, err := s.FindPeerByPubStr(string(peer[:]))
+			return err == nil
+		},
 		Clock:           clock.NewDefaultClock(),
 		ReadFlapCount:   s.miscDB.ReadFlapCount,
 		WriteFlapCount:  s.miscDB.WriteFlapCounts,
@@ -1725,9 +1816,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			commitHeight uint64) (*lnwallet.BreachRetribution,
 			channeldb.ChannelType, error) {
 
-			channel, err := s.chanStateDB.FetchChannelByID(
-				nil, chanID,
-			)
+			channel, err := s.chanStateDB.FetchChannelByID(chanID)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -1756,6 +1845,13 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		taprootPolicy := policy
 		taprootPolicy.TxPolicy.BlobType |= blob.Type(
 			blob.FlagTaprootChannel,
+		)
+
+		// Copy the policy for legacy channels and set the blob flags
+		// signalling support for production taproot channels.
+		taprootFinalPolicy := policy
+		taprootFinalPolicy.TxPolicy.BlobType |= blob.Type(
+			blob.FlagTaprootChannel | blob.FlagTaprootFinalChannel,
 		)
 
 		s.towerClientMgr, err = wtclient.NewManager(&wtclient.Config{
@@ -1788,7 +1884,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			MinBackoff:         10 * time.Second,
 			MaxBackoff:         5 * time.Minute,
 			MaxTasksInMemQueue: cfg.WtClient.MaxTasksInMemQueue,
-		}, policy, anchorPolicy, taprootPolicy)
+		}, policy, anchorPolicy, taprootPolicy, taprootFinalPolicy)
 		if err != nil {
 			return nil, err
 		}
@@ -2381,6 +2477,31 @@ func (s *server) Start(ctx context.Context) error {
 				s.sphinxOnionMsg, resolver, s,
 				s.onionMessageServer,
 			)
+
+			s.defaultOnionActorOpts = onionmessage.
+				DefaultOnionActorOpts()
+
+			// Build the global and per-peer onion message rate
+			// limiters from the configured values, then compose
+			// them behind a single IngressLimiter so the peer
+			// package only needs to carry one field. A zero
+			// kbps or a zero burst-bytes disables the
+			// corresponding bucket; rates are expressed in
+			// decimal kilobits per second and bursts in bytes
+			// so operators can reason about onion message
+			// ingress in terms of bandwidth rather than raw
+			// message counts.
+			onionPeerLim := onionmessage.NewPeerRateLimiter(
+				s.cfg.ProtocolOptions.OnionMsgPeerKbps,
+				s.cfg.ProtocolOptions.OnionMsgPeerBurstBytes,
+			)
+			onionGlobalLim := onionmessage.NewGlobalLimiter(
+				s.cfg.ProtocolOptions.OnionMsgGlobalKbps,
+				s.cfg.ProtocolOptions.OnionMsgGlobalBurstBytes,
+			)
+			s.onionLimiter = onionmessage.NewIngressLimiter(
+				onionPeerLim, onionGlobalLim,
+			)
 		}
 
 		cleanup = cleanup.add(s.chanStatusMgr.Stop)
@@ -2792,6 +2913,12 @@ func (s *server) Stop() error {
 		s.sigPool.Stop()
 		s.writePool.Stop()
 		s.readPool.Stop()
+
+		// Shut down the actor system last so any in-flight actor work
+		// triggered by the subsystems above has a chance to complete.
+		if err := s.actorSystem.Shutdown(); err != nil {
+			srvrLog.Warnf("failed to stop actor system: %v", err)
+		}
 	})
 
 	return nil
@@ -2991,7 +3118,7 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 	// First, we'll create an instance of the ChannelGraphBootstrapper as
 	// this can be used by default if we've already partially seeded the
 	// network.
-	chanGraph := autopilot.ChannelGraphFromDatabase(s.graphDB)
+	chanGraph := autopilot.ChannelGraphFromDatabase(s.v1Graph)
 	graphBootstrapper, err := discovery.NewGraphBootstrapper(
 		chanGraph, s.cfg.Bitcoin.IsLocalNetwork(),
 	)
@@ -3306,8 +3433,8 @@ func (s *server) initialPeerBootstrap(ctx context.Context,
 	}
 }
 
-// createNewHiddenService automatically sets up a v2 or v3 onion service in
-// order to listen for inbound connections over Tor.
+// createNewHiddenService automatically sets up a v3 onion service in order to
+// listen for inbound connections over Tor.
 func (s *server) createNewHiddenService(ctx context.Context) error {
 	// Determine the different ports the server is listening on. The onion
 	// service's virtual port will map to these ports and one will be picked
@@ -3333,13 +3460,6 @@ func (s *server) createNewHiddenService(ctx context.Context) error {
 			s.cfg.Tor.PrivateKeyPath, 0600, s.cfg.Tor.EncryptKey,
 			encrypter,
 		),
-	}
-
-	switch {
-	case s.cfg.Tor.V2:
-		onionCfg.Type = tor.V2
-	case s.cfg.Tor.V3:
-		onionCfg.Type = tor.V3
 	}
 
 	addr, err := s.torController.AddOnion(onionCfg)
@@ -3539,7 +3659,7 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 	// Iterate through the list of LinkNodes to find addresses we should
 	// attempt to connect to based on our set of previous connections. Set
 	// the reconnection port to the default peer port.
-	linkNodes, err := s.chanStateDB.LinkNodeDB().FetchAllLinkNodes()
+	linkNodes, err := s.linkNodeDB.FetchAllLinkNodes()
 	if err != nil && !errors.Is(err, channeldb.ErrLinkNodesNotFound) {
 		return fmt.Errorf("failed to fetch all link nodes: %w", err)
 	}
@@ -3548,7 +3668,7 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 		pubStr := string(node.IdentityPub.SerializeCompressed())
 		nodeAddrs := &nodeAddresses{
 			pubKey:    node.IdentityPub,
-			addresses: node.Addresses,
+			addresses: withoutV2Onion(node.Addresses),
 		}
 		nodeAddrsMap[pubStr] = nodeAddrs
 	}
@@ -3577,6 +3697,10 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 		// connect to for this peer.
 		addrSet := make(map[string]net.Addr)
 		for _, addr := range channelPeer.Addresses {
+			if isV2OnionAddr(addr) {
+				continue
+			}
+
 			switch addr.(type) {
 			case *net.TCPAddr:
 				addrSet[addr.String()] = addr
@@ -3595,6 +3719,10 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 		linkNodeAddrs, ok := nodeAddrsMap[pubStr]
 		if ok {
 			for _, lnAddress := range linkNodeAddrs.addresses {
+				if isV2OnionAddr(lnAddress) {
+					continue
+				}
+
 				switch lnAddress.(type) {
 				case *net.TCPAddr:
 					addrSet[lnAddress.String()] = lnAddress
@@ -4450,13 +4578,21 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		RoutingPolicy:           s.cc.RoutingPolicy,
 		SphinxPayment:           s.sphinxPayment,
 		SpawnOnionActor:         s.onionActorFactory,
-		ActorSystem:             s.actorSystem,
-		WitnessBeacon:           s.witnessBeacon,
-		Invoices:                s.invoices,
-		ChannelNotifier:         s.channelNotifier,
-		HtlcNotifier:            s.htlcNotifier,
-		TowerClient:             towerClient,
-		DisconnectPeer:          s.DisconnectPeer,
+		OnionLimiter:            s.onionLimiter,
+		OnionRelayAll:           s.cfg.ProtocolOptions.OnionMsgRelayAll,
+		OnionActorOpts: func(_ [33]byte) []actor.ActorOption[
+			*onionmessage.Request, *onionmessage.Response,
+		] {
+
+			return s.defaultOnionActorOpts
+		},
+		ActorSystem:     s.actorSystem,
+		WitnessBeacon:   s.witnessBeacon,
+		Invoices:        s.invoices,
+		ChannelNotifier: s.channelNotifier,
+		HtlcNotifier:    s.htlcNotifier,
+		TowerClient:     towerClient,
+		DisconnectPeer:  s.DisconnectPeer,
 		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
 			lnwire.NodeAnnouncement1, error) {
 
@@ -5278,11 +5414,12 @@ func (s *server) fetchNodeAdvertisedAddrs(ctx context.Context,
 		return nil, err
 	}
 
-	if len(node.Addresses) == 0 {
+	addrs := withoutV2Onion(node.Addresses)
+	if len(addrs) == 0 {
 		return nil, errNoAdvertisedAddr
 	}
 
-	return node.Addresses, nil
+	return addrs, nil
 }
 
 // fetchLastChanUpdate returns a function which is able to retrieve our latest
@@ -5325,15 +5462,14 @@ func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate1,
 		}
 	}
 
-	errChan := s.authGossiper.ProcessLocalAnnouncement(
+	fut := s.authGossiper.ProcessLocalAnnouncement(
 		update, discovery.RemoteAlias(peerAlias),
 	)
-	select {
-	case err := <-errChan:
-		return err
-	case <-s.quit:
-		return ErrServerShuttingDown
-	}
+
+	ctx, cancel := lnutils.ContextFromQuit(s.quit)
+	defer cancel()
+
+	return discovery.AwaitGossipResult(ctx, fut)
 }
 
 // SendCustomMessage sends a custom message to the peer with the specified
@@ -5555,74 +5691,6 @@ func (s *server) ChanHasRbfCoopCloser(peerPub *btcec.PublicKey,
 	return targetPeer.ChanHasRbfCoopCloser(chanPoint)
 }
 
-// attemptCoopRbfFeeBump attempts to look up the active chan closer for a
-// channel given the outpoint. If found, we'll attempt to do a fee bump,
-// returning channels used for updates. If the channel isn't currently active
-// (p2p connection established), then his function will return an error.
-func (s *server) attemptCoopRbfFeeBump(ctx context.Context,
-	chanPoint wire.OutPoint, feeRate chainfee.SatPerKWeight,
-	deliveryScript lnwire.DeliveryAddress) (*peer.CoopCloseUpdates, error) {
-
-	// First, we'll attempt to look up the channel based on it's
-	// ChannelPoint.
-	channel, err := s.chanStateDB.FetchChannel(chanPoint)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch channel: %w", err)
-	}
-
-	// From the channel, we can now get the pubkey of the peer, then use
-	// that to eventually get the chan closer.
-	peerPub := channel.IdentityPub.SerializeCompressed()
-
-	// Now that we have the peer pub, we can look up the peer itself.
-	s.mu.RLock()
-	targetPeer, ok := s.peersByPub[string(peerPub)]
-	s.mu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("peer for ChannelPoint(%v) is "+
-			"not online", chanPoint)
-	}
-
-	closeUpdates, err := targetPeer.TriggerCoopCloseRbfBump(
-		ctx, chanPoint, feeRate, deliveryScript,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to trigger coop rbf fee bump: "+
-			"%w", err)
-	}
-
-	return closeUpdates, nil
-}
-
-// AttemptRBFCloseUpdate attempts to trigger a new RBF iteration for a co-op
-// close update. This route it to be used only if the target channel in question
-// is no longer active in the link. This can happen when we restart while we
-// already have done a single RBF co-op close iteration.
-func (s *server) AttemptRBFCloseUpdate(ctx context.Context,
-	chanPoint wire.OutPoint, feeRate chainfee.SatPerKWeight,
-	deliveryScript lnwire.DeliveryAddress) (*peer.CoopCloseUpdates, error) {
-
-	// If the channel is present in the switch, then the request should flow
-	// through the switch instead.
-	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
-	if _, err := s.htlcSwitch.GetLink(chanID); err == nil {
-		return nil, fmt.Errorf("ChannelPoint(%v) is active in link, "+
-			"invalid request", chanPoint)
-	}
-
-	// At this point, we know that the channel isn't present in the link, so
-	// we'll check to see if we have an entry in the active chan closer map.
-	updates, err := s.attemptCoopRbfFeeBump(
-		ctx, chanPoint, feeRate, deliveryScript,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to attempt coop rbf fee bump "+
-			"ChannelPoint(%v)", chanPoint)
-	}
-
-	return updates, nil
-}
-
 // calculateNodeAnnouncementTimestamp returns the timestamp to use for a node
 // announcement, ensuring it's at least one second after the previously
 // persisted timestamp. This ensures BOLT-07 compliance, which requires node
@@ -5727,8 +5795,10 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 
 		// If the `externalip` is not specified in the config, it means
 		// `addrs` will be empty, we'll use the source node's addresses.
+		// Filter out any persisted Tor v2 onion entries so an upgraded
+		// node never re-signs or re-broadcasts a legacy v2 address.
 		if len(s.cfg.ExternalIPs) == 0 {
-			addrs = srcNode.Addresses
+			addrs = withoutV2Onion(srcNode.Addresses)
 		}
 
 	case errors.Is(err, graphdb.ErrSourceNodeNotSet):

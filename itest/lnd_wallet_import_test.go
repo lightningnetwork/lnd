@@ -646,7 +646,6 @@ func testWalletImportPubKey(ht *lntest.HarnessTest) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		success := ht.Run(tc.name, func(tt *testing.T) {
 			testFunc := func(ht *lntest.HarnessTest) {
 				testWalletImportPubKeyScenario(

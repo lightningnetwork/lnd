@@ -301,7 +301,6 @@ func (b *Batcher) BatchFund(ctx context.Context,
 
 		// Launch a goroutine that waits for the initial response on
 		// either the update or error chan.
-		channel := channel
 		eg.Go(func() error {
 			return b.waitForUpdate(channel, true)
 		})
@@ -415,7 +414,6 @@ func (b *Batcher) BatchFund(ctx context.Context,
 	for _, channel := range b.channels {
 		// Launch another goroutine that waits for the channel pending
 		// response on the update chan.
-		channel := channel
 		eg.Go(func() error {
 			return b.waitForUpdate(channel, false)
 		})

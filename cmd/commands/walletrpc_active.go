@@ -38,6 +38,7 @@ var (
 			fundPsbtCommand,
 			fundTemplatePsbtCommand,
 			finalizePsbtCommand,
+			signPsbtCommand,
 		},
 	}
 
@@ -1472,7 +1473,9 @@ var finalizePsbtCommand = cli.Command{
 	Description: `
 	The finalize command expects a partial transaction with all inputs
 	and outputs fully declared and tries to sign all inputs that belong to
-	the wallet. Lnd must be the last signer of the transaction. That means,
+	the wallet (only standard, single-signature P2WKH, NP2WKH and P2TR
+	inputs, for any other use cases use the 'sign' subcommand instead).
+	Lnd must be the last signer of the transaction. That means,
 	if there are any unsigned non-witness inputs or inputs without UTXO
 	information attached or inputs without witness data that do not belong
 	to lnd's wallet, this method will fail. If no error is returned, the
@@ -1537,6 +1540,85 @@ func finalizePsbt(ctx *cli.Context) error {
 	printJSON(&finalizePsbtResponse{
 		Psbt:    base64.StdEncoding.EncodeToString(response.SignedPsbt),
 		FinalTx: hex.EncodeToString(response.RawFinalTx),
+	})
+
+	return nil
+}
+
+// signPsbtResponse is a struct that contains JSON annotations for nice
+// result serialization.
+type signPsbtResponse struct {
+	Psbt               string   `json:"psbt"`
+	SignedInputIndexes []uint32 `json:"signed_input_indexes"`
+}
+
+var signPsbtCommand = cli.Command{
+	Name:      "sign",
+	Usage:     "Sign a Partially Signed Bitcoin Transaction (PSBT).",
+	ArgsUsage: "funded_psbt",
+	Description: `
+	The sign command expects a partial transaction with all inputs
+	and outputs fully declared and tries to sign all inputs that can be
+	identified by the wallet as belonging to it. All fields to identify a
+	signer, such as root key fingerprints, derivation paths and public keys,
+	must be set to be able to sign the transaction.
+
+	This method does NOT finalize or publish the transaction after it's been
+	signed. If lnd was the last signer and all required signatures are
+	present, use the finalize command to finalize the transaction.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "funded_psbt",
+			Usage: "the base64 encoded PSBT to sign",
+		},
+	},
+	Action: actionDecorator(signPsbt),
+}
+
+func signPsbt(ctx *cli.Context) error {
+	ctxc := getContext()
+
+	// Display the command's help message if we do not have the expected
+	// number of arguments/flags.
+	if ctx.NArg() > 1 || ctx.NumFlags() > 1 {
+		return cli.ShowCommandHelp(ctx, "sign")
+	}
+
+	var (
+		args       = ctx.Args()
+		psbtBase64 string
+	)
+	switch {
+	case ctx.IsSet("funded_psbt"):
+		psbtBase64 = ctx.String("funded_psbt")
+	case args.Present():
+		psbtBase64 = args.First()
+	default:
+		return fmt.Errorf("funded_psbt argument missing")
+	}
+
+	psbtBytes, err := base64.StdEncoding.DecodeString(psbtBase64)
+	if err != nil {
+		return err
+	}
+	req := &walletrpc.SignPsbtRequest{
+		FundedPsbt: psbtBytes,
+	}
+
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	response, err := walletClient.SignPsbt(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printJSON(&signPsbtResponse{
+		Psbt: base64.StdEncoding.EncodeToString(
+			response.SignedPsbt,
+		),
+		SignedInputIndexes: response.SignedInputs,
 	})
 
 	return nil
@@ -1931,7 +2013,6 @@ func signMessageWithAddr(ctx *cli.Context) error {
 
 	case ctx.Args().Present():
 		msg = []byte(args.First())
-		args = args.Tail()
 
 	default:
 		return fmt.Errorf("msg argument missing")
@@ -2039,7 +2120,6 @@ func verifyMessageWithAddr(ctx *cli.Context) error {
 
 	case ctx.Args().Present():
 		msg = []byte(args.First())
-		args = args.Tail()
 
 	default:
 		return fmt.Errorf("msg argument missing")

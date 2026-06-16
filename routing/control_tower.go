@@ -366,8 +366,8 @@ func (p *controlTower) SubscribeAllPayments() (ControlTowerSubscriber, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("Scanning for inflight payments finished",
-		len(inflightPayments))
+	log.Debugf("Scanning for inflight payments finished: "+
+		"found_inflight=%d", len(inflightPayments))
 
 	for index := range inflightPayments {
 		// Always write current payment state to the channel.

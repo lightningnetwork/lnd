@@ -938,7 +938,6 @@ func (k *kvInvoiceUpdater) storeAddHtlcsUpdate() error {
 	// As we don't update the settle index above for AMP invoices, we'll do
 	// it here for each sub-AMP invoice that was settled.
 	for settledSetID := range k.settledSetIDs {
-		settledSetID := settledSetID
 		err := k.setSettleMetaFields(&settledSetID)
 		if err != nil {
 			return err
@@ -1862,7 +1861,6 @@ func ampStateEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
 		// inner length prefix.
 		for setID, ampState := range *v {
 			setID := [32]byte(setID)
-			ampState := ampState
 
 			htlcState := uint8(ampState.State)
 			settleDate := ampState.SettleDate

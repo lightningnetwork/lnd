@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
-	"io"
 	"maps"
 	"math"
 	"net"
@@ -76,7 +75,6 @@ import (
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
-	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/blindedpath"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -398,22 +396,6 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "read",
 		}},
-		"/lnrpc.Lightning/SendPayment": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
-		"/lnrpc.Lightning/SendPaymentSync": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
-		"/lnrpc.Lightning/SendToRoute": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
-		"/lnrpc.Lightning/SendToRouteSync": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
 		"/lnrpc.Lightning/AddInvoice": {{
 			Entity: "invoices",
 			Action: "write",
@@ -708,7 +690,7 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 	if err != nil {
 		return err
 	}
-	graph := s.graphDB
+	graph := s.v1Graph
 
 	routerBackend := &routerrpc.RouterBackend{
 		SelfNode: selfNode.PubKeyBytes,
@@ -785,6 +767,9 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 		ShouldSetExpAccountability: func() bool {
 			return !s.cfg.ProtocolOptions.NoExpAccountability()
 		},
+		ForwardingLog:             s.miscDB.ForwardingLog(),
+		MinForwardingHistoryAge:   s.cfg.Dev.GetMinFwdHistoryAge(),
+		FwdHistoryDeleteBatchSize: s.cfg.FwdHistoryDeleteBatchSize,
 	}
 
 	genInvoiceFeatures := func() *lnwire.FeatureVector {
@@ -2398,6 +2383,29 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 
 		*channelType = lnwire.ChannelType(*fv)
 
+	case lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL:
+		// If the final taproot channel type is being set, then the
+		// channel MUST be private (unadvertised) for now.
+		if !in.Private {
+			return nil, fmt.Errorf("taproot channels must be " +
+				"private")
+		}
+
+		channelType = new(lnwire.ChannelType)
+		fv := lnwire.NewRawFeatureVector(
+			lnwire.SimpleTaprootChannelsRequiredFinal,
+		)
+
+		if in.ZeroConf {
+			fv.Set(lnwire.ZeroConfRequired)
+		}
+
+		if in.ScidAlias {
+			fv.Set(lnwire.ScidAliasRequired)
+		}
+
+		*channelType = lnwire.ChannelType(*fv)
+
 	case lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY:
 		// If the taproot overlay channel type is being set, then the
 		// channel MUST be private.
@@ -2992,13 +3000,27 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			rpcsLog.Infof("Bypassing Switch to do fee bump "+
 				"for ChannelPoint(%v)", chanPoint)
 
-			closeUpdates, err := r.server.AttemptRBFCloseUpdate(
-				updateStream.Context(), *chanPoint, feeRate,
-				deliveryScript,
+			// To perform this RBF bump, we'll send a bump message
+			// to the RBF close actor. We propagate the stream
+			// context so that cancellation of the RPC client also
+			// tears down the observer goroutine.
+			ctx := updateStream.Context()
+			rbfBumpMsg := peer.NewRbfBumpCloseMsg(
+				ctx, *chanPoint, feeRate, deliveryScript,
 			)
+			rbfActorKey := peer.NewRbfCloserPeerServiceKey(
+				*chanPoint,
+			)
+			rbfRouter := peer.RbfChanCloserRouter(
+				r.server.actorSystem, rbfActorKey,
+			)
+
+			closeUpdates, err := rbfRouter.Ask(
+				ctx, rbfBumpMsg,
+			).Await(ctx).Unpack()
 			if err != nil {
-				return fmt.Errorf("unable to do RBF close "+
-					"update: %w", err)
+				return fmt.Errorf("unable to ask for RBF "+
+					"close: %w", err)
 			}
 
 			updateChan = closeUpdates.UpdateChan
@@ -3431,6 +3453,8 @@ func (r *rpcServer) GetInfo(_ context.Context,
 	isTestNet := chainreg.IsTestnet(&r.cfg.ActiveNetParams)
 	nodeColor := graphdb.EncodeHexColor(nodeAnn.RGBColor)
 	version := build.Version() + " commit=" + build.Commit
+	cacheStatus := r.server.graphDB.GraphCacheStatus()
+	graphCacheStatus := rpcGraphCacheStatus(cacheStatus)
 
 	return &lnrpc.GetInfoResponse{
 		IdentityPubkey:            encodedIDPub,
@@ -3454,7 +3478,28 @@ func (r *rpcServer) GetInfo(_ context.Context,
 		RequireHtlcInterceptor:    r.cfg.RequireInterceptor,
 		StoreFinalHtlcResolutions: r.cfg.StoreFinalHtlcResolutions,
 		WalletSynced:              syncInfo.isWalletSynced,
+		GraphCacheStatus:          graphCacheStatus,
 	}, nil
+}
+
+// rpcGraphCacheStatus maps the graph DB cache status to the lnrpc enum used by
+// GetInfo.
+func rpcGraphCacheStatus(
+	status graphdb.GraphCacheStatus) lnrpc.GraphCacheStatus {
+
+	switch status {
+	case graphdb.GraphCacheStatusDisabled:
+		return lnrpc.GraphCacheStatus_GRAPH_CACHE_STATUS_DISABLED
+
+	case graphdb.GraphCacheStatusLoaded:
+		return lnrpc.GraphCacheStatus_GRAPH_CACHE_STATUS_LOADED
+
+	case graphdb.GraphCacheStatusFailed:
+		return lnrpc.GraphCacheStatus_GRAPH_CACHE_STATUS_FAILED
+
+	default:
+		return lnrpc.GraphCacheStatus_GRAPH_CACHE_STATUS_LOADING
+	}
 }
 
 // GetDebugInfo returns debug information concerning the state of the daemon
@@ -4257,6 +4302,12 @@ func (r *rpcServer) fetchWaitingCloseChannels(
 		return nil, 0, err
 	}
 
+	// Get the current block height for calculating remaining confirmations.
+	_, currentHeight, err := r.server.cc.ChainIO.GetBestBlock()
+	if err != nil {
+		return nil, 0, err
+	}
+
 	result := make(waitingCloseChannels, 0)
 	limboBalance := int64(0)
 
@@ -4418,12 +4469,46 @@ func (r *rpcServer) fetchWaitingCloseChannels(
 			}
 		}
 
+		// Calculate remaining confirmations until the channel closure
+		// is considered resolved/confirmed.
+		requiredConfs := lnwallet.CloseConfsForCapacity(
+			waitingClose.Capacity,
+		)
+		if r.cfg.Dev != nil {
+			requiredConfs = r.cfg.Dev.ChannelCloseConfs().
+				UnwrapOr(requiredConfs)
+		}
+
+		blocksTilCloseConfirmed := fn.ElimOption(
+			waitingClose.CloseConfirmationHeight,
+			func() uint32 {
+				// The closing tx is not yet confirmed, show
+				// all required confirmations.
+				return requiredConfs
+			},
+			func(closeConfHeight uint32) uint32 {
+				// The closing tx has at least one
+				// confirmation. Calculate how many more are
+				// needed.
+				targetHeight := closeConfHeight +
+					requiredConfs - 1
+				if uint32(currentHeight) >= targetHeight {
+					return 0
+				}
+
+				return targetHeight - uint32(currentHeight)
+			},
+		)
+
 		waitingCloseResp := &lnrpc.PendingChannelsResponse_WaitingCloseChannel{
-			Channel:      channel,
-			LimboBalance: channel.LocalBalance,
-			Commitments:  &commitments,
-			ClosingTxid:  closingTxid,
-			ClosingTxHex: closingTxHex,
+			Channel:                 channel,
+			LimboBalance:            channel.LocalBalance,
+			Commitments:             &commitments,
+			ClosingTxid:             closingTxid,
+			ClosingTxHex:            closingTxHex,
+			BlocksTilCloseConfirmed: blocksTilCloseConfirmed,
+			CloseHeight: waitingClose.CloseConfirmationHeight.
+				UnwrapOr(0),
 		}
 
 		// A close tx has been broadcasted, all our balance will be in
@@ -4831,6 +4916,9 @@ func rpcCommitmentType(chanType channeldb.ChannelType) lnrpc.CommitmentType {
 	switch {
 	case chanType.HasTapscriptRoot():
 		return lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY
+
+	case chanType.IsTaprootFinal():
+		return lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
 
 	case chanType.IsTaproot():
 		return lnrpc.CommitmentType_SIMPLE_TAPROOT
@@ -5358,10 +5446,12 @@ func rpcChannelResolution(report *channeldb.ResolverReport) (*lnrpc.Resolution,
 }
 
 // getInitiators returns an initiator enum that provides information about the
-// party that initiated channel's open and close. This information is obtained
-// from the historical channel bucket, so unknown values are returned when the
-// channel is not present (which indicates that it was closed before we started
-// writing channels to the historical close bucket).
+// party that initiated channel's open and close. The information is normally
+// read from the historical channel bucket; for early-dispatched coop closes
+// the channel is still live in the open bucket at notify time (the historical
+// bucket is only populated at MarkChannelClosed time), so we fall back to the
+// open channel state in that case. Unknown values are returned when neither
+// bucket can provide the channel.
 func (r *rpcServer) getInitiators(chanPoint *wire.OutPoint) (
 	lnrpc.Initiator,
 	lnrpc.Initiator, error) {
@@ -5381,10 +5471,20 @@ func (r *rpcServer) getInitiators(chanPoint *wire.OutPoint) (
 	case err == channeldb.ErrNoHistoricalBucket:
 		return openInitiator, closeInitiator, nil
 
-	// The channel was closed before we started storing historical
-	// channels. Do  not return an error, initiator values are unknown.
+	// The channel was either closed before we started storing
+	// historical channels OR the historical bucket has not been
+	// populated yet because this is an early-dispatched
+	// CLOSED_CHANNEL event for a coop close that hasn't reached its
+	// full confirmation depth. Try the open channel bucket so the
+	// early dispatch still carries close-initiator info.
 	case err == channeldb.ErrChannelNotFound:
-		return openInitiator, closeInitiator, nil
+		openChan, openErr := r.server.chanStateDB.FetchChannel(
+			*chanPoint,
+		)
+		if openErr != nil {
+			return openInitiator, closeInitiator, nil
+		}
+		histChan = openChan
 
 	case err != nil:
 		return 0, 0, err
@@ -5588,777 +5688,6 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 	}
 }
 
-// paymentStream enables different types of payment streams, such as:
-// lnrpc.Lightning_SendPaymentServer and lnrpc.Lightning_SendToRouteServer to
-// execute sendPayment. We use this struct as a sort of bridge to enable code
-// re-use between SendPayment and SendToRoute.
-type paymentStream struct {
-	getCtx func() context.Context
-	recv   func() (*rpcPaymentRequest, error)
-	send   func(*lnrpc.SendResponse) error
-}
-
-// rpcPaymentRequest wraps lnrpc.SendRequest so that routes from
-// lnrpc.SendToRouteRequest can be passed to sendPayment.
-type rpcPaymentRequest struct {
-	*lnrpc.SendRequest
-	route *route.Route
-}
-
-// SendPayment dispatches a bi-directional streaming RPC for sending payments
-// through the Lightning Network. A single RPC invocation creates a persistent
-// bi-directional stream allowing clients to rapidly send payments through the
-// Lightning Network with a single persistent connection.
-func (r *rpcServer) SendPayment(
-	stream lnrpc.Lightning_SendPaymentServer) error {
-
-	var lock sync.Mutex
-
-	return r.sendPayment(&paymentStream{
-		getCtx: stream.Context,
-		recv: func() (*rpcPaymentRequest, error) {
-			req, err := stream.Recv()
-			if err != nil {
-				return nil, err
-			}
-
-			return &rpcPaymentRequest{
-				SendRequest: req,
-			}, nil
-		},
-		send: func(r *lnrpc.SendResponse) error {
-			// Calling stream.Send concurrently is not safe.
-			lock.Lock()
-			defer lock.Unlock()
-			return stream.Send(r)
-		},
-	})
-}
-
-// SendToRoute dispatches a bi-directional streaming RPC for sending payments
-// through the Lightning Network via predefined routes passed in. A single RPC
-// invocation creates a persistent bi-directional stream allowing clients to
-// rapidly send payments through the Lightning Network with a single persistent
-// connection.
-func (r *rpcServer) SendToRoute(
-	stream lnrpc.Lightning_SendToRouteServer) error {
-
-	var lock sync.Mutex
-
-	return r.sendPayment(&paymentStream{
-		getCtx: stream.Context,
-		recv: func() (*rpcPaymentRequest, error) {
-			req, err := stream.Recv()
-			if err != nil {
-				return nil, err
-			}
-
-			return r.unmarshallSendToRouteRequest(req)
-		},
-		send: func(r *lnrpc.SendResponse) error {
-			// Calling stream.Send concurrently is not safe.
-			lock.Lock()
-			defer lock.Unlock()
-			return stream.Send(r)
-		},
-	})
-}
-
-// unmarshallSendToRouteRequest unmarshalls an rpc sendtoroute request
-func (r *rpcServer) unmarshallSendToRouteRequest(
-	req *lnrpc.SendToRouteRequest) (*rpcPaymentRequest, error) {
-
-	if req.Route == nil {
-		return nil, fmt.Errorf("unable to send, no route provided")
-	}
-
-	route, err := r.routerBackend.UnmarshallRoute(req.Route)
-	if err != nil {
-		return nil, err
-	}
-
-	return &rpcPaymentRequest{
-		SendRequest: &lnrpc.SendRequest{
-			PaymentHash:       req.PaymentHash,
-			PaymentHashString: req.PaymentHashString,
-		},
-		route: route,
-	}, nil
-}
-
-// rpcPaymentIntent is a small wrapper struct around the of values we can
-// receive from a client over RPC if they wish to send a payment. We'll either
-// extract these fields from a payment request (which may include routing
-// hints), or we'll get a fully populated route from the user that we'll pass
-// directly to the channel router for dispatching.
-type rpcPaymentIntent struct {
-	msat               lnwire.MilliSatoshi
-	feeLimit           lnwire.MilliSatoshi
-	cltvLimit          uint32
-	dest               route.Vertex
-	rHash              [32]byte
-	cltvDelta          uint16
-	routeHints         [][]zpay32.HopHint
-	outgoingChannelIDs []uint64
-	lastHop            *route.Vertex
-	destFeatures       *lnwire.FeatureVector
-	paymentAddr        fn.Option[[32]byte]
-	payReq             []byte
-	metadata           []byte
-	blindedPathSet     *routing.BlindedPaymentPathSet
-
-	destCustomRecords record.CustomSet
-
-	route *route.Route
-}
-
-// extractPaymentIntent attempts to parse the complete details required to
-// dispatch a client from the information presented by an RPC client. There are
-// three ways a client can specify their payment details: a payment request,
-// via manual details, or via a complete route.
-//
-//nolint:funlen
-func (r *rpcServer) extractPaymentIntent(
-	rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error) {
-
-	payIntent := rpcPaymentIntent{}
-
-	// If a route was specified, then we can use that directly.
-	if rpcPayReq.route != nil {
-		// If the user is using the REST interface, then they'll be
-		// passing the payment hash as a hex encoded string.
-		if rpcPayReq.PaymentHashString != "" {
-			paymentHash, err := hex.DecodeString(
-				rpcPayReq.PaymentHashString,
-			)
-			if err != nil {
-				return payIntent, err
-			}
-
-			copy(payIntent.rHash[:], paymentHash)
-		} else {
-			copy(payIntent.rHash[:], rpcPayReq.PaymentHash)
-		}
-
-		payIntent.route = rpcPayReq.route
-		return payIntent, nil
-	}
-
-	// If there are no routes specified, pass along a outgoing channel
-	// restriction if specified. The main server rpc does not support
-	// multiple channel restrictions.
-	if rpcPayReq.OutgoingChanId != 0 {
-		payIntent.outgoingChannelIDs = []uint64{
-			rpcPayReq.OutgoingChanId,
-		}
-	}
-
-	// Pass along a last hop restriction if specified.
-	if len(rpcPayReq.LastHopPubkey) > 0 {
-		lastHop, err := route.NewVertexFromBytes(
-			rpcPayReq.LastHopPubkey,
-		)
-		if err != nil {
-			return payIntent, err
-		}
-		payIntent.lastHop = &lastHop
-	}
-
-	// Take the CLTV limit from the request if set, otherwise use the max.
-	cltvLimit, err := routerrpc.ValidateCLTVLimit(
-		rpcPayReq.CltvLimit, r.cfg.MaxOutgoingCltvExpiry,
-	)
-	if err != nil {
-		return payIntent, err
-	}
-	payIntent.cltvLimit = cltvLimit
-
-	customRecords := record.CustomSet(rpcPayReq.DestCustomRecords)
-	if err := customRecords.Validate(); err != nil {
-		return payIntent, err
-	}
-	payIntent.destCustomRecords = customRecords
-
-	validateDest := func(dest route.Vertex) error {
-		if rpcPayReq.AllowSelfPayment {
-			return nil
-		}
-
-		if dest == r.selfNode {
-			return errors.New("self-payments not allowed")
-		}
-
-		return nil
-	}
-
-	// If the payment request field isn't blank, then the details of the
-	// invoice are encoded entirely within the encoded payReq.  So we'll
-	// attempt to decode it, populating the payment accordingly.
-	if rpcPayReq.PaymentRequest != "" {
-		payReq, err := zpay32.Decode(
-			rpcPayReq.PaymentRequest, r.cfg.ActiveNetParams.Params,
-			zpay32.WithErrorOnUnknownFeatureBit(),
-		)
-		if err != nil {
-			return payIntent, err
-		}
-
-		// Next, we'll ensure that this payreq hasn't already expired.
-		err = routerrpc.ValidatePayReqExpiry(
-			r.routerBackend.Clock, payReq,
-		)
-		if err != nil {
-			return payIntent, err
-		}
-
-		// If the amount was not included in the invoice, then we let
-		// the payer specify the amount of satoshis they wish to send.
-		// We override the amount to pay with the amount provided from
-		// the payment request.
-		if payReq.MilliSat == nil {
-			amt, err := lnrpc.UnmarshallAmt(
-				rpcPayReq.Amt, rpcPayReq.AmtMsat,
-			)
-			if err != nil {
-				return payIntent, err
-			}
-			if amt == 0 {
-				return payIntent, errors.New("amount must be " +
-					"specified when paying a zero amount " +
-					"invoice")
-			}
-
-			payIntent.msat = amt
-		} else {
-			payIntent.msat = *payReq.MilliSat
-		}
-
-		// Calculate the fee limit that should be used for this payment.
-		payIntent.feeLimit = lnrpc.CalculateFeeLimit(
-			rpcPayReq.FeeLimit, payIntent.msat,
-		)
-
-		copy(payIntent.rHash[:], payReq.PaymentHash[:])
-		destKey := payReq.Destination.SerializeCompressed()
-		copy(payIntent.dest[:], destKey)
-		payIntent.cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
-		payIntent.routeHints = payReq.RouteHints
-		payIntent.payReq = []byte(rpcPayReq.PaymentRequest)
-		payIntent.destFeatures = payReq.Features
-		payIntent.paymentAddr = payReq.PaymentAddr
-		payIntent.metadata = payReq.Metadata
-
-		if len(payReq.BlindedPaymentPaths) > 0 {
-			pathSet, err := routerrpc.BuildBlindedPathSet(
-				payReq.BlindedPaymentPaths,
-			)
-			if err != nil {
-				return payIntent, err
-			}
-			payIntent.blindedPathSet = pathSet
-
-			// Replace the destination node with the target public
-			// key of the blinded path set.
-			copy(
-				payIntent.dest[:],
-				pathSet.TargetPubKey().SerializeCompressed(),
-			)
-
-			pathFeatures := pathSet.Features()
-			if !pathFeatures.IsEmpty() {
-				payIntent.destFeatures = pathFeatures.Clone()
-			}
-		}
-
-		if err := validateDest(payIntent.dest); err != nil {
-			return payIntent, err
-		}
-
-		// Do bounds checking with the block padding.
-		err = routing.ValidateCLTVLimit(
-			payIntent.cltvLimit, payIntent.cltvDelta, true,
-		)
-		if err != nil {
-			return payIntent, err
-		}
-
-		return payIntent, nil
-	}
-
-	// At this point, a destination MUST be specified, so we'll convert it
-	// into the proper representation now. The destination will either be
-	// encoded as raw bytes, or via a hex string.
-	var pubBytes []byte
-	if len(rpcPayReq.Dest) != 0 {
-		pubBytes = rpcPayReq.Dest
-	} else {
-		var err error
-		pubBytes, err = hex.DecodeString(rpcPayReq.DestString)
-		if err != nil {
-			return payIntent, err
-		}
-	}
-	if len(pubBytes) != 33 {
-		return payIntent, errors.New("invalid key length")
-	}
-	copy(payIntent.dest[:], pubBytes)
-
-	if err := validateDest(payIntent.dest); err != nil {
-		return payIntent, err
-	}
-
-	// Payment address may not be needed by legacy invoices.
-	if len(rpcPayReq.PaymentAddr) != 0 && len(rpcPayReq.PaymentAddr) != 32 {
-		return payIntent, errors.New("invalid payment address length")
-	}
-
-	// Set the payment address if it was explicitly defined with the
-	// rpcPaymentRequest.
-	// Note that the payment address for the payIntent should be nil if none
-	// was provided with the rpcPaymentRequest.
-	if len(rpcPayReq.PaymentAddr) != 0 {
-		var addr [32]byte
-		copy(addr[:], rpcPayReq.PaymentAddr)
-		payIntent.paymentAddr = fn.Some(addr)
-	}
-
-	// Otherwise, If the payment request field was not specified
-	// (and a custom route wasn't specified), construct the payment
-	// from the other fields.
-	payIntent.msat, err = lnrpc.UnmarshallAmt(
-		rpcPayReq.Amt, rpcPayReq.AmtMsat,
-	)
-	if err != nil {
-		return payIntent, err
-	}
-
-	// Calculate the fee limit that should be used for this payment.
-	payIntent.feeLimit = lnrpc.CalculateFeeLimit(
-		rpcPayReq.FeeLimit, payIntent.msat,
-	)
-
-	if rpcPayReq.FinalCltvDelta != 0 {
-		payIntent.cltvDelta = uint16(rpcPayReq.FinalCltvDelta)
-	} else {
-		// If no final cltv delta is given, assume the default that we
-		// use when creating an invoice. We do not assume the default of
-		// 9 blocks that is defined in BOLT-11, because this is never
-		// enough for other lnd nodes.
-		payIntent.cltvDelta = uint16(r.cfg.Bitcoin.TimeLockDelta)
-	}
-
-	// Do bounds checking with the block padding so the router isn't left
-	// with a zombie payment in case the user messes up.
-	err = routing.ValidateCLTVLimit(
-		payIntent.cltvLimit, payIntent.cltvDelta, true,
-	)
-	if err != nil {
-		return payIntent, err
-	}
-
-	// If the user is manually specifying payment details, then the payment
-	// hash may be encoded as a string.
-	switch {
-	case rpcPayReq.PaymentHashString != "":
-		paymentHash, err := hex.DecodeString(
-			rpcPayReq.PaymentHashString,
-		)
-		if err != nil {
-			return payIntent, err
-		}
-
-		copy(payIntent.rHash[:], paymentHash)
-
-	default:
-		copy(payIntent.rHash[:], rpcPayReq.PaymentHash)
-	}
-
-	// Unmarshal any custom destination features.
-	payIntent.destFeatures = routerrpc.UnmarshalFeatures(
-		rpcPayReq.DestFeatures,
-	)
-
-	return payIntent, nil
-}
-
-type paymentIntentResponse struct {
-	Route    *route.Route
-	Preimage [32]byte
-	Err      error
-}
-
-// dispatchPaymentIntent attempts to fully dispatch an RPC payment intent.
-// We'll either pass the payment as a whole to the channel router, or give it a
-// pre-built route. The first error this method returns denotes if we were
-// unable to save the payment. The second error returned denotes if the payment
-// didn't succeed.
-func (r *rpcServer) dispatchPaymentIntent(ctx context.Context,
-	payIntent *rpcPaymentIntent) (*paymentIntentResponse, error) {
-
-	// Construct a payment request to send to the channel router. If the
-	// payment is successful, the route chosen will be returned. Otherwise,
-	// we'll get a non-nil error.
-	var (
-		preImage  [32]byte
-		route     *route.Route
-		routerErr error
-	)
-
-	// If a route was specified, then we'll pass the route directly to the
-	// router, otherwise we'll create a payment session to execute it.
-	if payIntent.route == nil {
-		payment := &routing.LightningPayment{
-			Target:             payIntent.dest,
-			Amount:             payIntent.msat,
-			FinalCLTVDelta:     payIntent.cltvDelta,
-			FeeLimit:           payIntent.feeLimit,
-			CltvLimit:          payIntent.cltvLimit,
-			RouteHints:         payIntent.routeHints,
-			OutgoingChannelIDs: payIntent.outgoingChannelIDs,
-			LastHop:            payIntent.lastHop,
-			PaymentRequest:     payIntent.payReq,
-			PayAttemptTimeout:  routing.DefaultPayAttemptTimeout,
-			DestCustomRecords:  payIntent.destCustomRecords,
-			DestFeatures:       payIntent.destFeatures,
-			PaymentAddr:        payIntent.paymentAddr,
-			Metadata:           payIntent.metadata,
-			BlindedPathSet:     payIntent.blindedPathSet,
-
-			// Don't enable multi-part payments on the main rpc.
-			// Users need to use routerrpc for that.
-			MaxParts: 1,
-		}
-		err := payment.SetPaymentHash(payIntent.rHash)
-		if err != nil {
-			return nil, err
-		}
-
-		preImage, route, routerErr = r.server.chanRouter.SendPayment(
-			ctx, payment,
-		)
-	} else {
-		var attempt *paymentsdb.HTLCAttempt
-		attempt, routerErr = r.server.chanRouter.SendToRoute(
-			ctx, payIntent.rHash, payIntent.route, nil,
-		)
-
-		if routerErr == nil {
-			preImage = attempt.Settle.Preimage
-		}
-
-		route = payIntent.route
-	}
-
-	// If the route failed, then we'll return a nil save err, but a non-nil
-	// routing err.
-	if routerErr != nil {
-		rpcsLog.Warnf("Unable to send payment: %v", routerErr)
-
-		return &paymentIntentResponse{
-			Err: routerErr,
-		}, nil
-	}
-
-	return &paymentIntentResponse{
-		Route:    route,
-		Preimage: preImage,
-	}, nil
-}
-
-// sendPayment takes a paymentStream (a source of pre-built routes or payment
-// requests) and continually attempt to dispatch payment requests written to
-// the write end of the stream. Responses will also be streamed back to the
-// client via the write end of the stream. This method is by both SendToRoute
-// and SendPayment as the logic is virtually identical.
-func (r *rpcServer) sendPayment(stream *paymentStream) error {
-	payChan := make(chan *rpcPaymentIntent)
-	errChan := make(chan error, 1)
-
-	// We don't allow payments to be sent while the daemon itself is still
-	// syncing as we may be trying to sent a payment over a "stale"
-	// channel.
-	if !r.server.Started() {
-		return ErrServerNotActive
-	}
-
-	// TODO(roasbeef): check payment filter to see if already used?
-
-	// In order to limit the level of concurrency and prevent a client from
-	// attempting to OOM the server, we'll set up a semaphore to create an
-	// upper ceiling on the number of outstanding payments.
-	const numOutstandingPayments = 2000
-	htlcSema := make(chan struct{}, numOutstandingPayments)
-	for i := 0; i < numOutstandingPayments; i++ {
-		htlcSema <- struct{}{}
-	}
-
-	// We keep track of the running goroutines and set up a quit signal we
-	// can use to request them to exit if the method returns because of an
-	// encountered error.
-	var wg sync.WaitGroup
-	reqQuit := make(chan struct{})
-	defer close(reqQuit)
-
-	// Launch a new goroutine to handle reading new payment requests from
-	// the client. This way we can handle errors independently of blocking
-	// and waiting for the next payment request to come through.
-	// TODO(joostjager): Callers expect result to come in in the same order
-	// as the request were sent, but this is far from guarantueed in the
-	// code below.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		for {
-			select {
-			case <-reqQuit:
-				return
-
-			default:
-				// Receive the next pending payment within the
-				// stream sent by the client. If we read the
-				// EOF sentinel, then the client has closed the
-				// stream, and we can exit normally.
-				nextPayment, err := stream.recv()
-				if err == io.EOF {
-					close(payChan)
-					return
-				} else if err != nil {
-					rpcsLog.Errorf("Failed receiving from "+
-						"stream: %v", err)
-
-					select {
-					case errChan <- err:
-					default:
-					}
-					return
-				}
-
-				// Populate the next payment, either from the
-				// payment request, or from the explicitly set
-				// fields. If the payment proto wasn't well
-				// formed, then we'll send an error reply and
-				// wait for the next payment.
-				payIntent, err := r.extractPaymentIntent(
-					nextPayment,
-				)
-				if err != nil {
-					if err := stream.send(&lnrpc.SendResponse{
-						PaymentError: err.Error(),
-						PaymentHash:  payIntent.rHash[:],
-					}); err != nil {
-						rpcsLog.Errorf("Failed "+
-							"sending on "+
-							"stream: %v", err)
-
-						select {
-						case errChan <- err:
-						default:
-						}
-						return
-					}
-					continue
-				}
-
-				// If the payment was well formed, then we'll
-				// send to the dispatch goroutine, or exit,
-				// which ever comes first.
-				select {
-				case payChan <- &payIntent:
-				case <-reqQuit:
-					return
-				}
-			}
-		}
-	}()
-
-sendLoop:
-	for {
-		select {
-
-		// If we encounter and error either during sending or
-		// receiving, we return directly, closing the stream.
-		case err := <-errChan:
-			return err
-
-		case <-r.quit:
-			return errors.New("rpc server shutting down")
-
-		case payIntent, ok := <-payChan:
-			// If the receive loop is done, we break the send loop
-			// and wait for the ongoing payments to finish before
-			// exiting.
-			if !ok {
-				break sendLoop
-			}
-
-			// We launch a new goroutine to execute the current
-			// payment so we can continue to serve requests while
-			// this payment is being dispatched.
-			wg.Add(1)
-			go func(payIntent *rpcPaymentIntent) {
-				defer wg.Done()
-
-				// Attempt to grab a free semaphore slot, using
-				// a defer to eventually release the slot
-				// regardless of payment success.
-				select {
-				case <-htlcSema:
-				case <-reqQuit:
-					return
-				}
-				defer func() {
-					htlcSema <- struct{}{}
-				}()
-
-				resp, saveErr := r.dispatchPaymentIntent(
-					stream.getCtx(), payIntent,
-				)
-
-				switch {
-				// If we were unable to save the state of the
-				// payment, then we'll return the error to the
-				// user, and terminate.
-				case saveErr != nil:
-					rpcsLog.Errorf("Failed dispatching "+
-						"payment intent: %v", saveErr)
-
-					select {
-					case errChan <- saveErr:
-					default:
-					}
-					return
-
-				// If we receive payment error than, instead of
-				// terminating the stream, send error response
-				// to the user.
-				case resp.Err != nil:
-					err := stream.send(&lnrpc.SendResponse{
-						PaymentError: resp.Err.Error(),
-						PaymentHash:  payIntent.rHash[:],
-					})
-					if err != nil {
-						rpcsLog.Errorf("Failed "+
-							"sending error "+
-							"response: %v", err)
-
-						select {
-						case errChan <- err:
-						default:
-						}
-					}
-					return
-				}
-
-				backend := r.routerBackend
-				marshalledRouted, err := backend.MarshallRoute(
-					resp.Route,
-				)
-				if err != nil {
-					errChan <- err
-					return
-				}
-
-				err = stream.send(&lnrpc.SendResponse{
-					PaymentHash:     payIntent.rHash[:],
-					PaymentPreimage: resp.Preimage[:],
-					PaymentRoute:    marshalledRouted,
-				})
-				if err != nil {
-					rpcsLog.Errorf("Failed sending "+
-						"response: %v", err)
-
-					select {
-					case errChan <- err:
-					default:
-					}
-					return
-				}
-			}(payIntent)
-		}
-	}
-
-	// Wait for all goroutines to finish before closing the stream.
-	wg.Wait()
-	return nil
-}
-
-// SendPaymentSync is the synchronous non-streaming version of SendPayment.
-// This RPC is intended to be consumed by clients of the REST proxy.
-// Additionally, this RPC expects the destination's public key and the payment
-// hash (if any) to be encoded as hex strings.
-func (r *rpcServer) SendPaymentSync(ctx context.Context,
-	nextPayment *lnrpc.SendRequest) (*lnrpc.SendResponse, error) {
-
-	return r.sendPaymentSync(ctx, &rpcPaymentRequest{
-		SendRequest: nextPayment,
-	})
-}
-
-// SendToRouteSync is the synchronous non-streaming version of SendToRoute.
-// This RPC is intended to be consumed by clients of the REST proxy.
-// Additionally, this RPC expects the payment hash (if any) to be encoded as
-// hex strings.
-func (r *rpcServer) SendToRouteSync(ctx context.Context,
-	req *lnrpc.SendToRouteRequest) (*lnrpc.SendResponse, error) {
-
-	if req.Route == nil {
-		return nil, fmt.Errorf("unable to send, no routes provided")
-	}
-
-	paymentRequest, err := r.unmarshallSendToRouteRequest(req)
-	if err != nil {
-		return nil, err
-	}
-
-	return r.sendPaymentSync(ctx, paymentRequest)
-}
-
-// sendPaymentSync is the synchronous variant of sendPayment. It will block and
-// wait until the payment has been fully completed.
-func (r *rpcServer) sendPaymentSync(ctx context.Context,
-	nextPayment *rpcPaymentRequest) (*lnrpc.SendResponse, error) {
-
-	// We don't allow payments to be sent while the daemon itself is still
-	// syncing as we may be trying to sent a payment over a "stale"
-	// channel.
-	if !r.server.Started() {
-		return nil, ErrServerNotActive
-	}
-
-	// First we'll attempt to map the proto describing the next payment to
-	// an intent that we can pass to local sub-systems.
-	payIntent, err := r.extractPaymentIntent(nextPayment)
-	if err != nil {
-		return nil, err
-	}
-
-	// With the payment validated, we'll now attempt to dispatch the
-	// payment.
-	resp, saveErr := r.dispatchPaymentIntent(ctx, &payIntent)
-	switch {
-	case saveErr != nil:
-		return nil, saveErr
-
-	case resp.Err != nil:
-		return &lnrpc.SendResponse{
-			PaymentError: resp.Err.Error(),
-			PaymentHash:  payIntent.rHash[:],
-		}, nil
-	}
-
-	rpcRoute, err := r.routerBackend.MarshallRoute(resp.Route)
-	if err != nil {
-		return nil, err
-	}
-
-	return &lnrpc.SendResponse{
-		PaymentHash:     payIntent.rHash[:],
-		PaymentPreimage: resp.Preimage[:],
-		PaymentRoute:    rpcRoute,
-	}, nil
-}
-
 // AddInvoice attempts to add a new invoice to the invoice database. Any
 // duplicated invoices are rejected, therefore all invoices *must* have a
 // unique payment preimage.
@@ -6462,7 +5791,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		NodeSigner:        r.server.nodeSigner,
 		DefaultCLTVExpiry: defaultDelta,
 		ChanDB:            r.server.chanStateDB,
-		Graph:             r.server.graphDB,
+		Graph:             r.server.v1Graph,
 		GenInvoiceFeatures: func() *lnwire.FeatureVector {
 			v := r.server.featureMgr.Get(feature.SetInvoice)
 
@@ -6687,7 +6016,6 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 		LastIndexOffset:  invoiceSlice.LastIndexOffset,
 	}
 	for i, invoice := range invoiceSlice.Invoices {
-		invoice := invoice
 		resp.Invoices[i], err = invoicesrpc.CreateRPCInvoice(
 			&invoice, r.cfg.ActiveNetParams.Params,
 		)
@@ -7089,10 +6417,11 @@ func (r *rpcServer) GetNodeMetrics(ctx context.Context,
 		BetweennessCentrality: make(map[string]*lnrpc.FloatMetric),
 	}
 
-	// Obtain the pointer to the global singleton channel graph, this will
-	// provide a consistent view of the graph due to bolt db's
-	// transactional model.
-	graph := r.server.graphDB
+	// Obtain the pointer to the V1 channel graph, this will provide a
+	// consistent view of the graph due to bolt db's transactional model.
+	//
+	// TODO(elle): switch to a cross-version graph view when available.
+	graph := r.server.v1Graph
 
 	// Calculate betweenness centrality if requested. Note that depending on the
 	// graph size, this may take up to a few minutes.
@@ -7306,7 +6635,8 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	_ *lnrpc.NetworkInfoRequest) (*lnrpc.NetworkInfo, error) {
 
-	graph := r.server.graphDB
+	// TODO(elle): switch to a cross-version graph view when available.
+	graph := r.server.v1Graph
 
 	var (
 		numNodes             uint32
@@ -7331,8 +6661,8 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	// network, tallying up the total number of nodes, and also gathering
 	// each node so we can measure the graph diameter and degree stats
 	// below.
-	err := graph.ForEachNodeCached(ctx, false, func(ctx context.Context,
-		node route.Vertex, _ []net.Addr,
+	err := graph.ForEachNodeCached(ctx, func(ctx context.Context,
+		node route.Vertex,
 		edges map[uint64]*graphdb.DirectedChannel) error {
 
 		// Increment the total number of nodes with each iteration.
@@ -7668,6 +6998,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		CountTotal:        req.CountTotalPayments,
 		CreationDateStart: int64(req.CreationDateStart),
 		CreationDateEnd:   int64(req.CreationDateEnd),
+		OmitHops:          req.OmitHops,
 	}
 
 	// If the maximum number of payments wasn't specified, we default to
@@ -7695,7 +7026,6 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 	}
 
 	for _, payment := range paymentsQuerySlice.Payments {
-		payment := payment
 
 		rpcPayment, err := r.routerBackend.MarshallPayment(payment)
 		if err != nil {
@@ -8728,23 +8058,33 @@ func (r *rpcServer) SubscribeChannelBackups(req *lnrpc.ChannelBackupSubscription
 		select {
 		// A new event has been sent by the channel notifier, we'll
 		// assemble, then sling out a new event to the client.
-		case e := <-chanSubscription.Updates():
+		case e, ok := <-chanSubscription.Updates():
+			if !ok {
+				// The subscription server closes the updates
+				// channel during shutdown or cancellation, so
+				// end the stream gracefully.
+				return nil
+			}
+
 			// TODO(roasbeef): batch dispatch ntnfs
 
 			switch e.(type) {
 
-			// We only care about new/closed channels, so we'll
-			// skip any events for active/inactive channels.
-			// To make the subscription behave the same way as the
-			// synchronous call and the file based backup, we also
-			// include pending channels in the update.
-			case channelnotifier.ActiveChannelEvent:
-				continue
-			case channelnotifier.InactiveChannelEvent:
-				continue
-			case channelnotifier.ActiveLinkEvent:
-				continue
-			case channelnotifier.InactiveLinkEvent:
+			// Only channel lifecycle events should trigger this
+			// subscription. Commitment updates can affect
+			// close-tx inputs embedded in an exported SCB, but
+			// emitting on that frequency would make this stream
+			// too noisy. To make the subscription behave the same
+			// way as the synchronous call and the file based
+			// backup, we also include pending channels in the
+			// update.
+			case channelnotifier.PendingOpenChannelEvent,
+				channelnotifier.OpenChannelEvent,
+				channelnotifier.ClosedChannelEvent,
+				channelnotifier.FullyResolvedChannelEvent,
+				channelnotifier.FundingTimeoutEvent:
+
+			default:
 				continue
 			}
 
@@ -9461,15 +8801,19 @@ func (r *rpcServer) SubscribeOnionMessages(
 
 			//nolint:ll
 			if oMsg.ReplyPath != nil {
-				bp.IntroductionNode = oMsg.ReplyPath.IntroductionPoint.SerializeCompressed()
+				// TODO(bolt12): resolve sciddir intros via
+				// sciddirResolver so this field is uniformly a
+				// 33-byte pubkey?
+				bp.IntroductionNode = oMsg.ReplyPath.IntroductionNode.Bytes()
 				bp.BlindingPoint = oMsg.ReplyPath.BlindingPoint.SerializeCompressed()
 
-				for _, hop := range oMsg.ReplyPath.BlindedHops {
-					rpcHop := &lnrpc.BlindedHop{
-						BlindedNode:   hop.BlindedNodePub.SerializeCompressed(),
-						EncryptedData: hop.CipherText,
-					}
-					bp.BlindedHops = append(bp.BlindedHops, rpcHop)
+				for _, hop := range oMsg.ReplyPath.Hops {
+					bp.BlindedHops = append(
+						bp.BlindedHops, &lnrpc.BlindedHop{
+							BlindedNode:   hop.BlindedNodeID.SerializeCompressed(),
+							EncryptedData: hop.EncryptedData,
+						},
+					)
 				}
 			}
 

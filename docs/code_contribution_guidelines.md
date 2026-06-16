@@ -3,16 +3,17 @@
 2. [Minimum Recommended Skillset](#minimum-recommended-skillset)
 3. [Required Reading](#required-reading)
 4. [Substantial contributions only](#substantial-contributions-only)
-5. [Development Practices](#development-practices)
+5. [New Contributors](#new-contributors)
+6. [Development Practices](#development-practices)
    1. [Share Early, Share Often](#share-early-share-often)
    1. [Development Guidelines](#development-guidelines)
-5. [Code Approval Process](#code-approval-process)
+7. [Code Approval Process](#code-approval-process)
    1. [Code Review](#code-review)
    1. [Rework Code (if needed)](#rework-code-if-needed)
    1. [Acceptance](#acceptance)
    1. [Backporting Changes](#backporting-changes)
    1. [Review Bot](#review-bot)
-7. [Contribution Standards](#contribution-standards)
+8. [Contribution Standards](#contribution-standards)
    1. [Contribution Checklist](#contribution-checklist)
    1. [Licensing of Contributions](#licensing-of-contributions)
 
@@ -113,6 +114,19 @@ maintainer review cycles, resulting in potentially faster merges.
 Also, consider increasing the test coverage of the code by writing more unit
 tests first, which is also a very valuable way to contribute and learn more
 about the code base.
+
+# New Contributors
+Due to the ubiquity of LLM coding tools, pull requests
+from new contributors are not prioritized for review. If you're a
+new contributor with aspirations to contribute to LND, we recommend starting
+with issue triage and PR reviews. These are a better avenue to demonstrate
+your knowledge and desire to contribute to open source than new code in this
+era of easy AI-assisted code generation. This should also help build a track 
+record that makes your future PRs easier to prioritize.
+
+If you spot a glaring issue, we may still merge the fix or take it over
+ourselves. And if you're a new developer who notices an issue with the code,
+consider opening a detailed issue instead of a PR.
 
 # Development Practices
 

@@ -19,12 +19,14 @@ var (
 	probeAmount    = btcutil.Amount(100_000)
 	probeAmt       = int64(probeAmount) * 1_000
 
-	failureReasonNone    = lnrpc.PaymentFailureReason_FAILURE_REASON_NONE
-	failureReasonNoRoute = lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE //nolint:ll
+	failureReasonNone          = lnrpc.PaymentFailureReason_FAILURE_REASON_NONE                 //nolint:ll
+	failureReasonNoRoute       = lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE             //nolint:ll
+	failureInsufficientBalance = lnrpc.PaymentFailureReason_FAILURE_REASON_INSUFFICIENT_BALANCE //nolint:ll
 )
 
 const (
-	ErrNoRouteInGraph = "unable to find a path to destination"
+	ErrNoRouteInGraph      = "unable to find a path to destination"
+	ErrInsufficientBalance = "insufficient local balance"
 )
 
 type estimateRouteFeeTestCase struct {
@@ -40,6 +42,10 @@ type estimateRouteFeeTestCase struct {
 
 	// routeHints are the route hints that will be used for the probe.
 	routeHints []*lnrpc.RouteHint
+
+	// outgoingChanIds is the list of channel IDs allowed for the first
+	// hop. If empty, any channel may be used.
+	outgoingChanIds []uint64
 
 	// expectedRoutingFeesMsat are the expected routing fees that will be
 	// returned by the probe.
@@ -153,6 +159,11 @@ func testEstimateRouteFee(ht *lntest.HarnessTest) {
 	)
 	require.Len(ht, davesPrivChannels.Channels, 1)
 	daveFrankChanID := davesPrivChannels.Channels[0].ChanId
+
+	channelAliceCarol := ht.QueryChannelByChanPoint(
+		mts.alice, mts.channelPoints[0],
+	)
+	aliceCarolChanID := channelAliceCarol.ChanId
 
 	// Let's disable the paths from Alice to Bob through Dave and Eve with
 	// high fees. This ensures that the path estimates are based on Carol's
@@ -441,6 +452,58 @@ func testEstimateRouteFee(ht *lntest.HarnessTest) {
 				highestFeeRouteDelta,
 			expectedFailureReason: failureReasonNone,
 		},
+		// Test probe-based estimation with a specific outgoing channel.
+		// We specify the Alice-Carol channel, so the route should go
+		// through Carol to Bob.
+		{
+			name: "probe based estimate with " +
+				"outgoing channel",
+			probing:                 true,
+			destination:             mts.bob,
+			routeHints:              []*lnrpc.RouteHint{},
+			outgoingChanIds:         []uint64{aliceCarolChanID},
+			expectedRoutingFeesMsat: feeStandardSingleHop,
+			expectedCltvDelta:       locktime + deltaCB,
+			expectedFailureReason:   failureReasonNone,
+		},
+		// Test probe-based estimation with a non-existent outgoing
+		// channel. This should fail because the specified channel
+		// doesn't exist and has no balance.
+		{
+			name: "probe based estimate with " +
+				"invalid outgoing channel",
+			probing:                 true,
+			destination:             mts.bob,
+			routeHints:              []*lnrpc.RouteHint{},
+			outgoingChanIds:         []uint64{999999999},
+			expectedRoutingFeesMsat: 0,
+			expectedCltvDelta:       0,
+			expectedFailureReason:   failureInsufficientBalance,
+		},
+		// Test graph-based estimation with a specific outgoing channel.
+		// We specify the Alice-Carol channel, so the route should go
+		// through Carol to Bob.
+		{
+			name: "graph based estimate with " +
+				"outgoing channel",
+			probing:                 false,
+			destination:             mts.bob,
+			outgoingChanIds:         []uint64{aliceCarolChanID},
+			expectedRoutingFeesMsat: feeStandardSingleHop,
+			expectedCltvDelta:       locktime + deltaCB,
+			expectedFailureReason:   failureReasonNone,
+		},
+		// Test graph-based estimation with a non-existent outgoing
+		// channel. This should fail because the specified channel
+		// doesn't exist and has no balance.
+		{
+			name: "graph based estimate with " +
+				"invalid outgoing channel",
+			probing:         false,
+			destination:     mts.bob,
+			outgoingChanIds: []uint64{999999999},
+			expectedError:   ErrInsufficientBalance,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -467,13 +530,15 @@ func runFeeEstimationTestCase(ht *lntest.HarnessTest,
 			tc.destination, probeAmount, 1, tc.routeHints...,
 		)
 		feeReq = &routerrpc.RouteFeeRequest{
-			PaymentRequest: payReqs[0],
-			Timeout:        uint32(wait.PaymentTimeout.Seconds()),
+			PaymentRequest:  payReqs[0],
+			Timeout:         uint32(wait.PaymentTimeout.Seconds()),
+			OutgoingChanIds: tc.outgoingChanIds,
 		}
 	} else {
 		feeReq = &routerrpc.RouteFeeRequest{
-			Dest:   tc.destination.PubKey[:],
-			AmtSat: int64(probeAmount),
+			Dest:            tc.destination.PubKey[:],
+			AmtSat:          int64(probeAmount),
+			OutgoingChanIds: tc.outgoingChanIds,
 		}
 	}
 

@@ -85,7 +85,6 @@ func TestMigrateBalancesToTlvRecords(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		// Before running the test, set the balance fields based on the
 		// test params.

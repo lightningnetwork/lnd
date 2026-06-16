@@ -1497,6 +1497,11 @@ var listPaymentsCommand = cli.Command{
 				"payments with creation date less than or " +
 				"equal to it",
 		},
+		cli.BoolFlag{
+			Name: "omit_hops",
+			Usage: "if set, omit hop-level route data to " +
+				"reduce query cost and response size",
+		},
 	},
 	Action: actionDecorator(listPayments),
 }
@@ -1514,6 +1519,7 @@ func listPayments(ctx *cli.Context) error {
 		CountTotalPayments: ctx.Bool("count_total_payments"),
 		CreationDateStart:  ctx.Uint64("creation_date_start"),
 		CreationDateEnd:    ctx.Uint64("creation_date_end"),
+		OmitHops:           ctx.Bool("omit_hops"),
 	}
 
 	payments, err := client.ListPayments(ctxc, req)
@@ -1936,6 +1942,126 @@ func deletePayments(ctx *cli.Context) error {
 	return nil
 }
 
+var deleteFwdHistoryCommand = cli.Command{
+	Name:      "deletefwdhistory",
+	Category:  "Payments",
+	Usage:     "Delete old forwarding history for privacy.",
+	ArgsUsage: "age | before",
+	Description: `
+	Deletes all forwarding history events with a timestamp at or before a
+	specified time. This is useful for implementing data retention policies
+	for privacy purposes. The command permanently removes old forwarding
+	events from the database and returns statistics about the deletion
+	including total fees earned.
+
+	Time can be specified in two ways:
+	1. Relative age (standard Go or custom units): e.g., "-1w", "-24h", 
+	   "-1M"
+	2. Absolute Unix timestamp: e.g., "1640995200"
+
+	Supported relative time units:
+	- Standard Go: ns, us/µs, ms, s, m, h (e.g., "-24h", "-1.5h")
+	- Custom units: d (days), w (weeks), M (months=30.44d), 
+	  y (years=365.25d)
+
+	Examples:
+	  # Delete events from ~1 month ago and earlier:
+	  lncli deletefwdhistory --age="-1M"       
+
+	   # Delete events from ~1 month ago and earlier
+	  lncli deletefwdhistory --age="-720h"    
+
+	  # Delete events at or before Jan 1, 2022:
+	  lncli deletefwdhistory --before=1640995200 
+
+	NOTE: As with deletepayments, removing events from the database frees up
+	disk space within bbolt, but that space is only reclaimed after 
+	compacting the database. Consider enabling auto-compaction 
+	(db.bolt.auto-compact=true).
+
+	WARNING: This operation is irreversible. Deleted forwarding history 
+	cannot be recovered. A minimum age validation is enforced to prevent 
+	accidental deletion of very recent data.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "age",
+			Usage: "delete events at or before this age in the " +
+				"past " +
+				`(e.g., "-1w", "-1M", "-24h", "-720h")`,
+		},
+		cli.Uint64Flag{
+			Name: "before",
+			Usage: "delete events at or before this Unix " +
+				"timestamp (seconds)",
+		},
+		cli.BoolFlag{
+			Name: "force, f",
+			Usage: "skip the confirmation prompt, useful for " +
+				"scripts",
+		},
+	},
+	Action: actionDecorator(deleteFwdHistory),
+}
+
+func deleteFwdHistory(ctx *cli.Context) error {
+	ctxc := getContext()
+	conn := getClientConn(ctx, false)
+	defer conn.Close()
+
+	client := routerrpc.NewRouterClient(conn)
+
+	// Show command help if no arguments or flags are provided.
+	if ctx.NArg() > 0 || (!ctx.IsSet("age") && !ctx.IsSet("before")) {
+		_ = cli.ShowCommandHelp(ctx, "deletefwdhistory")
+		return nil
+	}
+
+	// User must specify exactly one of age or until.
+	if ctx.IsSet("age") && ctx.IsSet("before") {
+		return fmt.Errorf("cannot use both --age and --before; " +
+			"specify one time parameter")
+	}
+
+	req := &routerrpc.DeleteForwardingHistoryRequest{}
+
+	//nolint:ll
+	switch {
+	case ctx.IsSet("age"):
+		req.TimeSpec = &routerrpc.DeleteForwardingHistoryRequest_DeleteBeforeDuration{
+			DeleteBeforeDuration: ctx.String("age"),
+		}
+
+	case ctx.IsSet("before"):
+		req.TimeSpec = &routerrpc.DeleteForwardingHistoryRequest_DeleteBeforeTime{
+			DeleteBeforeTime: ctx.Uint64("before"),
+		}
+	}
+
+	if !ctx.Bool("force") {
+		if !promptForConfirmation("WARNING: This operation is " +
+			"irreversible and will permanently delete forwarding " +
+			"history.\nProceed? (yes/no): ") {
+
+			fmt.Println("Operation cancelled.")
+			return nil
+		}
+	}
+
+	fmt.Println("Deleting forwarding history, this may take a while...")
+
+	resp, err := client.DeleteForwardingHistory(ctxc, req)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to delete forwarding history: %w", err,
+		)
+	}
+
+	printJSON(resp)
+
+	return nil
+}
+
 var estimateRouteFeeCommand = cli.Command{
 	Name:     "estimateroutefee",
 	Category: "Payments",
@@ -1967,6 +2093,15 @@ var estimateRouteFeeCommand = cli.Command{
 			Usage: "a deadline for the probe attempt. Only " +
 				"applicable if pay_req is specified.",
 			Value: paymentTimeout,
+		},
+		cli.StringSliceFlag{
+			Name: "outgoing_chan_id",
+			Usage: "short channel id of the outgoing channel " +
+				"to use for the first hop of the fee " +
+				"estimation; if specified multiple " +
+				"times, only the listed channels are " +
+				"considered for the first hop",
+			Value: &cli.StringSlice{},
 		},
 	},
 }
@@ -2012,6 +2147,15 @@ func estimateRouteFee(ctx *cli.Context) error {
 
 	default:
 		return fmt.Errorf("fee estimation arguments missing")
+	}
+
+	var (
+		err        error
+		outChanIDs = ctx.StringSlice("outgoing_chan_id")
+	)
+	req.OutgoingChanIds, err = parseChanIDs(outChanIDs)
+	if err != nil {
+		return fmt.Errorf("unable to decode outgoing_chan_id: %w", err)
 	}
 
 	resp, err := client.EstimateRouteFee(ctxc, req)

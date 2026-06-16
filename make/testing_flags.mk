@@ -69,6 +69,11 @@ ifneq ($(dbbackend),)
 ITEST_FLAGS += -dbbackend=$(dbbackend)
 endif
 
+# Select miner backend independently from chain backend. Defaults to btcd.
+ifneq ($(minerbackend),)
+ITEST_FLAGS += -minerbackend=$(minerbackend)
+endif
+
 ifeq ($(dbbackend),etcd)
 DEV_TAGS += kvdb_etcd
 endif

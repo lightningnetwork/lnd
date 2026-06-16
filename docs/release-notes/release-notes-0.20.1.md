@@ -48,6 +48,19 @@
   in the mission control store. Now we skip over potential errors and also
   delete them from the store.
 
+* [Fixed an issue](https://github.com/lightningnetwork/lnd/pull/10399) where the
+  TLS manager would fail to start if only one of the TLS pair files (certificate
+  or key) existed. The manager now correctly regenerates both files when either
+  is missing, preventing "file not found" errors on startup.
+
+* [Fixed race conditions](https://github.com/lightningnetwork/lnd/pull/10433) in
+  the channel graph database. The `Node.PubKey()` and
+  `ChannelEdgeInfo.NodeKey1/NodeKey2()` methods had check-then-act races when
+  caching parsed public keys. Additionally, `DisconnectBlockAtHeight` was
+  accessing the reject and channel caches without proper locking. The caching
+  has been removed from the public key parsing methods, and proper mutex
+  protection has been added to the cache access in `DisconnectBlockAtHeight`.
+
 * [Fix potential sql tx exhaustion 
   issue](https://github.com/lightningnetwork/lnd/pull/10428) in LND which might
   happen when running postgres with a limited number of connections configured.
@@ -69,6 +82,12 @@
   The fix adds automatic format detection to handle both legacy (raw feature
   bits) and new (length-prefixed) formats.
 
+* [Fixed a shutdown
+  deadlock](https://github.com/lightningnetwork/lnd/pull/10540) in the gossiper.
+  Certain gossip messages could cause multiple error messages to be sent on a
+  channel that was only expected to be used for a single message. The erring
+  goroutine would block on the second send, leading to a deadlock at shutdown.
+
 # New Features
 
 ## Functional Enhancements
@@ -87,13 +106,6 @@
   ensures dependencies are properly freed and logs the panic trace for
   debugging.
 
-* [Improved confirmation scaling for cooperative
-  closes](https://github.com/lightningnetwork/lnd/pull/10331) to provide better
-  reorg protection. Previously, cooperative closes required a minimum of 3
-  confirmations. Now, small channels only require 1 confirmation, while larger
-  channels scale proportionally using the standard 0.16 BTC threshold (matching
-  funding confirmation scaling).
-
 ## RPC Updates
 
  * The `EstimateRouteFee` RPC now implements an [LSP detection 
@@ -107,15 +119,6 @@
 ## lncli Updates
 
 ## Breaking Changes
-
-* [Increased MinCLTVDelta from 18 to
-  24](https://github.com/lightningnetwork/lnd/pull/10331) to provide a larger
-  safety margin above the `DefaultFinalCltvRejectDelta` (19 blocks). This
-  affects users who create invoices with custom `cltv_expiry_delta` values
-  between 18-23, which will now require a minimum of 24. The default value of
-  80 blocks for invoice creation remains unchanged, so most users will not be
-  affected. Existing invoices created before the upgrade will continue to work
-  normally.
 
 ## Performance Improvements
 
@@ -155,5 +158,6 @@
 
 * Abdulkbk
 * bitromortac
+* Matt Morehouse
 * Olaoluwa Osuntokun
 * Ziggie

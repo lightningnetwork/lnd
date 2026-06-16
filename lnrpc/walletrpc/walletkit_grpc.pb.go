@@ -254,6 +254,7 @@ type WalletKitClient interface {
 	// publishing the transaction) or to unlock/release the locked UTXOs in case of
 	// an error on the caller's side.
 	FundPsbt(ctx context.Context, in *FundPsbtRequest, opts ...grpc.CallOption) (*FundPsbtResponse, error)
+	// lncli: `wallet psbt sign`
 	// SignPsbt expects a partial transaction with all inputs and outputs fully
 	// declared and tries to sign all unsigned inputs that have all required fields
 	// (UTXO information, BIP32 derivation information, witness or sig scripts)
@@ -779,6 +780,7 @@ type WalletKitServer interface {
 	// publishing the transaction) or to unlock/release the locked UTXOs in case of
 	// an error on the caller's side.
 	FundPsbt(context.Context, *FundPsbtRequest) (*FundPsbtResponse, error)
+	// lncli: `wallet psbt sign`
 	// SignPsbt expects a partial transaction with all inputs and outputs fully
 	// declared and tries to sign all unsigned inputs that have all required fields
 	// (UTXO information, BIP32 derivation information, witness or sig scripts)

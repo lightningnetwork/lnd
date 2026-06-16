@@ -13,8 +13,6 @@ http:
     - selector: routerrpc.Router.EstimateRouteFee
       post: "/v2/router/route/estimatefee"
       body: "*"
-    - selector: routerrpc.Router.SendToRoute
-      # deprecated, no REST endpoint
     - selector: routerrpc.Router.SendToRouteV2
       post: "/v2/router/route/send"
       body: "*"
@@ -38,10 +36,6 @@ http:
       body: "*"
     - selector: routerrpc.Router.SubscribeHtlcEvents
       get: "/v2/router/htlcevents"
-    - selector: routerrpc.Router.SendPayment
-      # deprecated, no REST endpoint
-    - selector: routerrpc.Router.TrackPayment
-      # deprecated, no REST endpoint
     - selector: routerrpc.Router.HtlcInterceptor
       post: "/v2/router/htlcinterceptor"
       body: "*"
@@ -56,5 +50,8 @@ http:
       body: "*"
     - selector: routerrpc.Router.XFindBaseLocalChanAlias
       post: "/v2/router/x/findbasealias"
+      body: "*"
+    - selector: routerrpc.Router.DeleteForwardingHistory
+      post: "/v2/router/fwdhistory/delete"
       body: "*"
 

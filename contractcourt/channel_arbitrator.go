@@ -615,7 +615,6 @@ func maybeAugmentTaprootResolvers(chanType channeldb.ChannelType,
 		//nolint:ll
 		htlcResolutions := contractResolutions.HtlcResolutions.OutgoingHTLCs
 		for _, htlcRes := range htlcResolutions {
-			htlcRes := htlcRes
 
 			if r.htlcResolution.ClaimOutpoint ==
 				htlcRes.ClaimOutpoint {
@@ -628,7 +627,6 @@ func maybeAugmentTaprootResolvers(chanType channeldb.ChannelType,
 		//nolint:ll
 		htlcResolutions := contractResolutions.HtlcResolutions.OutgoingHTLCs
 		for _, htlcRes := range htlcResolutions {
-			htlcRes := htlcRes
 
 			if r.htlcResolution.ClaimOutpoint ==
 				htlcRes.ClaimOutpoint {
@@ -641,7 +639,6 @@ func maybeAugmentTaprootResolvers(chanType channeldb.ChannelType,
 		//nolint:ll
 		htlcResolutions := contractResolutions.HtlcResolutions.IncomingHTLCs
 		for _, htlcRes := range htlcResolutions {
-			htlcRes := htlcRes
 
 			if r.htlcResolution.ClaimOutpoint ==
 				htlcRes.ClaimOutpoint {
@@ -653,7 +650,6 @@ func maybeAugmentTaprootResolvers(chanType channeldb.ChannelType,
 		//nolint:ll
 		htlcResolutions := contractResolutions.HtlcResolutions.IncomingHTLCs
 		for _, htlcRes := range htlcResolutions {
-			htlcRes := htlcRes
 
 			if r.htlcResolution.ClaimOutpoint ==
 				htlcRes.ClaimOutpoint {
@@ -724,7 +720,6 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 	// order to ensure we have complete coverage.
 	htlcMap := make(map[wire.OutPoint]*channeldb.HTLC)
 	for _, htlc := range confirmedHTLCs {
-		htlc := htlc
 		outpoint := wire.OutPoint{
 			Hash:  commitHash,
 			Index: uint32(htlc.OutputIndex),
@@ -2434,6 +2429,13 @@ func (c *ChannelArbitrator) prepContractResolutions(
 		return htlcResolvers, nil
 	}
 
+	// Determine the channel type once before the resolution loop so we
+	// don't repeat the nil check on every iteration.
+	var chanType channeldb.ChannelType
+	if chanState != nil {
+		chanType = chanState.ChanType
+	}
+
 	// For each HTLC, we'll either act immediately, meaning we'll instantly
 	// fail the HTLC, or we'll act only once the transaction has been
 	// confirmed, in which case we'll need an HTLC resolver.
@@ -2443,7 +2445,6 @@ func (c *ChannelArbitrator) prepContractResolutions(
 		// claim the HTLC (second-level or directly), then add the pre
 		case HtlcClaimAction:
 			for _, htlc := range htlcs {
-				htlc := htlc
 
 				htlcOp := wire.OutPoint{
 					Hash:  commitHash,
@@ -2460,7 +2461,8 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				}
 
 				resolver := newSuccessResolver(
-					resolution, height, htlc, resolverCfg,
+					resolution, height, htlc, chanType,
+					resolverCfg,
 				)
 				if chanState != nil {
 					resolver.SupplementState(chanState)
@@ -2473,7 +2475,6 @@ func (c *ChannelArbitrator) prepContractResolutions(
 		// backwards.
 		case HtlcTimeoutAction:
 			for _, htlc := range htlcs {
-				htlc := htlc
 
 				htlcOp := wire.OutPoint{
 					Hash:  commitHash,
@@ -2488,7 +2489,8 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				}
 
 				resolver := newTimeoutResolver(
-					resolution, height, htlc, resolverCfg,
+					resolution, height, htlc, chanType,
+					resolverCfg,
 				)
 				if chanState != nil {
 					resolver.SupplementState(chanState)
@@ -2509,7 +2511,6 @@ func (c *ChannelArbitrator) prepContractResolutions(
 		// learn of the pre-image, or let the remote party time out.
 		case HtlcIncomingWatchAction:
 			for _, htlc := range htlcs {
-				htlc := htlc
 
 				htlcOp := wire.OutPoint{
 					Hash:  commitHash,
@@ -2528,7 +2529,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				}
 
 				resolver := newIncomingContestResolver(
-					resolution, height, htlc,
+					resolution, height, htlc, chanType,
 					resolverCfg,
 				)
 				if chanState != nil {
@@ -2542,7 +2543,6 @@ func (c *ChannelArbitrator) prepContractResolutions(
 		// backwards), or just timeout.
 		case HtlcOutgoingWatchAction:
 			for _, htlc := range htlcs {
-				htlc := htlc
 
 				htlcOp := wire.OutPoint{
 					Hash:  commitHash,
@@ -2560,7 +2560,8 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				}
 
 				resolver := newOutgoingContestResolver(
-					resolution, height, htlc, resolverCfg,
+					resolution, height, htlc, chanType,
+					resolverCfg,
 				)
 				if chanState != nil {
 					resolver.SupplementState(chanState)

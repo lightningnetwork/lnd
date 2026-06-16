@@ -12,7 +12,7 @@ defaults:
 env:
   # If you change this please also update GO_VERSION in Makefile (then run
   # `make lint` to see where else it needs to be updated as well).
-  GO_VERSION: 1.25.5
+  GO_VERSION: 1.26.4
 
 jobs:
   ########################
@@ -40,7 +40,7 @@ jobs:
         run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
 
       - name: build release for all architectures
-        run: SKIP_VERSION_CHECK=1 make release tag=${{ env.RELEASE_VERSION }}
+        run: make release tag=${{ env.RELEASE_VERSION }}
 
       - name: Create Release
         uses: lightninglabs/gh-actions/action-gh-release@c7149b6a7818d1c39b36b69e727569897b6f2c5a
@@ -81,10 +81,11 @@ jobs:
 
             ## Verifying the Release Timestamp 
 
-            From this new version onwards, in addition time-stamping the _git tag_ with [OpenTimestamps](https://opentimestamps.org/), we'll also now timestamp the manifest file along with its signature. Two new files are now included along with the rest of our release artifacts: ` manifest-roasbeef-${{ env.RELEASE_VERSION }}.txt.asc.ots`.
+            From this new version onwards, in addition to time-stamping the _git tag_ with [OpenTimestamps](https://opentimestamps.org/), we'll also now timestamp the manifest file along with the `roasbeef` release signature. For final releases, and for release candidates when these optional artifacts are uploaded, timestamp proof files are included along with the rest of our release artifacts: `manifest-${{ env.RELEASE_VERSION }}.txt.ots` and `manifest-roasbeef-${{ env.RELEASE_VERSION }}.sig.ots`.
 
             Assuming you have the opentimestamps client installed locally, the timestamps can be verified with the following commands: 
             ```
+            ots verify manifest-${{ env.RELEASE_VERSION }}.txt.ots -f manifest-${{ env.RELEASE_VERSION }}.txt
             ots verify manifest-roasbeef-${{ env.RELEASE_VERSION }}.sig.ots -f manifest-roasbeef-${{ env.RELEASE_VERSION }}.sig
             ```
 

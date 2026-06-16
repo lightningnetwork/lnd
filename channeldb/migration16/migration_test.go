@@ -105,7 +105,6 @@ func TestMigrateSequenceIndex(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			// Before the migration we have a payments bucket.

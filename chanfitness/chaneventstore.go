@@ -86,6 +86,13 @@ type Config struct {
 	// startup.
 	GetOpenChannels func() ([]*channeldb.OpenChannel, error)
 
+	// IsPeerOnline returns whether the peer with the given pubkey is
+	// currently connected. It is used to seed the initial online state of a
+	// peer when we first start tracking it, so that uptime is calculated
+	// from the peer's actual connectivity rather than assuming it is
+	// online.
+	IsPeerOnline func(route.Vertex) bool
+
 	// Clock is the time source that the subsystem uses, provided here
 	// for ease of testing.
 	Clock clock.Clock
@@ -291,8 +298,8 @@ func (c *ChannelEventStore) getOrCreatePeerMonitor(
 	peerMonitor = newPeerLog(c.cfg.Clock, flapCount, lastFlap)
 	c.peers[peer] = peerMonitor
 
-	// Send an online event given it's the first time we see this peer.
-	peerMonitor.onlineEvent(true)
+	// Send an liveness event given it's the first time we see this peer.
+	peerMonitor.onlineEvent(c.cfg.IsPeerOnline(peer))
 
 	return peerMonitor, nil
 }

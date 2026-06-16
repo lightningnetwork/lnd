@@ -3,7 +3,6 @@ package graphdb
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -18,14 +17,12 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
-	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -253,7 +250,7 @@ func (c channelMapKey) String() string {
 
 // getChannelMap loads all channel edge policies from the database and stores
 // them in a map.
-func getChannelMap(edges kvdb.RBucket) (
+func getChannelMap(ctx context.Context, edges kvdb.RBucket) (
 	map[channelMapKey]*models.ChannelEdgePolicy, error) {
 
 	// Create a map to store all channel edge policies.
@@ -443,7 +440,9 @@ func forEachChannel(db kvdb.Backend, cb func(*models.ChannelEdgeInfo,
 
 		// First, load all edges in memory indexed by node and channel
 		// id.
-		channelMap, err := getChannelMap(edges)
+		channelMap, err := getChannelMap(
+			context.Background(), edges,
+		)
 		if err != nil {
 			return err
 		}
@@ -496,7 +495,7 @@ func forEachChannel(db kvdb.Backend, cb func(*models.ChannelEdgeInfo,
 //
 // NOTE: this method is like ForEachChannel but fetches only the data required
 // for the graph cache.
-func (c *KVStore) ForEachChannelCacheable(_ context.Context,
+func (c *KVStore) ForEachChannelCacheable(ctx context.Context,
 	v lnwire.GossipVersion, cb func(*models.CachedEdgeInfo,
 		*models.CachedEdgePolicy, *models.CachedEdgePolicy) error,
 	reset func()) error {
@@ -513,7 +512,7 @@ func (c *KVStore) ForEachChannelCacheable(_ context.Context,
 
 		// First, load all edges in memory indexed by node and channel
 		// id.
-		channelMap, err := getChannelMap(edges)
+		channelMap, err := getChannelMap(ctx, edges)
 		if err != nil {
 			return err
 		}
@@ -527,6 +526,10 @@ func (c *KVStore) ForEachChannelCacheable(_ context.Context,
 		// loaded above and invoke the callback.
 		return kvdb.ForAll(
 			edgeIndex, func(k, edgeInfoBytes []byte) error {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+
 				var chanID [8]byte
 				copy(chanID[:], k)
 
@@ -699,9 +702,14 @@ func (c *KVStore) FetchNodeFeatures(_ context.Context, v lnwire.GossipVersion,
 // data to the call-back.
 //
 // NOTE: The callback contents MUST not be modified.
-func (c *KVStore) ForEachNodeCached(ctx context.Context, withAddrs bool,
-	cb func(ctx context.Context, node route.Vertex, addrs []net.Addr,
+func (c *KVStore) ForEachNodeCached(ctx context.Context,
+	v lnwire.GossipVersion,
+	cb func(ctx context.Context, node route.Vertex,
 		chans map[uint64]*DirectedChannel) error, reset func()) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	// Otherwise call back to a version that uses the database directly.
 	// We'll iterate over each node, then the set of channels for each
@@ -761,12 +769,7 @@ func (c *KVStore) ForEachNodeCached(ctx context.Context, withAddrs bool,
 			return err
 		}
 
-		var addrs []net.Addr
-		if withAddrs {
-			addrs = node.Addresses
-		}
-
-		return cb(ctx, node.PubKeyBytes, addrs, channels)
+		return cb(ctx, node.PubKeyBytes, channels)
 	}, reset)
 }
 
@@ -834,8 +837,12 @@ func (c *KVStore) DisabledChannelIDs(
 // early.
 //
 // NOTE: this is part of the Store interface.
-func (c *KVStore) ForEachNode(_ context.Context,
+func (c *KVStore) ForEachNode(_ context.Context, v lnwire.GossipVersion,
 	cb func(*models.Node) error, reset func()) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	return forEachNode(c.db, func(tx kvdb.RTx,
 		node *models.Node) error {
@@ -889,7 +896,7 @@ func forEachNode(db kvdb.Backend,
 // graph, executing the passed callback with each node encountered. If the
 // callback returns an error, then the transaction is aborted and the iteration
 // stops early.
-func (c *KVStore) ForEachNodeCacheable(_ context.Context,
+func (c *KVStore) ForEachNodeCacheable(ctx context.Context,
 	v lnwire.GossipVersion, cb func(route.Vertex,
 		*lnwire.FeatureVector) error, reset func()) error {
 
@@ -906,6 +913,10 @@ func (c *KVStore) ForEachNodeCacheable(_ context.Context,
 		}
 
 		return nodes.ForEach(func(pubKey, nodeBytes []byte) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+
 			// If this is the source key, then we skip this
 			// iteration as the value for this key is a pubKey
 			// rather than raw node information.
@@ -2270,8 +2281,9 @@ func (c *KVStore) fetchNextChanUpdateBatch(
 		// Now we'll read items up to the batch size, exiting early if
 		// we exceed the ending time.
 		for len(batch) < state.batchSize && indexKey != nil {
-			// If we're at the end, then we'll break out now.
-			if bytes.Compare(indexKey, endTimeBytes[:]) > 0 {
+			// If we've reached or passed the end time, break
+			// out. Per BOLT 07, the end time is exclusive.
+			if bytes.Compare(indexKey, endTimeBytes[:]) >= 0 {
 				break
 			}
 
@@ -2357,10 +2369,11 @@ func (c *KVStore) fetchNextChanUpdateBatch(
 			indexKey, _ = updateCursor.Next()
 		}
 
-		// If we haven't yet crossed the endTimeBytes, then we still
-		// have more entries to deliver.
+		// If we haven't yet reached the endTimeBytes, then we still
+		// have more entries to deliver. The end time is exclusive
+		// per BOLT 07.
 		if indexKey != nil &&
-			bytes.Compare(indexKey, endTimeBytes[:]) <= 0 {
+			bytes.Compare(indexKey, endTimeBytes[:]) < 0 {
 
 			hasMore = true
 		}
@@ -2378,9 +2391,10 @@ func (c *KVStore) fetchNextChanUpdateBatch(
 }
 
 // ChanUpdatesInHorizon returns all the known channel edges which have at least
-// one edge that has an update timestamp within the specified horizon.
+// one edge update within the specified range for the given gossip version. For
+// v1, the range is time-based with [start, end) per BOLT 07.
 func (c *KVStore) ChanUpdatesInHorizon(_ context.Context,
-	startTime, endTime time.Time,
+	v lnwire.GossipVersion, r ChanUpdateRange,
 	opts ...IteratorOption) iter.Seq2[ChannelEdge, error] {
 
 	cfg := defaultIteratorConfig()
@@ -2389,8 +2403,19 @@ func (c *KVStore) ChanUpdatesInHorizon(_ context.Context,
 	}
 
 	return func(yield func(ChannelEdge, error) bool) {
+		if v != lnwire.GossipVersion1 {
+			yield(ChannelEdge{}, ErrVersionNotSupportedForKVDB)
+			return
+		}
+		if err := r.validateForVersion(v); err != nil {
+			yield(ChannelEdge{}, err)
+			return
+		}
+
 		iterState := newChanUpdatesIterator(
-			cfg.chanUpdateIterBatchSize, startTime, endTime,
+			cfg.chanUpdateIterBatchSize,
+			r.StartTime.UnwrapOr(time.Time{}),
+			r.EndTime.UnwrapOr(time.Time{}),
 		)
 
 		for {
@@ -2439,8 +2464,8 @@ func (c *KVStore) ChanUpdatesInHorizon(_ context.Context,
 				float64(iterState.total), iterState.hits,
 				iterState.total)
 		} else {
-			log.Tracef("ChanUpdatesInHorizon returned no edges "+
-				"in horizon (%s, %s)", startTime, endTime)
+			log.Tracef("ChanUpdatesInHorizon(v%d) returned "+
+				"no edges in horizon", v)
 		}
 	}
 }
@@ -2552,9 +2577,10 @@ func (c *KVStore) fetchNextNodeBatch(
 			// Extract the timestamp from the index key (first 8
 			// bytes). Only compare timestamps, not the full key
 			// with pubkey.
+			// The end time is exclusive per BOLT 07.
 			keyTimestamp := byteOrder.Uint64(indexKey[:8])
 			endTimestamp := uint64(state.endTime.Unix())
-			if keyTimestamp > endTimestamp {
+			if keyTimestamp >= endTimestamp {
 				break
 			}
 
@@ -2591,12 +2617,13 @@ func (c *KVStore) fetchNextNodeBatch(
 			indexKey, _ = updateCursor.Next()
 		}
 
-		// If we haven't yet crossed the endTime, then we still
-		// have more entries to deliver.
+		// If we haven't yet reached the endTime, then we still
+		// have more entries to deliver. The end time is exclusive
+		// per BOLT 07.
 		if indexKey != nil {
 			keyTimestamp := byteOrder.Uint64(indexKey[:8])
 			endTimestamp := uint64(state.endTime.Unix())
-			if keyTimestamp <= endTimestamp {
+			if keyTimestamp < endTimestamp {
 				hasMore = true
 			}
 		}
@@ -2628,10 +2655,11 @@ func (c *KVStore) fetchNextNodeBatch(
 	return nodeBatch, hasMore, nil
 }
 
-// NodeUpdatesInHorizon returns all the known lightning node which have an
-// update timestamp within the passed range.
-func (c *KVStore) NodeUpdatesInHorizon(_ context.Context, startTime,
-	endTime time.Time,
+// NodeUpdatesInHorizon returns all the known lightning nodes which have
+// updates within the passed range for the given gossip version. For v1, the
+// range is time-based with [start, end) per BOLT 07.
+func (c *KVStore) NodeUpdatesInHorizon(_ context.Context,
+	v lnwire.GossipVersion, r NodeUpdateRange,
 	opts ...IteratorOption) iter.Seq2[*models.Node, error] {
 
 	cfg := defaultIteratorConfig()
@@ -2640,10 +2668,20 @@ func (c *KVStore) NodeUpdatesInHorizon(_ context.Context, startTime,
 	}
 
 	return func(yield func(*models.Node, error) bool) {
+		if v != lnwire.GossipVersion1 {
+			yield(nil, ErrVersionNotSupportedForKVDB)
+			return
+		}
+		if err := r.validateForVersion(v); err != nil {
+			yield(nil, err)
+			return
+		}
+
 		// Initialize iterator state.
 		state := newNodeUpdatesIterator(
 			cfg.nodeUpdateIterBatchSize,
-			startTime, endTime,
+			r.StartTime.UnwrapOr(time.Time{}),
+			r.EndTime.UnwrapOr(time.Time{}),
 			cfg.iterPublicNodes,
 		)
 
@@ -2680,7 +2718,12 @@ func (c *KVStore) NodeUpdatesInHorizon(_ context.Context, startTime,
 // channels another peer knows of that we don't. The ChannelUpdateInfos for the
 // known zombies is also returned.
 func (c *KVStore) FilterKnownChanIDs(_ context.Context,
+	v lnwire.GossipVersion,
 	chansInfo []ChannelUpdateInfo) ([]uint64, []ChannelUpdateInfo, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return nil, nil, ErrVersionNotSupportedForKVDB
+	}
 
 	var (
 		newChanIDs   []uint64
@@ -2764,38 +2807,79 @@ type ChannelUpdateInfo struct {
 	// ShortChannelID is the SCID identifier of the channel.
 	ShortChannelID lnwire.ShortChannelID
 
-	// Node1UpdateTimestamp is the timestamp of the latest received update
-	// from the node 1 channel peer. This will be set to zero time if no
-	// update has yet been received from this node.
-	Node1UpdateTimestamp time.Time
+	// Version is the gossip version of the channel.
+	Version lnwire.GossipVersion
 
-	// Node2UpdateTimestamp is the timestamp of the latest received update
-	// from the node 2 channel peer. This will be set to zero time if no
-	// update has yet been received from this node.
-	Node2UpdateTimestamp time.Time
+	// Node1Freshness is the update-ordering value of the latest received
+	// update from the node 1 channel peer. For v1 channels this is a
+	// lnwire.UnixTimestamp; for v2 channels it is a
+	// lnwire.BlockHeightTimestamp. A zero value means no update has been
+	// received from this node.
+	Node1Freshness lnwire.Timestamp
+
+	// Node2Freshness is the update-ordering value of the latest received
+	// update from the node 2 channel peer. For v1 channels this is a
+	// lnwire.UnixTimestamp; for v2 channels it is a
+	// lnwire.BlockHeightTimestamp. A zero value means no update has been
+	// received from this node.
+	Node2Freshness lnwire.Timestamp
 }
 
-// NewChannelUpdateInfo is a constructor which makes sure we initialize the
-// timestamps with zero seconds unix timestamp which equals
-// `January 1, 1970, 00:00:00 UTC` in case the value is `time.Time{}`.
-func NewChannelUpdateInfo(scid lnwire.ShortChannelID, node1Timestamp,
-	node2Timestamp time.Time) ChannelUpdateInfo {
+// NewV1ChannelUpdateInfo constructs a ChannelUpdateInfo for a v1 gossip
+// channel. The node timestamps are normalised to the unix epoch if zero.
+func NewV1ChannelUpdateInfo(scid lnwire.ShortChannelID,
+	node1Timestamp, node2Timestamp time.Time) ChannelUpdateInfo {
 
-	chanInfo := ChannelUpdateInfo{
-		ShortChannelID:       scid,
-		Node1UpdateTimestamp: node1Timestamp,
-		Node2UpdateTimestamp: node2Timestamp,
-	}
-
+	node1Unix := lnwire.UnixTimestamp(node1Timestamp.Unix())
 	if node1Timestamp.IsZero() {
-		chanInfo.Node1UpdateTimestamp = time.Unix(0, 0)
+		node1Unix = 0
 	}
 
+	node2Unix := lnwire.UnixTimestamp(node2Timestamp.Unix())
 	if node2Timestamp.IsZero() {
-		chanInfo.Node2UpdateTimestamp = time.Unix(0, 0)
+		node2Unix = 0
 	}
 
-	return chanInfo
+	return ChannelUpdateInfo{
+		ShortChannelID: scid,
+		Version:        lnwire.GossipVersion1,
+		Node1Freshness: node1Unix,
+		Node2Freshness: node2Unix,
+	}
+}
+
+// NewV2ChannelUpdateInfo constructs a ChannelUpdateInfo for a v2 gossip
+// channel. A block height of zero means no update has been received from
+// the corresponding node.
+func NewV2ChannelUpdateInfo(scid lnwire.ShortChannelID,
+	node1BlockHeight, node2BlockHeight uint32) ChannelUpdateInfo {
+
+	return ChannelUpdateInfo{
+		ShortChannelID: scid,
+		Version:        lnwire.GossipVersion2,
+		Node1Freshness: lnwire.BlockHeightTimestamp(node1BlockHeight),
+		Node2Freshness: lnwire.BlockHeightTimestamp(node2BlockHeight),
+	}
+}
+
+// Node1FreshnessTime returns the v1 unix-time freshness for node 1's latest
+// update. It returns the zero time if the freshness is not a unix timestamp.
+func (c ChannelUpdateInfo) Node1FreshnessTime() time.Time {
+	if u, ok := c.Node1Freshness.(lnwire.UnixTimestamp); ok {
+		return time.Unix(int64(u), 0)
+	}
+
+	return time.Time{}
+}
+
+// Node2FreshnessTime returns the v1 unix-time freshness for node 2's latest
+// update. It returns the zero time if the freshness is not a unix timestamp.
+func (c ChannelUpdateInfo) Node2FreshnessTime() time.Time {
+	if u, ok := c.Node2Freshness.(lnwire.UnixTimestamp); ok {
+		return time.Unix(int64(u), 0)
+	}
+
+	return time.Time{}
 }
 
 // BlockChannelRange represents a range of channels for a given block height.
@@ -2818,8 +2902,13 @@ type BlockChannelRange struct {
 // up after a period of time offline. If withTimestamps is true then the
 // timestamp info of the latest received channel update messages of the channel
 // will be included in the response.
-func (c *KVStore) FilterChannelRange(_ context.Context, startHeight,
-	endHeight uint32, withTimestamps bool) ([]BlockChannelRange, error) {
+func (c *KVStore) FilterChannelRange(_ context.Context,
+	v lnwire.GossipVersion, startHeight, endHeight uint32,
+	withTimestamps bool) ([]BlockChannelRange, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return nil, ErrVersionNotSupportedForKVDB
+	}
 
 	startChanID := &lnwire.ShortChannelID{
 		BlockHeight: startHeight,
@@ -2873,7 +2962,7 @@ func (c *KVStore) FilterChannelRange(_ context.Context, startHeight,
 			rawCid := byteOrder.Uint64(k)
 			cid := lnwire.NewShortChanIDFromInt(rawCid)
 
-			chanInfo := NewChannelUpdateInfo(
+			chanInfo := NewV1ChannelUpdateInfo(
 				cid, time.Time{}, time.Time{},
 			)
 
@@ -2900,7 +2989,9 @@ func (c *KVStore) FilterChannelRange(_ context.Context, startHeight,
 					return err
 				}
 
-				chanInfo.Node1UpdateTimestamp = edge.LastUpdate
+				chanInfo.Node1Freshness = lnwire.UnixTimestamp(
+					edge.LastUpdate.Unix(),
+				)
 			}
 
 			rawPolicy = edges.Get(node2Key)
@@ -2915,7 +3006,9 @@ func (c *KVStore) FilterChannelRange(_ context.Context, startHeight,
 					return err
 				}
 
-				chanInfo.Node2UpdateTimestamp = edge.LastUpdate
+				chanInfo.Node2Freshness = lnwire.UnixTimestamp(
+					edge.LastUpdate.Unix(),
+				)
 			}
 
 			channelsPerBlock[cid.BlockHeight] = append(
@@ -4138,26 +4231,6 @@ func (c *KVStore) IsPublicNode(_ context.Context, v lnwire.GossipVersion,
 	return nodeIsPublic, nil
 }
 
-// genMultiSigP2WSH generates the p2wsh'd multisig script for 2 of 2 pubkeys.
-func genMultiSigP2WSH(aPub, bPub []byte) ([]byte, error) {
-	witnessScript, err := input.GenMultiSigScript(aPub, bPub)
-	if err != nil {
-		return nil, err
-	}
-
-	// With the witness script generated, we'll now turn it into a p2wsh
-	// script:
-	//  * OP_0 <sha256(script)>
-	bldr := txscript.NewScriptBuilder(
-		txscript.WithScriptAllocSize(input.P2WSHSize),
-	)
-	bldr.AddOp(txscript.OP_0)
-	scriptHash := sha256.Sum256(witnessScript)
-	bldr.AddData(scriptHash[:])
-
-	return bldr.Script()
-}
-
 // EdgePoint couples the outpoint of a channel with the funding script that it
 // creates. The FilteredChainView will use this to watch for spends of this
 // edge point on chain. We require both of these values as depending on the
@@ -4180,7 +4253,12 @@ func (e *EdgePoint) String() string {
 // within the known channel graph. The set of UTXO's (along with their scripts)
 // returned are the ones that need to be watched on chain to detect channel
 // closes on the resident blockchain.
-func (c *KVStore) ChannelView(_ context.Context) ([]EdgePoint, error) {
+func (c *KVStore) ChannelView(_ context.Context,
+	v lnwire.GossipVersion) ([]EdgePoint, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return nil, ErrVersionNotSupportedForKVDB
+	}
 	var edgePoints []EdgePoint
 	if err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		// We're going to iterate over the entire channel index, so
@@ -4244,10 +4322,14 @@ func (c *KVStore) ChannelView(_ context.Context) ([]EdgePoint, error) {
 }
 
 // MarkEdgeZombie attempts to mark a channel identified by its channel ID as a
-// zombie. This method is used on an ad-hoc basis, when channels need to be
-// marked as zombies outside the normal pruning cycle.
-func (c *KVStore) MarkEdgeZombie(_ context.Context, chanID uint64,
-	pubKey1, pubKey2 [33]byte) error {
+// zombie for the given gossip version. This method is used on an ad-hoc basis,
+// when channels need to be marked as zombies outside the normal pruning cycle.
+func (c *KVStore) MarkEdgeZombie(_ context.Context, v lnwire.GossipVersion,
+	chanID uint64, pubKey1, pubKey2 [33]byte) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
@@ -4291,8 +4373,15 @@ func markEdgeZombie(zombieIndex kvdb.RwBucket, chanID uint64, pubKey1,
 	return zombieIndex.Put(k[:], v[:])
 }
 
-// MarkEdgeLive clears an edge from our zombie index, deeming it as live.
-func (c *KVStore) MarkEdgeLive(_ context.Context, chanID uint64) error {
+// MarkEdgeLive clears an edge from our zombie index for the given gossip
+// version, deeming it as live.
+func (c *KVStore) MarkEdgeLive(_ context.Context, v lnwire.GossipVersion,
+	chanID uint64) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
+
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
 
@@ -4408,7 +4497,13 @@ func isZombieEdge(zombieIndex kvdb.RBucket,
 }
 
 // NumZombies returns the current number of zombie channels in the graph.
-func (c *KVStore) NumZombies(_ context.Context) (uint64, error) {
+func (c *KVStore) NumZombies(
+	_ context.Context, v lnwire.GossipVersion,
+) (uint64, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return 0, ErrVersionNotSupportedForKVDB
+	}
 	var numZombies uint64
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)

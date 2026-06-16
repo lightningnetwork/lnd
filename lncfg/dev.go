@@ -60,6 +60,12 @@ func (d *DevConfig) GetUnsafeConnect() bool {
 	return false
 }
 
+// GetMinFwdHistoryAge returns 0 for production builds, causing the caller to
+// use the hardcoded default of 1h.
+func (d *DevConfig) GetMinFwdHistoryAge() time.Duration {
+	return 0
+}
+
 // ChannelCloseConfs returns the config value for channel close confirmations
 // override, which is always None for production build.
 func (d *DevConfig) ChannelCloseConfs() fn.Option[uint32] {

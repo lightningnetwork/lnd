@@ -1476,7 +1476,6 @@ func (r *ChannelRouter) resumePayments() error {
 		// Get the hashes used for the outstanding HTLCs.
 		htlcs := make(map[uint64]lntypes.Hash)
 		for _, a := range payment.HTLCs {
-			a := a
 
 			// We check whether the individual attempts have their
 			// HTLC hash set, if not we'll fall back to the overall

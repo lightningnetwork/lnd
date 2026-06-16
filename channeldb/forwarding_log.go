@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"sort"
@@ -40,6 +41,10 @@ const (
 	// full forwarding event (including the timestamp) is 40 bytes, we can
 	// safely return 50k entries in a single response.
 	MaxResponseEvents = 50000
+
+	// defaultDeleteBatchSize is the default number of forwarding events
+	// deleted per database transaction when no batch size is specified.
+	defaultDeleteBatchSize = 10_000
 )
 
 // ForwardingLog returns an instance of the ForwardingLog object backed by the
@@ -414,6 +419,161 @@ func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice,
 	resp.LastIndexOffset = recordOffset
 
 	return resp, nil
+}
+
+// DeleteStats contains statistics about a forwarding history deletion
+// operation.
+type DeleteStats struct {
+	// NumEventsDeleted is the total number of forwarding events that were
+	// deleted from the database.
+	NumEventsDeleted uint64
+
+	// TotalFeeMsat is the sum of all fees (AmtIn - AmtOut) from the
+	// deleted events, expressed in millisatoshis.
+	TotalFeeMsat int64
+}
+
+// DeleteForwardingEvents deletes all forwarding events with a timestamp at or
+// before the specified endTime from the database. The deletion is performed in
+// batches to avoid holding large database transactions. This method returns
+// statistics about the deletion including the number of events deleted and the
+// total fees earned from those events.
+//
+// The batchSize parameter controls how many events are deleted per database
+// transaction. If batchSize is 0, a default of 10000 is used. The maximum
+// allowed batch size is MaxResponseEvents (50000) to prevent resource
+// exhaustion.
+//
+// If the context is cancelled between batches, the method returns the partial
+// statistics accumulated so far along with the context error. Callers can
+// safely re-run the operation with the same parameters to resume deletion since
+// committed batches are not rolled back.
+func (f *ForwardingLog) DeleteForwardingEvents(ctx context.Context,
+	endTime time.Time, batchSize int) (DeleteStats, error) {
+
+	// Set default batch size if not specified, and enforce maximum.
+	if batchSize <= 0 {
+		batchSize = defaultDeleteBatchSize
+	}
+	if batchSize > MaxResponseEvents {
+		batchSize = MaxResponseEvents
+	}
+
+	// Encode the end time once outside the loop since it does not change
+	// between batches.
+	var endTimeBytes [8]byte
+	byteOrder.PutUint64(endTimeBytes[:], uint64(endTime.UnixNano()))
+
+	var stats DeleteStats
+
+	// We'll continue deleting batches until there are no more events to
+	// delete or the context is cancelled.
+	for {
+		// Check for cancellation between batches so callers can abort
+		// cleanly. Partial stats are returned so the caller knows how
+		// much was deleted before the abort.
+		if err := ctx.Err(); err != nil {
+			return stats, err
+		}
+
+		var (
+			batchDeleted int
+			batchFees    int64
+		)
+
+		err := kvdb.Update(f.db, func(tx kvdb.RwTx) error {
+			// Fetch the forwarding log bucket. If it doesn't exist,
+			// there's nothing to delete.
+			logBucket := tx.ReadWriteBucket(forwardingLogBucket)
+			if logBucket == nil {
+				return ErrNoForwardingEvents
+			}
+
+			// We'll use a cursor to iterate through events in time
+			// order.
+			cursor := logBucket.ReadWriteCursor()
+
+			// Collect keys to delete in this batch. We can't delete
+			// while iterating as it may corrupt the cursor.
+			keysToDelete := make([][]byte, 0, batchSize)
+
+			// Seek to the beginning and iterate through events
+			// until we reach the end time or batch limit.
+			//
+			//nolint:ll
+			for timestamp, eventBytes := cursor.First(); timestamp != nil; timestamp, eventBytes = cursor.Next() {
+				// Stop if we've passed the end time.
+				//
+				//nolint:ll
+				if bytes.Compare(timestamp, endTimeBytes[:]) > 0 {
+					break
+				}
+
+				// Stop if we've reached the batch size limit.
+				if len(keysToDelete) >= batchSize {
+					break
+				}
+
+				// Decode the event to obtain the fee.
+				readBuf := bytes.NewReader(eventBytes)
+				if readBuf.Len() > 0 {
+					var event ForwardingEvent
+					err := decodeForwardingEvent(
+						readBuf, &event,
+					)
+					if err != nil {
+						return err
+					}
+
+					// Calculate the fee for this event. Cast
+					// before subtracting to avoid uint64
+					// underflow if AmtOut > AmtIn.
+					fee := int64(event.AmtIn) -
+						int64(event.AmtOut)
+					batchFees += fee
+				}
+
+				// Make a copy of the key to delete later.
+				keyCopy := make([]byte, len(timestamp))
+				copy(keyCopy, timestamp)
+				keysToDelete = append(keysToDelete, keyCopy)
+			}
+
+			// Now delete all the collected keys.
+			for _, key := range keysToDelete {
+				if err := logBucket.Delete(key); err != nil {
+					return err
+				}
+			}
+
+			batchDeleted = len(keysToDelete)
+
+			return nil
+		}, func() {
+			batchDeleted = 0
+			batchFees = 0
+		})
+
+		if err != nil {
+			// If the bucket doesn't exist, we're done.
+			if errors.Is(err, ErrNoForwardingEvents) {
+				break
+			}
+
+			return stats, err
+		}
+
+		// Update our running statistics.
+		stats.NumEventsDeleted += uint64(batchDeleted)
+		stats.TotalFeeMsat += batchFees
+
+		// If we deleted fewer events than the batch size, we're done.
+		if batchDeleted < batchSize {
+			break
+		}
+	}
+
+	return stats, nil
 }
 
 // makeUniqueTimestamps takes a slice of forwarding events, sorts it by the

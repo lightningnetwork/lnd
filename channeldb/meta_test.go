@@ -547,7 +547,7 @@ func TestApplyOptionalVersions(t *testing.T) {
 	require.Equal(t, 0, migrateCount, "expected no migration")
 
 	// Check the optional meta is not updated.
-	om, err := db.fetchOptionalMeta()
+	_, err = db.fetchOptionalMeta()
 	require.NoError(t, err, "error getting optional meta")
 
 	// Enable all optional migrations.
@@ -563,7 +563,7 @@ func TestApplyOptionalVersions(t *testing.T) {
 	)
 
 	// Fetch the updated optional meta.
-	om, err = db.fetchOptionalMeta()
+	om, err := db.fetchOptionalMeta()
 	require.NoError(t, err, "error getting optional meta")
 
 	// Verify that the optional meta is updated as expected.

@@ -210,6 +210,10 @@ func partialSigWithNonceTypeDecoder(r io.Reader, val interface{}, buf *[8]byte,
 			return err
 		}
 
+		if err := ValidateMusig2Nonce(nonce); err != nil {
+			return err
+		}
+
 		*v = PartialSigWithNonce{
 			PartialSig: NewPartialSig(s),
 			Nonce:      nonce,

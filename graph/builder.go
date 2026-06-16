@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -28,6 +29,11 @@ const (
 	// DefaultChannelPruneExpiry is the default duration used to determine
 	// if a channel should be pruned or not.
 	DefaultChannelPruneExpiry = time.Hour * 24 * 14
+
+	// avgBitcoinBlockTime is the approximate time between Bitcoin blocks,
+	// used to convert a time-based channel prune expiry into a
+	// block-height-based expiry for v2 gossip channels.
+	avgBitcoinBlockTime = 10 * time.Minute
 
 	// DefaultFirstTimePruneDelay is the time we'll wait after startup
 	// before attempting to prune the graph for zombie channels. We don't
@@ -231,7 +237,7 @@ func (b *Builder) Start() error {
 		// FilteredChainView instance.  We do this before, as otherwise
 		// we may miss on-chain events as the filter hasn't properly
 		// been applied.
-		channelView, err := b.cfg.Graph.ChannelView(context.TODO())
+		channelView, err := b.v1Graph.ChannelView(context.TODO())
 		if err != nil && !errors.Is(
 			err, graphdb.ErrGraphNoEdgesFound,
 		) {
@@ -460,6 +466,57 @@ func (b *Builder) syncGraphWithChain() error {
 	return nil
 }
 
+// isTimestampStale returns true if the given freshness timestamp is considered
+// stale based on the gossip version. For v1, staleness is determined by
+// wall-clock time since the unix timestamp. For v2, staleness is determined by
+// how many blocks have elapsed since the block height timestamp.
+func (b *Builder) isTimestampStale(v lnwire.GossipVersion,
+	freshness lnwire.Timestamp) bool {
+
+	chanExpiry := b.cfg.ChannelPruneExpiry
+
+	switch v {
+	case lnwire.GossipVersion1:
+		ts, ok := freshness.(lnwire.UnixTimestamp)
+		if !ok || ts.IsZero() {
+			return true
+		}
+
+		t := time.Unix(int64(ts), 0)
+
+		return time.Since(t) >= chanExpiry
+
+	default:
+		h, ok := freshness.(lnwire.BlockHeightTimestamp)
+		if !ok || uint32(h) == 0 {
+			return true
+		}
+
+		expiryBlocks := uint32(chanExpiry / avgBitcoinBlockTime)
+		currentHeight := b.bestHeight.Load()
+		height := uint32(h)
+
+		if height > currentHeight {
+			return false
+		}
+
+		return currentHeight-height >= expiryBlocks
+	}
+}
+
+// isPolicyZombie returns true if the given edge policy is considered stale
+// based on version-specific freshness criteria.
+func (b *Builder) isPolicyZombie(e *models.ChannelEdgePolicy) bool {
+	var freshness lnwire.Timestamp
+	if e.Version == lnwire.GossipVersion1 {
+		freshness = lnwire.UnixTimestamp(e.LastUpdate.Unix())
+	} else {
+		freshness = lnwire.BlockHeightTimestamp(e.LastBlockHeight)
+	}
+
+	return b.isTimestampStale(e.Version, freshness)
+}
+
 // isZombieChannel takes two edge policy updates and determines if the
 // corresponding channel should be considered a zombie. The first boolean is
 // true if the policy update from node 1 is considered a zombie, the second
@@ -468,44 +525,30 @@ func (b *Builder) syncGraphWithChain() error {
 func (b *Builder) isZombieChannel(e1,
 	e2 *models.ChannelEdgePolicy) (bool, bool, bool) {
 
-	chanExpiry := b.cfg.ChannelPruneExpiry
+	e1Zombie := e1 == nil || b.isPolicyZombie(e1)
+	e2Zombie := e2 == nil || b.isPolicyZombie(e2)
 
-	e1Zombie := e1 == nil || time.Since(e1.LastUpdate) >= chanExpiry
-	e2Zombie := e2 == nil || time.Since(e2.LastUpdate) >= chanExpiry
-
-	var e1Time, e2Time time.Time
-	if e1 != nil {
-		e1Time = e1.LastUpdate
-	}
-	if e2 != nil {
-		e2Time = e2.LastUpdate
+	// If strict zombie pruning is enabled, a channel is a zombie if
+	// either edge is stale.
+	if b.cfg.StrictZombiePruning {
+		return e1Zombie, e2Zombie, e1Zombie || e2Zombie
 	}
 
-	return e1Zombie, e2Zombie, b.IsZombieChannel(e1Time, e2Time)
+	// Otherwise a channel is only a zombie if both edges are stale.
+	return e1Zombie, e2Zombie, e1Zombie && e2Zombie
 }
 
-// IsZombieChannel takes the timestamps of the latest channel updates for a
-// channel and returns true if the channel should be considered a zombie based
-// on these timestamps.
-func (b *Builder) IsZombieChannel(updateTime1,
-	updateTime2 time.Time) bool {
+// IsZombieChannel returns true if the channel described by info should be
+// considered a zombie. For v1 channels, freshness is a unix timestamp; for v2+
+// channels it is a block height.
+func (b *Builder) IsZombieChannel(info graphdb.ChannelUpdateInfo) bool {
+	e1Zombie := b.isTimestampStale(info.Version, info.Node1Freshness)
+	e2Zombie := b.isTimestampStale(info.Version, info.Node2Freshness)
 
-	chanExpiry := b.cfg.ChannelPruneExpiry
-
-	e1Zombie := updateTime1.IsZero() ||
-		time.Since(updateTime1) >= chanExpiry
-
-	e2Zombie := updateTime2.IsZero() ||
-		time.Since(updateTime2) >= chanExpiry
-
-	// If we're using strict zombie pruning, then a channel is only
-	// considered live if both edges have a recent update we know of.
 	if b.cfg.StrictZombiePruning {
 		return e1Zombie || e2Zombie
 	}
 
-	// Otherwise, if we're using the less strict variant, then a channel is
-	// considered live if either of the edges have a recent update.
 	return e1Zombie && e2Zombie
 }
 
@@ -605,8 +648,11 @@ func (b *Builder) pruneZombieChans() error {
 
 	startTime := time.Unix(0, 0)
 	endTime := time.Now().Add(-1 * chanExpiry)
-	oldEdgesIter := b.cfg.Graph.ChanUpdatesInHorizon(
-		context.TODO(), startTime, endTime,
+	oldEdgesIter := b.v1Graph.ChanUpdatesInHorizon(
+		context.TODO(), graphdb.ChanUpdateRange{
+			StartTime: fn.Some(startTime),
+			EndTime:   fn.Some(endTime),
+		},
 	)
 
 	for u, err := range oldEdgesIter {
@@ -921,7 +967,7 @@ func (b *Builder) MarkZombieEdge(chanID uint64) error {
 	// node pubkeys so this edge can't be resurrected.
 	var zeroKey [33]byte
 	err := b.cfg.Graph.MarkEdgeZombie(
-		context.TODO(), chanID, zeroKey, zeroKey,
+		context.TODO(), lnwire.GossipVersion1, chanID, zeroKey, zeroKey,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to mark spent chan(id=%v) as a "+
@@ -1424,11 +1470,14 @@ func (b *Builder) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 	return false
 }
 
-// MarkEdgeLive clears an edge from our zombie index, deeming it as live.
+// MarkEdgeLive clears an edge from our zombie index for the given gossip
+// version, deeming it as live.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) MarkEdgeLive(chanID lnwire.ShortChannelID) error {
+func (b *Builder) MarkEdgeLive(v lnwire.GossipVersion,
+	chanID lnwire.ShortChannelID) error {
+
 	return b.cfg.Graph.MarkEdgeLive(
-		context.TODO(), chanID.ToUint64(),
+		context.TODO(), v, chanID.ToUint64(),
 	)
 }

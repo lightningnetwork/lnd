@@ -10,25 +10,41 @@ SELECT
     i.intent_payload AS "intent_payload"
 FROM payments p
 LEFT JOIN payment_intents i ON i.payment_id = p.id
-WHERE (
-    p.id > sqlc.narg('index_offset_get') OR
-    sqlc.narg('index_offset_get') IS NULL
-) AND (
-    p.id < sqlc.narg('index_offset_let') OR
-    sqlc.narg('index_offset_let') IS NULL
-) AND (
-    p.created_at >= sqlc.narg('created_after') OR
-    sqlc.narg('created_after') IS NULL
-) AND (
-    p.created_at <= sqlc.narg('created_before') OR
-    sqlc.narg('created_before') IS NULL
-) AND (
-    i.intent_type = sqlc.narg('intent_type') OR
-    sqlc.narg('intent_type') IS NULL OR i.intent_type IS NULL
-)
-ORDER BY
-    CASE WHEN sqlc.narg('reverse') = false OR sqlc.narg('reverse') IS NULL THEN p.id END ASC,
-    CASE WHEN sqlc.narg('reverse') = true THEN p.id END DESC
+WHERE p.id > COALESCE(sqlc.narg('index_offset_get'), -1)
+  AND p.id < COALESCE(sqlc.narg('index_offset_let'), 9223372036854775807)
+  -- NOTE: We use non-nullable time params with Go-side defaults instead of
+  -- COALESCE, because COALESCE with text fallback causes type mismatch on
+  -- Postgres (timestamp vs text), and OR-based optional filters can prevent
+  -- the planner from using the created_at index.
+  AND p.created_at >= @created_after
+  AND p.created_at <= @created_before
+  AND (
+      i.intent_type = sqlc.narg('intent_type') OR
+      sqlc.narg('intent_type') IS NULL OR i.intent_type IS NULL
+  )
+ORDER BY p.id ASC
+LIMIT @num_limit;
+
+-- name: FilterPaymentsDesc :many
+SELECT
+    sqlc.embed(p),
+    i.intent_type AS "intent_type",
+    i.intent_payload AS "intent_payload"
+FROM payments p
+LEFT JOIN payment_intents i ON i.payment_id = p.id
+WHERE p.id > COALESCE(sqlc.narg('index_offset_get'), -1)
+  AND p.id < COALESCE(sqlc.narg('index_offset_let'), 9223372036854775807)
+  -- NOTE: We use non-nullable time params with Go-side defaults instead of
+  -- COALESCE, because COALESCE with text fallback causes type mismatch on
+  -- Postgres (timestamp vs text), and OR-based optional filters can prevent
+  -- the planner from using the created_at index.
+  AND p.created_at >= @created_after
+  AND p.created_at <= @created_before
+  AND (
+      i.intent_type = sqlc.narg('intent_type') OR
+      sqlc.narg('intent_type') IS NULL OR i.intent_type IS NULL
+  )
+ORDER BY p.id DESC
 LIMIT @num_limit;
 
 -- name: FetchPayment :one
@@ -109,27 +125,46 @@ LEFT JOIN payment_intents pi ON pi.payment_id = p.id
 WHERE p.id IN (sqlc.slice('payment_ids')/*SLICE:payment_ids*/)
 ORDER BY p.id ASC;
 
--- name: FetchAllInflightAttempts :many
--- Fetch all inflight attempts with their payment data using pagination.
--- Returns attempt data joined with payment and intent data to avoid separate queries.
+-- name: FetchNonTerminalPayments :many
+-- Fetch all non-terminal payments using pagination. A payment is
+-- non-terminal if it has an unresolved attempt, or if it has not been
+-- permanently failed and has no settled attempt yet.
 SELECT
-    ha.id,
-    ha.attempt_index,
-    ha.payment_id,
-    ha.session_key,
-    ha.attempt_time,
-    ha.payment_hash,
-    ha.first_hop_amount_msat,
-    ha.route_total_time_lock,
-    ha.route_total_amount,
-    ha.route_source_key
-FROM payment_htlc_attempts ha
-WHERE NOT EXISTS (
-    SELECT 1 FROM payment_htlc_attempt_resolutions hr
-    WHERE hr.attempt_index = ha.attempt_index
+    p.id,
+    p.amount_msat,
+    p.created_at,
+    p.payment_identifier,
+    p.fail_reason,
+    pi.intent_type,
+    pi.intent_payload
+FROM payments p
+LEFT JOIN payment_intents pi
+    ON pi.payment_id = p.id
+WHERE p.id > $1
+AND (
+    (
+        p.fail_reason IS NULL
+        AND NOT EXISTS (
+            SELECT 1
+            FROM payment_htlc_attempts ha
+            JOIN payment_htlc_attempt_resolutions hr
+                ON hr.attempt_index = ha.attempt_index
+            WHERE ha.payment_id = p.id
+            AND hr.resolution_type = 1
+        )
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM payment_htlc_attempts ha
+        WHERE ha.payment_id = p.id
+        AND NOT EXISTS (
+            SELECT 1
+            FROM payment_htlc_attempt_resolutions hr
+            WHERE hr.attempt_index = ha.attempt_index
+        )
+    )
 )
-AND ha.attempt_index > $1
-ORDER BY ha.attempt_index ASC
+ORDER BY p.id ASC
 LIMIT $2;
 
 -- name: FetchHopsForAttempts :many
@@ -194,9 +229,15 @@ DELETE FROM payments WHERE id = $1;
 
 -- name: DeleteFailedAttempts :exec
 -- Delete all failed HTLC attempts for the given payment. Resolution type 2
--- indicates a failed attempt.
-DELETE FROM payment_htlc_attempts WHERE payment_id = $1 AND attempt_index IN (
-    SELECT attempt_index FROM payment_htlc_attempt_resolutions WHERE resolution_type = 2
+-- indicates a failed attempt. Uses EXISTS to scope the resolution lookup to
+-- only this payment's attempts, avoiding an O(N) scan of all failed
+-- resolutions across all payments.
+DELETE FROM payment_htlc_attempts
+WHERE payment_id = $1
+AND EXISTS (
+    SELECT 1 FROM payment_htlc_attempt_resolutions hr
+    WHERE hr.attempt_index = payment_htlc_attempts.attempt_index
+    AND hr.resolution_type = 2
 );
 
 -- name: InsertPaymentIntent :one

@@ -226,7 +226,6 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 	}
 
 	for _, set := range vectorSets {
-		set := set
 
 		var testCases []testCase
 
@@ -237,7 +236,6 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		require.NoError(t, err)
 
 		for _, test := range testCases {
-			test := test
 			name := fmt.Sprintf("%s-%s", set.name, test.Name)
 
 			t.Run(name, func(t *testing.T) {
@@ -787,7 +785,6 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	// but we also need to support older nodes that want to open channels
 	// with the legacy format, so we'll test spending in both scenarios.
 	for _, tweakless := range []bool{true, false} {
-		tweakless := tweakless
 		t.Run(fmt.Sprintf("tweak=%v", tweakless), func(t *testing.T) {
 			testSpendValidation(t, tweakless)
 		})

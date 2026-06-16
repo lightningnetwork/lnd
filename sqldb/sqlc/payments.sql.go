@@ -24,13 +24,19 @@ func (q *Queries) CountPayments(ctx context.Context) (int64, error) {
 }
 
 const deleteFailedAttempts = `-- name: DeleteFailedAttempts :exec
-DELETE FROM payment_htlc_attempts WHERE payment_id = $1 AND attempt_index IN (
-    SELECT attempt_index FROM payment_htlc_attempt_resolutions WHERE resolution_type = 2
+DELETE FROM payment_htlc_attempts
+WHERE payment_id = $1
+AND EXISTS (
+    SELECT 1 FROM payment_htlc_attempt_resolutions hr
+    WHERE hr.attempt_index = payment_htlc_attempts.attempt_index
+    AND hr.resolution_type = 2
 )
 `
 
 // Delete all failed HTLC attempts for the given payment. Resolution type 2
-// indicates a failed attempt.
+// indicates a failed attempt. Uses EXISTS to scope the resolution lookup to
+// only this payment's attempts, avoiding an O(N) scan of all failed
+// resolutions across all payments.
 func (q *Queries) DeleteFailedAttempts(ctx context.Context, paymentID int64) error {
 	_, err := q.db.ExecContext(ctx, deleteFailedAttempts, paymentID)
 	return err
@@ -96,69 +102,6 @@ type FailPaymentParams struct {
 
 func (q *Queries) FailPayment(ctx context.Context, arg FailPaymentParams) (sql.Result, error) {
 	return q.db.ExecContext(ctx, failPayment, arg.FailReason, arg.PaymentIdentifier)
-}
-
-const fetchAllInflightAttempts = `-- name: FetchAllInflightAttempts :many
-SELECT
-    ha.id,
-    ha.attempt_index,
-    ha.payment_id,
-    ha.session_key,
-    ha.attempt_time,
-    ha.payment_hash,
-    ha.first_hop_amount_msat,
-    ha.route_total_time_lock,
-    ha.route_total_amount,
-    ha.route_source_key
-FROM payment_htlc_attempts ha
-WHERE NOT EXISTS (
-    SELECT 1 FROM payment_htlc_attempt_resolutions hr
-    WHERE hr.attempt_index = ha.attempt_index
-)
-AND ha.attempt_index > $1
-ORDER BY ha.attempt_index ASC
-LIMIT $2
-`
-
-type FetchAllInflightAttemptsParams struct {
-	AttemptIndex int64
-	Limit        int32
-}
-
-// Fetch all inflight attempts with their payment data using pagination.
-// Returns attempt data joined with payment and intent data to avoid separate queries.
-func (q *Queries) FetchAllInflightAttempts(ctx context.Context, arg FetchAllInflightAttemptsParams) ([]PaymentHtlcAttempt, error) {
-	rows, err := q.db.QueryContext(ctx, fetchAllInflightAttempts, arg.AttemptIndex, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []PaymentHtlcAttempt
-	for rows.Next() {
-		var i PaymentHtlcAttempt
-		if err := rows.Scan(
-			&i.ID,
-			&i.AttemptIndex,
-			&i.PaymentID,
-			&i.SessionKey,
-			&i.AttemptTime,
-			&i.PaymentHash,
-			&i.FirstHopAmountMsat,
-			&i.RouteTotalTimeLock,
-			&i.RouteTotalAmount,
-			&i.RouteSourceKey,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const fetchHopLevelCustomRecords = `-- name: FetchHopLevelCustomRecords :many
@@ -434,6 +377,95 @@ func (q *Queries) FetchHtlcAttemptsForPayments(ctx context.Context, paymentIds [
 			&i.HtlcFailReason,
 			&i.FailureMsg,
 			&i.SettlePreimage,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const fetchNonTerminalPayments = `-- name: FetchNonTerminalPayments :many
+SELECT
+    p.id,
+    p.amount_msat,
+    p.created_at,
+    p.payment_identifier,
+    p.fail_reason,
+    pi.intent_type,
+    pi.intent_payload
+FROM payments p
+LEFT JOIN payment_intents pi
+    ON pi.payment_id = p.id
+WHERE p.id > $1
+AND (
+    (
+        p.fail_reason IS NULL
+        AND NOT EXISTS (
+            SELECT 1
+            FROM payment_htlc_attempts ha
+            JOIN payment_htlc_attempt_resolutions hr
+                ON hr.attempt_index = ha.attempt_index
+            WHERE ha.payment_id = p.id
+            AND hr.resolution_type = 1
+        )
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM payment_htlc_attempts ha
+        WHERE ha.payment_id = p.id
+        AND NOT EXISTS (
+            SELECT 1
+            FROM payment_htlc_attempt_resolutions hr
+            WHERE hr.attempt_index = ha.attempt_index
+        )
+    )
+)
+ORDER BY p.id ASC
+LIMIT $2
+`
+
+type FetchNonTerminalPaymentsParams struct {
+	ID    int64
+	Limit int32
+}
+
+type FetchNonTerminalPaymentsRow struct {
+	ID                int64
+	AmountMsat        int64
+	CreatedAt         time.Time
+	PaymentIdentifier []byte
+	FailReason        sql.NullInt32
+	IntentType        sql.NullInt16
+	IntentPayload     []byte
+}
+
+// Fetch all non-terminal payments using pagination. A payment is
+// non-terminal if it has an unresolved attempt, or if it has not been
+// permanently failed and has no settled attempt yet.
+func (q *Queries) FetchNonTerminalPayments(ctx context.Context, arg FetchNonTerminalPaymentsParams) ([]FetchNonTerminalPaymentsRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchNonTerminalPayments, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchNonTerminalPaymentsRow
+	for rows.Next() {
+		var i FetchNonTerminalPaymentsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AmountMsat,
+			&i.CreatedAt,
+			&i.PaymentIdentifier,
+			&i.FailReason,
+			&i.IntentType,
+			&i.IntentPayload,
 		); err != nil {
 			return nil, err
 		}
@@ -771,35 +803,28 @@ SELECT
     i.intent_payload AS "intent_payload"
 FROM payments p
 LEFT JOIN payment_intents i ON i.payment_id = p.id
-WHERE (
-    p.id > $1 OR
-    $1 IS NULL
-) AND (
-    p.id < $2 OR
-    $2 IS NULL
-) AND (
-    p.created_at >= $3 OR
-    $3 IS NULL
-) AND (
-    p.created_at <= $4 OR
-    $4 IS NULL
-) AND (
-    i.intent_type = $5 OR
-    $5 IS NULL OR i.intent_type IS NULL
-)
-ORDER BY
-    CASE WHEN $6 = false OR $6 IS NULL THEN p.id END ASC,
-    CASE WHEN $6 = true THEN p.id END DESC
-LIMIT $7
+WHERE p.id > COALESCE($1, -1)
+  AND p.id < COALESCE($2, 9223372036854775807)
+  -- NOTE: We use non-nullable time params with Go-side defaults instead of
+  -- COALESCE, because COALESCE with text fallback causes type mismatch on
+  -- Postgres (timestamp vs text), and OR-based optional filters can prevent
+  -- the planner from using the created_at index.
+  AND p.created_at >= $3
+  AND p.created_at <= $4
+  AND (
+      i.intent_type = $5 OR
+      $5 IS NULL OR i.intent_type IS NULL
+  )
+ORDER BY p.id ASC
+LIMIT $6
 `
 
 type FilterPaymentsParams struct {
 	IndexOffsetGet sql.NullInt64
 	IndexOffsetLet sql.NullInt64
-	CreatedAfter   sql.NullTime
-	CreatedBefore  sql.NullTime
+	CreatedAfter   time.Time
+	CreatedBefore  time.Time
 	IntentType     sql.NullInt16
-	Reverse        interface{}
 	NumLimit       int32
 }
 
@@ -816,7 +841,6 @@ func (q *Queries) FilterPayments(ctx context.Context, arg FilterPaymentsParams) 
 		arg.CreatedAfter,
 		arg.CreatedBefore,
 		arg.IntentType,
-		arg.Reverse,
 		arg.NumLimit,
 	)
 	if err != nil {
@@ -826,6 +850,82 @@ func (q *Queries) FilterPayments(ctx context.Context, arg FilterPaymentsParams) 
 	var items []FilterPaymentsRow
 	for rows.Next() {
 		var i FilterPaymentsRow
+		if err := rows.Scan(
+			&i.Payment.ID,
+			&i.Payment.AmountMsat,
+			&i.Payment.CreatedAt,
+			&i.Payment.PaymentIdentifier,
+			&i.Payment.FailReason,
+			&i.IntentType,
+			&i.IntentPayload,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const filterPaymentsDesc = `-- name: FilterPaymentsDesc :many
+SELECT
+    p.id, p.amount_msat, p.created_at, p.payment_identifier, p.fail_reason,
+    i.intent_type AS "intent_type",
+    i.intent_payload AS "intent_payload"
+FROM payments p
+LEFT JOIN payment_intents i ON i.payment_id = p.id
+WHERE p.id > COALESCE($1, -1)
+  AND p.id < COALESCE($2, 9223372036854775807)
+  -- NOTE: We use non-nullable time params with Go-side defaults instead of
+  -- COALESCE, because COALESCE with text fallback causes type mismatch on
+  -- Postgres (timestamp vs text), and OR-based optional filters can prevent
+  -- the planner from using the created_at index.
+  AND p.created_at >= $3
+  AND p.created_at <= $4
+  AND (
+      i.intent_type = $5 OR
+      $5 IS NULL OR i.intent_type IS NULL
+  )
+ORDER BY p.id DESC
+LIMIT $6
+`
+
+type FilterPaymentsDescParams struct {
+	IndexOffsetGet sql.NullInt64
+	IndexOffsetLet sql.NullInt64
+	CreatedAfter   time.Time
+	CreatedBefore  time.Time
+	IntentType     sql.NullInt16
+	NumLimit       int32
+}
+
+type FilterPaymentsDescRow struct {
+	Payment       Payment
+	IntentType    sql.NullInt16
+	IntentPayload []byte
+}
+
+func (q *Queries) FilterPaymentsDesc(ctx context.Context, arg FilterPaymentsDescParams) ([]FilterPaymentsDescRow, error) {
+	rows, err := q.db.QueryContext(ctx, filterPaymentsDesc,
+		arg.IndexOffsetGet,
+		arg.IndexOffsetLet,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.IntentType,
+		arg.NumLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FilterPaymentsDescRow
+	for rows.Next() {
+		var i FilterPaymentsDescRow
 		if err := rows.Scan(
 			&i.Payment.ID,
 			&i.Payment.AmountMsat,

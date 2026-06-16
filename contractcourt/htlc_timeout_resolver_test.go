@@ -299,7 +299,8 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 			IncubateOutputs: func(wire.OutPoint,
 				fn.Option[lnwallet.OutgoingHtlcResolution],
 				fn.Option[lnwallet.IncomingHtlcResolution],
-				uint32, fn.Option[int32]) error {
+				uint32, fn.Option[int32],
+				...IncubateOption) error {
 
 				incubateChan <- struct{}{}
 				return nil
@@ -1487,7 +1488,6 @@ func TestCheckSizeAndIndex(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -1557,7 +1557,6 @@ func TestIsPreimageSpend(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		// Run the test.
 		t.Run(tc.name, func(t *testing.T) {

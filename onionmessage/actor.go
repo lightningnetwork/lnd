@@ -10,8 +10,63 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/record"
 )
+
+const (
+	// DefaultOnionMailboxSize is the buffer capacity for per-peer onion
+	// message actor mailboxes.
+	DefaultOnionMailboxSize = 50
+
+	// DefaultMinREDThreshold is the queue depth at which Random Early
+	// Detection begins probabilistically dropping onion messages. Below
+	// this threshold no drops occur; above DefaultOnionMailboxSize all
+	// messages are dropped. Must be strictly less than
+	// DefaultOnionMailboxSize.
+	DefaultMinREDThreshold = 40
+
+	// DefaultPeerOnionMsgKbps is the default sustained per-peer onion
+	// message ingress rate, in decimal kilobits per second (1 Kbps =
+	// 1000 bits/s). Sizing is expressed against a 32 KiB onion_message
+	// packet (the BOLT 4 spec cap on the sphinx-level payload inside
+	// onion_message), not the 65 KiB lnwire envelope cap — at ~32 KiB
+	// per packet this is roughly two such messages per second per peer.
+	// A value of zero disables the per-peer limiter entirely.
+	DefaultPeerOnionMsgKbps = 512
+
+	// DefaultPeerOnionMsgBurstBytes is the default per-peer token bucket
+	// depth, in bytes. Sized to hold approximately eight 32 KiB onion
+	// message packets (see DefaultPeerOnionMsgKbps for why we measure
+	// against 32 KiB rather than the 65 KiB lnwire envelope cap) so a
+	// peer can briefly burst above the sustained rate without drops.
+	DefaultPeerOnionMsgBurstBytes = 8 * 32 * 1024
+
+	// DefaultGlobalOnionMsgKbps is the default sustained aggregate onion
+	// message ingress rate across all peers, in decimal kilobits per
+	// second. Targets ~5 Mbps worst-case ingress so that onion message
+	// bandwidth cannot dwarf a typical routing node's payment traffic.
+	// A value of zero disables the global limiter entirely.
+	DefaultGlobalOnionMsgKbps = 5120
+
+	// DefaultGlobalOnionMsgBurstBytes is the default global token bucket
+	// depth, in bytes. Sized to hold approximately fifty 32 KiB onion
+	// message packets, measured against the BOLT 4 onion_message_packet
+	// cap rather than the 65 KiB lnwire envelope cap (see
+	// DefaultPeerOnionMsgKbps).
+	DefaultGlobalOnionMsgBurstBytes = 50 * 32 * 1024
+)
+
+// Compile-time assertion: DefaultMinREDThreshold must be strictly less than
+// DefaultOnionMailboxSize. If this overflows, the constants are misconfigured.
+const _ = uint(DefaultOnionMailboxSize - DefaultMinREDThreshold - 1)
+
+// Compile-time assertions: the default burst sizes must be able to hold at
+// least one maximum-sized wire message, otherwise every AllowN call on a
+// freshly constructed limiter would fail and the limiter would silently
+// drop all onion traffic.
+const _ = uint(DefaultPeerOnionMsgBurstBytes - lnwire.MaxMsgBody)
+const _ = uint(DefaultGlobalOnionMsgBurstBytes - lnwire.MaxMsgBody)
 
 // Request is a message sent to an OnionPeerActor when an onion message is
 // received from the peer. The actor processes the message through the full
@@ -66,9 +121,12 @@ func NewOnionMessageServiceKey(
 // OnionActorFactory is a function that spawns a new OnionPeerActor for a
 // given peer within the actor system. The factory captures shared dependencies
 // (router, resolver, sender, dispatcher) and only requires per-peer parameters
-// at spawn time.
+// at spawn time. Callers may pass ActorOptions to customise the mailbox (size,
+// drop predicate, etc.) on a per-peer basis.
 type OnionActorFactory func(system *actor.ActorSystem,
-	peerPubKey [33]byte) (OnionPeerActorRef, error)
+	peerPubKey [33]byte,
+	opts ...actor.ActorOption[*Request, *Response]) (OnionPeerActorRef,
+	error)
 
 // OnionPeerActor handles the full onion message processing pipeline for a
 // specific peer connection. It decodes incoming onion messages, determines
@@ -127,6 +185,32 @@ func (a *OnionPeerActor) Receive(ctx context.Context,
 	if err != nil {
 		log.ErrorS(logCtx, "Failed to handle onion message", err)
 
+		return fn.Err[*Response](err)
+	}
+
+	// Block same-peer cycles: do not forward a message back to
+	// the peer that sent it.
+	routingAction.WhenLeft(func(fwdAction forwardAction) {
+		var nextNodeIDBytes [33]byte
+		copy(
+			nextNodeIDBytes[:],
+			fwdAction.nextNodeID.SerializeCompressed(),
+		)
+
+		if nextNodeIDBytes == a.peerPubKey {
+			log.WarnS(logCtx,
+				"Dropping cyclic onion message",
+				ErrSamePeerCycle,
+				lnutils.LogPubKey(
+					"next_node_id",
+					fwdAction.nextNodeID,
+				),
+			)
+
+			err = ErrSamePeerCycle
+		}
+	})
+	if err != nil {
 		return fn.Err[*Response](err)
 	}
 
@@ -202,13 +286,17 @@ func (a *OnionPeerActor) Receive(ctx context.Context,
 // NewOnionActorFactory creates a factory function that spawns OnionPeerActors
 // with shared dependencies. The returned factory captures the router,
 // resolver, peer sender, and update dispatcher, requiring only the actor
-// system and peer public key at spawn time.
+// system, peer public key, and optional per-peer ActorOptions at spawn time.
+//
+// Callers supply ActorOptions (mailbox factory, size overrides, etc.) via the
+// opts variadic so that backpressure policy can be customised per peer.
 func NewOnionActorFactory(router OnionRouter, resolver NodeIDResolver,
 	peerSender PeerMessageSender,
 	dispatcher OnionMessageUpdateDispatcher) OnionActorFactory {
 
-	return func(system *actor.ActorSystem,
-		peerPubKey [33]byte) (OnionPeerActorRef, error) {
+	return func(system *actor.ActorSystem, peerPubKey [33]byte,
+		opts ...actor.ActorOption[*Request, *Response],
+	) (OnionPeerActorRef, error) {
 
 		peerActor := &OnionPeerActor{
 			peerPubKey:       peerPubKey,
@@ -223,6 +311,7 @@ func NewOnionActorFactory(router OnionRouter, resolver NodeIDResolver,
 		)
 		actorRef, err := serviceKey.Spawn(
 			system, "onion-peer-actor-"+pubKeyHex, peerActor,
+			opts...,
 		)
 		if err != nil {
 			return nil, err
@@ -232,6 +321,55 @@ func NewOnionActorFactory(router OnionRouter, resolver NodeIDResolver,
 			pubKeyHex)
 
 		return actorRef, nil
+	}
+}
+
+// DefaultOnionActorOpts returns ActorOptions that configure a
+// BackpressureMailbox with a RED drop predicate and the default onion mailbox
+// size. The RED thresholds are derived from the mailbox capacity so that all
+// parameters are centralised and self-consistent.
+func DefaultOnionActorOpts() []actor.ActorOption[*Request, *Response] {
+	factory := func(ctx context.Context,
+		capacity int) actor.Mailbox[*Request, *Response] {
+
+		// Dynamically calculate the min threshold to be
+		// the same proportion (40/50 = 80%) of the actual
+		// capacity.
+		minThreshold := (capacity * DefaultMinREDThreshold) /
+			DefaultOnionMailboxSize
+
+		// Ensure minThreshold is strictly less than
+		// capacity for RED to work.
+		if minThreshold >= capacity {
+			minThreshold = capacity - 1
+		}
+		if minThreshold < 0 {
+			minThreshold = 0
+		}
+
+		shouldDrop, err := queue.RandomEarlyDrop(
+			minThreshold, capacity,
+		)
+		if err != nil {
+			// This should never happen given the
+			// threshold clamping above, but fall back to
+			// dropping all messages rather than risking
+			// a blocked readHandler.
+			shouldDrop = func(int) bool {
+				return true
+			}
+		}
+
+		return actor.NewBackpressureMailbox[*Request, *Response](
+			ctx, capacity, shouldDrop,
+		)
+	}
+
+	return []actor.ActorOption[*Request, *Response]{
+		actor.WithMailboxFactory(factory),
+		actor.WithMailboxSize[*Request, *Response](
+			DefaultOnionMailboxSize,
+		),
 	}
 }
 

@@ -30,8 +30,13 @@ const (
 	AnchorCommitment
 
 	// TaprootCommitment represents the commitment transaction of a simple
-	// taproot channel.
+	// taproot channel using staging scripts.
 	TaprootCommitment
+
+	// TaprootFinalCommitment represents the commitment transaction of a
+	// production taproot channel using final scripts with
+	// OP_CHECKSIGVERIFY optimizations.
+	TaprootFinalCommitment
 )
 
 // ToLocalInput constructs the input that will be used to spend the to_local
@@ -66,7 +71,7 @@ func (c CommitmentType) ToRemoteInput(info *lnwallet.BreachRetribution) (
 			info.LocalOutputSignDesc, 0,
 		), nil
 
-	case AnchorCommitment, TaprootCommitment:
+	case AnchorCommitment, TaprootCommitment, TaprootFinalCommitment:
 		// Anchor and Taproot channels have a CSV-encumbered to-remote
 		// output. We'll construct a CSV input and assign the proper CSV
 		// delay of 1.
@@ -89,6 +94,9 @@ func (c CommitmentType) ToLocalWitnessType() (input.WitnessType, error) {
 	case TaprootCommitment:
 		return input.TaprootCommitmentRevoke, nil
 
+	case TaprootFinalCommitment:
+		return input.TaprootCommitmentRevokeFinal, nil
+
 	default:
 		return nil, fmt.Errorf("unknown commitment type: %v", c)
 	}
@@ -109,6 +117,9 @@ func (c CommitmentType) ToRemoteWitnessType() (input.WitnessType, error) {
 	case TaprootCommitment:
 		return input.TaprootRemoteCommitSpend, nil
 
+	case TaprootFinalCommitment:
+		return input.TaprootRemoteCommitSpendFinal, nil
+
 	default:
 		return nil, fmt.Errorf("unknown commitment type: %v", c)
 	}
@@ -127,9 +138,13 @@ func (c CommitmentType) ToRemoteWitnessSize() (lntypes.WeightUnit, error) {
 	case AnchorCommitment:
 		return input.ToRemoteConfirmedWitnessSize, nil
 
-	// Taproot channels spend a confirmed P2SH output.
+	// Staging taproot channels.
 	case TaprootCommitment:
 		return input.TaprootToRemoteWitnessSize, nil
+
+	// Production taproot channels use slightly smaller scripts.
+	case TaprootFinalCommitment:
+		return input.TaprootToRemoteWitnessSizeFinal, nil
 
 	default:
 		return 0, fmt.Errorf("unknown commitment type: %v", c)
@@ -151,6 +166,11 @@ func (c CommitmentType) ToLocalWitnessSize() (lntypes.WeightUnit, error) {
 		return input.ToLocalPenaltyWitnessSize, nil
 
 	case TaprootCommitment:
+		return input.TaprootToLocalRevokeWitnessSize, nil
+
+	// Production taproot uses the same revoke witness size since the
+	// revocation script is identical between staging and production.
+	case TaprootFinalCommitment:
 		return input.TaprootToLocalRevokeWitnessSize, nil
 
 	default:
@@ -187,7 +207,7 @@ func (c CommitmentType) ParseRawSig(witness wire.TxWitness) (lnwire.Sig,
 		// signature.
 		return lnwire.NewSigFromECDSARawSignature(rawSignature)
 
-	case TaprootCommitment:
+	case TaprootCommitment, TaprootFinalCommitment:
 		rawSignature := witness[0]
 		if len(rawSignature) > 64 {
 			rawSignature = witness[0][:len(witness[0])-1]
@@ -220,7 +240,7 @@ func (c CommitmentType) NewJusticeKit(sweepScript []byte,
 			sweepScript, breachInfo, withToRemote,
 		), nil
 
-	case TaprootCommitment:
+	case TaprootCommitment, TaprootFinalCommitment:
 		return newTaprootJusticeKit(
 			sweepScript, breachInfo, withToRemote,
 		)
@@ -244,6 +264,9 @@ func (c CommitmentType) EmptyJusticeKit() (JusticeKit, error) {
 
 	case TaprootCommitment:
 		return &taprootJusticeKit{}, nil
+
+	case TaprootFinalCommitment:
+		return &taprootJusticeKit{isFinal: true}, nil
 
 	default:
 		return nil, fmt.Errorf("unknown commitment type: %v", c)

@@ -221,14 +221,12 @@ func testRestAPI(ht *lntest.HarnessTest) {
 	alice := ht.NewNodeWithCoins("Alice", args)
 
 	for _, tc := range testCases {
-		tc := tc
 		ht.Run(tc.name, func(t *testing.T) {
 			tc.run(t, alice, bob)
 		})
 	}
 
 	for _, tc := range wsTestCases {
-		tc := tc
 		ht.Run(tc.name, func(t *testing.T) {
 			st := ht.Subtest(t)
 			tc.run(st)

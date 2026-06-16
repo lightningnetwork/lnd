@@ -172,31 +172,6 @@ func RegisterRouterJSONCallbacks(registry map[string]func(ctx context.Context,
 		callback(string(respBytes), nil)
 	}
 
-	registry["routerrpc.Router.SendToRoute"] = func(ctx context.Context,
-		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
-
-		req := &SendToRouteRequest{}
-		err := marshaler.Unmarshal([]byte(reqJSON), req)
-		if err != nil {
-			callback("", err)
-			return
-		}
-
-		client := NewRouterClient(conn)
-		resp, err := client.SendToRoute(ctx, req)
-		if err != nil {
-			callback("", err)
-			return
-		}
-
-		respBytes, err := marshaler.Marshal(resp)
-		if err != nil {
-			callback("", err)
-			return
-		}
-		callback(string(respBytes), nil)
-	}
-
 	registry["routerrpc.Router.SendToRouteV2"] = func(ctx context.Context,
 		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
 
@@ -439,90 +414,6 @@ func RegisterRouterJSONCallbacks(registry map[string]func(ctx context.Context,
 		}()
 	}
 
-	registry["routerrpc.Router.SendPayment"] = func(ctx context.Context,
-		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
-
-		req := &SendPaymentRequest{}
-		err := marshaler.Unmarshal([]byte(reqJSON), req)
-		if err != nil {
-			callback("", err)
-			return
-		}
-
-		client := NewRouterClient(conn)
-		stream, err := client.SendPayment(ctx, req)
-		if err != nil {
-			callback("", err)
-			return
-		}
-
-		go func() {
-			for {
-				select {
-				case <-stream.Context().Done():
-					callback("", stream.Context().Err())
-					return
-				default:
-				}
-
-				resp, err := stream.Recv()
-				if err != nil {
-					callback("", err)
-					return
-				}
-
-				respBytes, err := marshaler.Marshal(resp)
-				if err != nil {
-					callback("", err)
-					return
-				}
-				callback(string(respBytes), nil)
-			}
-		}()
-	}
-
-	registry["routerrpc.Router.TrackPayment"] = func(ctx context.Context,
-		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
-
-		req := &TrackPaymentRequest{}
-		err := marshaler.Unmarshal([]byte(reqJSON), req)
-		if err != nil {
-			callback("", err)
-			return
-		}
-
-		client := NewRouterClient(conn)
-		stream, err := client.TrackPayment(ctx, req)
-		if err != nil {
-			callback("", err)
-			return
-		}
-
-		go func() {
-			for {
-				select {
-				case <-stream.Context().Done():
-					callback("", stream.Context().Err())
-					return
-				default:
-				}
-
-				resp, err := stream.Recv()
-				if err != nil {
-					callback("", err)
-					return
-				}
-
-				respBytes, err := marshaler.Marshal(resp)
-				if err != nil {
-					callback("", err)
-					return
-				}
-				callback(string(respBytes), nil)
-			}
-		}()
-	}
-
 	registry["routerrpc.Router.UpdateChanStatus"] = func(ctx context.Context,
 		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
 
@@ -610,6 +501,31 @@ func RegisterRouterJSONCallbacks(registry map[string]func(ctx context.Context,
 
 		client := NewRouterClient(conn)
 		resp, err := client.XFindBaseLocalChanAlias(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
+
+	registry["routerrpc.Router.DeleteForwardingHistory"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &DeleteForwardingHistoryRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewRouterClient(conn)
+		resp, err := client.DeleteForwardingHistory(ctx, req)
 		if err != nil {
 			callback("", err)
 			return

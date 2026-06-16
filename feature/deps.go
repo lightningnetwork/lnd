@@ -79,6 +79,10 @@ var deps = depDesc{
 		lnwire.AnchorsZeroFeeHtlcTxOptional: {},
 		lnwire.ExplicitChannelTypeOptional:  {},
 	},
+	lnwire.SimpleTaprootChannelsOptionalFinal: {
+		lnwire.AnchorsZeroFeeHtlcTxOptional: {},
+		lnwire.ExplicitChannelTypeOptional:  {},
+	},
 	lnwire.SimpleTaprootOverlayChansOptional: {
 		lnwire.SimpleTaprootChannelsOptionalStaging: {},
 		lnwire.TLVOnionPayloadOptional:              {},

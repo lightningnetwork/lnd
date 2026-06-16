@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -30,6 +31,7 @@ import (
 	"github.com/lightninglabs/neutrino/pushtx"
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainparams"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
@@ -1056,6 +1058,9 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 	chanGraphOpts := []graphdb.ChanGraphOption{
 		graphdb.WithUseGraphCache(!cfg.DB.NoGraphCache),
+		graphdb.WithAsyncGraphCachePopulation(
+			!cfg.DB.SyncGraphCacheLoad,
+		),
 	}
 
 	// We want to pre-allocate the channel graph cache according to what we
@@ -1068,6 +1073,15 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		)
 	}
 
+	// KV-over-SQL backends (sqlite, postgres) opt in to closing channels
+	// via tombstone markers because nested-bucket deletes inside a write
+	// transaction translate into a long-running ON DELETE CASCADE on the
+	// kvdb-on-SQL schema, holding the database write-lock for many seconds
+	// on long-lived channels. bbolt and etcd keep the synchronous one-shot
+	// close path, where nested-bucket deletion is already cheap.
+	tombstoneClosedChans := cfg.DB.Backend == lncfg.SqliteBackend ||
+		cfg.DB.Backend == lncfg.PostgresBackend
+
 	dbOptions := []channeldb.OptionModifier{
 		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
 		channeldb.OptionStoreFinalHtlcResolutions(
@@ -1077,6 +1091,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		channeldb.OptionNoRevLogAmtData(cfg.DB.NoRevLogAmtData),
 		channeldb.OptionGcDecayedLog(cfg.DB.NoGcDecayedLog),
 		channeldb.OptionWithDecayedLogDB(dbs.DecayedLogDB),
+		channeldb.OptionTombstoneClosedChannels(tombstoneClosedChans),
 	}
 
 	// Otherwise, we'll open two instances, one for the state we only need
@@ -1134,6 +1149,16 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 				// Set the invoice bucket tombstone to indicate
 				// that the migration has been completed.
+				//
+				// TODO(ziggie): The tombstone is currently
+				// set inside the SQL transaction callback,
+				// which is fragile: if the SQL transaction
+				// is retried (e.g. on a serialization
+				// error), the KV tombstone is written before
+				// the SQL commit is confirmed. Move this to
+				// run after ApplyAllMigrations returns so
+				// the tombstone is only set once the
+				// migration is durably committed.
 				d.logger.Debugf("Setting invoice bucket " +
 					"tombstone")
 
@@ -1173,15 +1198,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 						"payments to SQL: %w", err)
 				}
 
-				// Set the payments bucket tombstone to
-				// indicate that the migration has been
-				// completed.
-				d.logger.Debugf("Setting payments bucket " +
-					"tombstone")
-
-				return paymentsdb.SetPaymentsBucketTombstone(
-					dbs.ChanStateDB.Backend,
-				)
+				return nil
 			}
 
 			// Make sure we attach the custom migration function to
@@ -1232,8 +1249,48 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 		// With the DB ready and migrations applied, we can now create
 		// the base DB and transaction executor for the native SQL
-		// invoice store.
+		// stores.
 		baseDB := dbs.NativeSQLStore.GetBaseDB()
+
+		// Validate that the database was initialised for the same
+		// network as the currently active network. This catches cases
+		// where a user accidentally reuses a database (e.g. via a
+		// postgres DSN or by copying a file) across different networks
+		// (e.g. mainnet → testnet), which would otherwise lead to
+		// silent data corruption. This check applies to all native SQL
+		// backends.
+		//
+		// If migrations are explicitly skipped, we also skip this check
+		// because the chain_params table may not exist yet. We check
+		// only the active backend's flag since only one backend is
+		// used at a time.
+		var skipMigrations bool
+		switch d.cfg.DB.Backend {
+		case lncfg.SqliteBackend:
+			skipMigrations = d.cfg.DB.Sqlite.SkipMigrations
+		case lncfg.PostgresBackend:
+			skipMigrations = d.cfg.DB.Postgres.SkipMigrations
+		}
+
+		if !skipMigrations {
+			chainParamsStore := chainparams.NewStore(baseDB)
+			err = chainParamsStore.ValidateNetwork(
+				ctx, d.cfg.ActiveNetParams.Params,
+			)
+			if err != nil {
+				cleanUp()
+				d.logger.Error(err)
+
+				return nil, nil, err
+			}
+		} else {
+			d.logger.Warnf("Database network validation skipped " +
+				"because SkipMigrations is enabled; " +
+				"cross-network database reuse would not be " +
+				"detected.")
+		}
+
+		// Create the invoice store.
 		invoiceExecutor := sqldb.NewTransactionExecutor(
 			baseDB, func(tx *sql.Tx) invoices.SQLInvoiceQueries {
 				return baseDB.WithTx(tx)
@@ -1246,6 +1303,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 		dbs.InvoiceDB = sqlInvoiceDB
 
+		// Create the graph store.
 		graphExecutor := sqldb.NewTransactionExecutor(
 			baseDB, func(tx *sql.Tx) graphdb.SQLQueries {
 				return baseDB.WithTx(tx)
@@ -1260,21 +1318,28 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			graphExecutor, graphDBOptions...,
 		)
 		if err != nil {
+			cleanUp()
 			err = fmt.Errorf("unable to get graph store: %w", err)
 			d.logger.Error(err)
 
 			return nil, nil, err
 		}
 
-		// Create the payments DB.
-		//
-		// NOTE:  In the regular build, this will construct a kvdb
-		// backed payments backend. With the test_native_sql tag, it
-		// will build a SQL payments backend.
-		sqlPaymentsDB, err := d.getPaymentsStore(
-			baseDB, dbs.ChanStateDB.Backend,
+		// Create the payments store.
+		paymentsExecutor := sqldb.NewTransactionExecutor(
+			baseDB, func(tx *sql.Tx) paymentsdb.SQLQueries {
+				return baseDB.WithTx(tx)
+			},
+		)
+
+		sqlPaymentsDB, err := paymentsdb.NewSQLStore(
+			&paymentsdb.SQLStoreConfig{
+				QueryCfg: queryCfg,
+			},
+			paymentsExecutor,
 		)
 		if err != nil {
+			cleanUp()
 			err = fmt.Errorf("unable to get payments store: %w",
 				err)
 
@@ -1286,8 +1351,12 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		// Check if the invoice bucket tombstone is set. If it is, we
 		// need to return and ask the user switch back to using the
 		// native SQL store.
+		//
+		// NOTE: The invoice bucket tombstone acts as the system-wide
+		// guard against switching back to KV mode.
 		ripInvoices, err := dbs.ChanStateDB.GetInvoiceBucketTombstone()
 		if err != nil {
+			cleanUp()
 			err = fmt.Errorf("unable to check invoice bucket "+
 				"tombstone: %w", err)
 			d.logger.Error(err)
@@ -1295,28 +1364,8 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			return nil, nil, err
 		}
 		if ripInvoices {
+			cleanUp()
 			err = fmt.Errorf("invoices bucket tombstoned, please " +
-				"switch back to native SQL")
-			d.logger.Error(err)
-
-			return nil, nil, err
-		}
-
-		// Check if the payments bucket tombstone is set. If it is, we
-		// need to return and ask the user switch back to using the
-		// native SQL store.
-		ripPayments, err := paymentsdb.GetPaymentsBucketTombstone(
-			dbs.ChanStateDB.Backend,
-		)
-		if err != nil {
-			err = fmt.Errorf("unable to check payments bucket "+
-				"tombstone: %w", err)
-			d.logger.Error(err)
-
-			return nil, nil, err
-		}
-		if ripPayments {
-			err = fmt.Errorf("payments bucket tombstoned, please " +
 				"switch back to native SQL")
 			d.logger.Error(err)
 
@@ -1329,6 +1378,8 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			databaseBackends.GraphDB, graphDBOptions...,
 		)
 		if err != nil {
+			cleanUp()
+
 			return nil, nil, err
 		}
 
@@ -1689,6 +1740,11 @@ func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 	}
 	cfg.Routing.AssumeChannelValid = !cfg.NeutrinoMode.ValidateChannels
 
+	// Validate neutrino headers import configuration.
+	if err := cfg.NeutrinoMode.Validate(); err != nil {
+		return nil, nil, err
+	}
+
 	// First we'll open the database file for neutrino, creating the
 	// database if needed. We append the normalized network name here to
 	// match the behavior of btcwallet.
@@ -1790,6 +1846,24 @@ func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 		PersistToDisk:      cfg.NeutrinoMode.PersistFilters,
 	}
 
+	// Configure headers import if both sources are specified. The
+	// chainimport package handles both HTTP URLs and local file paths
+	// transparently based on the source string prefix.
+	blockHdrSrc := cfg.NeutrinoMode.BlockHeadersSource
+	filterHdrSrc := cfg.NeutrinoMode.FilterHeadersSource
+	if blockHdrSrc != "" && filterHdrSrc != "" {
+		importCfg := &neutrino.HeadersImportConfig{
+			BlockHeadersSource:  blockHdrSrc,
+			FilterHeadersSource: filterHdrSrc,
+		}
+
+		importCfg.ValidationFlags = neutrinoHeadersImportValidationFlags(
+			cfg.Bitcoin,
+		)
+
+		config.HeadersImport = importCfg
+	}
+
 	if cfg.NeutrinoMode.MaxPeers <= 0 {
 		return nil, nil, fmt.Errorf("a non-zero number must be set " +
 			"for neutrino max peers")
@@ -1820,6 +1894,21 @@ func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 	}
 
 	return neutrinoCS, cleanUp, nil
+}
+
+// neutrinoHeadersImportValidationFlags returns the blockchain validation
+// flags to use when importing block headers via neutrino's chainimport
+// package. Local test networks fall back to BFFastAdd to keep harness
+// imports cheap; public networks keep contextual header validation enabled
+// so the imported chain is held to the same standard as P2P headers.
+func neutrinoHeadersImportValidationFlags(
+	chainCfg *lncfg.Chain) blockchain.BehaviorFlags {
+
+	if chainCfg.IsLocalNetwork() {
+		return blockchain.BFFastAdd
+	}
+
+	return blockchain.BFNone
 }
 
 // parseHeaderStateAssertion parses the user-specified neutrino header state

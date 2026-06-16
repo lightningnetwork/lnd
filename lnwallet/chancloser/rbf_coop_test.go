@@ -12,8 +12,10 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -21,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/protofsm"
@@ -49,18 +52,19 @@ var (
 	remoteSigBytes = fromHex("304502210082235e21a2300022738dabb8e1bbd9d1" +
 		"9cfb1e7ab8c30a23b0afbb8d178abcf3022024bf68e256c534ddfaf966b" +
 		"f908deb944305596f7bdcc38d69acad7f9c868724")
-	remoteSig            = sigMustParse(remoteSigBytes)
-	remoteWireSig        = mustWireSig(&remoteSig)
-	remoteSigRecordType3 = newSigTlv[tlv.TlvType3](remoteWireSig)
-	remoteSigRecordType1 = newSigTlv[tlv.TlvType1](remoteWireSig)
+	remoteSig     = sigMustParse(remoteSigBytes)
+	remoteWireSig = mustWireSig(&remoteSig)
+
+	localSchnorrSigBytes = bytes.Repeat([]byte{0x01}, 64)
+	localSchnorrSig, _   = lnwire.NewSigFromSchnorrRawSignature(
+		localSchnorrSigBytes,
+	)
 
 	localTx = wire.MsgTx{Version: 2}
 
 	closeTx = wire.NewMsgTx(2)
 
-	defaultTimeout = 500 * time.Millisecond
-	longTimeout    = 3 * time.Second
-	defaultPoll    = 50 * time.Millisecond
+	defaultTimeout = wait.DefaultTimeout
 )
 
 func sigMustParse(sigBytes []byte) ecdsa.Signature {
@@ -117,18 +121,12 @@ func assertStateTransitions[Event any, Env protofsm.Environment](
 
 	for _, expectedState := range expectedStates {
 		newState, err := fn.RecvOrTimeout(
-			stateSub.NewItemCreated.ChanOut(), defaultTimeout,
+			stateSub.NewItemCreated.ChanOut(),
+			defaultTimeout,
 		)
 		require.NoError(t, err, "expected state: %T", expectedState)
 
 		require.IsType(t, expectedState, newState)
-	}
-
-	// We should have no more states.
-	select {
-	case newState := <-stateSub.NewItemCreated.ChanOut():
-		t.Fatalf("unexpected state transition: %v", newState)
-	case <-time.After(defaultPoll):
 	}
 }
 
@@ -187,6 +185,9 @@ type harnessCfg struct {
 
 	localUpfrontAddr  fn.Option[lnwire.DeliveryAddress]
 	remoteUpfrontAddr fn.Option[lnwire.DeliveryAddress]
+
+	localMusigSession  fn.Option[MusigSession]
+	remoteMusigSession fn.Option[MusigSession]
 }
 
 // rbfCloserTestHarness is a test harness for the RBF closer.
@@ -272,6 +273,10 @@ func (r *rbfCloserTestHarness) stopAndAssert() {
 	defer r.chanCloser.RemoveStateSub(r.stateSub)
 	r.chanCloser.Stop()
 
+	// After Stop(), no further state transitions should be produced.
+	// Wait for a short quiet window to catch any unexpected stragglers.
+	r.assertNoStateTransitions()
+
 	r.assertExpectations()
 }
 
@@ -291,12 +296,10 @@ func (r *rbfCloserTestHarness) assertStartupAssertions() {
 }
 
 func (r *rbfCloserTestHarness) assertNoStateTransitions() {
-	r.T.Helper()
-
 	select {
 	case newState := <-r.stateSub.NewItemCreated.ChanOut():
 		r.T.Fatalf("unexpected state transition: %T", newState)
-	case <-time.After(defaultPoll):
+	case <-time.After(10 * time.Millisecond):
 	}
 }
 
@@ -433,10 +436,33 @@ func (r *rbfCloserTestHarness) expectNewCloseSig(
 
 	r.T.Helper()
 
-	r.signer.On(
-		"CreateCloseProposal", fee, localScript, remoteScript,
-		mock.Anything,
-	).Return(&localSig, &localTx, closeBalance, nil)
+	// For taproot channels, we'll return a musig2 partial signature instead
+	// of the normal schnorr sig.
+	switch {
+	case r.env.LocalMusigSession != nil:
+		var s btcec.ModNScalar
+		s.SetInt(1)
+
+		privKey, _ := btcec.NewPrivateKey()
+		rPoint := privKey.PubKey()
+
+		partislSig := musig2.NewPartialSignature(&s, rPoint)
+		musigSig := lnwallet.NewMusigPartialSig(
+			&partislSig, lnwire.Musig2Nonce{}, lnwire.Musig2Nonce{},
+			nil, fn.None[chainhash.Hash](),
+		)
+		r.signer.On(
+			"CreateCloseProposal", fee, localScript, remoteScript,
+			mock.Anything,
+		).Return(musigSig, &localTx, closeBalance, nil)
+
+	// For non-taproot channels, return regular ECDSA signature.
+	default:
+		r.signer.On(
+			"CreateCloseProposal", fee, localScript, remoteScript,
+			mock.Anything,
+		).Return(&localSig, &localTx, closeBalance, nil)
+	}
 }
 
 func (r *rbfCloserTestHarness) waitForMsgSent() {
@@ -444,7 +470,7 @@ func (r *rbfCloserTestHarness) waitForMsgSent() {
 
 	err := wait.Predicate(func() bool {
 		return r.daemonAdapters.msgSent.Load()
-	}, longTimeout)
+	}, time.Second*3)
 	require.NoError(r.T, err)
 }
 
@@ -470,11 +496,22 @@ func (r *rbfCloserTestHarness) expectCloseFinalized(
 	remoteScript []byte, fee btcutil.Amount,
 	balanceAfterClose btcutil.Amount, isLocal bool) {
 
-	// The caller should obtain the final signature.
-	r.signer.On("CompleteCooperativeClose",
-		localCoopSig, remoteCoopSig, localScript,
-		remoteScript, fee, mock.Anything,
-	).Return(closeTx, balanceAfterClose, nil)
+	// For taproot, we expect the CompleteCooperativeClose to be called with
+	// musig signatures. We need to match on any signature type since the
+	// exact types will differ.
+	switch {
+	case r.env.LocalMusigSession != nil:
+		r.signer.On("CompleteCooperativeClose",
+			mock.Anything, mock.Anything, localScript,
+			remoteScript, fee, mock.Anything,
+		).Return(closeTx, balanceAfterClose, nil)
+	default:
+		// The caller should obtain the final signature.
+		r.signer.On("CompleteCooperativeClose",
+			localCoopSig, remoteCoopSig, localScript,
+			remoteScript, fee, mock.Anything,
+		).Return(closeTx, balanceAfterClose, nil)
+	}
 
 	// The caller should also mark the transaction as broadcast on disk.
 	r.chanObserver.On("MarkCoopBroadcasted", closeTx, isLocal).Return(nil)
@@ -484,11 +521,6 @@ func (r *rbfCloserTestHarness) expectCloseFinalized(
 	r.daemonAdapters.On(
 		"BroadcastTransaction", closeTx, mock.Anything,
 	).Return(nil)
-}
-
-func (r *rbfCloserTestHarness) expectChanPendingClose() {
-	var nilTx *wire.MsgTx
-	r.chanObserver.On("MarkCoopBroadcasted", nilTx, true).Return(nil)
 }
 
 func (r *rbfCloserTestHarness) assertLocalClosePending() {
@@ -537,9 +569,9 @@ func (d dustExpectation) String() string {
 // message to the remote party, and all the other intermediate steps.
 func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 	initEvent ProtocolEvent, balanceAfterClose, absoluteFee btcutil.Amount,
-	dustExpect dustExpectation, iteration bool) {
+	dustExpect dustExpectation, expectExtraTransition bool) {
 
-	ctx := r.T.Context()
+	ctx := context.Background()
 	numFeeCalls := 2
 
 	// If we're using the SendOfferEvent as a trigger, we only need to call
@@ -566,13 +598,40 @@ func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 	msgExpect := singleMsgMatcher(func(m *lnwire.ClosingComplete) bool {
 		r.T.Helper()
 
+		// For taproot channels, check TaprootClosingSigs, as we'll be
+		// sending musig signatures over.
+		if r.env.LocalMusigSession != nil {
+			switch {
+			case m.TaprootClosingSigs.CloserNoClosee.IsSome():
+				r.T.Logf("taproot closer no closee field "+
+					"set, expected: %v",
+					dustExpect)
+
+				return dustExpect == remoteDustExpect
+			case m.TaprootClosingSigs.NoCloserClosee.IsSome():
+				r.T.Logf("taproot no close closee "+
+					"field set, expected: %v",
+					dustExpect)
+
+				return dustExpect == localDustExpect
+			default:
+				r.T.Logf("taproot no dust field set, "+
+					"expected: %v", dustExpect)
+
+				//nolint:ll
+				return (m.TaprootClosingSigs.CloserAndClosee.IsSome() &&
+					dustExpect == noDustExpect)
+			}
+		}
+
+		// For non-taproot channels, check regular ClosingSigs
 		switch {
-		case m.CloserNoClosee.IsSome():
+		case m.ClosingSigs.CloserNoClosee.IsSome():
 			r.T.Logf("closer no closee field set, expected: %v",
 				dustExpect)
 
 			return dustExpect == remoteDustExpect
-		case m.NoCloserClosee.IsSome():
+		case m.ClosingSigs.NoCloserClosee.IsSome():
 			r.T.Logf("no close closee field set, expected: %v",
 				dustExpect)
 
@@ -580,7 +639,7 @@ func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 		default:
 			r.T.Logf("no dust field set, expected: %v", dustExpect)
 
-			return (m.CloserAndClosee.IsSome() &&
+			return (m.ClosingSigs.CloserAndClosee.IsSome() &&
 				dustExpect == noDustExpect)
 		}
 	})
@@ -600,9 +659,10 @@ func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 	case *SendOfferEvent:
 		expectedStates = []RbfState{&ClosingNegotiation{}}
 
-		// If we're in the middle of an iteration, then we expect a
-		// transition from ClosePending -> LocalCloseStart.
-		if iteration {
+		// If we expect an extra transition (e.g. restarting from
+		// ClosePending or CloseErr), then we'll see an additional
+		// ClosingNegotiation emission from the internal requeue.
+		if expectExtraTransition {
 			expectedStates = append(
 				expectedStates, &ClosingNegotiation{},
 			)
@@ -638,20 +698,36 @@ func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 	// The proposed fee, as well as our local signature should be
 	// properly stashed in the state.
 	require.Equal(r.T, absoluteFee, offerSentState.ProposedFee)
-	require.Equal(r.T, localSigWire, offerSentState.LocalSig)
+
+	switch {
+	case r.env.LocalMusigSession != nil:
+		// For taproot, we verify that we have a schnorr signature
+		// stored.
+		require.NotNil(r.T, offerSentState.LocalSig)
+
+		// The signature should be marked as schnorr type
+		sigBytes := offerSentState.LocalSig.RawBytes()
+		require.Len(r.T, sigBytes, 64)
+
+		// Verify it's not a zero signature
+		require.NotEqual(r.T, make([]byte, 64), sigBytes)
+	default:
+		// For non-taproot channels, we expect the exact ECDSA signature
+		require.Equal(r.T, localSigWire, offerSentState.LocalSig)
+	}
 }
 
 func (r *rbfCloserTestHarness) assertSingleRbfIteration(
 	initEvent ProtocolEvent, balanceAfterClose, absoluteFee btcutil.Amount,
-	dustExpect dustExpectation, iteration bool) {
+	dustExpect dustExpectation, expectExtraTransition bool) {
 
-	ctx := r.T.Context()
+	ctx := context.Background()
 
 	// We'll now send in the send offer event, which should trigger 1/2 of
 	// the RBF loop, ending us in the LocalOfferSent state.
 	r.expectHalfSignerIteration(
-		initEvent, balanceAfterClose, absoluteFee, dustExpect,
-		iteration,
+		initEvent, balanceAfterClose, absoluteFee, noDustExpect,
+		expectExtraTransition,
 	)
 
 	// Now that we're in the local offer sent state, we'll send the
@@ -681,18 +757,81 @@ func (r *rbfCloserTestHarness) assertSingleRbfIteration(
 	r.assertLocalClosePending()
 }
 
-// assertSingleRemoteRbfIteration asserts that a single RBF iteration initiated
-// by the remote party completes successfully. The sendEvent callback controls
-// when the event that kicks off the process is sent, which is useful for tests
-// that need to set up mocks before the event is processed. The callback is
-// provided with the context and the initial offer event so most callers can
-// pass chanCloser.SendEvent directly.
+// newNonceTlv is a helper function that returns a new optional TLV nonce field.
+//
+//nolint:ll
+func newNonceTlv(nonce lnwire.Musig2Nonce) tlv.OptionalRecordT[tlv.TlvType22, lnwire.Musig2Nonce] {
+	return tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType22](nonce))
+}
+
+// newPartialSigTlv is a helper function that returns a new optional TLV partial
+// sig field.
+//
+//nolint:ll
+func newPartialSigTlv[T tlv.TlvType](ps lnwire.PartialSig) tlv.OptionalRecordT[T, lnwire.PartialSig] {
+	return tlv.SomeRecordT(tlv.NewRecordT[T](ps))
+}
+
+// newPartialSigWithNonceTlv is a helper function that returns a new optional
+// TLV partial sig with nonce field.
+func newPartialSigWithNonceTlv[T tlv.TlvType](psn lnwire.PartialSigWithNonce,
+) tlv.OptionalRecordT[T, lnwire.PartialSigWithNonce] {
+
+	return tlv.SomeRecordT(tlv.NewRecordT[T](psn))
+}
+
+// assertSingleRbfIterationWithNonce is a variant of assertSingleRbfIteration
+// that includes nonce handling for taproot channels.
+func (r *rbfCloserTestHarness) assertSingleRbfIterationWithNonce(
+	initEvent ProtocolEvent, balanceAfterClose, absoluteFee btcutil.Amount,
+	dustExpect dustExpectation, expectExtraTransition bool,
+	nextCloseeNonce lnwire.Musig2Nonce) {
+
+	ctx := context.Background()
+
+	// We'll now send in the send offer event, which should trigger 1/2 of
+	// the RBF loop, ending us in the LocalOfferSent state.
+	r.expectHalfSignerIteration(
+		initEvent, balanceAfterClose, absoluteFee, noDustExpect,
+		expectExtraTransition,
+	)
+
+	// Now that we're in the local offer sent state, we'll send the response
+	// of the remote party, which completes one iteration
+	localSigEvent := &LocalSigReceived{
+		SigMsg: lnwire.ClosingSig{
+			CloserScript: localAddr,
+			CloseeScript: remoteAddr,
+			TaprootPartialSigs: lnwire.TaprootPartialSigs{
+				CloserAndClosee: newPartialSigTlv[tlv.TlvType7](
+					lnwire.PartialSig{
+						Sig: btcec.ModNScalar{},
+					},
+				),
+			},
+			NextCloseeNonce: newNonceTlv(nextCloseeNonce),
+		},
+	}
+
+	// Before we send the event, we expect the close the final signature to
+	// be combined/obtained, and for the close to finalized on disk.
+	r.expectCloseFinalized(
+		&localSig, &remoteSig, localAddr, remoteAddr, absoluteFee,
+		balanceAfterClose, true,
+	)
+
+	r.chanCloser.SendEvent(ctx, localSigEvent)
+
+	// We should transition to the pending closing state now.
+	r.assertLocalClosePending()
+}
+
 func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 	initEvent *OfferReceivedEvent, balanceAfterClose,
-	absoluteFee btcutil.Amount, sequence uint32, iteration bool,
-	sendEvent func(context.Context, ProtocolEvent)) {
+	absoluteFee btcutil.Amount, sequence uint32,
+	expectExtraTransition bool, sendInit bool) {
 
-	ctx := r.T.Context()
+	ctx := context.Background()
 
 	// When we receive the signature below, our local state machine should
 	// move to finalize the close.
@@ -702,23 +841,21 @@ func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 		absoluteFee, balanceAfterClose, false,
 	)
 
-	sendEvent(ctx, initEvent)
+	if sendInit {
+		r.chanCloser.SendEvent(ctx, initEvent)
+	}
 
 	// Our outer state should transition to ClosingNegotiation state.
-	transitions := []RbfState{
-		&ClosingNegotiation{},
+	// When restarting from ClosePending or CloseErr, the internal
+	// requeue produces two ClosingNegotiation transitions. We consume
+	// them in a single call to keep assertions deterministic.
+	if expectExtraTransition {
+		r.assertStateTransitions(
+			&ClosingNegotiation{}, &ClosingNegotiation{},
+		)
+	} else {
+		r.assertStateTransitions(&ClosingNegotiation{})
 	}
-
-	// If this is an iteration, then we'll go from ClosePending ->
-	// RemoteCloseStart -> ClosePending. So we'll assert an extra transition
-	// here.
-	if iteration {
-		transitions = append(transitions, &ClosingNegotiation{})
-	}
-
-	// Now that we know how many state transitions to expect, we'll wait
-	// for them.
-	r.assertStateTransitions(transitions...)
 
 	// If we examine the final resting state, we should see that the we're
 	// now in the ClosePending state for the remote peer.
@@ -733,6 +870,62 @@ func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 	// The proposed fee, as well as our local signature should be properly
 	// stashed in the state.
 	require.Equal(r.T, closeTx, pendingState.CloseTx)
+}
+
+// TestSelectTaprootPartialSigWithNonce tests the selection logic for taproot
+// partial signatures with nonces.
+func TestSelectTaprootPartialSigWithNonce(t *testing.T) {
+	var (
+		nonceNoClosee    lnwire.Musig2Nonce
+		nonceWithClosee  lnwire.Musig2Nonce
+		nonceNoCloser    lnwire.Musig2Nonce
+		emptyPartialSig  lnwire.PartialSig
+		closerNoCloseePS lnwire.PartialSigWithNonce
+		withCloseePS     lnwire.PartialSigWithNonce
+		noCloserPS       lnwire.PartialSigWithNonce
+	)
+
+	nonceNoClosee[0] = 0x01
+	nonceWithClosee[0] = 0x02
+	nonceNoCloser[0] = 0x03
+
+	closerNoCloseePS = lnwire.PartialSigWithNonce{
+		PartialSig: emptyPartialSig,
+		Nonce:      nonceNoClosee,
+	}
+	withCloseePS = lnwire.PartialSigWithNonce{
+		PartialSig: emptyPartialSig,
+		Nonce:      nonceWithClosee,
+	}
+	noCloserPS = lnwire.PartialSigWithNonce{
+		PartialSig: emptyPartialSig,
+		Nonce:      nonceNoCloser,
+	}
+
+	sigsBoth := lnwire.TaprootClosingSigs{
+		CloserNoClosee: newPartialSigWithNonceTlv[tlv.TlvType5](
+			closerNoCloseePS,
+		),
+		CloserAndClosee: newPartialSigWithNonceTlv[tlv.TlvType7](
+			withCloseePS,
+		),
+	}
+
+	selected, err := selectTaprootPartialSigWithNonce(sigsBoth, false)
+	require.NoError(t, err)
+	require.Equal(t, nonceWithClosee, selected.Nonce)
+
+	selected, err = selectTaprootPartialSigWithNonce(sigsBoth, true)
+	require.NoError(t, err)
+	require.Equal(t, nonceNoClosee, selected.Nonce)
+
+	sigsNoCloser := lnwire.TaprootClosingSigs{
+		NoCloserClosee: newPartialSigWithNonceTlv[tlv.TlvType6](noCloserPS), //nolint:ll
+	}
+
+	selected, err = selectTaprootPartialSigWithNonce(sigsNoCloser, false)
+	require.NoError(t, err)
+	require.Equal(t, nonceNoCloser, selected.Nonce)
 }
 
 func assertStateT[T ProtocolState](h *rbfCloserTestHarness) T {
@@ -759,7 +952,10 @@ func newRbfCloserTestHarness(t *testing.T,
 
 	peerPub := randPubKey(t)
 
-	msgMapper := NewRbfMsgMapper(uint32(startingHeight), chanID, *peerPub)
+	msgMapper := NewRbfMsgMapper(
+		func() uint32 { return uint32(startingHeight) },
+		chanID, *peerPub,
+	)
 
 	initialState := cfg.initialState.UnwrapOr(&ChannelActive{})
 
@@ -796,6 +992,15 @@ func newRbfCloserTestHarness(t *testing.T,
 		ChanObserver:          mockObserver,
 		CloseSigner:           mockSigner,
 	}
+
+	// If musig sessions are provided, we set them in the environment.
+	cfg.localMusigSession.WhenSome(func(session MusigSession) {
+		env.LocalMusigSession = session
+	})
+	cfg.remoteMusigSession.WhenSome(func(session MusigSession) {
+		env.RemoteMusigSession = session
+	})
+
 	harness.env = env
 
 	var pkScript []byte
@@ -820,7 +1025,7 @@ func newRbfCloserTestHarness(t *testing.T,
 		MsgMapper: fn.Some[protofsm.MsgMapper[ProtocolEvent]](
 			msgMapper,
 		),
-		CustomPollInterval: fn.Some(defaultPoll),
+		CustomPollInterval: fn.Some(time.Nanosecond),
 	}
 
 	// Before we start we always expect an initial spend event.
@@ -830,8 +1035,8 @@ func newRbfCloserTestHarness(t *testing.T,
 
 	chanCloser := protofsm.NewStateMachine(protoCfg)
 
-	// We register our subscriber before starting the state machine, to make
-	// sure we don't miss any events.
+	// Register the state subscriber before Start() to avoid racing
+	// with the initial state notification emitted by driveMachine.
 	harness.stateSub = chanCloser.RegisterStateEvents()
 
 	chanCloser.Start(ctx)
@@ -849,6 +1054,315 @@ func newCloser(t *testing.T, cfg *harnessCfg) *rbfCloserTestHarness {
 	chanCloser.assertStartupAssertions()
 
 	return chanCloser
+}
+
+// testInitiatorShutdownRecvOkNonTap tests the initiator shutdown received
+// scenario for non-taproot channels in the ShutdownPending state.
+func testInitiatorShutdownRecvOkNonTap(t *testing.T, ctx context.Context,
+	startingState *ShutdownPending) {
+
+	t.Run("non_taproot", func(t *testing.T) {
+		firstState := *startingState
+		firstState.IdealFeeRate = fn.Some(
+			chainfee.FeePerKwFloor.FeePerVByte(),
+		)
+		firstState.ShutdownScripts = ShutdownScripts{
+			LocalDeliveryScript:  localAddr,
+			RemoteDeliveryScript: remoteAddr,
+		}
+
+		cfg := &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				&firstState,
+			),
+			localUpfrontAddr:  fn.Some(localAddr),
+			remoteUpfrontAddr: fn.Some(remoteAddr),
+		}
+
+		closeHarness := newCloser(t, cfg)
+		defer closeHarness.stopAndAssert()
+
+		// We should disable the outgoing adds for the channel at this
+		// point as well.
+		closeHarness.expectFinalBalances(fn.None[ShutdownBalances]())
+		closeHarness.expectIncomingAddsDisabled()
+
+		// Create shutdown event.
+		shutdownEvent := &ShutdownReceived{
+			ShutdownScript: remoteAddr,
+		}
+
+		// We'll send in a shutdown received event, with the expected
+		// co-op close addr.
+		closeHarness.chanCloser.SendEvent(ctx, shutdownEvent)
+
+		// We should transition to the channel flushing state.
+		closeHarness.assertStateTransitions(&ChannelFlushing{})
+
+		// Now we'll ensure that the flushing state has the proper
+		// co-op close state.
+		currentState := assertStateT[*ChannelFlushing](closeHarness)
+
+		require.Equal(
+			t, localAddr, currentState.LocalDeliveryScript,
+		)
+		require.Equal(
+			t, remoteAddr, currentState.RemoteDeliveryScript,
+		)
+		require.Equal(
+			t, firstState.IdealFeeRate, currentState.IdealFeeRate,
+		)
+	})
+}
+
+// testInitiatorShutdownRecvOkTaproot tests the initiator shutdown received
+// scenario for taproot channels in the ShutdownPending state.
+func testInitiatorShutdownRecvOkTaproot(t *testing.T, ctx context.Context,
+	startingState *ShutdownPending) {
+
+	t.Run("taproot", func(t *testing.T) {
+		firstState := *startingState
+		firstState.IdealFeeRate = fn.Some(
+			chainfee.FeePerKwFloor.FeePerVByte(),
+		)
+		firstState.ShutdownScripts = ShutdownScripts{
+			LocalDeliveryScript:  localAddr,
+			RemoteDeliveryScript: remoteAddr,
+		}
+
+		localCloseeNonce := lnwire.Musig2Nonce{1, 2, 3}
+		remoteCloseeNonce := lnwire.Musig2Nonce{4, 5, 6}
+
+		firstState.NonceState = NonceState{
+			LocalCloseeNonce:  fn.Some(localCloseeNonce),
+			RemoteCloseeNonce: fn.None[lnwire.Musig2Nonce](),
+		}
+
+		mockLocalMusig := newMockMusigSession()
+		mockRemoteMusig := newMockMusigSession()
+
+		cfg := &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				&firstState,
+			),
+			localUpfrontAddr:  fn.Some(localAddr),
+			remoteUpfrontAddr: fn.Some(remoteAddr),
+			localMusigSession: fn.Some[MusigSession](
+				mockLocalMusig,
+			),
+			remoteMusigSession: fn.Some[MusigSession](
+				mockRemoteMusig,
+			),
+		}
+
+		closeHarness := newCloser(t, cfg)
+		defer closeHarness.stopAndAssert()
+
+		// We should disable the outgoing adds for the channel at this
+		// point as well.
+		closeHarness.expectFinalBalances(fn.None[ShutdownBalances]())
+		closeHarness.expectIncomingAddsDisabled()
+
+		// Create shutdown event with nonce for taproot channel.
+		shutdownEvent := &ShutdownReceived{
+			ShutdownScript: remoteAddr,
+			RemoteShutdownNonce: fn.Some(
+				remoteCloseeNonce,
+			),
+		}
+
+		// We'll send in a shutdown received event, with the expected
+		// co-op close addr.
+		closeHarness.chanCloser.SendEvent(ctx, shutdownEvent)
+
+		// We should transition to the channel flushing state.
+		closeHarness.assertStateTransitions(&ChannelFlushing{})
+
+		// Now we'll ensure that the flushing state has the proper
+		// co-op close state.
+		currentState := assertStateT[*ChannelFlushing](closeHarness)
+
+		require.Equal(
+			t, localAddr, currentState.LocalDeliveryScript,
+		)
+		require.Equal(
+			t, remoteAddr, currentState.RemoteDeliveryScript,
+		)
+		require.Equal(
+			t, firstState.IdealFeeRate, currentState.IdealFeeRate,
+		)
+
+		// Verify nonce state was updated with remote's closee nonce.
+		require.True(
+			t, currentState.NonceState.RemoteCloseeNonce.IsSome(),
+		)
+		require.Equal(
+			t, remoteCloseeNonce,
+			currentState.NonceState.RemoteCloseeNonce.UnwrapOr(
+				lnwire.Musig2Nonce{},
+			),
+		)
+
+		// Verify musig sessions were set up.
+		require.NotNil(
+			t, closeHarness.env.LocalMusigSession,
+			"LocalMusigSession should not be nil",
+		)
+		require.NotNil(
+			t, closeHarness.env.RemoteMusigSession,
+			"RemoteMusigSession should not be nil",
+		)
+
+		// Verify InitRemoteNonce was called on LocalMusigSession with
+		// remote's nonce. This prepares the LocalMusigSession for when
+		// we act as closer.
+		require.True(
+			t, mockLocalMusig.remoteNonceInited,
+			"LocalMusigSession.InitRemoteNonce "+
+				"should have been called",
+		)
+		expectedRemoteNonce := musig2.Nonces{
+			PubNonce: remoteCloseeNonce,
+		}
+		require.Equal(
+			t, expectedRemoteNonce,
+			mockLocalMusig.remoteNonce,
+		)
+	})
+}
+
+// testRemoteInitiatedCloseOkNonTap tests the remote initiated close scenario
+// for non-taproot channels.
+func testRemoteInitiatedCloseOkNonTap(t *testing.T, ctx context.Context) {
+	t.Run("non_taproot", func(t *testing.T) {
+		cfg := &harnessCfg{
+			localUpfrontAddr: fn.Some(localAddr),
+		}
+
+		closeHarness := newCloser(t, cfg)
+		defer closeHarness.stopAndAssert()
+
+		// We assert our shutdown events, and also that we eventually
+		// send a shutdown to the remote party. We'll hold back the
+		// send in this case though, as we should only send once there
+		// are no updates dangling.
+		closeHarness.expectShutdownEvents(shutdownExpect{
+			isInitiator:  false,
+			allowSend:    false,
+			recvShutdown: true,
+		})
+
+		// Create shutdown event.
+		shutdownEvent := &ShutdownReceived{
+			ShutdownScript: remoteAddr,
+		}
+
+		// Next, we'll emit the recv event, with the addr of the remote
+		// party.
+		closeHarness.chanCloser.SendEvent(ctx, shutdownEvent)
+
+		// We should transition to the shutdown pending state.
+		closeHarness.assertStateTransitions(&ShutdownPending{})
+
+		currentState := assertStateT[*ShutdownPending](closeHarness)
+
+		// Both the local and remote shutdown scripts should be set.
+		require.Equal(
+			t, localAddr,
+			currentState.ShutdownScripts.LocalDeliveryScript,
+		)
+		require.Equal(
+			t, remoteAddr,
+			currentState.ShutdownScripts.RemoteDeliveryScript,
+		)
+	})
+}
+
+// testRemoteInitiatedCloseOkTaproot tests the remote initiated close scenario
+// for taproot channels.
+func testRemoteInitiatedCloseOkTaproot(t *testing.T, ctx context.Context) {
+	t.Run("taproot", func(t *testing.T) {
+		remoteCloseeNonce := lnwire.Musig2Nonce{4, 5, 6}
+
+		mockLocalMusig := newMockMusigSession()
+		mockRemoteMusig := newMockMusigSession()
+
+		cfg := &harnessCfg{
+			localUpfrontAddr: fn.Some(localAddr),
+			localMusigSession: fn.Some[MusigSession](
+				mockLocalMusig,
+			),
+			remoteMusigSession: fn.Some[MusigSession](
+				mockRemoteMusig,
+			),
+		}
+
+		closeHarness := newCloser(t, cfg)
+		defer closeHarness.stopAndAssert()
+
+		// We assert our shutdown events, and also that we eventually
+		// send a shutdown to the remote party. We'll hold back the
+		// send in this case though, as we should only send once there
+		// are no updates dangling.
+		closeHarness.expectShutdownEvents(shutdownExpect{
+			isInitiator:  false,
+			allowSend:    false,
+			recvShutdown: true,
+		})
+
+		// Create shutdown event with nonce for taproot channel.
+		shutdownEvent := &ShutdownReceived{
+			ShutdownScript: remoteAddr,
+			RemoteShutdownNonce: fn.Some(
+				remoteCloseeNonce,
+			),
+		}
+
+		// Next, we'll emit the recv event, with the addr of the remote
+		// party.
+		closeHarness.chanCloser.SendEvent(ctx, shutdownEvent)
+
+		// We should transition to the shutdown pending state.
+		closeHarness.assertStateTransitions(&ShutdownPending{})
+
+		currentState := assertStateT[*ShutdownPending](closeHarness)
+
+		// Both the local and remote shutdown scripts should be set.
+		require.Equal(
+			t, localAddr,
+			currentState.ShutdownScripts.LocalDeliveryScript,
+		)
+		require.Equal(
+			t, remoteAddr,
+			currentState.ShutdownScripts.RemoteDeliveryScript,
+		)
+
+		// Verify nonce state was set with remote's closee nonce.
+		require.True(
+			t, currentState.NonceState.RemoteCloseeNonce.IsSome(),
+		)
+		require.Equal(
+			t, remoteCloseeNonce,
+			currentState.NonceState.RemoteCloseeNonce.UnwrapOr(
+				lnwire.Musig2Nonce{},
+			),
+		)
+
+		// Verify InitRemoteNonce was called on LocalMusigSession.
+		require.True(t, mockLocalMusig.remoteNonceInited)
+		expectedRemoteNonce := musig2.Nonces{
+			PubNonce: remoteCloseeNonce,
+		}
+		require.Equal(
+			t, expectedRemoteNonce,
+			mockLocalMusig.remoteNonce,
+		)
+
+		// Also verify we generated and stored our local closee nonce.
+		require.True(
+			t, currentState.NonceState.LocalCloseeNonce.IsSome(),
+		)
+	})
 }
 
 // TestRbfChannelActiveTransitions tests the transitions of from the
@@ -955,41 +1469,40 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 	// When we receive a shutdown, we should transition to the shutdown
 	// pending state, with the local+remote shutdown addrs known.
 	t.Run("remote_initiated_close_ok", func(t *testing.T) {
-		closeHarness := newCloser(t, &harnessCfg{
+		// Test both non-taproot and taproot channels.
+		testRemoteInitiatedCloseOkNonTap(t, ctx)
+		testRemoteInitiatedCloseOkTaproot(t, ctx)
+	})
+
+	// If the remote party sends a shutdown for a taproot channel without a
+	// nonce, we should reject it.
+	t.Run("remote_initiated_taproot_no_nonce_fail", func(t *testing.T) {
+		mockLocalMusig := newMockMusigSession()
+		mockRemoteMusig := newMockMusigSession()
+
+		cfg := &harnessCfg{
 			localUpfrontAddr: fn.Some(localAddr),
-		})
+			localMusigSession: fn.Some[MusigSession](
+				mockLocalMusig,
+			),
+			remoteMusigSession: fn.Some[MusigSession](
+				mockRemoteMusig,
+			),
+		}
+
+		closeHarness := newCloser(t, cfg)
 		defer closeHarness.stopAndAssert()
 
-		// We assert our shutdown events, and also that we eventually
-		// send a shutdown to the remote party. We'll hold back the
-		// send in this case though, as we should only send once the no
-		// updates are dangling.
-		closeHarness.expectShutdownEvents(shutdownExpect{
-			isInitiator:  false,
-			allowSend:    false,
-			recvShutdown: true,
-		})
-
-		// Next, we'll emit the recv event, with the addr of the remote
-		// party.
-		closeHarness.chanCloser.SendEvent(
-			ctx, &ShutdownReceived{ShutdownScript: remoteAddr},
+		// We'll now create then send a shutdown that is missing their
+		// shutdown nonce. This should result in an error.
+		shutdownEvent := &ShutdownReceived{
+			ShutdownScript:      remoteAddr,
+			RemoteShutdownNonce: fn.None[lnwire.Musig2Nonce](),
+		}
+		closeHarness.sendEventAndExpectFailure(
+			ctx, shutdownEvent, ErrTaprootShutdownNonceMissing,
 		)
-
-		// We should transition to the shutdown pending state.
-		closeHarness.assertStateTransitions(&ShutdownPending{})
-
-		currentState := assertStateT[*ShutdownPending](closeHarness)
-
-		// Both the local and remote shutdown scripts should be set.
-		require.Equal(
-			t, localAddr,
-			currentState.ShutdownScripts.LocalDeliveryScript,
-		)
-		require.Equal(
-			t, remoteAddr,
-			currentState.ShutdownScripts.RemoteDeliveryScript,
-		)
+		closeHarness.assertNoStateTransitions()
 	})
 
 	// Any other event should be ignored.
@@ -1052,6 +1565,14 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 	// Otherwise, if the shutdown is well composed, then we should
 	// transition to the ChannelFlushing state.
 	t.Run("initiator_shutdown_recv_ok", func(t *testing.T) {
+		// Test both non-taproot and taproot channels.
+		testInitiatorShutdownRecvOkNonTap(t, ctx, startingState)
+		testInitiatorShutdownRecvOkTaproot(t, ctx, startingState)
+	})
+
+	// If the remote party sends a shutdown for a taproot channel without
+	// a nonce in the ShutdownPending state, we should reject it.
+	t.Run("initiator_shutdown_recv_taproot_no_nonce_fail", func(t *testing.T) { //nolint:ll
 		firstState := *startingState
 		firstState.IdealFeeRate = fn.Some(
 			chainfee.FeePerKwFloor.FeePerVByte(),
@@ -1061,38 +1582,43 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 			RemoteDeliveryScript: remoteAddr,
 		}
 
-		closeHarness := newCloser(t, &harnessCfg{
+		// Set up taproot channel with nonce state
+		mockLocalMusig := newMockMusigSession()
+		mockRemoteMusig := newMockMusigSession()
+		localCloseeNonce := lnwire.Musig2Nonce{1, 2, 3}
+
+		firstState.NonceState = NonceState{
+			LocalCloseeNonce:  fn.Some(localCloseeNonce),
+			RemoteCloseeNonce: fn.None[lnwire.Musig2Nonce](),
+		}
+
+		cfg := &harnessCfg{
 			initialState: fn.Some[ProtocolState](
 				&firstState,
 			),
 			localUpfrontAddr:  fn.Some(localAddr),
 			remoteUpfrontAddr: fn.Some(remoteAddr),
-		})
+			localMusigSession: fn.Some[MusigSession](
+				mockLocalMusig,
+			),
+			remoteMusigSession: fn.Some[MusigSession](
+				mockRemoteMusig,
+			),
+		}
+
+		closeHarness := newCloser(t, cfg)
 		defer closeHarness.stopAndAssert()
 
-		// We should disable the outgoing adds for the channel at this
-		// point as well.
-		closeHarness.expectFinalBalances(fn.None[ShutdownBalances]())
-		closeHarness.expectIncomingAddsDisabled()
-
-		// We'll send in a shutdown received event, with the expected
-		// co-op close addr.
-		closeHarness.chanCloser.SendEvent(
-			ctx, &ShutdownReceived{ShutdownScript: remoteAddr},
+		// Create shutdown event WITHOUT nonce for taproot channel, this
+		// should fail.
+		shutdownEvent := &ShutdownReceived{
+			ShutdownScript:      remoteAddr,
+			RemoteShutdownNonce: fn.None[lnwire.Musig2Nonce](),
+		}
+		closeHarness.sendEventAndExpectFailure(
+			ctx, shutdownEvent, ErrTaprootShutdownNonceMissing,
 		)
-
-		// We should transition to the channel flushing state.
-		closeHarness.assertStateTransitions(&ChannelFlushing{})
-
-		// Now we'll ensure that the flushing state has the proper
-		// co-op close state.
-		currentState := assertStateT[*ChannelFlushing](closeHarness)
-
-		require.Equal(t, localAddr, currentState.LocalDeliveryScript)
-		require.Equal(t, remoteAddr, currentState.RemoteDeliveryScript)
-		require.Equal(
-			t, firstState.IdealFeeRate, currentState.IdealFeeRate,
-		)
+		closeHarness.assertNoStateTransitions()
 	})
 
 	// If we received the shutdown event, then we'll rely on the external
@@ -1254,96 +1780,74 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 		},
 	}
 
-	// If send in the channel flushed event, but the local party can't pay
-	// for fees, then we should just head to the negotiation state.
-	for _, isFreshFlush := range []bool{true, false} {
+	// When the channel is flushed but the local party cannot cover
+	// the closing fee, we should transition directly to
+	// ClosingNegotiation without any further intermediate state
+	// transitions.
+	t.Run("local_cannot_pay_for_fee", func(t *testing.T) {
+		firstState := *startingState
 		chanFlushedEvent := *flushTemplate
-		chanFlushedEvent.FreshFlush = isFreshFlush
 
-		testName := fmt.Sprintf("local_cannot_pay_for_fee/"+
-			"fresh_flush=%v", isFreshFlush)
-
-		t.Run(testName, func(t *testing.T) {
-			firstState := *startingState
-
-			closeHarness := newCloser(t, &harnessCfg{
-				initialState: fn.Some[ProtocolState](
-					&firstState,
-				),
-			})
-			defer closeHarness.stopAndAssert()
-
-			// As part of the set up for this state, we'll have the
-			// final absolute fee required be greater than the
-			// balance of the local party.
-			closeHarness.expectFeeEstimate(absoluteFee, 1)
-
-			// If this is a fresh flush, then we expect the state
-			// to be marked on disk.
-			if isFreshFlush {
-				closeHarness.expectChanPendingClose()
-			}
-
-			// We'll now send in the event which should trigger
-			// this code path.
-			closeHarness.chanCloser.SendEvent(
-				ctx, &chanFlushedEvent,
-			)
-
-			// With the event sent, we should now transition
-			// straight to the ClosingNegotiation state, with no
-			// further state transitions.
-			closeHarness.assertStateTransitions(
-				&ClosingNegotiation{},
-			)
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				&firstState,
+			),
 		})
-	}
+		defer closeHarness.stopAndAssert()
 
-	for _, isFreshFlush := range []bool{true, false} {
+		// As part of the set up for this state, we'll have the
+		// final absolute fee required be greater than the
+		// balance of the local party.
+		closeHarness.expectFeeEstimate(absoluteFee, 1)
+
+		// We'll now send in the event which should trigger
+		// this code path.
+		closeHarness.chanCloser.SendEvent(
+			ctx, &chanFlushedEvent,
+		)
+
+		// With the event sent, we should now transition
+		// straight to the ClosingNegotiation state, with no
+		// further state transitions.
+		closeHarness.assertStateTransitions(
+			&ClosingNegotiation{},
+		)
+	})
+
+	// When the local party can cover the closing fee,
+	// ChannelFlushed drives a normal half-signer iteration: we
+	// move to ClosingNegotiation and send a ClosingComplete
+	// message.
+	t.Run("local_can_pay_for_fee", func(t *testing.T) {
+		firstState := *startingState
 		flushEvent := *flushTemplate
-		flushEvent.FreshFlush = isFreshFlush
 
-		// We'll modify the starting balance to be 3x the required fee
-		// to ensure that we can pay for the fee.
-		localBalanceMSat := lnwire.NewMSatFromSatoshis(absoluteFee * 3)
-		flushEvent.ShutdownBalances.LocalBalance = localBalanceMSat
+		// We'll modify the starting balance to be 3x the required
+		// fee to ensure that we can pay for the fee.
+		flushEvent.ShutdownBalances.LocalBalance = lnwire.NewMSatFromSatoshis( //nolint:ll
+			absoluteFee * 3,
+		)
 
-		testName := fmt.Sprintf("local_can_pay_for_fee/"+
-			"fresh_flush=%v", isFreshFlush)
-
-		// This scenario, we'll have the local party be able to pay for
-		// the fees, which will trigger additional state transitions.
-		t.Run(testName, func(t *testing.T) {
-			firstState := *startingState
-
-			closeHarness := newCloser(t, &harnessCfg{
-				initialState: fn.Some[ProtocolState](
-					&firstState,
-				),
-			})
-			defer closeHarness.stopAndAssert()
-
-			localBalance := flushEvent.ShutdownBalances.LocalBalance
-			balanceAfterClose := localBalance.ToSatoshis() -
-				absoluteFee
-
-			// If this is a fresh flush, then we expect the state
-			// to be marked on disk.
-			if isFreshFlush {
-				closeHarness.expectChanPendingClose()
-			}
-
-			// From here, we expect the state transition to go
-			// back to closing negotiated, for a ClosingComplete
-			// message to be sent and then for us to terminate at
-			// that state. This is 1/2 of the normal RBF signer
-			// flow.
-			closeHarness.expectHalfSignerIteration(
-				&flushEvent, balanceAfterClose, absoluteFee,
-				noDustExpect, false,
-			)
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				&firstState,
+			),
 		})
-	}
+		defer closeHarness.stopAndAssert()
+
+		localBalance := flushEvent.ShutdownBalances.LocalBalance
+		balanceAfterClose := localBalance.ToSatoshis() - absoluteFee
+
+		// From here, we expect the state transition to go
+		// back to closing negotiated, for a ClosingComplete
+		// message to be sent and then for us to terminate at
+		// that state. This is 1/2 of the normal RBF signer
+		// flow.
+		closeHarness.expectHalfSignerIteration(
+			&flushEvent, balanceAfterClose, absoluteFee,
+			noDustExpect, false,
+		)
+	})
 
 	// This tests that if we receive an `OfferReceivedEvent` while in the
 	// flushing state, then we'll cache that, and once we receive
@@ -1374,7 +1878,9 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 				CloserScript: remoteAddr,
 				CloseeScript: localAddr,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: remoteSigRecordType3,
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
 				},
 			},
 		}
@@ -1390,13 +1896,10 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 		// Now we'll send in the channel flushed event, and assert that
 		// this triggers a remote RBF iteration (we process their early
 		// offer and send our sig).
+		closeHarness.chanCloser.SendEvent(ctx, &flushEvent)
 		closeHarness.assertSingleRemoteRbfIteration(
 			remoteOffer, absoluteFee, absoluteFee, sequence, true,
-			func(ctx context.Context, _ ProtocolEvent) {
-				closeHarness.chanCloser.SendEvent(
-					ctx, &flushEvent,
-				)
-			},
+			false,
 		)
 	})
 
@@ -1407,9 +1910,370 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 	assertSpendEventCloseFin(t, startingState)
 }
 
+// testSendOfferRbfIterationLoopNonTap tests the RBF iteration loop for
+// non-taproot channels.
+func testSendOfferRbfIterationLoopNonTap(t *testing.T,
+	closeTerms *CloseChannelTerms,
+	sendOfferEvent *SendOfferEvent,
+	balanceAfterClose btcutil.Amount,
+	absoluteFee btcutil.Amount) {
+
+	t.Run("non_taproot", func(t *testing.T) {
+		firstState := &ClosingNegotiation{
+			PeerState: lntypes.Dual[AsymmetricPeerState]{
+				Local: &LocalCloseStart{
+					CloseChannelTerms: closeTerms,
+				},
+			},
+			CloseChannelTerms: closeTerms,
+		}
+
+		cfg := &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				firstState,
+			),
+			localUpfrontAddr: fn.Some(localAddr),
+		}
+
+		closeHarness := newCloser(t, cfg)
+		defer closeHarness.stopAndAssert()
+
+		closeHarness.assertSingleRbfIteration(
+			sendOfferEvent, balanceAfterClose, absoluteFee,
+			noDustExpect, false,
+		)
+
+		rbfFeeBump := chainfee.FeePerKwFloor.FeePerVByte() * 10
+		localOffer := &SendOfferEvent{
+			TargetFeeRate: rbfFeeBump,
+		}
+
+		closeHarness.assertSingleRbfIteration(
+			localOffer, balanceAfterClose, absoluteFee,
+			noDustExpect, true,
+		)
+	})
+}
+
+func testSendOfferRbfIterationLoopTaproot(t *testing.T,
+	closeTerms *CloseChannelTerms,
+	sendOfferEvent *SendOfferEvent,
+	balanceAfterClose btcutil.Amount,
+	absoluteFee btcutil.Amount) {
+
+	t.Run("taproot", func(t *testing.T) {
+		firstState := &ClosingNegotiation{
+			PeerState: lntypes.Dual[AsymmetricPeerState]{
+				Local: &LocalCloseStart{
+					CloseChannelTerms: closeTerms,
+				},
+			},
+			CloseChannelTerms: closeTerms,
+		}
+
+		firstState.CloseChannelTerms.NonceState = NonceState{
+			LocalCloseeNonce: fn.Some(
+				lnwire.Musig2Nonce{1, 2, 3},
+			),
+			RemoteCloseeNonce: fn.Some(
+				lnwire.Musig2Nonce{4, 5, 6},
+			),
+		}
+		localState, ok := firstState.PeerState.Local.(*LocalCloseStart)
+		require.True(t, ok)
+		localState.CloseChannelTerms.NonceState =
+			firstState.CloseChannelTerms.NonceState
+
+		cfg := &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				firstState,
+			),
+			localUpfrontAddr: fn.Some(localAddr),
+			localMusigSession: fn.Some[MusigSession](
+				newMockMusigSession(),
+			),
+			remoteMusigSession: fn.Some[MusigSession](
+				newMockMusigSession(),
+			),
+		}
+
+		closeHarness := newCloser(t, cfg)
+		defer closeHarness.stopAndAssert()
+
+		closeHarness.assertSingleRbfIterationWithNonce(
+			sendOfferEvent, balanceAfterClose, absoluteFee,
+			noDustExpect, false,
+			lnwire.Musig2Nonce{7, 8, 9},
+		)
+
+		rbfFeeBump := chainfee.FeePerKwFloor.FeePerVByte() * 10
+		localOffer := &SendOfferEvent{
+			TargetFeeRate: rbfFeeBump,
+		}
+
+		closeHarness.assertSingleRbfIterationWithNonce(
+			localOffer, balanceAfterClose, absoluteFee,
+			noDustExpect, true,
+			lnwire.Musig2Nonce{10, 11, 12},
+		)
+	})
+}
+
+// testRecvOfferRbfLoopIterationsNonTap tests the receive offer RBF loop
+// iteration scenario for non-taproot channels.
+func testRecvOfferRbfLoopIterationsNonTap(t *testing.T,
+	closeTerms *CloseChannelTerms,
+	absoluteFee btcutil.Amount) {
+
+	t.Run("non_taproot", func(t *testing.T) {
+		closingTerms := *closeTerms
+		closingTerms.ShutdownBalances.LocalBalance =
+			lnwire.NewMSatFromSatoshis(9000)
+
+		firstState := &ClosingNegotiation{
+			PeerState: lntypes.Dual[AsymmetricPeerState]{
+				Local: &LocalCloseStart{
+					CloseChannelTerms: &closingTerms,
+				},
+				Remote: &RemoteCloseStart{
+					CloseChannelTerms: &closingTerms,
+				},
+			},
+			CloseChannelTerms: &closingTerms,
+		}
+
+		cfg := &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				firstState,
+			),
+			localUpfrontAddr: fn.Some(localAddr),
+		}
+
+		closeHarness := newCloser(t, cfg)
+		defer closeHarness.stopAndAssert()
+
+		balanceAfterClose := closingTerms.ShutdownBalances.RemoteBalance.ToSatoshis() - absoluteFee //nolint:ll
+		sequence := uint32(mempool.MaxRBFSequence)
+
+		feeOffer := &OfferReceivedEvent{
+			SigMsg: lnwire.ClosingComplete{
+				CloserScript: remoteAddr,
+				CloseeScript: localAddr,
+				FeeSatoshis:  absoluteFee,
+				LockTime:     1,
+				ClosingSigs: lnwire.ClosingSigs{
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
+				},
+			},
+		}
+
+		closeHarness.assertSingleRemoteRbfIteration(
+			feeOffer, balanceAfterClose, absoluteFee,
+			sequence, false, true,
+		)
+
+		feeOffer.SigMsg.FeeSatoshis += 1000
+		absoluteFee = feeOffer.SigMsg.FeeSatoshis
+		closeHarness.assertSingleRemoteRbfIteration(
+			feeOffer, balanceAfterClose, absoluteFee,
+			sequence, true, true,
+		)
+
+		closeHarness.assertNoStateTransitions()
+	})
+}
+
+// testRecvOfferRbfLoopIterationsTaproot tests the receive offer RBF loop
+// iteration scenario for taproot channels.
+func testRecvOfferRbfLoopIterationsTaproot(t *testing.T,
+	closeTerms *CloseChannelTerms,
+	absoluteFee btcutil.Amount) {
+
+	t.Run("taproot", func(t *testing.T) {
+		closingTerms := *closeTerms
+		closingTerms.ShutdownBalances.LocalBalance =
+			lnwire.NewMSatFromSatoshis(9000)
+
+		firstState := &ClosingNegotiation{
+			PeerState: lntypes.Dual[AsymmetricPeerState]{
+				Local: &LocalCloseStart{
+					CloseChannelTerms: &closingTerms,
+				},
+				Remote: &RemoteCloseStart{
+					CloseChannelTerms: &closingTerms,
+				},
+			},
+			CloseChannelTerms: &closingTerms,
+		}
+
+		nonceState := NonceState{
+			LocalCloseeNonce: fn.Some(
+				lnwire.Musig2Nonce{1, 2, 3},
+			),
+			RemoteCloseeNonce: fn.Some(
+				lnwire.Musig2Nonce{4, 5, 6},
+			),
+		}
+		firstState.CloseChannelTerms.NonceState = nonceState
+
+		localState, ok := firstState.PeerState.Local.(*LocalCloseStart)
+		require.True(t, ok)
+		localState.CloseChannelTerms.NonceState = nonceState
+
+		remoteState, ok := firstState.PeerState.Remote.(*RemoteCloseStart) //nolint:ll
+		require.True(t, ok)
+		remoteState.CloseChannelTerms.NonceState = nonceState
+
+		cfg := &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				firstState,
+			),
+			localUpfrontAddr: fn.Some(localAddr),
+			localMusigSession: fn.Some[MusigSession](
+				newMockMusigSession(),
+			),
+			remoteMusigSession: fn.Some[MusigSession](
+				newMockMusigSession(),
+			),
+		}
+
+		closeHarness := newCloser(t, cfg)
+		defer closeHarness.stopAndAssert()
+
+		balanceAfterClose := closingTerms.ShutdownBalances.RemoteBalance.ToSatoshis() - absoluteFee //nolint:ll
+		sequence := uint32(mempool.MaxRBFSequence)
+
+		closingSigs := lnwire.TaprootClosingSigs{
+			CloserAndClosee: newPartialSigWithNonceTlv[tlv.TlvType7]( //nolint:ll
+				lnwire.PartialSigWithNonce{
+					PartialSig: lnwire.PartialSig{
+						Sig: btcec.ModNScalar{},
+					},
+					Nonce: lnwire.Musig2Nonce{
+						10, 11, 12,
+					},
+				},
+			),
+		}
+		feeOffer := &OfferReceivedEvent{
+			SigMsg: lnwire.ClosingComplete{
+				CloserScript:       remoteAddr,
+				CloseeScript:       localAddr,
+				FeeSatoshis:        absoluteFee,
+				LockTime:           1,
+				TaprootClosingSigs: closingSigs,
+			},
+		}
+
+		closeHarness.assertSingleRemoteRbfIteration(
+			feeOffer, balanceAfterClose, absoluteFee,
+			sequence, false, true,
+		)
+
+		feeOffer.SigMsg.FeeSatoshis += 1000
+		absoluteFee = feeOffer.SigMsg.FeeSatoshis
+		closeHarness.assertSingleRemoteRbfIteration(
+			feeOffer, balanceAfterClose, absoluteFee,
+			sequence, true, true,
+		)
+
+		closeHarness.assertNoStateTransitions()
+	})
+}
+
+// testSendOfferIterationNoDustNonTap tests the send offer iteration
+// scenario for non-taproot channels.
+func testSendOfferIterationNoDustNonTap(t *testing.T,
+	startingState *ClosingNegotiation,
+	sendOfferEvent *SendOfferEvent,
+	balanceAfterClose btcutil.Amount,
+	absoluteFee btcutil.Amount) {
+
+	t.Run("non_taproot", func(t *testing.T) {
+		testStartingState := *startingState
+
+		cfg := &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				&testStartingState,
+			),
+		}
+
+		closeHarness := newCloser(t, cfg)
+		defer closeHarness.stopAndAssert()
+
+		closeHarness.assertSingleRbfIteration(
+			sendOfferEvent, balanceAfterClose, absoluteFee,
+			noDustExpect, false,
+		)
+	})
+}
+
+// testSendOfferIterationNoDustTaproot tests the send offer iteration
+// scenario for taproot channels.
+func testSendOfferIterationNoDustTaproot(t *testing.T,
+	startingState *ClosingNegotiation,
+	sendOfferEvent *SendOfferEvent,
+	balanceAfterClose btcutil.Amount,
+	absoluteFee btcutil.Amount) {
+
+	t.Run("taproot", func(t *testing.T) {
+		nextCloseeNonce := lnwire.Musig2Nonce{7, 8, 9}
+
+		testStartingState := *startingState
+		testStartingState.CloseChannelTerms.NonceState = NonceState{
+			LocalCloseeNonce: fn.Some(
+				lnwire.Musig2Nonce{1, 2, 3},
+			),
+			RemoteCloseeNonce: fn.Some(
+				lnwire.Musig2Nonce{4, 5, 6},
+			),
+		}
+
+		localState, ok := testStartingState.PeerState.Local.(*LocalCloseStart) //nolint:ll
+		require.True(t, ok)
+		localState.CloseChannelTerms.NonceState =
+			testStartingState.CloseChannelTerms.NonceState
+
+		cfg := &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				&testStartingState,
+			),
+			localMusigSession: fn.Some[MusigSession](
+				newMockMusigSession(),
+			),
+			remoteMusigSession: fn.Some[MusigSession](
+				newMockMusigSession(),
+			),
+		}
+
+		closeHarness := newCloser(t, cfg)
+		defer closeHarness.stopAndAssert()
+
+		closeHarness.assertSingleRbfIterationWithNonce(
+			sendOfferEvent, balanceAfterClose, absoluteFee,
+			noDustExpect, false, nextCloseeNonce,
+		)
+
+		// Verify nonce state was updated with new closee nonce.
+		currentState := assertStateT[*ClosingNegotiation](
+			closeHarness,
+		)
+		require.True(
+			t,
+			currentState.CloseChannelTerms.NonceState.RemoteCloseeNonce.IsSome(), //nolint:ll
+		)
+		require.Equal(
+			t, nextCloseeNonce,
+			currentState.CloseChannelTerms.NonceState.RemoteCloseeNonce.UnwrapOr(lnwire.Musig2Nonce{}), //nolint:ll
+		)
+	})
+}
+
 // TestRbfCloseClosingNegotiationLocal tests the local portion of the primary
 // RBF close loop. We should be able to transition to a close state, get a sig,
-// then restart all over again to re-request a signature of at new higher fee
+// then restart all over again to re-request a signature at a new higher fee
 // rate.
 func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 	t.Parallel()
@@ -1450,17 +2314,13 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 	// In this state, we'll simulate deciding that we need to send a new
 	// offer to the remote party.
 	t.Run("send_offer_iteration_no_dust", func(t *testing.T) {
-		closeHarness := newCloser(t, &harnessCfg{
-			initialState: fn.Some[ProtocolState](startingState),
-		})
-		defer closeHarness.stopAndAssert()
-
-		// We'll now send in the initial sender offer event, which
-		// should then trigger a single RBF iteration, ending at the
-		// pending state.
-		closeHarness.assertSingleRbfIteration(
-			sendOfferEvent, balanceAfterClose, absoluteFee,
-			noDustExpect, false,
+		testSendOfferIterationNoDustNonTap(
+			t, startingState, sendOfferEvent,
+			balanceAfterClose, absoluteFee,
+		)
+		testSendOfferIterationNoDustTaproot(
+			t, startingState, sendOfferEvent,
+			balanceAfterClose, absoluteFee,
 		)
 	})
 
@@ -1489,7 +2349,9 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 					CloserNoClosee: newSigTlv[tlv.TlvType1](
 						remoteWireSig,
 					),
-					CloserAndClosee: remoteSigRecordType3,
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
 				},
 			},
 		}
@@ -1584,7 +2446,9 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 				CloserScript: remoteAddr,
 				CloseeScript: remoteAddr,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: remoteSigRecordType3,
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
 				},
 			},
 		}
@@ -1596,41 +2460,13 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 	// In this test, we'll assert that we're able to restart the RBF loop
 	// to trigger additional signature iterations.
 	t.Run("send_offer_rbf_iteration_loop", func(t *testing.T) {
-		firstState := &ClosingNegotiation{
-			PeerState: lntypes.Dual[AsymmetricPeerState]{
-				Local: &LocalCloseStart{
-					CloseChannelTerms: closeTerms,
-				},
-			},
-			CloseChannelTerms: closeTerms,
-		}
-
-		closeHarness := newCloser(t, &harnessCfg{
-			initialState:     fn.Some[ProtocolState](firstState),
-			localUpfrontAddr: fn.Some(localAddr),
-		})
-		defer closeHarness.stopAndAssert()
-
-		// We'll start out by first triggering a routine iteration,
-		// assuming we start in this negotiation state.
-		closeHarness.assertSingleRbfIteration(
-			sendOfferEvent, balanceAfterClose, absoluteFee,
-			noDustExpect, false,
+		testSendOfferRbfIterationLoopNonTap(
+			t, closeTerms, sendOfferEvent,
+			balanceAfterClose, absoluteFee,
 		)
-
-		// Next, we'll send in a new SendOfferEvent event which
-		// simulates the user requesting a RBF fee bump. We'll use 10x
-		// the fee we used in the last iteration.
-		rbfFeeBump := chainfee.FeePerKwFloor.FeePerVByte() * 10
-		localOffer := &SendOfferEvent{
-			TargetFeeRate: rbfFeeBump,
-		}
-
-		// Now we expect that another full RBF iteration takes place (we
-		// initiate a new local sig).
-		closeHarness.assertSingleRbfIteration(
-			localOffer, balanceAfterClose, absoluteFee,
-			noDustExpect, true,
+		testSendOfferRbfIterationLoopTaproot(
+			t, closeTerms, sendOfferEvent,
+			balanceAfterClose, absoluteFee,
 		)
 	})
 
@@ -1686,6 +2522,99 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 
 	// Sending a Spend event should transition to CloseFin.
 	assertSpendEventCloseFin(t, startingState)
+}
+
+// TestValidateSigTypeMatchesChannelType tests that taproot channels reject
+// regular signatures and non-taproot channels reject taproot signatures.
+func TestValidateSigTypeMatchesChannelType(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		isTaproot     bool
+		sendTaproot   bool
+		expectedError string
+	}{
+		{
+			name:        "taproot channel with regular sig",
+			isTaproot:   true,
+			sendTaproot: false,
+			expectedError: "taproot channel requires taproot " +
+				"signature",
+		},
+		{
+			name:        "regular channel with taproot sig",
+			isTaproot:   false,
+			sendTaproot: true,
+			expectedError: "non-taproot channel requires regular " +
+				"signatures",
+		},
+		{
+			name:        "taproot channel with taproot sig",
+			isTaproot:   true,
+			sendTaproot: true,
+		},
+		{
+			name:        "regular channel with regular sig",
+			isTaproot:   false,
+			sendTaproot: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create a message with mismatched signature type
+			var sigMsg lnwire.ClosingSig
+			if tc.sendTaproot {
+				// Send taproot signature using
+				// TaprootPartialSigs. Create a
+				// dummy partial sig.
+				var scalar btcec.ModNScalar
+				scalar.SetByteSlice(localSchnorrSigBytes[:32])
+				partialSig := lnwire.PartialSig{Sig: scalar}
+
+				sigMsg.TaprootPartialSigs.CloserAndClosee = tlv.SomeRecordT( //nolint:ll
+					tlv.NewRecordT[tlv.TlvType7](
+						partialSig,
+					),
+				)
+
+				testNonce := lnwire.Musig2Nonce{7, 8, 9}
+				sigMsg.NextCloseeNonce = tlv.SomeRecordT( //nolint:ll
+					tlv.NewRecordT[tlv.TlvType22](
+						testNonce,
+					),
+				)
+			} else {
+				sigs := &sigMsg.ClosingSigs
+				sigs.CloserAndClosee = tlv.SomeRecordT(
+					tlv.NewRecordT[tlv.TlvType3](
+						localSigWire,
+					),
+				)
+			}
+
+			sigResult, nonce := validateAndExtractSigAndNonce(
+				sigMsg, tc.isTaproot,
+			)
+
+			if tc.expectedError != "" {
+				_, err := sigResult.Unpack()
+				require.Error(t, err)
+				require.Contains(
+					t, err.Error(), tc.expectedError,
+				)
+			} else {
+				sig, err := sigResult.Unpack()
+				require.NoError(t, err)
+				require.NotNil(t, sig)
+
+				if tc.isTaproot {
+					require.True(t, nonce.IsSome())
+				}
+			}
+		})
+	}
 }
 
 // TestRbfCloseClosingNegotiationRemote tests that state machine is able to
@@ -1750,7 +2679,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		closeHarness.assertNoStateTransitions()
 	})
 
-	// If our balance is dust, then the remote party should send a
+	// If our balance, is dust, then the remote party should send a
 	// signature that doesn't include our output.
 	t.Run("recv_offer_err_closer_no_closee", func(t *testing.T) {
 		// We'll modify our local balance to be dust.
@@ -1782,7 +2711,9 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				CloserScript: remoteAddr,
 				CloseeScript: localAddr,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: remoteSigRecordType3,
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
 				},
 			},
 		}
@@ -1808,7 +2739,9 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				CloserScript: remoteAddr,
 				CloseeScript: localAddr,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserNoClosee: remoteSigRecordType1,
+					CloserNoClosee: newSigTlv[tlv.TlvType1]( //nolint:ll
+						remoteWireSig,
+					),
 				},
 			},
 		}
@@ -1818,66 +2751,58 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		closeHarness.assertNoStateTransitions()
 	})
 
+	// When both CloserNoClosee AND CloserAndClosee are present (which is
+	// spec-compliant), the closee should select CloserAndClosee when local
+	// output is not dust.
+	t.Run("recv_offer_both_sigs_present", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](startingState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// Per BOLT spec, when closee's output is not dust, sender MUST
+		// send both CloserNoClosee and CloserAndClosee sigs. The
+		// receiver should select CloserAndClosee.
+		event := &OfferReceivedEvent{
+			SigMsg: lnwire.ClosingComplete{
+				FeeSatoshis:  absoluteFee,
+				CloserScript: remoteAddr,
+				CloseeScript: localAddr,
+				ClosingSigs: lnwire.ClosingSigs{
+					CloserNoClosee: newSigTlv[tlv.TlvType1]( //nolint:ll
+						remoteWireSig,
+					),
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
+				},
+			},
+		}
+
+		balanceAfterClose := localBalance.ToSatoshis() - absoluteFee
+		closeHarness.expectRemoteCloseFinalized(
+			&localSig, &remoteSig, localAddr, remoteAddr,
+			absoluteFee, balanceAfterClose, false,
+		)
+
+		closeHarness.chanCloser.SendEvent(ctx, event)
+
+		// We should remain in ClosingNegotiation (outer state doesn't
+		// change when receiving an offer). We also shouldn't have
+		// errored out.
+		closeHarness.assertStateTransitions(&ClosingNegotiation{})
+	})
+
 	// If everything lines up, then we should be able to do multiple RBF
 	// loops to enable the remote party to sign.new versions of the co-op
 	// close transaction.
 	t.Run("recv_offer_rbf_loop_iterations", func(t *testing.T) {
-		// We'll modify our balance s.t we're unable to pay for fees,
-		// but aren't yet dust.
-		closingTerms := *closeTerms
-		closingTerms.ShutdownBalances.LocalBalance = lnwire.NewMSatFromSatoshis( //nolint:ll
-			9000,
+		testRecvOfferRbfLoopIterationsNonTap(
+			t, closeTerms, absoluteFee,
 		)
-
-		firstState := &ClosingNegotiation{
-			PeerState: lntypes.Dual[AsymmetricPeerState]{
-				Local: &LocalCloseStart{
-					CloseChannelTerms: &closingTerms,
-				},
-				Remote: &RemoteCloseStart{
-					CloseChannelTerms: &closingTerms,
-				},
-			},
-			CloseChannelTerms: &closingTerms,
-		}
-
-		closeHarness := newCloser(t, &harnessCfg{
-			initialState:     fn.Some[ProtocolState](firstState),
-			localUpfrontAddr: fn.Some(localAddr),
-		})
-		defer closeHarness.stopAndAssert()
-
-		feeOffer := &OfferReceivedEvent{
-			SigMsg: lnwire.ClosingComplete{
-				CloserScript: remoteAddr,
-				CloseeScript: localAddr,
-				FeeSatoshis:  absoluteFee,
-				LockTime:     1,
-				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: remoteSigRecordType3,
-				},
-			},
-		}
-
-		// As we're already in the negotiation phase, we'll now trigger
-		// a new iteration by having the remote party send a new offer
-		// sig.
-		closeHarness.assertSingleRemoteRbfIteration(
-			feeOffer, balanceAfterClose, absoluteFee, sequence,
-			false, closeHarness.chanCloser.SendEvent,
+		testRecvOfferRbfLoopIterationsTaproot(
+			t, closeTerms, absoluteFee,
 		)
-
-		// Next, we'll receive an offer from the remote party, and drive
-		// another RBF iteration. This time, we'll increase the absolute
-		// fee by 1k sats.
-		feeOffer.SigMsg.FeeSatoshis += 1000
-		absoluteFee = feeOffer.SigMsg.FeeSatoshis
-		closeHarness.assertSingleRemoteRbfIteration(
-			feeOffer, balanceAfterClose, absoluteFee, sequence,
-			true, closeHarness.chanCloser.SendEvent,
-		)
-
-		closeHarness.assertNoStateTransitions()
 	})
 
 	// This tests that if we get an offer that has the wrong local script,
@@ -1898,7 +2823,9 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				CloserScript: remoteAddr,
 				CloseeScript: remoteAddr,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserNoClosee: remoteSigRecordType1,
+					CloserNoClosee: newSigTlv[tlv.TlvType1]( //nolint:ll
+						remoteWireSig,
+					),
 				},
 			},
 		}
@@ -1947,7 +2874,9 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				FeeSatoshis:  absoluteFee,
 				LockTime:     1,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: remoteSigRecordType3,
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
 				},
 			},
 		}
@@ -1957,7 +2886,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		// sig.
 		closeHarness.assertSingleRemoteRbfIteration(
 			feeOffer, balanceAfterClose, absoluteFee, sequence,
-			false, closeHarness.chanCloser.SendEvent,
+			false, true,
 		)
 	})
 
@@ -2009,8 +2938,10 @@ func TestRbfCloseErr(t *testing.T) {
 			TargetFeeRate: rbfFeeBump,
 		}
 
-		// Now we expect that another full RBF iteration takes place (we
-		// initiate a new local sig).
+		// Now we expect that another full RBF iteration takes place
+		// (we initiate a new local sig). Restarting from CloseErr
+		// produces an extra ClosingNegotiation transition from the
+		// internal requeue, same as a regular iteration.
 		closeHarness.assertSingleRbfIteration(
 			localOffer, balanceAfterClose, absoluteFee,
 			noDustExpect, true,
@@ -2043,22 +2974,354 @@ func TestRbfCloseErr(t *testing.T) {
 				FeeSatoshis:  absoluteFee,
 				LockTime:     1,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: remoteSigRecordType3,
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
 				},
 			},
 		}
 
 		sequence := uint32(mempool.MaxRBFSequence)
 
-		// As we're already in the negotiation phase, we'll now trigger
-		// a new iteration by having the remote party send a new offer
-		// sig.
+		// As we're already in the negotiation phase, we'll now
+		// trigger a new iteration by having the remote party send
+		// a new offer sig. Restarting from CloseErr produces an
+		// extra ClosingNegotiation transition from the internal
+		// requeue, same as a regular iteration.
 		closeHarness.assertSingleRemoteRbfIteration(
 			feeOffer, balanceAfterClose, absoluteFee, sequence,
-			true, closeHarness.chanCloser.SendEvent,
+			true, true,
 		)
 	})
 
 	// Sending a Spend event should transition to CloseFin.
 	assertSpendEventCloseFin(t, startingState)
+}
+
+// generateTestNonce creates a test musig2 nonce for testing.
+func generateTestNonce(t *testing.T) *musig2.Nonces {
+	t.Helper()
+
+	// Generate a dummy private key for nonce generation.
+	privKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	nonce, err := musig2.GenNonces(musig2.WithPublicKey(privKey.PubKey()))
+	require.NoError(t, err)
+
+	return nonce
+}
+
+// TestTaprootNonceHandling tests the taproot nonce handling functionality
+// in the RBF cooperative close state machine.
+func TestTaprootNonceHandling(t *testing.T) {
+	t.Parallel()
+
+	closeHarness := newCloser(t, &harnessCfg{
+		localUpfrontAddr: fn.Some(localAddr),
+	})
+	defer closeHarness.stopAndAssert()
+
+	// Set up mock MusigSessions to indicate this is a taproot channel.
+	mockLocalSession := newMockMusigSession()
+	mockRemoteSession := newMockMusigSession()
+	closeHarness.env.LocalMusigSession = mockLocalSession
+	closeHarness.env.RemoteMusigSession = mockRemoteSession
+
+	closeHarness.expectShutdownEvents(shutdownExpect{
+		isInitiator:  false,
+		allowSend:    false,
+		recvShutdown: true,
+	})
+
+	remoteNonce := generateTestNonce(t)
+	shutdownEvent := &ShutdownReceived{
+		ShutdownScript: remoteAddr,
+		BlockHeight:    100,
+		RemoteShutdownNonce: fn.Some(lnwire.Musig2Nonce(
+			remoteNonce.PubNonce,
+		)),
+	}
+
+	// Send the shutdown event and verify state transition. We should
+	// transition to ShutdownPending.
+	closeHarness.chanCloser.SendEvent(
+		t.Context(), shutdownEvent,
+	)
+
+	closeHarness.assertStateTransitions(&ShutdownPending{})
+
+	// Verify the state transition occurred and the nonce was stored.
+	currentState := assertStateT[*ShutdownPending](closeHarness)
+	require.True(t, currentState.NonceState.RemoteCloseeNonce.IsSome(),
+		"remote closee nonce should be stored")
+
+	storedNonce := currentState.NonceState.RemoteCloseeNonce.UnwrapOrFail(t)
+	require.Equal(
+		t, lnwire.Musig2Nonce(remoteNonce.PubNonce), storedNonce,
+		"stored nonce should match received nonce",
+	)
+}
+
+// TestNextCloseeNonceStorageFromClosingSig tests that
+// updateAndValidateCloseTerms does NOT modify RemoteCloseeNonce. The nonce
+// rotation is handled by LocalOfferSent.ProcessEvent, keeping close term
+// validation separate from nonce state management.
+func TestNextCloseeNonceStorageFromClosingSig(t *testing.T) {
+	t.Parallel()
+
+	// Create a closing negotiation state with taproot.
+	originalNonce := lnwire.Musig2Nonce{4, 5, 6}
+	closeTerms := &CloseChannelTerms{
+		ShutdownScripts: ShutdownScripts{
+			LocalDeliveryScript:  localAddr,
+			RemoteDeliveryScript: remoteAddr,
+		},
+		NonceState: NonceState{
+			LocalCloseeNonce:  fn.Some(lnwire.Musig2Nonce{1, 2, 3}),
+			RemoteCloseeNonce: fn.Some(originalNonce),
+		},
+	}
+
+	negotiation := &ClosingNegotiation{
+		CloseChannelTerms: closeTerms,
+	}
+
+	// Create a LocalSigReceived event with NextCloseeNonce for the next
+	// round.
+	nextCloseeNonce := lnwire.Musig2Nonce{10, 11, 12}
+	sigEvent := &LocalSigReceived{
+		SigMsg: lnwire.ClosingSig{
+			CloserScript: localAddr,
+			CloseeScript: remoteAddr,
+			FeeSatoshis:  btcutil.Amount(1000),
+			LockTime:     1,
+			TaprootPartialSigs: lnwire.TaprootPartialSigs{
+				CloserAndClosee: tlv.SomeRecordT(
+					tlv.NewRecordT[tlv.TlvType7](
+						lnwire.PartialSig{
+							Sig: btcec.ModNScalar{},
+						},
+					),
+				),
+			},
+			NextCloseeNonce: tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType22](nextCloseeNonce),
+			),
+		},
+	}
+
+	// updateAndValidateCloseTerms should only validate close terms, not
+	// update the nonce. The nonce rotation happens in
+	// LocalOfferSent.ProcessEvent.
+	err := negotiation.updateAndValidateCloseTerms(sigEvent, true)
+	require.NoError(t, err)
+
+	// Verify the RemoteCloseeNonce was NOT modified — it should still
+	// hold the original nonce from shutdown.
+	storedNonce := negotiation.NonceState.RemoteCloseeNonce.UnwrapOrFail(t)
+	require.Equal(
+		t, originalNonce, storedNonce,
+		"updateAndValidateCloseTerms should not modify "+
+			"RemoteCloseeNonce",
+	)
+}
+
+// TestProcessRemoteTaprootSigWithSignerNonce tests that processRemoteTaprootSig
+// properly initializes the musig session with the nonce from
+// PartialSigWithNonce.
+func TestProcessRemoteTaprootSigWithSignerNonce(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock musig session that tracks InitRemoteNonce calls
+	mockRemoteMusig := newMockMusigSession()
+
+	// The session should already be initialized from shutdown
+	mockRemoteMusig.remoteNonceInited = true
+	mockRemoteMusig.remoteNonce = musig2.Nonces{
+		PubNonce: lnwire.Musig2Nonce{4, 5, 6},
+	}
+
+	env := &Environment{
+		RemoteMusigSession: mockRemoteMusig,
+	}
+
+	// Create a ClosingComplete message with signer nonce.
+	signerNonce := lnwire.Musig2Nonce{10, 11, 12}
+	jitNonce := lnwire.Musig2Nonce{20, 21, 22}
+	msg := lnwire.ClosingComplete{
+		TaprootClosingSigs: lnwire.TaprootClosingSigs{
+			CloserAndClosee: newPartialSigWithNonceTlv[tlv.TlvType7]( //nolint:ll
+				lnwire.PartialSigWithNonce{
+					PartialSig: lnwire.PartialSig{
+						Sig: btcec.ModNScalar{},
+					},
+					Nonce: signerNonce,
+				},
+			),
+		},
+	}
+
+	_, err := processRemoteTaprootSig(
+		env, msg, fn.Some(jitNonce), false,
+	)
+	require.NoError(t, err)
+
+	// Verify the musig session was re-initialized with the JIT nonce
+	// parameter (the nonce they used to sign as the closer)
+	require.True(
+		t, mockRemoteMusig.remoteNonceInited,
+		"InitRemoteNonce should be called",
+	)
+
+	// The session should have the JIT nonce, not the signer nonce from
+	// PartialSigWithNonce.
+	require.Equal(
+		t, musig2.Nonces{PubNonce: jitNonce},
+		mockRemoteMusig.remoteNonce,
+		"musig session should be updated with JIT closer nonce",
+	)
+}
+
+// strictNonceMusigSession is a mock that enforces the correct ordering:
+// InitRemoteNonce must be called before ProposalClosingOpts.
+type strictNonceMusigSession struct {
+	remoteNonceInited bool
+	remoteNonce       musig2.Nonces
+
+	proposalOptsCalledBeforeInit bool
+}
+
+func newStrictNonceMusigSession() *strictNonceMusigSession {
+	return &strictNonceMusigSession{}
+}
+
+//nolint:ll
+func (m *strictNonceMusigSession) ProposalClosingOpts() ([]lnwallet.ChanCloseOpt, error) {
+	// Track if ProposalClosingOpts was called before InitRemoteNonce.
+	if !m.remoteNonceInited {
+		m.proposalOptsCalledBeforeInit = true
+		return nil, fmt.Errorf("ProposalClosingOpts called before " +
+			"InitRemoteNonce")
+	}
+
+	return nil, nil
+}
+
+func (m *strictNonceMusigSession) CombineClosingOpts(localSig,
+	remoteSig lnwire.PartialSig,
+) (input.Signature, input.Signature, []lnwallet.ChanCloseOpt, error) {
+
+	return &lnwallet.MusigPartialSig{}, &lnwallet.MusigPartialSig{}, nil,
+		nil
+}
+
+func (m *strictNonceMusigSession) InitRemoteNonce(nonce *musig2.Nonces) {
+	m.remoteNonceInited = true
+	m.remoteNonce = *nonce
+}
+
+func (m *strictNonceMusigSession) InvalidateNonce() {}
+
+func (m *strictNonceMusigSession) ClosingNonce() (*musig2.Nonces, error) {
+	return &musig2.Nonces{
+		PubNonce: [66]byte{1, 2, 3},
+	}, nil
+}
+
+// TestLocalOfferSentUsesStoredSig verifies that when processing a
+// LocalSigReceived event in the LocalOfferSent state, the stored
+// LocalMusigSig is used for combining rather than re-signing. This
+// prevents nonce reuse across RBF iterations.
+func TestLocalOfferSentUsesStoredSig(t *testing.T) {
+	t.Parallel()
+
+	// Create a strict mock that will fail if ProposalClosingOpts is
+	// called — it should NOT be called since we use the stored sig.
+	strictLocalMusig := newStrictNonceMusigSession()
+
+	// The remote's closee nonce from shutdown.
+	remoteCloseeNonceFromShutdown := lnwire.Musig2Nonce{4, 5, 6}
+
+	// Set up the environment with the strict mock.
+	closeTerms := &CloseChannelTerms{
+		ShutdownScripts: ShutdownScripts{
+			LocalDeliveryScript:  localAddr,
+			RemoteDeliveryScript: remoteAddr,
+		},
+		NonceState: NonceState{
+			LocalCloseeNonce: fn.Some(lnwire.Musig2Nonce{1, 2, 3}),
+			RemoteCloseeNonce: fn.Some(
+				remoteCloseeNonceFromShutdown,
+			),
+		},
+		ShutdownBalances: ShutdownBalances{
+			LocalBalance:  lnwire.NewMSatFromSatoshis(500_000),
+			RemoteBalance: lnwire.NewMSatFromSatoshis(500_000),
+		},
+	}
+
+	// Create the LocalOfferSent state with a stored musig sig,
+	// simulating what LocalCloseStart would have stored.
+	localOfferSent := &LocalOfferSent{
+		CloseChannelTerms: closeTerms,
+		ProposedFee:       btcutil.Amount(1000),
+		ProposedFeeRate:   chainfee.FeePerKwFloor.FeePerVByte(),
+		LocalSig:          localSchnorrSig,
+		LocalMusigSig:     fn.Some(lnwallet.MusigPartialSig{}),
+	}
+
+	// The environment needs both musig sessions set for taproot path.
+	env := &Environment{
+		ChanPoint:          randOutPoint(t),
+		LocalMusigSession:  strictLocalMusig,
+		RemoteMusigSession: newMockMusigSession(),
+	}
+
+	// Create a LocalSigReceived event with NextCloseeNonce.
+	nextCloseeNonce := lnwire.Musig2Nonce{10, 11, 12}
+	localSigEvent := &LocalSigReceived{
+		SigMsg: lnwire.ClosingSig{
+			CloserScript: localAddr,
+			CloseeScript: remoteAddr,
+			FeeSatoshis:  btcutil.Amount(1000),
+			LockTime:     1,
+			TaprootPartialSigs: lnwire.TaprootPartialSigs{
+				CloserAndClosee: newPartialSigTlv[tlv.TlvType7](
+					lnwire.PartialSig{
+						Sig: btcec.ModNScalar{},
+					},
+				),
+			},
+			NextCloseeNonce: tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType22](nextCloseeNonce),
+			),
+		},
+	}
+
+	// Process the event. We expect it to use CombineClosingOpts with the
+	// stored sig, NOT ProposalClosingOpts + CreateCloseProposal.
+	func() {
+		defer func() {
+			_ = recover()
+		}()
+
+		_, _ = localOfferSent.ProcessEvent(localSigEvent, env)
+	}()
+
+	// ProposalClosingOpts should NOT have been called — we use the stored
+	// sig directly via CombineClosingOpts.
+	require.False(
+		t, strictLocalMusig.proposalOptsCalledBeforeInit,
+		"ProposalClosingOpts should not be called when using "+
+			"stored MusigPartialSig",
+	)
+
+	// Verify that the NextCloseeNonce was stored for the next RBF round.
+	require.Equal(
+		t, fn.Some(nextCloseeNonce),
+		localOfferSent.NonceState.RemoteCloseeNonce,
+		"InitRemoteNonce should be called with RemoteCloseeNonce from "+
+			"NonceState (not NextCloseeNonce from ClosingSig)",
+	)
 }

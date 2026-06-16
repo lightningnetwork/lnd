@@ -11,7 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/chainreg"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -115,7 +115,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	routerBackend *routerrpc.RouterBackend,
 	nodeSigner *netann.NodeSigner,
 	graphDB *graphdb.ChannelGraph,
-	chanStateDB *channeldb.ChannelStateDB,
+	chanStateDB chanstate.Store,
 	sweeper *sweep.UtxoSweeper,
 	tower *watchtower.Standalone,
 	towerClientMgr *wtclient.Manager,
@@ -265,7 +265,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 				reflect.ValueOf(defaultDelta),
 			)
 			subCfgValue.FieldByName("Graph").Set(
-				reflect.ValueOf(graphDB),
+				reflect.ValueOf(graphdb.NewVersionedGraph(
+					graphDB, lnwire.GossipVersion1,
+				)),
 			)
 			subCfgValue.FieldByName("ChanStateDB").Set(
 				reflect.ValueOf(chanStateDB),

@@ -41,8 +41,10 @@ type Channel interface { //nolint:interfacebloat
 	// funding details for the channel.
 	FundingBlob() fn.Option[tlv.Blob]
 
-	// MarkCoopBroadcasted persistently marks that the channel close
-	// transaction has been broadcast.
+	// MarkCoopBroadcasted persistently marks that the channel
+	// close transaction has been broadcast. The tx MUST be
+	// non-nil; callers must not invoke this until a concrete
+	// close tx has been constructed.
 	MarkCoopBroadcasted(*wire.MsgTx, lntypes.ChannelParty) error
 
 	// MarkShutdownSent persists the given ShutdownInfo. The existence of
@@ -132,4 +134,10 @@ type MusigSession interface {
 	// shutdown message so it can be used later to generate and verify
 	// signatures.
 	InitRemoteNonce(nonce *musig2.Nonces)
+
+	// InvalidateNonce clears the cached local nonce, forcing a fresh
+	// nonce to be generated on the next call to ClosingNonce. This
+	// must be called after each RBF round completes to prevent nonce
+	// reuse across iterations.
+	InvalidateNonce()
 }

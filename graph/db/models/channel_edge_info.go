@@ -304,6 +304,32 @@ func (c *ChannelEdgeInfo) FundingPKScript() ([]byte, error) {
 			return nil, err
 		}
 
+		if c.Features != nil && c.Features.HasFeature(
+			lnwire.SimpleTaprootChannelsOptionalStaging,
+		) {
+
+			pubKey1, err := btcec.ParsePubKey(btc1Key[:])
+			if err != nil {
+				return nil, err
+			}
+			pubKey2, err := btcec.ParsePubKey(btc2Key[:])
+			if err != nil {
+				return nil, err
+			}
+
+			fundingScript, _, err := input.GenTaprootFundingScript(
+				pubKey1, pubKey2, 0, c.MerkleRootHash,
+			)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"unable to make taproot pkscript: %w",
+					err,
+				)
+			}
+
+			return fundingScript, nil
+		}
+
 		witnessScript, err := input.GenMultiSigScript(
 			btc1Key[:], btc2Key[:],
 		)

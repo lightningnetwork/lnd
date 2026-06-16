@@ -797,8 +797,6 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				return nil, err
 			}
 		}
-
-		channelID++
 	}
 
 	return &testGraphInstance{
@@ -899,7 +897,6 @@ func TestPathFinding(t *testing.T) {
 
 	// Run with graph cache enabled.
 	for _, tc := range testCases {
-		tc := tc
 
 		t.Run("cache=true/"+tc.name, func(tt *testing.T) {
 			tt.Parallel()
@@ -911,7 +908,6 @@ func TestPathFinding(t *testing.T) {
 	// And with the DB fallback to make sure everything works the same
 	// still.
 	for _, tc := range testCases {
-		tc := tc
 
 		t.Run("cache=false/"+tc.name, func(tt *testing.T) {
 			tt.Parallel()
@@ -1686,7 +1682,6 @@ func TestNewRoute(t *testing.T) {
 		}}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 
 		// Overwrite the final hop's features if the test requires a
 		// custom feature vector.
@@ -2804,7 +2799,6 @@ func runProbabilityRouting(t *testing.T, useCache bool) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		t.Run(tc.name, func(t *testing.T) {
 			testProbabilityRouting(
@@ -3717,7 +3711,6 @@ func TestLastHopPayloadSize(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

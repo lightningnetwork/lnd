@@ -49,6 +49,13 @@ type chanEventStoreTestCtx struct {
 	// used to prevent calling of functions which can only be called after
 	// shutdown.
 	stopped chan struct{}
+
+	// peerOnline determines what the store's IsPeerOnline config returns
+	// for a peer. It defaults to reporting peers as online so that the
+	// channel open seeds an online event, matching the historical test
+	// assumption. Tests that exercise offline peers may override it before
+	// starting the store.
+	peerOnline func(route.Vertex) bool
 }
 
 // newChanEventStoreTestCtx creates a test context which can be used to test
@@ -62,10 +69,14 @@ func newChanEventStoreTestCtx(t *testing.T) *chanEventStoreTestCtx {
 		flapUpdates:         make(peerFlapCountMap),
 		flapCountUpdates:    make(chan peerFlapCountMap),
 		stopped:             make(chan struct{}),
+		peerOnline:          func(route.Vertex) bool { return true },
 	}
 
 	cfg := &Config{
 		Clock: testCtx.clock,
+		IsPeerOnline: func(peer route.Vertex) bool {
+			return testCtx.peerOnline(peer)
+		},
 		SubscribeChannelEvents: func() (subscribe.Subscription, error) {
 			return testCtx.channelSubscription, nil
 		},

@@ -747,7 +747,6 @@ func (s *UtxoSweeper) collector() {
 // those inputs will be removed from the wallet.
 func (s *UtxoSweeper) removeExclusiveGroup(group uint64, op wire.OutPoint) {
 	for outpoint, input := range s.inputs {
-		outpoint := outpoint
 
 		// Skip the input that caused the exclusive group to be removed.
 		if outpoint == op {

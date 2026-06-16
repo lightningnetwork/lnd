@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jackc/pgconn"
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var (

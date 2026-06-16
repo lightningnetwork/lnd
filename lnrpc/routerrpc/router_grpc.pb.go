@@ -19,6 +19,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RouterClient interface {
+	// lncli: `sendpayment`
 	// SendPaymentV2 attempts to route a payment described by the passed
 	// PaymentRequest to the final destination. The call returns a stream of
 	// payment updates. When using this RPC, make sure to set a fee limit, as the
@@ -37,17 +38,11 @@ type RouterClient interface {
 	// payment attempt make sure to subscribe to this method before initiating any
 	// payments.
 	TrackPayments(ctx context.Context, in *TrackPaymentsRequest, opts ...grpc.CallOption) (Router_TrackPaymentsClient, error)
+	// lncli: `estimateroutefee`
 	// EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
 	// may cost to send an HTLC to the target end destination.
 	EstimateRouteFee(ctx context.Context, in *RouteFeeRequest, opts ...grpc.CallOption) (*RouteFeeResponse, error)
-	// Deprecated: Do not use.
-	//
-	// Deprecated, use SendToRouteV2. SendToRoute attempts to make a payment via
-	// the specified route. This method differs from SendPayment in that it
-	// allows users to specify a full route manually. This can be used for
-	// things like rebalancing, and atomic swaps. It differs from the newer
-	// SendToRouteV2 in that it doesn't return the full HTLC information.
-	SendToRoute(ctx context.Context, in *SendToRouteRequest, opts ...grpc.CallOption) (*SendToRouteResponse, error)
+	// lncli: `sendtoroute`
 	// SendToRouteV2 attempts to make a payment via the specified route. This
 	// method differs from SendPayment in that it allows users to specify a full
 	// route manually. This can be used for things like rebalancing, and atomic
@@ -92,17 +87,6 @@ type RouterClient interface {
 	// SubscribeHtlcEvents creates a uni-directional stream from the server to
 	// the client which delivers a stream of htlc events.
 	SubscribeHtlcEvents(ctx context.Context, in *SubscribeHtlcEventsRequest, opts ...grpc.CallOption) (Router_SubscribeHtlcEventsClient, error)
-	// Deprecated: Do not use.
-	//
-	// Deprecated, use SendPaymentV2. SendPayment attempts to route a payment
-	// described by the passed PaymentRequest to the final destination. The call
-	// returns a stream of payment status updates.
-	SendPayment(ctx context.Context, in *SendPaymentRequest, opts ...grpc.CallOption) (Router_SendPaymentClient, error)
-	// Deprecated: Do not use.
-	//
-	// Deprecated, use TrackPaymentV2. TrackPayment returns an update stream for
-	// the payment identified by the payment hash.
-	TrackPayment(ctx context.Context, in *TrackPaymentRequest, opts ...grpc.CallOption) (Router_TrackPaymentClient, error)
 	// *
 	// HtlcInterceptor dispatches a bi-directional streaming RPC in which
 	// Forwarded HTLC requests are sent to the client and the client responds with
@@ -131,6 +115,15 @@ type RouterClient interface {
 	// XFindBaseLocalChanAlias is an experimental API that looks up the base scid
 	// for a local chan alias that was registered during the current runtime.
 	XFindBaseLocalChanAlias(ctx context.Context, in *FindBaseAliasRequest, opts ...grpc.CallOption) (*FindBaseAliasResponse, error)
+	// lncli: `deletefwdhistory`
+	// DeleteForwardingHistory allows the caller to delete forwarding history
+	// events with a timestamp at or before a specified time. This is useful
+	// for implementing data retention policies for privacy purposes. The call
+	// deletes events in batches and returns statistics including the total number
+	// of events deleted and the aggregate fees earned from those events. The
+	// deletion is performed in a transaction-safe manner with configurable batch
+	// sizes to avoid holding large database locks.
+	DeleteForwardingHistory(ctx context.Context, in *DeleteForwardingHistoryRequest, opts ...grpc.CallOption) (*DeleteForwardingHistoryResponse, error)
 }
 
 type routerClient struct {
@@ -246,16 +239,6 @@ func (c *routerClient) EstimateRouteFee(ctx context.Context, in *RouteFeeRequest
 	return out, nil
 }
 
-// Deprecated: Do not use.
-func (c *routerClient) SendToRoute(ctx context.Context, in *SendToRouteRequest, opts ...grpc.CallOption) (*SendToRouteResponse, error) {
-	out := new(SendToRouteResponse)
-	err := c.cc.Invoke(ctx, "/routerrpc.Router/SendToRoute", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *routerClient) SendToRouteV2(ctx context.Context, in *SendToRouteRequest, opts ...grpc.CallOption) (*lnrpc.HTLCAttempt, error) {
 	out := new(lnrpc.HTLCAttempt)
 	err := c.cc.Invoke(ctx, "/routerrpc.Router/SendToRouteV2", in, out, opts...)
@@ -360,74 +343,8 @@ func (x *routerSubscribeHtlcEventsClient) Recv() (*HtlcEvent, error) {
 	return m, nil
 }
 
-// Deprecated: Do not use.
-func (c *routerClient) SendPayment(ctx context.Context, in *SendPaymentRequest, opts ...grpc.CallOption) (Router_SendPaymentClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Router_ServiceDesc.Streams[4], "/routerrpc.Router/SendPayment", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &routerSendPaymentClient{stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-type Router_SendPaymentClient interface {
-	Recv() (*PaymentStatus, error)
-	grpc.ClientStream
-}
-
-type routerSendPaymentClient struct {
-	grpc.ClientStream
-}
-
-func (x *routerSendPaymentClient) Recv() (*PaymentStatus, error) {
-	m := new(PaymentStatus)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-// Deprecated: Do not use.
-func (c *routerClient) TrackPayment(ctx context.Context, in *TrackPaymentRequest, opts ...grpc.CallOption) (Router_TrackPaymentClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Router_ServiceDesc.Streams[5], "/routerrpc.Router/TrackPayment", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &routerTrackPaymentClient{stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-type Router_TrackPaymentClient interface {
-	Recv() (*PaymentStatus, error)
-	grpc.ClientStream
-}
-
-type routerTrackPaymentClient struct {
-	grpc.ClientStream
-}
-
-func (x *routerTrackPaymentClient) Recv() (*PaymentStatus, error) {
-	m := new(PaymentStatus)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
 func (c *routerClient) HtlcInterceptor(ctx context.Context, opts ...grpc.CallOption) (Router_HtlcInterceptorClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Router_ServiceDesc.Streams[6], "/routerrpc.Router/HtlcInterceptor", opts...)
+	stream, err := c.cc.NewStream(ctx, &Router_ServiceDesc.Streams[4], "/routerrpc.Router/HtlcInterceptor", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -493,10 +410,20 @@ func (c *routerClient) XFindBaseLocalChanAlias(ctx context.Context, in *FindBase
 	return out, nil
 }
 
+func (c *routerClient) DeleteForwardingHistory(ctx context.Context, in *DeleteForwardingHistoryRequest, opts ...grpc.CallOption) (*DeleteForwardingHistoryResponse, error) {
+	out := new(DeleteForwardingHistoryResponse)
+	err := c.cc.Invoke(ctx, "/routerrpc.Router/DeleteForwardingHistory", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RouterServer is the server API for Router service.
 // All implementations must embed UnimplementedRouterServer
 // for forward compatibility
 type RouterServer interface {
+	// lncli: `sendpayment`
 	// SendPaymentV2 attempts to route a payment described by the passed
 	// PaymentRequest to the final destination. The call returns a stream of
 	// payment updates. When using this RPC, make sure to set a fee limit, as the
@@ -515,17 +442,11 @@ type RouterServer interface {
 	// payment attempt make sure to subscribe to this method before initiating any
 	// payments.
 	TrackPayments(*TrackPaymentsRequest, Router_TrackPaymentsServer) error
+	// lncli: `estimateroutefee`
 	// EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
 	// may cost to send an HTLC to the target end destination.
 	EstimateRouteFee(context.Context, *RouteFeeRequest) (*RouteFeeResponse, error)
-	// Deprecated: Do not use.
-	//
-	// Deprecated, use SendToRouteV2. SendToRoute attempts to make a payment via
-	// the specified route. This method differs from SendPayment in that it
-	// allows users to specify a full route manually. This can be used for
-	// things like rebalancing, and atomic swaps. It differs from the newer
-	// SendToRouteV2 in that it doesn't return the full HTLC information.
-	SendToRoute(context.Context, *SendToRouteRequest) (*SendToRouteResponse, error)
+	// lncli: `sendtoroute`
 	// SendToRouteV2 attempts to make a payment via the specified route. This
 	// method differs from SendPayment in that it allows users to specify a full
 	// route manually. This can be used for things like rebalancing, and atomic
@@ -570,17 +491,6 @@ type RouterServer interface {
 	// SubscribeHtlcEvents creates a uni-directional stream from the server to
 	// the client which delivers a stream of htlc events.
 	SubscribeHtlcEvents(*SubscribeHtlcEventsRequest, Router_SubscribeHtlcEventsServer) error
-	// Deprecated: Do not use.
-	//
-	// Deprecated, use SendPaymentV2. SendPayment attempts to route a payment
-	// described by the passed PaymentRequest to the final destination. The call
-	// returns a stream of payment status updates.
-	SendPayment(*SendPaymentRequest, Router_SendPaymentServer) error
-	// Deprecated: Do not use.
-	//
-	// Deprecated, use TrackPaymentV2. TrackPayment returns an update stream for
-	// the payment identified by the payment hash.
-	TrackPayment(*TrackPaymentRequest, Router_TrackPaymentServer) error
 	// *
 	// HtlcInterceptor dispatches a bi-directional streaming RPC in which
 	// Forwarded HTLC requests are sent to the client and the client responds with
@@ -609,6 +519,15 @@ type RouterServer interface {
 	// XFindBaseLocalChanAlias is an experimental API that looks up the base scid
 	// for a local chan alias that was registered during the current runtime.
 	XFindBaseLocalChanAlias(context.Context, *FindBaseAliasRequest) (*FindBaseAliasResponse, error)
+	// lncli: `deletefwdhistory`
+	// DeleteForwardingHistory allows the caller to delete forwarding history
+	// events with a timestamp at or before a specified time. This is useful
+	// for implementing data retention policies for privacy purposes. The call
+	// deletes events in batches and returns statistics including the total number
+	// of events deleted and the aggregate fees earned from those events. The
+	// deletion is performed in a transaction-safe manner with configurable batch
+	// sizes to avoid holding large database locks.
+	DeleteForwardingHistory(context.Context, *DeleteForwardingHistoryRequest) (*DeleteForwardingHistoryResponse, error)
 	mustEmbedUnimplementedRouterServer()
 }
 
@@ -627,9 +546,6 @@ func (UnimplementedRouterServer) TrackPayments(*TrackPaymentsRequest, Router_Tra
 }
 func (UnimplementedRouterServer) EstimateRouteFee(context.Context, *RouteFeeRequest) (*RouteFeeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method EstimateRouteFee not implemented")
-}
-func (UnimplementedRouterServer) SendToRoute(context.Context, *SendToRouteRequest) (*SendToRouteResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SendToRoute not implemented")
 }
 func (UnimplementedRouterServer) SendToRouteV2(context.Context, *SendToRouteRequest) (*lnrpc.HTLCAttempt, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendToRouteV2 not implemented")
@@ -658,12 +574,6 @@ func (UnimplementedRouterServer) BuildRoute(context.Context, *BuildRouteRequest)
 func (UnimplementedRouterServer) SubscribeHtlcEvents(*SubscribeHtlcEventsRequest, Router_SubscribeHtlcEventsServer) error {
 	return status.Errorf(codes.Unimplemented, "method SubscribeHtlcEvents not implemented")
 }
-func (UnimplementedRouterServer) SendPayment(*SendPaymentRequest, Router_SendPaymentServer) error {
-	return status.Errorf(codes.Unimplemented, "method SendPayment not implemented")
-}
-func (UnimplementedRouterServer) TrackPayment(*TrackPaymentRequest, Router_TrackPaymentServer) error {
-	return status.Errorf(codes.Unimplemented, "method TrackPayment not implemented")
-}
 func (UnimplementedRouterServer) HtlcInterceptor(Router_HtlcInterceptorServer) error {
 	return status.Errorf(codes.Unimplemented, "method HtlcInterceptor not implemented")
 }
@@ -678,6 +588,9 @@ func (UnimplementedRouterServer) XDeleteLocalChanAliases(context.Context, *Delet
 }
 func (UnimplementedRouterServer) XFindBaseLocalChanAlias(context.Context, *FindBaseAliasRequest) (*FindBaseAliasResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method XFindBaseLocalChanAlias not implemented")
+}
+func (UnimplementedRouterServer) DeleteForwardingHistory(context.Context, *DeleteForwardingHistoryRequest) (*DeleteForwardingHistoryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteForwardingHistory not implemented")
 }
 func (UnimplementedRouterServer) mustEmbedUnimplementedRouterServer() {}
 
@@ -769,24 +682,6 @@ func _Router_EstimateRouteFee_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RouterServer).EstimateRouteFee(ctx, req.(*RouteFeeRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Router_SendToRoute_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SendToRouteRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RouterServer).SendToRoute(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/routerrpc.Router/SendToRoute",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RouterServer).SendToRoute(ctx, req.(*SendToRouteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -956,48 +851,6 @@ func (x *routerSubscribeHtlcEventsServer) Send(m *HtlcEvent) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func _Router_SendPayment_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(SendPaymentRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(RouterServer).SendPayment(m, &routerSendPaymentServer{stream})
-}
-
-type Router_SendPaymentServer interface {
-	Send(*PaymentStatus) error
-	grpc.ServerStream
-}
-
-type routerSendPaymentServer struct {
-	grpc.ServerStream
-}
-
-func (x *routerSendPaymentServer) Send(m *PaymentStatus) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func _Router_TrackPayment_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(TrackPaymentRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(RouterServer).TrackPayment(m, &routerTrackPaymentServer{stream})
-}
-
-type Router_TrackPaymentServer interface {
-	Send(*PaymentStatus) error
-	grpc.ServerStream
-}
-
-type routerTrackPaymentServer struct {
-	grpc.ServerStream
-}
-
-func (x *routerTrackPaymentServer) Send(m *PaymentStatus) error {
-	return x.ServerStream.SendMsg(m)
-}
-
 func _Router_HtlcInterceptor_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(RouterServer).HtlcInterceptor(&routerHtlcInterceptorServer{stream})
 }
@@ -1096,6 +949,24 @@ func _Router_XFindBaseLocalChanAlias_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Router_DeleteForwardingHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteForwardingHistoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RouterServer).DeleteForwardingHistory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/routerrpc.Router/DeleteForwardingHistory",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RouterServer).DeleteForwardingHistory(ctx, req.(*DeleteForwardingHistoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Router_ServiceDesc is the grpc.ServiceDesc for Router service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1106,10 +977,6 @@ var Router_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "EstimateRouteFee",
 			Handler:    _Router_EstimateRouteFee_Handler,
-		},
-		{
-			MethodName: "SendToRoute",
-			Handler:    _Router_SendToRoute_Handler,
 		},
 		{
 			MethodName: "SendToRouteV2",
@@ -1159,6 +1026,10 @@ var Router_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "XFindBaseLocalChanAlias",
 			Handler:    _Router_XFindBaseLocalChanAlias_Handler,
 		},
+		{
+			MethodName: "DeleteForwardingHistory",
+			Handler:    _Router_DeleteForwardingHistory_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
@@ -1179,16 +1050,6 @@ var Router_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "SubscribeHtlcEvents",
 			Handler:       _Router_SubscribeHtlcEvents_Handler,
-			ServerStreams: true,
-		},
-		{
-			StreamName:    "SendPayment",
-			Handler:       _Router_SendPayment_Handler,
-			ServerStreams: true,
-		},
-		{
-			StreamName:    "TrackPayment",
-			Handler:       _Router_TrackPayment_Handler,
 			ServerStreams: true,
 		},
 		{

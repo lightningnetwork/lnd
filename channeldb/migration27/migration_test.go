@@ -97,7 +97,6 @@ func TestMigrateHistoricalBalances(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		// testChannel is used to test the balance fields are correctly
 		// set.

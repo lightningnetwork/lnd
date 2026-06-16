@@ -38,7 +38,6 @@ func TestDefaultRoutingFeeLimitForAmount(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(fmt.Sprintf("%d sats", test.amount), func(t *testing.T) {
 			feeLimit := DefaultRoutingFeeLimitForAmount(test.amount)
@@ -85,7 +84,6 @@ func TestDustLimitForSize(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			dustlimit := DustLimitForSize(test.size)

@@ -170,29 +170,28 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	routes.Routes[0].Hops[1].AmtToForward = amtSat
 	routes.Routes[0].Hops[1].AmtToForwardMsat = amtMSat
 
-	// Send the payment with the modified value.
-	alicePayStream := alice.RPC.SendToRoute()
-
-	sendReq := &lnrpc.SendToRouteRequest{
+	// Send the payment with the modified value and expect a failure because
+	// the amount is below the minimum HTLC size.
+	sendReq := &routerrpc.SendToRouteRequest{
 		PaymentHash: resp.RHash,
 		Route:       routes.Routes[0],
 	}
-	err := alicePayStream.Send(sendReq)
-	require.NoError(ht, err, "unable to send payment")
+	sendResp := alice.RPC.SendToRouteV2(sendReq)
+	require.NotNil(ht, sendResp.Failure, "expected payment failure")
+	require.Equal(
+		ht, lnrpc.Failure_AMOUNT_BELOW_MINIMUM, sendResp.Failure.Code,
+	)
 
-	// We expect this payment to fail, and that the min_htlc value is
-	// communicated back to us, since the attempted HTLC value was too low.
-	sendResp, err := ht.ReceiveSendToRouteUpdate(alicePayStream)
-	require.NoError(ht, err, "unable to receive payment stream")
-
-	// Expected as part of the error message.
-	substrs := []string{
-		"AmountBelowMinimum",
-		"HtlcMinimumMsat: (lnwire.MilliSatoshi) 5000 mSAT",
-	}
-	for _, s := range substrs {
-		require.Contains(ht, sendResp.PaymentError, s)
-	}
+	// The failure should carry the advertised min HTLC value so that
+	// callers can react to the channel policy.
+	require.NotNil(
+		ht, sendResp.Failure.ChannelUpdate,
+		"expected channel update in failure",
+	)
+	require.Equal(
+		ht, uint64(customMinHtlc),
+		sendResp.Failure.ChannelUpdate.HtlcMinimumMsat,
+	)
 
 	// Make sure sending using the original value succeeds.
 	payAmt = btcutil.Amount(5)
@@ -213,17 +212,12 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 		TotalAmtMsat: amtMSat,
 	}
 
-	sendReq = &lnrpc.SendToRouteRequest{
+	sendReq = &routerrpc.SendToRouteRequest{
 		PaymentHash: resp.RHash,
 		Route:       route,
 	}
-
-	err = alicePayStream.Send(sendReq)
-	require.NoError(ht, err, "unable to send payment")
-
-	sendResp, err = ht.ReceiveSendToRouteUpdate(alicePayStream)
-	require.NoError(ht, err, "unable to receive payment stream")
-	require.Empty(ht, sendResp.PaymentError, "expected payment to succeed")
+	sendResp = alice.RPC.SendToRouteV2(sendReq)
+	require.Nil(ht, sendResp.Failure, "expected payment to succeed")
 
 	// With our little cluster set up, we'll update the outbound fees and
 	// the max htlc size for the Bob side of the Alice->Bob channel, and

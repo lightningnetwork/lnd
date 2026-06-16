@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"sync"
 
@@ -602,8 +603,6 @@ func (lc *LightningChannel) extractPayDescs(feeRate chainfee.SatPerKWeight,
 		// persist state w.r.t to if forwarded or not, or can
 		// inadvertently trigger replays
 
-		htlc := htlc
-
 		auxLeaf := fn.FlatMapOption(
 			func(l CommitAuxLeaves) input.AuxTapLeaf {
 				leaves := l.OutgoingHtlcLeaves
@@ -861,6 +860,14 @@ type channelOpts struct {
 	auxHtlcValidator fn.Option[AuxHtlcValidator]
 
 	skipNonceInit bool
+
+	// customSigningRand is an optional custom random source for generating
+	// deterministic JIT signing nonces in MuSig2 sessions.
+	//
+	// WARNING: This MUST only be used for test vector generation. Setting
+	// this in production will produce deterministic nonces, enabling
+	// private key extraction via nonce reuse.
+	customSigningRand fn.Option[io.Reader]
 }
 
 // WithLocalMusigNonces is used to bind an existing verification/local nonce to
@@ -912,9 +919,21 @@ func WithAuxResolver(resolver AuxContractResolver) ChannelOpt {
 	}
 }
 
+// WithCustomSigningRand is used to provide a custom random source for
+// generating deterministic JIT signing nonces in MuSig2 sessions.
+//
+// WARNING: This MUST only be used for test vector generation. Setting this in
+// production will produce deterministic nonces, enabling private key extraction
+// via nonce reuse.
+func WithCustomSigningRand(rand io.Reader) ChannelOpt {
+	return func(o *channelOpts) {
+		o.customSigningRand = fn.Some[io.Reader](rand)
+	}
+}
+
 // WithAuxHtlcValidator is used to specify a custom HTLC validator for the
-// channel. This validator will be called during HTLC addition to perform
-// final validation checks against the most up-to-date channel state.
+// channel. This allows external components to perform additional validation on
+// HTLCs before they are added to the channel state.
 func WithAuxHtlcValidator(validator AuxHtlcValidator) ChannelOpt {
 	return func(o *channelOpts) {
 		o.auxHtlcValidator = fn.Some(validator)
@@ -1753,7 +1772,6 @@ func (lc *LightningChannel) restorePendingRemoteUpdates(
 		len(unsignedAckedUpdates))
 
 	for _, logUpdate := range unsignedAckedUpdates {
-		logUpdate := logUpdate
 
 		payDesc, err := lc.remoteLogUpdateToPayDesc(
 			&logUpdate, lc.updateLogs.Local, localCommitmentHeight,
@@ -1833,7 +1851,6 @@ func (lc *LightningChannel) restorePeerLocalUpdates(updates []channeldb.LogUpdat
 		len(updates))
 
 	for _, logUpdate := range updates {
-		logUpdate := logUpdate
 
 		payDesc, err := lc.localLogUpdateToPayDesc(
 			&logUpdate, lc.updateLogs.Remote,
@@ -1887,7 +1904,6 @@ func (lc *LightningChannel) restorePendingLocalUpdates(
 	// If we did have a dangling commit, then we'll examine which updates
 	// we included in that state and re-insert them into our update log.
 	for _, logUpdate := range pendingRemoteCommitDiff.LogUpdates {
-		logUpdate := logUpdate
 
 		payDesc, err := lc.logUpdateToPayDesc(
 			&logUpdate, lc.updateLogs.Remote, pendingHeight,
@@ -2063,6 +2079,11 @@ type BreachRetribution struct {
 	// RemoteResolutionBlob is a blob used for aux channels that permits an
 	// honest party to sweep the remote commitment output.
 	RemoteResolutionBlob fn.Option[tlv.Blob]
+
+	// ChanType is the channel type of the breached channel, used to
+	// determine whether production taproot scripts should be used when
+	// constructing justice transactions.
+	ChanType channeldb.ChannelType
 }
 
 // NewBreachRetribution creates a new fully populated BreachRetribution for the
@@ -2608,6 +2629,7 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 		RemoteOutpoint:   theirOutpoint,
 		HtlcRetributions: htlcRetributions,
 		KeyRing:          keyRing,
+		ChanType:         chanState.ChanType,
 	}, ourAmt, theirAmt, nil
 }
 
@@ -2683,6 +2705,7 @@ func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 		RemoteOutpoint:   theirOutpoint,
 		HtlcRetributions: htlcRetributions,
 		KeyRing:          keyRing,
+		ChanType:         chanState.ChanType,
 	}, ourAmt, theirAmt, nil
 }
 
@@ -4429,11 +4452,40 @@ func (lc *LightningChannel) ProcessChanSyncMsg(ctx context.Context,
 		}
 	}
 
-	// If this is a taproot channel, then we expect that the remote party
-	// has sent the next verification nonce. If they haven't, then we'll
-	// bail out, otherwise we'll init our local session then continue as
-	// normal.
+	// If this is a taproot channel, then we expect the remote party to
+	// have sent the next verification nonce. We prioritize the new
+	// LocalNonces field over the legacy LocalNonce field for backwards
+	// compatibility. If no nonce is present, we'll bail out.
 	switch {
+	case lc.channelState.ChanType.IsTaproot() && msg.LocalNonces.IsSome():
+		// The IsSome() guard above guarantees this unwrap succeeds.
+		noncesData := msg.LocalNonces.UnsafeFromSome()
+
+		// Extract the nonce for the main commitment by looking up the
+		// funding TXID, as the commitment tx spends the funding
+		// outpoint.
+		fundingTxid := lc.channelState.FundingOutpoint.Hash
+		commitNonce, ok := noncesData.NoncesMap[fundingTxid]
+		if !ok {
+			return nil, nil, nil, fmt.Errorf(
+				"remote LocalNonces missing nonce "+
+					"for funding txid %v", fundingTxid,
+			)
+		}
+
+		if lc.opts.skipNonceInit {
+			break
+		}
+
+		initErr := lc.InitRemoteMusigNonces(&musig2.Nonces{
+			PubNonce: commitNonce,
+		})
+		if initErr != nil {
+			return nil, nil, nil, fmt.Errorf(
+				"unable to init remote nonce: %w", initErr,
+			)
+		}
+
 	case lc.channelState.ChanType.IsTaproot() && msg.LocalNonce.IsNone():
 		return nil, nil, nil, fmt.Errorf("remote verification nonce " +
 			"not sent")
@@ -5775,6 +5827,47 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 	return revocationMsg, newCommitment.Htlcs, finalHtlcs, nil
 }
 
+// extractRevokeAndAckNonce extracts the next verification nonce from a
+// RevokeAndAck message. It prioritizes the new LocalNonces field over the
+// legacy LocalNonce field for backwards compatibility. The fundingTxid is used
+// to validate the nonce map key per the spec (bolts#995). If neither field is
+// present, an error is returned.
+func extractRevokeAndAckNonce(revMsg *lnwire.RevokeAndAck,
+	fundingTxid chainhash.Hash) (lnwire.Musig2Nonce, error) {
+
+	switch {
+	case revMsg.LocalNonces.IsSome():
+		noncesData, err := revMsg.LocalNonces.UnwrapOrErr(
+			fmt.Errorf("invalid LocalNonces"),
+		)
+		if err != nil {
+			return lnwire.Musig2Nonce{}, err
+		}
+
+		// Per the spec, the nonce map key must match the channel's
+		// funding txid. Validate this before using the nonce.
+		nonce, ok := noncesData.NoncesMap[fundingTxid]
+		if ok {
+			return nonce, nil
+		}
+
+		return lnwire.Musig2Nonce{}, fmt.Errorf("no nonce for "+
+			"funding txid %v in revoke_and_ack", fundingTxid)
+
+	case revMsg.LocalNonce.IsSome():
+		localNonce, err := revMsg.LocalNonce.UnwrapOrErrV(errNoNonce)
+		if err != nil {
+			return lnwire.Musig2Nonce{}, err
+		}
+
+		return localNonce, nil
+
+	default:
+		return lnwire.Musig2Nonce{}, fmt.Errorf("remote " +
+			"verification nonce not sent")
+	}
+}
+
 // ReceiveRevocation processes a revocation sent by the remote party for the
 // lowest unrevoked commitment within their commitment chain. We receive a
 // revocation either during the initial session negotiation wherein revocation
@@ -5960,15 +6053,16 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	// Now that we have a new verification nonce from them, we can refresh
 	// our remote musig2 session which allows us to create another state.
 	if lc.channelState.ChanType.IsTaproot() {
-		localNonce, err := revMsg.LocalNonce.UnwrapOrErrV(errNoNonce)
+		fundingTxid := lc.channelState.FundingOutpoint.Hash
+		localNonce, err := extractRevokeAndAckNonce(
+			revMsg, fundingTxid,
+		)
 		if err != nil {
 			return nil, nil, err
 		}
 
 		session, err := lc.musigSessions.RemoteSession.Refresh(
-			&musig2.Nonces{
-				PubNonce: localNonce,
-			},
+			&musig2.Nonces{PubNonce: localNonce},
 		)
 		if err != nil {
 			return nil, nil, err
@@ -6796,7 +6890,7 @@ func GetSignedCommitTx(inputs SignedCommitTxInputs,
 		musigSession := NewPartialMusigSession(
 			*localNonce, inputs.OurKey, inputs.TheirKey, signer,
 			inputs.SignDesc.Output, LocalMusigCommit,
-			tapscriptTweak,
+			tapscriptTweak, fn.None[io.Reader](),
 		)
 
 		var remoteSig lnwire.PartialSigWithNonce
@@ -7540,10 +7634,16 @@ func newOutgoingHtlcResolution(signer input.Signer,
 			return nil, err
 		}
 	} else {
+		// Determine script options based on channel type.
+		var scriptOpts []input.TaprootScriptOpt
+		if chanType.IsTaprootFinal() {
+			scriptOpts = append(scriptOpts, input.WithProdScripts())
+		}
+
 		//nolint:ll
 		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
 			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
-			secondLevelAuxLeaf,
+			secondLevelAuxLeaf, scriptOpts...,
 		)
 		if err != nil {
 			return nil, err
@@ -7904,10 +8004,16 @@ func newIncomingHtlcResolution(signer input.Signer,
 			return nil, err
 		}
 	} else {
+		// Determine script options based on channel type.
+		var scriptOpts []input.TaprootScriptOpt
+		if chanType.IsTaprootFinal() {
+			scriptOpts = append(scriptOpts, input.WithProdScripts())
+		}
+
 		//nolint:ll
 		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
 			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
-			secondLevelAuxLeaf,
+			secondLevelAuxLeaf, scriptOpts...,
 		)
 		if err != nil {
 			return nil, err
@@ -8078,7 +8184,6 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 	incomingResolutions := make([]IncomingHtlcResolution, 0, len(htlcs))
 	outgoingResolutions := make([]OutgoingHtlcResolution, 0, len(htlcs))
 	for _, htlc := range htlcs {
-		htlc := htlc
 
 		// We'll skip any HTLC's which were dust on the commitment
 		// transaction, as these don't have a corresponding output
@@ -8954,8 +9059,7 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 		return nil, err
 	}
 	if chanState.ChanType.IsTaproot() && whoseCommit.IsRemote() {
-		//nolint:ineffassign
-		localAnchor, remoteAnchor = remoteAnchor, localAnchor
+		localAnchor = remoteAnchor
 	}
 
 	// TODO(roasbeef): remote anchor not needed above
@@ -9451,9 +9555,25 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 		if err != nil {
 			return nil, err
 		}
-		revocationMsg.LocalNonce = lnwire.SomeMusig2Nonce(
-			nextVerificationNonce.PubNonce,
-		)
+
+		fundingTxid := lc.channelState.FundingOutpoint.Hash
+		nonce := nextVerificationNonce.PubNonce
+
+		// Set the appropriate nonce field based on the channel type.
+		// Final taproot channels use the map-based LocalNonces field,
+		// while staging taproot channels use the legacy single
+		// LocalNonce field.
+		if lc.channelState.ChanType.IsTaprootFinal() {
+			noncesMap := make(map[chainhash.Hash]lnwire.Musig2Nonce)
+			noncesMap[fundingTxid] = nonce
+			revocationMsg.LocalNonces = lnwire.SomeLocalNonces(
+				lnwire.LocalNoncesData{
+					NoncesMap: noncesMap,
+				},
+			)
+		} else {
+			revocationMsg.LocalNonce = lnwire.SomeMusig2Nonce(nonce)
+		}
 	}
 
 	return revocationMsg, nil
@@ -10144,13 +10264,14 @@ func (lc *LightningChannel) InitRemoteMusigNonces(remoteNonce *musig2.Nonces,
 	// TODO(roasbeef): propagate rename of signing and verification nonces
 
 	sessionCfg := &MusigSessionCfg{
-		LocalKey:       localChanCfg.MultiSigKey,
-		RemoteKey:      remoteChanCfg.MultiSigKey,
-		LocalNonce:     *localNonce,
-		RemoteNonce:    *remoteNonce,
-		Signer:         lc.Signer,
-		InputTxOut:     &lc.fundingOutput,
-		TapscriptTweak: lc.channelState.TapscriptRoot,
+		LocalKey:        localChanCfg.MultiSigKey,
+		RemoteKey:       remoteChanCfg.MultiSigKey,
+		LocalNonce:      *localNonce,
+		RemoteNonce:     *remoteNonce,
+		Signer:          lc.Signer,
+		InputTxOut:      &lc.fundingOutput,
+		TapscriptTweak:  lc.channelState.TapscriptRoot,
+		CustomNonceRand: lc.opts.customSigningRand,
 	}
 	lc.musigSessions = NewMusigPairSession(
 		sessionCfg,

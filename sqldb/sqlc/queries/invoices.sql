@@ -50,46 +50,55 @@ ON i.id = a.invoice_id AND a.set_id = $1;
 -- name: FetchPendingInvoices :many
 -- FetchPendingInvoices returns all invoices in a pending state (open or
 -- accepted). The invoices_state_idx index on the state column makes this a
--- fast index scan rather than a full table scan.
+-- fast index scan rather than a full table scan. id_cursor is an exclusive
+-- lower bound on the primary key used for cursor-based pagination; the caller
+-- must supply 0 when starting from the beginning.
 SELECT
     invoices.*
 FROM invoices
 WHERE state IN (0, 3) -- 0 = ContractOpen, 3 = ContractAccepted
+  AND id > @id_cursor
 ORDER BY id ASC
-LIMIT @num_limit OFFSET @num_offset;
+LIMIT @num_limit;
 
 -- name: FilterInvoicesBySettleIndex :many
 -- FilterInvoicesBySettleIndex returns settled invoices whose settle_index is
 -- greater than or equal to the given value, ordered by id. The caller must
 -- always supply a concrete lower bound so the invoices_settle_index_idx index
--- can be used.
+-- can be used. id_cursor is an exclusive lower bound on the primary key used
+-- for cursor-based pagination; the caller must supply 0 when starting from
+-- the beginning.
 SELECT
     invoices.*
 FROM invoices
 WHERE settle_index >= @settle_index_get
+  AND id > @id_cursor
 ORDER BY id ASC
-LIMIT @num_limit OFFSET @num_offset;
+LIMIT @num_limit;
 
 -- name: FilterInvoicesByAddIndex :many
 -- FilterInvoicesByAddIndex returns invoices whose add_index (primary key id)
 -- is greater than or equal to the given value, ordered by id. Because id is
 -- the primary key, this is always an efficient range scan on the clustered
--- index.
+-- index. For cursor-based pagination the caller advances add_index_get to
+-- last_returned_id + 1 on each subsequent page.
 SELECT
     invoices.*
 FROM invoices
 WHERE id >= @add_index_get
 ORDER BY id ASC
-LIMIT @num_limit OFFSET @num_offset;
+LIMIT @num_limit;
 
 -- name: FilterInvoicesForward :many
--- FilterInvoicesForward returns invoices in ascending id order starting from
--- add_index_get. All parameters are non-nullable so the planner always sees
--- plain range predicates and can use the primary-key index. The caller is
--- responsible for supplying Go-side defaults when a filter is not needed:
---   created_after  → time.Unix(0, 0).UTC()       (epoch – before any invoice)
---   created_before → time.Date(9999, …)            (far future – no upper cap)
---   pending_only   → false                         (include all states)
+-- FilterInvoicesForward returns invoices in ascending id order. All parameters
+-- are non-nullable so the planner always sees plain range predicates and can
+-- use the primary-key index. For cursor-based pagination the caller advances
+-- add_index_get to last_returned_id + 1 on each subsequent page. The caller
+-- is responsible for supplying Go-side defaults when a filter is not needed:
+--   add_index_get  → 1                             (first valid invoice id)
+--   created_after  → time.Unix(0, 0).UTC()         (epoch – before any invoice)
+--   created_before → time.Date(9999, …)             (far future – no upper cap)
+--   pending_only   → false                          (include all states)
 SELECT
     invoices.*
 FROM invoices
@@ -98,12 +107,14 @@ WHERE id >= @add_index_get
   AND created_at >= @created_after
   AND created_at < @created_before
 ORDER BY id ASC
-LIMIT @num_limit OFFSET @num_offset;
+LIMIT @num_limit;
 
 -- name: FilterInvoicesReverse :many
 -- FilterInvoicesReverse is the descending counterpart of FilterInvoicesForward.
--- It returns invoices in descending id order up to and including add_index_let.
--- See FilterInvoicesForward for the expected Go-side defaults.
+-- It returns invoices in descending id order. For cursor-based pagination the
+-- caller advances add_index_let to last_returned_id - 1 on each subsequent
+-- page; pass math.MaxInt64 to start from the most recent invoice. See
+-- FilterInvoicesForward for the expected Go-side defaults.
 SELECT
     invoices.*
 FROM invoices
@@ -112,7 +123,7 @@ WHERE id <= @add_index_let
   AND created_at >= @created_after
   AND created_at < @created_before
 ORDER BY id DESC
-LIMIT @num_limit OFFSET @num_offset;
+LIMIT @num_limit;
 
 -- name: UpdateInvoiceState :execresult
 UPDATE invoices

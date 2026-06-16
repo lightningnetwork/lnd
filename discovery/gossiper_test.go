@@ -23,6 +23,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/neutrino/cache"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -221,14 +222,12 @@ func (r *mockGraphSource) ForAllOutgoingChannels(_ context.Context,
 
 	chans := make(map[uint64]graphdb.ChannelEdge)
 	for _, info := range r.infos {
-		info := info
 
 		edgeInfo := chans[info.ChannelID]
 		edgeInfo.Info = &info
 		chans[info.ChannelID] = edgeInfo
 	}
 	for _, edges := range r.edges {
-		edges := edges
 
 		edge := chans[edges[0].ChannelID]
 		edge.Policy1 = &edges[0]
@@ -413,7 +412,9 @@ func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 // MarkEdgeLive clears an edge from our zombie index, deeming it as live.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (r *mockGraphSource) MarkEdgeLive(chanID lnwire.ShortChannelID) error {
+func (r *mockGraphSource) MarkEdgeLive(_ lnwire.GossipVersion,
+	chanID lnwire.ShortChannelID) error {
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.zombies, chanID.ToUint64())
@@ -1059,11 +1060,11 @@ func TestProcessAnnouncement(t *testing.T) {
 	ca, err := tCtx.createRemoteChannelAnnouncement(0)
 	require.NoError(t, err, "can't create channel announcement")
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(ctx, ca, nodePeer):
-	case <-time.After(2 * time.Second):
-		t.Fatal("remote announcement not processed")
-	}
+	err = mustProcess(
+		t, tCtx.gossiper.ProcessRemoteAnnouncement(
+			ctx, ca, nodePeer,
+		),
+	)
 	require.NoError(t, err, "can't process remote announcement")
 
 	// The announcement should be broadcast and included in our local view
@@ -1085,11 +1086,11 @@ func TestProcessAnnouncement(t *testing.T) {
 	ua.MessageFlags = 0
 
 	// We send an invalid channel update and expect it to fail.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(ctx, ua, nodePeer):
-	case <-time.After(2 * time.Second):
-		t.Fatal("remote announcement not processed")
-	}
+	err = mustProcess(
+		t, tCtx.gossiper.ProcessRemoteAnnouncement(
+			ctx, ua, nodePeer,
+		),
+	)
 	require.ErrorContains(t, err, "max htlc flag not set for channel "+
 		"update")
 
@@ -1105,11 +1106,11 @@ func TestProcessAnnouncement(t *testing.T) {
 	ua, err = createUpdateAnnouncement(0, 0, remoteKeyPriv1, timestamp)
 	require.NoError(t, err, "can't create update announcement")
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(ctx, ua, nodePeer):
-	case <-time.After(2 * time.Second):
-		t.Fatal("remote announcement not processed")
-	}
+	err = mustProcess(
+		t, tCtx.gossiper.ProcessRemoteAnnouncement(
+			ctx, ua, nodePeer,
+		),
+	)
 	require.NoError(t, err, "can't process remote announcement")
 
 	// The channel policy should be broadcast to the rest of the network.
@@ -1128,11 +1129,11 @@ func TestProcessAnnouncement(t *testing.T) {
 	na, err := createNodeAnnouncement(remoteKeyPriv1, timestamp)
 	require.NoError(t, err, "can't create node announcement")
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(ctx, na, nodePeer):
-	case <-time.After(2 * time.Second):
-		t.Fatal("remote announcement not processed")
-	}
+	err = mustProcess(
+		t, tCtx.gossiper.ProcessRemoteAnnouncement(
+			ctx, na, nodePeer,
+		),
+	)
 	require.NoError(t, err, "can't process remote announcement")
 
 	// It should also be broadcast to the network and included in our local
@@ -1174,11 +1175,11 @@ func TestPrematureAnnouncement(t *testing.T) {
 	)
 	require.NoError(t, err, "can't create channel announcement")
 
-	select {
-	case <-tCtx.gossiper.ProcessRemoteAnnouncement(ctx, ca, nodePeer):
-	case <-time.After(time.Second):
-		t.Fatal("announcement was not processed")
-	}
+	_ = mustProcess(
+		t, tCtx.gossiper.ProcessRemoteAnnouncement(
+			ctx, ca, nodePeer,
+		),
+	)
 
 	if len(tCtx.router.infos) != 0 {
 		t.Fatal("edge was added to router")
@@ -1221,11 +1222,9 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 
 	// Recreate lightning network topology. Initialize router with channel
 	// between two nodes.
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(batch.chanAnn):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
+		batch.chanAnn,
+	))
 	require.NoError(t, err, "unable to process channel ann")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -1233,11 +1232,9 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn1):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
+		batch.chanUpdAnn1,
+	))
 	require.NoError(t, err, "unable to process channel update")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -1245,11 +1242,9 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(batch.nodeAnn1):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
+		batch.nodeAnn1,
+	))
 	require.NoError(t, err, "unable to process node ann")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -1267,13 +1262,9 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 		t.Fatal("gossiper did not send channel update to peer")
 	}
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanUpdAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process channel update")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -1281,13 +1272,9 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.nodeAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process node ann")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -1297,13 +1284,9 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 
 	// Pretending that we receive local channel announcement from funding
 	// manager, thereby kick off the announcement exchange process.
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
 		batch.localProofAnn,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process local proof")
 
 	select {
@@ -1329,13 +1312,9 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 		t.Fatal("wrong number of objects in storage")
 	}
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.remoteProofAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process remote proof")
 
 	for i := 0; i < 5; i++ {
@@ -1402,13 +1381,9 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	// manager, thereby kick off the announcement exchange process, in
 	// this case the announcement should be added in the orphan batch
 	// because we haven't announce the channel yet.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.remoteProofAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to proceed announcement")
 
 	number := 0
@@ -1430,11 +1405,9 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 
 	// Recreate lightning network topology. Initialize router with channel
 	// between two nodes.
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(batch.chanAnn):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
+		batch.chanAnn,
+	))
 
 	require.NoError(t, err, "unable to process")
 
@@ -1444,11 +1417,9 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn1):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
+		batch.chanUpdAnn1,
+	))
 	require.NoError(t, err, "unable to process")
 
 	select {
@@ -1457,11 +1428,9 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(batch.nodeAnn1):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
+		batch.nodeAnn1,
+	))
 	require.NoError(t, err, "unable to process node ann")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -1479,13 +1448,9 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 		t.Fatal("gossiper did not send channel update to peer")
 	}
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanUpdAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process node ann")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -1493,13 +1458,9 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.nodeAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -1509,13 +1470,9 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 
 	// After that we process local announcement, and waiting to receive
 	// the channel announcement.
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
 		batch.localProofAnn,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process")
 
 	// The local proof should be sent to the remote peer.
@@ -1589,11 +1546,9 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 
 	// Recreate lightning network topology. Initialize router with channel
 	// between two nodes.
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(batch.chanAnn):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
+		batch.chanAnn,
+	))
 	require.NoError(t, err, "unable to process channel ann")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -1603,13 +1558,9 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 
 	// Pretending that we receive local channel announcement from funding
 	// manager, thereby kick off the announcement exchange process.
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
 		batch.localProofAnn,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -1757,13 +1708,9 @@ out:
 
 	// Now exchanging the remote channel proof, the channel announcement
 	// broadcast should continue as normal.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.remoteProofAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -1825,13 +1772,9 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 
 	// Recreate lightning network topology. Initialize router with channel
 	// between two nodes.
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
 		batch.chanAnn,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process channel ann")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -1839,13 +1782,9 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
 		batch.chanUpdAnn1,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process channel update")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -1860,13 +1799,9 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 		t.Fatal("gossiper did not send channel update to remove peer")
 	}
 
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
 		batch.nodeAnn1,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
+	))
 	if err != nil {
 		t.Fatalf("unable to process node ann:%v", err)
 	}
@@ -1876,26 +1811,18 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanUpdAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process channel update")
 	select {
 	case <-tCtx.broadcastedMessage:
 		t.Fatal("channel update announcement was broadcast")
 	case <-time.After(2 * trickleDelay):
 	}
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.nodeAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process node ann")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -1905,22 +1832,14 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 
 	// Pretending that we receive local channel announcement from funding
 	// manager, thereby kick off the announcement exchange process.
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
 		batch.localProofAnn,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process local proof")
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.remoteProofAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process remote proof")
 
 	// We expect the gossiper to send this message to the remote peer.
@@ -1959,13 +1878,9 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 
 	// Now give the gossiper the remote proof yet again. This should
 	// trigger a send of the full ChannelAnnouncement.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.remoteProofAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process remote proof")
 
 	// We expect the gossiper to send this message to the remote peer.
@@ -2257,13 +2172,9 @@ func TestForwardPrivateNodeAnnouncement(t *testing.T) {
 	)
 	pubKey := remoteKeyPriv1.PubKey()
 
-	select {
-	case err := <-tCtx.gossiper.ProcessLocalAnnouncement(chanAnn):
-		if err != nil {
-			t.Fatalf("unable to process local announcement: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatalf("local announcement not processed")
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(chanAnn))
+	if err != nil {
+		t.Fatalf("unable to process local announcement: %v", err)
 	}
 
 	// The gossiper should not broadcast the announcement due to it not
@@ -2277,14 +2188,9 @@ func TestForwardPrivateNodeAnnouncement(t *testing.T) {
 	nodeAnn, err := createNodeAnnouncement(remoteKeyPriv1, timestamp)
 	require.NoError(t, err, "unable to create node announcement")
 
-	select {
-	case err := <-tCtx.gossiper.ProcessLocalAnnouncement(nodeAnn):
-		if err != nil {
-			t.Fatalf("unable to process remote announcement: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("remote announcement not processed")
-	}
+	_ = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
+		nodeAnn,
+	))
 
 	// The gossiper should also not broadcast the node announcement due to
 	// it not being part of any advertised channels.
@@ -2304,15 +2210,11 @@ func TestForwardPrivateNodeAnnouncement(t *testing.T) {
 	require.NoError(t, err, "unable to create remote channel announcement")
 	peer := &mockPeer{pubKey, nil, nil, atomic.Bool{}}
 
-	select {
-	case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, remoteChanAnn, peer,
-	):
-		if err != nil {
-			t.Fatalf("unable to process remote announcement: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("remote announcement not processed")
+	))
+	if err != nil {
+		t.Fatalf("unable to process remote announcement: %v", err)
 	}
 
 	select {
@@ -2327,15 +2229,11 @@ func TestForwardPrivateNodeAnnouncement(t *testing.T) {
 	nodeAnn, err = createNodeAnnouncement(remoteKeyPriv1, timestamp+1)
 	require.NoError(t, err, "unable to create node announcement")
 
-	select {
-	case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, nodeAnn, peer,
-	):
-		if err != nil {
-			t.Fatalf("unable to process remote announcement: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("remote announcement not processed")
+	))
+	if err != nil {
+		t.Fatalf("unable to process remote announcement: %v", err)
 	}
 
 	select {
@@ -2369,18 +2267,14 @@ func TestRejectZombieEdge(t *testing.T) {
 		errChan := tCtx.gossiper.ProcessRemoteAnnouncement(
 			ctx, batch.chanAnn, remotePeer,
 		)
-		select {
-		case err := <-errChan:
-			if isZombie && err != nil {
-				t.Fatalf("expected to reject live channel "+
-					"announcement with nil error: %v", err)
-			}
-			if !isZombie && err != nil {
-				t.Fatalf("expected to process live channel "+
-					"announcement: %v", err)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("expected to process channel announcement")
+		err := mustProcess(t, errChan)
+		if isZombie && err != nil {
+			t.Fatalf("expected to reject live channel "+
+				"announcement with nil error: %v", err)
+		}
+		if !isZombie && err != nil {
+			t.Fatalf("expected to process live channel "+
+				"announcement: %v", err)
 		}
 		select {
 		case <-tCtx.broadcastedMessage:
@@ -2398,18 +2292,14 @@ func TestRejectZombieEdge(t *testing.T) {
 		errChan = tCtx.gossiper.ProcessRemoteAnnouncement(
 			ctx, batch.chanUpdAnn2, remotePeer,
 		)
-		select {
-		case err := <-errChan:
-			if isZombie && err != nil {
-				t.Fatalf("expected to reject zombie channel "+
-					"update with nil error: %v", err)
-			}
-			if !isZombie && err != nil {
-				t.Fatalf("expected to process live channel "+
-					"update: %v", err)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("expected to process channel update")
+		err = mustProcess(t, errChan)
+		if isZombie && err != nil {
+			t.Fatalf("expected to reject zombie channel "+
+				"update with nil error: %v", err)
+		}
+		if !isZombie && err != nil {
+			t.Fatalf("expected to process live channel "+
+				"update: %v", err)
 		}
 		select {
 		case <-tCtx.broadcastedMessage:
@@ -2440,7 +2330,8 @@ func TestRejectZombieEdge(t *testing.T) {
 
 	// If we then mark the edge as live, the edge's zombie status should be
 	// overridden and the announcements should be processed.
-	if err := tCtx.router.MarkEdgeLive(chanID); err != nil {
+	err = tCtx.router.MarkEdgeLive(lnwire.GossipVersion1, chanID)
+	if err != nil {
 		t.Fatalf("unable mark channel %v as zombie: %v", chanID, err)
 	}
 
@@ -2477,11 +2368,7 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 		)
 
 		var err error
-		select {
-		case err = <-errChan:
-		case <-time.After(time.Second):
-			t.Fatal("expected to process announcement")
-		}
+		err = mustProcess(t, errChan)
 		if expectsErr && err == nil {
 			t.Fatal("expected error when processing announcement")
 		}
@@ -2586,14 +2473,9 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 
 	// After successfully processing the announcement, the channel update
 	// should have been processed and broadcast successfully as well.
-	select {
-	case err := <-updateErrChan:
-		if err != nil {
-			t.Fatalf("expected to process live channel update: %v",
-				err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("expected to process announcement")
+	err = mustProcess(t, updateErrChan)
+	if err != nil {
+		t.Fatalf("expected to process live channel update: %v", err)
 	}
 
 	select {
@@ -2647,9 +2529,9 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.nodeAnn2, remotePeer,
-	)
+	))
 	require.NoError(t, err, "unable to process node ann")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -2679,7 +2561,9 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 
 	// Recreate lightning network topology. Initialize router with channel
 	// between two nodes.
-	err = <-tCtx.gossiper.ProcessLocalAnnouncement(batch.chanAnn)
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
+		batch.chanAnn,
+	))
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -2689,7 +2573,9 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	err = <-tCtx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn1)
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
+		batch.chanUpdAnn1,
+	))
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -2699,7 +2585,9 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	err = <-tCtx.gossiper.ProcessLocalAnnouncement(batch.nodeAnn1)
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
+		batch.nodeAnn1,
+	))
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -2721,13 +2609,9 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 
 	// At this point the remote ChannelUpdate we received earlier should
 	// be reprocessed, as we now have the necessary edge entry in the graph.
-	select {
-	case err := <-errRemoteAnn:
-		if err != nil {
-			t.Fatalf("error re-processing remote update: %v", err)
-		}
-	case <-time.After(2 * trickleDelay):
-		t.Fatalf("remote update was not processed")
+	err = mustProcess(t, errRemoteAnn)
+	if err != nil {
+		t.Fatalf("error re-processing remote update: %v", err)
 	}
 
 	// Check that the ChannelEdgePolicy was added to the graph.
@@ -2747,7 +2631,9 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 
 	// Pretending that we receive local channel announcement from funding
 	// manager, thereby kick off the announcement exchange process.
-	err = <-tCtx.gossiper.ProcessLocalAnnouncement(batch.localProofAnn)
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
+		batch.localProofAnn,
+	))
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -2775,9 +2661,9 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 		t.Fatal("wrong number of objects in storage")
 	}
 
-	err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.remoteProofAnn, remotePeer,
-	)
+	))
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -2833,13 +2719,9 @@ func TestExtraDataChannelAnnouncementValidation(t *testing.T) {
 
 	// We'll now send the announcement to the main gossiper. We should be
 	// able to validate this announcement to problem.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, ca, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	if err != nil {
 		t.Fatalf("unable to process :%v", err)
 	}
@@ -2878,31 +2760,19 @@ func TestExtraDataChannelUpdateValidation(t *testing.T) {
 
 	// We should be able to properly validate all three messages without
 	// any issue.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, chanAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process announcement")
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, chanUpdAnn1, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process announcement")
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, chanUpdAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process announcement")
 }
 
@@ -2929,13 +2799,9 @@ func TestExtraDataNodeAnnouncementValidation(t *testing.T) {
 	)
 	require.NoError(t, err, "can't create node announcement")
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, nodeAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process announcement")
 }
 
@@ -2957,13 +2823,9 @@ func TestZeroTimestampNodeAnnouncementRejection(t *testing.T) {
 	require.NoError(t, err, "can't create node announcement")
 
 	// Processing the announcement should fail with a zero timestamp error.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, nodeAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "zero timestamp")
 }
@@ -2986,13 +2848,9 @@ func TestZeroTimestampChannelUpdateRejection(t *testing.T) {
 	chanAnn, err := tCtx.createRemoteChannelAnnouncement(0)
 	require.NoError(t, err, "unable to create chan ann")
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, chanAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process chan ann")
 
 	// Now create a channel update with a zero timestamp.
@@ -3000,13 +2858,9 @@ func TestZeroTimestampChannelUpdateRejection(t *testing.T) {
 	require.NoError(t, err, "unable to create chan update")
 
 	// Processing the update should fail with a zero timestamp error.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, chanUpdAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "zero timestamp")
 }
@@ -3039,16 +2893,12 @@ func assertBroadcast(t *testing.T, ctx *testCtx, num int) []lnwire.Message {
 
 // assertProcessAnnouncement is a helper method that checks that the result of
 // processing an announcement is successful.
-func assertProcessAnnouncement(t *testing.T, result chan error) {
+func assertProcessAnnouncement(t *testing.T, result actor.Future[error]) {
 	t.Helper()
 
-	select {
-	case err := <-result:
-		if err != nil {
-			t.Fatalf("unable to process :%v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process announcement")
+	err := mustProcess(t, result)
+	if err != nil {
+		t.Fatalf("unable to process :%v", err)
 	}
 }
 
@@ -3179,13 +3029,9 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 	remotePeer := &mockPeer{remoteKey, nil, nil, atomic.Bool{}}
 
 	// Process the remote node announcement.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.nodeAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process announcement")
 
 	// Since no channels or node announcements were already in the graph,
@@ -3198,32 +3044,20 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 
 	// Now add the node's channel to the graph by processing the channel
 	// announcement and channel update.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process announcement")
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanUpdAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process announcement")
 
 	// Now process the node announcement again.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.nodeAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process announcement")
 
 	// This time the node announcement should be forwarded. The same should
@@ -3238,13 +3072,9 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 
 	// Processing the same node announcement again should be ignored, as it
 	// is stale.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.nodeAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process announcement")
 
 	select {
@@ -3274,11 +3104,7 @@ func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 	chanAnn, err := tCtx.createRemoteChannelAnnouncement(chanUpdateHeight)
 	require.NoError(t, err, "can't create channel announcement")
 
-	select {
-	case err = <-processRemoteAnnouncement(ctx, chanAnn, nodePeer):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	err = mustProcess(t, processRemoteAnnouncement(ctx, chanAnn, nodePeer))
 	require.NoError(t, err, "unable to process announcement")
 
 	// The first update should fail from an invalid max HTLC field, which is
@@ -3294,11 +3120,9 @@ func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 		t.Fatalf("unable to sign channel update: %v", err)
 	}
 
-	select {
-	case err = <-processRemoteAnnouncement(ctx, chanUpdAnn, nodePeer):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	err = mustProcess(t, processRemoteAnnouncement(
+		ctx, chanUpdAnn, nodePeer,
+	))
 	if err == nil || !strings.Contains(err.Error(), "invalid max htlc") {
 		t.Fatalf("expected chan update to error, instead got %v", err)
 	}
@@ -3311,11 +3135,9 @@ func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 		t.Fatalf("unable to sign channel update: %v", err)
 	}
 
-	select {
-	case err = <-processRemoteAnnouncement(ctx, chanUpdAnn, nodePeer):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	err = mustProcess(t, processRemoteAnnouncement(
+		ctx, chanUpdAnn, nodePeer,
+	))
 	if err == nil || !strings.Contains(err.Error(), "invalid max htlc") {
 		t.Fatalf("expected chan update to error, instead got %v", err)
 	}
@@ -3327,11 +3149,9 @@ func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 		t.Fatalf("unable to sign channel update: %v", err)
 	}
 
-	select {
-	case err = <-processRemoteAnnouncement(ctx, chanUpdAnn, nodePeer):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	err = mustProcess(t, processRemoteAnnouncement(
+		ctx, chanUpdAnn, nodePeer,
+	))
 	require.ErrorContains(t, err, "max htlc flag not set")
 
 	// The final update should succeed.
@@ -3344,11 +3164,9 @@ func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 		t.Fatalf("unable to sign channel update: %v", err)
 	}
 
-	select {
-	case err = <-processRemoteAnnouncement(ctx, chanUpdAnn, nodePeer):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	err = mustProcess(t, processRemoteAnnouncement(
+		ctx, chanUpdAnn, nodePeer,
+	))
 	require.NoError(t, err, "expected update to be processed")
 }
 
@@ -3414,11 +3232,9 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 
 	// Process the channel announcement for which we'll send a channel
 	// update for.
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(batch.chanAnn):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local channel announcement")
-	}
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
+		batch.chanAnn,
+	))
 	require.NoError(t, err, "unable to process local channel announcement")
 
 	// It should not be broadcast due to not having an announcement proof.
@@ -3429,11 +3245,9 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 	}
 
 	// Now, we'll process the channel update.
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn1):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local channel update")
-	}
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
+		batch.chanUpdAnn1,
+	))
 	require.NoError(t, err, "unable to process local channel update")
 
 	// It should also not be broadcast due to the announcement not having an
@@ -3487,13 +3301,9 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 	}
 
 	// With the new update created, we'll go ahead and process it.
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
 		batch.chanUpdAnn1,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local channel update")
-	}
+	))
 	require.NoError(t, err, "unable to process local channel update")
 
 	// It should also not be broadcast due to the announcement not having an
@@ -3526,13 +3336,9 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 
 	// We'll then exchange proofs with the remote peer in order to announce
 	// the channel.
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
 		batch.localProofAnn,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local channel proof")
-	}
+	))
 	require.NoError(t, err, "unable to process local channel proof")
 
 	// No messages should be broadcast as we don't have the full proof yet.
@@ -3545,13 +3351,9 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 	// Our proof should be sent to the remote peer however.
 	assertMsgSent(batch.localProofAnn)
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.remoteProofAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote channel proof")
-	}
+	))
 	require.NoError(t, err, "unable to process remote channel proof")
 
 	// Now that we've constructed our full proof, we can assert that the
@@ -3579,13 +3381,9 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 	// Process the new channel update. It should not be sent to the peer
 	// directly since the reliable sender only applies when the channel is
 	// not announced.
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
 		newChannelUpdate,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local channel update")
-	}
+	))
 	require.NoError(t, err, "unable to process local channel update")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -3656,14 +3454,9 @@ func sendLocalMsg(t *testing.T, ctx *testCtx, msg lnwire.Message,
 
 	t.Helper()
 
-	var err error
-	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
+	err := mustProcess(t, ctx.gossiper.ProcessLocalAnnouncement(
 		msg, optionalMsgFields...,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process channel msg")
 }
 
@@ -3672,16 +3465,29 @@ func sendRemoteMsg(t *testing.T, ctx *testCtx, msg lnwire.Message,
 
 	t.Helper()
 
-	select {
-	case err := <-ctx.gossiper.ProcessRemoteAnnouncement(
+	err := mustProcess(t, ctx.gossiper.ProcessRemoteAnnouncement(
 		t.Context(), msg, remotePeer,
-	):
-		if err != nil {
-			t.Fatalf("unable to process channel msg: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
+	))
+	if err != nil {
+		t.Fatalf("unable to process channel msg: %v", err)
 	}
+}
+
+// mustProcess awaits a gossip future with a 2-second deadline, failing
+// the test immediately if the deadline is exceeded.
+func mustProcess(t *testing.T, f actor.Future[error]) error {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	err := AwaitGossipResult(ctx, f)
+	if errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("gossip message was not processed within deadline")
+		return nil
+	}
+
+	return err
 }
 
 func assertBroadcastMsg(t *testing.T, ctx *testCtx,
@@ -4091,7 +3897,7 @@ func TestBroadcastAnnsAfterGraphSynced(t *testing.T) {
 		nodePeer := &mockPeer{
 			remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{},
 		}
-		var errChan chan error
+		var errChan actor.Future[error]
 		if isRemote {
 			errChan = tCtx.gossiper.ProcessRemoteAnnouncement(
 				ctx, msg, nodePeer,
@@ -4100,14 +3906,10 @@ func TestBroadcastAnnsAfterGraphSynced(t *testing.T) {
 			errChan = tCtx.gossiper.ProcessLocalAnnouncement(msg)
 		}
 
-		select {
-		case err := <-errChan:
-			if err != nil {
-				t.Fatalf("unable to process gossip message: %v",
-					err)
-			}
-		case <-time.After(2 * time.Second):
-			t.Fatal("gossip message not processed")
+		err := mustProcess(t, errChan)
+		if err != nil {
+			t.Fatalf("unable to process gossip message: %v",
+				err)
 		}
 
 		select {
@@ -4193,35 +3995,23 @@ func TestRateLimitDeDup(t *testing.T) {
 	nodePeer1 := &mockPeer{
 		remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{},
 	}
-	select {
-	case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanAnn, nodePeer1,
-	):
-		require.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("remote announcement not processed")
-	}
+	))
+	require.NoError(t, err)
 
-	select {
-	case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanUpdAnn1, nodePeer1,
-	):
-		require.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("remote announcement not processed")
-	}
+	))
+	require.NoError(t, err)
 
 	nodePeer2 := &mockPeer{
 		remoteKeyPriv2.PubKey(), nil, nil, atomic.Bool{},
 	}
-	select {
-	case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanUpdAnn2, nodePeer2,
-	):
-		require.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("remote announcement not processed")
-	}
+	))
+	require.NoError(t, err)
 
 	timeout := time.After(2 * trickleDelay)
 	for i := 0; i < 3; i++ {
@@ -4318,14 +4108,10 @@ func TestRateLimitDeDup(t *testing.T) {
 	}
 
 	processUpdate := func(msg lnwire.Message, peer lnpeer.Peer) {
-		select {
-		case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
+		err := mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 			ctx, msg, peer,
-		):
-			require.NoError(t, err)
-		case <-time.After(time.Second):
-			t.Fatal("remote announcement not processed")
-		}
+		))
+		require.NoError(t, err)
 	}
 
 	// Show that the last update was broadcast.
@@ -4371,35 +4157,23 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 	nodePeer1 := &mockPeer{
 		remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{},
 	}
-	select {
-	case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanAnn, nodePeer1,
-	):
-		require.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("remote announcement not processed")
-	}
+	))
+	require.NoError(t, err)
 
-	select {
-	case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanUpdAnn1, nodePeer1,
-	):
-		require.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("remote announcement not processed")
-	}
+	))
+	require.NoError(t, err)
 
 	nodePeer2 := &mockPeer{
 		remoteKeyPriv2.PubKey(), nil, nil, atomic.Bool{},
 	}
-	select {
-	case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanUpdAnn2, nodePeer2,
-	):
-		require.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("remote announcement not processed")
-	}
+	))
+	require.NoError(t, err)
 
 	timeout := time.After(2 * trickleDelay)
 	for i := 0; i < 3; i++ {
@@ -4421,14 +4195,10 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 
 		t.Helper()
 
-		select {
-		case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
+		err := mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 			ctx, update, peer,
-		):
-			require.NoError(t, err)
-		case <-time.After(time.Second):
-			t.Fatal("remote announcement not processed")
-		}
+		))
+		require.NoError(t, err)
 
 		select {
 		case <-tCtx.broadcastedMessage:
@@ -4470,7 +4240,9 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 	for i := uint32(0); i < uint32(tCtx.gossiper.cfg.MaxChannelUpdateBurst); i++ { //nolint:ll
 		updateSameDirection.Timestamp++
 		updateSameDirection.BaseFee++
-		require.NoError(t, signUpdate(remoteKeyPriv1, &updateSameDirection))
+		require.NoError(
+			t, signUpdate(remoteKeyPriv1, &updateSameDirection),
+		)
 		assertRateLimit(&updateSameDirection, nodePeer1, false)
 	}
 
@@ -4518,13 +4290,9 @@ func TestIgnoreOwnAnnouncement(t *testing.T) {
 	remotePeer := &mockPeer{remoteKey, nil, nil, atomic.Bool{}}
 
 	// Try to let the remote peer tell us about the channel we are part of.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	// It should be ignored, since the gossiper only cares about local
 	// announcements for its own channels.
 	if err == nil || !strings.Contains(err.Error(), "ignoring") {
@@ -4534,11 +4302,9 @@ func TestIgnoreOwnAnnouncement(t *testing.T) {
 	// Now do the local channelannouncement, node announcement, and channel
 	// update. No messages should be broadcast yet, since we don't have
 	// the announcement signatures.
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(batch.chanAnn):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
+		batch.chanAnn,
+	))
 	require.NoError(t, err, "unable to process channel ann")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -4546,11 +4312,9 @@ func TestIgnoreOwnAnnouncement(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(batch.chanUpdAnn1):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
+		batch.chanUpdAnn1,
+	))
 	require.NoError(t, err, "unable to process channel update")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -4558,11 +4322,9 @@ func TestIgnoreOwnAnnouncement(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(batch.nodeAnn1):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
+		batch.nodeAnn1,
+	))
 	require.NoError(t, err, "unable to process node ann")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -4571,13 +4333,9 @@ func TestIgnoreOwnAnnouncement(t *testing.T) {
 	}
 
 	// We should accept the remote's channel update and node announcement.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanUpdAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process channel update")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -4585,13 +4343,9 @@ func TestIgnoreOwnAnnouncement(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.nodeAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process node ann")
 	select {
 	case <-tCtx.broadcastedMessage:
@@ -4601,13 +4355,9 @@ func TestIgnoreOwnAnnouncement(t *testing.T) {
 
 	// Now we exchange the proofs, the messages will be broadcasted to the
 	// network.
-	select {
-	case err = <-tCtx.gossiper.ProcessLocalAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessLocalAnnouncement(
 		batch.localProofAnn,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process local proof")
 
 	select {
@@ -4616,13 +4366,9 @@ func TestIgnoreOwnAnnouncement(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.remoteProofAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	require.NoError(t, err, "unable to process remote proof")
 
 	for i := 0; i < 5; i++ {
@@ -4635,13 +4381,9 @@ func TestIgnoreOwnAnnouncement(t *testing.T) {
 
 	// Finally, we again check that we'll ignore the remote giving us
 	// announcements about our own channel.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanAnn, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
 	if err == nil || !strings.Contains(err.Error(), "ignoring") {
 		t.Fatalf("expected gossiper to ignore announcement, got: %v", err)
 	}
@@ -4672,26 +4414,18 @@ func TestRejectCacheChannelAnn(t *testing.T) {
 	tCtx.router.queueValidationFail(chanID)
 
 	// If we process the batch the first time we should get an error.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanAnn, remotePeer,
-	):
-		require.NotNil(t, err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
+	require.NotNil(t, err)
 
 	// If we process it a *second* time, then we should get an error saying
 	// we rejected it already.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanAnn, remotePeer,
-	):
-		errStr := err.Error()
-		require.Contains(t, errStr, "recently rejected")
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
+	))
+	errStr := err.Error()
+	require.Contains(t, errStr, "recently rejected")
 }
 
 // TestFutureMsgCacheEviction checks that when the cache's capacity is reached,
@@ -4756,15 +4490,10 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 		)
 		require.NoError(t, err, "can't create channel announcement")
 
-		select {
-		case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+		err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 			ctx, ca, nodePeer1,
-		):
-			require.ErrorIs(t, err, ErrInvalidFundingOutput)
-
-		case <-time.After(2 * time.Second):
-			t.Fatalf("remote announcement not processed")
-		}
+		))
+		require.ErrorIs(t, err, ErrInvalidFundingOutput)
 	}
 
 	// The peer should be banned now.
@@ -4780,16 +4509,10 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 	)
 	require.NoError(t, err, "can't create channel announcement")
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, ca, nodePeer2,
-	):
-
-		require.ErrorIs(t, err, ErrChannelSpent)
-
-	case <-time.After(2 * time.Second):
-		t.Fatalf("remote announcement not processed")
-	}
+	))
+	require.ErrorIs(t, err, ErrChannelSpent)
 
 	// Check that the announcement's scid is marked as closed.
 	isClosed, err := tCtx.gossiper.cfg.ScidCloser.IsClosedScid(
@@ -4811,18 +4534,13 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 	// as a zombie if any error occurs in the chanvalidate.Validate call.
 	// For the sake of the rest of the test, however, we mark it as live
 	// here.
-	_ = tCtx.router.MarkEdgeLive(ca.ShortChannelID)
+	_ = tCtx.router.MarkEdgeLive(lnwire.GossipVersion1, ca.ShortChannelID)
 
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, ca, nodePeer2,
-	):
+	))
+	require.ErrorContains(t, err, "ignoring closed channel")
 
-		require.ErrorContains(t, err, "ignoring closed channel")
-
-	case <-time.After(2 * time.Second):
-		t.Fatalf("remote announcement not processed")
-	}
 }
 
 // TestChanAnnBanningChanPeer asserts that channel peers that are banned don't
@@ -4847,15 +4565,11 @@ func TestChanAnnBanningChanPeer(t *testing.T) {
 		)
 		require.NoError(t, err, "can't create channel announcement")
 
-		select {
-		case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+		err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 			ctx, ca, nodePeer,
-		):
-			require.ErrorIs(t, err, ErrInvalidFundingOutput)
+		))
+		require.ErrorIs(t, err, ErrInvalidFundingOutput)
 
-		case <-time.After(2 * time.Second):
-			t.Fatalf("remote announcement not processed")
-		}
 	}
 
 	// The peer should be banned now.
@@ -4912,13 +4626,13 @@ func assertChanChainRejection(t *testing.T, ctx *testCtx,
 	t.Helper()
 
 	nodePeer := &mockPeer{bitcoinKeyPub2, nil, nil, atomic.Bool{}}
-	errChan := make(chan error, 1)
+	errPromise := actor.NewPromise[error]()
 	nMsg := &networkMsg{
-		msg:      edge,
-		isRemote: true,
-		peer:     nodePeer,
-		source:   nodePeer.IdentityKey(),
-		err:      errChan,
+		msg:        edge,
+		isRemote:   true,
+		peer:       nodePeer,
+		source:     nodePeer.IdentityKey(),
+		errPromise: errPromise,
 	}
 
 	_, added := ctx.gossiper.handleChanAnnouncement(
@@ -4926,12 +4640,8 @@ func assertChanChainRejection(t *testing.T, ctx *testCtx,
 	)
 	require.False(t, added)
 
-	select {
-	case err := <-errChan:
-		require.ErrorIs(t, err, expectedErr)
-	case <-time.After(2 * time.Second):
-		t.Fatal("channel announcement not processed")
-	}
+	err := mustProcess(t, errPromise.Future())
+	require.ErrorIs(t, err, expectedErr)
 
 	// This channel should now be present in the zombie channel index.
 	isZombie, err := ctx.router.IsZombieEdge(edge.ShortChannelID)
@@ -4947,14 +4657,14 @@ func TestRecoverGossipPanic(t *testing.T) {
 
 	testCases := []struct {
 		name       string
-		setupMsg   func() (*networkMsg, chan error)
+		setupMsg   func() (*networkMsg, actor.Future[error])
 		checkError bool
 	}{
 		{
 			name: "panic with full message context",
-			setupMsg: func() (*networkMsg, chan error) {
-				errChan := make(chan error, 1)
-				return &networkMsg{
+			setupMsg: func() (*networkMsg, actor.Future[error]) {
+				promise := actor.NewPromise[error]()
+				nMsg := &networkMsg{
 					msg: &lnwire.ChannelUpdate1{
 						Timestamp: testTimestamp,
 					},
@@ -4962,32 +4672,36 @@ func TestRecoverGossipPanic(t *testing.T) {
 						remoteKeyPub1, nil, nil,
 						atomic.Bool{},
 					},
-					err: errChan,
-				}, errChan
+					errPromise: promise,
+				}
+
+				return nMsg, promise.Future()
 			},
 			checkError: true,
 		},
 		{
 			name: "panic with nil message",
-			setupMsg: func() (*networkMsg, chan error) {
-				errChan := make(chan error, 1)
-				return &networkMsg{
-					msg:  nil,
-					peer: nil,
-					err:  errChan,
-				}, errChan
+			setupMsg: func() (*networkMsg, actor.Future[error]) {
+				promise := actor.NewPromise[error]()
+				nMsg := &networkMsg{
+					msg:        nil,
+					peer:       nil,
+					errPromise: promise,
+				}
+
+				return nMsg, promise.Future()
 			},
 			checkError: true,
 		},
 		{
-			name: "panic with nil error channel",
-			setupMsg: func() (*networkMsg, chan error) {
+			name: "panic with nil error promise",
+			setupMsg: func() (*networkMsg, actor.Future[error]) {
 				return &networkMsg{
 					msg: &lnwire.ChannelUpdate1{
 						Timestamp: testTimestamp,
 					},
-					peer: nil,
-					err:  nil,
+					peer:       nil,
+					errPromise: nil,
 				}, nil
 			},
 			checkError: false,
@@ -5039,18 +4753,10 @@ func TestRecoverGossipPanic(t *testing.T) {
 					"error but errChan is nil")
 			}
 			if tc.checkError && errChan != nil {
-				select {
-				case err := <-errChan:
-					require.Error(t, err)
-					require.Contains(
-						t, err.Error(), "panic while",
-					)
-					require.Contains(
-						t, err.Error(), "test panic",
-					)
-				case <-time.After(time.Second):
-					t.Fatal("timeout waiting for error")
-				}
+				err := mustProcess(t, errChan)
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "panic while")
+				require.Contains(t, err.Error(), "test panic")
 			}
 		})
 	}
@@ -5065,13 +4771,13 @@ func TestRecoverGossipPanicBlockedErrorChannel(t *testing.T) {
 	ctx, err := createTestCtx(t, proofMatureDelta, false)
 	require.NoError(t, err)
 
-	// Create an UNBUFFERED channel and don't read from it.
-	errChan := make(chan error)
-
+	// The Promise-based design means Complete() is always non-blocking,
+	// so panic recovery never hangs regardless of whether the caller
+	// awaits the result.
 	nMsg := &networkMsg{
-		msg:  &lnwire.ChannelUpdate1{Timestamp: testTimestamp},
-		peer: &mockPeer{remoteKeyPub1, nil, nil, atomic.Bool{}},
-		err:  errChan,
+		msg:        &lnwire.ChannelUpdate1{Timestamp: testTimestamp},
+		peer:       &mockPeer{remoteKeyPub1, nil, nil, atomic.Bool{}},
+		errPromise: actor.NewPromise[error](),
 	}
 
 	// Initialize a proper job so CompleteJob has a slot to return.
@@ -5141,13 +4847,13 @@ func TestRecoverGossipPanicSignalsDependents(t *testing.T) {
 
 	// Now simulate the parent job panicking and recovering.
 	// The recovery should call SignalDependents.
-	errChan := make(chan error, 1)
+	errPromise := actor.NewPromise[error]()
 	nMsg := &networkMsg{
 		msg: chanAnn,
 		peer: &mockPeer{
 			remoteKeyPub1, nil, nil, atomic.Bool{},
 		},
-		err: errChan,
+		errPromise: errPromise,
 	}
 
 	panicked := make(chan struct{})
@@ -5167,15 +4873,11 @@ func TestRecoverGossipPanicSignalsDependents(t *testing.T) {
 		t.Fatal("timeout waiting for panic recovery")
 	}
 
-	// Verify error was sent back on the parent's error channel.
-	select {
-	case err := <-errChan:
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "panic while")
-		require.Contains(t, err.Error(), "parent job panic")
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for error on parent")
-	}
+	// Verify error was sent back on the parent's error promise.
+	err = mustProcess(t, errPromise.Future())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "panic while")
+	require.Contains(t, err.Error(), "parent job panic")
 
 	// The child job should now be unblocked because SignalDependents
 	// was called during panic recovery.
@@ -5209,13 +4911,13 @@ func TestRecoverGossipPanicNilJobID(t *testing.T) {
 		ShortChannelID: lnwire.NewShortChanIDFromInt(12345),
 	}
 
-	errChan := make(chan error, 1)
+	errPromise := actor.NewPromise[error]()
 	nMsg := &networkMsg{
 		msg: annSigs,
 		peer: &mockPeer{
 			remoteKeyPub1, nil, nil, atomic.Bool{},
 		},
-		err: errChan,
+		errPromise: errPromise,
 	}
 
 	// Call finalizeGossipProcessing with nil jobID (simulating the
@@ -5238,14 +4940,10 @@ func TestRecoverGossipPanicNilJobID(t *testing.T) {
 	}
 
 	// Verify error was sent back.
-	select {
-	case err := <-errChan:
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "panic while")
-		require.Contains(t, err.Error(), "announce signatures panic")
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for error")
-	}
+	err = mustProcess(t, errPromise.Future())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "panic while")
+	require.Contains(t, err.Error(), "announce signatures panic")
 }
 
 // TestGossiperShutdownWrongChainAnnouncement tests that the gossiper can shut
@@ -5337,14 +5035,10 @@ func TestGossipSyncerRace(t *testing.T) {
 			TimestampRange: 3600,
 		}
 
-		select {
-		case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
+		err := mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 			t.Context(), gossipTimestampRange, nodePeer,
-		):
-			errCh <- err
-		case <-time.After(2 * time.Second):
-			errCh <- fmt.Errorf("gossip message not processed")
-		}
+		))
+		errCh <- err
 	}()
 
 	// Send a channel announcement from the remote peer, which will be
@@ -5352,14 +5046,10 @@ func TestGossipSyncerRace(t *testing.T) {
 	ca, err := tCtx.createRemoteChannelAnnouncement(0)
 	require.NoError(t, err)
 
-	select {
-	case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		t.Context(), ca, nodePeer,
-	):
-		require.NoError(t, err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("remote announcement not processed")
-	}
+	))
+	require.NoError(t, err)
 
 	// After the trickle delay, the channel announcement is flushed to the
 	// network. At the same time, the peer sends a GossipTimestampRange
@@ -5377,4 +5067,141 @@ func TestGossipSyncerRace(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for gossip message processing")
 	}
+}
+
+// TestPrematureAnnouncementProcessing checks that a channel announcement
+// carrying a future block height is correctly deferred via isPremature and
+// then re-processed once the target block arrives.
+func TestPrematureAnnouncementProcessing(t *testing.T) {
+	t.Parallel()
+
+	// Start the gossiper at block height 100.
+	const startHeight = 100
+	tCtx, err := createTestCtx(t, startHeight, false)
+	require.NoError(t, err)
+
+	nodePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{}}
+
+	// Create a channel announcement at a future block height (200 > 100).
+	// The default fundingTxPrepTypeGood option pre-registers chain mock
+	// expectations for height 200, which will be consumed when the
+	// announcement is re-processed after the block arrives.
+	futureHeight := uint32(200)
+	prematureAnn, err := tCtx.createRemoteChannelAnnouncement(futureHeight)
+	require.NoError(t, err)
+
+	// Submit the premature announcement. The gossiper should accept it
+	// immediately with a nil error (deferred to future block), not block.
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
+		t.Context(), prematureAnn, nodePeer,
+	))
+	require.NoError(t, err)
+
+	// Advance the block height to 200. This triggers resendFutureMessages,
+	// which re-queues the cached announcement copy into the processing
+	// pipeline.
+	tCtx.notifier.notifyBlock(chainhash.Hash{}, futureHeight)
+
+	// Wait for the announcement to be broadcast. This confirms the gossiper
+	// re-processed the deferred announcement and remains fully operational.
+	select {
+	case <-tCtx.broadcastedMessage:
+	case <-time.After(2 * trickleDelay):
+		t.Fatal("premature announcement was not " +
+			"broadcast after block height advanced")
+	}
+
+	// Verify the gossiper is still live by processing a second normal
+	// announcement at the current block height. This would time out if
+	// the gossiper's networkHandler goroutine were blocked.
+	normalAnn, err := tCtx.createRemoteChannelAnnouncement(startHeight)
+	require.NoError(t, err)
+
+	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
+		t.Context(), normalAnn, nodePeer,
+	))
+	require.NoError(t, err)
+}
+
+// TestProcessRemoteAnnouncementPeerQuit verifies that
+// ProcessRemoteAnnouncement completes the returned future with ErrPeerQuitting
+// when the peer's quit channel is closed before the message can be enqueued.
+func TestProcessRemoteAnnouncementPeerQuit(t *testing.T) {
+	t.Parallel()
+
+	// Construct a gossiper without starting it so that nobody reads from
+	// networkMsgs. This forces the send in the select to block, making the
+	// peer quit signal the only ready case.
+	gossiper := New(Config{
+		ChainParams: &chaincfg.MainNetParams,
+	}, selfKeyDesc)
+
+	// Create a peer whose quit channel is already closed.
+	quitChan := make(chan struct{})
+	close(quitChan)
+	peer := &mockPeer{
+		pk:   remoteKeyPriv1.PubKey(),
+		quit: quitChan,
+	}
+
+	f := gossiper.ProcessRemoteAnnouncement(
+		t.Context(), &lnwire.ChannelUpdate1{}, peer,
+	)
+
+	err := mustProcess(t, f)
+	require.ErrorIs(t, err, ErrPeerQuitting)
+}
+
+// TestProcessRemoteAnnouncementCtxCancel verifies that
+// ProcessRemoteAnnouncement completes the returned future with the context
+// error when the context is cancelled before the message can be enqueued.
+func TestProcessRemoteAnnouncementCtxCancel(t *testing.T) {
+	t.Parallel()
+
+	gossiper := New(Config{
+		ChainParams: &chaincfg.MainNetParams,
+	}, selfKeyDesc)
+
+	peer := &mockPeer{
+		pk:   remoteKeyPriv1.PubKey(),
+		quit: make(chan struct{}),
+	}
+
+	// Cancel the context before calling ProcessRemoteAnnouncement.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	f := gossiper.ProcessRemoteAnnouncement(
+		ctx, &lnwire.ChannelUpdate1{}, peer,
+	)
+
+	err := mustProcess(t, f)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+// TestProcessRemoteAnnouncementGossiperQuit verifies that
+// ProcessRemoteAnnouncement completes the returned future with
+// ErrGossiperShuttingDown when the gossiper's quit channel is closed before
+// the message can be enqueued.
+func TestProcessRemoteAnnouncementGossiperQuit(t *testing.T) {
+	t.Parallel()
+
+	gossiper := New(Config{
+		ChainParams: &chaincfg.MainNetParams,
+	}, selfKeyDesc)
+
+	// Close the gossiper's quit channel to simulate shutdown.
+	close(gossiper.quit)
+
+	peer := &mockPeer{
+		pk:   remoteKeyPriv1.PubKey(),
+		quit: make(chan struct{}),
+	}
+
+	f := gossiper.ProcessRemoteAnnouncement(
+		t.Context(), &lnwire.ChannelUpdate1{}, peer,
+	)
+
+	err := mustProcess(t, f)
+	require.ErrorIs(t, err, ErrGossiperShuttingDown)
 }

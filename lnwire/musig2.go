@@ -1,8 +1,10 @@
 package lnwire
 
 import (
+	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -47,13 +49,36 @@ func nonceTypeEncoder(w io.Writer, val interface{}, _ *[8]byte) error {
 	return tlv.NewTypeForEncodingErr(val, "lnwire.Musig2Nonce")
 }
 
+// ValidateMusig2Nonce checks that a 66-byte MuSig2 public nonce contains two
+// valid compressed secp256k1 points.
+func ValidateMusig2Nonce(nonce Musig2Nonce) error {
+	const compressedKeyLen = 33
+
+	// A MuSig2 public nonce is two 33-byte compressed public keys (R1, R2).
+	_, err := btcec.ParsePubKey(nonce[:compressedKeyLen])
+	if err != nil {
+		return fmt.Errorf("invalid first nonce point: %w", err)
+	}
+
+	_, err = btcec.ParsePubKey(nonce[compressedKeyLen:])
+	if err != nil {
+		return fmt.Errorf("invalid second nonce point: %w", err)
+	}
+
+	return nil
+}
+
 // nonceTypeDecoder is a custom TLV decoder for the Musig2Nonce record.
 func nonceTypeDecoder(r io.Reader, val interface{}, _ *[8]byte,
 	l uint64) error {
 
 	if v, ok := val.(*Musig2Nonce); ok && l == musig2.PubNonceSize {
 		_, err := io.ReadFull(r, v[:])
-		return err
+		if err != nil {
+			return err
+		}
+
+		return ValidateMusig2Nonce(*v)
 	}
 
 	return tlv.NewTypeForDecodingErr(

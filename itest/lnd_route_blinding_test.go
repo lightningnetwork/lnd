@@ -704,6 +704,13 @@ func testIntroductionNodeError(ht *lntest.HarnessTest) {
 	// at the introduction node.
 	testCase.drainCarolLiquidity(true)
 
+	// NOTE: The drain above causes Bob to originate a payment, producing
+	// SEND-type HTLC events that may still be in-flight when we subscribe.
+	// Wait for the commitment dance to finish so those events are flushed
+	// before we subscribe, preventing them from corrupting the assertion
+	// below.
+	flakePaymentStreamReturnEarly()
+
 	// Subscribe to Bob's HTLC events so that we can observe the payment
 	// coming in.
 	bobEvents := bob.RPC.SubscribeHtlcEvents()

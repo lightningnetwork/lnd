@@ -17,6 +17,44 @@ jobs:
     name: Verify release signatures and binaries
     runs-on: ubuntu-latest
     steps:
+      - name: git checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version || github.sha }}
+
+      - name: Check final release OpenTimestamps asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version || github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${VERSION}" =~ \.rc[0-9]+$ ]]; then
+            echo "Release candidate ${VERSION}; skipping OpenTimestamps asset check."
+            exit 0
+          fi
+
+          REQUIRED_MANIFEST_OTS="manifest-${VERSION}.txt.ots"
+          REQUIRED_SIG="manifest-roasbeef-${VERSION}.sig"
+          REQUIRED_SIG_OTS="${REQUIRED_SIG}.ots"
+
+          ASSETS="$(gh release view "${VERSION}" \
+            --repo "${{ github.repository }}" \
+            --json assets \
+            --jq '.assets[].name')"
+
+          for asset in "${REQUIRED_MANIFEST_OTS}" "${REQUIRED_SIG}" "${REQUIRED_SIG_OTS}"; do
+            if ! grep -Fxq "${asset}" <<< "${ASSETS}"; then
+              echo "ERROR: Final release ${VERSION} is missing ${asset}."
+              exit 1
+            fi
+          done
+
+          echo "Found required release timestamp artifacts:"
+          echo "  ${REQUIRED_MANIFEST_OTS}"
+          echo "  ${REQUIRED_SIG}"
+          echo "  ${REQUIRED_SIG_OTS}"
+
       - name: Verify release
         env:
           VERSION: ${{ inputs.version || github.event.release.tag_name }}

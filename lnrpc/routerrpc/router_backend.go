@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -129,6 +130,36 @@ type RouterBackend struct {
 	// Clock is the clock used to validate payment requests expiry.
 	// It is useful for testing.
 	Clock clock.Clock
+
+	// ForwardingLog provides access to forwarding log database operations.
+	ForwardingLog ForwardingLogDB
+
+	// MinForwardingHistoryAge is the minimum age a forwarding event must
+	// have before it can be deleted. If zero the handler defaults to 1
+	// hour.
+	MinForwardingHistoryAge time.Duration
+
+	// FwdHistoryDeleteBatchSize is the number of forwarding events deleted
+	// per database transaction. If zero the DB layer applies its own
+	// default (10 000). Exposed here so operators can tune the value via
+	// lnd.conf on resource-constrained nodes.
+	FwdHistoryDeleteBatchSize int
+}
+
+// ForwardingLogDB defines the interface for forwarding log database operations.
+// This interface allows the router RPC to interact with the forwarding log
+// without depending directly on the channeldb implementation, making testing
+// and future refactoring easier.
+type ForwardingLogDB interface {
+	// DeleteForwardingEvents deletes all forwarding events with a
+	// timestamp at or before the specified endTime. The deletion is
+	// performed in batches of the given size to avoid holding large
+	// database locks. It returns statistics about the deletion including
+	// the number of events deleted and the total fees earned from those
+	// events. If the context is cancelled between batches, partial
+	// statistics are returned along with the context error.
+	DeleteForwardingEvents(ctx context.Context, endTime time.Time,
+		batchSize int) (channeldb.DeleteStats, error)
 }
 
 // MissionControl defines the mission control dependencies of routerrpc.
@@ -416,19 +447,8 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 		BlindedPaymentPathSet: blindedPathSet,
 	}
 
-	// We set the outgoing channel restrictions if the user provides a
-	// list of channel ids. We also handle the case where the user
-	// provides the deprecated `OutgoingChanId` field.
-	switch {
-	case len(in.OutgoingChanIds) > 0 && in.OutgoingChanId != 0:
-		return nil, errors.New("outgoing_chan_id and " +
-			"outgoing_chan_ids cannot both be set")
-
-	case len(in.OutgoingChanIds) > 0:
+	if len(in.OutgoingChanIds) > 0 {
 		restrictions.OutgoingChannelIDs = in.OutgoingChanIds
-
-	case in.OutgoingChanId != 0:
-		restrictions.OutgoingChannelIDs = []uint64{in.OutgoingChanId}
 	}
 
 	// Pass along a last hop restriction if specified.
@@ -655,16 +675,11 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 	for i, hop := range route.Hops {
 		fee := route.HopFee(i)
 
-		// Channel capacity is not a defining property of a route. For
-		// backwards RPC compatibility, we retrieve it here from the
-		// graph.
-		chanCapacity, err := r.FetchChannelCapacity(hop.ChannelID)
-		if err != nil {
-			// If capacity cannot be retrieved, this may be a
-			// not-yet-received or private channel. Then report
-			// amount that is sent through the channel as capacity.
-			chanCapacity = incomingAmt.ToSatoshis()
-		}
+		// Avoid per-hop graph lookups by using the incoming amount as a
+		// lower bound for the capacity. This is not the actual channel
+		// capacity, but it is a reasonable approximation that avoids
+		// slow graph lookups and works for closed/private channels too.
+		chanCapacity := incomingAmt.ToSatoshis()
 
 		// Extract the MPP fields if present on this hop.
 		var mpp *lnrpc.MPPRecord
@@ -713,6 +728,7 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			blinding := hop.BlindingPoint.SerializeCompressed()
 			resp.Hops[i].BlindingPoint = blinding
 		}
+
 		incomingAmt = hop.AmtToForward
 	}
 
@@ -853,20 +869,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	}
 	payIntent.TimePref = rpcPayReq.TimePref
 
-	// Pass along restrictions on the outgoing channels that may be used.
 	payIntent.OutgoingChannelIDs = rpcPayReq.OutgoingChanIds
-
-	// Add the deprecated single outgoing channel restriction if present.
-	if rpcPayReq.OutgoingChanId != 0 {
-		if payIntent.OutgoingChannelIDs != nil {
-			return nil, errors.New("outgoing_chan_id and " +
-				"outgoing_chan_ids are mutually exclusive")
-		}
-
-		payIntent.OutgoingChannelIDs = append(
-			payIntent.OutgoingChannelIDs, rpcPayReq.OutgoingChanId,
-		)
-	}
 
 	// Pass along a last hop restriction if specified.
 	if len(rpcPayReq.LastHopPubkey) > 0 {

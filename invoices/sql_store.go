@@ -771,15 +771,17 @@ func (i *SQLStore) FetchPendingInvoices(ctx context.Context) (
 
 	readTxOpt := sqldb.ReadTxOpt()
 	err := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
-		return queryWithLimit(func(offset int) (int, error) {
+		var cursor int64
+		limit := int32(i.opts.paginationLimit)
+		for {
 			params := sqlc.FetchPendingInvoicesParams{
-				NumOffset: int32(offset),
-				NumLimit:  int32(i.opts.paginationLimit),
+				IDCursor: cursor,
+				NumLimit: limit,
 			}
 
 			rows, err := db.FetchPendingInvoices(ctx, params)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return 0, fmt.Errorf("unable to get invoices "+
+				return fmt.Errorf("unable to get invoices "+
 					"from db: %w", err)
 			}
 
@@ -789,14 +791,17 @@ func (i *SQLStore) FetchPendingInvoices(ctx context.Context) (
 					ctx, db, row, nil, true,
 				)
 				if err != nil {
-					return 0, err
+					return err
 				}
 
 				invoices[*hash] = *invoice
+				cursor = row.ID
 			}
 
-			return len(rows), nil
-		}, i.opts.paginationLimit)
+			if int32(len(rows)) < limit {
+				return nil
+			}
+		}
 	}, func() {
 		invoices = make(map[lntypes.Hash]Invoice)
 	})
@@ -830,18 +835,20 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 
 	readTxOpt := sqldb.ReadTxOpt()
 	err := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
-		err := queryWithLimit(func(offset int) (int, error) {
+		var cursor int64
+		limit := int32(i.opts.paginationLimit)
+		for {
 			// settle_index is always provided here so the
 			// invoices_settle_index_idx index can be used.
 			params := sqlc.FilterInvoicesBySettleIndexParams{
 				SettleIndexGet: sqldb.SQLInt64(idx + 1),
-				NumOffset:      int32(offset),
-				NumLimit:       int32(i.opts.paginationLimit),
+				IDCursor:       cursor,
+				NumLimit:       limit,
 			}
 
 			rows, err := db.FilterInvoicesBySettleIndex(ctx, params)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return 0, fmt.Errorf("unable to get invoices "+
+				return fmt.Errorf("unable to get invoices "+
 					"from db: %w", err)
 			}
 
@@ -851,12 +858,13 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 					ctx, db, row, nil, true,
 				)
 				if err != nil {
-					return 0, fmt.Errorf("unable to fetch "+
+					return fmt.Errorf("unable to fetch "+
 						"invoice(id=%d) from db: %w",
 						row.ID, err)
 				}
 
 				invoices = append(invoices, *invoice)
+				cursor = row.ID
 
 				processedCount++
 				if time.Since(lastLogTime) >=
@@ -871,10 +879,9 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 				}
 			}
 
-			return len(rows), nil
-		}, i.opts.paginationLimit)
-		if err != nil {
-			return err
+			if int32(len(rows)) < limit {
+				break
+			}
 		}
 
 		// Now fetch all the AMP sub invoices that were settled since
@@ -977,18 +984,21 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 
 	readTxOpt := sqldb.ReadTxOpt()
 	err := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
-		return queryWithLimit(func(offset int) (int, error) {
-			// id is always provided here so the primary-key
-			// index is used for this range scan.
+		// id is always provided here so the primary-key index is used
+		// for this range scan. The cursor starts at idx+1 so the first
+		// page fetches invoices with id >= idx+1. After each page the
+		// cursor advances to last_id + 1.
+		cursor := int64(idx + 1)
+		limit := int32(i.opts.paginationLimit)
+		for {
 			params := sqlc.FilterInvoicesByAddIndexParams{
-				AddIndexGet: int64(idx + 1),
-				NumOffset:   int32(offset),
-				NumLimit:    int32(i.opts.paginationLimit),
+				AddIndexGet: cursor,
+				NumLimit:    limit,
 			}
 
 			rows, err := db.FilterInvoicesByAddIndex(ctx, params)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return 0, fmt.Errorf("unable to get invoices "+
+				return fmt.Errorf("unable to get invoices "+
 					"from db: %w", err)
 			}
 
@@ -998,10 +1008,11 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 					ctx, db, row, nil, true,
 				)
 				if err != nil {
-					return 0, err
+					return err
 				}
 
 				result = append(result, *invoice)
+				cursor = row.ID + 1
 
 				processedCount++
 				if time.Since(lastLogTime) >=
@@ -1015,8 +1026,10 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 				}
 			}
 
-			return len(rows), nil
-		}, i.opts.paginationLimit)
+			if int32(len(rows)) < limit {
+				return nil
+			}
+		}
 	}, func() {
 		result = nil
 	})
@@ -1064,30 +1077,39 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 
 	readTxOpt := sqldb.ReadTxOpt()
 	err := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
-		return queryWithLimit(func(offset int) (int, error) {
+		limit := int32(i.opts.paginationLimit)
+
+		// For reverse queries the cursor is an inclusive upper bound on
+		// id (id <= cursor); after each page it advances to
+		// last_returned_id - 1. Start at IndexOffset, or MaxInt64 to
+		// begin from the most recent invoice.
+		// For forward queries the cursor is an inclusive lower bound
+		// (id >= cursor); after each page it advances to
+		// last_returned_id + 1. Start at IndexOffset + 1 so the invoice
+		// at IndexOffset itself is excluded (matching the old
+		// behaviour).
+		var cursor int64
+		if q.Reversed {
+			cursor = int64(math.MaxInt64)
+			if q.IndexOffset != 0 {
+				cursor = int64(q.IndexOffset) - 1
+			}
+		} else {
+			cursor = int64(q.IndexOffset) + 1
+		}
+
+		for {
 			var (
-				rows  []sqlc.Invoice
-				err   error
-				limit = int32(i.opts.paginationLimit)
+				rows []sqlc.Invoice
+				err  error
 			)
 
 			if q.Reversed {
-				// For reverse queries the upper id bound is
-				// always provided. When no offset is given we
-				// start from the most recently added invoice.
-				addIndexLet := int64(math.MaxInt64)
-				if q.IndexOffset != 0 {
-					// The invoice at IndexOffset must not
-					// appear in the results.
-					addIndexLet = int64(q.IndexOffset) - 1
-				}
-
 				params := sqlc.FilterInvoicesReverseParams{
-					AddIndexLet:   addIndexLet,
+					AddIndexLet:   cursor,
 					PendingOnly:   q.PendingOnly,
 					CreatedAfter:  createdAfter,
 					CreatedBefore: createdBefore,
-					NumOffset:     int32(offset),
 					NumLimit:      limit,
 				}
 
@@ -1095,15 +1117,11 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 					ctx, params,
 				)
 			} else {
-				// For forward queries the lower id bound is
-				// always provided. IndexOffset 0 means "start
-				// from the very first invoice" (id >= 1).
 				params := sqlc.FilterInvoicesForwardParams{
-					AddIndexGet:   int64(q.IndexOffset) + 1,
+					AddIndexGet:   cursor,
 					PendingOnly:   q.PendingOnly,
 					CreatedAfter:  createdAfter,
 					CreatedBefore: createdBefore,
-					NumOffset:     int32(offset),
 					NumLimit:      limit,
 				}
 
@@ -1113,7 +1131,7 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 			}
 
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return 0, fmt.Errorf("unable to get invoices "+
+				return fmt.Errorf("unable to get invoices "+
 					"from db: %w", err)
 			}
 
@@ -1123,18 +1141,25 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 					ctx, db, row, nil, true,
 				)
 				if err != nil {
-					return 0, err
+					return err
 				}
 
 				invoices = append(invoices, *invoice)
+				if q.Reversed {
+					cursor = row.ID - 1
+				} else {
+					cursor = row.ID + 1
+				}
 
 				if len(invoices) == int(q.NumMaxInvoices) {
-					return 0, nil
+					return nil
 				}
 			}
 
-			return len(rows), nil
-		}, i.opts.paginationLimit)
+			if int32(len(rows)) < limit {
+				return nil
+			}
+		}
 	}, func() {
 		invoices = nil
 	})
@@ -1890,23 +1915,4 @@ func unmarshalInvoiceHTLC(row sqlc.InvoiceHtlc) (CircuitKey,
 	}
 
 	return circuitKey, htlc, nil
-}
-
-// queryWithLimit is a helper method that can be used to query the database
-// using a limit and offset. The passed query function should return the number
-// of rows returned and an error if any.
-func queryWithLimit(query func(int) (int, error), limit int) error {
-	offset := 0
-	for {
-		rows, err := query(offset)
-		if err != nil {
-			return err
-		}
-
-		if rows < limit {
-			return nil
-		}
-
-		offset += limit
-	}
 }

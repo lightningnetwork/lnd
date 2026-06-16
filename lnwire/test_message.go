@@ -376,6 +376,7 @@ func (a *ChannelReestablish) RandTestMessage(t *rapid.T) Message {
 	// Randomly decide whether to include optional fields
 	includeLocalNonce := rapid.Bool().Draw(t, "includeLocalNonce")
 	includeDynHeight := rapid.Bool().Draw(t, "includeDynHeight")
+	includeLocalNonces := rapid.Bool().Draw(t, "includeLocalNonces")
 
 	if includeLocalNonce {
 		nonce := RandMusig2Nonce(t)
@@ -385,6 +386,29 @@ func (a *ChannelReestablish) RandTestMessage(t *rapid.T) Message {
 	if includeDynHeight {
 		height := DynHeight(rapid.Uint64().Draw(t, "dynHeight"))
 		msg.DynHeight = fn.Some(height)
+	}
+
+	if includeLocalNonces {
+		numNonces := rapid.IntRange(0, 3).Draw(t, "numLocalNonces")
+		nonces := make(map[chainhash.Hash]Musig2Nonce)
+		for i := 0; i < numNonces; i++ {
+			txid := RandChainHash(t)
+
+			// Ensure unique txids for the map.
+			for {
+				_, ok := nonces[txid]
+				if !ok {
+					break
+				}
+				txid = RandChainHash(t)
+			}
+
+			nonces[txid] = RandMusig2Nonce(t)
+		}
+
+		msg.LocalNonces = SomeLocalNonces(
+			LocalNoncesData{NoncesMap: nonces},
+		)
 	}
 
 	return msg
@@ -637,25 +661,71 @@ func (c *ClosingComplete) RandTestMessage(t *rapid.T) Message {
 		}
 	}
 
-	if includeCloserNoClosee {
-		sig := RandSignature(t)
-		msg.CloserNoClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType1, Sig](sig),
-		)
-	}
+	// Randomly decide between regular sigs and taproot sigs
+	useTaprootSigs := rapid.Bool().Draw(t, "useTaprootSigs")
 
-	if includeNoCloserClosee {
-		sig := RandSignature(t)
-		msg.NoCloserClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType2, Sig](sig),
-		)
-	}
+	if useTaprootSigs {
+		// For taproot channels, use PartialSigWithNonce
+		if includeCloserNoClosee {
+			partialSig := *RandPartialSig(t)
+			nonce := RandMusig2Nonce(t)
+			msg.TaprootClosingSigs.CloserNoClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType5, PartialSigWithNonce]( //nolint:ll
+					PartialSigWithNonce{
+						PartialSig: partialSig,
+						Nonce:      nonce,
+					},
+				),
+			)
+		}
 
-	if includeCloserAndClosee {
-		sig := RandSignature(t)
-		msg.CloserAndClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType3, Sig](sig),
-		)
+		if includeNoCloserClosee {
+			partialSig := *RandPartialSig(t)
+			nonce := RandMusig2Nonce(t)
+			msg.TaprootClosingSigs.NoCloserClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType6, PartialSigWithNonce]( //nolint:ll
+					PartialSigWithNonce{
+						PartialSig: partialSig,
+						Nonce:      nonce,
+					},
+				),
+			)
+		}
+
+		if includeCloserAndClosee {
+			partialSig := *RandPartialSig(t)
+			nonce := RandMusig2Nonce(t)
+			msg.TaprootClosingSigs.CloserAndClosee = tlv.SomeRecordT( //nolint:ll
+				tlv.NewRecordT[tlv.TlvType7, PartialSigWithNonce]( //nolint:ll
+					PartialSigWithNonce{
+						PartialSig: partialSig,
+						Nonce:      nonce,
+					},
+				),
+			)
+		}
+	} else {
+		// For non-taproot channels, use regular signatures
+		if includeCloserNoClosee {
+			sig := RandSignature(t)
+			msg.ClosingSigs.CloserNoClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType1, Sig](sig),
+			)
+		}
+
+		if includeNoCloserClosee {
+			sig := RandSignature(t)
+			msg.ClosingSigs.NoCloserClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType2, Sig](sig),
+			)
+		}
+
+		if includeCloserAndClosee {
+			sig := RandSignature(t)
+			msg.ClosingSigs.CloserAndClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType3, Sig](sig),
+			)
+		}
 	}
 
 	return msg
@@ -674,7 +744,13 @@ func (c *ClosingSig) RandTestMessage(t *rapid.T) Message {
 		ChannelID:    RandChannelID(t),
 		CloseeScript: RandDeliveryAddress(t),
 		CloserScript: RandDeliveryAddress(t),
-		ExtraData:    RandExtraOpaqueData(t, nil),
+		FeeSatoshis: btcutil.Amount(rapid.Int64Range(0, 1000000).Draw(
+			t, "feeSatoshis"),
+		),
+		LockTime: rapid.Uint32Range(0, 0xffffffff).Draw(
+			t, "lockTime",
+		),
+		ExtraData: RandExtraOpaqueData(t, nil),
 	}
 
 	includeCloserNoClosee := rapid.Bool().Draw(t, "includeCloserNoClosee")
@@ -697,25 +773,54 @@ func (c *ClosingSig) RandTestMessage(t *rapid.T) Message {
 		}
 	}
 
-	if includeCloserNoClosee {
-		sig := RandSignature(t)
-		msg.CloserNoClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType1, Sig](sig),
-		)
-	}
+	// Randomly decide between regular sigs and taproot sigs
+	useTaprootSigs := rapid.Bool().Draw(t, "useTaprootSigs")
 
-	if includeNoCloserClosee {
-		sig := RandSignature(t)
-		msg.NoCloserClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType2, Sig](sig),
-		)
-	}
+	if useTaprootSigs {
+		// For taproot channels in ClosingSig, use just PartialSig (no
+		// nonce).
+		if includeCloserNoClosee {
+			partialSig := *RandPartialSig(t)
+			msg.TaprootPartialSigs.CloserNoClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType5, PartialSig](partialSig), //nolint:ll
+			)
+		}
 
-	if includeCloserAndClosee {
-		sig := RandSignature(t)
-		msg.CloserAndClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType3, Sig](sig),
-		)
+		if includeNoCloserClosee {
+			partialSig := *RandPartialSig(t)
+			msg.TaprootPartialSigs.NoCloserClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType6, PartialSig](partialSig), //nolint:ll
+			)
+		}
+
+		if includeCloserAndClosee {
+			partialSig := *RandPartialSig(t)
+			msg.TaprootPartialSigs.CloserAndClosee = tlv.SomeRecordT( //nolint:ll
+				tlv.NewRecordT[tlv.TlvType7, PartialSig](partialSig), //nolint:ll
+			)
+		}
+	} else {
+		// For non-taproot channels, use regular signatures
+		if includeCloserNoClosee {
+			sig := RandSignature(t)
+			msg.ClosingSigs.CloserNoClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType1, Sig](sig),
+			)
+		}
+
+		if includeNoCloserClosee {
+			sig := RandSignature(t)
+			msg.ClosingSigs.NoCloserClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType2, Sig](sig),
+			)
+		}
+
+		if includeCloserAndClosee {
+			sig := RandSignature(t)
+			msg.ClosingSigs.CloserAndClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType3, Sig](sig),
+			)
+		}
 	}
 
 	return msg
@@ -1517,7 +1622,7 @@ var _ TestMessage = (*Ping)(nil)
 //
 // This is part of the TestMessage interface.
 func (p *Ping) RandTestMessage(t *rapid.T) Message {
-	numPongBytes := uint16(rapid.IntRange(0, int(MaxPongBytes)).Draw(
+	numPongBytes := uint16(rapid.IntRange(0, math.MaxUint16).Draw(
 		t, "numPongBytes"),
 	)
 
@@ -1742,15 +1847,34 @@ func (c *RevokeAndAck) RandTestMessage(t *rapid.T) Message {
 	msg.NextRevocationKey = RandPubKey(t)
 
 	if rapid.Bool().Draw(t, "includeLocalNonce") {
-		var nonce Musig2Nonce
-		nonceBytes := rapid.SliceOfN(rapid.Byte(), 32, 32).Draw(
-			t, "nonce",
-		)
-		copy(nonce[:], nonceBytes)
+		nonce := RandMusig2Nonce(t)
 
 		msg.LocalNonce = tlv.SomeRecordT(
 			tlv.NewRecordT[NonceRecordTypeT, Musig2Nonce](nonce),
 		)
+	}
+
+	if rapid.Bool().Draw(t, "includeLocalNonces") {
+		numNonces := rapid.IntRange(0, 3).Draw(t, "numLocalNonces")
+		nonces := make(map[chainhash.Hash]Musig2Nonce)
+		for i := 0; i < numNonces; i++ {
+			txid := RandChainHash(t)
+
+			// Ensure unique txids for the map.
+			for {
+				_, ok := nonces[txid]
+				if !ok {
+					break
+				}
+				txid = RandChainHash(t)
+			}
+
+			nonces[txid] = RandMusig2Nonce(t)
+		}
+
+		msg.LocalNonces = SomeLocalNonces(LocalNoncesData{
+			NoncesMap: nonces,
+		})
 	}
 
 	return msg

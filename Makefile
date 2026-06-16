@@ -22,6 +22,10 @@ IOS_BUILD_DIR := $(MOBILE_BUILD_DIR)/ios
 IOS_BUILD := $(IOS_BUILD_DIR)/Lndmobile.xcframework
 ANDROID_BUILD_DIR := $(MOBILE_BUILD_DIR)/android
 ANDROID_BUILD := $(ANDROID_BUILD_DIR)/Lndmobile.aar
+# For Android, set max page size to 16KB to support devices using 16KB memory pages.
+# Reference: https://developer.android.com/guide/practices/page-sizes
+ANDROID_MAX_PAGE_SIZE := 16384
+ANDROID_EXTLDFLAGS := -extldflags '-Wl,-z,max-page-size=$(ANDROID_MAX_PAGE_SIZE)'
 
 COMMIT := $(shell git describe --tags --dirty)
 
@@ -32,7 +36,7 @@ ACTIVE_GO_VERSION_MINOR := $(shell echo $(ACTIVE_GO_VERSION) | cut -d. -f2)
 # GO_VERSION is the Go version used for the release build, docker files, and
 # GitHub Actions. This is the reference version for the project. All other Go
 # versions are checked against this version.
-GO_VERSION = 1.25.5
+GO_VERSION = 1.26.4
 
 GOBUILD := $(GOCC) build -v
 GOINSTALL := $(GOCC) install -v
@@ -369,7 +373,7 @@ check-go-version-dockerfile:
 check-go-version: check-go-version-dockerfile check-go-version-yaml
 
 #? lint-source: Run static code analysis
-lint-source: docker-tools	
+lint-source: docker-tools
 	@$(call print, "Linting source.")
 	$(DOCKER_TOOLS_LINT) custom-gcl run -v $(LINT_WORKERS)
 
@@ -381,7 +385,18 @@ lint-config-check:
 	$(GOTOOL) $(GOLINT_PKG) config verify -v
 
 #? lint: Run static code analysis
-lint: check-go-version lint-config-check lint-source 
+lint: check-go-version lint-config-check lint-source
+
+#? build-native-linter: Build the custom golangci-lint binary natively
+build-native-linter:
+	@$(call print, "Building custom linter natively.")
+	cd tools && CGO_ENABLED=0 $(GOCC) tool $(GOLINT_PKG) custom
+
+#? lint-native: Run static code analysis without Docker (faster on macOS)
+lint-native: check-go-version lint-config-check build-native-linter
+	@$(call print, "Linting source (native).")
+	GOWORK=off ./tools/custom-gcl run -v $(LINT_WORKERS) \
+	  --new-from-rev=$$(git merge-base HEAD master)
 
 #? protolint: Lint proto files using protolint
 protolint:
@@ -483,7 +498,7 @@ macos: mobile-rpc
 android: mobile-rpc
 	@$(call print, "Building Android library ($(ANDROID_BUILD)).")
 	mkdir -p $(ANDROID_BUILD_DIR)
-	$(GOMOBILE_BIN) bind -target=android -androidapi 21 -tags="mobile $(DEV_TAGS) $(RPC_TAGS)" -ldflags "$(RELEASE_LDFLAGS)" -v -o $(ANDROID_BUILD) $(MOBILE_PKG)
+	$(GOMOBILE_BIN) bind -target=android -androidapi 21 -tags="mobile $(DEV_TAGS) $(RPC_TAGS)" -ldflags "$(RELEASE_LDFLAGS) $(ANDROID_EXTLDFLAGS)" -v -o $(ANDROID_BUILD) $(MOBILE_PKG)
 
 #? mobile: Build mobile RPC stubs and project templates for iOS and Android
 mobile: ios android
@@ -524,6 +539,7 @@ clean-docker-volumes:
 	flake-unit \
 	fmt \
 	lint \
+	lint-native \
 	list \
 	rpc \
 	rpc-format \

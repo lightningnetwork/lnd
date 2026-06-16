@@ -13,10 +13,12 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnpeer"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"golang.org/x/time/rate"
 )
@@ -210,7 +212,7 @@ var (
 // syncTransitionReq encapsulates a request for a gossip syncer sync transition.
 type syncTransitionReq struct {
 	newSyncType SyncerType
-	errChan     chan error
+	errPromise  actor.Promise[error]
 }
 
 // historicalSyncReq encapsulates a request for a gossip syncer to perform a
@@ -284,10 +286,9 @@ type gossipSyncerCfg struct {
 	// for a single QueryChannelRange request.
 	maxQueryChanRangeReplies uint32
 
-	// isStillZombieChannel takes the timestamps of the latest channel
-	// updates for a channel and returns true if the channel should be
-	// considered a zombie based on these timestamps.
-	isStillZombieChannel func(time.Time, time.Time) bool
+	// isStillZombieChannel returns true if the channel described by info
+	// should still be considered a zombie.
+	isStillZombieChannel func(graphdb.ChannelUpdateInfo) bool
 
 	// timestampQueueSize is the size of the timestamp range queue. If not
 	// set, defaults to the global timestampQueueSize constant.
@@ -700,7 +701,10 @@ func (g *GossipSyncer) channelGraphSyncer(ctx context.Context) {
 		case syncerIdle:
 			select {
 			case req := <-g.syncTransitionReqs:
-				req.errChan <- g.handleSyncTransition(ctx, req)
+				completeGossipResult(
+					req.errPromise,
+					g.handleSyncTransition(ctx, req),
+				)
 
 			case req := <-g.historicalSyncReqs:
 				g.handleHistoricalSync(req)
@@ -974,39 +978,40 @@ func (g *GossipSyncer) processChanRangeReply(_ context.Context,
 	g.prevReplyChannelRange = msg
 
 	for i, scid := range msg.ShortChanIDs {
-		info := graphdb.NewChannelUpdateInfo(
+		info := graphdb.NewV1ChannelUpdateInfo(
 			scid, time.Time{}, time.Time{},
 		)
 
 		if len(msg.Timestamps) != 0 {
-			t1 := time.Unix(int64(msg.Timestamps[i].Timestamp1), 0)
-			info.Node1UpdateTimestamp = t1
+			info.Node1Freshness = lnwire.UnixTimestamp(
+				msg.Timestamps[i].Timestamp1,
+			)
 
+			info.Node2Freshness = lnwire.UnixTimestamp(
+				msg.Timestamps[i].Timestamp2,
+			)
+
+			t1 := time.Unix(int64(msg.Timestamps[i].Timestamp1), 0)
 			t2 := time.Unix(int64(msg.Timestamps[i].Timestamp2), 0)
-			info.Node2UpdateTimestamp = t2
 
 			// Sort out all channels with outdated or skewed
 			// timestamps. Both timestamps need to be out of
 			// boundaries for us to skip the channel and not query
 			// it later on.
 			switch {
-			case isStale(info.Node1UpdateTimestamp) &&
-				isStale(info.Node2UpdateTimestamp):
+			case isStale(t1) && isStale(t2):
 
 				continue
 
-			case isSkewed(info.Node1UpdateTimestamp) &&
-				isSkewed(info.Node2UpdateTimestamp):
+			case isSkewed(t1) && isSkewed(t2):
 
 				continue
 
-			case isStale(info.Node1UpdateTimestamp) &&
-				isSkewed(info.Node2UpdateTimestamp):
+			case isStale(t1) && isSkewed(t2):
 
 				continue
 
-			case isStale(info.Node2UpdateTimestamp) &&
-				isSkewed(info.Node1UpdateTimestamp):
+			case isStale(t2) && isSkewed(t1):
 
 				continue
 			}
@@ -1268,11 +1273,11 @@ func (g *GossipSyncer) replyChanRangeQuery(ctx context.Context,
 			}
 
 			timestamps[i].Timestamp1 = uint32(
-				info.Node1UpdateTimestamp.Unix(),
+				info.Node1FreshnessTime().Unix(),
 			)
 
 			timestamps[i].Timestamp2 = uint32(
-				info.Node2UpdateTimestamp.Unix(),
+				info.Node2FreshnessTime().Unix(),
 			)
 		}
 
@@ -1475,7 +1480,7 @@ func (g *GossipSyncer) ApplyGossipFilter(ctx context.Context,
 	// Now that the remote peer has applied their filter, we'll query the
 	// database for all the messages that are beyond this filter.
 	newUpdatestoSend := g.cfg.channelSeries.UpdatesInHorizon(
-		g.cfg.chainHash, startTime, endTime,
+		ctx, startTime, endTime,
 	)
 
 	// Create a pull-based iterator so we can check if there are any
@@ -1776,11 +1781,12 @@ func (g *GossipSyncer) ResetSyncedSignal() chan struct{} {
 // NOTE: This can only be done once the gossip syncer has reached its final
 // chansSynced state.
 func (g *GossipSyncer) ProcessSyncTransition(newSyncType SyncerType) error {
-	errChan := make(chan error, 1)
+	promise := actor.NewPromise[error]()
+
 	select {
 	case g.syncTransitionReqs <- &syncTransitionReq{
 		newSyncType: newSyncType,
-		errChan:     errChan,
+		errPromise:  promise,
 	}:
 	case <-time.After(syncTransitionTimeout):
 		return ErrSyncTransitionTimeout
@@ -1788,12 +1794,25 @@ func (g *GossipSyncer) ProcessSyncTransition(newSyncType SyncerType) error {
 		return ErrGossipSyncerExiting
 	}
 
-	select {
-	case err := <-errChan:
-		return err
-	case <-g.cg.Done():
+	// Derive a context from the syncer's quit channel so the await exits
+	// only when the syncer itself shuts down. This matches the prior
+	// errChan-based behavior, which had no upper bound on the time spent
+	// waiting for the syncer to process the transition request once it had
+	// been accepted onto the queue. The syncTransitionTimeout above bounds
+	// only the enqueue step, as it did before this migration.
+	quitCtx, quitCancel := lnutils.ContextFromQuit(g.cg.Done())
+	defer quitCancel()
+
+	err := AwaitGossipResult(quitCtx, promise.Future())
+
+	// Re-map the bridge context cancellation back to the historical
+	// sentinel so any caller (or third-party fork) using errors.Is to
+	// detect syncer shutdown continues to match.
+	if errors.Is(err, context.Canceled) {
 		return ErrGossipSyncerExiting
 	}
+
+	return err
 }
 
 // handleSyncTransition handles a new sync type transition request.

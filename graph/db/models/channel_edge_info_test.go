@@ -145,3 +145,47 @@ func TestFundingPKScriptV2(t *testing.T) {
 		require.Equal(t, storedScript, pkScript)
 	})
 }
+
+// TestFundingPKScriptV1TaprootFeatureBit tests that a v1 channel edge carrying
+// the taproot staging bit reconstructs a taproot funding script.
+func TestFundingPKScriptV1TaprootFeatureBit(t *testing.T) {
+	t.Parallel()
+
+	privKey1, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	pubKey1 := privKey1.PubKey()
+
+	privKey2, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	pubKey2 := privKey2.PubKey()
+
+	var btcKey1, btcKey2 route.Vertex
+	copy(btcKey1[:], pubKey1.SerializeCompressed())
+	copy(btcKey2[:], pubKey2.SerializeCompressed())
+
+	// Build a v1 edge that only has the legacy bitcoin keys populated, but
+	// does advertise the taproot staging bit in its feature vector.
+	edge := &ChannelEdgeInfo{
+		Version:          lnwire.GossipVersion1,
+		BitcoinKey1Bytes: fn.Some(btcKey1),
+		BitcoinKey2Bytes: fn.Some(btcKey2),
+		Features: lnwire.NewFeatureVector(
+			lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsRequiredStaging,
+			),
+			lnwire.Features,
+		),
+	}
+
+	pkScript, err := edge.FundingPKScript()
+	require.NoError(t, err)
+
+	// The fix should make FundingPKScript honor the feature bit and derive
+	// the taproot funding script directly from the stored bitcoin keys.
+	expectedScript, _, err := input.GenTaprootFundingScript(
+		pubKey1, pubKey2, 0, fn.None[chainhash.Hash](),
+	)
+	require.NoError(t, err)
+
+	require.Equal(t, expectedScript, pkScript)
+}

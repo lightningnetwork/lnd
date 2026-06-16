@@ -618,7 +618,6 @@ func (b *BtcWallet) ListAccounts(name string,
 			return nil, err
 		}
 		for _, account := range accounts.Accounts {
-			account := account
 			res = append(res, &account.AccountProperties)
 		}
 
@@ -631,7 +630,6 @@ func (b *BtcWallet) ListAccounts(name string,
 				return nil, err
 			}
 			for _, account := range accounts.Accounts {
-				account := account
 				res = append(res, &account.AccountProperties)
 			}
 		}
@@ -644,7 +642,6 @@ func (b *BtcWallet) ListAccounts(name string,
 			return nil, err
 		}
 		for _, account := range accounts.Accounts {
-			account := account
 			res = append(res, &account.AccountProperties)
 		}
 	}

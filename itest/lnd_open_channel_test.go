@@ -91,8 +91,7 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 	// open.
 	block := ht.MineBlocksAndAssertNumTxes(10, 1)[0]
 	ht.AssertTxInBlock(block, *fundingTxID)
-	_, err = tempMiner.Client.Generate(15)
-	require.NoError(ht, err, "unable to generate blocks")
+	tempMiner.GenerateBlocks(15)
 
 	// Ensure the chain lengths are what we expect, with the temp miner
 	// being 5 blocks ahead.
@@ -136,8 +135,7 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 
 	// This should have caused a reorg, and Alice should sync to the longer
 	// chain, where the funding transaction is not confirmed.
-	_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
-	require.NoError(ht, err, "unable to get current blockheight")
+	_, tempMinerHeight := tempMiner.GetBestBlock()
 	ht.WaitForNodeBlockHeight(alice, tempMinerHeight)
 
 	// Since the fundingtx was reorged out, Alice should now have no edges
@@ -1047,8 +1045,7 @@ func testPendingChannelAfterReorg(ht *lntest.HarnessTest) {
 
 	// We now cause a fork, by letting our original miner mine 1 blocks,
 	// and our new miner mine 3.
-	_, err := tempMiner.Client.Generate(3)
-	require.NoError(ht, err, "unable to generate blocks on temp miner")
+	tempMiner.GenerateBlocks(3)
 
 	// Ensure the chain lengths are what we expect, with the temp miner
 	// being 2 blocks ahead.
@@ -1073,8 +1070,7 @@ func testPendingChannelAfterReorg(ht *lntest.HarnessTest) {
 
 	// This should have caused a reorg, and Alice should sync to the longer
 	// chain, where the funding transaction is not confirmed.
-	_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
-	require.NoError(ht, err, "unable to get current blockheight")
+	_, tempMinerHeight := tempMiner.GetBestBlock()
 	ht.WaitForNodeBlockHeight(alice, tempMinerHeight)
 
 	// After the reorg, the funding transaction's confirmation is removed,
@@ -1155,6 +1151,66 @@ func testSimpleTaprootChannelActivation(ht *lntest.HarnessTest) {
 
 	// Verify that Alice sees an active channel to Bob.
 	ht.AssertChannelActive(alice, chanPoint)
+}
+
+// testSimpleTaprootFinalChannelActivation ensures that a simple taproot final
+// channel (using production scripts) is active if the initiator disconnects
+// and reconnects in between channel opening and channel confirmation.
+func testSimpleTaprootFinalChannelActivation(ht *lntest.HarnessTest) {
+	simpleTaprootFinalChanArgs := lntest.NodeArgsForCommitType(
+		lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
+	)
+
+	// Make the new set of participants.
+	alice := ht.NewNode("alice", simpleTaprootFinalChanArgs)
+	bob := ht.NewNode("bob", simpleTaprootFinalChanArgs)
+
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+
+	// Make sure Alice and Bob are connected.
+	ht.EnsureConnected(alice, bob)
+
+	// Create simple taproot final channel opening parameters.
+	params := lntest.OpenChannelParams{
+		FundMax:        true,
+		CommitmentType: lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
+		Private:        true,
+	}
+
+	// Alice opens the channel to Bob.
+	pendingChan := ht.OpenChannelAssertPending(alice, bob, params)
+
+	// We'll create the channel point to be able to close the channel once
+	// our test is done.
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: pendingChan.Txid,
+		},
+		OutputIndex: pendingChan.OutputIndex,
+	}
+
+	// We disconnect and reconnect Alice and Bob before the channel is
+	// confirmed. Our expectation is that the channel is active once the
+	// channel is confirmed.
+	ht.DisconnectNodes(alice, bob)
+	ht.EnsureConnected(alice, bob)
+
+	// Mine six blocks to confirm the channel funding transaction.
+	ht.MineBlocksAndAssertNumTxes(6, 1)
+
+	// Verify that Alice sees an active channel to Bob.
+	ht.AssertChannelActive(alice, chanPoint)
+
+	// Verify that the channel uses the final taproot commitment type.
+	aliceChannels := alice.RPC.ListChannels(&lnrpc.ListChannelsRequest{})
+	require.Len(ht, aliceChannels.Channels, 1)
+	require.Equal(ht, lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
+		aliceChannels.Channels[0].CommitmentType)
+
+	bobChannels := bob.RPC.ListChannels(&lnrpc.ListChannelsRequest{})
+	require.Len(ht, bobChannels.Channels, 1)
+	require.Equal(ht, lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
+		bobChannels.Channels[0].CommitmentType)
 }
 
 // testOpenChannelLockedBalance tests that when a funding reservation is

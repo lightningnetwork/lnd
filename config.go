@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"os/user"
@@ -41,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/onionmessage"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/tor"
@@ -80,7 +82,6 @@ const (
 	defaultTorDNSHost              = "soa.nodes.lightning.directory"
 	defaultTorDNSPort              = 53
 	defaultTorControlPort          = 9051
-	defaultTorV2PrivateKeyFilename = "v2_onion_private_key"
 	defaultTorV3PrivateKeyFilename = "v3_onion_private_key"
 
 	// defaultZMQReadDeadline is the default read deadline to be used for
@@ -211,6 +212,10 @@ const (
 	// channel state updates that is accumulated before signing a new
 	// commitment.
 	defaultChannelCommitBatchSize = 10
+
+	// defaultFwdHistoryDeleteBatchSize is the default number of forwarding
+	// events deleted per database transaction when purging history.
+	defaultFwdHistoryDeleteBatchSize = 10_000
 
 	// defaultCoinSelectionStrategy is the coin selection strategy that is
 	// used by default to fund transactions.
@@ -418,6 +423,8 @@ type Config struct {
 
 	ChannelCommitBatchSize uint32 `long:"channel-commit-batch-size" description:"The maximum number of channel state updates that is accumulated before signing a new commitment."`
 
+	FwdHistoryDeleteBatchSize int `long:"fwd-history-delete-batch-size" description:"The number of forwarding events deleted per database transaction when running deletefwdhistory. Lower this on resource-constrained nodes to reduce lock contention (max: 50000)."`
+
 	KeepFailedPaymentAttempts bool `long:"keep-failed-payment-attempts" description:"Keeps persistent record of all failed payment attempts for successfully settled payments."`
 
 	StoreFinalHtlcResolutions bool `long:"store-final-htlc-resolutions" description:"Persistently store the final resolution of incoming htlcs."`
@@ -577,6 +584,43 @@ type GRPCConfig struct {
 	ClientAllowPingWithoutStream bool `long:"client-allow-ping-without-stream" description:"If true, the server allows keepalive pings from the client even when there are no active gRPC streams. This might be useful to keep the underlying HTTP/2 connection open for future requests."`
 }
 
+// maxOnionMsgWireSize is the largest on-the-wire size in bytes, including
+// the 2-byte message type prefix, that an OnionMessage can take. This is
+// the value the rate limiter charges via OnionMessage.WireSize() for a
+// max-sized message and therefore the tightest meaningful lower bound on
+// the configured burst: anything smaller would reject every max-sized
+// message even though the configured rate is positive.
+const maxOnionMsgWireSize = 2 + lnwire.MaxMsgBody
+
+// validateOnionMsgLimiter validates a single onion message rate limiter
+// kbps/burst-bytes pair. Both zero means "disabled"; both strictly positive
+// means "enabled"; a mismatched pair is rejected so that operator typos
+// surface at startup instead of silently disabling the limiter via the
+// constructor fallback path. When enabled, burst-bytes must also be at
+// least maxOnionMsgWireSize so that a single max-sized onion message
+// (lnwire.MaxMsgBody bytes of body plus the 2-byte message-type prefix
+// that WireSize charges for) can always fit in the token bucket;
+// otherwise rate.Limiter.AllowN would reject every call and silently
+// disable onion message forwarding.
+func validateOnionMsgLimiter(name string, kbps, burstBytes uint64) error {
+	if (kbps > 0) != (burstBytes > 0) {
+		return fmt.Errorf("%s kbps and burst-bytes must both be "+
+			"positive or both be zero; got kbps=%v "+
+			"burst-bytes=%v", name, kbps, burstBytes)
+	}
+	if burstBytes > 0 && burstBytes < maxOnionMsgWireSize {
+		return fmt.Errorf("%s burst-bytes=%v must be at least %v "+
+			"so a single max-sized onion message can fit in "+
+			"the bucket", name, burstBytes, maxOnionMsgWireSize)
+	}
+	if burstBytes > uint64(math.MaxInt) {
+		return fmt.Errorf("%s burst-bytes=%v exceeds maximum %v",
+			name, burstBytes, math.MaxInt)
+	}
+
+	return nil
+}
+
 // DefaultConfig returns all default values for the Config struct.
 //
 //nolint:ll
@@ -721,6 +765,16 @@ func DefaultConfig() Config {
 				Backoff:  defaultLeaderCheckBackoff,
 			},
 		},
+		// Only the onion message rate limiter fields are explicitly
+		// initialized here; all other ProtocolOptions fields rely on
+		// Go zero values, which happen to be the historical defaults
+		// for those flags.
+		ProtocolOptions: &lncfg.ProtocolOptions{
+			OnionMsgPeerKbps:         onionmessage.DefaultPeerOnionMsgKbps,
+			OnionMsgPeerBurstBytes:   onionmessage.DefaultPeerOnionMsgBurstBytes,
+			OnionMsgGlobalKbps:       onionmessage.DefaultGlobalOnionMsgKbps,
+			OnionMsgGlobalBurstBytes: onionmessage.DefaultGlobalOnionMsgBurstBytes,
+		},
 		Gossip: &lncfg.Gossip{
 			MaxChannelUpdateBurst: discovery.DefaultMaxChannelUpdateBurst,
 			ChannelUpdateInterval: discovery.DefaultChannelUpdateInterval,
@@ -755,6 +809,7 @@ func DefaultConfig() Config {
 		ChannelCommitInterval:     defaultChannelCommitInterval,
 		PendingCommitInterval:     defaultPendingCommitInterval,
 		ChannelCommitBatchSize:    defaultChannelCommitBatchSize,
+		FwdHistoryDeleteBatchSize: defaultFwdHistoryDeleteBatchSize,
 		CoinSelectionStrategy:     defaultCoinSelectionStrategy,
 		KeepFailedPaymentAttempts: defaultKeepFailedPaymentAttempts,
 		RemoteSigner: &lncfg.RemoteSigner{
@@ -1069,6 +1124,27 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		return nil, mkErr("error validating autopilot: %v", err)
 	}
 
+	// Validate the onion message rate limiter configuration. We reject
+	// the mismatched case where one of kbps/burst-bytes is strictly
+	// positive but the other is zero, which would silently disable the
+	// limiter and leave the operator unprotected. Both zero is fine and
+	// explicitly means "disabled"; both positive is fine and enables
+	// the limiter.
+	if err := validateOnionMsgLimiter(
+		"protocol.onion-msg-peer",
+		cfg.ProtocolOptions.OnionMsgPeerKbps,
+		cfg.ProtocolOptions.OnionMsgPeerBurstBytes,
+	); err != nil {
+		return nil, mkErr("%s", err)
+	}
+	if err := validateOnionMsgLimiter(
+		"protocol.onion-msg-global",
+		cfg.ProtocolOptions.OnionMsgGlobalKbps,
+		cfg.ProtocolOptions.OnionMsgGlobalBurstBytes,
+	); err != nil {
+		return nil, mkErr("%s", err)
+	}
+
 	// Ensure that --maxchansize is properly handled when set by user.
 	// For non-Wumbo channels this limit remains 16777215 satoshis by default
 	// as specified in BOLT-02. For wumbo channels this limit is 1,000,000,000.
@@ -1162,41 +1238,22 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		return nil, mkErr(str)
 	}
 
-	switch {
-	case cfg.Tor.V2 && cfg.Tor.V3:
-		return nil, mkErr("either tor.v2 or tor.v3 can be set, " +
-			"but not both")
-	case cfg.DisableListen && (cfg.Tor.V2 || cfg.Tor.V3):
+	if cfg.DisableListen && cfg.Tor.V3 {
 		return nil, mkErr("listening must be enabled when enabling " +
 			"inbound connections over Tor")
 	}
 
-	if cfg.Tor.PrivateKeyPath == "" {
-		switch {
-		case cfg.Tor.V2:
-			cfg.Tor.PrivateKeyPath = filepath.Join(
-				lndDir, defaultTorV2PrivateKeyFilename,
-			)
-		case cfg.Tor.V3:
-			cfg.Tor.PrivateKeyPath = filepath.Join(
-				lndDir, defaultTorV3PrivateKeyFilename,
-			)
-		}
+	if cfg.Tor.PrivateKeyPath == "" && cfg.Tor.V3 {
+		cfg.Tor.PrivateKeyPath = filepath.Join(
+			lndDir, defaultTorV3PrivateKeyFilename,
+		)
 	}
 
-	if cfg.Tor.WatchtowerKeyPath == "" {
-		switch {
-		case cfg.Tor.V2:
-			cfg.Tor.WatchtowerKeyPath = filepath.Join(
-				cfg.Watchtower.TowerDir,
-				defaultTorV2PrivateKeyFilename,
-			)
-		case cfg.Tor.V3:
-			cfg.Tor.WatchtowerKeyPath = filepath.Join(
-				cfg.Watchtower.TowerDir,
-				defaultTorV3PrivateKeyFilename,
-			)
-		}
+	if cfg.Tor.WatchtowerKeyPath == "" && cfg.Tor.V3 {
+		cfg.Tor.WatchtowerKeyPath = filepath.Join(
+			cfg.Watchtower.TowerDir,
+			defaultTorV3PrivateKeyFilename,
+		)
 	}
 
 	// Set up the network-related functions that will be used throughout
@@ -1720,6 +1777,19 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		return nil, mkErr("pending-commit-interval (%v) must be less "+
 			"than %v", cfg.PendingCommitInterval,
 			maxPendingCommitInterval)
+	}
+
+	// Warn and clamp fwd-history-delete-batch-size if it exceeds the DB
+	// layer maximum. The DB silently clamps anyway, but surfacing this at
+	// startup gives the operator immediate feedback that their configured
+	// value is not being honoured.
+	if cfg.FwdHistoryDeleteBatchSize > channeldb.MaxResponseEvents {
+		ltndLog.Warnf("fwd-history-delete-batch-size=%d exceeds "+
+			"maximum (%d), clamping to maximum",
+			cfg.FwdHistoryDeleteBatchSize,
+			channeldb.MaxResponseEvents)
+
+		cfg.FwdHistoryDeleteBatchSize = channeldb.MaxResponseEvents
 	}
 
 	if err := cfg.Gossip.Parse(); err != nil {

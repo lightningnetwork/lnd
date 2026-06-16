@@ -47,10 +47,8 @@ func (p *Ping) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	if p.NumPongBytes > MaxPongBytes {
-		return ErrMaxPongBytesExceeded
-	}
-
+	// Values above MaxPongBytes are still valid on the wire. Per BOLT 1,
+	// receivers must ignore those pings rather than fail deserialization.
 	return nil
 }
 

@@ -196,7 +196,6 @@ func (i *InvoiceRegistry) scanInvoicesOnStart(ctx context.Context) error {
 
 	var pending []invoiceExpiry
 	for paymentHash, invoice := range pendingInvoices {
-		invoice := invoice
 		expiryRef := makeInvoiceExpiry(paymentHash, &invoice)
 		if expiryRef != nil {
 			pending = append(pending, expiryRef)
@@ -509,7 +508,6 @@ func (i *InvoiceRegistry) deliverBacklogEvents(ctx context.Context,
 	for _, addEvent := range addEvents {
 		// We re-bind the loop variable to ensure we don't hold onto
 		// the loop reference causing is to point to the same item.
-		addEvent := addEvent
 
 		select {
 		case client.ntfnQueue.ChanIn() <- &invoiceEvent{
@@ -523,7 +521,6 @@ func (i *InvoiceRegistry) deliverBacklogEvents(ctx context.Context,
 	for _, settleEvent := range settleEvents {
 		// We re-bind the loop variable to ensure we don't hold onto
 		// the loop reference causing is to point to the same item.
-		settleEvent := settleEvent
 
 		select {
 		case client.ntfnQueue.ChanIn() <- &invoiceEvent{

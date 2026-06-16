@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -42,8 +41,13 @@ func generateCommitSigTestCases(t *testing.T) []commitSigTestCase {
 	sigScalar := new(btcec.ModNScalar)
 	sigScalar.SetByteSlice(sig.RawBytes())
 
-	var nonce [musig2.PubNonceSize]byte
-	copy(nonce[:], commitSigBytes)
+	// Generate a valid MuSig2 nonce (two compressed public keys).
+	_, pub1 := btcec.PrivKeyFromBytes(chanIDBytes)
+	_, pub2 := btcec.PrivKeyFromBytes(commitSigBytes[:32])
+
+	var nonce Musig2Nonce
+	copy(nonce[:33], pub1.SerializeCompressed())
+	copy(nonce[33:], pub2.SerializeCompressed())
 
 	sigWithNonce := NewPartialSigWithNonce(nonce, *sigScalar)
 	partialSig := MaybePartialSigWithNonce(sigWithNonce)

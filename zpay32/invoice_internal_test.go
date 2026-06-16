@@ -834,7 +834,6 @@ func TestParseTaggedFields(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		tc := tc // pin
 		t.Run(tc.name, func(t *testing.T) {
 			var invoice Invoice
 			gotErr := parseTaggedFields(&invoice, tc.data, netParams)

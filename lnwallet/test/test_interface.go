@@ -3002,24 +3002,93 @@ func waitForMempoolTx(r *rpctest.Harness, txid *chainhash.Hash) error {
 	return nil
 }
 
+// waitForWalletSync blocks until the LightningWallet's chain backend has fully
+// caught up to the best block known by the mining harness, or the timeout
+// elapses. It performs two distinct checks that correspond to different layers
+// of the sync pipeline:
+//
+// Layer 1 — header sync (ChainIO.GetBestBlock):
+// BtcWallet.GetBestBlock delegates straight to the underlying chain client
+// (e.g. the neutrino ChainService). This reflects whether the P2P layer has
+// downloaded block *headers* up to the miner's tip. An 80-byte header is all
+// that is needed here; no transaction data is involved yet.
+//
+// Layer 2 — full wallet sync (IsSynced):
+// IsSynced checks three internal btcwallet conditions in sequence:
+//
+//	a. ChainSynced() — a boolean flag set only when the chain client fires
+//	   its dedicated "synced" notification to btcwallet. The header may
+//	   already be present at layer 1 while this flag is still false.
+//	b. waddrmgr SyncedTo height — after neutrino matches a compact filter
+//	   and fetches the full block, btcwallet walks every transaction,
+//	   updates balances and UTXO state, and writes results to the DB. Only
+//	   once that write completes does the address manager advance its sync
+//	   height. On slower backends (e.g. postgres) this step is the common
+//	   bottleneck.
+//	c. A timestamp sanity check (irrelevant in regtest).
+//
+// After a reorg, btcwallet must first *undo* the invalidated blocks (reverse
+// UTXO/balance changes) and then *redo* the new chain, doubling the DB write
+// pressure compared with a normal forward sync.
+//
+// When this function times out, the error message identifies which layer was
+// stuck so the reader knows where to look:
+//   - "height lag"  → stuck at layer 1; neutrino has not fetched the header.
+//   - "IsSynced() never returned true" → layer 1 is fine; the bottleneck is
+//     the chain-sync notification or the address-manager transaction walk.
 func waitForWalletSync(r *rpctest.Harness, w *lnwallet.LightningWallet) error {
 	var (
 		synced                  bool
 		err                     error
 		bestHash, knownHash     *chainhash.Hash
 		bestHeight, knownHeight int32
+
+		// heightsMatched tracks whether the last poll found matching
+		// heights so the timeout message can distinguish between a
+		// layer-1 header lag and a layer-2 internal-state lag.
+		heightsMatched bool
 	)
-	timeout := time.After(30 * time.Second)
+
+	// Use a single ticker rather than time.Tick inside the loop; the
+	// latter leaks a goroutine on every iteration because the returned
+	// channel is never stopped.
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	// Neutrino syncs via P2P (header announcements + compact filter
+	// fetches) which is slower than a direct RPC client, especially
+	// under load (e.g. postgres backend). Use a generous timeout to
+	// avoid spurious failures.
+	timeout := time.After(2 * time.Minute)
 	for !synced {
-		// Do a short wait
 		select {
 		case <-timeout:
-			return errors.New("timeout after 30s")
-		case <-time.Tick(100 * time.Millisecond):
+			// Report which sync layer was stuck so a future
+			// investigator knows where to look.
+			if !heightsMatched {
+				return fmt.Errorf("timeout waiting for wallet "+
+					"sync: chain tip at height=%d "+
+					"hash=%v, wallet ChainIO at "+
+					"height=%d hash=%v — stuck at "+
+					"layer 1 (header/P2P sync)",
+					bestHeight, bestHash,
+					knownHeight, knownHash)
+			}
+
+			return fmt.Errorf("timeout waiting for wallet "+
+				"sync: heights matched at %d but "+
+				"IsSynced() never returned true — "+
+				"stuck at layer 2 (chain-sync "+
+				"notification or address-manager "+
+				"transaction walk, check "+
+				"ChainSynced() and waddrmgr "+
+				"SyncedTo height)",
+				bestHeight)
+		case <-ticker.C:
 		}
 
-		// Check whether the chain source of the wallet is caught up to
-		// the harness it's supposed to be catching up to.
+		// Layer 1 check: verify the chain backend has downloaded the
+		// header for the miner's current tip.
 		bestHash, bestHeight, err = r.Client.GetBestBlock()
 		if err != nil {
 			return err
@@ -3028,7 +3097,8 @@ func waitForWalletSync(r *rpctest.Harness, w *lnwallet.LightningWallet) error {
 		if err != nil {
 			return err
 		}
-		if knownHeight != bestHeight {
+		heightsMatched = knownHeight == bestHeight
+		if !heightsMatched {
 			continue
 		}
 		if *knownHash != *bestHash {
@@ -3037,7 +3107,8 @@ func waitForWalletSync(r *rpctest.Harness, w *lnwallet.LightningWallet) error {
 				knownHash)
 		}
 
-		// Check for synchronization.
+		// Layer 2 check: verify btcwallet has processed all
+		// transactions in the new blocks and considers itself synced.
 		synced, _, err = w.IsSynced()
 		if err != nil {
 			return err
@@ -3468,8 +3539,6 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 	// Execute every test, clearing possibly mutated
 	// wallet state after each step.
 	for _, walletTest := range walletTests {
-
-		walletTest := walletTest
 
 		testName := fmt.Sprintf("%v/%v:%v", walletType, backEnd,
 			walletTest.name)

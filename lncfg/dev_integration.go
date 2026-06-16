@@ -29,6 +29,7 @@ type DevConfig struct {
 	MaxWaitNumBlocksFundingConf uint32        `long:"maxwaitnumblocksfundingconf" description:"Maximum blocks to wait for funding confirmation before discarding non-initiated channels."`
 	UnsafeConnect               bool          `long:"unsafeconnect" description:"Allow the rpcserver to connect to a peer even if there's already a connection."`
 	ForceChannelCloseConfs      uint32        `long:"force-channel-close-confs" description:"Force a specific number of confirmations for channel closes (dev/test only)"`
+	MinFwdHistoryAge            time.Duration `long:"min-fwd-history-age" description:"Minimum age of forwarding events before they can be deleted via DeleteForwardingHistory (dev/test only, default: 1h)"`
 }
 
 // ChannelReadyWait returns the config value `ProcessChannelReadyWait`.
@@ -72,6 +73,12 @@ func (d *DevConfig) GetMaxWaitNumBlocksFundingConf() uint32 {
 // GetUnsafeConnect returns the config value `UnsafeConnect`.
 func (d *DevConfig) GetUnsafeConnect() bool {
 	return d.UnsafeConnect
+}
+
+// GetMinFwdHistoryAge returns the minimum age for forwarding history deletion.
+// Returns 0 if unset, which causes the caller to use the default (1h).
+func (d *DevConfig) GetMinFwdHistoryAge() time.Duration {
+	return d.MinFwdHistoryAge
 }
 
 // ChannelCloseConfs returns the forced confirmation count if set, or None if

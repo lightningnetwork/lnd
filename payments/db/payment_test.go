@@ -783,8 +783,6 @@ func TestPaymentRegistrable(t *testing.T) {
 	}
 
 	for i, tc := range testCases {
-		i, tc := i, tc
-
 		p := &MPPayment{
 			Status: tc.status,
 			State: &MPPaymentState{
@@ -901,8 +899,6 @@ func TestPaymentSetState(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
-
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -1034,8 +1030,6 @@ func TestNeedWaitAttempts(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
-
 		p := &MPPayment{
 			Info: &PaymentCreationInfo{
 				PaymentIdentifier: [32]byte{1, 2, 3},
@@ -1212,8 +1206,6 @@ func TestAllowMoreAttempts(t *testing.T) {
 	}
 
 	for i, tc := range testCases {
-		tc := tc
-
 		p := &MPPayment{
 			Info: &PaymentCreationInfo{
 				PaymentIdentifier: [32]byte{1, 2, 3},
@@ -3008,6 +3000,80 @@ func TestFetchInFlightPaymentsMultipleAttempts(t *testing.T) {
 	require.Len(t, inFlightPayments[0].HTLCs, 2)
 }
 
+// TestFetchInFlightPaymentsIncludesRetryablePayments tests that payments with
+// only failed HTLCs but no payment-level failure reason are still returned as
+// in-flight. This matches the shared payment state machine used by the router.
+func TestFetchInFlightPaymentsIncludesRetryablePayments(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	paymentDB, _ := NewTestDB(t)
+
+	preimg := genPreimage(t)
+	rhash := sha256.Sum256(preimg[:])
+	info := genPaymentCreationInfo(t, rhash)
+
+	err := paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+	require.NoError(t, err)
+
+	attempt := genAttemptWithHash(t, 0, genSessionKey(t), rhash)
+	_, err = paymentDB.RegisterAttempt(ctx, info.PaymentIdentifier, attempt)
+	require.NoError(t, err)
+
+	_, err = paymentDB.FailAttempt(
+		ctx, info.PaymentIdentifier, attempt.AttemptID,
+		&HTLCFailInfo{Reason: HTLCFailUnreadable},
+	)
+	require.NoError(t, err)
+
+	payment, err := paymentDB.FetchPayment(ctx, info.PaymentIdentifier)
+	require.NoError(t, err)
+	require.Equal(t, StatusInFlight, payment.Status)
+
+	inFlightPayments, err := paymentDB.FetchInFlightPayments(ctx)
+	require.NoError(t, err)
+
+	inFlightHashes := make(map[lntypes.Hash]struct{}, len(inFlightPayments))
+	for _, p := range inFlightPayments {
+		inFlightHashes[p.Info.PaymentIdentifier] = struct{}{}
+	}
+
+	require.Contains(t, inFlightHashes, info.PaymentIdentifier)
+}
+
+// TestFetchInFlightPaymentsIncludesInitiatedPayments tests that payments which
+// have been initialized but have not yet registered an HTLC are still returned
+// as non-terminal payments.
+func TestFetchInFlightPaymentsIncludesInitiatedPayments(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	paymentDB, _ := NewTestDB(t)
+
+	preimg := genPreimage(t)
+	rhash := sha256.Sum256(preimg[:])
+	info := genPaymentCreationInfo(t, rhash)
+
+	err := paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+	require.NoError(t, err)
+
+	payment, err := paymentDB.FetchPayment(ctx, info.PaymentIdentifier)
+	require.NoError(t, err)
+	require.Equal(t, StatusInitiated, payment.Status)
+
+	inFlightPayments, err := paymentDB.FetchInFlightPayments(ctx)
+	require.NoError(t, err)
+
+	inFlightHashes := make(map[lntypes.Hash]struct{}, len(inFlightPayments))
+	for _, p := range inFlightPayments {
+		inFlightHashes[p.Info.PaymentIdentifier] = struct{}{}
+	}
+
+	require.Contains(t, inFlightHashes, info.PaymentIdentifier)
+}
+
 // TestRouteFirstHopData tests that Route.FirstHopAmount and
 // Route.FirstHopWireCustomRecords are correctly stored and retrieved.
 func TestRouteFirstHopData(t *testing.T) {
@@ -3116,6 +3182,41 @@ func TestRegisterAttemptWithAMP(t *testing.T) {
 	require.Equal(t, rootShare, finalHop.AMP.RootShare())
 	require.Equal(t, setID, finalHop.AMP.SetID())
 	require.Equal(t, childIndex, finalHop.AMP.ChildIndex())
+}
+
+// TestRegisterAttemptPreservesAttemptHash tests that an attempt's own hash is
+// preserved independently from the payment identifier. This is especially
+// important for AMP payments where the payment identifier is the SetID and the
+// individual HTLC attempts each use their own payment hash.
+func TestRegisterAttemptPreservesAttemptHash(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	paymentDB, _ := NewTestDB(t)
+
+	setID := lntypes.Hash{1, 2, 3, 4}
+	attemptHash := lntypes.Hash{5, 6, 7, 8}
+	info := genPaymentCreationInfo(t, setID)
+
+	err := paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+	require.NoError(t, err)
+
+	attempt := genAttemptWithHash(t, 0, genSessionKey(t), attemptHash)
+	finalHopIdx := len(attempt.Route.Hops) - 1
+	attempt.Route.Hops[finalHopIdx].AMP = record.NewAMP(
+		[32]byte{9, 10, 11, 12}, setID, 99,
+	)
+
+	_, err = paymentDB.RegisterAttempt(ctx, info.PaymentIdentifier, attempt)
+	require.NoError(t, err)
+
+	payment, err := paymentDB.FetchPayment(ctx, info.PaymentIdentifier)
+	require.NoError(t, err)
+	require.Len(t, payment.HTLCs, 1)
+	require.NotNil(t, payment.HTLCs[0].Hash)
+	require.Equal(t, attemptHash, *payment.HTLCs[0].Hash)
+	require.NotEqual(t, info.PaymentIdentifier, *payment.HTLCs[0].Hash)
 }
 
 // TestRegisterAttemptWithBlindedRoute tests that blinded route data

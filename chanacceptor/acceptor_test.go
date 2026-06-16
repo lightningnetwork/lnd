@@ -134,8 +134,6 @@ func (c *channelAcceptorCtx) queryAndAssert(queries map[*lnwire.OpenChannel]*Cha
 	)
 
 	for request, expected := range queries {
-		request := request
-		expected := expected
 
 		go func() {
 			resp := c.acceptor.Accept(&ChannelAcceptRequest{

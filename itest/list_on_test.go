@@ -235,6 +235,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testNeutrino,
 	},
 	{
+		Name:     "neutrino headers import",
+		TestFunc: testNeutrinoHeadersImport,
+	},
+	{
 		Name:     "etcd failover",
 		TestFunc: testEtcdFailover,
 	},
@@ -452,12 +456,20 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testForwardInterceptorRestart,
 	},
 	{
+		Name:     "delete forwarding history",
+		TestFunc: testDeleteForwardingHistory,
+	},
+	{
 		Name:     "invoice HTLC modifier basic",
 		TestFunc: testInvoiceHtlcModifierBasic,
 	},
 	{
 		Name:     "zero conf channel open",
 		TestFunc: testZeroConfChannelOpen,
+	},
+	{
+		Name:     "zero conf coop close subscribe events",
+		TestFunc: testZeroConfCoopCloseSubscribeEvents,
 	},
 	{
 		Name:     "option scid alias",
@@ -514,6 +526,10 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "simple taproot channel activation",
 		TestFunc: testSimpleTaprootChannelActivation,
+	},
+	{
+		Name:     "simple taproot final channel activation",
+		TestFunc: testSimpleTaprootFinalChannelActivation,
 	},
 	{
 		Name:     "wallet import pubkey",
@@ -728,6 +744,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testGraphMigration,
 	},
 	{
+		Name:     "payment migration",
+		TestFunc: testPaymentMigration,
+	},
+	{
 		Name:     "payment address mismatch",
 		TestFunc: testWrongPaymentAddr,
 	},
@@ -782,6 +802,10 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "estimate on chain fee auto selected inputs",
 		TestFunc: testEstimateOnChainFeeAutoSelectedInputs,
+	},
+	{
+		Name:     "postgres network separation",
+		TestFunc: testPostgresNetworkSeparation,
 	},
 }
 

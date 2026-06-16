@@ -172,7 +172,6 @@ func TestTxNotifierRegistrationValidation(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 		success := t.Run(testCase.name, func(t *testing.T) {
 			hintCache := newMockHintCache()
 			n := chainntnfs.NewTxNotifier(
@@ -1943,14 +1942,18 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 	// the height hints should remain unchanged. This simulates blocks
 	// confirming while the historical dispatch is processing the
 	// registration.
-	hint, err := hintCache.QueryConfirmHint(ntfn1.HistoricalDispatch.ConfRequest)
+	_, err = hintCache.QueryConfirmHint(
+		ntfn1.HistoricalDispatch.ConfRequest,
+	)
 	if err != chainntnfs.ErrConfirmHintNotFound {
 		t.Fatalf("unexpected error when querying for height hint "+
 			"want: %v, got %v",
 			chainntnfs.ErrConfirmHintNotFound, err)
 	}
 
-	hint, err = hintCache.QueryConfirmHint(ntfn2.HistoricalDispatch.ConfRequest)
+	_, err = hintCache.QueryConfirmHint(
+		ntfn2.HistoricalDispatch.ConfRequest,
+	)
 	if err != chainntnfs.ErrConfirmHintNotFound {
 		t.Fatalf("unexpected error when querying for height hint "+
 			"want: %v, got %v",
@@ -1979,7 +1982,9 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 	// Now that both notifications are waiting at tip for confirmations,
 	// they should have their height hints updated to the latest block
 	// height.
-	hint, err = hintCache.QueryConfirmHint(ntfn1.HistoricalDispatch.ConfRequest)
+	hint, err := hintCache.QueryConfirmHint(
+		ntfn1.HistoricalDispatch.ConfRequest,
+	)
 	require.NoError(t, err, "unable to query for hint")
 	if hint != tx1Height {
 		t.Fatalf("expected hint %d, got %d",

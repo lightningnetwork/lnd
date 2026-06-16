@@ -249,3 +249,46 @@ func TestCustomRecordsMergedCopy(t *testing.T) {
 		})
 	}
 }
+
+// TestAddOptAppendsOnlyWhenSet checks that AddOpt is a no-op for an empty
+// optional and appends a producer when the optional is populated.
+func TestAddOptAppendsOnlyWhenSet(t *testing.T) {
+	t.Parallel()
+
+	var producers []tlv.RecordProducer
+
+	emptyOpt := tlv.OptionalRecordT[tlv.TlvType1, uint16]{}
+	AddOpt(&producers, emptyOpt)
+	require.Empty(t, producers)
+
+	setOpt := tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType1, uint16](42),
+	)
+	AddOpt(&producers, setOpt)
+	require.Len(t, producers, 1)
+
+	rec := producers[0].Record()
+	require.Equal(t, tlv.Type(1), rec.Type())
+}
+
+// TestSetOptFromMapUsesTypeMapPresence verifies that SetOptFromMap populates
+// only when the TLV type is present in the TypeMap.
+func TestSetOptFromMapUsesTypeMapPresence(t *testing.T) {
+	t.Parallel()
+
+	present := tlv.TypeMap{tlv.Type(1): nil}
+	missing := tlv.TypeMap{}
+
+	var target tlv.OptionalRecordT[tlv.TlvType1, uint16]
+	SetOptFromMap(
+		missing, &target,
+		tlv.NewPrimitiveRecord[tlv.TlvType1, uint16](7),
+	)
+	require.True(t, target.IsNone())
+
+	SetOptFromMap(
+		present, &target,
+		tlv.NewPrimitiveRecord[tlv.TlvType1, uint16](7),
+	)
+	require.True(t, target.IsSome())
+}

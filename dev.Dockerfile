@@ -18,7 +18,13 @@ RUN apk add --no-cache --update alpine-sdk \
 COPY . /go/src/github.com/lightningnetwork/lnd
 
 #  Install/build lnd.
-RUN cd /go/src/github.com/lightningnetwork/lnd \
+# Note: When using `docker build`, setting the environmental variable
+# `DOCKER_BUILDKIT=1` is required to enable
+# [BuildKit](https://docs.docker.com/build/buildkit)
+# so that the cache mounts can be used.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    cd /go/src/github.com/lightningnetwork/lnd \
     &&  make \
     &&  make install-all tags="signrpc walletrpc chainrpc invoicesrpc peersrpc kvdb_sqlite"
 

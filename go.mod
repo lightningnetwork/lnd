@@ -201,6 +201,9 @@ require (
 // TODO(elle): remove once the gossip V2 sqldb changes have been made.
 replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 
+// TODO(erickcestari): remove once tor is re-tagged.
+replace github.com/lightningnetwork/lnd/tor => ./tor
+
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.36.11-hex-display

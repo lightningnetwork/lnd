@@ -111,6 +111,23 @@ perform an RBF again in the coming blocks.
 for the first time, unless its budget has been used up, `TxPublisher` will
 guarantee that the initial publish meets the RBF requirements.
 
+`TxPublisher` is also responsible for diagnosing failures that require access to
+the exact transaction candidate and the chain backend's mempool acceptance
+oracle. If `testmempoolaccept` reports missing inputs, `TxPublisher` uses spend
+notifications to identify inputs spent by another transaction and reports them
+as `TxUnknownSpend`. If a multi-input batch is rejected with an unattributed
+non-fee mempool or script error, `TxPublisher` can build no-broadcast probe
+transactions for subsets of the original inputs to identify any input that fails
+by itself. Probe transactions are only tested for mempool acceptance; they are
+not published, stored, or monitored.
+
+`UtxoSweeper` owns pending input state and applies these diagnoses. Missing or
+unknown-spent inputs are removed through the existing `TxUnknownSpend` flow. For
+diagnosed mempool/script failures, only singleton inputs reported as bad are
+marked fatal; the remaining inputs in the batch are marked publish-failed so
+they can be retried by normal clustering. If probing is skipped or inconclusive,
+the batch remains retryable unless the failure is a singleton fatal error.
+
 #### `FeeFunction`
 
 `FeeFunction` is an interface that specifies a function over a starting fee
@@ -210,4 +227,3 @@ outputs minus the sum of their budgets. By default, 50% of this value is used
 as the budget, to customize it, either use
 `--sweeper.budget.anchorcpfp` to specify sats, or use
 `--sweeper.budget.anchorcpfpratio` to specify a ratio.
-

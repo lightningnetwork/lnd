@@ -290,6 +290,10 @@ type BumpResult struct {
 	// current tx to be failed.
 	SpentInputs map[wire.OutPoint]*wire.MsgTx
 
+	// BadInput is the input that failed a singleton mempool acceptance
+	// probe. It is nil if no bad input was diagnosed.
+	BadInput *wire.OutPoint
+
 	// requestID is the ID of the request that created this record.
 	requestID uint64
 }
@@ -1265,6 +1269,39 @@ func (t *TxPublisher) handleTxConfirmed(r *monitorRecord) {
 	t.handleResult(result)
 }
 
+// handleBadInputs handles a non-fee mempool rejection by trying to identify a
+// single input that fails mempool acceptance by itself.
+func (t *TxPublisher) handleBadInputs(r *monitorRecord,
+	err error) *BumpResult {
+
+	result := &BumpResult{
+		Err:       err,
+		requestID: r.requestID,
+	}
+
+	if !t.shouldDiagnoseBadInputs(r, err) {
+		result.Event = TxFatal
+
+		return result
+	}
+
+	badInput, probeErr := t.findBadInput(r)
+	if errors.Is(probeErr, ErrInputMissing) {
+		return t.handleMissingInputs(r)
+	}
+
+	result.Event = TxFailed
+	result.FeeRate = r.feeFunction.FeeRate()
+
+	if probeErr != nil {
+		return result
+	}
+
+	result.BadInput = &badInput
+
+	return result
+}
+
 // handleInitialTxError takes the error from `initializeTx` and decides the
 // bump event. It will construct a BumpResult and handles it.
 func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
@@ -1317,15 +1354,11 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	case errors.Is(err, ErrInputMissing):
 		result = t.handleMissingInputs(r)
 
-	// Otherwise this is not a fee-related error and the tx cannot be
-	// retried. In that case we will fail ALL the inputs in this tx, which
-	// means they will be removed from the sweeper and never be tried
-	// again.
-	//
-	// TODO(yy): Find out which input is causing the failure and fail that
-	// one only.
+	// Otherwise this may be a non-fee mempool rejection. For multi-input
+	// batches, try to isolate singleton bad inputs before deciding whether
+	// the whole set is fatal.
 	default:
-		result.Event = TxFatal
+		result = t.handleBadInputs(r, err)
 	}
 
 	t.handleResult(result)

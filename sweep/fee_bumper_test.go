@@ -1054,6 +1054,56 @@ func TestFindBadInputStopsOnPolicyProbeError(t *testing.T) {
 	m.wallet.AssertNumberOfCalls(t, "CheckMempoolAcceptance", 2)
 }
 
+// TestHandleBadInputsDiagnosesBadInput checks that a multi-input mempool script
+// failure becomes TxFailed with the singleton input that fails its probe.
+func TestHandleBadInputsDiagnosesBadInput(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(4)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	feeRate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("FeeRate").Return(feeRate)
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(&input.Script{}, nil).Times(4)
+
+	inputs := req.Inputs
+	badInput := inputs[1]
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0], inputs[1])),
+	).Return(
+		chain.ErrScriptVerifyFlag,
+	).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0])),
+	).Return(nil).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[1])),
+	).Return(chain.ErrScriptVerifyFlag).Once()
+
+	initialErr := fmt.Errorf(
+		"%w: %w", errMempoolRejected, chain.ErrScriptVerifyFlag,
+	)
+
+	result := tp.handleBadInputs(record, initialErr)
+
+	require.Equal(t, TxFailed, result.Event)
+	require.ErrorIs(t, result.Err, chain.ErrScriptVerifyFlag)
+	require.NotNil(t, result.BadInput)
+	require.Equal(t, badInput.OutPoint(), *result.BadInput)
+	require.Equal(t, feeRate, result.FeeRate)
+	m.wallet.AssertNotCalled(t, "PublishTransaction", mock.Anything,
+		mock.Anything)
+}
+
 // TestTxPublisherBroadcast checks the internal `broadcast` method behaves as
 // expected.
 func TestTxPublisherBroadcast(t *testing.T) {

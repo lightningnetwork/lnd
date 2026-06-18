@@ -388,8 +388,11 @@ type mockers struct {
 	feeFunc *MockFeeFunction
 }
 
-// createTestPublisher creates a new tx publisher using the provided mockers.
-func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
+// createTestPublisherWithAux creates a new tx publisher using the provided
+// mockers and aux sweeper option.
+func createTestPublisherWithAux(t *testing.T,
+	auxSweeper fn.Option[AuxSweeper]) (*TxPublisher, *mockers) {
+
 	// Create a mock fee estimator.
 	estimator := &chainfee.MockEstimator{}
 
@@ -427,10 +430,22 @@ func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
 		Signer:     m.signer,
 		Wallet:     m.wallet,
 		Notifier:   m.notifier,
-		AuxSweeper: fn.Some[AuxSweeper](&MockAuxSweeper{}),
+		AuxSweeper: auxSweeper,
 	})
 
 	return tp, m
+}
+
+// createTestPublisher creates a new tx publisher using the provided mockers.
+func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
+	return createTestPublisherWithAux(
+		t, fn.Some[AuxSweeper](&MockAuxSweeper{}),
+	)
+}
+
+// createTestPublisherNoAux creates a new tx publisher without an aux sweeper.
+func createTestPublisherNoAux(t *testing.T) (*TxPublisher, *mockers) {
+	return createTestPublisherWithAux(t, fn.None[AuxSweeper]())
 }
 
 // TestCreateAndCheckTx checks `createAndCheckTx` behaves as expected.
@@ -706,6 +721,115 @@ func TestCreateRBFCompliantTx(t *testing.T) {
 			require.NotEmpty(t, rec.fee)
 		})
 	}
+}
+
+// createBadInputTestRequest creates a bump request with the given number of
+// inputs and enough budget for subset probes.
+func createBadInputTestRequest(numInputs int) *BumpRequest {
+	inputs := make([]input.Input, 0, numInputs)
+	for i := 0; i < numInputs; i++ {
+		inp := createTestInput(10_000, input.WitnessKeyHash)
+		inputs = append(inputs, &inp)
+	}
+
+	return &BumpRequest{
+		DeliveryAddress: changePkScript,
+		Inputs:          inputs,
+		Budget:          btcutil.Amount(10_000),
+	}
+}
+
+// TestShouldDiagnoseBadInputsMempoolError checks that multi-input mempool
+// rejections are eligible for bad-input diagnosis.
+func TestShouldDiagnoseBadInputsMempoolError(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(2)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+	err := fmt.Errorf("%w: %w", errMempoolRejected, errDummy)
+
+	diagnose := tp.shouldDiagnoseBadInputs(record, err)
+
+	require.True(t, diagnose)
+}
+
+// TestShouldDiagnoseBadInputsNoFeeFunction checks that records without a fee
+// function keep the existing whole-set failure handling.
+func TestShouldDiagnoseBadInputsNoFeeFunction(t *testing.T) {
+	t.Parallel()
+
+	tp, _ := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(2)
+	record := &monitorRecord{
+		requestID: 1,
+		req:       req,
+	}
+	err := fmt.Errorf("%w: %w", errMempoolRejected, errDummy)
+
+	diagnose := tp.shouldDiagnoseBadInputs(record, err)
+
+	require.False(t, diagnose)
+}
+
+// TestShouldDiagnoseBadInputsNonMempoolError checks that non-mempool errors
+// keep their existing fatal handling.
+func TestShouldDiagnoseBadInputsNonMempoolError(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(2)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	diagnose := tp.shouldDiagnoseBadInputs(record, errDummy)
+
+	require.False(t, diagnose)
+}
+
+// TestShouldDiagnoseBadInputsSingleton checks that singleton rejections are not
+// probed because the rejected input is already identified.
+func TestShouldDiagnoseBadInputsSingleton(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(1)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+	err := fmt.Errorf("%w: %w", errMempoolRejected, errDummy)
+
+	diagnose := tp.shouldDiagnoseBadInputs(record, err)
+
+	require.False(t, diagnose)
+}
+
+// TestShouldDiagnoseBadInputsAuxSweeper checks that aux sweeps are not probed
+// with subsets because the aux sweeper owns custom input-set logic.
+func TestShouldDiagnoseBadInputsAuxSweeper(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisher(t)
+	req := createBadInputTestRequest(2)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+	err := fmt.Errorf("%w: %w", errMempoolRejected, errDummy)
+
+	diagnose := tp.shouldDiagnoseBadInputs(record, err)
+
+	require.False(t, diagnose)
 }
 
 // TestTxPublisherBroadcast checks the internal `broadcast` method behaves as

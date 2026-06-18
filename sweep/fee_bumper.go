@@ -756,6 +756,17 @@ func (t *TxPublisher) probeInputSet(r *monitorRecord,
 	return err
 }
 
+// isInputScriptFailure returns true for mempool failures that can be attributed
+// to a single input's script or witness data.
+func isInputScriptFailure(err error) bool {
+	return errors.Is(err, chain.ErrScriptVerifyFlag) ||
+		errors.Is(err, chain.ErrNonMandatoryScriptVerifyFlag) ||
+		errors.Is(err, chain.ErrBadWitnessNonStandard) ||
+		errors.Is(err, chain.ErrScriptSigNotPushOnly) ||
+		errors.Is(err, chain.ErrScriptSigSize) ||
+		errors.Is(err, chain.ErrNonStandardInputs)
+}
+
 // handleMissingInputs handles the case when the chain backend reports back a
 // missing inputs error, which could happen when one of the input has been spent
 // in another tx, or the input is referencing an orphan. When the input is

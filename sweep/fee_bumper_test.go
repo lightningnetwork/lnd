@@ -915,6 +915,71 @@ func TestProbeInputSetPolicyError(t *testing.T) {
 		mock.Anything)
 }
 
+// TestIsInputScriptFailure checks that only input script or standardness errors
+// are treated as identifying bad inputs.
+func TestIsInputScriptFailure(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "script verify",
+			err:      chain.ErrScriptVerifyFlag,
+			expected: true,
+		},
+		{
+			name: "non mandatory script verify",
+			err: fmt.Errorf(
+				"wrapped: %w",
+				chain.ErrNonMandatoryScriptVerifyFlag,
+			),
+			expected: true,
+		},
+		{
+			name:     "bad witness non standard",
+			err:      chain.ErrBadWitnessNonStandard,
+			expected: true,
+		},
+		{
+			name:     "script sig not push only",
+			err:      chain.ErrScriptSigNotPushOnly,
+			expected: true,
+		},
+		{
+			name:     "script sig size",
+			err:      chain.ErrScriptSigSize,
+			expected: true,
+		},
+		{
+			name:     "non standard inputs",
+			err:      chain.ErrNonStandardInputs,
+			expected: true,
+		},
+		{
+			name:     "insufficient fee",
+			err:      chain.ErrInsufficientFee,
+			expected: false,
+		},
+		{
+			name:     "unrelated",
+			err:      errDummy,
+			expected: false,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			isScriptFailure := isInputScriptFailure(test.err)
+			require.Equal(t, test.expected, isScriptFailure)
+		})
+	}
+}
+
 // TestTxPublisherBroadcast checks the internal `broadcast` method behaves as
 // expected.
 func TestTxPublisherBroadcast(t *testing.T) {
@@ -1007,7 +1072,6 @@ func TestTxPublisherBroadcast(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-
 		t.Run(tc.name, func(t *testing.T) {
 			tc.setupMock()
 
@@ -1139,7 +1203,6 @@ func TestRemoveResult(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-
 		t.Run(tc.name, func(t *testing.T) {
 			requestID := tc.setupRecord()
 

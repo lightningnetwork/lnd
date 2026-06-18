@@ -53,12 +53,23 @@
   channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
   `outgoing_chan_ids` field in `RouteFeeRequest`.
 
+* A new
+  [`walletrpc.SubmitPackage`](https://github.com/lightningnetwork/lnd/pull/10900)
+  RPC submits a package of related transactions (parents first, child last) to
+  the chain backend via bitcoind's `submitpackage`, allowing a zero-fee v3/TRUC
+  parent to be accepted together with a fee-paying CPFP child.
+
 ## lncli Additions
 
 * The `estimateroutefee` command now supports [restricting fee estimates to
   specific first-hop outgoing
   channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
   `--outgoing_chan_id` flag.
+
+* A new
+  [`wallet submitpackage`](https://github.com/lightningnetwork/lnd/pull/10900)
+  command submits a package of hex-encoded transactions via the new
+  `SubmitPackage` RPC.
 
 # Improvements
 

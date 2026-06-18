@@ -724,6 +724,38 @@ func (t *TxPublisher) shouldDiagnoseBadInputs(r *monitorRecord,
 	return true
 }
 
+// probeInputSet builds and mempool-tests a sweep transaction for the given
+// inputs without publishing, storing, or monitoring it.
+func (t *TxPublisher) probeInputSet(r *monitorRecord,
+	inputs []input.Input) error {
+
+	sweepCtx, err := t.createSweepTx(
+		inputs, r.req.DeliveryAddress, r.feeFunction.FeeRate(),
+	)
+	if err != nil {
+		return fmt.Errorf("create probe sweep tx: %w", err)
+	}
+
+	err = t.cfg.Wallet.CheckMempoolAcceptance(sweepCtx.tx)
+	if err == nil {
+		return nil
+	}
+
+	// Missing-input failures have a dedicated handler that can inspect the
+	// spend and retry the unspent inputs. Keep that flow distinct from the
+	// generic mempool rejection sentinel below.
+	if errors.Is(err, chain.ErrMissingInputs) {
+		log.Debugf("Probe tx %v missing inputs", sweepCtx.tx.TxHash())
+
+		return ErrInputMissing
+	}
+
+	log.Infof("Probe tx=%v with %v inputs failed mempool check: %v",
+		sweepCtx.tx.TxHash(), len(inputs), err)
+
+	return err
+}
+
 // handleMissingInputs handles the case when the chain backend reports back a
 // missing inputs error, which could happen when one of the input has been spent
 // in another tx, or the input is referencing an orphan. When the input is

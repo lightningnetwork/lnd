@@ -970,6 +970,7 @@ func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,
 	// Reschedule sweep.
 	for _, inp := range set.Inputs() {
 		op := inp.OutPoint()
+
 		pi, ok := s.inputs[op]
 		if !ok {
 			// It could be that this input is an additional wallet
@@ -1713,6 +1714,14 @@ func (s *UtxoSweeper) handleBumpEventTxFailed(resp *bumpResp) {
 			err)
 	}
 
+	// A diagnosed bad input means the publisher isolated one input via
+	// no-broadcast probes. Handle it separately so the bad input becomes
+	// fatal while the rest of the set can be retried.
+	if r.BadInput != nil {
+		s.handleBumpEventBadInputs(resp)
+		return
+	}
+
 	// NOTE: When marking the inputs as failed, we are using the input set
 	// instead of the inputs found in the tx. This is fine for current
 	// version of the sweeper because we always create a tx using ALL of
@@ -1720,6 +1729,40 @@ func (s *UtxoSweeper) handleBumpEventTxFailed(resp *bumpResp) {
 	//
 	// TODO(yy): should we also remove the failed tx from db?
 	s.markInputsPublishFailed(resp.set, resp.result.FeeRate)
+}
+
+// handleBumpEventBadInputs handles a failed tx after the fee bumper diagnosed a
+// singleton bad input using no-broadcast mempool probes.
+func (s *UtxoSweeper) handleBumpEventBadInputs(resp *bumpResp) {
+	r := resp.result
+	inputs := resp.set.Inputs()
+
+	log.Warnf("Fee bump attempt failed for requestID=%v after "+
+		"bad-input diagnosis: %v; inputs:\n%v", r.requestID, r.Err,
+		inputTypeSummary(inputs))
+
+	badInput := *r.BadInput
+	s.markInputsPublishFailed(resp.set, r.FeeRate)
+
+	// A diagnosed bad input should be one of the inputs tracked by the
+	// sweeper. Keep this guard defensive in case the input reached a
+	// terminal state and was pruned before this response was handled.
+	pi, ok := s.inputs[badInput]
+	if !ok {
+		log.Errorf("Diagnosed bad input %v not found; skip fatal",
+			badInput)
+
+		return
+	}
+
+	if pi.terminated() {
+		log.Errorf("Skipped marking bad input=%v as fatal due to "+
+			"unexpected state=%v", badInput, pi.state)
+
+		return
+	}
+
+	s.markInputFatal(pi, nil, r.Err)
 }
 
 // handleBumpEventTxReplaced handles the case where the sweeping tx has been

@@ -52,6 +52,10 @@ var (
 	// checks. It is used internally to avoid probing unrelated construction
 	// or signing errors.
 	errMempoolRejected = errors.New("mempool rejected tx")
+
+	// errBadInputNotFound is returned when bad-input diagnosis finishes
+	// without finding a singleton input that fails mempool acceptance.
+	errBadInputNotFound = errors.New("bad input not found")
 )
 
 var (
@@ -605,10 +609,6 @@ func (t *TxPublisher) createRBFCompliantTx(
 				}
 			}
 
-		// TODO(yy): suppose there's only one bad input, we can do a
-		// binary search to find out which input is causing this error
-		// by recreating a tx using half of the inputs and check its
-		// mempool acceptance.
 		default:
 			log.Debugf("Failed to create RBF-compliant tx: %v", err)
 			return nil, err
@@ -765,6 +765,91 @@ func isInputScriptFailure(err error) bool {
 		errors.Is(err, chain.ErrScriptSigNotPushOnly) ||
 		errors.Is(err, chain.ErrScriptSigSize) ||
 		errors.Is(err, chain.ErrNonStandardInputs)
+}
+
+// findBadInput binary-searches a rejected input batch with no-broadcast
+// mempool probes to find a single input that fails by itself. Each iteration
+// probes the left half of the current set. If that half is rejected, the search
+// narrows left; otherwise it searches the right half. The search stops as
+// soon as a singleton mempool rejection is found. If the final singleton is
+// accepted, then no individual bad input could be identified.
+func (t *TxPublisher) findBadInput(r *monitorRecord) (wire.OutPoint, error) {
+	return t.findBadInputInSet(r, r.req.Inputs)
+}
+
+// findBadInputInSet searches the given input set for a single input that fails
+// mempool acceptance by itself.
+func (t *TxPublisher) findBadInputInSet(r *monitorRecord,
+	inputs []input.Input) (wire.OutPoint, error) {
+
+	if len(inputs) > 1 {
+		mid := len(inputs) / 2
+		left := inputs[:mid]
+
+		// Probe the left half first. If it is accepted, any bad
+		// singleton must be in the right half. Script and
+		// input-standardness failures narrow the search left.
+		// Missing inputs keep their dedicated handling. Policy/backend
+		// errors stop the search without marking any input fatal.
+		err := t.probeInputSet(r, left)
+		switch {
+		case err == nil:
+			return t.findBadInputInSet(r, inputs[mid:])
+
+		case errors.Is(err, ErrInputMissing):
+			return wire.OutPoint{}, ErrInputMissing
+
+		case isInputScriptFailure(err):
+			return t.findBadInputInSet(r, left)
+
+		default:
+			log.Warnf(
+				"Stopping bad-input diagnosis for "+
+					"requestID=%v: probe for %v inputs "+
+					"failed: %v",
+				r.requestID, len(left), err,
+			)
+
+			return wire.OutPoint{}, err
+		}
+	}
+
+	// No candidates remain. This is only expected for an empty input set,
+	// because recursive calls above always keep at least one input.
+	if len(inputs) == 0 {
+		return wire.OutPoint{}, errBadInputNotFound
+	}
+
+	// Exactly one candidate remains. Only a singleton script or
+	// input-standardness failure identifies the bad input. An accepted
+	// singleton means the original rejection only appears for the batch, so
+	// diagnosis terminates without marking any input fatal.
+	err := t.probeInputSet(r, inputs)
+	switch {
+	case err == nil:
+		log.Warnf(
+			"Bad-input diagnosis for requestID=%v found no "+
+				"singleton bad input",
+			r.requestID,
+		)
+
+		return wire.OutPoint{}, errBadInputNotFound
+
+	case errors.Is(err, ErrInputMissing):
+		return wire.OutPoint{}, ErrInputMissing
+
+	case isInputScriptFailure(err):
+		return inputs[0].OutPoint(), nil
+
+	default:
+		log.Warnf(
+			"Stopping bad-input diagnosis for requestID=%v: "+
+				"singleton probe failed: %v",
+			r.requestID, err,
+		)
+
+		return wire.OutPoint{}, err
+	}
 }
 
 // handleMissingInputs handles the case when the chain backend reports back a

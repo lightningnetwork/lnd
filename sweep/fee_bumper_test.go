@@ -980,6 +980,80 @@ func TestIsInputScriptFailure(t *testing.T) {
 	}
 }
 
+// TestFindBadInputIdentifiesSingleton checks that the binary search returns the
+// first singleton input that fails a mempool probe.
+func TestFindBadInputIdentifiesSingleton(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(4)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000))
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(&input.Script{}, nil).Times(4)
+
+	inputs := req.Inputs
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0], inputs[1])),
+	).Return(
+		chain.ErrScriptVerifyFlag,
+	).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0])),
+	).Return(nil).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[1])),
+	).Return(chain.ErrScriptVerifyFlag).Once()
+
+	badInput, err := tp.findBadInput(record)
+
+	require.NoError(t, err)
+	require.Equal(t, inputs[1].OutPoint(), badInput)
+	m.wallet.AssertNumberOfCalls(t, "CheckMempoolAcceptance", 3)
+}
+
+// TestFindBadInputStopsOnPolicyProbeError checks that a policy error found
+// during probing aborts diagnosis instead of marking the singleton input bad.
+func TestFindBadInputStopsOnPolicyProbeError(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(4)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000))
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(&input.Script{}, nil).Times(3)
+
+	inputs := req.Inputs
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0], inputs[1])),
+	).Return(nil).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[2])),
+	).Return(chain.ErrInsufficientFee).Once()
+
+	badInput, err := tp.findBadInput(record)
+
+	require.ErrorIs(t, err, chain.ErrInsufficientFee)
+	require.Equal(t, wire.OutPoint{}, badInput)
+	m.wallet.AssertNumberOfCalls(t, "CheckMempoolAcceptance", 2)
+}
+
 // TestTxPublisherBroadcast checks the internal `broadcast` method behaves as
 // expected.
 func TestTxPublisherBroadcast(t *testing.T) {

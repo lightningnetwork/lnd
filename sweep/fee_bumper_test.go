@@ -762,6 +762,25 @@ func createBadInputTestRequest(numInputs int) *BumpRequest {
 	}
 }
 
+// createBadInputTestRecord creates a monitored record and subscriber used by
+// initial-broadcast error tests.
+func createBadInputTestRecord(tp *TxPublisher, req *BumpRequest,
+	feeFunc FeeFunction) (*monitorRecord, chan *BumpResult) {
+
+	const requestID = uint64(1)
+	record := &monitorRecord{
+		requestID:   requestID,
+		req:         req,
+		feeFunction: feeFunc,
+	}
+
+	subscriber := make(chan *BumpResult, 1)
+	tp.subscriberChans.Store(requestID, subscriber)
+	tp.records.Store(requestID, record)
+
+	return record, subscriber
+}
+
 // TestShouldDiagnoseBadInputsMempoolError checks that multi-input mempool
 // rejections are eligible for bad-input diagnosis.
 func TestShouldDiagnoseBadInputsMempoolError(t *testing.T) {
@@ -1102,6 +1121,177 @@ func TestHandleBadInputsDiagnosesBadInput(t *testing.T) {
 	require.Equal(t, feeRate, result.FeeRate)
 	m.wallet.AssertNotCalled(t, "PublishTransaction", mock.Anything,
 		mock.Anything)
+}
+
+// TestHandleBadInputsNoSingletonBadInput checks that diagnosis keeps BadInput
+// nil when no singleton input fails by itself.
+func TestHandleBadInputsNoSingletonBadInput(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(4)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	feeRate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("FeeRate").Return(feeRate)
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(&input.Script{}, nil).Times(4)
+
+	inputs := req.Inputs
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0], inputs[1])),
+	).Return(nil).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[2])),
+	).Return(nil).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[3])),
+	).Return(nil).Once()
+
+	initialErr := fmt.Errorf("%w: %w", errMempoolRejected, errDummy)
+
+	result := tp.handleBadInputs(record, initialErr)
+
+	require.Equal(t, TxFailed, result.Event)
+	require.ErrorIs(t, result.Err, errDummy)
+	require.Nil(t, result.BadInput)
+	require.Equal(t, feeRate, result.FeeRate)
+}
+
+// TestHandleBadInputsProbeConstructionError checks that non-mempool probe
+// errors abort diagnosis and keep BadInput nil.
+func TestHandleBadInputsProbeConstructionError(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(4)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	feeRate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("FeeRate").Return(feeRate)
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(nil, errDummy).Once()
+
+	initialErr := fmt.Errorf("%w: %w", errMempoolRejected, errDummy)
+
+	result := tp.handleBadInputs(record, initialErr)
+
+	require.Equal(t, TxFailed, result.Event)
+	require.ErrorIs(t, result.Err, errDummy)
+	require.Nil(t, result.BadInput)
+	require.Equal(t, feeRate, result.FeeRate)
+	m.wallet.AssertNumberOfCalls(t, "CheckMempoolAcceptance", 0)
+}
+
+// TestHandleBadInputsProbeMissingInputs checks that a missing-input error
+// during probing aborts diagnosis and uses the existing TxUnknownSpend flow.
+func TestHandleBadInputsProbeMissingInputs(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(4)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	feeRate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("FeeRate").Return(feeRate)
+	m.feeFunc.On("Increment").Return(true, nil).Once()
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(&input.Script{}, nil).Times(2)
+
+	inputs := req.Inputs
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs[0], inputs[1])),
+	).Return(
+		chain.ErrMissingInputs,
+	).Once()
+
+	spendingTx := &wire.MsgTx{LockTime: 1}
+	for i, inp := range inputs {
+		op := inp.OutPoint()
+		spendEvent := &chainntnfs.SpendEvent{
+			Spend:  make(chan *chainntnfs.SpendDetail),
+			Cancel: func() {},
+		}
+		if i == 0 {
+			spendEvent = createTestSpendEvent(spendingTx)
+		}
+
+		m.notifier.On("RegisterSpendNtfn", &op, mock.Anything,
+			mock.Anything).Return(spendEvent, nil).Once()
+	}
+
+	initialErr := fmt.Errorf("%w: %w", errMempoolRejected, errDummy)
+
+	result := tp.handleBadInputs(record, initialErr)
+
+	require.Equal(t, TxUnknownSpend, result.Event)
+	require.ErrorIs(t, result.Err, ErrUnknownSpent)
+	require.Nil(t, result.BadInput)
+	require.Contains(t, result.SpentInputs, inputs[0].OutPoint())
+	require.Equal(t, feeRate, result.FeeRate)
+}
+
+// TestInitialMempoolFailureSingletonFatal checks that singleton non-fee mempool
+// rejections keep the existing TxFatal behavior.
+func TestInitialMempoolFailureSingletonFatal(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(1)
+	record, subscriber := createBadInputTestRecord(tp, req, m.feeFunc)
+	initialErr := fmt.Errorf("%w: %w", errMempoolRejected, errDummy)
+
+	tp.handleInitialTxError(record, initialErr)
+
+	select {
+	case result := <-subscriber:
+		require.Equal(t, TxFatal, result.Event)
+		require.Nil(t, result.BadInput)
+
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for fatal result")
+	}
+}
+
+// TestInitialMempoolFailureAuxSweeperSkipsDiagnosis checks that aux-enabled
+// sweep transactions preserve the existing whole-set fatal behavior and do not
+// run subset probes.
+func TestInitialMempoolFailureAuxSweeperSkipsDiagnosis(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisher(t)
+	req := createBadInputTestRequest(4)
+	record, subscriber := createBadInputTestRecord(tp, req, m.feeFunc)
+	initialErr := fmt.Errorf("%w: %w", errMempoolRejected, errDummy)
+
+	tp.handleInitialTxError(record, initialErr)
+
+	select {
+	case result := <-subscriber:
+		require.Equal(t, TxFatal, result.Event)
+		require.Nil(t, result.BadInput)
+
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for fatal result")
+	}
+
+	m.wallet.AssertNumberOfCalls(t, "CheckMempoolAcceptance", 0)
 }
 
 // TestTxPublisherBroadcast checks the internal `broadcast` method behaves as

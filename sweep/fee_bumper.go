@@ -893,7 +893,7 @@ func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
 	// current sweeping tx has been failed due to missing inputs, the
 	// spending tx must be a different tx, thus it should NOT be matched. We
 	// perform a sanity check here to catch the unexpected state.
-	if !t.isUnknownSpent(r, spends) {
+	if r.tx != nil && !t.isUnknownSpent(r, spends) {
 		log.Errorf("Sweeping tx %v has missing inputs, yet the "+
 			"spending tx is the sweeping tx itself: %v",
 			r.tx.TxHash(), r.spentInputs)

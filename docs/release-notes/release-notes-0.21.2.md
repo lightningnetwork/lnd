@@ -68,7 +68,18 @@
   exposes the next hop of a blinded route that identifies it by node ID
   (`next_node_id`) rather than by channel.
 
+* A new
+  [`walletrpc.SubmitPackage`](https://github.com/lightningnetwork/lnd/pull/10900)
+  RPC submits a package of related transactions (parents first, child last) to
+  the chain backend via bitcoind's `submitpackage`, allowing a zero-fee v3/TRUC
+  parent to be accepted together with a fee-paying CPFP child.
+
 ## lncli Additions
+
+* A new
+  [`wallet submitpackage`](https://github.com/lightningnetwork/lnd/pull/10900)
+  command submits a package of hex-encoded transactions via the new
+  `SubmitPackage` RPC.
 
 # Improvements
 

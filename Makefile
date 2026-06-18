@@ -213,6 +213,67 @@ docker-tools:
 	@$(call print, "Building tools docker image.")
 	docker build -q -t lnd-tools $(TOOLS_DIR)
 
+# Short commit hash of the working tree, with a `-dirty` suffix if there are
+# uncommitted changes. Unlike $(COMMIT), this never picks up submodule tags
+# like `kvdb/v1.5.1` — `/` is not a valid character in a docker image tag.
+# `--match='__no_such_tag__'` forces `git describe` to ignore all tags so
+# `--always` falls back to the short hash.
+DOCKER_DEV_COMMIT := $(shell git describe --always --dirty --match='__no_such_tag__')
+
+# Image (name:tag) produced by `docker-dev-build`. Also consumed by
+# `docker-dev-lndinit-build` so the lndinit image is always layered on
+# whatever `docker-dev-build` just built. Defaults to `lnd-dev:<short-hash>`
+# (e.g. `lnd-dev:f5a093c1f` on commit f5a093c1f).
+DOCKER_DEV_IMAGE ?= lnd-dev:$(DOCKER_DEV_COMMIT)
+
+# Repository name for the lndinit dev image; the tag is always
+# `lnd-dev-$(DOCKER_DEV_COMMIT)` so it's obvious which docker-dev-build image
+# the lndinit image was layered on.
+LNDINIT_REPO ?= lndinit
+
+# Build context (path or git URL with optional #ref) for lndinit's dev.Dockerfile.
+# NOTE: `#` is escaped as `\#` so make doesn't treat the ref as a comment.
+LNDINIT_CONTEXT ?= https://github.com/lightninglabs/lndinit.git\#main
+
+# Full lndinit image name:tag, derived from LNDINIT_REPO and DOCKER_DEV_COMMIT.
+LNDINIT_IMAGE := $(LNDINIT_REPO):lnd-dev-$(DOCKER_DEV_COMMIT)
+
+# dev.Dockerfile uses BuildKit cache mounts unconditionally, so these targets
+# always go through `docker buildx build`.
+#? docker-dev-build: Build a development docker image from dev.Dockerfile (override DOCKER_DEV_IMAGE=<name:tag>)
+docker-dev-build:
+	@$(call print, "Building dev docker image $(DOCKER_DEV_IMAGE).")
+	docker buildx build -t $(DOCKER_DEV_IMAGE) -f dev.Dockerfile .
+
+#? docker-dev-lndinit-build: Build an lndinit dev image layered on the docker-dev-build image (override LNDINIT_REPO=<name>, LNDINIT_CONTEXT=<git ref or path>)
+docker-dev-lndinit-build: docker-dev-build
+	@$(call print, "Building lndinit docker image $(LNDINIT_IMAGE) on top of $(DOCKER_DEV_IMAGE).")
+	IMG='$(DOCKER_DEV_IMAGE)'; \
+	TAG="$${IMG##*:}"; \
+	case "$$IMG" in \
+	    *:*) case "$$TAG" in */*) HAS_TAG=no ;; *) HAS_TAG=yes ;; esac ;; \
+	    *)   HAS_TAG=no ;; \
+	esac; \
+	if [ "$$HAS_TAG" != yes ]; then \
+	    echo "DOCKER_DEV_IMAGE=$$IMG has no tag; set DOCKER_DEV_IMAGE=<name>:<tag>" >&2; \
+	    exit 1; \
+	fi; \
+	CTX='$(LNDINIT_CONTEXT)'; \
+	if [ -d "$$CTX" ]; then \
+	    DOCKERFILE="$$CTX/dev.Dockerfile"; \
+	else \
+	    DOCKERFILE=dev.Dockerfile; \
+	fi; \
+	docker buildx build \
+	    --build-arg BASE_IMAGE="$${IMG%:*}" \
+	    --build-arg BASE_IMAGE_VERSION="$$TAG" \
+	    -t $(LNDINIT_IMAGE) -f "$$DOCKERFILE" "$$CTX"
+
+#? docker-dev-lndinit-build-push: Build the lndinit dev image (via docker-dev-lndinit-build) and push $(LNDINIT_IMAGE). `docker login` to that registry must already be done.
+docker-dev-lndinit-build-push: docker-dev-lndinit-build
+	@$(call print, "Pushing lndinit docker image $(LNDINIT_IMAGE).")
+	docker push $(LNDINIT_IMAGE)
+
 scratch: build
 
 
@@ -551,4 +612,7 @@ clean-docker-volumes:
 	android \
 	mobile \
 	clean \
-	clean-docker-volumes
+	clean-docker-volumes \
+	docker-dev-build \
+	docker-dev-lndinit-build \
+	docker-dev-lndinit-build-push

@@ -463,9 +463,10 @@ func TestCreateAndCheckTx(t *testing.T) {
 		mock.Anything).Return(script, nil)
 
 	testCases := []struct {
-		name        string
-		req         *BumpRequest
-		expectedErr error
+		name                string
+		req                 *BumpRequest
+		expectedErr         error
+		expectedWrappedErrs []error
 	}{
 		{
 			// When the budget cannot cover the fee, an error
@@ -486,7 +487,8 @@ func TestCreateAndCheckTx(t *testing.T) {
 				Inputs:          []input.Input{&inp},
 				Budget:          btcutil.Amount(1000),
 			},
-			expectedErr: errDummy,
+			expectedErr:         errDummy,
+			expectedWrappedErrs: []error{errMempoolRejected},
 		},
 		{
 			// When the mempool accepts the transaction, no error
@@ -514,6 +516,9 @@ func TestCreateAndCheckTx(t *testing.T) {
 
 			// Check the result is as expected.
 			require.ErrorIs(t, err, tc.expectedErr)
+			for _, expectedErr := range tc.expectedWrappedErrs {
+				require.ErrorIs(t, err, expectedErr)
+			}
 		})
 	}
 }

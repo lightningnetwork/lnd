@@ -47,6 +47,11 @@ var (
 	// ErrInputMissing is returned when a given input no longer exists,
 	// e.g., spending from an orphan tx.
 	ErrInputMissing = errors.New("input no longer exists")
+
+	// errMempoolRejected marks errors that came from mempool acceptance
+	// checks. It is used internally to avoid probing unrelated construction
+	// or signing errors.
+	errMempoolRejected = errors.New("mempool rejected tx")
 )
 
 var (
@@ -673,8 +678,8 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 		return sweepCtx, ErrInputMissing
 	}
 
-	return sweepCtx, fmt.Errorf("tx=%v failed mempool check: %w",
-		sweepCtx.tx.TxHash(), err)
+	return sweepCtx, fmt.Errorf("%w: tx=%v failed mempool check: %w",
+		errMempoolRejected, sweepCtx.tx.TxHash(), err)
 }
 
 // handleMissingInputs handles the case when the chain backend reports back a

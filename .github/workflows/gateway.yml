@@ -1,0 +1,42 @@
+name: gateway
+
+# Opt-in code-review bot. Triggered by a `/gateway <command>` comment on a PR
+# (e.g. `/gateway review`); review/approve commands are gated to maintainers.
+# Comment-commands only — no pull_request triggers — so fork PRs (which receive
+# no secrets) never spawn failing runs.
+#
+# Thin shim: the public lightninglabs/gateway-action mints an App token and
+# checks out the private gateway runtime at execution time. The runtime stays
+# private; only this entry point is public.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  # The action mints an App installation token internally; the GITHUB_TOKEN
+  # handed to this shim is unused, so we minimise it.
+  contents: read
+
+jobs:
+  review:
+    # issue_comment fires for all issues; filter to PR comments only.
+    if: ${{ github.event.issue.pull_request != null }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GATEWAY_REVIEW_MODE: multi
+    steps:
+      - uses: lightninglabs/gateway-action@fa29e3132c8af9cdabd9cedca3b1b6ece56d0982 # v0.4.3
+        with:
+          event_name:      ${{ github.event_name }}
+          event_action:    ${{ github.event.action }}
+          repo:            ${{ github.repository }}
+          pr_number:       ${{ github.event.issue.number }}
+          actor:           ${{ github.event.sender.login }}
+          comment_body:    ${{ github.event.comment.body }}
+          comment_id:      ${{ github.event.comment.id }}
+          installation_id: 140960039
+          app_id:                  ${{ secrets.GATEWAY_APP_ID }}
+          private_key:             ${{ secrets.GATEWAY_PRIVATE_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

@@ -365,6 +365,11 @@ func (d *DNSSeedBootstrapper) fallBackSRVLookup(soaShim string,
 		return nil, err
 	}
 
+	if len(addrs) == 0 {
+		return nil, fmt.Errorf("no addresses for fallback DNS seed "+
+			"shim %v", soaShim)
+	}
+
 	// Once we have the IP address, we'll establish a TCP connection using
 	// port 53.
 	dnsServer := net.JoinHostPort(addrs[0], "53")
@@ -372,6 +377,7 @@ func (d *DNSSeedBootstrapper) fallBackSRVLookup(soaShim string,
 	if err != nil {
 		return nil, err
 	}
+	_ = conn.SetDeadline(time.Now().Add(d.timeout))
 
 	dnsHost := fmt.Sprintf("_nodes._tcp.%v.", targetEndPoint)
 	dnsConn := &dns.Conn{Conn: conn}
@@ -399,13 +405,29 @@ func (d *DNSSeedBootstrapper) fallBackSRVLookup(soaShim string,
 	// that net.LookupSRV would normally return.
 	var rrs []*net.SRV
 	for _, rr := range resp.Answer {
-		srv := rr.(*dns.SRV)
+		// The answer section may contain records other than SRV
+		// (e.g. A or CNAME), so use the comma-ok form to skip any
+		// non-SRV record instead of panicking on a failed type
+		// assertion.
+		srv, ok := rr.(*dns.SRV)
+		if !ok {
+			log.Infof("Skipping non-SRV record %T in fallback "+
+				"DNS seed response for %v", rr, targetEndPoint)
+
+			continue
+		}
+
 		rrs = append(rrs, &net.SRV{
 			Target:   srv.Target,
 			Port:     srv.Port,
 			Priority: srv.Priority,
 			Weight:   srv.Weight,
 		})
+	}
+
+	if len(rrs) == 0 {
+		return nil, fmt.Errorf("no SRV records in fallback DNS seed "+
+			"response for %v", targetEndPoint)
 	}
 
 	return rrs, nil
@@ -481,7 +503,9 @@ search:
 			bechNodeHost := nodeSrv.Target
 			addrs, err := d.net.LookupHost(bechNodeHost)
 			if err != nil {
-				return nil, err
+				log.Tracef("Skipping node %v: %v",
+					bechNodeHost, err)
+				continue
 			}
 
 			if len(addrs) == 0 {
@@ -506,7 +530,9 @@ search:
 			bechNode := strings.Split(bechNodeHost, ".")
 			_, nodeBytes5Bits, err := bech32.Decode(bechNode[0])
 			if err != nil {
-				return nil, err
+				log.Tracef("Skipping node %v: %v",
+					bechNodeHost, err)
+				continue
 			}
 
 			// Once we have the bech32 decoded pubkey, we'll need
@@ -517,11 +543,15 @@ search:
 				nodeBytes5Bits, 5, 8, false,
 			)
 			if err != nil {
-				return nil, err
+				log.Tracef("Skipping node %v: %v",
+					bechNodeHost, err)
+				continue
 			}
 			nodeKey, err := btcec.ParsePubKey(nodeBytes)
 			if err != nil {
-				return nil, err
+				log.Tracef("Skipping node %v: %v",
+					bechNodeHost, err)
+				continue
 			}
 
 			// If we have an ignore list, and this node is in the

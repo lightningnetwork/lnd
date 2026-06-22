@@ -171,26 +171,35 @@ func (c *Controller) Start() error {
 
 // Stop closes the connection between the controller and the Tor server.
 func (c *Controller) Stop() error {
+	if c.conn == nil {
+		return fmt.Errorf("no connection available to the tor server")
+	}
+
 	if !atomic.CompareAndSwapInt32(&c.stopped, 0, 1) {
 		return nil
 	}
 
 	log.Info("Stopping tor controller")
 
-	// Remove the onion service.
-	if err := c.DelOnion(c.activeServiceID); err != nil {
-		log.Errorf("DEL_ONION got error: %v", err)
-		return err
+	var delOnionErr error
+
+	// Remove the onion service if one was created successfully.
+	if c.activeServiceID != "" {
+		if err := c.DelOnion(c.activeServiceID); err != nil {
+			log.Errorf("DEL_ONION got error: %v", err)
+			delOnionErr = err
+		}
 	}
 
-	// Reset service ID.
-	c.activeServiceID = ""
-
-	if c.conn == nil {
-		return fmt.Errorf("no connection available to the tor server")
+	closeErr := c.conn.Close()
+	if delOnionErr == nil || closeErr == nil {
+		// Reset service ID. If DEL_ONION failed but the control
+		// connection closed successfully, the ephemeral service is
+		// removed by Tor along with the connection.
+		c.activeServiceID = ""
 	}
 
-	return c.conn.Close()
+	return errors.Join(delOnionErr, closeErr)
 }
 
 // Reconnect makes a new socket connection between the tor controller and

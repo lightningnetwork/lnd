@@ -1,12 +1,16 @@
 package tor
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/textproto"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -116,6 +120,26 @@ func (tp *testProxy) cleanUp() {
 	if err := tp.server.Close(); err != nil {
 		log.Errorf("closing proxy server got err: %v", err)
 	}
+}
+
+// closeErrorConn is an in-memory control connection that returns a configured
+// error from Close.
+type closeErrorConn struct {
+	responses *strings.Reader
+	commands  strings.Builder
+	closeErr  error
+}
+
+func (c *closeErrorConn) Read(p []byte) (int, error) {
+	return c.responses.Read(p)
+}
+
+func (c *closeErrorConn) Write(p []byte) (int, error) {
+	return c.commands.Write(p)
+}
+
+func (c *closeErrorConn) Close() error {
+	return c.closeErr
 }
 
 // createTestProxy creates a proxy server to listen on a random address,
@@ -300,6 +324,115 @@ func TestReconnectTCMustBeRunning(t *testing.T) {
 
 	// Reconnect should fail because the TC is stopped.
 	require.Equal(t, errTCStopped, c.Reconnect())
+}
+
+// TestStopWithoutConnectionDoesNotMarkStopped checks that Stop doesn't consume
+// the one-way stopped flag if no control connection is available.
+func TestStopWithoutConnectionDoesNotMarkStopped(t *testing.T) {
+	c := &Controller{}
+
+	err := c.Stop()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no connection available")
+	require.Zero(t, c.stopped)
+}
+
+// TestStopWithoutActiveService closes the control connection without issuing a
+// DEL_ONION command if ADD_ONION never completed successfully.
+func TestStopWithoutActiveService(t *testing.T) {
+	proxy := createTestProxy(t)
+	t.Cleanup(proxy.cleanUp)
+
+	c := &Controller{
+		conn: proxy.clientConn,
+	}
+
+	require.NoError(t, c.Stop())
+
+	assertControlConnClosed(t, proxy.serverConn)
+}
+
+// TestStopClosesConnectionOnDelOnionError checks that Stop closes the control
+// connection even if Tor rejects the DEL_ONION command.
+func TestStopClosesConnectionOnDelOnionError(t *testing.T) {
+	proxy := createTestProxy(t)
+	t.Cleanup(proxy.cleanUp)
+
+	const serviceID = "fakeID"
+	c := &Controller{
+		conn:            proxy.clientConn,
+		activeServiceID: serviceID,
+	}
+
+	serverErr := make(chan error, 1)
+	go func() {
+		reader := bufio.NewReader(proxy.serverConn)
+
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			serverErr <- err
+
+			return
+		}
+
+		_, writeErr := proxy.serverConn.Write([]byte(
+			"512 Bad arguments\r\n",
+		))
+
+		expectedCmd := fmt.Sprintf("DEL_ONION %s\r\n", serviceID)
+		if line != expectedCmd {
+			serverErr <- fmt.Errorf("expected %q, got %q",
+				expectedCmd, line)
+
+			return
+		}
+
+		serverErr <- writeErr
+	}()
+
+	err := c.Stop()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid arguments")
+	require.NoError(t, <-serverErr)
+	require.Empty(t, c.activeServiceID)
+
+	assertControlConnClosed(t, proxy.serverConn)
+}
+
+// TestStopReturnsDelOnionAndCloseErrors checks that Stop preserves both
+// cleanup failures and keeps the active service ID for diagnostics.
+func TestStopReturnsDelOnionAndCloseErrors(t *testing.T) {
+	const serviceID = "fakeID"
+
+	closeErr := errors.New("close failed")
+	conn := &closeErrorConn{
+		responses: strings.NewReader("512 Bad arguments\r\n"),
+		closeErr:  closeErr,
+	}
+	c := &Controller{
+		conn:            textproto.NewConn(conn),
+		activeServiceID: serviceID,
+	}
+
+	err := c.Stop()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid arguments")
+	require.ErrorIs(t, err, closeErr)
+	require.Equal(t, serviceID, c.activeServiceID)
+	require.Equal(t, "DEL_ONION fakeID\r\n", conn.commands.String())
+}
+
+// assertControlConnClosed asserts that the control connection was closed by
+// the peer instead of timing out while waiting for data.
+func assertControlConnClosed(t *testing.T, conn net.Conn) {
+	t.Helper()
+
+	buf := make([]byte, 1)
+	require.NoError(t, conn.SetReadDeadline(
+		time.Now().Add(50*time.Millisecond),
+	))
+	_, err := conn.Read(buf)
+	require.ErrorIs(t, err, io.EOF)
 }
 
 // TestReconnectSucceed tests a reconnection will succeed when the tor

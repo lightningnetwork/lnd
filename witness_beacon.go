@@ -45,15 +45,19 @@ type preimageBeacon struct {
 	subscribers   map[uint64]*preimageSubscriber
 
 	interceptor func(htlcswitch.InterceptedForward) error
+
+	cancelInterceptor func(models.CircuitKey) error
 }
 
 func newPreimageBeacon(wCache witnessCache,
-	interceptor func(htlcswitch.InterceptedForward) error) *preimageBeacon {
+	interceptor func(htlcswitch.InterceptedForward) error,
+	cancelInterceptor func(models.CircuitKey) error) *preimageBeacon {
 
 	return &preimageBeacon{
-		wCache:      wCache,
-		interceptor: interceptor,
-		subscribers: make(map[uint64]*preimageSubscriber),
+		wCache:            wCache,
+		interceptor:       interceptor,
+		cancelInterceptor: cancelInterceptor,
+		subscribers:       make(map[uint64]*preimageSubscriber),
 	}
 }
 
@@ -65,43 +69,50 @@ func (p *preimageBeacon) SubscribeUpdates(
 	nextHopOnionBlob []byte) (*contractcourt.WitnessSubscription, error) {
 
 	p.Lock()
-	defer p.Unlock()
-
 	clientID := p.clientCounter
 	client := &preimageSubscriber{
 		updateChan: make(chan lntypes.Preimage, 10),
 		quit:       make(chan struct{}),
 	}
 
-	p.subscribers[p.clientCounter] = client
+	p.subscribers[clientID] = client
 
 	p.clientCounter++
+	p.Unlock()
 
 	srvrLog.Debugf("Creating new witness beacon subscriber, id=%v",
-		p.clientCounter)
+		clientID)
+
+	inKey := models.CircuitKey{
+		ChanID: chanID,
+		HtlcID: htlc.HtlcIndex,
+	}
 
 	sub := &contractcourt.WitnessSubscription{
 		WitnessUpdates: client.updateChan,
 		CancelSubscription: func() {
 			p.Lock()
-			defer p.Unlock()
 
 			delete(p.subscribers, clientID)
 
 			close(client.quit)
+			p.Unlock()
+
+			err := p.cancelInterceptor(inKey)
+			if err != nil {
+				srvrLog.Errorf("Cannot remove on-chain "+
+					"intercept %v: %v", inKey, err)
+			}
 		},
 	}
 
 	// Notify the htlc interceptor. There may be a client connected
 	// and willing to supply a preimage.
 	packet := &htlcswitch.InterceptedPacket{
-		Hash:           htlc.RHash,
-		IncomingExpiry: htlc.RefundTimeout,
-		IncomingAmount: htlc.Amt,
-		IncomingCircuit: models.CircuitKey{
-			ChanID: chanID,
-			HtlcID: htlc.HtlcIndex,
-		},
+		Hash:                 htlc.RHash,
+		IncomingExpiry:       htlc.RefundTimeout,
+		IncomingAmount:       htlc.Amt,
+		IncomingCircuit:      inKey,
 		OutgoingChanID:       payload.FwdInfo.NextHop,
 		OutgoingExpiry:       payload.FwdInfo.OutgoingCLTV,
 		OutgoingAmount:       payload.FwdInfo.AmountToForward,
@@ -120,6 +131,8 @@ func (p *preimageBeacon) SubscribeUpdates(
 
 	err := p.interceptor(fwd)
 	if err != nil {
+		sub.CancelSubscription()
+
 		return nil, err
 	}
 

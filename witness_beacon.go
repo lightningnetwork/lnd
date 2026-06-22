@@ -6,6 +6,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -106,6 +107,12 @@ func (p *preimageBeacon) SubscribeUpdates(
 		OutgoingAmount:       payload.FwdInfo.AmountToForward,
 		InOnionCustomRecords: payload.CustomRecords(),
 		InWireCustomRecords:  htlc.CustomRecords,
+		// Keep the on-chain intercept available to the
+		// interceptor until the HTLC expires on chain.
+		Deadline: fn.NewRight[
+			htlcswitch.OffChainAutoFailHeight,
+			htlcswitch.OnChainSettleDeadline,
+		](htlcswitch.OnChainSettleDeadline(htlc.RefundTimeout)),
 	}
 	copy(packet.OnionBlob[:], nextHopOnionBlob)
 

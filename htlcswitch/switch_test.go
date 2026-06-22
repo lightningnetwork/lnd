@@ -4210,7 +4210,7 @@ func TestInterceptableSwitchWatchDog(t *testing.T) {
 
 	require.Equal(t,
 		int32(packet.incomingTimeout-c.cltvRejectDelta),
-		intercepted.AutoFailHeight,
+		intercepted.AutoFailHeight(),
 	)
 
 	// Htlc expires before a resolution from the interceptor.

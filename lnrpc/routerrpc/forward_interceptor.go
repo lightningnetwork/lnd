@@ -96,7 +96,7 @@ func (r *forwardInterceptor) onIntercept(
 		IncomingExpiry:          htlc.IncomingExpiry,
 		CustomRecords:           htlc.InOnionCustomRecords,
 		OnionBlob:               htlc.OnionBlob[:],
-		AutoFailHeight:          htlc.AutoFailHeight,
+		AutoFailHeight:          htlc.AutoFailHeight(),
 		InWireCustomRecords:     htlc.InWireCustomRecords,
 	}
 

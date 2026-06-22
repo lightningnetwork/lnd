@@ -456,6 +456,14 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testForwardInterceptorRestart,
 	},
 	{
+		Name:     "forward interceptor on chain settle after restart",
+		TestFunc: testForwardInterceptorOnChainSettleAfterRestart,
+	},
+	{
+		Name:     "forward interceptor on chain settle no restart",
+		TestFunc: testForwardInterceptorOnChainSettleNoRestart,
+	},
+	{
 		Name:     "delete forwarding history",
 		TestFunc: testDeleteForwardingHistory,
 	},

@@ -86,6 +86,17 @@ func TestValidateOfferWrite(t *testing.T) {
 			wantErr: ErrNoIssuerIdentity,
 		},
 		{
+			name: "present-but-nil issuer_id",
+			mutate: func(o *Offer) {
+				o.OfferIssuerID = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType22](
+						(*btcec.PublicKey)(nil),
+					),
+				)
+			},
+			wantErr: ErrNilPublicKey,
+		},
+		{
 			name: "empty offer_chains",
 			mutate: func(o *Offer) {
 				o.OfferChains = tlv.SomeRecordT(
@@ -237,6 +248,18 @@ func TestValidateOfferRead(t *testing.T) {
 			name:        "happy path on bitcoin mainnet",
 			mutate:      func(*Offer) {},
 			activeChain: bitcoinMainnetGenesisHash,
+		},
+		{
+			name: "present-but-nil offer_issuer_id",
+			mutate: func(o *Offer) {
+				o.OfferIssuerID = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType22](
+						(*btcec.PublicKey)(nil),
+					),
+				)
+			},
+			activeChain: bitcoinMainnetGenesisHash,
+			wantErr:     ErrNilPublicKey,
 		},
 		{
 			name: "out-of-range TLV in decoded extras",

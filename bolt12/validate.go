@@ -30,6 +30,10 @@ var (
 	// bit is set.
 	ErrUnknownEvenFeature = errors.New("unknown even feature bit set")
 
+	// ErrNilPublicKey is returned when a public-key TLV is present but
+	// wraps a nil pointer.
+	ErrNilPublicKey = errors.New("public key present but nil")
+
 	// ErrMissingDescription is returned when offer_amount is set but
 	// offer_description is absent.
 	ErrMissingDescription = errors.New(
@@ -110,6 +114,14 @@ func isKnownOfferTLVType(typ tlv.Type) bool {
 // list a chain it operates on. Pass the genesis hash of the chain the receiver
 // is willing to settle on.
 func ValidateOfferRead(o *Offer, now time.Time, activeChain [32]byte) error {
+	// A present-but-nil offer_issuer_id passes IsSome but would panic the
+	// codec on encode, so reject it here.
+	if err := checkPubKeyNotNil(
+		o.OfferIssuerID, "offer_issuer_id",
+	); err != nil {
+		return err
+	}
+
 	// Check TLV types are in allowed range and that unknown even types are
 	// rejected (even = must-understand).
 	for _, t := range sortedTypes(o.decodedTLVs) {
@@ -236,6 +248,14 @@ func getOfferChains(o *Offer) [][32]byte {
 // ValidateOfferWrite validates an offer per the BOLT 12 offer writer
 // requirements.
 func ValidateOfferWrite(o *Offer) error {
+	// A present-but-nil offer_issuer_id passes IsSome but would panic the
+	// codec on encode, so reject it here.
+	if err := checkPubKeyNotNil(
+		o.OfferIssuerID, "offer_issuer_id",
+	); err != nil {
+		return err
+	}
+
 	// Writer MUST NOT set TLV fields outside allowed ranges. This check
 	// catches a decoded-then-mutated offer: a freshly-built struct has no
 	// decodedTLVs (Decode is the only writer of that field). The typed
@@ -266,21 +286,6 @@ func ValidateOfferWrite(o *Offer) error {
 	// Without offer_paths, MUST set offer_issuer_id.
 	if !o.OfferPaths.IsSome() && !o.OfferIssuerID.IsSome() {
 		return ErrNoIssuerIdentity
-	}
-
-	// A present-but-nil offer_issuer_id would panic in SerializeCompressed
-	// at encode time, so reject it here.
-	if err := fn.MapOptionZ(
-		o.OfferIssuerID.ValOpt(),
-		func(pk *btcec.PublicKey) error {
-			if pk == nil {
-				return fmt.Errorf("nil issuer public key")
-			}
-
-			return nil
-		},
-	); err != nil {
-		return err
 	}
 
 	// Defense in depth: writer-side mirrors of reader rejections for
@@ -406,6 +411,19 @@ func checkUTF8[T tlv.TlvType](opt tlv.OptionalRecordT[T, tlv.Blob],
 	return fn.MapOptionZ(opt.ValOpt(), func(data tlv.Blob) error {
 		if !utf8.Valid(data) {
 			return fmt.Errorf("%w: %s", ErrInvalidUTF8, name)
+		}
+
+		return nil
+	})
+}
+
+// checkPubKeyNotNil returns an error if a public key TLV is present but nil.
+func checkPubKeyNotNil[T tlv.TlvType](
+	opt tlv.OptionalRecordT[T, *btcec.PublicKey], name string) error {
+
+	return fn.MapOptionZ(opt.ValOpt(), func(pk *btcec.PublicKey) error {
+		if pk == nil {
+			return fmt.Errorf("%w: %s", ErrNilPublicKey, name)
 		}
 
 		return nil

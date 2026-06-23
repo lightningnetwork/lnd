@@ -3,8 +3,9 @@ package itest
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/txscript"
+	btcaddr "github.com/btcsuite/btcd/address/v2"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -158,7 +159,7 @@ func testCoopCloseWithExternalDelivery(ht *lntest.HarnessTest,
 	// Use ImportPublicKey.
 	case importPubkey:
 		var (
-			address     btcutil.Address
+			address     btcaddr.Address
 			pubKey      []byte
 			addressType walletrpc.AddressType
 		)
@@ -170,8 +171,8 @@ func testCoopCloseWithExternalDelivery(ht *lntest.HarnessTest,
 				// Make new address for second sub-test.
 				pk[1]++
 			}
-			address, err = btcutil.NewAddressWitnessPubKeyHash(
-				btcutil.Hash160(pk[:]), harnessNetParams,
+			address, err = btcaddr.NewAddressWitnessPubKeyHash(
+				btcaddr.Hash160(pk[:]), harnessNetParams,
 			)
 			require.NoError(ht, err)
 			pubKey = pk[:]

@@ -8,9 +8,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	btcaddr "github.com/btcsuite/btcd/address/v2"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
@@ -209,7 +210,7 @@ type WalletSweepPackage struct {
 // paying to more than one specified address.
 type DeliveryAddr struct {
 	// Addr is the address to pay to.
-	Addr btcutil.Address
+	Addr btcaddr.Address
 
 	// Amt is the amount to pay to the given address.
 	Amt btcutil.Amount
@@ -223,7 +224,7 @@ type DeliveryAddr struct {
 // utxoSource and outputLeaser as sources for wallet funds.
 func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 	blockHeight uint32, deliveryAddrs []DeliveryAddr,
-	changeAddr btcutil.Address, coinSelectLocker CoinSelectionLocker,
+	changeAddr btcaddr.Address, coinSelectLocker CoinSelectionLocker,
 	utxoSource UtxoSource, outputLeaser OutputLeaser,
 	signer input.Signer, minConfs int32,
 	selectUtxos fn.Set[wire.OutPoint]) (*WalletSweepPackage, error) {

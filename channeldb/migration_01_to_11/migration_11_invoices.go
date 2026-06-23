@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"io"
 
-	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/wire"
+	bitcoinCfg "github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	lnwire "github.com/lightningnetwork/lnd/channeldb/migration/lnwire21"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11/zpay32"
 	"github.com/lightningnetwork/lnd/kvdb"

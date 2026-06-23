@@ -3,7 +3,7 @@ package lnwire
 import (
 	"io"
 
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 )
 
 // FundingCreated is sent from Alice (the initiator) to Bob (the responder),

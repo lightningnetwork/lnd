@@ -1,6 +1,6 @@
 package models
 
-import "github.com/btcsuite/btcd/btcutil"
+import "github.com/btcsuite/btcd/btcutil/v2"
 
 // CachedEdgeInfo is a struct that only caches the information of a
 // ChannelEdgeInfo that we actually use for pathfinding and therefore need to

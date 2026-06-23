@@ -7,7 +7,7 @@ import (
 	"io"
 	"strconv"
 
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 )
 
 var (

@@ -3,15 +3,16 @@ package btcwallet
 import (
 	"fmt"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/hdkeychain"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -210,8 +211,8 @@ func (b *BtcWallet) fetchPrivKey(
 		return b.deriveKeyByLocator(keyDesc.KeyLocator)
 	}
 
-	hash160 := btcutil.Hash160(keyDesc.PubKey.SerializeCompressed())
-	addr, err := btcutil.NewAddressWitnessPubKeyHash(hash160, b.netParams)
+	hash160 := btcaddr.Hash160(keyDesc.PubKey.SerializeCompressed())
+	addr, err := btcaddr.NewAddressWitnessPubKeyHash(hash160, b.netParams)
 	if err != nil {
 		return nil, err
 	}

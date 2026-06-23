@@ -3,10 +3,10 @@ package sweep
 import (
 	"testing"
 
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	btcaddr "github.com/btcsuite/btcd/address/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -129,7 +129,7 @@ func TestWeightEstimatorMaxFee(t *testing.T) {
 func TestWeightEstimatorAddOutput(t *testing.T) {
 	testFeeRate := chainfee.SatPerKWeight(20000)
 
-	p2wkhAddr, err := btcutil.NewAddressWitnessPubKeyHash(
+	p2wkhAddr, err := btcaddr.NewAddressWitnessPubKeyHash(
 		make([]byte, 20), &chaincfg.MainNetParams,
 	)
 	require.NoError(t, err)

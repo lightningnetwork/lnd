@@ -3,34 +3,35 @@ package itest
 import (
 	"testing"
 
-	"github.com/btcsuite/btcd/btcutil"
+	btcaddr "github.com/btcsuite/btcd/address/v2"
+	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
 )
 
 func testNonstdSweep(ht *lntest.HarnessTest) {
-	p2shAddr, err := btcutil.NewAddressScriptHash(
+	p2shAddr, err := btcaddr.NewAddressScriptHash(
 		make([]byte, 1), harnessNetParams,
 	)
 	require.NoError(ht, err)
 
-	p2pkhAddr, err := btcutil.NewAddressPubKeyHash(
+	p2pkhAddr, err := btcaddr.NewAddressPubKeyHash(
 		make([]byte, 20), harnessNetParams,
 	)
 	require.NoError(ht, err)
 
-	p2wshAddr, err := btcutil.NewAddressWitnessScriptHash(
+	p2wshAddr, err := btcaddr.NewAddressWitnessScriptHash(
 		make([]byte, 32), harnessNetParams,
 	)
 	require.NoError(ht, err)
 
-	p2wkhAddr, err := btcutil.NewAddressWitnessPubKeyHash(
+	p2wkhAddr, err := btcaddr.NewAddressWitnessPubKeyHash(
 		make([]byte, 20), harnessNetParams,
 	)
 	require.NoError(ht, err)
 
-	p2trAddr, err := btcutil.NewAddressTaproot(
+	p2trAddr, err := btcaddr.NewAddressTaproot(
 		make([]byte, 32), harnessNetParams,
 	)
 	require.NoError(ht, err)

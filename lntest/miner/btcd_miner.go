@@ -9,12 +9,13 @@ import (
 	"testing"
 	"time"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcjson"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
 )
@@ -216,7 +217,7 @@ func (b *BtcdMinerBackend) GenerateAndSubmitBlock(txes []*btcutil.Tx,
 }
 
 // NewAddress generates a new address.
-func (b *BtcdMinerBackend) NewAddress() (btcutil.Address, error) {
+func (b *BtcdMinerBackend) NewAddress() (btcaddr.Address, error) {
 	return b.Harness.NewAddress()
 }
 

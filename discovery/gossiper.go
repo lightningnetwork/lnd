@@ -12,13 +12,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/neutrino/cache"
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightningnetwork/lnd/actor"
@@ -2161,7 +2162,7 @@ func (d *AuthenticatedGossiper) processRejectedEdge(_ context.Context,
 
 // fetchPKScript fetches the output script for the given SCID.
 func (d *AuthenticatedGossiper) fetchPKScript(chanID lnwire.ShortChannelID) (
-	txscript.ScriptClass, btcutil.Address, error) {
+	txscript.ScriptClass, btcaddr.Address, error) {
 
 	pkScript, err := lnwallet.FetchPKScriptWithQuit(
 		d.cfg.ChainIO, chanID, d.quit,

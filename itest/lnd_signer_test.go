@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"crypto/sha256"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
@@ -282,8 +282,8 @@ func assertSignOutputRaw(ht *lntest.HarnessTest,
 	keyDesc *signrpc.KeyDescriptor,
 	sigHash txscript.SigHashType) {
 
-	pubKeyHash := btcutil.Hash160(targetPubKey.SerializeCompressed())
-	targetAddr, err := btcutil.NewAddressWitnessPubKeyHash(
+	pubKeyHash := btcaddr.Hash160(targetPubKey.SerializeCompressed())
+	targetAddr, err := btcaddr.NewAddressWitnessPubKeyHash(
 		pubKeyHash, harnessNetParams,
 	)
 	require.NoError(ht, err)
@@ -310,7 +310,7 @@ func assertSignOutputRaw(ht *lntest.HarnessTest,
 	addrReq := &lnrpc.NewAddressRequest{Type: AddrTypeWitnessPubkeyHash}
 	p2wkhResp := alice.RPC.NewAddress(addrReq)
 
-	p2wkhAdrr, err := btcutil.DecodeAddress(
+	p2wkhAdrr, err := btcaddr.DecodeAddress(
 		p2wkhResp.Address, harnessNetParams,
 	)
 	require.NoError(ht, err)

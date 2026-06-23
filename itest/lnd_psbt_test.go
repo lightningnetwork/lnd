@@ -6,15 +6,16 @@ import (
 	"testing"
 	"time"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/hdkeychain"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -501,7 +502,7 @@ func runPsbtChanFundingSingleStep(ht *lntest.HarnessTest, private bool,
 		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 	}
 	addrResp := carol.RPC.NewAddress(req)
-	reserveAddr, err := btcutil.DecodeAddress(
+	reserveAddr, err := btcaddr.DecodeAddress(
 		addrResp.Address, harnessNetParams,
 	)
 	require.NoError(ht, err)
@@ -720,8 +721,8 @@ func runSignPsbtSegWitV0P2WKH(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 
 	addrPubKey, err := addrKey.ECPubKey()
 	require.NoError(ht, err)
-	pubKeyHash := btcutil.Hash160(addrPubKey.SerializeCompressed())
-	witnessAddr, err := btcutil.NewAddressWitnessPubKeyHash(
+	pubKeyHash := btcaddr.Hash160(addrPubKey.SerializeCompressed())
+	witnessAddr, err := btcaddr.NewAddressWitnessPubKeyHash(
 		pubKeyHash, harnessNetParams,
 	)
 	require.NoError(ht, err)
@@ -801,15 +802,15 @@ func runSignPsbtSegWitV0NP2WKH(ht *lntest.HarnessTest,
 
 	addrPubKey, err := addrKey.ECPubKey()
 	require.NoError(ht, err)
-	pubKeyHash := btcutil.Hash160(addrPubKey.SerializeCompressed())
-	witnessAddr, err := btcutil.NewAddressWitnessPubKeyHash(
+	pubKeyHash := btcaddr.Hash160(addrPubKey.SerializeCompressed())
+	witnessAddr, err := btcaddr.NewAddressWitnessPubKeyHash(
 		pubKeyHash, harnessNetParams,
 	)
 	require.NoError(ht, err)
 
 	witnessProgram, err := txscript.PayToAddrScript(witnessAddr)
 	require.NoError(ht, err)
-	np2wkhAddr, err := btcutil.NewAddressScriptHash(
+	np2wkhAddr, err := btcaddr.NewAddressScriptHash(
 		witnessProgram, harnessNetParams,
 	)
 	require.NoError(ht, err)
@@ -857,7 +858,7 @@ func runSignPsbtSegWitV1KeySpendBip86(ht *lntest.HarnessTest,
 	// Our taproot key is a BIP0086 key spend only construction that just
 	// commits to the internal key and no root hash.
 	taprootKey := txscript.ComputeTaprootKeyNoScript(internalKey)
-	tapScriptAddr, err := btcutil.NewAddressTaproot(
+	tapScriptAddr, err := btcaddr.NewAddressTaproot(
 		schnorr.SerializePubKey(taprootKey), harnessNetParams,
 	)
 	require.NoError(ht, err)
@@ -905,7 +906,7 @@ func runSignPsbtSegWitV1KeySpendRootHash(ht *lntest.HarnessTest,
 
 	rootHash := leaf1.TapHash()
 	taprootKey := txscript.ComputeTaprootOutputKey(internalKey, rootHash[:])
-	tapScriptAddr, err := btcutil.NewAddressTaproot(
+	tapScriptAddr, err := btcaddr.NewAddressTaproot(
 		schnorr.SerializePubKey(taprootKey), harnessNetParams,
 	)
 	require.NoError(ht, err)
@@ -953,7 +954,7 @@ func runSignPsbtSegWitV1ScriptSpend(ht *lntest.HarnessTest,
 
 	rootHash := leaf1.TapHash()
 	taprootKey := txscript.ComputeTaprootOutputKey(internalKey, rootHash[:])
-	tapScriptAddr, err := btcutil.NewAddressTaproot(
+	tapScriptAddr, err := btcaddr.NewAddressTaproot(
 		schnorr.SerializePubKey(taprootKey), harnessNetParams,
 	)
 	require.NoError(ht, err)
@@ -1178,7 +1179,7 @@ func runFundPsbt(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 // addressToPkScript parses the given address string and returns the pkScript
 // for the regtest environment.
 func addressToPkScript(t testing.TB, addr string) []byte {
-	parsed, err := btcutil.DecodeAddress(addr, harnessNetParams)
+	parsed, err := btcaddr.DecodeAddress(addr, harnessNetParams)
 	require.NoError(t, err)
 
 	pkScript, err := txscript.PayToAddrScript(parsed)

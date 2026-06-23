@@ -9,12 +9,13 @@ import (
 	"testing"
 	"time"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
@@ -1736,7 +1737,7 @@ func (h *HarnessTest) OpenChannelPsbt(srcNode, destNode *node.HarnessNode,
 
 	// Make sure the channel funding address has the correct type for the
 	// given commitment type.
-	fundingAddr, err := btcutil.DecodeAddress(
+	fundingAddr, err := btcaddr.DecodeAddress(
 		upd.PsbtFund.FundingAddress, miner.HarnessNetParams,
 	)
 	require.NoError(h, err)
@@ -1745,11 +1746,11 @@ func (h *HarnessTest) OpenChannelPsbt(srcNode, destNode *node.HarnessNode,
 	case lnrpc.CommitmentType_SIMPLE_TAPROOT,
 		lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL:
 
-		require.IsType(h, &btcutil.AddressTaproot{}, fundingAddr)
+		require.IsType(h, &btcaddr.AddressTaproot{}, fundingAddr)
 
 	default:
 		require.IsType(
-			h, &btcutil.AddressWitnessScriptHash{}, fundingAddr,
+			h, &btcaddr.AddressWitnessScriptHash{}, fundingAddr,
 		)
 	}
 

@@ -3,7 +3,7 @@ package invoicesrpc
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnwire"
 )

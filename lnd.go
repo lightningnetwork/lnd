@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btcsuite/btcd/btcutil"
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
@@ -571,7 +571,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			DB:             dbs.TowerServerDB,
 			EpochRegistrar: activeChainControl.ChainNotifier,
 			Net:            cfg.net,
-			NewAddress: func() (btcutil.Address, error) {
+			NewAddress: func() (btcaddr.Address, error) {
 				return activeChainControl.Wallet.NewAddress(
 					lnwallet.TaprootPubkey, false,
 					lnwallet.DefaultAccountName,

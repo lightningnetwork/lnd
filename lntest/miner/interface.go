@@ -3,10 +3,11 @@ package miner
 import (
 	"time"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcjson"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 )
 
 // MinerBackend defines the interface for different miner backend
@@ -77,7 +78,7 @@ type MinerBackend interface {
 		blockTime time.Time) (*btcutil.Block, error)
 
 	// NewAddress generates a new address.
-	NewAddress() (btcutil.Address, error)
+	NewAddress() (btcaddr.Address, error)
 
 	// P2PAddress returns the P2P address of the miner.
 	P2PAddress() string

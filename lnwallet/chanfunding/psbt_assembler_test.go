@@ -10,12 +10,13 @@ import (
 	"testing"
 	"time"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -69,7 +70,7 @@ func TestPsbtIntent(t *testing.T) {
 	)
 	require.NoError(t, err, "error calculating script")
 	witnessScriptHash := sha256.Sum256(script)
-	addr, err := btcutil.NewAddressWitnessScriptHash(
+	addr, err := btcaddr.NewAddressWitnessScriptHash(
 		witnessScriptHash[:], &params,
 	)
 	require.NoError(t, err, "unable to encode address")
@@ -190,7 +191,7 @@ func TestPsbtIntentBasePsbt(t *testing.T) {
 	)
 	require.NoError(t, err, "error calculating script")
 	witnessScriptHash := sha256.Sum256(script)
-	addr, err := btcutil.NewAddressWitnessScriptHash(
+	addr, err := btcaddr.NewAddressWitnessScriptHash(
 		witnessScriptHash[:], &params,
 	)
 	require.NoError(t, err, "unable to encode address")

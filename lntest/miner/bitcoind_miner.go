@@ -14,11 +14,12 @@ import (
 	"testing"
 	"time"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcjson"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -276,7 +277,7 @@ func (b *BitcoindMinerBackend) Start(setupChain bool,
 		return fmt.Errorf("unable to parse address: %w", err)
 	}
 
-	addr, err := btcutil.DecodeAddress(addrStr, HarnessNetParams)
+	addr, err := btcaddr.DecodeAddress(addrStr, HarnessNetParams)
 	if err != nil {
 		_ = b.stopProcess()
 		_ = b.cleanup()
@@ -756,7 +757,7 @@ func (b *BitcoindMinerBackend) GenerateAndSubmitBlock(txes []*btcutil.Tx,
 }
 
 // NewAddress generates a new address.
-func (b *BitcoindMinerBackend) NewAddress() (btcutil.Address, error) {
+func (b *BitcoindMinerBackend) NewAddress() (btcaddr.Address, error) {
 	// Use legacy addresses for compatibility with btcd.
 	//
 	// Params: label, address_type.
@@ -775,7 +776,7 @@ func (b *BitcoindMinerBackend) NewAddress() (btcutil.Address, error) {
 		return nil, fmt.Errorf("unable to parse address: %w", err)
 	}
 
-	return btcutil.DecodeAddress(addrStr, HarnessNetParams)
+	return btcaddr.DecodeAddress(addrStr, HarnessNetParams)
 }
 
 // P2PAddress returns the P2P address of the miner.

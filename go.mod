@@ -4,11 +4,16 @@ require (
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344
 	github.com/andybalholm/brotli v1.0.4
-	github.com/btcsuite/btcd v0.25.1-0.20260310163610-1c55c7c18179
-	github.com/btcsuite/btcd/btcec/v2 v2.3.6
+	github.com/btcsuite/btcd v0.26.0
+	github.com/btcsuite/btcd/address/v2 v2.0.0
+	github.com/btcsuite/btcd/btcec/v2 v2.5.0
 	github.com/btcsuite/btcd/btcutil v1.1.6
-	github.com/btcsuite/btcd/btcutil/psbt v1.1.10
-	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
+	github.com/btcsuite/btcd/btcutil/v2 v2.0.0
+	github.com/btcsuite/btcd/chaincfg/v2 v2.0.0
+	github.com/btcsuite/btcd/chainhash/v2 v2.0.0
+	github.com/btcsuite/btcd/psbt/v2 v2.0.0
+	github.com/btcsuite/btcd/txscript/v2 v2.0.0
+	github.com/btcsuite/btcd/wire/v2 v2.0.0
 	github.com/btcsuite/btclog v1.0.0
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b
 	github.com/btcsuite/btcwallet v0.16.18
@@ -19,7 +24,7 @@ require (
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f
 	github.com/davecgh/go-spew v1.1.1
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
-	github.com/gorilla/websocket v1.5.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.16.0
@@ -42,7 +47,7 @@ require (
 	github.com/lightningnetwork/lnd/queue v1.2.0
 	github.com/lightningnetwork/lnd/sqldb v1.0.13
 	github.com/lightningnetwork/lnd/ticker v1.1.1
-	github.com/lightningnetwork/lnd/tlv v1.3.2
+	github.com/lightningnetwork/lnd/tlv v1.3.3-0.20260615022959-a067468f0f45
 	github.com/lightningnetwork/lnd/tor v1.1.7
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/miekg/dns v1.1.43
@@ -65,6 +70,8 @@ require (
 	pgregory.net/rapid v1.2.0
 )
 
+require github.com/kcalvinalvin/anet v0.0.0-20251112173137-d8ddc1f6dbee // indirect
+
 require (
 	dario.cat/mergo v1.0.1 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
@@ -86,7 +93,7 @@ require (
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
-	github.com/decred/dcrd/lru v1.1.2 // indirect
+	github.com/decred/dcrd/lru v1.1.3 // indirect
 	github.com/docker/cli v28.1.1+incompatible // indirect
 	github.com/docker/docker v28.1.1+incompatible // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
@@ -102,7 +109,7 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/golang-migrate/migrate/v4 v4.17.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
-	github.com/golang/snappy v0.0.4 // indirect
+	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/btree v1.0.1 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -211,3 +218,19 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 go 1.25.11
 
 retract v0.0.2
+
+replace github.com/btcsuite/btcwallet => github.com/guggero/btcwallet v0.13.1-0.20260619113612-9ea600d63685
+
+replace github.com/btcsuite/btcwallet/wallet/txauthor => github.com/guggero/btcwallet/wallet/txauthor v1.1.1-0.20260619113612-9ea600d63685
+
+replace github.com/btcsuite/btcwallet/wallet/txrules => github.com/guggero/btcwallet/wallet/txrules v1.1.1-0.20260619113612-9ea600d63685
+
+replace github.com/btcsuite/btcwallet/wallet/txsizes => github.com/guggero/btcwallet/wallet/txsizes v1.1.1-0.20260619113612-9ea600d63685
+
+replace github.com/btcsuite/btcwallet/walletdb => github.com/guggero/btcwallet/walletdb v1.4.1-0.20260619113612-9ea600d63685
+
+replace github.com/btcsuite/btcwallet/wtxmgr => github.com/guggero/btcwallet/wtxmgr v1.3.1-0.20260619113612-9ea600d63685
+
+replace github.com/lightninglabs/neutrino => github.com/guggero/neutrino v0.11.1-0.20260619073835-e49be6c9c0ef
+
+replace github.com/lightningnetwork/lightning-onion => github.com/ellemouton/lightning-onion v1.2.1-0.20260623213731-6904fc7e08e0

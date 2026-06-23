@@ -3,10 +3,11 @@ package lntest
 import (
 	"fmt"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/lntest/miner"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -341,7 +342,7 @@ func (h *HarnessTest) GetRawTransaction(txid chainhash.Hash) *btcutil.Tx {
 }
 
 // NewMinerAddress creates a new address for the miner and asserts.
-func (h *HarnessTest) NewMinerAddress() btcutil.Address {
+func (h *HarnessTest) NewMinerAddress() btcaddr.Address {
 	return h.miner.NewMinerAddress()
 }
 

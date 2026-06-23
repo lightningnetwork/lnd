@@ -8,15 +8,16 @@ import (
 	"testing"
 	"time"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcjson"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/walletdb"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
 	"github.com/lightninglabs/neutrino"
@@ -39,7 +40,7 @@ var (
 	}
 
 	privKey, pubKey = btcec.PrivKeyFromBytes(testPrivKey)
-	addrPk, _       = btcutil.NewAddressPubKey(pubKey.SerializeCompressed(),
+	addrPk, _       = btcaddr.NewAddressPubKey(pubKey.SerializeCompressed(),
 		netParams)
 	testAddr = addrPk.AddressPubKeyHash()
 

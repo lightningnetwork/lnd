@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"testing"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -100,26 +100,26 @@ func (i testInputType) output(t *testing.T,
 	privKey *btcec.PrivateKey) (*wire.TxOut, []byte) {
 
 	var (
-		addr          btcutil.Address
+		addr          btcaddr.Address
 		witnessScript []byte
 		err           error
 	)
 	switch i {
 	case plainP2WKH:
-		h := btcutil.Hash160(privKey.PubKey().SerializeCompressed())
-		addr, err = btcutil.NewAddressWitnessPubKeyHash(h, netParams)
+		h := btcaddr.Hash160(privKey.PubKey().SerializeCompressed())
+		addr, err = btcaddr.NewAddressWitnessPubKeyHash(h, netParams)
 		require.NoError(t, err)
 
 	case tweakedP2WKH:
 		privKey = input.TweakPrivKey(privKey, testTweakSingle)
 
-		h := btcutil.Hash160(privKey.PubKey().SerializeCompressed())
-		addr, err = btcutil.NewAddressWitnessPubKeyHash(h, netParams)
+		h := btcaddr.Hash160(privKey.PubKey().SerializeCompressed())
+		addr, err = btcaddr.NewAddressWitnessPubKeyHash(h, netParams)
 		require.NoError(t, err)
 
 	case nestedP2WKH:
-		h := btcutil.Hash160(privKey.PubKey().SerializeCompressed())
-		witnessAddr, err := btcutil.NewAddressWitnessPubKeyHash(
+		h := btcaddr.Hash160(privKey.PubKey().SerializeCompressed())
+		witnessAddr, err := btcaddr.NewAddressWitnessPubKeyHash(
 			h, netParams,
 		)
 		require.NoError(t, err)
@@ -127,7 +127,7 @@ func (i testInputType) output(t *testing.T,
 		witnessProgram, err := txscript.PayToAddrScript(witnessAddr)
 		require.NoError(t, err)
 
-		addr, err = btcutil.NewAddressScriptHash(
+		addr, err = btcaddr.NewAddressScriptHash(
 			witnessProgram, netParams,
 		)
 		require.NoError(t, err)
@@ -145,7 +145,7 @@ func (i testInputType) output(t *testing.T,
 		require.NoError(t, err)
 
 		h := sha256.Sum256(witnessScript)
-		addr, err = btcutil.NewAddressWitnessScriptHash(h[:], netParams)
+		addr, err = btcaddr.NewAddressWitnessScriptHash(h[:], netParams)
 		require.NoError(t, err)
 
 	case singleKeyDoubleTweakedP2WSH:
@@ -163,7 +163,7 @@ func (i testInputType) output(t *testing.T,
 		require.NoError(t, err)
 
 		h := sha256.Sum256(witnessScript)
-		addr, err = btcutil.NewAddressWitnessScriptHash(h[:], netParams)
+		addr, err = btcaddr.NewAddressWitnessScriptHash(h[:], netParams)
 		require.NoError(t, err)
 
 	default:
@@ -189,8 +189,8 @@ func (i testInputType) decorateInput(t *testing.T, privKey *btcec.PrivateKey,
 		}}
 
 	case nestedP2WKH:
-		h := btcutil.Hash160(privKey.PubKey().SerializeCompressed())
-		witnessAddr, err := btcutil.NewAddressWitnessPubKeyHash(
+		h := btcaddr.Hash160(privKey.PubKey().SerializeCompressed())
+		witnessAddr, err := btcaddr.NewAddressWitnessPubKeyHash(
 			h, netParams,
 		)
 		require.NoError(t, err)

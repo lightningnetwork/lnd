@@ -3,13 +3,14 @@ package input_test
 import (
 	"testing"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -59,25 +60,25 @@ var (
 func TestTxWeightEstimator(t *testing.T) {
 	netParams := &chaincfg.MainNetParams
 
-	p2pkhAddr, err := btcutil.NewAddressPubKeyHash(
+	p2pkhAddr, err := btcaddr.NewAddressPubKeyHash(
 		make([]byte, 20), netParams)
 	require.NoError(t, err, "Failed to generate address")
 	p2pkhScript, err := txscript.PayToAddrScript(p2pkhAddr)
 	require.NoError(t, err, "Failed to generate scriptPubKey")
 
-	p2wkhAddr, err := btcutil.NewAddressWitnessPubKeyHash(
+	p2wkhAddr, err := btcaddr.NewAddressWitnessPubKeyHash(
 		make([]byte, 20), netParams)
 	require.NoError(t, err, "Failed to generate address")
 	p2wkhScript, err := txscript.PayToAddrScript(p2wkhAddr)
 	require.NoError(t, err, "Failed to generate scriptPubKey")
 
-	p2wshAddr, err := btcutil.NewAddressWitnessScriptHash(
+	p2wshAddr, err := btcaddr.NewAddressWitnessScriptHash(
 		make([]byte, 32), netParams)
 	require.NoError(t, err, "Failed to generate address")
 	p2wshScript, err := txscript.PayToAddrScript(p2wshAddr)
 	require.NoError(t, err, "Failed to generate scriptPubKey")
 
-	p2shAddr, err := btcutil.NewAddressScriptHash([]byte{0}, netParams)
+	p2shAddr, err := btcaddr.NewAddressScriptHash([]byte{0}, netParams)
 	require.NoError(t, err, "Failed to generate address")
 	p2shScript, err := txscript.PayToAddrScript(p2shAddr)
 	require.NoError(t, err, "Failed to generate scriptPubKey")

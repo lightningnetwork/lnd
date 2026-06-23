@@ -6,12 +6,13 @@ import (
 	"testing"
 	"time"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/hdkeychain"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/funding"
@@ -123,20 +124,20 @@ func newExternalAddr(ht *lntest.HarnessTest, funder, signer *node.HarnessNode,
 func assertExternalAddrType(t *testing.T, addrStr string,
 	accountAddrType walletrpc.AddressType) {
 
-	addr, err := btcutil.DecodeAddress(addrStr, harnessNetParams)
+	addr, err := btcaddr.DecodeAddress(addrStr, harnessNetParams)
 	require.NoError(t, err)
 
 	switch accountAddrType {
 	case walletrpc.AddressType_WITNESS_PUBKEY_HASH:
-		require.IsType(t, addr, &btcutil.AddressWitnessPubKeyHash{})
+		require.IsType(t, addr, &btcaddr.AddressWitnessPubKeyHash{})
 
 	case walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH,
 		walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
 
-		require.IsType(t, addr, &btcutil.AddressScriptHash{})
+		require.IsType(t, addr, &btcaddr.AddressScriptHash{})
 
 	case walletrpc.AddressType_TAPROOT_PUBKEY:
-		require.IsType(t, addr, &btcutil.AddressTaproot{})
+		require.IsType(t, addr, &btcaddr.AddressTaproot{})
 
 	default:
 		t.Fatalf("unsupported account addr type %v", accountAddrType)

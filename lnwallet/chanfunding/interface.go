@@ -3,9 +3,10 @@ package chanfunding
 import (
 	"time"
 
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
+	btcaddr "github.com/btcsuite/btcd/address/v2"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -115,7 +116,7 @@ type Request struct {
 
 	// ChangeAddr is a closure that will provide the Assembler with a
 	// change address for the funding transaction if needed.
-	ChangeAddr func() (btcutil.Address, error)
+	ChangeAddr func() (btcaddr.Address, error)
 
 	// Musig2 if true, then musig2 will be used to generate the funding
 	// output. By definition, this'll also use segwit v1 (taproot) for the

@@ -8,15 +8,16 @@ import (
 	"testing"
 	"time"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/hdkeychain"
-	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/integration/rpctest"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/blockcache"
@@ -229,7 +230,7 @@ func TestScriptImport(t *testing.T) {
 	builder := txscript.NewScriptBuilder()
 	builder.AddOp(txscript.OP_DUP)
 	builder.AddOp(txscript.OP_HASH160)
-	builder.AddData(btcutil.Hash160([]byte("foobar")))
+	builder.AddData(btcaddr.Hash160([]byte("foobar")))
 	builder.AddOp(txscript.OP_EQUALVERIFY)
 	script1, err := builder.Script()
 	require.NoError(t, err)

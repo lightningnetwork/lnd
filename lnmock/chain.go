@@ -3,10 +3,10 @@ package lnmock
 import (
 	"context"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcjson"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/stretchr/testify/mock"
@@ -128,15 +128,15 @@ func (m *MockChain) SendRawTransaction(tx *wire.MsgTx, allowHighFees bool) (
 	return args.Get(0).(*chainhash.Hash), args.Error(1)
 }
 
-func (m *MockChain) Rescan(startHash *chainhash.Hash, addrs []btcutil.Address,
-	outPoints map[wire.OutPoint]btcutil.Address) error {
+func (m *MockChain) Rescan(startHash *chainhash.Hash, addrs []btcaddr.Address,
+	outPoints map[wire.OutPoint]btcaddr.Address) error {
 
 	args := m.Called(startHash, addrs, outPoints)
 
 	return args.Error(0)
 }
 
-func (m *MockChain) NotifyReceived(addrs []btcutil.Address) error {
+func (m *MockChain) NotifyReceived(addrs []btcaddr.Address) error {
 	args := m.Called(addrs)
 
 	return args.Error(0)

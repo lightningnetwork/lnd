@@ -46,6 +46,15 @@
 
 ## Functional Enhancements
 
+* A new experimental, off-by-default [local reputation
+  subsystem](https://github.com/lightningnetwork/lnd/pull/10919) has been added
+  as a first step toward mitigating channel jamming (per
+  [bolts#1280](https://github.com/lightning/bolts/pull/1280)). When enabled with
+  `--routing.reputation`, it observes forwarded HTLCs to track the historical
+  behavior of peers and compute local reputation and resource-bucket decisions.
+  It is strictly **log-only**: it records its decisions but never affects HTLC
+  forwarding or the wire.
+
 ## RPC Additions
 
 * The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates

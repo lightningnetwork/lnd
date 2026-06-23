@@ -489,6 +489,25 @@ type htlcNotifier interface {
 		info channeldb.FinalHtlcInfo)
 }
 
+// ReputationManager is the read-only seam through which the switch feeds HTLC
+// forwarding lifecycle events to the (optional) local reputation subsystem.
+// It is a black box that only observes events to update internal reputation
+// state; it never affects forwarding decisions or the wire (log-only). When no
+// reputation manager is configured this is nil and the hooks are skipped.
+type ReputationManager interface {
+	// OnForward observes a forwarded HTLC at the point the switch
+	// commits to forwarding it to the outgoing channel.
+	OnForward(incoming, outgoing CircuitKey, incomingAmt,
+		outgoingAmt lnwire.MilliSatoshi, incomingCltv uint32,
+		accountable bool)
+
+	// OnSettle observes the successful resolution of a forwarded HTLC.
+	OnSettle(incoming, outgoing CircuitKey)
+
+	// OnFail observes the failed resolution of a forwarded HTLC.
+	OnFail(incoming, outgoing CircuitKey)
+}
+
 // AuxHtlcModifier is an interface that allows the sender to modify the outgoing
 // HTLC of a payment by changing the amount or the wire message tlv records.
 type AuxHtlcModifier interface {

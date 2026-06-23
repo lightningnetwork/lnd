@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -58,6 +60,48 @@ func (h *HarnessTest) WaitForBlockchainSync(hn *node.HarnessNode) {
 	}, DefaultTimeout)
 
 	require.NoError(h, err, "timeout waiting for blockchain sync")
+}
+
+// AssertNodeLogContains waits until the node's lnd.log contains the given
+// substring, failing the test if it does not appear within DefaultTimeout.
+// Logs flush asynchronously, so the file is polled. This is used to assert on
+// log-only subsystem behaviour (e.g. the read-only reputation subsystem) that
+// is not otherwise exposed over RPC.
+func (h *HarnessTest) AssertNodeLogContains(hn *node.HarnessNode,
+	substr string) {
+
+	err := wait.NoError(func() error {
+		var found bool
+		_ = filepath.WalkDir(hn.Cfg.LogDir, func(path string,
+			d os.DirEntry, err error) error {
+
+			if err != nil || d.IsDir() || found {
+				return nil
+			}
+			if filepath.Base(path) != "lnd.log" {
+				return nil
+			}
+
+			data, readErr := os.ReadFile(path)
+			if readErr == nil && strings.Contains(
+				string(data), substr,
+			) {
+
+				found = true
+			}
+
+			return nil
+		})
+
+		if found {
+			return nil
+		}
+
+		return fmt.Errorf("%s log does not contain %q", hn.Name(),
+			substr)
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout waiting for log substring %q", substr)
 }
 
 // WaitForBlockchainSyncTo waits until the node is synced to bestBlock.

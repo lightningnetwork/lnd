@@ -30,6 +30,10 @@ var (
 	// bit is set.
 	ErrUnknownEvenFeature = errors.New("unknown even feature bit set")
 
+	// ErrNilPublicKey is returned when a public-key TLV is present but wraps
+	// a nil pointer.
+	ErrNilPublicKey = errors.New("public key present but nil")
+
 	// ErrMissingDescription is returned when offer_amount is set but
 	// offer_description is absent.
 	ErrMissingDescription = errors.New(
@@ -268,13 +272,14 @@ func ValidateOfferWrite(o *Offer) error {
 		return ErrNoIssuerIdentity
 	}
 
-	// A present-but-nil offer_issuer_id would panic in SerializeCompressed
-	// at encode time, so reject it here.
+	// A present-but-nil offer_issuer_id passes IsSome but would panic the
+	// codec on encode, so reject it here.
 	if err := fn.MapOptionZ(
 		o.OfferIssuerID.ValOpt(),
 		func(pk *btcec.PublicKey) error {
 			if pk == nil {
-				return fmt.Errorf("nil issuer public key")
+				return fmt.Errorf("%w: offer_issuer_id",
+					ErrNilPublicKey)
 			}
 
 			return nil

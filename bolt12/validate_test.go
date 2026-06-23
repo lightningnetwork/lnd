@@ -86,6 +86,17 @@ func TestValidateOfferWrite(t *testing.T) {
 			wantErr: ErrNoIssuerIdentity,
 		},
 		{
+			name: "present-but-nil issuer_id",
+			mutate: func(o *Offer) {
+				o.OfferIssuerID = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType22](
+						(*btcec.PublicKey)(nil),
+					),
+				)
+			},
+			wantErr: ErrNilPublicKey,
+		},
+		{
 			name: "empty offer_chains",
 			mutate: func(o *Offer) {
 				o.OfferChains = tlv.SomeRecordT(

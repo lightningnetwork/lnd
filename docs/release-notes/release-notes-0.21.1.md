@@ -29,6 +29,12 @@
   which could default new onion service creation to the retired v2
   `NEW:RSA1024` key type that modern Tor rejects with `513 Invalid key type`.
 
+* [Fixed a panic](https://github.com/lightningnetwork/lnd/pull/10914) in the
+  DNS fallback SRV lookup, which unconditionally type-asserted each DNS Answer
+  record to `*dns.SRV` and crashed the daemon when the response contained a
+  non-SRV record. Non-SRV records are now skipped, and an empty `LookupHost`
+  result for the shim no longer triggers an out-of-bounds index.
+
 # New Features
 
 ## Functional Enhancements
@@ -71,4 +77,5 @@
 
 # Contributors (Alphabetical Order)
 
+* Erick Cestari
 * Ziggie

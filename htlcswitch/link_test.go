@@ -779,13 +779,13 @@ func testChannelLinkInboundFee(t *testing.T, //nolint:thelper
 				NextHop: n.carolChannelLink.
 					ShortChanID(),
 				AmountToForward: 1_000_000,
-				OutgoingCTLV:    106,
+				OutgoingCLTV:    106,
 			},
 		},
 		{
 			FwdInfo: hop.ForwardingInfo{
 				AmountToForward: 1_000_000,
-				OutgoingCTLV:    106,
+				OutgoingCLTV:    106,
 			},
 		},
 	}
@@ -974,7 +974,7 @@ func TestExitNodeHTLCTimelockExceedsPayload(t *testing.T) {
 	// The proper value of the outgoing CLTV should be the policy set by
 	// the receiving node, instead we set it to be a value less than the
 	// incoming HTLC timelock.
-	hops[0].FwdInfo.OutgoingCTLV = htlcExpiry - 1
+	hops[0].FwdInfo.OutgoingCLTV = htlcExpiry - 1
 	firstHop := n.firstBobChannelLink.ShortChanID()
 	_, err = makePayment(
 		n.aliceServer, n.bobServer, firstHop, hops, amount, htlcAmt,
@@ -1012,7 +1012,7 @@ func TestExitNodeTimelockPayloadExceedsHTLC(t *testing.T) {
 	// The proper value of the outgoing CLTV should be the policy set by
 	// the receiving node, instead we set it to be a value greater than the
 	// incoming HTLC timelock.
-	hops[0].FwdInfo.OutgoingCTLV = htlcExpiry + 1
+	hops[0].FwdInfo.OutgoingCLTV = htlcExpiry + 1
 	firstHop := n.firstBobChannelLink.ShortChanID()
 	_, err = makePayment(
 		n.aliceServer, n.bobServer, firstHop, hops, amount, htlcAmt,

@@ -123,7 +123,7 @@ type ForwardingPolicy struct {
 	// create the time-lock value for the forwarded outgoing HTLC. The
 	// following constraint MUST hold for an HTLC to be forwarded:
 	//
-	//  * incomingHtlc.timeLock - timeLockDelta = fwdInfo.OutgoingCTLV
+	//  * incomingHtlc.timeLock - timeLockDelta = fwdInfo.OutgoingCLTV
 	//
 	// where fwdInfo is the forwarding information extracted from the
 	// per-hop payload of the incoming HTLC's onion packet.

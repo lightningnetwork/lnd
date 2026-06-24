@@ -104,9 +104,9 @@ func TestHtlcIncomingResolverFwdContestedTimeout(t *testing.T) {
 	ctx.waitForResult(false)
 }
 
-// TestHtlcIncomingResolverFwdTimeout tests resolution of a forwarded htlc that
-// has already expired when the resolver starts.
-func TestHtlcIncomingResolverFwdTimeout(t *testing.T) {
+// TestHtlcIncomingResolverFwdExpiredPreimageKnown tests that an already-known
+// preimage is still used if the HTLC is expired when the resolver starts.
+func TestHtlcIncomingResolverFwdExpiredPreimageKnown(t *testing.T) {
 	t.Parallel()
 	defer timeout()()
 
@@ -114,7 +114,95 @@ func TestHtlcIncomingResolverFwdTimeout(t *testing.T) {
 	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
 	ctx.resolver.htlcExpiry = 90
 	ctx.resolve()
-	ctx.waitForResult(false)
+	ctx.waitForResult(true)
+}
+
+// TestHtlcIncomingResolverLaunchAfterExpiry asserts that Launch only starts
+// after expiry when we already knew or settled the preimage.
+func TestHtlcIncomingResolverLaunchAfterExpiry(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	tests := []struct {
+		name           string
+		isExit         bool
+		setup          func(*incomingResolverTestContext)
+		expectLaunch   bool
+		expectRegistry bool
+		expectPreimage bool
+	}{
+		{
+			name:           "preimage db",
+			isExit:         false,
+			expectLaunch:   true,
+			expectPreimage: true,
+			setup: func(ctx *incomingResolverTestContext) {
+				ctx.witnessBeacon.lookupPreimage[testResHash] =
+					testResPreimage
+			},
+		},
+		{
+			name:           "invoice registry replay",
+			isExit:         true,
+			expectLaunch:   true,
+			expectRegistry: true,
+			expectPreimage: true,
+			setup: func(ctx *incomingResolverTestContext) {
+				ctx.registry.notifyResolution =
+					invoices.NewSettleResolution(
+						testResPreimage,
+						testResCircuitKey,
+						testAcceptHeight,
+						invoices.ResultReplayToSettled,
+					)
+			},
+		},
+		{
+			name:           "fresh invoice settlement",
+			isExit:         true,
+			expectRegistry: true,
+			setup: func(ctx *incomingResolverTestContext) {
+				ctx.registry.notifyResolution =
+					invoices.NewSettleResolution(
+						testResPreimage,
+						testResCircuitKey,
+						testAcceptHeight,
+						invoices.ResultSettled,
+					)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := newIncomingResolverTestContext(t, test.isExit)
+			ctx.resolver.htlcExpiry = testInitialBlockHeight
+			test.setup(ctx)
+
+			require.NoError(t, ctx.resolver.Launch())
+
+			require.Equal(
+				t, test.expectLaunch, ctx.resolver.isLaunched(),
+			)
+			if test.expectPreimage {
+				require.Equal(
+					t, [32]byte(testResPreimage),
+					ctx.resolver.htlcResolution.Preimage,
+				)
+			} else {
+				require.Equal(
+					t, [32]byte{},
+					ctx.resolver.htlcResolution.Preimage,
+				)
+			}
+
+			if test.expectRegistry {
+				require.Len(t, ctx.registry.immediateNotify, 1)
+			} else {
+				require.Empty(t, ctx.registry.immediateNotify)
+			}
+		})
+	}
 }
 
 // TestHtlcIncomingResolverLaunchUsesCurrentHeight asserts that the immediate
@@ -137,6 +225,34 @@ func TestHtlcIncomingResolverLaunchUsesCurrentHeight(t *testing.T) {
 		t, ctx.chainIO.BestHeight,
 		ctx.registry.immediateNotify[0].currentHeight,
 	)
+}
+
+// TestHtlcIncomingResolverLaunchContinuesAfterLookupExpiry asserts that a
+// Launch call that settles the invoice before expiry continues with the
+// success resolver if the tip advances before registry lookup returns.
+func TestHtlcIncomingResolverLaunchContinuesAfterLookupExpiry(
+	t *testing.T) {
+
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, true)
+	ctx.registry.notifyResolution = invoices.NewSettleResolution(
+		testResPreimage, testResCircuitKey, testAcceptHeight,
+		invoices.ResultSettled,
+	)
+	ctx.registry.notifyHook = func() {
+		ctx.chainIO.BestHeight = testHtlcExpiry
+	}
+
+	require.NoError(t, ctx.resolver.Launch())
+
+	require.True(t, ctx.resolver.isLaunched())
+	require.Equal(
+		t, [32]byte(testResPreimage),
+		ctx.resolver.htlcResolution.Preimage,
+	)
+	require.Len(t, ctx.registry.immediateNotify, 1)
 }
 
 // TestHtlcIncomingResolverExitSettle tests resolution of an exit hop htlc for

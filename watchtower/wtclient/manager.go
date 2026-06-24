@@ -154,6 +154,12 @@ type Config struct {
 	// MaxTasksInMemQueue is the maximum number of backup tasks that should
 	// be kept in-memory. Any more tasks will overflow to disk.
 	MaxTasksInMemQueue uint64
+
+	// LocalTowerPubKey is the public key of the watchtower server running
+	// in the same process, or nil if no local tower is active. When set,
+	// AddTower will warn if the client attempts to register the local tower,
+	// since it shares the same failure domain as this node.
+	LocalTowerPubKey *btcec.PublicKey
 }
 
 // Manager manages the various tower clients that are active. A client is
@@ -359,6 +365,14 @@ func (m *Manager) Stop() error {
 // included will be considered when dialing it for session negotiations and
 // backups.
 func (m *Manager) AddTower(address *lnwire.NetAddress) error {
+	if m.cfg.LocalTowerPubKey != nil &&
+		address.IdentityKey.IsEqual(m.cfg.LocalTowerPubKey) {
+
+		log.Warnf("Connecting to local watchtower: " +
+			"if this node goes offline the tower will " +
+			"also be unavailable")
+	}
+
 	// We'll start by updating our persisted state, followed by the
 	// in-memory state of each client, with the new tower. This might not
 	// actually be a new tower, but it might include a new address at which

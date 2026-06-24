@@ -220,6 +220,32 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		return nil, err
 	}
 
+	finalHop := route.FinalHop()
+
+	// If payment_addr was provided inject MPP into final hop
+	if in.PaymentAddr != nil {
+		if len(in.PaymentAddr) != 32 {
+			return nil, errors.New("payment_addr must be 32 bytes")
+		}
+
+		finalHop.MPP = record.NewMPP(finalHop.AmtToForward, [32]byte(in.PaymentAddr))
+	}
+
+	// If AMP was provided inject into final hop alongside MPP record.
+	if in.AmpRecord != nil {
+		if in.PaymentAddr == nil {
+			return nil, errors.New("payment_addr must be set when " +
+				"amp_record is provided")
+		}
+
+		amp, err := UnmarshalAMP(in.AmpRecord)
+		if err != nil {
+			return nil, err
+		}
+
+		finalHop.AMP = amp
+	}
+
 	// For each valid route, we'll convert the result into the format
 	// required by the RPC system.
 	rpcRoute, err := r.MarshallRoute(route)

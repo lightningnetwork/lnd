@@ -86,6 +86,14 @@ var (
 		lnwire.MPPOptional,
 	)
 
+	ampFeatures = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.TLVOnionPayloadRequired,
+			lnwire.PaymentAddrOptional,
+			lnwire.AMPOptional,
+		), lnwire.Features,
+	)
+
 	unknownRequiredFeatures = lnwire.NewFeatureVector(
 		lnwire.NewRawFeatureVector(100), lnwire.Features,
 	)
@@ -1536,6 +1544,8 @@ func TestNewRoute(t *testing.T) {
 
 		paymentAddr fn.Option[[32]byte]
 
+		amp *record.AMP
+
 		// metadata is the payment metadata to attach to the route.
 		metadata []byte
 
@@ -1565,6 +1575,7 @@ func TestNewRoute(t *testing.T) {
 		expectError bool
 
 		expectedMPP *record.MPP
+		expectedAMP *record.AMP
 	}{
 		{
 			// For a single hop payment, no fees are expected to be paid.
@@ -1626,6 +1637,27 @@ func TestNewRoute(t *testing.T) {
 			expectedMPP: record.NewMPP(
 				100000, testPaymentAddr,
 			),
+		}, {
+			// For a two hop payment, only the fee for the first hop
+			// needs to be paid. The destination hop does not require
+			// a fee to receive the payment.
+			name:          "two hop single shot amp",
+			destFeatures:  ampFeatures,
+			paymentAddr:   fn.Some(testPaymentAddr),
+			amp:           record.NewAMP([32]byte{1}, [32]byte{2}, 0),
+			paymentAmount: 100000,
+			hops: []*models.CachedEdgePolicy{
+				createHop(0, 1000, 1000000, 10),
+				createHop(30, 1000, 1000000, 5),
+			},
+			expectedFees:          []lnwire.MilliSatoshi{130, 0},
+			expectedTimeLocks:     []uint32{1, 1},
+			expectedTotalAmount:   100130,
+			expectedTotalTimeLock: 6,
+			expectedMPP: record.NewMPP(
+				100000, testPaymentAddr,
+			),
+			expectedAMP: record.NewAMP([32]byte{1}, [32]byte{2}, 0),
 		}, {
 			// A three hop payment where the first and second hop
 			// will both charge 1 msat. The fee for the first hop
@@ -1745,6 +1777,9 @@ func TestNewRoute(t *testing.T) {
 					testCase.expectedMPP, finalHop.MPP)
 			}
 
+			require.Equal(t, testCase.expectedAMP, finalHop.AMP,
+				"Expected final hop amp field")
+
 			if !bytes.Equal(finalHop.Metadata, testCase.metadata) {
 				t.Errorf("Expected final metadata field: %v, "+
 					" but got: %v instead",
@@ -1770,6 +1805,7 @@ func TestNewRoute(t *testing.T) {
 					cltvDelta:   finalHopCLTV,
 					records:     nil,
 					paymentAddr: testCase.paymentAddr,
+					amp:         testCase.amp,
 					metadata:    testCase.metadata,
 				}, nil,
 			)

@@ -21,6 +21,7 @@ const (
 	destKey       = "0286098b97bc843372b4426d4b276cea9aa2f48f0428d6f5b66ae101befc14f8b4"
 	ignoreNodeKey = "02f274f48f3c0d590449a6776e3ce8825076ac376e470e992246eebc565ef8bb2a"
 	hintNodeKey   = "0274e7fb33eafd74fe1acb6db7680bb4aa78e9c839a6e954e38abfad680f645ef7"
+	paymentAddr   = "720eb5ee68523466ee822449296273de81eeab11093f3d5e20c50d6f557b97f4"
 
 	testMissionControlProb = 0.5
 )
@@ -37,21 +38,21 @@ var (
 // and passed onto path finding.
 func TestQueryRoutes(t *testing.T) {
 	t.Run("no mission control", func(t *testing.T) {
-		testQueryRoutes(t, false, false, true)
+		testQueryRoutes(t, false, false, true, false)
 	})
-	t.Run("no mission control and msat", func(t *testing.T) {
-		testQueryRoutes(t, false, true, true)
+	t.Run("no mission control, using msat and MPP", func(t *testing.T) {
+		testQueryRoutes(t, false, true, true, true)
 	})
 	t.Run("with mission control", func(t *testing.T) {
-		testQueryRoutes(t, true, false, true)
+		testQueryRoutes(t, true, false, true, false)
 	})
 	t.Run("no mission control bad cltv limit", func(t *testing.T) {
-		testQueryRoutes(t, false, false, false)
+		testQueryRoutes(t, false, false, false, false)
 	})
 }
 
-func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
-	setTimelock bool) {
+func testQueryRoutes(t *testing.T, useMissionControl, useMsat,
+	setTimelock, useMPP bool) {
 
 	ignoreNodeBytes, err := hex.DecodeString(ignoreNodeKey)
 	if err != nil {
@@ -87,6 +88,14 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 		},
 	}
 
+	var paymentAddrBytes []byte
+	if useMPP {
+		paymentAddrBytes, err = hex.DecodeString(paymentAddr)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	request := &lnrpc.QueryRoutesRequest{
 		PubKey:         destKey,
 		FinalCltvDelta: 100,
@@ -103,6 +112,7 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 		LastHopPubkey:     lastHop[:],
 		DestFeatures:      []lnrpc.FeatureBit{lnrpc.FeatureBit_MPP_OPT},
 		RouteHints:        rpcRouteHints,
+		PaymentAddr:       paymentAddrBytes,
 	}
 
 	amtSat := int64(100000)
@@ -189,6 +199,10 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 		}
 
 		hops := []*route.Hop{{}}
+		if useMsat {
+			hops = []*route.Hop{{AmtToForward: lnwire.MilliSatoshi(amtSat * 1000)}}
+		}
+
 		route, err := route.NewRouteFromHops(
 			req.Amount, 144, req.Source, hops,
 		)
@@ -242,6 +256,14 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 	}
 	if len(resp.Routes) != 1 {
 		t.Fatal("expected a single route response")
+	}
+
+	// If we are using MPP then we should expect the last hop to have one set
+	if useMPP {
+		finalHop := resp.Routes[0].Hops[len(resp.Routes[0].Hops)-1]
+		require.NotNil(t, finalHop.MppRecord)
+		require.Equal(t, request.PaymentAddr, finalHop.MppRecord.PaymentAddr)
+		require.Equal(t, amtSat*1000, finalHop.MppRecord.TotalAmtMsat)
 	}
 }
 

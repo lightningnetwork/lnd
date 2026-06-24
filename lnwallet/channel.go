@@ -310,7 +310,7 @@ func locateOutputIndex(p *paymentDescriptor, tx *wire.MsgTx,
 // the current state to disk, and also to locate the paymentDescriptor
 // corresponding to HTLC outputs in the commitment transaction.
 func (c *commitment) populateHtlcIndexes(chanType channeldb.ChannelType,
-	cltvs []uint32) error {
+	cltvs []uint32, sigHashDefault bool) error {
 
 	// First, we'll set up some state to allow us to locate the output
 	// index of the all the HTLCs within the commitment transaction. We
@@ -326,6 +326,7 @@ func (c *commitment) populateHtlcIndexes(chanType channeldb.ChannelType,
 		isDust := HtlcIsDust(
 			chanType, incoming, c.whoseCommit, c.feePerKw,
 			htlc.Amount.ToSatoshis(), c.dustLimit,
+			sigHashDefault,
 		)
 
 		var err error
@@ -478,6 +479,23 @@ func (c *commitment) toDiskCommit(
 	return commit
 }
 
+// IsChanSigHashDefault returns whether HTLC second-level transactions for
+// this channel use SigHashDefault.
+func (lc *LightningChannel) IsChanSigHashDefault() bool {
+	chanID := lnwire.NewChanIDFromOutPoint(
+		lc.channelState.FundingOutpoint,
+	)
+
+	return IsDeterministicHTLCs(
+		lc.channelState.ChanType,
+		lc.auxSigner,
+		HtlcSigHashReq{
+			ChanID:     fn.Some(chanID),
+			CommitBlob: lc.channelState.LocalCommitment.CustomBlob,
+		},
+	)
+}
+
 // diskHtlcToPayDesc converts an HTLC previously written to disk within a
 // commitment state to the form required to manipulate in memory within the
 // commitment struct and updateLog. This function is used when we need to
@@ -506,6 +524,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 	isDustLocal := HtlcIsDust(
 		chanType, htlc.Incoming, lntypes.Local, feeRate,
 		htlc.Amt.ToSatoshis(), lc.channelState.LocalChanCfg.DustLimit,
+		lc.IsChanSigHashDefault(),
 	)
 	localCommitKeys := commitKeys.GetForParty(lntypes.Local)
 	if !isDustLocal && localCommitKeys != nil {
@@ -523,6 +542,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 	isDustRemote := HtlcIsDust(
 		chanType, htlc.Incoming, lntypes.Remote, feeRate,
 		htlc.Amt.ToSatoshis(), lc.channelState.RemoteChanCfg.DustLimit,
+		lc.IsChanSigHashDefault(),
 	)
 	remoteCommitKeys := commitKeys.GetForParty(lntypes.Remote)
 	if !isDustRemote && remoteCommitKeys != nil {
@@ -999,7 +1019,19 @@ func NewLightningChannel(signer input.Signer,
 		commitChains:  commitChains,
 		channelState:  state,
 		commitBuilder: NewCommitmentBuilder(
-			state, opts.leafStore,
+			state, opts.leafStore, IsDeterministicHTLCs(
+				state.ChanType, opts.auxSigner,
+				HtlcSigHashReq{
+					ChanID: fn.Some(
+						lnwire.NewChanIDFromOutPoint(
+							state.FundingOutpoint,
+						),
+					),
+					CommitBlob: state.
+						LocalCommitment.
+						CustomBlob,
+				},
+			),
 		),
 		updateLogs:           updateLogs,
 		Capacity:             state.Capacity,
@@ -1158,6 +1190,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 		isDustRemote := HtlcIsDust(
 			lc.channelState.ChanType, false, lntypes.Remote,
 			feeRate, wireMsg.Amount.ToSatoshis(), remoteDustLimit,
+			lc.IsChanSigHashDefault(),
 		)
 		if !isDustRemote {
 			auxLeaf := fn.FlatMapOption(
@@ -2002,6 +2035,12 @@ type HtlcRetribution struct {
 	// ResolutionBlob is a blob used for aux channels that permits a
 	// spender of this output to claim all funds.
 	ResolutionBlob fn.Option[tlv.Blob]
+
+	// ResolveReq is the resolution request template used to generate
+	// the ResolutionBlob. It is preserved so the breach arbiter can
+	// re-resolve with a different witness type when an HTLC is taken
+	// to the second level.
+	ResolveReq *ResolutionReq
 }
 
 // BreachRetribution contains all the data necessary to bring a channel
@@ -2096,7 +2135,8 @@ type BreachRetribution struct {
 func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	breachHeight uint32, spendTx *wire.MsgTx,
 	leafStore fn.Option[AuxLeafStore],
-	auxResolver fn.Option[AuxContractResolver]) (*BreachRetribution,
+	auxResolver fn.Option[AuxContractResolver],
+	auxSigner fn.Option[AuxSigner]) (*BreachRetribution,
 	error) {
 
 	// Query the on-disk revocation log for the snapshot which was recorded
@@ -2142,7 +2182,14 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 	auxResult, err := fn.MapOptionZ(
 		leafStore, func(s AuxLeafStore) fn.Result[CommitDiffAuxResult] {
-			return s.FetchLeavesFromRevocation(revokedLog)
+			return s.FetchLeavesFromRevocation(
+				RevocationLeavesReq{
+					Revocation: revokedLog,
+					ChanState:  NewAuxChanState(chanState),
+					Keys:       *keyRing,
+					CommitTx:   spendTx,
+				},
+			)
 		},
 	).Unpack()
 	if err != nil {
@@ -2192,6 +2239,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		br, ourAmt, theirAmt, err = createBreachRetribution(
 			revokedLog, spendTx, chanState, keyRing,
 			commitmentSecret, leaseExpiry, auxResult.AuxLeaves,
+			auxResolver, breachHeight,
 		)
 		if err != nil {
 			return nil, err
@@ -2206,7 +2254,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		// are confident that no legacy format is in use.
 		br, ourAmt, theirAmt, err = createBreachRetributionLegacy(
 			revokedLogLegacy, chanState, keyRing, commitmentSecret,
-			ourScript, theirScript, leaseExpiry,
+			ourScript, theirScript, leaseExpiry, auxResolver,
+			auxSigner, breachHeight,
 		)
 		if err != nil {
 			return nil, err
@@ -2396,8 +2445,10 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 func createHtlcRetribution(chanState *channeldb.OpenChannel,
 	keyRing *CommitmentKeyRing, commitHash chainhash.Hash,
 	commitmentSecret *btcec.PrivateKey, leaseExpiry uint32,
-	htlc *channeldb.HTLCEntry,
-	auxLeaves fn.Option[CommitAuxLeaves]) (HtlcRetribution, error) {
+	htlc *channeldb.HTLCEntry, auxLeaves fn.Option[CommitAuxLeaves],
+	spendTx *wire.MsgTx, auxResolver fn.Option[AuxContractResolver],
+	revokedLog *channeldb.RevocationLog,
+	breachHeight uint32) (HtlcRetribution, error) {
 
 	var emptyRetribution HtlcRetribution
 
@@ -2500,6 +2551,143 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 		copy(secondLevelTapTweak[:], scriptTree.TapTweak())
 	}
 
+	// Determine the witness type for this HTLC revocation based on the
+	// channel type and whether it's incoming or outgoing.
+	var htlcWitnessType input.StandardWitnessType
+	isTaproot := chanState.ChanType.IsTaproot()
+	switch {
+	case isTaproot && htlc.Incoming.Val:
+		htlcWitnessType = input.TaprootHtlcAcceptedRevoke
+
+	case isTaproot && !htlc.Incoming.Val:
+		htlcWitnessType = input.TaprootHtlcOfferedRevoke
+
+	case !isTaproot && htlc.Incoming.Val:
+		htlcWitnessType = input.HtlcAcceptedRevoke
+
+	case !isTaproot && !htlc.Incoming.Val:
+		htlcWitnessType = input.HtlcOfferedRevoke
+	}
+
+	// Only taproot channels can be modified by aux channels, so we
+	// only need to resolve the aux blob for taproot channel types.
+	var resolutionBlob fn.Option[tlv.Blob]
+	var savedResolveReq *ResolutionReq
+	if isTaproot {
+		htlcIDOpt := fn.MapOption(
+			func(v tlv.BigSizeT[uint64]) input.HtlcIndex {
+				return v.Int()
+			},
+		)(htlc.HtlcIndex.ValOpt())
+
+		cs := chanState
+		resolveReq := ResolutionReq{
+			ChanPoint:           cs.FundingOutpoint,
+			ChanType:            cs.ChanType,
+			ShortChanID:         cs.ShortChanID(),
+			Initiator:           cs.IsInitiator,
+			FundingBlob:         cs.CustomBlob,
+			Type:                htlcWitnessType,
+			CloseType:           Breach,
+			CommitTx:            spendTx,
+			CommitTxBlockHeight: breachHeight,
+			SignDesc:            signDesc,
+			KeyRing:             keyRing,
+			CsvDelay:            theirDelay,
+			CommitFee:           cs.RemoteCommitment.CommitFee,
+			HtlcAmt:             htlc.Amt.Val.Int(),
+			PayHash: fn.Some(
+				[32]byte(htlc.RHash.Val),
+			),
+			HtlcID:    htlcIDOpt,
+			CltvDelay: fn.Some(htlc.RefundTimeout.Val),
+		}
+
+		// Populate the AuxSigDesc if the HTLC has custom
+		// records containing aux signatures. We look for two
+		// types:
+		//
+		// 1. revocationAuxSigType: the remote party's sig for
+		//    THEIR OWN commitment's second-level HTLCs (sent
+		//    in RevokeAndAck). This is the correct sig for
+		//    reconstructing the breach proof chain.
+		//
+		// 2. htlcCustomSigType: the remote party's sig for
+		//    OUR local commitment (sent in CommitSig). This
+		//    is a fallback for backward compatibility.
+		htlc.CustomBlob.WhenSome(
+			func(r tlv.RecordT[tlv.TlvType5, tlv.Blob]) {
+				customRecords, err := lnwire.
+					ParseCustomRecords(r.Val)
+				if err != nil {
+					return
+				}
+
+				// Extract both the primary and alternate
+				// revocation aux sigs.
+				revSigType := revocationAuxSigType.TypeVal()
+				auxSig := customRecords[uint64(revSigType)]
+				altSigType := revocationAuxSigAltType.TypeVal()
+				auxSigAlt := customRecords[uint64(altSigType)]
+
+				// Fall back to the CommitSig aux sig.
+				if len(auxSig) == 0 {
+					sigType := htlcCustomSigType.TypeVal()
+					auxSig = customRecords[uint64(sigType)]
+				}
+
+				if len(auxSig) > 0 {
+					// Construct the sign desc for
+					// the second-level tx proof.
+					sd := input.SignDescriptor{
+						KeyDesc: chanState.
+							LocalChanCfg.
+							HtlcBasePoint,
+						SingleTweak: keyRing.
+							LocalHtlcKeyTweak,
+						SignMethod: input.TaprootScriptSpendSignMethod, //nolint:ll
+					}
+
+					details := input.SignDetails{
+						SignDesc: sd,
+					}
+					resolveReq.AuxSigDesc = fn.Some(
+						AuxSigDesc{
+							AuxSig:      auxSig,
+							AuxSigAlt:   auxSigAlt,
+							SignDetails: details,
+						},
+					)
+				}
+			},
+		)
+		if revokedLog != nil {
+			resolveReq.CommitBlob = revokedLog.CustomBlob.ValOpt()
+		}
+
+		resolveBlob := fn.MapOptionZ(
+			auxResolver,
+			func(a AuxContractResolver) fn.Result[tlv.Blob] {
+				return a.ResolveContract(resolveReq)
+			},
+		)
+		if err := resolveBlob.Err(); err != nil {
+			return emptyRetribution, fmt.Errorf("unable to "+
+				"aux resolve HTLC: %w", err)
+		}
+
+		resolutionBlob = resolveBlob.OkToSome()
+
+		// Save the resolve request template so the breach arbiter
+		// can re-resolve when an HTLC is taken to second level.
+		// We deep-copy the key ring to prevent any potential
+		// mutation from affecting the saved request.
+		keyRingCopy := *keyRing
+		resolveReqCopy := resolveReq
+		resolveReqCopy.KeyRing = &keyRingCopy
+		savedResolveReq = &resolveReqCopy
+	}
+
 	return HtlcRetribution{
 		SignDesc: signDesc,
 		OutPoint: wire.OutPoint{
@@ -2509,6 +2697,8 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 		SecondLevelWitnessScript: secondLevelWitnessScript,
 		IsIncoming:               htlc.Incoming.Val,
 		SecondLevelTapTweak:      secondLevelTapTweak,
+		ResolutionBlob:           resolutionBlob,
+		ResolveReq:               savedResolveReq,
 	}, nil
 }
 
@@ -2522,9 +2712,9 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 	spendTx *wire.MsgTx, chanState *channeldb.OpenChannel,
 	keyRing *CommitmentKeyRing, commitmentSecret *btcec.PrivateKey,
-	leaseExpiry uint32,
-	auxLeaves fn.Option[CommitAuxLeaves]) (*BreachRetribution, int64, int64,
-	error) {
+	leaseExpiry uint32, auxLeaves fn.Option[CommitAuxLeaves],
+	auxResolver fn.Option[AuxContractResolver],
+	breachHeight uint32) (*BreachRetribution, int64, int64, error) {
 
 	commitHash := revokedLog.CommitTxHash
 
@@ -2533,7 +2723,8 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 	for i, htlc := range revokedLog.HTLCEntries {
 		hr, err := createHtlcRetribution(
 			chanState, keyRing, commitHash.Val,
-			commitmentSecret, leaseExpiry, htlc, auxLeaves,
+			commitmentSecret, leaseExpiry, htlc, auxLeaves, spendTx,
+			auxResolver, revokedLog, breachHeight,
 		)
 		if err != nil {
 			return nil, 0, 0, err
@@ -2639,8 +2830,10 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 	chanState *channeldb.OpenChannel, keyRing *CommitmentKeyRing,
 	commitmentSecret *btcec.PrivateKey,
-	ourScript, theirScript input.ScriptDescriptor,
-	leaseExpiry uint32) (*BreachRetribution, int64, int64, error) {
+	ourScript, theirScript input.ScriptDescriptor, leaseExpiry uint32,
+	auxResolver fn.Option[AuxContractResolver],
+	auxSigner fn.Option[AuxSigner],
+	breachHeight uint32) (*BreachRetribution, int64, int64, error) {
 
 	commitHash := revokedLog.CommitTx.TxHash()
 	ourOutpoint := wire.OutPoint{
@@ -2673,6 +2866,14 @@ func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 			chainfee.SatPerKWeight(revokedLog.FeePerKw),
 			htlc.Amt.ToSatoshis(),
 			chanState.RemoteChanCfg.DustLimit,
+			IsDeterministicHTLCs(
+				chanState.ChanType,
+				auxSigner,
+				HtlcSigHashReq{
+					CommitBlob: chanState.
+						LocalCommitment.CustomBlob,
+				},
+			),
 		) {
 
 			continue
@@ -2687,6 +2888,7 @@ func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 			chanState, keyRing, commitHash,
 			commitmentSecret, leaseExpiry, entry,
 			fn.None[CommitAuxLeaves](),
+			revokedLog.CommitTx, auxResolver, nil, breachHeight,
 		)
 		if err != nil {
 			return nil, 0, 0, err
@@ -2718,6 +2920,7 @@ func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 func HtlcIsDust(chanType channeldb.ChannelType,
 	incoming bool, whoseCommit lntypes.ChannelParty,
 	feePerKw chainfee.SatPerKWeight, htlcAmt, dustLimit btcutil.Amount,
+	sigHashDefault bool,
 ) bool {
 
 	// First we'll determine the fee required for this HTLC based on if this is
@@ -2729,25 +2932,25 @@ func HtlcIsDust(chanType channeldb.ChannelType,
 	// If this is an incoming HTLC on our commitment transaction, then the
 	// second-level transaction will be a success transaction.
 	case incoming && whoseCommit.IsLocal():
-		htlcFee = HtlcSuccessFee(chanType, feePerKw)
+		htlcFee = HtlcSuccessFee(chanType, feePerKw, sigHashDefault)
 
 	// If this is an incoming HTLC on their commitment transaction, then
 	// we'll be using a second-level timeout transaction as they've added
 	// this HTLC.
 	case incoming && whoseCommit.IsRemote():
-		htlcFee = HtlcTimeoutFee(chanType, feePerKw)
+		htlcFee = HtlcTimeoutFee(chanType, feePerKw, sigHashDefault)
 
 	// If this is an outgoing HTLC on our commitment transaction, then
 	// we'll be using a timeout transaction as we're the sender of the
 	// HTLC.
 	case !incoming && whoseCommit.IsLocal():
-		htlcFee = HtlcTimeoutFee(chanType, feePerKw)
+		htlcFee = HtlcTimeoutFee(chanType, feePerKw, sigHashDefault)
 
 	// If this is an outgoing HTLC on their commitment transaction, then
 	// we'll be using an HTLC success transaction as they're the receiver
 	// of this HTLC.
 	case !incoming && whoseCommit.IsRemote():
-		htlcFee = HtlcSuccessFee(chanType, feePerKw)
+		htlcFee = HtlcSuccessFee(chanType, feePerKw, sigHashDefault)
 	}
 
 	return (htlcAmt - htlcFee) < dustLimit
@@ -2979,7 +3182,8 @@ func (lc *LightningChannel) fetchCommitmentView(
 	// locations of each HTLC in the commitment state. We pass in the sorted
 	// slice of CLTV deltas in order to properly locate HTLCs that otherwise
 	// have the same payment hash and amount.
-	err = c.populateHtlcIndexes(lc.channelState.ChanType, commitTx.cltvs)
+	err = c.populateHtlcIndexes(lc.channelState.ChanType, commitTx.cltvs,
+		lc.IsChanSigHashDefault())
 	if err != nil {
 		return nil, err
 	}
@@ -3337,7 +3541,8 @@ func (lc *LightningChannel) evaluateNoOpHtlc(entry *paymentDescriptor,
 func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 	chanState *channeldb.OpenChannel, leaseExpiry uint32,
 	remoteCommitView *commitment,
-	leafStore fn.Option[AuxLeafStore]) ([]SignJob, []AuxSigJob,
+	leafStore fn.Option[AuxLeafStore],
+	auxSigner fn.Option[AuxSigner]) ([]SignJob, []AuxSigJob,
 	chan struct{}, error) {
 
 	var (
@@ -3350,7 +3555,15 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 	txHash := remoteCommitView.txn.TxHash()
 	dustLimit := remoteChanCfg.DustLimit
 	feePerKw := remoteCommitView.feePerKw
-	sigHashType := HtlcSigHashType(chanType)
+	sigHashReq := HtlcSigHashReq{
+		ChanID: fn.Some(lnwire.NewChanIDFromOutPoint(
+			chanState.FundingOutpoint,
+		)),
+		CommitBlob: chanState.LocalCommitment.CustomBlob,
+	}
+	sigHashType := ResolveHtlcSigHashType(
+		chanType, auxSigner, sigHashReq,
+	)
 
 	// With the keys generated, we'll make a slice with enough capacity to
 	// hold potentially all the HTLCs. The actual slice may be a bit
@@ -3380,10 +3593,14 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 	// For each outgoing and incoming HTLC, if the HTLC isn't considered a
 	// dust output after taking into account second-level HTLC fees, then a
 	// sigJob will be generated and appended to the current batch.
+	sigHashDefault := IsDeterministicHTLCs(
+		chanType, auxSigner, sigHashReq,
+	)
 	for _, htlc := range remoteCommitView.incomingHTLCs {
 		if HtlcIsDust(
 			chanType, true, lntypes.Remote, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
+			sigHashDefault,
 		) {
 
 			continue
@@ -3400,7 +3617,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		// HTLC timeout transaction for them. The output of the timeout
 		// transaction needs to account for fees, so we'll compute the
 		// required fee and output now.
-		htlcFee := HtlcTimeoutFee(chanType, feePerKw)
+		htlcFee := HtlcTimeoutFee(chanType, feePerKw, sigHashDefault)
 		outputAmt := htlc.Amount.ToSatoshis() - htlcFee
 
 		auxLeaf := fn.FlatMapOption(
@@ -3460,13 +3677,15 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 
 		auxSigBatch = append(auxSigBatch, NewAuxSigJob(
 			sigJob, *keyRing, true, newAuxHtlcDescriptor(&htlc),
-			remoteCommitView.customBlob, auxLeaf, cancelChan,
+			remoteCommitView.customBlob, auxLeaf,
+			lntypes.Remote, cancelChan,
 		))
 	}
 	for _, htlc := range remoteCommitView.outgoingHTLCs {
 		if HtlcIsDust(
 			chanType, false, lntypes.Remote, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
+			sigHashDefault,
 		) {
 
 			continue
@@ -3481,7 +3700,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		// HTLC success transaction for them. The output of the timeout
 		// transaction needs to account for fees, so we'll compute the
 		// required fee and output now.
-		htlcFee := HtlcSuccessFee(chanType, feePerKw)
+		htlcFee := HtlcSuccessFee(chanType, feePerKw, sigHashDefault)
 		outputAmt := htlc.Amount.ToSatoshis() - htlcFee
 
 		auxLeaf := fn.FlatMapOption(
@@ -3542,11 +3761,887 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 
 		auxSigBatch = append(auxSigBatch, NewAuxSigJob(
 			sigJob, *keyRing, false, newAuxHtlcDescriptor(&htlc),
-			remoteCommitView.customBlob, auxLeaf, cancelChan,
+			remoteCommitView.customBlob, auxLeaf,
+			lntypes.Remote, cancelChan,
 		))
 	}
 
 	return sigBatch, auxSigBatch, cancelChan, nil
+}
+
+// revocationAuxSigType is the TLV type used to store the remote party's
+// aux signatures for their own second-level HTLCs in the HTLC
+// CustomRecords within the revocation log. We use a different type than
+// htlcCustomSigType to avoid collisions with the sigs the remote sent
+// for OUR local commitment (stored during genHtlcSigValidationJobs).
+var revocationAuxSigType tlv.TlvType65637
+
+// revocationAuxSigAltType stores the alternate spending path's AuxSig.
+// For incoming HTLCs, the primary is success and alt is timeout.
+// For outgoing HTLCs, the primary is timeout and alt is success.
+var revocationAuxSigAltType tlv.TlvType65639
+
+// revocationAuxSigEntry holds a single HTLC's revocation AuxSigs tagged with
+// its HTLC index, so the receiver can match sigs to HTLCs unambiguously
+// regardless of HTLC ordering differences between local and remote views.
+//
+// On the wire, each entry is encoded as a TLV stream with three records
+// (HtlcIndex / PrimarySig / AltSig). The full blob is a BigSize-prefixed
+// count followed by length-prefixed entry streams — TLV streams aren't
+// natively self-delimiting at the list level, so we wrap each entry with
+// its byte length so the decoder can frame the next entry.
+type revocationAuxSigEntry struct {
+	htlcIndex  uint64
+	primarySig []byte
+	altSig     []byte
+}
+
+// encode writes the entry as a TLV stream.
+func (e *revocationAuxSigEntry) encode(w io.Writer) error {
+	htlcIdx := e.htlcIndex
+	primary := e.primarySig
+	alt := e.altSig
+
+	stream, err := tlv.NewStream(
+		tlv.MakePrimitiveRecord(0, &htlcIdx),
+		tlv.MakePrimitiveRecord(1, &primary),
+		tlv.MakePrimitiveRecord(2, &alt),
+	)
+	if err != nil {
+		return err
+	}
+
+	return stream.Encode(w)
+}
+
+// decode reads the entry from a TLV stream.
+func (e *revocationAuxSigEntry) decode(r io.Reader) error {
+	stream, err := tlv.NewStream(
+		tlv.MakePrimitiveRecord(0, &e.htlcIndex),
+		tlv.MakePrimitiveRecord(1, &e.primarySig),
+		tlv.MakePrimitiveRecord(2, &e.altSig),
+	)
+	if err != nil {
+		return err
+	}
+
+	return stream.Decode(r)
+}
+
+// packRevocationAuxSigs encodes a list of HTLC-index-tagged sig pairs into a
+// single blob. Format: BigSize count + repeated [BigSize entryLen +
+// entry-TLV-stream] records. Each entry's TLV stream carries records 0
+// (HtlcIndex), 1 (PrimarySig), 2 (AltSig).
+func packRevocationAuxSigs(entries []revocationAuxSigEntry) ([]byte, error) {
+	var (
+		buf     bytes.Buffer
+		scratch [8]byte
+	)
+
+	if err := tlv.WriteVarInt(
+		&buf, uint64(len(entries)), &scratch,
+	); err != nil {
+		return nil, fmt.Errorf("write entry count: %w", err)
+	}
+
+	for i := range entries {
+		var inner bytes.Buffer
+		if err := entries[i].encode(&inner); err != nil {
+			return nil, fmt.Errorf("encode entry %d: %w", i, err)
+		}
+
+		if err := tlv.WriteVarInt(
+			&buf, uint64(inner.Len()), &scratch,
+		); err != nil {
+			return nil, fmt.Errorf("write entry %d length: %w",
+				i, err)
+		}
+		if _, err := buf.Write(inner.Bytes()); err != nil {
+			return nil, fmt.Errorf("write entry %d bytes: %w",
+				i, err)
+		}
+	}
+
+	return buf.Bytes(), nil
+}
+
+// unpackRevocationAuxSigs decodes a blob produced by packRevocationAuxSigs
+// into a map of HTLC index → (primarySig, altSig).
+func unpackRevocationAuxSigs(
+	blob []byte) (map[uint64]revocationAuxSigEntry, error) {
+
+	r := bytes.NewReader(blob)
+	var scratch [8]byte
+
+	count, err := tlv.ReadVarInt(r, &scratch)
+	if err != nil {
+		return nil, fmt.Errorf("read entry count: %w", err)
+	}
+
+	result := make(map[uint64]revocationAuxSigEntry, count)
+	for i := uint64(0); i < count; i++ {
+		entryLen, err := tlv.ReadVarInt(r, &scratch)
+		if err != nil {
+			return nil, fmt.Errorf("read entry %d length: %w",
+				i, err)
+		}
+
+		inner := io.LimitReader(r, int64(entryLen))
+		var entry revocationAuxSigEntry
+		if err := entry.decode(inner); err != nil {
+			return nil, fmt.Errorf("decode entry %d: %w", i, err)
+		}
+
+		result[entry.htlcIndex] = entry
+	}
+
+	return result, nil
+}
+
+// injectRevocationAuxSigs takes the packed aux sig blob from a RevokeAndAck
+// and injects individual HTLC sigs into the remote commitment's HTLC entries.
+// This must be called before AdvanceCommitChainTail so the sigs are persisted
+// in the revocation log.
+func (lc *LightningChannel) injectRevocationAuxSigs(auxSigBlob []byte) {
+	sigMap, err := unpackRevocationAuxSigs(auxSigBlob)
+	if err != nil {
+		lc.log.Warnf("Unable to unpack revocation aux sigs: %v", err)
+		return
+	}
+
+	if len(sigMap) == 0 {
+		return
+	}
+
+	primaryType := revocationAuxSigType.TypeVal()
+	altType := revocationAuxSigAltType.TypeVal()
+	htlcs := lc.channelState.RemoteCommitment.Htlcs
+	// Match sigs to HTLCs by HTLC index.
+	for i := range htlcs {
+		entry, ok := sigMap[htlcs[i].HtlcIndex]
+		if !ok {
+			continue
+		}
+
+		if htlcs[i].CustomRecords == nil {
+			htlcs[i].CustomRecords = make(lnwire.CustomRecords)
+		}
+		if len(entry.primarySig) > 0 {
+			htlcs[i].CustomRecords[uint64(primaryType)] =
+				entry.primarySig
+		}
+		if len(entry.altSig) > 0 {
+			htlcs[i].CustomRecords[uint64(altType)] =
+				entry.altSig
+		}
+	}
+}
+
+// verifyRevocationAuxSigs verifies the aux sigs received in a RevokeAndAck
+// message. It derives the same key ring that the breach-time code will use
+// (DeriveCommitmentKeys with whoseCommit=Remote and our local configs) and
+// verifies the signatures against the remote commitment's HTLCs. If the
+// signatures don't verify now, they won't work at breach time either.
+//
+// The commitPoint must be the RemoteCurrentRevocation BEFORE it is rotated.
+func (lc *LightningChannel) verifyRevocationAuxSigs(
+	auxSigBlob []byte, commitPoint *btcec.PublicKey) error {
+
+	// If there's no aux signer, nothing to verify.
+	if lc.auxSigner.IsNone() {
+		return nil
+	}
+
+	auxSigner, _ := lc.auxSigner.UnwrapOrErr(
+		fmt.Errorf("no aux signer"),
+	)
+
+	// Unpack the HTLC-index-tagged blob.
+	sigMap, err := unpackRevocationAuxSigs(auxSigBlob)
+	if err != nil {
+		return fmt.Errorf("unable to unpack revocation aux sigs "+
+			"for verification: %w", err)
+	}
+
+	if len(sigMap) == 0 {
+		return nil
+	}
+
+	// Get the remote commitment view (about to be revoked).
+	remoteCommitView := lc.commitChains.Remote.tail()
+	if remoteCommitView == nil {
+		return nil
+	}
+
+	numHTLCs := len(remoteCommitView.incomingHTLCs) +
+		len(remoteCommitView.outgoingHTLCs)
+	if numHTLCs == 0 {
+		return nil
+	}
+
+	// Derive the key ring the same way the breach code does.
+	keyRing := DeriveCommitmentKeys(
+		commitPoint, lntypes.Remote,
+		lc.channelState.ChanType,
+		&lc.channelState.LocalChanCfg,
+		&lc.channelState.RemoteChanCfg,
+	)
+
+	chanState := lc.channelState
+	chanType := chanState.ChanType
+	remoteChanCfg := chanState.RemoteChanCfg
+	feePerKw := remoteCommitView.feePerKw
+	dustLimit := remoteChanCfg.DustLimit
+
+	sigHashReq := HtlcSigHashReq{
+		ChanID: fn.Some(lnwire.NewChanIDFromOutPoint(
+			chanState.FundingOutpoint,
+		)),
+		CommitBlob: chanState.RemoteCommitment.CustomBlob,
+	}
+	sigHashDefault := IsDeterministicHTLCs(
+		chanType, lc.auxSigner, sigHashReq,
+	)
+
+	// Fetch aux leaves for the remote commitment.
+	diskCommit := remoteCommitView.toDiskCommit(lntypes.Remote)
+	auxResult, err := fn.MapOptionZ(
+		lc.leafStore,
+		func(s AuxLeafStore) fn.Result[CommitDiffAuxResult] {
+			return s.FetchLeavesFromCommit(
+				NewAuxChanState(chanState), *diskCommit,
+				*keyRing, lntypes.Remote,
+			)
+		},
+	).Unpack()
+	if err != nil {
+		return fmt.Errorf("unable to fetch aux leaves for "+
+			"revocation verification: %w", err)
+	}
+
+	// Build verify jobs for both spending paths of each non-dust
+	// HTLC, matched by HTLC index from the unpacked sig map.
+	type htlcEntry struct {
+		htlc     *paymentDescriptor
+		incoming bool
+	}
+	var htlcList []htlcEntry
+	for i := range remoteCommitView.incomingHTLCs {
+		htlcList = append(htlcList, htlcEntry{
+			htlc:     &remoteCommitView.incomingHTLCs[i],
+			incoming: true,
+		})
+	}
+	for i := range remoteCommitView.outgoingHTLCs {
+		htlcList = append(htlcList, htlcEntry{
+			htlc:     &remoteCommitView.outgoingHTLCs[i],
+			incoming: false,
+		})
+	}
+
+	auxVerifyJobs := make([]AuxVerifyJob, 0, numHTLCs*2)
+	commitBlob := remoteCommitView.customBlob
+
+	for _, entry := range htlcList {
+		htlc := entry.htlc
+		incoming := entry.incoming
+
+		if HtlcIsDust(
+			chanType, incoming, lntypes.Remote, feePerKw,
+			htlc.Amount.ToSatoshis(), dustLimit,
+			sigHashDefault,
+		) {
+
+			continue
+		}
+
+		sigEntry, ok := sigMap[htlc.HtlcIndex]
+		if !ok {
+			return fmt.Errorf("no revocation aux sig for "+
+				"HTLC index %d", htlc.HtlcIndex)
+		}
+
+		// Determine the aux leaf for this HTLC.
+		var auxLeaf input.AuxTapLeaf
+		if incoming {
+			auxLeaf = fn.FlatMapOption(
+				func(l CommitAuxLeaves) input.AuxTapLeaf {
+					idx := htlc.HtlcIndex
+					leaves := l.IncomingHtlcLeaves
+					return leaves[idx].SecondLevelLeaf
+				},
+			)(auxResult.AuxLeaves)
+		} else {
+			auxLeaf = fn.FlatMapOption(
+				func(l CommitAuxLeaves) input.AuxTapLeaf {
+					idx := htlc.HtlcIndex
+					leaves := l.OutgoingHtlcLeaves
+					return leaves[idx].SecondLevelLeaf
+				},
+			)(auxResult.AuxLeaves)
+		}
+
+		// Verify the PRIMARY sig against its natural spending
+		// path: incoming→success, outgoing→timeout. From OUR
+		// perspective, the remote's incoming is our outgoing
+		// and vice versa. The signer signs from their local
+		// perspective where their incoming=success. Our
+		// "incoming" here means "incoming to the remote
+		// commitment" = the signer's outgoing = timeout.
+		//
+		// So: our incoming → signer's outgoing → timeout path
+		//     our outgoing → signer's incoming → success path
+		if len(sigEntry.primarySig) > 0 {
+			primaryJob := AuxVerifyJob{
+				SigBlob: fn.Some(sigEntry.primarySig),
+				BaseAuxJob: BaseAuxJob{
+					OutputIndex: htlc.
+						remoteOutputIndex,
+					KeyRing: *keyRing,
+					HTLC: newAuxHtlcDescriptor(
+						htlc,
+					),
+					Incoming:           incoming,
+					IncomingHTLCLookup: incoming,
+					CommitBlob:         commitBlob,
+					HtlcLeaf:           auxLeaf,
+					WhoseCommit:        lntypes.Remote,
+				},
+			}
+			// The primary path for the signer:
+			// signer's incoming=success (no timeout needed),
+			// signer's outgoing=timeout (needs timeout).
+			// Our incoming = signer's outgoing → timeout.
+			if incoming {
+				primaryJob.HtlcTimeout = fn.Some(htlc.Timeout)
+			}
+			auxVerifyJobs = append(auxVerifyJobs, primaryJob)
+		}
+
+		// Verify the ALT sig against the alternate spending
+		// path: incoming→timeout, outgoing→success.
+		if len(sigEntry.altSig) > 0 {
+			altJob := AuxVerifyJob{
+				SigBlob: fn.Some(sigEntry.altSig),
+				BaseAuxJob: BaseAuxJob{
+					OutputIndex: htlc.remoteOutputIndex,
+					KeyRing:     *keyRing,
+					HTLC:        newAuxHtlcDescriptor(htlc),
+					// Flip incoming for the alt
+					// path script generation.
+					Incoming:           !incoming,
+					IncomingHTLCLookup: incoming,
+					CommitBlob:         commitBlob,
+					HtlcLeaf:           auxLeaf,
+					WhoseCommit:        lntypes.Remote,
+				},
+			}
+			// Alt path is the opposite: if our incoming
+			// (signer's outgoing) primary=timeout, then
+			// alt=success (no timeout needed). And vice versa.
+			if !incoming {
+				altJob.HtlcTimeout = fn.Some(htlc.Timeout)
+			}
+			auxVerifyJobs = append(auxVerifyJobs, altJob)
+		}
+	}
+
+	if len(auxVerifyJobs) == 0 {
+		return nil
+	}
+
+	lc.log.Infof("Verifying %d revocation aux sigs (%d HTLCs, "+
+		"2 paths each) against breach-time key ring",
+		len(auxVerifyJobs), len(sigMap))
+
+	err = auxSigner.VerifySecondLevelSigs(
+		NewAuxChanState(lc.channelState),
+		remoteCommitView.txn, auxVerifyJobs,
+	)
+	if err != nil {
+		return fmt.Errorf("revocation aux sig verification "+
+			"failed: %w", err)
+	}
+
+	lc.log.Infof("Revocation aux sig verification passed")
+
+	return nil
+}
+
+// htlcAuxSigParams bundles the parameters shared across both the incoming
+// and outgoing HTLC aux-signing loops.
+type htlcAuxSigParams struct {
+	chanType          channeldb.ChannelType
+	isRemoteInitiator bool
+	localChanCfg      channeldb.ChannelConfig
+	localHtlcKeyTweak []byte
+	feePerKw          chainfee.SatPerKWeight
+	dustLimit         btcutil.Amount
+	txHash            chainhash.Hash
+	ourDelay          uint32
+	leaseExpiry       uint32
+	sigHashDefault    bool
+	sigHashType       txscript.SigHashType
+	keyRing           *CommitmentKeyRing
+	auxResult         CommitDiffAuxResult
+	commitView        *commitment
+	cancelChan        chan struct{}
+}
+
+// signIncomingHTLCAuxSigs signs both spending paths (success + timeout)
+// for each non-dust incoming HTLC on the local commitment.
+func (p *htlcAuxSigParams) signIncomingHTLCAuxSigs(
+	htlcs []paymentDescriptor,
+) ([]AuxSigJob, error) {
+
+	var jobs []AuxSigJob
+	for _, htlc := range htlcs {
+		if HtlcIsDust(
+			p.chanType, true, lntypes.Local,
+			p.feePerKw, htlc.Amount.ToSatoshis(),
+			p.dustLimit, p.sigHashDefault,
+		) {
+
+			continue
+		}
+
+		primary, alt, err := p.signHTLCBothPaths(
+			&htlc, true,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		jobs = append(jobs, primary, alt)
+	}
+
+	return jobs, nil
+}
+
+// signOutgoingHTLCAuxSigs signs both spending paths (timeout + success)
+// for each non-dust outgoing HTLC on the local commitment.
+func (p *htlcAuxSigParams) signOutgoingHTLCAuxSigs(
+	htlcs []paymentDescriptor,
+) ([]AuxSigJob, error) {
+
+	var jobs []AuxSigJob
+	for _, htlc := range htlcs {
+		if HtlcIsDust(
+			p.chanType, false, lntypes.Local,
+			p.feePerKw, htlc.Amount.ToSatoshis(),
+			p.dustLimit, p.sigHashDefault,
+		) {
+
+			continue
+		}
+
+		primary, alt, err := p.signHTLCBothPaths(
+			&htlc, false,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		jobs = append(jobs, primary, alt)
+	}
+
+	return jobs, nil
+}
+
+// signHTLCBothPaths creates AuxSigJobs for both the primary and
+// alternate spending paths of an HTLC. For incoming HTLCs the
+// primary path is success and the alternate is timeout; for
+// outgoing HTLCs the primary is timeout and the alternate is
+// success.
+func (p *htlcAuxSigParams) signHTLCBothPaths(
+	htlc *paymentDescriptor, incoming bool,
+) (AuxSigJob, AuxSigJob, error) {
+
+	auxLeaf := p.getAuxLeaf(htlc, incoming)
+	op := wire.OutPoint{
+		Hash:  p.txHash,
+		Index: uint32(htlc.localOutputIndex),
+	}
+
+	// Build the primary second-level tx.
+	primaryTx, _, err := p.createSecondLevelTx(
+		op, htlc, incoming, auxLeaf,
+	)
+	if err != nil {
+		return AuxSigJob{}, AuxSigJob{}, err
+	}
+
+	amt := htlc.Amount.ToSatoshis()
+	txOut := p.commitView.txn.TxOut[htlc.localOutputIndex]
+	prevFetcher := txscript.NewCannedPrevOutputFetcher(
+		txOut.PkScript, int64(amt),
+	)
+
+	primaryJob, err := p.buildSigJob(
+		primaryTx, txOut, prevFetcher, htlc,
+		incoming, auxLeaf,
+	)
+	if err != nil {
+		return AuxSigJob{}, AuxSigJob{}, err
+	}
+
+	// Build the alternate second-level tx (opposite path).
+	altTx, _, err := p.createSecondLevelTx(
+		op, htlc, !incoming, auxLeaf,
+	)
+	if err != nil {
+		return AuxSigJob{}, AuxSigJob{}, err
+	}
+
+	altJob, err := p.buildSigJob(
+		altTx, txOut, prevFetcher, htlc,
+		!incoming, auxLeaf,
+	)
+	if err != nil {
+		return AuxSigJob{}, AuxSigJob{}, err
+	}
+
+	// The alt job flips Incoming for script generation, but the
+	// asset lookup must still use the original HTLC direction.
+	altJob.IncomingHTLCLookup = incoming
+
+	// Set timeout fields. The primary path for incoming is
+	// success (no timeout), alt is timeout. Vice versa for
+	// outgoing.
+	if incoming {
+		primaryJob.HtlcTimeout = fn.None[uint32]()
+		altJob.HtlcTimeout = fn.Some(htlc.Timeout)
+	} else {
+		primaryJob.HtlcTimeout = fn.Some(htlc.Timeout)
+		altJob.HtlcTimeout = fn.None[uint32]()
+	}
+
+	return primaryJob, altJob, nil
+}
+
+// createSecondLevelTx creates the second-level HTLC transaction for
+// the given path. When incoming is true a success-tx is created;
+// when false a timeout-tx is created. Returns the tx and its fee.
+func (p *htlcAuxSigParams) createSecondLevelTx(
+	op wire.OutPoint, htlc *paymentDescriptor,
+	incoming bool, auxLeaf input.AuxTapLeaf,
+) (*wire.MsgTx, btcutil.Amount, error) {
+
+	if incoming {
+		fee := HtlcSuccessFee(
+			p.chanType, p.feePerKw, p.sigHashDefault,
+		)
+		amt := htlc.Amount.ToSatoshis() - fee
+		tx, err := CreateHtlcSuccessTx(
+			p.chanType, p.isRemoteInitiator, op,
+			amt, p.ourDelay, p.leaseExpiry,
+			p.keyRing.RevocationKey,
+			p.keyRing.ToLocalKey, auxLeaf,
+		)
+
+		return tx, fee, err
+	}
+
+	fee := HtlcTimeoutFee(
+		p.chanType, p.feePerKw, p.sigHashDefault,
+	)
+	amt := htlc.Amount.ToSatoshis() - fee
+	tx, err := CreateHtlcTimeoutTx(
+		p.chanType, p.isRemoteInitiator, op, amt,
+		htlc.Timeout, p.ourDelay, p.leaseExpiry,
+		p.keyRing.RevocationKey,
+		p.keyRing.ToLocalKey, auxLeaf,
+	)
+
+	return tx, fee, err
+}
+
+// buildSigJob creates an AuxSigJob for a second-level HTLC
+// transaction, wrapping the sign descriptor and script generation.
+func (p *htlcAuxSigParams) buildSigJob(
+	tx *wire.MsgTx, txOut *wire.TxOut,
+	prevFetcher txscript.PrevOutputFetcher,
+	htlc *paymentDescriptor, incoming bool,
+	auxLeaf input.AuxTapLeaf,
+) (AuxSigJob, error) {
+
+	hashCache := txscript.NewTxSigHashes(tx, prevFetcher)
+	htlcScript, err := genHtlcScript(
+		p.chanType, incoming, lntypes.Local,
+		htlc.Timeout, htlc.RHash, p.keyRing,
+		fn.None[txscript.TapLeaf](),
+	)
+	if err != nil {
+		return AuxSigJob{}, err
+	}
+
+	ws := htlcScript.WitnessScriptToSign()
+	sigJob := SignJob{
+		SignDesc: input.SignDescriptor{
+			KeyDesc:           p.localChanCfg.HtlcBasePoint,
+			SingleTweak:       p.localHtlcKeyTweak,
+			WitnessScript:     ws,
+			Output:            txOut,
+			PrevOutputFetcher: prevFetcher,
+			HashType:          p.sigHashType,
+			SigHashes:         hashCache,
+			InputIndex:        0,
+		},
+		Tx:          tx,
+		OutputIndex: htlc.localOutputIndex,
+	}
+	if p.chanType.IsTaproot() {
+		sigJob.SignDesc.SignMethod = input.TaprootScriptSpendSignMethod
+	}
+
+	auxJob := NewAuxSigJob(
+		sigJob, *p.keyRing, incoming,
+		newAuxHtlcDescriptor(htlc),
+		p.commitView.customBlob, auxLeaf,
+		lntypes.Local, p.cancelChan,
+	)
+
+	return auxJob, nil
+}
+
+// getAuxLeaf returns the aux tap leaf for the given HTLC.
+func (p *htlcAuxSigParams) getAuxLeaf(
+	htlc *paymentDescriptor, incoming bool,
+) input.AuxTapLeaf {
+
+	if incoming {
+		return fn.FlatMapOption(
+			func(l CommitAuxLeaves) input.AuxTapLeaf {
+				idx := htlc.HtlcIndex
+				leaves := l.IncomingHtlcLeaves
+				return leaves[idx].SecondLevelLeaf
+			},
+		)(p.auxResult.AuxLeaves)
+	}
+
+	return fn.FlatMapOption(
+		func(l CommitAuxLeaves) input.AuxTapLeaf {
+			idx := htlc.HtlcIndex
+			leaves := l.OutgoingHtlcLeaves
+			return leaves[idx].SecondLevelLeaf
+		},
+	)(p.auxResult.AuxLeaves)
+}
+
+// signLocalHtlcAuxSigs signs the second-level HTLC virtual packets for the
+// current local commitment (the one being revoked). These signatures allow
+// the remote party to reconstruct valid aux proofs for the
+// commitment-to-second-level transition if a breach occurs. The returned
+// blob is packed in the same format as CommitSig aux sigs and can be
+// attached to RevokeAndAck.CustomRecords.
+//
+// This method must be called BEFORE advanceTail() since it needs access to the
+// current local commitment view and the commitment secret at currentHeight.
+func (lc *LightningChannel) signLocalHtlcAuxSigs() ([]byte, error) {
+	// If there's no aux signer, nothing to do.
+	if lc.auxSigner.IsNone() {
+		return nil, nil
+	}
+
+	// Get the current local commitment view (about to be revoked).
+	localCommitView := lc.commitChains.Local.tail()
+	if localCommitView == nil {
+		return nil, nil
+	}
+
+	// Check if there are any HTLCs to sign.
+	numHTLCs := len(localCommitView.incomingHTLCs) +
+		len(localCommitView.outgoingHTLCs)
+	if numHTLCs == 0 {
+		return nil, nil
+	}
+
+	// Derive the key ring for our local commitment using the
+	// standard perspective (whoseCommit=Local, standard config
+	// order). This matches how the commitment was originally
+	// built, so the AuxSig will be over the actual on-chain
+	// second-level HTLC outputs.
+	commitSecret, err := lc.channelState.RevocationProducer.AtIndex(
+		lc.currentHeight,
+	)
+	if err != nil {
+		return nil, err
+	}
+	commitPoint := input.ComputeCommitmentPoint(commitSecret[:])
+	keyRing := DeriveCommitmentKeys(
+		commitPoint, lntypes.Local,
+		lc.channelState.ChanType,
+		&lc.channelState.LocalChanCfg,
+		&lc.channelState.RemoteChanCfg,
+	)
+
+	chanState := lc.channelState
+	chanType := chanState.ChanType
+
+	var leaseExpiry uint32
+	if chanType.HasLeaseExpiration() {
+		leaseExpiry = chanState.ThawHeight
+	}
+
+	sigHashReq := HtlcSigHashReq{
+		ChanID: fn.Some(lnwire.NewChanIDFromOutPoint(
+			chanState.FundingOutpoint,
+		)),
+		CommitBlob: chanState.LocalCommitment.CustomBlob,
+	}
+	sigHashDefault := IsDeterministicHTLCs(
+		chanType, lc.auxSigner, sigHashReq,
+	)
+	sigHashType := ResolveHtlcSigHashType(
+		chanType, lc.auxSigner, sigHashReq,
+	)
+
+	// Fetch aux leaves for our local commitment, matching how
+	// the commitment was originally constructed.
+	diskCommit := localCommitView.toDiskCommit(lntypes.Local)
+	auxResult, err := fn.MapOptionZ(
+		lc.leafStore,
+		func(s AuxLeafStore) fn.Result[CommitDiffAuxResult] {
+			return s.FetchLeavesFromCommit(
+				NewAuxChanState(chanState), *diskCommit,
+				*keyRing, lntypes.Local,
+			)
+		},
+	).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
+
+	cancelChan := make(chan struct{})
+
+	localChanCfg := chanState.LocalChanCfg
+	params := htlcAuxSigParams{
+		chanType:          chanType,
+		isRemoteInitiator: !chanState.IsInitiator,
+		localChanCfg:      localChanCfg,
+		localHtlcKeyTweak: keyRing.LocalHtlcKeyTweak,
+		feePerKw:          localCommitView.feePerKw,
+		dustLimit:         chanState.LocalChanCfg.DustLimit,
+		txHash:            localCommitView.txn.TxHash(),
+		ourDelay:          uint32(localChanCfg.CsvDelay),
+		leaseExpiry:       leaseExpiry,
+		sigHashDefault:    sigHashDefault,
+		sigHashType:       sigHashType,
+		keyRing:           keyRing,
+		auxResult:         auxResult,
+		commitView:        localCommitView,
+		cancelChan:        cancelChan,
+	}
+
+	// Sign incoming HTLCs (both success + timeout paths).
+	inJobs, err := params.signIncomingHTLCAuxSigs(
+		localCommitView.incomingHTLCs,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Sign outgoing HTLCs (both timeout + success paths).
+	outJobs, err := params.signOutgoingHTLCAuxSigs(
+		localCommitView.outgoingHTLCs,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	auxSigBatch := append(inJobs, outJobs...) //nolint:gocritic
+
+	if len(auxSigBatch) == 0 {
+		return nil, nil
+	}
+
+	// Sort by output index to match the order the verify side and
+	// inject code expect (same as genRemoteHtlcSigJobs).
+	slices.SortFunc(auxSigBatch, func(i, j AuxSigJob) int {
+		return cmp.Compare(i.OutputIndex, j.OutputIndex)
+	})
+
+	// Submit the signing batch using the standard chanState
+	// (matching the commitment construction perspective).
+	auxSigner, _ := lc.auxSigner.UnwrapOrErr(
+		fmt.Errorf("no aux signer"),
+	)
+	err = auxSigner.SubmitSecondLevelSigBatch(
+		NewAuxChanState(lc.channelState),
+		localCommitView.txn, auxSigBatch,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to submit aux sig batch: %w",
+			err)
+	}
+
+	// Collect the signatures from the batch.
+	auxSigs := make([]fn.Option[tlv.Blob], len(auxSigBatch))
+	for i, sigJob := range auxSigBatch {
+		resp := <-sigJob.Resp
+		if resp.Err != nil {
+			close(cancelChan)
+			return nil, fmt.Errorf("aux sig job %d "+
+				"failed: %w", i, resp.Err)
+		}
+		auxSigs[i] = resp.SigBlob
+	}
+
+	// Pack sigs into a blob tagged by HTLC index. We can't rely on the
+	// two jobs for a given HTLC remaining adjacent after the global
+	// output-index sort above. Once multiple HTLCs are present, an
+	// adjacent-pair assumption can mix primary/alt sigs across HTLCs and
+	// produce an invalid RevokeAndAck aux-sig blob. Group by HTLC index and
+	// path type explicitly before packing.
+	entryByHtlc := make(map[uint64]revocationAuxSigEntry)
+	for i, sigOpt := range auxSigs {
+		htlcIdx := auxSigBatch[i].HTLC.HtlcIndex
+		entry := entryByHtlc[htlcIdx]
+		entry.htlcIndex = htlcIdx
+
+		// The natural path keeps Incoming equal to the original
+		// HTLC direction used for aux-output lookup. The alternate
+		// path flips Incoming for script generation but preserves
+		// IncomingHTLCLookup.
+		if auxSigBatch[i].Incoming ==
+			auxSigBatch[i].IncomingHTLCLookup {
+
+			entry.primarySig = sigOpt.UnwrapOr(nil)
+		} else {
+			entry.altSig = sigOpt.UnwrapOr(nil)
+		}
+
+		entryByHtlc[htlcIdx] = entry
+	}
+
+	entries := make([]revocationAuxSigEntry, 0, len(entryByHtlc))
+	for _, entry := range entryByHtlc {
+		entries = append(entries, entry)
+	}
+	slices.SortFunc(entries, func(i, j revocationAuxSigEntry) int {
+		return cmp.Compare(i.htlcIndex, j.htlcIndex)
+	})
+
+	// If no entry has any actual sig data, return nil to avoid
+	// attaching an empty blob to the RevokeAndAck.
+	hasSigs := false
+	for _, e := range entries {
+		if len(e.primarySig) > 0 || len(e.altSig) > 0 {
+			hasSigs = true
+
+			break
+		}
+	}
+	if !hasSigs {
+		return nil, nil
+	}
+
+	packed, err := packRevocationAuxSigs(entries)
+	if err != nil {
+		return nil, fmt.Errorf("pack revocation aux sigs: %w", err)
+	}
+
+	return packed, nil
 }
 
 // createCommitDiff will create a commit diff given a new pending commitment
@@ -4213,7 +5308,7 @@ func (lc *LightningChannel) SignNextCommitment(
 	}
 	sigBatch, auxSigBatch, cancelChan, err := genRemoteHtlcSigJobs(
 		keyRing, lc.channelState, leaseExpiry, newCommitView,
-		lc.leafStore,
+		lc.leafStore, lc.auxSigner,
 	)
 	if err != nil {
 		return nil, err
@@ -4923,6 +6018,7 @@ func (lc *LightningChannel) computeView(view *HtlcView,
 		if HtlcIsDust(
 			lc.channelState.ChanType, false, whoseCommitChain,
 			feePerKw, htlc.Amount.ToSatoshis(), dustLimit,
+			lc.IsChanSigHashDefault(),
 		) {
 
 			continue
@@ -4934,6 +6030,7 @@ func (lc *LightningChannel) computeView(view *HtlcView,
 		if HtlcIsDust(
 			lc.channelState.ChanType, true, whoseCommitChain,
 			feePerKw, htlc.Amount.ToSatoshis(), dustLimit,
+			lc.IsChanSigHashDefault(),
 		) {
 
 			continue
@@ -4979,7 +6076,18 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 
 	txHash := localCommitmentView.txn.TxHash()
 	feePerKw := localCommitmentView.feePerKw
-	sigHashType := HtlcSigHashType(chanType)
+	sigHashReq := HtlcSigHashReq{
+		ChanID: fn.Some(lnwire.NewChanIDFromOutPoint(
+			chanState.FundingOutpoint,
+		)),
+		CommitBlob: chanState.LocalCommitment.CustomBlob,
+	}
+	sigHashType := ResolveHtlcSigHashType(
+		chanType, auxSigner, sigHashReq,
+	)
+	sigHashDefault := IsDeterministicHTLCs(
+		chanType, auxSigner, sigHashReq,
+	)
 
 	// With the required state generated, we'll create a slice with large
 	// enough capacity to hold verification jobs for all HTLC's in this
@@ -5051,7 +6159,7 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 					Index: uint32(htlc.localOutputIndex),
 				}
 
-				htlcFee := HtlcSuccessFee(chanType, feePerKw)
+				htlcFee := HtlcSuccessFee(chanType, feePerKw, sigHashDefault)
 				outputAmt := htlc.Amount.ToSatoshis() - htlcFee
 
 				auxLeaf := fn.FlatMapOption(func(
@@ -5144,7 +6252,7 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 					Index: uint32(htlc.localOutputIndex),
 				}
 
-				htlcFee := HtlcTimeoutFee(chanType, feePerKw)
+				htlcFee := HtlcTimeoutFee(chanType, feePerKw, sigHashDefault)
 				outputAmt := htlc.Amount.ToSatoshis() - htlcFee
 
 				auxLeaf := fn.FlatMapOption(func(
@@ -5793,6 +6901,36 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 		lc.commitChains.Local.tail().height,
 		lc.currentHeight+1)
 
+	// Sign second-level HTLC virtual packets for the commitment
+	// being revoked, but only if the DeterministicHTLCs feature is
+	// negotiated. Without the feature the remote party has no use
+	// for the signatures (and wouldn't know how to parse them).
+	sigHashReq := HtlcSigHashReq{
+		ChanID: fn.Some(lnwire.NewChanIDFromOutPoint(
+			lc.channelState.FundingOutpoint,
+		)),
+		CommitBlob: lc.channelState.LocalCommitment.CustomBlob,
+	}
+
+	if IsDeterministicHTLCs(
+		lc.channelState.ChanType, lc.auxSigner, sigHashReq,
+	) {
+
+		auxSigBlob, err := lc.signLocalHtlcAuxSigs()
+		if err != nil {
+			lc.log.Errorf("Unable to sign local HTLC aux "+
+				"sigs for revocation: %v", err)
+		}
+		if auxSigBlob != nil {
+			revocationMsg.CustomRecords =
+				make(lnwire.CustomRecords)
+
+			recType := uint64(lnwire.MinCustomRecordsTlvType)
+			revocationMsg.CustomRecords[recType] =
+				auxSigBlob
+		}
+	}
+
 	// Advance our tail, as we've revoked our previous state.
 	lc.commitChains.Local.advanceTail()
 	lc.currentHeight++
@@ -6071,6 +7209,43 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		lc.musigSessions.RemoteSession = session
 	}
 
+	// When the DeterministicHTLCs feature is negotiated, the
+	// RevokeAndAck must contain aux sigs for the remote party's
+	// second-level HTLCs. Verify all signatures against the
+	// breach-time key ring before accepting the revocation, then
+	// store them in the revocation log for breach recovery.
+	//
+	// When the feature is NOT negotiated, skip verification
+	// entirely — the remote party does not include aux sigs.
+	revSigHashReq := HtlcSigHashReq{
+		ChanID: fn.Some(lnwire.NewChanIDFromOutPoint(
+			lc.channelState.FundingOutpoint,
+		)),
+		CommitBlob: lc.channelState.RemoteCommitment.
+			CustomBlob,
+	}
+	deterministicHTLCs := IsDeterministicHTLCs(
+		lc.channelState.ChanType, lc.auxSigner,
+		revSigHashReq,
+	)
+	if deterministicHTLCs {
+		recType := uint64(lnwire.MinCustomRecordsTlvType)
+		auxSigBlob := revMsg.CustomRecords[recType]
+
+		if len(auxSigBlob) > 0 {
+			err = lc.verifyRevocationAuxSigs(
+				auxSigBlob, currentCommitPoint,
+			)
+			if err != nil {
+				return nil, nil, fmt.Errorf("invalid "+
+					"revocation aux sigs: %w",
+					err)
+			}
+
+			lc.injectRevocationAuxSigs(auxSigBlob)
+		}
+	}
+
 	// At this point, the revocation has been accepted, and we've rotated
 	// the current revocation key+hash for the remote party. Therefore we
 	// sync now to ensure the revocation producer state is consistent with
@@ -6289,6 +7464,7 @@ func (lc *LightningChannel) GetDustSum(whoseCommit lntypes.ChannelParty,
 		// amount to the dust sum.
 		if HtlcIsDust(
 			chanType, false, whoseCommit, feeRate, amt, dustLimit,
+			lc.IsChanSigHashDefault(),
 		) {
 
 			dustSum += pd.Amount
@@ -6308,7 +7484,7 @@ func (lc *LightningChannel) GetDustSum(whoseCommit lntypes.ChannelParty,
 		// amount to the dust sum.
 		if HtlcIsDust(
 			chanType, true, whoseCommit, feeRate,
-			amt, dustLimit,
+			amt, dustLimit, lc.IsChanSigHashDefault(),
 		) {
 
 			dustSum += pd.Amount
@@ -7073,7 +8249,8 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, //nolint:funlen
 	signer input.Signer, commitSpend *chainntnfs.SpendDetail,
 	remoteCommit channeldb.ChannelCommitment, commitPoint *btcec.PublicKey,
 	leafStore fn.Option[AuxLeafStore],
-	auxResolver fn.Option[AuxContractResolver]) (*UnilateralCloseSummary,
+	auxResolver fn.Option[AuxContractResolver],
+	auxSigner fn.Option[AuxSigner]) (*UnilateralCloseSummary,
 	error) {
 
 	// First, we'll generate the commitment point and the revocation point
@@ -7116,7 +8293,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, //nolint:funlen
 		&chanState.RemoteChanCfg, commitSpend.SpendingTx,
 		commitTxHeight, chanState.ChanType,
 		isRemoteInitiator, leaseExpiry, chanState, auxResult.AuxLeaves,
-		auxResolver,
+		auxResolver, auxSigner,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create htlc resolutions: %w",
@@ -7332,6 +8509,15 @@ type IncomingHtlcResolution struct {
 	// spender of the output to properly resolve it in the case of a force
 	// close.
 	ResolutionBlob fn.Option[tlv.Blob]
+
+	// ResolveReq is the resolution request template used to generate the
+	// ResolutionBlob. It is preserved so the htlc success resolver can
+	// re-resolve with a second-level witness type once the pre-signed
+	// second-level HTLC tx confirms (under DeterministicHTLCs the
+	// resolver publishes the second-level tx directly via PublishTx,
+	// bypassing the sweeper's NotifyBroadcast, so tapd must import the
+	// second-level proof retroactively before the output sweep runs).
+	ResolveReq *ResolutionReq
 }
 
 // OutgoingHtlcResolution houses the information necessary to sweep any
@@ -7386,6 +8572,10 @@ type OutgoingHtlcResolution struct {
 	// spender of the output to properly resolve it in the case of a force
 	// close.
 	ResolutionBlob fn.Option[tlv.Blob]
+
+	// ResolveReq is the resolution request template used to generate the
+	// ResolutionBlob. See IncomingHtlcResolution.ResolveReq for details.
+	ResolveReq *ResolutionReq
 }
 
 // HtlcResolutions contains the items necessary to sweep HTLC's on chain
@@ -7413,6 +8603,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	chanType channeldb.ChannelType, chanState *channeldb.OpenChannel,
 	auxLeaves fn.Option[CommitAuxLeaves],
 	auxResolver fn.Option[AuxContractResolver],
+	auxSigner fn.Option[AuxSigner],
 ) (*OutgoingHtlcResolution, error) {
 
 	op := wire.OutPoint{
@@ -7531,7 +8722,12 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	// In order to properly reconstruct the HTLC transaction, we'll need to
 	// re-calculate the fee required at this state, so we can add the
 	// correct output value amount to the transaction.
-	htlcFee := HtlcTimeoutFee(chanType, feePerKw)
+	htlcFee := HtlcTimeoutFee(chanType, feePerKw, IsDeterministicHTLCs(
+		chanType, auxSigner,
+		HtlcSigHashReq{
+			CommitBlob: chanState.LocalCommitment.CustomBlob,
+		},
+	))
 	secondLevelOutputAmt := htlc.Amt.ToSatoshis() - htlcFee
 
 	// With the fee calculated, re-construct the second level timeout
@@ -7577,7 +8773,11 @@ func newOutgoingHtlcResolution(signer input.Signer,
 
 	// With the sign desc created, we can now construct the full witness
 	// for the timeout transaction, and populate it as well.
-	sigHashType := HtlcSigHashType(chanType)
+	sigHashType := ResolveHtlcSigHashType(
+		chanType, auxSigner, HtlcSigHashReq{
+			CommitBlob: chanState.LocalCommitment.CustomBlob,
+		},
+	)
 	var timeoutWitness wire.TxWitness
 	if scriptTree, ok := htlcScriptInfo.(input.TapscriptDescriptor); ok {
 		timeoutSignDesc.SignMethod = input.TaprootScriptSpendSignMethod
@@ -7717,39 +8917,37 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	// This might be an aux channel, so we'll go ahead and attempt to
 	// generate the resolution blob for the channel so we can pass along to
 	// the sweeping sub-system.
+	resReq := ResolutionReq{
+		ChanPoint:           chanState.FundingOutpoint,
+		ChanType:            chanType,
+		ShortChanID:         chanState.ShortChanID(),
+		Initiator:           chanState.IsInitiator,
+		CommitBlob:          chanState.LocalCommitment.CustomBlob,
+		FundingBlob:         chanState.CustomBlob,
+		Type:                input.TaprootHtlcLocalOfferedTimeout,
+		CloseType:           LocalForceClose,
+		CommitTx:            commitTx,
+		CommitTxBlockHeight: commitTxHeight,
+		ContractPoint:       op,
+		SignDesc:            sweepSignDesc,
+		KeyRing:             keyRing,
+		CsvDelay:            htlcCsvDelay,
+		HtlcAmt:             btcutil.Amount(txOut.Value),
+		CommitCsvDelay:      csvDelay,
+		CltvDelay:           fn.Some(htlc.RefundTimeout),
+		CommitFee:           chanState.LocalCommitment.CommitFee,
+		HtlcID:              fn.Some(htlc.HtlcIndex),
+		PayHash:             fn.Some(htlc.RHash),
+		AuxSigDesc: fn.Some(AuxSigDesc{
+			SignDetails: *txSignDetails,
+			AuxSig: func() []byte {
+				tlvType := htlcCustomSigType.TypeVal()
+				return htlc.CustomRecords[uint64(tlvType)]
+			}(),
+		}),
+	}
 	resolveRes := fn.MapOptionZ(
 		auxResolver, func(a AuxContractResolver) fn.Result[tlv.Blob] {
-			//nolint:ll
-			resReq := ResolutionReq{
-				ChanPoint:           chanState.FundingOutpoint,
-				ChanType:            chanType,
-				ShortChanID:         chanState.ShortChanID(),
-				Initiator:           chanState.IsInitiator,
-				CommitBlob:          chanState.LocalCommitment.CustomBlob,
-				FundingBlob:         chanState.CustomBlob,
-				Type:                input.TaprootHtlcLocalOfferedTimeout,
-				CloseType:           LocalForceClose,
-				CommitTx:            commitTx,
-				CommitTxBlockHeight: commitTxHeight,
-				ContractPoint:       op,
-				SignDesc:            sweepSignDesc,
-				KeyRing:             keyRing,
-				CsvDelay:            htlcCsvDelay,
-				HtlcAmt:             btcutil.Amount(txOut.Value),
-				CommitCsvDelay:      csvDelay,
-				CltvDelay:           fn.Some(htlc.RefundTimeout),
-				CommitFee:           chanState.LocalCommitment.CommitFee,
-				HtlcID:              fn.Some(htlc.HtlcIndex),
-				PayHash:             fn.Some(htlc.RHash),
-				AuxSigDesc: fn.Some(AuxSigDesc{
-					SignDetails: *txSignDetails,
-					AuxSig: func() []byte {
-						tlvType := htlcCustomSigType.TypeVal()
-						return htlc.CustomRecords[uint64(tlvType)]
-					}(),
-				}),
-			}
-
 			return a.ResolveContract(resReq)
 		},
 	)
@@ -7758,12 +8956,15 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	}
 	resolutionBlob := resolveRes.OkToSome()
 
+	resReqCopy := resReq
+
 	return &OutgoingHtlcResolution{
 		Expiry:          htlc.RefundTimeout,
 		SignedTimeoutTx: timeoutTx,
 		SignDetails:     txSignDetails,
 		CsvDelay:        csvDelay,
 		ResolutionBlob:  resolutionBlob,
+		ResolveReq:      &resReqCopy,
 		ClaimOutpoint: wire.OutPoint{
 			Hash:  timeoutTx.TxHash(),
 			Index: 0,
@@ -7787,6 +8988,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 	chanType channeldb.ChannelType, chanState *channeldb.OpenChannel,
 	auxLeaves fn.Option[CommitAuxLeaves],
 	auxResolver fn.Option[AuxContractResolver],
+	auxSigner fn.Option[AuxSigner],
 ) (*IncomingHtlcResolution, error) {
 
 	op := wire.OutPoint{
@@ -7910,7 +9112,12 @@ func newIncomingHtlcResolution(signer input.Signer,
 	//
 	// First, we'll reconstruct the original HTLC success transaction,
 	// taking into account the fee rate used.
-	htlcFee := HtlcSuccessFee(chanType, feePerKw)
+	htlcFee := HtlcSuccessFee(chanType, feePerKw, IsDeterministicHTLCs(
+		chanType, auxSigner,
+		HtlcSigHashReq{
+			CommitBlob: chanState.LocalCommitment.CustomBlob,
+		},
+	))
 	secondLevelOutputAmt := htlc.Amt.ToSatoshis() - htlcFee
 	successTx, err := CreateHtlcSuccessTx(
 		chanType, isCommitFromInitiator, op, secondLevelOutputAmt,
@@ -7949,7 +9156,11 @@ func newIncomingHtlcResolution(signer input.Signer,
 	// will be supplied by the contract resolver, either directly or when it
 	// becomes known.
 	var successWitness wire.TxWitness
-	sigHashType := HtlcSigHashType(chanType)
+	sigHashType := ResolveHtlcSigHashType(
+		chanType, auxSigner, HtlcSigHashReq{
+			CommitBlob: chanState.LocalCommitment.CustomBlob,
+		},
+	)
 	if scriptTree, ok := scriptInfo.(input.TapscriptDescriptor); ok {
 		successSignDesc.SignMethod = input.TaprootScriptSpendSignMethod
 
@@ -8081,39 +9292,37 @@ func newIncomingHtlcResolution(signer input.Signer,
 		}, nil
 	}
 
+	resReq := ResolutionReq{
+		ChanPoint:           chanState.FundingOutpoint,
+		ChanType:            chanType,
+		ShortChanID:         chanState.ShortChanID(),
+		Initiator:           chanState.IsInitiator,
+		CommitBlob:          chanState.LocalCommitment.CustomBlob,
+		Type:                input.TaprootHtlcAcceptedLocalSuccess,
+		FundingBlob:         chanState.CustomBlob,
+		CloseType:           LocalForceClose,
+		CommitTx:            commitTx,
+		CommitTxBlockHeight: commitTxHeight,
+		ContractPoint:       op,
+		SignDesc:            sweepSignDesc,
+		KeyRing:             keyRing,
+		HtlcID:              fn.Some(htlc.HtlcIndex),
+		CsvDelay:            htlcCsvDelay,
+		CommitFee:           chanState.LocalCommitment.CommitFee,
+		PayHash:             fn.Some(htlc.RHash),
+		AuxSigDesc: fn.Some(AuxSigDesc{
+			SignDetails: *txSignDetails,
+			AuxSig: func() []byte {
+				tlvType := htlcCustomSigType.TypeVal()
+				return htlc.CustomRecords[uint64(tlvType)]
+			}(),
+		}),
+		CommitCsvDelay: csvDelay,
+		HtlcAmt:        btcutil.Amount(txOut.Value),
+		CltvDelay:      fn.Some(htlc.RefundTimeout),
+	}
 	resolveRes := fn.MapOptionZ(
 		auxResolver, func(a AuxContractResolver) fn.Result[tlv.Blob] {
-			//nolint:ll
-			resReq := ResolutionReq{
-				ChanPoint:           chanState.FundingOutpoint,
-				ChanType:            chanType,
-				ShortChanID:         chanState.ShortChanID(),
-				Initiator:           chanState.IsInitiator,
-				CommitBlob:          chanState.LocalCommitment.CustomBlob,
-				Type:                input.TaprootHtlcAcceptedLocalSuccess,
-				FundingBlob:         chanState.CustomBlob,
-				CloseType:           LocalForceClose,
-				CommitTx:            commitTx,
-				CommitTxBlockHeight: commitTxHeight,
-				ContractPoint:       op,
-				SignDesc:            sweepSignDesc,
-				KeyRing:             keyRing,
-				HtlcID:              fn.Some(htlc.HtlcIndex),
-				CsvDelay:            htlcCsvDelay,
-				CommitFee:           chanState.LocalCommitment.CommitFee,
-				PayHash:             fn.Some(htlc.RHash),
-				AuxSigDesc: fn.Some(AuxSigDesc{
-					SignDetails: *txSignDetails,
-					AuxSig: func() []byte {
-						tlvType := htlcCustomSigType.TypeVal()
-						return htlc.CustomRecords[uint64(tlvType)]
-					}(),
-				}),
-				CommitCsvDelay: csvDelay,
-				HtlcAmt:        btcutil.Amount(txOut.Value),
-				CltvDelay:      fn.Some(htlc.RefundTimeout),
-			}
-
 			return a.ResolveContract(resReq)
 		},
 	)
@@ -8123,11 +9332,14 @@ func newIncomingHtlcResolution(signer input.Signer,
 
 	resolutionBlob := resolveRes.OkToSome()
 
+	resReqCopy := resReq
+
 	return &IncomingHtlcResolution{
 		SignedSuccessTx: successTx,
 		SignDetails:     txSignDetails,
 		CsvDelay:        csvDelay,
 		ResolutionBlob:  resolutionBlob,
+		ResolveReq:      &resReqCopy,
 		ClaimOutpoint: wire.OutPoint{
 			Hash:  successTx.TxHash(),
 			Index: 0,
@@ -8160,6 +9372,116 @@ func (r *OutgoingHtlcResolution) HtlcPoint() wire.OutPoint {
 	return r.ClaimOutpoint
 }
 
+// NewSecondLevelResolveReq reconstructs a ResolutionReq for re-resolving a
+// second-level HTLC sweep after the pre-signed second-level tx has confirmed
+// on chain. It is intended to be called from the htlc success / timeout
+// resolvers when, under DeterministicHTLCs, the resolver published the
+// pre-signed second-level tx directly via PublishTx (bypassing the aux
+// sweeper's NotifyBroadcast) and the upcoming second-level output sweep
+// would otherwise fail to fetch its input proof from the aux sweeper's
+// archive.
+//
+// The ResolveReq returned mirrors the live request that
+// newIncomingHtlcResolution / newOutgoingHtlcResolution built at
+// force-close time. We rebuild it here from the persisted channel state
+// because IncomingHtlcResolution / OutgoingHtlcResolution don't currently
+// round-trip the original ResolveReq through the briefcase log.
+//
+// chanState must be the historical channel state (e.g. via
+// FetchHistoricalChannel). htlc is the HTLC entry whose second-level
+// sweep we're about to perform. signDetails is the SignDetails captured
+// on the resolution at force-close time. htlcCsvDelay is the CSV delay
+// for the second-level output (taken from
+// IncomingHtlcResolution.CsvDelay / OutgoingHtlcResolution.CsvDelay).
+// commitTxBlockHeight is the height at which the force-close commitment
+// confirmed. secondLevelTx and secondLevelTxBlockHeight describe the
+// just-confirmed second-level tx. witType is the second-level output
+// witness type LND is about to offer to the sweeper
+// (TaprootHtlcAcceptedSuccessSecondLevel for the success path or
+// TaprootHtlcOfferedTimeoutSecondLevel for the timeout path).
+//
+// We always treat this as the local commitment because the success /
+// timeout resolvers only run for HTLCs on our local force-close
+// commitment.
+func NewSecondLevelResolveReq(chanState *channeldb.OpenChannel,
+	htlc *channeldb.HTLC, signDetails *input.SignDetails,
+	sweepSignDesc input.SignDescriptor, htlcCsvDelay,
+	commitTxBlockHeight uint32, secondLevelTx *wire.MsgTx,
+	secondLevelTxBlockHeight uint32,
+	witType input.WitnessType) (*ResolutionReq, error) {
+
+	if chanState == nil {
+		return nil, fmt.Errorf("chanState is nil")
+	}
+	if secondLevelTx == nil || len(secondLevelTx.TxIn) == 0 {
+		return nil, fmt.Errorf("invalid second-level tx")
+	}
+
+	revocation, err := chanState.RevocationProducer.AtIndex(
+		chanState.LocalCommitment.CommitHeight,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("derive revocation: %w", err)
+	}
+	commitPoint := input.ComputeCommitmentPoint(revocation[:])
+	keyRing := DeriveCommitmentKeys(
+		commitPoint, lntypes.Local, chanState.ChanType,
+		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+	)
+	keyRingCopy := *keyRing
+
+	htlcAmt := htlc.Amt.ToSatoshis()
+	commitCsvDelay := uint32(chanState.LocalChanCfg.CsvDelay)
+	contractPoint := secondLevelTx.TxIn[0].PreviousOutPoint
+
+	// AuxSigDesc is populated when we have both the SignDetails captured
+	// on the resolution and the remote party's aux sig in the HTLC's
+	// custom records. signSecondLevelImport uses the breach-style
+	// 2-of-2 witness construction when AuxSigDesc is present, producing
+	// a fully verifiable proof transition; the placeholder-witness
+	// fallback is reserved for the breach path where we don't have the
+	// remote sig.
+	var auxSigDesc fn.Option[AuxSigDesc]
+	if signDetails != nil {
+		sigType := htlcCustomSigType.TypeVal()
+		auxSig := htlc.CustomRecords[uint64(sigType)]
+		if len(auxSig) > 0 {
+			auxSigDesc = fn.Some(AuxSigDesc{
+				SignDetails: *signDetails,
+				AuxSig:      auxSig,
+			})
+		}
+	}
+
+	return &ResolutionReq{
+		ChanPoint:           chanState.FundingOutpoint,
+		ChanType:            chanState.ChanType,
+		ShortChanID:         chanState.ShortChanID(),
+		Initiator:           chanState.IsInitiator,
+		CommitBlob:          chanState.LocalCommitment.CustomBlob,
+		FundingBlob:         chanState.CustomBlob,
+		HtlcID:              fn.Some(htlc.HtlcIndex),
+		HtlcAmt:             htlcAmt,
+		Type:                witType,
+		CloseType:           LocalForceClose,
+		CommitTx:            chanState.LocalCommitment.CommitTx,
+		CommitTxBlockHeight: commitTxBlockHeight,
+		CommitFee:           chanState.LocalCommitment.CommitFee,
+		ContractPoint:       contractPoint,
+		SignDesc:            sweepSignDesc,
+		KeyRing:             &keyRingCopy,
+		CsvDelay:            htlcCsvDelay,
+		CommitCsvDelay:      commitCsvDelay,
+		CltvDelay:           fn.Some(htlc.RefundTimeout),
+		PayHash:             fn.Some(htlc.RHash),
+		AuxSigDesc:          auxSigDesc,
+		SecondLevel: fn.Some(SecondLevelInfo{
+			Tx:          secondLevelTx,
+			BlockHeight: secondLevelTxBlockHeight,
+		}),
+	}, nil
+}
+
 // extractHtlcResolutions creates a series of outgoing HTLC resolutions, and
 // the local key used when generating the HTLC scrips. This function is to be
 // used in two cases: force close, or a unilateral close.
@@ -8171,7 +9493,8 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 	chanType channeldb.ChannelType, isCommitFromInitiator bool,
 	leaseExpiry uint32, chanState *channeldb.OpenChannel,
 	auxLeaves fn.Option[CommitAuxLeaves],
-	auxResolver fn.Option[AuxContractResolver]) (*HtlcResolutions, error) {
+	auxResolver fn.Option[AuxContractResolver],
+	auxSigner fn.Option[AuxSigner]) (*HtlcResolutions, error) {
 
 	// TODO(roasbeef): don't need to swap csv delay?
 	dustLimit := remoteChanCfg.DustLimit
@@ -8191,6 +9514,13 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 		if HtlcIsDust(
 			chanType, htlc.Incoming, whoseCommit, feePerKw,
 			htlc.Amt.ToSatoshis(), dustLimit,
+			IsDeterministicHTLCs(
+				chanType, auxSigner,
+				HtlcSigHashReq{
+					CommitBlob: chanState.
+						LocalCommitment.CustomBlob,
+				},
+			),
 		) {
 
 			continue
@@ -8206,6 +9536,7 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 				&htlc, keyRing, feePerKw, uint32(csvDelay),
 				leaseExpiry, whoseCommit, isCommitFromInitiator,
 				chanType, chanState, auxLeaves, auxResolver,
+				auxSigner,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("incoming resolution "+
@@ -8220,7 +9551,7 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 			signer, localChanCfg, commitTx, commitTxHeight, &htlc,
 			keyRing, feePerKw, uint32(csvDelay), leaseExpiry,
 			whoseCommit, isCommitFromInitiator, chanType, chanState,
-			auxLeaves, auxResolver,
+			auxLeaves, auxResolver, auxSigner,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("outgoing resolution "+
@@ -8367,7 +9698,7 @@ func (lc *LightningChannel) ForceClose(opts ...ForceCloseOpt) (
 	summary, err := NewLocalForceCloseSummary(
 		lc.channelState, lc.Signer, commitTx,
 		0, localCommitment.CommitHeight, lc.leafStore,
-		lc.auxResolver,
+		lc.auxResolver, lc.auxSigner,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen force close "+
@@ -8386,8 +9717,8 @@ func (lc *LightningChannel) ForceClose(opts ...ForceCloseOpt) (
 func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	signer input.Signer, commitTx *wire.MsgTx, commitTxHeight uint32,
 	stateNum uint64, leafStore fn.Option[AuxLeafStore],
-	auxResolver fn.Option[AuxContractResolver]) (*LocalForceCloseSummary,
-	error) {
+	auxResolver fn.Option[AuxContractResolver],
+	auxSigner fn.Option[AuxSigner]) (*LocalForceCloseSummary, error) {
 
 	// Re-derive the original pkScript for to-self output within the
 	// commitment transaction. We'll need this to find the corresponding
@@ -8556,7 +9887,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 		signer, localCommit.Htlcs, keyRing, &chanState.LocalChanCfg,
 		&chanState.RemoteChanCfg, commitTx, commitTxHeight,
 		chanState.ChanType, chanState.IsInitiator, leaseExpiry,
-		chanState, auxResult.AuxLeaves, auxResolver,
+		chanState, auxResult.AuxLeaves, auxResolver, auxSigner,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen htlc resolution: %w", err)
@@ -9313,7 +10644,8 @@ func (lc *LightningChannel) availableCommitmentBalance(view *HtlcView,
 	// For an extra HTLC fee to be paid on our commitment, the HTLC must be
 	// large enough to make a non-dust HTLC timeout transaction.
 	htlcFee := lnwire.NewMSatFromSatoshis(
-		HtlcTimeoutFee(lc.channelState.ChanType, feePerKw),
+		HtlcTimeoutFee(lc.channelState.ChanType, feePerKw,
+			lc.IsChanSigHashDefault()),
 	)
 
 	// If we are looking at the remote commitment, we must use the remote
@@ -9323,7 +10655,8 @@ func (lc *LightningChannel) availableCommitmentBalance(view *HtlcView,
 			lc.channelState.RemoteChanCfg.DustLimit,
 		)
 		htlcFee = lnwire.NewMSatFromSatoshis(
-			HtlcSuccessFee(lc.channelState.ChanType, feePerKw),
+			HtlcSuccessFee(lc.channelState.ChanType, feePerKw,
+				lc.IsChanSigHashDefault()),
 		)
 	}
 

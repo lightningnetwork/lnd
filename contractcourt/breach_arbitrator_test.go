@@ -17,6 +17,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -32,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -1584,6 +1586,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 		fn.Some[lnwallet.AuxContractResolver](
 			&lnwallet.MockAuxContractResolver{},
 		),
+		fn.None[lnwallet.AuxSigner](),
 	)
 	require.NoError(t, err, "unable to create breach retribution")
 
@@ -1797,6 +1800,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 		fn.Some[lnwallet.AuxContractResolver](
 			&lnwallet.MockAuxContractResolver{},
 		),
+		fn.None[lnwallet.AuxSigner](),
 	)
 	require.NoError(t, err, "unable to create breach retribution")
 
@@ -1895,10 +1899,17 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	}
 
 	// Now mine another block without the justice tx confirming. This
-	// should lead to the BreachArbitrator publishing the split justice tx
-	// variants.
+	// should lead to the BreachArbitrator re-broadcasting the spendAll
+	// variant and then publishing the split justice tx variants.
 	notifier.EpochChan <- &chainntnfs.BlockEpoch{
 		Height: blockHeight + 4,
+	}
+
+	// First, drain the re-broadcast of the spendAll variant.
+	select {
+	case <-publTx:
+	case <-time.After(defaultTimeout):
+		t.Fatalf("spendAll re-broadcast not published")
 	}
 
 	var (
@@ -2615,11 +2626,665 @@ func TestUpdateBreachInfoCountsFinalTaprootRevokedFunds(t *testing.T) {
 			SpendingTx:        &wire.MsgTx{TxIn: []*wire.TxIn{{}}},
 			SpenderInputIndex: 0,
 		},
-	}})
+	}}, fn.None[lnwallet.AuxContractResolver]())
 
 	// Assert: The amount contributes to both the total and revoked-funds
 	// tallies and is removed from the remaining breach set.
 	require.Equal(t, revokedAmt, total)
 	require.Equal(t, revokedAmt, revoked)
 	require.Empty(t, breachInfo.breachedOutputs)
+}
+
+// TestFindSecondLevelOutputIndex verifies that findSecondLevelOutputIndex
+// correctly identifies the HTLC output in second-level transactions, including
+// batched txs with multiple inputs and a wallet change output where input
+// indices diverge from output indices.
+func TestFindSecondLevelOutputIndex(t *testing.T) {
+	t.Parallel()
+
+	// Generate a random key pair for the revocation base point.
+	revokeBasePriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	revokeBasePub := revokeBasePriv.PubKey()
+
+	// Generate a commitment secret (used as DoubleTweak).
+	commitSecret, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	commitPoint := commitSecret.PubKey()
+
+	// Derive the revocation public key.
+	revokeKey := input.DeriveRevocationPubkey(
+		revokeBasePub, commitPoint,
+	)
+
+	// Create a second-level tap tweak (random 32 bytes).
+	var tapTweak [32]byte
+	_, err = crand.Read(tapTweak[:])
+	require.NoError(t, err)
+
+	// Compute the expected taproot output key and pkScript.
+	expectedOutputKey := txscript.ComputeTaprootOutputKey(
+		revokeKey, tapTweak[:],
+	)
+	expectedPkScript, err := input.PayToTaprootScript(
+		expectedOutputKey,
+	)
+	require.NoError(t, err)
+
+	// Create a random unrelated pkScript for wallet change outputs.
+	unrelatedKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	unrelatedPkScript, err := input.PayToTaprootScript(
+		unrelatedKey.PubKey(),
+	)
+	require.NoError(t, err)
+
+	// Build the breachedOutput with taproot signDesc.
+	bo := &breachedOutput{
+		signDesc: input.SignDescriptor{
+			KeyDesc: keychain.KeyDescriptor{
+				PubKey: revokeBasePub,
+			},
+			DoubleTweak: commitSecret,
+			Output: &wire.TxOut{
+				PkScript: expectedPkScript,
+			},
+		},
+		secondLevelTapTweak: tapTweak,
+	}
+
+	tests := []struct {
+		name          string
+		tx            *wire.MsgTx
+		expectedIndex uint32
+		expectErr     bool
+	}{
+		{
+			// Simple 1-input-1-output second-level tx.
+			name: "single output matches",
+			tx: &wire.MsgTx{
+				TxOut: []*wire.TxOut{
+					{
+						PkScript: expectedPkScript,
+						Value:    50_000,
+					},
+				},
+			},
+			expectedIndex: 0,
+		},
+		{
+			// Batched tx: wallet UTXO input adds a
+			// change output before the HTLC output.
+			name: "batched tx - HTLC at index 1",
+			tx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					{}, // HTLC input
+					{}, // wallet UTXO
+				},
+				TxOut: []*wire.TxOut{
+					{
+						PkScript: unrelatedPkScript,
+						Value:    100_000,
+					},
+					{
+						PkScript: expectedPkScript,
+						Value:    50_000,
+					},
+				},
+			},
+			expectedIndex: 1,
+		},
+		{
+			// Batched tx: HTLC output first, change
+			// output second.
+			name: "batched tx - HTLC at index 0",
+			tx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					{}, // wallet UTXO
+					{}, // HTLC input
+				},
+				TxOut: []*wire.TxOut{
+					{
+						PkScript: expectedPkScript,
+						Value:    50_000,
+					},
+					{
+						PkScript: unrelatedPkScript,
+						Value:    100_000,
+					},
+				},
+			},
+			expectedIndex: 0,
+		},
+		{
+			// Batched tx with 3 outputs: HTLC in the
+			// middle.
+			name: "batched tx - HTLC at index 1 of 3",
+			tx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					{}, {}, {},
+				},
+				TxOut: []*wire.TxOut{
+					{
+						PkScript: unrelatedPkScript,
+						Value:    100_000,
+					},
+					{
+						PkScript: expectedPkScript,
+						Value:    50_000,
+					},
+					{
+						PkScript: unrelatedPkScript,
+						Value:    200_000,
+					},
+				},
+			},
+			expectedIndex: 1,
+		},
+		{
+			// No matching output — should error.
+			name: "no match",
+			tx: &wire.MsgTx{
+				TxOut: []*wire.TxOut{
+					{
+						PkScript: unrelatedPkScript,
+						Value:    50_000,
+					},
+				},
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			idx, err := findSecondLevelOutputIndex(
+				bo, tc.tx,
+			)
+			if tc.expectErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.expectedIndex, idx)
+		})
+	}
+}
+
+// TestSweepSpendableOutputsAuxOutput tests the three-way output construction
+// logic in sweepSpendableOutputsTxn: positive sweep amount, aux-only output
+// (BTC sweep dropped), and error when sweep is non-positive without aux.
+func TestSweepSpendableOutputsAuxOutput(t *testing.T) {
+	t.Parallel()
+
+	privKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	pkScript, err := input.PayToTaprootScript(privKey.PubKey())
+	require.NoError(t, err)
+
+	// Build a P2WKH pkScript for the input (WitnessKeyHash needs
+	// a valid P2WKH output to sign).
+	p2wkhAddr := btcutil.Hash160(
+		privKey.PubKey().SerializeCompressed(),
+	)
+	builder := txscript.NewScriptBuilder()
+	builder.AddOp(txscript.OP_0)
+	builder.AddData(p2wkhAddr)
+	p2wkhScript, err := builder.Script()
+	require.NoError(t, err)
+
+	// Create a breached output with enough value to cover fees.
+	makeOutput := func(value int64) breachedOutput {
+		return breachedOutput{
+			amt: btcutil.Amount(value),
+			outpoint: wire.OutPoint{
+				Hash:  chainhash.Hash{0x01},
+				Index: 0,
+			},
+			witnessType: input.WitnessKeyHash,
+			signDesc: input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: privKey.PubKey(),
+				},
+				Output: &wire.TxOut{
+					PkScript: p2wkhScript,
+					Value:    value,
+				},
+			},
+		}
+	}
+
+	sweepAddr := lnwallet.AddrWithKey{
+		DeliveryAddress: pkScript,
+	}
+
+	signer := input.NewMockSigner(
+		[]*btcec.PrivateKey{privKey},
+		&chaincfg.RegressionNetParams,
+	)
+
+	// Common config for the BreachArbitrator.
+	makeBrar := func(
+		auxSweeper fn.Option[sweep.AuxSweeper],
+	) *BreachArbitrator {
+
+		genScript := func() fn.Result[lnwallet.AddrWithKey] {
+			return fn.Ok(sweepAddr)
+		}
+
+		return &BreachArbitrator{
+			cfg: &BreachConfig{
+				Signer:         signer,
+				GenSweepScript: genScript,
+				Estimator: chainfee.NewStaticEstimator(
+					chainfee.FeePerKwFloor, 0,
+				),
+				AuxSweeper: auxSweeper,
+			},
+		}
+	}
+
+	t.Run("positive sweep no aux", func(t *testing.T) {
+		brar := makeBrar(fn.None[sweep.AuxSweeper]())
+		bo := makeOutput(1_000_000)
+
+		result, err := brar.sweepSpendableOutputsTxn(
+			200, &bo,
+		)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+
+		// Should have exactly 1 output (the BTC sweep).
+		require.Len(t, result.justiceTx.TxOut, 1)
+	})
+
+	t.Run("positive sweep with aux", func(t *testing.T) {
+		sweeper := &mockAuxSweeperWithOutput{
+			outputValue: 10_000,
+			pkScript:    pkScript,
+		}
+		brar := makeBrar(fn.Some[sweep.AuxSweeper](sweeper))
+		bo := makeOutput(1_000_000)
+
+		result, err := brar.sweepSpendableOutputsTxn(
+			200, &bo,
+		)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+
+		// Should have 2 outputs: aux + BTC sweep.
+		require.Len(t, result.justiceTx.TxOut, 2)
+	})
+
+	t.Run("non-positive sweep with aux", func(t *testing.T) {
+		// Value so low that after fee the sweep amount is
+		// non-positive, but aux output saves it.
+		sweeper := &mockAuxSweeperWithOutput{
+			outputValue: 100,
+			pkScript:    pkScript,
+		}
+		brar := makeBrar(fn.Some[sweep.AuxSweeper](sweeper))
+
+		// Use a very high weight so fee exceeds input value.
+		bo := makeOutput(500)
+
+		result, err := brar.sweepSpendableOutputsTxn(
+			100_000, &bo,
+		)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+
+		// Should have only 1 output (aux only, BTC sweep
+		// dropped).
+		require.Len(t, result.justiceTx.TxOut, 1)
+	})
+
+	t.Run("non-positive sweep no aux errors", func(t *testing.T) {
+		brar := makeBrar(fn.None[sweep.AuxSweeper]())
+		bo := makeOutput(500)
+
+		_, err := brar.sweepSpendableOutputsTxn(
+			100_000, &bo,
+		)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "non-positive")
+	})
+}
+
+// mockAuxSweeperWithOutput is a mock AuxSweeper that returns a configurable
+// sweep output from DeriveSweepAddr.
+type mockAuxSweeperWithOutput struct {
+	outputValue int64
+	pkScript    []byte
+}
+
+func (m *mockAuxSweeperWithOutput) DeriveSweepAddr(
+	_ []input.Input,
+	_ lnwallet.AddrWithKey) fn.Result[sweep.SweepOutput] {
+
+	return fn.Ok(sweep.SweepOutput{
+		TxOut: wire.TxOut{
+			PkScript: m.pkScript,
+			Value:    m.outputValue,
+		},
+	})
+}
+
+func (m *mockAuxSweeperWithOutput) ExtraBudgetForInputs(
+	_ []input.Input) fn.Result[btcutil.Amount] {
+
+	return fn.Ok(btcutil.Amount(0))
+}
+
+func (m *mockAuxSweeperWithOutput) NotifyBroadcast(
+	_ *sweep.BumpRequest, _ *wire.MsgTx,
+	_ btcutil.Amount, _ map[wire.OutPoint]int,
+	_ sweep.AuxNotifyOpts) error {
+
+	return nil
+}
+
+// mockAuxSweeperNotify is a mock implementation of sweep.AuxSweeper that tracks
+// calls to NotifyBroadcast for testing purposes.
+type mockAuxSweeperNotify struct {
+	notifyCalls []notifyCall
+	notifyErr   error
+}
+
+// notifyCall records the parameters of a NotifyBroadcast call.
+type notifyCall struct {
+	req  *sweep.BumpRequest
+	tx   *wire.MsgTx
+	fee  btcutil.Amount
+	opts sweep.AuxNotifyOpts
+}
+
+// DeriveSweepAddr implements sweep.AuxSweeper.
+func (m *mockAuxSweeperNotify) DeriveSweepAddr(_ []input.Input,
+	_ lnwallet.AddrWithKey) fn.Result[sweep.SweepOutput] {
+
+	return fn.Ok(sweep.SweepOutput{})
+}
+
+// ExtraBudgetForInputs implements sweep.AuxSweeper.
+func (m *mockAuxSweeperNotify) ExtraBudgetForInputs(
+	_ []input.Input) fn.Result[btcutil.Amount] {
+
+	return fn.Ok(btcutil.Amount(0))
+}
+
+// NotifyBroadcast implements sweep.AuxSweeper and records the call.
+func (m *mockAuxSweeperNotify) NotifyBroadcast(req *sweep.BumpRequest,
+	tx *wire.MsgTx, fee btcutil.Amount,
+	_ map[wire.OutPoint]int, opts sweep.AuxNotifyOpts) error {
+
+	m.notifyCalls = append(m.notifyCalls, notifyCall{
+		req:  req,
+		tx:   tx,
+		fee:  fee,
+		opts: opts,
+	})
+
+	return m.notifyErr
+}
+
+// TestNotifyConfirmedJusticeTx tests that notifyConfirmedJusticeTx correctly
+// identifies confirmed justice transactions and notifies the aux sweeper.
+func TestNotifyConfirmedJusticeTx(t *testing.T) {
+	t.Parallel()
+
+	// Create test transactions for each justice tx variant.
+	spendAllTx := &wire.MsgTx{Version: 1}
+	spendCommitOutsTx := &wire.MsgTx{Version: 2}
+	spendHTLCsTx := &wire.MsgTx{Version: 3}
+	unrelatedTx := &wire.MsgTx{Version: 4}
+
+	spendAllHash := spendAllTx.TxHash()
+	spendCommitOutsHash := spendCommitOutsTx.TxHash()
+	spendHTLCsHash := spendHTLCsTx.TxHash()
+	unrelatedHash := unrelatedTx.TxHash()
+
+	// Create justice tx contexts.
+	spendAllCtx := &justiceTxCtx{
+		justiceTx: spendAllTx,
+		fee:       btcutil.Amount(1000),
+	}
+	spendCommitOutsCtx := &justiceTxCtx{
+		justiceTx: spendCommitOutsTx,
+		fee:       btcutil.Amount(2000),
+	}
+	spendHTLCsCtx := &justiceTxCtx{
+		justiceTx: spendHTLCsTx,
+		fee:       btcutil.Amount(3000),
+	}
+
+	tests := []struct {
+		name             string
+		spends           []spend
+		justiceTxs       *justiceTxVariants
+		expectedCalls    int
+		expectedFees     []btcutil.Amount
+		expectedSkipFlag bool
+	}{
+		{
+			name: "spendAll variant detected",
+			spends: []spend{{
+				detail: &chainntnfs.SpendDetail{
+					SpenderTxHash:  &spendAllHash,
+					SpendingTx:     spendAllTx,
+					SpendingHeight: 100,
+				},
+			}},
+			justiceTxs: &justiceTxVariants{
+				spendAll: spendAllCtx,
+			},
+			expectedCalls:    1,
+			expectedFees:     []btcutil.Amount{1000},
+			expectedSkipFlag: true,
+		},
+		{
+			name: "spendCommitOuts variant detected",
+			spends: []spend{{
+				detail: &chainntnfs.SpendDetail{
+					SpenderTxHash:  &spendCommitOutsHash,
+					SpendingTx:     spendCommitOutsTx,
+					SpendingHeight: 100,
+				},
+			}},
+			justiceTxs: &justiceTxVariants{
+				spendCommitOuts: spendCommitOutsCtx,
+			},
+			expectedCalls:    1,
+			expectedFees:     []btcutil.Amount{2000},
+			expectedSkipFlag: true,
+		},
+		{
+			name: "spendHTLCs variant detected",
+			spends: []spend{{
+				detail: &chainntnfs.SpendDetail{
+					SpenderTxHash:  &spendHTLCsHash,
+					SpendingTx:     spendHTLCsTx,
+					SpendingHeight: 100,
+				},
+			}},
+			justiceTxs: &justiceTxVariants{
+				spendHTLCs: spendHTLCsCtx,
+			},
+			expectedCalls:    1,
+			expectedFees:     []btcutil.Amount{3000},
+			expectedSkipFlag: true,
+		},
+		{
+			name: "within-batch dedup - same tx referenced twice",
+			spends: []spend{
+				{
+					detail: &chainntnfs.SpendDetail{
+						SpenderTxHash:  &spendAllHash,
+						SpendingTx:     spendAllTx,
+						SpendingHeight: 100,
+					},
+				},
+				{
+					detail: &chainntnfs.SpendDetail{
+						SpenderTxHash:  &spendAllHash,
+						SpendingTx:     spendAllTx,
+						SpendingHeight: 100,
+					},
+				},
+			},
+			justiceTxs: &justiceTxVariants{
+				spendAll: spendAllCtx,
+			},
+			expectedCalls:    1,
+			expectedFees:     []btcutil.Amount{1000},
+			expectedSkipFlag: true,
+		},
+		{
+			name: "no match - unrelated transaction",
+			spends: []spend{{
+				detail: &chainntnfs.SpendDetail{
+					SpenderTxHash:  &unrelatedHash,
+					SpendingTx:     unrelatedTx,
+					SpendingHeight: 100,
+				},
+			}},
+			justiceTxs: &justiceTxVariants{
+				spendAll:        spendAllCtx,
+				spendCommitOuts: spendCommitOutsCtx,
+				spendHTLCs:      spendHTLCsCtx,
+			},
+			expectedCalls: 0,
+		},
+		{
+			name: "multiple spends - only matching ones notified",
+			spends: []spend{
+				{
+					detail: &chainntnfs.SpendDetail{
+						SpenderTxHash:  &spendAllHash,
+						SpendingTx:     spendAllTx,
+						SpendingHeight: 100,
+					},
+				},
+				{
+					detail: &chainntnfs.SpendDetail{
+						SpenderTxHash:  &unrelatedHash,
+						SpendingTx:     unrelatedTx,
+						SpendingHeight: 100,
+					},
+				},
+				{
+					detail: &chainntnfs.SpendDetail{
+						SpenderTxHash:  &spendHTLCsHash,
+						SpendingTx:     spendHTLCsTx,
+						SpendingHeight: 100,
+					},
+				},
+			},
+			justiceTxs: &justiceTxVariants{
+				spendAll:   spendAllCtx,
+				spendHTLCs: spendHTLCsCtx,
+			},
+			expectedCalls:    2,
+			expectedFees:     []btcutil.Amount{1000, 3000},
+			expectedSkipFlag: true,
+		},
+		{
+			name:   "nil justice txs - no panic",
+			spends: []spend{},
+			justiceTxs: &justiceTxVariants{
+				spendAll:        nil,
+				spendCommitOuts: nil,
+				spendHTLCs:      nil,
+			},
+			expectedCalls: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create mock aux sweeper.
+			mockSweeper := &mockAuxSweeperNotify{}
+
+			// Create a minimal BreachArbitrator with the mock.
+			brar := &BreachArbitrator{
+				cfg: &BreachConfig{
+					AuxSweeper: fn.Some[sweep.AuxSweeper](
+						mockSweeper,
+					),
+				},
+			}
+
+			// Call the function under test.
+			historicTxs := make(map[chainhash.Hash]*justiceTxCtx)
+			brar.notifyConfirmedJusticeTx(
+				tc.spends, tc.justiceTxs,
+				historicTxs, nil,
+			)
+
+			// Verify the number of NotifyBroadcast calls.
+			require.Len(t, mockSweeper.notifyCalls,
+				tc.expectedCalls, "unexpected number of "+
+					"NotifyBroadcast calls")
+
+			// Verify the fees if we expected calls.
+			for i, call := range mockSweeper.notifyCalls {
+				if i < len(tc.expectedFees) {
+					require.Equal(t, tc.expectedFees[i],
+						call.fee,
+						"unexpected fee for call %d", i)
+				}
+
+				// Verify skip flags are set for
+				// confirmed justice txs.
+				require.Equal(t, tc.expectedSkipFlag,
+					call.opts.SkipBroadcast,
+					"SkipBroadcast should be true")
+				// SkipProofVerify is NOT set —
+				// proof verification must run to
+				// ensure valid anchor metadata.
+				require.False(t,
+					call.opts.SkipProofVerify,
+					"SkipProofVerify should be false")
+			}
+		})
+	}
+}
+
+// TestNotifyConfirmedJusticeTxNoAuxSweeper verifies that the function handles
+// the case where no aux sweeper is configured.
+func TestNotifyConfirmedJusticeTxNoAuxSweeper(t *testing.T) {
+	t.Parallel()
+
+	spendAllTx := &wire.MsgTx{Version: 1}
+	spendAllHash := spendAllTx.TxHash()
+
+	spends := []spend{{
+		detail: &chainntnfs.SpendDetail{
+			SpenderTxHash:  &spendAllHash,
+			SpendingTx:     spendAllTx,
+			SpendingHeight: 100,
+		},
+	}}
+
+	justiceTxs := &justiceTxVariants{
+		spendAll: &justiceTxCtx{
+			justiceTx: spendAllTx,
+			fee:       btcutil.Amount(1000),
+		},
+	}
+
+	// Create BreachArbitrator with no aux sweeper.
+	brar := &BreachArbitrator{
+		cfg: &BreachConfig{
+			AuxSweeper: fn.None[sweep.AuxSweeper](),
+		},
+	}
+
+	// Should not panic when there's no aux sweeper to notify.
+	historicTxs := make(map[chainhash.Hash]*justiceTxCtx)
+	brar.notifyConfirmedJusticeTx(
+		spends, justiceTxs, historicTxs, nil,
+	)
 }

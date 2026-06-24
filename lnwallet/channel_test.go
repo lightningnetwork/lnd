@@ -1560,6 +1560,7 @@ func TestHTLCDustLimit(t *testing.T) {
 		chainfee.SatPerKWeight(
 			aliceChannel.channelState.LocalCommitment.FeePerKw,
 		),
+		false,
 	))
 	htlcAmount := lnwire.NewMSatFromSatoshis(htlcSat)
 
@@ -1654,10 +1655,10 @@ func TestHTLCSigNumber(t *testing.T) {
 	require.NoError(t, err, "unable to get fee")
 
 	belowDust := btcutil.Amount(500) + HtlcTimeoutFee(
-		channeldb.SingleFunderTweaklessBit, feePerKw,
+		channeldb.SingleFunderTweaklessBit, feePerKw, false,
 	)
 	aboveDust := btcutil.Amount(1400) + HtlcSuccessFee(
-		channeldb.SingleFunderTweaklessBit, feePerKw,
+		channeldb.SingleFunderTweaklessBit, feePerKw, false,
 	)
 
 	// ===================================================================
@@ -1805,6 +1806,7 @@ func TestChannelBalanceDustLimit(t *testing.T) {
 		chainfee.SatPerKWeight(
 			aliceChannel.channelState.LocalCommitment.FeePerKw,
 		),
+		false,
 	)
 
 	htlcAmount := lnwire.NewMSatFromSatoshis(htlcSat)
@@ -5779,11 +5781,12 @@ func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 	commitFee := lnwire.NewMSatFromSatoshis(
 		aliceChannel.channelState.LocalCommitment.CommitFee,
 	)
+	chanType := aliceChannel.channelState.ChanType
 	htlcTimeoutFee := lnwire.NewMSatFromSatoshis(
-		HtlcTimeoutFee(aliceChannel.channelState.ChanType, feeRate),
+		HtlcTimeoutFee(chanType, feeRate, false),
 	)
 	htlcSuccessFee := lnwire.NewMSatFromSatoshis(
-		HtlcSuccessFee(aliceChannel.channelState.ChanType, feeRate),
+		HtlcSuccessFee(chanType, feeRate, false),
 	)
 
 	// Helper method to check the current reported balance.
@@ -5950,11 +5953,12 @@ func TestChanCommitWeightDustHtlcs(t *testing.T) {
 	feeRate := chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	)
+	chanType := aliceChannel.channelState.ChanType
 	htlcTimeoutFee := lnwire.NewMSatFromSatoshis(
-		HtlcTimeoutFee(aliceChannel.channelState.ChanType, feeRate),
+		HtlcTimeoutFee(chanType, feeRate, false),
 	)
 	htlcSuccessFee := lnwire.NewMSatFromSatoshis(
-		HtlcSuccessFee(aliceChannel.channelState.ChanType, feeRate),
+		HtlcSuccessFee(chanType, feeRate, false),
 	)
 
 	// Helper method to add an HTLC from Alice to Bob.
@@ -6482,6 +6486,7 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 		aliceChannel.channelState.RemoteCurrentRevocation,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.NoError(t, err, "unable to create alice close summary")
 
@@ -6628,6 +6633,7 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 		aliceChannel.channelState.RemoteCurrentRevocation,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.NoError(t, err, "unable to create alice close summary")
 
@@ -6647,6 +6653,7 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 		aliceChannel.channelState.RemoteNextRevocation,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.NoError(t, err, "unable to create alice close summary")
 
@@ -7294,6 +7301,7 @@ func TestChanReserveLocalInitiatorDustHtlc(t *testing.T) {
 		chainfee.SatPerKWeight(
 			aliceChannel.channelState.LocalCommitment.FeePerKw,
 		),
+		false,
 	)
 
 	// Set Alice's channel reserve to be low enough to carry the value of
@@ -7473,6 +7481,7 @@ func TestNewBreachRetributionSkipsDustHtlcs(t *testing.T) {
 		aliceChannel.channelState, revokedStateNum, 100, breachTx,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.NoError(t, err, "unable to create breach retribution")
 
@@ -10107,6 +10116,7 @@ func TestCreateHtlcRetribution(t *testing.T) {
 	hr, err := createHtlcRetribution(
 		aliceChannel.channelState, keyRing, commitHash,
 		dummyPrivate, leaseExpiry, htlc, fn.None[CommitAuxLeaves](),
+		nil, fn.None[AuxContractResolver](), nil, 0,
 	)
 	// Expect no error.
 	require.NoError(t, err)
@@ -10312,6 +10322,7 @@ func TestCreateBreachRetribution(t *testing.T) {
 				aliceChannel.channelState, keyRing,
 				dummyPrivate, leaseExpiry,
 				fn.None[CommitAuxLeaves](),
+				fn.None[AuxContractResolver](), 0,
 			)
 
 			// Check the error if expected.
@@ -10370,6 +10381,7 @@ func TestCreateBreachRetributionLegacy(t *testing.T) {
 	br, ourAmt, theirAmt, err := createBreachRetributionLegacy(
 		&revokedLog, aliceChannel.channelState, keyRing,
 		dummyPrivate, ourScript, theirScript, leaseExpiry,
+		fn.None[AuxContractResolver](), fn.None[AuxSigner](), 0,
 	)
 	require.NoError(t, err)
 
@@ -10432,6 +10444,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 		aliceChannel.channelState, stateNum, breachHeight, breachTx,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.ErrorIs(t, err, channeldb.ErrNoPastDeltas)
 
@@ -10441,6 +10454,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 		aliceChannel.channelState, stateNum, breachHeight, nil,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.ErrorIs(t, err, channeldb.ErrNoPastDeltas)
 
@@ -10488,6 +10502,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 		aliceChannel.channelState, stateNum, breachHeight, breachTx,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.NoError(t, err)
 
@@ -10501,6 +10516,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 		aliceChannel.channelState, stateNum, breachHeight, nil,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.NoError(t, err)
 	assertRetribution(br, 1, 0)
@@ -10511,6 +10527,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 		aliceChannel.channelState, stateNum+1, breachHeight, breachTx,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.ErrorIs(t, err, channeldb.ErrLogEntryNotFound)
 
@@ -10520,6 +10537,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 		aliceChannel.channelState, stateNum+1, breachHeight, nil,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
+		fn.None[AuxSigner](),
 	)
 	require.ErrorIs(t, err, channeldb.ErrLogEntryNotFound)
 }
@@ -10814,7 +10832,9 @@ func TestAsynchronousSendingContraint(t *testing.T) {
 
 	// |<----add-------
 	// make sure this htlc is non-dust for alice.
-	htlcFee := HtlcSuccessFee(channeldb.SingleFunderTweaklessBit, feePerKw)
+	htlcFee := HtlcSuccessFee(
+		channeldb.SingleFunderTweaklessBit, feePerKw, false,
+	)
 	// We need to take the remote dustlimit amount, because it the greater
 	// one.
 	htlcAmt2 := lnwire.NewMSatFromSatoshis(
@@ -10948,7 +10968,9 @@ func TestAsynchronousSendingWithFeeBuffer(t *testing.T) {
 	// commitment as well.
 	// |<----add-------
 	// make sure this htlc is non-dust for alice.
-	htlcFee := HtlcSuccessFee(channeldb.SingleFunderTweaklessBit, feePerKw)
+	htlcFee := HtlcSuccessFee(
+		channeldb.SingleFunderTweaklessBit, feePerKw, false,
+	)
 	htlcAmt2 := lnwire.NewMSatFromSatoshis(
 		aliceChannel.channelState.LocalChanCfg.DustLimit + htlcFee,
 	)
@@ -11032,7 +11054,9 @@ func TestAsynchronousSendingWithFeeBuffer(t *testing.T) {
 	//	---------------	|-----sig------>
 	//	<----rev-------	|---------------
 	// Update the non-dust amount because we updated the fee by 100%.
-	htlcFee = HtlcSuccessFee(channeldb.SingleFunderTweaklessBit, feePerKw*2)
+	htlcFee = HtlcSuccessFee(
+		channeldb.SingleFunderTweaklessBit, feePerKw*2, false,
+	)
 	htlcAmt3 := lnwire.NewMSatFromSatoshis(
 		aliceChannel.channelState.LocalChanCfg.DustLimit + htlcFee,
 	)
@@ -11953,4 +11977,69 @@ func TestEvaluateNoOpHtlc(t *testing.T) {
 
 		require.Equal(t, tc.expectedDeltas, tc.balanceDeltas)
 	}
+}
+
+// TestHtlcFeesSigHashDefault verifies that HtlcTimeoutFee and
+// HtlcSuccessFee return non-zero baked-in fees for taproot channels
+// with sigHashDefault=true, using the fixed sigHashDefaultFeeRate.
+func TestHtlcFeesSigHashDefault(t *testing.T) {
+	t.Parallel()
+
+	taprootChanType := channeldb.SimpleTaprootFeatureBit |
+		channeldb.AnchorOutputsBit |
+		channeldb.ZeroHtlcTxFeeBit |
+		channeldb.SingleFunderTweaklessBit
+
+	// With sigHashDefault=false, taproot channels have zero
+	// second-level fees (zero-fee HTLC path).
+	timeoutFeeOff := HtlcTimeoutFee(taprootChanType, 0, false)
+	successFeeOff := HtlcSuccessFee(taprootChanType, 0, false)
+	require.Zero(t, timeoutFeeOff,
+		"taproot timeout fee should be zero without sigHashDefault")
+	require.Zero(t, successFeeOff,
+		"taproot success fee should be zero without sigHashDefault")
+
+	// With sigHashDefault=true, taproot channels use baked-in fees
+	// at sigHashDefaultFeeRate regardless of the passed feePerKw.
+	timeoutFeeOn := HtlcTimeoutFee(taprootChanType, 0, true)
+	successFeeOn := HtlcSuccessFee(taprootChanType, 0, true)
+	require.NotZero(t, timeoutFeeOn,
+		"taproot timeout fee should be non-zero with sigHashDefault")
+	require.NotZero(t, successFeeOn,
+		"taproot success fee should be non-zero with sigHashDefault")
+
+	// The fee should be deterministic and match the expected weight
+	// calculation.
+	expectedTimeout := sigHashDefaultFeeRate.FeeForWeight(
+		input.TaprootHtlcTimeoutWeight,
+	)
+	expectedSuccess := sigHashDefaultFeeRate.FeeForWeight(
+		input.TaprootHtlcSuccessWeight,
+	)
+	require.Equal(t, expectedTimeout, timeoutFeeOn)
+	require.Equal(t, expectedSuccess, successFeeOn)
+
+	// The fee should be independent of the passed feePerKw.
+	highFeeRate := chainfee.SatPerKWeight(50_000)
+	timeoutFeeHigh := HtlcTimeoutFee(
+		taprootChanType, highFeeRate, true,
+	)
+	successFeeHigh := HtlcSuccessFee(
+		taprootChanType, highFeeRate, true,
+	)
+	require.Equal(t, timeoutFeeOn, timeoutFeeHigh,
+		"sigHashDefault fee should not depend on feePerKw")
+	require.Equal(t, successFeeOn, successFeeHigh,
+		"sigHashDefault fee should not depend on feePerKw")
+
+	// Non-taproot channel types should not be affected by
+	// sigHashDefault flag.
+	anchorChanType := channeldb.AnchorOutputsBit |
+		channeldb.ZeroHtlcTxFeeBit |
+		channeldb.SingleFunderTweaklessBit
+	anchorTimeoutFee := HtlcTimeoutFee(
+		anchorChanType, highFeeRate, true,
+	)
+	require.Zero(t, anchorTimeoutFee,
+		"non-taproot zero-fee channel should still have zero fee")
 }

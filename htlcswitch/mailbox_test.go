@@ -603,7 +603,7 @@ func testMailBoxDust(t *testing.T, chantype channeldb.ChannelType) {
 
 	localDustLimit := btcutil.Amount(400)
 	remoteDustLimit := btcutil.Amount(500)
-	isDust := dustHelper(chantype, localDustLimit, remoteDustLimit)
+	isDust := dustHelper(chantype, localDustLimit, remoteDustLimit, false)
 	ctx.mailbox.SetDustClosure(isDust)
 
 	// The first packet will be dust according to the remote dust limit,

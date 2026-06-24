@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	base "github.com/btcsuite/btcwallet/wallet"
@@ -430,7 +431,7 @@ func (*MockAuxLeafStore) FetchLeavesFromCommit(_ AuxChanState,
 // FetchLeavesFromRevocation attempts to fetch the auxiliary leaves
 // from a channel revocation that stores balance + blob information.
 func (*MockAuxLeafStore) FetchLeavesFromRevocation(
-	_ *channeldb.RevocationLog) fn.Result[CommitDiffAuxResult] {
+	_ RevocationLeavesReq) fn.Result[CommitDiffAuxResult] {
 
 	return fn.Ok(CommitDiffAuxResult{})
 }
@@ -508,6 +509,13 @@ func (a *MockAuxSigner) VerifySecondLevelSigs(chanState AuxChanState,
 	args := a.Called(chanState, tx, jobs)
 
 	return args.Error(0)
+}
+
+// HtlcSigHashType returns None, deferring to the default sighash behavior.
+func (a *MockAuxSigner) HtlcSigHashType(
+	_ HtlcSigHashReq) fn.Option[txscript.SigHashType] {
+
+	return fn.None[txscript.SigHashType]()
 }
 
 type MockAuxContractResolver struct{}

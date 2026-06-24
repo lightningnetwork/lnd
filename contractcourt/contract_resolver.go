@@ -7,10 +7,12 @@ import (
 	"io"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/sweep"
 )
 
@@ -183,3 +185,22 @@ var (
 	// progressing because it received the quit signal.
 	errResolverShuttingDown = errors.New("resolver shutting down")
 )
+
+// isSecondLevelSigHashDefault returns true when a pre-signed second-level
+// HTLC transaction was signed with SigHashDefault. In this case the tx
+// has baked-in fees and must be broadcast as-is — the sweeper cannot add
+// wallet inputs or change outputs without invalidating the peer's
+// signature.
+//
+// The channel type is the authoritative gate: only aux (taproot-assets)
+// channels — identified by TapscriptRootBit — use SigHashDefault for
+// second-level HTLCs. Without this gate, the zero-value SigHashType
+// (0x00 == SigHashDefault) would accidentally match on regular lnd
+// channels that never explicitly populate SignDetails.SigHashType.
+func isSecondLevelSigHashDefault(signDetails *input.SignDetails,
+	chanType channeldb.ChannelType) bool {
+
+	return signDetails != nil &&
+		signDetails.SigHashType == txscript.SigHashDefault &&
+		chanType.HasTapscriptRoot()
+}

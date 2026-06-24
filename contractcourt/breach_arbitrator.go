@@ -179,6 +179,11 @@ type BreachConfig struct {
 	// AuxSweeper is an optional interface that can be used to modify the
 	// way sweep transaction are generated.
 	AuxSweeper fn.Option[sweep.AuxSweeper]
+
+	// AuxResolver is an optional interface for resolving auxiliary
+	// contract data. Used to generate resolution blobs for second-level
+	// HTLC revocations at morph time.
+	AuxResolver fn.Option[lnwallet.AuxContractResolver]
 }
 
 // BreachArbitrator is a special subsystem which is responsible for watching and
@@ -539,13 +544,72 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 	}
 }
 
+// findSecondLevelOutputIndex searches the spending (second-level) transaction's
+// outputs for the one that matches the expected second-level HTLC output
+// script. This is necessary because SpenderInputIndex (which identifies the
+// input that spent our output) does NOT necessarily correspond to the output
+// index — the second-level tx may contain additional inputs (e.g. wallet UTXOs
+// for fees) that shift the input indices.
+func findSecondLevelOutputIndex(bo *breachedOutput,
+	spendingTx *wire.MsgTx) (uint32, error) {
+
+	isTaproot := txscript.IsPayToTaproot(bo.signDesc.Output.PkScript)
+	if !isTaproot || bo.signDesc.DoubleTweak == nil {
+		return 0, fmt.Errorf("cannot derive expected pkScript: " +
+			"non-taproot or missing DoubleTweak")
+	}
+
+	// For taproot outputs we derive the expected pkScript from the
+	// revocation key and the second-level tap tweak.
+	//
+	// Derive the revocation public key from the revocation base point
+	// and the commitment secret (DoubleTweak).
+	commitPoint := bo.signDesc.DoubleTweak.PubKey()
+	revokeKey := input.DeriveRevocationPubkey(
+		bo.signDesc.KeyDesc.PubKey, commitPoint,
+	)
+
+	// Compute the expected taproot output key using the revocation key
+	// as internal key and the second-level tap tweak.
+	expectedOutputKey := txscript.ComputeTaprootOutputKey(
+		revokeKey, bo.secondLevelTapTweak[:],
+	)
+	expectedPkScript, err := input.PayToTaprootScript(expectedOutputKey)
+	if err != nil {
+		return 0, fmt.Errorf("unable to compute expected pkScript: %w",
+			err)
+	}
+
+	// Search the spending tx outputs for the matching pkScript.
+	for i, txOut := range spendingTx.TxOut {
+		if bytes.Equal(txOut.PkScript, expectedPkScript) {
+			return uint32(i), nil
+		}
+	}
+
+	// Log details to help diagnose why no match was found.
+	brarLog.Warnf("Expected second-level pkScript %x (revokeKey=%x, "+
+		"tapTweak=%x) not found among %d outputs of tx %s",
+		expectedPkScript, revokeKey.SerializeCompressed(),
+		bo.secondLevelTapTweak[:], len(spendingTx.TxOut),
+		spendingTx.TxHash())
+	for i, txOut := range spendingTx.TxOut {
+		brarLog.Warnf("  output %d: pkScript=%x value=%d",
+			i, txOut.PkScript, txOut.Value)
+	}
+
+	return 0, fmt.Errorf("no output matching expected second-level "+
+		"taproot pkScript found in tx %s", spendingTx.TxHash())
+}
+
 // convertToSecondLevelRevoke takes a breached output, and a transaction that
 // spends it to the second level, and mutates the breach output into one that
 // is able to properly sweep that second level output. We'll use this function
 // when we go to sweep a breached commitment transaction, but the cheating
 // party has already attempted to take it to the second level.
 func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
-	spendDetails *chainntnfs.SpendDetail) {
+	spendDetails *chainntnfs.SpendDetail,
+	auxResolver fn.Option[lnwallet.AuxContractResolver]) {
 
 	// In this case, we'll modify the witness type of this output to
 	// actually prepare for a second level revoke.
@@ -556,24 +620,49 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 		bo.witnessType = input.HtlcSecondLevelRevoke
 	}
 
-	// We'll also redirect the outpoint to this second level output, so the
-	// spending transaction updates it inputs accordingly.
+	// Find the correct output index in the spending (second-level) tx.
+	//
+	// On aux (taproot-asset) channels the second-level tx may bundle
+	// multiple HTLCs and/or wallet UTXOs for fees, so input index no
+	// longer matches output index. We script-match our expected
+	// second-level pkScript to locate the right output.
+	//
+	// On non-aux channels (regular legacy/anchor/taproot) we keep the
+	// legacy behavior of using SpenderInputIndex directly. The
+	// script-matching code path only runs for aux channels so we don't
+	// regress sweep behavior on normal channels.
 	spendingTx := spendDetails.SpendingTx
-	spendInputIndex := spendDetails.SpenderInputIndex
+	isAuxChannel := bo.resolveReq != nil
+
+	var outputIndex uint32
+	if isAuxChannel {
+		idx, err := findSecondLevelOutputIndex(bo, spendingTx)
+		if err != nil {
+			brarLog.Errorf("BUG: cannot locate second-level "+
+				"taproot output by script match for "+
+				"aux-channel breach %v: %v", bo.outpoint, err)
+
+			return
+		}
+		outputIndex = idx
+	} else {
+		outputIndex = spendDetails.SpenderInputIndex
+	}
+
 	oldOp := bo.outpoint
 	bo.outpoint = wire.OutPoint{
 		Hash:  spendingTx.TxHash(),
-		Index: spendInputIndex,
+		Index: outputIndex,
 	}
 
 	// Next, we need to update the amount so we can do fee estimation
 	// properly, and also so we can generate a valid signature as we need
 	// to know the new input value (the second level transactions shaves
 	// off some funds to fees).
-	newAmt := spendingTx.TxOut[spendInputIndex].Value
+	newAmt := spendingTx.TxOut[outputIndex].Value
 	bo.amt = btcutil.Amount(newAmt)
 	bo.signDesc.Output.Value = newAmt
-	bo.signDesc.Output.PkScript = spendingTx.TxOut[spendInputIndex].PkScript
+	bo.signDesc.Output.PkScript = spendingTx.TxOut[outputIndex].PkScript
 
 	// For taproot outputs, the taptweak also needs to be swapped out. We
 	// do this unconditionally as this field isn't used at all for segwit
@@ -584,15 +673,78 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 	// SignDescriptor.
 	bo.signDesc.WitnessScript = bo.secondLevelWitnessScript
 
+	// Re-resolve the aux contract blob for the second-level witness
+	// type. Aborts the conversion if the re-resolve fails so we don't
+	// leave bo half-converted with a stale blob.
+	if err := reresolveAuxBlobForSecondLevel(
+		bo, spendingTx, spendDetails, auxResolver,
+	); err != nil {
+		return
+	}
+
 	brarLog.Warnf("HTLC(%v) for ChannelPoint(%v) has been spent to the "+
 		"second-level, adjusting -> %v", oldOp, breachInfo.chanPoint,
 		bo.outpoint)
 }
 
+// reresolveAuxBlobForSecondLevel re-runs the aux contract resolution against
+// the now-known second-level transaction so the breach output's resolution
+// blob targets the second-level witness path. No-op for non-aux channels
+// (resolveReq is nil). Returns a non-nil error when the caller should bail
+// out of the surrounding convertToSecondLevelRevoke (e.g. a resolver error
+// would leave bo with a stale blob; better to skip the output entirely).
+func reresolveAuxBlobForSecondLevel(bo *breachedOutput,
+	spendingTx *wire.MsgTx, spendDetails *chainntnfs.SpendDetail,
+	auxResolver fn.Option[lnwallet.AuxContractResolver]) error {
+
+	if bo.resolveReq == nil {
+		brarLog.Warnf("No resolve request template available " +
+			"for second-level HTLC, skipping blob update")
+
+		return nil
+	}
+	if bo.resolveReq.KeyRing == nil {
+		return nil
+	}
+
+	secondLevelReq := *bo.resolveReq
+	secondLevelReq.CommitTx = bo.resolveReq.CommitTx.Copy()
+	secondLevelReq.Type = input.TaprootHtlcSecondLevelRevoke
+	secondLevelReq.SecondLevel = fn.Some(lnwallet.SecondLevelInfo{
+		Tx:          spendingTx,
+		BlockHeight: uint32(spendDetails.SpendingHeight),
+	})
+
+	brarLog.Infof("Re-resolving HTLC blob for second-level revoke, "+
+		"htlcID=%v, htlcAmt=%v, keyRing=%v, revokeKey=%v",
+		secondLevelReq.HtlcID, secondLevelReq.HtlcAmt,
+		secondLevelReq.KeyRing != nil,
+		secondLevelReq.KeyRing.RevocationKey != nil)
+
+	resolveBlob := fn.MapOptionZ(
+		auxResolver,
+		func(a lnwallet.AuxContractResolver) fn.Result[tlv.Blob] {
+			return a.ResolveContract(secondLevelReq)
+		},
+	)
+	if err := resolveBlob.Err(); err != nil {
+		brarLog.Errorf("Unable to re-resolve second-level HTLC blob "+
+			"for %v: %v -- output will be skipped",
+			bo.outpoint, err)
+
+		return err
+	}
+
+	bo.resolutionBlob = resolveBlob.OkToSome()
+
+	return nil
+}
+
 // updateBreachInfo mutates the passed breachInfo by removing or converting any
 // outputs among the spends. It also counts the total and revoked funds swept
 // by our justice spends.
-func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
+func updateBreachInfo(breachInfo *retributionInfo, spends []spend,
+	auxResolver fn.Option[lnwallet.AuxContractResolver]) (
 	btcutil.Amount, btcutil.Amount) {
 
 	inputs := breachInfo.breachedOutputs
@@ -641,6 +793,7 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
 			// process.
 			convertToSecondLevelRevoke(
 				breachedOutput, breachInfo, s.detail,
+				auxResolver,
 			)
 
 			continue
@@ -689,6 +842,229 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
 	return totalFunds, revokedFunds
 }
 
+// notifyConfirmedJusticeTx checks if any of the spend details match one of our
+// justice transactions. If a confirmed justice transaction is detected and we
+// haven't already notified about it, we call NotifyBroadcast on the aux sweeper
+// to generate aux-level proofs.
+func (b *BreachArbitrator) notifyConfirmedJusticeTx(spends []spend,
+	justiceTxs *justiceTxVariants,
+	historicJusticeTxs map[chainhash.Hash]*justiceTxCtx,
+	breachedOutputs []breachedOutput) {
+
+	// waitForSpendEvent can produce multiple spend entries that point at
+	// the same SpenderTxHash (one justice tx may sweep several breached
+	// outputs, and each output has its own SpendNtfn subscription that
+	// races to commit before the exit channel closes). Dedup within this
+	// batch so we notify the aux sweeper at most once per confirmed
+	// justice tx. The set is intentionally batch-local: across Loop
+	// iterations each SpendEvent fires exactly once per outpoint, and
+	// the chain notifier handles re-orgs of depth N-1, so no long-lived
+	// dedup state is needed.
+	notifiedTxs := make(map[chainhash.Hash]bool)
+
+	// Check each spend to see if it's from one of our justice txs.
+	for _, s := range spends {
+		spendingTxHash := *s.detail.SpenderTxHash
+
+		// Skip if we've already notified about this transaction in
+		// this batch.
+		if notifiedTxs[spendingTxHash] {
+			continue
+		}
+
+		// Helper to check if a justice tx matches the spending tx.
+		matchesJusticeTx := func(jtx *justiceTxCtx) bool {
+			if jtx == nil {
+				return false
+			}
+			hash := jtx.justiceTx.TxHash()
+
+			return spendingTxHash.IsEqual(&hash)
+		}
+
+		var justiceCtx *justiceTxCtx
+		var matchSource string
+		switch {
+		case matchesJusticeTx(justiceTxs.spendAll):
+			justiceCtx = justiceTxs.spendAll
+			matchSource = "spendAll"
+
+		case matchesJusticeTx(justiceTxs.spendCommitOuts):
+			justiceCtx = justiceTxs.spendCommitOuts
+			matchSource = "spendCommitOuts"
+
+		case matchesJusticeTx(justiceTxs.spendHTLCs):
+			justiceCtx = justiceTxs.spendHTLCs
+			matchSource = "spendHTLCs"
+		}
+
+		// Also check the individual second-level sweeps.
+		if justiceCtx == nil {
+			for i, tx := range justiceTxs.spendSecondLevelHTLCs {
+				if matchesJusticeTx(tx) {
+					justiceCtx = tx
+					matchSource = fmt.Sprintf(
+						"secondLevel[%d]", i,
+					)
+
+					break
+				}
+			}
+		}
+
+		// If none of the current variants matched, check the historic
+		// map. The current justiceTxs reflect only the LATEST rebuild
+		// cycle — when a second-level HTLC spend morphs a breached
+		// output (see convertToSecondLevelRevoke), we rebuild the
+		// variants with the morphed input set, and the originally
+		// broadcast txids drop out of `justiceTxs`. Without this
+		// fallback, a confirmed pre-rebuild justice tx (broadcast by
+		// us earlier in this loop) would no longer match anything we
+		// recognize, and we'd skip the aux-sweeper notification.
+		if justiceCtx == nil {
+			justiceCtx = historicJusticeTxs[spendingTxHash]
+			if justiceCtx != nil {
+				matchSource = "historic"
+			}
+		}
+
+		// If this is one of our justice txs, notify the aux sweeper.
+		if justiceCtx != nil {
+			brarLog.Debugf("Matched spend txid=%v to justice tx "+
+				"via %s (numInputs=%d), notifying aux sweeper",
+				spendingTxHash, matchSource,
+				len(justiceCtx.inputs))
+			for i, inp := range justiceCtx.inputs {
+				brarLog.Debugf("  input[%d]: outpoint=%v "+
+					"witnessType=%v", i, inp.OutPoint(),
+					inp.WitnessType())
+			}
+		} else {
+			brarLog.Debugf("Spend txid=%v did NOT match any "+
+				"justice tx", spendingTxHash)
+		}
+		if justiceCtx != nil {
+			// Build a fresh input list by matching the
+			// confirmed tx's BTC inputs against the
+			// current breachedOutputs. This avoids using
+			// stale pointers from historic variants
+			// whose data may have been mutated by
+			// second-level morphing or slice compaction.
+			spendingTx := s.detail.SpendingTx
+			boByOutpoint := make(
+				map[wire.OutPoint]*breachedOutput,
+			)
+			for i := range breachedOutputs {
+				bo := &breachedOutputs[i]
+				boByOutpoint[bo.outpoint] = bo
+			}
+
+			var freshInputs []input.Input
+			hasSecondLevel := false
+
+			// Preserve second-level awareness from the justice
+			// tx context snapshot. The current breachedOutputs
+			// view can lag after morphing/rebuilds, and if we
+			// lose this bit for a mixed justice tx we stop
+			// looking up refreshed input proofs for the
+			// second-level spends on aux channels.
+			hasSecondLevel = justiceCtx.hasSecondLevel
+
+			for _, txIn := range spendingTx.TxIn {
+				op := txIn.PreviousOutPoint
+				bo, ok := boByOutpoint[op]
+				if !ok {
+					continue
+				}
+				freshInputs = append(freshInputs, bo)
+
+				wt := bo.WitnessType()
+				switch wt {
+				case input.HtlcSecondLevelRevoke,
+					input.TaprootHtlcSecondLevelRevoke:
+
+					hasSecondLevel = true
+				}
+			}
+
+			brarLog.Debugf("Built fresh input list: %d inputs "+
+				"(hasSecondLevel=%v)", len(freshInputs),
+				hasSecondLevel)
+
+			bumpReq := sweep.BumpRequest{
+				Inputs:          freshInputs,
+				DeliveryAddress: justiceCtx.sweepAddr,
+				ExtraTxOut:      justiceCtx.extraTxOut,
+			}
+
+			err := fn.MapOptionZ(
+				b.cfg.AuxSweeper,
+				func(aux sweep.AuxSweeper) error {
+					// The tx is already confirmed, so
+					// skip broadcast. Proof verification
+					// must run to ensure valid anchor
+					// metadata for spending.
+					h := uint32(s.detail.SpendingHeight)
+					return aux.NotifyBroadcast(
+						&bumpReq, s.detail.SpendingTx,
+						justiceCtx.fee, nil,
+						sweep.AuxNotifyOpts{
+							SkipBroadcast:     true,
+							ConfirmHeight:     h,
+							LookupInputProofs: hasSecondLevel, //nolint:ll
+						},
+					)
+				},
+			)
+			if err != nil {
+				brarLog.Errorf("Failed to notify aux sweeper "+
+					"of confirmed justice tx %v: %v",
+					spendingTxHash, err)
+			} else {
+				// Mark this transaction as notified to avoid
+				// duplicate calls.
+				notifiedTxs[spendingTxHash] = true
+			}
+		}
+	}
+}
+
+// recordJusticeTxVariants records all non-nil justice tx variants into the
+// historic map keyed by their txid. This allows notifyConfirmedJusticeTx to
+// match confirmed spends against justice txs from previous rebuild cycles.
+func recordJusticeTxVariants(variants *justiceTxVariants,
+	history map[chainhash.Hash]*justiceTxCtx) {
+
+	record := func(jtx *justiceTxCtx) {
+		if jtx == nil {
+			return
+		}
+
+		snapshot := *jtx
+		if jtx.justiceTx != nil {
+			snapshot.justiceTx = jtx.justiceTx.Copy()
+		}
+
+		// The historic map is only used to match later confirmed
+		// spends against the justice variants that were published
+		// at the time. Store an immutable snapshot so later rebuilds
+		// can't mutate the metadata associated with an older txid
+		// and retroactively change whether that tx should be
+		// treated as carrying second-level inputs.
+		snapshot.inputs = nil
+
+		hash := snapshot.justiceTx.TxHash()
+		history[hash] = &snapshot
+	}
+
+	record(variants.spendAll)
+	record(variants.spendCommitOuts)
+	record(variants.spendHTLCs)
+	for _, tx := range variants.spendSecondLevelHTLCs {
+		record(tx)
+	}
+}
+
 // exactRetribution is a goroutine which is executed once a contract breach has
 // been detected by a breachObserver. This function is responsible for
 // punishing a counterparty for violating the channel contract by sweeping ALL
@@ -725,6 +1101,13 @@ func (b *BreachArbitrator) exactRetribution(
 	// SpendEvents between each attempt to not re-register unnecessarily.
 	spendNtfns := make(map[wire.OutPoint]*chainntnfs.SpendEvent)
 
+	// Track all historically created justice tx contexts by their txid.
+	// This is needed because justiceTxs is rebuilt after each spend
+	// detection, and the tx that actually confirmed may have been from
+	// an earlier rebuild cycle. Without this history, we can't match
+	// the confirmed tx to call NotifyBroadcast on the aux sweeper.
+	historicJusticeTxs := make(map[chainhash.Hash]*justiceTxCtx)
+
 	// Compute both the total value of funds being swept and the
 	// amount of funds that were revoked from the counter party.
 	var totalFunds, revokedFunds btcutil.Amount
@@ -738,35 +1121,16 @@ justiceTxBroadcast:
 		brarLog.Errorf("Unable to create justice tx: %v", err)
 		return
 	}
+	recordJusticeTxVariants(justiceTxs, historicJusticeTxs)
 	finalTx := justiceTxs.spendAll
-
-	brarLog.Debugf("Broadcasting justice tx: %v", lnutils.SpewLogClosure(
-		finalTx))
-
-	// As we're about to broadcast our breach transaction, we'll notify the
-	// aux sweeper of our broadcast attempt first.
-	err = fn.MapOptionZ(b.cfg.AuxSweeper, func(aux sweep.AuxSweeper) error {
-		bumpReq := sweep.BumpRequest{
-			Inputs:          finalTx.inputs,
-			DeliveryAddress: finalTx.sweepAddr,
-			ExtraTxOut:      finalTx.extraTxOut,
-		}
-
-		return aux.NotifyBroadcast(
-			&bumpReq, finalTx.justiceTx, finalTx.fee, nil,
-		)
-	})
-	if err != nil {
-		brarLog.Errorf("unable to notify broadcast: %w", err)
-		return
-	}
 
 	// We'll now attempt to broadcast the transaction which finalized the
 	// channel's retribution against the cheating counter party.
 	label := labels.MakeLabel(labels.LabelTypeJusticeTransaction, nil)
 	err = b.cfg.PublishTransaction(finalTx.justiceTx, label)
 	if err != nil {
-		brarLog.Errorf("Unable to broadcast justice tx: %v", err)
+		brarLog.Errorf("Unable to broadcast initial spendAll "+
+			"justice tx: %v", err)
 	}
 
 	// Regardless of publication succeeded or not, we now wait for any of
@@ -805,8 +1169,20 @@ Loop:
 	for {
 		select {
 		case spends := <-spendChan:
+			// Check if any of the spends represent a confirmed
+			// justice transaction, and if so, notify the aux
+			// sweeper.
+			b.notifyConfirmedJusticeTx(
+				spends, justiceTxs,
+				historicJusticeTxs,
+				breachInfo.breachedOutputs,
+			)
+
 			// Update the breach info with the new spends.
-			t, r := updateBreachInfo(breachInfo, spends)
+			t, r := updateBreachInfo(
+				breachInfo, spends, b.cfg.AuxResolver,
+			)
+
 			totalFunds += t
 			revokedFunds += r
 
@@ -867,6 +1243,39 @@ Loop:
 				"justice tx confirming (breached at "+
 				"height %v), splitting justice tx.",
 				epoch.Height, breachInfo.breachHeight)
+
+			// Rebuild justice tx variants from the current
+			// breach info, which may have been updated by
+			// spend detection (e.g. second-level HTLC spends
+			// replacing commit-level outputs).
+			justiceTxs, err = b.createJusticeTx(
+				breachInfo.breachedOutputs,
+			)
+			if err != nil {
+				brarLog.Errorf("Unable to recreate "+
+					"justice tx for split: %v", err)
+				continue Loop
+			}
+			recordJusticeTxVariants(
+				justiceTxs, historicJusticeTxs,
+			)
+
+			// Re-attempt the spendAll variant first.
+			if justiceTxs.spendAll != nil {
+				sa := justiceTxs.spendAll
+				label := labels.MakeLabel(
+					labels.LabelTypeJusticeTransaction,
+					nil,
+				)
+				err = b.cfg.PublishTransaction(
+					sa.justiceTx, label,
+				)
+				if err != nil {
+					brarLog.Warnf("Unable to broadcast "+
+						"rebuild spendAll justice "+
+						"tx: %v", err)
+				}
+			}
 
 			// Otherwise we'll attempt to publish the two separate
 			// justice transactions that sweeps the commitment
@@ -1096,6 +1505,12 @@ type breachedOutput struct {
 
 	secondLevelWitnessScript []byte
 	secondLevelTapTweak      [32]byte
+
+	// resolveReq is a template ResolutionReq populated at breach
+	// detection time. It is used when an HTLC is taken to the second
+	// level and we need to re-resolve the contract with the updated
+	// witness type and the actual second-level spending tx.
+	resolveReq *lnwallet.ResolutionReq
 
 	witnessFunc input.WitnessGenerator
 
@@ -1383,9 +1798,10 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 		)
 
 		// For taproot outputs, we also need to hold onto the second
-		// level tap tweak as well.
+		// level tap tweak and resolution request template.
 		//nolint:ll
 		htlcOutput.secondLevelTapTweak = breachedHtlc.SecondLevelTapTweak
+		htlcOutput.resolveReq = breachedHtlc.ResolveReq
 
 		breachedOutputs = append(breachedOutputs, htlcOutput)
 	}
@@ -1463,6 +1879,10 @@ func (b *BreachArbitrator) createJusticeTx(
 		}
 	}
 
+	brarLog.Infof("createJusticeTx: %d total inputs (%d commit, "+
+		"%d htlc, %d second-level)", len(allInputs),
+		len(commitInputs), len(htlcInputs), len(secondLevelInputs))
+
 	var (
 		txs = &justiceTxVariants{}
 		err error
@@ -1473,34 +1893,51 @@ func (b *BreachArbitrator) createJusticeTx(
 	if err != nil {
 		return nil, err
 	}
+	brarLog.Infof("createJusticeTx: spendAll created successfully "+
+		"(%d inputs, txid=%v)", len(allInputs),
+		txs.spendAll.justiceTx.TxHash())
 
 	txs.spendCommitOuts, err = b.createSweepTx(commitInputs...)
 	if err != nil {
 		brarLog.Errorf("could not create sweep tx for commitment "+
 			"outputs: %v", err)
+	} else if txs.spendCommitOuts != nil {
+		brarLog.Infof("createJusticeTx: spendCommitOuts created "+
+			"successfully (%d inputs)", len(commitInputs))
 	}
 
 	txs.spendHTLCs, err = b.createSweepTx(htlcInputs...)
 	if err != nil {
 		brarLog.Errorf("could not create sweep tx for HTLC outputs: %v",
 			err)
+	} else if txs.spendHTLCs != nil {
+		brarLog.Infof("createJusticeTx: spendHTLCs created "+
+			"successfully (%d inputs)", len(htlcInputs))
 	}
 
 	// TODO(roasbeef): only register one of them?
 
 	secondLevelSweeps := make([]*justiceTxCtx, 0, len(secondLevelInputs))
-	for _, input := range secondLevelInputs {
+	for i, input := range secondLevelInputs {
 		sweepTx, err := b.createSweepTx(input)
 		if err != nil {
 			brarLog.Errorf("could not create sweep tx for "+
-				"second-level HTLC output: %v", err)
+				"second-level HTLC output %d: %v", i, err)
 
 			continue
 		}
 
+		brarLog.Infof("createJusticeTx: individual second-level "+
+			"sweep %d created successfully", i)
 		secondLevelSweeps = append(secondLevelSweeps, sweepTx)
 	}
 	txs.spendSecondLevelHTLCs = secondLevelSweeps
+
+	brarLog.Infof("createJusticeTx: variants summary — spendAll=%v, "+
+		"spendCommitOuts=%v, spendHTLCs=%v, "+
+		"spendSecondLevelHTLCs=%d",
+		txs.spendAll != nil, txs.spendCommitOuts != nil,
+		txs.spendHTLCs != nil, len(txs.spendSecondLevelHTLCs))
 
 	return txs, nil
 }
@@ -1515,6 +1952,12 @@ type justiceTxCtx struct {
 	extraTxOut fn.Option[sweep.SweepOutput]
 
 	fee btcutil.Amount
+
+	// hasSecondLevel records whether this concrete justice tx spends any
+	// second-level revoke inputs. We keep it on the tx context because the
+	// live breachedOutputs slice may later be rebuilt into a view that no
+	// longer faithfully reflects the confirmed tx we need to notify about.
+	hasSecondLevel bool
 
 	inputs []input.Input
 }
@@ -1635,19 +2078,39 @@ func (b *BreachArbitrator) sweepSpendableOutputsTxn(txWeight lntypes.WeightUnit,
 
 	// First, we'll add the extra sweep output if it exists, subtracting the
 	// amount from the sweep amt.
+	var hasAuxOut bool
 	if b.cfg.AuxSweeper.IsSome() {
 		extraChangeOut.WhenOk(func(o sweep.SweepOutput) {
 			sweepAmt -= o.Value
 
 			txn.AddTxOut(&o.TxOut)
+			hasAuxOut = true
 		})
 	}
 
-	// Next, we'll add the output to which our funds will be deposited.
-	txn.AddTxOut(&wire.TxOut{
-		PkScript: pkScript.DeliveryAddress,
-		Value:    sweepAmt,
-	})
+	// If the sweep amount exceeds the dust limit, add the regular sweep
+	// output. If it's at or below dust but we have an aux output, we
+	// skip the BTC sweep output entirely — for custom (asset) channels
+	// the real value is carried by the aux output and the remaining BTC
+	// can all go towards fees. Using the dust limit instead of zero
+	// prevents the mempool from rejecting the transaction.
+	dustLimit := int64(lnwallet.DustLimitForSize(input.UnknownWitnessSize))
+	switch {
+	case sweepAmt > dustLimit:
+		txn.AddTxOut(&wire.TxOut{
+			PkScript: pkScript.DeliveryAddress,
+			Value:    sweepAmt,
+		})
+
+	case hasAuxOut:
+		brarLog.Infof("Dropping BTC sweep output (amount=%d), "+
+			"all input BTC (%v) goes to fee + aux output",
+			sweepAmt, totalAmt)
+
+	default:
+		return nil, fmt.Errorf("sweep amount is non-positive "+
+			"(%d) and no aux output exists", sweepAmt)
+	}
 
 	// TODO(roasbeef): add other output change modify sweep amt
 
@@ -1711,7 +2174,12 @@ func (b *BreachArbitrator) sweepSpendableOutputsTxn(txWeight lntypes.WeightUnit,
 		sweepAddr:  pkScript,
 		extraTxOut: extraChangeOut.OkToSome(),
 		fee:        txFee,
-		inputs:     inputs,
+		hasSecondLevel: fn.Any(inputs, func(inp input.Input) bool {
+			wt := inp.WitnessType()
+			return wt == input.HtlcSecondLevelRevoke ||
+				wt == input.TaprootHtlcSecondLevelRevoke
+		}),
+		inputs: inputs,
 	}, nil
 }
 

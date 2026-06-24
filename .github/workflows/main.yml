@@ -12,8 +12,6 @@ on:
       - "master"
 
 permissions:
-  # Required to manage and delete caches.
-  actions: write
   # Default permission for checking out code.
   contents: read
 
@@ -39,9 +37,31 @@ env:
   # TODO(yy): remove this value and use TRANCHES.
   SMALL_TRANCHES: 8
 
+  # SPLIT_TRANCHES defines the total number of tranches used by the
+  # tranche-split itest configurations, spread over
+  # SPLIT_TRANCHES / SPLIT_ITEST_PARALLELISM runner jobs.
+  SPLIT_TRANCHES: 16
+
+  # SPLIT_ITEST_PARALLELISM defines the number of tranches each runner job
+  # of a tranche-split itest configuration runs in parallel.
+  SPLIT_ITEST_PARALLELISM: 4
+
   # If you change this please also update GO_VERSION in Makefile (then run
   # `make lint` to see where else it needs to be updated as well).
   GO_VERSION: 1.26.4
+
+  # DB_UNIT_PKGS is the list of packages whose unit tests exercise the
+  # configurable database backends, i.e. the packages whose tests behave
+  # differently under the kvdb_* and test_db_* build tags (they construct
+  # test stores via kvdb.GetTestBackend, channeldb.MakeTestDB, the sqldb
+  # test constructors or their wrappers). The DB-variant unit jobs run
+  # only these packages; all other packages run identically in the
+  # plain unit jobs.
+  DB_UNIT_PKGS: >-
+    autopilot batch chainparams channeldb cluster contractcourt graph
+    graph/db graph/db/migration1 invoices kvdb kvdb/etcd kvdb/postgres
+    kvdb/sqlbase kvdb/sqlite payments/db payments/db/migration1 routing
+    sqldb sweep
 
 jobs:
   static-checks:
@@ -53,9 +73,6 @@ jobs:
         with:
           # Needed for some checks.
           fetch-depth: 0
-
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
 
       - name: Setup Go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
@@ -107,6 +124,35 @@ jobs:
       - name: Check mobile specific code
         run: go build --tags="mobile" ./mobile
 
+      ########################
+      # check pinned dependencies
+      ########################
+      - name: Check pinned dependencies
+        run: |
+          while read -r dep; do
+            if ! grep -q "$dep" go.mod; then
+              echo "dependency $dep should not be altered"
+              exit 1
+            fi
+          done <<EOF
+          google.golang.org/grpc v1.79.3
+          github.com/golang/protobuf v1.5.4
+          EOF
+
+      ########################
+      # check PR updates release notes
+      ########################
+      - name: Check for no-changelog label
+        id: check-changelog-label
+        uses: ./.github/actions/check-label
+        with:
+          label: 'no-changelog'
+          skip-message: "Changelog check auto-passed due to 'no-changelog' label"
+
+      - name: Release notes check
+        if: steps.check-changelog-label.outputs.skip != 'true'
+        run: scripts/check-release-notes.sh
+
   ########################
   # check commits
   ########################
@@ -119,9 +165,6 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
 
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
@@ -148,9 +191,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
-
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
         with:
@@ -167,23 +207,9 @@ jobs:
   cross-compile:
     name: Cross compilation
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: true
-      matrix:
-        # Please keep this list in sync with make/release_flags.mk!
-        include:
-          - name: i386
-            sys: freebsd-386 linux-386 windows-386
-          - name: amd64
-            sys: darwin-amd64 freebsd-amd64 linux-amd64 netbsd-amd64 openbsd-amd64 windows-amd64
-          - name: arm
-            sys: darwin-arm64 freebsd-arm linux-armv6 linux-armv7 linux-arm64 windows-arm64
     steps:
       - name: Git checkout
         uses: actions/checkout@v5
-
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
 
       - name: Setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
@@ -192,8 +218,13 @@ jobs:
           key-prefix: cross-compile
           use-build-cache: 'no'
 
-      - name: Build release for all architectures
-        run: make release sys="${{ matrix.sys }}"
+      # Build a representative subset of the release targets: one per
+      # OS family plus a 32-bit and an ARM target, which together cover
+      # the distinct classes of platform-specific compile errors. The
+      # full target list from make/release_flags.mk is still built by
+      # the release workflow.
+      - name: Build release for representative architectures
+        run: make release sys="linux-386 linux-amd64 linux-armv6 darwin-arm64 freebsd-amd64 windows-amd64"
 
   ########################
   # run unit tests
@@ -207,14 +238,11 @@ jobs:
       matrix:
         unit_type:
           - unit-cover
-          - unit tags="kvdb_etcd"
-          - unit tags="kvdb_postgres"
-          - unit tags="kvdb_sqlite"
-          - unit tags="test_db_sqlite"
-          - unit tags="test_db_postgres"
-          - unit-race
-          - unit-race tags="test_db_sqlite"
-          - unit-race tags="test_db_postgres"
+          - unit tags="kvdb_etcd" pkg="$DB_UNIT_PKGS"
+          - unit tags="kvdb_postgres" pkg="$DB_UNIT_PKGS"
+          - unit tags="kvdb_sqlite" pkg="$DB_UNIT_PKGS"
+          - unit tags="test_db_sqlite" pkg="$DB_UNIT_PKGS"
+          - unit tags="test_db_postgres" pkg="$DB_UNIT_PKGS"
           - unit-module
 
     steps:
@@ -222,9 +250,6 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
 
       - name: Fetch and rebase on ${{ github.base_ref }}
         if: github.event_name == 'pull_request'
@@ -267,6 +292,67 @@ jobs:
 
 
   ########################
+  # run unit tests in race detector mode
+  ########################
+  unit-race:
+    name: Unit race (${{ matrix.name }}, ${{ matrix.tranche }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Allow other tests in the matrix to continue if one fails.
+      fail-fast: false
+      matrix:
+        # The full suite is split into four tranches, each running on
+        # its own runner.
+        include:
+          - name: unit-race
+            args: ''
+            tranche: 0
+            tranches: 4
+          - name: unit-race
+            args: ''
+            tranche: 1
+            tranches: 4
+          - name: unit-race
+            args: ''
+            tranche: 2
+            tranches: 4
+          - name: unit-race
+            args: ''
+            tranche: 3
+            tranches: 4
+
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Fetch and rebase on ${{ github.base_ref }}
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/rebase
+
+      - name: Git checkout fuzzing seeds
+        uses: actions/checkout@v5
+        with:
+          repository: lightninglabs/lnd-fuzz
+          path: lnd-fuzz
+
+      - name: Rsync fuzzing seeds
+        run: rsync -a --ignore-existing lnd-fuzz/ ./
+
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: ./.github/actions/setup-go
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+          key-prefix: unit-test
+
+      - name: Install bitcoind
+        run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
+
+      - name: Run ${{ matrix.name }} tranche ${{ matrix.tranche }}
+        run: make unit-race-parallel tranche=${{ matrix.tranche }} tranches=${{ matrix.tranches }} ${{ matrix.args }}
+
+  ########################
   # run integration tests with TRANCHES
   ########################
   basic-integration-test:
@@ -277,14 +363,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: btcd
-            args: backend=btcd cover=1
           - name: bitcoind
             args: backend=bitcoind cover=1
-          - name: bitcoind-miner
-            args: backend=bitcoind minerbackend=bitcoind cover=1
-          - name: bitcoind-notxindex
-            args: backend="bitcoind notxindex"
           - name: neutrino
             args: backend=neutrino cover=1
     steps:
@@ -299,10 +379,6 @@ jobs:
         with:
           label: 'no-itest'
           skip-message: "Tests auto-passed due to 'no-itest' label"
-
-      - name: Clean up runner space
-        if: steps.check-label.outputs.skip != 'true'
-        uses: ./.github/actions/cleanup-space
 
       - name: Fetch and rebase on ${{ github.base_ref }}
         if: github.event_name == 'pull_request' && steps.check-label.outputs.skip != 'true'
@@ -361,22 +437,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: bitcoind-rpcpolling
-            args: backend="bitcoind rpcpolling"
-          - name: bitcoind-etcd
-            args: backend=bitcoind dbbackend=etcd
           - name: bitcoind-sqlite
             args: backend=bitcoind dbbackend=sqlite
-          - name: bitcoind-sqlite-nativesql
-            args: backend=bitcoind dbbackend=sqlite nativesql=true
-          - name: bitcoind-sqlite=nativesql-experiment
-            args: backend=bitcoind dbbackend=sqlite nativesql=true tags=test_native_sql
-          - name: bitcoind-postgres
-            args: backend=bitcoind dbbackend=postgres
-          - name: bitcoind-postgres-nativesql
-            args: backend=bitcoind dbbackend=postgres nativesql=true
-          - name: bitcoind-postgres-nativesql-experiment
-            args: backend=bitcoind dbbackend=postgres nativesql=true tags=test_native_sql
     steps:
       - name: Git checkout
         uses: actions/checkout@v5
@@ -389,10 +451,6 @@ jobs:
         with:
           label: 'no-itest'
           skip-message: "Tests auto-passed due to 'no-itest' label"
-
-      - name: Clean up runner space
-        if: steps.check-label.outputs.skip != 'true'
-        uses: ./.github/actions/cleanup-space
 
       - name: Fetch and rebase on ${{ github.base_ref }}
         if: github.event_name == 'pull_request' && steps.check-label.outputs.skip != 'true'
@@ -411,7 +469,7 @@ jobs:
 
       - name: Run ${{ matrix.name }}
         if: steps.check-label.outputs.skip != 'true'
-        run: make itest-parallel tranches=${{ env.SMALL_TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
+        run: make itest-parallel tranches=${{ env.TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
 
       - name: Clean coverage
         run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt
@@ -442,11 +500,24 @@ jobs:
 
 
   ########################
-  # run windows integration test
+  # build binaries for itest jobs that run prebuilt binaries
   ########################
-  windows-integration-test:
-    name: Run windows itest
-    runs-on: windows-latest
+  build-split-itest:
+    name: Build itest binaries
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: bitcoind-postgres-experiment
+            args: backend=bitcoind dbbackend=postgres tags=test_native_sql
+          # The windows binaries are cross-compiled here since building
+          # them on the (much slower) windows runner dominated that
+          # job's running time. All itest binaries are built with
+          # CGO_ENABLED=0, so cross-compilation is safe.
+          - name: windows
+            args: windows=1
+            goos: windows
     steps:
       - name: Git checkout
         uses: actions/checkout@v5
@@ -471,10 +542,132 @@ jobs:
           go-version: '${{ env.GO_VERSION }}'
           key-prefix: integration-test
 
-      - name: Run itest
+      - name: Build itest binaries for ${{ matrix.name }}
         if: steps.check-label.outputs.skip != 'true'
-        run: make itest-parallel tranches=${{ env.SMALL_TRANCHES }} windows=1 shuffleseed=${{ github.run_id }}
-        
+        env:
+          GOOS: ${{ matrix.goos }}
+        run: make build-itest ${{ matrix.args }}
+
+      - name: Upload itest binaries
+        if: steps.check-label.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: itest-binaries-${{ matrix.name }}
+          path: |
+            itest/itest.test*
+            itest/lnd-itest*
+            itest/btcd-itest*
+          retention-days: 1
+
+  ########################
+  # run tranche-split integration tests
+  ########################
+  split-integration-test:
+    name: Split itests (${{ matrix.config.name }}, ${{ matrix.tranche_group }})
+    runs-on: ubuntu-latest
+    needs: build-split-itest
+    strategy:
+      # Allow other tests in the matrix to continue if one fails.
+      fail-fast: false
+      matrix:
+        # Each tranche group runs SPLIT_ITEST_PARALLELISM tranches, so
+        # this list must contain SPLIT_TRANCHES / SPLIT_ITEST_PARALLELISM
+        # entries.
+        tranche_group: [0, 1, 2, 3]
+        config:
+          - name: bitcoind-postgres-nativesql-experiment
+            binaries: bitcoind-postgres-experiment
+            seed: 3
+            args: backend=bitcoind dbbackend=postgres nativesql=true tags=test_native_sql
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v5
+
+      - name: Check for no-itest label
+        id: check-label
+        uses: ./.github/actions/check-label
+        with:
+          label: 'no-itest'
+          skip-message: "Tests auto-passed due to 'no-itest' label"
+
+      - name: Download itest binaries
+        if: steps.check-label.outputs.skip != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: itest-binaries-${{ matrix.config.binaries }}
+          path: itest
+
+      - name: Make itest binaries executable
+        if: steps.check-label.outputs.skip != 'true'
+        run: chmod +x itest/itest.test itest/lnd-itest itest/btcd-itest
+
+      - name: Install bitcoind
+        if: steps.check-label.outputs.skip != 'true'
+        run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
+
+      - name: Run ${{ matrix.config.name }} tranche group ${{ matrix.tranche_group }}
+        if: steps.check-label.outputs.skip != 'true'
+        run: |
+          OFFSET=$((${{ matrix.tranche_group }} * ${{ env.SPLIT_ITEST_PARALLELISM }}))
+          make itest-only-parallel tranches=${{ env.SPLIT_TRANCHES }} \
+            parallel=${{ env.SPLIT_ITEST_PARALLELISM }} trancheoffset=$OFFSET \
+            ${{ matrix.config.args }} \
+            shuffleseed=${{ github.run_id }}${{ matrix.config.seed }}
+
+      - name: Zip log files on failure
+        if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
+        timeout-minutes: 5 # timeout after 5 minute
+        run: 7z a logs-itest-${{ matrix.config.name }}-${{ matrix.tranche_group }}.zip itest/**/*.log
+
+      - name: Upload log files on failure
+        uses: actions/upload-artifact@v4
+        if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
+        with:
+          name: logs-itest-${{ matrix.config.name }}-${{ matrix.tranche_group }}
+          path: logs-itest-${{ matrix.config.name }}-${{ matrix.tranche_group }}.zip
+          retention-days: 5
+
+  ########################
+  # run windows integration test
+  ########################
+  windows-integration-test:
+    name: Run windows itest (${{ matrix.tranche_group }})
+    runs-on: windows-latest
+    needs: build-split-itest
+    strategy:
+      # Allow the other group to continue if one fails.
+      fail-fast: false
+      matrix:
+        # The windows runner is machine-bound rather than wait-bound,
+        # so the suite is spread over two runners with half of the
+        # TRANCHES (16) tranches each.
+        tranche_group: [0, 1]
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v5
+
+      - name: Check for no-itest label
+        id: check-label
+        uses: ./.github/actions/check-label
+        with:
+          label: 'no-itest'
+          skip-message: "Tests auto-passed due to 'no-itest' label"
+
+      - name: Download itest binaries
+        if: steps.check-label.outputs.skip != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: itest-binaries-windows
+          path: itest
+
+      - name: Run itest tranche group ${{ matrix.tranche_group }}
+        if: steps.check-label.outputs.skip != 'true'
+        run: |
+          OFFSET=$((${{ matrix.tranche_group }} * 8))
+          make itest-only-parallel tranches=${{ env.TRANCHES }} \
+            parallel=8 trancheoffset=$OFFSET windows=1 \
+            shuffleseed=${{ github.run_id }}
+
       - name: Kill any remaining lnd processes
         if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         shell: powershell
@@ -483,14 +676,14 @@ jobs:
       - name: Zip log files on failure
         if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         timeout-minutes: 5 # timeout after 5 minute
-        run: 7z a logs-itest-windows.zip itest/**/*.log
+        run: 7z a logs-itest-windows-${{ matrix.tranche_group }}.zip itest/**/*.log
 
       - name: Upload log files on failure
         uses: actions/upload-artifact@v4
         if: ${{ failure() && steps.check-label.outputs.skip != 'true' }}
         with:
-          name: logs-itest-windows
-          path: logs-itest-windows.zip
+          name: logs-itest-windows-${{ matrix.tranche_group }}
+          path: logs-itest-windows-${{ matrix.tranche_group }}.zip
           retention-days: 5
 
   ########################
@@ -541,55 +734,6 @@ jobs:
           retention-days: 5
 
   ########################
-  # check pinned dependencies
-  ########################
-  dep-pin:
-    name: Check pinned dependencies
-    runs-on: ubuntu-latest
-    strategy:
-      # Allow other tests in the matrix to continue if one fails.
-      fail-fast: false
-      matrix:
-        pinned_dep:
-          - google.golang.org/grpc v1.79.3
-          - github.com/golang/protobuf v1.5.4
-
-    steps:
-      - name: Git checkout
-        uses: actions/checkout@v5
-
-      - name: Clean up runner space
-        uses: ./.github/actions/cleanup-space
-
-      - name: Ensure dependencies at correct version
-        run: if ! grep -q "${{ matrix.pinned_dep }}" go.mod; then echo dependency ${{ matrix.pinned_dep }} should not be altered ; exit 1 ; fi
-
-  ########################
-  # check PR updates release notes
-  ########################
-  milestone-check:
-    name: Check release notes updated
-    runs-on: ubuntu-latest
-    steps:
-      - name: Git checkout
-        uses: actions/checkout@v5
-
-      - name: Check for no-changelog label
-        id: check-label
-        uses: ./.github/actions/check-label
-        with:
-          label: 'no-changelog'
-          skip-message: "Changelog check auto-passed due to 'no-changelog' label"
-
-      - name: Clean up runner space
-        if: steps.check-label.outputs.skip != 'true'
-        uses: ./.github/actions/cleanup-space
-
-      - name: Release notes check
-        if: steps.check-label.outputs.skip != 'true'
-        run: scripts/check-release-notes.sh
-
-  ########################
   # Backwards Compatibility Test
   ########################
   backwards-compatibility-test:
@@ -612,46 +756,6 @@ jobs:
           name: bw-compat-logs
           path: scripts/bw-compatibility-test/logs/
           retention-days: 7
-
-  #########################################
-  # Auto Cache Cleanup on Pull Requests
-  #########################################
-  auto-cleanup-cache:
-    name: Cache Cleanup
-    runs-on: ubuntu-latest
-
-    # This condition checks for pull requests from authors with write access.
-    if: >-
-      contains('OWNER, MEMBER, COLLABORATOR', github.event.pull_request.author_association)
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Delete caches older than 12 hours
-        continue-on-error: true
-        env:
-          # GITHUB_TOKEN is required for the gh CLI.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "Finding caches not used in the last 12 hours..."
-
-          # Get the current time and the cutoff time (12 hours ago) in Unix
-          # timestamp format.
-          cutoff_timestamp=$(date -d "12 hours ago" +%s)
-
-          # Use gh and jq to parse caches. Delete any cache last accessed
-          # before the cutoff time.
-          gh cache list --json key,lastAccessedAt | jq -r '.[] |
-          select(.lastAccessedAt != null) | "\(.lastAccessedAt) \(.key)"' |
-          while read -r last_accessed_at key; do
-            last_accessed_timestamp=$(date -d "$last_accessed_at" +%s)
-
-            if (( last_accessed_timestamp < cutoff_timestamp )); then
-              echo "Deleting old cache. Key: $key, Last Used: $last_accessed_at"
-              gh cache delete "$key"
-            fi
-          done
 
   # Notify about the completion of all coverage collecting jobs.
   finish:

@@ -764,6 +764,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testCoopCloseRbf,
 	},
 	{
+		Name:     "rbf coop close with aux close outputs",
+		TestFunc: testCoopCloseRbfWithAuxCloseOutputs,
+	},
+	{
 		Name:     "rbf coop close disconnect",
 		TestFunc: testRBFCoopCloseDisconnect,
 	},

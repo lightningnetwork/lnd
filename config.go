@@ -1924,7 +1924,8 @@ func (c *Config) ImplementationConfig(
 			c, ltndLog, interceptor,
 			c.RemoteSigner.MigrateWatchOnly,
 		)
-		return &ImplementationCfg{
+
+		implCfg := &ImplementationCfg{
 			GrpcRegistrar:     rpcImpl,
 			RestRegistrar:     rpcImpl,
 			ExternalValidator: rpcImpl,
@@ -1934,10 +1935,17 @@ func (c *Config) ImplementationConfig(
 			WalletConfigBuilder: rpcImpl,
 			ChainControlBuilder: rpcImpl,
 		}
+
+		if c.Dev.NeedMockAuxChanCloser() {
+			//nolint:ll
+			implCfg.AuxChanCloser = c.Dev.GetMockAuxChanCloserValueForTest()
+		}
+
+		return implCfg
 	}
 
 	defaultImpl := NewDefaultWalletImpl(c, ltndLog, interceptor, false)
-	return &ImplementationCfg{
+	implCfg := &ImplementationCfg{
 		GrpcRegistrar:       defaultImpl,
 		RestRegistrar:       defaultImpl,
 		ExternalValidator:   defaultImpl,
@@ -1945,6 +1953,11 @@ func (c *Config) ImplementationConfig(
 		WalletConfigBuilder: defaultImpl,
 		ChainControlBuilder: defaultImpl,
 	}
+	if c.Dev.NeedMockAuxChanCloser() {
+		implCfg.AuxChanCloser = c.Dev.GetMockAuxChanCloserValueForTest()
+	}
+
+	return implCfg
 }
 
 // CleanAndExpandPath expands environment variables and leading ~ in the

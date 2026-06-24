@@ -14,8 +14,10 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/protofsm"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var (
@@ -126,6 +128,10 @@ type ShutdownReceived struct {
 	// ShutdownScript is the script the remote party wants to use to
 	// shutdown.
 	ShutdownScript lnwire.DeliveryAddress
+
+	// CustomRecords are the custom TLV records
+	// that were included in the remote party's shutdown message.
+	CustomRecords lnwire.CustomRecords
 
 	// BlockHeight is the height at which the shutdown message was
 	// received. This is used for channel leases to determine if a co-op
@@ -341,6 +347,41 @@ type Environment struct {
 	// satoshis we'll pay given a local and/or remote output.
 	FeeEstimator CoopFeeEstimator
 
+	// AuxCloser is an optional auxiliary channel closer used to derive
+	// additional shutdown records and close outputs
+	// for custom channel types.
+	AuxCloser fn.Option[AuxChanCloser]
+
+	// LocalInternalKey is the optional local internal taproot key used when
+	// constructing auxiliary shutdown data or close outputs.
+	LocalInternalKey fn.Option[btcec.PublicKey]
+
+	// FundingBlob is optional auxiliary metadata derived from the funding
+	// output and passed to the auxiliary closer during close handling.
+	FundingBlob fn.Option[tlv.Blob]
+
+	// CommitBlob is optional auxiliary metadata derived from the
+	// latest commitment state and passed to the auxiliary closer
+	// during close handling.
+	CommitBlob fn.Option[tlv.Blob]
+
+	// DustLimit is the dust threshold used to determine whether
+	// this party's close output should be omitted from the
+	// cooperative close transaction.
+	DustLimit btcutil.Amount
+
+	// Amt is this party's settled close amount that would be paid to its
+	// delivery script before accounting for output trimming rules.
+	Amt btcutil.Amount
+
+	// CommitFee is the commitment transaction fee associated with the
+	// latest channel state, used when deriving auxiliary close outputs.
+	CommitFee btcutil.Amount
+
+	// Initiator indicates whether the local node initiated the channel
+	// and is used when deriving auxiliary shutdown and close parameters.
+	Initiator bool
+
 	// ChanObserver is an interface used to observe state changes to the
 	// channel. We'll use this to figure out when/if we can send certain
 	// messages.
@@ -374,6 +415,93 @@ func (e *Environment) Name() string {
 // taproot if both the LocalMusigSession and RemoteMusigSession are set.
 func (e *Environment) IsTaproot() bool {
 	return e.LocalMusigSession != nil && e.RemoteMusigSession != nil
+}
+
+// AuxCloseOutputs returns any auxiliary close outputs for the cooperative
+// close transaction.
+//
+//nolint:ll
+func (e *Environment) AuxCloseOutputs(closeFee btcutil.Amount,
+	localCloseOutput fn.Option[types.CloseOutput],
+	remoteCloseOutput fn.Option[types.CloseOutput]) (fn.Option[AuxCloseOutputs], error) {
+
+	var closeOuts fn.Option[AuxCloseOutputs]
+	err := fn.MapOptionZ(e.AuxCloser, func(aux AuxChanCloser) error {
+		req := types.AuxShutdownReq{
+			ChanPoint:   e.ChanPoint,
+			ShortChanID: e.Scid,
+			InternalKey: e.LocalInternalKey,
+			Initiator:   e.Initiator,
+			CommitBlob:  e.CommitBlob,
+			FundingBlob: e.FundingBlob,
+		}
+		outs, err := aux.AuxCloseOutputs(types.AuxCloseDesc{
+			AuxShutdownReq:    req,
+			CloseFee:          closeFee,
+			CommitFee:         e.CommitFee,
+			LocalCloseOutput:  localCloseOutput,
+			RemoteCloseOutput: remoteCloseOutput,
+		})
+		if err != nil {
+			return err
+		}
+
+		closeOuts = outs
+
+		return nil
+	})
+	if err != nil {
+		return closeOuts, err
+	}
+
+	return closeOuts, nil
+}
+
+// CloseOutput returns the close output for the given delivery script and
+// shutdown custom records.
+//
+//nolint:ll
+func (e *Environment) CloseOutput(deliveryScript lnwire.DeliveryAddress,
+	shutdownCustomRecords lnwire.CustomRecords) fn.Option[types.CloseOutput] {
+
+	return fn.Some(types.CloseOutput{
+		Amt:             e.Amt,
+		DustLimit:       e.DustLimit,
+		PkScript:        deliveryScript,
+		ShutdownRecords: shutdownCustomRecords,
+	})
+}
+
+// ShutdownCustomRecords returns shutdown custom records from the auxiliary
+// channel closer.
+func (e *Environment) ShutdownCustomRecords(
+	isInitiator bool) (lnwire.CustomRecords, error) {
+
+	var shutdownCustomRecords lnwire.CustomRecords
+
+	err := fn.MapOptionZ(e.AuxCloser, func(a AuxChanCloser) error {
+		shutdownBlob, err := a.ShutdownBlob(
+			types.AuxShutdownReq{
+				ChanPoint:   e.ChanPoint,
+				ShortChanID: e.Scid,
+				Initiator:   isInitiator,
+				InternalKey: e.LocalInternalKey,
+				CommitBlob:  e.CommitBlob,
+				FundingBlob: e.FundingBlob,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		shutdownBlob.WhenSome(func(cr lnwire.CustomRecords) {
+			shutdownCustomRecords = cr
+		})
+
+		return nil
+	})
+
+	return shutdownCustomRecords, err
 }
 
 // CloseStateTransition is the StateTransition type specific to the coop close
@@ -463,6 +591,18 @@ type ShutdownScripts struct {
 	RemoteDeliveryScript lnwire.DeliveryAddress
 }
 
+// ShutdownCustomRecords is a set of custom TLV records that we'll use to
+// co-op close the channel.
+type ShutdownCustomRecords struct {
+	// LocalCustomRecords are the custom TLV records that we'll include in
+	// our shutdown message.
+	LocalCustomRecords lnwire.CustomRecords
+
+	// RemoteCustomRecords are the custom TLV records that the remote party
+	// included in their shutdown message.
+	RemoteCustomRecords lnwire.CustomRecords
+}
+
 // ShutdownPending is the state we enter into after we've sent or received the
 // shutdown message. If we sent the shutdown, then we'll wait for the remote
 // party to send a shutdown. Otherwise, if we received it, then we'll send our
@@ -479,6 +619,10 @@ type ShutdownPending struct {
 	// ShutdownScripts store the set of scripts we'll use to initiate a coop
 	// close.
 	ShutdownScripts
+
+	// ShutdownCustomRecords store the set of custom records we'll use to
+	// initiate a coop close.
+	ShutdownCustomRecords
 
 	// IdealFeeRate is the ideal fee rate we'd like to use for the closing
 	// attempt.
@@ -527,6 +671,10 @@ type ChannelFlushing struct {
 	// ShutdownScripts store the set of scripts we'll use to initiate a coop
 	// close.
 	ShutdownScripts
+
+	// ShutdownCustomRecords store the set of custom records we'll use to
+	// initiate a coop close.
+	ShutdownCustomRecords
 
 	// IdealFeeRate is the ideal fee rate we'd like to use for the closing
 	// transaction. Once the channel has been flushed, we'll use this as
@@ -665,6 +813,10 @@ type NonceState struct {
 // party's funds to.
 type CloseChannelTerms struct {
 	ShutdownScripts
+
+	ShutdownCustomRecords
+
+	AuxOutputs fn.Option[AuxCloseOutputs]
 
 	ShutdownBalances
 
@@ -895,6 +1047,20 @@ func (c *ClosePending) IsTerminal() bool {
 type CloseFin struct {
 	// ConfirmedTx is the transaction that confirmed the channel close.
 	ConfirmedTx *wire.MsgTx
+
+	// LocalCloseOutput is the final local close output, if the local
+	// party's settled balance produced a non-dust output in the confirmed
+	// cooperative close transaction.
+	LocalCloseOutput fn.Option[types.CloseOutput]
+
+	// RemoteCloseOutput is the final remote close output, if the remote
+	// party's settled balance produced a non-dust output in the confirmed
+	// cooperative close transaction.
+	RemoteCloseOutput fn.Option[types.CloseOutput]
+
+	// AuxOutputs contains any optional auxiliary outputs that were included
+	// in the confirmed cooperative close transaction.
+	AuxOutputs fn.Option[AuxCloseOutputs]
 }
 
 // String returns the name of the state for CloseFin.

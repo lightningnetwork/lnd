@@ -760,6 +760,49 @@ func TestHandleBumpEventTxFailed(t *testing.T) {
 	require.NotContains(t, s.inputs, opNotExist)
 }
 
+// TestHandleBumpEventTxFailedBadInputs checks that diagnosed bad inputs are
+// marked fatal while the rest of the set is retried.
+func TestHandleBumpEventTxFailedBadInputs(t *testing.T) {
+	t.Parallel()
+
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+
+	s := New(&UtxoSweeperConfig{})
+
+	var (
+		input1 = createMockInput(t, s, PendingPublish)
+		input2 = createMockInput(t, s, PendingPublish)
+		input3 = createMockInput(t, s, PendingPublish)
+	)
+
+	op1 := input1.OutPoint()
+	op2 := input2.OutPoint()
+	op3 := input3.OutPoint()
+
+	set.On("Inputs").Return([]input.Input{input1, input2, input3})
+
+	feeRate := chainfee.SatPerKWeight(123)
+	br := &BumpResult{
+		Event:    TxFailed,
+		Err:      errDummy,
+		FeeRate:  feeRate,
+		BadInput: &op2,
+	}
+
+	err := s.handleBumpEvent(&bumpResp{
+		result: br,
+		set:    set,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, PublishFailed, s.inputs[op1].state)
+	require.Equal(t, Fatal, s.inputs[op2].state)
+	require.Equal(t, PublishFailed, s.inputs[op3].state)
+	require.Equal(t, fn.Some(feeRate), s.inputs[op1].params.StartingFeeRate)
+	require.Equal(t, fn.Some(feeRate), s.inputs[op3].params.StartingFeeRate)
+}
+
 // TestHandleBumpEventTxReplaced checks that the sweeper correctly handles the
 // case where the bump event tx is replaced.
 func TestHandleBumpEventTxReplaced(t *testing.T) {

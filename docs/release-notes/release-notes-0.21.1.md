@@ -29,6 +29,12 @@
   which could default new onion service creation to the retired v2
   `NEW:RSA1024` key type that modern Tor rejects with `513 Invalid key type`.
 
+* The sweeper now [isolates singleton
+  inputs](https://github.com/lightningnetwork/lnd/pull/10842) from a rejected
+  sweep batch when no-broadcast mempool probes show that an individual input has
+  a script or witness failure, avoiding fatal failure of the entire batch when
+  only one input is invalid.
+
 # New Features
 
 ## Functional Enhancements

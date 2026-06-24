@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/reputation"
 )
 
 // Config is the primary configuration struct for the DEV RPC server. It
@@ -18,4 +19,10 @@ type Config struct {
 	ActiveNetParams *chaincfg.Params
 	GraphDB         *graphdb.ChannelGraph
 	Switch          *htlcswitch.Switch
+
+	// ReputationManager is the optional read-only local reputation
+	// subsystem. It is nil unless the experimental --routing.reputation
+	// flag is set; the FetchReputation RPC returns a clear error when it is
+	// nil.
+	ReputationManager *reputation.Manager
 }

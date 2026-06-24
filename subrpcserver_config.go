@@ -31,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/reputation"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/watchtower"
@@ -129,7 +130,8 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	parseAddr func(addr string) (net.Addr, error),
 	rpcLogger btclog.Logger, aliasMgr *aliasmgr.Manager,
 	auxDataParser fn.Option[AuxDataParser],
-	invoiceHtlcModifier *invoices.HtlcModificationInterceptor) error {
+	invoiceHtlcModifier *invoices.HtlcModificationInterceptor,
+	reputationMgr *reputation.Manager) error {
 
 	// First, we'll use reflect to obtain a version of the config struct
 	// that allows us to programmatically inspect its fields.
@@ -353,6 +355,14 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 
 			subCfgValue.FieldByName("Switch").Set(
 				reflect.ValueOf(htlcSwitch),
+			)
+
+			// The reputation manager is nil unless the experimental
+			// --routing.reputation flag is set; the FetchReputation
+			// handler is nil-safe and returns a clear error in that
+			// case.
+			subCfgValue.FieldByName("ReputationManager").Set(
+				reflect.ValueOf(reputationMgr),
 			)
 
 		case *peersrpc.Config:

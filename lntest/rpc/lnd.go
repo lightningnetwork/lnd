@@ -824,6 +824,20 @@ func (h *HarnessRPC) Quiesce(
 	return res
 }
 
+// FetchReputation makes an RPC call to the node's FetchReputation method and
+// returns the response.
+func (h *HarnessRPC) FetchReputation(
+	req *devrpc.FetchReputationRequest) *devrpc.FetchReputationResponse {
+
+	ctx, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	res, err := h.Dev.FetchReputation(ctx, req)
+	h.NoError(err, "FetchReputation returned an error")
+
+	return res
+}
+
 type PeerEventsClient lnrpc.Lightning_SubscribePeerEventsClient
 
 // SubscribePeerEvents makes a RPC call to the node's SubscribePeerEvents and

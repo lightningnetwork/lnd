@@ -37,6 +37,15 @@ type Registry interface {
 	HodlUnsubscribeAll(subscriber chan<- interface{})
 }
 
+// CustomHtlcChecker identifies HTLCs whose final-hop amount validation is
+// handled by auxiliary channel logic instead of the standard onion amount
+// field.
+type CustomHtlcChecker interface {
+	// IsCustomHTLC returns true if the HTLC carries custom records that
+	// make it subject to auxiliary HTLC handling.
+	IsCustomHTLC(htlcRecords lnwire.CustomRecords) bool
+}
+
 // OnionProcessor is an interface used to decode onion blobs.
 type OnionProcessor interface {
 	// ReconstructHopIterator attempts to decode a valid sphinx packet from

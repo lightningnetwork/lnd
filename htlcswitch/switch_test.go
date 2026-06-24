@@ -3597,7 +3597,7 @@ func getThreeHopEvents(channels *clusterChannels, htlcID uint64,
 	bobInfo := HtlcInfo{
 		IncomingTimeLock: htlc.Expiry,
 		IncomingAmt:      htlc.Amount,
-		OutgoingTimeLock: hops[1].FwdInfo.OutgoingCTLV,
+		OutgoingTimeLock: hops[1].FwdInfo.OutgoingCLTV,
 		OutgoingAmt:      hops[1].FwdInfo.AmountToForward,
 	}
 

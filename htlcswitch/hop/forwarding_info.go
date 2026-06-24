@@ -20,9 +20,9 @@ type ForwardingInfo struct {
 	// node should forward to the next hop.
 	AmountToForward lnwire.MilliSatoshi
 
-	// OutgoingCTLV is the specified value of the CTLV timelock to be used
+	// OutgoingCLTV is the specified value of the CLTV timelock to be used
 	// in the outgoing HTLC.
-	OutgoingCTLV uint32
+	OutgoingCLTV uint32
 
 	// NextBlinding is an optional blinding point to be passed to the next
 	// node in UpdateAddHtlc. This field is set if the htlc is part of a
@@ -71,7 +71,7 @@ func ValidateFinalHtlc(amt lnwire.MilliSatoshi, expiry, heightNow,
 
 	// The HTLC expiry is below the final CLTV requested by the onion
 	// payload.
-	case expiry < fwdInfo.OutgoingCTLV:
+	case expiry < fwdInfo.OutgoingCLTV:
 		return FinalHtlcInvalidCltv
 
 	// The HTLC expiry is outside the supported final-hop CLTV range.

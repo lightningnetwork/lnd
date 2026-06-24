@@ -34,3 +34,52 @@ type ForwardingInfo struct {
 	// correct context.
 	PathID *chainhash.Hash
 }
+
+// FinalHtlcValidationResult describes the result of checking a final-hop
+// HTLC against the onion payload and supported final-hop CLTV range.
+type FinalHtlcValidationResult uint8
+
+const (
+	// FinalHtlcValid indicates that the HTLC matches the final-hop payload
+	// and supported final-hop CLTV range.
+	FinalHtlcValid FinalHtlcValidationResult = iota
+
+	// FinalHtlcInvalidAmount indicates that the HTLC amount is below the
+	// final amount requested by the onion payload.
+	FinalHtlcInvalidAmount
+
+	// FinalHtlcInvalidCltv indicates that the HTLC expiry is below the
+	// final CLTV requested by the onion payload.
+	FinalHtlcInvalidCltv
+
+	// FinalHtlcExpiryTooFar indicates that the HTLC expiry is outside the
+	// supported final-hop CLTV range.
+	FinalHtlcExpiryTooFar
+)
+
+// ValidateFinalHtlc checks final-hop HTLC amount and CLTV details before
+// invoice resolution.
+func ValidateFinalHtlc(amt lnwire.MilliSatoshi, expiry, heightNow,
+	maxFinalCltvDelta uint32, fwdInfo ForwardingInfo,
+	validateAmount bool) FinalHtlcValidationResult {
+
+	switch {
+	// The HTLC amount is below the final amount requested by the
+	// onion payload.
+	case validateAmount && amt < fwdInfo.AmountToForward:
+		return FinalHtlcInvalidAmount
+
+	// The HTLC expiry is below the final CLTV requested by the onion
+	// payload.
+	case expiry < fwdInfo.OutgoingCTLV:
+		return FinalHtlcInvalidCltv
+
+	// The HTLC expiry is outside the supported final-hop CLTV range.
+	case expiry > heightNow && expiry-heightNow > maxFinalCltvDelta:
+
+		return FinalHtlcExpiryTooFar
+
+	default:
+		return FinalHtlcValid
+	}
+}

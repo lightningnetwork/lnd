@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -26,6 +27,24 @@ var (
 	_       = pubKeyY.SetByteSlice(pubkeyBytes)
 	pubkey  = btcec.NewPublicKey(new(btcec.FieldVal).SetInt(4), pubKeyY)
 )
+
+// TestAddInvoiceRejectsCltvAboveMaxIncoming asserts that invoice creation
+// rejects final CLTV deltas above the supported maximum.
+func TestAddInvoiceRejectsCltvAboveMaxIncoming(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := AddInvoice(
+		t.Context(), &AddInvoiceConfig{}, &AddInvoiceData{
+			CltvExpiry: invoices.MaxFinalCltvDelta + 1,
+		},
+	)
+	require.ErrorContains(
+		t, err, fmt.Sprintf(
+			"max accepted is: %v",
+			invoices.MaxFinalCltvDelta,
+		),
+	)
+}
 
 type hopHintsConfigMock struct {
 	t *testing.T

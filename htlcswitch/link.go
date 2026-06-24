@@ -2549,13 +2549,17 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte, incomingHtlcAmt,
 
 	// Finally, we'll ensure that the time-lock on the outgoing HTLC meets
 	// the following constraint: the incoming time-lock minus our time-lock
-	// delta should equal the outgoing time lock. Otherwise, whether the
+	// delta should equal the outgoing time lock. Otherwise, either the
 	// sender messed up, or an intermediate node tampered with the HTLC.
 	timeDelta := policy.TimeLockDelta
-	if incomingTimeout < outgoingTimeout+timeDelta {
+	var incomingDelta uint32
+	if incomingTimeout >= outgoingTimeout {
+		incomingDelta = incomingTimeout - outgoingTimeout
+	}
+	if incomingTimeout < outgoingTimeout || incomingDelta < timeDelta {
 		l.log.Warnf("incoming htlc(%x) has incorrect time-lock value: "+
 			"expected at least %v block delta, got %v block delta",
-			payHash[:], timeDelta, incomingTimeout-outgoingTimeout)
+			payHash[:], timeDelta, incomingDelta)
 
 		// Grab the latest routing policy so the sending node is up to
 		// date with our current policy.
@@ -2566,6 +2570,17 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte, incomingHtlcAmt,
 		}
 		failure := l.createFailureWithUpdate(false, originalScid, cb)
 		return NewLinkError(failure)
+	}
+
+	// Check that the incoming to outgoing time-lock delta is within the
+	// configured CLTV range.
+	if incomingDelta > l.cfg.MaxOutgoingCltvExpiry {
+		l.log.Warnf("incoming htlc(%x) has a time-lock delta "+
+			"outside the configured CLTV range: got %v, "+
+			"but maximum is %v",
+			payHash[:], incomingDelta, l.cfg.MaxOutgoingCltvExpiry)
+
+		return NewLinkError(&lnwire.FailExpiryTooFar{})
 	}
 
 	return nil
@@ -3163,7 +3178,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 				obfuscator, false,
 			)
 
-			l.log.Error("rejected htlc that uses use as an " +
+			l.log.Error("rejected htlc that uses us as an " +
 				"introduction point when we do not support " +
 				"route blinding")
 
@@ -3436,11 +3451,16 @@ func (l *channelLink) processExitHop(add lnwire.UpdateAddHTLC,
 		},
 	)
 
+	switch hop.ValidateFinalHtlc(
+		add.Amount, add.Expiry, heightNow,
+		invoices.MaxFinalCltvDelta,
+		fwdInfo, !isCustomHTLC,
+	) {
 	// As we're the exit hop, we'll double check the hop-payload included in
 	// the HTLC to ensure that it was crafted correctly by the sender and
 	// is compatible with the HTLC we were extended. If an external
 	// validator is active we might bypass the amount check.
-	if !isCustomHTLC && add.Amount < fwdInfo.AmountToForward {
+	case hop.FinalHtlcInvalidAmount:
 		l.log.Errorf("onion payload of incoming htlc(%x) has "+
 			"incompatible value: expected <=%v, got %v",
 			add.PaymentHash, add.Amount, fwdInfo.AmountToForward)
@@ -3451,11 +3471,10 @@ func (l *channelLink) processExitHop(add lnwire.UpdateAddHTLC,
 		l.sendHTLCError(add, sourceRef, failure, obfuscator, true)
 
 		return nil
-	}
 
 	// We'll also ensure that our time-lock value has been computed
 	// correctly.
-	if add.Expiry < fwdInfo.OutgoingCTLV {
+	case hop.FinalHtlcInvalidCltv:
 		l.log.Errorf("onion payload of incoming htlc(%x) has "+
 			"incompatible time-lock: expected <=%v, got %v",
 			add.PaymentHash, add.Expiry, fwdInfo.OutgoingCTLV)
@@ -3464,6 +3483,22 @@ func (l *channelLink) processExitHop(add lnwire.UpdateAddHTLC,
 			lnwire.NewFinalIncorrectCltvExpiry(add.Expiry),
 		)
 
+		l.sendHTLCError(add, sourceRef, failure, obfuscator, true)
+
+		return nil
+
+	// Check that the incoming HTLC expiry is within the supported final-hop
+	// CLTV range.
+	case hop.FinalHtlcExpiryTooFar:
+		l.log.Warnf("incoming htlc(%x) has a final-hop CLTV delta "+
+			"outside the supported range: got %v, but maximum "+
+			"is %v",
+			add.PaymentHash, add.Expiry-heightNow,
+			invoices.MaxFinalCltvDelta)
+
+		failure := NewLinkError(
+			lnwire.NewFailIncorrectDetails(add.Amount, heightNow),
+		)
 		l.sendHTLCError(add, sourceRef, failure, obfuscator, true)
 
 		return nil
@@ -3577,8 +3612,8 @@ func (l *channelLink) forwardBatch(replay bool, packets ...*htlcPacket) {
 	}
 }
 
-// sendHTLCError functions cancels HTLC and send cancel message back to the
-// peer from which HTLC was received.
+// sendHTLCError cancels the HTLC and sends a cancel message back to the peer
+// from which the HTLC was received.
 func (l *channelLink) sendHTLCError(add lnwire.UpdateAddHTLC,
 	sourceRef channeldb.AddRef, failure *LinkError,
 	e hop.ErrorEncrypter, isReceive bool) {
@@ -3591,7 +3626,7 @@ func (l *channelLink) sendHTLCError(add lnwire.UpdateAddHTLC,
 
 	err = l.channel.FailHTLC(add.ID, reason, &sourceRef, nil, nil)
 	if err != nil {
-		l.log.Errorf("unable cancel htlc: %v", err)
+		l.log.Errorf("unable to cancel htlc: %v", err)
 		return
 	}
 
@@ -4289,7 +4324,7 @@ func (l *channelLink) processRemoteCommitSig(ctx context.Context,
 	// want to ensure we release that memory back to the runtime.
 	l.uncommittedPreimages = nil
 
-	// We just received a new updates to our local commitment chain,
+	// We just received new updates to our local commitment chain,
 	// validate this new commitment, closing the link if invalid.
 	auxSigBlob, err := msg.CustomRecords.Serialize()
 	if err != nil {
@@ -4617,7 +4652,7 @@ func (l *channelLink) processLocalUpdateFulfillHTLC(ctx context.Context,
 	}
 
 	// An HTLC we forward to the switch has just settled somewhere upstream.
-	// Therefore we settle the HTLC within the our local state machine.
+	// Therefore we settle the HTLC within our local state machine.
 	inKey := pkt.inKey()
 	err := l.channel.SettleHTLC(
 		htlc.PaymentPreimage, pkt.incomingHTLCID, pkt.sourceRef,
@@ -4684,7 +4719,7 @@ func (l *channelLink) processLocalUpdateFailHTLC(ctx context.Context,
 	}
 
 	// An HTLC cancellation has been triggered somewhere upstream, we'll
-	// remove then HTLC from our local state machine.
+	// remove the HTLC from our local state machine.
 	inKey := pkt.inKey()
 	err := l.channel.FailHTLC(
 		pkt.incomingHTLCID, htlc.Reason, pkt.sourceRef, pkt.destRef,

@@ -237,9 +237,35 @@ func (l *linkTestContext) sendSettleBobToAlice(htlcID uint64,
 	l.aliceLink.HandleChannelUpdate(settle)
 }
 
-// receiveSettleAliceToBob waits for Alice to send a HTLC settle message to
-// Bob, then hands this to Bob.
+// receiveFailAliceToBob waits for Alice to fail an HTLC to Bob.
 func (l *linkTestContext) receiveFailAliceToBob() {
+	l.t.Helper()
+
+	l.receiveFailAliceToBobMsg()
+}
+
+// receiveFailAliceToBobWithCode waits for Alice to fail an HTLC to Bob and
+// verifies that the failure code matches the expectation.
+func (l *linkTestContext) receiveFailAliceToBobWithCode(
+	code lnwire.FailCode) {
+
+	l.t.Helper()
+
+	failMsg := l.receiveFailAliceToBobMsg()
+	failure, err := newMockDeobfuscator().DecryptError(failMsg.Reason)
+	if err != nil {
+		l.t.Fatalf("unable to decrypt failure: %v", err)
+	}
+
+	if failure.WireMessage().Code() != code {
+		l.t.Fatalf("expected %v but got %v",
+			code, failure.WireMessage().Code())
+	}
+}
+
+// receiveFailAliceToBobMsg waits for Alice to send a fail HTLC message to Bob,
+// applies it to Bob, and returns the message.
+func (l *linkTestContext) receiveFailAliceToBobMsg() *lnwire.UpdateFailHTLC {
 	l.t.Helper()
 
 	var msg lnwire.Message
@@ -258,6 +284,8 @@ func (l *linkTestContext) receiveFailAliceToBob() {
 	if err != nil {
 		l.t.Fatalf("unable to apply received fail htlc: %v", err)
 	}
+
+	return failMsg
 }
 
 // assertNoMsgFromAlice asserts that Alice hasn't sent a message. Before

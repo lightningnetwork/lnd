@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"math"
 	mathRand "math/rand"
 	"sort"
 	"time"
@@ -406,10 +405,12 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		options = append(options, zpay32.Description(invoice.Memo))
 	}
 
-	if invoice.CltvExpiry > routing.MaxCLTVDelta {
+	// Final-hop invoices are limited to the same CLTV bound used by the
+	// link and contractcourt validation.
+	if invoice.CltvExpiry > invoices.MaxFinalCltvDelta {
 		return nil, nil, fmt.Errorf("CLTV delta of %v is too large, "+
 			"max accepted is: %v", invoice.CltvExpiry,
-			math.MaxUint16)
+			invoices.MaxFinalCltvDelta)
 	}
 
 	// We'll use our current default CLTV value unless one was specified as

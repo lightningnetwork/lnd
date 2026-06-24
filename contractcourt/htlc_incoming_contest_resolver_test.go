@@ -117,6 +117,28 @@ func TestHtlcIncomingResolverFwdTimeout(t *testing.T) {
 	ctx.waitForResult(false)
 }
 
+// TestHtlcIncomingResolverLaunchUsesCurrentHeight asserts that the immediate
+// registry lookup is given the current chain height instead of zero.
+func TestHtlcIncomingResolverLaunchUsesCurrentHeight(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, true)
+	ctx.chainIO.BestHeight = testInitialBlockHeight + 1
+	ctx.registry.notifyResolution = invoices.NewSettleResolution(
+		testResPreimage, testResCircuitKey, testAcceptHeight,
+		invoices.ResultReplayToSettled,
+	)
+
+	require.NoError(t, ctx.resolver.Launch())
+
+	require.Len(t, ctx.registry.immediateNotify, 1)
+	require.Equal(
+		t, ctx.chainIO.BestHeight,
+		ctx.registry.immediateNotify[0].currentHeight,
+	)
+}
+
 // TestHtlcIncomingResolverExitSettle tests resolution of an exit hop htlc for
 // which the invoice has already been settled when the resolver starts.
 func TestHtlcIncomingResolverExitSettle(t *testing.T) {
@@ -412,10 +434,13 @@ func (m mockCustomHtlcChecker) IsCustomHTLC(lnwire.CustomRecords) bool {
 }
 
 type incomingResolverTestContext struct {
-	registry               *mockRegistry
-	witnessBeacon          *mockWitnessBeacon
-	resolver               *htlcIncomingContestResolver
-	notifier               *mock.ChainNotifier
+	registry      *mockRegistry
+	witnessBeacon *mockWitnessBeacon
+	resolver      *htlcIncomingContestResolver
+	notifier      *mock.ChainNotifier
+
+	// chainIO provides the launch-time best height used by the resolver.
+	chainIO                *mock.ChainIO
 	onionProcessor         *mockOnionProcessor
 	resolveErr             chan error
 	nextResolver           ContractResolver
@@ -430,6 +455,9 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 		ConfChan:  make(chan *chainntnfs.TxConfirmation),
 	}
 	witnessBeacon := newMockWitnessBeacon()
+	chainIO := &mock.ChainIO{
+		BestHeight: testInitialBlockHeight,
+	}
 	registry := &mockRegistry{
 		notifyChan: make(chan notifyExitHopData, 1),
 	}
@@ -442,6 +470,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 		registry:       registry,
 		witnessBeacon:  witnessBeacon,
 		notifier:       notifier,
+		chainIO:        chainIO,
 		onionProcessor: onionProcessor,
 		t:              t,
 	}
@@ -469,6 +498,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 				return nil
 			},
 			Sweeper: newMockSweeper(),
+			ChainIO: chainIO,
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
 			_ *channeldb.ResolverReport) error {

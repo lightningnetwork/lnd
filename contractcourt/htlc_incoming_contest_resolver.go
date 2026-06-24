@@ -213,7 +213,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			"expected_expiry=%v, height=%v, max=%v), resolving as "+
 			"failed", h, h.htlcResolution.ClaimOutpoint,
 			h.htlc.Amt, payload.FwdInfo.AmountToForward,
-			h.htlcExpiry, payload.FwdInfo.OutgoingCTLV,
+			h.htlcExpiry, payload.FwdInfo.OutgoingCLTV,
 			currentHeight, invoices.MaxFinalCltvDelta)
 		h.markResolved()
 

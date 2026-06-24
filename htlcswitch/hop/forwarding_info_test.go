@@ -20,7 +20,7 @@ func TestValidateFinalHtlc(t *testing.T) {
 
 	fwdInfo := ForwardingInfo{
 		AmountToForward: amount,
-		OutgoingCTLV:    expiry,
+		OutgoingCLTV:    expiry,
 		NextHop:         Exit,
 	}
 
@@ -114,7 +114,7 @@ func TestValidateFinalHtlc(t *testing.T) {
 		maxCltvDelta: maxCltvDelta,
 		fwdInfo: ForwardingInfo{
 			AmountToForward: amount,
-			OutgoingCTLV:    expiry + maxCltvDelta + 2,
+			OutgoingCLTV:    expiry + maxCltvDelta + 2,
 			NextHop:         Exit,
 		},
 		validateAmount: true,

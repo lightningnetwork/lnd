@@ -327,7 +327,7 @@ func deriveBlindedRouteForwardingInfo(r *sphinxHopIterator,
 	payload.FwdInfo = ForwardingInfo{
 		NextHop:         nextSCID.Val,
 		AmountToForward: fwdAmt,
-		OutgoingCTLV: r.blindingKit.IncomingCltv - uint32(
+		OutgoingCLTV: r.blindingKit.IncomingCltv - uint32(
 			relayInfo.Val.CltvExpiryDelta,
 		),
 		// Remap from blinding override type to blinding point type.

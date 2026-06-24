@@ -34,6 +34,7 @@ import (
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -8739,29 +8740,56 @@ func (r *rpcServer) SubscribeCustomMessages(
 	}
 }
 
-// SendOnionMessage sends a custom peer message.
+// SendOnionMessage sends an onion message to the destination node, using
+// graph-based pathfinding to route it. If no graph path is found, a direct
+// send to the destination peer is attempted.
 func (r *rpcServer) SendOnionMessage(ctx context.Context,
 	req *lnrpc.SendOnionMessageRequest) (*lnrpc.SendOnionMessageResponse,
 	error) {
 
-	// First we'll validate the string passed in within the request to
-	// ensure that it's a valid hex-string, and also a valid compressed
-	// public key.
-	pathKey, err := btcec.ParsePubKey(req.PathKey)
+	destination, err := route.NewVertexFromBytes(req.Destination)
 	if err != nil {
-		return nil, fmt.Errorf("unable to decode path key bytes: %w",
-			err)
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	peer, err := route.NewVertexFromBytes(req.Peer)
-	if err != nil {
-		return nil, err
+	finalHopTLVs := make([]*lnwire.FinalHopTLV, 0, len(req.FinalHopTlvs))
+	for tlvType, val := range req.FinalHopTlvs {
+		record := &lnwire.FinalHopTLV{
+			TLVType: tlv.Type(tlvType),
+			Value:   val,
+		}
+
+		// Ensure the passed tlv type is valid final hop tlv type and
+		// return early if it is not.
+		if err := record.Validate(); err != nil {
+			return nil, status.Error(
+				codes.InvalidArgument, err.Error(),
+			)
+		}
+
+		finalHopTLVs = append(finalHopTLVs, record)
 	}
 
-	err = r.server.SendOnionMessage(ctx, peer, pathKey, req.Onion)
+	var replyPath *sphinx.BlindedPath
+	if req.ReplyPath != nil {
+		replyPath, err = routerrpc.UnmarshalBlindedPath(req.ReplyPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	err = r.server.SendOnionMessage(
+		ctx, destination, finalHopTLVs, replyPath,
+	)
+
 	switch {
-	case errors.Is(err, ErrPeerNotConnected):
+	case errors.Is(err, onionmessage.ErrDestinationNoOnionSupport):
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+
+	case errors.Is(err, onionmessage.ErrNoPathFound),
+		errors.Is(err, ErrPeerNotConnected):
 		return nil, status.Error(codes.NotFound, err.Error())
+
 	case err != nil:
 		return nil, err
 	}

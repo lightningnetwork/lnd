@@ -453,6 +453,10 @@ type server struct {
 	// turned off).
 	onionLimiter onionmessage.IngressLimiter
 
+	// onionMsgSender constructs and delivers outgoing onion messages using
+	// graph-based pathfinding. Nil when onion messaging is disabled.
+	onionMsgSender *onionmessage.Sender
+
 	// txPublisher is a publisher with fee-bumping capability.
 	txPublisher *sweep.TxPublisher
 
@@ -2501,6 +2505,17 @@ func (s *server) Start(ctx context.Context) error {
 			)
 			s.onionLimiter = onionmessage.NewIngressLimiter(
 				onionPeerLim, onionGlobalLim,
+			)
+
+			selfVertex, err := route.NewVertexFromBytes(
+				s.identityECDH.PubKey().SerializeCompressed(),
+			)
+			if err != nil {
+				startErr = err
+				return
+			}
+			s.onionMsgSender = onionmessage.NewSender(
+				s.graphDB, selfVertex, s,
 			)
 		}
 
@@ -5504,34 +5519,19 @@ func (s *server) SendCustomMessage(ctx context.Context, peerPub [33]byte,
 	return peer.SendMessageLazy(true, msg)
 }
 
-// SendOnionMessage sends a custom message to the peer with the specified
-// pubkey.
-// TODO(gijs): change this message to include path finding.
-func (s *server) SendOnionMessage(ctx context.Context, peerPub [33]byte,
-	pathKey *btcec.PublicKey, onion []byte) error {
+// SendOnionMessage finds a path to destination using the channel graph and
+// sends an onion message to it. If the graph yields no route, a direct send
+// to the destination peer is attempted as a fallback. finalHopTLVs and
+// replyPath may be nil.
+func (s *server) SendOnionMessage(ctx context.Context,
+	destination route.Vertex, finalHopTLVs []*lnwire.FinalHopTLV,
+	replyPath *sphinx.BlindedPath) error {
 
-	peer, err := s.FindPeerByPubStr(string(peerPub[:]))
-	if err != nil {
-		return err
+	if s.onionMsgSender == nil {
+		return errors.New("onion messaging is disabled")
 	}
 
-	// We'll wait until the peer is active, but also listen for
-	// cancellation.
-	select {
-	case <-peer.ActiveSignal():
-	case <-peer.QuitSignal():
-		return fmt.Errorf("peer %x disconnected", peerPub)
-	case <-s.quit:
-		return ErrServerShuttingDown
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
-	msg := lnwire.NewOnionMessage(pathKey, onion)
-
-	// Send the message as low-priority. For now we assume that all
-	// application-defined message are low priority.
-	return peer.SendMessageLazy(true, msg)
+	return s.onionMsgSender.Send(ctx, destination, finalHopTLVs, replyPath)
 }
 
 // SendToPeer sends an onion message to the peer identified by the given

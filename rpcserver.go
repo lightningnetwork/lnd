@@ -8078,14 +8078,10 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 
 	// We'll also ensure that the user isn't setting a CLTV delta that
 	// won't give outgoing HTLCs enough time to fully resolve if needed.
-	if req.TimeLockDelta < minTimeLockDelta {
-		return nil, fmt.Errorf("time lock delta of %v is too small, "+
-			"minimum supported is %v", req.TimeLockDelta,
-			minTimeLockDelta)
-	} else if req.TimeLockDelta > uint32(MaxTimeLockDelta) {
-		return nil, fmt.Errorf("time lock delta of %v is too big, "+
-			"maximum supported is %v", req.TimeLockDelta,
-			MaxTimeLockDelta)
+	if err := validateChannelPolicyTimeLockDelta(
+		req.TimeLockDelta, r.cfg.MaxOutgoingCltvExpiry,
+	); err != nil {
+		return nil, err
 	}
 
 	// By default, positive inbound fees are rejected.

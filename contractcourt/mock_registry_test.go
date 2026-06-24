@@ -24,6 +24,9 @@ type mockRegistry struct {
 
 	// immediateNotify records non-subscribing NotifyExitHopHtlc calls.
 	immediateNotify []notifyExitHopData
+
+	// notifyHook is called after a NotifyExitHopHtlc call is recorded.
+	notifyHook func()
 }
 
 func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
@@ -40,6 +43,9 @@ func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
 			expiry:        expiry,
 			currentHeight: currentHeight,
 		})
+		if r.notifyHook != nil {
+			r.notifyHook()
+		}
 
 		return r.notifyResolution, r.notifyErr
 	}
@@ -50,6 +56,9 @@ func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
 		paidAmount:    paidAmount,
 		expiry:        expiry,
 		currentHeight: currentHeight,
+	}
+	if r.notifyHook != nil {
+		r.notifyHook()
 	}
 
 	return r.notifyResolution, r.notifyErr

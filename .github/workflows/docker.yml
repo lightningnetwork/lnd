@@ -61,7 +61,17 @@ jobs:
         if: github.event.schedule == '0 0 * * *'
         run: |
           echo "RELEASE_VERSION=master" >> $GITHUB_ENV
-          echo "IMAGE_TAG=daily-testing-$(date -u +%Y%m%d),${DOCKER_REPO}/${DOCKER_IMAGE}:daily-testing-only" >> $GITHUB_ENV
+          echo "IMAGE_TAG=daily-testing-$(date -u +%Y%m%d)" >> $GITHUB_ENV
+
+      - name: Check if version is stable (strict semantic version)
+        id: version_check
+        run: |
+          # Regex to match strict semantic version: vX.Y.Z (no suffixes like .rc, .beta, .alpha, etc.)
+          if [[ "${{ env.IMAGE_TAG }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "is_stable=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_stable=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Build and push
         id: docker_build
@@ -69,7 +79,9 @@ jobs:
         with:
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: "${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}"
+          tags: |
+            ${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}
+            ${{ steps.version_check.outputs.is_stable == 'true' && format('{0}/{1}:latest', env.DOCKER_REPO, env.DOCKER_IMAGE) || '' }}
           build-args: checkout=${{ env.RELEASE_VERSION }}
 
       - name: Image digest

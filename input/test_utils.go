@@ -223,7 +223,9 @@ func (m *MockSigner) findKey(needleHash160 []byte, singleTweak []byte,
 	for _, privkey := range m.Privkeys {
 		// First check whether public key is directly derived from
 		// private key.
-		hash160 := address.Hash160(privkey.PubKey().SerializeCompressed())
+		hash160 := address.Hash160(
+			privkey.PubKey().SerializeCompressed(),
+		)
 		if bytes.Equal(hash160, needleHash160) {
 			return privkey
 		}
@@ -238,7 +240,9 @@ func (m *MockSigner) findKey(needleHash160 []byte, singleTweak []byte,
 		default:
 			continue
 		}
-		hash160 = address.Hash160(privkey.PubKey().SerializeCompressed())
+		hash160 = address.Hash160(
+			privkey.PubKey().SerializeCompressed(),
+		)
 		if bytes.Equal(hash160, needleHash160) {
 			return privkey
 		}

@@ -344,8 +344,12 @@ func (b *BtcdFilteredChainView) chainFilterer() {
 			// Apply the new TX filter to btcd, which will cause
 			// all following notifications from and calls to it
 			// return blocks filtered with the new filter.
-			b.btcdConn.LoadTxFilter(false, []address.Address{},
-				update.newUtxos)
+			err := b.btcdConn.LoadTxFilter(
+				false, []address.Address{}, update.newUtxos,
+			)
+			if err != nil {
+				log.Errorf("Unable to load tx filter: %v", err)
+			}
 
 			// All blocks gotten after we loaded the filter will
 			// have the filter applied, but we will need to rescan

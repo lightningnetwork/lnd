@@ -209,6 +209,17 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 			return err
 		}
 
+	case PeerStoragePayload:
+		var l [2]byte
+		binary.BigEndian.PutUint16(l[:], uint16(len(e)))
+		if _, err := w.Write(l[:]); err != nil {
+			return err
+		}
+
+		if _, err := w.Write(e[:]); err != nil {
+			return err
+		}
+
 	case PongPayload:
 		var l [2]byte
 		binary.BigEndian.PutUint16(l[:], uint16(len(e)))
@@ -631,6 +642,18 @@ func ReadElement(r io.Reader, element interface{}) error {
 		pingLen := binary.BigEndian.Uint16(l[:])
 
 		*e = PingPayload(make([]byte, pingLen))
+		if _, err := io.ReadFull(r, *e); err != nil {
+			return err
+		}
+
+	case *PeerStoragePayload:
+		var l [2]byte
+		if _, err := io.ReadFull(r, l[:]); err != nil {
+			return err
+		}
+		blobLen := binary.BigEndian.Uint16(l[:])
+
+		*e = PeerStoragePayload(make([]byte, blobLen))
 		if _, err := io.ReadFull(r, *e); err != nil {
 			return err
 		}

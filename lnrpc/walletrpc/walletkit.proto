@@ -830,6 +830,12 @@ message SendOutputsRequest {
 
     // The strategy to use for selecting coins during sending the outputs.
     lnrpc.CoinSelectionStrategy coin_selection_strategy = 6;
+
+    /*
+    An optional address to send change to. If not set, a wallet-derived
+    address is used.
+    */
+    string change_address = 7;
 }
 message SendOutputsResponse {
     /*

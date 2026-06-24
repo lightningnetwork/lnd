@@ -536,6 +536,12 @@ var sendCoinsCommand = cli.Command{
 				"the amt flag",
 		},
 		txLabelFlag,
+		cli.StringFlag{
+			Name: "change_address",
+			Usage: "(optional) a bitcoin address to send change to. " +
+				"If not set, change is sent to a wallet-derived " +
+				"address. Cannot be used with --sweepall.",
+		},
 	},
 	Action: actionDecorator(sendCoins),
 }
@@ -596,6 +602,11 @@ func sendCoins(ctx *cli.Context) error {
 	if amt != 0 && ctx.Bool("sweepall") {
 		return fmt.Errorf("amount cannot be set if attempting to " +
 			"sweep all coins out of the wallet")
+	}
+
+	if ctx.IsSet("change_address") && ctx.Bool("sweepall") {
+		return fmt.Errorf("change_address cannot be set when " +
+			"sweepall is active")
 	}
 
 	coinSelectionStrategy, err := parseCoinSelectionStrategy(ctx)
@@ -682,6 +693,7 @@ func sendCoins(ctx *cli.Context) error {
 		SpendUnconfirmed:      minConfs == 0,
 		CoinSelectionStrategy: coinSelectionStrategy,
 		Outpoints:             outpoints,
+		ChangeAddress:         ctx.String("change_address"),
 	}
 	txid, err := client.SendCoins(ctxc, req)
 	if err != nil {
@@ -855,6 +867,12 @@ var sendManyCommand = cli.Command{
 		},
 		coinSelectionStrategyFlag,
 		txLabelFlag,
+		cli.StringFlag{
+			Name: "change_address",
+			Usage: "(optional) a bitcoin address to send change to. " +
+				"If not set, change is sent to a wallet-derived " +
+				"address.",
+		},
 	},
 	Action: actionDecorator(sendMany),
 }
@@ -901,6 +919,7 @@ func sendMany(ctx *cli.Context) error {
 		MinConfs:              minConfs,
 		SpendUnconfirmed:      minConfs == 0,
 		CoinSelectionStrategy: coinSelectionStrategy,
+		ChangeAddress:         ctx.String("change_address"),
 	})
 	if err != nil {
 		return err

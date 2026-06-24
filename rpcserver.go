@@ -1071,6 +1071,34 @@ func addrPairsToOutputs(addrPairs map[string]int64,
 	return outputs, nil
 }
 
+// decodeAndValidateAddr decodes a Bitcoin address string, validates it is for
+// the given network, and rejects raw pubkey hex strings to prevent unintended
+// transfers.
+func decodeAndValidateAddr(addrStr string,
+	params *chaincfg.Params) (btcutil.Address, error) {
+
+	addr, err := btcutil.DecodeAddress(addrStr, params)
+	if err != nil {
+		return nil, err
+	}
+
+	if !addr.IsForNet(params) {
+		return nil, fmt.Errorf("address: %v is not valid for this "+
+			"network: %v", addr.String(), params.Name)
+	}
+
+	// If the address parses to a valid pubkey, we assume the user
+	// accidentally tried to send funds to a bare pubkey address. This
+	// check is here to prevent unintended transfers.
+	decodedAddr, _ := hex.DecodeString(addrStr)
+	_, err = btcec.ParsePubKey(decodedAddr)
+	if err == nil {
+		return nil, fmt.Errorf("cannot send coins to pubkeys")
+	}
+
+	return addr, nil
+}
+
 // allowCORS wraps the given http.Handler with a function that adds the
 // Access-Control-Allow-Origin header to the response.
 func allowCORS(handler http.Handler, origins []string) http.Handler {
@@ -1129,7 +1157,8 @@ func allowCORS(handler http.Handler, origins []string) http.Handler {
 func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 	feeRate chainfee.SatPerKWeight, minConfs int32, label string,
 	strategy wallet.CoinSelectionStrategy,
-	selectedUtxos fn.Set[wire.OutPoint]) (*chainhash.Hash, error) {
+	selectedUtxos fn.Set[wire.OutPoint],
+	changeAddr btcutil.Address) (*chainhash.Hash, error) {
 
 	outputs, err := addrPairsToOutputs(paymentMap, r.cfg.ActiveNetParams.Params)
 	if err != nil {
@@ -1139,7 +1168,8 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 	// We first do a dry run, to sanity check we won't spend our wallet
 	// balance below the reserved amount.
 	authoredTx, err := r.server.cc.Wallet.CreateSimpleTx(
-		selectedUtxos, outputs, feeRate, minConfs, strategy, true,
+		selectedUtxos, outputs, changeAddr, feeRate, minConfs,
+		strategy, true,
 	)
 	if err != nil {
 		return nil, err
@@ -1160,7 +1190,7 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 	// If that checks out, we're fairly confident that creating sending to
 	// these outputs will keep the wallet balance above the reserve.
 	tx, err := r.server.cc.Wallet.SendOutputs(
-		selectedUtxos, outputs, feeRate, minConfs, label, strategy,
+		selectedUtxos, outputs, changeAddr, feeRate, minConfs, label, strategy,
 	)
 	if err != nil {
 		return nil, err
@@ -1284,7 +1314,7 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 	wallet := r.server.cc.Wallet
 	err = wallet.WithCoinSelectLock(func() error {
 		tx, err = wallet.CreateSimpleTx(
-			selectOutpoints, outputs, feePerKw, minConfs,
+			selectOutpoints, outputs, nil, feePerKw, minConfs,
 			coinSelectionStrategy, true,
 		)
 		return err
@@ -1380,34 +1410,33 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		return nil, err
 	}
 
-	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v, sat/kw=%v, min_confs=%v, "+
+	rpcsLog.Infof("[sendcoins] addr=%v, amt=%v, sat/kw=%v, change_addr=%v, min_confs=%v, "+
 		"send_all=%v, select_outpoints=%v",
-		in.Addr, btcutil.Amount(in.Amount), int64(feePerKw), minConfs,
+		in.Addr, btcutil.Amount(in.Amount), int64(feePerKw), in.ChangeAddress, minConfs,
 		in.SendAll, len(in.Outpoints))
 
-	// Decode the address receiving the coins, we need to check whether the
-	// address is valid for this network.
-	targetAddr, err := btcutil.DecodeAddress(
+	targetAddr, err := decodeAndValidateAddr(
 		in.Addr, r.cfg.ActiveNetParams.Params,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	// Make the check on the decoded address according to the active network.
-	if !targetAddr.IsForNet(r.cfg.ActiveNetParams.Params) {
-		return nil, fmt.Errorf("address: %v is not valid for this "+
-			"network: %v", targetAddr.String(),
-			r.cfg.ActiveNetParams.Params.Name)
-	}
+	var changeAddr btcutil.Address
+	if in.ChangeAddress != "" {
+		changeAddr, err = decodeAndValidateAddr(
+			in.ChangeAddress, r.cfg.ActiveNetParams.Params,
+		)
+		if err != nil {
+			return nil, err
+		}
 
-	// If the destination address parses to a valid pubkey, we assume the user
-	// accidentally tried to send funds to a bare pubkey address. This check is
-	// here to prevent unintended transfers.
-	decodedAddr, _ := hex.DecodeString(in.Addr)
-	_, err = btcec.ParsePubKey(decodedAddr)
-	if err == nil {
-		return nil, fmt.Errorf("cannot send coins to pubkeys")
+		// Send all requires default internal wallet address to preserve
+		// internal reserved value mechanism
+		if in.SendAll {
+			return nil, fmt.Errorf("change_address cannot be set when " +
+				"send_all is active")
+		}
 	}
 
 	label, err := labels.ValidateAPI(in.Label)
@@ -1464,9 +1493,10 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// With the sweeper instance created, we can now generate a
 		// transaction that will sweep ALL outputs from the wallet in a
 		// single transaction. This will be generated in a concurrent
-		// safe manner, so no need to worry about locking. The tx will
-		// pay to the change address created above if we needed to
-		// reserve any value, the rest will go to targetAddr.
+		// safe manner, so no need to worry about locking. If the wallet
+		// has a reserved value, a second output will be added below to
+		// return those funds to an internal wallet reserve address; the rest
+		// will go to targetAddr.
 		sweepTxPkg, err := sweep.CraftSweepAllTx(
 			feePerKw, maxFeeRate, uint32(bestHeight), nil,
 			targetAddr, wallet, wallet, wallet.WalletController,
@@ -1503,7 +1533,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			// where we'll send this reserved value back to. This
 			// ensures this is an address the wallet knows about,
 			// allowing us to pass the reserved value check.
-			changeAddr, err := r.server.cc.Wallet.NewAddress(
+			reserveAddr, err := r.server.cc.Wallet.NewAddress(
 				lnwallet.TaprootPubkey, true,
 				lnwallet.DefaultAccountName,
 			)
@@ -1515,7 +1545,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			// remaining funds will go to the targetAddr.
 			outputs := []sweep.DeliveryAddr{
 				{
-					Addr: changeAddr,
+					Addr: reserveAddr,
 					Amt:  reservedVal,
 				},
 			}
@@ -1569,7 +1599,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		txid = &sweepTXID
 	} else {
 
-		// We'll now construct out payment map, and use the wallet's
+		// We'll now construct our payment map, and use the wallet's
 		// coin selection synchronization method to ensure that no coin
 		// selection (funding, sweep alls, other sends) can proceed
 		// while we instruct the wallet to send this transaction.
@@ -1578,6 +1608,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			newTXID, err := r.sendCoinsOnChain(
 				paymentMap, feePerKw, minConfs, label,
 				coinSelectionStrategy, selectOutpoints,
+				changeAddr,
 			)
 			if err != nil {
 				return err
@@ -1640,6 +1671,16 @@ func (r *rpcServer) SendMany(ctx context.Context,
 	rpcsLog.Infof("[sendmany] outputs=%v, sat/kw=%v",
 		lnutils.SpewLogClosure(in.AddrToAmount), int64(feePerKw))
 
+	var changeAddr btcutil.Address
+	if in.ChangeAddress != "" {
+		changeAddr, err = decodeAndValidateAddr(
+			in.ChangeAddress, r.cfg.ActiveNetParams.Params,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	var txid *chainhash.Hash
 
 	// We'll attempt to send to the target set of outputs, ensuring that we
@@ -1649,7 +1690,7 @@ func (r *rpcServer) SendMany(ctx context.Context,
 	err = wallet.WithCoinSelectLock(func() error {
 		sendManyTXID, err := r.sendCoinsOnChain(
 			in.AddrToAmount, feePerKw, minConfs, label,
-			coinSelectionStrategy, nil,
+			coinSelectionStrategy, nil, changeAddr,
 		)
 		if err != nil {
 			return err

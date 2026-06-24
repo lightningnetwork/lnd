@@ -7543,6 +7543,10 @@
             "$ref": "#/definitions/lnrpcOutPoint"
           },
           "description": "A list of selected outpoints as inputs for the transaction."
+        },
+        "change_address": {
+          "type": "string",
+          "description": "An optional address to send change to. If not set, a wallet-derived\naddress is used."
         }
       }
     },
@@ -7626,6 +7630,10 @@
         "coin_selection_strategy": {
           "$ref": "#/definitions/lnrpcCoinSelectionStrategy",
           "description": "The strategy to use for selecting coins during sending many requests."
+        },
+        "change_address": {
+          "type": "string",
+          "description": "An optional address to send change to. If not set, a wallet-derived\naddress is used."
         }
       }
     },

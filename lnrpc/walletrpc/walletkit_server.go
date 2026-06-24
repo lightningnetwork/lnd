@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
@@ -823,11 +824,32 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 		return nil, err
 	}
 
+	var changeAddr btcutil.Address
+	if req.ChangeAddress != "" {
+		changeAddr, err = btcutil.DecodeAddress(
+			req.ChangeAddress, w.cfg.ChainParams,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("invalid change_address: %w", err)
+		}
+		if !changeAddr.IsForNet(w.cfg.ChainParams) {
+			return nil, fmt.Errorf("change_address %v is not valid "+
+				"for network %v", req.ChangeAddress,
+				w.cfg.ChainParams.Name)
+		}
+		decodedChangeAddr, _ := hex.DecodeString(req.ChangeAddress)
+		if _, err = btcec.ParsePubKey(decodedChangeAddr); err == nil {
+			return nil, fmt.Errorf("cannot send change to a bare " +
+				"public key")
+		}
+	}
+
 	// Now that we have the outputs mapped and checked for the reserve
 	// requirement, we can request that the wallet attempts to create this
 	// transaction.
 	tx, err := w.cfg.Wallet.SendOutputs(
-		nil, outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw),
+		nil, outputsToCreate, changeAddr,
+		chainfee.SatPerKWeight(req.SatPerKw),
 		minConfs, label, coinSelectionStrategy,
 	)
 	if err != nil {

@@ -270,15 +270,11 @@ type InFlightHTLC struct {
 // current time and height (not their original add time), so derived resolution
 // times differ from pre-restart — an accepted limitation.
 //
-// PARKED / not currently wired. In log-only mode we deliberately do NOT
-// reconstruct in-flight HTLCs on restart: the pending set starts empty and
-// resolutions of HTLCs that spanned the restart are tolerated as no-ops (see
-// Manager.resolve). This is a bounded, self-healing calculational flaw that is
-// acceptable while nothing routes on the result. This method (and its test) are
-// retained on purpose: once enforcement is enabled, discarding in-flight risk
-// across a restart becomes an attack surface (restart to wipe accountability),
-// at which point the server must enumerate the live circuit map ∪ channel HTLC
-// sets and call this. See reputation/DESIGN.md §6/§9.
+// This is wired on startup: after the switch starts, the server enumerates the
+// live circuit map ∪ channel HTLC sets and calls this to rebuild the pending
+// set, so in-flight risk and bucket occupancy survive a restart rather than
+// being discarded (which would otherwise be an attack surface once enforcement
+// is enabled — restart to wipe accountability). See reputation/DESIGN.md §6/§9.
 func (m *Manager) ReplayInFlight(htlcs []InFlightHTLC) {
 	height := m.cachedHeight.Load()
 

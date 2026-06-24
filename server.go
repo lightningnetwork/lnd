@@ -2454,6 +2454,24 @@ func (s *server) Start(ctx context.Context) error {
 			return
 		}
 
+		// Now that both the reputation manager and the switch are
+		// running, reconstruct any HTLCs that were in flight at the
+		// instant of restart and replay them into the reputation
+		// manager. Without this, in-flight HTLCs would be discarded on
+		// restart and their resolutions tolerated as no-ops; replaying
+		// rebuilds pending state + bucket occupancy. This is strictly
+		// read-only (circuit map ∪ live channel HTLC sets).
+		if s.reputationMgr != nil {
+			inFlight, err := reconstructInFlightHTLCs(
+				s.htlcSwitch, s.chanStateDB,
+			)
+			if err != nil {
+				startErr = err
+				return
+			}
+			s.reputationMgr.ReplayInFlight(inFlight)
+		}
+
 		cleanup = cleanup.add(s.interceptableSwitch.Stop)
 		if err := s.interceptableSwitch.Start(); err != nil {
 			startErr = err

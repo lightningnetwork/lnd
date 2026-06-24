@@ -2532,6 +2532,14 @@ func (s *Switch) CircuitLookup() CircuitLookup {
 	return s.circuits
 }
 
+// ActiveCircuits returns a snapshot of all open (keystoned) payment circuits
+// currently tracked by the switch's circuit map. This is used at startup to
+// reconstruct in-flight HTLC state in read-only subsystems (e.g. local
+// reputation). It is strictly read-only.
+func (s *Switch) ActiveCircuits() []*PaymentCircuit {
+	return s.circuits.ActiveCircuits()
+}
+
 // commitCircuits persistently adds a circuit to the switch's circuit map.
 func (s *Switch) commitCircuits(circuits ...*PaymentCircuit) (
 	*CircuitFwdActions, error) {

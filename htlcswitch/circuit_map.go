@@ -122,6 +122,11 @@ type CircuitMap interface {
 	// circuits that use the given payment hash.
 	LookupByPaymentHash(hash [32]byte) []*PaymentCircuit
 
+	// ActiveCircuits returns a snapshot of all open (keystoned) payment
+	// circuits currently tracked in-memory. The returned slice is a copy
+	// and is safe for the caller to read without the circuit map lock.
+	ActiveCircuits() []*PaymentCircuit
+
 	// NumPending returns the total number of active circuits added by
 	// CommitCircuits.
 	NumPending() int
@@ -1191,6 +1196,24 @@ func (cm *circuitMap) removeCircuitFromHashIndex(c *PaymentCircuit) {
 }
 
 // NumPending returns the number of active circuits added to the circuit map.
+// ActiveCircuits returns a snapshot of all open (keystoned) payment circuits
+// currently tracked in-memory. These are the circuits whose outgoing HTLC has
+// been committed on an outgoing link but which have not yet been resolved. The
+// returned slice is a copy; the PaymentCircuit pointers themselves are shared
+// but the circuit map only ever replaces (never mutates in place) these
+// entries, so reading their fields is safe.
+func (cm *circuitMap) ActiveCircuits() []*PaymentCircuit {
+	cm.mtx.RLock()
+	defer cm.mtx.RUnlock()
+
+	circuits := make([]*PaymentCircuit, 0, len(cm.opened))
+	for _, c := range cm.opened {
+		circuits = append(circuits, c)
+	}
+
+	return circuits
+}
+
 func (cm *circuitMap) NumPending() int {
 	cm.mtx.RLock()
 	defer cm.mtx.RUnlock()

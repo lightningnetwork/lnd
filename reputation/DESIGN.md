@@ -24,11 +24,11 @@ While porting from rust-lightning PR #4468 the following were pinned down
   the Manager lazily creates per-channel state on first event using learned
   limits or a fallback, so log-only mode never drops an event for an unknown
   scid. ChannelSource still seeds limits at startup.
-- **In-flight HTLCs are discarded on restart (deliberate, log-only).** The
-  pending set starts empty; resolutions of HTLCs that spanned the restart are
-  tolerated as no-ops. `ReplayInFlight` is implemented + unit-tested but
-  **parked / not wired** — see §6/§9 for the trade-off and the future-enforcement
-  caveat. Cold-start zero-state and warm-restart average reload are wired.
+- **In-flight HTLCs are reconstructed on restart.** On startup the server joins
+  the switch's open circuit map with the live channel commitment HTLC sets to
+  rebuild the pending set + bucket occupancy, then calls `ReplayInFlight`. This
+  is now wired (no longer parked); see §6/§9. Cold-start zero-state and
+  warm-restart average reload are also wired.
 
 ### Review fixes applied (independent code/architecture/test review)
 
@@ -338,8 +338,9 @@ lossy (settles-only, no-hold-time) backfill from `channeldb.ForwardingLog`.
 Per channel: `outgoingReputation` (`DecayingAverage`), `incomingRevenue`
 (`aggregatedWindowAverage`), general-bucket salts, congestion-misuse timestamps,
 and channel params (`max_accepted_htlcs`, `max_htlc_value_in_flight_msat`).
-**Not** persisted: pending HTLCs / live bucket occupancy — discarded on restart
-(the pending set starts empty; see the decision below).
+**Not** persisted: pending HTLCs / live bucket occupancy — instead reconstructed
+on restart from the live circuit map ∪ channel HTLC sets (see the decision
+below).
 
 `DecayingAverage` reads recompute `decay_rate` from the window; writes store the
 value + `last_updated`.
@@ -349,31 +350,40 @@ value + `last_updated`.
 - **Warm restart**: reload persisted averages.
 - **Cold start (first-ever enable)**: no persisted state → build empty per-channel
   state via the equivalent of `add_channel`. Zero reputation everywhere.
-- **In-flight HTLCs are discarded on restart** (the pending set starts empty) —
-  see the decision below.
+- **In-flight HTLCs are reconstructed on restart** (the pending set is rebuilt
+  from the live circuit map ∪ channel HTLC sets) — see the decision below.
 
-### Decision: discard in-flight HTLCs on restart (log-only)
+### Decision: reconstruct in-flight HTLCs on restart
 
-We deliberately do **not** reconstruct currently-in-flight HTLCs on restart.
-Rationale and trade-off:
+The server reconstructs currently-in-flight forwarded HTLCs on restart and feeds
+them to `Manager.ReplayInFlight(...)`. How and why:
 
-- **Why we can.** Reconstructing them requires joining the switch **circuit map**
-  (which has only keys + amounts) with each open channel's live commitment HTLC
-  set to recover the **CLTV** and the **accountable** custom record — a
-  non-trivial reach into `lnwallet`/channel internals from `server.go`. For a
-  log-only subsystem the payoff doesn't justify it.
-- **The flaw (bounded, self-healing).** Resolutions of HTLCs that spanned the
-  restart fire `OnSettle`/`OnFail` with no matching pending and are tolerated as
-  no-ops (`Manager.resolve`), so their fee/penalty is not applied to
-  reputation/revenue; and in-flight risk + bucket occupancy under-count until
-  those HTLCs drain. The affected set is only the HTLCs locked at the instant of
-  restart (a handful vs a 24-week window of thousands), and it self-heals within
-  one max-hold window. No leak, no double-count, no negative drift.
-- **⚠️ Only valid while log-only.** Once **enforcement** is enabled, discarding
-  in-flight risk across a restart becomes an attack surface (restart to wipe a
-  peer's accountability). At that point the server MUST enumerate the live
-  circuit map ∪ channel HTLC sets and call the parked, already-tested
-  `Manager.ReplayInFlight(...)`. Revisit this decision then.
+- **How.** The switch **circuit map** retains only keys + amounts per circuit
+  (`Incoming`/`Outgoing` keys, `IncomingAmount`/`OutgoingAmount`). The missing
+  two fields — the **incoming CLTV** and the **accountable** custom record (TLV
+  `106823`, value `7`) — are recovered from the matching incoming commitment
+  HTLC: both are persisted (the accountable bit travels in the incoming
+  `update_add_htlc` custom records, which `lnwallet` writes onto the commitment
+  HTLC set and round-trips through `OpenChannel`'s `ExtraData` on restart). The
+  server enumerates open (keystoned) circuits via `Switch.ActiveCircuits()`,
+  filters to real forwards (`Incoming.ChanID != hop.Source` and keystone set),
+  and joins them by `(incoming chan id, incoming htlc id)` against the index
+  built from `FetchAllOpenChannels` → `OpenChannel.ActiveHtlcs()` (incoming
+  HTLCs only). See `reconstructInFlightHTLCs` / `assembleInFlightHTLCs` in
+  `reputation_adapter.go`. This is strictly read-only.
+- **Both fields are recoverable**, so there is no guessing: the CLTV comes from
+  `HTLC.RefundTimeout` and the accountable bit from `HTLC.CustomRecords`. A
+  circuit with no matching live incoming HTLC (e.g. its channel resolved/closed
+  concurrently with startup) is skipped rather than replayed with bogus
+  metadata.
+- **Why it matters.** Without reconstruction, resolutions of HTLCs that spanned
+  the restart would fire `OnSettle`/`OnFail` with no matching pending and be
+  tolerated as no-ops (`Manager.resolve`), under-counting in-flight risk and
+  bucket occupancy. More importantly, once **enforcement** is enabled, discarding
+  in-flight risk across a restart would be an attack surface (restart to wipe a
+  peer's accountability) — replaying closes that hole. Replayed HTLCs are stamped
+  with the current time/height (not their original add time), an accepted
+  fidelity limitation matching LDK.
 
 ## 7. Config flag
 
@@ -513,9 +523,11 @@ NOT do yet), and its *tests*.
   general-bucket salts, congestion-misuse timestamps, and channel params; the
   batched ticker flush + flush-on-`Stop`, snapshotting under the lock and writing
   outside it (per §4). `decay_rate` recomputed on read, not stored. NOT
-  persisted: pending HTLCs / live occupancy (discarded on restart — see §6/P9).
+  persisted: pending HTLCs / live occupancy (reconstructed on restart from the
+  live circuit map ∪ channel HTLC sets — see §6/P9).
 - **Depends on:** P3–P7 (the state there is to persist).
-- **Boundary:** averages durable across restart; in-flight state is not restored.
+- **Boundary:** averages durable across restart; in-flight state is rebuilt from
+  live circuit/channel state on restart.
 - **Tests:** round-trip per persisted type; full-store reload == pre-restart
   state (golden); empty / first-run DB read; `decay_rate` recompute on read.
 
@@ -523,16 +535,17 @@ NOT do yet), and its *tests*.
 - **Goal:** correctly initialize on both first-enable and restart.
 - **Builds:** cold start (no persisted state) → empty per-channel state via the
   channel feed (zero reputation everywhere); warm restart → reload persisted
-  averages. **In-flight HTLCs are discarded on restart** (pending set starts
-  empty; pre-restart resolves no-op) — a deliberate log-only trade-off; see §6.
-  `ReplayInFlight(...)` is implemented + unit-tested but **parked / not wired**,
-  retained for the future enforcement build. No historical read.
+  averages. **In-flight HTLCs are reconstructed on restart**: the server joins
+  the switch open circuit map with the live channel commitment HTLC sets
+  (recovering CLTV + accountable) and calls `ReplayInFlight(...)`, which is now
+  wired (no longer parked). No historical read.
 - **Depends on:** P8 (presence/absence of persisted state drives cold-vs-warm).
-- **Boundary:** subsystem initialized after a restart with persisted averages but
-  an empty pending set; still log-only.
+- **Boundary:** subsystem initialized after a restart with persisted averages and
+  a pending set rebuilt from live circuit/channel state; still log-only.
 - **Tests:** zero-start builds empty channels for all; warm-restart reloads
   persisted averages → consistent state; `ReplayInFlight` unit-tested in
-  isolation (parked path); **end-to-end itest** in `lntest/itest` driving real
+  isolation; the circuit→`InFlightHTLC` assembly join unit-tested with fakes
+  (`assembleInFlightHTLCs`); **end-to-end itest** in `lntest/itest` driving real
   forwards through a 3-hop chain and asserting logged reputation/bucket state
   (log-only, asserts nothing about routing).
 

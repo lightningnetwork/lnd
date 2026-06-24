@@ -22,6 +22,6 @@ require (
 
 replace github.com/lightningnetwork/lnd/queue => ../queue
 
-replace github.com/lightningnetwork/lnd/ticker v1.0.0 => ../ticker
+replace github.com/lightningnetwork/lnd/ticker => ../ticker
 
 replace github.com/lightningnetwork/lnd/fn/v2 => ../fn

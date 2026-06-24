@@ -3,7 +3,7 @@
 
 package lnwallet
 
-import "github.com/btcsuite/btcd/btcutil"
+import "github.com/btcsuite/btcd/btcutil/v2"
 
 // CloseConfsForCapacity returns the number of confirmations to wait before
 // signaling a channel close, scaled by channel capacity. This is used for both

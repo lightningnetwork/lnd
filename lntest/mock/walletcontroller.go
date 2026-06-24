@@ -5,13 +5,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/hdkeychain"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
@@ -76,28 +77,28 @@ func (w *WalletController) ConfirmedBalance(int32, string) (btcutil.Amount,
 
 // NewAddress is called to get new addresses for delivery, change etc.
 func (w *WalletController) NewAddress(lnwallet.AddressType, bool,
-	string) (btcutil.Address, error) {
+	string) (address.Address, error) {
 
-	pkh := btcutil.Hash160(w.RootKey.PubKey().SerializeCompressed())
-	addr, _ := btcutil.NewAddressPubKeyHash(pkh, &chaincfg.MainNetParams)
+	pkh := address.Hash160(w.RootKey.PubKey().SerializeCompressed())
+	addr, _ := address.NewAddressPubKeyHash(pkh, &chaincfg.MainNetParams)
 	return addr, nil
 }
 
 // LastUnusedAddress currently returns dummy values.
 func (w *WalletController) LastUnusedAddress(lnwallet.AddressType,
-	string) (btcutil.Address, error) {
+	string) (address.Address, error) {
 
 	return nil, nil
 }
 
 // IsOurAddress currently returns a dummy value.
-func (w *WalletController) IsOurAddress(btcutil.Address) bool {
+func (w *WalletController) IsOurAddress(address.Address) bool {
 	return false
 }
 
 // AddressInfo currently returns a dummy value.
 func (w *WalletController) AddressInfo(
-	btcutil.Address) (waddrmgr.ManagedAddress, error) {
+	address.Address) (waddrmgr.ManagedAddress, error) {
 
 	return nil, nil
 }
@@ -124,7 +125,7 @@ func (w *WalletController) ListAddresses(string,
 // ImportAccount currently returns a dummy value.
 func (w *WalletController) ImportAccount(string, *hdkeychain.ExtendedKey,
 	uint32, *waddrmgr.AddressType, bool) (*waddrmgr.AccountProperties,
-	[]btcutil.Address, []btcutil.Address, error) {
+	[]address.Address, []address.Address, error) {
 
 	return nil, nil, nil, nil
 }

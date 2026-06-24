@@ -6,11 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -1011,11 +1012,10 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 
 // genScript creates a script paying out to the address provided, which must
 // be a valid address.
-func genScript(t *testing.T, address string) lnwire.DeliveryAddress {
+func genScript(t *testing.T, addr string) lnwire.DeliveryAddress {
 	// Generate an address which can be used for testing.
-	deliveryAddr, err := btcutil.DecodeAddress(
-		address,
-		&chaincfg.TestNet3Params,
+	deliveryAddr, err := address.DecodeAddress(
+		addr, &chaincfg.TestNet3Params,
 	)
 	require.NoError(t, err, "invalid delivery address")
 

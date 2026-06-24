@@ -4,7 +4,7 @@ import (
 	"context"
 	"runtime"
 
-	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/v2"
 )
 
 // TopCentrality is a simple greedy technique to create connections to nodes

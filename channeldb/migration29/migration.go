@@ -3,7 +3,7 @@ package migration29
 import (
 	"bytes"
 
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/kvdb"
 )
 

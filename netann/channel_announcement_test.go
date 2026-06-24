@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -175,7 +176,7 @@ func test4of4MuSig2P2WSHChanAnnouncement(t *testing.T) {
 
 	scriptHash, err := input.WitnessScriptHash(multiSigScript)
 	require.NoError(t, err)
-	pkAddr, err := btcutil.NewAddressScriptHash(
+	pkAddr, err := address.NewAddressScriptHash(
 		scriptHash, &chaincfg.MainNetParams,
 	)
 	require.NoError(t, err)
@@ -183,7 +184,7 @@ func test4of4MuSig2P2WSHChanAnnouncement(t *testing.T) {
 	// Create a mock tx fetcher that returns the expected script class and
 	// pk address.
 	fetchTx := func(lnwire.ShortChannelID) (txscript.ScriptClass,
-		btcutil.Address, error) {
+		address.Address, error) {
 
 		return txscript.WitnessV0ScriptHashTy, pkAddr, nil
 	}
@@ -278,7 +279,7 @@ func test4of4MuSig2P2TRChanAnnouncement(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	pkAddr, err := btcutil.NewAddressTaproot(
+	pkAddr, err := address.NewAddressTaproot(
 		combinedKey.FinalKey.SerializeCompressed()[1:],
 		&chaincfg.MainNetParams,
 	)
@@ -287,7 +288,7 @@ func test4of4MuSig2P2TRChanAnnouncement(t *testing.T) {
 	// Create a mock tx fetcher that returns the expected script class and
 	// pk address.
 	fetchTx := func(lnwire.ShortChannelID) (txscript.ScriptClass,
-		btcutil.Address, error) {
+		address.Address, error) {
 
 		return txscript.WitnessV1TaprootTy, pkAddr, nil
 	}
@@ -348,7 +349,7 @@ func test3of3MuSig2ChanAnnouncement(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	pkAddr, err := btcutil.NewAddressTaproot(
+	pkAddr, err := address.NewAddressTaproot(
 		outputKey.SerializeCompressed()[1:], &chaincfg.MainNetParams,
 	)
 	require.NoError(t, err)
@@ -356,7 +357,7 @@ func test3of3MuSig2ChanAnnouncement(t *testing.T) {
 	// Create a mock tx fetcher that returns the expected script class
 	// and pk address.
 	fetchTx := func(lnwire.ShortChannelID) (txscript.ScriptClass,
-		btcutil.Address, error) {
+		address.Address, error) {
 
 		return txscript.WitnessV1TaprootTy, pkAddr, nil
 	}

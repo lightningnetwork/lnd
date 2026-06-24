@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btcsuite/btcd/address/v2/bech32"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"

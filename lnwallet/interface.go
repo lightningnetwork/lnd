@@ -6,15 +6,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/hdkeychain"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
@@ -135,7 +136,7 @@ type Utxo struct {
 // OutputDetail contains additional information on a destination address.
 type OutputDetail struct {
 	OutputType   txscript.ScriptClass
-	Addresses    []btcutil.Address
+	Addresses    []address.Address
 	PkScript     []byte
 	OutputIndex  int
 	Value        btcutil.Amount
@@ -267,7 +268,7 @@ type WalletController interface {
 	// p2wsh, etc. The account parameter must be non-empty as it determines
 	// which account the address should be generated from.
 	NewAddress(addrType AddressType, change bool,
-		account string) (btcutil.Address, error)
+		account string) (address.Address, error)
 
 	// LastUnusedAddress returns the last *unused* address known by the
 	// wallet. An address is unused if it hasn't received any payments.
@@ -278,14 +279,14 @@ type WalletController interface {
 	// The account parameter must be non-empty as it determines which
 	// account the address should be generated from.
 	LastUnusedAddress(addrType AddressType,
-		account string) (btcutil.Address, error)
+		account string) (address.Address, error)
 
 	// IsOurAddress checks if the passed address belongs to this wallet
-	IsOurAddress(a btcutil.Address) bool
+	IsOurAddress(a address.Address) bool
 
 	// AddressInfo returns the information about an address, if it's known
 	// to this wallet.
-	AddressInfo(a btcutil.Address) (waddrmgr.ManagedAddress, error)
+	AddressInfo(a address.Address) (waddrmgr.ManagedAddress, error)
 
 	// ListAccounts retrieves all accounts belonging to the wallet by
 	// default. A name and key scope filter can be provided to filter
@@ -325,8 +326,8 @@ type WalletController interface {
 	// (nested pubkeys externally, witness pubkeys internally).
 	ImportAccount(name string, accountPubKey *hdkeychain.ExtendedKey,
 		masterKeyFingerprint uint32, addrType *waddrmgr.AddressType,
-		dryRun bool) (*waddrmgr.AccountProperties, []btcutil.Address,
-		[]btcutil.Address, error)
+		dryRun bool) (*waddrmgr.AccountProperties, []address.Address,
+		[]address.Address, error)
 
 	// ImportPublicKey imports a single derived public key into the wallet.
 	// The address type can usually be inferred from the key's version, but
@@ -631,7 +632,7 @@ func InternalKeyForAddr(wallet WalletController, netParams *chaincfg.Params,
 	// If it's not a taproot address, we don't require to know the internal
 	// key in the first place. So we don't return an error here, but also no
 	// internal key.
-	_, isTaproot := addr.(*btcutil.AddressTaproot)
+	_, isTaproot := addr.(*address.AddressTaproot)
 	if !isTaproot {
 		return none, nil
 	}

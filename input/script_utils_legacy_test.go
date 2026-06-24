@@ -5,10 +5,10 @@ import (
 	"crypto/sha256"
 	"fmt"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/txscript/v2"
 )
 
 // legacyWitnessScriptHash generates a pay-to-witness-script-hash public key
@@ -35,7 +35,7 @@ func legacyWitnessPubKeyHash(pubkey []byte) ([]byte, error) {
 	)
 
 	bldr.AddOp(txscript.OP_0)
-	pkhash := btcutil.Hash160(pubkey)
+	pkhash := address.Hash160(pubkey)
 	bldr.AddData(pkhash)
 
 	return bldr.Script()
@@ -49,7 +49,7 @@ func legacyGenerateP2SH(script []byte) ([]byte, error) {
 	)
 
 	bldr.AddOp(txscript.OP_HASH160)
-	scripthash := btcutil.Hash160(script)
+	scripthash := address.Hash160(script)
 	bldr.AddData(scripthash)
 	bldr.AddOp(txscript.OP_EQUAL)
 
@@ -65,7 +65,7 @@ func legacyGenerateP2PKH(pubkey []byte) ([]byte, error) {
 
 	bldr.AddOp(txscript.OP_DUP)
 	bldr.AddOp(txscript.OP_HASH160)
-	pkhash := btcutil.Hash160(pubkey)
+	pkhash := address.Hash160(pubkey)
 	bldr.AddData(pkhash)
 	bldr.AddOp(txscript.OP_EQUALVERIFY)
 	bldr.AddOp(txscript.OP_CHECKSIG)
@@ -117,7 +117,7 @@ func legacySenderHTLCScript(senderHtlcKey, receiverHtlcKey,
 	// the stack.
 	builder.AddOp(txscript.OP_DUP)
 	builder.AddOp(txscript.OP_HASH160)
-	builder.AddData(btcutil.Hash160(revocationKey.SerializeCompressed()))
+	builder.AddData(address.Hash160(revocationKey.SerializeCompressed()))
 	builder.AddOp(txscript.OP_EQUAL)
 
 	// If the hash matches, then this is the revocation clause. The output
@@ -212,7 +212,7 @@ func legacyReceiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
 	// the stack.
 	builder.AddOp(txscript.OP_DUP)
 	builder.AddOp(txscript.OP_HASH160)
-	builder.AddData(btcutil.Hash160(revocationKey.SerializeCompressed()))
+	builder.AddData(address.Hash160(revocationKey.SerializeCompressed()))
 	builder.AddOp(txscript.OP_EQUAL)
 
 	// If the hash matches, then this is the revocation clause. The output
@@ -440,7 +440,7 @@ func legacyCommitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
 		P2WPKHSize,
 	))
 	builder.AddOp(txscript.OP_0)
-	builder.AddData(btcutil.Hash160(key.SerializeCompressed()))
+	builder.AddData(address.Hash160(key.SerializeCompressed()))
 
 	return builder.Script()
 }

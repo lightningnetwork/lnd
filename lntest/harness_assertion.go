@@ -12,12 +12,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -957,8 +958,8 @@ func (h *HarnessTest) RandomPreimage() lntypes.Preimage {
 }
 
 // DecodeAddress decodes a given address and asserts there's no error.
-func (h *HarnessTest) DecodeAddress(addr string) btcutil.Address {
-	resp, err := btcutil.DecodeAddress(addr, miner.HarnessNetParams)
+func (h *HarnessTest) DecodeAddress(addr string) address.Address {
+	resp, err := address.DecodeAddress(addr, miner.HarnessNetParams)
 	require.NoError(h, err, "DecodeAddress failed")
 
 	return resp
@@ -966,7 +967,7 @@ func (h *HarnessTest) DecodeAddress(addr string) btcutil.Address {
 
 // PayToAddrScript creates a new script from the given address and asserts
 // there's no error.
-func (h *HarnessTest) PayToAddrScript(addr btcutil.Address) []byte {
+func (h *HarnessTest) PayToAddrScript(addr address.Address) []byte {
 	addrScript, err := txscript.PayToAddrScript(addr)
 	require.NoError(h, err, "PayToAddrScript failed")
 
@@ -2181,7 +2182,7 @@ func (h *HarnessTest) AssertNumChannelUpdates(hn *node.HarnessNode,
 
 // CreateBurnAddr creates a random burn address of the given type.
 func (h *HarnessTest) CreateBurnAddr(addrType lnrpc.AddressType) ([]byte,
-	btcutil.Address) {
+	address.Address) {
 
 	randomPrivKey, err := btcec.NewPrivateKey()
 	require.NoError(h, err)
@@ -2189,29 +2190,29 @@ func (h *HarnessTest) CreateBurnAddr(addrType lnrpc.AddressType) ([]byte,
 	randomKeyBytes := randomPrivKey.PubKey().SerializeCompressed()
 	harnessNetParams := miner.HarnessNetParams
 
-	var addr btcutil.Address
+	var addr address.Address
 	switch addrType {
 	case lnrpc.AddressType_WITNESS_PUBKEY_HASH:
-		addr, err = btcutil.NewAddressWitnessPubKeyHash(
-			btcutil.Hash160(randomKeyBytes), harnessNetParams,
+		addr, err = address.NewAddressWitnessPubKeyHash(
+			address.Hash160(randomKeyBytes), harnessNetParams,
 		)
 
 	case lnrpc.AddressType_TAPROOT_PUBKEY:
 		taprootKey := txscript.ComputeTaprootKeyNoScript(
 			randomPrivKey.PubKey(),
 		)
-		addr, err = btcutil.NewAddressPubKey(
+		addr, err = address.NewAddressPubKey(
 			schnorr.SerializePubKey(taprootKey), harnessNetParams,
 		)
 
 	case lnrpc.AddressType_NESTED_PUBKEY_HASH:
-		var witnessAddr btcutil.Address
-		witnessAddr, err = btcutil.NewAddressWitnessPubKeyHash(
-			btcutil.Hash160(randomKeyBytes), harnessNetParams,
+		var witnessAddr address.Address
+		witnessAddr, err = address.NewAddressWitnessPubKeyHash(
+			address.Hash160(randomKeyBytes), harnessNetParams,
 		)
 		require.NoError(h, err)
 
-		addr, err = btcutil.NewAddressScriptHash(
+		addr, err = address.NewAddressScriptHash(
 			h.PayToAddrScript(witnessAddr), harnessNetParams,
 		)
 

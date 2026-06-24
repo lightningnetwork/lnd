@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/address/v2"
+	"github.com/btcsuite/btcd/address/v2/bech32"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/bech32"
-	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -626,7 +626,7 @@ func TestParseFallbackAddr(t *testing.T) {
 		data   []byte
 		net    *chaincfg.Params
 		valid  bool
-		result btcutil.Address
+		result address.Address
 	}{
 		{
 			data:  []byte{},

@@ -1,7 +1,7 @@
 package netann
 
 import (
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 )
 
 // MsgHashTag will prefix the message name and the field name in order to

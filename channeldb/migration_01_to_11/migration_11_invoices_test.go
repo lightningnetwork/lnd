@@ -7,7 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
-	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
+	bitcoinCfg "github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/zpay32"
 	litecoinCfg "github.com/ltcsuite/ltcd/chaincfg"

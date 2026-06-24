@@ -4,12 +4,12 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -73,7 +73,7 @@ func CreateChanAnnouncement(chanInfo *models.ChannelEdgeInfo,
 // FetchPkScript defines a function that can be used to fetch the output script
 // for the transaction with the given SCID.
 type FetchPkScript func(lnwire.ShortChannelID) (txscript.ScriptClass,
-	btcutil.Address, error)
+	address.Address, error)
 
 // ValidateChannelAnn validates the channel announcement.
 func ValidateChannelAnn(a lnwire.ChannelAnnouncement,
@@ -275,7 +275,7 @@ func chanAnn2P2WSHMuSig2Keys(a *lnwire.ChannelAnnouncement2) (
 // lnwire.ChannelAnnouncement2 message should be verified against in the case
 // where the channel being announced is a P2TR channel.
 func chanAnn2P2TRMuSig2Keys(a *lnwire.ChannelAnnouncement2,
-	scriptAddr btcutil.Address) ([]*btcec.PublicKey, error) {
+	scriptAddr address.Address) ([]*btcec.PublicKey, error) {
 
 	nodeKey1, err := btcec.ParsePubKey(a.NodeID1.Val[:])
 	if err != nil {

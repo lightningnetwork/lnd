@@ -17,6 +17,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/lightningnetwork/lnd/ticker v1.0.0 => ../ticker
+replace github.com/lightningnetwork/lnd/ticker => ../ticker
 
 replace github.com/lightningnetwork/lnd/fn/v2 => ../fn

@@ -3,7 +3,7 @@ package lnwire
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/chainhash/v2"
 )
 
 // GossipVersion is a version number that describes the version of the

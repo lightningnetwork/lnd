@@ -14,17 +14,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcjson"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -245,7 +246,7 @@ func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet,
 		return err
 	}
 	expectedBalance += btcutil.Amount(int64(satoshiPerOutput) * int64(numOutputs))
-	addrs := make([]btcutil.Address, 0, numOutputs)
+	addrs := make([]address.Address, 0, numOutputs)
 	for i := 0; i < numOutputs; i++ {
 		// Grab a fresh address from the wallet to house this output.
 		walletAddr, err := w.NewAddress(
@@ -1588,8 +1589,8 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 
 // scriptFromKey creates a P2WKH script from the given pubkey.
 func scriptFromKey(pubkey *btcec.PublicKey) ([]byte, error) {
-	pubkeyHash := btcutil.Hash160(pubkey.SerializeCompressed())
-	keyAddr, err := btcutil.NewAddressWitnessPubKeyHash(
+	pubkeyHash := address.Hash160(pubkey.SerializeCompressed())
+	keyAddr, err := address.NewAddressWitnessPubKeyHash(
 		pubkeyHash, &chaincfg.RegressionNetParams,
 	)
 	if err != nil {
@@ -2037,8 +2038,8 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 
 		// Using the given key for the current iteration, we'll
 		// generate a regular p2wkh from that.
-		pubkeyHash := btcutil.Hash160(tweakedKey.SerializeCompressed())
-		keyAddr, err := btcutil.NewAddressWitnessPubKeyHash(pubkeyHash,
+		pubkeyHash := address.Hash160(tweakedKey.SerializeCompressed())
+		keyAddr, err := address.NewAddressWitnessPubKeyHash(pubkeyHash,
 			&chaincfg.RegressionNetParams)
 		if err != nil {
 			t.Fatalf("unable to create addr: %v", err)
@@ -3163,7 +3164,7 @@ func testSingleFunderExternalFundingTx(miner *rpctest.Harness,
 			LocalAmt: btcutil.Amount(chanAmt),
 			MinConfs: 1,
 			FeeRate:  253,
-			ChangeAddr: func() (btcutil.Address, error) {
+			ChangeAddr: func() (address.Address, error) {
 				return alice.NewAddress(
 					lnwallet.WitnessPubKey, true,
 					lnwallet.DefaultAccountName,
@@ -3210,7 +3211,7 @@ func testSingleFunderExternalFundingTx(miner *rpctest.Harness,
 		LocalAmt: btcutil.Amount(chanAmt),
 		MinConfs: 1,
 		FeeRate:  253,
-		ChangeAddr: func() (btcutil.Address, error) {
+		ChangeAddr: func() (address.Address, error) {
 			return bob.NewAddress(
 				lnwallet.WitnessPubKey, true,
 				lnwallet.DefaultAccountName,

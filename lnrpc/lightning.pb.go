@@ -2376,6 +2376,8 @@ type GetTransactionsRequest struct {
 	// The maximal number of transactions returned in the response to this query.
 	// This value should be set to 0 to return all transactions.
 	MaxTransactions uint32 `protobuf:"varint,5,opt,name=max_transactions,json=maxTransactions,proto3" json:"max_transactions,omitempty"`
+	// An optional filter to only include transactions with a matching label.
+	Label         string `protobuf:"bytes,6,opt,name=label,proto3" json:"label,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -2443,6 +2445,13 @@ func (x *GetTransactionsRequest) GetMaxTransactions() uint32 {
 		return x.MaxTransactions
 	}
 	return 0
+}
+
+func (x *GetTransactionsRequest) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
 }
 
 type TransactionDetails struct {
@@ -18573,7 +18582,8 @@ const file_lightning_proto_rawDesc = "" +
 	"end_height\x18\x02 \x01(\x05R\tendHeight\x12\x18\n" +
 	"\aaccount\x18\x03 \x01(\tR\aaccount\x12!\n" +
 	"\findex_offset\x18\x04 \x01(\rR\vindexOffset\x12)\n" +
-	"\x10max_transactions\x18\x05 \x01(\rR\x0fmaxTransactions\"\x8c\x01\n" +
+	"\x10max_transactions\x18\x05 \x01(\rR\x0fmaxTransactions\x12\x14\n" +
+	"\x05label\x18\x06 \x01(\tR\x05label\"\x8c\x01\n" +
 	"\x12TransactionDetails\x126\n" +
 	"\ftransactions\x18\x01 \x03(\v2\x12.lnrpc.TransactionR\ftransactions\x12\x1d\n" +
 	"\n" +

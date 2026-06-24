@@ -645,6 +645,11 @@ func (h *htlcIncomingContestResolver) findAndapplyPreimage() (bool, error) {
 		return false, nil
 	}
 
+	_, bestHeight, err := h.ChainIO.GetBestBlock()
+	if err != nil {
+		return false, err
+	}
+
 	// Notify registry that we are potentially resolving as an exit hop
 	// on-chain. If this HTLC indeed pays to an existing invoice, the
 	// invoice registry will tell us what to do with the HTLC. This is
@@ -658,13 +663,13 @@ func (h *htlcIncomingContestResolver) findAndapplyPreimage() (bool, error) {
 	// immediately, we'll assume we don't know it yet and let the `Resolve`
 	// handle the waiting.
 	//
-	// NOTE: we use a nil subscriber here and a zero current height as we
-	// are only interested in the settle resolution.
+	// NOTE: we use a nil subscriber here as we are only interested in the
+	// settle resolution.
 	//
 	// TODO(yy): move this logic to link and let the preimage be accessed
 	// via the preimage beacon.
 	resolution, err := h.Registry.NotifyExitHopHtlc(
-		h.htlc.RHash, h.htlc.Amt, h.htlcExpiry, 0,
+		h.htlc.RHash, h.htlc.Amt, h.htlcExpiry, bestHeight,
 		circuitKey, nil, h.htlc.CustomRecords, payload,
 	)
 	if err != nil {

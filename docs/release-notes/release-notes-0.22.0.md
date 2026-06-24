@@ -42,12 +42,6 @@
   regardless of peer connectivity. Uptime is now seeded from the peer's
   actual connection state.
 
-* [Fixed a panic](https://github.com/lightningnetwork/lnd/pull/10914) in the
-  DNS fallback SRV lookup, which unconditionally type-asserted each DNS Answer
-  record to `*dns.SRV` and crashed the daemon when the response contained a
-  non-SRV record. Non-SRV records are now skipped, and an empty `LookupHost`
-  result for the shim no longer triggers an out-of-bounds index.
-
 # New Features
 
 ## Functional Enhancements

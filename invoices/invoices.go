@@ -3,6 +3,7 @@ package invoices
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -22,6 +23,11 @@ const (
 	// TODO(halseth): determine the max length payment request when field
 	// lengths are final.
 	MaxPaymentRequestSize = 4096
+
+	// MaxFinalCltvDelta is the upper bound for final CLTV deltas used by
+	// invoice creation and final-hop HTLC validation. It matches
+	// routing.MaxCLTVDelta.
+	MaxFinalCltvDelta = math.MaxUint16
 )
 
 var (

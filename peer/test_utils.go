@@ -406,6 +406,9 @@ func (m *mockUpdateHandler) ChanID() lnwire.ChannelID { return m.cid }
 // Bandwidth currently returns a dummy value.
 func (m *mockUpdateHandler) Bandwidth() lnwire.MilliSatoshi { return 0 }
 
+// RemoteBandwidth currently returns a dummy value.
+func (m *mockUpdateHandler) RemoteBandwidth() lnwire.MilliSatoshi { return 0 }
+
 // EligibleToForward currently returns a dummy value.
 func (m *mockUpdateHandler) EligibleToForward() bool { return false }
 
@@ -415,12 +418,13 @@ func (m *mockUpdateHandler) MayAddOutgoingHtlc(lnwire.MilliSatoshi) error { retu
 type mockMessageConn struct {
 	t *testing.T
 
-	// MessageConn embeds our interface so that the mock does not need to
-	// implement every function. The mock will panic if an unspecified function
-	// is called.
+	// MessageConn embeds our interface so that
+	// the mock does not need to implement every function.
+	// The mock will panic if an unspecifiedfunction is called.
 	MessageConn
 
-	// writtenMessages is a channel that our mock pushes written messages into.
+	// writtenMessages is a channel that our mock pushes written messages
+	// into.
 	writtenMessages chan []byte
 
 	readMessages   chan []byte

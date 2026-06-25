@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/address/v2"
+	"github.com/btcsuite/btcd/bip322"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -2721,8 +2722,24 @@ func parseAddrType(addrType AddressType,
 // follows the same standard as bitcoin core and btcd.
 const msgSignaturePrefix = "Bitcoin Signed Message:\n"
 
-// SignMessageWithAddr signs a message with the private key of the provided
-// address. The address needs to belong to the lnd wallet.
+// SignMessageWithAddr returns the compact (legacy) or BIP-0322 signature
+// (base64 encoded) created with the private key of the provided address. For
+// the legacy format, this requires the address to be solely based on a public
+// key lock (no scripts). Obviously, the internal lnd wallet has to possess the
+// private key of the address, otherwise an error is returned.
+//
+// The legacy method aims to provide full compatibility with the bitcoin-core
+// and btcd implementation. Bitcoin-core's legacy algorithm is not specified in
+// a BIP and only applicable for legacy addresses. The legacy method enhances
+// the signing for additional address types, which might not be widely
+// compatible: P2WKH, NP2WKH, P2TR.
+// For P2TR addresses this legacy method represents a special case. ECDSA is
+// used to create a compact signature which makes the public key of the
+// signature recoverable.
+//
+// It is generally recommended to use the new, standardized BIP-0322 signing
+// method wherever applicable (verifiers need to support the signature format).
+// BIP-0322 signatures are compatible with any address type.
 func (w *WalletKit) SignMessageWithAddr(_ context.Context,
 	req *SignMessageWithAddrRequest) (*SignMessageWithAddrResponse, error) {
 
@@ -2747,7 +2764,7 @@ func (w *WalletKit) SignMessageWithAddr(_ context.Context,
 	// Verifying by checking the interface type that the wallet knows about
 	// the public and private keys so it can sign the message with the
 	// private key of this address.
-	pubKey, ok := managedAddr.(waddrmgr.ManagedPubKeyAddress)
+	pubKeyAddr, ok := managedAddr.(waddrmgr.ManagedPubKeyAddress)
 	if !ok {
 		return nil, fmt.Errorf("private key to address is unknown")
 	}
@@ -2757,18 +2774,50 @@ func (w *WalletKit) SignMessageWithAddr(_ context.Context,
 		return nil, err
 	}
 
-	// For all address types (P2WKH, NP2WKH,P2TR) the ECDSA compact signing
-	// algorithm is used. For P2TR addresses this represents a special case.
-	// ECDSA is used to create a compact signature which makes the public
-	// key of the signature recoverable. For Schnorr no known compact
-	// signing algorithm exists yet.
-	privKey, err := pubKey.PrivKey()
+	// For all address types (P2WKH, NP2WKH, P2TR) the ECDSA compact signing
+	// algorithm is used, if the legacy format is chosen. For P2TR addresses
+	// this represents a special case. ECDSA is used to create a compact
+	// signature which makes the public key of the signature recoverable.
+	// For Schnorr no known compact signing algorithm exists yet.
+	privKey, err := pubKeyAddr.PrivKey()
 	if err != nil {
 		return nil, fmt.Errorf("no private key could be "+
 			"fetched from wallet database: %w", err)
 	}
 
-	sigBytes := ecdsa.SignCompact(privKey, digest, pubKey.Compressed())
+	// Branch off for BIP-0322 signatures, which are produced slightly
+	// differently and depend on the actual address type.
+	if req.Bip322 {
+		var (
+			msg = string(req.Msg)
+			sig string
+			err error
+		)
+		switch pubKeyAddr.Address().(type) {
+		case *address.AddressScriptHash:
+			sig, err = bip322.SignNestedP2WPKH(msg, privKey)
+
+		case *address.AddressWitnessPubKeyHash:
+			sig, err = bip322.SignP2WPKH(msg, privKey)
+
+		case *address.AddressTaproot:
+			sig, err = bip322.SignP2TR(msg, privKey)
+
+		default:
+			err = fmt.Errorf("unexpected address type from "+
+				"internal wallet: %T", pubKeyAddr.Address())
+		}
+		if err != nil {
+			return nil, fmt.Errorf("unable to sign message: %w",
+				err)
+		}
+
+		return &SignMessageWithAddrResponse{
+			Signature: sig,
+		}, nil
+	}
+
+	sigBytes := ecdsa.SignCompact(privKey, digest, pubKeyAddr.Compressed())
 
 	// Bitcoin signatures are base64 encoded (being compatible with
 	// bitcoin-core and btcd).
@@ -2779,15 +2828,134 @@ func (w *WalletKit) SignMessageWithAddr(_ context.Context,
 	}, nil
 }
 
-// VerifyMessageWithAddr verifies a signature on a message with a provided
-// address, it checks both the validity of the signature itself and then
-// verifies whether the signature corresponds to the public key of the
-// provided address. There is no dependence on the private key of the address
-// therefore also external addresses are allowed to verify signatures.
+// msgSignatureType returns the RPC message signature type for a given signature
+// prefix and true if the type is a BIP-0322 signature type.
+func msgSignatureType(prefix string) (MsgSignatureType, bool) {
+	switch prefix {
+	case bip322.PrefixSimple:
+		return MsgSignatureType_MSG_SIGNATURE_TYPE_BIP0322_SIMPLE, true
+
+	case bip322.PrefixFull:
+		return MsgSignatureType_MSG_SIGNATURE_TYPE_BIP0322_FULL, true
+
+	case bip322.PrefixProofOfFunds:
+		return MsgSignatureType_MSG_SIGNATURE_TYPE_BIP0322_POF, true
+
+	default:
+		return MsgSignatureType_MSG_SIGNATURE_TYPE_LEGACY, false
+	}
+}
+
+// VerifyMessageWithAddr returns the validity and the recovered public key of
+// the provided compact signature (base64 encoded). The verification is
+// twofold. First, the validity of the signature itself is checked, and then
+// it is verified that the recovered public key of the signature equals
+// the public key of the provided address. There is no dependence on the
+// private key of the address. Therefore, also external addresses are allowed
+// to verify signatures.
 // Supported address types are P2PKH, P2WKH, NP2WKH, P2TR.
+//
+// This method is the counterpart of the related signing method
+// (SignMessageWithAddr) and aims to provide full compatibility to
+// bitcoin-core's implementation. Although bitcoin-core/btcd only provide
+// this functionality for legacy addresses this function enhances it to
+// the address types: P2PKH, P2WKH, NP2WKH, P2TR.
+//
+// The verification for P2TR addresses is a special case and requires the
+// ECDSA compact signature to compare the recovered public key to the internal
+// taproot key. The compact ECDSA signature format was used because there
+// are still no known compact signature schemes for schnorr signatures.
 func (w *WalletKit) VerifyMessageWithAddr(_ context.Context,
 	req *VerifyMessageWithAddrRequest) (*VerifyMessageWithAddrResponse,
 	error) {
+
+	decodedAddr, err := address.DecodeAddress(req.Addr, w.cfg.ChainParams)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode address: %w", err)
+	}
+
+	if !decodedAddr.IsForNet(w.cfg.ChainParams) {
+		return nil, fmt.Errorf("encoded address is for"+
+			"the wrong network %s", req.Addr)
+	}
+
+	// A valid signature is always more than three characters long,
+	// independent of the format.
+	if len(req.Signature) < 3 {
+		return nil, fmt.Errorf("signature is too short")
+	}
+
+	msg := string(req.Msg)
+	prefix := req.Signature[:3]
+	rpcSigType, isBip322 := msgSignatureType(prefix)
+
+	// If the signature has a BIP-0322 prefix, we require it to be valid in
+	// that format.
+	if isBip322 {
+		valid, constraints, err := bip322.VerifyMessage(
+			msg, decodedAddr, req.Signature,
+		)
+
+		// In the BIP-0322 library, the `valid` return value is only
+		// ever true if there is no error. Or, expressed in another way,
+		// we could only look at the error itself.
+		switch {
+		// The witness stack couldn't be validated, which means the
+		// signature itself is incorrect (but everything else was
+		// formally correct), or the signature doesn't match the
+		// message.
+		case errors.Is(err, bip322.ErrInvalidSignature) ||
+			errors.Is(err, bip322.ErrInvalidToSign):
+
+			log.Infof("Message signature validation failed with "+
+				"invalid signature or mismatch error: %v", err)
+
+			return &VerifyMessageWithAddrResponse{
+				Valid:         false,
+				SignatureType: rpcSigType,
+			}, nil
+
+		// Any other error means something in the signature format was
+		// not correct.
+		case err != nil:
+			return nil, fmt.Errorf("unable to verify message: %w",
+				err)
+
+		// No error, the signature should be valid.
+		default:
+			var rpcConstraints *MsgSignatureTimeConstraints
+			if constraints.Constrained {
+				rpcConstraints = &MsgSignatureTimeConstraints{
+					Constrained: constraints.Constrained,
+					ValidAtTime: constraints.ValidAtTime,
+					ValidAtAge:  constraints.ValidAtAge,
+				}
+			}
+
+			return &VerifyMessageWithAddrResponse{
+				Valid:           valid,
+				SignatureType:   rpcSigType,
+				TimeConstraints: rpcConstraints,
+			}, nil
+		}
+	}
+
+	// There is a fallback in the BIP-0322 for early implementations of the
+	// BIP as it wasn't in status "Complete" yet, which had no prefix. So we
+	// need to check if the signature is valid for that prefix-less variant
+	// of BIP-0322. If it is, we can return. If not, we now know it's
+	// definitely a legacy address.
+	valid, _, err := bip322.VerifyMessage(msg, decodedAddr, req.Signature)
+	if valid && err == nil {
+		// The fallback is only for signatures of the 'simple' variant,
+		// which can never have time constraints.
+		rpcSigType = MsgSignatureType_MSG_SIGNATURE_TYPE_BIP0322_SIMPLE
+
+		return &VerifyMessageWithAddrResponse{
+			Valid:         true,
+			SignatureType: rpcSigType,
+		}, nil
+	}
 
 	sig, err := base64.StdEncoding.DecodeString(req.Signature)
 	if err != nil {
@@ -2795,7 +2963,7 @@ func (w *WalletKit) VerifyMessageWithAddr(_ context.Context,
 			"the signature: %w", err)
 	}
 
-	digest, err := doubleHashMessage(msgSignaturePrefix, string(req.Msg))
+	digest, err := doubleHashMessage(msgSignaturePrefix, msg)
 	if err != nil {
 		return nil, err
 	}
@@ -2811,16 +2979,6 @@ func (w *WalletKit) VerifyMessageWithAddr(_ context.Context,
 		serializedPubkey = pk.SerializeCompressed()
 	} else {
 		serializedPubkey = pk.SerializeUncompressed()
-	}
-
-	decodedAddr, err := address.DecodeAddress(req.Addr, w.cfg.ChainParams)
-	if err != nil {
-		return nil, fmt.Errorf("unable to decode address: %w", err)
-	}
-
-	if !decodedAddr.IsForNet(w.cfg.ChainParams) {
-		return nil, fmt.Errorf("encoded address is for"+
-			"the wrong network %s", req.Addr)
 	}
 
 	var (
@@ -2884,8 +3042,9 @@ func (w *WalletKit) VerifyMessageWithAddr(_ context.Context,
 	}
 
 	return &VerifyMessageWithAddrResponse{
-		Valid:  req.Addr == addr.EncodeAddress(),
-		Pubkey: serializedPubkey,
+		Valid:         req.Addr == addr.EncodeAddress(),
+		Pubkey:        serializedPubkey,
+		SignatureType: rpcSigType,
 	}, nil
 }
 

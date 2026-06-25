@@ -1954,14 +1954,20 @@ var signMessageWithAddrCommand = cli.Command{
 	Name: "signmessage",
 	Usage: "Sign a message with the private key of the provided " +
 		"address.",
-	ArgsUsage: "address msg",
+	ArgsUsage: "address msg [--bip322]",
 	Description: `
 	Sign a message with the private key of the specified address, and
-	return the signature. Signing is solely done in the ECDSA compact
-	signature format. This is also done when signing with a P2TR address
-	meaning that the private key of the P2TR address (internal key) is used
-	to sign the provided message with the ECDSA format. Only addresses are
-	accepted which are owned by the internal lnd wallet.
+	return the signature. By default, signing is done in the legacy ECDSA
+	compact signature format. This is also done when signing with a P2TR
+	address using the legacy format, meaning that the private key of the
+	P2TR address (internal key) is used to sign the provided message with
+	the ECDSA format.
+
+	Use the --bip322 flag to enable the standardized BIP-0322 Generic Signed
+	Message Format. This format is compatible with any address type but
+	might be less widely adopted by verifiers.
+
+	Only addresses that are owned by the internal lnd wallet are accepted.
 	`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -1973,6 +1979,11 @@ var signMessageWithAddrCommand = cli.Command{
 			Name:  "msg",
 			Usage: "the message to sign for",
 		},
+		cli.BoolFlag{
+			Name: "bip322",
+			Usage: "enable the standardized BIP-0322 Generic " +
+				"Signed Message Format",
+		},
 	},
 	Action: actionDecorator(signMessageWithAddr),
 }
@@ -1982,7 +1993,7 @@ func signMessageWithAddr(ctx *cli.Context) error {
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() > 2 || ctx.NumFlags() > 2 {
+	if ctx.NArg() > 2 || ctx.NumFlags() > 3 {
 		return cli.ShowCommandHelp(ctx, "signmessagewithaddr")
 	}
 
@@ -2019,10 +2030,10 @@ func signMessageWithAddr(ctx *cli.Context) error {
 	}
 
 	resp, err := walletClient.SignMessageWithAddr(
-		ctxc,
-		&walletrpc.SignMessageWithAddrRequest{
-			Msg:  msg,
-			Addr: addr,
+		ctxc, &walletrpc.SignMessageWithAddrRequest{
+			Msg:    msg,
+			Addr:   addr,
+			Bip322: ctx.Bool("bip322"),
 		},
 	)
 	if err != nil {
@@ -2041,16 +2052,26 @@ var verifyMessageWithAddrCommand = cli.Command{
 	ArgsUsage: "address sig msg",
 	Description: `
 	Verify a message signed with the signature of the public key
-	of the provided address. The signature must be in compact ECDSA format
-	The verification is independent whether the address belongs to the
+	of the provided address. The signature must be in legacy compact ECDSA
+	format or the new BIP-0322 Generic Signed Message Format.
+	The verification is independent of whether the address belongs to the
 	wallet or not. This is achieved by only accepting ECDSA compacted
-	signatures. When verifying a signature with a taproot address, the
-	signature still has to be in the ECDSA compact format and no tapscript
-	has to be included in the P2TR address.
-	Supports address types P2PKH, P2WKH, NP2WKH, P2TR.
+	signatures where the public key can be reconstructed or by accepting
+	BIP-0322 standardized signatures. When verifying a legacy signature with
+	a taproot address, the signature still has to be in the ECDSA compact
+	format and no tapscript	has to be included in the P2TR address.
+	Supports address types for legacy signatures are: P2PKH, P2WKH, NP2WKH,
+	P2TR.
 
-	Besides whether the signature is valid or not, the recoverd public key
-	of the compact ECDSA signature is returned.
+	Besides whether the signature is valid or not, the recovered public key
+	of the legacy compact ECDSA signature is returned.
+	In case of a BIP-0322 signature, the signature variant and optional
+	time constraint parameters are returned. Time constraints will only ever
+	be set on a BIP-0322 'full' or 'proof of funds' type signature that was
+	created for a scripted address that uses LockTime or Sequence check
+	opcodes. A verifier must decide themselves if they want to accept such a
+	time or age-based constraint on a signature. lnd does not interpret
+	these values, as checking the signature is a fully offline operation.
 	`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -2060,12 +2081,12 @@ var verifyMessageWithAddrCommand = cli.Command{
 		},
 		cli.StringFlag{
 			Name: "sig",
-			Usage: "the base64 encoded compact signature " +
-				"of the message",
+			Usage: "the base64 encoded compact ECDSA or BIP-0322 " +
+				"signature of the message",
 		},
 		cli.StringFlag{
 			Name:  "msg",
-			Usage: "the message to sign",
+			Usage: "the message to verify the signature of",
 		},
 	},
 	Action: actionDecorator(verifyMessageWithAddr),
@@ -2126,8 +2147,7 @@ func verifyMessageWithAddr(ctx *cli.Context) error {
 	}
 
 	resp, err := walletClient.VerifyMessageWithAddr(
-		ctxc,
-		&walletrpc.VerifyMessageWithAddrRequest{
+		ctxc, &walletrpc.VerifyMessageWithAddrRequest{
 			Msg:       msg,
 			Signature: sig,
 			Addr:      addr,

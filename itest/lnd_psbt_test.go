@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/address/v2"
+	"github.com/btcsuite/btcd/bip322"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -663,6 +664,10 @@ func testSignPsbt(ht *lntest.HarnessTest) {
 			name:   "fund and sign psbt",
 			runner: runFundAndSignPsbt,
 		},
+		{
+			name:   "sign bip322 psbt",
+			runner: runSignBip322Psbt,
+		},
 	}
 
 	for _, tc := range psbtTestRunners {
@@ -1053,6 +1058,90 @@ func runFundAndSignPsbt(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 			)
 		}
 	}
+}
+
+// runSignBip322Psbt makes sure we can sign PSBTs that were created to sign a
+// BIP322 generic message.
+func runSignBip322Psbt(ht *lntest.HarnessTest, alice *node.HarnessNode) {
+	alice.AddToLogf("================ runSignBip322Psbt ===============")
+
+	// Derive a P2TR address from Alice's wallet.
+	p2trAddrResp := alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_TAPROOT_PUBKEY,
+	})
+	p2trAddr, err := address.DecodeAddress(
+		p2trAddrResp.Address, harnessNetParams,
+	)
+	require.NoError(ht, err)
+
+	p2trPkScript, err := txscript.PayToAddrScript(p2trAddr)
+	require.NoError(ht, err)
+
+	// Create the BIP322 PSBT packet.
+	message := []byte("generic message signing is cool")
+	pkt, err := bip322.BuildToSignPacketSimple(message, p2trPkScript)
+	require.NoError(ht, err)
+
+	// The SignPsbt RPC needs to know the exact derivation path for the
+	// address, otherwise it'll ignore it.
+	b32, b32tr := getAddressBip32Derivation(ht, p2trAddrResp.Address, alice)
+	pkt.Inputs[0].Bip32Derivation = []*psbt.Bip32Derivation{b32}
+	pkt.Inputs[0].TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+		b32tr,
+	}
+
+	// Create the signature using the SignPsbt RPC and check that we get
+	// exactly one signature back.
+	var pktBytes bytes.Buffer
+	err = pkt.Serialize(&pktBytes)
+	require.NoError(ht, err)
+
+	signResp := alice.RPC.SignPsbt(&walletrpc.SignPsbtRequest{
+		FundedPsbt: pktBytes.Bytes(),
+	})
+	require.Len(ht, signResp.SignedInputs, 1)
+	require.Equal(ht, signResp.SignedInputs[0], uint32(0))
+
+	signedPkt, err := psbt.NewFromRawBytes(
+		bytes.NewReader(signResp.SignedPsbt), false,
+	)
+	require.NoError(ht, err)
+	require.NotEmpty(ht, signedPkt.Inputs[0].TaprootKeySpendSig)
+
+	// Serialize and verify the signature.
+	sig, err := bip322.SerializeSignature(signedPkt)
+	require.NoError(ht, err)
+
+	respValid := alice.RPC.VerifyMessageWithAddr(
+		&walletrpc.VerifyMessageWithAddrRequest{
+			Msg:       message,
+			Signature: sig,
+			Addr:      p2trAddrResp.Address,
+		},
+	)
+	require.True(ht, respValid.Valid)
+	require.Equal(
+		ht,
+		walletrpc.MsgSignatureType_MSG_SIGNATURE_TYPE_BIP0322_SIMPLE,
+		respValid.SignatureType,
+	)
+
+	// Modify the signature, then make sure we get a negative result back.
+	invalidWitnessBytes, err := bip322.SerializeTxWitness(wire.TxWitness{
+		bytes.Repeat([]byte{0x01}, 64),
+	})
+	signedPkt.Inputs[0].FinalScriptWitness = invalidWitnessBytes
+	invalidSig, err := bip322.SerializeSignature(signedPkt)
+	require.NoError(ht, err)
+
+	respInvalid := alice.RPC.VerifyMessageWithAddr(
+		&walletrpc.VerifyMessageWithAddrRequest{
+			Msg:       message,
+			Signature: invalidSig,
+			Addr:      p2trAddrResp.Address,
+		},
+	)
+	require.False(ht, respInvalid.Valid)
 }
 
 // testFundPsbt tests the FundPsbt RPC use cases that aren't covered by the PSBT

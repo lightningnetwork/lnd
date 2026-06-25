@@ -1,9 +1,11 @@
 package rpcperms
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 
@@ -14,6 +16,8 @@ import (
 	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/subscribe"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -111,6 +115,8 @@ var (
 //	+---v--------------------------------+
 //	|   InterceptorChain                 |
 //	+-+----------------------------------+
+//	  | Panic Recovery Interceptor       |
+//	  +----------------------------------+
 //	  | Log Interceptor                  |
 //	  +----------------------------------+
 //	  | RPC State Interceptor            |
@@ -536,7 +542,19 @@ func (r *InterceptorChain) CreateServerOpts() []grpc.ServerOption {
 	var unaryInterceptors []grpc.UnaryServerInterceptor
 	var strmInterceptors []grpc.StreamServerInterceptor
 
-	// The first interceptors we'll add to the chain is our logging
+	// The recovery interceptors need to be the outermost interceptors so
+	// synchronous panics in subsequent interceptors or RPC handlers are
+	// converted into an RPC error instead of crashing lnd.
+	unaryInterceptors = append(
+		unaryInterceptors,
+		panicRecoveryUnaryServerInterceptor(r.rpcsLog),
+	)
+	strmInterceptors = append(
+		strmInterceptors,
+		panicRecoveryStreamServerInterceptor(r.rpcsLog),
+	)
+
+	// The next interceptors we'll add to the chain are our logging
 	// interceptors, so we can automatically log all errors that happen
 	// during RPC calls.
 	unaryInterceptors = append(
@@ -593,6 +611,139 @@ func (r *InterceptorChain) CreateServerOpts() []grpc.ServerOption {
 	serverOpts := []grpc.ServerOption{chainedUnary, chainedStream}
 
 	return serverOpts
+}
+
+// logRecoveredPanic logs a panic caught while handling an RPC request. The
+// stack trace is included to preserve enough information to debug the faulty
+// handler while allowing lnd to keep running.
+func logRecoveredPanic(logger btclog.Logger, fullMethod string,
+	panicValue any) {
+
+	if logger == nil {
+		return
+	}
+
+	if fullMethod == "" {
+		fullMethod = "<unknown>"
+	}
+
+	stack := truncatePanicStack(debug.Stack())
+
+	logger.Errorf("[%v]: recovered panic in RPC handler: %v\n%s",
+		fullMethod, panicValue, stack)
+}
+
+const (
+	// maxPanicStackSize is the maximum stack size logged for recovered RPC
+	// panics. This follows the existing 8 KiB recovered-panic stack bound
+	// convention while avoiding package coupling for a single constant.
+	maxPanicStackSize = 8192
+
+	panicStackTruncatedMsg = "\n... stack trace truncated ..."
+)
+
+// truncatePanicStack caps a panic stack trace while keeping the final logged
+// line readable when possible.
+func truncatePanicStack(stack []byte) []byte {
+	if len(stack) <= maxPanicStackSize {
+		return stack
+	}
+
+	suffix := []byte(panicStackTruncatedMsg)
+	maxStackLen := maxPanicStackSize - len(suffix)
+	searchStack := stack[:maxStackLen+1]
+	newLineIndex := bytes.LastIndexByte(searchStack, '\n')
+	if newLineIndex > 0 {
+		maxStackLen = newLineIndex
+	}
+
+	truncatedStack := make([]byte, 0, maxStackLen+len(suffix))
+	truncatedStack = append(truncatedStack, stack[:maxStackLen]...)
+	truncatedStack = append(truncatedStack, suffix...)
+
+	return truncatedStack
+}
+
+// panicRecoveryUnaryServerInterceptor recovers panics from unary RPC handlers
+// and converts them to an internal gRPC error.
+func panicRecoveryUnaryServerInterceptor(
+	logger btclog.Logger) grpc.UnaryServerInterceptor {
+
+	return func(ctx context.Context, req any,
+		info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler) (any, error) {
+
+		var (
+			resp any
+			err  error
+		)
+
+		func() {
+			defer func() {
+				panicValue := recover()
+				if panicValue == nil {
+					return
+				}
+
+				fullMethod := ""
+				if info != nil {
+					fullMethod = info.FullMethod
+				}
+
+				logRecoveredPanic(
+					logger, fullMethod, panicValue,
+				)
+
+				resp = nil
+				err = status.Error(
+					codes.Internal, "internal server error",
+				)
+			}()
+
+			resp, err = handler(ctx, req)
+		}()
+
+		return resp, err
+	}
+}
+
+// panicRecoveryStreamServerInterceptor recovers panics from streaming RPC
+// handlers and converts them to an internal gRPC error.
+func panicRecoveryStreamServerInterceptor(
+	logger btclog.Logger) grpc.StreamServerInterceptor {
+
+	return func(srv any, ss grpc.ServerStream,
+		info *grpc.StreamServerInfo,
+		handler grpc.StreamHandler) error {
+
+		var err error
+
+		func() {
+			defer func() {
+				panicValue := recover()
+				if panicValue == nil {
+					return
+				}
+
+				fullMethod := ""
+				if info != nil {
+					fullMethod = info.FullMethod
+				}
+
+				logRecoveredPanic(
+					logger, fullMethod, panicValue,
+				)
+
+				err = status.Error(
+					codes.Internal, "internal server error",
+				)
+			}()
+
+			err = handler(srv, ss)
+		}()
+
+		return err
+	}
 }
 
 // errorLogUnaryServerInterceptor is a simple UnaryServerInterceptor that will

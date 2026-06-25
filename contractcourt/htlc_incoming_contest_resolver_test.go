@@ -3,7 +3,9 @@ package contractcourt
 import (
 	"bytes"
 	"io"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/wire/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -59,7 +61,7 @@ func TestHtlcIncomingResolverFwdContestedSuccess(t *testing.T) {
 	ctx.resolve()
 
 	// Simulate a new block coming in. HTLC is not yet expired.
-	ctx.notifyEpoch(testInitialBlockHeight + 1)
+	ctx.notifyBlockbeat(testInitialBlockHeight + 1)
 
 	ctx.witnessBeacon.preImageUpdates <- testResPreimage
 	ctx.waitForResult(true)
@@ -76,7 +78,7 @@ func TestHtlcIncomingResolverFwdContestedTimeout(t *testing.T) {
 	// Replace our checkpoint with one which will push reports into a
 	// channel for us to consume. We replace this function on the resolver
 	// itself because it is created by the test context.
-	reportChan := make(chan *channeldb.ResolverReport)
+	reportChan := make(chan *channeldb.ResolverReport, 1)
 	ctx.resolver.Checkpoint = func(_ ContractResolver,
 		reports ...*channeldb.ResolverReport) error {
 
@@ -91,7 +93,7 @@ func TestHtlcIncomingResolverFwdContestedTimeout(t *testing.T) {
 	ctx.resolve()
 
 	// Simulate a new block coming in. HTLC expires.
-	ctx.notifyEpoch(testHtlcExpiry)
+	ctx.notifyBlockbeat(testHtlcExpiry)
 
 	// Assert that we have a failure resolution because our invoice was
 	// cancelled.
@@ -333,7 +335,7 @@ func TestHtlcIncomingResolverExitTimeoutHodl(t *testing.T) {
 	// Replace our checkpoint with one which will push reports into a
 	// channel for us to consume. We replace this function on the resolver
 	// itself because it is created by the test context.
-	reportChan := make(chan *channeldb.ResolverReport)
+	reportChan := make(chan *channeldb.ResolverReport, 1)
 	ctx.resolver.Checkpoint = func(_ ContractResolver,
 		reports ...*channeldb.ResolverReport) error {
 
@@ -346,7 +348,7 @@ func TestHtlcIncomingResolverExitTimeoutHodl(t *testing.T) {
 	}
 
 	ctx.resolve()
-	ctx.notifyEpoch(testHtlcExpiry)
+	ctx.notifyBlockbeat(testHtlcExpiry)
 
 	// Assert that we have a failure resolution because our invoice was
 	// cancelled.
@@ -557,6 +559,8 @@ type incomingResolverTestContext struct {
 
 	// chainIO provides the launch-time best height used by the resolver.
 	chainIO                *mock.ChainIO
+	blockbeatSub           *blockbeatSubscription
+	blockbeatSubChan       chan *blockbeatSubscription
 	onionProcessor         *mockOnionProcessor
 	resolveErr             chan error
 	nextResolver           ContractResolver
@@ -564,7 +568,11 @@ type incomingResolverTestContext struct {
 	t                      *testing.T
 }
 
-func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolverTestContext {
+// newIncomingResolverTestContext creates a resolver test context for incoming
+// HTLC contest resolver tests.
+func newIncomingResolverTestContext(t *testing.T,
+	isExit bool) *incomingResolverTestContext {
+
 	notifier := &mock.ChainNotifier{
 		EpochChan: make(chan *chainntnfs.BlockEpoch),
 		SpendChan: make(chan *chainntnfs.SpendDetail),
@@ -583,10 +591,13 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 	checkPointChan := make(chan struct{}, 1)
 
 	c := &incomingResolverTestContext{
-		registry:       registry,
-		witnessBeacon:  witnessBeacon,
-		notifier:       notifier,
-		chainIO:        chainIO,
+		registry:      registry,
+		witnessBeacon: witnessBeacon,
+		notifier:      notifier,
+		chainIO:       chainIO,
+		blockbeatSubChan: make(
+			chan *blockbeatSubscription, 1,
+		),
 		onionProcessor: onionProcessor,
 		t:              t,
 	}
@@ -621,6 +632,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 
 			return nil
 		},
+		subscribeBlockbeats: c.subscribeBeats,
 	}
 
 	cfg := ResolverConfig{
@@ -656,29 +668,99 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 	return c
 }
 
+// resolve launches the resolver and starts Resolve in a goroutine.
 func (i *incomingResolverTestContext) resolve() {
-	// Start resolver.
+	err := i.resolver.Launch()
+	require.NoError(i.t, err)
+
+	// Start resolver resolution.
 	i.resolveErr = make(chan error, 1)
 	go func() {
-		var err error
-
-		err = i.resolver.Launch()
-		require.NoError(i.t, err)
-
-		i.nextResolver, err = i.resolver.Resolve()
+		nextResolver, err := i.resolver.Resolve()
+		i.nextResolver = nextResolver
 		i.resolveErr <- err
 	}()
-
-	// Notify initial block height.
-	i.notifyEpoch(testInitialBlockHeight)
 }
 
-func (i *incomingResolverTestContext) notifyEpoch(height int32) {
-	i.notifier.EpochChan <- &chainntnfs.BlockEpoch{
-		Height: height,
+// subscribeBeats creates a test blockbeat subscription and exposes it to the
+// test context so tests can drive resolver blockbeat delivery manually.
+func (i *incomingResolverTestContext) subscribeBeats() (
+	*blockbeatSubscription, func()) {
+
+	sub := &blockbeatSubscription{
+		blockbeatChan: make(chan blockbeatUpdate),
+		quit:          make(chan struct{}),
+	}
+
+	var cancelOnce sync.Once
+	cancel := func() {
+		cancelOnce.Do(func() {
+			close(sub.quit)
+		})
+	}
+
+	i.blockbeatSubChan <- sub
+
+	return sub, cancel
+}
+
+// activeSub waits for and returns the currently active blockbeat subscription.
+func (i *incomingResolverTestContext) activeSub() *blockbeatSubscription {
+	if i.blockbeatSub != nil {
+		return i.blockbeatSub
+	}
+
+	require.Eventually(i.t, func() bool {
+		select {
+		case i.blockbeatSub = <-i.blockbeatSubChan:
+			return true
+
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond)
+
+	return i.blockbeatSub
+}
+
+// notifyBlockbeat delivers a blockbeat to the resolver and waits for its ack.
+func (i *incomingResolverTestContext) notifyBlockbeat(height int32) {
+	sub := i.activeSub()
+	update := blockbeatUpdate{
+		beat:    newBeatFromHeight(height),
+		errChan: make(chan error, 1),
+	}
+
+	select {
+	case sub.blockbeatChan <- update:
+	case <-sub.quit:
+		i.t.Fatal("blockbeat subscription canceled")
+
+	case <-time.After(time.Second):
+		i.t.Fatal("timeout sending blockbeat")
+	}
+
+	select {
+	case err := <-update.errChan:
+		require.NoError(i.t, err)
+
+	case <-sub.quit:
+		select {
+		case err := <-update.errChan:
+			require.NoError(i.t, err)
+			return
+
+		default:
+		}
+
+		i.t.Fatal("blockbeat subscription canceled")
+
+	case <-time.After(time.Second):
+		i.t.Fatal("timeout waiting for blockbeat ack")
 	}
 }
 
+// waitForResult waits for Resolve to finish and checks its next resolver.
 func (i *incomingResolverTestContext) waitForResult(expectSuccessRes bool) {
 	i.t.Helper()
 

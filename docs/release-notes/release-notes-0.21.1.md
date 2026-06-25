@@ -35,6 +35,15 @@
   non-SRV record. Non-SRV records are now skipped, and an empty `LookupHost`
   result for the shim no longer triggers an out-of-bounds index.
 
+- [Fixed on-chain forward interceptor
+  settlement](https://github.com/lightningnetwork/lnd/pull/10895) after the
+  incoming channel force closes. Held forwards are now tracked as off-chain or
+  on-chain entries, allowing an on-chain re-offer to replace the old off-chain
+  hold so settlement reaches the witness beacon. Go callers of the exported
+  `htlcswitch.InterceptedPacket` type should use the new `Deadline` field to
+  distinguish off-chain auto-fail heights from on-chain settlement deadlines,
+  or `AutoFailHeight()` if they only need the legacy flattened value.
+
 # New Features
 
 ## Functional Enhancements

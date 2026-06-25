@@ -30,12 +30,12 @@ jobs:
     env:
       GATEWAY_REVIEW_MODE: multi
     steps:
-      - uses: lightninglabs/gateway-action@fa29e3132c8af9cdabd9cedca3b1b6ece56d0982 # v0.4.3
+      - uses: lightninglabs/gateway-action@abe7cf894c5afd4e488caac4c72a4a268b65933e # v0.4.4
         with:
           # Pin the private runtime to an immutable commit (matches the action
           # SHA-pin above) so runtime upgrades go through an lnd PR, not a moved
-          # tag. Without this, runtime_ref defaults to the v0.4.3 tag.
-          runtime_ref: bb11d9744cd6fe7fbeeb9de720fc8a74b5232a8e # gateway v0.4.3
+          # tag. Without this, runtime_ref defaults to the v0.4.4 tag.
+          runtime_ref: 20675fc28b157a7b4fcfbeddf7a2ca8e2115c387 # gateway v0.4.4
           event_name:      ${{ github.event_name }}
           event_action:    ${{ github.event.action }}
           repo:            ${{ github.repository }}
@@ -43,7 +43,10 @@ jobs:
           actor:           ${{ github.event.sender.login }}
           comment_body:    ${{ github.event.comment.body }}
           comment_id:      ${{ github.event.comment.id }}
-          installation_id: 140960039
+          # installation_id intentionally omitted: as of gateway v0.4.4 the
+          # runtime resolves the App installation covering this repo from
+          # app_id/private_key, so a hardcoded (and easily wrong-org) id is no
+          # longer needed.
           app_id:                  ${{ secrets.GATEWAY_APP_ID }}
           private_key:             ${{ secrets.GATEWAY_PRIVATE_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

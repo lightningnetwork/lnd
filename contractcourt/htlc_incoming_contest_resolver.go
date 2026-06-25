@@ -156,23 +156,9 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, h.PutResolverReport(nil, resReport)
 	}
 
-	// Register for block epochs. After registration, the current height
-	// will be sent on the channel immediately.
-	blockEpochs, err := h.Notifier.RegisterBlockEpochNtfn(nil)
+	_, currentHeight, err := h.ChainIO.GetBestBlock()
 	if err != nil {
 		return nil, err
-	}
-	defer blockEpochs.Cancel()
-
-	var currentHeight int32
-	select {
-	case newBlock, ok := <-blockEpochs.Epochs:
-		if !ok {
-			return nil, errResolverShuttingDown
-		}
-		currentHeight = newBlock.Height
-	case <-h.quit:
-		return nil, errResolverShuttingDown
 	}
 
 	log.Debugf("%T(%v): Resolving incoming HTLC(expiry=%v, height=%v)", h,
@@ -338,6 +324,55 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		witnessUpdates = preimageSubscription.WitnessUpdates
 	}
 
+	// This should only be nil if the ChannelArbitrator failed to wire its
+	// private subscription callback into the resolver config.
+	if h.subscribeBlockbeats == nil {
+		return nil, errors.New("blockbeat subscription unavailable")
+	}
+
+	subscribe := func() (*blockbeatSubscription, func(), bool,
+		ContractResolver, error) {
+
+		blockbeatSub, cancelBlockbeatSub := h.subscribeBlockbeats()
+
+		// Register the subscription before reading the current height.
+		// Otherwise, a block could arrive after GetBestBlock reports a
+		// pre-expiry height but before this resolver waits for beats.
+		// The arbitrator would then dispatch the expiry beat without
+		// this resolver subscribed. Now either the current height is
+		// already expired and we resolve immediately below, or future
+		// expiry is delivered through blockbeatSub.
+		_, currentHeight, err = h.ChainIO.GetBestBlock()
+		if err != nil {
+			cancelBlockbeatSub()
+
+			return nil, nil, false, nil, err
+		}
+
+		if uint32(currentHeight) >= h.htlcExpiry {
+			cancelBlockbeatSub()
+
+			nextResolver, err := h.timeoutOrSuccessResolver(
+				uint32(currentHeight),
+			)
+
+			return nil, nil, true, nextResolver, err
+		}
+
+		return blockbeatSub, cancelBlockbeatSub, false, nil, nil
+	}
+
+	blockbeatSub, cancelBlockbeatSub, resolved, nextResolver, err :=
+		subscribe()
+	if resolved || err != nil {
+		return nextResolver, err
+	}
+	defer func() {
+		if cancelBlockbeatSub != nil {
+			cancelBlockbeatSub()
+		}
+	}()
+
 	for {
 		select {
 		case preimage := <-witnessUpdates:
@@ -363,17 +398,42 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			htlcResolution := hodlItem.(invoices.HtlcResolution)
 			return processHtlcResolution(htlcResolution)
 
-		case newBlock, ok := <-blockEpochs.Epochs:
-			if !ok {
-				return nil, errResolverShuttingDown
-			}
-
+		case blockbeatUpdate := <-blockbeatSub.blockbeatChan:
 			// If this new height expires the HTLC, then this means
 			// we never found out the preimage, so we can mark
 			// resolved and exit.
-			newHeight := uint32(newBlock.Height)
-			if newHeight >= h.htlcExpiry {
-				return h.timeoutOrSuccessResolver(newHeight)
+			beat := blockbeatUpdate.beat
+			currentHeight = beat.Height()
+			blockHeight := uint32(currentHeight)
+
+			if blockHeight >= h.htlcExpiry {
+				nextResolver, err := h.timeoutOrSuccessResolver(
+					blockHeight,
+				)
+				blockbeatUpdate.ack(err)
+
+				return nextResolver, err
+			}
+
+			blockbeatUpdate.ack(nil)
+
+		case <-blockbeatSub.quit:
+			select {
+			case <-h.quit:
+				return nil, errResolverShuttingDown
+
+			default:
+			}
+
+			h.log.Warnf("%T(%v): blockbeat subscription canceled, "+
+				"resubscribing", h,
+				h.htlcResolution.ClaimOutpoint)
+
+			cancelBlockbeatSub()
+			blockbeatSub, cancelBlockbeatSub, resolved,
+				nextResolver, err = subscribe()
+			if resolved || err != nil {
+				return nextResolver, err
 			}
 
 		case <-h.quit:

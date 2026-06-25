@@ -7,11 +7,12 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcjson"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/blockcache"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 )
@@ -343,8 +344,12 @@ func (b *BtcdFilteredChainView) chainFilterer() {
 			// Apply the new TX filter to btcd, which will cause
 			// all following notifications from and calls to it
 			// return blocks filtered with the new filter.
-			b.btcdConn.LoadTxFilter(false, []btcutil.Address{},
-				update.newUtxos)
+			err := b.btcdConn.LoadTxFilter(
+				false, []address.Address{}, update.newUtxos,
+			)
+			if err != nil {
+				log.Errorf("Unable to load tx filter: %v", err)
+			}
 
 			// All blocks gotten after we loaded the filter will
 			// have the filter applied, but we will need to rescan

@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
@@ -67,7 +67,7 @@ var (
 	}
 
 	// addr is the server's reward address given to watchtower clients.
-	addr, _ = btcutil.DecodeAddress(
+	addr, _ = address.DecodeAddress(
 		"tb1pw8gzj8clt3v5lxykpgacpju5n8xteskt7gxhmudu6pa70nwfhe6s3unsyk",
 		&chaincfg.TestNet3Params,
 	)
@@ -956,7 +956,7 @@ func newServerHarness(t *testing.T, mockNet *mockNet, netAddr string,
 		ReadTimeout:  timeout,
 		WriteTimeout: timeout,
 		NodeKeyECDH:  privKeyECDH,
-		NewAddress: func() (btcutil.Address, error) {
+		NewAddress: func() (address.Address, error) {
 			return addr, nil
 		},
 	}

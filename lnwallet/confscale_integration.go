@@ -3,7 +3,7 @@
 
 package lnwallet
 
-import "github.com/btcsuite/btcd/btcutil"
+import "github.com/btcsuite/btcd/btcutil/v2"
 
 // CloseConfsForCapacity returns the number of confirmations to wait
 // before signaling a cooperative close. Under integration tests, we

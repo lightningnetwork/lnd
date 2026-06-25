@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -1248,16 +1249,14 @@ func calcCompromiseFee(chanPoint wire.OutPoint, ourIdealFee, lastSentFee,
 // ParseUpfrontShutdownAddress attempts to parse an upfront shutdown address.
 // If the address is empty, it returns nil. If it successfully decoded the
 // address, it returns a script that pays out to the address.
-func ParseUpfrontShutdownAddress(address string,
+func ParseUpfrontShutdownAddress(strAddr string,
 	params *chaincfg.Params) (lnwire.DeliveryAddress, error) {
 
-	if len(address) == 0 {
+	if len(strAddr) == 0 {
 		return nil, nil
 	}
 
-	addr, err := btcutil.DecodeAddress(
-		address, params,
-	)
+	addr, err := address.DecodeAddress(strAddr, params)
 	if err != nil {
 		return nil, fmt.Errorf("invalid address: %w", err)
 	}

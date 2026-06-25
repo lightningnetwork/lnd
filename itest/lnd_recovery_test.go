@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/hdkeychain"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/address/v2"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/aezeed"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -335,8 +336,8 @@ func testRescanAddressDetection(ht *lntest.HarnessTest) {
 
 	// Create an address generated from internal keys.
 	keyDesc := carol.RPC.DeriveNextKey(&walletrpc.KeyReq{KeyFamily: 123})
-	pubKeyHash := btcutil.Hash160(keyDesc.RawKeyBytes)
-	ghostUtxoAddr, err := btcutil.NewAddressWitnessPubKeyHash(
+	pubKeyHash := address.Hash160(keyDesc.RawKeyBytes)
+	ghostUtxoAddr, err := address.NewAddressWitnessPubKeyHash(
 		pubKeyHash, harnessNetParams,
 	)
 	require.NoError(ht, err)

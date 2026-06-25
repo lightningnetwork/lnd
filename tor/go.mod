@@ -1,7 +1,7 @@
 module github.com/lightningnetwork/lnd/tor
 
 require (
-	github.com/btcsuite/btcd v0.26.0-beta.rc1
+	github.com/btcsuite/btcd v0.26.0
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084
 	github.com/miekg/dns v1.1.43
 	github.com/stretchr/testify v1.10.0

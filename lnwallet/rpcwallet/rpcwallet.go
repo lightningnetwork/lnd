@@ -10,16 +10,16 @@ import (
 	"os"
 	"time"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/hdkeychain"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	basewallet "github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -107,7 +107,7 @@ func NewRPCKeyRing(watchOnlyKeyRing keychain.SecretKeyRing,
 // p2wsh, etc. The account parameter must be non-empty as it determines
 // which account the address should be generated from.
 func (r *RPCKeyRing) NewAddress(addrType lnwallet.AddressType, change bool,
-	account string) (btcutil.Address, error) {
+	account string) (address.Address, error) {
 
 	return r.WalletController.NewAddress(addrType, change, account)
 }
@@ -984,8 +984,8 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 	// internally stored as p2wkh addresses.
 	case signDesc.KeyDesc.PubKey != nil && signDesc.KeyDesc.IsEmpty():
 		pubKeyBytes := signDesc.KeyDesc.PubKey.SerializeCompressed()
-		addr, err := btcutil.NewAddressWitnessPubKeyHash(
-			btcutil.Hash160(pubKeyBytes), r.netParams,
+		addr, err := address.NewAddressWitnessPubKeyHash(
+			address.Hash160(pubKeyBytes), r.netParams,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error deriving address from "+

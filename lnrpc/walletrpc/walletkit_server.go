@@ -18,15 +18,16 @@ import (
 	"sort"
 	"time"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/hdkeychain"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wtxmgr"
@@ -1736,7 +1737,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 
 		txOut := make([]*wire.TxOut, 0, len(tpl.Outputs))
 		for addrStr, amt := range tpl.Outputs {
-			addr, err := btcutil.DecodeAddress(
+			addr, err := address.DecodeAddress(
 				addrStr, w.cfg.ChainParams,
 			)
 			if err != nil {
@@ -2234,7 +2235,7 @@ func (w *WalletKit) handleChange(packet *psbt.Packet, changeIndex int32,
 	// address, which is required for some protocols (such as Taproot
 	// Assets).
 	pOut := psbt.POutput{}
-	_, isTaprootChangeAddr := changeAddr.(*btcutil.AddressTaproot)
+	_, isTaprootChangeAddr := changeAddr.(*address.AddressTaproot)
 	if isTaprootChangeAddr {
 		changeAddrInfo, err := w.cfg.Wallet.AddressInfo(changeAddr)
 		if err != nil {
@@ -2725,7 +2726,7 @@ const msgSignaturePrefix = "Bitcoin Signed Message:\n"
 func (w *WalletKit) SignMessageWithAddr(_ context.Context,
 	req *SignMessageWithAddrRequest) (*SignMessageWithAddrResponse, error) {
 
-	addr, err := btcutil.DecodeAddress(req.Addr, w.cfg.ChainParams)
+	addr, err := address.DecodeAddress(req.Addr, w.cfg.ChainParams)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode address: %w", err)
 	}
@@ -2812,65 +2813,65 @@ func (w *WalletKit) VerifyMessageWithAddr(_ context.Context,
 		serializedPubkey = pk.SerializeUncompressed()
 	}
 
-	addr, err := btcutil.DecodeAddress(req.Addr, w.cfg.ChainParams)
+	decodedAddr, err := address.DecodeAddress(req.Addr, w.cfg.ChainParams)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode address: %w", err)
 	}
 
-	if !addr.IsForNet(w.cfg.ChainParams) {
+	if !decodedAddr.IsForNet(w.cfg.ChainParams) {
 		return nil, fmt.Errorf("encoded address is for"+
 			"the wrong network %s", req.Addr)
 	}
 
 	var (
-		address    btcutil.Address
-		pubKeyHash = btcutil.Hash160(serializedPubkey)
+		addr       address.Address
+		pubKeyHash = address.Hash160(serializedPubkey)
 	)
 
 	// Ensure the address is one of the supported types.
-	switch addr.(type) {
-	case *btcutil.AddressPubKeyHash:
-		address, err = btcutil.NewAddressPubKeyHash(
+	switch decodedAddr.(type) {
+	case *address.AddressPubKeyHash:
+		addr, err = address.NewAddressPubKeyHash(
 			pubKeyHash, w.cfg.ChainParams,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-	case *btcutil.AddressWitnessPubKeyHash:
-		address, err = btcutil.NewAddressWitnessPubKeyHash(
+	case *address.AddressWitnessPubKeyHash:
+		addr, err = address.NewAddressWitnessPubKeyHash(
 			pubKeyHash, w.cfg.ChainParams,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-	case *btcutil.AddressScriptHash:
+	case *address.AddressScriptHash:
 		// Check if address is a Nested P2WKH (NP2WKH).
-		address, err = btcutil.NewAddressWitnessPubKeyHash(
+		addr, err = address.NewAddressWitnessPubKeyHash(
 			pubKeyHash, w.cfg.ChainParams,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		witnessScript, err := txscript.PayToAddrScript(address)
+		witnessScript, err := txscript.PayToAddrScript(addr)
 		if err != nil {
 			return nil, err
 		}
 
-		address, err = btcutil.NewAddressScriptHashFromHash(
-			btcutil.Hash160(witnessScript), w.cfg.ChainParams,
+		addr, err = address.NewAddressScriptHashFromHash(
+			address.Hash160(witnessScript), w.cfg.ChainParams,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-	case *btcutil.AddressTaproot:
+	case *address.AddressTaproot:
 		// Only addresses without a tapscript are allowed because
 		// the verification is using the internal key.
 		tapKey := txscript.ComputeTaprootKeyNoScript(pk)
-		address, err = btcutil.NewAddressTaproot(
+		addr, err = address.NewAddressTaproot(
 			schnorr.SerializePubKey(tapKey),
 			w.cfg.ChainParams,
 		)
@@ -2883,7 +2884,7 @@ func (w *WalletKit) VerifyMessageWithAddr(_ context.Context,
 	}
 
 	return &VerifyMessageWithAddrResponse{
-		Valid:  req.Addr == address.EncodeAddress(),
+		Valid:  req.Addr == addr.EncodeAddress(),
 		Pubkey: serializedPubkey,
 	}, nil
 }

@@ -5,10 +5,10 @@ import (
 	"errors"
 	"time"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcjson"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -193,13 +193,13 @@ func (n *NoChainSource) SendRawTransaction(*wire.MsgTx, bool) (*chainhash.Hash,
 	return nil, errNotImplemented
 }
 
-func (n *NoChainSource) Rescan(*chainhash.Hash, []btcutil.Address,
-	map[wire.OutPoint]btcutil.Address) error {
+func (n *NoChainSource) Rescan(*chainhash.Hash, []address.Address,
+	map[wire.OutPoint]address.Address) error {
 
 	return nil
 }
 
-func (n *NoChainSource) NotifyReceived([]btcutil.Address) error {
+func (n *NoChainSource) NotifyReceived([]address.Address) error {
 	return nil
 }
 

@@ -1,8 +1,8 @@
 package chainview
 
 import (
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 )
 

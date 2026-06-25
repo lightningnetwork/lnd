@@ -3,8 +3,9 @@ package itest
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/address/v2"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -158,9 +159,9 @@ func testCoopCloseWithExternalDelivery(ht *lntest.HarnessTest,
 	// Use ImportPublicKey.
 	case importPubkey:
 		var (
-			address     btcutil.Address
-			pubKey      []byte
-			addressType walletrpc.AddressType
+			deliveryAddr address.Address
+			pubKey       []byte
+			addressType  walletrpc.AddressType
 		)
 		switch deliveryAddressType {
 		case lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH:
@@ -170,15 +171,15 @@ func testCoopCloseWithExternalDelivery(ht *lntest.HarnessTest,
 				// Make new address for second sub-test.
 				pk[1]++
 			}
-			address, err = btcutil.NewAddressWitnessPubKeyHash(
-				btcutil.Hash160(pk[:]), harnessNetParams,
+			deliveryAddr, err = address.NewAddressWitnessPubKeyHash(
+				address.Hash160(pk[:]), harnessNetParams,
 			)
 			require.NoError(ht, err)
 			pubKey = pk[:]
 			addressType = walletrpc.AddressType_WITNESS_PUBKEY_HASH
 
 		case lnrpc.AddressType_UNUSED_TAPROOT_PUBKEY:
-			address = taprootAddress
+			deliveryAddr = taprootAddress
 			pubKey = taprootPubkey[:]
 			addressType = walletrpc.AddressType_TAPROOT_PUBKEY
 
@@ -187,7 +188,7 @@ func testCoopCloseWithExternalDelivery(ht *lntest.HarnessTest,
 				deliveryAddressType)
 		}
 
-		addr = address.String()
+		addr = deliveryAddr.String()
 
 		// Import the address to LND.
 		alice.RPC.ImportPublicKey(&walletrpc.ImportPublicKeyRequest{

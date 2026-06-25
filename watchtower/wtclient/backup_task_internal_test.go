@@ -4,11 +4,12 @@ import (
 	"encoding/binary"
 	"testing"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
@@ -305,14 +306,14 @@ var (
 
 	blobTypeCommitReward = (blob.FlagCommitOutputs | blob.FlagReward).Type()
 
-	addr, _ = btcutil.DecodeAddress(
+	addr, _ = address.DecodeAddress(
 		"tb1pw8gzj8clt3v5lxykpgacpju5n8xteskt7gxhmudu6pa70nwfhe6s3unsyk",
 		&chaincfg.TestNet3Params,
 	)
 
 	addrScript, _ = txscript.PayToAddrScript(addr)
 
-	sweepAddrScript, _ = btcutil.DecodeAddress(
+	sweepAddrScript, _ = address.DecodeAddress(
 		"tb1qs3jyc9sf5kak3x0w99cav9u605aeu3t600xxx0",
 		&chaincfg.TestNet3Params,
 	)

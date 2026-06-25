@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -183,7 +183,7 @@ type Invoice struct {
 	// FallbackAddr is an on-chain address that can be used for payment in
 	// case the Lightning payment fails.
 	// Optional.
-	FallbackAddr btcutil.Address
+	FallbackAddr address.Address
 
 	// RouteHints represents one or more different route hints. Each route
 	// hint can be individually used to reach the destination. These usually
@@ -266,7 +266,7 @@ func Expiry(expiry time.Duration) func(*Invoice) {
 // FallbackAddr is a functional option that allows callers of NewInvoice to set
 // the Invoice's fallback on-chain address that can be used for payment in case
 // the Lightning payment fails
-func FallbackAddr(fallbackAddr btcutil.Address) func(*Invoice) {
+func FallbackAddr(fallbackAddr address.Address) func(*Invoice) {
 	return func(i *Invoice) {
 		i.FallbackAddr = fallbackAddr
 	}

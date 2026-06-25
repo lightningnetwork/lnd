@@ -10,14 +10,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/hdkeychain"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	base "github.com/btcsuite/btcwallet/wallet"
@@ -481,7 +482,7 @@ func (b *BtcWallet) keyScopeForAccountAddr(accountName string,
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool,
-	accountName string) (btcutil.Address, error) {
+	accountName string) (address.Address, error) {
 
 	// Addresses cannot be derived from the catch-all imported accounts.
 	if accountName == waddrmgr.ImportedAddrAccountName {
@@ -507,7 +508,7 @@ func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool,
 // change address. The account parameter must be non-empty as it determines
 // which account the address should be generated from.
 func (b *BtcWallet) LastUnusedAddress(addrType lnwallet.AddressType,
-	accountName string) (btcutil.Address, error) {
+	accountName string) (address.Address, error) {
 
 	// Addresses cannot be derived from the catch-all imported accounts.
 	if accountName == waddrmgr.ImportedAddrAccountName {
@@ -525,7 +526,7 @@ func (b *BtcWallet) LastUnusedAddress(addrType lnwallet.AddressType,
 // IsOurAddress checks if the passed address belongs to this wallet
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) IsOurAddress(a btcutil.Address) bool {
+func (b *BtcWallet) IsOurAddress(a address.Address) bool {
 	result, err := b.wallet.HaveAddress(a)
 	return result && (err == nil)
 }
@@ -534,7 +535,7 @@ func (b *BtcWallet) IsOurAddress(a btcutil.Address) bool {
 // wallet.
 //
 // NOTE: This is a part of the WalletController interface.
-func (b *BtcWallet) AddressInfo(a btcutil.Address) (waddrmgr.ManagedAddress,
+func (b *BtcWallet) AddressInfo(a address.Address) (waddrmgr.ManagedAddress,
 	error) {
 
 	return b.wallet.AddressInfo(a)
@@ -807,8 +808,8 @@ func (b *BtcWallet) ListAddresses(name string,
 // This is a part of the WalletController interface.
 func (b *BtcWallet) ImportAccount(name string, accountPubKey *hdkeychain.ExtendedKey,
 	masterKeyFingerprint uint32, addrType *waddrmgr.AddressType,
-	dryRun bool) (*waddrmgr.AccountProperties, []btcutil.Address,
-	[]btcutil.Address, error) {
+	dryRun bool) (*waddrmgr.AccountProperties, []address.Address,
+	[]address.Address, error) {
 
 	// For custom accounts, we first check if there is no existing account
 	// with the same name.
@@ -847,12 +848,12 @@ func (b *BtcWallet) ImportAccount(name string, accountPubKey *hdkeychain.Extende
 		return nil, nil, nil, err
 	}
 
-	externalAddrs := make([]btcutil.Address, len(extAddrs))
+	externalAddrs := make([]address.Address, len(extAddrs))
 	for i := 0; i < len(extAddrs); i++ {
 		externalAddrs[i] = extAddrs[i].Address()
 	}
 
-	internalAddrs := make([]btcutil.Address, len(intAddrs))
+	internalAddrs := make([]address.Address, len(intAddrs))
 	for i := 0; i < len(intAddrs); i++ {
 		internalAddrs[i] = intAddrs[i].Address()
 	}
@@ -1355,7 +1356,7 @@ func minedTransactionsToDetails(
 
 		var outputDetails []lnwallet.OutputDetail
 		for i, txOut := range wireTx.TxOut {
-			var addresses []btcutil.Address
+			var addresses []address.Address
 			sc, outAddresses, _, err := txscript.ExtractPkScriptAddrs(
 				txOut.PkScript, chainParams,
 			)
@@ -1427,7 +1428,7 @@ func unminedTransactionsToDetail(
 
 	var outputDetails []lnwallet.OutputDetail
 	for i, txOut := range wireTx.TxOut {
-		var addresses []btcutil.Address
+		var addresses []address.Address
 		sc, outAddresses, _, err := txscript.ExtractPkScriptAddrs(
 			txOut.PkScript, chainParams,
 		)

@@ -6,14 +6,14 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -100,7 +100,7 @@ func WitnessScriptHash(witnessScript []byte) ([]byte, error) {
 // paying to a version 0 witness program containing the passed serialized
 // public key.
 func WitnessPubKeyHash(pubkey []byte) ([]byte, error) {
-	pkhash := btcutil.Hash160(pubkey)
+	pkhash := address.Hash160(pubkey)
 	return txscript.ScriptTemplate(
 		`OP_0 {{ hex .PKHash }}`,
 		txscript.WithScriptTemplateParams(TemplateParams{
@@ -112,7 +112,7 @@ func WitnessPubKeyHash(pubkey []byte) ([]byte, error) {
 // GenerateP2SH generates a pay-to-script-hash public key script paying to the
 // passed redeem script.
 func GenerateP2SH(script []byte) ([]byte, error) {
-	scriptHash := btcutil.Hash160(script)
+	scriptHash := address.Hash160(script)
 	return txscript.ScriptTemplate(
 		`OP_HASH160 {{ hex .ScriptHash }} OP_EQUAL`,
 		txscript.WithScriptTemplateParams(TemplateParams{
@@ -124,7 +124,7 @@ func GenerateP2SH(script []byte) ([]byte, error) {
 // GenerateP2PKH generates a pay-to-public-key-hash public key script paying to
 // the passed serialized public key.
 func GenerateP2PKH(pubkey []byte) ([]byte, error) {
-	pkHash := btcutil.Hash160(pubkey)
+	pkHash := address.Hash160(pubkey)
 	return txscript.ScriptTemplate(
 		`OP_DUP OP_HASH160 {{ hex .pkh }} OP_EQUALVERIFY OP_CHECKSIG`,
 		txscript.WithScriptTemplateParams(TemplateParams{
@@ -375,7 +375,7 @@ func SenderHTLCScript(senderHtlcKey, receiverHtlcKey,
 	return txscript.ScriptTemplate(
 		scriptTemplate,
 		txscript.WithScriptTemplateParams(TemplateParams{
-			"RevKeyHash":        btcutil.Hash160(revocationKey.SerializeCompressed()), //nolint:ll
+			"RevKeyHash":        address.Hash160(revocationKey.SerializeCompressed()), //nolint:ll
 			"ReceiverKey":       receiverHtlcKey.SerializeCompressed(),                //nolint:ll
 			"SenderKey":         senderHtlcKey.SerializeCompressed(),                  //nolint:ll
 			"PaymentHashRipemd": Ripemd160H(paymentHash),
@@ -1000,7 +1000,7 @@ func ReceiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
 	return txscript.ScriptTemplate(
 		scriptTemplate,
 		txscript.WithScriptTemplateParams(TemplateParams{
-			"RevKeyHash": btcutil.Hash160(
+			"RevKeyHash": address.Hash160(
 				revocationKey.SerializeCompressed(),
 			),
 			"SenderKey":         senderHtlcKey.SerializeCompressed(),   //nolint:ll
@@ -2513,7 +2513,7 @@ func CommitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
 	return txscript.ScriptTemplate(
 		`OP_0 {{ hex .PKHash }}`,
 		txscript.WithScriptTemplateParams(TemplateParams{
-			"PKHash": btcutil.Hash160(key.SerializeCompressed()),
+			"PKHash": address.Hash160(key.SerializeCompressed()),
 		}),
 	)
 }

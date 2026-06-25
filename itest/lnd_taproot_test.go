@@ -6,15 +6,16 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -1152,7 +1153,7 @@ func testTaprootImportTapscriptFullTree(ht *lntest.HarnessTest,
 	}
 	importResp := alice.RPC.ImportTapscript(req)
 
-	calculatedAddr, err := btcutil.NewAddressTaproot(
+	calculatedAddr, err := address.NewAddressTaproot(
 		schnorr.SerializePubKey(taprootKey), harnessNetParams,
 	)
 	require.NoError(ht, err)
@@ -1220,7 +1221,7 @@ func testTaprootImportTapscriptPartialReveal(ht *lntest.HarnessTest,
 	}
 	importResp := alice.RPC.ImportTapscript(req)
 
-	calculatedAddr, err := btcutil.NewAddressTaproot(
+	calculatedAddr, err := address.NewAddressTaproot(
 		schnorr.SerializePubKey(taprootKey), harnessNetParams,
 	)
 	require.NoError(ht, err)
@@ -1277,7 +1278,7 @@ func testTaprootImportTapscriptRootHashOnly(ht *lntest.HarnessTest,
 	}
 	importResp := alice.RPC.ImportTapscript(req)
 
-	calculatedAddr, err := btcutil.NewAddressTaproot(
+	calculatedAddr, err := address.NewAddressTaproot(
 		schnorr.SerializePubKey(taprootKey), harnessNetParams,
 	)
 	require.NoError(ht, err)
@@ -1334,7 +1335,7 @@ func testTaprootImportTapscriptFullKey(ht *lntest.HarnessTest,
 	}
 	importResp := alice.RPC.ImportTapscript(req)
 
-	calculatedAddr, err := btcutil.NewAddressTaproot(
+	calculatedAddr, err := address.NewAddressTaproot(
 		schnorr.SerializePubKey(taprootKey), harnessNetParams,
 	)
 	require.NoError(ht, err)
@@ -1392,7 +1393,7 @@ func testTaprootImportTapscriptFullKeyFundPsbt(ht *lntest.HarnessTest,
 	}
 	importResp := alice.RPC.ImportTapscript(req)
 
-	calculatedAddr, err := btcutil.NewAddressTaproot(
+	calculatedAddr, err := address.NewAddressTaproot(
 		schnorr.SerializePubKey(taprootKey), harnessNetParams,
 	)
 	require.NoError(ht, err)
@@ -1567,7 +1568,7 @@ func testScriptHashLock(t *testing.T, preimage []byte) txscript.TapLeaf {
 	builder := txscript.NewScriptBuilder()
 	builder.AddOp(txscript.OP_DUP)
 	builder.AddOp(txscript.OP_HASH160)
-	builder.AddData(btcutil.Hash160(preimage))
+	builder.AddData(address.Hash160(preimage))
 	builder.AddOp(txscript.OP_EQUALVERIFY)
 	script1, err := builder.Script()
 	require.NoError(t, err)
@@ -1589,12 +1590,12 @@ func testScriptSchnorrSig(t *testing.T,
 
 // newAddrWithScript returns a new address and its pkScript.
 func newAddrWithScript(ht *lntest.HarnessTest, node *node.HarnessNode,
-	addrType lnrpc.AddressType) (btcutil.Address, []byte) {
+	addrType lnrpc.AddressType) (address.Address, []byte) {
 
 	p2wkhResp := node.RPC.NewAddress(&lnrpc.NewAddressRequest{
 		Type: addrType,
 	})
-	p2wkhAddr, err := btcutil.DecodeAddress(
+	p2wkhAddr, err := address.DecodeAddress(
 		p2wkhResp.Address, harnessNetParams,
 	)
 	require.NoError(ht, err)
@@ -1610,7 +1611,7 @@ func newAddrWithScript(ht *lntest.HarnessTest, node *node.HarnessNode,
 func sendToTaprootOutput(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	taprootKey *btcec.PublicKey) (wire.OutPoint, []byte) {
 
-	tapScriptAddr, err := btcutil.NewAddressTaproot(
+	tapScriptAddr, err := address.NewAddressTaproot(
 		schnorr.SerializePubKey(taprootKey), harnessNetParams,
 	)
 	require.NoError(ht, err)
@@ -1749,7 +1750,7 @@ func confirmAddress(ht *lntest.HarnessTest, hn *node.HarnessNode,
 
 	// Before we confirm the transaction, let's register a confirmation
 	// listener for it, which we expect to fire after mining a block.
-	parsedAddr, err := btcutil.DecodeAddress(addrString, harnessNetParams)
+	parsedAddr, err := address.DecodeAddress(addrString, harnessNetParams)
 	require.NoError(ht, err)
 	addrPkScript, err := txscript.PayToAddrScript(parsedAddr)
 	require.NoError(ht, err)

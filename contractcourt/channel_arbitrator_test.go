@@ -3164,6 +3164,93 @@ func assertResolverReport(t *testing.T, reports chan *channeldb.ResolverReport,
 	}
 }
 
+// TestDispatchBlockbeatToSubSendTimeout asserts that resolver blockbeat sends
+// cannot block arbitrator processing indefinitely before the resolver starts
+// receiving from its subscription.
+func TestDispatchBlockbeatToSubSendTimeout(t *testing.T) {
+	oldTimeout := chainio.DefaultProcessBlockTimeout
+	chainio.DefaultProcessBlockTimeout = 10 * time.Millisecond
+	t.Cleanup(func() {
+		chainio.DefaultProcessBlockTimeout = oldTimeout
+	})
+
+	chanArb := &ChannelArbitrator{
+		quit: make(chan struct{}),
+	}
+	sub := &blockbeatSubscription{
+		blockbeatChan: make(chan blockbeatUpdate),
+		quit:          make(chan struct{}),
+	}
+	chanArb.blockbeatSubs.Store(sub, struct{}{})
+
+	err := chanArb.dispatchBlockbeatToSub(newBeatFromHeight(1), sub)
+	require.ErrorIs(t, err, chainio.ErrProcessBlockTimeout)
+	require.Equal(t, 1, chanArb.blockbeatSubs.Len())
+
+	select {
+	case <-sub.quit:
+		t.Fatal("expected timeout to leave subscription active")
+
+	default:
+	}
+}
+
+// TestDispatchBlockbeatToSubAckTimeoutIgnoresLateAck asserts that a resolver
+// that acks after dispatch times out cannot leave a stale ack for a future
+// beat.
+func TestDispatchBlockbeatToSubAckTimeoutIgnoresLateAck(t *testing.T) {
+	oldTimeout := chainio.DefaultProcessBlockTimeout
+	chainio.DefaultProcessBlockTimeout = 10 * time.Millisecond
+	t.Cleanup(func() {
+		chainio.DefaultProcessBlockTimeout = oldTimeout
+	})
+
+	chanArb := &ChannelArbitrator{
+		quit: make(chan struct{}),
+	}
+	sub := &blockbeatSubscription{
+		blockbeatChan: make(chan blockbeatUpdate),
+		quit:          make(chan struct{}),
+	}
+	chanArb.blockbeatSubs.Store(sub, struct{}{})
+
+	beatReceived := make(chan struct{})
+	releaseLateAck := make(chan struct{})
+	secondBeatAcked := make(chan struct{})
+	go func() {
+		update := <-sub.blockbeatChan
+		close(beatReceived)
+
+		<-releaseLateAck
+		update.ack(nil)
+
+		update = <-sub.blockbeatChan
+		update.ack(nil)
+		close(secondBeatAcked)
+	}()
+
+	err := chanArb.dispatchBlockbeatToSub(newBeatFromHeight(1), sub)
+	require.ErrorIs(t, err, chainio.ErrProcessBlockTimeout)
+	require.Equal(t, 1, chanArb.blockbeatSubs.Len())
+
+	select {
+	case <-beatReceived:
+	case <-time.After(time.Second):
+		t.Fatal("expected resolver to receive beat")
+	}
+	close(releaseLateAck)
+
+	require.NoError(t, chanArb.dispatchBlockbeatToSubscribers(
+		newBeatFromHeight(2),
+	))
+
+	select {
+	case <-secondBeatAcked:
+	case <-time.After(time.Second):
+		t.Fatal("expected resolver to ack second beat")
+	}
+}
+
 type mockChannel struct {
 	anchorResolutions *lnwallet.AnchorResolutions
 

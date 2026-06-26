@@ -901,6 +901,10 @@ message ForwardHtlcInterceptRequest {
     /*
     The key of this forwarded htlc. It defines the incoming channel id and
     the index in this channel.
+
+    Interceptor clients should handle requests for the same circuit key
+    idempotently. Requests may be replayed after reconnect, and an htlc that was
+    previously offered off-chain may be offered again after it moves on-chain.
     */
     CircuitKey incoming_circuit_key = 1;
 
@@ -935,7 +939,8 @@ message ForwardHtlcInterceptRequest {
     bytes onion_blob = 9;
 
     // The block height at which this htlc will be auto-failed to prevent the
-    // channel from force-closing.
+    // channel from force-closing. For on-chain htlcs, this field is the
+    // settlement deadline instead and no automatic fail-back is attempted.
     int32 auto_fail_height = 10;
 
     // The custom records of the peer's incoming p2p wire message.
@@ -950,6 +955,14 @@ forward. The caller can choose either to:
                     field modifications.
 - `Reject`: Fail the htlc backwards.
 - `Settle`: Settle this htlc with a given preimage.
+
+Once the incoming channel has force-closed and the HTLC is being resolved
+on-chain (see auto_fail_height), only `Settle` has any effect. The HTLC can no
+longer be resumed or failed back off-chain, so `Resume`, `ResumeModified`, and
+`Fail` return a stream-terminating error. The HTLC stays held until it is
+settled with a preimage, the on-chain resolver completes, or it expires
+on-chain. Clients should reconnect to receive any held HTLCs that remain
+unresolved.
 */
 message ForwardHtlcInterceptResponse {
     /**

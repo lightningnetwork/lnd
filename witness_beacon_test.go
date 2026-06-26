@@ -1,9 +1,11 @@
 package lnd
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -20,9 +22,15 @@ func TestWitnessBeaconIntercept(t *testing.T) {
 
 		return nil
 	}
+	var canceledKey models.CircuitKey
+	cancelInterceptor := func(key models.CircuitKey) error {
+		canceledKey = key
+
+		return nil
+	}
 
 	p := newPreimageBeacon(
-		&mockWitnessCache{}, interceptor,
+		&mockWitnessCache{}, interceptor, cancelInterceptor,
 	)
 
 	preimage := lntypes.Preimage{1, 2, 3}
@@ -37,12 +45,56 @@ func TestWitnessBeaconIntercept(t *testing.T) {
 		[]byte{2},
 	)
 	require.NoError(t, err)
-	t.Cleanup(subscription.CancelSubscription)
 
 	require.NoError(t, interceptedFwd.Settle(preimage))
 
 	update := <-subscription.WitnessUpdates
 	require.Equal(t, preimage, update)
+
+	subscription.CancelSubscription()
+	require.Equal(t, interceptedFwd.Packet().IncomingCircuit, canceledKey)
+}
+
+// TestWitnessBeaconInterceptErrorCancels tests that a failed interceptor offer
+// tears down the witness subscription and on-chain intercept handle.
+func TestWitnessBeaconInterceptErrorCancels(t *testing.T) {
+	errInterceptor := errors.New("interceptor error")
+
+	interceptor := func(htlcswitch.InterceptedForward) error {
+		return errInterceptor
+	}
+
+	var canceledKey models.CircuitKey
+	cancelInterceptor := func(key models.CircuitKey) error {
+		canceledKey = key
+
+		return nil
+	}
+
+	p := newPreimageBeacon(
+		&mockWitnessCache{}, interceptor, cancelInterceptor,
+	)
+
+	chanID := lnwire.NewShortChanIDFromInt(1)
+	htlc := &channeldb.HTLC{
+		HtlcIndex: 2,
+		RHash:     lntypes.Hash{3},
+	}
+
+	subscription, err := p.SubscribeUpdates(
+		chanID, htlc, &hop.Payload{}, []byte{2},
+	)
+	require.ErrorIs(t, err, errInterceptor)
+	require.Nil(t, subscription)
+
+	require.Equal(t, models.CircuitKey{
+		ChanID: chanID,
+		HtlcID: htlc.HtlcIndex,
+	}, canceledKey)
+
+	p.RLock()
+	require.Empty(t, p.subscribers)
+	p.RUnlock()
 }
 
 type mockWitnessCache struct {

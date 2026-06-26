@@ -933,6 +933,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	s.witnessBeacon = newPreimageBeacon(
 		dbs.ChanStateDB.NewWitnessCache(),
 		s.interceptableSwitch.ForwardPacket,
+		s.interceptableSwitch.RemoveOnChainIntercept,
 	)
 
 	chanStatusMgrCfg := &netann.ChanStatusConfig{

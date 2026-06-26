@@ -1257,9 +1257,21 @@ message ConnectPeerRequest {
 
     /*
     The connection timeout value (in seconds) for this request. It won't affect
-    other requests.
+    other requests. Not applicable when `perm` is set without `wait_for_dial`,
+    since the dial happens asynchronously in that case.
     */
     uint64 timeout = 3;
+
+    /*
+    Only meaningful with `perm = true`. By default `perm` makes the dial
+    asynchronous: the RPC returns success immediately and the daemon keeps
+    retrying in the background, persisting the address even if it cannot
+    currently be reached. When `wait_for_dial` is set, the RPC waits for
+    the initial dial to complete and returns its error on failure. The
+    address is only persisted to the on-disk persistent-peer set if the
+    dial succeeded.
+    */
+    bool wait_for_dial = 4;
 }
 message ConnectPeerResponse {
     // The status of the connect operation.
@@ -1269,6 +1281,22 @@ message ConnectPeerResponse {
 message DisconnectPeerRequest {
     // The pubkey of the node to disconnect from
     string pub_key = 1;
+
+    /*
+    If set, the peer will also be removed from the on-disk set of persistent
+    peers, so no automatic reconnection attempt will be made on the next LND
+    restart. If unset, only the current connection is dropped, and the peer
+    will be reconnected to after a restart if it was previously marked as
+    persistent (via `connect --perm`).
+    */
+    bool forget = 2;
+
+    /*
+    Only meaningful when `forget` is set. By default `forget` will not fully
+    forget a peer while any open channels still exist with them. If `force`
+    is set, the peer is forgotten regardless of open channels.
+    */
+    bool force = 3;
 }
 message DisconnectPeerResponse {
     // The status of the disconnect operation.
@@ -1784,11 +1812,23 @@ message ClosedChannelsResponse {
     repeated ChannelCloseSummary channels = 1;
 }
 
+// Address sources: a Peer carries three independent address-list fields
+// — perm_addresses (user `connect --perm` bucket), channel_peer_addresses
+// (LinkNode record captured at first channel open), gossip_addresses
+// (current NodeAnnouncement). Each list reflects only what its source
+// recorded; the same address may appear in 0, 1, 2, or all 3 fields, and
+// lnd does not dedupe across them. Dial-path dedup happens internally
+// before any outbound connection.
 message Peer {
     // The identity pubkey of the peer
     string pub_key = 1;
 
-    // Network address of the peer; eg `127.0.0.1:10011`
+    /*
+    Network address of the currently active connection to the peer; e.g.
+    `127.0.0.1:10011`. Empty when the entry represents a persistent peer that
+    is not currently connected (only present in the response when the request
+    sets `include_offline_persistent_peers`).
+    */
     string address = 3;
 
     // Bytes of data transmitted to this peer
@@ -1866,6 +1906,38 @@ message Peer {
     The last ping payload the peer has sent to us.
     */
     bytes last_ping_payload = 15;
+
+    /*
+    True if lnd is maintaining a persistent reconnect attempt for this peer.
+    Equivalent to (len(perm_addresses) > 0 || len(channel_peer_addresses) > 0).
+    */
+    bool is_persistent = 16;
+
+    /*
+    Addresses passed by the user at `connect --perm` time. A non-empty value
+    means the peer was explicitly marked as persistent by the user.
+    */
+    repeated string perm_addresses = 17;
+
+    /*
+    Addresses captured when a channel was first opened with this peer
+    (LinkNode record). A non-empty value means the peer is or was a channel
+    counterparty.
+    */
+    repeated string channel_peer_addresses = 18;
+
+    /*
+    Addresses currently advertised by this peer in the gossip network's
+    NodeAnnouncement. Empty when no NodeAnnouncement is known.
+    */
+    repeated string gossip_addresses = 19;
+
+    /*
+    True if lnd currently has an in-flight reconnect attempt for this peer.
+    Mainly informative for entries returned when the request sets
+    `include_offline_persistent_peers`.
+    */
+    bool reconnect_pending = 20;
 }
 
 message TimestampedError {
@@ -1883,6 +1955,15 @@ message ListPeersRequest {
     stored.
     */
     bool latest_error = 1;
+
+    /*
+    If true, the response also includes peers that the daemon is keeping in
+    the auto-reconnect set but is not currently connected to. A peer is in
+    this set if it has been marked permanent via `connect --perm` or if there
+    is an open channel with it. Per-connection fields (address, bytes_sent,
+    ping_time, etc.) are empty/zero for these entries.
+    */
+    bool include_offline_persistent_peers = 2;
 }
 message ListPeersResponse {
     // The list of currently connected peers

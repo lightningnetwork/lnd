@@ -922,20 +922,46 @@ var connectCommand = cli.Command{
 	the connection request in 30 seconds, use the following:
 
 	lncli connect <pubkey>@host --timeout 30s
+
+	If you are already connected to the peer:
+	  - Without --perm, the request fails with an "already connected" error.
+	  - With --perm on the same address, the peer is marked as persistent
+	    without re-dialing.
+	  - With --perm on a new address, lnd attempts to swap the active
+	    connection to the new address. The behaviour depends on
+	    --wait_for_dial:
+	      * default (async): the new address is persisted immediately and
+	        lnd dials it in the background. The swap happens if/when the
+	        dial succeeds. If it never succeeds, the existing connection
+	        remains and the conn manager keeps retrying.
+	      * with --wait_for_dial: the RPC waits for the dial. The address
+	        is persisted (and the connection swapped) only on success. On
+	        failure the RPC returns an error, nothing is persisted, and
+	        the existing connection is untouched.
 	`,
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name: "perm",
 			Usage: "If set, the daemon will attempt to persistently " +
-				"connect to the target peer.\n" +
-				"           If not, the call will be synchronous.",
+				"connect to the target peer. If not, the call " +
+				"will be synchronous.",
 		},
 		cli.DurationFlag{
 			Name: "timeout",
-			Usage: "The connection timeout value for current request. " +
-				"Valid uints are {ms, s, m, h}.\n" +
-				"If not set, the global connection " +
-				"timeout value (default to 120s) is used.",
+			Usage: "The connection timeout value for current " +
+				"request. Valid uints are {ms, s, m, h}. " +
+				"If not set, the global connection timeout " +
+				"value (default to 120s) is used. Not " +
+				"applicable when --perm is used without " +
+				"--wait_for_dial, since the dial happens " +
+				"asynchronously in that case.",
+		},
+		cli.BoolFlag{
+			Name: "wait_for_dial",
+			Usage: "Only meaningful with --perm. Wait for the " +
+				"initial dial to complete and return an error " +
+				"if it fails. The address is only added to " +
+				"the persistent peer set on a successful dial.",
 		},
 	},
 	Action: actionDecorator(connectPeer),
@@ -958,9 +984,10 @@ func connectPeer(ctx *cli.Context) error {
 		Host:   splitAddr[1],
 	}
 	req := &lnrpc.ConnectPeerRequest{
-		Addr:    addr,
-		Perm:    ctx.Bool("perm"),
-		Timeout: uint64(ctx.Duration("timeout").Seconds()),
+		Addr:        addr,
+		Perm:        ctx.Bool("perm"),
+		Timeout:     uint64(ctx.Duration("timeout").Seconds()),
+		WaitForDial: ctx.Bool("wait_for_dial"),
 	}
 
 	lnid, err := client.ConnectPeer(ctxc, req)
@@ -978,11 +1005,51 @@ var disconnectCommand = cli.Command{
 	Usage: "Disconnect a remote lightning peer identified by " +
 		"public key.",
 	ArgsUsage: "<pubkey>",
+	Description: `
+	Disconnect a remote lightning peer identified by public key.
+
+	By default this only drops the active connection to the peer; the peer
+	remains in lnd's auto-reconnect set if it was previously marked
+	permanent via 'lncli connect --perm' or if there are open channels
+	with it.
+
+	With --forget, the peer is also removed from the persistent peer set,
+	so no automatic reconnect attempt will be made on the next lnd
+	restart. The --forget operation removes the entire persistent record
+	for the peer at once; there is no way to remove a single address while
+	keeping others.
+
+	With --force (only meaningful together with --forget), the
+	channel-peer record is also removed even when open channels still
+	exist with the peer.
+
+	Note: this command only drops the connection from our side. If the
+	remote peer has us in their persistent set (typical when an open
+	channel exists between the two nodes), they may re-dial us
+	immediately and the visible connection state will appear to "stay
+	connected" even though the disconnect succeeded locally. lnd cannot
+	prevent the other side from reconnecting.
+	`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "node_key",
 			Usage: "The hex-encoded compressed public key of the peer " +
 				"to disconnect from",
+		},
+		cli.BoolFlag{
+			Name: "forget",
+			Usage: "Also remove the peer from the persistent peer " +
+				"set so it will not be auto-reconnected to on " +
+				"the next lnd restart. Without this flag, " +
+				"disconnect only drops the current connection.",
+		},
+		cli.BoolFlag{
+			Name: "force",
+			Usage: "Only meaningful with '--forget'. By default, " +
+				"'--forget' will not completely forget a peer " +
+				"while one or more open channels exist with " +
+				"them. With '--force', the peer is forgotten " +
+				"regardless of open channels.",
 		},
 	},
 	Action: actionDecorator(disconnectPeer),
@@ -1005,6 +1072,8 @@ func disconnectPeer(ctx *cli.Context) error {
 
 	req := &lnrpc.DisconnectPeerRequest{
 		PubKey: pubKey,
+		Forget: ctx.Bool("forget"),
+		Force:  ctx.Bool("force"),
 	}
 
 	lnid, err := client.DisconnectPeer(ctxc, req)
@@ -1633,11 +1702,20 @@ func parseChannelPoint(ctx *cli.Context) (*lnrpc.ChannelPoint, error) {
 var listPeersCommand = cli.Command{
 	Name:     "listpeers",
 	Category: "Peers",
-	Usage:    "List all active, currently connected peers.",
+	Usage: "List currently connected peers, and optionally also " +
+		"offline peers that lnd is auto-reconnecting to.",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "list_errors",
 			Usage: "list a full set of most recent errors for the peer",
+		},
+		cli.BoolFlag{
+			Name: "include_offline_persistent_peers",
+			Usage: "also list peers that lnd is auto-reconnecting " +
+				"to but is not currently connected to — " +
+				"either made persistent via 'lncli connect " +
+				"--perm', or held persistent because of an " +
+				"open channel",
 		},
 	},
 	Action: actionDecorator(listPeers),
@@ -1652,6 +1730,9 @@ func listPeers(ctx *cli.Context) error {
 	// specifically requests a full error set, then we will provide it.
 	req := &lnrpc.ListPeersRequest{
 		LatestError: !ctx.IsSet("list_errors"),
+		IncludeOfflinePersistentPeers: ctx.Bool(
+			"include_offline_persistent_peers",
+		),
 	}
 	resp, err := client.ListPeers(ctxc, req)
 	if err != nil {

@@ -92,6 +92,10 @@
   reader/writer validation, plus a typed `lnwire.BlindedPath` introduction-node
   codec shared by HTLC routing and onion messaging.
 
+* LND now [fail BOLT-11 payments](https://github.com/lightning/bolts/pull/1243)
+  if any mandatory field (`p`, `h`, `s`, `n`) does not have the correct length
+  (52, 52, 52, 53) in the BOLT 11 invoice.
+
 ## Testing
 
 ## Database
@@ -116,3 +120,4 @@
 * bitromortac
 * Boris Nagaev
 * Erick Cestari
+* Pins

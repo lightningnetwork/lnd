@@ -1374,6 +1374,12 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		numNets++
 		cfg.ActiveNetParams = chainreg.BitcoinSigNetParams
 
+		err := validateSigNetBackendOptions(cfg.Bitcoin)
+		if err != nil {
+			return nil, mkErr("error validating bitcoin "+
+				"params: %v", err)
+		}
+
 		// Let the user overwrite the default signet parameters.
 		// The challenge defines the actual signet network to
 		// join and the seed nodes are needed for network
@@ -1407,6 +1413,20 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		chainParams := chaincfg.CustomSignetParams(
 			sigNetChallenge, sigNetSeeds,
 		)
+		if cfg.Bitcoin.SigNetBlockTime != 0 {
+			if cfg.Bitcoin.SigNetChallenge == "" {
+				return nil, mkErr("signet block time " +
+					"requires custom signet challenge")
+			}
+
+			err := applySigNetBlockTime(
+				&chainParams, cfg.Bitcoin.SigNetBlockTime,
+			)
+			if err != nil {
+				return nil, mkErr("invalid signet block "+
+					"time: %v", err)
+			}
+		}
 		cfg.ActiveNetParams.Params = &chainParams
 	}
 	if numNets > 1 {
@@ -2557,6 +2577,69 @@ func configToFlatMap(cfg Config) (map[string]string,
 	printConfig(reflect.ValueOf(cfg), "")
 
 	return result, deprecated, nil
+}
+
+// validateSigNetBackendOptions validates custom signet options against the
+// selected chain backend.
+func validateSigNetBackendOptions(cfg *lncfg.Chain) error {
+	if cfg == nil {
+		return fmt.Errorf("bitcoin config cannot be nil")
+	}
+
+	if !cfg.SigNet {
+		return nil
+	}
+
+	switch cfg.Node {
+	case bitcoindBackendName:
+		switch {
+		case cfg.SigNetChallenge != "":
+			return fmt.Errorf("bitcoin.signetchallenge must not " +
+				"be set with bitcoin.node=bitcoind; " +
+				"configure custom signet consensus options " +
+				"on bitcoind instead")
+
+		case cfg.SigNetBlockTime != 0:
+			return fmt.Errorf("bitcoin.signetblocktime must not " +
+				"be set with bitcoin.node=bitcoind; " +
+				"configure custom signet consensus options " +
+				"on bitcoind instead")
+		}
+
+	case btcdBackendName:
+		if cfg.SigNetBlockTime != 0 {
+			return fmt.Errorf("bitcoin.signetblocktime is not " +
+				"supported with bitcoin.node=btcd; btcd does " +
+				"not currently support custom signet block " +
+				"intervals")
+		}
+	}
+
+	return nil
+}
+
+// applySigNetBlockTime updates the expected block interval used by custom
+// signet header validation. This is needed for custom signets whose backing
+// bitcoind nodes were started with -signetblocktime.
+func applySigNetBlockTime(params *chaincfg.Params,
+	blockTime time.Duration) error {
+
+	if params == nil {
+		return fmt.Errorf("params cannot be nil")
+	}
+
+	if blockTime < time.Second {
+		return fmt.Errorf("must be at least one second")
+	}
+
+	if blockTime > params.TargetTimespan {
+		return fmt.Errorf("must not exceed target timespan %v",
+			params.TargetTimespan)
+	}
+
+	params.TargetTimePerBlock = blockTime
+
+	return nil
 }
 
 // logWarningsForDeprecation logs a warning if a deprecated config option is

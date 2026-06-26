@@ -151,6 +151,22 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testReconnectAfterIPChange,
 	},
 	{
+		Name:     "persistent peer survives restart",
+		TestFunc: testPersistentPeerSurvivesRestart,
+	},
+	{
+		Name:     "persistent peer address swap",
+		TestFunc: testPersistentPeerAddressSwap,
+	},
+	{
+		Name:     "persistent peer wait for dial",
+		TestFunc: testPersistentPeerWaitForDial,
+	},
+	{
+		Name:     "forget persistent peer with channel",
+		TestFunc: testForgetPersistentPeerWithChannel,
+	},
+	{
 		Name:     "addpeer config",
 		TestFunc: testAddPeerConfig,
 	},

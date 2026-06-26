@@ -208,6 +208,16 @@ service WalletKit {
     */
     rpc PublishTransaction (Transaction) returns (PublishResponse);
 
+    /* lncli: `wallet submitpackage`
+    SubmitPackage submits a package of related transactions (topologically
+    sorted, unconfirmed parents first and the child last) for atomic
+    validation and acceptance. For bitcoind/btcd backends it uses the node's
+    submitpackage RPC, which lets a zero-fee v3/TRUC parent be accepted via
+    its fee-paying CPFP child. For neutrino it broadcasts each transaction
+    over the P2P network and relies on the peer's 1p1c package relay.
+    */
+    rpc SubmitPackage (SubmitPackageRequest) returns (SubmitPackageResponse);
+
     /* lncli: `wallet removetx`
     RemoveTransaction attempts to remove the provided transaction from the
     internal transaction store of the wallet.
@@ -799,6 +809,41 @@ message PublishResponse {
     TODO(roasbeef): map to a proper enum type
     */
     string publish_error = 1;
+}
+
+message SubmitPackageRequest {
+    /*
+    The raw serialized transactions forming the package, topologically sorted
+    with unconfirmed parents first and the child last.
+    */
+    repeated bytes raw_txs = 1;
+
+    /*
+    Optional per-transaction fee-rate ceiling in sat/vByte (mapped onto the
+    submitpackage maxfeerate). When unset the node's default is used; an
+    explicit 0 means no limit, which is required for a CPFP child whose
+    standalone feerate is high.
+    */
+    optional uint64 sat_per_vbyte = 2;
+}
+
+message SubmitPackageTxResult {
+    // The transaction id (txid) in hex.
+    string txid = 1;
+
+    // If non-empty, the reason this transaction was rejected.
+    string error = 2;
+}
+
+message SubmitPackageResponse {
+    // A summary message; "success" when the whole package was accepted.
+    string package_msg = 1;
+
+    // Per-transaction results keyed by wtxid (hex).
+    map<string, SubmitPackageTxResult> tx_results = 2;
+
+    // The txids of transactions evicted via package RBF.
+    repeated string replaced_transactions = 3;
 }
 
 message RemoveTransactionResponse {

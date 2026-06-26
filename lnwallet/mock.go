@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/v2"
@@ -254,6 +255,19 @@ func (w *mockWalletController) PublishTransaction(tx *wire.MsgTx,
 
 	w.PublishedTransactions <- tx
 	return nil
+}
+
+// SubmitPackage publishes each transaction in the package individually,
+// mirroring PublishTransaction. The mock has no real chain backend so it
+// returns an empty result.
+func (w *mockWalletController) SubmitPackage(txns []*wire.MsgTx,
+	_ *chainfee.SatPerVByte) (*btcjson.SubmitPackageResult, error) {
+
+	for _, tx := range txns {
+		w.PublishedTransactions <- tx
+	}
+
+	return &btcjson.SubmitPackageResult{}, nil
 }
 
 // GetTransactionDetails currently does nothing.

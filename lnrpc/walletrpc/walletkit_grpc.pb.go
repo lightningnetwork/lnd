@@ -156,6 +156,14 @@ type WalletKitClient interface {
 	// attempt to re-broadcast the transaction on start up, until it enters the
 	// chain.
 	PublishTransaction(ctx context.Context, in *Transaction, opts ...grpc.CallOption) (*PublishResponse, error)
+	// lncli: `wallet submitpackage`
+	// SubmitPackage submits a package of related transactions (topologically
+	// sorted, unconfirmed parents first and the child last) for atomic
+	// validation and acceptance. For bitcoind/btcd backends it uses the node's
+	// submitpackage RPC, which lets a zero-fee v3/TRUC parent be accepted via
+	// its fee-paying CPFP child. For neutrino it broadcasts each transaction
+	// over the P2P network and relies on the peer's 1p1c package relay.
+	SubmitPackage(ctx context.Context, in *SubmitPackageRequest, opts ...grpc.CallOption) (*SubmitPackageResponse, error)
 	// lncli: `wallet removetx`
 	// RemoveTransaction attempts to remove the provided transaction from the
 	// internal transaction store of the wallet.
@@ -443,6 +451,15 @@ func (c *walletKitClient) PublishTransaction(ctx context.Context, in *Transactio
 	return out, nil
 }
 
+func (c *walletKitClient) SubmitPackage(ctx context.Context, in *SubmitPackageRequest, opts ...grpc.CallOption) (*SubmitPackageResponse, error) {
+	out := new(SubmitPackageResponse)
+	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/SubmitPackage", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *walletKitClient) RemoveTransaction(ctx context.Context, in *GetTransactionRequest, opts ...grpc.CallOption) (*RemoveTransactionResponse, error) {
 	out := new(RemoveTransactionResponse)
 	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/RemoveTransaction", in, out, opts...)
@@ -682,6 +699,14 @@ type WalletKitServer interface {
 	// attempt to re-broadcast the transaction on start up, until it enters the
 	// chain.
 	PublishTransaction(context.Context, *Transaction) (*PublishResponse, error)
+	// lncli: `wallet submitpackage`
+	// SubmitPackage submits a package of related transactions (topologically
+	// sorted, unconfirmed parents first and the child last) for atomic
+	// validation and acceptance. For bitcoind/btcd backends it uses the node's
+	// submitpackage RPC, which lets a zero-fee v3/TRUC parent be accepted via
+	// its fee-paying CPFP child. For neutrino it broadcasts each transaction
+	// over the P2P network and relies on the peer's 1p1c package relay.
+	SubmitPackage(context.Context, *SubmitPackageRequest) (*SubmitPackageResponse, error)
 	// lncli: `wallet removetx`
 	// RemoveTransaction attempts to remove the provided transaction from the
 	// internal transaction store of the wallet.
@@ -863,6 +888,9 @@ func (UnimplementedWalletKitServer) ImportTapscript(context.Context, *ImportTaps
 }
 func (UnimplementedWalletKitServer) PublishTransaction(context.Context, *Transaction) (*PublishResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PublishTransaction not implemented")
+}
+func (UnimplementedWalletKitServer) SubmitPackage(context.Context, *SubmitPackageRequest) (*SubmitPackageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SubmitPackage not implemented")
 }
 func (UnimplementedWalletKitServer) RemoveTransaction(context.Context, *GetTransactionRequest) (*RemoveTransactionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemoveTransaction not implemented")
@@ -1216,6 +1244,24 @@ func _WalletKit_PublishTransaction_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WalletKit_SubmitPackage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SubmitPackageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletKitServer).SubmitPackage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/walletrpc.WalletKit/SubmitPackage",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletKitServer).SubmitPackage(ctx, req.(*SubmitPackageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _WalletKit_RemoveTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetTransactionRequest)
 	if err := dec(in); err != nil {
@@ -1488,6 +1534,10 @@ var WalletKit_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PublishTransaction",
 			Handler:    _WalletKit_PublishTransaction_Handler,
+		},
+		{
+			MethodName: "SubmitPackage",
+			Handler:    _WalletKit_SubmitPackage_Handler,
 		},
 		{
 			MethodName: "RemoveTransaction",

@@ -15,7 +15,7 @@ require (
 	github.com/btcsuite/btcd/wire/v2 v2.0.0
 	github.com/btcsuite/btclog v1.0.0
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b
-	github.com/btcsuite/btcwallet v0.17.0
+	github.com/btcsuite/btcwallet v0.18.0
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.4.0
 	github.com/btcsuite/btcwallet/wallet/txrules v1.3.0
 	github.com/btcsuite/btcwallet/walletdb v1.6.0

@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/v2"
@@ -239,6 +240,18 @@ func (w *WalletController) DecorateInputs(*psbt.Packet, bool) error {
 func (w *WalletController) PublishTransaction(tx *wire.MsgTx, _ string) error {
 	w.PublishedTransactions <- tx
 	return nil
+}
+
+// SubmitPackage publishes each transaction in the package individually,
+// mirroring PublishTransaction.
+func (w *WalletController) SubmitPackage(txns []*wire.MsgTx,
+	_ *chainfee.SatPerVByte) (*btcjson.SubmitPackageResult, error) {
+
+	for _, tx := range txns {
+		w.PublishedTransactions <- tx
+	}
+
+	return &btcjson.SubmitPackageResult{}, nil
 }
 
 // GetTransactionDetails currently does nothing.

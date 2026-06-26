@@ -271,6 +271,16 @@ type BumpResult struct {
 	// FeeRate is the fee rate used for the new tx.
 	FeeRate chainfee.SatPerKWeight
 
+	// NextStartingFeeRate, when set, is the fee rate the sweeper should
+	// use as the starting rate for the next attempt to sweep this input
+	// set. It is only meaningful on failure-class events (TxFailed,
+	// TxUnknownSpend). fn.None signals that the input's existing
+	// starting fee rate must be preserved, and is used for any
+	// failure path that carries no fee-rate signal: the resource
+	// failures handled by isResourceFailure, but also non-fee initial
+	// errors such as ErrTxNoOutput and ErrZeroFeeRateDelta.
+	NextStartingFeeRate fn.Option[chainfee.SatPerKWeight]
+
 	// Fee is the fee paid by the new tx.
 	Fee btcutil.Amount
 
@@ -769,13 +779,21 @@ func (t *TxPublisher) broadcast(record *monitorRecord) (*BumpResult, error) {
 		event = TxFailed
 	}
 
+	feeRate := record.feeFunction.FeeRate()
 	result := &BumpResult{
 		Event:     event,
 		Tx:        record.tx,
 		Fee:       record.fee,
-		FeeRate:   record.feeFunction.FeeRate(),
+		FeeRate:   feeRate,
 		Err:       err,
 		requestID: record.requestID,
+	}
+
+	// On a wallet-publish failure, carry the attempted fee rate as the
+	// next starting fee rate so the sweeper resumes from where we left
+	// off rather than the input's original starting rate.
+	if event == TxFailed {
+		result.NextStartingFeeRate = fn.Some(feeRate)
 	}
 
 	return result, nil
@@ -1090,6 +1108,17 @@ func (t *TxPublisher) handleTxConfirmed(r *monitorRecord) {
 	t.handleResult(result)
 }
 
+// isResourceFailure reports whether err describes a resource-level failure
+// (insufficient wallet inputs or insufficient budget) rather than a
+// fee-related failure. These failures carry no fee-rate signal, so the
+// fee bumper must not ratchet the input's starting fee rate when handling
+// them: doing so can permanently strand an input whose intrinsic budget
+// cannot accommodate a higher starting rate.
+func isResourceFailure(err error) bool {
+	return errors.Is(err, ErrNotEnoughInputs) ||
+		errors.Is(err, ErrNotEnoughBudget)
+}
+
 // handleInitialTxError takes the error from `initializeTx` and decides the
 // bump event. It will construct a BumpResult and handles it.
 func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
@@ -1112,30 +1141,37 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	case errors.Is(err, ErrZeroFeeRateDelta):
 		result.Event = TxFailed
 
-	// When the error is due to budget being used up, we'll send a TxFailed
-	// so these inputs can be retried with a different group in the next
-	// block.
+	// When the linear fee function has exhausted its position window
+	// (i.e. the deadline has effectively elapsed without confirmation),
+	// we'll send a TxFailed so these inputs can be retried with a
+	// different group in the next block. This is still a fee-related
+	// failure mode, so we calculate a retry fee rate for the next
+	// attempt.
 	case errors.Is(err, ErrMaxPosition):
-		fallthrough
-
-	// If the tx doesn't not have enough budget, or if the inputs amounts
-	// are not sufficient to cover the budget, we will return a TxFailed
-	// event so the sweeper can handle it by re-clustering the utxos.
-	case errors.Is(err, ErrNotEnoughInputs),
-		errors.Is(err, ErrNotEnoughBudget):
-
 		result.Event = TxFailed
 
-		// Calculate the starting fee rate to be used when retry
-		// sweeping these inputs.
+		// Calculate the starting fee rate to be used when retrying
+		// to sweep these inputs, and carry it on the result so the
+		// sweeper picks it up as the starting rate.
 		feeRate, err := t.calculateRetryFeeRate(r)
 		if err != nil {
 			result.Event = TxFatal
 			result.Err = err
+
+			break
 		}
 
-		// Attach the new fee rate.
-		result.FeeRate = feeRate
+		result.NextStartingFeeRate = fn.Some(feeRate)
+
+	// For resource failures (see isResourceFailure) we return a
+	// TxFailed event so the sweeper can re-cluster and retry on the
+	// next block, but we intentionally do NOT call calculateRetryFeeRate
+	// and leave NextStartingFeeRate as fn.None. That signals the
+	// sweeper to preserve the input's existing starting fee rate;
+	// otherwise repeated resource failures would ratchet the rate past
+	// the input's intrinsic budget and strand it.
+	case isResourceFailure(err):
+		result.Event = TxFailed
 
 	// When there are missing inputs, we'll create a TxUnknownSpend bump
 	// result here so the rest of the inputs can be retried.
@@ -1282,17 +1318,19 @@ func (t *TxPublisher) createUnknownSpentBumpResult(
 		SpentInputs: r.spentInputs,
 	}
 
-	// Calculate the next fee rate for the retry.
+	// Calculate the next fee rate for the retry and attach it as the
+	// next starting fee rate for the sweeper.
 	feeRate, err := t.calculateRetryFeeRate(r)
 	if err != nil {
 		// Overwrite the event and error so the sweeper will
 		// remove this input.
 		result.Event = TxFatal
 		result.Err = err
+
+		return result
 	}
 
-	// Attach the new fee rate to be used for the next sweeping attempt.
-	result.FeeRate = feeRate
+	result.NextStartingFeeRate = fn.Some(feeRate)
 
 	return result
 }
@@ -1851,48 +1889,52 @@ func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 	// been spent by another tx and confirmed. In this case we will handle
 	// it by returning a TxUnknownSpend bump result.
 	if errors.Is(err, ErrInputMissing) {
-		log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(), err)
+		log.Warnf("Failed to fee bump tx %v: %v", oldTx.TxHash(), err)
 		bumpResult := t.handleMissingInputs(r)
 
 		return fn.Some(*bumpResult)
 	}
 
-	// Return a failed event to retry the sweep.
-	event := TxFailed
-
-	// Calculate the next fee rate for the retry.
-	feeRate, ferr := t.calculateRetryFeeRate(r)
-	if ferr != nil {
-		// If there's an error with the fee calculation, we need to
-		// abort the sweep.
-		event = TxFatal
+	// For resource failures (see isResourceFailure) we return a TxFailed
+	// event with no retry fee rate; the sweeper will re-cluster and
+	// retry on the next block, preserving the input's existing starting
+	// fee rate.
+	if isResourceFailure(err) {
+		log.Warnf("Failed to fee bump tx %v: %v", oldTx.TxHash(), err)
+		return fn.Some(BumpResult{
+			Event:     TxFailed,
+			Tx:        oldTx,
+			Err:       err,
+			requestID: r.requestID,
+		})
 	}
 
-	// If the error is not fee related, we will return a `TxFailed` event so
-	// this input can be retried.
-	result := fn.Some(BumpResult{
-		Event:     event,
+	// For all other fee-bump failures, treat them as fee-related: ask
+	// the fee function for the next rate and carry it on the result as
+	// the starting fee rate for the sweeper's next attempt.
+	bumpResult := BumpResult{
+		Event:     TxFailed,
 		Tx:        oldTx,
 		Err:       err,
 		requestID: r.requestID,
-		FeeRate:   feeRate,
-	})
-
-	// If the tx doesn't not have enough budget, or if the inputs amounts
-	// are not sufficient to cover the budget, we will return a result so
-	// the sweeper can handle it by re-clustering the utxos.
-	if errors.Is(err, ErrNotEnoughBudget) ||
-		errors.Is(err, ErrNotEnoughInputs) {
-
-		log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(), err)
-		return result
 	}
 
-	// Otherwise, an unexpected error occurred, we will log an error and let
-	// the sweeper retry the whole process.
+	feeRate, ferr := t.calculateRetryFeeRate(r)
+	if ferr != nil {
+		// If there's an error with the fee calculation, we need to
+		// abort the sweep. Attribute the fatal transition to ferr so
+		// operators see the actual cause, matching the sibling paths
+		// in handleInitialTxError and createUnknownSpentBumpResult.
+		bumpResult.Event = TxFatal
+		bumpResult.Err = ferr
+	} else {
+		bumpResult.NextStartingFeeRate = fn.Some(feeRate)
+	}
+
+	// Log an error and let the sweeper retry the whole process.
 	log.Errorf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
 
-	return result
+	return fn.Some(bumpResult)
 }
 
 // calculateRetryFeeRate calculates a new fee rate to be used as the starting

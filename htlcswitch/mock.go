@@ -1125,6 +1125,10 @@ func (m *mockCircuitMap) LookupByPaymentHash(hash [32]byte) []*PaymentCircuit {
 	return nil
 }
 
+func (m *mockCircuitMap) ActiveCircuits() []*PaymentCircuit {
+	return nil
+}
+
 func (m *mockCircuitMap) NumPending() int {
 	return 0
 }

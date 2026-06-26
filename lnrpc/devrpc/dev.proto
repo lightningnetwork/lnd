@@ -37,6 +37,16 @@ service Dev {
     once interop is confirmed.
     */
     rpc Quiesce (QuiescenceRequest) returns (QuiescenceResponse);
+
+    /* lncli: `fetchreputation`
+    FetchReputation returns a read-only snapshot of the local reputation
+    subsystem's computed per-channel state. It requires the experimental
+    read-only reputation subsystem to be enabled via the --routing.reputation
+    flag; otherwise it returns an error. This RPC never mutates state and never
+    affects routing.
+    */
+    rpc FetchReputation (FetchReputationRequest)
+        returns (FetchReputationResponse);
 }
 
 message ImportGraphResponse {
@@ -51,4 +61,62 @@ message QuiescenceResponse {
     // Indicates whether or not we hold the initiator role or not once the
     // negotiation completes
     bool initiator = 1;
+}
+
+message FetchReputationRequest {
+}
+
+message FetchReputationResponse {
+    // The per-channel reputation snapshots, ordered by short channel id.
+    repeated ChannelReputation channel_reputations = 1;
+}
+
+// BucketOccupancy reports the live occupancy of a single resource bucket.
+message BucketOccupancy {
+    // The number of slots currently occupied.
+    uint32 slots_used = 1;
+
+    // The total number of slots assigned to the bucket.
+    uint32 slots_allocated = 2;
+
+    // The millisatoshi liquidity currently reserved.
+    uint64 liquidity_used_msat = 3;
+
+    // The total millisatoshi liquidity assigned to the bucket.
+    uint64 liquidity_allocated_msat = 4;
+}
+
+// ChannelReputation is a read-only view of one channel's computed reputation
+// state, as of the snapshot time.
+message ChannelReputation {
+    // The short channel id of the channel.
+    uint64 scid = 1;
+
+    // The reputation this channel has accrued as an outgoing link, decayed to
+    // the snapshot time.
+    int64 outgoing_reputation = 2;
+
+    // The revenue threshold this channel has earned as an incoming link,
+    // decayed to the snapshot time.
+    int64 incoming_revenue = 3;
+
+    // The summed in-flight risk of this channel's pending accountable HTLCs.
+    uint64 in_flight_risk = 4;
+
+    // The number of in-flight HTLCs for which this channel is the outgoing
+    // link.
+    uint32 pending_htlc_count = 5;
+
+    // Whether the channel's accrued outgoing reputation, net of its current
+    // in-flight risk, already meets its incoming revenue threshold.
+    bool sufficient_reputation = 6;
+
+    // Occupancy of the channel's general resource bucket.
+    BucketOccupancy general = 7;
+
+    // Occupancy of the channel's congestion resource bucket.
+    BucketOccupancy congestion = 8;
+
+    // Occupancy of the channel's protected resource bucket.
+    BucketOccupancy protected = 9;
 }

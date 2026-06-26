@@ -82,9 +82,118 @@
           "Dev"
         ]
       }
+    },
+    "/v2/dev/reputation": {
+      "get": {
+        "summary": "lncli: `fetchreputation`\nFetchReputation returns a read-only snapshot of the local reputation\nsubsystem's computed per-channel state. It requires the experimental\nread-only reputation subsystem to be enabled via the --routing.reputation\nflag; otherwise it returns an error. This RPC never mutates state and never\naffects routing.",
+        "operationId": "Dev_FetchReputation",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/devrpcFetchReputationResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Dev"
+        ]
+      }
     }
   },
   "definitions": {
+    "devrpcBucketOccupancy": {
+      "type": "object",
+      "properties": {
+        "slots_used": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of slots currently occupied."
+        },
+        "slots_allocated": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The total number of slots assigned to the bucket."
+        },
+        "liquidity_used_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The millisatoshi liquidity currently reserved."
+        },
+        "liquidity_allocated_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total millisatoshi liquidity assigned to the bucket."
+        }
+      },
+      "description": "BucketOccupancy reports the live occupancy of a single resource bucket."
+    },
+    "devrpcChannelReputation": {
+      "type": "object",
+      "properties": {
+        "scid": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The short channel id of the channel."
+        },
+        "outgoing_reputation": {
+          "type": "string",
+          "format": "int64",
+          "description": "The reputation this channel has accrued as an outgoing link, decayed to\nthe snapshot time."
+        },
+        "incoming_revenue": {
+          "type": "string",
+          "format": "int64",
+          "description": "The revenue threshold this channel has earned as an incoming link,\ndecayed to the snapshot time."
+        },
+        "in_flight_risk": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The summed in-flight risk of this channel's pending accountable HTLCs."
+        },
+        "pending_htlc_count": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of in-flight HTLCs for which this channel is the outgoing\nlink."
+        },
+        "sufficient_reputation": {
+          "type": "boolean",
+          "description": "Whether the channel's accrued outgoing reputation, net of its current\nin-flight risk, already meets its incoming revenue threshold."
+        },
+        "general": {
+          "$ref": "#/definitions/devrpcBucketOccupancy",
+          "description": "Occupancy of the channel's general resource bucket."
+        },
+        "congestion": {
+          "$ref": "#/definitions/devrpcBucketOccupancy",
+          "description": "Occupancy of the channel's congestion resource bucket."
+        },
+        "protected": {
+          "$ref": "#/definitions/devrpcBucketOccupancy",
+          "description": "Occupancy of the channel's protected resource bucket."
+        }
+      },
+      "description": "ChannelReputation is a read-only view of one channel's computed reputation\nstate, as of the snapshot time."
+    },
+    "devrpcFetchReputationResponse": {
+      "type": "object",
+      "properties": {
+        "channel_reputations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/devrpcChannelReputation"
+          },
+          "description": "The per-channel reputation snapshots, ordered by short channel id."
+        }
+      }
+    },
     "devrpcImportGraphResponse": {
       "type": "object"
     },

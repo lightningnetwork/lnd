@@ -75,6 +75,11 @@ type ChainArbitratorConfig struct {
 	// htlcs. This value can be lower than the incoming broadcast delta.
 	OutgoingBroadcastDelta uint32
 
+	// CustomHtlcChecker optionally identifies HTLCs that should bypass the
+	// standard final-hop amount check because their amount validation is
+	// handled by auxiliary channel logic.
+	CustomHtlcChecker fn.Option[CustomHtlcChecker]
+
 	// NewSweepAddr is a function that returns a new address under control
 	// by the wallet. We'll use this to sweep any no-delay outputs as a
 	// result of unilateral channel closes.

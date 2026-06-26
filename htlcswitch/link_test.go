@@ -779,13 +779,13 @@ func testChannelLinkInboundFee(t *testing.T, //nolint:thelper
 				NextHop: n.carolChannelLink.
 					ShortChanID(),
 				AmountToForward: 1_000_000,
-				OutgoingCTLV:    106,
+				OutgoingCLTV:    106,
 			},
 		},
 		{
 			FwdInfo: hop.ForwardingInfo{
 				AmountToForward: 1_000_000,
-				OutgoingCTLV:    106,
+				OutgoingCLTV:    106,
 			},
 		},
 	}
@@ -974,7 +974,7 @@ func TestExitNodeHTLCTimelockExceedsPayload(t *testing.T) {
 	// The proper value of the outgoing CLTV should be the policy set by
 	// the receiving node, instead we set it to be a value less than the
 	// incoming HTLC timelock.
-	hops[0].FwdInfo.OutgoingCTLV = htlcExpiry - 1
+	hops[0].FwdInfo.OutgoingCLTV = htlcExpiry - 1
 	firstHop := n.firstBobChannelLink.ShortChanID()
 	_, err = makePayment(
 		n.aliceServer, n.bobServer, firstHop, hops, amount, htlcAmt,
@@ -1012,7 +1012,7 @@ func TestExitNodeTimelockPayloadExceedsHTLC(t *testing.T) {
 	// The proper value of the outgoing CLTV should be the policy set by
 	// the receiving node, instead we set it to be a value greater than the
 	// incoming HTLC timelock.
-	hops[0].FwdInfo.OutgoingCTLV = htlcExpiry + 1
+	hops[0].FwdInfo.OutgoingCLTV = htlcExpiry + 1
 	firstHop := n.firstBobChannelLink.ShortChanID()
 	_, err = makePayment(
 		n.aliceServer, n.bobServer, firstHop, hops, amount, htlcAmt,
@@ -6320,14 +6320,48 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	})
 
-	t.Run("cltv expiry too far in the future", func(t *testing.T) {
-		// Check that expiry isn't too far in the future.
+	t.Run("cltv expiry outside supported range", func(t *testing.T) {
+		// Check that expiry stays within the supported range.
 		result := link.CheckHtlcForward(
 			hash, 1500, 1000, 10200, 10100, models.InboundFee{}, 0,
 			lnwire.ShortChannelID{}, nil,
 		)
+		_, ok := result.WireMessage().(*lnwire.FailExpiryTooFar)
+		if !ok {
+			t.Fatalf("expected FailExpiryTooFar failure code")
+		}
+	})
+
+	t.Run("incoming cltv delta outside range", func(t *testing.T) {
+		result := link.CheckHtlcForward(
+			hash, 1500, 1000, 150+DefaultMaxOutgoingCltvExpiry+1,
+			150, models.InboundFee{}, 0, lnwire.ShortChannelID{},
+			nil,
+		)
 		if _, ok := result.WireMessage().(*lnwire.FailExpiryTooFar); !ok {
 			t.Fatalf("expected FailExpiryTooFar failure code")
+		}
+	})
+
+	t.Run("incoming cltv delta at maximum", func(t *testing.T) {
+		result := link.CheckHtlcForward(
+			hash, 1500, 1000, 150+DefaultMaxOutgoingCltvExpiry,
+			150, models.InboundFee{}, 0, lnwire.ShortChannelID{},
+			nil,
+		)
+		require.Nil(t, result)
+	})
+
+	t.Run("incoming cltv below outgoing cltv", func(t *testing.T) {
+		result := link.CheckHtlcForward(
+			hash, 1500, 1000, 190, 200, models.InboundFee{}, 0,
+			lnwire.ShortChannelID{}, nil,
+		)
+		_, ok := result.WireMessage().(*lnwire.FailIncorrectCltvExpiry)
+		if !ok {
+			t.Fatalf(
+				"expected FailIncorrectCltvExpiry failure code",
+			)
 		}
 	})
 
@@ -6660,6 +6694,121 @@ func TestChannelLinkHoldInvoiceRestart(t *testing.T) {
 		t.Fatalf("did not expect message %T", msg)
 	default:
 	}
+}
+
+// TestChannelLinkExitHopExpiryTooFar asserts that an exit hop fails an
+// incoming HTLC if its expiry is outside the supported range.
+func TestChannelLinkExitHopExpiryTooFar(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	harness, err := newSingleLinkTestHarness(t, chanAmt, 0)
+	require.NoError(t, err, "unable to create link")
+
+	if err := harness.start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
+	t.Cleanup(harness.aliceLink.Stop)
+
+	coreLink, ok := harness.aliceLink.(*channelLink)
+	require.True(t, ok)
+
+	registry, ok := coreLink.cfg.Registry.(*mockInvoiceRegistry)
+	require.True(t, ok)
+
+	alicePeer, ok := coreLink.cfg.Peer.(*mockPeer)
+	require.True(t, ok)
+	aliceMsgs := alicePeer.sentMsgs
+
+	registry.settleChan = make(chan lntypes.Hash)
+
+	htlc, invoice := generateHtlcAndInvoice(t, 0)
+	htlc.Expiry = testStartingHeight +
+		invpkg.MaxFinalCltvDelta + 1
+
+	err = registry.AddInvoice(t.Context(), *invoice, htlc.PaymentHash)
+	require.NoError(t, err, "unable to add invoice to registry")
+
+	ctx := linkTestContext{
+		t:           t,
+		aliceSwitch: harness.aliceSwitch,
+		aliceLink:   harness.aliceLink,
+		aliceMsgs:   aliceMsgs,
+		bobChannel:  harness.bobChannel,
+	}
+
+	ctx.sendHtlcBobToAlice(htlc)
+	ctx.sendCommitSigBobToAlice(1)
+	ctx.receiveRevAndAckAliceToBob()
+	ctx.receiveCommitSigAliceToBob(1)
+	ctx.sendRevAndAckBobToAlice()
+	ctx.receiveFailAliceToBobWithCode(
+		lnwire.CodeIncorrectOrUnknownPaymentDetails,
+	)
+	ctx.receiveCommitSigAliceToBob(0)
+
+	select {
+	case <-registry.settleChan:
+		t.Fatal("exit hop notification received")
+	case <-time.After(time.Second):
+	}
+}
+
+// TestChannelLinkExitHopExpiryAtMaximum asserts that an exit hop accepts an
+// incoming HTLC if its expiry is exactly at the maximum.
+func TestChannelLinkExitHopExpiryAtMaximum(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	harness, err := newSingleLinkTestHarness(t, chanAmt, 0)
+	require.NoError(t, err, "unable to create link")
+
+	if err := harness.start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
+	t.Cleanup(harness.aliceLink.Stop)
+
+	coreLink, ok := harness.aliceLink.(*channelLink)
+	require.True(t, ok)
+
+	registry, ok := coreLink.cfg.Registry.(*mockInvoiceRegistry)
+	require.True(t, ok)
+
+	alicePeer, ok := coreLink.cfg.Peer.(*mockPeer)
+	require.True(t, ok)
+	aliceMsgs := alicePeer.sentMsgs
+
+	registry.settleChan = make(chan lntypes.Hash)
+
+	htlc, invoice := generateHtlcAndInvoice(t, 0)
+	htlc.Expiry = testStartingHeight +
+		invpkg.MaxFinalCltvDelta
+
+	err = registry.AddInvoice(t.Context(), *invoice, htlc.PaymentHash)
+	require.NoError(t, err, "unable to add invoice to registry")
+
+	ctx := linkTestContext{
+		t:           t,
+		aliceSwitch: harness.aliceSwitch,
+		aliceLink:   harness.aliceLink,
+		aliceMsgs:   aliceMsgs,
+		bobChannel:  harness.bobChannel,
+	}
+
+	ctx.sendHtlcBobToAlice(htlc)
+	ctx.sendCommitSigBobToAlice(1)
+	ctx.receiveRevAndAckAliceToBob()
+	ctx.receiveCommitSigAliceToBob(1)
+	ctx.sendRevAndAckBobToAlice()
+
+	select {
+	case <-registry.settleChan:
+	case <-time.After(5 * time.Second):
+		t.Fatal("expected exit hop notification")
+	}
+
+	ctx.receiveSettleAliceToBob()
+	ctx.receiveCommitSigAliceToBob(0)
 }
 
 // TestChannelLinkRevocationWindowRegular asserts that htlcs paying to a regular

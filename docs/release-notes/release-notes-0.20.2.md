@@ -38,6 +38,17 @@
 # Improvements
 ## Functional Updates
 
+* lnd now [validates the CLTV expiry of HTLCs at the final
+  hop](https://github.com/lightningnetwork/lnd/pull/10927). A final HTLC whose
+  CLTV expiry falls outside the node's receive policy is failed back, bringing
+  the final hop in line with the CLTV delta limits already enforced on the
+  forwarding path.
+  As part of this change, the channel policy `TimeLockDelta` is now validated
+  against LND's supported forwarding bounds: any node that previously set a
+  per-channel `TimeLockDelta` greater than `2016` (the maximum default value)
+  will now have its `UpdateChannelPolicy` request rejected, and must lower the
+  value accordingly below the specified maximum.
+
 ## RPC Updates
 
 ## lncli Updates
@@ -62,3 +73,4 @@
 # Contributors (Alphabetical Order)
 
 * Erick Cestari
+* Ziggie

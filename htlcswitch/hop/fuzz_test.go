@@ -88,7 +88,7 @@ func FuzzOnionPacket(f *testing.F) {
 func hopFromPayload(p *Payload) (*route.Hop, uint64) {
 	return &route.Hop{
 		AmtToForward:     p.FwdInfo.AmountToForward,
-		OutgoingTimeLock: p.FwdInfo.OutgoingCTLV,
+		OutgoingTimeLock: p.FwdInfo.OutgoingCLTV,
 		MPP:              p.MPP,
 		AMP:              p.AMP,
 		Metadata:         p.metadata,

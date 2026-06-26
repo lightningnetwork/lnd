@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"context"
+	"sync/atomic"
 
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -21,6 +22,7 @@ type mockRegistry struct {
 	notifyChan       chan notifyExitHopData
 	notifyErr        error
 	notifyResolution invoices.HtlcResolution
+	notifyCalls      atomic.Int32
 }
 
 func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
@@ -28,6 +30,8 @@ func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
 	circuitKey models.CircuitKey, hodlChan chan<- interface{},
 	wireCustomRecords lnwire.CustomRecords,
 	payload invoices.Payload) (invoices.HtlcResolution, error) {
+
+	r.notifyCalls.Add(1)
 
 	// Exit early if the notification channel is nil.
 	if hodlChan == nil {

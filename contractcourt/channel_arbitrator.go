@@ -1437,7 +1437,7 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 //     HTLCs,  or,
 //   - half of the least CLTV from incoming HTLCs if the preimage is available.
 //
-// We use half of the CTLV value to ensure that we have enough time to sweep
+// We use half of the CLTV value to ensure that we have enough time to sweep
 // the second-level HTLCs.
 //
 // It also finds the total value that are time-sensitive, which is the sum of

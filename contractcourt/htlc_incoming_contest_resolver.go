@@ -79,6 +79,31 @@ func (h *htlcIncomingContestResolver) processFinalHtlcFail() error {
 	return nil
 }
 
+// invalidFinalHtlc returns true if the HTLC is an exit-hop HTLC that fails
+// final-hop validation.
+func (h *htlcIncomingContestResolver) invalidFinalHtlc(
+	payload *hop.Payload, height uint32) bool {
+
+	if payload.FwdInfo.NextHop != hop.Exit {
+		return false
+	}
+
+	// Custom HTLCs still enforce final CLTV correctness, but leave amount
+	// validation to auxiliary channel logic.
+	validateAmount := !fn.MapOptionZ(
+		h.CustomHtlcChecker,
+		func(checker CustomHtlcChecker) bool {
+			return checker.IsCustomHTLC(h.htlc.CustomRecords)
+		},
+	)
+
+	return hop.ValidateFinalHtlc(
+		h.htlc.Amt, h.htlcExpiry, height,
+		invoices.MaxFinalCltvDelta, payload.FwdInfo,
+		validateAmount,
+	) != hop.FinalHtlcValid
+}
+
 // Launch will call the inner resolver's launch method if the preimage can be
 // found, otherwise it's a no-op.
 func (h *htlcIncomingContestResolver) Launch() error {
@@ -102,7 +127,7 @@ func (h *htlcIncomingContestResolver) Launch() error {
 		return nil
 	}
 
-	h.log.Debugf("found preimage for htlc=%x,  transforming into success "+
+	h.log.Debugf("found preimage for htlc=%x, transforming into success "+
 		"resolver and launching it", h.htlc.RHash)
 
 	// Once we've applied the preimage, we'll launch the inner resolver to
@@ -177,6 +202,32 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 
 	log.Debugf("%T(%v): Resolving incoming HTLC(expiry=%v, height=%v)", h,
 		h.htlcResolution.ClaimOutpoint, h.htlcExpiry, currentHeight)
+
+	// If this final-hop HTLC does not match the expected final-hop details,
+	// keep the on-chain path aligned with link-level handling by recording
+	// a failed final outcome and leaving timeout resolution to the remote
+	// party.
+	if h.invalidFinalHtlc(payload, uint32(currentHeight)) {
+		log.Infof("%T(%v): final-hop HTLC did not match expected "+
+			"details (amt=%v, expected_amt=%v, expiry=%v, "+
+			"expected_expiry=%v, height=%v, max=%v), resolving as "+
+			"failed", h, h.htlcResolution.ClaimOutpoint,
+			h.htlc.Amt, payload.FwdInfo.AmountToForward,
+			h.htlcExpiry, payload.FwdInfo.OutgoingCLTV,
+			currentHeight, invoices.MaxFinalCltvDelta)
+		h.markResolved()
+
+		if err := h.processFinalHtlcFail(); err != nil {
+			return nil, err
+		}
+
+		report := h.report().resolverReport(
+			nil, channeldb.ResolverTypeIncomingHtlc,
+			channeldb.ResolverOutcomeAbandoned,
+		)
+
+		return nil, h.Checkpoint(h, report)
+	}
 
 	// We'll first check if this HTLC has been timed out, if so, we can
 	// return now and mark ourselves as resolved. If we're past the point of
@@ -616,11 +667,21 @@ var _ htlcContractResolver = (*htlcIncomingContestResolver)(nil)
 // NOTE: Since we have two places to query the preimage, we need to check both
 // the preimage db and the invoice db to look up the preimage.
 func (h *htlcIncomingContestResolver) findAndapplyPreimage() (bool, error) {
+	// Decode the hop payload up front; both the known-preimage path and the
+	// registry lookup below rely on the decoded final-hop details.
+	payload, _, err := h.decodePayload()
+
 	// Query to see if we already know the preimage.
 	preimage, ok := h.PreimageDB.LookupPreimage(h.htlc.RHash)
 
 	// If the preimage is known, we'll apply it.
 	if ok {
+		if err == nil &&
+			h.invalidFinalHtlc(payload, h.broadcastHeight) {
+
+			return false, nil
+		}
+
 		if err := h.applyPreimage(preimage); err != nil {
 			return false, err
 		}
@@ -629,8 +690,7 @@ func (h *htlcIncomingContestResolver) findAndapplyPreimage() (bool, error) {
 		return true, nil
 	}
 
-	// First try to parse the payload.
-	payload, _, err := h.decodePayload()
+	// Without a preimage we need a valid payload to look up the invoice.
 	if err != nil {
 		h.log.Errorf("Cannot decode payload of htlc %v", h.HtlcPoint())
 
@@ -640,8 +700,14 @@ func (h *htlcIncomingContestResolver) findAndapplyPreimage() (bool, error) {
 	}
 
 	// Exit early if this is not the exit hop, which means we are not the
-	// payment receiver and don't have preimage.
+	// payment receiver and don't have the preimage.
 	if payload.FwdInfo.NextHop != hop.Exit {
+		return false, nil
+	}
+
+	// If this final-hop HTLC does not match the expected final-hop details,
+	// let Resolve record the failed final outcome.
+	if h.invalidFinalHtlc(payload, h.broadcastHeight) {
 		return false, nil
 	}
 

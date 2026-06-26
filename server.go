@@ -1361,6 +1361,11 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		ChainHash:              *s.cfg.ActiveNetParams.GenesisHash,
 		IncomingBroadcastDelta: lncfg.DefaultIncomingBroadcastDelta,
 		OutgoingBroadcastDelta: lncfg.DefaultOutgoingBroadcastDelta,
+		CustomHtlcChecker: fn.MapOption(
+			func(t htlcswitch.AuxTrafficShaper) contractcourt.CustomHtlcChecker {
+				return t
+			},
+		)(s.implCfg.TrafficShaper),
 		NewSweepAddr: func() ([]byte, error) {
 			addr, err := newSweepPkScriptGen(
 				cc.Wallet, netParams,

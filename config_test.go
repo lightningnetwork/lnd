@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
 )
@@ -170,4 +171,64 @@ func TestValidateConfigTrickleDelay(t *testing.T) {
 			)
 		})
 	}
+}
+
+// TestValidateMaxOutgoingCltvExpiry asserts that max-cltv-expiry accepts
+// values within its supported bounds and rejects values outside them.
+func TestValidateMaxOutgoingCltvExpiry(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+
+	require.NoError(
+		t, validateMaxOutgoingCltvExpiry(
+			htlcswitch.DefaultMaxOutgoingCltvExpiry,
+			cfg.Bitcoin.TimeLockDelta,
+		),
+	)
+	require.NoError(t, validateMaxOutgoingCltvExpiry(
+		MaxTimeLockDelta, MaxTimeLockDelta,
+	))
+
+	err := validateMaxOutgoingCltvExpiry(
+		cfg.Bitcoin.TimeLockDelta-1,
+		cfg.Bitcoin.TimeLockDelta,
+	)
+	require.ErrorContains(t, err, "max-cltv-expiry must be at least")
+
+	err = validateMaxOutgoingCltvExpiry(
+		MaxTimeLockDelta+1, cfg.Bitcoin.TimeLockDelta,
+	)
+	require.ErrorContains(t, err, "max-cltv-expiry must be at most")
+}
+
+// TestValidateChannelPolicyTimeLockDelta asserts that advertised channel
+// policy CLTV deltas stay within the node's supported forwarding bounds.
+func TestValidateChannelPolicyTimeLockDelta(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultConfig()
+
+	require.NoError(t, validateChannelPolicyTimeLockDelta(
+		cfg.Bitcoin.TimeLockDelta, cfg.MaxOutgoingCltvExpiry,
+	))
+	require.NoError(t, validateChannelPolicyTimeLockDelta(
+		cfg.MaxOutgoingCltvExpiry, cfg.MaxOutgoingCltvExpiry,
+	))
+
+	err := validateChannelPolicyTimeLockDelta(
+		minTimeLockDelta-1, cfg.MaxOutgoingCltvExpiry,
+	)
+	require.ErrorContains(t, err, "time lock delta of")
+	require.ErrorContains(t, err, "is too small")
+
+	err = validateChannelPolicyTimeLockDelta(
+		MaxTimeLockDelta+1, MaxTimeLockDelta,
+	)
+	require.ErrorContains(t, err, "is too big")
+
+	err = validateChannelPolicyTimeLockDelta(
+		cfg.MaxOutgoingCltvExpiry+1, cfg.MaxOutgoingCltvExpiry,
+	)
+	require.ErrorContains(t, err, "exceeds max-cltv-expiry")
 }

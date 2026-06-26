@@ -35,7 +35,7 @@ func TestSphinxHopIteratorForwardingInstructions(t *testing.T) {
 	expectedFwdInfo := ForwardingInfo{
 		NextHop:         lnwire.NewShortChanIDFromInt(nextAddrInt),
 		AmountToForward: lnwire.MilliSatoshi(hopData.ForwardAmount),
-		OutgoingCTLV:    hopData.OutgoingCltv,
+		OutgoingCLTV:    hopData.OutgoingCltv,
 	}
 
 	// For our TLV payload, we'll serialize the hop into into a TLV stream

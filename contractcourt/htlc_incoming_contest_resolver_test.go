@@ -9,6 +9,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
@@ -260,8 +261,95 @@ func TestHtlcIncomingResolverExitCancelHodl(t *testing.T) {
 	ctx.waitForResult(false)
 }
 
+// TestHtlcIncomingResolverInvalidFinalHtlc asserts that an exit-hop HTLC with
+// final-hop details outside the expected range resolves without querying the
+// invoice registry for a preimage.
+func TestHtlcIncomingResolverInvalidFinalHtlc(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		cachePreimage bool
+		mutate        func(*incomingResolverTestContext)
+	}{{
+		name: "expiry too far",
+		mutate: func(ctx *incomingResolverTestContext) {
+			ctx.resolver.htlcExpiry = testInitialBlockHeight +
+				invoices.MaxFinalCltvDelta + 1
+		},
+	}, {
+		name:          "cached preimage expiry too far",
+		cachePreimage: true,
+		mutate: func(ctx *incomingResolverTestContext) {
+			ctx.resolver.htlcExpiry = testInitialBlockHeight +
+				invoices.MaxFinalCltvDelta + 1
+		},
+	}, {
+		name: "amount too low",
+		mutate: func(ctx *incomingResolverTestContext) {
+			ctx.onionProcessor.forwardAmount = testHtlcAmount + 1
+		},
+	}, {
+		name: "final cltv too low",
+		mutate: func(ctx *incomingResolverTestContext) {
+			ctx.onionProcessor.outgoingCltv = testHtlcExpiry + 1
+		},
+	}}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			defer timeout()()
+
+			ctx := newIncomingResolverTestContext(t, true)
+			if testCase.cachePreimage {
+				ctx.witnessBeacon.lookupPreimage[testResHash] =
+					testResPreimage
+			}
+
+			testCase.mutate(ctx)
+			resolution := invoices.NewSettleResolution(
+				testResPreimage, testResCircuitKey,
+				testAcceptHeight, invoices.ResultSettled,
+			)
+			ctx.registry.notifyResolution = resolution
+
+			ctx.resolve()
+			ctx.waitForResult(false)
+
+			require.EqualValues(
+				t, 0, ctx.registry.notifyCalls.Load(),
+			)
+		})
+	}
+}
+
+// TestHtlcIncomingResolverCustomHtlc asserts that a custom HTLC bypasses the
+// standard final-hop amount check in contract court, matching the link flow.
+func TestHtlcIncomingResolverCustomHtlc(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, true)
+	ctx.resolver.CustomHtlcChecker = fn.Some[CustomHtlcChecker](
+		mockCustomHtlcChecker{},
+	)
+	ctx.onionProcessor.forwardAmount = testHtlcAmount + 1
+	ctx.registry.notifyResolution = invoices.NewSettleResolution(
+		testResPreimage, testResCircuitKey, testAcceptHeight,
+		invoices.ResultSettled,
+	)
+
+	ctx.resolve()
+	ctx.waitForResult(true)
+
+	require.NotZero(t, ctx.registry.notifyCalls.Load())
+}
+
 type mockHopIterator struct {
-	isExit bool
+	isExit        bool
+	forwardAmount int
+	outgoingCltv  uint32
 	hop.Iterator
 }
 
@@ -271,11 +359,21 @@ func (h *mockHopIterator) HopPayload() (*hop.Payload, hop.RouteRole, error) {
 		nextAddress = [8]byte{0x01}
 	}
 
+	forwardAmount := h.forwardAmount
+	if forwardAmount == 0 {
+		forwardAmount = 100
+	}
+
+	outgoingCltv := h.outgoingCltv
+	if outgoingCltv == 0 {
+		outgoingCltv = 40
+	}
+
 	return hop.NewLegacyPayload(&sphinx.HopData{
 		Realm:         [1]byte{},
 		NextAddress:   nextAddress,
-		ForwardAmount: 100,
-		OutgoingCltv:  40,
+		ForwardAmount: uint64(forwardAmount),
+		OutgoingCltv:  outgoingCltv,
 		ExtraBytes:    [12]byte{},
 	}), hop.RouteRoleCleartext, nil
 }
@@ -286,6 +384,8 @@ func (h *mockHopIterator) EncodeNextHop(w io.Writer) error {
 
 type mockOnionProcessor struct {
 	isExit           bool
+	forwardAmount    int
+	outgoingCltv     uint32
 	offeredOnionBlob []byte
 }
 
@@ -298,7 +398,17 @@ func (o *mockOnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte,
 	}
 	o.offeredOnionBlob = data
 
-	return &mockHopIterator{isExit: o.isExit}, nil
+	return &mockHopIterator{
+		isExit:        o.isExit,
+		forwardAmount: o.forwardAmount,
+		outgoingCltv:  o.outgoingCltv,
+	}, nil
+}
+
+type mockCustomHtlcChecker struct{}
+
+func (m mockCustomHtlcChecker) IsCustomHTLC(lnwire.CustomRecords) bool {
+	return true
 }
 
 type incomingResolverTestContext struct {

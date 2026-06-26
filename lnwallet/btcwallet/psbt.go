@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -45,6 +46,13 @@ var (
 	// of a script spend type.
 	ErrScriptSpendFeeEstimationUnsupported = errors.New(
 		"cannot estimate fee for script spend inputs",
+	)
+
+	// ErrMissingTaprootLeafScript is returned if a taproot script path
+	// spend is detected but the TaprootLeafScript field is not populated.
+	ErrMissingTaprootLeafScript = errors.New(
+		"taproot script path requires TaprootLeafScript to be " +
+			"populated",
 	)
 
 	// ErrUnsupportedScript is returned if a supplied pk script is not
@@ -383,8 +391,18 @@ func validateSigningMethod(in *psbt.PInput) (input.SignMethod, error) {
 // EstimateInputWeight estimates the weight of a PSBT input and adds it to the
 // passed in TxWeightEstimator. It returns an error if the input type is
 // unknown or unsupported. Only inputs that have a known witness size are
-// supported, which is P2WKH, NP2WKH and P2TR (key spend path).
-func EstimateInputWeight(in *psbt.PInput, w *input.TxWeightEstimator) error {
+// supported, which is P2WKH, NP2WKH and P2TR (key spend and script spend).
+//
+// For taproot script path inputs, the size of the witness elements that
+// satisfy the revealed leaf script (e.g. signatures) is not derivable from
+// the script alone. If witnessSizeHint is non-zero it is used as the leaf
+// witness size, otherwise we fall back to assuming a single Schnorr
+// signature (input.TaprootSignatureWitnessSize). The revealed script and
+// control block sizes are always derived from the PSBT's TaprootLeafScript
+// field, regardless of the hint.
+func EstimateInputWeight(in *psbt.PInput, w *input.TxWeightEstimator,
+	witnessSizeHint lntypes.WeightUnit) error {
+
 	if in.WitnessUtxo == nil {
 		return ErrInputMissingUTXOInfo
 	}
@@ -418,10 +436,40 @@ func EstimateInputWeight(in *psbt.PInput, w *input.TxWeightEstimator) error {
 
 		// For p2tr script spend path.
 		case input.TaprootScriptSpendSignMethod:
-			return fmt.Errorf("P2TR inputs are not supported, "+
-				"cannot estimate witness size for script "+
-				"spend: %w",
-				ErrScriptSpendFeeEstimationUnsupported)
+			// For script path spends, we require the
+			// TaprootLeafScript to be populated so we can
+			// calculate the control block size.
+			if len(in.TaprootLeafScript) == 0 {
+				return ErrMissingTaprootLeafScript
+			}
+
+			leafScript := in.TaprootLeafScript[0]
+			controlBlock, err := txscript.ParseControlBlock(
+				leafScript.ControlBlock,
+			)
+			if err != nil {
+				return fmt.Errorf("error parsing control "+
+					"block: %w", err)
+			}
+
+			revealType := waddrmgr.TapscriptTypePartialReveal
+			tapscript := &waddrmgr.Tapscript{
+				Type:           revealType,
+				ControlBlock:   controlBlock,
+				RevealedScript: leafScript.Script,
+			}
+
+			// If the caller has not supplied an explicit hint for
+			// the witness size, fall back to assuming a single
+			// Schnorr signature, which is the most common script
+			// path spend (e.g. a simple OP_CHECKSIG leaf).
+			leafWitnessSize := witnessSizeHint
+			if leafWitnessSize == 0 {
+				leafWitnessSize =
+					input.TaprootSignatureWitnessSize
+			}
+
+			w.AddTapscriptInput(leafWitnessSize, tapscript)
 
 		default:
 			return fmt.Errorf("unsupported signing method for "+

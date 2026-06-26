@@ -92,6 +92,13 @@
   reader/writer validation, plus a typed `lnwire.BlindedPath` introduction-node
   codec shared by HTLC routing and onion messaging.
 
+* [BOLT 12 invoice request
+  codec](https://github.com/lightningnetwork/lnd/pull/10832): add the
+  `invoice_request` TLV message to the `bolt12/` package with structural
+  reader/writer validation. This includes an observable RPC behavior change
+  in `SubscribeOnionMessages`, ensuring a nil reply path remains nil in the
+  RPC response rather than being emitted as an empty struct.
+
 ## Testing
 
 ## Database

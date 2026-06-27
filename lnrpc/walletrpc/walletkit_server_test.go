@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -719,4 +720,29 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestValidateBumpFeeRequestSatPerByte tests that validateBumpFeeRequest
+// rejects the deprecated sat_per_byte field while still accepting the same fee
+// rate expressed via sat_per_vbyte.
+func TestValidateBumpFeeRequestSatPerByte(t *testing.T) {
+	t.Parallel()
+
+	// A request that sets the deprecated sat_per_byte field must be
+	// rejected with ErrSatPerByteRemoved. The check happens before the fee
+	// estimator is used, so a nil estimator is fine here.
+	deprecated := &BumpFeeRequest{
+		SatPerByte: 1,
+	}
+	_, _, err := validateBumpFeeRequest(deprecated, nil)
+	require.ErrorIs(t, err, lnrpc.ErrSatPerByteRemoved)
+
+	// The same fee rate expressed via sat_per_vbyte is accepted and yields
+	// a starting fee rate.
+	valid := &BumpFeeRequest{
+		SatPerVbyte: 1,
+	}
+	feeRate, _, err := validateBumpFeeRequest(valid, nil)
+	require.NoError(t, err)
+	require.False(t, feeRate.IsNone())
 }

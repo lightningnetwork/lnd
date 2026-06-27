@@ -70,6 +70,20 @@
 
 ## Breaking Changes
 
+* The deprecated fee rate option `--sat_per_byte` was removed
+[PR#10889](https://github.com/lightningnetwork/lnd/pull/10889)
+
+  The following RPCs were impacted:
+
+  | RPC Method | Messages | Removed Option | 
+  |----------------------|----------------|-------------|
+  | [`lnrpc.CloseChannel`](https://lightning.engineering/api-docs/api/lnd/lightning/close-channel/) | [`lnrpc.CloseChannelRequest`](https://lightning.engineering/api-docs/api/lnd/lightning/close-channel/#lnrpcclosechannelrequest) | sat_per_byte
+  | [`lnrpc.OpenChannelSync`](https://lightning.engineering/api-docs/api/lnd/lightning/open-channel-sync/) | [`lnrpc.OpenChannelRequest`](https://lightning.engineering/api-docs/api/lnd/lightning/open-channel-sync/#lnrpcopenchannelrequest) | sat_per_byte 
+  | [`lnrpc.OpenChannel`](https://lightning.engineering/api-docs/api/lnd/lightning/open-channel/) | [`lnrpc.OpenChannelRequest`](https://lightning.engineering/api-docs/api/lnd/lightning/open-channel/#lnrpcopenchannelrequest) | sat_per_byte
+  | [`lnrpc.SendCoins`](https://lightning.engineering/api-docs/api/lnd/lightning/send-coins/) | [`lnrpc.SendCoinsRequest`](https://lightning.engineering/api-docs/api/lnd/lightning/send-coins/#lnrpcsendcoinsrequest) | sat_per_byte
+  | [`lnrpc.SendMany`](https://lightning.engineering/api-docs/api/lnd/lightning/send-many/) | [`lnrpc.SendManyRequest`](https://lightning.engineering/api-docs/api/lnd/lightning/send-many/#lnrpcsendmanyrequest) | sat_per_byte
+  | [`walletrpc.BumpFee`](https://lightning.engineering/api-docs/api/lnd/wallet-kit/bump-fee/) | [`walletrpc.BumpFeeRequest`](https://lightning.engineering/api-docs/api/lnd/wallet-kit/bump-fee/#walletrpcbumpfeerequest) | sat_per_byte
+
 ## Performance Improvements
 
 ## Deprecations
@@ -116,3 +130,4 @@
 * bitromortac
 * Boris Nagaev
 * Erick Cestari
+* Pins

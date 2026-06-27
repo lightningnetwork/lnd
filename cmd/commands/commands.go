@@ -1854,6 +1854,11 @@ var ListChannelsCommand = cli.Command{
 				"particular peer, accepts 66-byte, " +
 				"hex-encoded pubkeys",
 		},
+		cli.Uint64Flag{
+			Name: "scid",
+			Usage: "(optional) only list a specific channel " +
+				"filtered by short channel id",
+		},
 		cli.BoolFlag{
 			Name: "skip_peer_alias_lookup",
 			Usage: "skip the peer alias lookup per channel in " +
@@ -1917,6 +1922,7 @@ func ListChannels(ctx *cli.Context) error {
 		PublicOnly:      ctx.Bool("public_only"),
 		PrivateOnly:     ctx.Bool("private_only"),
 		Peer:            peerKey,
+		Scid:            ctx.Uint64("scid"),
 		PeerAliasLookup: lookupPeerAlias,
 	}
 

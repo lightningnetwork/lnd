@@ -94,6 +94,13 @@ type ResolutionReq struct {
 	// KeyRing is the key ring for the channel.
 	KeyRing *CommitmentKeyRing
 
+	// CommitHeight is the commitment height of the commitment being
+	// resolved, when known. Downstream resolvers can use this to detect a
+	// height-0 commitment (i.e. an immediate post-funding force close,
+	// before the channel_ready commit point rotation), where KeyRing is
+	// derived from the initial commitment point.
+	CommitHeight fn.Option[uint64]
+
 	// CsvDelay is the CSV delay for the local output for this commitment.
 	CsvDelay uint32
 

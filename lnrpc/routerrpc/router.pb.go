@@ -3073,6 +3073,10 @@ type ForwardHtlcInterceptRequest struct {
 
 	// The key of this forwarded htlc. It defines the incoming channel id and
 	// the index in this channel.
+	//
+	// Interceptor clients should handle requests for the same circuit key
+	// idempotently. Requests may be replayed after reconnect, and an htlc that was
+	// previously offered off-chain may be offered again after it moves on-chain.
 	IncomingCircuitKey *CircuitKey `protobuf:"bytes,1,opt,name=incoming_circuit_key,json=incomingCircuitKey,proto3" json:"incoming_circuit_key,omitempty"`
 	// The incoming htlc amount.
 	IncomingAmountMsat uint64 `protobuf:"varint,5,opt,name=incoming_amount_msat,json=incomingAmountMsat,proto3" json:"incoming_amount_msat,omitempty"`
@@ -3095,7 +3099,8 @@ type ForwardHtlcInterceptRequest struct {
 	// The onion blob for the next hop
 	OnionBlob []byte `protobuf:"bytes,9,opt,name=onion_blob,json=onionBlob,proto3" json:"onion_blob,omitempty"`
 	// The block height at which this htlc will be auto-failed to prevent the
-	// channel from force-closing.
+	// channel from force-closing. For on-chain htlcs, this field is the
+	// settlement deadline instead and no automatic fail-back is attempted.
 	AutoFailHeight int32 `protobuf:"varint,10,opt,name=auto_fail_height,json=autoFailHeight,proto3" json:"auto_fail_height,omitempty"`
 	// The custom records of the peer's incoming p2p wire message.
 	InWireCustomRecords map[uint64][]byte `protobuf:"bytes,11,rep,name=in_wire_custom_records,json=inWireCustomRecords,proto3" json:"in_wire_custom_records,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
@@ -3218,6 +3223,14 @@ func (x *ForwardHtlcInterceptRequest) GetInWireCustomRecords() map[uint64][]byte
 // field modifications.
 // - `Reject`: Fail the htlc backwards.
 // - `Settle`: Settle this htlc with a given preimage.
+//
+// Once the incoming channel has force-closed and the HTLC is being resolved
+// on-chain (see auto_fail_height), only `Settle` has any effect. The HTLC can no
+// longer be resumed or failed back off-chain, so `Resume`, `ResumeModified`, and
+// `Fail` return a stream-terminating error. The HTLC stays held until it is
+// settled with a preimage, the on-chain resolver completes, or it expires
+// on-chain. Clients should reconnect to receive any held HTLCs that remain
+// unresolved.
 type ForwardHtlcInterceptResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache

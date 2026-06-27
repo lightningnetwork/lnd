@@ -444,6 +444,14 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testForwardInterceptorRestart,
 	},
 	{
+		Name:     "forward interceptor on chain settle after restart",
+		TestFunc: testForwardInterceptorOnChainSettleAfterRestart,
+	},
+	{
+		Name:     "forward interceptor on chain settle no restart",
+		TestFunc: testForwardInterceptorOnChainSettleNoRestart,
+	},
+	{
 		Name:     "invoice HTLC modifier basic",
 		TestFunc: testInvoiceHtlcModifierBasic,
 	},

@@ -1868,6 +1868,10 @@ func (s *Switch) reforwardResponses() error {
 		return err
 	}
 
+	// Collect the set of channels that may have outstanding responses in
+	// their forwarding packages. We skip locally-initiated payments and
+	// pending channels, since neither will have fwd pkgs to reload.
+	sources := make([]lnwire.ShortChannelID, 0, len(openChannels))
 	for _, openChannel := range openChannels {
 		shortChanID := openChannel.ShortChanID()
 
@@ -1882,34 +1886,43 @@ func (s *Switch) reforwardResponses() error {
 			continue
 		}
 
-		// Channels in open or waiting-close may still have responses in
-		// their forwarding packages. We will continue to reattempt
-		// forwarding on startup until the channel is fully-closed.
-		//
-		// Load this channel's forwarding packages, and deliver them to
-		// the switch.
-		fwdPkgs, err := s.loadChannelFwdPkgs(shortChanID)
-		if err != nil {
-			log.Errorf("unable to load forwarding "+
-				"packages for %v: %v", shortChanID, err)
-			return err
-		}
-
-		s.reforwardSettleFails(fwdPkgs)
+		sources = append(sources, shortChanID)
 	}
+
+	if len(sources) == 0 {
+		return nil
+	}
+
+	// Channels in open or waiting-close may still have responses in their
+	// forwarding packages. We will continue to reattempt forwarding on
+	// startup until the channel is fully-closed.
+	//
+	// Load all fwd pkgs across the active channel set in a single read
+	// transaction, which is materially faster than opening one tx per
+	// channel for nodes with a large channel set.
+	fwdPkgs, err := s.loadChannelFwdPkgsSet(sources)
+	if err != nil {
+		log.Errorf("unable to load forwarding packages: %v", err)
+		return err
+	}
+
+	s.reforwardSettleFails(fwdPkgs)
 
 	return nil
 }
 
-// loadChannelFwdPkgs loads all forwarding packages owned by the `source` short
-// channel identifier.
-func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) ([]*channeldb.FwdPkg, error) {
+// loadChannelFwdPkgsSet loads all forwarding packages owned by the provided
+// set of `sources` short channel identifiers using a single read transaction.
+// The returned slice contains the fwd pkgs across all channels; each FwdPkg
+// carries its originating channel via its Source field.
+func (s *Switch) loadChannelFwdPkgsSet(
+	sources []lnwire.ShortChannelID) ([]*channeldb.FwdPkg, error) {
 
 	var fwdPkgs []*channeldb.FwdPkg
 	if err := kvdb.View(s.cfg.DB, func(tx kvdb.RTx) error {
 		var err error
-		fwdPkgs, err = s.cfg.SwitchPackager.LoadChannelFwdPkgs(
-			tx, source,
+		fwdPkgs, err = s.cfg.SwitchPackager.LoadChannelFwdPkgsSet(
+			tx, sources,
 		)
 		return err
 	}, func() {

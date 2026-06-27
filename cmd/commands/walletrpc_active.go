@@ -265,6 +265,9 @@ var bumpFeeCommand = cli.Command{
 	Child-Pays-For-Parent (CPFP), where the child transaction pays for its
 	parent's fee. This can be done by specifying an outpoint within the low
 	fee transaction that is under the control of the wallet.
+
+	After bumping, use 'lncli wallet pendingsweeps' to monitor the sweep and
+	obtain its raw transaction hex if needed.
 	`,
 	Flags: []cli.Flag{
 		cli.Uint64Flag{

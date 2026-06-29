@@ -222,6 +222,10 @@ func (inv *Invoice) allRecordProducers() []tlv.RecordProducer {
 // Encode validates the invoice per writer requirements and serialises it via
 // the PureTLVMessage shape.
 func (inv *Invoice) Encode() ([]byte, error) {
+	if err := ValidateInvoiceWrite(inv); err != nil {
+		return nil, fmt.Errorf("validate invoice: %w", err)
+	}
+
 	var buf bytes.Buffer
 	if err := lnwire.EncodePureTLVMessage(inv, &buf); err != nil {
 		return nil, err

@@ -124,6 +124,9 @@ func TestInvoiceRoundTripPreservesAllTypes(t *testing.T) {
 	decoded, err := DecodeInvoice(encoded)
 	require.NoError(t, err)
 
+	err = ValidateInvoiceRead(decoded, bitcoinMainnetGenesisHash, nil, nil)
+	require.NoError(t, err)
+
 	// Re-encode the decoded copy and confirm canonicality.
 	// decode(encode(decode(encode(x)))) must equal decode(encode(x)).
 	encoded2, err := decoded.Encode()
@@ -266,4 +269,18 @@ func TestNewInvoiceFromRequestMirrorsUnknownFields(t *testing.T) {
 		t, unknownVal, gotVal.Bytes(),
 		"unknown request TLV value not preserved",
 	)
+}
+
+// TestInvoiceEncodeValidationGate verifies that Encode runs
+// ValidateInvoiceWrite and rejects invalid invoices.
+func TestInvoiceEncodeValidationGate(t *testing.T) {
+	t.Parallel()
+
+	inv := validInvoice(t)
+	inv.InvoiceCreatedAt = tlv.OptionalRecordT[
+		tlv.TlvType164, TUint64,
+	]{}
+
+	_, err := inv.Encode()
+	require.ErrorIs(t, err, ErrMissingCreatedAt)
 }

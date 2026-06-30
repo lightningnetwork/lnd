@@ -1194,7 +1194,9 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 
 		require.Equal(
 			t, route.Hops[i+1].ChannelID,
-			payload.FwdInfo.NextHop.ToUint64(),
+			payload.FwdInfo.NextHopChannel().UnwrapOr(
+				switchhop.Exit,
+			).ToUint64(),
 		)
 	}
 
@@ -1207,7 +1209,11 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 
 	// The final hop should have a next hop value of all zeroes in order
 	// to indicate it's the exit hop.
-	require.Zero(t, payload.FwdInfo.NextHop.ToUint64())
+	require.Zero(
+		t, payload.FwdInfo.NextHopChannel().UnwrapOr(
+			switchhop.Exit,
+		).ToUint64(),
+	)
 
 	var expectedTotalFee lnwire.MilliSatoshi
 	for i := 0; i < expectedHopCount; i++ {

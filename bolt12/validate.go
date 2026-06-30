@@ -359,8 +359,10 @@ func ValidateInvoiceRequestWrite(ir *InvoiceRequest) error {
 	// - if it supports bolt12 invoice request features:
 	//   - MUST set invreq_features.features to the bitmap of features.
 	// We only reject unknown even bits here; advertising a feature is the
-	// caller's decision.
-	if err := checkFeatures(ir.InvreqFeatures); err != nil {
+	// caller's decision. Since the writer lacks a catalogue in scope, we
+	// pass nil for the catalogue, treating all even feature bits as
+	// unknown.
+	if err := checkFeatures(ir.InvreqFeatures, nil); err != nil {
 		return err
 	}
 
@@ -461,7 +463,8 @@ func getInvreqChain(ir *InvoiceRequest) [32]byte {
 // Invoice message (see the TODO at the end of this function). Until then, a
 // caller wiring this into a handler MUST verify the signature itself.
 func ValidateInvoiceRequestRead(ir *InvoiceRequest,
-	activeChain [32]byte) error {
+	activeChain [32]byte,
+	knownFeatures map[lnwire.FeatureBit]string) error {
 
 	// A present-but-nil pubkey passes IsSome but would panic the codec on
 	// encode, so reject both pubkey fields.
@@ -506,7 +509,7 @@ func ValidateInvoiceRequestRead(ir *InvoiceRequest,
 
 	// - if invreq_features contains unknown *even* bits that are non-zero:
 	//   - MUST reject the invoice request.
-	if err := checkFeatures(ir.InvreqFeatures); err != nil {
+	if err := checkFeatures(ir.InvreqFeatures, knownFeatures); err != nil {
 		return err
 	}
 
@@ -798,7 +801,9 @@ func isKnownOfferTLVType(typ tlv.Type) bool {
 // defaults to Bitcoin mainnet, and the reader must reject offers that do not
 // list a chain it operates on. Pass the genesis hash of the chain the receiver
 // is willing to settle on.
-func ValidateOfferRead(o *Offer, now time.Time, activeChain [32]byte) error {
+func ValidateOfferRead(o *Offer, now time.Time, activeChain [32]byte,
+	knownFeatures map[lnwire.FeatureBit]string) error {
+
 	// A present-but-nil offer_issuer_id passes IsSome but would panic the
 	// codec on encode, so reject it here.
 	if err := checkPubKeyNotNil(
@@ -806,7 +811,6 @@ func ValidateOfferRead(o *Offer, now time.Time, activeChain [32]byte) error {
 	); err != nil {
 		return err
 	}
-
 	// Check TLV types are in allowed range and that unknown even types are
 	// rejected (even = must-understand).
 	for _, t := range sortedTypes(o.decodedTLVs) {
@@ -820,7 +824,7 @@ func ValidateOfferRead(o *Offer, now time.Time, activeChain [32]byte) error {
 	}
 
 	// Check for unknown even feature bits.
-	if err := checkFeatures(o.OfferFeatures); err != nil {
+	if err := checkFeatures(o.OfferFeatures, knownFeatures); err != nil {
 		return err
 	}
 
@@ -1029,15 +1033,13 @@ func checkISO4217[T tlv.TlvType](opt tlv.OptionalRecordT[T, tlv.Blob]) error {
 
 // checkFeatures rejects any unknown even (must-understand) feature bit.
 func checkFeatures[T tlv.TlvType](
-	opt tlv.OptionalRecordT[T, lnwire.RawFeatureVector]) error {
+	opt tlv.OptionalRecordT[T, lnwire.RawFeatureVector],
+	known map[lnwire.FeatureBit]string) error {
 
 	return fn.MapOptionZ(
 		opt.ValOpt(),
 		func(fv lnwire.RawFeatureVector) error {
-			// nil catalogue: BOLT 12 defines no feature bits yet,
-			// so every set even bit is "unknown". Swap in a
-			// Bolt12Features map once the spec assigns bits.
-			wrapped := lnwire.NewFeatureVector(&fv, nil)
+			wrapped := lnwire.NewFeatureVector(&fv, known)
 			unknown := wrapped.UnknownRequiredFeatures()
 			if len(unknown) == 0 {
 				return nil

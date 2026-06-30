@@ -242,6 +242,7 @@ func TestValidateOfferRead(t *testing.T) {
 		name        string
 		mutate      func(*Offer)
 		activeChain [32]byte
+		known       map[lnwire.FeatureBit]string
 		wantErr     error
 	}{
 		{
@@ -632,6 +633,21 @@ func TestValidateOfferRead(t *testing.T) {
 			activeChain: bitcoinMainnetGenesisHash,
 			wantErr:     ErrUnknownEvenType,
 		},
+		{
+			name: "known even feature bit accepted",
+			mutate: func(o *Offer) {
+				o.OfferFeatures = tlv.SomeRecordT(
+					tlv.NewRecordT[tlv.TlvType12](
+						*lnwire.NewRawFeatureVector(0),
+					),
+				)
+			},
+			activeChain: bitcoinMainnetGenesisHash,
+			known: map[lnwire.FeatureBit]string{
+				0: "test_feature",
+			},
+			wantErr: nil,
+		},
 	}
 
 	for _, tc := range tests {
@@ -643,7 +659,9 @@ func TestValidateOfferRead(t *testing.T) {
 				o := validBobOffer(t)
 				tc.mutate(o)
 
-				err := ValidateOfferRead(o, now, tc.activeChain)
+				err := ValidateOfferRead(
+					o, now, tc.activeChain, tc.known,
+				)
 				if tc.wantErr == nil {
 					require.NoError(t, err)
 
@@ -1198,6 +1216,7 @@ func TestValidateInvoiceRequestReadSentinels(t *testing.T) {
 	tests := []struct {
 		name    string
 		mutate  func(*InvoiceRequest)
+		known   map[lnwire.FeatureBit]string
 		wantErr error
 	}{
 		{
@@ -1413,6 +1432,20 @@ func TestValidateInvoiceRequestReadSentinels(t *testing.T) {
 			},
 			wantErr: ErrUnknownEvenFeature,
 		},
+		{
+			name: "known even feature bit accepted",
+			mutate: func(ir *InvoiceRequest) {
+				ir.InvreqFeatures = tlv.SomeRecordT(
+					tlv.NewRecordT[tlv.TlvType84](
+						*lnwire.NewRawFeatureVector(0),
+					),
+				)
+			},
+			known: map[lnwire.FeatureBit]string{
+				0: "test_feature",
+			},
+			wantErr: nil,
+		},
 	}
 
 	for _, tc := range tests {
@@ -1422,8 +1455,16 @@ func TestValidateInvoiceRequestReadSentinels(t *testing.T) {
 			ir := validInvoiceRequest(t)
 			tc.mutate(ir)
 
+			if tc.name == "known even feature bit accepted" {
+				ir.Signature = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType240](
+						[64]byte{0x01},
+					),
+				)
+			}
+
 			err := ValidateInvoiceRequestRead(
-				ir, bitcoinMainnetGenesisHash,
+				ir, bitcoinMainnetGenesisHash, tc.known,
 			)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
@@ -1464,7 +1505,7 @@ func TestValidateInvoiceRequestReadAmountBelowExpected(t *testing.T) {
 	ir.InvreqAmount = tlv.SomeRecordT(
 		tlv.NewRecordT[tlv.TlvType82](TUint64(1999)),
 	)
-	err := ValidateInvoiceRequestRead(ir, bitcoinMainnetGenesisHash)
+	err := ValidateInvoiceRequestRead(ir, bitcoinMainnetGenesisHash, nil)
 	require.ErrorIs(t, err, ErrAmountBelowExpected)
 }
 
@@ -1512,7 +1553,7 @@ func TestValidateInvoiceRequestAmountOverflow(t *testing.T) {
 
 	// The reader MUST reject the overflowing request.
 	readErr := ValidateInvoiceRequestRead(
-		newRequest(), bitcoinMainnetGenesisHash,
+		newRequest(), bitcoinMainnetGenesisHash, nil,
 	)
 	require.ErrorIs(t, readErr, ErrAmountBelowExpected)
 
@@ -1538,7 +1579,7 @@ func TestValidateInvoiceRequestReadChain(t *testing.T) {
 		t.Parallel()
 
 		ir := validInvoiceRequest(t)
-		err := ValidateInvoiceRequestRead(ir, altChain)
+		err := ValidateInvoiceRequestRead(ir, altChain, nil)
 		require.ErrorIs(t, err, ErrUnsupportedChain)
 	})
 
@@ -1552,7 +1593,7 @@ func TestValidateInvoiceRequestReadChain(t *testing.T) {
 		// The chain check runs before signature verification, so a
 		// mismatched chain is rejected regardless of the signature.
 		err := ValidateInvoiceRequestRead(
-			ir, bitcoinMainnetGenesisHash,
+			ir, bitcoinMainnetGenesisHash, nil,
 		)
 		require.ErrorIs(t, err, ErrUnsupportedChain)
 	})

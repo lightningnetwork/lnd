@@ -1827,7 +1827,12 @@ type OnionMessageUpdate struct {
 	// along its designated path.
 	Onion []byte `protobuf:"bytes,3,opt,name=onion,proto3" json:"onion,omitempty"`
 	// reply_path is the blinded path that should be used when replying to a
-	// received message.
+	// received message. The introduction_node field is passed through verbatim
+	// from the wire. It may carry either the 33-byte SEC1 compressed pubkey
+	// form or the 9-byte sciddir form. The sciddir form consists of a 1-byte
+	// direction selector (0x00 or 0x01) followed by an 8-byte short channel ID.
+	// Subscribers that intend to reply resolve the sciddir form against their
+	// local channel graph.
 	ReplyPath *BlindedPath `protobuf:"bytes,4,opt,name=reply_path,json=replyPath,proto3" json:"reply_path,omitempty"`
 	// encrypted_recipient_data is the encrypted data that contains the
 	// forwarding information for an onion message. It contains either

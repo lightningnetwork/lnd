@@ -175,6 +175,13 @@ type ChannelArbitratorConfig struct {
 	// spend his/her outgoing HTLC via the timeout path.
 	FindOutgoingHTLCDeadline func(htlc channeldb.HTLC) fn.Option[int32]
 
+	// subscribeBlockbeats lets a resolver temporarily subscribe to the
+	// channel arbitrator's ordered blockbeat stream while it is actively
+	// waiting for block-based resolution. This is intentionally private to
+	// contractcourt because resolver blockbeat subscriptions are internal
+	// coordination between the ChannelArbitrator and resolver goroutines.
+	subscribeBlockbeats func() (*blockbeatSubscription, func())
+
 	ChainArbitratorConfig
 }
 
@@ -315,6 +322,68 @@ func (h HtlcSetKey) String() string {
 	}
 }
 
+// blockbeatUpdate delivers one blockbeat to a resolver subscription together
+// with the per-beat error channel used to ack that delivery.
+//
+// The ack channel is deliberately scoped to one beat so a late ack after a
+// dispatcher timeout cannot be reused as the ack for a later beat.
+type blockbeatUpdate struct {
+	beat    chainio.Blockbeat
+	errChan chan error
+}
+
+// ack signals that the resolver has finished processing this blockbeat update.
+//
+// Resolver subscriptions are part of the ChannelArbitrator's ordered
+// blockbeat processing path, not fire-and-forget block notifications. The
+// arbitrator waits for this ack after it launches resolvers for a height and
+// before it marks its own parent blockbeat as processed. This preserves the
+// launch-before-expiry ordering and ensures a block is not considered handled
+// until subscribed resolvers have finished their height-dependent work.
+func (b blockbeatUpdate) ack(err error) {
+	select {
+	case b.errChan <- err:
+	default:
+	}
+}
+
+// blockbeatSubscription is a temporary blockbeat subscription owned by the
+// ChannelArbitrator and consumed by a resolver while that resolver is in the
+// part of Resolve that is actually waiting for block-based progress.
+//
+// This type exists because contract resolvers are not long-lived subsystems. A
+// normal chainio.Consumer such as ChainArbitrator, ChannelArbitrator,
+// chainWatcher, or the sweeper owns a goroutine that continuously selects on
+// its BlockbeatChan for as long as the subsystem is running. That makes it
+// safe for a parent dispatcher to call ProcessBlock at any time and wait for
+// the consumer to acknowledge the beat.
+//
+// An htlcIncomingContestResolver has a narrower lifecycle. Launch only needs a
+// current-height snapshot, and Resolve can return before it starts waiting for
+// blocks if it finds a preimage, receives an immediate invoice result, or sees
+// that the HTLC is already expired. Once Resolve does enter its wait loop, it
+// needs ordered blockbeats so expiry is processed after the
+// ChannelArbitrator has retried Launch for the same block. Outside that wait
+// loop, however, there is no resolver goroutine guaranteed to be reading a
+// beat channel.
+//
+// Making the resolver itself a chainio.Consumer would therefore expose an
+// always-ready ProcessBlock method for an object that is only sometimes ready.
+// Dispatching to such a resolver can block until the dispatcher timeout if
+// the resolver is active but has not yet reached its block-waiting select, or
+// if it has already returned.
+//
+// A blockbeatSubscription models the smaller lifecycle directly. The resolver
+// creates one only after it has reached the phase where it can receive and ack
+// blockbeats, and it cancels the subscription when Resolve returns. The
+// ChannelArbitrator dispatches blockbeats only to the currently registered
+// subscriptions, preserving the parent-waits-for-child-ack pattern without
+// pretending that a resolver is an always-running blockbeat consumer.
+type blockbeatSubscription struct {
+	blockbeatChan chan blockbeatUpdate
+	quit          chan struct{}
+}
+
 // ChannelArbitrator is the on-chain arbitrator for a particular channel. The
 // struct will keep in sync with the current set of HTLCs on the commitment
 // transaction. The job of the attendant is to go on-chain to either settle or
@@ -365,6 +434,14 @@ type ChannelArbitrator struct {
 	// resolvers slice.
 	activeResolversLock sync.RWMutex
 
+	// blockbeatSubs is the set of active resolver blockbeat subscriptions.
+	// Membership can change while a blockbeat is being dispatched. This is
+	// safe: canceled subscriptions close their quit channel, subscribers
+	// ack delivered beats, and newly registered resolvers check the
+	// current best height after subscribing to catch a beat that arrived
+	// before they were in the set.
+	blockbeatSubs lnutils.SyncMap[*blockbeatSubscription, struct{}]
+
 	// resolutionSignal is a channel that will be sent upon by contract
 	// resolvers once their contract has been fully resolved. With each
 	// send, we'll check to see if the contract is fully resolved.
@@ -409,6 +486,13 @@ func NewChannelArbitrator(cfg ChannelArbitratorConfig,
 		unmergedSet:      unmerged,
 		cfg:              cfg,
 		quit:             make(chan struct{}),
+	}
+	c.cfg.subscribeBlockbeats = c.subscribeBlockbeats
+
+	// The log keeps its own config copy and uses it when decoding
+	// persisted resolvers, so setting c.cfg above is not enough.
+	if boltLog, ok := log.(*boltArbitratorLog); ok {
+		boltLog.cfg.subscribeBlockbeats = c.subscribeBlockbeats
 	}
 
 	// Mount the block consumer.
@@ -1632,6 +1716,182 @@ func (c *ChannelArbitrator) launchResolvers() {
 
 			return
 		}
+	}
+}
+
+// subscribeBlockbeats registers a resolver as ready to receive ordered
+// blockbeats from this ChannelArbitrator.
+func (c *ChannelArbitrator) subscribeBlockbeats() (
+	*blockbeatSubscription, func()) {
+
+	sub := &blockbeatSubscription{
+		blockbeatChan: make(chan blockbeatUpdate),
+		quit:          make(chan struct{}),
+	}
+	c.blockbeatSubs.Store(sub, struct{}{})
+
+	cancel := func() {
+		c.cancelBlockbeatSubscription(sub)
+	}
+
+	return sub, cancel
+}
+
+// cancelBlockbeatSubscription removes a resolver blockbeat subscription and
+// closes its quit channel. It is safe to call multiple times.
+func (c *ChannelArbitrator) cancelBlockbeatSubscription(
+	sub *blockbeatSubscription) {
+
+	if _, ok := c.blockbeatSubs.LoadAndDelete(sub); !ok {
+		log.Debugf("ChannelArbitrator(%v): resolver blockbeat "+
+			"subscription=%p already canceled",
+			c.cfg.ChanPoint, sub)
+
+		return
+	}
+
+	log.Debugf("ChannelArbitrator(%v): canceling resolver blockbeat "+
+		"subscription=%p", c.cfg.ChanPoint, sub)
+
+	close(sub.quit)
+}
+
+// dispatchBlockbeatToSubscribers notifies registered resolver blockbeat
+// subscriptions of the latest blockbeat. This is called after launchResolvers
+// so contest resolvers process expiry after any relaunch attempt for the same
+// block.
+func (c *ChannelArbitrator) dispatchBlockbeatToSubscribers(
+	beat chainio.Blockbeat) error {
+
+	subs := make([]*blockbeatSubscription, 0)
+	c.blockbeatSubs.Range(func(
+		sub *blockbeatSubscription, _ struct{},
+	) bool {
+
+		subs = append(subs, sub)
+
+		return true
+	})
+
+	errChan := make(chan error, len(subs))
+	var wg sync.WaitGroup
+	for _, sub := range subs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			err := c.dispatchBlockbeatToSub(beat, sub)
+			if err != nil {
+				errChan <- err
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	// Dispatch runs subscribers concurrently, so log every non-nil error.
+	// Return only the last one to keep the caller's single-error contract.
+	var lastErr error
+	for err := range errChan {
+		log.Errorf("ChannelArbitrator(%v): resolver blockbeat "+
+			"dispatch height=%v failed: %v",
+			c.cfg.ChanPoint, beat.Height(), err)
+
+		lastErr = err
+	}
+
+	return lastErr
+}
+
+// dispatchBlockbeatToSub sends a blockbeat to one resolver subscription and
+// waits for its ack.
+func (c *ChannelArbitrator) dispatchBlockbeatToSub(
+	beat chainio.Blockbeat, sub *blockbeatSubscription) error {
+
+	timeout := time.NewTimer(chainio.DefaultProcessBlockTimeout)
+	defer timeout.Stop()
+
+	processTimeoutErr := func(stage string) error {
+		log.Debugf("ChannelArbitrator(%v): resolver blockbeat "+
+			"subscriber=%p timed out while %s height=%v",
+			c.cfg.ChanPoint, sub, stage, beat.Height())
+
+		return fmt.Errorf("resolver blockbeat subscriber: %w",
+			chainio.ErrProcessBlockTimeout)
+	}
+	// Each delivery gets its own ack channel. If the dispatcher times out,
+	// a late resolver ack lands only on this update and cannot satisfy a
+	// future delivery.
+	update := blockbeatUpdate{
+		beat:    beat,
+		errChan: make(chan error, 1),
+	}
+
+	// The timeout covers both sending the beat and waiting for the ack. A
+	// resolver can register before its receive loop is scheduled, so the
+	// send itself must not be allowed to block arbitrator block processing
+	// indefinitely.
+	select {
+	case sub.blockbeatChan <- update:
+		log.Debugf("ChannelArbitrator(%v): dispatched resolver "+
+			"blockbeat height=%v to subscriber=%p",
+			c.cfg.ChanPoint, beat.Height(), sub)
+
+	case <-sub.quit:
+		log.Debugf("ChannelArbitrator(%v): resolver blockbeat "+
+			"subscriber=%p canceled before dispatch height=%v",
+			c.cfg.ChanPoint, sub, beat.Height())
+
+		return nil
+
+	case <-c.quit:
+		log.Debugf("ChannelArbitrator(%v): stopping resolver "+
+			"blockbeat dispatch for height=%v",
+			c.cfg.ChanPoint, beat.Height())
+
+		return nil
+
+	case <-timeout.C:
+		return processTimeoutErr("sending beat")
+	}
+
+	select {
+	case err := <-update.errChan:
+		log.Debugf("ChannelArbitrator(%v): resolver blockbeat "+
+			"subscriber=%p acked height=%v with err=%v",
+			c.cfg.ChanPoint, sub, beat.Height(), err)
+
+		return err
+
+	case <-sub.quit:
+		select {
+		case err := <-update.errChan:
+			log.Debugf("ChannelArbitrator(%v): resolver blockbeat "+
+				"subscriber=%p canceled after ack height=%v "+
+				"with err=%v", c.cfg.ChanPoint, sub,
+				beat.Height(), err)
+
+			return err
+
+		default:
+		}
+
+		log.Debugf("ChannelArbitrator(%v): resolver blockbeat "+
+			"subscriber=%p canceled before ack height=%v",
+			c.cfg.ChanPoint, sub, beat.Height())
+
+		return nil
+
+	case <-c.quit:
+		log.Debugf("ChannelArbitrator(%v): stopping resolver "+
+			"blockbeat ack wait for height=%v",
+			c.cfg.ChanPoint, beat.Height())
+
+		return nil
+
+	case <-timeout.C:
+		return processTimeoutErr("waiting for ack")
 	}
 }
 
@@ -3016,7 +3276,7 @@ func (c *ChannelArbitrator) handleBlockbeat(beat chainio.Blockbeat) error {
 		// their own `launched` states.
 		c.launchResolvers()
 
-		return nil
+		return c.dispatchBlockbeatToSubscribers(beat)
 	}
 
 	// Perform a non-blocking read on the close events in case the channel
@@ -3037,6 +3297,10 @@ func (c *ChannelArbitrator) handleBlockbeat(beat chainio.Blockbeat) error {
 
 	// Launch all active resolvers when a new blockbeat is received.
 	c.launchResolvers()
+	if err := c.dispatchBlockbeatToSubscribers(beat); err != nil {
+		return fmt.Errorf("unable to dispatch resolver "+
+			"blockbeat: %w", err)
+	}
 
 	return nil
 }

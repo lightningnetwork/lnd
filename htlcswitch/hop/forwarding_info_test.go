@@ -21,7 +21,7 @@ func TestValidateFinalHtlc(t *testing.T) {
 	fwdInfo := ForwardingInfo{
 		AmountToForward: amount,
 		OutgoingCLTV:    expiry,
-		NextHop:         Exit,
+		NextHop:         NewChannelNextHop(Exit),
 	}
 
 	testCases := []struct {
@@ -115,7 +115,7 @@ func TestValidateFinalHtlc(t *testing.T) {
 		fwdInfo: ForwardingInfo{
 			AmountToForward: amount,
 			OutgoingCLTV:    expiry + maxCltvDelta + 2,
-			NextHop:         Exit,
+			NextHop:         NewChannelNextHop(Exit),
 		},
 		validateAmount: true,
 		expected:       FinalHtlcInvalidCltv,

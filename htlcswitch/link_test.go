@@ -776,8 +776,9 @@ func testChannelLinkInboundFee(t *testing.T, //nolint:thelper
 	hops := []*hop.Payload{
 		{
 			FwdInfo: hop.ForwardingInfo{
-				NextHop: n.carolChannelLink.
-					ShortChanID(),
+				NextHop: hop.NewChannelNextHop(
+					n.carolChannelLink.ShortChanID(),
+				),
 				AmountToForward: 1_000_000,
 				OutgoingCLTV:    106,
 			},

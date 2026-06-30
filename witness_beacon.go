@@ -47,16 +47,23 @@ type preimageBeacon struct {
 	interceptor func(htlcswitch.InterceptedForward) error
 
 	cancelInterceptor func(models.CircuitKey) error
+
+	// circuitLookup resolves an in-flight HTLC's outgoing channel from its
+	// incoming circuit key. It recovers the outgoing channel for a node-ID
+	// next hop, which carries no outgoing short channel ID in its payload.
+	circuitLookup htlcswitch.CircuitLookup
 }
 
 func newPreimageBeacon(wCache witnessCache,
 	interceptor func(htlcswitch.InterceptedForward) error,
-	cancelInterceptor func(models.CircuitKey) error) *preimageBeacon {
+	cancelInterceptor func(models.CircuitKey) error,
+	circuitLookup htlcswitch.CircuitLookup) *preimageBeacon {
 
 	return &preimageBeacon{
 		wCache:            wCache,
 		interceptor:       interceptor,
 		cancelInterceptor: cancelInterceptor,
+		circuitLookup:     circuitLookup,
 		subscribers:       make(map[uint64]*preimageSubscriber),
 	}
 }
@@ -106,6 +113,21 @@ func (p *preimageBeacon) SubscribeUpdates(
 		},
 	}
 
+	// A node-ID next hop carries no outgoing short channel ID in its
+	// payload. The switch resolved one via non-strict forwarding when it
+	// first forwarded the HTLC, so recover that channel from the circuit
+	// rather than reporting hop.Exit to the interceptor. This is
+	// best-effort: if the circuit is no longer known or its keystone was
+	// never set, we fall back to hop.Exit.
+	outgoingChanID := payload.FwdInfo.NextHopChannel().UnwrapOr(hop.Exit)
+	if payload.FwdInfo.NextHopChannel().IsNone() && p.circuitLookup != nil {
+		if c := p.circuitLookup.LookupCircuit(inKey); c != nil &&
+			c.Outgoing != nil {
+
+			outgoingChanID = c.Outgoing.ChanID
+		}
+	}
+
 	// Notify the htlc interceptor. There may be a client connected
 	// and willing to supply a preimage.
 	packet := &htlcswitch.InterceptedPacket{
@@ -113,7 +135,7 @@ func (p *preimageBeacon) SubscribeUpdates(
 		IncomingExpiry:       htlc.RefundTimeout,
 		IncomingAmount:       htlc.Amt,
 		IncomingCircuit:      inKey,
-		OutgoingChanID:       payload.FwdInfo.NextHop,
+		OutgoingChanID:       outgoingChanID,
 		OutgoingExpiry:       payload.FwdInfo.OutgoingCLTV,
 		OutgoingAmount:       payload.FwdInfo.AmountToForward,
 		InOnionCustomRecords: payload.CustomRecords(),

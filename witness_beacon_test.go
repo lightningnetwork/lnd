@@ -31,6 +31,7 @@ func TestWitnessBeaconIntercept(t *testing.T) {
 
 	p := newPreimageBeacon(
 		&mockWitnessCache{}, interceptor, cancelInterceptor,
+		nil,
 	)
 
 	preimage := lntypes.Preimage{1, 2, 3}
@@ -73,6 +74,7 @@ func TestWitnessBeaconInterceptErrorCancels(t *testing.T) {
 
 	p := newPreimageBeacon(
 		&mockWitnessCache{}, interceptor, cancelInterceptor,
+		nil,
 	)
 
 	chanID := lnwire.NewShortChanIDFromInt(1)

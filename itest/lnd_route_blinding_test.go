@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,12 +11,15 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -381,6 +385,78 @@ func (b *blindedForwardTest) setupNetwork(ctx context.Context,
 		)
 		require.NoError(b.ht, err, "interceptor")
 	}
+}
+
+// setupNetworkPrivateMiddle sets up the same Alice -> Bob -> Carol -> Dave
+// network as setupNetwork (with an interceptor on Carol), except that the
+// Bob -> Carol channel is private. This is the channel the introduction node
+// (Bob) must resolve to from Carol's node ID, exercising resolution to an SCID
+// alias of an unadvertised channel.
+func (b *blindedForwardTest) setupNetworkPrivateMiddle(ctx context.Context) {
+	carolArgs := []string{
+		"--bitcoin.timelockdelta=24",
+		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", toLocalCSV),
+		"--requireinterceptor",
+	}
+	daveArgs := []string{
+		"--bitcoin.timelockdelta=24",
+		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", toLocalCSV),
+	}
+
+	alice := b.ht.NewNode("Alice", nil)
+	bob := b.ht.NewNode("Bob", nil)
+	carol := b.ht.NewNode("Carol", carolArgs)
+	dave := b.ht.NewNode("Dave", daveArgs)
+	b.alice, b.bob, b.carol, b.dave = alice, bob, carol, dave
+
+	b.ht.EnsureConnected(alice, bob)
+	b.ht.EnsureConnected(bob, carol)
+	b.ht.EnsureConnected(carol, dave)
+
+	// Fund every node that opens a channel.
+	const chanAmt = btcutil.Amount(100_000)
+	b.ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+	b.ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+	b.ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+
+	// Open Alice -> Bob and Carol -> Dave as public channels, but Bob ->
+	// Carol (the hop the introduction node must resolve by node ID) as a
+	// private channel, so it is only reachable via an SCID alias.
+	reqs := []*lntest.OpenChannelRequest{
+		{
+			Local:  alice,
+			Remote: bob,
+			Param:  lntest.OpenChannelParams{Amt: chanAmt},
+		},
+		{
+			Local:  bob,
+			Remote: carol,
+			Param: lntest.OpenChannelParams{
+				Amt:     chanAmt,
+				Private: true,
+			},
+		},
+		{
+			Local:  carol,
+			Remote: dave,
+			Param:  lntest.OpenChannelParams{Amt: chanAmt},
+		},
+	}
+	b.channels = b.ht.OpenMultiChannelsAsync(reqs)
+
+	// Alice must know the public Alice -> Bob channel to build a route to
+	// the introduction node, and Bob and Carol must both know the private
+	// Bob -> Carol channel used for forwarding.
+	b.ht.AssertChannelInGraph(alice, b.channels[0])
+	b.ht.AssertChannelInGraph(bob, b.channels[0])
+	b.ht.AssertChannelInGraph(bob, b.channels[1])
+	b.ht.AssertChannelInGraph(carol, b.channels[1])
+	b.ht.AssertChannelInGraph(carol, b.channels[2])
+	b.ht.AssertChannelInGraph(dave, b.channels[2])
+
+	var err error
+	b.carolInterceptor, err = b.carol.RPC.Router.HtlcInterceptor(ctx)
+	require.NoError(b.ht, err, "interceptor")
 }
 
 // buildBlindedPath returns a blinded route from Bob -> Carol -> Dave, with Bob
@@ -1423,6 +1499,347 @@ func testBlindedPaymentHTLCReForward(ht *lntest.HarnessTest) {
 	case <-done:
 	case <-time.After(defaultTimeout):
 		require.Fail(ht, "timeout waiting for sending payment")
+	}
+}
+
+// nextNodeIDRouteData builds the recipient data for a non-final blinded hop
+// that identifies the next hop by its node ID (next_node_id) rather than a
+// short channel ID. This is the form of recipient data that a non-lnd
+// implementation (e.g. Core Lightning) may produce and that the forwarding node
+// must resolve to one of its active channels.
+func nextNodeIDRouteData(nextNode *btcec.PublicKey,
+	relayInfo record.PaymentRelayInfo,
+	constraints *record.PaymentConstraints) *record.BlindedRouteData {
+
+	data := &record.BlindedRouteData{
+		NextNodeID: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType4](nextNode),
+		),
+		RelayInfo: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType10](relayInfo),
+		),
+	}
+
+	if constraints != nil {
+		data.Constraints = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType12](*constraints),
+		)
+	}
+
+	return data
+}
+
+// buildBlindedPathWithNextNodeID constructs a Bob -> Carol -> Dave blinded path
+// in which the non-final hops (Bob and Carol) identify their next hop by node
+// ID instead of a short channel ID. Bob is the introduction node. The returned
+// path can be used to exercise an lnd forwarding node's ability to resolve a
+// next_node_id to one of its active channels.
+func (b *blindedForwardTest) buildBlindedPathWithNextNodeID(
+	paymentAmt int64) *lnrpc.BlindedPaymentPath {
+
+	bobPub, err := btcec.ParsePubKey(b.bob.PubKey[:])
+	require.NoError(b.ht, err)
+
+	carolPub, err := btcec.ParsePubKey(b.carol.PubKey[:])
+	require.NoError(b.ht, err)
+
+	davePub, err := btcec.ParsePubKey(b.dave.PubKey[:])
+	require.NoError(b.ht, err)
+
+	// Use zero fees so that the forwarded amount remains constant along the
+	// path, keeping the route math trivial.
+	const (
+		hopCltvDelta   uint16 = 144
+		finalCltvDelta uint32 = 24
+	)
+
+	// Set a generous max CLTV constraint so that the incoming expiry at
+	// each hop never trips the payment constraints check.
+	info := b.alice.RPC.GetInfo()
+	constraints := &record.PaymentConstraints{
+		MaxCltvExpiry:   info.BlockHeight + 10_000,
+		HtlcMinimumMsat: 0,
+	}
+	relayInfo := record.PaymentRelayInfo{
+		CltvExpiryDelta: hopCltvDelta,
+		FeeRate:         0,
+		BaseFee:         0,
+	}
+
+	// Bob (the introduction node) forwards to Carol and Carol forwards to
+	// Dave, each identified purely by node ID. Dave is the final hop; its
+	// path ID is arbitrary because the payment is settled at Carol via the
+	// interceptor before it ever reaches Dave.
+	hopData := []struct {
+		pub  *btcec.PublicKey
+		data *record.BlindedRouteData
+	}{
+		{
+			pub: bobPub,
+			data: nextNodeIDRouteData(
+				carolPub, relayInfo, constraints,
+			),
+		},
+		{
+			pub: carolPub,
+			data: nextNodeIDRouteData(
+				davePub, relayInfo, constraints,
+			),
+		},
+		{
+			pub: davePub,
+			data: record.NewFinalHopBlindedRouteData(
+				constraints, bytes.Repeat([]byte{1}, 32),
+			),
+		},
+	}
+
+	paymentPath := make([]*sphinx.HopInfo, len(hopData))
+	for i, hop := range hopData {
+		plainText, err := record.EncodeBlindedRouteData(hop.data)
+		require.NoError(b.ht, err)
+
+		paymentPath[i] = &sphinx.HopInfo{
+			NodePub:   hop.pub,
+			PlainText: plainText,
+		}
+	}
+
+	// Encrypt the per-hop data into a blinded path using a fresh session
+	// key.
+	sessionKey, err := btcec.NewPrivateKey()
+	require.NoError(b.ht, err)
+
+	blindedPathInfo, err := sphinx.BuildBlindedPath(sessionKey, paymentPath)
+	require.NoError(b.ht, err)
+	blindedPath := blindedPathInfo.Path
+
+	// The introduction node is communicated in plaintext, so overwrite the
+	// first hop's blinded pub key with the real introduction point.
+	blindedPath.BlindedHops[0].BlindedNodePub =
+		blindedPath.IntroductionPoint
+
+	blindedHops := make(
+		[]*lnrpc.BlindedHop, len(blindedPath.BlindedHops),
+	)
+	for i, hop := range blindedPath.BlindedHops {
+		blindedHops[i] = &lnrpc.BlindedHop{
+			BlindedNode:   hop.BlindedNodePub.SerializeCompressed(),
+			EncryptedData: hop.CipherText,
+		}
+	}
+
+	return &lnrpc.BlindedPaymentPath{
+		BlindedPath: &lnrpc.BlindedPath{
+			IntroductionNode: b.bob.PubKey[:],
+			BlindingPoint: blindedPath.BlindingPoint.
+				SerializeCompressed(),
+			BlindedHops: blindedHops,
+		},
+		BaseFeeMsat:    0,
+		TotalCltvDelta: 2*uint32(hopCltvDelta) + finalCltvDelta,
+		HtlcMinMsat:    0,
+		HtlcMaxMsat:    uint64(paymentAmt) * 2,
+	}
+}
+
+// testBlindedRouteNextNodeID tests that an lnd node acting as the introduction
+// node of a blinded path can forward a payment when the recipient identifies
+// the next hop by its node ID (next_node_id) rather than a short channel ID.
+// The introduction node must resolve the node ID to one of its active channels
+// with that peer. This mirrors interop with implementations (e.g. Core
+// Lightning) that specify blinded next hops by node ID.
+func testBlindedRouteNextNodeID(ht *lntest.HarnessTest) {
+	ctx, testCase := newBlindedForwardTest(ht)
+	defer testCase.cleanup()
+
+	// Set up the Alice -> Bob -> Carol -> Dave network with an interceptor
+	// on Carol. Bob is the introduction node whose node ID resolution we
+	// want to exercise, and Carol's interceptor lets us deterministically
+	// observe that Bob successfully resolved and forwarded the HTLC.
+	testCase.setupNetwork(ctx, true)
+
+	testCase.runNextNodeIDForward(ctx)
+}
+
+// testBlindedRouteNextNodeIDPrivateChannel is like testBlindedRouteNextNodeID,
+// but the Bob -> Carol channel that the introduction node must resolve by node
+// ID is private. This exercises the introduction node's ability to resolve the
+// next node's ID to an SCID alias of an unadvertised channel (option-scid-alias
+// channels are not forwardable by their confirmed SCID).
+func testBlindedRouteNextNodeIDPrivateChannel(ht *lntest.HarnessTest) {
+	ctx, testCase := newBlindedForwardTest(ht)
+	defer testCase.cleanup()
+
+	// Set up Alice -> Bob -> Carol -> Dave where the Bob -> Carol channel
+	// is private, so Bob must resolve Carol's node ID to that channel's
+	// alias.
+	testCase.setupNetworkPrivateMiddle(ctx)
+
+	testCase.runNextNodeIDForward(ctx)
+}
+
+// testBlindedRouteNextNodeIDRestart tests that a blinded payment forwarded by
+// node ID survives a restart of the introduction node. The HTLC is held at the
+// receiver's interceptor after the introduction node (Bob) has resolved the
+// next node's ID and forwarded it. Bob is then restarted, forcing it to replay
+// its forwarding package and re-decode the node-ID blinded hop, after which the
+// in-flight HTLC must remain intact and the payment must still settle.
+func testBlindedRouteNextNodeIDRestart(ht *lntest.HarnessTest) {
+	ctx, testCase := newBlindedForwardTest(ht)
+	defer testCase.cleanup()
+
+	testCase.setupNetwork(ctx, true)
+
+	// Use zero fees on Bob's outgoing channel so the zero-fee path built by
+	// buildBlindedPathWithNextNodeID is not rejected (see
+	// runNextNodeIDForward).
+	bobUpdateReq := &lnrpc.PolicyUpdateRequest{
+		Scope: &lnrpc.PolicyUpdateRequest_ChanPoint{
+			ChanPoint: testCase.channels[1],
+		},
+		BaseFeeMsat:   0,
+		FeeRatePpm:    0,
+		TimeLockDelta: 80,
+	}
+	testCase.bob.RPC.UpdateChannelPolicy(bobUpdateReq)
+
+	const paymentAmt = 10_000_000
+	blindedPath := testCase.buildBlindedPathWithNextNodeID(paymentAmt)
+	route := testCase.createRouteToBlinded(paymentAmt, blindedPath)
+
+	hash := sha256.Sum256(testCase.preimage[:])
+	sendReq := &routerrpc.SendToRouteRequest{
+		PaymentHash: hash[:],
+		Route:       route,
+	}
+
+	// Dispatch the payment in the background; the HTLC will be held by
+	// Carol's interceptor until we resolve it.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+
+		htlcAttempt, err := testCase.alice.RPC.Router.SendToRouteV2(
+			ctx, sendReq,
+		)
+		require.NoError(ht, err)
+		require.Equal(
+			ht, lnrpc.HTLCAttempt_SUCCEEDED, htlcAttempt.Status,
+		)
+	}()
+
+	// Wait until Bob has resolved Carol's node ID and forwarded the HTLC,
+	// which Carol holds at her interceptor.
+	ht.AssertOutgoingHTLCActive(
+		testCase.alice, testCase.channels[0], hash[:],
+	)
+	ht.AssertOutgoingHTLCActive(
+		testCase.bob, testCase.channels[1], hash[:],
+	)
+
+	interceptor := testCase.carolInterceptor
+	carolHTLC, err := interceptor.Recv()
+	require.NoError(ht, err)
+
+	// Restart the introduction node while the HTLC is in flight. On startup
+	// Bob replays its forwarding package and must re-decode the node-ID
+	// blinded hop without disturbing the already-forwarded HTLC.
+	ht.RestartNode(testCase.bob)
+	ht.EnsureConnected(testCase.alice, testCase.bob)
+	ht.EnsureConnected(testCase.bob, testCase.carol)
+
+	// The in-flight HTLC must still be present on the Bob -> Carol channel
+	// after the restart and replay.
+	ht.AssertOutgoingHTLCActive(
+		testCase.bob, testCase.channels[1], hash[:],
+	)
+
+	// Settle at Carol; the payment must complete end to end.
+	err = interceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
+		IncomingCircuitKey: carolHTLC.IncomingCircuitKey,
+		Action:             routerrpc.ResolveHoldForwardAction_SETTLE,
+		Preimage:           testCase.preimage[:],
+	})
+	require.NoError(ht, err)
+
+	select {
+	case <-done:
+	case <-time.After(defaultTimeout):
+		require.Fail(ht, "timeout waiting for payment to complete")
+	}
+}
+
+// runNextNodeIDForward drives a payment along a blinded path whose non-final
+// hops identify the next hop by node ID, asserting that the lnd introduction
+// node (Bob) resolves the node ID to one of its channels and forwards the HTLC
+// to Carol, who settles it via her interceptor.
+func (b *blindedForwardTest) runNextNodeIDForward(ctx context.Context) {
+	ht := b.ht
+
+	// Since buildBlindedPathWithNextNodeID constructs a path with zero
+	// fees to keep routing math trivial, we must update Bob's outgoing
+	// channel policy to have zero fees so that forwarding is not rejected
+	// with FeeInsufficient.
+	bobUpdateReq := &lnrpc.PolicyUpdateRequest{
+		Scope: &lnrpc.PolicyUpdateRequest_ChanPoint{
+			ChanPoint: b.channels[1],
+		},
+		BaseFeeMsat:   0,
+		FeeRatePpm:    0,
+		TimeLockDelta: 80,
+	}
+	b.bob.RPC.UpdateChannelPolicy(bobUpdateReq)
+
+	const paymentAmt = 10_000_000
+	blindedPath := b.buildBlindedPathWithNextNodeID(paymentAmt)
+	route := b.createRouteToBlinded(paymentAmt, blindedPath)
+
+	hash := sha256.Sum256(b.preimage[:])
+	sendReq := &routerrpc.SendToRouteRequest{
+		PaymentHash: hash[:],
+		Route:       route,
+	}
+
+	// Dispatch the payment in the background since the HTLC will be held by
+	// Carol's interceptor until we resolve it.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+
+		htlcAttempt, err := b.alice.RPC.Router.SendToRouteV2(
+			ctx, sendReq,
+		)
+		require.NoError(ht, err)
+		require.Equal(
+			ht, lnrpc.HTLCAttempt_SUCCEEDED, htlcAttempt.Status,
+		)
+	}()
+
+	// The HTLC becoming active on the Bob -> Carol channel demonstrates
+	// that Bob (the lnd introduction node) resolved Carol's node ID to the
+	// Bob -> Carol channel and forwarded the HTLC onwards.
+	ht.AssertOutgoingHTLCActive(b.alice, b.channels[0], hash[:])
+	ht.AssertOutgoingHTLCActive(b.bob, b.channels[1], hash[:])
+
+	// Carol intercepts the forwarded HTLC, confirming that the introduction
+	// node's resolution and forwarding succeeded. Settle it with the
+	// preimage so that Alice's payment completes successfully.
+	interceptor := b.carolInterceptor
+	carolHTLC, err := interceptor.Recv()
+	require.NoError(ht, err)
+
+	err = interceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
+		IncomingCircuitKey: carolHTLC.IncomingCircuitKey,
+		Action:             routerrpc.ResolveHoldForwardAction_SETTLE,
+		Preimage:           b.preimage[:],
+	})
+	require.NoError(ht, err)
+
+	select {
+	case <-done:
+	case <-time.After(defaultTimeout):
+		require.Fail(ht, "timeout waiting for payment to complete")
 	}
 }
 

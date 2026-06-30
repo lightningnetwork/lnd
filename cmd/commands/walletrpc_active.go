@@ -87,6 +87,7 @@ func walletCommands() []cli.Command {
 				listSweepsCommand,
 				labelTxCommand,
 				publishTxCommand,
+				submitPackageCommand,
 				getTxCommand,
 				removeTxCommand,
 				releaseOutputCommand,
@@ -711,6 +712,77 @@ func publishTransaction(ctx *cli.Context) error {
 	}{
 		TXID: msgTx.TxHash().String(),
 	})
+
+	return nil
+}
+
+var submitPackageCommand = cli.Command{
+	Name: "submitpackage",
+	Usage: "Submit a package of related transactions for atomic " +
+		"validation and acceptance.",
+	ArgsUsage: "parent_tx_hex... child_tx_hex",
+	Description: `
+	Submit a package of related, topologically-sorted raw transactions
+	(unconfirmed parents first and the child last) to the chain backend
+	for atomic validation and acceptance via the submitpackage RPC.
+
+	This allows a zero-fee v3/TRUC parent to be accepted via its
+	fee-paying CPFP child, which a standalone broadcast would reject.
+	Each argument is a hex-encoded raw transaction.
+	`,
+	Flags: []cli.Flag{
+		cli.Uint64Flag{
+			Name: "sat_per_vbyte",
+			Usage: "(optional) the maximum fee rate in sat/vByte " +
+				"allowed for any transaction in the package; " +
+				"omit to use the node default, set 0 to " +
+				"disable the limit",
+		},
+	},
+	Action: actionDecorator(submitPackage),
+}
+
+func submitPackage(ctx *cli.Context) error {
+	ctxc := getContext()
+
+	// Display the command's help message if we do not have at least one
+	// transaction.
+	if ctx.NArg() == 0 {
+		return cli.ShowCommandHelp(ctx, "submitpackage")
+	}
+
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	rawTxs := make([][]byte, 0, ctx.NArg())
+	for _, arg := range ctx.Args() {
+		tx, err := hex.DecodeString(arg)
+		if err != nil {
+			return err
+		}
+
+		rawTxs = append(rawTxs, tx)
+	}
+
+	// Only set the max fee rate when explicitly provided; otherwise leave
+	// it unset so the node applies its default.
+	var satPerVByte *uint64
+	if ctx.IsSet("sat_per_vbyte") {
+		rate := ctx.Uint64("sat_per_vbyte")
+		satPerVByte = &rate
+	}
+
+	resp, err := walletClient.SubmitPackage(
+		ctxc, &walletrpc.SubmitPackageRequest{
+			RawTxs:      rawTxs,
+			SatPerVbyte: satPerVByte,
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
 
 	return nil
 }

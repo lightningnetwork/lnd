@@ -504,6 +504,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSignOutputRaw,
 	},
 	{
+		Name:     "submit package",
+		TestFunc: testSubmitPackage,
+	},
+	{
 		Name:     "sign verify message",
 		TestFunc: testSignVerifyMessage,
 	},

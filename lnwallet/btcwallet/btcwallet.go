@@ -12,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/v2"
@@ -1229,6 +1230,91 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	}
 
 	return mapRpcclientError(err)
+}
+
+// neutrinoBroadcastMsg is the PackageMsg returned by the neutrino best-effort
+// path. It is deliberately not "success": a neutrino light client has no
+// mempool, so it cannot confirm the package was accepted. It broadcasts the
+// transactions and reports them as broadcast-but-unverified, which callers
+// must treat as an unverified relay attempt, not a package-accept verdict.
+const neutrinoBroadcastMsg = "broadcast-unverified"
+
+// SubmitPackage submits a package of related transactions (topologically
+// sorted, parents first and child last) for atomic validation and acceptance.
+//
+// Only the bitcoind backend performs real package submission, via the node's
+// submitpackage RPC, which lets a zero-fee v3/TRUC parent be accepted via its
+// fee-paying CPFP child (which sendrawtransaction rejects on its own). The
+// btcd backend has no submitpackage handler and returns ErrUnimplemented.
+//
+// A neutrino light client has no mempool and cannot validate or atomically
+// accept a package. As a best effort it broadcasts each transaction
+// individually over the P2P network and relies on a peer's 1p1c package relay
+// to assemble them. The returned PackageMsg is deliberately not "success": a
+// light client cannot confirm acceptance, so callers must treat the result as
+// an unverified broadcast rather than a package-accept verdict.
+func (b *BtcWallet) SubmitPackage(txns []*wire.MsgTx,
+	maxFeeRate *chainfee.SatPerVByte) (*btcjson.SubmitPackageResult,
+	error) {
+
+	if b.chain.BackEnd() == "neutrino" {
+		// The best-effort neutrino broadcast goes through plain
+		// SendRawTransaction, which cannot enforce a fee-rate ceiling,
+		// so reject a caller-provided limit rather than silently
+		// ignoring it and giving a false sense of protection.
+		if maxFeeRate != nil {
+			return nil, fmt.Errorf("max fee rate is not " +
+				"supported for neutrino package broadcast")
+		}
+
+		for i, tx := range txns {
+			if err := b.PublishTransaction(tx, ""); err != nil {
+				return nil, fmt.Errorf("unable to "+
+					"broadcast package tx %d (%v): %w",
+					i, tx.TxHash(), err)
+			}
+		}
+
+		results := make(
+			map[string]btcjson.SubmitPackageTxResult, len(txns),
+		)
+		for _, tx := range txns {
+			results[tx.WitnessHash().String()] =
+				btcjson.SubmitPackageTxResult{TxID: tx.TxHash()}
+		}
+
+		return &btcjson.SubmitPackageResult{
+			PackageMsg: neutrinoBroadcastMsg,
+			TxResults:  results,
+		}, nil
+	}
+
+	// bitcoind's submitpackage maxfeerate is expressed in BTC/kvB, so map
+	// the optional sat/vByte ceiling onto it. A nil ceiling leaves the node
+	// default unchanged; an explicit 0 disables the limit.
+	var maxFeeRateBTCPerKvB *float64
+	if maxFeeRate != nil {
+		btcPerKvB := satPerVByteToBTCPerKvB(*maxFeeRate)
+		maxFeeRateBTCPerKvB = &btcPerKvB
+	}
+
+	return b.chain.SubmitPackage(txns, maxFeeRateBTCPerKvB)
+}
+
+// vBytesPerKvB is the number of virtual bytes in a kilo-virtual-byte, used to
+// convert a sat/vByte fee rate into the per-kvB unit bitcoind expects.
+const vBytesPerKvB = 1000
+
+// satPerVByteToBTCPerKvB converts a sat/vByte fee rate into the BTC/kvB unit
+// expected by bitcoind's submitpackage maxfeerate argument: 1 sat/vByte is
+// 1000 sat/kvB, and SatoshiPerBitcoin sats make a BTC, so
+// BTC/kvB = sat/vByte * 1000 / SatoshiPerBitcoin.
+//
+// NOTE: the sat/vByte input is integer, so only whole-sat/vByte ceilings are
+// expressible, and very large values lose precision once the float64 product
+// exceeds 2^53.
+func satPerVByteToBTCPerKvB(rate chainfee.SatPerVByte) float64 {
+	return float64(rate) * vBytesPerKvB / btcutil.SatoshiPerBitcoin
 }
 
 // LabelTransaction adds a label to a transaction. If the tx already

@@ -1,6 +1,7 @@
 package sweep
 
 import (
+	"math"
 	"sort"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
@@ -232,12 +233,69 @@ func (b *BudgetAggregator) filterInputs(inputs InputsMap) InputsMap {
 		// https://github.com/lightning/bolts/blob/master/03-transactions.md#appendix-a-expected-weights
 		wu := lntypes.VByte(input.InputSize).ToWU() + witnessSize
 
+		// If an aux sweeper is set, it may contribute an extra budget
+		// to any input set this input becomes part of. The input's own
+		// budget may be tiny (e.g. for custom channel outputs whose
+		// value is mostly carried off-chain), so without accounting
+		// for the extra budget here we'd filter such inputs out
+		// permanently, even though their input set could comfortably
+		// pay its fees.
+		//
+		// The AuxSweeper interface requires the contribution to be
+		// non-negative and additive across inputs, so a singleton
+		// call returns this input's share and per-input credits sum
+		// to the set-level total used at set construction. On a
+		// lookup error we fall back to zero extra budget rather than
+		// dropping the input, so a transient aux failure doesn't
+		// recreate the silently-stranded mode this guard is meant to
+		// avoid.
+		extraBudget, err := fn.MapOptionZ(
+			b.auxSweeper,
+			func(aux AuxSweeper) fn.Result[btcutil.Amount] {
+				return aux.ExtraBudgetForInputs(
+					[]input.Input{pi.Input},
+				)
+			},
+		).Unpack()
+		if err != nil {
+			log.Errorf("Unable to fetch extra budget for "+
+				"input=%v, falling back to own budget: %v",
+				op, err)
+
+			extraBudget = 0
+		}
+
+		// Defensively clamp and saturate against a misbehaving aux
+		// implementation or an unexpectedly negative own budget. The
+		// aux contract requires a non-negative, bounded value, and
+		// pi.params.Budget is in-tree and derived from non-negative
+		// output amounts, but each value has a distinct failure mode
+		// if it goes negative: a negative extraBudget would lower the
+		// sum and re-strand the input the guard is meant to protect,
+		// while a negative budget would overflow the MaxInt64-budget
+		// headroom check, wrongly trip the saturation branch, and
+		// falsely promote the input to MaxInt64 — defeating the
+		// affordability filter. Clamping both to non-negative before
+		// the saturating add closes both paths.
+		if extraBudget < 0 {
+			extraBudget = 0
+		}
+		budget := pi.params.Budget
+		if budget < 0 {
+			budget = 0
+		}
+		if extraBudget > math.MaxInt64-budget {
+			budget = btcutil.Amount(math.MaxInt64)
+		} else {
+			budget += extraBudget
+		}
+
 		// Skip inputs that has too little budget.
 		minFee := minFeeRate.FeeForWeight(wu)
-		if pi.params.Budget < minFee {
+		if budget < minFee {
 			log.Warnf("Skipped input=%v: has budget=%v, but the "+
 				"min fee requires %v (feerate=%v), size=%v", op,
-				pi.params.Budget, minFee,
+				budget, minFee,
 				minFeeRate.FeePerVByte(), wu.ToVB())
 
 			continue
@@ -248,10 +306,10 @@ func (b *BudgetAggregator) filterInputs(inputs InputsMap) InputsMap {
 			chainfee.SatPerKWeight(0),
 		)
 		startingFee := startingFeeRate.FeeForWeight(wu)
-		if pi.params.Budget < startingFee {
+		if budget < startingFee {
 			log.Errorf("Skipped input=%v: has budget=%v, but the "+
 				"starting fee requires %v (feerate=%v), "+
-				"size=%v", op, pi.params.Budget, startingFee,
+				"size=%v", op, budget, startingFee,
 				startingFeeRate.FeePerVByte(), wu.ToVB())
 
 			continue

@@ -2623,8 +2623,8 @@ func (s *server) Start(ctx context.Context) error {
 				ChainNet:    s.cfg.ActiveNetParams.Net,
 			}
 
-			err = s.ConnectToPeer(
-				peerAddr, true,
+			_, err = s.ConnectToPeer(
+				peerAddr, true, false,
 				s.cfg.ConnectionTimeout,
 			)
 			if err != nil {
@@ -2877,7 +2877,7 @@ func (s *server) Stop() error {
 		// Disconnect from each active peers to ensure that
 		// peerTerminationWatchers signal completion to each peer.
 		for _, peer := range s.Peers() {
-			err := s.DisconnectPeer(peer.IdentityKey())
+			err := s.DisconnectPeer(peer.IdentityKey(), false, false)
 			if err != nil {
 				srvrLog.Warnf("could not disconnect peer: %v"+
 					"received error: %v", peer.IdentityKey(),
@@ -3785,6 +3785,45 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 		nodeAddrsMap[pubStr] = nodeAddr
 	}
 
+	// Also fetch peers that the user has explicitly requested to remain
+	// connected to across restarts (e.g. via `lncli connect --perm`).
+	// These should be reconnected to on startup regardless of whether
+	// we share a channel with them.
+	userPermPeers, err := s.miscDB.FetchAllPersistentPeers()
+	if err != nil {
+		return fmt.Errorf("failed to fetch user persistent peers: %w",
+			err)
+	}
+
+	if len(userPermPeers) > 0 {
+		srvrLog.Infof("Reconnecting to %d user-requested persistent "+
+			"peer(s) from DB", len(userPermPeers))
+	}
+
+	userPermPeerSet := make(map[string]struct{}, len(userPermPeers))
+	for _, pp := range userPermPeers {
+		pubStr := string(pp.PubKey.SerializeCompressed())
+		userPermPeerSet[pubStr] = struct{}{}
+
+		n, ok := nodeAddrsMap[pubStr]
+		if !ok {
+			n = &nodeAddresses{pubKey: pp.PubKey}
+			nodeAddrsMap[pubStr] = n
+		}
+
+		seen := make(map[string]struct{}, len(n.addresses))
+		for _, a := range n.addresses {
+			seen[a.String()] = struct{}{}
+		}
+		for _, addr := range withoutV2Onion(pp.Addresses) {
+			if _, ok := seen[addr.String()]; ok {
+				continue
+			}
+			seen[addr.String()] = struct{}{}
+			n.addresses = append(n.addresses, addr)
+		}
+	}
+
 	srvrLog.Debugf("Establishing %v persistent connections on start",
 		len(nodeAddrsMap))
 
@@ -3798,11 +3837,12 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 	var numOutboundConns int
 	for pubStr, nodeAddr := range nodeAddrsMap {
 		// Add this peer to the set of peers we should maintain a
-		// persistent connection with. We set the value to false to
-		// indicate that we should not continue to reconnect if the
-		// number of channels returns to zero, since this peer has not
-		// been requested as perm by the user.
-		s.persistentPeers[pubStr] = false
+		// persistent connection with. Peers that the user has
+		// explicitly marked as permanent are stored as `true` so that
+		// they are not pruned when the channel count drops to zero.
+		// All others are stored as `false`.
+		_, userPerm := userPermPeerSet[pubStr]
+		s.persistentPeers[pubStr] = userPerm
 		if _, ok := s.persistentPeersBackoff[pubStr]; !ok {
 			s.persistentPeersBackoff[pubStr] = s.cfg.MinBackoff
 		}
@@ -4465,7 +4505,7 @@ func (s *server) notifyFundingTimeoutPeerEvent(op wire.OutPoint,
 	if errors.Is(err, ErrNoMoreRestrictedAccessSlots) {
 		// If we encounter an error while attempting to disconnect the
 		// peer, log the error.
-		if dcErr := s.DisconnectPeer(remotePub); dcErr != nil {
+		if dcErr := s.DisconnectPeer(remotePub, false, false); dcErr != nil {
 			srvrLog.Errorf("Unable to disconnect peer: %v\n", err)
 		}
 	}
@@ -4598,7 +4638,9 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		ChannelNotifier: s.channelNotifier,
 		HtlcNotifier:    s.htlcNotifier,
 		TowerClient:     towerClient,
-		DisconnectPeer:  s.DisconnectPeer,
+		DisconnectPeer: func(pk *btcec.PublicKey) error {
+			return s.DisconnectPeer(pk, false, false)
+		},
 		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
 			lnwire.NodeAnnouncement1, error) {
 
@@ -5158,9 +5200,14 @@ func (s *server) removePeerUnsafe(ctx context.Context, p *peer.Brontide) {
 // at the specified address. This function will *block* until either a
 // connection is established, or the initial handshake process fails.
 //
+// The returned status string, when non-empty, contains a human-readable
+// description of the action taken (e.g. "already connected; marked as
+// persistent"). When empty, the caller should fall back to a default
+// "connection initiated" message.
+//
 // NOTE: This function is safe for concurrent access.
 func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
-	perm bool, timeout time.Duration) error {
+	perm, waitForDial bool, timeout time.Duration) (string, error) {
 
 	targetPub := string(addr.IdentityKey.SerializeCompressed())
 
@@ -5172,33 +5219,175 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 
 	// Ensure we're not already connected to this peer.
 	peer, err := s.findPeerByPubStr(targetPub)
+	alreadyConnected := err == nil
 
-	// When there's no error it means we already have a connection with this
-	// peer. If this is a dev environment with the `--unsafeconnect` flag
-	// set, we will ignore the existing connection and continue.
+	// When there's no error it means we already have a connection with
+	// this peer. If this is a dev environment with `--unsafeconnect`, we
+	// ignore the existing connection and continue. Otherwise:
+	//
+	//   - For a non-perm request, return errPeerAlreadyConnected so the
+	//     caller knows the dial was redundant (existing behavior).
+	//
+	//   - For a perm request where the user-supplied address matches
+	//     the address we're already connected on, just record the
+	//     persistence intent without re-dialing — re-dialing the same
+	//     address would just cause an unnecessary brief reconnect.
+	//
+	//   - For a perm request with a NEW address, fall through to the
+	//     perm branch below. The new outbound dial will go through and
+	//     OutboundPeerConnected's existing duplicate-handling logic
+	//     will atomically swap the connection over to the new address
+	//     if/when the dial succeeds; if it never succeeds, the old
+	//     connection stays untouched.
 	if err == nil && !s.cfg.Dev.GetUnsafeConnect() {
-		s.mu.Unlock()
-		return &errPeerAlreadyConnected{peer: peer}
+		if !perm {
+			s.mu.Unlock()
+			return "", &errPeerAlreadyConnected{peer: peer}
+		}
+
+		sameAddr := peer.Address().String() == addr.Address.String()
+		if sameAddr {
+			s.persistentPeers[targetPub] = true
+			if _, ok := s.persistentPeersBackoff[targetPub]; !ok {
+				s.persistentPeersBackoff[targetPub] =
+					s.cfg.MinBackoff
+			}
+
+			existing := make(map[string]struct{},
+				len(s.persistentPeerAddrs[targetPub]))
+			for _, a := range s.persistentPeerAddrs[targetPub] {
+				existing[a.Address.String()] = struct{}{}
+			}
+			if _, ok := existing[addr.Address.String()]; !ok {
+				s.persistentPeerAddrs[targetPub] = append(
+					s.persistentPeerAddrs[targetPub], addr,
+				)
+			}
+
+			s.mu.Unlock()
+
+			addedNew, addErr := s.miscDB.AddPersistentPeer(
+				addr.IdentityKey, []net.Addr{addr.Address},
+			)
+			if addErr != nil {
+				srvrLog.Errorf("Unable to persist permanent "+
+					"peer %x: %v",
+					addr.IdentityKey.SerializeCompressed(),
+					addErr)
+				return "", nil
+			}
+
+			if addedNew {
+				srvrLog.Infof("Marked already-connected peer "+
+					"%x as permanent on its current "+
+					"address %v",
+					addr.IdentityKey.SerializeCompressed(),
+					addr.Address)
+				return fmt.Sprintf("peer %x already "+
+					"connected on %v; marked as "+
+					"persistent",
+					addr.IdentityKey.SerializeCompressed(),
+					addr.Address), nil
+			}
+			return fmt.Sprintf("peer %x already connected on %v "+
+				"and already persistent",
+				addr.IdentityKey.SerializeCompressed(),
+				addr.Address), nil
+		}
+		// Different address requested — let the perm branch below
+		// initiate a fresh dial; the swap is handled by
+		// OutboundPeerConnected.
+		srvrLog.Infof("Adding new permanent address %v for "+
+			"peer %x (currently connected on %v); will swap on "+
+			"successful dial",
+			addr.Address,
+			addr.IdentityKey.SerializeCompressed(),
+			peer.Address())
 	}
 
 	// Peer was not found, continue to pursue connection with peer.
-
-	// If there's already a pending connection request for this pubkey,
-	// then we ignore this request to ensure we don't create a redundant
-	// connection.
-	if reqs, ok := s.persistentConnReqs[targetPub]; ok {
-		srvrLog.Warnf("Already have %d persistent connection "+
-			"requests for %v, connecting anyway.", len(reqs), addr)
-	}
 
 	// If there's not already a pending or active connection to this node,
 	// then instruct the connection manager to attempt to establish a
 	// persistent connection to the peer.
 	srvrLog.Debugf("Connecting to %v", addr)
 	if perm {
-		connReq := &connmgr.ConnReq{
-			Addr:      addr,
-			Permanent: true,
+		// Synchronous-dial variant: wait for the initial dial to
+		// complete and only persist the address if it succeeded.
+		// This is the opt-in mode for callers who want to verify
+		// reachability before recording the address.
+		if waitForDial {
+			s.mu.Unlock()
+
+			errChan := make(chan error, 1)
+			s.connectToPeer(addr, errChan, timeout)
+			select {
+			case err := <-errChan:
+				if err != nil {
+					return "", err
+				}
+			case <-s.quit:
+				return "", ErrServerShuttingDown
+			}
+
+			// Dial succeeded — connection is up (OutboundPeer-
+			// Connected fired inside connectToPeer, including the
+			// swap path if a prior connection existed). Mark the
+			// peer as user-perm and record the address in memory
+			// and on disk.
+			s.mu.Lock()
+			s.persistentPeers[targetPub] = true
+			if _, ok := s.persistentPeersBackoff[targetPub]; !ok {
+				s.persistentPeersBackoff[targetPub] =
+					s.cfg.MinBackoff
+			}
+			existing := make(map[string]struct{},
+				len(s.persistentPeerAddrs[targetPub]))
+			for _, a := range s.persistentPeerAddrs[targetPub] {
+				existing[a.Address.String()] = struct{}{}
+			}
+			if _, ok := existing[addr.Address.String()]; !ok {
+				s.persistentPeerAddrs[targetPub] = append(
+					s.persistentPeerAddrs[targetPub], addr,
+				)
+			}
+			s.mu.Unlock()
+
+			if _, err := s.miscDB.AddPersistentPeer(
+				addr.IdentityKey, []net.Addr{addr.Address},
+			); err != nil {
+				srvrLog.Errorf("Unable to persist permanent "+
+					"peer %x: %v",
+					addr.IdentityKey.SerializeCompressed(),
+					err)
+			} else {
+				srvrLog.Infof("Sync-dialed and stored "+
+					"permanent peer %x address %v",
+					addr.IdentityKey.SerializeCompressed(),
+					addr.Address)
+			}
+			return "", nil
+		}
+
+		// Async path (default --perm). Persist the intent first,
+		// then start an async dial via the connection manager. The
+		// address is recorded even if the dial never succeeds, so
+		// the peer remains in our retry set across restarts.
+
+		// Check whether we already have a pending persistent
+		// connection request for this exact (pubkey, address) pair.
+		// If so, treat the call as a no-op for the connection
+		// manager so we don't stack duplicate retries on repeated
+		// --perm calls. We still record the persistence intent in
+		// the DB below (the channeldb union is idempotent), which
+		// matters when an earlier conn req came from the channel-
+		// driven path with no bucket entry yet.
+		haveExistingReq := false
+		for _, req := range s.persistentConnReqs[targetPub] {
+			if req.Addr.String() == addr.String() {
+				haveExistingReq = true
+				break
+			}
 		}
 
 		// Since the user requested a permanent connection, we'll set
@@ -5209,14 +5398,75 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 		if _, ok := s.persistentPeersBackoff[targetPub]; !ok {
 			s.persistentPeersBackoff[targetPub] = s.cfg.MinBackoff
 		}
-		s.persistentConnReqs[targetPub] = append(
-			s.persistentConnReqs[targetPub], connReq,
-		)
+
+		var connReq *connmgr.ConnReq
+		if !haveExistingReq {
+			connReq = &connmgr.ConnReq{
+				Addr:      addr,
+				Permanent: true,
+			}
+			s.persistentConnReqs[targetPub] = append(
+				s.persistentConnReqs[targetPub], connReq,
+			)
+		}
+
+		// Track this address in the in-memory persistent-peer-addrs
+		// set so the connection manager will retry on it.
+		existing := make(map[string]struct{},
+			len(s.persistentPeerAddrs[targetPub]))
+		for _, a := range s.persistentPeerAddrs[targetPub] {
+			existing[a.Address.String()] = struct{}{}
+		}
+		if _, ok := existing[addr.Address.String()]; !ok {
+			s.persistentPeerAddrs[targetPub] = append(
+				s.persistentPeerAddrs[targetPub], addr,
+			)
+		}
+
 		s.mu.Unlock()
 
-		go s.connMgr.Connect(connReq)
+		// Persist exactly the address the user typed at `--perm`
+		// time. The channeldb call unions with any previously stored
+		// entries for the same peer; we deliberately do NOT persist
+		// the broader in-memory persistentPeerAddrs union here,
+		// because that set also contains addresses sourced from
+		// LinkNode/graph and we want `stored_addresses` to mean only
+		// "what the user typed via --perm".
+		if _, err := s.miscDB.AddPersistentPeer(
+			addr.IdentityKey, []net.Addr{addr.Address},
+		); err != nil {
+			srvrLog.Errorf("Unable to persist permanent peer "+
+				"%x: %v",
+				addr.IdentityKey.SerializeCompressed(), err)
+		} else {
+			srvrLog.Infof("Stored permanent peer %x address %v "+
+				"for reconnection across restarts",
+				addr.IdentityKey.SerializeCompressed(),
+				addr.Address)
+		}
 
-		return nil
+		if connReq != nil {
+			go s.connMgr.Connect(connReq)
+		} else {
+			srvrLog.Debugf("Skipping duplicate --perm conn req "+
+				"for %v: an active conn req already exists "+
+				"for this address", addr)
+		}
+
+		// If we got here via the "already-connected with a new
+		// address" fall-through, surface that in the status so the
+		// caller (and CLI user) knows the dial they just initiated is
+		// going to swap the active connection rather than open a
+		// fresh one.
+		if alreadyConnected {
+			return fmt.Sprintf("peer %x already connected on "+
+				"%v; added %v to persistent set, will swap "+
+				"on successful dial",
+				addr.IdentityKey.SerializeCompressed(),
+				peer.Address(), addr.Address), nil
+		}
+
+		return "", nil
 	}
 	s.mu.Unlock()
 
@@ -5229,9 +5479,9 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 
 	select {
 	case err := <-errChan:
-		return err
+		return "", err
 	case <-s.quit:
-		return ErrServerShuttingDown
+		return "", ErrServerShuttingDown
 	}
 }
 
@@ -5261,11 +5511,34 @@ func (s *server) connectToPeer(addr *lnwire.NetAddress,
 	s.OutboundPeerConnected(nil, conn)
 }
 
-// DisconnectPeer sends the request to server to close the connection with peer
-// identified by public key.
+// PersistentReconnectSet returns a snapshot of the pubkeys currently in the
+// persistent reconnect set, mapped to whether a reconnect attempt is in flight.
+// Keys are the raw 33-byte compressed pubkey as a Go string (matching the
+// keying convention used by s.persistentPeers).
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
+func (s *server) PersistentReconnectSet() map[string]bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make(map[string]bool, len(s.persistentPeers))
+	for k := range s.persistentPeers {
+		out[k] = len(s.persistentConnReqs[k]) > 0
+	}
+	return out
+}
+
+// DisconnectPeer sends the request to server to close the connection with peer
+// identified by public key. If forget is true, the peer is also removed from
+// the on-disk set of persistent peers so that it will not be reconnected to on
+// the next LND restart. If force is true (only meaningful with forget), the
+// peer's LinkNode record is removed even when open channels exist with the
+// peer.
+//
+// NOTE: This function is safe for concurrent access.
+func (s *server) DisconnectPeer(pubKey *btcec.PublicKey,
+	forget, force bool) error {
+
 	pubBytes := pubKey.SerializeCompressed()
 	pubStr := string(pubBytes)
 
@@ -5280,7 +5553,8 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 		return fmt.Errorf("peer %x is not connected", pubBytes)
 	}
 
-	srvrLog.Infof("Disconnecting from %v", peer)
+	srvrLog.Infof("Disconnecting from %v (forget=%v, force=%v)", peer,
+		forget, force)
 
 	s.cancelConnReqs(pubStr, nil)
 
@@ -5289,6 +5563,52 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 	// disconnect.
 	delete(s.persistentPeers, pubStr)
 	delete(s.persistentPeersBackoff, pubStr)
+
+	// If the caller asked to forget this peer, also drop the on-disk
+	// records so the auto-reconnect on next restart doesn't bring it
+	// back.
+	if forget {
+		if err := s.miscDB.DeletePersistentPeer(pubKey); err != nil {
+			srvrLog.Errorf("Unable to remove persistent peer %x "+
+				"from DB: %v", pubBytes, err)
+		}
+
+		// Decide whether to also drop the LinkNode (channel-peer)
+		// record. With `force` we always drop it; otherwise we only
+		// drop it when no open channels remain, to avoid orphaning a
+		// live channel from its address record.
+		dropLinkNode := force
+		if !force {
+			nodeChannels, fcErr := s.chanStateDB.FetchOpenChannels(
+				pubKey,
+			)
+			switch {
+			case fcErr != nil:
+				srvrLog.Errorf("Unable to check open "+
+					"channels for peer %x while "+
+					"forgetting: %v", pubBytes, fcErr)
+
+			case len(nodeChannels) > 0:
+				srvrLog.Infof("Keeping LinkNode for peer "+
+					"%x: %d open channel(s) still "+
+					"exist; pass force=true to remove "+
+					"anyway", pubBytes, len(nodeChannels))
+
+			default:
+				dropLinkNode = true
+			}
+		}
+		if dropLinkNode {
+			err := s.linkNodeDB.DeleteLinkNode(pubKey)
+			if err != nil &&
+				!errors.Is(err, channeldb.ErrLinkNodesNotFound) &&
+				!errors.Is(err, channeldb.ErrNodeNotFound) {
+
+				srvrLog.Errorf("Unable to remove LinkNode "+
+					"for peer %x: %v", pubBytes, err)
+			}
+		}
+	}
 
 	// Remove the peer by calling Disconnect. Previously this was done with
 	// removePeerUnsafe, which bypassed the peerTerminationWatcher.

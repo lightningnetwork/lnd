@@ -46,6 +46,14 @@
 
 ## Functional Enhancements
 
+* [Peer addresses are now persisted across
+  restarts](https://github.com/lightningnetwork/lnd/pull/10931) when a peer is
+  marked permanent via `lncli connect --perm`. lnd reconnects to the peer
+  automatically on the next startup, even when no open channel pins the
+  peer. Channel-driven reconnect behaviour is unchanged. Fixes
+  [#10870](https://github.com/lightningnetwork/lnd/issues/10870) and
+  [#10871](https://github.com/lightningnetwork/lnd/issues/10871).
+
 ## RPC Additions
 
 * The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates
@@ -53,12 +61,47 @@
   channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
   `outgoing_chan_ids` field in `RouteFeeRequest`.
 
+* [`ConnectPeer` gains a `wait_for_dial`
+  field](https://github.com/lightningnetwork/lnd/pull/10931). When set together
+  with `perm`, the RPC blocks on the initial dial and only persists the
+  address on success. The existing async `--perm` semantics (return
+  immediately, persist regardless of dial success) remain the default.
+
+* [`DisconnectPeer` gains `forget` and `force`
+  fields](https://github.com/lightningnetwork/lnd/pull/10931). `forget=true`
+  forgets the peer's persistent addresses so no automatic reconnect attempt
+  is made on the next lnd restart. `force=true` (only meaningful with
+  `forget`) additionally removes the channel-peer address record even when
+  open channels still exist with the peer. The handler rejects `force`
+  without `forget`.
+
+* [`ListPeers` gains address-source
+  detail](https://github.com/lightningnetwork/lnd/pull/10931). Each `Peer`
+  now carries three independent address lists — `perm_addresses` (set via
+  `connect --perm`), `channel_peer_addresses` (captured at first channel
+  open), and `gossip_addresses` (current `NodeAnnouncement`) — plus
+  `is_persistent` and `reconnect_pending` status flags. A new
+  `ListPeersRequest.include_offline_persistent_peers` flag opts into
+  surfacing peers in the reconnect set we are not currently connected to.
+
 ## lncli Additions
 
 * The `estimateroutefee` command now supports [restricting fee estimates to
   specific first-hop outgoing
   channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
   `--outgoing_chan_id` flag.
+
+* `lncli connect` gains
+  [`--wait_for_dial`](https://github.com/lightningnetwork/lnd/pull/10931) (see
+  the `ConnectPeer` RPC entry above).
+
+* `lncli disconnect` gains
+  [`--forget` and `--force`](https://github.com/lightningnetwork/lnd/pull/10931)
+  (see the `DisconnectPeer` RPC entry above).
+
+* `lncli listpeers` gains
+  [`--include_offline_persistent_peers`](https://github.com/lightningnetwork/lnd/pull/10931)
+  (see the `ListPeers` RPC entry above).
 
 # Improvements
 

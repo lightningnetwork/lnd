@@ -228,8 +228,9 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 						"address type %T", addr)
 				}
 
-				err := svr.ConnectToPeer(
-					lnAddr, false, svr.cfg.ConnectionTimeout,
+				_, err := svr.ConnectToPeer(
+					lnAddr, false, false,
+					svr.cfg.ConnectionTimeout,
 				)
 				if err != nil {
 					// If we weren't able to connect to the
@@ -251,7 +252,9 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 
 			return false, nil
 		},
-		DisconnectPeer: svr.DisconnectPeer,
+		DisconnectPeer: func(pk *btcec.PublicKey) error {
+			return svr.DisconnectPeer(pk, false, false)
+		},
 	}
 
 	// Create and return the autopilot.ManagerCfg that administrates this

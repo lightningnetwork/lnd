@@ -65,6 +65,33 @@ func (h *HarnessRPC) DisconnectPeer(
 	return resp
 }
 
+// DisconnectPeerReq calls DisconnectPeer with a fully formed request, allowing
+// tests to exercise the forget / force flags.
+func (h *HarnessRPC) DisconnectPeerReq(
+	req *lnrpc.DisconnectPeerRequest) *lnrpc.DisconnectPeerResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.DisconnectPeer(ctxt, req)
+	h.NoError(err, "DisconnectPeer")
+
+	return resp
+}
+
+// ListPeersReq calls ListPeers with a fully formed request.
+func (h *HarnessRPC) ListPeersReq(
+	req *lnrpc.ListPeersRequest) *lnrpc.ListPeersResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.ListPeers(ctxt, req)
+	h.NoError(err, "ListPeers")
+
+	return resp
+}
+
 // DeleteAllPayments makes a RPC call to the node's DeleteAllPayments and
 // asserts.
 func (h *HarnessRPC) DeleteAllPayments() {

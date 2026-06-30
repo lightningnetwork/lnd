@@ -333,3 +333,295 @@ func testDisconnectingTargetPeer(ht *lntest.HarnessTest) {
 	// Check existing connection.
 	ht.AssertConnected(alice, bob)
 }
+
+// testPersistentPeerSurvivesRestart verifies that a peer marked as persistent
+// via `connect --perm` (with no channel between the two nodes) is reconnected
+// to automatically after the initiating node restarts, that the new ListPeers
+// fields reflect the persistence state, and that `disconnect --forget`
+// disables the auto-reconnect for the following restart.
+func testPersistentPeerSurvivesRestart(ht *lntest.HarnessTest) {
+	// Two fresh nodes with no channel between them, so the only reason
+	// lnd would reconnect them on restart is the user-perm bucket.
+	alice := ht.NewNode("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+
+	bobInfo := bob.RPC.GetInfo()
+
+	// Mark Bob as a permanent peer of Alice.
+	ht.ConnectNodesPerm(alice, bob)
+	ht.AssertConnected(alice, bob)
+
+	// ListPeers from Alice should show Bob with is_persistent=true,
+	// perm_addresses set to Bob's P2P address, and reconnect_pending
+	// false (we're connected).
+	listResp := alice.RPC.ListPeersReq(&lnrpc.ListPeersRequest{})
+	require.Len(ht, listResp.Peers, 1)
+	require.Equal(ht, bobInfo.IdentityPubkey, listResp.Peers[0].PubKey)
+	require.True(ht, listResp.Peers[0].IsPersistent,
+		"is_persistent should be true for a --perm peer")
+	require.Contains(ht, listResp.Peers[0].PermAddresses, bob.Cfg.P2PAddr(),
+		"perm_addresses should include the address used at --perm")
+	require.False(ht, listResp.Peers[0].ReconnectPending,
+		"reconnect_pending should be false while connected")
+
+	// Re-running --perm with the SAME address while connected should
+	// be idempotent: no duplicate entry in perm_addresses, no
+	// disconnect/reconnect dance.
+	alice.RPC.ConnectPeer(&lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: bobInfo.IdentityPubkey,
+			Host:   bob.Cfg.P2PAddr(),
+		},
+		Perm: true,
+	})
+	listResp = alice.RPC.ListPeersReq(&lnrpc.ListPeersRequest{})
+	require.Len(ht, listResp.Peers, 1)
+	require.ElementsMatch(ht,
+		[]string{bob.Cfg.P2PAddr()},
+		listResp.Peers[0].PermAddresses,
+		"repeating --perm with same address should be idempotent")
+
+	// Adding a new (unreachable) --perm address while we are still
+	// connected via the original one should: append the new address to
+	// perm_addresses, attempt to dial it in the background, and leave
+	// the existing connection untouched (since the dial fails so no
+	// swap can occur).
+	extraAddr := "127.0.0.1:1"
+	alice.RPC.ConnectPeer(&lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: bobInfo.IdentityPubkey,
+			Host:   extraAddr,
+		},
+		Perm: true,
+	})
+	listResp = alice.RPC.ListPeersReq(&lnrpc.ListPeersRequest{})
+	require.Len(ht, listResp.Peers, 1)
+	require.ElementsMatch(ht,
+		[]string{bob.Cfg.P2PAddr(), extraAddr},
+		listResp.Peers[0].PermAddresses,
+		"adding a new --perm address while connected should record it")
+	require.Equal(ht, bob.Cfg.P2PAddr(), listResp.Peers[0].Address,
+		"the current connection should not be disrupted by a "+
+			"failing dial to a new --perm address")
+
+	// Restart Alice. With the new persistent-peer bucket in place she
+	// should automatically reconnect to Bob without any further RPC
+	// from us.
+	ht.RestartNode(alice)
+	ht.AssertConnected(alice, bob)
+
+	// Now disconnect with --forget. The current connection drops, the
+	// bucket entry is removed, and after the next restart Alice should
+	// NOT reconnect to Bob.
+	alice.RPC.DisconnectPeerReq(&lnrpc.DisconnectPeerRequest{
+		PubKey: bobInfo.IdentityPubkey,
+		Forget: true,
+	})
+	ht.AssertPeerNotConnected(alice, bob)
+
+	// While offline, include_offline_persistent_peers should NOT return
+	// Bob: we forgot him, so he is no longer in the persistent set.
+	listResp = alice.RPC.ListPeersReq(&lnrpc.ListPeersRequest{
+		IncludeOfflinePersistentPeers: true,
+	})
+	for _, p := range listResp.Peers {
+		require.NotEqual(ht, bobInfo.IdentityPubkey, p.PubKey,
+			"forgotten peer should not appear in ListPeers")
+	}
+
+	// Restart Alice again — without --forget, this should have
+	// reconnected. With --forget, she stays disconnected.
+	ht.RestartNode(alice)
+
+	// Give lnd a moment to (not) reconnect. AssertPeerNotConnected
+	// re-checks until the default timeout, so a stable not-connected
+	// state will pass.
+	ht.AssertPeerNotConnected(alice, bob)
+}
+
+// testPersistentPeerAddressSwap verifies that running `connect --perm` with a
+// new address for a peer we are already connected to causes lnd to atomically
+// swap the active connection over to the new address (via
+// OutboundPeerConnected's duplicate-handling logic) once the new dial
+// succeeds. Both stored addresses end up in perm_addresses.
+func testPersistentPeerAddressSwap(ht *lntest.HarnessTest) {
+	alice := ht.NewNode("Alice", nil)
+
+	// Pre-allocate a second P2P port and tell Bob to listen on it in
+	// addition to the default port the harness assigns.
+	secondPort := port.NextAvailablePort()
+	secondAddr := fmt.Sprintf("127.0.0.1:%d", secondPort)
+	bob := ht.NewNode("Bob", []string{
+		fmt.Sprintf("--listen=%s", secondAddr),
+	})
+	bobInfo := bob.RPC.GetInfo()
+
+	// First --perm connect on Bob's primary P2P address.
+	ht.ConnectNodesPerm(alice, bob)
+	ht.AssertConnected(alice, bob)
+
+	listResp := alice.RPC.ListPeersReq(&lnrpc.ListPeersRequest{})
+	require.Len(ht, listResp.Peers, 1)
+	require.Equal(ht, bob.Cfg.P2PAddr(), listResp.Peers[0].Address,
+		"sanity: should be connected on Bob's primary address first")
+
+	// Now --perm with the alternate address while still connected on
+	// the primary. The new dial should succeed (Bob is listening on
+	// both ports) and OutboundPeerConnected's duplicate-handling logic
+	// should swap the active connection over to the new address.
+	alice.RPC.ConnectPeer(&lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: bobInfo.IdentityPubkey,
+			Host:   secondAddr,
+		},
+		Perm: true,
+	})
+
+	// Wait for the active connection's address to swap.
+	err := wait.NoError(func() error {
+		resp := alice.RPC.ListPeersReq(&lnrpc.ListPeersRequest{})
+		if len(resp.Peers) != 1 {
+			return fmt.Errorf("expected 1 peer, got %d",
+				len(resp.Peers))
+		}
+		if resp.Peers[0].Address != secondAddr {
+			return fmt.Errorf("expected swap to %s, still on %s",
+				secondAddr, resp.Peers[0].Address)
+		}
+		return nil
+	}, defaultTimeout)
+	require.NoError(ht, err,
+		"expected the active connection to swap to %s", secondAddr)
+
+	// Both addresses should now be in the persistent set.
+	listResp = alice.RPC.ListPeersReq(&lnrpc.ListPeersRequest{})
+	require.ElementsMatch(ht,
+		[]string{bob.Cfg.P2PAddr(), secondAddr},
+		listResp.Peers[0].PermAddresses,
+		"both addresses should be persisted after the swap")
+}
+
+// testForgetPersistentPeerWithChannel verifies the --forget / --force
+// interaction when there is an open channel with the peer:
+//
+//   - disconnect --forget without --force preserves the LinkNode entry
+//     (so channel_peer_addresses is still populated after a reconnect),
+//     because otherwise the open channel would be orphaned from its
+//     address record.
+//   - disconnect --forget --force removes the LinkNode entry even with
+//     an open channel.
+//
+// Relies on integration builds defaulting --dev.unsafedisconnect=true so
+// that disconnecting while channels exist is permitted.
+func testForgetPersistentPeerWithChannel(ht *lntest.HarnessTest) {
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	bobInfo := bob.RPC.GetInfo()
+
+	ht.ConnectNodes(alice, bob)
+	ht.OpenChannel(alice, bob, lntest.OpenChannelParams{Amt: 100_000})
+
+	// Helper: pull Bob's entry out of Alice's ListPeers response.
+	bobPeer := func() *lnrpc.Peer {
+		resp := alice.RPC.ListPeersReq(&lnrpc.ListPeersRequest{})
+		for _, p := range resp.Peers {
+			if p.PubKey == bobInfo.IdentityPubkey {
+				return p
+			}
+		}
+		return nil
+	}
+
+	// LinkNode is created at first channel open; channel_peer_addresses
+	// should reflect that.
+	require.NoError(ht, wait.NoError(func() error {
+		p := bobPeer()
+		if p == nil {
+			return fmt.Errorf("bob not yet in listpeers")
+		}
+		if len(p.ChannelPeerAddresses) == 0 {
+			return fmt.Errorf("channel_peer_addresses not yet " +
+				"populated")
+		}
+		return nil
+	}, defaultTimeout))
+
+	// --forget without --force: LinkNode preserved (channel still
+	// open). Reconnect and verify channel_peer_addresses is still
+	// populated.
+	alice.RPC.DisconnectPeerReq(&lnrpc.DisconnectPeerRequest{
+		PubKey: bobInfo.IdentityPubkey,
+		Forget: true,
+	})
+	ht.AssertPeerNotConnected(alice, bob)
+
+	ht.ConnectNodes(alice, bob)
+	ht.AssertConnected(alice, bob)
+
+	p := bobPeer()
+	require.NotNil(ht, p)
+	require.NotEmpty(ht, p.ChannelPeerAddresses,
+		"--forget alone should preserve LinkNode while channels "+
+			"are open")
+
+	// --forget --force: LinkNode removed regardless of channels.
+	alice.RPC.DisconnectPeerReq(&lnrpc.DisconnectPeerRequest{
+		PubKey: bobInfo.IdentityPubkey,
+		Forget: true,
+		Force:  true,
+	})
+	ht.AssertPeerNotConnected(alice, bob)
+
+	ht.ConnectNodes(alice, bob)
+	ht.AssertConnected(alice, bob)
+
+	p = bobPeer()
+	require.NotNil(ht, p)
+	require.Empty(ht, p.ChannelPeerAddresses,
+		"--force should remove the LinkNode record even with an "+
+			"open channel")
+}
+
+// testPersistentPeerWaitForDial verifies that --perm with wait_for_dial=true
+// only persists the address if the initial dial succeeded.
+func testPersistentPeerWaitForDial(ht *lntest.HarnessTest) {
+	alice := ht.NewNode("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	bobInfo := bob.RPC.GetInfo()
+
+	// Successful sync dial: real address. Should connect and persist.
+	alice.RPC.ConnectPeer(&lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: bobInfo.IdentityPubkey,
+			Host:   bob.Cfg.P2PAddr(),
+		},
+		Perm:        true,
+		WaitForDial: true,
+	})
+	ht.AssertConnected(alice, bob)
+
+	listResp := alice.RPC.ListPeersReq(&lnrpc.ListPeersRequest{})
+	require.Len(ht, listResp.Peers, 1)
+	require.Contains(ht, listResp.Peers[0].PermAddresses,
+		bob.Cfg.P2PAddr(),
+		"reachable address should be persisted")
+
+	// Failed sync dial: unreachable address. Should return an error
+	// and NOT add the unreachable address to perm_addresses.
+	unreachable := "127.0.0.1:1"
+	err := alice.RPC.ConnectPeerAssertErr(&lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: bobInfo.IdentityPubkey,
+			Host:   unreachable,
+		},
+		Perm:        true,
+		WaitForDial: true,
+	})
+	require.Error(ht, err,
+		"sync --perm to an unreachable address should fail")
+
+	listResp = alice.RPC.ListPeersReq(&lnrpc.ListPeersRequest{})
+	require.Len(ht, listResp.Peers, 1)
+	require.NotContains(ht, listResp.Peers[0].PermAddresses, unreachable,
+		"failed sync --perm should not persist the address")
+}

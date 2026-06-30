@@ -324,8 +324,9 @@ func deriveBlindedRouteForwardingInfo(r *sphinxHopIterator,
 	if err != nil {
 		return nil, routeRole, err
 	}
+
 	payload.FwdInfo = ForwardingInfo{
-		NextHop:         nextSCID.Val,
+		NextHop:         NewChannelNextHop(nextSCID.Val),
 		AmountToForward: fwdAmt,
 		OutgoingCLTV: r.blindingKit.IncomingCltv - uint32(
 			relayInfo.Val.CltvExpiryDelta,

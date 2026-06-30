@@ -84,7 +84,7 @@ func (h *htlcIncomingContestResolver) processFinalHtlcFail() error {
 func (h *htlcIncomingContestResolver) invalidFinalHtlc(
 	payload *hop.Payload, height uint32) bool {
 
-	if payload.FwdInfo.NextHop != hop.Exit {
+	if !payload.FwdInfo.IsExit() {
 		return false
 	}
 
@@ -312,7 +312,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		hodlChan       <-chan interface{}
 		witnessUpdates <-chan lntypes.Preimage
 	)
-	if payload.FwdInfo.NextHop == hop.Exit {
+	if payload.FwdInfo.IsExit() {
 		// Create a buffered hodl chan to prevent deadlock.
 		hodlQueue := queue.NewConcurrentQueue(10)
 		hodlQueue.Start()
@@ -701,7 +701,7 @@ func (h *htlcIncomingContestResolver) findAndapplyPreimage() (bool, error) {
 
 	// Exit early if this is not the exit hop, which means we are not the
 	// payment receiver and don't have the preimage.
-	if payload.FwdInfo.NextHop != hop.Exit {
+	if !payload.FwdInfo.IsExit() {
 		return false, nil
 	}
 

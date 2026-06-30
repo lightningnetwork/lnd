@@ -33,7 +33,9 @@ func TestSphinxHopIteratorForwardingInstructions(t *testing.T) {
 	// extract each type, no matter the payload type.
 	nextAddrInt := binary.BigEndian.Uint64(hopData.NextAddress[:])
 	expectedFwdInfo := ForwardingInfo{
-		NextHop:         lnwire.NewShortChanIDFromInt(nextAddrInt),
+		NextHop: NewChannelNextHop(
+			lnwire.NewShortChanIDFromInt(nextAddrInt),
+		),
 		AmountToForward: lnwire.MilliSatoshi(hopData.ForwardAmount),
 		OutgoingCLTV:    hopData.OutgoingCltv,
 	}

@@ -42,6 +42,13 @@
   regardless of peer connectivity. Uptime is now seeded from the peer's
   actual connection state.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10942) where an
+  lnd node acting as the introduction node of a blinded path failed to forward
+  the payment when the recipient identified the next hop by node ID
+  (`next_node_id`) rather than a short channel ID, as some implementations
+  produce. The next hop's public key is now resolved to one of our channels
+  with that peer using non-strict forwarding.
+
 # New Features
 
 ## Functional Enhancements

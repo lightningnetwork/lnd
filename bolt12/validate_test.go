@@ -1,6 +1,7 @@
 package bolt12
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -242,6 +243,7 @@ func TestValidateOfferRead(t *testing.T) {
 		name        string
 		mutate      func(*Offer)
 		activeChain [32]byte
+		known       map[lnwire.FeatureBit]string
 		wantErr     error
 	}{
 		{
@@ -632,6 +634,21 @@ func TestValidateOfferRead(t *testing.T) {
 			activeChain: bitcoinMainnetGenesisHash,
 			wantErr:     ErrUnknownEvenType,
 		},
+		{
+			name: "known even feature bit accepted",
+			mutate: func(o *Offer) {
+				o.OfferFeatures = tlv.SomeRecordT(
+					tlv.NewRecordT[tlv.TlvType12](
+						*lnwire.NewRawFeatureVector(0),
+					),
+				)
+			},
+			activeChain: bitcoinMainnetGenesisHash,
+			known: map[lnwire.FeatureBit]string{
+				0: "test_feature",
+			},
+			wantErr: nil,
+		},
 	}
 
 	for _, tc := range tests {
@@ -643,7 +660,9 @@ func TestValidateOfferRead(t *testing.T) {
 				o := validBobOffer(t)
 				tc.mutate(o)
 
-				err := ValidateOfferRead(o, now, tc.activeChain)
+				err := ValidateOfferRead(
+					o, now, tc.activeChain, tc.known,
+				)
 				if tc.wantErr == nil {
 					require.NoError(t, err)
 
@@ -1198,6 +1217,7 @@ func TestValidateInvoiceRequestReadSentinels(t *testing.T) {
 	tests := []struct {
 		name    string
 		mutate  func(*InvoiceRequest)
+		known   map[lnwire.FeatureBit]string
 		wantErr error
 	}{
 		{
@@ -1413,6 +1433,20 @@ func TestValidateInvoiceRequestReadSentinels(t *testing.T) {
 			},
 			wantErr: ErrUnknownEvenFeature,
 		},
+		{
+			name: "known even feature bit accepted",
+			mutate: func(ir *InvoiceRequest) {
+				ir.InvreqFeatures = tlv.SomeRecordT(
+					tlv.NewRecordT[tlv.TlvType84](
+						*lnwire.NewRawFeatureVector(0),
+					),
+				)
+			},
+			known: map[lnwire.FeatureBit]string{
+				0: "test_feature",
+			},
+			wantErr: nil,
+		},
 	}
 
 	for _, tc := range tests {
@@ -1422,8 +1456,16 @@ func TestValidateInvoiceRequestReadSentinels(t *testing.T) {
 			ir := validInvoiceRequest(t)
 			tc.mutate(ir)
 
+			if tc.name == "known even feature bit accepted" {
+				ir.Signature = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType240](
+						[64]byte{0x01},
+					),
+				)
+			}
+
 			err := ValidateInvoiceRequestRead(
-				ir, bitcoinMainnetGenesisHash,
+				ir, bitcoinMainnetGenesisHash, tc.known,
 			)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
@@ -1464,7 +1506,7 @@ func TestValidateInvoiceRequestReadAmountBelowExpected(t *testing.T) {
 	ir.InvreqAmount = tlv.SomeRecordT(
 		tlv.NewRecordT[tlv.TlvType82](TUint64(1999)),
 	)
-	err := ValidateInvoiceRequestRead(ir, bitcoinMainnetGenesisHash)
+	err := ValidateInvoiceRequestRead(ir, bitcoinMainnetGenesisHash, nil)
 	require.ErrorIs(t, err, ErrAmountBelowExpected)
 }
 
@@ -1512,7 +1554,7 @@ func TestValidateInvoiceRequestAmountOverflow(t *testing.T) {
 
 	// The reader MUST reject the overflowing request.
 	readErr := ValidateInvoiceRequestRead(
-		newRequest(), bitcoinMainnetGenesisHash,
+		newRequest(), bitcoinMainnetGenesisHash, nil,
 	)
 	require.ErrorIs(t, readErr, ErrAmountBelowExpected)
 
@@ -1538,7 +1580,7 @@ func TestValidateInvoiceRequestReadChain(t *testing.T) {
 		t.Parallel()
 
 		ir := validInvoiceRequest(t)
-		err := ValidateInvoiceRequestRead(ir, altChain)
+		err := ValidateInvoiceRequestRead(ir, altChain, nil)
 		require.ErrorIs(t, err, ErrUnsupportedChain)
 	})
 
@@ -1552,7 +1594,7 @@ func TestValidateInvoiceRequestReadChain(t *testing.T) {
 		// The chain check runs before signature verification, so a
 		// mismatched chain is rejected regardless of the signature.
 		err := ValidateInvoiceRequestRead(
-			ir, bitcoinMainnetGenesisHash,
+			ir, bitcoinMainnetGenesisHash, nil,
 		)
 		require.ErrorIs(t, err, ErrUnsupportedChain)
 	})
@@ -1679,4 +1721,814 @@ func TestCheckBip353Name(t *testing.T) {
 			}
 		})
 	}
+}
+
+// encodeIRBypassValidate serialises an InvoiceRequest skipping the
+// validate-on-encode gate.
+func encodeIRBypassValidate(ir *InvoiceRequest) ([]byte, error) {
+	records := lnwire.ProduceRecordsSorted(ir.allRecordProducers()...)
+	return lnwire.EncodeRecords(records)
+}
+
+// encodeInvBypassValidate is the Invoice analogue for encodeIRBypassValidate.
+func encodeInvBypassValidate(inv *Invoice) ([]byte, error) {
+	records := lnwire.ProduceRecordsSorted(inv.allRecordProducers()...)
+	return lnwire.EncodeRecords(records)
+}
+
+// TestValidateInvoiceRead table-drives every reader-side rejection in
+// ValidateInvoiceRead.
+func TestValidateInvoiceRead(t *testing.T) {
+	t.Parallel()
+
+	_, intro := aliceKey()
+	introNode, err := lnwire.NewPubkeyIntro(intro)
+	require.NoError(t, err)
+
+	baseline := func() *Invoice {
+		return validInvoice(t)
+	}
+
+	tests := []struct {
+		name    string
+		mutate  func(*Invoice)
+		wantErr error
+	}{
+		{
+			name: "missing amount",
+			mutate: func(inv *Invoice) {
+				inv.InvoiceAmount = tlv.OptionalRecordT[
+					tlv.TlvType170, TUint64,
+				]{}
+			},
+			wantErr: ErrMissingAmount,
+		},
+		{
+			name: "zero amount",
+			mutate: func(inv *Invoice) {
+				inv.InvoiceAmount = tlv.SomeRecordT(
+					tlv.NewRecordT[
+						tlv.TlvType170, TUint64,
+					](TUint64(0)),
+				)
+			},
+			wantErr: ErrZeroInvoiceAmount,
+		},
+		{
+			name: "missing created_at",
+			mutate: func(inv *Invoice) {
+				inv.InvoiceCreatedAt = tlv.OptionalRecordT[
+					tlv.TlvType164, TUint64,
+				]{}
+			},
+			wantErr: ErrMissingCreatedAt,
+		},
+		{
+			name: "missing payment_hash",
+			mutate: func(inv *Invoice) {
+				inv.InvoicePaymentHash = tlv.OptionalRecordT[
+					tlv.TlvType168, [32]byte,
+				]{}
+			},
+			wantErr: ErrMissingPaymentHash,
+		},
+		{
+			name: "missing node_id",
+			mutate: func(inv *Invoice) {
+				inv.InvoiceNodeID = tlv.OptionalRecordT[
+					tlv.TlvType176, [33]byte,
+				]{}
+			},
+			wantErr: ErrMissingNodeID,
+		},
+		{
+			name: "missing paths",
+			mutate: func(inv *Invoice) {
+				inv.InvoicePaths = tlv.OptionalRecordT[
+					tlv.TlvType160, lnwire.BlindedPaths,
+				]{}
+			},
+			wantErr: ErrMissingPaths,
+		},
+		{
+			name: "missing blinded_pay",
+			mutate: func(inv *Invoice) {
+				inv.InvoiceBlindedPay = tlv.OptionalRecordT[
+					tlv.TlvType162, BlindedPayInfos,
+				]{}
+			},
+			wantErr: ErrMissingBlindedPay,
+		},
+		{
+			name: "paths count exceeds blinded_pay count",
+			mutate: func(inv *Invoice) {
+				path := lnwire.BlindedPath{
+					IntroductionNode: introNode,
+					Hops: []lnwire.BlindedHop{
+						{},
+					},
+				}
+				paths := lnwire.BlindedPaths{
+					Paths: []lnwire.BlindedPath{path, path},
+				}
+				inv.InvoicePaths = tlv.SomeRecordT(
+					tlv.NewRecordT[
+						tlv.TlvType160,
+						lnwire.BlindedPaths,
+					](paths),
+				)
+			},
+			wantErr: ErrBlindedPayMismatch,
+		},
+		{
+			// The invoice reader defines no out-of-range type
+			// rejection, so an unknown odd type outside every known
+			// range is ignored rather than rejected: validation
+			// proceeds to the final signature check.
+			name: "unknown odd out-of-range type ignored",
+			mutate: func(inv *Invoice) {
+				inv.decodedTLVs = tlv.TypeMap{2001: nil}
+			},
+			wantErr: ErrMissingSignature,
+		},
+		{
+			name: "unknown even type",
+			mutate: func(inv *Invoice) {
+				inv.decodedTLVs = tlv.TypeMap{200: nil}
+			},
+			wantErr: ErrUnknownEvenType,
+		},
+		{
+			// Baseline invoice_node_id is bob; an offer_issuer_id
+			// of alice must be rejected as a mismatch.
+			name: "node_id does not match offer_issuer_id",
+			mutate: func(inv *Invoice) {
+				_, alice := aliceKey()
+				inv.OfferIssuerID = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType22](
+						alice,
+					),
+				)
+			},
+			wantErr: ErrInvoiceNodeIDMismatch,
+		},
+		{
+			name: "unsupported chain",
+			mutate: func(inv *Invoice) {
+				inv.InvreqChain = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType80](
+						[32]byte{0x01},
+					),
+				)
+			},
+			wantErr: ErrUnsupportedChain,
+		},
+		{
+			name: "unknown even feature",
+			mutate: func(inv *Invoice) {
+				fv := *lnwire.NewRawFeatureVector(0)
+				inv.InvoiceFeatures = tlv.SomeRecordT(
+					tlv.NewRecordT[tlv.TlvType174](fv),
+				)
+			},
+			wantErr: ErrUnknownEvenFeature,
+		},
+		{
+			name: "empty invoice_paths",
+			mutate: func(inv *Invoice) {
+				paths := lnwire.BlindedPaths{Paths: nil}
+				inv.InvoicePaths = tlv.SomeRecordT(
+					tlv.NewRecordT[tlv.TlvType160](paths),
+				)
+			},
+			wantErr: ErrEmptyBlindedPaths,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			inv := baseline()
+			tc.mutate(inv)
+
+			err := ValidateInvoiceRead(
+				inv, bitcoinMainnetGenesisHash, nil, nil,
+			)
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
+// TestValidateInvoiceReadAcceptsSignatureRange pins the rule that an unknown
+// odd TLV anywhere in the signature range (240-1000) is ignored rather than
+// rejected.
+func TestValidateInvoiceReadAcceptsSignatureRange(t *testing.T) {
+	t.Parallel()
+
+	_, pub := bobKey()
+	var nodeID [33]byte
+	copy(nodeID[:], pub.SerializeCompressed())
+
+	_, intro := aliceKey()
+	_, blinding := bobKey()
+	_, hopPub := aliceKey()
+	introNode, err := lnwire.NewPubkeyIntro(intro)
+	require.NoError(t, err)
+
+	inv := &Invoice{
+		InvoiceCreatedAt: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType164, TUint64](TUint64(123)),
+		),
+		InvoiceAmount: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType170, TUint64](TUint64(1000)),
+		),
+		InvoicePaymentHash: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType168, [32]byte](
+				[32]byte{},
+			),
+		),
+		InvoiceNodeID: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[
+				tlv.TlvType176, [33]byte,
+			](nodeID),
+		),
+		InvoicePaths: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType160, lnwire.BlindedPaths](
+				lnwire.BlindedPaths{
+					Paths: []lnwire.BlindedPath{{
+						IntroductionNode: introNode,
+						BlindingPoint:    blinding,
+						Hops: []lnwire.BlindedHop{{
+							BlindedNodeID: hopPub,
+						}},
+					}},
+				},
+			),
+		),
+		InvoiceBlindedPay: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType162, BlindedPayInfos](
+				BlindedPayInfos{Infos: []BlindedPayInfo{{}}},
+			),
+		),
+		Signature: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType240, [64]byte](
+				[64]byte{},
+			),
+		),
+	}
+
+	// An unknown odd type at 241 sits inside the signature range and must
+	// be ignored, not rejected as out-of-range or unknown-even.
+	inv.decodedTLVs = tlv.TypeMap{241: nil}
+
+	err = ValidateInvoiceRead(
+		inv, bitcoinMainnetGenesisHash, nil, nil,
+	)
+	require.NoError(t, err)
+}
+
+// TestValidateInvoiceExpiry covers the relative-expiry default, an explicit
+// relative expiry, the expired/not-expired boundary, and the overflow guard
+// that keeps an absurd created_at from wrapping into a spurious expiry.
+func TestValidateInvoiceExpiry(t *testing.T) {
+	t.Parallel()
+
+	invoice := func(createdAt uint64, relExp *uint32) *Invoice {
+		inv := &Invoice{
+			InvoiceCreatedAt: tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType164, TUint64](
+					TUint64(createdAt),
+				),
+			),
+		}
+		if relExp != nil {
+			inv.InvoiceRelativeExp = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType166, TUint32](
+					TUint32(*relExp),
+				),
+			)
+		}
+
+		return inv
+	}
+
+	relExp := func(v uint32) *uint32 { return &v }
+
+	tests := []struct {
+		name    string
+		inv     *Invoice
+		now     int64
+		wantErr error
+	}{
+		{
+			name:    "missing created_at",
+			inv:     &Invoice{},
+			now:     1000,
+			wantErr: ErrMissingCreatedAt,
+		},
+		{
+			name: "within default expiry",
+			inv:  invoice(1000, nil),
+			now:  1000 + 7199,
+		},
+		{
+			name:    "past default expiry",
+			inv:     invoice(1000, nil),
+			now:     1000 + 7200,
+			wantErr: ErrInvoiceExpired,
+		},
+		{
+			name: "within explicit expiry",
+			inv:  invoice(1000, relExp(100)),
+			now:  1099,
+		},
+		{
+			name:    "past explicit expiry",
+			inv:     invoice(1000, relExp(100)),
+			now:     1100,
+			wantErr: ErrInvoiceExpired,
+		},
+		{
+			name: "overflow is not expired",
+			inv:  invoice(math.MaxUint64, relExp(100)),
+			now:  9223372036854775807,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := ValidateInvoiceExpiry(
+				tc.inv, time.Unix(tc.now, 0),
+			)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestValidateInvoiceAgainstRequest table-drives the mirror-field comparison
+// between an invoice and the request it is responding to.
+func TestValidateInvoiceAgainstRequest(t *testing.T) {
+	t.Parallel()
+
+	// The request whose mirrored fields every invoice below is compared
+	// against: payer metadata plus offer_amount.
+	ir := &InvoiceRequest{
+		InvreqMetadata: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType0](
+				[]byte("metadata"),
+			),
+		),
+		OfferAmount: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType8, TUint64](1000),
+		),
+	}
+
+	irEncoded, err := encodeIRBypassValidate(ir)
+	require.NoError(t, err)
+	irDecoded, err := DecodeInvoiceRequest(irEncoded)
+	require.NoError(t, err)
+
+	// baseline mirrors the request's fields exactly. Invoice-specific
+	// fields >= 160 (here invoice_amount) are excluded from the mirror
+	// comparison, so the baseline validates cleanly.
+	baseline := func() *Invoice {
+		return &Invoice{
+			InvreqMetadata: tlv.SomeRecordT(
+				tlv.NewPrimitiveRecord[tlv.TlvType0](
+					[]byte("metadata"),
+				),
+			),
+			OfferAmount: tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType8, TUint64](1000),
+			),
+			InvoiceAmount: tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType170, TUint64](1000),
+			),
+		}
+	}
+
+	tests := []struct {
+		name        string
+		mutate      func(*Invoice)
+		wantErr     error
+		errContains string
+	}{
+		{
+			name:   "matching mirrored fields",
+			mutate: func(inv *Invoice) {},
+		},
+		{
+			name: "missing mirrored field",
+			mutate: func(inv *Invoice) {
+				inv.OfferAmount = tlv.OptionalRecordT[
+					tlv.TlvType8, TUint64,
+				]{}
+			},
+			wantErr:     ErrInvoiceMismatch,
+			errContains: "missing 1 fields",
+		},
+		{
+			name: "extra mirrored field",
+			mutate: func(inv *Invoice) {
+				inv.OfferDescription = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType10](
+						[]byte("extra"),
+					),
+				)
+			},
+			wantErr:     ErrInvoiceMismatch,
+			errContains: "unexpected field 10",
+		},
+		{
+			name: "mismatched field data",
+			mutate: func(inv *Invoice) {
+				inv.InvreqMetadata = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType0](
+						[]byte("different"),
+					),
+				)
+			},
+			wantErr:     ErrInvoiceMismatch,
+			errContains: "data mismatch",
+		},
+		{
+			name: "equal length byte difference",
+			mutate: func(inv *Invoice) {
+				inv.InvreqMetadata = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType0](
+						[]byte("metadatA"),
+					),
+				)
+			},
+			wantErr:     ErrInvoiceMismatch,
+			errContains: "data mismatch",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			inv := baseline()
+			tc.mutate(inv)
+
+			invEncoded, err := encodeInvBypassValidate(inv)
+			require.NoError(t, err)
+			invDecoded, err := DecodeInvoice(invEncoded)
+			require.NoError(t, err)
+
+			err = ValidateInvoiceAgainstRequest(
+				invDecoded, irDecoded,
+			)
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+
+				return
+			}
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Contains(t, err.Error(), tc.errContains)
+		})
+	}
+}
+
+// TestValidateInvoiceAgainstRequestAmountMirror covers the cross-field
+// invreq_amount (82) vs invoice_amount (170) equality rule.
+func TestValidateInvoiceAgainstRequestAmountMirror(t *testing.T) {
+	t.Parallel()
+
+	ir := &InvoiceRequest{
+		InvreqMetadata: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType0](
+				[]byte("metadata"),
+			),
+		),
+		InvreqAmount: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType82, TUint64](2500),
+		),
+	}
+	irEncoded, err := encodeIRBypassValidate(ir)
+	require.NoError(t, err)
+	irDecoded, err := DecodeInvoiceRequest(irEncoded)
+	require.NoError(t, err)
+
+	build := func(invAmt uint64) *Invoice {
+		return &Invoice{
+			InvreqMetadata: tlv.SomeRecordT(
+				tlv.NewPrimitiveRecord[tlv.TlvType0](
+					[]byte("metadata"),
+				),
+			),
+			InvreqAmount: tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType82, TUint64](2500),
+			),
+			InvoiceAmount: tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType170, TUint64](
+					TUint64(invAmt),
+				),
+			),
+		}
+	}
+
+	// Equal amounts pass.
+	matchEnc, _ := encodeInvBypassValidate(build(2500))
+	matchDec, _ := DecodeInvoice(matchEnc)
+	require.NoError(t, ValidateInvoiceAgainstRequest(matchDec, irDecoded))
+
+	// Mismatched amounts fail.
+	missEnc, _ := encodeInvBypassValidate(build(2501))
+	missDec, _ := DecodeInvoice(missEnc)
+	err = ValidateInvoiceAgainstRequest(missDec, irDecoded)
+	require.ErrorIs(t, err, ErrInvoiceMismatch)
+	require.Contains(t, err.Error(), "invoice_amount")
+}
+
+// TestValidateInvoiceWrite table-drives the writer-side checks of
+// ValidateInvoiceWrite by clearing required fields on a valid baseline invoice.
+func TestValidateInvoiceWrite(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mutate  func(*Invoice)
+		wantErr error
+	}{
+		{
+			name:    "valid baseline invoice",
+			mutate:  func(inv *Invoice) {},
+			wantErr: nil,
+		},
+		{
+			name: "missing created_at",
+			mutate: func(inv *Invoice) {
+				inv.InvoiceCreatedAt = tlv.OptionalRecordT[
+					tlv.TlvType164, TUint64,
+				]{}
+			},
+			wantErr: ErrMissingCreatedAt,
+		},
+		{
+			name: "missing amount",
+			mutate: func(inv *Invoice) {
+				inv.InvoiceAmount = tlv.OptionalRecordT[
+					tlv.TlvType170, TUint64,
+				]{}
+			},
+			wantErr: ErrMissingAmount,
+		},
+		{
+			name: "missing payment_hash",
+			mutate: func(inv *Invoice) {
+				inv.InvoicePaymentHash = tlv.OptionalRecordT[
+					tlv.TlvType168, [32]byte,
+				]{}
+			},
+			wantErr: ErrMissingPaymentHash,
+		},
+		{
+			name: "missing node_id",
+			mutate: func(inv *Invoice) {
+				inv.InvoiceNodeID = tlv.OptionalRecordT[
+					tlv.TlvType176, [33]byte,
+				]{}
+			},
+			wantErr: ErrMissingNodeID,
+		},
+		{
+			name: "missing paths",
+			mutate: func(inv *Invoice) {
+				inv.InvoicePaths = tlv.OptionalRecordT[
+					tlv.TlvType160, lnwire.BlindedPaths,
+				]{}
+			},
+			wantErr: ErrMissingPaths,
+		},
+		{
+			name: "missing blinded_pay",
+			mutate: func(inv *Invoice) {
+				inv.InvoiceBlindedPay = tlv.OptionalRecordT[
+					tlv.TlvType162, BlindedPayInfos,
+				]{}
+			},
+			wantErr: ErrMissingBlindedPay,
+		},
+		{
+			name: "present non-nil payer_id and matching " +
+				"non-nil offer_issuer_id",
+			mutate: func(inv *Invoice) {
+				_, payerID := bobKey()
+				_, issuerID := aliceKey()
+				inv.InvreqPayerID = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType88](
+						payerID,
+					),
+				)
+				inv.OfferIssuerID = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType22](
+						issuerID,
+					),
+				)
+				var nodeID [33]byte
+				copy(nodeID[:], issuerID.SerializeCompressed())
+				inv.InvoiceNodeID = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType176](
+						nodeID,
+					),
+				)
+			},
+			wantErr: nil,
+		},
+		{
+			name: "mismatched node_id and offer_issuer_id",
+			mutate: func(inv *Invoice) {
+				_, issuerID := aliceKey()
+				inv.OfferIssuerID = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType22](
+						issuerID,
+					),
+				)
+			},
+			wantErr: ErrInvoiceNodeIDMismatch,
+		},
+		{
+			name: "zero invoice_amount",
+			mutate: func(inv *Invoice) {
+				inv.InvoiceAmount = tlv.SomeRecordT(
+					tlv.NewRecordT[tlv.TlvType170](
+						TUint64(0),
+					),
+				)
+			},
+			wantErr: ErrZeroInvoiceAmount,
+		},
+		{
+			name: "blinded pay info mismatch",
+			mutate: func(inv *Invoice) {
+				infos := BlindedPayInfos{
+					Infos: []BlindedPayInfo{{}, {}},
+				}
+				inv.InvoiceBlindedPay = tlv.SomeRecordT(
+					tlv.NewRecordT[tlv.TlvType162](infos),
+				)
+			},
+			wantErr: ErrBlindedPayMismatch,
+		},
+		{
+			name: "empty invoice_paths",
+			mutate: func(inv *Invoice) {
+				paths := lnwire.BlindedPaths{Paths: nil}
+				inv.InvoicePaths = tlv.SomeRecordT(
+					tlv.NewRecordT[tlv.TlvType160](paths),
+				)
+			},
+			wantErr: ErrEmptyBlindedPaths,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			inv := validInvoice(t)
+			tc.mutate(inv)
+
+			err := ValidateInvoiceWrite(inv)
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestValidateFeaturesWithCatalogue verifies that both Role 1 endpoint features
+// and Role 2 routing path features are correctly validated using injected
+// catalogues.
+func TestValidateFeaturesWithCatalogue(t *testing.T) {
+	t.Parallel()
+
+	// Role 1 validation on ValidateInvoiceRead:
+	t.Run("endpoint features (Role 1)", func(t *testing.T) {
+		t.Parallel()
+
+		inv := validInvoice(t)
+		inv.Signature = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType240](
+				[64]byte{},
+			),
+		)
+
+		// Set MPP required (bit 16, even/required)
+		fv := *lnwire.NewRawFeatureVector(lnwire.MPPRequired)
+		inv.InvoiceFeatures = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType174](fv),
+		)
+
+		// A: Unknown required bit -> reject
+		err := ValidateInvoiceRead(
+			inv, bitcoinMainnetGenesisHash, nil, nil,
+		)
+		require.ErrorIs(t, err, ErrUnknownEvenFeature)
+
+		// B: Known required bit -> pass
+		known := map[lnwire.FeatureBit]string{
+			lnwire.MPPRequired: "mpp",
+		}
+		err = ValidateInvoiceRead(
+			inv, bitcoinMainnetGenesisHash, known, nil,
+		)
+		require.NoError(t, err)
+	})
+
+	// Role 2 validation on ValidateInvoiceRead (Usable blinded paths):
+	t.Run("routing path features (Role 2)", func(t *testing.T) {
+		t.Parallel()
+
+		inv := validInvoice(t)
+		inv.Signature = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType240](
+				[64]byte{},
+			),
+		)
+
+		// Set an even required feature bit on the path's features (e.g.
+		// bit 16).
+		fv := *lnwire.NewRawFeatureVector(lnwire.MPPRequired)
+		inv.InvoiceBlindedPay = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType162](BlindedPayInfos{
+				Infos: []BlindedPayInfo{{
+					Features: fv,
+				}},
+			}),
+		)
+
+		// A: No known features catalogue -> 0 usable paths ->
+		// ErrNoUsablePaths
+		err := ValidateInvoiceRead(
+			inv, bitcoinMainnetGenesisHash, nil, nil,
+		)
+		require.ErrorIs(t, err, ErrNoUsablePaths)
+
+		// B: Known features catalogue for blinded pay -> 1 usable path
+		// -> pass
+		knownBlinded := map[lnwire.FeatureBit]string{
+			lnwire.MPPRequired: "mpp",
+		}
+		err = ValidateInvoiceRead(
+			inv, bitcoinMainnetGenesisHash, nil, knownBlinded,
+		)
+		require.NoError(t, err)
+	})
+
+	// Writer side ignores features, as we set the features.
+	t.Run("writer side ignores features", func(t *testing.T) {
+		t.Parallel()
+
+		inv := validInvoice(t)
+		fv := *lnwire.NewRawFeatureVector(lnwire.MPPRequired)
+		inv.InvoiceFeatures = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType174](fv),
+		)
+
+		require.NoError(t, ValidateInvoiceWrite(inv))
+	})
+}
+
+// TestValidateInvoiceWriteRejectsNilPubkeys verifies the writer rejects a
+// present-but-nil mirrored pubkey field, which would otherwise panic the codec
+// on encode. Symmetric with ValidateInvoiceRequestWrite.
+func TestValidateInvoiceWriteRejectsNilPubkeys(t *testing.T) {
+	t.Parallel()
+
+	t.Run("present-but-nil payer_id", func(t *testing.T) {
+		t.Parallel()
+
+		inv := validInvoice(t)
+		inv.InvreqPayerID = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType88](
+				(*btcec.PublicKey)(nil),
+			),
+		)
+		require.ErrorIs(t, ValidateInvoiceWrite(inv), ErrNilPublicKey)
+	})
+
+	t.Run("present-but-nil offer_issuer_id", func(t *testing.T) {
+		t.Parallel()
+
+		inv := validInvoice(t)
+		inv.OfferIssuerID = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType22](
+				(*btcec.PublicKey)(nil),
+			),
+		)
+		require.ErrorIs(t, ValidateInvoiceWrite(inv), ErrNilPublicKey)
+	})
 }

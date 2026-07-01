@@ -9,3 +9,5 @@ http:
     - selector: devrpc.Dev.Quiesce
       post: "/v2/dev/quiesce"
       body: "*"
+    - selector: devrpc.Dev.FetchReputation
+      get: "/v2/dev/reputation"

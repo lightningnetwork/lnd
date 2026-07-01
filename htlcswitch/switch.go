@@ -187,6 +187,13 @@ type Config struct {
 	// events through.
 	HtlcNotifier htlcNotifier
 
+	// ReputationManager is an optional, read-only local reputation
+	// subsystem. When non-nil, the switch feeds it forward/settle/fail
+	// events for forwarded HTLCs so it can track reputation. It is a black
+	// box that never affects forwarding (log-only); when nil the hooks are
+	// skipped.
+	ReputationManager ReputationManager
+
 	// FwdEventTicker is a signal that instructs the htlcswitch to flush any
 	// pending forwarding events.
 	FwdEventTicker ticker.Ticker
@@ -2525,6 +2532,14 @@ func (s *Switch) CircuitLookup() CircuitLookup {
 	return s.circuits
 }
 
+// ActiveCircuits returns a snapshot of all open (keystoned) payment circuits
+// currently tracked by the switch's circuit map. This is used at startup to
+// reconstruct in-flight HTLC state in read-only subsystems (e.g. local
+// reputation). It is strictly read-only.
+func (s *Switch) ActiveCircuits() []*PaymentCircuit {
+	return s.circuits.ActiveCircuits()
+}
+
 // commitCircuits persistently adds a circuit to the switch's circuit map.
 func (s *Switch) commitCircuits(circuits ...*PaymentCircuit) (
 	*CircuitFwdActions, error) {
@@ -3021,7 +3036,34 @@ func (s *Switch) handlePacketAdd(packet *htlcPacket,
 	// channel.
 	packet.outgoingChanID = destination.ShortChanID()
 
+	// Feed the (read-only) reputation manager this forward. This only
+	// observes the event to update internal reputation state; it never
+	// affects the forwarding decision (log-only).
+	if s.cfg.ReputationManager != nil {
+		s.cfg.ReputationManager.OnForward(
+			CircuitKey{
+				ChanID: packet.incomingChanID,
+				HtlcID: packet.incomingHTLCID,
+			},
+			CircuitKey{
+				ChanID: packet.outgoingChanID,
+				HtlcID: packet.outgoingHTLCID,
+			},
+			packet.incomingAmount, packet.amount,
+			packet.incomingTimeout, htlcAccountable(htlc),
+		)
+	}
+
 	return destination.handleSwitchPacket(packet)
+}
+
+// htlcAccountable extracts the experimental accountable signal from an
+// incoming update_add_htlc's custom records (TLV 106823).
+func htlcAccountable(htlc *lnwire.UpdateAddHTLC) bool {
+	key := uint64(lnwire.ExperimentalAccountableType)
+	rec, ok := htlc.CustomRecords[key]
+
+	return ok && len(rec) > 0 && rec[0] == lnwire.ExperimentalAccountable
 }
 
 // handlePacketSettle handles forwarding a settle packet.
@@ -3100,6 +3142,14 @@ func (s *Switch) handlePacketSettle(packet *htlcPacket) error {
 			},
 		)
 		s.fwdEventMtx.Unlock()
+
+		// Feed the read-only reputation manager this settle;
+		// log-only, never affects resolution.
+		if s.cfg.ReputationManager != nil {
+			s.cfg.ReputationManager.OnSettle(
+				circuit.Incoming, *circuit.Outgoing,
+			)
+		}
 	}
 
 	// Deliver this packet.
@@ -3132,6 +3182,22 @@ func (s *Switch) handlePacketFail(packet *htlcPacket,
 		// If this is a locally initiated HTLC, there's no need to
 		// forward it so we exit.
 		return nil
+	}
+
+	// Feed the read-only reputation manager this forwarded fail;
+	// log-only, never affects resolution. We resolve against the
+	// incoming circuit (the key the reputation manager tracks); the
+	// outgoing leg is taken from the circuit keystone when available,
+	// else from the packet.
+	if s.cfg.ReputationManager != nil && circuit != nil {
+		outgoing := CircuitKey{
+			ChanID: packet.outgoingChanID,
+			HtlcID: packet.outgoingHTLCID,
+		}
+		if circuit.Outgoing != nil {
+			outgoing = *circuit.Outgoing
+		}
+		s.cfg.ReputationManager.OnFail(circuit.Incoming, outgoing)
 	}
 
 	// Exit early if this hasSource is true. This flag is only set via

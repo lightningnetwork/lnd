@@ -1092,13 +1092,8 @@ func (p *Brontide) taprootShutdownAllowed() bool {
 // rbfCoopCloseAllowed returns true if both parties have negotiated the new RBF
 // coop close feature.
 func (p *Brontide) rbfCoopCloseAllowed() bool {
-	bothHaveBit := func(bit lnwire.FeatureBit) bool {
-		return p.RemoteFeatures().HasFeature(bit) &&
-			p.LocalFeatures().HasFeature(bit)
-	}
-
-	return bothHaveBit(lnwire.RbfCoopCloseOptional) ||
-		bothHaveBit(lnwire.RbfCoopCloseOptionalStaging)
+	return p.RemoteFeatures().HasFeature(lnwire.RbfCoopCloseOptional) &&
+		p.LocalFeatures().HasFeature(lnwire.RbfCoopCloseOptional)
 }
 
 // QuitSignal is a method that should return a channel which will be sent upon

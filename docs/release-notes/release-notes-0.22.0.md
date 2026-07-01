@@ -116,6 +116,12 @@
 
 ## Code Health
 
+* [Removed](https://github.com/lightningnetwork/lnd/pull/10891) the staging
+  feature bits for the RBF-based co-op close protocol
+  (`rbf-coop-close-x`, bits 160/161). Now that the final feature bits
+  (`rbf-coop-close`, bits 60/61) have been in production for a while, the
+  staging bits are no longer signaled or negotiated.
+
 ## Tooling and Documentation
 
 * [`dev.Dockerfile` now uses](https://github.com/lightningnetwork/lnd/pull/10903)
@@ -134,3 +140,4 @@
 * bitromortac
 * Boris Nagaev
 * Erick Cestari
+* Pins

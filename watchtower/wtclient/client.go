@@ -571,6 +571,14 @@ func (c *client) deleteSessionFromTower(sess *wtdb.ClientSession) error {
 			return err
 		}
 
+		// If the tower has been deactivated by the user, then there is
+		// no point in attempting to reach it to notify it of the
+		// session deletion. We signal this to the caller so that our
+		// local copy of the (closable) session can still be pruned.
+		if dbTower.Status == wtdb.TowerStatusInactive {
+			return errTowerInactive
+		}
+
 		tower, err = NewTowerFromDBTower(dbTower)
 		if err != nil {
 			return err

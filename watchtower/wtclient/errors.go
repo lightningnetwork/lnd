@@ -39,4 +39,9 @@ var (
 	// create a new session with a tower with a session key that has already
 	// been used in the past.
 	ErrSessionKeyAlreadyUsed = errors.New("session key already used")
+
+	// errTowerInactive signals that a session's tower has been deactivated
+	// by the user, so no attempt should be made to contact it when cleaning
+	// up a closable session.
+	errTowerInactive = errors.New("tower is inactive")
 )

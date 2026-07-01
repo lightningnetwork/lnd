@@ -2094,6 +2094,162 @@ var clientTests = []clientTest{
 		},
 	},
 	{
+		// Assert that a closable session is still deleted from the
+		// client's own database even when the tower it was negotiated
+		// with can no longer be reached. Informing the tower that it
+		// may delete the session is best-effort: a session is only
+		// closable once all of its channels are closed, so the local
+		// copy no longer protects anything. A permanently unreachable
+		// tower must therefore not prevent local cleanup, otherwise the
+		// session lingers forever and the client re-dials the dead
+		// tower on every restart (see issue #10646).
+		name: "assert that closable sessions are deleted even if " +
+			"the tower is unreachable",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				TxPolicy:   defaultTxPolicy,
+				MaxUpdates: 5,
+			},
+		},
+		fn: func(h *testHarness) {
+			const numUpdates = 5
+
+			h.sendUpdatesOn = true
+
+			// Saturate a session with updates for channel 0 and
+			// ensure the tower receives them all.
+			hints := h.advanceChannelN(0, numUpdates)
+			h.backupStates(0, 0, numUpdates, nil)
+			h.server.waitForUpdates(hints, waitTime)
+
+			// Exactly one session should hold updates for the
+			// channel.
+			sessionIDs := h.relevantSessions(0)
+			require.Len(h.t, sessionIDs, 1)
+
+			// Close the channel so that the now-exhausted session
+			// becomes closable.
+			h.closeChannel(0, 1)
+
+			err := wait.Predicate(func() bool {
+				return h.isSessionClosable(sessionIDs[0])
+			}, waitTime)
+			require.NoError(h.t, err)
+
+			// Simulate the tower disappearing from the network by
+			// removing its dial callback from the mock net. Any
+			// dial to it now fails, just like a tower whose host is
+			// permanently unreachable.
+			h.net.removeConnCallback(h.server.addr)
+
+			// Mine enough blocks to exceed the session-close-range
+			// so that the client tries to hand the session off to
+			// the tower and then delete it.
+			h.mine(3)
+
+			// Even though the tower can no longer be reached, the
+			// client must still remove the closable session from
+			// its own database.
+			err = wait.Predicate(func() bool {
+				cs, err := h.clientDB.ListClosableSessions()
+				require.NoError(h.t, err)
+
+				sessions, err := h.clientDB.ListClientSessions(
+					nil,
+				)
+				require.NoError(h.t, err)
+
+				_, ok := sessions[sessionIDs[0]]
+
+				return len(cs) == 0 && !ok
+			}, waitTime)
+			require.NoError(h.t, err)
+		},
+	},
+	{
+		// Assert that when a closable session belongs to a tower that
+		// the user has deactivated, the client prunes the session from
+		// its own database without attempting to contact the tower. We
+		// verify that no contact is made by asserting that the (still
+		// reachable) tower server retains the session in its own DB
+		// (see issue #10646).
+		name: "assert that closable sessions of a deactivated tower " +
+			"are deleted without contacting the tower",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				TxPolicy:   defaultTxPolicy,
+				MaxUpdates: 5,
+			},
+		},
+		fn: func(h *testHarness) {
+			const numUpdates = 5
+
+			h.sendUpdatesOn = true
+
+			// Saturate a session with updates for channel 0 and
+			// ensure the tower receives them all.
+			hints := h.advanceChannelN(0, numUpdates)
+			h.backupStates(0, 0, numUpdates, nil)
+			h.server.waitForUpdates(hints, waitTime)
+
+			sessionIDs := h.relevantSessions(0)
+			require.Len(h.t, sessionIDs, 1)
+
+			// The tower server should be aware of the session.
+			_, err := h.server.db.GetSessionInfo(&sessionIDs[0])
+			require.NoError(h.t, err)
+
+			// Close the channel so that the now-exhausted session
+			// becomes closable.
+			h.closeChannel(0, 1)
+
+			err = wait.Predicate(func() bool {
+				return h.isSessionClosable(sessionIDs[0])
+			}, waitTime)
+			require.NoError(h.t, err)
+
+			// Deactivate the tower. The tower server is still
+			// up and reachable; only the client has marked it
+			// inactive.
+			err = h.clientMgr.DeactivateTower(
+				h.server.addr.IdentityKey,
+			)
+			require.NoError(h.t, err)
+
+			// Mine enough blocks to exceed the session-close-range
+			// so that the client processes the closable session.
+			h.mine(3)
+
+			// The client should delete the closable session
+			// from its own database.
+			err = wait.Predicate(func() bool {
+				cs, err := h.clientDB.ListClosableSessions()
+				require.NoError(h.t, err)
+
+				sessions, err := h.clientDB.ListClientSessions(
+					nil,
+				)
+				require.NoError(h.t, err)
+
+				_, ok := sessions[sessionIDs[0]]
+
+				return len(cs) == 0 && !ok
+			}, waitTime)
+			require.NoError(h.t, err)
+
+			// Crucially, since the tower was deactivated, the
+			// client should not have contacted it, so the tower
+			// server must still have the session in its own
+			// database.
+			_, err = h.server.db.GetSessionInfo(&sessionIDs[0])
+			require.NoError(h.t, err)
+		},
+	},
+	{
 		// Demonstrate that the client is able to recover after
 		// deleting its database by skipping through key indices until
 		// it gets to one that does not result in the

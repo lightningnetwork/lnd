@@ -114,8 +114,23 @@ func (m *missionControlState) setLastPairResult(fromNode, toNode route.Vertex,
 			return
 		}
 
+		// Don't let a half-penalty failure overwrite an existing
+		// full-penalty failure. Without this guard, a peer could
+		// follow a real failure with a policy-update failure to
+		// soften its own recorded penalty.
+		if !force && result.halfPenalty && !current.HalfPenalty &&
+			!current.FailTime.IsZero() {
+
+			log.Debugf("Ignoring half-penalty failure: pair has "+
+				"an existing full-penalty failure recorded "+
+				"at %v", current.FailTime)
+
+			return
+		}
+
 		current.FailTime = timestamp
 		current.FailAmt = failAmt
+		current.HalfPenalty = result.halfPenalty
 
 		switch {
 		// The failure amount is set to zero when the failure is
@@ -233,6 +248,7 @@ func (m *missionControlState) importSnapshot(snapshot *MissionControlSnapshot,
 		lastResult := results[toNode]
 
 		failResult := failPairResult(pair.FailAmt)
+		failResult.halfPenalty = pair.HalfPenalty
 		imported += m.importResult(
 			lastResult.FailTime, pair.FailTime, failResult,
 			fromNode, toNode, force,

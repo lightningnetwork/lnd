@@ -323,7 +323,6 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		LocalCommitment:         aliceLocalCommit,
 		RemoteCommitment:        aliceRemoteCommit,
 		Db:                      dbAlice.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
 		FundingTxn:              testTx,
 	}
 	bobChannelState := &channeldb.OpenChannel{
@@ -341,7 +340,6 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		LocalCommitment:         bobLocalCommit,
 		RemoteCommitment:        bobRemoteCommit,
 		Db:                      dbBob.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
 	// If the channel type has a tapscript root, then we'll also specify

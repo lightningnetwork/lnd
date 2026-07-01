@@ -43,6 +43,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func testChannelStateDB(t testing.TB,
+	channel *lnwallet.LightningChannel) *channeldb.ChannelStateDB {
+
+	t.Helper()
+
+	cdb, ok := channel.State().Db.(*channeldb.ChannelStateDB)
+	if !ok {
+		t.Fatalf("expected ChannelStateDB, got %T", channel.State().Db)
+	}
+
+	return cdb
+}
+
 // maxInflightHtlcs specifies the max number of inflight HTLCs. This number is
 // chosen to be smaller than the default 483 so the test can run faster.
 const maxInflightHtlcs = 50
@@ -306,7 +319,6 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		RemoteCommitment:        aliceCommit,
 		ShortChannelID:          chanID,
 		Db:                      dbAlice.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(chanID),
 		FundingTxn:              channels.TestFundingTx,
 	}
 
@@ -325,7 +337,6 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		RemoteCommitment:        bobCommit,
 		ShortChannelID:          chanID,
 		Db:                      dbBob.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(chanID),
 	}
 
 	if err := aliceChannelState.SyncPending(bobAddr, broadcastHeight); err != nil {
@@ -954,9 +965,9 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	secondBobChannel, carolChannel *lnwallet.LightningChannel,
 	startingHeight uint32, opts ...serverOption) *threeHopNetwork {
 
-	aliceDb := aliceChannel.State().Db.GetParentDB()
-	bobDb := firstBobChannel.State().Db.GetParentDB()
-	carolDb := carolChannel.State().Db.GetParentDB()
+	aliceDb := testChannelStateDB(t, aliceChannel).GetParentDB()
+	bobDb := testChannelStateDB(t, firstBobChannel).GetParentDB()
+	carolDb := testChannelStateDB(t, carolChannel).GetParentDB()
 
 	hopNetwork := newHopNetwork()
 
@@ -1233,8 +1244,8 @@ func newTwoHopNetwork(t testing.TB,
 	aliceChannel, bobChannel *lnwallet.LightningChannel,
 	startingHeight uint32) *twoHopNetwork {
 
-	aliceDb := aliceChannel.State().Db.GetParentDB()
-	bobDb := bobChannel.State().Db.GetParentDB()
+	aliceDb := testChannelStateDB(t, aliceChannel).GetParentDB()
+	bobDb := testChannelStateDB(t, bobChannel).GetParentDB()
 
 	hopNetwork := newHopNetwork()
 

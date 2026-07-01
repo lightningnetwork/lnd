@@ -271,7 +271,7 @@ func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
 		// 'unlock') but the wallet is already unlocked, then these
 		// methods aren't recognized any more because this service is
 		// shut down after successful unlock.
-		if s.Code() == codes.Unknown && strings.Contains(
+		if s.Code() == codes.FailedPrecondition && strings.Contains(
 			s.Message(), rpcperms.ErrWalletUnlocked.Error(),
 		) && (c.Command.Name == "create" ||
 			c.Command.Name == "unlock" ||
@@ -283,7 +283,7 @@ func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
 
 		// lnd might be active, but not possible to contact using RPC if
 		// the wallet is encrypted.
-		if s.Code() == codes.Unknown && strings.Contains(
+		if s.Code() == codes.FailedPrecondition && strings.Contains(
 			s.Message(), rpcperms.ErrWalletLocked.Error(),
 		) {
 

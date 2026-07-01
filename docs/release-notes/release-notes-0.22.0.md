@@ -77,6 +77,14 @@
 
 ## RPC Updates
 
+* The RPC state interceptor now [returns structured gRPC status
+  codes](https://github.com/lightningnetwork/lnd/pull/10945) instead of plain
+  Go errors. `ErrWaitingToStart` and `ErrRPCStarting` map to
+  `codes.Unavailable`; `ErrNoWallet`, `ErrWalletLocked`, and
+  `ErrWalletUnlocked` map to `codes.FailedPrecondition`. Callers can now
+  branch on the status code directly rather than performing string matching
+  against the error message.
+
 ## lncli Updates
 
 ## Breaking Changes

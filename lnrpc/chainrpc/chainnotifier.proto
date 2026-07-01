@@ -102,7 +102,22 @@ message ConfDetails {
 }
 
 message Reorg {
-    // TODO(wilmer): need to know how the client will use this first.
+    /*
+    The depth of the re-org, i.e. the number of blocks by which the
+    transaction/spend was reorged out of the chain. Only populated for
+    confirmation notifications; spend notifications do not currently track
+    re-org depth and leave this field as 0.
+    */
+    uint32 depth = 1;
+}
+
+message Done {
+    /*
+    Done is sent once the confirmation/spend notification is no longer under
+    the risk of being reorged out of the chain, i.e. it has reached the
+    backend's re-org safety depth. It carries no payload: receiving it means
+    the notification stream is complete and no further events will be sent.
+    */
 }
 
 message ConfEvent {
@@ -118,6 +133,13 @@ message ConfEvent {
         chain.
         */
         Reorg reorg = 2;
+
+        /*
+        An event sent once the confirmation is no longer under the risk of
+        being reorged out of the chain (the watch has reached re-org safety
+        depth).
+        */
+        Done done = 3;
     }
 }
 
@@ -188,6 +210,12 @@ message SpendEvent {
         reorged out of the chain.
         */
         Reorg reorg = 2;
+
+        /*
+        An event sent once the spend is no longer under the risk of being
+        reorged out of the chain (the watch has reached re-org safety depth).
+        */
+        Done done = 3;
     }
 }
 

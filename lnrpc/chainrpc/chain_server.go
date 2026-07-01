@@ -439,25 +439,38 @@ func (s *Server) RegisterConfirmationsNtfn(in *ConfRequest,
 			}
 
 		// The transaction satisfying the request has been reorged out
-		// of the chain, so we'll send an event describing it.
-		case _, ok := <-confEvent.NegativeConf:
+		// of the chain, so we'll send an event describing it. The depth
+		// of the re-org is forwarded so reorg-safety-aware callers can
+		// reason about how far the chain rewound.
+		case depth, ok := <-confEvent.NegativeConf:
 			if !ok {
 				return chainntnfs.ErrChainNotifierShuttingDown
 			}
 
 			reorg := &ConfEvent{
-				Event: &ConfEvent_Reorg{Reorg: &Reorg{}},
+				Event: &ConfEvent_Reorg{
+					Reorg: &Reorg{Depth: uint32(depth)},
+				},
 			}
 			if err := confStream.Send(reorg); err != nil {
 				return err
 			}
 
 		// The transaction satisfying the request has confirmed and is
-		// no longer under the risk of being reorged out of the chain,
-		// so we can safely exit.
+		// no longer under the risk of being reorged out of the chain.
+		// Send an explicit Done event before exiting so callers can
+		// distinguish reaching re-org safety depth from the stream
+		// being torn down for any other reason.
 		case _, ok := <-confEvent.Done:
 			if !ok {
 				return chainntnfs.ErrChainNotifierShuttingDown
+			}
+
+			done := &ConfEvent{
+				Event: &ConfEvent_Done{Done: &Done{}},
+			}
+			if err := confStream.Send(done); err != nil {
+				return err
 			}
 
 			return nil
@@ -565,10 +578,19 @@ func (s *Server) RegisterSpendNtfn(in *SpendRequest,
 
 		// The spending transaction of the requests has confirmed
 		// on-chain and is no longer under the risk of being reorged out
-		// of the chain, so we can safely exit.
+		// of the chain. Send an explicit Done event before exiting so
+		// callers can distinguish reaching re-org safety depth from the
+		// stream being torn down for any other reason.
 		case _, ok := <-spendEvent.Done:
 			if !ok {
 				return chainntnfs.ErrChainNotifierShuttingDown
+			}
+
+			done := &SpendEvent{
+				Event: &SpendEvent_Done{Done: &Done{}},
+			}
+			if err := spendStream.Send(done); err != nil {
+				return err
 			}
 
 			return nil

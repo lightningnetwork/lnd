@@ -126,7 +126,9 @@ func NewLegacyPayload(f *sphinx.HopData) *Payload {
 
 	return &Payload{
 		FwdInfo: ForwardingInfo{
-			NextHop:         lnwire.NewShortChanIDFromInt(nextHop),
+			NextHop: NewChannelNextHop(
+				lnwire.NewShortChanIDFromInt(nextHop),
+			),
 			AmountToForward: lnwire.MilliSatoshi(f.ForwardAmount),
 			OutgoingCLTV:    f.OutgoingCltv,
 		},
@@ -201,7 +203,9 @@ func ParseTLVPayload(r io.Reader) (*Payload, map[tlv.Type][]byte, error) {
 
 	return &Payload{
 		FwdInfo: ForwardingInfo{
-			NextHop:         lnwire.NewShortChanIDFromInt(cid),
+			NextHop: NewChannelNextHop(
+				lnwire.NewShortChanIDFromInt(cid),
+			),
 			AmountToForward: lnwire.MilliSatoshi(amt),
 			OutgoingCLTV:    cltv,
 		},

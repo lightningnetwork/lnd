@@ -188,9 +188,13 @@ func TestOnionMessagePayloadRoundTrip(t *testing.T) {
 		)
 	})
 
-	t.Run("multiple final hop TLVs", func(t *testing.T) {
+	t.Run("multiple final hop payloads rejected", func(t *testing.T) {
 		t.Parallel()
 
+		// BOLT 4 requires the final node to ignore an onion message
+		// that carries more than one final hop payload field, so decode
+		// must reject a payload bundling invoice_request, invoice, and
+		// invoice_error together.
 		original := &OnionMessagePayload{
 			FinalHopTLVs: []*FinalHopTLV{
 				{
@@ -208,24 +212,12 @@ func TestOnionMessagePayloadRoundTrip(t *testing.T) {
 			},
 		}
 
-		decoded := encodeAndDecode(t, original)
+		encoded, err := original.Encode()
+		require.NoError(t, err)
 
-		require.Nil(t, decoded.ReplyPath)
-		require.Len(t, decoded.FinalHopTLVs, 3)
-
-		// Decoded TLVs should be sorted by type.
-		require.Equal(
-			t, InvoiceRequestNamespaceType,
-			decoded.FinalHopTLVs[0].TLVType,
-		)
-		require.Equal(
-			t, InvoiceNamespaceType,
-			decoded.FinalHopTLVs[1].TLVType,
-		)
-		require.Equal(
-			t, InvoiceErrorNamespaceType,
-			decoded.FinalHopTLVs[2].TLVType,
-		)
+		decoded := NewOnionMessagePayload()
+		_, err = decoded.Decode(bytes.NewReader(encoded))
+		require.ErrorIs(t, err, ErrMultipleFinalHopPayloads)
 	})
 
 	t.Run("all fields populated", func(t *testing.T) {
@@ -464,15 +456,16 @@ func TestOnionMessagePayloadRoundTripQuickCheck(t *testing.T) {
 			).Draw(t, "encryptedData")
 		}
 
-		// Optionally include final hop TLVs. We use the three known
-		// even types (64, 66, 68) since unknown even types would cause
-		// decode to fail.
+		// Optionally include a final hop payload. We use the three
+		// known even types (64, 66, 68) since unknown even types would
+		// cause decode to fail. At most one payload field is drawn
+		// because BOLT 4 requires decode to reject more than one.
 		knownTypes := []tlv.Type{
 			InvoiceRequestNamespaceType,
 			InvoiceNamespaceType,
 			InvoiceErrorNamespaceType,
 		}
-		numFinalTLVs := rapid.IntRange(0, len(knownTypes)).Draw(
+		numFinalTLVs := rapid.IntRange(0, 1).Draw(
 			t, "numFinalTLVs",
 		)
 		for i := range numFinalTLVs {

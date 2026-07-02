@@ -53,6 +53,12 @@ var (
 var ErrUnknownEvenType = errors.New("onion message payload contains unknown " +
 	"even tlv type")
 
+// ErrMultipleFinalHopPayloads is returned when an onion message payload for the
+// final hop contains more than one payload field (tlv type >= 64). BOLT 4
+// requires the message to be ignored in this case.
+var ErrMultipleFinalHopPayloads = errors.New("onion message payload contains " +
+	"more than one final hop payload field")
+
 // OnionMessagePayload contains the contents of an onion message payload.
 type OnionMessagePayload struct {
 	// ReplyPath contains a blinded path that can be used to respond to an
@@ -246,6 +252,14 @@ func (o *OnionMessagePayload) Decode(r io.Reader) (map[tlv.Type][]byte, error) {
 		o.FinalHopTLVs = append(
 			o.FinalHopTLVs, invoiceRequestPayload,
 		)
+	}
+
+	// BOLT 4: the final node must ignore an onion message whose
+	// onionmsg_tlv contains more than one payload field (tlv type >= 64).
+	// Every entry in FinalHopTLVs is in the final hop range by
+	// construction, so its length is the number of payload fields present.
+	if len(o.FinalHopTLVs) > 1 {
+		return tlvMap, ErrMultipleFinalHopPayloads
 	}
 
 	// Iteration through maps occurs in random order - sort final hop

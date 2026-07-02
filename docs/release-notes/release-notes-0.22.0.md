@@ -42,6 +42,17 @@
   regardless of peer connectivity. Uptime is now seeded from the peer's
   actual connection state.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10947) where a
+  watchtower that became permanently unreachable (for example a tower that
+  went offline or was deactivated with `lncli wtclient deactivate`) could make
+  `lnd` spend a very long time cleaning up on startup. Closable watchtower
+  sessions (those whose channels are all closed) are now pruned from the client
+  database on a best-effort basis even when the tower cannot be reached, and
+  the client no longer contacts a deactivated tower when cleaning them up.
+  Previously such sessions could never be deleted, so the client re-dialed the
+  dead tower on every restart and the tower could never be fully removed (see
+  [issue 10646](https://github.com/lightningnetwork/lnd/issues/10646)).
+
 # New Features
 
 ## Functional Enhancements
@@ -134,3 +145,4 @@
 * bitromortac
 * Boris Nagaev
 * Erick Cestari
+* Jan Kuchař

@@ -561,16 +561,25 @@ func (c *client) stopAndRemoveSession(id wtdb.SessionID, final bool) error {
 // deleteSessionFromTower dials the tower that we created the session with and
 // attempts to send the tower the DeleteSession message.
 func (c *client) deleteSessionFromTower(sess *wtdb.ClientSession) error {
-	// First, we check if we have already loaded this tower in our
-	// candidate towers iterator.
+	// Load the tower from the DB so that we can check its status. If the
+	// tower has been deactivated by the user, then there is no point in
+	// attempting to reach it to notify it of the session deletion; we
+	// signal this to the caller so that our local copy of the (closable)
+	// session can still be pruned. We check the DB tower directly since
+	// the in-memory Tower does not carry the tower's status.
+	dbTower, err := c.cfg.DB.LoadTowerByID(sess.TowerID)
+	if err != nil {
+		return err
+	}
+	if dbTower.Status == wtdb.TowerStatusInactive {
+		return errTowerInactive
+	}
+
+	// Use the tower from our candidate iterator if we have already loaded
+	// it, so that we share its address iterator. Otherwise, construct one
+	// from the DB tower.
 	tower, err := c.candidateTowers.GetTower(sess.TowerID)
 	if errors.Is(err, ErrTowerNotInIterator) {
-		// If not, then we attempt to load it from the DB.
-		dbTower, err := c.cfg.DB.LoadTowerByID(sess.TowerID)
-		if err != nil {
-			return err
-		}
-
 		tower, err = NewTowerFromDBTower(dbTower)
 		if err != nil {
 			return err

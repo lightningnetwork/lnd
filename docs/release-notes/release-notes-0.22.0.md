@@ -84,7 +84,7 @@
 ## Performance Improvements
 
 * [Use a tiered buffer
-  pool](https://github.com/lightningnetwork/lnd/pull/XXXXX) for encrypted
+  pool](https://github.com/lightningnetwork/lnd/pull/10949) for encrypted
   message bodies in `brontide`, so small wire messages (the common case) no
   longer require allocating a max-size (~64 KB) buffer.
 

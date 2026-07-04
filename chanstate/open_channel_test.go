@@ -34,6 +34,13 @@ const (
 
 type testChannelOption func(channel *OpenChannel)
 
+// fundingPointOption sets the funding outpoint of the test channel.
+func fundingPointOption(chanPoint wire.OutPoint) testChannelOption {
+	return func(channel *OpenChannel) {
+		channel.FundingOutpoint = chanPoint
+	}
+}
+
 // localShutdownOption is an option which sets the local upfront shutdown
 // script for the channel.
 func localShutdownOption(addr lnwire.DeliveryAddress) testChannelOption {
@@ -81,10 +88,12 @@ func createTestChannel(t *testing.T, store *KVStore,
 	return channel
 }
 
-func createTestOpenChannel(t *testing.T, store *KVStore) *OpenChannel {
+func createTestOpenChannel(t *testing.T, store *KVStore,
+	opts ...testChannelOption) *OpenChannel {
+
 	t.Helper()
 
-	channel := createTestChannel(t, store)
+	channel := createTestChannel(t, store, opts...)
 
 	err := channel.MarkAsOpen(channel.ShortChannelID)
 	require.NoError(t, err, "unable to mark channel open")

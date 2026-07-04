@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -323,7 +324,8 @@ func createTestWallet(t *testing.T, tempTestDir string,
 	fullDB := channeldb.OpenForTesting(t, dbDir)
 
 	cfg := lnwallet.Config{
-		Database:              fullDB.ChannelStateDB(),
+		ChannelStore:          fullDB.ChannelStateStore(),
+		ChannelLifecycle:      fullDB.ChannelCoordinator(),
 		Notifier:              notifier,
 		SecretKeyRing:         keyRing,
 		WalletController:      wc,
@@ -338,6 +340,7 @@ func createTestWallet(t *testing.T, tempTestDir string,
 	require.NoError(t, err)
 
 	require.NoError(t, wallet.Startup())
+	registerWalletDB(wallet, fullDB)
 
 	t.Cleanup(func() {
 		require.NoError(t, wallet.Shutdown())
@@ -347,6 +350,26 @@ func createTestWallet(t *testing.T, tempTestDir string,
 	require.NoError(t, loadTestCredits(miningNode, wallet, 20, 4))
 
 	return wallet
+}
+
+var walletDBs sync.Map
+
+func registerWalletDB(wallet *lnwallet.LightningWallet, db *channeldb.DB) {
+	walletDBs.Store(wallet, db)
+}
+
+func testWalletDB(wallet *lnwallet.LightningWallet) (*channeldb.DB, error) {
+	db, ok := walletDBs.Load(wallet)
+	if !ok {
+		return nil, fmt.Errorf("expected DB for test wallet %p", wallet)
+	}
+
+	cdb, ok := db.(*channeldb.DB)
+	if !ok {
+		return nil, fmt.Errorf("expected channeldb.DB, got %T", db)
+	}
+
+	return cdb, nil
 }
 
 func testGetRecoveryInfo(miner *rpctest.Harness,
@@ -530,7 +553,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	// The resulting active channel state should have been persisted to the
 	// DB.
 	fundingSha := fundingTx.TxHash()
-	aliceChannels, err := alice.Cfg.Database.FetchOpenChannels(bobPub)
+	aliceChannels, err := alice.Cfg.ChannelStore.FetchOpenChannels(bobPub)
 	require.NoError(t, err, "unable to retrieve channel from DB")
 	if !bytes.Equal(aliceChannels[0].FundingOutpoint.Hash[:], fundingSha[:]) {
 		t.Fatalf("channel state not properly saved")
@@ -538,7 +561,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	if !aliceChannels[0].ChanType.IsDualFunder() {
 		t.Fatalf("channel not detected as dual funder")
 	}
-	bobChannels, err := bob.Cfg.Database.FetchOpenChannels(alicePub)
+	bobChannels, err := bob.Cfg.ChannelStore.FetchOpenChannels(alicePub)
 	require.NoError(t, err, "unable to retrieve channel from DB")
 	if !bytes.Equal(bobChannels[0].FundingOutpoint.Hash[:], fundingSha[:]) {
 		t.Fatalf("channel state not properly saved")
@@ -969,7 +992,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	// The resulting active channel state should have been persisted to the
 	// DB for both Alice and Bob.
 	fundingSha := fundingTx.TxHash()
-	aliceChannels, err := alice.Cfg.Database.FetchOpenChannels(bobPub)
+	aliceChannels, err := alice.Cfg.ChannelStore.FetchOpenChannels(bobPub)
 	require.NoError(t, err, "unable to retrieve channel from DB")
 	if len(aliceChannels) != 1 {
 		t.Fatalf("alice didn't save channel state: %v", err)
@@ -987,7 +1010,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 			channeldb.SingleFunderBit, aliceChannels[0].ChanType)
 	}
 
-	bobChannels, err := bob.Cfg.Database.FetchOpenChannels(alicePub)
+	bobChannels, err := bob.Cfg.ChannelStore.FetchOpenChannels(alicePub)
 	require.NoError(t, err, "unable to retrieve channel from DB")
 	if len(bobChannels) != 1 {
 		t.Fatalf("bob didn't save channel state: %v", err)
@@ -2963,11 +2986,21 @@ func clearWalletStates(a, b *lnwallet.LightningWallet) error {
 	a.ResetReservations()
 	b.ResetReservations()
 
-	if err := a.Cfg.Database.GetParentDB().Wipe(); err != nil {
+	aliceDB, err := testWalletDB(a)
+	if err != nil {
 		return err
 	}
 
-	return b.Cfg.Database.GetParentDB().Wipe()
+	bobDB, err := testWalletDB(b)
+	if err != nil {
+		return err
+	}
+
+	if err := aliceDB.Wipe(); err != nil {
+		return err
+	}
+
+	return bobDB.Wipe()
 }
 
 func waitForMempoolTx(r *rpctest.Harness, txid *chainhash.Hash) error {

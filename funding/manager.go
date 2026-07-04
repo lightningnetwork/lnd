@@ -385,9 +385,9 @@ type Config struct {
 	// so that the channel creation process can be completed.
 	Notifier chainntnfs.ChainNotifier
 
-	// ChannelDB is the database that keeps track of channel state used by
-	// the funding flow.
-	ChannelDB chanstate.Store
+	// ChannelStateStore is the channel-state persistence surface used
+	// by the funding flow.
+	ChannelStateStore channelStateStore
 
 	// SignMessage signs an arbitrary message with a given public key. The
 	// actual digest signed is the double sha-256 of the message. In the
@@ -584,6 +584,13 @@ type Config struct {
 	ShutdownScript fn.Option[lnwire.DeliveryAddress]
 }
 
+// channelStateStore is the narrow channel-state persistence surface needed
+// by the funding manager.
+type channelStateStore interface {
+	chanstate.OpenChannelStore
+	chanstate.ChannelSetupStore
+}
+
 // Manager acts as an orchestrator/bridge between the wallet's
 // 'ChannelReservation' workflow, and the wire protocol's funding initiation
 // messages. Any requests to initiate the funding workflow for a channel,
@@ -739,7 +746,7 @@ func (f *Manager) start() error {
 	// down.
 	// TODO(roasbeef): store height that funding finished?
 	//  * would then replace call below
-	allChannels, err := f.cfg.ChannelDB.FetchAllChannels()
+	allChannels, err := f.cfg.ChannelStateStore.FetchAllChannels()
 	if err != nil {
 		return err
 	}
@@ -1516,7 +1523,7 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 
 	// Also count the channels that are already pending. There we don't know
 	// the underlying intent anymore, unfortunately.
-	channels, err := f.cfg.ChannelDB.FetchOpenChannels(peerPubKey)
+	channels, err := f.cfg.ChannelStateStore.FetchOpenChannels(peerPubKey)
 	if err != nil {
 		f.failFundingFlow(peer, cid, err)
 		return
@@ -1543,7 +1550,7 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	}
 
 	// Ensure that the pendingChansLimit is respected.
-	pendingChans, err := f.cfg.ChannelDB.FetchPendingChannels()
+	pendingChans, err := f.cfg.ChannelStateStore.FetchPendingChannels()
 	if err != nil {
 		f.failFundingFlow(peer, cid, err)
 		return
@@ -5530,7 +5537,7 @@ func (f *Manager) defaultForwardingPolicy(
 func (f *Manager) saveInitialForwardingPolicy(chanID lnwire.ChannelID,
 	forwardingPolicy *models.ForwardingPolicy) error {
 
-	return f.cfg.ChannelDB.SaveInitialForwardingPolicy(
+	return f.cfg.ChannelStateStore.SaveInitialForwardingPolicy(
 		chanID, forwardingPolicy,
 	)
 }
@@ -5541,13 +5548,13 @@ func (f *Manager) saveInitialForwardingPolicy(chanID lnwire.ChannelID,
 func (f *Manager) getInitialForwardingPolicy(
 	chanID lnwire.ChannelID) (*models.ForwardingPolicy, error) {
 
-	return f.cfg.ChannelDB.GetInitialForwardingPolicy(chanID)
+	return f.cfg.ChannelStateStore.GetInitialForwardingPolicy(chanID)
 }
 
 // deleteInitialForwardingPolicy removes channel fees for this chanID from
 // the database.
 func (f *Manager) deleteInitialForwardingPolicy(chanID lnwire.ChannelID) error {
-	return f.cfg.ChannelDB.DeleteInitialForwardingPolicy(chanID)
+	return f.cfg.ChannelStateStore.DeleteInitialForwardingPolicy(chanID)
 }
 
 // saveChannelOpeningState saves the channelOpeningState for the provided
@@ -5566,7 +5573,7 @@ func (f *Manager) saveChannelOpeningState(chanPoint *wire.OutPoint,
 	byteOrder.PutUint16(scratch[:2], uint16(state))
 	byteOrder.PutUint64(scratch[2:], shortChanID.ToUint64())
 
-	return f.cfg.ChannelDB.SaveChannelOpeningState(
+	return f.cfg.ChannelStateStore.SaveChannelOpeningState(
 		outpointBytes.Bytes(), scratch,
 	)
 }
@@ -5582,7 +5589,7 @@ func (f *Manager) getChannelOpeningState(chanPoint *wire.OutPoint) (
 		return 0, nil, err
 	}
 
-	value, err := f.cfg.ChannelDB.GetChannelOpeningState(
+	value, err := f.cfg.ChannelStateStore.GetChannelOpeningState(
 		outpointBytes.Bytes(),
 	)
 	if err != nil {
@@ -5601,7 +5608,7 @@ func (f *Manager) deleteChannelOpeningState(chanPoint *wire.OutPoint) error {
 		return err
 	}
 
-	return f.cfg.ChannelDB.DeleteChannelOpeningState(
+	return f.cfg.ChannelStateStore.DeleteChannelOpeningState(
 		outpointBytes.Bytes(),
 	)
 }

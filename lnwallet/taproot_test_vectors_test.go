@@ -906,7 +906,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         remoteCommit,
 		RemoteCommitment:        remoteCommit,
-		Db:                      dbRemote.ChannelStateDB(),
+		Db:                      dbRemote.ChannelStateStore(),
 		FundingTxn:              fundingTx,
 	}
 	localChannelState := &chanstate.OpenChannel{
@@ -923,7 +923,7 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         localCommit,
 		RemoteCommitment:        localCommit,
-		Db:                      dbLocal.ChannelStateDB(),
+		Db:                      dbLocal.ChannelStateStore(),
 		FundingTxn:              fundingTx,
 	}
 
@@ -997,13 +997,17 @@ func createTaprootTestChannelsForVectors(tc *taprootTestContext,
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18556,
 	}
-	require.NoError(t, channelRemote.channelState.SyncPending(addr, 101))
+	require.NoError(t, dbRemote.ChannelCoordinator().SyncPendingChannel(
+		channelRemote.channelState, addr, 101,
+	))
 
 	addr = &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18555,
 	}
-	require.NoError(t, channelLocal.channelState.SyncPending(addr, 101))
+	require.NoError(t, dbLocal.ChannelCoordinator().SyncPendingChannel(
+		channelLocal.channelState, addr, 101,
+	))
 
 	// Initialize revocation windows and musig nonces.
 	err = initRevocationWindows(channelRemote, channelLocal)

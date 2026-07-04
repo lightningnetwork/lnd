@@ -1147,7 +1147,7 @@ func (l *LightningWallet) enforceNewReservedValue(fundingIntent chanfunding.Inte
 func (l *LightningWallet) CurrentNumAnchorChans() (int, error) {
 	// Count all anchor channels that are open or pending
 	// open, or waiting close.
-	chans, err := l.Cfg.Database.FetchAllChannels()
+	chans, err := l.Cfg.ChannelStore.FetchAllChannels()
 	if err != nil {
 		return 0, err
 	}
@@ -1171,7 +1171,7 @@ func (l *LightningWallet) CurrentNumAnchorChans() (int, error) {
 	}
 
 	// We also count pending close channels.
-	pendingClosed, err := l.Cfg.Database.FetchClosedChannels(
+	pendingClosed, err := l.Cfg.ChannelStore.FetchClosedChannels(
 		true,
 	)
 	if err != nil {
@@ -1179,7 +1179,7 @@ func (l *LightningWallet) CurrentNumAnchorChans() (int, error) {
 	}
 
 	for _, c := range pendingClosed {
-		c, err := l.Cfg.Database.FetchHistoricalChannel(
+		c, err := l.Cfg.ChannelStore.FetchHistoricalChannel(
 			&c.ChanPoint,
 		)
 		if err != nil {
@@ -2339,7 +2339,9 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// Add the complete funding transaction to the DB, in its open bucket
 	// which will be used for the lifetime of this channel.
 	nodeAddr := res.nodeAddr
-	err = res.partialState.SyncPending(nodeAddr, uint32(bestHeight))
+	err = l.Cfg.ChannelLifecycle.SyncPendingChannel(
+		res.partialState, nodeAddr, uint32(bestHeight),
+	)
 	if err != nil {
 		msg.err <- err
 		msg.completeChan <- nil
@@ -2532,7 +2534,9 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 
 	chanState.RevocationKeyLocator = pendingReservation.nextRevocationKeyLoc
 
-	err = chanState.SyncPending(pendingReservation.nodeAddr, uint32(bestHeight))
+	err = l.Cfg.ChannelLifecycle.SyncPendingChannel(
+		chanState, pendingReservation.nodeAddr, uint32(bestHeight),
+	)
 	if err != nil {
 		req.err <- err
 		req.completeChan <- nil

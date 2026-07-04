@@ -982,7 +982,7 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         remoteCommit,
 		RemoteCommitment:        remoteCommit,
-		Db:                      dbRemote.ChannelStateDB(),
+		Db:                      dbRemote.ChannelStateStore(),
 		FundingTxn:              tc.fundingTx.MsgTx(),
 	}
 	localChannelState := &chanstate.OpenChannel{
@@ -999,7 +999,7 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         localCommit,
 		RemoteCommitment:        localCommit,
-		Db:                      dbLocal.ChannelStateDB(),
+		Db:                      dbLocal.ChannelStateStore(),
 		FundingTxn:              tc.fundingTx.MsgTx(),
 	}
 
@@ -1050,13 +1050,17 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18556,
 	}
-	require.NoError(t, channelRemote.channelState.SyncPending(addr, 101))
+	require.NoError(t, dbRemote.ChannelCoordinator().SyncPendingChannel(
+		channelRemote.channelState, addr, 101,
+	))
 
 	addr = &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18555,
 	}
-	require.NoError(t, channelLocal.channelState.SyncPending(addr, 101))
+	require.NoError(t, dbLocal.ChannelCoordinator().SyncPendingChannel(
+		channelLocal.channelState, addr, 101,
+	))
 
 	// Now that the channel are open, simulate the start of a session by
 	// having local and remote extend their revocation windows to each other.

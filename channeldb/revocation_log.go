@@ -47,12 +47,6 @@ var (
 	// parameters.
 	NewRevocationLog = cstate.NewRevocationLog
 
-	// revocationLogBucket is a sub-bucket under openChannelBucket. This
-	// sub-bucket is dedicated for storing the minimal info required to
-	// re-construct a past state in order to punish a counterparty
-	// attempting a non-cooperative channel closure.
-	revocationLogBucket = cstate.RevocationLogBucketKey()
-
 	// ErrLogEntryNotFound is returned when we cannot find a log entry at
 	// the height requested in the revocation log.
 	ErrLogEntryNotFound = cstate.ErrLogEntryNotFound

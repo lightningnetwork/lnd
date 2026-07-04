@@ -536,14 +536,6 @@ func (c *ChannelStateDB) RemoveFwdPkgs(channel *OpenChannel,
 	return c.kvStore.RemoveFwdPkgs(channel, heights...)
 }
 
-// revocationLogTailCommitHeight returns the commit height at the end of the
-// revocation log.
-func (c *ChannelStateDB) revocationLogTailCommitHeight(
-	channel *OpenChannel) (uint64, error) {
-
-	return c.RevocationLogTailCommitHeight(channel)
-}
-
 // RevocationLogTailCommitHeight returns the commit height at the end of the
 // revocation log.
 func (c *ChannelStateDB) RevocationLogTailCommitHeight(

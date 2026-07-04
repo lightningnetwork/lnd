@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
@@ -38,6 +39,20 @@ type testChannelOption func(channel *OpenChannel)
 func fundingPointOption(chanPoint wire.OutPoint) testChannelOption {
 	return func(channel *OpenChannel) {
 		channel.FundingOutpoint = chanPoint
+	}
+}
+
+// channelIDOption sets the short channel ID of the test channel.
+func channelIDOption(chanID lnwire.ShortChannelID) testChannelOption {
+	return func(channel *OpenChannel) {
+		channel.ShortChannelID = chanID
+	}
+}
+
+// pubKeyOption sets the remote node public key of the test channel.
+func pubKeyOption(pubKey *btcec.PublicKey) testChannelOption {
+	return func(channel *OpenChannel) {
+		channel.IdentityPub = pubKey
 	}
 }
 

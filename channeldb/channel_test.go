@@ -127,21 +127,6 @@ func openChannelOption() testChannelOption {
 	}
 }
 
-// closedChannelOption is an option which can be used to create a test channel
-// that is closed.
-func closedChannelOption() testChannelOption {
-	return func(params *testChannelParams) {
-		params.closedChannel = true
-	}
-}
-
-// pubKeyOption is an option which can be used to set the remote's pubkey.
-func pubKeyOption(pubKey *btcec.PublicKey) testChannelOption {
-	return func(params *testChannelParams) {
-		params.channel.IdentityPub = pubKey
-	}
-}
-
 // localHtlcsOption is an option which allows setting of htlcs on the local
 // commitment.
 func localHtlcsOption(htlcs []HTLC) testChannelOption {

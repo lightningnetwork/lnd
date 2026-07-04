@@ -13,6 +13,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -44,14 +45,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testChannelStateDB(t testing.TB,
-	channel *lnwallet.LightningChannel) *channeldb.ChannelStateDB {
+var testChannelDBs sync.Map
+
+func registerTestChannelDB(channel *lnwallet.LightningChannel,
+	db *channeldb.DB) {
+
+	testChannelDBs.Store(channel, db)
+}
+
+func testChannelDB(t testing.TB,
+	channel *lnwallet.LightningChannel) *channeldb.DB {
 
 	t.Helper()
 
-	cdb, ok := channel.State().Db.(*channeldb.ChannelStateDB)
+	db, ok := testChannelDBs.Load(channel)
 	if !ok {
-		t.Fatalf("expected ChannelStateDB, got %T", channel.State().Db)
+		t.Fatalf("expected DB for test channel %p", channel)
+	}
+
+	cdb, ok := db.(*channeldb.DB)
+	if !ok {
+		t.Fatalf("expected channeldb.DB, got %T", db)
 	}
 
 	return cdb
@@ -138,6 +152,7 @@ func generateRandomBytes(n int) ([]byte, error) {
 
 type testLightningChannel struct {
 	channel *lnwallet.LightningChannel
+	db      func() *channeldb.DB
 	restore func() (*lnwallet.LightningChannel, error)
 }
 
@@ -319,7 +334,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		LocalCommitment:         aliceCommit,
 		RemoteCommitment:        aliceCommit,
 		ShortChannelID:          chanID,
-		Db:                      dbAlice.ChannelStateDB(),
+		Db:                      dbAlice.ChannelStateStore(),
 		FundingTxn:              channels.TestFundingTx,
 	}
 
@@ -337,14 +352,20 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		LocalCommitment:         bobCommit,
 		RemoteCommitment:        bobCommit,
 		ShortChannelID:          chanID,
-		Db:                      dbBob.ChannelStateDB(),
+		Db:                      dbBob.ChannelStateStore(),
 	}
 
-	if err := aliceChannelState.SyncPending(bobAddr, broadcastHeight); err != nil {
+	err = dbAlice.ChannelCoordinator().SyncPendingChannel(
+		aliceChannelState, bobAddr, broadcastHeight,
+	)
+	if err != nil {
 		return nil, nil, err
 	}
 
-	if err := bobChannelState.SyncPending(aliceAddr, broadcastHeight); err != nil {
+	err = dbBob.ChannelCoordinator().SyncPendingChannel(
+		bobChannelState, aliceAddr, broadcastHeight,
+	)
+	if err != nil {
 		return nil, nil, err
 	}
 
@@ -365,6 +386,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	if err != nil {
 		return nil, nil, err
 	}
+	registerTestChannelDB(channelAlice, dbAlice)
 	alicePool.Start()
 
 	bobPool := lnwallet.NewSigPool(runtime.NumCPU(), bobSigner)
@@ -376,6 +398,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	if err != nil {
 		return nil, nil, err
 	}
+	registerTestChannelDB(channelBob, dbBob)
 	bobPool.Start()
 
 	// Now that the channel are open, simulate the start of a session by
@@ -397,14 +420,14 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	}
 
 	restoreAlice := func() (*lnwallet.LightningChannel, error) {
-		aliceStoredChannels, err := dbAlice.ChannelStateDB().
+		aliceStoredChannels, err := dbAlice.ChannelStateStore().
 			FetchOpenChannels(aliceKeyPub)
 		switch err {
 		case nil:
 		case kvdb.ErrDatabaseNotOpen:
 			dbAlice = channeldb.OpenForTesting(t, dbAlice.Path())
 
-			aliceStoredChannels, err = dbAlice.ChannelStateDB().
+			aliceStoredChannels, err = dbAlice.ChannelStateStore().
 				FetchOpenChannels(aliceKeyPub)
 			if err != nil {
 				return nil, fmt.Errorf("unable to fetch alice "+
@@ -437,11 +460,13 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 				"channel: %w", err)
 		}
 
+		registerTestChannelDB(newAliceChannel, dbAlice)
+
 		return newAliceChannel, nil
 	}
 
 	restoreBob := func() (*lnwallet.LightningChannel, error) {
-		bobStoredChannels, err := dbBob.ChannelStateDB().
+		bobStoredChannels, err := dbBob.ChannelStateStore().
 			FetchOpenChannels(bobKeyPub)
 		switch err {
 		case nil:
@@ -452,7 +477,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 					"db: %w", err)
 			}
 
-			bobStoredChannels, err = dbBob.ChannelStateDB().
+			bobStoredChannels, err = dbBob.ChannelStateStore().
 				FetchOpenChannels(bobKeyPub)
 			if err != nil {
 				return nil, fmt.Errorf("unable to fetch bob "+
@@ -484,16 +509,25 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 			return nil, fmt.Errorf("unable to create new "+
 				"channel: %w", err)
 		}
+
+		registerTestChannelDB(newBobChannel, dbBob)
+
 		return newBobChannel, nil
 	}
 
 	testLightningChannelAlice := &testLightningChannel{
 		channel: channelAlice,
+		db: func() *channeldb.DB {
+			return dbAlice
+		},
 		restore: restoreAlice,
 	}
 
 	testLightningChannelBob := &testLightningChannel{
 		channel: channelBob,
+		db: func() *channeldb.DB {
+			return dbBob
+		},
 		restore: restoreBob,
 	}
 
@@ -966,9 +1000,9 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	secondBobChannel, carolChannel *lnwallet.LightningChannel,
 	startingHeight uint32, opts ...serverOption) *threeHopNetwork {
 
-	aliceDb := testChannelStateDB(t, aliceChannel).GetParentDB()
-	bobDb := testChannelStateDB(t, firstBobChannel).GetParentDB()
-	carolDb := testChannelStateDB(t, carolChannel).GetParentDB()
+	aliceDb := testChannelDB(t, aliceChannel)
+	bobDb := testChannelDB(t, firstBobChannel)
+	carolDb := testChannelDB(t, carolChannel)
 
 	hopNetwork := newHopNetwork()
 
@@ -1245,8 +1279,8 @@ func newTwoHopNetwork(t testing.TB,
 	aliceChannel, bobChannel *lnwallet.LightningChannel,
 	startingHeight uint32) *twoHopNetwork {
 
-	aliceDb := testChannelStateDB(t, aliceChannel).GetParentDB()
-	bobDb := testChannelStateDB(t, bobChannel).GetParentDB()
+	aliceDb := testChannelDB(t, aliceChannel)
+	bobDb := testChannelDB(t, bobChannel)
 
 	hopNetwork := newHopNetwork()
 

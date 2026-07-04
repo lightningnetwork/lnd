@@ -197,6 +197,14 @@ type TimestampedError struct {
 	Timestamp time.Time
 }
 
+// channelStateStore is the narrow channel-state persistence surface needed by
+// the peer.
+type channelStateStore interface {
+	chanstate.OpenChannelStore
+	chanstate.ClosedChannelStore
+	chanstate.ChannelSetupStore
+}
+
 // Config defines configuration fields that are necessary for a peer object
 // to function.
 type Config struct {
@@ -260,8 +268,8 @@ type Config struct {
 	// ChannelLinkConfig.
 	InterceptSwitch *htlcswitch.InterceptableSwitch
 
-	// ChannelDB is used to fetch channel state needed by the peer.
-	ChannelDB chanstate.Store
+	// ChannelStateStore is used to fetch channel state needed by the peer.
+	ChannelStateStore channelStateStore
 
 	// ChannelGraph is a pointer to the channel graph which is used to
 	// query information about the set of known active channels.
@@ -862,7 +870,7 @@ func (p *Brontide) Start() error {
 
 	// Fetch and then load all the active channels we have with this remote
 	// peer from the database.
-	activeChans, err := p.cfg.ChannelDB.FetchOpenChannels(
+	activeChans, err := p.cfg.ChannelStateStore.FetchOpenChannels(
 		p.cfg.Addr.IdentityKey,
 	)
 	if err != nil {
@@ -5023,7 +5031,7 @@ func (p *Brontide) resendChanSyncMsg(cid lnwire.ChannelID) error {
 	}
 
 	// Check if we have any channel sync messages stored for this channel.
-	c, err := p.cfg.ChannelDB.FetchClosedChannelForID(cid)
+	c, err := p.cfg.ChannelStateStore.FetchClosedChannelForID(cid)
 	if err != nil {
 		return fmt.Errorf("unable to fetch channel sync messages for "+
 			"peer %v: %v", p, err)
@@ -5609,7 +5617,8 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 
 	// We'll query the channel DB for the new channel's initial forwarding
 	// policies to determine the policy we start out with.
-	initialPolicy, err := p.cfg.ChannelDB.GetInitialForwardingPolicy(chanID)
+	initialPolicy, err := p.cfg.ChannelStateStore.
+		GetInitialForwardingPolicy(chanID)
 	if err != nil {
 		return fmt.Errorf("unable to query for initial forwarding "+
 			"policy: %v", err)

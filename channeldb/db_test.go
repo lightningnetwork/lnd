@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -104,78 +103,6 @@ func TestWipe(t *testing.T) {
 	require.Equal(t, 0, len(closedChannels))
 }
 
-// TestFetchClosedChannelForID tests that we are able to properly retrieve a
-// ChannelCloseSummary from the DB given a ChannelID.
-func TestFetchClosedChannelForID(t *testing.T) {
-	t.Parallel()
-
-	const numChans = 101
-
-	fullDB, err := MakeTestDB(t)
-	require.NoError(t, err, "unable to make test database")
-
-	cdb := fullDB.ChannelStateDB()
-
-	// Create the test channel state, that we will mutate the index of the
-	// funding point.
-	state := createTestChannelState(t, cdb)
-
-	// Now run through the number of channels, and modify the outpoint index
-	// to create new channel IDs.
-	for i := uint32(0); i < numChans; i++ {
-		// Save the open channel to disk.
-		state.FundingOutpoint.Index = i
-
-		// Write the channel to disk in a pending state.
-		createTestChannel(
-			t, cdb,
-			fundingPointOption(state.FundingOutpoint),
-			openChannelOption(),
-		)
-
-		// Close the channel. To make sure we retrieve the correct
-		// summary later, we make them differ in the SettledBalance.
-		closeSummary := &ChannelCloseSummary{
-			ChanPoint:      state.FundingOutpoint,
-			RemotePub:      state.IdentityPub,
-			SettledBalance: btcutil.Amount(500 + i),
-		}
-		if err := state.CloseChannel(closeSummary); err != nil {
-			t.Fatalf("unable to close channel: %v", err)
-		}
-	}
-
-	// Now run though them all again and make sure we are able to retrieve
-	// summaries from the DB.
-	for i := uint32(0); i < numChans; i++ {
-		state.FundingOutpoint.Index = i
-
-		// We calculate the ChannelID and use it to fetch the summary.
-		cid := lnwire.NewChanIDFromOutPoint(state.FundingOutpoint)
-		fetchedSummary, err := cdb.FetchClosedChannelForID(cid)
-		if err != nil {
-			t.Fatalf("unable to fetch close summary: %v", err)
-		}
-
-		// Make sure we retrieved the correct one by checking the
-		// SettledBalance.
-		if fetchedSummary.SettledBalance != btcutil.Amount(500+i) {
-			t.Fatalf("summaries don't match: expected %v got %v",
-				btcutil.Amount(500+i),
-				fetchedSummary.SettledBalance)
-		}
-	}
-
-	// As a final test we make sure that we get ErrClosedChannelNotFound
-	// for a ChannelID we didn't add to the DB.
-	state.FundingOutpoint.Index++
-	cid := lnwire.NewChanIDFromOutPoint(state.FundingOutpoint)
-	_, err = cdb.FetchClosedChannelForID(cid)
-	if err != ErrClosedChannelNotFound {
-		t.Fatalf("expected ErrClosedChannelNotFound, instead got: %v", err)
-	}
-}
-
 // TestMultiSourceAddrsForNode tests the we're able to properly obtain all the
 // addresses for a target node from multiple backends - in this case, the
 // channel db and graph db.
@@ -228,52 +155,6 @@ func TestMultiSourceAddrsForNode(t *testing.T) {
 	for _, addr := range nodeAddrs {
 		require.Contains(t, expectedAddrs, addr.String())
 	}
-}
-
-// TestFetchChannel tests that we're able to fetch an arbitrary channel from
-// disk.
-func TestFetchChannel(t *testing.T) {
-	t.Parallel()
-
-	fullDB, err := MakeTestDB(t)
-	require.NoError(t, err, "unable to make test database")
-
-	cdb := fullDB.ChannelStateDB()
-
-	// Create an open channel.
-	channelState := createTestChannel(t, cdb, openChannelOption())
-
-	// Next, attempt to fetch the channel by its chan point.
-	dbChannel, err := cdb.FetchChannel(channelState.FundingOutpoint)
-	require.NoError(t, err, "unable to fetch channel")
-
-	// The decoded channel state should be identical to what we stored
-	// above.
-	require.Equal(t, channelState, dbChannel)
-
-	// Next, attempt to fetch the channel by its channel ID.
-	chanID := lnwire.NewChanIDFromOutPoint(channelState.FundingOutpoint)
-	dbChannel, err = cdb.FetchChannelByID(chanID)
-	require.NoError(t, err, "unable to fetch channel")
-
-	// The decoded channel state should be identical to what we stored
-	// above.
-	require.Equal(t, channelState, dbChannel)
-
-	// If we attempt to query for a non-existent channel, then we should
-	// get an error.
-	channelState2 := createTestChannelState(t, cdb)
-	require.NoError(t, err, "unable to create channel state")
-
-	uniqueOutputIndex.Add(1)
-	channelState2.FundingOutpoint.Index = uniqueOutputIndex.Load()
-
-	_, err = cdb.FetchChannel(channelState2.FundingOutpoint)
-	require.ErrorIs(t, err, ErrChannelNotFound)
-
-	chanID2 := lnwire.NewChanIDFromOutPoint(channelState2.FundingOutpoint)
-	_, err = cdb.FetchChannelByID(chanID2)
-	require.ErrorIs(t, err, ErrChannelNotFound)
 }
 
 func genRandomChannelShell() (*ChannelShell, error) {
@@ -639,58 +520,6 @@ func TestFetchChannels(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// TestFetchHistoricalChannel tests lookup of historical channels.
-func TestFetchHistoricalChannel(t *testing.T) {
-	fullDB, err := MakeTestDB(t)
-	require.NoError(t, err, "unable to make test database")
-
-	cdb := fullDB.ChannelStateDB()
-
-	// Create a an open channel in the database.
-	channel := createTestChannel(t, cdb, openChannelOption())
-
-	// First, try to lookup a channel when nothing is in the bucket. As the
-	// bucket is auto-created (on start up), we'll get a channel not found
-	// error.
-	_, err = cdb.FetchHistoricalChannel(&channel.FundingOutpoint)
-	if err != ErrChannelNotFound {
-		t.Fatalf("expected no bucket, got: %v", err)
-	}
-
-	// Close the channel so that it will be written to the historical
-	// bucket. The values provided in the channel close summary are the
-	// minimum required for this call to run without panicking.
-	if err := channel.CloseChannel(&ChannelCloseSummary{
-		ChanPoint:      channel.FundingOutpoint,
-		RemotePub:      channel.IdentityPub,
-		SettledBalance: btcutil.Amount(500),
-	}); err != nil {
-		t.Fatalf("unexpected error closing channel: %v", err)
-	}
-
-	histChannel, err := cdb.FetchHistoricalChannel(&channel.FundingOutpoint)
-	require.NoError(t, err, "unexpected error getting channel")
-
-	// FetchHistoricalChannel will attach the channel-state store to
-	// channel.Db, we set it here so that we can check that all other
-	// fields on the channel equal those on the historical channel.
-	channel.Db = cdb.kvStore
-
-	if !reflect.DeepEqual(histChannel, channel) {
-		t.Fatalf("expected: %v, got: %v", channel, histChannel)
-	}
-
-	// Create an outpoint that will not be in the db and look it up.
-	badOutpoint := &wire.OutPoint{
-		Hash:  channel.FundingOutpoint.Hash,
-		Index: channel.FundingOutpoint.Index + 1,
-	}
-	_, err = cdb.FetchHistoricalChannel(badOutpoint)
-	if err != ErrChannelNotFound {
-		t.Fatalf("expected chan not found, got: %v", err)
 	}
 }
 

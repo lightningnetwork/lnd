@@ -1,4 +1,4 @@
-package channeldb
+package chanstate
 
 import (
 	"bytes"
@@ -15,12 +15,12 @@ import (
 // revocationLogBucket of the given channel. The helper navigates the raw KV
 // tree so the test does not depend on the higher-level commit-chain
 // machinery.
-func writeTestRevlogEntries(t *testing.T, cdb *ChannelStateDB,
+func writeTestRevlogEntries(t *testing.T, store *KVStore,
 	ch *OpenChannel, n int) {
 
 	t.Helper()
 
-	err := kvdb.Update(cdb.backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
 		openChanBkt := tx.ReadWriteBucket(openChannelBucket)
 		require.NotNil(t, openChanBkt, "openChannelBucket missing")
 
@@ -47,7 +47,7 @@ func writeTestRevlogEntries(t *testing.T, cdb *ChannelStateDB,
 			commit := ch.LocalCommitment
 			commit.CommitHeight = uint64(i)
 
-			err := putRevocationLog(logBkt, &commit, 0, 1, false)
+			err := PutRevocationLog(logBkt, &commit, 0, 1, false)
 			require.NoError(t, err)
 		}
 
@@ -58,13 +58,13 @@ func writeTestRevlogEntries(t *testing.T, cdb *ChannelStateDB,
 
 // writeTestForwardingPackages writes n empty forwarding packages for the
 // given channel using distinct remote commitment heights.
-func writeTestForwardingPackages(t *testing.T, cdb *ChannelStateDB,
+func writeTestForwardingPackages(t *testing.T, store *KVStore,
 	ch *OpenChannel, n int) {
 
 	t.Helper()
 
 	packager := NewChannelPackager(ch.ShortChanID())
-	err := kvdb.Update(cdb.backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
 		for i := range n {
 			pkg := NewFwdPkg(
 				ch.ShortChanID(), uint64(i), nil, nil,
@@ -82,13 +82,13 @@ func writeTestForwardingPackages(t *testing.T, cdb *ChannelStateDB,
 // countRevlogEntries returns the number of entries in the revocationLogBucket
 // for the given channel, or -1 if the channel bucket no longer exists in
 // openChannelBucket.
-func countRevlogEntries(t *testing.T, cdb *ChannelStateDB,
+func countRevlogEntries(t *testing.T, store *KVStore,
 	ch *OpenChannel) int {
 
 	t.Helper()
 
 	count := -1
-	err := kvdb.View(cdb.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(store.backend, func(tx kvdb.RTx) error {
 		openChanBkt := tx.ReadBucket(openChannelBucket)
 		if openChanBkt == nil {
 			return nil
@@ -143,7 +143,7 @@ func countRevlogEntries(t *testing.T, cdb *ChannelStateDB,
 // readOutpointStatus decodes the indexStatus TLV byte stored under
 // outpointBucket for the given outpoint. Used to verify the index flip
 // performed by the close path.
-func readOutpointStatus(t *testing.T, cdb *ChannelStateDB,
+func readOutpointStatus(t *testing.T, store *KVStore,
 	op wire.OutPoint) indexStatus {
 
 	t.Helper()
@@ -152,7 +152,7 @@ func readOutpointStatus(t *testing.T, cdb *ChannelStateDB,
 	require.NoError(t, graphdb.WriteOutpoint(&chanKeyBuf, &op))
 
 	var status uint8
-	err := kvdb.View(cdb.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(store.backend, func(tx kvdb.RTx) error {
 		bkt := tx.ReadBucket(outpointBucket)
 		require.NotNil(t, bkt, "outpointBucket missing")
 
@@ -176,7 +176,7 @@ func readOutpointStatus(t *testing.T, cdb *ChannelStateDB,
 
 // closeChannelForTest invokes CloseChannel on a freshly created OpenChannel
 // using a minimal close summary derived from the channel state itself.
-func closeChannelForTest(t *testing.T, cdb *ChannelStateDB, ch *OpenChannel) {
+func closeChannelForTest(t *testing.T, store *KVStore, ch *OpenChannel) {
 	t.Helper()
 
 	summary := &ChannelCloseSummary{
@@ -186,7 +186,7 @@ func closeChannelForTest(t *testing.T, cdb *ChannelStateDB, ch *OpenChannel) {
 		ShortChanID: ch.ShortChannelID,
 		CloseType:   CooperativeClose,
 	}
-	require.NoError(t, cdb.CloseChannel(ch, summary))
+	require.NoError(t, store.CloseChannel(ch, summary))
 }
 
 // TestCloseChannelTombstoneWritePath verifies the on-disk artefacts the
@@ -198,43 +198,43 @@ func closeChannelForTest(t *testing.T, cdb *ChannelStateDB, ch *OpenChannel) {
 func TestCloseChannelTombstoneWritePath(t *testing.T) {
 	t.Parallel()
 
-	fullDB, err := MakeTestDB(t, OptionTombstoneClosedChannels(true))
-	require.NoError(t, err)
+	backend, cleanup := makeTestBackend(t)
+	t.Cleanup(cleanup)
 
-	cdb := fullDB.ChannelStateDB()
-	require.True(t, cdb.tombstoneClosedChannels)
+	store := NewKVStore(backend, WithTombstoneClosedChannels(true))
+	require.True(t, store.tombstoneClosedChannels)
 
-	ch := createTestChannel(t, cdb, openChannelOption())
+	ch := createTestOpenChannel(t, store)
 
 	const numRevlogEntries = 5
 	const numFwdPkgs = 3
-	writeTestRevlogEntries(t, cdb, ch, numRevlogEntries)
-	writeTestForwardingPackages(t, cdb, ch, numFwdPkgs)
+	writeTestRevlogEntries(t, store, ch, numRevlogEntries)
+	writeTestForwardingPackages(t, store, ch, numFwdPkgs)
 
-	closeChannelForTest(t, cdb, ch)
+	closeChannelForTest(t, store, ch)
 
 	// Outpoint index flipped from open to closed — the authoritative
 	// closed-channel marker on tombstone backends.
 	require.Equal(t, outpointClosed, readOutpointStatus(
-		t, cdb, ch.FundingOutpoint,
+		t, store, ch.FundingOutpoint,
 	))
 
 	// Historical-channel record exists for this chanKey.
-	histChan, err := cdb.FetchHistoricalChannel(&ch.FundingOutpoint)
+	histChan, err := store.FetchHistoricalChannel(&ch.FundingOutpoint)
 	require.NoError(t, err)
 	require.Equal(t, ch.FundingOutpoint, histChan.FundingOutpoint)
 
 	// Close summary readable via FetchClosedChannel.
-	closeSummary, err := cdb.FetchClosedChannel(&ch.FundingOutpoint)
+	closeSummary, err := store.FetchClosedChannel(&ch.FundingOutpoint)
 	require.NoError(t, err)
 	require.Equal(t, ch.FundingOutpoint, closeSummary.ChanPoint)
 
 	// Bulk state preserved on disk — tombstoning's whole point.
-	require.Equal(t, numRevlogEntries, countRevlogEntries(t, cdb, ch))
+	require.Equal(t, numRevlogEntries, countRevlogEntries(t, store, ch))
 
 	packager := NewChannelPackager(ch.ShortChanID())
 	var fwdPkgs []*FwdPkg
-	require.NoError(t, kvdb.View(cdb.backend, func(tx kvdb.RTx) error {
+	require.NoError(t, kvdb.View(store.backend, func(tx kvdb.RTx) error {
 		fwdPkgs, err = packager.LoadFwdPkgs(tx)
 		return err
 	}, func() {}))
@@ -248,13 +248,13 @@ func TestCloseChannelTombstoneWritePath(t *testing.T) {
 func TestCloseChannelTombstoneRedundantClose(t *testing.T) {
 	t.Parallel()
 
-	fullDB, err := MakeTestDB(t, OptionTombstoneClosedChannels(true))
-	require.NoError(t, err)
+	backend, cleanup := makeTestBackend(t)
+	t.Cleanup(cleanup)
 
-	cdb := fullDB.ChannelStateDB()
-	ch := createTestChannel(t, cdb, openChannelOption())
+	store := NewKVStore(backend, WithTombstoneClosedChannels(true))
+	ch := createTestOpenChannel(t, store)
 
-	closeChannelForTest(t, cdb, ch)
+	closeChannelForTest(t, store, ch)
 
 	summary := &ChannelCloseSummary{
 		ChanPoint:   ch.FundingOutpoint,
@@ -263,7 +263,7 @@ func TestCloseChannelTombstoneRedundantClose(t *testing.T) {
 		ShortChanID: ch.ShortChannelID,
 		CloseType:   CooperativeClose,
 	}
-	require.ErrorIs(t, cdb.CloseChannel(ch, summary), ErrChannelNotFound)
+	require.ErrorIs(t, store.CloseChannel(ch, summary), ErrChannelNotFound)
 }
 
 // TestCloseChannelTombstoneRemovesFromOpenScans verifies that after a
@@ -274,35 +274,35 @@ func TestCloseChannelTombstoneRedundantClose(t *testing.T) {
 func TestCloseChannelTombstoneRemovesFromOpenScans(t *testing.T) {
 	t.Parallel()
 
-	fullDB, err := MakeTestDB(t, OptionTombstoneClosedChannels(true))
-	require.NoError(t, err)
+	backend, cleanup := makeTestBackend(t)
+	t.Cleanup(cleanup)
 
-	cdb := fullDB.ChannelStateDB()
-	require.True(t, cdb.tombstoneClosedChannels)
+	store := NewKVStore(backend, WithTombstoneClosedChannels(true))
+	require.True(t, store.tombstoneClosedChannels)
 
 	// Two channels share an identity pubkey via createTestChannel, so we
 	// can verify the closed one disappears while the other is still
 	// surfaced by per-peer lookups.
-	ch1 := createTestChannel(t, cdb, openChannelOption())
-	ch2 := createTestChannel(t, cdb, openChannelOption())
+	ch1 := createTestOpenChannel(t, store)
+	ch2 := createTestOpenChannel(t, store)
 
 	const numRevlogEntries = 5
-	writeTestRevlogEntries(t, cdb, ch1, numRevlogEntries)
+	writeTestRevlogEntries(t, store, ch1, numRevlogEntries)
 
-	openChans, err := cdb.FetchAllChannels()
+	openChans, err := store.FetchAllChannels()
 	require.NoError(t, err)
 	require.Len(t, openChans, 2)
 
-	closeChannelForTest(t, cdb, ch1)
+	closeChannelForTest(t, store, ch1)
 
-	openChans, err = cdb.FetchAllChannels()
+	openChans, err = store.FetchAllChannels()
 	require.NoError(t, err)
 	require.Len(t, openChans, 1)
 	require.Equal(
 		t, ch2.FundingOutpoint, openChans[0].FundingOutpoint,
 	)
 
-	openChans, err = cdb.FetchOpenChannels(ch1.IdentityPub)
+	openChans, err = store.FetchOpenChannels(ch1.IdentityPub)
 	require.NoError(t, err)
 	require.Len(t, openChans, 1)
 	require.Equal(
@@ -312,21 +312,21 @@ func TestCloseChannelTombstoneRemovesFromOpenScans(t *testing.T) {
 	// FetchPermAndTempPeers should still mark the peer as having a closed
 	// channel (via the historical-channel second pass), even though the
 	// open-channel-bucket pass now skips the closed chanKey.
-	peers, err := cdb.FetchPermAndTempPeers(ch1.ChainHash[:])
+	peers, err := store.FetchPermAndTempPeers(ch1.ChainHash[:])
 	require.NoError(t, err)
 	peerKey := string(ch1.IdentityPub.SerializeCompressed())
 	require.True(t, peers[peerKey].HasOpenOrClosedChan)
 
 	// The bulk historical state stays put — that is the whole point of
 	// the tombstone path on these backends.
-	require.Equal(t, numRevlogEntries, countRevlogEntries(t, cdb, ch1))
+	require.Equal(t, numRevlogEntries, countRevlogEntries(t, store, ch1))
 
 	// The outpoint index for ch1 must flip to closed; ch2's stays open.
 	require.Equal(t, outpointClosed, readOutpointStatus(
-		t, cdb, ch1.FundingOutpoint,
+		t, store, ch1.FundingOutpoint,
 	))
 	require.Equal(t, outpointOpen, readOutpointStatus(
-		t, cdb, ch2.FundingOutpoint,
+		t, store, ch2.FundingOutpoint,
 	))
 }
 
@@ -338,15 +338,15 @@ func TestCloseChannelTombstoneRemovesFromOpenScans(t *testing.T) {
 func TestClosedChannelHiddenFromFetchChannel(t *testing.T) {
 	t.Parallel()
 
-	fullDB, err := MakeTestDB(t, OptionTombstoneClosedChannels(true))
-	require.NoError(t, err)
+	backend, cleanup := makeTestBackend(t)
+	t.Cleanup(cleanup)
 
-	cdb := fullDB.ChannelStateDB()
-	ch := createTestChannel(t, cdb, openChannelOption())
+	store := NewKVStore(backend, WithTombstoneClosedChannels(true))
+	ch := createTestOpenChannel(t, store)
 
-	closeChannelForTest(t, cdb, ch)
+	closeChannelForTest(t, store, ch)
 
-	_, err = cdb.FetchChannel(ch.FundingOutpoint)
+	_, err := store.FetchChannel(ch.FundingOutpoint)
 	require.ErrorIs(t, err, ErrChannelNotFound)
 }
 
@@ -357,13 +357,13 @@ func TestClosedChannelHiddenFromFetchChannel(t *testing.T) {
 func TestClosedChannelHiddenFromDirectMethods(t *testing.T) {
 	t.Parallel()
 
-	fullDB, err := MakeTestDB(t, OptionTombstoneClosedChannels(true))
-	require.NoError(t, err)
+	backend, cleanup := makeTestBackend(t)
+	t.Cleanup(cleanup)
 
-	cdb := fullDB.ChannelStateDB()
-	ch := createTestChannel(t, cdb, openChannelOption())
+	store := NewKVStore(backend, WithTombstoneClosedChannels(true))
+	ch := createTestOpenChannel(t, store)
 
-	closeChannelForTest(t, cdb, ch)
+	closeChannelForTest(t, store, ch)
 
 	require.ErrorIs(t, ch.Refresh(), ErrChannelNotFound)
 	require.ErrorIs(t, ch.MarkBorked(), ErrChannelNotFound)
@@ -377,29 +377,32 @@ func TestClosedChannelHiddenFromDirectMethods(t *testing.T) {
 func TestCloseChannelSync(t *testing.T) {
 	t.Parallel()
 
-	fullDB, err := MakeTestDB(t)
-	require.NoError(t, err)
+	backend, cleanup := makeTestBackend(t)
+	t.Cleanup(cleanup)
 
-	cdb := fullDB.ChannelStateDB()
-	require.False(t, cdb.tombstoneClosedChannels)
+	store := NewKVStore(backend)
+	require.False(t, store.tombstoneClosedChannels)
 
-	ch := createTestChannel(t, cdb, openChannelOption())
+	ch := createTestOpenChannel(t, store)
 
 	const numRevlogEntries = 4
-	writeTestRevlogEntries(t, cdb, ch, numRevlogEntries)
-	writeTestForwardingPackages(t, cdb, ch, 3)
+	writeTestRevlogEntries(t, store, ch, numRevlogEntries)
+	writeTestForwardingPackages(t, store, ch, 3)
 
-	closeChannelForTest(t, cdb, ch)
+	closeChannelForTest(t, store, ch)
 
 	// The synchronous path wipes the chanBucket inline, so
 	// countRevlogEntries must report -1 (bucket is gone, not just empty).
-	require.Equal(t, -1, countRevlogEntries(t, cdb, ch),
+	require.Equal(t, -1, countRevlogEntries(t, store, ch),
 		"channel bucket must be deleted after sync close")
 
 	// Forwarding packages are wiped inline.
-	var fwdPkgs []*FwdPkg
+	var (
+		fwdPkgs []*FwdPkg
+		err     error
+	)
 	packager := NewChannelPackager(ch.ShortChanID())
-	require.NoError(t, kvdb.View(cdb.backend, func(tx kvdb.RTx) error {
+	require.NoError(t, kvdb.View(store.backend, func(tx kvdb.RTx) error {
 		fwdPkgs, err = packager.LoadFwdPkgs(tx)
 		return err
 	}, func() {}))
@@ -407,6 +410,6 @@ func TestCloseChannelSync(t *testing.T) {
 
 	// The outpoint index reflects the close.
 	require.Equal(t, outpointClosed, readOutpointStatus(
-		t, cdb, ch.FundingOutpoint,
+		t, store, ch.FundingOutpoint,
 	))
 }

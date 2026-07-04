@@ -84,8 +84,6 @@ var (
 )
 
 type (
-	indexStatus = cstate.IndexStatus
-
 	// OpenChannel encapsulates the persistent and dynamic state of an open
 	// channel with a remote node.
 	OpenChannel = cstate.OpenChannel
@@ -104,12 +102,6 @@ type (
 	// CommitDiff represents the delta needed to apply the state
 	// transition between two subsequent commitment states.
 	CommitDiff = cstate.CommitDiff
-)
-
-const (
-	indexStatusType = cstate.IndexStatusType
-	outpointOpen    = cstate.OutpointOpen
-	outpointClosed  = cstate.OutpointClosed
 )
 
 // ChannelType is an enum-like type that describes one of several possible

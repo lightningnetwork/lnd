@@ -56,6 +56,20 @@ func pubKeyOption(pubKey *btcec.PublicKey) testChannelOption {
 	}
 }
 
+// localHtlcsOption sets the local commitment HTLCs of the test channel.
+func localHtlcsOption(htlcs []HTLC) testChannelOption {
+	return func(channel *OpenChannel) {
+		channel.LocalCommitment.Htlcs = htlcs
+	}
+}
+
+// remoteHtlcsOption sets the remote commitment HTLCs of the test channel.
+func remoteHtlcsOption(htlcs []HTLC) testChannelOption {
+	return func(channel *OpenChannel) {
+		channel.RemoteCommitment.Htlcs = htlcs
+	}
+}
+
 // localShutdownOption is an option which sets the local upfront shutdown
 // script for the channel.
 func localShutdownOption(addr lnwire.DeliveryAddress) testChannelOption {

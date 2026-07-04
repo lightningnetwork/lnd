@@ -22,7 +22,6 @@ import (
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
-	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lntest/channels"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -402,109 +401,6 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 		Memo:                    []byte("test"),
 		TapscriptRoot:           fn.Some(tapscriptRoot),
 		CustomBlob:              fn.Some([]byte{1, 2, 3}),
-	}
-}
-
-func TestOpenChannelPutGetDelete(t *testing.T) {
-	t.Parallel()
-
-	fullDB, err := MakeTestDB(t)
-	require.NoError(t, err, "unable to make test database")
-
-	cdb := fullDB.ChannelStateDB()
-
-	// Create the test channel state, with additional htlcs on the local
-	// and remote commitment.
-	localHtlcs := []HTLC{
-		{
-			Signature:     testSig.Serialize(),
-			Incoming:      true,
-			Amt:           10,
-			RHash:         key,
-			RefundTimeout: 1,
-			OnionBlob:     lnmock.MockOnion(),
-		},
-	}
-
-	remoteHtlcs := []HTLC{
-		{
-			Signature:     testSig.Serialize(),
-			Incoming:      false,
-			Amt:           10,
-			RHash:         key,
-			RefundTimeout: 1,
-			OnionBlob:     lnmock.MockOnion(),
-		},
-	}
-
-	state := createTestChannel(
-		t, cdb,
-		remoteHtlcsOption(remoteHtlcs),
-		localHtlcsOption(localHtlcs),
-	)
-
-	openChannels, err := cdb.FetchOpenChannels(state.IdentityPub)
-	require.NoError(t, err, "unable to fetch open channel")
-
-	newState := openChannels[0]
-
-	// The decoded channel state should be identical to what we stored
-	// above.
-	if !reflect.DeepEqual(state, newState) {
-		t.Fatalf("channel state doesn't match:: %v vs %v",
-			spew.Sdump(state), spew.Sdump(newState))
-	}
-
-	// We'll also test that the channel is properly able to hot swap the
-	// next revocation for the state machine. This tests the initial
-	// post-funding revocation exchange.
-	nextRevKey, err := btcec.NewPrivateKey()
-	require.NoError(t, err, "unable to create new private key")
-	if err := state.InsertNextRevocation(nextRevKey.PubKey()); err != nil {
-		t.Fatalf("unable to update revocation: %v", err)
-	}
-
-	openChannels, err = cdb.FetchOpenChannels(state.IdentityPub)
-	require.NoError(t, err, "unable to fetch open channel")
-	updatedChan := openChannels[0]
-
-	// Ensure that the revocation was set properly.
-	if !nextRevKey.PubKey().IsEqual(updatedChan.RemoteNextRevocation) {
-		t.Fatalf("next revocation wasn't updated")
-	}
-
-	// Finally to wrap up the test, delete the state of the channel within
-	// the database. This involves "closing" the channel which removes all
-	// written state, and creates a small "summary" elsewhere within the
-	// database.
-	closeSummary := &ChannelCloseSummary{
-		ChanPoint:         state.FundingOutpoint,
-		RemotePub:         state.IdentityPub,
-		SettledBalance:    btcutil.Amount(500),
-		TimeLockedBalance: btcutil.Amount(10000),
-		IsPending:         false,
-		CloseType:         CooperativeClose,
-	}
-	if err := state.CloseChannel(closeSummary); err != nil {
-		t.Fatalf("unable to close channel: %v", err)
-	}
-
-	// As the channel is now closed, attempting to fetch all open channels
-	// for our fake node ID should return an empty slice.
-	openChans, err := cdb.FetchOpenChannels(state.IdentityPub)
-	require.NoError(t, err, "unable to fetch open channels")
-	if len(openChans) != 0 {
-		t.Fatalf("all channels not deleted, found %v", len(openChans))
-	}
-
-	// Additionally, attempting to fetch all the open channels globally
-	// should yield no results.
-	openChans, err = cdb.FetchAllChannels()
-	if err != nil {
-		t.Fatal("unable to fetch all open chans")
-	}
-	if len(openChans) != 0 {
-		t.Fatalf("all channels not deleted, found %v", len(openChans))
 	}
 }
 

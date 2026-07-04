@@ -3,8 +3,10 @@ package chanstate
 import (
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -125,4 +127,78 @@ func TestFetchHistoricalChannel(t *testing.T) {
 	}
 	_, err = store.FetchHistoricalChannel(badOutpoint)
 	require.ErrorIs(t, err, ErrChannelNotFound)
+}
+
+func TestOpenChannelPutGetDelete(t *testing.T) {
+	t.Parallel()
+
+	backend, cleanup := makeTestBackend(t)
+	t.Cleanup(cleanup)
+
+	store := NewKVStore(backend)
+
+	localHtlcs := []HTLC{
+		{
+			Signature:     testSig.Serialize(),
+			Incoming:      true,
+			Amt:           10,
+			RHash:         key,
+			RefundTimeout: 1,
+			OnionBlob:     lnmock.MockOnion(),
+		},
+	}
+
+	remoteHtlcs := []HTLC{
+		{
+			Signature:     testSig.Serialize(),
+			Incoming:      false,
+			Amt:           10,
+			RHash:         key,
+			RefundTimeout: 1,
+			OnionBlob:     lnmock.MockOnion(),
+		},
+	}
+
+	state := createTestChannel(
+		t, store,
+		remoteHtlcsOption(remoteHtlcs),
+		localHtlcsOption(localHtlcs),
+	)
+
+	openChannels, err := store.FetchOpenChannels(state.IdentityPub)
+	require.NoError(t, err, "unable to fetch open channel")
+	require.Equal(t, state, openChannels[0])
+
+	nextRevKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err, "unable to create new private key")
+
+	err = state.InsertNextRevocation(nextRevKey.PubKey())
+	require.NoError(t, err, "unable to update revocation")
+
+	openChannels, err = store.FetchOpenChannels(state.IdentityPub)
+	require.NoError(t, err, "unable to fetch open channel")
+	require.True(
+		t, nextRevKey.PubKey().IsEqual(
+			openChannels[0].RemoteNextRevocation,
+		),
+	)
+
+	closeSummary := &ChannelCloseSummary{
+		ChanPoint:         state.FundingOutpoint,
+		RemotePub:         state.IdentityPub,
+		SettledBalance:    btcutil.Amount(500),
+		TimeLockedBalance: btcutil.Amount(10000),
+		IsPending:         false,
+		CloseType:         CooperativeClose,
+	}
+	err = state.CloseChannel(closeSummary)
+	require.NoError(t, err, "unable to close channel")
+
+	openChans, err := store.FetchOpenChannels(state.IdentityPub)
+	require.NoError(t, err, "unable to fetch open channels")
+	require.Empty(t, openChans)
+
+	openChans, err = store.FetchAllChannels()
+	require.NoError(t, err, "unable to fetch all open chans")
+	require.Empty(t, openChans)
 }

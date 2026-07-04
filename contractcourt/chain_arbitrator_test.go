@@ -40,13 +40,16 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 
 		// We manually set the db here to make sure all channels are
 		// synced to the same db.
-		channel.Db = db.ChannelStateDB()
+		channel.Db = db.ChannelStateStore()
 
 		addr := &net.TCPAddr{
 			IP:   net.ParseIP("127.0.0.1"),
 			Port: 18556,
 		}
-		if err := channel.SyncPending(addr, 101); err != nil {
+		err = db.ChannelCoordinator().SyncPendingChannel(
+			channel, addr, 101,
+		)
+		if err != nil {
 			t.Fatal(err)
 		}
 
@@ -143,12 +146,13 @@ func TestResolveContract(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to make new test channel")
 	channel := newChannel.State()
-	channel.Db = db.ChannelStateDB()
+	channel.Db = db.ChannelStateStore()
 	addr := &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18556,
 	}
-	if err := channel.SyncPending(addr, 101); err != nil {
+	err = db.ChannelCoordinator().SyncPendingChannel(channel, addr, 101)
+	if err != nil {
 		t.Fatalf("unable to write channel to db: %v", err)
 	}
 
@@ -187,7 +191,7 @@ func TestResolveContract(t *testing.T) {
 
 	// While the resolver are active, we'll now remove the channel from the
 	// database (mark is as closed).
-	err = db.ChannelStateDB().AbandonChannel(&channel.FundingOutpoint, 4)
+	err = db.ChannelStateStore().AbandonChannel(&channel.FundingOutpoint, 4)
 	require.NoError(t, err, "unable to remove channel")
 
 	// With the channel removed, we'll now manually call ResolveContract.

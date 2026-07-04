@@ -954,7 +954,7 @@ func initBreachedState(t *testing.T) (*BreachArbitrator,
 
 	brar, err := createTestArbiter(
 		t, contractBreaches,
-		testChannelStateDB(t, alice.State()).GetParentDB(),
+		testChannelDB(t, alice.State()),
 	)
 	require.NoError(t, err, "unable to initialize test breach arbiter")
 
@@ -1121,7 +1121,7 @@ func TestBreachHandoffFail(t *testing.T) {
 
 	brar, err := createTestArbiter(
 		t, contractBreaches,
-		testChannelStateDB(t, alice.State()).GetParentDB(),
+		testChannelDB(t, alice.State()),
 	)
 	require.NoError(t, err, "unable to initialize test breach arbiter")
 
@@ -1767,7 +1767,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 
 	// Assert that the channel is fully resolved.
 	assertBrarCleanup(
-		t, brar, &chanPoint, testChannelStateDB(t, alice.State()),
+		t, brar, &chanPoint, testChannelStore(t, alice.State()),
 	)
 }
 
@@ -1974,7 +1974,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 
 	// Assert that the channel is fully resolved.
 	assertBrarCleanup(
-		t, brar, &chanPoint, testChannelStateDB(t, alice.State()),
+		t, brar, &chanPoint, testChannelStore(t, alice.State()),
 	)
 }
 
@@ -2038,7 +2038,7 @@ func assertNoArbiterBreach(t *testing.T, brar *BreachArbitrator,
 // assertBrarCleanup blocks until the given channel point has been removed the
 // retribution store and the channel is fully closed in the database.
 func assertBrarCleanup(t *testing.T, brar *BreachArbitrator,
-	chanPoint *wire.OutPoint, db *channeldb.ChannelStateDB) {
+	chanPoint *wire.OutPoint, db chanstate.ClosedChannelStore) {
 
 	t.Helper()
 
@@ -2087,7 +2087,7 @@ func assertBrarCleanup(t *testing.T, brar *BreachArbitrator,
 func assertPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
 	t.Helper()
 
-	closedChans, err := testChannelStateDB(
+	closedChans, err := testChannelStore(
 		t, c.State(),
 	).FetchClosedChannels(true)
 	require.NoError(t, err, "unable to load pending closed channels")
@@ -2106,7 +2106,7 @@ func assertPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
 func assertNotPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
 	t.Helper()
 
-	closedChans, err := testChannelStateDB(
+	closedChans, err := testChannelStore(
 		t, c.State(),
 	).FetchClosedChannels(true)
 	require.NoError(t, err, "unable to load pending closed channels")
@@ -2135,9 +2135,12 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 	// Assemble our test arbiter.
 	notifier := mock.MakeMockSpendNotifier()
 	ba := NewBreachArbitrator(&BreachConfig{
-		CloseLink: func(_ *wire.OutPoint, _ ChannelCloseType) {},
-		DB:        db.ChannelStateDB(),
-		Estimator: chainfee.NewStaticEstimator(12500, 0),
+		CloseLink: func(_ *wire.OutPoint,
+			_ ChannelCloseType) {
+		},
+		ClosedChannelStore: db.ChannelStateStore(),
+		ChannelLifecycle:   db.ChannelCoordinator(),
+		Estimator:          chainfee.NewStaticEstimator(12500, 0),
 		GenSweepScript: func() fn.Result[lnwallet.AddrWithKey] {
 			return fn.Ok(lnwallet.AddrWithKey{})
 		},
@@ -2330,7 +2333,7 @@ func createInitChannels(t *testing.T) (
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         aliceCommit,
 		RemoteCommitment:        aliceCommit,
-		Db:                      dbAlice.ChannelStateDB(),
+		Db:                      dbAlice.ChannelStateStore(),
 		FundingTxn:              channels.TestFundingTx,
 	}
 	bobChannelState := &chanstate.OpenChannel{
@@ -2347,7 +2350,7 @@ func createInitChannels(t *testing.T) (
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         bobCommit,
 		RemoteCommitment:        bobCommit,
-		Db:                      dbBob.ChannelStateDB(),
+		Db:                      dbBob.ChannelStateStore(),
 	}
 
 	aliceSigner := input.NewMockSigner(
@@ -2365,6 +2368,7 @@ func createInitChannels(t *testing.T) (
 	if err != nil {
 		return nil, nil, err
 	}
+	registerTestChannelDB(channelAlice.State(), dbAlice)
 	alicePool.Start()
 	t.Cleanup(func() {
 		require.NoError(t, alicePool.Stop())
@@ -2379,6 +2383,7 @@ func createInitChannels(t *testing.T) (
 	if err != nil {
 		return nil, nil, err
 	}
+	registerTestChannelDB(channelBob.State(), dbBob)
 	bobPool.Start()
 	t.Cleanup(func() {
 		require.NoError(t, bobPool.Stop())
@@ -2388,7 +2393,10 @@ func createInitChannels(t *testing.T) (
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18556,
 	}
-	if err := channelAlice.State().SyncPending(addr, 101); err != nil {
+	err = dbAlice.ChannelCoordinator().SyncPendingChannel(
+		channelAlice.State(), addr, 101,
+	)
+	if err != nil {
 		return nil, nil, err
 	}
 
@@ -2396,7 +2404,10 @@ func createInitChannels(t *testing.T) (
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18555,
 	}
-	if err := channelBob.State().SyncPending(addr, 101); err != nil {
+	err = dbBob.ChannelCoordinator().SyncPendingChannel(
+		channelBob.State(), addr, 101,
+	)
+	if err != nil {
 		return nil, nil, err
 	}
 

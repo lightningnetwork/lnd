@@ -6,21 +6,44 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/pprof"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
+	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
-func testChannelStateDB(t testing.TB,
-	state *chanstate.OpenChannel) *channeldb.ChannelStateDB {
+func init() {
+	lnwallet.SetTestChannelDBRegistrar(registerTestChannelDB)
+}
+
+func testChannelStore(t testing.TB,
+	state *chanstate.OpenChannel) chainArbitratorChannelStore {
 
 	t.Helper()
 
-	cdb, ok := state.Db.(*channeldb.ChannelStateDB)
+	return testChannelDB(t, state).ChannelStateStore()
+}
+
+var testChannelDBs sync.Map
+
+func registerTestChannelDB(state *chanstate.OpenChannel, db *channeldb.DB) {
+	testChannelDBs.Store(state, db)
+}
+
+func testChannelDB(t testing.TB, state *chanstate.OpenChannel) *channeldb.DB {
+	t.Helper()
+
+	db, ok := testChannelDBs.Load(state)
 	if !ok {
-		t.Fatalf("expected ChannelStateDB, got %T", state.Db)
+		t.Fatalf("expected DB for test channel state %p", state)
+	}
+
+	cdb, ok := db.(*channeldb.DB)
+	if !ok {
+		t.Fatalf("expected channeldb.DB, got %T", db)
 	}
 
 	return cdb
@@ -71,7 +94,7 @@ func copyChannelState(t *testing.T, state *chanstate.OpenChannel) (
 
 	// Make a copy of the DB.
 	dbFile := filepath.Join(
-		testChannelStateDB(t, state).GetParentDB().Path(), "channel.db",
+		testChannelDB(t, state).Path(), "channel.db",
 	)
 	tempDbPath := t.TempDir()
 
@@ -93,6 +116,8 @@ func copyChannelState(t *testing.T, state *chanstate.OpenChannel) (
 		return nil, fmt.Errorf("found %d chans in the db",
 			len(chans))
 	}
+
+	registerTestChannelDB(chans[0], newDB)
 
 	return chans[0], nil
 }

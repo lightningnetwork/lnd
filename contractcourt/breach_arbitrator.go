@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channelcoord"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -140,9 +141,14 @@ type BreachConfig struct {
 	// a close type to be included in the channel close summary.
 	CloseLink func(*wire.OutPoint, ChannelCloseType)
 
-	// DB provides access to the user's closed channels, allowing the breach
-	// arbiter to determine how it should respond to channel closure.
-	DB chanstate.ClosedChannelStore
+	// ClosedChannelStore provides access to the user's closed channels,
+	// allowing the breach arbiter to determine how it should respond to
+	// channel closure.
+	ClosedChannelStore chanstate.ClosedChannelStore
+
+	// ChannelLifecycle marks breached channels fully resolved once the
+	// breach arbiter is done with them.
+	ChannelLifecycle channelcoord.ChannelLifecycle
 
 	// Estimator is used by the breach arbiter to determine an appropriate
 	// fee level when generating, signing, and broadcasting sweep
@@ -241,7 +247,7 @@ func (b *BreachArbitrator) start() error {
 	// information loaded from disk. This is necessary in the event that the
 	// channel was marked fully closed, but was not removed from the
 	// retribution store.
-	closedChans, err := b.cfg.DB.FetchClosedChannels(false)
+	closedChans, err := b.cfg.ClosedChannelStore.FetchClosedChannels(false)
 	if err != nil {
 		brarLog.Errorf("Unable to fetch closing channels: %v", err)
 		return err
@@ -947,7 +953,7 @@ Loop:
 // retribution for that the channel from the retribution store.
 func (b *BreachArbitrator) cleanupBreach(chanPoint *wire.OutPoint) error {
 	// With the channel closed, mark it in the database as such.
-	err := b.cfg.DB.MarkChanFullyClosed(chanPoint)
+	err := b.cfg.ChannelLifecycle.MarkChanFullyClosed(chanPoint)
 	if err != nil {
 		return fmt.Errorf("unable to mark chan as closed: %w", err)
 	}

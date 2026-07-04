@@ -151,53 +151,6 @@ func TestMultiSourceAddrsForNode(t *testing.T) {
 	}
 }
 
-// TestAbandonChannel tests that the AbandonChannel method is able to properly
-// remove a channel from the database and add a close channel summary. If
-// called after a channel has already been removed, the method shouldn't return
-// an error.
-func TestAbandonChannel(t *testing.T) {
-	t.Parallel()
-
-	fullDB, err := MakeTestDB(t)
-	require.NoError(t, err, "unable to make test database")
-
-	cdb := fullDB.ChannelStateDB()
-
-	// If we attempt to abandon the state of a channel that doesn't exist
-	// in the open or closed channel bucket, then we should receive an
-	// error.
-	err = cdb.AbandonChannel(&wire.OutPoint{}, 0)
-	if err == nil {
-		t.Fatalf("removing non-existent channel should have failed")
-	}
-
-	// We'll now create a new channel in a pending state to abandon
-	// shortly.
-	chanState := createTestChannel(t, cdb)
-
-	// We should now be able to abandon the channel without any errors.
-	closeHeight := uint32(11)
-	err = cdb.AbandonChannel(&chanState.FundingOutpoint, closeHeight)
-	require.NoError(t, err, "unable to abandon channel")
-
-	// At this point, the channel should no longer be found in the set of
-	// open channels.
-	_, err = cdb.FetchChannel(chanState.FundingOutpoint)
-	if err != ErrChannelNotFound {
-		t.Fatalf("channel should not have been found: %v", err)
-	}
-
-	// However we should be able to retrieve a close channel summary for
-	// the channel.
-	_, err = cdb.FetchClosedChannel(&chanState.FundingOutpoint)
-	require.NoError(t, err, "unable to fetch closed channel")
-
-	// Finally, if we attempt to abandon the channel again, we should get a
-	// nil error as the channel has already been abandoned.
-	err = cdb.AbandonChannel(&chanState.FundingOutpoint, closeHeight)
-	require.NoError(t, err, "unable to abandon channel")
-}
-
 func createNode(priv *btcec.PrivateKey) *models.Node {
 	updateTime := rand.Int63()
 

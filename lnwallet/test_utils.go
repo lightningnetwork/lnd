@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -108,7 +109,17 @@ var (
 	// ctxb is a context that will never be cancelled, that is used in
 	// place of a real quit context.
 	ctxb = context.Background()
+
+	testChannelDBRegistrar func(*chanstate.OpenChannel, *channeldb.DB)
 )
+
+// SetTestChannelDBRegistrar sets a test hook that records the database backing
+// channels created by CreateTestChannels.
+func SetTestChannelDBRegistrar(registrar func(*chanstate.OpenChannel,
+	*channeldb.DB)) {
+
+	testChannelDBRegistrar = registrar
+}
 
 // CreateTestChannels creates to fully populated channels to be used within
 // testing fixtures. The channels will be returned as if the funding process
@@ -308,7 +319,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		binary.BigEndian.Uint64(chanIDBytes[:]),
 	)
 
-	aliceChannelState := &channeldb.OpenChannel{
+	aliceChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeys[0].PubKey(),
@@ -322,11 +333,10 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         aliceLocalCommit,
 		RemoteCommitment:        aliceRemoteCommit,
-		Db:                      dbAlice.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
+		Db:                      dbAlice.ChannelStateStore(),
 		FundingTxn:              testTx,
 	}
-	bobChannelState := &channeldb.OpenChannel{
+	bobChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            bobCfg,
 		RemoteChanCfg:           aliceCfg,
 		IdentityPub:             bobKeys[0].PubKey(),
@@ -340,8 +350,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         bobLocalCommit,
 		RemoteCommitment:        bobRemoteCommit,
-		Db:                      dbBob.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
+		Db:                      dbBob.ChannelStateStore(),
 	}
 
 	// If the channel type has a tapscript root, then we'll also specify
@@ -413,7 +422,10 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18556,
 	}
-	if err := channelAlice.channelState.SyncPending(addr, 101); err != nil {
+	err = dbAlice.ChannelCoordinator().SyncPendingChannel(
+		channelAlice.channelState, addr, 101,
+	)
+	if err != nil {
 		return nil, nil, err
 	}
 
@@ -422,8 +434,16 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		Port: 18555,
 	}
 
-	if err := channelBob.channelState.SyncPending(addr, 101); err != nil {
+	err = dbBob.ChannelCoordinator().SyncPendingChannel(
+		channelBob.channelState, addr, 101,
+	)
+	if err != nil {
 		return nil, nil, err
+	}
+
+	if testChannelDBRegistrar != nil {
+		testChannelDBRegistrar(aliceChannelState, dbAlice)
+		testChannelDBRegistrar(bobChannelState, dbBob)
 	}
 
 	// Now that the channel are open, simulate the start of a session by

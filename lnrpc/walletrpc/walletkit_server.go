@@ -33,6 +33,7 @@ import (
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
@@ -1270,7 +1271,7 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 // getWaitingCloseChannel returns the waiting close channel in case it does
 // exist in the underlying channel state database.
 func (w *WalletKit) getWaitingCloseChannel(
-	chanPoint wire.OutPoint) (*channeldb.OpenChannel, error) {
+	chanPoint wire.OutPoint) (*chanstate.OpenChannel, error) {
 
 	// Fetch all channels, which still have their commitment transaction not
 	// confirmed (waiting close channels).
@@ -1279,7 +1280,7 @@ func (w *WalletKit) getWaitingCloseChannel(
 		return nil, err
 	}
 
-	channel := fn.Find(chans, func(c *channeldb.OpenChannel) bool {
+	channel := fn.Find(chans, func(c *chanstate.OpenChannel) bool {
 		return c.FundingOutpoint == chanPoint
 	})
 

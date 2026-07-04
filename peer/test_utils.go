@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -55,7 +56,7 @@ var (
 // noUpdate is a function which can be used as a parameter in
 // createTestPeerWithChannel to call the setup code with no custom values on
 // the channels set up.
-var noUpdate = func(a, b *channeldb.OpenChannel) {}
+var noUpdate = func(a, b *chanstate.OpenChannel) {}
 
 type peerTestCtx struct {
 	peer          *Brontide
@@ -75,7 +76,7 @@ type peerTestCtx struct {
 // It takes an updateChan function which can be used to modify the default
 // values on the channel states for each peer.
 func createTestPeerWithChannel(t *testing.T, updateChan func(a,
-	b *channeldb.OpenChannel)) (*peerTestCtx, error) {
+	b *chanstate.OpenChannel)) (*peerTestCtx, error) {
 
 	params := createTestPeer(t)
 
@@ -238,7 +239,7 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		binary.BigEndian.Uint64(chanIDBytes[:]),
 	)
 
-	aliceChannelState := &channeldb.OpenChannel{
+	aliceChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeyPub,
@@ -252,11 +253,10 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         aliceCommit,
 		RemoteCommitment:        aliceCommit,
-		Db:                      dbAlice.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
+		Db:                      dbAlice.ChannelStateStore(),
 		FundingTxn:              channels.TestFundingTx,
 	}
-	bobChannelState := &channeldb.OpenChannel{
+	bobChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            bobCfg,
 		RemoteChanCfg:           aliceCfg,
 		IdentityPub:             bobKeyPub,
@@ -269,15 +269,17 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         bobCommit,
 		RemoteCommitment:        bobCommit,
-		Db:                      dbBob.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
+		Db:                      dbBob.ChannelStateStore(),
 	}
 
 	// Set custom values on the channel states.
 	updateChan(aliceChannelState, bobChannelState)
 
 	aliceAddr := alicePeer.cfg.Addr.Address
-	if err := aliceChannelState.SyncPending(aliceAddr, 0); err != nil {
+	err = dbAlice.ChannelCoordinator().SyncPendingChannel(
+		aliceChannelState, aliceAddr, 0,
+	)
+	if err != nil {
 		return nil, err
 	}
 
@@ -286,7 +288,10 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		Port: 18556,
 	}
 
-	if err := bobChannelState.SyncPending(bobAddr, 0); err != nil {
+	err = dbBob.ChannelCoordinator().SyncPendingChannel(
+		bobChannelState, bobAddr, 0,
+	)
+	if err != nil {
 		return nil, err
 	}
 
@@ -631,7 +636,7 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 		ChanStatusSampleInterval: 30 * time.Second,
 		ChanEnableTimeout:        chanActiveTimeout,
 		ChanDisableTimeout:       2 * time.Minute,
-		DB:                       dbAliceChannel.ChannelStateDB(),
+		DB:                       dbAliceChannel.ChannelStateStore(),
 		Graph:                    dbAliceGraph,
 		MessageSigner:            nodeSignerAlice,
 		OurPubKey:                aliceKeyPub,
@@ -674,7 +679,9 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 	mockSwitch := &mockMessageSwitch{}
 
 	// TODO(yy): change ChannelNotifier to be an interface.
-	channelNotifier := channelnotifier.New(dbAliceChannel.ChannelStateDB())
+	channelNotifier := channelnotifier.New(
+		dbAliceChannel.ChannelStateStore(),
+	)
 	require.NoError(t, channelNotifier.Start())
 	t.Cleanup(func() {
 		require.NoError(t, channelNotifier.Stop(),
@@ -726,7 +733,7 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 		Switch:            mockSwitch,
 		ChanActiveTimeout: chanActiveTimeout,
 		InterceptSwitch:   interceptableSwitch,
-		ChannelDB:         dbAliceChannel.ChannelStateDB(),
+		ChannelStateStore: dbAliceChannel.ChannelStateDB(),
 		FeeEstimator:      estimator,
 		Wallet:            wallet,
 		ChainNotifier:     notifier,

@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 )
 
@@ -14,11 +15,11 @@ import (
 // commitment transaction broadcast.
 type LiveChannelSource interface {
 	// FetchAllChannels returns all known live channels.
-	FetchAllChannels() ([]*channeldb.OpenChannel, error)
+	FetchAllChannels() ([]*chanstate.OpenChannel, error)
 
 	// FetchChannel attempts to locate a live channel identified by the
 	// passed chanPoint. Optionally an existing db tx can be supplied.
-	FetchChannel(chanPoint wire.OutPoint) (*channeldb.OpenChannel, error)
+	FetchChannel(chanPoint wire.OutPoint) (*chanstate.OpenChannel, error)
 }
 
 // assembleChanBackup attempts to assemble a static channel backup for the
@@ -26,7 +27,7 @@ type LiveChannelSource interface {
 // the channel, as well as addressing information so we can find the peer and
 // reconnect to them to initiate the protocol.
 func assembleChanBackup(ctx context.Context, addrSource channeldb.AddrSource,
-	openChan *channeldb.OpenChannel) (*Single, error) {
+	openChan *chanstate.OpenChannel) (*Single, error) {
 
 	log.Debugf("Crafting backup for ChannelPoint(%v)",
 		openChan.FundingOutpoint)
@@ -55,7 +56,7 @@ func assembleChanBackup(ctx context.Context, addrSource channeldb.AddrSource,
 // in loss of funds! This may happen if an outdated channel backup is attempted
 // to be used to force close the channel.
 func buildCloseTxInputs(
-	targetChan *channeldb.OpenChannel) fn.Option[CloseTxInputs] {
+	targetChan *chanstate.OpenChannel) fn.Option[CloseTxInputs] {
 
 	log.Debugf("Crafting CloseTxInputs for ChannelPoint(%v)",
 		targetChan.FundingOutpoint)

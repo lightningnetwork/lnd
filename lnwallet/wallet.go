@@ -23,6 +23,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -335,7 +336,7 @@ type addCounterPartySigsMsg struct {
 
 	// This channel is used to return the completed channel after the wallet
 	// has completed all of its stages in the funding process.
-	completeChan chan *channeldb.OpenChannel
+	completeChan chan *chanstate.OpenChannel
 
 	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
 	err chan error
@@ -364,7 +365,7 @@ type addSingleFunderSigsMsg struct {
 
 	// This channel is used to return the completed channel after the wallet
 	// has completed all of its stages in the funding process.
-	completeChan chan *channeldb.OpenChannel
+	completeChan chan *chanstate.OpenChannel
 
 	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
 	err chan error
@@ -1146,13 +1147,13 @@ func (l *LightningWallet) enforceNewReservedValue(fundingIntent chanfunding.Inte
 func (l *LightningWallet) CurrentNumAnchorChans() (int, error) {
 	// Count all anchor channels that are open or pending
 	// open, or waiting close.
-	chans, err := l.Cfg.Database.FetchAllChannels()
+	chans, err := l.Cfg.ChannelStore.FetchAllChannels()
 	if err != nil {
 		return 0, err
 	}
 
 	var numAnchors int
-	cntChannel := func(c *channeldb.OpenChannel) {
+	cntChannel := func(c *chanstate.OpenChannel) {
 		// We skip private channels, as we assume they won't be used
 		// for routing.
 		if c.ChannelFlags&lnwire.FFAnnounceChannel == 0 {
@@ -1170,7 +1171,7 @@ func (l *LightningWallet) CurrentNumAnchorChans() (int, error) {
 	}
 
 	// We also count pending close channels.
-	pendingClosed, err := l.Cfg.Database.FetchClosedChannels(
+	pendingClosed, err := l.Cfg.ChannelStore.FetchClosedChannels(
 		true,
 	)
 	if err != nil {
@@ -1178,7 +1179,7 @@ func (l *LightningWallet) CurrentNumAnchorChans() (int, error) {
 	}
 
 	for _, c := range pendingClosed {
-		c, err := l.Cfg.Database.FetchHistoricalChannel(
+		c, err := l.Cfg.ChannelStore.FetchHistoricalChannel(
 			&c.ChanPoint,
 		)
 		if err != nil {
@@ -2338,7 +2339,9 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// Add the complete funding transaction to the DB, in its open bucket
 	// which will be used for the lifetime of this channel.
 	nodeAddr := res.nodeAddr
-	err = res.partialState.SyncPending(nodeAddr, uint32(bestHeight))
+	err = l.Cfg.ChannelLifecycle.SyncPendingChannel(
+		res.partialState, nodeAddr, uint32(bestHeight),
+	)
 	if err != nil {
 		msg.err <- err
 		msg.completeChan <- nil
@@ -2531,7 +2534,9 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 
 	chanState.RevocationKeyLocator = pendingReservation.nextRevocationKeyLoc
 
-	err = chanState.SyncPending(pendingReservation.nodeAddr, uint32(bestHeight))
+	err = l.Cfg.ChannelLifecycle.SyncPendingChannel(
+		chanState, pendingReservation.nodeAddr, uint32(bestHeight),
+	)
 	if err != nil {
 		req.err <- err
 		req.completeChan <- nil
@@ -2601,7 +2606,7 @@ func initStateHints(commit1, commit2 *wire.MsgTx,
 // ValidateChannel will attempt to fully validate a newly mined channel, given
 // its funding transaction and existing channel state. If this method returns
 // an error, then the mined channel is invalid, and shouldn't be used.
-func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
+func (l *LightningWallet) ValidateChannel(channelState *chanstate.OpenChannel,
 	fundingTx *wire.MsgTx) error {
 
 	var chanOpts []ChannelOpt

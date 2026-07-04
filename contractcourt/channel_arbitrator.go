@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -166,7 +167,7 @@ type ChannelArbitratorConfig struct {
 	// FetchHistoricalChannel retrieves the historical state of a channel.
 	// This is mostly used to supplement the ContractResolvers with
 	// additional information required for proper contract resolution.
-	FetchHistoricalChannel func() (*channeldb.OpenChannel, error)
+	FetchHistoricalChannel func() (*chanstate.OpenChannel, error)
 
 	// FindOutgoingHTLCDeadline returns the deadline in absolute block
 	// height for the specified outgoing HTLC. For an outgoing HTLC, its
@@ -730,7 +731,7 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 	// We'll also fetch the historical state of this channel, as it should
 	// have been marked as closed by now, and supplement it to each resolver
 	// such that we can properly resolve our pending contracts.
-	var chanState *channeldb.OpenChannel
+	var chanState *chanstate.OpenChannel
 	chanState, err = c.cfg.FetchHistoricalChannel()
 	switch {
 	// If we don't find this channel, then it may be the case that it
@@ -2359,7 +2360,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 	// We'll also fetch the historical state of this channel, as it should
 	// have been marked as closed by now, and supplement it to each resolver
 	// such that we can properly resolve our pending contracts.
-	var chanState *channeldb.OpenChannel
+	var chanState *chanstate.OpenChannel
 	chanState, err := c.cfg.FetchHistoricalChannel()
 	switch {
 	// If we don't find this channel, then it may be the case that it

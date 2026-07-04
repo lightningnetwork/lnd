@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -248,7 +249,7 @@ type ChannelReservation struct {
 	ourContribution   *ChannelContribution
 	theirContribution *ChannelContribution
 
-	partialState *channeldb.OpenChannel
+	partialState *chanstate.OpenChannel
 	nodeAddr     net.Addr
 
 	// The ID of this reservation, used to uniquely track the reservation
@@ -494,7 +495,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 			FundingAmount: theirBalance.ToSatoshis(),
 			ChannelConfig: &channeldb.ChannelConfig{},
 		},
-		partialState: &channeldb.OpenChannel{
+		partialState: &chanstate.OpenChannel{
 			ChanType:     chanType,
 			ChainHash:    *chainHash,
 			IsPending:    true,
@@ -514,7 +515,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 				CommitFee:     commitFee,
 			},
 			ThawHeight:           thawHeight,
-			Db:                   wallet.Cfg.Database,
+			Db:                   wallet.Cfg.ChannelStore,
 			InitialLocalBalance:  ourBalance,
 			InitialRemoteBalance: theirBalance,
 			Memo:                 req.Memo,
@@ -777,11 +778,11 @@ func (r *ChannelReservation) OurSignatures() ([]*input.Script,
 // confirmations. Once the method unblocks, a LightningChannel instance is
 // returned, marking the channel available for updates.
 func (r *ChannelReservation) CompleteReservation(fundingInputScripts []*input.Script,
-	commitmentSig input.Signature) (*channeldb.OpenChannel, error) {
+	commitmentSig input.Signature) (*chanstate.OpenChannel, error) {
 
 	// TODO(roasbeef): add flag for watch or not?
 	errChan := make(chan error, 1)
-	completeChan := make(chan *channeldb.OpenChannel, 1)
+	completeChan := make(chan *chanstate.OpenChannel, 1)
 
 	r.wallet.msgChan <- &addCounterPartySigsMsg{
 		pendingFundingID:         r.reservationID,
@@ -805,11 +806,11 @@ func (r *ChannelReservation) CompleteReservation(fundingInputScripts []*input.Sc
 // will be populated.
 func (r *ChannelReservation) CompleteReservationSingle(
 	fundingPoint *wire.OutPoint, commitSig input.Signature,
-	auxFundingDesc fn.Option[AuxFundingDesc]) (*channeldb.OpenChannel,
+	auxFundingDesc fn.Option[AuxFundingDesc]) (*chanstate.OpenChannel,
 	error) {
 
 	errChan := make(chan error, 1)
-	completeChan := make(chan *channeldb.OpenChannel, 1)
+	completeChan := make(chan *chanstate.OpenChannel, 1)
 
 	r.wallet.msgChan <- &addSingleFunderSigsMsg{
 		pendingFundingID:   r.reservationID,
@@ -903,7 +904,7 @@ func (r *ChannelReservation) Cancel() error {
 }
 
 // ChanState the current open channel state.
-func (r *ChannelReservation) ChanState() *channeldb.OpenChannel {
+func (r *ChannelReservation) ChanState() *chanstate.OpenChannel {
 	r.RLock()
 	defer r.RUnlock()
 

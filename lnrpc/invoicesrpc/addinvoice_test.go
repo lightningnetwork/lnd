@@ -8,7 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -78,11 +78,15 @@ func (h *hopHintsConfigMock) GetAlias(
 
 // FetchAllChannels retrieves all open channels currently stored
 // within the database.
-func (h *hopHintsConfigMock) FetchAllChannels() ([]*channeldb.OpenChannel,
+func (h *hopHintsConfigMock) FetchAllChannels() ([]*chanstate.OpenChannel,
 	error) {
 
 	args := h.Mock.Called()
-	return args.Get(0).([]*channeldb.OpenChannel), args.Error(1)
+
+	channels, ok := args.Get(0).([]*chanstate.OpenChannel)
+	require.True(h.t, ok)
+
+	return channels, args.Error(1)
 }
 
 // FetchChannelEdgesByID attempts to lookup the two directed edges for
@@ -121,7 +125,7 @@ func getTestPubKey() *btcec.PublicKey {
 var shouldIncludeChannelTestCases = []struct {
 	name            string
 	setupMock       func(*hopHintsConfigMock)
-	channel         *channeldb.OpenChannel
+	channel         *chanstate.OpenChannel
 	alreadyIncluded map[uint64]bool
 	cfg             *SelectHopHintsCfg
 	hopHint         zpay32.HopHint
@@ -131,7 +135,7 @@ var shouldIncludeChannelTestCases = []struct {
 	name: "already included channels should not be included " +
 		"again",
 	alreadyIncluded: map[uint64]bool{1: true},
-	channel: &channeldb.OpenChannel{
+	channel: &chanstate.OpenChannel{
 		ShortChannelID: lnwire.NewShortChanIDFromInt(1),
 	},
 	include: false,
@@ -146,7 +150,7 @@ var shouldIncludeChannelTestCases = []struct {
 			"IsChannelActive", chanID,
 		).Once().Return(true)
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &chanstate.OpenChannel{
 		FundingOutpoint: wire.OutPoint{
 			Index: 0,
 		},
@@ -163,7 +167,7 @@ var shouldIncludeChannelTestCases = []struct {
 			"IsChannelActive", chanID,
 		).Once().Return(false)
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &chanstate.OpenChannel{
 		FundingOutpoint: wire.OutPoint{
 			Index: 0,
 		},
@@ -185,7 +189,7 @@ var shouldIncludeChannelTestCases = []struct {
 			"IsPublicNode", mock.Anything,
 		).Once().Return(false, nil)
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &chanstate.OpenChannel{
 		FundingOutpoint: wire.OutPoint{
 			Index: 0,
 		},
@@ -220,7 +224,7 @@ var shouldIncludeChannelTestCases = []struct {
 			"FetchChannelEdgesByID", mock.Anything,
 		).Once().Return(nil, nil, nil, fmt.Errorf("no edge"))
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &chanstate.OpenChannel{
 		FundingOutpoint: wire.OutPoint{
 			Index: 0,
 		},
@@ -256,12 +260,12 @@ var shouldIncludeChannelTestCases = []struct {
 			"GetAlias", mock.Anything,
 		).Once().Return(lnwire.ShortChannelID{}, nil)
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &chanstate.OpenChannel{
 		FundingOutpoint: wire.OutPoint{
 			Index: 0,
 		},
 		IdentityPub: getTestPubKey(),
-		ChanType:    channeldb.ScidAliasFeatureBit,
+		ChanType:    chanstate.ScidAliasFeatureBit,
 	},
 	include: false,
 }, {
@@ -294,12 +298,12 @@ var shouldIncludeChannelTestCases = []struct {
 			"GetAlias", mock.Anything,
 		).Once().Return(alias, nil)
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &chanstate.OpenChannel{
 		FundingOutpoint: wire.OutPoint{
 			Index: 0,
 		},
 		IdentityPub: getTestPubKey(),
-		ChanType:    channeldb.ScidAliasFeatureBit,
+		ChanType:    chanstate.ScidAliasFeatureBit,
 	},
 	include: false,
 }, {
@@ -347,7 +351,7 @@ var shouldIncludeChannelTestCases = []struct {
 			nil,
 		)
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &chanstate.OpenChannel{
 		FundingOutpoint: wire.OutPoint{
 			Index: 1,
 		},
@@ -394,7 +398,7 @@ var shouldIncludeChannelTestCases = []struct {
 			}, nil,
 		)
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &chanstate.OpenChannel{
 		FundingOutpoint: wire.OutPoint{
 			Index: 1,
 		},
@@ -447,13 +451,13 @@ var shouldIncludeChannelTestCases = []struct {
 			"GetAlias", mock.Anything,
 		).Once().Return(aliasSCID, nil)
 	},
-	channel: &channeldb.OpenChannel{
+	channel: &chanstate.OpenChannel{
 		FundingOutpoint: wire.OutPoint{
 			Index: 1,
 		},
 		IdentityPub:    getTestPubKey(),
 		ShortChannelID: lnwire.NewShortChanIDFromInt(12),
-		ChanType:       channeldb.ScidAliasFeatureBit,
+		ChanType:       chanstate.ScidAliasFeatureBit,
 	},
 	hopHint: zpay32.HopHint{
 		NodeID:                    getTestPubKey(),
@@ -571,7 +575,7 @@ var populateHopHintsTestCases = []struct {
 	setupMock: func(h *hopHintsConfigMock) {
 		fundingOutpoint := wire.OutPoint{Index: 9}
 		chanID := lnwire.NewChanIDFromOutPoint(fundingOutpoint)
-		allChannels := []*channeldb.OpenChannel{
+		allChannels := []*chanstate.OpenChannel{
 			{
 				FundingOutpoint: fundingOutpoint,
 				ShortChannelID:  lnwire.NewShortChanIDFromInt(9),
@@ -618,9 +622,9 @@ var populateHopHintsTestCases = []struct {
 		fundingOutpoint := wire.OutPoint{Index: 9}
 		chanID := lnwire.NewChanIDFromOutPoint(fundingOutpoint)
 		remoteBalance := lnwire.MilliSatoshi(10_000_000)
-		allChannels := []*channeldb.OpenChannel{
+		allChannels := []*chanstate.OpenChannel{
 			{
-				LocalCommitment: channeldb.ChannelCommitment{
+				LocalCommitment: chanstate.ChannelCommitment{
 					RemoteBalance: remoteBalance,
 				},
 				FundingOutpoint: fundingOutpoint,
@@ -669,12 +673,12 @@ var populateHopHintsTestCases = []struct {
 		fundingOutpoint := wire.OutPoint{Index: 9}
 		chanID := lnwire.NewChanIDFromOutPoint(fundingOutpoint)
 		remoteBalance := lnwire.MilliSatoshi(10_000_000)
-		allChannels := []*channeldb.OpenChannel{
+		allChannels := []*chanstate.OpenChannel{
 			// Because the channels with higher remote balance have
 			// enough bandwidth we should never use this one.
 			{},
 			{
-				LocalCommitment: channeldb.ChannelCommitment{
+				LocalCommitment: chanstate.ChannelCommitment{
 					RemoteBalance: remoteBalance,
 				},
 				FundingOutpoint: fundingOutpoint,
@@ -868,11 +872,11 @@ func setupMockTwoChannels(h *hopHintsConfigMock) (lnwire.ChannelID,
 	chanID2 := lnwire.NewChanIDFromOutPoint(fundingOutpoint2)
 	remoteBalance2 := lnwire.MilliSatoshi(1_000_000)
 
-	allChannels := []*channeldb.OpenChannel{
+	allChannels := []*chanstate.OpenChannel{
 		// After sorting we will first process chanID1 and then
 		// chanID2.
 		{
-			LocalCommitment: channeldb.ChannelCommitment{
+			LocalCommitment: chanstate.ChannelCommitment{
 				RemoteBalance: remoteBalance2,
 			},
 			FundingOutpoint: fundingOutpoint2,
@@ -880,7 +884,7 @@ func setupMockTwoChannels(h *hopHintsConfigMock) (lnwire.ChannelID,
 			IdentityPub:     getTestPubKey(),
 		},
 		{
-			LocalCommitment: channeldb.ChannelCommitment{
+			LocalCommitment: chanstate.ChannelCommitment{
 				RemoteBalance: remoteBalance1,
 			},
 			FundingOutpoint: fundingOutpoint1,

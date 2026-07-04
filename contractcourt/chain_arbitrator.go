@@ -13,7 +13,9 @@ import (
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channelcoord"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -256,6 +258,14 @@ type ChainArbitratorConfig struct {
 	ChannelCloseConfs fn.Option[uint32]
 }
 
+// chainArbitratorChannelStore is the channel-state persistence surface needed
+// by the chain arbitrator.
+type chainArbitratorChannelStore interface {
+	chanstate.OpenChannelStore
+	chanstate.ClosedChannelStore
+	chanstate.HistoricalChannelStore
+}
+
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all
 // active, and channel that are in the "pending close" state. Within the
 // contractcourt package, the ChainArbitrator manages a set of active
@@ -291,6 +301,14 @@ type ChainArbitrator struct {
 	// active channels that it must still watch over.
 	chanSource *channeldb.DB
 
+	// channelStore is used by the ChainArbitrator to fetch and update
+	// channel-state records.
+	channelStore chainArbitratorChannelStore
+
+	// channelLifecycle owns channel lifecycle operations that also need
+	// to coordinate link-node state.
+	channelLifecycle channelcoord.ChannelLifecycle
+
 	// beat is the current best known blockbeat.
 	beat chainio.Blockbeat
 
@@ -310,12 +328,14 @@ func NewChainArbitrator(cfg ChainArbitratorConfig,
 	db *channeldb.DB) *ChainArbitrator {
 
 	c := &ChainArbitrator{
-		cfg:            cfg,
-		activeChannels: make(map[wire.OutPoint]*ChannelArbitrator),
-		activeWatchers: make(map[wire.OutPoint]*chainWatcher),
-		chanSource:     db,
-		quit:           make(chan struct{}),
-		resolvedChan:   make(chan wire.OutPoint),
+		cfg:              cfg,
+		activeChannels:   make(map[wire.OutPoint]*ChannelArbitrator),
+		activeWatchers:   make(map[wire.OutPoint]*chainWatcher),
+		chanSource:       db,
+		channelStore:     db.ChannelStateStore(),
+		channelLifecycle: db.ChannelCoordinator(),
+		quit:             make(chan struct{}),
+		resolvedChan:     make(chan wire.OutPoint),
 	}
 
 	// Mount the block consumer.
@@ -331,7 +351,7 @@ var _ chainio.Consumer = (*ChainArbitrator)(nil)
 // interact with.
 type arbChannel struct {
 	// channel is the in-memory channel state.
-	channel *channeldb.OpenChannel
+	channel *chanstate.OpenChannel
 
 	// c references the chain arbitrator and is used by arbChannel
 	// internally.
@@ -350,7 +370,7 @@ func (a *arbChannel) NewAnchorResolutions() (*lnwallet.AnchorResolutions,
 	// same instance that is used by the link.
 	chanPoint := a.channel.FundingOutpoint
 
-	channel, err := a.c.chanSource.ChannelStateDB().FetchChannel(chanPoint)
+	channel, err := a.c.channelStore.FetchChannel(chanPoint)
 	if err != nil {
 		return nil, err
 	}
@@ -403,7 +423,7 @@ func (a *arbChannel) ForceCloseChan() (*wire.MsgTx, error) {
 	// Now that we know the link can't mutate the channel
 	// state, we'll read the channel from disk the target
 	// channel according to its channel point.
-	channel, err := a.c.chanSource.ChannelStateDB().FetchChannel(chanPoint)
+	channel, err := a.c.channelStore.FetchChannel(chanPoint)
 	if err != nil {
 		return nil, err
 	}
@@ -452,7 +472,7 @@ func shouldSuppressClosedChannelNotify(closeType channeldb.ClosureType,
 
 // newActiveChannelArbitrator creates a new instance of an active channel
 // arbitrator given the state of the target channel.
-func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
+func newActiveChannelArbitrator(channel *chanstate.OpenChannel,
 	c *ChainArbitrator, chanEvents *ChainEventSubscription) (*ChannelArbitrator, error) {
 
 	// TODO(roasbeef): fetch best height (or pass in) so can ensure block
@@ -518,9 +538,10 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 				tx, c.cfg.ChainHash, &chanPoint, report,
 			)
 		},
-		FetchHistoricalChannel: func() (*channeldb.OpenChannel, error) {
-			chanStateDB := c.chanSource.ChannelStateDB()
-			return chanStateDB.FetchHistoricalChannel(&chanPoint)
+		FetchHistoricalChannel: func() (*chanstate.OpenChannel, error) {
+			return c.channelStore.FetchHistoricalChannel(
+				&chanPoint,
+			)
 		},
 		FindOutgoingHTLCDeadline: func(
 			htlc channeldb.HTLC) fn.Option[int32] {
@@ -570,7 +591,7 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 
 // getArbChannel returns an open channel wrapper for use by channel arbitrators.
 func (c *ChainArbitrator) getArbChannel(
-	channel *channeldb.OpenChannel) *arbChannel {
+	channel *chanstate.OpenChannel) *arbChannel {
 
 	return &arbChannel{
 		channel: channel,
@@ -586,7 +607,7 @@ func (c *ChainArbitrator) ResolveContract(chanPoint wire.OutPoint) error {
 
 	// First, we'll we'll mark the channel as fully closed from the PoV of
 	// the channel source.
-	err := c.chanSource.ChannelStateDB().MarkChanFullyClosed(&chanPoint)
+	err := c.channelLifecycle.MarkChanFullyClosed(&chanPoint)
 	if err != nil {
 		log.Errorf("ChainArbitrator: unable to mark ChannelPoint(%v) "+
 			"fully closed: %v", chanPoint, err)
@@ -878,7 +899,7 @@ func (c *ChainArbitrator) notifyChannelResolved(cp wire.OutPoint) {
 // transactions and republish them. This helps ensure propagation of the
 // transactions in the event that prior publications failed.
 func (c *ChainArbitrator) republishClosingTxs(
-	channel *channeldb.OpenChannel) error {
+	channel *chanstate.OpenChannel) error {
 
 	// If the channel has had its unilateral close broadcasted already,
 	// republish it in case it didn't propagate.
@@ -910,7 +931,7 @@ func (c *ChainArbitrator) republishClosingTxs(
 //
 // NOTE: There is no risk to calling this method if the channel isn't in either
 // CommitmentBroadcasted or CoopBroadcasted, but the logs will be misleading.
-func (c *ChainArbitrator) rebroadcast(channel *channeldb.OpenChannel,
+func (c *ChainArbitrator) rebroadcast(channel *chanstate.OpenChannel,
 	state channeldb.ChannelStatus) error {
 
 	chanPoint := channel.FundingOutpoint
@@ -1169,7 +1190,9 @@ func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint) (*wire.Msg
 // ChannelArbitrator tasked with watching over a new channel. Once a new
 // channel has finished its final funding flow, it should be registered with
 // the ChainArbitrator so we can properly react to any on-chain events.
-func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error {
+func (c *ChainArbitrator) WatchNewChannel(
+	newChan *chanstate.OpenChannel) error {
+
 	c.Lock()
 	defer c.Unlock()
 
@@ -1348,7 +1371,7 @@ func (c *ChainArbitrator) Name() string {
 // loadOpenChannels loads all channels that are currently open in the database
 // and registers them with the chainWatcher for future notification.
 func (c *ChainArbitrator) loadOpenChannels() error {
-	openChannels, err := c.chanSource.ChannelStateDB().FetchAllChannels()
+	openChannels, err := c.channelStore.FetchAllChannels()
 	if err != nil {
 		return err
 	}
@@ -1416,9 +1439,7 @@ func (c *ChainArbitrator) loadOpenChannels() error {
 // closure in the database and registers them with the ChannelArbitrator to
 // continue the resolution process.
 func (c *ChainArbitrator) loadPendingCloseChannels() error {
-	chanStateDB := c.chanSource.ChannelStateDB()
-
-	closingChannels, err := chanStateDB.FetchClosedChannels(true)
+	closingChannels, err := c.channelStore.FetchClosedChannels(true)
 	if err != nil {
 		return err
 	}
@@ -1454,8 +1475,8 @@ func (c *ChainArbitrator) loadPendingCloseChannels() error {
 					tx, c.cfg.ChainHash, &chanPoint, report,
 				)
 			},
-			FetchHistoricalChannel: func() (*channeldb.OpenChannel, error) {
-				return chanStateDB.FetchHistoricalChannel(&chanPoint)
+			FetchHistoricalChannel: func() (*chanstate.OpenChannel, error) {
+				return c.channelStore.FetchHistoricalChannel(&chanPoint)
 			},
 			FindOutgoingHTLCDeadline: func(
 				htlc channeldb.HTLC) fn.Option[int32] {

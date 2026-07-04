@@ -4,7 +4,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channelcoord"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -17,10 +18,12 @@ import (
 // NOTE: The passed channeldb, and ChainNotifier should already be fully
 // initialized/started before being passed as a function argument.
 type Config struct {
-	// Database is a wrapper around a namespace within boltdb reserved for
-	// ln-based wallet metadata. See the 'channeldb' package for further
-	// information.
-	Database *channeldb.ChannelStateDB
+	// ChannelStore stores channel state used by the wallet.
+	ChannelStore chanstate.Store
+
+	// ChannelLifecycle coordinates channel-state updates that also need
+	// link-node metadata updates.
+	ChannelLifecycle channelcoord.ChannelLifecycle
 
 	// Notifier is used by in order to obtain notifications about funding
 	// transaction reaching a specified confirmation depth, and to catch

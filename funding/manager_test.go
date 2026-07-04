@@ -5723,7 +5723,7 @@ func TestFundingManagerProposedCommitFeeRate(t *testing.T) {
 
 		t.Helper()
 
-		db := node.fundingMgr.cfg.Wallet.Cfg.Database
+		db := node.fundingMgr.cfg.Wallet.Cfg.ChannelStore
 		channels, err := db.FetchPendingChannels()
 		require.NoError(t, err)
 		require.Len(t, channels, 1)

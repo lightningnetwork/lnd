@@ -142,7 +142,7 @@ func (s *KVStore) fetchClosingTx(channel *OpenChannel,
 	var closeTx *wire.MsgTx
 
 	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := FetchChanBucket(
+		chanBucket, err := fetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)

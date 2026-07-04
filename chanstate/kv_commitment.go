@@ -497,7 +497,7 @@ func (s *KVStore) RemoteCommitChainTip(
 
 	var cd *CommitDiff
 	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := FetchChanBucket(
+		chanBucket, err := fetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -543,7 +543,7 @@ func (s *KVStore) UnsignedAckedUpdates(
 
 	var updates []LogUpdate
 	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := FetchChanBucket(
+		chanBucket, err := fetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -584,7 +584,7 @@ func (s *KVStore) RemoteUnsignedLocalUpdates(
 
 	var updates []LogUpdate
 	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := FetchChanBucket(
+		chanBucket, err := fetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -626,7 +626,7 @@ func (s *KVStore) InsertNextRevocation(channel *OpenChannel,
 	channel.RemoteNextRevocation = fn.Some(revKey)
 
 	err := kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := FetchChanBucketRw(
+		chanBucket, err := fetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -652,7 +652,7 @@ func (s *KVStore) UpdateChannelCommitment(channel *OpenChannel,
 	var finalHtlcs = make(map[uint64]bool)
 
 	err := kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := FetchChanBucketRw(
+		chanBucket, err := fetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -790,7 +790,7 @@ func (s *KVStore) AppendRemoteCommitChain(channel *OpenChannel,
 	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
 		// First, we'll grab the writable bucket where this channel's
 		// data resides.
-		chanBucket, err := FetchChanBucketRw(
+		chanBucket, err := fetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -867,7 +867,7 @@ func (s *KVStore) AdvanceCommitChainTail(channel *OpenChannel,
 	var newRemoteCommit *ChannelCommitment
 
 	err := kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := FetchChanBucketRw(
+		chanBucket, err := fetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -1030,7 +1030,7 @@ func (s *KVStore) CommitmentHeight(channel *OpenChannel) (
 	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
 		// Get the bucket dedicated to storing the metadata for open
 		// channels.
-		chanBucket, err := FetchChanBucket(
+		chanBucket, err := fetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -1064,7 +1064,7 @@ func (s *KVStore) LatestCommitments(channel *OpenChannel) (
 	*ChannelCommitment, *ChannelCommitment, error) {
 
 	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := FetchChanBucket(
+		chanBucket, err := fetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -1089,7 +1089,7 @@ func (s *KVStore) RemoteRevocationStore(
 	channel *OpenChannel) (shachain.Store, error) {
 
 	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := FetchChanBucket(
+		chanBucket, err := fetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)

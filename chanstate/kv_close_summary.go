@@ -25,6 +25,12 @@ func ClosedChannelBucketKey() []byte {
 	return closedChannelBucket
 }
 
+// ClosedChannelBucket returns the top-level closed-channel summary bucket,
+// creating it if needed.
+func ClosedChannelBucket(tx kvdb.RwTx) (kvdb.RwBucket, error) {
+	return tx.CreateTopLevelBucket(closedChannelBucket)
+}
+
 // putChannelCloseSummary writes the immutable close-time summary of a channel
 // under the closed channel bucket.
 func putChannelCloseSummary(tx kvdb.RwTx, chanID []byte,

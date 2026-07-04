@@ -420,10 +420,18 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB,
 			},
 			kvStore: chanstate.NewKVStore(
 				backend,
-				opts.storeFinalHtlcResolutions,
-				opts.NoRevLogAmtData,
-				opts.tombstoneClosedChannels,
-				extractFwdResponses,
+				chanstate.WithStoreFinalHtlcResolutions(
+					opts.storeFinalHtlcResolutions,
+				),
+				chanstate.WithNoRevLogAmtData(
+					opts.NoRevLogAmtData,
+				),
+				chanstate.WithTombstoneClosedChannels(
+					opts.tombstoneClosedChannels,
+				),
+				chanstate.WithExtractFwdResponses(
+					extractFwdResponses,
+				),
 			),
 			backend:                 backend,
 			tombstoneClosedChannels: opts.tombstoneClosedChannels,

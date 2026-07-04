@@ -600,12 +600,20 @@ func (c *ChannelStateDB) RemoveFwdPkgs(channel *OpenChannel,
 	return c.kvStore.RemoveFwdPkgs(channel, heights...)
 }
 
-// revocationLogTailCommitHeight returns the commit height at the end of the
+// RevocationLogTailCommitHeight returns the commit height at the end of the
 // revocation log.
-func (c *ChannelStateDB) revocationLogTailCommitHeight(
+func (c *ChannelStateDB) RevocationLogTailCommitHeight(
 	channel *OpenChannel) (uint64, error) {
 
 	return c.kvStore.RevocationLogTailCommitHeight(channel)
+}
+
+// revocationLogTailCommitHeight is retained for channeldb tests that exercise
+// the compatibility facade directly.
+func (c *ChannelStateDB) revocationLogTailCommitHeight(
+	channel *OpenChannel) (uint64, error) {
+
+	return c.RevocationLogTailCommitHeight(channel)
 }
 
 // CommitmentHeight returns the current commitment height. The commitment

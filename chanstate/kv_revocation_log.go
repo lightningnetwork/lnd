@@ -265,7 +265,7 @@ func (s *KVStore) RevocationLogTailCommitHeight(
 	}
 
 	if err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := FetchChanBucket(
+		chanBucket, err := fetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -306,7 +306,7 @@ func (s *KVStore) FindPreviousState(channel *OpenChannel,
 	rl := &RevocationLog{}
 
 	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := FetchChanBucket(
+		chanBucket, err := fetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)

@@ -81,6 +81,11 @@ func OpenChannelBucketKey() []byte {
 	return openChannelBucket
 }
 
+// OpenChannelBucket returns the top-level open-channel bucket.
+func OpenChannelBucket(tx kvdb.RTx) kvdb.RBucket {
+	return tx.ReadBucket(openChannelBucket)
+}
+
 // OutpointBucketKey returns the top-level outpoint index bucket key.
 func OutpointBucketKey() []byte {
 	return outpointBucket
@@ -187,10 +192,10 @@ func IsOutpointClosed(opBucket kvdb.RBucket, chanKey []byte) (bool, error) {
 	return IndexStatus(status) == OutpointClosed, nil
 }
 
-// FetchChanBucket is a helper function that returns the bucket where a
+// fetchChanBucket is a helper function that returns the bucket where a
 // channel's data resides in given: the public key for the node, the outpoint,
 // and the chainhash that the channel resides on.
-func FetchChanBucket(tx kvdb.RTx, nodeKey *btcec.PublicKey,
+func fetchChanBucket(tx kvdb.RTx, nodeKey *btcec.PublicKey,
 	outPoint *wire.OutPoint, chainHash chainhash.Hash) (
 	kvdb.RBucket, error) {
 
@@ -246,11 +251,11 @@ func FetchChanBucket(tx kvdb.RTx, nodeKey *btcec.PublicKey,
 	return chanBucket, nil
 }
 
-// FetchChanBucketRw is a helper function that returns the bucket where a
+// fetchChanBucketRw is a helper function that returns the bucket where a
 // channel's data resides in given: the public key for the node, the outpoint,
 // and the chainhash that the channel resides on. This differs from
-// FetchChanBucket in that it returns a writeable bucket.
-func FetchChanBucketRw(tx kvdb.RwTx, nodeKey *btcec.PublicKey,
+// fetchChanBucket in that it returns a writeable bucket.
+func fetchChanBucketRw(tx kvdb.RwTx, nodeKey *btcec.PublicKey,
 	outPoint *wire.OutPoint, chainHash chainhash.Hash) (kvdb.RwBucket,
 	error) {
 
@@ -335,9 +340,9 @@ func DeleteThawHeight(chanBucket kvdb.RwBucket) error {
 	return chanBucket.Delete(frozenChanKey)
 }
 
-// FullSyncOpenChannel syncs the contents of an OpenChannel while re-using an
+// fullSyncOpenChannel syncs the contents of an OpenChannel while re-using an
 // existing database transaction.
-func FullSyncOpenChannel(tx kvdb.RwTx, c *OpenChannel) error {
+func fullSyncOpenChannel(tx kvdb.RwTx, c *OpenChannel) error {
 	// Fetch the outpoint bucket and check if the outpoint already exists.
 	opBucket := tx.ReadWriteBucket(outpointBucket)
 	if opBucket == nil {
@@ -740,7 +745,7 @@ func SyncPendingOpenChannel(tx kvdb.RwTx, channel *OpenChannel,
 
 	channel.FundingBroadcastHeight = pendingHeight
 
-	return FullSyncOpenChannel(tx, channel)
+	return fullSyncOpenChannel(tx, channel)
 }
 
 // FetchOpenChannels starts a new database transaction and returns all stored
@@ -760,7 +765,25 @@ func (s *KVStore) FetchOpenChannels(nodeID *btcec.PublicKey) (
 		channels = nil
 	})
 
-	return channels, err
+	return s.attachOpenChannelStores(channels), err
+}
+
+func (s *KVStore) attachOpenChannelStore(channel *OpenChannel) *OpenChannel {
+	if channel != nil {
+		channel.Db = s
+	}
+
+	return channel
+}
+
+func (s *KVStore) attachOpenChannelStores(
+	channels []*OpenChannel) []*OpenChannel {
+
+	for _, channel := range channels {
+		s.attachOpenChannelStore(channel)
+	}
+
+	return channels
 }
 
 // FetchOpenChannelsTx uses an existing database transaction and returns all
@@ -803,7 +826,7 @@ func FetchOpenChannelsTx(tx kvdb.RTx,
 
 		// Finally, we both of the necessary buckets retrieved, fetch
 		// all the active channels related to this node.
-		nodeChannels, err := FetchNodeChannels(tx, chainBucket)
+		nodeChannels, err := fetchNodeChannels(tx, chainBucket)
 		if err != nil {
 			return fmt.Errorf("unable to read channel for "+
 				"chain_hash=%x, node_key=%x: %v",
@@ -818,12 +841,12 @@ func FetchOpenChannelsTx(tx kvdb.RTx,
 	return channels, err
 }
 
-// FetchNodeChannels retrieves all active channels from the target chainBucket
+// fetchNodeChannels retrieves all active channels from the target chainBucket
 // which is under a node's dedicated channel bucket. This function is typically
 // used to fetch all the active channels related to a particular node. Channels
 // already flipped to outpointClosed in the outpoint index are skipped silently
 // — readers see only channels that are still considered open.
-func FetchNodeChannels(tx kvdb.RTx,
+func fetchNodeChannels(tx kvdb.RTx,
 	chainBucket kvdb.RBucket) ([]*OpenChannel, error) {
 
 	var channels []*OpenChannel
@@ -1290,7 +1313,7 @@ func (s *KVStore) channelScanner(tx kvdb.RTx,
 	}
 
 	if targetChan != nil {
-		return targetChan, nil
+		return s.attachOpenChannelStore(targetChan), nil
 	}
 
 	// If we can't find the channel, then we return with an error, as we
@@ -1421,7 +1444,7 @@ func (s *KVStore) fetchChannels(filters ...fetchChannelsFilter) (
 						"chain bucket %x", chainHash)
 				}
 
-				nodeChans, err := FetchNodeChannels(
+				nodeChans, err := fetchNodeChannels(
 					tx, chainBucket,
 				)
 				if err != nil {
@@ -1460,13 +1483,13 @@ func (s *KVStore) fetchChannels(filters ...fetchChannelsFilter) (
 		return nil, err
 	}
 
-	return channels, nil
+	return s.attachOpenChannelStores(channels), nil
 }
 
-// FetchHistoricalChanBucket returns a the channel bucket for a given outpoint
+// fetchHistoricalChanBucket returns a the channel bucket for a given outpoint
 // from the historical channel bucket. If the bucket does not exist,
 // ErrNoHistoricalBucket is returned.
-func FetchHistoricalChanBucket(tx kvdb.RTx,
+func fetchHistoricalChanBucket(tx kvdb.RTx,
 	outPoint *wire.OutPoint) (kvdb.RBucket, error) {
 
 	// First fetch the top level bucket which stores all data related to
@@ -1499,7 +1522,7 @@ func (s *KVStore) FetchHistoricalChannel(outPoint *wire.OutPoint) (
 
 	var channel *OpenChannel
 	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := FetchHistoricalChanBucket(tx, outPoint)
+		chanBucket, err := fetchHistoricalChanBucket(tx, outPoint)
 		if err != nil {
 			return err
 		}
@@ -1514,14 +1537,14 @@ func (s *KVStore) FetchHistoricalChannel(outPoint *wire.OutPoint) (
 		return nil, err
 	}
 
-	return channel, nil
+	return s.attachOpenChannelStore(channel), nil
 }
 
 // RefreshChannel updates the in-memory channel state using the latest state
 // observed on disk.
 func (s *KVStore) RefreshChannel(channel *OpenChannel) error {
 	return kvdb.View(s.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := FetchChanBucket(
+		chanBucket, err := fetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -1560,7 +1583,7 @@ func (s *KVStore) MarkChannelConfirmationHeight(channel *OpenChannel,
 	height uint32) error {
 
 	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := FetchChanBucketRw(
+		chanBucket, err := fetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -1587,7 +1610,7 @@ func (s *KVStore) MarkChannelCloseConfirmationHeight(
 	channel *OpenChannel, height fn.Option[uint32]) error {
 
 	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := FetchChanBucketRw(
+		chanBucket, err := fetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -1614,7 +1637,7 @@ func (s *KVStore) MarkChannelOpen(channel *OpenChannel,
 	openLoc lnwire.ShortChannelID) error {
 
 	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := FetchChanBucketRw(
+		chanBucket, err := fetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -1641,7 +1664,7 @@ func (s *KVStore) MarkChannelRealScid(channel *OpenChannel,
 	realScid lnwire.ShortChannelID) error {
 
 	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := FetchChanBucketRw(
+		chanBucket, err := fetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -1668,7 +1691,7 @@ func (s *KVStore) MarkChannelScidAliasNegotiated(
 	channel *OpenChannel) error {
 
 	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := FetchChanBucketRw(
+		chanBucket, err := fetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -1748,7 +1771,7 @@ func (s *KVStore) FetchChannelDataLossCommitPoint(
 	var commitPoint *btcec.PublicKey
 
 	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := FetchChanBucket(
+		chanBucket, err := fetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -1788,7 +1811,7 @@ func (s *KVStore) putChanStatus(channel *OpenChannel,
 	status ChannelStatus, fs ...func(kvdb.RwBucket) error) error {
 
 	if err := kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := FetchChanBucketRw(
+		chanBucket, err := fetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -1839,7 +1862,7 @@ func (s *KVStore) ClearChannelStatus(channel *OpenChannel,
 	status ChannelStatus) error {
 
 	if err := kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := FetchChanBucketRw(
+		chanBucket, err := fetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)

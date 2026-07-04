@@ -17,19 +17,18 @@ type KVStore struct {
 }
 
 // NewKVStore creates a KV-backed channel-state store.
-func NewKVStore(
-	backend kvdb.Backend,
-	storeFinalHtlcResolutions, noRevLogAmtData,
-	tombstoneClosedChannels bool,
-	extractFwdResponses func(kvdb.RwTx, lnwire.ShortChannelID) error,
-) *KVStore {
+func NewKVStore(backend kvdb.Backend, options ...OptionModifier) *KVStore {
+	opts := DefaultOptions()
+	for _, applyOption := range options {
+		applyOption(opts)
+	}
 
 	return &KVStore{
 		backend:                   backend,
-		noRevLogAmtData:           noRevLogAmtData,
-		storeFinalHtlcResolutions: storeFinalHtlcResolutions,
-		tombstoneClosedChannels:   tombstoneClosedChannels,
-		extractFwdResponses:       extractFwdResponses,
+		noRevLogAmtData:           opts.NoRevLogAmtData,
+		storeFinalHtlcResolutions: opts.StoreFinalHtlcResolutions,
+		tombstoneClosedChannels:   opts.TombstoneClosedChannels,
+		extractFwdResponses:       opts.ExtractFwdResponses,
 	}
 }
 
@@ -41,3 +40,4 @@ var _ OpenChannelCloseTxStore = (*KVStore)(nil)
 var _ OpenChannelStatusStore = (*KVStore)(nil)
 var _ OpenChannelCommitmentStore = (*KVStore)(nil)
 var _ HistoricalChannelStore = (*KVStore)(nil)
+var _ Store = (*KVStore)(nil)

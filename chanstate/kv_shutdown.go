@@ -51,7 +51,7 @@ func (s *KVStore) StoreChannelShutdownInfo(channel *OpenChannel,
 	info *ShutdownInfo) error {
 
 	return kvdb.Update(s.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := FetchChanBucketRw(
+		chanBucket, err := fetchChanBucketRw(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)
@@ -70,7 +70,7 @@ func (s *KVStore) FetchChannelShutdownInfo(
 
 	var shutdownInfo *ShutdownInfo
 	err := kvdb.View(s.backend, func(tx kvdb.RTx) error {
-		chanBucket, err := FetchChanBucket(
+		chanBucket, err := fetchChanBucket(
 			tx, channel.IdentityPub, &channel.FundingOutpoint,
 			channel.ChainHash,
 		)

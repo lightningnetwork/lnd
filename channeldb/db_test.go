@@ -674,10 +674,10 @@ func TestFetchHistoricalChannel(t *testing.T) {
 	histChannel, err := cdb.FetchHistoricalChannel(&channel.FundingOutpoint)
 	require.NoError(t, err, "unexpected error getting channel")
 
-	// FetchHistoricalChannel will attach the cdb to channel.Db, we set it
-	// here so that we can check that all other fields on the channel equal
-	// those on the historical channel.
-	channel.Db = cdb
+	// FetchHistoricalChannel will attach the channel-state store to
+	// channel.Db, we set it here so that we can check that all other
+	// fields on the channel equal those on the historical channel.
+	channel.Db = cdb.kvStore
 
 	if !reflect.DeepEqual(histChannel, channel) {
 		t.Fatalf("expected: %v, got: %v", channel, histChannel)

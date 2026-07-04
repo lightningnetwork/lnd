@@ -104,10 +104,11 @@ func newCircuitMap(t *testing.T, resMsg bool) (*htlcswitch.CircuitMapConfig,
 	onionProcessor := newOnionProcessor(t)
 
 	db := makeCircuitDB(t, "")
+	channelStore := db.ChannelStateStore()
 	circuitMapCfg := &htlcswitch.CircuitMapConfig{
 		DB:                    db,
-		FetchAllOpenChannels:  db.ChannelStateDB().FetchAllOpenChannels,
-		FetchClosedChannels:   db.ChannelStateDB().FetchClosedChannels,
+		FetchAllOpenChannels:  channelStore.FetchAllOpenChannels,
+		FetchClosedChannels:   channelStore.FetchClosedChannels,
 		ExtractErrorEncrypter: onionProcessor.ExtractErrorEncrypter,
 		CheckFwdResponse:      db.FwdResponseStore().CheckFwdResponse,
 	}
@@ -642,10 +643,11 @@ func restartCircuitMap(t *testing.T, cfg *htlcswitch.CircuitMapConfig) (
 
 	// Reinitialize circuit map with same db path.
 	db := makeCircuitDB(t, dbPath)
+	channelStore := db.ChannelStateStore()
 	cfg2 := &htlcswitch.CircuitMapConfig{
 		DB:                    db,
-		FetchAllOpenChannels:  db.ChannelStateDB().FetchAllOpenChannels,
-		FetchClosedChannels:   db.ChannelStateDB().FetchClosedChannels,
+		FetchAllOpenChannels:  channelStore.FetchAllOpenChannels,
+		FetchClosedChannels:   channelStore.FetchClosedChannels,
 		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
 		CheckResolutionMsg:    cfg.CheckResolutionMsg,
 		CheckFwdResponse:      db.FwdResponseStore().CheckFwdResponse,

@@ -175,11 +175,12 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 		return testSig, nil
 	}
 
+	channelStateStore := db.ChannelStateStore()
 	cfg := Config{
 		DB:                   db,
-		FetchAllOpenChannels: db.ChannelStateDB().FetchAllOpenChannels,
-		FetchAllChannels:     db.ChannelStateDB().FetchAllChannels,
-		FetchClosedChannels:  db.ChannelStateDB().FetchClosedChannels,
+		FetchAllOpenChannels: channelStateStore.FetchAllOpenChannels,
+		FetchAllChannels:     channelStateStore.FetchAllChannels,
+		FetchClosedChannels:  channelStateStore.FetchClosedChannels,
 		CheckFwdResponse:     db.FwdResponseStore().CheckFwdResponse,
 		FetchFwdResponses:    db.FwdResponseStore().FetchFwdResponses,
 		DeleteFwdResponse:    db.FwdResponseStore().DeleteFwdResponse,

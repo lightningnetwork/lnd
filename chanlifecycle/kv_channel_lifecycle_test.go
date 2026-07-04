@@ -132,3 +132,61 @@ func TestRestoreChannelShells(t *testing.T) {
 		linkNode.Addresses[0].String(),
 	)
 }
+
+// TestFetchClosedChannels tests that closed channel summaries can be fetched
+// before and after the lifecycle implementation marks the channel fully
+// closed.
+func TestFetchClosedChannels(t *testing.T) {
+	t.Parallel()
+
+	fixture := newKVChannelTestContext(t)
+
+	channel := newKVTestChannel(t, fixture.chanStore)
+	addr := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18555,
+	}
+	err := fixture.lifecycle.SyncPendingChannel(channel, addr, 100)
+	require.NoError(t, err, "unable to sync pending channel")
+
+	err = channel.MarkAsOpen(channel.ShortChannelID)
+	require.NoError(t, err, "unable to mark channel open")
+
+	summary := &chanstate.ChannelCloseSummary{
+		ChanPoint:   channel.FundingOutpoint,
+		ClosingTXID: channel.ChainHash,
+		RemotePub:   channel.IdentityPub,
+		Capacity:    channel.Capacity,
+		SettledBalance: channel.LocalCommitment.LocalBalance.
+			ToSatoshis(),
+		TimeLockedBalance: channel.RemoteCommitment.LocalBalance.
+			ToSatoshis() + 10000,
+		CloseType:       chanstate.RemoteForceClose,
+		IsPending:       true,
+		LocalChanConfig: channel.LocalChanCfg,
+	}
+	err = channel.CloseChannel(summary)
+	require.NoError(t, err, "unable to close channel")
+
+	pendingClosed, err := fixture.chanStore.FetchClosedChannels(true)
+	require.NoError(t, err, "failed fetching closed channels")
+	require.Equal(
+		t, []*chanstate.ChannelCloseSummary{summary}, pendingClosed,
+	)
+
+	closed, err := fixture.chanStore.FetchClosedChannels(false)
+	require.NoError(t, err, "failed fetching all closed channels")
+	require.Equal(t, []*chanstate.ChannelCloseSummary{summary}, closed)
+
+	err = fixture.lifecycle.MarkChanFullyClosed(&channel.FundingOutpoint)
+	require.NoError(t, err, "failed fully closing channel")
+
+	closed, err = fixture.chanStore.FetchClosedChannels(false)
+	require.NoError(t, err, "failed fetching closed channels")
+	require.Len(t, closed, 1)
+	require.False(t, closed[0].IsPending)
+
+	pendingClose, err := fixture.chanStore.FetchClosedChannels(true)
+	require.NoError(t, err, "failed fetching channels pending close")
+	require.Empty(t, pendingClose)
+}

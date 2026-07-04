@@ -228,7 +228,7 @@ type OpenChannel struct {
 	// intentionally keeps the existing name while callers still construct
 	// channels through the channeldb compatibility alias. The store
 	// interface keeps receiver methods backend independent while the KV
-	// implementation remains in channeldb.
+	// implementation is moved into chanstate.
 	Db Store
 
 	// TODO(roasbeef): just need to store local and remote HTLC's?
@@ -335,9 +335,9 @@ func (c *OpenChannel) ChanStatus() ChannelStatus {
 // ChannelStatusForStore returns the in-memory channel status without taking
 // the channel mutex.
 //
-// NOTE: This is a preliminary migration hook for KV-backed store code that
-// still lives in channeldb during this refactor. Callers are responsible for
-// synchronization. Normal callers should use ChanStatus.
+// NOTE: This is a preliminary migration hook for KV-backed store code while
+// OpenChannel persistence moves behind backend-owned stores. Callers are
+// responsible for synchronization. Normal callers should use ChanStatus.
 func (c *OpenChannel) ChannelStatusForStore() ChannelStatus {
 	return c.chanStatus
 }
@@ -345,10 +345,10 @@ func (c *OpenChannel) ChannelStatusForStore() ChannelStatus {
 // SetChannelStatusForStore updates the in-memory channel status without taking
 // the channel mutex.
 //
-// NOTE: This is a preliminary migration hook for KV-backed store code that
-// still lives in channeldb during this refactor. Callers are responsible for
-// synchronization. Normal callers should use ApplyChanStatus or
-// ClearChanStatus when the status change must be persisted.
+// NOTE: This is a preliminary migration hook for KV-backed store code while
+// OpenChannel persistence moves behind backend-owned stores. Callers are
+// responsible for synchronization. Normal callers should use ApplyChanStatus
+// or ClearChanStatus when the status change must be persisted.
 func (c *OpenChannel) SetChannelStatusForStore(status ChannelStatus) {
 	c.chanStatus = status
 }
@@ -394,9 +394,9 @@ func (c *OpenChannel) hasChanStatus(status ChannelStatus) bool {
 // HasChanStatusForStore returns true if the internal bitfield channel status
 // has the specified status bit set, without taking the channel mutex.
 //
-// NOTE: This is a preliminary migration hook for KV-backed store code that
-// still lives in channeldb during this refactor. Callers are responsible for
-// synchronization. Normal callers should use HasChanStatus.
+// NOTE: This is a preliminary migration hook for KV-backed store code while
+// OpenChannel persistence moves behind backend-owned stores. Callers are
+// responsible for synchronization. Normal callers should use HasChanStatus.
 func (c *OpenChannel) HasChanStatusForStore(status ChannelStatus) bool {
 	return c.hasChanStatus(status)
 }
@@ -404,9 +404,9 @@ func (c *OpenChannel) HasChanStatusForStore(status ChannelStatus) bool {
 // ConfirmedScidForStore returns the in-memory confirmed SCID without taking
 // the channel mutex.
 //
-// NOTE: This is a preliminary migration hook for KV-backed store code that
-// still lives in channeldb during this refactor. Callers are responsible for
-// synchronization. Normal callers should use ZeroConfRealScid.
+// NOTE: This is a preliminary migration hook for KV-backed store code while
+// OpenChannel persistence moves behind backend-owned stores. Callers are
+// responsible for synchronization. Normal callers should use ZeroConfRealScid.
 func (c *OpenChannel) ConfirmedScidForStore() lnwire.ShortChannelID {
 	return c.confirmedScid
 }
@@ -414,9 +414,9 @@ func (c *OpenChannel) ConfirmedScidForStore() lnwire.ShortChannelID {
 // SetConfirmedScidForStore updates the in-memory confirmed SCID without taking
 // the channel mutex.
 //
-// NOTE: This is a preliminary migration hook for KV-backed store code that
-// still lives in channeldb during this refactor. Callers are responsible for
-// synchronization.
+// NOTE: This is a preliminary migration hook for KV-backed store code while
+// OpenChannel persistence moves behind backend-owned stores. Callers are
+// responsible for synchronization.
 func (c *OpenChannel) SetConfirmedScidForStore(scid lnwire.ShortChannelID) {
 	c.confirmedScid = scid
 }
@@ -766,24 +766,6 @@ func (c *OpenChannel) BroadcastedCommitment() (*wire.MsgTx, error) {
 // MarkCoopBroadcasted. If not found ErrNoCloseTx is returned.
 func (c *OpenChannel) BroadcastedCooperative() (*wire.MsgTx, error) {
 	return c.Db.FetchChannelBroadcastedCooperative(c)
-}
-
-// SyncPending writes the contents of the channel to the database while it's in
-// the pending (waiting for funding confirmation) state. The IsPending flag
-// will be set to true. When the channel's funding transaction is confirmed,
-// the channel should be marked as "open" and the IsPending flag set to false.
-// Note that this function also creates a LinkNode relationship between this
-// newly created channel and a new LinkNode instance. This allows listing all
-// channels in the database globally, or according to the LinkNode they were
-// created with.
-//
-// TODO(roasbeef): addr param should eventually be an lnwire.NetAddress type
-// that includes service bits.
-func (c *OpenChannel) SyncPending(addr net.Addr, pendingHeight uint32) error {
-	c.Lock()
-	defer c.Unlock()
-
-	return c.Db.SyncPendingChannel(c, addr, pendingHeight)
 }
 
 // UpdateCommitment updates the local commitment state. It locks in the pending

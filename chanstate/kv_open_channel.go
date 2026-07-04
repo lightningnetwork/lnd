@@ -81,6 +81,11 @@ func OpenChannelBucketKey() []byte {
 	return openChannelBucket
 }
 
+// OpenChannelBucket returns the top-level open-channel bucket.
+func OpenChannelBucket(tx kvdb.RTx) kvdb.RBucket {
+	return tx.ReadBucket(openChannelBucket)
+}
+
 // OutpointBucketKey returns the top-level outpoint index bucket key.
 func OutpointBucketKey() []byte {
 	return outpointBucket
@@ -804,7 +809,25 @@ func (s *KVStore) FetchOpenChannels(nodeID *btcec.PublicKey) (
 		channels = nil
 	})
 
-	return channels, err
+	return s.attachOpenChannelStores(channels), err
+}
+
+func (s *KVStore) attachOpenChannelStore(channel *OpenChannel) *OpenChannel {
+	if channel != nil {
+		channel.Db = s
+	}
+
+	return channel
+}
+
+func (s *KVStore) attachOpenChannelStores(
+	channels []*OpenChannel) []*OpenChannel {
+
+	for _, channel := range channels {
+		s.attachOpenChannelStore(channel)
+	}
+
+	return channels
 }
 
 // FetchOpenChannelsTx uses an existing database transaction and returns all
@@ -1334,7 +1357,7 @@ func (s *KVStore) channelScanner(tx kvdb.RTx,
 	}
 
 	if targetChan != nil {
-		return targetChan, nil
+		return s.attachOpenChannelStore(targetChan), nil
 	}
 
 	// If we can't find the channel, then we return with an error, as we
@@ -1504,7 +1527,7 @@ func (s *KVStore) fetchChannels(filters ...fetchChannelsFilter) (
 		return nil, err
 	}
 
-	return channels, nil
+	return s.attachOpenChannelStores(channels), nil
 }
 
 // FetchHistoricalChanBucket returns a the channel bucket for a given outpoint
@@ -1558,7 +1581,7 @@ func (s *KVStore) FetchHistoricalChannel(outPoint *wire.OutPoint) (
 		return nil, err
 	}
 
-	return channel, nil
+	return s.attachOpenChannelStore(channel), nil
 }
 
 // RefreshChannel updates the in-memory channel state using the latest state

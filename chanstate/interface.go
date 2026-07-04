@@ -1,8 +1,6 @@
 package chanstate
 
 import (
-	"net"
-
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -12,8 +10,8 @@ import (
 	"github.com/lightningnetwork/lnd/shachain"
 )
 
-// Store is the full persistence contract for the channel-state subsystem.
-// Consumers depend on this interface rather than the concrete
+// Store is the persistence contract for the channel-state subsystem. Consumers
+// depend on this interface rather than the concrete
 // channeldb.ChannelStateDB so the underlying storage can be swapped without
 // touching call sites.
 //
@@ -60,10 +58,6 @@ type Store interface { //nolint:interfacebloat
 	// ChannelSetupStore owns temporary state used while setting up a
 	// channel.
 	ChannelSetupStore
-
-	// LinkNodeMaintainer owns link-node maintenance derived from channel
-	// state.
-	LinkNodeMaintainer
 }
 
 // OpenChannelStore owns open-channel records.
@@ -113,14 +107,6 @@ type OpenChannelStore interface {
 	// the pending-open channels and whether the peer has an open or
 	// closed channel with us.
 	FetchPermAndTempPeers(chainHash []byte) (map[string]ChanCount, error)
-
-	// RestoreChannelShells reconstructs the state of an OpenChannel from
-	// the ChannelShell. We'll attempt to write the new channel to disk,
-	// create a LinkNode instance with the passed node addresses, and
-	// finally create an edge within the graph for the channel as well.
-	// This method is idempotent, so repeated calls with the same set of
-	// channel shells won't modify the database after the initial call.
-	RestoreChannelShells(channelShells ...*ChannelShell) error
 }
 
 // HistoricalChannelStore owns the post-close historical channel view.
@@ -133,11 +119,6 @@ type HistoricalChannelStore interface {
 // OpenChannelLifecycleStore owns persisted lifecycle state for open channel
 // records.
 type OpenChannelLifecycleStore interface {
-	// SyncPendingChannel writes a pending channel to the store and records
-	// the funding broadcast height.
-	SyncPendingChannel(channel *OpenChannel, addr net.Addr,
-		pendingHeight uint32) error
-
 	// RefreshChannel updates the in-memory channel state using the latest
 	// state observed on disk.
 	RefreshChannel(channel *OpenChannel) error
@@ -291,6 +272,10 @@ type OpenChannelCommitmentQueryStore interface {
 	// of the revocation storage tree for the remote party.
 	RemoteRevocationStore(channel *OpenChannel) (shachain.Store, error)
 
+	// RevocationLogTailCommitHeight returns the commit height at the end
+	// of the revocation log.
+	RevocationLogTailCommitHeight(channel *OpenChannel) (uint64, error)
+
 	// FindPreviousState scans through the append-only log in an attempt to
 	// recover the previous channel state indicated by the update number.
 	FindPreviousState(channel *OpenChannel, updateNum uint64) (
@@ -342,13 +327,6 @@ type ClosedChannelStore interface {
 	// the channel ID of the channel in question.
 	FetchClosedChannelForID(cid lnwire.ChannelID) (
 		*ChannelCloseSummary, error)
-
-	// MarkChanFullyClosed marks a channel as fully closed within the
-	// database. A channel should be marked as fully closed if the
-	// channel was initially cooperatively closed and it's reached a
-	// single confirmation, or after all the pending funds in a channel
-	// that has been forcibly closed have been swept.
-	MarkChanFullyClosed(chanPoint *wire.OutPoint) error
 
 	// CloseChannel marks the given channel as closed: the open-channel
 	// record is removed and the supplied ChannelCloseSummary is
@@ -411,16 +389,4 @@ type ChannelSetupStore interface {
 	// DeleteInitialForwardingPolicy removes the forwarding policy for a
 	// given channel from the database.
 	DeleteInitialForwardingPolicy(chanID lnwire.ChannelID) error
-}
-
-// LinkNodeMaintainer owns link-node maintenance derived from channel state.
-type LinkNodeMaintainer interface {
-	// PruneLinkNodes attempts to prune all link nodes found within the
-	// database with whom we no longer have any open channels with.
-	PruneLinkNodes() error
-
-	// RepairLinkNodes scans all channels in the database and ensures
-	// that a link node exists for each remote peer. This should be
-	// called on startup to ensure that our database is consistent.
-	RepairLinkNodes(network wire.BitcoinNet) error
 }

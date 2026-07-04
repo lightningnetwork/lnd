@@ -47,17 +47,6 @@ var (
 	// parameters.
 	NewRevocationLog = cstate.NewRevocationLog
 
-	// revocationLogBucketDeprecated is dedicated for storing the necessary
-	// delta state between channel updates required to re-construct a past
-	// state in order to punish a counterparty attempting a non-cooperative
-	// channel closure. This key should be accessed from within the
-	// sub-bucket of a target channel, identified by its channel point.
-	//
-	// Deprecated: This bucket is kept for read-only in case the user
-	// choose not to migrate the old data.
-	//nolint:ll
-	revocationLogBucketDeprecated = cstate.RevocationLogBucketDeprecatedKey()
-
 	// revocationLogBucket is a sub-bucket under openChannelBucket. This
 	// sub-bucket is dedicated for storing the minimal info required to
 	// re-construct a past state in order to punish a counterparty

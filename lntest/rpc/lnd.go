@@ -139,7 +139,7 @@ func (h *HarnessRPC) PendingChannels() *lnrpc.PendingChannelsResponse {
 
 	// TODO(yy): We may get a `unable to find arbitrator` error from the
 	// rpc point, due to a timing issue in rpcserver,
-	// 1. `r.server.chanStateDB.FetchClosedChannels` fetches
+	// 1. `r.server.channelStore.FetchClosedChannels` fetches
 	//    the pending force close channel.
 	// 2. `r.arbitratorPopulateForceCloseResp` relies on the
 	//    channel arbitrator to get the report, and,

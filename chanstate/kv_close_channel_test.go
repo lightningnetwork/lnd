@@ -413,3 +413,33 @@ func TestCloseChannelSync(t *testing.T) {
 		t, store, ch.FundingOutpoint,
 	))
 }
+
+// TestAbandonChannel tests that AbandonChannel removes a channel from the
+// store and adds a close channel summary. Calling it again after the channel
+// has already been removed should not return an error.
+func TestAbandonChannel(t *testing.T) {
+	t.Parallel()
+
+	backend, cleanup := makeTestBackend(t)
+	t.Cleanup(cleanup)
+
+	store := NewKVStore(backend)
+
+	err := store.AbandonChannel(&wire.OutPoint{}, 0)
+	require.Error(t, err, "removing non-existent channel should fail")
+
+	chanState := createTestChannel(t, store)
+
+	closeHeight := uint32(11)
+	err = store.AbandonChannel(&chanState.FundingOutpoint, closeHeight)
+	require.NoError(t, err, "unable to abandon channel")
+
+	_, err = store.FetchChannel(chanState.FundingOutpoint)
+	require.ErrorIs(t, err, ErrChannelNotFound)
+
+	_, err = store.FetchClosedChannel(&chanState.FundingOutpoint)
+	require.NoError(t, err, "unable to fetch closed channel")
+
+	err = store.AbandonChannel(&chanState.FundingOutpoint, closeHeight)
+	require.NoError(t, err, "unable to abandon channel")
+}

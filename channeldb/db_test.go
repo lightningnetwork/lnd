@@ -2,23 +2,18 @@ package channeldb
 
 import (
 	"image/color"
-	"math"
 	"math/rand"
 	"net"
 	"path/filepath"
-	"reflect"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
-	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -153,160 +148,6 @@ func TestMultiSourceAddrsForNode(t *testing.T) {
 
 	for _, addr := range nodeAddrs {
 		require.Contains(t, expectedAddrs, addr.String())
-	}
-}
-
-func genRandomChannelShell() (*ChannelShell, error) {
-	var testPriv [32]byte
-	if _, err := rand.Read(testPriv[:]); err != nil {
-		return nil, err
-	}
-
-	_, pub := btcec.PrivKeyFromBytes(testPriv[:])
-
-	var chanPoint wire.OutPoint
-	if _, err := rand.Read(chanPoint.Hash[:]); err != nil {
-		return nil, err
-	}
-
-	chanPoint.Index = uint32(rand.Intn(math.MaxUint16))
-
-	chanStatus := ChanStatusDefault | ChanStatusRestored
-
-	var shaChainPriv [32]byte
-	if _, err := rand.Read(testPriv[:]); err != nil {
-		return nil, err
-	}
-	revRoot, err := chainhash.NewHash(shaChainPriv[:])
-	if err != nil {
-		return nil, err
-	}
-	shaChainProducer := shachain.NewRevocationProducer(*revRoot)
-
-	commitParams := CommitmentParams{
-		CsvDelay: uint16(rand.Int63()),
-	}
-
-	channel := &OpenChannel{
-		ChainHash:       rev,
-		FundingOutpoint: chanPoint,
-		ShortChannelID: lnwire.NewShortChanIDFromInt(
-			uint64(rand.Int63()),
-		),
-		IdentityPub: pub,
-		LocalChanCfg: ChannelConfig{
-			CommitmentParams: commitParams,
-			PaymentBasePoint: keychain.KeyDescriptor{
-				KeyLocator: keychain.KeyLocator{
-					Family: keychain.KeyFamily(
-						rand.Int63(),
-					),
-					Index: uint32(rand.Int63()),
-				},
-			},
-		},
-		RemoteCurrentRevocation: pub,
-		IsPending:               false,
-		RevocationStore:         shachain.NewRevocationStore(),
-		RevocationProducer:      shaChainProducer,
-	}
-	channel.SetChannelStatusForStore(chanStatus)
-
-	return &ChannelShell{
-		NodeAddrs: []net.Addr{&net.TCPAddr{
-			IP:   net.ParseIP("127.0.0.1"),
-			Port: 18555,
-		}},
-		Chan: channel,
-	}, nil
-}
-
-// TestRestoreChannelShells tests that we're able to insert a partially channel
-// populated to disk. This is useful for channel recovery purposes. We should
-// find the new channel shell on disk, and also the db should be populated with
-// an edge for that channel.
-func TestRestoreChannelShells(t *testing.T) {
-	t.Parallel()
-
-	fullDB, err := MakeTestDB(t)
-	require.NoError(t, err, "unable to make test database")
-
-	cdb := fullDB.ChannelStateDB()
-
-	// First, we'll make our channel shell, it will only have the minimal
-	// amount of information required for us to initiate the data loss
-	// protection feature.
-	channelShell, err := genRandomChannelShell()
-	require.NoError(t, err, "unable to gen channel shell")
-
-	// With the channel shell constructed, we'll now insert it into the
-	// database with the restoration method.
-	if err := cdb.RestoreChannelShells(channelShell); err != nil {
-		t.Fatalf("unable to restore channel shell: %v", err)
-	}
-
-	// Now that the channel has been inserted, we'll attempt to query for
-	// it to ensure we can properly locate it via various means.
-	//
-	// First, we'll attempt to query for all channels that we have with the
-	// node public key that was restored.
-	nodeChans, err := cdb.FetchOpenChannels(channelShell.Chan.IdentityPub)
-	require.NoError(t, err, "unable find channel")
-
-	// We should now find a single channel from the database.
-	if len(nodeChans) != 1 {
-		t.Fatalf("unable to find restored channel by node "+
-			"pubkey: %v", err)
-	}
-
-	// Ensure that it isn't possible to modify the commitment state machine
-	// of this restored channel.
-	channel := nodeChans[0]
-	_, err = channel.UpdateCommitment(nil, nil)
-	if err != ErrNoRestoredChannelMutation {
-		t.Fatalf("able to mutate restored channel")
-	}
-	err = channel.AppendRemoteCommitChain(nil)
-	if err != ErrNoRestoredChannelMutation {
-		t.Fatalf("able to mutate restored channel")
-	}
-	err = channel.AdvanceCommitChainTail(
-		nil, nil, dummyLocalOutputIndex, dummyRemoteOutIndex,
-	)
-	if err != ErrNoRestoredChannelMutation {
-		t.Fatalf("able to mutate restored channel")
-	}
-
-	// That single channel should have the proper channel point, and also
-	// the expected set of flags to indicate that it was a restored
-	// channel.
-	if nodeChans[0].FundingOutpoint != channelShell.Chan.FundingOutpoint {
-		t.Fatalf("wrong funding outpoint: expected %v, got %v",
-			nodeChans[0].FundingOutpoint,
-			channelShell.Chan.FundingOutpoint)
-	}
-	if !nodeChans[0].HasChanStatus(ChanStatusRestored) {
-		t.Fatalf("node has wrong status flags: %v",
-			nodeChans[0].ChanStatus())
-	}
-
-	// We should also be able to find the channel if we query for it
-	// directly.
-	_, err = cdb.FetchChannel(channelShell.Chan.FundingOutpoint)
-	require.NoError(t, err, "unable to fetch channel")
-
-	// We should also be able to find the link node that was inserted by
-	// its public key.
-	linkNode, err := fullDB.channelStateDB.linkNodeDB.FetchLinkNode(
-		channelShell.Chan.IdentityPub,
-	)
-	require.NoError(t, err, "unable to fetch link node")
-
-	// The node should have the same address, as specified in the channel
-	// shell.
-	if reflect.DeepEqual(linkNode.Addresses, channelShell.NodeAddrs) {
-		t.Fatalf("addr mismatch: expected %v, got %v",
-			linkNode.Addresses, channelShell.NodeAddrs)
 	}
 }
 

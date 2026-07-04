@@ -15,10 +15,12 @@ import (
 // revocationLogBucket of the given channel. The helper navigates the raw KV
 // tree so the test does not depend on the higher-level commit-chain
 // machinery.
-func writeTestRevlogEntries(t *testing.T, ch *OpenChannel, n int) {
+func writeTestRevlogEntries(t *testing.T, cdb *ChannelStateDB,
+	ch *OpenChannel, n int) {
+
 	t.Helper()
 
-	err := kvdb.Update(ch.Db.backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(cdb.backend, func(tx kvdb.RwTx) error {
 		openChanBkt := tx.ReadWriteBucket(openChannelBucket)
 		require.NotNil(t, openChanBkt, "openChannelBucket missing")
 
@@ -42,7 +44,7 @@ func writeTestRevlogEntries(t *testing.T, ch *OpenChannel, n int) {
 		require.NoError(t, err)
 
 		for i := range n {
-			commit := testChannelCommit
+			commit := ch.LocalCommitment
 			commit.CommitHeight = uint64(i)
 
 			err := putRevocationLog(logBkt, &commit, 0, 1, false)
@@ -56,11 +58,13 @@ func writeTestRevlogEntries(t *testing.T, ch *OpenChannel, n int) {
 
 // writeTestForwardingPackages writes n empty forwarding packages for the
 // given channel using distinct remote commitment heights.
-func writeTestForwardingPackages(t *testing.T, ch *OpenChannel, n int) {
+func writeTestForwardingPackages(t *testing.T, cdb *ChannelStateDB,
+	ch *OpenChannel, n int) {
+
 	t.Helper()
 
 	packager := NewChannelPackager(ch.ShortChanID())
-	err := kvdb.Update(ch.Db.backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(cdb.backend, func(tx kvdb.RwTx) error {
 		for i := range n {
 			pkg := NewFwdPkg(
 				ch.ShortChanID(), uint64(i), nil, nil,
@@ -78,11 +82,13 @@ func writeTestForwardingPackages(t *testing.T, ch *OpenChannel, n int) {
 // countRevlogEntries returns the number of entries in the revocationLogBucket
 // for the given channel, or -1 if the channel bucket no longer exists in
 // openChannelBucket.
-func countRevlogEntries(t *testing.T, ch *OpenChannel) int {
+func countRevlogEntries(t *testing.T, cdb *ChannelStateDB,
+	ch *OpenChannel) int {
+
 	t.Helper()
 
 	count := -1
-	err := kvdb.View(ch.Db.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(cdb.backend, func(tx kvdb.RTx) error {
 		openChanBkt := tx.ReadBucket(openChannelBucket)
 		if openChanBkt == nil {
 			return nil
@@ -202,8 +208,8 @@ func TestCloseChannelTombstoneWritePath(t *testing.T) {
 
 	const numRevlogEntries = 5
 	const numFwdPkgs = 3
-	writeTestRevlogEntries(t, ch, numRevlogEntries)
-	writeTestForwardingPackages(t, ch, numFwdPkgs)
+	writeTestRevlogEntries(t, cdb, ch, numRevlogEntries)
+	writeTestForwardingPackages(t, cdb, ch, numFwdPkgs)
 
 	closeChannelForTest(t, cdb, ch)
 
@@ -224,7 +230,7 @@ func TestCloseChannelTombstoneWritePath(t *testing.T) {
 	require.Equal(t, ch.FundingOutpoint, closeSummary.ChanPoint)
 
 	// Bulk state preserved on disk — tombstoning's whole point.
-	require.Equal(t, numRevlogEntries, countRevlogEntries(t, ch))
+	require.Equal(t, numRevlogEntries, countRevlogEntries(t, cdb, ch))
 
 	packager := NewChannelPackager(ch.ShortChanID())
 	var fwdPkgs []*FwdPkg
@@ -281,7 +287,7 @@ func TestCloseChannelTombstoneRemovesFromOpenScans(t *testing.T) {
 	ch2 := createTestChannel(t, cdb, openChannelOption())
 
 	const numRevlogEntries = 5
-	writeTestRevlogEntries(t, ch1, numRevlogEntries)
+	writeTestRevlogEntries(t, cdb, ch1, numRevlogEntries)
 
 	openChans, err := cdb.FetchAllChannels()
 	require.NoError(t, err)
@@ -313,7 +319,7 @@ func TestCloseChannelTombstoneRemovesFromOpenScans(t *testing.T) {
 
 	// The bulk historical state stays put — that is the whole point of
 	// the tombstone path on these backends.
-	require.Equal(t, numRevlogEntries, countRevlogEntries(t, ch1))
+	require.Equal(t, numRevlogEntries, countRevlogEntries(t, cdb, ch1))
 
 	// The outpoint index for ch1 must flip to closed; ch2's stays open.
 	require.Equal(t, outpointClosed, readOutpointStatus(
@@ -380,14 +386,14 @@ func TestCloseChannelSync(t *testing.T) {
 	ch := createTestChannel(t, cdb, openChannelOption())
 
 	const numRevlogEntries = 4
-	writeTestRevlogEntries(t, ch, numRevlogEntries)
-	writeTestForwardingPackages(t, ch, 3)
+	writeTestRevlogEntries(t, cdb, ch, numRevlogEntries)
+	writeTestForwardingPackages(t, cdb, ch, 3)
 
 	closeChannelForTest(t, cdb, ch)
 
 	// The synchronous path wipes the chanBucket inline, so
 	// countRevlogEntries must report -1 (bucket is gone, not just empty).
-	require.Equal(t, -1, countRevlogEntries(t, ch),
+	require.Equal(t, -1, countRevlogEntries(t, cdb, ch),
 		"channel bucket must be deleted after sync close")
 
 	// Forwarding packages are wiped inline.

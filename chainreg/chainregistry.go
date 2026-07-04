@@ -21,7 +21,9 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
+	"github.com/lightningnetwork/lnd/channelcoord"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
@@ -59,9 +61,12 @@ type Config struct {
 	// hints.
 	HeightHintDB kvdb.Backend
 
-	// ChanStateDB is a pointer to the database that stores the channel
-	// state.
-	ChanStateDB *channeldb.ChannelStateDB
+	// ChannelStore stores channel state.
+	ChannelStore chanstate.Store
+
+	// ChannelLifecycle coordinates channel-state updates that also need
+	// link-node metadata updates.
+	ChannelLifecycle channelcoord.ChannelLifecycle
 
 	// AuxLeafStore is an optional store that can be used to store auxiliary
 	// leaves for certain custom channel types.

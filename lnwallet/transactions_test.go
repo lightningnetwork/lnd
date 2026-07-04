@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -967,7 +968,7 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		binary.BigEndian.Uint64(chanIDBytes[:]),
 	)
 
-	remoteChannelState := &channeldb.OpenChannel{
+	remoteChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            remoteCfg,
 		RemoteChanCfg:           localCfg,
 		IdentityPub:             remoteDummy2.PubKey(),
@@ -981,11 +982,10 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         remoteCommit,
 		RemoteCommitment:        remoteCommit,
-		Db:                      dbRemote.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
+		Db:                      dbRemote.ChannelStateStore(),
 		FundingTxn:              tc.fundingTx.MsgTx(),
 	}
-	localChannelState := &channeldb.OpenChannel{
+	localChannelState := &chanstate.OpenChannel{
 		LocalChanCfg:            localCfg,
 		RemoteChanCfg:           remoteCfg,
 		IdentityPub:             localDummy2.PubKey(),
@@ -999,8 +999,7 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		RevocationStore:         shachain.NewRevocationStore(),
 		LocalCommitment:         localCommit,
 		RemoteCommitment:        localCommit,
-		Db:                      dbLocal.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
+		Db:                      dbLocal.ChannelStateStore(),
 		FundingTxn:              tc.fundingTx.MsgTx(),
 	}
 
@@ -1051,13 +1050,17 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18556,
 	}
-	require.NoError(t, channelRemote.channelState.SyncPending(addr, 101))
+	require.NoError(t, dbRemote.ChannelCoordinator().SyncPendingChannel(
+		channelRemote.channelState, addr, 101,
+	))
 
 	addr = &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18555,
 	}
-	require.NoError(t, channelLocal.channelState.SyncPending(addr, 101))
+	require.NoError(t, dbLocal.ChannelCoordinator().SyncPendingChannel(
+		channelLocal.channelState, addr, 101,
+	))
 
 	// Now that the channel are open, simulate the start of a session by
 	// having local and remote extend their revocation windows to each other.

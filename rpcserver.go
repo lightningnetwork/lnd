@@ -43,6 +43,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanfitness"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
@@ -797,7 +798,7 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 	err = subServerCgs.PopulateDependencies(
 		r.cfg, s.cc, r.cfg.networkDir, macService, atpl, invoiceRegistry,
 		s.htlcSwitch, r.cfg.ActiveNetParams.Params, s.chanRouter,
-		routerBackend, s.nodeSigner, s.graphDB, s.chanStateDB,
+		routerBackend, s.nodeSigner, s.graphDB, s.channelStore,
 		s.sweeper, tower, s.towerClientMgr, r.cfg.net.ResolveTCPAddr,
 		genInvoiceFeatures, genAmpInvoiceFeatures,
 		s.getNodeAnnouncement, s.updateAndBroadcastSelfNode, parseAddr,
@@ -1916,7 +1917,7 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 
 	// Next, we'll fetch the pending/active channels we have with a
 	// particular peer.
-	nodeChannels, err := r.server.chanStateDB.FetchOpenChannels(peerPubKey)
+	nodeChannels, err := r.server.channelStore.FetchOpenChannels(peerPubKey)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch channels for peer: %w",
 			err)
@@ -2776,7 +2777,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 	// First, we'll fetch the channel as is, as we'll need to examine it
 	// regardless of if this is a force close or not.
-	channel, err := r.server.chanStateDB.FetchChannel(*chanPoint)
+	channel, err := r.server.channelStore.FetchChannel(*chanPoint)
 	if err != nil {
 		return err
 	}
@@ -3258,7 +3259,7 @@ func (r *rpcServer) abandonChan(chanPoint *wire.OutPoint,
 	// court. Between any step it's possible that the users restarts the
 	// process all over again. As a result, each of the steps below are
 	// intended to be idempotent.
-	err = r.server.chanStateDB.AbandonChannel(chanPoint, bestHeight)
+	err = r.server.channelStore.AbandonChannel(chanPoint, bestHeight)
 	if err != nil {
 		return err
 	}
@@ -3324,7 +3325,7 @@ func (r *rpcServer) AbandonChannel(_ context.Context,
 		return nil, err
 	}
 
-	dbChan, err := r.server.chanStateDB.FetchChannel(*chanPoint)
+	dbChan, err := r.server.channelStore.FetchChannel(*chanPoint)
 	switch {
 	// If the channel isn't found in the set of open channels, then we can
 	// continue on as it can't be loaded into the link/peer.
@@ -3384,7 +3385,7 @@ func (r *rpcServer) GetInfo(_ context.Context,
 
 	serverPeers := r.server.Peers()
 
-	openChannels, err := r.server.chanStateDB.FetchAllOpenChannels()
+	openChannels, err := r.server.channelStore.FetchAllOpenChannels()
 	if err != nil {
 		return nil, err
 	}
@@ -3399,7 +3400,7 @@ func (r *rpcServer) GetInfo(_ context.Context,
 
 	inactiveChannels := uint32(len(openChannels)) - activeChannels
 
-	pendingChannels, err := r.server.chanStateDB.FetchPendingChannels()
+	pendingChannels, err := r.server.channelStore.FetchPendingChannels()
 	if err != nil {
 		return nil, fmt.Errorf("unable to get retrieve pending "+
 			"channels: %v", err)
@@ -3890,7 +3891,7 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 		customDataBuf            bytes.Buffer
 	)
 
-	openChannels, err := r.server.chanStateDB.FetchAllOpenChannels()
+	openChannels, err := r.server.channelStore.FetchAllOpenChannels()
 	if err != nil {
 		return nil, err
 	}
@@ -3923,7 +3924,7 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 		}
 	}
 
-	pendingChannels, err := r.server.chanStateDB.FetchPendingChannels()
+	pendingChannels, err := r.server.channelStore.FetchPendingChannels()
 	if err != nil {
 		return nil, err
 	}
@@ -4010,7 +4011,7 @@ type (
 // 1. The current blockchain height
 // 2. The block height at which the funding transaction was first confirmed
 // 3. The total number of confirmations required for the channel.
-func calcRemainingConfs(pendingChan *channeldb.OpenChannel,
+func calcRemainingConfs(pendingChan *chanstate.OpenChannel,
 	currentHeight uint32) uint32 {
 
 	// If the funding transaction hasn't been confirmed yet,
@@ -4043,7 +4044,7 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 	// First, we'll populate the response with all the channels that are
 	// soon to be opened. We can easily fetch this data from the database
 	// and map the db struct to the proto response.
-	channels, err := r.server.chanStateDB.FetchPendingChannels()
+	channels, err := r.server.channelStore.FetchPendingChannels()
 	if err != nil {
 		rpcsLog.Errorf("unable to fetch pending channels: %v", err)
 		return nil, err
@@ -4152,7 +4153,7 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 
 	// Next, we'll examine the channels that are soon to be closed so we
 	// can populate these fields within the response.
-	channels, err := r.server.chanStateDB.FetchClosedChannels(true)
+	channels, err := r.server.channelStore.FetchClosedChannels(true)
 	if err != nil {
 		rpcsLog.Errorf("unable to fetch closed channels: %v", err)
 		return nil, 0, err
@@ -4185,7 +4186,7 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 		// not found, or the channel itself, this channel was closed
 		// in a version before we started persisting historical
 		// channels, so we silence the error.
-		historical, err := r.server.chanStateDB.FetchHistoricalChannel(
+		historical, err := r.server.channelStore.FetchHistoricalChannel(
 			&pendingClose.ChanPoint,
 		)
 		switch err {
@@ -4296,7 +4297,7 @@ func (r *rpcServer) fetchWaitingCloseChannels(
 	// We'll also fetch all channels that are open, but have had their
 	// commitment broadcasted, meaning they are waiting for the closing
 	// transaction to confirm.
-	channels, err := r.server.chanStateDB.FetchWaitingCloseChannels()
+	channels, err := r.server.channelStore.FetchWaitingCloseChannels()
 	if err != nil {
 		rpcsLog.Errorf("unable to fetch channels waiting close: %v",
 			err)
@@ -4315,7 +4316,7 @@ func (r *rpcServer) fetchWaitingCloseChannels(
 	// getClosingTx is a helper closure that tries to find the closing tx of
 	// a given waiting close channel. Notice that if the remote closes the
 	// channel, we may not have the closing tx.
-	getClosingTx := func(c *channeldb.OpenChannel) (*wire.MsgTx, error) {
+	getClosingTx := func(c *chanstate.OpenChannel) (*wire.MsgTx, error) {
 		var (
 			tx  *wire.MsgTx
 			err error
@@ -4720,7 +4721,7 @@ func (r *rpcServer) ClosedChannels(ctx context.Context,
 
 	resp := &lnrpc.ClosedChannelsResponse{}
 
-	dbChannels, err := r.server.chanStateDB.FetchClosedChannels(false)
+	dbChannels, err := r.server.channelStore.FetchClosedChannels(false)
 	if err != nil {
 		return nil, err
 	}
@@ -4799,7 +4800,7 @@ func (r *rpcServer) LookupHtlcResolution(
 
 	chanID := lnwire.NewShortChanIDFromInt(in.ChanId)
 
-	info, err := r.server.chanStateDB.LookupFinalHtlc(chanID, in.HtlcIndex)
+	info, err := r.server.channelStore.LookupFinalHtlc(chanID, in.HtlcIndex)
 	switch {
 	case errors.Is(err, channeldb.ErrHtlcUnknown):
 		return nil, status.Error(codes.NotFound, err.Error())
@@ -4836,7 +4837,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 
 	resp := &lnrpc.ListChannelsResponse{}
 
-	dbChannels, err := r.server.chanStateDB.FetchAllOpenChannels()
+	dbChannels, err := r.server.channelStore.FetchAllOpenChannels()
 	if err != nil {
 		return nil, err
 	}
@@ -4955,7 +4956,7 @@ func createChannelConstraint(
 
 // isPrivate evaluates the ChannelFlags of the db channel to determine if the
 // channel is private or not.
-func isPrivate(dbChannel *channeldb.OpenChannel) bool {
+func isPrivate(dbChannel *chanstate.OpenChannel) bool {
 	if dbChannel == nil {
 		return false
 	}
@@ -4964,7 +4965,7 @@ func isPrivate(dbChannel *channeldb.OpenChannel) bool {
 
 // encodeCustomChanData encodes the custom channel data for the open channel.
 // It encodes that data as a pair of var bytes blobs.
-func encodeCustomChanData(lnChan *channeldb.OpenChannel) ([]byte, error) {
+func encodeCustomChanData(lnChan *chanstate.OpenChannel) ([]byte, error) {
 	customOpenChanData := lnChan.CustomBlob.UnwrapOr(nil)
 	customLocalCommitData := lnChan.LocalCommitment.CustomBlob.UnwrapOr(nil)
 
@@ -4995,7 +4996,7 @@ func encodeCustomChanData(lnChan *channeldb.OpenChannel) ([]byte, error) {
 //
 //nolint:funlen
 func createRPCOpenChannel(ctx context.Context, r *rpcServer,
-	dbChannel *channeldb.OpenChannel,
+	dbChannel *chanstate.OpenChannel,
 	isActive, peerAliasLookup bool) (*lnrpc.Channel, error) {
 
 	nodePub := dbChannel.IdentityPub
@@ -5331,7 +5332,7 @@ func (r *rpcServer) createRPCClosedChannel(
 	}
 
 	// Populate any historical data that the summary needs.
-	histChan, err := r.server.chanStateDB.FetchHistoricalChannel(
+	histChan, err := r.server.channelStore.FetchHistoricalChannel(
 		&dbChannel.ChanPoint,
 	)
 	switch err {
@@ -5464,7 +5465,7 @@ func (r *rpcServer) getInitiators(chanPoint *wire.OutPoint) (
 
 	// To get the close initiator for cooperative closes, we need
 	// to get the channel status from the historical channel bucket.
-	histChan, err := r.server.chanStateDB.FetchHistoricalChannel(chanPoint)
+	histChan, err := r.server.channelStore.FetchHistoricalChannel(chanPoint)
 	switch {
 	// The node has upgraded from a version where we did not store
 	// historical channels, and has not closed a channel since. Do
@@ -5479,7 +5480,7 @@ func (r *rpcServer) getInitiators(chanPoint *wire.OutPoint) (
 	// full confirmation depth. Try the open channel bucket so the
 	// early dispatch still carries close-initiator info.
 	case err == channeldb.ErrChannelNotFound:
-		openChan, openErr := r.server.chanStateDB.FetchChannel(
+		openChan, openErr := r.server.channelStore.FetchChannel(
 			*chanPoint,
 		)
 		if openErr != nil {
@@ -5791,7 +5792,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		ChainParams:       r.cfg.ActiveNetParams.Params,
 		NodeSigner:        r.server.nodeSigner,
 		DefaultCLTVExpiry: defaultDelta,
-		ChanDB:            r.server.chanStateDB,
+		ChanDB:            r.server.channelStore,
 		Graph:             r.server.v1Graph,
 		GenInvoiceFeatures: func() *lnwire.FeatureVector {
 			v := r.server.featureMgr.Get(feature.SetInvoice)
@@ -7764,7 +7765,7 @@ func (r *rpcServer) ExportChannelBackup(ctx context.Context,
 	// the database. If this channel has been closed, or the outpoint is
 	// unknown, then we'll return an error
 	unpackedBackup, err := chanbackup.FetchBackupForChan(
-		ctx, chanPoint, r.server.chanStateDB, r.server.addrSource,
+		ctx, chanPoint, r.server.channelStore, r.server.addrSource,
 	)
 	if err != nil {
 		return nil, err
@@ -7944,7 +7945,7 @@ func (r *rpcServer) ExportAllChannelBackups(ctx context.Context,
 	// First, we'll attempt to read back ups for ALL currently opened
 	// channels from disk.
 	allUnpackedBackups, err := chanbackup.FetchStaticChanBackups(
-		ctx, r.server.chanStateDB, r.server.addrSource,
+		ctx, r.server.channelStore, r.server.addrSource,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch all static chan "+
@@ -7973,7 +7974,7 @@ func (r *rpcServer) RestoreChannelBackups(ctx context.Context,
 	// restore either a set of chanbackup.Single or chanbackup.Multi
 	// backups.
 	chanRestorer := &chanDBRestorer{
-		db:         r.server.chanStateDB,
+		db:         r.server.channelCoordinator,
 		secretKeys: r.server.cc.KeyRing,
 		chainArb:   r.server.chainArb,
 	}
@@ -8089,7 +8090,7 @@ func (r *rpcServer) SubscribeChannelBackups(req *lnrpc.ChannelBackupSubscription
 			// we'll obtains the current set of single channel
 			// backups from disk.
 			chanBackups, err := chanbackup.FetchStaticChanBackups(
-				updateStream.Context(), r.server.chanStateDB,
+				updateStream.Context(), r.server.channelStore,
 				r.server.addrSource,
 			)
 			if err != nil {

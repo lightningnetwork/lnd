@@ -36,6 +36,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/chanfitness"
+	"github.com/lightningnetwork/lnd/channelcoord"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/chanstate"
@@ -55,6 +56,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/linknode"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnencrypt"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -326,8 +328,9 @@ type server struct {
 	graphDB *graphdb.ChannelGraph
 	v1Graph *graphdb.VersionedGraph
 
-	chanStateDB chanstate.Store
-	linkNodeDB  *channeldb.LinkNodeDB
+	channelStore       chanstate.Store
+	channelCoordinator channelcoord.Coordinator
+	linkNodeDB         linknode.Store
 
 	addrSource channeldb.AddrSource
 
@@ -779,21 +782,24 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	)
 
 	addrSource := channeldb.NewMultiAddrSource(dbs.ChanStateDB, v1Graph)
-	chanStateDB := dbs.ChanStateDB.ChannelStateDB()
+	channelStore := dbs.ChanStateDB.ChannelStateStore()
 
 	s := &server{
-		cfg:            cfg,
-		implCfg:        implCfg,
-		graphDB:        dbs.GraphDB,
-		v1Graph:        v1Graph,
-		chanStateDB:    chanStateDB,
-		linkNodeDB:     chanStateDB.LinkNodeDB(),
-		addrSource:     addrSource,
-		miscDB:         dbs.ChanStateDB,
-		invoicesDB:     dbs.InvoiceDB,
-		paymentsDB:     dbs.PaymentsDB,
-		cc:             cc,
-		sigPool:        lnwallet.NewSigPool(cfg.Workers.Sig, cc.Signer),
+		cfg:                cfg,
+		implCfg:            implCfg,
+		graphDB:            dbs.GraphDB,
+		v1Graph:            v1Graph,
+		channelStore:       channelStore,
+		channelCoordinator: dbs.ChanStateDB.ChannelCoordinator(),
+		linkNodeDB:         dbs.ChanStateDB.LinkNodeStore(),
+		addrSource:         addrSource,
+		miscDB:             dbs.ChanStateDB,
+		invoicesDB:         dbs.InvoiceDB,
+		paymentsDB:         dbs.PaymentsDB,
+		cc:                 cc,
+		sigPool: lnwallet.NewSigPool(
+			cfg.Workers.Sig, cc.Signer,
+		),
 		writePool:      writePool,
 		readPool:       readPool,
 		chansToRestore: chansToRestore,
@@ -801,7 +807,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		blockbeatDispatcher: chainio.NewBlockbeatDispatcher(
 			cc.ChainNotifier,
 		),
-		channelNotifier: channelnotifier.New(chanStateDB),
+		channelNotifier: channelnotifier.New(channelStore),
 
 		identityECDH:   nodeKeyECDH,
 		identityKeyLoc: nodeKeyDesc.KeyLocator,
@@ -882,9 +888,9 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
 		DB:                   dbs.ChanStateDB,
-		FetchAllOpenChannels: s.chanStateDB.FetchAllOpenChannels,
-		FetchAllChannels:     s.chanStateDB.FetchAllChannels,
-		FetchClosedChannels:  s.chanStateDB.FetchClosedChannels,
+		FetchAllOpenChannels: s.channelStore.FetchAllOpenChannels,
+		FetchAllChannels:     s.channelStore.FetchAllChannels,
+		FetchClosedChannels:  s.channelStore.FetchClosedChannels,
 		LocalChannelClose: func(pubKey []byte,
 			request *htlcswitch.ChanClose) {
 
@@ -947,7 +953,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		MessageSigner:            s.nodeSigner,
 		IsChannelActive:          s.htlcSwitch.HasActiveLink,
 		ApplyChannelUpdate:       s.applyChannelUpdate,
-		DB:                       s.chanStateDB,
+		DB:                       s.channelStore,
 		Graph:                    dbs.GraphDB,
 	}
 
@@ -1163,7 +1169,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	scidCloserMan := discovery.NewScidCloserMan(s.graphDB, s.chanStateDB)
+	scidCloserMan := discovery.NewScidCloserMan(s.graphDB, s.channelStore)
 
 	s.authGossiper = discovery.New(discovery.Config{
 		Graph:                 s.graphBuilder,
@@ -1217,7 +1223,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			error) {
 
 			genesisHash := *s.cfg.ActiveNetParams.GenesisHash
-			return s.chanStateDB.FetchPermAndTempPeers(
+			return s.channelStore.FetchPermAndTempPeers(
 				genesisHash[:],
 			)
 		},
@@ -1256,7 +1262,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		},
 		PropagateChanPolicyUpdate: s.authGossiper.PropagateChanPolicyUpdate,
 		UpdateForwardingPolicies:  s.htlcSwitch.UpdateForwardingPolicies,
-		FetchChannel:              s.chanStateDB.FetchChannel,
+		FetchChannel:              s.channelStore.FetchChannel,
 		AddEdge: func(ctx context.Context,
 			edge *models.ChannelEdgeInfo) error {
 
@@ -1313,8 +1319,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	s.utxoNursery = contractcourt.NewUtxoNursery(&contractcourt.NurseryConfig{
 		ChainIO:             cc.ChainIO,
 		ConfDepth:           1,
-		FetchClosedChannels: s.chanStateDB.FetchClosedChannels,
-		FetchClosedChannel:  s.chanStateDB.FetchClosedChannel,
+		FetchClosedChannels: s.channelStore.FetchClosedChannels,
+		FetchClosedChannel:  s.channelStore.FetchClosedChannel,
 		Notifier:            cc.ChainNotifier,
 		PublishTransaction:  cc.Wallet.PublishTransaction,
 		Store:               utxnStore,
@@ -1342,9 +1348,10 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 	s.breachArbitrator = contractcourt.NewBreachArbitrator(
 		&contractcourt.BreachConfig{
-			CloseLink: closeLink,
-			DB:        s.chanStateDB,
-			Estimator: s.cc.FeeEstimator,
+			CloseLink:          closeLink,
+			ClosedChannelStore: s.channelStore,
+			ChannelLifecycle:   s.channelCoordinator,
+			Estimator:          s.cc.FeeEstimator,
 			GenSweepScript: newSweepPkScriptGen(
 				cc.Wallet, s.cfg.ActiveNetParams.Params,
 			),
@@ -1468,7 +1475,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		IsForwardedHTLC:               s.htlcSwitch.IsForwardedHTLC,
 		Clock:                         clock.NewDefaultClock(),
 		SubscribeBreachComplete:       s.breachArbitrator.SubscribeBreachComplete,
-		PutFinalHtlcOutcome:           s.chanStateDB.PutOnchainFinalHtlcOutcome,
+		PutFinalHtlcOutcome:           s.channelStore.PutOnchainFinalHtlcOutcome,
 		HtlcNotifier:                  s.htlcNotifier,
 		Budget:                        *s.cfg.Sweeper.Budget,
 
@@ -1592,10 +1599,10 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		UpdateLabel: func(hash chainhash.Hash, label string) error {
 			return cc.Wallet.LabelTransaction(hash, label, true)
 		},
-		Notifier:     cc.ChainNotifier,
-		ChannelDB:    s.chanStateDB,
-		FeeEstimator: cc.FeeEstimator,
-		SignMessage:  cc.MsgSigner.SignMessage,
+		Notifier:          cc.ChainNotifier,
+		ChannelStateStore: s.channelStore,
+		FeeEstimator:      cc.FeeEstimator,
+		SignMessage:       cc.MsgSigner.SignMessage,
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement1,
 			error) {
 
@@ -1661,7 +1668,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			}
 			return delay
 		},
-		WatchNewChannel: func(channel *channeldb.OpenChannel,
+		WatchNewChannel: func(channel *chanstate.OpenChannel,
 			peerKey *btcec.PublicKey) error {
 
 			// First, we'll mark this new peer as a persistent peer
@@ -1753,7 +1760,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		cfg.BackupFilePath, cfg.NoBackupArchive,
 	)
 	startingChans, err := chanbackup.FetchStaticChanBackups(
-		ctx, s.chanStateDB, s.addrSource,
+		ctx, s.channelStore, s.addrSource,
 	)
 	if err != nil {
 		return nil, err
@@ -1777,7 +1784,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		SubscribePeerEvents: func() (subscribe.Subscription, error) {
 			return s.peerNotifier.SubscribePeerEvents()
 		},
-		GetOpenChannels: s.chanStateDB.FetchAllOpenChannels,
+		GetOpenChannels: s.channelStore.FetchAllOpenChannels,
 		IsPeerOnline: func(peer route.Vertex) bool {
 			_, err := s.FindPeerByPubStr(string(peer[:]))
 			return err == nil
@@ -1822,7 +1829,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			commitHeight uint64) (*lnwallet.BreachRetribution,
 			channeldb.ChannelType, error) {
 
-			channel, err := s.chanStateDB.FetchChannelByID(chanID)
+			channel, err := s.channelStore.FetchChannelByID(chanID)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -1839,7 +1846,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			return br, channel.ChanType, nil
 		}
 
-		fetchClosedChannel := s.chanStateDB.FetchClosedChannelForID
+		fetchClosedChannel := s.channelStore.FetchClosedChannelForID
 
 		// Copy the policy for legacy channels and set the blob flag
 		// signalling support for anchor channels.
@@ -2263,7 +2270,9 @@ func (s *server) Start(ctx context.Context) error {
 		// happen before the chain arbitrator and other subsystems load
 		// channels, to ensure the invariant "link node exists iff
 		// channels exist" is maintained.
-		err := s.chanStateDB.RepairLinkNodes(s.cfg.ActiveNetParams.Net)
+		err := s.channelCoordinator.RepairLinkNodes(
+			s.cfg.ActiveNetParams.Net,
+		)
 		if err != nil {
 			srvrLog.Errorf("Failed to repair link nodes: %v", err)
 
@@ -2533,7 +2542,7 @@ func (s *server) Start(ctx context.Context) error {
 		// that have all the information we need to handle channel
 		// recovery _before_ we even accept connections from any peers.
 		chanRestorer := &chanDBRestorer{
-			db:         s.chanStateDB,
+			db:         s.channelCoordinator,
 			secretKeys: s.cc.KeyRing,
 			chainArb:   s.chainArb,
 		}
@@ -2650,7 +2659,7 @@ func (s *server) Start(ctx context.Context) error {
 		// collaborators within the network. Before doing so however,
 		// we'll prune our set of link nodes to ensure we don't
 		// reconnect to any nodes we no longer have open channels with.
-		if err := s.chanStateDB.PruneLinkNodes(); err != nil {
+		if err := s.channelCoordinator.PruneLinkNodes(); err != nil {
 			srvrLog.Errorf("Failed to prune link nodes: %v", err)
 
 			startErr = err
@@ -2845,7 +2854,7 @@ func (s *server) Stop() error {
 		// Update channel.backup file. Make sure to do it before
 		// stopping chanSubSwapper.
 		singles, err := chanbackup.FetchStaticChanBackups(
-			ctx, s.chanStateDB, s.addrSource,
+			ctx, s.channelStore, s.addrSource,
 		)
 		if err != nil {
 			srvrLog.Warnf("failed to fetch channel states: %v",
@@ -3509,9 +3518,9 @@ func (s *server) createNewHiddenService(ctx context.Context) error {
 // optimization that is quicker than seeking for a channel given only the
 // ChannelID.
 func (s *server) findChannel(node *btcec.PublicKey, chanID lnwire.ChannelID) (
-	*channeldb.OpenChannel, error) {
+	*chanstate.OpenChannel, error) {
 
-	nodeChans, err := s.chanStateDB.FetchOpenChannels(node)
+	nodeChans, err := s.channelStore.FetchOpenChannels(node)
 	if err != nil {
 		return nil, err
 	}
@@ -4435,7 +4444,7 @@ func (s *server) notifyOpenChannelPeerEvent(op wire.OutPoint,
 // notifyPendingOpenChannelPeerEvent updates the access manager's maps and then
 // calls the channelNotifier's NotifyPendingOpenChannelEvent.
 func (s *server) notifyPendingOpenChannelPeerEvent(op wire.OutPoint,
-	pendingChan *channeldb.OpenChannel, remotePub *btcec.PublicKey) {
+	pendingChan *chanstate.OpenChannel, remotePub *btcec.PublicKey) {
 
 	// Call newPendingOpenChan to update the access manager's maps for this
 	// peer.
@@ -4569,7 +4578,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		ReadPool:                s.readPool,
 		Switch:                  s.htlcSwitch,
 		InterceptSwitch:         s.interceptableSwitch,
-		ChannelDB:               s.chanStateDB,
+		ChannelStateStore:       s.channelStore,
 		ChannelGraph:            s.graphDB,
 		ChainArb:                s.chainArb,
 		AuthGossiper:            s.authGossiper,
@@ -5594,7 +5603,7 @@ func newSweepPkScriptGen(
 // finished.
 func (s *server) fetchClosedChannelSCIDs() map[lnwire.ShortChannelID]struct{} {
 	// Get a list of closed channels.
-	channels, err := s.chanStateDB.FetchClosedChannels(false)
+	channels, err := s.channelStore.FetchClosedChannels(false)
 	if err != nil {
 		srvrLog.Errorf("Failed to fetch closed channels: %v", err)
 		return nil
@@ -5617,7 +5626,7 @@ func (s *server) fetchClosedChannelSCIDs() map[lnwire.ShortChannelID]struct{} {
 	// sure the returned SCIDs are indeed terminated.
 	//
 	// TODO(yy): fix the misalignments in `FetchClosedChannels`.
-	pendings, err := s.chanStateDB.FetchPendingChannels()
+	pendings, err := s.channelStore.FetchPendingChannels()
 	if err != nil {
 		srvrLog.Errorf("Failed to fetch pending channels: %v", err)
 		return nil

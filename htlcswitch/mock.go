@@ -22,6 +22,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -74,7 +75,7 @@ func (m *mockPreimageCache) AddPreimages(preimages ...lntypes.Preimage) error {
 }
 
 func (m *mockPreimageCache) SubscribeUpdates(
-	chanID lnwire.ShortChannelID, htlc *channeldb.HTLC,
+	chanID lnwire.ShortChannelID, htlc *chanstate.HTLC,
 	payload *hop.Payload,
 	nextHopOnionBlob []byte) (*contractcourt.WitnessSubscription, error) {
 
@@ -174,11 +175,12 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 		return testSig, nil
 	}
 
+	channelStateStore := db.ChannelStateStore()
 	cfg := Config{
 		DB:                   db,
-		FetchAllOpenChannels: db.ChannelStateDB().FetchAllOpenChannels,
-		FetchAllChannels:     db.ChannelStateDB().FetchAllChannels,
-		FetchClosedChannels:  db.ChannelStateDB().FetchClosedChannels,
+		FetchAllOpenChannels: channelStateStore.FetchAllOpenChannels,
+		FetchAllChannels:     channelStateStore.FetchAllChannels,
+		FetchClosedChannels:  channelStateStore.FetchClosedChannels,
 		SwitchPackager:       channeldb.NewSwitchPackager(),
 		FwdingLog: &mockForwardingLog{
 			events: make(map[time.Time]channeldb.ForwardingEvent),

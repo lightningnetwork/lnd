@@ -631,12 +631,15 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 		BitcoindMode:                d.cfg.BitcoindMode,
 		BtcdMode:                    d.cfg.BtcdMode,
 		HeightHintDB:                dbs.HeightHintDB,
-		ChanStateDB:                 dbs.ChanStateDB.ChannelStateDB(),
-		NeutrinoCS:                  neutrinoCS,
-		AuxLeafStore:                aux.AuxLeafStore,
-		AuxSigner:                   aux.AuxSigner,
-		ActiveNetParams:             d.cfg.ActiveNetParams,
-		FeeURL:                      d.cfg.FeeURL,
+		ChannelStore: dbs.ChanStateDB.
+			ChannelStateStore(),
+		ChannelLifecycle: dbs.ChanStateDB.
+			ChannelCoordinator(),
+		NeutrinoCS:      neutrinoCS,
+		AuxLeafStore:    aux.AuxLeafStore,
+		AuxSigner:       aux.AuxSigner,
+		ActiveNetParams: d.cfg.ActiveNetParams,
+		FeeURL:          d.cfg.FeeURL,
 		Fee: &lncfg.Fee{
 			URL:              d.cfg.Fee.URL,
 			MinUpdateTimeout: d.cfg.Fee.MinUpdateTimeout,
@@ -782,7 +785,8 @@ func (d *DefaultWalletImpl) BuildChainControl(
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.
 	lnWalletConfig := lnwallet.Config{
-		Database:              partialChainControl.Cfg.ChanStateDB,
+		ChannelStore:          partialChainControl.Cfg.ChannelStore,
+		ChannelLifecycle:      partialChainControl.Cfg.ChannelLifecycle,
 		Notifier:              partialChainControl.ChainNotifier,
 		WalletController:      walletController,
 		Signer:                walletController,
@@ -902,7 +906,8 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.
 	lnWalletConfig := lnwallet.Config{
-		Database:              partialChainControl.Cfg.ChanStateDB,
+		ChannelStore:          partialChainControl.Cfg.ChannelStore,
+		ChannelLifecycle:      partialChainControl.Cfg.ChannelLifecycle,
 		Notifier:              partialChainControl.ChainNotifier,
 		WalletController:      rpcKeyRing,
 		Signer:                rpcKeyRing,

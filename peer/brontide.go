@@ -123,7 +123,7 @@ type outgoingMsg struct {
 	errChan  chan error // MUST be buffered.
 }
 
-// newChannelMsg packages a channeldb.OpenChannel with a channel that allows
+// newChannelMsg packages a chanstate.OpenChannel with a channel that allows
 // the receiver of the request to report when the channel creation process has
 // completed.
 type newChannelMsg struct {
@@ -197,6 +197,14 @@ type TimestampedError struct {
 	Timestamp time.Time
 }
 
+// channelStateStore is the narrow channel-state persistence surface needed by
+// the peer.
+type channelStateStore interface {
+	chanstate.OpenChannelStore
+	chanstate.ClosedChannelStore
+	chanstate.ChannelSetupStore
+}
+
 // Config defines configuration fields that are necessary for a peer object
 // to function.
 type Config struct {
@@ -260,8 +268,8 @@ type Config struct {
 	// ChannelLinkConfig.
 	InterceptSwitch *htlcswitch.InterceptableSwitch
 
-	// ChannelDB is used to fetch channel state needed by the peer.
-	ChannelDB chanstate.Store
+	// ChannelStateStore is used to fetch channel state needed by the peer.
+	ChannelStateStore channelStateStore
 
 	// ChannelGraph is a pointer to the channel graph which is used to
 	// query information about the set of known active channels.
@@ -862,7 +870,7 @@ func (p *Brontide) Start() error {
 
 	// Fetch and then load all the active channels we have with this remote
 	// peer from the database.
-	activeChans, err := p.cfg.ChannelDB.FetchOpenChannels(
+	activeChans, err := p.cfg.ChannelStateStore.FetchOpenChannels(
 		p.cfg.Addr.IdentityKey,
 	)
 	if err != nil {
@@ -1142,7 +1150,9 @@ func (p *Brontide) addrWithInternalKey(
 // channels returned by the database. It returns a slice of channel reestablish
 // messages that should be sent to the peer immediately, in case we have borked
 // channels that haven't been closed yet.
-func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
+//
+//nolint:funlen
+func (p *Brontide) loadActiveChannels(chans []*chanstate.OpenChannel) (
 	[]lnwire.Message, error) {
 
 	// Return a slice of messages to send to the peers in case the channel
@@ -1592,7 +1602,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 
 // maybeSendNodeAnn sends our node announcement to the remote peer if at least
 // one confirmed public channel exists with them.
-func (p *Brontide) maybeSendNodeAnn(channels []*channeldb.OpenChannel) {
+func (p *Brontide) maybeSendNodeAnn(channels []*chanstate.OpenChannel) {
 	defer p.cg.WgDone()
 
 	hasConfirmedPublicChan := false
@@ -5021,7 +5031,7 @@ func (p *Brontide) resendChanSyncMsg(cid lnwire.ChannelID) error {
 	}
 
 	// Check if we have any channel sync messages stored for this channel.
-	c, err := p.cfg.ChannelDB.FetchClosedChannelForID(cid)
+	c, err := p.cfg.ChannelStateStore.FetchClosedChannelForID(cid)
 	if err != nil {
 		return fmt.Errorf("unable to fetch channel sync messages for "+
 			"peer %v: %v", p, err)
@@ -5496,7 +5506,7 @@ func (p *Brontide) attachChannelEventSubscription() error {
 
 // updateNextRevocation updates the existing channel's next revocation if it's
 // nil.
-func (p *Brontide) updateNextRevocation(c *channeldb.OpenChannel) error {
+func (p *Brontide) updateNextRevocation(c *chanstate.OpenChannel) error {
 	chanPoint := c.FundingOutpoint
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
@@ -5538,7 +5548,7 @@ func (p *Brontide) updateNextRevocation(c *channeldb.OpenChannel) error {
 }
 
 // addActiveChannel adds a new active channel to the `activeChannels` map. It
-// takes a `channeldb.OpenChannel`, creates a `lnwallet.LightningChannel` from
+// takes a `chanstate.OpenChannel`, creates a `lnwallet.LightningChannel` from
 // it and assembles it with a channel link.
 func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 	chanPoint := c.FundingOutpoint
@@ -5607,7 +5617,8 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 
 	// We'll query the channel DB for the new channel's initial forwarding
 	// policies to determine the policy we start out with.
-	initialPolicy, err := p.cfg.ChannelDB.GetInitialForwardingPolicy(chanID)
+	initialPolicy, err := p.cfg.ChannelStateStore.
+		GetInitialForwardingPolicy(chanID)
 	if err != nil {
 		return fmt.Errorf("unable to query for initial forwarding "+
 			"policy: %v", err)
@@ -5797,7 +5808,7 @@ func (p *Brontide) scaleTimeout(timeout time.Duration) time.Duration {
 // bandwidth against the traffic shaper.
 type auxHtlcValidator struct {
 	peer   *Brontide
-	dbChan *channeldb.OpenChannel
+	dbChan *chanstate.OpenChannel
 	ts     htlcswitch.AuxTrafficShaper
 }
 
@@ -5873,7 +5884,7 @@ func (v *auxHtlcValidator) ValidateHtlc(amount,
 
 // createHtlcValidator creates an HTLC validator that performs final aux balance
 // validation before HTLCs are added to the channel state.
-func (p *Brontide) createHtlcValidator(dbChan *channeldb.OpenChannel,
+func (p *Brontide) createHtlcValidator(dbChan *chanstate.OpenChannel,
 	ts htlcswitch.AuxTrafficShaper) lnwallet.AuxHtlcValidator {
 
 	return &auxHtlcValidator{

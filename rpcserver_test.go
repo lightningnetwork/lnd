@@ -45,7 +45,7 @@ func TestAuxDataParser(t *testing.T) {
 
 	r := &rpcServer{
 		server: &server{
-			chanStateDB: cdb.ChannelStateDB(),
+			channelStore: cdb.ChannelStateStore(),
 			implCfg: &ImplementationCfg{
 				AuxComponents: AuxComponents{
 					AuxDataParser: fn.Some[AuxDataParser](

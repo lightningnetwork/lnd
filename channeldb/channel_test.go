@@ -28,7 +28,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/shachain"
-	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -72,10 +71,6 @@ var (
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18555,
 	}
-
-	// keyLocIndex is the KeyLocator Index we use for
-	// TestKeyLocatorEncoding.
-	keyLocIndex = uint32(2049)
 
 	// dummyLocalOutputIndex specifics a default value for our output index
 	// in this test.
@@ -234,7 +229,9 @@ func createTestChannel(t *testing.T, cdb *ChannelStateDB,
 	}
 
 	// Mark the channel as pending.
-	err := params.channel.SyncPending(params.addr, params.pendingHeight)
+	err := cdb.SyncPendingChannel(
+		params.channel, params.addr, params.pendingHeight,
+	)
 	if err != nil {
 		t.Fatalf("unable to save and serialize channel "+
 			"state: %v", err)
@@ -413,8 +410,7 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 		RemoteNextRevocation:    privKey.PubKey(),
 		RevocationProducer:      producer,
 		RevocationStore:         store,
-		Db:                      cdb,
-		Packager:                NewChannelPackager(chanID),
+		Db:                      cdb.kvStore,
 		FundingTxn:              channels.TestFundingTx,
 		ThawHeight:              uint32(defaultPendingHeight),
 		InitialLocalBalance:     lnwire.MilliSatoshi(9000),
@@ -525,93 +521,6 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	}
 	if len(openChans) != 0 {
 		t.Fatalf("all channels not deleted, found %v", len(openChans))
-	}
-}
-
-// TestOptionalShutdown tests the reading and writing of channels with and
-// without optional shutdown script fields.
-func TestOptionalShutdown(t *testing.T) {
-	local := lnwire.DeliveryAddress([]byte("local shutdown script"))
-	remote := lnwire.DeliveryAddress([]byte("remote shutdown script"))
-
-	if _, err := rand.Read(remote); err != nil {
-		t.Fatalf("Could not create random script: %v", err)
-	}
-
-	tests := []struct {
-		name           string
-		localShutdown  lnwire.DeliveryAddress
-		remoteShutdown lnwire.DeliveryAddress
-	}{
-		{
-			name:           "no shutdown scripts",
-			localShutdown:  nil,
-			remoteShutdown: nil,
-		},
-		{
-			name:           "local shutdown script",
-			localShutdown:  local,
-			remoteShutdown: nil,
-		},
-		{
-			name:           "remote shutdown script",
-			localShutdown:  nil,
-			remoteShutdown: remote,
-		},
-		{
-			name:           "both scripts set",
-			localShutdown:  local,
-			remoteShutdown: remote,
-		},
-	}
-
-	for _, test := range tests {
-
-		t.Run(test.name, func(t *testing.T) {
-			fullDB, err := MakeTestDB(t)
-			if err != nil {
-				t.Fatalf("unable to make test database: %v", err)
-			}
-
-			cdb := fullDB.ChannelStateDB()
-
-			// Create a channel with upfront scripts set as
-			// specified in the test.
-			state := createTestChannel(
-				t, cdb,
-				localShutdownOption(test.localShutdown),
-				remoteShutdownOption(test.remoteShutdown),
-			)
-
-			openChannels, err := cdb.FetchOpenChannels(
-				state.IdentityPub,
-			)
-			if err != nil {
-				t.Fatalf("unable to fetch open"+
-					" channel: %v", err)
-			}
-
-			if len(openChannels) != 1 {
-				t.Fatalf("Expected one channel open,"+
-					" got: %v", len(openChannels))
-			}
-
-			if !bytes.Equal(openChannels[0].LocalShutdownScript,
-				test.localShutdown) {
-
-				t.Fatalf("Expected local: %x, got: %x",
-					test.localShutdown,
-					openChannels[0].LocalShutdownScript)
-			}
-
-			if !bytes.Equal(openChannels[0].RemoteShutdownScript,
-				test.remoteShutdown) {
-
-				t.Fatalf("Expected remote: %x, got: %x",
-					test.remoteShutdown,
-					openChannels[0].RemoteShutdownScript)
-			}
-		})
 	}
 }
 
@@ -878,7 +787,7 @@ func TestChannelStateTransition(t *testing.T) {
 
 	// The state number recovered from the tail of the revocation log
 	// should be identical to this current state.
-	logTailHeight, err := channel.revocationLogTailCommitHeight()
+	logTailHeight, err := cdb.revocationLogTailCommitHeight(channel)
 	require.NoError(t, err, "unable to retrieve log")
 	if logTailHeight != oldRemoteCommit.CommitHeight {
 		t.Fatal("update number doesn't match")
@@ -921,7 +830,7 @@ func TestChannelStateTransition(t *testing.T) {
 
 	// Once again, state number recovered from the tail of the revocation
 	// log should be identical to this current state.
-	logTailHeight, err = channel.revocationLogTailCommitHeight()
+	logTailHeight, err = cdb.revocationLogTailCommitHeight(channel)
 	require.NoError(t, err, "unable to retrieve log")
 	if logTailHeight != oldRemoteCommit.CommitHeight {
 		t.Fatal("update number doesn't match")
@@ -938,7 +847,9 @@ func TestChannelStateTransition(t *testing.T) {
 	}
 
 	// At this point, we should have 2 forwarding packages added.
-	fwdPkgs := loadFwdPkgs(t, cdb.backend, channel.Packager)
+	fwdPkgs := loadFwdPkgs(
+		t, cdb.backend, NewChannelPackager(channel.ShortChanID()),
+	)
 	require.Len(t, fwdPkgs, 2, "wrong number of forwarding packages")
 
 	// Now attempt to delete the channel from the database.
@@ -973,7 +884,9 @@ func TestChannelStateTransition(t *testing.T) {
 	}
 
 	// All forwarding packages of this channel has been deleted too.
-	fwdPkgs = loadFwdPkgs(t, cdb.backend, channel.Packager)
+	fwdPkgs = loadFwdPkgs(
+		t, cdb.backend, NewChannelPackager(channel.ShortChanID()),
+	)
 	require.Empty(t, fwdPkgs, "no forwarding packages should exist")
 }
 
@@ -1302,565 +1215,4 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 				coopCloseTx.TxIn[0].PreviousOutPoint)
 		}
 	}
-}
-
-// TestShutdownInfo tests that a channel's shutdown info can correctly be
-// persisted and retrieved.
-func TestShutdownInfo(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		localInit bool
-	}{
-		{
-			name:      "local node initiated",
-			localInit: true,
-		},
-		{
-			name:      "remote node initiated",
-			localInit: false,
-		},
-	}
-
-	for _, test := range tests {
-
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			testShutdownInfo(t, test.localInit)
-		})
-	}
-}
-
-func testShutdownInfo(t *testing.T, locallyInitiated bool) {
-	fullDB, err := MakeTestDB(t)
-	require.NoError(t, err, "unable to make test database")
-
-	cdb := fullDB.ChannelStateDB()
-
-	// First a test channel.
-	channel := createTestChannel(t, cdb)
-
-	// We haven't persisted any shutdown info for this channel yet.
-	_, err = channel.ShutdownInfo()
-	require.Error(t, err, ErrNoShutdownInfo)
-
-	// Construct a new delivery script and create a new ShutdownInfo object.
-	script := []byte{1, 3, 4, 5}
-
-	// Create a ShutdownInfo struct.
-	shutdownInfo := NewShutdownInfo(script, locallyInitiated)
-
-	// Persist the shutdown info.
-	require.NoError(t, channel.MarkShutdownSent(shutdownInfo))
-
-	// We should now be able to retrieve the shutdown info.
-	info, err := channel.ShutdownInfo()
-	require.NoError(t, err)
-	require.True(t, info.IsSome())
-
-	// Assert that the decoded values of the shutdown info are correct.
-	info.WhenSome(func(info ShutdownInfo) {
-		require.EqualValues(t, script, info.DeliveryScript.Val)
-		require.Equal(t, locallyInitiated, info.LocalInitiator.Val)
-	})
-}
-
-// TestRefresh asserts that Refresh updates the in-memory state of another
-// OpenChannel to reflect a preceding call to MarkOpen on a different
-// OpenChannel.
-func TestRefresh(t *testing.T) {
-	t.Parallel()
-
-	fullDB, err := MakeTestDB(t)
-	require.NoError(t, err, "unable to make test database")
-
-	cdb := fullDB.ChannelStateDB()
-
-	// First create a test channel.
-	state := createTestChannel(t, cdb)
-
-	// Next, locate the pending channel with the database.
-	pendingChannels, err := cdb.FetchPendingChannels()
-	if err != nil {
-		t.Fatalf("unable to load pending channels; %v", err)
-	}
-
-	var pendingChannel *OpenChannel
-	for _, channel := range pendingChannels {
-		if channel.FundingOutpoint == state.FundingOutpoint {
-			pendingChannel = channel
-			break
-		}
-	}
-	if pendingChannel == nil {
-		t.Fatalf("unable to find pending channel with funding "+
-			"outpoint=%v: %v", state.FundingOutpoint, err)
-	}
-
-	// Next, simulate the confirmation of the channel by marking it as
-	// pending within the database.
-	chanOpenLoc := lnwire.ShortChannelID{
-		BlockHeight: 105,
-		TxIndex:     10,
-		TxPosition:  15,
-	}
-
-	err = state.MarkAsOpen(chanOpenLoc)
-	require.NoError(t, err, "unable to mark channel open")
-
-	// The short_chan_id of the receiver to MarkAsOpen should reflect the
-	// open location, but the other pending channel should remain unchanged.
-	if state.ShortChanID() == pendingChannel.ShortChanID() {
-		t.Fatalf("pending channel short_chan_ID should not have been " +
-			"updated before refreshing short_chan_id")
-	}
-
-	// Now that the receiver's short channel id has been updated, check to
-	// ensure that the channel packager's source has been updated as well.
-	// This ensures that the packager will read and write to buckets
-	// corresponding to the new short chan id, instead of the prior.
-	if state.Packager.(*ChannelPackager).source != chanOpenLoc {
-		t.Fatalf("channel packager source was not updated: want %v, "+
-			"got %v", chanOpenLoc,
-			state.Packager.(*ChannelPackager).source)
-	}
-
-	// Now, refresh the state of the pending channel.
-	err = pendingChannel.Refresh()
-	require.NoError(t, err, "unable to refresh short_chan_id")
-
-	// This should result in both OpenChannel's now having the same
-	// ShortChanID.
-	if state.ShortChanID() != pendingChannel.ShortChanID() {
-		t.Fatalf("expected pending channel short_chan_id to be "+
-			"refreshed: want %v, got %v", state.ShortChanID(),
-			pendingChannel.ShortChanID())
-	}
-
-	// Check to ensure that the _other_ OpenChannel channel packager's
-	// source has also been updated after the refresh. This ensures that the
-	// other packagers will read and write to buckets corresponding to the
-	// updated short chan id.
-	if pendingChannel.Packager.(*ChannelPackager).source != chanOpenLoc {
-		t.Fatalf("channel packager source was not updated: want %v, "+
-			"got %v", chanOpenLoc,
-			pendingChannel.Packager.(*ChannelPackager).source)
-	}
-
-	// Check to ensure that this channel is no longer pending and this field
-	// is up to date.
-	if pendingChannel.IsPending {
-		t.Fatalf("channel pending state wasn't updated: want false got true")
-	}
-}
-
-// TestCloseInitiator tests the setting of close initiator statuses for
-// cooperative closes and local force closes.
-func TestCloseInitiator(t *testing.T) {
-	tests := []struct {
-		name string
-		// updateChannel is called to update the channel as broadcast,
-		// cooperatively or not, based on the test's requirements.
-		updateChannel    func(c *OpenChannel) error
-		expectedStatuses []ChannelStatus
-	}{
-		{
-			name: "local coop close",
-			// Mark the channel as cooperatively closed, initiated
-			// by the local party.
-			updateChannel: func(c *OpenChannel) error {
-				return c.MarkCoopBroadcasted(
-					&wire.MsgTx{}, lntypes.Local,
-				)
-			},
-			expectedStatuses: []ChannelStatus{
-				ChanStatusLocalCloseInitiator,
-				ChanStatusCoopBroadcasted,
-			},
-		},
-		{
-			name: "remote coop close",
-			// Mark the channel as cooperatively closed, initiated
-			// by the remote party.
-			updateChannel: func(c *OpenChannel) error {
-				return c.MarkCoopBroadcasted(
-					&wire.MsgTx{}, lntypes.Remote,
-				)
-			},
-			expectedStatuses: []ChannelStatus{
-				ChanStatusRemoteCloseInitiator,
-				ChanStatusCoopBroadcasted,
-			},
-		},
-		{
-			name: "local force close",
-			// Mark the channel's commitment as broadcast with
-			// local initiator.
-			updateChannel: func(c *OpenChannel) error {
-				return c.MarkCommitmentBroadcasted(
-					&wire.MsgTx{}, lntypes.Local,
-				)
-			},
-			expectedStatuses: []ChannelStatus{
-				ChanStatusLocalCloseInitiator,
-				ChanStatusCommitBroadcasted,
-			},
-		},
-	}
-
-	for _, test := range tests {
-
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			fullDB, err := MakeTestDB(t)
-			if err != nil {
-				t.Fatalf("unable to make test database: %v",
-					err)
-			}
-
-			cdb := fullDB.ChannelStateDB()
-
-			// Create an open channel.
-			channel := createTestChannel(
-				t, cdb, openChannelOption(),
-			)
-
-			err = test.updateChannel(channel)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			// Lookup open channels in the database.
-			dbChans, err := fetchChannels(
-				cdb, pendingChannelFilter(false),
-			)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if len(dbChans) != 1 {
-				t.Fatalf("expected 1 channel, got: %v",
-					len(dbChans))
-			}
-
-			// Check that the statuses that we expect were written
-			// to disk.
-			for _, status := range test.expectedStatuses {
-				if !dbChans[0].HasChanStatus(status) {
-					t.Fatalf("expected channel to have "+
-						"status: %v, has status: %v",
-						status, dbChans[0].chanStatus)
-				}
-			}
-		})
-	}
-}
-
-// TestCloseChannelStatus tests setting of a channel status on the historical
-// channel on channel close.
-func TestCloseChannelStatus(t *testing.T) {
-	fullDB, err := MakeTestDB(t)
-	if err != nil {
-		t.Fatalf("unable to make test database: %v",
-			err)
-	}
-
-	cdb := fullDB.ChannelStateDB()
-
-	// Create an open channel.
-	channel := createTestChannel(
-		t, cdb, openChannelOption(),
-	)
-
-	if err := channel.CloseChannel(
-		&ChannelCloseSummary{
-			ChanPoint: channel.FundingOutpoint,
-			RemotePub: channel.IdentityPub,
-		}, ChanStatusRemoteCloseInitiator,
-	); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	histChan, err := channel.Db.FetchHistoricalChannel(
-		&channel.FundingOutpoint,
-	)
-	require.NoError(t, err, "unexpected error")
-
-	if !histChan.HasChanStatus(ChanStatusRemoteCloseInitiator) {
-		t.Fatalf("channel should have status")
-	}
-}
-
-// TestHasChanStatus asserts the behavior of HasChanStatus by checking the
-// behavior of various status flags in addition to the special case of
-// ChanStatusDefault which is treated like a flag in the code base even though
-// it isn't.
-func TestHasChanStatus(t *testing.T) {
-	tests := []struct {
-		name   string
-		status ChannelStatus
-		expHas map[ChannelStatus]bool
-	}{
-		{
-			name:   "default",
-			status: ChanStatusDefault,
-			expHas: map[ChannelStatus]bool{
-				ChanStatusDefault: true,
-				ChanStatusBorked:  false,
-			},
-		},
-		{
-			name:   "single flag",
-			status: ChanStatusBorked,
-			expHas: map[ChannelStatus]bool{
-				ChanStatusDefault: false,
-				ChanStatusBorked:  true,
-			},
-		},
-		{
-			name:   "multiple flags",
-			status: ChanStatusBorked | ChanStatusLocalDataLoss,
-			expHas: map[ChannelStatus]bool{
-				ChanStatusDefault:       false,
-				ChanStatusBorked:        true,
-				ChanStatusLocalDataLoss: true,
-			},
-		},
-	}
-
-	for _, test := range tests {
-
-		t.Run(test.name, func(t *testing.T) {
-			c := &OpenChannel{
-				chanStatus: test.status,
-			}
-
-			for status, expHas := range test.expHas {
-				has := c.HasChanStatus(status)
-				if has == expHas {
-					continue
-				}
-
-				t.Fatalf("expected chan status to "+
-					"have %s? %t, got: %t",
-					status, expHas, has)
-			}
-		})
-	}
-}
-
-// TestKeyLocatorEncoding tests that we are able to serialize a given
-// keychain.KeyLocator. After successfully encoding, we check that the decode
-// output arrives at the same initial KeyLocator.
-func TestKeyLocatorEncoding(t *testing.T) {
-	keyLoc := keychain.KeyLocator{
-		Family: keychain.KeyFamilyRevocationRoot,
-		Index:  keyLocIndex,
-	}
-
-	// First, we'll encode the KeyLocator into a buffer.
-	var (
-		b   bytes.Buffer
-		buf [8]byte
-	)
-
-	err := EKeyLocator(&b, &keyLoc, &buf)
-	require.NoError(t, err, "unable to encode key locator")
-
-	// Next, we'll attempt to decode the bytes into a new KeyLocator.
-	r := bytes.NewReader(b.Bytes())
-	var decodedKeyLoc keychain.KeyLocator
-
-	err = DKeyLocator(r, &decodedKeyLoc, &buf, 8)
-	require.NoError(t, err, "unable to decode key locator")
-
-	// Finally, we'll compare that the original KeyLocator and the decoded
-	// version are equal.
-	require.Equal(t, keyLoc, decodedKeyLoc)
-}
-
-// TestFinalHtlcs tests final htlc storage and retrieval.
-func TestFinalHtlcs(t *testing.T) {
-	t.Parallel()
-
-	fullDB, err := MakeTestDB(t, OptionStoreFinalHtlcResolutions(true))
-	require.NoError(t, err, "unable to make test database")
-
-	cdb := fullDB.ChannelStateDB()
-
-	chanID := lnwire.ShortChannelID{
-		BlockHeight: 1,
-		TxIndex:     2,
-		TxPosition:  3,
-	}
-
-	// Test unknown htlc lookup.
-	const unknownHtlcID = 999
-
-	_, err = cdb.LookupFinalHtlc(chanID, unknownHtlcID)
-	require.ErrorIs(t, err, ErrHtlcUnknown)
-
-	// Test offchain final htlcs.
-	const offchainHtlcID = 1
-
-	err = kvdb.Update(cdb.backend, func(tx kvdb.RwTx) error {
-		bucket, err := fetchFinalHtlcsBucketRw(
-			tx, chanID,
-		)
-		require.NoError(t, err)
-
-		return putFinalHtlc(bucket, offchainHtlcID, FinalHtlcInfo{
-			Settled:  true,
-			Offchain: true,
-		})
-	}, func() {})
-	require.NoError(t, err)
-
-	info, err := cdb.LookupFinalHtlc(chanID, offchainHtlcID)
-	require.NoError(t, err)
-	require.True(t, info.Settled)
-	require.True(t, info.Offchain)
-
-	// Test onchain final htlcs.
-	const onchainHtlcID = 2
-
-	err = cdb.PutOnchainFinalHtlcOutcome(chanID, onchainHtlcID, true)
-	require.NoError(t, err)
-
-	info, err = cdb.LookupFinalHtlc(chanID, onchainHtlcID)
-	require.NoError(t, err)
-	require.True(t, info.Settled)
-	require.False(t, info.Offchain)
-
-	// Test unknown htlc lookup for existing channel.
-	_, err = cdb.LookupFinalHtlc(chanID, unknownHtlcID)
-	require.ErrorIs(t, err, ErrHtlcUnknown)
-}
-
-// TestHTLCsExtraData tests serialization and deserialization of HTLCs
-// combined with extra data.
-func TestHTLCsExtraData(t *testing.T) {
-	t.Parallel()
-
-	mockHtlc := HTLC{
-		Signature:     testSig.Serialize(),
-		Incoming:      false,
-		Amt:           10,
-		RHash:         key,
-		RefundTimeout: 1,
-		OnionBlob:     lnmock.MockOnion(),
-	}
-
-	// Add a blinding point to a htlc.
-	blindingPointHTLC := HTLC{
-		Signature:     testSig.Serialize(),
-		Incoming:      false,
-		Amt:           10,
-		RHash:         key,
-		RefundTimeout: 1,
-		OnionBlob:     lnmock.MockOnion(),
-		BlindingPoint: tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](
-				pubKey,
-			),
-		),
-	}
-
-	// Custom channel data htlc with a blinding point.
-	customDataHTLC := HTLC{
-		Signature:     testSig.Serialize(),
-		Incoming:      false,
-		Amt:           10,
-		RHash:         key,
-		RefundTimeout: 1,
-		OnionBlob:     lnmock.MockOnion(),
-		BlindingPoint: tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](
-				pubKey,
-			),
-		),
-		CustomRecords: map[uint64][]byte{
-			uint64(lnwire.MinCustomRecordsTlvType + 3): {1, 2, 3},
-		},
-	}
-
-	testCases := []struct {
-		name        string
-		htlcs       []HTLC
-		blindingIdx int
-	}{
-		{
-			// Serialize multiple HLTCs with no extra data to
-			// assert that there is no regression for HTLCs with
-			// no extra data.
-			name: "no extra data",
-			htlcs: []HTLC{
-				mockHtlc, mockHtlc,
-			},
-		},
-		{
-			// Some HTLCs with extra data, some without.
-			name: "mixed extra data",
-			htlcs: []HTLC{
-				mockHtlc,
-				blindingPointHTLC,
-				mockHtlc,
-				customDataHTLC,
-			},
-		},
-	}
-
-	for _, testCase := range testCases {
-
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
-
-			var b bytes.Buffer
-			err := SerializeHtlcs(&b, testCase.htlcs...)
-			require.NoError(t, err)
-
-			r := bytes.NewReader(b.Bytes())
-			htlcs, err := DeserializeHtlcs(r)
-			require.NoError(t, err)
-
-			require.EqualValues(t, len(testCase.htlcs), len(htlcs))
-			for i, htlc := range htlcs {
-				// We use the extra data field when we
-				// serialize, so we set to nil to be able to
-				// assert on equal for the test.
-				htlc.ExtraData = nil
-				require.Equal(t, testCase.htlcs[i], htlc)
-			}
-		})
-	}
-}
-
-// TestOnionBlobIncorrectLength tests HTLC deserialization in the case where
-// the OnionBlob saved on disk is of an unexpected length. This error case is
-// only expected in the case of database corruption (or some severe protocol
-// breakdown/bug). A HTLC is manually serialized because we cannot force a
-// case where we write an onion blob of incorrect length.
-func TestOnionBlobIncorrectLength(t *testing.T) {
-	t.Parallel()
-
-	var b bytes.Buffer
-
-	var numHtlcs uint16 = 1
-	require.NoError(t, WriteElement(&b, numHtlcs))
-
-	require.NoError(t, WriteElements(
-		&b,
-		// Number of HTLCs.
-		numHtlcs,
-		// Signature, incoming, amount, Rhash, Timeout.
-		testSig.Serialize(), false, lnwire.MilliSatoshi(10), key,
-		uint32(1),
-		// Write an onion blob that is half of our expected size.
-		bytes.Repeat([]byte{1}, lnwire.OnionPacketSize/2),
-	))
-
-	_, err := DeserializeHtlcs(&b)
-	require.ErrorIs(t, err, ErrOnionBlobLength)
 }

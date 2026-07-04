@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -586,7 +587,7 @@ func TestMailBoxDustHandling(t *testing.T) {
 	})
 }
 
-func testMailBoxDust(t *testing.T, chantype channeldb.ChannelType) {
+func testMailBoxDust(t *testing.T, chantype chanstate.ChannelType) {
 	t.Parallel()
 
 	ctx := newMailboxContext(t, time.Now(), testExpiry)

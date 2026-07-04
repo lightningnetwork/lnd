@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	cstate "github.com/lightningnetwork/lnd/chanstate"
+	"github.com/lightningnetwork/lnd/linknode"
 )
 
 var (
@@ -21,7 +22,7 @@ var (
 
 	// ErrLinkNodesNotFound is returned when node info bucket hasn't been
 	// created.
-	ErrLinkNodesNotFound = fmt.Errorf("no link nodes exist")
+	ErrLinkNodesNotFound = linknode.ErrLinkNodesNotFound
 
 	// ErrNoActiveChannels  is returned when there is no active (open)
 	// channels within the database.
@@ -33,7 +34,7 @@ var (
 
 	// ErrNodeNotFound is returned when node bucket exists, but node with
 	// specific identity can't be found.
-	ErrNodeNotFound = fmt.Errorf("link node with target identity not found")
+	ErrNodeNotFound = linknode.ErrNodeNotFound
 
 	// ErrChannelNotFound is returned when we attempt to locate a channel
 	// for a specific chain, but it is not found.

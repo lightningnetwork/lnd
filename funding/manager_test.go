@@ -30,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainreg"
 	acpt "github.com/lightningnetwork/lnd/chanacceptor"
+	"github.com/lightningnetwork/lnd/chanlifecycle"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/chanstate"
@@ -434,14 +435,17 @@ func (n *testNode) RemovePendingChannel(_ lnwire.ChannelID) error {
 	return nil
 }
 
-func createTestWallet(cdb *channeldb.ChannelStateDB, netParams *chaincfg.Params,
+func createTestWallet(channelStore chanstate.Store,
+	channelLifecycle chanlifecycle.ChannelLifecycle,
+	netParams *chaincfg.Params,
 	notifier chainntnfs.ChainNotifier, wc lnwallet.WalletController,
 	signer input.Signer, keyRing keychain.SecretKeyRing,
 	bio lnwallet.BlockChainIO,
 	estimator chainfee.Estimator) (*lnwallet.LightningWallet, error) {
 
 	wallet, err := lnwallet.NewLightningWallet(lnwallet.Config{
-		Database:              cdb,
+		ChannelStore:          channelStore,
+		ChannelLifecycle:      channelLifecycle,
 		Notifier:              notifier,
 		SecretKeyRing:         keyRing,
 		WalletController:      wc,
@@ -513,16 +517,15 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 
 	dbDir := filepath.Join(tempTestDir, "cdb")
 	fullDB := channeldb.OpenForTesting(t, dbDir)
-
-	cdb := fullDB.ChannelStateDB()
+	channelStore := fullDB.ChannelStateStore()
 
 	keyRing := &mock.SecretKeyRing{
 		RootKey: alicePrivKey,
 	}
 
 	lnw, err := createTestWallet(
-		cdb, netParams, chainNotifier, wc, signer, keyRing, bio,
-		estimator,
+		channelStore, fullDB.ChannelLifecycle(), netParams,
+		chainNotifier, wc, signer, keyRing, bio, estimator,
 	)
 	require.NoError(t, err, "unable to create test ln wallet")
 
@@ -531,12 +534,12 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	chainedAcceptor := acpt.NewChainedAcceptor()
 
 	fundingCfg := Config{
-		IDKey:        privKey.PubKey(),
-		IDKeyLoc:     testKeyLoc,
-		Wallet:       lnw,
-		Notifier:     chainNotifier,
-		ChannelDB:    cdb,
-		FeeEstimator: estimator,
+		IDKey:             privKey.PubKey(),
+		IDKeyLoc:          testKeyLoc,
+		Wallet:            lnw,
+		Notifier:          chainNotifier,
+		ChannelStateStore: channelStore,
+		FeeEstimator:      estimator,
 		SignMessage: func(_ keychain.KeyLocator,
 			_ []byte, _ bool) (*ecdsa.Signature, error) {
 
@@ -566,7 +569,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			chanID lnwire.ChannelID) (*chanstate.OpenChannel,
 			error) {
 
-			nodeChans, err := cdb.FetchOpenChannels(node)
+			nodeChans, err := channelStore.FetchOpenChannels(node)
 			if err != nil {
 				return nil, err
 			}
@@ -720,12 +723,12 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 	chainedAcceptor := acpt.NewChainedAcceptor()
 
 	f, err := NewFundingManager(Config{
-		IDKey:        oldCfg.IDKey,
-		IDKeyLoc:     oldCfg.IDKeyLoc,
-		Wallet:       oldCfg.Wallet,
-		Notifier:     oldCfg.Notifier,
-		ChannelDB:    oldCfg.ChannelDB,
-		FeeEstimator: oldCfg.FeeEstimator,
+		IDKey:             oldCfg.IDKey,
+		IDKeyLoc:          oldCfg.IDKeyLoc,
+		Wallet:            oldCfg.Wallet,
+		Notifier:          oldCfg.Notifier,
+		ChannelStateStore: oldCfg.ChannelStateStore,
+		FeeEstimator:      oldCfg.FeeEstimator,
 		SignMessage: func(_ keychain.KeyLocator,
 			_ []byte, _ bool) (*ecdsa.Signature, error) {
 
@@ -1145,7 +1148,7 @@ func assertNumPendingChannelsBecomes(t *testing.T, node *testNode,
 			time.Sleep(testPollSleepMs * time.Millisecond)
 		}
 		pendingChannels, err := node.fundingMgr.
-			cfg.Wallet.Cfg.Database.FetchPendingChannels()
+			cfg.Wallet.Cfg.ChannelStore.FetchPendingChannels()
 		if err != nil {
 			t.Fatalf("unable to fetch pending channels: %v", err)
 		}
@@ -1173,7 +1176,7 @@ func assertNumPendingChannelsRemains(t *testing.T, node *testNode,
 			time.Sleep(200 * time.Millisecond)
 		}
 		pendingChannels, err := node.fundingMgr.
-			cfg.Wallet.Cfg.Database.FetchPendingChannels()
+			cfg.Wallet.Cfg.ChannelStore.FetchPendingChannels()
 		if err != nil {
 			t.Fatalf("unable to fetch pending channels: %v", err)
 		}
@@ -1196,8 +1199,8 @@ func assertConfirmationHeight(t *testing.T, node *testNode,
 	t.Helper()
 
 	err := wait.NoError(func() error {
-		pendingChannel, err := node.fundingMgr.cfg.Wallet.Cfg.Database.
-			FetchChannelByID(chanID)
+		channelStore := node.fundingMgr.cfg.Wallet.Cfg.ChannelStore
+		pendingChannel, err := channelStore.FetchChannelByID(chanID)
 		if err != nil {
 			return fmt.Errorf("unable to fetch pending channel: %w",
 				err)
@@ -2593,7 +2596,8 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 
 	// Bob will at this point be waiting for the funding transaction to be
 	// confirmed, so the channel should be considered pending.
-	pendingChannels, err := bob.fundingMgr.cfg.Wallet.Cfg.Database.FetchPendingChannels()
+	channelStore := bob.fundingMgr.cfg.Wallet.Cfg.ChannelStore
+	pendingChannels, err := channelStore.FetchPendingChannels()
 	require.NoError(t, err, "unable to fetch pending channels")
 	if len(pendingChannels) != 1 {
 		t.Fatalf("Expected Bob to have 1 pending channel, had  %v",
@@ -2642,7 +2646,8 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 
 	// Alice will at this point be waiting for the funding transaction to be
 	// confirmed, so the channel should be considered pending.
-	pendingChannels, err := alice.fundingMgr.cfg.Wallet.Cfg.Database.FetchPendingChannels()
+	channelStore := alice.fundingMgr.cfg.Wallet.Cfg.ChannelStore
+	pendingChannels, err := channelStore.FetchPendingChannels()
 	require.NoError(t, err, "unable to fetch pending channels")
 	if len(pendingChannels) != 1 {
 		t.Fatalf("Expected Alice to have 1 pending channel, had  %v",
@@ -3774,7 +3779,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	// channel.
 	assertHandleChannelReady(
 		t, alice, bob, func(node *testNode, msg *newChannelMsg) bool {
-			aliceDB := alice.fundingMgr.cfg.ChannelDB
+			aliceDB := alice.fundingMgr.cfg.ChannelStateStore
 			chanID := lnwire.NewChanIDFromOutPoint(
 				msg.channel.FundingOutpoint,
 			)

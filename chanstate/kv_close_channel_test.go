@@ -144,7 +144,7 @@ func countRevlogEntries(t *testing.T, store *KVStore,
 // outpointBucket for the given outpoint. Used to verify the index flip
 // performed by the close path.
 func readOutpointStatus(t *testing.T, store *KVStore,
-	op wire.OutPoint) indexStatus {
+	op wire.OutPoint) IndexStatus {
 
 	t.Helper()
 
@@ -160,7 +160,7 @@ func readOutpointStatus(t *testing.T, store *KVStore,
 		require.NotNil(t, raw, "outpoint entry missing")
 
 		statusRecord := tlv.MakePrimitiveRecord(
-			indexStatusType, &status,
+			IndexStatusType, &status,
 		)
 		stream, err := tlv.NewStream(statusRecord)
 		if err != nil {
@@ -171,7 +171,7 @@ func readOutpointStatus(t *testing.T, store *KVStore,
 	}, func() {})
 	require.NoError(t, err)
 
-	return indexStatus(status)
+	return IndexStatus(status)
 }
 
 // closeChannelForTest invokes CloseChannel on a freshly created OpenChannel
@@ -215,7 +215,7 @@ func TestCloseChannelTombstoneWritePath(t *testing.T) {
 
 	// Outpoint index flipped from open to closed — the authoritative
 	// closed-channel marker on tombstone backends.
-	require.Equal(t, outpointClosed, readOutpointStatus(
+	require.Equal(t, OutpointClosed, readOutpointStatus(
 		t, store, ch.FundingOutpoint,
 	))
 
@@ -322,10 +322,10 @@ func TestCloseChannelTombstoneRemovesFromOpenScans(t *testing.T) {
 	require.Equal(t, numRevlogEntries, countRevlogEntries(t, store, ch1))
 
 	// The outpoint index for ch1 must flip to closed; ch2's stays open.
-	require.Equal(t, outpointClosed, readOutpointStatus(
+	require.Equal(t, OutpointClosed, readOutpointStatus(
 		t, store, ch1.FundingOutpoint,
 	))
-	require.Equal(t, outpointOpen, readOutpointStatus(
+	require.Equal(t, OutpointOpen, readOutpointStatus(
 		t, store, ch2.FundingOutpoint,
 	))
 }
@@ -409,7 +409,7 @@ func TestCloseChannelSync(t *testing.T) {
 	require.Empty(t, fwdPkgs)
 
 	// The outpoint index reflects the close.
-	require.Equal(t, outpointClosed, readOutpointStatus(
+	require.Equal(t, OutpointClosed, readOutpointStatus(
 		t, store, ch.FundingOutpoint,
 	))
 }

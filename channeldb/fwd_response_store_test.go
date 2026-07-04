@@ -66,7 +66,7 @@ func TestCloseChannelPersistsResponses(t *testing.T) {
 			ch := createTestChannel(t, cdb, openChannelOption())
 			settle := writeTestChannelResponse(t, cdb, ch)
 
-			closeChannelForTest(t, cdb, ch)
+			closeChannelForResponseTest(t, cdb, ch)
 
 			if !test.tombstone {
 				packager := NewChannelPackager(ch.ShortChanID())
@@ -93,4 +93,21 @@ func TestCloseChannelPersistsResponses(t *testing.T) {
 			)
 		})
 	}
+}
+
+// closeChannelForResponseTest closes a channel using the minimal summary
+// needed by the forwarding-response cleanup test.
+func closeChannelForResponseTest(t *testing.T, cdb *ChannelStateDB,
+	channel *OpenChannel) {
+
+	t.Helper()
+
+	summary := &ChannelCloseSummary{
+		ChanPoint:   channel.FundingOutpoint,
+		RemotePub:   channel.IdentityPub,
+		ChainHash:   channel.ChainHash,
+		ShortChanID: channel.ShortChannelID,
+		CloseType:   CooperativeClose,
+	}
+	require.NoError(t, cdb.CloseChannel(channel, summary))
 }

@@ -35,6 +35,10 @@ type RemoteSignerConnection interface {
 	// Timeout returns the set connection timeout for the remote signer.
 	Timeout() time.Duration
 
+	// RequestTimeout returns the timeout that should be used for
+	// per-request RPC calls to the remote signer.
+	RequestTimeout() time.Duration
+
 	// Ready returns a channel that nil gets sent over once the remote
 	// signer is ready to accept requests. Note that an error will be sent
 	// over the returned channel if the passed context expires before the
@@ -195,6 +199,14 @@ func (r *OutboundConnection) Timeout() time.Duration {
 	return r.cfg.Timeout
 }
 
+// RequestTimeout returns the timeout that should be used for per-request RPC
+// calls to the remote signer.
+//
+// NOTE: This is part of the RemoteSignerConnection interface.
+func (r *OutboundConnection) RequestTimeout() time.Duration {
+	return r.cfg.Timeout
+}
+
 // Stop closes the connection to the remote signer.
 //
 // NOTE: This is part of the RemoteSignerConnection interface.
@@ -322,6 +334,14 @@ func NewInboundConnection(requestTimeout time.Duration,
 // NOTE: This is part of the RemoteSignerConnection interface.
 func (r *InboundConnection) Timeout() time.Duration {
 	return r.connectionTimeout
+}
+
+// RequestTimeout returns the timeout that should be used for per-request RPC
+// calls to the remote signer.
+//
+// NOTE: This is part of the RemoteSignerConnection interface.
+func (r *InboundConnection) RequestTimeout() time.Duration {
+	return r.SignCoordinator.requestTimeout
 }
 
 // Ready returns a channel that nil gets sent over once the remote signer

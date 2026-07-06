@@ -76,7 +76,7 @@ func NewRPCKeyRing(watchOnlyKeyRing keychain.SecretKeyRing,
 		WalletController: watchOnlyWalletController,
 		watchOnlyKeyRing: watchOnlyKeyRing,
 		netParams:        netParams,
-		rpcTimeout:       remoteSignerConn.Timeout(),
+		rpcTimeout:       remoteSignerConn.RequestTimeout(),
 		remoteSignerConn: remoteSignerConn,
 	}, nil
 }

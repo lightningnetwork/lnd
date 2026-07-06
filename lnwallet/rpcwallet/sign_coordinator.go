@@ -198,6 +198,7 @@ func (s *SignCoordinator) Run(stream StreamServer) error {
 		// When `Run` returns, we set the clientConnected field to false
 		// to allow a new remote signer connection to be set up.
 		s.clientConnected = false
+		s.stream = nil
 	}()
 
 	s.stream = stream
@@ -425,8 +426,24 @@ func (s *SignCoordinator) handshake(stream StreamServer) error {
 func (s *SignCoordinator) StartReceiving() {
 	defer s.wg.Done()
 
+	stream, disconnected, err := s.activeStreamSnapshot()
+	if err != nil {
+		// Send the error over the error channel, so that the
+		// main Run method can return the error.
+		s.receiveErrChan <- err
+
+		return
+	}
+
 	for {
-		resp, err := s.stream.Recv()
+		// If we've been disconnected, we can't receive any longer.
+		select {
+		case <-disconnected:
+			return
+		default:
+		}
+
+		resp, err := stream.Recv()
 		if err != nil {
 			select {
 			// If we've already shut down, the main Run method will
@@ -518,6 +535,27 @@ func (s *SignCoordinator) WaitUntilConnected(ctx context.Context) error {
 	}
 }
 
+// activeStreamSnapshot returns the currently active stream together with the
+// disconnect signal that belongs to the same stream generation.
+func (s *SignCoordinator) activeStreamSnapshot() (StreamServer,
+	<-chan struct{}, error) {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	select {
+	case <-s.quit:
+		return nil, nil, ErrShuttingDown
+	default:
+	}
+
+	if !s.clientConnected || s.stream == nil || s.disconnected == nil {
+		return nil, nil, ErrNotConnected
+	}
+
+	return s.stream, s.disconnected, nil
+}
+
 // createResponseChannel creates a response channel for the given request ID and
 // inserts it into the responses map. The function returns a cleanup function
 // which removes the channel from the responses map, and the caller must ensure
@@ -559,8 +597,8 @@ func (s *SignCoordinator) createResponseChannel(requestID uint64,
 //
 // Note: Before calling this function, the caller must have created a response
 // channel for the request ID.
-func (s *SignCoordinator) getResponse(ctx context.Context,
-	requestID uint64) (*RSResponse, error) {
+func (s *SignCoordinator) getResponse(ctx context.Context, requestID uint64,
+	disconnected <-chan struct{}) (*RSResponse, error) {
 
 	respChan, ok := s.responses.Load(requestID)
 
@@ -571,14 +609,6 @@ func (s *SignCoordinator) getResponse(ctx context.Context,
 		return nil, fmt.Errorf("no response channel found for "+
 			"request ID %d", requestID)
 	}
-
-	// As the Run method will redefine the disconnected channel once it
-	// returns, we need copy the pointer to the current disconnected
-	// channel to ensure that we're waiting for the correct stream
-	// shutdown signal, and to avoid a data race.
-	s.mu.Lock()
-	currentDisconnected := s.disconnected
-	s.mu.Unlock()
 
 	// Wait for the response to arrive.
 	select {
@@ -612,7 +642,7 @@ func (s *SignCoordinator) getResponse(ctx context.Context,
 
 		return resp, nil
 
-	case <-currentDisconnected:
+	case <-disconnected:
 		log.Debugf("Stopped waiting for remote signer response for "+
 			"request ID %d as the stream has been closed",
 			requestID)
@@ -989,6 +1019,14 @@ func processRequestAttempt[R comparable](ctx context.Context,
 		return false, zero, err
 	}
 
+	stream, disconnected, err := s.activeStreamSnapshot()
+	if retryPolicy == retryOnDisconnect && errors.Is(err, ErrNotConnected) {
+		return true, zero, nil
+	}
+	if err != nil {
+		return false, zero, err
+	}
+
 	reqID := s.nextRequestID.Add(1)
 	req := generateRequest(reqID)
 
@@ -1009,7 +1047,7 @@ func processRequestAttempt[R comparable](ctx context.Context,
 	// below and not general struct mutex, to keep the locking scope
 	// minimal.
 	s.sendMu.Lock()
-	err = s.stream.Send(&req)
+	err = stream.Send(&req)
 	s.sendMu.Unlock()
 
 	if err != nil {
@@ -1029,7 +1067,7 @@ func processRequestAttempt[R comparable](ctx context.Context,
 	// Wait for the remote signer response for the given request. We will
 	// wait for the configured request timeout, or until the context is
 	// cancelled/timed out.
-	resp, err := s.getResponse(reqCtx, reqID)
+	resp, err := s.getResponse(reqCtx, reqID, disconnected)
 	if retryPolicy == retryOnDisconnect && errors.Is(err, ErrNotConnected) {
 		log.Debugf("Remote signer disconnected while waiting for "+
 			"response for request ID %d. Retrying "+

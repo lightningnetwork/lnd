@@ -41,7 +41,7 @@ type mockSCStream struct {
 func newMockSCStream() *mockSCStream {
 	return &mockSCStream{
 		sendChan:      make(chan *watchonlyrpc.SignCoordinatorRequest),
-		sendErrorChan: make(chan error),
+		sendErrorChan: make(chan error, 1),
 		recvChan: make(
 			chan *watchonlyrpc.SignCoordinatorResponse, 1,
 		),
@@ -1173,5 +1173,71 @@ func TestRemoteSignerDisconnectsMidSend(t *testing.T) {
 	require.Less(t, time.Since(startTime), pingTimeout)
 
 	// Verify the responses map is empty after all responses are received
+	require.Equal(t, coordinator.responses.Len(), 0)
+}
+
+// TestRemoteSignerReconnectsBeforeSend verifies that a request that has already
+// observed readiness still succeeds if the signer disconnects and reconnects
+// before the request can send on the snapshotted stream.
+func TestRemoteSignerReconnectsBeforeSend(t *testing.T) {
+	t.Parallel()
+
+	coordinator, stream1, runErrChan := setupSignCoordinator(t)
+
+	// Hold the send mutex so the request can pass readiness, snapshot the
+	// current stream, and register its response channel before it reaches
+	// the actual Send call.
+	coordinator.sendMu.Lock()
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		success, err := coordinator.Ping(t.Context(), 2*time.Second)
+		require.NoError(t, err)
+		require.True(t, success)
+	}()
+
+	require.Eventually(t, func() bool {
+		_, ok := coordinator.responses.Load(uint64(2))
+		return ok
+	}, time.Second, 10*time.Millisecond)
+
+	// Disconnect the current signer after the request has observed
+	// readiness and snapshotted the old stream, but before it can actually
+	// send.
+	stream1.Cancel()
+
+	err := <-runErrChan
+	require.Equal(t, ErrStreamCanceled, err)
+
+	<-coordinator.disconnected
+
+	// Reconnect the signer before letting the blocked request proceed.
+	stream2, _ := setupNewStream(t, coordinator)
+
+	// Once the blocked send continues, the old stream should return an
+	// unavailable error so the request retries on the new connection.
+	stream1.sendErrorChan <- status.Errorf(
+		codes.Unavailable, "simulated unavailable error",
+	)
+
+	coordinator.sendMu.Unlock()
+
+	req, err := getRequest(stream2)
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), req.GetRequestId())
+	require.True(t, req.GetPing())
+
+	stream2.sendResponse(&watchonlyrpc.SignCoordinatorResponse{
+		RefRequestId: 3,
+		SignResponseType: &watchonlyrpc.SignCoordinatorResponse_Pong{
+			Pong: true,
+		},
+	})
+
+	wg.Wait()
 	require.Equal(t, coordinator.responses.Len(), 0)
 }

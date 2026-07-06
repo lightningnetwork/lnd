@@ -177,6 +177,10 @@ func (*SwitchPackager) LoadChannelFwdPkgs(tx kvdb.RTx,
 // FwdPackager supports all operations required to modify fwd packages, such as
 // creation, updates, reading, and removal. The interfaces are broken down in
 // this way to support future delegation of the subinterfaces.
+//
+// TODO(ziggie): This kvdb transaction-level interface can likely be removed
+// now that chanstate.OpenChannelFwdPkgStore provides the backend-independent
+// forwarding package abstraction.
 type FwdPackager interface {
 	// AddFwdPkg serializes and writes a FwdPkg for this channel at the
 	// remote commitment height included in the forwarding package.

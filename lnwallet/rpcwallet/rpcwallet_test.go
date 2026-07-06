@@ -2,14 +2,21 @@ package rpcwallet
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/watchonlyrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
 )
@@ -228,4 +235,70 @@ func TestPopulateNonSignedInputWitnessUtxosEmptyPkScript(t *testing.T) {
 	populateNonSignedInputWitnessUtxos(packet, tx, signDesc, fetchInfo)
 
 	require.Nil(t, packet.Inputs[0].WitnessUtxo)
+}
+
+// TestRPCKeyRingUsesRequestTimeoutForInboundSigner verifies that a zero startup
+// timeout for inbound signers does not leak into per-request RPC contexts.
+func TestRPCKeyRingUsesRequestTimeoutForInboundSigner(t *testing.T) {
+	t.Parallel()
+
+	const requestTimeout = 2 * time.Second
+
+	// Set the inbound connection's startup timeout to 0 to model the
+	// supported "wait forever for the signer to connect" configuration.
+	// This test then verifies that this value remains scoped to startup
+	// waiting and is not used as the per-request RPC timeout.
+	conn := NewInboundConnection(requestTimeout, 0)
+	stream, runErrChan := setupNewStream(t, conn.SignCoordinator)
+
+	keyRing, err := NewRPCKeyRing(nil, nil, conn, nil)
+	require.NoError(t, err)
+
+	// Prove the constructor copied the request timeout, not the startup
+	// timeout, into the RPC key ring's per-request timeout field.
+	require.Equal(t, requestTimeout, keyRing.rpcTimeout)
+
+	msg := []byte("rpcwallet request timeout check")
+	msgDigest := sha256.Sum256(msg)
+
+	privKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	expectedSig := ecdsa.Sign(privKey, msgDigest[:]).Serialize()
+
+	signErrChan := make(chan error, 1)
+	go func() {
+		_, err := keyRing.SignMessage(
+			keychain.KeyLocator{}, msg, false,
+		)
+		signErrChan <- err
+	}()
+
+	// If rpcTimeout were 0 here, the SignMessage call above would create a
+	// context that is already expired and would return before any request
+	// could be sent over the stream. Receiving a request here therefore
+	// proves the call is using a non-zero per-request timeout.
+	req, err := getRequest(stream)
+	require.NoError(t, err)
+	require.NotNil(t, req.GetSignMessageReq())
+
+	sResp := &watchonlyrpc.SignCoordinatorResponse_SignMessageResp{
+		SignMessageResp: &signrpc.SignMessageResp{
+			Signature: expectedSig,
+		},
+	}
+
+	// Complete the request successfully. A nil error below proves the
+	// signing path did not fail early with context.DeadlineExceeded.
+	stream.sendResponse(&watchonlyrpc.SignCoordinatorResponse{
+		RefRequestId:     2,
+		SignResponseType: sResp,
+	})
+
+	require.NoError(t, <-signErrChan)
+
+	stream.Cancel()
+	require.Equal(t, ErrStreamCanceled, <-runErrChan)
+
+	conn.Stop()
 }

@@ -229,6 +229,13 @@ type OpenChannelCloseTxStore[Channel any] interface {
 // OpenChannelCommitmentStore owns persisted commitment state for open channel
 // records.
 type OpenChannelCommitmentStore[Channel any] interface {
+	OpenChannelCommitmentMutationStore[Channel]
+	OpenChannelCommitmentQueryStore[Channel]
+}
+
+// OpenChannelCommitmentMutationStore owns persisted commitment mutations for
+// open channel records.
+type OpenChannelCommitmentMutationStore[Channel any] interface {
 	// UpdateChannelCommitment updates the local commitment state. It
 	// locks in pending local updates received from the remote party and
 	// persists remote log updates that have been acked, but not signed
@@ -265,7 +272,11 @@ type OpenChannelCommitmentStore[Channel any] interface {
 	AdvanceCommitChainTail(channel Channel, fwdPkg *FwdPkg,
 		updates []LogUpdate, ourOutputIndex,
 		theirOutputIndex uint32) error
+}
 
+// OpenChannelCommitmentQueryStore owns persisted commitment queries for open
+// channel records.
+type OpenChannelCommitmentQueryStore[Channel any] interface {
 	// CommitmentHeight returns the current persisted commitment height.
 	CommitmentHeight(channel Channel) (uint64, error)
 

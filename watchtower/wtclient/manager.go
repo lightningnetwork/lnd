@@ -938,19 +938,37 @@ func (m *Manager) handleClosableSessions(
 					continue
 				}
 
+				// Tell the tower it can delete the
+				// session. This is best-effort: the
+				// session is closable, meaning all of
+				// its channels are closed, so our local
+				// copy no longer protects anything and
+				// contacting the tower only lets it free
+				// disk space. We therefore always delete
+				// our local copy below, even if the tower
+				// is unreachable or has been deactivated,
+				// so that a dead or removed tower cannot
+				// make closable sessions accumulate and
+				// be re-dialed on every startup (see
+				// issue #10646).
 				err = client.deleteSessionFromTower(sess)
-				if err != nil {
-					log.Errorf("error deleting "+
-						"session %s from tower: %v",
-						sess.ID, err)
+				switch {
+				case errors.Is(err, errTowerInactive):
+					log.Debugf("Tower for session %s "+
+						"is inactive, deleting "+
+						"local session copy", sess.ID)
 
-					continue
+				case err != nil:
+					log.Warnf("Could not delete "+
+						"session %s from tower, "+
+						"deleting local copy "+
+						"anyway: %v", sess.ID, err)
 				}
 
 				err = m.cfg.DB.DeleteSession(item.sessionID)
 				if err != nil {
 					log.Errorf("could not delete "+
-						"session(%s) from DB: %w",
+						"session(%s) from DB: %v",
 						sess.ID, err)
 
 					continue

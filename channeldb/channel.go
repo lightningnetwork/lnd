@@ -2,28 +2,20 @@ package channeldb
 
 import (
 	"bytes"
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"net"
-	"strconv"
-	"strings"
-	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
-	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/walletdb"
+	cstate "github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
-	"github.com/lightningnetwork/lnd/htlcswitch/hop"
-	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -33,14 +25,16 @@ import (
 )
 
 const (
-	// AbsoluteThawHeightThreshold is the threshold at which a thaw height
-	// begins to be interpreted as an absolute block height, rather than a
-	// relative one.
-	AbsoluteThawHeightThreshold uint32 = 500000
-
 	// HTLCBlindingPointTLV is the tlv type used for storing blinding
 	// points with HTLCs.
 	HTLCBlindingPointTLV tlv.Type = 0
+)
+
+const (
+	// AbsoluteThawHeightThreshold is the threshold at which a thaw height
+	// begins to be interpreted as an absolute block height, rather than a
+	// relative one.
+	AbsoluteThawHeightThreshold = cstate.AbsoluteThawHeightThreshold
 )
 
 var (
@@ -177,56 +171,76 @@ var (
 var (
 	// ErrNoCommitmentsFound is returned when a channel has not set
 	// commitment states.
-	ErrNoCommitmentsFound = fmt.Errorf("no commitments found")
+	ErrNoCommitmentsFound = cstate.ErrNoCommitmentsFound
 
 	// ErrNoChanInfoFound is returned when a particular channel does not
 	// have any channels state.
-	ErrNoChanInfoFound = fmt.Errorf("no chan info found")
+	ErrNoChanInfoFound = cstate.ErrNoChanInfoFound
 
 	// ErrNoRevocationsFound is returned when revocation state for a
 	// particular channel cannot be found.
-	ErrNoRevocationsFound = fmt.Errorf("no revocations found")
+	ErrNoRevocationsFound = cstate.ErrNoRevocationsFound
 
 	// ErrNoPendingCommit is returned when there is not a pending
 	// commitment for a remote party. A new commitment is written to disk
 	// each time we write a new state in order to be properly fault
 	// tolerant.
-	ErrNoPendingCommit = fmt.Errorf("no pending commits found")
+	ErrNoPendingCommit = cstate.ErrNoPendingCommit
 
 	// ErrNoCommitPoint is returned when no data loss commit point is found
 	// in the database.
-	ErrNoCommitPoint = fmt.Errorf("no commit point found")
+	ErrNoCommitPoint = cstate.ErrNoCommitPoint
 
 	// ErrNoCloseTx is returned when no closing tx is found for a channel
 	// in the state CommitBroadcasted.
-	ErrNoCloseTx = fmt.Errorf("no closing tx found")
+	ErrNoCloseTx = cstate.ErrNoCloseTx
 
 	// ErrNoShutdownInfo is returned when no shutdown info has been
 	// persisted for a channel.
-	ErrNoShutdownInfo = errors.New("no shutdown info")
+	ErrNoShutdownInfo = cstate.ErrNoShutdownInfo
 
 	// ErrNoRestoredChannelMutation is returned when a caller attempts to
 	// mutate a channel that's been recovered.
-	ErrNoRestoredChannelMutation = fmt.Errorf("cannot mutate restored " +
-		"channel state")
+	ErrNoRestoredChannelMutation = cstate.ErrNoRestoredChannelMutation
 
 	// ErrChanBorked is returned when a caller attempts to mutate a borked
 	// channel.
-	ErrChanBorked = fmt.Errorf("cannot mutate borked channel")
+	ErrChanBorked = cstate.ErrChanBorked
 
 	// ErrMissingIndexEntry is returned when a caller attempts to close a
 	// channel and the outpoint is missing from the index.
-	ErrMissingIndexEntry = fmt.Errorf("missing outpoint from index")
+	ErrMissingIndexEntry = cstate.ErrMissingIndexEntry
 
 	// ErrOnionBlobLength is returned is an onion blob with incorrect
 	// length is read from disk.
-	ErrOnionBlobLength = errors.New("onion blob < 1366 bytes")
+	ErrOnionBlobLength = cstate.ErrOnionBlobLength
 )
 
 const (
 	// A tlv type definition used to serialize an outpoint's indexStatus
 	// for use in the outpoint index.
 	indexStatusType tlv.Type = 0
+)
+
+type (
+	// OpenChannel encapsulates the persistent and dynamic state of an open
+	// channel with a remote node.
+	OpenChannel = cstate.OpenChannel
+
+	// ChannelCommitment is a snapshot of the commitment state at a
+	// particular point in the commitment chain.
+	ChannelCommitment = cstate.ChannelCommitment
+
+	// HTLC is the on-disk representation of a hash time-locked contract.
+	HTLC = cstate.HTLC
+
+	// LogUpdate represents a pending update to the remote commitment
+	// chain.
+	LogUpdate = cstate.LogUpdate
+
+	// CommitDiff represents the delta needed to apply the state
+	// transition between two subsequent commitment states.
+	CommitDiff = cstate.CommitDiff
 )
 
 // openChannelTlvData houses the new data fields that are stored for each
@@ -400,261 +414,78 @@ func isOutpointClosed(opBucket kvdb.RBucket, chanKey []byte) (bool, error) {
 }
 
 // ChannelType is an enum-like type that describes one of several possible
-// channel types. Each open channel is associated with a particular type as the
-// channel type may determine how higher level operations are conducted such as
-// fee negotiation, channel closing, the format of HTLCs, etc. Structure-wise,
-// a ChannelType is a bit field, with each bit denoting a modification from the
-// base channel type of single funder.
-type ChannelType uint64
+// channel types.
+type ChannelType = cstate.ChannelType
 
 const (
-	// NOTE: iota isn't used here for this enum needs to be stable
-	// long-term as it will be persisted to the database.
-
 	// SingleFunderBit represents a channel wherein one party solely funds
 	// the entire capacity of the channel.
-	SingleFunderBit ChannelType = 0
+	SingleFunderBit = cstate.SingleFunderBit
 
 	// DualFunderBit represents a channel wherein both parties contribute
-	// funds towards the total capacity of the channel. The channel may be
-	// funded symmetrically or asymmetrically.
-	DualFunderBit ChannelType = 1 << 0
+	// funds towards the total capacity of the channel.
+	DualFunderBit = cstate.DualFunderBit
 
 	// SingleFunderTweaklessBit is similar to the basic SingleFunder channel
-	// type, but it omits the tweak for one's key in the commitment
-	// transaction of the remote party.
-	SingleFunderTweaklessBit ChannelType = 1 << 1
+	// type, but it omits the tweak for one's key.
+	SingleFunderTweaklessBit = cstate.SingleFunderTweaklessBit
 
 	// NoFundingTxBit denotes if we have the funding transaction locally on
-	// disk. This bit may be on if the funding transaction was crafted by a
-	// wallet external to the primary daemon.
-	NoFundingTxBit ChannelType = 1 << 2
+	// disk.
+	NoFundingTxBit = cstate.NoFundingTxBit
 
 	// AnchorOutputsBit indicates that the channel makes use of anchor
-	// outputs to bump the commitment transaction's effective feerate. This
-	// channel type also uses a delayed to_remote output script.
-	AnchorOutputsBit ChannelType = 1 << 3
+	// outputs to bump the commitment transaction's effective feerate.
+	AnchorOutputsBit = cstate.AnchorOutputsBit
 
 	// FrozenBit indicates that the channel is a frozen channel, meaning
 	// that only the responder can decide to cooperatively close the
 	// channel.
-	FrozenBit ChannelType = 1 << 4
+	FrozenBit = cstate.FrozenBit
 
 	// ZeroHtlcTxFeeBit indicates that the channel should use zero-fee
 	// second-level HTLC transactions.
-	ZeroHtlcTxFeeBit ChannelType = 1 << 5
+	ZeroHtlcTxFeeBit = cstate.ZeroHtlcTxFeeBit
 
 	// LeaseExpirationBit indicates that the channel has been leased for a
-	// period of time, constraining every output that pays to the channel
-	// initiator with an additional CLTV of the lease maturity.
-	LeaseExpirationBit ChannelType = 1 << 6
+	// period of time.
+	LeaseExpirationBit = cstate.LeaseExpirationBit
 
 	// ZeroConfBit indicates that the channel is a zero-conf channel.
-	ZeroConfBit ChannelType = 1 << 7
+	ZeroConfBit = cstate.ZeroConfBit
 
 	// ScidAliasChanBit indicates that the channel has negotiated the
 	// scid-alias channel type.
-	ScidAliasChanBit ChannelType = 1 << 8
+	ScidAliasChanBit = cstate.ScidAliasChanBit
 
 	// ScidAliasFeatureBit indicates that the scid-alias feature bit was
 	// negotiated during the lifetime of this channel.
-	ScidAliasFeatureBit ChannelType = 1 << 9
+	ScidAliasFeatureBit = cstate.ScidAliasFeatureBit
 
 	// SimpleTaprootFeatureBit indicates that the simple-taproot-chans
 	// feature bit was negotiated during the lifetime of the channel.
-	SimpleTaprootFeatureBit ChannelType = 1 << 10
+	SimpleTaprootFeatureBit = cstate.SimpleTaprootFeatureBit
 
 	// TapscriptRootBit indicates that this is a MuSig2 channel with a top
-	// level tapscript commitment. This MUST be set along with the
-	// SimpleTaprootFeatureBit.
-	TapscriptRootBit ChannelType = 1 << 11
+	// level tapscript commitment.
+	TapscriptRootBit = cstate.TapscriptRootBit
 
 	// TaprootFinalBit indicates that this is a MuSig2 channel using the
-	// final/production taproot scripts and feature bits 80/81. This MUST
-	// be set along with the SimpleTaprootFeatureBit.
-	TaprootFinalBit ChannelType = 1 << 12
+	// final/production taproot scripts and feature bits 80/81.
+	TaprootFinalBit = cstate.TaprootFinalBit
 )
 
-// IsSingleFunder returns true if the channel type if one of the known single
-// funder variants.
-func (c ChannelType) IsSingleFunder() bool {
-	return c&DualFunderBit == 0
-}
-
-// IsDualFunder returns true if the ChannelType has the DualFunderBit set.
-func (c ChannelType) IsDualFunder() bool {
-	return c&DualFunderBit == DualFunderBit
-}
-
-// IsTweakless returns true if the target channel uses a commitment that
-// doesn't tweak the key for the remote party.
-func (c ChannelType) IsTweakless() bool {
-	return c&SingleFunderTweaklessBit == SingleFunderTweaklessBit
-}
-
-// HasFundingTx returns true if this channel type is one that has a funding
-// transaction stored locally.
-func (c ChannelType) HasFundingTx() bool {
-	return c&NoFundingTxBit == 0
-}
-
-// HasAnchors returns true if this channel type has anchor outputs on its
-// commitment.
-func (c ChannelType) HasAnchors() bool {
-	return c&AnchorOutputsBit == AnchorOutputsBit
-}
-
-// ZeroHtlcTxFee returns true if this channel type uses second-level HTLC
-// transactions signed with zero-fee.
-func (c ChannelType) ZeroHtlcTxFee() bool {
-	return c&ZeroHtlcTxFeeBit == ZeroHtlcTxFeeBit
-}
-
-// IsFrozen returns true if the channel is considered to be "frozen". A frozen
-// channel means that only the responder can initiate a cooperative channel
-// closure.
-func (c ChannelType) IsFrozen() bool {
-	return c&FrozenBit == FrozenBit
-}
-
-// HasLeaseExpiration returns true if the channel originated from a lease.
-func (c ChannelType) HasLeaseExpiration() bool {
-	return c&LeaseExpirationBit == LeaseExpirationBit
-}
-
-// HasZeroConf returns true if the channel is a zero-conf channel.
-func (c ChannelType) HasZeroConf() bool {
-	return c&ZeroConfBit == ZeroConfBit
-}
-
-// HasScidAliasChan returns true if the scid-alias channel type was negotiated.
-func (c ChannelType) HasScidAliasChan() bool {
-	return c&ScidAliasChanBit == ScidAliasChanBit
-}
-
-// HasScidAliasFeature returns true if the scid-alias feature bit was
-// negotiated during the lifetime of this channel.
-func (c ChannelType) HasScidAliasFeature() bool {
-	return c&ScidAliasFeatureBit == ScidAliasFeatureBit
-}
-
-// IsTaproot returns true if the channel is using taproot features.
-func (c ChannelType) IsTaproot() bool {
-	return c&SimpleTaprootFeatureBit == SimpleTaprootFeatureBit
-}
-
-// HasTapscriptRoot returns true if the channel is using a top level tapscript
-// root commitment.
-func (c ChannelType) HasTapscriptRoot() bool {
-	return c&TapscriptRootBit == TapscriptRootBit
-}
-
-// IsTaprootFinal returns true if the channel is using final/production taproot
-// scripts and feature bits.
-func (c ChannelType) IsTaprootFinal() bool {
-	return c&TaprootFinalBit == TaprootFinalBit
-}
-
 // ChannelStateBounds are the parameters from OpenChannel and AcceptChannel
-// that are responsible for providing bounds on the state space of the abstract
-// channel state. These values must be remembered for normal channel operation
-// but they do not impact how we compute the commitment transactions themselves.
-type ChannelStateBounds struct {
-	// ChanReserve is an absolute reservation on the channel for the
-	// owner of this set of constraints. This means that the current
-	// settled balance for this node CANNOT dip below the reservation
-	// amount. This acts as a defense against costless attacks when
-	// either side no longer has any skin in the game.
-	ChanReserve btcutil.Amount
+// that bound the abstract channel state.
+type ChannelStateBounds = cstate.ChannelStateBounds
 
-	// MaxPendingAmount is the maximum pending HTLC value that the
-	// owner of these constraints can offer the remote node at a
-	// particular time.
-	MaxPendingAmount lnwire.MilliSatoshi
+// CommitmentParams are the parameters from OpenChannel and AcceptChannel that
+// are required to render an abstract channel state to a concrete commitment
+// transaction.
+type CommitmentParams = cstate.CommitmentParams
 
-	// MinHTLC is the minimum HTLC value that the owner of these
-	// constraints can offer the remote node. If any HTLCs below this
-	// amount are offered, then the HTLC will be rejected. This, in
-	// tandem with the dust limit allows a node to regulate the
-	// smallest HTLC that it deems economically relevant.
-	MinHTLC lnwire.MilliSatoshi
-
-	// MaxAcceptedHtlcs is the maximum number of HTLCs that the owner of
-	// this set of constraints can offer the remote node. This allows each
-	// node to limit their over all exposure to HTLCs that may need to be
-	// acted upon in the case of a unilateral channel closure or a contract
-	// breach.
-	MaxAcceptedHtlcs uint16
-}
-
-// CommitmentParams are the parameters from OpenChannel and
-// AcceptChannel that are required to render an abstract channel state to a
-// concrete commitment transaction. These values are necessary to (re)compute
-// the commitment transaction. We treat these differently than the state space
-// bounds because their history needs to be stored in order to properly handle
-// chain resolution.
-type CommitmentParams struct {
-	// DustLimit is the threshold (in satoshis) below which any outputs
-	// should be trimmed. When an output is trimmed, it isn't materialized
-	// as an actual output, but is instead burned to miner's fees.
-	DustLimit btcutil.Amount
-
-	// CsvDelay is the relative time lock delay expressed in blocks. Any
-	// settled outputs that pay to the owner of this channel configuration
-	// MUST ensure that the delay branch uses this value as the relative
-	// time lock. Similarly, any HTLC's offered by this node should use
-	// this value as well.
-	CsvDelay uint16
-}
-
-// ChannelConfig is a struct that houses the various configuration opens for
-// channels. Each side maintains an instance of this configuration file as it
-// governs: how the funding and commitment transaction to be created, the
-// nature of HTLC's allotted, the keys to be used for delivery, and relative
-// time lock parameters.
-type ChannelConfig struct {
-	// ChannelStateBounds is the set of constraints that must be
-	// upheld for the duration of the channel for the owner of this channel
-	// configuration. Constraints govern a number of flow control related
-	// parameters, also including the smallest HTLC that will be accepted
-	// by a participant.
-	ChannelStateBounds
-
-	// CommitmentParams is an embedding of the parameters
-	// required to render an abstract channel state into a concrete
-	// commitment transaction.
-	CommitmentParams
-
-	// MultiSigKey is the key to be used within the 2-of-2 output script
-	// for the owner of this channel config.
-	MultiSigKey keychain.KeyDescriptor
-
-	// RevocationBasePoint is the base public key to be used when deriving
-	// revocation keys for the remote node's commitment transaction. This
-	// will be combined along with a per commitment secret to derive a
-	// unique revocation key for each state.
-	RevocationBasePoint keychain.KeyDescriptor
-
-	// PaymentBasePoint is the base public key to be used when deriving
-	// the key used within the non-delayed pay-to-self output on the
-	// commitment transaction for a node. This will be combined with a
-	// tweak derived from the per-commitment point to ensure unique keys
-	// for each commitment transaction.
-	PaymentBasePoint keychain.KeyDescriptor
-
-	// DelayBasePoint is the base public key to be used when deriving the
-	// key used within the delayed pay-to-self output on the commitment
-	// transaction for a node. This will be combined with a tweak derived
-	// from the per-commitment point to ensure unique keys for each
-	// commitment transaction.
-	DelayBasePoint keychain.KeyDescriptor
-
-	// HtlcBasePoint is the base public key to be used when deriving the
-	// local HTLC key. The derived key (combined with the tweak derived
-	// from the per-commitment point) is used within the "to self" clause
-	// within any HTLC output scripts.
-	HtlcBasePoint keychain.KeyDescriptor
-}
+// ChannelConfig houses the channel configuration for one side of a channel.
+type ChannelConfig = cstate.ChannelConfig
 
 // commitTlvData stores all the optional data that may be stored as a TLV stream
 // at the _end_ of the normal serialized commit on disk.
@@ -703,97 +534,15 @@ func (c *commitTlvData) decode(r io.Reader) error {
 	return nil
 }
 
-// ChannelCommitment is a snapshot of the commitment state at a particular
-// point in the commitment chain. With each state transition, a snapshot of the
-// current state along with all non-settled HTLCs are recorded. These snapshots
-// detail the state of the _remote_ party's commitment at a particular state
-// number.  For ourselves (the local node) we ONLY store our most recent
-// (unrevoked) state for safety purposes.
-type ChannelCommitment struct {
-	// CommitHeight is the update number that this ChannelDelta represents
-	// the total number of commitment updates to this point. This can be
-	// viewed as sort of a "commitment height" as this number is
-	// monotonically increasing.
-	CommitHeight uint64
-
-	// LocalLogIndex is the cumulative log index index of the local node at
-	// this point in the commitment chain. This value will be incremented
-	// for each _update_ added to the local update log.
-	LocalLogIndex uint64
-
-	// LocalHtlcIndex is the current local running HTLC index. This value
-	// will be incremented for each outgoing HTLC the local node offers.
-	LocalHtlcIndex uint64
-
-	// RemoteLogIndex is the cumulative log index index of the remote node
-	// at this point in the commitment chain. This value will be
-	// incremented for each _update_ added to the remote update log.
-	RemoteLogIndex uint64
-
-	// RemoteHtlcIndex is the current remote running HTLC index. This value
-	// will be incremented for each outgoing HTLC the remote node offers.
-	RemoteHtlcIndex uint64
-
-	// LocalBalance is the current available settled balance within the
-	// channel directly spendable by us.
-	//
-	// NOTE: This is the balance *after* subtracting any commitment fee,
-	// AND anchor output values.
-	LocalBalance lnwire.MilliSatoshi
-
-	// RemoteBalance is the current available settled balance within the
-	// channel directly spendable by the remote node.
-	//
-	// NOTE: This is the balance *after* subtracting any commitment fee,
-	// AND anchor output values.
-	RemoteBalance lnwire.MilliSatoshi
-
-	// CommitFee is the amount calculated to be paid in fees for the
-	// current set of commitment transactions. The fee amount is persisted
-	// with the channel in order to allow the fee amount to be removed and
-	// recalculated with each channel state update, including updates that
-	// happen after a system restart.
-	CommitFee btcutil.Amount
-
-	// FeePerKw is the min satoshis/kilo-weight that should be paid within
-	// the commitment transaction for the entire duration of the channel's
-	// lifetime. This field may be updated during normal operation of the
-	// channel as on-chain conditions change.
-	//
-	// TODO(halseth): make this SatPerKWeight. Cannot be done atm because
-	// this will cause the import cycle lnwallet<->channeldb. Fee
-	// estimation stuff should be in its own package.
-	FeePerKw btcutil.Amount
-
-	// CommitTx is the latest version of the commitment state, broadcast
-	// able by us.
-	CommitTx *wire.MsgTx
-
-	// CustomBlob is an optional blob that can be used to store information
-	// specific to a custom channel type. This may track some custom
-	// specific state for this given commitment.
-	CustomBlob fn.Option[tlv.Blob]
-
-	// CommitSig is one half of the signature required to fully complete
-	// the script for the commitment transaction above. This is the
-	// signature signed by the remote party for our version of the
-	// commitment transactions.
-	CommitSig []byte
-
-	// Htlcs is the set of HTLC's that are pending at this particular
-	// commitment height.
-	Htlcs []HTLC
-}
-
-// amendTlvData updates the channel with the given auxiliary TLV data.
-func (c *ChannelCommitment) amendTlvData(auxData commitTlvData) {
+// amendCommitTlvData updates the commitment with the given auxiliary TLV data.
+func amendCommitTlvData(c *ChannelCommitment, auxData commitTlvData) {
 	auxData.customBlob.WhenSomeV(func(blob tlv.Blob) {
 		c.CustomBlob = fn.Some(blob)
 	})
 }
 
-// extractTlvData creates a new commitTlvData from the given commitment.
-func (c *ChannelCommitment) extractTlvData() commitTlvData {
+// extractCommitTlvData creates a new commitTlvData from the given commitment.
+func extractCommitTlvData(c *ChannelCommitment) commitTlvData {
 	var auxData commitTlvData
 
 	c.CustomBlob.WhenSome(func(blob tlv.Blob) {
@@ -805,136 +554,42 @@ func (c *ChannelCommitment) extractTlvData() commitTlvData {
 	return auxData
 }
 
-// copy returns a deep copy of the channel commitment.
-func (c *ChannelCommitment) copy() ChannelCommitment {
-	c2 := *c
-	if c.CommitTx != nil {
-		c2.CommitTx = c.CommitTx.Copy()
-	}
-	if len(c.CommitSig) > 0 {
-		c2.CommitSig = make([]byte, len(c.CommitSig))
-		copy(c2.CommitSig, c.CommitSig)
-	}
-
-	c.CustomBlob.WhenSome(func(blob tlv.Blob) {
-		blobCopy := make([]byte, len(blob))
-		copy(blobCopy, blob)
-		c2.CustomBlob = fn.Some(blobCopy)
-	})
-
-	if len(c.Htlcs) > 0 {
-		c2.Htlcs = make([]HTLC, len(c.Htlcs))
-		for i, h := range c.Htlcs {
-			c2.Htlcs[i] = h.Copy()
-		}
-	}
-
-	return c2
-}
-
 // ChannelStatus is a bit vector used to indicate whether an OpenChannel is in
 // the default usable state, or a state where it shouldn't be used.
-type ChannelStatus uint64
+type ChannelStatus = cstate.ChannelStatus
 
 var (
 	// ChanStatusDefault is the normal state of an open channel.
-	ChanStatusDefault ChannelStatus
+	ChanStatusDefault = cstate.ChanStatusDefault
 
 	// ChanStatusBorked indicates that the channel has entered an
-	// irreconcilable state, triggered by a state desynchronization or
-	// channel breach.  Channels in this state should never be added to the
-	// htlc switch.
-	ChanStatusBorked ChannelStatus = 1
+	// irreconcilable state.
+	ChanStatusBorked = cstate.ChanStatusBorked
 
 	// ChanStatusCommitBroadcasted indicates that a commitment for this
 	// channel has been broadcasted.
-	ChanStatusCommitBroadcasted ChannelStatus = 1 << 1
+	ChanStatusCommitBroadcasted = cstate.ChanStatusCommitBroadcasted
 
 	// ChanStatusLocalDataLoss indicates that we have lost channel state
-	// for this channel, and broadcasting our latest commitment might be
-	// considered a breach.
-	//
-	// TODO(halseh): actually enforce that we are not force closing such a
+	// for this channel.
+	ChanStatusLocalDataLoss = cstate.ChanStatusLocalDataLoss
+
+	// ChanStatusRestored signals that the channel has been restored and
+	// doesn't have all fields a typical channel will have.
+	ChanStatusRestored = cstate.ChanStatusRestored
+
+	// ChanStatusCoopBroadcasted indicates that a cooperative close for this
+	// channel has been broadcasted.
+	ChanStatusCoopBroadcasted = cstate.ChanStatusCoopBroadcasted
+
+	// ChanStatusLocalCloseInitiator indicates that we initiated closing the
 	// channel.
-	ChanStatusLocalDataLoss ChannelStatus = 1 << 2
-
-	// ChanStatusRestored is a status flag that signals that the channel
-	// has been restored, and doesn't have all the fields a typical channel
-	// will have.
-	ChanStatusRestored ChannelStatus = 1 << 3
-
-	// ChanStatusCoopBroadcasted indicates that a cooperative close for
-	// this channel has been broadcasted. Older cooperatively closed
-	// channels will only have this status set. Newer ones will also have
-	// close initiator information stored using the local/remote initiator
-	// status. This status is set in conjunction with the initiator status
-	// so that we do not need to check multiple channel statues for
-	// cooperative closes.
-	ChanStatusCoopBroadcasted ChannelStatus = 1 << 4
-
-	// ChanStatusLocalCloseInitiator indicates that we initiated closing
-	// the channel.
-	ChanStatusLocalCloseInitiator ChannelStatus = 1 << 5
+	ChanStatusLocalCloseInitiator = cstate.ChanStatusLocalCloseInitiator
 
 	// ChanStatusRemoteCloseInitiator indicates that the remote node
 	// initiated closing the channel.
-	ChanStatusRemoteCloseInitiator ChannelStatus = 1 << 6
+	ChanStatusRemoteCloseInitiator = cstate.ChanStatusRemoteCloseInitiator
 )
-
-// chanStatusStrings maps a ChannelStatus to a human friendly string that
-// describes that status.
-var chanStatusStrings = map[ChannelStatus]string{
-	ChanStatusDefault:              "ChanStatusDefault",
-	ChanStatusBorked:               "ChanStatusBorked",
-	ChanStatusCommitBroadcasted:    "ChanStatusCommitBroadcasted",
-	ChanStatusLocalDataLoss:        "ChanStatusLocalDataLoss",
-	ChanStatusRestored:             "ChanStatusRestored",
-	ChanStatusCoopBroadcasted:      "ChanStatusCoopBroadcasted",
-	ChanStatusLocalCloseInitiator:  "ChanStatusLocalCloseInitiator",
-	ChanStatusRemoteCloseInitiator: "ChanStatusRemoteCloseInitiator",
-}
-
-// orderedChanStatusFlags is an in-order list of all that channel status flags.
-var orderedChanStatusFlags = []ChannelStatus{
-	ChanStatusBorked,
-	ChanStatusCommitBroadcasted,
-	ChanStatusLocalDataLoss,
-	ChanStatusRestored,
-	ChanStatusCoopBroadcasted,
-	ChanStatusLocalCloseInitiator,
-	ChanStatusRemoteCloseInitiator,
-}
-
-// String returns a human-readable representation of the ChannelStatus.
-func (c ChannelStatus) String() string {
-	// If no flags are set, then this is the default case.
-	if c == ChanStatusDefault {
-		return chanStatusStrings[ChanStatusDefault]
-	}
-
-	// Add individual bit flags.
-	statusStr := ""
-	for _, flag := range orderedChanStatusFlags {
-		if c&flag == flag {
-			statusStr += chanStatusStrings[flag] + "|"
-			c -= flag
-		}
-	}
-
-	// Remove anything to the right of the final bar, including it as well.
-	statusStr = strings.TrimRight(statusStr, "|")
-
-	// Add any remaining flags which aren't accounted for as hex.
-	if c != 0 {
-		statusStr += "|0x" + strconv.FormatUint(uint64(c), 16)
-	}
-
-	// If this was purely an unknown flag, then remove the extra bar at the
-	// start of the string.
-	statusStr = strings.TrimLeft(statusStr, "|")
-
-	return statusStr
-}
 
 // FinalHtlcByte defines a byte type that encodes information about the final
 // htlc resolution.
@@ -950,421 +605,70 @@ const (
 	FinalHtlcOffchainBit FinalHtlcByte = 1 << 1
 )
 
-// OpenChannel encapsulates the persistent and dynamic state of an open channel
-// with a remote node. An open channel supports several options for on-disk
-// serialization depending on the exact context. Full (upon channel creation)
-// state commitments, and partial (due to a commitment update) writes are
-// supported. Each partial write due to a state update appends the new update
-// to an on-disk log, which can then subsequently be queried in order to
-// "time-travel" to a prior state.
-type OpenChannel struct {
-	// ChanType denotes which type of channel this is.
-	ChanType ChannelType
-
-	// ChainHash is a hash which represents the blockchain that this
-	// channel will be opened within. This value is typically the genesis
-	// hash. In the case that the original chain went through a contentious
-	// hard-fork, then this value will be tweaked using the unique fork
-	// point on each branch.
-	ChainHash chainhash.Hash
-
-	// FundingOutpoint is the outpoint of the final funding transaction.
-	// This value uniquely and globally identifies the channel within the
-	// target blockchain as specified by the chain hash parameter.
-	FundingOutpoint wire.OutPoint
-
-	// ShortChannelID encodes the exact location in the chain in which the
-	// channel was initially confirmed. This includes: the block height,
-	// transaction index, and the output within the target transaction.
-	//
-	// If IsZeroConf(), then this will the "base" (very first) ALIAS scid
-	// and the confirmed SCID will be stored in ConfirmedScid.
-	ShortChannelID lnwire.ShortChannelID
-
-	// IsPending indicates whether a channel's funding transaction has been
-	// confirmed.
-	IsPending bool
-
-	// IsInitiator is a bool which indicates if we were the original
-	// initiator for the channel. This value may affect how higher levels
-	// negotiate fees, or close the channel.
-	IsInitiator bool
-
-	// chanStatus is the current status of this channel. If it is not in
-	// the state Default, it should not be used for forwarding payments.
-	chanStatus ChannelStatus
-
-	// FundingBroadcastHeight is the height in which the funding
-	// transaction was broadcast. This value can be used by higher level
-	// sub-systems to determine if a channel is stale and/or should have
-	// been confirmed before a certain height.
-	FundingBroadcastHeight uint32
-
-	// ConfirmationHeight records the block height at which the funding
-	// transaction was first confirmed.
-	ConfirmationHeight uint32
-
-	// CloseConfirmationHeight records the block height at which the closing
-	// transaction was first confirmed. This is used to track remaining
-	// confirmations until the channel is considered fully closed. It is
-	// None if the closing transaction has not yet been confirmed, or if
-	// this data was not available (e.g. channels closed before this
-	// field was introduced).
-	CloseConfirmationHeight fn.Option[uint32]
-
-	// NumConfsRequired is the number of confirmations a channel's funding
-	// transaction must have received in order to be considered available
-	// for normal transactional use.
-	NumConfsRequired uint16
-
-	// ChannelFlags holds the flags that were sent as part of the
-	// open_channel message.
-	ChannelFlags lnwire.FundingFlag
-
-	// IdentityPub is the identity public key of the remote node this
-	// channel has been established with.
-	IdentityPub *btcec.PublicKey
-
-	// Capacity is the total capacity of this channel.
-	Capacity btcutil.Amount
-
-	// TotalMSatSent is the total number of milli-satoshis we've sent
-	// within this channel.
-	TotalMSatSent lnwire.MilliSatoshi
-
-	// TotalMSatReceived is the total number of milli-satoshis we've
-	// received within this channel.
-	TotalMSatReceived lnwire.MilliSatoshi
-
-	// InitialLocalBalance is the balance we have during the channel
-	// opening. When we are not the initiator, this value represents the
-	// push amount.
-	InitialLocalBalance lnwire.MilliSatoshi
-
-	// InitialRemoteBalance is the balance they have during the channel
-	// opening.
-	InitialRemoteBalance lnwire.MilliSatoshi
-
-	// LocalChanCfg is the channel configuration for the local node.
-	LocalChanCfg ChannelConfig
-
-	// RemoteChanCfg is the channel configuration for the remote node.
-	RemoteChanCfg ChannelConfig
-
-	// LocalCommitment is the current local commitment state for the local
-	// party. This is stored distinct from the state of the remote party
-	// as there are certain asymmetric parameters which affect the
-	// structure of each commitment.
-	LocalCommitment ChannelCommitment
-
-	// RemoteCommitment is the current remote commitment state for the
-	// remote party. This is stored distinct from the state of the local
-	// party as there are certain asymmetric parameters which affect the
-	// structure of each commitment.
-	RemoteCommitment ChannelCommitment
-
-	// RemoteCurrentRevocation is the current revocation for their
-	// commitment transaction. However, since this the derived public key,
-	// we don't yet have the private key so we aren't yet able to verify
-	// that it's actually in the hash chain.
-	RemoteCurrentRevocation *btcec.PublicKey
-
-	// RemoteNextRevocation is the revocation key to be used for the *next*
-	// commitment transaction we create for the local node. Within the
-	// specification, this value is referred to as the
-	// per-commitment-point.
-	RemoteNextRevocation *btcec.PublicKey
-
-	// RevocationProducer is used to generate the revocation in such a way
-	// that remote side might store it efficiently and have the ability to
-	// restore the revocation by index if needed. Current implementation of
-	// secret producer is shachain producer.
-	RevocationProducer shachain.Producer
-
-	// RevocationStore is used to efficiently store the revocations for
-	// previous channels states sent to us by remote side. Current
-	// implementation of secret store is shachain store.
-	RevocationStore shachain.Store
-
-	// Packager is used to create and update forwarding packages for this
-	// channel, which encodes all necessary information to recover from
-	// failures and reforward HTLCs that were not fully processed.
-	Packager FwdPackager
-
-	// FundingTxn is the transaction containing this channel's funding
-	// outpoint. Upon restarts, this txn will be rebroadcast if the channel
-	// is found to be pending.
-	//
-	// NOTE: This value will only be populated for single-funder channels
-	// for which we are the initiator, and that we also have the funding
-	// transaction for. One can check this by using the HasFundingTx()
-	// method on the ChanType field.
-	FundingTxn *wire.MsgTx
-
-	// LocalShutdownScript is set to a pre-set script if the channel was opened
-	// by the local node with option_upfront_shutdown_script set. If the option
-	// was not set, the field is empty.
-	LocalShutdownScript lnwire.DeliveryAddress
-
-	// RemoteShutdownScript is set to a pre-set script if the channel was opened
-	// by the remote node with option_upfront_shutdown_script set. If the option
-	// was not set, the field is empty.
-	RemoteShutdownScript lnwire.DeliveryAddress
-
-	// ThawHeight is the height when a frozen channel once again becomes a
-	// normal channel. If this is zero, then there're no restrictions on
-	// this channel. If the value is lower than 500,000, then it's
-	// interpreted as a relative height, or an absolute height otherwise.
-	ThawHeight uint32
-
-	// LastWasRevoke is a boolean that determines if the last update we sent
-	// was a revocation (true) or a commitment signature (false).
-	LastWasRevoke bool
-
-	// RevocationKeyLocator stores the KeyLocator information that we will
-	// need to derive the shachain root for this channel. This allows us to
-	// have private key isolation from lnd.
-	RevocationKeyLocator keychain.KeyLocator
-
-	// confirmedScid is the confirmed ShortChannelID for a zero-conf
-	// channel. If the channel is unconfirmed, then this will be the
-	// default ShortChannelID. This is only set for zero-conf channels.
-	confirmedScid lnwire.ShortChannelID
-
-	// Memo is any arbitrary information we wish to store locally about the
-	// channel that will be useful to our future selves.
-	Memo []byte
-
-	// TapscriptRoot is an optional tapscript root used to derive the MuSig2
-	// funding output.
-	TapscriptRoot fn.Option[chainhash.Hash]
-
-	// CustomBlob is an optional blob that can be used to store information
-	// specific to a custom channel type. This information is only created
-	// at channel funding time, and after wards is to be considered
-	// immutable.
-	CustomBlob fn.Option[tlv.Blob]
-
-	// TODO(roasbeef): eww
-	Db *ChannelStateDB
-
-	// TODO(roasbeef): just need to store local and remote HTLC's?
-
-	sync.RWMutex
-}
-
-// String returns a string representation of the channel.
-func (c *OpenChannel) String() string {
-	indexStr := "height=%v, local_htlc_index=%v, local_log_index=%v, " +
-		"remote_htlc_index=%v, remote_log_index=%v"
-
-	commit := c.LocalCommitment
-	local := fmt.Sprintf(indexStr, commit.CommitHeight,
-		commit.LocalHtlcIndex, commit.LocalLogIndex,
-		commit.RemoteHtlcIndex, commit.RemoteLogIndex,
-	)
-
-	commit = c.RemoteCommitment
-	remote := fmt.Sprintf(indexStr, commit.CommitHeight,
-		commit.LocalHtlcIndex, commit.LocalLogIndex,
-		commit.RemoteHtlcIndex, commit.RemoteLogIndex,
-	)
-
-	return fmt.Sprintf("SCID=%v, status=%v, initiator=%v, pending=%v, "+
-		"local commitment has %s, remote commitment has %s",
-		c.ShortChannelID, c.chanStatus, c.IsInitiator, c.IsPending,
-		local, remote,
-	)
-}
-
-// Initiator returns the ChannelParty that originally opened this channel.
-func (c *OpenChannel) Initiator() lntypes.ChannelParty {
-	c.RLock()
-	defer c.RUnlock()
-
-	if c.IsInitiator {
-		return lntypes.Local
-	}
-
-	return lntypes.Remote
-}
-
-// ShortChanID returns the current ShortChannelID of this channel.
-func (c *OpenChannel) ShortChanID() lnwire.ShortChannelID {
-	c.RLock()
-	defer c.RUnlock()
-
-	return c.ShortChannelID
-}
-
-// ZeroConfRealScid returns the zero-conf channel's confirmed scid. This should
-// only be called if IsZeroConf returns true.
-func (c *OpenChannel) ZeroConfRealScid() lnwire.ShortChannelID {
-	c.RLock()
-	defer c.RUnlock()
-
-	return c.confirmedScid
-}
-
-// ZeroConfConfirmed returns whether the zero-conf channel has confirmed. This
-// should only be called if IsZeroConf returns true.
-func (c *OpenChannel) ZeroConfConfirmed() bool {
-	c.RLock()
-	defer c.RUnlock()
-
-	return c.confirmedScid != hop.Source
-}
-
-// IsZeroConf returns whether the option_zeroconf channel type was negotiated.
-func (c *OpenChannel) IsZeroConf() bool {
-	c.RLock()
-	defer c.RUnlock()
-
-	return c.ChanType.HasZeroConf()
-}
-
-// IsOptionScidAlias returns whether the option_scid_alias channel type was
-// negotiated.
-func (c *OpenChannel) IsOptionScidAlias() bool {
-	c.RLock()
-	defer c.RUnlock()
-
-	return c.ChanType.HasScidAliasChan()
-}
-
-// NegotiatedAliasFeature returns whether the option-scid-alias feature bit was
-// negotiated.
-func (c *OpenChannel) NegotiatedAliasFeature() bool {
-	c.RLock()
-	defer c.RUnlock()
-
-	return c.ChanType.HasScidAliasFeature()
-}
-
-// ChanStatus returns the current ChannelStatus of this channel.
-func (c *OpenChannel) ChanStatus() ChannelStatus {
-	c.RLock()
-	defer c.RUnlock()
-
-	return c.chanStatus
-}
-
-// ApplyChanStatus allows the caller to modify the internal channel state in a
-// thead-safe manner.
-func (c *OpenChannel) ApplyChanStatus(status ChannelStatus) error {
-	c.Lock()
-	defer c.Unlock()
-
-	return c.putChanStatus(status)
-}
-
-// ClearChanStatus allows the caller to clear a particular channel status from
-// the primary channel status bit field. After this method returns, a call to
-// HasChanStatus(status) should return false.
-func (c *OpenChannel) ClearChanStatus(status ChannelStatus) error {
-	c.Lock()
-	defer c.Unlock()
-
-	return c.clearChanStatus(status)
-}
-
-// HasChanStatus returns true if the internal bitfield channel status of the
-// target channel has the specified status bit set.
-func (c *OpenChannel) HasChanStatus(status ChannelStatus) bool {
-	c.RLock()
-	defer c.RUnlock()
-
-	return c.hasChanStatus(status)
-}
-
-func (c *OpenChannel) hasChanStatus(status ChannelStatus) bool {
-	// Special case ChanStatusDefualt since it isn't actually flag, but a
-	// particular combination (or lack-there-of) of flags.
-	if status == ChanStatusDefault {
-		return c.chanStatus == ChanStatusDefault
-	}
-
-	return c.chanStatus&status == status
-}
-
-// BroadcastHeight returns the height at which the funding tx was broadcast.
-func (c *OpenChannel) BroadcastHeight() uint32 {
-	c.RLock()
-	defer c.RUnlock()
-
-	return c.FundingBroadcastHeight
-}
-
-// SetBroadcastHeight sets the FundingBroadcastHeight.
-func (c *OpenChannel) SetBroadcastHeight(height uint32) {
-	c.Lock()
-	defer c.Unlock()
-
-	c.FundingBroadcastHeight = height
-}
-
-// amendTlvData updates the channel with the given auxiliary TLV data.
-func (c *OpenChannel) amendTlvData(auxData openChannelTlvData) {
-	c.RevocationKeyLocator = auxData.revokeKeyLoc.Val.KeyLocator
-	c.InitialLocalBalance = lnwire.MilliSatoshi(
+// amendOpenChannelTlvData updates the channel with the given auxiliary TLV
+// data.
+func amendOpenChannelTlvData(channel *OpenChannel, auxData openChannelTlvData) {
+	channel.RevocationKeyLocator = auxData.revokeKeyLoc.Val.KeyLocator
+	channel.InitialLocalBalance = lnwire.MilliSatoshi(
 		auxData.initialLocalBalance.Val,
 	)
-	c.InitialRemoteBalance = lnwire.MilliSatoshi(
+	channel.InitialRemoteBalance = lnwire.MilliSatoshi(
 		auxData.initialRemoteBalance.Val,
 	)
-	c.confirmedScid = auxData.realScid.Val
-	c.ConfirmationHeight = auxData.confirmationHeight.Val
+	channel.SetConfirmedScidForStore(auxData.realScid.Val)
+	channel.ConfirmationHeight = auxData.confirmationHeight.Val
 
 	auxData.memo.WhenSomeV(func(memo []byte) {
-		c.Memo = memo
+		channel.Memo = memo
 	})
 	auxData.tapscriptRoot.WhenSomeV(func(h [32]byte) {
-		c.TapscriptRoot = fn.Some[chainhash.Hash](h)
+		channel.TapscriptRoot = fn.Some[chainhash.Hash](h)
 	})
 	auxData.customBlob.WhenSomeV(func(blob tlv.Blob) {
-		c.CustomBlob = fn.Some(blob)
+		channel.CustomBlob = fn.Some(blob)
 	})
 	auxData.closeConfirmationHeight.WhenSomeV(func(h uint32) {
-		c.CloseConfirmationHeight = fn.Some(h)
+		channel.CloseConfirmationHeight = fn.Some(h)
 	})
 }
 
-// extractTlvData creates a new openChannelTlvData from the given channel.
-func (c *OpenChannel) extractTlvData() openChannelTlvData {
+// extractOpenChannelTlvData creates a new openChannelTlvData from the given
+// channel.
+func extractOpenChannelTlvData(channel *OpenChannel) openChannelTlvData {
 	auxData := openChannelTlvData{
 		revokeKeyLoc: tlv.NewRecordT[tlv.TlvType1](
-			keyLocRecord{c.RevocationKeyLocator},
+			keyLocRecord{channel.RevocationKeyLocator},
 		),
 		initialLocalBalance: tlv.NewPrimitiveRecord[tlv.TlvType2](
-			uint64(c.InitialLocalBalance),
+			uint64(channel.InitialLocalBalance),
 		),
 		initialRemoteBalance: tlv.NewPrimitiveRecord[tlv.TlvType3](
-			uint64(c.InitialRemoteBalance),
+			uint64(channel.InitialRemoteBalance),
 		),
 		realScid: tlv.NewRecordT[tlv.TlvType4](
-			c.confirmedScid,
+			channel.ConfirmedScidForStore(),
 		),
 		confirmationHeight: tlv.NewPrimitiveRecord[tlv.TlvType8](
-			c.ConfirmationHeight,
+			channel.ConfirmationHeight,
 		),
 	}
 
-	if len(c.Memo) != 0 {
+	if len(channel.Memo) != 0 {
 		auxData.memo = tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[tlv.TlvType5](c.Memo),
+			tlv.NewPrimitiveRecord[tlv.TlvType5](channel.Memo),
 		)
 	}
-	c.TapscriptRoot.WhenSome(func(h chainhash.Hash) {
+	channel.TapscriptRoot.WhenSome(func(h chainhash.Hash) {
 		auxData.tapscriptRoot = tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType6, [32]byte](h),
 		)
 	})
-	c.CustomBlob.WhenSome(func(blob tlv.Blob) {
+	channel.CustomBlob.WhenSome(func(blob tlv.Blob) {
 		auxData.customBlob = tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType7](blob),
 		)
 	})
-	c.CloseConfirmationHeight.WhenSome(func(h uint32) {
+	channel.CloseConfirmationHeight.WhenSome(func(h uint32) {
 		auxData.closeConfirmationHeight = tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType9](h),
 		)
@@ -1373,15 +677,13 @@ func (c *OpenChannel) extractTlvData() openChannelTlvData {
 	return auxData
 }
 
-// Refresh updates the in-memory channel state using the latest state observed
-// on disk.
-func (c *OpenChannel) Refresh() error {
-	c.Lock()
-	defer c.Unlock()
-
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+// RefreshChannel updates the in-memory channel state using the latest state
+// observed on disk.
+func (c *ChannelStateDB) RefreshChannel(channel *OpenChannel) error {
+	return kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
@@ -1389,30 +691,27 @@ func (c *OpenChannel) Refresh() error {
 
 		// We'll re-populating the in-memory channel with the info
 		// fetched from disk.
-		if err := fetchChanInfo(chanBucket, c); err != nil {
+		if err := fetchChanInfo(chanBucket, channel); err != nil {
 			return fmt.Errorf("unable to fetch chan info: %w", err)
 		}
 
 		// Also populate the channel's commitment states for both sides
 		// of the channel.
-		if err := fetchChanCommitments(chanBucket, c); err != nil {
+		err = fetchChanCommitments(chanBucket, channel)
+		if err != nil {
 			return fmt.Errorf("unable to fetch chan commitments: "+
 				"%v", err)
 		}
 
 		// Also retrieve the current revocation state.
-		if err := fetchChanRevocationState(chanBucket, c); err != nil {
+		err = fetchChanRevocationState(chanBucket, channel)
+		if err != nil {
 			return fmt.Errorf("unable to fetch chan revocations: "+
 				"%v", err)
 		}
 
 		return nil
 	}, func() {})
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // fetchChanBucket is a helper function that returns the bucket where a
@@ -1553,9 +852,9 @@ func fetchFinalHtlcsBucketRw(tx kvdb.RwTx,
 	return chanBucket, nil
 }
 
-// fullSync syncs the contents of an OpenChannel while re-using an existing
-// database transaction.
-func (c *OpenChannel) fullSync(tx kvdb.RwTx) error {
+// fullSyncOpenChannel syncs the contents of an OpenChannel while re-using an
+// existing database transaction.
+func fullSyncOpenChannel(tx kvdb.RwTx, c *OpenChannel) error {
 	// Fetch the outpoint bucket and check if the outpoint already exists.
 	opBucket := tx.ReadWriteBucket(outpointBucket)
 	if opBucket == nil {
@@ -1645,181 +944,145 @@ func (c *OpenChannel) fullSync(tx kvdb.RwTx) error {
 	return putOpenChannel(chanBucket, c)
 }
 
-// MarkConfirmationHeight updates the channel's confirmation height once the
-// channel opening transaction receives one confirmation.
-func (c *OpenChannel) MarkConfirmationHeight(height uint32) error {
-	c.Lock()
-	defer c.Unlock()
+// MarkChannelConfirmationHeight updates the channel's confirmation height once
+// the channel opening transaction receives one confirmation.
+func (c *ChannelStateDB) MarkChannelConfirmationHeight(channel *OpenChannel,
+	height uint32) error {
 
-	if err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
 		}
 
-		channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
-		if err != nil {
-			return err
-		}
-
-		channel.ConfirmationHeight = height
-
-		return putOpenChannel(chanBucket, channel)
-	}, func() {}); err != nil {
-		return err
-	}
-
-	c.ConfirmationHeight = height
-
-	return nil
-}
-
-// ResetCloseConfirmationHeight clears the channel's close confirmation height
-// when the spending transaction is reorged out.
-func (c *OpenChannel) ResetCloseConfirmationHeight() error {
-	return c.MarkCloseConfirmationHeight(fn.None[uint32]())
-}
-
-// MarkCloseConfirmationHeight updates the channel's close confirmation height
-// when the closing transaction is first detected in a block (spend height).
-func (c *OpenChannel) MarkCloseConfirmationHeight(
-	height fn.Option[uint32]) error {
-
-	c.Lock()
-	defer c.Unlock()
-
-	if err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
-		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+		diskChannel, err := fetchOpenChannel(
+			chanBucket, &channel.FundingOutpoint,
 		)
 		if err != nil {
 			return err
 		}
 
-		channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
+		diskChannel.ConfirmationHeight = height
+
+		return putOpenChannel(chanBucket, diskChannel)
+	}, func() {})
+}
+
+// MarkChannelCloseConfirmationHeight updates the channel's close confirmation
+// height when the closing transaction is first detected in a block.
+func (c *ChannelStateDB) MarkChannelCloseConfirmationHeight(
+	channel *OpenChannel, height fn.Option[uint32]) error {
+
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		chanBucket, err := fetchChanBucketRw(
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
+		)
 		if err != nil {
 			return err
 		}
 
-		channel.CloseConfirmationHeight = height
+		diskChannel, err := fetchOpenChannel(
+			chanBucket, &channel.FundingOutpoint,
+		)
+		if err != nil {
+			return err
+		}
 
-		return putOpenChannel(chanBucket, channel)
-	}, func() {}); err != nil {
-		return err
-	}
+		diskChannel.CloseConfirmationHeight = height
 
-	c.CloseConfirmationHeight = height
-
-	return nil
+		return putOpenChannel(chanBucket, diskChannel)
+	}, func() {})
 }
 
-// MarkAsOpen marks a channel as fully open given a locator that uniquely
+// MarkChannelOpen marks a channel as fully open given a locator that uniquely
 // describes its location within the chain.
-func (c *OpenChannel) MarkAsOpen(openLoc lnwire.ShortChannelID) error {
-	c.Lock()
-	defer c.Unlock()
+func (c *ChannelStateDB) MarkChannelOpen(channel *OpenChannel,
+	openLoc lnwire.ShortChannelID) error {
 
-	if err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
 		}
 
-		channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
+		diskChannel, err := fetchOpenChannel(
+			chanBucket, &channel.FundingOutpoint,
+		)
 		if err != nil {
 			return err
 		}
 
-		channel.IsPending = false
-		channel.ShortChannelID = openLoc
+		diskChannel.IsPending = false
+		diskChannel.ShortChannelID = openLoc
 
-		return putOpenChannel(chanBucket, channel)
-	}, func() {}); err != nil {
-		return err
-	}
-
-	c.IsPending = false
-	c.ShortChannelID = openLoc
-	c.Packager = NewChannelPackager(openLoc)
-
-	return nil
+		return putOpenChannel(chanBucket, diskChannel)
+	}, func() {})
 }
 
-// MarkRealScid marks the zero-conf channel's confirmed ShortChannelID. This
-// should only be done if IsZeroConf returns true.
-func (c *OpenChannel) MarkRealScid(realScid lnwire.ShortChannelID) error {
-	c.Lock()
-	defer c.Unlock()
+// MarkChannelRealScid marks the zero-conf channel's confirmed ShortChannelID.
+func (c *ChannelStateDB) MarkChannelRealScid(channel *OpenChannel,
+	realScid lnwire.ShortChannelID) error {
 
-	if err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
 		}
 
-		channel, err := fetchOpenChannel(
-			chanBucket, &c.FundingOutpoint,
+		diskChannel, err := fetchOpenChannel(
+			chanBucket, &channel.FundingOutpoint,
 		)
 		if err != nil {
 			return err
 		}
 
-		channel.confirmedScid = realScid
+		diskChannel.SetConfirmedScidForStore(realScid)
 
-		return putOpenChannel(chanBucket, channel)
-	}, func() {}); err != nil {
-		return err
-	}
-
-	c.confirmedScid = realScid
-
-	return nil
+		return putOpenChannel(chanBucket, diskChannel)
+	}, func() {})
 }
 
-// MarkScidAliasNegotiated adds ScidAliasFeatureBit to ChanType in-memory and
-// in the database.
-func (c *OpenChannel) MarkScidAliasNegotiated() error {
-	c.Lock()
-	defer c.Unlock()
+// MarkChannelScidAliasNegotiated adds ScidAliasFeatureBit to ChanType in the
+// database.
+func (c *ChannelStateDB) MarkChannelScidAliasNegotiated(
+	channel *OpenChannel) error {
 
-	if err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
 		}
 
-		channel, err := fetchOpenChannel(
-			chanBucket, &c.FundingOutpoint,
+		diskChannel, err := fetchOpenChannel(
+			chanBucket, &channel.FundingOutpoint,
 		)
 		if err != nil {
 			return err
 		}
 
-		channel.ChanType |= ScidAliasFeatureBit
-		return putOpenChannel(chanBucket, channel)
-	}, func() {}); err != nil {
-		return err
-	}
+		diskChannel.ChanType |= ScidAliasFeatureBit
 
-	c.ChanType |= ScidAliasFeatureBit
-
-	return nil
+		return putOpenChannel(chanBucket, diskChannel)
+	}, func() {})
 }
 
-// MarkDataLoss marks sets the channel status to LocalDataLoss and stores the
-// passed commitPoint for use to retrieve funds in case the remote force closes
-// the channel.
-func (c *OpenChannel) MarkDataLoss(commitPoint *btcec.PublicKey) error {
-	c.Lock()
-	defer c.Unlock()
+// MarkChannelDataLoss marks the channel as local-data-loss and stores the
+// commit point needed if the remote force closes.
+func (c *ChannelStateDB) MarkChannelDataLoss(channel *OpenChannel,
+	commitPoint *btcec.PublicKey) error {
 
 	var b bytes.Buffer
 	if err := WriteElement(&b, commitPoint); err != nil {
@@ -1830,17 +1093,20 @@ func (c *OpenChannel) MarkDataLoss(commitPoint *btcec.PublicKey) error {
 		return chanBucket.Put(dataLossCommitPointKey, b.Bytes())
 	}
 
-	return c.putChanStatus(ChanStatusLocalDataLoss, putCommitPoint)
+	return c.putChanStatus(channel, ChanStatusLocalDataLoss, putCommitPoint)
 }
 
-// DataLossCommitPoint retrieves the stored commit point set during
-// MarkDataLoss. If not found ErrNoCommitPoint is returned.
-func (c *OpenChannel) DataLossCommitPoint() (*btcec.PublicKey, error) {
+// FetchChannelDataLossCommitPoint retrieves the commit point stored when the
+// channel was marked as local-data-loss.
+func (c *ChannelStateDB) FetchChannelDataLossCommitPoint(
+	channel *OpenChannel) (*btcec.PublicKey, error) {
+
 	var commitPoint *btcec.PublicKey
 
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		switch err {
 		case nil:
@@ -1870,242 +1136,35 @@ func (c *OpenChannel) DataLossCommitPoint() (*btcec.PublicKey, error) {
 	return commitPoint, nil
 }
 
-// MarkBorked marks the event when the channel as reached an irreconcilable
-// state, such as a channel breach or state desynchronization. Borked channels
-// should never be added to the switch.
-func (c *OpenChannel) MarkBorked() error {
-	c.Lock()
-	defer c.Unlock()
-
-	return c.putChanStatus(ChanStatusBorked)
-}
-
-// SecondCommitmentPoint returns the second per-commitment-point for use in the
-// channel_ready message.
-func (c *OpenChannel) SecondCommitmentPoint() (*btcec.PublicKey, error) {
-	c.RLock()
-	defer c.RUnlock()
-
-	// Since we start at commitment height = 0, the second per commitment
-	// point is actually at the 1st index.
-	revocation, err := c.RevocationProducer.AtIndex(1)
-	if err != nil {
-		return nil, err
-	}
-
-	return input.ComputeCommitmentPoint(revocation[:]), nil
+// MarkChannelBorked marks the channel as irreconcilable.
+func (c *ChannelStateDB) MarkChannelBorked(channel *OpenChannel) error {
+	return c.ApplyChannelStatus(channel, ChanStatusBorked)
 }
 
 var (
-	// taprootRevRootKey is the key used to derive the revocation root for
-	// the taproot nonces. This is done via HMAC of the existing revocation
-	// root.
-	taprootRevRootKey = []byte("taproot-rev-root")
+	// DeriveMusig2Shachain derives a shachain producer for the taproot
+	// channel from normal shachain revocation root.
+	DeriveMusig2Shachain = cstate.DeriveMusig2Shachain
+
+	// NewMusigVerificationNonce generates the local or verification nonce
+	// for another musig2 session.
+	NewMusigVerificationNonce = cstate.NewMusigVerificationNonce
 )
 
-// DeriveMusig2Shachain derives a shachain producer for the taproot channel
-// from normal shachain revocation root.
-func DeriveMusig2Shachain(revRoot shachain.Producer) (shachain.Producer, error) { //nolint:ll
-	// In order to obtain the revocation root hash to create the taproot
-	// revocation, we'll encode the producer into a buffer, then use that
-	// to derive the shachain root needed.
-	var rootHashBuf bytes.Buffer
-	if err := revRoot.Encode(&rootHashBuf); err != nil {
-		return nil, fmt.Errorf("unable to encode producer: %w", err)
-	}
+// StoreChannelShutdownInfo persists the ShutdownInfo for the target channel.
+func (c *ChannelStateDB) StoreChannelShutdownInfo(channel *OpenChannel,
+	info *ShutdownInfo) error {
 
-	revRootHash := chainhash.HashH(rootHashBuf.Bytes())
-
-	// For taproot channel types, we'll also generate a distinct shachain
-	// root using the same seed information. We'll use this to generate
-	// verification nonces for the channel. We'll bind with this a simple
-	// hmac.
-	taprootRevHmac := hmac.New(sha256.New, taprootRevRootKey)
-	if _, err := taprootRevHmac.Write(revRootHash[:]); err != nil {
-		return nil, err
-	}
-
-	taprootRevRoot := taprootRevHmac.Sum(nil)
-
-	// Once we have the root, we can then generate our shachain producer
-	// and from that generate the per-commitment point.
-	return shachain.NewRevocationProducerFromBytes(
-		taprootRevRoot,
-	)
-}
-
-// NewMusigVerificationNonce generates the local or verification nonce for
-// another musig2 session. In order to permit our implementation to not have to
-// write any secret nonce state to disk, we'll use the _next_ shachain
-// pre-image as our primary randomness source. When used to generate the nonce
-// again to broadcast our commitment hte current height will be used.
-func NewMusigVerificationNonce(pubKey *btcec.PublicKey, targetHeight uint64,
-	shaGen shachain.Producer) (*musig2.Nonces, error) {
-
-	// Now that we know what height we need, we'll grab the shachain
-	// pre-image at the target destination.
-	nextPreimage, err := shaGen.AtIndex(targetHeight)
-	if err != nil {
-		return nil, err
-	}
-
-	shaChainRand := musig2.WithCustomRand(bytes.NewBuffer(nextPreimage[:]))
-	pubKeyOpt := musig2.WithPublicKey(pubKey)
-
-	return musig2.GenNonces(pubKeyOpt, shaChainRand)
-}
-
-// ChanSyncMsg returns the ChannelReestablish message that should be sent upon
-// reconnection with the remote peer that we're maintaining this channel with.
-// The information contained within this message is necessary to re-sync our
-// commitment chains in the case of a last or only partially processed message.
-// When the remote party receives this message one of three things may happen:
-//
-//  1. We're fully synced and no messages need to be sent.
-//  2. We didn't get the last CommitSig message they sent, so they'll re-send
-//     it.
-//  3. We didn't get the last RevokeAndAck message they sent, so they'll
-//     re-send it.
-//
-// If this is a restored channel, having status ChanStatusRestored, then we'll
-// modify our typical chan sync message to ensure they force close even if
-// we're on the very first state.
-func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
-
-	c.Lock()
-	defer c.Unlock()
-
-	// The remote commitment height that we'll send in the
-	// ChannelReestablish message is our current commitment height plus
-	// one. If the receiver thinks that our commitment height is actually
-	// *equal* to this value, then they'll re-send the last commitment that
-	// they sent but we never fully processed.
-	localHeight := c.LocalCommitment.CommitHeight
-	nextLocalCommitHeight := localHeight + 1
-
-	// The second value we'll send is the height of the remote commitment
-	// from our PoV. If the receiver thinks that their height is actually
-	// *one plus* this value, then they'll re-send their last revocation.
-	remoteChainTipHeight := c.RemoteCommitment.CommitHeight
-
-	// If this channel has undergone a commitment update, then in order to
-	// prove to the remote party our knowledge of their prior commitment
-	// state, we'll also send over the last commitment secret that the
-	// remote party sent.
-	var lastCommitSecret [32]byte
-	if remoteChainTipHeight != 0 {
-		remoteSecret, err := c.RevocationStore.LookUp(
-			remoteChainTipHeight - 1,
-		)
-		if err != nil {
-			return nil, err
-		}
-		lastCommitSecret = [32]byte(*remoteSecret)
-	}
-
-	// Additionally, we'll send over the current unrevoked commitment on
-	// our local commitment transaction.
-	currentCommitSecret, err := c.RevocationProducer.AtIndex(
-		localHeight,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// If we've restored this channel, then we'll purposefully give them an
-	// invalid LocalUnrevokedCommitPoint so they'll force close the channel
-	// allowing us to sweep our funds.
-	if c.hasChanStatus(ChanStatusRestored) {
-		currentCommitSecret[0] ^= 1
-
-		// If this is a tweakless channel, then we'll purposefully send
-		// a next local height taht's invalid to trigger a force close
-		// on their end. We do this as tweakless channels don't require
-		// that the commitment point is valid, only that it's present.
-		if c.ChanType.IsTweakless() {
-			nextLocalCommitHeight = 0
-		}
-	}
-
-	// If this is a taproot channel, then we'll need to generate our next
-	// verification nonce to send to the remote party. They'll use this to
-	// sign the next update to our commitment transaction.
-	var (
-		nextTaprootNonce lnwire.OptMusig2NonceTLV
-		nextLocalNonces  lnwire.OptLocalNonces
-	)
-	if c.ChanType.IsTaproot() {
-		taprootRevProducer, err := DeriveMusig2Shachain(
-			c.RevocationProducer,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		nextNonce, err := NewMusigVerificationNonce(
-			c.LocalChanCfg.MultiSigKey.PubKey,
-			nextLocalCommitHeight, taprootRevProducer,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to gen next "+
-				"nonce: %w", err)
-		}
-
-		fundingTxid := c.FundingOutpoint.Hash
-		nonce := nextNonce.PubNonce
-
-		// Final taproot channels use the map-based LocalNonces
-		// field keyed by funding TXID. Staging channels use the
-		// legacy single LocalNonce field.
-		if c.ChanType.IsTaprootFinal() {
-			noncesMap := make(map[chainhash.Hash]lnwire.Musig2Nonce)
-			noncesMap[fundingTxid] = nonce
-			nextLocalNonces = lnwire.SomeLocalNonces(
-				lnwire.LocalNoncesData{NoncesMap: noncesMap},
-			)
-		} else {
-			nextTaprootNonce = lnwire.SomeMusig2Nonce(nonce)
-		}
-	}
-
-	return &lnwire.ChannelReestablish{
-		ChanID: lnwire.NewChanIDFromOutPoint(
-			c.FundingOutpoint,
-		),
-		NextLocalCommitHeight:  nextLocalCommitHeight,
-		RemoteCommitTailHeight: remoteChainTipHeight,
-		LastRemoteCommitSecret: lastCommitSecret,
-		LocalUnrevokedCommitPoint: input.ComputeCommitmentPoint(
-			currentCommitSecret[:],
-		),
-		LocalNonce:  nextTaprootNonce,
-		LocalNonces: nextLocalNonces,
-	}, nil
-}
-
-// MarkShutdownSent serialises and persist the given ShutdownInfo for this
-// channel. Persisting this info represents the fact that we have sent the
-// Shutdown message to the remote side and hence that we should re-transmit the
-// same Shutdown message on re-establish.
-func (c *OpenChannel) MarkShutdownSent(info *ShutdownInfo) error {
-	c.Lock()
-	defer c.Unlock()
-
-	return c.storeShutdownInfo(info)
-}
-
-// storeShutdownInfo serialises the ShutdownInfo and persists it under the
-// shutdownInfoKey.
-func (c *OpenChannel) storeShutdownInfo(info *ShutdownInfo) error {
 	var b bytes.Buffer
-	err := info.encode(&b)
+	err := encodeShutdownInfo(info, &b)
 	if err != nil {
 		return err
 	}
 
-	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
@@ -2115,17 +1174,16 @@ func (c *OpenChannel) storeShutdownInfo(info *ShutdownInfo) error {
 	}, func() {})
 }
 
-// ShutdownInfo decodes the shutdown info stored for this channel and returns
-// the result. If no shutdown info has been persisted for this channel then the
-// ErrNoShutdownInfo error is returned.
-func (c *OpenChannel) ShutdownInfo() (fn.Option[ShutdownInfo], error) {
-	c.RLock()
-	defer c.RUnlock()
+// FetchChannelShutdownInfo fetches the persisted ShutdownInfo for the target
+// channel.
+func (c *ChannelStateDB) FetchChannelShutdownInfo(
+	channel *OpenChannel) (fn.Option[ShutdownInfo], error) {
 
 	var shutdownInfo *ShutdownInfo
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		switch {
 		case err == nil:
@@ -2156,64 +1214,60 @@ func (c *OpenChannel) ShutdownInfo() (fn.Option[ShutdownInfo], error) {
 	return fn.Some[ShutdownInfo](*shutdownInfo), nil
 }
 
-// isBorked returns true if the channel has been marked as borked in the
+// isChannelBorked returns true if the channel has been marked as borked in the
 // database. This requires an existing database transaction to already be
 // active.
 //
 // NOTE: The primary mutex should already be held before this method is called.
-func (c *OpenChannel) isBorked(chanBucket kvdb.RBucket) (bool, error) {
-	channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
+func isChannelBorked(channel *OpenChannel, chanBucket kvdb.RBucket) (
+	bool, error) {
+
+	diskChannel, err := fetchOpenChannel(
+		chanBucket, &channel.FundingOutpoint,
+	)
 	if err != nil {
 		return false, err
 	}
 
-	return channel.chanStatus != ChanStatusDefault, nil
+	return diskChannel.ChannelStatusForStore() != ChanStatusDefault, nil
 }
 
-// MarkCommitmentBroadcasted marks the channel as a commitment transaction has
-// been broadcast, either our own or the remote, and we should watch the chain
-// for it to confirm before taking any further action. It takes as argument the
-// closing tx _we believe_ will appear in the chain. This is only used to
-// republish this tx at startup to ensure propagation, and we should still
-// handle the case where a different tx actually hits the chain.
-func (c *OpenChannel) MarkCommitmentBroadcasted(closeTx *wire.MsgTx,
+// MarkChannelCommitmentBroadcasted marks the channel as having a commitment
+// transaction broadcast.
+func (c *ChannelStateDB) MarkChannelCommitmentBroadcasted(
+	channel *OpenChannel, closeTx *wire.MsgTx,
 	closer lntypes.ChannelParty) error {
 
 	return c.markBroadcasted(
-		ChanStatusCommitBroadcasted, forceCloseTxKey, closeTx,
-		closer,
+		channel, ChanStatusCommitBroadcasted, forceCloseTxKey,
+		closeTx, closer,
 	)
 }
 
-// MarkCoopBroadcasted marks the channel to indicate that a cooperative close
-// transaction has been broadcast, either our own or the remote, and that we
-// should watch the chain for it to confirm before taking further action. It
-// takes as argument a cooperative close tx that could appear on chain, and
-// should be rebroadcast upon startup. This is only used to republish and
-// ensure propagation, and we should still handle the case where a different tx
-// actually hits the chain.
-func (c *OpenChannel) MarkCoopBroadcasted(closeTx *wire.MsgTx,
-	closer lntypes.ChannelParty) error {
-
-	return c.markBroadcasted(
-		ChanStatusCoopBroadcasted, coopCloseTxKey, closeTx,
-		closer,
-	)
-}
-
-// markBroadcasted is a helper function which modifies the channel status of the
-// receiving channel and inserts a close transaction under the requested key,
-// which should specify either a coop or force close. It adds a status which
-// indicates the party that initiated the channel close.
-func (c *OpenChannel) markBroadcasted(status ChannelStatus, key []byte,
+// MarkChannelCoopBroadcasted marks the channel as having a cooperative close
+// transaction broadcast.
+func (c *ChannelStateDB) MarkChannelCoopBroadcasted(channel *OpenChannel,
 	closeTx *wire.MsgTx, closer lntypes.ChannelParty) error {
+
+	return c.markBroadcasted(
+		channel, ChanStatusCoopBroadcasted, coopCloseTxKey,
+		closeTx, closer,
+	)
+}
+
+// markBroadcasted modifies the channel status and inserts a close transaction
+// under the requested key, which should specify either a coop or force close.
+// It adds a status which indicates the party that initiated the channel close.
+func (c *ChannelStateDB) markBroadcasted(channel *OpenChannel,
+	status ChannelStatus, key []byte, closeTx *wire.MsgTx,
+	closer lntypes.ChannelParty) error {
 
 	if closeTx == nil {
 		return fmt.Errorf("closeTx must be non-nil")
 	}
 
-	c.Lock()
-	defer c.Unlock()
+	channel.Lock()
+	defer channel.Unlock()
 
 	var b bytes.Buffer
 	if err := WriteElement(&b, closeTx); err != nil {
@@ -2233,29 +1287,36 @@ func (c *OpenChannel) markBroadcasted(status ChannelStatus, key []byte,
 		status |= ChanStatusRemoteCloseInitiator
 	}
 
-	return c.putChanStatus(status, putClosingTx)
+	return c.putChanStatus(channel, status, putClosingTx)
 }
 
-// BroadcastedCommitment retrieves the stored unilateral closing tx set during
-// MarkCommitmentBroadcasted. If not found ErrNoCloseTx is returned.
-func (c *OpenChannel) BroadcastedCommitment() (*wire.MsgTx, error) {
-	return c.getClosingTx(forceCloseTxKey)
+// FetchChannelBroadcastedCommitment fetches the stored unilateral closing
+// transaction.
+func (c *ChannelStateDB) FetchChannelBroadcastedCommitment(
+	channel *OpenChannel) (*wire.MsgTx, error) {
+
+	return c.getClosingTx(channel, forceCloseTxKey)
 }
 
-// BroadcastedCooperative retrieves the stored cooperative closing tx set during
-// MarkCoopBroadcasted. If not found ErrNoCloseTx is returned.
-func (c *OpenChannel) BroadcastedCooperative() (*wire.MsgTx, error) {
-	return c.getClosingTx(coopCloseTxKey)
+// FetchChannelBroadcastedCooperative fetches the stored cooperative closing
+// transaction.
+func (c *ChannelStateDB) FetchChannelBroadcastedCooperative(
+	channel *OpenChannel) (*wire.MsgTx, error) {
+
+	return c.getClosingTx(channel, coopCloseTxKey)
 }
 
-// getClosingTx is a helper method which returns the stored closing transaction
-// for key. The caller should use either the force or coop closing keys.
-func (c *OpenChannel) getClosingTx(key []byte) (*wire.MsgTx, error) {
+// getClosingTx returns the stored closing transaction for key. The caller
+// should use either the force or coop closing keys.
+func (c *ChannelStateDB) getClosingTx(channel *OpenChannel,
+	key []byte) (*wire.MsgTx, error) {
+
 	var closeTx *wire.MsgTx
 
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		switch err {
 		case nil:
@@ -2281,30 +1342,41 @@ func (c *OpenChannel) getClosingTx(key []byte) (*wire.MsgTx, error) {
 	return closeTx, nil
 }
 
-// putChanStatus appends the given status to the channel. fs is an optional
-// list of closures that are given the chanBucket in order to atomically add
-// extra information together with the new status.
-func (c *OpenChannel) putChanStatus(status ChannelStatus,
-	fs ...func(kvdb.RwBucket) error) error {
+// ApplyChannelStatus adds the target status to the channel's persisted status
+// bit field.
+func (c *ChannelStateDB) ApplyChannelStatus(channel *OpenChannel,
+	status ChannelStatus) error {
 
-	if err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+	return c.putChanStatus(channel, status)
+}
+
+// putChanStatus appends the given status to the channel. fs is an optional list
+// of closures that are given the chanBucket in order to atomically add extra
+// information together with the new status.
+func (c *ChannelStateDB) putChanStatus(channel *OpenChannel,
+	status ChannelStatus, fs ...func(kvdb.RwBucket) error) error {
+
+	if err := kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
 		}
 
-		channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
+		diskChannel, err := fetchOpenChannel(
+			chanBucket, &channel.FundingOutpoint,
+		)
 		if err != nil {
 			return err
 		}
 
 		// Add this status to the existing bitvector found in the DB.
-		status = channel.chanStatus | status
-		channel.chanStatus = status
+		status = diskChannel.ChannelStatusForStore() | status
+		diskChannel.SetChannelStatusForStore(status)
 
-		if err := putOpenChannel(chanBucket, channel); err != nil {
+		if err := putOpenChannel(chanBucket, diskChannel); err != nil {
 			return err
 		}
 
@@ -2325,36 +1397,43 @@ func (c *OpenChannel) putChanStatus(status ChannelStatus,
 	}
 
 	// Update the in-memory representation to keep it in sync with the DB.
-	c.chanStatus = status
+	channel.SetChannelStatusForStore(status)
 
 	return nil
 }
 
-func (c *OpenChannel) clearChanStatus(status ChannelStatus) error {
-	if err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+// ClearChannelStatus clears the target status from the channel's persisted
+// status bit field.
+func (c *ChannelStateDB) ClearChannelStatus(channel *OpenChannel,
+	status ChannelStatus) error {
+
+	if err := kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
 		}
 
-		channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
+		diskChannel, err := fetchOpenChannel(
+			chanBucket, &channel.FundingOutpoint,
+		)
 		if err != nil {
 			return err
 		}
 
 		// Unset this bit in the bitvector on disk.
-		status = channel.chanStatus & ^status
-		channel.chanStatus = status
+		status = diskChannel.ChannelStatusForStore() & ^status
+		diskChannel.SetChannelStatusForStore(status)
 
-		return putOpenChannel(chanBucket, channel)
+		return putOpenChannel(chanBucket, diskChannel)
 	}, func() {}); err != nil {
 		return err
 	}
 
 	// Update the in-memory representation to keep it in sync with the DB.
-	c.chanStatus = status
+	channel.SetChannelStatusForStore(status)
 
 	return nil
 }
@@ -2436,38 +1515,28 @@ func fetchOpenChannel(chanBucket kvdb.RBucket,
 			err)
 	}
 
-	channel.Packager = NewChannelPackager(channel.ShortChannelID)
-
 	return channel, nil
 }
 
-// SyncPending writes the contents of the channel to the database while it's in
-// the pending (waiting for funding confirmation) state. The IsPending flag
-// will be set to true. When the channel's funding transaction is confirmed,
-// the channel should be marked as "open" and the IsPending flag set to false.
-// Note that this function also creates a LinkNode relationship between this
-// newly created channel and a new LinkNode instance. This allows listing all
-// channels in the database globally, or according to the LinkNode they were
-// created with.
-//
-// TODO(roasbeef): addr param should eventually be an lnwire.NetAddress type
-// that includes service bits.
-func (c *OpenChannel) SyncPending(addr net.Addr, pendingHeight uint32) error {
-	c.Lock()
-	defer c.Unlock()
+// SyncPendingChannel writes a pending channel to the store and records the
+// funding broadcast height.
+func (c *ChannelStateDB) SyncPendingChannel(channel *OpenChannel,
+	addr net.Addr, pendingHeight uint32) error {
 
-	c.FundingBroadcastHeight = pendingHeight
+	channel.FundingBroadcastHeight = pendingHeight
 
-	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
-		return syncNewChannel(tx, c, []net.Addr{addr})
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		return syncNewChannel(tx, channel, []net.Addr{addr}, c.backend)
 	}, func() {})
 }
 
 // syncNewChannel will write the passed channel to disk, and also create a
 // LinkNode (if needed) for the channel peer.
-func syncNewChannel(tx kvdb.RwTx, c *OpenChannel, addrs []net.Addr) error {
+func syncNewChannel(tx kvdb.RwTx, c *OpenChannel, addrs []net.Addr,
+	backend kvdb.Backend) error {
+
 	// First, sync all the persistent channel state to disk.
-	if err := c.fullSync(tx); err != nil {
+	if err := fullSyncOpenChannel(tx, c); err != nil {
 		return err
 	}
 
@@ -2487,8 +1556,8 @@ func syncNewChannel(tx kvdb.RwTx, c *OpenChannel, addrs []net.Addr) error {
 	// for this channel. The LinkNode metadata contains reachability,
 	// up-time, and service bits related information.
 	linkNode := NewLinkNode(
-		&LinkNodeDB{backend: c.Db.backend},
-		wire.MainNet, c.IdentityPub, addrs...,
+		&LinkNodeDB{backend: backend}, wire.MainNet, c.IdentityPub,
+		addrs...,
 	)
 
 	// TODO(roasbeef): do away with link node all together?
@@ -2496,36 +1565,17 @@ func syncNewChannel(tx kvdb.RwTx, c *OpenChannel, addrs []net.Addr) error {
 	return putLinkNode(nodeInfoBucket, linkNode)
 }
 
-// UpdateCommitment updates the local commitment state. It locks in the pending
-// local updates that were received by us from the remote party. The commitment
-// state completely describes the balance state at this point in the commitment
-// chain. In addition to that, it persists all the remote log updates that we
-// have acked, but not signed a remote commitment for yet. These need to be
-// persisted to be able to produce a valid commit signature if a restart would
-// occur. This method its to be called when we revoke our prior commitment
-// state.
-//
-// A map is returned of all the htlc resolutions that were locked in this
-// commitment. Keys correspond to htlc indices and values indicate whether the
-// htlc was settled or failed.
-func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
+// UpdateChannelCommitment updates the local commitment state.
+func (c *ChannelStateDB) UpdateChannelCommitment(channel *OpenChannel,
+	newCommitment *ChannelCommitment,
 	unsignedAckedUpdates []LogUpdate) (map[uint64]bool, error) {
-
-	c.Lock()
-	defer c.Unlock()
-
-	// If this is a restored channel, then we want to avoid mutating the
-	// state as all, as it's impossible to do so in a protocol compliant
-	// manner.
-	if c.hasChanStatus(ChanStatusRestored) {
-		return nil, ErrNoRestoredChannelMutation
-	}
 
 	var finalHtlcs = make(map[uint64]bool)
 
-	err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
@@ -2533,7 +1583,7 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 
 		// If the channel is marked as borked, then for safety reasons,
 		// we shouldn't attempt any further updates.
-		isBorked, err := c.isBorked(chanBucket)
+		isBorked, err := isChannelBorked(channel, chanBucket)
 		if err != nil {
 			return err
 		}
@@ -2541,7 +1591,7 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 			return ErrChanBorked
 		}
 
-		if err = putChanInfo(chanBucket, c); err != nil {
+		if err = putChanInfo(chanBucket, channel); err != nil {
 			return fmt.Errorf("unable to store chan info: %w", err)
 		}
 
@@ -2596,9 +1646,9 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 		// Get the bucket where settled htlcs are recorded if the user
 		// opted in to storing this information.
 		var finalHtlcsBucket kvdb.RwBucket
-		if c.Db.parent.storeFinalHtlcResolutions {
+		if c.parent.storeFinalHtlcResolutions {
 			bucket, err := fetchFinalHtlcsBucketRw(
-				tx, c.ShortChannelID,
+				tx, channel.ShortChannelID,
 			)
 			if err != nil {
 				return err
@@ -2646,8 +1696,6 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 	if err != nil {
 		return nil, err
 	}
-
-	c.LocalCommitment = *newCommitment
 
 	return finalHtlcs, nil
 }
@@ -2698,131 +1746,7 @@ func processFinalHtlc(finalHtlcsBucket walletdb.ReadWriteBucket, upd LogUpdate,
 	return nil
 }
 
-// ActiveHtlcs returns a slice of HTLC's which are currently active on *both*
-// commitment transactions.
-func (c *OpenChannel) ActiveHtlcs() []HTLC {
-	c.RLock()
-	defer c.RUnlock()
-
-	// We'll only return HTLC's that are locked into *both* commitment
-	// transactions. So we'll iterate through their set of HTLC's to note
-	// which ones are present on their commitment.
-	remoteHtlcs := make(map[[32]byte]struct{})
-	for _, htlc := range c.RemoteCommitment.Htlcs {
-		log.Tracef("RemoteCommitment has htlc: id=%v, update=%v "+
-			"incoming=%v", htlc.HtlcIndex, htlc.LogIndex,
-			htlc.Incoming)
-
-		onionHash := sha256.Sum256(htlc.OnionBlob[:])
-		remoteHtlcs[onionHash] = struct{}{}
-	}
-
-	// Now that we know which HTLC's they have, we'll only mark the HTLC's
-	// as active if *we* know them as well.
-	activeHtlcs := make([]HTLC, 0, len(remoteHtlcs))
-	for _, htlc := range c.LocalCommitment.Htlcs {
-		log.Tracef("LocalCommitment has htlc: id=%v, update=%v "+
-			"incoming=%v", htlc.HtlcIndex, htlc.LogIndex,
-			htlc.Incoming)
-
-		onionHash := sha256.Sum256(htlc.OnionBlob[:])
-		if _, ok := remoteHtlcs[onionHash]; !ok {
-			log.Tracef("Skipped htlc due to onion mismatched: "+
-				"id=%v, update=%v incoming=%v",
-				htlc.HtlcIndex, htlc.LogIndex, htlc.Incoming)
-
-			continue
-		}
-
-		activeHtlcs = append(activeHtlcs, htlc)
-	}
-
-	return activeHtlcs
-}
-
-// HTLC is the on-disk representation of a hash time-locked contract. HTLCs are
-// contained within ChannelDeltas which encode the current state of the
-// commitment between state updates.
-//
-// TODO(roasbeef): save space by using smaller ints at tail end?
-type HTLC struct {
-	// TODO(yy): can embed an HTLCEntry here.
-
-	// Signature is the signature for the second level covenant transaction
-	// for this HTLC. The second level transaction is a timeout tx in the
-	// case that this is an outgoing HTLC, and a success tx in the case
-	// that this is an incoming HTLC.
-	//
-	// TODO(roasbeef): make [64]byte instead?
-	Signature []byte
-
-	// RHash is the payment hash of the HTLC.
-	RHash [32]byte
-
-	// Amt is the amount of milli-satoshis this HTLC escrows.
-	Amt lnwire.MilliSatoshi
-
-	// RefundTimeout is the absolute timeout on the HTLC that the sender
-	// must wait before reclaiming the funds in limbo.
-	RefundTimeout uint32
-
-	// OutputIndex is the output index for this particular HTLC output
-	// within the commitment transaction.
-	OutputIndex int32
-
-	// Incoming denotes whether we're the receiver or the sender of this
-	// HTLC.
-	Incoming bool
-
-	// OnionBlob is an opaque blob which is used to complete multi-hop
-	// routing.
-	OnionBlob [lnwire.OnionPacketSize]byte
-
-	// HtlcIndex is the HTLC counter index of this active, outstanding
-	// HTLC. This differs from the LogIndex, as the HtlcIndex is only
-	// incremented for each offered HTLC, while they LogIndex is
-	// incremented for each update (includes settle+fail).
-	HtlcIndex uint64
-
-	// LogIndex is the cumulative log index of this HTLC. This differs
-	// from the HtlcIndex as this will be incremented for each new log
-	// update added.
-	LogIndex uint64
-
-	// ExtraData contains any additional information that was transmitted
-	// with the HTLC via TLVs. This data *must* already be encoded as a
-	// TLV stream, and may be empty. The length of this data is naturally
-	// limited by the space available to TLVs in update_add_htlc:
-	// = 65535 bytes (bolt 8 maximum message size):
-	// - 2 bytes (bolt 1 message_type)
-	// - 32 bytes (channel_id)
-	// - 8 bytes (id)
-	// - 8 bytes (amount_msat)
-	// - 32 bytes (payment_hash)
-	// - 4 bytes (cltv_expiry)
-	// - 1366 bytes (onion_routing_packet)
-	// = 64083 bytes maximum possible TLV stream
-	//
-	// Note that this extra data is stored inline with the OnionBlob for
-	// legacy reasons, see serialization/deserialization functions for
-	// detail.
-	ExtraData lnwire.ExtraOpaqueData
-
-	// BlindingPoint is an optional blinding point included with the HTLC.
-	//
-	// Note: this field is not a part of on-disk representation of the
-	// HTLC. It is stored in the ExtraData field, which is used to store
-	// a TLV stream of additional information associated with the HTLC.
-	BlindingPoint lnwire.BlindingPointRecord
-
-	// CustomRecords is a set of custom TLV records that are associated with
-	// this HTLC. These records are used to store additional information
-	// about the HTLC that is not part of the standard HTLC fields. This
-	// field is encoded within the ExtraData field.
-	CustomRecords lnwire.CustomRecords
-}
-
-// serializeExtraData encodes a TLV stream of extra data to be stored with a
+// serializeHtlcExtraData encodes a TLV stream of extra data to be stored with a
 // HTLC. It uses the update_add_htlc TLV types, because this is where extra
 // data is passed with a HTLC. At present blinding points are the only extra
 // data that we will store, and the function is a no-op if a nil blinding
@@ -2830,7 +1754,7 @@ type HTLC struct {
 //
 // This function MUST be called to persist all HTLC values when they are
 // serialized.
-func (h *HTLC) serializeExtraData() error {
+func serializeHtlcExtraData(h *HTLC) error {
 	var records []tlv.RecordProducer
 	h.BlindingPoint.WhenSome(func(b tlv.RecordT[lnwire.BlindingPointTlvType,
 		*btcec.PublicKey]) {
@@ -2846,12 +1770,12 @@ func (h *HTLC) serializeExtraData() error {
 	return h.ExtraData.PackRecords(records...)
 }
 
-// deserializeExtraData extracts TLVs from the extra data persisted for the
-// htlc and populates values in the struct accordingly.
+// deserializeHtlcExtraData extracts TLVs from the extra data persisted for the
+// HTLC and populates values in the struct accordingly.
 //
 // This function MUST be called to populate the struct properly when HTLCs
 // are deserialized.
-func (h *HTLC) deserializeExtraData() error {
+func deserializeHtlcExtraData(h *HTLC) error {
 	if len(h.ExtraData) == 0 {
 		return nil
 	}
@@ -2903,7 +1827,7 @@ func SerializeHtlcs(b io.Writer, htlcs ...HTLC) error {
 	for _, htlc := range htlcs {
 		// Populate TLV stream for any additional fields contained
 		// in the TLV.
-		if err := htlc.serializeExtraData(); err != nil {
+		if err := serializeHtlcExtraData(&htlc); err != nil {
 			return err
 		}
 
@@ -2995,43 +1919,12 @@ func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 
 		// Finally, deserialize any TLVs contained in that extra data
 		// if they are present.
-		if err := htlcs[i].deserializeExtraData(); err != nil {
+		if err := deserializeHtlcExtraData(&htlcs[i]); err != nil {
 			return nil, err
 		}
 	}
 
 	return htlcs, nil
-}
-
-// Copy returns a full copy of the target HTLC.
-func (h *HTLC) Copy() HTLC {
-	clone := HTLC{
-		Incoming:      h.Incoming,
-		Amt:           h.Amt,
-		RefundTimeout: h.RefundTimeout,
-		OutputIndex:   h.OutputIndex,
-	}
-	copy(clone.Signature[:], h.Signature)
-	copy(clone.RHash[:], h.RHash[:])
-	copy(clone.ExtraData, h.ExtraData)
-	clone.BlindingPoint = h.BlindingPoint
-	clone.CustomRecords = h.CustomRecords.Copy()
-
-	return clone
-}
-
-// LogUpdate represents a pending update to the remote commitment chain. The
-// log update may be an add, fail, or settle entry. We maintain this data in
-// order to be able to properly retransmit our proposed state if necessary.
-type LogUpdate struct {
-	// LogIndex is the log index of this proposed commitment update entry.
-	LogIndex uint64
-
-	// UpdateMsg is the update message that was included within our
-	// local update log. The LogIndex value denotes the log index of this
-	// update which will be used when restoring our local update log if
-	// we're left with a dangling update on restart.
-	UpdateMsg lnwire.Message
 }
 
 // serializeLogUpdate writes a log update to the provided io.Writer.
@@ -3047,61 +1940,6 @@ func deserializeLogUpdate(r io.Reader) (*LogUpdate, error) {
 	}
 
 	return l, nil
-}
-
-// CommitDiff represents the delta needed to apply the state transition between
-// two subsequent commitment states. Given state N and state N+1, one is able
-// to apply the set of messages contained within the CommitDiff to N to arrive
-// at state N+1. Each time a new commitment is extended, we'll write a new
-// commitment (along with the full commitment state) to disk so we can
-// re-transmit the state in the case of a connection loss or message drop.
-type CommitDiff struct {
-	// ChannelCommitment is the full commitment state that one would arrive
-	// at by applying the set of messages contained in the UpdateDiff to
-	// the prior accepted commitment.
-	Commitment ChannelCommitment
-
-	// LogUpdates is the set of messages sent prior to the commitment state
-	// transition in question. Upon reconnection, if we detect that they
-	// don't have the commitment, then we re-send this along with the
-	// proper signature.
-	LogUpdates []LogUpdate
-
-	// CommitSig is the exact CommitSig message that should be sent after
-	// the set of LogUpdates above has been retransmitted. The signatures
-	// within this message should properly cover the new commitment state
-	// and also the HTLC's within the new commitment state.
-	CommitSig *lnwire.CommitSig
-
-	// OpenedCircuitKeys is a set of unique identifiers for any downstream
-	// Add packets included in this commitment txn. After a restart, this
-	// set of htlcs is acked from the link's incoming mailbox to ensure
-	// there isn't an attempt to re-add them to this commitment txn.
-	OpenedCircuitKeys []models.CircuitKey
-
-	// ClosedCircuitKeys records the unique identifiers for any settle/fail
-	// packets that were resolved by this commitment txn. After a restart,
-	// this is used to ensure those circuits are removed from the circuit
-	// map, and the downstream packets in the link's mailbox are removed.
-	ClosedCircuitKeys []models.CircuitKey
-
-	// AddAcks specifies the locations (commit height, pkg index) of any
-	// Adds that were failed/settled in this commit diff. This will ack
-	// entries in *this* channel's forwarding packages.
-	//
-	// NOTE: This value is not serialized, it is used to atomically mark the
-	// resolution of adds, such that they will not be reprocessed after a
-	// restart.
-	AddAcks []AddRef
-
-	// SettleFailAcks specifies the locations (chan id, commit height, pkg
-	// index) of any Settles or Fails that were locked into this commit
-	// diff, and originate from *another* channel, i.e. the outgoing link.
-	//
-	// NOTE: This value is not serialized, it is used to atomically acks
-	// settles and fails from the forwarding packages of other channels,
-	// such that they will not be reforwarded internally after a restart.
-	SettleFailAcks []SettleFailRef
 }
 
 // serializeLogUpdates serializes provided list of updates to a stream.
@@ -3180,7 +2018,7 @@ func serializeCommitDiff(w io.Writer, diff *CommitDiff) error { // nolint: dupl
 	// We'll also encode the commit aux data stream here. We do this here
 	// rather than above (at the call to serializeChanCommit), to ensure
 	// backwards compat for reads to existing non-custom channels.
-	auxData := diff.Commitment.extractTlvData()
+	auxData := extractCommitTlvData(&diff.Commitment)
 	if err := auxData.encode(w); err != nil {
 		return fmt.Errorf("unable to write aux data: %w", err)
 	}
@@ -3254,33 +2092,22 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 		return nil, fmt.Errorf("unable to decode aux data: %w", err)
 	}
 
-	d.Commitment.amendTlvData(auxData)
+	amendCommitTlvData(&d.Commitment, auxData)
 
 	return &d, nil
 }
 
-// AppendRemoteCommitChain appends a new CommitDiff to the end of the
-// commitment chain for the remote party. This method is to be used once we
-// have prepared a new commitment state for the remote party, but before we
-// transmit it to the remote party. The contents of the argument should be
-// sufficient to retransmit the updates and signature needed to reconstruct the
-// state in full, in the case that we need to retransmit.
-func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
-	c.Lock()
-	defer c.Unlock()
+// AppendRemoteCommitChain appends a new CommitDiff to the remote party's
+// commitment chain.
+func (c *ChannelStateDB) AppendRemoteCommitChain(channel *OpenChannel,
+	diff *CommitDiff) error {
 
-	// If this is a restored channel, then we want to avoid mutating the
-	// state at all, as it's impossible to do so in a protocol compliant
-	// manner.
-	if c.hasChanStatus(ChanStatusRestored) {
-		return ErrNoRestoredChannelMutation
-	}
-
-	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		// First, we'll grab the writable bucket where this channel's
 		// data resides.
 		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
@@ -3288,7 +2115,7 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 
 		// If the channel is marked as borked, then for safety reasons,
 		// we shouldn't attempt any further updates.
-		isBorked, err := c.isBorked(chanBucket)
+		isBorked, err := isChannelBorked(channel, chanBucket)
 		if err != nil {
 			return err
 		}
@@ -3301,7 +2128,9 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 		// Mark all of these as being fully processed in our forwarding
 		// package, which prevents us from reprocessing them after
 		// startup.
-		err = c.Packager.AckAddHtlcs(tx, diff.AddAcks...)
+		packager := NewChannelPackager(channel.ShortChannelID)
+
+		err = packager.AckAddHtlcs(tx, diff.AddAcks...)
 		if err != nil {
 			return err
 		}
@@ -3311,7 +2140,9 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 		// prevents the same fails and settles from being retransmitted
 		// after restarts. The actual fail or settle we need to
 		// propagate to the remote party is now in the commit diff.
-		err = c.Packager.AckSettleFails(tx, diff.SettleFailAcks...)
+		err = packager.AckSettleFails(
+			tx, diff.SettleFailAcks...,
+		)
 		if err != nil {
 			return err
 		}
@@ -3339,16 +2170,15 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 }
 
 // RemoteCommitChainTip returns the "tip" of the current remote commitment
-// chain. This value will be non-nil iff, we've created a new commitment for
-// the remote party that they haven't yet ACK'd. In this case, their commitment
-// chain will have a length of two: their current unrevoked commitment, and
-// this new pending commitment. Once they revoked their prior state, we'll swap
-// these pointers, causing the tip and the tail to point to the same entry.
-func (c *OpenChannel) RemoteCommitChainTip() (*CommitDiff, error) {
+// chain.
+func (c *ChannelStateDB) RemoteCommitChainTip(channel *OpenChannel) (
+	*CommitDiff, error) {
+
 	var cd *CommitDiff
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		switch err {
 		case nil:
@@ -3383,11 +2213,14 @@ func (c *OpenChannel) RemoteCommitChainTip() (*CommitDiff, error) {
 
 // UnsignedAckedUpdates retrieves the persisted unsigned acked remote log
 // updates that still need to be signed for.
-func (c *OpenChannel) UnsignedAckedUpdates() ([]LogUpdate, error) {
+func (c *ChannelStateDB) UnsignedAckedUpdates(channel *OpenChannel) (
+	[]LogUpdate, error) {
+
 	var updates []LogUpdate
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		switch err {
 		case nil:
@@ -3417,11 +2250,14 @@ func (c *OpenChannel) UnsignedAckedUpdates() ([]LogUpdate, error) {
 
 // RemoteUnsignedLocalUpdates retrieves the persisted, unsigned local log
 // updates that the remote still needs to sign for.
-func (c *OpenChannel) RemoteUnsignedLocalUpdates() ([]LogUpdate, error) {
+func (c *ChannelStateDB) RemoteUnsignedLocalUpdates(channel *OpenChannel) (
+	[]LogUpdate, error) {
+
 	var updates []LogUpdate
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		switch err {
 		case nil:
@@ -3450,28 +2286,23 @@ func (c *OpenChannel) RemoteUnsignedLocalUpdates() ([]LogUpdate, error) {
 	return updates, nil
 }
 
-// InsertNextRevocation inserts the _next_ commitment point (revocation) into
-// the database, and also modifies the internal RemoteNextRevocation attribute
-// to point to the passed key. This method is to be using during final channel
-// set up, _after_ the channel has been fully confirmed.
-//
-// NOTE: If this method isn't called, then the target channel won't be able to
-// propose new states for the commitment state of the remote party.
-func (c *OpenChannel) InsertNextRevocation(revKey *btcec.PublicKey) error {
-	c.Lock()
-	defer c.Unlock()
+// InsertNextRevocation inserts the next commitment point into the persisted
+// channel state.
+func (c *ChannelStateDB) InsertNextRevocation(channel *OpenChannel,
+	revKey *btcec.PublicKey) error {
 
-	c.RemoteNextRevocation = revKey
+	channel.RemoteNextRevocation = revKey
 
-	err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
 		}
 
-		return putChanRevocationState(chanBucket, c)
+		return putChanRevocationState(chanBucket, channel)
 	}, func() {})
 	if err != nil {
 		return err
@@ -3480,33 +2311,19 @@ func (c *OpenChannel) InsertNextRevocation(revKey *btcec.PublicKey) error {
 	return nil
 }
 
-// AdvanceCommitChainTail records the new state transition within an on-disk
-// append-only log which records all state transitions by the remote peer. In
-// the case of an uncooperative broadcast of a prior state by the remote peer,
-// this log can be consulted in order to reconstruct the state needed to
-// rectify the situation. This method will add the current commitment for the
-// remote party to the revocation log, and promote the current pending
-// commitment to the current remote commitment. The updates parameter is the
-// set of local updates that the peer still needs to send us a signature for.
-// We store this set of updates in case we go down.
-func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
-	updates []LogUpdate, ourOutputIndex, theirOutputIndex uint32) error {
-
-	c.Lock()
-	defer c.Unlock()
-
-	// If this is a restored channel, then we want to avoid mutating the
-	// state at all, as it's impossible to do so in a protocol compliant
-	// manner.
-	if c.hasChanStatus(ChanStatusRestored) {
-		return ErrNoRestoredChannelMutation
-	}
+// AdvanceCommitChainTail records the new state transition within the
+// revocation log and promotes the pending remote commitment to the current
+// remote commitment.
+func (c *ChannelStateDB) AdvanceCommitChainTail(channel *OpenChannel,
+	fwdPkg *FwdPkg, updates []LogUpdate, ourOutputIndex,
+	theirOutputIndex uint32) error {
 
 	var newRemoteCommit *ChannelCommitment
 
-	err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
@@ -3514,7 +2331,7 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 
 		// If the channel is marked as borked, then for safety reasons,
 		// we shouldn't attempt any further updates.
-		isBorked, err := c.isBorked(chanBucket)
+		isBorked, err := isChannelBorked(channel, chanBucket)
 		if err != nil {
 			return err
 		}
@@ -3525,7 +2342,8 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 		// Persist the latest preimage state to disk as the remote peer
 		// has just added to our local preimage store, and given us a
 		// new pending revocation key.
-		if err := putChanRevocationState(chanBucket, c); err != nil {
+		err = putChanRevocationState(chanBucket, channel)
+		if err != nil {
 			return err
 		}
 
@@ -3564,8 +2382,8 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 		// With the commitment pointer swapped, we can now add the
 		// revoked (prior) state to the revocation log.
 		err = putRevocationLog(
-			logBucket, &c.RemoteCommitment, ourOutputIndex,
-			theirOutputIndex, c.Db.parent.noRevLogAmtData,
+			logBucket, &channel.RemoteCommitment, ourOutputIndex,
+			theirOutputIndex, c.parent.noRevLogAmtData,
 		)
 		if err != nil {
 			return err
@@ -3574,7 +2392,9 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 		// Lastly, we write the forwarding package to disk so that we
 		// can properly recover from failures and reforward HTLCs that
 		// have not received a corresponding settle/fail.
-		if err := c.Packager.AddFwdPkg(tx, fwdPkg); err != nil {
+		packager := NewChannelPackager(channel.ShortChannelID)
+		err = packager.AddFwdPkg(tx, fwdPkg)
+		if err != nil {
 			return err
 		}
 
@@ -3646,21 +2466,13 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 	// With the db transaction complete, we'll swap over the in-memory
 	// pointer of the new remote commitment, which was previously the tip
 	// of the commit chain.
-	c.RemoteCommitment = *newRemoteCommit
+	channel.RemoteCommitment = *newRemoteCommit
 
 	return nil
 }
 
 // FinalHtlcInfo contains information about the final outcome of an htlc.
-type FinalHtlcInfo struct {
-	// Settled is true is the htlc was settled. If false, the htlc was
-	// failed.
-	Settled bool
-
-	// Offchain indicates whether the htlc was resolved off-chain or
-	// on-chain.
-	Offchain bool
-}
+type FinalHtlcInfo = cstate.FinalHtlcInfo
 
 // putFinalHtlc writes the final htlc outcome to the database. Additionally it
 // records whether the htlc was resolved off-chain or on-chain.
@@ -3681,40 +2493,17 @@ func putFinalHtlc(finalHtlcsBucket kvdb.RwBucket, id uint64,
 	return finalHtlcsBucket.Put(key[:], []byte{byte(finalHtlcByte)})
 }
 
-// NextLocalHtlcIndex returns the next unallocated local htlc index. To ensure
-// this always returns the next index that has been not been allocated, this
-// will first try to examine any pending commitments, before falling back to the
-// last locked-in remote commitment.
-func (c *OpenChannel) NextLocalHtlcIndex() (uint64, error) {
-	// First, load the most recent commit diff that we initiated for the
-	// remote party. If no pending commit is found, this is not treated as
-	// a critical error, since we can always fall back.
-	pendingRemoteCommit, err := c.RemoteCommitChainTip()
-	if err != nil && err != ErrNoPendingCommit {
-		return 0, err
-	}
-
-	// If a pending commit was found, its local htlc index will be at least
-	// as large as the one on our local commitment.
-	if pendingRemoteCommit != nil {
-		return pendingRemoteCommit.Commitment.LocalHtlcIndex, nil
-	}
-
-	// Otherwise, fallback to using the local htlc index of their commitment.
-	return c.RemoteCommitment.LocalHtlcIndex, nil
-}
-
 // LoadFwdPkgs scans the forwarding log for any packages that haven't been
 // processed, and returns their deserialized log updates in map indexed by the
 // remote commitment height at which the updates were locked in.
-func (c *OpenChannel) LoadFwdPkgs() ([]*FwdPkg, error) {
-	c.RLock()
-	defer c.RUnlock()
+func (c *ChannelStateDB) LoadFwdPkgs(channel *OpenChannel) ([]*FwdPkg,
+	error) {
 
 	var fwdPkgs []*FwdPkg
-	if err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	if err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		var err error
-		fwdPkgs, err = c.Packager.LoadFwdPkgs(tx)
+		packager := NewChannelPackager(channel.ShortChannelID)
+		fwdPkgs, err = packager.LoadFwdPkgs(tx)
 		return err
 	}, func() {
 		fwdPkgs = nil
@@ -3728,12 +2517,12 @@ func (c *OpenChannel) LoadFwdPkgs() ([]*FwdPkg, error) {
 // AckAddHtlcs updates the AckAddFilter containing any of the provided AddRefs
 // indicating that a response to this Add has been committed to the remote party.
 // Doing so will prevent these Add HTLCs from being reforwarded internally.
-func (c *OpenChannel) AckAddHtlcs(addRefs ...AddRef) error {
-	c.Lock()
-	defer c.Unlock()
+func (c *ChannelStateDB) AckAddHtlcs(channel *OpenChannel,
+	addRefs ...AddRef) error {
 
-	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
-		return c.Packager.AckAddHtlcs(tx, addRefs...)
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		packager := NewChannelPackager(channel.ShortChannelID)
+		return packager.AckAddHtlcs(tx, addRefs...)
 	}, func() {})
 }
 
@@ -3741,23 +2530,23 @@ func (c *OpenChannel) AckAddHtlcs(addRefs ...AddRef) error {
 // SettleFailRefs, indicating that the response has been delivered to the
 // incoming link, corresponding to a particular AddRef. Doing so will prevent
 // the responses from being retransmitted internally.
-func (c *OpenChannel) AckSettleFails(settleFailRefs ...SettleFailRef) error {
-	c.Lock()
-	defer c.Unlock()
+func (c *ChannelStateDB) AckSettleFails(channel *OpenChannel,
+	settleFailRefs ...SettleFailRef) error {
 
-	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
-		return c.Packager.AckSettleFails(tx, settleFailRefs...)
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		packager := NewChannelPackager(channel.ShortChannelID)
+		return packager.AckSettleFails(tx, settleFailRefs...)
 	}, func() {})
 }
 
 // SetFwdFilter atomically sets the forwarding filter for the forwarding package
 // identified by `height`.
-func (c *OpenChannel) SetFwdFilter(height uint64, fwdFilter *PkgFilter) error {
-	c.Lock()
-	defer c.Unlock()
+func (c *ChannelStateDB) SetFwdFilter(channel *OpenChannel, height uint64,
+	fwdFilter *PkgFilter) error {
 
-	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
-		return c.Packager.SetFwdFilter(tx, height, fwdFilter)
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		packager := NewChannelPackager(channel.ShortChannelID)
+		return packager.SetFwdFilter(tx, height, fwdFilter)
 	}, func() {})
 }
 
@@ -3766,13 +2555,14 @@ func (c *OpenChannel) SetFwdFilter(height uint64, fwdFilter *PkgFilter) error {
 // later packages won't be removed.
 //
 // NOTE: This method should only be called on packages marked FwdStateCompleted.
-func (c *OpenChannel) RemoveFwdPkgs(heights ...uint64) error {
-	c.Lock()
-	defer c.Unlock()
+func (c *ChannelStateDB) RemoveFwdPkgs(channel *OpenChannel,
+	heights ...uint64) error {
 
-	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		packager := NewChannelPackager(channel.ShortChannelID)
+
 		for _, height := range heights {
-			err := c.Packager.RemovePkg(tx, height)
+			err := packager.RemovePkg(tx, height)
 			if err != nil {
 				return err
 			}
@@ -3783,26 +2573,22 @@ func (c *OpenChannel) RemoveFwdPkgs(heights ...uint64) error {
 }
 
 // revocationLogTailCommitHeight returns the commit height at the end of the
-// revocation log. This entry represents the last previous state for the remote
-// node's commitment chain. The ChannelDelta returned by this method will
-// always lag one state behind the most current (unrevoked) state of the remote
-// node's commitment chain.
-// NOTE: used in unit test only.
-func (c *OpenChannel) revocationLogTailCommitHeight() (uint64, error) {
-	c.RLock()
-	defer c.RUnlock()
+// revocation log.
+func (c *ChannelStateDB) revocationLogTailCommitHeight(
+	channel *OpenChannel) (uint64, error) {
 
 	var height uint64
 
 	// If we haven't created any state updates yet, then we'll exit early as
 	// there's nothing to be found on disk in the revocation bucket.
-	if c.RemoteCommitment.CommitHeight == 0 {
+	if channel.RemoteCommitment.CommitHeight == 0 {
 		return height, nil
 	}
 
-	if err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	if err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
@@ -3834,16 +2620,16 @@ func (c *OpenChannel) revocationLogTailCommitHeight() (uint64, error) {
 // This value is always monotonically increasing. This method is provided in
 // order to allow multiple instances of a particular open channel to obtain a
 // consistent view of the number of channel updates to date.
-func (c *OpenChannel) CommitmentHeight() (uint64, error) {
-	c.RLock()
-	defer c.RUnlock()
+func (c *ChannelStateDB) CommitmentHeight(channel *OpenChannel) (
+	uint64, error) {
 
 	var height uint64
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		// Get the bucket dedicated to storing the metadata for open
 		// channels.
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
@@ -3871,18 +2657,16 @@ func (c *OpenChannel) CommitmentHeight() (uint64, error) {
 // intended to be used for obtaining the relevant data needed to claim all
 // funds rightfully spendable in the case of an on-chain broadcast of the
 // commitment transaction.
-func (c *OpenChannel) FindPreviousState(
+func (c *ChannelStateDB) FindPreviousState(channel *OpenChannel,
 	updateNum uint64) (*RevocationLog, *ChannelCommitment, error) {
-
-	c.RLock()
-	defer c.RUnlock()
 
 	commit := &ChannelCommitment{}
 	rl := &RevocationLog{}
 
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
@@ -3908,141 +2692,39 @@ func (c *OpenChannel) FindPreviousState(
 	return rl, commit, nil
 }
 
-// ClosureType is an enum like structure that details exactly _how_ a channel
-// was closed. Three closure types are currently possible: none, cooperative,
-// local force close, remote force close, and (remote) breach.
-type ClosureType uint8
+// ClosureType is an enum like structure that details exactly how a channel was
+// closed.
+type ClosureType = cstate.ClosureType
 
 const (
 	// CooperativeClose indicates that a channel has been closed
-	// cooperatively.  This means that both channel peers were online and
-	// signed a new transaction paying out the settled balance of the
-	// contract.
-	CooperativeClose ClosureType = 0
+	// cooperatively.
+	CooperativeClose = cstate.CooperativeClose
 
 	// LocalForceClose indicates that we have unilaterally broadcast our
 	// current commitment state on-chain.
-	LocalForceClose ClosureType = 1
+	LocalForceClose = cstate.LocalForceClose
 
 	// RemoteForceClose indicates that the remote peer has unilaterally
 	// broadcast their current commitment state on-chain.
-	RemoteForceClose ClosureType = 4
+	RemoteForceClose = cstate.RemoteForceClose
 
 	// BreachClose indicates that the remote peer attempted to broadcast a
-	// prior _revoked_ channel state.
-	BreachClose ClosureType = 2
+	// prior revoked channel state.
+	BreachClose = cstate.BreachClose
 
 	// FundingCanceled indicates that the channel never was fully opened
-	// before it was marked as closed in the database. This can happen if
-	// we or the remote fail at some point during the opening workflow, or
-	// we timeout waiting for the funding transaction to be confirmed.
-	FundingCanceled ClosureType = 3
+	// before it was marked as closed in the database.
+	FundingCanceled = cstate.FundingCanceled
 
-	// Abandoned indicates that the channel state was removed without
-	// any further actions. This is intended to clean up unusable
-	// channels during development.
-	Abandoned ClosureType = 5
+	// Abandoned indicates that the channel state was removed without any
+	// further actions.
+	Abandoned = cstate.Abandoned
 )
 
 // ChannelCloseSummary contains the final state of a channel at the point it
-// was closed. Once a channel is closed, all the information pertaining to that
-// channel within the openChannelBucket is deleted, and a compact summary is
-// put in place instead.
-type ChannelCloseSummary struct {
-	// ChanPoint is the outpoint for this channel's funding transaction,
-	// and is used as a unique identifier for the channel.
-	ChanPoint wire.OutPoint
-
-	// ShortChanID encodes the exact location in the chain in which the
-	// channel was initially confirmed. This includes: the block height,
-	// transaction index, and the output within the target transaction.
-	ShortChanID lnwire.ShortChannelID
-
-	// ChainHash is the hash of the genesis block that this channel resides
-	// within.
-	ChainHash chainhash.Hash
-
-	// ClosingTXID is the txid of the transaction which ultimately closed
-	// this channel.
-	ClosingTXID chainhash.Hash
-
-	// RemotePub is the public key of the remote peer that we formerly had
-	// a channel with.
-	RemotePub *btcec.PublicKey
-
-	// Capacity was the total capacity of the channel.
-	Capacity btcutil.Amount
-
-	// CloseHeight is the height at which the funding transaction was
-	// spent.
-	CloseHeight uint32
-
-	// SettledBalance is our total balance settled balance at the time of
-	// channel closure. This _does not_ include the sum of any outputs that
-	// have been time-locked as a result of the unilateral channel closure.
-	SettledBalance btcutil.Amount
-
-	// TimeLockedBalance is the sum of all the time-locked outputs at the
-	// time of channel closure. If we triggered the force closure of this
-	// channel, then this value will be non-zero if our settled output is
-	// above the dust limit. If we were on the receiving side of a channel
-	// force closure, then this value will be non-zero if we had any
-	// outstanding outgoing HTLC's at the time of channel closure.
-	TimeLockedBalance btcutil.Amount
-
-	// CloseType details exactly _how_ the channel was closed. Five closure
-	// types are possible: cooperative, local force, remote force, breach
-	// and funding canceled.
-	CloseType ClosureType
-
-	// IsPending indicates whether this channel is in the 'pending close'
-	// state, which means the channel closing transaction has been
-	// confirmed, but not yet been fully resolved. In the case of a channel
-	// that has been cooperatively closed, it will go straight into the
-	// fully resolved state as soon as the closing transaction has been
-	// confirmed. However, for channels that have been force closed, they'll
-	// stay marked as "pending" until _all_ the pending funds have been
-	// swept.
-	IsPending bool
-
-	// RemoteCurrentRevocation is the current revocation for their
-	// commitment transaction. However, since this is the derived public key,
-	// we don't yet have the private key so we aren't yet able to verify
-	// that it's actually in the hash chain.
-	RemoteCurrentRevocation *btcec.PublicKey
-
-	// RemoteNextRevocation is the revocation key to be used for the *next*
-	// commitment transaction we create for the local node. Within the
-	// specification, this value is referred to as the
-	// per-commitment-point.
-	RemoteNextRevocation *btcec.PublicKey
-
-	// LocalChanConfig is the channel configuration for the local node.
-	LocalChanConfig ChannelConfig
-
-	// LastChanSyncMsg is the ChannelReestablish message for this channel
-	// for the state at the point where it was closed.
-	LastChanSyncMsg *lnwire.ChannelReestablish
-}
-
-// CloseChannel closes a previously active Lightning channel. Closing a
-// channel entails persisting a record of the close while either purging the
-// nested per-channel state inline (synchronous backends like bbolt and etcd)
-// or skipping the cascading delete on tombstone-enabled backends, where the
-// outpoint-index flip to outpointClosed is the authoritative marker. The
-// compact summary written to closedChannelBucket and the historical record
-// under historicalChannelBucket are populated identically across both paths,
-// so historical reads remain uniform regardless of backend. The optional set
-// of channel statuses is OR'd into the chanStatus written to the historical
-// bucket and is used to record close initiators.
-func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
-	statuses ...ChannelStatus) error {
-
-	c.Lock()
-	defer c.Unlock()
-
-	return c.Db.CloseChannel(c, summary, statuses...)
-}
+// was closed.
+type ChannelCloseSummary = cstate.ChannelCloseSummary
 
 // CloseChannel closes the supplied channel via the strategy selected at DB
 // construction. On synchronous backends the channel's nested state — the
@@ -4163,7 +2845,9 @@ func archiveClosedChannel(tx kvdb.RwTx, chanKey []byte,
 	}
 
 	for _, s := range statuses {
-		chanState.chanStatus |= s
+		chanState.SetChannelStatusForStore(
+			chanState.ChannelStatusForStore() | s,
+		)
 	}
 
 	if err := putOpenChannel(historicalChanBucket, chanState); err != nil {
@@ -4196,7 +2880,8 @@ func (c *ChannelStateDB) closeChannelSync(channel *OpenChannel,
 			return err
 		}
 
-		if err = chanState.Packager.Wipe(tx); err != nil {
+		packager := NewChannelPackager(chanState.ShortChannelID)
+		if err = packager.Wipe(tx); err != nil {
 			return err
 		}
 
@@ -4263,264 +2948,57 @@ func (c *ChannelStateDB) closeChannelTombstone(channel *OpenChannel,
 	}, func() {})
 }
 
-// ChannelSnapshot is a frozen snapshot of the current channel state. A
-// snapshot is detached from the original channel that generated it, providing
-// read-only access to the current or prior state of an active channel.
-//
-// TODO(roasbeef): remove all together? pretty much just commitment
-type ChannelSnapshot struct {
-	// RemoteIdentity is the identity public key of the remote node that we
-	// are maintaining the open channel with.
-	RemoteIdentity btcec.PublicKey
-
-	// ChanPoint is the outpoint that created the channel. This output is
-	// found within the funding transaction and uniquely identified the
-	// channel on the resident chain.
-	ChannelPoint wire.OutPoint
-
-	// ChainHash is the genesis hash of the chain that the channel resides
-	// within.
-	ChainHash chainhash.Hash
-
-	// Capacity is the total capacity of the channel.
-	Capacity btcutil.Amount
-
-	// TotalMSatSent is the total number of milli-satoshis we've sent
-	// within this channel.
-	TotalMSatSent lnwire.MilliSatoshi
-
-	// TotalMSatReceived is the total number of milli-satoshis we've
-	// received within this channel.
-	TotalMSatReceived lnwire.MilliSatoshi
-
-	// ChannelCommitment is the current up-to-date commitment for the
-	// target channel.
-	ChannelCommitment
-}
-
-// Snapshot returns a read-only snapshot of the current channel state. This
-// snapshot includes information concerning the current settled balance within
-// the channel, metadata detailing total flows, and any outstanding HTLCs.
-func (c *OpenChannel) Snapshot() *ChannelSnapshot {
-	c.RLock()
-	defer c.RUnlock()
-
-	localCommit := c.LocalCommitment
-	snapshot := &ChannelSnapshot{
-		RemoteIdentity:    *c.IdentityPub,
-		ChannelPoint:      c.FundingOutpoint,
-		Capacity:          c.Capacity,
-		TotalMSatSent:     c.TotalMSatSent,
-		TotalMSatReceived: c.TotalMSatReceived,
-		ChainHash:         c.ChainHash,
-		ChannelCommitment: ChannelCommitment{
-			LocalBalance:  localCommit.LocalBalance,
-			RemoteBalance: localCommit.RemoteBalance,
-			CommitHeight:  localCommit.CommitHeight,
-			CommitFee:     localCommit.CommitFee,
-		},
-	}
-
-	localCommit.CustomBlob.WhenSome(func(blob tlv.Blob) {
-		blobCopy := make([]byte, len(blob))
-		copy(blobCopy, blob)
-
-		snapshot.ChannelCommitment.CustomBlob = fn.Some(blobCopy)
-	})
-
-	// Copy over the current set of HTLCs to ensure the caller can't mutate
-	// our internal state.
-	snapshot.Htlcs = make([]HTLC, len(localCommit.Htlcs))
-	for i, h := range localCommit.Htlcs {
-		snapshot.Htlcs[i] = h.Copy()
-	}
-
-	return snapshot
-}
-
-// Copy returns a deep copy of the channel state.
-func (c *OpenChannel) Copy() *OpenChannel {
-	c.RLock()
-	defer c.RUnlock()
-
-	clone := &OpenChannel{
-		ChanType:                c.ChanType,
-		ChainHash:               c.ChainHash,
-		FundingOutpoint:         c.FundingOutpoint,
-		ShortChannelID:          c.ShortChannelID,
-		IsPending:               c.IsPending,
-		IsInitiator:             c.IsInitiator,
-		chanStatus:              c.chanStatus,
-		FundingBroadcastHeight:  c.FundingBroadcastHeight,
-		ConfirmationHeight:      c.ConfirmationHeight,
-		NumConfsRequired:        c.NumConfsRequired,
-		ChannelFlags:            c.ChannelFlags,
-		IdentityPub:             c.IdentityPub,
-		Capacity:                c.Capacity,
-		TotalMSatSent:           c.TotalMSatSent,
-		TotalMSatReceived:       c.TotalMSatReceived,
-		InitialLocalBalance:     c.InitialLocalBalance,
-		InitialRemoteBalance:    c.InitialRemoteBalance,
-		LocalChanCfg:            c.LocalChanCfg,
-		RemoteChanCfg:           c.RemoteChanCfg,
-		LocalCommitment:         c.LocalCommitment.copy(),
-		RemoteCommitment:        c.RemoteCommitment.copy(),
-		RemoteCurrentRevocation: c.RemoteCurrentRevocation,
-		RemoteNextRevocation:    c.RemoteNextRevocation,
-		RevocationProducer:      c.RevocationProducer,
-		RevocationStore:         c.RevocationStore,
-		Packager:                c.Packager,
-		ThawHeight:              c.ThawHeight,
-		LastWasRevoke:           c.LastWasRevoke,
-		RevocationKeyLocator:    c.RevocationKeyLocator,
-		confirmedScid:           c.confirmedScid,
-		TapscriptRoot:           c.TapscriptRoot,
-	}
-
-	if c.FundingTxn != nil {
-		clone.FundingTxn = c.FundingTxn.Copy()
-	}
-
-	if len(c.LocalShutdownScript) > 0 {
-		clone.LocalShutdownScript = make(
-			lnwire.DeliveryAddress,
-			len(c.LocalShutdownScript),
-		)
-		copy(clone.LocalShutdownScript, c.LocalShutdownScript)
-	}
-	if len(c.RemoteShutdownScript) > 0 {
-		clone.RemoteShutdownScript = make(
-			lnwire.DeliveryAddress,
-			len(c.RemoteShutdownScript),
-		)
-		copy(clone.RemoteShutdownScript, c.RemoteShutdownScript)
-	}
-
-	if len(c.Memo) > 0 {
-		clone.Memo = make([]byte, len(c.Memo))
-		copy(clone.Memo, c.Memo)
-	}
-
-	c.CustomBlob.WhenSome(func(blob tlv.Blob) {
-		blobCopy := make([]byte, len(blob))
-		copy(blobCopy, blob)
-		clone.CustomBlob = fn.Some(blobCopy)
-	})
-
-	return clone
-}
+// ChannelSnapshot is a frozen snapshot of the current channel state.
+type ChannelSnapshot = cstate.ChannelSnapshot
 
 // LatestCommitments returns the two latest commitments for both the local and
 // remote party. These commitments are read from disk to ensure that only the
 // latest fully committed state is returned. The first commitment returned is
 // the local commitment, and the second returned is the remote commitment.
-func (c *OpenChannel) LatestCommitments() (*ChannelCommitment, *ChannelCommitment, error) {
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+func (c *ChannelStateDB) LatestCommitments(channel *OpenChannel) (
+	*ChannelCommitment, *ChannelCommitment, error) {
+
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
 		}
 
-		return fetchChanCommitments(chanBucket, c)
+		return fetchChanCommitments(chanBucket, channel)
 	}, func() {})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return &c.LocalCommitment, &c.RemoteCommitment, nil
+	return &channel.LocalCommitment, &channel.RemoteCommitment, nil
 }
 
 // RemoteRevocationStore returns the most up to date commitment version of the
 // revocation storage tree for the remote party. This method can be used when
 // acting on a possible contract breach to ensure, that the caller has the most
 // up to date information required to deliver justice.
-func (c *OpenChannel) RemoteRevocationStore() (shachain.Store, error) {
-	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+func (c *ChannelStateDB) RemoteRevocationStore(channel *OpenChannel) (
+	shachain.Store, error) {
+
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+			tx, channel.IdentityPub, &channel.FundingOutpoint,
+			channel.ChainHash,
 		)
 		if err != nil {
 			return err
 		}
 
-		return fetchChanRevocationState(chanBucket, c)
+		return fetchChanRevocationState(chanBucket, channel)
 	}, func() {})
 	if err != nil {
 		return nil, err
 	}
 
-	return c.RevocationStore, nil
-}
-
-// AbsoluteThawHeight determines a frozen channel's absolute thaw height. If the
-// channel is not frozen, then 0 is returned.
-func (c *OpenChannel) AbsoluteThawHeight() (uint32, error) {
-	// Only frozen channels have a thaw height.
-	if !c.ChanType.IsFrozen() && !c.ChanType.HasLeaseExpiration() {
-		return 0, nil
-	}
-
-	// If the channel has the frozen bit set and it's thaw height is below
-	// the absolute threshold, then it's interpreted as a relative height to
-	// the chain's current height.
-	if c.ChanType.IsFrozen() && c.ThawHeight < AbsoluteThawHeightThreshold {
-		// We'll only known of the channel's short ID once it's
-		// confirmed.
-		if c.IsPending {
-			return 0, errors.New("cannot use relative thaw " +
-				"height for unconfirmed channel")
-		}
-
-		// For non-zero-conf channels, this is the base height to use.
-		blockHeightBase := c.ShortChannelID.BlockHeight
-
-		// If this is a zero-conf channel, the ShortChannelID will be
-		// an alias.
-		if c.IsZeroConf() {
-			if !c.ZeroConfConfirmed() {
-				return 0, errors.New("cannot use relative " +
-					"height for unconfirmed zero-conf " +
-					"channel")
-			}
-
-			// Use the confirmed SCID's BlockHeight.
-			blockHeightBase = c.confirmedScid.BlockHeight
-		}
-
-		return blockHeightBase + c.ThawHeight, nil
-	}
-
-	return c.ThawHeight, nil
-}
-
-// DeriveHeightHint derives the block height for the channel opening.
-func (c *OpenChannel) DeriveHeightHint() uint32 {
-	// As a height hint, we'll try to use the opening height, but if the
-	// channel isn't yet open, then we'll use the height it was broadcast
-	// at. This may be an unconfirmed zero-conf channel.
-	heightHint := c.ShortChanID().BlockHeight
-	if heightHint == 0 {
-		heightHint = c.BroadcastHeight()
-	}
-
-	// Since no zero-conf state is stored in a channel backup, the below
-	// logic will not be triggered for restored, zero-conf channels. Set
-	// the height hint for zero-conf channels.
-	if c.IsZeroConf() {
-		if c.ZeroConfConfirmed() {
-			// If the zero-conf channel is confirmed, we'll use the
-			// confirmed SCID's block height.
-			heightHint = c.ZeroConfRealScid().BlockHeight
-		} else {
-			// The zero-conf channel is unconfirmed. We'll need to
-			// use the FundingBroadcastHeight.
-			heightHint = c.BroadcastHeight()
-		}
-	}
-
-	return heightHint
+	return channel.RevocationStore, nil
 }
 
 func putChannelCloseSummary(tx kvdb.RwTx, chanID []byte,
@@ -4699,7 +3177,7 @@ func fundingTxPresent(channel *OpenChannel) bool {
 
 	return chanType.IsSingleFunder() && chanType.HasFundingTx() &&
 		channel.IsInitiator &&
-		!channel.hasChanStatus(ChanStatusRestored)
+		!channel.HasChanStatusForStore(ChanStatusRestored)
 }
 
 func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
@@ -4707,7 +3185,7 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 	if err := WriteElements(&w,
 		channel.ChanType, channel.ChainHash, channel.FundingOutpoint,
 		channel.ShortChannelID, channel.IsPending, channel.IsInitiator,
-		channel.chanStatus, channel.FundingBroadcastHeight,
+		channel.ChannelStatusForStore(), channel.FundingBroadcastHeight,
 		channel.NumConfsRequired, channel.ChannelFlags,
 		channel.IdentityPub, channel.Capacity, channel.TotalMSatSent,
 		channel.TotalMSatReceived,
@@ -4730,7 +3208,7 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 		return err
 	}
 
-	auxData := channel.extractTlvData()
+	auxData := extractOpenChannelTlvData(channel)
 	if err := auxData.encode(&w); err != nil {
 		return fmt.Errorf("unable to encode aux data: %w", err)
 	}
@@ -4820,7 +3298,7 @@ func putChanCommitment(chanBucket kvdb.RwBucket, c *ChannelCommitment,
 	}
 
 	// Before we write to disk, we'll also write our aux data as well.
-	auxData := c.extractTlvData()
+	auxData := extractCommitTlvData(c)
 	if err := auxData.encode(&b); err != nil {
 		return fmt.Errorf("unable to write aux data: %w", err)
 	}
@@ -4831,7 +3309,7 @@ func putChanCommitment(chanBucket kvdb.RwBucket, c *ChannelCommitment,
 func putChanCommitments(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 	// If this is a restored channel, then we don't have any commitments to
 	// write.
-	if channel.hasChanStatus(ChanStatusRestored) {
+	if channel.HasChanStatusForStore(ChanStatusRestored) {
 		return nil
 	}
 
@@ -4886,16 +3364,18 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	}
 	r := bytes.NewReader(infoBytes)
 
+	var chanStatus ChannelStatus
 	if err := ReadElements(r,
 		&channel.ChanType, &channel.ChainHash, &channel.FundingOutpoint,
 		&channel.ShortChannelID, &channel.IsPending, &channel.IsInitiator,
-		&channel.chanStatus, &channel.FundingBroadcastHeight,
+		&chanStatus, &channel.FundingBroadcastHeight,
 		&channel.NumConfsRequired, &channel.ChannelFlags,
 		&channel.IdentityPub, &channel.Capacity, &channel.TotalMSatSent,
 		&channel.TotalMSatReceived,
 	); err != nil {
 		return err
 	}
+	channel.SetChannelStatusForStore(chanStatus)
 
 	// For single funder channels that we initiated and have the funding
 	// transaction to, read the funding txn.
@@ -4934,9 +3414,7 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 
 	// Assign all the relevant fields from the aux data into the actual
 	// open channel.
-	channel.amendTlvData(auxData)
-
-	channel.Packager = NewChannelPackager(channel.ShortChannelID)
+	amendOpenChannelTlvData(channel, auxData)
 
 	// Finally, read the optional shutdown scripts.
 	if err := getOptionalUpfrontShutdownScript(
@@ -5000,7 +3478,7 @@ func fetchChanCommitment(chanBucket kvdb.RBucket,
 			"chan aux data: %w", err)
 	}
 
-	chanCommit.amendTlvData(auxData)
+	amendCommitTlvData(&chanCommit, auxData)
 
 	return chanCommit, nil
 }
@@ -5010,7 +3488,7 @@ func fetchChanCommitments(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 
 	// If this is a restored channel, then we don't have any commitments to
 	// read.
-	if channel.hasChanStatus(ChanStatusRestored) {
+	if channel.HasChanStatusForStore(ChanStatusRestored) {
 		return nil
 	}
 
@@ -5159,40 +3637,13 @@ func DKeyLocator(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 
 // ShutdownInfo contains various info about the shutdown initiation of a
 // channel.
-type ShutdownInfo struct {
-	// DeliveryScript is the address that we have included in any previous
-	// Shutdown message for a particular channel and so should include in
-	// any future re-sends of the Shutdown message.
-	DeliveryScript tlv.RecordT[tlv.TlvType0, lnwire.DeliveryAddress]
-
-	// LocalInitiator is true if we sent a Shutdown message before ever
-	// receiving a Shutdown message from the remote peer.
-	LocalInitiator tlv.RecordT[tlv.TlvType1, bool]
-}
+type ShutdownInfo = cstate.ShutdownInfo
 
 // NewShutdownInfo constructs a new ShutdownInfo object.
-func NewShutdownInfo(deliveryScript lnwire.DeliveryAddress,
-	locallyInitiated bool) *ShutdownInfo {
+var NewShutdownInfo = cstate.NewShutdownInfo
 
-	return &ShutdownInfo{
-		DeliveryScript: tlv.NewRecordT[tlv.TlvType0](deliveryScript),
-		LocalInitiator: tlv.NewPrimitiveRecord[tlv.TlvType1](
-			locallyInitiated,
-		),
-	}
-}
-
-// Closer identifies the ChannelParty that initiated the coop-closure process.
-func (s ShutdownInfo) Closer() lntypes.ChannelParty {
-	if s.LocalInitiator.Val {
-		return lntypes.Local
-	}
-
-	return lntypes.Remote
-}
-
-// encode serialises the ShutdownInfo to the given io.Writer.
-func (s *ShutdownInfo) encode(w io.Writer) error {
+// encodeShutdownInfo serialises the ShutdownInfo to the given io.Writer.
+func encodeShutdownInfo(s *ShutdownInfo, w io.Writer) error {
 	records := []tlv.Record{
 		s.DeliveryScript.Record(),
 		s.LocalInitiator.Record(),

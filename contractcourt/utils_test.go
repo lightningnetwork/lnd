@@ -12,6 +12,20 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 )
 
+// testChannelStateDB extracts the ChannelStateDB from the test channel state.
+func testChannelStateDB(t testing.TB,
+	state *channeldb.OpenChannel) *channeldb.ChannelStateDB {
+
+	t.Helper()
+
+	cdb, ok := state.Db.(*channeldb.ChannelStateDB)
+	if !ok {
+		t.Fatalf("expected ChannelStateDB, got %T", state.Db)
+	}
+
+	return cdb
+}
+
 // timeout implements a test level timeout.
 func timeout() func() {
 	done := make(chan struct{})
@@ -56,7 +70,9 @@ func copyChannelState(t *testing.T, state *channeldb.OpenChannel) (
 	*channeldb.OpenChannel, error) {
 
 	// Make a copy of the DB.
-	dbFile := filepath.Join(state.Db.GetParentDB().Path(), "channel.db")
+	dbFile := filepath.Join(
+		testChannelStateDB(t, state).GetParentDB().Path(), "channel.db",
+	)
 	tempDbPath := t.TempDir()
 
 	tempDbFile := filepath.Join(tempDbPath, "channel.db")

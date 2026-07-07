@@ -12,7 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnencrypt"
@@ -135,7 +135,7 @@ func assertSingleEqual(t *testing.T, a, b Single) {
 	}
 }
 
-func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
+func genRandomOpenChannelShell() (*chanstate.OpenChannel, error) {
 	var testPriv [32]byte
 	if _, err := rand.Read(testPriv[:]); err != nil {
 		return nil, err
@@ -162,11 +162,11 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 		isInitiator = true
 	}
 
-	chanType := channeldb.ChannelType(rand.Intn(1 << 12))
+	chanType := chanstate.ChannelType(rand.Intn(1 << 12))
 
-	localCfg := channeldb.ChannelConfig{
-		ChannelStateBounds: channeldb.ChannelStateBounds{},
-		CommitmentParams: channeldb.CommitmentParams{
+	localCfg := chanstate.ChannelConfig{
+		ChannelStateBounds: chanstate.ChannelStateBounds{},
+		CommitmentParams: chanstate.CommitmentParams{
 			CsvDelay: uint16(rand.Int63()),
 		},
 		MultiSigKey: keychain.KeyDescriptor{
@@ -201,8 +201,8 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 		},
 	}
 
-	remoteCfg := channeldb.ChannelConfig{
-		CommitmentParams: channeldb.CommitmentParams{
+	remoteCfg := chanstate.ChannelConfig{
+		CommitmentParams: chanstate.CommitmentParams{
 			CsvDelay: uint16(rand.Int63()),
 		},
 		MultiSigKey: keychain.KeyDescriptor{
@@ -222,14 +222,14 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 		},
 	}
 
-	var localCommit channeldb.ChannelCommitment
+	var localCommit chanstate.ChannelCommitment
 	if chanType.IsTaproot() {
 		var commitSig [64]byte
 		if _, err := rand.Read(commitSig[:]); err != nil {
 			return nil, err
 		}
 
-		localCommit = channeldb.ChannelCommitment{
+		localCommit = chanstate.ChannelCommitment{
 			CommitTx:     sampleCommitTx,
 			CommitSig:    commitSig[:],
 			CommitHeight: rand.Uint64(),
@@ -245,7 +245,7 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 		tapscriptRootOption = fn.Some(tapscriptRoot)
 	}
 
-	return &channeldb.OpenChannel{
+	return &chanstate.OpenChannel{
 		ChainHash:       chainHash,
 		ChanType:        chanType,
 		IsInitiator:     isInitiator,

@@ -4,7 +4,6 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/wire/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/subscribe"
 )
@@ -31,14 +30,14 @@ type PendingOpenChannelEvent struct {
 	// channel. This might not have been persisted to the channel DB yet
 	// because we are still waiting for the final message from the remote
 	// peer.
-	PendingChannel *channeldb.OpenChannel
+	PendingChannel *chanstate.OpenChannel
 }
 
 // OpenChannelEvent represents a new event where a channel goes from pending
 // open to open.
 type OpenChannelEvent struct {
 	// Channel is the channel that has become open.
-	Channel *channeldb.OpenChannel
+	Channel *chanstate.OpenChannel
 }
 
 // ActiveLinkEvent represents a new event where the link becomes active in the
@@ -70,13 +69,13 @@ type InactiveChannelEvent struct {
 // ClosedChannelEvent represents a new event where a channel becomes closed.
 type ClosedChannelEvent struct {
 	// CloseSummary is the summary of the channel close that has occurred.
-	CloseSummary *channeldb.ChannelCloseSummary
+	CloseSummary *chanstate.ChannelCloseSummary
 }
 
 // ChannelUpdateEvent represents a new event where a channel's state is updated.
 type ChannelUpdateEvent struct {
 	// Channel is the channel that has been updated.
-	Channel *channeldb.OpenChannel
+	Channel *chanstate.OpenChannel
 }
 
 // FullyResolvedChannelEvent represents a new event where a channel becomes
@@ -148,7 +147,7 @@ func (c *ChannelNotifier) SubscribeChannelEvents() (*subscribe.Client, error) {
 // persisted to the DB because we still wait for the final message from the
 // remote peer.
 func (c *ChannelNotifier) NotifyPendingOpenChannelEvent(chanPoint wire.OutPoint,
-	pendingChan *channeldb.OpenChannel) {
+	pendingChan *chanstate.OpenChannel) {
 
 	event := PendingOpenChannelEvent{
 		ChannelPoint:   &chanPoint,
@@ -200,7 +199,7 @@ func (c *ChannelNotifier) NotifyClosedChannelEvent(chanPoint wire.OutPoint) {
 // IsPending field will typically be true at this point; callers should set it
 // accordingly.
 func (c *ChannelNotifier) NotifyEarlyClosedChannelEvent(
-	summary *channeldb.ChannelCloseSummary) {
+	summary *chanstate.ChannelCloseSummary) {
 
 	event := ClosedChannelEvent{CloseSummary: summary}
 	if err := c.ntfnServer.SendUpdate(event); err != nil {
@@ -271,7 +270,7 @@ func (c *ChannelNotifier) NotifyInactiveChannelEvent(chanPoint wire.OutPoint) {
 // NotifyChannelUpdateEvent notifies subscribers that a channel's state has been
 // updated.
 func (c *ChannelNotifier) NotifyChannelUpdateEvent(
-	channel *channeldb.OpenChannel) {
+	channel *chanstate.OpenChannel) {
 
 	event := ChannelUpdateEvent{Channel: channel}
 	if err := c.ntfnServer.SendUpdate(event); err != nil {

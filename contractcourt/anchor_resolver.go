@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -159,7 +160,7 @@ func (c *anchorResolver) Stop() {
 // state required for the proper resolution of a contract.
 //
 // NOTE: Part of the ContractResolver interface.
-func (c *anchorResolver) SupplementState(state *channeldb.OpenChannel) {
+func (c *anchorResolver) SupplementState(state *chanstate.OpenChannel) {
 	c.chanType = state.ChanType
 }
 

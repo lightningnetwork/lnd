@@ -1,7 +1,6 @@
 package chanstate
 
 import (
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net"
@@ -822,17 +821,33 @@ func (c *OpenChannel) ActiveHtlcs() []HTLC {
 	c.RLock()
 	defer c.RUnlock()
 
+	// htlcKey uniquely identifies an HTLC within the channel state by its
+	// channel-level HTLC index and the direction of the offer. This is used
+	// to match the same HTLC across the local and remote commitment
+	// snapshots.
+	type htlcKey struct {
+		index    uint64
+		incoming bool
+	}
+
 	// We'll only return HTLC's that are locked into *both* commitment
 	// transactions. So we'll iterate through their set of HTLC's to note
 	// which ones are present on their commitment.
-	remoteHtlcs := make(map[[32]byte]struct{})
+	//
+	// HTLC identity is defined by the channel-level HTLC index plus the
+	// direction of the offer. The onion blob is routing payload data and
+	// can be duplicated by buggy or malicious senders, so it is not a
+	// robust key for matching the same HTLC across commitment snapshots.
+	remoteHtlcs := make(map[htlcKey]struct{})
 	for _, htlc := range c.RemoteCommitment.Htlcs {
 		log.Tracef("RemoteCommitment has htlc: id=%v, update=%v "+
 			"incoming=%v", htlc.HtlcIndex, htlc.LogIndex,
 			htlc.Incoming)
 
-		onionHash := sha256.Sum256(htlc.OnionBlob[:])
-		remoteHtlcs[onionHash] = struct{}{}
+		remoteHtlcs[htlcKey{
+			index:    htlc.HtlcIndex,
+			incoming: htlc.Incoming,
+		}] = struct{}{}
 	}
 
 	// Now that we know which HTLC's they have, we'll only mark the HTLC's
@@ -843,9 +858,12 @@ func (c *OpenChannel) ActiveHtlcs() []HTLC {
 			"incoming=%v", htlc.HtlcIndex, htlc.LogIndex,
 			htlc.Incoming)
 
-		onionHash := sha256.Sum256(htlc.OnionBlob[:])
-		if _, ok := remoteHtlcs[onionHash]; !ok {
-			log.Tracef("Skipped htlc due to onion mismatched: "+
+		_, ok := remoteHtlcs[htlcKey{
+			index:    htlc.HtlcIndex,
+			incoming: htlc.Incoming,
+		}]
+		if !ok {
+			log.Tracef("Skipped htlc due to identity mismatch: "+
 				"id=%v, update=%v incoming=%v",
 				htlc.HtlcIndex, htlc.LogIndex, htlc.Incoming)
 
@@ -1118,6 +1136,7 @@ func (c *OpenChannel) Copy() *OpenChannel {
 		chanStatus:              c.chanStatus,
 		FundingBroadcastHeight:  c.FundingBroadcastHeight,
 		ConfirmationHeight:      c.ConfirmationHeight,
+		CloseConfirmationHeight: c.CloseConfirmationHeight,
 		NumConfsRequired:        c.NumConfsRequired,
 		ChannelFlags:            c.ChannelFlags,
 		IdentityPub:             c.IdentityPub,
@@ -1139,6 +1158,7 @@ func (c *OpenChannel) Copy() *OpenChannel {
 		RevocationKeyLocator:    c.RevocationKeyLocator,
 		confirmedScid:           c.confirmedScid,
 		TapscriptRoot:           c.TapscriptRoot,
+		Db:                      c.Db,
 	}
 
 	if c.FundingTxn != nil {

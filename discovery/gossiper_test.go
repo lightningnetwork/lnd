@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -889,7 +890,7 @@ func (ctx *testCtx) createChannelAnnouncement(blockHeight uint32, key1,
 }
 
 func mockFindChannel(node *btcec.PublicKey, chanID lnwire.ChannelID) (
-	*channeldb.OpenChannel, error) {
+	*chanstate.OpenChannel, error) {
 
 	return nil, nil
 }

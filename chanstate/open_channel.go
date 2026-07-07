@@ -1118,6 +1118,7 @@ func (c *OpenChannel) Copy() *OpenChannel {
 		chanStatus:              c.chanStatus,
 		FundingBroadcastHeight:  c.FundingBroadcastHeight,
 		ConfirmationHeight:      c.ConfirmationHeight,
+		CloseConfirmationHeight: c.CloseConfirmationHeight,
 		NumConfsRequired:        c.NumConfsRequired,
 		ChannelFlags:            c.ChannelFlags,
 		IdentityPub:             c.IdentityPub,
@@ -1139,6 +1140,7 @@ func (c *OpenChannel) Copy() *OpenChannel {
 		RevocationKeyLocator:    c.RevocationKeyLocator,
 		confirmedScid:           c.confirmedScid,
 		TapscriptRoot:           c.TapscriptRoot,
+		Db:                      c.Db,
 	}
 
 	if c.FundingTxn != nil {

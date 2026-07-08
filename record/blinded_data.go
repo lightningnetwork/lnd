@@ -32,7 +32,9 @@ type BlindedRouteData struct {
 
 	// NextNodeID is the node ID of the next node on the path. In the
 	// context of blinded path payments, this is used to indicate the
-	// presence of dummy hops that need to be peeled from the onion.
+	// presence of dummy hops that need to be peeled from the onion, or to
+	// identify a real next-node forwarding target when the public key is
+	// not ours.
 	NextNodeID tlv.OptionalRecordT[tlv.TlvType4, *btcec.PublicKey]
 
 	// PathID is a secret set of bytes that the blinded path creator will

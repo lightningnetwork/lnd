@@ -1988,6 +1988,87 @@ func TestCircularForwards(t *testing.T) {
 	}
 }
 
+// TestNonStrictForwardBlindedNodeIDSkipsIncomingChannel ensures that when a
+// blinded route identifies the next hop by node ID, non-strict forwarding
+// deterministically selects a valid outgoing channel to that peer and never
+// fails the HTLC by landing on the incoming channel. getLinks returns every
+// channel we have with the peer, including the incoming one, so the circular
+// route must be filtered out before selection rather than after a random pick.
+func TestNonStrictForwardBlindedNodeIDSkipsIncomingChannel(t *testing.T) {
+	t.Parallel()
+
+	// bob is both the source of the incoming HTLC and the next hop
+	// identified by node ID, so we have two channels with bob: the channel
+	// the HTLC arrives on and a second, valid outgoing channel.
+	bobPeer, err := newMockServer(
+		t, "bob", testStartingHeight, nil, testDefaultDelta,
+	)
+	require.NoError(t, err, "unable to create bob server")
+
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
+	require.NoError(t, err, "unable to init switch")
+	require.NoError(t, s.Start(), "unable to start switch")
+	defer func() { _ = s.Stop() }()
+
+	// Disallow circular routes so that forwarding back over the incoming
+	// channel is rejected.
+	s.cfg.AllowCircularRoute = false
+
+	incomingChanID, incomingScid := genID()
+	outgoingChanID, outgoingScid := genID()
+
+	incomingLink := newMockChannelLink(
+		s, incomingChanID, incomingScid, emptyScid, bobPeer,
+		true, false, false, false,
+	)
+	outgoingLink := newMockChannelLink(
+		s, outgoingChanID, outgoingScid, emptyScid, bobPeer,
+		true, false, false, false,
+	)
+	require.NoError(t, s.AddLink(incomingLink), "unable to add incoming")
+	require.NoError(t, s.AddLink(outgoingLink), "unable to add outgoing")
+
+	// Forward many HTLCs so that, before the fix, random selection would
+	// almost certainly land on the incoming channel at least once and fail
+	// the forward. After the fix the incoming channel is filtered out and
+	// every HTLC is delivered to the valid outgoing channel.
+	const numHTLCs = 20
+	for i := 0; i < numHTLCs; i++ {
+		var hash [sha256.Size]byte
+		hash[0] = byte(i)
+
+		packet := &htlcPacket{
+			incomingChanID: incomingLink.ShortChanID(),
+			incomingHTLCID: uint64(i),
+			outgoingHop:    hop.NewNodeNextHop(bobPeer.PubKey()),
+			htlc: &lnwire.UpdateAddHTLC{
+				PaymentHash: hash,
+				Amount:      1,
+			},
+			obfuscator: NewMockObfuscator(),
+		}
+
+		require.NoError(t, s.ForwardPackets(nil, packet))
+
+		select {
+		case p := <-outgoingLink.packets:
+			require.Nil(t, p.linkFailure, "unexpected link failure")
+			require.Equal(
+				t, outgoingLink.ShortChanID(),
+				p.outgoingChanID,
+				"forwarded over wrong channel",
+			)
+
+		case <-incomingLink.packets:
+			t.Fatal("HTLC forwarded over incoming (circular) " +
+				"channel")
+
+		case <-time.After(time.Second):
+			t.Fatal("no timely reply from switch")
+		}
+	}
+}
+
 // TestCheckCircularForward tests the error returned by checkCircularForward
 // in cases where we allow and disallow same channel circular forwards.
 func TestCheckCircularForward(t *testing.T) {

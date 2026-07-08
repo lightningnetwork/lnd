@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -277,6 +278,17 @@ func (c *mailboxContext) sendAdds(start, num int) []*htlcPacket {
 				ID: uint64(start + i),
 			},
 		}
+		if i%2 == 0 {
+			pkt.outgoingHop = fn.NewLeft[
+				lnwire.ShortChannelID, [33]byte,
+			](pkt.outgoingChanID)
+		} else {
+			var nodeID [33]byte
+			prand.Read(nodeID[:])
+			pkt.outgoingHop = fn.NewRight[
+				lnwire.ShortChannelID, [33]byte,
+			](nodeID)
+		}
 		sentPackets[i] = pkt
 
 		err := c.mailbox.AddPacket(pkt)
@@ -314,6 +326,14 @@ func (c *mailboxContext) checkFails(adds []*htlcPacket) {
 		select {
 		case fail := <-c.forwards:
 			if add.inKey() == fail.inKey() {
+				require.Equal(
+					c.t, add.outgoingChanID,
+					fail.outgoingChanID,
+				)
+				require.Equal(
+					c.t, add.outgoingHop,
+					fail.outgoingHop,
+				)
 				continue
 			}
 			c.t.Fatalf("inkey mismatch #%d, add: %v vs fail: %v",
@@ -827,5 +847,56 @@ func TestMailOrchestrator(t *testing.T) {
 	if !reflect.DeepEqual(recvdPackets, sentPackets) {
 		t.Fatalf("recvd packets mismatched: expected %v, got %v",
 			spew.Sdump(sentPackets), spew.Sdump(recvdPackets))
+	}
+}
+
+// TestMailBoxFailAddNodeID asserts that FailAdd for a node-ID hop returns a
+// FailUnknownNextPeer failure without a channel update.
+func TestMailBoxFailAddNodeID(t *testing.T) {
+	ctx := newMailboxContext(t, time.Now(), time.Minute)
+
+	var nodeID [33]byte
+	nodeID[0] = 0x02
+
+	pkt := &htlcPacket{
+		incomingChanID: lnwire.NewShortChanIDFromInt(1),
+		incomingHTLCID: 1,
+		outgoingHop: fn.NewRight[lnwire.ShortChannelID, [33]byte](
+			nodeID,
+		),
+		htlc: &lnwire.UpdateAddHTLC{
+			ID: 1,
+		},
+	}
+
+	require.NoError(t, ctx.mailbox.AddPacket(pkt))
+
+	// Pull packet from mailbox to simulate link delivery.
+	select {
+	case <-ctx.mailbox.PacketOutBox():
+	case <-time.After(50 * time.Millisecond):
+		t.Fatal("timeout waiting for packet outbox")
+	}
+
+	// Fail the packet via FailAdd.
+	ctx.mailbox.FailAdd(pkt)
+
+	select {
+	case pktResponse := <-ctx.forwards:
+		require.Equal(t, pkt.incomingChanID, pktResponse.incomingChanID)
+		require.Equal(t, pkt.incomingHTLCID, pktResponse.incomingHTLCID)
+		require.Equal(t, pkt.outgoingChanID, pktResponse.outgoingChanID)
+		require.Equal(t, pkt.outgoingHop, pktResponse.outgoingHop)
+		require.NotNil(t, pktResponse.linkFailure)
+
+		var unknownNextPeer *lnwire.FailUnknownNextPeer
+		require.ErrorAs(
+			t, pktResponse.linkFailure.WireMessage(),
+			&unknownNextPeer,
+			"expected FailUnknownNextPeer for node-ID FailAdd",
+		)
+
+	case <-time.After(50 * time.Millisecond):
+		t.Fatal("timeout waiting for packet response")
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -301,6 +302,138 @@ func TestParseAndValidateRecipientData(t *testing.T) {
 				}, false, RouteRoleCleartext,
 			)
 			require.ErrorIs(t, err, testCase.expectedErr)
+		})
+	}
+}
+
+// TestDeriveBlindedRouteNextHop asserts how a non-final blinded hop's next hop
+// is derived from the recipient data: a short channel ID becomes a Left, a
+// next_node_id becomes a Right, a short channel ID takes precedence when both
+// are present, and the absence of both is an error.
+func TestDeriveBlindedRouteNextHop(t *testing.T) {
+	t.Parallel()
+
+	nodeKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	nextNodeKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	nextNodePub := nextNodeKey.PubKey()
+
+	var nextNodeRaw [33]byte
+	copy(nextNodeRaw[:], nextNodePub.SerializeCompressed())
+
+	scid := lnwire.NewShortChanIDFromInt(1500)
+
+	relayInfo := tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType10](
+		record.PaymentRelayInfo{
+			CltvExpiryDelta: 10,
+			BaseFee:         100,
+			FeeRate:         0,
+		},
+	))
+	constraints := tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType12](
+		record.PaymentConstraints{
+			MaxCltvExpiry:   1000,
+			HtlcMinimumMsat: lnwire.MilliSatoshi(1),
+		},
+	))
+	scidRecord := tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType2](scid))
+	nodeIDRecord := tlv.SomeRecordT(
+		tlv.NewPrimitiveRecord[tlv.TlvType4](nextNodePub),
+	)
+
+	tests := []struct {
+		name        string
+		data        *record.BlindedRouteData
+		expectedHop fn.Either[lnwire.ShortChannelID, [33]byte]
+		expectedErr string
+	}{
+		{
+			name: "short channel id only",
+			data: &record.BlindedRouteData{
+				ShortChannelID: scidRecord,
+				RelayInfo:      relayInfo,
+				Constraints:    constraints,
+			},
+			expectedHop: NewChannelNextHop(scid),
+		},
+		{
+			name: "next node id only",
+			data: &record.BlindedRouteData{
+				NextNodeID:  nodeIDRecord,
+				RelayInfo:   relayInfo,
+				Constraints: constraints,
+			},
+			expectedHop: NewNodeNextHop(nextNodeRaw),
+		},
+		{
+			// BOLT 4 requires a non-final blinded hop to set
+			// exactly one of short_channel_id or next_node_id, so
+			// setting both must be rejected.
+			name: "both present is an error",
+			data: &record.BlindedRouteData{
+				ShortChannelID: scidRecord,
+				NextNodeID:     nodeIDRecord,
+				RelayInfo:      relayInfo,
+				Constraints:    constraints,
+			},
+			expectedErr: "both short channel ID and next node ID",
+		},
+		{
+			name: "neither present",
+			data: &record.BlindedRouteData{
+				RelayInfo:   relayInfo,
+				Constraints: constraints,
+			},
+			expectedErr: "next hop not set",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			data, err := record.EncodeBlindedRouteData(
+				testCase.data,
+			)
+			require.NoError(t, err)
+
+			kit := BlindingKit{
+				Processor:      &mockProcessor{},
+				IncomingAmount: 10000,
+				IncomingCltv:   500,
+				UpdateAddBlinding: tlv.SomeRecordT(
+					//nolint:ll
+					tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](&btcec.PublicKey{}),
+				),
+			}
+			iterator := &sphinxHopIterator{
+				blindingKit: kit,
+				router: sphinx.NewRouter(
+					&sphinx.PrivKeyECDH{PrivKey: nodeKey},
+					sphinx.NewMemoryReplayLog(),
+				),
+			}
+
+			payload, _, err := parseAndValidateRecipientData(
+				iterator, &Payload{encryptedData: data},
+				false, RouteRoleCleartext,
+			)
+
+			if testCase.expectedErr != "" {
+				require.ErrorContains(
+					t, err, testCase.expectedErr,
+				)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(
+				t, testCase.expectedHop,
+				payload.FwdInfo.NextHop,
+			)
 		})
 	}
 }

@@ -48,6 +48,15 @@ func NewChannelNextHop(
 	return fn.NewLeft[lnwire.ShortChannelID, [33]byte](scid)
 }
 
+// NewNodeNextHop returns a next-hop value that identifies the next hop by the
+// next node's compressed public key, as used by blinded routes that set
+// next_node_id instead of a short channel ID.
+func NewNodeNextHop(
+	nodeID [33]byte) fn.Either[lnwire.ShortChannelID, [33]byte] {
+
+	return fn.NewRight[lnwire.ShortChannelID, [33]byte](nodeID)
+}
+
 // IsExit returns true if this forwarding info denotes the exit hop, i.e. we are
 // the final recipient of the HTLC. This is the case when the next hop is a
 // short channel ID equal to hop.Exit. A node-ID next hop (used by some blinded

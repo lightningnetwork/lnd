@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -318,15 +319,52 @@ func deriveBlindedRouteForwardingInfo(r *sphinxHopIterator,
 		)
 	}
 
-	nextSCID, err := routeData.ShortChannelID.UnwrapOrErr(
-		fmt.Errorf("next SCID not set for non-final blinded hop"),
-	)
-	if err != nil {
-		return nil, routeRole, err
+	// Determine the next hop. The recipient identifies it either by a short
+	// channel ID (the common case) or, as some implementations do for
+	// blinded routes, by the next node's ID (next_node_id). A node-ID next
+	// hop is passed through verbatim. The switch's non-strict forwarding
+	// logic resolves it to one of our channels with that peer. BOLT 4
+	// requires exactly one of the two, so a hop that sets both is an error.
+	// The dummy hop check above has already handled a next_node_id that
+	// points at us.
+	var nextHop fn.Either[lnwire.ShortChannelID, [33]byte]
+	switch {
+	case routeData.ShortChannelID.IsSome() && routeData.NextNodeID.IsSome():
+		return nil, routeRole, fmt.Errorf("blinded hop sets both " +
+			"short channel ID and next node ID")
+
+	case routeData.ShortChannelID.IsSome():
+		scid, err := routeData.ShortChannelID.UnwrapOrErr(
+			fmt.Errorf("next SCID not set for non-final blinded " +
+				"hop"),
+		)
+		if err != nil {
+			return nil, routeRole, err
+		}
+
+		nextHop = NewChannelNextHop(scid.Val)
+
+	case routeData.NextNodeID.IsSome():
+		nodeID, err := routeData.NextNodeID.UnwrapOrErr(
+			fmt.Errorf("next node ID not set for non-final " +
+				"blinded hop"),
+		)
+		if err != nil {
+			return nil, routeRole, err
+		}
+
+		var pubKey [33]byte
+		copy(pubKey[:], nodeID.Val.SerializeCompressed())
+
+		nextHop = NewNodeNextHop(pubKey)
+
+	default:
+		return nil, routeRole, fmt.Errorf("next hop not set for " +
+			"non-final blinded hop")
 	}
 
 	payload.FwdInfo = ForwardingInfo{
-		NextHop:         NewChannelNextHop(nextSCID.Val),
+		NextHop:         nextHop,
 		AmountToForward: fwdAmt,
 		OutgoingCLTV: r.blindingKit.IncomingCltv - uint32(
 			relayInfo.Val.CltvExpiryDelta,

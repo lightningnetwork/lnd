@@ -3,6 +3,7 @@ package hop
 import (
 	"testing"
 
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -134,4 +135,46 @@ func TestValidateFinalHtlc(t *testing.T) {
 			require.Equal(t, testCase.expected, result)
 		})
 	}
+}
+
+// TestForwardingInfoNextHop asserts the next-hop accessors for both the short
+// channel ID (Left) and node ID (Right) representations, including the
+// load-bearing invariant that the zero-value ForwardingInfo denotes the exit
+// hop.
+func TestForwardingInfoNextHop(t *testing.T) {
+	t.Parallel()
+
+	scid := lnwire.NewShortChanIDFromInt(12345)
+
+	var nodeID [33]byte
+	nodeID[0] = 0x02
+	nodeID[1] = 0xff
+
+	// The zero-value ForwardingInfo must denote the exit hop, since its
+	// NextHop is a Left equal to hop.Exit. Callers rely on this to detect
+	// that we are the final recipient.
+	zero := ForwardingInfo{}
+	require.True(t, zero.IsExit(), "zero value must be the exit hop")
+	require.Equal(
+		t, fn.Some(Exit), zero.NextHopChannel(),
+		"zero value must expose the Exit channel",
+	)
+
+	// An explicit channel next hop equal to Exit is likewise the exit hop.
+	exit := ForwardingInfo{NextHop: NewChannelNextHop(Exit)}
+	require.True(t, exit.IsExit())
+
+	// A channel next hop with a real SCID is a forward, and exposes that
+	// SCID through NextHopChannel.
+	channel := ForwardingInfo{NextHop: NewChannelNextHop(scid)}
+	require.False(t, channel.IsExit())
+	require.Equal(t, fn.Some(scid), channel.NextHopChannel())
+
+	// A node-ID next hop is always a forward and never exposes an outgoing
+	// channel, since the switch selects one via non-strict forwarding.
+	node := ForwardingInfo{NextHop: NewNodeNextHop(nodeID)}
+	require.False(t, node.IsExit())
+	require.Equal(
+		t, fn.None[lnwire.ShortChannelID](), node.NextHopChannel(),
+	)
 }

@@ -188,6 +188,12 @@ func (s *SphinxErrorDecrypter) DecryptError(reason lnwire.OpaqueReason,
 	// this feature. If set prematurely it can lead to early blame of our
 	// direct peers that may not support this feature yet, blacklisting our
 	// channels and failing our payments.
+	//
+	// NOTE: Because strict attribution is disabled, the returned SenderIdx
+	// and HoldTimes are not cryptographically enforced and originate from
+	// potentially untrusted remote peers. Callers that surface these values
+	// (e.g. over RPC) must treat them as advisory and not rely on their
+	// accuracy or bounds.
 	attrErr, err := s.decrypter.DecryptError(reason, attrData, false)
 	if err != nil {
 		return nil, err
@@ -204,11 +210,16 @@ func (s *SphinxErrorDecrypter) DecryptError(reason lnwire.OpaqueReason,
 		strings.Join(holdTimeStrs, "/"))
 
 	// Decode the failure. If an error occurs, we leave the failure message
-	// field nil.
+	// field nil. We still preserve the extracted hold times so that
+	// hold-time reporting is not lost just because the wire failure message
+	// could not be decoded.
 	r := bytes.NewReader(attrErr.Message)
 	failureMsg, err := lnwire.DecodeFailure(r, 0)
 	if err != nil {
-		return NewUnknownForwardingError(attrErr.SenderIdx), nil
+		fwdErr := NewUnknownForwardingError(attrErr.SenderIdx)
+		fwdErr.HoldTimes = attrErr.HoldTimes
+
+		return fwdErr, nil
 	}
 
 	return NewForwardingError(

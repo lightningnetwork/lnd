@@ -817,3 +817,44 @@ func TestDeserializeHTLCFailInfoInvalidTLV(t *testing.T) {
 	require.Nil(t, deserializedFailInfo.Message,
 		"Message should be nil when TLV parsing fails")
 }
+
+// TestHoldTimesBackendParity ensures that the two independent hold-time
+// serialization paths — the kv-backed serializeHTLCFailInfo/
+// deserializeHTLCFailInfo and the SQL-backed encodeHoldTimes/decodeHoldTimes —
+// preserve hold times identically. Since both encoders are hand-rolled, this
+// guards against the two formats silently drifting apart.
+func TestHoldTimesBackendParity(t *testing.T) {
+	t.Parallel()
+
+	testCases := [][]uint32{
+		nil,
+		{},
+		{0},
+		{1, 2, 3},
+		{math.MaxUint32, 100, 0},
+	}
+
+	for _, holdTimes := range testCases {
+		// Round-trip through the kv backend.
+		failInfo := &HTLCFailInfo{
+			FailTime:           time.Unix(1, 0),
+			Reason:             HTLCFailUnknown,
+			FailureSourceIndex: 1,
+			HoldTimes:          holdTimes,
+		}
+
+		var buf bytes.Buffer
+		require.NoError(t, serializeHTLCFailInfo(&buf, failInfo))
+
+		kvFailInfo, err := deserializeHTLCFailInfo(&buf)
+		require.NoError(t, err)
+
+		// Round-trip through the SQL backend.
+		sqlHoldTimes, err := decodeHoldTimes(encodeHoldTimes(holdTimes))
+		require.NoError(t, err)
+
+		// Both backends must yield the same hold times for the same
+		// input.
+		require.Equal(t, kvFailInfo.HoldTimes, sqlHoldTimes)
+	}
+}

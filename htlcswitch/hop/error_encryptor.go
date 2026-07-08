@@ -53,7 +53,7 @@ const (
 
 // AttrErrorStruct defines the message structure for an attributable error. Use
 // a maximum route length of 20, a fixed payload length of 4 bytes to
-// accommodate the a 32-bit hold time in milliseconds and use 4 byte hmacs.
+// accommodate a 32-bit hold time in 100ms units and use 4 byte hmacs.
 // Total size including a 256 byte message from the error source works out to
 // 1200 bytes.
 var (
@@ -70,6 +70,29 @@ func (e EncrypterType) IsBlinded() bool {
 // secret from an sphinx OnionPacket.
 type SharedSecretGenerator func(*btcec.PublicKey) (sphinx.Hash256,
 	lnwire.FailCode)
+
+// NewErrorEncrypter instantiates the appropriate ErrorEncrypter for a hop
+// based on its role in a (potentially blinded) route.
+//
+// NOTE: The ordering of these checks is significant. The introduction case
+// takes precedence over a plain blinding point: an introduction node in a
+// blinded route also has a blinding point, but must use the introduction
+// encrypter. Swapping the order would silently revert blinded-error handling.
+func NewErrorEncrypter(ephemeralKey *btcec.PublicKey,
+	sharedSecret sphinx.Hash256, isIntroduction,
+	hasBlindingPoint bool) ErrorEncrypter {
+
+	switch {
+	case isIntroduction:
+		return NewIntroductionErrorEncrypter(ephemeralKey, sharedSecret)
+
+	case hasBlindingPoint:
+		return NewRelayingErrorEncrypter(ephemeralKey, sharedSecret)
+
+	default:
+		return NewSphinxErrorEncrypter(ephemeralKey, sharedSecret)
+	}
+}
 
 // ErrorEncrypter is an interface that is used to encrypt HTLC related errors
 // at the source of the error, and also at each intermediate hop all the way
@@ -152,19 +175,38 @@ func NewSphinxErrorEncrypter(ephemeralKey *btcec.PublicKey,
 		EphemeralKey: ephemeralKey,
 	}
 
-	// Set creation time rounded to nanosecond to avoid differences after
-	// serialization.
-	encrypter.CreatedAt = time.Now().Truncate(time.Nanosecond)
+	// Record the creation time, stripping the monotonic clock reading so
+	// that a freshly instantiated encrypter compares equal to one restored
+	// from disk (which only carries a wall-clock value via UnixNano).
+	encrypter.CreatedAt = time.Now().Truncate(0)
 
 	encrypter.initialize(sharedSecret)
 
 	return encrypter
 }
 
-// getHoldTime returns the hold time in decaseconds since the first
+// getHoldTime returns the hold time in 100ms units since the first
 // instantiation of this sphinx error encrypter.
 func (s *SphinxErrorEncrypter) getHoldTime() uint32 {
-	return uint32(time.Since(s.CreatedAt).Milliseconds() / 100)
+	// If the creation time was never set (e.g. an HTLC persisted by a
+	// pre-upgrade node that predates attributable failures), we cannot
+	// derive a meaningful hold time. Report zero rather than a nonsensical
+	// value computed from the zero time, which would otherwise overflow
+	// the uint32 cast and be MAC'd into the attribution error.
+	if s.CreatedAt.IsZero() {
+		return 0
+	}
+
+	holdDuration := time.Since(s.CreatedAt)
+
+	// A negative duration means the creation time is in the future, which
+	// can only be the result of clock skew or a corrupt restored value.
+	// Clamp to zero to avoid the uint32 cast wrapping around.
+	if holdDuration < 0 {
+		return 0
+	}
+
+	return uint32(holdDuration.Milliseconds() / 100)
 }
 
 // encryptWithHoldTime derives the hold time from the encrypter's creation
@@ -325,6 +367,13 @@ func (s *SphinxErrorEncrypter) Reextract(extract SharedSecretGenerator) error {
 	}
 
 	s.initialize(sharedSecret)
+
+	// If this encrypter was restored from a pre-upgrade node that did not
+	// persist a creation time, default it to now so that hold time
+	// reporting has a sensible baseline instead of the zero time.
+	if s.CreatedAt.IsZero() {
+		s.CreatedAt = time.Now().Truncate(0)
+	}
 
 	return nil
 }

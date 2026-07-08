@@ -731,8 +731,13 @@ func (m *memoryMailBox) FailAdd(pkt *htlcPacket) {
 
 	extraData, err := lnwire.AttrDataToExtraData(attrData)
 	if err != nil {
-		log.Errorf("Failed to convert attr data: %v", err)
-		return
+		// Even if we cannot convert the attribution data, we must still
+		// fail the HTLC back rather than returning early and leaving it
+		// dangling until timeout (which would force an on-chain close).
+		// Fall back to failing without attribution data.
+		log.Errorf("Failed to convert attr data, failing back "+
+			"without attribution: %v", err)
+		extraData = nil
 	}
 
 	// Create a link error containing the temporary channel failure and a

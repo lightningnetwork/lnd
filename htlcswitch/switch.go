@@ -3181,8 +3181,7 @@ func (s *Switch) handlePacketFail(packet *htlcPacket,
 			failure,
 		)
 		if err != nil {
-			err = fmt.Errorf("unable to obfuscate error: %w", err)
-			log.Error(err)
+			return fmt.Errorf("unable to obfuscate error: %w", err)
 		}
 
 		htlc.Reason = reason

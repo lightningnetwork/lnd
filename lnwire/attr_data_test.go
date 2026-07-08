@@ -87,9 +87,9 @@ func TestAttrDataTlvType(t *testing.T) {
 	records, err := extraData.ExtractRecords()
 	require.NoError(t, err)
 
-	value, ok := records[AttrDataTlvType.TypeVal()]
+	value, ok := records[AttrDataTlvType().TypeVal()]
 	require.True(t, ok, "expected attribution TLV type %d in records",
-		AttrDataTlvType.TypeVal())
+		AttrDataTlvType().TypeVal())
 	require.Equal(t, payload, value)
 }
 

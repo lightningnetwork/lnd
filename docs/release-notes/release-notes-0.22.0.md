@@ -88,6 +88,13 @@
 
 ## Breaking Changes
 
+* The `htlcswitch/hop.ErrorEncrypter` interface changed shape as part of
+  [attributable failures](https://github.com/lightningnetwork/lnd/pull/9888):
+  the `Encrypt*` methods now additionally return the attribution data
+  (`[]byte`), and the former `ErrorEncrypterExtracter` was replaced by
+  `SharedSecretGenerator`. Out-of-tree implementers of this interface must
+  update their implementations accordingly.
+
 ## Performance Improvements
 
 ## Deprecations

@@ -699,12 +699,18 @@ func (m *memoryMailBox) FailAdd(pkt *htlcPacket) {
 		reason       lnwire.OpaqueReason
 	)
 
-	// Create a temporary channel failure which we will send back to our
-	// peer if this is a forward, or report to the user if the failed
-	// payment was locally initiated.
-	failure := m.cfg.failMailboxUpdate(
-		pkt.originalOutgoingChanID, m.cfg.shortChanID,
-	)
+	var failure lnwire.FailureMessage
+	if pkt.outgoingHop.IsRight() {
+		// A node-ID next hop has no requested outgoing channel.
+		// Returning a channel_update could leak a private channel's
+		// SCID if the failure reason is persisted before blinding
+		// error processing or replayed during channel reestablishment.
+		failure = &lnwire.FailUnknownNextPeer{}
+	} else {
+		failure = m.cfg.failMailboxUpdate(
+			pkt.originalOutgoingChanID, m.cfg.shortChanID,
+		)
+	}
 
 	// If the payment was locally initiated (which is indicated by a nil
 	// obfuscator), we do not need to encrypt it back to the sender.
@@ -737,6 +743,8 @@ func (m *memoryMailBox) FailAdd(pkt *htlcPacket) {
 	failPkt := &htlcPacket{
 		incomingChanID: pkt.incomingChanID,
 		incomingHTLCID: pkt.incomingHTLCID,
+		outgoingChanID: pkt.outgoingChanID,
+		outgoingHop:    pkt.outgoingHop,
 		circuit:        pkt.circuit,
 		sourceRef:      pkt.sourceRef,
 		hasSource:      true,

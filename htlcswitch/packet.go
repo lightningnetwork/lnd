@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -18,8 +19,22 @@ type htlcPacket struct {
 	incomingChanID lnwire.ShortChannelID
 
 	// outgoingChanID is the ID of the channel that we have offered or will
-	// offer an outgoing HTLC on.
+	// offer an outgoing HTLC on. It is mutable and may remain zero
+	// (hop.Exit) until non-strict forwarding resolves a node-ID next hop to
+	// a concrete channel, or may differ from the requested SCID after
+	// non-strict load-balancing. A zero outgoingChanID alone does not imply
+	// an exit hop: if outgoingHop is a Right (node ID), the HTLC is a
+	// forward whose outgoing channel has not yet been selected.
 	outgoingChanID lnwire.ShortChannelID
+
+	// outgoingHop carries the immutable next-hop instruction decoded from
+	// the onion payload, following the same encoding as
+	// hop.ForwardingInfo.NextHop. The three possible cases are:
+	//   1. Left(scid) where scid != Exit: a channel-addressed forward.
+	//   2. Right(pubkey): a node-addressed forward for a blinded route,
+	//      resolved to an active link via non-strict forwarding.
+	//   3. Left(Exit): a final receive at the destination/receiver node.
+	outgoingHop fn.Either[lnwire.ShortChannelID, [33]byte]
 
 	// incomingHTLCID is the ID of the HTLC that we have received from the peer
 	// on the incoming channel.
@@ -104,11 +119,10 @@ type htlcPacket struct {
 	// in the incoming update_add_htlc wire message.
 	inWireCustomRecords lnwire.CustomRecords
 
-	// originalOutgoingChanID is used when sending back failure messages.
-	// It is only used for forwarded Adds on option_scid_alias channels.
-	// This is to avoid possible confusion if a payer uses the public SCID
-	// but receives a channel_update with the alias SCID. Instead, the
-	// payer should receive a channel_update with the public SCID.
+	// originalOutgoingChanID is used when sending back failure messages. It
+	// retains the original sender-facing requested SCID for forwarded Adds,
+	// including option_scid_alias channels. This prevents exposing the
+	// evaluated link's concrete SCID or alias in channel_update failures.
 	originalOutgoingChanID lnwire.ShortChannelID
 
 	// inboundFee is the fee schedule of the incoming channel.

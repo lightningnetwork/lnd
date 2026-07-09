@@ -2863,41 +2863,74 @@ func (s *Switch) handlePacketAdd(packet *htlcPacket,
 		return s.failAddPacket(packet, failure)
 	}
 
-	// Before we attempt to find a non-strict forwarding path for this
-	// htlc, check whether the htlc is being routed over the same incoming
-	// and outgoing channel. If our node does not allow forwards of this
-	// nature, we fail the htlc early. This check is in place to disallow
-	// inefficiently routed htlcs from locking up our balance. With
-	// channels where the option-scid-alias feature was negotiated, we also
-	// have to be sure that the IDs aren't the same since one or both could
-	// be an alias.
-	linkErr := s.checkCircularForward(
-		packet.incomingChanID, packet.outgoingChanID,
-		s.cfg.AllowCircularRoute, htlc.PaymentHash,
-	)
-	if linkErr != nil {
-		return s.failAddPacket(packet, linkErr)
-	}
+	// Determine the set of links that could carry this HTLC towards the
+	// next hop. Normally the next hop is a short channel ID which we map to
+	// a link and then to its peer, so non-strict forwarding can
+	// load-balance across all of our channels with that peer. For a blinded
+	// route that identifies the next hop by node ID, we resolve the peer
+	// directly and rely on the same non-strict logic to choose a channel.
+	// In that case there is no sender-specified outgoing channel, so
+	// packet.outgoingChanID stays hop.Exit until selection and a policy
+	// rejection is reported as a generic unknown-next-peer error rather
+	// than being attributed to a specific outgoing channel.
+	var interfaceLinks []ChannelLink
+	if packet.outgoingHop.IsRight() {
+		peerKey := packet.outgoingHop.UnwrapRightOr([33]byte{})
 
-	s.indexMtx.RLock()
-	targetLink, err := s.getLinkByMapping(packet)
-	if err != nil {
+		s.indexMtx.RLock()
+		interfaceLinks, _ = s.getLinks(peerKey)
 		s.indexMtx.RUnlock()
 
-		log.Debugf("unable to find link with "+
-			"destination %v", packet.outgoingChanID)
+		// If we have no links to the next hop's peer, we cannot forward
+		// the HTLC, so we fail it with an unknown next peer error. Any
+		// channel that would form a circular route is filtered out
+		// during candidate selection below.
+		if len(interfaceLinks) == 0 {
+			log.Debugf("unable to find any link to peer %x for "+
+				"blinded next hop", peerKey)
 
-		// If packet was forwarded from another channel link than we
-		// should notify this link that some error occurred.
-		linkError := NewLinkError(
-			&lnwire.FailUnknownNextPeer{},
+			return s.failAddPacket(packet, NewLinkError(
+				&lnwire.FailUnknownNextPeer{},
+			))
+		}
+	} else {
+		// Before we attempt to find a non-strict forwarding path for
+		// this htlc, check whether the htlc is being routed over the
+		// same incoming and outgoing channel. If our node does not
+		// allow forwards of this nature, we fail the htlc early. This
+		// check is in place to disallow inefficiently routed htlcs from
+		// locking up our balance. With channels where the
+		// option-scid-alias feature was negotiated, we also have to be
+		// sure that the IDs aren't the same since one or both could be
+		// an alias.
+		linkErr := s.checkCircularForward(
+			packet.incomingChanID, packet.outgoingChanID,
+			s.cfg.AllowCircularRoute, htlc.PaymentHash,
 		)
+		if linkErr != nil {
+			return s.failAddPacket(packet, linkErr)
+		}
 
-		return s.failAddPacket(packet, linkError)
+		s.indexMtx.RLock()
+		targetLink, err := s.getLinkByMapping(packet)
+		if err != nil {
+			s.indexMtx.RUnlock()
+
+			log.Debugf("unable to find link with "+
+				"destination %v", packet.outgoingChanID)
+
+			// If packet was forwarded from another channel link
+			// than we should notify this link that some error
+			// occurred.
+			linkError := NewLinkError(
+				&lnwire.FailUnknownNextPeer{},
+			)
+
+			return s.failAddPacket(packet, linkError)
+		}
+		interfaceLinks, _ = s.getLinks(targetLink.PeerPubKey())
+		s.indexMtx.RUnlock()
 	}
-	targetPeerKey := targetLink.PeerPubKey()
-	interfaceLinks, _ := s.getLinks(targetPeerKey)
-	s.indexMtx.RUnlock()
 
 	// We'll keep track of any HTLC failures during the link selection
 	// process. This way we can return the error for precise link that the
@@ -2909,6 +2942,25 @@ func (s *Switch) handlePacketAdd(packet *htlcPacket,
 	var destinations []ChannelLink
 	for _, link := range interfaceLinks {
 		var failure *LinkError
+
+		// For a node-ID next hop, non-strict forwarding chooses the
+		// outgoing channel rather than the sender. getLinks returns
+		// every channel we have with the peer, including the channel
+		// this HTLC arrived on, so we filter out any channel that would
+		// form a circular route before selection. Checking each
+		// candidate here (rather than once after a random pick) keeps a
+		// valid forward from failing whenever selection happens to land
+		// on the incoming channel.
+		if packet.outgoingHop.IsRight() {
+			linkErr := s.checkCircularForward(
+				packet.incomingChanID, link.ShortChanID(),
+				s.cfg.AllowCircularRoute, htlc.PaymentHash,
+			)
+			if linkErr != nil {
+				linkErrs[link.ShortChanID()] = linkErr
+				continue
+			}
+		}
 
 		// We'll skip any links that aren't yet eligible for
 		// forwarding.

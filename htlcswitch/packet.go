@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -20,6 +21,13 @@ type htlcPacket struct {
 	// outgoingChanID is the ID of the channel that we have offered or will
 	// offer an outgoing HTLC on.
 	outgoingChanID lnwire.ShortChannelID
+
+	// outgoingHop carries the next-hop instruction decoded from the onion,
+	// following the same encoding as hop.ForwardingInfo.NextHop. When it is
+	// a Right (a node-ID next hop), the switch resolves the peer to one of
+	// our channels via non-strict forwarding and sets outgoingChanID to the
+	// selected channel.
+	outgoingHop fn.Either[lnwire.ShortChannelID, [33]byte]
 
 	// incomingHTLCID is the ID of the HTLC that we have received from the peer
 	// on the incoming channel.

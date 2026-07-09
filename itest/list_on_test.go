@@ -632,6 +632,18 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testBlindedPaymentHTLCReForward,
 	},
 	{
+		Name:     "blinded route next node id",
+		TestFunc: testBlindedRouteNextNodeID,
+	},
+	{
+		Name:     "blinded route next node id private channel",
+		TestFunc: testBlindedRouteNextNodeIDPrivateChannel,
+	},
+	{
+		Name:     "blinded route next node id restart",
+		TestFunc: testBlindedRouteNextNodeIDRestart,
+	},
+	{
 		Name:     "query blinded route",
 		TestFunc: testQueryBlindedRoutes,
 	},

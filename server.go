@@ -936,6 +936,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		dbs.ChanStateDB.NewWitnessCache(),
 		s.interceptableSwitch.ForwardPacket,
 		s.interceptableSwitch.RemoveOnChainIntercept,
+		s.htlcSwitch.CircuitLookup(),
 	)
 
 	chanStatusMgrCfg := &netann.ChanStatusConfig{

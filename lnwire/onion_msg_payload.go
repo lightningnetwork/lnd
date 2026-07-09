@@ -47,6 +47,18 @@ var (
 	ErrNoHops = errors.New("reply path requires hops")
 )
 
+// ErrUnknownEvenType is returned when an onion message payload contains an
+// unknown even TLV type. BOLT 4 requires the whole message to be ignored in
+// this case, because even types are "must understand".
+var ErrUnknownEvenType = errors.New("onion message payload contains unknown " +
+	"even tlv type")
+
+// ErrMultipleFinalHopPayloads is returned when an onion message payload for the
+// final hop contains more than one payload field (tlv type >= 64). BOLT 4
+// requires the message to be ignored in this case.
+var ErrMultipleFinalHopPayloads = errors.New("onion message payload contains " +
+	"more than one final hop payload field")
+
 // OnionMessagePayload contains the contents of an onion message payload.
 type OnionMessagePayload struct {
 	// ReplyPath contains a blinded path that can be used to respond to an
@@ -181,18 +193,35 @@ func (o *OnionMessagePayload) Decode(r io.Reader) (map[tlv.Type][]byte, error) {
 	// recognized. We'll just directly read these out and allow higher
 	// application layers to deal with them.
 	for tlvType, tlvBytes := range tlvMap {
-		// Skip any tlvs that are not in our range.
+		// Skip any tlvs that have been recognized in our decoding.
+		// DecodeWithParsedTypesP2P stores a nil entry for known types
+		// that it decoded into a dedicated field above, and the raw
+		// bytes for unknown types. A nil check (rather than a length
+		// check) is required so that a valid unknown odd tlv with a
+		// zero-length value is not mistaken for a recognized type.
+		if tlvBytes == nil {
+			continue
+		}
+
+		// BOLT 4: if the onionmsg_tlv contains unknown even types, the
+		// whole message must be ignored, since even types are
+		// "must understand". This applies regardless of the type range,
+		// so we check it before skipping types outside the final hop
+		// range.
+		if tlvType%2 == 0 {
+			return tlvMap, fmt.Errorf("%w: %v", ErrUnknownEvenType,
+				tlvType)
+		}
+
+		// Skip any unknown odd tlvs outside the final hop payload
+		// range: they are not addressed to the final hop's application
+		// layer, and odd types are safe to ignore.
 		if tlvType < finalHopPayloadStart {
 			continue
 		}
 
-		// Skip any tlvs that have been recognized in our decoding (a
-		// zero entry means that we recognized the entry).
-		if len(tlvBytes) == 0 {
-			continue
-		}
-
-		// Add the payload to our message's final hop payloads.
+		// Add the unknown odd final hop payload to our message so that
+		// higher application layers can deal with it.
 		payload := &FinalHopTLV{
 			TLVType: tlvType,
 			Value:   tlvBytes,
@@ -206,7 +235,7 @@ func (o *OnionMessagePayload) Decode(r io.Reader) (map[tlv.Type][]byte, error) {
 	// If we read out an invoice, invoice error or invoice request tlv
 	// sub-namespace, add it to our set of final payloads. This value won't
 	// have been added in the loop above, because we recognized the TLV so
-	// len(tlvMap[invoiceType].tlvBytes) will be zero (thus, skipped above).
+	// tlvMap[invoiceType].tlvBytes will be nil (thus, skipped above).
 	if _, ok := tlvMap[InvoiceNamespaceType]; ok {
 		o.FinalHopTLVs = append(
 			o.FinalHopTLVs, invoicePayload,
@@ -223,6 +252,14 @@ func (o *OnionMessagePayload) Decode(r io.Reader) (map[tlv.Type][]byte, error) {
 		o.FinalHopTLVs = append(
 			o.FinalHopTLVs, invoiceRequestPayload,
 		)
+	}
+
+	// BOLT 4: the final node must ignore an onion message whose
+	// onionmsg_tlv contains more than one payload field (tlv type >= 64).
+	// Every entry in FinalHopTLVs is in the final hop range by
+	// construction, so its length is the number of payload fields present.
+	if len(o.FinalHopTLVs) > 1 {
+		return tlvMap, ErrMultipleFinalHopPayloads
 	}
 
 	// Iteration through maps occurs in random order - sort final hop

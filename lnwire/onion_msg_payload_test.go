@@ -188,9 +188,13 @@ func TestOnionMessagePayloadRoundTrip(t *testing.T) {
 		)
 	})
 
-	t.Run("multiple final hop TLVs", func(t *testing.T) {
+	t.Run("multiple final hop payloads rejected", func(t *testing.T) {
 		t.Parallel()
 
+		// BOLT 4 requires the final node to ignore an onion message
+		// that carries more than one final hop payload field, so decode
+		// must reject a payload bundling invoice_request, invoice, and
+		// invoice_error together.
 		original := &OnionMessagePayload{
 			FinalHopTLVs: []*FinalHopTLV{
 				{
@@ -208,24 +212,12 @@ func TestOnionMessagePayloadRoundTrip(t *testing.T) {
 			},
 		}
 
-		decoded := encodeAndDecode(t, original)
+		encoded, err := original.Encode()
+		require.NoError(t, err)
 
-		require.Nil(t, decoded.ReplyPath)
-		require.Len(t, decoded.FinalHopTLVs, 3)
-
-		// Decoded TLVs should be sorted by type.
-		require.Equal(
-			t, InvoiceRequestNamespaceType,
-			decoded.FinalHopTLVs[0].TLVType,
-		)
-		require.Equal(
-			t, InvoiceNamespaceType,
-			decoded.FinalHopTLVs[1].TLVType,
-		)
-		require.Equal(
-			t, InvoiceErrorNamespaceType,
-			decoded.FinalHopTLVs[2].TLVType,
-		)
+		decoded := NewOnionMessagePayload()
+		_, err = decoded.Decode(bytes.NewReader(encoded))
+		require.ErrorIs(t, err, ErrMultipleFinalHopPayloads)
 	})
 
 	t.Run("all fields populated", func(t *testing.T) {
@@ -278,6 +270,71 @@ func TestOnionMessagePayloadRoundTrip(t *testing.T) {
 			t, []byte("custom-data"),
 			decoded.FinalHopTLVs[0].Value,
 		)
+	})
+
+	t.Run("odd unknown zero-length final hop TLV", func(t *testing.T) {
+		t.Parallel()
+
+		// A valid unknown odd tlv with a zero-length value must be
+		// preserved rather than mistaken for a recognized type, which
+		// is why decode keys off a nil entry instead of an empty one.
+		original := &OnionMessagePayload{
+			FinalHopTLVs: []*FinalHopTLV{
+				{
+					TLVType: 65,
+					Value:   []byte{},
+				},
+			},
+		}
+
+		decoded := encodeAndDecode(t, original)
+
+		require.Len(t, decoded.FinalHopTLVs, 1)
+		require.Equal(t, tlv.Type(65), decoded.FinalHopTLVs[0].TLVType)
+		require.Empty(t, decoded.FinalHopTLVs[0].Value)
+	})
+
+	t.Run("unknown even final hop type rejected", func(t *testing.T) {
+		t.Parallel()
+
+		// Type 70 is in the final hop range but is an unknown even
+		// type, so BOLT 4 requires the message to be ignored.
+		original := &OnionMessagePayload{
+			FinalHopTLVs: []*FinalHopTLV{
+				{
+					TLVType: 70,
+					Value:   []byte("must-understand"),
+				},
+			},
+		}
+
+		encoded, err := original.Encode()
+		require.NoError(t, err)
+
+		decoded := NewOnionMessagePayload()
+		_, err = decoded.Decode(bytes.NewReader(encoded))
+		require.ErrorIs(t, err, ErrUnknownEvenType)
+	})
+
+	t.Run("unknown even type below range rejected", func(t *testing.T) {
+		t.Parallel()
+
+		// An unknown even type outside the final hop range must also be
+		// rejected: the must-understand rule applies regardless of the
+		// tlv range. We build the stream directly because the encoder's
+		// FinalHopTLV.Validate would reject a sub-64 type.
+		val := []byte("data")
+		record := tlv.MakePrimitiveRecord(tlv.Type(6), &val)
+
+		stream, err := tlv.NewStream(record)
+		require.NoError(t, err)
+
+		var b bytes.Buffer
+		require.NoError(t, stream.Encode(&b))
+
+		decoded := NewOnionMessagePayload()
+		_, err = decoded.Decode(bytes.NewReader(b.Bytes()))
+		require.ErrorIs(t, err, ErrUnknownEvenType)
 	})
 }
 
@@ -399,15 +456,16 @@ func TestOnionMessagePayloadRoundTripQuickCheck(t *testing.T) {
 			).Draw(t, "encryptedData")
 		}
 
-		// Optionally include final hop TLVs. We use the three known
-		// even types (64, 66, 68) since unknown even types would cause
-		// decode to fail.
+		// Optionally include a final hop payload. We use the three
+		// known even types (64, 66, 68) since unknown even types would
+		// cause decode to fail. At most one payload field is drawn
+		// because BOLT 4 requires decode to reject more than one.
 		knownTypes := []tlv.Type{
 			InvoiceRequestNamespaceType,
 			InvoiceNamespaceType,
 			InvoiceErrorNamespaceType,
 		}
-		numFinalTLVs := rapid.IntRange(0, len(knownTypes)).Draw(
+		numFinalTLVs := rapid.IntRange(0, 1).Draw(
 			t, "numFinalTLVs",
 		)
 		for i := range numFinalTLVs {

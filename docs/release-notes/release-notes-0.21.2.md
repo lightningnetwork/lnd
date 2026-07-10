@@ -26,6 +26,9 @@
   in onion message decoding where messages that should have been rejected
   per BOLT 4 were instead accepted, or a valid TLV was dropped.
 
+* [Fixes a bug](https://github.com/lightningnetwork/lnd/pull/10962) that
+  could allow the RBF closer to be used with incompatible aux channels.
+
 # New Features
 
 ## Functional Enhancements
@@ -69,3 +72,4 @@
 # Contributors (Alphabetical Order)
 
 * bitromortac
+* Jared Tobin

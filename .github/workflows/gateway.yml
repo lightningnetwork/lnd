@@ -3,7 +3,11 @@ name: gateway
 # Opt-in code-review bot. Triggered by a `/gateway <command>` comment on a PR
 # (e.g. `/gateway review`); review/approve commands are gated to maintainers.
 # Comment-commands only — no pull_request triggers — so fork PRs (which receive
-# no secrets) never spawn failing runs.
+# no secrets) never spawn failing runs. v0.5.0 adds the
+# pull_request_review_comment trigger: /gateway dismiss, promote, and explain
+# now also work as replies on a finding's inline thread (finding id inferred
+# from the thread when omitted). Also a comment event — same fork-PR safety
+# profile as issue_comment.
 #
 # Thin shim: the public lightninglabs/gateway-action mints an App token and
 # checks out the private gateway runtime at execution time. The runtime stays
@@ -11,6 +15,8 @@ name: gateway
 
 on:
   issue_comment:
+    types: [created]
+  pull_request_review_comment:
     types: [created]
 
 permissions:
@@ -24,25 +30,33 @@ jobs:
     # comments that look like a /gateway command so unrelated comments don't
     # spin up a no-op runner. `contains` (not `startsWith`) because the runtime
     # accepts the command at column 0 of any line, including multi-line bodies.
-    if: ${{ github.event.issue.pull_request != null && contains(github.event.comment.body, '/gateway') }}
+    if: >-
+      ${{
+        (github.event_name == 'issue_comment'
+          && github.event.issue.pull_request != null
+          && contains(github.event.comment.body, '/gateway')) ||
+        (github.event_name == 'pull_request_review_comment'
+          && contains(github.event.comment.body, '/gateway'))
+      }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       GATEWAY_REVIEW_MODE: multi
     steps:
-      - uses: lightninglabs/gateway-action@abe7cf894c5afd4e488caac4c72a4a268b65933e # v0.4.4
+      - uses: lightninglabs/gateway-action@3a31b86adf442852801a04ddb9c6bc0f12d363da # v0.5.0
         with:
           # Pin the private runtime to an immutable commit (matches the action
           # SHA-pin above) so runtime upgrades go through an lnd PR, not a moved
-          # tag. Without this, runtime_ref defaults to the v0.4.4 tag.
-          runtime_ref: 20675fc28b157a7b4fcfbeddf7a2ca8e2115c387 # gateway v0.4.4
+          # tag. Without this, runtime_ref defaults to the v0.5.0 tag.
+          runtime_ref: b7490e68db31b391becfe9534e947b8004fc518b # gateway v0.5.0
           event_name:      ${{ github.event_name }}
           event_action:    ${{ github.event.action }}
           repo:            ${{ github.repository }}
-          pr_number:       ${{ github.event.issue.number }}
+          pr_number:       ${{ github.event.issue.number || github.event.pull_request.number }}
           actor:           ${{ github.event.sender.login }}
           comment_body:    ${{ github.event.comment.body }}
           comment_id:      ${{ github.event.comment.id }}
+          comment_in_reply_to: ${{ github.event.comment.in_reply_to_id }}
           # installation_id intentionally omitted: as of gateway v0.4.4 the
           # runtime resolves the App installation covering this repo from
           # app_id/private_key, so a hardcoded (and easily wrong-org) id is no

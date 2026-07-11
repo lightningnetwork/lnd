@@ -618,6 +618,127 @@ func TestMigrationSucceedsAfterDirtyStateMigrationFailure19RC1(t *testing.T) {
 	})
 }
 
+// TestApplyMigrationsRefusesDowngrade asserts that ApplyMigrations refuses to
+// proceed and returns ErrDBDowngrade when the database's tracked migration
+// version is higher than the highest version known to the migrations list
+// passed in. This simulates an operator starting an older lnd binary against
+// a database that was already migrated forward by a newer lnd release, which
+// must fail loudly instead of silently skipping every migration and running
+// against an unrecognized schema.
+func TestApplyMigrationsRefusesDowngrade(t *testing.T) {
+	ctxb := t.Context()
+
+	// A "newer" binary that knows about 3 migrations.
+	newerMigrations := []MigrationConfig{
+		{
+			Name:          "000001_invoices",
+			Version:       1,
+			SchemaVersion: 1,
+		},
+		{
+			Name:          "000002_amp_invoices",
+			Version:       2,
+			SchemaVersion: 2,
+		},
+		{
+			Name:          "000003_invoice_events",
+			Version:       3,
+			SchemaVersion: 3,
+		},
+	}
+
+	// An "older" binary that only knows about the first 2 migrations.
+	olderMigrations := newerMigrations[:2]
+
+	t.Run("SQLite", func(t *testing.T) {
+		dbFileName := filepath.Join(t.TempDir(), "tmp.db")
+
+		// The "newer" binary starts up first and migrates the
+		// database forward through all 3 versions it knows about.
+		dbNewer, err := NewSqliteStore(&SqliteConfig{
+			SkipMigrations: false,
+		}, dbFileName)
+		require.NoError(t, err)
+
+		require.NoError(
+			t, dbNewer.ApplyAllMigrations(ctxb, newerMigrations),
+		)
+
+		version, err := dbNewer.GetDatabaseVersion(ctxb)
+		require.NoError(t, err)
+		require.EqualValues(t, 3, version)
+		require.NoError(t, dbNewer.DB.Close())
+
+		// Now simulate a downgrade: an "older" binary that only
+		// knows about the first 2 migrations is started against the
+		// same, already-migrated database file.
+		dbOlder, err := NewSqliteStore(&SqliteConfig{
+			SkipMigrations: false,
+		}, dbFileName)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			require.NoError(t, dbOlder.DB.Close())
+		})
+
+		err = dbOlder.ApplyAllMigrations(ctxb, olderMigrations)
+		require.ErrorIs(t, err, ErrDBDowngrade)
+
+		// The tracked version must remain untouched; no migration or
+		// schema change should have been attempted.
+		version, err = dbOlder.GetDatabaseVersion(ctxb)
+		require.NoError(t, err)
+		require.EqualValues(t, 3, version)
+	})
+
+	t.Run("Postgres", func(t *testing.T) {
+		fixture := NewTestPgFixture(t, DefaultPostgresFixtureLifetime)
+		t.Cleanup(func() {
+			fixture.TearDown(t)
+		})
+
+		dbName := randomDBName(t)
+		_, err := fixture.db.ExecContext(
+			ctxb, "CREATE DATABASE "+dbName,
+		)
+		require.NoError(t, err)
+
+		cfg := fixture.GetConfig(dbName)
+		cfg.SkipMigrations = false
+
+		// The "newer" binary starts up first and migrates the
+		// database forward through all 3 versions it knows about.
+		dbNewer, err := NewPostgresStore(cfg)
+		require.NoError(t, err)
+
+		require.NoError(
+			t, dbNewer.ApplyAllMigrations(ctxb, newerMigrations),
+		)
+
+		version, err := dbNewer.GetDatabaseVersion(ctxb)
+		require.NoError(t, err)
+		require.EqualValues(t, 3, version)
+		require.NoError(t, dbNewer.DB.Close())
+
+		// Now simulate a downgrade: an "older" binary that only
+		// knows about the first 2 migrations is started against the
+		// same, already-migrated database.
+		dbOlder, err := NewPostgresStore(cfg)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			require.NoError(t, dbOlder.DB.Close())
+		})
+
+		err = dbOlder.ApplyAllMigrations(ctxb, olderMigrations)
+		require.ErrorIs(t, err, ErrDBDowngrade)
+
+		// The tracked version must remain untouched; no migration or
+		// schema change should have been attempted.
+		version, err = dbOlder.GetDatabaseVersion(ctxb)
+		require.NoError(t, err)
+		require.EqualValues(t, 3, version)
+	})
+}
+
 // TestMigrationConfigConsistency verifies that the migration configuration in
 // migrationConfig is consistent with the actual SQL schema files embedded in
 // the binary. This catches version collisions (e.g. two migrations claiming

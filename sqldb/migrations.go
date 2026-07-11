@@ -142,6 +142,14 @@ var (
 	// match the original record.
 	ErrMigrationMismatch = fmt.Errorf("migrated record does not match " +
 		"original record")
+
+	// ErrDBDowngrade is returned when the database's tracked migration
+	// version is higher than the highest version known to the running
+	// binary. This indicates the database was previously migrated
+	// forward by a newer lnd release, and the binary currently running
+	// is older than that release.
+	ErrDBDowngrade = fmt.Errorf("database version is newer than this " +
+		"binary supports, refusing to downgrade")
 )
 
 // MigrationConfig is a configuration struct that describes SQL migrations. Each
@@ -445,6 +453,29 @@ func ApplyMigrations(ctx context.Context, db *BaseDB,
 
 		log.Infof("No database version found, using schema version %d "+
 			"(dirty=%v) as base version", currentVersion, dirty)
+	}
+
+	// Guard against downgrades. If the database's tracked migration
+	// version is higher than anything this binary knows about, the
+	// database was already migrated forward by a newer lnd release and
+	// an older binary is now being run against it. Without this check,
+	// the loop below would treat every migration as "already applied"
+	// (since each migration's Version would be <= currentVersion) and
+	// silently skip all of them, letting lnd operate against a schema it
+	// doesn't understand and risking data corruption. We fail loudly
+	// instead.
+	//
+	// NOTE: highestKnownVersion equals len(migrations) because the
+	// version-ordering check above guarantees migrations are numbered
+	// contiguously starting at 1.
+	highestKnownVersion := len(migrations)
+	if currentVersion > highestKnownVersion {
+		return fmt.Errorf("%w: database is at migration version %d "+
+			"but this binary only knows about migrations up to "+
+			"version %d; this can happen if an older lnd binary "+
+			"is started against a database that was already "+
+			"migrated by a newer lnd release",
+			ErrDBDowngrade, currentVersion, highestKnownVersion)
 	}
 
 	// Due to an a migration issue in v0.19.0-rc1 we may be at version 2 and

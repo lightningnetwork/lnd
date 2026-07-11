@@ -55,6 +55,15 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* [Guarded the native-SQL store's migration path against silent
+  downgrades](https://github.com/lightningnetwork/lnd/pull/10964). If the
+  database's tracked migration version was ever higher than the versions
+  known to the running binary (e.g. an older `lnd` binary started against a
+  database already migrated forward by a newer release), every migration
+  would be silently skipped instead of erroring, letting `lnd` operate
+  against a schema it doesn't understand. `ApplyMigrations` now fails with
+  `ErrDBDowngrade` in that case.
+
 # New Features
 
 ## Functional Enhancements

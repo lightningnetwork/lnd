@@ -49,6 +49,12 @@
   exclude such inputs from sweeping even though their input set could
   comfortably pay its fees.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10963) in
+  `GetNetworkInfo` where encountering an already-seen channel skipped the
+  rest of that node's channels instead of just that channel, undercounting
+  the reported network statistics such as total network capacity, channel
+  count and max out degree.
+
 # New Features
 
 ## Functional Enhancements

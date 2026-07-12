@@ -59,7 +59,33 @@ func StartEmbeddedPostgres() (func() error, error) {
 
 // NewFixture returns a new postgres test database. The database name is
 // randomly generated.
-func NewFixture(dbName string) (*fixture, error) {
+func NewFixture(dbName string) (*fixture[walletdb.DB], error) {
+	return newFixture(dbName, prefix, false, newPostgresBackend)
+}
+
+// NewMigrationFixture returns a new postgres test database that explicitly
+// exposes the migration-only bulk KV interface.
+func NewMigrationFixture(dbName string) (
+	*fixture[sqlbase.MigrationBackend], error) {
+
+	return newFixture(dbName, prefix, false, NewMigrationBackend)
+}
+
+// NewMigrationFixtureWithLock is like NewMigrationFixture but enables the
+// global tx-level lock so the lock-guarded migration paths are exercised.
+func NewMigrationFixtureWithLock(dbName string) (
+	*fixture[sqlbase.MigrationBackend], error) {
+
+	return newFixture(dbName, prefix, true, NewMigrationBackend)
+}
+
+// newFixture creates a new postgres test database using the passed backend
+// constructor, allowing callers to select the regular or migration backend and
+// whether the global tx-level lock is enabled.
+func newFixture[T walletdb.DB](dbName, tablePrefix string,
+	withGlobalLock bool, openBackend func(context.Context, *Config,
+		string) (T, error)) (*fixture[T], error) {
+
 	if dbName == "" {
 		// Create random database name.
 		randBytes := make([]byte, 8)
@@ -87,35 +113,36 @@ func NewFixture(dbName string) (*fixture, error) {
 
 	// Open database
 	dsn := getTestDsn(dbName)
-	db, err := newPostgresBackend(
+	db, err := openBackend(
 		context.Background(),
 		&Config{
-			Dsn:     dsn,
-			Timeout: time.Minute,
+			Dsn:            dsn,
+			Timeout:        time.Minute,
+			WithGlobalLock: withGlobalLock,
 		},
-		prefix,
+		tablePrefix,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &fixture{
+	return &fixture[T]{
 		Dsn: dsn,
 		Db:  db,
 	}, nil
 }
 
-type fixture struct {
+type fixture[T walletdb.DB] struct {
 	Dsn string
-	Db  walletdb.DB
+	Db  T
 }
 
-func (b *fixture) DB() walletdb.DB {
+func (b *fixture[T]) DB() walletdb.DB {
 	return b.Db
 }
 
 // Dump returns the raw contents of the database.
-func (b *fixture) Dump() (map[string]interface{}, error) {
+func (b *fixture[T]) Dump() (map[string]interface{}, error) {
 	dbConn, err := sql.Open("pgx", b.Dsn)
 	if err != nil {
 		return nil, err

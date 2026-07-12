@@ -26,6 +26,11 @@ func TestInterface(t *testing.T) {
 	sqlDB, err := NewSqliteBackend(ctx, cfg, dir, "tmp.db", "table")
 	require.NoError(t, err)
 
+	// The regular SQLite backend must not expose migration-only
+	// capabilities. Migration backends must be explicitly selected.
+	_, ok := sqlDB.(sqlbase.MigrationBulkKVStore)
+	require.False(t, ok)
+
 	t.Cleanup(func() {
 		require.NoError(t, sqlDB.Close())
 	})

@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/btcsuite/btcwallet/walletdb/walletdbtest"
+	"github.com/lightningnetwork/lnd/kvdb/sqlbase"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,6 +20,11 @@ func TestInterface(t *testing.T) {
 
 	f, err := NewFixture("")
 	require.NoError(t, err)
+
+	// The regular Postgres backend must not expose migration-only
+	// capabilities. Callers must opt in through NewMigrationBackend.
+	_, ok := f.Db.(sqlbase.MigrationBulkKVStore)
+	require.False(t, ok)
 
 	// dbType is the database type name for this driver.
 	const dbType = "postgres"

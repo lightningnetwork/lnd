@@ -11,6 +11,7 @@ import (
 	"math/big"
 	prand "math/rand"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -644,6 +645,61 @@ func withoutV2Onion(addrs []net.Addr) []net.Addr {
 	return filtered
 }
 
+// hostLookup returns a closure that resolves a hostname to the address we'd
+// advertise for it, applying the default peer port if the host doesn't carry
+// one.
+func hostLookup(netCfg tor.Net) func(string) (net.Addr, error) {
+	return func(host string) (net.Addr, error) {
+		return lncfg.ParseAddressString(
+			host, strconv.Itoa(defaultPeerPort),
+			netCfg.ResolveTCPAddr,
+		)
+	}
+}
+
+// resolveExternalHosts resolves each configured externalhosts entry to the
+// address it currently points at. The second return value reports whether every
+// host resolved. A failed lookup leaves us unable to tell which of our
+// persisted clearnet addresses are stale results for that host, so callers must
+// not prune any addresses unless all hosts resolved.
+func resolveExternalHosts(hosts []string,
+	lookup func(string) (net.Addr, error)) (map[string]net.Addr, bool) {
+
+	addrs := make(map[string]net.Addr, len(hosts))
+	allResolved := true
+	for _, host := range hosts {
+		addr, err := lookup(host)
+		if err != nil {
+			srvrLog.Warnf("Unable to resolve IP for host %v: %v",
+				host, err)
+
+			allResolved = false
+
+			continue
+		}
+
+		addrs[host] = addr
+	}
+
+	return addrs, allResolved
+}
+
+// dedupAddrs removes duplicate addresses, preserving the original order.
+func dedupAddrs(addrs []net.Addr) []net.Addr {
+	seen := make(map[string]struct{}, len(addrs))
+	deduped := make([]net.Addr, 0, len(addrs))
+	for _, addr := range addrs {
+		if _, ok := seen[addr.String()]; ok {
+			continue
+		}
+
+		seen[addr.String()] = struct{}{}
+		deduped = append(deduped, addr)
+	}
+
+	return deduped
+}
+
 // noiseDial is a factory function which creates a connmgr compliant dialing
 // function by returning a closure which includes the server's identity key.
 func noiseDial(idKey keychain.SingleKeyECDH,
@@ -994,9 +1050,19 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		}
 	}
 
+	// Resolve any configured externalhosts up front so that the initial
+	// node announcement and the HostAnnouncer below both start from the
+	// same view of DNS.
+	lookupHost := hostLookup(cfg.net)
+	hostAddrs, allHostsResolved := resolveExternalHosts(
+		cfg.ExternalHosts, lookupHost,
+	)
+
 	nodePubKey := route.NewVertex(nodeKeyDesc.PubKey)
 	// Set the self node which represents our node in the graph.
-	err = s.setSelfNode(ctx, nodePubKey, listenAddrs)
+	err = s.setSelfNode(
+		ctx, nodePubKey, listenAddrs, hostAddrs, allHostsResolved,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -3577,15 +3643,7 @@ func (s *server) genNodeAnnouncement(features *lnwire.RawFeatureVector,
 
 	// The modifiers may have added duplicate addresses, so we need to
 	// de-duplicate them here.
-	uniqueAddrs := map[string]struct{}{}
-	dedupedAddrs := make([]net.Addr, 0)
-	for _, addr := range newNodeAnn.Addresses {
-		if _, ok := uniqueAddrs[addr.String()]; !ok {
-			uniqueAddrs[addr.String()] = struct{}{}
-			dedupedAddrs = append(dedupedAddrs, addr)
-		}
-	}
-	newNodeAnn.Addresses = dedupedAddrs
+	newNodeAnn.Addresses = dedupAddrs(newNodeAnn.Addresses)
 
 	// Sign a new update after applying all of the passed modifiers.
 	err := netann.SignNodeAnnouncement(
@@ -5711,13 +5769,64 @@ func calculateNodeAnnouncementTimestamp(persistedTime,
 	return currentTime
 }
 
+// reconcileNodeAddrs returns the set of addresses we should advertise for this
+// run. configAddrs are the addresses backed by the current configuration
+// (externalip, NAT-discovered IPs and the freshly resolved externalhosts),
+// while persisted are the addresses left over from our previous run. The
+// config addresses are always advertised; pruneStale only decides what happens
+// to the persisted ones.
+//
+// If pruneStale is set, we drop every persisted clearnet address the config no
+// longer backs. This is what stops old DNS results for an externalhosts entry
+// from piling up across restarts. Persisted addresses we cannot re-derive from
+// the config, such as onion or I2P addresses, are always carried over.
+//
+// If pruneStale is not set we have no trustworthy view of which persisted
+// addresses are stale, so we keep all of them rather than risk dropping an
+// address we're still reachable on.
+func reconcileNodeAddrs(configAddrs, persisted []net.Addr,
+	pruneStale bool) []net.Addr {
+
+	// Never carry a legacy Tor v2 address into a new announcement.
+	persisted = withoutV2Onion(persisted)
+
+	configured := make(map[string]struct{}, len(configAddrs))
+	for _, addr := range configAddrs {
+		configured[addr.String()] = struct{}{}
+	}
+
+	addrs := make([]net.Addr, 0, len(configAddrs)+len(persisted))
+	addrs = append(addrs, configAddrs...)
+
+	for _, addr := range persisted {
+		// A clearnet address that the config no longer backs is stale,
+		// but only the config can tell us that.
+		_, isClearnet := addr.(*net.TCPAddr)
+		if pruneStale && isClearnet {
+			if _, ok := configured[addr.String()]; !ok {
+				continue
+			}
+		}
+
+		addrs = append(addrs, addr)
+	}
+
+	return dedupAddrs(addrs)
+}
+
 // setSelfNode configures and sets the server's self node. It sets the node
 // announcement, signs it, and updates the source node in the graph. When
 // determining values such as color and alias, the method prioritizes values
 // set in the config, then values previously persisted on disk, and finally
 // falls back to the defaults.
 func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
-	listenAddrs []net.Addr) error {
+	listenAddrs []net.Addr, hostAddrs map[string]net.Addr,
+	allHostsResolved bool) error {
+
+	// Track whether the config backs any of our clearnet addresses. If it
+	// does, it is the source of truth for them and we drop the ones we
+	// persisted last run that it no longer backs.
+	configuredSource := len(s.cfg.ExternalIPs) != 0
 
 	// If we were requested to automatically configure port forwarding,
 	// we'll use the ports that the server will be listening on.
@@ -5747,7 +5856,23 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 				"using %s to advertise external IP",
 				s.natTraversal.Name())
 			externalIPStrings = append(externalIPStrings, ips...)
+			configuredSource = true
 		}
+	}
+
+	// The externalhosts entries back our clearnet addresses just like
+	// externalip does, the only difference being that we have to resolve
+	// them first. We sort the resolved addresses so that an unchanged set
+	// yields the same announcement across restarts, rather than a different
+	// address order each time we range the map.
+	hostAddrStrings := make([]string, 0, len(hostAddrs))
+	for _, addr := range hostAddrs {
+		hostAddrStrings = append(hostAddrStrings, addr.String())
+	}
+	sort.Strings(hostAddrStrings)
+	externalIPStrings = append(externalIPStrings, hostAddrStrings...)
+	if len(hostAddrs) != 0 {
+		configuredSource = true
 	}
 
 	// Normalize the external IP strings to net.Addr.
@@ -5758,6 +5883,22 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 	if err != nil {
 		return fmt.Errorf("unable to normalize addresses: %w", err)
 	}
+
+	// A host we couldn't resolve leaves us unable to tell which of our
+	// persisted clearnet addresses are stale results for it, so we hold on
+	// to all of them rather than risk dropping our only reachable address
+	// over a transient DNS failure. Peers dial the IPs we advertise, not
+	// the host, so a failed lookup says nothing about reachability.
+	//
+	// This is all-or-nothing: the persisted addresses are a flat list with
+	// no record of which host each came from, so one failed lookup
+	// suppresses pruning for every host this run. That host is also absent
+	// from the HostAnnouncer's InitialAddrs, so when it resolves later its
+	// address is appended without the stale one being removed, and a host
+	// that reliably fails at boot keeps accumulating until a boot where
+	// every host resolves. Pruning per host would need a persisted
+	// host-to-address mapping, which we deliberately avoid.
+	pruneStale := configuredSource && allHostsResolved
 
 	// Parse the color from config. We will update this later if the config
 	// color is not changed from default (#3399FF) and we have a value in
@@ -5799,13 +5940,12 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 			})
 		}
 
-		// If the `externalip` is not specified in the config, it means
-		// `addrs` will be empty, we'll use the source node's addresses.
-		// Filter out any persisted Tor v2 onion entries so an upgraded
-		// node never re-signs or re-broadcasts a legacy v2 address.
-		if len(s.cfg.ExternalIPs) == 0 {
-			addrs = withoutV2Onion(srcNode.Addresses)
-		}
+		// Merge the addresses backed by our config with the ones we
+		// persisted last run, dropping any persisted clearnet address
+		// the config no longer backs.
+		addrs = reconcileNodeAddrs(
+			addrs, srcNode.Addresses, pruneStale,
+		)
 
 	case errors.Is(err, graphdb.ErrSourceNodeNotSet):
 		// If an alias is not specified in the config, we'll use the

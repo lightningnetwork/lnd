@@ -1963,21 +1963,11 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	}
 
 	if len(cfg.ExternalHosts) != 0 {
-		advertisedIPs := make(map[string]struct{})
-		for _, addr := range s.currentNodeAnn.Addresses {
-			advertisedIPs[addr.String()] = struct{}{}
-		}
-
 		s.hostAnn = netann.NewHostAnnouncer(netann.HostAnnouncerConfig{
 			Hosts:         cfg.ExternalHosts,
 			RefreshTicker: ticker.New(defaultHostSampleInterval),
-			LookupHost: func(host string) (net.Addr, error) {
-				return lncfg.ParseAddressString(
-					host, strconv.Itoa(defaultPeerPort),
-					cfg.net.ResolveTCPAddr,
-				)
-			},
-			AdvertisedIPs: advertisedIPs,
+			LookupHost:    lookupHost,
+			InitialAddrs:  hostAddrs,
 			AnnounceNewIPs: netann.IPAnnouncer(
 				func(modifier ...netann.NodeAnnModifier) (
 					lnwire.NodeAnnouncement1, error) {

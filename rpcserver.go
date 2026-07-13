@@ -6681,11 +6681,10 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 			// channel encountered.
 			outDegree++
 
-			// If we've already seen this channel, then we'll
-			// return early to ensure that we don't double-count
-			// stats.
+			// If we've already seen this channel, skip it to
+			// ensure that we don't double-count stats.
 			if _, ok := seenChans[edge.ChannelID]; ok {
-				return nil
+				continue
 			}
 
 			// Compare the capacity of this channel against the

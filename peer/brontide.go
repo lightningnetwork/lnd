@@ -1421,7 +1421,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			// Create the Shutdown message.
 			shutdown, err := negotiateChanCloser.ShutdownChan()
 			if err != nil {
-				p.activeChanCloses.Delete(chanID)
+				p.deleteActiveChanCloser(chanID, chanPoint)
 				shutdownInfoErr = err
 
 				return
@@ -1465,7 +1465,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		// Creating this here ensures that any shutdown messages sent
 		// will be automatically routed by the msg router.
 		if _, err := p.initRbfChanCloser(lnChan); err != nil {
-			p.activeChanCloses.Delete(chanID)
+			p.deleteActiveChanCloser(chanID, chanPoint)
 
 			return nil, fmt.Errorf("unable to init RBF chan "+
 				"closer during peer connect: %w", err)
@@ -1762,6 +1762,10 @@ func (p *Brontide) Disconnect(reason error) {
 	// Stop the onion peer actor if one was spawned.
 	p.StopOnionActorIfExists()
 
+	// Unregister any RBF close actors registered for channels of this
+	// peer so we don't leave stale entries in the actor system.
+	p.unregisterRbfCloseActors()
+
 	// Ensure that the TCP connection is properly closed before continuing.
 	p.cfg.Conn.Close()
 
@@ -1791,6 +1795,54 @@ func (p *Brontide) StopOnionActorIfExists() {
 			)
 		},
 	)
+}
+
+// unregisterRbfCloseActor removes any RBF close actor registered for the
+// given channel point from the actor system. This is idempotent and safe to
+// call whether or not an actor was registered for the channel point.
+func (p *Brontide) unregisterRbfCloseActor(chanPoint wire.OutPoint) {
+	if p.cfg.ActorSystem == nil {
+		return
+	}
+
+	actorKey := NewRbfCloserPeerServiceKey(chanPoint)
+	actorKey.UnregisterAll(p.cfg.ActorSystem)
+}
+
+// deleteActiveChanCloser removes the chan closer for the given channel ID and
+// also unregisters any RBF close actor associated with the channel point from
+// the actor system. Callers should prefer this over calling
+// activeChanCloses.Delete directly so the actor registry stays in sync with
+// the active closers map.
+func (p *Brontide) deleteActiveChanCloser(chanID lnwire.ChannelID,
+	chanPoint wire.OutPoint) {
+
+	p.activeChanCloses.Delete(chanID)
+	p.unregisterRbfCloseActor(chanPoint)
+}
+
+// unregisterRbfCloseActors removes any RBF close actors registered for this
+// peer's active channels from the actor system. This should be called on
+// disconnect so we don't leave stale RBF close actors for a peer that is no
+// longer connected. This is idempotent and safe to call multiple times.
+func (p *Brontide) unregisterRbfCloseActors() {
+	if p.cfg.ActorSystem == nil {
+		return
+	}
+
+	p.activeChannels.Range(func(_ lnwire.ChannelID,
+		channel *lnwallet.LightningChannel) bool {
+
+		// Pending channels are tracked with a nil value in the map,
+		// so skip those as they have no channel point to look up.
+		if channel == nil {
+			return true
+		}
+
+		p.unregisterRbfCloseActor(channel.ChannelPoint())
+
+		return true
+	})
 }
 
 // readNextMessage reads, and returns the next message on the wire along with
@@ -3679,7 +3731,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	shutdownMsg, err := chanCloser.ShutdownChan()
 	if err != nil {
 		p.log.Errorf("unable to create shutdown message: %v", err)
-		p.activeChanCloses.Delete(chanID)
+		p.deleteActiveChanCloser(chanID, c.FundingOutpoint)
 		return nil, err
 	}
 
@@ -3784,7 +3836,7 @@ func (p *Brontide) initNegotiateChanCloser(req *htlcswitch.ChanClose,
 		// back to its normal state.
 		defer channel.ResetState()
 
-		p.activeChanCloses.Delete(chanID)
+		p.deleteActiveChanCloser(chanID, channel.ChannelPoint())
 
 		return fmt.Errorf("unable to shutdown channel: %w", err)
 	}
@@ -3955,7 +4007,9 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 				chanID := lnwire.NewChanIDFromOutPoint(
 					*closeReq.ChanPoint,
 				)
-				p.activeChanCloses.Delete(chanID)
+				p.deleteActiveChanCloser(
+					chanID, *closeReq.ChanPoint,
+				)
 
 				return
 			}
@@ -4029,7 +4083,9 @@ func (c *chanErrorReporter) ReportError(chanErr error) {
 	}
 
 	if _, err := c.peer.initRbfChanCloser(lnChan); err != nil {
-		c.peer.activeChanCloses.Delete(c.chanID)
+		c.peer.deleteActiveChanCloser(
+			c.chanID, lnChan.ChannelPoint(),
+		)
 
 		c.peer.log.Errorf("unable to init RBF chan closer after "+
 			"error case: %v", err)
@@ -4233,7 +4289,29 @@ func (p *Brontide) initRbfChanCloser(
 			"close: %w", err)
 	}
 
+	// We store the closer first so that any lookups that race with actor
+	// registration will find the chan closer already in place.
 	p.activeChanCloses.Store(chanID, makeRbfCloser(&chanCloser))
+
+	// In addition to the message router, we'll register the state machine
+	// with the actor system.
+	if p.cfg.ActorSystem != nil {
+		p.log.Infof("Registering RBF actor for channel %v",
+			channel.ChannelPoint())
+
+		actorWrapper := newRbfCloseActor(
+			channel.ChannelPoint(), p, p.cfg.ActorSystem,
+		)
+		if err := actorWrapper.registerActor(); err != nil {
+			chanCloser.Stop()
+			p.deleteActiveChanCloser(
+				chanID, channel.ChannelPoint(),
+			)
+
+			return nil, fmt.Errorf("unable to register RBF close "+
+				"actor: %w", err)
+		}
+	}
 
 	// Now that we've created the rbf closer state machine, we'll launch a
 	// new goroutine to eventually send in the ChannelFlushed event once
@@ -4666,9 +4744,12 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 	chanPoint := chanCloser.Channel().ChannelPoint()
 	p.WipeChannel(&chanPoint)
 
-	// Also clear the activeChanCloses map of this channel.
+	// Also clear the activeChanCloses map of this channel, and unregister
+	// any RBF close actor that was registered for this channel point.
+	//
+	// TODO(roasbeef): existing race.
 	cid := lnwire.NewChanIDFromOutPoint(chanPoint)
-	p.activeChanCloses.Delete(cid) // TODO(roasbeef): existing race
+	p.deleteActiveChanCloser(cid, chanPoint)
 
 	// Next, we'll launch a goroutine which will request to be notified by
 	// the ChainNotifier once the closure transaction obtains a single
@@ -5211,7 +5292,9 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 			chanCloser.CloseRequest().Err <- err
 		}
 
-		p.activeChanCloses.Delete(msg.cid)
+		p.deleteActiveChanCloser(
+			msg.cid, chanCloser.Channel().ChannelPoint(),
+		)
 
 		p.Disconnect(err)
 	}
@@ -5551,7 +5634,7 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 	// Creating this here ensures that any shutdown messages sent will be
 	// automatically routed by the msg router.
 	if _, err := p.initRbfChanCloser(lnChan); err != nil {
-		p.activeChanCloses.Delete(chanID)
+		p.deleteActiveChanCloser(chanID, lnChan.ChannelPoint())
 
 		return fmt.Errorf("unable to init RBF chan closer for new "+
 			"chan: %w", err)
@@ -5816,43 +5899,4 @@ func (p *Brontide) ChanHasRbfCoopCloser(chanPoint wire.OutPoint) bool {
 	}
 
 	return chanCloser.IsRight()
-}
-
-// TriggerCoopCloseRbfBump given a chan ID, and the params needed to trigger a
-// new RBF co-op close update, a bump is attempted. A channel used for updates,
-// along with one used to o=communicate any errors is returned. If no chan
-// closer is found, then false is returned for the second argument.
-func (p *Brontide) TriggerCoopCloseRbfBump(ctx context.Context,
-	chanPoint wire.OutPoint, feeRate chainfee.SatPerKWeight,
-	deliveryScript lnwire.DeliveryAddress) (*CoopCloseUpdates, error) {
-
-	// If RBF coop close isn't permitted, then we'll an error.
-	if !p.rbfCoopCloseAllowed() {
-		return nil, fmt.Errorf("rbf coop close not enabled for " +
-			"channel")
-	}
-
-	closeUpdates := &CoopCloseUpdates{
-		UpdateChan: make(chan interface{}, 1),
-		ErrChan:    make(chan error, 1),
-	}
-
-	// We'll re-use the existing switch struct here, even though we're
-	// bypassing the switch entirely.
-	closeReq := htlcswitch.ChanClose{
-		CloseType:      contractcourt.CloseRegular,
-		ChanPoint:      &chanPoint,
-		TargetFeePerKw: feeRate,
-		DeliveryScript: deliveryScript,
-		Updates:        closeUpdates.UpdateChan,
-		Err:            closeUpdates.ErrChan,
-		Ctx:            ctx,
-	}
-
-	err := p.startRbfChanCloser(newRPCShutdownInit(&closeReq), chanPoint)
-	if err != nil {
-		return nil, err
-	}
-
-	return closeUpdates, nil
 }

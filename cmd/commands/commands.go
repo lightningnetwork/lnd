@@ -978,11 +978,88 @@ var disconnectCommand = cli.Command{
 	Usage: "Disconnect a remote lightning peer identified by " +
 		"public key.",
 	ArgsUsage: "<pubkey>",
+	Description: `
+	Disconnect a remote lightning peer identified by public key.
+
+	By default this only drops the active connection; the peer's stored
+	LinkNode entry (and any addresses in it) is left in place, so lnd
+	will still reconnect to the peer on the next restart via its
+	remembered addresses or the gossip graph.
+
+	With --forget_node lnd drops the active connection AND removes the
+	peer's stored LinkNode entry. The LinkNode delete is refused if open
+	channels still exist with the peer unless --force is also passed.
+	--forget_node removes all of the peer's stored addresses at once;
+	use --forget_address to remove just one.
+
+	No reconnect is attempted from our side in the current session
+	after --forget_node. Note that the remote peer may still re-dial us if
+	they have us in their own persistent set (typical when a channel
+	exists), in which case we'll accept the inbound connection. On the
+	next lnd restart, if the peer still has open channels, the
+	channel-driven persistence path will reconnect using
+	NodeAnnouncement addresses from the gossip graph.
+
+	For a peer with no open channels, --forget_node is a shortcut for
+	work that would happen on the next lnd restart anyway: at startup
+	lnd runs PruneLinkNodes, which deletes stored LinkNode entries for
+	peers with no open channels. --forget_node on such a peer just
+	performs that delete now, and additionally drops the live
+	connection. --force is not required in this case.
+
+	With --forget_address <host:port> a single stored address is removed
+	from the peer's LinkNode entry. The live connection is left alone
+	unless the removed address happens to be the one currently in use,
+	in which case the connection is dropped so lnd can re-dial via the
+	remaining stored/gossip addresses. If the removed address would be
+	the last stored address for the peer, behaviour depends on whether
+	there are open channels with the peer: when there are no open
+	channels the LinkNode entry is deleted automatically; when there
+	are open channels the request is refused unless --force is also
+	passed.
+
+	--forget_node and --forget_address are mutually exclusive. Passing
+	--force without either is an error.
+
+	Note: after --forget_address --force removes the last stored address
+	for a channel peer, the peer stays in the persistent-reconnect set
+	— the peer-termination watcher will fetch the peer's advertised
+	addresses from its NodeAnnouncement (via the gossip graph) and
+	reconnect using those. Use --forget_node instead if you want to
+	remove the last stored address AND stop reconnecting from our side
+	until lnd next restarts.
+	Even with --forget_address --force, a channel peer is only truly
+	orphaned when it also has no NodeAnnouncement.
+	`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "node_key",
 			Usage: "The hex-encoded compressed public key of the peer " +
 				"to disconnect from",
+		},
+		cli.BoolFlag{
+			Name: "forget_node",
+			Usage: "Also remove the peer's stored LinkNode entry so " +
+				"lnd will not auto-reconnect on the next " +
+				"restart. Refused if open channels exist unless " +
+				"'--force' is also set.",
+		},
+		cli.BoolFlag{
+			Name: "force",
+			Usage: "Only meaningful with '--forget_node' or " +
+				"'--forget_address'. With '--forget_node', " +
+				"bypasses the open-channel guard. With " +
+				"'--forget_address', allows removing the last " +
+				"stored address (which deletes the LinkNode " +
+				"entry itself).",
+		},
+		cli.StringFlag{
+			Name: "forget_address",
+			Usage: "Remove a single stored address from the peer's " +
+				"LinkNode entry (does not drop the live " +
+				"connection unless the removed address is the " +
+				"one currently in use). Mutually exclusive with " +
+				"'--forget_node'.",
 		},
 	},
 	Action: actionDecorator(disconnectPeer),
@@ -1004,7 +1081,10 @@ func disconnectPeer(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.DisconnectPeerRequest{
-		PubKey: pubKey,
+		PubKey:        pubKey,
+		ForgetNode:    ctx.Bool("forget_node"),
+		Force:         ctx.Bool("force"),
+		ForgetAddress: ctx.String("forget_address"),
 	}
 
 	lnid, err := client.DisconnectPeer(ctxc, req)

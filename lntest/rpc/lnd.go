@@ -78,6 +78,33 @@ func (h *HarnessRPC) DisconnectPeer(
 	return resp
 }
 
+// DisconnectPeerReq calls DisconnectPeer with a fully formed request,
+// allowing tests to exercise the forget / force / forget_address flags.
+func (h *HarnessRPC) DisconnectPeerReq(
+	req *lnrpc.DisconnectPeerRequest) *lnrpc.DisconnectPeerResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.DisconnectPeer(ctxt, req)
+	h.NoError(err, "DisconnectPeer")
+
+	return resp
+}
+
+// DisconnectPeerReqAssertErr calls DisconnectPeer expecting a non-nil error.
+func (h *HarnessRPC) DisconnectPeerReqAssertErr(
+	req *lnrpc.DisconnectPeerRequest) error {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.DisconnectPeer(ctxt, req)
+	require.Error(h, err, "expected an error from DisconnectPeer")
+
+	return err
+}
+
 // DeleteAllPayments makes a RPC call to the node's DeleteAllPayments and
 // asserts.
 func (h *HarnessRPC) DeleteAllPayments() {

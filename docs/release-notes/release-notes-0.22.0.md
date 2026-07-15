@@ -81,6 +81,25 @@
   `ListPeersRequest.include_offline_persistent_peers` flag opts into
   surfacing peers in the reconnect set we are not currently connected to.
 
+* [`DisconnectPeer` gains `forget_node`, `force`, and `forget_address`
+  fields](https://github.com/lightningnetwork/lnd/pull/10976).
+  `forget_node=true` also removes the peer's stored LinkNode entry so no
+  auto-reconnect is attempted on the next lnd restart; refused if open
+  channels exist unless `force=true`. `forget_address="<host:port>"`
+  removes a single stored address for the peer without dropping the live
+  connection (unless the removed address is the currently-connected one,
+  in which case the connection is dropped so lnd can re-dial via remaining
+  stored/gossip addresses). If `forget_address` would remove the last
+  stored address for the peer, behaviour depends on whether open channels
+  exist: with no open channels the LinkNode entry is deleted
+  automatically; with open channels the request is refused unless
+  `force=true`. `forget_node` and `forget_address` are mutually exclusive;
+  `force` on its own is rejected. Note: after `force` removes the last
+  stored address for a channel peer, the peer-termination watcher falls
+  back to the peer's NodeAnnouncement addresses for reconnect, so a
+  channel peer is only truly orphaned when it also has no
+  NodeAnnouncement.
+
 ## lncli Additions
 
 * The `estimateroutefee` command now supports [restricting fee estimates to
@@ -91,6 +110,10 @@
 * `lncli listpeers` gains
   [`--include_offline_persistent_peers`](https://github.com/lightningnetwork/lnd/pull/10973)
   (see the `ListPeers` RPC entry above).
+
+* `lncli disconnect` gains
+  [`--forget_node`, `--force`, and `--forget_address`](https://github.com/lightningnetwork/lnd/pull/10976)
+  (see the `DisconnectPeer` RPC entry above).
 
 * A new
   [`wallet submitpackage`](https://github.com/lightningnetwork/lnd/pull/10900)

@@ -159,6 +159,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testAutoPersistChannelPeerAddress,
 	},
 	{
+		Name:     "disconnect forget",
+		TestFunc: testDisconnectForget,
+	},
+	{
 		Name:     "addpeer config",
 		TestFunc: testAddPeerConfig,
 	},

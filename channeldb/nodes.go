@@ -225,6 +225,62 @@ func (l *LinkNodeDB) CreateLinkNodes(tx kvdb.RwTx,
 	return createNodes(tx)
 }
 
+// RemoveAddressForPeer removes addr from the peer's stored LinkNode
+// address list.
+//
+// If the removal would leave the LinkNode with no addresses (i.e. addr
+// was the last stored address for the peer):
+//   - if allowLast is true, the LinkNode entry is deleted and
+//     deletedEntry is set to true.
+//   - if allowLast is false, ErrLastPeerAddress is returned and the
+//     LinkNode is left untouched.
+//
+// Returns ErrNodeNotFound if no LinkNode exists for the peer, and
+// ErrNodeAddressNotFound if the LinkNode exists but does not contain
+// addr.
+func (l *LinkNodeDB) RemoveAddressForPeer(pub *btcec.PublicKey,
+	addr net.Addr, allowLast bool) (deletedEntry bool, err error) {
+
+	err = kvdb.Update(l.backend, func(tx kvdb.RwTx) error {
+		nodeMetaBucket := tx.ReadWriteBucket(nodeInfoBucket)
+		if nodeMetaBucket == nil {
+			return ErrLinkNodesNotFound
+		}
+
+		existing, ferr := fetchLinkNode(tx, pub)
+		if ferr != nil {
+			return ferr
+		}
+
+		target := addr.String()
+		remaining := existing.Addresses[:0]
+		found := false
+		for _, a := range existing.Addresses {
+			if !found && a.String() == target {
+				found = true
+				continue
+			}
+			remaining = append(remaining, a)
+		}
+		if !found {
+			return ErrNodeAddressNotFound
+		}
+
+		if len(remaining) == 0 {
+			if !allowLast {
+				return ErrLastPeerAddress
+			}
+			deletedEntry = true
+			return deleteLinkNode(tx, pub)
+		}
+		existing.Addresses = remaining
+		return putLinkNode(nodeMetaBucket, existing)
+	}, func() {
+		deletedEntry = false
+	})
+	return deletedEntry, err
+}
+
 // DeleteLinkNode removes the link node with the given identity from the
 // database.
 func (l *LinkNodeDB) DeleteLinkNode(identity *btcec.PublicKey) error {

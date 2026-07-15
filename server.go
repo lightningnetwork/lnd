@@ -2877,7 +2877,7 @@ func (s *server) Stop() error {
 		// Disconnect from each active peers to ensure that
 		// peerTerminationWatchers signal completion to each peer.
 		for _, peer := range s.Peers() {
-			err := s.DisconnectPeer(peer.IdentityKey())
+			err := s.DisconnectPeer(peer.IdentityKey(), false, false)
 			if err != nil {
 				srvrLog.Warnf("could not disconnect peer: %v"+
 					"received error: %v", peer.IdentityKey(),
@@ -4465,7 +4465,7 @@ func (s *server) notifyFundingTimeoutPeerEvent(op wire.OutPoint,
 	if errors.Is(err, ErrNoMoreRestrictedAccessSlots) {
 		// If we encounter an error while attempting to disconnect the
 		// peer, log the error.
-		if dcErr := s.DisconnectPeer(remotePub); dcErr != nil {
+		if dcErr := s.DisconnectPeer(remotePub, false, false); dcErr != nil {
 			srvrLog.Errorf("Unable to disconnect peer: %v\n", err)
 		}
 	}
@@ -4634,7 +4634,9 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		ChannelNotifier: s.channelNotifier,
 		HtlcNotifier:    s.htlcNotifier,
 		TowerClient:     towerClient,
-		DisconnectPeer:  s.DisconnectPeer,
+		DisconnectPeer: func(pk *btcec.PublicKey) error {
+			return s.DisconnectPeer(pk, false, false)
+		},
 		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
 			lnwire.NodeAnnouncement1, error) {
 
@@ -5328,10 +5330,14 @@ func (s *server) connectToPeer(addr *lnwire.NetAddress,
 }
 
 // DisconnectPeer sends the request to server to close the connection with peer
-// identified by public key.
+// identified by public key. If forgetNode is true, the peer's LinkNode entry
+// is also removed (whole-peer forget); when open channels still exist with
+// the peer, the LinkNode delete is refused unless force is also true.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
+func (s *server) DisconnectPeer(pubKey *btcec.PublicKey,
+	forgetNode, force bool) error {
+
 	pubBytes := pubKey.SerializeCompressed()
 	pubStr := string(pubBytes)
 
@@ -5346,9 +5352,38 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 		return fmt.Errorf("peer %x is not connected", pubBytes)
 	}
 
-	srvrLog.Infof("Disconnecting from %v", peer)
+	srvrLog.Infof("Disconnecting from %v (forget_node=%v, force=%v)",
+		peer, forgetNode, force)
 
 	s.cancelConnReqs(pubStr, nil)
+
+	// If forgetNode was requested, drop the peer's LinkNode entry
+	// unless open channels still exist and force wasn't set.
+	if forgetNode {
+		nodeChannels, fcErr := s.chanStateDB.FetchOpenChannels(pubKey)
+		switch {
+		case fcErr != nil:
+			srvrLog.Errorf("Unable to check open channels for "+
+				"peer %x while forgetting: %v", pubBytes,
+				fcErr)
+
+		case len(nodeChannels) > 0 && !force:
+			srvrLog.Infof("Keeping LinkNode for peer %x: %d "+
+				"open channel(s) still exist; pass force=true "+
+				"to remove anyway", pubBytes,
+				len(nodeChannels))
+
+		default:
+			err := s.linkNodeDB.DeleteLinkNode(pubKey)
+			if err != nil &&
+				!errors.Is(err, channeldb.ErrLinkNodesNotFound) &&
+				!errors.Is(err, channeldb.ErrNodeNotFound) {
+
+				srvrLog.Errorf("Unable to remove LinkNode "+
+					"for peer %x: %v", pubBytes, err)
+			}
+		}
+	}
 
 	// If this peer was formerly a persistent connection, then we'll remove
 	// them from this map so we don't attempt to re-connect after we
@@ -5364,6 +5399,73 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 	go peer.Disconnect(fmt.Errorf("server: DisconnectPeer called"))
 
 	return nil
+}
+
+// ForgetPeerAddress removes a single stored address from the peer's LinkNode
+// entry. If the removal would leave the LinkNode with no addresses:
+//   - if force is true, the entry is deleted.
+//   - if force is false and the peer has no open channels, the entry is
+//     deleted (removing the last stored address for a channel-less peer is
+//     considered safe).
+//   - if force is false and the peer still has open channels,
+//     ErrLastPeerAddress is returned and the store is left untouched.
+//
+// If the peer is currently connected on the address being removed, the live
+// connection is also dropped so lnd will re-dial through the remaining
+// address sources.
+//
+// deletedEntry is true when the whole LinkNode entry was removed as part of
+// this call.
+//
+// NOTE: This function is safe for concurrent access.
+func (s *server) ForgetPeerAddress(pubKey *btcec.PublicKey, addr net.Addr,
+	force bool) (deletedEntry bool, err error) {
+
+	// Removing the last stored address is safe when the peer has no
+	// open channels; require `force` otherwise so the operator doesn't
+	// accidentally orphan a live channel from its stored address.
+	allowLast := force
+	if !allowLast {
+		nodeChannels, fcErr := s.chanStateDB.FetchOpenChannels(pubKey)
+		if fcErr != nil {
+			return false, fmt.Errorf("unable to check open "+
+				"channels for peer: %w", fcErr)
+		}
+		allowLast = len(nodeChannels) == 0
+	}
+
+	deletedEntry, err = s.linkNodeDB.RemoveAddressForPeer(
+		pubKey, addr, allowLast,
+	)
+	if err != nil {
+		return false, err
+	}
+
+	pubBytes := pubKey.SerializeCompressed()
+	if deletedEntry {
+		srvrLog.Infof("Removed last stored address %v for peer %x; "+
+			"LinkNode entry deleted", addr, pubBytes)
+	} else {
+		srvrLog.Infof("Removed stored address %v for peer %x", addr,
+			pubBytes)
+	}
+
+	// If we are currently connected on the removed address, drop the
+	// connection so lnd can re-dial via the remaining stored/gossip
+	// addresses.
+	pubStr := string(pubBytes)
+	s.mu.Lock()
+	peer, findErr := s.findPeerByPubStr(pubStr)
+	s.mu.Unlock()
+	if findErr == nil && peer.Address().String() == addr.String() {
+		srvrLog.Infof("Dropping connection to peer %x on removed "+
+			"address %v", pubBytes, addr)
+		go peer.Disconnect(fmt.Errorf(
+			"server: ForgetPeerAddress removed current address",
+		))
+	}
+
+	return deletedEntry, nil
 }
 
 // OpenChannel sends a request to the server to open a channel to the specified

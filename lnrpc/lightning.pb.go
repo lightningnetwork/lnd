@@ -4274,7 +4274,53 @@ func (x *ConnectPeerResponse) GetStatus() string {
 type DisconnectPeerRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The pubkey of the node to disconnect from
-	PubKey        string `protobuf:"bytes,1,opt,name=pub_key,json=pubKey,proto3" json:"pub_key,omitempty"`
+	PubKey string `protobuf:"bytes,1,opt,name=pub_key,json=pubKey,proto3" json:"pub_key,omitempty"`
+	// If set, the peer's stored LinkNode entry is also removed and no automatic
+	// reconnect is attempted from our side in the current session. Mutually
+	// exclusive with `forget_address`.
+	//
+	// Note: the remote peer may still re-dial us if they have us in their own
+	// persistent set (typical when a channel exists), in which case we'll
+	// accept the inbound connection. On the next lnd restart, if the peer
+	// still has open channels, the channel-driven persistence path will
+	// reconnect using NodeAnnouncement addresses from the gossip graph.
+	//
+	// For a peer with no open channels, `forget_node` is a shortcut for work
+	// that would happen on the next lnd restart anyway: at startup lnd runs
+	// `PruneLinkNodes`, which deletes stored LinkNode entries for peers with
+	// no open channels. `forget_node` on such a peer just performs that
+	// delete now, and additionally drops the live connection. `force` is not
+	// required in this case.
+	ForgetNode bool `protobuf:"varint,2,opt,name=forget_node,json=forgetNode,proto3" json:"forget_node,omitempty"`
+	// Only meaningful with `forget_node` or `forget_address`.
+	// With `forget_node`, `force` bypasses the guard that refuses to
+	// delete the LinkNode entry when open channels still exist with the
+	// peer.
+	// With `forget_address`, `force` allows removing the last stored
+	// address when the peer still has open channels (removing the last
+	// stored address is otherwise allowed automatically when no channels
+	// exist).
+	// Setting `force` without either `forget_node` or `forget_address` is
+	// rejected.
+	Force bool `protobuf:"varint,3,opt,name=force,proto3" json:"force,omitempty"`
+	// Remove a single stored address from the peer's LinkNode entry. The live
+	// connection is left untouched unless the peer happens to be connected on
+	// this exact address, in which case the connection is dropped so lnd can
+	// re-dial via the remaining stored/gossip addresses. If the removal would
+	// leave the LinkNode with no addresses and the peer still has open
+	// channels, the request is refused unless `force` is also set; if no
+	// open channels exist, the LinkNode entry is deleted automatically.
+	// Mutually exclusive with `forget_node`.
+	//
+	// Note: after `forget_address` + `force` removes the last stored address
+	// for a channel peer, the peer stays in the persistent-reconnect set —
+	// the peer-termination watcher will fetch the peer's NodeAnnouncement
+	// addresses (via the gossip graph) and use those for reconnect. Use
+	// `forget_node` instead if you want to remove the last stored address
+	// AND stop reconnecting from our side until lnd next restarts. Even
+	// with `forget_address` + `force`, a channel peer is only truly
+	// orphaned when it also has no NodeAnnouncement.
+	ForgetAddress string `protobuf:"bytes,4,opt,name=forget_address,json=forgetAddress,proto3" json:"forget_address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4312,6 +4358,27 @@ func (*DisconnectPeerRequest) Descriptor() ([]byte, []int) {
 func (x *DisconnectPeerRequest) GetPubKey() string {
 	if x != nil {
 		return x.PubKey
+	}
+	return ""
+}
+
+func (x *DisconnectPeerRequest) GetForgetNode() bool {
+	if x != nil {
+		return x.ForgetNode
+	}
+	return false
+}
+
+func (x *DisconnectPeerRequest) GetForce() bool {
+	if x != nil {
+		return x.Force
+	}
+	return false
+}
+
+func (x *DisconnectPeerRequest) GetForgetAddress() string {
+	if x != nil {
+		return x.ForgetAddress
 	}
 	return ""
 }
@@ -18787,9 +18854,13 @@ const file_lightning_proto_rawDesc = "" +
 	"\x04perm\x18\x02 \x01(\bR\x04perm\x12\x18\n" +
 	"\atimeout\x18\x03 \x01(\x04R\atimeout\"-\n" +
 	"\x13ConnectPeerResponse\x12\x16\n" +
-	"\x06status\x18\x01 \x01(\tR\x06status\"0\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\"\x8e\x01\n" +
 	"\x15DisconnectPeerRequest\x12\x17\n" +
-	"\apub_key\x18\x01 \x01(\tR\x06pubKey\"0\n" +
+	"\apub_key\x18\x01 \x01(\tR\x06pubKey\x12\x1f\n" +
+	"\vforget_node\x18\x02 \x01(\bR\n" +
+	"forgetNode\x12\x14\n" +
+	"\x05force\x18\x03 \x01(\bR\x05force\x12%\n" +
+	"\x0eforget_address\x18\x04 \x01(\tR\rforgetAddress\"0\n" +
 	"\x16DisconnectPeerResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\"\xa3\x02\n" +
 	"\x04HTLC\x12\x1a\n" +

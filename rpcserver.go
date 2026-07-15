@@ -1945,9 +1945,45 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 			pubKeyBytes, len(nodeChannels))
 	}
 
+	// Validate flag combinations before doing any work.
+	if in.Force && !in.ForgetNode && in.ForgetAddress == "" {
+		return nil, fmt.Errorf("force can only be set together " +
+			"with forget_node or forget_address")
+	}
+	if in.ForgetNode && in.ForgetAddress != "" {
+		return nil, fmt.Errorf("forget_node and forget_address " +
+			"are mutually exclusive")
+	}
+
+	// Per-address removal takes a distinct code path: it does not drop
+	// the live connection (unless the removed address is the currently
+	// connected one), and it returns a warning in the status if the
+	// LinkNode entry itself was deleted as a result.
+	if in.ForgetAddress != "" {
+		addr, addrErr := parseAddr(in.ForgetAddress, r.cfg.net)
+		if addrErr != nil {
+			return nil, fmt.Errorf("unable to parse "+
+				"forget_address: %w", addrErr)
+		}
+		deletedEntry, fErr := r.server.ForgetPeerAddress(
+			peerPubKey, addr, in.Force,
+		)
+		if fErr != nil {
+			return nil, fmt.Errorf("unable to forget peer "+
+				"address: %w", fErr)
+		}
+		status := fmt.Sprintf("forgot address %v for peer %x",
+			addr, pubKeyBytes)
+		if deletedEntry {
+			status = fmt.Sprintf("%s; this was the last stored "+
+				"address, LinkNode entry removed", status)
+		}
+		return &lnrpc.DisconnectPeerResponse{Status: status}, nil
+	}
+
 	// With all initial validation complete, we'll now request that the
 	// server disconnects from the peer.
-	err = r.server.DisconnectPeer(peerPubKey)
+	err = r.server.DisconnectPeer(peerPubKey, in.ForgetNode, in.Force)
 	if err != nil {
 		return nil, fmt.Errorf("unable to disconnect peer: %w", err)
 	}

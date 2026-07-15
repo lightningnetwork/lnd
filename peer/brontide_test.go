@@ -1843,3 +1843,100 @@ func TestHasActiveChannels(t *testing.T) {
 	require.False(t, peer.hasActiveChannels())
 	require.Equal(t, int32(0), peer.numActiveChans.Load())
 }
+
+// TestRbfCoopCloseAllowed asserts that the per-channel RBF coop close
+// predicate excludes aux channels (channel types carrying a tapscript root)
+// even when both peers have negotiated the RBF coop close feature, while
+// permitting it for all other channel types.
+func TestRbfCoopCloseAllowed(t *testing.T) {
+	t.Parallel()
+
+	newPeer := func(local, remote *lnwire.RawFeatureVector) *Brontide {
+		return &Brontide{
+			cfg: Config{
+				Features: lnwire.NewFeatureVector(
+					local, lnwire.Features,
+				),
+			},
+			remoteFeatures: lnwire.NewFeatureVector(
+				remote, lnwire.Features,
+			),
+		}
+	}
+
+	var (
+		noBits = lnwire.NewRawFeatureVector()
+		rbfBit = lnwire.NewRawFeatureVector(
+			lnwire.RbfCoopCloseOptional,
+		)
+		stagingBit = lnwire.NewRawFeatureVector(
+			lnwire.RbfCoopCloseOptionalStaging,
+		)
+
+		overlayChan = channeldb.SimpleTaprootFeatureBit |
+			channeldb.TapscriptRootBit
+	)
+
+	tests := []struct {
+		name     string
+		peer     *Brontide
+		chanType channeldb.ChannelType
+		allowed  bool
+	}{
+		{
+			name:     "both signal, plain channel",
+			peer:     newPeer(rbfBit, rbfBit),
+			chanType: channeldb.SingleFunderTweaklessBit,
+			allowed:  true,
+		},
+		{
+			name:     "both signal staging, plain channel",
+			peer:     newPeer(stagingBit, stagingBit),
+			chanType: channeldb.SingleFunderTweaklessBit,
+			allowed:  true,
+		},
+		{
+			name:     "both signal, simple taproot channel",
+			peer:     newPeer(rbfBit, rbfBit),
+			chanType: channeldb.SimpleTaprootFeatureBit,
+			allowed:  true,
+		},
+		{
+			name:     "both signal, aux (overlay) channel",
+			peer:     newPeer(rbfBit, rbfBit),
+			chanType: overlayChan,
+			allowed:  false,
+		},
+		{
+			name:     "both signal staging, aux (overlay) channel",
+			peer:     newPeer(stagingBit, stagingBit),
+			chanType: overlayChan,
+			allowed:  false,
+		},
+		{
+			name:     "only local signals, plain channel",
+			peer:     newPeer(rbfBit, noBits),
+			chanType: channeldb.SingleFunderTweaklessBit,
+			allowed:  false,
+		},
+		{
+			name:     "neither signals, aux (overlay) channel",
+			peer:     newPeer(noBits, noBits),
+			chanType: overlayChan,
+			allowed:  false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(
+				t, test.allowed,
+				test.peer.rbfCoopCloseAllowed(
+					test.chanType,
+				),
+			)
+		})
+	}
+}

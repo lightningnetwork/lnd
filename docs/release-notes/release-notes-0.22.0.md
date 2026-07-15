@@ -77,6 +77,14 @@
 
 ## RPC Updates
 
+* The `ChainNotifier` confirmation and spend notification streams are now
+  [richer at the re-org boundary](https://github.com/lightningnetwork/lnd/pull/10943):
+  the `Reorg` message carries the re-org `depth` (populated for confirmation
+  notifications), and a new `Done` event is sent once a watch reaches the
+  backend's re-org safety depth. Previously the re-org depth was dropped and the
+  done signal was conveyed only by closing the stream, which callers could not
+  distinguish from an unrelated teardown.
+
 ## lncli Updates
 
 ## Breaking Changes

@@ -5154,6 +5154,23 @@ func (s *server) removePeerUnsafe(ctx context.Context, p *peer.Brontide) {
 	}()
 }
 
+// PersistentReconnectSet returns a snapshot of the pubkeys currently in the
+// persistent reconnect set, mapped to whether a reconnect attempt is in
+// flight. Keys are the raw 33-byte compressed pubkey as a Go string (matching
+// the keying convention used by s.persistentPeers).
+//
+// NOTE: This function is safe for concurrent access.
+func (s *server) PersistentReconnectSet() map[string]bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make(map[string]bool, len(s.persistentPeers))
+	for k := range s.persistentPeers {
+		out[k] = len(s.persistentConnReqs[k]) > 0
+	}
+	return out
+}
+
 // ConnectToPeer requests that the server connect to a Lightning Network peer
 // at the specified address. This function will *block* until either a
 // connection is established, or the initial handshake process fails.

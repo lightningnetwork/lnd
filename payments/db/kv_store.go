@@ -1319,7 +1319,7 @@ func fetchPaymentQueryMetadata(tx kvdb.RTx,
 
 		b := subBucket.Get(duplicatePaymentCreationInfoKey)
 		if b == nil {
-			return fmt.Errorf("creation info not found")
+			return ErrDuplicateCreationInfo
 		}
 
 		creationInfo, err := deserializeDuplicatePaymentCreationInfo(

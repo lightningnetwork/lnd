@@ -1258,7 +1258,14 @@ message ConnectPeerRequest {
 
     /*
     If set, the daemon will attempt to persistently connect to the target
-    peer. Otherwise, the call will be synchronous.
+    peer and record the address in the peer's LinkNode entry so lnd
+    reconnects to it after a restart. Otherwise, the call will be
+    synchronous and only affects the current session.
+
+    Known limitation: LinkNode entries for peers with no open channel are
+    pruned at daemon startup, so `perm` on a peer we have never opened a
+    channel with does not currently survive a restart. `perm` for peers
+    we do share a channel with (open or historical) does persist.
     */
     bool perm = 2;
 
@@ -1888,7 +1895,7 @@ message Peer {
 
     /*
     Addresses lnd has stored for the peer via its LinkNode record
-    (captured at first channel open). Empty if no LinkNode entry exists
+    (channel open or `connect --perm`). Empty if no LinkNode entry exists
     for the peer. Note: this list is reported verbatim from storage,
     including any v2 .onion entries lnd will not dial (v2 was deprecated
     by the Tor project in 2021). v2 entries are preserved on disk so

@@ -5187,22 +5187,20 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 	// lock to be released, and subsequently reacquired.
 	s.mu.Lock()
 
-	// Ensure we're not already connected to this peer.
+	// Check whether we're already connected to this peer.
 	peer, err := s.findPeerByPubStr(targetPub)
+	alreadyConnected := err == nil
 
-	// When there's no error it means we already have a connection with this
-	// peer. If this is a dev environment with the `--unsafeconnect` flag
-	// set, we will ignore the existing connection and continue.
-	if err == nil && !s.cfg.Dev.GetUnsafeConnect() {
+	// A non-perm connect to an already-connected peer is a redundant
+	// dial: error out (unless dev --unsafeconnect is set, in which case
+	// we fall through and open a second connection).
+	if alreadyConnected && !perm && !s.cfg.Dev.GetUnsafeConnect() {
 		s.mu.Unlock()
 		return &errPeerAlreadyConnected{peer: peer}
 	}
 
-	// Peer was not found, continue to pursue connection with peer.
-
 	// If there's already a pending connection request for this pubkey,
-	// then we ignore this request to ensure we don't create a redundant
-	// connection.
+	// then we log a warning but continue.
 	if reqs, ok := s.persistentConnReqs[targetPub]; ok {
 		srvrLog.Warnf("Already have %d persistent connection "+
 			"requests for %v, connecting anyway.", len(reqs), addr)
@@ -5213,25 +5211,60 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 	// persistent connection to the peer.
 	srvrLog.Debugf("Connecting to %v", addr)
 	if perm {
-		connReq := &connmgr.ConnReq{
-			Addr:      addr,
-			Permanent: true,
-		}
-
-		// Since the user requested a permanent connection, we'll set
-		// the entry to true which will tell the server to continue
-		// reconnecting even if the number of channels with this peer is
-		// zero.
+		// Since the user requested a permanent connection, mark the
+		// peer as user-perm so the server keeps reconnecting even if
+		// the number of channels with this peer is zero.
 		s.persistentPeers[targetPub] = true
 		if _, ok := s.persistentPeersBackoff[targetPub]; !ok {
 			s.persistentPeersBackoff[targetPub] = s.cfg.MinBackoff
 		}
-		s.persistentConnReqs[targetPub] = append(
-			s.persistentConnReqs[targetPub], connReq,
-		)
+
+		// Only create a new conn req if we're not already connected
+		// (or if the dev `--unsafeconnect` flag is on). When we're
+		// already connected, the request's sole effect is to persist
+		// the address to the LinkNode store below.
+		var connReq *connmgr.ConnReq
+		if !alreadyConnected || s.cfg.Dev.GetUnsafeConnect() {
+			connReq = &connmgr.ConnReq{
+				Addr:      addr,
+				Permanent: true,
+			}
+			s.persistentConnReqs[targetPub] = append(
+				s.persistentConnReqs[targetPub], connReq,
+			)
+		}
 		s.mu.Unlock()
 
-		go s.connMgr.Connect(connReq)
+		// Persist the address to the LinkNode store so lnd
+		// reconnects to it after a restart, even without an open
+		// channel.
+		added, err := s.linkNodeDB.AddAddressForPeer(
+			s.cfg.ActiveNetParams.Net,
+			addr.IdentityKey, addr.Address,
+		)
+		if err != nil {
+			srvrLog.Errorf("Unable to persist permanent peer "+
+				"%x address %v: %v",
+				addr.IdentityKey.SerializeCompressed(),
+				addr.Address, err)
+		} else if added {
+			srvrLog.Infof("Stored permanent peer %x address %v "+
+				"for reconnection across restarts",
+				addr.IdentityKey.SerializeCompressed(),
+				addr.Address)
+		}
+
+		// If we were already connected on entry and this call did
+		// not add anything to the LinkNode store, then nothing
+		// happened — surface that to the caller as an error, the
+		// same way plain `connect` errors when it has nothing to do.
+		if alreadyConnected && !added {
+			return &errPeerAlreadyConnected{peer: peer}
+		}
+
+		if connReq != nil {
+			go s.connMgr.Connect(connReq)
+		}
 
 		return nil
 	}

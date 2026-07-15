@@ -414,3 +414,138 @@ func testListPeersAddressFields(ht *lntest.HarnessTest) {
 	require.NoError(ht, restartBob())
 }
 
+// testPermAddsRememberedAddress verifies that `lncli connect --perm`
+// records the requested address in the LinkNode store, so it shows up in
+// the peer's remembered_addresses list and (for peers with an open
+// channel) survives lnd restarts alongside the channel-open capture.
+//
+// This test exercises the "already connected + --perm" code path — the
+// active connection is left untouched; the only observable effect is
+// that remembered_addresses grows.
+//
+// Limitation: for peers with no open channel, --perm-added LinkNode
+// entries are pruned at startup by PruneLinkNodes, so a fresh-restart
+// reconnect on a non-channel peer is NOT covered here.
+func testPermAddsRememberedAddress(ht *lntest.HarnessTest) {
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	bobInfo := bob.RPC.GetInfo()
+
+	// Establish a channel so Bob gets a LinkNode from the channel-open
+	// path (this is what makes --perm-added addresses survive restart
+	// through PruneLinkNodes).
+	ht.ConnectNodes(alice, bob)
+	ht.OpenChannel(alice, bob, lntest.OpenChannelParams{Amt: 100_000})
+
+	bobPeer := func() *lnrpc.Peer {
+		resp := alice.RPC.ListPeersReq(&lnrpc.ListPeersRequest{})
+		for _, p := range resp.Peers {
+			if p.PubKey == bobInfo.IdentityPubkey {
+				return p
+			}
+		}
+		return nil
+	}
+
+	// Sanity: Bob's real P2P address should already be in
+	// remembered_addresses via the channel-open LinkNode capture.
+	require.NoError(ht, wait.NoError(func() error {
+		p := bobPeer()
+		if p == nil {
+			return fmt.Errorf("bob not yet in listpeers")
+		}
+		for _, a := range p.RememberedAddresses {
+			if a == bob.Cfg.P2PAddr() {
+				return nil
+			}
+		}
+		return fmt.Errorf("expected %s in remembered_addresses, "+
+			"got %v", bob.Cfg.P2PAddr(), p.RememberedAddresses)
+	}, defaultTimeout))
+
+	// --perm connect to a new (unreachable) address for Bob. Alice is
+	// already connected via the channel path, so this exercises the
+	// "already connected + --perm" branch: LinkNode gets the new
+	// address, no new active dial is required.
+	extraAddr := "127.0.0.1:1"
+	alice.RPC.ConnectPeer(&lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: bobInfo.IdentityPubkey,
+			Host:   extraAddr,
+		},
+		Perm: true,
+	})
+
+	// remembered_addresses should now include both.
+	require.NoError(ht, wait.NoError(func() error {
+		p := bobPeer()
+		if p == nil {
+			return fmt.Errorf("bob not in listpeers")
+		}
+		haveOrig, haveExtra := false, false
+		for _, a := range p.RememberedAddresses {
+			switch a {
+			case bob.Cfg.P2PAddr():
+				haveOrig = true
+			case extraAddr:
+				haveExtra = true
+			}
+		}
+		if !haveOrig || !haveExtra {
+			return fmt.Errorf("expected both %s and %s in "+
+				"remembered_addresses, got %v",
+				bob.Cfg.P2PAddr(), extraAddr,
+				p.RememberedAddresses)
+		}
+		return nil
+	}, defaultTimeout))
+
+	// Repeating the same --perm call with an address that is already
+	// stored is a no-op: the RPC should error out (consistent with the
+	// plain-`connect` behaviour when the request has nothing to do).
+	err := alice.RPC.ConnectPeerAssertErr(&lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: bobInfo.IdentityPubkey,
+			Host:   extraAddr,
+		},
+		Perm: true,
+	})
+	require.Error(ht, err,
+		"a redundant --perm to an already-stored address should "+
+			"error")
+}
+
+// testPermNonChannelPeerLostOnRestart pins down a known limitation of
+// the LinkNode-backed --perm persistence: for peers we have never opened
+// a channel with, PruneLinkNodes at startup deletes the LinkNode entry,
+// so the peer is NOT reconnected to after a restart.
+//
+// If PruneLinkNodes is ever taught to spare user-persistent entries,
+// this test should be flipped to assert AssertConnected instead and
+// renamed accordingly.
+func testPermNonChannelPeerLostOnRestart(ht *lntest.HarnessTest) {
+	alice := ht.NewNode("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	bobInfo := bob.RPC.GetInfo()
+
+	ht.ConnectNodesPerm(alice, bob)
+	ht.AssertConnected(alice, bob)
+
+	ht.RestartNode(alice)
+
+	// After restart, PruneLinkNodes will have deleted Bob's LinkNode
+	// (no channel exists), so Bob should NOT be in Alice's persistent
+	// reconnect set — even with include_offline_persistent_peers set,
+	// Bob must not appear.
+	listResp := alice.RPC.ListPeersReq(&lnrpc.ListPeersRequest{
+		IncludeOfflinePersistentPeers: true,
+	})
+	for _, p := range listResp.Peers {
+		require.NotEqual(ht, bobInfo.IdentityPubkey, p.PubKey,
+			"bob should not be in the persistent set — his "+
+				"LinkNode was pruned at startup")
+	}
+}
+
+
+

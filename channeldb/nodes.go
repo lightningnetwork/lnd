@@ -225,6 +225,57 @@ func (l *LinkNodeDB) CreateLinkNodes(tx kvdb.RwTx,
 	return createNodes(tx)
 }
 
+// AddAddressForPeer ensures a LinkNode exists for the given pubkey and
+// records addr as one of its known addresses. If no LinkNode currently
+// exists for the peer, a new one is created with the given network. If a
+// LinkNode already exists, addr is appended to its address list (deduped
+// by string comparison); the network of the existing entry is preserved.
+// The returned bool is true when the address was newly added (the stored
+// set grew), false when it was already present.
+//
+// Used by `lncli connect --perm` to remember a peer's address across
+// restarts even when no channel exists with the peer yet.
+func (l *LinkNodeDB) AddAddressForPeer(net wire.BitcoinNet,
+	pub *btcec.PublicKey, addr net.Addr) (bool, error) {
+
+	var added bool
+	err := kvdb.Update(l.backend, func(tx kvdb.RwTx) error {
+		nodeMetaBucket, err := tx.CreateTopLevelBucket(nodeInfoBucket)
+		if err != nil {
+			return err
+		}
+
+		existing, err := fetchLinkNode(tx, pub)
+		switch {
+		case err == nil:
+			// LinkNode already exists — union in the new address
+			// (dedup by string).
+			for _, a := range existing.Addresses {
+				if a.String() == addr.String() {
+					added = false
+					return nil
+				}
+			}
+			existing.Addresses = append(existing.Addresses, addr)
+			added = true
+			return putLinkNode(nodeMetaBucket, existing)
+
+		case errors.Is(err, ErrNodeNotFound),
+			errors.Is(err, ErrLinkNodesNotFound):
+			// No LinkNode yet — create a fresh one.
+			ln := NewLinkNode(l, net, pub, addr)
+			added = true
+			return putLinkNode(nodeMetaBucket, ln)
+
+		default:
+			return err
+		}
+	}, func() {
+		added = false
+	})
+	return added, err
+}
+
 // DeleteLinkNode removes the link node with the given identity from the
 // database.
 func (l *LinkNodeDB) DeleteLinkNode(identity *btcec.PublicKey) error {

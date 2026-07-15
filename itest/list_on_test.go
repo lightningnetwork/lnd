@@ -155,6 +155,14 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testListPeersAddressFields,
 	},
 	{
+		Name:     "perm adds remembered address",
+		TestFunc: testPermAddsRememberedAddress,
+	},
+	{
+		Name:     "perm non-channel peer lost on restart",
+		TestFunc: testPermNonChannelPeerLostOnRestart,
+	},
+	{
 		Name:     "addpeer config",
 		TestFunc: testAddPeerConfig,
 	},

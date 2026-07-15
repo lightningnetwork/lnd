@@ -927,8 +927,15 @@ var connectCommand = cli.Command{
 		cli.BoolFlag{
 			Name: "perm",
 			Usage: "If set, the daemon will attempt to persistently " +
-				"connect to the target peer.\n" +
-				"           If not, the call will be synchronous.",
+				"connect to the target peer and record the " +
+				"address on disk so lnd reconnects after a " +
+				"restart. If not, the call is synchronous and " +
+				"only affects the current session. Known " +
+				"limitation: --perm-only records for peers we " +
+				"have never opened a channel with are pruned " +
+				"at daemon startup, so --perm on such a peer " +
+				"does not currently survive a restart; --perm " +
+				"for channel peers (open or historical) does.",
 		},
 		cli.DurationFlag{
 			Name: "timeout",

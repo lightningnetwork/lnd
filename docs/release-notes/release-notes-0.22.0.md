@@ -59,6 +59,27 @@
 
 ## Functional Enhancements
 
+* [`lncli connect --perm` now writes the requested address to the
+  peer's LinkNode
+  record](https://github.com/lightningnetwork/lnd/pull/XXXX). For peers
+  that also have (or have had) an open channel, this means a `--perm`-
+  supplied address is remembered across lnd restarts alongside the
+  address captured at first channel open, and is visible in
+  `ListPeers.remembered_addresses`. Channel-driven reconnect behaviour
+  is otherwise unchanged.
+
+  Known limitations: (1) `PruneLinkNodes` still runs at startup and
+  deletes LinkNode entries for peers with no open channels, so `--perm`
+  on a peer we have never opened a channel with does **not** currently
+  survive a restart — this may be addressed as a follow-up once the
+  migration to native SQL is complete. (2) `--perm` is add-only:
+  repeated calls accumulate addresses in the LinkNode, and there is no
+  supported way yet to remove an individual stored address without
+  disconnecting the peer — a separate follow-up will add manual
+  removal. Contributes to
+  [#10870](https://github.com/lightningnetwork/lnd/issues/10870) and
+  [#10871](https://github.com/lightningnetwork/lnd/issues/10871).
+
 ## RPC Additions
 
 * The `routerrpc.EstimateRouteFee` RPC now supports [restricting fee estimates

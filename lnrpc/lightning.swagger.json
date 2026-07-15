@@ -4830,7 +4830,7 @@
         },
         "perm": {
           "type": "boolean",
-          "description": "If set, the daemon will attempt to persistently connect to the target\npeer. Otherwise, the call will be synchronous."
+          "description": "If set, the daemon will attempt to persistently connect to the target\npeer and record the address in the peer's LinkNode entry so lnd\nreconnects to it after a restart. Otherwise, the call will be\nsynchronous and only affects the current session.\n\nKnown limitation: LinkNode entries for peers with no open channel are\npruned at daemon startup, so `perm` on a peer we have never opened a\nchannel with does not currently survive a restart. `perm` for peers\nwe do share a channel with (open or historical) does persist."
         },
         "timeout": {
           "type": "string",
@@ -7000,7 +7000,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Addresses lnd has stored for the peer via its LinkNode record\n(captured at first channel open). Empty if no LinkNode entry exists\nfor the peer. Note: this list is reported verbatim from storage,\nincluding any v2 .onion entries lnd will not dial (v2 was deprecated\nby the Tor project in 2021). v2 entries are preserved on disk so\nthat signed NodeAnnouncements still verify; a v2 appearing here is\na stale-storage signal, not an indication that lnd is attempting to\nreach that address."
+          "description": "Addresses lnd has stored for the peer via its LinkNode record\n(channel open or `connect --perm`). Empty if no LinkNode entry exists\nfor the peer. Note: this list is reported verbatim from storage,\nincluding any v2 .onion entries lnd will not dial (v2 was deprecated\nby the Tor project in 2021). v2 entries are preserved on disk so\nthat signed NodeAnnouncements still verify; a v2 appearing here is\na stale-storage signal, not an indication that lnd is attempting to\nreach that address."
         },
         "gossip_addresses": {
           "type": "array",

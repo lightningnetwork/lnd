@@ -4166,7 +4166,14 @@ type ConnectPeerRequest struct {
 	// Lightning address of the peer to connect to.
 	Addr *LightningAddress `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
 	// If set, the daemon will attempt to persistently connect to the target
-	// peer. Otherwise, the call will be synchronous.
+	// peer and record the address in the peer's LinkNode entry so lnd
+	// reconnects to it after a restart. Otherwise, the call will be
+	// synchronous and only affects the current session.
+	//
+	// Known limitation: LinkNode entries for peers with no open channel are
+	// pruned at daemon startup, so `perm` on a peer we have never opened a
+	// channel with does not currently survive a restart. `perm` for peers
+	// we do share a channel with (open or historical) does persist.
 	Perm bool `protobuf:"varint,2,opt,name=perm,proto3" json:"perm,omitempty"`
 	// The connection timeout value (in seconds) for this request. It won't affect
 	// other requests.
@@ -5694,7 +5701,7 @@ type Peer struct {
 	// channel-driven persistent entry exists).
 	IsPersistent bool `protobuf:"varint,16,opt,name=is_persistent,json=isPersistent,proto3" json:"is_persistent,omitempty"`
 	// Addresses lnd has stored for the peer via its LinkNode record
-	// (captured at first channel open). Empty if no LinkNode entry exists
+	// (channel open or `connect --perm`). Empty if no LinkNode entry exists
 	// for the peer. Note: this list is reported verbatim from storage,
 	// including any v2 .onion entries lnd will not dial (v2 was deprecated
 	// by the Tor project in 2021). v2 entries are preserved on disk so

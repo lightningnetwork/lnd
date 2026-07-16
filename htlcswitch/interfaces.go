@@ -279,6 +279,13 @@ type ChannelLink interface {
 	// policy to govern if it an incoming HTLC should be forwarded or not.
 	UpdateForwardingPolicy(models.ForwardingPolicy)
 
+	// AdvertisedFee returns the fee this link's current forwarding policy
+	// charges to forward the given outgoing amount (base fee plus the
+	// proportional fee). It is the fee the node advertised for this link,
+	// as distinct from the (possibly larger) fee actually offered by the
+	// incoming HTLC.
+	AdvertisedFee(amtToForward lnwire.MilliSatoshi) lnwire.MilliSatoshi
+
 	// CheckHtlcForward should return a nil error if the passed HTLC details
 	// satisfy the current forwarding policy fo the target link. Otherwise,
 	// a LinkError with a valid protocol failure message should be returned
@@ -513,6 +520,28 @@ type htlcNotifier interface {
 	// for an htlc has been determined.
 	NotifyFinalHtlcEvent(key models.CircuitKey,
 		info channeldb.FinalHtlcInfo)
+}
+
+// ReputationManager is the read-only seam through which the switch feeds HTLC
+// forwarding lifecycle events to the (optional) local reputation subsystem.
+// It is a black box that only observes events to update internal reputation
+// state; it never affects forwarding decisions or the wire (log-only). When no
+// reputation manager is configured this is nil and the hooks are skipped.
+type ReputationManager interface {
+	// OnForward observes a forwarded HTLC at the point the switch
+	// commits to forwarding it to the outgoing channel. advertisedFee is
+	// the fee the node advertised on the outgoing link for this forward
+	// (not the fee offered by the incoming HTLC), and accountable is the
+	// outgoing accountable bit as this node would forward it.
+	OnForward(incoming, outgoing CircuitKey, incomingAmt,
+		outgoingAmt, advertisedFee lnwire.MilliSatoshi,
+		incomingCltv uint32, accountable bool)
+
+	// OnSettle observes the successful resolution of a forwarded HTLC.
+	OnSettle(incoming, outgoing CircuitKey)
+
+	// OnFail observes the failed resolution of a forwarded HTLC.
+	OnFail(incoming, outgoing CircuitKey)
 }
 
 // AuxHtlcModifier is an interface that allows the sender to modify the outgoing

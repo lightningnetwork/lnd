@@ -5694,7 +5694,8 @@ type Peer struct {
 	// channel-driven persistent entry exists).
 	IsPersistent bool `protobuf:"varint,16,opt,name=is_persistent,json=isPersistent,proto3" json:"is_persistent,omitempty"`
 	// Addresses lnd has stored for the peer via its LinkNode record
-	// (captured at first channel open). Empty if no LinkNode entry exists
+	// (captured at channel open and on subsequent outbound connects to a
+	// channel peer). Empty if no LinkNode entry exists
 	// for the peer. Note: this list is reported verbatim from storage,
 	// including any v2 .onion entries lnd will not dial (v2 was deprecated
 	// by the Tor project in 2021). v2 entries are preserved on disk so

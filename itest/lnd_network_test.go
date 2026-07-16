@@ -414,3 +414,112 @@ func testListPeersAddressFields(ht *lntest.HarnessTest) {
 	require.NoError(ht, restartBob())
 }
 
+// testAutoPersistChannelPeerAddress verifies that when a peer we have an
+// open channel with connects on an address that isn't already in its
+// LinkNode entry, that address is appended to the entry so a future
+// restart can dial it. The scenario: open a channel between Alice and Bob
+// at port A, disconnect them, move Bob to port B, reconnect Alice to Bob
+// at port B, then assert that Alice's remembered_addresses for Bob now
+// contains both A and B.
+func testAutoPersistChannelPeerAddress(ht *lntest.HarnessTest) {
+	// Alice is set up with --nolisten so Bob physically cannot dial
+	// back to her at any point during the test. Combined with the
+	// long backoff on Alice's own persistent-reconnect logic, this
+	// guarantees the only peer connection to Bob we ever observe
+	// during the test is the outbound one we initiate explicitly.
+	aliceArgs := []string{
+		"--nolisten",
+		"--minbackoff=1h",
+		"--maxbackoff=1h",
+	}
+	alice := ht.NewNodeWithCoins("Alice", aliceArgs)
+	bob := ht.NewNode("Bob", nil)
+	bobInfo := bob.RPC.GetInfo()
+
+	portA := bob.Cfg.P2PPort
+	addrA := fmt.Sprintf("127.0.0.1:%d", portA)
+
+	// Open a channel — this seeds Alice's LinkNode entry for Bob with
+	// Bob's address at channel-open time, which is port A.
+	ht.ConnectNodes(alice, bob)
+	ht.OpenChannel(alice, bob, lntest.OpenChannelParams{Amt: 100_000})
+
+	// bobPeer pulls Bob's entry out of Alice's ListPeers response,
+	// including offline persistent entries so the assertion still works
+	// while Alice is disconnected from Bob.
+	bobPeer := func() *lnrpc.Peer {
+		resp := alice.RPC.ListPeersReq(&lnrpc.ListPeersRequest{
+			IncludeOfflinePersistentPeers: true,
+		})
+		for _, p := range resp.Peers {
+			if p.PubKey == bobInfo.IdentityPubkey {
+				return p
+			}
+		}
+		return nil
+	}
+
+	// Sanity: port A appears in remembered_addresses now.
+	require.NoError(ht, wait.NoError(func() error {
+		p := bobPeer()
+		if p == nil {
+			return fmt.Errorf("bob not yet in listpeers")
+		}
+		for _, a := range p.RememberedAddresses {
+			if a == addrA {
+				return nil
+			}
+		}
+		return fmt.Errorf("remembered_addresses %v missing %s",
+			p.RememberedAddresses, addrA)
+	}, defaultTimeout))
+
+	// Move Bob to port B.
+	portB := port.NextAvailablePort()
+	addrB := fmt.Sprintf("127.0.0.1:%d", portB)
+
+	ht.DisconnectNodes(alice, bob)
+	bob.Cfg.P2PPort = portB
+	ht.RestartNode(bob)
+
+	// Reconnect Alice to Bob explicitly at port B. This is a plain
+	// (non-perm) connect — the auto-persist behaviour is what we're
+	// exercising.
+	alice.RPC.ConnectPeer(&lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: bobInfo.IdentityPubkey,
+			Host:   addrB,
+		},
+	})
+	ht.AssertConnected(alice, bob)
+
+	// Alice's remembered_addresses for Bob should now list both A
+	// (from channel open) and B (auto-persisted on this connect).
+	require.NoError(ht, wait.NoError(func() error {
+		p := bobPeer()
+		if p == nil {
+			return fmt.Errorf("bob missing from listpeers")
+		}
+		haveA, haveB := false, false
+		for _, a := range p.RememberedAddresses {
+			switch a {
+			case addrA:
+				haveA = true
+			case addrB:
+				haveB = true
+			}
+		}
+		if !haveA {
+			return fmt.Errorf("remembered_addresses %v missing "+
+				"channel-open address %s",
+				p.RememberedAddresses, addrA)
+		}
+		if !haveB {
+			return fmt.Errorf("remembered_addresses %v missing "+
+				"auto-persisted address %s",
+				p.RememberedAddresses, addrB)
+		}
+		return nil
+	}, defaultTimeout))
+}
+

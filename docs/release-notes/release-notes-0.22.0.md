@@ -101,6 +101,24 @@
 
 ## Functional Updates
 
+* [Peer addresses now auto-persist on
+  connect](https://github.com/lightningnetwork/lnd/pull/10975) for peers we
+  have an open channel with. When lnd completes an outbound connection to
+  a channel peer, it records the dialed address in the peer's `LinkNode`
+  entry if it isn't already listed. On restart lnd attempts this address
+  in addition to those from the peer's current `NodeAnnouncement`, so a
+  channel peer remains reachable across restarts even when the address we
+  last used to reach them isn't in their gossip entry — because they have
+  since removed it from their `NodeAnnouncement` but are still listening
+  on the same host and port, because they moved to a new host and/or port
+  and we learned the new address out-of-band faster than their
+  re-broadcast `NodeAnnouncement` could catch up, or because they never
+  advertised it in gossip in the first place. Only outbound connections
+  trigger this — for inbound TCP the peer's remote address is an
+  ephemeral source port rather than a dialable listener. Non-channel
+  peers are also skipped so casual connections do not grow the on-disk
+  address list.
+
 ## RPC Updates
 
 ## lncli Updates

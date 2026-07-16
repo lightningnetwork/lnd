@@ -155,6 +155,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testListPeersAddressFields,
 	},
 	{
+		Name:     "auto persist channel peer address",
+		TestFunc: testAutoPersistChannelPeerAddress,
+	},
+	{
 		Name:     "addpeer config",
 		TestFunc: testAddPeerConfig,
 	},

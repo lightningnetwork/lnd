@@ -4474,6 +4474,42 @@ func (s *server) notifyFundingTimeoutPeerEvent(op wire.OutPoint,
 	s.channelNotifier.NotifyFundingTimeout(op)
 }
 
+// maybePersistPeerAddress records addr in the LinkNode entry for pubKey when
+// the peer has an open channel with us. It is a no-op for non-channel peers,
+// for peers without an existing LinkNode entry, and for address types other
+// than TCP and onion. Errors are logged and swallowed — this is best-effort
+// bookkeeping and must not interfere with the connection.
+func (s *server) maybePersistPeerAddress(pubKey *btcec.PublicKey, addr net.Addr) {
+	switch addr.(type) {
+	case *net.TCPAddr, *tor.OnionAddr:
+	default:
+		return
+	}
+
+	channels, err := s.chanStateDB.FetchOpenChannels(pubKey)
+	if err != nil {
+		srvrLog.Errorf("Unable to fetch open channels for %x when "+
+			"considering address persistence: %v",
+			pubKey.SerializeCompressed(), err)
+		return
+	}
+	if len(channels) == 0 {
+		return
+	}
+
+	added, err := s.linkNodeDB.AddAddressIfPeerKnown(pubKey, addr)
+	if err != nil {
+		srvrLog.Errorf("Unable to record address %v for channel "+
+			"peer %x: %v", addr, pubKey.SerializeCompressed(), err)
+		return
+	}
+	if added {
+		srvrLog.Infof("Recorded address %v for channel peer %x for "+
+			"reconnection across restarts", addr,
+			pubKey.SerializeCompressed())
+	}
+}
+
 // peerConnected is a function that handles initialization a newly connected
 // peer by adding it to the server's global list of all active peers, and
 // starting all the goroutines the peer needs to function properly. The inbound
@@ -4658,6 +4694,19 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	//  * also mark last-seen, do it one single transaction?
 
 	s.addPeer(p)
+
+	// For outbound connections to a channel peer, record the address we
+	// dialed in the peer's LinkNode entry if it isn't already listed.
+	// This lets us reconnect on that address after a restart if the
+	// peer's current NodeAnnouncement no longer lists it.
+	//
+	// We only do this for outbound connections. For inbound TCP,
+	// conn.RemoteAddr() is the peer's ephemeral source port rather than
+	// a listener we could dial back to, so persisting it would just
+	// inflate the address list with non-dialable entries.
+	if !inbound {
+		s.maybePersistPeerAddress(pubKey, addr)
+	}
 
 	// Once we have successfully added the peer to the server, we can
 	// delete the previous error buffer from the server's map of error

@@ -7000,7 +7000,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Addresses lnd has stored for the peer via its LinkNode record\n(captured at first channel open). Empty if no LinkNode entry exists\nfor the peer. Note: this list is reported verbatim from storage,\nincluding any v2 .onion entries lnd will not dial (v2 was deprecated\nby the Tor project in 2021). v2 entries are preserved on disk so\nthat signed NodeAnnouncements still verify; a v2 appearing here is\na stale-storage signal, not an indication that lnd is attempting to\nreach that address."
+          "description": "Addresses lnd has stored for the peer via its LinkNode record\n(captured at channel open and on subsequent outbound connects to a\nchannel peer). Empty if no LinkNode entry exists\nfor the peer. Note: this list is reported verbatim from storage,\nincluding any v2 .onion entries lnd will not dial (v2 was deprecated\nby the Tor project in 2021). v2 entries are preserved on disk so\nthat signed NodeAnnouncements still verify; a v2 appearing here is\na stale-storage signal, not an indication that lnd is attempting to\nreach that address."
         },
         "gossip_addresses": {
           "type": "array",

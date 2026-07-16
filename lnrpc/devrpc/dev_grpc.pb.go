@@ -27,6 +27,13 @@ type DevClient interface {
 	// RPC is for testing purposes only. The commit that adds it will be removed
 	// once interop is confirmed.
 	Quiesce(ctx context.Context, in *QuiescenceRequest, opts ...grpc.CallOption) (*QuiescenceResponse, error)
+	// lncli: `fetchreputation`
+	// FetchReputation returns a read-only snapshot of the local reputation
+	// subsystem's computed per-channel state. It requires the experimental
+	// read-only reputation subsystem to be enabled via the --routing.reputation
+	// flag; otherwise it returns an error. This RPC never mutates state and never
+	// affects routing.
+	FetchReputation(ctx context.Context, in *FetchReputationRequest, opts ...grpc.CallOption) (*FetchReputationResponse, error)
 }
 
 type devClient struct {
@@ -55,6 +62,15 @@ func (c *devClient) Quiesce(ctx context.Context, in *QuiescenceRequest, opts ...
 	return out, nil
 }
 
+func (c *devClient) FetchReputation(ctx context.Context, in *FetchReputationRequest, opts ...grpc.CallOption) (*FetchReputationResponse, error) {
+	out := new(FetchReputationResponse)
+	err := c.cc.Invoke(ctx, "/devrpc.Dev/FetchReputation", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DevServer is the server API for Dev service.
 // All implementations must embed UnimplementedDevServer
 // for forward compatibility
@@ -67,6 +83,13 @@ type DevServer interface {
 	// RPC is for testing purposes only. The commit that adds it will be removed
 	// once interop is confirmed.
 	Quiesce(context.Context, *QuiescenceRequest) (*QuiescenceResponse, error)
+	// lncli: `fetchreputation`
+	// FetchReputation returns a read-only snapshot of the local reputation
+	// subsystem's computed per-channel state. It requires the experimental
+	// read-only reputation subsystem to be enabled via the --routing.reputation
+	// flag; otherwise it returns an error. This RPC never mutates state and never
+	// affects routing.
+	FetchReputation(context.Context, *FetchReputationRequest) (*FetchReputationResponse, error)
 	mustEmbedUnimplementedDevServer()
 }
 
@@ -79,6 +102,9 @@ func (UnimplementedDevServer) ImportGraph(context.Context, *lnrpc.ChannelGraph) 
 }
 func (UnimplementedDevServer) Quiesce(context.Context, *QuiescenceRequest) (*QuiescenceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Quiesce not implemented")
+}
+func (UnimplementedDevServer) FetchReputation(context.Context, *FetchReputationRequest) (*FetchReputationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FetchReputation not implemented")
 }
 func (UnimplementedDevServer) mustEmbedUnimplementedDevServer() {}
 
@@ -129,6 +155,24 @@ func _Dev_Quiesce_Handler(srv interface{}, ctx context.Context, dec func(interfa
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Dev_FetchReputation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FetchReputationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DevServer).FetchReputation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/devrpc.Dev/FetchReputation",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DevServer).FetchReputation(ctx, req.(*FetchReputationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Dev_ServiceDesc is the grpc.ServiceDesc for Dev service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -143,6 +187,10 @@ var Dev_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Quiesce",
 			Handler:    _Dev_Quiesce_Handler,
+		},
+		{
+			MethodName: "FetchReputation",
+			Handler:    _Dev_FetchReputation_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

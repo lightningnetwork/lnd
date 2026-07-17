@@ -156,6 +156,45 @@ func TestHostAnnouncerUpdates(t *testing.T) {
 			},
 		},
 
+		// Both hosts resolve to the same IP and only one of them then
+		// changes. The address they used to share must stay advertised,
+		// since the host that didn't change still resolves to it.
+		{
+			preTickHosts: map[string]net.Addr{
+				"test.com": &net.TCPAddr{
+					IP: net.ParseIP("1.1.1.1"),
+				},
+				"example.com": &net.TCPAddr{
+					IP: net.ParseIP("1.1.1.1"),
+				},
+			},
+			startingAddrs: []net.Addr{
+				&net.TCPAddr{
+					IP: net.ParseIP("1.1.1.1"),
+				},
+				&net.TCPAddr{
+					IP: net.ParseIP("1.1.1.1"),
+				},
+			},
+
+			postTickHosts: map[string]net.Addr{
+				"test.com": &net.TCPAddr{
+					IP: net.ParseIP("2.2.2.2"),
+				},
+				"example.com": &net.TCPAddr{
+					IP: net.ParseIP("1.1.1.1"),
+				},
+			},
+
+			updateTriggered: true,
+			newAddrs: []net.Addr{
+				&net.TCPAddr{
+					IP: net.ParseIP("2.2.2.2"),
+				},
+			},
+			removedAddrs: map[string]struct{}{},
+		},
+
 		// Two addresses, one of which already resolved to the same IP
 		// on start up and is therefore already advertised, so we only
 		// expect the other one to be announced. After the tick we don't

@@ -111,8 +111,7 @@ func (h *HostAnnouncer) hostWatcher() {
 		// We'll now run through each of our hosts to check if they had
 		// their backing IPs changed. If so, we'll want to re-announce
 		// them.
-		var addrsToUpdate []net.Addr
-		addrsToRemove := make(map[string]struct{})
+		var addrsToUpdate, staleCandidates []net.Addr
 		for _, host := range h.cfg.Hosts {
 			newAddr, err := h.cfg.LookupHost(host)
 			if err != nil {
@@ -136,9 +135,11 @@ func (h *HostAnnouncer) hostWatcher() {
 				oldAddr, newAddr)
 
 			// If we had already advertised an addr for this host,
-			// then we'll need to remove that old stale address.
+			// then the address may now be stale.
 			if oldAddr != nil {
-				addrsToRemove[oldAddr.String()] = struct{}{}
+				staleCandidates = append(
+					staleCandidates, oldAddr,
+				)
 			}
 
 			addrsToUpdate = append(addrsToUpdate, newAddr)
@@ -150,6 +151,27 @@ func (h *HostAnnouncer) hostWatcher() {
 			log.Debugf("No IP changes detected for hosts: %v",
 				h.cfg.Hosts)
 			return
+		}
+
+		// A host moving off an address doesn't make that address stale
+		// if another host still resolves to it, so we only remove the
+		// ones nothing points at any more. ipMapping is fully updated
+		// for this round by now, so it tells us what each host
+		// currently resolves to. A host we failed to resolve keeps its
+		// last known entry here, which means a transient DNS failure
+		// can't cost us an address either.
+		stillMapped := make(map[string]struct{}, len(ipMapping))
+		for _, addr := range ipMapping {
+			stillMapped[addr.String()] = struct{}{}
+		}
+
+		addrsToRemove := make(map[string]struct{}, len(staleCandidates))
+		for _, addr := range staleCandidates {
+			if _, ok := stillMapped[addr.String()]; ok {
+				continue
+			}
+
+			addrsToRemove[addr.String()] = struct{}{}
 		}
 
 		// Now that we know the set of IPs we need to update, we'll do

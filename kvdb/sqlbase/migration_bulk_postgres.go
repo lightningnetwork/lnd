@@ -88,8 +88,13 @@ func (p *postgresDB) BeginBulk(ctx context.Context) (MigrationBulkKVTx, error) {
 		return nil, err
 	}
 
+	// A bulk migration can touch millions of rows in a single transaction.
+	// PostgreSQL retains predicate locks until a serializable transaction
+	// ends, which can make its predicate lock table consume excessive memory.
+	// Read committed is sufficient because the migration owns the empty
+	// destination database while loading it.
 	tx, err := conn.BeginTx(ctx, &sql.TxOptions{
-		Isolation: sql.LevelSerializable,
+		Isolation: sql.LevelReadCommitted,
 	})
 	if err != nil {
 		locker.Unlock()

@@ -783,6 +783,13 @@ func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop
 			"blinding point is provided")
 	}
 
+	// TotalAmtMsat is only defined for blinded payments, so it requires
+	// the encrypted recipient data that identifies this as a blinded hop.
+	if rpcHop.TotalAmtMsat != 0 && len(rpcHop.EncryptedData) == 0 {
+		return nil, errors.New("encrypted data should be present if " +
+			"blinded total amount is provided")
+	}
+
 	return hop, nil
 }
 
@@ -832,6 +839,17 @@ func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 
 	hops := make([]*route.Hop, len(rpcroute.Hops))
 	for i, hop := range rpcroute.Hops {
+		// TotalAmtMsat is the sender-declared target for the blinded
+		// HTLC set. The final node checks that every part declares the
+		// same total and withholds fulfillment until the received parts
+		// reach that amount. Since only the final node performs
+		// this set-level check, BOLT 4 only permits the field in its
+		// payload.
+		if hop.TotalAmtMsat != 0 && i != len(rpcroute.Hops)-1 {
+			return nil, errors.New("blinded total amount can " +
+				"only be provided for the final hop")
+		}
+
 		routeHop, err := r.UnmarshallHop(hop, prevNodePubKey)
 		if err != nil {
 			return nil, err

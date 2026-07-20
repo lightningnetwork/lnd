@@ -3,6 +3,8 @@ package lnwire
 import (
 	"bytes"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 type unsortedSidTest struct {
@@ -31,16 +33,6 @@ var (
 		{
 			name:    "plain duplicate",
 			encType: EncodingSortedPlain,
-			sids:    duplicateSids,
-		},
-		{
-			name:    "zlib unsorted",
-			encType: EncodingSortedZlib,
-			sids:    unsortedSids,
-		},
-		{
-			name:    "zlib duplicate",
-			encType: EncodingSortedZlib,
 			sids:    duplicateSids,
 		},
 	}
@@ -83,9 +75,6 @@ func TestQueryShortChanIDsZero(t *testing.T) {
 		{
 			name:     "plain",
 			encoding: EncodingSortedPlain,
-		}, {
-			name:     "zlib",
-			encoding: EncodingSortedZlib,
 		},
 	}
 
@@ -115,4 +104,15 @@ func TestQueryShortChanIDsZero(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestEncodeShortChanIDsZlibRejection tests that attempting to encode using
+// the deprecated zlib encoding format returns an ErrZlibNotSupported failure.
+func TestEncodeShortChanIDsZlibRejection(t *testing.T) {
+	t.Parallel()
+	var b bytes.Buffer
+
+	err := encodeShortChanIDs(&b, EncodingSortedZlib, nil)
+
+	require.ErrorIs(t, err, ErrZlibNotSupported)
 }

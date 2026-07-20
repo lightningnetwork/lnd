@@ -1,23 +1,24 @@
 # Release Notes
+- [Release Notes](#release-notes)
 - [Bug Fixes](#bug-fixes)
 - [New Features](#new-features)
-    - [Functional Enhancements](#functional-enhancements)
-    - [RPC Additions](#rpc-additions)
-    - [lncli Additions](#lncli-additions)
+  - [Functional Enhancements](#functional-enhancements)
+  - [RPC Additions](#rpc-additions)
+  - [lncli Additions](#lncli-additions)
 - [Improvements](#improvements)
-    - [Functional Updates](#functional-updates)
-    - [RPC Updates](#rpc-updates)
-    - [lncli Updates](#lncli-updates)
-    - [Breaking Changes](#breaking-changes)
-    - [Performance Improvements](#performance-improvements)
-    - [Deprecations](#deprecations)
+  - [Functional Updates](#functional-updates)
+  - [RPC Updates](#rpc-updates)
+  - [lncli Updates](#lncli-updates)
+  - [Breaking Changes](#breaking-changes)
+  - [Performance Improvements](#performance-improvements)
+  - [Deprecations](#deprecations)
 - [Technical and Architectural Updates](#technical-and-architectural-updates)
-    - [BOLT Spec Updates](#bolt-spec-updates)
-    - [BOLT 12 (Offers)](#bolt-12-offers)
-    - [Testing](#testing)
-    - [Database](#database)
-    - [Code Health](#code-health)
-    - [Tooling and Documentation](#tooling-and-documentation)
+  - [BOLT Spec Updates](#bolt-spec-updates)
+  - [BOLT 12 (Offers)](#bolt-12-offers)
+  - [Testing](#testing)
+  - [Database](#database)
+  - [Code Health](#code-health)
+  - [Tooling and Documentation](#tooling-and-documentation)
 - [Contributors (Alphabetical Order)](#contributors-alphabetical-order)
 
 # Bug Fixes
@@ -97,6 +98,8 @@
 ## Performance Improvements
 
 ## Deprecations
+
+* Support for decoding `EncodingSortedZlib` (type 1) gossip queries has been removed as it was dropped from the BOLT 7 specification. If a legacy peer attempts to send a zlib-encoded `QueryShortChanIDs` or `ReplyChannelRange` message, it will now trigger a fatal wire-decode error and instantly disconnect the peer.
 
 # Technical and Architectural Updates
 

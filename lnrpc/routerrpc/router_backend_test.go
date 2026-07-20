@@ -33,6 +33,110 @@ var (
 	node2 = route.Vertex{11}
 )
 
+// TestUnmarshallHopBlindedFieldsRequireEncryptedData verifies that callers
+// cannot submit partial blinded-hop data through SendToRouteV2.
+func TestUnmarshallHopBlindedFieldsRequireEncryptedData(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		hop     *lnrpc.Hop
+		errText string
+	}{
+		{
+			name: "total amount without encrypted data",
+			hop: &lnrpc.Hop{
+				TotalAmtMsat: 1000,
+			},
+			errText: "encrypted data should be present",
+		},
+		{
+			name: "total amount with encrypted data",
+			hop: &lnrpc.Hop{
+				TotalAmtMsat:  1000,
+				EncryptedData: []byte{1},
+			},
+		},
+		{
+			name: "ordinary hop",
+			hop:  &lnrpc.Hop{},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := UnmarshallHopWithPubkey(test.hop, node1)
+			if test.errText != "" {
+				require.ErrorContains(t, err, test.errText)
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestUnmarshallRouteBlindedTotalAmountFinalHop verifies that the blinded
+// total amount is only accepted on the final hop of a caller-provided route.
+func TestUnmarshallRouteBlindedTotalAmountFinalHop(t *testing.T) {
+	t.Parallel()
+
+	blindedHop := func() *lnrpc.Hop {
+		return &lnrpc.Hop{
+			PubKey:        destKey,
+			EncryptedData: []byte{1},
+			TotalAmtMsat:  1000,
+		}
+	}
+	regularHop := func() *lnrpc.Hop {
+		return &lnrpc.Hop{
+			PubKey: destKey,
+		}
+	}
+
+	tests := []struct {
+		name    string
+		hops    []*lnrpc.Hop
+		errText string
+	}{
+		{
+			name: "intermediate hop",
+			hops: []*lnrpc.Hop{
+				blindedHop(), regularHop(),
+			},
+			errText: "blinded total amount can only be provided " +
+				"for the final hop",
+		},
+		{
+			name: "final hop",
+			hops: []*lnrpc.Hop{
+				regularHop(), blindedHop(),
+			},
+		},
+	}
+
+	backend := &RouterBackend{
+		SelfNode: sourceKey,
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := backend.UnmarshallRoute(&lnrpc.Route{
+				Hops: test.hops,
+			})
+			if test.errText != "" {
+				require.ErrorContains(t, err, test.errText)
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
 // TestQueryRoutes asserts that query routes rpc parameters are properly parsed
 // and passed onto path finding.
 func TestQueryRoutes(t *testing.T) {

@@ -238,3 +238,103 @@ func TestWithoutV2Onion(t *testing.T) {
 	// fetchNodeAdvertisedAddrs treat this as "no advertised address".
 	require.Empty(t, withoutV2Onion([]net.Addr{v2, v2}))
 }
+
+// TestReconcileNodeAddrs tests that on startup we only keep the persisted
+// clearnet addresses that our config still backs, so that the IPs an
+// externalhosts entry used to resolve to don't accumulate across restarts.
+func TestReconcileNodeAddrs(t *testing.T) {
+	t.Parallel()
+
+	var (
+		// staleIP and stalerIP are addresses our host resolved to on
+		// previous runs, and currentIP the one it resolves to now.
+		stalerIP = &net.TCPAddr{
+			IP: net.ParseIP("1.1.1.1"), Port: 9735,
+		}
+		staleIP = &net.TCPAddr{
+			IP: net.ParseIP("2.2.2.2"), Port: 9735,
+		}
+		currentIP = &net.TCPAddr{
+			IP: net.ParseIP("3.3.3.3"), Port: 9735,
+		}
+
+		onion = &tor.OnionAddr{
+			OnionService: "4acth47i6kxnvkewtm6q7ib2s3ufpo5sqbsn" +
+				"zjpbi7utijcltosqemad.onion",
+			Port: 9735,
+		}
+		v2Onion = &tor.OnionAddr{
+			OnionService: "3g2upl4pq6kufc4m.onion",
+			Port:         9735,
+		}
+	)
+
+	tests := []struct {
+		name        string
+		configAddrs []net.Addr
+		persisted   []net.Addr
+		pruneStale  bool
+		expected    []net.Addr
+	}{
+		{
+			// The IPs our host used to resolve to are no longer
+			// reachable and must not be carried over, while our
+			// onion address must be.
+			name:        "stale clearnet addrs dropped",
+			configAddrs: []net.Addr{currentIP},
+			persisted:   []net.Addr{stalerIP, staleIP, onion},
+			pruneStale:  true,
+			expected:    []net.Addr{currentIP, onion},
+		},
+		{
+			// Without a trustworthy view of our addresses we can't
+			// tell which persisted ones are stale, so we keep them
+			// all rather than risk dropping the only address we're
+			// reachable on.
+			name:        "nothing pruned without a trusted config",
+			configAddrs: []net.Addr{currentIP},
+			persisted:   []net.Addr{staleIP, onion},
+			pruneStale:  false,
+			expected:    []net.Addr{currentIP, staleIP, onion},
+		},
+		{
+			// With no address source configured we fall back to
+			// whatever we advertised last run.
+			name:        "no config addrs keeps persisted",
+			configAddrs: nil,
+			persisted:   []net.Addr{staleIP, onion},
+			pruneStale:  false,
+			expected:    []net.Addr{staleIP, onion},
+		},
+		{
+			// A persisted address our config still backs is kept,
+			// and isn't duplicated.
+			name:        "persisted addr still backed by config",
+			configAddrs: []net.Addr{currentIP},
+			persisted:   []net.Addr{currentIP, onion},
+			pruneStale:  true,
+			expected:    []net.Addr{currentIP, onion},
+		},
+		{
+			// A legacy v2 onion is never carried into a new
+			// announcement, regardless of pruning.
+			name:        "v2 onion always dropped",
+			configAddrs: []net.Addr{currentIP},
+			persisted:   []net.Addr{v2Onion, onion},
+			pruneStale:  false,
+			expected:    []net.Addr{currentIP, onion},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			addrs := reconcileNodeAddrs(
+				test.configAddrs, test.persisted,
+				test.pruneStale,
+			)
+			require.Equal(t, test.expected, addrs)
+		})
+	}
+}

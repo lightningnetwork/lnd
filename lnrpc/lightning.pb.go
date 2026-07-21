@@ -3374,8 +3374,7 @@ type EstimateFeeResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The total fee in satoshis.
 	FeeSat int64 `protobuf:"varint,1,opt,name=fee_sat,json=feeSat,proto3" json:"fee_sat,omitempty"`
-	// Deprecated, use sat_per_vbyte.
-	// The fee rate in satoshi/vbyte.
+	// Removed, use sat_per_vbyte.
 	//
 	// Deprecated: Marked as deprecated in lightning.proto.
 	FeerateSatPerByte int64 `protobuf:"varint,2,opt,name=feerate_sat_per_byte,json=feerateSatPerByte,proto3" json:"feerate_sat_per_byte,omitempty"`
@@ -3456,9 +3455,7 @@ type SendManyRequest struct {
 	// A manual fee rate set in sat/vbyte that should be used when crafting the
 	// transaction.
 	SatPerVbyte uint64 `protobuf:"varint,4,opt,name=sat_per_vbyte,json=satPerVbyte,proto3" json:"sat_per_vbyte,omitempty"`
-	// Deprecated, use sat_per_vbyte.
-	// A manual fee rate set in sat/vbyte that should be used when crafting the
-	// transaction.
+	// Removed, use sat_per_vbyte.
 	//
 	// Deprecated: Marked as deprecated in lightning.proto.
 	SatPerByte int64 `protobuf:"varint,5,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
@@ -3619,9 +3616,7 @@ type SendCoinsRequest struct {
 	// A manual fee rate set in sat/vbyte that should be used when crafting the
 	// transaction.
 	SatPerVbyte uint64 `protobuf:"varint,4,opt,name=sat_per_vbyte,json=satPerVbyte,proto3" json:"sat_per_vbyte,omitempty"`
-	// Deprecated, use sat_per_vbyte.
-	// A manual fee rate set in sat/vbyte that should be used when crafting the
-	// transaction.
+	// Removed, use sat_per_vbyte.
 	//
 	// Deprecated: Marked as deprecated in lightning.proto.
 	SatPerByte int64 `protobuf:"varint,5,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
@@ -6894,9 +6889,7 @@ type CloseChannelRequest struct {
 	// The target number of blocks that the closure transaction should be
 	// confirmed by.
 	TargetConf int32 `protobuf:"varint,3,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
-	// Deprecated, use sat_per_vbyte.
-	// A manual fee rate set in sat/vbyte that should be used when crafting the
-	// closure transaction.
+	// Removed, use sat_per_vbyte.
 	//
 	// Deprecated: Marked as deprecated in lightning.proto.
 	SatPerByte int64 `protobuf:"varint,4,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
@@ -7731,9 +7724,7 @@ type OpenChannelRequest struct {
 	// The target number of blocks that the funding transaction should be
 	// confirmed by.
 	TargetConf int32 `protobuf:"varint,6,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
-	// Deprecated, use sat_per_vbyte.
-	// A manual fee rate set in sat/vbyte that should be used when crafting the
-	// funding transaction.
+	// Removed, use sat_per_vbyte.
 	//
 	// Deprecated: Marked as deprecated in lightning.proto.
 	SatPerByte int64 `protobuf:"varint,7,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`

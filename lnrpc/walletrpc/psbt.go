@@ -85,7 +85,7 @@ func lockInputs(w lnwallet.WalletController, outpoints []wire.OutPoint,
 			for i := 0; i < idx; i++ {
 				op := locks[i].Outpoint
 				if err := w.ReleaseOutput(
-					chanfunding.LndInternalLockID, op,
+					locks[i].LockID, op,
 				); err != nil {
 					log.Errorf("could not release the "+
 						"lock on %v: %v", op, err)

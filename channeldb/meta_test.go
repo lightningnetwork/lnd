@@ -2,12 +2,14 @@ package channeldb
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
 
@@ -603,6 +605,217 @@ func TestFetchMeta(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, LatestDBVersion(), meta.DbVersionNumber)
+
+	err = db.View(func(tx walletdb.ReadTx) error {
+		metaBucket := tx.ReadBucket(metaBucket)
+		require.NotNil(t, metaBucket)
+
+		versionBytes := metaBucket.Get(dbVersionKey)
+		require.Len(t, versionBytes, 4)
+		require.Equal(
+			t, LatestDBVersion(), byteOrder.Uint32(versionBytes),
+		)
+
+		return nil
+	}, func() {})
+	require.NoError(t, err)
+}
+
+// TestFetchMetaMissingDBVersion asserts that metadata with no DB version key is
+// reported as incomplete metadata.
+func TestFetchMetaMissingDBVersion(t *testing.T) {
+	t.Parallel()
+
+	backend, cleanup, err := kvdb.GetTestBackend(t.TempDir(), "cdb")
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	err = kvdb.Update(backend, func(tx kvdb.RwTx) error {
+		_, err := tx.CreateTopLevelBucket(metaBucket)
+
+		return err
+	}, func() {})
+	require.NoError(t, err)
+
+	db := &DB{
+		Backend: backend,
+	}
+
+	_, err = db.FetchMeta()
+	require.ErrorIs(t, err, ErrDBVersionNotFound)
+
+	err = kvdb.View(backend, func(tx kvdb.RTx) error {
+		meta := &Meta{}
+		err := FetchMeta(meta, tx)
+		require.ErrorIs(t, err, ErrDBVersionNotFound)
+
+		return nil
+	}, func() {})
+	require.NoError(t, err)
+}
+
+// TestInitChannelDBCreatesMissingTopLevelBuckets asserts that initialized DBs
+// with missing top-level buckets are repaired during initialization.
+func TestInitChannelDBCreatesMissingTopLevelBuckets(t *testing.T) {
+	t.Parallel()
+
+	backend, cleanup, err := kvdb.GetTestBackend(t.TempDir(), "cdb")
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	err = kvdb.Update(backend, func(tx kvdb.RwTx) error {
+		meta := &Meta{
+			DbVersionNumber: LatestDBVersion(),
+		}
+
+		return putMeta(meta, tx)
+	}, func() {})
+	require.NoError(t, err)
+
+	err = kvdb.View(backend, func(tx kvdb.RTx) error {
+		require.Nil(t, tx.ReadBucket(historicalChannelBucket))
+
+		return nil
+	}, func() {})
+	require.NoError(t, err)
+
+	require.NoError(t, initChannelDB(backend))
+
+	err = kvdb.View(backend, func(tx kvdb.RTx) error {
+		require.NotNil(t, tx.ReadBucket(historicalChannelBucket))
+
+		return nil
+	}, func() {})
+	require.NoError(t, err)
+}
+
+// TestMissingDBVersionRunsWaitingProofMigration asserts that a DB initialized
+// without a version key is recovered from the last v0.20 mandatory version so
+// migration 35 can migrate legacy waiting proof records.
+func TestMissingDBVersionRunsWaitingProofMigration(t *testing.T) {
+	t.Parallel()
+
+	backend, cleanup, err := kvdb.GetTestBackend(t.TempDir(), "cdb")
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	const scid = 101
+	ann := &lnwire.AnnounceSignatures1{
+		ChannelID:        lnwire.ChannelID{1, 2, 3},
+		ShortChannelID:   lnwire.NewShortChanIDFromInt(scid),
+		NodeSignature:    wireSig,
+		BitcoinSignature: wireSig,
+		ExtraOpaqueData:  []byte{4, 5, 6},
+	}
+
+	legacyKey, legacyValue := encodeLegacyWaitingProof(t, true, ann)
+
+	err = kvdb.Update(backend, func(tx kvdb.RwTx) error {
+		_, err := tx.CreateTopLevelBucket(metaBucket)
+		if err != nil {
+			return err
+		}
+
+		bucket, err := tx.CreateTopLevelBucket(waitingProofsBucketKey)
+		if err != nil {
+			return err
+		}
+
+		return bucket.Put(legacyKey[:], legacyValue)
+	}, func() {})
+	require.NoError(t, err)
+
+	db, err := CreateWithBackend(backend)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	err = db.View(func(tx kvdb.RTx) error {
+		metaBucket := tx.ReadBucket(metaBucket)
+		require.NotNil(t, metaBucket)
+
+		versionBytes := metaBucket.Get(dbVersionKey)
+		require.Len(t, versionBytes, 4)
+		require.Equal(
+			t, LatestDBVersion(), byteOrder.Uint32(versionBytes),
+		)
+
+		bucket := tx.ReadBucket(waitingProofsBucketKey)
+		require.NotNil(t, bucket)
+		require.Nil(t, bucket.Get(legacyKey[:]))
+
+		proof := NewWaitingProof(true, ann)
+		typedKey := proof.Key()
+		require.NotNil(t, bucket.Get(typedKey[:]))
+
+		return nil
+	}, func() {})
+	require.NoError(t, err)
+
+	store, err := NewWaitingProofStore(db)
+	require.NoError(t, err)
+
+	proof := NewWaitingProof(true, ann)
+	migratedProof, err := store.Get(proof.Key())
+	require.NoError(t, err)
+	require.Equal(t, proof.Key(), migratedProof.Key())
+}
+
+// TestMissingDBVersionRecoveryRequiresBaseline asserts that a missing version
+// key cannot be recovered if the target version list does not include the
+// recovery baseline.
+func TestMissingDBVersionRecoveryRequiresBaseline(t *testing.T) {
+	t.Parallel()
+
+	backend, cleanup, err := kvdb.GetTestBackend(t.TempDir(), "cdb")
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	err = kvdb.Update(backend, func(tx kvdb.RwTx) error {
+		_, err := tx.CreateTopLevelBucket(metaBucket)
+
+		return err
+	}, func() {})
+	require.NoError(t, err)
+
+	db := &DB{
+		Backend: backend,
+	}
+
+	versions := []mandatoryVersion{
+		{
+			number:    0,
+			migration: nil,
+		},
+		{
+			number:    1,
+			migration: nil,
+		},
+	}
+
+	err = db.syncVersions(versions)
+	require.ErrorContains(t, err, "unable to recover missing DB version")
+}
+
+// encodeLegacyWaitingProof encodes a waiting proof using the pre-migration
+// format.
+func encodeLegacyWaitingProof(t *testing.T, isRemote bool,
+	ann *lnwire.AnnounceSignatures1) ([9]byte, []byte) {
+
+	t.Helper()
+
+	var key [9]byte
+	binary.BigEndian.PutUint64(key[:8], ann.ShortChannelID.ToUint64())
+	if isRemote {
+		key[8] = 1
+	}
+
+	var value bytes.Buffer
+	require.NoError(t, binary.Write(&value, byteOrder, isRemote))
+	require.NoError(t, ann.Encode(&value, 0))
+
+	return key, value.Bytes()
 }
 
 // TestMarkerAndTombstone tests that markers like a tombstone can be added to a

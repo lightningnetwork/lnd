@@ -251,7 +251,9 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 
 			return false, nil
 		},
-		DisconnectPeer: svr.DisconnectPeer,
+		DisconnectPeer: func(pk *btcec.PublicKey) error {
+			return svr.DisconnectPeer(pk, false, false)
+		},
 	}
 
 	// Create and return the autopilot.ManagerCfg that administrates this

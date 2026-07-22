@@ -2442,6 +2442,13 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "include_offline_persistent_peers",
+            "description": "If true, the response also includes peers that the daemon is keeping in\nthe auto-reconnect set but is not currently connected to. A peer is in\nthis set if lnd has a stored record for it (a LinkNode entry from a\nprior channel open or `connect --perm`) or an open channel. Per-\nconnection fields (address, bytes_sent, ping_time, etc.) are empty/zero\nfor these entries.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -2536,6 +2543,27 @@
             "description": "The pubkey of the node to disconnect from",
             "in": "path",
             "required": true,
+            "type": "string"
+          },
+          {
+            "name": "forget_node",
+            "description": "If set, the peer's stored LinkNode entry is also removed and no automatic\nreconnect is attempted from our side in the current session. Mutually\nexclusive with `forget_address`.\n\nNote: the remote peer may still re-dial us if they have us in their own\npersistent set (typical when a channel exists), in which case we'll\naccept the inbound connection. On the next lnd restart, if the peer\nstill has open channels, the channel-driven persistence path will\nreconnect using NodeAnnouncement addresses from the gossip graph.\n\nFor a peer with no open channels, `forget_node` is a shortcut for work\nthat would happen on the next lnd restart anyway: at startup lnd runs\n`PruneLinkNodes`, which deletes stored LinkNode entries for peers with\nno open channels. `forget_node` on such a peer just performs that\ndelete now, and additionally drops the live connection. `force` is not\nrequired in this case.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "force",
+            "description": "Only meaningful with `forget_node` or `forget_address`.\nWith `forget_node`, `force` bypasses the guard that refuses to\ndelete the LinkNode entry when open channels still exist with the\npeer.\nWith `forget_address`, `force` allows removing the last stored\naddress when the peer still has open channels (removing the last\nstored address is otherwise allowed automatically when no channels\nexist).\nSetting `force` without either `forget_node` or `forget_address` is\nrejected.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "forget_address",
+            "description": "Remove a single stored address from the peer's LinkNode entry. The live\nconnection is left untouched unless the peer happens to be connected on\nthis exact address, in which case the connection is dropped so lnd can\nre-dial via the remaining stored/gossip addresses. If the removal would\nleave the LinkNode with no addresses and the peer still has open\nchannels, the request is refused unless `force` is also set; if no\nopen channels exist, the LinkNode entry is deleted automatically.\nMutually exclusive with `forget_node`.\n\nNote: after `forget_address` + `force` removes the last stored address\nfor a channel peer, the peer stays in the persistent-reconnect set —\nthe peer-termination watcher will fetch the peer's NodeAnnouncement\naddresses (via the gossip graph) and use those for reconnect. Use\n`forget_node` instead if you want to remove the last stored address\nAND stop reconnecting from our side until lnd next restarts. Even\nwith `forget_address` + `force`, a channel peer is only truly\norphaned when it also has no NodeAnnouncement.",
+            "in": "query",
+            "required": false,
             "type": "string"
           }
         ],
@@ -6919,7 +6947,7 @@
         },
         "address": {
           "type": "string",
-          "title": "Network address of the peer; eg `127.0.0.1:10011`"
+          "description": "Network address of the currently active connection to the peer; e.g.\n`127.0.0.1:10011`. Empty when the entry represents a persistent peer\nthat is not currently connected (only present in the response when\nthe request sets `include_offline_persistent_peers`)."
         },
         "bytes_sent": {
           "type": "string",
@@ -6983,6 +7011,28 @@
           "type": "string",
           "format": "byte",
           "description": "The last ping payload the peer has sent to us."
+        },
+        "is_persistent": {
+          "type": "boolean",
+          "description": "True if lnd is maintaining a persistent reconnect attempt for this\npeer. Equivalent to (len(remembered_addresses) \u003e 0 or an active\nchannel-driven persistent entry exists)."
+        },
+        "remembered_addresses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Addresses lnd has stored for the peer via its LinkNode record\n(captured at channel open and on subsequent outbound connects to a\nchannel peer). Empty if no LinkNode entry exists\nfor the peer. Note: this list is reported verbatim from storage,\nincluding any v2 .onion entries lnd will not dial (v2 was deprecated\nby the Tor project in 2021). v2 entries are preserved on disk so\nthat signed NodeAnnouncements still verify; a v2 appearing here is\na stale-storage signal, not an indication that lnd is attempting to\nreach that address."
+        },
+        "gossip_addresses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Addresses currently advertised by this peer in the gossip network's\nNodeAnnouncement. Empty when no NodeAnnouncement is known."
+        },
+        "reconnect_pending": {
+          "type": "boolean",
+          "description": "True if lnd currently has an in-flight reconnect attempt for this\npeer. Mainly informative for entries returned when the request sets\n`include_offline_persistent_peers`."
         }
       }
     },

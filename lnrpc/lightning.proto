@@ -1276,6 +1276,61 @@ message ConnectPeerResponse {
 message DisconnectPeerRequest {
     // The pubkey of the node to disconnect from
     string pub_key = 1;
+
+    /*
+    If set, the peer's stored LinkNode entry is also removed and no automatic
+    reconnect is attempted from our side in the current session. Mutually
+    exclusive with `forget_address`.
+
+    Note: the remote peer may still re-dial us if they have us in their own
+    persistent set (typical when a channel exists), in which case we'll
+    accept the inbound connection. On the next lnd restart, if the peer
+    still has open channels, the channel-driven persistence path will
+    reconnect using NodeAnnouncement addresses from the gossip graph.
+
+    For a peer with no open channels, `forget_node` is a shortcut for work
+    that would happen on the next lnd restart anyway: at startup lnd runs
+    `PruneLinkNodes`, which deletes stored LinkNode entries for peers with
+    no open channels. `forget_node` on such a peer just performs that
+    delete now, and additionally drops the live connection. `force` is not
+    required in this case.
+    */
+    bool forget_node = 2;
+
+    /*
+    Only meaningful with `forget_node` or `forget_address`.
+      * With `forget_node`, `force` bypasses the guard that refuses to
+        delete the LinkNode entry when open channels still exist with the
+        peer.
+      * With `forget_address`, `force` allows removing the last stored
+        address when the peer still has open channels (removing the last
+        stored address is otherwise allowed automatically when no channels
+        exist).
+    Setting `force` without either `forget_node` or `forget_address` is
+    rejected.
+    */
+    bool force = 3;
+
+    /*
+    Remove a single stored address from the peer's LinkNode entry. The live
+    connection is left untouched unless the peer happens to be connected on
+    this exact address, in which case the connection is dropped so lnd can
+    re-dial via the remaining stored/gossip addresses. If the removal would
+    leave the LinkNode with no addresses and the peer still has open
+    channels, the request is refused unless `force` is also set; if no
+    open channels exist, the LinkNode entry is deleted automatically.
+    Mutually exclusive with `forget_node`.
+
+    Note: after `forget_address` + `force` removes the last stored address
+    for a channel peer, the peer stays in the persistent-reconnect set —
+    the peer-termination watcher will fetch the peer's NodeAnnouncement
+    addresses (via the gossip graph) and use those for reconnect. Use
+    `forget_node` instead if you want to remove the last stored address
+    AND stop reconnecting from our side until lnd next restarts. Even
+    with `forget_address` + `force`, a channel peer is only truly
+    orphaned when it also has no NodeAnnouncement.
+    */
+    string forget_address = 4;
 }
 message DisconnectPeerResponse {
     // The status of the disconnect operation.
@@ -1795,7 +1850,12 @@ message Peer {
     // The identity pubkey of the peer
     string pub_key = 1;
 
-    // Network address of the peer; eg `127.0.0.1:10011`
+    /*
+    Network address of the currently active connection to the peer; e.g.
+    `127.0.0.1:10011`. Empty when the entry represents a persistent peer
+    that is not currently connected (only present in the response when
+    the request sets `include_offline_persistent_peers`).
+    */
     string address = 3;
 
     // Bytes of data transmitted to this peer
@@ -1873,6 +1933,39 @@ message Peer {
     The last ping payload the peer has sent to us.
     */
     bytes last_ping_payload = 15;
+
+    /*
+    True if lnd is maintaining a persistent reconnect attempt for this
+    peer. Equivalent to (len(remembered_addresses) > 0 or an active
+    channel-driven persistent entry exists).
+    */
+    bool is_persistent = 16;
+
+    /*
+    Addresses lnd has stored for the peer via its LinkNode record
+    (captured at channel open and on subsequent outbound connects to a
+    channel peer). Empty if no LinkNode entry exists
+    for the peer. Note: this list is reported verbatim from storage,
+    including any v2 .onion entries lnd will not dial (v2 was deprecated
+    by the Tor project in 2021). v2 entries are preserved on disk so
+    that signed NodeAnnouncements still verify; a v2 appearing here is
+    a stale-storage signal, not an indication that lnd is attempting to
+    reach that address.
+    */
+    repeated string remembered_addresses = 17;
+
+    /*
+    Addresses currently advertised by this peer in the gossip network's
+    NodeAnnouncement. Empty when no NodeAnnouncement is known.
+    */
+    repeated string gossip_addresses = 18;
+
+    /*
+    True if lnd currently has an in-flight reconnect attempt for this
+    peer. Mainly informative for entries returned when the request sets
+    `include_offline_persistent_peers`.
+    */
+    bool reconnect_pending = 19;
 }
 
 message TimestampedError {
@@ -1890,6 +1983,16 @@ message ListPeersRequest {
     stored.
     */
     bool latest_error = 1;
+
+    /*
+    If true, the response also includes peers that the daemon is keeping in
+    the auto-reconnect set but is not currently connected to. A peer is in
+    this set if lnd has a stored record for it (a LinkNode entry from a
+    prior channel open or `connect --perm`) or an open channel. Per-
+    connection fields (address, bytes_sent, ping_time, etc.) are empty/zero
+    for these entries.
+    */
+    bool include_offline_persistent_peers = 2;
 }
 message ListPeersResponse {
     // The list of currently connected peers

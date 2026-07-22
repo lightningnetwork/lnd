@@ -72,12 +72,48 @@
   the chain backend via bitcoind's `submitpackage`, allowing a zero-fee v3/TRUC
   parent to be accepted together with a fee-paying CPFP child.
 
+* [`ListPeers` gains address-source
+  detail](https://github.com/lightningnetwork/lnd/pull/10973). Each `Peer`
+  now carries `remembered_addresses` (addresses lnd has stored for the peer),
+  `gossip_addresses` (from the peer's current `NodeAnnouncement`),
+  `is_persistent` (true if lnd is auto-reconnecting to the peer), and
+  `reconnect_pending` (true if a retry is in flight). A new
+  `ListPeersRequest.include_offline_persistent_peers` flag opts into
+  surfacing peers in the reconnect set we are not currently connected to.
+
+* [`DisconnectPeer` gains `forget_node`, `force`, and `forget_address`
+  fields](https://github.com/lightningnetwork/lnd/pull/10976).
+  `forget_node=true` also removes the peer's stored LinkNode entry so no
+  auto-reconnect is attempted on the next lnd restart; refused if open
+  channels exist unless `force=true`. `forget_address="<host:port>"`
+  removes a single stored address for the peer without dropping the live
+  connection (unless the removed address is the currently-connected one,
+  in which case the connection is dropped so lnd can re-dial via remaining
+  stored/gossip addresses). If `forget_address` would remove the last
+  stored address for the peer, behaviour depends on whether open channels
+  exist: with no open channels the LinkNode entry is deleted
+  automatically; with open channels the request is refused unless
+  `force=true`. `forget_node` and `forget_address` are mutually exclusive;
+  `force` on its own is rejected. Note: after `force` removes the last
+  stored address for a channel peer, the peer-termination watcher falls
+  back to the peer's NodeAnnouncement addresses for reconnect, so a
+  channel peer is only truly orphaned when it also has no
+  NodeAnnouncement.
+
 ## lncli Additions
 
 * The `estimateroutefee` command now supports [restricting fee estimates to
   specific first-hop outgoing
   channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
   `--outgoing_chan_id` flag.
+
+* `lncli listpeers` gains
+  [`--include_offline_persistent_peers`](https://github.com/lightningnetwork/lnd/pull/10973)
+  (see the `ListPeers` RPC entry above).
+
+* `lncli disconnect` gains
+  [`--forget_node`, `--force`, and `--forget_address`](https://github.com/lightningnetwork/lnd/pull/10976)
+  (see the `DisconnectPeer` RPC entry above).
 
 * A new
   [`wallet submitpackage`](https://github.com/lightningnetwork/lnd/pull/10900)
@@ -87,6 +123,24 @@
 # Improvements
 
 ## Functional Updates
+
+* [Peer addresses now auto-persist on
+  connect](https://github.com/lightningnetwork/lnd/pull/10975) for peers we
+  have an open channel with. When lnd completes an outbound connection to
+  a channel peer, it records the dialed address in the peer's `LinkNode`
+  entry if it isn't already listed. On restart lnd attempts this address
+  in addition to those from the peer's current `NodeAnnouncement`, so a
+  channel peer remains reachable across restarts even when the address we
+  last used to reach them isn't in their gossip entry — because they have
+  since removed it from their `NodeAnnouncement` but are still listening
+  on the same host and port, because they moved to a new host and/or port
+  and we learned the new address out-of-band faster than their
+  re-broadcast `NodeAnnouncement` could catch up, or because they never
+  advertised it in gossip in the first place. Only outbound connections
+  trigger this — for inbound TCP the peer's remote address is an
+  ephemeral source port rather than a dialable listener. Non-channel
+  peers are also skipped so casual connections do not grow the on-disk
+  address list.
 
 ## RPC Updates
 
@@ -148,3 +202,4 @@
 * Boris Nagaev
 * Erick Cestari
 * Jared Tobin
+* ZZiigguurraatt

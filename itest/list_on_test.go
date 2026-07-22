@@ -151,6 +151,18 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testReconnectAfterIPChange,
 	},
 	{
+		Name:     "listpeers address fields",
+		TestFunc: testListPeersAddressFields,
+	},
+	{
+		Name:     "auto persist channel peer address",
+		TestFunc: testAutoPersistChannelPeerAddress,
+	},
+	{
+		Name:     "disconnect forget",
+		TestFunc: testDisconnectForget,
+	},
+	{
 		Name:     "addpeer config",
 		TestFunc: testAddPeerConfig,
 	},

@@ -34,6 +34,18 @@ var (
 	// specific identity can't be found.
 	ErrNodeNotFound = fmt.Errorf("link node with target identity not found")
 
+	// ErrNodeAddressNotFound is returned when a LinkNode entry exists
+	// for the target peer, but the requested address is not among its
+	// stored addresses.
+	ErrNodeAddressNotFound = fmt.Errorf("address not stored for peer")
+
+	// ErrLastPeerAddress is returned by RemoveAddressForPeer when the
+	// caller has not opted in to deleting the LinkNode entry (via
+	// allowLast) and the requested address is the last stored address
+	// for the peer.
+	ErrLastPeerAddress = fmt.Errorf("refusing to remove last stored " +
+		"address for peer")
+
 	// ErrChannelNotFound is returned when we attempt to locate a channel
 	// for a specific chain, but it is not found.
 	ErrChannelNotFound = fmt.Errorf("channel not found")

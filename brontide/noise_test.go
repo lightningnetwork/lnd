@@ -700,3 +700,76 @@ func assertFlush(t *testing.T, b *Machine, w io.Writer, n int64, expN int,
 		t.Fatalf("expected n: %d, got: %d", expN, nn)
 	}
 }
+
+// TestTieredBufferPool asserts that a tieredBufferPool hands out buffers
+// from the smallest tier that can satisfy a given size, and that Put routes
+// (or discards) buffers based on their capacity.
+func TestTieredBufferPool(t *testing.T) {
+	t.Parallel()
+
+	sizes := []int{256, 1024, 4096}
+	pool := newTieredBufferPool(sizes...)
+
+	tests := []struct {
+		name     string
+		reqSize  int
+		wantTier int
+	}{
+		{
+			name:     "smallest tier",
+			reqSize:  1,
+			wantTier: 0,
+		},
+		{
+			name:     "exact match on smallest tier",
+			reqSize:  256,
+			wantTier: 0,
+		},
+		{
+			name:     "rounds up to middle tier",
+			reqSize:  257,
+			wantTier: 1,
+		},
+		{
+			name:     "exact match on largest tier",
+			reqSize:  4096,
+			wantTier: 2,
+		},
+		{
+			name:     "exceeds every tier, falls back to largest",
+			reqSize:  10_000,
+			wantTier: 2,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			bufInterface := pool.Get(test.reqSize)
+			buf, ok := bufInterface.(*[]byte)
+			require.True(t, ok)
+
+			wantCap := sizes[test.wantTier]
+			require.Equal(t, wantCap, cap(*buf))
+
+			// Returning the buffer should not panic and should be
+			// safe to call regardless of tier.
+			pool.Put(buf)
+		})
+	}
+
+	// A buffer whose capacity doesn't correspond to any tier exactly
+	// (e.g. grown past its original tier via append) should be silently
+	// discarded rather than stored under the wrong tier.
+	t.Run("mismatched capacity is discarded", func(t *testing.T) {
+		t.Parallel()
+
+		oddBuf := make([]byte, 0, 300)
+		require.NotPanics(t, func() {
+			pool.Put(&oddBuf)
+		})
+	})
+}

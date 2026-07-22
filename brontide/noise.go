@@ -79,16 +79,79 @@ var (
 		},
 	}
 
-	// bodyBufferPool is a pool for encrypted message body buffers.
-	bodyBufferPool = &sync.Pool{
-		New: func() interface{} {
-			// Allocate max size to avoid reallocation.
-			// maxMessageSize already includes the MAC.
-			b := make([]byte, 0, maxMessageSize)
-			return &b
-		},
-	}
+	// bodyBufferPool is a tiered pool for encrypted message body
+	// buffers. Most wire messages are well under the protocol max of
+	// maxMessageSize, so handing out a right-sized buffer instead of
+	// always allocating the max size avoids wasting memory on the
+	// (common) small-message case while still avoiding reallocation.
+	bodyBufferPool = newTieredBufferPool(
+		256, 1024, 4096, 16384, maxMessageSize,
+	)
 )
+
+// tieredBufferPool is a set of sync.Pools bucketed by buffer capacity. Get
+// returns a buffer from the smallest tier that can hold the requested size,
+// avoiding the need to always allocate a max-size buffer for small messages.
+type tieredBufferPool struct {
+	// tierSizes holds the buffer capacity of each tier, in ascending
+	// order.
+	tierSizes []int
+
+	pools []*sync.Pool
+}
+
+// newTieredBufferPool creates a tieredBufferPool with one sync.Pool per
+// entry in sizes. The sizes MUST be provided in ascending order, and the
+// final size is treated as the max buffer size that can be requested.
+func newTieredBufferPool(sizes ...int) *tieredBufferPool {
+	pools := make([]*sync.Pool, len(sizes))
+	for i, size := range sizes {
+		size := size
+
+		pools[i] = &sync.Pool{
+			New: func() interface{} {
+				b := make([]byte, 0, size)
+				return &b
+			},
+		}
+	}
+
+	return &tieredBufferPool{
+		tierSizes: sizes,
+		pools:     pools,
+	}
+}
+
+// tierForSize returns the index of the smallest tier that can hold n bytes.
+// If n exceeds every tier, the largest tier is returned.
+func (t *tieredBufferPool) tierForSize(n int) int {
+	for i, size := range t.tierSizes {
+		if n <= size {
+			return i
+		}
+	}
+
+	return len(t.tierSizes) - 1
+}
+
+// Get returns a buffer with capacity of at least n bytes.
+func (t *tieredBufferPool) Get(n int) interface{} {
+	return t.pools[t.tierForSize(n)].Get()
+}
+
+// Put returns buf to the pool for the tier matching its capacity. If buf's
+// capacity doesn't correspond to a tier size exactly (which shouldn't
+// normally happen), it is discarded rather than risk polluting a tier with
+// an oddly-sized buffer.
+func (t *tieredBufferPool) Put(buf *[]byte) {
+	idx := t.tierForSize(cap(*buf))
+	if t.tierSizes[idx] != cap(*buf) {
+		return
+	}
+
+	*buf = (*buf)[:0]
+	t.pools[idx].Put(buf)
+}
 
 // ecdh performs an ECDH operation between pub and priv. The returned value is
 // the sha256 of the compressed shared point.
@@ -790,7 +853,9 @@ func (b *Machine) WriteMessage(p []byte) error {
 	}
 	b.pooledHeaderBuf = headerBuf
 
-	bodyBufInterface := bodyBufferPool.Get()
+	// The body buffer needs to hold the ciphertext plus its MAC, so
+	// request a tier sized to fit len(p) + macSize.
+	bodyBufInterface := bodyBufferPool.Get(len(p) + macSize)
 	bodyBuf, ok := bodyBufInterface.(*[]byte)
 	if !ok {
 		b.releaseBuffers()
@@ -903,7 +968,6 @@ func (b *Machine) releaseBuffers() {
 	}
 
 	if b.pooledBodyBuf != nil {
-		*b.pooledBodyBuf = (*b.pooledBodyBuf)[:0]
 		bodyBufferPool.Put(b.pooledBodyBuf)
 		b.pooledBodyBuf = nil
 	}

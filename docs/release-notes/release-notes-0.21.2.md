@@ -36,6 +36,13 @@
   combination. This also affects callers replaying an affected historical
   route returned by `ListPayments` or `TrackPayment`.
 
+* [Fixed a channeldb migration
+  bug](https://github.com/lightningnetwork/lnd/pull/10985) where databases
+  initialized without a persisted `metadata/dbp` version key could skip later
+  mandatory migrations. This recovers such databases from the last known
+  v0.20-era mandatory version so the v0.21 waiting proof migration runs
+  without replaying older migrations against an already-initialized database.
+
 # New Features
 
 ## Functional Enhancements

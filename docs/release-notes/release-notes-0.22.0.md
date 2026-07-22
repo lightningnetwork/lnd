@@ -72,12 +72,25 @@
   the chain backend via bitcoind's `submitpackage`, allowing a zero-fee v3/TRUC
   parent to be accepted together with a fee-paying CPFP child.
 
+* [`ListPeers` gains address-source
+  detail](https://github.com/lightningnetwork/lnd/pull/10973). Each `Peer`
+  now carries `remembered_addresses` (addresses lnd has stored for the peer),
+  `gossip_addresses` (from the peer's current `NodeAnnouncement`),
+  `is_persistent` (true if lnd is auto-reconnecting to the peer), and
+  `reconnect_pending` (true if a retry is in flight). A new
+  `ListPeersRequest.include_offline_persistent_peers` flag opts into
+  surfacing peers in the reconnect set we are not currently connected to.
+
 ## lncli Additions
 
 * The `estimateroutefee` command now supports [restricting fee estimates to
   specific first-hop outgoing
   channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
   `--outgoing_chan_id` flag.
+
+* `lncli listpeers` gains
+  [`--include_offline_persistent_peers`](https://github.com/lightningnetwork/lnd/pull/10973)
+  (see the `ListPeers` RPC entry above).
 
 * A new
   [`wallet submitpackage`](https://github.com/lightningnetwork/lnd/pull/10900)
@@ -148,3 +161,4 @@
 * Boris Nagaev
 * Erick Cestari
 * Jared Tobin
+* ZZiigguurraatt

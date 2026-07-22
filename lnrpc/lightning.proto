@@ -1795,7 +1795,12 @@ message Peer {
     // The identity pubkey of the peer
     string pub_key = 1;
 
-    // Network address of the peer; eg `127.0.0.1:10011`
+    /*
+    Network address of the currently active connection to the peer; e.g.
+    `127.0.0.1:10011`. Empty when the entry represents a persistent peer
+    that is not currently connected (only present in the response when
+    the request sets `include_offline_persistent_peers`).
+    */
     string address = 3;
 
     // Bytes of data transmitted to this peer
@@ -1873,6 +1878,38 @@ message Peer {
     The last ping payload the peer has sent to us.
     */
     bytes last_ping_payload = 15;
+
+    /*
+    True if lnd is maintaining a persistent reconnect attempt for this
+    peer. Equivalent to (len(remembered_addresses) > 0 or an active
+    channel-driven persistent entry exists).
+    */
+    bool is_persistent = 16;
+
+    /*
+    Addresses lnd has stored for the peer via its LinkNode record
+    (captured at first channel open). Empty if no LinkNode entry exists
+    for the peer. Note: this list is reported verbatim from storage,
+    including any v2 .onion entries lnd will not dial (v2 was deprecated
+    by the Tor project in 2021). v2 entries are preserved on disk so
+    that signed NodeAnnouncements still verify; a v2 appearing here is
+    a stale-storage signal, not an indication that lnd is attempting to
+    reach that address.
+    */
+    repeated string remembered_addresses = 17;
+
+    /*
+    Addresses currently advertised by this peer in the gossip network's
+    NodeAnnouncement. Empty when no NodeAnnouncement is known.
+    */
+    repeated string gossip_addresses = 18;
+
+    /*
+    True if lnd currently has an in-flight reconnect attempt for this
+    peer. Mainly informative for entries returned when the request sets
+    `include_offline_persistent_peers`.
+    */
+    bool reconnect_pending = 19;
 }
 
 message TimestampedError {
@@ -1890,6 +1927,16 @@ message ListPeersRequest {
     stored.
     */
     bool latest_error = 1;
+
+    /*
+    If true, the response also includes peers that the daemon is keeping in
+    the auto-reconnect set but is not currently connected to. A peer is in
+    this set if lnd has a stored record for it (a LinkNode entry from a
+    prior channel open or `connect --perm`) or an open channel. Per-
+    connection fields (address, bytes_sent, ping_time, etc.) are empty/zero
+    for these entries.
+    */
+    bool include_offline_persistent_peers = 2;
 }
 message ListPeersResponse {
     // The list of currently connected peers

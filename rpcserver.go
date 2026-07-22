@@ -3570,6 +3570,51 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 		Peers: make([]*lnrpc.Peer, 0, len(serverPeers)),
 	}
 
+	// Pre-fetch the LinkNode store into a pubkey-keyed map so the
+	// per-peer loop becomes a constant lookup rather than a per-peer DB
+	// hit.
+	linkNodes, err := r.server.linkNodeDB.FetchAllLinkNodes()
+	if err != nil && !errors.Is(err, channeldb.ErrLinkNodesNotFound) {
+		return nil, fmt.Errorf("unable to fetch link nodes: %w", err)
+	}
+	rememberedAddrsByPub := make(map[string][]net.Addr, len(linkNodes))
+	for _, ln := range linkNodes {
+		key := string(ln.IdentityPub.SerializeCompressed())
+		rememberedAddrsByPub[key] = ln.Addresses
+	}
+
+	// Snapshot the in-memory persistent set so we can also emit
+	// disconnected entries if the caller opted in.
+	persistentSet := r.server.PersistentReconnectSet()
+
+	// Track which pubkeys we have already emitted so we don't duplicate
+	// when appending offline entries.
+	connectedPubs := make(map[string]struct{}, len(serverPeers))
+
+	// Helper: []net.Addr → []string.
+	toStrs := func(addrs []net.Addr) []string {
+		out := make([]string, 0, len(addrs))
+		for _, a := range addrs {
+			out = append(out, a.String())
+		}
+		return out
+	}
+
+	// Helper: gossip addresses for a pubkey, ignoring v2 onion entries.
+	// Returns an empty slice for any error (e.g. peer not in graph) since
+	// missing gossip data is normal.
+	gossipAddrsFor := func(pubBytes []byte) []string {
+		vertex, vErr := route.NewVertexFromBytes(pubBytes)
+		if vErr != nil {
+			return nil
+		}
+		node, gErr := r.server.v1Graph.FetchNode(ctx, vertex)
+		if gErr != nil {
+			return nil
+		}
+		return toStrs(withoutV2Onion(node.Addresses))
+	}
+
 	for _, serverPeer := range serverPeers {
 		var (
 			satSent int64
@@ -3690,10 +3735,46 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 			}
 		}
 
+		// Enrich with the new persistent / multi-source address
+		// fields.
+		pubStr := string(nodePub[:])
+		connectedPubs[pubStr] = struct{}{}
+
+		rpcPeer.RememberedAddresses = toStrs(
+			rememberedAddrsByPub[pubStr],
+		)
+		rpcPeer.GossipAddresses = gossipAddrsFor(nodePub[:])
+		_, inPersistentSet := persistentSet[pubStr]
+		rpcPeer.IsPersistent = inPersistentSet ||
+			len(rpcPeer.RememberedAddresses) > 0
+		// We're connected, so reconnect_pending stays at its zero
+		// default.
+
 		resp.Peers = append(resp.Peers, rpcPeer)
 	}
 
-	rpcsLog.Debugf("[listpeers] yielded %v peers", serverPeers)
+	// Optionally append entries for persistent peers we're not currently
+	// connected to.
+	if in.IncludeOfflinePersistentPeers {
+		for pubStr, pending := range persistentSet {
+			if _, ok := connectedPubs[pubStr]; ok {
+				continue
+			}
+
+			pubBytes := []byte(pubStr)
+			resp.Peers = append(resp.Peers, &lnrpc.Peer{
+				PubKey: hex.EncodeToString(pubBytes),
+				RememberedAddresses: toStrs(
+					rememberedAddrsByPub[pubStr],
+				),
+				GossipAddresses:  gossipAddrsFor(pubBytes),
+				IsPersistent:     true,
+				ReconnectPending: pending,
+			})
+		}
+	}
+
+	rpcsLog.Debugf("[listpeers] yielded %d peers", len(resp.Peers))
 
 	return resp, nil
 }

@@ -1633,11 +1633,19 @@ func parseChannelPoint(ctx *cli.Context) (*lnrpc.ChannelPoint, error) {
 var listPeersCommand = cli.Command{
 	Name:     "listpeers",
 	Category: "Peers",
-	Usage:    "List all active, currently connected peers.",
+	Usage: "List currently connected peers, and optionally also " +
+		"offline peers that lnd is auto-reconnecting to.",
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "list_errors",
 			Usage: "list a full set of most recent errors for the peer",
+		},
+		cli.BoolFlag{
+			Name: "include_offline_persistent_peers",
+			Usage: "also list peers that lnd is auto-reconnecting " +
+				"to but is not currently connected to — " +
+				"either via a stored LinkNode record or " +
+				"because of an open channel",
 		},
 	},
 	Action: actionDecorator(listPeers),
@@ -1652,6 +1660,9 @@ func listPeers(ctx *cli.Context) error {
 	// specifically requests a full error set, then we will provide it.
 	req := &lnrpc.ListPeersRequest{
 		LatestError: !ctx.IsSet("list_errors"),
+		IncludeOfflinePersistentPeers: ctx.Bool(
+			"include_offline_persistent_peers",
+		),
 	}
 	resp, err := client.ListPeers(ctxc, req)
 	if err != nil {

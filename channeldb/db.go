@@ -502,21 +502,34 @@ func initChannelDB(db kvdb.Backend) error {
 			return err
 		}
 
+		meta := &Meta{}
+		metaErr := fetchMetaStrict(meta, tx)
+
 		for _, tlb := range dbTopLevelBuckets {
 			if _, err := tx.CreateTopLevelBucket(tlb); err != nil {
 				return err
 			}
 		}
 
-		meta := &Meta{}
-		// Check if DB is already initialized.
-		err := FetchMeta(meta, tx)
-		if err == nil {
+		switch {
+		case metaErr == nil:
+			return nil
+
+		case errors.Is(metaErr, ErrMetaNotFound):
+			// This is a fresh DB, so initialize the DB version
+			// after creating the required top-level buckets.
+			meta.DbVersionNumber = getLatestDBVersion(dbVersions)
+			return putMeta(meta, tx)
+
+		case errors.Is(metaErr, ErrDBVersionNotFound):
+			// The DB already has a metadata bucket but no
+			// version key. Leave recovery to the migration
+			// path, which can infer a safe starting version
+			// before writing the version key.
 			return nil
 		}
 
-		meta.DbVersionNumber = getLatestDBVersion(dbVersions)
-		return putMeta(meta, tx)
+		return metaErr
 	}, func() {})
 	if err != nil {
 		return fmt.Errorf("unable to create new channeldb: %w", err)

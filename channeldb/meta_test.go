@@ -603,6 +603,55 @@ func TestFetchMeta(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, LatestDBVersion(), meta.DbVersionNumber)
+
+	err = db.View(func(tx walletdb.ReadTx) error {
+		metaBucket := tx.ReadBucket(metaBucket)
+		require.NotNil(t, metaBucket)
+
+		versionBytes := metaBucket.Get(dbVersionKey)
+		require.Len(t, versionBytes, 4)
+		require.Equal(
+			t, LatestDBVersion(), byteOrder.Uint32(versionBytes),
+		)
+
+		return nil
+	}, func() {})
+	require.NoError(t, err)
+}
+
+// TestInitChannelDBCreatesMissingTopLevelBuckets asserts that initialized DBs
+// with missing top-level buckets are repaired during initialization.
+func TestInitChannelDBCreatesMissingTopLevelBuckets(t *testing.T) {
+	t.Parallel()
+
+	backend, cleanup, err := kvdb.GetTestBackend(t.TempDir(), "cdb")
+	require.NoError(t, err)
+	t.Cleanup(cleanup)
+
+	err = kvdb.Update(backend, func(tx kvdb.RwTx) error {
+		meta := &Meta{
+			DbVersionNumber: LatestDBVersion(),
+		}
+
+		return putMeta(meta, tx)
+	}, func() {})
+	require.NoError(t, err)
+
+	err = kvdb.View(backend, func(tx kvdb.RTx) error {
+		require.Nil(t, tx.ReadBucket(historicalChannelBucket))
+
+		return nil
+	}, func() {})
+	require.NoError(t, err)
+
+	require.NoError(t, initChannelDB(backend))
+
+	err = kvdb.View(backend, func(tx kvdb.RTx) error {
+		require.NotNil(t, tx.ReadBucket(historicalChannelBucket))
+
+		return nil
+	}, func() {})
+	require.NoError(t, err)
 }
 
 // TestMarkerAndTombstone tests that markers like a tombstone can be added to a

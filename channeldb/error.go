@@ -42,6 +42,10 @@ var (
 	// created.
 	ErrMetaNotFound = fmt.Errorf("unable to locate meta information")
 
+	// ErrDBVersionNotFound is returned when the meta bucket exists, but
+	// the DB version key hasn't been written.
+	ErrDBVersionNotFound = fmt.Errorf("unable to locate db version")
+
 	// ErrNoClosedChannels is returned when a node is queries for all the
 	// channels it has closed, but it hasn't yet closed any channels.
 	ErrNoClosedChannels = fmt.Errorf("no channel have been closed yet")

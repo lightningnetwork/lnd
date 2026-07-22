@@ -78,6 +78,26 @@ func FetchMeta(meta *Meta, tx kvdb.RTx) error {
 	return nil
 }
 
+// fetchMetaStrict fetches the metadata from the DB without interpreting a
+// missing DB version key as the latest version. This should be used by init and
+// migration code that needs to distinguish a fresh DB from a DB with incomplete
+// metadata.
+func fetchMetaStrict(meta *Meta, tx kvdb.RTx) error {
+	metaBucket := tx.ReadBucket(metaBucket)
+	if metaBucket == nil {
+		return ErrMetaNotFound
+	}
+
+	data := metaBucket.Get(dbVersionKey)
+	if data == nil {
+		return ErrDBVersionNotFound
+	}
+
+	meta.DbVersionNumber = byteOrder.Uint32(data)
+
+	return nil
+}
+
 // PutMeta writes the passed instance of the database met-data struct to disk.
 func (d *DB) PutMeta(meta *Meta) error {
 	return kvdb.Update(d, func(tx kvdb.RwTx) error {

@@ -46,7 +46,7 @@ type Meta struct {
 
 // FetchMeta fetches the metadata from boltdb and returns filled meta structure.
 func (d *DB) FetchMeta() (*Meta, error) {
-	var meta *Meta
+	meta := &Meta{}
 
 	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		return FetchMeta(meta, tx)
@@ -70,10 +70,10 @@ func FetchMeta(meta *Meta, tx kvdb.RTx) error {
 
 	data := metaBucket.Get(dbVersionKey)
 	if data == nil {
-		meta.DbVersionNumber = getLatestDBVersion(dbVersions)
-	} else {
-		meta.DbVersionNumber = byteOrder.Uint32(data)
+		return ErrDBVersionNotFound
 	}
+
+	meta.DbVersionNumber = byteOrder.Uint32(data)
 
 	return nil
 }

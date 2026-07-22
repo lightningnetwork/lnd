@@ -276,11 +276,6 @@ var bumpFeeCommand = cli.Command{
 	can be specified and LND will query its fee estimator for the current
 	fee rate for the given target.`,
 		},
-		cli.Uint64Flag{
-			Name:   "sat_per_byte",
-			Usage:  "Deprecated, use sat_per_vbyte instead.",
-			Hidden: true,
-		},
 		cli.BoolFlag{
 			Name:   "force",
 			Usage:  "Deprecated, use immediate instead.",
@@ -395,11 +390,6 @@ var bumpCloseFeeCommand = cli.Command{
 	can be specified and LND will query its fee estimator for the current
 	fee rate for the given target.`,
 		},
-		cli.Uint64Flag{
-			Name:   "sat_per_byte",
-			Usage:  "Deprecated, use sat_per_vbyte instead.",
-			Hidden: true,
-		},
 		cli.BoolFlag{
 			Name:   "force",
 			Usage:  "Deprecated, use immediate instead.",
@@ -462,11 +452,6 @@ var bumpForceCloseFeeCommand = cli.Command{
 	reached, ALL the budget will be spent as fees.`,
 		},
 		cli.Uint64Flag{
-			Name:   "sat_per_byte",
-			Usage:  "Deprecated, use sat_per_vbyte instead.",
-			Hidden: true,
-		},
-		cli.Uint64Flag{
 			Name: "sat_per_vbyte",
 			Usage: `
 	The starting fee rate, expressed in sat/vbyte. This value will be used
@@ -515,11 +500,6 @@ func bumpForceCloseFee(ctx *cli.Context) error {
 	rpcChannelPoint, err := parseChanPoint(channelPoint)
 	if err != nil {
 		return err
-	}
-
-	// `sat_per_byte` was deprecated we only use sats/vbyte now.
-	if ctx.IsSet("sat_per_byte") {
-		return fmt.Errorf("deprecated, use sat_per_vbyte instead")
 	}
 
 	// Retrieve pending sweeps.

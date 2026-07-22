@@ -1216,12 +1216,7 @@ message PendingSweep {
     // The value of the output we're attempting to sweep.
     uint32 amount_sat = 3;
 
-    /*
-    Deprecated, use sat_per_vbyte.
-    The fee rate we'll use to sweep the output, expressed in sat/vbyte. The fee
-    rate is only determined once a sweeping transaction for the output is
-    created, so it's possible for this to be 0 before this.
-    */
+    // Removed, use sat_per_vbyte.
     uint32 sat_per_byte = 4 [deprecated = true];
 
     // The number of broadcast attempts we've made to sweep the output.
@@ -1304,11 +1299,7 @@ message BumpFeeRequest {
     // estimate the starting fee rate for the fee function.
     uint32 target_conf = 2;
 
-    /*
-    Deprecated, use sat_per_vbyte.
-    The fee rate, expressed in sat/vbyte, that should be used to spend the input
-    with.
-    */
+    // Removed, use sat_per_vbyte.
     uint32 sat_per_byte = 3 [deprecated = true];
 
     /*

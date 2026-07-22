@@ -2937,10 +2937,7 @@ type PendingSweep struct {
 	WitnessType WitnessType `protobuf:"varint,2,opt,name=witness_type,json=witnessType,proto3,enum=walletrpc.WitnessType" json:"witness_type,omitempty"`
 	// The value of the output we're attempting to sweep.
 	AmountSat uint32 `protobuf:"varint,3,opt,name=amount_sat,json=amountSat,proto3" json:"amount_sat,omitempty"`
-	// Deprecated, use sat_per_vbyte.
-	// The fee rate we'll use to sweep the output, expressed in sat/vbyte. The fee
-	// rate is only determined once a sweeping transaction for the output is
-	// created, so it's possible for this to be 0 before this.
+	// Removed, use sat_per_vbyte.
 	//
 	// Deprecated: Marked as deprecated in walletrpc/walletkit.proto.
 	SatPerByte uint32 `protobuf:"varint,4,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
@@ -3218,9 +3215,7 @@ type BumpFeeRequest struct {
 	// Optional. The conf target the underlying fee estimator will use to
 	// estimate the starting fee rate for the fee function.
 	TargetConf uint32 `protobuf:"varint,2,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
-	// Deprecated, use sat_per_vbyte.
-	// The fee rate, expressed in sat/vbyte, that should be used to spend the input
-	// with.
+	// Removed, use sat_per_vbyte.
 	//
 	// Deprecated: Marked as deprecated in walletrpc/walletkit.proto.
 	SatPerByte uint32 `protobuf:"varint,3,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`

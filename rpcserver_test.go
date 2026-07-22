@@ -123,3 +123,35 @@ func TestRpcCommitmentType(t *testing.T) {
 		})
 	}
 }
+
+// TestRejectDeprecatedSatPerByte ensures the RPCs that previously honored the
+// deprecated sat_per_byte field now reject requests that set it. The rejection
+// happens before any server state is accessed, so a zero-value rpcServer is
+// sufficient here.
+func TestRejectDeprecatedSatPerByte(t *testing.T) {
+	t.Parallel()
+
+	r := &rpcServer{}
+	ctx := t.Context()
+
+	_, err := r.SendCoins(ctx, &lnrpc.SendCoinsRequest{SatPerByte: 1})
+	require.ErrorContains(t, err, lnrpc.ErrSatPerByteRemoved.Error())
+
+	_, err = r.SendMany(ctx, &lnrpc.SendManyRequest{SatPerByte: 1})
+	require.ErrorContains(t, err, lnrpc.ErrSatPerByteRemoved.Error())
+
+	_, err = r.parseOpenChannelReq(
+		&lnrpc.OpenChannelRequest{SatPerByte: 1}, false,
+	)
+	require.ErrorContains(t, err, lnrpc.ErrSatPerByteRemoved.Error())
+
+	// CloseChannel checks that the server is started before validating the
+	// request, so it needs a minimally-started server. The deprecated field
+	// is still rejected before any close logic runs.
+	started := &rpcServer{server: &server{active: 1}}
+	err = started.CloseChannel(&lnrpc.CloseChannelRequest{
+		ChannelPoint: &lnrpc.ChannelPoint{},
+		SatPerByte:   1,
+	}, nil)
+	require.ErrorContains(t, err, lnrpc.ErrSatPerByteRemoved.Error())
+}

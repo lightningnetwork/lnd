@@ -394,9 +394,24 @@ func normalizePaymentForCompare(payment *MPPayment) {
 		}
 
 		for j := range htlc.Route.Hops {
-			if len(htlc.Route.Hops[j].CustomRecords) == 0 {
-				htlc.Route.Hops[j].CustomRecords =
+			hop := htlc.Route.Hops[j]
+			if len(hop.CustomRecords) == 0 {
+				hop.CustomRecords =
 					record.CustomSet{}
+			}
+
+			// The migration treats nil and empty encrypted data as
+			// absent, so it omits the blinded child row. SQL reads
+			// the hop back with nil encrypted data and a zero
+			// total. Apply the same transformation to the KV
+			// copy before comparing the payments. A blinding point
+			// without data is rejected during migration, so it
+			// cannot reach this comparison.
+			if len(hop.EncryptedData) == 0 &&
+				hop.BlindingPoint == nil {
+
+				hop.EncryptedData = nil
+				hop.TotalAmtMsat = 0
 			}
 
 			// LegacyPayload was a hint used by the KV store to
@@ -406,7 +421,7 @@ func normalizePaymentForCompare(payment *MPPayment) {
 			// all — each field is stored natively in its own
 			// column — so this flag has no meaning there and is
 			// never persisted.
-			htlc.Route.Hops[j].LegacyPayload = false
+			hop.LegacyPayload = false
 		}
 	}
 }

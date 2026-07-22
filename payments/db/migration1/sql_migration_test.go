@@ -940,6 +940,147 @@ func TestMigratePaymentWithBlindedRoute(t *testing.T) {
 	assertPaymentDataMatches(t, ctx, kvDB, sqlStore, paymentHash)
 }
 
+// TestMigrateOrphanedBlindedTotalAmount tests that a blinded total amount
+// without encrypted recipient data is normalized during migration.
+func TestMigrateOrphanedBlindedTotalAmount(t *testing.T) {
+	t.Parallel()
+
+	runTest := func(t *testing.T, hashString string,
+		encryptedData []byte) {
+
+		t.Helper()
+
+		ctx := context.Background()
+		kvDB := setupTestKVDB(t)
+
+		var paymentHash [32]byte
+		copy(paymentHash[:], []byte(hashString))
+
+		err := kvdb.Update(kvDB, func(tx kvdb.RwTx) error {
+			paymentsBucket, err := tx.CreateTopLevelBucket(
+				paymentsRootBucket,
+			)
+			if err != nil {
+				return err
+			}
+
+			indexBucket, err := tx.CreateTopLevelBucket(
+				paymentsIndexBucket,
+			)
+			if err != nil {
+				return err
+			}
+
+			return createTestPayment(
+				t, paymentsBucket, indexBucket,
+				paymentTestConfig{
+					hash:           paymentHash,
+					seqNum:         1,
+					value:          120000,
+					creationTime:   time.Unix(1, 0),
+					paymentRequest: hashString,
+					attemptID:      1,
+					numHops:        1,
+					baseChannelID:  400000,
+					baseTimeLock:   800000,
+					hopConfigurator: func(hop *Hop, _ int,
+						_ bool) {
+
+						hop.EncryptedData = encryptedData
+						hop.TotalAmtMsat = 119400
+					},
+				},
+			)
+		}, func() {})
+		require.NoError(t, err)
+
+		sqlStore := setupTestSQLDB(t)
+		err = runPaymentsMigration(ctx, kvDB, sqlStore)
+		require.NoError(t, err)
+
+		var hash lntypes.Hash
+		copy(hash[:], paymentHash[:])
+		payment, err := sqlStore.FetchPayment(ctx, hash)
+		require.NoError(t, err)
+		require.Zero(
+			t, payment.HTLCs[0].Route.Hops[0].TotalAmtMsat,
+		)
+
+		assertPaymentDataMatches(t, ctx, kvDB, sqlStore, paymentHash)
+	}
+
+	t.Run("nil encrypted data", func(t *testing.T) {
+		runTest(t, "orphaned_total_nil", nil)
+	})
+	t.Run("empty encrypted data", func(t *testing.T) {
+		runTest(t, "orphaned_total_empty", []byte{})
+	})
+}
+
+// TestMigrateBlindingPointWithoutEncryptedData tests that migration reports a
+// malformed blinded hop with enough context to locate the affected attempt.
+func TestMigrateBlindingPointWithoutEncryptedData(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	kvDB := setupTestKVDB(t)
+
+	var paymentHash [32]byte
+	copy(paymentHash[:], []byte("blinding_point_without_data"))
+	var attemptHash lntypes.Hash
+	copy(attemptHash[:], []byte("individual_amp_htlc_hash"))
+
+	err := kvdb.Update(kvDB, func(tx kvdb.RwTx) error {
+		paymentsBucket, err := tx.CreateTopLevelBucket(
+			paymentsRootBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		indexBucket, err := tx.CreateTopLevelBucket(
+			paymentsIndexBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		return createTestPayment(
+			t, paymentsBucket, indexBucket, paymentTestConfig{
+				hash:           paymentHash,
+				attemptHash:    &attemptHash,
+				seqNum:         1,
+				value:          120000,
+				creationTime:   time.Unix(1, 0),
+				paymentRequest: "blinding-point-without-data",
+				attemptID:      1,
+				numHops:        1,
+				baseChannelID:  400000,
+				baseTimeLock:   800000,
+				hopConfigurator: func(hop *Hop, _ int, _ bool) {
+					blindingKey, err := btcec.NewPrivateKey()
+					require.NoError(t, err)
+
+					hop.BlindingPoint = blindingKey.PubKey()
+				},
+			},
+		)
+	}, func() {})
+	require.NoError(t, err)
+
+	sqlStore := setupTestSQLDB(t)
+	err = runPaymentsMigration(ctx, kvDB, sqlStore)
+	require.ErrorContains(t, err, "blinding point requires encrypted "+
+		"recipient data")
+	require.ErrorContains(t, err, "attempt_index=1, hop=0")
+	require.ErrorContains(t, err, fmt.Sprintf(
+		"payment_hash=%x", paymentHash[:8],
+	))
+	require.NotContains(t, err.Error(), fmt.Sprintf(
+		"payment_hash=%x", attemptHash[:8],
+	))
+}
+
 // TestMigratePaymentWithMetadata tests migration of a payment with hop
 // metadata.
 func TestMigratePaymentWithMetadata(t *testing.T) {
@@ -1934,6 +2075,7 @@ func assertPaymentDataMatches(t *testing.T, ctx context.Context,
 // features.
 type paymentTestConfig struct {
 	hash              [32]byte
+	attemptHash       *lntypes.Hash
 	seqNum            uint64
 	value             lnwire.MilliSatoshi
 	creationTime      time.Time
@@ -2128,6 +2270,11 @@ func createTestPayment(t *testing.T, paymentsBucket, indexBucket kvdb.RwBucket,
 	}
 
 	// Create and serialize attempt info.
+	attemptHash := (*lntypes.Hash)(&cfg.hash)
+	if cfg.attemptHash != nil {
+		attemptHash = cfg.attemptHash
+	}
+
 	attemptInfo := &HTLCAttemptInfo{
 		AttemptID:  cfg.attemptID,
 		sessionKey: sessionKeyBytes,
@@ -2139,7 +2286,7 @@ func createTestPayment(t *testing.T, paymentsBucket, indexBucket kvdb.RwBucket,
 			FirstHopWireCustomRecords: cfg.attemptCustomRecs,
 		},
 		AttemptTime: cfg.creationTime.Add(time.Minute),
-		Hash:        (*lntypes.Hash)(&cfg.hash),
+		Hash:        attemptHash,
 	}
 
 	if err = writeHTLCAttempt(

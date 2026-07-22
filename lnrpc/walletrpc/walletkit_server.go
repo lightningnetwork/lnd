@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
@@ -994,6 +995,22 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 				return uint64(feeRate.FeePerVByte())
 			})
 
+		// Serialize the sweep transaction to hex if available. A
+		// serialization failure for a single input shouldn't abort the
+		// whole listing, so we just log it and leave raw_tx_hex empty
+		// for that input.
+		var rawTxHex string
+		if inp.SweepTx != nil {
+			var txBuf bytes.Buffer
+			err := inp.SweepTx.Serialize(&txBuf)
+			if err != nil {
+				log.Errorf("Failed to serialize sweep tx for "+
+					"input %v: %v", inp.OutPoint, err)
+			} else {
+				rawTxHex = hex.EncodeToString(txBuf.Bytes())
+			}
+		}
+
 		ps := &PendingSweep{
 			Outpoint:             op,
 			WitnessType:          witnessType,
@@ -1005,6 +1022,7 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 			DeadlineHeight:       inp.DeadlineHeight,
 			RequestedSatPerVbyte: startingFeeRate,
 			MaturityHeight:       inp.MaturityHeight,
+			RawTxHex:             rawTxHex,
 		}
 		rpcPendingSweeps = append(rpcPendingSweeps, ps)
 	}

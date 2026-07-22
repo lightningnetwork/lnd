@@ -162,6 +162,80 @@ func makeKeyMismatchSetup() (func(tx kvdb.RwTx) error,
 	return before, after
 }
 
+// makeMixedLegacyAndTypedSetup creates pre- and post-migration callbacks for a
+// bucket that already contains a typed waiting proof.
+func makeMixedLegacyAndTypedSetup() (func(tx kvdb.RwTx) error,
+	func(tx kvdb.RwTx) error) {
+
+	legacyProof := &waitingProof{
+		announceSignatures: newAnnSig(20, 5),
+		isRemote:           false,
+	}
+	typedProof := &waitingProof{
+		announceSignatures: newAnnSig(21, 6),
+		isRemote:           true,
+	}
+
+	legacyKey := legacyProof.LegacyKey()
+	migratedKey := legacyProof.Key()
+	typedKey := typedProof.Key()
+	typedValue, err := encodeUpdatedWaitingProof(typedProof)
+	if err != nil {
+		panic(err)
+	}
+
+	before := func(tx kvdb.RwTx) error {
+		bucket, err := tx.CreateTopLevelBucket(waitingProofsBucketKey)
+		if err != nil {
+			return err
+		}
+
+		err = bucket.Put(legacyKey[:], encodeLegacyProof(legacyProof))
+		if err != nil {
+			return err
+		}
+
+		return bucket.Put(typedKey[:], typedValue)
+	}
+
+	after := func(tx kvdb.RwTx) error {
+		bucket := tx.ReadWriteBucket(waitingProofsBucketKey)
+		if bucket == nil {
+			return fmt.Errorf("waiting proofs bucket not found")
+		}
+
+		if bucket.Get(legacyKey[:]) != nil {
+			return fmt.Errorf("legacy key %x still exists",
+				legacyKey)
+		}
+
+		migratedValue := bucket.Get(migratedKey[:])
+		if migratedValue == nil {
+			return fmt.Errorf("migrated key %x not found",
+				migratedKey)
+		}
+
+		expectedMigratedValue, err := encodeUpdatedWaitingProof(
+			legacyProof,
+		)
+		if err != nil {
+			return err
+		}
+
+		if !bytes.Equal(migratedValue, expectedMigratedValue) {
+			return fmt.Errorf("unexpected migrated value")
+		}
+
+		if !bytes.Equal(bucket.Get(typedKey[:]), typedValue) {
+			return fmt.Errorf("typed proof was modified")
+		}
+
+		return nil
+	}
+
+	return before, after
+}
+
 // TestMigrateWaitingProofStore verifies the waiting proof migration behavior.
 func TestMigrateWaitingProofStore(t *testing.T) {
 	t.Parallel()
@@ -182,6 +256,11 @@ func TestMigrateWaitingProofStore(t *testing.T) {
 			name:       "key mismatch fails",
 			setup:      makeKeyMismatchSetup,
 			shouldFail: true,
+		},
+		{
+			name:       "mixed legacy and typed proofs",
+			setup:      makeMixedLegacyAndTypedSetup,
+			shouldFail: false,
 		},
 	}
 

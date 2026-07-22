@@ -72,12 +72,25 @@
   the chain backend via bitcoind's `submitpackage`, allowing a zero-fee v3/TRUC
   parent to be accepted together with a fee-paying CPFP child.
 
+* [`ListPeers` gains address-source
+  detail](https://github.com/lightningnetwork/lnd/pull/10973). Each `Peer`
+  now carries `remembered_addresses` (addresses lnd has stored for the peer),
+  `gossip_addresses` (from the peer's current `NodeAnnouncement`),
+  `is_persistent` (true if lnd is auto-reconnecting to the peer), and
+  `reconnect_pending` (true if a retry is in flight). A new
+  `ListPeersRequest.include_offline_persistent_peers` flag opts into
+  surfacing peers in the reconnect set we are not currently connected to.
+
 ## lncli Additions
 
 * The `estimateroutefee` command now supports [restricting fee estimates to
   specific first-hop outgoing
   channels](https://github.com/lightningnetwork/lnd/pull/10501) via the new
   `--outgoing_chan_id` flag.
+
+* `lncli listpeers` gains
+  [`--include_offline_persistent_peers`](https://github.com/lightningnetwork/lnd/pull/10973)
+  (see the `ListPeers` RPC entry above).
 
 * A new
   [`wallet submitpackage`](https://github.com/lightningnetwork/lnd/pull/10900)
@@ -87,6 +100,24 @@
 # Improvements
 
 ## Functional Updates
+
+* [Peer addresses now auto-persist on
+  connect](https://github.com/lightningnetwork/lnd/pull/10975) for peers we
+  have an open channel with. When lnd completes an outbound connection to
+  a channel peer, it records the dialed address in the peer's `LinkNode`
+  entry if it isn't already listed. On restart lnd attempts this address
+  in addition to those from the peer's current `NodeAnnouncement`, so a
+  channel peer remains reachable across restarts even when the address we
+  last used to reach them isn't in their gossip entry — because they have
+  since removed it from their `NodeAnnouncement` but are still listening
+  on the same host and port, because they moved to a new host and/or port
+  and we learned the new address out-of-band faster than their
+  re-broadcast `NodeAnnouncement` could catch up, or because they never
+  advertised it in gossip in the first place. Only outbound connections
+  trigger this — for inbound TCP the peer's remote address is an
+  ephemeral source port rather than a dialable listener. Non-channel
+  peers are also skipped so casual connections do not grow the on-disk
+  address list.
 
 ## RPC Updates
 
@@ -148,3 +179,4 @@
 * Boris Nagaev
 * Erick Cestari
 * Jared Tobin
+* ZZiigguurraatt

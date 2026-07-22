@@ -5650,7 +5650,10 @@ type Peer struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The identity pubkey of the peer
 	PubKey string `protobuf:"bytes,1,opt,name=pub_key,json=pubKey,proto3" json:"pub_key,omitempty"`
-	// Network address of the peer; eg `127.0.0.1:10011`
+	// Network address of the currently active connection to the peer; e.g.
+	// `127.0.0.1:10011`. Empty when the entry represents a persistent peer
+	// that is not currently connected (only present in the response when
+	// the request sets `include_offline_persistent_peers`).
 	Address string `protobuf:"bytes,3,opt,name=address,proto3" json:"address,omitempty"`
 	// Bytes of data transmitted to this peer
 	BytesSent uint64 `protobuf:"varint,4,opt,name=bytes_sent,json=bytesSent,proto3" json:"bytes_sent,omitempty"`
@@ -5686,8 +5689,29 @@ type Peer struct {
 	LastFlapNs int64 `protobuf:"varint,14,opt,name=last_flap_ns,json=lastFlapNs,proto3" json:"last_flap_ns,omitempty"`
 	// The last ping payload the peer has sent to us.
 	LastPingPayload []byte `protobuf:"bytes,15,opt,name=last_ping_payload,json=lastPingPayload,proto3" json:"last_ping_payload,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// True if lnd is maintaining a persistent reconnect attempt for this
+	// peer. Equivalent to (len(remembered_addresses) > 0 or an active
+	// channel-driven persistent entry exists).
+	IsPersistent bool `protobuf:"varint,16,opt,name=is_persistent,json=isPersistent,proto3" json:"is_persistent,omitempty"`
+	// Addresses lnd has stored for the peer via its LinkNode record
+	// (captured at channel open and on subsequent outbound connects to a
+	// channel peer). Empty if no LinkNode entry exists
+	// for the peer. Note: this list is reported verbatim from storage,
+	// including any v2 .onion entries lnd will not dial (v2 was deprecated
+	// by the Tor project in 2021). v2 entries are preserved on disk so
+	// that signed NodeAnnouncements still verify; a v2 appearing here is
+	// a stale-storage signal, not an indication that lnd is attempting to
+	// reach that address.
+	RememberedAddresses []string `protobuf:"bytes,17,rep,name=remembered_addresses,json=rememberedAddresses,proto3" json:"remembered_addresses,omitempty"`
+	// Addresses currently advertised by this peer in the gossip network's
+	// NodeAnnouncement. Empty when no NodeAnnouncement is known.
+	GossipAddresses []string `protobuf:"bytes,18,rep,name=gossip_addresses,json=gossipAddresses,proto3" json:"gossip_addresses,omitempty"`
+	// True if lnd currently has an in-flight reconnect attempt for this
+	// peer. Mainly informative for entries returned when the request sets
+	// `include_offline_persistent_peers`.
+	ReconnectPending bool `protobuf:"varint,19,opt,name=reconnect_pending,json=reconnectPending,proto3" json:"reconnect_pending,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Peer) Reset() {
@@ -5818,6 +5842,34 @@ func (x *Peer) GetLastPingPayload() []byte {
 	return nil
 }
 
+func (x *Peer) GetIsPersistent() bool {
+	if x != nil {
+		return x.IsPersistent
+	}
+	return false
+}
+
+func (x *Peer) GetRememberedAddresses() []string {
+	if x != nil {
+		return x.RememberedAddresses
+	}
+	return nil
+}
+
+func (x *Peer) GetGossipAddresses() []string {
+	if x != nil {
+		return x.GossipAddresses
+	}
+	return nil
+}
+
+func (x *Peer) GetReconnectPending() bool {
+	if x != nil {
+		return x.ReconnectPending
+	}
+	return false
+}
+
 type TimestampedError struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The unix timestamp in seconds when the error occurred.
@@ -5877,9 +5929,16 @@ type ListPeersRequest struct {
 	// If true, only the last error that our peer sent us will be returned with
 	// the peer's information, rather than the full set of historic errors we have
 	// stored.
-	LatestError   bool `protobuf:"varint,1,opt,name=latest_error,json=latestError,proto3" json:"latest_error,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	LatestError bool `protobuf:"varint,1,opt,name=latest_error,json=latestError,proto3" json:"latest_error,omitempty"`
+	// If true, the response also includes peers that the daemon is keeping in
+	// the auto-reconnect set but is not currently connected to. A peer is in
+	// this set if lnd has a stored record for it (a LinkNode entry from a
+	// prior channel open or `connect --perm`) or an open channel. Per-
+	// connection fields (address, bytes_sent, ping_time, etc.) are empty/zero
+	// for these entries.
+	IncludeOfflinePersistentPeers bool `protobuf:"varint,2,opt,name=include_offline_persistent_peers,json=includeOfflinePersistentPeers,proto3" json:"include_offline_persistent_peers,omitempty"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
 }
 
 func (x *ListPeersRequest) Reset() {
@@ -5915,6 +5974,13 @@ func (*ListPeersRequest) Descriptor() ([]byte, []int) {
 func (x *ListPeersRequest) GetLatestError() bool {
 	if x != nil {
 		return x.LatestError
+	}
+	return false
+}
+
+func (x *ListPeersRequest) GetIncludeOfflinePersistentPeers() bool {
+	if x != nil {
+		return x.IncludeOfflinePersistentPeers
 	}
 	return false
 }
@@ -18852,7 +18918,7 @@ const file_lightning_proto_rawDesc = "" +
 	"\x10funding_canceled\x18\x05 \x01(\bR\x0ffundingCanceled\x12\x1c\n" +
 	"\tabandoned\x18\x06 \x01(\bR\tabandoned\"P\n" +
 	"\x16ClosedChannelsResponse\x126\n" +
-	"\bchannels\x18\x01 \x03(\v2\x1a.lnrpc.ChannelCloseSummaryR\bchannels\"\x8b\x05\n" +
+	"\bchannels\x18\x01 \x03(\v2\x1a.lnrpc.ChannelCloseSummaryR\bchannels\"\xbb\x06\n" +
 	"\x04Peer\x12\x17\n" +
 	"\apub_key\x18\x01 \x01(\tR\x06pubKey\x12\x18\n" +
 	"\aaddress\x18\x03 \x01(\tR\aaddress\x12\x1d\n" +
@@ -18872,7 +18938,11 @@ const file_lightning_proto_rawDesc = "" +
 	"flap_count\x18\r \x01(\x05R\tflapCount\x12 \n" +
 	"\flast_flap_ns\x18\x0e \x01(\x03R\n" +
 	"lastFlapNs\x12*\n" +
-	"\x11last_ping_payload\x18\x0f \x01(\fR\x0flastPingPayload\x1aK\n" +
+	"\x11last_ping_payload\x18\x0f \x01(\fR\x0flastPingPayload\x12#\n" +
+	"\ris_persistent\x18\x10 \x01(\bR\fisPersistent\x121\n" +
+	"\x14remembered_addresses\x18\x11 \x03(\tR\x13rememberedAddresses\x12)\n" +
+	"\x10gossip_addresses\x18\x12 \x03(\tR\x0fgossipAddresses\x12+\n" +
+	"\x11reconnect_pending\x18\x13 \x01(\bR\x10reconnectPending\x1aK\n" +
 	"\rFeaturesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\rR\x03key\x12$\n" +
 	"\x05value\x18\x02 \x01(\v2\x0e.lnrpc.FeatureR\x05value:\x028\x01\"P\n" +
@@ -18883,9 +18953,10 @@ const file_lightning_proto_rawDesc = "" +
 	"\vPINNED_SYNC\x10\x03\"F\n" +
 	"\x10TimestampedError\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x04R\ttimestamp\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"5\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"~\n" +
 	"\x10ListPeersRequest\x12!\n" +
-	"\flatest_error\x18\x01 \x01(\bR\vlatestError\"6\n" +
+	"\flatest_error\x18\x01 \x01(\bR\vlatestError\x12G\n" +
+	" include_offline_persistent_peers\x18\x02 \x01(\bR\x1dincludeOfflinePersistentPeers\"6\n" +
 	"\x11ListPeersResponse\x12!\n" +
 	"\x05peers\x18\x01 \x03(\v2\v.lnrpc.PeerR\x05peers\"\x17\n" +
 	"\x15PeerEventSubscription\"\x84\x01\n" +

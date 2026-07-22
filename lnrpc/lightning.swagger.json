@@ -2442,6 +2442,13 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "include_offline_persistent_peers",
+            "description": "If true, the response also includes peers that the daemon is keeping in\nthe auto-reconnect set but is not currently connected to. A peer is in\nthis set if lnd has a stored record for it (a LinkNode entry from a\nprior channel open or `connect --perm`) or an open channel. Per-\nconnection fields (address, bytes_sent, ping_time, etc.) are empty/zero\nfor these entries.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -6919,7 +6926,7 @@
         },
         "address": {
           "type": "string",
-          "title": "Network address of the peer; eg `127.0.0.1:10011`"
+          "description": "Network address of the currently active connection to the peer; e.g.\n`127.0.0.1:10011`. Empty when the entry represents a persistent peer\nthat is not currently connected (only present in the response when\nthe request sets `include_offline_persistent_peers`)."
         },
         "bytes_sent": {
           "type": "string",
@@ -6983,6 +6990,28 @@
           "type": "string",
           "format": "byte",
           "description": "The last ping payload the peer has sent to us."
+        },
+        "is_persistent": {
+          "type": "boolean",
+          "description": "True if lnd is maintaining a persistent reconnect attempt for this\npeer. Equivalent to (len(remembered_addresses) \u003e 0 or an active\nchannel-driven persistent entry exists)."
+        },
+        "remembered_addresses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Addresses lnd has stored for the peer via its LinkNode record\n(captured at channel open and on subsequent outbound connects to a\nchannel peer). Empty if no LinkNode entry exists\nfor the peer. Note: this list is reported verbatim from storage,\nincluding any v2 .onion entries lnd will not dial (v2 was deprecated\nby the Tor project in 2021). v2 entries are preserved on disk so\nthat signed NodeAnnouncements still verify; a v2 appearing here is\na stale-storage signal, not an indication that lnd is attempting to\nreach that address."
+        },
+        "gossip_addresses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Addresses currently advertised by this peer in the gossip network's\nNodeAnnouncement. Empty when no NodeAnnouncement is known."
+        },
+        "reconnect_pending": {
+          "type": "boolean",
+          "description": "True if lnd currently has an in-flight reconnect attempt for this\npeer. Mainly informative for entries returned when the request sets\n`include_offline_persistent_peers`."
         }
       }
     },

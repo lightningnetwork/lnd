@@ -243,6 +243,46 @@ func deleteLinkNode(tx kvdb.RwTx, identity *btcec.PublicKey) error {
 	return nodeMetaBucket.Delete(pubKey)
 }
 
+// AddAddressIfPeerKnown appends addr to the address list of the LinkNode entry
+// for identity, but only if an entry already exists. If no LinkNode is stored
+// for the peer this is a no-op and returns (false, nil). Duplicate addresses
+// are ignored (matched by String()). Returns true if the address was newly
+// stored.
+func (l *LinkNodeDB) AddAddressIfPeerKnown(identity *btcec.PublicKey,
+	addr net.Addr) (bool, error) {
+
+	var added bool
+	err := kvdb.Update(l.backend, func(tx kvdb.RwTx) error {
+		nodeMetaBucket := tx.ReadWriteBucket(nodeInfoBucket)
+		if nodeMetaBucket == nil {
+			return nil
+		}
+
+		node, err := fetchLinkNode(tx, identity)
+		if errors.Is(err, ErrNodeNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		for _, a := range node.Addresses {
+			if a.String() == addr.String() {
+				return nil
+			}
+		}
+
+		node.Addresses = append(node.Addresses, addr)
+		added = true
+
+		return putLinkNode(nodeMetaBucket, node)
+	}, func() {
+		added = false
+	})
+
+	return added, err
+}
+
 // FetchLinkNode attempts to lookup the data for a LinkNode based on a target
 // identity public key. If a particular LinkNode for the passed identity public
 // key cannot be found, then ErrNodeNotFound if returned.

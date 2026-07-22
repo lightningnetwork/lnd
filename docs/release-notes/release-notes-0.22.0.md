@@ -55,6 +55,17 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* [Bounded the per-peer onion message rate limiter
+  registry](https://github.com/lightningnetwork/lnd/pull/10981) so it no
+  longer grows without limit. The registry kept a token bucket per peer and
+  never removed entries, so with the channel-presence gate disabled via
+  `--onion-msg-relay-all` a peer reconnecting under many identities could
+  grow the map until the node ran out of memory. Buckets that have refilled
+  to their full burst, and therefore carry no rate-limiting state, are now
+  evicted once the registry grows past a high-water mark, while buckets that
+  still owe tokens are retained so the per-peer limit remains a ceiling
+  across reconnects.
+
 # New Features
 
 ## Functional Enhancements

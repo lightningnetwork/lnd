@@ -60,6 +60,23 @@ func (d *DB) FetchMeta() (*Meta, error) {
 	return meta, nil
 }
 
+// fetchMetaStrict fetches metadata without interpreting a missing DB version
+// key as the latest version.
+func (d *DB) fetchMetaStrict() (*Meta, error) {
+	var meta *Meta
+
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
+		return fetchMetaStrict(meta, tx)
+	}, func() {
+		meta = &Meta{}
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return meta, nil
+}
+
 // FetchMeta is a helper function used in order to allow callers to re-use a
 // database transaction.
 func FetchMeta(meta *Meta, tx kvdb.RTx) error {

@@ -43,6 +43,13 @@ import (
 
 const (
 	dbName = "channel.db"
+
+	// missingDBVersionRecoveryVersion is the latest mandatory DB
+	// version before the v0.20.x releases that could initialize a DB
+	// without writing the DB version key. Starting recovery from this
+	// version allows the v0.21 waiting proof migration to run without
+	// replaying older migrations against a modern DB.
+	missingDBVersionRecoveryVersion = 33
 )
 
 var (
@@ -1867,16 +1874,33 @@ func (c *ChannelStateDB) DeleteChannelOpeningState(outPoint []byte) error {
 // applies migration functions to the current database and recovers the
 // previous state of db if at least one error/panic appeared during migration.
 func (d *DB) syncVersions(versions []mandatoryVersion) error {
-	meta, err := d.FetchMeta()
+	latestVersion := getLatestDBVersion(versions)
+
+	meta, err := d.fetchMetaStrict()
 	if err != nil {
-		if err == ErrMetaNotFound {
+		switch {
+		case errors.Is(err, ErrMetaNotFound):
 			meta = &Meta{}
-		} else {
+
+		case errors.Is(err, ErrDBVersionNotFound):
+			recoveryVersion := uint32(0)
+			if latestVersion >= missingDBVersionRecoveryVersion {
+				recoveryVersion =
+					missingDBVersionRecoveryVersion
+			}
+
+			log.Warnf("DB version key missing, recovering from "+
+				"db_version=%v", recoveryVersion)
+
+			meta = &Meta{
+				DbVersionNumber: recoveryVersion,
+			}
+
+		default:
 			return err
 		}
 	}
 
-	latestVersion := getLatestDBVersion(versions)
 	log.Infof("Checking for schema update: latest_version=%v, "+
 		"db_version=%v", latestVersion, meta.DbVersionNumber)
 

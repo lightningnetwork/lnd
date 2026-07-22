@@ -241,14 +241,6 @@ const (
 	// new RBF-based co-op close protocol is supported.
 	RbfCoopCloseOptional = 61
 
-	// RbfCoopCloseRequiredStaging is a required feature bit that signals
-	// that the new RBF-based co-op close protocol is supported.
-	RbfCoopCloseRequiredStaging = 160
-
-	// RbfCoopCloseOptionalStaging is an optional feature bit that signals
-	// that the new RBF-based co-op close protocol is supported.
-	RbfCoopCloseOptionalStaging = 161
-
 	// ScriptEnforcedLeaseRequired is a required feature bit that signals
 	// that the node requires channels having zero-fee second-level HTLC
 	// transactions, which also imply anchor commitments, along with an
@@ -401,8 +393,6 @@ var Features = map[FeatureBit]string{
 	Bolt11BlindedPathsRequired:           "bolt-11-blinded-paths",
 	RbfCoopCloseOptional:                 "rbf-coop-close",
 	RbfCoopCloseRequired:                 "rbf-coop-close",
-	RbfCoopCloseOptionalStaging:          "rbf-coop-close-x",
-	RbfCoopCloseRequiredStaging:          "rbf-coop-close-x",
 	OnionMessagesOptional:                "onion-messages",
 	OnionMessagesRequired:                "onion-messages",
 }

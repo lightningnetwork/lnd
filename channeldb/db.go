@@ -43,6 +43,14 @@ import (
 
 const (
 	dbName = "channel.db"
+
+	// missingDBVersionRecoveryVersion is the latest mandatory DB
+	// version before the init ordering regression that could create a
+	// DB without writing the DB version key. Affected DBs are therefore
+	// already at least this version, so recovery starts here to run the
+	// v0.21 waiting proof migration without replaying older migrations
+	// against a modern DB.
+	missingDBVersionRecoveryVersion = 33
 )
 
 var (
@@ -1869,16 +1877,43 @@ func (c *ChannelStateDB) DeleteChannelOpeningState(outPoint []byte) error {
 // applies migration functions to the current database and recovers the
 // previous state of db if at least one error/panic appeared during migration.
 func (d *DB) syncVersions(versions []mandatoryVersion) error {
+	latestVersion := getLatestDBVersion(versions)
+
 	meta, err := d.FetchMeta()
 	if err != nil {
-		if err == ErrMetaNotFound {
+		switch {
+		case errors.Is(err, ErrMetaNotFound):
 			meta = &Meta{}
-		} else {
+
+		case errors.Is(err, ErrDBVersionNotFound):
+			recoveryVersion := uint32(
+				missingDBVersionRecoveryVersion,
+			)
+
+			// Missing DB version recovery is only valid for DBs
+			// created after the init ordering regression. Older DBs
+			// wrote the DB version before init returned, so a
+			// missing version key on a sub-33 DB is not a valid
+			// state to infer from.
+			if latestVersion < recoveryVersion {
+				return fmt.Errorf("unable to recover missing "+
+					"DB version key: latest_version=%v "+
+					"recovery_version=%v", latestVersion,
+					recoveryVersion)
+			}
+
+			log.Warnf("DB version key missing, recovering from "+
+				"db_version=%v", recoveryVersion)
+
+			meta = &Meta{
+				DbVersionNumber: recoveryVersion,
+			}
+
+		default:
 			return err
 		}
 	}
 
-	latestVersion := getLatestDBVersion(versions)
 	log.Infof("Checking for schema update: latest_version=%v, "+
 		"db_version=%v", latestVersion, meta.DbVersionNumber)
 

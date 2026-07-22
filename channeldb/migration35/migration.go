@@ -143,6 +143,20 @@ func MigrateWaitingProofStore(tx kvdb.RwTx) error {
 			return nil
 		}
 
+		switch len(k) {
+		case len(legacyWaitingProofKey{}):
+			// Legacy records continue below and are migrated.
+
+		case len(waitingProofKey{}):
+			// The record already uses the typed key format. This
+			// makes the migration safe to re-run during missing
+			// version key recovery.
+			return nil
+
+		default:
+			return fmt.Errorf("unexpected waiting proof key %x", k)
+		}
+
 		proof, err := decodeLegacyWaitingProof(v)
 		if err != nil {
 			return fmt.Errorf("decode waiting proof for key %x: %w",

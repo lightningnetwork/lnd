@@ -627,10 +627,16 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 	// longer matches output index. We script-match our expected
 	// second-level pkScript to locate the right output.
 	//
-	// On non-aux channels (regular legacy/anchor/taproot) we keep the
-	// legacy behavior of using SpenderInputIndex directly. The
-	// script-matching code path only runs for aux channels so we don't
-	// regress sweep behavior on normal channels.
+	// On non-aux channels (regular legacy/anchor/taproot, including
+	// non-custom simple taproot) we keep the legacy behavior of using
+	// SpenderInputIndex directly, so we don't regress sweep behavior on
+	// normal channels.
+	//
+	// resolveReq is a reliable aux-channel discriminator here: it is
+	// populated in createHtlcRetribution only for channels with a
+	// tapscript root (aux/custom channels), so a nil resolveReq
+	// unambiguously means "not a custom channel" and takes the legacy
+	// path below.
 	spendingTx := spendDetails.SpendingTx
 	isAuxChannel := bo.resolveReq != nil
 

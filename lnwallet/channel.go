@@ -2621,11 +2621,18 @@ func createHtlcRetribution(chanState *chanstate.OpenChannel,
 		htlcWitnessType = input.HtlcOfferedRevoke
 	}
 
-	// Only taproot channels can be modified by aux channels, so we
-	// only need to resolve the aux blob for taproot channel types.
+	// Aux resolution data (the resolution blob and the preserved
+	// ResolveReq template used by the breach arbiter for second-level
+	// re-resolution) is exclusively an aux/custom channel concern.
+	// Custom channels are precisely the taproot channels that carry a
+	// tapscript root, so we gate on that here rather than on plain
+	// IsTaproot(): this guarantees non-custom taproot channels (e.g.
+	// simple taproot) get a nil ResolveReq and empty blob, leaving
+	// their breach handling byte-for-byte unchanged.
 	var resolutionBlob fn.Option[tlv.Blob]
 	var savedResolveReq *ResolutionReq
-	if isTaproot {
+	isAuxChannel := chanState.ChanType.HasTapscriptRoot()
+	if isAuxChannel {
 		htlcIDOpt := fn.MapOption(
 			func(v tlv.BigSizeT[uint64]) input.HtlcIndex {
 				return v.Int()
@@ -6898,10 +6905,15 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 		lc.commitChains.Local.tail().height,
 		lc.currentHeight+1)
 
-	// Sign second-level HTLC virtual packets for the commitment
-	// being revoked, but only if the DeterministicHTLCs feature is
-	// negotiated. Without the feature the remote party has no use
-	// for the signatures (and wouldn't know how to parse them).
+	// Attach revocation AuxSigs to the RevokeAndAck, but ONLY for
+	// aux/custom (taproot asset) channels. This is a custom-channel-only
+	// addition to the message: IsDeterministicHTLCs is false for every
+	// non-custom channel (it requires a tapscript root, see
+	// IsDeterministicHTLCs), so a vanilla lnd channel never signs or
+	// appends these records and its RevokeAndAck is byte-identical to
+	// before this feature. Without DeterministicHTLCs the remote party
+	// has no use for the signatures (and wouldn't know how to parse
+	// them).
 	sigHashReq := HtlcSigHashReq{
 		ChanID: fn.Some(lnwire.NewChanIDFromOutPoint(
 			lc.channelState.FundingOutpoint,
@@ -7206,14 +7218,14 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		lc.musigSessions.RemoteSession = session
 	}
 
-	// When the DeterministicHTLCs feature is negotiated, the
-	// RevokeAndAck must contain aux sigs for the remote party's
-	// second-level HTLCs. Verify all signatures against the
-	// breach-time key ring before accepting the revocation, then
-	// store them in the revocation log for breach recovery.
-	//
-	// When the feature is NOT negotiated, skip verification
-	// entirely — the remote party does not include aux sigs.
+	// Revocation AuxSigs are a custom-channel-only concern. On aux/custom
+	// (taproot asset) channels with DeterministicHTLCs negotiated, the
+	// RevokeAndAck carries aux sigs for the remote party's second-level
+	// HTLCs; we verify them against the breach-time key ring before
+	// accepting the revocation, then store them in the revocation log for
+	// breach recovery. For every non-custom channel IsDeterministicHTLCs
+	// is false (it requires a tapscript root, see IsDeterministicHTLCs),
+	// so we skip this block entirely and never inspect CustomRecords.
 	revSigHashReq := HtlcSigHashReq{
 		ChanID: fn.Some(lnwire.NewChanIDFromOutPoint(
 			lc.channelState.FundingOutpoint,

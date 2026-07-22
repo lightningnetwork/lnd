@@ -427,6 +427,15 @@ func (h *htlcSuccessResolver) isSigHashDefault() bool {
 	)
 }
 
+// isAuxChannel reports whether this resolver is running for an aux/custom
+// (taproot asset) channel. Only such channels carry a tapscript root, so
+// this is the authoritative, self-contained predicate used to keep every
+// aux-specific code path in this resolver from running on non-custom
+// channels.
+func (h *htlcSuccessResolver) isAuxChannel() bool {
+	return h.chanType.HasTapscriptRoot()
+}
+
 // buildSecondLevelResolveReq returns a ResolutionReq targeting the
 // just-confirmed second-level HTLC tx. The fast path clones the
 // ResolveReq preserved on htlcResolution at force-close time and updates
@@ -678,7 +687,17 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	// encoder doesn't currently round-trip ResolveReq, so resolvers
 	// recovered from a checkpoint have it nil.
 	resolutionBlob := h.htlcResolution.ResolutionBlob
-	h.AuxResolver.WhenSome(func(a lnwallet.AuxContractResolver) {
+
+	// The aux blob re-resolution below is an aux/custom (taproot asset)
+	// channel concern only. The AuxResolver is a daemon-global option
+	// (present on every resolver whenever tapd is attached, regardless of
+	// channel type), so we additionally gate on the channel type here to
+	// guarantee this path never executes for a non-custom channel.
+	auxResolver := fn.None[lnwallet.AuxContractResolver]()
+	if h.isAuxChannel() {
+		auxResolver = h.AuxResolver
+	}
+	auxResolver.WhenSome(func(a lnwallet.AuxContractResolver) {
 		secondLevelReq, err := h.buildSecondLevelResolveReq(
 			witType, h.htlcResolution.SignedSuccessTx,
 			uint32(commitSpend.SpendingHeight),

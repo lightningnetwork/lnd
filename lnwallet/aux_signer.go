@@ -387,6 +387,17 @@ func IsDeterministicHTLCs(chanType channeldb.ChannelType,
 	auxSigner fn.Option[AuxSigner],
 	req HtlcSigHashReq) bool {
 
+	// DeterministicHTLCs is exclusively an aux/custom (taproot asset)
+	// channel feature. Such channels are the only ones that carry a
+	// tapscript root, so we gate on the channel type first: no
+	// non-custom channel can ever take a DeterministicHTLCs code path,
+	// regardless of aux signer state. This keeps every downstream call
+	// site (dust/fee calc, commitment building, revocation AuxSigs,
+	// breach retribution) confined to custom channels.
+	if !chanType.HasTapscriptRoot() {
+		return false
+	}
+
 	return ResolveHtlcSigHashType(
 		chanType, auxSigner, req,
 	) == txscript.SigHashDefault

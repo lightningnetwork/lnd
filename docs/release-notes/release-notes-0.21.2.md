@@ -29,6 +29,13 @@
 * [Fixes a bug](https://github.com/lightningnetwork/lnd/pull/10962) that
   could allow the RBF closer to be used with incompatible aux channels.
 
+* [Fixes a payment migration failure](https://github.com/lightningnetwork/lnd/pull/10982)
+  caused by historical routes containing a blinded total amount without
+  encrypted recipient data. The migration now normalizes the orphaned total,
+  and `SendToRouteV2` rejects new routes with the same invalid field
+  combination. This also affects callers replaying an affected historical
+  route returned by `ListPayments` or `TrackPayment`.
+
 # New Features
 
 ## Functional Enhancements

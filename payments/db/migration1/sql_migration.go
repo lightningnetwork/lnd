@@ -734,8 +734,12 @@ func migrateHTLCAttempt(ctx context.Context, paymentID int64,
 	// Insert route hops.
 	for hopIndex := range htlc.Route.Hops {
 		hop := htlc.Route.Hops[hopIndex]
+
+		// Use the parent hash for diagnostics. For AMP payments this
+		// is the set ID, which identifies the payment containing the
+		// shard.
 		err = migrateRouteHop(
-			ctx, attemptIndex, hopIndex, hop,
+			ctx, parentPaymentHash, attemptIndex, hopIndex, hop,
 			sqlDB, stats,
 		)
 		if err != nil {
@@ -807,8 +811,8 @@ func migrateHTLCAttempt(ctx context.Context, paymentID int64,
 
 // migrateRouteHop migrates a single route hop.
 func migrateRouteHop(ctx context.Context,
-	attemptID int64, hopIndex int, hop *Hop, sqlDB SQLQueries,
-	stats *MigrationStats) error {
+	parentPaymentHash lntypes.Hash, attemptIndex int64, hopIndex int,
+	hop *Hop, sqlDB SQLQueries, stats *MigrationStats) error {
 
 	// Convert channel ID to string representation of uint64.
 	// The SCID is stored as a decimal string to match the converter
@@ -817,7 +821,7 @@ func migrateRouteHop(ctx context.Context,
 
 	// Insert route hop.
 	hopID, err := sqlDB.InsertRouteHop(ctx, sqlc.InsertRouteHopParams{
-		HtlcAttemptIndex: attemptID,
+		HtlcAttemptIndex: attemptIndex,
 		HopIndex:         int32(hopIndex),
 		PubKey:           hop.PubKeyBytes[:],
 		Scid:             scidStr,
@@ -829,10 +833,35 @@ func migrateRouteHop(ctx context.Context,
 		return fmt.Errorf("insert hop: %w", err)
 	}
 
-	// Check for blinded route data (route blinding).
-	if len(hop.EncryptedData) > 0 || hop.BlindingPoint != nil ||
-		hop.TotalAmtMsat != 0 {
+	// Non-empty encrypted recipient data identifies a blinded hop.
+	// The RPC boundary has required encrypted data with a blinding point
+	// since these fields were introduced. Internally built blinded routes
+	// also always contain both. Unlike an orphaned total, a point without
+	// encrypted data is not a supported legacy encoding. Report it as
+	// malformed instead of silently discarding it. Keep this rejection in
+	// sync with normalizePaymentForCompare, which only normalizes hops
+	// without a blinding point.
+	hasEncryptedData := len(hop.EncryptedData) > 0
+	if !hasEncryptedData && hop.BlindingPoint != nil {
+		return fmt.Errorf("invalid blinded hop: payment_hash=%x, "+
+			"attempt_index=%d, hop=%d: blinding point requires "+
+			"encrypted recipient data", parentPaymentHash[:8],
+			attemptIndex, hopIndex)
+	}
 
+	// SendToRouteV2 historically allowed a blinded total amount without
+	// blinded hop data. Omit such an orphaned total rather than creating a
+	// blinded-hop row.
+	if !hasEncryptedData && hop.TotalAmtMsat != 0 {
+		log.Warnf("Ignoring orphaned blinded total amount: "+
+			"payment_hash=%x, attempt_index=%d, hop=%d, "+
+			"total_amt_msat=%d", parentPaymentHash[:8],
+			attemptIndex, hopIndex, hop.TotalAmtMsat)
+	}
+
+	// The blinding point and total amount are only associated fields. Use
+	// the length so nil and empty encrypted data are handled consistently.
+	if hasEncryptedData {
 		var blindingPoint []byte
 		if hop.BlindingPoint != nil {
 			blindingPoint = hop.BlindingPoint.SerializeCompressed()

@@ -4989,6 +4989,9 @@ type ListChannelsRequest struct {
 	// Filters the response for channels with a target peer's pubkey. If peer is
 	// empty, all channels will be returned.
 	Peer []byte `protobuf:"bytes,5,opt,name=peer,proto3" json:"peer,omitempty"`
+	// Filters the response for a channel with a target short channel id.
+	// If short channel_id and peer is empty, all channels will be returned.
+	Scid uint64 `protobuf:"varint,7,opt,name=scid,proto3" json:"scid,omitempty"`
 	// Informs the server if the peer alias lookup per channel should be
 	// enabled. It is turned off by default in order to avoid degradation of
 	// performance for existing clients.
@@ -5060,6 +5063,13 @@ func (x *ListChannelsRequest) GetPeer() []byte {
 		return x.Peer
 	}
 	return nil
+}
+
+func (x *ListChannelsRequest) GetScid() uint64 {
+	if x != nil {
+		return x.Scid
+	}
+	return 0
 }
 
 func (x *ListChannelsRequest) GetPeerAliasLookup() bool {
@@ -18787,7 +18797,7 @@ const file_lightning_proto_rawDesc = "" +
 	"peer_alias\x18\" \x01(\tR\tpeerAlias\x12*\n" +
 	"\x0fpeer_scid_alias\x18# \x01(\x04B\x020\x01R\rpeerScidAlias\x12\x12\n" +
 	"\x04memo\x18$ \x01(\tR\x04memo\x12.\n" +
-	"\x13custom_channel_data\x18% \x01(\fR\x11customChannelData\"\xdf\x01\n" +
+	"\x13custom_channel_data\x18% \x01(\fR\x11customChannelData\"\xf3\x01\n" +
 	"\x13ListChannelsRequest\x12\x1f\n" +
 	"\vactive_only\x18\x01 \x01(\bR\n" +
 	"activeOnly\x12#\n" +
@@ -18795,7 +18805,8 @@ const file_lightning_proto_rawDesc = "" +
 	"\vpublic_only\x18\x03 \x01(\bR\n" +
 	"publicOnly\x12!\n" +
 	"\fprivate_only\x18\x04 \x01(\bR\vprivateOnly\x12\x12\n" +
-	"\x04peer\x18\x05 \x01(\fR\x04peer\x12*\n" +
+	"\x04peer\x18\x05 \x01(\fR\x04peer\x12\x12\n" +
+	"\x04scid\x18\a \x01(\x04R\x04scid\x12*\n" +
 	"\x11peer_alias_lookup\x18\x06 \x01(\bR\x0fpeerAliasLookup\"B\n" +
 	"\x14ListChannelsResponse\x12*\n" +
 	"\bchannels\x18\v \x03(\v2\x0e.lnrpc.ChannelR\bchannels\"A\n" +

@@ -2,6 +2,8 @@ package chainio
 
 import (
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -20,6 +22,9 @@ type Beat struct {
 	// log is the customized logger for the blockbeat which prints the
 	// block height.
 	log btclog.Logger
+
+	deadlineOnce    sync.Once
+	processDeadline time.Time
 }
 
 // Compile-time check to ensure Beat satisfies the Blockbeat interface.
@@ -51,4 +56,21 @@ func (b *Beat) Height() int32 {
 // NOTE: Part of the private blockbeat interface.
 func (b *Beat) logger() btclog.Logger {
 	return b.log
+}
+
+func (b *Beat) setProcessDeadline(deadline time.Time) {
+	b.deadlineOnce.Do(func() {
+		b.processDeadline = deadline
+	})
+}
+
+// ProcessBlockDeadline returns the shared processing deadline assigned when a
+// beat is first dispatched.
+func ProcessBlockDeadline(beat Blockbeat) (time.Time, bool) {
+	b, ok := beat.(*Beat)
+	if !ok || b.processDeadline.IsZero() {
+		return time.Time{}, false
+	}
+
+	return b.processDeadline, true
 }

@@ -43,6 +43,10 @@ const (
 	// channel arbitrator.
 	arbitratorBlockBufferSize = 20
 
+	// resolverBlockbeatTimeoutReserve leaves time to acknowledge the
+	// parent after resolver dispatch finishes.
+	resolverBlockbeatTimeoutReserve = time.Second
+
 	// AnchorOutputValue is the output value for the anchor output of an
 	// anchor channel.
 	// See BOLT 03 for more details:
@@ -175,6 +179,10 @@ type ChannelArbitratorConfig struct {
 	// incoming HTLC - this is the expiry height the that remote peer can
 	// spend his/her outgoing HTLC via the timeout path.
 	FindOutgoingHTLCDeadline func(htlc channeldb.HTLC) fn.Option[int32]
+
+	// subscribeBlockbeats lets resolvers subscribe to ordered blockbeats
+	// while they are waiting for block-based progress.
+	subscribeBlockbeats func() (*blockbeatSubscription, func())
 
 	ChainArbitratorConfig
 }
@@ -316,6 +324,26 @@ func (h HtlcSetKey) String() string {
 	}
 }
 
+// blockbeatUpdate carries a beat and a delivery-specific acknowledgement.
+type blockbeatUpdate struct {
+	beat    chainio.Blockbeat
+	errChan chan error
+}
+
+func (b blockbeatUpdate) ack(err error) {
+	select {
+	case b.errChan <- err:
+	default:
+	}
+}
+
+// blockbeatSubscription exists only while a resolver is ready to consume
+// ordered blockbeats.
+type blockbeatSubscription struct {
+	blockbeatChan chan blockbeatUpdate
+	quit          chan struct{}
+}
+
 // ChannelArbitrator is the on-chain arbitrator for a particular channel. The
 // struct will keep in sync with the current set of HTLCs on the commitment
 // transaction. The job of the attendant is to go on-chain to either settle or
@@ -366,6 +394,9 @@ type ChannelArbitrator struct {
 	// resolvers slice.
 	activeResolversLock sync.RWMutex
 
+	// blockbeatSubs tracks resolvers currently waiting for ordered beats.
+	blockbeatSubs lnutils.SyncMap[*blockbeatSubscription, struct{}]
+
 	// resolutionSignal is a channel that will be sent upon by contract
 	// resolvers once their contract has been fully resolved. With each
 	// send, we'll check to see if the contract is fully resolved.
@@ -411,6 +442,10 @@ func NewChannelArbitrator(cfg ChannelArbitratorConfig,
 		cfg:              cfg,
 		quit:             make(chan struct{}),
 	}
+	c.cfg.subscribeBlockbeats = c.subscribeBlockbeats
+	c.log.UpdateResolverConfig(func(cfg *ChannelArbitratorConfig) {
+		cfg.subscribeBlockbeats = c.subscribeBlockbeats
+	})
 
 	// Mount the block consumer.
 	c.BeatConsumer = chainio.NewBeatConsumer(c.quit, c.Name())
@@ -1634,6 +1669,132 @@ func (c *ChannelArbitrator) launchResolvers() {
 			return
 		}
 	}
+}
+
+// subscribeBlockbeats registers a resolver for ordered blockbeats.
+func (c *ChannelArbitrator) subscribeBlockbeats() (
+	*blockbeatSubscription, func()) {
+
+	sub := &blockbeatSubscription{
+		blockbeatChan: make(chan blockbeatUpdate),
+		quit:          make(chan struct{}),
+	}
+	c.blockbeatSubs.Store(sub, struct{}{})
+
+	return sub, func() {
+		c.cancelBlockbeatSubscription(sub)
+	}
+}
+
+// cancelBlockbeatSubscription removes a subscription and closes it once.
+func (c *ChannelArbitrator) cancelBlockbeatSubscription(
+	sub *blockbeatSubscription) {
+
+	if _, ok := c.blockbeatSubs.LoadAndDelete(sub); !ok {
+		return
+	}
+
+	close(sub.quit)
+}
+
+// dispatchBlockbeatToSub sends one beat and waits for its acknowledgement.
+func (c *ChannelArbitrator) dispatchBlockbeatToSub(beat chainio.Blockbeat,
+	sub *blockbeatSubscription, deadline time.Time) error {
+
+	timeoutErr := func() error {
+		c.cancelBlockbeatSubscription(sub)
+
+		return fmt.Errorf("resolver blockbeat subscriber: %w",
+			chainio.ErrProcessBlockTimeout)
+	}
+
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return timeoutErr()
+	}
+
+	timer := time.NewTimer(remaining)
+	defer timer.Stop()
+
+	// A delivery-specific buffered ack prevents a late acknowledgement from
+	// satisfying a later beat after this dispatch times out.
+	update := blockbeatUpdate{
+		beat:    beat,
+		errChan: make(chan error, 1),
+	}
+
+	select {
+	case sub.blockbeatChan <- update:
+	case <-sub.quit:
+		return nil
+	case <-c.quit:
+		return nil
+	case <-timer.C:
+		return timeoutErr()
+	}
+
+	select {
+	case err := <-update.errChan:
+		return err
+
+	case <-sub.quit:
+		select {
+		case err := <-update.errChan:
+			return err
+		default:
+			return nil
+		}
+
+	case <-c.quit:
+		return nil
+
+	case <-timer.C:
+		return timeoutErr()
+	}
+}
+
+// dispatchBlockbeatToSubscribers concurrently delivers a beat to the current
+// resolver subscriptions and waits for all acknowledgements.
+func (c *ChannelArbitrator) dispatchBlockbeatToSubscribers(
+	beat chainio.Blockbeat) error {
+
+	deadline, ok := chainio.ProcessBlockDeadline(beat)
+	if !ok {
+		deadline = time.Now().Add(chainio.DefaultProcessBlockTimeout)
+	}
+	deadline = deadline.Add(-resolverBlockbeatTimeoutReserve)
+
+	var subs []*blockbeatSubscription
+	c.blockbeatSubs.Range(func(
+		sub *blockbeatSubscription, _ struct{}) bool {
+
+		subs = append(subs, sub)
+		return true
+	})
+
+	errChan := make(chan error, len(subs))
+	var wg sync.WaitGroup
+	for _, sub := range subs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			err := c.dispatchBlockbeatToSub(beat, sub, deadline)
+			if err != nil {
+				errChan <- err
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	var dispatchErrs []error
+	for err := range errChan {
+		dispatchErrs = append(dispatchErrs, err)
+	}
+
+	return errors.Join(dispatchErrs...)
 }
 
 // advanceState is the main driver of our state machine. This method is an
@@ -2998,10 +3159,16 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 
 // handleBlockbeat processes a newly received blockbeat by advancing the
 // arbitrator's internal state using the received block height.
-func (c *ChannelArbitrator) handleBlockbeat(beat chainio.Blockbeat) error {
-	// Notify we've processed the block.
-	defer c.NotifyBlockProcessed(beat, nil)
+func (c *ChannelArbitrator) handleBlockbeat(
+	beat chainio.Blockbeat) error {
 
+	err := c.processBlockbeat(beat)
+	c.NotifyBlockProcessed(beat, err)
+
+	return err
+}
+
+func (c *ChannelArbitrator) processBlockbeat(beat chainio.Blockbeat) error {
 	// If the state is StateContractClosed, StateWaitingFullResolution, or
 	// StateFullyResolved, there's no need to read the close event channel
 	// since the arbitrator can only get to this state after processing a
@@ -3017,7 +3184,7 @@ func (c *ChannelArbitrator) handleBlockbeat(beat chainio.Blockbeat) error {
 		// their own `launched` states.
 		c.launchResolvers()
 
-		return nil
+		return c.dispatchBlockbeatToSubscribers(beat)
 	}
 
 	// Perform a non-blocking read on the close events in case the channel
@@ -3038,6 +3205,11 @@ func (c *ChannelArbitrator) handleBlockbeat(beat chainio.Blockbeat) error {
 
 	// Launch all active resolvers when a new blockbeat is received.
 	c.launchResolvers()
+	if err := c.dispatchBlockbeatToSubscribers(beat); err != nil {
+		return fmt.Errorf(
+			"unable to dispatch resolver blockbeat: %w", err,
+		)
+	}
 
 	return nil
 }

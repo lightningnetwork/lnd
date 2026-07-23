@@ -7,9 +7,12 @@ import (
 
 type mockHTLCNotifier struct {
 	HtlcNotifier
+
+	finalHtlcEvents []channeldb.FinalHtlcInfo
 }
 
 func (m *mockHTLCNotifier) NotifyFinalHtlcEvent(key models.CircuitKey,
 	info channeldb.FinalHtlcInfo) {
 
+	m.finalHtlcEvents = append(m.finalHtlcEvents, info)
 }

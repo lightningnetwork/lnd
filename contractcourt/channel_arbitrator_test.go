@@ -46,6 +46,7 @@ type mockArbitratorLog struct {
 	failCommitState ArbitratorState
 	resolutions     *ContractResolutions
 	resolvers       map[ContractResolver]struct{}
+	resolverConfig  ChannelArbitratorConfig
 
 	commitSet *CommitSet
 
@@ -55,6 +56,12 @@ type mockArbitratorLog struct {
 // A compile time check to ensure mockArbitratorLog meets the ArbitratorLog
 // interface.
 var _ ArbitratorLog = (*mockArbitratorLog)(nil)
+
+func (b *mockArbitratorLog) UpdateResolverConfig(
+	update func(*ChannelArbitratorConfig)) {
+
+	update(&b.resolverConfig)
+}
 
 func (b *mockArbitratorLog) CurrentState(kvdb.RTx) (ArbitratorState, error) {
 	return b.state, nil
@@ -3165,6 +3172,141 @@ func assertResolverReport(t *testing.T, reports chan *channeldb.ResolverReport,
 	case <-time.After(defaultTimeout):
 		t.Fatalf("no reports present")
 	}
+}
+
+// TestBlockbeatSubscriptionCancel tests that subscription cancellation is
+// idempotent and removes the subscription before signaling its consumer.
+func TestBlockbeatSubscriptionCancel(t *testing.T) {
+	t.Parallel()
+
+	chanArb := &ChannelArbitrator{}
+	sub, cancel := chanArb.subscribeBlockbeats()
+	require.Equal(t, 1, chanArb.blockbeatSubs.Len())
+
+	cancel()
+	require.Zero(t, chanArb.blockbeatSubs.Len())
+	select {
+	case <-sub.quit:
+	default:
+		t.Fatal("expected subscription cancellation")
+	}
+
+	cancel()
+}
+
+// TestResolverConfigThroughArbitratorLog tests that runtime resolver config is
+// injected through decorated log implementations.
+func TestResolverConfigThroughArbitratorLog(t *testing.T) {
+	t.Parallel()
+
+	log := &mockArbitratorLog{}
+	decoratedLog := &testArbLog{ArbitratorLog: log}
+	chanArb := NewChannelArbitrator(
+		ChannelArbitratorConfig{}, map[HtlcSetKey]htlcSet{},
+		decoratedLog,
+	)
+
+	subscribe := log.resolverConfig.subscribeBlockbeats
+	require.NotNil(t, subscribe)
+	sub, cancel := subscribe()
+	require.Equal(t, 1, chanArb.blockbeatSubs.Len())
+
+	cancel()
+	require.Zero(t, chanArb.blockbeatSubs.Len())
+	select {
+	case <-sub.quit:
+	default:
+		t.Fatal("expected subscription cancellation")
+	}
+}
+
+// TestDispatchBlockbeatToSubSendTimeout tests that an unread subscription is
+// canceled instead of blocking channel arbitrator progress.
+func TestDispatchBlockbeatToSubSendTimeout(t *testing.T) {
+	t.Parallel()
+
+	chanArb := &ChannelArbitrator{quit: make(chan struct{})}
+	sub, _ := chanArb.subscribeBlockbeats()
+
+	err := chanArb.dispatchBlockbeatToSub(
+		newBeatFromHeight(1), sub, time.Now().Add(10*time.Millisecond),
+	)
+	require.ErrorIs(t, err, chainio.ErrProcessBlockTimeout)
+	require.Zero(t, chanArb.blockbeatSubs.Len())
+	select {
+	case <-sub.quit:
+	default:
+		t.Fatal("expected timed out subscription to be canceled")
+	}
+}
+
+// TestDispatchBlockbeatToSubAckTimeout tests that a late ack remains scoped to
+// its canceled delivery and cannot acknowledge a replacement subscription.
+func TestDispatchBlockbeatToSubAckTimeout(t *testing.T) {
+	t.Parallel()
+
+	chanArb := &ChannelArbitrator{quit: make(chan struct{})}
+	firstSub, _ := chanArb.subscribeBlockbeats()
+	firstResult := make(chan error, 1)
+	go func() {
+		firstResult <- chanArb.dispatchBlockbeatToSub(
+			newBeatFromHeight(1), firstSub,
+			time.Now().Add(50*time.Millisecond),
+		)
+	}()
+	firstUpdate := <-firstSub.blockbeatChan
+
+	err := <-firstResult
+	require.ErrorIs(t, err, chainio.ErrProcessBlockTimeout)
+	require.Zero(t, chanArb.blockbeatSubs.Len())
+
+	secondSub, _ := chanArb.subscribeBlockbeats()
+	secondResult := make(chan error, 1)
+	go func() {
+		secondResult <- chanArb.dispatchBlockbeatToSub(
+			newBeatFromHeight(2), secondSub,
+			time.Now().Add(time.Second),
+		)
+	}()
+	secondUpdate := <-secondSub.blockbeatChan
+	secondUpdate.ack(nil)
+	require.NoError(t, <-secondResult)
+
+	// The late acknowledgement is delivery-scoped and buffered, so it
+	// cannot block or satisfy the replacement subscription.
+	firstUpdate.ack(nil)
+}
+
+// TestHandleBlockbeatPropagatesResolverError tests that resolver dispatch
+// errors are returned through the channel arbitrator's parent acknowledgement.
+func TestHandleBlockbeatPropagatesResolverError(t *testing.T) {
+	t.Parallel()
+
+	chanArb := &ChannelArbitrator{
+		state: StateContractClosed,
+		quit:  make(chan struct{}),
+	}
+	chanArb.BeatConsumer = chainio.NewBeatConsumer(
+		chanArb.quit, "blockbeat propagation test",
+	)
+
+	dispatchErr := errors.New("resolver dispatch failed")
+	sub, _ := chanArb.subscribeBlockbeats()
+	go func() {
+		update := <-sub.blockbeatChan
+		update.ack(dispatchErr)
+	}()
+
+	beat := newBeatFromHeight(1)
+	processResult := make(chan error, 1)
+	go func() {
+		processResult <- chanArb.ProcessBlock(beat)
+	}()
+
+	receivedBeat := <-chanArb.BlockbeatChan
+	err := chanArb.handleBlockbeat(receivedBeat)
+	require.ErrorIs(t, err, dispatchErr)
+	require.ErrorIs(t, <-processResult, dispatchErr)
 }
 
 type mockChannel struct {

@@ -769,6 +769,14 @@ func TestHtlcSuccessMatchSecondLevelOutput(t *testing.T) {
 			},
 		},
 		{
+			name: "nil transaction output",
+			mutate: func(spend *chainntnfs.SpendDetail) {
+				spend.SpendingTx.TxOut[0] = nil
+			},
+			skipHashRefresh: true,
+			errContains:     "output 0 is nil",
+		},
+		{
 			name: "foreign transaction output",
 			mutate: func(spend *chainntnfs.SpendDetail) {
 				spend.SpendingTx.TxOut[0].Value++
@@ -842,6 +850,150 @@ func TestHtlcSuccessMatchSecondLevelOutput(t *testing.T) {
 				require.Zero(t, op.Index)
 			} else {
 				require.Equal(t, wire.OutPoint{}, op)
+			}
+		})
+	}
+}
+
+// TestHtlcSuccessForeignSpend tests that a foreign local-commitment spend is
+// terminally failed without offering a phantom second-level output.
+func TestHtlcSuccessForeignSpend(t *testing.T) {
+	type resolverReport = channeldb.ResolverReport
+
+	resolverType := channeldb.ResolverTypeIncomingHtlc
+	resolverOutcome := channeldb.ResolverOutcomeTimeout
+
+	testCases := []struct {
+		name    string
+		restart bool
+	}{
+		{
+			name: "initial resolve",
+		},
+		{
+			name:    "restart",
+			restart: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer timeout()()
+
+			commitOutpoint := wire.OutPoint{
+				Hash:  chainhash.Hash{4},
+				Index: 2,
+			}
+			successTx := &wire.MsgTx{
+				TxIn: []*wire.TxIn{{
+					PreviousOutPoint: commitOutpoint,
+				}},
+				TxOut: []*wire.TxOut{
+					cloneTxOut(testSignDesc.Output),
+				},
+			}
+			successHash := successTx.TxHash()
+			resolution := lnwallet.IncomingHtlcResolution{
+				Preimage:        testResPreimage,
+				SignedSuccessTx: successTx,
+				SignDetails: &input.SignDetails{
+					SignDesc: testSignDesc,
+					PeerSig:  testSig,
+				},
+				ClaimOutpoint: wire.OutPoint{Hash: successHash},
+				SweepSignDesc: testSignDesc,
+			}
+
+			foreignTx := &wire.MsgTx{
+				TxIn: []*wire.TxIn{{
+					PreviousOutPoint: commitOutpoint,
+				}},
+				TxOut: []*wire.TxOut{{
+					Value:    testSignDesc.Output.Value,
+					PkScript: []byte{0x51},
+				}},
+			}
+			foreignHash := foreignTx.TxHash()
+			foreignSpend := &chainntnfs.SpendDetail{
+				SpentOutPoint:     &commitOutpoint,
+				SpenderTxHash:     &foreignHash,
+				SpendingTx:        foreignTx,
+				SpenderInputIndex: 0,
+				SpendingHeight:    10,
+			}
+
+			ctx := newHtlcResolverTestContext(
+				t, func(htlc channeldb.HTLC,
+					cfg ResolverConfig) ContractResolver {
+
+					resolver := newSuccessResolver(
+						resolution, 0, htlc, 0, cfg,
+					)
+					resolver.outputIncubating = tc.restart
+
+					return resolver
+				},
+			)
+
+			var reports []*resolverReport
+			checkpoint := func(_ ContractResolver,
+				checkpointReports ...*resolverReport) error {
+
+				reports = checkpointReports
+				return nil
+			}
+			ctx.checkpoint = checkpoint
+
+			ctx.resolve()
+			resolver, ok := ctx.resolver.(*htlcSuccessResolver)
+			require.True(t, ok)
+			sweeper, ok := resolver.Sweeper.(*mockSweeper)
+			require.True(t, ok)
+
+			if !tc.restart {
+				select {
+				case sweptInput := <-sweeper.sweptInputs:
+					require.Equal(
+						t, commitOutpoint,
+						sweptInput.OutPoint(),
+					)
+				case <-time.After(time.Second):
+					t.Fatal("expected first-stage sweep")
+				}
+			}
+
+			go func() {
+				ctx.notifier.SpendChan <- foreignSpend
+				if tc.restart {
+					ctx.notifier.SpendChan <- foreignSpend
+				}
+			}()
+
+			ctx.waitForResult()
+
+			require.True(t, resolver.IsResolved())
+			require.False(t, resolver.outputIncubating)
+			require.Zero(t, resolver.currentReport.LimboBalance)
+			require.Zero(t, resolver.currentReport.RecoveredBalance)
+			require.True(t, ctx.finalHtlcOutcomeStored)
+			require.False(t, ctx.finalHtlcSettled)
+			require.Equal(t, []*channeldb.ResolverReport{{
+				OutPoint:        commitOutpoint,
+				Amount:          testHtlcAmt.ToSatoshis(),
+				ResolverType:    resolverType,
+				ResolverOutcome: resolverOutcome,
+				SpendTxID:       &foreignHash,
+			}}, reports)
+			require.Equal(t, []channeldb.FinalHtlcInfo{{
+				Settled:  false,
+				Offchain: false,
+			}}, ctx.htlcNotifier.finalHtlcEvents)
+
+			select {
+			case sweptInput := <-sweeper.sweptInputs:
+				t.Fatalf("unexpected phantom sweep: %v",
+					sweptInput.OutPoint())
+			default:
 			}
 		})
 	}

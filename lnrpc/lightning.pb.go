@@ -3329,7 +3329,9 @@ type EstimateFeeResponse struct {
 	// The fee rate in satoshi/vbyte.
 	SatPerVbyte uint64 `protobuf:"varint,3,opt,name=sat_per_vbyte,json=satPerVbyte,proto3" json:"sat_per_vbyte,omitempty"`
 	// A list of selected inputs for the transaction the estimate is for.
-	Inputs        []*OutPoint `protobuf:"bytes,4,rep,name=inputs,proto3" json:"inputs,omitempty"`
+	Inputs []*OutPoint `protobuf:"bytes,4,rep,name=inputs,proto3" json:"inputs,omitempty"`
+	// The fee rate in satoshi/kweight.
+	SatPerKw      uint64 `protobuf:"varint,5,opt,name=sat_per_kw,json=satPerKw,proto3" json:"sat_per_kw,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3393,6 +3395,13 @@ func (x *EstimateFeeResponse) GetInputs() []*OutPoint {
 	return nil
 }
 
+func (x *EstimateFeeResponse) GetSatPerKw() uint64 {
+	if x != nil {
+		return x.SatPerKw
+	}
+	return 0
+}
+
 type SendManyRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The map from addresses to amounts
@@ -3402,6 +3411,8 @@ type SendManyRequest struct {
 	TargetConf int32 `protobuf:"varint,3,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
 	// A manual fee rate set in sat/vbyte that should be used when crafting the
 	// transaction.
+	//
+	// Deprecated: Marked as deprecated in lightning.proto.
 	SatPerVbyte uint64 `protobuf:"varint,4,opt,name=sat_per_vbyte,json=satPerVbyte,proto3" json:"sat_per_vbyte,omitempty"`
 	// Deprecated, use sat_per_vbyte.
 	// A manual fee rate set in sat/vbyte that should be used when crafting the
@@ -3409,6 +3420,9 @@ type SendManyRequest struct {
 	//
 	// Deprecated: Marked as deprecated in lightning.proto.
 	SatPerByte int64 `protobuf:"varint,5,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
+	// A manual fee rate set in sat/kweight that should be used when crafting the
+	// transaction.
+	SatPerKw uint64 `protobuf:"varint,10,opt,name=sat_per_kw,json=satPerKw,proto3" json:"sat_per_kw,omitempty"`
 	// An optional label for the transaction, limited to 500 characters.
 	Label string `protobuf:"bytes,6,opt,name=label,proto3" json:"label,omitempty"`
 	// The minimum number of confirmations each one of your outputs used for
@@ -3466,6 +3480,7 @@ func (x *SendManyRequest) GetTargetConf() int32 {
 	return 0
 }
 
+// Deprecated: Marked as deprecated in lightning.proto.
 func (x *SendManyRequest) GetSatPerVbyte() uint64 {
 	if x != nil {
 		return x.SatPerVbyte
@@ -3477,6 +3492,13 @@ func (x *SendManyRequest) GetSatPerVbyte() uint64 {
 func (x *SendManyRequest) GetSatPerByte() int64 {
 	if x != nil {
 		return x.SatPerByte
+	}
+	return 0
+}
+
+func (x *SendManyRequest) GetSatPerKw() uint64 {
+	if x != nil {
+		return x.SatPerKw
 	}
 	return 0
 }
@@ -3565,6 +3587,8 @@ type SendCoinsRequest struct {
 	TargetConf int32 `protobuf:"varint,3,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
 	// A manual fee rate set in sat/vbyte that should be used when crafting the
 	// transaction.
+	//
+	// Deprecated: Marked as deprecated in lightning.proto.
 	SatPerVbyte uint64 `protobuf:"varint,4,opt,name=sat_per_vbyte,json=satPerVbyte,proto3" json:"sat_per_vbyte,omitempty"`
 	// Deprecated, use sat_per_vbyte.
 	// A manual fee rate set in sat/vbyte that should be used when crafting the
@@ -3572,6 +3596,9 @@ type SendCoinsRequest struct {
 	//
 	// Deprecated: Marked as deprecated in lightning.proto.
 	SatPerByte int64 `protobuf:"varint,5,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
+	// A manual fee rate set in sat/kweight that should be used when crafting the
+	// transaction.
+	SatPerKw uint64 `protobuf:"varint,12,opt,name=sat_per_kw,json=satPerKw,proto3" json:"sat_per_kw,omitempty"`
 	// If set, the amount field should be unset. It indicates lnd will send all
 	// wallet coins or all selected coins to the specified address.
 	SendAll bool `protobuf:"varint,6,opt,name=send_all,json=sendAll,proto3" json:"send_all,omitempty"`
@@ -3641,6 +3668,7 @@ func (x *SendCoinsRequest) GetTargetConf() int32 {
 	return 0
 }
 
+// Deprecated: Marked as deprecated in lightning.proto.
 func (x *SendCoinsRequest) GetSatPerVbyte() uint64 {
 	if x != nil {
 		return x.SatPerVbyte
@@ -3652,6 +3680,13 @@ func (x *SendCoinsRequest) GetSatPerVbyte() uint64 {
 func (x *SendCoinsRequest) GetSatPerByte() int64 {
 	if x != nil {
 		return x.SatPerByte
+	}
+	return 0
+}
+
+func (x *SendCoinsRequest) GetSatPerKw() uint64 {
+	if x != nil {
+		return x.SatPerKw
 	}
 	return 0
 }
@@ -6804,18 +6839,31 @@ type CloseChannelRequest struct {
 	//
 	// Deprecated: Marked as deprecated in lightning.proto.
 	SatPerByte int64 `protobuf:"varint,4,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
+	// A manual fee rate set in sat/vbyte that should be used when crafting the
+	// closure transaction.
+	//
+	// Deprecated: Marked as deprecated in lightning.proto.
+	SatPerVbyte uint64 `protobuf:"varint,6,opt,name=sat_per_vbyte,json=satPerVbyte,proto3" json:"sat_per_vbyte,omitempty"`
+	// A manual fee rate set in sat/kweight that should be used when crafting the
+	// transaction.
+	//
+	// NOTE: This field is only respected if we're the initiator of the channel.
+	SatPerKw uint64 `protobuf:"varint,9,opt,name=sat_per_kw,json=satPerKw,proto3" json:"sat_per_kw,omitempty"`
 	// An optional address to send funds to in the case of a cooperative close.
 	// If the channel was opened with an upfront shutdown script and this field
 	// is set, the request to close will fail because the channel must pay out
 	// to the upfront shutdown addresss.
 	DeliveryAddress string `protobuf:"bytes,5,opt,name=delivery_address,json=deliveryAddress,proto3" json:"delivery_address,omitempty"`
-	// A manual fee rate set in sat/vbyte that should be used when crafting the
-	// closure transaction.
-	SatPerVbyte uint64 `protobuf:"varint,6,opt,name=sat_per_vbyte,json=satPerVbyte,proto3" json:"sat_per_vbyte,omitempty"`
 	// The maximum fee rate the closer is willing to pay.
 	//
 	// NOTE: This field is only respected if we're the initiator of the channel.
+	//
+	// Deprecated: Marked as deprecated in lightning.proto.
 	MaxFeePerVbyte uint64 `protobuf:"varint,7,opt,name=max_fee_per_vbyte,json=maxFeePerVbyte,proto3" json:"max_fee_per_vbyte,omitempty"`
+	// The maximum fee rate the closer is willing to pay.
+	//
+	// NOTE: This field is only respected if we're the initiator of the channel.
+	MaxFeePerKw uint64 `protobuf:"varint,10,opt,name=max_fee_per_kw,json=maxFeePerKw,proto3" json:"max_fee_per_kw,omitempty"`
 	// If true, then the rpc call will not block while it awaits a closing txid
 	// to be broadcasted to the mempool. To obtain the closing tx one has to
 	// listen to the stream for the particular updates. Moreover if a coop close
@@ -6887,13 +6935,7 @@ func (x *CloseChannelRequest) GetSatPerByte() int64 {
 	return 0
 }
 
-func (x *CloseChannelRequest) GetDeliveryAddress() string {
-	if x != nil {
-		return x.DeliveryAddress
-	}
-	return ""
-}
-
+// Deprecated: Marked as deprecated in lightning.proto.
 func (x *CloseChannelRequest) GetSatPerVbyte() uint64 {
 	if x != nil {
 		return x.SatPerVbyte
@@ -6901,9 +6943,31 @@ func (x *CloseChannelRequest) GetSatPerVbyte() uint64 {
 	return 0
 }
 
+func (x *CloseChannelRequest) GetSatPerKw() uint64 {
+	if x != nil {
+		return x.SatPerKw
+	}
+	return 0
+}
+
+func (x *CloseChannelRequest) GetDeliveryAddress() string {
+	if x != nil {
+		return x.DeliveryAddress
+	}
+	return ""
+}
+
+// Deprecated: Marked as deprecated in lightning.proto.
 func (x *CloseChannelRequest) GetMaxFeePerVbyte() uint64 {
 	if x != nil {
 		return x.MaxFeePerVbyte
+	}
+	return 0
+}
+
+func (x *CloseChannelRequest) GetMaxFeePerKw() uint64 {
+	if x != nil {
+		return x.MaxFeePerKw
 	}
 	return 0
 }
@@ -7019,6 +7083,7 @@ type PendingUpdate struct {
 	OutputIndex   uint32                 `protobuf:"varint,2,opt,name=output_index,json=outputIndex,proto3" json:"output_index,omitempty"`
 	FeePerVbyte   int64                  `protobuf:"varint,3,opt,name=fee_per_vbyte,json=feePerVbyte,proto3" json:"fee_per_vbyte,omitempty"`
 	LocalCloseTx  bool                   `protobuf:"varint,4,opt,name=local_close_tx,json=localCloseTx,proto3" json:"local_close_tx,omitempty"`
+	FeePerKw      uint64                 `protobuf:"varint,5,opt,name=fee_per_kw,json=feePerKw,proto3" json:"fee_per_kw,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7079,6 +7144,13 @@ func (x *PendingUpdate) GetLocalCloseTx() bool {
 		return x.LocalCloseTx
 	}
 	return false
+}
+
+func (x *PendingUpdate) GetFeePerKw() uint64 {
+	if x != nil {
+		return x.FeePerKw
+	}
+	return 0
 }
 
 type InstantUpdate struct {
@@ -7205,7 +7277,12 @@ type BatchOpenChannelRequest struct {
 	TargetConf int32 `protobuf:"varint,2,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
 	// A manual fee rate set in sat/vByte that should be used when crafting the
 	// funding transaction.
+	//
+	// Deprecated: Marked as deprecated in lightning.proto.
 	SatPerVbyte int64 `protobuf:"varint,3,opt,name=sat_per_vbyte,json=satPerVbyte,proto3" json:"sat_per_vbyte,omitempty"`
+	// A manual fee rate set in sat/kweight that should be used when crafting the
+	// transaction.
+	SatPerKw uint64 `protobuf:"varint,8,opt,name=sat_per_kw,json=satPerKw,proto3" json:"sat_per_kw,omitempty"`
 	// The minimum number of confirmations each one of your outputs used for
 	// the funding transaction must satisfy.
 	MinConfs int32 `protobuf:"varint,4,opt,name=min_confs,json=minConfs,proto3" json:"min_confs,omitempty"`
@@ -7264,9 +7341,17 @@ func (x *BatchOpenChannelRequest) GetTargetConf() int32 {
 	return 0
 }
 
+// Deprecated: Marked as deprecated in lightning.proto.
 func (x *BatchOpenChannelRequest) GetSatPerVbyte() int64 {
 	if x != nil {
 		return x.SatPerVbyte
+	}
+	return 0
+}
+
+func (x *BatchOpenChannelRequest) GetSatPerKw() uint64 {
+	if x != nil {
+		return x.SatPerKw
 	}
 	return 0
 }
@@ -7593,7 +7678,18 @@ type OpenChannelRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// A manual fee rate set in sat/vbyte that should be used when crafting the
 	// funding transaction.
+	//
+	// Deprecated: Marked as deprecated in lightning.proto.
 	SatPerVbyte uint64 `protobuf:"varint,1,opt,name=sat_per_vbyte,json=satPerVbyte,proto3" json:"sat_per_vbyte,omitempty"`
+	// Deprecated, use sat_per_vbyte.
+	// A manual fee rate set in sat/vbyte that should be used when crafting the
+	// funding transaction.
+	//
+	// Deprecated: Marked as deprecated in lightning.proto.
+	SatPerByte int64 `protobuf:"varint,7,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
+	// A manual fee rate set in sat/kweight that should be used when crafting the
+	// funding transaction.
+	SatPerKw uint64 `protobuf:"varint,29,opt,name=sat_per_kw,json=satPerKw,proto3" json:"sat_per_kw,omitempty"`
 	// The pubkey of the node to open a channel with. When using REST, this field
 	// must be encoded as base64.
 	NodePubkey []byte `protobuf:"bytes,2,opt,name=node_pubkey,json=nodePubkey,proto3" json:"node_pubkey,omitempty"`
@@ -7610,12 +7706,6 @@ type OpenChannelRequest struct {
 	// The target number of blocks that the funding transaction should be
 	// confirmed by.
 	TargetConf int32 `protobuf:"varint,6,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
-	// Deprecated, use sat_per_vbyte.
-	// A manual fee rate set in sat/vbyte that should be used when crafting the
-	// funding transaction.
-	//
-	// Deprecated: Marked as deprecated in lightning.proto.
-	SatPerByte int64 `protobuf:"varint,7,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
 	// Whether this channel should be private, not announced to the greater
 	// network.
 	Private bool `protobuf:"varint,8,opt,name=private,proto3" json:"private,omitempty"`
@@ -7726,9 +7816,25 @@ func (*OpenChannelRequest) Descriptor() ([]byte, []int) {
 	return file_lightning_proto_rawDescGZIP(), []int{76}
 }
 
+// Deprecated: Marked as deprecated in lightning.proto.
 func (x *OpenChannelRequest) GetSatPerVbyte() uint64 {
 	if x != nil {
 		return x.SatPerVbyte
+	}
+	return 0
+}
+
+// Deprecated: Marked as deprecated in lightning.proto.
+func (x *OpenChannelRequest) GetSatPerByte() int64 {
+	if x != nil {
+		return x.SatPerByte
+	}
+	return 0
+}
+
+func (x *OpenChannelRequest) GetSatPerKw() uint64 {
+	if x != nil {
+		return x.SatPerKw
 	}
 	return 0
 }
@@ -7765,14 +7871,6 @@ func (x *OpenChannelRequest) GetPushSat() int64 {
 func (x *OpenChannelRequest) GetTargetConf() int32 {
 	if x != nil {
 		return x.TargetConf
-	}
-	return 0
-}
-
-// Deprecated: Marked as deprecated in lightning.proto.
-func (x *OpenChannelRequest) GetSatPerByte() int64 {
-	if x != nil {
-		return x.SatPerByte
 	}
 	return 0
 }
@@ -18654,19 +18752,24 @@ const file_lightning_proto_rawDesc = "" +
 	"\x06inputs\x18\x06 \x03(\v2\x0f.lnrpc.OutPointR\x06inputs\x1a?\n" +
 	"\x11AddrToAmountEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"\xb0\x01\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"\xce\x01\n" +
 	"\x13EstimateFeeResponse\x12\x17\n" +
 	"\afee_sat\x18\x01 \x01(\x03R\x06feeSat\x123\n" +
 	"\x14feerate_sat_per_byte\x18\x02 \x01(\x03B\x02\x18\x01R\x11feerateSatPerByte\x12\"\n" +
 	"\rsat_per_vbyte\x18\x03 \x01(\x04R\vsatPerVbyte\x12'\n" +
-	"\x06inputs\x18\x04 \x03(\v2\x0f.lnrpc.OutPointR\x06inputs\"\xc1\x03\n" +
+	"\x06inputs\x18\x04 \x03(\v2\x0f.lnrpc.OutPointR\x06inputs\x12\x1c\n" +
+	"\n" +
+	"sat_per_kw\x18\x05 \x01(\x04R\bsatPerKw\"\xe3\x03\n" +
 	"\x0fSendManyRequest\x12L\n" +
 	"\fAddrToAmount\x18\x01 \x03(\v2(.lnrpc.SendManyRequest.AddrToAmountEntryR\fAddrToAmount\x12\x1f\n" +
 	"\vtarget_conf\x18\x03 \x01(\x05R\n" +
-	"targetConf\x12\"\n" +
-	"\rsat_per_vbyte\x18\x04 \x01(\x04R\vsatPerVbyte\x12$\n" +
+	"targetConf\x12&\n" +
+	"\rsat_per_vbyte\x18\x04 \x01(\x04B\x02\x18\x01R\vsatPerVbyte\x12$\n" +
 	"\fsat_per_byte\x18\x05 \x01(\x03B\x02\x18\x01R\n" +
-	"satPerByte\x12\x14\n" +
+	"satPerByte\x12\x1c\n" +
+	"\n" +
+	"sat_per_kw\x18\n" +
+	" \x01(\x04R\bsatPerKw\x12\x14\n" +
 	"\x05label\x18\x06 \x01(\tR\x05label\x12\x1b\n" +
 	"\tmin_confs\x18\a \x01(\x05R\bminConfs\x12+\n" +
 	"\x11spend_unconfirmed\x18\b \x01(\bR\x10spendUnconfirmed\x12T\n" +
@@ -18675,15 +18778,17 @@ const file_lightning_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"&\n" +
 	"\x10SendManyResponse\x12\x12\n" +
-	"\x04txid\x18\x01 \x01(\tR\x04txid\"\xa9\x03\n" +
+	"\x04txid\x18\x01 \x01(\tR\x04txid\"\xcb\x03\n" +
 	"\x10SendCoinsRequest\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12\x16\n" +
 	"\x06amount\x18\x02 \x01(\x03R\x06amount\x12\x1f\n" +
 	"\vtarget_conf\x18\x03 \x01(\x05R\n" +
-	"targetConf\x12\"\n" +
-	"\rsat_per_vbyte\x18\x04 \x01(\x04R\vsatPerVbyte\x12$\n" +
+	"targetConf\x12&\n" +
+	"\rsat_per_vbyte\x18\x04 \x01(\x04B\x02\x18\x01R\vsatPerVbyte\x12$\n" +
 	"\fsat_per_byte\x18\x05 \x01(\x03B\x02\x18\x01R\n" +
-	"satPerByte\x12\x19\n" +
+	"satPerByte\x12\x1c\n" +
+	"\n" +
+	"sat_per_kw\x18\f \x01(\x04R\bsatPerKw\x12\x19\n" +
 	"\bsend_all\x18\x06 \x01(\bR\asendAll\x12\x14\n" +
 	"\x05label\x18\a \x01(\tR\x05label\x12\x1b\n" +
 	"\tmin_confs\x18\b \x01(\x05R\bminConfs\x12+\n" +
@@ -18955,40 +19060,48 @@ const file_lightning_proto_rawDesc = "" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess\x12@\n" +
 	"\x12local_close_output\x18\x03 \x01(\v2\x12.lnrpc.CloseOutputR\x10localCloseOutput\x12B\n" +
 	"\x13remote_close_output\x18\x04 \x01(\v2\x12.lnrpc.CloseOutputR\x11remoteCloseOutput\x12A\n" +
-	"\x12additional_outputs\x18\x05 \x03(\v2\x12.lnrpc.CloseOutputR\x11additionalOutputs\"\xbf\x02\n" +
+	"\x12additional_outputs\x18\x05 \x03(\v2\x12.lnrpc.CloseOutputR\x11additionalOutputs\"\x8a\x03\n" +
 	"\x13CloseChannelRequest\x128\n" +
 	"\rchannel_point\x18\x01 \x01(\v2\x13.lnrpc.ChannelPointR\fchannelPoint\x12\x14\n" +
 	"\x05force\x18\x02 \x01(\bR\x05force\x12\x1f\n" +
 	"\vtarget_conf\x18\x03 \x01(\x05R\n" +
 	"targetConf\x12$\n" +
 	"\fsat_per_byte\x18\x04 \x01(\x03B\x02\x18\x01R\n" +
-	"satPerByte\x12)\n" +
-	"\x10delivery_address\x18\x05 \x01(\tR\x0fdeliveryAddress\x12\"\n" +
-	"\rsat_per_vbyte\x18\x06 \x01(\x04R\vsatPerVbyte\x12)\n" +
-	"\x11max_fee_per_vbyte\x18\a \x01(\x04R\x0emaxFeePerVbyte\x12\x17\n" +
+	"satPerByte\x12&\n" +
+	"\rsat_per_vbyte\x18\x06 \x01(\x04B\x02\x18\x01R\vsatPerVbyte\x12\x1c\n" +
+	"\n" +
+	"sat_per_kw\x18\t \x01(\x04R\bsatPerKw\x12)\n" +
+	"\x10delivery_address\x18\x05 \x01(\tR\x0fdeliveryAddress\x12-\n" +
+	"\x11max_fee_per_vbyte\x18\a \x01(\x04B\x02\x18\x01R\x0emaxFeePerVbyte\x12#\n" +
+	"\x0emax_fee_per_kw\x18\n" +
+	" \x01(\x04R\vmaxFeePerKw\x12\x17\n" +
 	"\ano_wait\x18\b \x01(\bR\x06noWait\"\xd3\x01\n" +
 	"\x11CloseStatusUpdate\x12;\n" +
 	"\rclose_pending\x18\x01 \x01(\v2\x14.lnrpc.PendingUpdateH\x00R\fclosePending\x12:\n" +
 	"\n" +
 	"chan_close\x18\x03 \x01(\v2\x19.lnrpc.ChannelCloseUpdateH\x00R\tchanClose\x12;\n" +
 	"\rclose_instant\x18\x04 \x01(\v2\x14.lnrpc.InstantUpdateH\x00R\fcloseInstantB\b\n" +
-	"\x06update\"\x90\x01\n" +
+	"\x06update\"\xae\x01\n" +
 	"\rPendingUpdate\x12\x12\n" +
 	"\x04txid\x18\x01 \x01(\fR\x04txid\x12!\n" +
 	"\foutput_index\x18\x02 \x01(\rR\voutputIndex\x12\"\n" +
 	"\rfee_per_vbyte\x18\x03 \x01(\x03R\vfeePerVbyte\x12$\n" +
-	"\x0elocal_close_tx\x18\x04 \x01(\bR\flocalCloseTx\";\n" +
+	"\x0elocal_close_tx\x18\x04 \x01(\bR\flocalCloseTx\x12\x1c\n" +
+	"\n" +
+	"fee_per_kw\x18\x05 \x01(\x04R\bfeePerKw\";\n" +
 	"\rInstantUpdate\x12*\n" +
 	"\x11num_pending_htlcs\x18\x01 \x01(\x05R\x0fnumPendingHtlcs\"y\n" +
 	"\x13ReadyForPsbtFunding\x12'\n" +
 	"\x0ffunding_address\x18\x01 \x01(\tR\x0efundingAddress\x12%\n" +
 	"\x0efunding_amount\x18\x02 \x01(\x03R\rfundingAmount\x12\x12\n" +
-	"\x04psbt\x18\x03 \x01(\fR\x04psbt\"\xc9\x02\n" +
+	"\x04psbt\x18\x03 \x01(\fR\x04psbt\"\xeb\x02\n" +
 	"\x17BatchOpenChannelRequest\x123\n" +
 	"\bchannels\x18\x01 \x03(\v2\x17.lnrpc.BatchOpenChannelR\bchannels\x12\x1f\n" +
 	"\vtarget_conf\x18\x02 \x01(\x05R\n" +
-	"targetConf\x12\"\n" +
-	"\rsat_per_vbyte\x18\x03 \x01(\x03R\vsatPerVbyte\x12\x1b\n" +
+	"targetConf\x12&\n" +
+	"\rsat_per_vbyte\x18\x03 \x01(\x03B\x02\x18\x01R\vsatPerVbyte\x12\x1c\n" +
+	"\n" +
+	"sat_per_kw\x18\b \x01(\x04R\bsatPerKw\x12\x1b\n" +
 	"\tmin_confs\x18\x04 \x01(\x05R\bminConfs\x12+\n" +
 	"\x11spend_unconfirmed\x18\x05 \x01(\bR\x10spendUnconfirmed\x12\x14\n" +
 	"\x05label\x18\x06 \x01(\tR\x05label\x12T\n" +
@@ -19020,18 +19133,20 @@ const file_lightning_proto_rawDesc = "" +
 	"\x17remote_chan_reserve_sat\x18\x13 \x01(\x04R\x14remoteChanReserveSat\x12\x12\n" +
 	"\x04memo\x18\x14 \x01(\tR\x04memo\"[\n" +
 	"\x18BatchOpenChannelResponse\x12?\n" +
-	"\x10pending_channels\x18\x01 \x03(\v2\x14.lnrpc.PendingUpdateR\x0fpendingChannels\"\xcb\b\n" +
-	"\x12OpenChannelRequest\x12\"\n" +
-	"\rsat_per_vbyte\x18\x01 \x01(\x04R\vsatPerVbyte\x12\x1f\n" +
+	"\x10pending_channels\x18\x01 \x03(\v2\x14.lnrpc.PendingUpdateR\x0fpendingChannels\"\xed\b\n" +
+	"\x12OpenChannelRequest\x12&\n" +
+	"\rsat_per_vbyte\x18\x01 \x01(\x04B\x02\x18\x01R\vsatPerVbyte\x12$\n" +
+	"\fsat_per_byte\x18\a \x01(\x03B\x02\x18\x01R\n" +
+	"satPerByte\x12\x1c\n" +
+	"\n" +
+	"sat_per_kw\x18\x1d \x01(\x04R\bsatPerKw\x12\x1f\n" +
 	"\vnode_pubkey\x18\x02 \x01(\fR\n" +
 	"nodePubkey\x120\n" +
 	"\x12node_pubkey_string\x18\x03 \x01(\tB\x02\x18\x01R\x10nodePubkeyString\x120\n" +
 	"\x14local_funding_amount\x18\x04 \x01(\x03R\x12localFundingAmount\x12\x19\n" +
 	"\bpush_sat\x18\x05 \x01(\x03R\apushSat\x12\x1f\n" +
 	"\vtarget_conf\x18\x06 \x01(\x05R\n" +
-	"targetConf\x12$\n" +
-	"\fsat_per_byte\x18\a \x01(\x03B\x02\x18\x01R\n" +
-	"satPerByte\x12\x18\n" +
+	"targetConf\x12\x18\n" +
 	"\aprivate\x18\b \x01(\bR\aprivate\x12\"\n" +
 	"\rmin_htlc_msat\x18\t \x01(\x03R\vminHtlcMsat\x12(\n" +
 	"\x10remote_csv_delay\x18\n" +

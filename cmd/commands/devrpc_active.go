@@ -24,6 +24,16 @@ func devCommands() []cli.Command {
 			ArgsUsage:   "graph-json-file",
 			Action:      actionDecorator(importGraph),
 		},
+		{
+			Name:     "fetchreputation",
+			Category: "Development",
+			Description: "Fetches a read-only snapshot of the " +
+				"local reputation subsystem's computed " +
+				"per-channel state. Requires the node to be " +
+				"running with --routing.reputation.",
+			Usage:  "Fetch the local reputation snapshot.",
+			Action: actionDecorator(fetchReputation),
+		},
 	}
 }
 
@@ -58,5 +68,22 @@ func importGraph(ctx *cli.Context) error {
 	}
 
 	printRespJSON(res)
+	return nil
+}
+
+func fetchReputation(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getDevClient(ctx)
+	defer cleanUp()
+
+	res, err := client.FetchReputation(
+		ctxc, &devrpc.FetchReputationRequest{},
+	)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(res)
+
 	return nil
 }

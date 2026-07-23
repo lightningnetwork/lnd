@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/reputation"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -44,6 +45,10 @@ var (
 		"/devrpc.Dev/Quiesce": {{
 			Entity: "offchain",
 			Action: "write",
+		}},
+		"/devrpc.Dev/FetchReputation": {{
+			Entity: "offchain",
+			Action: "read",
 		}},
 	}
 )
@@ -385,5 +390,46 @@ func (s *Server) Quiesce(_ context.Context, in *QuiescenceRequest) (
 
 	case <-s.quit:
 		return nil, fmt.Errorf("server shutting down")
+	}
+}
+
+// FetchReputation returns a read-only snapshot of the local reputation
+// subsystem's computed per-channel state. It returns an error if the
+// experimental read-only reputation subsystem is not enabled.
+//
+// NOTE: Part of the DevServer interface.
+func (s *Server) FetchReputation(_ context.Context,
+	_ *FetchReputationRequest) (*FetchReputationResponse, error) {
+
+	mgr := s.cfg.ReputationManager
+	if mgr == nil {
+		return nil, fmt.Errorf("reputation subsystem disabled; " +
+			"remove --routing.no-reputation to enable it")
+	}
+
+	snaps := mgr.Snapshot()
+	resp := &FetchReputationResponse{
+		ChannelReputations: make([]*ChannelReputation, 0, len(snaps)),
+	}
+	for _, snap := range snaps {
+		resp.ChannelReputations = append(
+			resp.ChannelReputations, marshalChannelReputation(snap),
+		)
+	}
+
+	return resp, nil
+}
+
+// marshalChannelReputation converts a reputation snapshot into its RPC form.
+func marshalChannelReputation(
+	s reputation.ChannelReputationSnapshot) *ChannelReputation {
+
+	return &ChannelReputation{
+		Scid:                 s.SCID,
+		OutgoingReputation:   s.OutgoingReputation,
+		IncomingRevenue:      s.IncomingRevenue,
+		InFlightRisk:         s.InFlightRisk,
+		PendingHtlcCount:     s.PendingHTLCCount,
+		SufficientReputation: s.SufficientReputation,
 	}
 }

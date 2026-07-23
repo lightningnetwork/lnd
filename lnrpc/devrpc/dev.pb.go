@@ -149,6 +149,183 @@ func (x *QuiescenceResponse) GetInitiator() bool {
 	return false
 }
 
+type FetchReputationRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FetchReputationRequest) Reset() {
+	*x = FetchReputationRequest{}
+	mi := &file_devrpc_dev_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FetchReputationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FetchReputationRequest) ProtoMessage() {}
+
+func (x *FetchReputationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_devrpc_dev_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FetchReputationRequest.ProtoReflect.Descriptor instead.
+func (*FetchReputationRequest) Descriptor() ([]byte, []int) {
+	return file_devrpc_dev_proto_rawDescGZIP(), []int{3}
+}
+
+type FetchReputationResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The per-channel reputation snapshots, ordered by short channel id.
+	ChannelReputations []*ChannelReputation `protobuf:"bytes,1,rep,name=channel_reputations,json=channelReputations,proto3" json:"channel_reputations,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *FetchReputationResponse) Reset() {
+	*x = FetchReputationResponse{}
+	mi := &file_devrpc_dev_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FetchReputationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FetchReputationResponse) ProtoMessage() {}
+
+func (x *FetchReputationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_devrpc_dev_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FetchReputationResponse.ProtoReflect.Descriptor instead.
+func (*FetchReputationResponse) Descriptor() ([]byte, []int) {
+	return file_devrpc_dev_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *FetchReputationResponse) GetChannelReputations() []*ChannelReputation {
+	if x != nil {
+		return x.ChannelReputations
+	}
+	return nil
+}
+
+// ChannelReputation is a read-only view of one channel's computed reputation
+// state, as of the snapshot time.
+type ChannelReputation struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The short channel id of the channel.
+	Scid uint64 `protobuf:"varint,1,opt,name=scid,proto3" json:"scid,omitempty"`
+	// The reputation this channel has accrued as an outgoing link, decayed to
+	// the snapshot time.
+	OutgoingReputation int64 `protobuf:"varint,2,opt,name=outgoing_reputation,json=outgoingReputation,proto3" json:"outgoing_reputation,omitempty"`
+	// The revenue threshold this channel has earned as an incoming link,
+	// decayed to the snapshot time.
+	IncomingRevenue int64 `protobuf:"varint,3,opt,name=incoming_revenue,json=incomingRevenue,proto3" json:"incoming_revenue,omitempty"`
+	// The summed in-flight risk of this channel's pending HTLCs.
+	InFlightRisk uint64 `protobuf:"varint,4,opt,name=in_flight_risk,json=inFlightRisk,proto3" json:"in_flight_risk,omitempty"`
+	// The number of in-flight HTLCs for which this channel is the outgoing
+	// link.
+	PendingHtlcCount uint32 `protobuf:"varint,5,opt,name=pending_htlc_count,json=pendingHtlcCount,proto3" json:"pending_htlc_count,omitempty"`
+	// Whether the channel's accrued outgoing reputation, net of its current
+	// in-flight risk, already meets its incoming revenue threshold.
+	SufficientReputation bool `protobuf:"varint,6,opt,name=sufficient_reputation,json=sufficientReputation,proto3" json:"sufficient_reputation,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *ChannelReputation) Reset() {
+	*x = ChannelReputation{}
+	mi := &file_devrpc_dev_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChannelReputation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChannelReputation) ProtoMessage() {}
+
+func (x *ChannelReputation) ProtoReflect() protoreflect.Message {
+	mi := &file_devrpc_dev_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChannelReputation.ProtoReflect.Descriptor instead.
+func (*ChannelReputation) Descriptor() ([]byte, []int) {
+	return file_devrpc_dev_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ChannelReputation) GetScid() uint64 {
+	if x != nil {
+		return x.Scid
+	}
+	return 0
+}
+
+func (x *ChannelReputation) GetOutgoingReputation() int64 {
+	if x != nil {
+		return x.OutgoingReputation
+	}
+	return 0
+}
+
+func (x *ChannelReputation) GetIncomingRevenue() int64 {
+	if x != nil {
+		return x.IncomingRevenue
+	}
+	return 0
+}
+
+func (x *ChannelReputation) GetInFlightRisk() uint64 {
+	if x != nil {
+		return x.InFlightRisk
+	}
+	return 0
+}
+
+func (x *ChannelReputation) GetPendingHtlcCount() uint32 {
+	if x != nil {
+		return x.PendingHtlcCount
+	}
+	return 0
+}
+
+func (x *ChannelReputation) GetSufficientReputation() bool {
+	if x != nil {
+		return x.SufficientReputation
+	}
+	return false
+}
+
 var File_devrpc_dev_proto protoreflect.FileDescriptor
 
 const file_devrpc_dev_proto_rawDesc = "" +
@@ -158,10 +335,21 @@ const file_devrpc_dev_proto_rawDesc = "" +
 	"\x11QuiescenceRequest\x12,\n" +
 	"\achan_id\x18\x01 \x01(\v2\x13.lnrpc.ChannelPointR\x06chanId\"2\n" +
 	"\x12QuiescenceResponse\x12\x1c\n" +
-	"\tinitiator\x18\x01 \x01(\bR\tinitiator2\x88\x01\n" +
+	"\tinitiator\x18\x01 \x01(\bR\tinitiator\"\x18\n" +
+	"\x16FetchReputationRequest\"e\n" +
+	"\x17FetchReputationResponse\x12J\n" +
+	"\x13channel_reputations\x18\x01 \x03(\v2\x19.devrpc.ChannelReputationR\x12channelReputations\"\x8c\x02\n" +
+	"\x11ChannelReputation\x12\x12\n" +
+	"\x04scid\x18\x01 \x01(\x04R\x04scid\x12/\n" +
+	"\x13outgoing_reputation\x18\x02 \x01(\x03R\x12outgoingReputation\x12)\n" +
+	"\x10incoming_revenue\x18\x03 \x01(\x03R\x0fincomingRevenue\x12$\n" +
+	"\x0ein_flight_risk\x18\x04 \x01(\x04R\finFlightRisk\x12,\n" +
+	"\x12pending_htlc_count\x18\x05 \x01(\rR\x10pendingHtlcCount\x123\n" +
+	"\x15sufficient_reputation\x18\x06 \x01(\bR\x14sufficientReputation2\xdc\x01\n" +
 	"\x03Dev\x12?\n" +
 	"\vImportGraph\x12\x13.lnrpc.ChannelGraph\x1a\x1b.devrpc.ImportGraphResponse\x12@\n" +
-	"\aQuiesce\x12\x19.devrpc.QuiescenceRequest\x1a\x1a.devrpc.QuiescenceResponseB.Z,github.com/lightningnetwork/lnd/lnrpc/devrpcb\x06proto3"
+	"\aQuiesce\x12\x19.devrpc.QuiescenceRequest\x1a\x1a.devrpc.QuiescenceResponse\x12R\n" +
+	"\x0fFetchReputation\x12\x1e.devrpc.FetchReputationRequest\x1a\x1f.devrpc.FetchReputationResponseB.Z,github.com/lightningnetwork/lnd/lnrpc/devrpcb\x06proto3"
 
 var (
 	file_devrpc_dev_proto_rawDescOnce sync.Once
@@ -175,25 +363,31 @@ func file_devrpc_dev_proto_rawDescGZIP() []byte {
 	return file_devrpc_dev_proto_rawDescData
 }
 
-var file_devrpc_dev_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_devrpc_dev_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_devrpc_dev_proto_goTypes = []any{
-	(*ImportGraphResponse)(nil), // 0: devrpc.ImportGraphResponse
-	(*QuiescenceRequest)(nil),   // 1: devrpc.QuiescenceRequest
-	(*QuiescenceResponse)(nil),  // 2: devrpc.QuiescenceResponse
-	(*lnrpc.ChannelPoint)(nil),  // 3: lnrpc.ChannelPoint
-	(*lnrpc.ChannelGraph)(nil),  // 4: lnrpc.ChannelGraph
+	(*ImportGraphResponse)(nil),     // 0: devrpc.ImportGraphResponse
+	(*QuiescenceRequest)(nil),       // 1: devrpc.QuiescenceRequest
+	(*QuiescenceResponse)(nil),      // 2: devrpc.QuiescenceResponse
+	(*FetchReputationRequest)(nil),  // 3: devrpc.FetchReputationRequest
+	(*FetchReputationResponse)(nil), // 4: devrpc.FetchReputationResponse
+	(*ChannelReputation)(nil),       // 5: devrpc.ChannelReputation
+	(*lnrpc.ChannelPoint)(nil),      // 6: lnrpc.ChannelPoint
+	(*lnrpc.ChannelGraph)(nil),      // 7: lnrpc.ChannelGraph
 }
 var file_devrpc_dev_proto_depIdxs = []int32{
-	3, // 0: devrpc.QuiescenceRequest.chan_id:type_name -> lnrpc.ChannelPoint
-	4, // 1: devrpc.Dev.ImportGraph:input_type -> lnrpc.ChannelGraph
-	1, // 2: devrpc.Dev.Quiesce:input_type -> devrpc.QuiescenceRequest
-	0, // 3: devrpc.Dev.ImportGraph:output_type -> devrpc.ImportGraphResponse
-	2, // 4: devrpc.Dev.Quiesce:output_type -> devrpc.QuiescenceResponse
-	3, // [3:5] is the sub-list for method output_type
-	1, // [1:3] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	6, // 0: devrpc.QuiescenceRequest.chan_id:type_name -> lnrpc.ChannelPoint
+	5, // 1: devrpc.FetchReputationResponse.channel_reputations:type_name -> devrpc.ChannelReputation
+	7, // 2: devrpc.Dev.ImportGraph:input_type -> lnrpc.ChannelGraph
+	1, // 3: devrpc.Dev.Quiesce:input_type -> devrpc.QuiescenceRequest
+	3, // 4: devrpc.Dev.FetchReputation:input_type -> devrpc.FetchReputationRequest
+	0, // 5: devrpc.Dev.ImportGraph:output_type -> devrpc.ImportGraphResponse
+	2, // 6: devrpc.Dev.Quiesce:output_type -> devrpc.QuiescenceResponse
+	4, // 7: devrpc.Dev.FetchReputation:output_type -> devrpc.FetchReputationResponse
+	5, // [5:8] is the sub-list for method output_type
+	2, // [2:5] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_devrpc_dev_proto_init() }
@@ -207,7 +401,7 @@ func file_devrpc_dev_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_devrpc_dev_proto_rawDesc), len(file_devrpc_dev_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

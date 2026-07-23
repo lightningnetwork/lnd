@@ -2482,6 +2482,20 @@ func (l *channelLink) UpdateForwardingPolicy(
 	l.cfg.FwrdingPolicy = newPolicy
 }
 
+// AdvertisedFee returns the fee this link's current forwarding policy charges
+// to forward the given outgoing amount (base fee plus the proportional fee).
+//
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) AdvertisedFee(
+	amtToForward lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+
+	l.RLock()
+	policy := l.cfg.FwrdingPolicy
+	l.RUnlock()
+
+	return ExpectedFee(policy, amtToForward)
+}
+
 // CheckHtlcForward should return a nil error if the passed HTLC details
 // satisfy the current forwarding policy fo the target link. Otherwise,
 // a LinkError with a valid protocol failure message should be returned

@@ -75,6 +75,7 @@ import (
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/queue"
+	"github.com/lightningnetwork/lnd/reputation"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/localchans"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -356,6 +357,10 @@ type server struct {
 	peerNotifier *peernotifier.PeerNotifier
 
 	htlcNotifier *htlcswitch.HtlcNotifier
+
+	// reputationMgr is the optional read-only local reputation subsystem,
+	// non-nil only when the experimental reputation flag is set.
+	reputationMgr *reputation.Manager
 
 	witnessBeacon contractcourt.WitnessBeacon
 
@@ -880,6 +885,40 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
+	// Construct the read-only local reputation subsystem, which is enabled
+	// by default. It only observes HTLC forwarding to compute and log
+	// reputation; it never affects routing (log-only). When disabled via
+	// no-reputation, repMgrIface stays a nil interface so the switch skips
+	// the hooks entirely. Nothing is persisted, so reputation is re-accrued
+	// from live traffic on restart.
+	var repMgrIface htlcswitch.ReputationManager
+	if !cfg.Routing.NoReputation {
+		chainIO := s.cc.ChainIO
+		s.reputationMgr, err = reputation.NewManager(
+			reputation.DefaultConfig(),
+			reputation.WithHeightSource(func() (uint32, error) {
+				_, height, err := chainIO.GetBestBlock()
+				if err != nil {
+					return 0, err
+				}
+
+				return uint32(height), nil
+			}),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Wrap the manager in a panic boundary before handing it to
+		// the switch: the hooks run on the forwarding goroutine, so a
+		// bug in the (log-only) subsystem must never take down HTLC
+		// forwarding. On a hook panic the guard logs, disables the
+		// subsystem, and forwarding continues unaffected.
+		repMgrIface = htlcswitch.NewGuardedReputationManager(
+			newReputationManagerAdapter(s.reputationMgr),
+		)
+	}
+
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
 		DB:                   dbs.ChanStateDB,
 		FetchAllOpenChannels: s.chanStateDB.FetchAllOpenChannels,
@@ -905,6 +944,10 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		FetchLastChannelUpdate: s.fetchLastChanUpdate(),
 		Notifier:               s.cc.ChainNotifier,
 		HtlcNotifier:           s.htlcNotifier,
+		ReputationManager:      repMgrIface,
+		ShouldFwdExpAccountability: func() bool {
+			return !s.cfg.ProtocolOptions.NoExpAccountability()
+		},
 		FwdEventTicker:         ticker.New(htlcswitch.DefaultFwdEventInterval),
 		LogEventTicker:         ticker.New(htlcswitch.DefaultLogInterval),
 		AckEventTicker:         ticker.New(htlcswitch.DefaultAckInterval),
@@ -2355,6 +2398,14 @@ func (s *server) Start(ctx context.Context) error {
 			return
 		}
 
+		if s.reputationMgr != nil {
+			cleanup = cleanup.add(s.reputationMgr.Stop)
+			if err := s.reputationMgr.Start(); err != nil {
+				startErr = err
+				return
+			}
+		}
+
 		if s.towerClientMgr != nil {
 			cleanup = cleanup.add(s.towerClientMgr.Stop)
 			if err := s.towerClientMgr.Start(); err != nil {
@@ -2840,6 +2891,12 @@ func (s *server) Stop() error {
 		}
 		if err := s.htlcNotifier.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop htlcNotifier: %v", err)
+		}
+		if s.reputationMgr != nil {
+			if err := s.reputationMgr.Stop(); err != nil {
+				srvrLog.Warnf("failed to stop reputationMgr: "+
+					"%v", err)
+			}
 		}
 
 		// Update channel.backup file. Make sure to do it before

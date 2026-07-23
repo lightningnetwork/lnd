@@ -1693,6 +1693,62 @@ func (c *ChannelArbitrator) cancelBlockbeatSubscription(
 	close(sub.quit)
 }
 
+// dispatchBlockbeatToSub sends one beat and waits for its acknowledgement.
+func (c *ChannelArbitrator) dispatchBlockbeatToSub(beat chainio.Blockbeat,
+	sub *blockbeatSubscription, deadline time.Time) error {
+
+	timeoutErr := func() error {
+		c.cancelBlockbeatSubscription(sub)
+
+		return fmt.Errorf("resolver blockbeat subscriber: %w",
+			chainio.ErrProcessBlockTimeout)
+	}
+
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return timeoutErr()
+	}
+
+	timer := time.NewTimer(remaining)
+	defer timer.Stop()
+
+	// A delivery-specific buffered ack prevents a late acknowledgement from
+	// satisfying a later beat after this dispatch times out.
+	update := blockbeatUpdate{
+		beat:    beat,
+		errChan: make(chan error, 1),
+	}
+
+	select {
+	case sub.blockbeatChan <- update:
+	case <-sub.quit:
+		return nil
+	case <-c.quit:
+		return nil
+	case <-timer.C:
+		return timeoutErr()
+	}
+
+	select {
+	case err := <-update.errChan:
+		return err
+
+	case <-sub.quit:
+		select {
+		case err := <-update.errChan:
+			return err
+		default:
+			return nil
+		}
+
+	case <-c.quit:
+		return nil
+
+	case <-timer.C:
+		return timeoutErr()
+	}
+}
+
 // advanceState is the main driver of our state machine. This method is an
 // iterative function which repeatedly attempts to advance the internal state
 // of the channel arbitrator. The state will be advanced until we reach a

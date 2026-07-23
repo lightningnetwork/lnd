@@ -3220,6 +3220,63 @@ func TestResolverConfigThroughArbitratorLog(t *testing.T) {
 	}
 }
 
+// TestDispatchBlockbeatToSubSendTimeout tests that an unread subscription is
+// canceled instead of blocking channel arbitrator progress.
+func TestDispatchBlockbeatToSubSendTimeout(t *testing.T) {
+	t.Parallel()
+
+	chanArb := &ChannelArbitrator{quit: make(chan struct{})}
+	sub, _ := chanArb.subscribeBlockbeats()
+
+	err := chanArb.dispatchBlockbeatToSub(
+		newBeatFromHeight(1), sub, time.Now().Add(10*time.Millisecond),
+	)
+	require.ErrorIs(t, err, chainio.ErrProcessBlockTimeout)
+	require.Zero(t, chanArb.blockbeatSubs.Len())
+	select {
+	case <-sub.quit:
+	default:
+		t.Fatal("expected timed out subscription to be canceled")
+	}
+}
+
+// TestDispatchBlockbeatToSubAckTimeout tests that a late ack remains scoped to
+// its canceled delivery and cannot acknowledge a replacement subscription.
+func TestDispatchBlockbeatToSubAckTimeout(t *testing.T) {
+	t.Parallel()
+
+	chanArb := &ChannelArbitrator{quit: make(chan struct{})}
+	firstSub, _ := chanArb.subscribeBlockbeats()
+	firstResult := make(chan error, 1)
+	go func() {
+		firstResult <- chanArb.dispatchBlockbeatToSub(
+			newBeatFromHeight(1), firstSub,
+			time.Now().Add(50*time.Millisecond),
+		)
+	}()
+	firstUpdate := <-firstSub.blockbeatChan
+
+	err := <-firstResult
+	require.ErrorIs(t, err, chainio.ErrProcessBlockTimeout)
+	require.Zero(t, chanArb.blockbeatSubs.Len())
+
+	secondSub, _ := chanArb.subscribeBlockbeats()
+	secondResult := make(chan error, 1)
+	go func() {
+		secondResult <- chanArb.dispatchBlockbeatToSub(
+			newBeatFromHeight(2), secondSub,
+			time.Now().Add(time.Second),
+		)
+	}()
+	secondUpdate := <-secondSub.blockbeatChan
+	secondUpdate.ack(nil)
+	require.NoError(t, <-secondResult)
+
+	// The late acknowledgement is delivery-scoped and buffered, so it
+	// cannot block or satisfy the replacement subscription.
+	firstUpdate.ack(nil)
+}
+
 type mockChannel struct {
 	anchorResolutions *lnwallet.AnchorResolutions
 

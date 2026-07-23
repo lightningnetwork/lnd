@@ -106,14 +106,26 @@ func (p *preimageBeacon) SubscribeUpdates(
 		},
 	}
 
+	// Report the forwarding next hop to the interceptor. A channel-ID next
+	// hop is reported directly; a node-ID next hop has no outgoing channel
+	// of its own, so outgoingChanID is hop.Exit and the requested node ID
+	// is exposed separately, exactly as the off-chain interceptor does.
+	// This is the requested next hop, not the channel that non-strict
+	// forwarding eventually selects, so we deliberately do not resolve it
+	// against the circuit map. The RPC boundary maps a node-ID hop to the
+	// NodeIDForwardSCID sentinel for the client.
+	//
 	// Notify the htlc interceptor. There may be a client connected
 	// and willing to supply a preimage.
 	packet := &htlcswitch.InterceptedPacket{
-		Hash:                 htlc.RHash,
-		IncomingExpiry:       htlc.RefundTimeout,
-		IncomingAmount:       htlc.Amt,
-		IncomingCircuit:      inKey,
-		OutgoingChanID:       payload.FwdInfo.NextHopChannel().UnwrapOr(hop.Exit),
+		Hash:            htlc.RHash,
+		IncomingExpiry:  htlc.RefundTimeout,
+		IncomingAmount:  htlc.Amt,
+		IncomingCircuit: inKey,
+		OutgoingChanID: payload.FwdInfo.NextHopChannel().UnwrapOr(
+			hop.Exit,
+		),
+		OutgoingNodeID:       payload.FwdInfo.NextHopNode(),
 		OutgoingExpiry:       payload.FwdInfo.OutgoingCLTV,
 		OutgoingAmount:       payload.FwdInfo.AmountToForward,
 		InOnionCustomRecords: payload.CustomRecords(),

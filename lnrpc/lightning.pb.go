@@ -18158,7 +18158,9 @@ type PendingChannelsResponse_WaitingCloseChannel struct {
 	// The block height at which the closing transaction was first confirmed.
 	// This will be zero if the closing transaction has not yet confirmed, or
 	// if this information is not available for older channels.
-	CloseHeight   uint32 `protobuf:"varint,7,opt,name=close_height,json=closeHeight,proto3" json:"close_height,omitempty"`
+	CloseHeight uint32 `protobuf:"varint,7,opt,name=close_height,json=closeHeight,proto3" json:"close_height,omitempty"`
+	// The unique channel ID for the channel.
+	ChanId        uint64 `protobuf:"varint,8,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -18238,6 +18240,13 @@ func (x *PendingChannelsResponse_WaitingCloseChannel) GetBlocksTilCloseConfirmed
 func (x *PendingChannelsResponse_WaitingCloseChannel) GetCloseHeight() uint32 {
 	if x != nil {
 		return x.CloseHeight
+	}
+	return 0
+}
+
+func (x *PendingChannelsResponse_WaitingCloseChannel) GetChanId() uint64 {
+	if x != nil {
+		return x.ChanId
 	}
 	return 0
 }
@@ -18407,8 +18416,10 @@ type PendingChannelsResponse_ForceClosedChannel struct {
 	RecoveredBalance int64                                                  `protobuf:"varint,6,opt,name=recovered_balance,json=recoveredBalance,proto3" json:"recovered_balance,omitempty"`
 	PendingHtlcs     []*PendingHTLC                                         `protobuf:"bytes,8,rep,name=pending_htlcs,json=pendingHtlcs,proto3" json:"pending_htlcs,omitempty"`
 	Anchor           PendingChannelsResponse_ForceClosedChannel_AnchorState `protobuf:"varint,9,opt,name=anchor,proto3,enum=lnrpc.PendingChannelsResponse_ForceClosedChannel_AnchorState" json:"anchor,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The unique channel ID for the channel.
+	ChanId        uint64 `protobuf:"varint,10,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PendingChannelsResponse_ForceClosedChannel) Reset() {
@@ -18495,6 +18506,13 @@ func (x *PendingChannelsResponse_ForceClosedChannel) GetAnchor() PendingChannels
 		return x.Anchor
 	}
 	return PendingChannelsResponse_ForceClosedChannel_LIMBO
+}
+
+func (x *PendingChannelsResponse_ForceClosedChannel) GetChanId() uint64 {
+	if x != nil {
+		return x.ChanId
+	}
+	return 0
 }
 
 var File_lightning_proto protoreflect.FileDescriptor
@@ -19121,7 +19139,7 @@ const file_lightning_proto_rawDesc = "" +
 	"\x13blocks_til_maturity\x18\x05 \x01(\x05R\x11blocksTilMaturity\x12\x14\n" +
 	"\x05stage\x18\x06 \x01(\rR\x05stage\">\n" +
 	"\x16PendingChannelsRequest\x12$\n" +
-	"\x0einclude_raw_tx\x18\x01 \x01(\bR\fincludeRawTx\"\xe0\x15\n" +
+	"\x0einclude_raw_tx\x18\x01 \x01(\bR\fincludeRawTx\"\x9a\x16\n" +
 	"\x17PendingChannelsResponse\x12.\n" +
 	"\x13total_limbo_balance\x18\x01 \x01(\x03R\x11totalLimboBalance\x12e\n" +
 	"\x15pending_open_channels\x18\x02 \x03(\v21.lnrpc.PendingChannelsResponse.PendingOpenChannelR\x13pendingOpenChannels\x12j\n" +
@@ -19153,7 +19171,7 @@ const file_lightning_proto_rawDesc = "" +
 	"fee_per_kw\x18\x06 \x01(\x03R\bfeePerKw\x122\n" +
 	"\x15funding_expiry_blocks\x18\x03 \x01(\x05R\x13fundingExpiryBlocks\x12<\n" +
 	"\x1aconfirmations_until_active\x18\a \x01(\rR\x18confirmationsUntilActive\x12/\n" +
-	"\x13confirmation_height\x18\b \x01(\rR\x12confirmationHeightJ\x04\b\x02\x10\x03\x1a\xfa\x02\n" +
+	"\x13confirmation_height\x18\b \x01(\rR\x12confirmationHeightJ\x04\b\x02\x10\x03\x1a\x97\x03\n" +
 	"\x13WaitingCloseChannel\x12G\n" +
 	"\achannel\x18\x01 \x01(\v2-.lnrpc.PendingChannelsResponse.PendingChannelR\achannel\x12#\n" +
 	"\rlimbo_balance\x18\x02 \x01(\x03R\flimboBalance\x12L\n" +
@@ -19161,7 +19179,8 @@ const file_lightning_proto_rawDesc = "" +
 	"\fclosing_txid\x18\x04 \x01(\tR\vclosingTxid\x12$\n" +
 	"\x0eclosing_tx_hex\x18\x05 \x01(\tR\fclosingTxHex\x12;\n" +
 	"\x1ablocks_til_close_confirmed\x18\x06 \x01(\rR\x17blocksTilCloseConfirmed\x12!\n" +
-	"\fclose_height\x18\a \x01(\rR\vcloseHeight\x1a\xa3\x02\n" +
+	"\fclose_height\x18\a \x01(\rR\vcloseHeight\x12\x1b\n" +
+	"\achan_id\x18\b \x01(\x04B\x020\x01R\x06chanId\x1a\xa3\x02\n" +
 	"\vCommitments\x12\x1d\n" +
 	"\n" +
 	"local_txid\x18\x01 \x01(\tR\tlocalTxid\x12\x1f\n" +
@@ -19173,7 +19192,7 @@ const file_lightning_proto_rawDesc = "" +
 	"\x1dremote_pending_commit_fee_sat\x18\x06 \x01(\x04R\x19remotePendingCommitFeeSat\x1a{\n" +
 	"\rClosedChannel\x12G\n" +
 	"\achannel\x18\x01 \x01(\v2-.lnrpc.PendingChannelsResponse.PendingChannelR\achannel\x12!\n" +
-	"\fclosing_txid\x18\x02 \x01(\tR\vclosingTxid\x1a\xee\x03\n" +
+	"\fclosing_txid\x18\x02 \x01(\tR\vclosingTxid\x1a\x8b\x04\n" +
 	"\x12ForceClosedChannel\x12G\n" +
 	"\achannel\x18\x01 \x01(\v2-.lnrpc.PendingChannelsResponse.PendingChannelR\achannel\x12!\n" +
 	"\fclosing_txid\x18\x02 \x01(\tR\vclosingTxid\x12#\n" +
@@ -19182,7 +19201,9 @@ const file_lightning_proto_rawDesc = "" +
 	"\x13blocks_til_maturity\x18\x05 \x01(\x05R\x11blocksTilMaturity\x12+\n" +
 	"\x11recovered_balance\x18\x06 \x01(\x03R\x10recoveredBalance\x127\n" +
 	"\rpending_htlcs\x18\b \x03(\v2\x12.lnrpc.PendingHTLCR\fpendingHtlcs\x12U\n" +
-	"\x06anchor\x18\t \x01(\x0e2=.lnrpc.PendingChannelsResponse.ForceClosedChannel.AnchorStateR\x06anchor\"1\n" +
+	"\x06anchor\x18\t \x01(\x0e2=.lnrpc.PendingChannelsResponse.ForceClosedChannel.AnchorStateR\x06anchor\x12\x1b\n" +
+	"\achan_id\x18\n" +
+	" \x01(\x04B\x020\x01R\x06chanId\"1\n" +
 	"\vAnchorState\x12\t\n" +
 	"\x05LIMBO\x10\x00\x12\r\n" +
 	"\tRECOVERED\x10\x01\x12\b\n" +

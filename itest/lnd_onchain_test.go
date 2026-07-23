@@ -411,6 +411,10 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 		},
 	)
 
+	// Grab the short channel ID while the channel is still open so we can
+	// assert it's echoed back once the channel is pending close.
+	chanID := ht.GetChannelByChanPoint(alice, aliceChanPoint1).ChanId
+
 	// Send another UTXO if this is a neutrino backend. When sweeping
 	// anchors, there are two transactions created, `local_sweep_tx` for
 	// sweeping Alice's anchor on the local commitment, `remote_sweep_tx`
@@ -455,6 +459,11 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	pendingChannelsResp := alice.RPC.PendingChannels()
 	require.Equal(ht, testMemo,
 		pendingChannelsResp.WaitingCloseChannels[0].Channel.Memo)
+
+	// The short channel ID should also be returned while the channel is
+	// waiting close.
+	require.Equal(ht, chanID,
+		pendingChannelsResp.WaitingCloseChannels[0].ChanId)
 
 	// At this point, the channel is waiting close so we have the
 	// commitment transaction in the mempool. Alice's anchor, however,
@@ -538,6 +547,11 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	pendingChannelsResp = alice.RPC.PendingChannels()
 	require.Equal(ht, testMemo,
 		pendingChannelsResp.PendingForceClosingChannels[0].Channel.Memo)
+
+	// Same for the pending force close case, the short channel ID is
+	// carried over from the close summary.
+	require.Equal(ht, chanID,
+		pendingChannelsResp.PendingForceClosingChannels[0].ChanId)
 
 	// With the anchor output located, and the main commitment mined we'll
 	// instruct the wallet to send all coins in the wallet to a new address

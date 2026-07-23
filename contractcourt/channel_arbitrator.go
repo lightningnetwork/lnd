@@ -176,6 +176,10 @@ type ChannelArbitratorConfig struct {
 	// spend his/her outgoing HTLC via the timeout path.
 	FindOutgoingHTLCDeadline func(htlc channeldb.HTLC) fn.Option[int32]
 
+	// subscribeBlockbeats lets resolvers subscribe to ordered blockbeats
+	// while they are waiting for block-based progress.
+	subscribeBlockbeats func() (*blockbeatSubscription, func())
+
 	ChainArbitratorConfig
 }
 
@@ -316,6 +320,26 @@ func (h HtlcSetKey) String() string {
 	}
 }
 
+// blockbeatUpdate carries a beat and a delivery-specific acknowledgement.
+type blockbeatUpdate struct {
+	beat    chainio.Blockbeat
+	errChan chan error
+}
+
+func (b blockbeatUpdate) ack(err error) {
+	select {
+	case b.errChan <- err:
+	default:
+	}
+}
+
+// blockbeatSubscription exists only while a resolver is ready to consume
+// ordered blockbeats.
+type blockbeatSubscription struct {
+	blockbeatChan chan blockbeatUpdate
+	quit          chan struct{}
+}
+
 // ChannelArbitrator is the on-chain arbitrator for a particular channel. The
 // struct will keep in sync with the current set of HTLCs on the commitment
 // transaction. The job of the attendant is to go on-chain to either settle or
@@ -366,6 +390,9 @@ type ChannelArbitrator struct {
 	// resolvers slice.
 	activeResolversLock sync.RWMutex
 
+	// blockbeatSubs tracks resolvers currently waiting for ordered beats.
+	blockbeatSubs lnutils.SyncMap[*blockbeatSubscription, struct{}]
+
 	// resolutionSignal is a channel that will be sent upon by contract
 	// resolvers once their contract has been fully resolved. With each
 	// send, we'll check to see if the contract is fully resolved.
@@ -411,6 +438,10 @@ func NewChannelArbitrator(cfg ChannelArbitratorConfig,
 		cfg:              cfg,
 		quit:             make(chan struct{}),
 	}
+	c.cfg.subscribeBlockbeats = c.subscribeBlockbeats
+	c.log.UpdateResolverConfig(func(cfg *ChannelArbitratorConfig) {
+		cfg.subscribeBlockbeats = c.subscribeBlockbeats
+	})
 
 	// Mount the block consumer.
 	c.BeatConsumer = chainio.NewBeatConsumer(c.quit, c.Name())
@@ -1634,6 +1665,32 @@ func (c *ChannelArbitrator) launchResolvers() {
 			return
 		}
 	}
+}
+
+// subscribeBlockbeats registers a resolver for ordered blockbeats.
+func (c *ChannelArbitrator) subscribeBlockbeats() (
+	*blockbeatSubscription, func()) {
+
+	sub := &blockbeatSubscription{
+		blockbeatChan: make(chan blockbeatUpdate),
+		quit:          make(chan struct{}),
+	}
+	c.blockbeatSubs.Store(sub, struct{}{})
+
+	return sub, func() {
+		c.cancelBlockbeatSubscription(sub)
+	}
+}
+
+// cancelBlockbeatSubscription removes a subscription and closes it once.
+func (c *ChannelArbitrator) cancelBlockbeatSubscription(
+	sub *blockbeatSubscription) {
+
+	if _, ok := c.blockbeatSubs.LoadAndDelete(sub); !ok {
+		return
+	}
+
+	close(sub.quit)
 }
 
 // advanceState is the main driver of our state machine. This method is an

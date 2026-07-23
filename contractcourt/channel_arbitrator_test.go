@@ -46,6 +46,7 @@ type mockArbitratorLog struct {
 	failCommitState ArbitratorState
 	resolutions     *ContractResolutions
 	resolvers       map[ContractResolver]struct{}
+	resolverConfig  ChannelArbitratorConfig
 
 	commitSet *CommitSet
 
@@ -55,6 +56,12 @@ type mockArbitratorLog struct {
 // A compile time check to ensure mockArbitratorLog meets the ArbitratorLog
 // interface.
 var _ ArbitratorLog = (*mockArbitratorLog)(nil)
+
+func (b *mockArbitratorLog) UpdateResolverConfig(
+	update func(*ChannelArbitratorConfig)) {
+
+	update(&b.resolverConfig)
+}
 
 func (b *mockArbitratorLog) CurrentState(kvdb.RTx) (ArbitratorState, error) {
 	return b.state, nil
@@ -3164,6 +3171,52 @@ func assertResolverReport(t *testing.T, reports chan *channeldb.ResolverReport,
 
 	case <-time.After(defaultTimeout):
 		t.Fatalf("no reports present")
+	}
+}
+
+// TestBlockbeatSubscriptionCancel tests that subscription cancellation is
+// idempotent and removes the subscription before signaling its consumer.
+func TestBlockbeatSubscriptionCancel(t *testing.T) {
+	t.Parallel()
+
+	chanArb := &ChannelArbitrator{}
+	sub, cancel := chanArb.subscribeBlockbeats()
+	require.Equal(t, 1, chanArb.blockbeatSubs.Len())
+
+	cancel()
+	require.Zero(t, chanArb.blockbeatSubs.Len())
+	select {
+	case <-sub.quit:
+	default:
+		t.Fatal("expected subscription cancellation")
+	}
+
+	cancel()
+}
+
+// TestResolverConfigThroughArbitratorLog tests that runtime resolver config is
+// injected through decorated log implementations.
+func TestResolverConfigThroughArbitratorLog(t *testing.T) {
+	t.Parallel()
+
+	log := &mockArbitratorLog{}
+	decoratedLog := &testArbLog{ArbitratorLog: log}
+	chanArb := NewChannelArbitrator(
+		ChannelArbitratorConfig{}, map[HtlcSetKey]htlcSet{},
+		decoratedLog,
+	)
+
+	subscribe := log.resolverConfig.subscribeBlockbeats
+	require.NotNil(t, subscribe)
+	sub, cancel := subscribe()
+	require.Equal(t, 1, chanArb.blockbeatSubs.Len())
+
+	cancel()
+	require.Zero(t, chanArb.blockbeatSubs.Len())
+	select {
+	case <-sub.quit:
+	default:
+		t.Fatal("expected subscription cancellation")
 	}
 }
 

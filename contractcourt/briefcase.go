@@ -62,6 +62,10 @@ type ArbitratorLog interface {
 	// TODO(roasbeef): document on interface the errors expected to be
 	// returned
 
+	// UpdateResolverConfig updates the runtime dependencies copied into
+	// resolvers returned by FetchUnresolvedContracts.
+	UpdateResolverConfig(func(*ChannelArbitratorConfig))
+
 	// CurrentState returns the current state of the ChannelArbitrator. It
 	// takes an optional database transaction, which will be used if it is
 	// non-nil, otherwise the lookup will be done in its own transaction.
@@ -432,6 +436,14 @@ func newBoltArbitratorLog(db kvdb.Backend, cfg ChannelArbitratorConfig,
 // A compile time check to ensure boltArbitratorLog meets the ArbitratorLog
 // interface.
 var _ ArbitratorLog = (*boltArbitratorLog)(nil)
+
+// UpdateResolverConfig updates the runtime dependencies used when decoding
+// persisted resolvers.
+func (b *boltArbitratorLog) UpdateResolverConfig(
+	update func(*ChannelArbitratorConfig)) {
+
+	update(&b.cfg)
+}
 
 func fetchContractReadBucket(tx kvdb.RTx, scopeKey []byte) (kvdb.RBucket, error) {
 	scopeBucket := tx.ReadBucket(scopeKey)

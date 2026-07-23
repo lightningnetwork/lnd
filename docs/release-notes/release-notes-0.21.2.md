@@ -47,6 +47,10 @@
   incoming HTLC resolver could treat a foreign commitment spend as its own
   success transaction and offer a phantom input to the sweeper.
 
+* [Fixed an ordering race](https://github.com/lightningnetwork/lnd/pull/10990)
+  where incoming HTLC expiry could be processed before the resolver retried
+  its success path at the same block height.
+
 # New Features
 
 ## Functional Enhancements

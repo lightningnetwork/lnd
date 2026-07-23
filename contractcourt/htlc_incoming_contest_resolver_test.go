@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -105,6 +106,125 @@ func TestHtlcIncomingResolverFwdContestedTimeout(t *testing.T) {
 	})
 
 	ctx.waitForResult(false)
+}
+
+// TestHtlcIncomingResolverExpiryRechecksPreimage tests that a raw height
+// resync cannot fail an HTLC whose preimage appeared after the prior Launch.
+func TestHtlcIncomingResolverExpiryRechecksPreimage(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, false)
+	require.NoError(t, ctx.resolver.Launch())
+
+	ctx.chainIO.setBestHeight(testHtlcExpiry)
+	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
+
+	nextResolver, err := ctx.resolver.Resolve()
+	require.NoError(t, err)
+	require.Same(t, ctx.resolver.htlcSuccessResolver, nextResolver)
+	require.False(t, ctx.finalHtlcOutcomeStored)
+}
+
+// TestHtlcIncomingResolverBlockbeatCancelResyncs tests that cancellation makes
+// the resolver resubscribe and process a height missed during dispatch.
+func TestHtlcIncomingResolverBlockbeatCancelResyncs(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, false)
+	ctx.resolve()
+	firstSub := ctx.activeSub()
+
+	ctx.chainIO.setBestHeight(testHtlcExpiry)
+	ctx.cancelActiveSub()
+	secondSub := ctx.activeSub()
+	require.NotSame(t, firstSub, secondSub)
+
+	ctx.waitForResult(false)
+}
+
+// TestHtlcIncomingResolverExpiredSettlement tests the complete launch and
+// resolve lifecycle for fresh and replayed settlements at expiry.
+func TestHtlcIncomingResolverExpiredSettlement(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		outcome       invoices.SettleResolutionResult
+		expectSuccess bool
+	}{
+		{
+			name:          "settlement replay",
+			outcome:       invoices.ResultReplayToSettled,
+			expectSuccess: true,
+		},
+		{
+			name:    "fresh settlement",
+			outcome: invoices.ResultSettled,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			defer timeout()()
+
+			ctx := newIncomingResolverTestContext(t, true)
+			ctx.resolver.htlcExpiry = testInitialBlockHeight
+			ctx.registry.notifyResolution =
+				invoices.NewSettleResolution(
+					testResPreimage, testResCircuitKey,
+					testAcceptHeight, tc.outcome,
+				)
+
+			ctx.resolve()
+			ctx.waitForResult(tc.expectSuccess)
+		})
+	}
+}
+
+// TestHtlcIncomingResolverLaunchBeforeExpiry tests that ChannelArbitrator
+// retries Launch before delivering the same expiry beat to Resolve.
+func TestHtlcIncomingResolverLaunchBeforeExpiry(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, false)
+	chanArb := &ChannelArbitrator{
+		state:           StateContractClosed,
+		activeResolvers: []ContractResolver{ctx.resolver},
+		quit:            make(chan struct{}),
+	}
+	chanArb.BeatConsumer = chainio.NewBeatConsumer(
+		chanArb.quit, "incoming expiry ordering test",
+	)
+	ctx.resolver.subscribeBlockbeats = chanArb.subscribeBlockbeats
+
+	require.NoError(t, ctx.resolver.Launch())
+	result := make(chan resolveResult, 1)
+	go func() {
+		nextResolver, err := ctx.resolver.Resolve()
+		result <- resolveResult{
+			nextResolver: nextResolver,
+			err:          err,
+		}
+	}()
+	require.Eventually(t, func() bool {
+		return chanArb.blockbeatSubs.Len() == 1
+	}, time.Second, time.Millisecond)
+
+	ctx.chainIO.setBestHeight(testHtlcExpiry)
+	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
+	require.NoError(t, chanArb.handleBlockbeat(
+		newBeatFromHeight(testHtlcExpiry),
+	))
+
+	resolveResult := <-result
+	require.NoError(t, resolveResult.err)
+	require.Same(t, ctx.resolver.htlcSuccessResolver,
+		resolveResult.nextResolver)
+	require.False(t, ctx.finalHtlcOutcomeStored)
 }
 
 // TestHtlcIncomingResolverFwdExpiredPreimageKnown tests resolution of an

@@ -2860,6 +2860,9 @@ message PendingChannelsResponse {
         if this information is not available for older channels.
         */
         uint32 close_height = 7;
+
+        // The unique channel ID for the channel.
+        uint64 chan_id = 8 [jstype = JS_STRING];
     }
 
     message Commitments {
@@ -2939,6 +2942,9 @@ message PendingChannelsResponse {
         }
 
         AnchorState anchor = 9;
+
+        // The unique channel ID for the channel.
+        uint64 chan_id = 10 [jstype = JS_STRING];
     }
 
     // The balance in satoshis encumbered in pending channels

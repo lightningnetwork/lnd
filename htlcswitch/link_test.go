@@ -863,6 +863,10 @@ func TestChannelLinkCancelFullCommitment(t *testing.T) {
 	n := newTwoHopNetwork(
 		t, channels.aliceToBob, channels.bobToAlice, testStartingHeight,
 	)
+	// This test takes a long time to finish and the link breaks if the fee
+	// update times out during it, blocking the test indefinitely
+	n.aliceChannelLink.updateFeeTimer.Reset(time.Minute * 10)
+	n.bobChannelLink.updateFeeTimer.Reset(time.Minute * 10)
 
 	// Fill up the commitment from Alice's side with 20 sat payments.
 	count := int(maxInflightHtlcs)

@@ -149,6 +149,19 @@
   the build context is a remote git repository because COPY layers are more
   smartly compared to cache.
 
+* [New `make` targets for `dev.Dockerfile`](https://github.com/lightningnetwork/lnd/pull/10912):
+  `docker-dev-build` builds a development image from `dev.Dockerfile`
+  (tagged `lnd-dev:<short-hash>` by default; override with
+  `DOCKER_DEV_IMAGE=`). `docker-dev-lndinit-build` layers an
+  [`lndinit`](https://github.com/lightninglabs/lndinit) image on top of it
+  (using `lndinit`'s upstream `dev.Dockerfile`; tagged
+  `<LNDINIT_REPO>:lnd-dev-<short-hash>` so the tag reflects the underlying
+  dev image — override the repo name with `LNDINIT_REPO=` and the build
+  context with `LNDINIT_CONTEXT=`). `docker-dev-lndinit-build-push` builds
+  and then pushes the lndinit image. All three go through
+  `docker buildx build` so BuildKit cache mounts are used. See
+  [`docs/DOCKER.md`](../DOCKER.md) for examples.
+
 # Contributors (Alphabetical Order)
 
 * bitromortac

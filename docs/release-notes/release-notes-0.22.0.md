@@ -130,6 +130,10 @@
   performed; callers must verify the signature independently until the
   Merkle and signing primitives land.
 
+* [BOLT 12 invoice_error
+  codec](https://github.com/lightningnetwork/lnd/pull/10958): add the
+  `invoice_error` TLV message to `bolt12/` for onion-message replies.
+
 ## Testing
 
 ## Database

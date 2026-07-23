@@ -2701,3 +2701,76 @@ func TestValidateInvoiceWriteRejectsNilPubkeys(t *testing.T) {
 		require.ErrorIs(t, ValidateInvoiceWrite(inv), ErrNilPublicKey)
 	})
 }
+
+// TestValidateInvoiceErrorWrite verifies the BOLT 12 invoice_error writer
+// requirements: error is mandatory and must be a non-empty UTF-8 string, and
+// suggested_value may only accompany a set erroneous_field.
+func TestValidateInvoiceErrorWrite(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		ie      *InvoiceError
+		wantErr error
+	}{
+		{
+			name:    "missing error",
+			ie:      &InvoiceError{},
+			wantErr: ErrMissingError,
+		},
+		{
+			name:    "empty error",
+			ie:      &InvoiceError{Error: someError("")},
+			wantErr: ErrEmptyError,
+		},
+		{
+			name: "non-utf8 error",
+			ie: &InvoiceError{
+				Error: someError(string([]byte{0xff, 0xfe})),
+			},
+			wantErr: ErrInvalidUTF8,
+		},
+		{
+			name: "suggested without erroneous field",
+			ie: &InvoiceError{
+				SuggestedValue: someSuggested([]byte{0x01}),
+				Error:          someError("bad"),
+			},
+			wantErr: ErrSuggestedWithoutField,
+		},
+		{
+			// The spec permits erroneous_field on its own;
+			// suggested_value is only "MAY set" once
+			// erroneous_field is present.
+			name: "erroneous field without suggested value",
+			ie: &InvoiceError{
+				ErroneousField: someErrField(82),
+				Error:          someError("bad amount"),
+			},
+			wantErr: nil,
+		},
+		{
+			name: "valid with all fields",
+			ie: &InvoiceError{
+				ErroneousField: someErrField(82),
+				SuggestedValue: someSuggested([]byte{0x01}),
+				Error:          someError("bad amount"),
+			},
+			wantErr: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := ValidateInvoiceErrorWrite(tc.ie)
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+
+				return
+			}
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}

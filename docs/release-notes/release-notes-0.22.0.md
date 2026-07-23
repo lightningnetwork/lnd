@@ -55,6 +55,10 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* [`lncli unlock --stdin`](https://github.com/lightningnetwork/lnd/pull/10784)
+  now reads the password until EOF instead of stopping at the first newline,
+  so passwords containing embedded newline bytes are accepted.
+
 # New Features
 
 ## Functional Enhancements

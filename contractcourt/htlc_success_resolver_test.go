@@ -2,12 +2,14 @@ package contractcourt
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -32,6 +34,7 @@ type htlcResolverTestContext struct {
 		_ ...*channeldb.ResolverReport) error
 
 	notifier           *mock.ChainNotifier
+	htlcNotifier       *mockHTLCNotifier
 	resolverResultChan chan resolveResult
 	resolutionChan     chan ResolutionMsg
 
@@ -58,15 +61,15 @@ func newHtlcResolverTestContext(t *testing.T,
 		SpendChan: make(chan *chainntnfs.SpendDetail, 1),
 		ConfChan:  make(chan *chainntnfs.TxConfirmation, 1),
 	}
+	htlcNotifier := &mockHTLCNotifier{}
 
 	testCtx := &htlcResolverTestContext{
 		checkpoint:     nil,
 		notifier:       notifier,
+		htlcNotifier:   htlcNotifier,
 		resolutionChan: make(chan ResolutionMsg, 1),
 		t:              t,
 	}
-
-	htlcNotifier := &mockHTLCNotifier{}
 
 	witnessBeacon := newMockWitnessBeacon()
 	chainCfg := ChannelArbitratorConfig{
@@ -524,6 +527,82 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 	}
 
 	testHtlcSuccess(t, twoStageResolution, checkpoints)
+}
+
+// TestHtlcSuccessForeignSpendCheckpointError tests that terminal in-memory
+// state and notifications are restored when a foreign-spend checkpoint fails.
+func TestHtlcSuccessForeignSpendCheckpointError(t *testing.T) {
+	t.Parallel()
+
+	commitOutpoint := wire.OutPoint{
+		Hash:  chainhash.Hash{3},
+		Index: 4,
+	}
+	successTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{PreviousOutPoint: commitOutpoint}},
+		TxOut: []*wire.TxOut{
+			cloneTxOut(testSignDesc.Output),
+		},
+	}
+	successHash := successTx.TxHash()
+	resolution := lnwallet.IncomingHtlcResolution{
+		Preimage:        testResPreimage,
+		SignedSuccessTx: successTx,
+		SignDetails: &input.SignDetails{
+			SignDesc: testSignDesc,
+			PeerSig:  testSig,
+		},
+		ClaimOutpoint: wire.OutPoint{Hash: successHash},
+		SweepSignDesc: testSignDesc,
+	}
+
+	ctx := newHtlcResolverTestContext(
+		t, func(htlc channeldb.HTLC,
+			cfg ResolverConfig) ContractResolver {
+
+			return newSuccessResolver(resolution, 0, htlc, 0, cfg)
+		},
+	)
+	resolver, ok := ctx.resolver.(*htlcSuccessResolver)
+	require.True(t, ok)
+	resolver.outputIncubating = true
+	resolver.currentReport.RecoveredBalance = 1
+	previousReport := resolver.currentReport
+
+	errCheckpoint := errors.New("checkpoint failed")
+	ctx.checkpoint = func(_ ContractResolver,
+		reports ...*channeldb.ResolverReport) error {
+
+		require.True(t, resolver.IsResolved())
+		require.False(t, resolver.outputIncubating)
+		require.Zero(t, resolver.currentReport.LimboBalance)
+		require.Zero(t, resolver.currentReport.RecoveredBalance)
+		require.Len(t, reports, 1)
+		require.Equal(
+			t, channeldb.ResolverOutcomeTimeout,
+			reports[0].ResolverOutcome,
+		)
+
+		return errCheckpoint
+	}
+
+	foreignTx := &wire.MsgTx{
+		TxIn:  []*wire.TxIn{{PreviousOutPoint: commitOutpoint}},
+		TxOut: []*wire.TxOut{{PkScript: []byte{0x51}}},
+	}
+	foreignHash := foreignTx.TxHash()
+	spend := &chainntnfs.SpendDetail{
+		SpentOutPoint: &commitOutpoint,
+		SpenderTxHash: &foreignHash,
+		SpendingTx:    foreignTx,
+	}
+
+	err := resolver.checkpointForeignSpend(spend)
+	require.ErrorIs(t, err, errCheckpoint)
+	require.False(t, resolver.IsResolved())
+	require.True(t, resolver.outputIncubating)
+	require.Equal(t, previousReport, resolver.currentReport)
+	require.Empty(t, ctx.htlcNotifier.finalHtlcEvents)
 }
 
 // cloneTxOut returns a copy of a transaction output.

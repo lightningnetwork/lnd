@@ -235,6 +235,68 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash) error {
 	return h.Checkpoint(h, reports...)
 }
 
+// checkpointForeignSpend checkpoints the resolver as failed when the original
+// HTLC outpoint was spent by a transaction that did not create our expected
+// second-level success output.
+func (h *htlcSuccessResolver) checkpointForeignSpend(
+	commitSpend *chainntnfs.SpendDetail) error {
+
+	err := h.ChainArbitratorConfig.PutFinalHtlcOutcome(
+		h.ChannelArbitratorConfig.ShortChanID, h.htlc.HtlcIndex, false,
+	)
+	if err != nil {
+		return err
+	}
+
+	spendTxID := commitSpend.SpenderTxHash
+	h.log.Warnf("HTLC outpoint %v was spent by tx %v, which did not "+
+		"create the expected second-level output", h.outpoint(),
+		spendTxID)
+
+	report := &channeldb.ResolverReport{
+		OutPoint:        h.outpoint(),
+		Amount:          h.htlc.Amt.ToSatoshis(),
+		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+		ResolverOutcome: channeldb.ResolverOutcomeTimeout,
+		SpendTxID:       spendTxID,
+	}
+
+	h.reportLock.Lock()
+	previousReport := h.currentReport
+	h.currentReport.RecoveredBalance = 0
+	h.currentReport.LimboBalance = 0
+	h.reportLock.Unlock()
+
+	// A foreign spend leaves no second-level success output to sweep.
+	previousIncubating := h.outputIncubating
+	h.outputIncubating = false
+	h.markResolved()
+
+	if err := h.Checkpoint(h, report); err != nil {
+		h.outputIncubating = previousIncubating
+		h.resolved.Store(false)
+
+		h.reportLock.Lock()
+		h.currentReport = previousReport
+		h.reportLock.Unlock()
+
+		return err
+	}
+
+	h.ChainArbitratorConfig.HtlcNotifier.NotifyFinalHtlcEvent(
+		models.CircuitKey{
+			ChanID: h.ShortChanID,
+			HtlcID: h.htlc.HtlcIndex,
+		},
+		channeldb.FinalHtlcInfo{
+			Settled:  false,
+			Offchain: false,
+		},
+	)
+
+	return nil
+}
+
 // Stop signals the resolver to cancel any current resolution processes, and
 // suspend.
 //
@@ -629,6 +691,16 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 		return err
 	}
 
+	secondLevelOutpoint, matches, err := h.matchSecondLevelOutput(
+		commitSpend,
+	)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		return nil
+	}
+
 	// The HTLC success tx has a CSV lock that we must wait for, and if
 	// this is a lease enforced channel and we're the imitator, we may need
 	// to wait for longer.
@@ -642,14 +714,6 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	h.currentReport.Stage = 2
 	h.currentReport.MaturityHeight = waitHeight
 	h.reportLock.Unlock()
-
-	// We'll use this input index to determine the second-level output index
-	// on the transaction, as the signatures require the indexes to be the
-	// same.
-	op := wire.OutPoint{
-		Hash:  *commitSpend.SpenderTxHash,
-		Index: commitSpend.SpenderInputIndex,
-	}
 
 	if h.hasCLTV() {
 		log.Infof("%T(%x): waiting for CSV and CLTV lock to expire at "+
@@ -671,7 +735,7 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 		witType = input.HtlcAcceptedSuccessSecondLevel
 	}
 	inp := h.makeSweepInput(
-		&op, witType,
+		&secondLevelOutpoint, witType,
 		input.LeaseHtlcAcceptedSuccessSecondLevel,
 		&h.htlcResolution.SweepSignDesc,
 		h.htlcResolution.CsvDelay, uint32(commitSpend.SpendingHeight),
@@ -770,16 +834,21 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 		return err
 	}
 
-	op := wire.OutPoint{
-		Hash:  *commitSpend.SpenderTxHash,
-		Index: commitSpend.SpenderInputIndex,
+	secondLevelOutpoint, matches, err := h.matchSecondLevelOutput(
+		commitSpend,
+	)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		return h.checkpointForeignSpend(commitSpend)
 	}
 
 	// If the 2nd-stage sweeping has already been started, we can
 	// fast-forward to start the resolving process for the stage two
 	// output.
 	if h.outputIncubating {
-		return h.resolveSuccessTxOutput(op)
+		return h.resolveSuccessTxOutput(secondLevelOutpoint)
 	}
 
 	// Now that the second-level transaction has confirmed, we checkpoint
@@ -798,7 +867,7 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 		return err
 	}
 
-	return h.resolveSuccessTxOutput(op)
+	return h.resolveSuccessTxOutput(secondLevelOutpoint)
 }
 
 // resolveSuccessTxOutput waits for the spend of the output from the 2nd-level

@@ -2630,6 +2630,10 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 	log.Tracef("ChannelArbitrator(%v): attempting to resolve %T",
 		c.cfg.ChanPoint, currentContract)
 
+	// retryAttempt tracks consecutive transient Resolve() errors for
+	// exponential backoff. Reset to zero on any successful Resolve().
+	retryAttempt := 0
+
 	// Until the contract is fully resolved, we'll continue to iteratively
 	// resolve the contract one step at a time.
 	for !currentContract.IsResolved() {
@@ -2651,11 +2655,33 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 					return
 				}
 
+				// Instead of exiting the goroutine permanently
+				// on transient errors, retry with exponential
+				// backoff. This prevents silent resolver death
+				// from transient failures like brief bitcoind
+				// restarts or ZMQ disconnects, which could
+				// leave HTLC outputs completely unwatched.
 				log.Errorf("ChannelArbitrator(%v): unable to "+
-					"progress %T: %v",
-					c.cfg.ChanPoint, currentContract, err)
-				return
+					"progress %T: %v (retry in %v, "+
+					"attempt %d)",
+					c.cfg.ChanPoint, currentContract, err,
+					resolverRetryBackoff(retryAttempt),
+					retryAttempt+1)
+
+				select {
+				case <-time.After(
+					resolverRetryBackoff(retryAttempt),
+				):
+				case <-c.quit:
+					return
+				}
+
+				retryAttempt++
+				continue
 			}
+
+			// Resolve succeeded, reset retry counter.
+			retryAttempt = 0
 
 			switch {
 			// If this contract produced another, then this means

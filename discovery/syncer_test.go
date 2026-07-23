@@ -2570,6 +2570,183 @@ func TestGossipSyncerMaxChannelRangeReplies(t *testing.T) {
 	}, nil))
 }
 
+// TestGossipSyncerMaxChannelRangeSCIDs ensures that a gossip syncer rejects a
+// range response once the aggregate number of short channel IDs exceeds its
+// resource limit.
+func TestGossipSyncerMaxChannelRangeSCIDs(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	_, syncer, _ := newTestSyncer(
+		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
+		defaultEncoding, defaultChunkSize,
+	)
+
+	query, err := syncer.genChanRangeQuery(ctx, true)
+	require.NoError(t, err)
+
+	scids := make([]lnwire.ShortChannelID, defaultChunkSize)
+	for i := range scids {
+		scids[i] = lnwire.NewShortChanIDFromInt(uint64(i))
+	}
+
+	reply := &lnwire.ReplyChannelRange{
+		ChainHash:        query.ChainHash,
+		FirstBlockHeight: query.FirstBlockHeight,
+		NumBlocks:        query.NumBlocks,
+		EncodingType:     lnwire.EncodingSortedPlain,
+		ShortChanIDs:     scids,
+	}
+
+	numFullReplies := maxChanRangeReplySCIDs / len(scids)
+	for i := 0; i < numFullReplies; i++ {
+		require.NoError(t, syncer.processChanRangeReply(ctx, reply))
+	}
+
+	require.Len(
+		t, syncer.bufferedChanRangeReplies,
+		numFullReplies*len(scids),
+	)
+
+	numRemaining := maxChanRangeReplySCIDs -
+		numFullReplies*len(scids)
+	reply.ShortChanIDs = scids[:numRemaining]
+	require.NoError(t, syncer.processChanRangeReply(ctx, reply))
+	require.Len(
+		t, syncer.bufferedChanRangeReplies,
+		maxChanRangeReplySCIDs,
+	)
+
+	reply.ShortChanIDs = []lnwire.ShortChannelID{
+		lnwire.NewShortChanIDFromInt(uint64(len(scids))),
+	}
+	err = syncer.processChanRangeReply(ctx, reply)
+	require.ErrorContains(
+		t, err, "exceeds maximum number of short channel IDs",
+	)
+	require.Empty(t, syncer.bufferedChanRangeReplies)
+	require.Zero(t, syncer.numChanRangeReplySCIDsRcvd)
+	require.Nil(t, syncer.curQueryRangeMsg)
+}
+
+// TestGossipSyncerChanRangeReplyNoQuery ensures that a range reply which
+// arrives without an active query is rejected rather than dereferencing the
+// nil query.
+func TestGossipSyncerChanRangeReplyNoQuery(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	_, syncer, _ := newTestSyncer(
+		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
+		defaultEncoding, defaultChunkSize,
+	)
+
+	// Note that we deliberately skip genChanRangeQuery here, so
+	// curQueryRangeMsg is still nil.
+	require.Nil(t, syncer.curQueryRangeMsg)
+
+	err := syncer.processChanRangeReply(ctx, &lnwire.ReplyChannelRange{
+		FirstBlockHeight: 0,
+		NumBlocks:        100,
+		EncodingType:     lnwire.EncodingSortedPlain,
+		ShortChanIDs: []lnwire.ShortChannelID{
+			lnwire.NewShortChanIDFromInt(1),
+		},
+	})
+	require.ErrorContains(t, err, "without an active query")
+}
+
+// TestGossipSyncerCountsReceivedEncoding ensures that compressed range
+// replies consume the larger reply budget even when the local syncer uses
+// plain encoding.
+func TestGossipSyncerCountsReceivedEncoding(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	_, syncer, _ := newTestSyncer(
+		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
+		defaultEncoding, defaultChunkSize,
+	)
+
+	query, err := syncer.genChanRangeQuery(ctx, true)
+	require.NoError(t, err)
+
+	reply := &lnwire.ReplyChannelRange{
+		ChainHash:        query.ChainHash,
+		FirstBlockHeight: query.FirstBlockHeight,
+		NumBlocks:        query.NumBlocks,
+		EncodingType:     lnwire.EncodingSortedZlib,
+	}
+	require.NoError(t, syncer.processChanRangeReply(ctx, reply))
+	require.Equal(
+		t, uint32(maxQueryChanRangeRepliesZlibFactor),
+		syncer.numChanRangeRepliesRcvd,
+	)
+}
+
+// deliverOverBudgetRangeReply waits for the syncer to send its initial range
+// query, then answers it with a single reply that overruns the aggregate SCID
+// budget. Sending the query is what populates curQueryRangeMsg and moves the
+// syncer into waitingQueryRangeReply, both of which ProcessQueryMsg requires.
+func deliverOverBudgetRangeReply(t *testing.T, syncer *GossipSyncer,
+	msgChan chan []lnwire.Message) {
+
+	t.Helper()
+
+	var query *lnwire.QueryChannelRange
+	select {
+	case msgs := <-msgChan:
+		require.Len(t, msgs, 1)
+
+		q, ok := msgs[0].(*lnwire.QueryChannelRange)
+		require.True(t, ok)
+		query = q
+
+	case <-time.After(time.Second):
+		t.Fatal("expected query channel range request msg")
+	}
+
+	scids := make([]lnwire.ShortChannelID, maxChanRangeReplySCIDs+1)
+	for i := range scids {
+		scids[i] = lnwire.NewShortChanIDFromInt(uint64(i))
+	}
+
+	// Complete is set so that, absent the budget check, this reply would be
+	// taken as the final one and carry on to the completion path. That is
+	// what lets assertRangeSyncAborted tell the two apart.
+	reply := &lnwire.ReplyChannelRange{
+		ChainHash:        query.ChainHash,
+		FirstBlockHeight: query.FirstBlockHeight,
+		NumBlocks:        query.NumBlocks,
+		Complete:         1,
+		EncodingType:     lnwire.EncodingSortedPlain,
+		ShortChanIDs:     scids,
+	}
+	require.NoError(t, syncer.ProcessQueryMsg(reply, nil))
+}
+
+// assertRangeSyncAborted asserts that the syncer bailed out of its range sync
+// rather than treating the reply stream as complete. Reaching the completion
+// path would filter the buffered SCIDs against our local graph, so the absence
+// of that request is what tells us the sync was torn down instead.
+//
+// NOTE: we cannot instead wait on the syncer's wait group, as ContextGuard
+// holds a reference on it until the syncer is signalled to quit.
+func assertRangeSyncAborted(t *testing.T, syncer *GossipSyncer) {
+	t.Helper()
+
+	series, ok := syncer.cfg.channelSeries.(*mockChannelGraphTimeSeries)
+	require.True(t, ok)
+
+	select {
+	case <-series.filterReq:
+		t.Fatal("syncer treated an over-budget reply stream as a " +
+			"completed response")
+
+	default:
+	}
+}
+
 // TestGossipSyncerStateHandlerErrors tests that errors in state handlers cause
 // the channelGraphSyncer goroutine to exit cleanly without endless retry loops.
 // This is a table-driven test covering various error types and states.
@@ -2582,6 +2759,16 @@ func TestGossipSyncerStateHandlerErrors(t *testing.T) {
 		setupState  func(*GossipSyncer)
 		chunkSize   int32
 		injectedErr error
+
+		// deliverMsg, if set, is run after the syncer has been started
+		// and is used to drive the syncer into an error through the
+		// public message path rather than through sendMsg injection.
+		deliverMsg func(*testing.T, *GossipSyncer,
+			chan []lnwire.Message)
+
+		// assertOutcome, if set, asserts the terminal state the syncer
+		// is left in once its goroutine has stopped.
+		assertOutcome func(*testing.T, *GossipSyncer)
 	}{
 		{
 			name:        "context cancel during syncingChans",
@@ -2622,6 +2809,41 @@ func TestGossipSyncerStateHandlerErrors(t *testing.T) {
 				}
 			},
 		},
+		{
+			// Unlike the cases above, this one drives the error in
+			// through ProcessQueryMsg so that we exercise the
+			// syncer's lifecycle rather than calling
+			// processChanRangeReply directly. The syncer starts in
+			// syncingChans and moves itself into
+			// waitingQueryRangeReply once it has sent its query.
+			name:        "SCID budget exceeded while waiting",
+			state:       syncingChans,
+			chunkSize:   defaultChunkSize,
+			injectedErr: nil,
+			setupState:  func(s *GossipSyncer) {},
+			deliverMsg:  deliverOverBudgetRangeReply,
+			assertOutcome: func(t *testing.T, s *GossipSyncer) {
+				// The budget check must abort the sync rather
+				// than let the partial stream be taken as a
+				// completed response.
+				//
+				// NOTE: the release of the buffered reply
+				// state is asserted by
+				// TestGossipSyncerMaxChannelRangeSCIDs, which
+				// can read those fields directly without
+				// racing the syncer's own goroutine.
+				assertRangeSyncAborted(t, s)
+
+				// NOTE: the syncer is left in
+				// waitingQueryRangeReply with no live handler.
+				// That matches how every other terminal error
+				// in this state machine behaves today.
+				require.Equal(
+					t, waitingQueryRangeReply,
+					s.syncState(),
+				)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -2630,7 +2852,7 @@ func TestGossipSyncerStateHandlerErrors(t *testing.T) {
 
 			// Create syncer with error injection capability.
 			hID := lnwire.NewShortChanIDFromInt(10)
-			syncer, errInj, _ := newErrorInjectingSyncer(
+			syncer, errInj, msgChan := newErrorInjectingSyncer(
 				hID, tt.chunkSize,
 			)
 
@@ -2645,6 +2867,12 @@ func TestGossipSyncerStateHandlerErrors(t *testing.T) {
 			// Start the syncer which spawns the channelGraphSyncer
 			// goroutine.
 			syncer.Start()
+
+			// If this case drives its error in over the wire, do
+			// so now that the goroutine is running.
+			if tt.deliverMsg != nil {
+				tt.deliverMsg(t, syncer, msgChan)
+			}
 
 			// Wait long enough that an endless loop would
 			// accumulate many attempts. With the fix, we should
@@ -2666,6 +2894,12 @@ func TestGossipSyncerStateHandlerErrors(t *testing.T) {
 					"not fixed",
 				attemptCount,
 			)
+
+			// Verify the terminal state, if this case cares about
+			// it, before we signal the syncer to quit.
+			if tt.assertOutcome != nil {
+				tt.assertOutcome(t, syncer)
+			}
 
 			// Verify the syncer exits cleanly without hanging.
 			assertSyncerExitsCleanly(t, syncer, 2*time.Second)

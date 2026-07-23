@@ -1251,6 +1251,7 @@ func (s *Switch) failAddPacket(packet *htlcPacket, failure *LinkError) error {
 		incomingChanID:  packet.incomingChanID,
 		incomingHTLCID:  packet.incomingHTLCID,
 		outgoingChanID:  packet.outgoingChanID,
+		outgoingHop:     packet.outgoingHop,
 		outgoingHTLCID:  packet.outgoingHTLCID,
 		incomingAmount:  packet.incomingAmount,
 		amount:          packet.amount,

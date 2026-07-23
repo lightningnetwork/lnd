@@ -132,6 +132,13 @@ type GlobalFwdPkgReader interface {
 	// channel.
 	LoadChannelFwdPkgs(tx kvdb.RTx,
 		source lnwire.ShortChannelID) ([]*FwdPkg, error)
+
+	// LoadChannelFwdPkgsSet loads all known forwarding packages for the
+	// given set of channels within a single read transaction. The result
+	// is a flat slice across all channels. Each returned FwdPkg carries
+	// its originating channel via its Source field.
+	LoadChannelFwdPkgsSet(tx kvdb.RTx,
+		sources []lnwire.ShortChannelID) ([]*FwdPkg, error)
 }
 
 // FwdOperator defines the interfaces for managing forwarding packages that are
@@ -172,6 +179,16 @@ func (*SwitchPackager) LoadChannelFwdPkgs(tx kvdb.RTx,
 	source lnwire.ShortChannelID) ([]*FwdPkg, error) {
 
 	return loadChannelFwdPkgs(tx, source)
+}
+
+// LoadChannelFwdPkgsSet loads all forwarding packages for the provided set of
+// channels using a single read transaction. The returned slice contains the
+// fwd pkgs for all channels concatenated together; each FwdPkg carries its
+// originating channel via its Source field.
+func (*SwitchPackager) LoadChannelFwdPkgsSet(tx kvdb.RTx,
+	sources []lnwire.ShortChannelID) ([]*FwdPkg, error) {
+
+	return loadChannelFwdPkgsSet(tx, sources)
 }
 
 // FwdPackager supports all operations required to modify fwd packages, such as
@@ -350,6 +367,67 @@ func loadChannelFwdPkgs(tx kvdb.RTx, source lnwire.ShortChannelID) ([]*FwdPkg, e
 	}
 
 	return fwdPkgs, nil
+}
+
+// loadChannelFwdPkgsSet loads all forwarding packages for the provided set of
+// channels using a single read transaction. The returned slice contains the
+// fwd pkgs across all channels concatenated together; each FwdPkg carries its
+// originating channel via its Source field.
+//
+// This is the batched equivalent of calling loadChannelFwdPkgs in a loop, each
+// within its own db transaction. By amortizing the cost of opening a read
+// transaction across many channels, this is materially faster when reading
+// fwd pkgs for a large number of channels (1k+), particularly on remote-tx
+// backends such as etcd or postgres where each transaction carries network
+// round-trip overhead.
+func loadChannelFwdPkgsSet(tx kvdb.RTx,
+	sources []lnwire.ShortChannelID) ([]*FwdPkg, error) {
+
+	fwdPkgBkt := tx.ReadBucket(fwdPackagesKey)
+	if fwdPkgBkt == nil {
+		return nil, nil
+	}
+
+	// Pre-size optimistically assuming most channels carry one fwd pkg.
+	// The slice will grow as needed but this avoids early reallocations
+	// for the common case.
+	result := make([]*FwdPkg, 0, len(sources))
+
+	// heights is reused across channels to avoid per-channel slice
+	// allocation churn.
+	var heights []uint64
+	for _, source := range sources {
+		sourceKey := makeLogKey(source.ToUint64())
+		sourceBkt := fwdPkgBkt.NestedReadBucket(sourceKey[:])
+		if sourceBkt == nil {
+			continue
+		}
+
+		heights = heights[:0]
+		err := sourceBkt.ForEach(func(k, _ []byte) error {
+			if len(k) != 8 {
+				return ErrCorruptedFwdPkg
+			}
+
+			heights = append(heights, byteOrder.Uint64(k))
+
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		for _, height := range heights {
+			fwdPkg, err := loadFwdPkg(fwdPkgBkt, source, height)
+			if err != nil {
+				return nil, err
+			}
+
+			result = append(result, fwdPkg)
+		}
+	}
+
+	return result, nil
 }
 
 // loadFwdPkg reads the packager's fwd pkg at a given height, and determines the

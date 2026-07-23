@@ -240,6 +240,15 @@ func assertResolversEqual(t *testing.T, originalResolver ContractResolver,
 			t.Fatalf("expected %v, got %v", ogRes.htlc.RHash,
 				diskRes.htlc.RHash)
 		}
+		if !reflect.DeepEqual(
+			ogRes.confirmedSuccessTx, diskRes.confirmedSuccessTx,
+		) {
+
+			t.Fatalf(
+				"expected %v, got %v", ogRes.confirmedSuccessTx,
+				diskRes.confirmedSuccessTx,
+			)
+		}
 	}
 
 	switch ogRes := originalResolver.(type) {
@@ -319,6 +328,7 @@ func TestContractInsertionRetrieval(t *testing.T) {
 	}
 	timeoutResolver.resolved.Store(true)
 
+	confirmedSuccessTx := chainhash.Hash{1, 2, 3}
 	successResolver := &htlcSuccessResolver{
 		htlcResolution: lnwallet.IncomingHtlcResolution{
 			Preimage:        testPreimage,
@@ -327,8 +337,9 @@ func TestContractInsertionRetrieval(t *testing.T) {
 			ClaimOutpoint:   randOutPoint(),
 			SweepSignDesc:   testSignDesc,
 		},
-		outputIncubating: true,
-		broadcastHeight:  109,
+		outputIncubating:   true,
+		confirmedSuccessTx: &confirmedSuccessTx,
+		broadcastHeight:    109,
 		htlc: channeldb.HTLC{
 			RHash: testPreimage,
 		},

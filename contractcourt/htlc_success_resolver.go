@@ -3,6 +3,7 @@ package contractcourt
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -45,6 +46,11 @@ type htlcSuccessResolver struct {
 	// second-level tx (false) or if it has confirmed and we must sweep the
 	// second-level output (true).
 	outputIncubating bool
+
+	// confirmedSuccessTx is the transaction that spent the commitment HTLC
+	// and created the second-level success output. It may differ from the
+	// canned transaction after sweeper re-signing or aggregation.
+	confirmedSuccessTx *chainhash.Hash
 
 	// broadcastHeight is the height that the original contract was
 	// broadcast to the main-chain at. We'll use this value to bound any
@@ -183,7 +189,9 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() error {
 	h.reportLock.Unlock()
 
 	// Checkpoint the resolver, and write the outcome to disk.
-	return h.checkpointClaim(sweepTxDetails.SpenderTxHash)
+	return h.checkpointClaim(
+		h.htlcResolution.ClaimOutpoint, sweepTxDetails.SpenderTxHash,
+	)
 }
 
 // isRemoteCommitSuccessSpend returns true when a remote commitment HTLC was
@@ -209,7 +217,9 @@ func (h *htlcSuccessResolver) isRemoteCommitSuccessSpend(
 // checkpointClaim checkpoints the success resolver with the reports it needs.
 // If this htlc was claimed two stages, it will write reports for both stages,
 // otherwise it will just write for the single htlc claim.
-func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash) error {
+func (h *htlcSuccessResolver) checkpointClaim(claimOutpoint wire.OutPoint,
+	spendTx *chainhash.Hash) error {
+
 	// Mark the htlc as final settled.
 	err := h.ChainArbitratorConfig.PutFinalHtlcOutcome(
 		h.ChannelArbitratorConfig.ShortChanID, h.htlc.HtlcIndex, true,
@@ -234,7 +244,7 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash) error {
 	amt := btcutil.Amount(h.htlcResolution.SweepSignDesc.Output.Value)
 	reports := []*channeldb.ResolverReport{
 		{
-			OutPoint:        h.htlcResolution.ClaimOutpoint,
+			OutPoint:        claimOutpoint,
 			Amount:          amt,
 			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 			ResolverOutcome: channeldb.ResolverOutcomeClaimed,
@@ -248,15 +258,19 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash) error {
 		// If the SignedSuccessTx is not nil, we are claiming the htlc
 		// in two stages, so we need to create a report for the first
 		// stage transaction as well.
-		spendTx := h.htlcResolution.SignedSuccessTx
-		spendTxID := spendTx.TxHash()
+		successTx := h.htlcResolution.SignedSuccessTx
+		spendTxID := h.confirmedSuccessTx
+		if spendTxID == nil {
+			fallback := successTx.TxHash()
+			spendTxID = &fallback
+		}
 
 		report := &channeldb.ResolverReport{
-			OutPoint:        spendTx.TxIn[0].PreviousOutPoint,
+			OutPoint:        successTx.TxIn[0].PreviousOutPoint,
 			Amount:          h.htlc.Amt.ToSatoshis(),
 			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 			ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
-			SpendTxID:       &spendTxID,
+			SpendTxID:       spendTxID,
 		}
 		reports = append(reports, report)
 	}
@@ -397,9 +411,13 @@ func (h *htlcSuccessResolver) Encode(w io.Writer) error {
 		return err
 	}
 
-	// We encode the sign details last for backwards compatibility.
+	// We encode the sign details before newer trailing fields for backwards
+	// compatibility with older resolver encodings that ended here.
 	err := encodeSignDetails(w, h.htlcResolution.SignDetails)
 	if err != nil {
+		return err
+	}
+	if err := encodeOptionalHash(w, h.confirmedSuccessTx); err != nil {
 		return err
 	}
 
@@ -452,10 +470,52 @@ func newSuccessResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 		return nil, err
 	}
 
+	confirmedSuccessTx, err := decodeOptionalHash(r)
+	if err == nil {
+		h.confirmedSuccessTx = confirmedSuccessTx
+	} else if !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+
 	h.initReport()
 	h.initLogger(fmt.Sprintf("%T(%v)", h, h.outpoint()))
 
 	return h, nil
+}
+
+func encodeOptionalHash(w io.Writer, hash *chainhash.Hash) error {
+	if hash == nil {
+		return binary.Write(w, endian, false)
+	}
+
+	if err := binary.Write(w, endian, true); err != nil {
+		return err
+	}
+
+	_, err := w.Write(hash[:])
+
+	return err
+}
+
+func decodeOptionalHash(r io.Reader) (*chainhash.Hash, error) {
+	var present bool
+	if err := binary.Read(r, endian, &present); err != nil {
+		return nil, err
+	}
+	if !present {
+		return nil, nil
+	}
+
+	var hash chainhash.Hash
+	if _, err := io.ReadFull(r, hash[:]); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, io.ErrUnexpectedEOF
+		}
+
+		return nil, err
+	}
+
+	return &hash, nil
 }
 
 // Supplement adds additional information to the resolver that is required
@@ -770,6 +830,7 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	if !matches {
 		return nil
 	}
+	h.recordConfirmedSuccessTx(commitSpend)
 
 	// The HTLC success tx has a CSV lock that we must wait for, and if
 	// this is a lease enforced channel and we're the imitator, we may need
@@ -781,6 +842,7 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	// the second level output. We report the resolver has moved the next
 	// stage.
 	h.reportLock.Lock()
+	h.currentReport.Outpoint = secondLevelOutpoint
 	h.currentReport.Stage = 2
 	h.currentReport.MaturityHeight = waitHeight
 	h.reportLock.Unlock()
@@ -913,6 +975,7 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 	if !matches {
 		return h.checkpointForeignSpend(commitSpend)
 	}
+	h.recordConfirmedSuccessTx(commitSpend)
 
 	// If the 2nd-stage sweeping has already been started, we can
 	// fast-forward to start the resolving process for the stage two
@@ -962,7 +1025,16 @@ func (h *htlcSuccessResolver) resolveSuccessTxOutput(op wire.OutPoint) error {
 	h.currentReport.LimboBalance = 0
 	h.reportLock.Unlock()
 
-	return h.checkpointClaim(spend.SpenderTxHash)
+	return h.checkpointClaim(op, spend.SpenderTxHash)
+}
+
+// recordConfirmedSuccessTx stores the observed first-stage txid for reports
+// written after a re-signed or aggregated success transaction confirms.
+func (h *htlcSuccessResolver) recordConfirmedSuccessTx(
+	commitSpend *chainntnfs.SpendDetail) {
+
+	spendTxID := *commitSpend.SpenderTxHash
+	h.confirmedSuccessTx = &spendTxID
 }
 
 // Launch creates an input based on the details of the incoming htlc resolution

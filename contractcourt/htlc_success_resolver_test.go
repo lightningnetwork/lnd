@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"testing"
 	"time"
@@ -463,11 +464,14 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 		Amount:          testHtlcAmt.ToSatoshis(),
 		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 		ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
-		SpendTxID:       &successHash,
+		SpendTxID:       &reSignedHash,
 	}
 
 	secondStage := &channeldb.ResolverReport{
-		OutPoint:        htlcOutpoint,
+		OutPoint: wire.OutPoint{
+			Hash:  reSignedHash,
+			Index: 1,
+		},
 		Amount:          btcutil.Amount(testSignDesc.Output.Value),
 		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 		ResolverOutcome: channeldb.ResolverOutcomeClaimed,
@@ -672,6 +676,37 @@ func TestHtlcSuccessForeignSpendCheckpointError(t *testing.T) {
 	require.True(t, resolver.outputIncubating)
 	require.Equal(t, previousReport, resolver.currentReport)
 	require.Empty(t, ctx.htlcNotifier.finalHtlcEvents)
+}
+
+// TestHtlcSuccessRejectsTruncatedTxID tests that a partially persisted
+// confirmed success txid is not mistaken for a legacy resolver encoding.
+func TestHtlcSuccessRejectsTruncatedTxID(t *testing.T) {
+	t.Parallel()
+
+	confirmedSuccessTx := chainhash.Hash{1, 2, 3}
+	resolver := &htlcSuccessResolver{
+		htlcResolution: lnwallet.IncomingHtlcResolution{
+			Preimage:      testResPreimage,
+			ClaimOutpoint: randOutPoint(),
+			SweepSignDesc: testSignDesc,
+		},
+		confirmedSuccessTx: &confirmedSuccessTx,
+		htlc: channeldb.HTLC{
+			RHash: testResHash,
+		},
+	}
+
+	var encoded bytes.Buffer
+	require.NoError(t, resolver.Encode(&encoded))
+
+	serialized := encoded.Bytes()
+	for _, missingBytes := range []int{1, chainhash.HashSize} {
+		truncated := serialized[:len(serialized)-missingBytes]
+		_, err := newSuccessResolverFromReader(
+			bytes.NewReader(truncated), ResolverConfig{},
+		)
+		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	}
 }
 
 // TestHtlcSuccessMatchSecondLevelOutput tests that malformed spend details are

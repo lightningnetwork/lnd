@@ -1,6 +1,7 @@
 package contractcourt
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -432,6 +434,70 @@ func (h *htlcSuccessResolver) isTaprootFinal() bool {
 	return h.chanType.IsTaprootFinal()
 }
 
+// matchSecondLevelOutput checks whether the transaction spending the
+// commitment HTLC created the output expected by our sweep descriptor. The
+// boolean is false for a well-formed foreign spend, while malformed internal
+// data is returned as an error.
+//
+// The HTLC input uses SINGLE|ANYONECANPAY, so it commits to the transaction
+// output at the same index.
+func (h *htlcSuccessResolver) matchSecondLevelOutput(
+	commitSpend *chainntnfs.SpendDetail) (wire.OutPoint, bool, error) {
+
+	// The notifier should include the spending transaction and txid for an
+	// observed HTLC spend. These nil checks are defensive: without those
+	// details, we cannot prove that the spend created our success output.
+	if commitSpend == nil {
+		return wire.OutPoint{}, false, fmt.Errorf(
+			"missing spend detail for HTLC outpoint %v", h.outpoint(),
+		)
+	}
+
+	if commitSpend.SpendingTx == nil {
+		return wire.OutPoint{}, false, fmt.Errorf(
+			"missing spending tx for HTLC outpoint %v", h.outpoint(),
+		)
+	}
+
+	if commitSpend.SpenderTxHash == nil {
+		return wire.OutPoint{}, false, fmt.Errorf(
+			"missing spender txid for HTLC outpoint %v", h.outpoint(),
+		)
+	}
+
+	outputIndex := commitSpend.SpenderInputIndex
+
+	// The success output should be at the same index as the HTLC input
+	// being spent. If that output is missing, this cannot be our success
+	// tx.
+	if outputIndex >= uint32(len(commitSpend.SpendingTx.TxOut)) {
+		return wire.OutPoint{}, false, nil
+	}
+
+	expected := h.htlcResolution.SweepSignDesc.Output
+	if expected == nil {
+		return wire.OutPoint{}, false, fmt.Errorf(
+			"missing expected output for %v", h.outpoint(),
+		)
+	}
+
+	actual := commitSpend.SpendingTx.TxOut[outputIndex]
+
+	// The spender consumed the HTLC, but only an exact value/script match
+	// gives us a second-level success output that our sweep descriptor can
+	// spend.
+	if actual.Value != expected.Value ||
+		!bytes.Equal(actual.PkScript, expected.PkScript) {
+
+		return wire.OutPoint{}, false, nil
+	}
+
+	return wire.OutPoint{
+		Hash:  *commitSpend.SpenderTxHash,
+		Index: outputIndex,
+	}, true, nil
+}
+
 // sweepRemoteCommitOutput creates a sweep request to sweep the HTLC output on
 // the remote commitment via the direct preimage-spend.
 func (h *htlcSuccessResolver) sweepRemoteCommitOutput() error {
@@ -545,7 +611,8 @@ func (h *htlcSuccessResolver) sweepSuccessTx() error {
 }
 
 // sweepSuccessTxOutput attempts to sweep the output of the second level
-// success tx.
+// success tx. If the second-level success output cannot be found, Resolve will
+// checkpoint the foreign spend through the normal resolver-removal path.
 func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	h.log.Debugf("sweeping output %v from 2nd-level HTLC success tx",
 		h.htlcResolution.ClaimOutpoint)
@@ -576,22 +643,20 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	h.currentReport.MaturityHeight = waitHeight
 	h.reportLock.Unlock()
 
+	// We'll use this input index to determine the second-level output index
+	// on the transaction, as the signatures require the indexes to be the
+	// same.
+	op := wire.OutPoint{
+		Hash:  *commitSpend.SpenderTxHash,
+		Index: commitSpend.SpenderInputIndex,
+	}
+
 	if h.hasCLTV() {
 		log.Infof("%T(%x): waiting for CSV and CLTV lock to expire at "+
 			"height %v", h, h.htlc.RHash[:], waitHeight)
 	} else {
 		log.Infof("%T(%x): waiting for CSV lock to expire at height %v",
 			h, h.htlc.RHash[:], waitHeight)
-	}
-
-	// We'll use this input index to determine the second-level output
-	// index on the transaction, as the signatures requires the indexes to
-	// be the same. We don't look for the second-level output script
-	// directly, as there might be more than one HTLC output to the same
-	// pkScript.
-	op := &wire.OutPoint{
-		Hash:  *commitSpend.SpenderTxHash,
-		Index: commitSpend.SpenderInputIndex,
 	}
 
 	// Let the sweeper sweep the second-level output now that the
@@ -606,7 +671,7 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 		witType = input.HtlcAcceptedSuccessSecondLevel
 	}
 	inp := h.makeSweepInput(
-		op, witType,
+		&op, witType,
 		input.LeaseHtlcAcceptedSuccessSecondLevel,
 		&h.htlcResolution.SweepSignDesc,
 		h.htlcResolution.CsvDelay, uint32(commitSpend.SpendingHeight),
@@ -705,11 +770,6 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 		return err
 	}
 
-	// We'll use this input index to determine the second-level output
-	// index on the transaction, as the signatures requires the indexes to
-	// be the same. We don't look for the second-level output script
-	// directly, as there might be more than one HTLC output to the same
-	// pkScript.
 	op := wire.OutPoint{
 		Hash:  *commitSpend.SpenderTxHash,
 		Index: commitSpend.SpenderInputIndex,
@@ -792,8 +852,10 @@ func (h *htlcSuccessResolver) Launch() error {
 	// second-level success tx or the output from the second-level success
 	// tx.
 	case h.isZeroFeeOutput():
-		// If the second-level success tx has already been swept, we
-		// can go ahead and sweep its output.
+		// If the second-level success tx has already confirmed, Launch
+		// can offer the output to the sweeper. It must not checkpoint a
+		// terminal foreign spend because launchResolvers runs before
+		// resolveContract.
 		if h.outputIncubating {
 			return h.sweepSuccessTxOutput()
 		}

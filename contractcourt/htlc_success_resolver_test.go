@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
-	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -324,7 +323,6 @@ func TestHtlcSuccessSecondStageResolution(t *testing.T) {
 //nolint:ll
 func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 	commitOutpoint := wire.OutPoint{Index: 2}
-	htlcOutpoint := wire.OutPoint{Index: 3}
 
 	successTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
@@ -333,43 +331,37 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 			},
 		},
 		TxOut: []*wire.TxOut{
-			{
-				Value:    123,
-				PkScript: []byte{0xff, 0xff},
-			},
+			cloneTxOut(testSignDesc.Output),
 		},
+	}
+	successHash := successTx.TxHash()
+	htlcOutpoint := wire.OutPoint{
+		Hash:  successHash,
+		Index: 0,
 	}
 
 	reSignedSuccessTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
 			{
-				PreviousOutPoint: wire.OutPoint{
-					Hash:  chainhash.Hash{0xaa, 0xbb},
-					Index: 0,
-				},
+				PreviousOutPoint: wire.OutPoint{Index: 10},
 			},
 			successTx.TxIn[0],
 			{
-				PreviousOutPoint: wire.OutPoint{
-					Hash:  chainhash.Hash{0xaa, 0xbb},
-					Index: 2,
-				},
+				PreviousOutPoint: wire.OutPoint{Index: 11},
 			},
 		},
-
 		TxOut: []*wire.TxOut{
 			{
 				Value:    111,
 				PkScript: []byte{0xaa, 0xaa},
 			},
-			successTx.TxOut[0],
+			cloneTxOut(successTx.TxOut[0]),
 		},
 	}
-	reSignedHash := successTx.TxHash()
+	reSignedHash := reSignedSuccessTx.TxHash()
 
 	sweepTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
-
 			{
 				PreviousOutPoint: wire.OutPoint{
 					Hash:  reSignedHash,
@@ -400,7 +392,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 		Amount:          testHtlcAmt.ToSatoshis(),
 		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 		ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
-		SpendTxID:       &reSignedHash,
+		SpendTxID:       &successHash,
 	}
 
 	secondStage := &channeldb.ResolverReport{
@@ -532,6 +524,15 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 	}
 
 	testHtlcSuccess(t, twoStageResolution, checkpoints)
+}
+
+// cloneTxOut returns a copy of a transaction output.
+func cloneTxOut(txOut *wire.TxOut) *wire.TxOut {
+	pkScript := append([]byte(nil), txOut.PkScript...)
+	return &wire.TxOut{
+		Value:    txOut.Value,
+		PkScript: pkScript,
+	}
 }
 
 // checkpoint holds expected data we expect the resolver to checkpoint itself

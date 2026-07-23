@@ -2668,7 +2668,10 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 				htlcBlob = fn.Some(blob)
 			}
 
-			return l.AuxBandwidth(amt, originalScid, htlcBlob, ts)
+			// Check if this link can handle the traffic.
+			return l.AuxBandwidth(
+				amt, l.ShortChanID(), htlcBlob, ts,
+			)
 		},
 	).Unpack()
 	if externalErr != nil {

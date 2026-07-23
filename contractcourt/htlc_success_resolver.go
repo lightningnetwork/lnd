@@ -191,21 +191,9 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() error {
 func (h *htlcSuccessResolver) isRemoteCommitSuccessSpend(
 	spend *chainntnfs.SpendDetail) (bool, error) {
 
-	if spend == nil || spend.SpendingTx == nil ||
-		spend.SpenderTxHash == nil {
-
-		return false, fmt.Errorf("incomplete remote HTLC spend details")
-	}
-
-	inputIndex := spend.SpenderInputIndex
-	if inputIndex >= uint32(len(spend.SpendingTx.TxIn)) {
-		return false, fmt.Errorf("remote HTLC spend input %d missing",
-			inputIndex)
-	}
-
-	spendingInput := spend.SpendingTx.TxIn[inputIndex]
-	if spendingInput.PreviousOutPoint != h.htlcResolution.ClaimOutpoint {
-		return false, nil
+	spendingInput, err := h.validateSpend(spend)
+	if err != nil {
+		return false, err
 	}
 
 	if !isPreimageSpend(h.isTaproot(), spend, true) {
@@ -538,6 +526,63 @@ func (h *htlcSuccessResolver) isTaprootFinal() bool {
 	return h.chanType.IsTaprootFinal()
 }
 
+// validateSpend checks that a notifier spend consistently identifies the HTLC
+// outpoint and returns the input which spent it.
+func (h *htlcSuccessResolver) validateSpend(
+	spend *chainntnfs.SpendDetail) (*wire.TxIn, error) {
+
+	switch {
+	case spend == nil:
+		return nil, fmt.Errorf("missing spend detail for %v",
+			h.outpoint())
+
+	case spend.SpendingTx == nil:
+		return nil, fmt.Errorf("missing spending tx for %v",
+			h.outpoint())
+
+	case spend.SpenderTxHash == nil:
+		return nil, fmt.Errorf("missing spender txid for %v",
+			h.outpoint())
+
+	case spend.SpentOutPoint == nil:
+		return nil, fmt.Errorf("missing spent outpoint for %v",
+			h.outpoint())
+
+	case *spend.SpentOutPoint != h.outpoint():
+		return nil, fmt.Errorf("unexpected outpoint %v, expected %v",
+			spend.SpentOutPoint, h.outpoint())
+
+	case spend.SpenderInputIndex >= uint32(len(spend.SpendingTx.TxIn)):
+		return nil, fmt.Errorf("spender input index %d out of range",
+			spend.SpenderInputIndex)
+	}
+
+	for index, txIn := range spend.SpendingTx.TxIn {
+		if txIn == nil {
+			return nil, fmt.Errorf("spender input %d is nil", index)
+		}
+	}
+	for index, txOut := range spend.SpendingTx.TxOut {
+		if txOut == nil {
+			return nil, fmt.Errorf("output %d is nil", index)
+		}
+	}
+
+	spendingInput := spend.SpendingTx.TxIn[spend.SpenderInputIndex]
+	if spendingInput.PreviousOutPoint != h.outpoint() {
+		return nil, fmt.Errorf("input %v, expected %v",
+			spendingInput.PreviousOutPoint, h.outpoint())
+	}
+
+	txid := spend.SpendingTx.TxHash()
+	if *spend.SpenderTxHash != txid {
+		return nil, fmt.Errorf("spender txid %v does not match tx %v",
+			spend.SpenderTxHash, txid)
+	}
+
+	return spendingInput, nil
+}
+
 // matchSecondLevelOutput checks whether the transaction spending the
 // commitment HTLC created the output expected by our sweep descriptor. The
 // boolean is false for a well-formed foreign spend, while malformed internal
@@ -548,25 +593,8 @@ func (h *htlcSuccessResolver) isTaprootFinal() bool {
 func (h *htlcSuccessResolver) matchSecondLevelOutput(
 	commitSpend *chainntnfs.SpendDetail) (wire.OutPoint, bool, error) {
 
-	// The notifier should include the spending transaction and txid for an
-	// observed HTLC spend. These nil checks are defensive: without those
-	// details, we cannot prove that the spend created our success output.
-	if commitSpend == nil {
-		return wire.OutPoint{}, false, fmt.Errorf(
-			"missing spend detail for HTLC outpoint %v", h.outpoint(),
-		)
-	}
-
-	if commitSpend.SpendingTx == nil {
-		return wire.OutPoint{}, false, fmt.Errorf(
-			"missing spending tx for HTLC outpoint %v", h.outpoint(),
-		)
-	}
-
-	if commitSpend.SpenderTxHash == nil {
-		return wire.OutPoint{}, false, fmt.Errorf(
-			"missing spender txid for HTLC outpoint %v", h.outpoint(),
-		)
+	if _, err := h.validateSpend(commitSpend); err != nil {
+		return wire.OutPoint{}, false, err
 	}
 
 	outputIndex := commitSpend.SpenderInputIndex

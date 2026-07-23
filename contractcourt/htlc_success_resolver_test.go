@@ -674,6 +674,179 @@ func TestHtlcSuccessForeignSpendCheckpointError(t *testing.T) {
 	require.Empty(t, ctx.htlcNotifier.finalHtlcEvents)
 }
 
+// TestHtlcSuccessMatchSecondLevelOutput tests that malformed spend details are
+// errors while a well-formed non-matching output is a foreign spend.
+func TestHtlcSuccessMatchSecondLevelOutput(t *testing.T) {
+	claimOutpoint := wire.OutPoint{
+		Hash:  chainhash.Hash{1},
+		Index: 2,
+	}
+
+	testCases := []struct {
+		name            string
+		mutate          func(*chainntnfs.SpendDetail)
+		clearExpected   bool
+		skipHashRefresh bool
+		errContains     string
+		matches         bool
+	}{
+		{
+			name:        "missing detail",
+			errContains: "missing spend detail",
+		},
+		{
+			name: "missing transaction",
+			mutate: func(spend *chainntnfs.SpendDetail) {
+				spend.SpendingTx = nil
+			},
+			skipHashRefresh: true,
+			errContains:     "missing spending tx",
+		},
+		{
+			name: "missing transaction id",
+			mutate: func(spend *chainntnfs.SpendDetail) {
+				spend.SpenderTxHash = nil
+			},
+			skipHashRefresh: true,
+			errContains:     "missing spender txid",
+		},
+		{
+			name: "missing spent outpoint",
+			mutate: func(spend *chainntnfs.SpendDetail) {
+				spend.SpentOutPoint = nil
+			},
+			errContains: "missing spent outpoint",
+		},
+		{
+			name: "wrong spent outpoint",
+			mutate: func(spend *chainntnfs.SpendDetail) {
+				other := wire.OutPoint{Index: 3}
+				spend.SpentOutPoint = &other
+			},
+			errContains: "unexpected outpoint",
+		},
+		{
+			name: "input index out of range",
+			mutate: func(spend *chainntnfs.SpendDetail) {
+				spend.SpenderInputIndex = 1
+			},
+			errContains: "spender input index 1 out of range",
+		},
+		{
+			name: "nil transaction input",
+			mutate: func(spend *chainntnfs.SpendDetail) {
+				spend.SpendingTx.TxIn[0] = nil
+			},
+			skipHashRefresh: true,
+			errContains:     "spender input 0 is nil",
+		},
+		{
+			name: "wrong input outpoint",
+			mutate: func(spend *chainntnfs.SpendDetail) {
+				spendingInput := spend.SpendingTx.TxIn[0]
+				spendingInput.PreviousOutPoint.Index++
+			},
+			errContains: "input",
+		},
+		{
+			name: "wrong transaction id",
+			mutate: func(spend *chainntnfs.SpendDetail) {
+				wrongHash := chainhash.Hash{2}
+				spend.SpenderTxHash = &wrongHash
+			},
+			skipHashRefresh: true,
+			errContains:     "does not match tx",
+		},
+		{
+			name:          "missing expected output",
+			clearExpected: true,
+			errContains:   "missing expected output",
+		},
+		{
+			name: "missing transaction output",
+			mutate: func(spend *chainntnfs.SpendDetail) {
+				spend.SpendingTx.TxOut = nil
+			},
+		},
+		{
+			name: "foreign transaction output",
+			mutate: func(spend *chainntnfs.SpendDetail) {
+				spend.SpendingTx.TxOut[0].Value++
+			},
+		},
+		{
+			name:    "matching transaction output",
+			matches: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			signDesc := testSignDesc
+			signDesc.Output = cloneTxOut(testSignDesc.Output)
+			if tc.clearExpected {
+				signDesc.Output = nil
+			}
+			txIn := &wire.TxIn{
+				PreviousOutPoint: claimOutpoint,
+			}
+
+			resolver := &htlcSuccessResolver{
+				htlcResolution: lnwallet.IncomingHtlcResolution{
+					SignedSuccessTx: &wire.MsgTx{
+						TxIn: []*wire.TxIn{txIn},
+					},
+					SweepSignDesc: signDesc,
+				},
+			}
+
+			var spend *chainntnfs.SpendDetail
+			if tc.name != "missing detail" {
+				tx := &wire.MsgTx{
+					TxIn: []*wire.TxIn{{
+						PreviousOutPoint: claimOutpoint,
+					}},
+					TxOut: []*wire.TxOut{
+						cloneTxOut(testSignDesc.Output),
+					},
+				}
+				txid := tx.TxHash()
+				spend = &chainntnfs.SpendDetail{
+					SpentOutPoint: &claimOutpoint,
+					SpenderTxHash: &txid,
+					SpendingTx:    tx,
+				}
+			}
+
+			if tc.mutate != nil {
+				tc.mutate(spend)
+			}
+			if spend != nil && spend.SpendingTx != nil &&
+				!tc.skipHashRefresh {
+
+				txid := spend.SpendingTx.TxHash()
+				spend.SpenderTxHash = &txid
+			}
+
+			op, matches, err := resolver.matchSecondLevelOutput(
+				spend,
+			)
+			if tc.errContains != "" {
+				require.ErrorContains(t, err, tc.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.matches, matches)
+			if matches {
+				require.Equal(t, *spend.SpenderTxHash, op.Hash)
+				require.Zero(t, op.Index)
+			} else {
+				require.Equal(t, wire.OutPoint{}, op)
+			}
+		})
+	}
+}
+
 // cloneTxOut returns a copy of a transaction output.
 func cloneTxOut(txOut *wire.TxOut) *wire.TxOut {
 	pkScript := append([]byte(nil), txOut.PkScript...)

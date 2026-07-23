@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -168,11 +169,53 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() error {
 		return err
 	}
 
-	// TODO(yy): should also update the `RecoveredBalance` and
-	// `LimboBalance` like other paths?
+	isSuccess, err := h.isRemoteCommitSuccessSpend(sweepTxDetails)
+	if err != nil {
+		return err
+	}
+	if !isSuccess {
+		return h.checkpointForeignSpend(sweepTxDetails)
+	}
+
+	h.reportLock.Lock()
+	h.currentReport.RecoveredBalance = h.currentReport.LimboBalance
+	h.currentReport.LimboBalance = 0
+	h.reportLock.Unlock()
 
 	// Checkpoint the resolver, and write the outcome to disk.
 	return h.checkpointClaim(sweepTxDetails.SpenderTxHash)
+}
+
+// isRemoteCommitSuccessSpend returns true when a remote commitment HTLC was
+// spent through its success path using the preimage held by this resolver.
+func (h *htlcSuccessResolver) isRemoteCommitSuccessSpend(
+	spend *chainntnfs.SpendDetail) (bool, error) {
+
+	if spend == nil || spend.SpendingTx == nil ||
+		spend.SpenderTxHash == nil {
+
+		return false, fmt.Errorf("incomplete remote HTLC spend details")
+	}
+
+	inputIndex := spend.SpenderInputIndex
+	if inputIndex >= uint32(len(spend.SpendingTx.TxIn)) {
+		return false, fmt.Errorf("remote HTLC spend input %d missing",
+			inputIndex)
+	}
+
+	spendingInput := spend.SpendingTx.TxIn[inputIndex]
+	if spendingInput.PreviousOutPoint != h.htlcResolution.ClaimOutpoint {
+		return false, nil
+	}
+
+	if !isPreimageSpend(h.isTaproot(), spend, true) {
+		return false, nil
+	}
+
+	var preimage lntypes.Preimage
+	copy(preimage[:], spendingInput.Witness[localPreimageIndex])
+
+	return preimage.Matches(h.htlc.RHash), nil
 }
 
 // checkpointClaim checkpoints the success resolver with the reports it needs.
@@ -249,9 +292,8 @@ func (h *htlcSuccessResolver) checkpointForeignSpend(
 	}
 
 	spendTxID := commitSpend.SpenderTxHash
-	h.log.Warnf("HTLC outpoint %v was spent by tx %v, which did not "+
-		"create the expected second-level output", h.outpoint(),
-		spendTxID)
+	h.log.Warnf("HTLC outpoint %v was spent by tx %v outside the "+
+		"expected success path", h.outpoint(), spendTxID)
 
 	report := &channeldb.ResolverReport{
 		OutPoint:        h.outpoint(),

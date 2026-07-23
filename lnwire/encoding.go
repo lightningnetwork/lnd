@@ -11,10 +11,12 @@ const (
 	// regular encoding, in a sorted order.
 	EncodingSortedPlain QueryEncoding = 0
 
-	// EncodingSortedZlib signals that the set of data is encoded by first
-	// sorting the set of channel ID's, as then compressing them using zlib.
+	// EncodingSortedZlib signals that the set of data was encoded using
+	// zlib compression. This encoding was dropped from the BOLT 7 spec
+	// and is no longer supported. The constant is retained for detection
+	// on the decode side only — it must never be used for encoding.
 	//
-	// NOTE: this should no longer be used or accepted.
+	// Deprecated: zlib encoding is not accepted or produced by lnd.
 	EncodingSortedZlib QueryEncoding = 1
 )
 

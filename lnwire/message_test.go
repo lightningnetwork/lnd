@@ -289,8 +289,6 @@ func makeAllMessages(t testing.TB, r *rand.Rand) []lnwire.Message {
 	msgAll = append(msgAll, newMsgQueryChannelRange(t, r))
 	msgAll = append(msgAll, newMsgReplyChannelRange(t, r))
 	msgAll = append(msgAll, newMsgGossipTimestampRange(t, r))
-	msgAll = append(msgAll, newMsgQueryShortChanIDsZlib(t, r))
-	msgAll = append(msgAll, newMsgReplyChannelRangeZlib(t, r))
 	msgAll = append(msgAll, newMsgOnionMessage(t, r))
 
 	return msgAll
@@ -769,27 +767,6 @@ func newMsgQueryShortChanIDs(t testing.TB,
 	return msg
 }
 
-func newMsgQueryShortChanIDsZlib(t testing.TB,
-	r *rand.Rand) *lnwire.QueryShortChanIDs {
-
-	t.Helper()
-
-	msg := &lnwire.QueryShortChanIDs{
-		EncodingType: lnwire.EncodingSortedZlib,
-		ExtraData:    createExtraData(t, r),
-	}
-
-	_, err := rand.Read(msg.ChainHash[:])
-	require.NoError(t, err, "unable to read chain hash")
-
-	for i := 0; i < testNumChanIDs; i++ {
-		msg.ShortChanIDs = append(msg.ShortChanIDs,
-			lnwire.NewShortChanIDFromInt(uint64(r.Int63())))
-	}
-
-	return msg
-}
-
 func newMsgReplyShortChanIDsEnd(t testing.TB,
 	r *rand.Rand) *lnwire.ReplyShortChanIDsEnd {
 
@@ -830,29 +807,6 @@ func newMsgReplyChannelRange(t testing.TB,
 
 	msg := &lnwire.ReplyChannelRange{
 		EncodingType: lnwire.EncodingSortedPlain,
-		ExtraData:    createExtraData(t, r),
-	}
-
-	_, err := rand.Read(msg.ChainHash[:])
-	require.NoError(t, err, "unable to read chain hash")
-
-	msg.Complete = uint8(r.Int31n(2))
-
-	for i := 0; i < testNumChanIDs; i++ {
-		msg.ShortChanIDs = append(msg.ShortChanIDs,
-			lnwire.NewShortChanIDFromInt(uint64(r.Int63())))
-	}
-
-	return msg
-}
-
-func newMsgReplyChannelRangeZlib(t testing.TB,
-	r *rand.Rand) *lnwire.ReplyChannelRange {
-
-	t.Helper()
-
-	msg := &lnwire.ReplyChannelRange{
-		EncodingType: lnwire.EncodingSortedZlib,
 		ExtraData:    createExtraData(t, r),
 	}
 

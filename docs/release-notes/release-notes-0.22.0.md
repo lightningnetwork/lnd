@@ -123,6 +123,13 @@
   in `SubscribeOnionMessages`, ensuring a nil reply path remains nil in the
   RPC response rather than being emitted as an empty struct.
 
+* [BOLT 12 invoice
+  codec](https://github.com/lightningnetwork/lnd/pull/10941): add the
+  `invoice` TLV message to the `bolt12/` package with structural
+  reader/writer validation. Schnorr signature verification is not yet
+  performed; callers must verify the signature independently until the
+  Merkle and signing primitives land.
+
 ## Testing
 
 ## Database

@@ -115,31 +115,44 @@ func NewGlobalLimiter(kbps uint64, burstBytes uint64) RateLimiter {
 	}
 }
 
+// defaultMaxRetainedPeers is the high-water mark for the number of per-peer
+// buckets retained in the registry. When creating a new bucket pushes the
+// count above this threshold, AllowN triggers a sweep that evicts every
+// bucket which has refilled to its full burst (see evictFullBuckets). It is
+// set well above the number of buckets a typical node accumulates, so the
+// sweep only runs when the registry grows unusually large, for example when
+// the channel-presence gate is disabled via --onion-msg-relay-all.
+const defaultMaxRetainedPeers = 10_000
+
 // PeerRateLimiter is a registry of per-peer onion message token buckets,
 // keyed by the peer's compressed public key. Tokens are bytes: callers pass
 // the on-the-wire size of each message to AllowN and the per-peer bucket is
 // debited accordingly. Buckets are created lazily on the first call to
-// AllowN for a given peer and retained for the lifetime of the process.
+// AllowN for a given peer and retained across disconnects.
 // When the configured rate or burst is zero the registry operates in
 // disabled mode and AllowN is a no-op.
 //
-// Retention across disconnect is load-bearing. Without it, a peer could
-// drain its burst, disconnect, reconnect, and get a fresh full-burst
-// bucket on every cycle, effectively promoting the global limiter into
-// its per-peer rate and using the shared budget as a personal allowance
-// until the global bucket trips. By keeping the bucket, a drained peer
-// stays drained until its bucket naturally refills regardless of how
-// often it cycles the connection, and the per-peer rate becomes a real
-// ceiling rather than a per-connection ceiling.
+// Buckets are retained across disconnects so that the per-peer rate is a
+// ceiling on the peer rather than on each connection. If buckets were
+// dropped on disconnect, a peer could drain its burst, reconnect, and
+// receive a fresh full-burst bucket on every cycle. Keeping the bucket
+// means a peer that has spent its budget stays limited until the bucket
+// refills, regardless of how often it reconnects.
 //
-// The memory cost of retention is bounded by the number of channel
-// peers that have ever sent an onion message: the ingress call site
-// gates AllowN on the peer having at least one open channel before
-// touching this registry, so random connecting strangers never allocate
-// a bucket. At a realistic few hundred to few thousand channel partners
-// and ~200 bytes per entry (rate.Limiter plus SyncMap overhead), the
-// registry stays comfortably sub-megabyte for the lifetime of the
-// process.
+// Retention is bounded by eviction rather than by connection state. In the
+// default configuration the channel-presence gate at the ingress call site
+// keeps peers without a channel out of the registry, so it only holds
+// buckets for channel peers. When that gate is disabled via
+// --onion-msg-relay-all, any connecting pubkey that sends an onion message
+// allocates a bucket, so the registry could otherwise grow with each new
+// identity. To keep it bounded in that case, AllowN evicts buckets that
+// have refilled to their full burst once the registry grows past maxPeers.
+// A full bucket holds the same tokens as a freshly-created one, so
+// recreating it lazily on the peer's next message preserves the limiter's
+// behaviour; a bucket that still owes tokens is not full and is retained.
+// This keeps the registry sized to peers with a currently-draining bucket
+// rather than to every identity that has ever sent a message. See
+// evictFullBuckets.
 //
 // The underlying bucket registry is an lnutils.SyncMap rather than a plain
 // map guarded by a mutex. Per-peer keys are stable for the lifetime of the
@@ -148,9 +161,18 @@ func NewGlobalLimiter(kbps uint64, burstBytes uint64) RateLimiter {
 // every hot-path AllowN call behind a single mutex even though rate.Limiter
 // is already safe for concurrent use.
 type PeerRateLimiter struct {
-	rate     rate.Limit
-	burst    int
-	peers    lnutils.SyncMap[[33]byte, *rate.Limiter]
+	rate  rate.Limit
+	burst int
+	peers lnutils.SyncMap[[33]byte, *rate.Limiter]
+
+	// maxPeers is the registry high-water mark that triggers a sweep of
+	// full buckets. It is a field rather than a package constant so tests
+	// can drive the sweep without allocating tens of thousands of
+	// entries; production always sets it to defaultMaxRetainedPeers.
+	maxPeers int64
+
+	numPeers atomic.Int64
+	sweeping atomic.Bool
 	dropped  atomic.Uint64
 	firstLog atomic.Bool
 }
@@ -170,7 +192,7 @@ func (p *PeerRateLimiter) FirstDropClaim() bool {
 // disables limiting; in that case AllowN always returns true and no
 // per-peer state is retained.
 func NewPeerRateLimiter(kbps uint64, burstBytes uint64) *PeerRateLimiter {
-	p := &PeerRateLimiter{}
+	p := &PeerRateLimiter{maxPeers: defaultMaxRetainedPeers}
 	if kbps > 0 && burstBytes > 0 {
 		p.rate = rate.Limit(kbpsToBytesPerSecond(kbps))
 		p.burst = int(burstBytes)
@@ -200,7 +222,16 @@ func (p *PeerRateLimiter) AllowN(peer [33]byte, n int) bool {
 		// we discard ours and use theirs so that every peer ends
 		// up with a single authoritative bucket.
 		newLim := rate.NewLimiter(p.rate, p.burst)
-		lim, _ = p.peers.LoadOrStore(peer, newLim)
+
+		var loaded bool
+		lim, loaded = p.peers.LoadOrStore(peer, newLim)
+
+		// If we inserted the bucket, account for the new entry. Once
+		// the registry crosses its high-water mark, reclaim buckets
+		// that have refilled to full to keep the map bounded.
+		if !loaded && p.numPeers.Add(1) > p.maxPeers {
+			p.evictFullBuckets()
+		}
 	}
 
 	if lim.AllowN(time.Now(), n) {
@@ -209,6 +240,44 @@ func (p *PeerRateLimiter) AllowN(peer [33]byte, n int) bool {
 	p.dropped.Add(1)
 
 	return false
+}
+
+// evictFullBuckets removes every per-peer bucket that has refilled to its
+// configured burst. A full bucket holds the same tokens as a
+// freshly-constructed one, so evicting it and lazily recreating it on the
+// peer's next message preserves the limiter's behaviour. A bucket that still
+// owes tokens is not full and is retained, so eviction does not reset a
+// peer's outstanding debt. This keeps the registry sized to peers whose
+// bucket is currently draining rather than to every identity that has ever
+// sent a message.
+//
+// A CompareAndSwap guard ensures at most one sweep runs at a time; callers
+// that cross the high-water mark while a sweep is in flight skip it and let
+// the running sweep do the work.
+func (p *PeerRateLimiter) evictFullBuckets() {
+	if !p.sweeping.CompareAndSwap(false, true) {
+		return
+	}
+	defer p.sweeping.Store(false)
+
+	full := float64(p.burst)
+	p.peers.Range(func(peer [33]byte, lim *rate.Limiter) bool {
+		if lim.TokensAt(time.Now()) < full {
+			return true
+		}
+
+		// Delete unconditionally so numPeers stays in sync with the
+		// map. A concurrent AllowN may debit this bucket between the
+		// check above and the delete; if so the peer's next message
+		// recreates a fresh one. That is a bounded, one-message reset
+		// of a bucket that had just refilled to full anyway, so it does
+		// not weaken the sustained per-peer rate.
+		if _, removed := p.peers.LoadAndDelete(peer); removed {
+			p.numPeers.Add(-1)
+		}
+
+		return true
+	})
 }
 
 // Dropped returns the total number of onion messages this registry has

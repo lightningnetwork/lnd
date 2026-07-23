@@ -104,17 +104,153 @@ func TestHtlcIncomingResolverFwdContestedTimeout(t *testing.T) {
 	ctx.waitForResult(false)
 }
 
-// TestHtlcIncomingResolverFwdTimeout tests resolution of a forwarded htlc that
-// has already expired when the resolver starts.
-func TestHtlcIncomingResolverFwdTimeout(t *testing.T) {
+// TestHtlcIncomingResolverFwdExpiredPreimageKnown tests resolution of an
+// expired forwarded HTLC whose preimage is already known when resolution
+// starts.
+func TestHtlcIncomingResolverFwdExpiredPreimageKnown(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, false)
+	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
+	ctx.resolver.htlcExpiry = 90
+	ctx.resolve()
+	ctx.waitForResult(true)
+}
+
+// TestHtlcIncomingResolverLaunchAfterExpiry tests which preimage sources may
+// start the success path once the HTLC has expired.
+func TestHtlcIncomingResolverLaunchAfterExpiry(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		isExit       bool
+		setup        func(*incomingResolverTestContext)
+		expectLaunch bool
+	}{
+		{
+			name:   "known preimage",
+			isExit: false,
+			setup: func(ctx *incomingResolverTestContext) {
+				ctx.witnessBeacon.lookupPreimage[testResHash] =
+					testResPreimage
+			},
+			expectLaunch: true,
+		},
+		{
+			name:   "settlement replay",
+			isExit: true,
+			setup: func(ctx *incomingResolverTestContext) {
+				ctx.registry.notifyResolution =
+					invoices.NewSettleResolution(
+						testResPreimage,
+						testResCircuitKey,
+						testAcceptHeight,
+						invoices.ResultReplayToSettled,
+					)
+			},
+			expectLaunch: true,
+		},
+		{
+			name:   "fresh settlement",
+			isExit: true,
+			setup: func(ctx *incomingResolverTestContext) {
+				ctx.registry.notifyResolution =
+					invoices.NewSettleResolution(
+						testResPreimage,
+						testResCircuitKey,
+						testAcceptHeight,
+						invoices.ResultSettled,
+					)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			defer timeout()()
+
+			ctx := newIncomingResolverTestContext(t, tc.isExit)
+			ctx.resolver.htlcExpiry = testInitialBlockHeight
+			tc.setup(ctx)
+
+			require.NoError(t, ctx.resolver.Launch())
+			if tc.isExit {
+				require.Len(t, ctx.registry.immediateNotify, 1)
+				notify := ctx.registry.immediateNotify[0]
+				require.Equal(
+					t, int32(testInitialBlockHeight),
+					notify.currentHeight,
+				)
+			}
+			require.Equal(
+				t, tc.expectLaunch, ctx.resolver.isLaunched(),
+			)
+			if tc.expectLaunch {
+				require.Equal(
+					t, [32]byte(testResPreimage),
+					ctx.resolver.htlcResolution.Preimage,
+				)
+			} else {
+				require.Zero(
+					t, ctx.resolver.htlcResolution.Preimage,
+				)
+			}
+		})
+	}
+}
+
+// TestHtlcIncomingResolverLaunchUsesZeroHeightBeforeExpiry asserts that the
+// on-chain lookup bypasses the registry's admission-time CLTV safety margin.
+func TestHtlcIncomingResolverLaunchUsesZeroHeightBeforeExpiry(t *testing.T) {
 	t.Parallel()
 	defer timeout()()
 
 	ctx := newIncomingResolverTestContext(t, true)
-	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
-	ctx.resolver.htlcExpiry = 90
-	ctx.resolve()
-	ctx.waitForResult(false)
+	ctx.chainIO.BestHeight = testHtlcExpiry - 1
+	ctx.registry.notifyResolution = invoices.NewSettleResolution(
+		testResPreimage, testResCircuitKey, testAcceptHeight,
+		invoices.ResultSettled,
+	)
+
+	require.NoError(t, ctx.resolver.Launch())
+	require.True(t, ctx.resolver.isLaunched())
+	require.Len(t, ctx.registry.immediateNotify, 1)
+	require.Equal(
+		t, int32(0),
+		ctx.registry.immediateNotify[0].currentHeight,
+	)
+}
+
+// TestHtlcIncomingResolverLaunchContinuesAfterLookupExpiry tests that a fresh
+// settlement accepted before expiry still launches if the tip advances while
+// the registry call returns.
+func TestHtlcIncomingResolverLaunchContinuesAfterLookupExpiry(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, true)
+	ctx.chainIO.BestHeight = testHtlcExpiry - 1
+	ctx.registry.notifyResolution = invoices.NewSettleResolution(
+		testResPreimage, testResCircuitKey, testAcceptHeight,
+		invoices.ResultSettled,
+	)
+	ctx.registry.notifyHook = func() {
+		ctx.chainIO.BestHeight = testHtlcExpiry
+	}
+
+	require.NoError(t, ctx.resolver.Launch())
+	require.True(t, ctx.resolver.isLaunched())
+	require.Len(t, ctx.registry.immediateNotify, 1)
+	require.Equal(
+		t, int32(0), ctx.registry.immediateNotify[0].currentHeight,
+	)
+	require.Equal(
+		t, [32]byte(testResPreimage),
+		ctx.resolver.htlcResolution.Preimage,
+	)
 }
 
 // TestHtlcIncomingResolverExitSettle tests resolution of an exit hop htlc for
@@ -416,6 +552,7 @@ type incomingResolverTestContext struct {
 	witnessBeacon          *mockWitnessBeacon
 	resolver               *htlcIncomingContestResolver
 	notifier               *mock.ChainNotifier
+	chainIO                *mock.ChainIO
 	onionProcessor         *mockOnionProcessor
 	resolveErr             chan error
 	nextResolver           ContractResolver
@@ -430,6 +567,9 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 		ConfChan:  make(chan *chainntnfs.TxConfirmation),
 	}
 	witnessBeacon := newMockWitnessBeacon()
+	chainIO := &mock.ChainIO{
+		BestHeight: testInitialBlockHeight,
+	}
 	registry := &mockRegistry{
 		notifyChan: make(chan notifyExitHopData, 1),
 	}
@@ -442,6 +582,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 		registry:       registry,
 		witnessBeacon:  witnessBeacon,
 		notifier:       notifier,
+		chainIO:        chainIO,
 		onionProcessor: onionProcessor,
 		t:              t,
 	}
@@ -469,6 +610,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 				return nil
 			},
 			Sweeper: newMockSweeper(),
+			ChainIO: chainIO,
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
 			_ *channeldb.ResolverReport) error {

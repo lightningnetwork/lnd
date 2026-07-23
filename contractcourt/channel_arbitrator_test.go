@@ -3277,6 +3277,38 @@ func TestDispatchBlockbeatToSubAckTimeout(t *testing.T) {
 	firstUpdate.ack(nil)
 }
 
+// TestHandleBlockbeatPropagatesResolverError tests that resolver dispatch
+// errors are returned through the channel arbitrator's parent acknowledgement.
+func TestHandleBlockbeatPropagatesResolverError(t *testing.T) {
+	t.Parallel()
+
+	chanArb := &ChannelArbitrator{
+		state: StateContractClosed,
+		quit:  make(chan struct{}),
+	}
+	chanArb.BeatConsumer = chainio.NewBeatConsumer(
+		chanArb.quit, "blockbeat propagation test",
+	)
+
+	dispatchErr := errors.New("resolver dispatch failed")
+	sub, _ := chanArb.subscribeBlockbeats()
+	go func() {
+		update := <-sub.blockbeatChan
+		update.ack(dispatchErr)
+	}()
+
+	beat := newBeatFromHeight(1)
+	processResult := make(chan error, 1)
+	go func() {
+		processResult <- chanArb.ProcessBlock(beat)
+	}()
+
+	receivedBeat := <-chanArb.BlockbeatChan
+	err := chanArb.handleBlockbeat(receivedBeat)
+	require.ErrorIs(t, err, dispatchErr)
+	require.ErrorIs(t, <-processResult, dispatchErr)
+}
+
 type mockChannel struct {
 	anchorResolutions *lnwallet.AnchorResolutions
 

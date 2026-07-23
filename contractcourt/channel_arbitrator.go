@@ -43,6 +43,10 @@ const (
 	// channel arbitrator.
 	arbitratorBlockBufferSize = 20
 
+	// resolverBlockbeatTimeoutReserve leaves time to acknowledge the
+	// parent after resolver dispatch finishes.
+	resolverBlockbeatTimeoutReserve = time.Second
+
 	// AnchorOutputValue is the output value for the anchor output of an
 	// anchor channel.
 	// See BOLT 03 for more details:
@@ -1749,6 +1753,50 @@ func (c *ChannelArbitrator) dispatchBlockbeatToSub(beat chainio.Blockbeat,
 	}
 }
 
+// dispatchBlockbeatToSubscribers concurrently delivers a beat to the current
+// resolver subscriptions and waits for all acknowledgements.
+func (c *ChannelArbitrator) dispatchBlockbeatToSubscribers(
+	beat chainio.Blockbeat) error {
+
+	deadline, ok := chainio.ProcessBlockDeadline(beat)
+	if !ok {
+		deadline = time.Now().Add(chainio.DefaultProcessBlockTimeout)
+	}
+	deadline = deadline.Add(-resolverBlockbeatTimeoutReserve)
+
+	var subs []*blockbeatSubscription
+	c.blockbeatSubs.Range(func(
+		sub *blockbeatSubscription, _ struct{}) bool {
+
+		subs = append(subs, sub)
+		return true
+	})
+
+	errChan := make(chan error, len(subs))
+	var wg sync.WaitGroup
+	for _, sub := range subs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			err := c.dispatchBlockbeatToSub(beat, sub, deadline)
+			if err != nil {
+				errChan <- err
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	var dispatchErrs []error
+	for err := range errChan {
+		dispatchErrs = append(dispatchErrs, err)
+	}
+
+	return errors.Join(dispatchErrs...)
+}
+
 // advanceState is the main driver of our state machine. This method is an
 // iterative function which repeatedly attempts to advance the internal state
 // of the channel arbitrator. The state will be advanced until we reach a
@@ -3111,10 +3159,16 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 
 // handleBlockbeat processes a newly received blockbeat by advancing the
 // arbitrator's internal state using the received block height.
-func (c *ChannelArbitrator) handleBlockbeat(beat chainio.Blockbeat) error {
-	// Notify we've processed the block.
-	defer c.NotifyBlockProcessed(beat, nil)
+func (c *ChannelArbitrator) handleBlockbeat(
+	beat chainio.Blockbeat) error {
 
+	err := c.processBlockbeat(beat)
+	c.NotifyBlockProcessed(beat, err)
+
+	return err
+}
+
+func (c *ChannelArbitrator) processBlockbeat(beat chainio.Blockbeat) error {
 	// If the state is StateContractClosed, StateWaitingFullResolution, or
 	// StateFullyResolved, there's no need to read the close event channel
 	// since the arbitrator can only get to this state after processing a
@@ -3130,7 +3184,7 @@ func (c *ChannelArbitrator) handleBlockbeat(beat chainio.Blockbeat) error {
 		// their own `launched` states.
 		c.launchResolvers()
 
-		return nil
+		return c.dispatchBlockbeatToSubscribers(beat)
 	}
 
 	// Perform a non-blocking read on the close events in case the channel
@@ -3151,6 +3205,11 @@ func (c *ChannelArbitrator) handleBlockbeat(beat chainio.Blockbeat) error {
 
 	// Launch all active resolvers when a new blockbeat is received.
 	c.launchResolvers()
+	if err := c.dispatchBlockbeatToSubscribers(beat); err != nil {
+		return fmt.Errorf(
+			"unable to dispatch resolver blockbeat: %w", err,
+		)
+	}
 
 	return nil
 }

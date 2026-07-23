@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
@@ -37,6 +38,12 @@ type htlcIncomingContestResolver struct {
 	// htlcSuccessResolver is the inner resolver that may be utilized if we
 	// learn of the preimage.
 	*htlcSuccessResolver
+
+	// transitionMtx serializes launch-time preimage lookup with timeout.
+	transitionMtx sync.Mutex
+
+	// preimageMtx protects the inner resolution and canned witness update.
+	preimageMtx sync.Mutex
 }
 
 // newIncomingContestResolver instantiates a new incoming htlc contest resolver.
@@ -107,6 +114,14 @@ func (h *htlcIncomingContestResolver) invalidFinalHtlc(
 // Launch will call the inner resolver's launch method if the preimage can be
 // found, otherwise it's a no-op.
 func (h *htlcIncomingContestResolver) Launch() error {
+	h.transitionMtx.Lock()
+	defer h.transitionMtx.Unlock()
+
+	if h.IsResolved() {
+		h.log.Tracef("already resolved")
+		return nil
+	}
+
 	// NOTE: we don't mark this resolver as launched as the inner resolver
 	// will set it when it's launched.
 	if h.isLaunched() {
@@ -181,23 +196,9 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, h.PutResolverReport(nil, resReport)
 	}
 
-	// Register for block epochs. After registration, the current height
-	// will be sent on the channel immediately.
-	blockEpochs, err := h.Notifier.RegisterBlockEpochNtfn(nil)
+	_, currentHeight, err := h.ChainIO.GetBestBlock()
 	if err != nil {
 		return nil, err
-	}
-	defer blockEpochs.Cancel()
-
-	var currentHeight int32
-	select {
-	case newBlock, ok := <-blockEpochs.Epochs:
-		if !ok {
-			return nil, errResolverShuttingDown
-		}
-		currentHeight = newBlock.Height
-	case <-h.quit:
-		return nil, errResolverShuttingDown
 	}
 
 	log.Debugf("%T(%v): Resolving incoming HTLC(expiry=%v, height=%v)", h,
@@ -389,6 +390,44 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		witnessUpdates = preimageSubscription.WitnessUpdates
 	}
 
+	if h.subscribeBlockbeats == nil {
+		return nil, errors.New("blockbeat subscription unavailable")
+	}
+
+	subscribe := func() (*blockbeatSubscription, func(),
+		ContractResolver, error) {
+
+		blockbeatSub, cancel := h.subscribeBlockbeats()
+		// Register so a concurrent beat is either delivered here or
+		// reflected by GetBestBlock.
+		_, currentHeight, err = h.ChainIO.GetBestBlock()
+		if err != nil {
+			cancel()
+			return nil, nil, nil, err
+		}
+
+		if uint32(currentHeight) >= h.htlcExpiry {
+			cancel()
+			nextResolver, err := h.timeoutOrSuccessResolver(
+				uint32(currentHeight),
+			)
+
+			return nil, nil, nextResolver, err
+		}
+
+		return blockbeatSub, cancel, nil, nil
+	}
+
+	blockbeatSub, cancelBlockbeats, nextResolver, err := subscribe()
+	if blockbeatSub == nil || err != nil {
+		return nextResolver, err
+	}
+	defer func() {
+		if cancelBlockbeats != nil {
+			cancelBlockbeats()
+		}
+	}()
+
 	for {
 		select {
 		case preimage := <-witnessUpdates:
@@ -414,17 +453,34 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			htlcResolution := hodlItem.(invoices.HtlcResolution)
 			return processHtlcResolution(htlcResolution)
 
-		case newBlock, ok := <-blockEpochs.Epochs:
-			if !ok {
-				return nil, errResolverShuttingDown
-			}
-
+		case update := <-blockbeatSub.blockbeatChan:
 			// If this new height expires the HTLC, then this means
 			// we never found out the preimage, so we can mark
 			// resolved and exit.
-			newHeight := uint32(newBlock.Height)
+			currentHeight = update.beat.Height()
+			newHeight := uint32(currentHeight)
 			if newHeight >= h.htlcExpiry {
-				return h.timeoutOrSuccessResolver(newHeight)
+				nextResolver, err := h.timeoutOrSuccessResolver(
+					newHeight,
+				)
+				update.ack(err)
+
+				return nextResolver, err
+			}
+			update.ack(nil)
+
+		case <-blockbeatSub.quit:
+			select {
+			case <-h.quit:
+				return nil, errResolverShuttingDown
+			default:
+			}
+
+			cancelBlockbeats()
+			blockbeatSub, cancelBlockbeats, nextResolver, err =
+				subscribe()
+			if blockbeatSub == nil || err != nil {
+				return nextResolver, err
 			}
 
 		case <-h.quit:
@@ -438,7 +494,20 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 func (h *htlcIncomingContestResolver) timeoutOrSuccessResolver(
 	currentHeight uint32) (ContractResolver, error) {
 
+	h.transitionMtx.Lock()
+	defer h.transitionMtx.Unlock()
+
 	if h.isLaunched() {
+		return h.htlcSuccessResolver, nil
+	}
+
+	// A raw best-height check can observe expiry before the ordered beat is
+	// dispatched. Perform the same final lookup as Launch before failing.
+	applied, err := h.findAndapplyPreimage()
+	if err != nil {
+		return nil, err
+	}
+	if applied {
 		return h.htlcSuccessResolver, nil
 	}
 
@@ -467,6 +536,9 @@ func (h *htlcIncomingContestResolver) timeoutOrSuccessResolver(
 // return value indicates whether the preimage was properly applied.
 func (h *htlcIncomingContestResolver) applyPreimage(
 	preimage lntypes.Preimage) error {
+
+	h.preimageMtx.Lock()
+	defer h.preimageMtx.Unlock()
 
 	// Sanity check to see if this preimage matches our htlc. At this point
 	// it should never happen that it does not match.

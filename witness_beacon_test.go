@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -95,6 +96,47 @@ func TestWitnessBeaconInterceptErrorCancels(t *testing.T) {
 	p.RLock()
 	require.Empty(t, p.subscribers)
 	p.RUnlock()
+}
+
+// TestWitnessBeaconInterceptNodeID asserts that for a node-ID next hop the
+// on-chain interceptor reports the exit-hop SCID (hop.Exit) together with the
+// requested next node's public key, matching the off-chain interceptor. The
+// next hop is not resolved against the circuit map; the RPC boundary maps
+// hop.Exit to the sentinel.
+func TestWitnessBeaconInterceptNodeID(t *testing.T) {
+	var interceptedFwd htlcswitch.InterceptedForward
+	interceptor := func(fwd htlcswitch.InterceptedForward) error {
+		interceptedFwd = fwd
+
+		return nil
+	}
+
+	p := newPreimageBeacon(
+		&mockWitnessCache{}, interceptor,
+		func(models.CircuitKey) error {
+			return nil
+		},
+	)
+
+	var nodeID [33]byte
+	nodeID[0] = 0x02
+
+	payload := &hop.Payload{
+		FwdInfo: hop.ForwardingInfo{
+			NextHop: hop.NewNodeNextHop(nodeID),
+		},
+	}
+
+	_, err := p.SubscribeUpdates(
+		lnwire.NewShortChanIDFromInt(1),
+		&channeldb.HTLC{RHash: lntypes.Hash{1}},
+		payload, []byte{2},
+	)
+	require.NoError(t, err)
+
+	packet := interceptedFwd.Packet()
+	require.Equal(t, hop.Exit, packet.OutgoingChanID)
+	require.Equal(t, fn.Some(nodeID), packet.OutgoingNodeID)
 }
 
 type mockWitnessCache struct {

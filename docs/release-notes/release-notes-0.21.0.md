@@ -519,6 +519,12 @@
   fallback](https://github.com/lightningnetwork/lnd/pull/10717) so that gossip
   channel filtering and zombie edge lookups use the correct gossip version
   instead of hardcoding v1.
+* Make the [graph `Store` interface
+  cross-version](https://github.com/lightningnetwork/lnd/pull/10714) so that
+  `ForEachNode`, `ForEachChannel`, and `ForEachNodeDirectedChannel` work across
+  gossip v1 and v2. Add `Preferred` fetch helpers and `GetVersions` queries
+  so callers can retrieve channels without knowing which gossip version
+  announced them.
 * Updated waiting proof persistence for gossip upgrades by introducing typed
   waiting proof keys and payloads, with a DB migration to rewrite legacy
   waiting proof records to the new key/value format

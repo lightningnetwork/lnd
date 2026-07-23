@@ -54,7 +54,8 @@ type SQLQueries interface {
 	GetNodesByLastUpdateRange(ctx context.Context, arg sqlc.GetNodesByLastUpdateRangeParams) ([]sqlc.GraphNode, error)
 	GetNodesByBlockHeightRange(ctx context.Context, arg sqlc.GetNodesByBlockHeightRangeParams) ([]sqlc.GraphNode, error)
 	GetPublicNodesByLastUpdateRange(ctx context.Context, arg sqlc.GetPublicNodesByLastUpdateRangeParams) ([]sqlc.GraphNode, error)
-	ListNodesPaginated(ctx context.Context, arg sqlc.ListNodesPaginatedParams) ([]sqlc.GraphNode, error)
+	ListPreferredNodesPaginated(ctx context.Context, arg sqlc.ListPreferredNodesPaginatedParams) ([]sqlc.ListPreferredNodesPaginatedRow, error)
+	UpsertPreferredNode(ctx context.Context, pubKey []byte) error
 	ListNodeIDsAndPubKeys(ctx context.Context, arg sqlc.ListNodeIDsAndPubKeysParams) ([]sqlc.ListNodeIDsAndPubKeysRow, error)
 	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
 	IsPublicV2Node(ctx context.Context, pubKey []byte) (bool, error)
@@ -105,6 +106,8 @@ type SQLQueries interface {
 	ListChannelsByNodeID(ctx context.Context, arg sqlc.ListChannelsByNodeIDParams) ([]sqlc.ListChannelsByNodeIDRow, error)
 	ListChannelsForNodeIDs(ctx context.Context, arg sqlc.ListChannelsForNodeIDsParams) ([]sqlc.ListChannelsForNodeIDsRow, error)
 	ListChannelsWithPoliciesPaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesPaginatedParams) ([]sqlc.ListChannelsWithPoliciesPaginatedRow, error)
+	ListPreferredChannelsPaginated(ctx context.Context, arg sqlc.ListPreferredChannelsPaginatedParams) ([]sqlc.ListPreferredChannelsPaginatedRow, error)
+	UpsertPreferredChannel(ctx context.Context, scid []byte) error
 	ListChannelsWithPoliciesForCachePaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesForCachePaginatedParams) ([]sqlc.ListChannelsWithPoliciesForCachePaginatedRow, error)
 	ListChannelsPaginated(ctx context.Context, arg sqlc.ListChannelsPaginatedParams) ([]sqlc.ListChannelsPaginatedRow, error)
 	ListChannelsPaginatedV2(ctx context.Context, arg sqlc.ListChannelsPaginatedV2Params) ([]sqlc.ListChannelsPaginatedV2Row, error)
@@ -439,7 +442,13 @@ func (s *SQLStore) DeleteNode(ctx context.Context, v lnwire.GossipVersion,
 			return fmt.Errorf("deleted %d rows, expected 1", rows)
 		}
 
-		return err
+		// Recompute the preferred mapping. If another version of
+		// this node still exists, UpsertPreferredNode will point
+		// the mapping at it. If no version remains, the
+		// INSERT...SELECT is a no-op and the CASCADE on the FK
+		// already removed the mapping row when the node was
+		// deleted above.
+		return db.UpsertPreferredNode(ctx, pubKey[:])
 	}, sqldb.NoOpReset)
 	if err != nil {
 		return fmt.Errorf("unable to delete node: %w", err)
@@ -1148,17 +1157,12 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 // early.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) ForEachNode(ctx context.Context, v lnwire.GossipVersion,
+func (s *SQLStore) ForEachNode(ctx context.Context,
 	cb func(node *models.Node) error, reset func()) error {
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		return forEachNodePaginated(
-			ctx, s.cfg.QueryCfg, db,
-			v, func(_ context.Context, _ int64,
-				node *models.Node) error {
-
-				return cb(node)
-			},
+		return forEachPreferredNodePaginated(
+			ctx, s.cfg.QueryCfg, db, cb,
 		)
 	}, reset)
 }
@@ -1765,7 +1769,7 @@ func (s *SQLStore) ForEachNodeCached(ctx context.Context,
 			// page.
 			allChannels, err := db.ListChannelsForNodeIDs(
 				ctx, sqlc.ListChannelsForNodeIDsParams{
-					Version:  int16(lnwire.GossipVersion1),
+					Version:  int16(v),
 					Node1Ids: nodeIDs,
 					Node2Ids: nodeIDs,
 				},
@@ -2000,16 +2004,14 @@ func (s *SQLStore) ForEachChannelCacheable(ctx context.Context,
 //
 // NOTE: part of the Store interface.
 func (s *SQLStore) ForEachChannel(ctx context.Context,
-	v lnwire.GossipVersion, cb func(*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error,
+	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy) error,
 	reset func()) error {
 
-	if !isKnownGossipVersion(v) {
-		return fmt.Errorf("unsupported gossip version: %d", v)
-	}
-
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		return forEachChannelWithPolicies(ctx, db, s.cfg, v, cb)
+		return forEachPreferredChannelWithPolicies(
+			ctx, db, s.cfg, cb,
+		)
 	}, reset)
 }
 
@@ -2432,7 +2434,25 @@ func (s *SQLStore) DeleteChannelEdges(ctx context.Context,
 			}
 		}
 
-		return s.deleteChannels(ctx, db, chanIDsToDelete)
+		err = s.deleteChannels(ctx, db, chanIDsToDelete)
+		if err != nil {
+			return err
+		}
+
+		// The CASCADE on graph_preferred_channels will have
+		// removed the mapping row for any deleted channel. If
+		// another version of the same SCID still exists, we
+		// need to re-insert the mapping.
+		for _, chanID := range chanIDs {
+			scidBytes := channelIDToBytes(chanID)
+			err = db.UpsertPreferredChannel(ctx, scidBytes)
+			if err != nil {
+				return fmt.Errorf("recalc preferred "+
+					"channel(%d): %w", chanID, err)
+			}
+		}
+
+		return nil
 	}, func() {
 		edges = nil
 
@@ -2521,12 +2541,12 @@ func (s *SQLStore) FetchChannelEdgesByID(ctx context.Context,
 			switch v {
 			case gossipV1:
 				edge, err = models.NewV1Channel(
-					0, chainhash.Hash{}, node1,
+					chanID, chainhash.Hash{}, node1,
 					node2, &models.ChannelV1Fields{},
 				)
 			case gossipV2:
 				edge, err = models.NewV2Channel(
-					0, chainhash.Hash{}, node1,
+					chanID, chainhash.Hash{}, node1,
 					node2, &models.ChannelV2Fields{},
 				)
 			}
@@ -2656,6 +2676,281 @@ func (s *SQLStore) FetchChannelEdgesByOutpoint(ctx context.Context,
 	}
 
 	return edge, policy1, policy2, nil
+}
+
+var preferredGossipVersionsDescending = []lnwire.GossipVersion{
+	gossipV2, gossipV1,
+}
+
+// FetchChannelEdgesByIDPreferred tries each known gossip version from highest
+// to lowest and returns the first result that has at least one policy. If no
+// version has policies, the highest version found is returned. This prevents a
+// v2 channel with no policies from hiding a v1 channel that has valid policy
+// data.
+//
+// If no live edge is found across versions but at least one version reports
+// the channel as a zombie, ErrZombieEdge is returned with the zombie edge info
+// populated so callers can resurrect it.
+//
+// NOTE: part of the Store interface.
+func (s *SQLStore) FetchChannelEdgesByIDPreferred(ctx context.Context,
+	chanID uint64) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	var (
+		bestInfo      *models.ChannelEdgeInfo
+		bestP1        *models.ChannelEdgePolicy
+		bestP2        *models.ChannelEdgePolicy
+		bestZombie    *models.ChannelEdgeInfo
+		chanIDB       = channelIDToBytes(chanID)
+		buildLiveEdge = func(ctx context.Context, db SQLQueries,
+			row sqlc.GetChannelBySCIDWithPoliciesRow) (
+			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+			*models.ChannelEdgePolicy, error) {
+
+			node1, node2, err := buildNodeVertices(
+				row.GraphNode.PubKey, row.GraphNode_2.PubKey,
+			)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+
+			edge, err := getAndBuildEdgeInfo(
+				ctx, s.cfg, db, row.GraphChannel, node1, node2,
+			)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("unable to "+
+					"build channel info: %w", err)
+			}
+
+			dbPol1, dbPol2, err := extractChannelPolicies(row)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("unable to "+
+					"extract channel policies: %w", err)
+			}
+
+			policy1, policy2, err := getAndBuildChanPolicies(
+				ctx, s.cfg.QueryCfg, db, dbPol1, dbPol2,
+				edge.ChannelID, node1, node2,
+			)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("unable to "+
+					"build channel policies: %w", err)
+			}
+
+			return edge, policy1, policy2, nil
+		}
+	)
+
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		for _, v := range preferredGossipVersionsDescending {
+			row, err := db.GetChannelBySCIDWithPolicies(
+				ctx, sqlc.GetChannelBySCIDWithPoliciesParams{
+					Scid:    chanIDB,
+					Version: int16(v),
+				},
+			)
+			if errors.Is(err, sql.ErrNoRows) {
+				zombie, err := db.GetZombieChannel(
+					ctx, sqlc.GetZombieChannelParams{
+						Scid:    chanIDB,
+						Version: int16(v),
+					},
+				)
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				}
+				if err != nil {
+					return fmt.Errorf("unable to check if "+
+						"channel is zombie: %w", err)
+				}
+
+				if bestZombie == nil {
+					var err error
+					bestZombie, err = buildZombieEdge(
+						v, chanID, zombie.NodeKey1,
+						zombie.NodeKey2,
+					)
+					if err != nil {
+						return err
+					}
+				}
+
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf("unable to fetch channel: %w",
+					err)
+			}
+
+			info, p1, p2, err := buildLiveEdge(ctx, db, row)
+			if err != nil {
+				return err
+			}
+
+			if p1 != nil || p2 != nil {
+				bestInfo, bestP1, bestP2 = info, p1, p2
+
+				return nil
+			}
+
+			if bestInfo == nil {
+				bestInfo, bestP1, bestP2 = info, p1, p2
+			}
+		}
+
+		if bestInfo != nil {
+			return nil
+		}
+
+		if bestZombie != nil {
+			return ErrZombieEdge
+		}
+
+		return ErrEdgeNotFound
+	}, sqldb.NoOpReset)
+	if errors.Is(err, ErrZombieEdge) {
+		return bestZombie, nil, nil, ErrZombieEdge
+	}
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("could not fetch preferred "+
+			"channel: %w", err)
+	}
+
+	return bestInfo, bestP1, bestP2, nil
+}
+
+// FetchChannelEdgesByOutpointPreferred tries each known gossip version from
+// highest to lowest and returns the first result that has at least one policy.
+// If no version has policies, the highest version found is returned. This
+// prevents a v2 channel with no policies from hiding a v1 channel that has
+// valid policy data.
+//
+// NOTE: part of the Store interface.
+func (s *SQLStore) FetchChannelEdgesByOutpointPreferred(
+	ctx context.Context, op *wire.OutPoint) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	var (
+		bestInfo      *models.ChannelEdgeInfo
+		bestP1        *models.ChannelEdgePolicy
+		bestP2        *models.ChannelEdgePolicy
+		buildLiveEdge = func(ctx context.Context, db SQLQueries,
+			row sqlc.GetChannelByOutpointWithPoliciesRow) (
+			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+			*models.ChannelEdgePolicy, error) {
+
+			node1, node2, err := buildNodeVertices(
+				row.Node1Pubkey, row.Node2Pubkey,
+			)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+
+			edge, err := getAndBuildEdgeInfo(
+				ctx, s.cfg, db, row.GraphChannel, node1, node2,
+			)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("unable to "+
+					"build channel info: %w", err)
+			}
+
+			dbPol1, dbPol2, err := extractChannelPolicies(row)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("unable to "+
+					"extract channel policies: %w", err)
+			}
+
+			policy1, policy2, err := getAndBuildChanPolicies(
+				ctx, s.cfg.QueryCfg, db, dbPol1, dbPol2,
+				edge.ChannelID, node1, node2,
+			)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("unable to "+
+					"build channel policies: %w", err)
+			}
+
+			return edge, policy1, policy2, nil
+		}
+	)
+
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		for _, v := range preferredGossipVersionsDescending {
+			params := sqlc.GetChannelByOutpointWithPoliciesParams{
+				Outpoint: op.String(),
+				Version:  int16(v),
+			}
+			row, err := db.GetChannelByOutpointWithPolicies(
+				ctx, params,
+			)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf("unable to fetch channel: %w",
+					err)
+			}
+
+			info, p1, p2, err := buildLiveEdge(ctx, db, row)
+			if err != nil {
+				return err
+			}
+
+			if p1 != nil || p2 != nil {
+				bestInfo, bestP1, bestP2 = info, p1, p2
+
+				return nil
+			}
+
+			if bestInfo == nil {
+				bestInfo, bestP1, bestP2 = info, p1, p2
+			}
+		}
+
+		if bestInfo != nil {
+			return nil
+		}
+
+		return ErrEdgeNotFound
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("could not fetch preferred "+
+			"channel: %w", err)
+	}
+
+	return bestInfo, bestP1, bestP2, nil
+}
+
+func buildZombieEdge(v lnwire.GossipVersion, chanID uint64, nodeKey1,
+	nodeKey2 []byte) (*models.ChannelEdgeInfo, error) {
+
+	node1, err := route.NewVertexFromBytes(nodeKey1)
+	if err != nil {
+		return nil, err
+	}
+	node2, err := route.NewVertexFromBytes(nodeKey2)
+	if err != nil {
+		return nil, err
+	}
+
+	switch v {
+	case gossipV1:
+		return models.NewV1Channel(
+			chanID, chainhash.Hash{}, node1, node2,
+			&models.ChannelV1Fields{},
+		)
+
+	case gossipV2:
+		return models.NewV2Channel(
+			chanID, chainhash.Hash{}, node1, node2,
+			&models.ChannelV2Fields{},
+		)
+
+	default:
+		return nil, fmt.Errorf("unsupported gossip version: %d", v)
+	}
 }
 
 // HasV1ChannelEdge returns true if the database knows of a channel edge
@@ -3317,6 +3612,10 @@ func (s *SQLStore) PruneGraph(ctx context.Context,
 			return err
 		}
 
+		// Delete all matched channels. GetChannelsByOutpoints
+		// returns every version for a given outpoint, so all
+		// versions are deleted and the CASCADE on
+		// graph_preferred_channels handles cleanup.
 		err = s.deleteChannels(ctx, db, chansToDelete)
 		if err != nil {
 			return fmt.Errorf("unable to delete channels: %w", err)
@@ -3624,9 +3923,22 @@ func (s *SQLStore) pruneGraphNodes(ctx context.Context,
 			"nodes: %w", err)
 	}
 
+	// Recalc preferred node mappings for all affected pub_keys. The
+	// CASCADE may have removed some entries; if another version of the
+	// node still exists, UpsertPreferredNode will re-insert the mapping.
+	// If no version remains, the upsert is a no-op (the INSERT ... SELECT
+	// returns no rows). Note that nodeKeys may contain duplicates if a
+	// node existed in multiple gossip versions and was pruned in all of
+	// them; UpsertPreferredNode is idempotent, so this is harmless.
 	prunedNodes := make([]route.Vertex, len(nodeKeys))
-	for i, nodeKey := range nodeKeys {
-		pub, err := route.NewVertexFromBytes(nodeKey)
+	for i, key := range nodeKeys {
+		err = db.UpsertPreferredNode(ctx, key)
+		if err != nil {
+			return nil, fmt.Errorf("recalc preferred "+
+				"node: %w", err)
+		}
+
+		pub, err := route.NewVertexFromBytes(key)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse pubkey "+
 				"from bytes: %w", err)
@@ -3701,6 +4013,10 @@ func (s *SQLStore) DisconnectBlockAtHeight(ctx context.Context,
 
 		removedChans = channelEdges
 
+		// Delete all matched channels. GetChannelsBySCIDRange
+		// returns every version for a given SCID, so all versions
+		// are deleted and the CASCADE on
+		// graph_preferred_channels handles cleanup.
 		err = s.deleteChannels(ctx, db, chanIDsToDelete)
 		if err != nil {
 			return fmt.Errorf("unable to delete channels: %w", err)
@@ -3861,6 +4177,14 @@ func (s *SQLStore) GraphSession(ctx context.Context,
 
 // sqlNodeTraverser implements the NodeTraverser interface but with a backing
 // read only transaction for a consistent view of the graph.
+//
+// The read methods below hardcode gossipV1: this type is only constructed by
+// SQLStore.GraphSession, which is itself only invoked when the in-memory graph
+// cache is unavailable (see ChannelGraph.GraphSession). The SQL backend always
+// runs with the cache enabled in production, so this fallback is never reached
+// at runtime; the cache-backed NodeTraverser is what real callers use, and it
+// already merges v1+v2 with v2 precedence. The only paths that exercise this
+// code are tests, which operate on v1 data.
 type sqlNodeTraverser struct {
 	db    SQLQueries
 	chain chainhash.Hash
@@ -3889,7 +4213,7 @@ func (s *sqlNodeTraverser) ForEachNodeDirectedChannel(
 	cb func(channel *DirectedChannel) error, _ func()) error {
 
 	return forEachNodeDirectedChannel(
-		ctx, s.db, lnwire.GossipVersion1, nodePub, cb,
+		ctx, s.db, gossipV1, nodePub, cb,
 	)
 }
 
@@ -3901,7 +4225,7 @@ func (s *sqlNodeTraverser) FetchNodeFeatures(ctx context.Context,
 	nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
-	return fetchNodeFeatures(ctx, s.db, lnwire.GossipVersion1, nodePub)
+	return fetchNodeFeatures(ctx, s.db, gossipV1, nodePub)
 }
 
 // forEachNodeDirectedChannel iterates through all channels of a given
@@ -4283,6 +4607,15 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 			"policy extra TLVs: %w", err)
 	}
 
+	// Adding a policy may change which version is preferred for this
+	// SCID (a version with policies outranks one without).
+	scidBytes := channelIDToBytes(edge.ChannelID)
+	err = tx.UpsertPreferredChannel(ctx, scidBytes)
+	if err != nil {
+		return node1Pub, node2Pub, false, fmt.Errorf("upserting "+
+			"preferred channel(%d): %w", edge.ChannelID, err)
+	}
+
 	return node1Pub, node2Pub, isNode1, nil
 }
 
@@ -4636,6 +4969,13 @@ func upsertSourceNode(ctx context.Context, db SQLQueries,
 			node.PubKeyBytes, err)
 	}
 
+	// Recompute the preferred node mapping for this pub_key.
+	err = db.UpsertPreferredNode(ctx, node.PubKeyBytes[:])
+	if err != nil {
+		return 0, fmt.Errorf("upserting preferred node(%x): %w",
+			node.PubKeyBytes, err)
+	}
+
 	// We can exit here if we don't have the announcement yet.
 	if !node.HaveAnnouncement() {
 		return nodeID, nil
@@ -4670,6 +5010,15 @@ func upsertNode(ctx context.Context, db SQLQueries,
 	if err != nil {
 		return 0, fmt.Errorf("upserting node(%x): %w", node.PubKeyBytes,
 			err)
+	}
+
+	// Recompute the preferred node mapping for this pub_key. Even a shell
+	// node may become the preferred entry (e.g. first v2 shell for a key
+	// that previously only existed as a v1 shell).
+	err = db.UpsertPreferredNode(ctx, node.PubKeyBytes[:])
+	if err != nil {
+		return 0, fmt.Errorf("upserting preferred node(%x): %w",
+			node.PubKeyBytes, err)
 	}
 
 	// We can exit here if we don't have the announcement yet.
@@ -5155,6 +5504,14 @@ func insertChannel(ctx context.Context, db SQLQueries,
 		}
 	}
 
+	// Recompute the preferred channel mapping for this SCID.
+	scidBytes := channelIDToBytes(edge.ChannelID)
+	err = db.UpsertPreferredChannel(ctx, scidBytes)
+	if err != nil {
+		return fmt.Errorf("upserting preferred channel(%d): %w",
+			edge.ChannelID, err)
+	}
+
 	return nil
 }
 
@@ -5186,6 +5543,13 @@ func maybeCreateShellNode(ctx context.Context, db SQLQueries,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("unable to create shell node: %w", err)
+	}
+
+	// Recompute the preferred node mapping for this pub_key.
+	err = db.UpsertPreferredNode(ctx, pubKey[:])
+	if err != nil {
+		return 0, fmt.Errorf("upserting preferred node(%x): %w",
+			pubKey[:], err)
 	}
 
 	return id, nil
@@ -5959,6 +6323,54 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 
 		return policy1, policy2, nil
 
+	case sqlc.ListPreferredChannelsPaginatedRow:
+		if r.Policy1ID.Valid {
+			policy1 = &sqlc.GraphChannelPolicy{
+				ID:                      r.Policy1ID.Int64,
+				Version:                 r.Policy1Version.Int16,
+				ChannelID:               r.GraphChannel.ID,
+				NodeID:                  r.Policy1NodeID.Int64,
+				Timelock:                r.Policy1Timelock.Int32,
+				FeePpm:                  r.Policy1FeePpm.Int64,
+				BaseFeeMsat:             r.Policy1BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy1MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy1MaxHtlcMsat,
+				LastUpdate:              r.Policy1LastUpdate,
+				InboundBaseFeeMsat:      r.Policy1InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy1InboundFeeRateMilliMsat,
+				Disabled:                r.Policy1Disabled,
+				MessageFlags:            r.Policy1MessageFlags,
+				ChannelFlags:            r.Policy1ChannelFlags,
+				Signature:               r.Policy1Signature,
+				BlockHeight:             r.Policy1BlockHeight,
+				DisableFlags:            r.Policy1DisableFlags,
+			}
+		}
+		if r.Policy2ID.Valid {
+			policy2 = &sqlc.GraphChannelPolicy{
+				ID:                      r.Policy2ID.Int64,
+				Version:                 r.Policy2Version.Int16,
+				ChannelID:               r.GraphChannel.ID,
+				NodeID:                  r.Policy2NodeID.Int64,
+				Timelock:                r.Policy2Timelock.Int32,
+				FeePpm:                  r.Policy2FeePpm.Int64,
+				BaseFeeMsat:             r.Policy2BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy2MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy2MaxHtlcMsat,
+				LastUpdate:              r.Policy2LastUpdate,
+				InboundBaseFeeMsat:      r.Policy2InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy2InboundFeeRateMilliMsat,
+				Disabled:                r.Policy2Disabled,
+				MessageFlags:            r.Policy2MessageFlags,
+				ChannelFlags:            r.Policy2ChannelFlags,
+				Signature:               r.Policy2Signature,
+				BlockHeight:             r.Policy2BlockHeight,
+				DisableFlags:            r.Policy2DisableFlags,
+			}
+		}
+
+		return policy1, policy2, nil
+
 	case sqlc.ListChannelsWithPoliciesPaginatedRow:
 		if r.Policy1ID.Valid {
 			policy1 = &sqlc.GraphChannelPolicy{
@@ -6528,32 +6940,32 @@ func batchLoadChannelPolicyExtrasHelper(ctx context.Context,
 	)
 }
 
-// forEachNodePaginated executes a paginated query to process each node in the
-// graph. It uses the provided SQLQueries interface to fetch nodes in batches
-// and applies the provided processNode function to each node.
-func forEachNodePaginated(ctx context.Context, cfg *sqldb.QueryConfig,
-	db SQLQueries, protocol lnwire.GossipVersion,
-	processNode func(context.Context, int64,
-		*models.Node) error) error {
+// forEachPreferredNodePaginated executes a paginated query that yields one
+// preferred node per pubkey across all gossip versions.
+func forEachPreferredNodePaginated(ctx context.Context, cfg *sqldb.QueryConfig,
+	db SQLQueries, processNode func(*models.Node) error) error {
 
-	pageQueryFunc := func(ctx context.Context, lastID int64,
-		limit int32) ([]sqlc.GraphNode, error) {
+	pageQueryFunc := func(ctx context.Context, cursor []byte,
+		limit int32) ([]sqlc.ListPreferredNodesPaginatedRow, error) {
 
-		return db.ListNodesPaginated(
-			ctx, sqlc.ListNodesPaginatedParams{
-				Version: int16(protocol),
-				ID:      lastID,
-				Limit:   limit,
+		return db.ListPreferredNodesPaginated(
+			ctx, sqlc.ListPreferredNodesPaginatedParams{
+				PubKey: cursor,
+				Limit:  limit,
 			},
 		)
 	}
 
-	extractPageCursor := func(node sqlc.GraphNode) int64 {
-		return node.ID
+	extractPageCursor := func(
+		row sqlc.ListPreferredNodesPaginatedRow) []byte {
+
+		return row.GraphNode.PubKey
 	}
 
-	collectFunc := func(node sqlc.GraphNode) (int64, error) {
-		return node.ID, nil
+	collectFunc := func(
+		row sqlc.ListPreferredNodesPaginatedRow) (int64, error) {
+
+		return row.GraphNode.ID, nil
 	}
 
 	batchQueryFunc := func(ctx context.Context,
@@ -6562,29 +6974,32 @@ func forEachNodePaginated(ctx context.Context, cfg *sqldb.QueryConfig,
 		return batchLoadNodeData(ctx, cfg, db, nodeIDs)
 	}
 
-	processItem := func(ctx context.Context, dbNode sqlc.GraphNode,
+	processItem := func(_ context.Context,
+		row sqlc.ListPreferredNodesPaginatedRow,
 		batchData *batchNodeData) error {
 
+		dbNode := row.GraphNode
 		node, err := buildNodeWithBatchData(dbNode, batchData)
 		if err != nil {
-			return fmt.Errorf("unable to build "+
-				"node(id=%d): %w", dbNode.ID, err)
+			return fmt.Errorf("unable to build node(id=%d): %w",
+				dbNode.ID, err)
 		}
 
-		return processNode(ctx, dbNode.ID, node)
+		return processNode(node)
 	}
 
 	return sqldb.ExecuteCollectAndBatchWithSharedDataQuery(
-		ctx, cfg, int64(-1), pageQueryFunc, extractPageCursor,
+		ctx, cfg, []byte{}, pageQueryFunc, extractPageCursor,
 		collectFunc, batchQueryFunc, processItem,
 	)
 }
 
-// forEachChannelWithPolicies executes a paginated query to process each channel
-// with policies in the graph.
-func forEachChannelWithPolicies(ctx context.Context, db SQLQueries,
-	cfg *SQLStoreConfig, v lnwire.GossipVersion,
-	processChannel func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+// forEachPreferredChannelWithPolicies executes a paginated query that yields
+// one preferred channel per SCID across all gossip versions.
+func forEachPreferredChannelWithPolicies(ctx context.Context,
+	db SQLQueries, cfg *SQLStoreConfig,
+	processChannel func(*models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error) error {
 
 	type channelBatchIDs struct {
@@ -6592,33 +7007,32 @@ func forEachChannelWithPolicies(ctx context.Context, db SQLQueries,
 		policyIDs []int64
 	}
 
-	pageQueryFunc := func(ctx context.Context, lastID int64,
-		limit int32) ([]sqlc.ListChannelsWithPoliciesPaginatedRow,
+	pageQueryFunc := func(ctx context.Context, cursor []byte,
+		limit int32) ([]sqlc.ListPreferredChannelsPaginatedRow,
 		error) {
 
-		return db.ListChannelsWithPoliciesPaginated(
-			ctx, sqlc.ListChannelsWithPoliciesPaginatedParams{
-				Version: int16(v),
-				ID:      lastID,
-				Limit:   limit,
+		return db.ListPreferredChannelsPaginated(
+			ctx, sqlc.ListPreferredChannelsPaginatedParams{
+				Scid:  cursor,
+				Limit: limit,
 			},
 		)
 	}
 
 	extractPageCursor := func(
-		row sqlc.ListChannelsWithPoliciesPaginatedRow) int64 {
+		row sqlc.ListPreferredChannelsPaginatedRow) []byte {
 
-		return row.GraphChannel.ID
+		return row.GraphChannel.Scid
 	}
 
-	collectFunc := func(row sqlc.ListChannelsWithPoliciesPaginatedRow) (
+	collectFunc := func(
+		row sqlc.ListPreferredChannelsPaginatedRow) (
 		channelBatchIDs, error) {
 
 		ids := channelBatchIDs{
 			channelID: row.GraphChannel.ID,
 		}
 
-		// Extract policy IDs from the row.
 		dbPol1, dbPol2, err := extractChannelPolicies(row)
 		if err != nil {
 			return ids, err
@@ -6654,7 +7068,7 @@ func forEachChannelWithPolicies(ctx context.Context, db SQLQueries,
 	}
 
 	processItem := func(ctx context.Context,
-		row sqlc.ListChannelsWithPoliciesPaginatedRow,
+		row sqlc.ListPreferredChannelsPaginatedRow,
 		batchData *batchChannelData) error {
 
 		node1, node2, err := buildNodeVertices(
@@ -6689,7 +7103,7 @@ func forEachChannelWithPolicies(ctx context.Context, db SQLQueries,
 	}
 
 	return sqldb.ExecuteCollectAndBatchWithSharedDataQuery(
-		ctx, cfg.QueryCfg, int64(-1), pageQueryFunc, extractPageCursor,
+		ctx, cfg.QueryCfg, []byte{}, pageQueryFunc, extractPageCursor,
 		collectFunc, batchDataFunc, processItem,
 	)
 }

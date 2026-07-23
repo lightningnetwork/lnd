@@ -43,6 +43,16 @@
   v0.20-era mandatory version so the v0.21 waiting proof migration runs
   without replaying older migrations against an already-initialized database.
 
+* [Bounded the memory used while syncing the channel
+  graph](https://github.com/lightningnetwork/lnd/pull/10992). A peer replying
+  to our `query_channel_range` could previously make us buffer an
+  unpredictable number of short channel IDs, as the only limit was a coarse
+  67MB cap on the bytes a single zlib-compressed reply could decompress to.
+  Replies are now capped at a precise number of short channel IDs, both
+  per-message and in aggregate across a single query, and the accumulated
+  reply state is released as soon as any reply fails validation so that a
+  peer cannot pin it by deliberately forcing an error.
+
 # New Features
 
 ## Functional Enhancements
@@ -107,3 +117,4 @@
 
 * bitromortac
 * Jared Tobin
+* Olaoluwa Osuntokun

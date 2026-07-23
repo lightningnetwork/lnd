@@ -466,6 +466,14 @@ func getEventType(pkt *htlcPacket) HtlcEventType {
 	case pkt.incomingChanID == hop.Source:
 		return HtlcEventTypeSend
 
+	// A node-ID (pubkey) next hop has no outgoing SCID until the switch
+	// selects one, so outgoingChanID may still be hop.Exit on an early
+	// failure. Such a hop is always a forward, never the exit, so classify
+	// it before the hop.Exit check to avoid reporting a forward as a
+	// receive.
+	case pkt.outgoingHop.IsRight():
+		return HtlcEventTypeForward
+
 	case pkt.outgoingChanID == hop.Exit:
 		return HtlcEventTypeReceive
 

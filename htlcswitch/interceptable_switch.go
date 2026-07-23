@@ -891,6 +891,7 @@ func (f *interceptedForward) resolve(message lnwire.Message) error {
 		incomingChanID: f.packet.incomingChanID,
 		incomingHTLCID: f.packet.incomingHTLCID,
 		outgoingChanID: f.packet.outgoingChanID,
+		outgoingHop:    f.packet.outgoingHop,
 		outgoingHTLCID: f.packet.outgoingHTLCID,
 		isResolution:   true,
 		circuit:        f.packet.circuit,

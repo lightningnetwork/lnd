@@ -3205,6 +3205,11 @@
         },
         "anchor": {
           "$ref": "#/definitions/ForceClosedChannelAnchorState"
+        },
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique channel ID for the channel."
         }
       }
     },
@@ -3343,6 +3348,11 @@
           "type": "integer",
           "format": "int64",
           "description": "The block height at which the closing transaction was first confirmed.\nThis will be zero if the closing transaction has not yet confirmed, or\nif this information is not available for older channels."
+        },
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique channel ID for the channel."
         }
       }
     },

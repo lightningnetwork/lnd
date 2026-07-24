@@ -1290,10 +1290,18 @@ func (x *ListAccountsRequest) GetAddressType() AddressType {
 }
 
 type ListAccountsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Accounts      []*Account             `protobuf:"bytes,1,rep,name=accounts,proto3" json:"accounts,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Accounts []*Account             `protobuf:"bytes,1,rep,name=accounts,proto3" json:"accounts,omitempty"`
+	// The birthday of the wallet's master key, expressed in seconds since the unix
+	// epoch. This is the earliest time any of the wallet's keys could have been
+	// used, so it is where a rescan of the chain has to start. The accounts above
+	// are extended public keys, which carry no notion of when they were created,
+	// so this value needs to be transported alongside them when importing them
+	// into a watch-only wallet. It corresponds to the
+	// WatchOnly.master_key_birthday_timestamp field of the InitWallet request.
+	MasterKeyBirthdayTimestamp uint64 `protobuf:"varint,2,opt,name=master_key_birthday_timestamp,json=masterKeyBirthdayTimestamp,proto3" json:"master_key_birthday_timestamp,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *ListAccountsResponse) Reset() {
@@ -1331,6 +1339,13 @@ func (x *ListAccountsResponse) GetAccounts() []*Account {
 		return x.Accounts
 	}
 	return nil
+}
+
+func (x *ListAccountsResponse) GetMasterKeyBirthdayTimestamp() uint64 {
+	if x != nil {
+		return x.MasterKeyBirthdayTimestamp
+	}
+	return 0
 }
 
 type XCreateAccountRequest struct {
@@ -4962,9 +4977,10 @@ const file_walletrpc_walletkit_proto_rawDesc = "" +
 	"\taddresses\x18\x04 \x03(\v2\x1a.walletrpc.AddressPropertyR\taddresses\"d\n" +
 	"\x13ListAccountsRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x129\n" +
-	"\faddress_type\x18\x02 \x01(\x0e2\x16.walletrpc.AddressTypeR\vaddressType\"F\n" +
+	"\faddress_type\x18\x02 \x01(\x0e2\x16.walletrpc.AddressTypeR\vaddressType\"\x89\x01\n" +
 	"\x14ListAccountsResponse\x12.\n" +
-	"\baccounts\x18\x01 \x03(\v2\x12.walletrpc.AccountR\baccounts\"\x99\x01\n" +
+	"\baccounts\x18\x01 \x03(\v2\x12.walletrpc.AccountR\baccounts\x12A\n" +
+	"\x1dmaster_key_birthday_timestamp\x18\x02 \x01(\x04R\x1amasterKeyBirthdayTimestamp\"\x99\x01\n" +
 	"\x15XCreateAccountRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x129\n" +
 	"\faddress_type\x18\x02 \x01(\x0e2\x16.walletrpc.AddressTypeR\vaddressType\x121\n" +

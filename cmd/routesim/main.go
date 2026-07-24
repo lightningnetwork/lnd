@@ -34,6 +34,14 @@ type scenarioFile struct {
 	// Source is the node all payments originate from.
 	Source string `json:"source"`
 
+	// Clock enables virtual time: simulated seconds pass between
+	// payments and attempts, so decay half-lives actually operate.
+	Clock *routing.SimClockParams `json:"clock,omitempty"`
+
+	// BackgroundTraffic enables exogenous seeded payments that move
+	// hidden liquidity between the scenario payments.
+	BackgroundTraffic *routing.SimTrafficParams `json:"background_traffic,omitempty"`
+
 	// Scenarios are executed in order against a shared mission control.
 	Scenarios []routing.SimScenario `json:"scenarios"`
 }
@@ -52,6 +60,11 @@ type aggregate struct {
 	TotalFeeMsat    uint64  `json:"total_fee_msat"`
 	FeePPMOnSuccess float64 `json:"fee_ppm_on_success"`
 	AmtSuccessMsat  uint64  `json:"amt_success_msat"`
+
+	// BgPaymentsSent and BgPaymentsSettled report the background traffic
+	// volume when the traffic model is enabled.
+	BgPaymentsSent    int `json:"bg_payments_sent,omitempty"`
+	BgPaymentsSettled int `json:"bg_payments_settled,omitempty"`
 }
 
 type output struct {
@@ -160,6 +173,16 @@ func main() {
 	}
 	defer runner.Close()
 
+	if scenFile.Clock != nil {
+		runner.SetVirtualClock(scenFile.Clock)
+	}
+	if scenFile.BackgroundTraffic != nil {
+		err := runner.SetBackgroundTraffic(scenFile.BackgroundTraffic)
+		if err != nil {
+			fatalf("unable to enable traffic: %v", err)
+		}
+	}
+
 	switch *router {
 	case "lnd":
 	case "candidate":
@@ -193,6 +216,7 @@ func main() {
 	}
 
 	agg := &out.Aggregate
+	agg.BgPaymentsSent, agg.BgPaymentsSettled = runner.TrafficStats()
 	if agg.NumScenarios > 0 {
 		agg.SuccessRate = float64(agg.NumSuccesses) /
 			float64(agg.NumScenarios)

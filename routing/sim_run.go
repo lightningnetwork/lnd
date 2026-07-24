@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -170,17 +171,54 @@ type SimScenarioResult struct {
 	Error string `json:"error,omitempty"`
 }
 
+// SimClockParams configures the virtual clock. Without one the simulation
+// runs on the wall clock, where a whole batch finishes in well under any
+// decay half-life; with one, simulated time passes between payments and
+// attempts so that time-based logic (mission control decay, candidate
+// staleness handling) actually operates.
+type SimClockParams struct {
+	// StartUnix anchors the virtual clock; a fixed value keeps runs
+	// reproducible. Zero selects a fixed default epoch.
+	StartUnix int64 `json:"start_unix"`
+
+	// PaymentGapSec is how much virtual time passes before each scenario
+	// payment, the window in which background traffic moves liquidity.
+	PaymentGapSec float64 `json:"payment_gap_sec"`
+
+	// AttemptSec is how much virtual time each htlc attempt consumes.
+	AttemptSec float64 `json:"attempt_sec"`
+}
+
+// simDefaultClockStart is the fixed virtual epoch used when a clock section
+// doesn't pin one, chosen arbitrarily but deterministically.
+const simDefaultClockStart int64 = 1_750_000_000
+
 // SimRunner runs payment scenarios against a simulated network with a
 // persistent mission control, mirroring the control loop of a real node.
 type SimRunner struct {
 	graph  *SimGraph
 	source route.Vertex
 	mc     *MissionControl
+	mcc    *MissionController
 	params *SimParams
 
 	// routerFactory builds the routing strategy under test, once per
 	// payment. Defaults to the lnd production stack.
 	routerFactory SimRouterFactory
+
+	// clk is the time source routers observe. It is the wall clock
+	// unless a virtual clock is configured.
+	clk clock.Clock
+
+	// virtualClk is the settable clock behind clk when virtual time is
+	// enabled, nil otherwise.
+	virtualClk *clock.TestClock
+
+	// clockParams holds the virtual time step sizes.
+	clockParams SimClockParams
+
+	// traffic is the background traffic engine, nil when disabled.
+	traffic *simTraffic
 
 	cleanup func()
 }
@@ -241,7 +279,9 @@ func NewSimRunner(graph *SimGraph, params *SimParams, source route.Vertex,
 		graph:   graph,
 		source:  source,
 		mc:      mc,
+		mcc:     mcController,
 		params:  params,
+		clk:     clock.NewDefaultClock(),
 		cleanup: cleanup,
 	}
 
@@ -262,6 +302,75 @@ func NewSimRunner(graph *SimGraph, params *SimParams, source route.Vertex,
 // SetRouterFactory replaces the routing strategy under test.
 func (r *SimRunner) SetRouterFactory(factory SimRouterFactory) {
 	r.routerFactory = factory
+}
+
+// SetVirtualClock switches the runner (and the mission control stack behind
+// the lnd baseline) onto a settable virtual clock, so that decay half-lives
+// and other time-based logic operate over simulated time rather than the
+// microseconds a batch takes on the wall clock.
+func (r *SimRunner) SetVirtualClock(params *SimClockParams) {
+	start := params.StartUnix
+	if start == 0 {
+		start = simDefaultClockStart
+	}
+
+	r.clockParams = *params
+	r.virtualClk = clock.NewTestClock(time.Unix(start, 0))
+	r.clk = r.virtualClk
+
+	// Mission control instances share the controller's config, so
+	// swapping the clock here reaches every namespace.
+	r.mcc.cfg.clock = r.virtualClk
+}
+
+// SetBackgroundTraffic enables the exogenous traffic model: before each
+// scenario payment, the configured number of seeded background payments
+// execute between random node pairs, moving hidden liquidity the way other
+// people's payments do on a live network.
+func (r *SimRunner) SetBackgroundTraffic(params *SimTrafficParams) error {
+	traffic, err := newSimTraffic(r.graph, params)
+	if err != nil {
+		return err
+	}
+	r.traffic = traffic
+
+	return nil
+}
+
+// TrafficStats reports how many background payments were sent and settled.
+func (r *SimRunner) TrafficStats() (sent, settled int) {
+	if r.traffic == nil {
+		return 0, 0
+	}
+
+	return r.traffic.Sent, r.traffic.Settled
+}
+
+// advanceGap moves virtual time forward by the payment gap and lets the
+// background traffic use that window.
+func (r *SimRunner) advanceGap() {
+	if r.virtualClk != nil && r.clockParams.PaymentGapSec > 0 {
+		r.virtualClk.SetTime(r.virtualClk.Now().Add(
+			time.Duration(r.clockParams.PaymentGapSec *
+				float64(time.Second)),
+		))
+	}
+
+	if r.traffic != nil {
+		r.traffic.run()
+	}
+}
+
+// advanceAttempt moves virtual time forward by one attempt's duration.
+func (r *SimRunner) advanceAttempt() {
+	if r.virtualClk == nil || r.clockParams.AttemptSec <= 0 {
+		return
+	}
+
+	r.virtualClk.SetTime(r.virtualClk.Now().Add(
+		time.Duration(r.clockParams.AttemptSec *
+			float64(time.Second)),
+	))
 }
 
 // Close releases the runner's resources.
@@ -307,6 +416,11 @@ func (g *SimGraph) ResolveNode(ref string) (route.Vertex, error) {
 func (r *SimRunner) RunScenario(s *SimScenario) (*SimScenarioResult, error) {
 	result := &SimScenarioResult{Scenario: *s}
 
+	// Let virtual time pass and background traffic move liquidity before
+	// this payment starts, the way a live network keeps churning between
+	// a node's own sends.
+	r.advanceGap()
+
 	source := r.source
 	target, err := r.graph.ResolveNode(s.Target)
 	if err != nil {
@@ -329,7 +443,7 @@ func (r *SimRunner) RunScenario(s *SimScenario) (*SimScenarioResult, error) {
 	// view wrapper hides the concrete graph so that a candidate router
 	// cannot reach the hidden balances.
 	router, err := r.routerFactory(
-		&simGossipView{g: r.graph}, source,
+		&simGossipView{g: r.graph, now: r.clk.Now}, source,
 		r.graph.LocalBalances(source), spec,
 	)
 	if err != nil {
@@ -357,6 +471,10 @@ func (r *SimRunner) RunScenario(s *SimScenario) (*SimScenarioResult, error) {
 		// out an otherwise functional candidate.
 		attemptID := nextAttemptID
 		nextAttemptID++
+
+		// Each attempt consumes virtual time: htlcs take real seconds
+		// to resolve on a live network.
+		r.advanceAttempt()
 
 		htlcResult, err := r.graph.SendHtlc(rt)
 		if err != nil {

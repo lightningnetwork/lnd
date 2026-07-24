@@ -3,6 +3,7 @@ package routing
 import (
 	"context"
 	"math"
+	"time"
 
 	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -49,17 +50,37 @@ type SimPaymentSpec struct {
 }
 
 // SimNetworkView is the read-only public surface a router sees: the gossip
-// graph for path queries. It intentionally hides the concrete graph type so
-// that candidate implementations cannot reach the hidden balances or mutate
-// liquidity — the same information asymmetry a real sender faces.
+// graph for path queries plus the current time. It intentionally hides the
+// concrete graph type so that candidate implementations cannot reach the
+// hidden balances or mutate liquidity — the same information asymmetry a
+// real sender faces.
 type SimNetworkView interface {
 	Graph
 	GraphSessionFactory
+
+	// Now returns the current time as the router experiences it. Under a
+	// virtual clock this advances between payments and attempts, and
+	// hidden liquidity drifts with it when background traffic is enabled.
+	Now() time.Time
 }
 
 // simGossipView wraps a SimGraph, exposing only the SimNetworkView surface.
 type simGossipView struct {
 	g *SimGraph
+
+	// now is the runner's time source; nil falls back to the wall clock.
+	now func() time.Time
+}
+
+// Now returns the current simulation time.
+//
+// NOTE: Part of the SimNetworkView interface.
+func (v *simGossipView) Now() time.Time {
+	if v.now == nil {
+		return time.Now()
+	}
+
+	return v.now()
 }
 
 func (v *simGossipView) ForEachNodeDirectedChannel(ctx context.Context,

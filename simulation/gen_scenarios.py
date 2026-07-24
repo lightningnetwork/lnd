@@ -32,7 +32,7 @@ TOPOLOGIES = [
 LIQUIDITY_MODELS = ["bimodal", "bimodal", "uniform"]
 
 
-def gen_example(rng: random.Random) -> dict:
+def gen_example(rng: random.Random, drift: bool = False) -> dict:
     topology = dict(rng.choice(TOPOLOGIES))
     topology["seed"] = rng.randrange(1, 2**31)
 
@@ -56,13 +56,32 @@ def gen_example(rng: random.Random) -> dict:
             "max_parts": max_parts,
         })
 
-    return {
+    example = {
         "topology": topology,
         "liquidity_model": rng.choice(LIQUIDITY_MODELS),
         "liquidity_seed": rng.randrange(1, 2**31),
         "source": "1",
         "scenarios": scenarios,
     }
+
+    if drift:
+        # Virtual time passes between payments and background senders move
+        # hidden liquidity in the gaps: ten minutes per gap, with traffic
+        # volume scaled to the network size so knowledge genuinely goes
+        # stale between a node's own sends. Amounts are log-uniform from
+        # dust up to half a channel.
+        example["clock"] = {
+            "payment_gap_sec": 600,
+            "attempt_sec": 1,
+        }
+        example["background_traffic"] = {
+            "payments_per_gap": max(10, num_nodes // 10),
+            "min_amt_msat": max(1_000, cap_msat // 1_000),
+            "max_amt_msat": cap_msat // 2,
+            "seed": rng.randrange(1, 2**31),
+        }
+
+    return example
 
 
 def main() -> None:
@@ -75,6 +94,10 @@ def main() -> None:
     parser.add_argument("--hard", action="store_true",
                         help="bimodal-only, small-channel topologies with "
                         "headroom (drop easy scale-free nets)")
+    parser.add_argument("--drift", action="store_true",
+                        help="enable the virtual clock and background "
+                        "traffic so liquidity drifts between payments "
+                        "(exp-008)")
     args = parser.parse_args()
 
     global TOPOLOGIES, LIQUIDITY_MODELS
@@ -99,7 +122,7 @@ def main() -> None:
         split_dir = out / split
         split_dir.mkdir(parents=True, exist_ok=True)
         for i in range(count):
-            example = gen_example(rng)
+            example = gen_example(rng, drift=args.drift)
             path = split_dir / f"example_{i:03d}.json"
             path.write_text(json.dumps(example, indent=2))
         print(f"{split}: {count} examples in {split_dir}")

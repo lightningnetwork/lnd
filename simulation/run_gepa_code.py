@@ -58,6 +58,13 @@ Environment truths worth exploiting:
   remaining amount.
 - Payments per scenario batch run sequentially and liquidity persists, so
   knowledge from earlier payments in the batch transfers.
+- THE NETWORK KEEPS MOVING BETWEEN YOUR PAYMENTS: scenario files may
+  enable background traffic, where other participants' payments shift
+  hidden liquidity in the (virtual) minutes between your payments, and a
+  virtual clock, readable as view.Now(), advances between payments and
+  attempts. In such environments, what you learned about a channel k
+  payments ago may no longer hold. Whether and how to account for the
+  age of evidence is entirely your design choice.
 
 The current seed is a cheapest-path Dijkstra with failure blacklisting and
 halving splits. Known weaknesses to consider: it ignores capacity when
@@ -71,11 +78,13 @@ simulation/champions/), worth building on rather than rediscovering:
 - An explicit BIMODAL PRIOR over amount/capacity works: near-certain for
   tiny amounts (decaying exponential low mode), a logistic cliff as the
   amount approaches capacity, floors/caps around [0.005, 0.985].
-- Per-directed-channel liquidity BELIEFS beat time-decayed penalties:
-  track lower-OK (largest amount proven to pass) and upper-fail
-  (smallest proven to fail) bounds plus a confidence-weighted point
-  estimate; return ~0.995 below lower-OK, ~0 above upper-fail, blend
-  with the prior in between. Evidence counts, not wall-clock decay.
+- Per-directed-channel liquidity BELIEFS work well: track lower-OK
+  (largest amount proven to pass) and upper-fail (smallest proven to
+  fail) bounds plus a confidence-weighted point estimate; return ~0.995
+  below lower-OK, ~0 above upper-fail, blend with the prior in between.
+  (Caveat: this insight was learned in environments with NO background
+  traffic, where old evidence never went stale. Its hard bounds may or
+  may not survive in a drifting network.)
 - Retry-at-lower-amount on a failed channel (a lower-retry factor)
   outperforms permanently blacklisting it.
 - Keep the implementation LEAN: past ~800 lines, edits stop compiling

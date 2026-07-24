@@ -171,6 +171,10 @@ const (
 	// the maximum number of replies allowed for zlib encoded replies.
 	maxQueryChanRangeRepliesZlibFactor = 4
 
+	// maxChanRangeReplySCIDs is the maximum number of short channel IDs
+	// we'll process for a single QueryChannelRange request.
+	maxChanRangeReplySCIDs = 100_000
+
 	// chanRangeQueryBuffer is the number of blocks back that we'll go when
 	// asking the remote peer for their any channels they know of beyond
 	// our highest known channel ID.
@@ -378,6 +382,10 @@ type GossipSyncer struct {
 	// received as part of a QueryChannelRange. This field is primarily used
 	// within the waitingQueryChanReply state.
 	numChanRangeRepliesRcvd uint32
+
+	// numChanRangeReplySCIDsRcvd tracks the total number of short channel
+	// IDs received as part of a QueryChannelRange response.
+	numChanRangeReplySCIDsRcvd uint32
 
 	// newChansToQuery is used to pass the set of channels we should query
 	// for from the waitingQueryChanReply state to the queryNewChannels
@@ -921,7 +929,15 @@ func isLegacyReplyChannelRange(query *lnwire.QueryChannelRange,
 // reply to the initial range query to discover new channels that it didn't
 // previously know of.
 func (g *GossipSyncer) processChanRangeReply(_ context.Context,
-	msg *lnwire.ReplyChannelRange) error {
+	msg *lnwire.ReplyChannelRange) (err error) {
+
+	// Any error terminates the range sync. Release the accumulated reply
+	// state so the peer cannot pin it after forcing an error.
+	defer func() {
+		if err != nil {
+			g.resetChanRangeReplyState()
+		}
+	}()
 
 	// isStale returns whether the timestamp is too far into the past.
 	isStale := func(timestamp time.Time) bool {
@@ -975,6 +991,35 @@ func (g *GossipSyncer) processChanRangeReply(_ context.Context,
 		}
 	}
 
+	// Charge the reply budget using the encoding that was actually
+	// received. The configured encoding is a local preference and does
+	// not describe the responder's message.
+	var replyCount uint32
+	switch msg.EncodingType {
+	case lnwire.EncodingSortedPlain:
+		replyCount = 1
+
+	case lnwire.EncodingSortedZlib:
+		replyCount = maxQueryChanRangeRepliesZlibFactor
+
+	default:
+		return fmt.Errorf(
+			"unhandled encoding type %v", msg.EncodingType,
+		)
+	}
+
+	numReplySCIDs := uint32(len(msg.ShortChanIDs))
+	if g.numChanRangeReplySCIDsRcvd > maxChanRangeReplySCIDs ||
+		numReplySCIDs > maxChanRangeReplySCIDs-
+			g.numChanRangeReplySCIDsRcvd {
+
+		return fmt.Errorf("channel range reply exceeds maximum "+
+			"number of short channel IDs: max=%v",
+			maxChanRangeReplySCIDs)
+	}
+
+	g.numChanRangeRepliesRcvd += replyCount
+	g.numChanRangeReplySCIDsRcvd += numReplySCIDs
 	g.prevReplyChannelRange = msg
 
 	for i, scid := range msg.ShortChanIDs {
@@ -1020,15 +1065,6 @@ func (g *GossipSyncer) processChanRangeReply(_ context.Context,
 		g.bufferedChanRangeReplies = append(
 			g.bufferedChanRangeReplies, info,
 		)
-	}
-
-	switch g.cfg.encodingType {
-	case lnwire.EncodingSortedPlain:
-		g.numChanRangeRepliesRcvd++
-	case lnwire.EncodingSortedZlib:
-		g.numChanRangeRepliesRcvd += maxQueryChanRangeRepliesZlibFactor
-	default:
-		return fmt.Errorf("unhandled encoding type %v", g.cfg.encodingType)
 	}
 
 	log.Infof("GossipSyncer(%x): buffering chan range reply of size=%v",
@@ -1077,10 +1113,7 @@ func (g *GossipSyncer) processChanRangeReply(_ context.Context,
 	// As we've received the entirety of the reply, we no longer need to
 	// hold on to the set of buffered replies or the original query that
 	// prompted the replies, so we'll let that be garbage collected now.
-	g.curQueryRangeMsg = nil
-	g.prevReplyChannelRange = nil
-	g.bufferedChanRangeReplies = nil
-	g.numChanRangeRepliesRcvd = 0
+	g.resetChanRangeReplyState()
 
 	// If there aren't any channels that we don't know of, then we can
 	// switch straight to our terminal state.
@@ -1106,6 +1139,16 @@ func (g *GossipSyncer) processChanRangeReply(_ context.Context,
 		g.cfg.peerPub[:], len(newChans))
 
 	return nil
+}
+
+// resetChanRangeReplyState releases all state accumulated while processing a
+// ReplyChannelRange stream.
+func (g *GossipSyncer) resetChanRangeReplyState() {
+	g.curQueryRangeMsg = nil
+	g.prevReplyChannelRange = nil
+	g.bufferedChanRangeReplies = nil
+	g.numChanRangeRepliesRcvd = 0
+	g.numChanRangeReplySCIDsRcvd = 0
 }
 
 // genChanRangeQuery generates the initial message we'll send to the remote

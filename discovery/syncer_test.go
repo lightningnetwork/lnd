@@ -2570,6 +2570,93 @@ func TestGossipSyncerMaxChannelRangeReplies(t *testing.T) {
 	}, nil))
 }
 
+// TestGossipSyncerMaxChannelRangeSCIDs ensures that a gossip syncer rejects a
+// range response once the aggregate number of short channel IDs exceeds its
+// resource limit.
+func TestGossipSyncerMaxChannelRangeSCIDs(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	_, syncer, _ := newTestSyncer(
+		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
+		defaultEncoding, defaultChunkSize,
+	)
+
+	query, err := syncer.genChanRangeQuery(ctx, true)
+	require.NoError(t, err)
+
+	scids := make([]lnwire.ShortChannelID, defaultChunkSize)
+	for i := range scids {
+		scids[i] = lnwire.NewShortChanIDFromInt(uint64(i))
+	}
+
+	reply := &lnwire.ReplyChannelRange{
+		ChainHash:        query.ChainHash,
+		FirstBlockHeight: query.FirstBlockHeight,
+		NumBlocks:        query.NumBlocks,
+		EncodingType:     lnwire.EncodingSortedPlain,
+		ShortChanIDs:     scids,
+	}
+
+	numFullReplies := maxChanRangeReplySCIDs / len(scids)
+	for i := 0; i < numFullReplies; i++ {
+		require.NoError(t, syncer.processChanRangeReply(ctx, reply))
+	}
+
+	require.Len(
+		t, syncer.bufferedChanRangeReplies,
+		numFullReplies*len(scids),
+	)
+
+	numRemaining := maxChanRangeReplySCIDs -
+		numFullReplies*len(scids)
+	reply.ShortChanIDs = scids[:numRemaining]
+	require.NoError(t, syncer.processChanRangeReply(ctx, reply))
+	require.Len(
+		t, syncer.bufferedChanRangeReplies,
+		maxChanRangeReplySCIDs,
+	)
+
+	reply.ShortChanIDs = []lnwire.ShortChannelID{
+		lnwire.NewShortChanIDFromInt(uint64(len(scids))),
+	}
+	err = syncer.processChanRangeReply(ctx, reply)
+	require.ErrorContains(
+		t, err, "exceeds maximum number of short channel IDs",
+	)
+	require.Empty(t, syncer.bufferedChanRangeReplies)
+	require.Zero(t, syncer.numChanRangeReplySCIDsRcvd)
+	require.Nil(t, syncer.curQueryRangeMsg)
+}
+
+// TestGossipSyncerCountsReceivedEncoding ensures that compressed range
+// replies consume the larger reply budget even when the local syncer uses
+// plain encoding.
+func TestGossipSyncerCountsReceivedEncoding(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	_, syncer, _ := newTestSyncer(
+		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
+		defaultEncoding, defaultChunkSize,
+	)
+
+	query, err := syncer.genChanRangeQuery(ctx, true)
+	require.NoError(t, err)
+
+	reply := &lnwire.ReplyChannelRange{
+		ChainHash:        query.ChainHash,
+		FirstBlockHeight: query.FirstBlockHeight,
+		NumBlocks:        query.NumBlocks,
+		EncodingType:     lnwire.EncodingSortedZlib,
+	}
+	require.NoError(t, syncer.processChanRangeReply(ctx, reply))
+	require.Equal(
+		t, uint32(maxQueryChanRangeRepliesZlibFactor),
+		syncer.numChanRangeRepliesRcvd,
+	)
+}
+
 // TestGossipSyncerStateHandlerErrors tests that errors in state handlers cause
 // the channelGraphSyncer goroutine to exit cleanly without endless retry loops.
 // This is a table-driven test covering various error types and states.

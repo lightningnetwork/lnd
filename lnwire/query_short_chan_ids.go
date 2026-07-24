@@ -12,10 +12,10 @@ import (
 )
 
 const (
-	// maxZlibBufSize is the max number of bytes that we'll accept from a
-	// zlib decoding instance. We do this in order to limit the total
-	// amount of memory allocated during a decoding instance.
-	maxZlibBufSize = 67413630
+	// maxDecodedShortChanIDs is the maximum number of short channel IDs
+	// accepted from a single message. The plain encoding is also bounded
+	// by the wire size, so its check is defense in depth.
+	maxDecodedShortChanIDs = 100_000
 )
 
 // ErrUnsortedSIDs is returned when decoding a QueryShortChannelID request whose
@@ -164,6 +164,12 @@ func decodeShortChanIDs(r io.Reader) (QueryEncoding, []ShortChannelID, error) {
 		// compute the number of bytes encoded based on the size of the
 		// query body.
 		numShortChanIDs := len(queryBody) / 8
+		if numShortChanIDs > maxDecodedShortChanIDs {
+			return 0, nil, fmt.Errorf(
+				"too many short channel IDs: max=%v, got=%v",
+				maxDecodedShortChanIDs, numShortChanIDs,
+			)
+		}
 		if numShortChanIDs == 0 {
 			return encodingType, nil, nil
 		}
@@ -210,61 +216,28 @@ func decodeShortChanIDs(r io.Reader) (QueryEncoding, []ShortChannelID, error) {
 			return encodingType, nil, nil
 		}
 
-		// Before we start to decode, we'll create a limit reader over
-		// the current reader. This will ensure that we can control how
-		// much memory we're allocating during the decoding process.
-		limitedDecompressor, err := zlib.NewReader(&io.LimitedReader{
-			R: bytes.NewReader(queryBody),
-			N: maxZlibBufSize,
-		})
+		decompressor, err := zlib.NewReader(bytes.NewReader(queryBody))
 		if err != nil {
 			return 0, nil, fmt.Errorf("unable to create zlib "+
 				"reader: %w", err)
 		}
 
-		var (
-			shortChanIDs []ShortChannelID
-			lastChanID   ShortChannelID
-			i            int
+		shortChanIDs, decodeErr := decodeCompressedShortChanIDs(
+			decompressor,
 		)
-		for {
-			// We'll now attempt to read the next short channel ID
-			// encoded in the payload.
-			var cid ShortChannelID
-			err := ReadElements(limitedDecompressor, &cid)
+		closeErr := decompressor.Close()
 
-			switch {
-			// If we get an EOF error, then that either means we've
-			// read all that's contained in the buffer, or have hit
-			// our limit on the number of bytes we'll read. In
-			// either case, we'll return what we have so far.
-			case err == io.ErrUnexpectedEOF || err == io.EOF:
-				return encodingType, shortChanIDs, nil
+		switch {
+		case decodeErr != nil:
+			return 0, nil, decodeErr
 
-			// Otherwise, we hit some other sort of error, possibly
-			// an invalid payload, so we'll exit early with the
-			// error.
-			case err != nil:
-				return 0, nil, fmt.Errorf("unable to "+
-					"deflate next short chan "+
-					"ID: %v", err)
-			}
+		case closeErr != nil:
+			return 0, nil, fmt.Errorf(
+				"unable to close zlib reader: %w", closeErr,
+			)
 
-			// We successfully read the next ID, so we'll collect
-			// that in the set of final ID's to return.
-			shortChanIDs = append(shortChanIDs, cid)
-
-			// Finally, we'll ensure that this short chan ID is
-			// greater than the last one. This is a requirement
-			// within the encoding, and if violated can aide us in
-			// detecting malicious payloads. This can only be true
-			// starting at the second chanID.
-			if i > 0 && cid.ToUint64() <= lastChanID.ToUint64() {
-				return 0, nil, ErrUnsortedSIDs{lastChanID, cid}
-			}
-
-			lastChanID = cid
-			i++
+		default:
+			return encodingType, shortChanIDs, nil
 		}
 
 	default:
@@ -272,6 +245,45 @@ func decodeShortChanIDs(r io.Reader) (QueryEncoding, []ShortChannelID, error) {
 		// then we'll return a parsing error as we can't continue if
 		// we're unable to encode them.
 		return 0, nil, ErrUnknownShortChanIDEncoding(encodingType)
+	}
+}
+
+// decodeCompressedShortChanIDs decodes and validates the decompressed short
+// channel ID stream.
+func decodeCompressedShortChanIDs(r io.Reader) ([]ShortChannelID, error) {
+	var (
+		shortChanIDs []ShortChannelID
+		lastChanID   ShortChannelID
+	)
+
+	for {
+		var cid ShortChannelID
+		err := ReadElements(r, &cid)
+
+		switch {
+		// Only a clean EOF terminates the stream. A partial final ID
+		// returns io.ErrUnexpectedEOF and remains an error.
+		case err == io.EOF:
+			return shortChanIDs, nil
+
+		case err != nil:
+			return nil, fmt.Errorf("unable to deflate next short "+
+				"chan ID: %w", err)
+		}
+
+		if len(shortChanIDs) == maxDecodedShortChanIDs {
+			return nil, fmt.Errorf("too many short channel IDs: "+
+				"max=%v", maxDecodedShortChanIDs)
+		}
+
+		if len(shortChanIDs) > 0 &&
+			cid.ToUint64() <= lastChanID.ToUint64() {
+
+			return nil, ErrUnsortedSIDs{lastChanID, cid}
+		}
+
+		shortChanIDs = append(shortChanIDs, cid)
+		lastChanID = cid
 	}
 }
 

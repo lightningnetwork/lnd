@@ -86,3 +86,10 @@ the best generalist: it dominates hb2, ties hb1 on the hard test (0.583
 vs 0.586), wins OOD (0.581 vs 0.545), and has the best combined average
 (0.582). Champions of record: hb1 (hard specialist) + mx_c3 (generalist).
 Detail: exp-007.
+
+## 2026-07-24 (day) — MAINNET VALIDATION: champions win on the real graph
+
+Real 12,161-node mainnet snapshot, 100 payments, highest-degree source:
+mx_c3 0.791 / hb1 0.790 vs lnd 0.694 objective — comparable success
+(0.81 vs 0.79) at **8.6× fewer attempts** (2.3 vs 19.8/payment). The
+synthetic-bred champions generalize to lnd's home turf. exp-009.

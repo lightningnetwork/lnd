@@ -1,10 +1,7 @@
 package channeldb
 
 import (
-	"bytes"
-	"errors"
 	"io"
-	"math"
 
 	cstate "github.com/lightningnetwork/lnd/chanstate"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -58,21 +55,22 @@ var (
 	//
 	// Deprecated: This bucket is kept for read-only in case the user
 	// choose not to migrate the old data.
-	revocationLogBucketDeprecated = []byte("revocation-log-key")
+	//nolint:ll
+	revocationLogBucketDeprecated = cstate.RevocationLogBucketDeprecatedKey()
 
 	// revocationLogBucket is a sub-bucket under openChannelBucket. This
 	// sub-bucket is dedicated for storing the minimal info required to
 	// re-construct a past state in order to punish a counterparty
 	// attempting a non-cooperative channel closure.
-	revocationLogBucket = []byte("revocation-log")
+	revocationLogBucket = cstate.RevocationLogBucketKey()
 
 	// ErrLogEntryNotFound is returned when we cannot find a log entry at
 	// the height requested in the revocation log.
-	ErrLogEntryNotFound = errors.New("log entry not found")
+	ErrLogEntryNotFound = cstate.ErrLogEntryNotFound
 
 	// ErrOutputIndexTooBig is returned when the output index is greater
 	// than uint16.
-	ErrOutputIndexTooBig = errors.New("output index is over uint16")
+	ErrOutputIndexTooBig = cstate.ErrOutputIndexTooBig
 )
 
 // putRevocationLog uses the fields `CommitTx` and `Htlcs` from a
@@ -82,70 +80,9 @@ var (
 func putRevocationLog(bucket kvdb.RwBucket, commit *ChannelCommitment,
 	ourOutputIndex, theirOutputIndex uint32, noAmtData bool) error {
 
-	// Sanity check that the output indexes can be safely converted.
-	if ourOutputIndex > math.MaxUint16 {
-		return ErrOutputIndexTooBig
-	}
-	if theirOutputIndex > math.MaxUint16 {
-		return ErrOutputIndexTooBig
-	}
-
-	rl := &RevocationLog{
-		OurOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType0](
-			uint16(ourOutputIndex),
-		),
-		TheirOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType1](
-			uint16(theirOutputIndex),
-		),
-		CommitTxHash: tlv.NewPrimitiveRecord[tlv.TlvType2, [32]byte](
-			commit.CommitTx.TxHash(),
-		),
-		HTLCEntries: make([]*HTLCEntry, 0, len(commit.Htlcs)),
-	}
-
-	commit.CustomBlob.WhenSome(func(blob tlv.Blob) {
-		rl.CustomBlob = tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[tlv.TlvType5, tlv.Blob](blob),
-		)
-	})
-
-	if !noAmtData {
-		rl.OurBalance = tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType3](
-			tlv.NewBigSizeT(commit.LocalBalance),
-		))
-
-		rl.TheirBalance = tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType4](
-			tlv.NewBigSizeT(commit.RemoteBalance),
-		))
-	}
-
-	for _, htlc := range commit.Htlcs {
-		// Skip dust HTLCs.
-		if htlc.OutputIndex < 0 {
-			continue
-		}
-
-		// Sanity check that the output indexes can be safely
-		// converted.
-		if htlc.OutputIndex > math.MaxUint16 {
-			return ErrOutputIndexTooBig
-		}
-
-		entry, err := NewHTLCEntryFromHTLC(htlc)
-		if err != nil {
-			return err
-		}
-		rl.HTLCEntries = append(rl.HTLCEntries, entry)
-	}
-
-	var b bytes.Buffer
-	err := serializeRevocationLog(&b, rl)
-	if err != nil {
-		return err
-	}
-
-	logEntrykey := makeLogKey(commit.CommitHeight)
-	return bucket.Put(logEntrykey[:], b.Bytes())
+	return cstate.PutRevocationLog(
+		bucket, commit, ourOutputIndex, theirOutputIndex, noAmtData,
+	)
 }
 
 // fetchRevocationLog queries the revocation log bucket to find an log entry.
@@ -153,15 +90,7 @@ func putRevocationLog(bucket kvdb.RwBucket, commit *ChannelCommitment,
 func fetchRevocationLog(log kvdb.RBucket,
 	updateNum uint64) (RevocationLog, error) {
 
-	logEntrykey := makeLogKey(updateNum)
-	commitBytes := log.Get(logEntrykey[:])
-	if commitBytes == nil {
-		return RevocationLog{}, ErrLogEntryNotFound
-	}
-
-	commitReader := bytes.NewReader(commitBytes)
-
-	return deserializeRevocationLog(commitReader)
+	return cstate.FetchRevocationLog(log, updateNum)
 }
 
 // serializeRevocationLog serializes a RevocationLog record based on tlv
@@ -204,14 +133,7 @@ func readTlvStream(r io.Reader, s *tlv.Stream) (tlv.TypeMap, error) {
 func fetchOldRevocationLog(log kvdb.RBucket,
 	updateNum uint64) (ChannelCommitment, error) {
 
-	logEntrykey := makeLogKey(updateNum)
-	commitBytes := log.Get(logEntrykey[:])
-	if commitBytes == nil {
-		return ChannelCommitment{}, ErrLogEntryNotFound
-	}
-
-	commitReader := bytes.NewReader(commitBytes)
-	return deserializeChanCommit(commitReader)
+	return cstate.FetchOldRevocationLog(log, updateNum)
 }
 
 // fetchRevocationLogCompatible finds the revocation log from both the
@@ -225,86 +147,16 @@ func fetchOldRevocationLog(log kvdb.RBucket,
 func fetchRevocationLogCompatible(chanBucket kvdb.RBucket,
 	updateNum uint64) (*RevocationLog, *ChannelCommitment, error) {
 
-	// Look into the new bucket first.
-	logBucket := chanBucket.NestedReadBucket(revocationLogBucket)
-	if logBucket != nil {
-		rl, err := fetchRevocationLog(logBucket, updateNum)
-		// We've found the record, no need to visit the old bucket.
-		if err == nil {
-			return &rl, nil, nil
-		}
-
-		// Return the error if it doesn't say the log cannot be found.
-		if err != ErrLogEntryNotFound {
-			return nil, nil, err
-		}
-	}
-
-	// Otherwise, look into the old bucket and try to find the log there.
-	oldBucket := chanBucket.NestedReadBucket(revocationLogBucketDeprecated)
-	if oldBucket != nil {
-		c, err := fetchOldRevocationLog(oldBucket, updateNum)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		// Found an old record and return it.
-		return nil, &c, nil
-	}
-
-	// If both the buckets are nil, then the sub-buckets haven't been
-	// created yet.
-	if logBucket == nil && oldBucket == nil {
-		return nil, nil, ErrNoPastDeltas
-	}
-
-	// Otherwise, we've tried to query the new bucket but the log cannot be
-	// found.
-	return nil, nil, ErrLogEntryNotFound
+	return cstate.FetchRevocationLogCompatible(chanBucket, updateNum)
 }
 
 // fetchLogBucket returns a read bucket by visiting both the new and the old
 // bucket.
 func fetchLogBucket(chanBucket kvdb.RBucket) (kvdb.RBucket, error) {
-	logBucket := chanBucket.NestedReadBucket(revocationLogBucket)
-	if logBucket == nil {
-		logBucket = chanBucket.NestedReadBucket(
-			revocationLogBucketDeprecated,
-		)
-		if logBucket == nil {
-			return nil, ErrNoPastDeltas
-		}
-	}
-
-	return logBucket, nil
+	return cstate.FetchLogBucket(chanBucket)
 }
 
 // deleteLogBucket deletes the both the new and old revocation log buckets.
 func deleteLogBucket(chanBucket kvdb.RwBucket) error {
-	// Check if the bucket exists and delete it.
-	logBucket := chanBucket.NestedReadWriteBucket(
-		revocationLogBucket,
-	)
-	if logBucket != nil {
-		err := chanBucket.DeleteNestedBucket(revocationLogBucket)
-		if err != nil {
-			return err
-		}
-	}
-
-	// We also check whether the old revocation log bucket exists
-	// and delete it if so.
-	oldLogBucket := chanBucket.NestedReadWriteBucket(
-		revocationLogBucketDeprecated,
-	)
-	if oldLogBucket != nil {
-		err := chanBucket.DeleteNestedBucket(
-			revocationLogBucketDeprecated,
-		)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return cstate.DeleteLogBucket(chanBucket)
 }

@@ -36,8 +36,11 @@ cd simulation && ROUTESIM_BIN=/tmp/routesim python3 evaluate.py /tmp/corpus/val/
 /tmp/routesim --scenarios /tmp/corpus/val/example_000.json --router=lnd    --traces=false
 /tmp/routesim --scenarios /tmp/corpus/val/example_000.json --router=candidate --traces=false
 
-# Full optimization runs (needs pip install "gepa[full]" from git main,
-# the codex CLI authenticated, and OPENAI_API_KEY for LiteLLM fallback).
+# Full optimization runs. gepa must be installed from git main — a
+# durable clone lives at ~/codez/gepa; prefer uv for the env:
+#   uv venv /tmp/gepa-venv && uv pip install -p /tmp/gepa-venv \
+#       "~/codez/gepa[full]"
+# Also needs the codex CLI authenticated and OPENAI_API_KEY set.
 ROUTESIM_BIN=/tmp/routesim python3 run_gepa.py --corpus /tmp/corpus --name run1 --max-evals 400
 ROUTESIM_BIN=/tmp/routesim python3 run_gepa_code.py --corpus /tmp/corpus --name code1
 ```

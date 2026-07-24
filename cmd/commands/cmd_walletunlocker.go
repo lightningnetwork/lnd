@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -332,7 +333,9 @@ mnemonicCheck:
 		}
 		extendedRootKey = strings.TrimSpace(extendedRootKey)
 
-		extendedRootKeyBirthday, err = askBirthdayTimestamp()
+		// An extended master key carries no birthday, so there's nothing
+		// to offer as a default here.
+		extendedRootKeyBirthday, err = askBirthdayTimestamp(0)
 		if err != nil {
 			return err
 		}
@@ -939,7 +942,14 @@ func createWatchOnly(ctx *cli.Context) error {
 		return err
 	}
 
-	extendedRootKeyBirthday, err := askBirthdayTimestamp()
+	// A wallet exported by a recent enough lnd tells us the birthday of the
+	// master key its accounts were derived from, which is more accurate than
+	// anything the operator is likely to type in, so we offer it as the
+	// default. An older export leaves this at zero and the prompt behaves as
+	// it always did.
+	extendedRootKeyBirthday, err := askBirthdayTimestamp(
+		jsonAccts.MasterKeyBirthdayTimestamp,
+	)
 	if err != nil {
 		return err
 	}
@@ -1061,11 +1071,27 @@ func askRecoveryWindow() (int32, error) {
 	}
 }
 
-func askBirthdayTimestamp() (uint64, error) {
+// askBirthdayTimestamp prompts for the wallet's birthday as a unix timestamp in
+// seconds. The given default is what an empty answer resolves to, which lets a
+// caller that already knows the birthday offer it up for confirmation, instead
+// of making the user dig it out by hand.
+func askBirthdayTimestamp(defaultTimestamp uint64) (uint64, error) {
+	// Spell a non-zero default out as a date as well. An empty answer
+	// accepts it, and it decides where the rescan starts, so the operator
+	// should be able to sanity check it without converting a bare unix
+	// timestamp in their head.
+	defaultHint := fmt.Sprintf("%d", defaultTimestamp)
+	if defaultTimestamp != 0 {
+		birthday := time.Unix(int64(defaultTimestamp), 0).UTC()
+		defaultHint = fmt.Sprintf("%d, which is %s", defaultTimestamp,
+			birthday.Format(time.RFC3339))
+	}
+
 	for {
 		fmt.Println()
-		fmt.Printf("Input an optional wallet birthday unix timestamp " +
-			"of first block to start scanning from (default 0): ")
+		fmt.Printf("Input an optional wallet birthday unix timestamp "+
+			"of first block to start scanning from (default %s): ",
+			defaultHint)
 
 		reader := bufio.NewReader(os.Stdin)
 		answer, err := reader.ReadString('\n')
@@ -1078,7 +1104,7 @@ func askBirthdayTimestamp() (uint64, error) {
 		answer = strings.TrimSpace(answer)
 
 		if len(answer) == 0 {
-			return 0, nil
+			return defaultTimestamp, nil
 		}
 
 		birthdayTimestamp, err := strconv.ParseUint(answer, 10, 64)

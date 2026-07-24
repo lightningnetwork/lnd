@@ -93,3 +93,19 @@ Real 12,161-node mainnet snapshot, 100 payments, highest-degree source:
 mx_c3 0.791 / hb1 0.790 vs lnd 0.694 objective — comparable success
 (0.81 vs 0.79) at **8.6× fewer attempts** (2.3 vs 19.8/payment). The
 synthetic-bred champions generalize to lnd's home turf. exp-009.
+
+## 2026-07-24 (evening) — code_gen2: insight transfer works, same ceiling
+
+The small-seed + insights-in-prompt run finished (400/400 evals, 31
+accepts — ~4× code_mix1's acceptance rate). Its best candidate reaches
+champion-class performance on all three held-out tiers (combined 0.638
+vs mx_c3's 0.652, hb1's 0.640; mainnet 0.787 at the same 2.3
+attempts/payment) but does NOT pass the champions. Three independent
+lineages now converge on the same paradigm and the same performance
+band: the interval-belief design looks like a local optimum *for these
+environments*. gen2 did evolve two novel mechanisms (in-flight local
+liquidity reservation; weakest-edge failure attribution) that the sim
+never rewards — more eval budget in the same regime buys nothing.
+Champions of record stay hb1 + mx_c3; the next lever is changing the
+environment (exp-008 background traffic, exp-010 splitting pressure).
+Detail: exp-011.

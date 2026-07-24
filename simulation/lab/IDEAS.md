@@ -90,6 +90,16 @@ proposal for lnd; (c) intervals still win → decay was overweighted.
   lines, LLM edits frequently fail to compile (code_hard1 iters 2-4+).
   Consider a "refactor/simplify" reflection instruction, or a size
   penalty in the objective, to keep candidates editable.
+- **The paradigm ceiling (exp-011):** three independent lineages (hb1,
+  mx_c3, gen2) converge on the same interval-belief design and the
+  same held-out band (~0.64 combined). Insight transfer via prompt
+  compresses a 900-eval lineage into 400 evals — but cannot exceed
+  the ceiling. Novel mechanisms that the sim never rewards (gen2's
+  in-flight liquidity reservation, weakest-edge attribution) get
+  carried along neutrally rather than selected for. To evolve past
+  the ceiling, change the environment, not the budget: background
+  traffic (exp-008), non-binary split pressure (exp-010), or
+  concurrent shard settlement racing liquidity.
 
 ## Engineering
 - Cache evals keyed by (candidate hash, example) to stretch budgets —

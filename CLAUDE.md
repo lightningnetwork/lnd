@@ -96,6 +96,10 @@ source), `~/codez/data/mainnet_graph.json`.
   (Pickhardt-style min-cost flow) remains unevolved.
 - Batch-2 sim fidelity: live first-hop hints per attempt, lnd-vs-
   candidate memory symmetry, virtual MC clock.
-- Dashboard de-slop redesign + findings.html (design agent), and the
-  `code_gen2` evolution run — may be in flight; check
-  `ps aux | grep run_gepa` and the scratch outputs dir.
+- DONE: dashboard de-slop redesign + findings.html (Litbucket v30+,
+  commit d13a376e5) and the `code_gen2` run (exp-011: insight transfer
+  reaches champion level in 400 evals but plateaus at the same ceiling
+  — three lineages now converge on the interval-belief paradigm;
+  champions of record remain hb1 + mx_c3). The conclusion: more evals
+  in the current environment buy nothing; change the environment
+  (exp-008/exp-010).

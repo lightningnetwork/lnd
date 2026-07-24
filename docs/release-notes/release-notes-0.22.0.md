@@ -90,7 +90,21 @@
 
 ## RPC Updates
 
+* [`walletrpc.ListAccounts` now also returns the birthday of the wallet's master
+  key](https://github.com/lightningnetwork/lnd/pull/10993) in the new
+  `master_key_birthday_timestamp` field. The accounts themselves are extended
+  public keys, which say nothing about when they were created, so a watch-only
+  wallet importing them had no birthday to work with and had to rescan the chain
+  from lnd's default of 2017-08-24. On mainnet that's hundreds of thousands of
+  blocks and several hours, even for a node with no history at all.
+
 ## lncli Updates
+
+* [`createwatchonly` now offers the birthday from the accounts
+  file](https://github.com/lightningnetwork/lnd/pull/10993) as the default for
+  its birthday prompt, so an accounts file exported by a recent enough lnd
+  carries the right value through without the operator having to know it. An
+  older file leaves the field unset and the prompt behaves as before.
 
 ## Breaking Changes
 
@@ -159,3 +173,4 @@
 * Boris Nagaev
 * Erick Cestari
 * Jared Tobin
+* Olaoluwa Osuntokun

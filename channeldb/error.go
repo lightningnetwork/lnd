@@ -2,12 +2,14 @@ package channeldb
 
 import (
 	"fmt"
+
+	cstate "github.com/lightningnetwork/lnd/chanstate"
 )
 
 var (
 	// ErrNoChanDBExists is returned when a channel bucket hasn't been
 	// created.
-	ErrNoChanDBExists = fmt.Errorf("channel db has not yet been created")
+	ErrNoChanDBExists = cstate.ErrNoChanDBExists
 
 	// ErrNoHistoricalBucket is returned when the historical channel bucket
 	// not been created yet.
@@ -24,7 +26,7 @@ var (
 
 	// ErrNoActiveChannels  is returned when there is no active (open)
 	// channels within the database.
-	ErrNoActiveChannels = fmt.Errorf("no active channels exist")
+	ErrNoActiveChannels = cstate.ErrNoActiveChannels
 
 	// ErrNoPastDeltas is returned when the channel delta bucket hasn't been
 	// created.
@@ -36,7 +38,7 @@ var (
 
 	// ErrChannelNotFound is returned when we attempt to locate a channel
 	// for a specific chain, but it is not found.
-	ErrChannelNotFound = fmt.Errorf("channel not found")
+	ErrChannelNotFound = cstate.ErrChannelNotFound
 
 	// ErrMetaNotFound is returned when meta bucket hasn't been
 	// created.

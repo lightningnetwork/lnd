@@ -60,13 +60,11 @@ var (
 
 	// ErrFinalHtlcsBucketNotFound signals that the top-level final htlcs
 	// bucket does not exist.
-	ErrFinalHtlcsBucketNotFound = errors.New("final htlcs bucket not " +
-		"found")
+	ErrFinalHtlcsBucketNotFound = chanstate.ErrFinalHtlcsBucketNotFound
 
 	// ErrFinalChannelBucketNotFound signals that the channel bucket for
 	// final htlc outcomes does not exist.
-	ErrFinalChannelBucketNotFound = errors.New("final htlcs channel " +
-		"bucket not found")
+	ErrFinalChannelBucketNotFound = chanstate.ErrFinalChannelBucketNotFound
 )
 
 // migration is a function which takes a prior outdated version of the database
@@ -352,11 +350,6 @@ var (
 	// Big endian is the preferred byte order, due to cursor scans over
 	// integer keys iterating in order.
 	byteOrder = binary.BigEndian
-
-	// channelOpeningStateBucket is the database bucket used to store the
-	// channelOpeningState for each channel that is currently in the process
-	// of being opened.
-	channelOpeningStateBucket = []byte("channelOpeningState")
 )
 
 // DB is the primary datastore for the lnd daemon. The database stores
@@ -1823,12 +1816,9 @@ func (c *ChannelStateDB) SaveChannelOpeningState(outPoint,
 	serializedState []byte) error {
 
 	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		bucket, err := tx.CreateTopLevelBucket(channelOpeningStateBucket)
-		if err != nil {
-			return err
-		}
-
-		return bucket.Put(outPoint, serializedState)
+		return chanstate.SaveChannelOpeningState(
+			tx, outPoint, serializedState,
+		)
 	}, func() {})
 }
 
@@ -1840,21 +1830,12 @@ func (c *ChannelStateDB) GetChannelOpeningState(outPoint []byte) ([]byte,
 
 	var serializedState []byte
 	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		bucket := tx.ReadBucket(channelOpeningStateBucket)
-		if bucket == nil {
-			// If the bucket does not exist, it means we never added
-			//  a channel to the db, so return ErrChannelNotFound.
-			return ErrChannelNotFound
-		}
+		var err error
+		serializedState, err = chanstate.GetChannelOpeningState(
+			tx, outPoint,
+		)
 
-		stateBytes := bucket.Get(outPoint)
-		if stateBytes == nil {
-			return ErrChannelNotFound
-		}
-
-		serializedState = append(serializedState, stateBytes...)
-
-		return nil
+		return err
 	}, func() {
 		serializedState = nil
 	})
@@ -1864,12 +1845,7 @@ func (c *ChannelStateDB) GetChannelOpeningState(outPoint []byte) ([]byte,
 // DeleteChannelOpeningState removes any state for outPoint from the database.
 func (c *ChannelStateDB) DeleteChannelOpeningState(outPoint []byte) error {
 	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		bucket := tx.ReadWriteBucket(channelOpeningStateBucket)
-		if bucket == nil {
-			return ErrChannelNotFound
-		}
-
-		return bucket.Delete(outPoint)
+		return chanstate.DeleteChannelOpeningState(tx, outPoint)
 	}, func() {})
 }
 
@@ -2157,33 +2133,17 @@ func (c *ChannelStateDB) FetchHistoricalChannel(outPoint *wire.OutPoint) (
 func fetchFinalHtlcsBucket(tx kvdb.RTx,
 	chanID lnwire.ShortChannelID) (kvdb.RBucket, error) {
 
-	finalHtlcsBucket := tx.ReadBucket(finalHtlcsBucket)
-	if finalHtlcsBucket == nil {
-		return nil, ErrFinalHtlcsBucketNotFound
-	}
-
-	var chanIDBytes [8]byte
-	byteOrder.PutUint64(chanIDBytes[:], chanID.ToUint64())
-
-	chanBucket := finalHtlcsBucket.NestedReadBucket(chanIDBytes[:])
-	if chanBucket == nil {
-		return nil, ErrFinalChannelBucketNotFound
-	}
-
-	return chanBucket, nil
+	return chanstate.FetchFinalHtlcsBucket(tx, chanID)
 }
 
-var ErrHtlcUnknown = errors.New("htlc unknown")
+var ErrHtlcUnknown = chanstate.ErrHtlcUnknown
 
 // LookupFinalHtlc retrieves a final htlc resolution from the database. If the
 // htlc has no final resolution yet, ErrHtlcUnknown is returned.
 func (c *ChannelStateDB) LookupFinalHtlc(chanID lnwire.ShortChannelID,
 	htlcIndex uint64) (*FinalHtlcInfo, error) {
 
-	var idBytes [8]byte
-	byteOrder.PutUint64(idBytes[:], htlcIndex)
-
-	var settledByte byte
+	var info *FinalHtlcInfo
 
 	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		finalHtlcsBucket, err := fetchFinalHtlcsBucket(
@@ -2201,31 +2161,19 @@ func (c *ChannelStateDB) LookupFinalHtlc(chanID lnwire.ShortChannelID,
 				err)
 		}
 
-		value := finalHtlcsBucket.Get(idBytes[:])
-		if value == nil {
-			return ErrHtlcUnknown
-		}
+		info, err = chanstate.FetchFinalHtlc(
+			finalHtlcsBucket, htlcIndex,
+		)
 
-		if len(value) != 1 {
-			return errors.New("unexpected final htlc value length")
-		}
-
-		settledByte = value[0]
-
-		return nil
+		return err
 	}, func() {
-		settledByte = 0
+		info = nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	info := FinalHtlcInfo{
-		Settled:  settledByte&byte(FinalHtlcSettledBit) != 0,
-		Offchain: settledByte&byte(FinalHtlcOffchainBit) != 0,
-	}
-
-	return &info, nil
+	return info, nil
 }
 
 // PutOnchainFinalHtlcOutcome stores the final on-chain outcome of an htlc in

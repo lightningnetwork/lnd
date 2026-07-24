@@ -100,3 +100,32 @@ proposal for lnd; (c) intervals still win → decay was overweighted.
   the contract compiling.
 - lnd-side follow-up: whatever wins parameter mode becomes a proposed
   defaults change PR to lightningnetwork/lnd with the sim evidence.
+
+## MPP splitting as a first-class evolution axis (roasbeef, 2026-07-24) → exp-010
+
+lnd today splits by divide-and-conquer: try the full amount, and when no
+route clears MinProbability, halve and retry (down to the min shard, up
+to MaxParts) — the split *trigger* is route probability dipping below
+threshold, and the split *sizes* are blind halves.
+
+Where the evolution stands on this axis:
+- The `SimRouter` contract already hands candidates FULL ownership of
+  splitting — the runner only asks for the next route for the remaining
+  amount; shard sizing/count/trigger are entirely the router's choice
+  (unlike lnd, where halving is fixed payment-session logic).
+- The seed used naive halving. The champions evolved "halving-plus":
+  mx_c3's `candidateShardAmounts` builds a ladder of the halving
+  sequence PLUS evidence-derived shard sizes fitted just under known
+  per-channel failure bounds, and its split trigger is belief-driven
+  rather than a global probability threshold.
+- NOT yet evolved: joint multi-path planning — choosing a *set* of
+  routes and shard sizes together (Pickhardt-style min-cost-flow
+  splitting) instead of sequential shard-by-shard greediness.
+
+**exp-010 design:** apply explicit selection pressure on splitting.
+Corpus of large payments where no single path suffices and the optimal
+split is non-binary (e.g. 70/20/10 across asymmetric corridors); prompt
+nudge naming joint route-set planning as unexplored; possibly score a
+bonus for fewer parts at equal success. Question: does min-cost-flow
+style splitting re-emerge, and does it beat the evolved halving-plus on
+the mainnet graph?

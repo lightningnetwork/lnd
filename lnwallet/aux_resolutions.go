@@ -28,10 +28,16 @@ const (
 // AuxSigDesc stores optional information related to 2nd level HTLCs for aux
 // channels.
 type AuxSigDesc struct {
-	// AuxSig is the second-level signature for the HTLC that we are trying
-	// to resolve. This is only present if this is a resolution request for
-	// an HTLC on our commitment transaction.
+	// AuxSig is the second-level signature for the HTLC's primary
+	// spending path (success for incoming, timeout for outgoing).
 	AuxSig []byte
+
+	// AuxSigAlt is the second-level signature for the HTLC's
+	// alternate spending path (timeout for incoming, success for
+	// outgoing). At breach time, the honest party uses the BTC-level
+	// witness to determine which path was used and selects the
+	// matching sig.
+	AuxSigAlt []byte
 
 	// SignDetails is the sign details for the second-level HTLC. This may
 	// be used to generate the second signature needed for broadcast.
@@ -117,6 +123,23 @@ type ResolutionReq struct {
 	// AuxSigDesc is an optional field that contains additional information
 	// needed to sweep second level HTLCs.
 	AuxSigDesc fn.Option[AuxSigDesc]
+
+	// SecondLevel carries the on-chain context for a just-confirmed
+	// second-level HTLC tx. It is set only when resolving a
+	// TaprootHtlcSecondLevelRevoke so the resolver can re-anchor proofs
+	// to the second-level tx rather than the commitment tx.
+	SecondLevel fn.Option[SecondLevelInfo]
+}
+
+// SecondLevelInfo carries the on-chain context for a second-level HTLC
+// transaction. The fields are derived from the on-chain confirmation of
+// the second-level tx and travel together as one inter-related unit.
+type SecondLevelInfo struct {
+	// Tx is the confirmed second-level HTLC transaction.
+	Tx *wire.MsgTx
+
+	// BlockHeight is the block height at which Tx was confirmed.
+	BlockHeight uint32
 }
 
 // AuxContractResolver is an interface that is used to resolve contracts that

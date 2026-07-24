@@ -2,7 +2,6 @@ package input
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 
@@ -10,12 +9,6 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightningnetwork/lnd/keychain"
-)
-
-var (
-	// ErrTweakOverdose signals a SignDescriptor is invalid because both of its
-	// SingleTweak and DoubleTweak are non-nil.
-	ErrTweakOverdose = errors.New("sign descriptor should only have one tweak")
 )
 
 // SignDescriptor houses the necessary information required to successfully
@@ -287,11 +280,6 @@ func ReadSignDescriptor(r io.Reader, sd *SignDescriptor) error {
 		sd.DoubleTweak = nil
 	} else {
 		sd.DoubleTweak, _ = btcec.PrivKeyFromBytes(doubleTweakBytes)
-	}
-
-	// Only one tweak should ever be set, fail if both are present.
-	if sd.SingleTweak != nil && sd.DoubleTweak != nil {
-		return ErrTweakOverdose
 	}
 
 	witnessScript, err := wire.ReadVarBytes(r, 0, 500, "witnessScript")

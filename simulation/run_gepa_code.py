@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""Run GEPA over entire routing algorithms (code candidates).
+
+The candidate is the full Go source of cmd/routesim/candidate_impl.go. The
+seed is the in-tree simple router; the target to beat is lnd's production
+stack, whose per-example scores are reported alongside for reference.
+"""
+
+import argparse
+from pathlib import Path
+
+from gepa.optimize_anything import (
+    OptimizeAnythingConfig,
+    optimize_adaptive_sequential,
+    optimize_anything,
+)
+
+from codex_lm import CodexLM
+from evaluate_code import REPO, evaluate
+
+OBJECTIVE = """
+Evolve a Lightning Network routing algorithm (Go source, the complete
+contents of candidate_impl.go) that maximizes payment success rate in a
+network simulator, with fewer retry attempts and lower fees as secondary
+goals. You may redesign the algorithm entirely — probability models,
+splitting strategies, exploration policies — as long as the
+newCandidateRouter contract compiles and the code stays pure routing logic.
+"""
+
+BACKGROUND = """
+Contract: package main must define
+newCandidateRouter(view routing.SimNetworkView, source route.Vertex,
+localBalances map[uint64]lnwire.MilliSatoshi, spec *routing.SimPaymentSpec)
+(routing.SimRouter, error). The returned router implements
+RequestRoute(amt, inFlightHtlcs) (*route.Route, error) — return an error to
+terminally give up — and ReportAttempt(attemptID, rt, result) error, which
+delivers per-attempt feedback (result.Failure nil = settled; otherwise
+result.FailureSource names the failing node and the failure code tells you
+why: TemporaryChannelFailure = liquidity miss, FeeInsufficient /
+IncorrectCltvExpiry = your route's fees or cltv deltas violate the failing
+node's advertised policy).
+
+Environment truths worth exploiting:
+- Hidden liquidity is drawn mostly from a BIMODAL distribution: channel
+  funds sit almost entirely on one side. A 50/50 assumption is usually
+  wrong; a failure at amount a on a channel is strong evidence the whole
+  channel is depleted in that direction, and a success means most capacity
+  is available.
+- The gossip view exposes per-direction policies (fees, cltv delta,
+  min/max htlc) and channel capacities via ForEachNodeDirectedChannel;
+  InPolicy on a channel of node N is the policy the OTHER node announced
+  toward N (i.e. it governs edges INTO N).
+- Route encoding: amount over channel i is TotalAmount for i=0, else
+  Hops[i-1].AmtToForward; fees accumulate backward from the target;
+  the final hop needs cltv delta 40.
+- MPP: the runner keeps calling RequestRoute with the remaining amount;
+  spec.MaxParts caps concurrent shards; each successful shard reduces the
+  remaining amount.
+- Payments per scenario batch run sequentially and liquidity persists, so
+  knowledge from earlier payments in the batch transfers.
+
+The current seed is a cheapest-path Dijkstra with failure blacklisting and
+halving splits. Known weaknesses to consider: it ignores capacity when
+choosing among paths (bigger channels succeed more often), it has no
+notion of probability weighting fees vs reliability, it never retries a
+blacklisted channel at lower amounts within a payment, and its shard
+halving is crude.
+
+Insights from prior successful runs (champions hb1/mx_c3, see
+simulation/champions/), worth building on rather than rediscovering:
+- An explicit BIMODAL PRIOR over amount/capacity works: near-certain for
+  tiny amounts (decaying exponential low mode), a logistic cliff as the
+  amount approaches capacity, floors/caps around [0.005, 0.985].
+- Per-directed-channel liquidity BELIEFS beat time-decayed penalties:
+  track lower-OK (largest amount proven to pass) and upper-fail
+  (smallest proven to fail) bounds plus a confidence-weighted point
+  estimate; return ~0.995 below lower-OK, ~0 above upper-fail, blend
+  with the prior in between. Evidence counts, not wall-clock decay.
+- Retry-at-lower-amount on a failed channel (a lower-retry factor)
+  outperforms permanently blacklisting it.
+- Keep the implementation LEAN: past ~800 lines, edits stop compiling
+  and progress stalls. Prefer simplifying refactors over accretion.
+"""
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--corpus", default="corpus")
+    parser.add_argument("--name", default="router_code")
+    parser.add_argument("--max-evals", type=int, default=None)
+    parser.add_argument("--reflection-lm", default="codex:gpt-5.6-sol")
+    parser.add_argument("--max-concurrency", type=int, default=4)
+    parser.add_argument("--adaptive", action="store_true", default=True,
+                        help="rotate gepa <-> meta_harness on plateaus")
+    parser.add_argument("--no-adaptive", dest="adaptive",
+                        action="store_false")
+    parser.add_argument("--seed-file", default=None,
+                        help="seed candidate .go file (default: the "
+                        "in-tree candidate_impl.go). Use a prior "
+                        "champion to continue evolving from it.")
+    args = parser.parse_args()
+
+    corpus = Path(args.corpus)
+    trainset = sorted(str(p) for p in (corpus / "train").glob("*.json"))
+    valset = sorted(str(p) for p in (corpus / "val").glob("*.json"))
+    testset = sorted(str(p) for p in (corpus / "test").glob("*.json"))
+    if not trainset or not valset:
+        raise SystemExit(f"no corpus at {corpus}; run gen_scenarios.py")
+
+    if args.seed_file:
+        seed = Path(args.seed_file).read_text()
+    else:
+        seed = (REPO / "cmd" / "routesim" / "candidate_impl.go").read_text()
+
+    max_evals = args.max_evals or 20 * len(valset)
+
+    reflection_lm = args.reflection_lm
+    if reflection_lm.startswith("codex:"):
+        reflection_lm = CodexLM(model=reflection_lm.split(":", 1)[1])
+
+    gepa_config = OptimizeAnythingConfig(
+        engine="gepa",
+        name=args.name,
+        max_evals=max_evals,
+        max_concurrency=args.max_concurrency,
+        run_dir=f"runs/{args.name}",
+        output_dir=f"outputs/{args.name}",
+        engine_config={
+            "reflection": {
+                "reflection_lm": reflection_lm,
+                "reflection_minibatch_size": 3,
+            },
+            "engine": {
+                "max_workers": args.max_concurrency,
+                "seed": 0,
+            },
+        },
+    )
+
+    if args.adaptive:
+        # Rotate between the gepa backend (codex reflection) and the
+        # meta_harness agentic proposer (claude CLI) whenever the score
+        # plateaus, all drawing from one shared eval budget.
+        meta_config = OptimizeAnythingConfig(
+            engine="meta_harness",
+            name=f"{args.name}_meta",
+            run_dir=f"runs/{args.name}_meta",
+        )
+        result = optimize_adaptive_sequential(
+            seed_candidate=seed,
+            evaluator=lambda cand, ex: evaluate(cand, ex),
+            configs=[gepa_config, meta_config],
+            plateau_evals=len(valset) * 3,
+            dataset=trainset,
+            valset=valset,
+            test_set=testset,
+            objective=OBJECTIVE.strip(),
+            background=BACKGROUND.strip(),
+            name=args.name,
+            max_evals=max_evals,
+            max_concurrency=args.max_concurrency,
+            output_dir=f"outputs/{args.name}",
+        )
+    else:
+        result = optimize_anything(
+            seed_candidate=seed,
+            evaluator=lambda cand, ex: evaluate(cand, ex),
+            dataset=trainset,
+            valset=valset,
+            test_set=testset,
+            objective=OBJECTIVE.strip(),
+            background=BACKGROUND.strip(),
+            config=gepa_config,
+        )
+
+    print("=== best candidate ===")
+    print(result.best_candidate)
+    print("best (val) score:", result.best_score)
+    print("held-out test:", result.metadata.get("test_score"),
+          "| seed held-out:", result.metadata.get("baseline_test_score"))
+
+
+if __name__ == "__main__":
+    main()

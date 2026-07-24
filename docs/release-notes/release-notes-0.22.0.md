@@ -55,6 +55,12 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10898) in the
+  sweeper whereby an input's starting fee rate was ratcheted upward on
+  failures that carry no fee-rate signal (e.g. a lack of spendable wallet
+  UTXOs). Repeated spurious ratcheting could push the rate past the input's
+  budget, after which the sweep was silently stranded.
+
 # New Features
 
 ## Functional Enhancements

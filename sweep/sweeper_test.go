@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"pgregory.net/rapid"
 )
 
 var (
@@ -237,7 +238,7 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	// Mark the test inputs. We expect the non-exist input and the
 	// inputInit to be skipped, and the final input to be marked as
 	// published.
-	s.markInputsPublishFailed(set, feeRate)
+	s.markInputsPublishFailed(set, fn.Some(feeRate))
 
 	// We expect unchanged number of pending inputs.
 	require.Len(s.inputs, 7)
@@ -280,6 +281,106 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 
 	// Assert mocked statements are executed as expected.
 	mockStore.AssertExpectations(t)
+}
+
+// TestMarkInputsPublishFailedPreservesRateOnNone asserts that when
+// markInputsPublishFailed is invoked with fn.None, the input's existing
+// StartingFeeRate is preserved instead of being overwritten. This is the
+// sweeper-side contract that resource-failure callers (handleInitialTxError
+// and handleReplacementTxError for ErrNotEnoughInputs / ErrNotEnoughBudget)
+// rely on: those failures carry no fee-rate signal, so ratcheting the
+// starting rate upward on each retry would be incorrect.
+func TestMarkInputsPublishFailedPreservesRateOnNone(t *testing.T) {
+	t.Parallel()
+
+	mockStore := NewMockSweeperStore()
+	s := New(&UtxoSweeperConfig{Store: mockStore})
+
+	// Stage an input in PendingPublish with an existing starting fee
+	// rate. The rate we set here must not be touched by the call below.
+	existingRate := chainfee.SatPerKWeight(2500)
+	inp := createMockInput(t, s, PendingPublish)
+	s.inputs[inp.OutPoint()].params.StartingFeeRate =
+		fn.Some(existingRate)
+
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+	set.On("Inputs").Return([]input.Input{inp})
+
+	// Mark the input as publish-failed with fn.None, signalling a
+	// non-fee failure (e.g. ErrNotEnoughInputs).
+	s.markInputsPublishFailed(set, fn.None[chainfee.SatPerKWeight]())
+
+	// The input must still be in PublishFailed (state transition is
+	// independent of the rate signal) but its StartingFeeRate must
+	// remain the value we set above, not Some(0).
+	pi := s.inputs[inp.OutPoint()]
+	require.Equal(t, PublishFailed, pi.state)
+	require.True(t, pi.params.StartingFeeRate.IsSome())
+	require.Equal(t, existingRate,
+		pi.params.StartingFeeRate.UnsafeFromSome())
+
+	mockStore.AssertExpectations(t)
+}
+
+// TestMarkInputsPublishFailedRapid property-tests the fee-rate transition
+// performed by markInputsPublishFailed: over randomly generated prior and
+// next starting fee rates, the input always moves to PublishFailed, fn.None
+// preserves the exact prior StartingFeeRate, and fn.Some overwrites it with
+// the carried value.
+func TestMarkInputsPublishFailedRapid(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(rt *rapid.T) {
+		s := New(&UtxoSweeperConfig{})
+
+		// Generate the input's prior optional starting fee rate.
+		prior := fn.None[chainfee.SatPerKWeight]()
+		if rapid.Bool().Draw(rt, "priorSet") {
+			prior = fn.Some(chainfee.SatPerKWeight(
+				rapid.Uint64Range(1, 1_000_000).
+					Draw(rt, "priorRate"),
+			))
+		}
+
+		// Generate the next starting fee rate carried by the bump
+		// result.
+		next := fn.None[chainfee.SatPerKWeight]()
+		if rapid.Bool().Draw(rt, "nextSet") {
+			next = fn.Some(chainfee.SatPerKWeight(
+				rapid.Uint64Range(1, 1_000_000).
+					Draw(rt, "nextRate"),
+			))
+		}
+
+		// Stage the input in one of the two states from which the
+		// publish-failed transition is valid.
+		state := PendingPublish
+		if rapid.Bool().Draw(rt, "published") {
+			state = Published
+		}
+
+		inp := createMockInput(t, s, state)
+		s.inputs[inp.OutPoint()].params.StartingFeeRate = prior
+
+		set := &MockInputSet{}
+		defer set.AssertExpectations(t)
+		set.On("Inputs").Return([]input.Input{inp})
+
+		s.markInputsPublishFailed(set, next)
+
+		// The state transition is independent of the rate signal.
+		pi := s.inputs[inp.OutPoint()]
+		require.Equal(rt, PublishFailed, pi.state)
+
+		// None preserves the exact prior value, Some performs the
+		// explicit update.
+		expected := prior
+		if next.IsSome() {
+			expected = next
+		}
+		require.Equal(rt, expected, pi.params.StartingFeeRate)
+	})
 }
 
 // TestMarkInputsSwept checks that given a list of inputs with different

@@ -22,13 +22,13 @@ python3 "$REPO/simulation/export_run.py" \
 
 # Bundle and publish a new version to Litbucket.
 BUNDLE="$(mktemp -d)/command-center.zip"
-(cd "$SITE" && zip -qr "$BUNDLE" index.html style.css app.js data/)
+(cd "$SITE" && zip -qr "$BUNDLE" index.html findings.html style.css app.js data/)
 
 export LITBUCKET_ENDPOINT="${LITBUCKET_ENDPOINT:-https://litbucket-api.staging.lightningcluster.com}"
 litbucket --json publish "$BUNDLE" \
     --name "LN Routing Evolution Command Center" \
     --slug lnd-routing-command-center \
     --team labs \
-    --description "GEPA-driven evolution of lnd pathfinding: live run dashboards, candidate lineage, corpus explorer, probabilistic-model explainer."
+    --description "GEPA-driven evolution of lnd pathfinding: the findings write-up (mainnet validation, paradigm-over-parameters, anatomy of the evolved routers) plus live run telemetry, candidate lineage and the corpus explorer."
 
 rm -f "$BUNDLE"

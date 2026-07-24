@@ -1,454 +1,501 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>GEPA Routing Optimizer — Command Center</title>
-<meta name="description" content="Mission control for evolving the next generation of Lightning Network routing with GEPA." />
+<title>Evolving Lightning's next routing algorithm — lnd × GEPA</title>
+<meta name="description" content="An LLM-driven evolutionary search over Lightning routing algorithms, run against lnd's real pathfinding stack in an in-process payment simulator. What it found, and how." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..500&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-<div class="scrim" id="scrim"></div>
+<a class="skip" href="#main">Skip to content</a>
 
-<div class="layout">
-
-  <!-- ===================== LEFT RAIL ===================== -->
-  <aside class="rail" id="rail">
-    <div class="brand">
-      <span class="bolt">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" fill="#f5a623"/></svg>
-      </span>
-      <span class="title">GEPA Router<small>Optimizer</small></span>
-    </div>
-
-    <nav class="nav" id="nav">
-      <a href="#overview" class="active"><span class="idx">01</span> Overview</a>
-      <a href="#run"><span class="idx">02</span> Live Run</a>
-      <a href="#evolution"><span class="idx">03</span> Evolution</a>
-      <a href="#corpus"><span class="idx">04</span> Corpus</a>
-      <a href="#explainer"><span class="idx">05</span> Explainer</a>
+<header class="site-header">
+  <div class="shell">
+    <a class="wordmark" href="index.html">lnd<span class="x">×</span>GEPA</a>
+    <nav class="site-nav">
+      <a href="index.html" aria-current="page">overview</a>
+      <a href="findings.html">findings</a>
+      <a href="#run">live run</a>
     </nav>
+  </div>
+</header>
 
-    <div class="rail-foot">
-      <div class="statusline"><span class="dot live"></span> <span id="run-status">Run active</span></div>
-      <div class="meta">
-        reflection&nbsp;LM<br><b id="rf-lm">openai/gpt-5.6-sol</b><br>
-        mode&nbsp;<b>generalization</b><br>
-        evaluator&nbsp;<b>cmd/routesim</b>
+<main id="main">
+
+  <!-- ================= MASTHEAD ================= -->
+  <div class="shell masthead">
+    <div class="eyebrow">
+      Research log<span class="sep">/</span>Lightning Network pathfinding<span class="sep">/</span>July 2026
+    </div>
+    <h1>Evolving Lightning's <em>next</em> routing algorithm</h1>
+    <div class="masthead-grid">
+      <p class="standfirst">
+        We pointed an LLM-driven evolutionary search at lnd's real pathfinding
+        stack, inside a simulator that hides channel liquidity the way the network
+        does. <strong>Tuning its parameters found nothing. Replacing the algorithm
+        found a lot.</strong>
+      </p>
+      <div class="glance">
+        <div class="g hi">
+          <span class="l">attempts per payment<br>mainnet, vs lnd's 19.8</span>
+          <span class="v">2.3</span>
+        </div>
+        <div class="g">
+          <span class="l">objective, mainnet<br>vs lnd's 0.694</span>
+          <span class="v">0.791</span>
+        </div>
+        <div class="g">
+          <span class="l">evolved lines of Go<br>from a 300-line seed</span>
+          <span class="v">1,525</span>
+        </div>
+        <div class="cap">best evolved router (mx_c3) against lnd's production stack</div>
       </div>
     </div>
-  </aside>
-
-  <!-- ===================== MAIN ===================== -->
-  <div class="main">
-
-    <!-- mobile bar -->
-    <div class="mobile-bar">
-      <span class="mb-brand"><span class="bolt"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" fill="#f5a623"/></svg></span> GEPA Router</span>
-      <button class="burger" id="burger">MENU</button>
+    <div class="byline">
+      <span>method <b>GEPA reflective evolution</b></span>
+      <span>reflection LM <b>gpt-5.6-sol</b></span>
+      <span>evaluator <b>cmd/routesim</b></span>
+      <span>experiments <b>exp-001 … exp-009</b></span>
     </div>
+  </div>
 
-    <!-- topbar -->
-    <div class="topbar">
-      <div class="crumb">GEPA <b>//</b> LN&nbsp;ROUTING&nbsp;OPTIMIZER</div>
-      <div class="telemetry">
-        <div class="tele"><span class="k">Best score</span><span class="v mono" id="t-best">0.52</span></div>
-        <div class="tele"><span class="k">Δ vs seed</span><span class="v mono" id="t-delta">+0.14</span></div>
-        <div class="tele"><span class="k">Evals</span><span class="v mono" id="t-evals">4,312</span></div>
+  <!-- ================= 01 · FINDINGS ================= -->
+  <section id="result">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">01</div>
+        <h2>What the search found</h2>
+        <p class="sec-sub">
+          Every number below is held out. The closing check ran on a real mainnet
+          graph snapshot — lnd's home turf, and a topology the evolved routers had
+          never seen.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key hi">
+          <span class="kn">8.6<span class="u">×</span></span>
+          <div class="kl">
+            fewer HTLC attempts per payment than lnd on the real mainnet graph, at
+            the same success rate
+          </div>
+          <div class="kf">2.3 vs 19.8 attempts · exp-009</div>
+        </div>
+        <div class="key">
+          <span class="kn">3<span class="u">of 3</span></span>
+          <div class="kl">
+            held-out tiers the evolved routers lead: sealed synthetic test,
+            out-of-distribution topologies, mainnet snapshot
+          </div>
+          <div class="kf">all pointing the same way</div>
+        </div>
+        <div class="key">
+          <span class="kn">0</span>
+          <div class="kl">
+            parameter settings, out of 400 evaluations of estimator and cost
+            knobs, that beat the lnd defaults
+          </div>
+          <div class="kf">exp-002 · the negative result that redirected the project</div>
+        </div>
+      </div>
+
+      <figure>
+        <div class="fig-head">
+          <span class="fig-t">Attempts per payment on a mainnet snapshot</span>
+          <span class="fig-n">Fig. 1 · lower is better</span>
+        </div>
+        <div class="plot resp" id="fig-attempts"></div>
+        <figcaption>
+          12,161 nodes, 39,659 channels, 100 payments from the network's
+          highest-degree node. Success rates are close — lnd 0.790, seed 0.820,
+          evolved 0.810 — so the whole difference lands in <b>how much probing it
+          takes to get there</b>. This is the tier lnd should win: its defaults were
+          tuned for this graph, while the evolved routers were bred entirely on
+          synthetic topologies.
+        </figcaption>
+      </figure>
+
+      <figure>
+        <div class="fig-head">
+          <span class="fig-t">Composite objective, by router and held-out tier</span>
+          <span class="fig-n">Fig. 2 · higher is better</span>
+        </div>
+        <div class="plot resp" id="fig-champions"></div>
+        <div class="legend">
+          <span class="item"><i style="background:#a83f22"></i> evolved by GEPA</span>
+          <span class="item"><i style="background:#8a8175"></i> baseline (lnd, or hand-written)</span>
+        </div>
+        <figcaption>
+          Objective is <span class="mono">success − 0.01·min(extra attempts, 15) −
+          0.00002·min(fee ppm, 5000)</span>. The two evolved routers lead on all
+          three tiers. On synthetic corpora the gap is mostly success rate; on the
+          real graph it is almost entirely efficiency. Reruns are bit-identical
+          (stdev 0.00000 over five repeats), and both champions were audited clean
+          of simulator exploits.
+        </figcaption>
+        <details class="tableview">
+          <summary>Table view</summary>
+          <div class="tw">
+            <table class="data">
+              <caption>Composite objective. Combined is the mean of the two synthetic held-out sets.</caption>
+              <thead>
+                <tr>
+                  <th>router</th>
+                  <th class="num">mainnet</th>
+                  <th class="num">hard sealed test</th>
+                  <th class="num">out-of-distribution</th>
+                  <th class="num">combined</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>lnd production stack<span class="sub">Dijkstra + mission control</span></td>
+                  <td class="num" data-l="mainnet">0.694</td><td class="num" data-l="hard sealed test">0.309</td>
+                  <td class="num" data-l="out-of-distribution">0.357</td><td class="num" data-l="combined">0.333</td>
+                </tr>
+                <tr>
+                  <td>hand-written seed<span class="sub">~300 lines, cheapest path + blacklist</span></td>
+                  <td class="num" data-l="mainnet">0.762</td><td class="num" data-l="hard sealed test">0.530</td>
+                  <td class="num" data-l="out-of-distribution">0.487</td><td class="num" data-l="combined">0.509</td>
+                </tr>
+                <tr>
+                  <td>hb1<span class="sub">evolved, 872 lines</span></td>
+                  <td class="num" data-l="mainnet">0.790</td><td class="num" data-l="hard sealed test">0.586</td>
+                  <td class="num" data-l="out-of-distribution">0.545</td><td class="num" data-l="combined">0.565</td>
+                </tr>
+                <tr class="best">
+                  <td>mx_c3<span class="sub">evolved, 1,525 lines</span></td>
+                  <td class="num" data-l="mainnet">0.791</td><td class="num" data-l="hard sealed test">0.583</td>
+                  <td class="num" data-l="out-of-distribution">0.581</td><td class="num" data-l="combined">0.582</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </figure>
+
+      <div class="prose">
+        <p>
+          The headline is not the size of the win, it is <em>where the win came
+          from</em>. A 400-evaluation search over lnd's own pathfinding knobs — which
+          probability estimator, how much a failed attempt should virtually cost, the
+          floor on acceptable route probability — produced no setting that beat the
+          shipped defaults on validation. The defaults are locally robust; the
+          headroom is not in the knobs.
+        </p>
+        <p>
+          Meanwhile a deliberately naive 300-line router with a <em>different
+          paradigm</em> beat lnd's full production stack by 39% on the objective,
+          winning or tying every example. Handing that seed to the optimizer, and
+          letting it rewrite the whole algorithm rather than adjust its settings,
+          produced routers that beat both. What they invented — liquidity intervals
+          instead of decaying penalties — is the interesting part.
+        </p>
+        <p>
+          <a class="link" href="findings.html">Read the full findings →</a>
+        </p>
       </div>
     </div>
+  </section>
 
-    <div class="wrap">
+  <!-- ================= 02 · METHOD ================= -->
+  <section id="method">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">02</div>
+        <h2>How the search works</h2>
+        <p class="sec-sub">
+          A candidate is a whole routing algorithm in Go. Every proposal is
+          compiled into a simulator and made to actually pay.
+        </p>
+      </div>
 
-      <!-- ============ OVERVIEW ============ -->
-      <section id="overview">
-        <div class="hero">
-          <div class="eyebrow">Mission Control</div>
-          <h1>Evolving the <span class="em">next generation</span> of Lightning routing</h1>
-          <p class="lede">
-            GEPA is a reflective evolutionary search, driven by an LLM, pointed at lnd's
-            real pathfinding stack. An in-process Lightning simulator hides channel liquidity
-            behind lnd's own mission control; the optimizer proposes, measures, reflects, and
-            proposes again — climbing toward routing strategies that beat today's defaults.
-          </p>
+      <figure>
+        <div class="fig-head">
+          <span class="fig-t">One turn of the evolutionary loop</span>
+          <span class="fig-n">Fig. 3</span>
         </div>
+        <div class="schema">
+          <svg viewBox="0 0 1000 252" role="img" aria-label="The GEPA loop: propose, compile, simulate, score, reflect, then back to propose.">
+            <!-- stage boxes -->
+            <g>
+              <rect x="1" y="26" width="170" height="92" fill="#fbfaf6" stroke="#cbc4b2" stroke-width="1"/>
+              <text class="s-num" x="14" y="46">01</text>
+              <text class="s-title" x="14" y="66" font-size="14">propose</text>
+              <text class="s-body" x="14" y="86">the reflection LM</text>
+              <text class="s-body" x="14" y="102">rewrites the router</text>
+            </g>
+            <path d="M 179 72 h 20 m -6 -5 l 6 5 l -6 5" fill="none" stroke="#b3ab97" stroke-width="1.2"/>
+            <g>
+              <rect x="207" y="26" width="170" height="92" fill="#fbfaf6" stroke="#cbc4b2" stroke-width="1"/>
+              <text class="s-num" x="220" y="46">02</text>
+              <text class="s-title" x="220" y="66" font-size="14">compile</text>
+              <text class="s-body" x="220" y="86">go build −overlay drops</text>
+              <text class="s-body" x="220" y="102">it into the simulator</text>
+            </g>
+            <path d="M 385 72 h 20 m -6 -5 l 6 5 l -6 5" fill="none" stroke="#b3ab97" stroke-width="1.2"/>
+            <g>
+              <rect x="413" y="26" width="170" height="92" fill="#fbfaf6" stroke="#cbc4b2" stroke-width="1"/>
+              <text class="s-num" x="426" y="46">03</text>
+              <text class="s-title" x="426" y="66" font-size="14">simulate</text>
+              <text class="s-body" x="426" y="86">it pays, against hidden</text>
+              <text class="s-body" x="426" y="102">channel liquidity</text>
+            </g>
+            <path d="M 591 72 h 20 m -6 -5 l 6 5 l -6 5" fill="none" stroke="#b3ab97" stroke-width="1.2"/>
+            <g>
+              <rect x="619" y="26" width="170" height="92" fill="#fbfaf6" stroke="#cbc4b2" stroke-width="1"/>
+              <text class="s-num" x="632" y="46">04</text>
+              <text class="s-title" x="632" y="66" font-size="14">score</text>
+              <text class="s-body" x="632" y="86">success, minus attempt</text>
+              <text class="s-body" x="632" y="102">and fee penalties</text>
+            </g>
+            <path d="M 797 72 h 20 m -6 -5 l 6 5 l -6 5" fill="none" stroke="#b3ab97" stroke-width="1.2"/>
+            <g>
+              <rect x="825" y="26" width="170" height="92" fill="#fbfaf6" stroke="#cbc4b2" stroke-width="1"/>
+              <text class="s-num" x="838" y="46">05</text>
+              <text class="s-title" x="838" y="66" font-size="14">reflect</text>
+              <text class="s-body" x="838" y="86">keep it only if it holds</text>
+              <text class="s-body" x="838" y="102">up across the splits</text>
+            </g>
 
-        <div class="phases">
-          <div class="phase done">
-            <div class="ph-top"><span class="ph-no">Phase 01</span><span class="badge">Complete ✓</span></div>
-            <h3>Evaluator built</h3>
-            <p>Simulator + <code>routesim</code> CLI + GEPA harness compile and produce real optimization signal on a train/val/test corpus.</p>
-          </div>
-          <div class="phase done">
-            <div class="ph-top"><span class="ph-no">Phase 02</span><span class="badge">Complete ✓</span></div>
-            <h3>Parameter tuning</h3>
-            <p>Verdict: the seed survived. 400 evals, 33 iterations — no knob change on estimator, attempt cost, or min-probability beat the lnd defaults on val aggregate. The bottleneck is the algorithm, not its knobs (run1).</p>
-          </div>
-          <div class="phase done">
-            <div class="ph-top"><span class="ph-no">Phase 03</span><span class="badge">Breakthrough ✓</span></div>
-            <h3>Router evolution</h3>
-            <p>The paradigm-free Router interface is live, and <code>code_hard1</code> has cleared both bars: the evolved router (<b>hb1</b>) beats lnd <em>and</em> the hand-written seed on the sealed test set (0.586 vs 0.530 vs 0.309 objective) and out-of-distribution (0.545 vs 0.487 vs 0.357) — reproducibly, using 4–7× fewer attempts. It rediscovered lnd's own bimodal liquidity model from failure traces alone. The run has since accepted a Pareto sibling, <b>hb2</b>, that generalizes better out-of-distribution — the frontier is now two evolved routers, not one. <code>code_hard1</code> has now finished (a pathological candidate's infinite loop blew the subprocess timeout at 135/400 evals, since hardened): GEPA's own valset selection confirms <b>hb1</b> as the definitive champion, matching the independent three-way validation exactly. A follow-up run seeded from hb1 (<code>code_mix1</code>) kept going past that first reject-heavy accept and, by 314 evals, produced a new generalist champion, <b>mx_c3</b>: it strictly dominates hb2, ties hb1 on the hard sealed test (0.583 vs 0.586), and wins out-of-distribution (0.581 vs 0.545) for the best combined average of any router (0.582). Champions of record are now hb1 (hard-regime specialist) and mx_c3 (generalist, superseding hb2).</p>
-          </div>
+            <!-- feedback return path -->
+            <path d="M 910 118 V 176 H 86 V 124 m -5 6 l 5 -6 l 5 6"
+                  fill="none" stroke="#a83f22" stroke-width="1.4"/>
+            <text class="s-label-strong" x="498" y="199" text-anchor="middle" fill="#a83f22">
+              per-attempt failure traces are the feedback
+            </text>
+            <text class="s-body" x="498" y="220" text-anchor="middle">
+              which hop died, at what amount, with which BOLT error — so the next mutation is informed, not random
+            </text>
+          </svg>
         </div>
+        <div class="scrollhint">scroll the diagram sideways →</div>
+        <figcaption>
+          The optimizer never sees hidden balances. A candidate gets the public
+          gossip graph, its own channel balances, and the errors its attempts
+          provoke — the same information a real Lightning sender has.
+        </figcaption>
+      </figure>
 
-        <div class="arch">
-          <div class="arch-h">The optimization loop</div>
-          <div class="loop">
-            <div class="node accent">
-              <div class="n-k">Propose</div>
-              <div class="n-t">GEPA proposer</div>
-              <div class="n-d">reflection LM mutates the candidate</div>
-            </div>
-            <div class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
-            <div class="node">
-              <div class="n-k">Encode</div>
-              <div class="n-t">params JSON</div>
-              <div class="n-d">estimator + cost knobs</div>
-            </div>
-            <div class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
-            <div class="node">
-              <div class="n-k">Measure</div>
-              <div class="n-t">routesim evaluator</div>
-              <div class="n-d">real lnd pathfinding</div>
-            </div>
-            <div class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
-            <div class="node">
-              <div class="n-k">Reflect</div>
-              <div class="n-t">score + feedback</div>
-              <div class="n-d">metrics + failure traces</div>
-            </div>
-          </div>
-          <div class="loopback">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9a8 8 0 0 1 15-2M20 15a8 8 0 0 1-15 2"/><path d="M19 2v5h-5M5 22v-5h5"/></svg>
-            <span><b>Reflection feeds the next proposal.</b> Failure traces tell the LM which hops died and why — <code>TemporaryChannelFailure</code>, <code>FeeInsufficient</code> — so mutations are informed, not random.</span>
-          </div>
-        </div>
-      </section>
+      <div class="prose">
+        <h3>The simulator runs lnd's real code</h3>
+        <p>
+          <code>routing/sim_graph.go</code> is an in-memory Lightning network with
+          hidden per-channel balances and per-direction policies: base and
+          proportional fees, CLTV deltas, min and max HTLC. It implements lnd's own
+          <code>Graph</code> interface, so lnd's production pathfinding and mission
+          control run against it unmodified — which is what makes the baseline
+          honest.
+        </p>
+        <p>
+          Forwarding enforces real BOLT semantics. An attempt that asks too little
+          fee gets <code>FeeInsufficient</code>; one that asks for more than a hop
+          holds gets <code>TemporaryChannelFailure</code>, the liquidity miss that
+          all of routing is really about. Balances move on success and unwind on
+          failure. Topologies are synthetic (line, grid, hub-and-spoke, small-world,
+          scale-free) or loaded from a mainnet <code>describegraph</code> snapshot,
+          and hidden balances follow a half, uniform, or <em>bimodal</em> model — the
+          last one hugging one end of each channel, which is both realistic and the
+          hard case.
+        </p>
+        <p>
+          It is fast enough to be an inner loop: ten payments on a 200-node network
+          in about 0.3 seconds including process startup, so thousands of
+          evaluations are cheap.
+        </p>
 
-      <!-- ============ LIVE RUN ============ -->
-      <section id="run">
-        <div class="sec-head">
-          <span class="tag">02</span>
-          <div>
-            <h2>Live Run</h2>
-            <p>Best candidate vs. lnd defaults, scored on the val corpus.</p>
-          </div>
-        </div>
+        <h3>A candidate is an algorithm, not a config</h3>
+        <p>
+          The evolvable unit is a Go file behind a paradigm-free interface: gossip
+          view, local balances, and per-attempt feedback in; a route out. GEPA
+          rewrites that file, <code>go build -overlay</code> compiles the rewrite into
+          the simulator, and the evaluator scores it on a corpus split into train,
+          validation and sealed test. Nothing in the contract mentions Dijkstra,
+          mission control, or probability estimators. Those become background
+          knowledge the reflection prompt may draw on, keep, reshape, or discard.
+        </p>
 
-        <div class="callout">
-          <div class="co-h">In flight</div>
+        <div class="note">
+          <h4>the sandbox held</h4>
           <p>
-            <code>code_gen2</code> is now running: a fresh 400-eval budget seeded from the small
-            original router again, but with the background prompt enriched with hb1/mx_c3's
-            discovered structure (bimodal prior, per-edge liquidity bounds) instead of dragging the
-            giant champion through reflection directly.
+            An independent audit found that the graph session handed candidates the
+            concrete simulator graph, type-assertable back into a read of hidden
+            balances or an outright rewrite of ground-truth liquidity — a
+            perfect-score reward hack using no banned identifiers. It was sealed the
+            same day, and every in-flight candidate was checked against it: zero
+            hits. No result on this site was produced through that hole.
           </p>
         </div>
+      </div>
+    </div>
+  </section>
 
-        <div class="tiles" id="run-tiles"><!-- injected --></div>
+  <!-- ================= 03 · CORPUS ================= -->
+  <section id="corpus">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">03</div>
+        <h2>The scenarios it is scored against</h2>
+        <p class="sec-sub">
+          <span class="mono" id="c-files">—</span> scenario files,
+          <span class="mono" id="c-scen">—</span> payments,
+          split <span class="mono" id="c-split">—</span>. Validation picks the
+          incumbent; the test split stays sealed until a champion is declared.
+        </p>
+      </div>
 
-        <div class="grid-2">
-          <div class="panel">
-            <div class="panel-h">
-              <h3>Score over iterations</h3>
-              <span class="sub">success − 0.01·extra_attempts − 0.00002·fee_ppm</span>
-            </div>
-            <div class="chart-wrap" id="score-chart"></div>
-            <div class="legend">
-              <span class="lg"><span class="sw" style="background:var(--amber)"></span> best score</span>
-              <span class="lg"><span class="sw" style="background:var(--s-blue)"></span> candidate</span>
-              <span class="lg"><span class="sw dash"></span> seed baseline</span>
-            </div>
+      <div class="figgrid">
+        <figure>
+          <div class="fig-head">
+            <span class="fig-t">Topology</span>
+            <span class="fig-n">files</span>
           </div>
-
-          <div class="panel">
-            <div class="panel-h"><h3>Best candidate vs. seed</h3></div>
-            <table class="ptable" id="params-table"><!-- injected --></table>
+          <div class="bars" id="bars-topology"></div>
+        </figure>
+        <figure>
+          <div class="fig-head">
+            <span class="fig-t">Hidden liquidity model</span>
+            <span class="fig-n">files</span>
           </div>
+          <div class="bars" id="bars-liquidity"></div>
+          <figcaption>
+            Bimodal is the hard regime: funds parked at one end of each channel,
+            so capacity tells you almost nothing about what will actually pass.
+          </figcaption>
+        </figure>
+        <figure>
+          <div class="fig-head">
+            <span class="fig-t">Payment amount</span>
+            <span class="fig-n">scenarios, satoshis</span>
+          </div>
+          <div class="bars" id="bars-amount"></div>
+        </figure>
+        <figure>
+          <div class="fig-head">
+            <span class="fig-t">Shard budget</span>
+            <span class="fig-n">scenarios, max parts</span>
+          </div>
+          <div class="bars" id="bars-parts"></div>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 04 · LIVE RUN ================= -->
+  <section id="run">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">04</div>
+        <h2>The run currently in flight</h2>
+        <p class="sec-sub">
+          Live telemetry from the optimizer, exported straight out of the GEPA run
+          directory. The champions above are settled; this is what is still moving.
+        </p>
+      </div>
+
+      <div class="runbar">
+        <span><span class="dot"></span>run <b id="rb-run">—</b></span>
+        <span>reflection <b id="rb-lm">—</b></span>
+        <span>mode <b id="rb-mode">—</b></span>
+        <span>budget <b>400 evals</b></span>
+      </div>
+
+      <div class="statline wide" id="run-stats"></div>
+
+      <div class="prose" style="margin-bottom:34px">
+        <p>
+          <code>code_gen2</code> tests the cheapest lesson from the last two runs.
+          Reflecting on a 1,500-line champion makes every prompt enormous and most
+          proposals dead on arrival, so this run seeds from the <em>small</em>
+          original router again and instead carries the discovered structure —
+          bimodal prior, per-edge liquidity bounds — in its background prompt.
+        </p>
+      </div>
+
+      <figure class="wide" style="margin-top:0">
+        <div class="fig-head">
+          <span class="fig-t">Score over iterations</span>
+          <span class="fig-n">Fig. 4 · minibatch objective</span>
         </div>
-      </section>
-
-      <!-- ============ EVOLUTION ============ -->
-      <section id="evolution">
-        <div class="sec-head">
-          <span class="tag">03</span>
-          <div>
-            <h2>Evolution</h2>
-            <p>How GEPA mutates, tests, and keeps candidates across the run.</p>
-          </div>
+        <div class="plot" id="score-chart"></div>
+        <div class="scrollhint">scroll the chart sideways →</div>
+        <div class="legend">
+          <span class="item"><i class="line" style="background:#a83f22"></i> best kept</span>
+          <span class="item"><i class="line" style="background:#2f6ea8"></i> proposed</span>
+          <span class="item"><i class="dash"></i> seed baseline</span>
         </div>
+        <figcaption>
+          These are per-minibatch scores on the training split, not held-out
+          numbers — they are how GEPA decides what to keep, and they run
+          optimistically high. Every comparison in section 01 comes from separate
+          held-out runs instead.
+        </figcaption>
+      </figure>
 
-        <!-- Prior paradigm vs evolved -->
-        <div class="panel compare">
-          <div class="panel-h">
-            <h3>Prior paradigm vs. evolved candidate</h3>
-            <span class="sub">lnd defaults (Dijkstra + mission control) → best evolved params</span>
-          </div>
-          <div class="cmp-grid" id="compare-grid"><!-- injected --></div>
+      <figure class="wide">
+        <div class="fig-head">
+          <span class="fig-t">Candidate lineage</span>
+          <span class="fig-n">Fig. 5 · select a candidate</span>
         </div>
+        <div class="plot dag" id="lineage-dag"></div>
+        <figcaption>
+          Each node is one compiled, scored router. Accepted candidates stay on the
+          frontier and can be mutated further; rejects are dead ends. The scores are
+          per-minibatch and each is measured on a different subset, so a rejected
+          candidate can carry a higher number than the incumbent without being
+          better.
+        </figcaption>
+      </figure>
 
-        <!-- Lineage DAG -->
-        <div class="panel" style="margin-top:18px">
-          <div class="panel-h">
-            <h3>Candidate lineage</h3>
-            <span class="sub">parent → child mutations · click a node to inspect</span>
+      <div class="panels">
+        <div class="panel">
+          <div class="fig-head">
+            <span class="fig-t">Candidate detail</span>
+            <span class="fig-n" id="detail-sub">—</span>
           </div>
-          <div class="legend" style="margin:4px 0 6px">
-            <span class="lg"><span class="sw" style="background:var(--s-blue);width:11px;height:11px;border-radius:3px"></span> seed</span>
-            <span class="lg"><span class="sw" style="background:var(--amber);width:11px;height:11px;border-radius:3px"></span> frontier / accepted</span>
-            <span class="lg"><span class="sw" style="background:var(--amber-bright);width:11px;height:11px;border-radius:3px;box-shadow:0 0 8px var(--amber)"></span> best</span>
-            <span class="lg"><span class="sw" style="background:#3a4353;width:11px;height:11px;border-radius:3px"></span> rejected</span>
-          </div>
-          <div class="chart-wrap dag-wrap" id="lineage-dag"></div>
+          <div id="cand-detail"></div>
         </div>
-
-        <!-- Detail + diff -->
-        <div class="grid-2" style="margin-top:18px">
-          <div class="panel">
-            <div class="panel-h">
-              <h3>Candidate detail</h3>
-              <span class="sub" id="detail-sub">select a node</span>
-            </div>
-            <div id="cand-detail"><!-- injected --></div>
+        <div class="panel">
+          <div class="fig-head">
+            <span class="fig-t">What the mutation changed</span>
+            <span class="fig-n">line diff</span>
           </div>
-          <div class="panel">
-            <div class="panel-h">
-              <h3>Diff viewer</h3>
-              <span class="sub">reflection-step changes</span>
-            </div>
-            <div class="diff-controls">
-              <label>base <select id="diff-a" class="sel"></select></label>
-              <span class="diff-arrow">→</span>
-              <label>candidate <select id="diff-b" class="sel"></select></label>
-            </div>
-            <pre class="diff" id="diff-view"><!-- injected --></pre>
+          <div class="selects">
+            <label>base <select id="diff-a"></select></label>
+            <span>→</span>
+            <label>candidate <select id="diff-b"></select></label>
           </div>
+          <pre class="diff" id="diff-view"></pre>
         </div>
-      </section>
+      </div>
+    </div>
+  </section>
 
-      <!-- ============ CORPUS ============ -->
-      <section id="corpus">
-        <div class="sec-head">
-          <span class="tag">04</span>
-          <div>
-            <h2>Corpus Explorer</h2>
-            <p>The scenario set the optimizer is scored against.</p>
-          </div>
-        </div>
+  <div class="shell">
+    <div class="readnext">
+      <div class="k">read next</div>
+      <a class="big" href="findings.html">Findings: what the evolved routers kept, dropped, and invented</a>
+      <p>
+        The definitive write-up — the paradigm result, the champion scores, an
+        anatomy of the evolved algorithms against lnd's, and the process lessons
+        from nine experiments.
+      </p>
+    </div>
+  </div>
 
-        <div class="tiles" id="corpus-tiles"><!-- injected --></div>
+</main>
 
-        <div class="grid-2b">
-          <div class="panel">
-            <div class="panel-h"><h3>Topology mix</h3><span class="sub" id="c-files-1"></span></div>
-            <div id="bars-topology" class="chart-wrap"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-h"><h3>Liquidity model</h3><span class="sub">hard = bimodal</span></div>
-            <div id="bars-liquidity" class="chart-wrap"></div>
-          </div>
-        </div>
-
-        <div class="grid-2b" style="margin-top:18px">
-          <div class="panel">
-            <div class="panel-h"><h3>Payment amount</h3><span class="sub">per scenario, satoshis</span></div>
-            <div id="bars-amount" class="chart-wrap"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-h"><h3>MPP shard budget</h3><span class="sub">max_parts</span></div>
-            <div id="bars-parts" class="chart-wrap"></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ============ EXPLAINER ============ -->
-      <section id="explainer">
-        <div class="sec-head">
-          <span class="tag">05</span>
-          <div>
-            <h2>How It Works</h2>
-            <p>The simulator, the probability models, and the reflective loop.</p>
-          </div>
-        </div>
-
-        <div class="ex-card">
-          <h3><span class="n">A</span> The simulator: real lnd code, hidden liquidity</h3>
-          <p>
-            <code>routing/sim_graph.go</code> is an in-memory Lightning network with hidden
-            per-channel balances and per-direction policies (base + ppm fees, CLTV deltas,
-            min/max HTLC). It implements lnd's <code>Graph</code> interface, so lnd's
-            <em>production pathfinding and mission control run against it unmodified</em>.
-          </p>
-          <p>
-            <code>SendHtlc</code> enforces real forwarding semantics — <code>FeeInsufficient</code>,
-            <code>IncorrectCltvExpiry</code>, <code>AmountBelowMinimum</code>,
-            <code>TemporaryChannelFailure</code> (a liquidity miss) — updating balances and
-            unwinding on failure. Topologies are synthetic (line, grid, hubspoke, smallworld) or
-            loaded from a <code>describegraph</code> mainnet snapshot; hidden balances follow a
-            <em>half</em>, <em>uniform</em>, or <em>bimodal</em> model, the last hugging one end of
-            each channel — the realistic, hard regime.
-          </p>
-          <p>
-            The CLI <code>cmd/routesim</code> takes a params JSON plus a scenario file and emits
-            per-attempt traces and aggregate metrics. It is fast: ten payments on a 200-node net in
-            ~0.3&nbsp;s including process startup, so thousands of evaluations are cheap.
-          </p>
-        </div>
-
-        <div class="ex-card">
-          <h3><span class="n">B</span> Mission control &amp; the two probability estimators</h3>
-          <p>
-            Pathfinding is Dijkstra over a cost roughly equal to
-            <code>fees + timelock_penalty + attempt_cost / P(route)</code>: the virtual attempt cost
-            (100 sat + 1000 ppm by default) divided by the estimated success probability, so
-            unreliable routes look expensive. <code>P(route)</code> is the product of per-hop
-            probabilities from one of two estimators, fed by mission control, which records the last
-            success/fail amount and timestamp for every directed node pair.
-          </p>
-          <div class="est-grid">
-            <div class="est apriori">
-              <h4>Apriori estimator</h4>
-              <div class="tagline">default</div>
-              <p>
-                Every unknown hop starts at 0.6, scaled down as the amount approaches channel
-                capacity. Observations override the prior — a pair that just relayed ≥ amt gets 0.95;
-                one that failed at ≤ amt drops to ~0, healing back over a 1h half-life. The clever bit
-                is node-level extrapolation: a node's failures on <em>other</em> channels drag down all
-                its channels via a weighted average (weight 0.5) — one bad channel makes the whole node
-                suspect.
-              </p>
-            </div>
-            <div class="est bimodal">
-              <h4>Bimodal estimator</h4>
-              <div class="tagline">opt-in · models where liquidity sits</div>
-              <p>
-                Assumes balance density ~ <code>e^(−x/s) + e^((x−c)/s)</code> — funds parked at one end
-                or the other (s = 300k sat). Each attempt narrows a per-channel
-                [can-send, cannot-send] window: success at <em>a</em> proves ≥ a, failure at <em>b</em>
-                proves &lt; b, relaxing back to [0, capacity] over a 7-day decay. Probability is the mass
-                above amt within that window; node-level info mixes in (weight 0.2) unless fresh direct
-                info exists.
-              </p>
-            </div>
-          </div>
-          <p style="margin-top:14px">
-            The MPP layer sits on top: if no single route clears <code>MinProbability</code> (1%), the
-            session halves the amount and retries, down to a min shard and up to <code>MaxParts</code>
-            shards.
-          </p>
-        </div>
-
-        <div class="ex-card">
-          <h3><span class="n">C</span> GEPA's reflective loop</h3>
-          <p>
-            The seed is lnd's own defaults (<code>routesim --dump-defaults</code>). On a fresh corpus it
-            scores 0.27–0.58 with 30–63% success and up to 26 attempts per payment on the hard bimodal
-            nets — <em>plenty of failure for reflection to chew on</em>, which is exactly what GEPA
-            needs. A saturated seed would just be returned unchanged.
-          </p>
-          <p>
-            Each round, the reflection LM (<code>openai/gpt-5.6-sol</code>) reads the score plus compact
-            failure traces, proposes a mutated params JSON, and the evaluator scores it. Generalization
-            mode keeps the incumbent unless a candidate genuinely holds up across splits — so the curve
-            climbs by keeping wins and discarding regressions, not by chasing val-set noise.
-          </p>
-        </div>
-
-        <div class="ex-card">
-          <h3><span class="n">D</span> Phase 3: a paradigm-free router, now evolving</h3>
-          <p>
-            Parameter tuning was deliberately the loop-validation step — <em>we were never tied to that
-            paradigm</em>, and run1 confirmed it: the lnd defaults survived 400 evals unchanged, no knob
-            beat them. The real target, now live, is a paradigm-free <code>SimRouter</code> interface in the
-            sim: gossip view + local balances + attempt feedback in, a route out — so GEPA generates whole
-            routing strategies in Go as candidates, with today's stack (and a hand-written 300-line seed
-            router) as the baselines to beat.
-          </p>
-          <p>
-            The bar turned out to be the seed, not lnd: a naive cheapest-path router with per-payment
-            failure blacklisting already beats production lnd pathfinding on the hard corpus (0.547 vs
-            0.393 objective, 2× the success rate at a third of the attempts). The overnight run,
-            <code>code_hard1</code>, went on to clear that bar too: its evolved champion (<b>hb1</b>, 872
-            lines) beats <em>both</em> lnd and the seed on the sealed test set (0.586 vs 0.530 vs 0.309
-            objective) and on out-of-distribution corpus-v2 topologies it never trained on (0.545 vs 0.487
-            vs 0.357) — at 4–7× fewer attempts per payment (≈9 vs lnd's ≈50). From nothing but the
-            objective and per-attempt failure traces, it independently arrived at an explicit bimodal
-            liquidity prior — the same "funds sit at one end of the channel" hypothesis lnd's own bimodal
-            estimator was analytically derived from — plus per-edge liquidity bounds with a confidence
-            score and a risk-adjusted Dijkstra, well beyond the seed's simple blacklist.
-          </p>
-          <p>
-            The frontier didn't stop at hb1: <code>code_hard1</code> went on to accept a sibling, <b>hb2</b>
-            (1166 lines), that Pareto-trades against it rather than replacing it — hb1 stays the
-            hard-regime specialist (sealed test 0.586) while hb2 generalizes better out-of-distribution
-            (0.577 vs hb1's 0.545), and both still beat lnd and the seed on every set. That makes this a
-            genuine Pareto frontier of evolved routers, not a single champion.
-          </p>
-          <p>
-            <code>code_hard1</code> has since finished: it terminated at 135 of its 400-eval budget when a
-            pathological candidate hit an infinite loop and blew the subprocess timeout, which propagated
-            and stopped the run (the harness now catches this and scores a hung candidate 0.0 instead of
-            crashing, so a future run can use its full budget). GEPA's own valset selection had already
-            settled on hb1 as the best program — val aggregate 0.31654, matching the independent hard-val
-            measurement to four decimals — so hb1 is the definitive champion by both GEPA's own selection
-            and the three-way validation above, with hb2 standing as its best out-of-distribution sibling.
-          </p>
-          <p>
-            A Fable code-reviewer agent independently audited the sandbox mid-run and found one critical
-            hole: the graph session handed a candidate the concrete <code>*SimGraph</code>, type-assertable
-            back to read hidden balances or rewrite liquidity outright. Fixed the same day — the session now
-            only ever exposes the sealed view — and every in-flight candidate (code1, omni1) was checked
-            against the escape: zero hits, so no result above is tainted.
-          </p>
-          <p>
-            A follow-up run, <code>code_mix1</code>, seeded GEPA directly from hb1 on a mixed
-            hard/scale-free corpus to push further. Reflecting on an 872-line candidate mostly
-            produces rejects — 12 proposals in a row before the first accept — and even that accept,
-            <b>mb1</b> (1306 lines, iteration 17), doesn't dominate: three-way validation puts it below
-            hb1 on the hard sealed test (0.570 vs 0.586) and below both hb1 and hb2 on out-of-distribution
-            corpus-v2 (0.529 vs 0.545 / 0.577). GEPA kept it on the Pareto front for per-example
-            specialization, not aggregate gain — its own minibatch score (0.431) was below the seed's
-            (0.519).
-          </p>
-          <p>
-            The run kept going, though, and the giant-seed reflection eventually paid off: by 314 of
-            its 500-eval budget, <code>code_mix1</code> had accepted two more Pareto siblings (1410 and
-            1525 lines), the last of which, <b>mx_c3</b> (saved as
-            <code>champions/router_mx3_generalist_v1.go</code>), is a genuine generalist champion.
-            Three-way validation: hard sealed test hb1 <b>0.586</b> / hb2 0.545 / mx_c3 0.583; OOD
-            corpus-v2 hb1 0.545 / hb2 0.577 / mx_c3 <b>0.581</b>; combined average hb1 0.565 / hb2 0.561
-            / mx_c3 <b>0.582</b>. mx_c3 strictly dominates hb2 (wins both sets), ties hb1 on the hard
-            test within noise, and posts the best combined average of any router evolved so far.
-            Structurally it extends hb1's bimodal-prior-plus-liquidity-bounds core with an adaptive
-            retry-at-lower-amount policy (<code>candidateLowerRetryFactor</code>) that pays off on the
-            more diverse mixed corpus. Champions of record are now <b>hb1</b> (hard-regime specialist)
-            and <b>mx_c3</b> (generalist, superseding hb2) — the "diminishing returns" read on the giant
-            seed was premature, it just took ~300 more evals to cash out.
-          </p>
-          <div class="callout">
-            <div class="co-h">The inversion</div>
-            <p>
-              Everything above — mission control, bimodal windows, apriori priors — stops being a
-              constraint and becomes <em>background knowledge the reflection prompt can draw on</em>. The
-              optimizer is free to keep it, reshape it, or throw it out, and it has already found something
-              the paradigm didn't imagine.
-            </p>
-          </div>
-        </div>
-      </section>
-
-    </div><!-- /wrap -->
-
-    <footer class="foot">
-      <span>GEPA // LN ROUTING OPTIMIZER — mission control</span>
-      <span id="foot-updated">data snapshot loading…</span>
-    </footer>
-  </div><!-- /main -->
-</div><!-- /layout -->
+<div class="shell">
+  <footer class="site-footer">
+    <span>lnd × GEPA — Lightning routing evolution</span>
+    <span id="foot-run">run data loading…</span>
+  </footer>
+</div>
 
 <script src="app.js"></script>
 </body>

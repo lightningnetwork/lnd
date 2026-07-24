@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Findings — what the evolved routers kept, dropped, and invented</title>
+<meta name="description" content="The definitive write-up of the lnd × GEPA routing evolution effort: mainnet validation, the paradigm-over-parameters result, and an anatomy of the evolved algorithms against lnd's." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..500&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="shell">
+    <a class="wordmark" href="index.html">lnd<span class="x">×</span>GEPA</a>
+    <nav class="site-nav">
+      <a href="index.html">overview</a>
+      <a href="findings.html" aria-current="page">findings</a>
+      <a href="index.html#run">live run</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ================= MASTHEAD ================= -->
+  <div class="shell masthead">
+    <div class="eyebrow">
+      Findings<span class="sep">/</span>lnd × GEPA routing evolution<span class="sep">/</span>24 July 2026
+    </div>
+    <h1>What the evolved routers kept, dropped, and <em>invented</em></h1>
+    <p class="standfirst">
+      Nine experiments in, the shape of the result is clear. On a real mainnet
+      graph snapshot, LLM-evolved routers match lnd's success rate using
+      <strong>8.6× fewer HTLC attempts</strong> — and the structure they arrived at
+      is not a tuned version of lnd's. It is a different way of remembering what
+      the network told you.
+    </p>
+    <div class="byline">
+      <span>sources <b>simulation/lab/experiments</b></span>
+      <span>champions <b>hb1 · mx_c3</b></span>
+      <span>status <b>validated, exp-009 closing</b></span>
+    </div>
+
+    <ol class="toc">
+      <li><a href="#mainnet"><span class="n">01</span><span class="t">Validated on lnd's home turf</span></a></li>
+      <li><a href="#paradigm"><span class="n">02</span><span class="t">The paradigm is the lever, not the parameters</span></a></li>
+      <li><a href="#scoreboard"><span class="n">03</span><span class="t">Three tiers of held-out evidence</span></a></li>
+      <li><a href="#anatomy"><span class="n">04</span><span class="t">Anatomy: dropped, rediscovered, invented</span></a></li>
+      <li><a href="#process"><span class="n">05</span><span class="t">What the process taught us</span></a></li>
+      <li><a href="#timeline"><span class="n">06</span><span class="t">Timeline of experiments</span></a></li>
+    </ol>
+  </div>
+
+  <!-- ================= 01 · MAINNET ================= -->
+  <section id="mainnet">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">01</div>
+        <h2>Validated on lnd's home turf</h2>
+        <p class="sec-sub">
+          The closing experiment took the champions off synthetic graphs and put
+          them on a real one: a 12,161-node, 39,659-channel mainnet
+          <span class="mono">describegraph</span> snapshot.
+        </p>
+      </div>
+
+      <div class="prose">
+        <p>
+          Every earlier result came from generated topologies. That leaves an
+          obvious objection: the evolved routers were bred in a world that might
+          simply suit them. So the last run inverted the advantage. lnd's defaults
+          were tuned by years of contact with <em>exactly this graph</em>; the
+          evolved routers had never seen a real one. A hundred payments were sent
+          from the network's highest-degree node — 2,015 channels — across five
+          liquidity seeds under both bimodal and uniform hidden-balance regimes.
+        </p>
+      </div>
+
+      <figure>
+        <div class="fig-head">
+          <span class="fig-t">Attempts per payment on the mainnet snapshot</span>
+          <span class="fig-n">Fig. 1 · lower is better</span>
+        </div>
+        <div class="plot resp" id="fig-attempts"></div>
+        <figcaption>
+          Success rates on this graph are close together — lnd 0.790, the
+          hand-written seed 0.820, both evolved champions 0.810 — so nearly the
+          whole difference between them is <b>how much probing it takes to get
+          there</b>. lnd spends roughly twenty in-flight attempts per payment;
+          the evolved routers spend two.
+        </figcaption>
+      </figure>
+
+      <div class="tw wide">
+        <table class="data">
+          <caption>exp-009 · 100 payments, 100k–2M sat, up to 8 MPP parts</caption>
+          <thead>
+            <tr>
+              <th>router</th>
+              <th class="num">objective</th>
+              <th class="num">success</th>
+              <th class="num">attempts / payment</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>lnd production stack<span class="sub">Dijkstra + mission control, tuned for this graph</span></td>
+              <td class="num" data-l="objective">0.694</td><td class="num" data-l="success">0.790</td><td class="num" data-l="attempts / payment">19.8</td>
+            </tr>
+            <tr>
+              <td>hand-written seed<span class="sub">~300 lines, cheapest path + blacklist</span></td>
+              <td class="num" data-l="objective">0.762</td><td class="num" data-l="success">0.820</td><td class="num" data-l="attempts / payment">6.1</td>
+            </tr>
+            <tr>
+              <td>hb1<span class="sub">evolved, 872 lines</span></td>
+              <td class="num" data-l="objective">0.790</td><td class="num" data-l="success">0.810</td><td class="num" data-l="attempts / payment">2.3</td>
+            </tr>
+            <tr class="best">
+              <td>mx_c3<span class="sub">evolved, 1,525 lines</span></td>
+              <td class="num" data-l="objective">0.791</td><td class="num" data-l="success">0.810</td><td class="num" data-l="attempts / payment">2.3</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <p style="margin-top:1.6em">
+          Read the two columns together and the story sharpens. On synthetic
+          bimodal corpora lnd struggles to deliver at all, scoring 0.3–0.5 success;
+          on the real graph it is a competent router at 0.790. The success gap
+          <em>compresses</em> on lnd's home turf. The efficiency gap <em>widens</em>.
+        </p>
+        <p>
+          That is the opposite of what an overfitting story would predict, and it
+          points at the mechanism. A well-connected mainnet source has an enormous
+          number of plausible paths, which is exactly the setting where a router
+          that remembers what it has already disproved stops re-probing, and a
+          router that lets its memory fade keeps paying to relearn it.
+        </p>
+        <div class="note">
+          <h4>caveats, stated plainly</h4>
+          <p>
+            One snapshot, one unusually well-connected source, and no background
+            traffic — nobody else's payments move liquidity between our attempts.
+            The simulator's remaining fidelity gaps are tracked and unfixed. What
+            can be said is narrower than “these routers are better on mainnet”: on
+            this graph, under this sender model, every validation tier we have
+            points the same direction.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 02 · PARADIGM ================= -->
+  <section id="paradigm">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">02</div>
+        <h2>The paradigm is the lever, not the parameters</h2>
+        <p class="sec-sub">
+          The most useful result of the project is a negative one, and it arrived
+          early enough to redirect everything after it.
+        </p>
+      </div>
+
+      <div class="prose">
+        <p>
+          The first real run treated lnd's pathfinding as a set of knobs and let
+          the optimizer turn them: which probability estimator to use (apriori or
+          bimodal), what a failed attempt should virtually cost, the floor on
+          acceptable route probability, the estimator's own priors and half-lives.
+          Four hundred evaluations, thirty-three iterations, sixteen distinct
+          proposals.
+        </p>
+        <p>
+          <strong>Nothing beat the defaults.</strong> The best candidate on the
+          validation aggregate <em>was</em> the lnd defaults, at 0.3647 — and on the
+          sealed test set, 0.3430, which is to say the baseline. Two bimodal
+          specialists survived on the Pareto front by winning individual examples,
+          and most bimodal variants scored far below the seed. Within this
+          paradigm's parameter space, the shipped defaults are locally robust.
+        </p>
+        <p>
+          What made that finding load-bearing rather than disappointing was a
+          control experiment running beside it. A deliberately naive router —
+          roughly 300 lines of cheapest-path Dijkstra with a per-payment failure
+          blacklist, no probability model at all — was scored against lnd's full
+          production stack on the same corpus. It won or tied
+          <strong>16 of 16</strong> examples, at 1.9× the success rate and 2.3×
+          fewer attempts. On corpus v2 the composite objective came out
+          <strong>0.547 against lnd's 0.393</strong>, a 39% margin.
+        </p>
+        <div class="note">
+          <h4>the conclusion that set the agenda</h4>
+          <p>
+            A tuned or untuned lnd loses to a paradigm-different toy. The
+            bottleneck is the algorithm, not its knobs — so stop searching the
+            parameter space and start searching the space of algorithms.
+          </p>
+        </div>
+        <p>
+          Which is what the rest of the project did. The evolvable unit became a
+          whole Go file behind a paradigm-free interface: gossip view, local
+          balances and per-attempt feedback in, a route out. Nothing in that
+          contract mentions Dijkstra, mission control, or probability estimators.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 03 · SCOREBOARD ================= -->
+  <section id="scoreboard">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">03</div>
+        <h2>Three tiers of held-out evidence</h2>
+        <p class="sec-sub">
+          A sealed synthetic test set, a corpus of topologies the winners never
+          trained on, and the mainnet snapshot. The ranking does not change.
+        </p>
+      </div>
+
+      <figure>
+        <div class="fig-head">
+          <span class="fig-t">Composite objective, by router and tier</span>
+          <span class="fig-n">Fig. 2 · higher is better</span>
+        </div>
+        <div class="plot resp" id="fig-champions"></div>
+        <div class="legend">
+          <span class="item"><i style="background:#a83f22"></i> evolved by GEPA</span>
+          <span class="item"><i style="background:#8a8175"></i> baseline (lnd, or hand-written)</span>
+        </div>
+        <figcaption>
+          Objective is <span class="mono">success − 0.01·min(extra attempts, 15) −
+          0.00002·min(fee ppm, 5000)</span>, so a router is rewarded for delivering
+          money and penalised, mildly, for burning attempts and fees to do it. The
+          absolute levels differ wildly between tiers because the tiers differ in
+          difficulty; what matters is that the order within each is the same.
+        </figcaption>
+        <details class="tableview">
+          <summary>Table view, with the synthetic combined average</summary>
+          <div>
+            <div class="tw">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th>router</th>
+                    <th class="num">mainnet</th>
+                    <th class="num">hard sealed test</th>
+                    <th class="num">out-of-distribution</th>
+                    <th class="num">synthetic combined</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>lnd production stack</td>
+                    <td class="num" data-l="mainnet">0.694</td><td class="num" data-l="hard sealed test">0.309</td>
+                    <td class="num" data-l="out-of-distribution">0.357</td><td class="num" data-l="synthetic combined">0.333</td>
+                  </tr>
+                  <tr>
+                    <td>hand-written seed</td>
+                    <td class="num" data-l="mainnet">0.762</td><td class="num" data-l="hard sealed test">0.530</td>
+                    <td class="num" data-l="out-of-distribution">0.487</td><td class="num" data-l="synthetic combined">0.509</td>
+                  </tr>
+                  <tr>
+                    <td>hb1 <span class="sub">hard-regime specialist</span></td>
+                    <td class="num" data-l="mainnet">0.790</td><td class="num" data-l="hard sealed test">0.586</td>
+                    <td class="num" data-l="out-of-distribution">0.545</td><td class="num" data-l="synthetic combined">0.565</td>
+                  </tr>
+                  <tr class="best">
+                    <td>mx_c3 <span class="sub">generalist</span></td>
+                    <td class="num" data-l="mainnet">0.791</td><td class="num" data-l="hard sealed test">0.583</td>
+                    <td class="num" data-l="out-of-distribution">0.581</td><td class="num" data-l="synthetic combined">0.582</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+      </figure>
+
+      <div class="prose">
+        <p>
+          Two champions of record came out of this rather than one.
+          <strong>hb1</strong> (872 lines) is the hard-regime specialist: it holds
+          the best score on the sealed bimodal test at 0.586.
+          <strong>mx_c3</strong> (1,525 lines) evolved from it on a mixed corpus and
+          is the better generalist — a statistical tie on the hard test (0.583) and
+          a clear win out of distribution (0.581 against 0.545), for the best
+          combined average of anything tested. A third frontier member, hb2, is
+          strictly dominated by mx_c3 and has been retired.
+        </p>
+        <p>
+          Three properties matter more to us than the margins:
+        </p>
+        <p>
+          <strong>Reproducible.</strong> The hard test was rescored five times for
+          both lnd and hb1. Standard deviation 0.00000 — identical to four decimals
+          every run. There is no wall-clock nondeterminism in these numbers.
+        </p>
+        <p>
+          <strong>Exploit-clean.</strong> The simulator seals hidden liquidity behind
+          a view interface, and an adversarial audit of that seal (§05) found and
+          closed a real escape. Both champions were validated after the seal, with
+          zero uses of any exploit path.
+        </p>
+        <p>
+          <strong>Held out, not fitted.</strong> The sealed test set is untouched
+          until a champion is declared; the out-of-distribution corpus adds
+          Barabási–Albert scale-free graphs of 800 and 1,500 nodes with log-normal
+          capacities that no champion trained on; the mainnet graph is a different
+          kind of object altogether.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 04 · ANATOMY ================= -->
+  <section id="anatomy">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">04</div>
+        <h2>Anatomy: dropped, rediscovered, invented</h2>
+        <p class="sec-sub">
+          Reading the champions' source against lnd's is where the research value
+          is. Three things happened, and only one of them is a tuning story.
+        </p>
+      </div>
+
+      <div class="ledger">
+        <div class="ledger-row">
+          <div class="verb"><b>Dropped</b>entirely</div>
+          <div class="ledger-cell now">
+            <h4>lnd today</h4>
+            <p>
+              <strong>Mission control</strong> keeps a global history of node-pair
+              outcomes and feeds two probability estimators, with node-level
+              extrapolation dragging a whole node's channels down when one of them
+              fails.
+            </p>
+            <p>
+              <strong>Time-decayed penalties.</strong> A failure heals over
+              <span class="mono">PenaltyHalfLife</span> — one hour by default — and
+              the bimodal estimator's liquidity window relaxes back to full
+              capacity over seven days.
+            </p>
+          </div>
+          <div class="ledger-cell next">
+            <h4>evolved champions</h4>
+            <p>
+              Neither exists. Grep both champion files for
+              <span class="mono">MissionControl</span>, for any estimator, for
+              <span class="mono">time.Now</span>, for decay: <strong>zero
+              hits</strong> in 872 and 1,525 lines respectively.
+            </p>
+            <p>
+              The routers carry no clock at all. Knowledge is never forgotten
+              because it was old — only revised because new evidence contradicted
+              it.
+            </p>
+          </div>
+        </div>
+
+        <div class="ledger-row">
+          <div class="verb"><b>Rediscovered</b>independently</div>
+          <div class="ledger-cell now">
+            <h4>lnd today</h4>
+            <p>
+              The <strong>bimodal estimator</strong> encodes an analytically derived
+              hypothesis: channel funds tend to sit at one end, so balance density
+              looks like <span class="mono">e^(−x/s) + e^((x−c)/s)</span>. It is
+              opt-in, and it took a paper to justify.
+            </p>
+          </div>
+          <div class="ledger-cell next">
+            <h4>evolved champions</h4>
+            <p>
+              The same hypothesis, arrived at from failure traces alone, written as
+              an explicit function of amount over capacity: a decaying-exponential
+              low mode plus a logistic cliff near capacity, clamped to
+              <span class="mono">[0.005, 0.985]</span>.
+            </p>
+            <p>
+              Nobody told the reflection LM that Lightning liquidity is bimodal. It
+              inferred the shape from which amounts died where, and hard-coded its
+              own version. See Fig. 4.
+            </p>
+          </div>
+        </div>
+
+        <div class="ledger-row">
+          <div class="verb"><b>Invented</b>the structural break</div>
+          <div class="ledger-cell now">
+            <h4>lnd today</h4>
+            <p>
+              A failure becomes a <strong>penalty</strong> on a node pair: a scalar
+              that makes that hop look expensive, decaying back toward neutral on a
+              clock. Confidence is a function of <em>age</em>.
+            </p>
+          </div>
+          <div class="ledger-cell next">
+            <h4>evolved champions</h4>
+            <p>
+              A failure becomes a <strong>bound on liquidity</strong>. Each directed
+              channel carries an interval — <span class="mono">lowerOK</span>, the
+              largest amount proven to pass, and
+              <span class="mono">upperFail</span>, the smallest proven to fail —
+              plus a confidence-weighted point estimate between them.
+            </p>
+            <p>
+              Below <span class="mono">lowerOK</span> probability is ≈0.995; at or
+              above <span class="mono">upperFail</span> it is 0; in between the
+              prior blends with the estimate. Confidence comes from success and
+              failure <strong>counts</strong>, never from elapsed time. It is closer
+              to Pickhardt-style liquidity bounds than to lnd's pair-penalty model.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <figure>
+        <div class="fig-head">
+          <span class="fig-t">Two ways to remember a failed attempt</span>
+          <span class="fig-n">Fig. 3 · schematic</span>
+        </div>
+        <div class="schema">
+          <svg viewBox="0 0 1000 468" role="img" aria-label="Above: lnd stores a pair penalty that decays by half every hour of wall-clock time. Below: the evolved routers store a liquidity interval bounded by the largest amount proven to pass and the smallest proven to fail; more attempts narrow the interval.">
+
+            <!-- ===== PANEL A — lnd's decaying penalty ===== -->
+            <text class="s-title" x="0" y="20">lnd today — a penalty on the node pair, fading on a clock</text>
+            <text class="s-body" x="0" y="41">One scalar per directed pair. It heals back toward neutral over a one-hour half-life.</text>
+
+            <!-- axes -->
+            <line x1="40" y1="152" x2="452" y2="152" stroke="#b3ab97" stroke-width="1"/>
+            <line x1="40" y1="66" x2="40" y2="152" stroke="#b3ab97" stroke-width="1"/>
+            <!-- gridline at half -->
+            <line x1="40" y1="109" x2="452" y2="109" stroke="#e2ddd0" stroke-width="1"/>
+
+            <!-- decay curve -->
+            <polyline fill="none" stroke="#8a8175" stroke-width="2" stroke-linejoin="round"
+              points="40,66 73,79 107,90 140,99 173,109 207,115 240,120 273,125 307,129 340,132 373,135 407,137 440,139"/>
+
+            <!-- t=0 marker -->
+            <circle cx="40" cy="66" r="4" fill="#8a8175" stroke="#fbfaf6" stroke-width="2"/>
+            <text class="s-label-strong" x="52" y="63">attempt fails here</text>
+            <!-- half-life guide -->
+            <line x1="173" y1="109" x2="173" y2="152" stroke="#cbc4b2" stroke-width="1"/>
+            <circle cx="173" cy="109" r="3.5" fill="#8a8175" stroke="#fbfaf6" stroke-width="2"/>
+            <text class="s-label" x="183" y="105">half forgotten</text>
+
+            <text class="s-num" x="40" y="168" text-anchor="middle">0</text>
+            <text class="s-num" x="173" y="168" text-anchor="middle">1 h</text>
+            <text class="s-num" x="307" y="168" text-anchor="middle">2 h</text>
+            <text class="s-num" x="440" y="168" text-anchor="middle">3 h</text>
+            <text class="s-label" x="246" y="186" text-anchor="middle">elapsed wall-clock time</text>
+            <text class="s-label" x="14" y="109" text-anchor="middle" transform="rotate(-90 14 109)">penalty</text>
+
+            <text class="s-body" x="520" y="80">The record is “this pair was bad, recently”. Because the</text>
+            <text class="s-body" x="520" y="100">memory is a function of wall-clock time, an hour later it is</text>
+            <text class="s-body" x="520" y="120">half gone — whether or not anything on that channel</text>
+            <text class="s-body" x="520" y="140">actually changed. Amount information survives only as the</text>
+            <text class="s-body" x="520" y="160">last failed amount, not as a bound on what could work.</text>
+
+            <line x1="0" y1="212" x2="1000" y2="212" stroke="#cbc4b2" stroke-width="1"/>
+
+            <!-- ===== PANEL B — evolved liquidity interval ===== -->
+            <text class="s-title" x="0" y="242">evolved — an interval on this channel's liquidity, narrowed by evidence</text>
+            <text class="s-body" x="0" y="263">Two bounds per directed channel, revised only when an attempt actually contradicts them.</text>
+
+            <!-- row 1 -->
+            <text class="s-label-strong" x="140" y="303" text-anchor="end">after 1 attempt</text>
+            <text class="s-num" x="140" y="317" text-anchor="end">1 fail at 74%</text>
+            <rect x="150" y="292" width="88" height="18" fill="#2f6ea8" opacity="0.9"/>
+            <rect x="242" y="292" width="461" height="18" fill="#ece8de"/>
+            <rect x="707" y="292" width="193" height="18" fill="#a83f22" opacity="0.9"/>
+            <!-- bound ticks + labels -->
+            <line x1="240" y1="286" x2="240" y2="316" stroke="#1c1a16" stroke-width="1"/>
+            <line x1="705" y1="286" x2="705" y2="316" stroke="#1c1a16" stroke-width="1"/>
+            <text class="s-label-strong" x="240" y="280" text-anchor="middle">lowerOK</text>
+            <text class="s-label-strong" x="705" y="280" text-anchor="middle">upperFail</text>
+
+            <!-- row 2 -->
+            <text class="s-label-strong" x="140" y="381" text-anchor="end">after 4 attempts</text>
+            <text class="s-num" x="140" y="395" text-anchor="end">2 pass, 2 fail</text>
+            <rect x="150" y="370" width="283" height="18" fill="#2f6ea8" opacity="0.9"/>
+            <rect x="437" y="370" width="101" height="18" fill="#ece8de"/>
+            <rect x="542" y="370" width="358" height="18" fill="#a83f22" opacity="0.9"/>
+            <line x1="435" y1="364" x2="435" y2="394" stroke="#1c1a16" stroke-width="1"/>
+            <line x1="540" y1="364" x2="540" y2="394" stroke="#1c1a16" stroke-width="1"/>
+            <!-- narrowing bracket -->
+            <path d="M 435 356 H 540" fill="none" stroke="#1c1a16" stroke-width="1"/>
+            <path d="M 435 356 v 6 M 540 356 v 6" fill="none" stroke="#1c1a16" stroke-width="1"/>
+            <text class="s-label-strong" x="487" y="350" text-anchor="middle">what is still unknown</text>
+
+            <!-- capacity axis -->
+            <line x1="150" y1="410" x2="900" y2="410" stroke="#cbc4b2" stroke-width="1"/>
+            <text class="s-num" x="150" y="424" text-anchor="start">0</text>
+            <text class="s-num" x="900" y="424" text-anchor="end">channel capacity</text>
+            <text class="s-label" x="525" y="424" text-anchor="middle">amount we might try to send  →</text>
+
+            <!-- legend -->
+            <rect x="150" y="443" width="10" height="10" fill="#2f6ea8" opacity="0.9"/>
+            <text class="s-label" x="166" y="452">proven to pass · P ≈ 0.995</text>
+            <rect x="360" y="443" width="10" height="10" fill="#ece8de"/>
+            <text class="s-label" x="376" y="452">unknown · prior blended with the point estimate</text>
+            <rect x="700" y="443" width="10" height="10" fill="#a83f22" opacity="0.9"/>
+            <text class="s-label" x="716" y="452">proven to fail · P = 0</text>
+          </svg>
+        </div>
+        <div class="scrollhint">scroll the diagram sideways →</div>
+        <figcaption>
+          The structural break in one picture. lnd stores <b>how bad a hop is right
+          now</b> and lets that fade; the evolved routers store <b>what has been
+          proven about this channel</b> and only revise it on contradiction. More
+          attempts narrow the interval instead of deepening a penalty — which is
+          also where the attempt reduction comes from, since a router that knows an
+          amount is impossible never retries it, and mx_c3 additionally retries at a
+          <em>lower</em> amount rather than blacklisting the hop outright.
+        </figcaption>
+      </figure>
+
+      <figure>
+        <div class="fig-head">
+          <span class="fig-t">The rediscovered bimodal prior</span>
+          <span class="fig-n">Fig. 4 · the champions' own formula, plotted</span>
+        </div>
+        <div class="plot" id="fig-prior"></div>
+        <div class="scrollhint">scroll the chart sideways →</div>
+        <div class="legend">
+          <span class="item"><i class="line" style="background:#a83f22"></i> the prior, exactly as the champions compute it</span>
+          <span class="item"><i class="dash"></i> the exponential low-mode term on its own</span>
+        </div>
+        <figcaption>
+          With no observations for a channel, this curve is the champions' entire
+          belief about it: near-certainty for dust, a fast collapse to a flat middle
+          around 0.53, then a cliff at 92% of capacity. It is the bimodal hypothesis
+          — <b>funds sit at one end</b> — restated as a cheap closed-form function,
+          inferred from which amounts died where rather than derived from a balance
+          density model. The result is clamped to <span class="mono">[0.005,
+          0.985]</span> defensively; with these constants neither bound is ever
+          reached.
+        </figcaption>
+      </figure>
+
+      <div class="prose">
+        <p>
+          The evolved cost function is a risk-adjusted Dijkstra over these
+          probabilities rather than lnd's <span class="mono">fee +
+          attempt_cost / P(route)</span>, and mx_c3's retry policy is adaptive:
+          when an amount fails, it tries a smaller one along the same corridor
+          instead of writing the corridor off. Both are downstream of the same
+          decision to represent knowledge as bounds.
+        </p>
+
+        <div class="sidenote">
+          <h4>the honest reading of “no time logic”</h4>
+          <p>
+            lnd's decay exists for a real reason: on a live network other people's
+            payments move liquidity while you are idle, so stale knowledge
+            <em>should</em> fade. Our simulator has no background traffic and no
+            virtual clock — hidden balances change only when our own payments move
+            them. In that world hard evidence bounds are strictly optimal and decay
+            can only destroy true information, so evolution was right about the
+            environment it was given, and that is not the same as being right about
+            mainnet.
+          </p>
+          <p>
+            What plausibly transfers is the within-payment case: over seconds and
+            minutes, interval beliefs look better than a fading penalty, and lnd's
+            one-hour half-life mostly matters <em>across</em> payments. The designed
+            follow-up (exp-008) adds background traffic and a virtual clock and asks
+            whether time-awareness re-evolves. Every outcome there is interesting: a
+            re-emerging decay would validate lnd's rationale with evolved constants,
+            while interval-widening-with-elapsed-time would be a concrete design
+            proposal for lnd.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 05 · PROCESS ================= -->
+  <section id="process">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">05</div>
+        <h2>What the process taught us</h2>
+        <p class="sec-sub">
+          Findings about running this kind of search, which cost as much to learn
+          as the routing results did.
+        </p>
+      </div>
+
+      <div class="prose">
+        <h3>The sandbox had a hole, and the audit found it first</h3>
+        <p>
+          An adversarial review of the simulator turned up one critical finding: the
+          gossip view's <span class="mono">GraphSession</span> delegated straight to
+          the concrete simulator graph, handing the callback a
+          <span class="mono">*SimGraph</span>. A candidate could type-assert it back
+          and read every hidden balance — or call
+          <span class="mono">AssignLiquidity</span> and rewrite ground truth. A
+          perfect score, using no banned identifier. The reviewer demonstrated the
+          escape end to end.
+        </p>
+        <p>
+          It was sealed the same day: the session now passes only the sealed view,
+          with a regression test asserting neither the view nor its graph can be
+          asserted back. Then every in-flight candidate was audited for the escape
+          path. <strong>Zero hits.</strong> The optimizer had not found the hole, so
+          no result was corrupted — but the margin was days, not months, and the
+          lesson is that a reward-hackable evaluator is the default state of an
+          evaluator until someone attacks it.
+        </p>
+
+        <h3>Code evolution hits a complexity wall around 800 lines</h3>
+        <p>
+          Past roughly 800 lines, LLM edits to a candidate frequently stop
+          compiling. The breakthrough run's iterations after its first accept
+          largely failed to build, and the follow-up run's later frontier members
+          grew from 1,306 to 1,525 lines without improving generalization. Growth
+          and editability trade off against each other, and nothing in the loop
+          currently pushes back — a simplification instruction in the reflection
+          prompt, or a size term in the objective, is the obvious fix.
+        </p>
+
+        <h3>Seeding from a giant champion works, slowly</h3>
+        <p>
+          Seeding the follow-up run directly from the 872-line champion made every
+          reflection prompt enormous. Twelve proposals in a row were rejected; each
+          reflection call ran for minutes and flirted with the timeout that had
+          already killed one run. The interim verdict was “diminishing returns” —
+          and that verdict was wrong. It just took about 300 evaluations to cash
+          out, at which point the run produced the best generalist we have.
+        </p>
+        <p>
+          The cheaper version of the same idea is what the current run tests: seed
+          from the <em>small</em> original router, so reflection stays fast, but
+          carry the discovered structure — bimodal prior, per-edge liquidity bounds
+          — in the background prompt. Same knowledge, a fraction of the prompt.
+        </p>
+
+        <h3>Two failure modes worth designing against</h3>
+        <p>
+          A pathological candidate spun in an infinite loop, blew the subprocess
+          timeout, and the exception propagated far enough to end a run at 135 of
+          its 400 evaluations. The harness now scores a hung candidate zero instead
+          of crashing. The same fragility still exists one layer up: a slow or
+          failed reflection call should degrade to “no proposal this round” rather
+          than terminate the search.
+        </p>
+        <p>
+          And a scoring caution that applies to anything on the
+          <a class="link" href="index.html#run">live run panel</a>: GEPA's own
+          per-minibatch best score runs optimistically high — 0.97 and 0.99 in the
+          last two runs — because it is measured on the training minibatches it
+          selected. Champions are decided by separate held-out runs, never by that
+          number.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 06 · TIMELINE ================= -->
+  <section id="timeline">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">06</div>
+        <h2>Timeline of experiments</h2>
+        <p class="sec-sub">
+          Nine writeups, one day of wall-clock time, in the order they happened.
+          Full detail lives in <span class="mono">simulation/lab/experiments/</span>.
+        </p>
+      </div>
+
+      <div class="timeline">
+        <div class="tl-item">
+          <div class="tl-id">exp-001</div>
+          <div class="tl-b">
+            <div class="t">Parameter smoke run</div>
+            <div class="d">
+              Sixty evaluations bought seven proposals and accepted none. Diagnosed
+              two harness bugs rather than an algorithmic result: the eval budget
+              was starved, and unbounded attempt penalties drove per-example scores
+              to −2, drowning the success signal. Penalties now saturate at −0.25.
+            </div>
+          </div>
+          <div class="tl-tag">negative · fixed</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-002</div>
+          <div class="tl-b">
+            <div class="t">Full parameter run — the defaults survive</div>
+            <div class="d">
+              400 evaluations, 33 iterations, 16 proposals over estimator choice,
+              attempt cost and minimum probability. Best on validation: the lnd
+              defaults, 0.3647; sealed test 0.3430. No knob change beat them.
+            </div>
+          </div>
+          <div class="tl-tag">the pivot</div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-id">exp-003</div>
+          <div class="tl-b">
+            <div class="t">A naive router beats the production stack</div>
+            <div class="d">
+              The ~300-line seed wins or ties 16 of 16 examples against full lnd
+              pathfinding: 1.9× the success rate at 2.3× fewer attempts, and 0.547
+              against 0.393 on the corpus-v2 objective. Near parity on scale-free
+              graphs, far ahead on bimodal small-channel ones.
+            </div>
+          </div>
+          <div class="tl-tag">paradigm &gt; knobs</div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-id">exp-004</div>
+          <div class="tl-b">
+            <div class="t">Code-mode evolution opens</div>
+            <div class="d">
+              GEPA starts rewriting whole algorithms. Four iterations in, a
+              candidate accepts a 967-line rewrite that invents per-channel
+              liquidity knowledge — lower and upper bounds with a confidence score —
+              and cuts attempts per payment from 26 to 9.
+            </div>
+          </div>
+          <div class="tl-tag">first structure</div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-id">exp-005</div>
+          <div class="tl-b">
+            <div class="t">Adversarial audit of the simulator</div>
+            <div class="d">
+              BOLT forwarding math checked out; the sandbox did not. One critical
+              escape found and sealed the same day, with zero candidates having used
+              it. Three contract-affecting fidelity fixes batched for later, including
+              a deterministic clock for mission control.
+            </div>
+          </div>
+          <div class="tl-tag">integrity</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-006</div>
+          <div class="tl-b">
+            <div class="t">Breakthrough — hb1 beats lnd and the seed</div>
+            <div class="d">
+              An 872-line evolved router wins the sealed hard test (0.586) and
+              generalizes out of distribution (0.545), at roughly 9 attempts per
+              payment against lnd's 50. It got there from failure traces alone:
+              bimodal prior, per-edge liquidity bounds, risk-adjusted Dijkstra.
+              Reruns are bit-identical; no exploit.
+            </div>
+          </div>
+          <div class="tl-tag">champion · hb1</div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-id">exp-007</div>
+          <div class="tl-b">
+            <div class="t">Continuing from the champion — mx_c3</div>
+            <div class="d">
+              Seeded from hb1 on a mixed corpus. Twelve straight rejections, then
+              four Pareto siblings; the last, mx_c3 at 1,525 lines, ties hb1 on the
+              hard test, wins out of distribution and takes the best combined
+              average. It adds an adaptive retry-at-lower-amount policy. hb2 is
+              superseded.
+            </div>
+          </div>
+          <div class="tl-tag">champion · mx_c3</div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-id">exp-008</div>
+          <div class="tl-b">
+            <div class="t">Background traffic and a virtual clock</div>
+            <div class="d">
+              Designed, not yet run. Adds exogenous payments and liquidity drift so
+              that hidden balances move when we are idle, then asks the direct
+              question: does time-awareness re-evolve once the environment actually
+              drifts?
+            </div>
+          </div>
+          <div class="tl-tag">designed</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-009</div>
+          <div class="tl-b">
+            <div class="t">Mainnet-graph validation</div>
+            <div class="d">
+              12,161 nodes, 39,659 channels, 100 payments. The champions match
+              lnd's success rate at 8.6× fewer attempts — 2.3 against 19.8 — on the
+              graph lnd's defaults were tuned for and the champions had never seen.
+              Objective 0.791 against 0.694.
+            </div>
+          </div>
+          <div class="tl-tag">closing validation</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="shell">
+    <div class="readnext">
+      <div class="k">read next</div>
+      <a class="big" href="index.html">Overview: the method, the simulator, and the run in flight</a>
+      <p>
+        How a candidate is compiled and scored, what the corpus looks like, and
+        live telemetry from <span class="mono">code_gen2</span> — the run testing
+        whether the discovered structure can be handed to a small seed as prompt
+        knowledge instead of code.
+      </p>
+    </div>
+  </div>
+
+</main>
+
+<div class="shell">
+  <footer class="site-footer">
+    <span>lnd × GEPA — Lightning routing evolution</span>
+    <span><a href="index.html">overview</a> · <a href="index.html#run">live run</a></span>
+  </footer>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

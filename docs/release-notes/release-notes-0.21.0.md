@@ -113,6 +113,10 @@
   channel arbitrator suppresses the duplicate event that would otherwise be
   emitted from `MarkChannelClosed` at the final confirmation depth.
 
+* [Fixed coop close fee baseline for channels with auxiliary close outputs](https://github.com/lightningnetwork/lnd/pull/10969)
+  by including extra outputs in initial fee estimation, preventing underpriced
+  taproot/custom channel cooperative closes from failing mempool acceptance.
+
 # New Features
 
 - [Basic Support](https://github.com/lightningnetwork/lnd/pull/9868) for onion

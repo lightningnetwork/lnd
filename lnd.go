@@ -141,6 +141,22 @@ var errStreamIsolationWithProxySkip = errors.New(
 	"while stream isolation is enabled, the TOR proxy may not be skipped",
 )
 
+// ErrShutdownRequested is returned from Main when lnd shuts down due to an
+// internal error condition such as a backend health check failure. This
+// ensures the process exits with a non-zero code.
+var ErrShutdownRequested = errors.New("lnd was shut down due to an " +
+	"internal request (e.g. chain backend failure)")
+
+// handleShutdown returns ErrShutdownRequested if the shutdown was triggered
+// internally (e.g. by a health check failure), or nil if it was triggered by
+// an external OS signal.
+func handleShutdown(interceptor signal.Interceptor) error {
+	if interceptor.ShutdownWasRequested() {
+		return ErrShutdownRequested
+	}
+	return nil
+}
+
 // Main is the true entry point for lnd. It accepts a fully populated and
 // validated main configuration struct and an optional listener config struct.
 // This function starts all main system components then blocks until a signal
@@ -771,7 +787,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		return mkErr("unable to start server", err)
 
 	case <-interceptor.ShutdownChannel():
-		return nil
+		return handleShutdown(interceptor)
 	}
 
 	// We transition the server state to Active, as the server is up.
@@ -796,7 +812,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// Wait for shutdown signal from either a graceful server stop or from
 	// the interrupt handler.
 	<-interceptor.ShutdownChannel()
-	return nil
+	return handleShutdown(interceptor)
 }
 
 // bakeMacaroon creates a new macaroon with newest version and the given

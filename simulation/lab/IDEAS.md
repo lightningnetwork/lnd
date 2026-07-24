@@ -45,6 +45,32 @@ numbers in lnd once a scoreable simulator exists for them:
   (needs a gossip sim) — candidates for future simulators following the
   routesim recipe.
 
+## The zero-time-logic question (roasbeef, 2026-07-24) → exp-008 design
+
+The evolved champions contain zero time-based logic, yet lnd's decay
+exists for a real reason: on a live network, *other people's payments*
+move liquidity while you aren't routing, so stale knowledge should fade.
+Honest read: the champions' rejection of time is **partly a simulator
+artifact** — our sim has no background traffic and no virtual clock, so
+hidden balances only change when OUR payments move them. In that world,
+hard evidence bounds are strictly optimal and decay only destroys true
+information; evolution correctly exploited the environment as given.
+
+What still transfers: within a single payment/session (seconds-minutes),
+decay is likely counterproductive and interval beliefs win — lnd's 1h
+half-life mostly matters *across* payments, and that's where the sim is
+least faithful.
+
+**Designed experiment (exp-008), folds into batch-2 (task #13):** add a
+background-traffic model (exogenous seeded payments between our
+scenarios, or liquidity drift as a function of virtual time) + the
+virtual clock. Then re-run code evolution and ask: *does time-awareness
+re-evolve once the environment actually drifts?* Outcomes all
+interesting: (a) decay re-emerges → validates lnd's rationale with
+evolved constants; (b) something better emerges, e.g. interval-widening
+with elapsed time rather than penalty-fading — a concrete design
+proposal for lnd; (c) intervals still win → decay was overweighted.
+
 ## Learnings from the overnight runs (2026-07-24)
 - **Giant-seed reflection is slow and fragile.** Seeding code_mix1 from
   the 872-line hb1 champion makes every reflection prompt huge; codex

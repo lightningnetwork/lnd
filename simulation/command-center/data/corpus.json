@@ -1,0 +1,85 @@
+{
+  "meta": {
+    "files": 36,
+    "scenarios": 295,
+    "splits": {
+      "train": 20,
+      "val": 8,
+      "test": 8
+    }
+  },
+  "topology": [
+    {
+      "label": "smallworld",
+      "value": 18
+    },
+    {
+      "label": "grid",
+      "value": 10
+    },
+    {
+      "label": "hubspoke",
+      "value": 8
+    }
+  ],
+  "liquidity": [
+    {
+      "label": "bimodal",
+      "value": 22
+    },
+    {
+      "label": "uniform",
+      "value": 14
+    }
+  ],
+  "nodes": [
+    {
+      "label": "100",
+      "value": 10
+    },
+    {
+      "label": "150",
+      "value": 8
+    },
+    {
+      "label": "200",
+      "value": 8
+    },
+    {
+      "label": "500",
+      "value": 10
+    }
+  ],
+  "max_parts": [
+    {
+      "label": "1",
+      "value": 95
+    },
+    {
+      "label": "4",
+      "value": 100
+    },
+    {
+      "label": "16",
+      "value": 100
+    }
+  ],
+  "amount": [
+    {
+      "label": "< 0.5M",
+      "value": 67
+    },
+    {
+      "label": "0.5-2M",
+      "value": 102
+    },
+    {
+      "label": "2-5M",
+      "value": 78
+    },
+    {
+      "label": "5-10M",
+      "value": 48
+    }
+  ]
+}

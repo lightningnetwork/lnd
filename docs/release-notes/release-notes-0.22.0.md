@@ -136,6 +136,10 @@
 
 ## Code Health
 
+* [Limited the Docker-backed Postgres test fixtures to `test_db_postgres`
+  builds](https://github.com/lightningnetwork/lnd/pull/10792), keeping
+  test-only Docker dependencies out of normal `sqldb` builds.
+
 ## Tooling and Documentation
 
 * [`dev.Dockerfile` now uses](https://github.com/lightningnetwork/lnd/pull/10903)

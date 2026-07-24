@@ -22,6 +22,15 @@
 
 # Bug Fixes
 
+* [Fixed incorrect onion error](https://github.com/lightningnetwork/lnd/pull/6603)
+  returned when forwarding an HTLC to an offline peer. LND was returning
+  `unknown_next_peer` (which carries the permanent failure bit), causing
+  senders to permanently remove the channel from their routing graph and
+  lose routing revenue. The correct error per BOLT-4 is
+  `temporary_channel_failure` with a `channel_update` reflecting the
+  disabled channel, allowing senders to retry via a different path while
+  keeping the channel available for future routing once the peer reconnects.
+
 * Bitcoind outbound peer health checks [now use](https://github.com/lightningnetwork/lnd/pull/10686)
   `getnetworkinfo.connections_out` instead of `getpeerinfo`. The same PR also
   [clarifies](https://github.com/lightningnetwork/lnd/issues/10568) the ZMQ

@@ -2672,6 +2672,25 @@ func (s *Switch) failMailboxUpdate(outgoingScid,
 	return lnwire.NewTemporaryChannelFailure(update)
 }
 
+// temporaryChannelFailure constructs a temporary_channel_failure for the given
+// outgoing SCID. It attempts to include the latest channel update so the
+// sender can immediately update their routing graph. If no update is
+// available it falls back to FailTemporaryNodeFailure.
+func (s *Switch) temporaryChannelFailure(
+	scid lnwire.ShortChannelID) lnwire.FailureMessage {
+
+	update := s.failAliasUpdate(scid, false)
+	if update == nil {
+		var err error
+		update, err = s.cfg.FetchLastChannelUpdate(scid)
+		if err != nil || update == nil {
+			return &lnwire.FailTemporaryNodeFailure{}
+		}
+	}
+
+	return lnwire.NewTemporaryChannelFailure(update)
+}
+
 // failAliasUpdate prepares a ChannelUpdate for a failed incoming or outgoing
 // HTLC on a channel where the option-scid-alias feature bit was negotiated. If
 // the associated channel is not one of these, this function will return nil
@@ -2887,8 +2906,9 @@ func (s *Switch) handlePacketAdd(packet *htlcPacket,
 		log.Debugf("unable to find link with "+
 			"destination %v", packet.outgoingChanID)
 
-		// If packet was forwarded from another channel link than we
-		// should notify this link that some error occurred.
+		// The link was not found in the forwarding index — it has been
+		// removed (e.g. channel closed). Signal to the sender that the
+		// next hop is unknown.
 		linkError := NewLinkError(
 			&lnwire.FailUnknownNextPeer{},
 		)
@@ -2910,11 +2930,12 @@ func (s *Switch) handlePacketAdd(packet *htlcPacket,
 	for _, link := range interfaceLinks {
 		var failure *LinkError
 
-		// We'll skip any links that aren't yet eligible for
-		// forwarding.
+		// We'll skip any links that aren't yet eligible for forwarding.
+		// Use temporary_channel_failure with latest channel update so the
+		// sender can update their routing graph.
 		if !link.EligibleToForward() {
 			failure = NewDetailedLinkError(
-				&lnwire.FailUnknownNextPeer{},
+				s.temporaryChannelFailure(link.ShortChanID()),
 				OutgoingFailureLinkNotEligible,
 			)
 		} else {

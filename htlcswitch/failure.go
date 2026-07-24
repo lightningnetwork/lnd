@@ -3,6 +3,7 @@ package htlcswitch
 import (
 	"bytes"
 	"fmt"
+	"strings"
 
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -92,6 +93,12 @@ type ForwardingError struct {
 	// be nil in the case where we fail to decode failure message sent by
 	// a peer.
 	msg lnwire.FailureMessage
+
+	// HoldTimes is an array of hold times (in 100ms units) as reported from
+	// the nodes of the route. Multiply by 100 to get milliseconds. The
+	// first element corresponds to the first node after the sender node,
+	// with greater indices indicating nodes further down the route.
+	HoldTimes []uint32
 }
 
 // WireMessage extracts a valid wire failure message from an internal
@@ -116,11 +123,12 @@ func (f *ForwardingError) Error() string {
 // NewForwardingError creates a new payment error which wraps a wire error
 // with additional metadata.
 func NewForwardingError(failure lnwire.FailureMessage,
-	index int) *ForwardingError {
+	index int, holdTimes []uint32) *ForwardingError {
 
 	return &ForwardingError{
 		FailureSourceIdx: index,
 		msg:              failure,
+		HoldTimes:        holdTimes,
 	}
 }
 
@@ -140,7 +148,7 @@ type ErrorDecrypter interface {
 	// hop, to the source of the error. A fully populated
 	// lnwire.FailureMessage is returned along with the source of the
 	// error.
-	DecryptError(lnwire.OpaqueReason) (*ForwardingError, error)
+	DecryptError(lnwire.OpaqueReason, []byte) (*ForwardingError, error)
 }
 
 // UnknownEncrypterType is an error message used to signal that an unexpected
@@ -152,21 +160,19 @@ func (e UnknownEncrypterType) Error() string {
 	return fmt.Sprintf("unknown error encrypter type: %d", e)
 }
 
-// OnionErrorDecrypter is the interface that provides onion level error
-// decryption.
-type OnionErrorDecrypter interface {
-	// DecryptError attempts to decrypt the passed encrypted error response.
-	// The onion failure is encrypted in backward manner, starting from the
-	// node where error have occurred. As a result, in order to decrypt the
-	// error we need get all shared secret and apply decryption in the
-	// reverse order.
-	DecryptError(encryptedData []byte) (*sphinx.DecryptedError, error)
-}
-
 // SphinxErrorDecrypter wraps the sphinx data SphinxErrorDecrypter and maps the
 // returned errors to concrete lnwire.FailureMessage instances.
 type SphinxErrorDecrypter struct {
-	OnionErrorDecrypter
+	decrypter *sphinx.OnionErrorDecrypter
+}
+
+// NewSphinxErrorDecrypter instantiates a new error decrypter.
+func NewSphinxErrorDecrypter(circuit *sphinx.Circuit) *SphinxErrorDecrypter {
+	return &SphinxErrorDecrypter{
+		decrypter: sphinx.NewOnionErrorDecrypter(
+			circuit, hop.AttrErrorStruct,
+		),
+	}
 }
 
 // DecryptError peels off each layer of onion encryption from the first hop, to
@@ -174,23 +180,51 @@ type SphinxErrorDecrypter struct {
 // along with the source of the error.
 //
 // NOTE: Part of the ErrorDecrypter interface.
-func (s *SphinxErrorDecrypter) DecryptError(reason lnwire.OpaqueReason) (
-	*ForwardingError, error) {
+func (s *SphinxErrorDecrypter) DecryptError(reason lnwire.OpaqueReason,
+	attrData []byte) (*ForwardingError, error) {
 
-	failure, err := s.OnionErrorDecrypter.DecryptError(reason)
+	// We do not set the strict attribution flag, as we want to account for
+	// the grace period during which nodes are still upgrading to support
+	// this feature. If set prematurely it can lead to early blame of our
+	// direct peers that may not support this feature yet, blacklisting our
+	// channels and failing our payments.
+	//
+	// NOTE: Because strict attribution is disabled, the returned SenderIdx
+	// and HoldTimes are not cryptographically enforced and originate from
+	// potentially untrusted remote peers. Callers that surface these values
+	// (e.g. over RPC) must treat them as advisory and not rely on their
+	// accuracy or bounds.
+	attrErr, err := s.decrypter.DecryptError(reason, attrData, false)
 	if err != nil {
 		return nil, err
 	}
 
-	// Decode the failure. If an error occurs, we leave the failure message
-	// field nil.
-	r := bytes.NewReader(failure.Message)
-	failureMsg, err := lnwire.DecodeFailure(r, 0)
-	if err != nil {
-		return NewUnknownForwardingError(failure.SenderIdx), nil
+	var holdTimeStrs []string
+	for _, ht := range attrErr.HoldTimes {
+		holdTimeStrs = append(
+			holdTimeStrs, fmt.Sprintf("%vms", ht*100),
+		)
 	}
 
-	return NewForwardingError(failureMsg, failure.SenderIdx), nil
+	log.Debugf("Extracted hold times from onion error: %v",
+		strings.Join(holdTimeStrs, "/"))
+
+	// Decode the failure. If an error occurs, we leave the failure message
+	// field nil. We still preserve the extracted hold times so that
+	// hold-time reporting is not lost just because the wire failure message
+	// could not be decoded.
+	r := bytes.NewReader(attrErr.Message)
+	failureMsg, err := lnwire.DecodeFailure(r, 0)
+	if err != nil {
+		fwdErr := NewUnknownForwardingError(attrErr.SenderIdx)
+		fwdErr.HoldTimes = attrErr.HoldTimes
+
+		return fwdErr, nil
+	}
+
+	return NewForwardingError(
+		failureMsg, attrErr.SenderIdx, attrErr.HoldTimes,
+	), nil
 }
 
 // A compile time check to ensure ErrorDecrypter implements the Deobfuscator

@@ -5025,6 +5025,15 @@ message Failure {
 
     // A failure type-dependent block height.
     uint32 height = 9;
+
+    /*
+    An array of hold times (in 100ms units) as reported by the nodes along
+    the route via attributable errors. The first element corresponds to the
+    first hop after the sender, with greater indices indicating nodes
+    further along the route. Multiply by 100 to get milliseconds. This
+    field is only populated when the error includes attribution data.
+    */
+    repeated uint32 hold_times = 10;
 }
 
 message ChannelUpdate {

@@ -11,6 +11,8 @@ github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161/go.mod h1:xomTg6
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/BurntSushi/toml v1.3.2 h1:o7IhLm0Msx3BaB+n3Ag7L8EVlByGnpq14C4YWiu/gL8=
 github.com/BurntSushi/toml v1.3.2/go.mod h1:CxXYINrC8qIiEnFrOxCa7Jy5BFHlXnUU2pbicEuybxQ=
+github.com/GeorgeTsagk/lightning-onion v0.0.0-20260713140812-fb96cefa58f5 h1:AM6MxtoyoP1+Js/F6gPhjkYqSIKT81YYwBeixiMxBqA=
+github.com/GeorgeTsagk/lightning-onion v0.0.0-20260713140812-fb96cefa58f5/go.mod h1:YDPkvVTVQ6FBBE6Yj93tDd7zA3iTSrryi9xq46i7bKE=
 github.com/Microsoft/go-winio v0.6.1 h1:9/kr64B9VUZrLm5YYwbGtUJnMgqWVOdUAXu6Migciow=
 github.com/Microsoft/go-winio v0.6.1/go.mod h1:LRdKpFKfdobln8UmuiYcKPot9D2v6svN5+sAH+4kjUM=
 github.com/NebulousLabs/fastrand v0.0.0-20181203155948-6fb6489aac4e h1:n+DcnTNkQnHlwpsrHoQtkrJIO7CBx029fw6oR4vIob4=
@@ -283,8 +285,6 @@ github.com/lightninglabs/neutrino/cache v1.1.4 h1:KVtvUmBwYr7eKtjfjHG/q6/cQlcrjH
 github.com/lightninglabs/neutrino/cache v1.1.4/go.mod h1:ZqLzxghPggIRfNXeAZN1VtTKofMyK/ALI6niYsPH6OE=
 github.com/lightninglabs/protobuf-go-hex-display v1.36.11-hex-display h1:fjePiMfYbg3KodAiSXwkpGZpYdPeNd9VnggJWiY6AaY=
 github.com/lightninglabs/protobuf-go-hex-display v1.36.11-hex-display/go.mod h1:HTf+CrKn2C3g5S8VImy6tdcUvCska2kB7j23XfzDpco=
-github.com/lightningnetwork/lightning-onion v1.4.0 h1:qWE1icOH4AKXRcq1KCzt6P/TesqptgBTP++V7wowTc0=
-github.com/lightningnetwork/lightning-onion v1.4.0/go.mod h1:YDPkvVTVQ6FBBE6Yj93tDd7zA3iTSrryi9xq46i7bKE=
 github.com/lightningnetwork/lnd/tlv v1.4.0 h1:qNGymEkOZsHbp4h8VjnkRGgLfmh+eJP1JQtz2/mJX2M=
 github.com/lightningnetwork/lnd/tlv v1.4.0/go.mod h1:oL5WIFd3ZoEwh3oH1xzizeUl6pq3DIhx9ljDvRdvI3Q=
 github.com/lightningnetwork/lnd/tor v1.2.0 h1:Xled9KE+rdTPEMDVJE5VrSoMNkJq6EfH3NCF6pLP4h4=

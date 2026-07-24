@@ -1567,6 +1567,7 @@ func marshallHtlcFailure(failure *paymentsdb.HTLCFailInfo) (*lnrpc.Failure,
 
 	rpcFailure := &lnrpc.Failure{
 		FailureSourceIndex: failure.FailureSourceIndex,
+		HoldTimes:          failure.HoldTimes,
 	}
 
 	switch failure.Reason {
@@ -1635,6 +1636,7 @@ func marshallError(sendError error) (*lnrpc.Failure, error) {
 	fErr, ok := rtErr.(*htlcswitch.ForwardingError)
 	if ok {
 		response.FailureSourceIndex = uint32(fErr.FailureSourceIdx)
+		response.HoldTimes = fErr.HoldTimes
 	}
 
 	return response, nil

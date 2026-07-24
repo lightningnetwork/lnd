@@ -878,14 +878,16 @@ func (r *InterceptorChain) checkRPCState(srv interface{}) error {
 	// Do not accept any RPC calls (unless to the state service) until LND
 	// has not started.
 	case waitingToStart:
-		return ErrWaitingToStart
+		return status.Error(codes.Unavailable, ErrWaitingToStart.Error())
 
 	// If the wallet does not exists, only calls to the WalletUnlocker are
 	// accepted.
 	case walletNotCreated:
 		_, ok := srv.(lnrpc.WalletUnlockerServer)
 		if !ok {
-			return ErrNoWallet
+			return status.Error(
+				codes.FailedPrecondition, ErrNoWallet.Error(),
+			)
 		}
 
 	// If the wallet is locked, only calls to the WalletUnlocker are
@@ -893,28 +895,38 @@ func (r *InterceptorChain) checkRPCState(srv interface{}) error {
 	case walletLocked:
 		_, ok := srv.(lnrpc.WalletUnlockerServer)
 		if !ok {
-			return ErrWalletLocked
+			return status.Error(
+				codes.FailedPrecondition, ErrWalletLocked.Error(),
+			)
 		}
 
 	// If the wallet is unlocked, but the RPC not yet active, we reject.
 	case walletUnlocked:
 		_, ok := srv.(lnrpc.WalletUnlockerServer)
 		if ok {
-			return ErrWalletUnlocked
+			return status.Error(
+				codes.FailedPrecondition,
+				ErrWalletUnlocked.Error(),
+			)
 		}
 
-		return ErrRPCStarting
+		return status.Error(codes.Unavailable, ErrRPCStarting.Error())
 
 	// If the RPC server or lnd server is active, we allow calls to any
 	// service except the WalletUnlocker.
 	case rpcActive, serverActive:
 		_, ok := srv.(lnrpc.WalletUnlockerServer)
 		if ok {
-			return ErrWalletUnlocked
+			return status.Error(
+				codes.FailedPrecondition,
+				ErrWalletUnlocked.Error(),
+			)
 		}
 
 	default:
-		return fmt.Errorf("unknown RPC state: %v", state)
+		return status.Errorf(
+			codes.Unknown, "unknown RPC state: %v", state,
+		)
 	}
 
 	return nil

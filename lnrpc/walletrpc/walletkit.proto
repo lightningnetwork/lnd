@@ -585,6 +585,17 @@ message ListAccountsRequest {
 
 message ListAccountsResponse {
     repeated Account accounts = 1;
+
+    /*
+    The birthday of the wallet's master key, expressed in seconds since the unix
+    epoch. This is the earliest time any of the wallet's keys could have been
+    used, so it is where a rescan of the chain has to start. The accounts above
+    are extended public keys, which carry no notion of when they were created,
+    so this value needs to be transported alongside them when importing them
+    into a watch-only wallet. It corresponds to the
+    WatchOnly.master_key_birthday_timestamp field of the InitWallet request.
+    */
+    uint64 master_key_birthday_timestamp = 2;
 }
 
 message RequiredReserveRequest {

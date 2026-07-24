@@ -5,13 +5,16 @@ package walletrpc
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
@@ -717,6 +720,58 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 					changeOut.Value,
 				)
 			}
+		})
+	}
+}
+
+// TestListAccountsBirthday makes sure ListAccounts reports the birthday of the
+// wallet's master key. The exported accounts are extended public keys, which
+// carry no creation time of their own, so this timestamp is the only thing that
+// lets an importing watch-only wallet start its rescan at the right height
+// instead of at lnd's default birthday.
+func TestListAccountsBirthday(t *testing.T) {
+	t.Parallel()
+
+	birthday := time.Unix(1719792000, 0)
+
+	testCases := []struct {
+		name     string
+		birthday time.Time
+		expected uint64
+	}{{
+		name:     "birthday is reported in unix seconds",
+		birthday: birthday,
+		expected: uint64(birthday.Unix()),
+	}, {
+		// A wallet without a birthday must report zero, which is what
+		// InitWallet already reads as "unknown". Casting a pre-epoch
+		// time to uint64 would instead produce a nonsense timestamp
+		// somewhere in the year 292 billion.
+		name:     "wallet without a birthday reports zero",
+		birthday: time.Time{},
+		expected: 0,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(tt *testing.T) {
+			tt.Parallel()
+
+			rpcServer, _, err := New(&Config{
+				Wallet: &mock.WalletController{
+					WalletBirthday: tc.birthday,
+				},
+				ChainParams: &chaincfg.RegressionNetParams,
+			})
+			require.NoError(tt, err)
+
+			resp, err := rpcServer.ListAccounts(
+				context.Background(), &ListAccountsRequest{},
+			)
+			require.NoError(tt, err)
+			require.Equal(
+				tt, tc.expected,
+				resp.MasterKeyBirthdayTimestamp,
+			)
 		})
 	}
 }

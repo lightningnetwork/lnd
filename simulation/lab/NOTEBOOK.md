@@ -109,3 +109,16 @@ never rewards — more eval budget in the same regime buys nothing.
 Champions of record stay hb1 + mx_c3; the next lever is changing the
 environment (exp-008 background traffic, exp-010 splitting pressure).
 Detail: exp-011.
+
+## 2026-07-24 (night) — exp-008 begins: the sim gets a clock and traffic
+
+Built and committed (d11a20dcb) the fidelity upgrade: virtual clock
+(MC decay now operates over simulated time; candidates read
+view.Now()) + seeded background traffic (naive fee-optimizing senders
+move hidden liquidity in every gap; per-channel conservation; same
+seed → same exogenous process for all routers). Baseline on the new
+drift corpus: **the champions' hard bounds do NOT collapse** (hb1/mx_c3
+~0.46 vs lnd 0.20 on drift-test) and **lnd's decay does not close the
+gap** even now that it operates. But everyone lost ground vs static
+(champions ~0.59 → ~0.42), so drift created real headroom. Evolution
+run `code_drift1` (400 evals, drift-neutral prompt) is live. exp-008.

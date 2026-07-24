@@ -4683,8 +4683,16 @@ type Channel struct {
 	Memo string `protobuf:"bytes,36,opt,name=memo,proto3" json:"memo,omitempty"`
 	// Custom channel data that might be populated in custom channels.
 	CustomChannelData []byte `protobuf:"bytes,37,opt,name=custom_channel_data,json=customChannelData,proto3" json:"custom_channel_data,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// The amount of funds in milli-satoshis that we can send in the channel,
+	// net of reserve and commitment fees. This field is only populated if the
+	// channel is active (has an active link).
+	LocalSpendableMsat int64 `protobuf:"varint,38,opt,name=local_spendable_msat,json=localSpendableMsat,proto3" json:"local_spendable_msat,omitempty"`
+	// The amount of funds in milli-satoshis that the remote party can send to
+	// us (i.e., our inbound capacity), net of reserve and commitment fees.
+	// This field is only populated if the channel is active (has an active link).
+	RemoteSpendableMsat int64 `protobuf:"varint,39,opt,name=remote_spendable_msat,json=remoteSpendableMsat,proto3" json:"remote_spendable_msat,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *Channel) Reset() {
@@ -4978,6 +4986,20 @@ func (x *Channel) GetCustomChannelData() []byte {
 		return x.CustomChannelData
 	}
 	return nil
+}
+
+func (x *Channel) GetLocalSpendableMsat() int64 {
+	if x != nil {
+		return x.LocalSpendableMsat
+	}
+	return 0
+}
+
+func (x *Channel) GetRemoteSpendableMsat() int64 {
+	if x != nil {
+		return x.RemoteSpendableMsat
+	}
+	return 0
 }
 
 type ListChannelsRequest struct {
@@ -18742,7 +18764,7 @@ const file_lightning_proto_rawDesc = "" +
 	"\x0edust_limit_sat\x18\x03 \x01(\x04R\fdustLimitSat\x12/\n" +
 	"\x14max_pending_amt_msat\x18\x04 \x01(\x04R\x11maxPendingAmtMsat\x12\"\n" +
 	"\rmin_htlc_msat\x18\x05 \x01(\x04R\vminHtlcMsat\x12,\n" +
-	"\x12max_accepted_htlcs\x18\x06 \x01(\rR\x10maxAcceptedHtlcs\"\xdd\v\n" +
+	"\x12max_accepted_htlcs\x18\x06 \x01(\rR\x10maxAcceptedHtlcs\"\xc3\f\n" +
 	"\aChannel\x12\x16\n" +
 	"\x06active\x18\x01 \x01(\bR\x06active\x12#\n" +
 	"\rremote_pubkey\x18\x02 \x01(\tR\fremotePubkey\x12#\n" +
@@ -18787,7 +18809,9 @@ const file_lightning_proto_rawDesc = "" +
 	"peer_alias\x18\" \x01(\tR\tpeerAlias\x12*\n" +
 	"\x0fpeer_scid_alias\x18# \x01(\x04B\x020\x01R\rpeerScidAlias\x12\x12\n" +
 	"\x04memo\x18$ \x01(\tR\x04memo\x12.\n" +
-	"\x13custom_channel_data\x18% \x01(\fR\x11customChannelData\"\xdf\x01\n" +
+	"\x13custom_channel_data\x18% \x01(\fR\x11customChannelData\x120\n" +
+	"\x14local_spendable_msat\x18& \x01(\x03R\x12localSpendableMsat\x122\n" +
+	"\x15remote_spendable_msat\x18' \x01(\x03R\x13remoteSpendableMsat\"\xdf\x01\n" +
 	"\x13ListChannelsRequest\x12\x1f\n" +
 	"\vactive_only\x18\x01 \x01(\bR\n" +
 	"activeOnly\x12#\n" +

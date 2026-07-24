@@ -705,6 +705,7 @@ func (f *interceptedForward) Packet() InterceptedPacket {
 			HtlcID: f.packet.incomingHTLCID,
 		},
 		OutgoingChanID:       f.packet.outgoingChanID,
+		OutgoingNodeID:       f.packet.outgoingHop.RightToSome(),
 		Hash:                 f.htlc.PaymentHash,
 		OutgoingExpiry:       f.htlc.Expiry,
 		OutgoingAmount:       f.htlc.Amount,

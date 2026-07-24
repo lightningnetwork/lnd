@@ -911,6 +911,20 @@ func (r *ChannelReservation) ChanState() *chanstate.OpenChannel {
 	return r.partialState
 }
 
+// AuxChanState returns a view of the current open channel state for aux
+// funding callers, populated with the negotiated contribution configs. It
+// must only be called after both channel contributions have been processed.
+func (r *ChannelReservation) AuxChanState() AuxChanState {
+	r.RLock()
+	defer r.RUnlock()
+
+	auxState := NewAuxChanState(r.partialState)
+	auxState.LocalChanCfg = r.ourContribution.toChanConfig()
+	auxState.RemoteChanCfg = r.theirContribution.toChanConfig()
+
+	return auxState
+}
+
 // CommitmentKeyRings returns the local+remote key ring used for the very first
 // commitment transaction both parties.
 //

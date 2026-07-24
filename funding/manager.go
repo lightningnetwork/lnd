@@ -2363,19 +2363,9 @@ func (f *Manager) waitForPsbt(intent *chanfunding.PsbtIntent,
 		// At this point, we'll see if there's an AuxFundingDesc we
 		// need to deliver so the funding process can continue
 		// properly.
-		auxFundingDesc, err := fn.MapOptionZ(
-			f.cfg.AuxFundingController,
-			func(c AuxFundingController) AuxFundingDescResult {
-				return c.DescFromPendingChanID(
-					cid.tempChanID,
-					lnwallet.NewAuxChanState(
-						resCtx.reservation.ChanState(),
-					),
-					resCtx.reservation.CommitmentKeyRings(),
-					true,
-				)
-			},
-		).Unpack()
+		auxFundingDesc, err := f.auxFundingDesc(
+			cid.tempChanID, resCtx.reservation,
+		)
 		if err != nil {
 			failFlow("error continuing PSBT flow", err)
 			return
@@ -2405,6 +2395,22 @@ func (f *Manager) waitForPsbt(intent *chanfunding.PsbtIntent,
 			cid.tempChanID)
 		return
 	}
+}
+
+// auxFundingDesc returns any aux funding descriptor for the pending channel.
+func (f *Manager) auxFundingDesc(pid PendingChanID,
+	reservation *lnwallet.ChannelReservation) (
+	fn.Option[lnwallet.AuxFundingDesc], error) {
+
+	return fn.MapOptionZ(
+		f.cfg.AuxFundingController,
+		func(c AuxFundingController) AuxFundingDescResult {
+			return c.DescFromPendingChanID(
+				pid, reservation.AuxChanState(),
+				reservation.CommitmentKeyRings(), true,
+			)
+		},
+	).Unpack()
 }
 
 // continueFundingAccept continues the channel funding flow once our
@@ -2552,17 +2558,9 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 
 	// At this point, we'll see if there's an AuxFundingDesc we need to
 	// deliver so the funding process can continue properly.
-	auxFundingDesc, err := fn.MapOptionZ(
-		f.cfg.AuxFundingController,
-		func(c AuxFundingController) AuxFundingDescResult {
-			return c.DescFromPendingChanID(
-				cid.tempChanID, lnwallet.NewAuxChanState(
-					resCtx.reservation.ChanState(),
-				), resCtx.reservation.CommitmentKeyRings(),
-				true,
-			)
-		},
-	).Unpack()
+	auxFundingDesc, err := f.auxFundingDesc(
+		cid.tempChanID, resCtx.reservation,
+	)
 	if err != nil {
 		log.Errorf("error continuing PSBT flow: %v", err)
 		f.failFundingFlow(peer, cid, err)

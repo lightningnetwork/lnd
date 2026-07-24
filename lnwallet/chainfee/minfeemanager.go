@@ -13,6 +13,7 @@ const defaultUpdateInterval = 10 * time.Minute
 type minFeeManager struct {
 	mu                sync.Mutex
 	minFeePerKW       SatPerKWeight
+	feeFloor          SatPerKWeight
 	lastUpdatedTime   time.Time
 	minUpdateInterval time.Duration
 	fetchFeeFunc      fetchFee
@@ -24,8 +25,11 @@ type fetchFee func() (SatPerKWeight, error)
 // newMinFeeManager creates a new minFeeManager and uses the
 // given fetchMinFee function to set the minFeePerKW of the minFeeManager.
 // This function requires the fetchMinFee function to succeed.
+//
+// feeFloor sets the minimum fee rate the manager will ever return. It defaults
+// to FeePerKwFloor when zero is passed in.
 func newMinFeeManager(minUpdateInterval time.Duration,
-	fetchMinFee fetchFee) (*minFeeManager, error) {
+	fetchMinFee fetchFee, feeFloor SatPerKWeight) (*minFeeManager, error) {
 
 	minFee, err := fetchMinFee()
 	if err != nil {
@@ -34,12 +38,13 @@ func newMinFeeManager(minUpdateInterval time.Duration,
 
 	// Ensure that the minimum fee we use is always clamped by our fee
 	// floor.
-	if minFee < FeePerKwFloor {
-		minFee = FeePerKwFloor
+	if minFee < feeFloor {
+		minFee = feeFloor
 	}
 
 	return &minFeeManager{
 		minFeePerKW:       minFee,
+		feeFloor:          feeFloor,
 		lastUpdatedTime:   time.Now(),
 		minUpdateInterval: minUpdateInterval,
 		fetchFeeFunc:      fetchMinFee,
@@ -70,8 +75,8 @@ func (m *minFeeManager) fetchMinFee() SatPerKWeight {
 	// minimum fee rate we'll propose for transactions. However, if this
 	// happens to be lower than our fee floor, we'll enforce that instead.
 	m.minFeePerKW = newMinFee
-	if m.minFeePerKW < FeePerKwFloor {
-		m.minFeePerKW = FeePerKwFloor
+	if m.minFeePerKW < m.feeFloor {
+		m.minFeePerKW = m.feeFloor
 	}
 	m.lastUpdatedTime = time.Now()
 

@@ -249,7 +249,7 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 	feeSource.On("GetFeeInfo").Return(resp, nil)
 
 	estimator, _ := NewWebAPIEstimator(
-		feeSource, false, minFeeUpdateTimeout, maxFeeUpdateTimeout,
+		feeSource, false, minFeeUpdateTimeout, maxFeeUpdateTimeout, 0,
 	)
 
 	// Test that when the estimator is not started, an error is returned.
@@ -304,7 +304,7 @@ func TestGetCachedFee(t *testing.T) {
 
 	// Create a dummy estimator without WebAPIFeeSource.
 	estimator, _ := NewWebAPIEstimator(
-		nil, false, minFeeUpdateTimeout, maxFeeUpdateTimeout,
+		nil, false, minFeeUpdateTimeout, maxFeeUpdateTimeout, 0,
 	)
 
 	// When the cache is empty, an error should be returned.
@@ -379,7 +379,7 @@ func TestRandomFeeUpdateTimeout(t *testing.T) {
 	)
 
 	estimator, _ := NewWebAPIEstimator(
-		nil, false, minFeeUpdateTimeout, maxFeeUpdateTimeout,
+		nil, false, minFeeUpdateTimeout, maxFeeUpdateTimeout, 0,
 	)
 
 	for i := 0; i < 1000; i++ {
@@ -399,7 +399,7 @@ func TestInvalidFeeUpdateTimeout(t *testing.T) {
 	)
 
 	_, err := NewWebAPIEstimator(
-		nil, false, minFeeUpdateTimeout, maxFeeUpdateTimeout,
+		nil, false, minFeeUpdateTimeout, maxFeeUpdateTimeout, 0,
 	)
 	require.Error(t, err, "NewWebAPIEstimator should return an error "+
 		"when minFeeUpdateTimeout > maxFeeUpdateTimeout")

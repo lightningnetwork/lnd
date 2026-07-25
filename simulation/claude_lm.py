@@ -86,9 +86,15 @@ class ClaudeLM:
                 env=env,
             )
         if proc.returncode != 0:
+            # Scrub the credential from anything that could reach a run
+            # log or transcript: the CLI must never echo the token, but
+            # we do not rely on that.
+            detail = proc.stderr.strip()[-2000:]
+            token = env.get("CLAUDE_CODE_OAUTH_TOKEN", "")
+            if token:
+                detail = detail.replace(token, "[REDACTED]")
             raise RuntimeError(
-                f"claude -p failed ({proc.returncode}): "
-                f"{proc.stderr.strip()[-2000:]}"
+                f"claude -p failed ({proc.returncode}): {detail}"
             )
 
         return proc.stdout

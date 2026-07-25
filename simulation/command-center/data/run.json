@@ -167,6 +167,54 @@
    "candidate_score": 0.0,
    "best_score": 0.6151,
    "note": "rejected"
+  },
+  {
+   "i": 27,
+   "candidate_score": 0.0,
+   "best_score": 0.6151,
+   "note": "rejected"
+  },
+  {
+   "i": 28,
+   "candidate_score": 0.0,
+   "best_score": 0.6151,
+   "note": "rejected"
+  },
+  {
+   "i": 29,
+   "candidate_score": 0.0,
+   "best_score": 0.6151,
+   "note": "rejected"
+  },
+  {
+   "i": 30,
+   "candidate_score": 0.0,
+   "best_score": 0.6151,
+   "note": "rejected"
+  },
+  {
+   "i": 31,
+   "candidate_score": 0.0,
+   "best_score": 0.6151,
+   "note": "rejected"
+  },
+  {
+   "i": 32,
+   "candidate_score": 0.0,
+   "best_score": 0.6151,
+   "note": "rejected"
+  },
+  {
+   "i": 33,
+   "candidate_score": 0.0,
+   "best_score": 0.6151,
+   "note": "rejected"
+  },
+  {
+   "i": 34,
+   "candidate_score": 0.0,
+   "best_score": 0.6151,
+   "note": "rejected"
   }
  ],
  "seed_params": {
@@ -176,8 +224,8 @@
   "source": "package main\n\nimport (\n\t\"container/heap\"\n\t\"context\"\n\t\"errors\"\n\t\"fmt\"\n\t\"math\"\n\t\"sync\"\n\t\"time\"\n\n\tgraphdb \"github.com/lightningnetwork/lnd/graph/db\"\n\t\"github.com/lightningnetwork/lnd/lnwire\"\n\t\"github.com/lightningnetwork/lnd/routing\"\n\t\"github.com/lightningnetwork/lnd/routing/route\"\n)\n\nconst (\n\tcandidateFinalCltvDelta = 40\n\tcandidateMinShard       = lnwire.MilliSatoshi(5_000_000)\n\tcandidateRiskCost       = 2_000_000.0\n\tcandidateHopCost        = 25_000.0\n\tcandidateFailureCost    = 8_000_000.0\n\tcandidateReservedCost   = 2_000_000.0\n\tcandidateEvidenceLife   = 10 * time.Minute\n)\n\ntype candidateEdgeKey struct {\n\tchanID uint64\n\tfrom   route.Vertex\n}\n\ntype candidateGlobalBelief struct {\n\tquality float64\n\tupdated time.Time\n}\n\nvar candidateKnowledge = struct {\n\tsync.Mutex\n\n\tbeliefs     map[candidateEdgeKey]candidateGlobalBelief\n\tlastViewNow time.Time\n}{\n\tbeliefs: make(map[candidateEdgeKey]candidateGlobalBelief),\n}\n\ntype candidateEdge struct {\n\tkey      candidateEdgeKey\n\tchanID   uint64\n\tfrom     route.Vertex\n\tto       route.Vertex\n\tcapacity lnwire.MilliSatoshi\n\n\tbaseFeeMsat   lnwire.MilliSatoshi\n\tfeeRatePPM    lnwire.MilliSatoshi\n\ttimeLockDelta uint16\n\tminHTLC       lnwire.MilliSatoshi\n\tmaxHTLC       lnwire.MilliSatoshi\n}\n\nfunc (e *candidateEdge) fee(amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {\n\treturn e.baseFeeMsat + amt*e.feeRatePPM/1_000_000\n}\n\nfunc (e *candidateEdge) usable(amt lnwire.MilliSatoshi) bool {\n\tif amt < e.minHTLC || amt > e.capacity {\n\t\treturn false\n\t}\n\n\treturn e.maxHTLC == 0 || amt <= e.maxHTLC\n}\n\ntype candidateRouter struct {\n\tview   routing.SimNetworkView\n\tnow    time.Time\n\tsource route.Vertex\n\tspec   *routing.SimPaymentSpec\n\n\tincomingEdges map[route.Vertex][]*candidateEdge\n\tedges         map[candidateEdgeKey]*candidateEdge\n\n\tlocalBalances map[uint64]lnwire.MilliSatoshi\n\tlocalReserved map[uint64]lnwire.MilliSatoshi\n\n\t// lowerOK records amounts recently proven to traverse a channel.\n\tlowerOK map[candidateEdgeKey]lnwire.MilliSatoshi\n\n\t// upperFail records amounts that failed during the current payment.\n\t// Amounts at or above this bound are excluded, while smaller retries\n\t// remain available.\n\tupperFail map[candidateEdgeKey]lnwire.MilliSatoshi\n\n\tquality      map[candidateEdgeKey]float64\n\tfailures     map[candidateEdgeKey]uint32\n\tpolicyBad    map[candidateEdgeKey]bool\n\tinUse        map[candidateEdgeKey]uint32\n\tcurrentShard lnwire.MilliSatoshi\n}\n\nfunc newCandidateRouter(view routing.SimNetworkView, source route.Vertex,\n\tlocalBalances map[uint64]lnwire.MilliSatoshi,\n\tspec *routing.SimPaymentSpec) (routing.SimRouter, error) {\n\n\tnow := view.Now()\n\tr := &candidateRouter{\n\t\tview:          view,\n\t\tnow:           now,\n\t\tsource:        source,\n\t\tspec:          spec,\n\t\tincomingEdges: make(map[route.Vertex][]*candidateEdge),\n\t\tedges:         make(map[candidateEdgeKey]*candidateEdge),\n\t\tlocalBalances: make(map[uint64]lnwire.MilliSatoshi),\n\t\tlocalReserved: make(map[uint64]lnwire.MilliSatoshi),\n\t\tlowerOK:       make(map[candidateEdgeKey]lnwire.MilliSatoshi),\n\t\tupperFail:     make(map[candidateEdgeKey]lnwire.MilliSatoshi),\n\t\tquality:       make(map[candidateEdgeKey]float64),\n\t\tfailures:      make(map[candidateEdgeKey]uint32),\n\t\tpolicyBad:     make(map[candidateEdgeKey]bool),\n\t\tinUse:         make(map[candidateEdgeKey]uint32),\n\t}\n\n\tfor chanID, balance := range localBalances {\n\t\tr.localBalances[chanID] = balance\n\t}\n\n\tctx := context.Background()\n\tseen := make(map[route.Vertex]bool)\n\tqueue := []route.Vertex{source}\n\tseen[source] = true\n\n\tfor len(queue) > 0 {\n\t\tnode := queue[0]\n\t\tqueue = queue[1:]\n\n\t\terr := view.ForEachNodeDirectedChannel(\n\t\t\tctx, node, func(ch *graphdb.DirectedChannel) error {\n\t\t\t\tif !seen[ch.OtherNode] {\n\t\t\t\t\tseen[ch.OtherNode] = true\n\t\t\t\t\tqueue = append(queue, ch.OtherNode)\n\t\t\t\t}\n\n\t\t\t\tpolicy := ch.InPolicy\n\t\t\t\tif policy == nil || policy.IsDisabled {\n\t\t\t\t\treturn nil\n\t\t\t\t}\n\n\t\t\t\tkey := candidateEdgeKey{\n\t\t\t\t\tchanID: ch.ChannelID,\n\t\t\t\t\tfrom:   ch.OtherNode,\n\t\t\t\t}\n\t\t\t\tedge := &candidateEdge{\n\t\t\t\t\tkey:      key,\n\t\t\t\t\tchanID:   ch.ChannelID,\n\t\t\t\t\tfrom:     ch.OtherNode,\n\t\t\t\t\tto:       node,\n\t\t\t\t\tcapacity: lnwire.NewMSatFromSatoshis(\n\t\t\t\t\t\tch.Capacity,\n\t\t\t\t\t),\n\t\t\t\t\tbaseFeeMsat: policy.FeeBaseMSat,\n\t\t\t\t\tfeeRatePPM: policy.\n\t\t\t\t\t\tFeeProportionalMillionths,\n\t\t\t\t\ttimeLockDelta: policy.TimeLockDelta,\n\t\t\t\t\tminHTLC:       policy.MinHTLC,\n\t\t\t\t}\n\t\t\t\tif policy.HasMaxHTLC {\n\t\t\t\t\tedge.maxHTLC = policy.MaxHTLC\n\t\t\t\t}\n\n\t\t\t\tr.incomingEdges[node] = append(\n\t\t\t\t\tr.incomingEdges[node], edge,\n\t\t\t\t)\n\t\t\t\tr.edges[key] = edge\n\n\t\t\t\treturn nil\n\t\t\t}, func() {},\n\t\t)\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t}\n\n\tr.loadBeliefs(now)\n\n\tparts := spec.MaxParts\n\tif parts == 0 {\n\t\tparts = 1\n\t}\n\tr.currentShard = divideCandidateAmount(spec.Amount, parts)\n\tif r.currentShard < candidateMinShard {\n\t\tr.currentShard = candidateMinShard\n\t}\n\tif r.currentShard > spec.Amount {\n\t\tr.currentShard = spec.Amount\n\t}\n\n\treturn r, nil\n}\n\nfunc divideCandidateAmount(amt lnwire.MilliSatoshi,\n\tparts uint32) lnwire.MilliSatoshi {\n\n\tdivisor := lnwire.MilliSatoshi(parts)\n\treturn (amt + divisor - 1) / divisor\n}\n\nfunc (r *candidateRouter) loadBeliefs(now time.Time) {\n\tcandidateKnowledge.Lock()\n\tdefer candidateKnowledge.Unlock()\n\n\tif !candidateKnowledge.lastViewNow.IsZero() &&\n\t\tnow.Before(candidateKnowledge.lastViewNow) {\n\n\t\tcandidateKnowledge.beliefs =\n\t\t\tmake(map[candidateEdgeKey]candidateGlobalBelief)\n\t}\n\tcandidateKnowledge.lastViewNow = now\n\n\tfor key := range r.edges {\n\t\tbelief, ok := candidateKnowledge.beliefs[key]\n\t\tif !ok {\n\t\t\tcontinue\n\t\t}\n\n\t\tage := now.Sub(belief.updated)\n\t\tif age < 0 {\n\t\t\tcontinue\n\t\t}\n\n\t\tdecay := math.Exp(\n\t\t\t-float64(age) / float64(candidateEvidenceLife),\n\t\t)\n\t\tr.quality[key] = belief.quality * decay\n\t}\n}\n\nfunc (r *candidateRouter) updateQuality(key candidateEdgeKey,\n\tdelta float64) {\n\n\tvalue := r.quality[key] + delta\n\tif value > 6 {\n\t\tvalue = 6\n\t}\n\tif value < -6 {\n\t\tvalue = -6\n\t}\n\tr.quality[key] = value\n\n\tnow := r.view.Now()\n\n\tcandidateKnowledge.Lock()\n\tdefer candidateKnowledge.Unlock()\n\n\tif !candidateKnowledge.lastViewNow.IsZero() &&\n\t\tnow.Before(candidateKnowledge.lastViewNow) {\n\n\t\tcandidateKnowledge.beliefs =\n\t\t\tmake(map[candidateEdgeKey]candidateGlobalBelief)\n\t}\n\tcandidateKnowledge.lastViewNow = now\n\n\told := candidateKnowledge.beliefs[key]\n\tif !old.updated.IsZero() {\n\t\tage := now.Sub(old.updated)\n\t\tif age >= 0 {\n\t\t\told.quality *= math.Exp(\n\t\t\t\t-float64(age) /\n\t\t\t\t\tfloat64(candidateEvidenceLife),\n\t\t\t)\n\t\t} else {\n\t\t\told.quality = 0\n\t\t}\n\t}\n\n\told.quality += delta\n\tif old.quality > 6 {\n\t\told.quality = 6\n\t}\n\tif old.quality < -6 {\n\t\told.quality = -6\n\t}\n\told.updated = now\n\tcandidateKnowledge.beliefs[key] = old\n}\n\nfunc candidatePrior(amt, capacity lnwire.MilliSatoshi) float64 {\n\tif capacity <= 0 || amt > capacity {\n\t\treturn 0.001\n\t}\n\n\tx := float64(amt) / float64(capacity)\n\n\t// The first term models the nearly empty mode. The second models the\n\t// nearly full mode and its capacity cliff.\n\tlowMode := 0.48 * math.Exp(-x/0.018)\n\thighMode := 0.50 / (1 + math.Exp((x-0.92)/0.035))\n\tp := 0.005 + lowMode + highMode\n\n\tif p < 0.005 {\n\t\treturn 0.005\n\t}\n\tif p > 0.985 {\n\t\treturn 0.985\n\t}\n\n\treturn p\n}\n\nfunc (r *candidateRouter) edgeProbability(edge *candidateEdge,\n\tamt lnwire.MilliSatoshi) float64 {\n\n\tif lower := r.lowerOK[edge.key]; lower >= amt {\n\t\treturn 0.995\n\t}\n\n\tp := candidatePrior(amt, edge.capacity)\n\tlogOdds := math.Log(p/(1-p)) + r.quality[edge.key]\n\tp = 1 / (1 + math.Exp(-logOdds))\n\n\tif p < 0.005 {\n\t\treturn 0.005\n\t}\n\tif p > 0.995 {\n\t\treturn 0.995\n\t}\n\n\treturn p\n}\n\ntype candidatePathState struct {\n\tnode   route.Vertex\n\tamount lnwire.MilliSatoshi\n\tscore  float64\n}\n\ntype candidatePathQueue []*candidatePathState\n\nfunc (q candidatePathQueue) Len() int {\n\treturn len(q)\n}\n\nfunc (q candidatePathQueue) Less(i, j int) bool {\n\treturn q[i].score < q[j].score\n}\n\nfunc (q candidatePathQueue) Swap(i, j int) {\n\tq[i], q[j] = q[j], q[i]\n}\n\nfunc (q *candidatePathQueue) Push(value any) {\n\t*q = append(*q, value.(*candidatePathState))\n}\n\nfunc (q *candidatePathQueue) Pop() any {\n\told := *q\n\tlast := len(old) - 1\n\tvalue := old[last]\n\t*q = old[:last]\n\n\treturn value\n}\n\nfunc (r *candidateRouter) findRoute(\n\tamt lnwire.MilliSatoshi) (*route.Route, error) {\n\n\tbestScore := map[route.Vertex]float64{\n\t\tr.spec.Target: 0,\n\t}\n\tbestAmount := map[route.Vertex]lnwire.MilliSatoshi{\n\t\tr.spec.Target: amt,\n\t}\n\tnext := make(map[route.Vertex]*candidateEdge)\n\n\tpq := &candidatePathQueue{}\n\theap.Push(pq, &candidatePathState{\n\t\tnode:   r.spec.Target,\n\t\tamount: amt,\n\t})\n\n\tfor pq.Len() > 0 {\n\t\titem := heap.Pop(pq).(*candidatePathState)\n\t\tknownScore, ok := bestScore[item.node]\n\t\tif !ok || item.score > knownScore+0.0001 {\n\t\t\tcontinue\n\t\t}\n\t\tif item.node == r.source {\n\t\t\tbreak\n\t\t}\n\n\t\tfor _, edge := range r.incomingEdges[item.node] {\n\t\t\tamountOver := item.amount\n\n\t\t\tif !edge.usable(amountOver) ||\n\t\t\t\tr.policyBad[edge.key] {\n\n\t\t\t\tcontinue\n\t\t\t}\n\n\t\t\tif upper := r.upperFail[edge.key]; upper != 0 &&\n\t\t\t\tamountOver >= upper {\n\n\t\t\t\tcontinue\n\t\t\t}\n\n\t\t\tif edge.from == r.source {\n\t\t\t\tavailable := r.localBalances[edge.chanID] -\n\t\t\t\t\tr.localReserved[edge.chanID]\n\t\t\t\tif available < amountOver {\n\t\t\t\t\tcontinue\n\t\t\t\t}\n\t\t\t}\n\n\t\t\tsending := amountOver\n\t\t\tfee := lnwire.MilliSatoshi(0)\n\t\t\tif edge.from != r.source {\n\t\t\t\tfee = edge.fee(amountOver)\n\t\t\t\tsending += fee\n\t\t\t}\n\n\t\t\tprobability := r.edgeProbability(edge, amountOver)\n\t\t\tedgeScore := float64(fee) + candidateHopCost -\n\t\t\t\tcandidateRiskCost*math.Log(probability)\n\n\t\t\tedgeScore += float64(r.failures[edge.key]) *\n\t\t\t\tcandidateFailureCost\n\t\t\tedgeScore += float64(r.inUse[edge.key]) *\n\t\t\t\tcandidateReservedCost\n\n\t\t\tscore := item.score + edgeScore\n\t\t\toldScore, ok := bestScore[edge.from]\n\t\t\tif ok && score >= oldScore {\n\t\t\t\tcontinue\n\t\t\t}\n\n\t\t\tbestScore[edge.from] = score\n\t\t\tbestAmount[edge.from] = sending\n\t\t\tnext[edge.from] = edge\n\t\t\theap.Push(pq, &candidatePathState{\n\t\t\t\tnode:   edge.from,\n\t\t\t\tamount: sending,\n\t\t\t\tscore:  score,\n\t\t\t})\n\t\t}\n\t}\n\n\tif _, ok := bestAmount[r.source]; !ok {\n\t\treturn nil, errors.New(\"no route found\")\n\t}\n\n\treturn r.buildRoute(amt, next)\n}\n\nfunc (r *candidateRouter) buildRoute(amt lnwire.MilliSatoshi,\n\tnext map[route.Vertex]*candidateEdge) (*route.Route, error) {\n\n\tvar path []*candidateEdge\n\tfor node := r.source; node != r.spec.Target; {\n\t\tedge, ok := next[node]\n\t\tif !ok {\n\t\t\treturn nil, fmt.Errorf(\"broken path at %v\", node)\n\t\t}\n\n\t\tpath = append(path, edge)\n\t\tnode = edge.to\n\t}\n\n\tif len(path) == 0 {\n\t\treturn nil, errors.New(\"source is payment target\")\n\t}\n\n\tamounts := make([]lnwire.MilliSatoshi, len(path))\n\texpiries := make([]uint32, len(path))\n\n\tlast := len(path) - 1\n\tamounts[last] = amt\n\texpiries[last] = candidateFinalCltvDelta\n\n\tfor i := last - 1; i >= 0; i-- {\n\t\tforwardingEdge := path[i+1]\n\t\tamounts[i] = amounts[i+1] +\n\t\t\tforwardingEdge.fee(amounts[i+1])\n\t\texpiries[i] = expiries[i+1] +\n\t\t\tuint32(forwardingEdge.timeLockDelta)\n\t}\n\n\thops := make([]*route.Hop, len(path))\n\tfor i, edge := range path {\n\t\tamountToForward := amt\n\t\toutgoingExpiry := uint32(candidateFinalCltvDelta)\n\n\t\tif i < last {\n\t\t\tamountToForward = amounts[i+1]\n\t\t\toutgoingExpiry = expiries[i+1]\n\t\t}\n\n\t\thops[i] = &route.Hop{\n\t\t\tPubKeyBytes:      edge.to,\n\t\t\tChannelID:        edge.chanID,\n\t\t\tAmtToForward:     amountToForward,\n\t\t\tOutgoingTimeLock: outgoingExpiry,\n\t\t}\n\t}\n\n\treturn &route.Route{\n\t\tTotalTimeLock: expiries[0],\n\t\tTotalAmount:   amounts[0],\n\t\tSourcePubKey:  r.source,\n\t\tHops:          hops,\n\t}, nil\n}\n\nfunc candidateRouteEdges(rt *route.Route) []candidateEdgeKey {\n\tkeys := make([]candidateEdgeKey, len(rt.Hops))\n\tfrom := rt.SourcePubKey\n\n\tfor i, hop := range rt.Hops {\n\t\tkeys[i] = candidateEdgeKey{\n\t\t\tchanID: hop.ChannelID,\n\t\t\tfrom:   from,\n\t\t}\n\t\tfrom = hop.PubKeyBytes\n\t}\n\n\treturn keys\n}\n\nfunc candidateRouteAmount(rt *route.Route,\n\tindex int) lnwire.MilliSatoshi {\n\n\tif index == 0 {\n\t\treturn rt.TotalAmount\n\t}\n\n\treturn rt.Hops[index-1].AmtToForward\n}\n\nfunc (r *candidateRouter) reserveRoute(rt *route.Route) {\n\tkeys := candidateRouteEdges(rt)\n\tfor _, key := range keys {\n\t\tr.inUse[key]++\n\t}\n\n\tif len(rt.Hops) != 0 {\n\t\tr.localReserved[rt.Hops[0].ChannelID] += rt.TotalAmount\n\t}\n}\n\nfunc (r *candidateRouter) releaseRoute(rt *route.Route) {\n\tkeys := candidateRouteEdges(rt)\n\tfor _, key := range keys {\n\t\tif r.inUse[key] > 0 {\n\t\t\tr.inUse[key]--\n\t\t}\n\t}\n\n\tif len(rt.Hops) != 0 {\n\t\tchanID := rt.Hops[0].ChannelID\n\t\treserved := r.localReserved[chanID]\n\t\tif reserved <= rt.TotalAmount {\n\t\t\tdelete(r.localReserved, chanID)\n\t\t} else {\n\t\t\tr.localReserved[chanID] = reserved - rt.TotalAmount\n\t\t}\n\t}\n}\n\nfunc (r *candidateRouter) RequestRoute(amt lnwire.MilliSatoshi,\n\tinFlightHtlcs uint32) (*route.Route, error) {\n\n\tif amt <= 0 {\n\t\treturn nil, errors.New(\"payment amount is zero\")\n\t}\n\n\tshard := r.currentShard\n\tif shard == 0 || shard > amt {\n\t\tshard = amt\n\t}\n\n\tfor {\n\t\trt, err := r.findRoute(shard)\n\t\tif err == nil {\n\t\t\tr.reserveRoute(rt)\n\t\t\treturn rt, nil\n\t\t}\n\n\t\tif shard <= candidateMinShard {\n\t\t\treturn nil, err\n\t\t}\n\n\t\tnextShard := shard * 3 / 5\n\t\tif nextShard < candidateMinShard {\n\t\t\tnextShard = candidateMinShard\n\t\t}\n\t\tif nextShard >= shard {\n\t\t\treturn nil, err\n\t\t}\n\n\t\tshard = nextShard\n\t\tr.currentShard = shard\n\t}\n}\n\nfunc (r *candidateRouter) failureIndex(rt *route.Route,\n\tfailureSource route.Vertex) int {\n\n\tif failureSource == rt.SourcePubKey {\n\t\treturn 0\n\t}\n\n\tfor i, hop := range rt.Hops {\n\t\tif hop.PubKeyBytes == failureSource {\n\t\t\treturn i + 1\n\t\t}\n\t}\n\n\treturn -1\n}\n\nfunc (r *candidateRouter) recordPassingPrefix(rt *route.Route,\n\tcount int) {\n\n\tkeys := candidateRouteEdges(rt)\n\tif count > len(keys) {\n\t\tcount = len(keys)\n\t}\n\n\tfor i := 0; i < count; i++ {\n\t\tamount := candidateRouteAmount(rt, i)\n\t\tif amount > r.lowerOK[keys[i]] {\n\t\t\tr.lowerOK[keys[i]] = amount\n\t\t}\n\n\t\tr.updateQuality(keys[i], 0.35)\n\t}\n}\n\nfunc (r *candidateRouter) recordSettledRoute(rt *route.Route) {\n\tkeys := candidateRouteEdges(rt)\n\n\tfor i, key := range keys {\n\t\tamount := candidateRouteAmount(rt, i)\n\n\t\tif lower := r.lowerOK[key]; lower != 0 {\n\t\t\tif lower <= amount {\n\t\t\t\tdelete(r.lowerOK, key)\n\t\t\t} else {\n\t\t\t\tr.lowerOK[key] = lower - amount\n\t\t\t}\n\t\t}\n\n\t\tif upper := r.upperFail[key]; upper != 0 {\n\t\t\tif upper <= amount {\n\t\t\t\tr.upperFail[key] = 1\n\t\t\t} else {\n\t\t\t\tr.upperFail[key] = upper - amount\n\t\t\t}\n\t\t}\n\n\t\tedge := r.edges[key]\n\t\tdelta := 0.8\n\t\tif edge != nil && edge.capacity > 0 {\n\t\t\tfraction := float64(amount) /\n\t\t\t\tfloat64(edge.capacity)\n\t\t\tdelta = 1.3 - 2.5*fraction\n\t\t\tif delta < -0.5 {\n\t\t\t\tdelta = -0.5\n\t\t\t}\n\t\t}\n\t\tr.updateQuality(key, delta)\n\n\t\treverse := candidateEdgeKey{\n\t\t\tchanID: key.chanID,\n\t\t\tfrom:   rt.Hops[i].PubKeyBytes,\n\t\t}\n\t\tif _, ok := r.edges[reverse]; ok {\n\t\t\tr.updateQuality(reverse, 0.7)\n\t\t}\n\t}\n\n\tif len(rt.Hops) != 0 {\n\t\tchanID := rt.Hops[0].ChannelID\n\t\tbalance := r.localBalances[chanID]\n\t\tif balance <= rt.TotalAmount {\n\t\t\tr.localBalances[chanID] = 0\n\t\t} else {\n\t\t\tr.localBalances[chanID] =\n\t\t\t\tbalance - rt.TotalAmount\n\t\t}\n\t}\n}\n\nfunc (r *candidateRouter) ReportAttempt(_ uint64, rt *route.Route,\n\tresult routing.SimHtlcResult) error {\n\n\tr.releaseRoute(rt)\n\n\tif result.Failure == nil {\n\t\tr.recordSettledRoute(rt)\n\t\treturn nil\n\t}\n\n\tfailIndex := r.failureIndex(rt, result.FailureSource)\n\tkeys := candidateRouteEdges(rt)\n\n\tif failIndex < 0 {\n\t\tfor _, key := range keys {\n\t\t\tr.failures[key]++\n\t\t\tr.updateQuality(key, -0.15)\n\t\t}\n\t\treturn nil\n\t}\n\n\tr.recordPassingPrefix(rt, failIndex)\n\n\tif failIndex >= len(keys) {\n\t\treturn nil\n\t}\n\n\tkey := keys[failIndex]\n\tamount := candidateRouteAmount(rt, failIndex)\n\n\tswitch result.Failure.(type) {\n\tcase *lnwire.FailTemporaryChannelFailure:\n\t\tupper, ok := r.upperFail[key]\n\t\tif !ok || amount < upper {\n\t\t\tr.upperFail[key] = amount\n\t\t}\n\t\tr.failures[key]++\n\t\tr.updateQuality(key, -2.4)\n\n\tcase *lnwire.FailFeeInsufficient,\n\t\t*lnwire.FailIncorrectCltvExpiry:\n\n\t\tr.policyBad[key] = true\n\t\tr.failures[key] += 2\n\t\tr.updateQuality(key, -1.0)\n\n\tdefault:\n\t\tr.failures[key]++\n\t\tr.updateQuality(key, -0.5)\n\t}\n\n\treturn nil\n}"
  },
  "stats": {
-  "evals_done": 221,
-  "distinct_candidates": 27
+  "evals_done": 281,
+  "distinct_candidates": 35
  },
  "candidates": [
   {
@@ -450,6 +498,86 @@
    "frontier": false,
    "params": {
     "source": "Watcher armed."
+   }
+  },
+  {
+   "id": 27,
+   "parent": 0,
+   "score": 0.0,
+   "accepted": false,
+   "frontier": false,
+   "params": {
+    "source": "Watcher armed for session `019f96e1-4607-7ee2-831f-fa798c96a7a3`."
+   }
+  },
+  {
+   "id": 28,
+   "parent": 6,
+   "score": 0.0,
+   "accepted": false,
+   "frontier": false,
+   "params": {
+    "source": "Watcher armed for session `019f96e4-45eb-7ad2-afad-51f076048803`."
+   }
+  },
+  {
+   "id": 29,
+   "parent": 6,
+   "score": 0.0,
+   "accepted": false,
+   "frontier": false,
+   "params": {
+    "source": "Watcher armed for session `019f96ea-0d10-7372-a1db-57f7f21dacee`."
+   }
+  },
+  {
+   "id": 30,
+   "parent": 6,
+   "score": 0.0,
+   "accepted": false,
+   "frontier": false,
+   "params": {
+    "source": "Watcher armed for session `019f96ed-0a7e-7700-b58c-391205e9a6e2`."
+   }
+  },
+  {
+   "id": 31,
+   "parent": 6,
+   "score": 0.0,
+   "accepted": false,
+   "frontier": false,
+   "params": {
+    "source": ""
+   }
+  },
+  {
+   "id": 32,
+   "parent": 6,
+   "score": 0.0,
+   "accepted": false,
+   "frontier": false,
+   "params": {
+    "source": "Watcher armed for session `019f96f3-1dd2-75f1-9791-7f3438f31d54`."
+   }
+  },
+  {
+   "id": 33,
+   "parent": 6,
+   "score": 0.0,
+   "accepted": false,
+   "frontier": false,
+   "params": {
+    "source": "Watcher armed for session `019f96f9-304a-7ed2-942a-49a5aa043bc7`."
+   }
+  },
+  {
+   "id": 34,
+   "parent": 6,
+   "score": 0.0,
+   "accepted": false,
+   "frontier": false,
+   "params": {
+    "source": "Watcher armed for session `019f96fc-482e-7560-8d37-03e3aa054546`."
    }
   }
  ]

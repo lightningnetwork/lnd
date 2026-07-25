@@ -23,17 +23,25 @@ and its comparison section covers the ground the other two build on.
 Objective = `success − 0.01·min(extra_attempts, 15) − 0.00002·min(fee_ppm, 5000)`.
 Every tier below is held out from the run that produced the router.
 
-| tier | lnd stack | hand-written seed | hb1 | hb2 | **mx_c3** |
-|---|---|---|---|---|---|
-| hard sealed test | 0.309 | 0.530 | **0.586** | 0.545 | 0.583 |
-| OOD corpus-v2 test | 0.357 | 0.487 | 0.545 | 0.577 | **0.581** |
-| mainnet, 12,161 nodes | 0.694 | 0.762 | 0.790 | — | **0.791** |
-| average of the three | 0.453 | 0.593 | 0.640 | — | **0.652** |
-| drift test (exp-008) | 0.203 | 0.377 | 0.455 | — | **0.457** |
+| tier | lnd stack | hand-written seed | hb1 | hb2 | **mx_c3** | drift1 |
+|---|---|---|---|---|---|---|
+| hard sealed test | 0.309 | 0.530 | **0.586** | 0.545 | 0.583 | 0.580 |
+| OOD corpus-v2 test | 0.357 | 0.487 | 0.545 | 0.577 | **0.581** | 0.544 |
+| mainnet, 12,161 nodes | 0.694 | 0.762 | 0.790 | — | **0.791** | 0.790 |
+| average of the three | 0.453 | 0.593 | 0.640 | — | **0.652** | 0.638 |
+| drift test (exp-008) | 0.203 | 0.377 | 0.455 | — | **0.457** | 0.417 |
 
 hb2 was retired before the mainnet and drift tiers existed, so it has no
 number in those rows. On the two tiers where all four were measured, the
 averages are hb1 0.565, hb2 0.561, mx_c3 0.582.
+
+The last column is not a champion and does not live in this directory. It is
+the winner of exp-008's `code_drift1` run, the only evolved router with
+time-based logic, kept for comparison at
+`simulation/lab/experiments/exp-008-drift1-best-candidate.go`. Read the
+drift-test row across: the time-aware router bred *on* the drift corpus
+scores 0.417 there, below every champion and below the time-less gen2's
+0.456.
 
 The mainnet row is the one to look at, because success rates there are close
 and the gap comes almost entirely from attempts:
@@ -44,6 +52,7 @@ and the gap comes almost entirely from attempts:
 | hand-written seed | 0.762 | 0.820 | 6.1 |
 | hb1 | 0.790 | 0.810 | 2.3 |
 | mx_c3 | **0.791** | 0.810 | **2.3** |
+| drift1 (exp-008, not promoted) | 0.790 | 0.810 | 2.4 |
 
 An 8.6× reduction in attempts at equal success. That is the headline
 result.
@@ -93,8 +102,12 @@ The lineage:
 
 ```
 hand-written seed (384 lines, cmd/routesim/candidate_impl.go)
-  └── code_hard1, hard corpus ──> hb1 ─── hb2 (sibling, archived)
-        └── code_mix1, mixed corpus, seeded from hb1 ──> mx_c3
+  ├── code_hard1, hard corpus ──> hb1 ─── hb2 (sibling, archived)
+  │     └── code_mix1, mixed corpus, seeded from hb1 ──> mx_c3
+  └── small seed + insights in the prompt, not in the code
+        ├── code_gen2,   mixed corpus ──> gen2   (not promoted)
+        └── code_drift1, drift corpus ──> drift1 (not promoted; the only
+              router with time logic, and it still loses on drift)
 ```
 
 A third lineage, `code_gen2` (exp-011), started from a small seed with the
@@ -102,6 +115,17 @@ discovered insights in the prompt rather than in the code, and converged on
 the same paradigm at 0.638 combined. It was not promoted; its best
 candidate lives at
 `simulation/lab/experiments/exp-011-gen2-best-candidate.go`.
+
+A fourth lineage, `code_drift1` (exp-008), used the same small seed and the
+same insights prompt but ran on the drift corpus, where a virtual clock and
+exogenous background traffic move hidden liquidity between the router's own
+payments. It produced the first evolved router with time-based logic — a
+35-minute confidence half-life, hard bounds that expire at 20 minutes, and
+edge probability interpolated between aging evidence and the prior — and
+that router loses to the time-less champions on all four tiers, drift
+included. Not promoted either; the source and a full walkthrough are at
+`simulation/lab/experiments/exp-008-drift1-best-candidate.go` and its
+companion `.md`.
 
 ## What they discovered
 
@@ -130,7 +154,8 @@ a decay constant and you find nothing. lnd's mission control decays
 everything — the apriori estimator with a one-hour penalty half-life, the
 bimodal estimator decaying success and failure amounts over a week. The
 champions dropped mission control and every clock, and replaced recency with
-evidence.
+evidence. exp-008 later put that choice under genuine staleness pressure and
+it held; see the first caveat below.
 
 Two smaller inventions:
 
@@ -189,14 +214,24 @@ its score; the sandbox was sealed in exp-005 and it is worth re-verifying.
 These are research artifacts, not patches. The honest limitations, in full,
 are in each companion document; the short version:
 
-- **The simulator has known fidelity gaps**, and one of them plausibly
-  shaped the central design choice. Until exp-008 there was no virtual clock
+- **The simulator has known fidelity gaps**, though the one that looked most
+  threatening has now been closed. Until exp-008 there was no virtual clock
   and no background traffic, so nothing moved liquidity between a sender's
-  own payments — a world in which time decay can only hurt. The champions'
-  zero-time-logic is therefore partly a simulator artifact. exp-008 is
-  testing that now: on the drift corpus the champions still win comfortably
-  (0.457 and 0.455 against lnd's 0.203), but a router re-evolved under drift
-  may well grow decay back.
+  own payments — a world in which time decay can only hurt, which made the
+  champions' zero-time-logic look like a simulator artifact. exp-008 built
+  the clock and the traffic and re-ran evolution on the drift corpus. Time
+  awareness did re-evolve, in a form nobody prompted for: a 35-minute
+  confidence half-life, hard bounds expiring at 20 minutes, and edge
+  probability interpolated as `conf·learned + (1−conf)·prior` so aging
+  evidence slides back toward the bimodal prior. It lost anyway, on every
+  tier including drift itself — 0.417 against the champions' 0.455 and
+  0.457, and against the time-less gen2's 0.456. At this level of churn a
+  stale hard bound costs about one retry, which is cheaper than what decay
+  throws away, so the champions' timelessness is a validated design property
+  rather than an artifact. The residual caveat is real but narrow: one drift
+  intensity (ten-minute gaps, roughly `num_nodes/10` background payments per
+  gap), one traffic model (naive fee-optimizing senders), and a 400-eval
+  budget against champions bred across two runs and 900 evaluations.
 - **MPP shards settle sequentially.** The runner only counts a part as in
   flight after it settles, so no candidate ever raced its own HTLCs. hb2
   evolved in-flight liquidity reservation anyway and its successors dropped
@@ -225,7 +260,9 @@ are in each companion document; the short version:
   matter here: `exp-003-seed-router-vs-lnd.md` (the seed beats lnd),
   `exp-005-sim-audit.md` (sandbox sealing), `exp-006-breakthrough.md` (hb1),
   `exp-007-mix-followup.md` (mx_c3, hb2 retired),
-  `exp-008-drift-evolution.md` (background traffic),
+  `exp-008-drift-evolution.md` (background traffic, and the verdict on time
+  decay), `exp-008-drift1-best-candidate.md` (the time-aware router itself,
+  walked through like a champion),
   `exp-009-mainnet-validation.md` (the mainnet snapshot),
   `exp-011-code-gen2.md` (the independent third lineage).
 - `routing/sim_router.go` — the `SimRouter` contract.

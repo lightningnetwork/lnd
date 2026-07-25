@@ -447,12 +447,18 @@ second-chance instinct, arrived at independently.
 **Simulator fidelity gaps that plausibly shaped the design.**
 
 - No background traffic and no virtual clock during evolution, so nothing
-  moved liquidity between the sender's own payments. Zero time logic is the
-  right answer in that world and possibly the wrong answer in a live one.
-  exp-008 built the drift corpus to test exactly this; mx_c3 scores 0.457
-  there against lnd's 0.203, so the paradigm survives drift, but the
-  re-evolution under drift is the experiment that will say whether decay
-  comes back.
+  moved liquidity between the sender's own payments. Zero time logic is
+  trivially the right answer in that world, which made it suspect. exp-008
+  built the drift corpus and re-ran evolution on it. Time awareness did come
+  back — a 35-minute confidence half-life, hard bounds expiring at 20
+  minutes, probability interpolated between aging evidence and the prior —
+  and the router carrying it scores 0.417 on the drift test against mx_c3's
+  0.457, losing on all four tiers. mx_c3's timelessness is a validated
+  design property at this level of churn rather than a simulator artifact,
+  with the residual caveat of one drift intensity, one traffic model, and a
+  400-eval budget. See
+  `simulation/lab/experiments/exp-008-drift-evolution.md` and
+  `simulation/lab/experiments/exp-008-drift1-best-candidate.md`.
 - **Sequential shard settlement.** The runner increments `inFlightHtlcs`
   only after a part settles, so mx_c3 never races shards and never has to
   reason about two of its own HTLCs contending for one channel. Its whole
@@ -523,5 +529,8 @@ for why.
   snapshot result.
 - `simulation/lab/experiments/exp-011-code-gen2.md` — the independent third
   lineage that converged on the same paradigm from a small seed.
+- `simulation/lab/experiments/exp-008-drift-evolution.md` and
+  `exp-008-drift1-best-candidate.md` — the drift experiment that settled the
+  zero-time-logic question, and the time-aware router it produced.
 - `router_hb1_v1.md` — the parent, with the full lnd comparison.
 - `routing/sim_router.go` — the `SimRouter` contract.

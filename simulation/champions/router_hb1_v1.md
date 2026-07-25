@@ -362,12 +362,20 @@ simulator, validated on that simulator plus one mainnet graph snapshot.
 
 - Until exp-008 the simulator had no virtual clock and no background
   traffic, so *nothing changed liquidity between a sender's own payments*.
-  In that world, time-decay logic can only hurt, which means hb1's
-  zero-time-logic is at least partly a simulator artifact. The exp-008
-  drift corpus (ten virtual minutes between payments, background senders
-  moving balances) is the test of that hypothesis; hb1 scores 0.455 there
-  against lnd's 0.203, so the paradigm survives drift, but a re-evolved
-  router under drift may well grow decay back.
+  In that world time-decay logic can only hurt, which made hb1's
+  zero-time-logic look like a simulator artifact. exp-008 tested it
+  directly: the drift corpus (ten virtual minutes between payments,
+  background senders moving balances) plus a fresh evolution run on that
+  corpus. Time awareness did re-evolve — a 35-minute confidence half-life,
+  hard bounds expiring at 20 minutes, probability interpolated between
+  aging evidence and the prior — and the resulting router scores 0.417 on
+  the drift test against hb1's 0.455. hb1's timelessness is a validated
+  design property at this level of churn, not an artifact; a stale hard
+  bound costs about one retry, which is cheaper than what decay discards.
+  The residual caveat is one drift intensity, one traffic model, and a
+  400-eval budget. See
+  `simulation/lab/experiments/exp-008-drift-evolution.md` and
+  `simulation/lab/experiments/exp-008-drift1-best-candidate.md`.
 - MPP shards settle **sequentially** in the runner: `inFlightHtlcs` only
   increments after a part settles, so hb1 never races two shards against
   the same channel and never learns to. Its whole splitting design assumes
@@ -426,5 +434,7 @@ for mx_c3 only if you want the extra machinery.
 - `simulation/lab/experiments/exp-009-mainnet-validation.md` — the mainnet
   snapshot result.
 - `simulation/lab/experiments/exp-008-drift-evolution.md` — the drift
-  baseline that tests whether zero-time-logic is a simulator artifact.
+  experiment that settled the zero-time-logic question.
+- `simulation/lab/experiments/exp-008-drift1-best-candidate.md` — the
+  time-aware router that experiment produced, walked through in full.
 - `routing/sim_router.go` — the `SimRouter` contract hb1 implements.

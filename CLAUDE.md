@@ -90,7 +90,12 @@ source), `~/codez/data/mainnet_graph.json`.
   process-group kill (75081d251); reflection failures degrade to a
   stub proposal, never a run-killing exception. Nested claude -p needs
   CLAUDE_CODE_OAUTH_TOKEN (harness reads ~/codez/.claude-harness-token,
-  0600 — NEVER print it; error text is token-redacted).
+  0600 — NEVER print it; error text is token-redacted). --system-prompt
+  strips CLAUDE.md/memories but NOT user-level hooks, whose feedback
+  reaches the model even in -p mode (one Opus reflection came back
+  discussing the mail-watcher Stop hook instead of emitting a router).
+  ClaudeLM therefore also sets a sterile
+  CLAUDE_CONFIG_DIR=~/codez/claude-harness-home (f27bd470a).
 - The default codex home (~/.codex) injects the user's global
   AGENTS.md AND accumulated memories into every session — the
   reflection model obeyed those ("Watcher armed.") instead of the

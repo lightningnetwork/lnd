@@ -78,5 +78,63 @@ joint planning cannot evolve. The follow-up corpus (one probe pair +
 the deeper fix — simultaneous shard commitment, so sequential
 adaptivity stops being free — is designed as the successor experiment.
 
-## Verdict
-(pending run completion)
+## Verdict — codex arm (code_split2; Opus arm still running)
+
+Run history first: code_split1 was killed mid-run after ~70% of its
+reflections were hijacked by global-instruction leakage (see the
+CodexLM hardening commits); code_split2 is the clean rerun, 400/400
+evals on the isolated CODEX_HOME.
+
+**The mechanism emerged.** The winner (976 lines, exploit-grep clean,
+archived as `exp-010-split2-best-candidate.go`) is the first evolved
+router that plans route SETS rather than shards in isolation:
+
+- `candidateAmounts` derives UNEQUAL split candidates from known
+  bounds and estimated corridor sizes ("each shard sized to a
+  differently sized parallel corridor"), not halves.
+- `RequestRoute` does one-step-lookahead joint planning: for each
+  candidate shard it reserves the route, plans the NEXT shard against
+  the remainder (sized so the rest still fits the remaining parts),
+  and scores the pair jointly — the utility includes the next shard's
+  probability and fee. Reservation during planning
+  (`reserveChoice`/`releaseChoice`) is the in-flight machinery two
+  earlier lineages invented speculatively, now actually load-bearing.
+- Repeat-attempt suppression via route-set hashing replaces
+  blacklisting.
+
+Not full min-cost-flow, but structurally past reactive laddering:
+selection pressure produced exactly the design family the corpus was
+built to elicit.
+
+**It still does not beat the champion.** First sweep with paired
+statistics (bootstrap 95% CIs, sign tests, baseline mx_c3):
+
+| tier | mx_c3 | split2 | paired delta [CI] | p |
+|---|---|---|---|---|
+| split-val | 0.835 | 0.809 | −0.025 [−0.041,−0.011] | 0.008 |
+| split-test | 0.876 | 0.810 | −0.067 [−0.145,−0.020] | 0.008 |
+| hard test | 0.583 | 0.536 | −0.048 [−0.081,−0.017] | 0.021 |
+| OOD v2 | 0.581 | 0.494 | −0.086 [−0.139,−0.043] | 0.021 |
+| mainnet | 0.791 | 0.743 | −0.048 [−0.069,−0.026] | 0.039 |
+
+Consistently and significantly behind mx_c3 on every tier — including
+the splitting corpus itself, where its lookahead matches mx_c3's
+success (0.917 vs 0.958) at similar attempts but pays more in the
+penalty terms. Off-corpus it generalizes worse (17-20 attempts on the
+static tiers vs mx_c3's 8-11). The paired statistics also settle an
+old informal claim: hb1 and mx_c3 are genuinely indistinguishable on
+mainnet (delta −0.000 [−0.003,+0.002]).
+
+**Reading.** Same shape as exp-008: the environment reliably elicits
+the *mechanism* (there: time-decay; here: joint planning), but a
+400-eval lineage carrying new machinery cannot out-refine a 900-eval
+champion, and the pre-registered resolution caveat stands — the
+corpus's near-binary per-file scores gave selection little gradient
+to polish the lookahead with. Champions of record remain hb1 + mx_c3.
+The successor experiment is already designed: the higher-resolution
+corpus (--split-leads) plus simultaneous shard commitment, which
+makes sequential adaptivity stop being free and gives joint planning
+its honest arena.
+
+## Verdict — Opus 5 arm (code_split_opus1)
+(pending run completion — first frontier-model reflection A/B)

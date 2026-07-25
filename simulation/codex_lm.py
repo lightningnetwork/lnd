@@ -9,9 +9,43 @@ non-interactively with a read-only sandbox, and return the agent's final
 message.
 """
 
+import pathlib
 import subprocess
 import tempfile
 import os
+
+# A dedicated CODEX_HOME for the harness. The default ~/.codex injects the
+# user's global AGENTS.md and accumulated memories into every session,
+# which is how the reflection model ended up arming mail watchers instead
+# of writing candidates. The harness home symlinks auth (so credential
+# refreshes still work) and carries a minimal config with no instructions
+# and memories disabled — verified to eliminate the hijack entirely.
+HARNESS_HOME = pathlib.Path.home() / "codez" / "codex-harness-home"
+
+HARNESS_CONFIG = """\
+# Dedicated codex home for the GEPA reflection harness. No AGENTS.md, no
+# memories, no notify hooks: the model must see only the reflection prompt.
+model = "gpt-5.6-sol"
+model_reasoning_effort = "medium"
+
+[features]
+memories = false
+"""
+
+
+def ensure_harness_home() -> pathlib.Path:
+    """Create the isolated codex home on first use."""
+    HARNESS_HOME.mkdir(parents=True, exist_ok=True)
+
+    auth = HARNESS_HOME / "auth.json"
+    if not auth.exists():
+        auth.symlink_to(pathlib.Path.home() / ".codex" / "auth.json")
+
+    config = HARNESS_HOME / "config.toml"
+    if not config.exists():
+        config.write_text(HARNESS_CONFIG)
+
+    return HARNESS_HOME
 
 # The codex CLI injects the user's global agent instructions
 # (~/.codex/AGENTS.md) into every session. Those instructions describe an
@@ -64,6 +98,9 @@ class CodexLM:
                 mode="r", suffix=".txt", delete=False) as out:
             out_path = out.name
 
+        env = dict(os.environ)
+        env["CODEX_HOME"] = str(ensure_harness_home())
+
         try:
             proc = subprocess.run(
                 [
@@ -78,6 +115,7 @@ class CodexLM:
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
+                env=env,
             )
             if proc.returncode != 0:
                 raise RuntimeError(

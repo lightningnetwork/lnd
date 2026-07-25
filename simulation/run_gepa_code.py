@@ -87,6 +87,19 @@ simulation/champions/), worth building on rather than rediscovering:
   may not survive in a drifting network.)
 - Retry-at-lower-amount on a failed channel (a lower-retry factor)
   outperforms permanently blacklisting it.
+- Time-decay of evidence has been tried under genuine liquidity drift
+  and LOST to plain hard bounds (exp-008): a stale bound costs one
+  retry to refresh, which is cheaper than what decay throws away.
+  Spend your complexity budget elsewhere.
+- MPP splitting is where the least design space has been explored.
+  Prior winners split reactively: try an amount, and on failure carve
+  the next shard from a ladder of halves and evidence-derived sizes.
+  Nobody has yet evolved JOINT route-set planning: choosing a set of
+  routes AND their shard amounts together up front (min-cost-flow
+  style), so that parallel corridors of unequal capacity each carry a
+  shard sized to what they can bear. When single paths cannot carry
+  the payment, unequal splits chosen deliberately should beat halving
+  discovered by failure.
 - Keep the implementation LEAN: past ~800 lines, edits stop compiling
   and progress stalls. Prefer simplifying refactors over accretion.
 """

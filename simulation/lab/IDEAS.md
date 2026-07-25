@@ -101,6 +101,47 @@ proposal for lnd; (c) intervals still win → decay was overweighted.
   traffic (exp-008), non-binary split pressure (exp-010), or
   concurrent shard settlement racing liquidity.
 
+## Cold cache vs hot-loaded weights (roasbeef, 2026-07-25) → exp-012
+
+lnd field defect: mission control weights matter enormously on a
+network full of unbalanced/unreliable nodes, and a NEW node has none —
+it burns a long, expensive warmup making its first payments. Proposed
+fix under consideration: serve cached weights from an API so a fresh
+node can hot-load instead of probing from scratch.
+
+What we already know: every sim batch is a cold start (empty MC, empty
+beliefs), so all published numbers ARE cold-cache numbers — and the
+champions' entire advantage is warmup speed (mainnet 2.3 vs 19.8
+att/payment with zero prior knowledge in both cases). What we have NOT
+measured: the shape of the warmup curve (attempts by payment index —
+in flight), and the marginal value + staleness sensitivity of imported
+weights.
+
+**Designed experiment (exp-012):**
+1. *Warmup curves* (analysis only, no sim changes): attempts/success by
+   payment index within batches, per router, on mainnet + hard corpora.
+   Quantifies how many payments each design needs to get cheap.
+2. *Hot load*: add an unscored `warmup_payments` phase to the runner —
+   N payments run before the scored batch, warming MC/beliefs but not
+   counting. Scored-batch delta vs cold = the value of a served cache.
+   Works identically for lnd and candidates, no contract change.
+3. *Staleness*: combine with the drift model — insert T virtual minutes
+   (with background traffic) between warmup and scored batch; plot
+   payment-1 attempts vs T. This is the API-cache question exactly:
+   how stale can served weights be and still help? drift1's confidence
+   half-life (exp-008) is the natural primitive for weighing imported,
+   aged evidence.
+4. *Third-party weights*: the champions' beliefs are keyed by DIRECTED
+   CHANNEL and describe channel state, not "pairs as seen from me" —
+   unlike lnd's MC history, they are meaningfully shareable across
+   nodes. Warm the cache from a DIFFERENT source node's probes and
+   measure transfer. (Candidate knowledge is package-level in-process,
+   so two runners can already share it; a real design would serialize
+   the belief map — a few hundred bytes per active channel.)
+
+Sequencing: the runner feature (2) touches routing/, so it lands
+between evolution runs; (1) needs nothing and runs anytime.
+
 ## Engineering
 - Cache evals keyed by (candidate hash, example) to stretch budgets —
   GEPA re-evaluates the seed dozens of times.

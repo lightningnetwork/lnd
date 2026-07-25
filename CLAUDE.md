@@ -84,6 +84,13 @@ source), `~/codez/data/mainnet_graph.json`.
   prompt (this is `code_gen2`'s design, and it accepts candidates much
   faster).
 - zsh: `"$VAR[full]"` is subscript expansion — write `"${VAR}[full]"`.
+- The codex CLI injects ~/.codex/AGENTS.md (the user's global agent
+  instructions) into every session; the reflection model can start
+  obeying its session-workflow rules ("arm the mail watcher") instead
+  of the reflection task, returning tooling chatter as candidates.
+  CodexLM now carries a role-pinning preamble + require_marker retry
+  (2b5d84b66) — check any new run's log early: `grep "Proposed new
+  text" <log> | grep -ci watcher` should be 0.
 
 ## Open work
 

@@ -135,8 +135,30 @@ def evaluate(candidate: str, example) -> tuple[float, dict]:
         - params_eval.FEE_WEIGHT * fee_ppm
     )
 
+    # Separate objective axes for Pareto-frontier preservation
+    # (frontier_type="hybrid" in the engine config). Retries and parts
+    # are disentangled: a mandatory 3-shard MPP payment is not "2 extra
+    # attempts" of waste, while 3 failures before 1 settle are. Axes are
+    # oriented so higher is better.
+    results = output["results"]
+    settled_parts = sum(
+        1
+        for res in results
+        for att in (res.get("attempts") or [])
+        if att.get("success")
+    )
+    total_attempts = agg["total_attempts"]
+    retries = max(total_attempts - settled_parts, 0)
+    num = max(agg["num_scenarios"], 1)
+    scores = {
+        "success": agg["success_rate"],
+        "retry_efficiency": -min(retries / num, 25.0),
+        "fee_efficiency": -fee_ppm / params_eval.FEE_PPM_CAP,
+    }
+
     return score, {
         "score": score,
+        "scores": scores,
         "aggregate": agg,
         "failed_payments": params_eval.summarize_failures(
             output["results"],

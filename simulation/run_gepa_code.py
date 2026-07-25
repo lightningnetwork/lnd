@@ -167,6 +167,18 @@ def main() -> None:
             "engine": {
                 "max_workers": args.max_concurrency,
                 "seed": 0,
+                # Hybrid frontier: per-example AND per-objective Pareto
+                # cells, fed by the evaluator's info["scores"] axes
+                # (success / retry_efficiency / fee_efficiency), so
+                # fee-efficient or low-retry specialists survive
+                # selection instead of being averaged away. "cartesian"
+                # would dissolve selection pressure at our corpus size.
+                "frontier_type": "hybrid",
+                # The evaluator is deterministic (verified), so identical
+                # (candidate, example) pairs are served from cache and
+                # do not consume budget. Report cache misses alongside
+                # eval counts when comparing runs.
+                "cache_evaluation": True,
             },
         },
     )

@@ -62,5 +62,21 @@ answer is informative; a win by ladder refinement would suggest
 sequential adaptivity beats up-front planning even under maximal
 splitting pressure.
 
+## Pre-registered caveat: corpus resolution (added mid-run)
+
+An Opus 5 advisor review flagged a measurement problem in this corpus
+before the runs finished, and we log it before seeing the verdicts.
+Each file carries two easy probes plus ONE ambitious payment, so
+two-thirds of the success term is free and per-file scores are nearly
+binary; at reflection_minibatch_size=3 the acceptance signal
+quantizes at ~0.111 while the spread we are selecting for (attempt
+efficiency between good routers) is worth at most 0.15. Selection
+noise likely exceeds signal, so weak or null verdicts here — including
+an indistinguishable codex-vs-Opus A/B — would not be evidence that
+joint planning cannot evolve. The follow-up corpus (one probe pair +
+8–10 ambitious payments per file) raises per-file resolution ~8x; and
+the deeper fix — simultaneous shard commitment, so sequential
+adaptivity stops being free — is designed as the successor experiment.
+
 ## Verdict
 (pending run completion)

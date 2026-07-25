@@ -97,9 +97,16 @@ def corridor_tiers_msat(topology: dict) -> list:
     return [cap_msat * w // denom for w in weights]
 
 
-def gen_split_example(rng: random.Random) -> dict:
+def gen_split_example(rng: random.Random, leads: int = 1) -> dict:
     """One splitting-pressure scenario file: a corridors network, two cheap
-    probes and one payment that no single path can carry."""
+    probes and payments that no single path can carry.
+
+    With leads > 1 the file carries several ambitious payments instead of
+    one. This raises per-file score resolution: with a single ambitious
+    payment two-thirds of the success term is free probes and per-file
+    scores are nearly binary, which quantizes minibatch selection below
+    the attempt-efficiency signal actually being selected for.
+    """
     topology = dict(rng.choice(SPLIT_TOPOLOGIES))
     topology["seed"] = rng.randrange(1, 2**31)
 
@@ -118,8 +125,27 @@ def gen_split_example(rng: random.Random) -> dict:
     # ambitious payment goes last: it is the one that can burn the network.
     budget = CORRIDOR_USABLE_FRAC * sum(tiers) / head
     probes = [0.12, 0.18]
-    lead = max(1.05, LEAD_BUDGET_FRAC * (budget - sum(probes)))
-    lead = min(lead, 3.0)
+
+    if leads <= 1:
+        lead = max(1.05, LEAD_BUDGET_FRAC * (budget - sum(probes)))
+        lead = min(lead, 3.0)
+        mults = probes + [lead]
+    else:
+        # Several ambitious payments share the usable budget, in a
+        # descending geometric ladder: nothing refills a corridor, so
+        # each successive payment is sized against what the depleting
+        # network can still plausibly carry, while every lead stays
+        # above the fattest tier so splitting remains mandatory. The
+        # total deliberately brushes the budget: completing the tail is
+        # the graded part of the score, and a router that wastes less
+        # liquidity on failed shards completes more of it.
+        remaining = LEAD_BUDGET_FRAC * (budget - sum(probes))
+        mults = list(probes)
+        size = min(remaining * 0.5, 3.0)
+        for _ in range(leads):
+            jitter = 0.9 + 0.2 * rng.random()
+            mults.append(min(max(1.05, size * jitter), 3.0))
+            size = max(1.05, size * 0.6)
 
     scenarios = [
         {
@@ -127,7 +153,7 @@ def gen_split_example(rng: random.Random) -> dict:
             "amt_msat": int(head * mult),
             "max_parts": 16,
         }
-        for mult in probes + [lead]
+        for mult in mults
     ]
 
     return {
@@ -211,6 +237,12 @@ def main() -> None:
                         "payment and the right split is unequal "
                         "(exp-010). Isolates the splitting variable, so "
                         "it composes with neither --hard nor --drift")
+    parser.add_argument("--split-leads", type=int, default=1,
+                        help="ambitious payments per --split file. The "
+                        "default 1 reproduces the original exp-010 "
+                        "corpus; 8-10 raises per-file score resolution "
+                        "so minibatch selection can see the "
+                        "attempt-efficiency signal")
     args = parser.parse_args()
 
     # --split isolates one variable, so it does not mix with the other corpus
@@ -242,7 +274,7 @@ def main() -> None:
         split_dir.mkdir(parents=True, exist_ok=True)
         for i in range(count):
             if args.split:
-                example = gen_split_example(rng)
+                example = gen_split_example(rng, leads=args.split_leads)
             else:
                 example = gen_example(rng, drift=args.drift)
             path = split_dir / f"example_{i:03d}.json"

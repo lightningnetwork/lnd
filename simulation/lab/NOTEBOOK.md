@@ -123,6 +123,44 @@ gap** even now that it operates. But everyone lost ground vs static
 (champions ~0.59 → ~0.42), so drift created real headroom. Evolution
 run `code_drift1` (400 evals, drift-neutral prompt) is live. exp-008.
 
+## 2026-07-25 (night 2) — advisor consults reframe the program
+
+Two independent advisor reviews (Opus 5 on GEPA usage, Fable 5 on the
+simulator) landed corrections we are adopting:
+
+**The "paradigm ceiling" is partly a MEASUREMENT ceiling.** The split
+corpus carries two free probes per file, making per-file scores nearly
+binary; at minibatch size 3 the acceptance signal quantizes at ~0.111
+while the attempt-efficiency spread being selected for is worth ≤0.15.
+Pre-registered before the exp-010 verdicts: weak or null results there
+are not evidence about joint planning. Fixes staged: --split-leads
+(descending lead ladder, ~7 graded payments/file), info["scores"]
+multi-objective axes + frontier_type="hybrid" + cache_evaluation, and
+a paired-statistics sweep tool (bootstrap CIs, sign tests).
+
+**The sim's feedback channel is a precision paradise.** Contrarian
+take we accept: sealed gossip restricts inputs, but every failure is
+instant, truthful, and exactly attributed — strictly MORE generous
+than mainnet (parallel channels, non-strict forwarding, unattributable
+timeouts). The champions' per-directed-channel intervals are the
+optimal exploitation of a noiseless attribution channel, so the 8.6×
+number is an upper bound until a degraded-attribution run exists. Also
+corrected: receiver-side inbound failures DO occur (our gap list was
+wrong); newly logged distortions: failed MPP payments are not atomic
+(settled shards move liquidity + pay fees), and the world freezes
+during a payment (traffic only runs between payments).
+
+Upstream red flags to fix before proposing: no lnd+bimodal baseline
+arm; mainnet liquidity synthetic from the same bimodal family the
+champions hard-code (circular); single vantage; no variance reporting;
+test-set reuse across exp-006..011 (fresh corpus at writeup time).
+Staged tonight: multi-vantage mainnet scenarios (degrees 2024→2),
+params_lnd_bimodal.json, sweep_validate.py. Durable gepa-clone patch
+for the meta_harness claude JSON-array crash (branch
+fix-claude-json-array). Advisor: do NOT re-enable adaptive rotation at
+this budget (rotation would fire on noise and confound the A/B);
+prefer clean parallel proposer comparisons.
+
 ## 2026-07-25 — exp-008 VERDICT: time-awareness re-evolves, doesn't win
 
 code_drift1 finished 400/400 (51 accepts). Its winner is the first

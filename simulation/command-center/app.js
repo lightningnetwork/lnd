@@ -96,6 +96,56 @@ const MEASURES = [
   { key: "ood",     label: "out-of-distribution",  sub: "corpus-v2 scale-free, never trained on" },
 ];
 
+/* exp-011 — the three lineages, averaged over all three held-out tiers.
+   Note this "combined" spans mainnet too, so it is not the synthetic-only
+   combined column used in the scoreboard table. */
+const LINEAGE = [
+  { id: "lnd",   name: "lnd production stack", short: "lnd",   combined: 0.453,
+    note: "baseline", evolved: false },
+  { id: "seed",  name: "hand-written seed",    short: "seed",  combined: 0.593,
+    note: "hand-written, ~300 lines", evolved: false },
+  { id: "gen2",  name: "gen2",                 short: "gen2",  combined: 0.638,
+    note: "lineage 3 — small seed + insights as prose", evolved: true },
+  { id: "hb1",   name: "hb1",                  short: "hb1",   combined: 0.640,
+    note: "lineage 1 — the breakthrough run", evolved: true },
+  { id: "mx_c3", name: "mx_c3",                short: "mx_c3", combined: 0.652,
+    note: "lineage 2 — continued from hb1 on a mixed corpus", evolved: true },
+];
+
+/* exp-008 — drift baseline, before any evolution on the drift corpus. */
+const DRIFT = [
+  {
+    id: "lnd", name: "lnd production stack", short: "lnd",
+    note: "its decay half-lives finally operate",
+    val: 0.213, test: 0.203, valAtt: 59.5, testAtt: 34.5, evolved: false,
+  },
+  {
+    id: "seed", name: "hand-written seed", short: "seed",
+    note: "~300 lines, cheapest path + blacklist",
+    val: 0.320, test: 0.377, valAtt: 38.2, testAtt: 48.3, evolved: false,
+  },
+  {
+    id: "hb1", name: "hb1", short: "hb1",
+    note: "evolved in a static world, no clock",
+    val: 0.387, test: 0.455, valAtt: 8.6, testAtt: 11.8, evolved: true,
+  },
+  {
+    id: "mx_c3", name: "mx_c3", short: "mx_c3",
+    note: "evolved in a static world, no clock",
+    val: 0.380, test: 0.457, valAtt: 11.3, testAtt: 12.3, evolved: true,
+  },
+  {
+    id: "gen2", name: "gen2", short: "gen2",
+    note: "evolved in a static world, no clock",
+    val: 0.383, test: 0.456, valAtt: 8.9, testAtt: 12.7, evolved: true,
+  },
+];
+
+const DRIFT_MEASURES = [
+  { key: "val",  label: "drift validation",    sub: "8 files" },
+  { key: "test", label: "drift held-out test", sub: "8 files" },
+];
+
 /* ==========================================================================
    Figure 1 — champions comparison
    Grouped horizontal bars: one group per held-out set, four routers per group.
@@ -107,8 +157,9 @@ const MEASURES = [
    the bar charts re-lay themselves out rather than scrolling sideways. */
 const isNarrow = mount => mount.clientWidth > 0 && mount.clientWidth < 520;
 
-function championsPlot(mount) {
+function groupedBarPlot(mount, cfg) {
   if (!mount) return;
+  const rows = cfg.rows, measures = cfg.measures;
   const narrow = isNarrow(mount);
   const W = narrow ? 360 : 780;
   const PAD = narrow
@@ -117,25 +168,22 @@ function championsPlot(mount) {
   const BAR = narrow ? 13 : 15, GAP = 5;
   const GROUP_GAP = narrow ? 28 : 34, HEAD = narrow ? 18 : 20;
 
-  const groupH = HEAD + ROUTERS.length * (BAR + GAP);
-  const plotH = MEASURES.length * groupH + (MEASURES.length - 1) * (GROUP_GAP - GAP);
+  const groupH = HEAD + rows.length * (BAR + GAP);
+  const plotH = measures.length * groupH + (measures.length - 1) * (GROUP_GAP - GAP);
   const H = PAD.t + plotH + PAD.b;
   const iw = W - PAD.l - PAD.r;
 
-  const xMax = 0.8;
+  const xMax = cfg.xMax;
   const X = v => PAD.l + (v / xMax) * iw;
 
   const svg = el("svg", {
     viewBox: `0 0 ${W} ${H}`,
     role: "img",
-    "aria-label":
-      "Composite objective by router on the mainnet snapshot, the hard sealed test " +
-      "and out-of-distribution corpus-v2. The evolved routers hb1 and mx_c3 lead " +
-      "on all three tiers.",
+    "aria-label": cfg.ariaLabel,
   });
 
   /* x grid — solid hairlines, one shade off the surface */
-  const gridStep = narrow ? 0.2 : 0.1;
+  const gridStep = narrow ? cfg.gridStepNarrow : cfg.gridStep;
   for (let v = 0; v <= xMax + 1e-9; v += gridStep) {
     const x = X(v);
     svg.appendChild(el("line", {
@@ -144,7 +192,7 @@ function championsPlot(mount) {
     }));
     svg.appendChild(el("text", {
       x, y: H - PAD.b + 17, "text-anchor": "middle",
-      class: "s-num", text: v.toFixed(1),
+      class: "s-num", text: v.toFixed(cfg.tickDigits ?? 1),
     }));
   }
   svg.appendChild(el("text", {
@@ -155,7 +203,7 @@ function championsPlot(mount) {
   const tip = el("div", { class: "tip" });
 
   let y = PAD.t;
-  MEASURES.forEach(m => {
+  measures.forEach(m => {
     svg.appendChild(el("text", {
       x: 0, y: y + 12, class: "s-label-strong", text: m.label,
     }));
@@ -165,14 +213,14 @@ function championsPlot(mount) {
     }));
 
     let by = y + HEAD;
-    ROUTERS.forEach(r => {
+    rows.forEach(r => {
       const v = r[m.key];
       const fill = r.evolved ? C.accent : C.neutral;
 
       svg.appendChild(el("text", {
         x: PAD.l - 10, y: by + BAR - 3.5, "text-anchor": "end",
         class: r.evolved ? "s-label-strong" : "s-label",
-        text: narrow ? (r.id === "seed" ? "seed" : r.id) : r.name,
+        text: narrow ? (r.short || r.id) : r.name,
       }));
 
       /* 4px rounded data-end, anchored to the zero baseline. */
@@ -195,7 +243,7 @@ function championsPlot(mount) {
         fill: "transparent", style: "cursor:default",
       });
       hit.addEventListener("mouseenter", () => {
-        const att = m.key === "mainnet" ? r.mainAttempts : `≈${r.attempts}`;
+        const att = cfg.att(r, m);
         tip.classList.add("show");
         tip.innerHTML =
           `<div class="tt-h">${esc(r.name)}</div>` +
@@ -217,6 +265,161 @@ function championsPlot(mount) {
       by += BAR + GAP;
     });
     y += groupH + (GROUP_GAP - GAP);
+  });
+
+  mount.innerHTML = "";
+  mount.appendChild(svg);
+  mount.appendChild(tip);
+}
+
+function championsPlot(mount) {
+  groupedBarPlot(mount, {
+    rows: ROUTERS,
+    measures: MEASURES,
+    xMax: 0.8,
+    gridStep: 0.1,
+    gridStepNarrow: 0.2,
+    att: (r, m) => (m.key === "mainnet" ? r.mainAttempts : `≈${r.attempts}`),
+    ariaLabel:
+      "Composite objective by router on the mainnet snapshot, the hard sealed test " +
+      "and out-of-distribution corpus-v2. The evolved routers hb1 and mx_c3 lead " +
+      "on all three tiers.",
+  });
+}
+
+/* exp-008 — the same idiom, one tier of difficulty down the y axis: every
+   router scores lower once liquidity drifts, and the order barely moves. */
+function driftPlot(mount) {
+  groupedBarPlot(mount, {
+    rows: DRIFT,
+    measures: DRIFT_MEASURES,
+    xMax: 0.5,
+    gridStep: 0.1,
+    gridStepNarrow: 0.25,
+    tickDigits: 2,
+    att: (r, m) => (m.key === "val" ? r.valAtt : r.testAtt).toFixed(1),
+    ariaLabel:
+      "Composite objective on the drift corpus before evolution. On the held-out " +
+      "drift test lnd scores 0.203, the hand-written seed 0.377, and the three " +
+      "evolved routers cluster near 0.456.",
+  });
+}
+
+/* ==========================================================================
+   Figure — three lineages, one band
+   A dot plot on a single axis: the quantity of interest is how little space
+   separates three independently bred routers, so the axis is zoomed and the
+   band is drawn. Dots, not bars, because the axis does not start at zero.
+   ========================================================================== */
+
+function convergencePlot(mount) {
+  if (!mount) return;
+  const narrow = isNarrow(mount);
+  const W = narrow ? 360 : 780;
+  const PAD = narrow
+    ? { t: 34, r: 44, b: 44, l: 78 }
+    : { t: 34, r: 56, b: 46, l: 158 };
+  const ROW = narrow ? 30 : 34;
+  const plotH = LINEAGE.length * ROW;
+  const H = PAD.t + plotH + PAD.b;
+  const iw = W - PAD.l - PAD.r;
+
+  const xMin = 0.40, xMax = 0.70;
+  const X = v => PAD.l + ((v - xMin) / (xMax - xMin)) * iw;
+
+  const band = LINEAGE.filter(r => r.evolved).map(r => r.combined);
+  const bLo = Math.min(...band), bHi = Math.max(...band);
+
+  const svg = el("svg", {
+    viewBox: `0 0 ${W} ${H}`, role: "img",
+    "aria-label":
+      "Combined held-out objective across all three tiers. lnd scores 0.453 and " +
+      "the hand-written seed 0.593, while the three evolved lineages gen2, hb1 " +
+      "and mx_c3 fall inside a band from 0.638 to 0.652.",
+  });
+
+  /* the band first, so every rule and dot sits on top of it */
+  svg.appendChild(el("rect", {
+    x: X(bLo), y: PAD.t - 12, width: X(bHi) - X(bLo), height: plotH + 12,
+    fill: C.accent, opacity: 0.09,
+  }));
+  svg.appendChild(el("path", {
+    d: `M ${X(bLo)} ${PAD.t - 18} V ${PAD.t - 12} M ${X(bHi)} ${PAD.t - 18}` +
+       ` V ${PAD.t - 12} M ${X(bLo)} ${PAD.t - 18} H ${X(bHi)}`,
+    fill: "none", stroke: C.accent, "stroke-width": 1,
+  }));
+  svg.appendChild(el("text", {
+    x: (X(bLo) + X(bHi)) / 2, y: PAD.t - 24, "text-anchor": "middle",
+    class: "s-label-strong", fill: C.accent,
+    text: narrow ? "0.014 apart" : "three lineages, 0.014 apart",
+  }));
+
+  const step = narrow ? 0.10 : 0.05;
+  for (let v = xMin; v <= xMax + 1e-9; v += step) {
+    const x = X(v);
+    svg.appendChild(el("line", {
+      x1: x, y1: PAD.t - 12, x2: x, y2: PAD.t + plotH,
+      stroke: C.grid, "stroke-width": 1,
+    }));
+    svg.appendChild(el("text", {
+      x, y: PAD.t + plotH + 18, "text-anchor": "middle",
+      class: "s-num", text: v.toFixed(2),
+    }));
+  }
+  svg.appendChild(el("text", {
+    x: PAD.l + iw / 2, y: H - 4, "text-anchor": "middle", class: "s-label",
+    text: narrow
+      ? "combined objective  →"
+      : "combined objective, all three held-out tiers  →",
+  }));
+
+  const tip = el("div", { class: "tip" });
+
+  LINEAGE.forEach((r, i) => {
+    const cy = PAD.t + i * ROW + ROW / 2;
+    const color = r.evolved ? C.accent : C.neutral;
+
+    svg.appendChild(el("text", {
+      x: PAD.l - 12, y: cy + 4, "text-anchor": "end",
+      class: r.evolved ? "s-label-strong" : "s-label",
+      text: narrow ? (r.short || r.id) : r.name,
+    }));
+    /* Leader from the axis to the dot, dotted so it reads as a guide rather
+       than as a bar measured from an origin the axis does not have. */
+    svg.appendChild(el("line", {
+      x1: PAD.l, y1: cy, x2: X(r.combined) - 7, y2: cy,
+      stroke: C.rule2, "stroke-width": 1, "stroke-dasharray": "1 4",
+    }));
+    svg.appendChild(el("circle", {
+      cx: X(r.combined), cy, r: r.evolved ? 5 : 4.2,
+      fill: color, stroke: C.surface, "stroke-width": 1.6,
+    }));
+    svg.appendChild(el("text", {
+      x: X(r.combined) + 12, y: cy + 4,
+      class: "s-num", "font-size": 11,
+      fill: r.evolved ? C.accent : C.ink3,
+      text: r.combined.toFixed(3),
+    }));
+
+    const hit = el("rect", {
+      x: 0, y: cy - ROW / 2, width: W, height: ROW,
+      fill: "transparent", style: "cursor:default",
+    });
+    hit.addEventListener("mouseenter", () => {
+      tip.classList.add("show");
+      tip.innerHTML =
+        `<div class="tt-h">${esc(r.name)}</div>` +
+        `<div class="tt-r"><span class="l">combined objective</span>` +
+        `<span>${r.combined.toFixed(3)}</span></div>` +
+        `<div class="tt-n">${esc(r.note)}</div>`;
+      const rect = mount.getBoundingClientRect();
+      tip.style.left =
+        Math.min(Math.max((X(r.combined) / W) * rect.width + 16, 4),
+          Math.max(rect.width - 210, 4)) + "px";
+      tip.style.top = Math.max((cy / H) * rect.height - 24, 2) + "px";
+    });
+    hit.addEventListener("mouseleave", () => tip.classList.remove("show"));
+    svg.appendChild(hit);
   });
 
   mount.innerHTML = "";
@@ -936,6 +1139,8 @@ async function boot() {
     championsPlot($("#fig-champions"));
     attemptsPlot($("#fig-attempts"));
     priorCurve($("#fig-prior"));
+    convergencePlot($("#fig-convergence"));
+    driftPlot($("#fig-drift"));
   };
   drawStatic();
 

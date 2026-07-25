@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Drift — the environment strikes back (exp-008)</title>
+<meta name="description" content="The simulator gets a virtual clock and background traffic, so knowledge genuinely goes stale. The drift baseline before evolution, and the live run asking whether time-awareness re-evolves." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..500&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="shell">
+    <a class="wordmark" href="index.html">lnd<span class="x">×</span>GEPA</a>
+    <nav class="site-nav">
+      <a href="index.html">overview</a>
+      <a href="findings.html">findings</a>
+      <a href="drift.html" aria-current="page">drift</a>
+      <a href="index.html#run">live run</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ================= MASTHEAD ================= -->
+  <div class="shell masthead">
+    <div class="eyebrow">
+      Work in flight<span class="sep">/</span>exp-008<span class="sep">/</span>24 July 2026
+    </div>
+    <h1>The environment <em>strikes back</em></h1>
+    <p class="standfirst">
+      The evolved champions carry no clock, and we always suspected that was partly
+      our simulator's fault: hidden liquidity only moved when our own payments moved
+      it, so evidence never went stale. <strong>It does now.</strong> The simulator
+      has a virtual clock and strangers sending payments through it, and the
+      question the champions ducked is finally on the table.
+    </p>
+    <div class="byline">
+      <span>source <b>exp-008-drift-evolution.md</b></span>
+      <span>corpus <b>corpus-drift, seed 3031</b></span>
+      <span>run <b>code_drift1</b></span>
+      <span>status <b>baseline done · evolution live</b></span>
+    </div>
+
+    <ol class="toc">
+      <li><a href="#clock"><span class="n">01</span><span class="t">What the simulator gained</span></a></li>
+      <li><a href="#baseline"><span class="n">02</span><span class="t">The baseline, before any evolution</span></a></li>
+      <li><a href="#question"><span class="n">03</span><span class="t">The run in flight, and what each answer would mean</span></a></li>
+    </ol>
+  </div>
+
+  <!-- ================= 01 · THE CLOCK ================= -->
+  <section id="clock">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">01</div>
+        <h2>What the simulator gained</h2>
+        <p class="sec-sub">
+          Two additions, both aimed at one honest weakness: a world where knowledge
+          never expires is a world that flatters routers which never forget.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key">
+          <span class="kn">10<span class="u">min</span></span>
+          <div class="kl">
+            of simulated time between payments, one second per attempt — so lnd's
+            decay half-lives operate over spans that mean something
+          </div>
+          <div class="kf">candidates can read <span class="mono">view.Now()</span></div>
+        </div>
+        <div class="key">
+          <span class="kn">≥10</span>
+          <div class="kl">
+            background senders per gap, scaled to network size, each a naive
+            fee-optimising payer moving liquidity we never see
+          </div>
+          <div class="kf">amounts log-uniform, dust to half a channel</div>
+        </div>
+        <div class="key hi">
+          <span class="kn">0.42<span class="u">was 0.59</span></span>
+          <div class="kl">
+            what the champions now average across validation and test, down from
+            0.59 on the static hard corpus — drift costs everyone
+          </div>
+          <div class="kf">headroom the evolution run can claim</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>The clock</h3>
+        <p>
+          The simulator previously had no notion of time at all. Attempts happened
+          in sequence and nothing aged, which quietly disabled half of lnd's design:
+          <span class="mono">PenaltyHalfLife</span> and the bimodal estimator's
+          seven-day liquidity relaxation are functions of elapsed time, and elapsed
+          time was always zero. lnd's mission control now runs on a virtual clock
+          that advances ten simulated minutes between payments and one second per
+          attempt, so its decay genuinely operates. Candidates get the same clock
+          through <span class="mono">view.Now()</span> — available, not suggested.
+        </p>
+
+        <h3>The traffic</h3>
+        <p>
+          Between our payments, a seeded population of background senders pays each
+          other: naive fee-optimising routers, at least ten per gap or one per ten
+          nodes, with amounts drawn log-uniformly from roughly dust up to half a
+          channel. Their transfers move hidden balances under per-channel
+          conservation, so liquidity sloshes without being created. Crucially the
+          process is seeded and replayed, so lnd, the seed router and every candidate
+          face the identical sequence of exogenous events — the drift is part of the
+          scenario, not a source of noise between contestants.
+        </p>
+        <p>
+          The effect on the difficulty is immediate. On the static hard corpus the
+          champions averaged about <span class="mono">0.59</span> across validation
+          and test; on the drift corpus they average about
+          <span class="mono">0.42</span>, with attempts per payment up from nine or
+          ten to around twelve. Nobody is comfortable here, which is the point: a
+          harder environment is the only thing that can pay for a better algorithm.
+        </p>
+
+        <div class="note">
+          <h4>the caveat this experiment exists to remove</h4>
+          <p>
+            Every result on the <a class="link" href="findings.html">findings</a>
+            page was produced in a world without drift, and the champions' complete
+            absence of time logic was partly an artifact of that world. Hard evidence
+            bounds cannot go stale if nothing changes them, so evolution was right
+            about the environment it was given — which is not the same as being right
+            about mainnet. This page is the test of exactly that.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 02 · BASELINE ================= -->
+  <section id="baseline">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">02</div>
+        <h2>The baseline, before any evolution</h2>
+        <p class="sec-sub">
+          Five routers, none of which has ever seen drift, scored on the new corpus.
+          Two findings fell out before the evolution run even started.
+        </p>
+      </div>
+
+      <figure>
+        <div class="fig-head">
+          <span class="fig-t">Composite objective on the drift corpus</span>
+          <span class="fig-n">Fig. 1 · higher is better</span>
+        </div>
+        <div class="plot resp" id="fig-drift"></div>
+        <div class="legend">
+          <span class="item"><i style="background:#a83f22"></i> evolved by GEPA</span>
+          <span class="item"><i style="background:#8a8175"></i> baseline (lnd, or hand-written)</span>
+        </div>
+        <figcaption>
+          Note the axis: it tops out at <span class="mono">0.5</span>, where the
+          static-corpus figures ran to 0.8. Everything got harder. The ordering did
+          not change — the three evolved routers cluster at the top of both splits,
+          the hand-written seed sits in the middle, and lnd's production stack is
+          last <b>even though this is the first environment where its decay actually
+          runs</b>.
+        </figcaption>
+      </figure>
+
+      <div class="tw wide">
+        <table class="data">
+          <caption>exp-008 baseline · corpus-drift, 8 validation and 8 held-out test files</caption>
+          <thead>
+            <tr>
+              <th>router</th>
+              <th class="num">drift val</th>
+              <th class="num">drift test</th>
+              <th class="num">test success</th>
+              <th class="num">test attempts</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>lnd production stack<span class="sub">Dijkstra + mission control, decay now live</span></td>
+              <td class="num" data-l="drift val">0.213</td><td class="num" data-l="drift test">0.203</td>
+              <td class="num" data-l="test success">0.388</td><td class="num" data-l="test attempts">34.5</td>
+            </tr>
+            <tr>
+              <td>hand-written seed<span class="sub">~300 lines, cheapest path + blacklist</span></td>
+              <td class="num" data-l="drift val">0.320</td><td class="num" data-l="drift test">0.377</td>
+              <td class="num" data-l="test success">0.592</td><td class="num" data-l="test attempts">48.3</td>
+            </tr>
+            <tr>
+              <td>hb1<span class="sub">evolved, hard-regime specialist</span></td>
+              <td class="num" data-l="drift val">0.387</td><td class="num" data-l="drift test">0.455</td>
+              <td class="num" data-l="test success">0.642</td><td class="num" data-l="test attempts">11.8</td>
+            </tr>
+            <tr class="best">
+              <td>mx_c3<span class="sub">evolved, generalist</span></td>
+              <td class="num" data-l="drift val">0.380</td><td class="num" data-l="drift test">0.457</td>
+              <td class="num" data-l="test success">0.642</td><td class="num" data-l="test attempts">12.3</td>
+            </tr>
+            <tr>
+              <td>gen2<span class="sub">evolved, prose-seeded lineage</span></td>
+              <td class="num" data-l="drift val">0.383</td><td class="num" data-l="drift test">0.456</td>
+              <td class="num" data-l="test success">0.642</td><td class="num" data-l="test attempts">12.7</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <h3 style="margin-top:2em">Finding one: hard bounds degrade gracefully</h3>
+        <p>
+          The prediction worth taking seriously was that interval beliefs would
+          <em>break</em> under drift. A <span class="mono">lowerOK</span> bound is an
+          assertion that an amount definitely passes; once strangers move the
+          balance, that assertion can simply be false, and a router that treats it as
+          proven has no mechanism for doubt.
+        </p>
+        <p>
+          It does not break. The three evolved routers hold roughly
+          <strong>2.2×</strong> lnd's objective on the held-out split at
+          <strong>a third of the attempts</strong> — 0.456 against 0.203, twelve
+          attempts against 34.5. The reason is asymmetry of cost: a stale bound that
+          is too optimistic costs one failed attempt, after which the evidence
+          updates and the interval narrows again. A stale bound is not a wrong model,
+          it is one retry.
+        </p>
+
+        <h3>Finding two: lnd's decay does not close the gap</h3>
+        <p>
+          This is the sharper result. The obvious defence of mission control's
+          time-decayed penalties was that our simulator never let them work. Now they
+          work, over ten-minute gaps against liquidity that genuinely moved, and the
+          production stack is still last — 0.203 on the held-out split, at 34.5
+          attempts per payment for a 0.388 success rate.
+        </p>
+        <p>
+          So decay <em>as lnd implements it</em> is not the missing ingredient.
+          Whatever drift-awareness helps in this environment has to look different
+          from a scalar pair-penalty healing on a one-hour half-life. Note also what
+          the champions' 0.642 success at twelve attempts says about the ceiling:
+          drift costs everyone success, and there is a lot of unclaimed room between
+          0.456 and a router that handles staleness deliberately.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 03 · THE QUESTION ================= -->
+  <section id="question">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">03</div>
+        <h2>The run in flight, and what each answer would mean</h2>
+        <p class="sec-sub">
+          <span class="mono">code_drift1</span>: pure GEPA, codex/gpt-5.6-sol
+          reflection, small seed plus the insights prompt, 400 evaluations on
+          corpus-drift. Live now.
+        </p>
+      </div>
+
+      <div class="prose">
+        <p>
+          The setup deliberately does not prescribe the answer. The reflection prompt
+          describes drift neutrally — payments happen, time passes, other senders
+          exist — and flags the hard-bounds insight as something learned in a static
+          world, a caveat rather than an instruction. Nothing tells the model to add
+          decay, and nothing tells it not to. The success criterion is beating the
+          champions on the held-out drift test; the interesting part comes after,
+          when the winner is read for any function of
+          <span class="mono">view.Now()</span> or of evidence age.
+        </p>
+
+        <p>
+          Three outcomes, all of them worth having:
+        </p>
+      </div>
+
+      <div class="ledger">
+        <div class="ledger-row">
+          <div class="verb"><b>Decay</b>re-emerges</div>
+          <div class="ledger-cell now">
+            <h4>what we would see</h4>
+            <p>
+              Evolved candidates that discount old evidence on a clock, in some form
+              — a half-life on confidence, an expiry on bounds, a penalty that heals.
+            </p>
+          </div>
+          <div class="ledger-cell next">
+            <h4>what it would mean</h4>
+            <p>
+              A vindication of lnd's rationale from an independent search, with
+              <strong>evolved constants</strong> instead of hand-picked ones. The
+              interesting artifact would be the half-life it chooses, and how it
+              compares to the shipped one hour.
+            </p>
+          </div>
+        </div>
+
+        <div class="ledger-row">
+          <div class="verb"><b>Something better</b>emerges</div>
+          <div class="ledger-cell now">
+            <h4>what we would see</h4>
+            <p>
+              Not decay but a different treatment of staleness: intervals that widen
+              with elapsed time, confidence that erodes while the bound itself is
+              kept, re-probing scheduled by age rather than by failure.
+            </p>
+          </div>
+          <div class="ledger-cell next">
+            <h4>what it would mean</h4>
+            <p>
+              The best case, and a <strong>concrete design proposal for lnd</strong>:
+              keep the evidence, age the certainty. That is a change mission control
+              could adopt without giving up its own structure.
+            </p>
+          </div>
+        </div>
+
+        <div class="ledger-row">
+          <div class="verb"><b>Intervals</b>still win untouched</div>
+          <div class="ledger-cell now">
+            <h4>what we would see</h4>
+            <p>
+              The winner improves on the champions without referencing time at all —
+              better attribution, better retries, better splitting, and still no
+              clock.
+            </p>
+          </div>
+          <div class="ledger-cell next">
+            <h4>what it would mean</h4>
+            <p>
+              That time-decay is <strong>overweighted</strong> in current designs:
+              evidence-count confidence would be carrying the load even when the
+              evidence really can go stale. Also the least comfortable result to
+              publish, which is a reason to state the criterion in advance.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <div class="sidenote">
+          <h4>what this run cannot settle</h4>
+          <p>
+            One drift model, and a naive one: background senders optimise fees and
+            nothing else, there is no fee-market feedback, no channel opens or
+            closes, and no correlation between their traffic and ours. The corpus is
+            eight validation and eight test files from a single seed. A router that
+            wins here has beaten <em>this</em> drift process, and the next honest
+            objection is that real mainnet flow is bursty and correlated in ways this
+            model does not capture.
+          </p>
+          <p>
+            The verdict section of
+            <span class="mono">exp-008-drift-evolution.md</span> is deliberately
+            empty until the run finishes. Live telemetry — score curve, lineage,
+            per-candidate diffs — is on the
+            <a class="link" href="index.html#run">overview page</a>.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="shell">
+    <div class="readnext">
+      <div class="k">read next</div>
+      <a class="big" href="findings.html">Findings: what the evolved routers kept, dropped, and invented</a>
+      <p>
+        The settled results behind this experiment — mainnet validation, the
+        paradigm-over-parameters pivot, an anatomy of the evolved algorithms against
+        lnd's, and the paradigm ceiling that made changing the environment the only
+        move left.
+      </p>
+    </div>
+  </div>
+
+</main>
+
+<div class="shell">
+  <footer class="site-footer">
+    <span>lnd × GEPA — Lightning routing evolution</span>
+    <span><a href="index.html">overview</a> · <a href="findings.html">findings</a> · <a href="index.html#run">live run</a></span>
+  </footer>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

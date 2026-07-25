@@ -20,6 +20,7 @@
     <nav class="site-nav">
       <a href="index.html" aria-current="page">overview</a>
       <a href="findings.html">findings</a>
+      <a href="drift.html">drift</a>
       <a href="#run">live run</a>
     </nav>
   </div>
@@ -60,7 +61,8 @@
       <span>method <b>GEPA reflective evolution</b></span>
       <span>reflection LM <b>gpt-5.6-sol</b></span>
       <span>evaluator <b>cmd/routesim</b></span>
-      <span>experiments <b>exp-001 … exp-009</b></span>
+      <span>experiments <b>exp-001 … exp-011</b></span>
+      <span>in flight <b>exp-008 · code_drift1</b></span>
     </div>
   </div>
 
@@ -409,11 +411,16 @@
 
       <div class="prose" style="margin-bottom:34px">
         <p>
-          <code>code_gen2</code> tests the cheapest lesson from the last two runs.
-          Reflecting on a 1,500-line champion makes every prompt enormous and most
-          proposals dead on arrival, so this run seeds from the <em>small</em>
-          original router again and instead carries the discovered structure —
-          bimodal prior, per-edge liquidity bounds — in its background prompt.
+          <code>code_drift1</code> is the first run in a moving world. Its
+          predecessor, <code>code_gen2</code>, showed that more evaluations of a
+          static environment buy nothing — three independently bred routers landed
+          inside a band 0.014 wide (the
+          <a class="link" href="findings.html#ceiling">paradigm ceiling</a>). So this
+          run changes the environment instead of the budget: the simulator now has a
+          virtual clock and background senders moving hidden liquidity between our
+          payments, and the question is whether time-awareness re-evolves once
+          knowledge genuinely goes stale. The baseline and the criteria are on the
+          <a class="link" href="drift.html">drift page</a>.
         </p>
       </div>
 
@@ -482,8 +489,8 @@
       <a class="big" href="findings.html">Findings: what the evolved routers kept, dropped, and invented</a>
       <p>
         The definitive write-up — the paradigm result, the champion scores, an
-        anatomy of the evolved algorithms against lnd's, and the process lessons
-        from nine experiments.
+        anatomy of the evolved algorithms against lnd's, the ceiling three separate
+        lineages ran into, and the process lessons from eleven experiments.
       </p>
     </div>
   </div>

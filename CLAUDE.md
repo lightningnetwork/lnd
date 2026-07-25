@@ -84,13 +84,16 @@ source), `~/codez/data/mainnet_graph.json`.
   prompt (this is `code_gen2`'s design, and it accepts candidates much
   faster).
 - zsh: `"$VAR[full]"` is subscript expansion — write `"${VAR}[full]"`.
-- The codex CLI injects ~/.codex/AGENTS.md (the user's global agent
-  instructions) into every session; the reflection model can start
-  obeying its session-workflow rules ("arm the mail watcher") instead
-  of the reflection task, returning tooling chatter as candidates.
-  CodexLM now carries a role-pinning preamble + require_marker retry
-  (2b5d84b66) — check any new run's log early: `grep "Proposed new
-  text" <log> | grep -ci watcher` should be 0.
+- The default codex home (~/.codex) injects the user's global
+  AGENTS.md AND accumulated memories into every session — the
+  reflection model obeyed those ("Watcher armed.") instead of the
+  task, even for "reply with exactly: pong". The project-doc config
+  knobs don't help (the leak is the user layer, not project docs).
+  CodexLM runs with CODEX_HOME=~/codez/codex-harness-home (auth
+  symlinked, memories off, no instruction files; 6a964d309) plus a
+  role-pinning preamble + require_marker retry (2b5d84b66). Check any
+  new run's log early: `grep "Proposed new text" <log> | grep -ci
+  watcher` should be 0.
 
 ## Open work
 

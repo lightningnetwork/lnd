@@ -20,8 +20,15 @@ supports API-key auth, so it is opt-in by environment).
 """
 
 import os
+import pathlib
 import subprocess
 import tempfile
+
+# Headless auth: a nested `claude -p` (launched from inside another Claude
+# Code session) cannot reach the interactive OAuth session, so it needs
+# CLAUDE_CODE_OAUTH_TOKEN. If the variable is not already exported, we read
+# it from this file (create with: `claude setup-token`, store mode 0600).
+TOKEN_FILE = pathlib.Path.home() / "codez" / ".claude-harness-token"
 
 SYSTEM_PROMPT = """\
 You are a non-interactive text-generation function inside an automated
@@ -61,6 +68,12 @@ class ClaudeLM:
         if os.environ.get("ANTHROPIC_API_KEY"):
             cmd.append("--bare")
 
+        env = dict(os.environ)
+        if not env.get("CLAUDE_CODE_OAUTH_TOKEN") and TOKEN_FILE.exists():
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = (
+                TOKEN_FILE.read_text().strip()
+            )
+
         # A neutral cwd keeps project CLAUDE.md discovery empty.
         with tempfile.TemporaryDirectory() as neutral:
             proc = subprocess.run(
@@ -70,6 +83,7 @@ class ClaudeLM:
                 text=True,
                 timeout=self.timeout,
                 cwd=neutral,
+                env=env,
             )
         if proc.returncode != 0:
             raise RuntimeError(

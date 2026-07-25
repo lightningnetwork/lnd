@@ -13,6 +13,12 @@ tooling chatter instead of candidates. Two defenses here:
   model to its role as a text-generation function.
 - The subprocess runs from a neutral temporary directory, so project-level
   CLAUDE.md discovery has nothing to find even in modes that perform it.
+- CLAUDE_CONFIG_DIR points at a sterile home (~/codez/claude-harness-home),
+  so user-level settings — and, critically, user-level HOOKS — never load.
+  Hooks fire even in headless -p mode and their feedback text reaches the
+  model: one reflection in the first Opus run came back discussing the
+  user's mail-watcher Stop hook instead of emitting a router. Auth is
+  unaffected because the OAuth token travels via the environment.
 
 When ANTHROPIC_API_KEY is present we additionally pass `--bare`, which
 skips hooks, auto-memory, and CLAUDE.md discovery entirely (bare mode only
@@ -81,6 +87,12 @@ class ClaudeLM:
             env["CLAUDE_CODE_OAUTH_TOKEN"] = (
                 TOKEN_FILE.read_text().strip()
             )
+
+        # A sterile config home keeps user-level settings and hooks out
+        # of the session (see module docstring); created on first use.
+        config_home = pathlib.Path.home() / "codez" / "claude-harness-home"
+        config_home.mkdir(parents=True, exist_ok=True)
+        env["CLAUDE_CONFIG_DIR"] = str(config_home)
 
         # The claude binary is a wrapper that spawns the real CLI as a
         # grandchild sharing our stdout pipe. subprocess.run's timeout

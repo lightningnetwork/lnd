@@ -74,22 +74,46 @@ class ClaudeLM:
                 TOKEN_FILE.read_text().strip()
             )
 
+        # The claude binary is a wrapper that spawns the real CLI as a
+        # grandchild sharing our stdout pipe. subprocess.run's timeout
+        # kills only the direct child and then blocks forever reading a
+        # pipe the grandchild still holds — this hung a whole evolution
+        # run. Run the tree in its own process group and kill the group
+        # on timeout.
+        #
         # A neutral cwd keeps project CLAUDE.md discovery empty.
         with tempfile.TemporaryDirectory() as neutral:
-            proc = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
-                input=rendered,
-                capture_output=True,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=self.timeout,
                 cwd=neutral,
                 env=env,
+                start_new_session=True,
             )
+            try:
+                stdout, stderr = proc.communicate(
+                    input=rendered, timeout=self.timeout,
+                )
+            except subprocess.TimeoutExpired:
+                import signal
+
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    proc.kill()
+                proc.wait()
+                raise RuntimeError(
+                    f"claude -p timed out after {self.timeout}s "
+                    "(process group killed)"
+                )
         if proc.returncode != 0:
             # Scrub the credential from anything that could reach a run
             # log or transcript: the CLI must never echo the token, but
             # we do not rely on that.
-            detail = proc.stderr.strip()[-2000:]
+            detail = stderr.strip()[-2000:]
             token = env.get("CLAUDE_CODE_OAUTH_TOKEN", "")
             if token:
                 detail = detail.replace(token, "[REDACTED]")
@@ -97,20 +121,27 @@ class ClaudeLM:
                 f"claude -p failed ({proc.returncode}): {detail}"
             )
 
-        return proc.stdout
+        return stdout
 
     def __call__(self, prompt) -> str:
         rendered = self._render(prompt)
 
-        result = self._invoke(rendered)
-        if self.require_marker and self.require_marker not in result:
-            retry = (
-                f"Your previous reply was rejected because it was not the "
-                f"requested artifact (it must contain "
-                f"`{self.require_marker}`). Reply with ONLY the "
-                f"artifact.\n\n" + rendered
-            )
-            result = self._invoke(retry)
+        # A failed or timed-out reflection call must degrade to a
+        # no-op proposal (which fails compile and costs one iteration),
+        # never propagate and kill the run: Opus reflections routinely
+        # run minutes, so timeouts are an expected operating condition.
+        try:
+            result = self._invoke(rendered)
+            if self.require_marker and self.require_marker not in result:
+                retry = (
+                    f"Your previous reply was rejected because it was "
+                    f"not the requested artifact (it must contain "
+                    f"`{self.require_marker}`). Reply with ONLY the "
+                    f"artifact.\n\n" + rendered
+                )
+                result = self._invoke(retry)
+        except RuntimeError as exc:
+            return f"// reflection unavailable: {exc}\n"
 
         return result
 

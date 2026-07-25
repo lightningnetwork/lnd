@@ -146,6 +146,43 @@ const DRIFT_MEASURES = [
   { key: "test", label: "drift held-out test", sub: "8 files" },
 ];
 
+/* exp-008 — the settled verdict. Six routers on the held-out drift test,
+   including drift1, the winner of code_drift1 and the only evolved router
+   here with a clock. It is the only one that was bred on drift, and it
+   places fourth of six. */
+const DRIFT_FINAL = [
+  {
+    id: "lnd", name: "lnd production stack", short: "lnd",
+    note: "its decay half-lives finally operate",
+    test: 0.203, succ: 0.388, att: 34.5, evolved: false,
+  },
+  {
+    id: "seed", name: "hand-written seed", short: "seed",
+    note: "~300 lines, cheapest path + blacklist",
+    test: 0.377, succ: 0.592, att: 48.3, evolved: false,
+  },
+  {
+    id: "hb1", name: "hb1", short: "hb1",
+    note: "bred in a static world, no clock",
+    test: 0.455, succ: 0.642, att: 11.8, evolved: true,
+  },
+  {
+    id: "mx_c3", name: "mx_c3", short: "mx_c3",
+    note: "bred in a static world, no clock — best on drift",
+    test: 0.457, succ: 0.642, att: 12.3, evolved: true,
+  },
+  {
+    id: "gen2", name: "gen2", short: "gen2",
+    note: "bred in a static world, same 400-eval budget as drift1",
+    test: 0.456, succ: 0.642, att: 12.7, evolved: true,
+  },
+  {
+    id: "drift1", name: "drift1", short: "drift1",
+    note: "bred ON drift, 35-minute confidence half-life",
+    test: 0.417, succ: 0.600, att: 12.2, evolved: true,
+  },
+];
+
 /* ==========================================================================
    Figure 1 — champions comparison
    Grouped horizontal bars: one group per held-out set, four routers per group.
@@ -303,6 +340,165 @@ function driftPlot(mount) {
       "drift test lnd scores 0.203, the hand-written seed 0.377, and the three " +
       "evolved routers cluster near 0.456.",
   });
+}
+
+/* exp-008 verdict — one measure, six routers. Same idiom as the baseline
+   figure above, so the two read as before and after; the axis is unchanged
+   at 0.5 so the bars are directly comparable across the page. */
+function driftFinalPlot(mount) {
+  groupedBarPlot(mount, {
+    rows: DRIFT_FINAL,
+    measures: [{ key: "test", label: "drift held-out test", sub: "8 files" }],
+    xMax: 0.5,
+    gridStep: 0.1,
+    gridStepNarrow: 0.25,
+    tickDigits: 2,
+    att: r => r.att.toFixed(1),
+    ariaLabel:
+      "Composite objective on the held-out drift test after evolution. lnd " +
+      "scores 0.203, the hand-written seed 0.377, hb1 0.455, mx_c3 0.457, " +
+      "gen2 0.456, and drift1 — the router evolved on the drift corpus — " +
+      "0.417.",
+  });
+}
+
+/* ==========================================================================
+   Figure — drift1's clock, drawn against lnd's
+   Two decay curves on one axis. They are deliberately NOT the same quantity:
+   drift1 ages its confidence in an observation, lnd ages the penalty a
+   failure earned. They share an axis because they answer one question — how
+   long does an old observation keep governing the decision — and the caption
+   carries the distinction the axis cannot.
+   ========================================================================== */
+
+function decayCurve(mount) {
+  if (!mount) return;
+  const W = 780, H = 336;
+  const PAD = { t: 22, r: 126, b: 50, l: 62 };
+  const iw = W - PAD.l - PAD.r, ih = H - PAD.t - PAD.b;
+
+  /* Two hours, twelve payments at this corpus's gap: long enough to show both
+     half-lives and the expiry, short enough that the first twenty minutes are
+     not compressed into the axis. The 0.01 floor lands at about 230 minutes,
+     off the right edge, so it is direct-labelled in the margin instead. */
+  const tMax = 120;
+  const START = 0.95;        /* observations latch conf at 0.92 … 0.98 */
+  const HALF = 35, FLOOR = 0.01, LND_HALF = 60;
+  const GAP = 10;            /* corpus-drift: ten virtual minutes per payment */
+  const EXPIRY = 20;         /* lowerOK / upperFail zeroed outright */
+
+  const conf = t => START * Math.pow(2, -t / HALF);
+  const dead = Math.round(HALF * Math.log2(START / FLOOR));   /* ≈ 230 min */
+
+  const X = t => PAD.l + (t / tMax) * iw;
+  const Y = w => PAD.t + (1 - w) * ih;
+
+  const svg = el("svg", {
+    viewBox: `0 0 ${W} ${H}`, role: "img",
+    "aria-label":
+      "Weight on an old observation against its age. drift1's confidence " +
+      "halves every 35 virtual minutes and is discarded outright once it " +
+      "falls below 0.01, at about 230 minutes; its hard bounds expire at 20 " +
+      "minutes. lnd's failure penalty fades on a one-hour half-life.",
+  });
+
+  /* grid + axes */
+  for (let w = 0; w <= 1.0001; w += 0.25) {
+    const y = Y(w);
+    svg.appendChild(el("line", {
+      x1: PAD.l, y1: y, x2: PAD.l + iw, y2: y,
+      stroke: w === 0 ? C.rule3 : C.grid, "stroke-width": 1,
+    }));
+    svg.appendChild(el("text", {
+      x: PAD.l - 9, y: y + 3.5, "text-anchor": "end",
+      class: "s-num", text: w.toFixed(2),
+    }));
+  }
+  for (let t = 0; t <= tMax; t += 20) {
+    svg.appendChild(el("text", {
+      x: X(t), y: H - PAD.b + 18, "text-anchor": "middle",
+      class: "s-num", text: t,
+    }));
+  }
+  svg.appendChild(el("text", {
+    x: PAD.l + iw / 2, y: H - 10, "text-anchor": "middle",
+    class: "s-label", text: "minutes since the observation",
+  }));
+  svg.appendChild(el("text", {
+    x: 14, y: PAD.t + ih / 2, class: "s-label",
+    transform: `rotate(-90 14 ${PAD.t + ih / 2})`,
+    "text-anchor": "middle", text: "weight on the old observation",
+  }));
+
+  const path = (f, from, to, N = 300) => {
+    const pts = [];
+    for (let i = 0; i <= N; i++) {
+      const t = from + (to - from) * (i / N);
+      pts.push(`${X(t).toFixed(2)},${Y(f(t)).toFixed(2)}`);
+    }
+    return pts.join(" ");
+  };
+
+  /* lnd, for scale: the penalty weight on a one-hour half-life. Dashed and
+     recessive, because it is a different quantity, not a rival series. */
+  svg.appendChild(el("polyline", {
+    points: path(t => Math.pow(2, -t / LND_HALF), 0, tMax),
+    fill: "none", stroke: C.series1, "stroke-width": 1.6,
+    "stroke-dasharray": "5 4",
+  }));
+  svg.appendChild(el("text", {
+    x: X(tMax) + 9, y: Y(Math.pow(2, -tMax / LND_HALF)) + 3.5,
+    class: "s-label", fill: C.series1, text: "lnd penalty",
+  }));
+
+  /* The twenty-minute bound expiry, marked once. Its caption hangs at the
+     bottom of the rule, in the space under the confidence curve. */
+  svg.appendChild(el("line", {
+    x1: X(EXPIRY), y1: PAD.t, x2: X(EXPIRY), y2: Y(0),
+    stroke: C.rule2, "stroke-width": 1,
+  }));
+  svg.appendChild(el("text", {
+    x: X(EXPIRY) + 7, y: Y(0.15),
+    class: "s-label-strong", text: "20 min: bounds expire",
+  }));
+  svg.appendChild(el("text", {
+    x: X(EXPIRY) + 7, y: Y(0.15) + 13,
+    class: "s-label", text: "lowerOK and upperFail → 0",
+  }));
+
+  /* drift1's confidence. It runs off the right edge still falling; the floor
+     that kills the belief outright is noted in the margin. */
+  svg.appendChild(el("polyline", {
+    points: path(conf, 0, tMax), fill: "none",
+    stroke: C.accent, "stroke-width": 2, "stroke-linejoin": "round",
+  }));
+  svg.appendChild(el("text", {
+    x: X(tMax) + 9, y: Y(conf(tMax)) - 2,
+    class: "s-num", fill: C.accent, text: "belief discarded",
+  }));
+  svg.appendChild(el("text", {
+    x: X(tMax) + 9, y: Y(conf(tMax)) + 11,
+    class: "s-num", fill: C.accent, text: `at ≈ ${dead} min`,
+  }));
+
+  /* One direct label, on the feature that carries the story: what is left of
+     an observation by the time the next payment goes out. */
+  svg.appendChild(el("circle", {
+    cx: X(GAP), cy: Y(conf(GAP)), r: 3.4, fill: C.accent,
+    stroke: C.surface, "stroke-width": 2,
+  }));
+  svg.appendChild(el("line", {
+    x1: X(GAP) + 6, y1: Y(conf(GAP)) - 5, x2: X(30) - 5, y2: Y(0.925),
+    stroke: C.rule3, "stroke-width": 1, "stroke-dasharray": "1 3",
+  }));
+  ["one payment gap: 0.78", "82% of its weight still there"].forEach((s, i) =>
+    svg.appendChild(el("text", {
+      x: X(30), y: Y(0.925) + i * 13 + 3,
+      class: i === 0 ? "s-label-strong" : "s-label", text: s,
+    })));
+
+  mount.innerHTML = "";
+  mount.appendChild(svg);
 }
 
 /* ==========================================================================
@@ -1141,6 +1337,8 @@ async function boot() {
     priorCurve($("#fig-prior"));
     convergencePlot($("#fig-convergence"));
     driftPlot($("#fig-drift"));
+    decayCurve($("#fig-decay"));
+    driftFinalPlot($("#fig-drift-final"));
   };
   drawStatic();
 

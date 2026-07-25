@@ -565,6 +565,21 @@ details.tableview > div { padding-top: 16px; }
   letter-spacing: -0.008em;
   margin-bottom: 3px;
 }
+/* A ledger row written before its outcome was known, resolved after the
+   fact: the verdict spans the full row under it, accent on the resolution
+   and ink on the detail. No chips. */
+.ledger-row > .resolved {
+  grid-column: 1 / -1;
+  margin-top: 20px;
+  padding-top: 11px;
+  border-top: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--accent);
+}
+.ledger-row > .resolved i { font-style: normal; color: var(--ink-2); }
+
 .ledger-cell h4 { margin-bottom: 7px; }
 .ledger-cell p { font-size: 0.97rem; line-height: 1.55; color: var(--ink-2); }
 .ledger-cell p strong { color: var(--ink); }

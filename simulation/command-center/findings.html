@@ -44,7 +44,7 @@
     <div class="byline">
       <span>sources <b>simulation/lab/experiments</b></span>
       <span>champions <b>hb1 · mx_c3</b></span>
-      <span>status <b>validated · exp-008 in flight</b></span>
+      <span>status <b>validated · exp-008 complete</b></span>
     </div>
 
     <ol class="toc">
@@ -55,7 +55,7 @@
       <li><a href="#ceiling"><span class="n">05</span><span class="t">The paradigm ceiling: three lineages, one band</span></a></li>
       <li><a href="#process"><span class="n">06</span><span class="t">What the process taught us</span></a></li>
       <li><a href="#timeline"><span class="n">07</span><span class="t">Timeline of experiments</span></a></li>
-      <li><a href="drift.html"><span class="n">→</span><span class="t">Drift: the environment strikes back <i>(exp-008, in flight)</i></span></a></li>
+      <li><a href="drift.html"><span class="n">→</span><span class="t">Drift: the environment strikes back <i>(exp-008, verdict in)</i></span></a></li>
     </ol>
   </div>
 
@@ -577,14 +577,13 @@
           <p>
             What plausibly transfers is the within-payment case: over seconds and
             minutes, interval beliefs look better than a fading penalty, and lnd's
-            one-hour half-life mostly matters <em>across</em> payments. That
-            follow-up is now built and running:
-            <a class="link" href="drift.html">exp-008</a> adds background traffic
-            and a virtual clock and asks whether time-awareness re-evolves. Every
-            outcome there is interesting: a re-emerging decay would validate lnd's
-            rationale with evolved constants, while
-            interval-widening-with-elapsed-time would be a concrete design proposal
-            for lnd.
+            one-hour half-life mostly matters <em>across</em> payments. That follow-up
+            has now run. <a class="link" href="drift.html">exp-008</a> added background
+            traffic and a virtual clock, and time-awareness did re-evolve: the winner
+            stamps every belief, halves its confidence every 35 virtual minutes and
+            expires hard bounds at twenty. It then lost to these time-less champions on
+            all four held-out tiers, drift included. lnd's rationale for decay is
+            validated; its necessity is not.
           </p>
         </div>
       </div>
@@ -769,9 +768,11 @@
             is spent.
           </p>
           <p>
-            The direct test of that claim is
-            <a class="link" href="drift.html">exp-008</a>, which changes the
-            environment rather than the budget.
+            The direct test of that claim was
+            <a class="link" href="drift.html">exp-008</a>, which changed the
+            environment rather than the budget. The ceiling held: a router bred on
+            drift, with a clock it invented itself, did not pass the champions even on
+            drift — and gen2, which never saw drift, outscores it there.
           </p>
         </div>
       </div>
@@ -981,15 +982,16 @@
             <div class="d">
               Built and opened after exp-011, once it was clear that more budget in
               a static world bought nothing. Exogenous senders move hidden liquidity
-              between our payments and lnd's decay finally runs on a real clock.
-              Baseline is in: the champions' hard bounds survive drift, lnd's decay
-              still does not close the gap, and everybody lost ground — so there is
-              headroom. Evolution run <span class="mono">code_drift1</span> is live;
-              the baseline and the criteria are in
+              between our payments and lnd's decay finally runs on a real clock. The
+              champions' hard bounds survived drift, lnd's decay did not close the gap,
+              and then <span class="mono">code_drift1</span> answered the question it
+              was built for: time-awareness re-evolved — a 35-minute confidence
+              half-life, hard bounds expiring at twenty — and still lost every tier,
+              drift included. Full verdict in
               <a class="link" href="drift.html">the drift chapter</a>.
             </div>
           </div>
-          <div class="tl-tag">in flight</div>
+          <div class="tl-tag">verdict · drift1</div>
         </div>
 
         <div class="tl-item pivot">
@@ -1011,13 +1013,15 @@
           <div class="tl-b">
             <div class="t">Splitting pressure</div>
             <div class="d">
-              Reserved, not yet run. The champions evolved a “halving-plus” shard
-              ladder derived from their own evidence, but joint route-set planning —
-              Pickhardt-style min-cost flow across shards — has never been under
-              selection pressure, because the corpus rarely forces it.
+              Next up, as run <span class="mono">code_split1</span>. The champions
+              evolved a “halving-plus” shard ladder derived from their own evidence,
+              but joint route-set planning — Pickhardt-style min-cost flow across
+              shards — has never been under selection pressure, because the corpus
+              rarely forces a split. With drift settled, this is the remaining
+              unexercised axis.
             </div>
           </div>
-          <div class="tl-tag">reserved</div>
+          <div class="tl-tag">next · code_split1</div>
         </div>
 
         <div class="tl-item pivot">
@@ -1045,10 +1049,11 @@
       <a class="big" href="drift.html">Drift: the environment strikes back</a>
       <p>
         The simulator now has a clock, and other people's payments move liquidity
-        while we are idle. What the baseline says before evolution, and what
-        <span class="mono">code_drift1</span> is chasing. Or go back to the
+        while we are idle. A router bred in that world invented decay on its own — 35
+        minutes of confidence, twenty of hard bounds — and lost to the champions
+        anyway. Or go back to the
         <a class="link" href="index.html">overview</a> for the method, the corpus
-        and live telemetry.
+        and run telemetry.
       </p>
     </div>
   </div>

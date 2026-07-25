@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Drift — the environment strikes back (exp-008)</title>
-<meta name="description" content="The simulator gets a virtual clock and background traffic, so knowledge genuinely goes stale. The drift baseline before evolution, and the live run asking whether time-awareness re-evolves." />
+<meta name="description" content="The simulator gets a virtual clock and background traffic, so knowledge genuinely goes stale. Time-awareness re-evolved — a 35-minute confidence half-life and hard bounds that expire at twenty — and the time-less champions still won every tier, drift included." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..500&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -31,27 +31,29 @@
   <!-- ================= MASTHEAD ================= -->
   <div class="shell masthead">
     <div class="eyebrow">
-      Work in flight<span class="sep">/</span>exp-008<span class="sep">/</span>24 July 2026
+      Verdict in<span class="sep">/</span>exp-008<span class="sep">/</span>25 July 2026
     </div>
     <h1>The environment <em>strikes back</em></h1>
     <p class="standfirst">
       The evolved champions carry no clock, and we always suspected that was partly
       our simulator's fault: hidden liquidity only moved when our own payments moved
-      it, so evidence never went stale. <strong>It does now.</strong> The simulator
-      has a virtual clock and strangers sending payments through it, and the
-      question the champions ducked is finally on the table.
+      it, so evidence never went stale. It does now — and the answer came back in two
+      halves. Time-awareness re-evolved, on a 35-minute half-life nobody asked for.
+      <strong>It still lost every tier, drift included.</strong>
     </p>
     <div class="byline">
       <span>source <b>exp-008-drift-evolution.md</b></span>
       <span>corpus <b>corpus-drift, seed 3031</b></span>
-      <span>run <b>code_drift1</b></span>
-      <span>status <b>baseline done · evolution live</b></span>
+      <span>run <b>code_drift1 · 400/400 evals</b></span>
+      <span>status <b>complete · champions unchanged</b></span>
     </div>
 
     <ol class="toc">
       <li><a href="#clock"><span class="n">01</span><span class="t">What the simulator gained</span></a></li>
       <li><a href="#baseline"><span class="n">02</span><span class="t">The baseline, before any evolution</span></a></li>
-      <li><a href="#question"><span class="n">03</span><span class="t">The run in flight, and what each answer would mean</span></a></li>
+      <li><a href="#question"><span class="n">03</span><span class="t">Three outcomes, written before the run</span></a></li>
+      <li><a href="#verdict"><span class="n">04</span><span class="t">The verdict: a clock evolved, and it still lost</span></a></li>
+      <li><a href="#settled"><span class="n">05</span><span class="t">What it settles, and what it does not</span></a></li>
     </ol>
   </div>
 
@@ -90,7 +92,7 @@
             what the champions now average across validation and test, down from
             0.59 on the static hard corpus — drift costs everyone
           </div>
-          <div class="kf">headroom the evolution run can claim</div>
+          <div class="kf">headroom the evolution run did not claim</div>
         </div>
       </div>
 
@@ -135,7 +137,8 @@
             absence of time logic was partly an artifact of that world. Hard evidence
             bounds cannot go stale if nothing changes them, so evolution was right
             about the environment it was given — which is not the same as being right
-            about mainnet. This page is the test of exactly that.
+            about mainnet. This page is the test of exactly that, and
+            <a class="link" href="#verdict">§04</a> is the answer.
           </p>
         </div>
       </div>
@@ -249,7 +252,9 @@
           from a scalar pair-penalty healing on a one-hour half-life. Note also what
           the champions' 0.642 success at twelve attempts says about the ceiling:
           drift costs everyone success, and there is a lot of unclaimed room between
-          0.456 and a router that handles staleness deliberately.
+          0.456 and a router that handles staleness deliberately. That room is still
+          unclaimed: the router bred here to handle staleness deliberately reached
+          0.417 (<a class="link" href="#verdict">§04</a>).
         </p>
       </div>
     </div>
@@ -260,28 +265,30 @@
     <div class="shell">
       <div class="sec-head">
         <div class="sec-no">03</div>
-        <h2>The run in flight, and what each answer would mean</h2>
+        <h2>Three outcomes, written before the run</h2>
         <p class="sec-sub">
           <span class="mono">code_drift1</span>: pure GEPA, codex/gpt-5.6-sol
           reflection, small seed plus the insights prompt, 400 evaluations on
-          corpus-drift. Live now.
+          corpus-drift. This ledger was published while it was still running; the
+          flags are how each row resolved.
         </p>
       </div>
 
       <div class="prose">
         <p>
-          The setup deliberately does not prescribe the answer. The reflection prompt
-          describes drift neutrally — payments happen, time passes, other senders
-          exist — and flags the hard-bounds insight as something learned in a static
-          world, a caveat rather than an instruction. Nothing tells the model to add
-          decay, and nothing tells it not to. The success criterion is beating the
-          champions on the held-out drift test; the interesting part comes after,
-          when the winner is read for any function of
+          The setup deliberately did not prescribe the answer. The reflection prompt
+          described drift neutrally — payments happen, time passes, other senders
+          exist — and flagged the hard-bounds insight as something learned in a static
+          world, a caveat rather than an instruction. Nothing told the model to add
+          decay, and nothing told it not to. The success criterion was beating the
+          champions on the held-out drift test; the interesting part came after, when
+          the winner was read for any function of
           <span class="mono">view.Now()</span> or of evidence age.
         </p>
 
         <p>
-          Three outcomes, all of them worth having:
+          Three outcomes, all of them worth having. The run delivered the mechanism
+          of the second and the verdict of the third:
         </p>
       </div>
 
@@ -304,6 +311,9 @@
               compares to the shipped one hour.
             </p>
           </div>
+          <div class="resolved">this happened<i> · confidence halves every 35
+            virtual minutes, hard bounds expire outright at 20 — evolved
+            constants against lnd's shipped hour</i></div>
         </div>
 
         <div class="ledger-row">
@@ -324,6 +334,9 @@
               could adopt without giving up its own structure.
             </p>
           </div>
+          <div class="resolved">the form, not the payoff<i> · what evolved is
+            exactly this — keep the judgment, fade the trust in it, slide back
+            toward the prior — and it still lost every tier</i></div>
         </div>
 
         <div class="ledger-row">
@@ -345,10 +358,22 @@
               publish, which is a reason to state the criterion in advance.
             </p>
           </div>
+          <div class="resolved">the verdict, by another route<i> · the winner did
+            reference time, and did not improve on the champions — a time-less
+            router (gen2, 0.456) still leads the drift tier</i></div>
         </div>
       </div>
 
       <div class="prose">
+        <p style="margin-top:2em">
+          The result did not land on one row, and rounding it to one would be the
+          convenient version. <strong>Mechanically it is the first row, in the shape
+          the second asked for, with the third row's verdict.</strong> Selection under
+          genuine staleness pressure did invent decay — of confidence in evidence
+          rather than of penalties — and the router carrying it still finished behind
+          three time-less ancestors on the corpus it was bred for.
+        </p>
+
         <div class="sidenote">
           <h4>what this run cannot settle</h4>
           <p>
@@ -362,10 +387,290 @@
           </p>
           <p>
             The verdict section of
-            <span class="mono">exp-008-drift-evolution.md</span> is deliberately
-            empty until the run finishes. Live telemetry — score curve, lineage,
+            <span class="mono">exp-008-drift-evolution.md</span> is now written, and
+            it is what follows. The run's own telemetry — score curve, lineage,
             per-candidate diffs — is on the
             <a class="link" href="index.html#run">overview page</a>.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 04 · THE VERDICT ================= -->
+  <section id="verdict">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">04</div>
+        <h2>The verdict: a clock evolved, and it still lost</h2>
+        <p class="sec-sub">
+          <span class="mono">code_drift1</span> spent all 400 evaluations, accepted 51
+          candidates and exited clean. Its winner, <span class="mono">drift1</span>, is
+          the first evolved router in this project that reads the time — and fourth of
+          six on the corpus it was bred for.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key">
+          <span class="kn">35<span class="u">min</span></span>
+          <div class="kl">
+            half-life on confidence in a belief:
+            <span class="mono">conf·exp(−ln2·age/35min)</span>, an evolved constant
+            against lnd's shipped hour
+          </div>
+          <div class="kf">payments are ten virtual minutes apart</div>
+        </div>
+        <div class="key">
+          <span class="kn">20<span class="u">min</span></span>
+          <div class="kl">
+            after which <span class="mono">lowerOK</span> and
+            <span class="mono">upperFail</span> are zeroed outright — proven bounds
+            demoted to hints
+          </div>
+          <div class="kf">an expiry, not a fade</div>
+        </div>
+        <div class="key hi">
+          <span class="kn">0.417<span class="u">vs 0.456</span></span>
+          <div class="kl">
+            drift1 on the held-out drift test against gen2, which never saw drift,
+            on the same seed and the same 400-eval budget
+          </div>
+          <div class="kf">the drift-bred router lost on drift</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>What the clock does</h3>
+        <p>
+          drift1 keeps its lineage's belief state — per-directed-channel
+          <span class="mono">lowerOK</span> and <span class="mono">upperFail</span>
+          bounds with a point estimate between them — and adds one field:
+          <span class="mono">updatedAt</span>. Everything time-aware follows from that
+          stamp. Confidence in a belief decays exponentially on a 35-minute half-life,
+          so a fresh observation still carries 82% of its weight at the next payment
+          and about two-thirds by the third. Below a floor of
+          <span class="mono">0.01</span> the belief is not weak, it is gone.
+        </p>
+        <p>
+          Twenty minutes in, the two hard bounds are zeroed outright. The comment
+          above that branch is the design in one line: <em>bounds become hints rather
+          than permanent facts after substantial age</em>. And the probability model
+          reads
+          <span class="mono">conf·learned + (1−conf)·prior</span> — fresh evidence
+          dominates, aging evidence slides back toward the rediscovered bimodal prior,
+          dead evidence leaves the prior alone.
+        </p>
+
+        <h3>Why this is not lnd's decay</h3>
+        <p>
+          lnd fades a <em>judgment</em>: a failure earns a pair-penalty of full weight,
+          and <span class="mono">getWeight</span> relaxes it on a one-hour half-life
+          back toward an apriori scalar, while successes never decay at all. drift1
+          keeps the judgment and fades its <em>trust</em> in the observation behind it,
+          symmetrically for passes and failures, recovering toward a prior it learned
+          itself. That is a posterior collapsing toward a prior, not a penalty on a
+          timer. Nothing in the prompt suggested either form.
+        </p>
+      </div>
+
+      <figure>
+        <div class="fig-head">
+          <span class="fig-t">How fast an old observation stops counting</span>
+          <span class="fig-n">Fig. 2 · virtual minutes</span>
+        </div>
+        <div class="plot" id="fig-decay"></div>
+        <div class="scrollhint">scroll the chart sideways →</div>
+        <div class="legend">
+          <span class="item"><i class="line" style="background:#a83f22"></i>
+            drift1 — confidence in the evidence, 35-min half-life</span>
+          <span class="item"><i class="line" style="background:#2f6ea8;height:0;border-top:1.5px dashed #2f6ea8"></i>
+            lnd — weight on a failure penalty, 1-hour half-life</span>
+        </div>
+        <figcaption>
+          The two curves are <b>not the same quantity</b>, which is the point: lnd's
+          line is how much a failure still hurts, drift1's is how much an observation
+          is still believed. Drawn on one axis because both answer “how long does an
+          old look at this channel keep governing the route”. drift1 forgets faster
+          than lnd, expires its hard bounds at twenty minutes on top of that, and
+          discards the belief entirely once confidence falls under
+          <span class="mono">0.01</span> — roughly four hours idle, or twenty payments
+          at this corpus's ten-minute gap.
+        </figcaption>
+      </figure>
+
+      <figure>
+        <div class="fig-head">
+          <span class="fig-t">Held-out drift test, after evolution</span>
+          <span class="fig-n">Fig. 3 · higher is better</span>
+        </div>
+        <div class="plot resp" id="fig-drift-final"></div>
+        <div class="legend">
+          <span class="item"><i style="background:#a83f22"></i> evolved by GEPA</span>
+          <span class="item"><i style="background:#8a8175"></i> baseline (lnd, or hand-written)</span>
+        </div>
+        <figcaption>
+          The same axis as Fig. 1, so the bars are directly comparable. drift1 is the
+          only router here that was evolved <b>on</b> drift, and it lands between the
+          hand-written seed and the three static-bred evolved routers. Nothing moved
+          at the top: mx_c3 still leads the tier at 0.457, and the ordering of Fig. 1
+          survives the run that was meant to overturn it.
+        </figcaption>
+      </figure>
+
+      <div class="tw wide">
+        <table class="data">
+          <caption>exp-008 verdict · composite objective, four held-out tiers, all sealed from the run</caption>
+          <thead>
+            <tr>
+              <th>router</th>
+              <th class="num">drift test</th>
+              <th class="num">hard test</th>
+              <th class="num">OOD v2</th>
+              <th class="num">mainnet</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>lnd production stack<span class="sub">Dijkstra + mission control</span></td>
+              <td class="num" data-l="drift test">0.203</td><td class="num" data-l="hard test">0.309</td>
+              <td class="num" data-l="OOD v2">0.357</td><td class="num" data-l="mainnet">0.694</td>
+            </tr>
+            <tr>
+              <td>hand-written seed<span class="sub">~300 lines, cheapest path + blacklist</span></td>
+              <td class="num" data-l="drift test">0.377</td><td class="num" data-l="hard test">0.530</td>
+              <td class="num" data-l="OOD v2">0.487</td><td class="num" data-l="mainnet">0.762</td>
+            </tr>
+            <tr>
+              <td>hb1<span class="sub">evolved, hard-regime specialist</span></td>
+              <td class="num" data-l="drift test">0.455</td><td class="num" data-l="hard test">0.586</td>
+              <td class="num" data-l="OOD v2">0.545</td><td class="num" data-l="mainnet">0.790</td>
+            </tr>
+            <tr class="best">
+              <td>mx_c3<span class="sub">evolved, generalist — champion of record</span></td>
+              <td class="num" data-l="drift test">0.457</td><td class="num" data-l="hard test">0.583</td>
+              <td class="num" data-l="OOD v2">0.581</td><td class="num" data-l="mainnet">0.791</td>
+            </tr>
+            <tr>
+              <td>gen2<span class="sub">evolved, prose-seeded, no clock</span></td>
+              <td class="num" data-l="drift test">0.456</td><td class="num" data-l="hard test">0.565</td>
+              <td class="num" data-l="OOD v2">0.563</td><td class="num" data-l="mainnet">0.787</td>
+            </tr>
+            <tr>
+              <td>drift1<span class="sub">evolved on drift, 1,147 lines, has a clock</span></td>
+              <td class="num" data-l="drift test">0.417</td><td class="num" data-l="hard test">0.580</td>
+              <td class="num" data-l="OOD v2">0.544</td><td class="num" data-l="mainnet">0.790</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <h3 style="margin-top:2em">The decisive cut: drift1 against gen2</h3>
+        <p>
+          Comparing drift1 to the champions is a little unfair — they had 900
+          evaluations across two runs, it had 400. The comparison that is fair is
+          <span class="mono">gen2</span>. Same small seed, same insights-in-the-prompt
+          design, same 400-evaluation budget, and gen2 <em>never saw drift</em>,
+          because the virtual clock did not exist when it was bred. The static-bred,
+          time-less router scores <strong>0.456</strong> on the drift corpus. The
+          drift-bred, time-aware one scores <strong>0.417</strong>. Whatever the clock
+          bought, it did not cover what the mutations spent building it.
+        </p>
+        <p>
+          The static tiers say the same thing from the other direction. drift1 holds
+          0.580 on the sealed hard test and 0.790 on the mainnet snapshot at 2.4
+          attempts per payment — champion-class, 8× better than lnd's 19.8. So the
+          time machinery cost it nothing where nothing drifts, and it bought nothing
+          where things do. On drift itself it settles 60% of payments at 12.2 attempts,
+          against mx_c3's 64% at 12.3.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 05 · WHAT IT SETTLES ================= -->
+  <section id="settled">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">05</div>
+        <h2>What it settles, and what it does not</h2>
+        <p class="sec-sub">
+          The open question from exp-006 onward was whether the champions'
+          timelessness was a design property or a simulator artifact. At this level of
+          churn, it is a design property.
+        </p>
+      </div>
+
+      <div class="prose">
+        <h3>lnd's rationale is validated. Its necessity is not.</h3>
+        <p>
+          Stale knowledge should lose force — an independent search that was never told
+          about decay invented something to that effect the moment its evidence could
+          actually go stale, and that mechanism won selection inside its own lineage
+          rather than being carried along neutrally. The intuition behind
+          <span class="mono">PenaltyHalfLife</span> is real, and it is now confirmed
+          from the outside.
+        </p>
+        <p>
+          What is not confirmed is that a router needs it. Both decaying designs on
+          this page lose to routers that simply keep their evidence: lnd finishes last
+          at 0.203 with its half-lives finally operating, and drift1 finishes behind
+          three time-less ancestors. Decay buys insurance against a cost the interval
+          design barely pays.
+        </p>
+
+        <div class="note">
+          <h4>the asymmetry that decides it</h4>
+          <p>
+            When drift1 zeroes a bound at twenty minutes it throws away information
+            that is usually still approximately right, and it pays for that on every
+            route it prices afterwards. hb1 and mx_c3 keep the bound, are occasionally
+            wrong, and pay <strong>one extra attempt</strong> when they are — an
+            attempt that also refreshes the belief. The objective charges 0.01 per
+            extra attempt. That is a small bill next to planning against a prior when
+            you had a measurement.
+          </p>
+        </div>
+
+        <h3>Champions of record: unchanged, now on four tiers</h3>
+        <p>
+          <strong>hb1 and mx_c3</strong> stay the champions, with mx_c3 leading or
+          tying every tier except the hard test. drift1 is kept as source and written
+          up, not promoted — the same disposition as the
+          <a class="link" href="findings.html#ceiling">gen2</a> winner. It is the only
+          artifact in this project where an evolutionary search invented decay on its
+          own, and you can see exactly which form it chose.
+        </p>
+
+        <div class="sidenote">
+          <h4>the caveats that survive the verdict</h4>
+          <p>
+            <b>One drift intensity.</b> Ten-minute gaps and roughly one background
+            payment per ten nodes per gap. <b>One traffic model:</b> naive
+            fee-optimising senders, no fee market, no bursts, no correlation with our
+            own flow. <b>One budget:</b> 400 evaluations against a champion lineage
+            that accumulated its Pareto route search, bidirectional evidence and shard
+            ladders over 900. drift1's deficit is plausibly a budget deficit as much as
+            a mechanism deficit.
+          </p>
+          <p>
+            So the honest claim is narrow: time logic did not pay for itself in this
+            environment at this budget, not that it can never pay. A heavier churn
+            rate, bursty or adversarial traffic, or a longer run could all tip it back.
+          </p>
+        </div>
+
+        <div class="note">
+          <h4>next: exp-010, splitting pressure</h4>
+          <p>
+            The environment lever worked once — drift is genuinely harder, and everyone
+            lost ground on it — but it did not change the ranking, so the next
+            experiment pushes on the other unexercised axis. The champions price their
+            shards one route at a time; joint route-set planning, Pickhardt-style
+            min-cost flow across shards, has never been under selection pressure
+            because the corpus rarely forces a split. exp-010 makes it force one, as
+            run <span class="mono">code_split1</span>, launching next.
           </p>
         </div>
       </div>

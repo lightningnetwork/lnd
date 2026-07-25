@@ -62,7 +62,7 @@
       <span>reflection LM <b>gpt-5.6-sol</b></span>
       <span>evaluator <b>cmd/routesim</b></span>
       <span>experiments <b>exp-001 … exp-011</b></span>
-      <span>in flight <b>exp-008 · code_drift1</b></span>
+      <span>exp-008 <b>verdict in</b> · next <b>exp-010 · code_split1</b></span>
     </div>
   </div>
 
@@ -89,12 +89,12 @@
           <div class="kf">2.3 vs 19.8 attempts · exp-009</div>
         </div>
         <div class="key">
-          <span class="kn">3<span class="u">of 3</span></span>
+          <span class="kn">4<span class="u">of 4</span></span>
           <div class="kl">
             held-out tiers the evolved routers lead: sealed synthetic test,
-            out-of-distribution topologies, mainnet snapshot
+            out-of-distribution topologies, mainnet snapshot, drifting liquidity
           </div>
-          <div class="kf">all pointing the same way</div>
+          <div class="kf">the fourth arrived with exp-008</div>
         </div>
         <div class="key">
           <span class="kn">0</span>
@@ -393,10 +393,12 @@
     <div class="shell">
       <div class="sec-head">
         <div class="sec-no">04</div>
-        <h2>The run currently in flight</h2>
+        <h2>The run behind the drift verdict</h2>
         <p class="sec-sub">
-          Live telemetry from the optimizer, exported straight out of the GEPA run
-          directory. The champions above are settled; this is what is still moving.
+          Telemetry from the optimizer, exported straight out of the GEPA run
+          directory. <span class="mono">code_drift1</span> has since finished all 400
+          evaluations; exp-010's <span class="mono">code_split1</span> takes this slot
+          next.
         </p>
       </div>
 
@@ -411,15 +413,18 @@
 
       <div class="prose" style="margin-bottom:34px">
         <p>
-          <code>code_drift1</code> is the first run in a moving world. Its
+          <code>code_drift1</code> was the first run in a moving world. Its
           predecessor, <code>code_gen2</code>, showed that more evaluations of a
           static environment buy nothing — three independently bred routers landed
           inside a band 0.014 wide (the
           <a class="link" href="findings.html#ceiling">paradigm ceiling</a>). So this
-          run changes the environment instead of the budget: the simulator now has a
-          virtual clock and background senders moving hidden liquidity between our
-          payments, and the question is whether time-awareness re-evolves once
-          knowledge genuinely goes stale. The baseline and the criteria are on the
+          run changed the environment instead of the budget: a virtual clock and
+          background senders moving hidden liquidity between our payments, and the
+          question of whether time-awareness re-evolves once knowledge genuinely goes
+          stale. <strong>It did — and it still lost.</strong> The winner stamps every
+          belief and halves its confidence every 35 virtual minutes, and the time-less
+          champions beat it on all four held-out tiers, drift included. The mechanism,
+          the numbers and the caveats are on the
           <a class="link" href="drift.html">drift page</a>.
         </p>
       </div>

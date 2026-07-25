@@ -84,6 +84,13 @@ source), `~/codez/data/mainnet_graph.json`.
   prompt (this is `code_gen2`'s design, and it accepts candidates much
   faster).
 - zsh: `"$VAR[full]"` is subscript expansion — write `"${VAR}[full]"`.
+- The `claude` binary is a wrapper spawning the real CLI as a
+  grandchild sharing the stdout pipe: subprocess timeouts kill only
+  the wrapper then block forever reading the pipe. ClaudeLM uses
+  process-group kill (75081d251); reflection failures degrade to a
+  stub proposal, never a run-killing exception. Nested claude -p needs
+  CLAUDE_CODE_OAUTH_TOKEN (harness reads ~/codez/.claude-harness-token,
+  0600 — NEVER print it; error text is token-redacted).
 - The default codex home (~/.codex) injects the user's global
   AGENTS.md AND accumulated memories into every session — the
   reflection model obeyed those ("Watcher armed.") instead of the
@@ -105,11 +112,30 @@ source), `~/codez/data/mainnet_graph.json`.
   gen2, which never saw drift, scores 0.456 there). Evidence bounds
   degrade gracefully; decay buys nothing at realistic churn. Champions
   unchanged, now validated on four tiers.
-- **exp-010:** MPP splitting pressure — champions evolved "halving-plus"
-  (evidence-derived shard ladder); joint route-set planning
-  (Pickhardt-style min-cost flow) remains unevolved.
-- Batch-2 sim fidelity: live first-hop hints per attempt, lnd-vs-
-  candidate memory symmetry, virtual MC clock.
+- **exp-010, codex arm DONE:** corridors corpus (11f4ccc65) elicited
+  the first evolved joint route-set planner (unequal corridor-sized
+  splits + one-step lookahead with reservation) — and it still lost to
+  mx_c3 on every tier with paired stats (Δ −0.025..−0.086, p ≤ 0.04).
+  Opus 5 reflection A/B arm (code_split_opus1) may still be live —
+  check `ps aux | grep run_gepa`; its reflections take MINUTES each,
+  so judge liveness by run_log.txt freshness, and laptop sleep mimics
+  stalls. Verdict on the A/B pending its completion (or call it at
+  matched eval counts).
+- **exp-012 (designed, queued):** cold-cache/hot-load study — unscored
+  warmup_payments runner phase + staleness-under-drift + third-party
+  weights (IDEAS.md). Needs routing/ edits: only when no code-mode
+  run is live.
+- **exp-010b (designed):** rerun splitting pressure on the
+  high-resolution corpus (gen_scenarios --split --split-leads 5) +
+  the simultaneous-shard-commitment sim change (Fable advisor design)
+  so sequential adaptivity stops being free.
+- Advisor program (2026-07-25, see NOTEBOOK): the ~0.64 band is partly
+  a MEASUREMENT ceiling; the sim's failure feedback is a "precision
+  paradise" vs mainnet (degraded-attribution experiment is the
+  decisive pre-upstream test); upstream red flags list in NOTEBOOK.
+  Adaptive rotation only at >400-eval budgets (meta_harness minimum
+  useful slice ≈ 112 evals); meta_harness JSON bug durably fixed in
+  ~/codez/gepa branch fix-claude-json-array (upstream it).
 - DONE: dashboard de-slop redesign + findings.html (Litbucket v30+,
   commit d13a376e5) and the `code_gen2` run (exp-011: insight transfer
   reaches champion level in 400 evals but plateaus at the same ceiling

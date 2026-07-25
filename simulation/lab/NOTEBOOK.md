@@ -123,6 +123,28 @@ gap** even now that it operates. But everyone lost ground vs static
 (champions ~0.59 → ~0.42), so drift created real headroom. Evolution
 run `code_drift1` (400 evals, drift-neutral prompt) is live. exp-008.
 
+## 2026-07-25 (morning) — exp-010 codex arm: joint planning emerges, loses
+
+code_split2 (400/400, clean, on the hardened CodexLM after code_split1
+was killed for instruction-leakage hijack) produced the first evolved
+router that plans route SETS: unequal split candidates derived from
+estimated corridor sizes + one-step-lookahead joint scoring with
+reservation during planning. First sweep with paired statistics: it
+loses to mx_c3 on every tier (split-test Δ −0.067 p=0.008; mainnet
+Δ −0.048 p=0.039). Same law as exp-008 — environments elicit
+mechanisms, budgets decide champions. hb1 ≈ mx_c3 on mainnet exactly
+(Δ −0.000). Champions unchanged. Detail: exp-010 writeup.
+
+The Opus 5 reflection A/B arm (code_split_opus1) runs on: same corpus/
+budget/seed, only the proposer differs. Its reflections take minutes
+each (vs codex ~1-2) — throughput is itself an A/B dimension. One real
+infra bug found and fixed on this arm: the claude binary spawns the
+real CLI as a grandchild sharing the stdout pipe, so subprocess
+timeouts killed the wrapper then blocked forever on the pipe
+(75081d251: process-group kill + reflection failures degrade to a
+one-iteration stub instead of killing the run). Later "stalls" were
+the laptop sleeping.
+
 ## 2026-07-25 (night 2) — advisor consults reframe the program
 
 Two independent advisor reviews (Opus 5 on GEPA usage, Fable 5 on the

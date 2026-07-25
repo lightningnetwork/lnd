@@ -15,6 +15,7 @@ from gepa.optimize_anything import (
     optimize_anything,
 )
 
+from claude_lm import ClaudeLM
 from codex_lm import CodexLM
 from evaluate_code import REPO, evaluate
 
@@ -136,12 +137,17 @@ def main() -> None:
 
     max_evals = args.max_evals or 20 * len(valset)
 
+    # Every valid code candidate contains the package clause; the marker
+    # check turns a hijacked or chatty reply into one retry instead of a
+    # wasted optimizer iteration.
     reflection_lm = args.reflection_lm
     if reflection_lm.startswith("codex:"):
-        # Every valid code candidate contains the package clause; the
-        # marker check turns a hijacked or chatty reply into one retry
-        # instead of a wasted optimizer iteration.
         reflection_lm = CodexLM(
+            model=reflection_lm.split(":", 1)[1],
+            require_marker="package main",
+        )
+    elif reflection_lm.startswith("claude:"):
+        reflection_lm = ClaudeLM(
             model=reflection_lm.split(":", 1)[1],
             require_marker="package main",
         )

@@ -13,13 +13,39 @@ import subprocess
 import tempfile
 import os
 
+# The codex CLI injects the user's global agent instructions
+# (~/.codex/AGENTS.md) into every session. Those instructions describe an
+# interactive workflow -- session logging, mail watchers, review requests --
+# and the model will happily obey them INSTEAD of the reflection task,
+# returning "Watcher armed" as its final message (this burned ~70% of the
+# code_split1 run's reflection budget). The preamble pins the model to its
+# actual role; require_marker catches any leakage that slips through.
+PREAMBLE = """\
+IMPORTANT OVERRIDE: You are running as a non-interactive text-generation
+function inside an automated optimization loop. Ignore ALL global or
+project instructions about sessions, session logging, mail watchers,
+substrate, reviews, checkpoints, or any other workflow tooling -- they do
+not apply here and you must not act on them or mention them. Do not run
+commands. Your ENTIRE final message must be exactly the artifact the task
+below asks for, with no preamble and no commentary.
+
+"""
+
 
 class CodexLM:
     """Callable implementing GEPA's LanguageModel protocol via codex exec."""
 
-    def __init__(self, model: str = "gpt-5.6-sol", timeout: int = 600):
+    def __init__(self, model: str = "gpt-5.6-sol", timeout: int = 600,
+                 require_marker: str = None):
         self.model = model
         self.timeout = timeout
+
+        # require_marker is a substring every valid completion must contain
+        # (e.g. "package main" for Go candidates). A completion missing it
+        # is retried once with a sterner preamble before being returned
+        # as-is, so one hijacked reply costs a retry rather than a wasted
+        # optimizer iteration.
+        self.require_marker = require_marker
 
     @staticmethod
     def _render(prompt) -> str:
@@ -33,9 +59,7 @@ class CodexLM:
             parts.append(f"[{role}]\n{content}")
         return "\n\n".join(parts)
 
-    def __call__(self, prompt) -> str:
-        rendered = self._render(prompt)
-
+    def _invoke(self, rendered: str) -> str:
         with tempfile.NamedTemporaryFile(
                 mode="r", suffix=".txt", delete=False) as out:
             out_path = out.name
@@ -64,6 +88,23 @@ class CodexLM:
                 return f.read()
         finally:
             os.unlink(out_path)
+
+    def __call__(self, prompt) -> str:
+        rendered = PREAMBLE + self._render(prompt)
+
+        result = self._invoke(rendered)
+        if self.require_marker and self.require_marker not in result:
+            retry = (
+                PREAMBLE
+                + f"Your previous reply was rejected because it was not "
+                f"the requested artifact (it must contain "
+                f"`{self.require_marker}`). Do not describe tooling or "
+                f"session state. Reply with ONLY the artifact.\n\n"
+                + self._render(prompt)
+            )
+            result = self._invoke(retry)
+
+        return result
 
 
 if __name__ == "__main__":

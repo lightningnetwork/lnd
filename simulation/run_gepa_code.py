@@ -138,7 +138,13 @@ def main() -> None:
 
     reflection_lm = args.reflection_lm
     if reflection_lm.startswith("codex:"):
-        reflection_lm = CodexLM(model=reflection_lm.split(":", 1)[1])
+        # Every valid code candidate contains the package clause; the
+        # marker check turns a hijacked or chatty reply into one retry
+        # instead of a wasted optimizer iteration.
+        reflection_lm = CodexLM(
+            model=reflection_lm.split(":", 1)[1],
+            require_marker="package main",
+        )
 
     gepa_config = OptimizeAnythingConfig(
         engine="gepa",

@@ -15,8 +15,8 @@ import (
 // SimTopologySpec describes a synthetic network topology to generate. These
 // are used alongside real graph snapshots to diversify the scenario corpus.
 type SimTopologySpec struct {
-	// Type selects the generator: "line", "grid", "hubspoke" or
-	// "smallworld".
+	// Type selects the generator: "line", "grid", "hubspoke",
+	// "smallworld", "scalefree" or "corridors".
 	Type string `json:"type"`
 
 	// NumNodes is the number of nodes to generate.
@@ -32,6 +32,10 @@ type SimTopologySpec struct {
 	// AvgDegree is the average node degree for the "smallworld"
 	// generator.
 	AvgDegree int `json:"avg_degree"`
+
+	// Corridors is the number of parallel source to target corridors the
+	// "corridors" generator builds. It is ignored by every other type.
+	Corridors int `json:"corridors"`
 }
 
 // defaultSimPolicy returns a randomized but realistic routing policy drawn
@@ -280,11 +284,316 @@ func GenerateSimGraph(spec *SimTopologySpec) (*SimGraph, error) {
 			}
 		}
 
+	case "corridors":
+		// The splitting-pressure topology (exp-010): parallel corridors
+		// of deliberately unequal capacity, where a large payment can
+		// only complete as an unequal split across several of them.
+		if err := addCorridors(g, spec, rng, nextChanID); err != nil {
+			return nil, err
+		}
+
 	default:
 		return nil, fmt.Errorf("unknown topology type %q", spec.Type)
 	}
 
 	return g, nil
+}
+
+// corridorBottleneckRatio is how much fatter a corridor's interior channels
+// are than the tier channel that terminates the corridor at the target. The
+// interior is fat enough that even a badly depleted interior channel usually
+// still carries a full tier shard, so the tier channel is what actually limits
+// a corridor: its capacity is a hard ceiling on everything the corridor can
+// ever deliver, since nothing refills it while a payment runs.
+//
+// NOTE: simulation/gen_scenarios.py mirrors this constant to size splitting
+// pressure payments; the two must move together.
+const corridorBottleneckRatio = 128
+
+// corridorTierJitterFrac is the largest downward jitter applied to a
+// corridor's nominal tier capacity. Jitter keeps a router from reading a clean
+// geometric ladder off the graph, and jittering only downward keeps the
+// nominal tier an upper bound, which is what scenario generators rely on when
+// they size a payment above every single corridor.
+const corridorTierJitterFrac = 0.15
+
+// corridorMinTierSat is the smallest tier capacity a corridors spec may
+// generate. It sits above lnd's default minimum shard amount so that even the
+// thinnest corridor can carry a shard the production splitter is willing to
+// send.
+const corridorMinTierSat = 20_000
+
+// corridorFattestWeight is the capacity weight of the first corridor, the one
+// fat corridor every corridors network has. No other corridor ever reaches it,
+// which is what makes divide and conquer splitting expensive here: halving a
+// payment that exceeds the fattest tier yields shards only the fattest
+// corridor can take, so a halving splitter has to keep halving.
+const corridorFattestWeight = 12
+
+// corridorTierLadder is the capacity weight of the corridors after the fat
+// one, repeating for as many corridors as the spec asks for. The rungs are
+// deliberately uneven, and every one of them is at most half the fat corridor,
+// so an amount no single corridor can carry divides unequally across several
+// of them: 70/20/10-like, never as a clean halving. The rungs also span a
+// factor of three among themselves, which keeps the ladder asymmetric even at
+// three corridors.
+//
+// NOTE: simulation/gen_scenarios.py mirrors this ladder; the two must move
+// together.
+var corridorTierLadder = []int{6, 3, 5, 2}
+
+// corridorTierWeights returns the capacity weight of each of the given number
+// of corridors, in corridor order. The fat corridor comes first, the ladder
+// rungs after it.
+func corridorTierWeights(numCorridors int) []int {
+	weights := make([]int, numCorridors)
+	for i := range weights {
+		if i == 0 {
+			weights[i] = corridorFattestWeight
+
+			continue
+		}
+
+		weights[i] = corridorTierLadder[(i-1)%len(corridorTierLadder)]
+	}
+
+	return weights
+}
+
+// CorridorTierCapacities returns the nominal tier capacity of every corridor
+// of a "corridors" spec, in corridor order. A tier is the hard ceiling on what
+// its corridor can deliver, so scenario generators size payments above the
+// largest tier (no single path can carry them) but below the sum of all tiers
+// (a split across corridors can). The generated tiers are jittered down by up
+// to corridorTierJitterFrac, so these values are upper bounds.
+func CorridorTierCapacities(spec *SimTopologySpec) []btcutil.Amount {
+	weights := corridorTierWeights(spec.Corridors)
+	if len(weights) == 0 {
+		return nil
+	}
+
+	tiers := make([]btcutil.Amount, len(weights))
+	for i, weight := range weights {
+		tiers[i] = btcutil.Amount(
+			spec.ChannelSizeSat * int64(weight) /
+				(int64(weights[0]) * corridorBottleneckRatio),
+		)
+	}
+
+	return tiers
+}
+
+// addCorridors builds the splitting-pressure topology: node 1 is the payment
+// source, node NumNodes is the target, and the two are joined by Corridors
+// parallel corridors of two to four hops each. Every corridor terminates in a
+// single tier channel into the target and the target has no other channels, so
+// the largest tier is a hard ceiling on any single shard and the sum of the
+// tiers is a hard ceiling on the whole payment. The source funds one fat
+// channel into the head of every corridor, so a failure always reflects
+// downstream corridor capacity rather than an underfunded sender.
+//
+// The remaining node budget becomes a filler cloud hanging off the corridor
+// interiors: tiny, nearly free channels that make path finding non-trivial and
+// tempt a fee-greedy router, but that no meaningful shard fits through. The
+// filler never touches the target, which is what keeps the inbound ceiling
+// exact.
+func addCorridors(g *SimGraph, spec *SimTopologySpec, rng *rand.Rand,
+	nextChanID uint64) error {
+
+	numCorridors := spec.Corridors
+	if numCorridors < 2 {
+		return fmt.Errorf("corridors topology needs at least 2 "+
+			"corridors, got %v", numCorridors)
+	}
+
+	weights := corridorTierWeights(numCorridors)
+	tiers := CorridorTierCapacities(spec)
+
+	minTier := tiers[0]
+	for _, tier := range tiers {
+		if tier < minTier {
+			minTier = tier
+		}
+	}
+
+	// The thinnest corridor still has to carry a shard that path finding
+	// will consider, so reject specs whose channels are too small for the
+	// bottleneck ratio to leave a usable tier.
+	if minTier < corridorMinTierSat {
+		return fmt.Errorf("channel_size_sat %v is too small for %v "+
+			"corridors: thinnest tier is %v sat",
+			spec.ChannelSizeSat, numCorridors, minTier)
+	}
+
+	source := uint32(1)
+	target := uint32(spec.NumNodes)
+
+	// Draw the corridor lengths up front so that the node budget can be
+	// checked before any channel is added. A corridor of h hops needs h-1
+	// interior nodes, on top of the source and the target.
+	hops := make([]int, numCorridors)
+	needed := 2
+	for i := range hops {
+		hops[i] = 2 + rng.Intn(3)
+		needed += hops[i] - 1
+	}
+	if spec.NumNodes < needed {
+		return fmt.Errorf("corridors topology needs at least %v "+
+			"nodes for %v corridors, got %v", needed, numCorridors,
+			spec.NumNodes)
+	}
+
+	// interior collects the interior nodes of every corridor so that the
+	// filler cloud below can hang off them.
+	interior := make([][]uint32, numCorridors)
+
+	// nextNode hands out interior node ids, leaving node 1 as the source
+	// and node NumNodes as the target.
+	nextNode := uint32(2)
+
+	for k := 0; k < numCorridors; k++ {
+		// The corridor interior is a fixed multiple of the tier, so the
+		// tier stays the only real constraint on the corridor.
+		fatCap := tiers[k] * corridorBottleneckRatio
+
+		// Jitter the tier down a little so the ladder is not exactly
+		// geometric on the wire.
+		tierCap := btcutil.Amount(float64(tiers[k]) * (1 -
+			corridorTierJitterFrac*rng.Float64()))
+
+		policy := func() SimPolicy {
+			return corridorPolicy(rng, weights[k], weights[0])
+		}
+
+		prev := source
+		for h := 0; h < hops[k]-1; h++ {
+			node := nextNode
+			nextNode++
+			interior[k] = append(interior[k], node)
+
+			err := g.AddChannel(
+				nextChanID, SimNodePubKey(prev),
+				SimNodePubKey(node), fatCap, policy(),
+				policy(),
+			)
+			if err != nil {
+				return err
+			}
+			nextChanID++
+
+			prev = node
+		}
+
+		// The tier channel into the target: the bottleneck every shard
+		// down this corridor has to cross.
+		err := g.AddChannel(
+			nextChanID, SimNodePubKey(prev), SimNodePubKey(target),
+			tierCap, policy(), policy(),
+		)
+		if err != nil {
+			return err
+		}
+		nextChanID++
+	}
+
+	// Filler channels are a small fraction of the thinnest tier, so a
+	// shard that matters never fits through the cloud.
+	fillerCap := minTier / 4
+
+	// attachable holds every node the filler cloud may connect to: the
+	// corridor interiors plus the filler nodes already placed. The source
+	// and the target are deliberately absent, the source because it only
+	// funds corridor heads and the target because its inbound capacity
+	// must stay exactly the sum of the tiers.
+	var attachable []uint32
+	for _, nodes := range interior {
+		attachable = append(attachable, nodes...)
+	}
+
+	// Cross-links between the interiors of neighboring corridors: they
+	// multiply the number of routes path finding sees without adding any
+	// capacity that could carry a shard.
+	for k := 0; k+1 < numCorridors; k++ {
+		a := interior[k][rng.Intn(len(interior[k]))]
+		b := interior[k+1][rng.Intn(len(interior[k+1]))]
+
+		err := g.AddChannel(
+			nextChanID, SimNodePubKey(a), SimNodePubKey(b),
+			fillerCap, corridorFillerPolicy(rng),
+			corridorFillerPolicy(rng),
+		)
+		if err != nil {
+			return err
+		}
+		nextChanID++
+	}
+
+	// Every leftover node joins the filler cloud, attaching to one or two
+	// nodes already in it.
+	for node := nextNode; node < target; node++ {
+		links := 1 + rng.Intn(2)
+		for l := 0; l < links; l++ {
+			peer := attachable[rng.Intn(len(attachable))]
+			if peer == node {
+				continue
+			}
+
+			err := g.AddChannel(
+				nextChanID, SimNodePubKey(node),
+				SimNodePubKey(peer), fillerCap,
+				corridorFillerPolicy(rng),
+				corridorFillerPolicy(rng),
+			)
+			if err != nil {
+				return err
+			}
+			nextChanID++
+		}
+
+		attachable = append(attachable, node)
+	}
+
+	// Finally give the source one cheap way into the cloud, so that the
+	// noise paths are reachable without first traversing a corridor.
+	if nextNode < target {
+		err := g.AddChannel(
+			nextChanID, SimNodePubKey(source),
+			SimNodePubKey(nextNode), fillerCap,
+			corridorFillerPolicy(rng), corridorFillerPolicy(rng),
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// corridorPolicy returns the routing policy of a corridor channel. Fee rates
+// run with the corridor's tier, which makes the thin corridors the cheap ones:
+// a router that simply minimizes fees is drawn to exactly the corridors that
+// cannot carry a large shard.
+func corridorPolicy(rng *rand.Rand, weight, maxWeight int) SimPolicy {
+	feeRate := 50 + int64(weight)*450/int64(maxWeight) + rng.Int63n(50)
+
+	return SimPolicy{
+		BaseFeeMsat:   lnwire.MilliSatoshi(rng.Int63n(200)),
+		FeeRatePPM:    lnwire.MilliSatoshi(feeRate),
+		TimeLockDelta: 40,
+		MinHTLCMsat:   1000,
+	}
+}
+
+// corridorFillerPolicy returns the policy of a filler channel: nearly free, so
+// that a fee-minimizing router prefers the noise cloud over the corridors it
+// actually needs.
+func corridorFillerPolicy(rng *rand.Rand) SimPolicy {
+	return SimPolicy{
+		BaseFeeMsat:   lnwire.MilliSatoshi(rng.Int63n(10)),
+		FeeRatePPM:    lnwire.MilliSatoshi(rng.Int63n(10)),
+		TimeLockDelta: 40,
+		MinHTLCMsat:   1000,
+	}
 }
 
 // lognormalCapacity draws a heavy-tailed channel capacity with the given

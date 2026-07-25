@@ -7,6 +7,10 @@ mission control. The corpus deliberately mixes liquidity regimes and payment
 sizes so that a parameter set cannot win by overfitting a single regime, and
 skews hard (bimodal liquidity, amounts close to channel capacity) so the
 seed candidate has real failures to learn from.
+
+--hard drops the easy scale-free nets, --drift lets liquidity churn between
+payments (exp-008), and --split generates a corpus that isolates MPP splitting
+(exp-010).
 """
 
 import argparse
@@ -30,6 +34,109 @@ TOPOLOGIES = [
 
 # Bimodal dominates: it is both the realistic and the hard regime.
 LIQUIDITY_MODELS = ["bimodal", "bimodal", "uniform"]
+
+# --- splitting pressure (exp-010) -------------------------------------------
+#
+# The corridors topology puts one source and one target at the ends of K
+# parallel corridors of deliberately unequal capacity. Every corridor ends in
+# a single tier channel into the target and the target has no other channels,
+# so the fattest tier is a hard ceiling on any single shard and the sum of the
+# tiers a hard ceiling on the payment. Sizing a payment above the fattest tier
+# therefore makes splitting mandatory, and the uneven ladder makes the right
+# split unequal: 70/20/10-like, never a clean halving.
+
+# Mirrors corridorBottleneckRatio, corridorFattestWeight and
+# corridorTierLadder in routing/sim_topology.go. The three of them determine
+# the tier of every corridor, which is what the amounts below are sized
+# against, so they must move together with the Go side.
+CORRIDOR_BOTTLENECK_RATIO = 128
+CORRIDOR_FATTEST_WEIGHT = 12
+CORRIDOR_TIER_LADDER = [6, 3, 5, 2]
+
+# The fraction of the nominal tier capacity that bimodal liquidity leaves
+# usable in the forward direction, measured over the generator's own seeds:
+# roughly half the tier channels point the wrong way and the interior hops
+# block a little more on top. Amounts are sized against this so that a file is
+# usually feasible for a router that splits well while staying out of reach of
+# one that splits badly. Raising it makes the corpus harder.
+CORRIDOR_USABLE_FRAC = 0.40
+
+# How much of what is left of the budget after the probes the ambitious payment
+# asks for. Below 1 it leaves slack for the corridors that happen to point the
+# wrong way, so a router that splits well usually completes the payment while
+# one that splits badly does not. Raising it toward 1 makes the corpus harder.
+LEAD_BUDGET_FRAC = 0.85
+
+# Corridor counts run high on purpose. Every corridor is a coin flip under
+# bimodal liquidity, so a network needs many of them before the corridors
+# together can reliably carry more than the fattest one alone, which is the
+# regime where splitting decides the payment.
+SPLIT_TOPOLOGIES = [
+    {"type": "corridors", "num_nodes": 80, "channel_size_sat": 96_000_000,
+     "corridors": 12},
+    {"type": "corridors", "num_nodes": 100, "channel_size_sat": 192_000_000,
+     "corridors": 16},
+    {"type": "corridors", "num_nodes": 100, "channel_size_sat": 48_000_000,
+     "corridors": 20},
+    {"type": "corridors", "num_nodes": 120, "channel_size_sat": 96_000_000,
+     "corridors": 24},
+]
+
+
+def corridor_tiers_msat(topology: dict) -> list:
+    """The nominal tier capacity of every corridor, in msat."""
+    num = topology["corridors"]
+    weights = [CORRIDOR_FATTEST_WEIGHT] + [
+        CORRIDOR_TIER_LADDER[(i - 1) % len(CORRIDOR_TIER_LADDER)]
+        for i in range(1, num)
+    ]
+
+    cap_msat = topology["channel_size_sat"] * 1000
+    denom = weights[0] * CORRIDOR_BOTTLENECK_RATIO
+
+    return [cap_msat * w // denom for w in weights]
+
+
+def gen_split_example(rng: random.Random) -> dict:
+    """One splitting-pressure scenario file: a corridors network, two cheap
+    probes and one payment that no single path can carry."""
+    topology = dict(rng.choice(SPLIT_TOPOLOGIES))
+    topology["seed"] = rng.randrange(1, 2**31)
+
+    tiers = corridor_tiers_msat(topology)
+    head = tiers[0]
+
+    # Amounts are multiples of the fattest tier, so anything above 1.0 is a
+    # payment no single path can carry. The budget is what the corridors can
+    # usually deliver between them, and the file spends it in one deliberate
+    # order: two cheap probes first, which any router completes on one path and
+    # which seed what it knows about the corridors, then one ambitious payment
+    # that needs most of the corridors at once, sized to their tiers.
+    #
+    # Nothing refills a corridor once a shard has crossed it, and a shard that
+    # settles for a payment that later fails is spent all the same, so the
+    # ambitious payment goes last: it is the one that can burn the network.
+    budget = CORRIDOR_USABLE_FRAC * sum(tiers) / head
+    probes = [0.12, 0.18]
+    lead = max(1.05, LEAD_BUDGET_FRAC * (budget - sum(probes)))
+    lead = min(lead, 3.0)
+
+    scenarios = [
+        {
+            "target": str(topology["num_nodes"]),
+            "amt_msat": int(head * mult),
+            "max_parts": 16,
+        }
+        for mult in probes + [lead]
+    ]
+
+    return {
+        "topology": topology,
+        "liquidity_model": "bimodal",
+        "liquidity_seed": rng.randrange(1, 2**31),
+        "source": "1",
+        "scenarios": scenarios,
+    }
 
 
 def gen_example(rng: random.Random, drift: bool = False) -> dict:
@@ -98,7 +205,19 @@ def main() -> None:
                         help="enable the virtual clock and background "
                         "traffic so liquidity drifts between payments "
                         "(exp-008)")
+    parser.add_argument("--split", action="store_true",
+                        help="splitting-pressure corpus: corridors "
+                        "topologies where no single path can carry the "
+                        "payment and the right split is unequal "
+                        "(exp-010). Isolates the splitting variable, so "
+                        "it composes with neither --hard nor --drift")
     args = parser.parse_args()
+
+    # --split isolates one variable, so it does not mix with the other corpus
+    # modes: --hard swaps the topology list it needs, and --drift adds the
+    # liquidity churn it deliberately excludes.
+    if args.split and (args.hard or args.drift):
+        parser.error("--split composes with neither --hard nor --drift")
 
     global TOPOLOGIES, LIQUIDITY_MODELS
     if args.hard:
@@ -122,7 +241,10 @@ def main() -> None:
         split_dir = out / split
         split_dir.mkdir(parents=True, exist_ok=True)
         for i in range(count):
-            example = gen_example(rng, drift=args.drift)
+            if args.split:
+                example = gen_split_example(rng)
+            else:
+                example = gen_example(rng, drift=args.drift)
             path = split_dir / f"example_{i:03d}.json"
             path.write_text(json.dumps(example, indent=2))
         print(f"{split}: {count} examples in {split_dir}")

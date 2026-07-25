@@ -87,10 +87,14 @@ source), `~/codez/data/mainnet_graph.json`.
 
 ## Open work
 
-- **exp-008 / task #13:** virtual clock + background-traffic model, then
-  re-run evolution — does time-awareness re-evolve when liquidity
-  drifts between payments? (The champions' zero-time-logic is partly a
-  sim artifact: no exogenous traffic exists to make decay useful.)
+- DONE: exp-008 (task #13). Sim gained a virtual clock + background
+  traffic (d11a20dcb). Verdict: time-awareness DID re-evolve
+  (confidence half-life 35min, bound expiry 20min, conf·learned +
+  (1−conf)·prior interpolation) but does NOT beat the time-less
+  champions even on drift (drift1 0.417 vs mx_c3 0.457 on drift-test;
+  gen2, which never saw drift, scores 0.456 there). Evidence bounds
+  degrade gracefully; decay buys nothing at realistic churn. Champions
+  unchanged, now validated on four tiers.
 - **exp-010:** MPP splitting pressure — champions evolved "halving-plus"
   (evidence-derived shard ladder); joint route-set planning
   (Pickhardt-style min-cost flow) remains unevolved.

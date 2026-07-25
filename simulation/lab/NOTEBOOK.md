@@ -122,3 +122,23 @@ drift corpus: **the champions' hard bounds do NOT collapse** (hb1/mx_c3
 gap** even now that it operates. But everyone lost ground vs static
 (champions ~0.59 → ~0.42), so drift created real headroom. Evolution
 run `code_drift1` (400 evals, drift-neutral prompt) is live. exp-008.
+
+## 2026-07-25 — exp-008 VERDICT: time-awareness re-evolves, doesn't win
+
+code_drift1 finished 400/400 (51 accepts). Its winner is the first
+evolved router with time logic, and the mechanism is the hypothesized
+"interval-softening" form: belief confidence decays on a 35-minute
+half-life, hard bounds expire outright at 20 minutes, and edge
+probability interpolates `conf·learned + (1−conf)·prior` — so aging
+evidence slides back toward the bimodal prior. Decay of confidence in
+evidence, never decay of penalties.
+
+But it does NOT beat the time-less champions, even on drift:
+drift-test mx_c3 0.457 / hb1 0.455 / **gen2 0.456** / drift1 0.417.
+The sharpest cut: gen2 (same budget, same seed style, never saw drift)
+beats drift1 on the drift corpus itself. lnd's *rationale* is
+validated — staleness pressure is real and selection responds to it —
+but at realistic churn, hard evidence bounds degrade gracefully enough
+(a wrong bound costs one retry) that decay machinery buys nothing.
+Champions of record unchanged: hb1 + mx_c3, now validated on four
+tiers. Detail: exp-008 writeup.

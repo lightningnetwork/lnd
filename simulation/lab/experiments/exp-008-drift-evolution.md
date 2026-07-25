@@ -1,7 +1,7 @@
 # EXP-008 — Drift: does time-awareness re-evolve under background traffic?
 
-**Date:** 2026-07-24 (started)
-**Status:** in flight — baseline done, evolution run `code_drift1` live
+**Date:** 2026-07-24 (started), 2026-07-25 (verdict)
+**Status:** complete
 
 ## Question
 The champions carry zero time-based logic, and we suspected that was
@@ -54,4 +54,72 @@ champions on held-out drift-test; then inspect whether the winner
 encodes any function of view.Now() or evidence age.
 
 ## Verdict
-(pending run completion)
+
+Both halves of the question got clean answers, and they point in
+different directions.
+
+**Yes, time-awareness re-evolved.** The run finished 400/400 (51
+accepted candidates) and its winner is the first evolved router with
+time-based logic. The mechanism is exactly the hypothesized outcome
+(b) — evidence softening, not lnd-style penalty fading:
+
+- Every per-directed-channel belief carries an `updatedAt` stamp.
+- Belief confidence decays exponentially with a **35-minute
+  half-life** (`conf·exp(−ln2·age/35min)`, evolved constant; the
+  corpus gap is 10 minutes, so evidence survives ~2–3 payments near
+  full strength).
+- Hard bounds **expire outright after 20 minutes**: lowerOK/upperFail
+  reset to zero — "bounds become hints rather than permanent facts."
+- Edge probability is `conf·learned + (1−conf)·prior`: as evidence
+  ages the router slides smoothly from its interval beliefs back to
+  the bimodal prior. Selection pressure produced decay of *confidence
+  in evidence*, never decay of *penalties*.
+
+**No, it does not beat the time-less champions — even on drift.**
+
+| tier | lnd | seed | hb1 | mx_c3 | gen2 | drift1 |
+|---|---|---|---|---|---|---|
+| drift-test | 0.203 | 0.377 | 0.455 | **0.457** | 0.456 | 0.417 |
+| hard test | 0.309 | 0.530 | **0.586** | 0.583 | 0.565 | 0.580 |
+| OOD v2 | 0.357 | 0.487 | 0.545 | **0.581** | 0.563 | 0.544 |
+| mainnet | 0.694 | 0.762 | 0.790 | **0.791** | 0.787 | 0.790 |
+
+The sharpest comparison is drift1 vs gen2: same seed style, same
+400-eval budget, and gen2 never saw drift during evolution — yet the
+static-bred, time-less gen2 (0.456) beats the drift-bred, time-aware
+drift1 (0.417) on the drift corpus itself. Meanwhile drift1 matches
+the champions on the static tiers (hard 0.580, mainnet 0.790), so the
+time machinery cost nothing where nothing drifts — it just didn't buy
+anything where things do.
+
+## Reading
+
+- **lnd's rationale is validated, its mechanism is not.** Time-decay
+  re-emerged under genuine drift, confirming the intuition that stale
+  knowledge should fade. But the evolved form (confidence
+  interpolation toward the prior + bound expiry) is structurally
+  different from lnd's penalty half-life — and even so, it could not
+  outperform simply keeping hard bounds and letting wrong ones cost a
+  single retry. Failure evidence is cheap to refresh; decay protects
+  against a cost the interval design barely pays.
+- Within its own lineage the time logic won selection (it beat its
+  time-less ancestors on the drift minibatches), so the emergence is
+  real, not noise. The champions' edge likely comes from their deeper
+  refinements (Pareto route search, bidirectional evidence, richer
+  shard ladders) accumulated over 900+ evals — refinements drift1's
+  budget went partway toward rebuilding.
+- **Champions of record unchanged: hb1 + mx_c3**, now validated on a
+  fourth tier. mx_c3 leads or ties every tier except the hard test.
+- Caveats: one drift intensity (10-minute gaps, ~num_nodes/10
+  payments per gap), one traffic model (naive fee-optimizing
+  senders), sequential shard settlement, 400-eval budget. A heavier
+  drift regime or a longer run could still tip the balance toward
+  time-awareness; what this settles is that at realistic-ish churn,
+  evidence bounds are far more robust than the decay intuition
+  suggests.
+
+## Artifacts
+- Winner source: `exp-008-drift1-best-candidate.go` (this dir),
+  exploit-grep clean, 1,147 lines.
+- Sweep numbers: `drift1-validation.json` in session scratch
+  (regenerable via `sweep_drift1.py`).

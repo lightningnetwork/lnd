@@ -43,9 +43,15 @@ class ClaudeLM:
     """Callable implementing GEPA's LanguageModel protocol via claude -p."""
 
     def __init__(self, model: str = "claude-opus-5", timeout: int = 600,
-                 require_marker: str = None):
+                 require_marker: str = None, effort: str = None):
         self.model = model
         self.timeout = timeout
+
+        # Reasoning effort (low/medium/high/xhigh/max). Lower effort
+        # trades per-proposal deliberation for iteration throughput —
+        # the evolutionary loop supplies the search, so a faster, less
+        # deliberate proposer can win on proposals-per-hour.
+        self.effort = effort
 
         # See CodexLM: a completion missing the marker is retried once
         # with a sterner instruction before being returned as-is.
@@ -65,6 +71,8 @@ class ClaudeLM:
     def _invoke(self, rendered: str) -> str:
         cmd = ["claude", "-p", "--model", self.model,
                "--system-prompt", SYSTEM_PROMPT]
+        if self.effort:
+            cmd += ["--effort", self.effort]
         if os.environ.get("ANTHROPIC_API_KEY"):
             cmd.append("--bare")
 

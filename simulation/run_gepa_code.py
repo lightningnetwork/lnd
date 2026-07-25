@@ -147,9 +147,14 @@ def main() -> None:
             require_marker="package main",
         )
     elif reflection_lm.startswith("claude:"):
+        # claude:<model>[:<effort>] — e.g. claude:claude-opus-5:medium.
+        # Effort trades per-proposal deliberation for iteration
+        # throughput; the evolutionary loop supplies the search.
+        spec = reflection_lm.split(":")
         reflection_lm = ClaudeLM(
-            model=reflection_lm.split(":", 1)[1],
+            model=spec[1],
             require_marker="package main",
+            effort=spec[2] if len(spec) > 2 else None,
         )
 
     gepa_config = OptimizeAnythingConfig(

@@ -17,7 +17,7 @@ from gepa.optimize_anything import (
 
 from claude_lm import ClaudeLM
 from codex_lm import CodexLM
-from evaluate_code import REPO, evaluate
+from evaluate_code import REPO, batch_evaluate, evaluate
 
 OBJECTIVE = """
 Evolve a Lightning Network routing algorithm (Go source, the complete
@@ -179,6 +179,12 @@ def main() -> None:
                 # do not consume budget. Report cache misses alongside
                 # eval counts when comparing runs.
                 "cache_evaluation": True,
+                # With caching on, max_evals counts only misses, so a
+                # converged search could spin; this is the enforceable
+                # cap. And an evaluator exception must cost a zero, not
+                # the run.
+                "max_candidate_proposals": 60,
+                "raise_on_exception": False,
             },
         },
     )
@@ -195,6 +201,7 @@ def main() -> None:
         result = optimize_adaptive_sequential(
             seed_candidate=seed,
             evaluator=lambda cand, ex: evaluate(cand, ex),
+            batch_evaluator=batch_evaluate,
             configs=[gepa_config, meta_config],
             plateau_evals=len(valset) * 3,
             dataset=trainset,
@@ -211,6 +218,7 @@ def main() -> None:
         result = optimize_anything(
             seed_candidate=seed,
             evaluator=lambda cand, ex: evaluate(cand, ex),
+            batch_evaluator=batch_evaluate,
             dataset=trainset,
             valset=valset,
             test_set=testset,

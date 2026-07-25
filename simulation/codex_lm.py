@@ -26,7 +26,7 @@ HARNESS_CONFIG = """\
 # Dedicated codex home for the GEPA reflection harness. No AGENTS.md, no
 # memories, no notify hooks: the model must see only the reflection prompt.
 model = "gpt-5.6-sol"
-model_reasoning_effort = "medium"
+model_reasoning_effort = "high"
 
 [features]
 memories = false

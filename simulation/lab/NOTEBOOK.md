@@ -253,3 +253,22 @@ discarded — champion-tying performance learned inside one payment),
 while every codex-lineage router carries a cross-payment belief map.
 Grist for exp-012's cold-cache mill: the Opus lineage is already
 cold-start-native.
+
+## 2026-07-26 (overnight) — exp-010b CLOSED: the champion survives its honest arena
+
+Both arms done. Codex's winner is a first-of-its-kind hybrid
+(cross-payment memory + up-front reservation-ledger planning) and the
+first challenger in program history with NO collapse tier: dead even
+with mx_c3 on hard/OOD/mainnet, and the most attempt-frugal router
+ever measured (1.6 att/pmt on mainnet vs the champions' 2.3). It
+still does not beat mx_c3 on held-out atomic-test (−0.044, p=.07) —
+the champion survives its fifth challenge, on an arena built
+expressly against its reactive ladder. The Opus-default arm lost
+outright (bound-relaxation re-probing burned 57 att/pmt), flipping
+the exp-010 proposer A/B: deliberate large-step proposers pay in
+low-noise environments and misfire in churn-noisy ones. Law, final
+form for this arc: environments elicit mechanisms, budgets decide
+champions, and proposer strength interacts with environment VARIANCE.
+Next levers: degraded attribution (measurement channel) and exp-012
+cold/hot cache, where stateless-Opus vs memory-carrying-codex finally
+gets priced. Detail: exp-010b writeup.

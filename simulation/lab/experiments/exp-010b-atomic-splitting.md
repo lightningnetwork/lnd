@@ -166,3 +166,62 @@ corpus swing with churn, so minibatch acceptance is noisy even with
 7 graded payments per file. The codex arm will tell us whether this
 is proposer-specific or the arena's selection signal is the binding
 constraint.
+
+## Verdict — codex arm (code_atomic1), and the joint reading
+
+The codex arm completed clean (400 evals, zero stubs, canary zero).
+Its winner (1,031 lines, exploit-grep clean, archived as
+`exp-010b-atomic1-best-candidate.go`) is a HYBRID the program had not
+produced before: the codex lineage's cross-payment network memory
+(package-level, keyed by a network hash) fused with up-front
+route-set planning — `makePlan`/`planOnce` build a shard plan against
+a per-edge reservation ledger, and `probability()` prices each edge
+with its own reservations added to the amount, so the plan cannot
+lean on the same corridor twice.
+
+| tier | mx_c3 | atomic1 (codex) | atomicopus1 (opus) |
+|---|---|---|---|
+| atomic-val | 0.442 | 0.426 (−0.016, p=.29) | 0.374 (−0.067, p=.29) |
+| atomic-test | 0.444 | 0.400 (−0.044, p=.07) | 0.391 (−0.053, p=.008) |
+| split-test | 0.876 | 0.825 (−0.051, p=.07) | 0.711 (−0.165, p=.008) |
+| hard test | 0.479 | 0.417 (−0.062, p=.75) | 0.247 (−0.232, p=.109) |
+| OOD v2 | 0.581 | 0.544 (−0.036, p=.75) | 0.367 (−0.214, p=.109) |
+| mainnet | 0.791 | 0.790 (−0.001, p=.039) | 0.738 (−0.053, p=.18) |
+
+**Success criterion 2: NOT met.** Neither arm beats mx_c3 on held-out
+atomic-test; the champion survives its fifth direct challenge, now
+including an arena expressly built against its reactive ladder.
+
+**Criterion 3: met for the first time in program history.** atomic1
+has NO collapse tier — statistically indistinguishable from the
+champion on hard, OOD v2, and mainnet. Every previous challenger
+bought its home-corpus strength with an off-corpus cliff; breeding
+under drift + atomic commitment produced robustness instead of
+corpus-pinned constants. And one number deserves its own sentence:
+**1.6 attempts per payment on mainnet** — below the champions' 2.3,
+the most attempt-frugal router the program has ever measured, at an
+objective dead even with mx_c3 (delta −0.001; the sign test's p=.039
+reflects consistent hair-width per-file losses, i.e. a genuine tie
+in magnitude).
+
+**The proposer A/B flipped.** In exp-010 (static corpus), Opus-default
+built the deepest planner and beat codex on-corpus; here codex wins
+every tier, and Opus-default's winner is the family's weakest. A
+consistent story: deliberate proposers take large architectural
+steps, which pay in a low-noise environment and misfire when
+minibatch selection is churn-noisy; codex's smaller steps ride the
+noise better. Proposer choice interacts with ENVIRONMENT VARIANCE,
+not just budget.
+
+**The joint verdict sharpens the program law once more.** The honest
+arena reordered the baseline exactly as hypothesized (lnd last at
+105+ attempts), elicited its target mechanism in both arms, and still
+did not dethrone the champion: mx_c3's evidence-interval ladder,
+taxed and un-subsidized, remains undominated. What changed is the
+frontier's SHAPE — the challenger is now a generalist too, and the
+gap on every tier is within noise except the home tier's p=.07. The
+next lever is not more evals and not a harsher arena; it is the
+measurement channel itself (degraded attribution — the advisor's
+decisive pre-upstream test) and the cold/hot cache axis (exp-012),
+where the lineages' structural split (stateless Opus vs
+memory-carrying codex) finally gets priced.

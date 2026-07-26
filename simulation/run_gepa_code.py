@@ -133,6 +133,9 @@ def main() -> None:
                         help="rotate gepa <-> meta_harness on plateaus")
     parser.add_argument("--no-adaptive", dest="adaptive",
                         action="store_false")
+    parser.add_argument("--reflection-timeout", type=int, default=600,
+                        help="seconds to allow one reflection call. Raise "
+                        "it for large seeds, whose reflections are slow.")
     parser.add_argument("--seed-file", default=None,
                         help="seed candidate .go file (default: the "
                         "in-tree candidate_impl.go). Use a prior "
@@ -158,9 +161,13 @@ def main() -> None:
     # wasted optimizer iteration.
     reflection_lm = args.reflection_lm
     if reflection_lm.startswith("codex:"):
+        # A large seed makes reflection slow: a thousand-line candidate
+        # takes codex well past the ten minute default, and a timeout
+        # there costs a whole iteration to a stub proposal.
         reflection_lm = CodexLM(
             model=reflection_lm.split(":", 1)[1],
             require_marker="package main",
+            timeout=args.reflection_timeout,
         )
     elif reflection_lm.startswith("claude:"):
         # claude:<model>[:<effort>] — e.g. claude:claude-opus-5:medium.

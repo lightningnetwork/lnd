@@ -344,3 +344,37 @@ transfer": serve remote-pair observations, and never import
 observations about the consumer's own local channels — cheap to
 measure yourself, most damaging when stale, and the only genuinely
 vantage-bound part of mission control.
+
+## 2026-07-26 (dawn) — the staleness null indicts our churn model
+
+Part 3 of exp-012 varied only the idle gap between warming a router
+and scoring it: 0, 10 minutes, 1 hour, 6 virtual hours of background
+traffic. Nothing moved, to three decimals, for any router. The
+manipulation check passes — background payments scale 700 → 1420 with
+the gap, exactly as prorated — so the knob works and the world simply
+does not move enough to matter.
+
+The reason is a simulator defect worth more than the null: **only
+about 18% of background payments settle.** The traffic engine sends
+naive fee-optimizing payments that mostly fail, and a failed payment
+moves no liquidity, so our exogenous process is roughly five times
+weaker than its configuration implies. Against a 12k-node graph, 720
+mostly-failed payments never touch the corridors a scored payment
+needs.
+
+That reaches backwards. exp-008 concluded time-decay "buys nothing at
+realistic churn"; the honest restatement is that it buys nothing at
+the weak churn we generate, and the drift experiment never reached a
+regime where evidence genuinely goes stale. exp-010b's per-attempt
+drift comes from the same engine and inherits the same caveat. Fix the
+traffic engine (make it settle, and aim some of it at the corridors
+under test) before any staleness claim is made again.
+
+Also this night: CodexLM had the same grandchild-pipe defect ClaudeLM
+was fixed for — `codex` spawns the vendored platform binary as a
+grandchild sharing the pipe, so `subprocess.run`'s timeout killed the
+wrapper and blocked forever. It stayed latent because codex
+reflections were always fast, until a 1,031-line seed made one slow
+enough to trip it: exp-013 hung for 85 minutes on a single reflection.
+Ported the process-group kill and the degrade-to-stub path, added
+--reflection-timeout for large seeds, and resumed exp-013 from state.

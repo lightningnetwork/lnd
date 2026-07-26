@@ -164,7 +164,57 @@ buy each design. If lnd's curve crosses the champions' at some N,
 that is the hot-cache regime where production mission control wins,
 and we will have found it.
 
-## Part 3 — Staleness (pending instrumentation)
+## Part 3 — Staleness gap: a null, and why the null is the finding
+
+Design: identical 25-payment warmup in every arm, no restore, then an
+idle gap of 0, 600, 3600 or 21600 virtual seconds during which
+background traffic runs, then the same scored batch. Only the gap
+varies, so depletion is held constant and the gap effect is isolated.
+
+| gap | lnd | mx_c3 | atomic1 |
+|---|---|---|---|
+| 0 s | 0.544 (24.6 att) | 0.614 (2.6) | 0.650 (2.5) |
+| 600 s | 0.544 (24.6) | 0.614 (2.6) | 0.650 (2.5) |
+| 3600 s | 0.543 (24.7) | 0.614 (2.6) | 0.650 (2.5) |
+| 21600 s | 0.543 (24.7) | 0.614 (2.6) | 0.650 (2.5) |
+
+Six virtual hours of churn changes nothing, to three decimal places,
+for any router.
+
+**Manipulation check (run before believing the null).** The gap really
+does run traffic: background payments sent scale 700 → 720 → 820 →
+1420 across the four arms, exactly the prorated volume `AdvanceIdle`
+promises. The knob works; the world just does not move enough for it
+to matter.
+
+**And that is the finding, because it indicts our churn model.** Two
+numbers explain the null. First, 720 extra background payments is
+nothing against a 12,161-node graph with tens of thousands of
+channels — the odds that churn touches the specific corridors a scored
+payment needs are small. Second, and worse: **only about 18% of
+background payments settle** (129 of 700 in the manipulation check).
+The traffic engine sends naive fee-optimizing payments that mostly
+fail, and a failed payment moves no liquidity, so our exogenous
+process is roughly five times weaker than its configuration suggests.
+
+**This weakens a published conclusion.** exp-008 concluded that
+time-decay "buys nothing at realistic churn." That conclusion is
+sound about *our* churn, and our churn is far gentler than intended.
+The honest restatement: decay buys nothing at the weak churn this
+simulator generates, and the drift experiment never reached a regime
+where evidence genuinely goes stale. The same caveat applies to
+exp-010b's atomic arena, whose per-attempt drift is drawn from the
+same engine.
+
+**Fix before any staleness claim is made again**, in order of
+directness: (a) make background traffic succeed — size its amounts to
+what the network can actually carry, or let it retry, so a settled
+fraction near 1 moves real liquidity; (b) aim a share of traffic at
+the corridors the scored payments use, instead of uniformly at random;
+(c) only then re-run this sweep, and re-run exp-008's decay question
+underneath it.
+
+## Part 3b — Staleness under real churn (queued behind the traffic fix)
 
 `stale_gap_sec`: after warmup and before scoring, advance the virtual
 clock and run proportional background traffic. Plot payment-1

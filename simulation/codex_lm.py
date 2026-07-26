@@ -13,6 +13,7 @@ import pathlib
 import subprocess
 import tempfile
 import os
+import signal
 
 # A dedicated CODEX_HOME for the harness. The default ~/.codex injects the
 # user's global AGENTS.md and accumulated memories into every session,
@@ -101,8 +102,16 @@ class CodexLM:
         env = dict(os.environ)
         env["CODEX_HOME"] = str(ensure_harness_home())
 
+        # The codex CLI spawns the vendored platform binary as a
+        # grandchild sharing our stdout pipe, so subprocess.run's timeout
+        # would kill the wrapper and then block forever reading a pipe
+        # the grandchild still holds. That is the same defect ClaudeLM
+        # was fixed for; it stayed latent here only because codex
+        # reflections were always fast enough that the timeout never
+        # fired, until a thousand-line seed made one slow. Run the tree
+        # in its own process group and kill the group.
         try:
-            proc = subprocess.run(
+            proc = subprocess.Popen(
                 [
                     "codex", "exec",
                     "--model", self.model,
@@ -111,16 +120,32 @@ class CodexLM:
                     "--output-last-message", out_path,
                     "-",  # read the prompt from stdin
                 ],
-                input=rendered,
-                capture_output=True,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=self.timeout,
                 env=env,
+                start_new_session=True,
             )
+            try:
+                _, stderr = proc.communicate(
+                    input=rendered, timeout=self.timeout,
+                )
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    proc.kill()
+                proc.wait()
+                raise RuntimeError(
+                    f"codex exec timed out after {self.timeout}s "
+                    "(process group killed)"
+                )
+
             if proc.returncode != 0:
                 raise RuntimeError(
                     f"codex exec failed ({proc.returncode}): "
-                    f"{proc.stderr.strip()[-2000:]}"
+                    f"{stderr.strip()[-2000:]}"
                 )
             with open(out_path) as f:
                 return f.read()
@@ -130,7 +155,11 @@ class CodexLM:
     def __call__(self, prompt) -> str:
         rendered = PREAMBLE + self._render(prompt)
 
-        result = self._invoke(rendered)
+        try:
+            result = self._invoke(rendered)
+        except RuntimeError as exc:
+            return f"// reflection unavailable: {exc}\n"
+
         if self.require_marker and self.require_marker not in result:
             retry = (
                 PREAMBLE

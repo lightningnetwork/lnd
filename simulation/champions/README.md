@@ -295,6 +295,10 @@ are in each companion document; the short version:
   `exp-009-mainnet-validation.md` (the mainnet snapshot),
   `exp-010-splitting-pressure.md` (joint route-set planning, elicited from
   three proposer lineages and beaten by the champions anyway),
+  `exp-010-opus1-best-candidate.md` (the challenger that tied mx_c3 on the
+  corridors corpus, walked through like a champion),
+  `exp-010-opusmed1-best-candidate.md` (its medium-effort sibling, and the
+  val-set overfit the sealed sweep caught),
   `exp-011-code-gen2.md` (the independent third lineage).
 - `routing/sim_router.go` — the `SimRouter` contract.
 - `routing/missioncontrol.go`, `routing/probability_apriori.go`,

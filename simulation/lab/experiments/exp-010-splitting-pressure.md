@@ -136,5 +136,75 @@ corpus (--split-leads) plus simultaneous shard commitment, which
 makes sequential adaptivity stop being free and gives joint planning
 its honest arena.
 
-## Verdict — Opus 5 arm (code_split_opus1)
-(pending run completion — first frontier-model reflection A/B)
+## Verdict — Opus 5 arms (code_split_opus1 + code_split_opusmed1)
+
+Two Opus 5 reflection arms ran against the codex arm on the same
+corpus, budget, and seed: `code_split_opus1` at default reasoning
+effort (5–8 min/proposal) and `code_split_opusmed1` at medium effort
+(1–2 min/proposal, codex-like throughput). Operational caveats logged
+for both: a user-level Stop hook leaked into ~3–4% of iterations on
+each arm before the CLAUDE_CONFIG_DIR seal landed (symmetric, so the
+A/B stays fair), and an API-limit outage cost opus1 its last ~11
+iterations before both arms were resumed from state with the stub
+waste refunded.
+
+**Full five-tier sweep (objective, paired delta vs mx_c3):**
+
+| tier | mx_c3 | split2 (codex) | opus1 | opusmed1 |
+|---|---|---|---|---|
+| split-val | 0.835 | 0.809 (−0.025, p=.008) | **0.839 (+0.005, p=.07)** | 0.782 (−0.053, p=.008) |
+| split-test | 0.876 | 0.810 (−0.067, p=.008) | 0.841 (−0.035, p=.07) | 0.743 (−0.133, p=.008) |
+| hard test | 0.583 | 0.536 (−0.048, p=.021) | 0.303 (−0.280, p=.002) | 0.299 (−0.285, p=.002) |
+| OOD v2 | 0.581 | 0.494 (−0.086, p=.021) | 0.483 (−0.098, p=.34) | 0.420 (−0.161, p=.021) |
+| mainnet | 0.791 | 0.743 (−0.048, p=.039) | 0.757 (−0.033, p=.18) | 0.766 (−0.025, p=.109) |
+
+**Three findings, one per comparison:**
+
+1. **Opus-default vs the champion: the first statistical tie on any
+   tier.** opus1 is the only evolved candidate in the program's
+   history to reach the champion on-corpus (+0.005 on split-val,
+   higher raw success 0.958 vs 0.917; −0.035 on split-test at p=.07 —
+   not significant). Champions of record are UNCHANGED — mx_c3 still
+   wins or ties everywhere — but the gap on the target environment
+   closed to noise for the first time.
+
+2. **Opus-default vs codex: effort bought depth, and depth bought
+   overfitting.** opus1's winner (1,931 lines — well past the ~800-line
+   complexity wall) evolved the deepest planning machinery yet:
+   a PERSISTENT parallel flow plan that survives failures (only
+   corridors contradicted by evidence are dropped), concurrency-first
+   dispatch (fill MaxParts with the largest believable shard before
+   ladder-searching), and residual-aware planning that decrements the
+   shared local-balance budget across planned shards. It beats codex's
+   winner clearly on the splitting corpus (0.841 vs 0.810 held-out)
+   and edges it on mainnet — but it collapses off-corpus (hard test
+   0.303 vs codex's 0.536): its corridor-tuned adaptive fail budget
+   gives up after ~7 attempts on hard bimodal nets where mx_c3 spends
+   10.8 and succeeds at 2.4× the rate. The deliberate proposer
+   specialized harder; the fast proposers generalized better.
+
+3. **Effort A/B at fixed eval budget: default beats medium.** opusmed1
+   matched codex's throughput and finished hours earlier, but its
+   winner is the weakest of the three arms on-corpus (0.743 held-out)
+   despite posting the best VAL score of the family (0.874 vs opus1's
+   0.798) — a textbook val-set overfit that the held-out sweep
+   reversed. At fixed evals, reflection quality wins; the open
+   question (deliberately not run: budget) is fixed wall-clock, where
+   medium's ~4× iteration rate would buy ~2× the evals.
+
+**Reading.** The corridors environment has now elicited joint
+route-set planning from three independent proposer lineages, in three
+depths: codex's one-step lookahead, opusmed1's up-front corridor-sized
+shard sets, opus1's persistent residual-aware flow plans. None beats
+the champion; the deepest one ties it at home and pays for that depth
+everywhere else. This sharpens the program's recurring law into its
+strongest form yet: environments elicit mechanisms, budgets decide
+champions — and proposer strength moves candidates along the
+specialist–generalist axis rather than lifting the whole curve. The
+successor experiment (exp-010b: high-resolution split corpus +
+simultaneous shard commitment) remains the right next probe, now with
+the bonus question of whether opus-default's persistent-plan machinery
+wins once sequential adaptivity stops being free.
+
+Winners archived: `exp-010-opus1-best-candidate.go`,
+`exp-010-opusmed1-best-candidate.go` (both exploit-grep clean).

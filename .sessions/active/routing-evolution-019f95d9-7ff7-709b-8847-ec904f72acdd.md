@@ -112,6 +112,29 @@ command center + lab notebook current.
   iterations beats deliberate reflections at fixed eval budget. Log
   <scratch>/code_split_opusmed1.log. Isolation verified (11/11
   proposals clean on opus1; smoke test exact-pong on medium).
+- KNOWN LEAK in both live Opus arms (pre-fix code): user-level Stop
+  hook fires in claude -p, model's hook reply replaces the artifact —
+  ~3-4% of iterations lost on BOTH arms (symmetric, A/B stays fair;
+  opus1 iter 19, opusmed1 iters 43-44, all rejected by marker check).
+  Fixed for future runs via sterile CLAUDE_CONFIG_DIR (f27bd470a).
+  Mention in the A/B verdict writeup.
+- LIMIT INCIDENT (2026-07-25 ~14:30): user's API limit hit; opus1's
+  last ~11 iterations degraded to stub reflections (~33 evals wasted),
+  opusmed1 lost 1. Both runs "completed" early. User added funds;
+  both arms RESUMED from gepa_state (~16:18) with topped-up budgets
+  (opus1 435, opusmed1 405) to refund the stub waste. Resumed procs
+  run the NEW ClaudeLM (hook-sealed) — tail iterations are clean.
+  Pre-resume snapshot: opus1 held-out 0.841 (beats codex-arm 0.810!),
+  opusmed1 0.743 despite best-in-family val 0.874 (val overfit?).
+- EXP-010 CLOSED (2026-07-25 ~17:15): both Opus arms completed their
+  topped-up budgets (no new accepts post-resume). Five-tier sweep done
+  (opus-ab-validation.json in scratch): opus1 TIES mx_c3 on split-val
+  (+0.005, first ever) but craters off-corpus (hard 0.303); opusmed1
+  val-overfit (best val 0.874, worst held-out 0.743). Champions
+  UNCHANGED. Winners archived + verdict written into exp-010 +
+  NOTEBOOK. Remaining: docs agent + site agent (fanning out now),
+  final dashboard export+publish, mail user. Then tree UNFREEZES —
+  exp-012 (warmup/cold-cache) and exp-010b become runnable.
 - Advisor program applied: measurement-ceiling reframe; harness
   overhaul (554c79cc7, 754894b14); gepa clone patched on branch
   fix-claude-json-array (7c20d98c) — UPSTREAM IT; corpus-splitv2 +

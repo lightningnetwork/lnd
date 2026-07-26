@@ -202,3 +202,31 @@ but at realistic churn, hard evidence bounds degrade gracefully enough
 (a wrong bound costs one retry) that decay machinery buys nothing.
 Champions of record unchanged: hb1 + mx_c3, now validated on four
 tiers. Detail: exp-008 writeup.
+
+## 2026-07-25 (afternoon) — exp-010 CLOSED: the Opus arms land
+
+Both Opus 5 reflection arms finished (after an API-limit outage was
+salvaged by resuming from GEPA state with the stub-wasted budget
+refunded). The five-tier sweep settles the three-way proposer A/B:
+
+- **opus1 (default effort) posts the program's first statistical tie
+  with the champion on any tier** (split-val +0.005 vs mx_c3, higher
+  raw success) and beats the codex arm clearly on-corpus (0.841 vs
+  0.810 held-out) — then collapses off-corpus (hard test 0.303 vs
+  mx_c3 0.583): its 1,931-line winner evolved persistent parallel
+  flow plans, concurrency-first dispatch, and residual-aware shard
+  budgeting, and paid for that corridor-tuned depth everywhere else.
+- **opusmed1 (medium effort) is the cautionary arm:** best val score
+  of the family (0.874), worst held-out (0.743) — val overfit, caught
+  by the sealed sweep exactly as the methodology intends.
+- **Champions unchanged** (hb1 + mx_c3, now validated against three
+  proposer lineages on this corpus). Law sharpened: proposer strength
+  moves candidates along the specialist–generalist axis; it does not
+  lift the whole curve. At fixed evals, reflection quality beats
+  reflection throughput; fixed wall-clock remains unrun.
+
+Also this afternoon: the claude -p hook leak (user-level Stop hook
+reaching the reflection model, ~3–4% of iterations on both arms,
+symmetric) was diagnosed from the proposal canary and sealed with a
+sterile CLAUDE_CONFIG_DIR (f27bd470a) — the claude-side twin of the
+CODEX_HOME fix. Full verdict tables in the exp-010 writeup.

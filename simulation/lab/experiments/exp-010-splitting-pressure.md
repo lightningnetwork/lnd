@@ -207,4 +207,24 @@ the bonus question of whether opus-default's persistent-plan machinery
 wins once sequential adaptivity stops being free.
 
 Winners archived: `exp-010-opus1-best-candidate.go`,
-`exp-010-opusmed1-best-candidate.go` (both exploit-grep clean).
+`exp-010-opusmed1-best-candidate.go` (both exploit-grep clean), each
+with a design doc alongside.
+
+**Correction (post-verdict instrumentation, docs pass).** The verdict
+above attributes opus1's off-corpus collapse to its adaptive fail
+budget giving up early. Instrumenting the three give-up exits on a
+regenerated hard corpus shows that is wrong: none of the
+abandonments comes from `failBudget` or `hopeless` — every one is
+`best == nil`, because `maxRouteHops = 7` cannot express the 9–23-hop
+routes mx_c3 settles those same payments with. Raising only that
+constant moves success 0.350 → 0.530 and objective 0.284 → 0.407
+(mx_c3: 0.479 on the same regenerated corpus; deltas indicative, the
+corpus is not the sealed tier). So the arm overfit its CONSTANTS
+harder than its ARCHITECTURE — consistent with the exp-010b baseline,
+where the same router pulls statistically even with the champion the
+moment the arena rewards its design. Also notable from the docs pass:
+both Opus winners carry NO cross-payment state (a fresh router per
+payment; the corpus's seeding probes are discarded), while every
+codex-lineage router keeps a mutex-guarded cross-payment belief map —
+the clearest structural split between the proposer lineages, and
+directly relevant to exp-012's cold-cache question.

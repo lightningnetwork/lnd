@@ -230,3 +230,26 @@ reaching the reflection model, ~3–4% of iterations on both arms,
 symmetric) was diagnosed from the proposal canary and sealed with a
 sterile CLAUDE_CONFIG_DIR (f27bd470a) — the claude-side twin of the
 CODEX_HOME fix. Full verdict tables in the exp-010 writeup.
+
+## 2026-07-25 (evening) — exp-010b launches; a correction to the exp-010 story
+
+The atomic arena landed (d0f062747: hold-and-release shards, held
+liquidity contention, traffic drifting one slice per attempt;
+flag-off byte-identity verified) and the baseline reordered the field
+before evolution even started: lnd falls from second to LAST (105+
+attempts/payment — the probe-ladder subsidy was real), the champions
+hold, and opus1's persistent planner pulls statistically even with
+mx_c3 on both atomic tiers. Two evolution arms are live on the new
+corpus (codex + Opus-default).
+
+The challenger docs pass (de4982856) corrected the exp-010 verdict's
+causal story: opus1's off-corpus collapse traces to a single overfit
+constant (maxRouteHops = 7, where the hard corpus needs 9–23-hop
+routes), not to its fail budget — raising one constant recovers most
+of the gap. The arm overfit its constants harder than its
+architecture. And a structural surprise: both Opus winners keep NO
+cross-payment state (fresh router per payment, seeding probes
+discarded — champion-tying performance learned inside one payment),
+while every codex-lineage router carries a cross-payment belief map.
+Grist for exp-012's cold-cache mill: the Opus lineage is already
+cold-start-native.

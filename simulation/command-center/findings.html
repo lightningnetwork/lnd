@@ -44,7 +44,7 @@
     <div class="byline">
       <span>sources <b>simulation/lab/experiments</b></span>
       <span>champions <b>hb1 · mx_c3</b></span>
-      <span>status <b>validated · exp-008 complete</b></span>
+      <span>status <b>validated · exp-010 closed</b></span>
     </div>
 
     <ol class="toc">
@@ -53,8 +53,9 @@
       <li><a href="#scoreboard"><span class="n">03</span><span class="t">Three tiers of held-out evidence</span></a></li>
       <li><a href="#anatomy"><span class="n">04</span><span class="t">Anatomy: dropped, rediscovered, invented</span></a></li>
       <li><a href="#ceiling"><span class="n">05</span><span class="t">The paradigm ceiling: three lineages, one band</span></a></li>
-      <li><a href="#process"><span class="n">06</span><span class="t">What the process taught us</span></a></li>
-      <li><a href="#timeline"><span class="n">07</span><span class="t">Timeline of experiments</span></a></li>
+      <li><a href="#splitting"><span class="n">06</span><span class="t">Splitting pressure: three proposers, one mechanism, no new champion</span></a></li>
+      <li><a href="#process"><span class="n">07</span><span class="t">What the process taught us</span></a></li>
+      <li><a href="#timeline"><span class="n">08</span><span class="t">Timeline of experiments</span></a></li>
       <li><a href="drift.html"><span class="n">→</span><span class="t">Drift: the environment strikes back <i>(exp-008, verdict in)</i></span></a></li>
     </ol>
   </div>
@@ -309,7 +310,8 @@
         </p>
         <p>
           <strong>Exploit-clean.</strong> The simulator seals hidden liquidity behind
-          a view interface, and an adversarial audit of that seal (§05) found and
+          a view interface, and an adversarial audit of that seal
+          (<a class="link" href="#process">§07</a>) found and
           closed a real escape. Both champions were validated after the seal, with
           zero uses of any exploit path.
         </p>
@@ -779,11 +781,252 @@
     </div>
   </section>
 
-  <!-- ================= 06 · PROCESS ================= -->
-  <section id="process">
+  <!-- ================= 06 · SPLITTING PRESSURE ================= -->
+  <section id="splitting">
     <div class="shell">
       <div class="sec-head">
         <div class="sec-no">06</div>
+        <h2>Splitting pressure: three proposers, one mechanism, no new champion</h2>
+        <p class="sec-sub">
+          The ceiling said change the environment, so exp-010 built one where
+          unequal splitting is the difference between paying and failing — then
+          pointed three different reflection models at it. All three invented joint
+          route-set planning. None of them took the crown.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key">
+          <span class="kn">3<span class="u">lineages</span></span>
+          <div class="kl">
+            independent proposers — codex/gpt-5.6-sol, Opus 5 at default effort,
+            Opus 5 at medium — on the same corpus, budget and seed, each of which
+            evolved joint route-set planning
+          </div>
+          <div class="kf">the environment elicited the mechanism three times over</div>
+        </div>
+        <div class="key hi">
+          <span class="kn">+0.005<span class="u">vs mx_c3</span></span>
+          <div class="kl">
+            the Opus-default winner on the splitting validation set — the first
+            evolved candidate in this project's history to reach a champion on any
+            tier
+          </div>
+          <div class="kf">p = 0.07 · raw success 0.958 against 0.917</div>
+        </div>
+        <div class="key">
+          <span class="kn">0.303<span class="u">vs 0.583</span></span>
+          <div class="kl">
+            the same router against mx_c3 on the sealed hard test: a collapse the
+            moment it leaves the corridors it was bred in
+          </div>
+          <div class="kf">depth bought a specialist, not a generalist</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>An environment that forces the split</h3>
+        <p>
+          The corridors corpus is a topology built to leave no other way through.
+          Between source and target run eight to sixteen parallel corridors of
+          deliberately unequal capacity — one fat one, then rungs each at most half
+          the size of the one above — with the tier enforced structurally by the
+          channel into the target, so the fattest corridor is a hard ceiling on any
+          single shard and the sum of the tiers is a hard ceiling on the payment.
+          Each file opens with two cheap probes that seed corridor knowledge, then
+          asks for one payment larger than that ceiling. A control run pinned to
+          <span class="mono">max_parts = 1</span> fails all forty files.
+        </p>
+        <p>
+          Mandatory splitting is not the interesting part. <em>Unequal</em> splitting
+          is. Halving an above-ceiling payment yields shards only the fat corridor
+          can carry, so the ladder of halves the champions evolved has to give way to
+          shards sized to the corridors that actually exist. That is what exp-010 was
+          built to ask: does joint route-set planning — choosing routes and shard
+          amounts together, min-cost-flow style — emerge once reactive laddering has
+          to pay for itself?
+        </p>
+        <p>
+          One thing about this corpus was true before any evolution ran, and it is
+          worth stating on its own. <strong>lnd is good here.</strong> Its production
+          divide-and-conquer MPP completes 0.958 of the held-out payments for the
+          second-best objective on the tier — the first environment in this project
+          where the production stack outranks part of the evolved lineage. It spends
+          23.4 attempts per payment to do it.
+        </p>
+
+        <h3>The mechanism emerged three times, at three depths</h3>
+        <p>
+          Each arm ran the same corpus, the same 400-evaluation budget and the same
+          seed; only the model doing the reflecting changed. Each produced a router
+          that plans route <em>sets</em> rather than shards in isolation, and they
+          line up in order of how much thinking went into every proposal.
+        </p>
+        <p>
+          <strong>codex, one-step lookahead with reservation.</strong> Its 976-line
+          winner derives unequal split candidates from known bounds and estimated
+          corridor sizes rather than from halves, and for each candidate shard it
+          reserves the route, plans the <em>next</em> shard against what is left, and
+          scores the pair jointly. In-flight liquidity reservation — invented
+          speculatively by two earlier lineages and rewarded by nothing
+          (<a class="link" href="#ceiling">§05</a>) — is finally load-bearing.
+        </p>
+        <p>
+          <strong>Opus 5 at medium effort, corridor-sized shard sets up front.</strong>
+          No lookahead: it commits to a whole set of unequally sized shards before
+          dispatching any of them.
+        </p>
+        <p>
+          <strong>Opus 5 at default effort, persistent parallel flow plans.</strong>
+          The deepest machinery the project has produced, at 1,931 lines — well past
+          the complexity wall of <a class="link" href="#process">§07</a>. A flow plan
+          survives failure, dropping only the corridors that evidence actually
+          contradicts; dispatch is concurrency-first, filling the shard budget with
+          the largest believable amounts before it ever ladder-searches; and planning
+          is residual-aware, decrementing a shared local-balance budget across the
+          shards still to send.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:2em">
+        <table class="data">
+          <caption>exp-010 · composite objective on five held-out tiers. Each evolved arm carries its paired delta against mx_c3 — per-file differences, two-sided sign test.</caption>
+          <thead>
+            <tr>
+              <th>router</th>
+              <th class="num">split validation</th>
+              <th class="num">split test</th>
+              <th class="num">hard test</th>
+              <th class="num">OOD v2</th>
+              <th class="num">mainnet</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>lnd production stack<span class="sub">unusually strong on this corpus, at 23.4 attempts</span></td>
+              <td class="num" data-l="split validation">0.782</td>
+              <td class="num" data-l="split test">0.837</td>
+              <td class="num" data-l="hard test">0.309</td>
+              <td class="num" data-l="OOD v2">0.357</td>
+              <td class="num" data-l="mainnet">0.694</td>
+            </tr>
+            <tr>
+              <td>codex arm<span class="sub">976 lines · one-step lookahead</span></td>
+              <td class="num" data-l="split validation">0.809<span class="sub">−0.025 · p .008</span></td>
+              <td class="num" data-l="split test">0.810<span class="sub">−0.067 · p .008</span></td>
+              <td class="num" data-l="hard test">0.536<span class="sub">−0.048 · p .021</span></td>
+              <td class="num" data-l="OOD v2">0.494<span class="sub">−0.086 · p .021</span></td>
+              <td class="num" data-l="mainnet">0.743<span class="sub">−0.048 · p .039</span></td>
+            </tr>
+            <tr>
+              <td>Opus 5, default effort<span class="sub">1,931 lines · persistent flow plans</span></td>
+              <td class="num" data-l="split validation">0.839<span class="sub">+0.005 · p .07</span></td>
+              <td class="num" data-l="split test">0.841<span class="sub">−0.035 · p .07</span></td>
+              <td class="num" data-l="hard test">0.303<span class="sub">−0.280 · p .002</span></td>
+              <td class="num" data-l="OOD v2">0.483<span class="sub">−0.098 · p .34</span></td>
+              <td class="num" data-l="mainnet">0.757<span class="sub">−0.033 · p .18</span></td>
+            </tr>
+            <tr>
+              <td>Opus 5, medium effort<span class="sub">up-front corridor-sized shard sets</span></td>
+              <td class="num" data-l="split validation">0.782<span class="sub">−0.053 · p .008</span></td>
+              <td class="num" data-l="split test">0.743<span class="sub">−0.133 · p .008</span></td>
+              <td class="num" data-l="hard test">0.299<span class="sub">−0.285 · p .002</span></td>
+              <td class="num" data-l="OOD v2">0.420<span class="sub">−0.161 · p .021</span></td>
+              <td class="num" data-l="mainnet">0.766<span class="sub">−0.025 · p .109</span></td>
+            </tr>
+            <tr class="best">
+              <td>mx_c3<span class="sub">champion of record · the baseline every delta is measured against</span></td>
+              <td class="num" data-l="split validation">0.835</td>
+              <td class="num" data-l="split test">0.876</td>
+              <td class="num" data-l="hard test">0.583</td>
+              <td class="num" data-l="OOD v2">0.581</td>
+              <td class="num" data-l="mainnet">0.791</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <h3 style="margin-top:2em">The first statistical tie, and what it cost</h3>
+        <p>
+          On the corpus it was bred for, the Opus-default arm caught the champion.
+          <strong>+0.005</strong> on split validation with a higher raw success rate,
+          0.958 against 0.917, and a deficit on split test small enough to be noise
+          (−0.035 at p = 0.07). Nothing else in this project has closed that gap on
+          any tier. It also beats the codex arm clearly on the corpus both were bred
+          for, 0.841 against 0.810 held out, and edges it on mainnet.
+        </p>
+        <p>
+          Then it leaves the corridors and falls over: <strong>0.303</strong> on the
+          sealed hard test where mx_c3 scores 0.583. The cause is legible in its own
+          source. The adaptive fail budget it tuned for corridors gives up after
+          about seven attempts, and on hard bimodal networks mx_c3 spends 10.8 and
+          succeeds at 2.4× the rate. Knowing when to stop turns out to be a property
+          of the environment you learned it in.
+        </p>
+
+        <h3>Reflection quality beat reflection throughput</h3>
+        <p>
+          The medium-effort arm was the controlled version of the obvious question:
+          at a fixed evaluation budget, is a slower and more deliberate proposer
+          worth waiting for? It matched codex's throughput — one to two minutes a
+          proposal against the default arm's five to eight — and finished hours
+          earlier. It also produced the weakest router of the three on held-out data,
+          0.743 on split test, while posting the <em>best</em> validation score of the
+          family at 0.874 against the default arm's 0.798.
+        </p>
+        <p>
+          That is a textbook validation overfit, and the sealed sweep caught it
+          exactly as the method is designed to. At a fixed number of evaluations,
+          reflection quality wins. At fixed wall-clock, where medium's roughly
+          fourfold iteration rate would buy about twice the evaluations, the question
+          is still open — and deliberately unrun.
+        </p>
+
+        <div class="note">
+          <h4>what three lineages settle</h4>
+          <p>
+            Champions of record are <strong>unchanged</strong>: hb1 and mx_c3, now
+            validated against three independent proposer lineages on an environment
+            purpose-built to unseat them. The recurring law of this project takes its
+            sharpest form here — <em>environments elicit mechanisms, budgets decide
+            champions</em> — with one clause added. Proposer strength moves a
+            candidate along the specialist–generalist axis; it does not lift the whole
+            curve.
+          </p>
+        </div>
+
+        <div class="sidenote">
+          <h4>the caveat that was registered before the verdicts</h4>
+          <p>
+            Every file in this corpus carries two cheap probes and one ambitious
+            payment, so two-thirds of the success term is free and per-file scores
+            are nearly binary. At a reflection minibatch of three the acceptance
+            signal quantises around 0.111, while the spread actually being selected
+            for — attempt efficiency between routers that mostly succeed anyway — is
+            worth at most 0.15. That was written down mid-run, before any verdict was
+            read, and it stands over all three of them: selection noise here
+            plausibly exceeds signal, so none of these results is evidence that joint
+            planning <em>cannot</em> win.
+          </p>
+          <p>
+            exp-010b is the fix, and it is designed: a higher-resolution corpus, one
+            probe pair against eight to ten graded payments per file, plus
+            simultaneous shard commitment so that sequential adaptivity stops being
+            free. The bonus question it inherits is whether the persistent-plan
+            machinery pays off once a router can no longer watch one shard land
+            before choosing the next.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 07 · PROCESS ================= -->
+  <section id="process">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">07</div>
         <h2>What the process taught us</h2>
         <p class="sec-sub">
           Findings about running this kind of search, which cost as much to learn
@@ -862,15 +1105,15 @@
     </div>
   </section>
 
-  <!-- ================= 06 · TIMELINE ================= -->
+  <!-- ================= 08 · TIMELINE ================= -->
   <section id="timeline">
     <div class="shell">
       <div class="sec-head">
-        <div class="sec-no">07</div>
+        <div class="sec-no">08</div>
         <h2>Timeline of experiments</h2>
         <p class="sec-sub">
-          Ten writeups and one reserved slot, one day of wall-clock time, in
-          numbered order. Full detail lives in
+          Eleven writeups, one day of wall-clock time, in numbered order. Full
+          detail lives in
           <span class="mono">simulation/lab/experiments/</span>.
         </p>
       </div>
@@ -1008,20 +1251,23 @@
           <div class="tl-tag">closing validation</div>
         </div>
 
-        <div class="tl-item">
+        <div class="tl-item pivot">
           <div class="tl-id">exp-010</div>
           <div class="tl-b">
-            <div class="t">Splitting pressure</div>
+            <div class="t">Splitting pressure — joint planning, three times over</div>
             <div class="d">
-              Next up, as run <span class="mono">code_split1</span>. The champions
-              evolved a “halving-plus” shard ladder derived from their own evidence,
-              but joint route-set planning — Pickhardt-style min-cost flow across
-              shards — has never been under selection pressure, because the corpus
-              rarely forces a split. With drift settled, this is the remaining
-              unexercised axis.
+              A corridors corpus of unequal parallel tiers, where the fattest tier
+              caps any single shard and a forced <span class="mono">max_parts = 1</span>
+              control fails every file. Three proposer lineages ran it on the same
+              budget and seed, and all three evolved joint route-set planning:
+              one-step lookahead, up-front corridor-sized shard sets, and persistent
+              parallel flow plans at 1,931 lines. The Opus-default arm posted the
+              program's first statistical tie with a champion on any tier, then
+              collapsed off-corpus. Champions unchanged
+              (<a class="link" href="#splitting">§06</a>).
             </div>
           </div>
-          <div class="tl-tag">next · code_split1</div>
+          <div class="tl-tag">verdict · three arms</div>
         </div>
 
         <div class="tl-item pivot">

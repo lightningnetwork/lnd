@@ -34,10 +34,14 @@ BOOTSTRAP_ITERS = 10_000
 BOOTSTRAP_SEED = 20260725
 
 
-def score_file(binary: str, router: str, scenario: str) -> dict:
+def score_file(binary: str, router: str, scenario: str,
+               params: str = "") -> dict:
+    cmd = [binary, "--scenarios", scenario, f"--router={router}",
+           "--traces=false"]
+    if params:
+        cmd += ["--params", params]
     proc = subprocess.run(
-        [binary, "--scenarios", scenario, f"--router={router}",
-         "--traces=false"],
+        cmd,
         capture_output=True, text=True, timeout=1800,
     )
     if proc.returncode != 0:
@@ -86,7 +90,7 @@ def main() -> None:
     parser.add_argument("--tier", action="append", required=True,
                         help="name=dir_or_glob of scenario JSON files")
     parser.add_argument("--router", action="append", required=True,
-                        help="name=binary[:flag], flag defaults to "
+                        help="name=binary[:flag[:params]], flag defaults to "
                         "'candidate'")
     parser.add_argument("--baseline", default=None,
                         help="router name to pair comparisons against")
@@ -96,8 +100,11 @@ def main() -> None:
     routers = {}
     for spec in args.router:
         name, _, rest = spec.partition("=")
-        binary, _, flag = rest.partition(":")
-        routers[name] = (binary, flag or "candidate")
+        parts = rest.split(":")
+        binary = parts[0]
+        flag = parts[1] if len(parts) > 1 and parts[1] else "candidate"
+        params = parts[2] if len(parts) > 2 else ""
+        routers[name] = (binary, flag, params)
 
     rng = random.Random(BOOTSTRAP_SEED)
     report = {}
@@ -112,8 +119,10 @@ def main() -> None:
             continue
 
         per_file = {}
-        for name, (binary, flag) in routers.items():
-            per_file[name] = [score_file(binary, flag, f) for f in files]
+        for name, (binary, flag, params) in routers.items():
+            per_file[name] = [
+                score_file(binary, flag, f, params) for f in files
+            ]
             objs = [r["objective"] for r in per_file[name]]
             lo, hi = bootstrap_ci(objs, rng)
             mean = sum(objs) / len(objs)

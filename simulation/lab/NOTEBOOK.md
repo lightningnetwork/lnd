@@ -412,3 +412,29 @@ dominates (hard zeros poison, floors survive) and that is the
 actionable finding; remote-pair observations transfer across vantages
 while local-channel ones must not be imported; and our traffic engine
 is ~5x weaker than configured, which caveats exp-008 and exp-010b.
+
+## 2026-07-26 — exp-002b: the knob WHY.md said we never turned
+
+WHY.md flagged that "the paradigm is the lever, not the knobs" had
+never been tested against lnd's closest analogue: its own bimodal
+estimator, with scale_msat set to match this environment rather than
+left at the 300M default. Ran the grid — seven scales bracketing the
+matched value (100M on hard, 150M on v2) — against lnd's shipping
+apriori default and mx_c3.
+
+The claim holds, and now for a stated reason rather than an absence of
+evidence. No bimodal scale beats lnd's own apriori default on either
+tier (hard: best bimodal 0.283 vs apriori 0.298 vs mx_c3 0.479; v2:
+0.345 vs 0.357 vs 0.581), and the environment-matched scale is among
+the worse settings, not the best.
+
+How it fails is the finding. On the hard tier bimodal RAISES success
+(0.421 → 0.478) while MORE THAN DOUBLING attempts (30.9 → 77): a
+better liquidity prior makes lnd more willing to keep trying, so it
+completes more payments at a much higher price. What it cannot do is
+change what lnd retries — findPath takes the amount as a fixed
+argument, so with any estimator it retries the same amount over
+different routes, while the champions read upperFail and retry a
+different amount. The estimator swap is worth at most 0.02 of
+objective; the paradigm difference is worth 0.18 to 0.22. That is
+WHY.md's central thesis, now measured instead of argued.

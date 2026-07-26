@@ -75,8 +75,50 @@ contention plus attempt-time churn makes per-file variance higher than
 exp-010's corpus; the paired sweep and sign tests remain the decision
 standard.
 
-## Baseline (pending sim change)
+## Baseline — the ordering changes, confirming the subsidy
 
-## Evolution run (pending)
+Sim change landed (d0f062747; hold ledger on the graph, shared hop
+walk with a commit mode, prorated attempt-boundary traffic with
+fractional carry; flag-off byte-identity verified over two corpora).
+Corpus: `corpus-splitatomic` (seed 6061, --split --split-leads 5
+--atomic). All routers rebuilt against the new tree.
+
+| router | atomic-val obj | atomic-test obj | test succ | test att |
+|---|---|---|---|---|
+| lnd stack | 0.286 | 0.338 | 0.500 | **104.8** |
+| seed | 0.389 | 0.385 | 0.536 | 56.5 |
+| hb1 | 0.430 | 0.444 | 0.554 | 10.7 |
+| **mx_c3** | **0.442** | **0.444** | 0.571 | 12.6 |
+| split2 | 0.356 | 0.391 | 0.554 | 26.9 |
+| opus1 | 0.429 | 0.425 | 0.571 | 23.5 |
+| opusmed1 | 0.357 | 0.373 | 0.536 | 28.0 |
+
+Success criterion 1 answered YES before any evolution: **the arena
+change alone reorders the field.** lnd, second-best on the non-atomic
+corpus (0.837), collapses to last (0.338) at 105-113 attempts/payment
+— its divide-and-conquer probe ladder is precisely what the arena now
+taxes, so sequential adaptivity was indeed being subsidized. The
+champions hold the top (hb1 ties mx_c3 exactly on test, +0.001
+p=.73), but the gap to the joint planners compresses: opus1's
+persistent-plan router is statistically indistinguishable from mx_c3
+on BOTH atomic tiers (val −0.013 p=.73, test −0.019 p=.29) despite
+never having seen atomic semantics, while the shallower planners
+(split2, opusmed1) fall significantly behind. Deeper joint planning
+already pays under honest pricing.
+
+Tempering check (pre-registered): mean success sits at 0.45-0.57 and
+objectives at 0.29-0.44 — hard, not collapsed, real headroom. The
+churn parameters stand; evolution proceeds unchanged.
+
+## Evolution runs (in flight)
+
+`code_atomic1` (codex/gpt-5.6-sol) and `code_atomic_opus1` (Opus 5
+default effort — the proposer that built the deepest planner in
+exp-010), both 400 evals on corpus-splitatomic, launched 2026-07-25
+evening. The background prompt now states the atomic arena's
+economics explicitly (holds, contention, drift per attempt, atomic
+release) and the exploit grep bans the hold-ledger API. Success
+criterion 2: beat mx_c3 on held-out atomic-test; criterion 3: no
+collapse on the legacy tiers.
 
 ## Verdict (pending)

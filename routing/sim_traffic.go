@@ -97,7 +97,14 @@ func newSimTraffic(graph *SimGraph, params *SimTrafficParams) (*simTraffic,
 
 // run executes one gap's worth of background payments.
 func (t *simTraffic) run() {
-	for i := 0; i < t.params.PaymentsPerGap; i++ {
+	t.runN(t.params.PaymentsPerGap)
+}
+
+// runN executes the given number of background payments, the slice of the
+// exogenous process that belongs to some stretch of virtual time shorter than
+// a full gap.
+func (t *simTraffic) runN(n int) {
+	for i := 0; i < n; i++ {
 		t.sendOne()
 	}
 }

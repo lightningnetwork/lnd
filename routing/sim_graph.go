@@ -54,6 +54,17 @@ type simChannelEnd struct {
 	owner   route.Vertex
 	balance lnwire.MilliSatoshi
 	policy  SimPolicy
+
+	// held is the part of the balance that in-flight htlcs have reserved
+	// but not settled yet. It is always at most the balance, and it is
+	// zero unless a payment is running with hold semantics.
+	held lnwire.MilliSatoshi
+}
+
+// available returns the liquidity this end can put behind a new htlc: its
+// balance less whatever the htlcs already in flight over it hold.
+func (e *simChannelEnd) available() lnwire.MilliSatoshi {
+	return e.balance - e.held
 }
 
 // SimChannel is a single channel in the simulated network. The two ends are
@@ -115,6 +126,15 @@ type SimNode struct {
 type SimGraph struct {
 	nodes    map[route.Vertex]*SimNode
 	channels map[uint64]*SimChannel
+
+	// holds tracks the liquidity reservations of the htlcs that have
+	// traversed the network but are not settled yet, keyed by hold id.
+	// It is empty unless a payment is running with hold semantics.
+	holds map[uint64][]balanceMove
+
+	// nextHoldID hands out hold ids; zero is never used so that it can
+	// stand for "no hold".
+	nextHoldID uint64
 }
 
 // NewSimGraph instantiates an empty simulated network.
@@ -122,6 +142,7 @@ func NewSimGraph() *SimGraph {
 	return &SimGraph{
 		nodes:    make(map[route.Vertex]*SimNode),
 		channels: make(map[uint64]*SimChannel),
+		holds:    make(map[uint64][]balanceMove),
 	}
 }
 
@@ -234,7 +255,7 @@ func (g *SimGraph) LocalBalances(
 	}
 
 	for _, channel := range node.channels {
-		balances[channel.ID] = channel.end(pubKey).balance
+		balances[channel.ID] = channel.end(pubKey).available()
 	}
 
 	return balances
@@ -318,26 +339,146 @@ type SimHtlcResult struct {
 	Failure lnwire.FailureMessage
 }
 
-// balanceMove records a single applied balance mutation so that it can be
-// unwound when a downstream hop fails.
+// balanceMove records a single hop's liquidity commitment so that it can be
+// unwound when a downstream hop fails, and so that a held htlc can later be
+// settled or released as a unit.
 type balanceMove struct {
 	from *simChannelEnd
 	to   *simChannelEnd
 	amt  lnwire.MilliSatoshi
 }
 
+// apply moves the amount across the channel: the settlement of one hop.
+func (m *balanceMove) apply() {
+	m.from.balance -= m.amt
+	m.to.balance += m.amt
+}
+
+// unapply undoes apply.
+func (m *balanceMove) unapply() {
+	m.from.balance += m.amt
+	m.to.balance -= m.amt
+}
+
+// reserve holds the amount on the sending end, taking it out of the
+// liquidity available to every other htlc without moving it yet.
+func (m *balanceMove) reserve() {
+	m.from.held += m.amt
+}
+
+// unreserve gives back the reservation made by reserve.
+func (m *balanceMove) unreserve() {
+	m.from.held -= m.amt
+}
+
+// simCommitMode selects what a route walk does with the liquidity it
+// traverses.
+type simCommitMode uint8
+
+const (
+	// simCommitSettle moves the balance of every hop as the htlc passes
+	// it, the instantly settling htlc the simulator has always used.
+	simCommitSettle simCommitMode = iota
+
+	// simCommitHold only reserves the outgoing liquidity of every hop,
+	// leaving the balances untouched until the resulting hold is settled
+	// or released. This is the htlc a receiver sits on while it waits for
+	// the rest of an mpp set to arrive.
+	simCommitHold
+)
+
 // SendHtlc sends an htlc along the given route through the simulated
 // network and synchronously returns its resolution. Forwarding applies the
 // same policy checks a real node would: disabled channels, min/max htlc
 // limits, fee sufficiency, cltv deltas and (hidden) liquidity.
 func (g *SimGraph) SendHtlc(rt *route.Route) (SimHtlcResult, error) {
+	result, _, err := g.walkHtlc(rt, simCommitSettle)
+
+	return result, err
+}
+
+// HoldHtlc sends an htlc along the given route but stops short of settling
+// it: each hop reserves its outgoing liquidity instead of moving it, so
+// sibling shards and background traffic see the reduced availability while
+// the htlc is in flight. A settled resolution returns a non-zero hold id that
+// must eventually be passed to either SettleHold or ReleaseHold. A failure
+// leaves nothing reserved and returns a zero hold id.
+func (g *SimGraph) HoldHtlc(rt *route.Route) (SimHtlcResult, uint64, error) {
+	result, moves, err := g.walkHtlc(rt, simCommitHold)
+	if err != nil || result.Failure != nil {
+		return result, 0, err
+	}
+
+	g.nextHoldID++
+	id := g.nextHoldID
+	g.holds[id] = moves
+
+	return result, id, nil
+}
+
+// SettleHold turns a hold into real balance movement: every reservation
+// becomes the transfer the settling htlc would have made all along, which
+// pays each forwarding node the difference between what it received and what
+// it sent on. Settling an unknown hold is a no-op.
+func (g *SimGraph) SettleHold(id uint64) {
+	moves, ok := g.holds[id]
+	if !ok {
+		return
+	}
+	delete(g.holds, id)
+
+	for i := range moves {
+		moves[i].unreserve()
+		moves[i].apply()
+	}
+}
+
+// ReleaseHold cancels a hold: the reserved liquidity becomes available again
+// and no balance moves at all, so an htlc that is never settled leaves the
+// network exactly as it found it. Releasing an unknown hold is a no-op.
+func (g *SimGraph) ReleaseHold(id uint64) {
+	moves, ok := g.holds[id]
+	if !ok {
+		return
+	}
+	delete(g.holds, id)
+
+	for i := range moves {
+		moves[i].unreserve()
+	}
+}
+
+// walkHtlc walks an htlc along the given route, applying the same policy and
+// liquidity checks a real forwarding node would. The commit mode decides what
+// happens to the liquidity of each hop it clears: simCommitSettle moves it,
+// simCommitHold merely reserves it and hands the reservations back so that
+// the caller can settle or release them later. Either way a failure part of
+// the way down the route unwinds everything committed so far, so the graph is
+// never left holding a half-forwarded htlc.
+func (g *SimGraph) walkHtlc(rt *route.Route,
+	mode simCommitMode) (SimHtlcResult, []balanceMove, error) {
+
 	var moves []balanceMove
 
-	// revert unwinds all balance mutations applied so far.
+	// commit applies one hop's liquidity commitment in the current mode.
+	commit := func(m *balanceMove) {
+		if mode == simCommitHold {
+			m.reserve()
+			return
+		}
+
+		m.apply()
+	}
+
+	// revert unwinds all liquidity commitments applied so far.
 	revert := func() {
-		for _, m := range moves {
-			m.from.balance += m.amt
-			m.to.balance -= m.amt
+		for i := range moves {
+			if mode == simCommitHold {
+				moves[i].unreserve()
+				continue
+			}
+
+			moves[i].unapply()
 		}
 	}
 
@@ -351,8 +492,8 @@ func (g *SimGraph) SendHtlc(rt *route.Route) (SimHtlcResult, error) {
 		channel, ok := g.channels[routeHop.ChannelID]
 		if !ok {
 			revert()
-			return SimHtlcResult{}, fmt.Errorf("unknown channel "+
-				"%v in route", routeHop.ChannelID)
+			return SimHtlcResult{}, nil, fmt.Errorf("unknown "+
+				"channel %v in route", routeHop.ChannelID)
 		}
 
 		sendingEnd := channel.end(prevNode)
@@ -361,8 +502,8 @@ func (g *SimGraph) SendHtlc(rt *route.Route) (SimHtlcResult, error) {
 			receivingEnd.owner != routeHop.PubKeyBytes {
 
 			revert()
-			return SimHtlcResult{}, fmt.Errorf("channel %v does "+
-				"not connect %v to %v", routeHop.ChannelID,
+			return SimHtlcResult{}, nil, fmt.Errorf("channel %v "+
+				"does not connect %v to %v", routeHop.ChannelID,
 				prevNode, routeHop.PubKeyBytes)
 		}
 
@@ -389,31 +530,34 @@ func (g *SimGraph) SendHtlc(rt *route.Route) (SimHtlcResult, error) {
 				return SimHtlcResult{
 					FailureSource: prevNode,
 					Failure:       failure,
-				}, nil
+				}, nil, nil
 			}
 		}
 
 		// Liquidity check: the sending end must have the outgoing
-		// amount available. This is the hidden state that path
-		// finding is trying to predict.
-		if sendingEnd.balance < amtOut {
+		// amount available. Liquidity that an in-flight htlc already
+		// holds does not count, so sibling shards and background
+		// payments contend for the same balance. This is the hidden
+		// state that path finding is trying to predict.
+		if sendingEnd.available() < amtOut {
 			revert()
 			return SimHtlcResult{
 				FailureSource: prevNode,
 				Failure: lnwire.NewTemporaryChannelFailure(
 					nil,
 				),
-			}, nil
+			}, nil, nil
 		}
 
-		// Move the balance and record the move for potential unwind.
-		sendingEnd.balance -= amtOut
-		receivingEnd.balance += amtOut
-		moves = append(moves, balanceMove{
+		// Commit the hop's liquidity and record it so that it can be
+		// unwound, settled or released later.
+		move := balanceMove{
 			from: sendingEnd,
 			to:   receivingEnd,
 			amt:  amtOut,
-		})
+		}
+		commit(&move)
+		moves = append(moves, move)
 
 		// Advance to the next hop.
 		amtIn = amtOut
@@ -421,8 +565,9 @@ func (g *SimGraph) SendHtlc(rt *route.Route) (SimHtlcResult, error) {
 		prevNode = routeHop.PubKeyBytes
 	}
 
-	// All hops succeeded, the htlc is settled at the final node.
-	return SimHtlcResult{}, nil
+	// All hops succeeded: the htlc has reached the final node, either
+	// settled outright or held there pending its siblings.
+	return SimHtlcResult{}, moves, nil
 }
 
 // checkPolicy applies the forwarding policy checks of a node to an htlc that

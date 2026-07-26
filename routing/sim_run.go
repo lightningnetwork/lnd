@@ -138,6 +138,20 @@ type SimScenario struct {
 
 	// MaxParts caps the number of MPP shards. 1 disables splitting.
 	MaxParts uint32 `json:"max_parts"`
+
+	// AtomicMpp switches the payment onto hold-and-release shard
+	// semantics: a shard that reaches the destination reserves the
+	// liquidity of every hop it crossed instead of settling it, and the
+	// whole set only moves balances once the full amount has arrived. A
+	// payment that never completes releases everything it held, so a
+	// failed mpp is atomic and costs no fees. It also makes sequential
+	// probing expensive rather than free: the shards a router leaves in
+	// flight while it probes contend with its own siblings and with
+	// background traffic, and time keeps passing between attempts.
+	//
+	// With the flag off the simulator keeps its historical behavior, in
+	// which every shard settles the instant it arrives.
+	AtomicMpp bool `json:"atomic_mpp,omitempty"`
 }
 
 // SimHopTrace records one hop of an attempted route.
@@ -166,6 +180,12 @@ type SimScenarioResult struct {
 
 	// FeeMsat is the total fee paid over all settled htlcs.
 	FeeMsat uint64 `json:"fee_msat"`
+
+	// HeldReleasedMsat is how much of the payment had already reached the
+	// destination and was rolled back when the payment failed. It is only
+	// ever non-zero under atomic mpp, where it measures the liquidity a
+	// router tied up on the way to failing.
+	HeldReleasedMsat uint64 `json:"held_released_msat,omitempty"`
 
 	// Error records a terminal payment error, e.g. no path found.
 	Error string `json:"error,omitempty"`
@@ -219,6 +239,12 @@ type SimRunner struct {
 
 	// traffic is the background traffic engine, nil when disabled.
 	traffic *simTraffic
+
+	// trafficCarry is the fractional background payment left over from
+	// pro-rating the per-gap volume across attempts. Carrying it keeps the
+	// traffic rate inside a payment equal to the rate between payments
+	// instead of rounding it away.
+	trafficCarry float64
 
 	cleanup func()
 }
@@ -361,8 +387,12 @@ func (r *SimRunner) advanceGap() {
 	}
 }
 
-// advanceAttempt moves virtual time forward by one attempt's duration.
-func (r *SimRunner) advanceAttempt() {
+// advanceAttempt moves virtual time forward by one attempt's duration. Under
+// atomic mpp the background traffic engine also runs for that slice of time,
+// so hidden liquidity keeps drifting while a payment's shards are in flight
+// rather than freezing until the payment resolves. That is what makes a
+// serial probe-learn-resize strategy pay for the time it takes.
+func (r *SimRunner) advanceAttempt(atomicMpp bool) {
 	if r.virtualClk == nil || r.clockParams.AttemptSec <= 0 {
 		return
 	}
@@ -371,6 +401,31 @@ func (r *SimRunner) advanceAttempt() {
 		time.Duration(r.clockParams.AttemptSec *
 			float64(time.Second)),
 	))
+
+	if !atomicMpp || r.traffic == nil {
+		return
+	}
+
+	r.traffic.runN(r.attemptTrafficPayments())
+}
+
+// attemptTrafficPayments returns how many background payments belong to the
+// virtual time one attempt consumes. The per-gap volume is pro-rated by the
+// attempt duration so that the exogenous process runs at one rate throughout,
+// and the fractional remainder carries into the next attempt rather than
+// rounding away.
+func (r *SimRunner) attemptTrafficPayments() int {
+	if r.clockParams.PaymentGapSec <= 0 {
+		return 0
+	}
+
+	r.trafficCarry += float64(r.traffic.params.PaymentsPerGap) *
+		r.clockParams.AttemptSec / r.clockParams.PaymentGapSec
+
+	n := int(r.trafficCarry)
+	r.trafficCarry -= float64(n)
+
+	return n
 }
 
 // Close releases the runner's resources.
@@ -454,7 +509,32 @@ func (r *SimRunner) RunScenario(s *SimScenario) (*SimScenarioResult, error) {
 		nextAttemptID uint64
 		amtRemaining  = spec.Amount
 		inFlightHtlcs uint32
+
+		// holdIDs are the shards that have reached the destination but
+		// are not settled yet, only ever populated under atomic mpp.
+		// Their amount and fees ride along until the whole set either
+		// settles or is released.
+		holdIDs  []uint64
+		heldMsat uint64
+		heldFees uint64
 	)
+
+	// Under atomic mpp a payment that never completes settles nothing:
+	// every shard still held when the loop exits gives its reserved
+	// liquidity back, so a failed mpp leaves the hidden balances exactly
+	// as it found them and charges no fees. The success path settles the
+	// set and clears holdIDs before returning, so this only ever fires on
+	// a failure path, whichever one it is.
+	defer func() {
+		if len(holdIDs) == 0 {
+			return
+		}
+
+		for _, id := range holdIDs {
+			r.graph.ReleaseHold(id)
+		}
+		result.HeldReleasedMsat = heldMsat
+	}()
 
 	for len(result.Attempts) < simMaxAttempts {
 		// Ask the router for the next route to attempt.
@@ -474,9 +554,20 @@ func (r *SimRunner) RunScenario(s *SimScenario) (*SimScenarioResult, error) {
 
 		// Each attempt consumes virtual time: htlcs take real seconds
 		// to resolve on a live network.
-		r.advanceAttempt()
+		r.advanceAttempt(s.AtomicMpp)
 
-		htlcResult, err := r.graph.SendHtlc(rt)
+		// An atomic shard is held at the destination rather than
+		// settled there, reserving the liquidity of every hop it
+		// crossed until the payment as a whole resolves.
+		var (
+			htlcResult SimHtlcResult
+			holdID     uint64
+		)
+		if s.AtomicMpp {
+			htlcResult, holdID, err = r.graph.HoldHtlc(rt)
+		} else {
+			htlcResult, err = r.graph.SendHtlc(rt)
+		}
 		if err != nil {
 			result.Error = fmt.Sprintf("malformed route: %v", err)
 			break
@@ -486,7 +577,9 @@ func (r *SimRunner) RunScenario(s *SimScenario) (*SimScenarioResult, error) {
 			result.Attempts, traceAttempt(rt, htlcResult),
 		)
 
-		// Let the router learn from the outcome.
+		// Let the router learn from the outcome. The feedback is the
+		// same either way: what atomic mpp changes is the price of a
+		// serial probe, not the information it returns.
 		err = router.ReportAttempt(attemptID, rt, htlcResult)
 		if err != nil {
 			return nil, err
@@ -497,7 +590,16 @@ func (r *SimRunner) RunScenario(s *SimScenario) (*SimScenarioResult, error) {
 		}
 
 		inFlightHtlcs++
-		result.FeeMsat += uint64(rt.TotalFees())
+
+		// A settling shard pays its fee right away; a held one only
+		// pays when the whole set settles.
+		if s.AtomicMpp {
+			holdIDs = append(holdIDs, holdID)
+			heldMsat += uint64(rt.ReceiverAmt())
+			heldFees += uint64(rt.TotalFees())
+		} else {
+			result.FeeMsat += uint64(rt.TotalFees())
+		}
 
 		// Guard against a buggy router delivering more than asked:
 		// unsigned underflow here would loop until the attempt cap.
@@ -509,6 +611,16 @@ func (r *SimRunner) RunScenario(s *SimScenario) (*SimScenarioResult, error) {
 		amtRemaining -= recv
 
 		if amtRemaining == 0 {
+			// The full amount has arrived, so the held set becomes
+			// real balance movement all at once and the fees it
+			// carried finally come due. Without atomic mpp there
+			// is nothing held and this is a no-op.
+			for _, id := range holdIDs {
+				r.graph.SettleHold(id)
+			}
+			holdIDs = nil
+			result.FeeMsat += heldFees
+
 			result.Success = true
 			break
 		}

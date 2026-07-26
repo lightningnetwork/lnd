@@ -153,7 +153,73 @@ payments teach channel structure without materially draining, so the
 knowledge remains true when it is used. That is the honest model of a
 probe-warmed node and it is queued.
 
-## Part 2b — Hot load with valid knowledge (queued)
+## Part 2b — Probe-warm: valid knowledge does not pay either
+
+100 unscored probes at 2% and at 10% of the scored amounts, no
+restore, so what the router learns stays TRUE when it is used. This is
+the honest model of a probe-warmed node.
+
+| tier | lnd | mx_c3 | atomic1 |
+|---|---|---|---|
+| cold | 0.694 (19.8 att) | 0.791 (2.3) | 0.790 (1.6) |
+| 100 probes @ 2% | 0.664 (19.5) | 0.768 (2.2) | 0.766 (1.9) |
+| 100 probes @ 10% | 0.597 (15.9) | 0.653 (2.7) | 0.651 (2.6) |
+
+Nobody gains, and the loss grows with probe size. lnd's attempts do
+fall at 10% probes (19.8 → 15.9), the only sign of genuine warming
+anywhere in this experiment, but its success falls faster, so the
+objective still drops. The champions' attempt counts never move.
+
+## Verdict — there is no hot-cache regime here, and one design flaw explains why
+
+Across every arm — knowledge-with-depletion, stale knowledge with the
+network restored, foreign-vantage knowledge, and small valid probes —
+**no amount of warming ever moves any router above its cold-start
+score, and mission control never approaches the champions.** The
+original question ("does lnd's MC eventually cross, given enough
+observations?") has a clean negative answer at 25, 100 and 400
+observations, with fresh knowledge and with stale, from its own
+vantage and from a stranger's.
+
+Two mechanisms explain the negative, and they are worth separating:
+
+1. **The champions have nothing to learn.** They are within noise of
+   their asymptote on payment one (part 1: 2.4 attempts on the first
+   three mainnet payments, before any evidence exists). Their edge is
+   the prior, so warming cannot add to it and can only subtract by
+   spending liquidity or by going stale.
+2. **lnd cannot learn fast enough for this to matter.** 100
+   observations on a 12,161-node graph is roughly 1% pair coverage, and
+   what it does record is a permanent zero on tiers with no clock, so
+   the marginal observation is as likely to poison a future route as
+   to inform one.
+
+**But the experiment also has a design limit we should state plainly.**
+Every arm here derives knowledge from *payments*, and payments cost
+liquidity. That makes "free knowledge" unconstructible: the drain arm
+pays in depletion, the restore arm pays in staleness, the probe arm
+pays in both, just less. A served weight cache in the real proposal
+costs the consumer *nothing* — it arrives over an API. To measure that,
+the simulator needs to inject beliefs directly into mission control (or
+into a candidate's state) from a file, with no payments sent at all.
+That is a small addition (`--import-weights`) and it is the only design
+that can isolate the value of imported knowledge from the price of
+acquiring it. **Until it exists, exp-012's negative is a statement
+about probe-warming, not about weight-serving.**
+
+What the experiment DOES establish, and what carries upstream:
+- The champions' advantage is a prior, not accumulated history, so a
+  fresh node with the right prior is fast immediately (part 1).
+- Under stale knowledge, the consumer's staleness policy dominates
+  everything: hard zeros poison, floors survive (part 2). This is the
+  actionable upstream finding.
+- Remote-pair observations transfer across vantages; observations about
+  your own local channels do not, and importing them is actively
+  harmful (part 4).
+- Our background-traffic engine is ~5× weaker than configured, which
+  caveats exp-008 and exp-010b (part 3).
+
+## Part 2c — Direct weight import (designed, needs a sim change)
 
 An unscored `warmup` phase in the runner: N payments run before the
 scored batch, warming mission control and candidate state but not

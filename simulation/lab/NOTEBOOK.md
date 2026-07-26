@@ -378,3 +378,37 @@ reflections were always fast, until a 1,031-line seed made one slow
 enough to trip it: exp-013 hung for 85 minutes on a single reflection.
 Ported the process-group kill and the degrade-to-stub path, added
 --reflection-timeout for large seeds, and resumed exp-013 from state.
+
+## 2026-07-26 (afternoon) — exp-012 closes: no hot-cache regime, and why
+
+The probe-warm arm finished the sweep set: 100 valid probes at 2% and
+10% of the scored amounts, knowledge that stays true when used. Nobody
+gains (mx_c3 0.791 → 0.768 → 0.653; lnd 0.694 → 0.664 → 0.597), and
+the loss grows with probe size. lnd's attempts do fall at 10% probes
+(19.8 → 15.9), the only genuine warming signal in the whole
+experiment, but its success falls faster.
+
+So the original question gets a clean negative: across depletion,
+staleness, foreign vantage and valid probes, at 25/100/400
+observations, **no warming ever lifts any router above its cold score
+and mission control never approaches the champions.** Two mechanisms:
+the champions are already at their asymptote on payment one (their
+edge is the prior, so warming can only subtract), and 100 observations
+is ~1% pair coverage on a 12k-node graph, recorded as permanent zeros
+on clockless tiers.
+
+The design limit is worth stating as loudly as the result: every arm
+derives knowledge from PAYMENTS, and payments cost liquidity, so "free
+knowledge" is unconstructible here. The drain arm pays in depletion,
+the restore arm in staleness, the probe arm in both. A served cache in
+the real proposal costs the consumer nothing — it arrives over an API.
+Measuring that needs direct injection of beliefs from a file with no
+payments sent (`--import-weights`). Until that exists, exp-012's
+negative is about probe-warming, not about weight-serving.
+
+What survives and carries upstream: the champions' edge is a prior not
+a history; under stale knowledge the consumer's staleness policy
+dominates (hard zeros poison, floors survive) and that is the
+actionable finding; remote-pair observations transfer across vantages
+while local-channel ones must not be imported; and our traffic engine
+is ~5x weaker than configured, which caveats exp-008 and exp-010b.

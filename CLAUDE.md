@@ -46,7 +46,12 @@ writeups live in `simulation/lab/experiments/` (exp-001…exp-009).
   (reflection via `codex exec`, model gpt-5.6-sol), `export_run.py`,
   `preflight.py`, `refresh_dashboard.sh`.
 - `simulation/champions/` — evolved winners. `simulation/lab/` —
-  notebook, experiments, IDEAS backlog.
+  notebook, experiments, IDEAS backlog. `simulation/lab/WHY.md` — the
+  flagship explainer: each evolved mechanism paired against the lnd
+  production code that it replaces, plus the corrections to our own
+  published claims (the bimodal prior WAS in the harness prompt; the
+  evolved priors fit `sim_liquidity.go`'s 5%-of-capacity generator;
+  lnd's decay never fires on the static tiers).
 - `simulation/command-center/` — dashboard. Local:
   `python3 -m http.server 8777` from that dir. Published:
   https://lnd-routing-command-center.lightning.wiki/ (Litbucket, team

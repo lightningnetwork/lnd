@@ -3,6 +3,11 @@
 Running log of the GEPA × lnd pathfinding project. Newest entries at the
 bottom. Detailed experiment writeups live in `experiments/`.
 
+For the *why* rather than the chronology — every design decision put
+side by side against lnd's production code, with the causal story for
+each measured difference and three corrections to claims made below —
+read `WHY.md`.
+
 ---
 
 ## 2026-07-24 — Project kickoff, evaluator built, loop validated

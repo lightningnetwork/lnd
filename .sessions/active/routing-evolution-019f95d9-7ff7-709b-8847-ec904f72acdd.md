@@ -98,6 +98,28 @@ command center + lab notebook current.
   complete; winner archived as
   lab/experiments/exp-008-drift1-best-candidate.go. Cron deleted.
 
+### NIGHT 3 PLAN (2026-07-26, user asleep, full autonomy)
+- exp-012 STARTED. Part 1 DONE (6c7d2ce8e): warmup curves show lnd's
+  MC does NOT warm within a batch (mainnet ratio to mx_c3 goes 4.7x
+  -> 11.9x), champions cheap from payment ONE (advantage = prior, not
+  history), atomic1 the only within-batch learner (hard 1.56x ->
+  0.73x) — the memory-carrying lineage. Tool: simulation/warmup_curve.py.
+- IN FLIGHT: Opus agent building warmup phase + stale_gap_sec +
+  warmup.source override (routing/, cmd/routesim/) — tree dirty, do
+  not edit those dirs until it lands and I commit. Second Opus agent
+  writing simulation/lab/WHY.md (mechanism-by-mechanism vs lnd
+  production code) — read-only, delivers repo doc + mail digest +
+  later a site tab.
+- QUEUE (cron 28af4c01 drives it hourly): commit instrumentation ->
+  rebuild binaries -> exp-012 part 2 hot-load sweep N in {0,25,100,
+  400} (THE headline: does MC ever cross the champions?) -> part 3
+  staleness (gap 0/600/3600/21600s) -> part 4 vantage transfer
+  (warmup from a different source; MC history is vantage-entangled,
+  channel intervals are not) -> exp-013 code_hybrid1: continuation
+  evolution seeded from atomic1 on corpus-mix, the same recipe that
+  made mx_c3 from hb1, best shot at a new champion.
+- Champions change ONLY on a held-out paired sweep win.
+
 ### MORNING STATE (user awake; pre-compaction checkpoint)
 - exp-010 codex arm COMPLETE + verdict committed (cda40a3dc): joint
   planning emerged, lost to mx_c3 everywhere (paired stats). Champions

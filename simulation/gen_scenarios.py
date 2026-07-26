@@ -97,7 +97,8 @@ def corridor_tiers_msat(topology: dict) -> list:
     return [cap_msat * w // denom for w in weights]
 
 
-def gen_split_example(rng: random.Random, leads: int = 1) -> dict:
+def gen_split_example(rng: random.Random, leads: int = 1,
+                      atomic: bool = False) -> dict:
     """One splitting-pressure scenario file: a corridors network, two cheap
     probes and payments that no single path can carry.
 
@@ -156,13 +157,33 @@ def gen_split_example(rng: random.Random, leads: int = 1) -> dict:
         for mult in mults
     ]
 
-    return {
+    example = {
         "topology": topology,
         "liquidity_model": "bimodal",
         "liquidity_seed": rng.randrange(1, 2**31),
         "source": "1",
         "scenarios": scenarios,
     }
+
+    if atomic:
+        # The exp-010b arena couples atomic commitment with a world that
+        # keeps moving DURING the payment: each attempt costs thirty
+        # seconds of clock, so a twenty-attempt probe ladder watches ten
+        # minutes of churn while an up-front joint plan commits before
+        # the corridors drift. Traffic amounts stay within the thinnest
+        # rung so churn perturbs corridors without wiping them.
+        example["clock"] = {
+            "payment_gap_sec": 600,
+            "attempt_sec": 30,
+        }
+        example["background_traffic"] = {
+            "payments_per_gap": 8,
+            "min_amt_msat": 1_000,
+            "max_amt_msat": max(2_000, int(tiers[-1]) // 2),
+            "seed": rng.randrange(1, 2**31),
+        }
+
+    return example
 
 
 def gen_example(rng: random.Random, drift: bool = False) -> dict:
@@ -237,6 +258,11 @@ def main() -> None:
                         "payment and the right split is unequal "
                         "(exp-010). Isolates the splitting variable, so "
                         "it composes with neither --hard nor --drift")
+    parser.add_argument("--atomic", action="store_true",
+                        help="mark every scenario atomic_mpp: shards hold "
+                        "liquidity and settle or release together, and "
+                        "background traffic keeps moving between attempts "
+                        "(the exp-010b arena)")
     parser.add_argument("--split-leads", type=int, default=1,
                         help="ambitious payments per --split file. The "
                         "default 1 reproduces the original exp-010 "
@@ -274,9 +300,14 @@ def main() -> None:
         split_dir.mkdir(parents=True, exist_ok=True)
         for i in range(count):
             if args.split:
-                example = gen_split_example(rng, leads=args.split_leads)
+                example = gen_split_example(
+                    rng, leads=args.split_leads, atomic=args.atomic,
+                )
             else:
                 example = gen_example(rng, drift=args.drift)
+            if args.atomic:
+                for scenario in example["scenarios"]:
+                    scenario["atomic_mpp"] = True
             path = split_dir / f"example_{i:03d}.json"
             path.write_text(json.dumps(example, indent=2))
         print(f"{split}: {count} examples in {split_dir}")

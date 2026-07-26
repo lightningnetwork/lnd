@@ -96,7 +96,28 @@ is a per-minibatch metric and is badly inflated (0.9962 for the run that
 produced mx_c3). Selection is three-way held-out validation: compile the
 candidate via overlay, score it on the sealed test split, the
 out-of-distribution corpus, and the mainnet snapshot, against both lnd and
-the seed.
+the seed. The tier set has only grown since: exp-008 added the drift
+corpus, and exp-010 added the two splitting tiers and paired statistics
+(bootstrap 95% CIs and sign tests against mx_c3 as baseline), so a
+challenger now faces a five-tier sweep — split-val, split-test, sealed hard
+test, OOD corpus-v2, mainnet — before anyone calls it a champion.
+
+exp-010 is the hardest that selection has been pushed. It built a corridors
+corpus where unequal splitting is mandatory by construction, then ran three
+independent proposer lineages against it: codex/gpt-5.6-sol, Opus 5 at
+default reasoning effort, and Opus 5 at medium effort. All three evolved
+joint route-set planning, in increasing depth, and none of them beat hb1 or
+mx_c3 on the five-tier sweep. The deepest of them came the closest anything
+ever has — a statistical tie with mx_c3 on the corpus's own validation tier
+(+0.005 at p=.07, with a higher raw success rate) — and then collapsed off
+that corpus, scoring 0.303 on the sealed hard test against mx_c3's 0.583.
+The champions held because they generalize, which is the property the
+five-tier sweep exists to measure. The law this sharpens is the one the
+program keeps rediscovering: environments elicit mechanisms, budgets decide
+champions, and proposer strength moves a candidate along the
+specialist–generalist axis rather than lifting the whole curve. The same
+sweep also settled an old informal claim, that hb1 and mx_c3 are
+genuinely indistinguishable on mainnet (paired delta −0.000).
 
 The lineage:
 
@@ -170,9 +191,17 @@ Two smaller inventions:
   refused X; what do I believe about 0.3X?" lnd would blacklist and wait for
   the half-life.
 
-What did *not* evolve: joint route-set planning. Every champion finds one
-path per shard independently. Pickhardt-style min-cost flow over a set of
-paths remains open (exp-010).
+What did *not* evolve on its own: joint route-set planning. Every champion
+finds one path per shard independently, and Pickhardt-style min-cost flow
+over a set of paths never appeared under any corpus they were bred on.
+exp-010 built an environment that demanded it — parallel corridors of
+deliberately unequal capacity, where halving an above-tier payment yields
+shards only the fattest corridor can carry — and joint planning duly
+emerged, from all three proposer lineages, in three depths: one-step
+lookahead with reservation, up-front corridor-sized shard sets, and
+persistent residual-aware flow plans that survive failures. None of them
+carried off their home corpus, so the champions are still single-path;
+see `simulation/lab/experiments/exp-010-splitting-pressure.md`.
 
 ## Running one
 
@@ -264,6 +293,8 @@ are in each companion document; the short version:
   decay), `exp-008-drift1-best-candidate.md` (the time-aware router itself,
   walked through like a champion),
   `exp-009-mainnet-validation.md` (the mainnet snapshot),
+  `exp-010-splitting-pressure.md` (joint route-set planning, elicited from
+  three proposer lineages and beaten by the champions anyway),
   `exp-011-code-gen2.md` (the independent third lineage).
 - `routing/sim_router.go` — the `SimRouter` contract.
 - `routing/missioncontrol.go`, `routing/probability_apriori.go`,

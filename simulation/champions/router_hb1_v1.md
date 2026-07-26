@@ -41,6 +41,11 @@ payment**, against lnd's 0.790 success at 19.8 attempts. The success rates
 are close; the 8.6× reduction in attempts is where the objective gap comes
 from, and it is the headline result of the whole project.
 
+The 0.790-versus-0.791 row used to be read as a hair's-breadth loss to
+mx_c3. exp-010's paired sweep settled it: on mainnet the two are
+statistically indistinguishable, paired delta −0.000 with a bootstrap 95%
+CI of [−0.003, +0.002]. Pick between them on the other tiers, not this one.
+
 ## Running it
 
 The candidate slot is a single file, swapped at build time so that the
@@ -402,7 +407,8 @@ simulator, validated on that simulator plus one mainnet graph snapshot.
   with no derivation behind them.
 - Single-path search: hb1 finds one route per shard. Joint route-set
   planning (Pickhardt-style min-cost flow over a set of paths) never
-  evolved.
+  evolved here, and when exp-010 forced it to evolve elsewhere, the
+  planners it produced still lost to hb1 and mx_c3 off their home corpus.
 
 **Not production code.** The contract is `routing.SimRouter`, not lnd's
 `Router`. There is no persistence, no namespacing, no RPC surface, no
@@ -422,9 +428,10 @@ capacity. It is the best router we have measured on the sealed hard test
 
 Pick mx_c3 instead when the topology is unknown or scale-free, where hb1
 gives up 0.036 objective (0.545 versus 0.581) on the out-of-distribution
-corpus. On the mainnet snapshot the two are within noise of each other
-(0.790 versus 0.791), so on mainnet-like graphs read hb1 first and reach
-for mx_c3 only if you want the extra machinery.
+corpus. On the mainnet snapshot the two are statistically indistinguishable
+(0.790 versus 0.791; paired delta −0.000 [−0.003, +0.002] in exp-010's
+sweep), so on mainnet-like graphs read hb1 first and reach for mx_c3 only
+if you want the extra machinery.
 
 ## See also
 
@@ -437,4 +444,7 @@ for mx_c3 only if you want the extra machinery.
   experiment that settled the zero-time-logic question.
 - `simulation/lab/experiments/exp-008-drift1-best-candidate.md` — the
   time-aware router that experiment produced, walked through in full.
+- `simulation/lab/experiments/exp-010-splitting-pressure.md` — the
+  five-tier paired sweep, and the three joint route-set planners that did
+  not displace the champions.
 - `routing/sim_router.go` — the `SimRouter` contract hb1 implements.

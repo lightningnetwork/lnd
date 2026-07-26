@@ -40,7 +40,32 @@ Objective = `success − 0.01·min(extra_attempts, 15) − 0.00002·min(fee_ppm,
 mx_c3 costs 0.003 objective on the hard test and buys 0.036 on the
 out-of-distribution test, which is why it is the champion of record rather
 than hb1. On the mainnet snapshot it reaches 0.810 success at **2.3
-attempts per payment**, against lnd's 0.790 at 19.8.
+attempts per payment**, against lnd's 0.790 at 19.8. exp-010's paired
+sweep put statistics on the hb1 comparison: on mainnet the two are
+genuinely indistinguishable, paired delta −0.000 [−0.003, +0.002].
+
+### The closest anything has come: exp-010
+
+exp-010 bred routers against a corridors corpus built to make unequal
+splitting mandatory — exactly the regime where mx_c3's evidence-derived
+shard ladder should be at its weakest — and it produced the first candidate
+in the program's history to catch mx_c3 on any tier. The winner of the
+Opus-5-default arm, 1,931 lines of persistent parallel flow plans,
+concurrency-first dispatch, and residual-aware shard budgeting, scored
+0.839 on split-val against mx_c3's 0.835: a paired delta of +0.005 at
+p=.07, with a higher raw success rate (0.958 versus 0.917). On the corpus
+it was bred for, the gap to the champion closed to noise.
+
+Generalization is what protects mx_c3. That same challenger scores 0.303 on
+the sealed hard test against mx_c3's 0.583, because its corridor-tuned
+adaptive fail budget gives up after roughly seven attempts where mx_c3
+spends 10.8 and succeeds at 2.4× the rate. Two other proposer lineages in
+the same experiment — codex/gpt-5.6-sol with one-step lookahead, Opus 5 at
+medium effort with up-front corridor-sized shard sets — evolved shallower
+joint planners and lost to mx_c3 on all five tiers. The honest reading is
+that mx_c3's splitting is beatable on a corpus designed to punish it, and
+that nothing yet beats it everywhere at once. Detail in
+`simulation/lab/experiments/exp-010-splitting-pressure.md`.
 
 ## Running it
 
@@ -497,7 +522,12 @@ second-chance instinct, arrived at independently.
   Dijkstra.
 - **Still single-path.** Every shard gets its own independently-found route.
   Joint route-set planning — Pickhardt-style min-cost flow choosing a *set*
-  of paths together — never evolved. That is the open exp-010 question.
+  of paths together — never evolved here. exp-010 elicited it from three
+  independent proposer lineages under a corpus that demanded it, and none of
+  the resulting planners beat mx_c3 off that corpus; the deepest one tied it
+  on the corpus's own validation tier. The mechanism is available, the
+  advantage is not, at least until sequential adaptivity stops being free
+  (exp-010b).
 
 **Not production code.** The contract is `routing.SimRouter`, not lnd's
 `Router`. There is no persistence, no mission-control namespacing, no RPC
@@ -527,6 +557,9 @@ for why.
   run and the frontier sweep that selected mx_c3.
 - `simulation/lab/experiments/exp-009-mainnet-validation.md` — the mainnet
   snapshot result.
+- `simulation/lab/experiments/exp-010-splitting-pressure.md` — the
+  splitting-pressure experiment, the three joint planners it evolved, and
+  the five-tier paired sweep that kept mx_c3 champion.
 - `simulation/lab/experiments/exp-011-code-gen2.md` — the independent third
   lineage that converged on the same paradigm from a small seed.
 - `simulation/lab/experiments/exp-008-drift-evolution.md` and

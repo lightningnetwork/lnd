@@ -272,3 +272,14 @@ champions, and proposer strength interacts with environment VARIANCE.
 Next levers: degraded attribution (measurement channel) and exp-012
 cold/hot cache, where stateless-Opus vs memory-carrying-codex finally
 gets priced. Detail: exp-010b writeup.
+
+Addendum from the challenger-docs pass (6c0b3a2c5): atomic1 resolves
+the exp-008 staleness tension by SCOPE instead of clock — per-payment
+failure evidence is treated as near-certain (two strikes kills a
+directed channel for the payment), while persisted cross-payment
+bounds soften to a 0.012 floor rather than mx_c3's hard zero. Fresh
+evidence is certainty, old evidence is a strong prior, and no
+half-life computes it: the belief's lifetime, not its weight, is what
+varies. Three lineages have now answered "how do you age evidence?"
+three ways (hard bounds forever / decay-and-lose / scope-split), and
+scope-split is the first that generalizes without collapse.

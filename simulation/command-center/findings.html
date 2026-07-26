@@ -31,11 +31,11 @@
   <!-- ================= MASTHEAD ================= -->
   <div class="shell masthead">
     <div class="eyebrow">
-      Findings<span class="sep">/</span>lnd × GEPA routing evolution<span class="sep">/</span>24 July 2026
+      Findings<span class="sep">/</span>lnd × GEPA routing evolution<span class="sep">/</span>26 July 2026
     </div>
     <h1>What the evolved routers kept, dropped, and <em>invented</em></h1>
     <p class="standfirst">
-      Eleven experiments in, the shape of the result is clear. On a real mainnet
+      Twelve experiments in, the shape of the result is clear. On a real mainnet
       graph snapshot, LLM-evolved routers match lnd's success rate using
       <strong>8.6× fewer HTLC attempts</strong> — and the structure they arrived at
       is not a tuned version of lnd's. It is a different way of remembering what
@@ -44,7 +44,7 @@
     <div class="byline">
       <span>sources <b>simulation/lab/experiments</b></span>
       <span>champions <b>hb1 · mx_c3</b></span>
-      <span>status <b>validated · exp-010 closed</b></span>
+      <span>status <b>validated · exp-010b closed</b></span>
     </div>
 
     <ol class="toc">
@@ -54,8 +54,9 @@
       <li><a href="#anatomy"><span class="n">04</span><span class="t">Anatomy: dropped, rediscovered, invented</span></a></li>
       <li><a href="#ceiling"><span class="n">05</span><span class="t">The paradigm ceiling: three lineages, one band</span></a></li>
       <li><a href="#splitting"><span class="n">06</span><span class="t">Splitting pressure: three proposers, one mechanism, no new champion</span></a></li>
-      <li><a href="#process"><span class="n">07</span><span class="t">What the process taught us</span></a></li>
-      <li><a href="#timeline"><span class="n">08</span><span class="t">Timeline of experiments</span></a></li>
+      <li><a href="#atomic"><span class="n">07</span><span class="t">The honest arena: atomic commitment, and the fifth challenge</span></a></li>
+      <li><a href="#process"><span class="n">08</span><span class="t">What the process taught us</span></a></li>
+      <li><a href="#timeline"><span class="n">09</span><span class="t">Timeline of experiments</span></a></li>
       <li><a href="drift.html"><span class="n">→</span><span class="t">Drift: the environment strikes back <i>(exp-008, verdict in)</i></span></a></li>
     </ol>
   </div>
@@ -311,7 +312,7 @@
         <p>
           <strong>Exploit-clean.</strong> The simulator seals hidden liquidity behind
           a view interface, and an adversarial audit of that seal
-          (<a class="link" href="#process">§07</a>) found and
+          (<a class="link" href="#process">§08</a>) found and
           closed a real escape. Both champions were validated after the seal, with
           zero uses of any exploit path.
         </p>
@@ -879,7 +880,7 @@
         <p>
           <strong>Opus 5 at default effort, persistent parallel flow plans.</strong>
           The deepest machinery the project has produced, at 1,931 lines — well past
-          the complexity wall of <a class="link" href="#process">§07</a>. A flow plan
+          the complexity wall of <a class="link" href="#process">§08</a>. A flow plan
           survives failure, dropping only the corridors that evidence actually
           contradicts; dispatch is concurrency-first, filling the shard budget with
           the largest believable amounts before it ever ladder-searches; and planning
@@ -1017,16 +1018,378 @@
             machinery pays off once a router can no longer watch one shard land
             before choosing the next.
           </p>
+          <p>
+            It has since been built and run, and the answer to both halves is in
+            <a class="link" href="#atomic">§07</a>: the arena reordered the field
+            before evolution touched it, the persistent-plan machinery came back
+            stronger in both arms, and the champion held anyway.
+          </p>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ================= 07 · PROCESS ================= -->
-  <section id="process">
+  <!-- ================= 07 · ATOMIC ARENA ================= -->
+  <section id="atomic">
     <div class="shell">
       <div class="sec-head">
         <div class="sec-no">07</div>
+        <h2>The honest arena: atomic commitment, and the fifth challenge</h2>
+        <p class="sec-sub">
+          The splitting corpus let a router probe with one shard, watch it land, and
+          then choose the next one in a world that had politely stopped moving.
+          exp-010b took the subsidy away — shards hold liquidity until the whole
+          payment settles, siblings contend for what is held, and the network drifts
+          on every attempt. The field reordered. The champion did not move.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key">
+          <span class="kn">105<span class="u">attempts</span></span>
+          <div class="kl">
+            attempts per payment for lnd's production stack once shards commit
+            atomically, against 23 on the same topology with instant settlement — its
+            divide-and-conquer probe ladder is exactly what the new arena taxes
+          </div>
+          <div class="kf">second place to last · objective 0.338</div>
+        </div>
+        <div class="key hi">
+          <span class="kn">1.6<span class="u">att/pmt</span></span>
+          <div class="kl">
+            the codex winner on the mainnet snapshot: the most attempt-frugal router
+            this project has ever measured, below the champions' 2.3, at an objective
+            dead even with mx_c3
+          </div>
+          <div class="kf">delta −0.001 · the first challenger with no collapse tier</div>
+        </div>
+        <div class="key">
+          <span class="kn">−0.044<span class="u">home tier</span></span>
+          <div class="kl">
+            the best challenger's remaining deficit on held-out atomic test, on an
+            arena designed expressly to charge the champion's reactive ladder what it
+            costs on mainnet
+          </div>
+          <div class="kf">p = 0.07 · fifth direct challenge to mx_c3, fifth hold</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>What the arena changed, and what it deliberately did not</h3>
+        <p>
+          Three couplings moved, all behind one scenario flag. <strong>Shards hold
+          rather than settle:</strong> a shard that traverses successfully locks
+          liquidity along its path, and the whole set either settles together or
+          releases together, which makes failed MPP genuinely atomic and removes a
+          fidelity distortion the simulator audit had flagged. <strong>Holds
+          contend:</strong> sibling shards and background traffic see availability net
+          of what is held, so a router that probes a corridor physically reserves it
+          and two shards can no longer spend the same satoshis. <strong>The world
+          keeps turning:</strong> background traffic now runs on attempt boundaries at
+          thirty virtual seconds each, so a twenty-attempt ladder watches ten minutes
+          of corridor churn while a plan committed up front commits before the world
+          moves.
+        </p>
+        <p>
+          One thing was left alone on purpose. Per-attempt failure feedback is
+          unchanged. Batching feedback until a whole shard set resolved was considered
+          and rejected: on mainnet each shard's failure <em>is</em> observed as it
+          happens, so denying that information would be less realistic, not more, and
+          it would break the interface that keeps all seven routers comparable. The
+          honest cost of sequential probing is time and reservation, and those are
+          what the arena now charges. With the flag off, every legacy corpus produces
+          byte-identical results, so nothing on this page was invalidated by the
+          change.
+        </p>
+
+        <h3>The subsidy was real, and the baseline proves it</h3>
+        <p>
+          The most interesting result of exp-010b arrived before any evolution ran.
+          Rebuild all seven routers against the new tree, score them on the atomic
+          corpus, and the ranking is not the one we have been reading for eleven
+          experiments. <strong>lnd falls from second place to last.</strong> On the
+          non-atomic corridors corpus its production MPP was the second-best objective
+          on the tier (0.837); here it scores 0.338, spending more than a hundred
+          attempts per payment to get half of them through. Nothing about lnd changed.
+          The bill for sequential probing did.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:2em">
+        <table class="data">
+          <caption>exp-010b · baseline on the atomic corpus, before any evolution. Seven routers rebuilt against the same tree; attempts are per payment on the held-out tier.</caption>
+          <thead>
+            <tr>
+              <th>router</th>
+              <th class="num">atomic val</th>
+              <th class="num">atomic test</th>
+              <th class="num">test success</th>
+              <th class="num">test attempts</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>lnd production stack<span class="sub">second-best on the same topology when shards settled instantly</span></td>
+              <td class="num" data-l="atomic val">0.286</td>
+              <td class="num" data-l="atomic test">0.338</td>
+              <td class="num" data-l="test success">0.500</td>
+              <td class="num" data-l="test attempts">104.8</td>
+            </tr>
+            <tr>
+              <td>hand-written seed<span class="sub">~300 lines</span></td>
+              <td class="num" data-l="atomic val">0.389</td>
+              <td class="num" data-l="atomic test">0.385</td>
+              <td class="num" data-l="test success">0.536</td>
+              <td class="num" data-l="test attempts">56.5</td>
+            </tr>
+            <tr>
+              <td>split2<span class="sub">exp-010 codex arm · one-step lookahead</span></td>
+              <td class="num" data-l="atomic val">0.356</td>
+              <td class="num" data-l="atomic test">0.391</td>
+              <td class="num" data-l="test success">0.554</td>
+              <td class="num" data-l="test attempts">26.9</td>
+            </tr>
+            <tr>
+              <td>opusmed1<span class="sub">exp-010 Opus medium arm</span></td>
+              <td class="num" data-l="atomic val">0.357</td>
+              <td class="num" data-l="atomic test">0.373</td>
+              <td class="num" data-l="test success">0.536</td>
+              <td class="num" data-l="test attempts">28.0</td>
+            </tr>
+            <tr>
+              <td>opus1<span class="sub">exp-010 Opus default arm · persistent flow plans, never saw atomic semantics</span></td>
+              <td class="num" data-l="atomic val">0.429</td>
+              <td class="num" data-l="atomic test">0.425</td>
+              <td class="num" data-l="test success">0.571</td>
+              <td class="num" data-l="test attempts">23.5</td>
+            </tr>
+            <tr>
+              <td>hb1<span class="sub">champion · 872 lines</span></td>
+              <td class="num" data-l="atomic val">0.430</td>
+              <td class="num" data-l="atomic test">0.444</td>
+              <td class="num" data-l="test success">0.554</td>
+              <td class="num" data-l="test attempts">10.7</td>
+            </tr>
+            <tr class="best">
+              <td>mx_c3<span class="sub">champion of record · ties hb1 exactly on test, +0.001 at p .73</span></td>
+              <td class="num" data-l="atomic val">0.442</td>
+              <td class="num" data-l="atomic test">0.444</td>
+              <td class="num" data-l="test success">0.571</td>
+              <td class="num" data-l="test attempts">12.6</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <p>
+          The champions keep the top of the table, but the shape underneath them is
+          new. opus1 — exp-010's persistent-plan router, which collapsed off-corpus
+          and had never seen an atomic shard in its life — is statistically
+          indistinguishable from mx_c3 on both atomic tiers (−0.013 at p = 0.73 on
+          validation, −0.019 at p = 0.29 on test), while the shallower planners stay
+          significantly behind. Deep joint planning was always worth something. It had
+          just never been in a market that paid for it.
+        </p>
+        <p>
+          The tempering check written down in advance also passed: mean success across
+          routers sits between 0.45 and 0.57 with objectives from 0.29 to 0.44 — hard,
+          not collapsed, real headroom in both directions — so the churn parameters
+          stood and evolution ran on them unmodified.
+        </p>
+
+        <h3>Two arms, and a hybrid that had not appeared before</h3>
+        <p>
+          Both proposers got 400 evaluations on the atomic corpus, with the arena's
+          economics spelled out in the background prompt and the hold ledger added to
+          the exploit grep. Both produced exactly the mechanism family the arena was
+          built to elicit, and they produced it differently.
+        </p>
+        <p>
+          <strong>Opus 5 at default effort</strong> re-derived something close to
+          honest min-cost flow in 987 lines: corridors enumerated once per plan with
+          per-edge reservations, exclusion by whole edge set so shards cannot silently
+          contend, shard sizes drawn from believed capacity, residual planning that
+          reuses known bounds. Drift bred it one mechanism the family had never shown
+          before — repeated whole-plan failure <em>relaxes</em> hard bounds slightly,
+          so a churning network can be re-probed instead of being written off as
+          permanently unroutable.
+        </p>
+        <p>
+          <strong>codex/gpt-5.6-sol</strong> built a hybrid, 1,031 lines, and it is the
+          first of its kind here: the codex lineage's cross-payment network memory,
+          keyed by a network hash and carried between payments, fused with up-front
+          route-set planning. <span class="mono">makePlan</span> and
+          <span class="mono">planOnce</span> build a shard plan against a per-edge
+          reservation ledger, and the edge probability function prices each edge with
+          its own reservations folded into the amount, so a plan cannot lean on the
+          same corridor twice. Cross-payment belief and within-payment planning, in
+          one router.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:2em">
+        <table class="data">
+          <caption>exp-010b · composite objective on six held-out tiers, all routers rebuilt on the current tree. Paired deltas against mx_c3, two-sided sign test over per-file differences. The scratch legacy corpora were regenerated after a reboot, so read the deltas inside this table rather than comparing levels against <a class="link" href="#splitting">§06</a>.</caption>
+          <thead>
+            <tr>
+              <th>router</th>
+              <th class="num">atomic val</th>
+              <th class="num">atomic test</th>
+              <th class="num">split test</th>
+              <th class="num">hard test</th>
+              <th class="num">OOD v2</th>
+              <th class="num">mainnet</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>opus1<span class="sub">unevolved challenger · bred on the non-atomic corpus</span></td>
+              <td class="num" data-l="atomic val">0.429<span class="sub">−0.013 · p .73</span></td>
+              <td class="num" data-l="atomic test">0.425<span class="sub">−0.019 · p .29</span></td>
+              <td class="num" data-l="split test">0.841<span class="sub">−0.035 · p .07</span></td>
+              <td class="num" data-l="hard test">0.284<span class="sub">−0.195 · p .18</span></td>
+              <td class="num" data-l="OOD v2">0.483<span class="sub">−0.098 · p .34</span></td>
+              <td class="num" data-l="mainnet">0.757<span class="sub">−0.033 · p .18</span></td>
+            </tr>
+            <tr>
+              <td>atomic1<span class="sub">codex arm · 1,031 lines · memory + reservation ledger</span></td>
+              <td class="num" data-l="atomic val">0.426<span class="sub">−0.016 · p .29</span></td>
+              <td class="num" data-l="atomic test">0.400<span class="sub">−0.044 · p .07</span></td>
+              <td class="num" data-l="split test">0.825<span class="sub">−0.051 · p .07</span></td>
+              <td class="num" data-l="hard test">0.417<span class="sub">−0.062 · p .75</span></td>
+              <td class="num" data-l="OOD v2">0.544<span class="sub">−0.036 · p .75</span></td>
+              <td class="num" data-l="mainnet">0.790<span class="sub">−0.001 · p .039</span></td>
+            </tr>
+            <tr>
+              <td>atomicopus1<span class="sub">Opus default arm · 987 lines · bound-relaxing re-probe</span></td>
+              <td class="num" data-l="atomic val">0.374<span class="sub">−0.067 · p .29</span></td>
+              <td class="num" data-l="atomic test">0.391<span class="sub">−0.053 · p .008</span></td>
+              <td class="num" data-l="split test">0.711<span class="sub">−0.165 · p .008</span></td>
+              <td class="num" data-l="hard test">0.247<span class="sub">−0.232 · p .109</span></td>
+              <td class="num" data-l="OOD v2">0.367<span class="sub">−0.214 · p .109</span></td>
+              <td class="num" data-l="mainnet">0.738<span class="sub">−0.053 · p .18</span></td>
+            </tr>
+            <tr class="best">
+              <td>mx_c3<span class="sub">champion of record · the baseline every delta is measured against</span></td>
+              <td class="num" data-l="atomic val">0.442</td>
+              <td class="num" data-l="atomic test">0.444</td>
+              <td class="num" data-l="split test">0.876</td>
+              <td class="num" data-l="hard test">0.479</td>
+              <td class="num" data-l="OOD v2">0.581</td>
+              <td class="num" data-l="mainnet">0.791</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <h3 style="margin-top:2em">Right architecture, wrong economy</h3>
+        <p>
+          The Opus arm's failure is legible in a single column that is not in the
+          table. On atomic test it spends <strong>57.5 attempts per payment</strong>,
+          against mx_c3's 12.6 and the unevolved challenger's 23.5. The
+          relax-and-re-probe loop that drift bred into it converts tolerance for a
+          moving network into attempt burn, and the objective's attempt penalty — plus
+          the extra drift each attempt invites — eats the success it buys. Evolution
+          polished the right architecture into the wrong economy.
+        </p>
+        <p>
+          There is a sharper negative result hiding inside that. Four hundred
+          evaluations of evolution <em>on</em> the atomic arena produced a router that
+          is worse on the atomic arena (0.391) than exp-010's opus1, which never saw
+          atomic semantics at all (0.425). Held shards, contention and attempt-time
+          churn make per-file scores swing, and minibatch acceptance inherits the
+          swing. The resolution caveat registered during exp-010 is still binding, in
+          a new form: this corpus fixed the quantisation and introduced variance.
+        </p>
+
+        <h3>The first challenger without a cliff</h3>
+        <p>
+          The codex arm did not win either. It also did not lose anywhere, and that is
+          new. Every previous challenger in this project bought its home-corpus
+          strength with an off-corpus collapse — the exp-010 Opus arm at 0.303 on hard
+          against mx_c3's 0.583, opusmed1 the same, drift1 short on all four tiers.
+          <strong>atomic1 has no collapse tier.</strong> It is statistically
+          indistinguishable from the champion on hard (p = 0.75), on out-of-distribution
+          topologies (p = 0.75) and on mainnet, where it lands within a thousandth of
+          mx_c3's objective.
+        </p>
+        <p>
+          And it gets there with <strong>1.6 attempts per payment on mainnet</strong>,
+          below the champions' 2.3 and the lowest figure this project has recorded on
+          the real graph. The sign test on that tier reads p = 0.039, which sounds like
+          a loss and is not: it reflects hair-width per-file deficits that are
+          consistent in direction and negligible in size, summing to a delta of −0.001.
+          Breeding under drift plus atomic commitment produced robustness where every
+          earlier environment produced corpus-pinned constants.
+        </p>
+
+        <div class="note">
+          <h4>what the fifth challenge settles</h4>
+          <p>
+            Champions of record are <strong>unchanged</strong>: hb1 and mx_c3. The
+            arena was designed against them specifically — the whole point was to
+            charge the reactive evidence ladder for the sequential probing it enjoys
+            for free — and the ladder, taxed and un-subsidised, still leads every
+            tier. What changed is the <em>shape</em> of the frontier rather than its
+            height. The nearest challenger is now a generalist too, every gap outside
+            the home tier is inside the noise, and the home tier's own gap sits at
+            p = 0.07. The program law takes one more clause: environments elicit
+            mechanisms, budgets decide champions, and <em>proposer strength interacts
+            with environment variance</em>.
+          </p>
+        </div>
+
+        <div class="sidenote">
+          <h4>the proposer A/B flipped</h4>
+          <p>
+            In exp-010, on a static corpus, Opus 5 at default effort built the deepest
+            planner of the three arms and beat codex on the corpus both were bred for
+            (<a class="link" href="#splitting">§06</a>). Here, on the same budget with
+            the only change being churn and contention, codex wins <em>every</em> tier
+            and the Opus winner is the weakest router of the family. The consistent
+            reading is that deliberate proposers take large architectural steps: those
+            pay in a low-noise environment, where a big correct step is retained, and
+            misfire when minibatch acceptance is noisy enough that a big step is kept
+            or dropped for the wrong reason. Codex's smaller steps ride the noise
+            better. Proposer choice is not a fixed ranking; it interacts with how loud
+            the environment is.
+          </p>
+          <p>
+            Both arms ran fully sealed, incidentally — 400 evaluations each with zero
+            degraded reflections and a zero instruction-leak canary, the first runs in
+            the program to manage that.
+          </p>
+        </div>
+
+        <div class="note">
+          <h4>next: the measurement channel, not a harsher arena</h4>
+          <p>
+            Three environment levers have now been pulled — drift, mandatory unequal
+            splitting, atomic commitment — and each elicited the mechanism it was
+            built to elicit without changing the ranking. That is enough evidence to
+            stop pulling. The next two experiments go after the two things never yet
+            varied. <strong>Degraded attribution:</strong> the simulator tells a router
+            exactly which hop failed at what amount, which is a precision paradise
+            compared to mainnet, and the advisor's read is that some of the champions'
+            margin lives there. It is the decisive pre-upstream test.
+            <strong>exp-012, cold cache against hot:</strong> an unscored warmup phase,
+            staleness under drift, and third-party weights, which is where the
+            structural split between the lineages finally gets priced — every Opus
+            winner keeps no cross-payment state at all, while every codex router
+            carries a belief map from one payment to the next.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 08 · PROCESS ================= -->
+  <section id="process">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">08</div>
         <h2>What the process taught us</h2>
         <p class="sec-sub">
           Findings about running this kind of search, which cost as much to learn
@@ -1105,14 +1468,14 @@
     </div>
   </section>
 
-  <!-- ================= 08 · TIMELINE ================= -->
+  <!-- ================= 09 · TIMELINE ================= -->
   <section id="timeline">
     <div class="shell">
       <div class="sec-head">
-        <div class="sec-no">08</div>
+        <div class="sec-no">09</div>
         <h2>Timeline of experiments</h2>
         <p class="sec-sub">
-          Eleven writeups, one day of wall-clock time, in numbered order. Full
+          Twelve writeups, three days of wall-clock time, in numbered order. Full
           detail lives in
           <span class="mono">simulation/lab/experiments/</span>.
         </p>
@@ -1268,6 +1631,25 @@
             </div>
           </div>
           <div class="tl-tag">verdict · three arms</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-010b</div>
+          <div class="tl-b">
+            <div class="t">Atomic commitment — the arena stops subsidising probes</div>
+            <div class="d">
+              Shards hold liquidity until the whole payment settles, siblings contend
+              for what is held, and traffic drifts on every attempt boundary, with
+              flag-off byte-identity preserving every earlier result. The baseline
+              reordered before evolution ran: lnd fell from second to last at 105
+              attempts per payment. Two arms then re-evolved up-front reservation
+              planning, and the codex winner became the first challenger with no
+              collapse tier — 1.6 attempts per payment on mainnet, the lowest ever
+              measured here — while still finishing −0.044 short on the home tier.
+              Champions unchanged (<a class="link" href="#atomic">§07</a>).
+            </div>
+          </div>
+          <div class="tl-tag">verdict · fifth hold</div>
         </div>
 
         <div class="tl-item pivot">

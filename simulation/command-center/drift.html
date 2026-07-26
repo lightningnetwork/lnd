@@ -680,6 +680,19 @@
             champions still stand
             (<a class="link" href="findings.html#splitting">the splitting verdict</a>).
           </p>
+          <p>
+            Its follow-up, exp-010b, went after the “one drift intensity” caveat above
+            from the other side: traffic now moves on every <em>attempt</em> boundary
+            rather than only between payments, and shards hold liquidity until the
+            whole payment settles, so a long reactive ladder pays for the churn it
+            sits through. That reordered the baseline — lnd fell to last at 105
+            attempts per payment — and the drift-bred mechanism it elicited is the one
+            this page would predict: an evolved router that <em>relaxes</em> its hard
+            bounds after repeated failure so a moving network can be re-probed. It
+            burned 57 attempts per payment doing it, which is the same asymmetry as
+            above with the sign flipped
+            (<a class="link" href="findings.html#atomic">the atomic verdict</a>).
+          </p>
         </div>
       </div>
     </div>

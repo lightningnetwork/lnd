@@ -62,7 +62,7 @@
       <span>reflection LM <b>gpt-5.6-sol</b></span>
       <span>evaluator <b>cmd/routesim</b></span>
       <span>experiments <b>exp-001 … exp-011</b></span>
-      <span>exp-008, exp-010 <b>verdicts in</b> · next <b>exp-010b · split resolution</b></span>
+      <span>exp-008, exp-010, exp-010b <b>verdicts in</b> · next <b>exp-012 · cold cache vs hot</b></span>
     </div>
   </div>
 
@@ -399,8 +399,11 @@
           directory. <span class="mono">code_drift1</span> has since finished all 400
           evaluations, and so have exp-010's three splitting arms — all of them beaten
           by the champions
-          (<a class="link" href="findings.html#splitting">the verdict</a>). exp-010b
-          takes this slot next.
+          (<a class="link" href="findings.html#splitting">the verdict</a>). exp-010b's
+          two atomic-arena arms have since closed the same way — the champion's fifth
+          hold, against an arena built to charge its probe ladder honestly
+          (<a class="link" href="findings.html#atomic">the atomic verdict</a>) — and
+          exp-012, cold cache against hot, takes this slot next.
         </p>
       </div>
 
@@ -497,7 +500,7 @@
       <p>
         The definitive write-up — the paradigm result, the champion scores, an
         anatomy of the evolved algorithms against lnd's, the ceiling three separate
-        lineages ran into, and the process lessons from eleven experiments.
+        lineages ran into, and the process lessons from twelve experiments.
       </p>
     </div>
   </div>

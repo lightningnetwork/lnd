@@ -174,7 +174,58 @@ scope-based staleness handling (exp-010b) and drift1's confidence
 half-life (exp-008) are the two candidate primitives for weighing
 aged imported evidence.
 
-## Part 4 — Third-party weights (designed)
+## Part 4 — Third-party weights: a stranger's knowledge is not worse
+
+Design: score from a well-connected mainnet vantage, warm from either
+that same node (self) or a degree-31 stranger (foreign), with
+everything else matched — same 18 files, same 25 warmup payments, same
+liquidity restore, so the ONLY variable is who gathered the knowledge.
+A first attempt at three files was underpowered noise (CIs spanning
+[0, 0.5]) and was discarded rather than reported.
+
+| router | self-vantage | foreign-vantage | Δ (foreign − self) |
+|---|---|---|---|
+| lnd | 0.155 (3.0 att) | **0.176 (0.8 att)** | **+0.021** |
+| mx_c3 | 0.174 (0.4 att) | 0.169 (0.5 att) | −0.005 |
+| atomic1 | 0.209 (0.6 att) | 0.209 (0.6 att) | 0.000 |
+
+**Nobody is hurt by using a stranger's observations, and lnd is
+helped.** For atomic1 the two arms are identical to three decimals;
+for mx_c3 they are within noise. That is the expected result for
+per-directed-channel bounds, which are facts about a channel and carry
+no trace of who observed them.
+
+**lnd improving on a stranger's knowledge is the surprise, and it
+sharpens the vantage story rather than confirming it.** The
+instrumentation agent had already observed that mission control
+history is only partly vantage-entangled: a failure at a remote relay
+records the pair `(relay, target)`, which contains no reference to the
+observer and transfers fine. What this sweep adds is the sign of the
+entangled remainder. Warming from lnd's own vantage populates the
+pairs involving its own local channels — precisely the pairs every one
+of its payments must traverse — with stale zeros it cannot decay away
+on this tier, and its attempt count triples (0.8 → 3.0) as it thrashes
+around its own poisoned first hop. A stranger's warmup cannot touch
+those pairs, so it teaches the transferable part and leaves the
+critical part clean.
+
+So the practical answer to "what should a weight-serving API serve" is
+narrower than the vantage-independence argument suggested, and more
+interesting: **serve remote-pair observations, and do not serve (or do
+not import) observations about the consumer's own local channels.**
+Those are the ones a node can cheaply measure itself, they are the
+ones whose staleness is most damaging, and they are the only part of
+mission control that is genuinely vantage-bound.
+
+**Caveat.** Every arm here is in the stale regime by construction (the
+restore control means imported knowledge describes a churned network).
+Absolute objectives are low (0.15–0.21) because 25 stale warmup
+payments on this corpus is a punishing setup; the paired deltas are
+the result, not the levels. Fresh third-party knowledge — a stranger's
+observations of the network as it currently is — remains unmeasured
+and needs the part 2b probe-warm arm first.
+
+## Part 4b — Fresh third-party weights (queued, needs part 2b)
 
 The structural asymmetry worth measuring: mission control history is
 pair-based and entangled with the observing node's vantage, while the

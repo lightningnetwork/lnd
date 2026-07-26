@@ -328,3 +328,19 @@ the bimodal prior was in the harness prompt all along, the evolved
 prior constants fit `sim_liquidity.go`'s generator, and lnd's decay
 never fires on the static tiers. Corrections committed to CLAUDE.md,
 NOTEBOOK and exp-006 (e2c14e964).
+
+**Part 4 addendum (same night).** Vantage transfer, matched staleness,
+18 files: nobody is hurt by a stranger's observations and lnd is
+helped (0.155 → 0.176, attempts 3.0 → 0.8). The champions' bounds are
+vantage-free facts about channels, so self and foreign are identical
+for atomic1 and within noise for mx_c3 — expected. lnd improving is
+the surprise, and it flips the sign of the vantage argument: warming
+from its OWN vantage poisons the pairs involving its own local
+channels, which every one of its payments must cross and which it
+cannot decay away on this tier, so it thrashes around its own first
+hop. A stranger cannot touch those pairs. The practical rule for a
+weight-serving API is therefore narrower and sharper than "MC does not
+transfer": serve remote-pair observations, and never import
+observations about the consumer's own local channels — cheap to
+measure yourself, most damaging when stale, and the only genuinely
+vantage-bound part of mission control.

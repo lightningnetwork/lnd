@@ -299,6 +299,12 @@ are in each companion document; the short version:
   corridors corpus, walked through like a champion),
   `exp-010-opusmed1-best-candidate.md` (its medium-effort sibling, and the
   val-set overfit the sealed sweep caught),
+  `exp-010b-atomic1-best-candidate.md` (the hybrid of cross-payment memory
+  and reservation-ledger planning: the first challenger with no collapse
+  tier, and 1.6 attempts per mainnet payment),
+  `exp-010b-atomicopus1-best-candidate.md` (its Opus-arm sibling, which
+  re-evolved min-cost-flow planning plus a bound-relaxation re-probe and
+  burned 57.5 attempts per payment with it),
   `exp-011-code-gen2.md` (the independent third lineage).
 - `routing/sim_router.go` — the `SimRouter` contract.
 - `routing/missioncontrol.go`, `routing/probability_apriori.go`,

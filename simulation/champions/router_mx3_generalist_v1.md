@@ -67,6 +67,21 @@ that mx_c3's splitting is beatable on a corpus designed to punish it, and
 that nothing yet beats it everywhere at once. Detail in
 `simulation/lab/experiments/exp-010-splitting-pressure.md`.
 
+exp-010b then produced a challenger that shares the title from the other
+side. Bred on an atomic-commitment arena built expressly to tax mx_c3's
+reactive ladder, the codex arm's `atomic1` is the first candidate the program
+has measured with no collapse tier at all: statistically indistinguishable
+from mx_c3 on the sealed hard test (0.417 vs 0.479, p=.75), on the OOD corpus
+(0.544 vs 0.581, p=.75), and on mainnet (0.790 vs 0.791), where it settles
+payments at 1.6 attempts each against the champion's 2.3 — the best attempt
+economy on record here. What still separates them is the tier that arena was
+built to decide: mx_c3 wins the held-out atomic test 0.444 to 0.400 at p=.07,
+and holds every other tier as well, so the champion's margin is now a
+home-tier edge plus a fifth straight survival rather than a challenger's
+off-corpus cliff. Detail in
+`simulation/lab/experiments/exp-010b-atomic-splitting.md` and
+`exp-010b-atomic1-best-candidate.md`.
+
 ## Running it
 
 ```bash

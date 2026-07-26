@@ -741,3 +741,15 @@ func (h *simBandwidthHints) availableChanBandwidth(channelID uint64,
 func (h *simBandwidthHints) isCustomHTLCPayment() bool {
 	return false
 }
+
+// SnapshotLiquidity captures the hidden balances of the network so that
+// they can be put back later. See SimGraph.SnapshotLiquidity.
+func (r *SimRunner) SnapshotLiquidity() *LiquiditySnapshot {
+	return r.graph.SnapshotLiquidity()
+}
+
+// RestoreLiquidity puts the hidden balances back to a snapshot, and does
+// nothing when given a nil snapshot.
+func (r *SimRunner) RestoreLiquidity(snap *LiquiditySnapshot) {
+	r.graph.RestoreLiquidity(snap)
+}

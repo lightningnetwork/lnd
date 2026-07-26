@@ -58,6 +58,10 @@ def main() -> None:
     parser.add_argument("--source", default=None,
                         help="send warmup payments from this node "
                         "instead of the file's own source")
+    parser.add_argument("--restore", action="store_true",
+                        help="put hidden balances back after the warmup, "
+                        "so the scored batch measures what the router "
+                        "LEARNED rather than what the warmup spent")
     parser.add_argument("--seed", type=int, default=9091)
     args = parser.parse_args()
 
@@ -80,13 +84,16 @@ def main() -> None:
                 warmup["stale_gap_sec"] = args.stale_gap_sec
             if args.source:
                 warmup["source"] = args.source
+            if args.restore:
+                warmup["restore_liquidity"] = True
             example["warmup"] = warmup
 
         (out / path.name).write_text(json.dumps(example, indent=2))
 
     print(f"{len(files)} files -> {out} "
           f"(warmup={args.warmup}, gap={args.stale_gap_sec}s, "
-          f"source={args.source or 'self'})")
+          f"source={args.source or 'self'}, "
+          f"restore={args.restore})")
 
 
 if __name__ == "__main__":

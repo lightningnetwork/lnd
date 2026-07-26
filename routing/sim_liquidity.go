@@ -104,3 +104,53 @@ func (g *SimGraph) BalanceNodeChannels(v route.Vertex) error {
 
 	return nil
 }
+
+// LiquiditySnapshot records the hidden balance of every channel end so
+// that a later call to RestoreLiquidity can put the network back exactly
+// as it was.
+type LiquiditySnapshot struct {
+	balances map[uint64][2]lnwire.MilliSatoshi
+}
+
+// SnapshotLiquidity captures the current hidden balances.
+//
+// The warmup phase of a scenario runs real payments, so it teaches a
+// router about the network and drains that network at the same time.
+// Those two effects answer different questions: a served weight cache
+// hands a fresh node knowledge without also having spent the liquidity
+// that knowledge describes. Snapshotting before the warmup and
+// restoring after it isolates the value of the knowledge alone.
+func (g *SimGraph) SnapshotLiquidity() *LiquiditySnapshot {
+	snap := &LiquiditySnapshot{
+		balances: make(map[uint64][2]lnwire.MilliSatoshi, len(g.channels)),
+	}
+	for id, channel := range g.channels {
+		snap.balances[id] = [2]lnwire.MilliSatoshi{
+			channel.ends[0].balance, channel.ends[1].balance,
+		}
+	}
+
+	return snap
+}
+
+// RestoreLiquidity puts the hidden balances back to a snapshot. Any
+// outstanding holds are cleared as well, since a restored network has no
+// payment in flight over it.
+func (g *SimGraph) RestoreLiquidity(snap *LiquiditySnapshot) {
+	if snap == nil {
+		return
+	}
+
+	for id, balances := range snap.balances {
+		channel, ok := g.channels[id]
+		if !ok {
+			continue
+		}
+		channel.ends[0].balance = balances[0]
+		channel.ends[1].balance = balances[1]
+		channel.ends[0].held = 0
+		channel.ends[1].held = 0
+	}
+
+	g.holds = make(map[uint64][]balanceMove)
+}

@@ -79,6 +79,11 @@ type warmupSection struct {
 	// weights age between the probe that gathered them and the payment
 	// that uses them. Zero means the scored batch starts immediately.
 	StaleGapSec float64 `json:"stale_gap_sec,omitempty"`
+
+	// RestoreLiquidity puts the hidden balances back to what they
+	// were before the warmup ran, so the scored batch measures what
+	// the router LEARNED rather than what the warmup spent.
+	RestoreLiquidity bool `json:"restore_liquidity,omitempty"`
 }
 
 // aggregate summarizes a batch of scenario results into the scalar signals
@@ -285,6 +290,16 @@ func runBatch(runner *routing.SimRunner, scenFile *scenarioFile,
 			}
 		}
 
+		// Warmup payments teach the router about the network and
+		// drain that network at the same time. A served weight cache
+		// hands a fresh node the knowledge without also having spent
+		// the liquidity, so restoring the balances afterwards is what
+		// isolates the value of the knowledge alone.
+		var snapshot *routing.LiquiditySnapshot
+		if scenFile.Warmup.RestoreLiquidity {
+			snapshot = runner.SnapshotLiquidity()
+		}
+
 		for i := range scenFile.Warmup.Scenarios {
 			scenario := scenFile.Warmup.Scenarios[i]
 
@@ -300,6 +315,8 @@ func runBatch(runner *routing.SimRunner, scenFile *scenarioFile,
 
 		// Let the warmed knowledge age before it is put to use.
 		runner.AdvanceIdle(scenFile.Warmup.StaleGapSec)
+
+		runner.RestoreLiquidity(snapshot)
 	}
 
 	for i := range scenFile.Scenarios {

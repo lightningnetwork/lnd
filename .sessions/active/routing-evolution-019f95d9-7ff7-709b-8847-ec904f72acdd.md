@@ -119,6 +119,28 @@ command center + lab notebook current.
   evolution seeded from atomic1 on corpus-mix, the same recipe that
   made mx_c3 from hb1, best shot at a new champion.
 - Champions change ONLY on a held-out paired sweep win.
+- NIGHT-3 RESULTS (all committed+pushed, mailed as 8712):
+  * exp-012 part 1 (6c7d2ce8e): lnd's MC does not warm in a batch.
+  * exp-012 part 2 (8fcf13706): first arm measured DEPLETION not
+    knowledge (warmup payments spend what they teach). Added
+    snapshot/restore control (c2319b17a). Stale-cache arm splits the
+    field by staleness policy: lnd THRASHES (19.8->32.4 att, succ
+    0.35), champions ABANDON (2.3->0.6 att, hard upperFail zero),
+    atomic1 SHRUGS (0.790->0.775, 0.012 floor). atomic1 beats mx_c3
+    +0.233 p=.002 @N=100, +0.428 p=.002 @N=400 — FIRST significant
+    win over a champion. Champions unchanged (robustness axis).
+    Upstream-shaped: put a probability FLOOR on learned evidence.
+  * WHY.md (9e35a302e) + 3 retractions verified and committed
+    (e2c14e964): bimodal prior WAS in the prompt; evolved constants
+    fit sim_liquidity.go's 0.05 generator AND mainnet overwrites
+    balances with it; lnd decay never fires on static tiers.
+- LIVE NOW: exp-013 code_hybrid1 (atomic1 seed, corpus-mix, 400
+  evals, codex). Canary 0, seed base 0.441. TREE FROZEN.
+  Vantage sweep (vant2_self vs vant2_foreign, 18 files each, N=25,
+  restore) running — first attempt at n=3 was underpowered noise.
+- STILL QUEUED: part 3 staleness-gap (needs clock+traffic corpora),
+  part 2b valid-knowledge arm (small probes, no restore), the
+  mis-staged params_lnd_bimodal rerun, degraded attribution.
 
 ### MORNING STATE (user awake; pre-compaction checkpoint)
 - exp-010 codex arm COMPLETE + verdict committed (cda40a3dc): joint

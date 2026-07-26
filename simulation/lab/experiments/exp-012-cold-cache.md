@@ -1,8 +1,8 @@
 # EXP-012 — Cold cache, hot load: what is a mission control worth?
 
 **Date:** 2026-07-26 (started)
-**Status:** in flight — warmup curves measured, warmup/staleness
-instrumentation under implementation
+**Status:** complete — all four parts measured and reported. Two
+follow-ons are named at the end and both need simulator changes.
 
 ## Question
 
@@ -168,7 +168,8 @@ the honest model of a probe-warmed node.
 Nobody gains, and the loss grows with probe size. lnd's attempts do
 fall at 10% probes (19.8 → 15.9), the only sign of genuine warming
 anywhere in this experiment, but its success falls faster, so the
-objective still drops. The champions' attempt counts never move.
+objective still drops. The champions' attempt counts barely move
+(mx_c3 2.3 → 2.2 → 2.7, atomic1 1.6 → 1.9 → 2.6).
 
 ## Verdict — there is no hot-cache regime here, and one design flaw explains why
 
@@ -221,15 +222,15 @@ What the experiment DOES establish, and what carries upstream:
 
 ## Part 2c — Direct weight import (designed, needs a sim change)
 
-An unscored `warmup` phase in the runner: N payments run before the
-scored batch, warming mission control and candidate state but not
-counting toward any metric. Sweep N ∈ {0, 25, 100, 400} and compare
-the same scored batch. Works identically for lnd and candidates with
-no contract change, so it measures exactly what a served cache would
-buy each design. If lnd's curve crosses the champions' at some N,
-that is the hot-cache regime where production mission control wins,
-and we will have found it.
-
+Every arm above buys knowledge with payments, and payments cost
+liquidity, so none of them can construct the thing the weight-serving
+proposal actually offers: knowledge that cost its consumer nothing.
+The missing capability is an `--import-weights` path that seeds
+mission control (and a candidate's persisted state) from a file with
+no payments sent at all. That is the only design that separates the
+value of imported knowledge from the price of acquiring it, and it is
+what the proposed API does in reality. Until it exists, this
+experiment's negative is a statement about probe-warming.
 ## Part 3 — Staleness gap: a null, and why the null is the finding
 
 Design: identical 25-payment warmup in every arm, no restore, then an
@@ -341,13 +342,19 @@ the result, not the levels. Fresh third-party knowledge — a stranger's
 observations of the network as it currently is — remains unmeasured
 and needs the part 2b probe-warm arm first.
 
-## Part 4b — Fresh third-party weights (queued, needs part 2b)
+## Part 4b — Fresh third-party weights (queued, needs part 2c)
 
-The structural asymmetry worth measuring: mission control history is
-pair-based and entangled with the observing node's vantage, while the
-champions' per-directed-channel bounds are vantage-independent facts
-about channels. Import observations gathered from a DIFFERENT source
-node and measure what each design can use. If channel-interval
-knowledge transfers across vantages and MC history does not, that is
-a concrete argument for what a weight-serving API should actually
-serve.
+Part 4 measured third-party knowledge in the STALE regime only, and
+inverted the reasoning this section was originally written on. The
+superseded framing — "mission control history is entangled with the
+observing node's vantage while channel bounds are not, so intervals
+should transfer and MC should not" — turned out to be half wrong: most
+of mission control transfers fine, because a failure at a remote relay
+records `(relay, target)` and names no observer. Only the pairs
+crossing the consumer's own local channels are vantage-bound, and
+importing those is what hurts.
+
+What remains unmeasured is FRESH third-party knowledge: a stranger's
+observations of the network as it currently is, rather than of a
+network that has since churned. That needs part 2c, because a fresh
+foreign cache cannot be built out of payments either.

@@ -7,7 +7,7 @@
     "capacity_fraction": 0.9999
   },
   "bimodal": {
-    "scale_msat": 300000000,
+    "scale_msat": 100000000,
     "node_weight": 0.2,
     "decay_time_sec": 28800
   },

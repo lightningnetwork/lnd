@@ -1,5 +1,14 @@
 # Evolved Lightning routers
 
+> **Corpus note (2026-07-26).** The scratch corpora were regenerated
+> after a reboot, so hard-tier levels quoted here (lnd 0.309, mx_c3
+> 0.583) and those in `lab/experiments/exp-002b-bimodal-knob.md`
+> (lnd 0.298, mx_c3 0.479) come from different draws of the same
+> generator. Compare deltas within a table, never levels across
+> writeups. If the regenerated corpus becomes canonical the standing
+> tables need one rerun.
+
+
 Three Go files in this directory are complete Lightning routing algorithms
 that no human wrote. An LLM-driven evolutionary search produced them by
 mutating source code against a payment simulator, scored only by whether

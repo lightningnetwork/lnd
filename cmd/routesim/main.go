@@ -42,8 +42,43 @@ type scenarioFile struct {
 	// hidden liquidity between the scenario payments.
 	BackgroundTraffic *routing.SimTrafficParams `json:"background_traffic,omitempty"`
 
+	// Warmup is an optional unscored phase that runs before the scored
+	// batch, standing in for routing knowledge a node was handed instead
+	// of having to probe for it. Omitting the section is a cold start,
+	// which is what every batch has historically been.
+	Warmup *warmupSection `json:"warmup,omitempty"`
+
 	// Scenarios are executed in order against a shared mission control.
 	Scenarios []routing.SimScenario `json:"scenarios"`
+}
+
+// warmupSection describes the unscored payments that precede the scored
+// batch. They run through the very same code path as a scored payment, on the
+// same runner, so everything a scored payment would leave behind they leave
+// behind too: mission control history, whatever cross-payment state the
+// router under test keeps for itself, and real movement of hidden liquidity.
+// Only their scores are dropped. What that measures is the value of a warm
+// cache: the scored batch of a warmed run against the scored batch of a cold
+// one.
+type warmupSection struct {
+	// Scenarios are the unscored payments, in order, identical in shape
+	// to the scored ones.
+	Scenarios []routing.SimScenario `json:"scenarios"`
+
+	// Source optionally sends the warmup payments from a different node
+	// than the scored batch, in the same node-reference format as the
+	// file-level source. That is the third-party case: the knowledge in
+	// the cache was gathered from somebody else's vantage, and only the
+	// part of it that describes channels rather than the observer
+	// transfers. Empty warms from the file-level source.
+	Source string `json:"source,omitempty"`
+
+	// StaleGapSec is how much virtual time passes between the warmup
+	// payments and the scored batch, with the background traffic running
+	// for that whole window. It ages the warmed knowledge the way served
+	// weights age between the probe that gathered them and the payment
+	// that uses them. Zero means the scored batch starts immediately.
+	StaleGapSec float64 `json:"stale_gap_sec,omitempty"`
 }
 
 // aggregate summarizes a batch of scenario results into the scalar signals
@@ -65,6 +100,13 @@ type aggregate struct {
 	// volume when the traffic model is enabled.
 	BgPaymentsSent    int `json:"bg_payments_sent,omitempty"`
 	BgPaymentsSettled int `json:"bg_payments_settled,omitempty"`
+
+	// WarmupScenarios and WarmupAttempts report what the unscored warmup
+	// phase cost. They are kept out of every metric above so that a warmed
+	// run and a cold one are scored on exactly the same payments, while
+	// the price of the warmup stays visible.
+	WarmupScenarios int `json:"warmup_scenarios,omitempty"`
+	WarmupAttempts  int `json:"warmup_attempts,omitempty"`
 }
 
 type output struct {
@@ -191,14 +233,81 @@ func main() {
 		fatalf("unknown router %q", *router)
 	}
 
-	// Run all scenarios sequentially against the shared mission control.
-	out := output{}
+	out, err := runBatch(runner, &scenFile, *traces)
+	if err != nil {
+		fatalf("%v", err)
+	}
+
+	encoded, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		fatalf("unable to encode output: %v", err)
+	}
+
+	if *outPath == "" {
+		fmt.Println(string(encoded))
+		return
+	}
+	if err := os.WriteFile(*outPath, encoded, 0644); err != nil {
+		fatalf("unable to write output: %v", err)
+	}
+}
+
+// runBatch executes the optional unscored warmup phase and then the scored
+// scenarios, all sequentially against the shared mission control, and returns
+// the results with their aggregate metrics.
+func runBatch(runner *routing.SimRunner, scenFile *scenarioFile,
+	traces bool) (*output, error) {
+
+	out := &output{}
+
+	// The warmup payments are real payments: they probe, they learn, and
+	// they move hidden liquidity. Only their results are dropped, so the
+	// scored batch inherits both the knowledge they bought and the network
+	// they perturbed on the way.
+	if scenFile.Warmup != nil {
+		// A warmup section may name its own sender, in which case the
+		// scored batch still runs from the file-level source and only
+		// inherits what crosses vantages.
+		runWarmup := runner.RunScenario
+		if scenFile.Warmup.Source != "" {
+			source, err := runner.ResolveNode(
+				scenFile.Warmup.Source,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to resolve "+
+					"warmup source: %v", err)
+			}
+
+			runWarmup = func(s *routing.SimScenario) (
+				*routing.SimScenarioResult, error) {
+
+				return runner.RunScenarioFrom(source, s)
+			}
+		}
+
+		for i := range scenFile.Warmup.Scenarios {
+			scenario := scenFile.Warmup.Scenarios[i]
+
+			result, err := runWarmup(&scenario)
+			if err != nil {
+				return nil, fmt.Errorf("warmup scenario %d "+
+					"failed: %v", i, err)
+			}
+
+			out.Aggregate.WarmupScenarios++
+			out.Aggregate.WarmupAttempts += len(result.Attempts)
+		}
+
+		// Let the warmed knowledge age before it is put to use.
+		runner.AdvanceIdle(scenFile.Warmup.StaleGapSec)
+	}
+
 	for i := range scenFile.Scenarios {
 		scenario := scenFile.Scenarios[i]
 
 		result, err := runner.RunScenario(&scenario)
 		if err != nil {
-			fatalf("scenario %d failed: %v", i, err)
+			return nil, fmt.Errorf("scenario %d failed: %v", i, err)
 		}
 
 		out.Aggregate.NumScenarios++
@@ -209,7 +318,7 @@ func main() {
 			out.Aggregate.AmtSuccessMsat += scenario.AmtMsat
 		}
 
-		if !*traces {
+		if !traces {
 			result.Attempts = nil
 		}
 		out.Results = append(out.Results, result)
@@ -228,16 +337,5 @@ func main() {
 			float64(agg.AmtSuccessMsat)
 	}
 
-	encoded, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		fatalf("unable to encode output: %v", err)
-	}
-
-	if *outPath == "" {
-		fmt.Println(string(encoded))
-		return
-	}
-	if err := os.WriteFile(*outPath, encoded, 0644); err != nil {
-		fatalf("unable to write output: %v", err)
-	}
+	return out, nil
 }

@@ -372,6 +372,32 @@ func (r *SimRunner) TrafficStats() (sent, settled int) {
 	return r.traffic.Sent, r.traffic.Settled
 }
 
+// AdvanceIdle moves virtual time forward by the given number of seconds
+// without sending a scenario payment of its own, letting the background
+// traffic use that window at its usual rate. It models the gap between the
+// moment routing knowledge was gathered and the moment it is finally used:
+// the sender learns nothing new while other people's payments keep moving
+// hidden liquidity, so whatever it believes about the network ages. With no
+// virtual clock the time half is a no-op, and with no traffic model the
+// liquidity half is, which makes an idle stretch on a static simulation cost
+// exactly nothing. The traffic rate comes from the payment gap, so a traffic
+// model configured without one has no defined rate and moves nothing here.
+func (r *SimRunner) AdvanceIdle(seconds float64) {
+	if seconds <= 0 {
+		return
+	}
+
+	if r.virtualClk != nil {
+		r.virtualClk.SetTime(r.virtualClk.Now().Add(
+			time.Duration(seconds * float64(time.Second)),
+		))
+	}
+
+	if r.traffic != nil {
+		r.traffic.runN(r.trafficPaymentsFor(seconds))
+	}
+}
+
 // advanceGap moves virtual time forward by the payment gap and lets the
 // background traffic use that window.
 func (r *SimRunner) advanceGap() {
@@ -406,21 +432,20 @@ func (r *SimRunner) advanceAttempt(atomicMpp bool) {
 		return
 	}
 
-	r.traffic.runN(r.attemptTrafficPayments())
+	r.traffic.runN(r.trafficPaymentsFor(r.clockParams.AttemptSec))
 }
 
-// attemptTrafficPayments returns how many background payments belong to the
-// virtual time one attempt consumes. The per-gap volume is pro-rated by the
-// attempt duration so that the exogenous process runs at one rate throughout,
-// and the fractional remainder carries into the next attempt rather than
-// rounding away.
-func (r *SimRunner) attemptTrafficPayments() int {
-	if r.clockParams.PaymentGapSec <= 0 {
+// trafficPaymentsFor returns how many background payments belong to the given
+// stretch of virtual time. The per-gap volume is pro-rated by that duration so
+// that the exogenous process runs at one rate throughout, and the fractional
+// remainder carries into the next stretch rather than rounding away.
+func (r *SimRunner) trafficPaymentsFor(seconds float64) int {
+	if r.traffic == nil || r.clockParams.PaymentGapSec <= 0 {
 		return 0
 	}
 
 	r.trafficCarry += float64(r.traffic.params.PaymentsPerGap) *
-		r.clockParams.AttemptSec / r.clockParams.PaymentGapSec
+		seconds / r.clockParams.PaymentGapSec
 
 	n := int(r.trafficCarry)
 	r.trafficCarry -= float64(n)
@@ -465,10 +490,38 @@ func (g *SimGraph) ResolveNode(ref string) (route.Vertex, error) {
 	return g.NodeByAlias(ref)
 }
 
+// ResolveNode resolves a node reference against the runner's graph: hex
+// pubkey, numeric synthetic id, or alias.
+func (r *SimRunner) ResolveNode(ref string) (route.Vertex, error) {
+	return r.graph.ResolveNode(ref)
+}
+
 // RunScenario executes a single payment scenario and returns its trace. The
 // mission control state carries over between scenarios, so ordering matters,
 // just like consecutive payments on a real node.
 func (r *SimRunner) RunScenario(s *SimScenario) (*SimScenarioResult, error) {
+	return r.RunScenarioFrom(r.source, s)
+}
+
+// RunScenarioFrom executes a payment scenario sent by the given node instead
+// of the runner's own source, and is otherwise identical to RunScenario: the
+// same graph, the same clock, the same background traffic, and the same
+// mission control.
+//
+// A foreign sender is how the simulation models knowledge that somebody else
+// gathered: the payment probes real channels and everything it learns lands in
+// the one shared mission control, which stays anchored to the runner's source
+// throughout. Whether that knowledge is worth anything to the runner's source
+// afterwards is exactly the question — pair history is entangled with the
+// vantage that observed it, while a belief about a directed channel's
+// liquidity is a fact about the channel.
+func (r *SimRunner) RunScenarioFrom(source route.Vertex,
+	s *SimScenario) (*SimScenarioResult, error) {
+
+	if r.graph.Node(source) == nil {
+		return nil, fmt.Errorf("source node %v not in graph", source)
+	}
+
 	result := &SimScenarioResult{Scenario: *s}
 
 	// Let virtual time pass and background traffic move liquidity before
@@ -476,7 +529,6 @@ func (r *SimRunner) RunScenario(s *SimScenario) (*SimScenarioResult, error) {
 	// a node's own sends.
 	r.advanceGap()
 
-	source := r.source
 	target, err := r.graph.ResolveNode(s.Target)
 	if err != nil {
 		return nil, err

@@ -121,4 +121,48 @@ release) and the exploit grep bans the hold-ledger API. Success
 criterion 2: beat mx_c3 on held-out atomic-test; criterion 3: no
 collapse on the legacy tiers.
 
-## Verdict (pending)
+## Verdict — Opus arm (code_atomic_opus1; codex arm still running)
+
+The Opus-default arm completed cleanly (400 evals, 51 iterations,
+zero degraded reflections — first fully sealed run). Its winner
+(987 lines, exploit-grep clean, archived as
+`exp-010b-atomicopus1-best-candidate.go`) re-evolved exactly the
+mechanism family the arena targets — genuinely min-cost-flow-ish
+up-front planning: corridors enumerated once per plan with per-edge
+reservations, excluded by whole edge set so shards cannot silently
+contend, shard sizes from believed capacity, residual planning that
+reuses known bounds — plus one mechanism new to the family, bred by
+drift: repeated whole-plan failure RELAXES hard bounds slightly so a
+churning network can be re-probed instead of going permanently
+unroutable.
+
+**And it still loses.** Paired sweep (all routers rebuilt on the
+current tree; the scratch legacy corpora were regenerated after a
+reboot, so compare deltas within this table, not levels across
+writeups):
+
+| tier | mx_c3 | opus1 (unevolved challenger) | atomicopus1 |
+|---|---|---|---|
+| atomic-val | 0.442 | 0.429 (−0.013, p=.73) | 0.374 (−0.067, p=.29) |
+| atomic-test | 0.444 | 0.425 (−0.019, p=.29) | **0.391 (−0.053, p=.008)** |
+| split-test | 0.876 | 0.841 (−0.035, p=.07) | 0.711 (−0.165, p=.008) |
+| hard test | 0.479 | 0.284 (−0.195, p=.18) | 0.247 (−0.232, p=.109) |
+| OOD v2 | 0.581 | 0.483 (−0.098, p=.34) | 0.367 (−0.214, p=.109) |
+| mainnet | 0.791 | 0.757 (−0.033, p=.18) | 0.738 (−0.053, p=.18) |
+
+The failure mode is legible in one column: 57.5 attempts/payment on
+atomic-test vs mx_c3's 12.6 and the challenger's 23.5. The
+relax-and-re-probe loop converts drift-tolerance into attempt burn,
+and the objective's attempt penalty (plus the drift each extra
+attempt invites) eats the success gains. Evolution polished the
+right architecture into the wrong economy.
+
+Notable negative result within the A/B family: 400 evals of evolution
+ON the atomic arena produced a router WORSE there than exp-010's
+opus1, which never saw atomic semantics (0.391 vs 0.425). Selection
+inside a high-variance arena is noisy enough that the pre-registered
+resolution caveat looks binding again — per-file scores on this
+corpus swing with churn, so minibatch acceptance is noisy even with
+7 graded payments per file. The codex arm will tell us whether this
+is proposer-specific or the arena's selection signal is the binding
+constraint.

@@ -33,6 +33,7 @@ BANNED = re.compile(
     r'\b(unsafe|reflect|os/exec|syscall|net/http|io/ioutil)\b|'
     r'"os"|_test\b|'
     r'\b(LocalBalances|AssignLiquidity|BalanceNodeChannels|SendHtlc)\b|'
+    r'\b(HoldHtlc|SettleHold|ReleaseHold)\b|'
     r'\*\s*routing\.SimGraph',
 )
 

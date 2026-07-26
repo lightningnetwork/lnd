@@ -66,6 +66,22 @@ Environment truths worth exploiting:
   attempts. In such environments, what you learned about a channel k
   payments ago may no longer hold. Whether and how to account for the
   age of evidence is entirely your design choice.
+- ATOMIC MPP ARENAS: scenarios may set atomic_mpp, which changes the
+  economics of probing. Successful shards do NOT settle immediately:
+  they HOLD liquidity along their path until the whole payment
+  completes (all shards settle together) or fails (all release; a
+  failed payment moves nothing and pays no fees, but reveals what it
+  learned). Consequences you must design for: (a) your own in-flight
+  shards reserve real liquidity, so sibling shards contend with what
+  you already hold — two shards cannot lean on the same corridor
+  twice; (b) background traffic keeps moving DURING your payment, one
+  slice per attempt, so every extra sequential probe lets the network
+  drift under your plan; (c) burning attempts to learn is no longer
+  free — an up-front route-set plan that fills spec.MaxParts quickly
+  commits before the world moves, while a long probe ladder watches
+  its knowledge go stale mid-payment. Reactive halving was bred for
+  the old economics; this arena was built to reward deliberate
+  simultaneous commitment.
 
 The current seed is a cheapest-path Dijkstra with failure blacklisting and
 halving splits. Known weaknesses to consider: it ignores capacity when

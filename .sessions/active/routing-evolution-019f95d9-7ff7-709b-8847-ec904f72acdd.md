@@ -126,6 +126,17 @@ command center + lab notebook current.
   run the NEW ClaudeLM (hook-sealed) — tail iterations are clean.
   Pre-resume snapshot: opus1 held-out 0.841 (beats codex-arm 0.810!),
   opusmed1 0.743 despite best-in-family val 0.874 (val overfit?).
+- EXP-010B STARTED (2026-07-25 evening, user green-lit): atomic MPP
+  sim change LANDED (d0f062747, Opus agent + my review): hold-and-
+  release shards, held-liquidity contention, prorated traffic on
+  attempt boundaries; flag-off byte-identity verified. Pre-registered
+  design + --atomic corpus flag in f7c3b2e0c. Corpus:
+  <scratch>/corpus-splitatomic (--split --split-leads 5 --atomic,
+  seed 6061). All 7 binaries rebuilt against new tree. Baseline sweep
+  on atomic_val/atomic_test running (out: atomic-baseline.json).
+  Tempering rule pre-registered: recalibrate churn params only on
+  baseline evidence, never after evolution results. Next: read
+  baseline (criterion 1 = ordering change), then launch evolution.
 - EXP-010 CLOSED (2026-07-25 ~17:15): both Opus arms completed their
   topped-up budgets (no new accepts post-resume). Five-tier sweep done
   (opus-ab-validation.json in scratch): opus1 TIES mx_c3 on split-val

@@ -135,8 +135,16 @@ command center + lab notebook current.
   seed 6061). All 7 binaries rebuilt against new tree. Baseline sweep
   on atomic_val/atomic_test running (out: atomic-baseline.json).
   Tempering rule pre-registered: recalibrate churn params only on
-  baseline evidence, never after evolution results. Next: read
-  baseline (criterion 1 = ordering change), then launch evolution.
+  baseline evidence, never after evolution results. Baseline DONE
+  (subsidy confirmed; lnd last at 105+ att/pmt; opus1 ties champion).
+- exp-010b OPUS ARM DONE (df2979722): winner re-evolved min-cost-flow
+  planning + drift-bred bound relaxation, LOST to mx_c3 at home
+  (0.391 vs 0.444 p=.008, 57 att/pmt) and trails the unevolved opus1
+  challenger. Archived. CODEX ARM still live (~126/400 at 20:00,
+  finishes overnight) — decides proposer-specific vs selection-noise.
+  On its completion: same workup (extract/grep/compile/sweep), joint
+  verdict in writeup + NOTEBOOK entry, THEN user mail + docs/site
+  Opus agents + dashboard publish (held back for the joint verdict).
 - EXP-010 CLOSED (2026-07-25 ~17:15): both Opus arms completed their
   topped-up budgets (no new accepts post-resume). Five-tier sweep done
   (opus-ab-validation.json in scratch): opus1 TIES mx_c3 on split-val

@@ -389,6 +389,12 @@ not the difference. The difference is what happens to it next:
 - **mx_c3 keys on the directed channel.** `(chanID, from, to)` versus lnd's
   `(fromNode, toNode)`.
 
+The hard constraint is the better trade while the evidence is mx_c3's own and
+fresh, which is every tier it was bred and validated on. It is the worse
+trade once the evidence has aged, because a bound with no floor has no way
+back: exp-012 priced that at 56% of the objective. See the shortcomings
+below.
+
 ### Two priors, and a classification lnd does not have
 
 lnd's default estimator is apriori: a scalar
@@ -535,6 +541,27 @@ second-chance instinct, arrived at independently.
   entries. On the 12,161-node mainnet graph this is fine at 2.3 attempts per
   payment, but the worst case is much larger than lnd's single-distance
   Dijkstra.
+- **Stale evidence makes it quit.** `upperFail` is a hard zero, so an amount
+  at or above the bound is impossible rather than unlikely, and nothing in the
+  file can ever revise that upward. Under evidence mx_c3 gathered itself, in
+  the same batch, that is exactly right and it is where the attempt economy
+  comes from. Under evidence that has aged — or that arrived from somewhere
+  else — it is a trapdoor. exp-012 part 2 warmed the router with unscored
+  payments and then restored the network's liquidity, so its bounds described
+  a state that no longer existed, and mx_c3 fell from 0.791 to 0.347 on
+  mainnet while its attempts fell from 2.3 to 0.6: it declared enough live
+  channels dead to make live payments look hopeless, and gave up almost
+  before starting. atomic1, whose persisted bounds clamp to a 0.012
+  probability floor instead of zero, lost 2% on the same arm and beat mx_c3 by
+  +0.233 (p=.002) at 100 warmup payments and +0.428 (p=.002) at 400 — the
+  first statistically significant win over a champion in the program. mx_c3
+  remains champion of record on the standing tiers, and this is the sharpest
+  known weakness of the design: it has no floor, so it cannot be handed
+  imported or aged knowledge safely. Fix it by clamping a persisted bound to a
+  small probability rather than zero, and keep the hard zero for evidence
+  gathered inside the current payment. See
+  `simulation/lab/experiments/exp-012-cold-cache.md` and
+  `simulation/lab/WHY.md` §3.
 - **Still single-path.** Every shard gets its own independently-found route.
   Joint route-set planning — Pickhardt-style min-cost flow choosing a *set*
   of paths together — never evolved here. exp-010 elicited it from three
@@ -568,6 +595,10 @@ for why.
 ## See also
 
 - `simulation/lab/NOTEBOOK.md` — the full narrative.
+- `simulation/lab/WHY.md` — mechanism by mechanism against lnd's production
+  code, with §3 on how each design ages its evidence.
+- `simulation/lab/experiments/exp-012-cold-cache.md` — the cold-cache and
+  hot-load sweep, and the stale-knowledge weakness above.
 - `simulation/lab/experiments/exp-007-mix-followup.md` — the `code_mix1`
   run and the frontier sweep that selected mx_c3.
 - `simulation/lab/experiments/exp-009-mainnet-validation.md` — the mainnet

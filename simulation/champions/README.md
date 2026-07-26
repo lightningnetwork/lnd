@@ -64,6 +64,19 @@ not beat lnd's shipped defaults. The paradigm is the lever, not the knobs,
 which is why these candidates are whole algorithms rather than
 configurations.
 
+exp-002b then closed the hole in that claim. lnd ships a bimodal estimator
+whose hypothesis is the same one the champions exploit, and its `scale_msat`
+is an absolute amount, so it had never been given the scale this environment
+calls for — 5% of a typical channel, which is what the liquidity generator
+draws. Seven scales later, on two sealed tiers, no bimodal setting beats
+lnd's own apriori default and the environment-matched scale is among the
+worse ones (hard: apriori 0.298, best bimodal 0.283, mx_c3 0.479). The way
+it fails is the useful part: bimodal raises lnd's success rate, 0.421 →
+0.478, while more than doubling its attempts, 30.9 → 77. A better prior
+makes lnd more willing to keep trying without changing *what* it retries,
+because `findPath` takes the amount as a fixed argument. The estimator is
+worth at most 0.02 of objective; the paradigm is worth 0.18 to 0.22.
+
 ## How they came to be
 
 The loop has three pieces.
@@ -150,16 +163,24 @@ companion `.md`.
 
 ## What they discovered
 
-Three inventions are shared across all champions, and they arrived from
-failure traces and a scalar objective alone.
+Three inventions are shared across all champions, and all three came out of
+failure traces and a scalar objective.
 
-**A bimodal liquidity prior, rediscovered.** Each champion's
+**A calibrated bimodal liquidity prior.** Each champion's
 `candidatePriorProbability` is an exponential low mode plus a logistic cliff
 near capacity — the same two-exponential hypothesis lnd's bimodal estimator
-is analytically derived from (`P(x) ~ exp(-x/s) + exp((x-c)/s) + 1/c`).
-Nobody put it in the prompt. hb2 went further and rediscovered the
-*conditional renormalization* over the known interval that lnd derives from
-the Pickhardt et al. formalism.
+is analytically derived from (`P(x) ~ exp(-x/s) + exp((x-c)/s) + 1/c`). This
+document used to say "nobody put it in the prompt," and that was wrong:
+`run_gepa_code.py`'s background block has stated the bimodal hypothesis
+under *environment truths worth exploiting* since its first committed
+version. What evolution supplied was the prior's functional shape, written
+directly as a probability rather than integrated, its constants, and the
+whole interval apparatus built on top. Downgrade the claim to that, and see
+`simulation/lab/WHY.md` §0 for the full retraction and for the awkward
+corollary — the evolved low-mode scales fit `sim_liquidity.go`'s own 5%
+generator constant. hb2 went further and rediscovered the *conditional
+renormalization* over the known interval that lnd derives from the Pickhardt
+et al. formalism.
 
 **Per-directed-channel liquidity intervals.** Instead of a penalty,
 `lowerOK` (largest amount proven to pass) and `upperFail` (smallest amount
@@ -170,13 +191,26 @@ interval down and credits the reverse direction, and in mx_c3 every
 observation writes both directions. This is where the attempt reduction
 comes from.
 
+exp-012 sharpened what that reduction actually rests on, and the answer is
+not accumulated experience. mx_c3 needs 2.4 attempts on its *first three*
+mainnet payments, before it has learned anything at all, and 2.6 on its last
+three; lnd goes 10.1 → 31.2 over the same batch. The champions' advantage is
+a prior, not a history — which is good news for a fresh node and bad news for
+the idea of shipping it someone else's observations. The same experiment
+found the cost of that design: a hard `upperFail` zero has no way back, so
+evidence that has gone stale reads as a dead channel rather than a
+discouraged one. See the caveats below.
+
 **No time logic at all.** Grep the champions for `time.Now`, a half-life, or
 a decay constant and you find nothing. lnd's mission control decays
 everything — the apriori estimator with a one-hour penalty half-life, the
 bimodal estimator decaying success and failure amounts over a week. The
 champions dropped mission control and every clock, and replaced recency with
-evidence. exp-008 later put that choice under genuine staleness pressure and
-it held; see the first caveat below.
+evidence. exp-008 later put that choice under drift and it held — but two
+findings since have narrowed what that proves, and both are in the caveats
+below: our background traffic is roughly five times weaker than its
+configuration implies, and dropping the clock is safe only while the
+evidence is your own and fresh.
 
 Two smaller inventions:
 
@@ -261,6 +295,37 @@ are in each companion document; the short version:
   intensity (ten-minute gaps, roughly `num_nodes/10` background payments per
   gap), one traffic model (naive fee-optimizing senders), and a 400-eval
   budget against champions bred across two runs and 900 evaluations.
+- **Our churn is weaker than its configuration says, so the drift verdict is
+  narrower than it reads.** exp-012 part 3 varied only the idle gap between
+  warming a router and scoring it — up to six virtual hours of background
+  traffic — and nothing moved to three decimals for any router, even though
+  the manipulation check confirms the traffic runs (background payments scale
+  700 → 1420 with the gap). The reason is a defect: only about 18% of
+  background payments settle, because the engine sends naive fee-optimizing
+  payments that mostly fail, and a failed payment moves no liquidity. Our
+  exogenous process is therefore roughly five times weaker than configured.
+  Read exp-008's conclusion with its scope written in — decay buys nothing at
+  *this* churn — and the same caveat applies to exp-010b's per-attempt drift,
+  which comes from the same engine. Fixing the traffic engine is the first
+  item on the pre-upstream list.
+- **A hard bound with no floor is fragile under knowledge that has aged.**
+  exp-012 part 2 warmed each router with unscored payments and then restored
+  the network's liquidity, leaving it holding beliefs about a state that no
+  longer exists — the worst case for any served weight cache, since a served
+  cache is stale by construction. The field split by staleness policy rather
+  than by paradigm. lnd thrashed (attempts 19.8 → 32.4 as success fell 0.79 →
+  0.35, its pair entries being permanent zeros on a clockless tier); the
+  champions abandoned (2.3 → 0.6 attempts at 36% success, because a hard
+  `upperFail` zero turns a stale bound into a dead channel); and atomic1,
+  whose persisted bounds clamp to a 0.012 probability floor instead of zero,
+  shrugged (0.790 → 0.775). atomic1 beats mx_c3 there by +0.233 (p=.002) at
+  100 warmup payments and +0.428 (p=.002) at 400 — the first statistically
+  significant win over a champion in the program's history. The champions of
+  record do not move, because they are decided on the standing tiers and this
+  is a robustness axis. What it does establish, and what carries upstream, is
+  that learned evidence wants a probability floor and never a hard zero.
+  Details: `simulation/lab/experiments/exp-012-cold-cache.md` and
+  `simulation/lab/WHY.md` §3.
 - **MPP shards settle sequentially.** The runner only counts a part as in
   flight after it settles, so no candidate ever raced its own HTLCs. hb2
   evolved in-flight liquidity reservation anyway and its successors dropped
@@ -283,9 +348,11 @@ are in each companion document; the short version:
 ## Pointers
 
 - `simulation/lab/NOTEBOOK.md` — read this first for the whole story.
+- `simulation/lab/WHY.md` — each evolved mechanism set against the lnd
+  production code it replaces, plus the corrections to our own claims.
 - `simulation/lab/DECISIONS.md` — the methodology calls and why.
 - `simulation/lab/IDEAS.md` — the open backlog.
-- `simulation/lab/experiments/` — exp-001 through exp-011. The ones that
+- `simulation/lab/experiments/` — exp-001 through exp-012. The ones that
   matter here: `exp-003-seed-router-vs-lnd.md` (the seed beats lnd),
   `exp-005-sim-audit.md` (sandbox sealing), `exp-006-breakthrough.md` (hb1),
   `exp-007-mix-followup.md` (mx_c3, hb2 retired),
@@ -305,7 +372,11 @@ are in each companion document; the short version:
   `exp-010b-atomicopus1-best-candidate.md` (its Opus-arm sibling, which
   re-evolved min-cost-flow planning plus a bound-relaxation re-probe and
   burned 57.5 attempts per payment with it),
-  `exp-011-code-gen2.md` (the independent third lineage).
+  `exp-011-code-gen2.md` (the independent third lineage),
+  `exp-002b-bimodal-knob.md` (lnd's own bimodal estimator at seven scales,
+  including the one that matches this environment),
+  `exp-012-cold-cache.md` (warmup curves, the stale-cache split, the probe
+  arm, vantage transfer, and the churn defect they exposed).
 - `routing/sim_router.go` — the `SimRouter` contract.
 - `routing/missioncontrol.go`, `routing/probability_apriori.go`,
   `routing/probability_bimodal.go`, `routing/pathfind.go`,

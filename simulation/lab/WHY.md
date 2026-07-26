@@ -104,7 +104,7 @@ generator (half the files bimodal, half uniform, per
 `gen_mainnet_scenarios.py`). The topology is real; the liquidity is
 ours.
 
-### 0.3 lnd's closest analogue has never been measured fairly
+### 0.3 lnd's closest analogue had never been measured fairly
 
 lnd ships a bimodal estimator. It is not the default
 (`DefaultEstimator = AprioriEstimatorName`, `pathfind.go:62`), and the
@@ -126,14 +126,25 @@ the truth is 5% everywhere. exp-002 noticed this in passing —
 *To fill in when complete* section.
 
 So: exp-002's headline ("parameter tuning could not beat lnd's
-defaults") is true of the search that was run, and that search did
+defaults") was true of the search that was run, and that search did
 reach for bimodal repeatedly and lose. But the one configuration that
 would make lnd's own machinery match the environment — bimodal with
-`scale_msat` set near 5% of the corpus's channel capacity — has never
-been evaluated. Until it is, "the paradigm is the lever, not the knobs"
-is untested against lnd's closest analogue. This is the cheapest
-outstanding experiment in the program and it should run before any
-upstream conversation.
+`scale_msat` set near 5% of the corpus's channel capacity — had never
+been evaluated, so "the paradigm is the lever, not the knobs" rested on
+an absence rather than a result.
+
+That experiment has since run. exp-002b swept seven scales bracketing
+the matched value by an order of magnitude either way, on two sealed
+tiers, and it is the one correction of the three that a measurement
+closed rather than deepened: no bimodal scale beats lnd's own shipping
+apriori default, and the environment-matched scale is among the worse
+settings rather than the best. The full table and, more usefully, the
+mechanism behind the failure are in §1, because what exp-002b measures
+is precisely this document's central thesis. What survives as a
+correction is the citation habit: every sentence in this repo that
+leaned on exp-002 for "the paradigm is the lever" was, until 2026-07-26,
+leaning on a search that had never handed lnd's own bimodal hypothesis
+the scale this environment calls for.
 
 ---
 
@@ -196,8 +207,8 @@ This is a graded interpolation across `[successAmount, failAmount]`,
 derived from the Pickhardt formalism, with hard endpoints handled
 above it (`amount >= failAmount → 0`, `amount <= successAmount → 1`).
 Structurally it is the same object the champions evolved. It is not the
-default, and per §0.3 we have never run it with a scale matched to the
-environment.
+default, and until exp-002b nobody had run it with a scale matched to
+this environment; the control is at the end of this section.
 
 ### The evolved model
 
@@ -270,6 +281,43 @@ attempts. 8.6× (exp-009). On the small hard corpora, where alternative
 routes run out, the ratio compresses to 4–7× (exp-006: 45.5 versus 9.3
 on the hard sealed test) because lnd's search fails fast instead of
 grinding.
+
+### The control: hand lnd a better prior and watch nothing improve
+
+If the probability model were the lever, then lnd's own bimodal
+estimator should close most of the gap once its scale matches the
+environment. It encodes the same hypothesis the champions exploit, and
+it derives the posterior rather than fitting one. exp-002b ran that
+control at seven scales, on two sealed tiers, changing nothing but
+`--params`.
+
+| hard tier | objective | success | attempts |
+|---|---|---|---|
+| lnd apriori (ships) | **0.298** | 0.421 | 30.9 |
+| bimodal 100M msat (matches the generator) | 0.261 | 0.456 | 78.7 |
+| bimodal 1000M msat (best of the seven) | 0.283 | 0.478 | 77.2 |
+| **mx_c3** | **0.479** | 0.592 | 8.1 |
+
+Every row shares one corpus, regenerated after a reboot, so the levels
+sit a little below the hard-tier numbers quoted elsewhere in this repo.
+The OOD tier orders identically: apriori 0.357, best bimodal 0.345,
+matched 150M 0.330, mx_c3 0.581.
+
+No scale beats the shipping default, and the scale that matches the
+generator is among the worse ones rather than the best. But read the
+success and the attempt columns together, because that is where the
+mechanism shows. Bimodal *raises* lnd's success rate, 0.421 → 0.478, and
+it more than doubles lnd's attempts, 30.9 → 77. A better liquidity prior
+makes lnd more willing to keep trying, and it is right to be: some route
+really might still work. What the prior cannot do is change *what* lnd
+tries next, because `findPath` takes the amount as a fixed argument. So
+lnd buys extra success at a price the objective charges it for, and the
+whole estimator swap moves the objective by at most 0.02 in either
+direction while the paradigm difference is worth 0.18 to 0.22.
+
+That is this section's thesis, measured rather than argued: a better
+prior improves route ranking inside a broken retry strategy, and it
+cannot supply the missing one.
 
 The upstream-shaped observation: mission control already stores
 `FailAmt` per pair and already exposes it
@@ -357,20 +405,54 @@ direction it just used, and the reverse pair is a separate key it never
 touches. So after settling a shard, lnd still believes the channel can
 carry what it just carried, and the champions know it cannot.
 
-**Vantage.** Mission control's history is a record of *my* payments:
-which pairs I happened to route through, at which amounts, in which
-order. A per-directed-channel bound is a claim about the channel that
-any observer standing anywhere would have recorded identically at the
-same instant. The asymmetry is real but it is narrower than it sounds —
-a bound is still entangled with *when* it was taken and with the fact
-that the peer's balance moves for reasons unrelated to me. What
-transfers across vantages is the fact, not its freshness.
+**Vantage — and the measurement that inverted the argument.** The
+reasoning used to run like this. Mission control's history is a record
+of *my* payments: which pairs I happened to route through, at which
+amounts, in which order. A per-directed-channel bound is a claim about
+the channel that any observer standing anywhere would have recorded
+identically at the same instant. So bounds should transfer between
+nodes and pair history should not.
 
-exp-012 part 4 is designed to price exactly this: import observations
-gathered from a *different* source node and measure what each design
-can use. If channel bounds transfer and pair history does not, that is
-the concrete answer to what a weight-serving API should serve. It has
-not run yet.
+exp-012 part 4 priced it. Eighteen mainnet files, an identical
+25-payment warmup, an identical liquidity restore afterwards so both
+arms are equally stale, and one variable: who sent the warmup payments,
+the scoring node itself or a degree-31 stranger.
+
+| router | self-vantage | foreign-vantage | Δ (foreign − self) |
+|---|---|---|---|
+| lnd | 0.155 (3.0 att) | **0.176 (0.8 att)** | **+0.021** |
+| mx_c3 | 0.174 (0.4) | 0.169 (0.5) | −0.005 |
+| atomic1 | 0.209 (0.6) | 0.209 (0.6) | 0.000 |
+
+Nobody is hurt by a stranger's observations, and lnd is *helped*. Half
+the old argument survives, and it is the half about the champions:
+atomic1's two arms agree to three decimals and mx_c3's sit within noise,
+which is how vantage-free facts about channels ought to behave. The half
+that was wrong is the half about mission control. A failure at a remote
+relay records the pair `(relay, target)`, which names no observer at
+all, so most of mission control transfers perfectly well.
+
+The genuinely entangled remainder is narrow and specific: the pairs that
+cross the consumer's *own* local channels. Every payment it sends must
+traverse one of them. Warming from its own vantage therefore fills
+exactly those pairs with stale zeros that no clock will decay away on
+this tier, and lnd's attempt count triples, 0.8 → 3.0, as it thrashes
+around its own poisoned first hop. A stranger's warmup cannot reach
+those pairs, so it teaches the transferable part and leaves the critical
+part clean.
+
+The rule for a weight-serving API is therefore narrower and sharper than
+"mission control does not transfer": **serve remote-pair observations,
+and never import observations about the consumer's own local channels.**
+Those are the ones a node can measure cheaply for itself, the ones whose
+staleness does the most damage, and the only genuinely vantage-bound
+part of the structure.
+
+One caveat on the levels. Both arms are stale by construction — the
+restore control is what makes the imported knowledge describe a churned
+network — so the absolute objectives are low, 0.15 to 0.21, and the
+paired deltas are the result. Fresh third-party knowledge remains
+unmeasured.
 
 ---
 
@@ -462,6 +544,50 @@ zero in both cases; drift1 computed a weight from a half-life. Three
 lineages, three answers, and the scope-split is the only one that
 generalizes without a collapse tier.
 
+### The stale-cache arm, which decided between the three answers
+
+exp-012 then paid the scope-split a compliment nobody bred it for. Warm
+a router with unscored payments, restore the network's liquidity, and
+score it: the router now holds beliefs about a state that no longer
+exists. That is a maximally stale cache, and it is the worst case for
+any weight-serving API, because a served cache is stale by construction.
+
+| mainnet tier | lnd | hb1 | mx_c3 | atomic1 |
+|---|---|---|---|---|
+| cold | 0.694 (19.8 att) | 0.790 (2.3) | 0.791 (2.3) | 0.790 (1.6) |
+| 100 stale | 0.377 (26.9) | 0.550 (1.4) | 0.550 (1.2) | **0.783 (2.2)** |
+| 400 stale | 0.228 (32.4) | 0.347 (0.6) | 0.347 (0.6) | **0.775 (2.0)** |
+
+The field splits three ways, and the attempts column names each
+mechanism.
+
+lnd **thrashes**. Attempts climb 19.8 → 32.4 while success falls 0.79 →
+0.35. Its pair entries are permanent zeros on this tier — the honest
+caveat below, in its most expensive form — so a stale blacklist keeps
+steering it onto fresh-looking routes that are no better, and it never
+gives up.
+
+The champions **abandon**. They fall to 0.6 attempts per payment at 36%
+success, quitting almost before they start, because a hard `upperFail`
+zero turns a stale bound into a dead channel and enough dead channels
+make a live payment look hopeless.
+
+atomic1 **shrugs**: 0.790 → 0.775, a 2% loss against the champions' 56%
+and lnd's 67%, at roughly two attempts throughout. Its persisted bounds
+clamp to a 0.012 probability floor rather than zero, so stale evidence
+makes a channel unattractive instead of forbidden, and one retry is
+enough to correct it.
+
+Paired against mx_c3, atomic1 is +0.233 (p=.002) at 100 warmup payments
+and +0.428 (p=.002) at 400 — the first statistically significant win
+over a champion in the program's history. It does not move the champions
+of record, which are decided on the standing tiers and not on this one.
+What it does is locate the axis where mx_c3's hard zero is a genuine
+liability, and it hands the program its most directly upstream-shaped
+result: the consumer's staleness policy dominates the value of any
+imported knowledge, and the safe policy is a floor rather than a zero
+(§9).
+
 ### The honest caveat, which matters
 
 lnd's decay constants are tuned for a node that runs for weeks. Our
@@ -486,6 +612,38 @@ half-lives genuinely operate is exp-008's drift corpus, and there lnd
 scores 0.203 against mx_c3's 0.457 — which is the honest place to make
 the argument, and it is a stronger result than the static tiers, not a
 weaker one.
+
+### And the drift tier is weaker than it looks
+
+exp-012 part 3 varied one thing: the idle gap between warming a router
+and scoring it, at 0, 10 minutes, 1 hour and 6 virtual hours of
+background traffic. Nothing moved, to three decimal places, for any
+router.
+
+The manipulation check passes, so this is not a broken knob. Background
+payments sent scale 700 → 1420 across the four arms, exactly the
+prorated volume `AdvanceIdle` promises. The traffic runs; the world just
+does not move. And the reason it does not move is a simulator defect
+worth more than the null: **only about 18% of background payments
+settle**, 129 of 700 in the check. The engine sends naive fee-optimizing
+payments that mostly fail, and a failed payment moves no liquidity, so
+our exogenous process is roughly five times weaker than its
+configuration implies.
+
+That reaches backwards into this section. exp-008 concluded that decay
+"buys nothing at realistic churn"; the honest restatement is that it
+buys nothing at the weak churn we generate, and that the drift corpus
+never reached a regime where evidence genuinely goes stale. exp-010b's
+per-attempt drift comes from the same engine and inherits the same
+caveat. The measured comparison between drift1 and the time-less routers
+stands — same corpus, same budget — but what it licenses is narrower
+than the sentence we have been quoting.
+
+One arm did reach genuine staleness, and it got there by restoring
+liquidity rather than by churning it. There, as the stale-cache table
+above shows, the aging policy mattered enormously. That is the clearest
+hint we have about what a fixed traffic engine would find, and it is a
+reason to fix it (§8) before making any staleness claim again.
 
 ---
 
@@ -685,7 +843,7 @@ under honest pricing; it just has not paid enough to win.
 
 ---
 
-## 6. Cold start
+## 6. Cold start, and what a warm cache is worth
 
 exp-012 measured the warmup curve: attempts at payment index *i*
 relative to mx_c3 on the same payment, early in a batch versus late.
@@ -750,6 +908,54 @@ halves its ratio to the champion across the hard batch, 1.56× → 0.73×.
 Both Opus-lineage routers are stateless across payments and show no
 improvement. The lineage split found in the exp-010b docs pass is now
 visible in the measurements.
+
+### Warming a router does not help it
+
+The rest of exp-012 stopped reasoning about the warm start and tried to
+buy one, in four arms: warm with real payments and let the depletion
+stand; warm and then restore the liquidity, which is the stale-cache
+table in §3; warm from a stranger's vantage, which is the table in §2;
+and warm with probes small enough to leave the network, and therefore
+the knowledge, intact.
+
+That last arm is the honest model of a probe-warmed node. A hundred
+payments at 2% or 10% of the scored amounts teach channel structure
+without materially draining anything, so what the router learns is still
+true when it comes to use it.
+
+| mainnet tier | lnd | mx_c3 | atomic1 |
+|---|---|---|---|
+| cold | 0.694 (19.8 att) | 0.791 (2.3) | 0.790 (1.6) |
+| 100 probes @ 2% | 0.664 (19.5) | 0.768 (2.2) | 0.766 (1.9) |
+| 100 probes @ 10% | 0.597 (15.9) | 0.653 (2.7) | 0.651 (2.6) |
+
+Nobody gains, and the loss grows with the probe size. Exactly one number
+in that table is a genuine warming signal, and it belongs to lnd: its
+attempts fall 19.8 → 15.9 at 10% probes, the only place in the whole
+experiment where knowledge visibly made a router cheaper. Its success
+fell faster, so the objective still dropped. The champions' attempts
+barely move at all, 2.3 → 2.7, because there was nothing there to warm.
+
+Put the four arms together and the answer to the original question is a
+clean negative. Across depletion, staleness, a foreign vantage and valid
+probes, at 25, 100 and 400 observations, **no amount of warming lifts
+any router above its cold-start score, and mission control never
+approaches the champions.** Two mechanisms produce that negative and
+they are not the same mechanism. The champions have nothing to learn:
+they are within noise of their asymptote on payment one, so warming can
+only subtract, by spending liquidity or by going stale. lnd cannot learn
+fast enough for it to matter: 100 observations is roughly 1% pair
+coverage on this graph, and what it records is a permanent zero.
+
+**The design limit is as important as the result.** Every arm here buys
+knowledge with payments, and payments cost liquidity, which makes free
+knowledge unconstructible in the current simulator. The drain arm pays
+in depletion, the restore arm pays in staleness, the probe arm pays a
+little of both. A served cache in the actual proposal costs its consumer
+nothing — it arrives over an API. Measuring that needs beliefs injected
+from a file with no payments sent at all (`--import-weights`, §8). Until
+that exists, exp-012's negative is a statement about probe-warming and
+not about weight-serving.
 
 ---
 
@@ -825,14 +1031,19 @@ champions' `candidateKnowledge` map is a package-level global, mutex
 guarded, unbounded, never evicted, never persisted. Every result in
 this program is a cold-start result by construction, which cuts both
 ways: the champions earned the 8.6× with no more history than lnd had,
-and we have never tested the regime where a production node's mission
-control holds thousands of observations. That is exp-012 parts 2 and 3,
-still pending.
+and until exp-012 we had never tested the regime where a node starts
+with observations already in hand. exp-012 has now pushed that regime as
+far as payments can push it, and more history helped nobody (§6). The
+specific hazard of an unbounded store of permanent zeros, though, is no
+longer hypothetical: it is the thrash in §3's stale-cache table.
 
 **An adversary.** A permanent hard `upperFail` with no expiry is a
 griefing target: a peer that wants to be removed from your route set
 need only fail one HTLC. lnd's decay is, among other things, a defence
-against that. Nothing in this program has an attacker in it.
+against that. Nothing in this program has an attacker in it — but
+exp-012 measured the accidental version of the same attack, and it is
+expensive. No adversary is required, only evidence that has gone stale,
+and the champions give up 56% of their objective to it (§3).
 
 **Everything else a payment does.** Inbound fees (lnd computes them and
 clamps them at zero), AMP, time preference, the CLTV budget as a real
@@ -842,28 +1053,44 @@ HTLC switch's own view of what a channel can carry right now.
 
 ---
 
-## 8. The three measurements that would change my mind
+## 8. The measurements that would change my mind
 
-In priority order, and all cheap:
+Two items from the earlier version of this list have since run, and both
+are folded into the sections above: lnd's bimodal estimator at a matched
+scale, which confirmed §1 rather than threatening it, and third-party
+weight transfer, which inverted §2's vantage argument. What is left, in
+priority order:
 
-1. **lnd + bimodal at a matched scale.** Fix
-   `params_lnd_bimodal.json` to sweep `scale_msat` across the corpora's
-   capacities, or better, add a capacity-relative scale option. This is
-   the closest analogue lnd has to the evolved prior and it has never
-   been run against the environment it would need to fit (§0.3).
-2. **Mission control reset between payments** on the mainnet warmup
-   curve, to decide whether exp-012's 11.9× is accumulation or
-   depletion (§6).
-3. **Degraded attribution.** Delay, drop, or misattribute a fraction of
+1. **Fix the traffic engine, then re-ask every staleness question.**
+   Only about 18% of background payments settle, so our churn is roughly
+   five times weaker than configured (§3). Size the amounts to what the
+   network can carry or let the traffic retry, aim a share of it at the
+   corridors the scored payments use, and only then re-run the staleness
+   sweep and exp-008's decay question underneath it. Everything this
+   repo says about time is scoped by this number.
+2. **`--import-weights`.** Inject beliefs from a file with no payments
+   sent. Every exp-012 arm buys knowledge with liquidity, so the
+   experiment cannot construct the one thing the proposed API actually
+   delivers: knowledge that costs its consumer nothing (§6).
+3. **Draw mainnet liquidity from something we did not write.** The
+   evolved priors fit `sim_liquidity.go`'s 5% constant, and the mainnet
+   tier overwrites real balances with that same generator, so the
+   headline number is real topology and real policies over synthetic
+   liquidity (§0.2). This is the top pre-upstream fix.
+4. **Degraded attribution.** Delay, drop, or misattribute a fraction of
    failure sources. Both the champions' bounds and atomic1's
    suspicion-spreading are calibrated to a noiseless channel, and this
    is the advisor program's nominated decisive pre-upstream test (§7).
+
+One cheap control also remains unrun: reset mission control between
+payments on the mainnet warmup curve, which decides whether exp-012's
+11.9× is accumulated blacklisting or plain liquidity depletion (§6).
 
 ---
 
 ## 9. What is actually portable
 
-Stripping out everything that is simulator-shaped, three ideas survive
+Stripping out everything that is simulator-shaped, five ideas survive
 and are small enough to argue about upstream:
 
 **Read the bound you already store.** Mission control knows `FailAmt`
@@ -877,6 +1104,27 @@ direction.** A settled HTLC moves money. Debiting the forward interval
 and crediting the reverse one is a few lines in `setLastPairResult`,
 requires no new state, and is the thing that makes the *second* shard
 of an MPP payment well-informed (§2).
+
+**Put a floor under learned evidence; never store a hard zero.** This is
+the most directly actionable finding the program has, and it is the one
+that cost a champion a paired test. Under stale knowledge, mx_c3's hard
+`upperFail` zero loses 56% of its objective by declaring live channels
+dead, while atomic1's 0.012 floor loses 2% because one retry can
+overturn a discouraged channel but nothing can overturn a forbidden one
+(§3). lnd reaches the same trapdoor by a different route: a fresh
+`FailAmt` makes `nodeProbability * (1 - weight)` exactly zero, and it
+stays zero for as long as no clock advances. A floor is a clamp on an
+existing estimator, not a new paradigm, and it is what makes aged or
+imported evidence safe to hold at all.
+
+**If you serve weights, serve remote pairs only.** A stranger's
+observations help lnd and cost the champions nothing, because a failure
+at a remote relay records `(relay, target)` and names no observer. What
+does not transfer is the consumer's own local channels. Every payment it
+sends crosses one of them, so importing stale beliefs about them poisons
+the hop it can least afford to lose — which tripled lnd's attempt count
+in the measurement (§2). The API rule falls straight out: serve and
+import the remote pairs, and let each node measure its own first hop.
 
 **Make the prior capacity-relative.** `DefaultBimodalScaleMsat` is an
 absolute 300,000 sat, which means very different things on a 1M-sat
@@ -899,10 +1147,12 @@ specification of an idea, not a patch.
   `router_mx3_generalist_v1.md` — the champions, walked through.
 - `simulation/lab/experiments/exp-010b-atomic1-best-candidate.md` — the
   no-collapse hybrid and the two-timescale evidence design.
+- `exp-002b-bimodal-knob.md` — lnd's own bimodal estimator at seven
+  scales, and the §1 control it settles.
+- `exp-012-cold-cache.md` — the warmup curves, the stale-cache split,
+  the probe arm, the vantage sweep, and the churn defect they exposed.
 - `exp-006` (breakthrough), `exp-008` (drift), `exp-009` (mainnet),
   `exp-010`/`exp-010b` (splitting pressure, atomic arena), `exp-011`
-  (insight transfer), `exp-012` (cold cache).
+  (insight transfer).
 - `routing/sim_router.go` — the `SimRouter` contract and what the
   sealed view does and does not expose.
-</content>
-</invoke>

@@ -123,42 +123,77 @@ source), `~/codez/data/mainnet_graph.json`.
 
 ## Open work
 
-- DONE: exp-008 (task #13). Sim gained a virtual clock + background
-  traffic (d11a20dcb). Verdict: time-awareness DID re-evolve
-  (confidence half-life 35min, bound expiry 20min, conf·learned +
-  (1−conf)·prior interpolation) but does NOT beat the time-less
-  champions even on drift (drift1 0.417 vs mx_c3 0.457 on drift-test;
-  gen2, which never saw drift, scores 0.456 there). Evidence bounds
-  degrade gracefully; decay buys nothing at realistic churn. Champions
-  unchanged, now validated on four tiers.
-- **exp-010, codex arm DONE:** corridors corpus (11f4ccc65) elicited
-  the first evolved joint route-set planner (unequal corridor-sized
-  splits + one-step lookahead with reservation) — and it still lost to
-  mx_c3 on every tier with paired stats (Δ −0.025..−0.086, p ≤ 0.04).
-  Opus 5 reflection A/B arm (code_split_opus1) may still be live —
-  check `ps aux | grep run_gepa`; its reflections take MINUTES each,
-  so judge liveness by run_log.txt freshness, and laptop sleep mimics
-  stalls. Verdict on the A/B pending its completion (or call it at
-  matched eval counts).
-- **exp-012 (designed, queued):** cold-cache/hot-load study — unscored
-  warmup_payments runner phase + staleness-under-drift + third-party
-  weights (IDEAS.md). Needs routing/ edits: only when no code-mode
-  run is live.
-- **exp-010b (designed):** rerun splitting pressure on the
-  high-resolution corpus (gen_scenarios --split --split-leads 5) +
-  the simultaneous-shard-commitment sim change (Fable advisor design)
-  so sequential adaptivity stops being free.
-- Advisor program (2026-07-25, see NOTEBOOK): the ~0.64 band is partly
-  a MEASUREMENT ceiling; the sim's failure feedback is a "precision
-  paradise" vs mainnet (degraded-attribution experiment is the
-  decisive pre-upstream test); upstream red flags list in NOTEBOOK.
-  Adaptive rotation only at >400-eval budgets (meta_harness minimum
-  useful slice ≈ 112 evals); meta_harness JSON bug durably fixed in
-  ~/codez/gepa branch fix-claude-json-array (upstream it).
-- DONE: dashboard de-slop redesign + findings.html (Litbucket v30+,
-  commit d13a376e5) and the `code_gen2` run (exp-011: insight transfer
-  reaches champion level in 400 evals but plateaus at the same ceiling
-  — three lineages now converge on the interval-belief paradigm;
-  champions of record remain hb1 + mx_c3). The conclusion: more evals
-  in the current environment buy nothing; change the environment
-  (exp-008/exp-010).
+Chronology and detail live in `simulation/lab/NOTEBOOK.md`; the
+mechanism-by-mechanism comparison against lnd's production code, and
+the corrections to our own published claims, live in
+`simulation/lab/WHY.md`. This section is only what is live and what is
+next.
+
+### Live
+- **exp-013 `code_hybrid1`**: continuation evolution seeded from
+  atomic1 (the exp-010b no-collapse hybrid) on corpus-mix, 400 evals,
+  codex proposer — the recipe that turned hb1 into mx_c3, applied to
+  the strongest challenger yet. TREE IS FROZEN while it runs (no
+  `routing/` or `cmd/routesim/` edits). Log
+  `<scratch>/code_hybrid1.log`; canary must stay 0.
+
+### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
+- **exp-008** — drift. Time-decay re-evolved and lost to time-less
+  champions even on drift. Caveat added later: our churn is weak (see
+  the traffic defect below), so this is a statement about weak churn.
+- **exp-010** — splitting pressure, three proposer lineages. All three
+  evolved joint route-set planning; none beat mx_c3. opus1 scored the
+  program's first statistical tie on any tier (split-val) then
+  collapsed off-corpus — traced afterwards to ONE overfit constant
+  (`maxRouteHops = 7`), not its architecture.
+- **exp-010b** — atomic MPP arena (hold-and-release shards, held
+  liquidity contention, per-attempt drift). The subsidy was real: lnd
+  fell from second place to LAST at 105 attempts/payment once probing
+  stopped being free. Codex's winner `atomic1` is the first challenger
+  with NO collapse tier (even with mx_c3 on hard/OOD/mainnet, 1.6
+  att/pmt on mainnet — program record) but loses held-out atomic-test.
+  Proposer A/B FLIPPED vs exp-010: deliberate large-step reflection
+  wins in low-noise environments, misfires in churn-noisy ones.
+- **exp-012** — cold cache / hot load. No hot-cache regime exists here:
+  across depletion, staleness, foreign vantage and valid probes, at
+  25/100/400 observations, warming never lifts any router above its
+  cold score and mission control never approaches the champions.
+  Champions are cheap from payment ONE, so their edge is a PRIOR not a
+  history. Under stale knowledge the consumer's staleness policy
+  dominates: lnd thrashes, champions abandon (hard `upperFail` zero),
+  atomic1 shrugs (0.012 floor) — and atomic1 beats mx_c3 there by
+  +0.233/+0.428 (p=.002), the first significant win over a champion.
+  Vantage: remote-pair observations transfer, own-local-channel ones
+  are actively harmful to import.
+- **exp-002b** — the knob WHY.md said we never turned. lnd's own
+  bimodal estimator at seven scales, including the environment-matched
+  one, beats neither lnd's apriori default nor the champions. It raises
+  success while DOUBLING attempts: a better prior makes lnd keep
+  trying without changing WHAT it retries. Estimator worth ≤0.02 of
+  objective; paradigm worth 0.18–0.22.
+
+### Next, in priority order
+1. **Traffic engine defect (do first; needs `routing/`).** Only ~18% of
+   background payments settle, and a failed payment moves no
+   liquidity, so our exogenous process is ~5× weaker than configured.
+   This caveats exp-008 and exp-010b. Make traffic settle (size
+   amounts to available liquidity, or retry), and aim a share of it at
+   the corridors under test.
+2. **`--import-weights` (needs `routing/`).** exp-012 cannot construct
+   free knowledge because every arm buys it with payments. Injecting
+   beliefs from a file with no payments sent is the only design that
+   isolates imported knowledge from the price of acquiring it, and it
+   is what the proposed API actually does.
+3. **Fix the circular mainnet liquidity.** `sim_liquidity.go` draws
+   `ExpFloat64()*0.05` and the evolved priors fit that constant; the
+   mainnet tier overwrites real balances with the same generator. Until
+   liquidity comes from somewhere we did not write, the mainnet number
+   is real topology and policies with synthetic balances. TOP
+   pre-upstream fix.
+4. **Degraded attribution** — the advisor's decisive pre-upstream test.
+   Our failure channel is instant, truthful and exactly attributed;
+   mainnet's is not. The 8.6× is an upper bound until this runs.
+5. Re-run staleness and exp-008's decay question underneath the fixed
+   traffic engine.
+6. Upstream the gepa meta_harness JSON fix (`~/codez/gepa` branch
+   `fix-claude-json-array`).

@@ -137,14 +137,17 @@ command center + lab notebook current.
   Tempering rule pre-registered: recalibrate churn params only on
   baseline evidence, never after evolution results. Baseline DONE
   (subsidy confirmed; lnd last at 105+ att/pmt; opus1 ties champion).
-- exp-010b OPUS ARM DONE (df2979722): winner re-evolved min-cost-flow
-  planning + drift-bred bound relaxation, LOST to mx_c3 at home
-  (0.391 vs 0.444 p=.008, 57 att/pmt) and trails the unevolved opus1
-  challenger. Archived. CODEX ARM still live (~126/400 at 20:00,
-  finishes overnight) — decides proposer-specific vs selection-noise.
-  On its completion: same workup (extract/grep/compile/sweep), joint
-  verdict in writeup + NOTEBOOK entry, THEN user mail + docs/site
-  Opus agents + dashboard publish (held back for the joint verdict).
+- exp-010b CLOSED (2026-07-26 ~01:15, 53674983b): codex arm's winner
+  atomic1 = first NO-COLLAPSE challenger (even with mx_c3 on
+  hard/v2/mainnet, 1.6 att/pmt mainnet — program record) but loses
+  held-out atomic-test (−0.044 p=.07) → champions STAND, fifth
+  survival. Opus arm lost outright; proposer A/B FLIPPED vs exp-010
+  (deliberate steps misfire in churn-noisy selection). Verdict mailed
+  (8710). Docs agent + site agent LIVE for exp-010b closeout — on
+  their completion: review, final dashboard export+publish
+  (refresh_dashboard.sh code_atomic1 <scratch>), then tree UNFREEZES
+  → exp-012 cold/hot cache is next (user pre-briefed on design:
+  warmup N ∈ {0,25,100,400}, hot-but-stale, third-party weights).
 - EXP-010 CLOSED (2026-07-25 ~17:15): both Opus arms completed their
   topped-up budgets (no new accepts post-resume). Five-tier sweep done
   (opus-ab-validation.json in scratch): opus1 TIES mx_c3 on split-val

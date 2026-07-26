@@ -35,7 +35,7 @@
     </div>
     <h1>What the evolved routers kept, dropped, and <em>invented</em></h1>
     <p class="standfirst">
-      Twelve experiments in, the shape of the result is clear. On a real mainnet
+      Fourteen experiments in, the shape of the result is clear. On a real mainnet
       graph snapshot, LLM-evolved routers match lnd's success rate using
       <strong>8.6× fewer HTLC attempts</strong> — and the structure they arrived at
       is not a tuned version of lnd's. It is a different way of remembering what
@@ -44,10 +44,11 @@
     <div class="byline">
       <span>sources <b>simulation/lab/experiments</b></span>
       <span>champions <b>hb1 · mx_c3</b></span>
-      <span>status <b>validated · exp-010b closed</b></span>
+      <span>status <b>validated · exp-012 and exp-002b closed</b></span>
     </div>
 
     <ol class="toc">
+      <li><a href="#corrections"><span class="n">00</span><span class="t">Corrections to our own record</span></a></li>
       <li><a href="#mainnet"><span class="n">01</span><span class="t">Validated on lnd's home turf</span></a></li>
       <li><a href="#paradigm"><span class="n">02</span><span class="t">The paradigm is the lever, not the parameters</span></a></li>
       <li><a href="#scoreboard"><span class="n">03</span><span class="t">Three tiers of held-out evidence</span></a></li>
@@ -55,10 +56,58 @@
       <li><a href="#ceiling"><span class="n">05</span><span class="t">The paradigm ceiling: three lineages, one band</span></a></li>
       <li><a href="#splitting"><span class="n">06</span><span class="t">Splitting pressure: three proposers, one mechanism, no new champion</span></a></li>
       <li><a href="#atomic"><span class="n">07</span><span class="t">The honest arena: atomic commitment, and the fifth challenge</span></a></li>
-      <li><a href="#process"><span class="n">08</span><span class="t">What the process taught us</span></a></li>
-      <li><a href="#timeline"><span class="n">09</span><span class="t">Timeline of experiments</span></a></li>
+      <li><a href="#coldcache"><span class="n">08</span><span class="t">Cold cache, hot load: what is a mission control worth?</span></a></li>
+      <li><a href="#bimodal"><span class="n">09</span><span class="t">The knob we never turned</span></a></li>
+      <li><a href="#process"><span class="n">10</span><span class="t">What the process taught us</span></a></li>
+      <li><a href="#timeline"><span class="n">11</span><span class="t">Timeline of experiments</span></a></li>
       <li><a href="drift.html"><span class="n">→</span><span class="t">Drift: the environment strikes back <i>(exp-008, verdict in)</i></span></a></li>
     </ol>
+  </div>
+
+  <!-- ================= 00 · CORRECTIONS ================= -->
+  <div class="shell">
+    <div class="note" id="corrections">
+      <h4>corrections to our own record</h4>
+      <p>
+        Three claims this project made about itself do not survive its own docs
+        pass. They are listed here rather than quietly edited out, because the
+        scoreboards do not move and the mechanism story is narrower than we first
+        told it. The long version, mechanism by mechanism, is
+        <span class="mono">simulation/lab/WHY.md</span> §0.
+      </p>
+      <p>
+        <strong>The bimodal prior was in the prompt.</strong> Since its earliest
+        committed version the reflection LM's background block has stated, under a
+        heading reading <em>environment truths worth exploiting</em>, that hidden
+        liquidity is drawn mostly from a bimodal distribution. So “rediscovered
+        from failure traces alone” is wrong. What survives is the
+        <em>shape</em> — an exponential low mode plus a logistic cliff, written
+        directly as a probability rather than derived by integration — its
+        constants, and the interval machinery built on top. Downgrade the claim
+        to: told that liquidity is bimodal, evolution produced a calibrated
+        bimodal prior and then went well past it.
+      </p>
+      <p>
+        <strong>The evolved prior fits our generator, not the network.</strong>
+        <span class="mono">sim_liquidity.go</span> draws hidden balances as
+        <span class="mono">ExpFloat64() * 0.05</span> of capacity, and the evolved
+        low-mode scales are 0.055 for atomic1, 0.025 for hb1, 0.018 for mx_c3.
+        That is what fitting a generative model looks like when you can see the
+        samples, and it bounds the claim: the champions learned
+        <em>this simulator's</em> liquidity constant. The mainnet tier is the real
+        12,161-node topology with the real policies, and then it
+        <strong>overwrites the balances with that same generator</strong>. Real
+        topology, real fees, our liquidity.
+      </p>
+      <p>
+        <strong>lnd's decay never fires on the static tiers.</strong> Mission
+        control heals a penalty on a clock, and the corpora behind most of the
+        numbers on this page carry no clock section at all, so its pair entries are
+        permanent zeros. That is a fair reading of lnd's own defaults on a static
+        world rather than a handicap we imposed — and where a clock does run, on
+        the drift and atomic tiers, decay is live and still does not close the gap.
+      </p>
+    </div>
   </div>
 
   <!-- ================= 01 · MAINNET ================= -->
@@ -312,7 +361,7 @@
         <p>
           <strong>Exploit-clean.</strong> The simulator seals hidden liquidity behind
           a view interface, and an adversarial audit of that seal
-          (<a class="link" href="#process">§08</a>) found and
+          (<a class="link" href="#process">§10</a>) found and
           closed a real escape. Both champions were validated after the seal, with
           zero uses of any exploit path.
         </p>
@@ -395,7 +444,9 @@
             <p>
               Nobody told the reflection LM that Lightning liquidity is bimodal. It
               inferred the shape from which amounts died where, and hard-coded its
-              own version. See Fig. 4.
+              own version. See Fig. 4. <strong>That first sentence is retracted:</strong>
+              the harness prompt did say so, and what survives is the shape and the
+              constants (<a class="link" href="#corrections">corrections</a>).
             </p>
           </div>
         </div>
@@ -880,7 +931,7 @@
         <p>
           <strong>Opus 5 at default effort, persistent parallel flow plans.</strong>
           The deepest machinery the project has produced, at 1,931 lines — well past
-          the complexity wall of <a class="link" href="#process">§08</a>. A flow plan
+          the complexity wall of <a class="link" href="#process">§10</a>. A flow plan
           survives failure, dropping only the corridors that evidence actually
           contradicts; dispatch is concurrency-first, filling the shard budget with
           the largest believable amounts before it ever ladder-searches; and planning
@@ -1380,16 +1431,603 @@
             winner keeps no cross-payment state at all, while every codex router
             carries a belief map from one payment to the next.
           </p>
+          <p>
+            That one has since run, and the split got priced:
+            <a class="link" href="#coldcache">§08</a>. Under a stale cache the
+            memory-carrying hybrid holds its score while both champions collapse,
+            which is the first statistically significant win over a champion this
+            project has recorded.
+          </p>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ================= 08 · PROCESS ================= -->
-  <section id="process">
+  <!-- ================= 08 · COLD CACHE ================= -->
+  <section id="coldcache">
     <div class="shell">
       <div class="sec-head">
         <div class="sec-no">08</div>
+        <h2>Cold cache, hot load: what is a mission control worth?</h2>
+        <p class="sec-sub">
+          Every number published above is a cold-start number. A production node's
+          mission control holds thousands of observations, and that regime had never
+          been tested here — so exp-012 tested it four ways, found no hot-cache
+          regime anywhere, and turned up one upstream-shaped result on the way.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key">
+          <span class="kn">11.9<span class="u">×</span></span>
+          <div class="kl">
+            lnd's attempt cost relative to the champion on the last three payments of
+            a mainnet batch, up from 4.7× on the first three — its disadvantage
+            <em>grows</em> with experience rather than shrinking
+          </div>
+          <div class="kf">the warmup is not slow · it has not started</div>
+        </div>
+        <div class="key hi">
+          <span class="kn">+0.428<span class="u">vs mx_c3</span></span>
+          <div class="kl">
+            atomic1's paired margin on mainnet after 400 stale warmup payments — the
+            first statistically significant win over a champion in this project's
+            history
+          </div>
+          <div class="kf">p = 0.002 · a robustness axis, not the standing objective</div>
+        </div>
+        <div class="key">
+          <span class="kn">0.012<span class="u">floor</span></span>
+          <div class="kl">
+            the probability atomic1 clamps a stale bound to, where both champions
+            clamp to a hard zero — the entire difference between shrugging at a stale
+            cache and abandoning the network
+          </div>
+          <div class="kf">a small change to an existing estimator</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>The regime nobody had measured</h3>
+        <p>
+          Every scenario file in this project starts a router with an empty mission
+          control and empty candidate beliefs. That cuts both ways. It means the
+          champions' 8.6× attempt advantage was earned with no more history than lnd
+          had, which is the fair version of the comparison — and it means the regime a
+          real node actually lives in has never appeared on this site. The field
+          observation that prompted the experiment is that mission control's weights
+          matter enormously on a network of unbalanced, unreliable nodes, that a new
+          node has none, and that the fix might be to serve cached weights over an API
+          so a fresh node can hot-load instead of probing from scratch.
+        </p>
+        <p>
+          Three questions follow: how fast does each design get cheap, what is
+          imported knowledge worth, and how stale can it be and still help.
+        </p>
+
+        <h3>Part 1 — the warmup that never starts</h3>
+        <p>
+          Payments inside a scenario file run in order against one mission control and
+          one set of candidate beliefs, so the attempt count at payment
+          <em>i</em> measures what the first <em>i</em>−1 payments taught the router.
+          The raw curves are confounded, because payment 10 is a different payment from
+          payment 1. The clean read normalises each router against the champion
+          <em>on the same payment</em>, and compares the start of a batch to its end.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:2em">
+        <table class="data">
+          <caption>exp-012 part 1 · attempts per payment relative to mx_c3 on the same payment, averaged over the first three and the last three payments of each ten-payment file. Lower is better; the champion is 1.00× by construction.</caption>
+          <thead>
+            <tr>
+              <th>router</th>
+              <th class="num">mainnet first 3</th>
+              <th class="num">mainnet last 3</th>
+              <th class="num">hard first 3</th>
+              <th class="num">hard last 3</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>lnd production stack<span class="sub">10.1 → 31.2 absolute attempts on mainnet</span></td>
+              <td class="num" data-l="mainnet first 3">4.72×</td>
+              <td class="num" data-l="mainnet last 3">11.88×</td>
+              <td class="num" data-l="hard first 3">5.10×</td>
+              <td class="num" data-l="hard last 3">4.42×</td>
+            </tr>
+            <tr>
+              <td>hand-written seed<span class="sub">~300 lines</span></td>
+              <td class="num" data-l="mainnet first 3">1.68×</td>
+              <td class="num" data-l="mainnet last 3">4.44×</td>
+              <td class="num" data-l="hard first 3">4.29×</td>
+              <td class="num" data-l="hard last 3">7.44×</td>
+            </tr>
+            <tr>
+              <td>hb1<span class="sub">champion · stateless across payments</span></td>
+              <td class="num" data-l="mainnet first 3">0.91×</td>
+              <td class="num" data-l="mainnet last 3">0.99×</td>
+              <td class="num" data-l="hard first 3">1.06×</td>
+              <td class="num" data-l="hard last 3">1.34×</td>
+            </tr>
+            <tr>
+              <td>mx_c3<span class="sub">champion of record · 2.4 → 2.6 absolute attempts on mainnet</span></td>
+              <td class="num" data-l="mainnet first 3">1.00×</td>
+              <td class="num" data-l="mainnet last 3">1.00×</td>
+              <td class="num" data-l="hard first 3">1.00×</td>
+              <td class="num" data-l="hard last 3">1.00×</td>
+            </tr>
+            <tr class="best">
+              <td>atomic1<span class="sub">the only router carrying cross-payment memory</span></td>
+              <td class="num" data-l="mainnet first 3">0.72×</td>
+              <td class="num" data-l="mainnet last 3">0.58×</td>
+              <td class="num" data-l="hard first 3">1.56×</td>
+              <td class="num" data-l="hard last 3">0.73×</td>
+            </tr>
+            <tr>
+              <td>opus1<span class="sub">exp-010 Opus arm · fresh router per payment</span></td>
+              <td class="num" data-l="mainnet first 3">2.08×</td>
+              <td class="num" data-l="mainnet last 3">3.35×</td>
+              <td class="num" data-l="hard first 3">1.33×</td>
+              <td class="num" data-l="hard last 3">1.52×</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <p style="margin-top:1.6em">
+          <strong>lnd's mission control does not warm inside a realistic batch.</strong>
+          Its disadvantage does not shrink with experience: on mainnet it grows from
+          4.7× to 11.9× as its absolute attempt count climbs from 10.1 to 31.2, and on
+          the hard corpus it is flat. Ten payments of history buys nothing measurable.
+          This is the empirical form of the field complaint, and it is worse than the
+          complaint — the warmup is not slow, it has not started.
+        </p>
+        <p>
+          <strong>The champions' advantage is a prior, not a history.</strong> mx_c3
+          spends 2.4 attempts on its first three mainnet payments, before it has learned
+          anything at all, and 2.6 on its last three. That is encouraging for the
+          hot-load idea and it also reframes it: the thing worth shipping to a fresh
+          node may be the bimodal prior and the interval machinery, not a cache of
+          somebody else's observations.
+        </p>
+        <p>
+          <strong>Exactly one router demonstrably learns.</strong> atomic1 halves its
+          ratio to the champion across the hard batch, 1.56× to 0.73× — the clearest
+          within-batch learning signal in the family, and consistent with its being the
+          only router in the field that carries a belief map from one payment to the
+          next. Both Opus-lineage routers build a fresh router per payment and show no
+          such improvement. The lineage split is now visible in the measurements rather
+          than only in the source.
+        </p>
+
+        <h3>Part 2 — the method failure worth publishing</h3>
+        <p>
+          The obvious instrumentation is an unscored warmup phase: run N payments
+          through the identical code path, then score the same batch. The first sweep
+          measured the wrong thing, and the failure is the useful part.
+          <strong>Warmup payments are real payments.</strong> They teach the router and
+          they drain the network the scored batch then has to use. Across N = 0, 25, 100
+          and 400 on mainnet every router got monotonically worse — objective 0.79,
+          0.65, 0.43, 0.20 — and at 400 the whole field collapsed to a 22% success rate,
+          where lnd “led” on objective purely by abandoning a dead network faster than
+          anyone else. That is depletion, not the value of a cache.
+        </p>
+        <p>
+          The control that separates them is a liquidity snapshot taken before the
+          warmup and restored after it. Be precise about what that arm then measures.
+          The network is fresh again, but the router's beliefs describe the drained
+          network it just finished exploring, so this is knowledge about a state that
+          has since been completely churned — a <strong>maximally stale cache</strong>,
+          which is the worst case for a weight-serving API rather than a fair model of
+          a fresh one.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:2em">
+        <table class="data">
+          <caption>exp-012 part 2 · mainnet objective after an unscored warmup with the network's liquidity restored, so only staleness varies. Attempts per payment in the sub-line; atomic1 also carries its paired delta against mx_c3, two-sided sign test over per-file differences.</caption>
+          <thead>
+            <tr>
+              <th>router</th>
+              <th class="num">cold</th>
+              <th class="num">stale 25</th>
+              <th class="num">stale 100</th>
+              <th class="num">stale 400</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>lnd production stack<span class="sub">pair entries are permanent zeros on this tier</span></td>
+              <td class="num" data-l="cold">0.694<span class="sub">19.8 att</span></td>
+              <td class="num" data-l="stale 25">0.617<span class="sub">19.6 att</span></td>
+              <td class="num" data-l="stale 100">0.377<span class="sub">26.9 att</span></td>
+              <td class="num" data-l="stale 400">0.228<span class="sub">32.4 att</span></td>
+            </tr>
+            <tr>
+              <td>hb1<span class="sub">champion · hard upperFail zero</span></td>
+              <td class="num" data-l="cold">0.790<span class="sub">2.3 att</span></td>
+              <td class="num" data-l="stale 25">0.738<span class="sub">1.6 att</span></td>
+              <td class="num" data-l="stale 100">0.550<span class="sub">1.4 att</span></td>
+              <td class="num" data-l="stale 400">0.347<span class="sub">0.6 att</span></td>
+            </tr>
+            <tr>
+              <td>mx_c3<span class="sub">champion of record · hard upperFail zero</span></td>
+              <td class="num" data-l="cold">0.791<span class="sub">2.3 att</span></td>
+              <td class="num" data-l="stale 25">0.734<span class="sub">1.8 att</span></td>
+              <td class="num" data-l="stale 100">0.550<span class="sub">1.2 att</span></td>
+              <td class="num" data-l="stale 400">0.347<span class="sub">0.6 att</span></td>
+            </tr>
+            <tr class="best">
+              <td>atomic1<span class="sub">persisted bounds clamp to a 0.012 floor</span></td>
+              <td class="num" data-l="cold">0.790<span class="sub">1.6 att</span></td>
+              <td class="num" data-l="stale 25">0.797<span class="sub">1.8 att · +0.063 p .004</span></td>
+              <td class="num" data-l="stale 100">0.783<span class="sub">2.2 att · +0.233 p .002</span></td>
+              <td class="num" data-l="stale 400">0.775<span class="sub">2.0 att · +0.428 p .002</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <h3 style="margin-top:2em">Three failure modes, each legible in the attempt counts</h3>
+        <p>
+          <strong>lnd thrashes.</strong> Its attempts climb from 19.8 to 32.4 while its
+          success falls from 0.79 to 0.35. Mission control's pair entries are permanent
+          zeros on this tier — no clock section, so decay never fires
+          (<a class="link" href="#corrections">§00</a>) — so a stale blacklist keeps
+          steering it onto fresh-looking routes that are no better, and it never gives
+          up.
+        </p>
+        <p>
+          <strong>The champions abandon.</strong> Both collapse to 0.6 attempts per
+          payment at 36% success: they quit almost immediately. Their
+          <span class="mono">upperFail</span> bound is a hard zero, so a stale bound
+          declares a perfectly good channel dead, and enough dead channels make a live
+          payment look hopeless before it is tried.
+        </p>
+        <p>
+          <strong>atomic1 shrugs.</strong> 0.790 to 0.775 — a 2% degradation against
+          the champions' 56% and lnd's 67% — at a nearly unchanged two attempts. Its
+          persisted bounds clamp to a 0.012 probability floor instead of zero, so stale
+          evidence makes a channel unattractive rather than forbidden, and one retry is
+          enough to correct it. The scope-split that produced this behaviour was bred in
+          the atomic arena (<a class="link" href="#atomic">§07</a>) for entirely
+          different reasons.
+        </p>
+
+        <div class="note">
+          <h4>the one change this argues for upstream</h4>
+          <p>
+            A served weight cache is stale by construction — that is what serving it
+            means. These measurements say the <em>consumer's staleness policy</em>
+            dominates the value of the cache, and that the safe policy is a
+            <strong>probability floor on learned evidence, never a hard zero</strong>.
+            That is a small change to an estimator lnd already ships, not a new
+            paradigm, and it is the most directly upstream-shaped result the program has
+            produced. Champions of record are unchanged: this is a robustness axis, not
+            the standing objective.
+          </p>
+        </div>
+
+        <h3>Part 3 — a null that indicts our own simulator</h3>
+        <p>
+          The staleness-gap arm holds depletion constant — an identical 25-payment
+          warmup in every arm, no restore — and varies only an idle gap of 0, 600, 3600
+          or 21600 virtual seconds, during which background traffic runs. Six virtual
+          hours of churn changes nothing, to three decimal places, for any router: lnd
+          stays at 0.544 and 24.6 attempts, mx_c3 at 0.614, atomic1 at 0.650.
+        </p>
+        <p>
+          The manipulation check, run before anyone was allowed to believe the null,
+          passes cleanly: background payments sent scale 700 → 720 → 820 → 1420 across
+          the four arms, exactly the prorated volume the idle advance promises. The knob
+          works. The world does not move enough for it to matter.
+        </p>
+        <p>
+          And that is the finding, because the reason is a simulator defect.
+          <strong>Only about 18% of background payments settle</strong> — the traffic
+          engine sends naive fee-optimising payments that mostly fail, and a failed
+          payment moves no liquidity — so our exogenous process is roughly five times
+          weaker than its configuration implies. Against a 12,161-node graph, several
+          hundred mostly-failed payments never touch the corridors a scored payment
+          needs.
+        </p>
+
+        <div class="sidenote">
+          <h4>what that costs us backwards</h4>
+          <p>
+            <a class="link" href="drift.html">exp-008</a> concluded that time-decay
+            “buys nothing at realistic churn.” The conclusion is sound about
+            <em>our</em> churn, and our churn is far gentler than intended. The honest
+            restatement: decay buys nothing at the weak churn this simulator generates,
+            and the drift experiment never reached a regime where evidence genuinely
+            goes stale. The per-attempt drift in the atomic arena
+            (<a class="link" href="#atomic">§07</a>) comes from the same engine and
+            inherits the same caveat. Make background traffic actually settle, aim some
+            of it at the corridors under test, and only then re-run this sweep and
+            exp-008's decay question underneath it.
+          </p>
+        </div>
+
+        <h3>Part 4 — a stranger's knowledge is not worse</h3>
+        <p>
+          The vantage arm scores from a well-connected mainnet source and warms from
+          either that same node or a degree-31 stranger, with everything else matched —
+          same eighteen files, same 25 warmup payments, same liquidity restore — so the
+          only variable is who gathered the knowledge. <strong>Nobody is hurt by a
+          stranger's observations, and lnd is helped:</strong> 0.155 to 0.176, with its
+          attempts falling from 3.0 to 0.8. atomic1 is identical to three decimals
+          (0.209 both ways) and mx_c3 is within noise (−0.005), which is the expected
+          result for per-directed-channel bounds — facts about a channel carry no trace
+          of who observed them.
+        </p>
+        <p>
+          lnd improving is the surprise, and it sharpens the vantage story rather than
+          confirming it. Most of mission control transfers, because a failure at a
+          remote relay records the pair
+          <span class="mono">(relay, target)</span> with no reference to the observer.
+          The entangled remainder is the pairs crossing your <em>own</em> local
+          channels — precisely the pairs every one of your payments must traverse.
+          Warming from its own vantage fills those with stale zeros it cannot decay away
+          on this tier, and it thrashes around its own poisoned first hop. A stranger's
+          warmup cannot touch them, so it teaches the transferable part and leaves the
+          critical part clean.
+        </p>
+        <p>
+          So the practical answer to what a weight-serving API should serve is narrower
+          and more interesting than vantage-independence suggested: <strong>serve
+          remote-pair observations, and never import observations about the consumer's
+          own local channels.</strong> Those are the ones a node can cheaply measure for
+          itself, the ones whose staleness is most damaging, and the only genuinely
+          vantage-bound part of mission control.
+        </p>
+
+        <h3>Verdict — no hot-cache regime, and a limit we have to state</h3>
+        <p>
+          Across every arm — knowledge with depletion, stale knowledge with the network
+          restored, a stranger's vantage, and 100 small valid probes at 2% and 10% of
+          the scored amounts — <strong>no amount of warming ever lifts any router above
+          its cold-start score, and mission control never approaches the
+          champions.</strong> The probe arm is the strictest version, since what it
+          learns stays true when it is used, and nobody gains there either: mx_c3 goes
+          0.791 → 0.768 → 0.653 and lnd 0.694 → 0.664 → 0.597 as the probes grow. lnd's
+          attempts do fall at 10% probes, 19.8 to 15.9, which is the only genuine
+          warming signal anywhere in the experiment, but its success falls faster.
+        </p>
+        <p>
+          Two mechanisms explain the negative and they are worth separating. The
+          champions have nothing to learn — they are within noise of their asymptote on
+          payment one, so warming can only subtract, by spending liquidity or by going
+          stale. And lnd cannot learn fast enough for it to matter: 100 observations on
+          a 12,161-node graph is roughly 1% pair coverage, recorded as permanent zeros,
+          so the marginal observation is about as likely to poison a future route as to
+          inform one.
+        </p>
+
+        <div class="note">
+          <h4>what this negative does not cover</h4>
+          <p>
+            Every arm here derives knowledge from <em>payments</em>, and payments cost
+            liquidity. That makes free knowledge unconstructible in the current
+            simulator: the drain arm pays in depletion, the restore arm pays in
+            staleness, the probe arm pays in both, just less. A served weight cache in
+            the actual proposal costs its consumer <em>nothing</em> — it arrives over an
+            API. Measuring that needs beliefs injected straight into mission control, or
+            into a candidate's state, from a file, with no payments sent at all.
+            <strong>Until that exists, exp-012's negative is a statement about
+            probe-warming, not about weight-serving.</strong>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 09 · BIMODAL KNOB ================= -->
+  <section id="bimodal">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">09</div>
+        <h2>The knob we never turned</h2>
+        <p class="sec-sub">
+          This project has repeated since exp-002 that the paradigm is the lever and
+          not the knobs. The one configuration that would make lnd's own machinery
+          match this environment had never been evaluated. It has now, at seven
+          scales, and the claim survives for a stated reason rather than an absence of
+          evidence.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key">
+          <span class="kn">7<span class="u">scales</span></span>
+          <div class="kl">
+            bimodal configurations bracketing the environment-matched scale by an order
+            of magnitude either way, against lnd's shipping apriori default and the
+            champion, on two sealed tiers
+          </div>
+          <div class="kf">none of them beats lnd's own default</div>
+        </div>
+        <div class="key hi">
+          <span class="kn">2.5<span class="u">× attempts</span></span>
+          <div class="kl">
+            what a better prior costs lnd on the hard tier: success rises 0.421 → 0.478
+            while attempts go 30.9 → 77, because the estimator changes which route it
+            retries and never how much it sends
+          </div>
+          <div class="kf">a net loss under an objective that charges for attempts</div>
+        </div>
+        <div class="key">
+          <span class="kn">0.02<span class="u">vs 0.20</span></span>
+          <div class="kl">
+            the objective the estimator swap is worth, against what the paradigm
+            difference between lnd and the champions is worth on the same corpora
+          </div>
+          <div class="kf">the estimator is not the part that needs changing</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>Why this needed running at all</h3>
+        <p>
+          lnd ships a bimodal estimator whose hypothesis is the same one the champions
+          exploit — channel funds sit at one end. It is not the default, and its
+          <span class="mono">scale_msat</span> is an <em>absolute</em> amount defaulting
+          to 300M msat. Our generator draws balance fractions with mean 5% of each
+          channel's capacity, so the scale that matches this environment is 5% of a
+          typical channel: 100M msat on the hard corpus with its 2M sat channels, 150M
+          on v2 with its 3M sat channels. The staged baseline used the raw default.
+          The closest analogue to the champions inside lnd had therefore never been
+          given its best shot — the cheapest outstanding experiment in the program, and
+          a prerequisite for any upstream conversation.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:2em">
+        <table class="data">
+          <caption>exp-002b · seven bimodal scales against lnd's shipping apriori default and the champion. Same binary, same corpora, same objective; only --params differs. The corpora were regenerated after a reboot, so read the levels inside this table rather than against earlier sections.</caption>
+          <thead>
+            <tr>
+              <th>router</th>
+              <th class="num">hard obj</th>
+              <th class="num">hard succ</th>
+              <th class="num">hard att</th>
+              <th class="num">v2 obj</th>
+              <th class="num">v2 succ</th>
+              <th class="num">v2 att</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>lnd apriori<span class="sub">the estimator lnd actually ships</span></td>
+              <td class="num" data-l="hard obj">0.298</td>
+              <td class="num" data-l="hard succ">0.421</td>
+              <td class="num" data-l="hard att">30.9</td>
+              <td class="num" data-l="v2 obj">0.357</td>
+              <td class="num" data-l="v2 succ">0.525</td>
+              <td class="num" data-l="v2 att">58.8</td>
+            </tr>
+            <tr>
+              <td>bimodal 10M<span class="sub">best bimodal on v2</span></td>
+              <td class="num" data-l="hard obj">0.259</td>
+              <td class="num" data-l="hard succ">0.429</td>
+              <td class="num" data-l="hard att">63.9</td>
+              <td class="num" data-l="v2 obj">0.345</td>
+              <td class="num" data-l="v2 succ">0.528</td>
+              <td class="num" data-l="v2 att">73.3</td>
+            </tr>
+            <tr>
+              <td>bimodal 50M</td>
+              <td class="num" data-l="hard obj">0.261</td>
+              <td class="num" data-l="hard succ">0.456</td>
+              <td class="num" data-l="hard att">77.7</td>
+              <td class="num" data-l="v2 obj">0.319</td>
+              <td class="num" data-l="v2 succ">0.518</td>
+              <td class="num" data-l="v2 att">76.0</td>
+            </tr>
+            <tr>
+              <td>bimodal 100M<span class="sub">environment-matched on hard · 5% of a 2M sat channel</span></td>
+              <td class="num" data-l="hard obj">0.261</td>
+              <td class="num" data-l="hard succ">0.456</td>
+              <td class="num" data-l="hard att">78.7</td>
+              <td class="num" data-l="v2 obj">0.330</td>
+              <td class="num" data-l="v2 succ">0.528</td>
+              <td class="num" data-l="v2 att">77.4</td>
+            </tr>
+            <tr>
+              <td>bimodal 150M<span class="sub">environment-matched on v2 · 5% of a 3M sat channel</span></td>
+              <td class="num" data-l="hard obj">0.273</td>
+              <td class="num" data-l="hard succ">0.467</td>
+              <td class="num" data-l="hard att">78.9</td>
+              <td class="num" data-l="v2 obj">0.330</td>
+              <td class="num" data-l="v2 succ">0.518</td>
+              <td class="num" data-l="v2 att">81.2</td>
+            </tr>
+            <tr>
+              <td>bimodal 300M<span class="sub">lnd's own default scale · the staged baseline</span></td>
+              <td class="num" data-l="hard obj">0.280</td>
+              <td class="num" data-l="hard succ">0.478</td>
+              <td class="num" data-l="hard att">76.9</td>
+              <td class="num" data-l="v2 obj">0.330</td>
+              <td class="num" data-l="v2 succ">0.528</td>
+              <td class="num" data-l="v2 att">79.0</td>
+            </tr>
+            <tr>
+              <td>bimodal 1000M<span class="sub">best bimodal on hard</span></td>
+              <td class="num" data-l="hard obj">0.283</td>
+              <td class="num" data-l="hard succ">0.478</td>
+              <td class="num" data-l="hard att">77.2</td>
+              <td class="num" data-l="v2 obj">0.331</td>
+              <td class="num" data-l="v2 succ">0.528</td>
+              <td class="num" data-l="v2 att">79.2</td>
+            </tr>
+            <tr class="best">
+              <td>mx_c3<span class="sub">champion of record · same corpora, same objective</span></td>
+              <td class="num" data-l="hard obj">0.479</td>
+              <td class="num" data-l="hard succ">0.592</td>
+              <td class="num" data-l="hard att">8.1</td>
+              <td class="num" data-l="v2 obj">0.581</td>
+              <td class="num" data-l="v2 succ">0.695</td>
+              <td class="num" data-l="v2 att">8.4</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <h3 style="margin-top:2em">No scale beats lnd's own default</h3>
+        <p>
+          Not on either tier, and none comes within 0.19 of the champion. The
+          environment-matched scale is not even the best bimodal setting — it is among
+          the <em>worse</em> ones, 0.261 on hard against the 300M default's 0.280. So
+          “the paradigm is the lever, not the knobs” is now tested against lnd's closest
+          analogue, given the scale this environment actually calls for, and it holds.
+        </p>
+
+        <h3>How it fails is the finding</h3>
+        <p>
+          Read the success and attempt columns together on the hard tier. Bimodal
+          <strong>raises</strong> success, 0.421 to 0.478, and simultaneously
+          <strong>more than doubles attempts</strong>, 30.9 to 77. A better liquidity
+          prior makes lnd more willing to keep trying — it correctly believes some route
+          might still work — so it completes more payments at a much higher price. Under
+          an objective that charges for attempts, that is a net loss.
+        </p>
+        <p>
+          What it does not do is change <em>what lnd retries</em>.
+          <span class="mono">findPath</span> takes the amount as a fixed argument and
+          only halves when path finding fails outright, which on a large graph almost
+          never happens, so with any estimator lnd keeps retrying the same amount over
+          different routes. The champions read their
+          <span class="mono">upperFail</span> bound and retry a
+          <em>different amount</em>. A better prior improves route ranking inside a
+          broken retry strategy; it cannot supply the missing one.
+        </p>
+
+        <div class="note">
+          <h4>the honest framing is stronger than the old one</h4>
+          <p>
+            We are no longer saying we failed to tune lnd into competitiveness. We are
+            saying that <strong>lnd's own bimodal hypothesis, given its best scale for
+            this environment, buys success at double the attempts and still loses by a
+            wide margin, because the estimator is not the part that needs
+            changing.</strong> The estimator swap is worth at most 0.02 of objective;
+            the paradigm difference is worth 0.18 to 0.22. The part that needs changing
+            is that nothing in the retry loop reads
+            <span class="mono">FailAmt</span> to size the next attempt — and mission
+            control already records it.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 10 · PROCESS ================= -->
+  <section id="process">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">10</div>
         <h2>What the process taught us</h2>
         <p class="sec-sub">
           Findings about running this kind of search, which cost as much to learn
@@ -1468,14 +2106,14 @@
     </div>
   </section>
 
-  <!-- ================= 09 · TIMELINE ================= -->
+  <!-- ================= 11 · TIMELINE ================= -->
   <section id="timeline">
     <div class="shell">
       <div class="sec-head">
-        <div class="sec-no">09</div>
+        <div class="sec-no">11</div>
         <h2>Timeline of experiments</h2>
         <p class="sec-sub">
-          Twelve writeups, three days of wall-clock time, in numbered order. Full
+          Fourteen writeups, three days of wall-clock time, in numbered order. Full
           detail lives in
           <span class="mono">simulation/lab/experiments/</span>.
         </p>
@@ -1507,6 +2145,24 @@
             </div>
           </div>
           <div class="tl-tag">the pivot</div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-id">exp-002b</div>
+          <div class="tl-b">
+            <div class="t">The knob we never turned</div>
+            <div class="d">
+              lnd's own bimodal estimator, run at seven scales including the one this
+              environment calls for — 5% of a typical channel, the constant our
+              generator actually uses. No scale beats lnd's shipping apriori default
+              (hard: best bimodal 0.283 against 0.298), and the matched scale is among
+              the worse settings. The mechanism is the finding: a better prior raises
+              success and more than doubles attempts, because it changes which route
+              lnd retries and never how much it sends
+              (<a class="link" href="#bimodal">§09</a>).
+            </div>
+          </div>
+          <div class="tl-tag">the knob, turned</div>
         </div>
 
         <div class="tl-item">
@@ -1666,6 +2322,26 @@
             </div>
           </div>
           <div class="tl-tag">ceiling · gen2</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-012</div>
+          <div class="tl-b">
+            <div class="t">Cold cache against hot</div>
+            <div class="d">
+              Four arms on the question a served weight cache actually poses. lnd's
+              mission control does not warm inside a ten-payment batch — its
+              disadvantage grows 4.7× to 11.9× — while the champions are already cheap
+              on payment one, so their edge is a prior and not a history. Under a
+              maximally stale cache the field splits three ways: lnd thrashes, both
+              champions abandon, and atomic1's 0.012 probability floor shrugs, beating
+              mx_c3 by +0.428 at p = 0.002 — the program's first significant win over a
+              champion. The staleness-gap null then indicted our own churn engine, only
+              18% of whose payments settle. Champions unchanged
+              (<a class="link" href="#coldcache">§08</a>).
+            </div>
+          </div>
+          <div class="tl-tag">verdict · floor, not zero</div>
         </div>
       </div>
     </div>

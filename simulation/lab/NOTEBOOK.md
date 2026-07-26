@@ -292,3 +292,39 @@ half-life computes it: the belief's lifetime, not its weight, is what
 varies. Three lineages have now answered "how do you age evidence?"
 three ways (hard bounds forever / decay-and-lose / scope-split), and
 scope-split is the first that generalizes without collapse.
+
+## 2026-07-26 (night 3) — exp-012: stale knowledge, and the first
+## significant win over a champion
+
+The hot-load sweep found something better than the question it was
+asked. Warming a router with unscored payments and then restoring the
+network's liquidity leaves it holding beliefs about a state that no
+longer exists — a maximally stale cache — and under that pressure the
+field splits into three mechanisms:
+
+- **lnd thrashes** (19.8 → 32.4 attempts as success falls 0.79 →
+  0.35): its pair entries are permanent zeros on tiers with no clock,
+  so a stale blacklist redirects it forever without ever satisfying it.
+- **The champions abandon** (2.3 → 0.6 attempts, 36% success): a hard
+  `upperFail` zero turns a stale bound into a dead channel, and enough
+  dead channels make a live payment look hopeless.
+- **atomic1 shrugs** (0.790 → 0.775, a 2% loss against their 56%): its
+  persisted bounds clamp to a 0.012 floor rather than zero, so stale
+  evidence discourages a channel instead of forbidding it.
+
+atomic1 therefore beats mx_c3 on mainnet by +0.233 (p=.002) at 100
+warmup payments and +0.428 (p=.002) at 400 — the first statistically
+significant win over a champion in the program's history, though on a
+tier the champions were never designed for. Champions of record are
+unchanged: this is a robustness axis, not the standing objective.
+
+The upstream-shaped reading: a served weight cache is stale by
+construction, so the consumer's staleness policy decides whether it
+helps, and the safe policy is a probability floor rather than a hard
+zero. That is a small change to an existing estimator.
+
+Also tonight, WHY.md landed and retracted three of our own claims —
+the bimodal prior was in the harness prompt all along, the evolved
+prior constants fit `sim_liquidity.go`'s generator, and lnd's decay
+never fires on the static tiers. Corrections committed to CLAUDE.md,
+NOTEBOOK and exp-006 (e2c14e964).

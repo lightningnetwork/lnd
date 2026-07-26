@@ -79,7 +79,81 @@ by payment 10 the routers face slightly different networks. Parts 2
 and 3 remove the confound by holding the scored batch fixed and
 varying only what the router knew when it started.
 
-## Part 2 — Hot load (pending instrumentation)
+## Part 2 — Hot load: stale knowledge is worse than no knowledge
+
+Instrumentation landed (f5a96aac8, c2319b17a): an unscored `warmup`
+phase runs N payments through the identical code path before the
+scored batch, optionally aged by `stale_gap_sec`, optionally sent from
+another node, and optionally followed by a liquidity restore.
+
+**The first sweep measured the wrong thing, and the failure is worth
+recording.** Warmup payments are real payments: they teach the router
+AND drain the network the scored batch then has to use. Across N = 0,
+25, 100, 400 on mainnet every router got monotonically worse
+(objective 0.79 → 0.65 → 0.43 → 0.20), and at N = 400 the whole field
+collapsed to a 22% success rate where lnd "led" on objective purely by
+abandoning a dead network faster than anyone else. That is depletion,
+not the value of a cache.
+
+The control that separates the two is a liquidity snapshot taken
+before the warmup and restored after it. Be precise about what that
+arm then measures: the network is fresh again, but the router's
+beliefs describe the drained network it just explored, so this is
+knowledge about a network state that has since been completely
+churned — **a maximally stale cache**, which is the worst case for the
+weight-serving API and not the same thing as a fresh one.
+
+| tier | lnd | hb1 | mx_c3 | **atomic1** |
+|---|---|---|---|---|
+| cold | 0.694 (19.8 att) | 0.790 (2.3) | 0.791 (2.3) | 0.790 (1.6) |
+| stale-25 | 0.617 (19.6) | 0.738 (1.6) | 0.734 (1.8) | **0.797 (1.8)** |
+| stale-100 | 0.377 (26.9) | 0.550 (1.4) | 0.550 (1.2) | **0.783 (2.2)** |
+| stale-400 | 0.228 (32.4) | 0.347 (0.6) | 0.347 (0.6) | **0.775 (2.0)** |
+
+Paired vs mx_c3: atomic1 +0.063 (p=.004) at 25, **+0.233 (p=.002)** at
+100, **+0.428 (p=.002)** at 400. This is the first time in the
+program's history that any router has beaten a champion on mainnet
+with statistical significance.
+
+**Three failure modes, each legible in the attempt counts.**
+
+1. **lnd THRASHES.** Attempts climb 19.8 → 32.4 while success falls
+   0.79 → 0.35. Mission control's pair entries are permanent zeros on
+   this tier (no clock section, so decay never fires — WHY.md §0), so
+   a stale blacklist keeps steering it onto fresh-looking routes that
+   are no better, and it never gives up.
+2. **The champions ABANDON.** mx_c3 and hb1 collapse to 0.6
+   attempts/payment at 36% success — they quit almost immediately.
+   Their `upperFail` bound is a HARD zero, so a stale bound declares a
+   perfectly good channel dead, and enough dead channels make the
+   payment look hopeless before it is tried.
+3. **atomic1 SHRUGS.** 0.790 → 0.775, a 2% degradation against the
+   champions' 56% and lnd's 67%, at a nearly unchanged 2 attempts. Its
+   persisted bounds clamp to a 0.012 probability floor instead of
+   zero, so stale evidence makes a channel unattractive rather than
+   forbidden and one retry is enough to correct it.
+
+**Why this matters beyond the experiment.** A served weight cache is
+stale by construction — that is what serving it means. These
+measurements say the consumer's staleness policy dominates the value
+of the cache, and that the safe policy is a floor, never a hard zero.
+atomic1's scope-split (savage in-payment evidence, soft persisted
+bounds) was bred in the atomic arena for entirely different reasons
+and turns out to be the property that makes imported knowledge safe.
+That is the most directly upstream-shaped result the program has
+produced: it argues for a probability floor on learned evidence in
+mission control, which is a small change to an existing estimator
+rather than a new paradigm.
+
+**What this arm does NOT show.** It does not show that a *fresh* cache
+is worthless — no arm here has yet warmed a router with knowledge that
+stays valid. The natural next arm warms with small probe payments
+(a few percent of the scored amounts) and does not restore: small
+payments teach channel structure without materially draining, so the
+knowledge remains true when it is used. That is the honest model of a
+probe-warmed node and it is queued.
+
+## Part 2b — Hot load with valid knowledge (queued)
 
 An unscored `warmup` phase in the runner: N payments run before the
 scored batch, warming mission control and candidate state but not

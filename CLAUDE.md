@@ -25,10 +25,19 @@ writeups live in `simulation/lab/experiments/` (exp-001…exp-009).
 - Parameter tuning alone could NOT beat lnd's defaults (exp-002): the
   paradigm is the lever, not the knobs.
 - What the champions evolved (all pure Go, `simulation/champions/`):
-  dropped mission control and ALL time-decay; rediscovered the bimodal
-  liquidity prior from failure traces; invented per-directed-channel
-  liquidity intervals (lowerOK/upperFail bounds + evidence-count
-  confidence) — that's where the 8.6× attempt reduction comes from.
+  dropped mission control and ALL time-decay; invented
+  per-directed-channel liquidity intervals (lowerOK/upperFail bounds +
+  evidence-count confidence) — that's where the 8.6× attempt reduction
+  comes from. **Correction (WHY.md §0):** we long claimed they
+  "rediscovered the bimodal prior from failure traces." They did not —
+  the harness prompt has stated the bimodal hypothesis since the first
+  committed version. What was NOT supplied: the prior's functional
+  shape and constants, and the entire interval apparatus. Worse, the
+  evolved constants FIT OUR GENERATOR (`sim_liquidity.go` draws
+  `ExpFloat64()*0.05`; atomic1's low mode is `exp(−x/0.055)`), and the
+  mainnet tier overwrites real balances with that same generator — so
+  the mainnet number is real topology and policies, synthetic
+  liquidity. Fixing that is the top pre-upstream task.
 
 ## Map
 

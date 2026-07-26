@@ -78,10 +78,14 @@ drowned success-rate deltas; penalties now saturate at −0.25 total.
 - OOD corpus-v2 test: hb1 0.545 > seed 0.487 > lnd 0.357
 - ~9 attempts/payment vs lnd's ~50, higher success on both.
 
-What it discovered from failure traces alone: an explicit **bimodal
-liquidity prior** (rediscovering lnd's own bimodal-estimator hypothesis)
-+ per-edge liquidity bounds with confidence + risk-adjusted Dijkstra.
-Clean (no exploit). Full detail + caveats: exp-006. Champion saved to
+What it built: an explicit **bimodal liquidity prior** + per-edge
+liquidity bounds with confidence + risk-adjusted Dijkstra. Clean (no
+exploit). **Correction (2026-07-26, WHY.md §0):** this entry
+originally read "discovered from failure traces alone." That is
+wrong — the harness prompt has stated the bimodal hypothesis under
+"environment truths" since the first committed version. The prior's
+shape and constants and the whole interval apparatus were the run's
+own work; the hypothesis was handed to it. Full detail + caveats: exp-006. Champion saved to
 `champions/router_hb1_v1.go`. Sim audit (exp-005) fixed a critical
 sandbox escape before it was exploited.
 

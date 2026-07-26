@@ -42,8 +42,21 @@ and per-attempt failure traces:
      amount approaches capacity,
    - floored/capped to [0.005, 0.985].
    This is the same "funds sit at one end of the channel" hypothesis
-   lnd's bimodal estimator was analytically derived from — reinvented by
-   the LLM from failure feedback alone.
+   lnd's bimodal estimator was analytically derived from.
+
+   **Correction (2026-07-26, WHY.md §0):** this bullet originally
+   ended "reinvented by the LLM from failure feedback alone," and that
+   is false. The harness prompt states the bimodal hypothesis verbatim
+   under "environment truths worth exploiting," and has since the
+   first committed version of `run_gepa_code.py`. What the run
+   actually produced is the functional form (exponential low mode plus
+   logistic cliff), every constant in it, and the interval machinery
+   in the next bullet — real work, but not the discovery we claimed.
+   Sharper still: `0.025` here and `0.018` in mx_c3 sit close to the
+   `ExpFloat64()*0.05` that `sim_liquidity.go` generates with, so the
+   prior is fitted to our generator. Until a corpus carries liquidity
+   from some other source, treat the prior as calibration and the
+   intervals as the finding.
 
 2. **Per-edge liquidity bounds with confidence.** `edgeProbability`
    tracks `lowerOK` (largest amount known to pass), `upperFail` (smallest

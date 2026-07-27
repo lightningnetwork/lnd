@@ -81,12 +81,8 @@ test — which is why it was worth running rather than repeating.
    honest position is that decay is unproven here, not disproven —
    the complexity has never bought a measurable gain, and nothing
    rules out a form that would.
-4. **A hypothesis worth its own test: hb1 pulls away from mx_c3 as
-   churn rises** — +0.018, +0.015, +0.028, +0.037, monotone across
-   all four levels. None significant at n=8, and a monotone trend in
-   four noisy points is weak evidence. But the champion pair was
-   settled on static tiers, and if it reverses under churn that is a
-   champion question. Needs a bigger corpus, not more churn levels.
+4. **The hb1-gains-with-churn hypothesis is dead; something smaller
+   and more durable replaced it.** See the follow-up below.
 
 ## Methodology note
 
@@ -95,3 +91,39 @@ corpora. The first version of this experiment put the old drift corpus
 next to a regenerated one and produced a 0.25 level shift with no
 causal meaning. Only within-tier paired deltas survive that, which is
 why the ladder holds everything but `payments_per_gap` fixed.
+
+
+## Follow-up at n=40: the churn trend was noise, but hb1 does edge mx_c3
+
+The ladder showed hb1 gaining on mx_c3 monotonically with churn
+(+0.018, +0.015, +0.028, +0.037). Four noisy points at n=8 is exactly
+the shape a trend takes when there is no trend, so it got its own test:
+a FRESH 40-file drift corpus (seed 7717, scenarios neither router nor
+I had seen), at churn 0 and 240.
+
+| tier | hb1 | mx_c3 | atomic1 | lnd | hb1 vs mx_c3 |
+|---|---|---|---|---|---|
+| n=40, churn 0 | 0.533 | 0.524 | 0.530 | 0.329 | **+0.009** [−0.000,+0.018] p=.014 |
+| n=40, churn 240 | 0.553 | 0.540 | 0.519 | 0.386 | +0.013 [−0.005,+0.031] p=.143 |
+
+**No churn effect.** hb1's edge is +0.009 at zero churn and +0.013 at
+240/gap — statistically the same number, and the high-churn one is the
+*less* significant of the two. The monotone ladder was noise, as
+suspected. Whatever separates hb1 from mx_c3 here has nothing to do
+with liquidity movement.
+
+What survives is smaller and more interesting: **hb1 beats mx_c3 on
+this corpus family at n=40 with a sign test at p=0.014**, at zero
+churn, by +0.009. The bootstrap CI barely excludes zero and the effect
+is trivial in size, so this is not a champion swap — the rule needs a
+held-out paired sweep across the full tier set, and +0.009 on one
+corpus family is not that. It is consistent with the long-standing
+observation that hb1 leads on the hard tier while mx_c3 leads on OOD
+and mainnet: these two are closer than the "generalist champion"
+framing suggests, and which one wins is a property of the corpus.
+
+Two lessons carried forward. A monotone trend across four points at
+n=8 is worth exactly one follow-up and no writeup. And lnd's deficit
+shrinking under churn (−0.195 → −0.154 here, −0.216 → −0.148 on the
+ladder) reproduces at n=40 — the one directional claim from exp-014
+that has now survived two independent tests.

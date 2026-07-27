@@ -37,10 +37,12 @@ writeups live in `simulation/lab/experiments/` (exp-001…exp-016).
   routers the same third-party observations, free: atomic1 +0.055
   (p=.016), mx_c3 +0.031 with attempts 8.1→4.4, lnd −0.029 with
   attempts going UP. Successes help everyone; FAILURES are the whole of
-  lnd's loss (−0.039, CI excludes zero, worse on 9/10 files), because
-  an interval router files a failure as an amount bound and still
-  routes half that amount, while lnd files it as a pair penalty that
-  carries no amount. Serve observations, not weights.
+  lnd's loss (−0.039, CI excludes zero, worse on 9/10 files). The
+  damage scales with the VOLUME of imported bounds, not their
+  staleness: each blocks one edge at the amount the consumer is about
+  to send, and lnd's only response is to route around. The interval
+  routers turn the identical removals into instructions (upperFail X →
+  try (X−1)/k). Serve observations, not weights.
 - What the champions evolved (all pure Go, `simulation/champions/`):
   dropped mission control and ALL time-decay; invented
   per-directed-channel liquidity intervals (lowerOK/upperFail bounds +
@@ -166,14 +168,20 @@ next.
 - **exp-016** — served weights, the arm exp-012 could not build.
   Third-party observations injected with no payment sent: atomic1
   +0.055 (p=.016), mx_c3 +0.031 with attempts 8.1→4.4, lnd **−0.029
-  with attempts going UP**. Splitting the stream explains it —
-  successes help everyone, failures help the interval routers (+.010,
-  +.019) and are the whole of lnd's loss (−0.039, CI excludes zero,
-  worse on 9/10 files). A bound is amount-aware, a penalty is not.
-  Champions cannot consume imports at all (no contract asked them to),
-  hence `exp-016-{mxc3,atomic1}-importer.go`, each its ancestor plus
-  one method and cold-identical to it. NOT the pair-collapse I
-  predicted: 761 edges, 761 pairs, nothing collapses.
+  with attempts going UP**. Successes help everyone; failures are the
+  whole of lnd's loss (−0.039, CI excludes zero, 9/10 files).
+  **Mechanism took three wrong guesses** (all recorded in the writeup):
+  NOT amount-blind penalties (`probability_apriori.go:363` gates on
+  amount — this one was published before it was checked), NOT node
+  contagion (`apriori.weight=1.0` leaves −0.038), NOT staleness
+  (size-matched stale = −0.003 vs fresh +0.000). It is VOLUME: 2,808
+  bounds over a 761-edge graph block the consumer's amount nearly
+  everywhere, and nothing downstream of lnd's estimator can resize a
+  payment — `findPath` takes the amount as a fixed argument. Converges
+  with exp-002b on one patch. Champions cannot consume imports at all
+  (no contract asked them to), hence
+  `exp-016-{mxc3,atomic1}-importer.go`, each its ancestor plus one
+  method and cold-identical to it.
 - **exp-015** — churn ladder. drift1 vs mx_c3 on ONE fixed corpus at
   payments_per_gap 0/20/80/240 (the top being ~18x exp-008's effective
   churn): −0.016/−0.005/−0.007/−0.003, every CI straddling zero, no
@@ -225,8 +233,12 @@ next.
   stopped being free. Codex's winner `atomic1` is the first challenger
   with NO collapse tier (even with mx_c3 on hard/OOD/mainnet, 1.6
   att/pmt on mainnet — program record) but loses held-out atomic-test.
-  Proposer A/B FLIPPED vs exp-010: deliberate large-step reflection
-  wins in low-noise environments, misfires in churn-noisy ones.
+  Proposer A/B FLIPPED vs exp-010. **Read as a hypothesis, not a
+  finding:** "deliberate large-step reflection wins in low-noise
+  environments and misfires in churn-noisy ones" is a mechanism story
+  fitted to two opposite-sign runs, and per-proposer variance is high
+  enough that noise produces this pattern on its own. Untested; gates
+  nothing.
 - **exp-012** — cold cache / hot load. No hot-cache regime exists here:
   across depletion, staleness, foreign vantage and valid probes, at
   25/100/400 observations, warming never lifts any router above its

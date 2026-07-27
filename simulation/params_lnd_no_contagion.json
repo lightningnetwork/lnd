@@ -1,0 +1,17 @@
+{
+ "estimator": "apriori",
+ "apriori": {
+  "penalty_half_life_sec": 3600,
+  "hop_probability": 0.6,
+  "weight": 1.0,
+  "capacity_fraction": 0.9999
+ },
+ "bimodal": {
+  "scale_msat": 300000000,
+  "node_weight": 0.2,
+  "decay_time_sec": 604800
+ },
+ "attempt_cost_msat": 100000,
+ "attempt_cost_ppm": 1000,
+ "min_probability": 0.01
+}

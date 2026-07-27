@@ -70,10 +70,10 @@
     <div class="note" id="corrections">
       <h4>corrections to our own record</h4>
       <p>
-        Three claims this project made about itself do not survive its own docs
-        pass. They are listed here rather than quietly edited out, because the
-        scoreboards do not move and the mechanism story is narrower than we first
-        told it. The long version, mechanism by mechanism, is
+        Five claims this project made about itself do not survive scrutiny. They
+        are listed here rather than quietly edited out, because the scoreboards do
+        not move and the mechanism stories are narrower than we first told them.
+        The long version, mechanism by mechanism, is
         <span class="mono">simulation/lab/WHY.md</span> §0.
       </p>
       <p>
@@ -99,6 +99,30 @@
         12,161-node topology with the real policies, and then it
         <strong>overwrites the balances with that same generator</strong>. Real
         topology, real fees, our liquidity.
+      </p>
+      <p>
+        <strong>&sect;10's mechanism was wrong when first published here.</strong>
+        The served-weights section originally explained lnd's loss by saying its
+        failure penalty carries no amount and suppresses a corridor for every
+        payment size. It does not:
+        <span class="mono">probability_apriori.go:363</span> returns the
+        unpenalized prior whenever the amount is below the recorded failure
+        amount. An independent review caught it by reading the estimator instead
+        of the summary. Two further guesses &mdash; node-level contagion, then
+        staleness &mdash; were also wrong, each killed by a specific control. The
+        surviving explanation is volume, and it is in &sect;10 along with the three
+        discarded ones. The measured result never changed; only the story about it
+        did.
+      </p>
+      <p>
+        <strong>The paradigm ceiling is confounded with the optimizer.</strong>
+        Every run in this project used one engine,
+        <span class="mono">gepa</span>. Three lineages converging on one band is
+        evidence about that engine's attractor as much as about the problem, and
+        the GEPA team's own multi-engine results &mdash; no engine dominant, each
+        winning about a third of problems, engine-switching breaking plateaus
+        &mdash; make the alternative live. Underdetermined rather than wrong; the
+        run that would settle it is specified in the exp-011 writeup.
       </p>
       <p>
         <strong>lnd's decay never fires on the static tiers.</strong> Mission
@@ -2034,7 +2058,8 @@
           Give three routers the same observations from the same third-party node,
           costing them nothing, and two of them get better while lnd gets worse. The
           split is entirely in the failure evidence, and it says what a
-          weight-serving API can safely serve to whom.
+          weight-serving API can safely serve to whom. The explanation below is the
+          fourth attempt at the mechanism; the three failed ones are kept in place.
         </p>
       </div>
 
@@ -2084,7 +2109,7 @@
           only variable is whether the consumer was told anything.
         </p>
 
-        <h3>A bound is amount-aware. A penalty is not.</h3>
+        <h3>The mechanism, after three wrong guesses</h3>
         <p>
           Splitting the observation stream turns a scoreboard into an explanation.
           Successes help every consumer: lnd +0.003, mx_c3 +0.028, atomic1 +0.038.
@@ -2093,15 +2118,74 @@
           loss.
         </p>
         <p>
-          An interval router files a failure as an <strong>amount bound</strong>:
-          <em>at least X fails on this channel</em>. It will still route half that
-          amount tomorrow, so a served failure is pure information. lnd files the same
-          failure as a <strong>penalty on the node pair</strong>, and a penalty
-          carries no amount &mdash; it suppresses the corridor for every size of
-          payment. A stranger's failure at a stranger's amount therefore steers lnd
-          off corridors that were fine for what it actually wants to send. This is the
-          same missing piece <a class="link" href="#bimodal">&sect;09</a> found from
-          the estimator side, arriving from the opposite direction.
+          <em>Why</em> took three attempts, and the first of them was published on
+          this page before it was checked. It is recorded here rather than quietly
+          replaced.
+        </p>
+        <p>
+          <strong>Not an amount-blind penalty.</strong> The first version of this
+          section claimed lnd files a failure as a pair penalty that suppresses the
+          corridor for every payment size.
+          <span class="mono">probability_apriori.go:363</span> returns the
+          unpenalized prior whenever the amount is below the recorded failure
+          amount, so lnd's estimator gates on amount correctly. The claim was
+          false.
+        </p>
+        <p>
+          <strong>Not node-level contagion.</strong> lnd folds every pair result
+          into a node-level prior used for all of that node's untried channels
+          &mdash; a keying collapse onto nodes, which the &ldquo;761 edges, 761
+          pairs&rdquo; check never ruled out. Disabling that aggregation leaves the
+          loss almost untouched, &minus;0.046 to &minus;0.038.
+        </p>
+        <p>
+          <strong>Not staleness.</strong> Failures exported by a server that sends a
+          single payment, and so barely perturbs the network it reports on, cost lnd
+          nothing at all. That looks decisive until you count them: 232 against
+          2,808. A size-matched random subsample of the <em>stale</em> set costs
+          &minus;0.003. At equal volume, stale and fresh are the same.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:1.5em">
+        <table class="data">
+          <caption>exp-016 &middot; the volume control. Staleness and volume were confounded in the first comparison; matching the counts separates them.</caption>
+          <thead>
+            <tr><th>failure evidence imported</th><th class="num">count</th><th class="num">&Delta; vs cold</th><th class="num">worse on</th></tr>
+          </thead>
+          <tbody>
+            <tr class="bad"><td>stale, full</td><td class="num">2,808</td><td class="num">&minus;0.046</td><td class="num">4/10</td></tr>
+            <tr><td>stale, size-matched</td><td class="num">232</td><td class="num">&minus;0.003</td><td class="num">1/10</td></tr>
+            <tr><td>fresh, 1-payment server</td><td class="num">232</td><td class="num">+0.000</td><td class="num">0/10</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <p>
+          <strong>What survives is volume.</strong> Each imported failure blocks one
+          directed edge at or above its amount, and server and consumer draw their
+          amounts from the same distribution, so the bounds land exactly where the
+          consumer is about to send. At 232 observations few corridors close and
+          nothing happens. At 2,808 across a 761-edge graph, lnd's pathfinder finds
+          the amount it wants blocked almost everywhere, and its only available
+          response is to route around &mdash; onto longer, worse paths. Attempts
+          rise, success falls.
+        </p>
+        <p>
+          The interval routers receive the identical removals and turn them into
+          instructions. An imported upper-fail bound of X tells mx_c3's shard ladder
+          to try (X&minus;1)/k: the bound does not merely delete an option, it names
+          a smaller one that should work.
+        </p>
+        <p>
+          So the thesis survives in a sharper form than first written. lnd's
+          estimator does not ignore amounts. <strong>Nothing downstream of it can
+          act on an amount bound</strong> &mdash; path finding takes the amount as a
+          fixed argument, so knowing that at least X fails on an edge can only
+          subtract routes and never resize the payment. That is the same missing
+          piece <a class="link" href="#bimodal">&sect;09</a> found from the estimator
+          side, and the two now converge on one patch rather than two observations.
         </p>
       </div>
 
@@ -2165,12 +2249,14 @@
           thing that changed is the capability.
         </p>
         <p>
-          <strong>A prediction that failed.</strong> We expected mission control's
-          collapse of channels onto node pairs to be the culprit, since it discards
-          the channel identifier an interval router keys on. It is not: these
-          topologies have 761 directed edges and 761 distinct node pairs, no parallel
-          channels, so nothing collapses. The damage lies in how a failure is
-          represented, not in how it is keyed. The intuitive story was the wrong one.
+          <strong>Three predictions failed here, and the record keeps them.</strong>
+          The first reached this page before it was checked; an independent review
+          caught it by reading the estimator rather than the summary. The pattern is
+          worth more than any one of the errors: in each case a real measurement
+          stood while the mechanism story attached to it did not. Measurements in
+          this project are more trustworthy than the explanations bolted onto them,
+          and an explanation should be checked against the code it describes before
+          it is published.
         </p>
         <div class="callout">
           <p>
@@ -2572,10 +2658,11 @@
               +0.031 with attempts nearly halved, while lnd loses 0.029 and its
               attempts rise. Splitting the stream locates the cause: successes help
               everyone, and failures are the entirety of lnd's loss at −0.039, worse on
-              9 of 10 files. An interval router files a failure as an amount bound and
-              still routes half that amount tomorrow; lnd files it as a penalty on the
-              pair, which carries no amount and suppresses the corridor for every
-              payment size (<a class="link" href="#served">§10</a>).
+              9 of 10 files. An interval router turns an imported bound into a smaller
+              shard to try; lnd can only delete the route, because nothing downstream
+              of its estimator can resize a payment. The mechanism took three wrong
+              guesses to find, and the first was published before it was checked
+              (<a class="link" href="#served">§10</a>).
             </div>
           </div>
           <div class="tl-tag">verdict · serve observations</div>

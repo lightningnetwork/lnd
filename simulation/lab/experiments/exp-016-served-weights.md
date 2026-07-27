@@ -75,22 +75,79 @@ bootstrap CI that excludes zero, and lnd is worse on 9 of 10 files.**
 Imported failure evidence alone is more damaging to lnd than the full
 stream, because the successes were partly offsetting it.
 
-This is the program's central thesis measured from a new direction. An
-interval router stores a failure as an *amount bound*: "≥ X fails on
-this channel." It will still happily route X/2 there tomorrow, so a
-served failure is pure information. lnd stores a failure as a *penalty
-on the pair*, and a penalty is not amount-aware — it suppresses the
-corridor for everything, so a served failure at some other node's
-amount steers lnd off corridors that were fine for the amounts it
-actually wants to send. Free, accurate, correctly-scoped information
-makes lnd worse because of how it files it.
+### The mechanism, after three wrong guesses
 
-One hypothesis I had and disproved: I expected mission control's
-collapse of channels onto node *pairs* to be the culprit, since it
-discards the channel id an interval router keys on. It is not — these
-topologies have 761 directed edges and 761 distinct node pairs, no
-parallel channels at all, so nothing collapses. The damage is in the
-representation of a failure, not in the keying.
+**The first published version of this section was wrong, and so were
+the next two guesses.** The corrected account is below; the discarded
+ones are kept because each was falsified by a specific measurement, and
+because the first of them reached a dashboard before it was checked.
+
+*Wrong guess 1 (published, retracted): "a penalty is not amount-aware."*
+I wrote that lnd files a failure as a penalty on the pair that
+suppresses the corridor for every amount. `probability_apriori.go:363`
+says otherwise:
+
+```go
+if lastPairResult.FailTime.IsZero() || amt < lastPairResult.FailAmt {
+        return nodeProbability
+}
+```
+
+A failure at X does **not** penalize amounts below X. lnd's estimator
+gates on amount correctly, and our import path preserves `FailAmt`
+faithfully. The claim was false.
+
+*Wrong guess 2: node-level contagion.* `getNodeProbability` folds every
+pair result into a node-level prior used for all of that node's untried
+channels — lnd's own comment says "one failure will lead to the success
+probability estimates for all other channels being 0 too." That is a
+keying collapse onto NODES, which my "761 edges, 761 pairs" check never
+ruled out. Testable: `apriori.weight = 1.0` short-circuits
+`getNodeProbability` to the bare prior, disabling the aggregation while
+leaving the per-pair penalty intact. The loss survives it, −0.046 →
+−0.038. Not contagion.
+
+*Wrong guess 3: staleness.* The server's own run moves the liquidity it
+is reporting on, so its observations describe a network that has since
+drifted. Testable: rebuild the server export from a **one-payment**
+server, which barely perturbs anything. Fresh failures give lnd +0.000,
+worse on 0 of 10 files — apparently decisive, until you notice the
+fresh set has 232 failures against the stale set's 2,808. Size-matching
+a random subsample of the *stale* set to 232 gives −0.003, worse on 1
+of 10. Stale and fresh are the same at equal volume. Not staleness.
+
+| failure evidence imported | count | Δ vs cold | worse on |
+|---|---|---|---|
+| stale, full | 2,808 | **−0.046** | 4/10 |
+| stale, size-matched | 232 | −0.003 | 1/10 |
+| fresh, 1-payment server | 232 | +0.000 | 0/10 |
+
+**The surviving explanation: the damage scales with the VOLUME of
+failure bounds near the amounts the consumer wants to send, and lnd
+cannot respond to a bound by sending less.** Each imported failure
+marks one directed edge as near-zero probability at or above its
+amount. The server's payments are drawn from the same distribution as
+the consumer's, so those bounds land squarely on the amounts the
+consumer is about to attempt. At 232 observations few corridors are
+removed and nothing happens. At 2,808 — most of a 761-edge graph —
+lnd's pathfinder sees the amount it wants blocked almost everywhere,
+and its only available response is to route around, onto longer and
+worse paths. Attempts rise, success falls.
+
+The interval routers receive exactly the same removals and turn them
+into instructions. An imported `upperFail` of X tells mx_c3's shard
+ladder to try `(X−1)/k`; the bound does not merely delete an option, it
+names a smaller one that should work. That is why identical information
+is worth +0.031 to mx_c3 and −0.029 to lnd.
+
+So the thesis survives, and in a sharper form than I first wrote it.
+The problem is not that lnd's estimator ignores amounts — it does not.
+The problem is that **nothing downstream of the estimator can act on an
+amount bound**: `findPath` takes the amount as a fixed argument, so
+knowledge that "≥X fails here" can only ever subtract routes and never
+resize the payment. This is exactly exp-002b's finding, reached from
+the opposite direction, and the two now converge on one patch rather
+than two observations.
 
 ## Consequences for the weight-serving proposal
 

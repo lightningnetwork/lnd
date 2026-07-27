@@ -76,3 +76,27 @@ plus two mechanisms the champions don't have:
 - Full sweep numbers: `gen2-validation.json` in the session scratch
   dir (regenerable via `sweep_gen2.py` there; corpora and mainnet
   scenario files regenerate from fixed seeds).
+
+
+## Caveat added 2026-07-27: the ceiling is confounded with the engine
+
+Every lineage in this comparison — and every run in the program to date
+— used ONE optimizer: `optimize_anything` with `engine="gepa"` and
+`--no-adaptive`. Three lineages converging on one band is therefore
+evidence about that engine's attractor exactly as much as it is
+evidence about the problem, and nothing here distinguishes the two.
+
+The GEPA team's own "omni" results make the alternative live rather
+than hypothetical: across their benchmark no engine dominated, each of
+gepa / autoresearch / meta_harness won roughly a third of problems
+unpredictably, each plateaued at a different point, and switching
+engines is what broke through. Standalone gepa was the *weakest* of
+the three there and gained the most from composition.
+
+So the "paradigm ceiling" reading is **underdetermined, not wrong** —
+we never had the data to separate a problem ceiling from an engine
+ceiling. The adjudicating experiment is cheap and specified: re-run
+this corpus and seed under `meta_harness` or `autoresearch`. If the
+band breaks, the ceiling was the engine and this writeup needs a
+retraction with data behind it. If the band holds, the claim returns
+stronger than it has ever been.

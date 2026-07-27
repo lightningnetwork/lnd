@@ -278,6 +278,10 @@ the exp-010 proposer A/B: deliberate large-step proposers pay in
 low-noise environments and misfire in churn-noisy ones. Law, final
 form for this arc: environments elicit mechanisms, budgets decide
 champions, and proposer strength interacts with environment VARIANCE.
+(Downgraded 2026-07-27: that last clause is a mechanism story fitted
+to two opposite-sign runs. Per-proposer variance is high enough to
+produce the pattern by itself, so treat it as a hypothesis, not a law.
+Testing it properly needs n>=4 per cell and gates nothing upstream.)
 Next levers: degraded attribution (measurement channel) and exp-012
 cold/hot cache, where stateless-Opus vs memory-carrying-codex finally
 gets priced. Detail: exp-010b writeup.
@@ -605,19 +609,43 @@ correctly-scoped information makes lnd worse.
 Splitting the stream says why. Successes help everyone (+0.003,
 +0.028, +0.038). Failures split the field: they help the interval
 routers (+0.010, +0.019) and they are the whole of lnd's loss at
--0.039, CI excluding zero, worse on 9 of 10 files. An interval router
-stores a failure as an AMOUNT BOUND and will still route half that
-amount tomorrow, so a served failure is pure information. lnd stores it
-as a penalty on the pair, and a penalty is not amount-aware — it
-suppresses the corridor for every amount, so a stranger's failure at a
-stranger's amount steers lnd off corridors that were fine for what it
-wants to send.
+-0.039, CI excluding zero, worse on 9 of 10 files.
 
-A hypothesis I had and disproved on the way: I expected mission
-control's collapse of channels onto node PAIRS to be the culprit. It is
-not — 761 directed edges, 761 distinct pairs, no parallel channels, so
-nothing collapses. The damage is in how a failure is represented, not
-in the keying.
+**The mechanism took three wrong guesses to find, and the first of them
+was published before it was checked.** Recorded in full in the writeup,
+because the errors are more instructive than the answer:
+
+1. I wrote that lnd files a failure as a pair penalty carrying no
+   amount. `probability_apriori.go:363` returns the unpenalized prior
+   whenever `amt < FailAmt`, so lnd's estimator gates on amount
+   correctly. False, and it reached the dashboard.
+2. A Fable advisor proposed node-level contagion instead —
+   `getNodeProbability` folds pair results into a node prior used for
+   all that node's channels, which my "761 edges, 761 pairs" check
+   never ruled out. Disabling it with `apriori.weight = 1.0` leaves the
+   loss at -0.038. Not contagion.
+3. Staleness looked decisive: failures from a one-payment server give
+   +0.000, worse on 0 of 10. But that set holds 232 observations
+   against the stale set's 2,808, and a size-matched random subsample
+   of the STALE set gives -0.003. Equal volume, equal result. Not
+   staleness.
+
+What survives is volume. Each imported failure blocks one directed edge
+at the amount the consumer is about to send, because server and
+consumer draw amounts from the same distribution. At 232 observations
+nothing happens; at 2,808 across a 761-edge graph lnd finds its amount
+blocked almost everywhere and can only route around, onto longer and
+worse paths. The interval routers receive the identical removals and
+turn them into instructions — an imported upperFail of X tells mx_c3's
+ladder to try (X-1)/k.
+
+So the thesis is sharper than the sentence I first wrote. lnd's
+estimator does not ignore amounts; nothing DOWNSTREAM of it can act on
+an amount bound, because findPath takes the amount as a fixed argument.
+Knowledge that "at least X fails here" can only subtract routes, never
+resize the payment. That is exp-002b's finding reached from the
+opposite direction, and the two now converge on one patch instead of
+two observations.
 
 Two design rules for the API fall out, both now measured rather than
 argued. Serve observations, not weights: neither side's internal state
@@ -629,3 +657,40 @@ the retry loop actually reads.
 
 Incidental: server coverage ranged from 0 to 2,111 observations across
 the ten server nodes. Who serves matters as much as what is served.
+
+
+## 2026-07-27 — corrections: a published mechanism, a ceiling, and a law
+
+Three claims in this notebook were overstated. All three are now
+labelled where they appear; collected here so the pattern is visible.
+
+**exp-016's mechanism was wrong, and it reached the dashboard.** I
+wrote that lnd files a failure as a pair penalty carrying no amount.
+`probability_apriori.go:363` returns the unpenalized prior whenever
+`amt < FailAmt`, so lnd's estimator gates on amount correctly. A Fable
+advisor caught it by reading the code rather than the packet. Its own
+replacement hypothesis — node-level contagion — was also wrong
+(`apriori.weight=1.0` disables the aggregation and leaves the loss at
+-0.038), and so was the third guess, staleness (size-matched stale
+observations cost -0.003 against fresh +0.000; the apparent staleness
+effect was a volume difference, 232 against 2,808). What survives is
+volume: each imported bound blocks an edge at the amount the consumer
+is about to send, and nothing downstream of lnd's estimator can resize
+a payment. The upstream thesis is unchanged and better supported.
+
+**exp-011's "paradigm ceiling" is confounded with the engine.** Every
+run in this program used `engine="gepa"`. Three lineages converging on
+one band says as much about that engine's attractor as about the
+problem, and the GEPA team's omni results — no engine dominant, each
+winning about a third of problems, engine-switching breaking plateaus —
+make the alternative live. Underdetermined rather than wrong; the
+adjudicating run is specified in the exp-011 writeup.
+
+**The proposer law was fitted to n=2.** Downgraded to a hypothesis in
+place.
+
+The common thread: each was a mechanism story built on top of a real
+measurement, and in each case the measurement stood while the story did
+not. The measurements in this notebook are more trustworthy than the
+explanations attached to them, and explanations should be checked
+against the code they describe before they are published.

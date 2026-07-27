@@ -998,23 +998,63 @@ alone, an interval excluding zero, worse on 9 of 10 files, and more
 damaging on their own than the full stream, because the successes were
 partly offsetting them.
 
-The mechanism is this document's central thesis arriving from a new
-direction. An interval router files a failure as an **amount bound** —
-*at least X fails on this channel* — and will still route half that
-amount tomorrow, so a served failure is pure information. lnd files the
-same failure as a **penalty on the node pair**, and a penalty carries no
-amount: it suppresses the corridor for every payment size. A stranger's
-failure at a stranger's amount therefore steers lnd off corridors that
-were fine for what it actually wants to send. §9 turns this into the
-rule for a serving API.
+**The mechanism cost three wrong guesses, and the first of them was
+published.** Recording all three, because each was killed by a specific
+measurement and because the sequence is the useful part.
 
-One prediction of mine failed on the way, which is worth recording
-because it is the intuitive one. I expected mission control's collapse
-of channels onto node *pairs* to be the culprit, since that discards the
-channel identifier an interval router keys on. It is not: these
-topologies have 761 directed edges and 761 distinct node pairs, no
-parallel channels at all, so nothing collapses. The damage is in how a
-failure is represented, not in how it is keyed.
+*It is not that lnd's penalty ignores amounts.* That is what I wrote
+first and put on the dashboard. `probability_apriori.go:363` refutes it:
+
+```go
+if lastPairResult.FailTime.IsZero() || amt < lastPairResult.FailAmt {
+        return nodeProbability
+}
+```
+
+A failure at X leaves amounts below X unpenalized. lnd's estimator gates
+on amount correctly, and the import path preserves `FailAmt` faithfully.
+
+*It is not node-level contagion either.* `getNodeProbability` folds
+every pair result into a node prior used for all of that node's untried
+channels — a keying collapse onto nodes, which my "761 edges, 761 pairs"
+check never ruled out. Setting `apriori.weight = 1.0` short-circuits
+that aggregation while leaving the per-pair penalty intact, and the loss
+survives it: −0.046 → −0.038.
+
+*It is not staleness.* Failures exported by a one-payment server, which
+barely perturbs the network it reports on, cost lnd +0.000 and hurt on 0
+of 10 files. That looks decisive until you count them: 232 against the
+stale set's 2,808. A size-matched random subsample of the *stale* set
+gives −0.003. At equal volume, stale and fresh are the same.
+
+| failure evidence | count | Δ vs cold | worse on |
+|---|---|---|---|
+| stale, full | 2,808 | **−0.046** | 4/10 |
+| stale, size-matched | 232 | −0.003 | 1/10 |
+| fresh, 1-payment server | 232 | +0.000 | 0/10 |
+
+**What survives is volume.** Each imported failure blocks one directed
+edge at or above its amount, and server and consumer draw amounts from
+the same distribution, so the bounds land exactly where the consumer is
+about to send. At 232 observations few corridors close and nothing
+happens; at 2,808 over a 761-edge graph lnd's pathfinder finds its
+amount blocked almost everywhere, and its only available response is to
+route around, onto longer and worse paths. Attempts rise, success falls.
+
+The interval routers receive the identical removals and turn them into
+instructions. An imported `upperFail` of X tells mx_c3's shard ladder to
+try `(X−1)/k`: the bound does not merely delete an option, it names a
+smaller one that should work.
+
+So this document's central thesis survives in a sharper form than the
+sentence I first wrote. The problem is not that lnd's estimator ignores
+amounts — §1 already showed it does not. The problem is that **nothing
+downstream of the estimator can act on an amount bound**, because
+`findPath` takes the amount as a fixed argument (§1, §5). Knowledge that
+"at least X fails here" can only subtract routes; it can never resize
+the payment. That is exp-002b's finding reached from the opposite
+direction, and the two converge on one patch rather than two
+observations. §9 turns it into the rule for a serving API.
 
 What survives from exp-012 unchanged: **probe-warming helps nobody.**
 That was, and remains, a statement about buying knowledge with payments.
@@ -1198,14 +1238,15 @@ directly forces every consumer into that side's probability model.
 
 Then note what exp-016 measured about the consumer. Handed the same
 free, accurate observations, both interval routers improve and **lnd
-gets worse**, and the whole of its loss is the failure evidence. lnd
-stores a failure as a penalty on the pair, which carries no amount and
-suppresses that corridor for every payment size; a stranger's failure at
-a stranger's amount therefore steers it off corridors that were fine for
-what it wants to send. So an API that serves failures to lnd as it
-stands makes lnd worse. Either serve such consumers successes only, or —
-better, and the same fix as the first item on this list — teach mission
-control to keep `FailAmt` as a bound the retry loop reads. Never serve
+gets worse**, and the whole of its loss is the failure evidence. The
+damage scales with the volume of imported bounds: each one blocks an
+edge at the amount the consumer is about to send, and lnd's only
+available response is to route around, because nothing downstream of
+its estimator can resize a payment. So an API that serves failure
+observations in bulk to lnd as it stands makes lnd worse. Either serve
+such consumers successes only, or — better, and the same fix as the
+first item on this list — let the retry loop read the `FailAmt` that
+mission control already stores. Never serve
 observations about the consumer's own channels: 43% of what a node
 observes is about them, and they are the ones whose staleness does the
 most damage (§2, §6).

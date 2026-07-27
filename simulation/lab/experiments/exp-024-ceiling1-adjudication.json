@@ -1,0 +1,72 @@
+{
+ "plan": {
+  "name": "ceiling1",
+  "design": "independent run per engine from one seed and budget (adjudication, not best-of ensembling)",
+  "engines": [
+   "meta_harness"
+  ],
+  "corpus": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/corpus-mix",
+  "corpus_sizes": {
+   "train": 48,
+   "val": 20,
+   "test": 20
+  },
+  "seed_file": "/Users/roasbeef/gocode/src/github.com/lightningnetwork/lnd-gepa/cmd/routesim/candidate_impl.go",
+  "seed_bytes": 10305,
+  "evals_per_engine": 1500,
+  "max_cost_per_engine_usd": 60.0,
+  "continue_evals": 0,
+  "continue_engine": null,
+  "sandbox": true,
+  "claude_env": {
+   "CLAUDE_CONFIG_DIR": "/Users/roasbeef/codez/claude-harness-home",
+   "CLAUDE_CODE_OAUTH_TOKEN": "[set from ~/codez/.claude-harness-token]"
+  },
+  "budgets": {
+   "meta_harness": {
+    "eval_budget": "max_evals (eval server, central)",
+    "cost_budget": "max_token_cost -> claude --max-budget-usd per session",
+    "proposer": "claude CLI agent, iterative frontier reader",
+    "max_evals": 1500,
+    "max_token_cost_usd": 60.0,
+    "eval_accounting": "budget counts every eval call",
+    "proposal_cap": "3 candidates/iteration"
+   }
+  },
+  "preflight_warnings": []
+ },
+ "engines": [
+  {
+   "engine": "meta_harness",
+   "run_name": "ceiling1_meta_harness",
+   "status": "ok",
+   "best_val_score": 0.46768417239225746,
+   "test_score": 0.5136209965696075,
+   "baseline_test_score": 0.5082164929564664,
+   "evals_used": 1496,
+   "budget_status": {
+    "exhausted": false,
+    "max_evals": 1500,
+    "used": 1496,
+    "remaining_evals": 4
+   },
+   "wall_time": 9415.110112905502,
+   "proposer_cost_usd": 15.684081,
+   "total_cost_usd": 15.684081,
+   "output_dir": "outputs/ceiling1_meta_harness",
+   "budget": {
+    "eval_budget": "max_evals (eval server, central)",
+    "cost_budget": "max_token_cost -> claude --max-budget-usd per session",
+    "proposer": "claude CLI agent, iterative frontier reader",
+    "max_evals": 1500,
+    "max_token_cost_usd": 60.0,
+    "eval_accounting": "budget counts every eval call",
+    "proposal_cap": "3 candidates/iteration"
+   },
+   "best_candidate_file": "outputs/ceiling1_meta_harness_best.go"
+  }
+ ],
+ "continuation": null,
+ "table": "engine         status       val     test  seed test   evals      wall   prop $\n------------------------------------------------------------------------------\nmeta_harness   ok        0.4677   0.5136     0.5082    1496    156.9m    15.68",
+ "caveat": "eval budgets are equal in COUNT; read plan.budgets for the unit each engine counts and for the proposal caps, which are not the same across engines."
+}

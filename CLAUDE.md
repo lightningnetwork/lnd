@@ -191,6 +191,16 @@ next.
   (2026-07-28); no run holds `routing/` or `cmd/routesim/`.
 
 ### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
+- **exp-024** — the ceiling arm. meta_harness at 10x evals (1,496,
+  $15.68, 157m) iterates and improves for the first time (8 iters,
+  five new-bests) but CONVERGES by iteration 3 at 0.4677 val / 0.5136
+  test — below gepa's result at one tenth the budget (0.5102/0.5565),
+  with the last 950 evals buying +0.0002. Both halves of the exp-018
+  question are now closed: the band is not a gepa artifact and not
+  budget starvation. gepa's eval-efficiency moat compounds with scale
+  (68 evals per full-set benchmark bought 22 candidate evaluations
+  from 1,500). log_bimodal_cost = challenger failure #7. Remaining
+  escape hatches are environment changes (exp-023), not optimizers.
 - **exp-021** — the distillation patch (flag-gated, in-tree at
   9c07cbe7f, byte-identical off). soft_unknown (single-pair penalty
   replacing the unreadable-failure route nuke) recovers 86-148% of
@@ -364,9 +374,6 @@ next.
    feeding initial amount choice + joint route-set construction —
    priced as an architectural change after exp-021 measured the
    reactive half null.
-4. The ceiling arm: meta_harness at ~10x eval budget (or minibatch
-   benchmarking) — the one run that would separate "problem ceiling"
-   from "every practical optimizer stalls here" (exp-018).
-5. Upstream the gepa meta_harness JSON fix (merged durable into
+4. Upstream the gepa meta_harness JSON fix (merged durable into
    `~/codez/gepa` main at 7c20d98c; the upstream PR to gepa-ai/gepa
-   remains).
+   remains). The ceiling arm is DONE (exp-024).

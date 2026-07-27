@@ -35,7 +35,7 @@
     </div>
     <h1>What the evolved routers kept, dropped, and <em>invented</em></h1>
     <p class="standfirst">
-      Twenty experiments in, the shape of the result is clear. On a real mainnet
+      Twenty-one experiments in, the shape of the result is clear. On a real mainnet
       graph snapshot, LLM-evolved routers match lnd's success rate using
       <strong>8.6× fewer HTLC attempts</strong> on a perfect failure channel — a
       ratio <a class="link" href="#attribution">§12</a> has since retired, because
@@ -46,7 +46,7 @@
     <div class="byline">
       <span>sources <b>simulation/lab/experiments</b></span>
       <span>champions <b>hb1 · mx_c3</b>, title defended (exp-020)</span>
-      <span>status <b>validated · de-circularised · attribution-tested (exp-019) · engine-adjudicated (exp-018)</b></span>
+      <span>status <b>validated · de-circularised · attribution-tested (exp-019) · engine-adjudicated (exp-018) · distilled (exp-021)</b></span>
     </div>
 
     <ol class="toc">
@@ -64,8 +64,9 @@
       <li><a href="#families"><span class="n">11</span><span class="t">Thirteen worlds the constants were never fit to</span></a></li>
       <li><a href="#attribution"><span class="n">12</span><span class="t">The 8.6× dies, the margin survives</span></a></li>
       <li><a href="#omni"><span class="n">13</span><span class="t">Three engines, one starting line</span></a></li>
-      <li><a href="#process"><span class="n">14</span><span class="t">What the process taught us</span></a></li>
-      <li><a href="#timeline"><span class="n">15</span><span class="t">Timeline of experiments</span></a></li>
+      <li><a href="#distillation"><span class="n">14</span><span class="t">The distillation patch: one fix lands, one theory dies</span></a></li>
+      <li><a href="#process"><span class="n">15</span><span class="t">What the process taught us</span></a></li>
+      <li><a href="#timeline"><span class="n">16</span><span class="t">Timeline of experiments</span></a></li>
       <li><a href="drift.html"><span class="n">→</span><span class="t">Drift: the environment strikes back <i>(exp-008, verdict in)</i></span></a></li>
     </ol>
   </div>
@@ -407,7 +408,7 @@
         <p>
           <strong>Exploit-clean.</strong> The simulator seals hidden liquidity behind
           a view interface, and an adversarial audit of that seal
-          (<a class="link" href="#process">§14</a>) found and
+          (<a class="link" href="#process">§15</a>) found and
           closed a real escape. Both champions were validated after the seal, with
           zero uses of any exploit path.
         </p>
@@ -981,7 +982,7 @@
         <p>
           <strong>Opus 5 at default effort, persistent parallel flow plans.</strong>
           The deepest machinery the project has produced, at 1,931 lines — well past
-          the complexity wall of <a class="link" href="#process">§14</a>. A flow plan
+          the complexity wall of <a class="link" href="#process">§15</a>. A flow plan
           survives failure, dropping only the corridors that evidence actually
           contradicts; dispatch is concurrency-first, filling the shard budget with
           the largest believable amounts before it ever ladder-searches; and planning
@@ -1766,6 +1767,13 @@
             produced. Champions of record are unchanged: this is a robustness axis, not
             the standing objective.
           </p>
+          <p>
+            <em>Superseded as the leading candidate: the patch that is actually
+            PR-ready is exp-021's <span class="mono">soft_unknown</span>, which is
+            written, measured on real corpora and inert when off
+            (<a class="link" href="#distillation">&sect;14</a>). The probability floor
+            described here remains untested as a diff.</em>
+          </p>
         </div>
 
         <h3>Part 3 — a null that indicts our own simulator</h3>
@@ -2075,6 +2083,13 @@
             <span class="mono">FailAmt</span> to size the next attempt — and mission
             control already records it.
           </p>
+          <p>
+            <em>That prescription has since been tested and it is wrong, or at least
+            inert. exp-021 built three amount policies that read the bound, and each
+            reduced to the geometric descent lnd's blind halving already performs at
+            a faster ratio and no HTLC cost. The missing piece is not in the retry
+            loop at all (<a class="link" href="#distillation">&sect;14</a>).</em>
+          </p>
         </div>
       </div>
     </div>
@@ -2218,6 +2233,10 @@
           subtract routes and never resize the payment. That is the same missing
           piece <a class="link" href="#bimodal">&sect;09</a> found from the estimator
           side, and the two now converge on one patch rather than two observations.
+          <em>The patch was built in exp-021, and this is the half that failed: three
+          ways of letting a bound resize the next attempt all reduce to the geometric
+          descent lnd already runs, for no measurable gain
+          (<a class="link" href="#distillation">&sect;14</a>).</em>
         </p>
       </div>
 
@@ -2946,6 +2965,14 @@
             badly in both directions: the bounds are too weak when a failure
             <em>is</em> attributed, and the penalty is too strong when it is not.
           </p>
+          <p>
+            <em>That patch has since been written and measured
+            (<a class="link" href="#distillation">&sect;14</a>). The half addressed
+            here &mdash; a single minimum-probability pair instead of the whole route
+            &mdash; recovers 86 to 148% of the collapse above and is upstreamable now.
+            The other half, teaching the retry loop to resize the payment, is a
+            measured null.</em>
+          </p>
         </div>
 
         <h3>3 &middot; Being lied to helps lnd, and we do not know why</h3>
@@ -3342,11 +3369,360 @@
     </div>
   </section>
 
-  <!-- ================= 14 · PROCESS ================= -->
-  <section id="process">
+  <!-- ================= 14 · DISTILLATION PATCH ================= -->
+  <section id="distillation">
     <div class="shell">
       <div class="sec-head">
         <div class="sec-no">14</div>
+        <h2>The distillation patch: one fix lands, one theory dies</h2>
+        <p class="sec-sub">
+          Twenty experiments established what the evolved routers do and that it
+          works. exp-021 asks the question that matters upstream: how much of it fits
+          into a small, reviewable diff to lnd's own stack? Two mechanisms were
+          built, each behind its own flag. One is ready to send. The other took a
+          theory down with it.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key hi">
+          <span class="kn">86&ndash;148%<span class="u">of the collapse recovered</span></span>
+          <div class="kl">
+            what replacing lnd's unreadable-failure route nuke with a single-pair
+            penalty gives back on <a class="link" href="#attribution">&sect;12</a>'s
+            hard and drift ladders, with success up and give-ups down on every
+            non-tied file
+          </div>
+          <div class="kf">the program's first constructive upstream deliverable</div>
+        </div>
+        <div class="key">
+          <span class="kn">+18&ndash;29<span class="u">attempts / payment</span></span>
+          <div class="kl">
+            what that recovery costs on the hard tier &mdash; and the objective's
+            fifteen-attempt cap cannot see a penny of it
+          </div>
+          <div class="kf">quote success and give-ups, never the objective alone</div>
+        </div>
+        <div class="key">
+          <span class="kn">3 &rarr; 0<span class="u">designs, effects</span></span>
+          <div class="kl">
+            the adaptive-splitting arm: three amount policies, each reduced by its own
+            trace to geometric descent from the failure bound &mdash; the descent
+            lnd's blind halving already runs at the fastest ratio of any of them, free
+          </div>
+          <div class="kf">lnd's reactive descent is already optimal for its class</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>Both halves are real lnd code</h3>
+        <p>
+          Neither mechanism lives in adapter glue. They are flag-gated changes to
+          <span class="mono">payment_session.go</span>,
+          <span class="mono">result_interpretation.go</span> and
+          <span class="mono">missioncontrol.go</span>, and the simulator's
+          <span class="mono">--router=lnd</span> arm traverses the genuine
+          <span class="mono">paymentSession.RequestRoute</span> and mission-control
+          interpretation paths on its way through them. With both flags off the
+          binary is proven byte-identical to stock, and the stock arm reproduces the
+          cached <a class="link" href="#attribution">&sect;12</a> numbers bit-for-bit
+          before anything is counted.
+        </p>
+
+        <h3>Part B &middot; soft_unknown, the fix that lands</h3>
+        <p>
+          <a class="link" href="#attribution">&sect;12</a> found that lnd's response
+          to an unreadable failure &mdash;
+          <span class="mono">processPaymentOutcomeUnknown</span> penalizing every pair
+          of the route in both directions &mdash; turns a 10% unreadable-error rate
+          into a give-up spiral. The patch replaces the nuke with a minimal-progress
+          penalty: fail exactly <em>one</em> pair, the lowest-probability hop under
+          the current estimator, at the attempt amount. Something is always learned,
+          so the loop always makes progress, and the route set is never exhausted at
+          a stroke.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:2em">
+        <table class="data">
+          <caption>exp-021 &middot; the patched arm against stock on the real exp-019 ladder. Recovery is the share of stock's own collapse from its clean control that the patch gives back &mdash; measured on the objective, except on mainnet, where lnd's objective <em>rises</em> under degradation (it stops paying for hard payments) so the share is measured on success instead. Success and give-ups are levels, stock &rarr; patched.</caption>
+          <thead>
+            <tr>
+              <th>level</th>
+              <th class="num">success stock &rarr; soft</th>
+              <th class="num">give-ups stock &rarr; soft</th>
+              <th class="num">objective recovered</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>unknown .1<span class="sub">sealed hard tier</span></td>
+              <td class="num" data-l="success stock &rarr; soft">0.293 &rarr; <b>0.465</b></td>
+              <td class="num" data-l="give-ups stock &rarr; soft">0.707 &rarr; <b>0.418</b></td>
+              <td class="num" data-l="objective recovered">86%</td>
+            </tr>
+            <tr>
+              <td>unknown .3</td>
+              <td class="num" data-l="success stock &rarr; soft">0.193 &rarr; <b>0.507</b></td>
+              <td class="num" data-l="give-ups stock &rarr; soft">0.807 &rarr; <b>0.437</b></td>
+              <td class="num" data-l="objective recovered">128%</td>
+            </tr>
+            <tr class="best">
+              <td>realistic mix<span class="sub">unknown .2 + shift .1</span></td>
+              <td class="num" data-l="success stock &rarr; soft">0.240 &rarr; <b>0.518</b></td>
+              <td class="num" data-l="give-ups stock &rarr; soft">0.760 &rarr; <b>0.461</b></td>
+              <td class="num" data-l="objective recovered">148%</td>
+            </tr>
+            <tr>
+              <td>drift mix + delay<span class="sub">n = 8</span></td>
+              <td class="num" data-l="success stock &rarr; soft">0.226 &rarr; <b>0.444</b></td>
+              <td class="num" data-l="give-ups stock &rarr; soft">0.774 &rarr; <b>0.556</b></td>
+              <td class="num" data-l="objective recovered">97%</td>
+            </tr>
+            <tr class="bad">
+              <td>mainnet mix<span class="sub">inert &mdash; 57 unknown failures across ten files</span></td>
+              <td class="num" data-l="success stock &rarr; soft">0.730 &rarr; 0.740</td>
+              <td class="num" data-l="give-ups stock &rarr; soft">0.270 &rarr; 0.260</td>
+              <td class="num" data-l="objective recovered">17%<span class="sub">of the success loss; lnd's objective did not fall on this tier</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <p style="margin-top:1.6em">
+          Success rises on every non-tied file, sign tests p = .016 to .031, and
+          give-ups fall on every non-tied file at every hard and drift level. The
+          patched arm processes <strong>5 to 12&times; more unattributed failures
+          than stock</strong> &mdash; because it no longer quits before they arrive
+          &mdash; and improves anyway.
+        </p>
+        <p>
+          The invariance claim from the smoke survives contact with the real corpora:
+          patched lnd's degraded trajectory is statistically indistinguishable from
+          its own clean control on hard and drift. At the realistic mix it is in fact
+          <em>above</em> its own clean control, +0.058 [+0.017, +0.094]. That mix
+          contains shift 0.1, so this may be
+          <a class="link" href="#attribution">&sect;12</a>'s third finding &mdash;
+          being lied to helps lnd &mdash; resurfacing on the patched stack. No
+          mechanism is claimed for it here either.
+        </p>
+        <p>
+          The patch is also a partial answer to this project's own scoreboard. It
+          takes back roughly <strong>half of the champions' degraded-tier
+          margin</strong>, and it erases atomic1's outright at unknown .3 and on the
+          drift mix.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:1.5em">
+        <table class="data">
+          <caption>exp-021 &middot; margin over lnd at the two levels where the patch bites hardest, against stock lnd and against the patched arm. Same routers, same files, same corpora as <a class="link" href="#attribution">&sect;12</a>'s ladder.</caption>
+          <thead>
+            <tr>
+              <th>margin vs lnd</th>
+              <th class="num">unknown .3 vs stock</th>
+              <th class="num">unknown .3 vs soft</th>
+              <th class="num">drift mix vs stock</th>
+              <th class="num">drift mix vs soft</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>hb1<span class="sub">leads the hard tier</span></td>
+              <td class="num" data-l="unknown .3 vs stock">+0.395</td>
+              <td class="num" data-l="unknown .3 vs soft"><b>+0.206</b></td>
+              <td class="num" data-l="drift mix vs stock">+0.234</td>
+              <td class="num" data-l="drift mix vs soft"><b>+0.160</b></td>
+            </tr>
+            <tr class="best">
+              <td>mx_c3<span class="sub">champion of record</span></td>
+              <td class="num" data-l="unknown .3 vs stock">+0.357</td>
+              <td class="num" data-l="unknown .3 vs soft"><b>+0.169</b></td>
+              <td class="num" data-l="drift mix vs stock">+0.216</td>
+              <td class="num" data-l="drift mix vs soft"><b>+0.141</b></td>
+            </tr>
+            <tr>
+              <td>hand-written seed</td>
+              <td class="num" data-l="unknown .3 vs stock">+0.364</td>
+              <td class="num" data-l="unknown .3 vs soft">+0.175</td>
+              <td class="num" data-l="drift mix vs stock">+0.196</td>
+              <td class="num" data-l="drift mix vs soft">+0.122</td>
+            </tr>
+            <tr class="bad">
+              <td>atomic1<span class="sub">margin gone at both levels</span></td>
+              <td class="num" data-l="unknown .3 vs stock">+0.250</td>
+              <td class="num" data-l="unknown .3 vs soft">+0.062</td>
+              <td class="num" data-l="drift mix vs stock">+0.058</td>
+              <td class="num" data-l="drift mix vs soft">&minus;0.017</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <div class="note">
+          <h4>the cost line, stated plainly</h4>
+          <p>
+            <strong>The patch buys success with attempts.</strong> On the hard tier
+            it spends +18 to +29 more per payment than stock &mdash; 6.3 &rarr; 35.7
+            at unknown .1 &mdash; and the objective's fifteen-attempt cap is blind to
+            all of it, so the composite flatters the patch exactly the way
+            <a class="link" href="#omni">&sect;13</a> found it flattering omni1.
+            Every number above should be read as success and give-ups first. Whether
+            an operator wants that trade is a policy question, not a measurement, and
+            it belongs in the PR rather than in a benchmark table. Mainnet, meanwhile,
+            is inert: 17% of the success loss and 7% of the give-up rise recovered, on
+            a tier where only 57 unknown failures occur across ten files. Either the
+            tier's give-up rise under degradation is mostly a different mechanism, or
+            it is too small to move &mdash; which converges with exp-019b's reading.
+          </p>
+        </div>
+
+        <h3>Part A &middot; adaptive_split, three designs and one arithmetic</h3>
+        <p>
+          The other half was meant to teach lnd's payment loop the champions'
+          inverted question: not <em>which route carries this amount</em> but
+          <em>what is the largest amount that still has hope?</em> The vehicle was
+          capped pathfinding probes inside
+          <span class="mono">RequestRoute</span>, which can ask the estimator about an
+          amount without putting an HTLC on the wire. Three designs went through the
+          smoke gate, and every one of them was killed by its own trace before a
+          sweep spent real compute.
+        </p>
+        <p>
+          <strong>1 &middot; Supremum search.</strong> After a wire failure at
+          <span class="mono">A</span>, the estimator permits essentially everything
+          below <span class="mono">A</span>, so the largest routable amount it can
+          find is <span class="mono">A&minus;&epsilon;</span> &mdash; which fails on
+          the wire, yielding a new bound and a new near-supremum. That is a
+          <em>linear</em> descent paying one real attempt per step, and it scored
+          &minus;0.03.
+        </p>
+        <p>
+          <strong>2 &middot; Geometric backoff below the frontier.</strong> Back off
+          0.75&times; from the located frontier instead. The realised ratios come out
+          at 0.703, which is blind descent &mdash; a slower re-derivation of the 0.5
+          lnd already uses. The frontier the probes locate is just the failing amount
+          minus the search's own resolution; it carries no information the bound did
+          not already carry.
+        </p>
+        <p>
+          <strong>3 &middot; Expected-value ladder.</strong> Score mx_c3's shard
+          fractions by amount &times; route probability &mdash; the probability lnd's
+          pathfinder already computes and <span class="mono">RequestRoute</span>
+          throws away. Under apriori's flat belief the argmax degenerates to the top
+          rung, which is revision 1 again, this time as a property of the value model
+          rather than of the search. Under the bimodal estimator the ladder
+          <em>does</em> jump straight to the believed rung &mdash; and lands in the
+          same retry loop that pins stock-bimodal at the attempt cap
+          (<a class="link" href="#bimodal">&sect;09</a>).
+        </p>
+      </div>
+
+      <figure class="wide" style="margin-top:2em">
+        <div class="fig-head">
+          <span class="fig-t">The descent, four ways</span>
+          <span class="fig-n">Fig. 6 &middot; hard-tier smoke, scenario 3</span>
+        </div>
+        <pre class="cd-src">scen3 · 1,000,000 sat to node 105, up to 16 shards · amount per attempt, sat        n
+
+stock  halving       1,000,847   500,424   250,212   125,106    62,553    31,277*  …    9
+rev 1  supremum      1,000,847   938,920   876,993   815,065   753,138   691,210   …   25
+rev 2  backoff .75   1,000,847   704,190   518,408   379,071   239,734   146,843   …   13
+rev 3  EV, apriori   1,000,847   750,636   500,424   375,318   250,212   125,106        6
+rev 3  EV, bimodal   1,000,847   125,106                                                2
+
+stock   ratios 0.500 0.500 0.500 0.500 — free, inside findPath's own retries
+rev 1   fixed step of 61,927 sat, one HTLC on the wire per step: 0.938 0.934 0.929
+rev 2   ratios 0.704 0.736 0.731 — blind descent at 0.703, slower than the 0.5 it replaces
+rev 3   apriori: argmax pinned to the top rung, i.e. revision 1 again
+        bimodal: one jump to the believed rung, then stock-bimodal's retry loop</pre>
+        <figcaption>
+          The same payment, the same corpus file, four amount policies. An asterisk
+          marks a shard that settled; the payment fails in every column. This is the
+          whole of Part A's finding in one exhibit: <b>every policy we could express
+          is geometric descent from the bound at some ratio</b>, and the ratio lnd
+          already uses is the fastest one, paid for with pathfinder retries rather
+          than with HTLCs.
+        </figcaption>
+      </figure>
+
+      <div class="prose">
+        <p style="margin-top:1.6em">
+          One interim number survived a revision cycle and should not have. On the
+          mainnet smoke the bimodal ladder posted 0.733, which looked like the
+          estimator &times; control-flow marriage finally working. It was entirely
+          abandonment: the ladder was quitting below its bottom rung. Closing that
+          channel &mdash; falling back to stock descent instead of giving up &mdash;
+          made A&Prime;+bimodal reproduce stock-bimodal's aggregates exactly, and the
+          claim was retracted the same evening by its own author.
+        </p>
+        <p>
+          The paired sweep on the clean tiers gives the final word, and it is a
+          shrug: <strong>hard +0.034 [&minus;0.002, +0.074], mainnet &minus;0.010
+          [&minus;0.029, +0.000]</strong>, sign tests nowhere near significance, a
+          heterogeneous few-file signal pointing both ways. Not a loss worth citing.
+          A genuine null.
+        </p>
+
+        <div class="note">
+          <h4>what the null kills</h4>
+          <p>
+            <strong>lnd's reactive split-retry descent is already optimal for its
+            class.</strong> Every bound-reactive amount policy we could express
+            reduces to geometric descent from the failure bound, and lnd runs that
+            descent at the fastest ratio of any variant, for free, inside path finding
+            rather than on the wire. Put that beside
+            <a class="link" href="#bimodal">&sect;09</a> &mdash; a better estimator
+            alone changes nothing &mdash; and <em>both</em> halves of the reactive
+            distillation theory are closed. The champions' edge does not live in the
+            reaction to failure. It must live at plan time: success-side memory
+            (<span class="mono">lowerOK</span>) feeding the initial amount choice, and
+            joint route-set construction (<a class="link" href="#splitting">&sect;06</a>)
+            &mdash; neither of which lnd's <span class="mono">findPath</span>-takes-an-amount
+            architecture can express as a small patch. That is the honest upstream
+            price tag, now measured rather than suspected.
+          </p>
+        </div>
+
+        <h3>Where this leaves the upstream conversation</h3>
+        <p>
+          <strong>Part B is PR-ready.</strong> Roughly ninety lines in
+          <span class="mono">result_interpretation.go</span> and
+          <span class="mono">missioncontrol.go</span>, against a measured pathology,
+          with a unanimous success and give-up direction, provably inert on a clean
+          channel, and a cost line stated in the open. The known limitation ships with
+          it: the minimum-probability hop choice degenerates under the bimodal
+          estimator, because no capacity is available inside result interpretation, so
+          the patch is apriori-only until capacity is threaded through. <strong>Part A
+          stays in the tree as flag-gated instrumentation</strong> with its null
+          attached, and the three-revision arc above is its documentation.
+        </p>
+
+        <div class="callout">
+          <p>
+            <strong>Caveats.</strong> Eight to ten files per level throughout.
+            Objective deltas are heterogeneous across files &mdash; three or four
+            carry each mean &mdash; even at the levels where success and give-ups move
+            unanimously. One mainnet file shows &plusmn;0.1 attempts of
+            nondeterminism from wall-clock penalty decay, because that tier pins no
+            virtual clock; it changes nothing at effect scale, and it applies to every
+            mainnet attempt figure on this page at that precision. And the
+            above-own-control anomaly at the realistic mix is unexplained, inheriting
+            the label <a class="link" href="#attribution">&sect;12</a>'s third finding
+            already carries.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 15 · PROCESS ================= -->
+  <section id="process">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">15</div>
         <h2>What the process taught us</h2>
         <p class="sec-sub">
           Findings about running this kind of search, which cost as much to learn
@@ -3425,14 +3801,14 @@
     </div>
   </section>
 
-  <!-- ================= 15 · TIMELINE ================= -->
+  <!-- ================= 16 · TIMELINE ================= -->
   <section id="timeline">
     <div class="shell">
       <div class="sec-head">
-        <div class="sec-no">15</div>
+        <div class="sec-no">16</div>
         <h2>Timeline of experiments</h2>
         <p class="sec-sub">
-          Twenty-two writeups, four days of wall-clock time, in numbered order. Full
+          Twenty-three writeups, four days of wall-clock time, in numbered order. Full
           detail lives in
           <span class="mono">simulation/lab/experiments/</span>.
         </p>
@@ -3877,6 +4253,53 @@
             </div>
           </div>
           <div class="tl-tag">verdict · the band holds</div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-id">exp-021 · build</div>
+          <div class="tl-b">
+            <div class="t">The distillation patch</div>
+            <div class="d">
+              Two mechanisms distilled out of the champions and written into lnd's
+              own stack, each behind its own flag:
+              <span class="mono">soft_unknown</span> replaces
+              <span class="mono">processPaymentOutcomeUnknown</span>'s
+              whole-route both-directions penalty with a single minimum-probability
+              pair, and <span class="mono">adaptive_split</span> teaches
+              <span class="mono">RequestRoute</span> to choose an amount from capped
+              pathfinding probes. The second went through three revisions —
+              supremum search, geometric backoff, expected-value ladder — each killed
+              at the smoke gate by its own trace before a sweep spent real compute.
+              Both flags off, the binary is byte-identical to stock, and the stock arm
+              reproduces the cached exp-019 ladder bit-for-bit.
+            </div>
+          </div>
+          <div class="tl-tag">instrument</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-021</div>
+          <div class="tl-b">
+            <div class="t">One fix lands, one theory dies</div>
+            <div class="d">
+              <span class="mono">soft_unknown</span> recovers 86–148% of exp-019's
+              collapse on the hard and drift ladders — success 0.193 → 0.507 at
+              unknown .3, give-ups 0.807 → 0.437 — with success up and give-ups down
+              on every non-tied file, exact-identical behaviour on the clean controls,
+              and a cost stated plainly: it buys that success with 18 to 29 more
+              attempts per payment, which the objective's cap cannot see. It takes
+              back about half the champions' degraded-tier margin and erases
+              atomic1's. <span class="mono">adaptive_split</span> is a genuine null:
+              all three designs reduce by their own trace arithmetic to geometric
+              descent from the failure bound, which lnd's blind halving already runs
+              at the fastest ratio, free. The one flattering interim number was pure
+              abandonment and was retracted within the cycle. With exp-002b that
+              closes both halves of the reactive distillation theory and prices the
+              champions' remaining edge as plan-time architecture
+              (<a class="link" href="#distillation">§14</a>).
+            </div>
+          </div>
+          <div class="tl-tag">verdict · the fix and the null</div>
         </div>
       </div>
     </div>

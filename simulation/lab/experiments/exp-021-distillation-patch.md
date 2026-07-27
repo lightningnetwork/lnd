@@ -35,7 +35,11 @@ numbers bit-for-bit before anything counts):
 | unk .3 | 0.193 → **0.507** | 0.807 → **0.437** | 128% |
 | realistic mix | 0.240 → **0.518** | 0.760 → **0.461** | 148% |
 | drift mix+delay | 0.226 → **0.444** | 0.774 → **0.556** | 97% |
-| mainnet mix | 0.730 → 0.740 | 0.270 → 0.260 | 17% |
+| mainnet mix | 0.730 → 0.740 | 0.270 → 0.260 | 17%* |
+
+(*Mainnet's 17% is of the SUCCESS loss; the objective ratio is
+meaningless there because lnd's objective ROSE under degradation —
+the exp-019 abandonment artifact.)
 
 Success rises on every non-tied file (sign tests p=.016–.031) and
 give-ups fall on every non-tied file at every hard/drift level. The

@@ -61,7 +61,7 @@
       <span>method <b>GEPA reflective evolution</b></span>
       <span>reflection LM <b>gpt-5.6-sol</b></span>
       <span>evaluator <b>cmd/routesim</b></span>
-      <span>experiments <b>exp-001 … exp-020</b></span>
+      <span>experiments <b>exp-001 … exp-021</b></span>
       <span>champions <b>hb1 + mx_c3</b>, unchanged since exp-007 · nothing live</span>
     </div>
   </div>
@@ -414,7 +414,11 @@
           <span class="mono">exp-018</span>, the engine adjudication, which gave
           three optimizers the same seed, corpus and eval budget and found that only
           gepa produced a router at all
-          (<a class="link" href="findings.html#omni">the adjudication</a>).
+          (<a class="link" href="findings.html#omni">the adjudication</a>). No
+          optimizer has run since: exp-021 spent its time turning the findings into a
+          flag-gated diff against lnd's own stack, where one mechanism is now
+          PR-ready and the other is a measured null
+          (<a class="link" href="findings.html#distillation">the distillation patch</a>).
         </p>
       </div>
 
@@ -512,8 +516,11 @@
         The definitive write-up — the paradigm result, the champion scores, an
         anatomy of the evolved algorithms against lnd's, the ceiling three separate
         lineages ran into, what happens when a router is handed knowledge it did not
-        pay for, the corrections we have had to make to our own record, and the process
-        lessons from twenty experiments.
+        pay for, the one patch that came out of all this and the theory that died
+        beside it
+        (<a class="link" href="findings.html#distillation">the distillation patch</a>),
+        the corrections we have had to make to our own record, and the process
+        lessons from twenty-one experiments.
       </p>
     </div>
   </div>

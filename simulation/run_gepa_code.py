@@ -127,6 +127,54 @@ simulation/champions/), worth building on rather than rediscovering:
   and progress stalls. Prefer simplifying refactors over accretion.
 """
 
+# Appended to BACKGROUND by --degraded, for a corpus whose scenario files
+# carry an "attribution" section (routing/sim_attribution.go). Every
+# evolution run before this one bred against a failure channel that was
+# instant, truthful and exactly attributed; a candidate that has never
+# been told the channel can lie has no reason to build anything for it.
+# The rates quoted here are the exp-019 "realistic mix" the degraded
+# corpus is stamped with, so the prompt and the world agree.
+DEGRADED_CHANNEL = """
+THE FAILURE CHANNEL IN THIS ENVIRONMENT IS UNRELIABLE:
+- A failed attempt may reach you with its attribution STRIPPED: the
+  result's FailureSource is a node that is not on your route at all and
+  the failure code is empty, so the whole of what you learn is THAT the
+  attempt failed. This is what a sender holds after an onion error it
+  cannot decrypt.
+- Or it may reach you with the blame SHIFTED onto a node one hop before
+  or after the one that really failed, with the failure code left
+  intact — a well formed, entirely plausible, wrong answer. An
+  unattributed failure announces that it carries no information; a
+  misattributed one does not.
+- Roughly one failure in five arrives unreadable here, and roughly one
+  in ten arrives blamed on the wrong hop. SUCCESSES ARE ALWAYS
+  TRUTHFUL: a settled attempt has no attribution to lose, and the
+  degradation only ever removes or moves information, never invents it.
+- The draws are fixed per attempt regardless of outcome, so the channel
+  does not lie more to a router that fails more often.
+
+Insights from prior measurement (exp-019), worth building on:
+- A router that writes a hard liquidity bound from an unattributed or
+  misattributed failure poisons its own belief store: it records a
+  ceiling on a channel that never failed, then routes around a channel
+  that was fine. The incumbent champions hold their margins under this
+  channel for exactly one reason — they treat no-information as
+  no-information, writing nothing when the reported source is not on
+  the route they sent. lnd's production stack collapses instead,
+  because its unreadable-failure path penalizes every pair on the whole
+  route in BOTH directions, which drives its give-up rate up sharply.
+- Nobody has yet evolved machinery that goes further and actively
+  EXPLOITS a lying channel. That design space is open and untested:
+  cross-checking repeated blame across attempts to find the hop that
+  keeps reappearing, quarantining a suspect observation until a second
+  one corroborates it, writing soft or probabilistic bounds weighted by
+  how much the attribution is to be trusted, or reasoning from the
+  route you chose rather than from the source you were handed. Whether
+  to build any of it is your design choice: it costs complexity, and it
+  has to earn its keep against a router that simply ignores what it
+  cannot read.
+"""
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -146,6 +194,15 @@ def main() -> None:
                         help="seed candidate .go file (default: the "
                         "in-tree candidate_impl.go). Use a prior "
                         "champion to continue evolving from it.")
+    parser.add_argument("--degraded", action="store_true",
+                        help="tell candidates the failure channel lies. "
+                        "Set this when the corpus carries an "
+                        "'attribution' section (gen_scenarios.py "
+                        "--attribution): it appends the degraded-channel "
+                        "facts and the exp-019 findings to the "
+                        "background prompt. The flag only changes the "
+                        "prompt — the degradation itself lives in the "
+                        "scenario files.")
     args = parser.parse_args()
 
     corpus = Path(args.corpus)
@@ -161,6 +218,10 @@ def main() -> None:
         seed = (REPO / "cmd" / "routesim" / "candidate_impl.go").read_text()
 
     max_evals = args.max_evals or 20 * len(valset)
+
+    background = BACKGROUND.strip()
+    if args.degraded:
+        background += "\n\n" + DEGRADED_CHANNEL.strip()
 
     # Every valid code candidate contains the package clause; the marker
     # check turns a hijacked or chatty reply into one retry instead of a
@@ -247,7 +308,7 @@ def main() -> None:
             valset=valset,
             test_set=testset,
             objective=OBJECTIVE.strip(),
-            background=BACKGROUND.strip(),
+            background=background,
             name=args.name,
             max_evals=max_evals,
             max_concurrency=args.max_concurrency,
@@ -262,7 +323,7 @@ def main() -> None:
             valset=valset,
             test_set=testset,
             objective=OBJECTIVE.strip(),
-            background=BACKGROUND.strip(),
+            background=background,
             config=gepa_config,
         )
 

@@ -27,7 +27,12 @@ exp-018 omni adjudication is LIVE overnight.
 5. [x] exp-018 closed: gepa only engine to produce anything; omni1 =
        challenger failure #6; band not a gepa artifact at practical
        budgets. exp-019b: anomaly hard-tier-only, story refuted.
-       ALL OVERNIGHT WORK COMPLETE   <- session idle, tree FREE
+       ALL OVERNIGHT WORK COMPLETE
+6. [x] exp-021 distillation: soft_unknown PR-READY (86-148%
+       recovery, unanimous direction, inert when off);
+       adaptive_split a genuine null after 3 designs -> champions'
+       edge is plan-time architecture. v62 published, HEAD 68fe3e150.
+       <- session idle, tree FREE; next: soft_unknown PR prep
 
 ## Key Context
 - exp-018 DONE (was live): pid in scratch, log <scratch>/exp018.log, workdir

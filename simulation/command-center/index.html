@@ -61,7 +61,7 @@
       <span>method <b>GEPA reflective evolution</b></span>
       <span>reflection LM <b>gpt-5.6-sol</b></span>
       <span>evaluator <b>cmd/routesim</b></span>
-      <span>experiments <b>exp-001 … exp-017</b></span>
+      <span>experiments <b>exp-001 … exp-020</b></span>
       <span>champions <b>hb1 + mx_c3</b>, unchanged since exp-007 · nothing live</span>
     </div>
   </div>
@@ -84,9 +84,9 @@
           <span class="kn">8.6<span class="u">×</span></span>
           <div class="kl">
             fewer HTLC attempts per payment than lnd on the real mainnet graph, at
-            the same success rate
+            the same success rate, on a perfect failure channel
           </div>
-          <div class="kf">2.3 vs 19.8 attempts · exp-009 · an upper bound until degraded attribution is tested</div>
+          <div class="kf">2.3 vs 19.8 attempts · exp-009 · ratio retired by exp-019: under realistic attribution degradation the edge converts to success</div>
         </div>
         <div class="key">
           <span class="kn">6<span class="u">of 6</span></span>
@@ -119,7 +119,10 @@
           evolved 0.810 — so the whole difference lands in <b>how much probing it
           takes to get there</b>. This is the tier lnd should win: its defaults were
           tuned for this graph, while the evolved routers were bred entirely on
-          synthetic topologies.
+          synthetic topologies. The attempt ratio is a perfect-channel figure;
+          exp-019 retired it, and under a degraded failure channel the same edge
+          shows up as success instead
+          (<a class="link" href="findings.html#attribution">the ladder</a>).
         </figcaption>
       </figure>
 

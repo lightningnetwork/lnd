@@ -35,16 +35,18 @@
     </div>
     <h1>What the evolved routers kept, dropped, and <em>invented</em></h1>
     <p class="standfirst">
-      Seventeen experiments in, the shape of the result is clear. On a real mainnet
+      Nineteen experiments in, the shape of the result is clear. On a real mainnet
       graph snapshot, LLM-evolved routers match lnd's success rate using
-      <strong>8.6× fewer HTLC attempts</strong> — and the structure they arrived at
-      is not a tuned version of lnd's. It is a different way of remembering what
-      the network told you.
+      <strong>8.6× fewer HTLC attempts</strong> on a perfect failure channel — a
+      ratio <a class="link" href="#attribution">§12</a> has since retired, because
+      once the channel is degraded the edge converts into success instead. Either
+      way the structure they arrived at is not a tuned version of lnd's. It is a
+      different way of remembering what the network told you.
     </p>
     <div class="byline">
       <span>sources <b>simulation/lab/experiments</b></span>
-      <span>champions <b>hb1 · mx_c3</b></span>
-      <span>status <b>validated · de-circularised (exp-017)</b></span>
+      <span>champions <b>hb1 · mx_c3</b>, title defended (exp-020)</span>
+      <span>status <b>validated · de-circularised · attribution-tested (exp-019)</b></span>
     </div>
 
     <ol class="toc">
@@ -60,8 +62,9 @@
       <li><a href="#bimodal"><span class="n">09</span><span class="t">The knob we never turned</span></a></li>
       <li><a href="#served"><span class="n">10</span><span class="t">Free knowledge helps the champions and hurts lnd</span></a></li>
       <li><a href="#families"><span class="n">11</span><span class="t">Thirteen worlds the constants were never fit to</span></a></li>
-      <li><a href="#process"><span class="n">12</span><span class="t">What the process taught us</span></a></li>
-      <li><a href="#timeline"><span class="n">13</span><span class="t">Timeline of experiments</span></a></li>
+      <li><a href="#attribution"><span class="n">12</span><span class="t">The 8.6× dies, the margin survives</span></a></li>
+      <li><a href="#process"><span class="n">13</span><span class="t">What the process taught us</span></a></li>
+      <li><a href="#timeline"><span class="n">14</span><span class="t">Timeline of experiments</span></a></li>
       <li><a href="drift.html"><span class="n">→</span><span class="t">Drift: the environment strikes back <i>(exp-008, verdict in)</i></span></a></li>
     </ol>
   </div>
@@ -176,7 +179,10 @@
           hand-written seed 0.820, both evolved champions 0.810 — so nearly the
           whole difference between them is <b>how much probing it takes to get
           there</b>. lnd spends roughly twenty in-flight attempts per payment;
-          the evolved routers spend two.
+          the evolved routers spend two. Read this ratio as a perfect-channel
+          figure: <a class="link" href="#attribution">§12</a> retired it, because
+          under realistic attribution degradation the edge stops being an attempt
+          edge and becomes a success one.
         </figcaption>
       </figure>
 
@@ -396,7 +402,7 @@
         <p>
           <strong>Exploit-clean.</strong> The simulator seals hidden liquidity behind
           a view interface, and an adversarial audit of that seal
-          (<a class="link" href="#process">§12</a>) found and
+          (<a class="link" href="#process">§13</a>) found and
           closed a real escape. Both champions were validated after the seal, with
           zero uses of any exploit path.
         </p>
@@ -966,7 +972,7 @@
         <p>
           <strong>Opus 5 at default effort, persistent parallel flow plans.</strong>
           The deepest machinery the project has produced, at 1,931 lines — well past
-          the complexity wall of <a class="link" href="#process">§12</a>. A flow plan
+          the complexity wall of <a class="link" href="#process">§13</a>. A flow plan
           survives failure, dropping only the corridors that evidence actually
           contradicts; dispatch is concurrency-first, filling the shard budget with
           the largest believable amounts before it ever ladder-searches; and planning
@@ -1467,6 +1473,11 @@
             carries a belief map from one payment to the next.
           </p>
           <p>
+            Both have since run. The degraded-attribution ladder is
+            <a class="link" href="#attribution">§12</a>, and it cost this page its
+            headline ratio while leaving the ordering intact.
+          </p>
+          <p>
             That one has since run, and the split got priced:
             <a class="link" href="#coldcache">§08</a>. Under a stale cache the
             memory-carrying hybrid holds its score while both champions collapse,
@@ -1527,8 +1538,10 @@
         <p>
           Every scenario file in this project starts a router with an empty mission
           control and empty candidate beliefs. That cuts both ways. It means the
-          champions' 8.6× attempt advantage was earned with no more history than lnd
-          had, which is the fair version of the comparison — and it means the regime a
+          champions' 8.6× attempt advantage — the perfect-channel figure
+          <a class="link" href="#attribution">§12</a> has since retired — was earned
+          with no more history than lnd had, which is the fair version of the
+          comparison — and it means the regime a
           real node actually lives in has never appeared on this site. The field
           observation that prompted the experiment is that mission control's weights
           matter enormously on a network of unbalanced, unreliable nodes, that a new
@@ -2688,18 +2701,328 @@
             included. They are still distributions we chose. The generator-family
             question is closed; the full escape from “simulator-shaped” is unchanged
             and now moves up the queue — degraded attribution, and offline replay
-            against a real node's attempt stream.
+            against a real node's attempt stream. The first of those has since run
+            (<a class="link" href="#attribution">§12</a>); the replay has not.
           </p>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ================= 12 · PROCESS ================= -->
-  <section id="process">
+  <!-- ================= 12 · DEGRADED ATTRIBUTION ================= -->
+  <section id="attribution">
     <div class="shell">
       <div class="sec-head">
         <div class="sec-no">12</div>
+        <h2>The 8.6&times; dies, the margin survives</h2>
+        <p class="sec-sub">
+          Every efficiency number above was measured on a failure channel that is
+          instant, truthful and exactly attributed. Mainnet's is none of those.
+          exp-019 built the degrader the advisor asked for &mdash; unreadable
+          errors, plausible lies, delayed results &mdash; and ran the field up a
+          six-level ladder. The champion ordering survives. The headline ratio does
+          not.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key hi">
+          <span class="kn">+0.277 → +0.395<span class="u">hb1 &minus; lnd</span></span>
+          <div class="kl">
+            the champion's hard-tier margin over lnd as unreadable errors go from
+            none to 30% &mdash; it <em>widens</em>, because no evolved router writes
+            a liquidity bound from an unattributed failure
+          </div>
+          <div class="kf">the feared collapse appears nowhere on the ladder</div>
+        </div>
+        <div class="key">
+          <span class="kn">0.31 → 0.71<span class="u">lnd give-ups</span></span>
+          <div class="kl">
+            what a 10% unreadable-error rate does to lnd on the hard tier; at 30%,
+            four files of ten pin to exactly zero success
+          </div>
+          <div class="kf">a self-contained upstream finding, independent of everything evolved</div>
+        </div>
+        <div class="key">
+          <span class="kn">0.810 → 0.810<span class="u">mainnet</span></span>
+          <div class="kl">
+            champion success under the degraded realistic mix, unchanged to three
+            decimals,
+            while lnd trades six points of success and a doubled give-up rate for
+            its attempt drop
+          </div>
+          <div class="kf">the edge converts from attempts into success</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>The one thing we never varied</h3>
+        <p>
+          The simulator tells a sender exactly which hop failed, at what amount,
+          with which BOLT error, and it tells it immediately. Mainnet does not. A
+          BOLT4 onion error can come back <em>unreadable</em> &mdash; the sender
+          learns only that the payment died, not where &mdash; a buggy or
+          adversarial hop can blame the wrong place, and every result arrives after
+          a delay during which the network moves. The 8.6&times; attempt reduction
+          was flagged an upper bound the day the advisor read it, and
+          <a class="link" href="#atomic">&sect;07</a> named degraded attribution
+          the decisive pre-upstream test. This is that measurement.
+        </p>
+
+        <h3>One delivery point, three degradations</h3>
+        <p>
+          The instrument is an <span class="mono">attribution</span> section on the
+          scenario file, and it acts at the single <span class="mono">ReportAttempt</span>
+          delivery point that both consumer paths share, so lnd and every candidate
+          face the identical corrupted stream.
+          <span class="mono">unknown_prob</span> strips the source and the code; on
+          the lnd path that becomes a nil failure message, exactly what the switch
+          hands mission control on
+          <span class="mono">ErrUnreadableFailureMessage</span>, so lnd runs its own
+          real <span class="mono">processPaymentOutcomeUnknown</span> rather than a
+          simulation of it. <span class="mono">shift_prob</span> blames an adjacent
+          hop with the code intact &mdash; a well-formed, plausible, wrong answer.
+          <span class="mono">delay_slices</span> holds every result back through
+          slices of background-traffic time. Three uniforms are drawn per attempt
+          whatever the outcome, so the degradation sequence is identical across
+          routers, and with the section absent the binary is proven byte-identical
+          to the pre-change one.
+        </p>
+        <p>
+          The ladder: the sealed hard tier at six levels &mdash; control, unknown
+          0.1 and 0.3, shift 0.1 and 0.3, and a realistic mix of unknown 0.2 plus
+          shift 0.1 &mdash; the mainnet tier at control and mix, and the drift tier
+          isolating delay. <strong>520 paired runs</strong> over five routers, with
+          every rebuilt binary gated on reproducing the exp-020 undegraded scores to
+          three decimals; the control column below is that gate, and for the four
+          routers <a class="link" href="#scoreboard">&sect;03</a> lists it is that
+          page's hard-test column exactly.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:2em">
+        <table class="data">
+          <caption>exp-019 &middot; sealed hard tier. The control column is each router's undegraded objective; every other cell is that router's change from its own control, so the columns read as damage rather than as levels.</caption>
+          <thead>
+            <tr>
+              <th>router</th>
+              <th class="num">control</th>
+              <th class="num">unknown .1</th>
+              <th class="num">unknown .3</th>
+              <th class="num">shift .1</th>
+              <th class="num">shift .3</th>
+              <th class="num">realistic mix</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="bad">
+              <td>lnd production stack<span class="sub">the only router that moves in both directions</span></td>
+              <td class="num" data-l="control">0.309</td>
+              <td class="num" data-l="unknown .1">&minus;0.107<span class="sub">0.202</span></td>
+              <td class="num" data-l="unknown .3">&minus;0.147<span class="sub">0.162</span></td>
+              <td class="num" data-l="shift .1">+0.085<span class="sub">0.394</span></td>
+              <td class="num" data-l="shift .3">+0.122<span class="sub">0.431 · p .002</span></td>
+              <td class="num" data-l="realistic mix">&minus;0.121<span class="sub">0.188</span></td>
+            </tr>
+            <tr>
+              <td>hand-written seed<span class="sub">~300 lines · ignores an unattributed failure outright</span></td>
+              <td class="num" data-l="control">0.530</td>
+              <td class="num" data-l="unknown .1">&minus;0.001</td>
+              <td class="num" data-l="unknown .3">&minus;0.004</td>
+              <td class="num" data-l="shift .1">&minus;0.013</td>
+              <td class="num" data-l="shift .3">&minus;0.040</td>
+              <td class="num" data-l="realistic mix">&minus;0.016</td>
+            </tr>
+            <tr>
+              <td>hb1<span class="sub">champion · leads this tier · soft session penalty, no interval update</span></td>
+              <td class="num" data-l="control">0.586</td>
+              <td class="num" data-l="unknown .1">&minus;0.008</td>
+              <td class="num" data-l="unknown .3">&minus;0.029</td>
+              <td class="num" data-l="shift .1">&minus;0.008</td>
+              <td class="num" data-l="shift .3">&minus;0.093</td>
+              <td class="num" data-l="realistic mix">&minus;0.061</td>
+            </tr>
+            <tr class="best">
+              <td>mx_c3<span class="sub">champion of record</span></td>
+              <td class="num" data-l="control">0.583</td>
+              <td class="num" data-l="unknown .1">&minus;0.012</td>
+              <td class="num" data-l="unknown .3">&minus;0.064</td>
+              <td class="num" data-l="shift .1">&minus;0.021</td>
+              <td class="num" data-l="shift .3">&minus;0.042</td>
+              <td class="num" data-l="realistic mix">&minus;0.067</td>
+            </tr>
+            <tr>
+              <td>atomic1<span class="sub">marks the route suspect rather than bounding an edge</span></td>
+              <td class="num" data-l="control">0.510</td>
+              <td class="num" data-l="unknown .1">&minus;0.023</td>
+              <td class="num" data-l="unknown .3">&minus;0.098</td>
+              <td class="num" data-l="shift .1">&minus;0.024</td>
+              <td class="num" data-l="shift .3">&minus;0.085</td>
+              <td class="num" data-l="realistic mix">&minus;0.042</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="tw wide" style="margin-top:1.5em">
+        <table class="data">
+          <caption>exp-019 &middot; the same ladder read as a margin. Only one level erases it, and it does so by lifting lnd rather than by hurting the champion. On the mainnet tier at the realistic mix the margins are hb1 +0.080, mx_c3 +0.077 and atomic1 +0.079 (p = .021) &mdash; everyone still clears lnd.</caption>
+          <thead>
+            <tr>
+              <th>margin vs lnd</th>
+              <th class="num">control</th>
+              <th class="num">unknown .1</th>
+              <th class="num">unknown .3</th>
+              <th class="num">shift .1</th>
+              <th class="num">shift .3</th>
+              <th class="num">realistic mix</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><b>hb1</b><span class="sub">the champion that leads this tier</span></td>
+              <td class="num" data-l="control"><b>+0.277</b></td>
+              <td class="num" data-l="unknown .1"><b>+0.377</b></td>
+              <td class="num" data-l="unknown .3"><b>+0.395</b></td>
+              <td class="num" data-l="shift .1"><b>+0.185</b></td>
+              <td class="num" data-l="shift .3">+0.062<span class="sub">CI straddles zero</span></td>
+              <td class="num" data-l="realistic mix"><b>+0.336</b></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <h3 style="margin-top:2em">1 &middot; The ordering survives the realistic channel</h3>
+        <p>
+          At the realistic mix, and on degraded mainnet, every champion still beats
+          lnd &mdash; and on the hard tier the margin <em>widens</em> under
+          unreadable errors rather than narrowing. Nothing resembling the feared
+          &ldquo;the champions are calibrated to a clean channel and fall over
+          without it&rdquo; appears anywhere on the ladder. The single level that
+          erases the margin is shift = 0.3, and it gets there by helping lnd, not by
+          hurting anyone.
+        </p>
+        <p>
+          The reason the champions barely move is one line of policy they all share
+          without ever having been asked for it: <strong>none of them writes a
+          liquidity bound from an unattributed failure.</strong> The seed ignores it
+          outright, hb1 and mx_c3 apply only a soft session penalty with no interval
+          update, atomic1 marks the route suspect. By evolution or by accident, they
+          treat no-information as no-information &mdash; which is exactly the
+          property that matters when a third of the channel goes dark.
+        </p>
+
+        <h3>2 &middot; lnd's unknown-failure handling is a give-up spiral</h3>
+        <p>
+          <span class="mono">processPaymentOutcomeUnknown</span> penalizes every
+          pair on the failed route, in <em>both</em> directions. On the hard tier a
+          10% unreadable-error rate turns that into give-ups climbing 0.31 → 0.71,
+          attempts collapsing 45.5 → 6.3, and success falling 0.49 → 0.29. At 30%,
+          four files of ten pin to exactly zero: lnd blacklists routes until path
+          finding returns no path at all, and quits. The same signature shows on
+          mainnet at the realistic mix &mdash; success 0.790 → 0.730, give-ups
+          doubling, attempts 19.8 → 2.8. No other router shows anything like it.
+        </p>
+
+        <div class="note">
+          <h4>the third input to one upstream patch</h4>
+          <p>
+            This is concrete, self-contained and independent of everything evolved:
+            <strong>lnd's response to an unreadable error is aggressive enough that
+            a modest rate of them exhausts the route set.</strong> It joins
+            <a class="link" href="#bimodal">&sect;09</a>'s estimator result and
+            <a class="link" href="#served">&sect;10</a>'s served-weights result as a
+            third finding pointing at the same file. Failure information is handled
+            badly in both directions: the bounds are too weak when a failure
+            <em>is</em> attributed, and the penalty is too strong when it is not.
+          </p>
+        </div>
+
+        <h3>3 &middot; Being lied to helps lnd, and we do not know why</h3>
+        <p>
+          shift = 0.3 is the best hard-tier configuration lnd has posted in this
+          project's history: <strong>+0.122</strong>, CI [+0.067, +0.182], ten files
+          of ten, p = .002, with success genuinely rising rather than the
+          attempt-cap term doing the work (that part is only +0.038). Being
+          misinformed a third of the time beats being told the truth.
+        </p>
+        <p>
+          The candidate mechanism is that on short small-world routes &ldquo;one hop
+          off&rdquo; is often the same bottleneck seen from the other side, so a
+          coarser wrong penalty pushes lnd out of a bad region faster than the
+          precise correct one does. That story is <strong>unproven</strong>. It is
+          hard-tier-only evidence, and a shift-isolated mainnet arm is queued before
+          any mechanism claim is published. After
+          <a class="link" href="#served">&sect;10</a>'s three wrong guesses, the
+          anomaly ships labelled as an anomaly.
+        </p>
+
+        <h3>4 &middot; Delay is free; misattribution is what binds</h3>
+        <p>
+          Holding every result back four attempt-slices on a live drifting network
+          moves nobody: deltas from &minus;0.002 to +0.026, every confidence
+          interval straddling zero, with the counters confirming that 100% of
+          results were in fact delayed. All of the combined level's damage is its
+          misattribution component. That extends the pattern from
+          <a class="link" href="#coldcache">&sect;08</a> and exp-015 &mdash;
+          evidence staleness keeps failing to matter in this environment &mdash; to
+          the delivery channel itself.
+        </p>
+
+        <h3>5 &middot; The ratio is retired; what replaces it is stronger</h3>
+        <p>
+          Under any unreadable-error rate the attempt ratio <em>inverts</em>: at the
+          realistic mix lnd spends 3.0 attempts per payment against the champions'
+          16.3. That is not lnd getting efficient, it is lnd giving up on the hard
+          payments, which makes attempt ratios on a degraded channel meaningless in
+          both directions. <strong>The 8.6&times; was a perfect-channel
+          artifact</strong> and this page no longer leads with it.
+        </p>
+        <p>
+          The replacement claim is the better one. On degraded mainnet the champions
+          hold success at <em>exactly</em> their undegraded values &mdash; 0.810 →
+          0.810, 0.800 → 0.800 &mdash; for an extra 0.2 to 0.45 attempts, while lnd
+          buys its attempt drop with six points of success and twice the give-ups.
+          <strong>Realistic degradation converts the champions' edge from an
+          efficiency edge into a robustness edge.</strong> The efficiency was
+          fair-weather; the robustness is structural.
+        </p>
+
+        <div class="sidenote">
+          <h4>abandonment watch</h4>
+          <p>
+            The <a class="link" href="#timeline">exp-013</a> hazard was checked at
+            every level, and all three interval routers are clean: attempts and
+            success move together, spend more and get less, which is degradation
+            rather than the give-up attractor. atomic1 sits closest to the line
+            &mdash; give-ups 0.37 → 0.45 at unknown 0.3, attempts near flat while
+            success falls &mdash; which is consistent with the shrug-under-uncertainty
+            policy <a class="link" href="#coldcache">&sect;08</a> priced.
+          </p>
+        </div>
+
+        <div class="callout">
+          <p>
+            <strong>Caveats.</strong> Eight to ten files per tier. hb1's shift-level
+            magnitudes lean on a single file, which carries 61% of the delta, though
+            the direction holds 9 of 10. Two hard-tier files are near-degenerate for
+            lnd under unknown errors, its success pinned at zero, which inflates the
+            champion margins at those levels. The mainnet arm inherits the
+            synthetic-liquidity caveat as always. And the shift-helps-lnd anomaly has
+            neither a mainnet nor a mechanism-isolating arm yet: it is a measured
+            fact with an unproven story attached.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 13 · PROCESS ================= -->
+  <section id="process">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">13</div>
         <h2>What the process taught us</h2>
         <p class="sec-sub">
           Findings about running this kind of search, which cost as much to learn
@@ -2778,14 +3101,14 @@
     </div>
   </section>
 
-  <!-- ================= 13 · TIMELINE ================= -->
+  <!-- ================= 14 · TIMELINE ================= -->
   <section id="timeline">
     <div class="shell">
       <div class="sec-head">
-        <div class="sec-no">13</div>
+        <div class="sec-no">14</div>
         <h2>Timeline of experiments</h2>
         <p class="sec-sub">
-          Twenty writeups, four days of wall-clock time, in numbered order. Full
+          Twenty-one writeups, four days of wall-clock time, in numbered order. Full
           detail lives in
           <span class="mono">simulation/lab/experiments/</span>.
         </p>
@@ -2936,7 +3259,9 @@
               12,161 nodes, 39,659 channels, 100 payments. The champions match
               lnd's success rate at 8.6× fewer attempts — 2.3 against 19.8 — on the
               graph lnd's defaults were tuned for and the champions had never seen.
-              Objective 0.791 against 0.694.
+              Objective 0.791 against 0.694. (The ratio stood for eleven experiments
+              and was retired by <a class="link" href="#attribution">exp-019</a>; the
+              objective and success numbers are untouched.)
             </div>
           </div>
           <div class="tl-tag">closing validation</div>
@@ -3132,6 +3457,55 @@
             </div>
           </div>
           <div class="tl-tag">verdict · de-circularised</div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-id">exp-019 · build</div>
+          <div class="tl-b">
+            <div class="t">The attribution degrader</div>
+            <div class="d">
+              An <span class="mono">attribution</span> section on the scenario file
+              corrupts results at the single <span class="mono">ReportAttempt</span>
+              delivery point both consumer paths share, so lnd and every candidate
+              face the identical stream: <span class="mono">unknown_prob</span>
+              strips source and code, <span class="mono">shift_prob</span> blames an
+              adjacent hop with the code intact, and
+              <span class="mono">delay_slices</span> holds results back through
+              background-traffic time. The unknown path converts to the nil failure
+              message the switch really hands mission control on
+              <span class="mono">ErrUnreadableFailureMessage</span>, so lnd runs its
+              own <span class="mono">processPaymentOutcomeUnknown</span> rather than
+              an imitation of it. Three uniforms are drawn per attempt whatever the
+              outcome, and with the section absent the binary is byte-identical to
+              the pre-change one.
+            </div>
+          </div>
+          <div class="tl-tag">instrument</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-019</div>
+          <div class="tl-b">
+            <div class="t">Degraded attribution — the 8.6× dies, the margin survives</div>
+            <div class="d">
+              Six levels on the sealed hard tier, the realistic mix on mainnet,
+              delay isolated on drift: 520 paired runs whose controls reproduce
+              exp-020 to three decimals. The ordering survives everywhere, and
+              hard-tier margins <em>widen</em> under unreadable errors, because no
+              evolved router writes a bound from an unattributed failure. lnd does
+              the opposite — <span class="mono">processPaymentOutcomeUnknown</span>
+              penalizes the whole route both ways, so 10% unreadable errors drive
+              give-ups 0.31 → 0.71 and 30% pins files to zero success. Delay is free
+              for everyone; misattribution is the binding constraint. One anomaly
+              ships labelled as one: shift = 0.3 <em>helps</em> lnd, +0.122 at
+              p = .002, mechanism unproven. And the headline ratio is retired — under
+              degradation lnd uses fewer attempts than the champions because it stops
+              paying for hard payments, while the champions hold mainnet success at
+              exactly their undegraded values and lnd loses six points
+              (<a class="link" href="#attribution">§12</a>).
+            </div>
+          </div>
+          <div class="tl-tag">verdict · the ratio retired</div>
         </div>
 
         <div class="tl-item pivot">

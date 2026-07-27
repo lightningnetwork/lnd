@@ -146,6 +146,16 @@ next.
   unblocked for the first time since exp-013 launched.
 
 ### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
+- **exp-015** — churn ladder. drift1 vs mx_c3 on ONE fixed corpus at
+  payments_per_gap 0/20/80/240 (the top being ~18x exp-008's effective
+  churn): −0.016/−0.005/−0.007/−0.003, every CI straddling zero, no
+  trend. Decay is a tie at every churn level, not a loss — and not a
+  win either, so it stays unproven rather than disproven. The harness
+  BACKGROUND prompt has been corrected; it had been telling every
+  candidate decay "LOST" and to spend its complexity elsewhere, which
+  is a search restriction we imposed on ourselves. Open hypothesis:
+  hb1 gains on mx_c3 monotonically with churn (+.018/+.015/+.028/
+  +.037, none significant at n=8) — a champion question if it holds.
 - **exp-014** — the traffic engine, fixed. Background payments settled
   at 0.41/0.61/0.18 (drift/atomic/mainnet); a failed one moves no
   liquidity, so that ratio was the factor between configured and
@@ -168,8 +178,12 @@ next.
   with the lowest success (0.750 where everyone else is >0.917). The
   recipe that made mx_c3 from hb1 inverts when the seed has no
   attempts left to save.
-- **exp-008** — drift. Time-decay re-evolved and lost to time-less
-  champions even on drift. Caveat added later: our churn is weak (see
+- **exp-008** — drift. Time-decay re-evolved; its evolved form
+  (confidence softening toward the prior, bounds expiring) is
+  structurally unlike lnd's penalty fading, and costs nothing on
+  static tiers. **Corrected by exp-015: it did not "lose" — it TIED.**
+  The 0.04 gap was two point estimates at n=8 with no paired test.
+  Caveat added later: our churn is weak (see
   exp-014), so this is a statement about weak churn — the engine is
   fixed now, and the re-run is item 4 below.
 - **exp-010** — splitting pressure, three proposer lineages. All three
@@ -218,7 +232,7 @@ next.
 3. **Degraded attribution** — the advisor's decisive pre-upstream test.
    Our failure channel is instant, truthful and exactly attributed;
    mainnet's is not. The 8.6× is an upper bound until this runs.
-4. Re-run staleness and exp-008's decay question underneath the fixed
-   traffic engine.
+4. Re-run the staleness arm underneath the fixed traffic engine
+   (exp-008's decay question is now answered — see exp-015).
 5. Upstream the gepa meta_harness JSON fix (`~/codez/gepa` branch
    `fix-claude-json-array`).

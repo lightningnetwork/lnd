@@ -105,9 +105,15 @@ simulation/champions/), worth building on rather than rediscovering:
 - Retry-at-lower-amount on a failed channel (a lower-retry factor)
   outperforms permanently blacklisting it.
 - Time-decay of evidence has been tried under genuine liquidity drift
-  and LOST to plain hard bounds (exp-008): a stale bound costs one
-  retry to refresh, which is cheaper than what decay throws away.
-  Spend your complexity budget elsewhere.
+  and came out a TIE with plain hard bounds, at every churn level
+  from none to roughly twenty times our default (exp-008, corrected
+  by exp-015). The evolved form that tied was confidence softening —
+  beliefs interpolate back toward the prior as they age, and bounds
+  expire — not lnd-style penalty fading. Read this as an open
+  question rather than a solved one: decay costs complexity and has
+  never yet bought anything measurable here, but nothing rules out a
+  form that does. If you spend the complexity, make it earn its
+  keep against a hard-bounds baseline.
 - MPP splitting is where the least design space has been explored.
   Prior winners split reactively: try an amount, and on failure carve
   the next shard from a ladder of halves and evidence-derived sizes.

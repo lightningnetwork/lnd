@@ -536,3 +536,48 @@ attempt count by quitting and have it read as efficiency. The
 aggregate also reports bg_settle_rate now, so this defect would have
 been visible in every run's output instead of needing a manipulation
 check to find.
+
+## 2026-07-26 — exp-015: exp-008 called a tie a loss
+
+exp-014's before/after check left a directional hint — stronger churn
+helped lnd and hurt the interval routers on drift — pointing straight
+at exp-008's headline, "time-decay re-evolved under drift and LOST to
+the time-less champions." exp-008's own caveat had anticipated it: a
+heavier drift regime could tip the balance. And since that conclusion
+is fed to every evolution run through the harness prompt ("spend your
+complexity budget elsewhere"), being wrong about it steers the search.
+
+Ran drift1 against the champions on ONE fixed corpus with only the
+churn rate varying: payments_per_gap 0, 20, 80, 240, everything else
+identical. At the fixed engine's ~0.9 settle rate, 240/gap is roughly
+eighteen times the effective churn exp-008 actually ran under.
+
+drift1 vs mx_c3, paired: -0.016, -0.005, -0.007, -0.003. Statistically
+indistinguishable at every level, including no churn at all, with
+every CI straddling zero and no trend. An order of magnitude smaller
+than the 0.04 gap exp-008 read as a loss.
+
+The correction is not that the fixed engine changed the answer. It is
+that the answer was a TIE in the first place: exp-008 compared two
+point estimates at n=8 with no paired test, and re-scoring its own
+original corpus under the fixed engine gives -0.033 at p=0.453. The
+churn ladder then confirms the tie holds at eighteen times the churn.
+exp-014's hint did not survive a controlled test, which is exactly why
+it was worth running instead of repeating.
+
+exp-008's substantive findings stand: time-awareness genuinely
+re-evolved, its evolved form (confidence softening toward the prior,
+bounds expiring) is structurally unlike lnd's penalty fading, and it
+costs nothing on static tiers. Only the "and lost" clause was wrong.
+A tie is not a win either — decay remains unproven here rather than
+disproven.
+
+Harness prompt corrected accordingly. An unsupported negative in the
+background prompt is a search restriction we imposed on ourselves.
+
+One hypothesis fell out worth its own test: hb1 pulls away from mx_c3
+monotonically as churn rises (+0.018, +0.015, +0.028, +0.037). None
+significant at n=8, and four noisy points make a weak trend, but the
+champion pair was settled on static tiers. If it reverses under churn
+that is a champion question, and it needs a bigger corpus rather than
+more churn levels.

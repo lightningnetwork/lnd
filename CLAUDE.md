@@ -6,7 +6,7 @@ an in-process payment simulator. NOT tied to the current Dijkstra +
 mission-control paradigm — whole routing algorithms are the candidates.
 
 Read `simulation/lab/NOTEBOOK.md` first for the full story; experiment
-writeups live in `simulation/lab/experiments/` (exp-001…exp-016).
+writeups live in `simulation/lab/experiments/` (exp-001…exp-017).
 
 ## Headline results (all validated, held-out, reproducible)
 
@@ -14,9 +14,9 @@ writeups live in `simulation/lab/experiments/` (exp-001…exp-016).
 |---|---|---|---|
 | lnd production stack | 0.694 | 19.8 | defaults; baseline |
 | hand-written seed | 0.762 | 6.1 | ~300-line interval router |
-| hb1 (evolved) | 0.790 | 2.3 | hard-regime specialist |
-| **mx_c3 (evolved)** | **0.791** | **2.3** | generalist champion |
-| atomic1 (evolved) | 0.790 | 1.6 | best challenger: no collapse tier, attempt record, beats a champion under staleness |
+| hb1 (evolved) | 0.790 | 2.3 | sharp-bimodal specialist; ≥ mx_c3 on 12/13 exp-017 tiers |
+| **mx_c3 (evolved)** | **0.791** | **2.3** | generalist champion (title eroding — see exp-017) |
+| atomic1 (evolved) | 0.790 | 1.6 | flat-liquidity specialist (exp-017 ladder rank 4→1), attempt record, beats a champion under staleness |
 
 - Mainnet = real 12,161-node describegraph snapshot
   (`~/codez/data/mainnet_graph.json`), 100 payments (exp-009). Same
@@ -56,7 +56,18 @@ writeups live in `simulation/lab/experiments/` (exp-001…exp-016).
   `ExpFloat64()*0.05`; atomic1's low mode is `exp(−x/0.055)`), and the
   mainnet tier overwrites real balances with that same generator — so
   the mainnet number is real topology and policies, synthetic
-  liquidity. Fixing that is the top pre-upstream task.
+  liquidity.
+- **The generator-family question is CLOSED (exp-017).** Thirteen
+  paired tiers moving the liquidity family (wrong bimodal scales, beta
+  with polynomial tails, beta:2:2 where the bimodal hypothesis is
+  false, uniform, degree-correlated hubdrain), the amount family, and
+  the mainnet balances: lnd rank 5 on 13/13, an evolved router rank 1
+  on 13/13, hb1−lnd CI excludes zero on 12/13. Margins compress on
+  easy worlds, but the never-fitted seed compresses with the same
+  shape — a difficulty ceiling, not memorized constants. The paradigm
+  wins, not the fitted priors. What stays authored: every world is
+  still one we chose, so the full escape remains degraded attribution
+  and offline replay on real payment data.
 
 ## Map
 
@@ -160,11 +171,28 @@ the corrections to our own published claims, live in
 next.
 
 ### Live
-- Nothing. The tree is FREE — no code-mode run is holding `routing/`
-  or `cmd/routesim/`, so the four next-priority experiments below are
-  unblocked for the first time since exp-013 launched.
+- Nothing. The tree is FREE. The exp-018 omni adjudication harness is
+  ready to launch (`run_gepa_omni.py --dry-run` shows the plan; use
+  the scratch `venv-omni` or the refreshed shared venv — both carry
+  the meta_harness JSON fix, durable in `~/codez/gepa` main at
+  7c20d98c). Launching it re-locks `routing/` + `cmd/routesim/`.
 
 ### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
+- **exp-017** — the de-circularization sweep. 13 paired tiers (7
+  liquidity families, 2 amount families, 4 re-liquified mainnet), 5
+  routers, 650 runs; the untouched mainnet control reproduced exp-009
+  to three decimals. lnd rank 5 on 13/13, an evolved router rank 1 on
+  13/13; margins compress on easy worlds but the never-fitted seed
+  compresses identically, so the compression is a ceiling, not
+  overfit priors. atomic1 revealed as the flat-liquidity specialist
+  (ladder rank 4→1 monotone; abandonment signature on sharp bimodal).
+  hb1 ≥ mx_c3 on 12/13 (liq-uniform p=.004; all mainnet families tie
+  to 0.001) — the "generalist" title now rests only on OOD/split,
+  untested here; adjudication sweep queued. Also: give_up_rate ==
+  1−success_rate identically for candidates (they always fail by
+  giving up), so it is a style fingerprint, not an abandonment
+  signal; the evaluator hint now states the read-the-pair rule. The
+  hubdrain tier is underpowered at n=10 — no verdicts from it.
 - **exp-016** — served weights, the arm exp-012 could not build.
   Third-party observations injected with no payment sent: atomic1
   +0.055 (p=.016), mx_c3 +0.031 with attempts 8.1→4.4, lnd **−0.029
@@ -258,16 +286,31 @@ next.
   objective; paradigm worth 0.18–0.22.
 
 ### Next, in priority order
-1. **Fix the circular mainnet liquidity.** `sim_liquidity.go` draws
-   `ExpFloat64()*0.05` and the evolved priors fit that constant; the
-   mainnet tier overwrites real balances with the same generator. Until
-   liquidity comes from somewhere we did not write, the mainnet number
-   is real topology and policies with synthetic balances. TOP
-   pre-upstream fix.
-2. **Degraded attribution** — the advisor's decisive pre-upstream test.
+1. **Degraded attribution** — the advisor's decisive pre-upstream test.
    Our failure channel is instant, truthful and exactly attributed;
    mainnet's is not. The 8.6× is an upper bound until this runs.
-3. Re-run the staleness arm underneath the fixed traffic engine
-   (exp-008's decay question is now answered — see exp-015).
-4. Upstream the gepa meta_harness JSON fix (`~/codez/gepa` branch
-   `fix-claude-json-array`).
+   (exp-017 closed the generator-family half of the old circularity
+   item; realistic-liquidity sourcing folds into this and offline
+   replay.)
+2. **exp-018: the omni adjudication.** Harness ready (see Live).
+   Same seed, same eval budget, independent engines — separates "the
+   problem has a ceiling" from "the gepa engine has an attractor."
+   Locks the tree while running, so schedule behind tree-touching
+   work.
+3. **hb1 vs mx_c3 championship adjudication** — a full held-out
+   paired sweep over the ORIGINAL six tiers plus the exp-017
+   families. exp-015 (n=40, p=.014) and exp-017 (12/13 tiers,
+   liq-uniform p=.004) both point at hb1; the "generalist" framing
+   should not be repeated in new docs until this settles it.
+4. **The distillation patch** — mission control already keeps
+   FailAmt; nothing downstream reads it. Minimal diff to lnd's own
+   stack in-harness (FailAmt as a pathfinding constraint +
+   amount-adaptive splitting), then measure how much of the
+   0.694→0.791 gap it closes. exp-002b and exp-016 converge on this.
+5. Offline replay on real payment data — replay both belief systems
+   over a real node's historical attempt stream, score predictive
+   log-loss. No simulator in the loop; the escape from
+   "simulator-shaped."
+6. Upstream the gepa meta_harness JSON fix (merged durable into
+   `~/codez/gepa` main at 7c20d98c; the upstream PR to gepa-ai/gepa
+   remains).

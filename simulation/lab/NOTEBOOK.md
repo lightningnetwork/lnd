@@ -694,3 +694,48 @@ measurement, and in each case the measurement stood while the story did
 not. The measurements in this notebook are more trustworthy than the
 explanations attached to them, and explanations should be checked
 against the code they describe before they are published.
+
+## 2026-07-27 — exp-017: the paradigm survives generators it was never fit to
+
+The de-circularization sweep, and the best news the program has had
+since exp-009. Full writeup in exp-017-generator-families.md; the
+short version follows.
+
+The worry (WHY.md §0): the evolved priors fit our generator's
+`ExpFloat64()*0.05`, so every published margin might be memorization.
+The test: parameterize the generator family (bimodal at wrong scales,
+beta with polynomial tails, beta:2:2 where the bimodal hypothesis is
+simply false, uniform, and hubdrain — depletion correlated with node
+degree, our first topology-aware world), plus two authored-amount
+families and four re-liquified mainnet tiers. Thirteen tiers, five
+routers, 650 paired runs. The untouched mainnet control reproduced
+the published exp-009 numbers to three decimals before the sweep was
+allowed to proceed.
+
+The verdict: lnd is rank 5 on all thirteen tiers, an evolved router
+is rank 1 on all thirteen, and hb1-lnd holds a CI excluding zero on
+12 of 13. The margins do shrink as the world flattens away from the
+fitted scale — the overfitting signature we were hunting — but the
+hand-written seed, which was never fit to anything, shrinks with the
+same shape and by a similar fraction, while lnd's own score climbs.
+The compression is a difficulty ceiling, not memorized constants.
+The paradigm is what wins; the constants only show at the edges.
+
+Three secondary findings restructure the champion picture. atomic1
+is a flat-liquidity specialist: rank 4 -> 1 monotonically along the
+ladder, rank 1 on three of four mainnet families, highest success at
+fewest attempts on beta:2:2 — and the abandonment signature (worse
+on both axes) on sharply bimodal worlds. hb1 >= mx_c3 on 12 of 13
+tiers with liq-uniform significant (p=.004, 0/9 files), and the pair
+ties to 0.001 on every mainnet family — mx_c3's "generalist" title
+now rests entirely on OOD/split tiers this sweep did not test, and a
+dedicated adjudication should run before the framing is repeated.
+And give_up_rate turned out to equal 1 - success_rate identically
+for candidate routers (they always fail by giving up), so the ASI
+warning added the same day was firing universally; rewritten as an
+unconditional read-the-pair rule.
+
+What stays authored: every world here is still ours, including the
+re-liquified mainnet balances. The generator-family question is
+closed; the full escape from simulator-shaped remains degraded
+attribution and offline replay, which move up the queue.

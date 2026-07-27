@@ -203,8 +203,10 @@ next.
   drive give-ups 0.31→0.71 and 30% pins files to zero success — a
   self-contained upstream finding (third input to the distillation
   patch). Anomaly shipped as anomaly: shift=0.3 HELPS lnd (+0.122,
-  10/10, p=.002), mechanism unproven, needs a shift-isolated mainnet
-  arm. Delay is free for everyone — misattribution, not staleness, is
+  10/10, p=.002) — and exp-019b bounded it same-night: hard-tier-only
+  (mainnet CIs straddle zero, sign flips), the route-geometry story
+  refuted by its own premise (mainnet routes are 3x SHORTER, 1.9 mean
+  hops), no mechanism survives. Delay is free for everyone — misattribution, not staleness, is
   the binding constraint. The 8.6× attempt headline is retired; the
   edge is a success edge under degradation.
 - **exp-020** — the championship adjudication. Original tier set, the
@@ -336,13 +338,10 @@ next.
    0.694→0.791 gap it closes. exp-002b, exp-016 and exp-019 converge
    on it — the third component is softening processPaymentOutcomeUnknown's
    whole-route both-directions penalty.
-3. **Shift-isolated mainnet arm** — the exp-019 anomaly (plausible
-   lies help lnd) needs mechanism isolation before its story is
-   published anywhere.
-4. Offline replay on real payment data — replay both belief systems
+3. Offline replay on real payment data — replay both belief systems
    over a real node's historical attempt stream, score predictive
    log-loss. No simulator in the loop; the escape from
    "simulator-shaped."
-5. Upstream the gepa meta_harness JSON fix (merged durable into
+4. Upstream the gepa meta_harness JSON fix (merged durable into
    `~/codez/gepa` main at 7c20d98c; the upstream PR to gepa-ai/gepa
    remains).

@@ -152,3 +152,33 @@ inflating champion margins at those levels. The mainnet arm inherits
 the synthetic-liquidity caveat as always. And the shift-helps-lnd
 anomaly has no mainnet or mechanism-isolating arm yet — it is a
 measured fact with an unproven story attached.
+
+
+## Follow-up (exp-019b): the anomaly is hard-tier-only, and the story I told about it was wrong twice
+
+The shift-isolated mainnet arm ran the same night: shift 0.1 and 0.3
+with no unknown and no delay, paired against the exp-019 controls
+(which reproduce bit for bit), lnd and mx_c3, n=10.
+
+**Shift does not help lnd on mainnet.** +0.014 [−0.034,+0.060] at
+0.1, −0.026 [−0.097,+0.044] at 0.3 — both CIs straddle zero, the
+sign flips between levels, and the per-file deltas are heterogeneous
+in both directions. Decomposing the objective shows the two tiers are
+different animals: the hard-tier gain was success-led (+0.069 of the
++0.122), while on mainnet success FALLS (−0.040, −0.100) and
+give-ups rise on 8 of 8 files — that is finding 2's give-up spiral
+wearing a smaller mask, not finding 3's anomaly. mx_c3 is immune on
+both tiers (success and give-ups exactly unchanged; the whole effect
+is +0.3–0.4 attempts).
+
+The route-geometry story fails in a way worth recording. It predicted
+the effect would shrink on mainnet, and the effect vanished — but the
+prediction rested on mainnet routes being LONGER, and they are three
+times SHORTER (first-attempt mean 1.9 hops vs 5.4; the exp-009 hub
+source reaches 29–62% of targets in a single hop). A single-hop
+route is the case where "one hop off" most often lands on the
+sender's own channel, so the story predicts full-or-greater strength
+exactly where the data shows none. An outcome can match a prediction
+while refuting its premise; this one did. The anomaly now carries two
+facts and no mechanism: it is real on the hard tier (10/10, p=.002)
+and it does not travel to a different graph.

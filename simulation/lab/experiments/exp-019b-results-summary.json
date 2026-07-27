@@ -1,0 +1,3642 @@
+{
+  "levels": {
+    "B0_control": {
+      "tier": "B",
+      "n_files": 10,
+      "routers": {
+        "lnd": {
+          "objective": 0.6935762596736206,
+          "objective_ci95": [
+            0.5589230612061943,
+            0.8318349784387795
+          ],
+          "success": 0.79,
+          "attempts": 19.8,
+          "give_up_rate": 0.13,
+          "per_file_objective": [
+            0.542553557142857,
+            0.4281253684210526,
+            0.6488964490566038,
+            0.9880389130434782,
+            0.6497570586956521,
+            0.9999574666666666,
+            0.44998684210526313,
+            0.9958298903225806,
+            0.7877420512820513,
+            0.44487499999999996
+          ]
+        },
+        "mx_c3": {
+          "objective": 0.7905702540576551,
+          "objective_ci95": [
+            0.6981845185445333,
+            0.8851456723911291
+          ],
+          "success": 0.8099999999999999,
+          "attempts": 2.2800000000000002,
+          "give_up_rate": 0.19,
+          "per_file_objective": [
+            0.672553557142857,
+            0.5608411122807018,
+            0.7645113924528302,
+            0.9911488108695652,
+            0.7564023043478261,
+            0.9999508045977011,
+            0.5979815789473684,
+            0.9907714064516129,
+            0.7958057692307693,
+            0.7757358042553192
+          ],
+          "margin_over_lnd": {
+            "mean": 0.09699399438403455,
+            "ci95": [
+              0.040493934559835805,
+              0.1628656318273234
+            ],
+            "sign_p": 0.109375,
+            "wins": 8,
+            "n_nonzero": 10
+          }
+        }
+      }
+    },
+    "B3_shift0.1": {
+      "tier": "B",
+      "n_files": 10,
+      "routers": {
+        "lnd": {
+          "objective": 0.7074614003503594,
+          "objective_ci95": [
+            0.6037325610327706,
+            0.8157503564925241
+          ],
+          "success": 0.75,
+          "attempts": 4.92,
+          "give_up_rate": 0.25,
+          "per_file_objective": [
+            0.55155,
+            0.49812536842105265,
+            0.7468964490566038,
+            0.8905607317073171,
+            0.5929368065934065,
+            0.9999574666666666,
+            0.5699868421052631,
+            0.8979832876712329,
+            0.7877420512820513,
+            0.538875
+          ],
+          "d_objective_vs_control": {
+            "mean": 0.01388514067673885,
+            "ci95": [
+              -0.03448417985353069,
+              0.06005218186638388
+            ],
+            "sign_p": 0.7265625,
+            "wins": 5,
+            "n_nonzero": 8,
+            "per_file": [
+              0.008996442857142961,
+              0.07000000000000006,
+              0.09799999999999998,
+              -0.09747818133616115,
+              -0.056820252102245616,
+              0.0,
+              0.11999999999999994,
+              -0.0978466026513477,
+              0.0,
+              0.09400000000000003
+            ]
+          },
+          "d_success_vs_control": {
+            "mean": -0.04,
+            "ci95": [
+              -0.07,
+              -0.009999999999999998
+            ],
+            "sign_p": 0.125,
+            "wins": 0,
+            "n_nonzero": 4,
+            "per_file": [
+              -0.09999999999999998,
+              0.0,
+              0.0,
+              -0.09999999999999998,
+              -0.10000000000000009,
+              0,
+              0.0,
+              -0.09999999999999998,
+              0.0,
+              0.0
+            ]
+          },
+          "d_attempts_vs_control": {
+            "mean": -14.879999999999999,
+            "ci95": [
+              -23.689999999999998,
+              -6.970000000000001
+            ],
+            "sign_p": 0.015625,
+            "wins": 0,
+            "n_nonzero": 7,
+            "per_file": [
+              -19.3,
+              -34.4,
+              -17.5,
+              -0.30000000000000004,
+              -17.7,
+              0,
+              -21.4,
+              0.0,
+              0.0,
+              -38.199999999999996
+            ]
+          },
+          "d_give_up_vs_control": {
+            "mean": 0.12000000000000002,
+            "ci95": [
+              0.07,
+              0.16
+            ],
+            "sign_p": 0.0078125,
+            "wins": 8,
+            "n_nonzero": 8,
+            "per_file": [
+              0.2,
+              0.2,
+              0.1,
+              0.1,
+              0.19999999999999998,
+              0,
+              0.10000000000000003,
+              0.1,
+              0.0,
+              0.2
+            ]
+          }
+        },
+        "mx_c3": {
+          "objective": 0.7863269835768273,
+          "objective_ci95": [
+            0.6923062316238593,
+            0.883360886457386
+          ],
+          "success": 0.8099999999999999,
+          "attempts": 2.71,
+          "give_up_rate": 0.19,
+          "per_file_objective": [
+            0.669553557142857,
+            0.5578411122807017,
+            0.758511603773585,
+            0.9911488108695652,
+            0.736402304347826,
+            0.9999508045977011,
+            0.5879815789473684,
+            0.9903384903225806,
+            0.7958057692307693,
+            0.7757358042553192
+          ],
+          "d_objective_vs_control": {
+            "mean": -0.004243270480827765,
+            "ci95": [
+              -0.008586540961655509,
+              -0.0010298537066342095
+            ],
+            "sign_p": 0.03125,
+            "wins": 0,
+            "n_nonzero": 6,
+            "per_file": [
+              -0.0030000000000000027,
+              -0.0030000000000001137,
+              -0.0059997886792452215,
+              0.0,
+              -0.020000000000000018,
+              0.0,
+              -0.010000000000000009,
+              -0.00043291612903229026,
+              0.0,
+              0.0
+            ]
+          },
+          "d_success_vs_control": {
+            "mean": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ],
+            "sign_p": 1.0,
+            "wins": 0,
+            "n_nonzero": 0,
+            "per_file": [
+              0.0,
+              0.0,
+              0.0,
+              0,
+              0.0,
+              0,
+              0.0,
+              0,
+              0.0,
+              0.0
+            ]
+          },
+          "d_attempts_vs_control": {
+            "mean": 0.43,
+            "ci95": [
+              0.10999999999999992,
+              0.86
+            ],
+            "sign_p": 0.03125,
+            "wins": 6,
+            "n_nonzero": 6,
+            "per_file": [
+              0.2999999999999998,
+              0.2999999999999998,
+              0.6000000000000001,
+              0.0,
+              2.0,
+              0,
+              1.0000000000000002,
+              0.09999999999999987,
+              0.0,
+              0.0
+            ]
+          },
+          "d_give_up_vs_control": {
+            "mean": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ],
+            "sign_p": 1.0,
+            "wins": 0,
+            "n_nonzero": 0,
+            "per_file": [
+              0.0,
+              0.0,
+              0.0,
+              0,
+              0.0,
+              0,
+              0.0,
+              0,
+              0.0,
+              0.0
+            ]
+          },
+          "margin_over_lnd": {
+            "mean": 0.07886558322646794,
+            "ci95": [
+              0.037910987772296,
+              0.1250768948127302
+            ],
+            "sign_p": 0.021484375,
+            "wins": 9,
+            "n_nonzero": 10
+          }
+        }
+      }
+    },
+    "B4_shift0.3": {
+      "tier": "B",
+      "n_files": 10,
+      "routers": {
+        "lnd": {
+          "objective": 0.6677176268950663,
+          "objective_ci95": [
+            0.5509457926650054,
+            0.7897442146016396
+          ],
+          "success": 0.6900000000000001,
+          "attempts": 2.8,
+          "give_up_rate": 0.31,
+          "per_file_objective": [
+            0.4667499818181818,
+            0.527739,
+            0.47366060606060606,
+            0.8905607317073171,
+            0.46492130163934425,
+            0.9999574666666666,
+            0.5769868421052631,
+            0.8979832876712329,
+            0.7997420512820513,
+            0.5788749999999999
+          ],
+          "d_objective_vs_control": {
+            "mean": -0.02585863277855425,
+            "ci95": [
+              -0.09655296107100023,
+              0.04415132388257356
+            ],
+            "sign_p": 1.0,
+            "wins": 4,
+            "n_nonzero": 9,
+            "per_file": [
+              -0.07580357532467524,
+              0.09961363157894737,
+              -0.17523584299599776,
+              -0.09747818133616115,
+              -0.1848357570563079,
+              0.0,
+              0.12699999999999995,
+              -0.0978466026513477,
+              0.01200000000000001,
+              0.13399999999999995
+            ]
+          },
+          "d_success_vs_control": {
+            "mean": -0.1,
+            "ci95": [
+              -0.18,
+              -0.029999999999999992
+            ],
+            "sign_p": 0.0625,
+            "wins": 0,
+            "n_nonzero": 5,
+            "per_file": [
+              -0.19999999999999996,
+              0.0,
+              -0.30000000000000004,
+              -0.09999999999999998,
+              -0.30000000000000004,
+              0,
+              0.0,
+              -0.09999999999999998,
+              0.0,
+              0.0
+            ]
+          },
+          "d_attempts_vs_control": {
+            "mean": -17.0,
+            "ci95": [
+              -26.339999999999996,
+              -8.15
+            ],
+            "sign_p": 0.0078125,
+            "wins": 0,
+            "n_nonzero": 8,
+            "per_file": [
+              -21.700000000000003,
+              -37.5,
+              -20.099999999999998,
+              -0.30000000000000004,
+              -24.9,
+              0,
+              -22.099999999999998,
+              0.0,
+              -1.2000000000000002,
+              -42.199999999999996
+            ]
+          },
+          "d_give_up_vs_control": {
+            "mean": 0.18,
+            "ci95": [
+              0.1,
+              0.27
+            ],
+            "sign_p": 0.0078125,
+            "wins": 8,
+            "n_nonzero": 8,
+            "per_file": [
+              0.3,
+              0.2,
+              0.4,
+              0.1,
+              0.4,
+              0,
+              0.10000000000000003,
+              0.1,
+              0.0,
+              0.2
+            ]
+          }
+        },
+        "mx_c3": {
+          "objective": 0.7876275843889685,
+          "objective_ci95": [
+            0.6936270595878051,
+            0.8841125393458233
+          ],
+          "success": 0.8099999999999999,
+          "attempts": 2.58,
+          "give_up_rate": 0.19,
+          "per_file_objective": [
+            0.668553557142857,
+            0.5578411122807017,
+            0.7615116075471698,
+            0.9911488108695652,
+            0.7514083086956522,
+            0.9999508045977011,
+            0.5849815789473684,
+            0.9903384903225806,
+            0.7948057692307693,
+            0.7757358042553192
+          ],
+          "d_objective_vs_control": {
+            "mean": -0.002942669668686659,
+            "ci95": [
+              -0.005543291612903245,
+              -0.0009865617163725138
+            ],
+            "sign_p": 0.015625,
+            "wins": 0,
+            "n_nonzero": 7,
+            "per_file": [
+              -0.0040000000000000036,
+              -0.0030000000000001137,
+              -0.00299978490566033,
+              0.0,
+              -0.004993995652173844,
+              0.0,
+              -0.013000000000000012,
+              -0.00043291612903229026,
+              -0.0010000000000000009,
+              0.0
+            ]
+          },
+          "d_success_vs_control": {
+            "mean": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ],
+            "sign_p": 1.0,
+            "wins": 0,
+            "n_nonzero": 0,
+            "per_file": [
+              0.0,
+              0.0,
+              0.0,
+              0,
+              0.0,
+              0,
+              0.0,
+              0,
+              0.0,
+              0.0
+            ]
+          },
+          "d_attempts_vs_control": {
+            "mean": 0.3,
+            "ci95": [
+              0.10999999999999996,
+              0.55
+            ],
+            "sign_p": 0.015625,
+            "wins": 7,
+            "n_nonzero": 7,
+            "per_file": [
+              0.3999999999999999,
+              0.2999999999999998,
+              0.30000000000000027,
+              0.0,
+              0.5,
+              0,
+              1.3,
+              0.09999999999999987,
+              0.09999999999999987,
+              0.0
+            ]
+          },
+          "d_give_up_vs_control": {
+            "mean": 0.0,
+            "ci95": [
+              0.0,
+              0.0
+            ],
+            "sign_p": 1.0,
+            "wins": 0,
+            "n_nonzero": 0,
+            "per_file": [
+              0.0,
+              0.0,
+              0.0,
+              0,
+              0.0,
+              0,
+              0.0,
+              0,
+              0.0,
+              0.0
+            ]
+          },
+          "margin_over_lnd": {
+            "mean": 0.11990995749390214,
+            "ci95": [
+              0.054175862099598016,
+              0.18878289002754683
+            ],
+            "sign_p": 0.109375,
+            "wins": 8,
+            "n_nonzero": 10
+          }
+        }
+      }
+    },
+    "A0_control": {
+      "tier": "A",
+      "n_files": 10,
+      "routers": {
+        "lnd": {
+          "objective": 0.30920938898830314,
+          "objective_ci95": [
+            0.15124067797570848,
+            0.4707739106909714
+          ],
+          "success": 0.4926190476190476,
+          "attempts": 45.458492063492066,
+          "give_up_rate": 0.3078571428571429,
+          "per_file_objective": [
+            0.7161721597222223,
+            0.4286480897435897,
+            0.28695310526315787,
+            0.41322643681318677,
+            -0.06029133333333335,
+            0.009999999999999981,
+            0.14627168461538462,
+            0.09079546666666664,
+            0.7067474803921568,
+            0.35357079999999996
+          ]
+        },
+        "mx_c3": {
+          "objective": 0.5833374720606656,
+          "objective_ci95": [
+            0.4254733354049855,
+            0.7135632026962139
+          ],
+          "success": 0.731984126984127,
+          "attempts": 10.752460317460317,
+          "give_up_rate": 0.268015873015873,
+          "per_file_objective": [
+            0.7361721597222223,
+            0.7159451954022987,
+            0.539,
+            0.702222865079365,
+            0.25007719444444443,
+            0.09917213821138209,
+            0.5626942593220339,
+            0.5866666666666668,
+            0.8914242417582418,
+            0.75
+          ],
+          "margin_over_lnd": {
+            "mean": 0.27412808307236236,
+            "ci95": [
+              0.18629490271765808,
+              0.35893427724820487
+            ],
+            "sign_p": 0.001953125,
+            "wins": 10,
+            "n_nonzero": 10
+          }
+        }
+      }
+    },
+    "A4_shift0.3": {
+      "tier": "A",
+      "n_files": 10,
+      "routers": {
+        "lnd": {
+          "objective": 0.4314979377194619,
+          "objective_ci95": [
+            0.2873103508831038,
+            0.5649444843954248
+          ],
+          "success": 0.5613492063492063,
+          "attempts": 12.172261904761905,
+          "give_up_rate": 0.4386507936507936,
+          "per_file_objective": [
+            0.7299221597222222,
+            0.5590923383838384,
+            0.5012890545454545,
+            0.5459836373626373,
+            0.25979627450980386,
+            0.013333333333333322,
+            0.2242716846153846,
+            0.26393952307692303,
+            0.724827974025974,
+            0.4925233976190476
+          ],
+          "d_objective_vs_control": {
+            "mean": 0.12228854873115876,
+            "ci95": [
+              0.0678981526842971,
+              0.18438781164927434
+            ],
+            "sign_p": 0.001953125,
+            "wins": 10,
+            "n_nonzero": 10,
+            "per_file": [
+              0.013749999999999929,
+              0.13044424864024873,
+              0.2143359492822966,
+              0.13275720054945056,
+              0.3200876078431372,
+              0.003333333333333341,
+              0.07799999999999999,
+              0.17314405641025638,
+              0.01808049363381714,
+              0.13895259761904766
+            ]
+          },
+          "d_success_vs_control": {
+            "mean": 0.06873015873015874,
+            "ci95": [
+              0.007777777777777786,
+              0.1265079365079365
+            ],
+            "sign_p": 0.21875,
+            "wins": 5,
+            "n_nonzero": 6,
+            "per_file": [
+              0.0,
+              0.11111111111111116,
+              0.19999999999999996,
+              0.0,
+              0.16666666666666666,
+              0.0,
+              0.0,
+              0.16666666666666669,
+              -0.09999999999999998,
+              0.1428571428571429
+            ]
+          },
+          "d_attempts_vs_control": {
+            "mean": -33.28623015873016,
+            "ci95": [
+              -48.64587301587302,
+              -18.72797619047619
+            ],
+            "sign_p": 0.001953125,
+            "wins": 0,
+            "n_nonzero": 10,
+            "per_file": [
+              -1.375,
+              -41.44444444444444,
+              -69.7,
+              -29.42857142857143,
+              -28.833333333333332,
+              -0.3333333333333339,
+              -75.2,
+              -17.833333333333332,
+              -22.0,
+              -46.714285714285715
+            ]
+          },
+          "d_give_up_vs_control": {
+            "mean": 0.1307936507936508,
+            "ci95": [
+              0.05650793650793651,
+              0.2107936507936508
+            ],
+            "sign_p": 0.03125,
+            "wins": 6,
+            "n_nonzero": 6,
+            "per_file": [
+              0.0,
+              0.2222222222222222,
+              0.19999999999999998,
+              0.14285714285714285,
+              0.0,
+              0.0,
+              0.39999999999999997,
+              0.0,
+              0.2,
+              0.14285714285714285
+            ]
+          }
+        },
+        "mx_c3": {
+          "objective": 0.5417123700970798,
+          "objective_ci95": [
+            0.3816166623466997,
+            0.6727435998164782
+          ],
+          "success": 0.7053174603174603,
+          "attempts": 15.550277777777776,
+          "give_up_rate": 0.29468253968253966,
+          "per_file_objective": [
+            0.7274221597222222,
+            0.6861186858237547,
+            0.5259999999999999,
+            0.7007942936507936,
+            0.08333333333333331,
+            0.09917213821138209,
+            0.5601447372881355,
+            0.5833333333333334,
+            0.7008050196078431,
+            0.75
+          ],
+          "d_objective_vs_control": {
+            "mean": -0.041625101963585716,
+            "ci95": [
+              -0.0914629870546008,
+              -0.005242555364634083
+            ],
+            "sign_p": 0.0078125,
+            "wins": 0,
+            "n_nonzero": 8,
+            "per_file": [
+              -0.008750000000000036,
+              -0.029826509578544047,
+              -0.013000000000000123,
+              -0.0014285714285714457,
+              -0.1667438611111111,
+              0.0,
+              -0.002549522033898355,
+              -0.0033333333333334103,
+              -0.19061922215039862,
+              0.0
+            ]
+          },
+          "d_success_vs_control": {
+            "mean": -0.026666666666666665,
+            "ci95": [
+              -0.06666666666666668,
+              0.0
+            ],
+            "sign_p": 0.5,
+            "wins": 0,
+            "n_nonzero": 2,
+            "per_file": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              -0.16666666666666669,
+              0.0,
+              0.0,
+              0.0,
+              -0.09999999999999998,
+              0
+            ]
+          },
+          "d_attempts_vs_control": {
+            "mean": 4.797817460317461,
+            "ci95": [
+              1.9832142857142858,
+              8.572142857142858
+            ],
+            "sign_p": 0.001953125,
+            "wins": 10,
+            "n_nonzero": 10,
+            "per_file": [
+              0.875,
+              2.8888888888888893,
+              1.3000000000000007,
+              0.1428571428571428,
+              3.833333333333332,
+              5.833333333333332,
+              0.2999999999999998,
+              18.833333333333336,
+              8.4,
+              5.571428571428573
+            ]
+          },
+          "d_give_up_vs_control": {
+            "mean": 0.02666666666666666,
+            "ci95": [
+              0.0,
+              0.06666666666666665
+            ],
+            "sign_p": 0.5,
+            "wins": 2,
+            "n_nonzero": 2,
+            "per_file": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.16666666666666663,
+              0.0,
+              0.0,
+              0.0,
+              0.1,
+              0
+            ]
+          },
+          "margin_over_lnd": {
+            "mean": 0.1102144323776179,
+            "ci95": [
+              0.013554527285250495,
+              0.20668283234754328
+            ],
+            "sign_p": 0.34375,
+            "wins": 7,
+            "n_nonzero": 10
+          }
+        }
+      }
+    }
+  },
+  "attribution_check": {
+    "B0_control": {
+      "attempts": 0,
+      "shifted": 0,
+      "shifted_rate": 0.0
+    },
+    "B3_shift0.1": {
+      "attempts": 763,
+      "shifted": 59,
+      "shifted_rate": 0.07732634338138926
+    },
+    "B4_shift0.3": {
+      "attempts": 538,
+      "shifted": 89,
+      "shifted_rate": 0.1654275092936803
+    },
+    "A0_control": {
+      "attempts": 0,
+      "shifted": 0,
+      "shifted_rate": 0.0
+    },
+    "A4_shift0.3": {
+      "attempts": 2065,
+      "shifted": 535,
+      "shifted_rate": 0.25907990314769974
+    }
+  },
+  "hops": {
+    "B0_control": {
+      "lnd": {
+        "n_attempts": 1980,
+        "hops_mean": 1.6131313131313132,
+        "hops_hist": {
+          "1": 1218,
+          "2": 330,
+          "3": 412,
+          "4": 20
+        },
+        "share_1hop": 0.6151515151515151,
+        "share_le2hop": 0.7818181818181819
+      },
+      "mx_c3": {
+        "n_attempts": 228,
+        "hops_mean": 2.223684210526316,
+        "hops_hist": {
+          "1": 42,
+          "2": 101,
+          "3": 77,
+          "4": 8
+        },
+        "share_1hop": 0.18421052631578946,
+        "share_le2hop": 0.6271929824561403
+      }
+    },
+    "B3_shift0.1": {
+      "lnd": {
+        "n_attempts": 492,
+        "hops_mean": 2.178861788617886,
+        "hops_hist": {
+          "1": 141,
+          "2": 144,
+          "3": 185,
+          "4": 22
+        },
+        "share_1hop": 0.2865853658536585,
+        "share_le2hop": 0.5792682926829268
+      },
+      "mx_c3": {
+        "n_attempts": 271,
+        "hops_mean": 2.3321033210332103,
+        "hops_hist": {
+          "1": 42,
+          "2": 109,
+          "3": 108,
+          "4": 12
+        },
+        "share_1hop": 0.15498154981549817,
+        "share_le2hop": 0.5571955719557196
+      }
+    },
+    "B4_shift0.3": {
+      "lnd": {
+        "n_attempts": 280,
+        "hops_mean": 2.3464285714285715,
+        "hops_hist": {
+          "1": 42,
+          "2": 108,
+          "3": 121,
+          "4": 9
+        },
+        "share_1hop": 0.15,
+        "share_le2hop": 0.5357142857142857
+      },
+      "mx_c3": {
+        "n_attempts": 258,
+        "hops_mean": 2.310077519379845,
+        "hops_hist": {
+          "1": 42,
+          "2": 107,
+          "3": 96,
+          "4": 13
+        },
+        "share_1hop": 0.16279069767441862,
+        "share_le2hop": 0.5775193798449613
+      }
+    },
+    "A0_control": {
+      "lnd": {
+        "n_attempts": 3830,
+        "hops_mean": 6.6214099216710185,
+        "hops_hist": {
+          "1": 403,
+          "2": 681,
+          "3": 406,
+          "4": 8,
+          "5": 31,
+          "6": 35,
+          "7": 430,
+          "8": 242,
+          "9": 463,
+          "10": 456,
+          "11": 54,
+          "12": 506,
+          "13": 65,
+          "14": 17,
+          "15": 14,
+          "16": 2,
+          "17": 4,
+          "18": 3,
+          "19": 6,
+          "20": 4
+        },
+        "share_1hop": 0.10522193211488251,
+        "share_le2hop": 0.28302872062663187
+      },
+      "mx_c3": {
+        "n_attempts": 759,
+        "hops_mean": 13.743083003952568,
+        "hops_hist": {
+          "1": 4,
+          "2": 46,
+          "3": 22,
+          "4": 3,
+          "5": 11,
+          "6": 20,
+          "7": 35,
+          "8": 26,
+          "9": 43,
+          "10": 30,
+          "11": 30,
+          "12": 41,
+          "13": 38,
+          "14": 50,
+          "15": 53,
+          "16": 23,
+          "17": 47,
+          "18": 13,
+          "19": 76,
+          "20": 7,
+          "21": 55,
+          "22": 2,
+          "23": 69,
+          "24": 15
+        },
+        "share_1hop": 0.005270092226613966,
+        "share_le2hop": 0.06587615283267458
+      }
+    },
+    "A4_shift0.3": {
+      "lnd": {
+        "n_attempts": 962,
+        "hops_mean": 8.661122661122661,
+        "hops_hist": {
+          "1": 16,
+          "2": 103,
+          "3": 48,
+          "4": 21,
+          "5": 48,
+          "6": 38,
+          "7": 81,
+          "8": 79,
+          "9": 92,
+          "10": 82,
+          "11": 82,
+          "12": 73,
+          "13": 95,
+          "14": 53,
+          "15": 24,
+          "16": 11,
+          "17": 13,
+          "18": 2,
+          "19": 1
+        },
+        "share_1hop": 0.016632016632016633,
+        "share_le2hop": 0.12370062370062371
+      },
+      "mx_c3": {
+        "n_attempts": 1103,
+        "hops_mean": 13.86128739800544,
+        "hops_hist": {
+          "1": 5,
+          "2": 50,
+          "3": 33,
+          "4": 7,
+          "5": 27,
+          "6": 17,
+          "7": 35,
+          "8": 48,
+          "9": 64,
+          "10": 48,
+          "11": 58,
+          "12": 63,
+          "13": 80,
+          "14": 56,
+          "15": 61,
+          "16": 32,
+          "17": 67,
+          "18": 22,
+          "19": 110,
+          "20": 13,
+          "21": 82,
+          "22": 18,
+          "23": 81,
+          "24": 26
+        },
+        "share_1hop": 0.004533091568449683,
+        "share_le2hop": 0.04986400725294651
+      }
+    }
+  },
+  "per_file": {
+    "B0_control": {
+      "lnd": {
+        "mn_11_bimodal": {
+          "objective": 0.542553557142857,
+          "success": 0.7,
+          "attempts": 25.1,
+          "fee_ppm": 372.32214285714286,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_11_bimodal.json",
+          "n_attempts": 251,
+          "hops_mean": 1.3067729083665338,
+          "hops_median": 1,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 203,
+            "2": 19,
+            "3": 29
+          }
+        },
+        "mn_11_uniform": {
+          "objective": 0.4281253684210526,
+          "success": 0.6,
+          "attempts": 43.4,
+          "fee_ppm": 1093.7315789473685,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_11_uniform.json",
+          "n_attempts": 434,
+          "hops_mean": 2.064516129032258,
+          "hops_median": 3.0,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 203,
+            "2": 10,
+            "3": 211,
+            "4": 10
+          }
+        },
+        "mn_22_bimodal": {
+          "objective": 0.6488964490566038,
+          "success": 0.8,
+          "attempts": 23.7,
+          "fee_ppm": 55.17754716981132,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.1,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_22_bimodal.json",
+          "n_attempts": 237,
+          "hops_mean": 1.270042194092827,
+          "hops_median": 1,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 198,
+            "2": 19,
+            "3": 15,
+            "4": 5
+          }
+        },
+        "mn_22_uniform": {
+          "objective": 0.9880389130434782,
+          "success": 1,
+          "attempts": 1.8,
+          "fee_ppm": 198.05434782608697,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_22_uniform.json",
+          "n_attempts": 18,
+          "hops_mean": 2.2222222222222223,
+          "hops_median": 2.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 1,
+            "2": 12,
+            "3": 5
+          }
+        },
+        "mn_33_bimodal": {
+          "objective": 0.6497570586956521,
+          "success": 0.8,
+          "attempts": 29.4,
+          "fee_ppm": 12.147065217391305,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.1,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_33_bimodal.json",
+          "n_attempts": 294,
+          "hops_mean": 2.2653061224489797,
+          "hops_median": 2.0,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 3,
+            "2": 211,
+            "3": 79,
+            "4": 1
+          }
+        },
+        "mn_33_uniform": {
+          "objective": 0.9999574666666666,
+          "success": 1,
+          "attempts": 1,
+          "fee_ppm": 2.1266666666666665,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_33_uniform.json",
+          "n_attempts": 10,
+          "hops_mean": 1.5,
+          "hops_median": 1.5,
+          "hops_max": 2,
+          "hops_hist": {
+            "1": 5,
+            "2": 5
+          }
+        },
+        "mn_44_bimodal": {
+          "objective": 0.44998684210526313,
+          "success": 0.6,
+          "attempts": 25.4,
+          "fee_ppm": 0.6578947368421053,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.3,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_44_bimodal.json",
+          "n_attempts": 254,
+          "hops_mean": 1.3385826771653544,
+          "hops_median": 1.0,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 203,
+            "2": 19,
+            "3": 29,
+            "4": 3
+          }
+        },
+        "mn_44_uniform": {
+          "objective": 0.9958298903225806,
+          "success": 1,
+          "attempts": 1.2,
+          "fee_ppm": 108.50548387096774,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_44_uniform.json",
+          "n_attempts": 12,
+          "hops_mean": 2,
+          "hops_median": 2.0,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 4,
+            "2": 5,
+            "3": 2,
+            "4": 1
+          }
+        },
+        "mn_55_bimodal": {
+          "objective": 0.7877420512820513,
+          "success": 0.8,
+          "attempts": 2.2,
+          "fee_ppm": 12.897435897435898,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_55_bimodal.json",
+          "n_attempts": 22,
+          "hops_mean": 2.5454545454545454,
+          "hops_median": 3.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 2,
+            "2": 6,
+            "3": 14
+          }
+        },
+        "mn_55_uniform": {
+          "objective": 0.44487499999999996,
+          "success": 0.6,
+          "attempts": 44.8,
+          "fee_ppm": 256.25,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_55_uniform.json",
+          "n_attempts": 448,
+          "hops_mean": 1.1785714285714286,
+          "hops_median": 1.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 396,
+            "2": 24,
+            "3": 28
+          }
+        }
+      },
+      "mx_c3": {
+        "mn_11_bimodal": {
+          "objective": 0.672553557142857,
+          "success": 0.7,
+          "attempts": 3,
+          "fee_ppm": 372.32214285714286,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.3,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_11_bimodal.json",
+          "n_attempts": 30,
+          "hops_mean": 2.4,
+          "hops_median": 2.5,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 3,
+            "2": 12,
+            "3": 15
+          }
+        },
+        "mn_11_uniform": {
+          "objective": 0.5608411122807018,
+          "success": 0.6,
+          "attempts": 2.6,
+          "fee_ppm": 1157.9443859649123,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.4,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_11_uniform.json",
+          "n_attempts": 26,
+          "hops_mean": 2.3846153846153846,
+          "hops_median": 2.0,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 3,
+            "2": 11,
+            "3": 11,
+            "4": 1
+          }
+        },
+        "mn_22_bimodal": {
+          "objective": 0.7645113924528302,
+          "success": 0.8,
+          "attempts": 3.9,
+          "fee_ppm": 324.43037735849055,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_22_bimodal.json",
+          "n_attempts": 39,
+          "hops_mean": 2.41025641025641,
+          "hops_median": 2,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 4,
+            "2": 21,
+            "3": 8,
+            "4": 6
+          }
+        },
+        "mn_22_uniform": {
+          "objective": 0.9911488108695652,
+          "success": 1,
+          "attempts": 1.4,
+          "fee_ppm": 242.55945652173912,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_22_uniform.json",
+          "n_attempts": 14,
+          "hops_mean": 1.9285714285714286,
+          "hops_median": 2.0,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 4,
+            "2": 8,
+            "3": 1,
+            "4": 1
+          }
+        },
+        "mn_33_bimodal": {
+          "objective": 0.7564023043478261,
+          "success": 0.8,
+          "attempts": 4.9,
+          "fee_ppm": 229.88478260869564,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_33_bimodal.json",
+          "n_attempts": 49,
+          "hops_mean": 2.4489795918367347,
+          "hops_median": 3,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 5,
+            "2": 17,
+            "3": 27
+          }
+        },
+        "mn_33_uniform": {
+          "objective": 0.9999508045977011,
+          "success": 1,
+          "attempts": 1,
+          "fee_ppm": 2.4597701149425286,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_33_uniform.json",
+          "n_attempts": 10,
+          "hops_mean": 1.5,
+          "hops_median": 1.5,
+          "hops_max": 2,
+          "hops_hist": {
+            "1": 5,
+            "2": 5
+          }
+        },
+        "mn_44_bimodal": {
+          "objective": 0.5979815789473684,
+          "success": 0.6,
+          "attempts": 1.2,
+          "fee_ppm": 0.9210526315789473,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.4,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_44_bimodal.json",
+          "n_attempts": 12,
+          "hops_mean": 1.8333333333333333,
+          "hops_median": 1.5,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 6,
+            "2": 2,
+            "3": 4
+          }
+        },
+        "mn_44_uniform": {
+          "objective": 0.9907714064516129,
+          "success": 1,
+          "attempts": 1.3,
+          "fee_ppm": 311.42967741935485,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_44_uniform.json",
+          "n_attempts": 13,
+          "hops_mean": 1.9230769230769231,
+          "hops_median": 2,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 4,
+            "2": 6,
+            "3": 3
+          }
+        },
+        "mn_55_bimodal": {
+          "objective": 0.7958057692307693,
+          "success": 0.8,
+          "attempts": 1.3,
+          "fee_ppm": 59.71153846153846,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_55_bimodal.json",
+          "n_attempts": 13,
+          "hops_mean": 2.1538461538461537,
+          "hops_median": 2,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 3,
+            "2": 5,
+            "3": 5
+          }
+        },
+        "mn_55_uniform": {
+          "objective": 0.7757358042553192,
+          "success": 0.8,
+          "attempts": 2.2,
+          "fee_ppm": 613.2097872340426,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B0_control/mn_55_uniform.json",
+          "n_attempts": 22,
+          "hops_mean": 1.9090909090909092,
+          "hops_median": 2.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 5,
+            "2": 14,
+            "3": 3
+          }
+        }
+      }
+    },
+    "B3_shift0.1": {
+      "lnd": {
+        "mn_11_bimodal": {
+          "objective": 0.55155,
+          "success": 0.6,
+          "attempts": 5.8,
+          "fee_ppm": 22.5,
+          "att_attempts": 58,
+          "att_unknown": 0,
+          "att_shifted": 7,
+          "att_delayed": 0,
+          "give_up_rate": 0.4,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_11_bimodal.json",
+          "n_attempts": 58,
+          "hops_mean": 1.9827586206896552,
+          "hops_median": 2.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 21,
+            "2": 17,
+            "3": 20
+          }
+        },
+        "mn_11_uniform": {
+          "objective": 0.49812536842105265,
+          "success": 0.6,
+          "attempts": 9,
+          "fee_ppm": 1093.7315789473685,
+          "att_attempts": 90,
+          "att_unknown": 0,
+          "att_shifted": 6,
+          "att_delayed": 0,
+          "give_up_rate": 0.4,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_11_uniform.json",
+          "n_attempts": 90,
+          "hops_mean": 2.311111111111111,
+          "hops_median": 3.0,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 28,
+            "2": 16,
+            "3": 36,
+            "4": 10
+          }
+        },
+        "mn_22_bimodal": {
+          "objective": 0.7468964490566038,
+          "success": 0.8,
+          "attempts": 6.2,
+          "fee_ppm": 55.17754716981132,
+          "att_attempts": 62,
+          "att_unknown": 0,
+          "att_shifted": 5,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_22_bimodal.json",
+          "n_attempts": 62,
+          "hops_mean": 2.064516129032258,
+          "hops_median": 2.0,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 22,
+            "2": 19,
+            "3": 16,
+            "4": 5
+          }
+        },
+        "mn_22_uniform": {
+          "objective": 0.8905607317073171,
+          "success": 0.9,
+          "attempts": 1.5,
+          "fee_ppm": 221.96341463414635,
+          "att_attempts": 15,
+          "att_unknown": 0,
+          "att_shifted": 1,
+          "att_delayed": 0,
+          "give_up_rate": 0.1,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_22_uniform.json",
+          "n_attempts": 15,
+          "hops_mean": 2.2,
+          "hops_median": 2,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 1,
+            "2": 10,
+            "3": 4
+          }
+        },
+        "mn_33_bimodal": {
+          "objective": 0.5929368065934065,
+          "success": 0.7,
+          "attempts": 11.7,
+          "fee_ppm": 3.1596703296703295,
+          "att_attempts": 117,
+          "att_unknown": 0,
+          "att_shifted": 10,
+          "att_delayed": 0,
+          "give_up_rate": 0.3,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_33_bimodal.json",
+          "n_attempts": 117,
+          "hops_mean": 2.5811965811965814,
+          "hops_median": 3,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 3,
+            "2": 46,
+            "3": 65,
+            "4": 3
+          }
+        },
+        "mn_33_uniform": {
+          "objective": 0.9999574666666666,
+          "success": 1,
+          "attempts": 1,
+          "fee_ppm": 2.1266666666666665,
+          "att_attempts": 10,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_33_uniform.json",
+          "n_attempts": 10,
+          "hops_mean": 1.5,
+          "hops_median": 1.5,
+          "hops_max": 2,
+          "hops_hist": {
+            "1": 5,
+            "2": 5
+          }
+        },
+        "mn_44_bimodal": {
+          "objective": 0.5699868421052631,
+          "success": 0.6,
+          "attempts": 4,
+          "fee_ppm": 0.6578947368421053,
+          "att_attempts": 40,
+          "att_unknown": 0,
+          "att_shifted": 2,
+          "att_delayed": 0,
+          "give_up_rate": 0.4,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_44_bimodal.json",
+          "n_attempts": 40,
+          "hops_mean": 1.925,
+          "hops_median": 2.0,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 19,
+            "2": 8,
+            "3": 10,
+            "4": 3
+          }
+        },
+        "mn_44_uniform": {
+          "objective": 0.8979832876712329,
+          "success": 0.9,
+          "attempts": 1.2,
+          "fee_ppm": 0.8356164383561644,
+          "att_attempts": 12,
+          "att_unknown": 0,
+          "att_shifted": 2,
+          "att_delayed": 0,
+          "give_up_rate": 0.1,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_44_uniform.json",
+          "n_attempts": 12,
+          "hops_mean": 1.75,
+          "hops_median": 2.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 4,
+            "2": 7,
+            "3": 1
+          }
+        },
+        "mn_55_bimodal": {
+          "objective": 0.7877420512820513,
+          "success": 0.8,
+          "attempts": 2.2,
+          "fee_ppm": 12.897435897435898,
+          "att_attempts": 22,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_55_bimodal.json",
+          "n_attempts": 22,
+          "hops_mean": 2.5454545454545454,
+          "hops_median": 3.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 2,
+            "2": 6,
+            "3": 14
+          }
+        },
+        "mn_55_uniform": {
+          "objective": 0.538875,
+          "success": 0.6,
+          "attempts": 6.6,
+          "fee_ppm": 256.25,
+          "att_attempts": 66,
+          "att_unknown": 0,
+          "att_shifted": 4,
+          "att_delayed": 0,
+          "give_up_rate": 0.4,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_55_uniform.json",
+          "n_attempts": 66,
+          "hops_mean": 1.7727272727272727,
+          "hops_median": 1.0,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 36,
+            "2": 10,
+            "3": 19,
+            "4": 1
+          }
+        }
+      },
+      "mx_c3": {
+        "mn_11_bimodal": {
+          "objective": 0.669553557142857,
+          "success": 0.7,
+          "attempts": 3.3,
+          "fee_ppm": 372.32214285714286,
+          "att_attempts": 33,
+          "att_unknown": 0,
+          "att_shifted": 5,
+          "att_delayed": 0,
+          "give_up_rate": 0.3,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_11_bimodal.json",
+          "n_attempts": 33,
+          "hops_mean": 2.5454545454545454,
+          "hops_median": 3,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 3,
+            "2": 12,
+            "3": 15,
+            "4": 3
+          }
+        },
+        "mn_11_uniform": {
+          "objective": 0.5578411122807017,
+          "success": 0.6,
+          "attempts": 2.9,
+          "fee_ppm": 1157.9443859649123,
+          "att_attempts": 29,
+          "att_unknown": 0,
+          "att_shifted": 2,
+          "att_delayed": 0,
+          "give_up_rate": 0.4,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_11_uniform.json",
+          "n_attempts": 29,
+          "hops_mean": 2.4482758620689653,
+          "hops_median": 3,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 3,
+            "2": 11,
+            "3": 14,
+            "4": 1
+          }
+        },
+        "mn_22_bimodal": {
+          "objective": 0.758511603773585,
+          "success": 0.8,
+          "attempts": 4.5,
+          "fee_ppm": 324.4198113207547,
+          "att_attempts": 45,
+          "att_unknown": 0,
+          "att_shifted": 4,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_22_bimodal.json",
+          "n_attempts": 45,
+          "hops_mean": 2.511111111111111,
+          "hops_median": 2,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 4,
+            "2": 21,
+            "3": 13,
+            "4": 7
+          }
+        },
+        "mn_22_uniform": {
+          "objective": 0.9911488108695652,
+          "success": 1,
+          "attempts": 1.4,
+          "fee_ppm": 242.55945652173912,
+          "att_attempts": 14,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_22_uniform.json",
+          "n_attempts": 14,
+          "hops_mean": 1.9285714285714286,
+          "hops_median": 2.0,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 4,
+            "2": 8,
+            "3": 1,
+            "4": 1
+          }
+        },
+        "mn_33_bimodal": {
+          "objective": 0.736402304347826,
+          "success": 0.8,
+          "attempts": 6.9,
+          "fee_ppm": 229.88478260869564,
+          "att_attempts": 69,
+          "att_unknown": 0,
+          "att_shifted": 9,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_33_bimodal.json",
+          "n_attempts": 69,
+          "hops_mean": 2.5217391304347827,
+          "hops_median": 3,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 5,
+            "2": 23,
+            "3": 41
+          }
+        },
+        "mn_33_uniform": {
+          "objective": 0.9999508045977011,
+          "success": 1,
+          "attempts": 1,
+          "fee_ppm": 2.4597701149425286,
+          "att_attempts": 10,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_33_uniform.json",
+          "n_attempts": 10,
+          "hops_mean": 1.5,
+          "hops_median": 1.5,
+          "hops_max": 2,
+          "hops_hist": {
+            "1": 5,
+            "2": 5
+          }
+        },
+        "mn_44_bimodal": {
+          "objective": 0.5879815789473684,
+          "success": 0.6,
+          "attempts": 2.2,
+          "fee_ppm": 0.9210526315789473,
+          "att_attempts": 22,
+          "att_unknown": 0,
+          "att_shifted": 1,
+          "att_delayed": 0,
+          "give_up_rate": 0.4,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_44_bimodal.json",
+          "n_attempts": 22,
+          "hops_mean": 2.3636363636363638,
+          "hops_median": 3.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 6,
+            "2": 2,
+            "3": 14
+          }
+        },
+        "mn_44_uniform": {
+          "objective": 0.9903384903225806,
+          "success": 1,
+          "attempts": 1.4,
+          "fee_ppm": 283.07548387096773,
+          "att_attempts": 14,
+          "att_unknown": 0,
+          "att_shifted": 1,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_44_uniform.json",
+          "n_attempts": 14,
+          "hops_mean": 1.8571428571428572,
+          "hops_median": 2.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 4,
+            "2": 8,
+            "3": 2
+          }
+        },
+        "mn_55_bimodal": {
+          "objective": 0.7958057692307693,
+          "success": 0.8,
+          "attempts": 1.3,
+          "fee_ppm": 59.71153846153846,
+          "att_attempts": 13,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_55_bimodal.json",
+          "n_attempts": 13,
+          "hops_mean": 2.1538461538461537,
+          "hops_median": 2,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 3,
+            "2": 5,
+            "3": 5
+          }
+        },
+        "mn_55_uniform": {
+          "objective": 0.7757358042553192,
+          "success": 0.8,
+          "attempts": 2.2,
+          "fee_ppm": 613.2097872340426,
+          "att_attempts": 22,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B3_shift0.1/mn_55_uniform.json",
+          "n_attempts": 22,
+          "hops_mean": 1.9090909090909092,
+          "hops_median": 2.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 5,
+            "2": 14,
+            "3": 3
+          }
+        }
+      }
+    },
+    "B4_shift0.3": {
+      "lnd": {
+        "mn_11_bimodal": {
+          "objective": 0.4667499818181818,
+          "success": 0.5,
+          "attempts": 3.4,
+          "fee_ppm": 462.5009090909091,
+          "att_attempts": 34,
+          "att_unknown": 0,
+          "att_shifted": 8,
+          "att_delayed": 0,
+          "give_up_rate": 0.5,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_11_bimodal.json",
+          "n_attempts": 34,
+          "hops_mean": 2.3823529411764706,
+          "hops_median": 3.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 5,
+            "2": 11,
+            "3": 18
+          }
+        },
+        "mn_11_uniform": {
+          "objective": 0.527739,
+          "success": 0.6,
+          "attempts": 5.9,
+          "fee_ppm": 1163.05,
+          "att_attempts": 59,
+          "att_unknown": 0,
+          "att_shifted": 12,
+          "att_delayed": 0,
+          "give_up_rate": 0.4,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_11_uniform.json",
+          "n_attempts": 59,
+          "hops_mean": 2.4915254237288136,
+          "hops_median": 3,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 7,
+            "2": 16,
+            "3": 36
+          }
+        },
+        "mn_22_bimodal": {
+          "objective": 0.47366060606060606,
+          "success": 0.5,
+          "attempts": 3.6,
+          "fee_ppm": 16.96969696969697,
+          "att_attempts": 36,
+          "att_unknown": 0,
+          "att_shifted": 6,
+          "att_delayed": 0,
+          "give_up_rate": 0.5,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_22_bimodal.json",
+          "n_attempts": 36,
+          "hops_mean": 2.5555555555555554,
+          "hops_median": 3.0,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 3,
+            "2": 14,
+            "3": 15,
+            "4": 4
+          }
+        },
+        "mn_22_uniform": {
+          "objective": 0.8905607317073171,
+          "success": 0.9,
+          "attempts": 1.5,
+          "fee_ppm": 221.96341463414635,
+          "att_attempts": 15,
+          "att_unknown": 0,
+          "att_shifted": 1,
+          "att_delayed": 0,
+          "give_up_rate": 0.1,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_22_uniform.json",
+          "n_attempts": 15,
+          "hops_mean": 2.2,
+          "hops_median": 2,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 1,
+            "2": 10,
+            "3": 4
+          }
+        },
+        "mn_33_bimodal": {
+          "objective": 0.46492130163934425,
+          "success": 0.5,
+          "attempts": 4.5,
+          "fee_ppm": 3.9349180327868853,
+          "att_attempts": 45,
+          "att_unknown": 0,
+          "att_shifted": 15,
+          "att_delayed": 0,
+          "give_up_rate": 0.5,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_33_bimodal.json",
+          "n_attempts": 45,
+          "hops_mean": 2.5555555555555554,
+          "hops_median": 3,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 1,
+            "2": 19,
+            "3": 24,
+            "4": 1
+          }
+        },
+        "mn_33_uniform": {
+          "objective": 0.9999574666666666,
+          "success": 1,
+          "attempts": 1,
+          "fee_ppm": 2.1266666666666665,
+          "att_attempts": 10,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_33_uniform.json",
+          "n_attempts": 10,
+          "hops_mean": 1.5,
+          "hops_median": 1.5,
+          "hops_max": 2,
+          "hops_hist": {
+            "1": 5,
+            "2": 5
+          }
+        },
+        "mn_44_bimodal": {
+          "objective": 0.5769868421052631,
+          "success": 0.6,
+          "attempts": 3.3,
+          "fee_ppm": 0.6578947368421053,
+          "att_attempts": 33,
+          "att_unknown": 0,
+          "att_shifted": 8,
+          "att_delayed": 0,
+          "give_up_rate": 0.4,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_44_bimodal.json",
+          "n_attempts": 33,
+          "hops_mean": 2.4545454545454546,
+          "hops_median": 3,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 7,
+            "2": 8,
+            "3": 14,
+            "4": 4
+          }
+        },
+        "mn_44_uniform": {
+          "objective": 0.8979832876712329,
+          "success": 0.9,
+          "attempts": 1.2,
+          "fee_ppm": 0.8356164383561644,
+          "att_attempts": 12,
+          "att_unknown": 0,
+          "att_shifted": 2,
+          "att_delayed": 0,
+          "give_up_rate": 0.1,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_44_uniform.json",
+          "n_attempts": 12,
+          "hops_mean": 1.75,
+          "hops_median": 2.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 4,
+            "2": 7,
+            "3": 1
+          }
+        },
+        "mn_55_bimodal": {
+          "objective": 0.7997420512820513,
+          "success": 0.8,
+          "attempts": 1,
+          "fee_ppm": 12.897435897435898,
+          "att_attempts": 10,
+          "att_unknown": 0,
+          "att_shifted": 1,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_55_bimodal.json",
+          "n_attempts": 10,
+          "hops_mean": 2,
+          "hops_median": 2.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 2,
+            "2": 6,
+            "3": 2
+          }
+        },
+        "mn_55_uniform": {
+          "objective": 0.5788749999999999,
+          "success": 0.6,
+          "attempts": 2.6,
+          "fee_ppm": 256.25,
+          "att_attempts": 26,
+          "att_unknown": 0,
+          "att_shifted": 4,
+          "att_delayed": 0,
+          "give_up_rate": 0.4,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_55_uniform.json",
+          "n_attempts": 26,
+          "hops_mean": 2,
+          "hops_median": 2.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 7,
+            "2": 12,
+            "3": 7
+          }
+        }
+      },
+      "mx_c3": {
+        "mn_11_bimodal": {
+          "objective": 0.668553557142857,
+          "success": 0.7,
+          "attempts": 3.4,
+          "fee_ppm": 372.32214285714286,
+          "att_attempts": 34,
+          "att_unknown": 0,
+          "att_shifted": 7,
+          "att_delayed": 0,
+          "give_up_rate": 0.3,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_11_bimodal.json",
+          "n_attempts": 34,
+          "hops_mean": 2.4705882352941178,
+          "hops_median": 2.5,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 3,
+            "2": 14,
+            "3": 15,
+            "4": 2
+          }
+        },
+        "mn_11_uniform": {
+          "objective": 0.5578411122807017,
+          "success": 0.6,
+          "attempts": 2.9,
+          "fee_ppm": 1157.9443859649123,
+          "att_attempts": 29,
+          "att_unknown": 0,
+          "att_shifted": 2,
+          "att_delayed": 0,
+          "give_up_rate": 0.4,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_11_uniform.json",
+          "n_attempts": 29,
+          "hops_mean": 2.4482758620689653,
+          "hops_median": 3,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 3,
+            "2": 11,
+            "3": 14,
+            "4": 1
+          }
+        },
+        "mn_22_bimodal": {
+          "objective": 0.7615116075471698,
+          "success": 0.8,
+          "attempts": 4.2,
+          "fee_ppm": 324.4196226415094,
+          "att_attempts": 42,
+          "att_unknown": 0,
+          "att_shifted": 5,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_22_bimodal.json",
+          "n_attempts": 42,
+          "hops_mean": 2.4285714285714284,
+          "hops_median": 2.0,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 4,
+            "2": 23,
+            "3": 8,
+            "4": 7
+          }
+        },
+        "mn_22_uniform": {
+          "objective": 0.9911488108695652,
+          "success": 1,
+          "attempts": 1.4,
+          "fee_ppm": 242.55945652173912,
+          "att_attempts": 14,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_22_uniform.json",
+          "n_attempts": 14,
+          "hops_mean": 1.9285714285714286,
+          "hops_median": 2.0,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 4,
+            "2": 8,
+            "3": 1,
+            "4": 1
+          }
+        },
+        "mn_33_bimodal": {
+          "objective": 0.7514083086956522,
+          "success": 0.8,
+          "attempts": 5.4,
+          "fee_ppm": 229.58456521739132,
+          "att_attempts": 54,
+          "att_unknown": 0,
+          "att_shifted": 12,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_33_bimodal.json",
+          "n_attempts": 54,
+          "hops_mean": 2.5185185185185186,
+          "hops_median": 3.0,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 5,
+            "2": 17,
+            "3": 31,
+            "4": 1
+          }
+        },
+        "mn_33_uniform": {
+          "objective": 0.9999508045977011,
+          "success": 1,
+          "attempts": 1,
+          "fee_ppm": 2.4597701149425286,
+          "att_attempts": 10,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_33_uniform.json",
+          "n_attempts": 10,
+          "hops_mean": 1.5,
+          "hops_median": 1.5,
+          "hops_max": 2,
+          "hops_hist": {
+            "1": 5,
+            "2": 5
+          }
+        },
+        "mn_44_bimodal": {
+          "objective": 0.5849815789473684,
+          "success": 0.6,
+          "attempts": 2.5,
+          "fee_ppm": 0.9210526315789473,
+          "att_attempts": 25,
+          "att_unknown": 0,
+          "att_shifted": 4,
+          "att_delayed": 0,
+          "give_up_rate": 0.4,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_44_bimodal.json",
+          "n_attempts": 25,
+          "hops_mean": 2.44,
+          "hops_median": 3,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 6,
+            "2": 2,
+            "3": 17
+          }
+        },
+        "mn_44_uniform": {
+          "objective": 0.9903384903225806,
+          "success": 1,
+          "attempts": 1.4,
+          "fee_ppm": 283.07548387096773,
+          "att_attempts": 14,
+          "att_unknown": 0,
+          "att_shifted": 1,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_44_uniform.json",
+          "n_attempts": 14,
+          "hops_mean": 1.8571428571428572,
+          "hops_median": 2.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 4,
+            "2": 8,
+            "3": 2
+          }
+        },
+        "mn_55_bimodal": {
+          "objective": 0.7948057692307693,
+          "success": 0.8,
+          "attempts": 1.4,
+          "fee_ppm": 59.71153846153846,
+          "att_attempts": 14,
+          "att_unknown": 0,
+          "att_shifted": 1,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_55_bimodal.json",
+          "n_attempts": 14,
+          "hops_mean": 2.2857142857142856,
+          "hops_median": 2.0,
+          "hops_max": 4,
+          "hops_hist": {
+            "1": 3,
+            "2": 5,
+            "3": 5,
+            "4": 1
+          }
+        },
+        "mn_55_uniform": {
+          "objective": 0.7757358042553192,
+          "success": 0.8,
+          "attempts": 2.2,
+          "fee_ppm": 613.2097872340426,
+          "att_attempts": 22,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/B4_shift0.3/mn_55_uniform.json",
+          "n_attempts": 22,
+          "hops_mean": 1.9090909090909092,
+          "hops_median": 2.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 5,
+            "2": 14,
+            "3": 3
+          }
+        }
+      }
+    },
+    "A0_control": {
+      "lnd": {
+        "ex_000": {
+          "objective": 0.7161721597222223,
+          "success": 0.75,
+          "attempts": 3.25,
+          "fee_ppm": 566.3920138888889,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.25,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_000.json",
+          "n_attempts": 26,
+          "hops_mean": 2,
+          "hops_median": 2.0,
+          "hops_max": 2,
+          "hops_hist": {
+            "2": 26
+          }
+        },
+        "ex_001": {
+          "objective": 0.4286480897435897,
+          "success": 0.6666666666666666,
+          "attempts": 69.44444444444444,
+          "fee_ppm": 4400.928846153846,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_001.json",
+          "n_attempts": 625,
+          "hops_mean": 9.5504,
+          "hops_median": 10,
+          "hops_max": 15,
+          "hops_hist": {
+            "5": 5,
+            "6": 3,
+            "7": 202,
+            "8": 6,
+            "9": 22,
+            "10": 206,
+            "11": 13,
+            "12": 135,
+            "13": 22,
+            "14": 8,
+            "15": 3
+          }
+        },
+        "ex_002": {
+          "objective": 0.28695310526315787,
+          "success": 0.5,
+          "attempts": 87.7,
+          "fee_ppm": 3152.3447368421052,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.1,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_002.json",
+          "n_attempts": 877,
+          "hops_mean": 7.67502850627138,
+          "hops_median": 9,
+          "hops_max": 15,
+          "hops_hist": {
+            "3": 199,
+            "4": 3,
+            "5": 3,
+            "6": 2,
+            "7": 15,
+            "8": 204,
+            "9": 209,
+            "10": 215,
+            "11": 11,
+            "12": 9,
+            "13": 1,
+            "14": 5,
+            "15": 1
+          }
+        },
+        "ex_003": {
+          "objective": 0.41322643681318677,
+          "success": 0.5714285714285714,
+          "attempts": 32.142857142857146,
+          "fee_ppm": 410.10673076923075,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.2857142857142857,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_003.json",
+          "n_attempts": 225,
+          "hops_mean": 1.1111111111111112,
+          "hops_median": 1,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 201,
+            "2": 23,
+            "3": 1
+          }
+        },
+        "ex_004": {
+          "objective": -0.06029133333333335,
+          "success": 0.16666666666666666,
+          "attempts": 34.5,
+          "fee_ppm": 3847.9,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.6666666666666666,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_004.json",
+          "n_attempts": 207,
+          "hops_mean": 3.1497584541062804,
+          "hops_median": 3,
+          "hops_max": 12,
+          "hops_hist": {
+            "3": 200,
+            "6": 4,
+            "8": 2,
+            "12": 1
+          }
+        },
+        "ex_005": {
+          "objective": 0.009999999999999981,
+          "success": 0.16666666666666666,
+          "attempts": 6.666666666666667,
+          "fee_ppm": 5034.3,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.8333333333333334,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_005.json",
+          "n_attempts": 40,
+          "hops_mean": 12.05,
+          "hops_median": 13.0,
+          "hops_max": 15,
+          "hops_hist": {
+            "7": 1,
+            "8": 1,
+            "9": 7,
+            "10": 2,
+            "11": 1,
+            "12": 3,
+            "13": 19,
+            "15": 6
+          }
+        },
+        "ex_006": {
+          "objective": 0.14627168461538462,
+          "success": 0.3,
+          "attempts": 83.4,
+          "fee_ppm": 186.41576923076923,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.3,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_006.json",
+          "n_attempts": 834,
+          "hops_mean": 1.7601918465227817,
+          "hops_median": 2.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 201,
+            "2": 632,
+            "3": 1
+          }
+        },
+        "ex_007": {
+          "objective": 0.09079546666666664,
+          "success": 0.3333333333333333,
+          "attempts": 47.666666666666664,
+          "fee_ppm": 4626.893333333333,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.5,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_007.json",
+          "n_attempts": 286,
+          "hops_mean": 10.157342657342657,
+          "hops_median": 9.0,
+          "hops_max": 20,
+          "hops_hist": {
+            "3": 1,
+            "5": 4,
+            "7": 2,
+            "8": 4,
+            "9": 196,
+            "10": 8,
+            "11": 8,
+            "12": 18,
+            "13": 21,
+            "14": 4,
+            "15": 4,
+            "17": 3,
+            "18": 3,
+            "19": 6,
+            "20": 4
+          }
+        },
+        "ex_008": {
+          "objective": 0.7067474803921568,
+          "success": 0.9,
+          "attempts": 27.1,
+          "fee_ppm": 2162.625980392157,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_008.json",
+          "n_attempts": 271,
+          "hops_mean": 7.125461254612546,
+          "hops_median": 7,
+          "hops_max": 10,
+          "hops_hist": {
+            "1": 1,
+            "3": 4,
+            "4": 5,
+            "5": 3,
+            "6": 11,
+            "7": 199,
+            "8": 17,
+            "9": 22,
+            "10": 9
+          }
+        },
+        "ex_009": {
+          "objective": 0.35357079999999996,
+          "success": 0.5714285714285714,
+          "attempts": 62.714285714285715,
+          "fee_ppm": 3392.8885714285716,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.14285714285714285,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_009.json",
+          "n_attempts": 439,
+          "hops_mean": 11.207289293849659,
+          "hops_median": 12,
+          "hops_max": 17,
+          "hops_hist": {
+            "5": 16,
+            "6": 15,
+            "7": 11,
+            "8": 8,
+            "9": 7,
+            "10": 16,
+            "11": 21,
+            "12": 340,
+            "13": 2,
+            "16": 2,
+            "17": 1
+          }
+        }
+      },
+      "mx_c3": {
+        "ex_000": {
+          "objective": 0.7361721597222223,
+          "success": 0.75,
+          "attempts": 1.25,
+          "fee_ppm": 566.3920138888889,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.25,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_000.json",
+          "n_attempts": 10,
+          "hops_mean": 2,
+          "hops_median": 2.0,
+          "hops_max": 2,
+          "hops_hist": {
+            "2": 10
+          }
+        },
+        "ex_001": {
+          "objective": 0.7159451954022987,
+          "success": 0.8888888888888888,
+          "attempts": 9.555555555555555,
+          "fee_ppm": 4369.4068965517245,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.1111111111111111,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_001.json",
+          "n_attempts": 86,
+          "hops_mean": 12,
+          "hops_median": 12.0,
+          "hops_max": 21,
+          "hops_hist": {
+            "5": 3,
+            "6": 3,
+            "7": 6,
+            "8": 4,
+            "9": 8,
+            "10": 6,
+            "11": 7,
+            "12": 7,
+            "13": 9,
+            "14": 13,
+            "15": 8,
+            "16": 4,
+            "17": 2,
+            "18": 3,
+            "20": 2,
+            "21": 1
+          }
+        },
+        "ex_002": {
+          "objective": 0.539,
+          "success": 0.7,
+          "attempts": 7.1,
+          "fee_ppm": 5189.965909090909,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.3,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_002.json",
+          "n_attempts": 71,
+          "hops_mean": 10.816901408450704,
+          "hops_median": 10,
+          "hops_max": 20,
+          "hops_hist": {
+            "3": 2,
+            "4": 1,
+            "6": 4,
+            "7": 4,
+            "8": 7,
+            "9": 11,
+            "10": 8,
+            "11": 5,
+            "12": 7,
+            "13": 4,
+            "14": 6,
+            "15": 7,
+            "16": 2,
+            "19": 1,
+            "20": 2
+          }
+        },
+        "ex_003": {
+          "objective": 0.702222865079365,
+          "success": 0.7142857142857143,
+          "attempts": 2,
+          "fee_ppm": 103.14246031746032,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.2857142857142857,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_003.json",
+          "n_attempts": 14,
+          "hops_mean": 1.9285714285714286,
+          "hops_median": 2.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 2,
+            "2": 11,
+            "3": 1
+          }
+        },
+        "ex_004": {
+          "objective": 0.25007719444444443,
+          "success": 0.5,
+          "attempts": 27,
+          "fee_ppm": 4996.140277777778,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.5,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_004.json",
+          "n_attempts": 162,
+          "hops_mean": 17.969135802469136,
+          "hops_median": 19.0,
+          "hops_max": 23,
+          "hops_hist": {
+            "3": 5,
+            "5": 1,
+            "7": 5,
+            "10": 1,
+            "12": 4,
+            "13": 4,
+            "15": 10,
+            "17": 29,
+            "19": 55,
+            "21": 23,
+            "23": 25
+          }
+        },
+        "ex_005": {
+          "objective": 0.09917213821138209,
+          "success": 0.3333333333333333,
+          "attempts": 19.666666666666668,
+          "fee_ppm": 4208.059756097561,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.6666666666666666,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_005.json",
+          "n_attempts": 118,
+          "hops_mean": 19.75423728813559,
+          "hops_median": 21.0,
+          "hops_max": 24,
+          "hops_hist": {
+            "8": 1,
+            "9": 6,
+            "10": 1,
+            "11": 1,
+            "12": 2,
+            "13": 2,
+            "14": 3,
+            "15": 4,
+            "16": 1,
+            "17": 8,
+            "19": 14,
+            "21": 28,
+            "23": 38,
+            "24": 9
+          }
+        },
+        "ex_006": {
+          "objective": 0.5626942593220339,
+          "success": 0.6,
+          "attempts": 4,
+          "fee_ppm": 365.2870338983051,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.4,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_006.json",
+          "n_attempts": 40,
+          "hops_mean": 2.35,
+          "hops_median": 2.0,
+          "hops_max": 5,
+          "hops_hist": {
+            "1": 2,
+            "2": 24,
+            "3": 13,
+            "5": 1
+          }
+        },
+        "ex_007": {
+          "objective": 0.5866666666666668,
+          "success": 0.8333333333333334,
+          "attempts": 15.666666666666666,
+          "fee_ppm": 6344.4007142857145,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0.16666666666666666,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_007.json",
+          "n_attempts": 94,
+          "hops_mean": 15.829787234042554,
+          "hops_median": 15.0,
+          "hops_max": 24,
+          "hops_hist": {
+            "5": 1,
+            "7": 1,
+            "9": 5,
+            "10": 4,
+            "11": 6,
+            "12": 7,
+            "13": 6,
+            "14": 12,
+            "15": 7,
+            "16": 5,
+            "17": 5,
+            "18": 9,
+            "19": 6,
+            "20": 3,
+            "21": 3,
+            "22": 2,
+            "23": 6,
+            "24": 6
+          }
+        },
+        "ex_008": {
+          "objective": 0.8914242417582418,
+          "success": 1,
+          "attempts": 5,
+          "fee_ppm": 3428.787912087912,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_008.json",
+          "n_attempts": 50,
+          "hops_mean": 9.04,
+          "hops_median": 8.0,
+          "hops_max": 16,
+          "hops_hist": {
+            "2": 1,
+            "3": 1,
+            "4": 2,
+            "5": 1,
+            "6": 5,
+            "7": 9,
+            "8": 7,
+            "9": 4,
+            "10": 4,
+            "12": 6,
+            "13": 6,
+            "14": 2,
+            "15": 1,
+            "16": 1
+          }
+        },
+        "ex_009": {
+          "objective": 0.75,
+          "success": 1,
+          "attempts": 16.285714285714285,
+          "fee_ppm": 5220.00325,
+          "att_attempts": 0,
+          "att_unknown": 0,
+          "att_shifted": 0,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A0_control/ex_009.json",
+          "n_attempts": 114,
+          "hops_mean": 11.473684210526315,
+          "hops_median": 12.0,
+          "hops_max": 18,
+          "hops_hist": {
+            "5": 4,
+            "6": 8,
+            "7": 10,
+            "8": 7,
+            "9": 9,
+            "10": 6,
+            "11": 11,
+            "12": 8,
+            "13": 7,
+            "14": 14,
+            "15": 16,
+            "16": 10,
+            "17": 3,
+            "18": 1
+          }
+        }
+      }
+    },
+    "A4_shift0.3": {
+      "lnd": {
+        "ex_000": {
+          "objective": 0.7299221597222222,
+          "success": 0.75,
+          "attempts": 1.875,
+          "fee_ppm": 566.3920138888889,
+          "att_attempts": 15,
+          "att_unknown": 0,
+          "att_shifted": 3,
+          "att_delayed": 0,
+          "give_up_rate": 0.25,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_000.json",
+          "n_attempts": 15,
+          "hops_mean": 2,
+          "hops_median": 2,
+          "hops_max": 2,
+          "hops_hist": {
+            "2": 15
+          }
+        },
+        "ex_001": {
+          "objective": 0.5590923383838384,
+          "success": 0.7777777777777778,
+          "attempts": 28,
+          "fee_ppm": 3434.27196969697,
+          "att_attempts": 252,
+          "att_unknown": 0,
+          "att_shifted": 65,
+          "att_delayed": 0,
+          "give_up_rate": 0.2222222222222222,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_001.json",
+          "n_attempts": 252,
+          "hops_mean": 10.837301587301587,
+          "hops_median": 11.0,
+          "hops_max": 18,
+          "hops_hist": {
+            "4": 2,
+            "5": 6,
+            "6": 4,
+            "7": 31,
+            "8": 19,
+            "9": 24,
+            "10": 25,
+            "11": 29,
+            "12": 24,
+            "13": 36,
+            "14": 35,
+            "15": 8,
+            "16": 6,
+            "17": 1,
+            "18": 2
+          }
+        },
+        "ex_002": {
+          "objective": 0.5012890545454545,
+          "success": 0.7,
+          "attempts": 18,
+          "fee_ppm": 2435.5472727272727,
+          "att_attempts": 180,
+          "att_unknown": 0,
+          "att_shifted": 47,
+          "att_delayed": 0,
+          "give_up_rate": 0.3,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_002.json",
+          "n_attempts": 180,
+          "hops_mean": 7.794444444444444,
+          "hops_median": 8.0,
+          "hops_max": 19,
+          "hops_hist": {
+            "2": 3,
+            "3": 15,
+            "4": 16,
+            "5": 14,
+            "6": 7,
+            "7": 19,
+            "8": 30,
+            "9": 28,
+            "10": 19,
+            "11": 14,
+            "12": 5,
+            "13": 3,
+            "14": 2,
+            "15": 3,
+            "16": 1,
+            "19": 1
+          }
+        },
+        "ex_003": {
+          "objective": 0.5459836373626373,
+          "success": 0.5714285714285714,
+          "attempts": 2.7142857142857144,
+          "fee_ppm": 415.1038461538462,
+          "att_attempts": 19,
+          "att_unknown": 0,
+          "att_shifted": 5,
+          "att_delayed": 0,
+          "give_up_rate": 0.42857142857142855,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_003.json",
+          "n_attempts": 19,
+          "hops_mean": 1.5263157894736843,
+          "hops_median": 1,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 10,
+            "2": 8,
+            "3": 1
+          }
+        },
+        "ex_004": {
+          "objective": 0.25979627450980386,
+          "success": 0.3333333333333333,
+          "attempts": 5.666666666666667,
+          "fee_ppm": 1343.5196078431372,
+          "att_attempts": 34,
+          "att_unknown": 0,
+          "att_shifted": 8,
+          "att_delayed": 0,
+          "give_up_rate": 0.6666666666666666,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_004.json",
+          "n_attempts": 34,
+          "hops_mean": 4.323529411764706,
+          "hops_median": 3.0,
+          "hops_max": 12,
+          "hops_hist": {
+            "3": 23,
+            "5": 3,
+            "6": 2,
+            "7": 1,
+            "8": 4,
+            "12": 1
+          }
+        },
+        "ex_005": {
+          "objective": 0.013333333333333322,
+          "success": 0.16666666666666666,
+          "attempts": 6.333333333333333,
+          "fee_ppm": 5034.3,
+          "att_attempts": 38,
+          "att_unknown": 0,
+          "att_shifted": 11,
+          "att_delayed": 0,
+          "give_up_rate": 0.8333333333333334,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_005.json",
+          "n_attempts": 38,
+          "hops_mean": 12.157894736842104,
+          "hops_median": 13.0,
+          "hops_max": 17,
+          "hops_hist": {
+            "7": 1,
+            "8": 1,
+            "9": 8,
+            "10": 1,
+            "12": 2,
+            "13": 18,
+            "15": 6,
+            "17": 1
+          }
+        },
+        "ex_006": {
+          "objective": 0.2242716846153846,
+          "success": 0.3,
+          "attempts": 8.2,
+          "fee_ppm": 186.41576923076923,
+          "att_attempts": 82,
+          "att_unknown": 0,
+          "att_shifted": 22,
+          "att_delayed": 0,
+          "give_up_rate": 0.7,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_006.json",
+          "n_attempts": 82,
+          "hops_mean": 1.951219512195122,
+          "hops_median": 2.0,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 5,
+            "2": 76,
+            "3": 1
+          }
+        },
+        "ex_007": {
+          "objective": 0.26393952307692303,
+          "success": 0.5,
+          "attempts": 29.833333333333332,
+          "fee_ppm": 4303.0238461538465,
+          "att_attempts": 179,
+          "att_unknown": 0,
+          "att_shifted": 47,
+          "att_delayed": 0,
+          "give_up_rate": 0.5,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_007.json",
+          "n_attempts": 179,
+          "hops_mean": 11.12290502793296,
+          "hops_median": 11,
+          "hops_max": 17,
+          "hops_hist": {
+            "3": 4,
+            "4": 1,
+            "5": 4,
+            "6": 7,
+            "7": 7,
+            "8": 7,
+            "9": 13,
+            "10": 27,
+            "11": 27,
+            "12": 22,
+            "13": 27,
+            "14": 12,
+            "15": 6,
+            "16": 4,
+            "17": 11
+          }
+        },
+        "ex_008": {
+          "objective": 0.724827974025974,
+          "success": 0.8,
+          "attempts": 5.1,
+          "fee_ppm": 1708.6012987012987,
+          "att_attempts": 51,
+          "att_unknown": 0,
+          "att_shifted": 14,
+          "att_delayed": 0,
+          "give_up_rate": 0.2,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_008.json",
+          "n_attempts": 51,
+          "hops_mean": 6.686274509803922,
+          "hops_median": 7,
+          "hops_max": 10,
+          "hops_hist": {
+            "1": 1,
+            "2": 1,
+            "3": 4,
+            "4": 2,
+            "5": 5,
+            "6": 5,
+            "7": 14,
+            "8": 7,
+            "9": 11,
+            "10": 1
+          }
+        },
+        "ex_009": {
+          "objective": 0.4925233976190476,
+          "success": 0.7142857142857143,
+          "attempts": 16,
+          "fee_ppm": 3588.1158333333333,
+          "att_attempts": 112,
+          "att_unknown": 0,
+          "att_shifted": 23,
+          "att_delayed": 0,
+          "give_up_rate": 0.2857142857142857,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_009.json",
+          "n_attempts": 112,
+          "hops_mean": 9.267857142857142,
+          "hops_median": 9.5,
+          "hops_max": 15,
+          "hops_hist": {
+            "5": 16,
+            "6": 13,
+            "7": 8,
+            "8": 11,
+            "9": 8,
+            "10": 9,
+            "11": 12,
+            "12": 19,
+            "13": 11,
+            "14": 4,
+            "15": 1
+          }
+        }
+      },
+      "mx_c3": {
+        "ex_000": {
+          "objective": 0.7274221597222222,
+          "success": 0.75,
+          "attempts": 2.125,
+          "fee_ppm": 566.3920138888889,
+          "att_attempts": 17,
+          "att_unknown": 0,
+          "att_shifted": 4,
+          "att_delayed": 0,
+          "give_up_rate": 0.25,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_000.json",
+          "n_attempts": 17,
+          "hops_mean": 2.411764705882353,
+          "hops_median": 2,
+          "hops_max": 3,
+          "hops_hist": {
+            "2": 10,
+            "3": 7
+          }
+        },
+        "ex_001": {
+          "objective": 0.6861186858237547,
+          "success": 0.8888888888888888,
+          "attempts": 12.444444444444445,
+          "fee_ppm": 4416.287931034482,
+          "att_attempts": 112,
+          "att_unknown": 0,
+          "att_shifted": 23,
+          "att_delayed": 0,
+          "give_up_rate": 0.1111111111111111,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_001.json",
+          "n_attempts": 112,
+          "hops_mean": 11.946428571428571,
+          "hops_median": 11.0,
+          "hops_max": 22,
+          "hops_hist": {
+            "5": 5,
+            "6": 3,
+            "7": 7,
+            "8": 10,
+            "9": 14,
+            "10": 11,
+            "11": 8,
+            "12": 10,
+            "13": 12,
+            "14": 7,
+            "15": 5,
+            "16": 2,
+            "17": 1,
+            "18": 3,
+            "19": 4,
+            "20": 2,
+            "21": 2,
+            "22": 6
+          }
+        },
+        "ex_002": {
+          "objective": 0.5259999999999999,
+          "success": 0.7,
+          "attempts": 8.4,
+          "fee_ppm": 5004.697954545454,
+          "att_attempts": 84,
+          "att_unknown": 0,
+          "att_shifted": 13,
+          "att_delayed": 0,
+          "give_up_rate": 0.3,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_002.json",
+          "n_attempts": 84,
+          "hops_mean": 10.535714285714286,
+          "hops_median": 9.0,
+          "hops_max": 19,
+          "hops_hist": {
+            "4": 2,
+            "5": 2,
+            "6": 1,
+            "7": 3,
+            "8": 14,
+            "9": 21,
+            "10": 7,
+            "11": 8,
+            "12": 6,
+            "13": 3,
+            "14": 6,
+            "15": 2,
+            "16": 2,
+            "17": 4,
+            "18": 1,
+            "19": 2
+          }
+        },
+        "ex_003": {
+          "objective": 0.7007942936507936,
+          "success": 0.7142857142857143,
+          "attempts": 2.142857142857143,
+          "fee_ppm": 103.14246031746032,
+          "att_attempts": 15,
+          "att_unknown": 0,
+          "att_shifted": 1,
+          "att_delayed": 0,
+          "give_up_rate": 0.2857142857142857,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_003.json",
+          "n_attempts": 15,
+          "hops_mean": 1.9333333333333333,
+          "hops_median": 2,
+          "hops_max": 3,
+          "hops_hist": {
+            "1": 2,
+            "2": 12,
+            "3": 1
+          }
+        },
+        "ex_004": {
+          "objective": 0.08333333333333331,
+          "success": 0.3333333333333333,
+          "attempts": 30.833333333333332,
+          "fee_ppm": 5364.154545454546,
+          "att_attempts": 185,
+          "att_unknown": 0,
+          "att_shifted": 59,
+          "att_delayed": 0,
+          "give_up_rate": 0.6666666666666666,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_004.json",
+          "n_attempts": 185,
+          "hops_mean": 16.772972972972973,
+          "hops_median": 19,
+          "hops_max": 23,
+          "hops_hist": {
+            "3": 7,
+            "5": 9,
+            "7": 7,
+            "9": 2,
+            "11": 3,
+            "12": 2,
+            "13": 9,
+            "14": 2,
+            "15": 13,
+            "17": 32,
+            "19": 53,
+            "21": 18,
+            "23": 28
+          }
+        },
+        "ex_005": {
+          "objective": 0.09917213821138209,
+          "success": 0.3333333333333333,
+          "attempts": 25.5,
+          "fee_ppm": 4208.059756097561,
+          "att_attempts": 153,
+          "att_unknown": 0,
+          "att_shifted": 42,
+          "att_delayed": 0,
+          "give_up_rate": 0.6666666666666666,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_005.json",
+          "n_attempts": 153,
+          "hops_mean": 20.209150326797385,
+          "hops_median": 21,
+          "hops_max": 23,
+          "hops_hist": {
+            "9": 4,
+            "14": 1,
+            "15": 2,
+            "17": 13,
+            "19": 42,
+            "21": 50,
+            "23": 41
+          }
+        },
+        "ex_006": {
+          "objective": 0.5601447372881355,
+          "success": 0.6,
+          "attempts": 4.3,
+          "fee_ppm": 342.76313559322034,
+          "att_attempts": 43,
+          "att_unknown": 0,
+          "att_shifted": 9,
+          "att_delayed": 0,
+          "give_up_rate": 0.4,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_006.json",
+          "n_attempts": 43,
+          "hops_mean": 2.3255813953488373,
+          "hops_median": 2,
+          "hops_max": 5,
+          "hops_hist": {
+            "1": 2,
+            "2": 27,
+            "3": 13,
+            "5": 1
+          }
+        },
+        "ex_007": {
+          "objective": 0.5833333333333334,
+          "success": 0.8333333333333334,
+          "attempts": 34.5,
+          "fee_ppm": 5554.605263157895,
+          "att_attempts": 207,
+          "att_unknown": 0,
+          "att_shifted": 54,
+          "att_delayed": 0,
+          "give_up_rate": 0.16666666666666666,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_007.json",
+          "n_attempts": 207,
+          "hops_mean": 16.309178743961354,
+          "hops_median": 15,
+          "hops_max": 24,
+          "hops_hist": {
+            "3": 2,
+            "5": 1,
+            "6": 1,
+            "7": 1,
+            "9": 1,
+            "10": 9,
+            "11": 17,
+            "12": 20,
+            "13": 14,
+            "14": 13,
+            "15": 28,
+            "16": 20,
+            "17": 10,
+            "18": 5,
+            "19": 6,
+            "20": 5,
+            "21": 4,
+            "22": 12,
+            "23": 12,
+            "24": 26
+          }
+        },
+        "ex_008": {
+          "objective": 0.7008050196078431,
+          "success": 0.9,
+          "attempts": 13.4,
+          "fee_ppm": 3759.749019607843,
+          "att_attempts": 134,
+          "att_unknown": 0,
+          "att_shifted": 46,
+          "att_delayed": 0,
+          "give_up_rate": 0.1,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_008.json",
+          "n_attempts": 134,
+          "hops_mean": 10.08955223880597,
+          "hops_median": 10.0,
+          "hops_max": 18,
+          "hops_hist": {
+            "1": 1,
+            "2": 1,
+            "3": 3,
+            "4": 5,
+            "5": 5,
+            "6": 8,
+            "7": 11,
+            "8": 16,
+            "9": 12,
+            "10": 14,
+            "11": 8,
+            "12": 10,
+            "13": 14,
+            "14": 11,
+            "15": 4,
+            "16": 3,
+            "17": 2,
+            "18": 6
+          }
+        },
+        "ex_009": {
+          "objective": 0.75,
+          "success": 1,
+          "attempts": 21.857142857142858,
+          "fee_ppm": 5583.53825,
+          "att_attempts": 153,
+          "att_unknown": 0,
+          "att_shifted": 39,
+          "att_delayed": 0,
+          "give_up_rate": 0,
+          "file": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/exp019b-corpora/A4_shift0.3/ex_009.json",
+          "n_attempts": 153,
+          "hops_mean": 12.895424836601308,
+          "hops_median": 13,
+          "hops_max": 21,
+          "hops_hist": {
+            "5": 4,
+            "6": 4,
+            "7": 6,
+            "8": 8,
+            "9": 10,
+            "10": 7,
+            "11": 14,
+            "12": 15,
+            "13": 28,
+            "14": 16,
+            "15": 7,
+            "16": 5,
+            "17": 5,
+            "18": 7,
+            "19": 3,
+            "20": 6,
+            "21": 8
+          }
+        }
+      }
+    }
+  },
+  "first_attempt_hops": {
+    "A0_control__lnd": {
+      "n": 75,
+      "mean": 5.346666666666667,
+      "median": 5,
+      "hist": {
+        "1": 5,
+        "2": 19,
+        "3": 6,
+        "4": 3,
+        "5": 7,
+        "6": 5,
+        "7": 9,
+        "8": 8,
+        "9": 5,
+        "10": 2,
+        "11": 2,
+        "12": 3,
+        "13": 1
+      }
+    },
+    "A0_control__mx_c3": {
+      "n": 77,
+      "mean": 7.467532467532467,
+      "median": 6,
+      "hist": {
+        "1": 3,
+        "2": 19,
+        "3": 7,
+        "4": 3,
+        "5": 6,
+        "6": 4,
+        "7": 2,
+        "8": 3,
+        "9": 2,
+        "10": 3,
+        "11": 3,
+        "12": 4,
+        "13": 3,
+        "14": 6,
+        "15": 3,
+        "16": 1,
+        "17": 1,
+        "18": 2,
+        "19": 1,
+        "24": 1
+      }
+    },
+    "B0_control__lnd": {
+      "n": 97,
+      "mean": 1.8865979381443299,
+      "median": 2,
+      "hist": {
+        "1": 28,
+        "2": 52,
+        "3": 17
+      }
+    },
+    "B0_control__mx_c3": {
+      "n": 92,
+      "mean": 1.7282608695652173,
+      "median": 2.0,
+      "hist": {
+        "1": 35,
+        "2": 47,
+        "3": 10
+      }
+    }
+  },
+  "objective_decomposition": {
+    "B3_shift0.1__lnd": {
+      "d_success_term": -0.04,
+      "d_attempt_term": 0.05299999999999999,
+      "d_fee_term": 0.0008851406767388323,
+      "d_total": 0.013885140676738822
+    },
+    "B3_shift0.1__mx_c3": {
+      "d_success_term": 0.0,
+      "d_attempt_term": -0.0043,
+      "d_fee_term": 5.672951917224589e-05,
+      "d_total": -0.004243270480827755
+    },
+    "B4_shift0.3__lnd": {
+      "d_success_term": -0.1,
+      "d_attempt_term": 0.0742,
+      "d_fee_term": -5.863277855425349e-05,
+      "d_total": -0.025858632778554252
+    },
+    "B4_shift0.3__mx_c3": {
+      "d_success_term": 0.0,
+      "d_attempt_term": -0.002999999999999999,
+      "d_fee_term": 5.733033131334513e-05,
+      "d_total": -0.002942669668686654
+    },
+    "A4_shift0.3__lnd": {
+      "d_success_term": 0.06873015873015872,
+      "d_attempt_term": 0.04402738095238095,
+      "d_fee_term": 0.009531009048619081,
+      "d_total": 0.12228854873115876
+    },
+    "A4_shift0.3__mx_c3": {
+      "d_success_term": -0.026666666666666665,
+      "d_attempt_term": -0.014240079365079367,
+      "d_fee_term": -0.0007183559318396546,
+      "d_total": -0.04162510196358569
+    }
+  },
+  "shift_realization": {
+    "A4_shift0.3": {
+      "scored_attempts": 2065,
+      "failed_attempts": 1810,
+      "degrader_attempts": 2065,
+      "shifted": 535,
+      "shift_per_failed_attempt": 0.2955801104972376
+    },
+    "B3_shift0.1": {
+      "scored_attempts": 762,
+      "failed_attempts": 502,
+      "degrader_attempts": 762,
+      "shifted": 59,
+      "shift_per_failed_attempt": 0.11752988047808766
+    },
+    "B4_shift0.3": {
+      "scored_attempts": 538,
+      "failed_attempts": 311,
+      "degrader_attempts": 538,
+      "shifted": 89,
+      "shift_per_failed_attempt": 0.2861736334405145
+    }
+  },
+  "meta": {
+    "experiment": "exp-019b shift-isolated mainnet arm",
+    "binaries": "scratchpad/bins019 (unchanged from exp-019; controls reproduce exp-019 raw records exactly)",
+    "routers": [
+      "lnd",
+      "mx_c3"
+    ],
+    "levels": {
+      "B0_control": null,
+      "B3_shift0.1": {
+        "shift_prob": 0.1
+      },
+      "B4_shift0.3": {
+        "shift_prob": 0.3
+      },
+      "A0_control": null,
+      "A4_shift0.3": {
+        "shift_prob": 0.3
+      }
+    },
+    "note_A_tier": "hard-tier runs are a hop-count probe only; objectives reproduce exp-019 bit for bit",
+    "stats": "paired per-file delta vs same router's control, 10k bootstrap CI, two-sided sign test",
+    "rerun_noise": "level-mean objective varies by <=1e-4 across three reruns with an attribution section installed (one hard file, one attempt); controls are exactly deterministic"
+  }
+}

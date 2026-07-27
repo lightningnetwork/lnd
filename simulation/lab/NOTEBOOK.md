@@ -814,3 +814,22 @@ champions hold success at exactly their undegraded values for +0.2 to
 +0.45 attempts while lnd trades 6 points of success for its attempt
 drop. Realistic degradation converts the champions' edge from an
 attempt edge into a success edge.
+
+
+## 2026-07-27 (night) — exp-019b: the anomaly stays home
+
+The shift-isolated mainnet arm ran overnight next to the live exp-018
+adjudication. Shift does not help lnd on mainnet — both CIs straddle
+zero, the sign flips between levels, and the decomposition shows the
+small positive at 0.1 is the give-up spiral's attempt term, with
+success falling 8/8 files. The hard-tier anomaly is real and does not
+travel.
+
+The methodological entry is better than the result: my route-geometry
+story predicted the vanishing, and the vanishing happened, and the
+story is still wrong — because it assumed mainnet routes are longer
+and they are three times shorter (hub source, 1.9 mean hops
+first-attempt vs 5.4 on hard). An outcome matching a prediction while
+refuting its premise is exactly the trap exp-016 taught us to check
+for, and this time the check ran BEFORE anything was published. The
+anomaly ships with two facts and no mechanism.

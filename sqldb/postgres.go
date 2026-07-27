@@ -136,9 +136,10 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	return &PostgresStore{
 		cfg: cfg,
 		BaseDB: &BaseDB{
-			DB:          db,
-			Queries:     queries,
-			BackendType: BackendTypePostgres,
+			DB:                    db,
+			Queries:               queries,
+			BackendType:           BackendTypePostgres,
+			WriteTxRepeatableRead: cfg.WriteTxRepeatableRead(),
 		},
 	}, nil
 }

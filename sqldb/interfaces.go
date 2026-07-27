@@ -427,6 +427,11 @@ type BaseDB struct {
 
 	// BackendType defines the type of database backend the database is.
 	BackendType BackendType
+
+	// WriteTxRepeatableRead indicates that read-write transactions should
+	// be opened at REPEATABLE READ instead of SERIALIZABLE. This only has
+	// an effect on Postgres.
+	WriteTxRepeatableRead bool
 }
 
 // Backend returns the type of the database backend used.
@@ -441,8 +446,10 @@ func (s *BaseDB) BeginTx(ctx context.Context, opts TxOptions) (*sql.Tx, error) {
 	readOnly := opts.ReadOnly()
 
 	sqlOptions := sql.TxOptions{
-		Isolation: txIsolationLevel(s.BackendType, readOnly),
-		ReadOnly:  readOnly,
+		Isolation: txIsolationLevel(
+			s.BackendType, readOnly, s.WriteTxRepeatableRead,
+		),
+		ReadOnly: readOnly,
 	}
 
 	return s.DB.BeginTx(ctx, &sqlOptions)
@@ -451,10 +458,10 @@ func (s *BaseDB) BeginTx(ctx context.Context, opts TxOptions) (*sql.Tx, error) {
 // txIsolationLevel returns the isolation level that a transaction against the
 // given backend should be opened with.
 //
-// Read-write transactions always run at SERIALIZABLE. Read-only transactions on
-// Postgres are instead opened at REPEATABLE READ, which in Postgres is snapshot
-// isolation: the transaction reads from a single consistent snapshot for its
-// whole lifetime, taken when its first statement runs rather than at BEGIN.
+// Read-only transactions on Postgres are opened at REPEATABLE READ, which in
+// Postgres is snapshot isolation: the transaction reads from a single
+// consistent snapshot for its whole lifetime, taken when its first statement
+// runs rather than at BEGIN.
 //
 // That is a real, if modest, weakening. Snapshot isolation is not
 // serializability, so the reader is no longer guaranteed to observe a state
@@ -473,10 +480,29 @@ func (s *BaseDB) BeginTx(ctx context.Context, opts TxOptions) (*sql.Tx, error) {
 // lnd is extremely read heavy, this removes a large amount of needless abort
 // pressure from the system.
 //
+// Read-write transactions run at SERIALIZABLE by default, but can be moved to
+// REPEATABLE READ with the db.postgres.tx-isolation option. REPEATABLE READ on
+// Postgres is snapshot isolation, which still rules out dirty reads,
+// non-repeatable reads, phantom reads and lost updates: a transaction that
+// writes a row another in-flight transaction has already written is aborted
+// with a serialization failure. The one anomaly class that remains is write
+// skew, where two transactions each read what the other writes but write
+// disjoint sets of rows, so neither conflicts and both commit. Every write path
+// that was known to be exposed to that has been hardened to either touch a
+// shared row or to serialize in process, which is what makes offering this at
+// all defensible. It nonetheless stays opt-in until it has accumulated soak
+// time on real nodes.
+//
 // SQLite is always effectively serializable because it only ever admits a
 // single writer, so there is nothing to gain there and we leave it alone.
-func txIsolationLevel(backend BackendType, readOnly bool) sql.IsolationLevel {
-	if readOnly && backend == BackendTypePostgres {
+func txIsolationLevel(backend BackendType, readOnly,
+	writeTxRepeatableRead bool) sql.IsolationLevel {
+
+	if backend != BackendTypePostgres {
+		return sql.LevelSerializable
+	}
+
+	if readOnly || writeTxRepeatableRead {
 		return sql.LevelRepeatableRead
 	}
 

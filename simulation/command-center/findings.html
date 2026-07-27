@@ -58,8 +58,9 @@
       <li><a href="#atomic"><span class="n">07</span><span class="t">The honest arena: atomic commitment, and the fifth challenge</span></a></li>
       <li><a href="#coldcache"><span class="n">08</span><span class="t">Cold cache, hot load: what is a mission control worth?</span></a></li>
       <li><a href="#bimodal"><span class="n">09</span><span class="t">The knob we never turned</span></a></li>
-      <li><a href="#process"><span class="n">10</span><span class="t">What the process taught us</span></a></li>
-      <li><a href="#timeline"><span class="n">11</span><span class="t">Timeline of experiments</span></a></li>
+      <li><a href="#served"><span class="n">10</span><span class="t">Free knowledge helps the champions and hurts lnd</span></a></li>
+      <li><a href="#process"><span class="n">11</span><span class="t">What the process taught us</span></a></li>
+      <li><a href="#timeline"><span class="n">12</span><span class="t">Timeline of experiments</span></a></li>
       <li><a href="drift.html"><span class="n">→</span><span class="t">Drift: the environment strikes back <i>(exp-008, verdict in)</i></span></a></li>
     </ol>
   </div>
@@ -361,7 +362,7 @@
         <p>
           <strong>Exploit-clean.</strong> The simulator seals hidden liquidity behind
           a view interface, and an adversarial audit of that seal
-          (<a class="link" href="#process">§10</a>) found and
+          (<a class="link" href="#process">§11</a>) found and
           closed a real escape. Both champions were validated after the seal, with
           zero uses of any exploit path.
         </p>
@@ -931,7 +932,7 @@
         <p>
           <strong>Opus 5 at default effort, persistent parallel flow plans.</strong>
           The deepest machinery the project has produced, at 1,931 lines — well past
-          the complexity wall of <a class="link" href="#process">§10</a>. A flow plan
+          the complexity wall of <a class="link" href="#process">§11</a>. A flow plan
           survives failure, dropping only the corridors that evidence actually
           contradicts; dispatch is concurrency-first, filling the shard budget with
           the largest believable amounts before it ever ladder-searches; and planning
@@ -2023,11 +2024,173 @@
     </div>
   </section>
 
-  <!-- ================= 10 · PROCESS ================= -->
-  <section id="process">
+  <!-- ================= 10 · SERVED WEIGHTS ================= -->
+  <section id="served">
     <div class="shell">
       <div class="sec-head">
         <div class="sec-no">10</div>
+        <h2>Free knowledge helps the champions and hurts lnd</h2>
+        <p class="sec-sub">
+          Give three routers the same observations from the same third-party node,
+          costing them nothing, and two of them get better while lnd gets worse. The
+          split is entirely in the failure evidence, and it says what a
+          weight-serving API can safely serve to whom.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key hi">
+          <span class="kn">+0.055<span class="u">atomic1</span></span>
+          <div class="kl">
+            objective gained from a stranger's observations, with no payment sent to
+            earn them. mx_c3 gains +0.031 and nearly halves its attempts, 8.1 to 4.4
+          </div>
+          <div class="kf">served knowledge is worth real objective to a bound-keeper</div>
+        </div>
+        <div class="key">
+          <span class="kn">&minus;0.029<span class="u">lnd</span></span>
+          <div class="kl">
+            what the identical file does to the production stack, whose attempts rise
+            from 30.9 to 33.8 rather than falling
+          </div>
+          <div class="kf">accurate free information makes lnd worse</div>
+        </div>
+        <div class="key">
+          <span class="kn">9 of 10<span class="u">files</span></span>
+          <div class="kl">
+            how often lnd is worse when only the FAILURE observations are imported:
+            &minus;0.039, a confidence interval that excludes zero, and the whole of
+            its loss
+          </div>
+          <div class="kf">successes help everyone; failures divide the field</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>The arm that could not be built before</h3>
+        <p>
+          <a class="link" href="#coldcache">&sect;08</a> asked what a warm cache is
+          worth and could not answer. Every arm it could construct bought its
+          knowledge with payments, and payments drain the corridors they teach about,
+          so one arm paid in depletion and the other in staleness. The thing the
+          actual proposal describes &mdash; knowledge arriving over an API for free
+          &mdash; was unconstructible.
+        </p>
+        <p>
+          <span class="mono">--import-weights</span> constructs it. For each of ten
+          sealed hard-tier files a <em>different</em> source node runs the same
+          network and exports what it saw; each consumer then runs the original file
+          twice, cold and served. Same graph, same liquidity seed, same payments. The
+          only variable is whether the consumer was told anything.
+        </p>
+
+        <h3>A bound is amount-aware. A penalty is not.</h3>
+        <p>
+          Splitting the observation stream turns a scoreboard into an explanation.
+          Successes help every consumer: lnd +0.003, mx_c3 +0.028, atomic1 +0.038.
+          Nobody is hurt by being told what worked. Failures divide the field
+          &mdash; they help the interval routers and they are the entirety of lnd's
+          loss.
+        </p>
+        <p>
+          An interval router files a failure as an <strong>amount bound</strong>:
+          <em>at least X fails on this channel</em>. It will still route half that
+          amount tomorrow, so a served failure is pure information. lnd files the same
+          failure as a <strong>penalty on the node pair</strong>, and a penalty
+          carries no amount &mdash; it suppresses the corridor for every size of
+          payment. A stranger's failure at a stranger's amount therefore steers lnd
+          off corridors that were fine for what it actually wants to send. This is the
+          same missing piece <a class="link" href="#bimodal">&sect;09</a> found from
+          the estimator side, arriving from the opposite direction.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:2em">
+        <table class="data">
+          <caption>exp-016 &middot; ten sealed hard-tier files, third-party observations imported before the first route request. Paired bootstrap confidence intervals over per-file differences; the sign test needs 9 of 10 to reach p&lt;0.05 at this size, so it and the interval disagree where noted.</caption>
+          <thead>
+            <tr>
+              <th>router</th>
+              <th>arm</th>
+              <th class="num">objective</th>
+              <th class="num">attempts</th>
+              <th class="num">&Delta; vs cold</th>
+              <th class="num">95% CI</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>lnd</td><td>cold</td><td class="num">0.298</td><td class="num">30.9</td><td class="num">&mdash;</td><td class="num">&mdash;</td></tr>
+            <tr><td>lnd</td><td>all</td><td class="num">0.268</td><td class="num">33.8</td><td class="num">&minus;0.029</td><td class="num">[&minus;0.079, +0.001]</td></tr>
+            <tr><td>lnd</td><td>success only</td><td class="num">0.301</td><td class="num">27.5</td><td class="num">+0.003</td><td class="num">[&minus;0.052, +0.051]</td></tr>
+            <tr class="bad"><td>lnd</td><td>failure only</td><td class="num">0.259</td><td class="num">27.8</td><td class="num">&minus;0.039</td><td class="num">[&minus;0.077, &minus;0.006]</td></tr>
+            <tr><td>mx_c3</td><td>cold</td><td class="num">0.479</td><td class="num">8.1</td><td class="num">&mdash;</td><td class="num">&mdash;</td></tr>
+            <tr class="win"><td>mx_c3</td><td>all</td><td class="num">0.510</td><td class="num">4.4</td><td class="num">+0.031</td><td class="num">[+0.007, +0.061]</td></tr>
+            <tr><td>atomic1</td><td>cold</td><td class="num">0.417</td><td class="num">7.1</td><td class="num">&mdash;</td><td class="num">&mdash;</td></tr>
+            <tr class="win"><td>atomic1</td><td>all</td><td class="num">0.472</td><td class="num">5.1</td><td class="num">+0.055</td><td class="num">[+0.010, +0.106]</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <h3>What the API should serve</h3>
+        <p>
+          Neither side's internal state can be served. Mission control keeps a
+          decaying penalty history keyed by the observer; the evolved routers keep an
+          interval with an evidence count. Both, however, are derivable from one
+          stream of <span class="mono">(from, to, chan_id, amount, success, time)</span>.
+          So <strong>serve observations, not weights</strong> &mdash; serving either
+          side's weights would force every consumer into that side's probability
+          model, which is the difference between an API only lnd can use and one a
+          competing design can use too.
+        </p>
+        <p>
+          Two rules follow, both measured rather than argued. A consumer must store
+          failures as amount bounds to benefit from them, so an API that serves
+          failure observations to lnd as it stands makes lnd worse; either serve such
+          consumers successes only, or teach mission control to keep
+          <span class="mono">FailAmt</span> as a bound the retry loop reads. And never
+          serve observations about the consumer's own channels &mdash; 43% of what a
+          node observes is about its own channels, so a naive server ships nearly half
+          a payload that must be dropped.
+        </p>
+
+        <h3>Two things found on the way</h3>
+        <p>
+          <strong>The champions could not consume anything at all.</strong> Nothing in
+          the router contract ever asked a candidate to accept third-party knowledge,
+          so no evolved router implements it. This experiment therefore also produced
+          importer variants of mx_c3 and atomic1, each its ancestor plus one method
+          that routes every observation through the same belief update a real attempt
+          makes. Both score identically to their originals when cold, so the only
+          thing that changed is the capability.
+        </p>
+        <p>
+          <strong>A prediction that failed.</strong> We expected mission control's
+          collapse of channels onto node pairs to be the culprit, since it discards
+          the channel identifier an interval router keys on. It is not: these
+          topologies have 761 directed edges and 761 distinct node pairs, no parallel
+          channels, so nothing collapses. The damage lies in how a failure is
+          represented, not in how it is keyed. The intuitive story was the wrong one.
+        </p>
+        <div class="callout">
+          <p>
+            <strong>Caveats.</strong> One tier, ten files, one server per file chosen
+            by index rather than by connectivity. Server coverage ranged from 0 to
+            2,111 observations, so who serves matters as much as what is served. The
+            server's observations are stale by construction, since its own run moved
+            the liquidity it was observing &mdash; these are lower bounds on the value
+            of fresh knowledge.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 11 · PROCESS ================= -->
+  <section id="process">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">11</div>
         <h2>What the process taught us</h2>
         <p class="sec-sub">
           Findings about running this kind of search, which cost as much to learn
@@ -2110,10 +2273,10 @@
   <section id="timeline">
     <div class="shell">
       <div class="sec-head">
-        <div class="sec-no">11</div>
+        <div class="sec-no">12</div>
         <h2>Timeline of experiments</h2>
         <p class="sec-sub">
-          Fourteen writeups, three days of wall-clock time, in numbered order. Full
+          Eighteen writeups, four days of wall-clock time, in numbered order. Full
           detail lives in
           <span class="mono">simulation/lab/experiments/</span>.
         </p>
@@ -2342,6 +2505,80 @@
             </div>
           </div>
           <div class="tl-tag">verdict · floor, not zero</div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-id">exp-013</div>
+          <div class="tl-b">
+            <div class="t">The give-up attractor</div>
+            <div class="d">
+              The recipe that turned hb1 into mx_c3, applied to atomic1, produced a
+              router that lost to its own seed on the run's held-out test, 0.512
+              against 0.527, and sat below mx_c3 on all six tiers. The attempt column
+              explains it: fewest attempts everywhere and lowest success everywhere,
+              converging on split_test to 2.2 attempts and 0.750 success where every
+              other router exceeds 0.917. It did not get more efficient, it stopped
+              trying. A seed already at the attempt frontier leaves abandonment as the
+              only cheap direction left.
+            </div>
+          </div>
+          <div class="tl-tag">negative · a hazard named</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-014</div>
+          <div class="tl-b">
+            <div class="t">The traffic engine was five times weaker than configured</div>
+            <div class="d">
+              A failed background payment moves no liquidity, so the settle rate is the
+              factor between the churn a scenario asks for and the churn it gets: 0.41
+              on drift, 0.61 on atomic, 0.18 on mainnet. The two obvious fixes — route
+              on hidden balances, shrink amounts until they fit — moved mainnet from
+              0.177 to 0.184. The actual defect was uniform endpoint sampling on a
+              graph whose median degree is one, where 68% of nodes hold two channels
+              or fewer, so most drawn pairs had no path at any amount. Degree-weighted
+              sampling moved it to 0.951. Every published ordering survived the fix.
+            </div>
+          </div>
+          <div class="tl-tag">infrastructure · nothing overturned</div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-id">exp-015</div>
+          <div class="tl-b">
+            <div class="t">exp-008 called a tie a loss</div>
+            <div class="d">
+              drift1 against the champions on one fixed corpus with only the churn rate
+              varying, up to roughly eighteen times what exp-008 actually ran under:
+              −0.016, −0.005, −0.007, −0.003. A tie at every level including none. The
+              original had compared two point estimates at n=8 with no paired test.
+              This mattered beyond the record, because the harness prompt had been
+              telling every candidate that decay LOST and to spend its complexity
+              elsewhere — an unsupported negative acting as a search restriction we
+              had imposed on ourselves. The prompt now states the tie and leaves the
+              question open.
+            </div>
+          </div>
+          <div class="tl-tag">correction · our own claim</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-016</div>
+          <div class="tl-b">
+            <div class="t">Free knowledge helps the champions and hurts lnd</div>
+            <div class="d">
+              A third-party node's observations injected from a file with no payment
+              sent — the arm exp-012 could never build. atomic1 gains +0.055 and mx_c3
+              +0.031 with attempts nearly halved, while lnd loses 0.029 and its
+              attempts rise. Splitting the stream locates the cause: successes help
+              everyone, and failures are the entirety of lnd's loss at −0.039, worse on
+              9 of 10 files. An interval router files a failure as an amount bound and
+              still routes half that amount tomorrow; lnd files it as a penalty on the
+              pair, which carries no amount and suppresses the corridor for every
+              payment size (<a class="link" href="#served">§10</a>).
+            </div>
+          </div>
+          <div class="tl-tag">verdict · serve observations</div>
         </div>
       </div>
     </div>

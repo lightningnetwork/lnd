@@ -1,0 +1,44 @@
+{
+  "topology": {
+    "type": "scalefree",
+    "num_nodes": 1500,
+    "channel_size_sat": 2000000,
+    "avg_degree": 8,
+    "seed": 391253079
+  },
+  "liquidity_model": "bimodal",
+  "liquidity_seed": 819066940,
+  "source": "1",
+  "scenarios": [
+    {
+      "target": "1204",
+      "amt_msat": 1000000000,
+      "max_parts": 4
+    },
+    {
+      "target": "1047",
+      "amt_msat": 20000000,
+      "max_parts": 1
+    },
+    {
+      "target": "1266",
+      "amt_msat": 2000000000,
+      "max_parts": 4
+    },
+    {
+      "target": "1423",
+      "amt_msat": 500000000,
+      "max_parts": 4
+    },
+    {
+      "target": "1399",
+      "amt_msat": 20000000,
+      "max_parts": 1
+    },
+    {
+      "target": "482",
+      "amt_msat": 1600000000,
+      "max_parts": 4
+    }
+  ]
+}

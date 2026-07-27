@@ -166,6 +166,15 @@ def run_compiled(binary, example) -> tuple[float, dict]:
     # at the attempt frontier can only "improve" by abandoning, and the
     # reflection model needs to see that channel explicitly to avoid
     # walking into it.
+    #
+    # A thresholded warning on give_up_rate alone does not work: exp-017
+    # measured that for candidate routers the field equals
+    # 1 - success_rate on every tier (a candidate "gives up" whenever it
+    # returns failure without exhausting the attempt budget, which is
+    # how candidates always fail), so such a warning fires universally
+    # and becomes noise. Abandonment is only readable JOINTLY, as low
+    # attempts together with low success, and the hint states that rule
+    # unconditionally instead.
     give_up_rate = agg.get("give_up_rate", 0.0)
     bg_settle_rate = agg.get("bg_settle_rate", 0.0)
 
@@ -173,16 +182,17 @@ def run_compiled(binary, example) -> tuple[float, dict]:
         "success_rate dominates; attempts and fee ppm apply small "
         "penalties. The router only sees gossip (no hidden "
         "balances), its own channel balances, and per-attempt "
-        "failure feedback via ReportAttempt."
+        "failure feedback via ReportAttempt. Beware the give-up "
+        "attractor: a candidate can cut attempts by abandoning hard "
+        "payments, which the composite score partly rewards. Fewer "
+        "attempts is only an improvement if success_rate held or "
+        "rose; if attempts AND success both fell, the edit taught "
+        "the router to quit, not to route. (give_up_rate counts "
+        "payments failed without exhausting the attempt budget; for "
+        "most candidates it simply equals 1 - success_rate, so read "
+        "abandonment off the success/attempts pair, not off that "
+        "field alone.)"
     )
-    if give_up_rate > 0.05:
-        hint += (
-            f" WARNING: this candidate abandoned {give_up_rate:.0%} of "
-            "payments without exhausting its attempt budget. Fewer "
-            "attempts achieved by giving up on hard payments is NOT "
-            "efficiency — read success and attempts separately before "
-            "concluding an edit helped."
-        )
 
     return score, {
         "score": score,

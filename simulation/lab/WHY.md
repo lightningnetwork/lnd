@@ -104,6 +104,24 @@ generator (half the files bimodal, half uniform, per
 `gen_mainnet_scenarios.py`). The topology is real; the liquidity is
 ours.
 
+**Update, 2026-07-27: exp-017 measured how much of the margin the
+fitted constant explains, and the answer is very little.** Thirteen
+paired tiers moved the generator underneath every router — wrong
+bimodal scales, beta families with polynomial tails, beta:2:2 where
+the bimodal hypothesis is false outright, uniform, degree-correlated
+hubdrain, two authored-amount families, and four re-liquified mainnet
+tiers. lnd finished rank 5 on all thirteen; an evolved router
+finished rank 1 on all thirteen. The champions' margins do compress
+on the flatter worlds, but the hand-written seed — which predates
+every constant in the table above — compresses with the same shape,
+so the compression is a difficulty ceiling, not the overfitting
+signature. The fitted constants show up only at the regime edges
+(atomic1 abandons on sharply bimodal worlds and dominates flat ones).
+The paradigm carries the result; this section's concern survives only
+as the weaker, true statement that every liquidity world we test in,
+including mainnet's, is still one we authored. See
+`exp-017-generator-families.md`.
+
 ### 0.3 lnd's closest analogue had never been measured fairly
 
 lnd ships a bimodal estimator. It is not the default
@@ -1167,15 +1185,15 @@ and the churn ladder, which resolved §3 and corrected exp-008 from a
 loss to a tie; and `--import-weights`, which turned §6's negative into a
 result that inverts by consumer. What is left, in priority order:
 
-1. **Draw mainnet liquidity from something we did not write.** The
-   evolved priors fit `sim_liquidity.go`'s 5% constant, and the mainnet
-   tier overwrites real balances with that same generator, so the
-   headline number is real topology and real policies over synthetic
-   liquidity (§0.2). This is the top pre-upstream fix.
-2. **Degraded attribution.** Delay, drop, or misattribute a fraction of
+1. **Degraded attribution.** Delay, drop, or misattribute a fraction of
    failure sources. Both the champions' bounds and atomic1's
    suspicion-spreading are calibrated to a noiseless channel, and this
    is the advisor program's nominated decisive pre-upstream test (§7).
+   (The generator-fit half of the old top item is closed: exp-017
+   moved the liquidity and amount families underneath every router and
+   the ordering survived on all thirteen tiers — see the §0.2 update.
+   What remains of it, drawing liquidity from something we did not
+   write, folds into this item and offline replay.)
 
 One cheap control also remains unrun: reset mission control between
 payments on the mainnet warmup curve, which decides whether exp-012's

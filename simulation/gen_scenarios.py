@@ -11,10 +11,18 @@ seed candidate has real failures to learn from.
 --hard drops the easy scale-free nets, --drift lets liquidity churn between
 payments (exp-008), and --split generates a corpus that isolates MPP splitting
 (exp-010).
+
+--liquidity-family and --amount-family are the exp-017 robustness knobs: they
+swap the hidden-liquidity generator and the payment-amount distribution the
+corpus is drawn from, so a router can be checked against families it was never
+evolved against. Both default to the historical behaviour and, on that
+default, draw from the rng in exactly the original order: a corpus regenerated
+from a fixed seed is byte-identical to the one generated before they existed.
 """
 
 import argparse
 import json
+import math
 import random
 from pathlib import Path
 
@@ -34,6 +42,118 @@ TOPOLOGIES = [
 
 # Bimodal dominates: it is both the realistic and the hard regime.
 LIQUIDITY_MODELS = ["bimodal", "bimodal", "uniform"]
+
+# The --hard profile: small channels with headroom, bimodal only. Kept as
+# module constants so a driver can import this module and reproduce the hard
+# corpus without shelling out (gen_family_corpora.py does exactly that).
+HARD_TOPOLOGIES = [
+    {"type": "smallworld", "num_nodes": 300,
+     "channel_size_sat": 2_000_000, "avg_degree": 6},
+    {"type": "smallworld", "num_nodes": 600,
+     "channel_size_sat": 1_000_000, "avg_degree": 6},
+    {"type": "grid", "num_nodes": 150,
+     "channel_size_sat": 2_000_000},
+    {"type": "hubspoke", "num_nodes": 200,
+     "channel_size_sat": 4_000_000},
+]
+HARD_LIQUIDITY_MODELS = ["bimodal"]
+
+
+def use_hard_profile() -> None:
+    """Swap the module's topology and liquidity tables for the hard ones."""
+    global TOPOLOGIES, LIQUIDITY_MODELS
+    TOPOLOGIES = list(HARD_TOPOLOGIES)
+    LIQUIDITY_MODELS = list(HARD_LIQUIDITY_MODELS)
+
+
+# --- amount families (exp-017) ----------------------------------------------
+#
+# The tiered amounts below are drawn from a short list of fractions of a
+# channel, which makes every amount in the corpus a round fraction of a round
+# capacity. That is a distribution the champions were evolved against, so it
+# is exactly the kind of thing they could be overfitting to. These two
+# alternatives keep the scenario otherwise untouched and only re-draw the
+# amounts.
+
+# Payments below this are dust the simulator will not route.
+MIN_AMT_MSAT = 1_000
+
+# Spread of the lognormal family, in natural log units. The median is pinned
+# to the amount the tiered logic would have produced, so sigma alone decides
+# how far the family strays from it: at 1.0 the middle half of the draws lands
+# within roughly half to twice the tiered amount and the tail runs an order of
+# magnitude past it.
+LOGNORMAL_SIGMA = 1.0
+
+# Real payments cluster on round numbers, and round numbers collide: with
+# everyone sending 100k sats, one node's failure bound sits exactly at the
+# amount the next node is about to send. The ladder is 1 and 5 per decade of
+# satoshis, which is where invoice amounts actually pile up.
+ROUND_LADDER_MSAT = [
+    mult * 10 ** exp * 1000
+    for exp in range(3, 12)
+    for mult in (1, 5)
+]
+
+
+def amount_scale_msat(example: dict) -> int:
+    """The capacity the example's tiered amounts were sized against.
+
+    For the ordinary topologies that is one channel; for the corridors
+    topology it is the fattest tier, which is the head every --split amount is
+    quoted as a multiple of.
+    """
+    topology = example["topology"]
+    if topology["type"] == "corridors":
+        return corridor_tiers_msat(topology)[0]
+
+    return topology["channel_size_sat"] * 1000
+
+
+def snap_round_msat(amt_msat: int) -> int:
+    """The nearest round amount on a log scale."""
+    target = math.log(max(amt_msat, MIN_AMT_MSAT))
+
+    return min(ROUND_LADDER_MSAT, key=lambda r: abs(math.log(r) - target))
+
+
+def apply_amount_family(example: dict, family: str,
+                        rng: random.Random) -> dict:
+    """Re-draw an example's payment amounts under an amount family.
+
+    "tiered" is the historical behaviour and touches neither the amounts nor
+    the rng, so the default path draws exactly what it always drew. The other
+    families rewrite the amount of every payment in place and leave targets,
+    part limits, topology and seeds alone, which is what makes a family corpus
+    pair file-for-file with its control.
+    """
+    if family == "tiered":
+        return example
+
+    # A lognormal tail can run arbitrarily far; past twice the capacity the
+    # amount was sized against, a payment is no longer a hard payment but an
+    # impossible one, and impossible payments score every router the same.
+    ceiling = max(2 * amount_scale_msat(example), MIN_AMT_MSAT)
+
+    for scenario in example["scenarios"]:
+        tiered = max(int(scenario["amt_msat"]), MIN_AMT_MSAT)
+        if family == "lognormal":
+            # Median pinned to the tiered amount, so the family is a spread
+            # around what this file would otherwise have asked for rather
+            # than a different corpus difficulty.
+            drawn = rng.lognormvariate(math.log(tiered), LOGNORMAL_SIGMA)
+            amt = min(max(int(round(drawn)), MIN_AMT_MSAT), ceiling)
+        elif family == "round":
+            # Snapping moves an amount by at most sqrt(5), so it needs no
+            # ceiling of its own: clamping it would only push amounts back
+            # off the ladder, which is the whole point of the family.
+            amt = max(snap_round_msat(tiered), MIN_AMT_MSAT)
+        else:
+            raise ValueError(f"unknown amount family: {family}")
+
+        scenario["amt_msat"] = amt
+
+    return example
 
 # --- splitting pressure (exp-010) -------------------------------------------
 #
@@ -275,6 +395,20 @@ def main() -> None:
                         "corpus; 8-10 raises per-file score resolution "
                         "so minibatch selection can see the "
                         "attempt-efficiency signal")
+    parser.add_argument("--liquidity-family", default=None,
+                        help="override every scenario's liquidity_model "
+                        "with this exact string, e.g. bimodal:0.2, "
+                        "beta:0.3:0.3, uniform, hubdrain:0.05 (exp-017). "
+                        "The string passes through to the simulator "
+                        "verbatim; liquidity seeds are untouched")
+    parser.add_argument("--amount-family", default="tiered",
+                        choices=["tiered", "lognormal", "round"],
+                        help="payment-amount distribution (exp-017). "
+                        "tiered is the historical fractions-of-a-channel "
+                        "ladder, lognormal spreads around it with the "
+                        "tiered amount as the median, round snaps to the "
+                        "1/5-per-decade satoshi ladder real invoices "
+                        "cluster on")
     args = parser.parse_args()
 
     # --split isolates one variable, so it does not mix with the other corpus
@@ -283,19 +417,8 @@ def main() -> None:
     if args.split and (args.hard or args.drift):
         parser.error("--split composes with neither --hard nor --drift")
 
-    global TOPOLOGIES, LIQUIDITY_MODELS
     if args.hard:
-        TOPOLOGIES = [
-            {"type": "smallworld", "num_nodes": 300,
-             "channel_size_sat": 2_000_000, "avg_degree": 6},
-            {"type": "smallworld", "num_nodes": 600,
-             "channel_size_sat": 1_000_000, "avg_degree": 6},
-            {"type": "grid", "num_nodes": 150,
-             "channel_size_sat": 2_000_000},
-            {"type": "hubspoke", "num_nodes": 200,
-             "channel_size_sat": 4_000_000},
-        ]
-        LIQUIDITY_MODELS = ["bimodal"]
+        use_hard_profile()
 
     rng = random.Random(args.seed)
     out = Path(args.out)
@@ -311,6 +434,11 @@ def main() -> None:
                 )
             else:
                 example = gen_example(rng, drift=args.drift)
+            # Both family overrides run after the example is complete, so
+            # they never move a draw the default path makes.
+            apply_amount_family(example, args.amount_family, rng)
+            if args.liquidity_family is not None:
+                example["liquidity_model"] = args.liquidity_family
             if args.atomic:
                 for scenario in example["scenarios"]:
                     scenario["atomic_mpp"] = True

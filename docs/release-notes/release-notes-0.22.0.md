@@ -191,6 +191,34 @@
     channel was closed would never be marked closable, and so would hold on to
     the tower's storage forever.
 
+* [Read-write Postgres transactions can now optionally be run at `REPEATABLE
+  READ`](https://github.com/lightningnetwork/lnd/pull/10999) via the new
+  `db.postgres.tx-isolation` option, which accepts `serializable` (the default)
+  and `repeatable-read`. This is the final piece of the work that
+  [moved read-only transactions to `REPEATABLE
+  READ`](https://github.com/lightningnetwork/lnd/pull/10997) and then [hardened
+  the write paths that snapshot isolation
+  exposes](https://github.com/lightningnetwork/lnd/pull/10998); both of those
+  are prerequisites for it.
+
+  Under `SERIALIZABLE`, Postgres aborts any pair of transactions whose
+  interleaving isn't equivalent to running them one after the other, and on a
+  busy node that costs a lot of retries. `REPEATABLE READ` is snapshot
+  isolation, which still rules out dirty reads, non-repeatable reads, phantom
+  reads and lost updates, and leaves only write skew on the table. The write
+  paths known to be exposed to write skew were hardened in the PR above.
+
+  **The option is experimental and stays off by default** until it has
+  accumulated soak time on real nodes. See `docs/postgres.md` before enabling
+  it.
+
+* [`KVStore.DeleteNode` now takes the graph store's cache
+  mutex](https://github.com/lightningnetwork/lnd/pull/10999) like every other
+  graph mutator, so that a node deletion can't interleave with a channel edge
+  being added for that node. The method is currently only reachable from tests,
+  so this isn't a live bug, but it's the same shape as the `PruneGraphNodes`
+  fix above.
+
 ## Code Health
 
 ## Tooling and Documentation

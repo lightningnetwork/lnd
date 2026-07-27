@@ -107,10 +107,11 @@ memorized constants.**
 ## Finding 2: atomic1 is a flat-liquidity specialist, and the ladder proves it
 
 The one genuine reordering tracks the generator exactly: atomic1's
-rank across the liquidity ladder is 4 → 4 → 3 → 1 → 1 → 1, its
-margin over lnd rising monotonically from +0.123 to +0.283 as the
-world flattens, and it takes rank 1 on three of the four mainnet
-families. On `beta:2:2` this is unambiguous quality, not
+rank across the liquidity ladder is 4 → 4 → 3 → 1 → 1 → 1 —
+monotone in rank, with its margin over lnd rising from +0.123 to a
+peak of +0.283 at beta:0.3:0.3 and holding near it (+0.274, +0.257)
+on the flattest worlds — and it takes rank 1 on three of the four
+mainnet families. On `beta:2:2` this is unambiguous quality, not
 abandonment: the highest success of any router (0.722) at the fewest
 attempts (3.6). The mirror image is equally real — on `bimodal:0.01`
 it is worse on both axes at once (success 0.36 against hb1's 0.55),

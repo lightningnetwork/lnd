@@ -1097,10 +1097,21 @@ misreport. The Fable simulator advisor's framing stands: sealed gossip
 restricts the candidates' *inputs*, but the feedback channel is
 strictly *more* generous than mainnet — a precision paradise. The
 champions' per-directed-channel bounds are the optimal exploitation of
-a noiseless attribution channel, so **the 8.6× is an upper bound until
-a degraded-attribution run exists.** atomic1 is more exposed than
-mx_c3 here: its unattributable path does no elimination reasoning at
-all, it just makes the route expensive and moves on.
+a noiseless attribution channel, so the 8.6× was an upper bound until
+a degraded-attribution run existed. **That run has now happened
+(exp-019), and it resolved in the champions' favour while killing the
+8.6× itself:** under unreadable errors none of the evolved routers
+writes a bound from an unattributed failure (no-information is
+treated as no-information), so their margins hold or widen — while
+lnd's own `processPaymentOutcomeUnknown` penalizes the whole route in
+both directions and spirals into give-ups from a 10% unreadable rate.
+The attempt ratio inverts under degradation (lnd stops paying for
+hard payments), so the honest claim is no longer 8.6× fewer attempts
+but this: on degraded mainnet the champions hold success at exactly
+their undegraded values while lnd loses six points of it. atomic1's
+exposure predicted here was real but mild: it degrades the most of
+the three on unknown-heavy hard tiers, and still clears lnd
+everywhere realistic.
 
 **Non-strict forwarding and parallel channels.** The simulator has
 neither, so `(chanID, from, to)` is an unambiguous key. On mainnet a

@@ -139,7 +139,7 @@ def main() -> None:
                         help="rotate gepa <-> meta_harness on plateaus")
     parser.add_argument("--no-adaptive", dest="adaptive",
                         action="store_false")
-    parser.add_argument("--reflection-timeout", type=int, default=600,
+    parser.add_argument("--reflection-timeout", type=int, default=900,
                         help="seconds to allow one reflection call. Raise "
                         "it for large seeds, whose reflections are slow.")
     parser.add_argument("--seed-file", default=None,
@@ -168,17 +168,17 @@ def main() -> None:
     reflection_lm = args.reflection_lm
     if reflection_lm.startswith("codex:"):
         # codex:<model>[:<effort>] — e.g. codex:gpt-5.6-sol:xhigh.
-        # Searcher agents default to xhigh reasoning effort; a large
-        # seed makes reflection slow (a thousand-line candidate takes
-        # codex well past the ten minute default, and a timeout there
-        # costs a whole iteration to a stub proposal), so the timeout
-        # knob matters more at higher effort.
+        # Searchers default to high effort with a 900s timeout after
+        # exp-018 measured xhigh at 600s losing roughly a third of its
+        # iterations to reflection timeouts; a large seed makes
+        # reflection slow, so the timeout knob matters more at higher
+        # effort.
         spec = reflection_lm.split(":")
         reflection_lm = CodexLM(
             model=spec[1],
             require_marker="package main",
             timeout=args.reflection_timeout,
-            effort=spec[2] if len(spec) > 2 else "xhigh",
+            effort=spec[2] if len(spec) > 2 else "high",
         )
     elif reflection_lm.startswith("claude:"):
         # claude:<model>[:<effort>] — e.g. claude:claude-opus-5:medium.

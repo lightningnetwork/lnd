@@ -70,17 +70,21 @@ below asks for, with no preamble and no commentary.
 class CodexLM:
     """Callable implementing GEPA's LanguageModel protocol via codex exec."""
 
-    def __init__(self, model: str = "gpt-5.6-sol", timeout: int = 600,
-                 require_marker: str = None, effort: str = "xhigh"):
+    def __init__(self, model: str = "gpt-5.6-sol", timeout: int = 900,
+                 require_marker: str = None, effort: str = "high"):
         self.model = model
         self.timeout = timeout
 
         # Reasoning effort for the searcher. Passed as a per-call config
         # override so it always wins over whatever the harness home's
         # config.toml was written with (that file is only created on
-        # first use and never rewritten). Search/reflection agents run
-        # at xhigh by default; drop to high only if wall-clock per
-        # proposal becomes the bottleneck.
+        # first use and never rewritten). The default is high: exp-018's
+        # gepa arm ran at xhigh and lost 4 of 13 iterations to the 600s
+        # reflection timeout while taking nine hours for 150 evals — the
+        # evolutionary loop supplies the search, so iteration throughput
+        # beats per-proposal depth. Request xhigh explicitly
+        # (codex:<model>:xhigh) when a deep single proposal is the
+        # point.
         self.effort = effort
 
         # require_marker is a substring every valid completion must contain

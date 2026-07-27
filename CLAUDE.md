@@ -6,7 +6,7 @@ an in-process payment simulator. NOT tied to the current Dijkstra +
 mission-control paradigm — whole routing algorithms are the candidates.
 
 Read `simulation/lab/NOTEBOOK.md` first for the full story; experiment
-writeups live in `simulation/lab/experiments/` (exp-001…exp-020, all run).
+writeups live in `simulation/lab/experiments/` (exp-001…exp-021).
 
 ## Headline results (all validated, held-out, reproducible)
 
@@ -191,6 +191,18 @@ next.
   (2026-07-28); no run holds `routing/` or `cmd/routesim/`.
 
 ### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
+- **exp-021** — the distillation patch (flag-gated, in-tree at
+  9c07cbe7f, byte-identical off). soft_unknown (single-pair penalty
+  replacing the unreadable-failure route nuke) recovers 86-148% of
+  the exp-019 collapse on hard/drift, success up and give-ups down
+  unanimously, exact-identical on clean controls; buys success with
+  attempts (+18-29, capped out of the objective); mainnet inert.
+  UPSTREAMABLE. adaptive_split is a genuine null after three designs
+  each reduced to geometric bound-descent, which lnd's halving
+  already does fastest and free — with exp-002b this kills both
+  halves of the reactive distillation theory. The champions' edge is
+  plan-time (success-side memory + joint route-set construction): an
+  architectural price, not a patch.
 - **exp-018** — the omni adjudication. gepa vs meta_harness vs
   autoresearch, identical seed/corpus/150-eval budget. gepa alone
   produced anything (13 iterations, a real candidate); meta_harness's
@@ -339,20 +351,22 @@ next.
   objective; paradigm worth 0.18–0.22.
 
 ### Next, in priority order
-1. **The distillation patch** — mission control already keeps
-   FailAmt; nothing downstream reads it. Minimal diff to lnd's own
-   stack in-harness (FailAmt as a pathfinding constraint +
-   amount-adaptive splitting), then measure how much of the
-   0.694→0.791 gap it closes. exp-002b, exp-016 and exp-019 converge
-   on it — the third component is softening processPaymentOutcomeUnknown's
-   whole-route both-directions penalty.
+1. **Upstream PR prep for soft_unknown** — extract the exp-021 Part B
+   diff, strip fork-specific comments, port the evidence chain
+   (exp-019 pathology, exp-021 recovery table) into a PR narrative.
+   Known limitation to state: the min-probability hop choice needs
+   capacity threading before it works under the bimodal estimator.
 2. Offline replay on real payment data — replay both belief systems
    over a real node's historical attempt stream, score predictive
    log-loss. No simulator in the loop; the escape from
    "simulator-shaped."
-3. The ceiling arm: meta_harness at ~10x eval budget (or minibatch
+3. Plan-time distillation (the hard half): success-side memory
+   feeding initial amount choice + joint route-set construction —
+   priced as an architectural change after exp-021 measured the
+   reactive half null.
+4. The ceiling arm: meta_harness at ~10x eval budget (or minibatch
    benchmarking) — the one run that would separate "problem ceiling"
    from "every practical optimizer stalls here" (exp-018).
-4. Upstream the gepa meta_harness JSON fix (merged durable into
+5. Upstream the gepa meta_harness JSON fix (merged durable into
    `~/codez/gepa` main at 7c20d98c; the upstream PR to gepa-ai/gepa
    remains).

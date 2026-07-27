@@ -23,8 +23,9 @@ writeups live in `simulation/lab/experiments/` (exp-001…exp-020, all run).
   ordering holds on the sealed synthetic test and OOD corpora
   (exp-006/007). Objective = success − 0.01·min(extra_attempts,15) −
   0.00002·min(fee_ppm,5000).
-- The champions lead all six held-out tiers against lnd, and four
-  challengers have failed to displace them (exp-010, 010b, 011, 013).
+- The champions lead all six held-out tiers against lnd, and six
+  challengers have failed to displace them (exp-010 x3, 010b, 013,
+  018).
   The twin question is settled (exp-020): two significant hb1 signals
   (exp-015 p=.014, exp-017 liq-uniform p=.004) did NOT replicate on
   the original tier set — hb1 beats mx_c3 nowhere there, while mx_c3

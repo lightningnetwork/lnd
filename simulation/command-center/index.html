@@ -95,7 +95,7 @@
             out-of-distribution topologies, mainnet snapshot, drifting liquidity,
             splitting pressure, and the atomic arena
           </div>
-          <div class="kf">four challengers have since failed to displace them</div>
+          <div class="kf">six challengers have since failed to displace them</div>
         </div>
         <div class="key">
           <span class="kn">0</span>
@@ -397,7 +397,7 @@
     <div class="shell">
       <div class="sec-head">
         <div class="sec-no">04</div>
-        <h2>The run behind the drift verdict</h2>
+        <h2>The last completed run: the engine adjudication (gepa arm)</h2>
         <p class="sec-sub">
           Telemetry from the optimizer, exported straight out of the GEPA run
           directory. <span class="mono">code_drift1</span> has since finished all 400
@@ -410,8 +410,11 @@
           has exp-012, which found no hot-cache regime anywhere but did find the one
           change this work argues for upstream
           (<a class="link" href="findings.html#coldcache">cold cache, hot load</a>).
-          <span class="mono">exp-013</span>, an atomic1 continuation on the mixed
-          corpus, takes this slot next.
+          Nothing is live now: the last completed run is
+          <span class="mono">exp-018</span>, the engine adjudication, which gave
+          three optimizers the same seed, corpus and eval budget and found that only
+          gepa produced a router at all
+          (<a class="link" href="findings.html#omni">the adjudication</a>).
         </p>
       </div>
 
@@ -419,7 +422,7 @@
         <span><span class="dot"></span>run <b id="rb-run">—</b></span>
         <span>reflection <b id="rb-lm">—</b></span>
         <span>mode <b id="rb-mode">—</b></span>
-        <span>budget <b>400 evals</b></span>
+        <span>budget <b>150 evals</b></span>
       </div>
 
       <div class="statline wide" id="run-stats"></div>
@@ -510,7 +513,7 @@
         anatomy of the evolved algorithms against lnd's, the ceiling three separate
         lineages ran into, what happens when a router is handed knowledge it did not
         pay for, the corrections we have had to make to our own record, and the process
-        lessons from nineteen experiments.
+        lessons from twenty experiments.
       </p>
     </div>
   </div>

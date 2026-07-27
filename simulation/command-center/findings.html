@@ -35,7 +35,7 @@
     </div>
     <h1>What the evolved routers kept, dropped, and <em>invented</em></h1>
     <p class="standfirst">
-      Nineteen experiments in, the shape of the result is clear. On a real mainnet
+      Twenty experiments in, the shape of the result is clear. On a real mainnet
       graph snapshot, LLM-evolved routers match lnd's success rate using
       <strong>8.6× fewer HTLC attempts</strong> on a perfect failure channel — a
       ratio <a class="link" href="#attribution">§12</a> has since retired, because
@@ -46,7 +46,7 @@
     <div class="byline">
       <span>sources <b>simulation/lab/experiments</b></span>
       <span>champions <b>hb1 · mx_c3</b>, title defended (exp-020)</span>
-      <span>status <b>validated · de-circularised · attribution-tested (exp-019)</b></span>
+      <span>status <b>validated · de-circularised · attribution-tested (exp-019) · engine-adjudicated (exp-018)</b></span>
     </div>
 
     <ol class="toc">
@@ -63,8 +63,9 @@
       <li><a href="#served"><span class="n">10</span><span class="t">Free knowledge helps the champions and hurts lnd</span></a></li>
       <li><a href="#families"><span class="n">11</span><span class="t">Thirteen worlds the constants were never fit to</span></a></li>
       <li><a href="#attribution"><span class="n">12</span><span class="t">The 8.6× dies, the margin survives</span></a></li>
-      <li><a href="#process"><span class="n">13</span><span class="t">What the process taught us</span></a></li>
-      <li><a href="#timeline"><span class="n">14</span><span class="t">Timeline of experiments</span></a></li>
+      <li><a href="#omni"><span class="n">13</span><span class="t">Three engines, one starting line</span></a></li>
+      <li><a href="#process"><span class="n">14</span><span class="t">What the process taught us</span></a></li>
+      <li><a href="#timeline"><span class="n">15</span><span class="t">Timeline of experiments</span></a></li>
       <li><a href="drift.html"><span class="n">→</span><span class="t">Drift: the environment strikes back <i>(exp-008, verdict in)</i></span></a></li>
     </ol>
   </div>
@@ -131,6 +132,10 @@
         winning about a third of problems, engine-switching breaking plateaus
         &mdash; make the alternative live. Underdetermined rather than wrong; the
         run that would settle it is specified in the exp-011 writeup.
+        <em>(That run has since happened: given the same seed, corpus and eval
+        budget, neither alternative engine reached the band, let alone broke it, so
+        at practical budgets it is not a gepa artifact &mdash; though a true problem
+        ceiling remains unproven, <a class="link" href="#omni">&sect;13</a>.)</em>
       </p>
       <p>
         <strong>lnd's decay never fires on the static tiers.</strong> Mission
@@ -402,7 +407,7 @@
         <p>
           <strong>Exploit-clean.</strong> The simulator seals hidden liquidity behind
           a view interface, and an adversarial audit of that seal
-          (<a class="link" href="#process">§13</a>) found and
+          (<a class="link" href="#process">§14</a>) found and
           closed a real escape. Both champions were validated after the seal, with
           zero uses of any exploit path.
         </p>
@@ -846,7 +851,11 @@
             a bigger budget or a better reflection prompt: it is changing what the
             environment asks for. Champions of record therefore stay
             <strong>hb1 and mx_c3</strong>; gen2 is kept as reference source, not
-            promoted.
+            promoted. One caveat rode along unstated until exp-018 tested it &mdash;
+            all three lineages were bred by the same optimizer, and handing two other
+            engines the identical seed, corpus and budget produced no router at all,
+            so at practical budgets the band is not an artifact of gepa
+            (<a class="link" href="#omni">&sect;13</a>).
           </p>
         </div>
 
@@ -972,7 +981,7 @@
         <p>
           <strong>Opus 5 at default effort, persistent parallel flow plans.</strong>
           The deepest machinery the project has produced, at 1,931 lines — well past
-          the complexity wall of <a class="link" href="#process">§13</a>. A flow plan
+          the complexity wall of <a class="link" href="#process">§14</a>. A flow plan
           survives failure, dropping only the corridors that evidence actually
           contradicts; dispatch is concurrency-first, filling the shard budget with
           the largest believable amounts before it ever ladder-searches; and planning
@@ -3025,11 +3034,319 @@
     </div>
   </section>
 
-  <!-- ================= 13 · PROCESS ================= -->
-  <section id="process">
+  <!-- ================= 13 · OMNI ADJUDICATION ================= -->
+  <section id="omni">
     <div class="shell">
       <div class="sec-head">
         <div class="sec-no">13</div>
+        <h2>Three engines, one starting line</h2>
+        <p class="sec-sub">
+          Every run in this project used one optimizer, so
+          <a class="link" href="#ceiling">&sect;05</a>'s ceiling was confounded from
+          the day it was published. exp-018 handed the identical seed, corpus and
+          eval budget to three engines. Only one of them produced a router at all,
+          and the reason is not proposal quality.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key">
+          <span class="kn">3<span class="u">engines</span></span>
+          <div class="kl">
+            gepa, meta_harness and autoresearch on the identical in-tree seed, the
+            identical corpus-mix, and 150 evaluations enforced centrally in the
+            eval server rather than trusted to each engine's own accounting
+          </div>
+          <div class="kf">the arm exp-011 could not run</div>
+        </div>
+        <div class="key hi">
+          <span class="kn">1<span class="u">iteration</span></span>
+          <div class="kl">
+            what 150 evaluations buys meta_harness, which benchmarks every proposal
+            against the full example set at 68 evaluations a time &mdash; gepa's
+            minibatch loop stretched the same allowance across thirteen
+          </div>
+          <div class="kf">the moat is eval efficiency, not proposal quality</div>
+        </div>
+        <div class="key">
+          <span class="kn">2 of 3<span class="u">returned the seed</span></span>
+          <div class="kl">
+            both claude-driven arms finished having improved on nothing: one
+            byte-identical to the seed it started from, the other identical modulo
+            comments, for $1.95 and $2.50 of proposer spend
+          </div>
+          <div class="kf">contained, well-behaved, empty-handed</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>The confound, which was registered before the answer</h3>
+        <p>
+          <a class="link" href="#ceiling">&sect;05</a> called a band 0.014 wide a
+          paradigm ceiling on the strength of three lineages converging inside it.
+          All three were bred by the same optimizer. Three roads to one destination
+          is evidence about the map only if the roads are independent, and
+          <span class="mono">engine="gepa"</span> is the one thing every run in this
+          program held fixed, so the convergence said as much about one optimizer's
+          attractor as about the problem. The GEPA team's own multi-engine results
+          &mdash; no engine dominant, each winning about a third of the problems
+          &mdash; made the alternative live rather than merely conceivable, which is
+          why it has sat in <a class="link" href="#corrections">&sect;00</a> as a
+          correction to our own record.
+        </p>
+        <p>
+          The adjudication is the cheapest version of the test. Three engines get
+          the same seed &mdash; the in-tree candidate slot &mdash; the same corpus,
+          the ground exp-011 was fought on, and the same 150-evaluation budget, with
+          a verdict rendered per arm. The two claude-driven arms ran under the
+          sterile config home with the durable JSON fix, and the containment held:
+          neither crashed, leaked, nor wandered off task. They simply produced
+          nothing.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:2em">
+        <table class="data">
+          <caption>exp-018 &middot; three engines, one seed, one corpus, 150 evaluations each. The seed's own held-out test score is 0.508, which is what two of the three arms returned.</caption>
+          <thead>
+            <tr>
+              <th>engine</th>
+              <th class="num">validation</th>
+              <th class="num">held-out test</th>
+              <th class="num">evals</th>
+              <th class="num">wall</th>
+              <th class="num">proposer $</th>
+              <th>produced</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="best">
+              <td>gepa<span class="sub">minibatch acceptance &middot; 13 iterations</span></td>
+              <td class="num" data-l="validation">0.510</td>
+              <td class="num" data-l="held-out test">0.556</td>
+              <td class="num" data-l="evals">150</td>
+              <td class="num" data-l="wall">9.0 h</td>
+              <td class="num" data-l="proposer $">$0</td>
+              <td>a real 947-line candidate</td>
+            </tr>
+            <tr>
+              <td>meta_harness<span class="sub">full-set benchmarking &middot; 68 evals per candidate</span></td>
+              <td class="num" data-l="validation">0.454</td>
+              <td class="num" data-l="held-out test">0.508</td>
+              <td class="num" data-l="evals">136</td>
+              <td class="num" data-l="wall">19 m</td>
+              <td class="num" data-l="proposer $">$1.95</td>
+              <td>the seed, byte-identical</td>
+            </tr>
+            <tr>
+              <td>autoresearch<span class="sub">budget spent without once beating the seed</span></td>
+              <td class="num" data-l="validation">0.454</td>
+              <td class="num" data-l="held-out test">0.508</td>
+              <td class="num" data-l="evals">150</td>
+              <td class="num" data-l="wall">13 m</td>
+              <td class="num" data-l="proposer $">$2.50</td>
+              <td>the seed, modulo comments</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <h3 style="margin-top:2em">Why nothing came back is the finding</h3>
+        <p>
+          meta_harness benchmarks each proposed candidate against the full example
+          set, sixty-eight evaluations at a time, so 150 bought it exactly one
+          iteration: its first real proposal scored 0.058 &mdash; broken &mdash; its
+          second ran out of budget in the middle of its own benchmark, and the
+          &ldquo;best&rdquo; it reported is the seed it started from. autoresearch
+          consumed its whole allowance in thirteen minutes without once beating that
+          seed. gepa spent the same 150 evaluations across thirteen iterations,
+          because a minibatch is a handful of examples rather than all of them.
+        </p>
+        <p>
+          The budget-unit asymmetry each engine records &mdash; cache-miss
+          accounting, proposal caps, what counts as one evaluation at all &mdash; is
+          not a footnote at this scale. It is the whole outcome.
+          <strong>gepa's moat here is eval efficiency, not proposal quality.</strong>
+          Nothing in this run says the claude arms propose worse routers; it says
+          they never got far enough to find out, and that at any budget somebody
+          would actually pay for, the distinction does not matter.
+        </p>
+
+        <div class="note">
+          <h4>what the adjudication settles, and what it does not</h4>
+          <p>
+            <strong>At practical budgets the ~0.64 band is not a gepa
+            artifact</strong> &mdash; the alternative engines do not break it, or
+            reach it, or leave the starting line. That resolves the confound in
+            <a class="link" href="#corrections">&sect;00</a> in gepa's favour, and it
+            is narrower than a proof that the band is a true problem ceiling. The arm
+            that would test <em>that</em> is meta_harness at roughly ten times the
+            eval budget, or with minibatch benchmarking bolted on, and it now comes
+            with measured cost expectations instead of a guess: about $2 and nineteen
+            proposer minutes per swing. Specified and costed, not run.
+          </p>
+        </div>
+
+        <h3>omni1: challenger failure number six</h3>
+        <p>
+          gepa's arm did produce a router, and internally it looked real &mdash;
+          held-out test 0.556 against the seed's 0.508. The inflated-metric caveat
+          held one more time. Rebuilt and scored against the incumbents on the
+          adjudication tier set, <span class="mono">omni1</span> beats no champion
+          anywhere. Its only delta whose confidence interval clears zero is
+          <strong>+0.011 over hb1 on split test</strong> &mdash; the tier where hb1
+          is the known weak twin (<a class="link" href="#families">&sect;11</a>) &mdash;
+          and the sign test on it reads p = 0.219, which lands it on exactly
+          atomic1's second-place shelf. Against mx_c3 it is negative on all six
+          tiers, twice with intervals excluding zero.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:2em">
+        <table class="data">
+          <caption>exp-018 &middot; omni1 on the six-tier adjudication set, paired per file against each incumbent, two-sided sign tests over per-file differences. The attempts column is omni1 against mx_c3, per payment.</caption>
+          <thead>
+            <tr>
+              <th>tier</th>
+              <th class="num">omni1</th>
+              <th class="num">&Delta; vs mx_c3</th>
+              <th class="num">&Delta; vs hb1</th>
+              <th class="num">&Delta; vs lnd</th>
+              <th class="num">attempts</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>hard test</td>
+              <td class="num" data-l="omni1">0.581</td>
+              <td class="num" data-l="&Delta; vs mx_c3">&minus;0.003<span class="sub">p .34</span></td>
+              <td class="num" data-l="&Delta; vs hb1">&minus;0.005<span class="sub">p 1.0</span></td>
+              <td class="num" data-l="&Delta; vs lnd">+0.271<span class="sub">10/10 · p .002</span></td>
+              <td class="num" data-l="attempts">15.8<span class="sub">vs 10.8</span></td>
+            </tr>
+            <tr>
+              <td>out-of-distribution v2</td>
+              <td class="num" data-l="omni1">0.532</td>
+              <td class="num" data-l="&Delta; vs mx_c3">&minus;0.048<span class="sub">p .51</span></td>
+              <td class="num" data-l="&Delta; vs hb1">&minus;0.012<span class="sub">p .75</span></td>
+              <td class="num" data-l="&Delta; vs lnd">+0.175<span class="sub">p .75</span></td>
+              <td class="num" data-l="attempts">13.1<span class="sub">vs 8.4</span></td>
+            </tr>
+            <tr>
+              <td>split test<span class="sub">the one tier it does not clear lnd on</span></td>
+              <td class="num" data-l="omni1">0.825</td>
+              <td class="num" data-l="&Delta; vs mx_c3">&minus;0.051<span class="sub">p .07 · CI excludes zero</span></td>
+              <td class="num" data-l="&Delta; vs hb1">+0.011<span class="sub">p .219 · CI excludes zero</span></td>
+              <td class="num" data-l="&Delta; vs lnd">&minus;0.012<span class="sub">p .29</span></td>
+              <td class="num" data-l="attempts">18.8<span class="sub">vs 10.3</span></td>
+            </tr>
+            <tr>
+              <td>drift test</td>
+              <td class="num" data-l="omni1">0.412</td>
+              <td class="num" data-l="&Delta; vs mx_c3">&minus;0.042<span class="sub">p .22 · CI excludes zero</span></td>
+              <td class="num" data-l="&Delta; vs hb1">&minus;0.031<span class="sub">p .29</span></td>
+              <td class="num" data-l="&Delta; vs lnd">+0.175<span class="sub">p .07</span></td>
+              <td class="num" data-l="attempts">30.5<span class="sub">vs 13.3</span></td>
+            </tr>
+            <tr>
+              <td>atomic test<span class="sub">highest success of any router on the tier</span></td>
+              <td class="num" data-l="omni1">0.427</td>
+              <td class="num" data-l="&Delta; vs mx_c3">&minus;0.016<span class="sub">p .73</span></td>
+              <td class="num" data-l="&Delta; vs hb1">&minus;0.018<span class="sub">p .29</span></td>
+              <td class="num" data-l="&Delta; vs lnd">+0.107<span class="sub">p .29</span></td>
+              <td class="num" data-l="attempts">85.8<span class="sub">vs 12.9</span></td>
+            </tr>
+            <tr>
+              <td>mainnet</td>
+              <td class="num" data-l="omni1">0.776</td>
+              <td class="num" data-l="&Delta; vs mx_c3">&minus;0.015<span class="sub">p .51</span></td>
+              <td class="num" data-l="&Delta; vs hb1">&minus;0.015<span class="sub">p 1.0</span></td>
+              <td class="num" data-l="&Delta; vs lnd">+0.082<span class="sub">p .34</span></td>
+              <td class="num" data-l="attempts">4.4<span class="sub">vs 2.3</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <p style="margin-top:1.6em">
+          It is not an <a class="link" href="#splitting">exp-010</a>-style collapse,
+          though, and that is worth saying plainly: omni1 clears lnd on five of the
+          six tiers, by +0.271 on the hard tier at ten files of ten, and it posts the
+          highest success of any router on atomic test. What it does instead is the
+          exact inverse of the give-up attractor. <strong>omni1 is the most
+          attempt-expensive evolved router this project has measured, on every
+          tier</strong> &mdash; 85.8 per payment on atomic test against mx_c3's 12.9
+          &mdash; buying champion-or-better success with attempts the composite then
+          taxes back off it.
+        </p>
+        <p>
+          The source audit says the cause is an absence rather than a strategy.
+          omni1 carries none of the champions' guardrails: no attempt limit, no hop
+          cap, no search budget. Nothing in it ever decides to stop. And since the
+          objective caps the attempt penalty at fifteen extra attempts, its 0.427 on
+          atomic test flatters it &mdash; past the cap, eighty-five attempts cost no
+          more than thirty. Champions of record are unchanged: hb1 and mx_c3, now
+          six challengers deep.
+        </p>
+
+        <h3>Two mechanisms for the ledger, out of a router that failed</h3>
+        <p>
+          <strong>Dual belief ledgers.</strong> omni1 keeps two books per directed
+          channel and blends them at different strengths: one learns amounts
+          inflated by its own in-flight shard reservations &mdash; blocked right now
+          by my own MPP contention &mdash; and one learns raw attempt amounts, the
+          channel's standing balance. No champion separates those two kinds of
+          failure, and in the atomic arena
+          (<a class="link" href="#atomic">&sect;07</a>) they are genuinely different
+          facts about the world.
+        </p>
+        <p>
+          <strong>Contradiction-triggered confidence decay.</strong> Instead of a
+          clock, evidence that contradicts a bound clears the bound and halves the
+          confidence behind it. Evidence-keyed forgetting sidesteps the decay
+          question exp-008 and exp-015 have been arguing over rather than answering
+          it, and by construction it costs nothing on the static tiers. One
+          incidental for <a class="link" href="#corrections">&sect;00</a>'s
+          fitted-constants worry, too: omni1's low-mode prior constant is 0.025 and
+          not the generator's 0.05, which is one more data point for
+          <a class="link" href="#families">&sect;11</a>'s finding that the fitted
+          constants are not where the performance lives.
+        </p>
+
+        <div class="sidenote">
+          <h4>the operational cost of thinking harder</h4>
+          <p>
+            The gepa arm ran its reflections at xhigh effort per the standing
+            directive, and <strong>four of its thirteen iterations lost their
+            proposal to the 600-second timeout</strong>, which is most of why that
+            arm took nine hours against the others' minutes. The searcher defaults
+            were retuned the same night: high effort, a 900-second timeout, xhigh one
+            flag away. So even the winning arm ran below its own potential.
+          </p>
+        </div>
+
+        <div class="callout">
+          <p>
+            <strong>Caveats.</strong> One run per engine, one seed, one corpus, so
+            engine variance is unmeasured &mdash; and exp-010b showed proposer A/Bs
+            flipping sign between environments
+            (<a class="link" href="#atomic">&sect;07</a>). The claude arms' effort
+            knobs were left at their engine defaults rather than swept. All three
+            arms were handicapped in different ways, which is the honest description
+            of comparing engines that disagree about what a budget is.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 14 · PROCESS ================= -->
+  <section id="process">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">14</div>
         <h2>What the process taught us</h2>
         <p class="sec-sub">
           Findings about running this kind of search, which cost as much to learn
@@ -3108,14 +3425,14 @@
     </div>
   </section>
 
-  <!-- ================= 14 · TIMELINE ================= -->
+  <!-- ================= 15 · TIMELINE ================= -->
   <section id="timeline">
     <div class="shell">
       <div class="sec-head">
-        <div class="sec-no">14</div>
+        <div class="sec-no">15</div>
         <h2>Timeline of experiments</h2>
         <p class="sec-sub">
-          Twenty-one writeups, four days of wall-clock time, in numbered order. Full
+          Twenty-two writeups, four days of wall-clock time, in numbered order. Full
           detail lives in
           <span class="mono">simulation/lab/experiments/</span>.
         </p>
@@ -3535,6 +3852,31 @@
             </div>
           </div>
           <div class="tl-tag">verdict · title defended</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-018</div>
+          <div class="tl-b">
+            <div class="t">The omni adjudication — the band is not a gepa artifact</div>
+            <div class="d">
+              Three engines, one seed, one corpus, 150 evaluations enforced
+              centrally. gepa alone produced a router: thirteen iterations and a
+              947-line candidate at 0.556 held out. meta_harness benchmarks every
+              proposal against the full example set at 68 evaluations a time, so the
+              budget bought it one iteration and it returned its own seed
+              byte-identical; autoresearch burned its allowance in thirteen minutes
+              and returned the seed modulo comments. The moat is eval efficiency,
+              not proposal quality. At practical budgets the ~0.64 band is therefore
+              not an artifact of one optimizer — whether it is a true ceiling needs
+              meta_harness at ten times the evals, now specified and costed at about
+              $2 a swing. The candidate omni1 is challenger failure number six: no
+              collapse tier, but the inverse of the give-up attractor, the most
+              attempt-expensive evolved router on every tier because it evolved no
+              attempt, hop or search caps. Champions unchanged
+              (<a class="link" href="#omni">§13</a>).
+            </div>
+          </div>
+          <div class="tl-tag">verdict · the band holds</div>
         </div>
       </div>
     </div>

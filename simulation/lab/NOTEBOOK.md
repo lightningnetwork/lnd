@@ -438,3 +438,51 @@ different routes, while the champions read upperFail and retry a
 different amount. The estimator swap is worth at most 0.02 of
 objective; the paradigm difference is worth 0.18 to 0.22. That is
 WHY.md's central thesis, now measured instead of argued.
+
+## 2026-07-26 — exp-013: the give-up attractor
+
+Applied the mx_c3 recipe — lineage continuation from the best router
+so far — to atomic1, the exp-010b challenger with no collapse tier and
+the program's attempt record. It failed, and how it failed is the
+result.
+
+gepa's own held-out test called it: the evolved winner scored 0.5124
+against the seed it grew from at 0.5274. The five-tier paired sweep
+agrees — hybrid1 is below mx_c3 on every tier (mix −0.070, hard
+−0.053, v2 −0.086, atomic −0.017, split −0.146, mainnet hub −0.122).
+No single tier is a significant loss, but the champion rule needs a
+win and there isn't one anywhere.
+
+The attempt column explains it. hybrid1 has the fewest attempts on
+every tier by a wide margin (mix 5.5, hard 4.9, split 2.2 against
+mx_c3's 9.6/8.1/10.2) and lower success on every tier. On split_test
+it converges to 2.2 attempts and 0.750 success while everyone else
+sits above 0.917. It did not get more efficient; it stopped trying.
+
+Why here and not with hb1 → mx_c3: continuation evolution looks for
+the nearest improvement to its seed, and atomic1 entered the run
+already at the attempt frontier. With nothing left to win on routing
+quality, the only cheap direction left was abandonment — trading a
+large certain attempt saving against a small probabilistic success
+loss, one gradient-friendly step at a time. hb1 had attempts to
+spare, so the same recipe walked uphill instead.
+
+Two things to carry forward. Check where a seed sits on the attempt
+axis before spending 400 evals continuing it; at the frontier the
+recipe inverts. And our eval output should report a give-up rate,
+because the composite objective hides abandonment inside the same
+number as efficiency.
+
+Also found while validating: the exp-012 multivantage mainnet set is
+useless as a champion tier. Every router scores an identical 0.227
+success on it, since at low-degree vantages the reachable fraction is
+fixed by the graph rather than by routing skill — so it scores an
+attempt-cost contest and reports it as an objective difference.
+atomic1 and hybrid1 "beat" mx_c3 there at p=0.03/0.02 by attempting
+less on payments nobody can complete. Champion validation uses the
+exp-009 hub scenario; the multivantage set is for vantage transfer
+only.
+
+Champions unchanged: hb1 + mx_c3. The tree is unfrozen for the first
+time since exp-013 launched, which releases all four pre-upstream
+blockers.

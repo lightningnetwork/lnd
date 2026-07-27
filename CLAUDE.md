@@ -97,6 +97,17 @@ source), `~/codez/data/mainnet_graph.json`.
   reflection is slow. Prefer small seed + insights in the background
   prompt (this is `code_gen2`'s design, and it accepts candidates much
   faster).
+- **Check where a seed sits on the attempt axis before continuing
+  it.** exp-013 continued atomic1, which was already at the attempt
+  frontier, and the search found the only cheap direction left: give
+  up on hard payments. The composite objective hides abandonment
+  inside the same number as efficiency, so read success and attempts
+  separately on every candidate.
+- The exp-012 multivantage mainnet set is NOT a champion tier: every
+  router scores an identical 0.227 success on it (reachability is
+  fixed by the graph at low-degree vantages), so it scores an
+  attempt-cost contest and reports it as objective. Use the exp-009
+  hub scenario (`scen-mainnet.json`) for validation.
 - zsh: `"$VAR[full]"` is subscript expansion — write `"${VAR}[full]"`.
 - The `claude` binary is a wrapper spawning the real CLI as a
   grandchild sharing the stdout pipe: subprocess timeouts kill only
@@ -130,14 +141,19 @@ the corrections to our own published claims, live in
 next.
 
 ### Live
-- **exp-013 `code_hybrid1`**: continuation evolution seeded from
-  atomic1 (the exp-010b no-collapse hybrid) on corpus-mix, 400 evals,
-  codex proposer — the recipe that turned hb1 into mx_c3, applied to
-  the strongest challenger yet. TREE IS FROZEN while it runs (no
-  `routing/` or `cmd/routesim/` edits). Log
-  `<scratch>/code_hybrid1.log`; canary must stay 0.
+- Nothing. The tree is FREE — no code-mode run is holding `routing/`
+  or `cmd/routesim/`, so the four next-priority experiments below are
+  unblocked for the first time since exp-013 launched.
 
 ### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
+- **exp-013** — the give-up attractor. Continuation from atomic1 lost
+  to its own seed on gepa's held-out test (0.512 vs 0.527) and sits
+  below mx_c3 on all six tiers. Cause: atomic1 was already at the
+  attempt frontier, so the only cheap direction left was abandoning
+  hard payments — fewest attempts everywhere (split_test 2.2) bought
+  with the lowest success (0.750 where everyone else is >0.917). The
+  recipe that made mx_c3 from hb1 inverts when the seed has no
+  attempts left to save.
 - **exp-008** — drift. Time-decay re-evolved and lost to time-less
   champions even on drift. Caveat added later: our churn is weak (see
   the traffic defect below), so this is a statement about weak churn.
@@ -195,5 +211,10 @@ next.
    mainnet's is not. The 8.6× is an upper bound until this runs.
 5. Re-run staleness and exp-008's decay question underneath the fixed
    traffic engine.
-6. Upstream the gepa meta_harness JSON fix (`~/codez/gepa` branch
+6. **Report a give-up rate in the eval output** (needs `routing/`;
+   cheap, do it alongside 1). exp-013's failure was invisible in the
+   composite objective — abandonment and efficiency are the same
+   number there. Emit terminal-give-up count per scenario so a future
+   run cannot hide in it.
+7. Upstream the gepa meta_harness JSON fix (`~/codez/gepa` branch
    `fix-claude-json-array`).

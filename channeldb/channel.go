@@ -1545,11 +1545,29 @@ func syncNewChannel(tx kvdb.RwTx, c *OpenChannel, addrs []net.Addr,
 		return err
 	}
 
-	// If a LinkNode for this identity public key already exists,
-	// then we can exit early.
+	// If a LinkNode for this identity public key already exists, then we
+	// don't want to clobber the state that has accumulated for it (extra
+	// addresses, last seen time, etc). We do however re-write the existing
+	// record verbatim instead of skipping the write entirely.
+	//
+	// This idempotent re-put is what makes this transaction conflict with a
+	// concurrent transaction that prunes the very same link node (see
+	// ChannelStateDB.pruneLinkNode and MarkChanFullyClosed). Those prune
+	// paths read the peer's set of open channels and delete the link node
+	// when that set is empty. Were we to skip the write here, then under
+	// snapshot isolation both transactions could commit: the pruner would
+	// not see our new channel, and we would not see its deletion, leaving
+	// an open channel behind with no link node. By always touching the link
+	// node row, one of the two transactions is instead aborted with a
+	// retryable serialization error.
 	nodePub := c.IdentityPub.SerializeCompressed()
-	if nodeInfoBucket.Get(nodePub) != nil {
-		return nil
+	if existing := nodeInfoBucket.Get(nodePub); existing != nil {
+		// The returned slice may point directly into the database's
+		// memory, so we copy it before handing it back to Put.
+		linkNodeBytes := make([]byte, len(existing))
+		copy(linkNodeBytes, existing)
+
+		return nodeInfoBucket.Put(nodePub, linkNodeBytes)
 	}
 
 	// Next, we need to establish a (possibly) new LinkNode relationship

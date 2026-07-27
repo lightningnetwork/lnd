@@ -738,7 +738,7 @@ func TestResultInterpretation(t *testing.T) {
 				))
 			}
 
-			i := interpretResult(testCase.route, failure)
+			i := interpretResult(testCase.route, failure, nil)
 
 			expected := testCase.expectedResult
 

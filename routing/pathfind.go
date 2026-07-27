@@ -504,6 +504,11 @@ type PathFindingConfig struct {
 	// MinProbability defines the minimum success probability of the
 	// returned route.
 	MinProbability float64
+
+	// Patch gates the optional bound-aware behaviors. Only AdaptiveSplit
+	// is read here; it is carried as the whole struct so that a node
+	// configures one section rather than one flag per component.
+	Patch PatchConfig
 }
 
 // getOutgoingBalance returns the maximum available balance in any of the

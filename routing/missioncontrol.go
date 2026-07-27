@@ -127,6 +127,10 @@ type MissionControl struct {
 	// results that mission control collects.
 	estimator Estimator
 
+	// patch gates the optional bound-aware behaviors. Only SoftUnknown is
+	// read here.
+	patch PatchConfig
+
 	// onConfigUpdate is a function that is called whenever the
 	// mission control state is updated.
 	onConfigUpdate fn.Option[func(cfg *MissionControlConfig)]
@@ -202,6 +206,11 @@ type MissionControlConfig struct {
 	// since the previously recorded failure before the failure amount may
 	// be raised.
 	MinFailureRelaxInterval time.Duration
+
+	// Patch gates the optional bound-aware behaviors. Only SoftUnknown is
+	// read here; it is carried as the whole struct so that a node
+	// configures one section rather than one flag per component.
+	Patch PatchConfig
 }
 
 func (c *MissionControlConfig) validate() error {
@@ -418,6 +427,7 @@ func (m *MissionController) initMissionControl(namespace string) (
 		),
 		store:          store,
 		estimator:      cfg.Estimator,
+		patch:          cfg.Patch,
 		log:            log.WithPrefix(fmt.Sprintf("[%s]:", namespace)),
 		onConfigUpdate: cfg.OnConfigUpdate,
 	}
@@ -486,6 +496,7 @@ func (m *MissionControl) GetConfig() *MissionControlConfig {
 		MaxMcHistory:            m.store.maxRecords,
 		McFlushInterval:         m.store.flushInterval,
 		MinFailureRelaxInterval: m.state.minFailureRelaxInterval,
+		Patch:                   m.patch,
 	}
 }
 
@@ -509,6 +520,7 @@ func (m *MissionControl) SetConfig(cfg *MissionControlConfig) error {
 	m.store.maxRecords = cfg.MaxMcHistory
 	m.state.minFailureRelaxInterval = cfg.MinFailureRelaxInterval
 	m.estimator = cfg.Estimator
+	m.patch = cfg.Patch
 
 	// Execute the callback function if it is set.
 	m.onConfigUpdate.WhenSome(func(f func(cfg *MissionControlConfig)) {
@@ -542,6 +554,16 @@ func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	return m.probability(fromNode, toNode, amt, capacity)
+}
+
+// probability returns the success probability of a payment from fromNode along
+// the edge to toNode.
+//
+// NOTE: the caller must hold the mission control lock.
+func (m *MissionControl) probability(fromNode, toNode route.Vertex,
+	amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
 
 	now := m.cfg.clock.Now()
 	results, _ := m.state.getLastPairResult(fromNode)
@@ -669,8 +691,28 @@ func (m *MissionControl) processPaymentResult(result *paymentResult) (
 func (m *MissionControl) applyPaymentResult(
 	result *paymentResult) *paymentsdb.FailureReason {
 
-	// Interpret result.
-	i := interpretResult(&result.route.Val, result.failure.ValOpt())
+	// Interpret result. With the soft unknown-failure policy enabled we
+	// hand the interpretation a probability oracle, so that it can pick
+	// the single least promising hop of a route it cannot attribute a
+	// failure to.
+	//
+	// NOTE: the capacity is passed as zero because mission control has no
+	// graph access, and deliberately so. The apriori estimator treats a
+	// zero capacity as "no capacity information" and leaves its estimate
+	// unscaled, which is what we want: the ordering across the hops of one
+	// route should come from what we have learned about them.
+	var hopProbability hopProbabilityFunc
+	if m.patch.SoftUnknown {
+		hopProbability = func(from, to route.Vertex,
+			amt lnwire.MilliSatoshi) float64 {
+
+			return m.probability(from, to, amt, 0)
+		}
+	}
+
+	i := interpretResult(
+		&result.route.Val, result.failure.ValOpt(), hopProbability,
+	)
 
 	if i.policyFailure != nil {
 		if m.state.requestSecondChance(

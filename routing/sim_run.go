@@ -40,6 +40,25 @@ type SimParams struct {
 	// MinProbability is the minimum success probability a candidate
 	// route must have to be attempted.
 	MinProbability float64 `json:"min_probability"`
+
+	// Patch enables the bound-aware behaviors distilled from the evolved
+	// routers into lnd's own payment loop. Both knobs default to off, in
+	// which case the lnd arm is the stock production stack.
+	Patch SimPatchParams `json:"patch,omitempty"`
+}
+
+// SimPatchParams mirrors PatchConfig in the params JSON.
+type SimPatchParams struct {
+	AdaptiveSplit bool `json:"adaptive_split,omitempty"`
+	SoftUnknown   bool `json:"soft_unknown,omitempty"`
+}
+
+// patchConfig converts the params to a PatchConfig.
+func (p *SimParams) patchConfig() PatchConfig {
+	return PatchConfig{
+		AdaptiveSplit: p.Patch.AdaptiveSplit,
+		SoftUnknown:   p.Patch.SoftUnknown,
+	}
 }
 
 // SimAprioriParams mirrors AprioriConfig in JSON-friendly units.
@@ -122,6 +141,7 @@ func (p *SimParams) pathFindingConfig() PathFindingConfig {
 		),
 		AttemptCostPPM: p.AttemptCostPPM,
 		MinProbability: p.MinProbability,
+		Patch:          p.patchConfig(),
 	}
 }
 
@@ -321,7 +341,10 @@ func NewSimRunner(graph *SimGraph, params *SimParams, source route.Vertex,
 	// Mission control is anchored to the source node so that local
 	// channels get the distinct local probability estimate, just like on
 	// a real node.
-	mcCfg := &MissionControlConfig{Estimator: estimator}
+	mcCfg := &MissionControlConfig{
+		Estimator: estimator,
+		Patch:     params.patchConfig(),
+	}
 	mcController, err := NewMissionController(db, source, mcCfg)
 	if err != nil {
 		cleanup()

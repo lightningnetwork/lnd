@@ -75,6 +75,13 @@ var (
 	DefaultShardMinAmt = lnwire.NewMSatFromSatoshis(10000)
 )
 
+// adaptiveSplitLadder is the fixed ladder of fractions of the failing amount
+// that the bound-aware split probes, largest first. Its length is the probe
+// budget: a no-route result costs at most this many extra path finding calls,
+// against the unbounded log2(amt/minShard) halvings the blind policy can
+// spend.
+var adaptiveSplitLadder = [...]float64{0.75, 0.5, 0.375, 0.25, 0.125}
+
 // Error returns the string representation of the noRouteError.
 func (e noRouteError) Error() string {
 	switch e {
@@ -308,7 +315,13 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		maxAmt = *p.payment.MaxShardAmt
 	}
 
-	var path []*unifiedEdge
+	// probability is the success probability path finding assigns to the
+	// route it returned. Stock lnd discards it here; the bound-aware split
+	// is the first caller that needs it.
+	var (
+		path        []*unifiedEdge
+		probability float64
+	)
 	findPath := func(graph graphdb.NodeTraverser) error {
 		// We'll also obtain a set of bandwidthHints from the lower
 		// layer for each of our outbound channels. This will allow the
@@ -324,7 +337,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		p.log.Debugf("pathfinding for amt=%v", maxAmt)
 
 		// Find a route for the current amount.
-		path, _, err = p.pathFinder(
+		path, probability, err = p.pathFinder(
 			&graphParams{
 				additionalEdges: p.additionalEdges,
 				bandwidthHints:  bandwidthHints,
@@ -343,7 +356,12 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		return nil
 	}
 
-	for {
+	// runPathFinding executes a single path finding call for the current
+	// value of maxAmt. It splits the two error classes apart: the first
+	// return value is the unwrapped path finding error, which the caller
+	// may recover from by trying another amount, while the second is a
+	// critical error that ends the payment immediately.
+	runPathFinding := func() (error, error) {
 		err := p.graphSessFactory.GraphSession(
 			context.TODO(),
 			findPath, func() {
@@ -360,7 +378,22 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 			//
 			//nolint:errorlint
 			pErr, _ := err.(*pathFindingError)
-			err = pErr.Unwrap()
+
+			return pErr.Unwrap(), nil
+		}
+
+		return nil, nil
+	}
+
+	// ladderSpent records that the bound-aware ladder has already been
+	// priced once for this route request and found nothing, after which
+	// the blind policy owns the rest of the descent.
+	var ladderSpent bool
+
+	for {
+		err, critical := runPathFinding()
+		if critical != nil {
+			return nil, critical
 		}
 
 		// Otherwise, we'll switch on the path finding error.
@@ -404,6 +437,46 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 					p.payment.MaxParts)
 
 				return nil, errNoPathFound
+			}
+
+			// With the bound-aware policy active, we don't guess at
+			// the next shard size at all: we price a ladder of
+			// candidate shards and send the best one.
+			if p.pathFindingConfig.Patch.AdaptiveSplit &&
+				!ladderSpent {
+
+				found, critical := p.searchShardAmt(
+					runPathFinding, &maxAmt, &path,
+					&probability,
+				)
+				if critical != nil {
+					return nil, critical
+				}
+				if found {
+					// The search left maxAmt at the chosen
+					// shard and path at its route, so
+					// we're done.
+					break
+				}
+
+				// Belief rejected every rung. The ladder is a
+				// fast path over the top of the range, not a
+				// replacement for the range: hand what is left
+				// below it back to the blind policy rather
+				// than abandon a payment that policy could
+				// still complete. maxAmt now sits just under
+				// the bottom rung.
+				ladderSpent = true
+
+				if maxAmt < p.minShardAmt {
+					p.log.Debugf("not splitting because "+
+						"minimum shard amount %v has "+
+						"been reached", p.minShardAmt)
+
+					return nil, errNoPathFound
+				}
+
+				continue
 			}
 
 			// This is where the magic happens. If we can't find a
@@ -456,6 +529,99 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 
 		return route, err
 	}
+}
+
+// searchShardAmt chooses the next shard by pricing a ladder of candidate
+// amounts against path finding, and rewrites amt and path to the winner. It
+// reports whether any rung was routable at all; when none was, amt is left
+// just under the ladder's bottom rung so that the caller can resume the blind
+// descent over the range the ladder does not cover.
+//
+// This is the inverted question: the blind policy fixes an amount and asks
+// whether the graph can carry it, while the ladder asks which of several
+// amounts is worth the most. Every rung is an ordinary path finding call, so
+// every rung respects every bound mission control holds. No new state, no
+// estimator change.
+//
+// The choice is by expected value, fraction times route probability, which is
+// mx_c3's harvest ladder with lnd's own belief as the value model. That makes
+// the estimator load bearing rather than incidental: under a miscalibrated
+// belief, where everything below the last failure looks equally fine, the
+// argmax degenerates to the largest rung and the policy becomes a blind
+// geometric descent slower than halving. That degeneracy is measured, not
+// hypothetical, which is why the estimator is an arm of the experiment.
+//
+// NOTE: amt must be an amount that path finding has just rejected, and runPath
+// must run path finding for the current value of *amt, leaving its result in
+// path and prob.
+func (p *paymentSession) searchShardAmt(runPath func() (error, error),
+	amt *lnwire.MilliSatoshi, path *[]*unifiedEdge,
+	prob *float64) (bool, error) {
+
+	// If the requested amount is already at or below the floor then there
+	// is nothing left to split off, exactly as in the blind policy. Leave
+	// the amount under the floor so that the caller stops there too.
+	if *amt <= p.minShardAmt {
+		*amt = p.minShardAmt - 1
+
+		return false, nil
+	}
+
+	var (
+		failingAmt = *amt
+		lowestRung = *amt
+		bestAmt    lnwire.MilliSatoshi
+		bestPath   []*unifiedEdge
+		bestValue  float64
+	)
+
+	for _, fraction := range adaptiveSplitLadder {
+		rung := lnwire.MilliSatoshi(fraction * float64(failingAmt))
+
+		// Rungs under the floor are not shards we are willing to send,
+		// so they are skipped rather than clamped: clamping would
+		// price the same amount several times.
+		if rung < p.minShardAmt {
+			continue
+		}
+
+		*amt, lowestRung = rung, rung
+
+		err, critical := runPath()
+		if critical != nil {
+			return false, critical
+		}
+		if err != nil {
+			continue
+		}
+
+		// Ties keep the earlier, larger rung: the ladder descends, so
+		// this is the amount that completes the payment in fewer
+		// shards when the value model cannot separate the two.
+		if value := fraction * *prob; value > bestValue {
+			bestValue, bestAmt, bestPath = value, rung, *path
+		}
+	}
+
+	// No rung was routable. Leave the amount just under the bottom rung so
+	// that the caller can resume the blind descent over the range the
+	// ladder does not cover.
+	if bestPath == nil {
+		*amt = lowestRung - 1
+
+		p.log.Debugf("no routable shard on the ladder below failing "+
+			"amount %v, resuming blind descent at %v", failingAmt,
+			*amt)
+
+		return false, nil
+	}
+
+	p.log.Debugf("bound-aware split: shard %v of failing amount %v, "+
+		"expected value %v", bestAmt, failingAmt, bestValue)
+
+	*amt, *path = bestAmt, bestPath
+
+	return true, nil
 }
 
 // UpdateAdditionalEdge updates the channel edge policy for a private edge. It

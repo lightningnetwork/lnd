@@ -1,6 +1,12 @@
 package htlcswitch
 
-import "errors"
+import (
+	"errors"
+	"sync"
+	"time"
+
+	"github.com/lightningnetwork/lnd/sqldb"
+)
 
 var (
 	// ErrLinkShuttingDown signals that the link is shutting down.
@@ -57,6 +63,12 @@ const (
 	// time, or that an update has been sent/received while the channel is
 	// quiesced.
 	ErrStfuViolation
+
+	// ErrInternalDBError indicates that we were unable to process a message
+	// from our peer because our own database is in trouble. This is a local
+	// infrastructure failure and not peer misbehavior, so we never report
+	// it to the peer and we never force close because of it.
+	ErrInternalDBError
 )
 
 // LinkFailureAction is an enum-like type that describes the action that should
@@ -130,6 +142,8 @@ func (e LinkFailureError) Error() string {
 		return "non-fatal circuit map error"
 	case ErrStfuViolation:
 		return "quiescence protocol executed improperly"
+	case ErrInternalDBError:
+		return "internal database error"
 	default:
 		return "unknown error"
 	}
@@ -158,4 +172,83 @@ func (e LinkFailureError) ShouldSendToPeer() bool {
 	default:
 		return false
 	}
+}
+
+// dbErrLinkFailure is the failure we use whenever a message from our peer
+// could not be processed because of a local database error. We disconnect
+// instead of failing the channel: once the connection is re-established, the
+// channel reestablish flow resyncs both sides and the state transition that we
+// couldn't persist is simply retried.
+var dbErrLinkFailure = LinkFailureError{
+	code:          ErrInternalDBError,
+	FailureAction: LinkFailureDisconnect,
+}
+
+// linkFailureForDBErr returns the link failure that should be used to fail the
+// link given the error that was hit while processing a message from our peer.
+// If the error was caused by our own database rather than by the peer, we
+// return a failure that neither reports anything to the peer nor force closes
+// the channel. Otherwise the passed default failure is returned unchanged.
+//
+// This exists because a local database problem used to be translated into an
+// lnwire.Error on the wire, which some peers answer by force closing the
+// channel. Losing a channel to a transient database hiccup is never the right
+// trade, see https://github.com/lightningnetwork/lnd/issues/10995.
+func linkFailureForDBErr(err error,
+	defaultFailure LinkFailureError) LinkFailureError {
+
+	if !sqldb.IsInternalDBError(err) {
+		return defaultFailure
+	}
+
+	return dbErrLinkFailure
+}
+
+const (
+	// dbFailureEscalation is the number of database caused link failures we
+	// tolerate within dbFailureWindow before we start logging about the
+	// health of the database itself rather than about the individual links.
+	dbFailureEscalation = 3
+
+	// dbFailureWindow is how far apart two database caused link failures
+	// can be before we stop considering them related.
+	dbFailureWindow = 5 * time.Minute
+)
+
+// linkDBFailures counts the database caused link failures across all links of
+// this daemon. Failing a link because of a database error is deliberately quiet
+// on the wire, so without this the only trace of a sick database would be one
+// error line per failed link, which reads exactly like a peer that keeps
+// flapping. This exists to tell those two apart for an operator.
+var linkDBFailures dbFailureTracker
+
+// dbFailureTracker counts how often links have recently been failed because of
+// a local database error.
+type dbFailureTracker struct {
+	mu sync.Mutex
+
+	// count is the number of failures seen so far within the current
+	// window.
+	count int
+
+	// lastSeen is when we recorded the most recent failure.
+	lastSeen time.Time
+}
+
+// record notes another database caused link failure that happened at the given
+// time, and returns the number of failures seen within the current window,
+// including this one. Failures that are further apart than dbFailureWindow are
+// treated as unrelated, and start a fresh window.
+func (d *dbFailureTracker) record(now time.Time) int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if !d.lastSeen.IsZero() && now.Sub(d.lastSeen) > dbFailureWindow {
+		d.count = 0
+	}
+
+	d.count++
+	d.lastSeen = now
+
+	return d.count
 }

@@ -55,6 +55,7 @@ import (
 	"github.com/lightningnetwork/lnd/protofsm"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -5284,11 +5285,28 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 
 		p.log.Errorf("Unable to respond to remote close msg: %v", err)
 
+		// If our own database is what let us down here, then there's
+		// nothing to tell the peer: the channel is fine and the close
+		// can be retried once we're healthy again. We only recycle the
+		// connection.
+		if sqldb.IsInternalDBError(err) {
+			p.Disconnect(fmt.Errorf("unable to respond to close "+
+				"msg: %w", err))
+
+			return
+		}
+
+		// We never put the raw error text on the wire, as it can carry
+		// details of our internal state that the peer has no business
+		// seeing.
 		errMsg := &lnwire.Error{
 			ChanID: msg.cid,
-			Data:   lnwire.ErrorData(err.Error()),
+			Data: lnwire.ErrorData(
+				"close failed due to internal error",
+			),
 		}
 		p.queueMsg(errMsg, nil)
+
 		return
 	}
 

@@ -1286,11 +1286,15 @@ func (l *channelLink) handleChanSyncErr(err error) {
 	default:
 	}
 
+	// None of the cases above match a database error, so an error from our
+	// own database ends up in the unspecified branch. We must not ask the
+	// peer to recover a channel that is perfectly fine, we just recycle the
+	// connection and sync again.
 	l.failf(
-		LinkFailureError{
+		linkFailureForDBErr(err, LinkFailureError{
 			code:          ErrRecoveryError,
 			FailureAction: LinkFailureForceNone,
-		},
+		}),
 		"unable to synchronize channel states: %v", err,
 	)
 }
@@ -1995,10 +1999,15 @@ func (l *channelLink) updateCommitTxOrFail(ctx context.Context) bool {
 		return false
 
 	// Any other error is treated results in an Error message being sent to
-	// the peer.
+	// the peer, unless it was our own database that let us down.
 	default:
-		l.failf(LinkFailureError{code: ErrInternalError},
-			"unable to update commitment: %v", err)
+		l.failf(
+			linkFailureForDBErr(err, LinkFailureError{
+				code: ErrInternalError,
+			}),
+			"unable to update commitment: %v", err,
+		)
+
 		return false
 	}
 
@@ -3040,8 +3049,13 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 		fwdPkg.ID(), decodeReqs, reforward,
 	)
 	if sphinxErr != nil {
-		l.failf(LinkFailureError{code: ErrInternalError},
-			"unable to decode hop iterators: %v", sphinxErr)
+		l.failf(
+			linkFailureForDBErr(sphinxErr, LinkFailureError{
+				code: ErrInternalError,
+			}),
+			"unable to decode hop iterators: %v", sphinxErr,
+		)
+
 		return
 	}
 
@@ -3193,9 +3207,13 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 				heightNow, pld,
 			)
 			if err != nil {
-				l.failf(LinkFailureError{
-					code: ErrInternalError,
-				}, "%v", err)
+				l.failf(
+					linkFailureForDBErr(
+						err, LinkFailureError{
+							code: ErrInternalError,
+						},
+					), "%v", err,
+				)
 
 				return
 			}
@@ -3367,8 +3385,13 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 	if fwdPkg.State == channeldb.FwdStateLockedIn {
 		err := l.channel.SetFwdFilter(fwdPkg.Height, fwdPkg.FwdFilter)
 		if err != nil {
-			l.failf(LinkFailureError{code: ErrInternalError},
-				"unable to set fwd filter: %v", err)
+			l.failf(
+				linkFailureForDBErr(err, LinkFailureError{
+					code: ErrInternalError,
+				}),
+				"unable to set fwd filter: %v", err,
+			)
+
 			return
 		}
 	}
@@ -3798,6 +3821,26 @@ func (l *channelLink) failf(linkErr LinkFailureError, format string,
 
 	l.log.Errorf("failing link: %s with error: %v", reason, linkErr)
 
+	// A database error fails the link quietly, without so much as a message
+	// to the peer, so on its own it looks just like a peer that keeps
+	// flapping. Once we've seen a few of them in short order, say so
+	// plainly, since at that point the database itself is the story.
+	//
+	// NOTE: We deliberately don't log this at the critical level. In lnd a
+	// critical log requests a daemon shutdown, and tearing the node down
+	// over a contended database would be a worse outcome than the failure
+	// we're reporting. The kvdb layer avoids critical logs for the same
+	// class of error, see catchPanic in kvdb/sqlbase.
+	if linkErr.code == ErrInternalDBError {
+		failures := linkDBFailures.record(time.Now())
+		if failures >= dbFailureEscalation {
+			l.log.Errorf("Failed %v links within %v because of "+
+				"local database errors, the database may be "+
+				"unhealthy: %v", failures, dbFailureWindow,
+				reason)
+		}
+	}
+
 	// Set failed, such that we won't process any more updates, and notify
 	// the peer about the failure.
 	l.failed = true
@@ -4035,11 +4078,15 @@ func (l *channelLink) resumeLink(ctx context.Context) error {
 		l.failf(LinkFailureError{code: ErrCircuitError},
 			"temporary circuit error: %v", err)
 
-	// A non-nil error was encountered, send an Error message to
-	// the peer.
+	// A non-nil error was encountered, send an Error message to the peer,
+	// unless it was our own database that let us down.
 	default:
-		l.failf(LinkFailureError{code: ErrInternalError},
-			"unable to resolve fwd pkgs: %v", err)
+		l.failf(
+			linkFailureForDBErr(err, LinkFailureError{
+				code: ErrInternalError,
+			}),
+			"unable to resolve fwd pkgs: %v", err,
+		)
 	}
 
 	return err
@@ -4112,8 +4159,12 @@ func (l *channelLink) processRemoteUpdateAddHTLC(
 	// event that we know the preimage.
 	index, err := l.channel.ReceiveHTLC(msg)
 	if err != nil {
-		l.failf(LinkFailureError{code: ErrInvalidUpdate},
-			"unable to handle upstream add HTLC: %v", err)
+		l.failf(
+			linkFailureForDBErr(err, LinkFailureError{
+				code: ErrInvalidUpdate,
+			}),
+			"unable to handle upstream add HTLC: %v", err,
+		)
 
 		return err
 	}
@@ -4151,12 +4202,20 @@ func (l *channelLink) processRemoteUpdateFulfillHTLC(
 		return err
 	}
 
+	// NOTE: The wrapper below is inert today, because ReceiveHTLCSettle only
+	// touches in-memory state and so can never return a database error. It
+	// is here so that this site doesn't get missed if that changes. Note
+	// that the calculus is different here than on the other paths: this
+	// failure force closes on purpose, because a peer that reveals a bad
+	// preimage has to be taken on-chain. Anyone adding a database write to
+	// ReceiveHTLCSettle needs to make sure a genuine bad preimage still
+	// reaches the chain rather than being classified as our own fault.
 	if err := l.channel.ReceiveHTLCSettle(pre, idx); err != nil {
 		l.failf(
-			LinkFailureError{
+			linkFailureForDBErr(err, LinkFailureError{
 				code:          ErrInvalidUpdate,
 				FailureAction: LinkFailureForceClose,
-			},
+			}),
 			"unable to handle upstream settle HTLC: %v", err,
 		)
 
@@ -4244,8 +4303,12 @@ func (l *channelLink) processRemoteUpdateFailMalformedHTLC(
 	// usual HTLC fail message.
 	err := l.channel.ReceiveFailHTLC(msg.ID, b.Bytes())
 	if err != nil {
-		l.failf(LinkFailureError{code: ErrInvalidUpdate},
-			"unable to handle upstream fail HTLC: %v", err)
+		l.failf(
+			linkFailureForDBErr(err, LinkFailureError{
+				code: ErrInvalidUpdate,
+			}),
+			"unable to handle upstream fail HTLC: %v", err,
+		)
 
 		return err
 	}
@@ -4285,8 +4348,12 @@ func (l *channelLink) processRemoteUpdateFailHTLC(
 	idx := msg.ID
 	err := l.channel.ReceiveFailHTLC(idx, msg.Reason[:])
 	if err != nil {
-		l.failf(LinkFailureError{code: ErrInvalidUpdate},
-			"unable to handle upstream fail HTLC: %v", err)
+		l.failf(
+			linkFailureForDBErr(err, LinkFailureError{
+				code: ErrInvalidUpdate,
+			}),
+			"unable to handle upstream fail HTLC: %v", err,
+		)
 
 		return err
 	}
@@ -4310,7 +4377,9 @@ func (l *channelLink) processRemoteCommitSig(ctx context.Context,
 	err := l.cfg.PreimageCache.AddPreimages(l.uncommittedPreimages...)
 	if err != nil {
 		l.failf(
-			LinkFailureError{code: ErrInternalError},
+			linkFailureForDBErr(err, LinkFailureError{
+				code: ErrInternalError,
+			}),
 			"unable to add preimages=%v to cache: %v",
 			l.uncommittedPreimages, err,
 		)
@@ -4354,11 +4423,11 @@ func (l *channelLink) processRemoteCommitSig(ctx context.Context,
 			sendData = []byte(err.Error())
 		}
 		l.failf(
-			LinkFailureError{
+			linkFailureForDBErr(err, LinkFailureError{
 				code:          ErrInvalidCommitment,
 				FailureAction: LinkFailureForceClose,
 				SendData:      sendData,
-			},
+			}),
 			"ChannelPoint(%v): unable to accept new "+
 				"commitment: %v",
 			l.channel.ChannelPoint(), err,
@@ -4383,11 +4452,11 @@ func (l *channelLink) processRemoteCommitSig(ctx context.Context,
 		// resolve itself in case our db was just busy not accepting new
 		// transactions.
 		l.failf(
-			LinkFailureError{
+			linkFailureForDBErr(err, LinkFailureError{
 				code:          ErrInternalError,
 				Warning:       true,
 				FailureAction: LinkFailureDisconnect,
-			},
+			}),
 			"ChannelPoint(%v): unable to accept new "+
 				"commitment: %v",
 			l.channel.ChannelPoint(), err,
@@ -4482,11 +4551,16 @@ func (l *channelLink) processRemoteRevokeAndAck(ctx context.Context,
 	fwdPkg, remoteHTLCs, err := l.channel.ReceiveRevocation(msg)
 	if err != nil {
 		// TODO(halseth): force close?
+		//
+		// NOTE: If the revocation could not be persisted because our
+		// own database is busy, then we must not blame the peer for it.
+		// We only recycle the connection in that case and let the
+		// channel reestablish flow sort the state out.
 		l.failf(
-			LinkFailureError{
+			linkFailureForDBErr(err, LinkFailureError{
 				code:          ErrInvalidRevocation,
 				FailureAction: LinkFailureDisconnect,
-			},
+			}),
 			"unable to accept revocation: %v", err,
 		)
 
@@ -4521,9 +4595,12 @@ func (l *channelLink) processRemoteRevokeAndAck(ctx context.Context,
 			&chanID, state.RemoteCommitment.CommitHeight-1,
 		)
 		if err != nil {
-			l.failf(LinkFailureError{
-				code: ErrInternalError,
-			}, "unable to queue breach backup: %v", err)
+			l.failf(
+				linkFailureForDBErr(err, LinkFailureError{
+					code: ErrInternalError,
+				}),
+				"unable to queue breach backup: %v", err,
+			)
 
 			return err
 		}
@@ -4604,8 +4681,13 @@ func (l *channelLink) processRemoteUpdateFee(msg *lnwire.UpdateFee) error {
 	// We received fee update from peer. If we are the initiator we will
 	// fail the channel, if not we will apply the update.
 	if err := l.channel.ReceiveUpdateFee(fee); err != nil {
-		l.failf(LinkFailureError{code: ErrInvalidUpdate},
-			"error receiving fee update: %v", err)
+		l.failf(
+			linkFailureForDBErr(err, LinkFailureError{
+				code: ErrInvalidUpdate,
+			}),
+			"error receiving fee update: %v", err,
+		)
+
 		return err
 	}
 

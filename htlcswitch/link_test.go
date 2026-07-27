@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	prand "math/rand"
@@ -39,6 +40,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/stretchr/testify/require"
 )
@@ -5782,6 +5784,178 @@ func (m *mockFailLoadFwdPkgStore) LoadFwdPkgs(
 	*cstate.OpenChannel) ([]*channeldb.FwdPkg, error) {
 
 	return nil, fmt.Errorf("failing LoadFwdPkgs")
+}
+
+// mockFailAdvanceTailStore wraps a real channel state store and overrides only
+// AdvanceCommitChainTail. This lets us inject a failure on the exact write that
+// persists an incoming revocation, without touching the rest of the store.
+type mockFailAdvanceTailStore struct {
+	cstate.Store
+
+	// failErr is the error that AdvanceCommitChainTail returns.
+	failErr error
+}
+
+// AdvanceCommitChainTail fails the write that persists an incoming revocation.
+func (m *mockFailAdvanceTailStore) AdvanceCommitChainTail(*cstate.OpenChannel,
+	*cstate.FwdPkg, []cstate.LogUpdate, uint32, uint32) error {
+
+	return m.failErr
+}
+
+// TestChannelLinkFailRevocationDBError tests that a failure to persist an
+// incoming revocation because of a local database problem fails the link
+// without blaming our peer. Reporting such a failure on the wire is what made
+// peers force close the channel in issue #10995, even though a reconnect and a
+// channel reestablish would have resolved the state cleanly.
+func TestChannelLinkFailRevocationDBError(t *testing.T) {
+	t.Parallel()
+
+	// serializationErr mimics the error postgres hands us when a
+	// transaction couldn't be serialized against the other concurrent
+	// transactions.
+	serializationErr := sqldb.MapSQLError(errors.New("ERROR: could not " +
+		"serialize access due to read/write dependencies among " +
+		"transactions (SQLSTATE 40001)"))
+
+	tests := []struct {
+		name string
+
+		// failErr is the error the channel state store returns when the
+		// link tries to persist the incoming revocation.
+		failErr error
+
+		// expCode is the failure code we expect the link to fail with.
+		expCode errorCode
+
+		// expSendToPeer is whether we expect the link failure to be
+		// reported to our peer on the wire.
+		expSendToPeer bool
+	}{
+		{
+			name: "serialization error",
+			failErr: fmt.Errorf("unable to restore remote "+
+				"unsigned local updates: %w", serializationErr),
+			expCode:       ErrInternalDBError,
+			expSendToPeer: false,
+		},
+		{
+			name: "retries exceeded",
+			failErr: fmt.Errorf("%w: %w", sqldb.ErrRetriesExceeded,
+				serializationErr),
+			expCode:       ErrInternalDBError,
+			expSendToPeer: false,
+		},
+		{
+			name:          "non-db error still blames the peer",
+			failErr:       errors.New("revocation key mismatch"),
+			expCode:       ErrInvalidRevocation,
+			expSendToPeer: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			assertRevocationDBFailure(
+				t, test.failErr, test.expCode,
+				test.expSendToPeer,
+			)
+		})
+	}
+}
+
+// assertRevocationDBFailure drives a full commitment dance up to the point
+// where Alice receives a revocation from Bob, with Alice's channel state store
+// rigged to fail that write, and then asserts on the resulting link failure.
+func assertRevocationDBFailure(t *testing.T, failErr error, expCode errorCode,
+	expSendToPeer bool) {
+
+	t.Helper()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	harness, err := newSingleLinkTestHarness(t, chanAmt, 0)
+	require.NoError(t, err)
+
+	//nolint:forcetypeassert
+	coreLink := harness.aliceLink.(*channelLink)
+
+	// Rig Alice's channel state store so that persisting an incoming
+	// revocation fails with the error under test.
+	state := coreLink.channel.State()
+	state.Db = &mockFailAdvanceTailStore{
+		Store:   state.Db,
+		failErr: failErr,
+	}
+
+	linkErrors := make(chan LinkFailureError, 1)
+	coreLink.cfg.OnChannelFailure = func(_ lnwire.ChannelID,
+		_ lnwire.ShortChannelID, linkErr LinkFailureError) {
+
+		linkErrors <- linkErr
+	}
+
+	require.NoError(t, harness.start())
+
+	//nolint:forcetypeassert
+	aliceMsgs := coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	ctx := linkTestContext{
+		t:           t,
+		aliceSwitch: harness.aliceSwitch,
+		aliceLink:   harness.aliceLink,
+		aliceMsgs:   aliceMsgs,
+		bobChannel:  harness.bobChannel,
+	}
+
+	// Bob adds an HTLC and signs for it, which makes Alice revoke her
+	// current state and sign a new one in return.
+	htlc := generateHtlc(t, coreLink, 0)
+	ctx.sendHtlcBobToAlice(htlc)
+	ctx.sendCommitSigBobToAlice(1)
+	ctx.receiveRevAndAckAliceToBob()
+	ctx.receiveCommitSigAliceToBob(1)
+
+	// Now let Bob revoke his old state. Alice will try to persist that
+	// revocation, which is the write we rigged to fail.
+	ctx.sendRevAndAckBobToAlice()
+
+	var linkErr LinkFailureError
+	select {
+	case linkErr = <-linkErrors:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("link did not fail")
+	}
+
+	require.Equal(t, expCode, linkErr.code)
+	require.Equal(t, expSendToPeer, linkErr.ShouldSendToPeer())
+
+	// We never want a local database problem to cost us the channel, so
+	// neither a force close nor a permanent failure is acceptable here. We
+	// do want the connection recycled, so that the reestablish flow can
+	// resync the state.
+	require.NotEqual(t, LinkFailureForceClose, linkErr.FailureAction)
+	require.Equal(t, LinkFailureDisconnect, linkErr.FailureAction)
+	require.False(t, linkErr.PermanentFailure)
+
+	// Whatever else happens, the link itself must never put an error or a
+	// warning on the wire. Whether the failure is reported to the peer at
+	// all is the peer's decision, driven by ShouldSendToPeer above.
+	for {
+		select {
+		case msg := <-aliceMsgs:
+			switch msg.(type) {
+			case *lnwire.Error, *lnwire.Warning:
+				t.Fatalf("link put %T on the wire", msg)
+			}
+
+			continue
+
+		case <-time.After(100 * time.Millisecond):
+		}
+
+		break
+	}
 }
 
 // TestChannelLinkFail tests that we will fail the channel, and force close the

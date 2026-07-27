@@ -6,7 +6,7 @@ an in-process payment simulator. NOT tied to the current Dijkstra +
 mission-control paradigm — whole routing algorithms are the candidates.
 
 Read `simulation/lab/NOTEBOOK.md` first for the full story; experiment
-writeups live in `simulation/lab/experiments/` (exp-001…exp-009).
+writeups live in `simulation/lab/experiments/` (exp-001…exp-016).
 
 ## Headline results (all validated, held-out, reproducible)
 
@@ -16,14 +16,31 @@ writeups live in `simulation/lab/experiments/` (exp-001…exp-009).
 | hand-written seed | 0.762 | 6.1 | ~300-line interval router |
 | hb1 (evolved) | 0.790 | 2.3 | hard-regime specialist |
 | **mx_c3 (evolved)** | **0.791** | **2.3** | generalist champion |
+| atomic1 (evolved) | 0.790 | 1.6 | best challenger: no collapse tier, attempt record, beats a champion under staleness |
 
 - Mainnet = real 12,161-node describegraph snapshot
   (`~/codez/data/mainnet_graph.json`), 100 payments (exp-009). Same
   ordering holds on the sealed synthetic test and OOD corpora
   (exp-006/007). Objective = success − 0.01·min(extra_attempts,15) −
   0.00002·min(fee_ppm,5000).
-- Parameter tuning alone could NOT beat lnd's defaults (exp-002): the
-  paradigm is the lever, not the knobs.
+- The champions lead all six held-out tiers against lnd, and four
+  challengers have failed to displace them (exp-010, 010b, 011, 013).
+  hb1 and mx_c3 are closer than "generalist champion" suggests: hb1
+  leads the hard tier, mx_c3 leads OOD/split/mainnet, and on a fresh
+  40-file drift corpus hb1 edges mx_c3 by +0.009 (sign test p=.014, a
+  trivial effect on one corpus family — not a swap).
+- Parameter tuning alone could NOT beat lnd's defaults (exp-002), and
+  neither can lnd's own bimodal estimator at any of seven scales,
+  including the one matching this environment (exp-002b). The paradigm
+  is worth 0.18–0.22 of objective; the estimator at most 0.02.
+- **What a weight-serving API should serve (exp-016).** Hand three
+  routers the same third-party observations, free: atomic1 +0.055
+  (p=.016), mx_c3 +0.031 with attempts 8.1→4.4, lnd −0.029 with
+  attempts going UP. Successes help everyone; FAILURES are the whole of
+  lnd's loss (−0.039, CI excludes zero, worse on 9/10 files), because
+  an interval router files a failure as an amount bound and still
+  routes half that amount, while lnd files it as a pair penalty that
+  carries no amount. Serve observations, not weights.
 - What the champions evolved (all pure Go, `simulation/champions/`):
   dropped mission control and ALL time-decay; invented
   per-directed-channel liquidity intervals (lowerOK/upperFail bounds +

@@ -613,7 +613,7 @@ scores 0.203 against mx_c3's 0.457 — which is the honest place to make
 the argument, and it is a stronger result than the static tiers, not a
 weaker one.
 
-### And the drift tier is weaker than it looks
+### The drift tier was weaker than it looked — and both halves are now resolved
 
 exp-012 part 3 varied one thing: the idle gap between warming a router
 and scoring it, at 0, 10 minutes, 1 hour and 6 virtual hours of
@@ -624,26 +624,52 @@ The manipulation check passes, so this is not a broken knob. Background
 payments sent scale 700 → 1420 across the four arms, exactly the
 prorated volume `AdvanceIdle` promises. The traffic runs; the world just
 does not move. And the reason it does not move is a simulator defect
-worth more than the null: **only about 18% of background payments
-settle**, 129 of 700 in the check. The engine sends naive fee-optimizing
-payments that mostly fail, and a failed payment moves no liquidity, so
-our exogenous process is roughly five times weaker than its
-configuration implies.
+worth more than the null: at the time, **only about 18% of background
+payments settled**, 129 of 700 in the check. The engine sent naive
+fee-optimizing payments that mostly failed, and a failed payment moves
+no liquidity, so the exogenous process ran roughly five times weaker
+than its configuration implied. (Fixed since; see below.)
 
-That reaches backwards into this section. exp-008 concluded that decay
-"buys nothing at realistic churn"; the honest restatement is that it
-buys nothing at the weak churn we generate, and that the drift corpus
-never reached a regime where evidence genuinely goes stale. exp-010b's
-per-attempt drift comes from the same engine and inherits the same
-caveat. The measured comparison between drift1 and the time-less routers
-stands — same corpus, same budget — but what it licenses is narrower
-than the sentence we have been quoting.
+That reaches backwards into this section, and it has since been chased
+down. Both halves resolved, and neither the way I expected.
 
-One arm did reach genuine staleness, and it got there by restoring
-liquidity rather than by churning it. There, as the stale-cache table
-above shows, the aging policy mattered enormously. That is the clearest
-hint we have about what a fixed traffic engine would find, and it is a
-reason to fix it (§8) before making any staleness claim again.
+**The engine was fixed (exp-014), and the defect was not what it
+looked like.** Two causes were obvious: the route search filtered on
+capacity and policy but never on the hidden balance, and the amount was
+drawn blind and never revisited. Fixing both moved the mainnet settle
+rate from 0.177 to 0.184. Essentially nothing. The actual defect was
+uniform endpoint sampling: the mainnet snapshot has a **median degree
+of one**, and 68% of its nodes hold two channels or fewer, so uniform
+draws overwhelmingly picked leaf-to-leaf pairs with no path between
+them at any amount — and no amount of shrinking finds a path that does
+not exist. Weighting the draw by degree moved mainnet to 0.951, drift
+to 0.69, atomic to 0.89. Re-running every champion across both traffic
+tiers left every published ordering intact.
+
+**The decay question was then answered (exp-015), and exp-008 had
+called a tie a loss.** drift1 against the time-less champions on one
+fixed corpus with only the churn rate varying — 0, 20, 80 and 240
+background payments per gap, the top rung roughly eighteen times the
+effective churn exp-008 actually ran under — gives paired deltas of
+−0.016, −0.005, −0.007 and −0.003. A tie at every level, including no
+churn at all, with every interval straddling zero and no trend.
+
+So the correction is not that stronger churn changed the answer. It is
+that **the answer was a tie in the first place**: exp-008 compared two
+point estimates at n=8 with no paired test and read a 0.04 gap as a
+loss. Re-scoring its own original corpus under the fixed engine gives
+−0.033 at p=0.453.
+
+This mattered beyond the record. The harness background prompt had been
+telling every candidate in every run that decay "LOST to plain hard
+bounds" and to spend its complexity budget elsewhere — an unsupported
+negative operating as a search restriction we had imposed on ourselves.
+The prompt now states the tie, describes the evolved form that achieved
+it, and leaves the question open.
+
+A tie is not a win either. Decay remains unproven here rather than
+disproven: it has never bought a measurable gain, it costs complexity,
+and nothing rules out a form that would earn its keep.
 
 ---
 
@@ -947,15 +973,53 @@ only subtract, by spending liquidity or by going stale. lnd cannot learn
 fast enough for it to matter: 100 observations is roughly 1% pair
 coverage on this graph, and what it records is a permanent zero.
 
-**The design limit is as important as the result.** Every arm here buys
-knowledge with payments, and payments cost liquidity, which makes free
-knowledge unconstructible in the current simulator. The drain arm pays
-in depletion, the restore arm pays in staleness, the probe arm pays a
-little of both. A served cache in the actual proposal costs its consumer
-nothing — it arrives over an API. Measuring that needs beliefs injected
-from a file with no payments sent at all (`--import-weights`, §8). Until
-that exists, exp-012's negative is a statement about probe-warming and
-not about weight-serving.
+**The design limit was as important as the result, and it has since
+been lifted.** Every arm above buys knowledge with payments, and
+payments cost liquidity, so free knowledge was unconstructible: the
+drain arm paid in depletion, the restore arm in staleness, the probe arm
+a little of both. A served cache in the actual proposal costs its
+consumer nothing, because it arrives over an API.
+
+`--import-weights` now builds that arm, and exp-016 ran it: a
+third-party node's observations injected from a file, no payment sent.
+**The answer is not the negative above — it inverts by consumer.**
+
+| consumer | cold | served | Δ | attempts |
+|---|---|---|---|---|
+| atomic1 | 0.417 | 0.472 | **+0.055** (p=.016) | 7.1 → 5.1 |
+| mx_c3 | 0.479 | 0.510 | **+0.031** | 8.1 → **4.4** |
+| lnd | 0.298 | 0.268 | **−0.029** | 30.9 → **33.8** |
+
+Free, accurate, correctly-scoped information helps both interval
+routers and makes lnd worse. Splitting the observation stream locates
+the cause exactly. Successes help everyone — lnd +0.003, mx_c3 +0.028,
+atomic1 +0.038. **Failures are the entirety of lnd's loss**: −0.039
+alone, an interval excluding zero, worse on 9 of 10 files, and more
+damaging on their own than the full stream, because the successes were
+partly offsetting them.
+
+The mechanism is this document's central thesis arriving from a new
+direction. An interval router files a failure as an **amount bound** —
+*at least X fails on this channel* — and will still route half that
+amount tomorrow, so a served failure is pure information. lnd files the
+same failure as a **penalty on the node pair**, and a penalty carries no
+amount: it suppresses the corridor for every payment size. A stranger's
+failure at a stranger's amount therefore steers lnd off corridors that
+were fine for what it actually wants to send. §9 turns this into the
+rule for a serving API.
+
+One prediction of mine failed on the way, which is worth recording
+because it is the intuitive one. I expected mission control's collapse
+of channels onto node *pairs* to be the culprit, since that discards the
+channel identifier an interval router keys on. It is not: these
+topologies have 761 directed edges and 761 distinct node pairs, no
+parallel channels at all, so nothing collapses. The damage is in how a
+failure is represented, not in how it is keyed.
+
+What survives from exp-012 unchanged: **probe-warming helps nobody.**
+That was, and remains, a statement about buying knowledge with payments.
+Being handed it for free is a different question with a different
+answer.
 
 ---
 
@@ -1055,29 +1119,20 @@ HTLC switch's own view of what a channel can carry right now.
 
 ## 8. The measurements that would change my mind
 
-Two items from the earlier version of this list have since run, and both
+Four items from earlier versions of this list have since run, and all
 are folded into the sections above: lnd's bimodal estimator at a matched
-scale, which confirmed §1 rather than threatening it, and third-party
-weight transfer, which inverted §2's vantage argument. What is left, in
-priority order:
+scale, which confirmed §1 rather than threatening it; third-party weight
+transfer, which inverted §2's vantage argument; the traffic engine fix
+and the churn ladder, which resolved §3 and corrected exp-008 from a
+loss to a tie; and `--import-weights`, which turned §6's negative into a
+result that inverts by consumer. What is left, in priority order:
 
-1. **Fix the traffic engine, then re-ask every staleness question.**
-   Only about 18% of background payments settle, so our churn is roughly
-   five times weaker than configured (§3). Size the amounts to what the
-   network can carry or let the traffic retry, aim a share of it at the
-   corridors the scored payments use, and only then re-run the staleness
-   sweep and exp-008's decay question underneath it. Everything this
-   repo says about time is scoped by this number.
-2. **`--import-weights`.** Inject beliefs from a file with no payments
-   sent. Every exp-012 arm buys knowledge with liquidity, so the
-   experiment cannot construct the one thing the proposed API actually
-   delivers: knowledge that costs its consumer nothing (§6).
-3. **Draw mainnet liquidity from something we did not write.** The
+1. **Draw mainnet liquidity from something we did not write.** The
    evolved priors fit `sim_liquidity.go`'s 5% constant, and the mainnet
    tier overwrites real balances with that same generator, so the
    headline number is real topology and real policies over synthetic
    liquidity (§0.2). This is the top pre-upstream fix.
-4. **Degraded attribution.** Delay, drop, or misattribute a fraction of
+2. **Degraded attribution.** Delay, drop, or misattribute a fraction of
    failure sources. Both the champions' bounds and atomic1's
    suspicion-spreading are calibrated to a noiseless channel, and this
    is the advisor program's nominated decisive pre-upstream test (§7).
@@ -1090,7 +1145,7 @@ payments on the mainnet warmup curve, which decides whether exp-012's
 
 ## 9. What is actually portable
 
-Stripping out everything that is simulator-shaped, five ideas survive
+Stripping out everything that is simulator-shaped, six ideas survive
 and are small enough to argue about upstream:
 
 **Read the bound you already store.** Mission control knows `FailAmt`
@@ -1133,6 +1188,28 @@ fraction of capacity, and the corpus that punished scale-dependent
 tuning (`corpus-mix`, mixing small-channel and scale-free topologies)
 is exactly what selected for it (§0.2, §1).
 
+**If you build a weight-serving API, serve observations and fix the
+consumer first.** This is the newest of the six and the only one whose
+absence is actively harmful. Serve a stream of `(from, to, chan_id,
+amount, success, time)` rather than anyone's weights: mission control's
+decaying penalty history and the evolved routers' evidence-counted
+intervals are both derivable from it, and serving either representation
+directly forces every consumer into that side's probability model.
+
+Then note what exp-016 measured about the consumer. Handed the same
+free, accurate observations, both interval routers improve and **lnd
+gets worse**, and the whole of its loss is the failure evidence. lnd
+stores a failure as a penalty on the pair, which carries no amount and
+suppresses that corridor for every payment size; a stranger's failure at
+a stranger's amount therefore steers it off corridors that were fine for
+what it wants to send. So an API that serves failures to lnd as it
+stands makes lnd worse. Either serve such consumers successes only, or —
+better, and the same fix as the first item on this list — teach mission
+control to keep `FailAmt` as a bound the retry loop reads. Never serve
+observations about the consumer's own channels: 43% of what a node
+observes is about them, and they are the ones whose staleness does the
+most damage (§2, §6).
+
 Everything else — the label-setting search, the 24-hop routes, the
 dropped CLTV term, the permanent global blocks, the several dozen
 constants selected by an objective rather than by argument — is a
@@ -1151,6 +1228,12 @@ specification of an idea, not a patch.
   scales, and the §1 control it settles.
 - `exp-012-cold-cache.md` — the warmup curves, the stale-cache split,
   the probe arm, the vantage sweep, and the churn defect they exposed.
+- `exp-014-traffic-engine.md` — the churn defect fixed, and why the
+  obvious two causes explained almost none of it.
+- `exp-015-churn-ladder.md` — decay at four churn levels, and the
+  correction to exp-008 that followed.
+- `exp-016-served-weights.md` — free third-party knowledge, and the
+  consumer split that decides what an API can safely serve.
 - `exp-006` (breakthrough), `exp-008` (drift), `exp-009` (mainnet),
   `exp-010`/`exp-010b` (splitting pressure, atomic arena), `exp-011`
   (insight transfer).

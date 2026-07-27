@@ -6,7 +6,7 @@ an in-process payment simulator. NOT tied to the current Dijkstra +
 mission-control paradigm — whole routing algorithms are the candidates.
 
 Read `simulation/lab/NOTEBOOK.md` first for the full story; experiment
-writeups live in `simulation/lab/experiments/` (exp-001…exp-020).
+writeups live in `simulation/lab/experiments/` (exp-001…exp-020, all run).
 
 ## Headline results (all validated, held-out, reproducible)
 
@@ -186,13 +186,25 @@ the corrections to our own published claims, live in
 next.
 
 ### Live
-- Nothing. The tree is FREE. The exp-018 omni adjudication harness is
-  ready to launch (`run_gepa_omni.py --dry-run` shows the plan; use
-  the scratch `venv-omni` or the refreshed shared venv — both carry
-  the meta_harness JSON fix, durable in `~/codez/gepa` main at
-  7c20d98c). Launching it re-locks `routing/` + `cmd/routesim/`.
+- Nothing. The tree is FREE — exp-018 completed overnight
+  (2026-07-28); no run holds `routing/` or `cmd/routesim/`.
 
 ### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
+- **exp-018** — the omni adjudication. gepa vs meta_harness vs
+  autoresearch, identical seed/corpus/150-eval budget. gepa alone
+  produced anything (13 iterations, a real candidate); meta_harness's
+  full-set benchmarking bought ONE iteration and returned the seed;
+  autoresearch burned its budget in 13 minutes and returned the seed.
+  At practical budgets the ~0.64 band is NOT a gepa artifact — the
+  alternatives cannot reach the starting line; whether it is a true
+  ceiling needs meta_harness at ~10x evals (costed: ~$2 +
+  19min/swing). The candidate omni1 is challenger failure #6: beats
+  no champion, no collapse tier, the inverse of the give-up attractor
+  (most attempts everywhere — it evolved no attempt/hop/search caps).
+  Idea ledger: dual belief ledgers (own-shard contention vs standing
+  balance) and contradiction-triggered confidence decay. Searcher
+  defaults retuned to high/900s after xhigh lost 4/13 reflections to
+  timeouts.
 - **exp-019** — degraded attribution, the decisive pre-upstream test.
   Ladder over unknown/shift/delay on the sealed hard tier, mainnet,
   and drift (520 paired runs; controls reproduce exp-020 exactly).
@@ -326,22 +338,20 @@ next.
   objective; paradigm worth 0.18–0.22.
 
 ### Next, in priority order
-1. **exp-018: the omni adjudication.** Harness ready (see Live).
-   Same seed, same eval budget, independent engines — separates "the
-   problem has a ceiling" from "the gepa engine has an attractor."
-   Locks the tree while running, so schedule behind tree-touching
-   work.
-2. **The distillation patch** — mission control already keeps
+1. **The distillation patch** — mission control already keeps
    FailAmt; nothing downstream reads it. Minimal diff to lnd's own
    stack in-harness (FailAmt as a pathfinding constraint +
    amount-adaptive splitting), then measure how much of the
    0.694→0.791 gap it closes. exp-002b, exp-016 and exp-019 converge
    on it — the third component is softening processPaymentOutcomeUnknown's
    whole-route both-directions penalty.
-3. Offline replay on real payment data — replay both belief systems
+2. Offline replay on real payment data — replay both belief systems
    over a real node's historical attempt stream, score predictive
    log-loss. No simulator in the loop; the escape from
    "simulator-shaped."
+3. The ceiling arm: meta_harness at ~10x eval budget (or minibatch
+   benchmarking) — the one run that would separate "problem ceiling"
+   from "every practical optimizer stalls here" (exp-018).
 4. Upstream the gepa meta_harness JSON fix (merged durable into
    `~/codez/gepa` main at 7c20d98c; the upstream PR to gepa-ai/gepa
    remains).

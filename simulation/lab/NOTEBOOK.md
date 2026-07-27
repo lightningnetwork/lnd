@@ -833,3 +833,43 @@ first-attempt vs 5.4 on hard). An outcome matching a prediction while
 refuting its premise is exactly the trap exp-016 taught us to check
 for, and this time the check ran BEFORE anything was published. The
 anomaly ships with two facts and no mechanism.
+
+
+## 2026-07-28 (pre-dawn) — exp-018: the band is not a gepa artifact
+
+The omni adjudication ran overnight: gepa, meta_harness and
+autoresearch, identical seed, corpus and 150-eval budget, per-arm
+verdicts. Writeup in exp-018-omni-adjudication.md.
+
+gepa was the only engine that produced anything. meta_harness spends
+68 evals benchmarking each candidate against the full set, so its
+budget bought ONE iteration (first proposal broken at 0.058, second
+out of budget mid-benchmark, best = the seed). autoresearch burned
+150 evals in 13 minutes and returned the seed modulo comments. gepa
+stretched the same allowance across 13 iterations and emitted a real
+947-line candidate. The moat is eval efficiency, not proposal
+quality — and the containment held on both claude arms (no crashes,
+no leaks; the wariness was warranted about usefulness, not safety).
+
+The candidate, omni1, is challenger failure number six: beats no
+champion anywhere, no collapse tier, the exact inverse of the
+give-up attractor — most attempts of any evolved router on every
+tier (85.8/payment on atomic_test), champion-class success bought at
+attempt prices the composite taxes. Cause looks like a missing
+guardrail, not a strategy: it evolved none of the champions' attempt/
+hop/search caps. Two mechanisms enter the idea ledger anyway: dual
+belief ledgers (own-shard contention vs standing balance, separated)
+and contradiction-triggered confidence decay (evidence-keyed
+forgetting, sidestepping the time-decay question). Its prior constant
+is 0.025, not the generator's 0.05 — another small point for
+exp-017's constants-don't-carry-it finding.
+
+Operational: xhigh reflections lost 4 of 13 iterations to the 600s
+timeout and stretched the arm to nine hours; searcher defaults
+retuned to high/900s at 820d06d01, xhigh one flag away.
+
+Adjudication verdict, with its limits: at practical budgets the ~0.64
+band is NOT a gepa artifact — the alternatives cannot reach the
+starting line. Whether it is a true problem ceiling stays open; the
+testing arm (meta_harness at ~10x evals) is specified and costed at
+about $2 and 19 proposer-minutes per swing.

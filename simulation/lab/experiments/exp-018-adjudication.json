@@ -1,0 +1,148 @@
+{
+ "plan": {
+  "name": "exp018",
+  "design": "independent run per engine from one seed and budget (adjudication, not best-of ensembling)",
+  "engines": [
+   "gepa",
+   "meta_harness",
+   "autoresearch"
+  ],
+  "corpus": "/private/tmp/claude-501/-Users-roasbeef-gocode-src-github-com-lightningnetwork-lnd-gepa/8563fa98-1f3e-4c15-8b0f-7223a827b9a2/scratchpad/corpus-mix",
+  "corpus_sizes": {
+   "train": 48,
+   "val": 20,
+   "test": 20
+  },
+  "seed_file": "/Users/roasbeef/gocode/src/github.com/lightningnetwork/lnd-gepa/cmd/routesim/candidate_impl.go",
+  "seed_bytes": 10305,
+  "evals_per_engine": 150,
+  "max_cost_per_engine_usd": null,
+  "continue_evals": 0,
+  "continue_engine": null,
+  "sandbox": true,
+  "claude_env": {
+   "CLAUDE_CONFIG_DIR": "/Users/roasbeef/codez/claude-harness-home",
+   "CLAUDE_CODE_OAUTH_TOKEN": "[set from ~/codez/.claude-harness-token]"
+  },
+  "budgets": {
+   "gepa": {
+    "eval_budget": "max_evals (eval server, central)",
+    "cost_budget": "max_token_cost -> EngineConfig.max_reflection_cost",
+    "proposer": "CodexLM (codex exec) reflection",
+    "max_evals": 150,
+    "max_token_cost_usd": null,
+    "eval_accounting": "cache_evaluation=True: budget counts cache misses only",
+    "proposal_cap": 60
+   },
+   "meta_harness": {
+    "eval_budget": "max_evals (eval server, central)",
+    "cost_budget": "max_token_cost -> claude --max-budget-usd per session",
+    "proposer": "claude CLI agent, iterative frontier reader",
+    "max_evals": 150,
+    "max_token_cost_usd": null,
+    "eval_accounting": "budget counts every eval call",
+    "proposal_cap": "3 candidates/iteration"
+   },
+   "autoresearch": {
+    "eval_budget": "max_evals (eval server, central)",
+    "cost_budget": "max_token_cost -> claude --max-budget-usd per session",
+    "proposer": "claude CLI agent, single ralph-resumed session",
+    "max_evals": 150,
+    "max_token_cost_usd": null,
+    "eval_accounting": "budget counts every eval call"
+   }
+  },
+  "preflight_warnings": []
+ },
+ "engines": [
+  {
+   "engine": "gepa",
+   "run_name": "exp018_gepa",
+   "status": "ok",
+   "best_val_score": 0.5102236515545953,
+   "test_score": 0.5564846117046837,
+   "baseline_test_score": 0.5082164929564664,
+   "evals_used": 150,
+   "budget_status": {
+    "exhausted": true,
+    "max_evals": 150,
+    "used": 150,
+    "remaining_evals": 0
+   },
+   "wall_time": 32384.49398112297,
+   "proposer_cost_usd": 0.0,
+   "total_cost_usd": 0.0,
+   "output_dir": "outputs/exp018_gepa",
+   "budget": {
+    "eval_budget": "max_evals (eval server, central)",
+    "cost_budget": "max_token_cost -> EngineConfig.max_reflection_cost",
+    "proposer": "CodexLM (codex exec) reflection",
+    "max_evals": 150,
+    "max_token_cost_usd": null,
+    "eval_accounting": "cache_evaluation=True: budget counts cache misses only",
+    "proposal_cap": 60
+   },
+   "best_candidate_file": "outputs/exp018_gepa_best.go"
+  },
+  {
+   "engine": "meta_harness",
+   "run_name": "exp018_meta_harness",
+   "status": "ok",
+   "best_val_score": 0.4539140898961603,
+   "test_score": 0.5082164929564664,
+   "baseline_test_score": 0.5082164929564664,
+   "evals_used": 136,
+   "budget_status": {
+    "exhausted": false,
+    "max_evals": 150,
+    "used": 136,
+    "remaining_evals": 14
+   },
+   "wall_time": 1147.5151579380035,
+   "proposer_cost_usd": 1.9518341999999997,
+   "total_cost_usd": 1.9518341999999997,
+   "output_dir": "outputs/exp018_meta_harness",
+   "budget": {
+    "eval_budget": "max_evals (eval server, central)",
+    "cost_budget": "max_token_cost -> claude --max-budget-usd per session",
+    "proposer": "claude CLI agent, iterative frontier reader",
+    "max_evals": 150,
+    "max_token_cost_usd": null,
+    "eval_accounting": "budget counts every eval call",
+    "proposal_cap": "3 candidates/iteration"
+   },
+   "best_candidate_file": "outputs/exp018_meta_harness_best.go"
+  },
+  {
+   "engine": "autoresearch",
+   "run_name": "exp018_autoresearch",
+   "status": "ok",
+   "best_val_score": 0.4539140898961603,
+   "test_score": 0.5082164929564664,
+   "baseline_test_score": 0.5082164929564664,
+   "evals_used": 150,
+   "budget_status": {
+    "exhausted": true,
+    "max_evals": 150,
+    "used": 150,
+    "remaining_evals": 0
+   },
+   "wall_time": 756.0310900211334,
+   "proposer_cost_usd": 2.4954809000000004,
+   "total_cost_usd": 2.4954809000000004,
+   "output_dir": "outputs/exp018_autoresearch",
+   "budget": {
+    "eval_budget": "max_evals (eval server, central)",
+    "cost_budget": "max_token_cost -> claude --max-budget-usd per session",
+    "proposer": "claude CLI agent, single ralph-resumed session",
+    "max_evals": 150,
+    "max_token_cost_usd": null,
+    "eval_accounting": "budget counts every eval call"
+   },
+   "best_candidate_file": "outputs/exp018_autoresearch_best.go"
+  }
+ ],
+ "continuation": null,
+ "table": "engine         status       val     test  seed test   evals      wall   prop $\n------------------------------------------------------------------------------\ngepa           ok        0.5102   0.5565     0.5082     150    539.7m     0.00\nmeta_harness   ok        0.4539   0.5082     0.5082     136     19.1m     1.95\nautoresearch   ok        0.4539   0.5082     0.5082     150     12.6m     2.50",
+ "caveat": "eval budgets are equal in COUNT; read plan.budgets for the unit each engine counts and for the proposal caps, which are not the same across engines."
+}

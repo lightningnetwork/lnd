@@ -1632,6 +1632,20 @@ func (c *KVStore) PruneGraph(_ context.Context, spentOutputs []*wire.OutPoint,
 // that we only maintain a graph of reachable nodes. In the event that a pruned
 // node gains more channels, it will be re-added back to the graph.
 func (c *KVStore) PruneGraphNodes(_ context.Context) ([]route.Vertex, error) {
+	// Like every other mutator of the graph, we take the cache mutex before
+	// opening the write transaction. Beyond guarding the caches, this mutex
+	// is also the in-process serialization point against the batched
+	// channel edge insertion path: addChannelEdge reads a node's row
+	// without writing it, so a node prune that ran concurrently with it
+	// could delete a node that the edge being added still references,
+	// leaving a dangling edge behind. Holding the mutex for the duration of
+	// the transaction rules that interleaving out.
+	//
+	// NOTE: The lock ordering here is cacheMu -> DB, which all other
+	// callers respect.
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
 	var prunedNodes []route.Vertex
 	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		nodes := tx.ReadWriteBucket(nodeBucket)

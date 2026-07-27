@@ -581,3 +581,51 @@ significant at n=8, and four noisy points make a weak trend, but the
 champion pair was settled on static tiers. If it reverses under churn
 that is a champion question, and it needs a bigger corpus rather than
 more churn levels.
+
+## 2026-07-26 — exp-016: free knowledge helps the champions, hurts lnd
+
+--import-weights landed, and with it the arm exp-012 could never build:
+a third-party node's observations injected from a file with no payment
+sent. For each sealed hard-tier file a DIFFERENT source node ran the
+same network and exported what it saw; each consumer then ran the
+original file cold and served.
+
+The champions could not consume anything at all — nothing in the
+SimRouter contract ever asked a candidate to accept third-party
+knowledge, so no evolved router implements it. So the experiment also
+produced importer variants of mx_c3 and atomic1, each its ancestor plus
+one method routing every observation through the same belief update a
+real attempt makes. Both are identical to their originals cold.
+
+Served the same file: atomic1 +0.055 (CI excludes zero, p=0.016),
+mx_c3 +0.031 with attempts nearly halved (8.1 -> 4.4), and lnd
+-0.029 with attempts going UP (30.9 -> 33.8). Free, accurate,
+correctly-scoped information makes lnd worse.
+
+Splitting the stream says why. Successes help everyone (+0.003,
++0.028, +0.038). Failures split the field: they help the interval
+routers (+0.010, +0.019) and they are the whole of lnd's loss at
+-0.039, CI excluding zero, worse on 9 of 10 files. An interval router
+stores a failure as an AMOUNT BOUND and will still route half that
+amount tomorrow, so a served failure is pure information. lnd stores it
+as a penalty on the pair, and a penalty is not amount-aware — it
+suppresses the corridor for every amount, so a stranger's failure at a
+stranger's amount steers lnd off corridors that were fine for what it
+wants to send.
+
+A hypothesis I had and disproved on the way: I expected mission
+control's collapse of channels onto node PAIRS to be the culprit. It is
+not — 761 directed edges, 761 distinct pairs, no parallel channels, so
+nothing collapses. The damage is in how a failure is represented, not
+in the keying.
+
+Two design rules for the API fall out, both now measured rather than
+argued. Serve observations, not weights: neither side's internal state
+is servable but both are derivable from (from, to, chan_id, amount,
+success, time). And a consumer must store failures as amount bounds to
+benefit from them, so an API serving failures to lnd as it stands makes
+lnd worse — unless mission control learns to keep FailAmt as a bound
+the retry loop actually reads.
+
+Incidental: server coverage ranged from 0 to 2,111 observations across
+the ten server nodes. Who serves matters as much as what is served.

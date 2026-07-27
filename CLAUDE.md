@@ -146,6 +146,17 @@ next.
   unblocked for the first time since exp-013 launched.
 
 ### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
+- **exp-016** — served weights, the arm exp-012 could not build.
+  Third-party observations injected with no payment sent: atomic1
+  +0.055 (p=.016), mx_c3 +0.031 with attempts 8.1→4.4, lnd **−0.029
+  with attempts going UP**. Splitting the stream explains it —
+  successes help everyone, failures help the interval routers (+.010,
+  +.019) and are the whole of lnd's loss (−0.039, CI excludes zero,
+  worse on 9/10 files). A bound is amount-aware, a penalty is not.
+  Champions cannot consume imports at all (no contract asked them to),
+  hence `exp-016-{mxc3,atomic1}-importer.go`, each its ancestor plus
+  one method and cold-identical to it. NOT the pair-collapse I
+  predicted: 761 edges, 761 pairs, nothing collapses.
 - **exp-015** — churn ladder. drift1 vs mx_c3 on ONE fixed corpus at
   payments_per_gap 0/20/80/240 (the top being ~18x exp-008's effective
   churn): −0.016/−0.005/−0.007/−0.003, every CI straddling zero, no
@@ -218,21 +229,16 @@ next.
   objective; paradigm worth 0.18–0.22.
 
 ### Next, in priority order
-1. **`--import-weights` (needs `routing/`).** exp-012 cannot construct
-   free knowledge because every arm buys it with payments. Injecting
-   beliefs from a file with no payments sent is the only design that
-   isolates imported knowledge from the price of acquiring it, and it
-   is what the proposed API actually does.
-2. **Fix the circular mainnet liquidity.** `sim_liquidity.go` draws
+1. **Fix the circular mainnet liquidity.** `sim_liquidity.go` draws
    `ExpFloat64()*0.05` and the evolved priors fit that constant; the
    mainnet tier overwrites real balances with the same generator. Until
    liquidity comes from somewhere we did not write, the mainnet number
    is real topology and policies with synthetic balances. TOP
    pre-upstream fix.
-3. **Degraded attribution** — the advisor's decisive pre-upstream test.
+2. **Degraded attribution** — the advisor's decisive pre-upstream test.
    Our failure channel is instant, truthful and exactly attributed;
    mainnet's is not. The 8.6× is an upper bound until this runs.
-4. Re-run the staleness arm underneath the fixed traffic engine
+3. Re-run the staleness arm underneath the fixed traffic engine
    (exp-008's decay question is now answered — see exp-015).
-5. Upstream the gepa meta_harness JSON fix (`~/codez/gepa` branch
+4. Upstream the gepa meta_harness JSON fix (`~/codez/gepa` branch
    `fix-claude-json-array`).

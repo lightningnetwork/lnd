@@ -179,7 +179,15 @@ func (o *SimObservation) UnmarshalJSON(data []byte) error {
 }
 
 // WriteObservations serialises observations to a file.
+//
+// A nil slice is written as an empty array rather than null. A server with
+// nothing to offer is a real case — a poorly connected node observes almost
+// nothing — and it should serve an empty response, not a malformed one.
 func WriteObservations(path string, obs []SimObservation) error {
+	if obs == nil {
+		obs = []SimObservation{}
+	}
+
 	encoded, err := json.MarshalIndent(obs, "", "  ")
 	if err != nil {
 		return err

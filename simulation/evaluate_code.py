@@ -159,17 +159,39 @@ def run_compiled(binary, example) -> tuple[float, dict]:
         "fee_efficiency": -fee_ppm / params_eval.FEE_PPM_CAP,
     }
 
+    # Abandonment and background-settle rates are surfaced as top-level
+    # side information rather than left buried in the aggregate dict.
+    # exp-013 showed the composite objective hides giving up on hard
+    # payments inside the same number as attempt efficiency; a candidate
+    # at the attempt frontier can only "improve" by abandoning, and the
+    # reflection model needs to see that channel explicitly to avoid
+    # walking into it.
+    give_up_rate = agg.get("give_up_rate", 0.0)
+    bg_settle_rate = agg.get("bg_settle_rate", 0.0)
+
+    hint = (
+        "success_rate dominates; attempts and fee ppm apply small "
+        "penalties. The router only sees gossip (no hidden "
+        "balances), its own channel balances, and per-attempt "
+        "failure feedback via ReportAttempt."
+    )
+    if give_up_rate > 0.05:
+        hint += (
+            f" WARNING: this candidate abandoned {give_up_rate:.0%} of "
+            "payments without exhausting its attempt budget. Fewer "
+            "attempts achieved by giving up on hard payments is NOT "
+            "efficiency — read success and attempts separately before "
+            "concluding an edit helped."
+        )
+
     return score, {
         "score": score,
         "scores": scores,
+        "give_up_rate": give_up_rate,
+        "bg_settle_rate": bg_settle_rate,
         "aggregate": agg,
         "failed_payments": params_eval.summarize_failures(results),
-        "hint": (
-            "success_rate dominates; attempts and fee ppm apply small "
-            "penalties. The router only sees gossip (no hidden "
-            "balances), its own channel balances, and per-attempt "
-            "failure feedback via ReportAttempt."
-        ),
+        "hint": hint,
     }
 
 

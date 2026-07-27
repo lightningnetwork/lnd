@@ -6,7 +6,7 @@ an in-process payment simulator. NOT tied to the current Dijkstra +
 mission-control paradigm — whole routing algorithms are the candidates.
 
 Read `simulation/lab/NOTEBOOK.md` first for the full story; experiment
-writeups live in `simulation/lab/experiments/` (exp-001…exp-017).
+writeups live in `simulation/lab/experiments/` (exp-001…exp-020).
 
 ## Headline results (all validated, held-out, reproducible)
 
@@ -14,8 +14,8 @@ writeups live in `simulation/lab/experiments/` (exp-001…exp-017).
 |---|---|---|---|
 | lnd production stack | 0.694 | 19.8 | defaults; baseline |
 | hand-written seed | 0.762 | 6.1 | ~300-line interval router |
-| hb1 (evolved) | 0.790 | 2.3 | sharp-bimodal specialist; ≥ mx_c3 on 12/13 exp-017 tiers |
-| **mx_c3 (evolved)** | **0.791** | **2.3** | generalist champion (title eroding — see exp-017) |
+| hb1 (evolved) | 0.790 | 2.3 | sharp-bimodal specialist; edges over mx_c3 are family-specific only (exp-020) |
+| **mx_c3 (evolved)** | **0.791** | **2.3** | generalist champion — title DEFENDED (exp-020: split_test 8/0 p=.008; hb1 wins nothing on the original set) |
 | atomic1 (evolved) | 0.790 | 1.6 | flat-liquidity specialist (exp-017 ladder rank 4→1), attempt record, beats a champion under staleness |
 
 - Mainnet = real 12,161-node describegraph snapshot
@@ -25,10 +25,13 @@ writeups live in `simulation/lab/experiments/` (exp-001…exp-017).
   0.00002·min(fee_ppm,5000).
 - The champions lead all six held-out tiers against lnd, and four
   challengers have failed to displace them (exp-010, 010b, 011, 013).
-  hb1 and mx_c3 are closer than "generalist champion" suggests: hb1
-  leads the hard tier, mx_c3 leads OOD/split/mainnet, and on a fresh
-  40-file drift corpus hb1 edges mx_c3 by +0.009 (sign test p=.014, a
-  trivial effect on one corpus family — not a swap).
+  The twin question is settled (exp-020): two significant hb1 signals
+  (exp-015 p=.014, exp-017 liq-uniform p=.004) did NOT replicate on
+  the original tier set — hb1 beats mx_c3 nowhere there, while mx_c3
+  takes split_test unanimously (+0.062, 8/0, p=.008), the one tier
+  where hb1 cannot even beat lnd. The twins differ only at the edges:
+  hb1 on some new synthetic families, mx_c3 exactly where payments
+  must fragment.
 - Parameter tuning alone could NOT beat lnd's defaults (exp-002), and
   neither can lnd's own bimodal estimator at any of seven scales,
   including the one matching this environment (exp-002b). The paradigm
@@ -110,8 +113,14 @@ python3 simulation/preflight.py   # before long runs
 Evolution runs need `codex` CLI authed + OPENAI_API_KEY. Session
 scratch dirs (`/private/tmp/claude-*/...`) hold venv/corpora/binaries
 and are WIPED by reboots — everything there is regenerable (fixed
-seeds); durable artifacts live in the repo, `~/codez/gepa` (gepa
-source), `~/codez/data/mainnet_graph.json`.
+seeds) — EXCEPT the sealed validation tiers: exp-020 found hard-test
+and OOD are NOT regenerable from any committed generator (they came
+from an uncommitted working copy), and scratch's copy of the sealed
+hard tier had been silently overwritten by exp-010. The sealed tiers
+now live in `simulation/lab/scenarios/` (hard-test, ood-test,
+mainnet); drift/split/atomic regenerate (seeds 3031/4041/6061).
+Durable artifacts live in the repo, `~/codez/gepa` (gepa source),
+`~/codez/data/mainnet_graph.json`.
 
 ## Gotchas (hard-won)
 
@@ -178,6 +187,15 @@ next.
   7c20d98c). Launching it re-locks `routing/` + `cmd/routesim/`.
 
 ### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
+- **exp-020** — the championship adjudication. Original tier set, the
+  exp-017 binaries, gates reproducing published numbers to three
+  decimals. hb1 significantly beats mx_c3 NOWHERE; mx_c3 beats hb1 on
+  split_test only, unanimously (+0.062, 8/0, p=.008) — the tier where
+  hb1 alone fails to beat lnd. Title DEFENDED; the exp-015/exp-017
+  hb1 signals were real but family-specific and did not transfer.
+  Also found: the sealed hard tier had been overwritten in scratch by
+  exp-010, and hard-test/OOD are not regenerable from any committed
+  generator — both now checked into `simulation/lab/scenarios/`.
 - **exp-017** — the de-circularization sweep. 13 paired tiers (7
   liquidity families, 2 amount families, 4 re-liquified mainnet), 5
   routers, 650 runs; the untouched mainnet control reproduced exp-009
@@ -187,8 +205,8 @@ next.
   overfit priors. atomic1 revealed as the flat-liquidity specialist
   (ladder rank 4→1 monotone; abandonment signature on sharp bimodal).
   hb1 ≥ mx_c3 on 12/13 (liq-uniform p=.004; all mainnet families tie
-  to 0.001) — the "generalist" title now rests only on OOD/split,
-  untested here; adjudication sweep queued. Also: give_up_rate ==
+  to 0.001) — resolved by exp-020: those edges are family-specific
+  and do not transfer to the original tier set. Also: give_up_rate ==
   1−success_rate identically for candidates (they always fail by
   giving up), so it is a style fingerprint, not an abandonment
   signal; the evaluator hint now states the read-the-pair rule. The
@@ -297,20 +315,15 @@ next.
    problem has a ceiling" from "the gepa engine has an attractor."
    Locks the tree while running, so schedule behind tree-touching
    work.
-3. **hb1 vs mx_c3 championship adjudication** — a full held-out
-   paired sweep over the ORIGINAL six tiers plus the exp-017
-   families. exp-015 (n=40, p=.014) and exp-017 (12/13 tiers,
-   liq-uniform p=.004) both point at hb1; the "generalist" framing
-   should not be repeated in new docs until this settles it.
-4. **The distillation patch** — mission control already keeps
+3. **The distillation patch** — mission control already keeps
    FailAmt; nothing downstream reads it. Minimal diff to lnd's own
    stack in-harness (FailAmt as a pathfinding constraint +
    amount-adaptive splitting), then measure how much of the
    0.694→0.791 gap it closes. exp-002b and exp-016 converge on this.
-5. Offline replay on real payment data — replay both belief systems
+4. Offline replay on real payment data — replay both belief systems
    over a real node's historical attempt stream, score predictive
    log-loss. No simulator in the loop; the escape from
    "simulator-shaped."
-6. Upstream the gepa meta_harness JSON fix (merged durable into
+5. Upstream the gepa meta_harness JSON fix (merged durable into
    `~/codez/gepa` main at 7c20d98c; the upstream PR to gepa-ai/gepa
    remains).

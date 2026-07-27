@@ -739,3 +739,39 @@ What stays authored: every world here is still ours, including the
 re-liquified mainnet balances. The generator-family question is
 closed; the full escape from simulator-shaped remains degraded
 attribution and offline replay, which move up the queue.
+
+
+## 2026-07-27 — exp-020: mx_c3 defends the title, and the rule earns its keep
+
+The championship adjudication ran same-day: original tier set, the
+exp-017 binaries, paired per file, with the mainnet/hard/OOD gates
+reproducing the published numbers to three decimals before anything
+counted. Full writeup in exp-020-championship-adjudication.md.
+
+The verdict reverses where exp-015 and exp-017 pointed. hb1
+significantly beats mx_c3 NOWHERE on the original set — every
+directional edge carries a CI straddling zero. mx_c3 significantly
+beats hb1 on exactly one tier, split_test, and does it unanimously
+(+0.062, 8/0, p=.008) — the same tier where hb1 alone among the
+evolved routers fails to beat lnd. The title holds. The twins are
+separated only at the edges: hb1 by +0.01-class margins on some new
+synthetic families, mx_c3 by a large margin exactly where payments
+must fragment. The generalist pick is mx_c3, and it remains the only
+evolved router no other evolved router beats significantly anywhere
+on the original ground.
+
+Worth writing on the wall: two independent significant signals
+(p=.014, p=.004) pointed at hb1 and neither replicated on held-out
+original tiers. The champion rule — no swap without a paired sweep on
+the ground the title was earned — is the only reason yesterday's site
+said "in adjudication" instead of something now known to be wrong.
+
+The sweep's corpus archaeology also found two durability problems:
+the sealed exp-006 hard tier had been silently OVERWRITTEN in scratch
+by exp-010 (the pristine copy survived only inside corpus-mix), and
+neither hard-test nor OOD is regenerable from any committed generator
+revision — they came from an uncommitted 2026-07-24 working copy.
+Both tiers are now checked into simulation/lab/scenarios/ verbatim,
+joining the mainnet tier. "Everything regenerates from fixed seeds"
+is corrected to: drift/split/atomic regenerate; the headline tiers
+are checked-in artifacts.

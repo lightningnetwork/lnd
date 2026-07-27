@@ -775,3 +775,42 @@ Both tiers are now checked into simulation/lab/scenarios/ verbatim,
 joining the mainnet tier. "Everything regenerates from fixed seeds"
 is corrected to: drift/split/atomic regenerate; the headline tiers
 are checked-in artifacts.
+
+
+## 2026-07-27 — exp-019: the 8.6x dies, the margin survives
+
+The degraded-attribution ladder — the advisor's nominated decisive
+pre-upstream test — ran end to end today: an attribution section on
+the scenario file that strips, shifts, or delays failure results at
+the single delivery point both consumer paths share, proven
+byte-identical when absent, with lnd's unknown path routed through
+its real processPaymentOutcomeUnknown logic. 520 paired runs across
+the sealed hard tier (six levels), mainnet (realistic mix), and drift
+(delay isolated). Writeup in exp-019-degraded-attribution.md.
+
+The feared result did not happen. The champions are not calibrated to
+the clean channel: at the realistic mix and on degraded mainnet every
+champion still clears lnd, and under unreadable errors the hard-tier
+margin WIDENS, because none of the evolved routers writes a liquidity
+bound from an unattributed failure — they all treat no-information as
+no-information. What collapses is lnd: its unknown-failure response
+penalizes the whole route in both directions, so a 10% unreadable
+rate turns into give-ups 0.31 -> 0.71 and at 30% four of ten files
+pin to zero success. That is a self-contained upstream finding
+joining exp-016/exp-002b as a third input to the distillation patch.
+
+Two surprises worth their labels. Plausible lies HELP lnd
+(shift=0.3: +0.122, 10/10 files, p=.002 — its best hard-tier config
+ever), mechanism flagged unproven pending a shift-isolated mainnet
+arm; after exp-016, anomalies ship as anomalies. And delay is free
+for everyone — staleness keeps failing to matter here; misattribution
+is the binding constraint.
+
+The headline consequence: the 8.6x attempt claim is retired. Under
+degradation lnd uses FEWER attempts than the champions because it
+stops paying for hard payments, so the ratio is meaningless in both
+directions. The replacement is stronger: on degraded mainnet the
+champions hold success at exactly their undegraded values for +0.2 to
++0.45 attempts while lnd trades 6 points of success for its attempt
+drop. Realistic degradation converts the champions' edge from an
+attempt edge into a success edge.

@@ -49,8 +49,14 @@ writeups live in `simulation/lab/experiments/` (exp-001…exp-020).
 - What the champions evolved (all pure Go, `simulation/champions/`):
   dropped mission control and ALL time-decay; invented
   per-directed-channel liquidity intervals (lowerOK/upperFail bounds +
-  evidence-count confidence) — that's where the 8.6× attempt reduction
-  comes from. **Correction (WHY.md §0):** we long claimed they
+  evidence-count confidence) — that's where the attempt reduction
+  comes from. **The 8.6× framing is RETIRED (exp-019):** it was a
+  perfect-channel artifact — under realistic attribution degradation
+  lnd uses FEWER attempts than the champions because it stops paying
+  for hard payments. The durable claim: on degraded mainnet the
+  champions hold success at exactly their undegraded values while lnd
+  loses 6 points of success and doubles its give-ups — the edge
+  converts from attempts to success. **Correction (WHY.md §0):** we long claimed they
   "rediscovered the bimodal prior from failure traces." They did not —
   the harness prompt has stated the bimodal hypothesis since the first
   committed version. What was NOT supplied: the prior's functional
@@ -187,6 +193,20 @@ next.
   7c20d98c). Launching it re-locks `routing/` + `cmd/routesim/`.
 
 ### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
+- **exp-019** — degraded attribution, the decisive pre-upstream test.
+  Ladder over unknown/shift/delay on the sealed hard tier, mainnet,
+  and drift (520 paired runs; controls reproduce exp-020 exactly).
+  The champions survive the realistic channel — none of them writes a
+  bound from an unattributed failure, so hard-tier margins WIDEN
+  under unreadable errors. lnd collapses: processPaymentOutcomeUnknown
+  penalizes the whole route both directions, so 10% unreadable errors
+  drive give-ups 0.31→0.71 and 30% pins files to zero success — a
+  self-contained upstream finding (third input to the distillation
+  patch). Anomaly shipped as anomaly: shift=0.3 HELPS lnd (+0.122,
+  10/10, p=.002), mechanism unproven, needs a shift-isolated mainnet
+  arm. Delay is free for everyone — misattribution, not staleness, is
+  the binding constraint. The 8.6× attempt headline is retired; the
+  edge is a success edge under degradation.
 - **exp-020** — the championship adjudication. Original tier set, the
   exp-017 binaries, gates reproducing published numbers to three
   decimals. hb1 significantly beats mx_c3 NOWHERE; mx_c3 beats hb1 on
@@ -304,22 +324,21 @@ next.
   objective; paradigm worth 0.18–0.22.
 
 ### Next, in priority order
-1. **Degraded attribution** — the advisor's decisive pre-upstream test.
-   Our failure channel is instant, truthful and exactly attributed;
-   mainnet's is not. The 8.6× is an upper bound until this runs.
-   (exp-017 closed the generator-family half of the old circularity
-   item; realistic-liquidity sourcing folds into this and offline
-   replay.)
-2. **exp-018: the omni adjudication.** Harness ready (see Live).
+1. **exp-018: the omni adjudication.** Harness ready (see Live).
    Same seed, same eval budget, independent engines — separates "the
    problem has a ceiling" from "the gepa engine has an attractor."
    Locks the tree while running, so schedule behind tree-touching
    work.
-3. **The distillation patch** — mission control already keeps
+2. **The distillation patch** — mission control already keeps
    FailAmt; nothing downstream reads it. Minimal diff to lnd's own
    stack in-harness (FailAmt as a pathfinding constraint +
    amount-adaptive splitting), then measure how much of the
-   0.694→0.791 gap it closes. exp-002b and exp-016 converge on this.
+   0.694→0.791 gap it closes. exp-002b, exp-016 and exp-019 converge
+   on it — the third component is softening processPaymentOutcomeUnknown's
+   whole-route both-directions penalty.
+3. **Shift-isolated mainnet arm** — the exp-019 anomaly (plausible
+   lies help lnd) needs mechanism isolation before its story is
+   published anywhere.
 4. Offline replay on real payment data — replay both belief systems
    over a real node's historical attempt stream, score predictive
    log-loss. No simulator in the loop; the escape from

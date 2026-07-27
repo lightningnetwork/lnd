@@ -27,6 +27,7 @@ func newSQLBaseConfig(config *Config, prefix string) *sqlbase.Config {
 		TableNamePrefix:       prefix,
 		SQLiteCmdReplacements: sqliteCmdReplacements,
 		WithTxLevelLock:       config.WithGlobalLock,
+		Quit:                  config.Quit,
 	}
 }
 

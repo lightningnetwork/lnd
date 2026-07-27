@@ -1987,7 +1987,7 @@ func (c *Config) ImplementationConfig(
 			RestRegistrar:     rpcImpl,
 			ExternalValidator: rpcImpl,
 			DatabaseBuilder: NewDefaultDatabaseBuilder(
-				c, ltndLog,
+				c, ltndLog, interceptor.ShutdownChannel(),
 			),
 			WalletConfigBuilder: rpcImpl,
 			ChainControlBuilder: rpcImpl,
@@ -1996,10 +1996,12 @@ func (c *Config) ImplementationConfig(
 
 	defaultImpl := NewDefaultWalletImpl(c, ltndLog, interceptor, false)
 	return &ImplementationCfg{
-		GrpcRegistrar:       defaultImpl,
-		RestRegistrar:       defaultImpl,
-		ExternalValidator:   defaultImpl,
-		DatabaseBuilder:     NewDefaultDatabaseBuilder(c, ltndLog),
+		GrpcRegistrar:     defaultImpl,
+		RestRegistrar:     defaultImpl,
+		ExternalValidator: defaultImpl,
+		DatabaseBuilder: NewDefaultDatabaseBuilder(
+			c, ltndLog, interceptor.ShutdownChannel(),
+		),
 		WalletConfigBuilder: defaultImpl,
 		ChainControlBuilder: defaultImpl,
 	}

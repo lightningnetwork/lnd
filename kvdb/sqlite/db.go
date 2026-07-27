@@ -85,6 +85,7 @@ func NewSqliteBackend(ctx context.Context, cfg *Config, dbPath, fileName,
 		Dsn:             dsn,
 		Timeout:         cfg.Timeout,
 		TableNamePrefix: prefix,
+		Quit:            cfg.Quit,
 	}
 
 	return sqlbase.NewSqlBackend(ctx, sqlCfg)

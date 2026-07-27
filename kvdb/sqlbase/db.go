@@ -24,7 +24,29 @@ const (
 	// DefaultNumTxRetries is the default number of times we'll retry a
 	// transaction if it fails with an error that permits transaction
 	// repetition.
+	//
+	// NOTE: This is no longer the primary bound of the retry loop, see
+	// DefaultTxRetryBudget below. It is kept around because it is part of
+	// the exported API of this package.
 	DefaultNumTxRetries = 50
+
+	// DefaultTxRetryBudget is the total amount of wall clock time we're
+	// willing to spend retrying a single kv transaction that keeps failing
+	// with a serialization error.
+	//
+	// This backend holds the channel state, so surfacing a serialization
+	// error to the caller is expensive: the link that was trying to persist
+	// a state transition has to be failed and the connection to the peer
+	// recycled. Blocking for a while longer is strictly cheaper than that,
+	// which is why we bound the retry loop by a generous amount of elapsed
+	// time instead of by a fixed attempt count. With the backoff capped at
+	// one second, the old count of 50 attempts gave up after roughly 46
+	// seconds, which is not much of a contention burst to ride out.
+	//
+	// Note that the retry loop also aborts immediately once the quit
+	// channel of the backend is closed, so this budget can never delay
+	// shutdown.
+	DefaultTxRetryBudget = 2 * time.Minute
 )
 
 // Config holds a set of configuration options of a sql database connection.
@@ -62,6 +84,13 @@ type Config struct {
 	// NOTE: Temporary, should be removed when all parts of the LND code
 	// are more resilient against concurrent db access..
 	WithTxLevelLock bool
+
+	// Quit is an optional channel that is closed once the daemon starts
+	// shutting down. We only use it to abort an in-flight transaction retry
+	// loop, never to abort a query that is already running, so that the
+	// writes we still make while shutting down are given a fair chance to
+	// land.
+	Quit <-chan struct{}
 }
 
 // db holds a reference to the sql db connection.
@@ -90,6 +119,10 @@ type db struct {
 	// lock is the global write lock that ensures single writer. This is
 	// only used if cfg.WithTxLevelLock is set.
 	lock sync.RWMutex
+
+	// quit is closed once the daemon starts shutting down. See the
+	// documentation of Config.Quit for the details.
+	quit <-chan struct{}
 }
 
 // Enforce db implements the walletdb.DB interface.
@@ -151,6 +184,7 @@ func NewSqlBackend(ctx context.Context, cfg *Config) (*db, error) {
 		db:     dbConn,
 		table:  table,
 		prefix: cfg.TableNamePrefix,
+		quit:   cfg.Quit,
 	}, nil
 }
 
@@ -262,9 +296,16 @@ func (db *db) executeTransaction(f func(tx walletdb.ReadWriteTx) error,
 		return attemptRollback(kvTx)
 	}
 
-	return sqldb.ExecuteSQLTransactionWithRetry(
+	// We deliberately leave the attempt count unbounded here and rely on
+	// the elapsed time budget instead, so that a long lived contention
+	// burst doesn't cost us a channel link. The quit channel keeps that
+	// budget from holding up shutdown.
+	return sqldb.ExecuteSQLTransactionWithRetryConfig(
 		db.ctx, makeTx, rollbackTx, execTxBody, onBackoff,
-		DefaultNumTxRetries,
+		sqldb.RetryConfig{
+			MaxElapsed: DefaultTxRetryBudget,
+			Quit:       db.quit,
+		},
 	)
 }
 

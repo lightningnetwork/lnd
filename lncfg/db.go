@@ -284,7 +284,13 @@ func GetSqliteConfigKVDB(cfg *sqldb.SqliteConfig) *sqlite.Config {
 }
 
 // GetBackends returns a set of kvdb.Backends as set in the DB config.
-func (db *DB) GetBackends(ctx context.Context, chanDBPath,
+//
+// The quit channel is closed once the daemon starts shutting down. The SQL
+// backed kv stores use it to abort a transaction retry loop, so that a
+// transaction which keeps hitting serialization errors can't delay shutdown for
+// the length of its retry budget. It may be nil, in which case the retry loops
+// are only bound by their own budgets.
+func (db *DB) GetBackends(ctx context.Context, quit <-chan struct{}, chanDBPath,
 	walletDBPath, towerServerDBPath string, towerClientEnabled,
 	towerServerEnabled bool, logger btclog.Logger) (*DatabaseBackends,
 	error) {
@@ -406,12 +412,14 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		// This is a temporary measure until we migrate all kvdb SQL
 		// users to native SQL.
 		postgresConfig := GetPostgresConfigKVDB(db.Postgres)
+		postgresConfig.Quit = quit
 
 		// Create a separate config for channeldb with the global lock
 		// setting if configured.
 		postgresConfigChannelDB := GetPostgresConfigKVDB(db.Postgres)
 		postgresConfigChannelDB.WithGlobalLock = db.Postgres.
 			ChannelDBWithGlobalLock
+		postgresConfigChannelDB.Quit = quit
 
 		postgresBackend, err := kvdb.Open(
 			kvdb.PostgresBackendName, ctx,
@@ -530,6 +538,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		// This is a temporary measure until we migrate all kvdb SQL
 		// users to native SQL.
 		sqliteConfig := GetSqliteConfigKVDB(db.Sqlite)
+		sqliteConfig.Quit = quit
 
 		// Note that for sqlite, we put kv tables for the channel.db,
 		// wtclient.db and sphinxreplay.db all in the channel.sqlite db.

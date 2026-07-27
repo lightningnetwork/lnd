@@ -269,6 +269,12 @@ type SimRunner struct {
 	// traffic is the background traffic engine, nil when disabled.
 	traffic *simTraffic
 
+	// attribution degrades attempt results on their way to the router,
+	// nil when the failure channel is the perfect one. It sits between the
+	// simulator and the router, so both the candidate path and the lnd
+	// path see the same degraded result from the same draw.
+	attribution *simAttribution
+
 	// trafficCarry is the fractional background payment left over from
 	// pro-rating the per-gap volume across attempts. Carrying it keeps the
 	// traffic rate inside a payment equal to the rate between payments
@@ -404,6 +410,85 @@ func (r *SimRunner) SetTrafficFocus(nodes []route.Vertex) {
 	}
 
 	r.traffic.SetFocus(nodes)
+}
+
+// SetAttribution degrades the failure channel the router under test learns
+// from: failures that arrive unattributed, failures blamed on the wrong node,
+// and results that arrive late. defaultSeed seeds the degradation rng when the
+// params do not pin one, and callers pass the scenario's liquidity seed so
+// that a file which omits the seed is still reproducible.
+//
+// The degradation is applied by the runner rather than by any router, which is
+// what makes the comparison paired: the lnd stack and an evolved candidate are
+// handed the same damaged result from the same draw, and neither can tell that
+// the channel was ever clean.
+func (r *SimRunner) SetAttribution(params *SimAttributionParams,
+	defaultSeed int64) error {
+
+	attribution, err := newSimAttribution(params, defaultSeed)
+	if err != nil {
+		return err
+	}
+	r.attribution = attribution
+
+	return nil
+}
+
+// AttributionStats reports what the degradation did, and reports zeroes when
+// the failure channel was left alone.
+func (r *SimRunner) AttributionStats() SimAttributionStats {
+	if r.attribution == nil {
+		return SimAttributionStats{}
+	}
+
+	return r.attribution.stats
+}
+
+// deliverAttempt returns the version of an attempt result the router is
+// allowed to see. With no attribution section configured that is the truthful
+// result the simulator produced, which is what every run before exp-019 has
+// used.
+func (r *SimRunner) deliverAttempt(rt *route.Route,
+	result SimHtlcResult) SimHtlcResult {
+
+	if r.attribution == nil {
+		return result
+	}
+
+	// The result is aged before it is degraded: a real error takes time to
+	// come back, and the network does not wait for it.
+	if r.advanceDelaySlices(r.attribution.params.DelaySlices) {
+		r.attribution.countDelay()
+	}
+
+	return r.attribution.degrade(rt, result)
+}
+
+// advanceDelaySlices ages the network by the given number of attempt-sized
+// slices of virtual time, running the background traffic that belongs to each
+// one. It reports whether any time actually passed, which it cannot on a
+// scenario with no virtual clock.
+func (r *SimRunner) advanceDelaySlices(slices int) bool {
+	if slices <= 0 || r.virtualClk == nil ||
+		r.clockParams.AttemptSec <= 0 {
+
+		return false
+	}
+
+	for i := 0; i < slices; i++ {
+		r.virtualClk.SetTime(r.virtualClk.Now().Add(
+			time.Duration(r.clockParams.AttemptSec *
+				float64(time.Second)),
+		))
+
+		if r.traffic == nil {
+			continue
+		}
+
+		r.traffic.runN(r.trafficPaymentsFor(r.clockParams.AttemptSec))
+	}
+
+	return true
 }
 
 // TrafficStats reports how many background payments were sent and settled.
@@ -690,7 +775,16 @@ func (r *SimRunner) RunScenarioFrom(source route.Vertex,
 		// Let the router learn from the outcome. The feedback is the
 		// same either way: what atomic mpp changes is the price of a
 		// serial probe, not the information it returns.
-		err = router.ReportAttempt(attemptID, rt, htlcResult)
+		//
+		// Everything above this line records what actually happened.
+		// What the router is TOLD may be less than that: with an
+		// attribution section configured the result is aged and its
+		// attribution damaged first, so the trace and the served
+		// observations keep the truth while the router works from the
+		// same imperfect channel a mainnet sender has.
+		err = router.ReportAttempt(
+			attemptID, rt, r.deliverAttempt(rt, htlcResult),
+		)
 		if err != nil {
 			return nil, err
 		}

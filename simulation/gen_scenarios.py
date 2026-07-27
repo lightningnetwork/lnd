@@ -18,6 +18,11 @@ corpus is drawn from, so a router can be checked against families it was never
 evolved against. Both default to the historical behaviour and, on that
 default, draw from the rng in exactly the original order: a corpus regenerated
 from a fixed seed is byte-identical to the one generated before they existed.
+
+--attribution is the exp-019 knob: it degrades the failure channel the router
+learns from, which is the one part of the simulator that has always been
+kinder than mainnet. It stamps a section onto every emitted file and makes no
+rng draw, so it too leaves the default corpus byte-identical.
 """
 
 import argparse
@@ -154,6 +159,49 @@ def apply_amount_family(example: dict, family: str,
         scenario["amt_msat"] = amt
 
     return example
+
+
+# --- attribution degradation (exp-019) --------------------------------------
+
+# The knobs of the degraded failure channel, keyed by their short spec name.
+ATTRIBUTION_KEYS = {
+    "unknown": ("unknown_prob", float),
+    "shift": ("shift_prob", float),
+    "delay": ("delay_slices", int),
+    "seed": ("seed", int),
+}
+
+
+def parse_attribution(spec: str) -> dict:
+    """Parse 'unknown=0.3,shift=0.2,delay=4' into a scenario section.
+
+    The section stamped here is what routesim reads: failures that arrive
+    with no attribution at all, failures blamed on a neighbour of the node
+    that really failed, and results that arrive after the network has moved.
+    Omitting the flag emits no section, which is the perfect failure channel
+    every corpus before exp-019 was generated against.
+    """
+    section = {}
+    for item in spec.split(","):
+        item = item.strip()
+        if not item:
+            continue
+
+        name, sep, value = item.partition("=")
+        name = name.strip()
+        if not sep or name not in ATTRIBUTION_KEYS:
+            raise ValueError(
+                f"unknown attribution knob: {item!r} "
+                f"(want {'|'.join(ATTRIBUTION_KEYS)}=value)"
+            )
+
+        key, cast = ATTRIBUTION_KEYS[name]
+        section[key] = cast(value)
+
+    if not section:
+        raise ValueError("empty --attribution spec")
+
+    return section
 
 # --- splitting pressure (exp-010) -------------------------------------------
 #
@@ -409,7 +457,25 @@ def main() -> None:
                         "tiered amount as the median, round snaps to the "
                         "1/5-per-decade satoshi ladder real invoices "
                         "cluster on")
+    parser.add_argument("--attribution", default=None,
+                        help="degrade the failure channel of every emitted "
+                        "scenario (exp-019), as "
+                        "'unknown=0.3,shift=0.2,delay=4[,seed=N]': the "
+                        "share of failures that arrive unattributed, the "
+                        "share blamed on a neighbour of the node that "
+                        "really failed, and how many attempt-sized slices "
+                        "of traffic pass before a result is delivered. "
+                        "Absent emits no section, which is the instant, "
+                        "truthful, exactly attributed channel every "
+                        "earlier corpus used")
     args = parser.parse_args()
+
+    attribution = None
+    if args.attribution is not None:
+        try:
+            attribution = parse_attribution(args.attribution)
+        except ValueError as err:
+            parser.error(str(err))
 
     # --split isolates one variable, so it does not mix with the other corpus
     # modes: --hard swaps the topology list it needs, and --drift adds the
@@ -442,6 +508,10 @@ def main() -> None:
             if args.atomic:
                 for scenario in example["scenarios"]:
                     scenario["atomic_mpp"] = True
+            # The degradation section is stamped last and makes no draw of
+            # its own, so a corpus generated without the flag is unchanged.
+            if attribution is not None:
+                example["attribution"] = dict(attribution)
             path = split_dir / f"example_{i:03d}.json"
             path.write_text(json.dumps(example, indent=2))
         print(f"{split}: {count} examples in {split_dir}")

@@ -43,6 +43,13 @@ type scenarioFile struct {
 	// hidden liquidity between the scenario payments.
 	BackgroundTraffic *routing.SimTrafficParams `json:"background_traffic,omitempty"`
 
+	// Attribution degrades the failure channel: failures that arrive
+	// unattributed, failures blamed on a neighbour of the node that
+	// really failed, and results that arrive after the network has moved
+	// on. Omitting the section keeps the perfect channel every earlier
+	// experiment measured on.
+	Attribution *routing.SimAttributionParams `json:"attribution,omitempty"`
+
 	// Warmup is an optional unscored phase that runs before the scored
 	// batch, standing in for routing knowledge a node was handed instead
 	// of having to probe for it. Omitting the section is a cold start,
@@ -129,6 +136,17 @@ type aggregate struct {
 	BgPaymentsSent    int     `json:"bg_payments_sent,omitempty"`
 	BgPaymentsSettled int     `json:"bg_payments_settled,omitempty"`
 	BgSettleRate      float64 `json:"bg_settle_rate,omitempty"`
+
+	// Attribution* report what the degraded failure channel actually did,
+	// counting warmup attempts along with scored ones. They exist so that
+	// a sweep can check the realized degradation against the configured
+	// probabilities rather than assuming the section took effect;
+	// AttributionDelayed in particular reads zero on a static tier, where
+	// a delay is a no-op because there is no time for evidence to age in.
+	AttributionAttempts int `json:"attribution_attempts,omitempty"`
+	AttributionUnknown  int `json:"attribution_unknown,omitempty"`
+	AttributionShifted  int `json:"attribution_shifted,omitempty"`
+	AttributionDelayed  int `json:"attribution_delayed,omitempty"`
 
 	// WarmupScenarios and WarmupAttempts report what the unscored warmup
 	// phase cost. They are kept out of every metric above so that a warmed
@@ -297,6 +315,19 @@ func main() {
 		runner.SetTrafficFocus(focus)
 	}
 
+	// Damage the failure channel, if this file asks for it. The liquidity
+	// seed doubles as the degradation seed when the section pins none, so
+	// a corpus that varies only its liquidity seed still varies its
+	// degradation draws.
+	if scenFile.Attribution != nil {
+		err := runner.SetAttribution(
+			scenFile.Attribution, scenFile.LiquiditySeed,
+		)
+		if err != nil {
+			fatalf("unable to set attribution: %v", err)
+		}
+	}
+
 	switch *router {
 	case "lnd":
 	case "candidate":
@@ -441,6 +472,13 @@ func runBatch(runner *routing.SimRunner, scenFile *scenarioFile,
 
 	agg := &out.Aggregate
 	agg.BgPaymentsSent, agg.BgPaymentsSettled = runner.TrafficStats()
+
+	attribution := runner.AttributionStats()
+	agg.AttributionAttempts = attribution.Attempts
+	agg.AttributionUnknown = attribution.Unknown
+	agg.AttributionShifted = attribution.Shifted
+	agg.AttributionDelayed = attribution.Delayed
+
 	if agg.NumScenarios > 0 {
 		agg.SuccessRate = float64(agg.NumSuccesses) /
 			float64(agg.NumScenarios)

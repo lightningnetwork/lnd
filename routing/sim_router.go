@@ -184,12 +184,25 @@ func (l *lndStackRouter) ReportAttempt(attemptID uint64, rt *route.Route,
 		return l.mc.ReportPaymentSuccess(attemptID, rt)
 	}
 
+	// An unattributed failure is reported the way lnd's own switch reports
+	// an onion error it could not read: no source index and no failure
+	// message. Mission control already recognizes that shape: a nil source
+	// index makes newPaymentFailure drop the message and processFail
+	// dispatch to processPaymentOutcomeUnknown, which penalizes the whole
+	// route because any hop on it could be the guilty one. Nothing here
+	// invents a policy for the degraded case; it hands lnd the input its
+	// production code was written for.
+	failure := result.Failure
+	if _, unreadable := failure.(SimUnknownFailure); unreadable {
+		failure = nil
+	}
+
 	// A non-nil final result means mission control considers the payment
 	// terminally failed. Latch it so that the next RequestRoute call
 	// fails, ending the payment loop.
 	finalResult, err := l.mc.ReportPaymentFail(
 		attemptID, rt,
-		getNodeIndexSim(rt, result.FailureSource), result.Failure,
+		getNodeIndexSim(rt, result.FailureSource), failure,
 	)
 	if err != nil {
 		return err

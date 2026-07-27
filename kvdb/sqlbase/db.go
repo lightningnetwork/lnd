@@ -67,6 +67,11 @@ type Config struct {
 	// NOTE: Temporary, should be removed when all parts of the LND code
 	// are more resilient against concurrent db access..
 	WithTxLevelLock bool
+
+	// WriteTxRepeatableRead indicates that read-write transactions should
+	// be opened at REPEATABLE READ instead of SERIALIZABLE. This only has
+	// an effect on Postgres.
+	WriteTxRepeatableRead bool
 }
 
 // db holds a reference to the sql db connection.

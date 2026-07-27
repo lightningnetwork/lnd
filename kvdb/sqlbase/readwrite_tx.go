@@ -28,12 +28,10 @@ type readWriteTx struct {
 // txIsolationLevel returns the isolation level that a transaction against the
 // given database should be opened with.
 //
-// Read-write transactions always run at SERIALIZABLE, since that is the level
-// the kvdb abstraction has always promised for writers. Read-only transactions
-// on Postgres are instead opened at REPEATABLE READ, which in Postgres is
-// snapshot isolation: the transaction reads from a single consistent snapshot
-// for its whole lifetime, taken when its first statement runs rather than at
-// BEGIN.
+// Read-only transactions on Postgres are opened at REPEATABLE READ, which in
+// Postgres is snapshot isolation: the transaction reads from a single
+// consistent snapshot for its whole lifetime, taken when its first statement
+// runs rather than at BEGIN.
 //
 // That is a real, if modest, weakening. Snapshot isolation is not
 // serializability, so the reader is no longer guaranteed to observe a state
@@ -52,10 +50,28 @@ type readWriteTx struct {
 // lnd is extremely read heavy, this removes a large amount of needless abort
 // pressure from the system.
 //
+// Read-write transactions run at SERIALIZABLE by default, since that is the
+// level the kvdb abstraction has always promised for writers, but they can be
+// moved to REPEATABLE READ with the db.postgres.tx-isolation option. REPEATABLE
+// READ on Postgres is snapshot isolation, which still rules out dirty reads,
+// non-repeatable reads, phantom reads and lost updates: a transaction that
+// writes a row another in-flight transaction has already written is aborted
+// with a serialization failure. The one anomaly class that remains is write
+// skew, where two transactions each read what the other writes but write
+// disjoint sets of rows, so neither conflicts and both commit. Every write path
+// that was known to be exposed to that has been hardened to either touch a
+// shared row or to serialize in process, which is what makes offering this at
+// all defensible. It nonetheless stays opt-in until it has accumulated soak
+// time on real nodes.
+//
 // SQLite is always effectively serializable because it only ever admits a
 // single writer, so there is nothing to gain there and we leave it alone.
 func txIsolationLevel(db *db, readOnly bool) sql.IsolationLevel {
-	if readOnly && db.isPostgres() {
+	if !db.isPostgres() {
+		return sql.LevelSerializable
+	}
+
+	if readOnly || db.cfg.WriteTxRepeatableRead {
 		return sql.LevelRepeatableRead
 	}
 

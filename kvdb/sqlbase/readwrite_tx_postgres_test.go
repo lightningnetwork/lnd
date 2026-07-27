@@ -82,14 +82,16 @@ func newPostgresTestBackend(t *testing.T) *db {
 // TestPostgresTxIsolationLevel asserts that the isolation level that Postgres
 // itself reports for a transaction matches what we expect: read-only
 // transactions run at repeatable read while read-write transactions remain
-// serializable. We also assert the read-only flag that Postgres reports, so
-// that dropping it from the tx options would be caught here as well.
+// serializable unless the opt-in knob moves them to repeatable read as well.
+// We also assert the read-only flag that Postgres reports, so that dropping it
+// from the tx options would be caught here as well.
 func TestPostgresTxIsolationLevel(t *testing.T) {
 	backend := newPostgresTestBackend(t)
 
 	tests := []struct {
 		name         string
 		readOnly     bool
+		rrWrites     bool
 		expected     string
 		expectedFlag string
 	}{
@@ -105,10 +107,30 @@ func TestPostgresTxIsolationLevel(t *testing.T) {
 			expected:     "serializable",
 			expectedFlag: "off",
 		},
+		{
+			name:         "read-only, rr writes",
+			readOnly:     true,
+			rrWrites:     true,
+			expected:     "repeatable read",
+			expectedFlag: "on",
+		},
+		{
+			name:         "read-write, rr writes",
+			readOnly:     false,
+			rrWrites:     true,
+			expected:     "repeatable read",
+			expectedFlag: "off",
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			// The config isn't consulted anywhere else while a
+			// transaction is being opened, and these sub tests are
+			// not run in parallel, so it's safe to flip the knob in
+			// place rather than to bring up a second backend.
+			backend.cfg.WriteTxRepeatableRead = test.rrWrites
+
 			tx, err := newReadWriteTx(backend, test.readOnly)
 			require.NoError(t, err)
 			defer func() {

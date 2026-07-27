@@ -23,20 +23,22 @@ exp-018 omni adjudication is LIVE overnight.
        hard/OOD tiers checked into repo (v59)
 3. [x] exp-019 degraded attribution: champions hold, lnd give-up
        spiral from 10% unreadable, 8.6x retired (commit 7282858f6)
-4. [ ] Site v60 (exp-019 + 8.6x sweep) — agent working; then commit,
-       publish, mail combined digest   <- HERE
-5. [ ] exp-018 verdict when run completes (overnight)
+4. [x] Site v60/v61 published; digests mailed
+5. [x] exp-018 closed: gepa only engine to produce anything; omni1 =
+       challenger failure #6; band not a gepa artifact at practical
+       budgets. exp-019b: anomaly hard-tier-only, story refuted.
+       ALL OVERNIGHT WORK COMPLETE   <- session idle, tree FREE
 
 ## Key Context
-- **exp-018 LIVE**: pid in scratch, log <scratch>/exp018.log, workdir
+- exp-018 DONE (was live): pid in scratch, log <scratch>/exp018.log, workdir
   <scratch>/exp018-work (runs/, outputs/ per engine), venv-omni,
   corpus-mix, engines gepa,meta_harness,autoresearch, 150 evals each,
   sequential arms. Check: ps aux | grep run_gepa_omni; eval count:
   ls <scratch>/exp018-work/outputs/exp018_<engine>/evals | wc -l.
   Watcher-leak check on meta/autoresearch arms when they start:
   grep -ci watcher on their run logs should be 0.
-- **TREE LOCKED** while exp-018 runs: no edits to routing/ or
-  cmd/routesim/. All tree work landed before launch (d47283c34).
+- Tree FREE. Next up per CLAUDE.md: distillation patch (top),
+  offline replay, 10x ceiling arm, upstream gepa fix.
 - HEAD at last checkpoint: d9fbba193, everything pushed. Dashboard
   v59 live; v60 pending site agent.
 - exp-019 anomaly queued as CLAUDE.md item 3: shift-isolated mainnet

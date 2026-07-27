@@ -55,6 +55,13 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10998) in the
+  watchtower client where a retried `AckUpdate` transaction could commit an
+  acknowledgment everywhere except in the acked-update index it belongs in,
+  after which the client would consider a state backed up that the tower had
+  never been told about. Only the SQL backends could retry a transaction, so
+  `bbolt` was never affected.
+
 # New Features
 
 ## Functional Enhancements
@@ -154,6 +161,35 @@
 ## Testing
 
 ## Database
+
+* [Four database write paths were hardened against snapshot
+  isolation](https://github.com/lightningnetwork/lnd/pull/10998), preparing for
+  read-write Postgres transactions to move from `SERIALIZABLE` to `REPEATABLE
+  READ`, the way [read-only transactions already
+  did](https://github.com/lightningnetwork/lnd/pull/10997). Under snapshot
+  isolation a pair of transactions that each read what the other writes, but
+  whose write sets don't overlap, both commit rather than one of them being
+  aborted, so each of these paths was changed to conflict on a shared row or to
+  serialize in process instead:
+
+  * A channel open now always writes the peer's link node row, so that it can't
+    race a link node prune that runs when the peer's last channel is closed.
+
+  * `PruneGraphNodes` now takes the cache mutex in both graph stores, like every
+    other graph mutator does, so that a node prune can't interleave with a
+    channel edge being added for that node.
+
+  * Bucket creation in the SQL kvdb backends is now phrased as an upsert, so
+    that two transactions racing to create the same bucket see a retryable
+    serialization failure rather than a unique constraint violation, which is
+    not retried.
+
+  * The watchtower client now evaluates a session for closability when it acks
+    an update for a channel that has already been closed, and the channel close
+    and ack paths conflict on a shared row. This also fixes a pre-existing leak
+    where a session that acked its first update for a channel only after that
+    channel was closed would never be marked closable, and so would hold on to
+    the tower's storage forever.
 
 ## Code Health
 

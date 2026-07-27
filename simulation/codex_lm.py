@@ -71,9 +71,17 @@ class CodexLM:
     """Callable implementing GEPA's LanguageModel protocol via codex exec."""
 
     def __init__(self, model: str = "gpt-5.6-sol", timeout: int = 600,
-                 require_marker: str = None):
+                 require_marker: str = None, effort: str = "xhigh"):
         self.model = model
         self.timeout = timeout
+
+        # Reasoning effort for the searcher. Passed as a per-call config
+        # override so it always wins over whatever the harness home's
+        # config.toml was written with (that file is only created on
+        # first use and never rewritten). Search/reflection agents run
+        # at xhigh by default; drop to high only if wall-clock per
+        # proposal becomes the bottleneck.
+        self.effort = effort
 
         # require_marker is a substring every valid completion must contain
         # (e.g. "package main" for Go candidates). A completion missing it
@@ -115,6 +123,7 @@ class CodexLM:
                 [
                     "codex", "exec",
                     "--model", self.model,
+                    "-c", f'model_reasoning_effort="{self.effort}"',
                     "--sandbox", "read-only",
                     "--skip-git-repo-check",
                     "--output-last-message", out_path,

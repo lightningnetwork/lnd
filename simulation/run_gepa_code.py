@@ -167,13 +167,18 @@ def main() -> None:
     # wasted optimizer iteration.
     reflection_lm = args.reflection_lm
     if reflection_lm.startswith("codex:"):
-        # A large seed makes reflection slow: a thousand-line candidate
-        # takes codex well past the ten minute default, and a timeout
-        # there costs a whole iteration to a stub proposal.
+        # codex:<model>[:<effort>] — e.g. codex:gpt-5.6-sol:xhigh.
+        # Searcher agents default to xhigh reasoning effort; a large
+        # seed makes reflection slow (a thousand-line candidate takes
+        # codex well past the ten minute default, and a timeout there
+        # costs a whole iteration to a stub proposal), so the timeout
+        # knob matters more at higher effort.
+        spec = reflection_lm.split(":")
         reflection_lm = CodexLM(
-            model=reflection_lm.split(":", 1)[1],
+            model=spec[1],
             require_marker="package main",
             timeout=args.reflection_timeout,
+            effort=spec[2] if len(spec) > 2 else "xhigh",
         )
     elif reflection_lm.startswith("claude:"):
         # claude:<model>[:<effort>] — e.g. claude:claude-opus-5:medium.

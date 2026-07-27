@@ -96,6 +96,23 @@
 
 ## Performance Improvements
 
+* [Read-only Postgres transactions now run at `REPEATABLE READ` instead of
+  `SERIALIZABLE`](https://github.com/lightningnetwork/lnd/pull/10997). In
+  Postgres that is snapshot isolation: a read-only transaction still reads from
+  a single consistent snapshot for its whole lifetime, taken when its first
+  statement runs. That snapshot is no longer guaranteed to correspond to a
+  serial ordering of the writers running alongside it, which is acceptable
+  because `lnd`'s read paths only consume a point-in-time view and never
+  depended on being ordered against writers in other transactions. In exchange,
+  such a transaction takes no part in Postgres' serializable snapshot isolation
+  conflict graph: it acquires no `SIRead` predicate locks, is not itself subject
+  to SSI serialization failures, and can no longer cause a concurrent writer to
+  be aborted as a pivot. Since `lnd` is very read heavy, this removes a large
+  amount of needless abort pressure. Read-write transactions are unaffected and
+  remain `SERIALIZABLE`, and the SQLite backend is untouched. See
+  [docs/postgres.md](../postgres.md) for the operator-facing note on long-lived
+  read transactions.
+
 ## Deprecations
 
 # Technical and Architectural Updates

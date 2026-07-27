@@ -2,6 +2,7 @@ module github.com/lightningnetwork/lnd/sqldb
 
 require (
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084
+	github.com/btcsuite/btcwallet/walletdb v1.6.0
 	github.com/davecgh/go-spew v1.1.1
 	github.com/golang-migrate/migrate/v4 v4.17.0
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438

@@ -486,3 +486,53 @@ only.
 Champions unchanged: hb1 + mx_c3. The tree is unfrozen for the first
 time since exp-013 launched, which releases all four pre-upstream
 blockers.
+
+## 2026-07-26 — exp-014: the traffic engine, fixed
+
+The top pre-upstream item, and the prerequisite for any honest drift
+or staleness claim. Background payments were settling at 0.41 on the
+drift corpus, 0.61 on the atomic one and 0.18 on mainnet — and since a
+failed background payment moves no liquidity at all, that ratio is
+exactly the factor between the churn a scenario file asks for and the
+churn it gets.
+
+Three causes. The route search filtered on capacity and policy but not
+on the hidden balance, so it kept picking corridors a bimodal
+distribution cannot fund. The amount was drawn blind and never
+revisited, so a payment bigger than any corridor just died. And
+endpoints were drawn uniformly, which is badly wrong on a real
+topology: the mainnet snapshot has a median degree of ONE and 68% of
+its nodes hold two channels or fewer, so uniform draws picked
+leaf-to-leaf pairs with no path between them at any amount.
+
+Only the third explains mainnet. The first two fixes moved it from
+0.177 to 0.184 — no amount of shrinking finds a path that isn't there
+— and degree-weighted sampling moved it to 0.951. Drift went to 0.69,
+atomic to 0.89.
+
+Consulting hidden balances is the environment's privilege, worth
+stating plainly: the traffic engine IS the network, and what a
+candidate sees through the sealed gossip view is unchanged.
+
+Also added focus_fraction, the share of churn that takes one endpoint
+from the scenario's own source and targets. Traffic spread evenly over
+a 12,161-node graph almost never touches the few channels a scored
+payment uses, so without it the knob moves the network everywhere
+except where it is measured. Generated corpora set it to a third.
+
+Does it overturn anything? No. Re-running the champions over both
+traffic tiers with old and new engines leaves every ordering intact
+and every router inside its old confidence interval. One directional
+hint for the exp-008 re-run: on drift the stronger churn helps lnd
+(+0.032) and slightly hurts all three interval routers, which is what
+you would predict if hard bounds go stale faster under real movement.
+Nowhere near significant at n=8; a hypothesis, not a finding.
+
+Companion change from exp-013's lesson: SimScenarioResult.GaveUp
+records that a router ABANDONED a payment rather than exhausting its
+attempts, and the aggregate reports num_give_ups and give_up_rate.
+Nothing scores it — it exists so the next candidate cannot buy a low
+attempt count by quitting and have it read as efficiency. The
+aggregate also reports bg_settle_rate now, so this defect would have
+been visible in every run's output instead of needing a manipulation
+check to find.

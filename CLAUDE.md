@@ -146,6 +146,20 @@ next.
   unblocked for the first time since exp-013 launched.
 
 ### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
+- **exp-014** — the traffic engine, fixed. Background payments settled
+  at 0.41/0.61/0.18 (drift/atomic/mainnet); a failed one moves no
+  liquidity, so that ratio was the factor between configured and
+  actual churn. Causes: the route search ignored hidden balances,
+  amounts were drawn blind and never revisited, and endpoints were
+  drawn UNIFORMLY on a graph whose median degree is 1 (68% of nodes
+  have ≤2 channels), so most pairs had no path at any amount. Only
+  the last explains mainnet: the first two fixes moved it 0.177 →
+  0.184, degree weighting moved it to 0.951. Now 0.69/0.89/0.95. Adds
+  `focus_fraction` (share of churn aimed at the scenario's own
+  corridors; corpora set 0.33) and `GaveUp`/`give_up_rate`/
+  `bg_settle_rate` reporting. Re-running the champions over both
+  traffic tiers leaves every ordering intact — nothing published is
+  overturned.
 - **exp-013** — the give-up attractor. Continuation from atomic1 lost
   to its own seed on gepa's held-out test (0.512 vs 0.527) and sits
   below mx_c3 on all six tiers. Cause: atomic1 was already at the
@@ -156,7 +170,8 @@ next.
   attempts left to save.
 - **exp-008** — drift. Time-decay re-evolved and lost to time-less
   champions even on drift. Caveat added later: our churn is weak (see
-  the traffic defect below), so this is a statement about weak churn.
+  exp-014), so this is a statement about weak churn — the engine is
+  fixed now, and the re-run is item 4 below.
 - **exp-010** — splitting pressure, three proposer lineages. All three
   evolved joint route-set planning; none beat mx_c3. opus1 scored the
   program's first statistical tie on any tier (split-val) then
@@ -189,32 +204,21 @@ next.
   objective; paradigm worth 0.18–0.22.
 
 ### Next, in priority order
-1. **Traffic engine defect (do first; needs `routing/`).** Only ~18% of
-   background payments settle, and a failed payment moves no
-   liquidity, so our exogenous process is ~5× weaker than configured.
-   This caveats exp-008 and exp-010b. Make traffic settle (size
-   amounts to available liquidity, or retry), and aim a share of it at
-   the corridors under test.
-2. **`--import-weights` (needs `routing/`).** exp-012 cannot construct
+1. **`--import-weights` (needs `routing/`).** exp-012 cannot construct
    free knowledge because every arm buys it with payments. Injecting
    beliefs from a file with no payments sent is the only design that
    isolates imported knowledge from the price of acquiring it, and it
    is what the proposed API actually does.
-3. **Fix the circular mainnet liquidity.** `sim_liquidity.go` draws
+2. **Fix the circular mainnet liquidity.** `sim_liquidity.go` draws
    `ExpFloat64()*0.05` and the evolved priors fit that constant; the
    mainnet tier overwrites real balances with the same generator. Until
    liquidity comes from somewhere we did not write, the mainnet number
    is real topology and policies with synthetic balances. TOP
    pre-upstream fix.
-4. **Degraded attribution** — the advisor's decisive pre-upstream test.
+3. **Degraded attribution** — the advisor's decisive pre-upstream test.
    Our failure channel is instant, truthful and exactly attributed;
    mainnet's is not. The 8.6× is an upper bound until this runs.
-5. Re-run staleness and exp-008's decay question underneath the fixed
+4. Re-run staleness and exp-008's decay question underneath the fixed
    traffic engine.
-6. **Report a give-up rate in the eval output** (needs `routing/`;
-   cheap, do it alongside 1). exp-013's failure was invisible in the
-   composite objective — abandonment and efficiency are the same
-   number there. Emit terminal-give-up count per scenario so a future
-   run cannot hide in it.
-7. Upstream the gepa meta_harness JSON fix (`~/codez/gepa` branch
+5. Upstream the gepa meta_harness JSON fix (`~/codez/gepa` branch
    `fix-claude-json-array`).

@@ -31,11 +31,11 @@
   <!-- ================= MASTHEAD ================= -->
   <div class="shell masthead">
     <div class="eyebrow">
-      Findings<span class="sep">/</span>lnd × GEPA routing evolution<span class="sep">/</span>26 July 2026
+      Findings<span class="sep">/</span>lnd × GEPA routing evolution<span class="sep">/</span>27 July 2026
     </div>
     <h1>What the evolved routers kept, dropped, and <em>invented</em></h1>
     <p class="standfirst">
-      Fourteen experiments in, the shape of the result is clear. On a real mainnet
+      Seventeen experiments in, the shape of the result is clear. On a real mainnet
       graph snapshot, LLM-evolved routers match lnd's success rate using
       <strong>8.6× fewer HTLC attempts</strong> — and the structure they arrived at
       is not a tuned version of lnd's. It is a different way of remembering what
@@ -44,7 +44,7 @@
     <div class="byline">
       <span>sources <b>simulation/lab/experiments</b></span>
       <span>champions <b>hb1 · mx_c3</b></span>
-      <span>status <b>validated · exp-012 and exp-002b closed</b></span>
+      <span>status <b>validated · de-circularised (exp-017)</b></span>
     </div>
 
     <ol class="toc">
@@ -59,8 +59,9 @@
       <li><a href="#coldcache"><span class="n">08</span><span class="t">Cold cache, hot load: what is a mission control worth?</span></a></li>
       <li><a href="#bimodal"><span class="n">09</span><span class="t">The knob we never turned</span></a></li>
       <li><a href="#served"><span class="n">10</span><span class="t">Free knowledge helps the champions and hurts lnd</span></a></li>
-      <li><a href="#process"><span class="n">11</span><span class="t">What the process taught us</span></a></li>
-      <li><a href="#timeline"><span class="n">12</span><span class="t">Timeline of experiments</span></a></li>
+      <li><a href="#families"><span class="n">11</span><span class="t">Thirteen worlds the constants were never fit to</span></a></li>
+      <li><a href="#process"><span class="n">12</span><span class="t">What the process taught us</span></a></li>
+      <li><a href="#timeline"><span class="n">13</span><span class="t">Timeline of experiments</span></a></li>
       <li><a href="drift.html"><span class="n">→</span><span class="t">Drift: the environment strikes back <i>(exp-008, verdict in)</i></span></a></li>
     </ol>
   </div>
@@ -98,7 +99,11 @@
         <em>this simulator's</em> liquidity constant. The mainnet tier is the real
         12,161-node topology with the real policies, and then it
         <strong>overwrites the balances with that same generator</strong>. Real
-        topology, real fees, our liquidity.
+        topology, real fees, our liquidity. <em>(Half of this is now closed:
+        <a class="link" href="#families">&sect;11</a> re-ran the field across
+        thirteen generator families the constants were never fit to, and the
+        ordering held on all thirteen. What stays open is that every one of those
+        families is still a distribution we chose.)</em>
       </p>
       <p>
         <strong>&sect;10's mechanism was wrong when first published here.</strong>
@@ -348,12 +353,12 @@
                     <td class="num" data-l="out-of-distribution">0.487</td><td class="num" data-l="synthetic combined">0.509</td>
                   </tr>
                   <tr>
-                    <td>hb1 <span class="sub">hard-regime specialist</span></td>
+                    <td>hb1 <span class="sub">sharp-bimodal specialist · ≥ mx_c3 on 12 of 13 family tiers</span></td>
                     <td class="num" data-l="mainnet">0.790</td><td class="num" data-l="hard sealed test">0.586</td>
                     <td class="num" data-l="out-of-distribution">0.545</td><td class="num" data-l="synthetic combined">0.565</td>
                   </tr>
                   <tr class="best">
-                    <td>mx_c3 <span class="sub">generalist</span></td>
+                    <td>mx_c3 <span class="sub">generalist — title eroding, see §11</span></td>
                     <td class="num" data-l="mainnet">0.791</td><td class="num" data-l="hard sealed test">0.583</td>
                     <td class="num" data-l="out-of-distribution">0.581</td><td class="num" data-l="synthetic combined">0.582</td>
                   </tr>
@@ -374,6 +379,9 @@
           a clear win out of distribution (0.581 against 0.545), for the best
           combined average of anything tested. A third frontier member, hb2, is
           strictly dominated by mx_c3 and has been retired.
+          (<a class="link" href="#families">§11</a> narrows this: across thirteen
+          generator-family tiers hb1 is at or above mx_c3 on 12 of 13, so the
+          “generalist” title is in adjudication rather than settled.)
         </p>
         <p>
           Three properties matter more to us than the margins:
@@ -386,7 +394,7 @@
         <p>
           <strong>Exploit-clean.</strong> The simulator seals hidden liquidity behind
           a view interface, and an adversarial audit of that seal
-          (<a class="link" href="#process">§11</a>) found and
+          (<a class="link" href="#process">§12</a>) found and
           closed a real escape. Both champions were validated after the seal, with
           zero uses of any exploit path.
         </p>
@@ -956,7 +964,7 @@
         <p>
           <strong>Opus 5 at default effort, persistent parallel flow plans.</strong>
           The deepest machinery the project has produced, at 1,931 lines — well past
-          the complexity wall of <a class="link" href="#process">§11</a>. A flow plan
+          the complexity wall of <a class="link" href="#process">§12</a>. A flow plan
           survives failure, dropping only the corridors that evidence actually
           contradicts; dispatch is concurrency-first, filling the shard budget with
           the largest believable amounts before it ever ladder-searches; and planning
@@ -2272,11 +2280,420 @@
     </div>
   </section>
 
-  <!-- ================= 11 · PROCESS ================= -->
-  <section id="process">
+  <!-- ================= 11 · GENERATOR FAMILIES ================= -->
+  <section id="families">
     <div class="shell">
       <div class="sec-head">
         <div class="sec-no">11</div>
+        <h2>Thirteen worlds the constants were never fit to</h2>
+        <p class="sec-sub">
+          The worst thing this project knows about itself is in
+          <a class="link" href="#corrections">&sect;00</a>: the evolved priors fit
+          our own liquidity generator. exp-017 parameterised that generator and
+          moved the world underneath every router — thirteen paired tiers, 650
+          runs, including two where the bimodal hypothesis the priors encode is
+          simply false. The ordering did not move.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key">
+          <span class="kn">13 / 13<span class="u">tiers</span></span>
+          <div class="kl">
+            tiers on which lnd finishes fifth of five and an evolved router
+            finishes first, across wrong bimodal scales, polynomial tails,
+            uniform balances, a topology-correlated drain, two amount
+            distributions and four re-liquified mainnets
+          </div>
+          <div class="kf">hb1 &minus; lnd carries a CI excluding zero on 12 of 13</div>
+        </div>
+        <div class="key hi">
+          <span class="kn">0.229 → 0.147<span class="u">seed vs lnd</span></span>
+          <div class="kl">
+            the hand-written seed's margin compressing along the same ladder that
+            compresses the champions' — and the seed predates every constant
+            under suspicion
+          </div>
+          <div class="kf">the control that kills the overfitting reading</div>
+        </div>
+        <div class="key">
+          <span class="kn">4 → 1<span class="u">atomic1 rank</span></span>
+          <div class="kl">
+            atomic1's rank as the liquidity family flattens away from the fitted
+            shape, monotone across six tiers, with the mirror-image collapse on
+            the sharpest bimodal world
+          </div>
+          <div class="kf">the generator named a specialist we did not know we had</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>The circularity, stated plainly</h3>
+        <p>
+          <span class="mono">sim_liquidity.go</span> draws hidden balances as
+          <span class="mono">ExpFloat64() * 0.05</span> of capacity; atomic1's low
+          mode is <span class="mono">exp(&minus;x/0.055)</span>; the mainnet tier
+          overwrites the real balances with that same draw. Every number above
+          therefore sat on a distribution we wrote ourselves, and “the champions
+          beat lnd” could in principle have meant only “the champions memorised
+          our generator.” This is the cheap test of that possibility: make the
+          generator a parameter, move the liquidity world underneath every router,
+          and ask whether the ordering survives.
+        </p>
+
+        <h3>Thirteen worlds, one field at a time</h3>
+        <p>
+          <span class="mono">AssignLiquidity</span> now takes a family string.
+          <span class="mono">bimodal:&lt;scale&gt;</span> is the fitted shape at the
+          wrong scale. <span class="mono">beta:a:b</span> swaps the exponential
+          tails for polynomial ones, and at
+          <span class="mono">beta:2:2</span> the distribution is unimodal and
+          centred — a world where the bimodal hypothesis those priors encode is
+          <em>false</em>. <span class="mono">hubdrain:&lt;scale&gt;</span> points the
+          depleted end at the higher-degree node with p = 0.85, the first generator
+          here correlated with topology rather than drawn blind. The legacy strings
+          are golden-tested byte-identical, so every corpus behind every earlier
+          section regenerates unchanged.
+        </p>
+        <p>
+          Ten hard-tier base scenarios are emitted once, then each family directory
+          holds those same ten files with the single field under test substituted,
+          so paired per-file deltas isolate the generator from topology noise. The
+          advisor flagged a sibling circularity nobody had listed — we author the
+          payment amounts too — so amounts got their own axis with liquidity pinned
+          at the control, and the exp-009 mainnet tier was re-liquified the same
+          way, by a one-line substitution with a parse-and-compare assertion that
+          nothing else moved. Thirteen tiers of ten files against five routers:
+          650 runs, bootstrap 10k, two-sided sign tests. The sharpest of the three
+          sanity gates is the untouched mainnet control, which had to reproduce the
+          published <a class="link" href="#mainnet">&sect;01</a> numbers. It does, to
+          three decimals — 0.694 / 0.762 / 0.790 / 0.791.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:2em">
+        <table class="data">
+          <caption>exp-017 &middot; composite objective by tier, with success and attempts per payment underneath. Ten files per tier, identical across routers; the leader of each tier is bold. The control rows are the unmodified generator, so they are the worlds every earlier section on this page was scored in.</caption>
+          <thead>
+            <tr>
+              <th>tier</th>
+              <th class="num">lnd</th>
+              <th class="num">seed</th>
+              <th class="num">hb1</th>
+              <th class="num">mx_c3</th>
+              <th class="num">atomic1</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>liq-bimodal 0.01<span class="sub">the fitted shape, five times sharper</span></td>
+              <td class="num" data-l="lnd">0.143<span class="sub">0.30 succ · 43.9 att</span></td>
+              <td class="num" data-l="seed">0.372<span class="sub">0.52 succ · 42.3 att</span></td>
+              <td class="num" data-l="hb1"><b>0.441</b><span class="sub">0.55 succ · 8.4 att</span></td>
+              <td class="num" data-l="mx_c3">0.432<span class="sub">0.55 succ · 9.1 att</span></td>
+              <td class="num" data-l="atomic1">0.266<span class="sub">0.36 succ · 10.4 att</span></td>
+            </tr>
+            <tr>
+              <td>liq-bimodal <em>control</em><span class="sub">the generator every earlier section used</span></td>
+              <td class="num" data-l="lnd">0.192<span class="sub">0.37 succ · 40.0 att</span></td>
+              <td class="num" data-l="seed">0.397<span class="sub">0.55 succ · 29.1 att</span></td>
+              <td class="num" data-l="hb1"><b>0.471</b><span class="sub">0.58 succ · 8.6 att</span></td>
+              <td class="num" data-l="mx_c3">0.462<span class="sub">0.58 succ · 10.0 att</span></td>
+              <td class="num" data-l="atomic1">0.375<span class="sub">0.48 succ · 8.0 att</span></td>
+            </tr>
+            <tr>
+              <td>liq-bimodal 0.2<span class="sub">four times flatter</span></td>
+              <td class="num" data-l="lnd">0.318<span class="sub">0.48 succ · 43.1 att</span></td>
+              <td class="num" data-l="seed">0.472<span class="sub">0.62 succ · 17.7 att</span></td>
+              <td class="num" data-l="hb1"><b>0.551</b><span class="sub">0.66 succ · 6.3 att</span></td>
+              <td class="num" data-l="mx_c3">0.532<span class="sub">0.66 succ · 9.9 att</span></td>
+              <td class="num" data-l="atomic1">0.514<span class="sub">0.62 succ · 6.6 att</span></td>
+            </tr>
+            <tr>
+              <td>liq-beta 0.3 0.3<span class="sub">U-shaped, polynomial tails</span></td>
+              <td class="num" data-l="lnd">0.240<span class="sub">0.40 succ · 48.1 att</span></td>
+              <td class="num" data-l="seed">0.434<span class="sub">0.59 succ · 21.0 att</span></td>
+              <td class="num" data-l="hb1">0.489<span class="sub">0.61 succ · 6.8 att</span></td>
+              <td class="num" data-l="mx_c3">0.481<span class="sub">0.61 succ · 7.9 att</span></td>
+              <td class="num" data-l="atomic1"><b>0.523</b><span class="sub">0.64 succ · 8.0 att</span></td>
+            </tr>
+            <tr>
+              <td>liq-beta 2 2<span class="sub">unimodal and centred — the bimodal hypothesis is false here</span></td>
+              <td class="num" data-l="lnd">0.370<span class="sub">0.52 succ · 60.2 att</span></td>
+              <td class="num" data-l="seed">0.531<span class="sub">0.64 succ · 8.4 att</span></td>
+              <td class="num" data-l="hb1">0.574<span class="sub">0.66 succ · 4.4 att</span></td>
+              <td class="num" data-l="mx_c3">0.546<span class="sub">0.64 succ · 5.0 att</span></td>
+              <td class="num" data-l="atomic1"><b>0.644</b><span class="sub">0.72 succ · 3.6 att</span></td>
+            </tr>
+            <tr>
+              <td>liq-uniform<span class="sub">no modes at all</span></td>
+              <td class="num" data-l="lnd">0.369<span class="sub">0.53 succ · 52.0 att</span></td>
+              <td class="num" data-l="seed">0.516<span class="sub">0.63 succ · 10.0 att</span></td>
+              <td class="num" data-l="hb1">0.579<span class="sub">0.67 succ · 4.7 att</span></td>
+              <td class="num" data-l="mx_c3">0.554<span class="sub">0.65 succ · 5.3 att</span></td>
+              <td class="num" data-l="atomic1"><b>0.626</b><span class="sub">0.71 succ · 4.3 att</span></td>
+            </tr>
+            <tr>
+              <td>liq-hubdrain 0.05<span class="sub">drain faces the higher-degree node · underpowered, see below</span></td>
+              <td class="num" data-l="lnd">0.212<span class="sub">0.34 succ · 30.5 att</span></td>
+              <td class="num" data-l="seed">0.238<span class="sub">0.38 succ · 39.9 att</span></td>
+              <td class="num" data-l="hb1">0.303<span class="sub">0.42 succ · 11.7 att</span></td>
+              <td class="num" data-l="mx_c3">0.298<span class="sub">0.42 succ · 13.1 att</span></td>
+              <td class="num" data-l="atomic1"><b>0.306</b><span class="sub">0.41 succ · 7.6 att</span></td>
+            </tr>
+            <tr>
+              <td>amt-lognormal<span class="sub">amounts moved, liquidity at the control</span></td>
+              <td class="num" data-l="lnd">0.185<span class="sub">0.36 succ · 33.5 att</span></td>
+              <td class="num" data-l="seed">0.282<span class="sub">0.43 succ · 31.6 att</span></td>
+              <td class="num" data-l="hb1"><b>0.395</b><span class="sub">0.49 succ · 6.0 att</span></td>
+              <td class="num" data-l="mx_c3">0.384<span class="sub">0.50 succ · 9.5 att</span></td>
+              <td class="num" data-l="atomic1">0.308<span class="sub">0.41 succ · 7.3 att</span></td>
+            </tr>
+            <tr>
+              <td>amt-round<span class="sub">round-value clustering</span></td>
+              <td class="num" data-l="lnd">0.212<span class="sub">0.38 succ · 43.4 att</span></td>
+              <td class="num" data-l="seed">0.301<span class="sub">0.46 succ · 31.4 att</span></td>
+              <td class="num" data-l="hb1"><b>0.377</b><span class="sub">0.50 succ · 9.0 att</span></td>
+              <td class="num" data-l="mx_c3">0.354<span class="sub">0.49 succ · 11.3 att</span></td>
+              <td class="num" data-l="atomic1">0.307<span class="sub">0.40 succ · 7.2 att</span></td>
+            </tr>
+            <tr>
+              <td>mn-control<span class="sub">exp-009 untouched · the reproduction gate</span></td>
+              <td class="num" data-l="lnd">0.694<span class="sub">0.79 succ · 19.8 att</span></td>
+              <td class="num" data-l="seed">0.762<span class="sub">0.82 succ · 6.1 att</span></td>
+              <td class="num" data-l="hb1">0.790<span class="sub">0.81 succ · 2.3 att</span></td>
+              <td class="num" data-l="mx_c3"><b>0.791</b><span class="sub">0.81 succ · 2.3 att</span></td>
+              <td class="num" data-l="atomic1">0.790<span class="sub">0.80 succ · 1.6 att</span></td>
+            </tr>
+            <tr>
+              <td>mn-bimodal 0.2<span class="sub">real topology, re-liquified</span></td>
+              <td class="num" data-l="lnd">0.657<span class="sub">0.77 succ · 19.7 att</span></td>
+              <td class="num" data-l="seed">0.753<span class="sub">0.80 succ · 5.2 att</span></td>
+              <td class="num" data-l="hb1">0.781<span class="sub">0.80 succ · 2.2 att</span></td>
+              <td class="num" data-l="mx_c3">0.781<span class="sub">0.80 succ · 2.3 att</span></td>
+              <td class="num" data-l="atomic1"><b>0.789</b><span class="sub">0.80 succ · 1.6 att</span></td>
+            </tr>
+            <tr>
+              <td>mn-beta 0.3 0.3<span class="sub">real topology, re-liquified</span></td>
+              <td class="num" data-l="lnd">0.688<span class="sub">0.79 succ · 20.9 att</span></td>
+              <td class="num" data-l="seed">0.796<span class="sub">0.85 succ · 5.2 att</span></td>
+              <td class="num" data-l="hb1">0.807<span class="sub">0.83 succ · 2.3 att</span></td>
+              <td class="num" data-l="mx_c3">0.807<span class="sub">0.83 succ · 2.3 att</span></td>
+              <td class="num" data-l="atomic1"><b>0.818</b><span class="sub">0.83 succ · 1.9 att</span></td>
+            </tr>
+            <tr>
+              <td>mn-uniform<span class="sub">real topology, re-liquified</span></td>
+              <td class="num" data-l="lnd">0.678<span class="sub">0.79 succ · 21.4 att</span></td>
+              <td class="num" data-l="seed">0.786<span class="sub">0.84 succ · 5.1 att</span></td>
+              <td class="num" data-l="hb1"><b>0.801</b><span class="sub">0.82 succ · 2.1 att</span></td>
+              <td class="num" data-l="mx_c3">0.801<span class="sub">0.82 succ · 2.2 att</span></td>
+              <td class="num" data-l="atomic1">0.799<span class="sub">0.81 succ · 1.6 att</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <h3 style="margin-top:2em">The ordering survives every world we could build</h3>
+        <p>
+          lnd is fifth of five on all thirteen tiers. The hand-written seed is third
+          or fourth on all thirteen. An evolved router is first on all thirteen.
+          hb1 &minus; lnd carries a bootstrap confidence interval excluding zero on
+          12 of 13 tiers and mx_c3 &minus; lnd on 10 of 13. Moving the liquidity
+          family, the amount family and the mainnet balances did not once bring the
+          production stack near the champions.
+        </p>
+        <p>
+          The margins do shrink as the generator flattens away from the fitted
+          world — hb1's lead over lnd falls from +0.298 on
+          <span class="mono">bimodal:0.01</span> to +0.210 on uniform — and read on
+          its own that shrinkage looks exactly like the overfitting signature the
+          experiment was hunting. The control that kills that reading is the seed.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:1.5em">
+        <table class="data">
+          <caption>exp-017 &middot; margin over lnd along the liquidity ladder, sharpest world on the left, flattest on the right. The seed row is the load-bearing one: it was hand-written before any evolution ran and fits nothing.</caption>
+          <thead>
+            <tr>
+              <th>margin vs lnd</th>
+              <th class="num">bimodal 0.01</th>
+              <th class="num">control</th>
+              <th class="num">bimodal 0.2</th>
+              <th class="num">beta 0.3 0.3</th>
+              <th class="num">beta 2 2</th>
+              <th class="num">uniform</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>hb1</td>
+              <td class="num" data-l="bimodal 0.01">0.298</td>
+              <td class="num" data-l="control">0.279</td>
+              <td class="num" data-l="bimodal 0.2">0.233</td>
+              <td class="num" data-l="beta 0.3 0.3">0.249</td>
+              <td class="num" data-l="beta 2 2">0.204</td>
+              <td class="num" data-l="uniform">0.210</td>
+            </tr>
+            <tr>
+              <td>mx_c3</td>
+              <td class="num" data-l="bimodal 0.01">0.289</td>
+              <td class="num" data-l="control">0.271</td>
+              <td class="num" data-l="bimodal 0.2">0.214</td>
+              <td class="num" data-l="beta 0.3 0.3">0.241</td>
+              <td class="num" data-l="beta 2 2">0.176</td>
+              <td class="num" data-l="uniform">0.186</td>
+            </tr>
+            <tr>
+              <td><b>seed</b><span class="sub">never fit to anything</span></td>
+              <td class="num" data-l="bimodal 0.01"><b>0.229</b></td>
+              <td class="num" data-l="control"><b>0.205</b></td>
+              <td class="num" data-l="bimodal 0.2"><b>0.154</b></td>
+              <td class="num" data-l="beta 0.3 0.3"><b>0.194</b></td>
+              <td class="num" data-l="beta 2 2"><b>0.162</b></td>
+              <td class="num" data-l="uniform"><b>0.147</b></td>
+            </tr>
+            <tr>
+              <td>atomic1<span class="sub">the one router that moves the other way</span></td>
+              <td class="num" data-l="bimodal 0.01">0.123</td>
+              <td class="num" data-l="control">0.183</td>
+              <td class="num" data-l="bimodal 0.2">0.195</td>
+              <td class="num" data-l="beta 0.3 0.3">0.283</td>
+              <td class="num" data-l="beta 2 2">0.274</td>
+              <td class="num" data-l="uniform">0.257</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <p style="margin-top:1.6em">
+          The seed's margin decays with the same shape and by a similar fraction as
+          the champions', and the seed predates every constant under suspicion. The
+          common cause is visible in lnd's own column of the table above: it climbs
+          from 0.143 to 0.369 as liquidity flattens, so <em>everyone</em> compresses
+          toward a ceiling on the easy worlds. If the champions' compression came
+          from fitted priors, the unfitted seed would hold its margin. It does not.
+          <strong>The compression is regime difficulty, not memorised
+          constants.</strong>
+        </p>
+
+        <h3>atomic1 is a flat-liquidity specialist, and the ladder proves it</h3>
+        <p>
+          The one genuine reordering tracks the generator exactly. atomic1's rank
+          across the liquidity ladder runs 4 → 4 → 3 → 1 → 1 → 1 — monotone in
+          rank, its margin over lnd rising from +0.123 to a peak of +0.283 at
+          beta:0.3:0.3 and holding near it on the flattest worlds — and
+          it takes first place on three of the four mainnet families. On
+          <span class="mono">beta:2:2</span> that is unambiguous quality rather than
+          abandonment: the highest success of any router, 0.722, at the fewest
+          attempts, 3.6. The mirror image is equally real. On
+          <span class="mono">bimodal:0.01</span> it is worse on both axes at once —
+          0.36 success against hb1's 0.55 — which is the abandonment signature
+          <a class="link" href="#timeline">exp-013</a> taught us to read.
+        </p>
+        <p>
+          So the three evolved routers now have legible regimes: hb1 owns sharply
+          bimodal liquidity, atomic1 owns flat liquidity, and mx_c3 sits between
+          them without owning either. Which is a problem for a title.
+        </p>
+
+        <div class="note">
+          <h4>the “generalist champion” title is eroding</h4>
+          <p>
+            mx_c3 &minus; hb1 is at or below zero on <strong>12 of 13 tiers</strong>.
+            The effects are tiny — never beyond |0.028| — but one clears both bars:
+            <span class="mono">liq-uniform</span> at &minus;0.025, CI
+            [&minus;0.064, &minus;0.003], sign test 0 of 9, p = .004. And the tier
+            family that anchored the title gives it no shelter: on all four mainnet
+            families the pair ties to within 0.001, and on four of the six ladder
+            tiers the two post <em>identical</em> success and differ only in
+            attempts, with mx_c3 spending 0.7 to 3.6 more per payment.
+          </p>
+          <p>
+            Stacked on exp-015's fresh-corpus result — hb1 +0.009 at p = .014 over
+            forty files — the evidence points one way: hb1 is at least mx_c3's equal
+            everywhere we have looked recently, and better wherever they differ.
+            This is still <strong>not a champion swap</strong>. The standing rule
+            requires a held-out paired sweep over the full original tier set, and
+            the OOD and splitting tiers the title was actually earned on were not in
+            this sweep. The adjudicating experiment is now cheap and well defined,
+            and it should run before the record carries the “generalist” framing any
+            further. Champions of record are unchanged: hb1 and mx_c3.
+          </p>
+        </div>
+
+        <h3>The amount axis was never a threat</h3>
+        <p>
+          Holding liquidity at the control and moving only the amount distribution
+          barely touches the champions. hb1's lead over lnd is +0.210 on lognormal
+          amounts — 10 of 10 files, p = .002, the strongest single result in the
+          sweep — and +0.165 on round-value clustering. The sibling circularity is
+          real in principle and empty in practice: the champions' edge does not
+          depend on how we draw the amounts.
+        </p>
+
+        <div class="sidenote">
+          <h4><span class="mono">give_up_rate</span> does not mean what its name says</h4>
+          <p>
+            For all four candidate routers,
+            <span class="mono">give_up_rate == 1 &minus; success_rate</span> holds to
+            three decimals on every tier. A candidate “gives up” whenever it returns
+            failure without exhausting its attempt budget, and that is simply how
+            candidates always fail; only lnd, which burns the budget, deviates. The
+            field is a router-style fingerprint rather than an abandonment signal,
+            and the warning recently wired into the evaluator on top of it fired on
+            everything. Abandonment stays readable only jointly — low attempts
+            <em>and</em> low success, as on
+            <span class="mono">bimodal:0.01</span> above — and the evaluator hint now
+            states that rule unconditionally instead of thresholding on the field.
+          </p>
+        </div>
+
+        <div class="sidenote">
+          <h4>the one tier that is not evidence yet</h4>
+          <p>
+            <span class="mono">liq-hubdrain_0.05</span> is underpowered and
+            internally inconsistent at ten files. Every router collapses on it, hb1
+            beats lnd by only +0.091, hb1 wins 9 of 10 files at p = .021, and one
+            file still drags the interval across zero. The first world whose
+            liquidity is correlated with topology rather than drawn blind deserves
+            its own experiment rather than a verdict from this one. Two other
+            checks did pass: no tier is degenerate — no file has all five routers
+            producing identical output, so the exp-012 multivantage trap did not
+            recur — and fee spread is negligible everywhere, so these objective
+            differences are entirely success and attempts.
+          </p>
+        </div>
+
+        <div class="note">
+          <h4>what this closes, and what it leaves open</h4>
+          <p>
+            The claim that can now be made: <strong>the champion ordering, and most
+            of the margin, survive liquidity and amount distributions the evolved
+            constants were never fit to</strong> — including two where the bimodal
+            hypothesis embedded in those constants is false. The paradigm, per-channel
+            amount bounds learned from attempt evidence, is what wins; the constants'
+            contribution is the residual atomic1's ladder exposes at the regime edges.
+          </p>
+          <p>
+            What stays authored is every world in this sweep, re-liquified mainnet
+            included. They are still distributions we chose. The generator-family
+            question is closed; the full escape from “simulator-shaped” is unchanged
+            and now moves up the queue — degraded attribution, and offline replay
+            against a real node's attempt stream.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 12 · PROCESS ================= -->
+  <section id="process">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">12</div>
         <h2>What the process taught us</h2>
         <p class="sec-sub">
           Findings about running this kind of search, which cost as much to learn
@@ -2355,14 +2772,14 @@
     </div>
   </section>
 
-  <!-- ================= 11 · TIMELINE ================= -->
+  <!-- ================= 13 · TIMELINE ================= -->
   <section id="timeline">
     <div class="shell">
       <div class="sec-head">
-        <div class="sec-no">12</div>
+        <div class="sec-no">13</div>
         <h2>Timeline of experiments</h2>
         <p class="sec-sub">
-          Eighteen writeups, four days of wall-clock time, in numbered order. Full
+          Nineteen writeups, four days of wall-clock time, in numbered order. Full
           detail lives in
           <span class="mono">simulation/lab/experiments/</span>.
         </p>
@@ -2666,6 +3083,48 @@
             </div>
           </div>
           <div class="tl-tag">verdict · serve observations</div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-id">exp-017 · build</div>
+          <div class="tl-b">
+            <div class="t">The liquidity generator becomes a parameter</div>
+            <div class="d">
+              <span class="mono">AssignLiquidity</span> learns families —
+              bimodal at any scale, beta with polynomial rather than exponential
+              tails, and a hubdrain that points the depleted end at the
+              higher-degree node — with the legacy strings golden-tested
+              byte-identical so no earlier corpus moves. Two generators then emit
+              paired corpora: ten base scenarios written once, one directory per
+              family differing in a single field, and the exp-009 mainnet tier
+              re-liquified by one-line substitution under a parse-and-compare
+              assertion. The mainnet tier itself is checked into the repo for the
+              first time.
+            </div>
+          </div>
+          <div class="tl-tag">instrument</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-017</div>
+          <div class="tl-b">
+            <div class="t">The paradigm survives generators it was never fit to</div>
+            <div class="d">
+              Thirteen paired tiers &times; five routers = 650 runs, moving the
+              liquidity family, the amount family and the mainnet balances out from
+              under everyone. lnd finishes fifth of five on 13 of 13 and an evolved
+              router first on 13 of 13, with the mainnet control reproducing the
+              published exp-009 numbers to three decimals. Margins compress on the
+              flatter worlds, but the never-fitted seed compresses with the same
+              shape, so the compression is a difficulty ceiling and not memorised
+              constants. Two reorderings fall out: atomic1 is a flat-liquidity
+              specialist, rank 4 → 1 monotone along the ladder, and mx_c3 is at or
+              below hb1 on 12 of 13 tiers, which puts its “generalist” title into
+              adjudication. Champions unchanged
+              (<a class="link" href="#families">§11</a>).
+            </div>
+          </div>
+          <div class="tl-tag">verdict · de-circularised</div>
         </div>
       </div>
     </div>

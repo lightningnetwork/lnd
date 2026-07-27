@@ -75,7 +75,7 @@ const ROUTERS = [
   {
     id: "hb1",
     name: "hb1",
-    note: "evolved — hard-regime specialist",
+    note: "evolved — sharp-bimodal specialist",
     mainnet: 0.790, hard: 0.586, ood: 0.545, combined: 0.565,
     mainSuccess: 0.810, mainAttempts: 2.3,
     attempts: 9, lines: 872, evolved: true,
@@ -83,7 +83,7 @@ const ROUTERS = [
   {
     id: "mx_c3",
     name: "mx_c3",
-    note: "evolved — generalist, best overall",
+    note: "evolved — generalist (title in adjudication)",
     mainnet: 0.791, hard: 0.583, ood: 0.581, combined: 0.582,
     mainSuccess: 0.810, mainAttempts: 2.3,
     attempts: 9, lines: 1525, evolved: true,

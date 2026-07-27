@@ -83,7 +83,7 @@ const ROUTERS = [
   {
     id: "mx_c3",
     name: "mx_c3",
-    note: "evolved — generalist (title in adjudication)",
+    note: "evolved — generalist, title defended (exp-020)",
     mainnet: 0.791, hard: 0.583, ood: 0.581, combined: 0.582,
     mainSuccess: 0.810, mainAttempts: 2.3,
     attempts: 9, lines: 1525, evolved: true,

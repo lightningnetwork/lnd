@@ -353,12 +353,12 @@
                     <td class="num" data-l="out-of-distribution">0.487</td><td class="num" data-l="synthetic combined">0.509</td>
                   </tr>
                   <tr>
-                    <td>hb1 <span class="sub">sharp-bimodal specialist · ≥ mx_c3 on 12 of 13 family tiers</span></td>
+                    <td>hb1 <span class="sub">sharp-bimodal specialist · family-tier edges only (exp-020)</span></td>
                     <td class="num" data-l="mainnet">0.790</td><td class="num" data-l="hard sealed test">0.586</td>
                     <td class="num" data-l="out-of-distribution">0.545</td><td class="num" data-l="synthetic combined">0.565</td>
                   </tr>
                   <tr class="best">
-                    <td>mx_c3 <span class="sub">generalist — title eroding, see §11</span></td>
+                    <td>mx_c3 <span class="sub">generalist — title defended (exp-020)</span></td>
                     <td class="num" data-l="mainnet">0.791</td><td class="num" data-l="hard sealed test">0.583</td>
                     <td class="num" data-l="out-of-distribution">0.581</td><td class="num" data-l="synthetic combined">0.582</td>
                   </tr>
@@ -379,9 +379,11 @@
           a clear win out of distribution (0.581 against 0.545), for the best
           combined average of anything tested. A third frontier member, hb2, is
           strictly dominated by mx_c3 and has been retired.
-          (<a class="link" href="#families">§11</a> narrows this: across thirteen
-          generator-family tiers hb1 is at or above mx_c3 on 12 of 13, so the
-          “generalist” title is in adjudication rather than settled.)
+          (<a class="link" href="#families">§11</a> narrowed this, and the same-day
+          adjudication settled it: on the original tier set hb1 beats mx_c3
+          nowhere, while mx_c3 takes split-test unanimously (8/0, p=.008) —
+          the one tier where hb1 cannot even beat lnd. The title is defended;
+          hb1’s family-tier edges do not transfer (exp-020).)
         </p>
         <p>
           Three properties matter more to us than the margins:
@@ -2618,9 +2620,13 @@
             This is still <strong>not a champion swap</strong>. The standing rule
             requires a held-out paired sweep over the full original tier set, and
             the OOD and splitting tiers the title was actually earned on were not in
-            this sweep. The adjudicating experiment is now cheap and well defined,
-            and it should run before the record carries the “generalist” framing any
-            further. Champions of record are unchanged: hb1 and mx_c3.
+            this sweep. <em>Postscript, same day:</em> that sweep ran (exp-020) and
+            the title <strong>held</strong>. On the original set hb1 beats mx_c3
+            nowhere, while mx_c3 takes split-test unanimously — +0.062, 8 files of
+            8, p = .008 — the one tier where hb1 alone cannot beat lnd. The edges
+            this section measured are real but family-specific: they do not
+            transfer. Champions of record are unchanged: hb1 and mx_c3, with mx_c3
+            the generalist of record.
           </p>
         </div>
 
@@ -2779,7 +2785,7 @@
         <div class="sec-no">13</div>
         <h2>Timeline of experiments</h2>
         <p class="sec-sub">
-          Nineteen writeups, four days of wall-clock time, in numbered order. Full
+          Twenty writeups, four days of wall-clock time, in numbered order. Full
           detail lives in
           <span class="mono">simulation/lab/experiments/</span>.
         </p>
@@ -3119,12 +3125,35 @@
               shape, so the compression is a difficulty ceiling and not memorised
               constants. Two reorderings fall out: atomic1 is a flat-liquidity
               specialist, rank 4 → 1 monotone along the ladder, and mx_c3 is at or
-              below hb1 on 12 of 13 tiers, which puts its “generalist” title into
-              adjudication. Champions unchanged
+              below hb1 on 12 of 13 tiers, which put its “generalist” title into
+              adjudication — resolved the same day by exp-020 in mx_c3's favour.
+              Champions unchanged
               (<a class="link" href="#families">§11</a>).
             </div>
           </div>
           <div class="tl-tag">verdict · de-circularised</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-020</div>
+          <div class="tl-b">
+            <div class="t">The championship adjudication: mx_c3 defends</div>
+            <div class="d">
+              The original tier set, the exp-017 binaries, paired per file, with
+              the mainnet, hard and OOD gates reproducing the published numbers to
+              three decimals. hb1 significantly beats mx_c3 nowhere; mx_c3 beats
+              hb1 on split-test alone, unanimously — +0.062, 8 of 8, p = .008 —
+              the one tier where hb1 cannot even beat lnd. Two significant hb1
+              signals (exp-015, exp-017) turn out to be family-specific and do not
+              transfer: the champion rule is the only reason the record said
+              &ldquo;in adjudication&rdquo; yesterday instead of something now
+              known to be wrong. The sweep&rsquo;s corpus archaeology also found
+              the sealed hard tier silently overwritten in scratch and the
+              hard/OOD tiers unregenerable from any committed generator — both
+              are now checked into the repo verbatim.
+            </div>
+          </div>
+          <div class="tl-tag">verdict · title defended</div>
         </div>
       </div>
     </div>

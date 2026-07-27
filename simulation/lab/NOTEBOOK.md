@@ -873,3 +873,41 @@ band is NOT a gepa artifact — the alternatives cannot reach the
 starting line. Whether it is a true problem ceiling stays open; the
 testing arm (meta_harness at ~10x evals) is specified and costed at
 about $2 and 19 proposer-minutes per swing.
+
+
+## 2026-07-28 — exp-021: one fix lands, one theory dies
+
+The distillation patch closed same-day. Full writeup in
+exp-021-distillation-patch.md; the two headlines:
+
+**soft_unknown is the program's first constructive upstream
+deliverable.** Replacing processPaymentOutcomeUnknown's whole-route
+both-directions nuke with a single-pair minimum-probability penalty
+recovers 86-148% of exp-019's objective collapse on the hard and
+drift ladders, with success up and give-ups down on every non-tied
+file, and provably exact-identical behavior on clean controls.
+Patched lnd under degradation is statistically indistinguishable
+from its own clean run. Cost stated plainly: it buys success with
+attempts (+18-29/payment, invisible under the objective's cap), and
+mainnet is inert. It takes back about half the champions'
+degraded-tier margin and erases atomic1's at unk .3.
+
+**adaptive_split is a genuine null, and the null is the finding.**
+Three designs (supremum search, geometric backoff, expected-value
+ladder over the discarded pathfinder probability) each reduced by
+their own trace arithmetic to geometric descent from the bound —
+which lnd's blind halving already runs at the fastest ratio of any
+variant, for free. The one flattering interim number was pure
+abandonment and was retracted the moment the fallback closed that
+channel. With exp-002b this kills both halves of the original
+distillation theory: neither a better belief nor a bound-reactive
+control flow moves lnd, alone or married. The champions' edge lives
+at plan time — success-side memory and joint route-set construction
+— and that is now a measured architectural price tag, not a
+suspicion.
+
+The three-revision arc itself is worth the notebook line: each
+design was killed by its own smoke trace before any sweep spent real
+compute, and the one wrong headline ("the marriage works") lived for
+exactly one revision cycle before its author retracted it. The gate
+is doing its job.

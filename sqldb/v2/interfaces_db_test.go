@@ -11,18 +11,24 @@ import (
 // TestBeginTxIsolationLevel asserts that the isolation level that the database
 // itself reports for a transaction opened through BeginTx matches what we
 // expect. On Postgres, read-only transactions run at repeatable read while
-// read-write transactions remain serializable. We also assert the read-only
-// flag that Postgres reports, so that dropping it from the tx options would be
-// caught here as well.
+// read-write transactions remain serializable unless the opt-in knob moves
+// them to repeatable read as well. We also assert the read-only flag that
+// Postgres reports, so that dropping it from the tx options would be caught
+// here as well.
 func TestBeginTxIsolationLevel(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
 	db := NewTestDB(t, nil).GetBaseDB()
 
+	// The knob defaults to off, which is what the first two cases below
+	// assert.
+	require.False(t, db.WriteTxRepeatableRead)
+
 	tests := []struct {
 		name         string
 		opts         TxOptions
+		rrWrites     bool
 		expected     string
 		expectedFlag string
 	}{
@@ -38,10 +44,30 @@ func TestBeginTxIsolationLevel(t *testing.T) {
 			expected:     "serializable",
 			expectedFlag: "off",
 		},
+		{
+			name:         "read-only, rr writes",
+			opts:         ReadTxOpt(),
+			rrWrites:     true,
+			expected:     "repeatable read",
+			expectedFlag: "on",
+		},
+		{
+			name:         "read-write, rr writes",
+			opts:         WriteTxOpt(),
+			rrWrites:     true,
+			expected:     "repeatable read",
+			expectedFlag: "off",
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			// Nothing else reads this field while a transaction is
+			// being opened, and these sub tests are not run in
+			// parallel, so it's safe to flip the knob in place
+			// rather than to bring up a second database.
+			db.WriteTxRepeatableRead = test.rrWrites
+
 			tx, err := db.BeginTx(ctx, test.opts)
 
 			// SQLite has no notion of a transaction isolation

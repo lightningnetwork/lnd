@@ -48,8 +48,9 @@ func TestTransactionExecutorBackend(t *testing.T) {
 }
 
 // TestTxIsolationLevel tests that the isolation level of a transaction is only
-// relaxed for read-only transactions on Postgres. Every other combination must
-// remain fully serializable.
+// relaxed for read-only transactions on Postgres, and for read-write
+// transactions on Postgres once the opt-in knob is set. Every other combination
+// must remain fully serializable.
 func TestTxIsolationLevel(t *testing.T) {
 	t.Parallel()
 
@@ -57,6 +58,7 @@ func TestTxIsolationLevel(t *testing.T) {
 		name     string
 		backend  BackendType
 		readOnly bool
+		rrWrites bool
 		expected sql.IsolationLevel
 	}{
 		{
@@ -72,6 +74,20 @@ func TestTxIsolationLevel(t *testing.T) {
 			expected: sql.LevelSerializable,
 		},
 		{
+			name:     "postgres read-only, rr writes",
+			backend:  BackendTypePostgres,
+			readOnly: true,
+			rrWrites: true,
+			expected: sql.LevelRepeatableRead,
+		},
+		{
+			name:     "postgres read-write, rr writes",
+			backend:  BackendTypePostgres,
+			readOnly: false,
+			rrWrites: true,
+			expected: sql.LevelRepeatableRead,
+		},
+		{
 			name:     "sqlite read-only",
 			backend:  BackendTypeSqlite,
 			readOnly: true,
@@ -84,9 +100,23 @@ func TestTxIsolationLevel(t *testing.T) {
 			expected: sql.LevelSerializable,
 		},
 		{
+			name:     "sqlite read-write, rr writes",
+			backend:  BackendTypeSqlite,
+			readOnly: false,
+			rrWrites: true,
+			expected: sql.LevelSerializable,
+		},
+		{
 			name:     "unknown read-only",
 			backend:  BackendTypeUnknown,
 			readOnly: true,
+			expected: sql.LevelSerializable,
+		},
+		{
+			name:     "unknown read-write, rr writes",
+			backend:  BackendTypeUnknown,
+			readOnly: false,
+			rrWrites: true,
 			expected: sql.LevelSerializable,
 		},
 	}
@@ -96,8 +126,10 @@ func TestTxIsolationLevel(t *testing.T) {
 			t.Parallel()
 
 			require.Equal(
-				t, test.expected,
-				txIsolationLevel(test.backend, test.readOnly),
+				t, test.expected, txIsolationLevel(
+					test.backend, test.readOnly,
+					test.rrWrites,
+				),
 			)
 		})
 	}

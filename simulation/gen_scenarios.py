@@ -180,6 +180,11 @@ def gen_split_example(rng: random.Random, leads: int = 1,
             "payments_per_gap": 8,
             "min_amt_msat": 1_000,
             "max_amt_msat": max(2_000, int(tiers[-1]) // 2),
+            # A third of the churn crosses the corridors under test.
+            # Traffic spread evenly over the graph moves liquidity
+            # almost everywhere except the handful of channels a scored
+            # payment actually uses.
+            "focus_fraction": 0.33,
             "seed": rng.randrange(1, 2**31),
         }
 
@@ -232,6 +237,7 @@ def gen_example(rng: random.Random, drift: bool = False) -> dict:
             "payments_per_gap": max(10, num_nodes // 10),
             "min_amt_msat": max(1_000, cap_msat // 1_000),
             "max_amt_msat": cap_msat // 2,
+            "focus_fraction": 0.33,
             "seed": rng.randrange(1, 2**31),
         }
 

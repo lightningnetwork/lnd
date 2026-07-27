@@ -189,6 +189,17 @@ type SimScenarioResult struct {
 
 	// Error records a terminal payment error, e.g. no path found.
 	Error string `json:"error,omitempty"`
+
+	// GaveUp records that the router ABANDONED this payment — it returned
+	// an error from RequestRoute rather than exhausting the attempt cap.
+	//
+	// This is scored nowhere, and it exists because exp-013 found a
+	// candidate that improved its attempt count by quitting on payments
+	// it could have completed. The composite objective cannot tell that
+	// apart from genuine efficiency: both show up as fewer attempts.
+	// Reporting abandonment separately makes the difference visible
+	// without changing what the optimizer maximizes.
+	GaveUp bool `json:"gave_up,omitempty"`
 }
 
 // SimClockParams configures the virtual clock. Without one the simulation
@@ -361,6 +372,19 @@ func (r *SimRunner) SetBackgroundTraffic(params *SimTrafficParams) error {
 	r.traffic = traffic
 
 	return nil
+}
+
+// SetTrafficFocus aims a FocusFraction share of the background traffic at the
+// given nodes, which callers fill with the scenario source and targets. Churn
+// spread uniformly over a 12,000 node graph almost never touches the handful
+// of corridors a scored payment uses, so without this the traffic knob moves
+// the network everywhere except where it is being measured.
+func (r *SimRunner) SetTrafficFocus(nodes []route.Vertex) {
+	if r.traffic == nil {
+		return
+	}
+
+	r.traffic.SetFocus(nodes)
 }
 
 // TrafficStats reports how many background payments were sent and settled.
@@ -593,6 +617,7 @@ func (r *SimRunner) RunScenarioFrom(source route.Vertex,
 		rt, err := router.RequestRoute(amtRemaining, inFlightHtlcs)
 		if err != nil {
 			result.Error = err.Error()
+			result.GaveUp = true
 			break
 		}
 

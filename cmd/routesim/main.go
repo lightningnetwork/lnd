@@ -11,6 +11,7 @@ import (
 	"os"
 
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // scenarioFile is the top-level input: one graph, one liquidity assignment,
@@ -101,10 +102,23 @@ type aggregate struct {
 	FeePPMOnSuccess float64 `json:"fee_ppm_on_success"`
 	AmtSuccessMsat  uint64  `json:"amt_success_msat"`
 
+	// NumGiveUps counts the scored payments the router ABANDONED, i.e.
+	// terminated itself rather than running out of attempts. Nothing
+	// scores it; it is here so that a candidate cannot buy a low attempt
+	// count by quitting on payments it could have completed, which is
+	// exactly what exp-013's winner did and what the composite objective
+	// could not distinguish from efficiency.
+	NumGiveUps int     `json:"num_give_ups"`
+	GiveUpRate float64 `json:"give_up_rate"`
+
 	// BgPaymentsSent and BgPaymentsSettled report the background traffic
-	// volume when the traffic model is enabled.
-	BgPaymentsSent    int `json:"bg_payments_sent,omitempty"`
-	BgPaymentsSettled int `json:"bg_payments_settled,omitempty"`
+	// volume when the traffic model is enabled. BgSettleRate is the ratio
+	// worth watching: a failed background payment moves no liquidity, so
+	// the settle rate is the factor between the churn a scenario file
+	// asks for and the churn it gets.
+	BgPaymentsSent    int     `json:"bg_payments_sent,omitempty"`
+	BgPaymentsSettled int     `json:"bg_payments_settled,omitempty"`
+	BgSettleRate      float64 `json:"bg_settle_rate,omitempty"`
 
 	// WarmupScenarios and WarmupAttempts report what the unscored warmup
 	// phase cost. They are kept out of every metric above so that a warmed
@@ -228,6 +242,33 @@ func main() {
 		if err != nil {
 			fatalf("unable to enable traffic: %v", err)
 		}
+
+		// Point the focused share of the churn at this run's own
+		// corridors: the source every payment leaves from, and every
+		// target they head for, scored and warmup alike. Unresolvable
+		// references are skipped rather than fatal, since a scenario
+		// file may name a node the graph does not carry.
+		focus := []route.Vertex{source}
+		targets := make([]string, 0, len(scenFile.Scenarios))
+		for i := range scenFile.Scenarios {
+			targets = append(targets, scenFile.Scenarios[i].Target)
+		}
+		if scenFile.Warmup != nil {
+			for i := range scenFile.Warmup.Scenarios {
+				targets = append(
+					targets,
+					scenFile.Warmup.Scenarios[i].Target,
+				)
+			}
+		}
+		for _, ref := range targets {
+			v, err := graph.ResolveNode(ref)
+			if err != nil {
+				continue
+			}
+			focus = append(focus, v)
+		}
+		runner.SetTrafficFocus(focus)
 	}
 
 	switch *router {
@@ -333,6 +374,8 @@ func runBatch(runner *routing.SimRunner, scenFile *scenarioFile,
 			out.Aggregate.NumSuccesses++
 			out.Aggregate.TotalFeeMsat += result.FeeMsat
 			out.Aggregate.AmtSuccessMsat += scenario.AmtMsat
+		} else if result.GaveUp {
+			out.Aggregate.NumGiveUps++
 		}
 
 		if !traces {
@@ -348,6 +391,12 @@ func runBatch(runner *routing.SimRunner, scenFile *scenarioFile,
 			float64(agg.NumScenarios)
 		agg.AttemptsPerScen = float64(agg.TotalAttempts) /
 			float64(agg.NumScenarios)
+		agg.GiveUpRate = float64(agg.NumGiveUps) /
+			float64(agg.NumScenarios)
+	}
+	if agg.BgPaymentsSent > 0 {
+		agg.BgSettleRate = float64(agg.BgPaymentsSettled) /
+			float64(agg.BgPaymentsSent)
 	}
 	if agg.AmtSuccessMsat > 0 {
 		agg.FeePPMOnSuccess = 1e6 * float64(agg.TotalFeeMsat) /

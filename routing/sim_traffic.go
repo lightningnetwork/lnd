@@ -35,17 +35,40 @@ type SimTrafficParams struct {
 	// tries before giving up on a payment. Defaults to 3.
 	RouteAttempts int `json:"route_attempts"`
 
+	// FocusFraction is the share of background payments that use a node
+	// from the focus set (the scenario's own source and targets) as one
+	// endpoint, so that a configurable part of the exogenous process
+	// crosses the corridors under test rather than churning liquidity in
+	// parts of the graph no scored payment ever visits. Zero, the
+	// default, draws both endpoints uniformly.
+	FocusFraction float64 `json:"focus_fraction"`
+
 	// Seed makes the traffic sequence reproducible. The pair and amount
 	// choices depend only on the seed, so two runs against the same
 	// scenario file face the same exogenous process.
 	Seed int64 `json:"seed"`
 }
 
+// trafficMinShrinkFactor bounds how far a background sender will scale an
+// amount down looking for a corridor that can carry it. Each retry halves,
+// so this is reached after a few attempts.
+const trafficMinShrinkFactor = 0.05
+
 // simTraffic executes background payments directly against the hidden
-// balances of a SimGraph. Background senders behave like naive fee-optimizing
-// nodes: they route along the cheapest path the public gossip view allows and
-// have no knowledge of hidden liquidity, so some of their payments fail, and
-// only the settled ones move balances.
+// balances of a SimGraph.
+//
+// This is an ENVIRONMENT process, not a player, and it is written to move
+// liquidity at the configured rate rather than to model a realistic sender's
+// ignorance. That distinction was learned the hard way: the first version
+// routed on public knowledge alone and gave up after a few failures, so only
+// ~18% of its payments settled — and since a failed payment moves nothing,
+// the exogenous process ran about 5x weaker than every scenario file
+// requested. Experiments that turned the traffic knob (exp-008's drift
+// question, exp-010b's atomic arena) were therefore measuring a much calmer
+// network than they claimed to. Background senders here consult hidden
+// balances when choosing a corridor and scale the amount down until one
+// fits, which is the environment's privilege; what the CANDIDATE may see is
+// unchanged and still sealed.
 type simTraffic struct {
 	graph  *SimGraph
 	params SimTrafficParams
@@ -55,9 +78,36 @@ type simTraffic struct {
 	// selection is deterministic for a given seed.
 	nodes []route.Vertex
 
+	// cumDegree[i] is the running sum of channel counts over nodes[:i+1],
+	// used to draw endpoints in proportion to how well connected they
+	// are. Uniform draws are wrong on a real topology: the mainnet
+	// snapshot has a MEDIAN degree of 1 and 68% of its nodes hold two
+	// channels or fewer, so uniform sampling picks leaf-to-leaf pairs
+	// that frequently have no path between them at any amount. Weighting
+	// by degree puts the churn on the corridors that carry real traffic.
+	cumDegree []int
+	totDegree int
+
+	// focus holds the nodes the scenario payments themselves use. A
+	// FocusFraction share of background payments takes one endpoint from
+	// here so the churn lands where it can actually interfere.
+	focus []route.Vertex
+
 	// Sent and Settled count background payments for reporting.
 	Sent    int
 	Settled int
+}
+
+// SetFocus points a share of the background traffic at the given nodes, which
+// the runner fills with the scenario source and targets. Order is preserved
+// so the draw stays deterministic for a seed.
+func (t *simTraffic) SetFocus(nodes []route.Vertex) {
+	t.focus = t.focus[:0]
+	for _, v := range nodes {
+		if _, ok := t.graph.nodes[v]; ok {
+			t.focus = append(t.focus, v)
+		}
+	}
 }
 
 // newSimTraffic builds a traffic engine over the given graph.
@@ -87,12 +137,36 @@ func newSimTraffic(graph *SimGraph, params *SimTrafficParams) (*simTraffic,
 		return nil, fmt.Errorf("traffic needs at least two nodes")
 	}
 
+	cumDegree := make([]int, len(nodes))
+	total := 0
+	for i, v := range nodes {
+		total += len(graph.nodes[v].channels)
+		cumDegree[i] = total
+	}
+
 	return &simTraffic{
-		graph:  graph,
-		params: *params,
-		rng:    rand.New(rand.NewSource(params.Seed)),
-		nodes:  nodes,
+		graph:     graph,
+		params:    *params,
+		rng:       rand.New(rand.NewSource(params.Seed)),
+		nodes:     nodes,
+		cumDegree: cumDegree,
+		totDegree: total,
 	}, nil
+}
+
+// pickNode draws one node with probability proportional to its channel count.
+func (t *simTraffic) pickNode() route.Vertex {
+	if t.totDegree == 0 {
+		return t.nodes[t.rng.Intn(len(t.nodes))]
+	}
+
+	draw := t.rng.Intn(t.totDegree)
+	idx := sort.SearchInts(t.cumDegree, draw+1)
+	if idx >= len(t.nodes) {
+		idx = len(t.nodes) - 1
+	}
+
+	return t.nodes[idx]
 }
 
 // run executes one gap's worth of background payments.
@@ -109,10 +183,35 @@ func (t *simTraffic) runN(n int) {
 	}
 }
 
+// pickPair chooses the endpoints of one background payment. With probability
+// FocusFraction one of them is drawn from the focus set, so that share of the
+// churn crosses the corridors the scored payments use.
+func (t *simTraffic) pickPair() (route.Vertex, route.Vertex) {
+	sender := t.pickNode()
+	receiver := t.pickNode()
+
+	if len(t.focus) == 0 || t.rng.Float64() >= t.params.FocusFraction {
+		return sender, receiver
+	}
+
+	// Replace one endpoint, chosen by the same rng so the direction of
+	// the focused flow varies rather than always originating there.
+	pick := t.focus[t.rng.Intn(len(t.focus))]
+	if t.rng.Intn(2) == 0 {
+		return pick, receiver
+	}
+
+	return sender, pick
+}
+
 // sendOne attempts a single background payment between a random pair.
+//
+// The sender scales its amount down until it finds a corridor that can carry
+// it, which is what makes this process actually move liquidity: an amount
+// drawn blind from the configured range mostly exceeds what a bimodal channel
+// holds, and a payment that fails moves nothing at all.
 func (t *simTraffic) sendOne() {
-	sender := t.nodes[t.rng.Intn(len(t.nodes))]
-	receiver := t.nodes[t.rng.Intn(len(t.nodes))]
+	sender, receiver := t.pickPair()
 	if sender == receiver {
 		return
 	}
@@ -120,19 +219,38 @@ func (t *simTraffic) sendOne() {
 	// Draw the amount log-uniformly from the configured range.
 	logMin := math.Log(float64(t.params.MinAmtMsat))
 	logMax := math.Log(float64(t.params.MaxAmtMsat))
-	amt := lnwire.MilliSatoshi(math.Exp(
+	desired := lnwire.MilliSatoshi(math.Exp(
 		logMin + t.rng.Float64()*(logMax-logMin),
 	))
 
 	t.Sent++
 
-	// A naive sender: cheapest path first, blacklist the failing edge
-	// and retry a couple of times, then give up.
+	floor := lnwire.MilliSatoshi(
+		float64(desired) * trafficMinShrinkFactor,
+	)
+	if floor < lnwire.MilliSatoshi(t.params.MinAmtMsat) {
+		floor = lnwire.MilliSatoshi(t.params.MinAmtMsat)
+	}
+
+	amt := desired
 	blacklist := make(map[trafficEdgeKey]struct{})
 	for attempt := 0; attempt < t.params.RouteAttempts; attempt++ {
 		rt := t.findRoute(sender, receiver, amt, blacklist)
 		if rt == nil {
-			return
+			// No corridor carries this much. Halve and look
+			// again rather than abandoning the payment, the way
+			// a real sender would fall back to a smaller
+			// transfer or a split.
+			if amt <= floor {
+				return
+			}
+
+			amt /= 2
+			if amt < floor {
+				amt = floor
+			}
+
+			continue
 		}
 
 		result, err := t.graph.SendHtlc(rt)
@@ -145,8 +263,11 @@ func (t *simTraffic) sendOne() {
 			return
 		}
 
-		// Blacklist the directed edge that failed so the retry
-		// explores a different corridor.
+		// The route was liquidity-checked when it was found, so a
+		// failure here means something moved underneath it: an
+		// in-flight hold from the scenario payment, or an earlier
+		// background payment in this same gap. Blacklist the edge
+		// that failed and let the next attempt route around it.
 		idx := getNodeIndexSim(rt, result.FailureSource)
 		if idx == nil || *idx >= len(rt.Hops) {
 			return
@@ -255,9 +376,10 @@ func (t *simTraffic) findRoute(sender, receiver route.Vertex,
 				continue
 			}
 
-			policy := &channel.end(u).policy
+			sendingEnd := channel.end(u)
+			policy := &sendingEnd.policy
 			if !trafficEdgeUsable(
-				policy, channel, state.amtIn,
+				sendingEnd, channel, state.amtIn,
 			) {
 				continue
 			}
@@ -287,11 +409,18 @@ func (t *simTraffic) findRoute(sender, receiver route.Vertex,
 	return t.buildRoute(sender, receiver, amt, states)
 }
 
-// trafficEdgeUsable applies the public policy and capacity filters for
-// forwarding the given amount.
-func trafficEdgeUsable(policy *SimPolicy, channel *SimChannel,
+// trafficEdgeUsable applies the policy and capacity filters for forwarding
+// the given amount, and then the hidden liquidity check.
+//
+// Consulting the hidden balance is the environment's privilege and the whole
+// reason this process moves the liquidity it is configured to move: routing
+// on capacity alone picks corridors that a bimodal balance distribution
+// cannot fund, and the resulting failure moves nothing. Candidates still see
+// only the sealed gossip view.
+func trafficEdgeUsable(end *simChannelEnd, channel *SimChannel,
 	amt lnwire.MilliSatoshi) bool {
 
+	policy := &end.policy
 	if policy.Disabled {
 		return false
 	}
@@ -303,8 +432,11 @@ func trafficEdgeUsable(policy *SimPolicy, channel *SimChannel,
 	}
 
 	capMsat := lnwire.NewMSatFromSatoshis(channel.Capacity)
+	if amt > capMsat {
+		return false
+	}
 
-	return amt <= capMsat
+	return end.available() >= amt
 }
 
 // buildRoute walks the next pointers from sender to receiver and assembles a

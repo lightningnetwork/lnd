@@ -237,6 +237,24 @@ type SimRunner struct {
 	// payment. Defaults to the lnd production stack.
 	routerFactory SimRouterFactory
 
+	// observations is everything every attempt has revealed about the
+	// directed edges it crossed, in order. It is the server side of the
+	// weight-serving proposal: what a node that has been paying could
+	// hand to a node that has not.
+	observations []SimObservation
+
+	// customRouter records that a candidate strategy replaced the lnd
+	// stack. It matters for imports: the lnd stack consumes served
+	// observations through mission control rather than through the
+	// router interface, so "can this run use imports" is not the same
+	// question as "does the router implement the importer".
+	customRouter bool
+
+	// pendingImport holds third-party observations waiting to reach a
+	// router that can take them, cleared once delivered so that the
+	// evidence is counted once rather than once per payment.
+	pendingImport []SimObservation
+
 	// clk is the time source routers observe. It is the wall clock
 	// unless a virtual clock is configured.
 	clk clock.Clock
@@ -339,6 +357,7 @@ func NewSimRunner(graph *SimGraph, params *SimParams, source route.Vertex,
 // SetRouterFactory replaces the routing strategy under test.
 func (r *SimRunner) SetRouterFactory(factory SimRouterFactory) {
 	r.routerFactory = factory
+	r.customRouter = true
 }
 
 // SetVirtualClock switches the runner (and the mission control stack behind
@@ -581,6 +600,13 @@ func (r *SimRunner) RunScenarioFrom(source route.Vertex,
 		return nil, err
 	}
 
+	// Hand over any served knowledge before the router plans anything,
+	// so that imported beliefs are available to the very first route
+	// request rather than arriving after the payment has committed.
+	if err := r.deliverPendingImport(router); err != nil {
+		return nil, err
+	}
+
 	var (
 		nextAttemptID uint64
 		amtRemaining  = spec.Amount
@@ -653,6 +679,13 @@ func (r *SimRunner) RunScenarioFrom(source route.Vertex,
 		result.Attempts = append(
 			result.Attempts, traceAttempt(rt, htlcResult),
 		)
+
+		// Record what this attempt revealed about the edges it
+		// crossed, which is the raw material a weight-serving node
+		// would have to offer.
+		r.observations = append(r.observations, observationsFromAttempt(
+			rt, htlcResult, r.clk.Now(),
+		)...)
 
 		// Let the router learn from the outcome. The feedback is the
 		// same either way: what atomic mpp changes is the price of a

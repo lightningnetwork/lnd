@@ -111,6 +111,16 @@ type aggregate struct {
 	NumGiveUps int     `json:"num_give_ups"`
 	GiveUpRate float64 `json:"give_up_rate"`
 
+	// Import* report what a served-weights injection actually delivered.
+	// ImportRouterAccepts is the one that prevents a silent null: a
+	// candidate that does not implement the optional importer half of
+	// the contract receives nothing, and "imports did not help" has to
+	// be distinguishable from "imports were never delivered".
+	ImportOffered       int  `json:"import_offered,omitempty"`
+	ImportAccepted      int  `json:"import_accepted,omitempty"`
+	ImportDroppedLocal  int  `json:"import_dropped_local,omitempty"`
+	ImportRouterAccepts bool `json:"import_router_accepts,omitempty"`
+
 	// BgPaymentsSent and BgPaymentsSettled report the background traffic
 	// volume when the traffic model is enabled. BgSettleRate is the ratio
 	// worth watching: a failed background payment moves no liquidity, so
@@ -154,6 +164,22 @@ func main() {
 		router = flag.String("router", "lnd", "routing "+
 			"strategy: 'lnd' (production stack) or 'candidate' "+
 			"(the algorithm in candidate_impl.go)")
+		importWeights = flag.String("import-weights", "", "path to "+
+			"a served observation file to inject BEFORE any "+
+			"payment is sent. This is the only construction that "+
+			"separates the value of knowledge from the cost of "+
+			"acquiring it: a warmup phase buys its knowledge with "+
+			"payments that drain the corridors they teach about, "+
+			"while served weights arrive over an API for free")
+		importLocal = flag.Bool("import-local", false, "also import "+
+			"observations about the consumer's OWN channels. Off "+
+			"by default: exp-012 measured lnd's attempt count "+
+			"tripling when warmed from its own vantage, because "+
+			"every payment it sends crosses its own first hop and "+
+			"stale claims about those channels poison all of them")
+		exportWeights = flag.String("export-weights", "", "path to "+
+			"write everything this run observed, the server side "+
+			"of the same API")
 	)
 	flag.Parse()
 
@@ -279,9 +305,38 @@ func main() {
 		fatalf("unknown router %q", *router)
 	}
 
+	// Serve knowledge in before anything is spent acquiring it.
+	var importStats *routing.SimImportStats
+	if *importWeights != "" {
+		importStats, err = runner.ImportWeightsFile(
+			*importWeights, routing.SimImportPolicy{
+				ExcludeLocal: !*importLocal,
+			},
+		)
+		if err != nil {
+			fatalf("unable to import weights: %v", err)
+		}
+	}
+
 	out, err := runBatch(runner, &scenFile, *traces)
 	if err != nil {
 		fatalf("%v", err)
+	}
+
+	if importStats != nil {
+		out.Aggregate.ImportOffered = importStats.Offered
+		out.Aggregate.ImportAccepted = importStats.Accepted
+		out.Aggregate.ImportDroppedLocal = importStats.DroppedLocal
+		out.Aggregate.ImportRouterAccepts = importStats.RouterAccepts
+	}
+
+	if *exportWeights != "" {
+		err := routing.WriteObservations(
+			*exportWeights, runner.Observations(),
+		)
+		if err != nil {
+			fatalf("unable to export weights: %v", err)
+		}
 	}
 
 	encoded, err := json.MarshalIndent(out, "", "  ")

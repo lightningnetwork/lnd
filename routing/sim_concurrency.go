@@ -316,7 +316,7 @@ func newSimScheduler(r *SimRunner, source route.Vertex,
 // it the way the sequential batch always has.
 func (s *simScheduler) run() ([]*SimScenarioResult, int, error) {
 	if s.r.graph.Node(s.source) == nil {
-		return nil, 0, fmt.Errorf("source node %v not in graph",
+		return nil, -1, fmt.Errorf("source node %v not in graph",
 			s.source)
 	}
 

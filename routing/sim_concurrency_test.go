@@ -657,3 +657,37 @@ func TestSimSchedulerBalanceRefreshIsDelivered(t *testing.T) {
 		t, 3*shard-viaA.TotalAmount, built[0].refreshed[1][1],
 	)
 }
+
+// TestSimSchedulerErrorNamesTheScenario asserts that a fatal error names the
+// payment that produced it, and that an error which belongs to no payment does
+// not name one.
+func TestSimSchedulerErrorNamesTheScenario(t *testing.T) {
+	t.Parallel()
+
+	const shard = lnwire.MilliSatoshi(10_000)
+
+	graph, nodes := atomicTestGraph(t)
+	source, target := nodes[0], nodes[3]
+
+	rt := atomicTestRoute(t, graph, source, []uint64{1, 2}, shard)
+	factory, _ := scriptedFactory(t, [][]*route.Route{{rt}, {rt}})
+
+	runner := concurrencyRunner(t, graph, source, factory)
+
+	// The third payment names a node the graph does not carry.
+	good := SimScenario{
+		Target: target.String(), AmtMsat: uint64(shard), MaxParts: 1,
+	}
+	_, err := runner.RunBatch([]SimScenario{
+		good, good, {Target: "no-such-node", AmtMsat: uint64(shard)},
+	}, nil)
+	require.ErrorContains(t, err, "scenario 2 failed")
+
+	// A concurrency section this file cannot support belongs to no
+	// payment, so naming one would point the reader at the wrong thing.
+	_, err = runner.RunBatch(
+		[]SimScenario{good}, &SimConcurrencyParams{MaxInFlight: 2},
+	)
+	require.ErrorContains(t, err, "needs a clock section")
+	require.NotContains(t, err.Error(), "scenario")
+}

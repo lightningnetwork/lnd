@@ -778,7 +778,13 @@ func (r *SimRunner) RunBatch(scenarios []SimScenario,
 	params *SimConcurrencyParams) ([]*SimScenarioResult, error) {
 
 	results, idx, err := r.runBatch(r.source, scenarios, params)
-	if err != nil {
+	switch {
+	case err != nil && idx < 0:
+		// A batch that never started belongs to no scenario, so naming
+		// one would point the reader at the wrong thing.
+		return nil, err
+
+	case err != nil:
 		return nil, fmt.Errorf("scenario %d failed: %v", idx, err)
 	}
 
@@ -787,13 +793,14 @@ func (r *SimRunner) RunBatch(scenarios []SimScenario,
 
 // runBatch drives the scheduler and reports which scenario a fatal error came
 // from, so that the caller can name it the way the sequential batch always
-// has.
+// has. A negative index is a batch that never started, e.g. a concurrency
+// section this scenario file cannot support.
 func (r *SimRunner) runBatch(source route.Vertex, scenarios []SimScenario,
 	params *SimConcurrencyParams) ([]*SimScenarioResult, int, error) {
 
 	scheduler, err := newSimScheduler(r, source, scenarios, params)
 	if err != nil {
-		return nil, 0, err
+		return nil, -1, err
 	}
 
 	results, idx, err := scheduler.run()

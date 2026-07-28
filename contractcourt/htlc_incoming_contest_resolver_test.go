@@ -104,17 +104,57 @@ func TestHtlcIncomingResolverFwdContestedTimeout(t *testing.T) {
 	ctx.waitForResult(false)
 }
 
-// TestHtlcIncomingResolverFwdTimeout tests resolution of a forwarded htlc that
-// has already expired when the resolver starts.
-func TestHtlcIncomingResolverFwdTimeout(t *testing.T) {
+// TestHtlcIncomingResolverExpiryRechecksPreimage tests that timeout cannot
+// fail an HTLC whose preimage appeared after the prior Launch.
+func TestHtlcIncomingResolverExpiryRechecksPreimage(t *testing.T) {
 	t.Parallel()
 	defer timeout()()
 
-	ctx := newIncomingResolverTestContext(t, true)
+	ctx := newIncomingResolverTestContext(t, false)
+	require.NoError(t, ctx.resolver.Launch())
+	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
+
+	nextResolver, err := ctx.resolver.timeoutOrSuccessResolver(
+		testHtlcExpiry,
+	)
+	require.NoError(t, err)
+	require.Same(t, ctx.resolver.htlcSuccessResolver, nextResolver)
+	require.False(t, ctx.finalHtlcOutcomeStored)
+}
+
+// TestHtlcIncomingResolverNotifiesAfterCheckpoint tests that a checkpoint
+// failure does not emit a premature final HTLC notification.
+func TestHtlcIncomingResolverNotifiesAfterCheckpoint(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, false)
+	ctx.checkpointErr = io.ErrUnexpectedEOF
+
+	_, err := ctx.resolver.timeoutOrSuccessResolver(testHtlcExpiry)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.Empty(t, ctx.htlcNotifier.finalHtlcEvents)
+
+	nextResolver, err := ctx.resolver.timeoutOrSuccessResolver(
+		testHtlcExpiry + 1,
+	)
+	require.NoError(t, err)
+	require.Nil(t, nextResolver)
+	require.Len(t, ctx.htlcNotifier.finalHtlcEvents, 1)
+}
+
+// TestHtlcIncomingResolverFwdExpiredPreimageKnown tests resolution of an
+// expired forwarded HTLC whose preimage is already known when resolution
+// starts.
+func TestHtlcIncomingResolverFwdExpiredPreimageKnown(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, false)
 	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
 	ctx.resolver.htlcExpiry = 90
 	ctx.resolve()
-	ctx.waitForResult(false)
+	ctx.waitForResult(true)
 }
 
 // TestHtlcIncomingResolverExitSettle tests resolution of an exit hop htlc for
@@ -417,9 +457,11 @@ type incomingResolverTestContext struct {
 	resolver               *htlcIncomingContestResolver
 	notifier               *mock.ChainNotifier
 	onionProcessor         *mockOnionProcessor
+	htlcNotifier           *mockHTLCNotifier
 	resolveErr             chan error
 	nextResolver           ContractResolver
 	finalHtlcOutcomeStored bool
+	checkpointErr          error
 	t                      *testing.T
 }
 
@@ -435,6 +477,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 	}
 
 	onionProcessor := &mockOnionProcessor{isExit: isExit}
+	htlcNotifier := &mockHTLCNotifier{}
 
 	checkPointChan := make(chan struct{}, 1)
 
@@ -443,10 +486,9 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 		witnessBeacon:  witnessBeacon,
 		notifier:       notifier,
 		onionProcessor: onionProcessor,
+		htlcNotifier:   htlcNotifier,
 		t:              t,
 	}
-
-	htlcNotifier := &mockHTLCNotifier{}
 
 	chainCfg := ChannelArbitratorConfig{
 		ChainArbitratorConfig: ChainArbitratorConfig{
@@ -481,6 +523,13 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 		ChannelArbitratorConfig: chainCfg,
 		Checkpoint: func(_ ContractResolver,
 			_ ...*channeldb.ResolverReport) error {
+
+			if c.checkpointErr != nil {
+				err := c.checkpointErr
+				c.checkpointErr = nil
+
+				return err
+			}
 
 			checkPointChan <- struct{}{}
 			return nil

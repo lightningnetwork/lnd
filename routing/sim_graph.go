@@ -135,6 +135,112 @@ type SimGraph struct {
 	// nextHoldID hands out hold ids; zero is never used so that it can
 	// stand for "no hold".
 	nextHoldID uint64
+
+	// policyStats counts the htlcs the announced min and max htlc limits
+	// refused, over the whole life of the network.
+	policyStats SimPolicyStats
+}
+
+// SimPolicyStats counts the forwarding refusals that announced htlc limits
+// caused. It is the running half of stage A's manipulation check: a maximum
+// htlc violation comes back as a plain TemporaryChannelFailure, which is
+// exactly what a depleted channel returns, so without a counter a tier whose
+// ceilings bind constantly is indistinguishable in the output from one whose
+// ceilings never bind at all.
+type SimPolicyStats struct {
+	// MinHtlcRefusals is how many htlcs were refused for falling under an
+	// announced minimum.
+	MinHtlcRefusals int `json:"htlc_min_refusals,omitempty"`
+
+	// MaxHtlcRefusals is how many were refused for exceeding an announced
+	// maximum.
+	MaxHtlcRefusals int `json:"htlc_max_refusals,omitempty"`
+
+	// SourceRefusals is how many of the two above happened at the sender's
+	// own first hop, which can only occur while the source's announced
+	// policy is being enforced.
+	SourceRefusals int `json:"htlc_source_refusals,omitempty"`
+}
+
+// PolicyStats reports the htlc limit refusals the network has handed out.
+func (g *SimGraph) PolicyStats() SimPolicyStats {
+	return g.policyStats
+}
+
+// simLimitViolation says which announced htlc limit an amount falls foul of.
+type simLimitViolation uint8
+
+const (
+	// simLimitNone is an amount both limits accept.
+	simLimitNone simLimitViolation = iota
+
+	// simLimitBelowMin is an amount under the announced minimum.
+	simLimitBelowMin
+
+	// simLimitAboveMax is an amount over the announced maximum.
+	simLimitAboveMax
+)
+
+// checkHtlcLimits reports which of a policy's announced htlc limits the given
+// amount violates, if either. The order matters and matches checkPolicy's: an
+// amount that is somehow both under the floor and over the ceiling is reported
+// as under the floor, since that is the failure a real node would return.
+func checkHtlcLimits(policy *SimPolicy,
+	amt lnwire.MilliSatoshi) simLimitViolation {
+
+	if amt < policy.MinHTLCMsat {
+		return simLimitBelowMin
+	}
+
+	if policy.MaxHTLCMsat != 0 && amt > policy.MaxHTLCMsat {
+		return simLimitAboveMax
+	}
+
+	return simLimitNone
+}
+
+// limitFailure is the wire failure a node returns for an htlc limit
+// violation, and nil for an amount both limits accept. A floor violation says
+// what it is; a ceiling violation comes back as a plain temporary channel
+// failure, which is what lnd's own link returns for one and what a depleted
+// channel returns too. The sender cannot tell those two apart, which is
+// exactly why the refusals are counted.
+func limitFailure(violation simLimitViolation,
+	amt lnwire.MilliSatoshi) lnwire.FailureMessage {
+
+	var emptyUpdate lnwire.ChannelUpdate1
+
+	switch violation {
+	case simLimitBelowMin:
+		return lnwire.NewAmountBelowMinimum(amt, emptyUpdate)
+
+	case simLimitAboveMax:
+		return lnwire.NewTemporaryChannelFailure(nil)
+	}
+
+	return nil
+}
+
+// countLimitRefusal records one htlc that an announced limit turned away.
+// Anything that is not a limit violation is somebody else's failure and is
+// deliberately not counted here.
+func (g *SimGraph) countLimitRefusal(violation simLimitViolation,
+	atSource bool) {
+
+	switch violation {
+	case simLimitBelowMin:
+		g.policyStats.MinHtlcRefusals++
+
+	case simLimitAboveMax:
+		g.policyStats.MaxHtlcRefusals++
+
+	default:
+		return
+	}
+
+	if atSource {
+		g.policyStats.SourceRefusals++
+	}
 }
 
 // NewSimGraph instantiates an empty simulated network.
@@ -526,6 +632,9 @@ func (g *SimGraph) walkHtlc(rt *route.Route,
 				policy, amtIn, amtOut, expiryIn, expiryOut,
 			)
 			if failure != nil {
+				g.countLimitRefusal(
+					checkHtlcLimits(policy, amtOut), false,
+				)
 				revert()
 				return SimHtlcResult{
 					FailureSource: prevNode,
@@ -582,12 +691,11 @@ func checkPolicy(policy *SimPolicy, amtIn, amtOut lnwire.MilliSatoshi,
 		return lnwire.NewChannelDisabled(0, emptyUpdate)
 	}
 
-	if amtOut < policy.MinHTLCMsat {
-		return lnwire.NewAmountBelowMinimum(amtOut, emptyUpdate)
-	}
+	if failure := limitFailure(
+		checkHtlcLimits(policy, amtOut), amtOut,
+	); failure != nil {
 
-	if policy.MaxHTLCMsat != 0 && amtOut > policy.MaxHTLCMsat {
-		return lnwire.NewTemporaryChannelFailure(nil)
+		return failure
 	}
 
 	if amtIn < amtOut+policy.fee(amtOut) {

@@ -29,6 +29,13 @@ max htlc of every directed policy from the mainnet marginals, which the
 generated tiers have carried as constants for the whole program, and switches
 the simulator onto uniform first-hop enforcement. Like --attribution it stamps
 a section and makes no rng draw.
+
+--inbound-fees is the exp-023 stage B knob: it gives every directed policy the
+inbound fee real ones may announce, drawn from the mainnet marginals, and
+switches on the pricing that charges it. Generated tiers have never announced
+one anywhere, and lnd's own inbound fee machinery has been running against a
+hardcoded zero for the whole program. Like --attribution it stamps a section
+and makes no rng draw.
 """
 
 import argparse
@@ -281,6 +288,79 @@ def parse_htlc_limits(spec: str) -> dict:
             not section.get("min_htlc_family"):
         raise ValueError(
             "--htlc-limits names no family, so it would draw nothing"
+        )
+
+    return section
+
+
+# --- inbound fees (exp-023 stage B) -----------------------------------------
+
+# The families routing/sim_inbound_fees.go knows how to draw from.
+# mainnet_empirical samples the marginals measured over the 4,783 directed
+# policies of the mainnet snapshot that announce an inbound fee; heavy is the
+# authored stress rung and is labelled as authored wherever it is reported;
+# as_loaded draws nothing and prices whatever the network already announces,
+# which is the only sensible family for a describegraph tier.
+INBOUND_FEE_FAMILIES = ("mainnet_empirical", "heavy", "as_loaded")
+
+# The knobs of the inbound_fees section, keyed by their short spec name.
+INBOUND_FEE_KEYS = {
+    "family": ("family", str),
+    "seed": ("seed", int),
+}
+
+
+def parse_inbound_fees(spec: str) -> dict:
+    """Parse an --inbound-fees spec into a scenario section.
+
+    A bare family name is the common case: 'mainnet_empirical' is the same as
+    'family=mainnet_empirical'. The long form exists to pin a seed, so that a
+    paired tier can hold the inbound fees fixed while something else moves.
+
+    Omitting the flag emits no section, which leaves the mechanism off
+    entirely: no fee is drawn, none is charged at forwarding time, and the
+    gossip view shows the zero fee every corpus before stage B was generated
+    against.
+    """
+    spec = spec.strip()
+    if not spec:
+        raise ValueError("empty --inbound-fees spec")
+
+    if "=" not in spec:
+        if spec not in INBOUND_FEE_FAMILIES:
+            raise ValueError(
+                f"unknown inbound fee family: {spec!r} "
+                f"(want {'|'.join(INBOUND_FEE_FAMILIES)})"
+            )
+
+        return {"family": spec}
+
+    section = {}
+    for item in spec.split(","):
+        item = item.strip()
+        if not item:
+            continue
+
+        name, sep, value = item.partition("=")
+        name = name.strip()
+        if not sep or name not in INBOUND_FEE_KEYS:
+            raise ValueError(
+                f"unknown inbound fee knob: {item!r} "
+                f"(want {'|'.join(INBOUND_FEE_KEYS)}=value)"
+            )
+
+        key, cast = INBOUND_FEE_KEYS[name]
+        if cast is str and value not in INBOUND_FEE_FAMILIES:
+            raise ValueError(
+                f"unknown inbound fee family: {value!r} "
+                f"(want {'|'.join(INBOUND_FEE_FAMILIES)})"
+            )
+
+        section[key] = cast(value)
+
+    if not section.get("family"):
+        raise ValueError(
+            "--inbound-fees names no family, so it would draw nothing"
         )
 
     return section
@@ -564,6 +644,21 @@ def main() -> None:
                         "other hop's. Absent emits no section, which is the "
                         "flat 1000 msat floor and absent ceiling every "
                         "generated tier has carried")
+    parser.add_argument("--inbound-fees", default=None,
+                        help="give every directed policy the inbound fee a "
+                        "real one may announce, and switch on the pricing "
+                        "that charges it (exp-023 stage B). A bare family "
+                        "name is the common case: 'mainnet_empirical' (the "
+                        "measured marginals, 7.6%% of policies carrying one "
+                        "and 97%% of those discounts), 'heavy' (the authored "
+                        "stress rung, every policy carrying one at five "
+                        "times the magnitude) or 'as_loaded' (draw nothing "
+                        "and price what the network already announces, which "
+                        "is what a describegraph tier wants); "
+                        "'family=heavy,seed=N' pins the seed. Absent emits "
+                        "no section, which leaves the mechanism off: no fee "
+                        "drawn, none charged, and the zero fee in gossip "
+                        "every corpus before stage B was generated against")
     args = parser.parse_args()
 
     attribution = None
@@ -577,6 +672,13 @@ def main() -> None:
     if args.htlc_limits is not None:
         try:
             htlc_limits = parse_htlc_limits(args.htlc_limits)
+        except ValueError as err:
+            parser.error(str(err))
+
+    inbound_fees = None
+    if args.inbound_fees is not None:
+        try:
+            inbound_fees = parse_inbound_fees(args.inbound_fees)
         except ValueError as err:
             parser.error(str(err))
 
@@ -611,13 +713,15 @@ def main() -> None:
             if args.atomic:
                 for scenario in example["scenarios"]:
                     scenario["atomic_mpp"] = True
-            # The degradation and htlc limit sections are stamped last and
-            # make no draw of their own, so a corpus generated without the
-            # flags is unchanged.
+            # The degradation, htlc limit and inbound fee sections are
+            # stamped last and make no draw of their own, so a corpus
+            # generated without the flags is unchanged.
             if attribution is not None:
                 example["attribution"] = dict(attribution)
             if htlc_limits is not None:
                 example["htlc_limits"] = dict(htlc_limits)
+            if inbound_fees is not None:
+                example["inbound_fees"] = dict(inbound_fees)
             path = split_dir / f"example_{i:03d}.json"
             path.write_text(json.dumps(example, indent=2))
         print(f"{split}: {count} examples in {split_dir}")

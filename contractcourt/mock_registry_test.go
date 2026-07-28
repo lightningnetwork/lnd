@@ -26,6 +26,7 @@ type mockRegistry struct {
 	notifyCalls      atomic.Int32
 	immediateNotify  []notifyExitHopData
 	notifyHook       func()
+	lookupErr        error
 }
 
 func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
@@ -73,6 +74,10 @@ func (r *mockRegistry) HodlUnsubscribeAll(subscriber chan<- interface{}) {}
 
 func (r *mockRegistry) LookupInvoice(context.Context, lntypes.Hash) (
 	invoices.Invoice, error) {
+
+	if r.lookupErr != nil {
+		return invoices.Invoice{}, r.lookupErr
+	}
 
 	return invoices.Invoice{}, invoices.ErrInvoiceNotFound
 }

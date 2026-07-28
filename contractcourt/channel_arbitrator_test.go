@@ -3283,6 +3283,113 @@ func TestDispatchBlockbeatToSubAckTimeout(t *testing.T) {
 	require.NoError(t, <-secondResult)
 }
 
+// TestDispatchBlockbeatToSubscribersConcurrent tests concurrent delivery and
+// joined child errors.
+func TestDispatchBlockbeatToSubscribersConcurrent(t *testing.T) {
+	t.Parallel()
+
+	chanArb := &ChannelArbitrator{quit: make(chan struct{})}
+	firstSub, _ := chanArb.subscribeBlockbeats()
+	secondSub, _ := chanArb.subscribeBlockbeats()
+
+	result := make(chan error, 1)
+	go func() {
+		result <- chanArb.dispatchBlockbeatToSubscribers(
+			newBeatFromHeight(1),
+		)
+	}()
+
+	firstUpdate := <-firstSub.blockbeatChan
+	var secondUpdate blockbeatUpdate
+	select {
+	case secondUpdate = <-secondSub.blockbeatChan:
+	case <-time.After(time.Second):
+		t.Fatal("second subscriber was not dispatched concurrently")
+	}
+
+	firstErr := errors.New("first resolver failed")
+	secondErr := errors.New("second resolver failed")
+	firstUpdate.ack(firstErr)
+	secondUpdate.ack(secondErr)
+
+	err := <-result
+	require.ErrorIs(t, err, firstErr)
+	require.ErrorIs(t, err, secondErr)
+}
+
+// TestHandleBlockbeatIsolatesResolverError tests that a resolver dispatch error
+// does not fail the channel arbitrator's parent acknowledgement.
+func TestHandleBlockbeatIsolatesResolverError(t *testing.T) {
+	t.Parallel()
+
+	chanArb := &ChannelArbitrator{
+		state: StateContractClosed,
+		quit:  make(chan struct{}),
+	}
+	chanArb.BeatConsumer = chainio.NewBeatConsumer(
+		chanArb.quit, "blockbeat propagation test",
+	)
+
+	dispatchErr := errors.New("resolver dispatch failed")
+	sub, _ := chanArb.subscribeBlockbeats()
+	go func() {
+		update := <-sub.blockbeatChan
+		update.ack(dispatchErr)
+	}()
+
+	beat := newBeatFromHeight(1)
+	processResult := make(chan error, 1)
+	go func() {
+		processResult <- chanArb.ProcessBlock(beat)
+	}()
+
+	receivedBeat := <-chanArb.BlockbeatChan
+	err := chanArb.handleBlockbeat(receivedBeat)
+	require.NoError(t, err)
+	require.NoError(t, <-processResult)
+}
+
+// TestHandleBlockbeatIsolatesAdvanceStateError tests that a channel-local state
+// transition failure does not fail the parent blockbeat acknowledgement.
+func TestHandleBlockbeatIsolatesAdvanceStateError(t *testing.T) {
+	t.Parallel()
+
+	advanceErr := errors.New("invoice lookup failed")
+	log := &mockArbitratorLog{
+		state:     StateDefault,
+		newStates: make(chan ArbitratorState, 1),
+	}
+	ctx, err := createTestChannelArbitrator(
+		t, log, func(opts *testChanArbOpts) {
+			opts.arbCfg.Registry = &mockRegistry{
+				lookupErr: advanceErr,
+			}
+		},
+	)
+	require.NoError(t, err)
+	htlcs := htlcSet{
+		incomingHTLCs: map[uint64]channeldb.HTLC{
+			1: {
+				HtlcIndex:   1,
+				OutputIndex: 0,
+			},
+		},
+	}
+	ctx.chanArb.activeHTLCs[LocalHtlcSet] = htlcs
+	ctx.chanArb.unmergedSet[LocalHtlcSet] = htlcs
+
+	beat := newBeatFromHeight(1)
+	processResult := make(chan error, 1)
+	go func() {
+		processResult <- ctx.chanArb.ProcessBlock(beat)
+	}()
+
+	receivedBeat := <-ctx.chanArb.BlockbeatChan
+	err = ctx.chanArb.handleBlockbeat(receivedBeat)
+	require.ErrorIs(t, err, advanceErr)
+	require.NoError(t, <-processResult)
+}
+
 type mockChannel struct {
 	anchorResolutions *lnwallet.AnchorResolutions
 

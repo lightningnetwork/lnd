@@ -613,6 +613,13 @@ type SimHtlcResult struct {
 // unwound when a downstream hop fails, and so that a held htlc can later be
 // settled or released as a unit.
 type balanceMove struct {
+	// chanID is the channel the hop crossed. The ends alone identify the
+	// liquidity, but not the channel it sits in, and a hold has to be
+	// readable as "this payment is reserving THIS directed edge" for the
+	// runner to attribute one of the sender's payments contending with
+	// another of its own.
+	chanID uint64
+
 	from *simChannelEnd
 	to   *simChannelEnd
 	amt  lnwire.MilliSatoshi
@@ -716,6 +723,74 @@ func (g *SimGraph) ReleaseHold(id uint64) {
 	for i := range moves {
 		moves[i].unreserve()
 	}
+}
+
+// simHoldEdge names one directed channel end that an in-flight htlc reserves
+// liquidity on. It is the key self contention is attributed by: the graph owns
+// the holds map, so it can say exactly which directed edge a payment is
+// sitting on while another one asks for it.
+type simHoldEdge struct {
+	// ChanID is the channel the reservation is on.
+	ChanID uint64
+
+	// From is the node whose outbound side is reserved. A reservation is
+	// directional because liquidity is.
+	From route.Vertex
+}
+
+// simHoldReservation is one directed edge a hold reserves liquidity on, and
+// how much of it.
+type simHoldReservation struct {
+	edge simHoldEdge
+	amt  lnwire.MilliSatoshi
+}
+
+// holdReservations returns what the given hold has reserved, edge by edge. It
+// is runner-side truth: the sealed gossip view exposes none of it, and the
+// runner needs it to tell which of the sender's own payments is sitting on the
+// liquidity another one is asking for.
+func (g *SimGraph) holdReservations(id uint64) []simHoldReservation {
+	moves, ok := g.holds[id]
+	if !ok {
+		return nil
+	}
+
+	reservations := make([]simHoldReservation, 0, len(moves))
+	for i := range moves {
+		reservations = append(reservations, simHoldReservation{
+			edge: simHoldEdge{
+				ChanID: moves[i].chanID,
+				From:   moves[i].from.owner,
+			},
+			amt: moves[i].amt,
+		})
+	}
+
+	return reservations
+}
+
+// endLiquidity returns the hidden balance of one directed channel end and how
+// much of it in-flight htlcs currently hold, reporting false when the channel
+// does not exist or the named node is not a party to it.
+//
+// This is the hidden state path finding exists to predict, so nothing on the
+// sealed view exposes it. The runner reads it to answer one question that only
+// the truth can answer: whether an htlc that failed for want of liquidity would
+// have cleared if the sender's other payments had not been holding some.
+func (g *SimGraph) endLiquidity(chanID uint64,
+	owner route.Vertex) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, bool) {
+
+	channel, ok := g.channels[chanID]
+	if !ok {
+		return 0, 0, false
+	}
+
+	end := channel.end(owner)
+	if end == nil {
+		return 0, 0, false
+	}
+
+	return end.balance, end.held, true
 }
 
 // walkHtlc walks an htlc along the given route, applying the same policy and
@@ -867,9 +942,10 @@ func (g *SimGraph) walkHtlc(rt *route.Route,
 		// Commit the hop's liquidity and record it so that it can be
 		// unwound, settled or released later.
 		move := balanceMove{
-			from: sendingEnd,
-			to:   receivingEnd,
-			amt:  amtOut,
+			chanID: channel.ID,
+			from:   sendingEnd,
+			to:     receivingEnd,
+			amt:    amtOut,
 		}
 		commit(&move)
 		moves = append(moves, move)

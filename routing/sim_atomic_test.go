@@ -553,3 +553,89 @@ func TestSimAtomicMppDrift(t *testing.T) {
 	require.Equal(t, frozen[0], frozen[2], "liquidity drifted with atomic "+
 		"mpp off")
 }
+
+// TestSimHoldReservations asserts that a hold can say which directed edges it
+// reserves and how much of each, which is what self-contention attribution is
+// keyed on.
+func TestSimHoldReservations(t *testing.T) {
+	t.Parallel()
+
+	const shard = lnwire.MilliSatoshi(100_000_000)
+
+	graph, nodes := atomicTestGraph(t)
+	source, nodeA := nodes[0], nodes[1]
+
+	rt := atomicTestRoute(t, graph, source, []uint64{1, 2}, shard)
+
+	result, id, err := graph.HoldHtlc(rt)
+	require.NoError(t, err)
+	require.Nil(t, result.Failure)
+	require.NotZero(t, id)
+
+	// A two hop route reserves the source's outbound side of the first
+	// channel and node A's outbound side of the second, each for the amount
+	// that channel carried.
+	require.Equal(t, []simHoldReservation{
+		{
+			edge: simHoldEdge{ChanID: 1, From: source},
+			amt:  rt.TotalAmount,
+		},
+		{
+			edge: simHoldEdge{ChanID: 2, From: nodeA},
+			amt:  rt.Hops[0].AmtToForward,
+		},
+	}, graph.holdReservations(id))
+
+	// An unknown hold reserves nothing.
+	require.Nil(t, graph.holdReservations(id+1))
+
+	// Releasing it takes the reservations with it.
+	graph.ReleaseHold(id)
+	require.Nil(t, graph.holdReservations(id))
+	requireNoHolds(t, graph)
+}
+
+// TestSimEndLiquidity asserts that the runner can read the true balance and
+// the held part of a directed channel end, which is the only way to tell an
+// htlc that failed because a sibling was holding the liquidity from one that
+// would have failed anyway.
+func TestSimEndLiquidity(t *testing.T) {
+	t.Parallel()
+
+	const shard = lnwire.MilliSatoshi(100_000_000)
+
+	graph, nodes := atomicTestGraph(t)
+	source := nodes[0]
+
+	atomicSetBalance(t, graph, 1, source, 2*shard)
+
+	balance, held, ok := graph.endLiquidity(1, source)
+	require.True(t, ok)
+	require.Equal(t, 2*shard, balance)
+	require.Zero(t, held)
+
+	rt := atomicTestRoute(t, graph, source, []uint64{1, 2}, shard)
+	_, id, err := graph.HoldHtlc(rt)
+	require.NoError(t, err)
+
+	// A held htlc moves nothing and reserves everything it crossed.
+	balance, held, ok = graph.endLiquidity(1, source)
+	require.True(t, ok)
+	require.Equal(t, 2*shard, balance)
+	require.Equal(t, rt.TotalAmount, held)
+
+	// Settling turns the reservation into movement.
+	graph.SettleHold(id)
+	balance, held, ok = graph.endLiquidity(1, source)
+	require.True(t, ok)
+	require.Equal(t, 2*shard-rt.TotalAmount, balance)
+	require.Zero(t, held)
+
+	// An unknown channel and a node that is not a party to a known one both
+	// report nothing rather than a zero balance.
+	_, _, ok = graph.endLiquidity(99, source)
+	require.False(t, ok)
+
+	_, _, ok = graph.endLiquidity(2, source)
+	require.False(t, ok)
+}

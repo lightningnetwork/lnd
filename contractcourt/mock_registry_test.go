@@ -22,7 +22,10 @@ type mockRegistry struct {
 	notifyChan       chan notifyExitHopData
 	notifyErr        error
 	notifyResolution invoices.HtlcResolution
+	subscribedResult invoices.HtlcResolution
 	immediateResult  invoices.HtlcResolution
+	immediateErr     error
+	immediateErrAt   int32
 	notifyCalls      atomic.Int32
 	immediateNotify  []notifyExitHopData
 	notifyHook       func()
@@ -50,7 +53,10 @@ func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
 			notifyHook()
 		}
 		if r.immediateResult != nil {
-			return r.immediateResult, r.notifyErr
+			return r.immediateResult, r.immediateErr
+		}
+		if r.immediateErr != nil && currentHeight == r.immediateErrAt {
+			return r.notifyResolution, r.immediateErr
 		}
 
 		return r.notifyResolution, r.notifyErr
@@ -63,8 +69,8 @@ func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
 		expiry:        expiry,
 		currentHeight: currentHeight,
 	}
-	if notifyHook != nil {
-		notifyHook()
+	if r.subscribedResult != nil {
+		return r.subscribedResult, r.notifyErr
 	}
 
 	return r.notifyResolution, r.notifyErr

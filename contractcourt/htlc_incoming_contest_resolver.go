@@ -239,17 +239,6 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, nil
 	}
 
-	// We'll first check if this HTLC has been timed out, if so, we can
-	// return now and mark ourselves as resolved. If we're past the point of
-	// expiry of the HTLC, then at this point the sender can sweep it, so
-	// we'll end our lifetime. Here we deliberately forego the chance that
-	// the sender doesn't sweep and we already have or will learn the
-	// preimage. Otherwise the resolver could potentially stay active
-	// indefinitely and the channel will never close properly.
-	if uint32(currentHeight) >= h.htlcExpiry {
-		return h.timeoutOrSuccessResolver(uint32(currentHeight))
-	}
-
 	// Define a closure to process htlc resolutions either directly or
 	// triggered by future notifications.
 	processHtlcResolution := func(e invoices.HtlcResolution) (
@@ -317,9 +306,28 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	}
 
 	var (
-		hodlChan       <-chan interface{}
-		witnessUpdates <-chan lntypes.Preimage
+		hodlChan          <-chan interface{}
+		witnessUpdates    <-chan lntypes.Preimage
+		pendingResolution invoices.HtlcResolution
 	)
+	processPendingResolution := func() (ContractResolver, error) {
+		switch pendingResolution.(type) {
+		case *invoices.HtlcFailResolution:
+		default:
+			return processHtlcResolution(pendingResolution)
+		}
+
+		// A failed resolution can become stale while Launch retries the
+		// success path. Serialize the choice with Launch and prefer the
+		// already-launched success resolver.
+		h.transitionMtx.Lock()
+		defer h.transitionMtx.Unlock()
+		if h.isLaunched() {
+			return h.htlcSuccessResolver, nil
+		}
+
+		return processHtlcResolution(pendingResolution)
+	}
 	if payload.FwdInfo.NextHop == hop.Exit {
 		// Create a buffered hodl chan to prevent deadlock.
 		hodlQueue := queue.NewConcurrentQueue(10)
@@ -364,12 +372,26 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			// was known to the registry, we can directly resolve
 			// the htlc.
 			if res.Outcome != invoices.ResultInvoiceNotFound {
-				return processHtlcResolution(resolution)
+				nextResolver, err := processHtlcResolution(
+					resolution,
+				)
+				if err == nil {
+					return nextResolver, nil
+				}
+
+				h.log.Errorf("HTLC resolution failed: %v", err)
+				pendingResolution = resolution
 			}
 
 		// If we settled the htlc, we can resolve it.
 		case *invoices.HtlcSettleResolution:
-			return processHtlcResolution(resolution)
+			nextResolver, err := processHtlcResolution(resolution)
+			if err == nil {
+				return nextResolver, nil
+			}
+
+			h.log.Errorf("HTLC resolution failed: %v", err)
+			pendingResolution = resolution
 
 		// If the resolution is nil, the htlc was neither settled nor
 		// failed so we cannot take action at present.
@@ -429,8 +451,12 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// reflected by GetBestBlock.
 		_, currentHeight, err = h.ChainIO.GetBestBlock()
 		if err != nil {
-			cancel()
-			return nil, nil, nil, err
+			h.log.Errorf("Height resync failed: %v", err)
+			return blockbeatSub, cancel, nil, nil
+		}
+
+		if pendingResolution != nil {
+			return blockbeatSub, cancel, nil, nil
 		}
 
 		if uint32(currentHeight) >= h.htlcExpiry {
@@ -483,9 +509,31 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 
 		case hodlItem := <-hodlChan:
 			htlcResolution := hodlItem.(invoices.HtlcResolution)
-			return processHtlcResolution(htlcResolution)
+			nextResolver, err := processHtlcResolution(
+				htlcResolution,
+			)
+			if err == nil {
+				return nextResolver, nil
+			}
+
+			h.log.Errorf("HTLC resolution failed: %v", err)
+			pendingResolution = htlcResolution
 
 		case update := <-blockbeatSub.blockbeatChan:
+			if pendingResolution != nil {
+				nextResolver, err := processPendingResolution()
+				update.ack(err)
+				if err != nil {
+					h.log.Errorf(
+						"Resolution failed: %v", err,
+					)
+
+					continue
+				}
+
+				return nextResolver, nil
+			}
+
 			// If this new height expires the HTLC, then this means
 			// we never found out the preimage, so we can mark
 			// resolved and exit.

@@ -44,6 +44,19 @@ was built with an unlimited ceiling and no candidate was ever told a budget.
 Like --attribution it stamps a value and makes no rng draw, so a corpus
 generated without it is byte-identical to one generated before it existed.
 
+--concurrency is the exp-023 stage D knob: it lets the sender run several of
+its own payments at once, racing itself for its own outbound liquidity. Every
+prior tier ran one payment at a time, so the only contention a router has ever
+seen came from its own shards or from other people's. Like --attribution it
+stamps a section and makes no rng draw.
+
+It wants a tier with a clock and with holds, so generate it alongside --drift
+and --atomic: without virtual time payments cannot overlap at all, and without
+atomic_mpp a shard settles the instant it arrives and reserves nothing, so
+self_contention_failures is structurally zero. Set inter_arrival_sec at or
+below the time a payment typically takes on the tier, or the window empties
+before it fills and mean_concurrent barely leaves 1.
+
 The rung is the whole experiment, and it is set from data rather than from
 taste. Run the corpus with no limit first, read the realized fee distribution
 off fee_ppm_on_success and fee_ppm_attempted across routers, and place the
@@ -420,6 +433,98 @@ def parse_fee_limit_ppm(spec: str) -> int:
     return ppm
 
 
+# --- concurrent payments (exp-023 stage D) ----------------------------------
+
+# The arrival processes routing/sim_concurrency.go knows how to run. poisson is
+# named by the design spec and DEFERRED: an arrival rate interacts with the
+# background traffic prorating carry, which is the one piece of the simulator
+# whose draw order every sealed tier depends on, so it needs a calibration run
+# of its own. The simulator rejects it by name, and so does this.
+CONCURRENCY_ARRIVALS = ("window",)
+
+# The knobs of the concurrency section, keyed by their short spec name.
+CONCURRENCY_KEYS = {
+    "max_in_flight": ("max_in_flight", int),
+    "arrival": ("arrival", str),
+    "inter_arrival_sec": ("inter_arrival_sec", float),
+}
+
+
+def parse_concurrency(spec: str) -> dict:
+    """Parse a --concurrency spec into a scenario section.
+
+    A bare number is the common case: '4' is the same as 'max_in_flight=4'.
+    The long form exists to pin the arrival spacing, which is the knob that
+    decides whether the payments actually overlap: a window that empties
+    before it fills tests nothing, and mean_concurrent in the output is what
+    says which one happened.
+
+    Omitting the flag emits no section, which is the sequential batch every
+    corpus before stage D was generated against.
+    """
+    spec = spec.strip()
+    if not spec:
+        raise ValueError("empty --concurrency spec")
+
+    if "=" not in spec:
+        section = {"max_in_flight": spec}
+    else:
+        section = {}
+        for item in spec.split(","):
+            item = item.strip()
+            if not item:
+                continue
+
+            name, sep, value = item.partition("=")
+            name = name.strip()
+            if not sep or name not in CONCURRENCY_KEYS:
+                raise ValueError(
+                    f"unknown concurrency knob: {item!r} "
+                    f"(want {'|'.join(CONCURRENCY_KEYS)}=value)"
+                )
+
+            section[name] = value
+
+    parsed = {}
+    for name, value in section.items():
+        key, cast = CONCURRENCY_KEYS[name]
+        try:
+            parsed[key] = cast(value)
+        except ValueError:
+            raise ValueError(
+                f"--concurrency {name} wants a {cast.__name__}, "
+                f"got {value!r}"
+            )
+
+    if parsed.get("max_in_flight", 0) <= 0:
+        raise ValueError(
+            "--concurrency needs a positive max_in_flight; omit the flag "
+            "for the sequential batch"
+        )
+
+    arrival = parsed.get("arrival")
+    if arrival is not None and arrival not in CONCURRENCY_ARRIVALS:
+        if arrival == "poisson":
+            raise ValueError(
+                "--concurrency arrival=poisson is specified but DEFERRED: an "
+                "arrival rate interacts with the background traffic "
+                "prorating carry and needs a calibration run of its own"
+            )
+
+        raise ValueError(
+            f"unknown concurrency arrival: {arrival!r} "
+            f"(want {'|'.join(CONCURRENCY_ARRIVALS)})"
+        )
+
+    if parsed.get("inter_arrival_sec", 0.0) < 0:
+        raise ValueError(
+            "--concurrency inter_arrival_sec must not be negative; omit it "
+            "for the scenario file's own payment gap"
+        )
+
+    return parsed
+
+
 # --- splitting pressure (exp-010) -------------------------------------------
 #
 # The corridors topology puts one source and one target at the ends of K
@@ -725,6 +830,21 @@ def main() -> None:
                         "binds, below it nothing completes. Absent stamps "
                         "nothing, which is the unlimited ceiling every corpus "
                         "before stage C was generated against")
+    parser.add_argument("--concurrency", default=None,
+                        help="let the sender run several of its own payments "
+                        "at once (exp-023 stage D). A bare number is the "
+                        "common case: '4' is 'max_in_flight=4'; the long "
+                        "form pins 'arrival=window' (the only one "
+                        "implemented, poisson is deferred) and "
+                        "'inter_arrival_sec=N', the gap between a slot "
+                        "freeing and the next payment taking it. Generate it "
+                        "with --drift and --atomic: without a clock payments "
+                        "cannot overlap and without holds nothing contends. "
+                        "Set inter_arrival_sec at or below the time a payment "
+                        "takes on the tier, and read mean_concurrent in the "
+                        "output to check the window ever filled. Absent emits "
+                        "no section, which is the sequential batch every "
+                        "corpus before stage D was generated against")
     args = parser.parse_args()
 
     attribution = None
@@ -752,6 +872,13 @@ def main() -> None:
     if args.fee_limit_ppm is not None:
         try:
             fee_limit_ppm = parse_fee_limit_ppm(args.fee_limit_ppm)
+        except ValueError as err:
+            parser.error(str(err))
+
+    concurrency = None
+    if args.concurrency is not None:
+        try:
+            concurrency = parse_concurrency(args.concurrency)
         except ValueError as err:
             parser.error(str(err))
 
@@ -786,9 +913,10 @@ def main() -> None:
             if args.atomic:
                 for scenario in example["scenarios"]:
                     scenario["atomic_mpp"] = True
-            # The degradation, htlc limit, inbound fee and fee budget
-            # sections are stamped last and make no draw of their own, so
-            # a corpus generated without the flags is unchanged.
+            # The degradation, htlc limit, inbound fee, fee budget and
+            # concurrency sections are stamped last and make no draw of
+            # their own, so a corpus generated without the flags is
+            # unchanged.
             if attribution is not None:
                 example["attribution"] = dict(attribution)
             if htlc_limits is not None:
@@ -797,6 +925,8 @@ def main() -> None:
                 example["inbound_fees"] = dict(inbound_fees)
             if fee_limit_ppm is not None:
                 example["fee_limit_ppm"] = fee_limit_ppm
+            if concurrency is not None:
+                example["concurrency"] = dict(concurrency)
             path = split_dir / f"example_{i:03d}.json"
             path.write_text(json.dumps(example, indent=2))
         print(f"{split}: {count} examples in {split_dir}")

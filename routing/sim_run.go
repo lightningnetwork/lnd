@@ -457,6 +457,21 @@ func (r *SimRunner) SetAttribution(params *SimAttributionParams,
 	return nil
 }
 
+// PolicyStats reports how many htlcs the network's announced min and max htlc
+// limits refused, counting background traffic and warmup attempts along with
+// scored ones. It reads zero on a tier whose limits never bind, which is what
+// every synthetic tier before stage A was.
+func (r *SimRunner) PolicyStats() SimPolicyStats {
+	return r.graph.PolicyStats()
+}
+
+// HtlcLimitStats reports how many of the network's directed policies announce
+// an htlc limit that can bind at all. It is the static half of the check: a
+// tier can only refuse htlcs on limits it announced in the first place.
+func (r *SimRunner) HtlcLimitStats() SimHtlcLimitStats {
+	return r.graph.HtlcLimitStats()
+}
+
 // AttributionStats reports what the degradation did, and reports zeroes when
 // the failure channel was left alone.
 func (r *SimRunner) AttributionStats() SimAttributionStats {

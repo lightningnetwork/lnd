@@ -50,6 +50,14 @@ type scenarioFile struct {
 	// experiment measured on.
 	Attribution *routing.SimAttributionParams `json:"attribution,omitempty"`
 
+	// HtlcLimits redraws the announced min and max htlc of every directed
+	// policy from a named family, and switches the network onto uniform
+	// first-hop enforcement while it is at it. Omitting the section keeps
+	// the constants every synthetic tier has carried for the whole
+	// program: a 1000 msat floor, no ceiling, and a sender exempt from its
+	// own announced policy.
+	HtlcLimits *routing.SimHtlcLimitsParams `json:"htlc_limits,omitempty"`
+
 	// Warmup is an optional unscored phase that runs before the scored
 	// batch, standing in for routing knowledge a node was handed instead
 	// of having to probe for it. Omitting the section is a cold start,
@@ -147,6 +155,25 @@ type aggregate struct {
 	AttributionUnknown  int `json:"attribution_unknown,omitempty"`
 	AttributionShifted  int `json:"attribution_shifted,omitempty"`
 	AttributionDelayed  int `json:"attribution_delayed,omitempty"`
+
+	// HtlcLimit* describe how binding the network's announced htlc limits
+	// are, and Htlc*Refusals how often they actually turned an htlc away.
+	// The pair is stage A's manipulation check and it needs both halves: a
+	// tier whose ceilings never bind is testing nothing, and a ceiling
+	// violation is returned as a plain temporary channel failure, exactly
+	// what a depleted channel returns, so it is invisible in every trace.
+	// HtlcSourceRefusals counts the first-hop refusals, which only the
+	// uniform enforcement rule can produce.
+	//
+	// The three static counts are reported only when some limit can bind
+	// at all, so a tier carrying the generator's constants emits exactly
+	// the output it always did.
+	HtlcLimitPolicies  int `json:"htlc_limit_policies,omitempty"`
+	HtlcLimitBounded   int `json:"htlc_limit_bounded,omitempty"`
+	HtlcLimitFloors    int `json:"htlc_limit_floors,omitempty"`
+	HtlcMinRefusals    int `json:"htlc_min_refusals,omitempty"`
+	HtlcMaxRefusals    int `json:"htlc_max_refusals,omitempty"`
+	HtlcSourceRefusals int `json:"htlc_source_refusals,omitempty"`
 
 	// WarmupScenarios and WarmupAttempts report what the unscored warmup
 	// phase cost. They are kept out of every metric above so that a warmed
@@ -259,6 +286,16 @@ func main() {
 	}
 	if err := graph.AssignLiquidity(model, scenFile.LiquiditySeed); err != nil {
 		fatalf("unable to assign liquidity: %v", err)
+	}
+
+	// Redraw the announced htlc limits, if this file asks for it. The
+	// liquidity seed doubles as the limit seed when the section pins none,
+	// so a corpus that varies only its liquidity seed still varies its
+	// limits. Balances are untouched either way, so the order relative to
+	// the assignment above is a matter of reading rather than of draws.
+	err = graph.ApplyHtlcLimits(scenFile.HtlcLimits, scenFile.LiquiditySeed)
+	if err != nil {
+		fatalf("unable to apply htlc limits: %v", err)
 	}
 
 	source, err := graph.ResolveNode(scenFile.Source)
@@ -472,6 +509,18 @@ func runBatch(runner *routing.SimRunner, scenFile *scenarioFile,
 
 	agg := &out.Aggregate
 	agg.BgPaymentsSent, agg.BgPaymentsSettled = runner.TrafficStats()
+
+	limits := runner.HtlcLimitStats()
+	if limits.Bounded > 0 || limits.Floors > 0 {
+		agg.HtlcLimitPolicies = limits.Policies
+		agg.HtlcLimitBounded = limits.Bounded
+		agg.HtlcLimitFloors = limits.Floors
+	}
+
+	refusals := runner.PolicyStats()
+	agg.HtlcMinRefusals = refusals.MinHtlcRefusals
+	agg.HtlcMaxRefusals = refusals.MaxHtlcRefusals
+	agg.HtlcSourceRefusals = refusals.SourceRefusals
 
 	attribution := runner.AttributionStats()
 	agg.AttributionAttempts = attribution.Attempts

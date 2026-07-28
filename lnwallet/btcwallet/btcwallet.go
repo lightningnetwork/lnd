@@ -1803,9 +1803,11 @@ func (b *BtcWallet) IsSynced() (bool, int64, error) {
 	}
 
 	// If the timestamp on the best header is more than 2 hours in the
-	// past, then we're not yet synced.
-	minus24Hours := time.Now().Add(-2 * time.Hour)
-	if blockHeader.Timestamp.Before(minus24Hours) {
+	// past, then we're not yet synced. This staleness check is skipped on
+	// local networks (regtest/simnet), where blocks are only mined on
+	// demand and the tip is expected to sit idle for long stretches.
+	minus2Hours := time.Now().Add(-2 * time.Hour)
+	if !b.cfg.IsLocalNet && blockHeader.Timestamp.Before(minus2Hours) {
 		return false, bestTimestamp, nil
 	}
 

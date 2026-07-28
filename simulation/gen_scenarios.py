@@ -57,6 +57,20 @@ self_contention_failures is structurally zero. Set inter_arrival_sec at or
 below the time a payment typically takes on the tier, or the window empties
 before it fills and mean_concurrent barely leaves 1.
 
+--latency is the exp-023 stage E knob: it prices an htlc attempt by the route
+it travels instead of by the clock's flat per-attempt tick. An attempt costs an
+overhead plus a round trip to the hop that resolved it, so a failure at the
+sender's own first hop comes back in one round trip and a failure at hop eight
+comes back in eight. Like --attribution it stamps a section and makes no rng
+draw.
+
+That asymmetry is the whole reason to expect anything from it. exp-019 measured
+uniform delay as free for everyone, and it was: a knob that shifts absolute
+time cannot change which route is better, and every evolved router dropped time
+decay. A knob that changes RELATIVE time can. It needs a clock, so generate it
+with --drift or with --split --atomic, and with --concurrency if you want the
+arm where slow attempts buy contention rather than only drift.
+
 The rung is the whole experiment, and it is set from data rather than from
 taste. Run the corpus with no limit first, read the realized fee distribution
 off fee_ppm_on_success and fee_ppm_attempted across routers, and place the
@@ -525,6 +539,103 @@ def parse_concurrency(spec: str) -> dict:
     return parsed
 
 
+# --- latency as a cost (exp-023 stage E) ------------------------------------
+
+# The knobs of the latency section, keyed by their short spec name.
+LATENCY_KEYS = {
+    "per_hop_ms": ("per_hop_ms", float),
+    "attempt_overhead_ms": ("attempt_overhead_ms", float),
+    "hold_carry": ("hold_carry", str),
+}
+
+
+def parse_latency(spec: str) -> dict:
+    """Parse a --latency spec into a scenario section.
+
+    A bare number is the common case: '300' is the same as 'per_hop_ms=300'.
+    The long form adds 'attempt_overhead_ms=N', the part of an attempt that
+    really is flat.
+
+    An attempt then costs attempt_overhead + 2 * per_hop * k, where k is how
+    many hops the htlc crossed before it resolved: the whole route on a settle
+    and the failing hop on a failure. That asymmetry is the mechanism, and it
+    is what the exp-019 delay knob structurally could not have: uniform delay
+    shifts absolute time, which cannot change which route is better, while a
+    per-hop price changes relative time, which can.
+
+    Omitting the flag emits no section, which is the flat attempt_sec tick
+    every corpus before stage E was generated against.
+    """
+    spec = spec.strip()
+    if not spec:
+        raise ValueError("empty --latency spec")
+
+    if "=" not in spec:
+        section = {"per_hop_ms": spec}
+    else:
+        section = {}
+        for item in spec.split(","):
+            item = item.strip()
+            if not item:
+                continue
+
+            name, sep, value = item.partition("=")
+            name = name.strip()
+            if not sep or name not in LATENCY_KEYS:
+                raise ValueError(
+                    f"unknown latency knob: {item!r} "
+                    f"(want {'|'.join(LATENCY_KEYS)}=value)"
+                )
+
+            section[name] = value
+
+    parsed = {}
+    for name, value in section.items():
+        key, cast = LATENCY_KEYS[name]
+        try:
+            parsed[key] = cast(value)
+        except ValueError:
+            raise ValueError(
+                f"--latency {name} wants a {cast.__name__}, got {value!r}"
+            )
+
+    for name in ("per_hop_ms", "attempt_overhead_ms"):
+        if parsed.get(name, 0.0) < 0:
+            raise ValueError(f"--latency {name} must not be negative")
+
+    # hold_carry is accepted for schema fidelity and only true is honored.
+    # The simulator already charges the time an htlc spends in the air to the
+    # background traffic and to whatever an atomic shard reserves, by the same
+    # rule it applies to every other stretch of virtual time, so false is
+    # refused at both ends rather than silently ignored.
+    carry = parsed.get("hold_carry")
+    if carry is not None:
+        if carry.lower() in ("true", "1", "yes"):
+            parsed["hold_carry"] = True
+        elif carry.lower() in ("false", "0", "no"):
+            raise ValueError(
+                "--latency hold_carry=false is REFUSED: the simulator "
+                "charges the time an htlc spends in the air to the "
+                "background traffic and to whatever an atomic shard "
+                "reserves, and a latency section is not the place to edit "
+                "the traffic engine"
+            )
+        else:
+            raise ValueError(
+                f"--latency hold_carry wants a boolean, got {carry!r}"
+            )
+
+    # A section that charges nothing is not the flat tick, it is free
+    # attempts, and a corpus that means the flat tick says so by omission.
+    if not parsed.get("per_hop_ms") and not parsed.get("attempt_overhead_ms"):
+        raise ValueError(
+            "--latency needs a positive per_hop_ms or attempt_overhead_ms; "
+            "omit the flag for the clock's flat attempt_sec"
+        )
+
+    return parsed
+
+
 # --- splitting pressure (exp-010) -------------------------------------------
 #
 # The corridors topology puts one source and one target at the ends of K
@@ -845,6 +956,26 @@ def main() -> None:
                         "output to check the window ever filled. Absent emits "
                         "no section, which is the sequential batch every "
                         "corpus before stage D was generated against")
+    parser.add_argument("--latency", default=None,
+                        help="price an htlc attempt by the route it travels "
+                        "(exp-023 stage E). A bare number is the common case: "
+                        "'300' is 'per_hop_ms=300'; the long form adds "
+                        "'attempt_overhead_ms=N', the part of an attempt that "
+                        "really is flat. An attempt then costs the overhead "
+                        "plus a round trip to the hop that resolved it, so a "
+                        "failure at the sender's own first hop comes back in "
+                        "one round trip and a failure at hop eight in eight. "
+                        "It needs a clock, so generate it with --drift or "
+                        "with --split --atomic. Read "
+                        "mean_attempt_latency_sec in "
+                        "the output against the clock's flat attempt_sec to "
+                        "check the mechanism fired at all, and the "
+                        "per-attempt "
+                        "latency in the results array to check it fired "
+                        "differentially. Absent emits no section, which is "
+                        "the "
+                        "flat tick every corpus before stage E was generated "
+                        "against")
     args = parser.parse_args()
 
     attribution = None
@@ -882,11 +1013,30 @@ def main() -> None:
         except ValueError as err:
             parser.error(str(err))
 
+    latency = None
+    if args.latency is not None:
+        try:
+            latency = parse_latency(args.latency)
+        except ValueError as err:
+            parser.error(str(err))
+
     # --split isolates one variable, so it does not mix with the other corpus
     # modes: --hard swaps the topology list it needs, and --drift adds the
     # liquidity churn it deliberately excludes.
     if args.split and (args.hard or args.drift):
         parser.error("--split composes with neither --hard nor --drift")
+
+    # A latency section is refused by the simulator on a file with no clock,
+    # so a corpus that would emit one is caught here rather than at the first
+    # run. Only --drift and --split --atomic write a clock section.
+    has_clock = args.drift or (args.split and args.atomic)
+    if latency is not None and not has_clock:
+        parser.error(
+            "--latency needs a corpus with a virtual clock: generate it with "
+            "--drift, or with --split --atomic. Without one nothing the "
+            "simulator does moves a clock, so a per-hop price could not be "
+            "charged anywhere and the simulator refuses the section"
+        )
 
     if args.hard:
         use_hard_profile()
@@ -913,9 +1063,9 @@ def main() -> None:
             if args.atomic:
                 for scenario in example["scenarios"]:
                     scenario["atomic_mpp"] = True
-            # The degradation, htlc limit, inbound fee, fee budget and
-            # concurrency sections are stamped last and make no draw of
-            # their own, so a corpus generated without the flags is
+            # The degradation, htlc limit, inbound fee, fee budget,
+            # concurrency and latency sections are stamped last and make no
+            # draw of their own, so a corpus generated without the flags is
             # unchanged.
             if attribution is not None:
                 example["attribution"] = dict(attribution)
@@ -927,6 +1077,8 @@ def main() -> None:
                 example["fee_limit_ppm"] = fee_limit_ppm
             if concurrency is not None:
                 example["concurrency"] = dict(concurrency)
+            if latency is not None:
+                example["latency"] = dict(latency)
             path = split_dir / f"example_{i:03d}.json"
             path.write_text(json.dumps(example, indent=2))
         print(f"{split}: {count} examples in {split_dir}")

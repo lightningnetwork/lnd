@@ -84,14 +84,6 @@ func (p *SimLatencyParams) validate() error {
 			"negative, got %v", p.AttemptOverheadMs)
 	}
 
-	// A section that charges nothing is not the flat tick, it is free
-	// attempts, and a file that means the flat tick says so by omission.
-	if p.PerHopMs == 0 && p.AttemptOverheadMs == 0 {
-		return fmt.Errorf("latency: per_hop_ms and attempt_overhead_ms " +
-			"are both zero, which makes an attempt take no time at " +
-			"all; omit the section for the clock's flat attempt_sec")
-	}
-
 	if p.HoldCarry != nil && !*p.HoldCarry {
 		return fmt.Errorf("latency: hold_carry false is REFUSED; the " +
 			"scheduler charges the time an htlc spends in the air " +
@@ -99,6 +91,14 @@ func (p *SimLatencyParams) validate() error {
 			"shard reserves, by the same rule it applies to every " +
 			"other stretch of virtual time, and a latency section " +
 			"is not the place to edit the traffic engine")
+	}
+
+	// A section that charges nothing is not the flat tick, it is free
+	// attempts, and a file that means the flat tick says so by omission.
+	if p.PerHopMs == 0 && p.AttemptOverheadMs == 0 {
+		return fmt.Errorf("latency: per_hop_ms and attempt_overhead_ms " +
+			"are both zero, which makes an attempt take no time at " +
+			"all; omit the section for the clock's flat attempt_sec")
 	}
 
 	return nil

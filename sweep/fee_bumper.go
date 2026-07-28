@@ -93,10 +93,10 @@ const (
 	// TxPublished is sent when the broadcast attempt is finished.
 	TxPublished BumpEvent = iota
 
-	// TxFailed is sent when the tx has encountered a fee-related error
-	// during its creation or broadcast, or an internal error from the fee
-	// bumper. In either case the inputs in this tx should be retried with
-	// either a different grouping strategy or an increased budget.
+	// TxFailed is sent when the current tx attempt cannot continue, but at
+	// least one input can be retried. If BadInput is set, that input is
+	// terminal or quarantined while the remaining inputs can be regrouped
+	// and retried.
 	//
 	// TODO(yy): Remove the above usage once we remove sweeping non-CPFP
 	// anchors.
@@ -119,9 +119,8 @@ const (
 	//   broadcast and confirmed.
 	TxUnknownSpend
 
-	// TxFatal is sent when the inputs in this tx cannot be retried. Txns
-	// will end up in this state if they have encountered a non-fee related
-	// error, which means they cannot be retried with increased budget.
+	// TxFatal is sent when none of the inputs in this tx can be retried. It
+	// is the whole-set outcome, unlike a TxFailed result with BadInput set.
 	TxFatal
 
 	// sentinelEvent is used to check if an event is unknown.
@@ -293,6 +292,10 @@ type BumpResult struct {
 	// SpentInputs are the inputs spent by another tx which caused the
 	// current tx to be failed.
 	SpentInputs map[wire.OutPoint]*wire.MsgTx
+
+	// BadInput is the input that failed a singleton mempool acceptance
+	// probe. It is nil if no bad input was diagnosed.
+	BadInput *wire.OutPoint
 
 	// requestID is the ID of the request that created this record.
 	requestID uint64
@@ -919,6 +922,41 @@ func (t *TxPublisher) findBadInputBySingleton(r *monitorRecord,
 	}
 
 	return wire.OutPoint{}, errBadInputNotFound
+}
+
+// inputDiagnosisOutcome describes whether diagnosis changed the input set or
+// left it unchanged, and whether an unchanged result is conclusive.
+type inputDiagnosisOutcome uint8
+
+const (
+	diagnosisSkipped inputDiagnosisOutcome = iota
+	diagnosisCompleted
+	diagnosisAborted
+	diagnosisAttributed
+)
+
+// inputDiagnosis carries the explicit result of singleton attribution.
+type inputDiagnosis struct {
+	outcome  inputDiagnosisOutcome
+	badInput wire.OutPoint
+}
+
+// diagnoseInputSet runs singleton attribution and classifies its outcome.
+func (t *TxPublisher) diagnoseInputSet(r *monitorRecord) inputDiagnosis {
+	badInput, err := t.findBadInput(r)
+	switch {
+	case err == nil, errors.Is(err, ErrInputMissing):
+		return inputDiagnosis{
+			outcome:  diagnosisAttributed,
+			badInput: badInput,
+		}
+
+	case errors.Is(err, errBadInputNotFound):
+		return inputDiagnosis{outcome: diagnosisCompleted}
+
+	default:
+		return inputDiagnosis{outcome: diagnosisAborted}
+	}
 }
 
 // handleMissingInputs handles the case when the chain backend reports back a

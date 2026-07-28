@@ -1155,6 +1155,58 @@ func TestFindBadInputContinuesAfterConstructionError(t *testing.T) {
 	m.wallet.AssertNumberOfCalls(t, "CheckMempoolAcceptance", 4)
 }
 
+// TestDiagnoseInputSetMetadata checks that attribution reports whether input
+// membership changed and whether an unchanged result was conclusive.
+func TestDiagnoseInputSetMetadata(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		probeErr error
+		outcome  inputDiagnosisOutcome
+		probes   int
+	}{
+		{
+			"attributed", chain.ErrScriptVerifyFlag,
+			diagnosisAttributed, 1,
+		},
+		{"completed", nil, diagnosisCompleted, 2},
+		{"aborted", chain.ErrInsufficientFee, diagnosisAborted, 1},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tp, m := createTestPublisherNoAux(t)
+			req := createBadInputTestRequest(2)
+			record := &monitorRecord{
+				requestID:   1,
+				req:         req,
+				feeFunction: m.feeFunc,
+			}
+			m.feeFunc.On("FeeRate").Return(
+				chainfee.SatPerKWeight(1000),
+			).Times(testCase.probes)
+			m.signer.On("ComputeInputScript", mock.Anything,
+				mock.Anything).Return(
+				&input.Script{}, nil,
+			).Times(testCase.probes)
+			m.wallet.On(
+				"CheckMempoolAcceptance", mock.Anything,
+			).Return(testCase.probeErr).Times(testCase.probes)
+
+			diagnosis := tp.diagnoseInputSet(record)
+
+			require.Equal(t, testCase.outcome, diagnosis.outcome)
+			if testCase.outcome == diagnosisAttributed {
+				require.Equal(
+					t, req.Inputs[0].OutPoint(),
+					diagnosis.badInput,
+				)
+			}
+		})
+	}
+}
+
 // TestTxPublisherBroadcast checks the internal `broadcast` method behaves as
 // expected.
 func TestTxPublisherBroadcast(t *testing.T) {

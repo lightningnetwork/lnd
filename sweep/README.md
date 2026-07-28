@@ -111,6 +111,29 @@ perform an RBF again in the coming blocks.
 for the first time, unless its budget has been used up, `TxPublisher` will
 guarantee that the initial publish meets the RBF requirements.
 
+`TxPublisher` is also responsible for diagnosing failures that require access to
+the exact transaction candidate and the chain backend's mempool acceptance
+oracle. If `testmempoolaccept` reports missing inputs or a mempool conflict,
+`TxPublisher` first uses spend notifications to identify inputs spent by another
+transaction and reports them as `TxUnknownSpend`. When no spend is immediately
+attributable in a multi-input batch, it uses no-broadcast probes to isolate a
+missing singleton and reports that input as `BadInput`. The same probes diagnose
+unattributed non-fee mempool or script errors. Required-output probes use only
+independently accepted normal inputs as funding companions. Probe transactions
+are only tested for mempool acceptance; they are not published, stored, or
+monitored.
+
+`UtxoSweeper` owns pending input state and applies these diagnoses. Attributed
+spends are removed through the existing `TxUnknownSpend` flow. For isolated
+missing inputs and diagnosed mempool/script failures, only singleton inputs
+reported as bad are marked fatal; the remaining inputs in the batch restart at
+a fresh starting fee and can be retried by normal clustering. If probing is
+skipped or completes without an attributable singleton, the whole set is
+unconditionally fatal. If probing aborts before completion, the unchanged set
+is retryable only after its starting fee advances. Any fee-advance error,
+including reaching the maximum fee-function position, is fatal. Initial
+publication and replacement attempts follow the same rules.
+
 #### `FeeFunction`
 
 `FeeFunction` is an interface that specifies a function over a starting fee
@@ -210,4 +233,3 @@ outputs minus the sum of their budgets. By default, 50% of this value is used
 as the budget, to customize it, either use
 `--sweeper.budget.anchorcpfp` to specify sats, or use
 `--sweeper.budget.anchorcpfpratio` to specify a ratio.
-

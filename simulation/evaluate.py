@@ -24,10 +24,70 @@ ROUTESIM = os.environ.get("ROUTESIM_BIN", "routesim")
 # costs 2%. Both penalties saturate so that success rate always dominates:
 # the worst possible score is success_rate - 0.25, keeping deltas in
 # success rate visible to the optimizer even on pathological runs.
+#
+# THE 1/N RULE, and do not raise the fee weight without reading it. A scored
+# file holds between 6 and 10 payments (gen_scenarios.py draws randint(6, 10)),
+# so abandoning one payment in the smallest file costs 1/6 = 0.167 of
+# objective. The entire fee term is worth at most FEE_PPM_CAP * FEE_WEIGHT =
+# 0.100. The fee term is therefore structurally incapable of paying for
+# abandonment: even dropping the most expensive payment in a file and taking
+# the fee penalty to zero loses money. That factor of 1.67 is the only thing
+# standing between the fee term and the exp-013 give-up attractor.
+#
+#   The fee term's maximum value must stay strictly below 1/N, where N is the
+#   payment count of the smallest scored file.
+#
+# Doubling FEE_WEIGHT breaks it. Removing the cap breaks it unconditionally.
+# The safe way to make fees matter more is not a bigger weight on this metric,
+# it is a DIFFERENT metric: fee_ppm_attempted keeps the abandoned amount in its
+# denominator, so abandonment cannot improve it and the rule stops binding.
+# That substitution is FEE_METRIC_ATTEMPTED below, and it runs as a
+# pre-registered side-by-side arm scored offline, not as a change to what the
+# optimizer maximizes.
 ATTEMPT_WEIGHT = 0.01
 ATTEMPT_CAP = 15
 FEE_WEIGHT = 0.00002
 FEE_PPM_CAP = 5_000
+
+# The aggregate field the fee penalty is charged against. FEE_METRIC is what
+# every published number in this program was scored with. FEE_METRIC_ATTEMPTED
+# is the alternative: fees actually spent, including on payments that failed,
+# over the amount the batch was asked to deliver. Both are reported by every
+# run, so the alternative arm re-scores archived outputs with no re-execution.
+FEE_METRIC = "fee_ppm_on_success"
+FEE_METRIC_ATTEMPTED = "fee_ppm_attempted"
+
+# The one sentence about fees that every evaluator says unconditionally, in the
+# style the exp-017 rewrite established for the give-up rule. A thresholded
+# warning would not work here for the same reason it did not work there: fees
+# falling is not by itself evidence of anything.
+FEE_HINT = (
+    "Fees fall for two reasons, cheaper routes and fewer completed "
+    "payments, and only the first is an improvement: read fee_ppm "
+    "against success_rate exactly the way attempts are read against it."
+)
+
+
+def capped_fee_ppm(agg: dict, fee_metric: str = FEE_METRIC) -> float:
+    """The fee ppm the penalty is charged on, saturated at the cap."""
+    return min(agg[fee_metric], FEE_PPM_CAP)
+
+
+def composite_score(agg: dict, fee_metric: str = FEE_METRIC) -> float:
+    """The objective: success rate less the attempt and fee penalties.
+
+    Passing FEE_METRIC_ATTEMPTED scores the pre-registered alternative arm
+    off the same aggregate, which is why this lives in one place.
+    """
+    extra_attempts = min(
+        max(agg["attempts_per_scenario"] - 1.0, 0.0), ATTEMPT_CAP,
+    )
+
+    return (
+        agg["success_rate"]
+        - ATTEMPT_WEIGHT * extra_attempts
+        - FEE_WEIGHT * capped_fee_ppm(agg, fee_metric)
+    )
 
 
 def run_routesim(params_json: str, scenario_path: str) -> dict:
@@ -95,16 +155,7 @@ def evaluate(candidate: str, example) -> tuple[float, dict]:
 
     agg = output["aggregate"]
 
-    extra_attempts = min(
-        max(agg["attempts_per_scenario"] - 1.0, 0.0), ATTEMPT_CAP,
-    )
-    fee_ppm = min(agg["fee_ppm_on_success"], FEE_PPM_CAP)
-
-    score = (
-        agg["success_rate"]
-        - ATTEMPT_WEIGHT * extra_attempts
-        - FEE_WEIGHT * fee_ppm
-    )
+    score = composite_score(agg)
 
     return score, {
         "score": score,
@@ -116,7 +167,7 @@ def evaluate(candidate: str, example) -> tuple[float, dict]:
             "failure codes and the hop index where each failed. "
             "TemporaryChannelFailure = liquidity miss (probability model "
             "was wrong), FeeInsufficient/IncorrectCltvExpiry = policy "
-            "modeling bug."
+            "modeling bug. " + FEE_HINT
         ),
     }
 

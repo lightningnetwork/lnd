@@ -127,17 +127,8 @@ def run_compiled(binary, example) -> tuple[float, dict]:
             "error": "routesim output missing aggregate/results",
         }
 
-    extra_attempts = min(
-        max(agg["attempts_per_scenario"] - 1.0, 0.0),
-        params_eval.ATTEMPT_CAP,
-    )
-    fee_ppm = min(agg["fee_ppm_on_success"], params_eval.FEE_PPM_CAP)
-
-    score = (
-        agg["success_rate"]
-        - params_eval.ATTEMPT_WEIGHT * extra_attempts
-        - params_eval.FEE_WEIGHT * fee_ppm
-    )
+    fee_ppm = params_eval.capped_fee_ppm(agg)
+    score = params_eval.composite_score(agg)
 
     # Separate objective axes for Pareto-frontier preservation
     # (frontier_type="hybrid" in the engine config). Retries and parts
@@ -191,7 +182,12 @@ def run_compiled(binary, example) -> tuple[float, dict]:
         "payments failed without exhausting the attempt budget; for "
         "most candidates it simply equals 1 - success_rate, so read "
         "abandonment off the success/attempts pair, not off that "
-        "field alone.)"
+        "field alone.) " + params_eval.FEE_HINT + " A payment may also "
+        "carry a fee budget (spec.FeeLimitMsat, the total across all "
+        "shards, lnwire.MaxMilliSatoshi when there is none): a route "
+        "over budget is refused before it is sent, costing an attempt "
+        "and teaching nothing, and fee_limit_failures counts those "
+        "refusals."
     )
 
     return score, {

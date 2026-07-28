@@ -1497,7 +1497,7 @@ func (c *ChainArbitrator) loadPendingCloseChannels() error {
 // process.
 func (c *ChainArbitrator) RedispatchBlockbeat(chanPoints []wire.OutPoint) {
 	// Get the current blockbeat.
-	beat := c.beat
+	beat := chainio.WithoutProcessBlockDeadline(c.beat)
 
 	// Prepare two sets of consumers.
 	channels := make([]chainio.Consumer, 0, len(chanPoints))

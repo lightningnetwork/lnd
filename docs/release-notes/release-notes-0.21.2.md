@@ -43,6 +43,14 @@
   v0.20-era mandatory version so the v0.21 waiting proof migration runs
   without replaying older migrations against an already-initialized database.
 
+* [Fixed an issue](https://github.com/lightningnetwork/lnd/pull/10869) where an
+  incoming HTLC resolver could treat a foreign commitment spend as its own
+  success transaction and offer a phantom input to the sweeper.
+
+* [Fixed an ordering race](https://github.com/lightningnetwork/lnd/pull/10990)
+  where incoming HTLC expiry could be processed before the resolver retried
+  its success path at the same block height.
+
 # New Features
 
 ## Functional Enhancements
@@ -87,3 +95,4 @@
 
 * bitromortac
 * Jared Tobin
+* Yong Yu

@@ -3,10 +3,14 @@ package contractcourt
 import (
 	"bytes"
 	"io"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -59,7 +63,7 @@ func TestHtlcIncomingResolverFwdContestedSuccess(t *testing.T) {
 	ctx.resolve()
 
 	// Simulate a new block coming in. HTLC is not yet expired.
-	ctx.notifyEpoch(testInitialBlockHeight + 1)
+	ctx.notifyBlockbeat(testInitialBlockHeight + 1)
 
 	ctx.witnessBeacon.preImageUpdates <- testResPreimage
 	ctx.waitForResult(true)
@@ -76,7 +80,7 @@ func TestHtlcIncomingResolverFwdContestedTimeout(t *testing.T) {
 	// Replace our checkpoint with one which will push reports into a
 	// channel for us to consume. We replace this function on the resolver
 	// itself because it is created by the test context.
-	reportChan := make(chan *channeldb.ResolverReport)
+	reportChan := make(chan *channeldb.ResolverReport, 1)
 	ctx.resolver.Checkpoint = func(_ ContractResolver,
 		reports ...*channeldb.ResolverReport) error {
 
@@ -91,7 +95,7 @@ func TestHtlcIncomingResolverFwdContestedTimeout(t *testing.T) {
 	ctx.resolve()
 
 	// Simulate a new block coming in. HTLC expires.
-	ctx.notifyEpoch(testHtlcExpiry)
+	ctx.notifyBlockbeat(testHtlcExpiry)
 
 	// Assert that we have a failure resolution because our invoice was
 	// cancelled.
@@ -104,17 +108,369 @@ func TestHtlcIncomingResolverFwdContestedTimeout(t *testing.T) {
 	ctx.waitForResult(false)
 }
 
-// TestHtlcIncomingResolverFwdTimeout tests resolution of a forwarded htlc that
-// has already expired when the resolver starts.
-func TestHtlcIncomingResolverFwdTimeout(t *testing.T) {
+// TestHtlcIncomingResolverExpiryRechecksPreimage tests that timeout cannot
+// fail an HTLC whose preimage appeared after the prior Launch.
+func TestHtlcIncomingResolverExpiryRechecksPreimage(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, false)
+	require.NoError(t, ctx.resolver.Launch())
+	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
+
+	nextResolver, err := ctx.resolver.timeoutOrSuccessResolver(
+		testHtlcExpiry,
+	)
+	require.NoError(t, err)
+	require.Same(t, ctx.resolver.htlcSuccessResolver, nextResolver)
+	require.False(t, ctx.finalHtlcOutcomeStored)
+}
+
+// TestHtlcIncomingResolverNotifiesAfterCheckpoint tests that a checkpoint
+// failure does not emit a premature final HTLC notification.
+func TestHtlcIncomingResolverNotifiesAfterCheckpoint(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, false)
+	ctx.checkpointErr = io.ErrUnexpectedEOF
+
+	_, err := ctx.resolver.timeoutOrSuccessResolver(testHtlcExpiry)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.Empty(t, ctx.htlcNotifier.finalHtlcEvents)
+
+	nextResolver, err := ctx.resolver.timeoutOrSuccessResolver(
+		testHtlcExpiry + 1,
+	)
+	require.NoError(t, err)
+	require.Nil(t, nextResolver)
+	require.Len(t, ctx.htlcNotifier.finalHtlcEvents, 1)
+}
+
+// TestHtlcIncomingResolverRetriesExpiryError tests that a transient final
+// lookup error is retried on the next ordered blockbeat.
+func TestHtlcIncomingResolverRetriesExpiryError(t *testing.T) {
 	t.Parallel()
 	defer timeout()()
 
 	ctx := newIncomingResolverTestContext(t, true)
+	ctx.resolve()
+	sub := ctx.activeSub()
+	ctx.registry.notifyErr = io.ErrUnexpectedEOF
+	update := blockbeatUpdate{
+		beat:    newBeatFromHeight(testHtlcExpiry),
+		errChan: make(chan error, 1),
+	}
+	sub.blockbeatChan <- update
+	require.ErrorIs(t, <-update.errChan, io.ErrUnexpectedEOF)
+
+	ctx.registry.notifyErr = nil
+	ctx.notifyBlockbeat(testHtlcExpiry + 1)
+	ctx.waitForResult(false)
+}
+
+// TestHtlcIncomingResolverRetriesInitialExpiryError tests that an expiry
+// lookup failure after subscription is retried on the next blockbeat.
+func TestHtlcIncomingResolverRetriesInitialExpiryError(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, true)
+	require.NoError(t, ctx.resolver.Launch())
+	ctx.chainIO.setBestHeight(testHtlcExpiry)
+	ctx.registry.immediateErr = io.ErrUnexpectedEOF
+	ctx.registry.immediateErrAt = testHtlcExpiry
+	lookupAttempted := make(chan chan struct{})
+	ctx.registry.notifyHook = func() {
+		ctx.registry.notifyHook = nil
+		continueLookup := make(chan struct{})
+		lookupAttempted <- continueLookup
+		<-continueLookup
+	}
+	ctx.startResolve()
+	continueLookup := <-lookupAttempted
+
+	select {
+	case err := <-ctx.resolveErr:
+		t.Fatalf("resolver exited before retry: %v", err)
+	default:
+	}
+	ctx.chainIO.setBestHeight(testHtlcExpiry + 1)
+	update := blockbeatUpdate{
+		beat:    newBeatFromHeight(testHtlcExpiry + 1),
+		errChan: make(chan error, 1),
+	}
+	sub := ctx.activeSub()
+	go func() {
+		sub.blockbeatChan <- update
+	}()
+	close(continueLookup)
+	require.NoError(t, <-update.errChan)
+	ctx.waitForResult(false)
+}
+
+// TestHtlcIncomingResolverRetriesSettlementError tests that transient
+// immediate and hodl settlement errors remain subscribed for retry.
+func TestHtlcIncomingResolverRetriesSettlementError(t *testing.T) {
+	t.Parallel()
+
+	for _, immediate := range []bool{true, false} {
+		name := "hodl"
+		if immediate {
+			name = "immediate"
+		}
+
+		t.Run(name, func(t *testing.T) {
+			defer timeout()()
+
+			ctx := newIncomingResolverTestContext(t, true)
+			ctx.finalHtlcOutcomeErr = io.ErrUnexpectedEOF
+			settle := invoices.NewSettleResolution(
+				testResPreimage, testResCircuitKey,
+				testAcceptHeight, invoices.ResultSettled,
+			)
+
+			if immediate {
+				ctx.registry.subscribedResult = settle
+				require.NoError(t, ctx.resolver.Launch())
+				ctx.chainIO.setBestHeight(testHtlcExpiry)
+				ctx.startResolve()
+			} else {
+				ctx.resolve()
+				notifyData := <-ctx.registry.notifyChan
+				ctx.activeSub()
+				ctx.chainIO.setBestHeight(testHtlcExpiry)
+				notifyData.hodlChan <- settle
+			}
+
+			<-ctx.finalHtlcOutcomeFailed
+			ctx.notifyBlockbeat(testHtlcExpiry + 1)
+			ctx.waitForResult(false)
+		})
+	}
+}
+
+// TestHtlcIncomingResolverPrefersLaunchedSuccess tests that a failed pending
+// resolution cannot override a success path launched before its retry.
+func TestHtlcIncomingResolverPrefersLaunchedSuccess(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, true)
+	ctx.finalHtlcOutcomeErr = io.ErrUnexpectedEOF
+	ctx.registry.subscribedResult = invoices.NewFailResolution(
+		testResCircuitKey, testAcceptHeight, invoices.ResultCanceled,
+	)
+	ctx.resolve()
+	<-ctx.finalHtlcOutcomeFailed
+
+	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
+	require.NoError(t, ctx.resolver.Launch())
+	require.True(t, ctx.resolver.isLaunched())
+	ctx.notifyBlockbeat(testHtlcExpiry)
+	ctx.waitForResult(true)
+	require.False(t, ctx.finalHtlcOutcomeStored)
+}
+
+// TestHtlcIncomingResolverBlockbeatCancelResyncs tests that cancellation makes
+// the resolver resubscribe and process a height missed during dispatch.
+func TestHtlcIncomingResolverBlockbeatCancelResyncs(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, false)
+	ctx.resolve()
+	firstSub := ctx.activeSub()
+
+	ctx.chainIO.setBestHeight(testHtlcExpiry)
+	ctx.cancelActiveSub()
+	require.NotSame(t, firstSub, ctx.activeSub())
+
+	ctx.waitForResult(false)
+}
+
+// TestHtlcIncomingResolverLaunchBeforeExpiry tests that ChannelArbitrator
+// retries Launch before delivering the same expiry beat to Resolve.
+func TestHtlcIncomingResolverLaunchBeforeExpiry(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, false)
+	chanArb := &ChannelArbitrator{
+		state:           StateContractClosed,
+		activeResolvers: []ContractResolver{ctx.resolver},
+		quit:            make(chan struct{}),
+	}
+	chanArb.BeatConsumer = chainio.NewBeatConsumer(
+		chanArb.quit, "incoming expiry ordering test",
+	)
+	ctx.resolver.subscribeBlockbeats = chanArb.subscribeBlockbeats
+	ctx.chainIO.bestBlockRead = make(chan struct{}, 1)
+	ctx.resolve()
+	<-ctx.chainIO.bestBlockRead
+
+	ctx.chainIO.setBestHeight(testHtlcExpiry)
+	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
+	require.NoError(t, chanArb.handleBlockbeat(
+		newBeatFromHeight(testHtlcExpiry),
+	))
+	require.True(t, ctx.resolver.isLaunched())
+	ctx.waitForResult(true)
+	require.False(t, ctx.finalHtlcOutcomeStored)
+}
+
+// TestHtlcIncomingResolverFwdExpiredPreimageKnown tests resolution of an
+// expired forwarded HTLC whose preimage is already known when resolution
+// starts.
+func TestHtlcIncomingResolverFwdExpiredPreimageKnown(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, false)
 	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
 	ctx.resolver.htlcExpiry = 90
 	ctx.resolve()
-	ctx.waitForResult(false)
+	ctx.waitForResult(true)
+}
+
+// TestHtlcIncomingResolverExpiredSettlement tests the complete launch and
+// resolve lifecycle for fresh and replayed settlements at expiry.
+func TestHtlcIncomingResolverExpiredSettlement(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		outcome       invoices.SettleResolutionResult
+		expectSuccess bool
+	}{
+		{"settlement replay", invoices.ResultReplayToSettled, true},
+		{"fresh settlement", invoices.ResultSettled, false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			defer timeout()()
+
+			ctx := newIncomingResolverTestContext(t, true)
+			ctx.resolver.htlcExpiry = testInitialBlockHeight
+			ctx.registry.notifyResolution =
+				invoices.NewSettleResolution(
+					testResPreimage, testResCircuitKey,
+					testAcceptHeight, tc.outcome,
+				)
+
+			ctx.resolve()
+			ctx.waitForResult(tc.expectSuccess)
+		})
+	}
+}
+
+// TestHtlcIncomingResolverLaunchAfterExpiry tests which preimage sources may
+// start the success path once the HTLC has expired.
+func TestHtlcIncomingResolverLaunchAfterExpiry(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name                        string
+		isExit, known, expectLaunch bool
+		outcome                     invoices.SettleResolutionResult
+	}{
+		{"known preimage", false, true, true, 0},
+		{
+			"settlement replay", true, false, true,
+			invoices.ResultReplayToSettled,
+		},
+		{"fresh settlement", true, false, false,
+			invoices.ResultSettled},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			defer timeout()()
+
+			ctx := newIncomingResolverTestContext(t, tc.isExit)
+			ctx.resolver.htlcExpiry = testInitialBlockHeight
+			if tc.known {
+				ctx.witnessBeacon.lookupPreimage[testResHash] =
+					testResPreimage
+			} else {
+				ctx.registry.notifyResolution =
+					invoices.NewSettleResolution(
+						testResPreimage,
+						testResCircuitKey,
+						testAcceptHeight, tc.outcome,
+					)
+			}
+
+			require.NoError(t, ctx.resolver.Launch())
+			if tc.isExit {
+				require.Len(t, ctx.registry.immediateNotify, 1)
+				notify := ctx.registry.immediateNotify[0]
+				require.Equal(t, int32(testInitialBlockHeight),
+					notify.currentHeight)
+			}
+			require.Equal(
+				t, tc.expectLaunch, ctx.resolver.isLaunched(),
+			)
+			if tc.expectLaunch {
+				require.Equal(
+					t, [32]byte(testResPreimage),
+					ctx.resolver.htlcResolution.Preimage,
+				)
+
+				return
+			}
+			require.Zero(t, ctx.resolver.htlcResolution.Preimage)
+		})
+	}
+}
+
+// TestHtlcIncomingResolverLaunchUsesZeroHeightBeforeExpiry asserts that the
+// on-chain lookup bypasses the registry's admission-time CLTV safety margin.
+func TestHtlcIncomingResolverLaunchUsesZeroHeightBeforeExpiry(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	testHtlcIncomingResolverLaunchBeforeExpiry(t, false)
+}
+
+// TestHtlcIncomingResolverLaunchContinuesAfterLookupExpiry tests that a fresh
+// settlement accepted before expiry still launches if the tip advances while
+// the registry call returns.
+func TestHtlcIncomingResolverLaunchContinuesAfterLookupExpiry(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	testHtlcIncomingResolverLaunchBeforeExpiry(t, true)
+}
+
+func testHtlcIncomingResolverLaunchBeforeExpiry(t *testing.T, advance bool) {
+	t.Helper()
+
+	ctx := newIncomingResolverTestContext(t, true)
+	ctx.chainIO.setBestHeight(testHtlcExpiry - 1)
+	ctx.registry.notifyResolution = invoices.NewSettleResolution(
+		testResPreimage, testResCircuitKey, testAcceptHeight,
+		invoices.ResultSettled,
+	)
+	if advance {
+		ctx.registry.notifyHook = func() {
+			ctx.chainIO.setBestHeight(testHtlcExpiry)
+		}
+	}
+
+	require.NoError(t, ctx.resolver.Launch())
+	require.True(t, ctx.resolver.isLaunched())
+	require.Len(t, ctx.registry.immediateNotify, 1)
+	require.Equal(
+		t, int32(0), ctx.registry.immediateNotify[0].currentHeight,
+	)
+	require.Equal(
+		t, [32]byte(testResPreimage),
+		ctx.resolver.htlcResolution.Preimage,
+	)
 }
 
 // TestHtlcIncomingResolverExitSettle tests resolution of an exit hop htlc for
@@ -184,6 +540,37 @@ func TestHtlcIncomingResolverExitSettleHodl(t *testing.T) {
 	ctx.waitForResult(true)
 }
 
+// TestHtlcIncomingResolverExitSettleHodlAfterExpiry tests that a durable hodl
+// settlement replay wins over timeout once the HTLC has expired.
+func TestHtlcIncomingResolverExitSettleHodlAfterExpiry(t *testing.T) {
+	t.Parallel()
+	defer timeout()()
+
+	ctx := newIncomingResolverTestContext(t, true)
+	ctx.resolve()
+
+	notifyData := <-ctx.registry.notifyChan
+	require.False(t, ctx.resolver.htlcSuccessResolver.isLaunched())
+	ctx.registry.immediateResult = invoices.NewSettleResolution(
+		testResPreimage, testResCircuitKey, testAcceptHeight,
+		invoices.ResultReplayToSettled,
+	)
+	ctx.chainIO.setBestHeight(testHtlcExpiry)
+	notifyData.hodlChan <- invoices.NewSettleResolution(
+		testResPreimage, testResCircuitKey, testAcceptHeight,
+		invoices.ResultSettled,
+	)
+
+	ctx.waitForResult(true)
+	require.Equal(
+		t, [32]byte(testResPreimage),
+		ctx.resolver.htlcResolution.Preimage,
+	)
+	lastIndex := len(ctx.registry.immediateNotify) - 1
+	lastLookup := ctx.registry.immediateNotify[lastIndex]
+	require.Equal(t, int32(testHtlcExpiry), lastLookup.currentHeight)
+}
+
 // TestHtlcIncomingResolverExitTimeoutHodl tests resolution of an exit hop htlc
 // for a hodl invoice that times out.
 func TestHtlcIncomingResolverExitTimeoutHodl(t *testing.T) {
@@ -195,7 +582,7 @@ func TestHtlcIncomingResolverExitTimeoutHodl(t *testing.T) {
 	// Replace our checkpoint with one which will push reports into a
 	// channel for us to consume. We replace this function on the resolver
 	// itself because it is created by the test context.
-	reportChan := make(chan *channeldb.ResolverReport)
+	reportChan := make(chan *channeldb.ResolverReport, 1)
 	ctx.resolver.Checkpoint = func(_ ContractResolver,
 		reports ...*channeldb.ResolverReport) error {
 
@@ -208,7 +595,7 @@ func TestHtlcIncomingResolverExitTimeoutHodl(t *testing.T) {
 	}
 
 	ctx.resolve()
-	ctx.notifyEpoch(testHtlcExpiry)
+	ctx.notifyBlockbeat(testHtlcExpiry)
 
 	// Assert that we have a failure resolution because our invoice was
 	// cancelled.
@@ -411,15 +798,48 @@ func (m mockCustomHtlcChecker) IsCustomHTLC(lnwire.CustomRecords) bool {
 	return true
 }
 
+type incomingResolverChainIO struct {
+	*mock.ChainIO
+	mu            sync.RWMutex
+	bestBlockRead chan struct{}
+}
+
+func (i *incomingResolverChainIO) setBestHeight(height int32) {
+	i.mu.Lock()
+	i.BestHeight = height
+	i.mu.Unlock()
+}
+
+func (i *incomingResolverChainIO) GetBestBlock() (*chainhash.Hash, int32,
+	error) {
+
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	hash, height, err := i.ChainIO.GetBestBlock()
+	if i.bestBlockRead != nil {
+		i.bestBlockRead <- struct{}{}
+	}
+
+	return hash, height, err
+}
+
 type incomingResolverTestContext struct {
 	registry               *mockRegistry
 	witnessBeacon          *mockWitnessBeacon
 	resolver               *htlcIncomingContestResolver
 	notifier               *mock.ChainNotifier
+	chainIO                *incomingResolverChainIO
+	blockbeatSub           *incomingResolverBlockbeatSub
+	blockbeatSubChan       chan *incomingResolverBlockbeatSub
 	onionProcessor         *mockOnionProcessor
+	htlcNotifier           *mockHTLCNotifier
 	resolveErr             chan error
 	nextResolver           ContractResolver
 	finalHtlcOutcomeStored bool
+	finalHtlcOutcomeErr    error
+	finalHtlcOutcomeFailed chan struct{}
+	checkpointErr          error
 	t                      *testing.T
 }
 
@@ -430,11 +850,15 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 		ConfChan:  make(chan *chainntnfs.TxConfirmation),
 	}
 	witnessBeacon := newMockWitnessBeacon()
+	chainIO := &incomingResolverChainIO{
+		ChainIO: &mock.ChainIO{BestHeight: testInitialBlockHeight},
+	}
 	registry := &mockRegistry{
 		notifyChan: make(chan notifyExitHopData, 1),
 	}
 
 	onionProcessor := &mockOnionProcessor{isExit: isExit}
+	htlcNotifier := &mockHTLCNotifier{}
 
 	checkPointChan := make(chan struct{}, 1)
 
@@ -442,11 +866,13 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 		registry:       registry,
 		witnessBeacon:  witnessBeacon,
 		notifier:       notifier,
+		chainIO:        chainIO,
 		onionProcessor: onionProcessor,
+		htlcNotifier:   htlcNotifier,
 		t:              t,
 	}
-
-	htlcNotifier := &mockHTLCNotifier{}
+	c.blockbeatSubChan = make(chan *incomingResolverBlockbeatSub, 1)
+	c.finalHtlcOutcomeFailed = make(chan struct{}, 1)
 
 	chainCfg := ChannelArbitratorConfig{
 		ChainArbitratorConfig: ChainArbitratorConfig{
@@ -456,6 +882,14 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 			OnionProcessor: onionProcessor,
 			PutFinalHtlcOutcome: func(chanId lnwire.ShortChannelID,
 				htlcId uint64, settled bool) error {
+
+				if c.finalHtlcOutcomeErr != nil {
+					err := c.finalHtlcOutcomeErr
+					c.finalHtlcOutcomeErr = nil
+					c.finalHtlcOutcomeFailed <- struct{}{}
+
+					return err
+				}
 
 				c.finalHtlcOutcomeStored = true
 
@@ -469,18 +903,27 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 				return nil
 			},
 			Sweeper: newMockSweeper(),
+			ChainIO: chainIO,
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
 			_ *channeldb.ResolverReport) error {
 
 			return nil
 		},
+		subscribeBlockbeats: c.subscribeBeats,
 	}
 
 	cfg := ResolverConfig{
 		ChannelArbitratorConfig: chainCfg,
 		Checkpoint: func(_ ContractResolver,
 			_ ...*channeldb.ResolverReport) error {
+
+			if c.checkpointErr != nil {
+				err := c.checkpointErr
+				c.checkpointErr = nil
+
+				return err
+			}
 
 			checkPointChan <- struct{}{}
 			return nil
@@ -510,26 +953,84 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 	return c
 }
 
-func (i *incomingResolverTestContext) resolve() {
-	// Start resolver.
-	i.resolveErr = make(chan error, 1)
-	go func() {
-		var err error
-
-		err = i.resolver.Launch()
-		require.NoError(i.t, err)
-
-		i.nextResolver, err = i.resolver.Resolve()
-		i.resolveErr <- err
-	}()
-
-	// Notify initial block height.
-	i.notifyEpoch(testInitialBlockHeight)
+type incomingResolverBlockbeatSub struct {
+	sub    *blockbeatSubscription
+	cancel func()
 }
 
-func (i *incomingResolverTestContext) notifyEpoch(height int32) {
-	i.notifier.EpochChan <- &chainntnfs.BlockEpoch{
-		Height: height,
+func (i *incomingResolverTestContext) resolve() {
+	require.NoError(i.t, i.resolver.Launch())
+	i.startResolve()
+}
+
+func (i *incomingResolverTestContext) startResolve() {
+	i.resolveErr = make(chan error, 1)
+	go func() {
+		nextResolver, err := i.resolver.Resolve()
+		i.nextResolver = nextResolver
+		i.resolveErr <- err
+	}()
+}
+
+func (i *incomingResolverTestContext) subscribeBeats() (
+	*blockbeatSubscription, func()) {
+
+	sub := &blockbeatSubscription{
+		blockbeatChan: make(chan blockbeatUpdate),
+		quit:          make(chan struct{}),
+	}
+	var cancelOnce sync.Once
+	cancel := func() {
+		cancelOnce.Do(func() {
+			close(sub.quit)
+		})
+	}
+
+	i.blockbeatSubChan <- &incomingResolverBlockbeatSub{
+		sub:    sub,
+		cancel: cancel,
+	}
+
+	return sub, cancel
+}
+
+func (i *incomingResolverTestContext) activeSub() *blockbeatSubscription {
+	if i.blockbeatSub != nil {
+		return i.blockbeatSub.sub
+	}
+
+	select {
+	case i.blockbeatSub = <-i.blockbeatSubChan:
+		return i.blockbeatSub.sub
+	case <-time.After(time.Second):
+		i.t.Fatal("timeout waiting for blockbeat subscription")
+		return nil
+	}
+}
+
+func (i *incomingResolverTestContext) cancelActiveSub() {
+	i.blockbeatSub.cancel()
+	i.blockbeatSub = nil
+}
+
+func (i *incomingResolverTestContext) notifyBlockbeat(height int32) {
+	sub := i.activeSub()
+	update := blockbeatUpdate{
+		beat:    newBeatFromHeight(height),
+		errChan: make(chan error, 1),
+	}
+
+	select {
+	case sub.blockbeatChan <- update:
+	case <-time.After(time.Second):
+		i.t.Fatal("timeout sending blockbeat")
+	}
+
+	select {
+	case err := <-update.errChan:
+		require.NoError(i.t, err)
+	case <-time.After(time.Second):
+		i.t.Fatal("timeout waiting for blockbeat ack")
 	}
 }
 

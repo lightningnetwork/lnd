@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
@@ -37,6 +38,12 @@ type htlcIncomingContestResolver struct {
 	// htlcSuccessResolver is the inner resolver that may be utilized if we
 	// learn of the preimage.
 	*htlcSuccessResolver
+
+	// transitionMtx serializes launch-time preimage lookup with timeout.
+	transitionMtx sync.Mutex
+
+	// preimageMtx protects the inner resolution and canned witness update.
+	preimageMtx sync.Mutex
 }
 
 // newIncomingContestResolver instantiates a new incoming htlc contest resolver.
@@ -57,14 +64,14 @@ func newIncomingContestResolver(
 
 func (h *htlcIncomingContestResolver) processFinalHtlcFail() error {
 	// Mark the htlc as final failed.
-	err := h.ChainArbitratorConfig.PutFinalHtlcOutcome(
+	return h.ChainArbitratorConfig.PutFinalHtlcOutcome(
 		h.ChannelArbitratorConfig.ShortChanID, h.htlc.HtlcIndex, false,
 	)
-	if err != nil {
-		return err
-	}
+}
 
-	// Send notification.
+// notifyFinalHtlcFail notifies subscribers after the failed resolver state is
+// durably checkpointed.
+func (h *htlcIncomingContestResolver) notifyFinalHtlcFail() {
 	h.ChainArbitratorConfig.HtlcNotifier.NotifyFinalHtlcEvent(
 		models.CircuitKey{
 			ChanID: h.ShortChanID,
@@ -75,8 +82,6 @@ func (h *htlcIncomingContestResolver) processFinalHtlcFail() error {
 			Offchain: false,
 		},
 	)
-
-	return nil
 }
 
 // invalidFinalHtlc returns true if the HTLC is an exit-hop HTLC that fails
@@ -107,6 +112,13 @@ func (h *htlcIncomingContestResolver) invalidFinalHtlc(
 // Launch will call the inner resolver's launch method if the preimage can be
 // found, otherwise it's a no-op.
 func (h *htlcIncomingContestResolver) Launch() error {
+	h.transitionMtx.Lock()
+	defer h.transitionMtx.Unlock()
+	if h.IsResolved() {
+		h.log.Tracef("already resolved")
+		return nil
+	}
+
 	// NOTE: we don't mark this resolver as launched as the inner resolver
 	// will set it when it's launched.
 	if h.isLaunched() {
@@ -178,26 +190,18 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			nil, channeldb.ResolverTypeIncomingHtlc,
 			channeldb.ResolverOutcomeAbandoned,
 		)
-		return nil, h.PutResolverReport(nil, resReport)
+		if err := h.PutResolverReport(nil, resReport); err != nil {
+			return nil, err
+		}
+
+		h.notifyFinalHtlcFail()
+
+		return nil, nil
 	}
 
-	// Register for block epochs. After registration, the current height
-	// will be sent on the channel immediately.
-	blockEpochs, err := h.Notifier.RegisterBlockEpochNtfn(nil)
+	_, currentHeight, err := h.ChainIO.GetBestBlock()
 	if err != nil {
 		return nil, err
-	}
-	defer blockEpochs.Cancel()
-
-	var currentHeight int32
-	select {
-	case newBlock, ok := <-blockEpochs.Epochs:
-		if !ok {
-			return nil, errResolverShuttingDown
-		}
-		currentHeight = newBlock.Height
-	case <-h.quit:
-		return nil, errResolverShuttingDown
 	}
 
 	log.Debugf("%T(%v): Resolving incoming HTLC(expiry=%v, height=%v)", h,
@@ -226,38 +230,13 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			channeldb.ResolverOutcomeAbandoned,
 		)
 
-		return nil, h.Checkpoint(h, report)
-	}
-
-	// We'll first check if this HTLC has been timed out, if so, we can
-	// return now and mark ourselves as resolved. If we're past the point of
-	// expiry of the HTLC, then at this point the sender can sweep it, so
-	// we'll end our lifetime. Here we deliberately forego the chance that
-	// the sender doesn't sweep and we already have or will learn the
-	// preimage. Otherwise the resolver could potentially stay active
-	// indefinitely and the channel will never close properly.
-	if uint32(currentHeight) >= h.htlcExpiry {
-		// TODO(roasbeef): should also somehow check if outgoing is
-		// resolved or not
-		//  * may need to hook into the circuit map
-		//  * can't timeout before the outgoing has been
-
-		log.Infof("%T(%v): HTLC has timed out (expiry=%v, height=%v), "+
-			"abandoning", h, h.htlcResolution.ClaimOutpoint,
-			h.htlcExpiry, currentHeight)
-		h.markResolved()
-
-		if err := h.processFinalHtlcFail(); err != nil {
+		if err := h.Checkpoint(h, report); err != nil {
 			return nil, err
 		}
 
-		// Finally, get our report and checkpoint our resolver with a
-		// timeout outcome report.
-		report := h.report().resolverReport(
-			nil, channeldb.ResolverTypeIncomingHtlc,
-			channeldb.ResolverOutcomeTimeout,
-		)
-		return nil, h.Checkpoint(h, report)
+		h.notifyFinalHtlcFail()
+
+		return nil, nil
 	}
 
 	// Define a closure to process htlc resolutions either directly or
@@ -271,7 +250,18 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// If the htlc resolution was a settle, apply the
 		// preimage and return a success resolver.
 		case *invoices.HtlcSettleResolution:
-			err := h.applyPreimage(resolution.Preimage)
+			_, bestHeight, err := h.ChainIO.GetBestBlock()
+			if err != nil {
+				return nil, err
+			}
+			height := uint32(bestHeight)
+			if height >= h.htlcExpiry &&
+				resolution.Outcome == invoices.ResultSettled {
+
+				return h.timeoutOrSuccessResolver(height)
+			}
+
+			err = h.applyPreimage(resolution.Preimage)
 			if err != nil {
 				return nil, err
 			}
@@ -286,8 +276,6 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 				h.htlcResolution.ClaimOutpoint,
 				h.htlcExpiry, currentHeight)
 
-			h.markResolved()
-
 			if err := h.processFinalHtlcFail(); err != nil {
 				return nil, err
 			}
@@ -298,7 +286,16 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 				nil, channeldb.ResolverTypeIncomingHtlc,
 				channeldb.ResolverOutcomeAbandoned,
 			)
-			return nil, h.Checkpoint(h, report)
+
+			h.markResolved()
+			if err := h.Checkpoint(h, report); err != nil {
+				h.resolved.Store(false)
+				return nil, err
+			}
+
+			h.notifyFinalHtlcFail()
+
+			return nil, nil
 
 		// Error if the resolution type is unknown, we are only
 		// expecting settles and fails.
@@ -309,9 +306,28 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	}
 
 	var (
-		hodlChan       <-chan interface{}
-		witnessUpdates <-chan lntypes.Preimage
+		hodlChan          <-chan interface{}
+		witnessUpdates    <-chan lntypes.Preimage
+		pendingResolution invoices.HtlcResolution
 	)
+	processPendingResolution := func() (ContractResolver, error) {
+		switch pendingResolution.(type) {
+		case *invoices.HtlcFailResolution:
+		default:
+			return processHtlcResolution(pendingResolution)
+		}
+
+		// A failed resolution can become stale while Launch retries the
+		// success path. Serialize the choice with Launch and prefer the
+		// already-launched success resolver.
+		h.transitionMtx.Lock()
+		defer h.transitionMtx.Unlock()
+		if h.isLaunched() {
+			return h.htlcSuccessResolver, nil
+		}
+
+		return processHtlcResolution(pendingResolution)
+	}
 	if payload.FwdInfo.NextHop == hop.Exit {
 		// Create a buffered hodl chan to prevent deadlock.
 		hodlQueue := queue.NewConcurrentQueue(10)
@@ -356,12 +372,26 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			// was known to the registry, we can directly resolve
 			// the htlc.
 			if res.Outcome != invoices.ResultInvoiceNotFound {
-				return processHtlcResolution(resolution)
+				nextResolver, err := processHtlcResolution(
+					resolution,
+				)
+				if err == nil {
+					return nextResolver, nil
+				}
+
+				h.log.Errorf("HTLC resolution failed: %v", err)
+				pendingResolution = resolution
 			}
 
 		// If we settled the htlc, we can resolve it.
 		case *invoices.HtlcSettleResolution:
-			return processHtlcResolution(resolution)
+			nextResolver, err := processHtlcResolution(resolution)
+			if err == nil {
+				return nextResolver, nil
+			}
+
+			h.log.Errorf("HTLC resolution failed: %v", err)
+			pendingResolution = resolution
 
 		// If the resolution is nil, the htlc was neither settled nor
 		// failed so we cannot take action at present.
@@ -409,6 +439,53 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		witnessUpdates = preimageSubscription.WitnessUpdates
 	}
 
+	if h.subscribeBlockbeats == nil {
+		return nil, errors.New("blockbeat subscription unavailable")
+	}
+
+	subscribe := func() (*blockbeatSubscription, func(),
+		ContractResolver, error) {
+
+		blockbeatSub, cancel := h.subscribeBlockbeats()
+		// Register so a concurrent beat is either delivered here or
+		// reflected by GetBestBlock.
+		_, currentHeight, err = h.ChainIO.GetBestBlock()
+		if err != nil {
+			h.log.Errorf("Height resync failed: %v", err)
+			return blockbeatSub, cancel, nil, nil
+		}
+
+		if pendingResolution != nil {
+			return blockbeatSub, cancel, nil, nil
+		}
+
+		if uint32(currentHeight) >= h.htlcExpiry {
+			nextResolver, err := h.timeoutOrSuccessResolver(
+				uint32(currentHeight),
+			)
+			if err != nil {
+				h.log.Errorf("Expiry failed: %v", err)
+				return blockbeatSub, cancel, nil, nil
+			}
+
+			cancel()
+
+			return nil, nil, nextResolver, nil
+		}
+
+		return blockbeatSub, cancel, nil, nil
+	}
+
+	blockbeatSub, cancelBlockbeats, nextResolver, err := subscribe()
+	if blockbeatSub == nil || err != nil {
+		return nextResolver, err
+	}
+	defer func() {
+		if cancelBlockbeats != nil {
+			cancelBlockbeats()
+		}
+	}()
+
 	for {
 		select {
 		case preimage := <-witnessUpdates:
@@ -432,35 +509,62 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 
 		case hodlItem := <-hodlChan:
 			htlcResolution := hodlItem.(invoices.HtlcResolution)
-			return processHtlcResolution(htlcResolution)
+			nextResolver, err := processHtlcResolution(
+				htlcResolution,
+			)
+			if err == nil {
+				return nextResolver, nil
+			}
 
-		case newBlock, ok := <-blockEpochs.Epochs:
-			if !ok {
-				return nil, errResolverShuttingDown
+			h.log.Errorf("HTLC resolution failed: %v", err)
+			pendingResolution = htlcResolution
+
+		case update := <-blockbeatSub.blockbeatChan:
+			if pendingResolution != nil {
+				nextResolver, err := processPendingResolution()
+				update.ack(err)
+				if err != nil {
+					h.log.Errorf(
+						"Resolution failed: %v", err,
+					)
+
+					continue
+				}
+
+				return nextResolver, nil
 			}
 
 			// If this new height expires the HTLC, then this means
 			// we never found out the preimage, so we can mark
 			// resolved and exit.
-			newHeight := uint32(newBlock.Height)
+			currentHeight = update.beat.Height()
+			newHeight := uint32(currentHeight)
 			if newHeight >= h.htlcExpiry {
-				log.Infof("%T(%v): HTLC has timed out "+
-					"(expiry=%v, height=%v), abandoning", h,
-					h.htlcResolution.ClaimOutpoint,
-					h.htlcExpiry, currentHeight)
-
-				h.markResolved()
-
-				if err := h.processFinalHtlcFail(); err != nil {
-					return nil, err
+				nextResolver, err := h.timeoutOrSuccessResolver(
+					newHeight,
+				)
+				update.ack(err)
+				if err != nil {
+					h.log.Errorf("Expiry failed: %v", err)
+					continue
 				}
 
-				report := h.report().resolverReport(
-					nil,
-					channeldb.ResolverTypeIncomingHtlc,
-					channeldb.ResolverOutcomeTimeout,
-				)
-				return nil, h.Checkpoint(h, report)
+				return nextResolver, nil
+			}
+			update.ack(nil)
+
+		case <-blockbeatSub.quit:
+			select {
+			case <-h.quit:
+				return nil, errResolverShuttingDown
+			default:
+			}
+
+			cancelBlockbeats()
+			blockbeatSub, cancelBlockbeats, nextResolver, err =
+				subscribe()
+			if blockbeatSub == nil || err != nil {
+				return nextResolver, err
 			}
 
 		case <-h.quit:
@@ -469,12 +573,62 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	}
 }
 
+// timeoutOrSuccessResolver continues a success path selected by Launch before
+// recording the HTLC as timed out.
+func (h *htlcIncomingContestResolver) timeoutOrSuccessResolver(
+	currentHeight uint32) (ContractResolver, error) {
+
+	h.transitionMtx.Lock()
+	defer h.transitionMtx.Unlock()
+
+	if h.isLaunched() {
+		return h.htlcSuccessResolver, nil
+	}
+	// A raw best-height check can observe expiry before the ordered beat is
+	// dispatched. Perform the same final lookup as Launch before failing.
+	applied, err := h.findAndapplyPreimage()
+	if err != nil {
+		return nil, err
+	}
+	if applied {
+		return h.htlcSuccessResolver, nil
+	}
+
+	// TODO(roasbeef): For forwarded HTLCs, also check whether the outgoing
+	// circuit resolved before timing out the incoming side.
+	log.Infof("%T(%v): HTLC has timed out (expiry=%v, height=%v), "+
+		"abandoning", h, h.htlcResolution.ClaimOutpoint, h.htlcExpiry,
+		currentHeight)
+
+	if err := h.processFinalHtlcFail(); err != nil {
+		return nil, err
+	}
+
+	report := h.report().resolverReport(
+		nil, channeldb.ResolverTypeIncomingHtlc,
+		channeldb.ResolverOutcomeTimeout,
+	)
+
+	h.markResolved()
+	if err := h.Checkpoint(h, report); err != nil {
+		h.resolved.Store(false)
+		return nil, err
+	}
+
+	h.notifyFinalHtlcFail()
+
+	return nil, nil
+}
+
 // applyPreimage is a helper function that will populate our internal resolver
 // with the preimage we learn of. This should be called once the preimage is
 // revealed so the inner resolver can properly complete its duties. The error
 // return value indicates whether the preimage was properly applied.
 func (h *htlcIncomingContestResolver) applyPreimage(
 	preimage lntypes.Preimage) error {
+
+	h.preimageMtx.Lock()
+	defer h.preimageMtx.Unlock()
 
 	// Sanity check to see if this preimage matches our htlc. At this point
 	// it should never happen that it does not match.
@@ -660,9 +814,8 @@ func (h *htlcIncomingContestResolver) decodePayload() (*hop.Payload,
 var _ htlcContractResolver = (*htlcIncomingContestResolver)(nil)
 
 // findAndapplyPreimage performs a non-blocking read to find the preimage for
-// the incoming HTLC. If found, it will be applied to the resolver. This method
-// is used for the resolver to decide whether it wants to transform into a
-// success resolver during launching.
+// the incoming HTLC. A fresh invoice settlement does not start after expiry,
+// while a preimage that was already known can still be claimed.
 //
 // NOTE: Since we have two places to query the preimage, we need to check both
 // the preimage db and the invoice db to look up the preimage.
@@ -711,6 +864,21 @@ func (h *htlcIncomingContestResolver) findAndapplyPreimage() (bool, error) {
 		return false, nil
 	}
 
+	_, bestHeight, err := h.ChainIO.GetBestBlock()
+	if err != nil {
+		return false, err
+	}
+
+	// Before absolute expiry, preserve the zero-height sentinel used by
+	// this on-chain recovery path. Passing the current height would apply
+	// the registry's admission-time CLTV safety margin to an HTLC that is
+	// already on chain. At expiry, pass the real height so a fresh invoice
+	// settlement cannot be created.
+	registryHeight := int32(0)
+	if uint32(bestHeight) >= h.htlcExpiry {
+		registryHeight = bestHeight
+	}
+
 	// Notify registry that we are potentially resolving as an exit hop
 	// on-chain. If this HTLC indeed pays to an existing invoice, the
 	// invoice registry will tell us what to do with the HTLC. This is
@@ -724,13 +892,13 @@ func (h *htlcIncomingContestResolver) findAndapplyPreimage() (bool, error) {
 	// immediately, we'll assume we don't know it yet and let the `Resolve`
 	// handle the waiting.
 	//
-	// NOTE: we use a nil subscriber here and a zero current height as we
-	// are only interested in the settle resolution.
+	// NOTE: we use a nil subscriber here as we are only interested in the
+	// settle resolution.
 	//
 	// TODO(yy): move this logic to link and let the preimage be accessed
 	// via the preimage beacon.
 	resolution, err := h.Registry.NotifyExitHopHtlc(
-		h.htlc.RHash, h.htlc.Amt, h.htlcExpiry, 0,
+		h.htlc.RHash, h.htlc.Amt, h.htlcExpiry, registryHeight,
 		circuitKey, nil, h.htlc.CustomRecords, payload,
 	)
 	if err != nil {
@@ -741,6 +909,14 @@ func (h *htlcIncomingContestResolver) findAndapplyPreimage() (bool, error) {
 
 	// Exit early if it's not a settle resolution.
 	if !ok {
+		return false, nil
+	}
+
+	// A fresh invoice settlement is too late once the HTLC expires. Other
+	// settle outcomes describe a preimage that was already persisted.
+	if uint32(bestHeight) >= h.htlcExpiry &&
+		res.Outcome == invoices.ResultSettled {
+
 		return false, nil
 	}
 

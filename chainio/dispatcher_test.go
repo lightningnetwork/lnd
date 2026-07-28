@@ -10,6 +10,73 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type deadlineConsumer struct {
+	name    string
+	process func(Blockbeat) error
+}
+
+func (d *deadlineConsumer) Name() string {
+	return d.name
+}
+
+func (d *deadlineConsumer) ProcessBlock(beat Blockbeat) error {
+	return d.process(beat)
+}
+
+// TestProcessBlockDeadlineDispatchScope verifies that nested dispatches share
+// their parent's deadline while a redispatch receives a fresh deadline.
+func TestProcessBlockDeadlineDispatchScope(t *testing.T) {
+	t.Parallel()
+
+	beat := NewBeat(chainntnfs.BlockEpoch{Height: 1})
+	var parentBeat Blockbeat
+	var parentDeadline, childDeadline time.Time
+
+	child := &deadlineConsumer{
+		name: "child",
+		process: func(beat Blockbeat) error {
+			var ok bool
+			childDeadline, ok = ProcessBlockDeadline(beat)
+			require.True(t, ok)
+
+			return nil
+		},
+	}
+	parent := &deadlineConsumer{
+		name: "parent",
+		process: func(beat Blockbeat) error {
+			parentBeat = beat
+			var ok bool
+			parentDeadline, ok = ProcessBlockDeadline(beat)
+			require.True(t, ok)
+
+			return notifyAndWait(beat, child, 2*time.Second)
+		},
+	}
+
+	require.NoError(t, notifyAndWait(beat, parent, time.Second))
+	require.Equal(t, parentDeadline, childDeadline)
+
+	redispatchBeat := WithoutProcessBlockDeadline(parentBeat)
+	_, ok := ProcessBlockDeadline(redispatchBeat)
+	require.False(t, ok)
+
+	var redispatchDeadline time.Time
+	redispatch := &deadlineConsumer{
+		name: "redispatch",
+		process: func(beat Blockbeat) error {
+			redispatchDeadline, ok = ProcessBlockDeadline(beat)
+			require.True(t, ok)
+
+			return nil
+		},
+	}
+	require.NoError(t, notifyAndWait(
+		redispatchBeat, redispatch, 2*time.Second,
+	))
+	require.True(t, redispatchDeadline.After(parentDeadline))
+}
+
 // TestNotifyAndWaitOnConsumerErr asserts when the consumer returns an error,
 // it's returned by notifyAndWait.
 func TestNotifyAndWaitOnConsumerErr(t *testing.T) {

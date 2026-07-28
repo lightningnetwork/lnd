@@ -1,8 +1,11 @@
 package routing
 
 import (
+	"context"
 	"testing"
 
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -451,4 +454,89 @@ func TestInboundFeeCounters(t *testing.T) {
 	require.Nil(t, result.Failure)
 	require.Equal(t, SimPolicyStats{InboundFeeCharged: 2},
 		graph.PolicyStats())
+}
+
+// TestInboundFeeGossipExposure pins lead decision 2. The sealed view exposes
+// an inbound fee in exactly one place, on the channel of the node that charges
+// it, and the option lnd's own cache carries on the incoming policy stays
+// empty because there it describes the other node entirely.
+func TestInboundFeeGossipExposure(t *testing.T) {
+	t.Parallel()
+
+	graph, nodes := atomicTestGraph(t)
+	source, nodeA := nodes[0], nodes[1]
+	graph.inboundFees = true
+
+	// Both parties to channel 1 announce an inbound fee, so a view that
+	// picked the wrong end would still find a number and look right.
+	setInboundFee(t, graph, 1, source, -11, -22)
+	setInboundFee(t, graph, 1, nodeA, -33, -44)
+
+	// look returns the directed channel the given node sees for channel 1.
+	look := func(node route.Vertex) *graphdb.DirectedChannel {
+		var found *graphdb.DirectedChannel
+
+		require.NoError(t, graph.ForEachNodeDirectedChannel(
+			context.Background(), node,
+			func(ch *graphdb.DirectedChannel) error {
+				if ch.ChannelID == 1 {
+					found = ch
+				}
+
+				return nil
+			}, func() {},
+		))
+		require.NotNil(t, found)
+
+		return found
+	}
+
+	fromSource := look(source)
+	require.Equal(t, lnwire.Fee{BaseFee: -11, FeeRate: -22},
+		fromSource.InboundFee)
+	require.True(t, fromSource.InPolicy.InboundFee.IsNone())
+
+	fromNodeA := look(nodeA)
+	require.Equal(t, lnwire.Fee{BaseFee: -33, FeeRate: -44},
+		fromNodeA.InboundFee)
+	require.True(t, fromNodeA.InPolicy.InboundFee.IsNone())
+
+	// With the mechanism off the view is the one every published number
+	// was measured against, whatever the policies carry.
+	graph.inboundFees = false
+	require.Equal(t, lnwire.Fee{}, look(source).InboundFee)
+	require.Equal(t, lnwire.Fee{}, look(nodeA).InboundFee)
+}
+
+// TestInboundFeeReachesLndPathfinding checks that the arm this stage was half
+// written for actually consumes the data. lnd's path finding reads inbound
+// fees off the directed channel through nodeEdgeUnifier.addGraphPolicies, and
+// that code has been running against a hardcoded zero for the entire program
+// because the sim never set the field.
+func TestInboundFeeReachesLndPathfinding(t *testing.T) {
+	t.Parallel()
+
+	graph, nodes := atomicTestGraph(t)
+	source, nodeA := nodes[0], nodes[1]
+	graph.inboundFees = true
+
+	setInboundFee(t, graph, 1, nodeA, -500, -100)
+
+	// The unifier is built for node A the way pathfinding builds it for a
+	// pivot that is not the exit hop, and fed from the sealed view.
+	unifier := newNodeEdgeUnifier(source, nodeA, true, nil)
+	require.NoError(t, unifier.addGraphPolicies(graph))
+
+	edges := unifier.edgeUnifiers[source]
+	require.NotNil(t, edges)
+	require.Len(t, edges.edges, 1)
+	require.Equal(t, models.InboundFee{Base: -500, Rate: -100},
+		edges.edges[0].inboundFees)
+
+	// The exit hop is the case lnd zeroes out explicitly, and it still
+	// does so here.
+	exit := newNodeEdgeUnifier(source, nodeA, false, nil)
+	require.NoError(t, exit.addGraphPolicies(graph))
+	require.Equal(t, models.InboundFee{},
+		exit.edgeUnifiers[source].edges[0].inboundFees)
 }

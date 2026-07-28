@@ -54,6 +54,27 @@ type SimPaymentSpec struct {
 // concrete graph type so that candidate implementations cannot reach the
 // hidden balances or mutate liquidity — the same information asymmetry a
 // real sender faces.
+//
+// INBOUND FEES, and the one direction rule worth reading twice. Iterating a
+// node's channels with ForEachNodeDirectedChannel yields DirectedChannel
+// values whose InboundFee belongs to the node being iterated, NOT to the node
+// at the other end. It is what that node charges for htlcs ARRIVING to it over
+// that channel, and it is charged on the amount the node forwards onward plus
+// the fee it charges for forwarding, never on the amount it received. It is
+// signed, and in practice it is usually negative: a discount for inbound flow.
+//
+// A forwarding node's total fee is its outbound fee plus its inbound fee,
+// floored at zero, so a discount larger than the outbound fee it nets against
+// buys a free forward and no more. The sender pays no inbound fee to itself
+// and the destination charges none, so on a route of k hops there are k-1
+// inbound fees to price.
+//
+// A router that scores edges from a single policy per directed edge will miss
+// all of this, because an inbound fee is attached to the node receiving rather
+// than to the direction of flow. DirectedChannel.InPolicy carries no inbound
+// fee at all here: on lnd's own cache that field describes a different node
+// than DirectedChannel.InboundFee does, and this view exposes the fee in
+// exactly one unambiguous place instead of reproducing that trap.
 type SimNetworkView interface {
 	Graph
 	GraphSessionFactory

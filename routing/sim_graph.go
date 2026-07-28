@@ -514,6 +514,17 @@ func (g *SimGraph) LocalBalances(
 // given node, presenting the public gossip view (policies and capacity, not
 // balances).
 //
+// The inbound fee on each directed channel is the ITERATED node's own, the
+// one it charges for htlcs arriving to it over that channel. That is the same
+// thing lnd's graph cache puts there (graph/db/graph_cache.go writes it from
+// the node's own outgoing update), so lnd's path finding reads it correctly
+// with no adaptation, and it is the one unambiguous place a candidate can
+// find it. InPolicy.InboundFee is deliberately left unset: on lnd's cache
+// that option describes the OTHER node's inbound fee, and a sealed gossip
+// view is a protocol surface rather than a replica of one implementation's
+// cache. See the SimNetworkView contract for the convention as candidates
+// are told it.
+//
 // NOTE: Part of the Graph interface.
 func (g *SimGraph) ForEachNodeDirectedChannel(_ context.Context,
 	nodePub route.Vertex, cb func(channel *graphdb.DirectedChannel) error,
@@ -529,12 +540,22 @@ func (g *SimGraph) ForEachNodeDirectedChannel(_ context.Context,
 		otherEnd := channel.otherEnd(nodePub)
 		inPolicy := otherEnd.policy
 
+		// While the mechanism is off the field stays at the zero fee it
+		// has carried for the whole program, so a graph loaded from a
+		// snapshot full of real inbound fees still presents the view
+		// every published number was measured against.
+		var inboundFee lnwire.Fee
+		if g.inboundFees {
+			inboundFee = ourEnd.policy.wireInboundFee()
+		}
+
 		directedChannel := &graphdb.DirectedChannel{
 			ChannelID:    channel.ID,
 			IsNode1:      nodePub == channel.ends[0].owner,
 			OtherNode:    otherEnd.owner,
 			Capacity:     channel.Capacity,
 			OutPolicySet: !ourEnd.policy.Disabled,
+			InboundFee:   inboundFee,
 			InPolicy: &models.CachedEdgePolicy{
 				ChannelID:     channel.ID,
 				IsDisabled:    inPolicy.Disabled,

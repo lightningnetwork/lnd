@@ -36,6 +36,21 @@ switches on the pricing that charges it. Generated tiers have never announced
 one anywhere, and lnd's own inbound fee machinery has been running against a
 hardcoded zero for the whole program. Like --attribution it stamps a section
 and makes no rng draw.
+
+--fee-limit-ppm is the exp-023 stage C knob: it gives every payment a fee
+budget, so that paying too much is a failed payment rather than a small
+subtraction in the objective. Nothing has ever bounded fees here: the lnd arm
+was built with an unlimited ceiling and no candidate was ever told a budget.
+Like --attribution it stamps a value and makes no rng draw, so a corpus
+generated without it is byte-identical to one generated before it existed.
+
+The rung is the whole experiment, and it is set from data rather than from
+taste. Run the corpus with no limit first, read the realized fee distribution
+off fee_ppm_on_success and fee_ppm_attempted across routers, and place the
+rungs against it: loose above the distribution (nothing binds, the control),
+median at its middle (half the routes priced out), tight below it (fee
+pressure dominates). A rung chosen without that measurement produces a tier
+that either never fires or fails everything, and neither says anything.
 """
 
 import argparse
@@ -366,6 +381,45 @@ def parse_inbound_fees(spec: str) -> dict:
     return section
 
 
+# --- fee budgets (exp-023 stage C) ------------------------------------------
+
+# A budget above this is not a budget: no route in any tier this program runs
+# costs a whole payment in fees, so anything at or beyond it is indistinguishable
+# from no limit at all and is almost certainly a units mistake (a value quoted
+# in percent, or in msat).
+MAX_FEE_LIMIT_PPM = 1_000_000
+
+
+def parse_fee_limit_ppm(spec: str) -> int:
+    """Parse a --fee-limit-ppm value into the file-level budget.
+
+    The value is parts per million of each payment's own amount, which is one
+    number for a corpus whose amounts run over four orders of magnitude. A
+    payment may still pin its own limit; this is the default for the ones that
+    do not.
+
+    Omitting the flag stamps nothing, which is the unbounded fee ceiling every
+    corpus before stage C was generated against.
+    """
+    try:
+        ppm = int(spec.strip())
+    except ValueError:
+        raise ValueError(f"--fee-limit-ppm wants an integer, got {spec!r}")
+
+    if ppm <= 0:
+        raise ValueError(
+            "--fee-limit-ppm must be positive; omit the flag for no limit"
+        )
+
+    if ppm > MAX_FEE_LIMIT_PPM:
+        raise ValueError(
+            f"--fee-limit-ppm {ppm} exceeds {MAX_FEE_LIMIT_PPM}, a budget of "
+            "the whole payment; check the units"
+        )
+
+    return ppm
+
+
 # --- splitting pressure (exp-010) -------------------------------------------
 #
 # The corridors topology puts one source and one target at the ends of K
@@ -659,6 +713,18 @@ def main() -> None:
                         "no section, which leaves the mechanism off: no fee "
                         "drawn, none charged, and the zero fee in gossip "
                         "every corpus before stage B was generated against")
+    parser.add_argument("--fee-limit-ppm", default=None,
+                        help="give every payment a fee budget, in parts per "
+                        "million of its own amount (exp-023 stage C). A route "
+                        "that would take a payment past its budget is refused "
+                        "before it is sent, so fee blindness costs failed "
+                        "payments rather than a small subtraction. Set the "
+                        "rung from the realized fee distribution of the same "
+                        "corpus run WITHOUT a limit (fee_ppm_on_success and "
+                        "fee_ppm_attempted across routers): above it nothing "
+                        "binds, below it nothing completes. Absent stamps "
+                        "nothing, which is the unlimited ceiling every corpus "
+                        "before stage C was generated against")
     args = parser.parse_args()
 
     attribution = None
@@ -679,6 +745,13 @@ def main() -> None:
     if args.inbound_fees is not None:
         try:
             inbound_fees = parse_inbound_fees(args.inbound_fees)
+        except ValueError as err:
+            parser.error(str(err))
+
+    fee_limit_ppm = None
+    if args.fee_limit_ppm is not None:
+        try:
+            fee_limit_ppm = parse_fee_limit_ppm(args.fee_limit_ppm)
         except ValueError as err:
             parser.error(str(err))
 
@@ -713,15 +786,17 @@ def main() -> None:
             if args.atomic:
                 for scenario in example["scenarios"]:
                     scenario["atomic_mpp"] = True
-            # The degradation, htlc limit and inbound fee sections are
-            # stamped last and make no draw of their own, so a corpus
-            # generated without the flags is unchanged.
+            # The degradation, htlc limit, inbound fee and fee budget
+            # sections are stamped last and make no draw of their own, so
+            # a corpus generated without the flags is unchanged.
             if attribution is not None:
                 example["attribution"] = dict(attribution)
             if htlc_limits is not None:
                 example["htlc_limits"] = dict(htlc_limits)
             if inbound_fees is not None:
                 example["inbound_fees"] = dict(inbound_fees)
+            if fee_limit_ppm is not None:
+                example["fee_limit_ppm"] = fee_limit_ppm
             path = split_dir / f"example_{i:03d}.json"
             path.write_text(json.dumps(example, indent=2))
         print(f"{split}: {count} examples in {split_dir}")

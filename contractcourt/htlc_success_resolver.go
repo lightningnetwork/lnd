@@ -170,13 +170,17 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() error {
 	// `LimboBalance` like other paths?
 
 	// Checkpoint the resolver, and write the outcome to disk.
-	return h.checkpointClaim(sweepTxDetails.SpenderTxHash)
+	return h.checkpointClaim(
+		sweepTxDetails.SpenderTxHash, h.htlcResolution.ClaimOutpoint,
+	)
 }
 
 // checkpointClaim checkpoints the success resolver with the reports it needs.
 // If this htlc was claimed two stages, it will write reports for both stages,
 // otherwise it will just write for the single htlc claim.
-func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash) error {
+func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash,
+	claimOutpoint wire.OutPoint) error {
+
 	// Mark the htlc as final settled.
 	err := h.ChainArbitratorConfig.PutFinalHtlcOutcome(
 		h.ChannelArbitratorConfig.ShortChanID, h.htlc.HtlcIndex, true,
@@ -201,7 +205,7 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash) error {
 	amt := btcutil.Amount(h.htlcResolution.SweepSignDesc.Output.Value)
 	reports := []*channeldb.ResolverReport{
 		{
-			OutPoint:        h.htlcResolution.ClaimOutpoint,
+			OutPoint:        claimOutpoint,
 			Amount:          amt,
 			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 			ResolverOutcome: channeldb.ResolverOutcomeClaimed,
@@ -215,11 +219,10 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash) error {
 		// If the SignedSuccessTx is not nil, we are claiming the htlc
 		// in two stages, so we need to create a report for the first
 		// stage transaction as well.
-		spendTx := h.htlcResolution.SignedSuccessTx
-		spendTxID := spendTx.TxHash()
+		spendTxID := claimOutpoint.Hash
 
 		report := &channeldb.ResolverReport{
-			OutPoint:        spendTx.TxIn[0].PreviousOutPoint,
+			OutPoint:        h.outpoint(),
 			Amount:          h.htlc.Amt.ToSatoshis(),
 			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 			ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
@@ -562,6 +565,16 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 		return err
 	}
 
+	// We'll use this input index to determine the second-level output
+	// index on the transaction, as the signature requires the indexes to
+	// be the same. We don't look for the second-level output script
+	// directly, as there might be more than one HTLC output to the same
+	// pkScript.
+	secondLevelOutpoint := wire.OutPoint{
+		Hash:  *commitSpend.SpenderTxHash,
+		Index: commitSpend.SpenderInputIndex,
+	}
+
 	// The HTLC success tx has a CSV lock that we must wait for, and if
 	// this is a lease enforced channel and we're the imitator, we may need
 	// to wait for longer.
@@ -584,16 +597,6 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 			h, h.htlc.RHash[:], waitHeight)
 	}
 
-	// We'll use this input index to determine the second-level output
-	// index on the transaction, as the signatures requires the indexes to
-	// be the same. We don't look for the second-level output script
-	// directly, as there might be more than one HTLC output to the same
-	// pkScript.
-	op := &wire.OutPoint{
-		Hash:  *commitSpend.SpenderTxHash,
-		Index: commitSpend.SpenderInputIndex,
-	}
-
 	// Let the sweeper sweep the second-level output now that the
 	// CSV/CLTV locks have expired.
 	var witType input.StandardWitnessType
@@ -606,7 +609,7 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 		witType = input.HtlcAcceptedSuccessSecondLevel
 	}
 	inp := h.makeSweepInput(
-		op, witType,
+		&secondLevelOutpoint, witType,
 		input.LeaseHtlcAcceptedSuccessSecondLevel,
 		&h.htlcResolution.SweepSignDesc,
 		h.htlcResolution.CsvDelay, uint32(commitSpend.SpendingHeight),
@@ -705,12 +708,7 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 		return err
 	}
 
-	// We'll use this input index to determine the second-level output
-	// index on the transaction, as the signatures requires the indexes to
-	// be the same. We don't look for the second-level output script
-	// directly, as there might be more than one HTLC output to the same
-	// pkScript.
-	op := wire.OutPoint{
+	secondLevelOutpoint := wire.OutPoint{
 		Hash:  *commitSpend.SpenderTxHash,
 		Index: commitSpend.SpenderInputIndex,
 	}
@@ -719,7 +717,7 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 	// fast-forward to start the resolving process for the stage two
 	// output.
 	if h.outputIncubating {
-		return h.resolveSuccessTxOutput(op)
+		return h.resolveSuccessTxOutput(secondLevelOutpoint)
 	}
 
 	// Now that the second-level transaction has confirmed, we checkpoint
@@ -738,7 +736,7 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 		return err
 	}
 
-	return h.resolveSuccessTxOutput(op)
+	return h.resolveSuccessTxOutput(secondLevelOutpoint)
 }
 
 // resolveSuccessTxOutput waits for the spend of the output from the 2nd-level
@@ -763,7 +761,7 @@ func (h *htlcSuccessResolver) resolveSuccessTxOutput(op wire.OutPoint) error {
 	h.currentReport.LimboBalance = 0
 	h.reportLock.Unlock()
 
-	return h.checkpointClaim(spend.SpenderTxHash)
+	return h.checkpointClaim(spend.SpenderTxHash, op)
 }
 
 // Launch creates an input based on the details of the incoming htlc resolution

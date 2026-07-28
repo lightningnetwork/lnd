@@ -132,12 +132,49 @@
   Tying this behavior to a build tag, rather than a runtime flag, makes the
   binary's purpose explicit and prevents potential misconfigurations.
 
+* The embedded `ChannelRouter` can no longer originate payments while an
+  external router owns the payment lifecycle. `routerrpc.SendPaymentV2` and
+  `routerrpc.SendToRouteV2` now return `codes.FailedPrecondition` on a
+  `switchrpc` build unless the new `--enable-local-payment-dispatch` option is
+  set. Both routers draw HTLC
+  attempt IDs from independent sequencers into one shared attempt store, so a
+  payment sent through the embedded router can collide with an in-flight
+  external attempt and deliver one payment's result to the other. This makes
+  the single-dispatcher requirement described above an enforced constraint
+  rather than an operator responsibility.
+
+  This is a **breaking change** for any `switchrpc` build that currently sends
+  payments locally, because the refusal is the default whenever that tag is
+  present. Such a deployment must pass `--enable-local-payment-dispatch` to keep
+  using the embedded router.
+
+  The option governs payment origination only. Skipping attempt store cleanup
+  on startup, and marking the database as externally managed, remain properties
+  of the `switchrpc` build tag and are unaffected by its value. Both are
+  destructive to an external router's state, so they are deliberately not
+  runtime-toggleable. A `switchrpc` node that permits local dispatch logs a
+  warning saying so at startup.
+
+  Code that embeds the `routerrpc` sub-server should note that
+  `routerrpc.Config` gains an `EnableLocalPaymentDispatch` field whose zero
+  value refuses payment dispatch. The build tag is consulted only when lnd
+  builds its own config, so a caller that constructs `routerrpc.Config`
+  directly must set this field to keep sending payments. There is no compile
+  error and no startup diagnostic; the first symptom is `FailedPrecondition`
+  from `SendPaymentV2`.
+
 * Added [`DisableRemoteRouter` rpc](https://github.com/lightningnetwork/lnd/pull/10178)
   to `switchrpc` which marks the database as no longer being used by a remote
   router. This is useful for migrating from a remote router setup back to the
   default embedded router. The external controller should first clean its
   results from the attempt store via `DeleteAttempts` (#10602); this RPC will
   fail if there are any remaining attempt entries.
+
+  Note that clearing the marker only completes the migration if the node is
+  then run from a binary without the `switchrpc` tag. A tagged binary rewrites
+  the marker on its next startup, whatever `--enable-local-payment-dispatch`
+  is set to, so the migration back to local dispatch is a binary swap rather
+  than a configuration change.
 
 * The `ChannelRouter` now supports a [configurable attempt reconciliation
   hook](https://github.com/lightningnetwork/lnd/pull/10621) that runs for each

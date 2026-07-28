@@ -175,6 +175,126 @@ Insights from prior measurement (exp-019), worth building on:
   cannot read.
 """
 
+# Appended to BACKGROUND by --econ, for a corpus whose scenario files
+# carry the exp-023 economic sections (fee_limit_ppm, htlc_limits,
+# inbound_fees, concurrency, latency). Every evolution run before this
+# one bred in a world where money was a rounding error in the objective
+# and nothing but liquidity could refuse a route; a candidate that has
+# never been told a payment has a budget has no reason to build one.
+# The facts quoted here are the contract's own (routing/sim_router.go,
+# sim_htlc_limits.go, sim_inbound_fees.go, sim_concurrency.go,
+# sim_latency.go) and the numbers are exp-023's, so the prompt and the
+# world agree. Composes with --degraded: the sections are independent
+# and both may be appended.
+ECON_WORLD = """
+THE PAYMENTS IN THIS ENVIRONMENT HAVE AN ECONOMY. Five things are true
+here that were not true in any earlier arena:
+- A PAYMENT CARRIES A FEE BUDGET AND YOU CAN READ IT. spec.FeeLimitMsat
+  is the most this payment may pay in fees IN TOTAL across every shard
+  it uses; fees already committed by settled and held shards count
+  against it, so what is left for your next shard is that number minus
+  what your earlier ones paid. lnwire.MaxMilliSatoshi means there is no
+  budget. It is enforced where the runner dispatches: a route whose fee
+  would take the payment past the budget is REFUSED before it reaches
+  the wire, which costs you one attempt and teaches you nothing about
+  the network, because nothing was sent.
+- ANNOUNCED HTLC LIMITS BIND, AND THEY BIND AT PLAN TIME. Every
+  directed policy in gossip may announce a minimum and a maximum htlc,
+  and here they are real numbers rather than the flat floor and absent
+  ceiling earlier corpora carried: a single shard above a hop's
+  announced maximum cannot cross it, so a payment larger than the
+  tightest ceiling on every path to its target has to be split whether
+  or not liquidity would have carried it. Your own first hop's
+  announced limits bind on you exactly like every other hop's. These
+  are FREE public facts, readable before you send anything.
+- INBOUND FEES ARE REAL HERE AND THEY HANG OFF THE NODE, NOT THE
+  DIRECTION. Iterating a node's channels yields DirectedChannel values
+  whose InboundFee belongs to THE NODE BEING ITERATED: it is what that
+  node charges for htlcs arriving to it over that channel, charged on
+  what it forwards onward plus its own forwarding fee, and it is signed
+  and usually negative (a discount for inbound flow). A forwarding
+  node's total fee is its outbound fee plus its inbound fee floored at
+  zero. The sender pays none to itself and the destination charges
+  none, so a k-hop route has k-1 inbound fees to price. A router that
+  scores an edge from one policy per direction misses all of it.
+- YOUR OWN SHARDS HOLD LIQUIDITY AND YOUR PAYMENTS RACE EACH OTHER. The
+  sender may have several of its own payments in flight at once, each
+  with its own router instance planning against its own snapshot of
+  local balances. Shards you hold reserve real liquidity on real
+  channels for as long as they are held, and so do a sibling payment's.
+  A failure you see may therefore be a channel that is genuinely
+  depleted, or a channel that is merely busy carrying your own money,
+  and the two look identical on the wire. inFlightHtlcs on every
+  RequestRoute call tells you how many of your own shards are out.
+- AN ATTEMPT COSTS TIME IN PROPORTION TO THE ROUTE IT TRAVELS. The flat
+  per-attempt tick is gone: an attempt costs a fixed overhead plus a
+  round trip to the hop that resolved it, the whole route on a settle
+  and the failing hop on a failure. Probing near is cheap and probing
+  far is expensive, a failure at your own first hop comes back in one
+  round trip and a failure at hop eight in eight, and every second an
+  attempt spends in the air is a second of other people's payments
+  moving liquidity under your plan. view.Now() advances with it.
+
+Insights from prior measurement (exp-023), worth building on:
+- The UNITS of your route cost function decide whether a fee budget can
+  reach you at all. Both incumbent champions score a path in
+  log-probability and convert fees into it at a rate proportional to
+  1/amount (a penalty of k*fee/amount, k around 5 to 15), which makes
+  their willingness to pay for one nat of reliability roughly 7% to 20%
+  of the payment no matter how large the payment is. That term never
+  binds, and under a mainnet fee budget both go from a significant lead
+  over lnd to a deficit. The one router that stays ahead (atomic1,
+  +0.061 against lnd at 400 ppm with the CI excluding zero, a tie at
+  25 ppm) scores the path in millisatoshis instead, buying probability
+  at a flat 420,000 msat per nat, so its implicit ceiling in ppm terms
+  tightens automatically as the payment grows; its attempted routes
+  cost 130 ppm where the others' cost 224. Which denomination is right
+  is your design choice, and note that any such exchange constant is
+  fitted to the amounts of the corpus it was bred on.
+- NOBODY HAS YET READ THE BUDGET THEY ARE GIVEN. No incumbent router
+  reads spec.FeeLimitMsat at all — not the champions, not the seed —
+  and the whole space is open: subtracting committed fees to know what
+  is left, dividing the remaining budget across a planned shard set,
+  tightening the reliability-for-money exchange rate as the budget runs
+  down, or pruning over-budget paths inside the search instead of
+  discovering them at dispatch. Under a 400 ppm mainnet budget the
+  champions are refused 100 to 152 times per file and atomic1 27; every
+  one of those was an attempt spent on a route the sender could have
+  priced itself. lnd, whose path finding prunes on the budget natively,
+  is refused zero times at every rung.
+- WHEN YOUR OWN SHARDS ARE IN FLIGHT, AN OBSERVATION ABOUT A CHANNEL IS
+  ABOUT THE TOTAL LOAD IT BORE, not about the shard you happened to
+  send. The champions record a success or a failure at the shard amount
+  alone, so a failure their own concurrent load caused is filed as a
+  fact about the channel at an amount BELOW the load that really
+  failed. atomic1 keeps a per-edge reservation ledger rebuilt each call
+  from the in-flight count, prices every edge at amount-plus-reserved,
+  and records both bounds at amount-plus-reserved. At four concurrent
+  payments its self-contention failures are 0.048 per attempt against
+  hb1's 0.229, and its attempt count is flat from window 1 to window 4
+  (6.1 to 7.3) while hb1's triples (7.1 to 21.6).
+- A HARD CEILING AND A SOFT ONE BEHAVE DIFFERENTLY WHEN THE EVIDENCE
+  MIGHT BE ABOUT A TRANSIENT. Both champions return probability zero
+  above their upper-fail bound; atomic1 floors at 0.012 instead. A
+  bound written from liquidity that a sibling shard was merely holding
+  stops being true the moment the sibling releases, and a floor lets
+  the corridor come back while a zero retires it for the batch. This is
+  the same floor that made atomic1 the only router that shrugged under
+  stale knowledge in exp-012. No ablation has ever isolated it, so read
+  it as a live hypothesis rather than a settled one.
+- COMMITTING AN UP-FRONT SHARD SET COSTS FEWER ATTEMPTS AND LESS
+  CONTENTION THAN DISCOVERING ONE BY FAILURE. atomic1 plans the whole
+  set in one pass, pricing each shard against the reservations of the
+  shards already placed in the same plan, with a surcharge on any
+  corridor it is already using, so the set comes out corridor-disjoint
+  by construction rather than by filtering. The measured consequence is
+  a smaller and shorter-lived footprint: at four concurrent payments
+  its makespan is 33.8 sec against hb1's 81.0 and lnd's 223.9, and it
+  loses 0.029 of objective to concurrency where hb1 loses 0.112. It
+  also pays less, because fewer and larger shards multiply the per-hop
+  base fee fewer times.
+"""
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -203,6 +323,17 @@ def main() -> None:
                         "background prompt. The flag only changes the "
                         "prompt — the degradation itself lives in the "
                         "scenario files.")
+    parser.add_argument("--econ", action="store_true",
+                        help="tell candidates the payments have an "
+                        "economy. Set this when the corpus carries the "
+                        "exp-023 economic sections (gen_scenarios.py "
+                        "--fee-limit-ppm / --htlc-limits / "
+                        "--inbound-fees / --concurrency / --latency): it "
+                        "appends the five environment facts and the "
+                        "exp-023 findings to the background prompt. The "
+                        "flag only changes the prompt — the economy "
+                        "itself lives in the scenario files. Composes "
+                        "with --degraded.")
     args = parser.parse_args()
 
     corpus = Path(args.corpus)
@@ -219,9 +350,14 @@ def main() -> None:
 
     max_evals = args.max_evals or 20 * len(valset)
 
+    # Both sections are pure appends, in a fixed order, so --degraded
+    # alone produces exactly the string it produced before --econ
+    # existed and the two compose without either one moving.
     background = BACKGROUND.strip()
     if args.degraded:
         background += "\n\n" + DEGRADED_CHANNEL.strip()
+    if args.econ:
+        background += "\n\n" + ECON_WORLD.strip()
 
     # Every valid code candidate contains the package clause; the marker
     # check turns a hijacked or chatty reply into one retry instead of a

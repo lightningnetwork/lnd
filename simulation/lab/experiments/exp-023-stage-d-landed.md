@@ -400,3 +400,21 @@ which is the lead's decision for the whole program.
    the self-contention rate of the seed candidate. If the paired sweep
    holds this up it is a result worth its own section, and it belongs in
    the pre-registered outcomes now rather than after.
+
+## Lead decisions at merge (2026-07-28)
+
+1. The concurrency tiers are authored from the drift+atomic recipe
+   with a small inter_arrival_sec, not derived from the sealed tiers
+   (which carry no virtual clock). Same standing as stage A's tight
+   and stage B's heavy: the authored rung is the power source and is
+   labelled as such.
+2. The quieter-world confound is handled in the corpus, not the
+   engine: the concurrency tiers scale payments_per_gap so realized
+   background churn stays roughly constant across windows, and the
+   corpus README records the calibration.
+3. Rungs are {1, 2, 4}. Window 8 is dropped: with six to nine
+   payments per file it stops being an arrival process.
+4. The H-D3 reversal on smoke (lnd absorbing more self-contention
+   per attempt than the seed) is noted as a smoke observation on the
+   seed only; the sweep with the champions decides, and the
+   hypothesis stays pre-registered as written.

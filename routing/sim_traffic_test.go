@@ -350,3 +350,61 @@ func TestSimScenarioGaveUp(t *testing.T) {
 	require.Empty(t, result.Attempts, "a payment abandoned before its "+
 		"first route should cost no attempts")
 }
+
+// TestSimTrafficPricesInboundFees checks that the environment keeps clearing
+// the forwarding checks the scored payments face once inbound fees are on.
+// The traffic engine is a privileged process rather than a player, so it has
+// to price a surcharge it would otherwise underpay, and it must not lose its
+// identical behavior on the networks that announce no inbound fee at all.
+func TestSimTrafficPricesInboundFees(t *testing.T) {
+	t.Parallel()
+
+	// settle runs a fixed slice of background traffic and reports how much
+	// of it moved liquidity.
+	settle := func(t *testing.T, inbound bool, base, rate int32) (int, int) {
+		t.Helper()
+
+		graph := trafficTestGraph(t, 3)
+		graph.inboundFees = inbound
+
+		for _, channel := range graph.channels {
+			for i := range channel.ends {
+				channel.ends[i].policy.InboundBaseMsat = base
+				channel.ends[i].policy.InboundRatePPM = rate
+			}
+		}
+
+		traffic, err := newSimTraffic(graph, &SimTrafficParams{
+			PaymentsPerGap: 200,
+			MinAmtMsat:     100_000,
+			MaxAmtMsat:     50_000_000,
+			Seed:           7,
+		})
+		require.NoError(t, err)
+		traffic.run()
+
+		return traffic.Settled, graph.PolicyStats().InboundFeeRefusals
+	}
+
+	// The control: no inbound fee anywhere, which is every tier before
+	// stage B. Turning the mechanism on changes nothing at all.
+	control, refusals := settle(t, false, 0, 0)
+	require.Positive(t, control)
+	require.Zero(t, refusals)
+
+	onNoFees, refusals := settle(t, true, 0, 0)
+	require.Equal(t, control, onNoFees)
+	require.Zero(t, refusals)
+
+	// A surcharge every node charges. A fee-blind environment would be
+	// refused on every multi-hop route; this one pays and is not.
+	surcharge, refusals := settle(t, true, 1_000, 50_000)
+	require.Zero(t, refusals)
+	require.Positive(t, surcharge)
+
+	// A discount every node offers, which nothing can refuse: the traffic
+	// simply pays less for the same corridors.
+	discount, refusals := settle(t, true, -1_000, -500)
+	require.Zero(t, refusals)
+	require.Positive(t, discount)
+}

@@ -288,8 +288,22 @@ type trafficEdgeKey struct {
 // trafficPathNode is the per-node state of the backward Dijkstra search.
 type trafficPathNode struct {
 	// amtIn is the amount that must arrive at this node for the payment
-	// amount to reach the receiver, i.e. amount plus downstream fees.
+	// amount to reach the receiver, i.e. amount plus downstream fees. It
+	// is net of this node's own inbound fee, which the node one step
+	// upstream is the one to add.
 	amtIn lnwire.MilliSatoshi
+
+	// outFee is what this node charges for sending amtSent onward. It is
+	// carried because an inbound fee is only allowed to discount a node's
+	// forwarding down to free, and this is the number that bound is
+	// measured against.
+	outFee lnwire.MilliSatoshi
+
+	// amtSent is the amount this node puts on nextChan, i.e. amtIn of the
+	// next node plus whatever inbound fee that node charges. With no
+	// inbound fees anywhere the two are equal, which is what every tier
+	// before stage B looked like.
+	amtSent lnwire.MilliSatoshi
 
 	// expiryIn is the cltv expiry that must arrive at this node.
 	expiryIn uint32
@@ -376,22 +390,40 @@ func (t *simTraffic) findRoute(sender, receiver route.Vertex,
 				continue
 			}
 
+			// item.node charges its own inbound fee on what arrives
+			// over this channel, and a discount may take its total
+			// fee down to free but no further. The receiver is the
+			// exit hop and charges nothing, which is the same
+			// exemption lnd's path finding applies. The environment
+			// prices the rest the way lnd does, so that background
+			// payments keep clearing the forwarding checks the
+			// scored payments face.
+			var inFee int64
+			if item.node != receiver {
+				inFee = t.inboundFee(channel, item.node, state)
+			}
+
+			amtSent := lnwire.MilliSatoshi(
+				int64(state.amtIn) + inFee,
+			)
+
 			sendingEnd := channel.end(u)
 			policy := &sendingEnd.policy
-			if !trafficEdgeUsable(
-				sendingEnd, channel, state.amtIn,
-			) {
+			if !trafficEdgeUsable(sendingEnd, channel, amtSent) {
 				continue
 			}
 
-			amtIn := state.amtIn + policy.fee(state.amtIn)
+			outFee := policy.fee(amtSent)
+			amtIn := amtSent + outFee
 			existing, seen := states[u]
 			if seen && existing.amtIn <= amtIn {
 				continue
 			}
 
 			states[u] = &trafficPathNode{
-				amtIn: amtIn,
+				amtIn:   amtIn,
+				outFee:  outFee,
+				amtSent: amtSent,
 				expiryIn: state.expiryIn +
 					uint32(policy.TimeLockDelta),
 				hops:     state.hops + 1,
@@ -407,6 +439,32 @@ func (t *simTraffic) findRoute(sender, receiver route.Vertex,
 	}
 
 	return t.buildRoute(sender, receiver, amt, states)
+}
+
+// inboundFee returns what the given node charges for an htlc arriving over
+// the given channel, capped so that the node's total fee cannot go negative.
+// Callers exempt the exit hop before calling.
+// It is zero unless a scenario file switched the mechanism on, which is what
+// keeps every corpus generated before stage B routing its background traffic
+// exactly as it always did.
+func (t *simTraffic) inboundFee(channel *SimChannel, node route.Vertex,
+	state *trafficPathNode) int64 {
+
+	if !t.graph.inboundFees {
+		return 0
+	}
+
+	end := channel.end(node)
+	if end == nil {
+		return 0
+	}
+
+	fee := end.policy.inboundFee(state.amtIn)
+	if floor := -int64(state.outFee); fee < floor {
+		fee = floor
+	}
+
+	return fee
 }
 
 // trafficEdgeUsable applies the policy and capacity filters for forwarding
@@ -459,9 +517,13 @@ func (t *simTraffic) buildRoute(sender, receiver route.Vertex,
 		amtToForward := amt
 		outgoingTimeLock := uint32(trafficFinalCltvDelta)
 		if state.nextNode != receiver {
-			afterNext := states[states[state.nextNode].nextNode]
-			amtToForward = afterNext.amtIn
-			outgoingTimeLock = afterNext.expiryIn
+			// The amount this hop's node forwards onward is what it
+			// puts on its own next channel, inbound fees and all.
+			// Reading it off the node two steps downstream would
+			// miss the inbound fee charged in between.
+			next := states[state.nextNode]
+			amtToForward = next.amtSent
+			outgoingTimeLock = states[next.nextNode].expiryIn
 		}
 
 		hops = append(hops, &route.Hop{
@@ -479,12 +541,13 @@ func (t *simTraffic) buildRoute(sender, receiver route.Vertex,
 	}
 
 	// The route total is what the sender puts on its first channel: the
-	// amount that must arrive at the first hop's node. For a direct
-	// channel this is the payment amount itself, via the receiver state.
+	// amount that must arrive at the first hop's node plus whatever
+	// inbound fee that node charges. For a direct channel this is the
+	// payment amount itself, since the receiver is the exit hop.
 	first := states[states[sender].nextNode]
 
 	return &route.Route{
-		TotalAmount:   first.amtIn,
+		TotalAmount:   states[sender].amtSent,
 		TotalTimeLock: first.expiryIn,
 		SourcePubKey:  sender,
 		Hops:          hops,

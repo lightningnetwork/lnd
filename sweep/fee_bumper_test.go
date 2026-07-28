@@ -1016,6 +1016,33 @@ func TestProbeInputSetFundsRequiredOutput(t *testing.T) {
 		mock.Anything)
 }
 
+// TestIsInputScriptFailure checks that only input script or standardness errors
+// are treated as identifying bad inputs.
+func TestIsInputScriptFailure(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		err      error
+		expected bool
+	}{
+		{chain.ErrScriptVerifyFlag, true},
+		{chain.ErrNonMandatoryScriptVerifyFlag, true},
+		{chain.ErrBadWitnessNonStandard, true},
+		{chain.ErrScriptSigNotPushOnly, true},
+		{chain.ErrScriptSigSize, true},
+		{chain.ErrNonStandardInputs, true},
+		{chain.ErrInsufficientFee, false},
+		{errDummy, false},
+	}
+
+	for _, testCase := range testCases {
+		require.Equal(
+			t, testCase.expected,
+			isInputScriptFailure(testCase.err),
+		)
+	}
+}
+
 // TestTxPublisherBroadcast checks the internal `broadcast` method behaves as
 // expected.
 func TestTxPublisherBroadcast(t *testing.T) {

@@ -41,6 +41,13 @@ type describeGraphPolicy struct {
 	FeeRateMilliMsat string `json:"fee_rate_milli_msat"`
 	MaxHTLCMsat      string `json:"max_htlc_msat"`
 	Disabled         bool   `json:"disabled"`
+
+	// The inbound fee pair is emitted as JSON numbers rather than strings,
+	// because both are int32 on the wire and describegraph only
+	// string-encodes the 64 bit fields. They are signed, and on the real
+	// graph they are overwhelmingly negative.
+	InboundFeeBaseMsat      int32 `json:"inbound_fee_base_msat"`
+	InboundFeeRateMilliMsat int32 `json:"inbound_fee_rate_milli_msat"`
 }
 
 // parseInt64 parses describegraph's string-encoded integers, treating the
@@ -82,7 +89,16 @@ func (p *describeGraphPolicy) toSimPolicy() (SimPolicy, error) {
 		TimeLockDelta: uint16(p.TimeLockDelta),
 		MinHTLCMsat:   lnwire.MilliSatoshi(minHTLC),
 		MaxHTLCMsat:   lnwire.MilliSatoshi(maxHTLC),
-		Disabled:      p.Disabled,
+
+		// The snapshot's inbound fees were dropped on the floor until
+		// stage B: 4,783 directed policies announce one and the loader
+		// simply did not read the fields. Preserving them here is not
+		// yet a behavior change, because nothing charges or shows an
+		// inbound fee until a scenario file asks for it.
+		InboundBaseMsat: p.InboundFeeBaseMsat,
+		InboundRatePPM:  p.InboundFeeRateMilliMsat,
+
+		Disabled: p.Disabled,
 	}, nil
 }
 

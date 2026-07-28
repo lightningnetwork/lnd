@@ -38,6 +38,27 @@ type SimPolicy struct {
 	// direction. A value of zero means no maximum is enforced.
 	MaxHTLCMsat lnwire.MilliSatoshi
 
+	// InboundBaseMsat is the flat fee the owner of this end charges for
+	// htlcs ARRIVING over this channel, i.e. for flow in the direction
+	// OPPOSITE to the one the fields above price. It is negative when the
+	// node offers a discount for inbound flow, which is how the field is
+	// used in practice: 4,660 of the 4,783 real policies that carry one
+	// are discounts.
+	//
+	// The direction is the one thing worth being careful about. A node
+	// announces its inbound fee on its OWN channel update, the same update
+	// that carries the outbound fee it charges for sending out over the
+	// channel, but the inbound fee applies to htlcs coming the other way.
+	// So this field lives on the policy of the node that charges it, which
+	// is the end that owns it, and it is charged when that node RECEIVES.
+	InboundBaseMsat int32
+
+	// InboundRatePPM is the proportional inbound fee in parts per million,
+	// charged by the owner of this end on htlcs arriving over this channel.
+	// It is applied to the outgoing amount plus the outgoing fee, not to
+	// the incoming amount. See InboundBaseMsat for the direction rule.
+	InboundRatePPM int32
+
 	// Disabled indicates that forwarding in this direction is disabled.
 	Disabled bool
 }
@@ -46,6 +67,36 @@ type SimPolicy struct {
 // given amount.
 func (p *SimPolicy) fee(amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 	return p.BaseFeeMsat + amt*p.FeeRatePPM/1_000_000
+}
+
+// wireInboundFee returns this policy's inbound fee in the wire form lnd's own
+// graph cache and path finding pass around.
+func (p *SimPolicy) wireInboundFee() lnwire.Fee {
+	return lnwire.Fee{
+		BaseFee: p.InboundBaseMsat,
+		FeeRate: p.InboundRatePPM,
+	}
+}
+
+// inboundFee returns what the owner of this end charges an htlc arriving over
+// this channel, given the amount the receiving node will send onward plus the
+// fee it charges for doing so. The arithmetic is lnd's own, called through
+// lnd's own type, so that the simulator cannot drift from the production
+// rounding rules: positive fees round down, negative fees round up, and the
+// rate is capped at ten times the amount to keep the multiplication in range.
+//
+// The result is signed. A negative return is a discount, and it is the CALLER
+// that decides how far a discount may go, since a discount is bounded by the
+// outgoing fee it is netted against rather than by anything on this policy.
+func (p *SimPolicy) inboundFee(amt lnwire.MilliSatoshi) int64 {
+	fee := models.NewInboundFeeFromWire(p.wireInboundFee())
+
+	return fee.CalcFee(amt)
+}
+
+// hasInboundFee reports whether this end announces an inbound fee at all.
+func (p *SimPolicy) hasInboundFee() bool {
+	return p.InboundBaseMsat != 0 || p.InboundRatePPM != 0
 }
 
 // simChannelEnd holds the state of one side of a simulated channel: the

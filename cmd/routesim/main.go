@@ -68,6 +68,13 @@ type scenarioFile struct {
 	// measured in, snapshot tiers included.
 	InboundFees *routing.SimInboundFeeParams `json:"inbound_fees,omitempty"`
 
+	// FeeLimitPPM is the fee budget every payment in this file gets unless
+	// it names one of its own, in parts per million of its own amount. It
+	// is how a whole tier is put under fee pressure with one number, which
+	// is what the stage C ladder needs; a scenario that pins its own limit
+	// keeps it. Omitting it, like a scenario omitting it, means no limit.
+	FeeLimitPPM uint32 `json:"fee_limit_ppm,omitempty"`
+
 	// Warmup is an optional unscored phase that runs before the scored
 	// batch, standing in for routing knowledge a node was handed instead
 	// of having to probe for it. Omitting the section is a cold start,
@@ -126,6 +133,34 @@ type aggregate struct {
 	TotalFeeMsat    uint64  `json:"total_fee_msat"`
 	FeePPMOnSuccess float64 `json:"fee_ppm_on_success"`
 	AmtSuccessMsat  uint64  `json:"amt_success_msat"`
+
+	// TotalFeeMsatSpent is every millisatoshi of fee that actually left
+	// the sender, INCLUDING on payments that then failed. TotalFeeMsat
+	// above counts only the payments that completed, and on a non-atomic
+	// tier, which is most of them, a partially settled mpp that later
+	// fails has genuinely paid its forwarding nodes: that money was
+	// missing from every number this program has published. Under
+	// atomic_mpp a failed payment releases its shards and pays nothing, so
+	// there the two are equal by construction.
+	//
+	// The leak was only ever in the aggregate. Each scenario result has
+	// carried its own spent fee in fee_msat all along, so every run ever
+	// archived can be re-totalled from its results array.
+	TotalFeeMsatSpent uint64 `json:"total_fee_msat_spent"`
+
+	// FeePPMAttempted is spent fees over the amount the batch was ASKED to
+	// deliver, and it is the fee metric abandonment cannot launder.
+	// FeePPMOnSuccess is a ratio over the payments that completed, so
+	// dropping the most expensive payment in a file improves it
+	// mechanically; here the abandoned amount stays in the denominator and
+	// whatever the attempt spent stays in the numerator.
+	//
+	// It is REPORTED and not scored. The objective is unchanged in this
+	// stage, and whether the fee term should migrate onto this metric is
+	// the question the pre-registered side-by-side arm answers offline
+	// from these very runs. Reading the two together is informative on its
+	// own: they part company exactly when a router gives up.
+	FeePPMAttempted float64 `json:"fee_ppm_attempted"`
 
 	// NumGiveUps counts the scored payments the router ABANDONED, i.e.
 	// terminated itself rather than running out of attempts. Nothing
@@ -229,6 +264,37 @@ type aggregate struct {
 	InboundFeeSurcharges int `json:"inbound_fee_surcharges,omitempty"`
 	InboundFeeCharged    int `json:"inbound_fee_charged,omitempty"`
 	InboundFeeRefusals   int `json:"inbound_fee_refusals,omitempty"`
+
+	// FeeLimit* describe stage C, and they split the way stage A's and
+	// stage B's counters do. This is the third time, and by now it is a
+	// rule rather than a surprise: a constraint the arms can SEE binds at
+	// plan time, so the counter that fires on the wire is an alarm and the
+	// measurement has to come from somewhere else.
+	//
+	// FeeLimitPayments is the static half. It says a budget was
+	// configured, exactly as the inbound fee census says a tier carries
+	// inbound fees, and nothing more.
+	//
+	// FeeLimitFailures is the ALARM. lnd's path finding prunes any partial
+	// path whose accumulated fee exceeds the budget it was handed, so an
+	// arm that prices its own routes against its own budget never offers
+	// the runner a route it has to refuse and reports ZERO here. A
+	// non-zero reading names a router that proposed a route it had been
+	// told it could not afford, which for an evolved candidate is the
+	// expected starting point rather than a bug: none of them has ever had
+	// a budget to respect.
+	//
+	// Neither says how much the budget MATTERED. A binding limit removes
+	// routes at plan time, so its effect is entirely in which payments
+	// complete and at what cost, and bindingness is read off success_rate
+	// and fee_ppm_attempted against the unlimited control.
+	//
+	// Read FeeLimitFailures next to NumGiveUps, always. A router that
+	// stops sending because everything is over budget and one that never
+	// found a route are the same number in the objective, and these two
+	// counters are the only things that separate them.
+	FeeLimitPayments int `json:"fee_limit_payments,omitempty"`
+	FeeLimitFailures int `json:"fee_limit_failures,omitempty"`
 
 	// WarmupScenarios and WarmupAttempts report what the unscored warmup
 	// phase cost. They are kept out of every metric above so that a warmed
@@ -530,6 +596,7 @@ func runBatch(runner *routing.SimRunner, scenFile *scenarioFile,
 
 		for i := range scenFile.Warmup.Scenarios {
 			scenario := scenFile.Warmup.Scenarios[i]
+			applyFeeLimit(&scenario, scenFile.FeeLimitPPM)
 
 			result, err := runWarmup(&scenario)
 			if err != nil {
@@ -547,8 +614,15 @@ func runBatch(runner *routing.SimRunner, scenFile *scenarioFile,
 		runner.RestoreLiquidity(snapshot)
 	}
 
+	// amtAttemptedMsat is what the batch was asked to deliver, the
+	// denominator of the fee ratio abandonment cannot launder. It is a
+	// local rather than a reported field because it is exactly the sum of
+	// the amounts already printed in the results array.
+	var amtAttemptedMsat uint64
+
 	for i := range scenFile.Scenarios {
 		scenario := scenFile.Scenarios[i]
+		applyFeeLimit(&scenario, scenFile.FeeLimitPPM)
 
 		result, err := runner.RunScenario(&scenario)
 		if err != nil {
@@ -557,6 +631,14 @@ func runBatch(runner *routing.SimRunner, scenFile *scenarioFile,
 
 		out.Aggregate.NumScenarios++
 		out.Aggregate.TotalAttempts += len(result.Attempts)
+		amtAttemptedMsat += scenario.AmtMsat
+
+		// Every millisatoshi of fee that left the sender counts here,
+		// including on a payment that then failed, which is the whole
+		// point of the field: the per-payment fee_msat has always
+		// carried it and only the aggregate dropped it.
+		out.Aggregate.TotalFeeMsatSpent += result.FeeMsat
+
 		if result.Success {
 			out.Aggregate.NumSuccesses++
 			out.Aggregate.TotalFeeMsat += result.FeeMsat
@@ -603,6 +685,10 @@ func runBatch(runner *routing.SimRunner, scenFile *scenarioFile,
 		agg.InboundFeeSurcharges = inbound.Surcharges
 	}
 
+	feeLimits := runner.FeeLimitStats()
+	agg.FeeLimitPayments = feeLimits.Payments
+	agg.FeeLimitFailures = feeLimits.Failures
+
 	attribution := runner.AttributionStats()
 	agg.AttributionAttempts = attribution.Attempts
 	agg.AttributionUnknown = attribution.Unknown
@@ -625,6 +711,20 @@ func runBatch(runner *routing.SimRunner, scenFile *scenarioFile,
 		agg.FeePPMOnSuccess = 1e6 * float64(agg.TotalFeeMsat) /
 			float64(agg.AmtSuccessMsat)
 	}
+	if amtAttemptedMsat > 0 {
+		agg.FeePPMAttempted = 1e6 * float64(agg.TotalFeeMsatSpent) /
+			float64(amtAttemptedMsat)
+	}
 
 	return out, nil
+}
+
+// applyFeeLimit gives a payment the file's default fee budget when it does not
+// name one of its own. Zero means no limit at both levels, so a file that says
+// nothing leaves every payment unbounded, which is what every scenario file
+// written before stage C does.
+func applyFeeLimit(scenario *routing.SimScenario, defaultPPM uint32) {
+	if scenario.FeeLimitPPM == 0 {
+		scenario.FeeLimitPPM = defaultPPM
+	}
 }

@@ -58,6 +58,16 @@ type scenarioFile struct {
 	// own announced policy.
 	HtlcLimits *routing.SimHtlcLimitsParams `json:"htlc_limits,omitempty"`
 
+	// InboundFees switches on the inbound fee every real forwarding policy
+	// may announce, and draws one per directed policy from a named family.
+	// The as_loaded family draws nothing and prices what the network
+	// already announces, which is how a describegraph snapshot's own
+	// inbound fees get charged. Omitting the section leaves the mechanism
+	// off entirely: nothing is charged at forwarding time and the gossip
+	// view shows a zero fee, which is the world every published number was
+	// measured in, snapshot tiers included.
+	InboundFees *routing.SimInboundFeeParams `json:"inbound_fees,omitempty"`
+
 	// Warmup is an optional unscored phase that runs before the scored
 	// batch, standing in for routing knowledge a node was handed instead
 	// of having to probe for it. Omitting the section is a cold start,
@@ -186,6 +196,40 @@ type aggregate struct {
 	HtlcMaxRefusals    int `json:"htlc_max_refusals,omitempty"`
 	HtlcSourceRefusals int `json:"htlc_source_refusals,omitempty"`
 
+	// InboundFee* describe stage B, and they split the same way stage A's
+	// counters do, for the same reason.
+	//
+	// The census (Policies, Charging, Discounts, Surcharges) is the
+	// measurement. It is the ONLY thing here that can say a tier carries
+	// inbound fees, because a discount changes what a sender is willing to
+	// pay and nothing a forwarding node does, so it leaves no trace on the
+	// wire whatsoever. Read the discount and surcharge counts separately:
+	// only a surcharge can refuse an htlc, so a tier with none of them
+	// cannot produce a refusal however heavily it prices.
+	//
+	// InboundFeeCharged counts the forwarding hops that priced a non-zero
+	// inbound fee. It says the mechanism reached the wire, which is worth
+	// having, and it says nothing about whether the mechanism mattered.
+	//
+	// InboundFeeRefusals is an ALARM, exactly like the htlc refusal
+	// counters above and for the same structural reason: inbound fees are
+	// priced at PLAN time. lnd's path finding adds the inbound fee to the
+	// amount every candidate hop must send (pathfind.go's processEdge) and
+	// the traffic engine does the same, so an arm that reads its own
+	// gossip view reports zero here. A non-zero reading means some sender
+	// underpaid a fee it was shown, which for an evolved candidate is the
+	// expected starting point rather than a bug: no router in this program
+	// has ever had a reason to look.
+	//
+	// The census is reported only when some policy announces a fee, so a
+	// tier with the mechanism off emits exactly the output it always did.
+	InboundFeePolicies   int `json:"inbound_fee_policies,omitempty"`
+	InboundFeeCharging   int `json:"inbound_fee_charging,omitempty"`
+	InboundFeeDiscounts  int `json:"inbound_fee_discounts,omitempty"`
+	InboundFeeSurcharges int `json:"inbound_fee_surcharges,omitempty"`
+	InboundFeeCharged    int `json:"inbound_fee_charged,omitempty"`
+	InboundFeeRefusals   int `json:"inbound_fee_refusals,omitempty"`
+
 	// WarmupScenarios and WarmupAttempts report what the unscored warmup
 	// phase cost. They are kept out of every metric above so that a warmed
 	// run and a cold one are scored on exactly the same payments, while
@@ -307,6 +351,15 @@ func main() {
 	err = graph.ApplyHtlcLimits(scenFile.HtlcLimits, scenFile.LiquiditySeed)
 	if err != nil {
 		fatalf("unable to apply htlc limits: %v", err)
+	}
+
+	// Same for the inbound fees, and the same seed sharing. On a loaded
+	// snapshot the as_loaded family is the one that matters: it draws
+	// nothing and only switches pricing on, so the snapshot's own 4,783
+	// inbound fees are what gets charged.
+	err = graph.ApplyInboundFees(scenFile.InboundFees, scenFile.LiquiditySeed)
+	if err != nil {
+		fatalf("unable to apply inbound fees: %v", err)
 	}
 
 	source, err := graph.ResolveNode(scenFile.Source)
@@ -532,6 +585,23 @@ func runBatch(runner *routing.SimRunner, scenFile *scenarioFile,
 	agg.HtlcMinRefusals = refusals.MinHtlcRefusals
 	agg.HtlcMaxRefusals = refusals.MaxHtlcRefusals
 	agg.HtlcSourceRefusals = refusals.SourceRefusals
+	agg.InboundFeeCharged = refusals.InboundFeeCharged
+	agg.InboundFeeRefusals = refusals.InboundFeeRefusals
+
+	// The inbound fee census is emitted only when a scenario file asked
+	// for the mechanism. The loader preserves a snapshot's real inbound
+	// fees whether or not anything prices them, so a census printed
+	// unconditionally would announce thousands of policies on a mainnet run
+	// whose output has to stay identical to every mainnet run before stage
+	// B. With the section absent the fees are dead data and a census of
+	// dead data is worse than none.
+	if scenFile.InboundFees != nil && scenFile.InboundFees.Family != "" {
+		inbound := runner.InboundFeeStats()
+		agg.InboundFeePolicies = inbound.Policies
+		agg.InboundFeeCharging = inbound.Charging
+		agg.InboundFeeDiscounts = inbound.Discounts
+		agg.InboundFeeSurcharges = inbound.Surcharges
+	}
 
 	attribution := runner.AttributionStats()
 	agg.AttributionAttempts = attribution.Attempts

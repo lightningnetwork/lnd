@@ -472,6 +472,14 @@ func (r *SimRunner) HtlcLimitStats() SimHtlcLimitStats {
 	return r.graph.HtlcLimitStats()
 }
 
+// InboundFeeStats reports how many of the network's directed policies announce
+// an inbound fee, and which way. It is the static half of stage B's check: a
+// discount leaves no trace on the wire, so the census is the only place a tier
+// can say whether it carries inbound fees at all.
+func (r *SimRunner) InboundFeeStats() SimInboundFeeStats {
+	return r.graph.InboundFeeStats()
+}
+
 // AttributionStats reports what the degradation did, and reports zeroes when
 // the failure channel was left alone.
 func (r *SimRunner) AttributionStats() SimAttributionStats {

@@ -21,6 +21,14 @@ const simMaxCltvLimit = math.MaxUint32
 // the default lnd-stack router. Optimization candidates implement this
 // interface to propose entirely new routing algorithms, competing against
 // the lnd stack on identical scenarios.
+//
+// THE FEE BUDGET is the one constraint that does not arrive through
+// ReportAttempt. It is handed over up front, in the payment spec, because a
+// real sender chooses it rather than discovering it: see
+// SimPaymentSpec.FeeLimitMsat. A route whose fee would take the payment past
+// that budget is refused by the runner and never sent, which costs an attempt
+// and teaches nothing, so a router that wants those attempts back has to price
+// its own routes before it offers them.
 type SimRouter interface {
 	// RequestRoute returns the next route to attempt, delivering at most
 	// amt to the target. Returning an error is terminal for the payment:
@@ -37,6 +45,13 @@ type SimRouter interface {
 }
 
 // SimPaymentSpec describes one payment for a router to complete.
+//
+// Everything here is information a real sender has about its own payment
+// before it sends anything, which is the rule the sealed view is built on: a
+// candidate may be told what its own node knows and nothing else. A fee budget
+// is squarely on that side of the line. A real sender picks the most it is
+// willing to pay before it looks for a route, and lnd's own pathfinder has
+// taken the number as a restriction for years.
 type SimPaymentSpec struct {
 	// Target is the destination node.
 	Target route.Vertex
@@ -47,6 +62,27 @@ type SimPaymentSpec struct {
 	// MaxParts caps the number of concurrent MPP shards the sender is
 	// willing to use. 1 disables splitting.
 	MaxParts uint32
+
+	// FeeLimitMsat is the most this payment may pay in fees IN TOTAL,
+	// across every shard it ends up using, not per attempt and not per
+	// shard. The runner enforces it at the point it dispatches an htlc: a
+	// route whose fee would take the payment's committed fees past this
+	// number is refused with a SimFeeLimitFailure instead of being sent,
+	// so a router that ignores the budget pays for it in attempts and in
+	// failed payments rather than in a small subtraction.
+	//
+	// Fees already committed by settled shards count against it, so the
+	// budget a router has left for its next shard is this number minus
+	// what its earlier shards paid. That is exactly what lnd's own
+	// lifecycle does with the same field (calcFeeBudget subtracts
+	// FeesPaid), and the lnd arm here is wired to it.
+	//
+	// lnwire.MaxMilliSatoshi means no limit, and is what every scenario
+	// file written before stage C produces. It is deliberately NOT zero:
+	// zero is a real budget that forbids paying any fee at all, and a
+	// router reading a zero as "unlimited" would have the sign of the
+	// constraint backwards.
+	FeeLimitMsat lnwire.MilliSatoshi
 }
 
 // SimNetworkView is the read-only public surface a router sees: the gossip

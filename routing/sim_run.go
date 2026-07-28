@@ -172,6 +172,17 @@ type SimScenario struct {
 	// With the flag off the simulator keeps its historical behavior, in
 	// which every shard settles the instant it arrives.
 	AtomicMpp bool `json:"atomic_mpp,omitempty"`
+
+	// FeeLimitPPM is the most this payment may pay in fees, in parts per
+	// million of its own amount, summed over every shard it uses. The
+	// sender is told the budget in its SimPaymentSpec, and the runner
+	// refuses to dispatch a route that would overrun it.
+	//
+	// Zero means no limit, which is what every scenario file written
+	// before stage C says by omission. A scenario file may set it per
+	// payment; routesim also accepts a file-level default for the payments
+	// that do not.
+	FeeLimitPPM uint32 `json:"fee_limit_ppm,omitempty"`
 }
 
 // SimHopTrace records one hop of an attempted route.
@@ -713,10 +724,18 @@ func (r *SimRunner) RunScenarioFrom(source route.Vertex,
 		maxParts = 16
 	}
 
+	amount := lnwire.MilliSatoshi(s.AmtMsat)
 	spec := &SimPaymentSpec{
 		Target:   target,
-		Amount:   lnwire.MilliSatoshi(s.AmtMsat),
+		Amount:   amount,
 		MaxParts: maxParts,
+
+		// The budget is quoted as a share of the payment's own amount,
+		// so that one number describes a corpus whose amounts run over
+		// four orders of magnitude. With no limit set this is
+		// lnwire.MaxMilliSatoshi, which is the value the lnd arm has
+		// been constructed with for the whole program.
+		FeeLimitMsat: simFeeBudgetMsat(amount, s.FeeLimitPPM),
 	}
 
 	// Build the routing strategy under test for this payment, handing it

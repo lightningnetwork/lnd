@@ -35,7 +35,7 @@
     </div>
     <h1>What the evolved routers kept, dropped, and <em>invented</em></h1>
     <p class="standfirst">
-      Twenty-one experiments in, the shape of the result is clear. On a real mainnet
+      Twenty-four experiments in, the shape of the result is clear. On a real mainnet
       graph snapshot, LLM-evolved routers match lnd's success rate using
       <strong>8.6× fewer HTLC attempts</strong> on a perfect failure channel — a
       ratio <a class="link" href="#attribution">§12</a> has since retired, because
@@ -46,7 +46,7 @@
     <div class="byline">
       <span>sources <b>simulation/lab/experiments</b></span>
       <span>champions <b>hb1 · mx_c3</b>, title defended (exp-020)</span>
-      <span>status <b>validated · de-circularised · attribution-tested (exp-019) · engine-adjudicated (exp-018) · distilled (exp-021)</b></span>
+      <span>status <b>validated · de-circularised · attribution-tested (exp-019) · engine-adjudicated (exp-018, exp-024) · distilled (exp-021)</b></span>
     </div>
 
     <ol class="toc">
@@ -65,8 +65,10 @@
       <li><a href="#attribution"><span class="n">12</span><span class="t">The 8.6× dies, the margin survives</span></a></li>
       <li><a href="#omni"><span class="n">13</span><span class="t">Three engines, one starting line</span></a></li>
       <li><a href="#distillation"><span class="n">14</span><span class="t">The distillation patch: one fix lands, one theory dies</span></a></li>
-      <li><a href="#process"><span class="n">15</span><span class="t">What the process taught us</span></a></li>
-      <li><a href="#timeline"><span class="n">16</span><span class="t">Timeline of experiments</span></a></li>
+      <li><a href="#ceilingarm"><span class="n">15</span><span class="t">Ten times the budget, a lower shelf</span></a></li>
+      <li><a href="#lying"><span class="n">16</span><span class="t">Breeding under a lying channel</span></a></li>
+      <li><a href="#process"><span class="n">17</span><span class="t">What the process taught us</span></a></li>
+      <li><a href="#timeline"><span class="n">18</span><span class="t">Timeline of experiments</span></a></li>
       <li><a href="drift.html"><span class="n">→</span><span class="t">Drift: the environment strikes back <i>(exp-008, verdict in)</i></span></a></li>
     </ol>
   </div>
@@ -135,8 +137,14 @@
         run that would settle it is specified in the exp-011 writeup.
         <em>(That run has since happened: given the same seed, corpus and eval
         budget, neither alternative engine reached the band, let alone broke it, so
-        at practical budgets it is not a gepa artifact &mdash; though a true problem
-        ceiling remains unproven, <a class="link" href="#omni">&sect;13</a>.)</em>
+        at practical budgets it is not a gepa artifact
+        (<a class="link" href="#omni">&sect;13</a>). The follow-up it specified has
+        run too &mdash; the same alternative at ten times the budget converges to a
+        shelf below where gepa lands on a tenth of the evaluations, so the band is
+        not budget starvation either
+        (<a class="link" href="#ceilingarm">&sect;15</a>). Both halves of this
+        correction are now closed; what stays open is whether the band is a property
+        of the problem or of the paradigm class these engines reach.)</em>
       </p>
       <p>
         <strong>lnd's decay never fires on the static tiers.</strong> Mission
@@ -408,7 +416,7 @@
         <p>
           <strong>Exploit-clean.</strong> The simulator seals hidden liquidity behind
           a view interface, and an adversarial audit of that seal
-          (<a class="link" href="#process">§15</a>) found and
+          (<a class="link" href="#process">§17</a>) found and
           closed a real escape. Both champions were validated after the seal, with
           zero uses of any exploit path.
         </p>
@@ -982,7 +990,7 @@
         <p>
           <strong>Opus 5 at default effort, persistent parallel flow plans.</strong>
           The deepest machinery the project has produced, at 1,931 lines — well past
-          the complexity wall of <a class="link" href="#process">§15</a>. A flow plan
+          the complexity wall of <a class="link" href="#process">§17</a>. A flow plan
           survives failure, dropping only the corridors that evidence actually
           contradicts; dispatch is concurrency-first, filling the shard budget with
           the largest believable amounts before it ever ladder-searches; and planning
@@ -3212,6 +3220,10 @@
             eval budget, or with minibatch benchmarking bolted on, and it now comes
             with measured cost expectations instead of a guess: about $2 and nineteen
             proposer minutes per swing. Specified and costed, not run.
+            <em>Since run, and the costing held to 3%: the arm converges by its third
+            iteration to a shelf below gepa's own 150-evaluation result, so
+            starvation is out and the band survives a second engine given real room
+            (<a class="link" href="#ceilingarm">&sect;15</a>).</em>
           </p>
         </div>
 
@@ -3315,7 +3327,10 @@
           objective caps the attempt penalty at fifteen extra attempts, its 0.427 on
           atomic test flatters it &mdash; past the cap, eighty-five attempts cost no
           more than thirty. Champions of record are unchanged: hb1 and mx_c3, now
-          six challengers deep.
+          six challengers deep &mdash; eight as of
+          <a class="link" href="#ceilingarm">&sect;15</a> and
+          <a class="link" href="#lying">&sect;16</a>, and the eighth reaches omni1's
+          no-guardrail shape by an entirely different road.
         </p>
 
         <h3>Two mechanisms for the ledger, out of a router that failed</h3>
@@ -3718,11 +3733,693 @@ rev 3   apriori: argmax pinned to the top rung, i.e. revision 1 again
     </div>
   </section>
 
-  <!-- ================= 15 · PROCESS ================= -->
-  <section id="process">
+  <!-- ================= 15 · THE CEILING ARM ================= -->
+  <section id="ceilingarm">
     <div class="shell">
       <div class="sec-head">
         <div class="sec-no">15</div>
+        <h2>Ten times the budget, a lower shelf</h2>
+        <p class="sec-sub">
+          <a class="link" href="#omni">&sect;13</a> left a hole in its own verdict.
+          The alternative engines never left the starting line, so nothing had tested
+          what one of them would do with room to move. exp-024 handed meta_harness ten
+          times the evaluations, on the same seed and the same corpus. It iterated, it
+          improved, and it converged &mdash; below where gepa lands on a tenth of the
+          budget.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key hi">
+          <span class="kn">0.514<span class="u">held out, at 1,496 evals</span></span>
+          <div class="kl">
+            where meta_harness settles given ten times exp-018's budget, against
+            gepa's 0.557 on 150 evaluations and the shared seed's 0.508 &mdash; and
+            all three well below the champions' band
+          </div>
+          <div class="kf">the band is not an artifact of starving the alternatives</div>
+        </div>
+        <div class="key">
+          <span class="kn">+0.0002<span class="u">from the last 950 evals</span></span>
+          <div class="kl">
+            iterations one through three bought +0.0136 and the remaining five bought
+            two ten-thousandths, at $1.85 to $1.99 a proposer session with every
+            session exiting clean
+          </div>
+          <div class="kf">convergence, not starvation &mdash; the distinction the arm existed to make</div>
+        </div>
+        <div class="key">
+          <span class="kn">22<span class="u">candidates scored</span></span>
+          <div class="kl">
+            full-set benchmarking costs 68 evaluations a candidate, so 1,500
+            evaluations bought 22 of them; gepa's minibatch loop got thirteen
+            accept-or-reject decisions out of 150
+          </div>
+          <div class="kf">the moat is eval efficiency, and it widens with the budget</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>The starting-line story is dead, and the shelf replaces it</h3>
+        <p>
+          Given room, meta_harness does what an optimizer is supposed to do. Eight
+          iterations, five of them finding a new best, a real 422-line candidate at
+          the end &mdash; <span class="mono">log_bimodal_cost</span>, exploit-grep
+          clean &mdash; and the first improvement over the seed that any
+          claude-proposer engine has produced in this program. exp-018's reading that
+          the claude arms are containable but empty-handed was a budget artifact, and
+          it is now retired.
+        </p>
+        <p>
+          What replaces it is worse for the alternative, not better. The shelf the arm
+          converges to sits <strong>0.043 of held-out test below gepa's own result at
+          one tenth the eval budget</strong>, and gepa's result is itself well below
+          the champions. Whatever the ~0.64 band is, it is not &ldquo;the only
+          optimizer we tried,&rdquo; and it is not &ldquo;nobody gave the others
+          enough evaluations.&rdquo;
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:2em">
+        <table class="data">
+          <caption>exp-024 &middot; the ceiling arm against the three exp-018 arms it is compared to. Same seed, same corpus mix, same eval server enforcing the budget centrally. Proposer spend is the reflection LM's own billing, not machine time.</caption>
+          <thead>
+            <tr>
+              <th>arm</th>
+              <th class="num">validation</th>
+              <th class="num">held-out test</th>
+              <th class="num">evals</th>
+              <th class="num">iterations</th>
+              <th class="num">wall</th>
+              <th class="num">proposer $</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>meta_harness &times;10<span class="sub">this run</span></td>
+              <td class="num" data-l="validation">0.4677</td>
+              <td class="num" data-l="held-out test">0.5136</td>
+              <td class="num" data-l="evals">1,496</td>
+              <td class="num" data-l="iterations">8</td>
+              <td class="num" data-l="wall">157m</td>
+              <td class="num" data-l="proposer $">$15.68</td>
+            </tr>
+            <tr>
+              <td>meta_harness &times;1<span class="sub">exp-018</span></td>
+              <td class="num" data-l="validation">0.4539</td>
+              <td class="num" data-l="held-out test">0.5082</td>
+              <td class="num" data-l="evals">136</td>
+              <td class="num" data-l="iterations">1</td>
+              <td class="num" data-l="wall">19m</td>
+              <td class="num" data-l="proposer $">$1.95</td>
+            </tr>
+            <tr class="best">
+              <td>gepa &times;1<span class="sub">exp-018</span></td>
+              <td class="num" data-l="validation">0.5102</td>
+              <td class="num" data-l="held-out test">0.5565</td>
+              <td class="num" data-l="evals">150</td>
+              <td class="num" data-l="iterations">13</td>
+              <td class="num" data-l="wall">9.0h</td>
+              <td class="num" data-l="proposer $">$0</td>
+            </tr>
+            <tr>
+              <td>the shared seed</td>
+              <td class="num" data-l="validation">0.4539</td>
+              <td class="num" data-l="held-out test">0.5082</td>
+              <td class="num" data-l="evals">&mdash;</td>
+              <td class="num" data-l="iterations">&mdash;</td>
+              <td class="num" data-l="wall">&mdash;</td>
+              <td class="num" data-l="proposer $">&mdash;</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <figure class="wide" style="margin-top:2em">
+        <div class="fig-head">
+          <span class="fig-t">Where the 1,496 evaluations went</span>
+          <span class="fig-n">Fig. 7 &middot; meta_harness &times;10, per iteration</span>
+        </div>
+        <pre class="cd-src">iteration    best validation        gain
+
+seed                 0.4539           —
+  1                  0.4580      +0.0041
+  2                  0.4626      +0.0046
+  3                  0.4675      +0.0049     ← the first hour ends about here
+  4                  0.4676      +0.0001
+  5                  0.4677      +0.0001
+  6 · 7 · 8          0.4677       0.0000     no new best, still proposing
+
+iterations 1–3   +0.0136
+iterations 4–8   +0.0002 over the remaining ~950 evaluations
+                 three candidates proposed each, $1.85–$1.99 a session, all clean exits
+proposals seen   directional_belief · capacity_penalty · log_bimodal_cost
+                 failure_code_filter · widest_path_routing</pre>
+        <figcaption>
+          The trajectory is the finding. By iteration 3 the arm is at 0.4675 and the
+          remaining two thirds of the budget buy two ten-thousandths. The proposer did
+          not stall for want of money or minutes &mdash; it kept spending $1.85 to
+          $1.99 a session and kept circling the same neighbourhood. <b>It found the
+          general region, bimodal-ish cost shaping, and could not find the interval
+          apparatus from there.</b>
+        </figcaption>
+      </figure>
+
+      <div class="prose">
+        <h3>log_bimodal_cost: challenger failure number seven</h3>
+        <p>
+          The winner is the first challenger this program has filed from a claude
+          proposer, and it gets no tier sweep. At 0.5136 held-out test against a seed
+          of 0.5082, with both champions far above, there is no hypothesis a sweep
+          would test. The candidate names alone read like a search circling one idea:
+          <span class="mono">directional_belief</span>,
+          <span class="mono">capacity_penalty</span>,
+          <span class="mono">log_bimodal_cost</span>,
+          <span class="mono">failure_code_filter</span>,
+          <span class="mono">widest_path_routing</span>. Every one of them is a way to
+          shape a cost function, and none of them is a way to remember an interval.
+        </p>
+
+        <div class="note">
+          <h4>what this closes, and what it hands to exp-023</h4>
+          <p>
+            The exp-018 open question is closed on both halves: <strong>not a gepa
+            artifact, and not budget starvation.</strong> No further engine
+            adjudications are planned at any budget, which means the remaining escape
+            hatches from the band are <em>environment</em> changes rather than
+            optimizer changes &mdash; the economic-realism stages, and offline replay
+            on real payment data. The cost ledger also closed inside 3% of exp-018's
+            estimate: eight swings at about $2 and nineteen proposer minutes each,
+            $15.68 and 157 minutes in total, which is what a costed arm is supposed to
+            look like when the costing was honest.
+          </p>
+        </div>
+
+        <div class="callout">
+          <p>
+            <strong>Caveats.</strong> One run, one seed, one corpus, as with every
+            engine arm here, and exp-010b showed proposer variance flipping orderings
+            between environments (<a class="link" href="#atomic">&sect;07</a>). The arm
+            ran concurrently with exp-022's evals on the same machine, which moves
+            wall-clock and nothing else, since scores are deterministic per candidate.
+            And ten times is not infinity: nothing here bounds what meta_harness would
+            do with minibatch benchmarking bolted on, but that is an engine change
+            upstream in gepa rather than an experiment this program owes.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 16 · BREEDING UNDER A LYING CHANNEL ================= -->
+  <section id="lying">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">16</div>
+        <h2>Breeding under a lying channel</h2>
+        <p class="sec-sub">
+          Every evolution run before this one bred against a perfect failure channel.
+          <a class="link" href="#attribution">&sect;12</a> showed the champions survive
+          degradation by treating no-information as no-information &mdash; machinery
+          that ignores the lie rather than exploiting it. exp-022 is the first run bred
+          <em>with</em> the lie present. It produced the first attribution-confidence
+          machinery this program has evolved, the flattest degradation profile ever
+          measured here, and challenger failure number eight.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key hi">
+          <span class="kn">&minus;0.013<span class="u">worst tier, degraded &minus; clean</span></span>
+          <div class="kl">
+            deg1's entire degradation profile across six tiers runs &minus;0.013 to
+            +0.000, against champions losing up to 0.067 with intervals excluding zero
+            and lnd losing a quarter of its success on the hard tier
+          </div>
+          <div class="kf">what it was bred for, it achieved &mdash; measurably</div>
+        </div>
+        <div class="key">
+          <span class="kn">0<span class="u">of twelve tier-conditions</span></span>
+          <div class="kl">
+            cells where deg1 beats a champion with a confidence interval clearing
+            zero, in either channel condition; going the other way it loses to mx_c3
+            on four, unanimously on split and mainnet
+          </div>
+          <div class="kf">no displacement, and no specialist filing either</div>
+        </div>
+        <div class="key">
+          <span class="kn">26&ndash;92<span class="u">attempts per payment</span></span>
+          <div class="kl">
+            on every tier, pinned past the objective's fifteen-extra-attempt cap
+            everywhere, so the flatness costs nothing the composite is able to see
+          </div>
+          <div class="kf">robustness bought with unbounded retrying</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>The corpus that lies, and the gate before it</h3>
+        <p>
+          <span class="mono">corpus-deg</span> is the sealed corpus-mix train and
+          validation splits with <a class="link" href="#attribution">&sect;12</a>'s
+          realistic mix stamped on every file &mdash;
+          <span class="mono">unknown_prob 0.2</span>,
+          <span class="mono">shift_prob 0.1</span> &mdash; and the test split left
+          clean, so the held-out line reads transfer <em>back</em> to a truthful
+          channel. The background prompt gained a section stating the channel facts
+          and posing the open question outright: nobody has evolved machinery that
+          actively exploits a lying channel. 400 evaluations, pure gepa, codex
+          gpt-5.6-sol at high effort, 36 iterations, ten candidates in the pool, no
+          reflection hijacks. The launch gate held first: the in-tree seed reproduced
+          exp-011's iteration-zero validation score to full float precision on the
+          clean split before anything counted.
+        </p>
+        <p>
+          Two numbers came out, and they told two stories. On the degraded world it was
+          bred for, the winner gains <strong>+0.044</strong> over the seed, 0.3906 to
+          0.4343, which is what evolution buys on clean corpora at this budget. On the
+          clean held-out test it lands <strong>0.009 below its own seed</strong>,
+          0.5082 to 0.4988. Robustness machinery is not free when the channel stops
+          lying, and which of those dominates on the sealed tiers is what the 648-run
+          sweep was pre-registered to decide.
+        </p>
+
+        <h3>What it evolved, which is the reason the run existed</h3>
+        <p>
+          deg1 is the first candidate in the program to <em>build</em>
+          attribution-confidence machinery instead of ignoring what it cannot read,
+          and it built all three pieces without being shown an implementation of any
+          of them.
+        </p>
+        <p>
+          <strong>1 &middot; Quarantined suspect evidence.</strong> Per-directed-channel
+          <span class="mono">suspectAmt</span> and
+          <span class="mono">suspectWeight</span> fields hold observations whose
+          attribution the router does not trust, kept apart from the hard
+          <span class="mono">lowerOK</span> and <span class="mono">upperFail</span>
+          bounds. A suspect entry is cleared when later evidence contradicts it, rather
+          than poisoning the interval it would otherwise have written.
+        </p>
+        <p>
+          <strong>2 &middot; Payment-local penalties for unreadable failures.</strong>
+          On an unknown failure it penalizes every edge the attempt traversed within
+          that payment &mdash; 0.16 an edge, softening to 0.11 on long routes &mdash;
+          and writes nothing at all to shared beliefs. That is convergent with the
+          champions' session penalties and with
+          <span class="mono">soft_unknown</span>'s design logic
+          (<a class="link" href="#distillation">&sect;14</a>), evolved independently,
+          under exactly the pressure that produced the lnd pathology.
+        </p>
+        <p>
+          <strong>3 &middot; An escalation threshold.</strong> After four unknown
+          failures inside one payment it changes policy rather than looping &mdash; the
+          guardrail class <a class="link" href="#omni">omni1</a> conspicuously lacked,
+          and a hint of the shape a bounded version of this router would take.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:2em">
+        <table class="data">
+          <caption>exp-022 &middot; the clean arm. Composite objective per tier, paired per file, with success and give-ups quoted together underneath because neither is readable alone on a router that never stops. The gate ran first: all five prior routers rebuilt from HEAD reproduce the <a class="link" href="#timeline">exp-020</a> numbers on 24 of 24 cells to four decimals.</caption>
+          <thead>
+            <tr>
+              <th>tier</th>
+              <th class="num">lnd</th>
+              <th class="num">hb1</th>
+              <th class="num">mx_c3</th>
+              <th class="num">deg1</th>
+              <th class="num">&Delta; deg1 &minus; mx_c3</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>hard test</td>
+              <td class="num" data-l="lnd">0.309<span class="sub">0.493 succ · 0.308 give-ups</span></td>
+              <td class="num" data-l="hb1">0.586</td>
+              <td class="num" data-l="mx_c3">0.583<span class="sub">0.732 · 0.268</span></td>
+              <td class="num" data-l="deg1">0.508<span class="sub">0.721 · 0.052</span></td>
+              <td class="num" data-l="&Delta; deg1 &minus; mx_c3">&minus;0.075<span class="sub">1/9 · p .021 · CI excludes zero</span></td>
+            </tr>
+            <tr>
+              <td>out-of-distribution</td>
+              <td class="num" data-l="lnd">0.357<span class="sub">0.525 succ · 0.213 give-ups</span></td>
+              <td class="num" data-l="hb1">0.545</td>
+              <td class="num" data-l="mx_c3">0.581<span class="sub">0.695 · 0.305</span></td>
+              <td class="num" data-l="deg1">0.489<span class="sub">0.681 · 0.013</span></td>
+              <td class="num" data-l="&Delta; deg1 &minus; mx_c3">&minus;0.091<span class="sub">1/9 · p .021 · CI excludes zero</span></td>
+            </tr>
+            <tr>
+              <td>split test</td>
+              <td class="num" data-l="lnd">0.837<span class="sub">0.958 succ · 0.000 give-ups</span></td>
+              <td class="num" data-l="hb1">0.814</td>
+              <td class="num" data-l="mx_c3">0.876<span class="sub">0.958 · 0.042</span></td>
+              <td class="num" data-l="deg1">0.788<span class="sub">0.917 · 0.000</span></td>
+              <td class="num" data-l="&Delta; deg1 &minus; mx_c3">&minus;0.088<span class="sub">0/8 · p .008 · CI excludes zero</span></td>
+            </tr>
+            <tr>
+              <td>drift test</td>
+              <td class="num" data-l="lnd">0.236<span class="sub">0.436 succ · 0.436 give-ups</span></td>
+              <td class="num" data-l="hb1">0.442</td>
+              <td class="num" data-l="mx_c3">0.454<span class="sub">0.642 · 0.358</span></td>
+              <td class="num" data-l="deg1">0.392<span class="sub">0.615 · 0.056</span></td>
+              <td class="num" data-l="&Delta; deg1 &minus; mx_c3">&minus;0.062<span class="sub">0/6 · p .031 · CI excludes zero</span></td>
+            </tr>
+            <tr class="best">
+              <td>atomic test<span class="sub">its only directional lead</span></td>
+              <td class="num" data-l="lnd">0.320<span class="sub">0.482 succ · 0.000 give-ups</span></td>
+              <td class="num" data-l="hb1">0.445</td>
+              <td class="num" data-l="mx_c3">0.444<span class="sub">0.571 · 0.429</span></td>
+              <td class="num" data-l="deg1">0.463<span class="sub">0.625 · 0.000</span></td>
+              <td class="num" data-l="&Delta; deg1 &minus; mx_c3">+0.020<span class="sub">p .73 · CI straddles zero</span></td>
+            </tr>
+            <tr class="bad">
+              <td>mainnet<span class="sub">first evolved router below lnd here</span></td>
+              <td class="num" data-l="lnd">0.694<span class="sub">0.790 succ · 0.130 give-ups</span></td>
+              <td class="num" data-l="hb1">0.790</td>
+              <td class="num" data-l="mx_c3">0.791<span class="sub">0.810 · 0.190</span></td>
+              <td class="num" data-l="deg1">0.679<span class="sub">0.800 · 0.090</span></td>
+              <td class="num" data-l="&Delta; deg1 &minus; mx_c3">&minus;0.112<span class="sub">0/10 · p .002 · CI excludes zero</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="tw wide" style="margin-top:1.5em">
+        <table class="data">
+          <caption>exp-022 &middot; the degraded arm, at <a class="link" href="#attribution">&sect;12</a>'s realistic mix. Same files, same routers, the attribution stanza the only difference. This arm gated too: every prior router reproduces exp-019's realistic-mix level to four decimals.</caption>
+          <thead>
+            <tr>
+              <th>tier</th>
+              <th class="num">lnd</th>
+              <th class="num">hb1</th>
+              <th class="num">mx_c3</th>
+              <th class="num">deg1</th>
+              <th class="num">&Delta; deg1 &minus; mx_c3</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>hard test</td>
+              <td class="num" data-l="lnd">0.188<span class="sub">0.240 succ · 0.760 give-ups</span></td>
+              <td class="num" data-l="hb1">0.525</td>
+              <td class="num" data-l="mx_c3">0.517<span class="sub">0.681 · 0.319</span></td>
+              <td class="num" data-l="deg1">0.498<span class="sub">0.711 · 0.052</span></td>
+              <td class="num" data-l="&Delta; deg1 &minus; mx_c3">&minus;0.019<span class="sub">p 1.0</span></td>
+            </tr>
+            <tr>
+              <td>out-of-distribution</td>
+              <td class="num" data-l="lnd">0.334<span class="sub">0.400 succ · 0.600 give-ups</span></td>
+              <td class="num" data-l="hb1">0.538</td>
+              <td class="num" data-l="mx_c3">0.564<span class="sub">0.695 · 0.305</span></td>
+              <td class="num" data-l="deg1">0.488<span class="sub">0.681 · 0.000</span></td>
+              <td class="num" data-l="&Delta; deg1 &minus; mx_c3">&minus;0.076<span class="sub">1/9 · p .021 · CI excludes zero</span></td>
+            </tr>
+            <tr>
+              <td>split test</td>
+              <td class="num" data-l="lnd">0.724<span class="sub">0.792 succ · 0.208 give-ups</span></td>
+              <td class="num" data-l="hb1">0.808</td>
+              <td class="num" data-l="mx_c3">0.874<span class="sub">0.958 · 0.042</span></td>
+              <td class="num" data-l="deg1">0.787<span class="sub">0.917 · 0.000</span></td>
+              <td class="num" data-l="&Delta; deg1 &minus; mx_c3">&minus;0.087<span class="sub">0/8 · p .008 · CI excludes zero</span></td>
+            </tr>
+            <tr>
+              <td>drift test</td>
+              <td class="num" data-l="lnd">0.159<span class="sub">0.226 succ · 0.774 give-ups</span></td>
+              <td class="num" data-l="hb1">0.394</td>
+              <td class="num" data-l="mx_c3">0.390<span class="sub">0.600 · 0.400</span></td>
+              <td class="num" data-l="deg1">0.379<span class="sub">0.603 · 0.056</span></td>
+              <td class="num" data-l="&Delta; deg1 &minus; mx_c3">&minus;0.011<span class="sub">p .73</span></td>
+            </tr>
+            <tr class="best">
+              <td>atomic test<span class="sub">the best cell it has</span></td>
+              <td class="num" data-l="lnd">0.354<span class="sub">0.482 succ · 0.518 give-ups</span></td>
+              <td class="num" data-l="hb1">0.420</td>
+              <td class="num" data-l="mx_c3">0.422<span class="sub">0.571 · 0.429</span></td>
+              <td class="num" data-l="deg1">0.463<span class="sub">0.625 · 0.000</span></td>
+              <td class="num" data-l="&Delta; deg1 &minus; mx_c3">+0.041<span class="sub">p .29 · CI straddles zero</span></td>
+            </tr>
+            <tr class="bad">
+              <td>mainnet</td>
+              <td class="num" data-l="lnd">0.709<span class="sub">0.730 succ · 0.270 give-ups</span></td>
+              <td class="num" data-l="hb1">0.789</td>
+              <td class="num" data-l="mx_c3">0.786<span class="sub">0.810 · 0.190</span></td>
+              <td class="num" data-l="deg1">0.679<span class="sub">0.800 · 0.090</span></td>
+              <td class="num" data-l="&Delta; deg1 &minus; mx_c3">&minus;0.108<span class="sub">0/10 · p .002 · CI excludes zero</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <p style="margin-top:1.6em">
+          <strong>No displacement.</strong> deg1 beats a champion with an interval
+          clearing zero on zero tiers, in either channel condition. Its best cell is
+          atomic test degraded, +0.043 over hb1 and +0.041 over mx_c3, and both
+          straddle zero. Going the other way it loses to mx_c3 with intervals
+          excluding zero on four tiers, unanimously on split (0 of 8, p = .008) and on
+          mainnet (0 of 10, p = .002, &minus;0.11 against all three incumbents). That
+          mainnet cell is a first: <strong>no evolved router in this program had
+          previously landed below production lnd on lnd's home tier.</strong> Read the
+          pair, though, and the sting is precise rather than general &mdash; deg1's
+          mainnet <em>success</em> is 0.800 against lnd's 0.790. It loses the composite
+          on the attempt bill alone, 25.9 attempts a payment against 19.8. It also
+          earns no specialist filing beside atomic1's flat-liquidity niche, because
+          atomic1's niche wins were interval-solid and deg1's degraded edges are not.
+        </p>
+
+        <h3>What it was bred for, it achieved</h3>
+        <p>
+          The breeding worked on its own terms, and the flatness is the cleanest
+          result in the run. deg1 is the most degradation-robust router ever measured
+          here, and the champion gap narrows under the lying channel exactly as the
+          breeding predicted, with intervals excluding zero on the hard tier:
+          <strong>+0.051 against hb1</strong> (9 of 10, p = .021) and
+          <strong>+0.056 against mx_c3</strong> (10 of 10, p = .002).
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:1.5em">
+        <table class="data">
+          <caption>exp-022 &middot; degradation flatness. Each cell is degraded minus clean on the composite, so zero is a router the lying channel cannot touch. lnd's two positive cells are not robustness: they are <a class="link" href="#attribution">&sect;12</a>'s abandonment effect, where the objective rises because lnd stops paying for hard payments.</caption>
+          <thead>
+            <tr>
+              <th>router</th>
+              <th class="num">hard</th>
+              <th class="num">OOD</th>
+              <th class="num">split</th>
+              <th class="num">drift</th>
+              <th class="num">atomic</th>
+              <th class="num">mainnet</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="bad">
+              <td>lnd<span class="sub">success 0.493 &rarr; 0.240 on hard</span></td>
+              <td class="num" data-l="hard">&minus;0.121</td>
+              <td class="num" data-l="OOD">&minus;0.024</td>
+              <td class="num" data-l="split">&minus;0.113</td>
+              <td class="num" data-l="drift">&minus;0.077</td>
+              <td class="num" data-l="atomic">+0.034</td>
+              <td class="num" data-l="mainnet">+0.015</td>
+            </tr>
+            <tr>
+              <td>hand-written seed</td>
+              <td class="num" data-l="hard">&minus;0.016</td>
+              <td class="num" data-l="OOD">&minus;0.007</td>
+              <td class="num" data-l="split">&minus;0.007</td>
+              <td class="num" data-l="drift">&minus;0.034</td>
+              <td class="num" data-l="atomic">&minus;0.019</td>
+              <td class="num" data-l="mainnet">&minus;0.008</td>
+            </tr>
+            <tr>
+              <td>hb1</td>
+              <td class="num" data-l="hard">&minus;0.061</td>
+              <td class="num" data-l="OOD">&minus;0.007</td>
+              <td class="num" data-l="split">&minus;0.006</td>
+              <td class="num" data-l="drift">&minus;0.048</td>
+              <td class="num" data-l="atomic">&minus;0.025</td>
+              <td class="num" data-l="mainnet">&minus;0.002</td>
+            </tr>
+            <tr>
+              <td>mx_c3<span class="sub">champion of record</span></td>
+              <td class="num" data-l="hard">&minus;0.067</td>
+              <td class="num" data-l="OOD">&minus;0.017</td>
+              <td class="num" data-l="split">&minus;0.002</td>
+              <td class="num" data-l="drift">&minus;0.064</td>
+              <td class="num" data-l="atomic">&minus;0.021</td>
+              <td class="num" data-l="mainnet">&minus;0.004</td>
+            </tr>
+            <tr>
+              <td>atomic1</td>
+              <td class="num" data-l="hard">&minus;0.042</td>
+              <td class="num" data-l="OOD">&minus;0.043</td>
+              <td class="num" data-l="split">&minus;0.014</td>
+              <td class="num" data-l="drift">&minus;0.079</td>
+              <td class="num" data-l="atomic">&minus;0.009</td>
+              <td class="num" data-l="mainnet">&minus;0.001</td>
+            </tr>
+            <tr class="best">
+              <td>deg1<span class="sub">bred on the lying channel</span></td>
+              <td class="num" data-l="hard">&minus;0.011</td>
+              <td class="num" data-l="OOD">&minus;0.001</td>
+              <td class="num" data-l="split">&minus;0.001</td>
+              <td class="num" data-l="drift">&minus;0.013</td>
+              <td class="num" data-l="atomic">+0.000</td>
+              <td class="num" data-l="mainnet">+0.000</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <h3>And then the mechanism, which is the finding</h3>
+        <p>
+          The flatness is bought by never stopping. deg1 runs 26 to 92 attempts a
+          payment on every tier, pinned past the objective's fifteen-extra-attempt cap
+          everywhere, and it fails almost never by giving up. It is the first candidate
+          to <strong>break the give-up identity</strong> that
+          <a class="link" href="#families">&sect;11</a> established: its give-up rate
+          runs 0.000 to 0.090 while its failure rate runs 0.083 to 0.397, so it is not
+          abandoning payments at all. The harness's 200-attempt ceiling in
+          <span class="mono">sim_run.go</span> abandons for it.
+        </p>
+        <p>
+          Re-scoring the identical raw runs at higher attempt caps shows the subsidy
+          plainly, and it is the exhibit that decides the section.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:1.5em">
+        <table class="data">
+          <caption>exp-022 &middot; cap sensitivity on atomic test, clean arm &mdash; the one tier where deg1 leads. The published objective caps the attempt penalty at fifteen extra attempts, so everything past sixteen attempts a payment is free. Re-scoring the same runs at 30, 60 and no cap changes no router's behaviour; it only changes what the score is allowed to notice.</caption>
+          <thead>
+            <tr>
+              <th>router</th>
+              <th class="num">cap 15<span class="sub">published</span></th>
+              <th class="num">cap 30</th>
+              <th class="num">cap 60</th>
+              <th class="num">uncapped</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>lnd</td>
+              <td class="num" data-l="cap 15">0.320</td>
+              <td class="num" data-l="cap 30">0.170</td>
+              <td class="num" data-l="cap 60">&minus;0.130</td>
+              <td class="num" data-l="uncapped">&minus;0.602</td>
+            </tr>
+            <tr>
+              <td>hand-written seed</td>
+              <td class="num" data-l="cap 15">0.403</td>
+              <td class="num" data-l="cap 30">0.275</td>
+              <td class="num" data-l="cap 60">0.123</td>
+              <td class="num" data-l="uncapped">&minus;0.004</td>
+            </tr>
+            <tr class="best">
+              <td>hb1<span class="sub">cap-insensitive to four decimals</span></td>
+              <td class="num" data-l="cap 15">0.445</td>
+              <td class="num" data-l="cap 30">0.445</td>
+              <td class="num" data-l="cap 60">0.445</td>
+              <td class="num" data-l="uncapped">0.445</td>
+            </tr>
+            <tr class="best">
+              <td>mx_c3</td>
+              <td class="num" data-l="cap 15">0.444</td>
+              <td class="num" data-l="cap 30">0.440</td>
+              <td class="num" data-l="cap 60">0.440</td>
+              <td class="num" data-l="uncapped">0.440</td>
+            </tr>
+            <tr>
+              <td>atomic1</td>
+              <td class="num" data-l="cap 15">0.403</td>
+              <td class="num" data-l="cap 30">0.396</td>
+              <td class="num" data-l="cap 60">0.396</td>
+              <td class="num" data-l="uncapped">0.396</td>
+            </tr>
+            <tr class="bad">
+              <td>deg1<span class="sub">leads the field, then worst in it</span></td>
+              <td class="num" data-l="cap 15"><b>0.463</b></td>
+              <td class="num" data-l="cap 30">0.313</td>
+              <td class="num" data-l="cap 60">0.013</td>
+              <td class="num" data-l="uncapped">&minus;0.262</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <p style="margin-top:1.6em">
+          deg1's one directional tier lead inverts at cap 30 and lands worst in field
+          uncapped. The champions do not move: hb1 reads 0.586, 0.585, 0.585, 0.585 on
+          the hard tier across the same four caps. <strong>The cap is not measuring
+          the same thing for both kinds of router</strong>, and on this candidate it
+          was paying for the headline.
+        </p>
+
+        <div class="note">
+          <h4>the plan-time thesis, confirmed a third time</h4>
+          <p>
+            This is the exact inverse of exp-013's give-up attractor: omni1's
+            no-guardrail shape (<a class="link" href="#omni">&sect;13</a>) reached by a
+            different road, from a corpus that rewards persistence rather than from a
+            seed with no attempts left to save. And it is the
+            <strong>third independent line of evidence</strong> that the champions'
+            edge lives at plan time. <a class="link" href="#omni">&sect;13</a> found
+            the alternatives could not reach the band on proposal quality;
+            <a class="link" href="#distillation">&sect;14</a> found every
+            bound-reactive amount policy reduces to a descent lnd already runs; and now
+            a search given a genuinely new pressure, and 400 evaluations to answer it,
+            bought robustness with unbounded retrying rather than with better plans.
+            Success-side memory feeding the initial amount choice, and joint route-set
+            construction, remain the things nothing has re-derived cheaply.
+          </p>
+        </div>
+
+        <h3>Two things worth keeping out of a router that lost</h3>
+        <p>
+          The suspect-bound machinery is real, novel and goes on the idea ledger. It is
+          the first evolved answer to the attribution question, and its
+          degradation-flatness is genuine rather than a scoring artifact &mdash; the
+          flatness holds on success, not just on the composite. The obvious follow-up
+          is to seed <em>from</em> mx_c3 against the degraded corpus and ask whether
+          the machinery composes with a plan-time architecture instead of replacing it.
+        </p>
+        <p>
+          <strong>The attempt cap is now a measured objective weakness rather than a
+          suspicion.</strong> It silently subsidized this candidate the same way it hid
+          <span class="mono">soft_unknown</span>'s cost in
+          <a class="link" href="#distillation">&sect;14</a>. The economic-realism spec
+          already carries a rule that a fee term must stay below the abandonment price;
+          this is its attempt-side sibling, and it generalizes: <em>a capped cost term
+          creates a free direction past the cap</em>. Any future objective revision
+          should treat the two symmetrically.
+        </p>
+
+        <div class="callout">
+          <p>
+            <strong>Caveats.</strong> Eight to ten files a tier, as on every sweep here,
+            and 648 of 648 runs completed with zero errors and determinism
+            double-checked. One magnitude result should not be read as a consistency
+            result: deg1 over the seed on split test, +0.144 clean and +0.150 degraded,
+            has an interval excluding zero on a sign test of exactly 4 of 8, so it is
+            carried by half the files. The degradation instrument realises unknown
+            0.141 to 0.190 and shift 0.052 to 0.077 against the configured 0.2 and 0.1,
+            matching exp-019's realised rates rather than its nominal ones. And the
+            mainnet tier is real topology and real policies with synthetic liquidity,
+            the standing caveat in <a class="link" href="#corrections">&sect;00</a>;
+            nothing here changes it.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 17 · PROCESS ================= -->
+  <section id="process">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">17</div>
         <h2>What the process taught us</h2>
         <p class="sec-sub">
           Findings about running this kind of search, which cost as much to learn
@@ -3801,14 +4498,14 @@ rev 3   apriori: argmax pinned to the top rung, i.e. revision 1 again
     </div>
   </section>
 
-  <!-- ================= 16 · TIMELINE ================= -->
+  <!-- ================= 18 · TIMELINE ================= -->
   <section id="timeline">
     <div class="shell">
       <div class="sec-head">
-        <div class="sec-no">16</div>
+        <div class="sec-no">18</div>
         <h2>Timeline of experiments</h2>
         <p class="sec-sub">
-          Twenty-three writeups, four days of wall-clock time, in numbered order. Full
+          Twenty-six writeups, four days of wall-clock time, in numbered order. Full
           detail lives in
           <span class="mono">simulation/lab/experiments/</span>.
         </p>
@@ -4300,6 +4997,74 @@ rev 3   apriori: argmax pinned to the top rung, i.e. revision 1 again
             </div>
           </div>
           <div class="tl-tag">verdict · the fix and the null</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-022</div>
+          <div class="tl-b">
+            <div class="t">Breeding under a lying channel</div>
+            <div class="d">
+              The first evolution run bred with the lie present: the sealed corpus mix
+              with exp-019's realistic attribution mix stamped on train and validation
+              and the test split left truthful. It produced the program's first
+              attribution-confidence machinery — quarantined suspect bounds,
+              payment-local penalties for unreadable failures, an escalation threshold
+              at four unknowns — none of which it was shown an implementation of. The
+              648-run sweep then said no on both arms: zero tier-conditions where deg1
+              beats a champion with an interval clearing zero, four where it loses to
+              mx_c3, and on mainnet the first evolved router in this program to land
+              below production lnd, 0.679 against 0.694. What it did achieve is real
+              and measured — the flattest degradation profile ever recorded here,
+              −0.013 to +0.000 across six tiers, against champions losing up to 0.067
+              — and the mechanism is the finding: 26 to 92 attempts a payment, past
+              the objective's cap everywhere, failing by hitting the harness ceiling
+              rather than by giving up. It breaks the give-up identity, and re-scoring
+              at higher caps inverts its one lead while the champions do not move.
+              Champions unchanged (<a class="link" href="#lying">§16</a>).
+            </div>
+          </div>
+          <div class="tl-tag">verdict · robustness on credit</div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-id">exp-023 · spec</div>
+          <div class="tl-b">
+            <div class="t">Economic realism, five flag-gated stages</div>
+            <div class="d">
+              A design document, not a result. Five mechanisms that put a price on
+              things the arena currently gives away — min and max HTLC pressure,
+              inbound fees, fees as a first-class cost, concurrent payments, latency —
+              each pre-registering what it should select for so that a null is a
+              finding. They land as five separate flags rather than one release, since
+              five simultaneous flags make the flag-off byte-identity proof a product
+              instead of a sum. Stage A is in implementation.
+            </div>
+          </div>
+          <div class="tl-tag">spec · not yet run</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-024</div>
+          <div class="tl-b">
+            <div class="t">The ceiling arm — ten times the budget, a lower shelf</div>
+            <div class="d">
+              The run exp-018 said would separate a problem ceiling from an optimizer
+              that stalls at the starting line. meta_harness on the same seed and
+              corpus at 1,496 evaluations iterated eight times, found five new bests,
+              and produced a real 422-line candidate — the first improvement over the
+              seed any claude-proposer engine has managed here. The trajectory is the
+              finding: +0.0136 in the first three iterations, +0.0002 from the
+              remaining 950 evaluations. That is convergence, not starvation, and the
+              shelf it converges to, 0.514 held out, sits below gepa's own 0.557 at one
+              tenth the budget. The band survives a second engine given real room, so
+              the remaining escape hatches are environment changes rather than
+              optimizer changes. The candidate is challenger failure number seven, and
+              at 0.514 against a seed of 0.508 it earns no tier sweep. Costing held to
+              3% of the exp-018 estimate
+              (<a class="link" href="#ceilingarm">§15</a>).
+            </div>
+          </div>
+          <div class="tl-tag">verdict · not starvation</div>
         </div>
       </div>
     </div>

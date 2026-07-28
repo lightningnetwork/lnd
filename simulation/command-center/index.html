@@ -61,7 +61,7 @@
       <span>method <b>GEPA reflective evolution</b></span>
       <span>reflection LM <b>gpt-5.6-sol</b></span>
       <span>evaluator <b>cmd/routesim</b></span>
-      <span>experiments <b>exp-001 … exp-021</b></span>
+      <span>experiments <b>exp-001 … exp-024</b></span>
       <span>champions <b>hb1 + mx_c3</b>, unchanged since exp-007 · nothing live</span>
     </div>
   </div>
@@ -95,7 +95,7 @@
             out-of-distribution topologies, mainnet snapshot, drifting liquidity,
             splitting pressure, and the atomic arena
           </div>
-          <div class="kf">six challengers have since failed to displace them</div>
+          <div class="kf">eight challengers have since failed to displace them</div>
         </div>
         <div class="key">
           <span class="kn">0</span>
@@ -410,15 +410,49 @@
           has exp-012, which found no hot-cache regime anywhere but did find the one
           change this work argues for upstream
           (<a class="link" href="findings.html#coldcache">cold cache, hot load</a>).
-          Nothing is live now: the last completed run is
-          <span class="mono">exp-018</span>, the engine adjudication, which gave
-          three optimizers the same seed, corpus and eval budget and found that only
-          gepa produced a router at all
-          (<a class="link" href="findings.html#omni">the adjudication</a>). No
-          optimizer has run since: exp-021 spent its time turning the findings into a
-          flag-gated diff against lnd's own stack, where one mechanism is now
-          PR-ready and the other is a measured null
+          Nothing is live now. The telemetry below is still
+          <span class="mono">exp-018</span>'s gepa arm, the engine adjudication, which
+          gave three optimizers the same seed, corpus and eval budget and found that
+          only gepa produced a router at all
+          (<a class="link" href="findings.html#omni">the adjudication</a>). Two
+          optimizer runs have finished since, both overnight and both closed:
+          <span class="mono">exp-022</span> bred a router against a channel that lies
+          about which hop failed
+          (<a class="link" href="findings.html#lying">the lying channel</a>), and
+          <span class="mono">exp-024</span> gave the runner-up engine ten times the
+          evaluations to see whether the band was ever budget starvation
+          (<a class="link" href="findings.html#ceilingarm">the ceiling arm</a>). In
+          between, exp-021 turned the findings into a flag-gated diff against lnd's own
+          stack, where one mechanism is now PR-ready and the other is a measured null
           (<a class="link" href="findings.html#distillation">the distillation patch</a>).
+        </p>
+      </div>
+
+      <div class="note">
+        <h4>where the program stands</h4>
+        <p>
+          <strong>No optimizer run is live.</strong> Champions are unchanged at hb1
+          and mx_c3, eight challengers deep, and the arms still open are about
+          changing the environment rather than changing the search
+          (<a class="link" href="findings.html#ceilingarm">§15</a> is why).
+        </p>
+        <p>
+          <strong>exp-023, economic realism.</strong> The design spec is committed:
+          five mechanisms that put a price on things the arena currently gives away —
+          min and max HTLC pressure, inbound fees, fees as a first-class cost,
+          concurrent payments, latency — landing as five separately flag-gated stages
+          so that the flag-off byte-identity proof stays a sum rather than a product.
+          Stage A is in implementation. Nothing has been measured yet.
+        </p>
+        <p>
+          <strong>The interval-router branch.</strong> Separately from the simulator,
+          the champions' paradigm is being ported into lnd proper: fourteen commits on
+          <span class="mono">interval-router</span> that put a liquidity interval per
+          directed channel behind
+          <span class="mono">routerrpc.router=interval</span>, off by default, with
+          the stock stack untouched when the flag is unset. <strong>It has not been
+          benchmarked in this simulator.</strong> Nothing on this site is a
+          measurement of that branch, and no number here should be read as one.
         </p>
       </div>
 
@@ -519,8 +553,12 @@
         pay for, the one patch that came out of all this and the theory that died
         beside it
         (<a class="link" href="findings.html#distillation">the distillation patch</a>),
-        the corrections we have had to make to our own record, and the process
-        lessons from twenty-one experiments.
+        what a second optimizer does with ten times the budget
+        (<a class="link" href="findings.html#ceilingarm">the ceiling arm</a>), what a
+        router bred against a channel that lies buys its robustness with
+        (<a class="link" href="findings.html#lying">the lying channel</a>), the
+        corrections we have had to make to our own record, and the process lessons
+        from twenty-four experiments.
       </p>
     </div>
   </div>

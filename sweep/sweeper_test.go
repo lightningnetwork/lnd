@@ -237,7 +237,7 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	// Mark the test inputs. We expect the non-exist input and the
 	// inputInit to be skipped, and the final input to be marked as
 	// published.
-	s.markInputsPublishFailed(set, feeRate)
+	s.markInputsPublishFailed(set, fn.Some(feeRate))
 
 	// We expect unchanged number of pending inputs.
 	require.Len(s.inputs, 7)
@@ -717,6 +717,9 @@ func TestHandleBumpEventTxFailed(t *testing.T) {
 	op1 := input1.OutPoint()
 	op2 := input2.OutPoint()
 	op3 := input3.OutPoint()
+	oldFeeRate := fn.Some(chainfee.SatPerKWeight(99))
+	s.inputs[op1].params.StartingFeeRate = oldFeeRate
+	s.inputs[op3].params.StartingFeeRate = oldFeeRate
 
 	// Construct the initial state for the sweeper.
 	set.On("Inputs").Return([]input.Input{input1, input2, input3})
@@ -760,6 +763,84 @@ func TestHandleBumpEventTxFailed(t *testing.T) {
 
 	// Assert the non-existing input is not added to the pending inputs.
 	require.NotContains(t, s.inputs, opNotExist)
+}
+
+// TestHandleBumpEventTxFailedBadInputs checks that diagnosed bad inputs are
+// marked fatal while the rest of the set is retried.
+func TestHandleBumpEventTxFailedBadInputs(t *testing.T) {
+	t.Parallel()
+
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+
+	s := New(&UtxoSweeperConfig{})
+
+	var (
+		input1 = createMockInput(t, s, PendingPublish)
+		input2 = createMockInput(t, s, PendingPublish)
+		input3 = createMockInput(t, s, PendingPublish)
+	)
+
+	op1 := input1.OutPoint()
+	op2 := input2.OutPoint()
+	op3 := input3.OutPoint()
+
+	set.On("Inputs").Return([]input.Input{input1, input2, input3})
+
+	br := &BumpResult{
+		Event:    TxFailed,
+		Err:      errDummy,
+		BadInput: &op2,
+	}
+
+	err := s.handleBumpEvent(&bumpResp{
+		result: br,
+		set:    set,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, PublishFailed, s.inputs[op1].state)
+	require.Equal(t, Fatal, s.inputs[op2].state)
+	require.Equal(t, PublishFailed, s.inputs[op3].state)
+	require.True(t, s.inputs[op1].params.StartingFeeRate.IsNone())
+	require.True(t, s.inputs[op3].params.StartingFeeRate.IsNone())
+}
+
+// TestHandleBumpEventTxFailedWalletInput checks that a diagnosed wallet input
+// is quarantined while tracked inputs remain retryable.
+func TestHandleBumpEventTxFailedWalletInput(t *testing.T) {
+	t.Parallel()
+
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+
+	s := New(&UtxoSweeperConfig{})
+	trackedInput := createMockInput(t, s, PendingPublish)
+	trackedOp := trackedInput.OutPoint()
+	s.inputs[trackedOp].params.StartingFeeRate = fn.Some(
+		chainfee.SatPerKWeight(99),
+	)
+
+	walletInput := &input.MockInput{}
+	defer walletInput.AssertExpectations(t)
+	walletOp := wire.OutPoint{Hash: chainhash.Hash{9}, Index: 1}
+	walletInput.On("OutPoint").Return(walletOp)
+	walletInput.On("WitnessType").Return(input.WitnessKeyHash)
+
+	set.On("Inputs").Return([]input.Input{trackedInput, walletInput})
+	result := &BumpResult{
+		Event:    TxFailed,
+		Err:      errDummy,
+		BadInput: &walletOp,
+	}
+
+	err := s.handleBumpEvent(&bumpResp{result: result, set: set})
+
+	require.NoError(t, err)
+	require.Equal(t, PublishFailed, s.inputs[trackedOp].state)
+	require.True(t, s.inputs[trackedOp].params.StartingFeeRate.IsNone())
+	require.True(t, s.excludedWalletInputs.Contains(walletOp))
+	require.NotContains(t, s.inputs, walletOp)
 }
 
 // TestHandleBumpEventTxReplaced checks that the sweeper correctly handles the
@@ -1448,6 +1529,9 @@ func TestHandleBumpEventTxUnknownSpendWithRetry(t *testing.T) {
 
 	op1 := inp1.OutPoint()
 	op2 := inp2.OutPoint()
+	s.inputs[op2].params.StartingFeeRate = fn.Some(
+		chainfee.SatPerKWeight(99),
+	)
 
 	inp2.On("RequiredLockTime").Return(
 		uint32(s.currentHeight), false).Once()
@@ -1493,4 +1577,5 @@ func TestHandleBumpEventTxUnknownSpendWithRetry(t *testing.T) {
 
 	// Assert the state of the input is updated.
 	require.Equal(t, PublishFailed, s.inputs[op2].state)
+	require.True(t, s.inputs[op2].params.StartingFeeRate.IsNone())
 }

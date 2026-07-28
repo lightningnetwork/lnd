@@ -23,9 +23,9 @@ writeups live in `simulation/lab/experiments/` (exp-001…exp-021).
   ordering holds on the sealed synthetic test and OOD corpora
   (exp-006/007). Objective = success − 0.01·min(extra_attempts,15) −
   0.00002·min(fee_ppm,5000).
-- The champions lead all six held-out tiers against lnd, and six
+- The champions lead all six held-out tiers against lnd, and eight
   challengers have failed to displace them (exp-010 x3, 010b, 013,
-  018).
+  018, 024, 022).
   The twin question is settled (exp-020): two significant hb1 signals
   (exp-015 p=.014, exp-017 liq-uniform p=.004) did NOT replicate on
   the original tier set — hb1 beats mx_c3 nowhere there, while mx_c3
@@ -191,6 +191,22 @@ next.
   (2026-07-28); no run holds `routing/` or `cmd/routesim/`.
 
 ### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
+- **exp-022** — the first breed under a lying channel (corpus-mix +
+  exp-019 realistic mix on train/val, --degraded prompt). The winner
+  evolved the program's first attribution-confidence machinery
+  (quarantined suspect bounds, payment-local unknown penalties,
+  escalation caps) and is the most degradation-robust router ever
+  measured (degraded−clean deltas −0.013..+0.000 on all six tiers;
+  champion gap narrows under degradation, hard_test CI excludes
+  zero). Still challenger failure #8: zero CI-solid wins over
+  champions in either condition, unanimous losses on split/mainnet,
+  first evolved router BELOW lnd on mainnet (0.679). Mechanism: it
+  never stops (26-92 att/pmt, pinned past the objective's attempt
+  cap; breaks the give_up_rate identity — the harness ceiling
+  abandons for it). Cap-sensitivity re-scoring: champions
+  cap-insensitive, deg1 worst-in-field uncapped — the attempt cap is
+  now a MEASURED objective weakness (sibling of the exp-023 fee-term
+  rule). Third independent evidence the champions' edge is plan-time.
 - **exp-024** — the ceiling arm. meta_harness at 10x evals (1,496,
   $15.68, 157m) iterates and improves for the first time (8 iters,
   five new-bests) but CONVERGES by iteration 3 at 0.4677 val / 0.5136

@@ -911,3 +911,42 @@ design was killed by its own smoke trace before any sweep spent real
 compute, and the one wrong headline ("the marriage works") lived for
 exactly one revision cycle before its author retracted it. The gate
 is doing its job.
+
+## 2026-07-27 — exp-022 and exp-024: the lying channel and the ceiling, closed the same day
+
+Two runs launched together, harvested the same evening, and both
+verdicts sharpen the same conclusion from opposite directions.
+
+exp-024 first, because it is simpler: meta_harness at ten times the
+exp-018 budget stops stalling and starts converging — five new-bests
+in three iterations, then a flatline where 950 evals buy +0.0002 —
+and the shelf it converges to sits below gepa's result at one tenth
+the budget. Both halves of the exp-018 question are closed. The band
+is a property of the problem, not of the optimizer or its rations,
+and the way past it is changing the environment, which is exp-023.
+
+exp-022 is the richer story. The first run ever bred against a lying
+failure channel produced the first evolved attribution-confidence
+machinery: quarantined suspect bounds held apart from the hard
+intervals until corroborated, payment-local penalties for unreadable
+failures, an escalation cap after repeated unknowns. Two of those
+were open questions the prompt posed with no implementation shown.
+And the breeding worked, measurably: deg1 is the flattest router
+under degradation ever tested here (six tiers, deltas within noise
+of zero, while the champions shed up to 0.067 with CIs excluding
+zero), and the champion gap narrows under the lying channel exactly
+as predicted, significantly on the hard tier. It is still challenger
+failure number eight, and the reason is the finding: the robustness
+is bought by never stopping. Twenty-six to ninety-two attempts per
+payment, pinned past the objective's attempt cap on every tier, a
+give-up rate near zero because the harness's own 200-attempt ceiling
+does the abandoning. Re-score the same runs with the cap lifted and
+the champions do not move to four decimals while deg1 falls to worst
+in the field. The attempt cap has been silently subsidizing
+retry-heavy designs the way exp-021 caught it hiding soft_unknown's
+cost; it is now a measured objective weakness with the same shape as
+the exp-023 fee-term rule. And the plan-time thesis picks up its
+third independent confirmation: given a channel that punishes
+reactive learning, the search still could not buy robustness with
+better plans — it bought it with more retries, because retries were
+free. Champions unchanged: hb1 and mx_c3, eight challengers deep.

@@ -1,9 +1,8 @@
 # EXP-022 — Breeding under a lying channel: run complete, sweep pending
 
-**Date:** 2026-07-27 (run); validation sweep pending, pre-registered
-below.
-**Status:** run harvested, verdict OPEN. Champions unchanged until the
-sweep says otherwise.
+**Date:** 2026-07-27 (run); sweep same night, 648 paired runs.
+**Status:** complete — challenger failure #8, and the most
+informative one yet. Champions unchanged: hb1 + mx_c3.
 
 ## Why this ran
 
@@ -82,10 +81,69 @@ on: if it holds across clean tiers, the honest headline is that
 robustness machinery has a price, which converges with exp-021's
 attempts-for-success trade from the other direction.
 
+## Verdict (the sweep ran exactly as pre-registered above)
+
+Gates first: all five prior routers rebuilt from HEAD reproduce the
+exp-020 clean numbers exactly (24/24 cells to four decimals), and the
+degraded hard arm reproduces exp-019's realistic-mix level to four
+decimals for every prior router — the corpus, evaluator and
+degradation instrument are the published ones. 648/648 runs, zero
+errors, determinism double-checked.
+
+**No displacement.** deg1 beats a champion with a CI excluding zero on
+zero tiers, in either channel condition. Its best cell (atomic_test
+degraded, +0.043/+0.041 over the champions) straddles zero. Going the
+other way it loses to mx_c3 with CIs excluding zero on four tiers,
+unanimously on split (0/8, p=.008) and mainnet (0/10, p=.002, −0.11
+against all three incumbents) — and on mainnet it is the first evolved
+router in the program to land BELOW production lnd (0.679 vs 0.694).
+It does not earn a specialist filing either: atomic1's niche wins were
+CI-solid; deg1's degraded edges are not.
+
+**What it was bred for, it achieved — measurably.** deg1 is the most
+degradation-robust router ever measured here: its degraded−clean
+deltas are −0.013 to +0.000 across all six tiers (the champions lose
+up to 0.067 with CIs excluding zero; lnd loses 0.25 of success on
+hard). The champion gap narrows under the lying channel exactly as
+the breeding predicted, with CIs excluding zero on hard_test (+0.051
+vs hb1, +0.056 vs mx_c3, p=.002).
+
+**And the mechanism is the finding.** The flatness is bought by never
+stopping: 26 to 92 attempts per payment on every tier, pinned past
+the objective's 15-extra-attempt cap everywhere, failing almost
+never by giving up (it breaks the give_up_rate identity — the
+harness's 200-attempt ceiling abandons for it). Re-scoring the same
+raw runs at higher caps shows the subsidy plainly: the champions are
+cap-insensitive to four decimals, while deg1's one directional lead
+inverts at cap 30 and lands worst-in-field uncapped. This is the
+inverse of the exp-013 give-up attractor — omni1's no-guardrail shape
+reached by a different road — and it is the third independent line of
+evidence (with exp-018 and exp-021) that the champions' edge is
+plan-time: at this budget the search bought robustness with unbounded
+retrying, not with better plans.
+
+## Consequences
+
+1. Challenger ledger: failure #8. Champions unchanged.
+2. The suspect-bound machinery (quarantine, payment-local penalties,
+   escalation caps) is real, novel and worth the idea ledger — it is
+   the first evolved answer to the attribution question, and its
+   degradation-flatness is genuine. A future run could seed FROM
+   mx_c3 with the degraded corpus to test whether the machinery
+   composes with a plan-time architecture instead of replacing it.
+3. **The attempt cap is now a measured objective weakness, not a
+   suspicion.** It silently subsidized this candidate the way it hid
+   soft_unknown's cost in exp-021. The exp-023 fee-term rule (a cost
+   term must stay below the abandonment price) has an attempt-side
+   sibling: a capped cost term creates a free direction past the cap.
+   Any future objective revision should treat the two symmetrically.
+
 ## Artifacts
 
 `exp-022-deg1-best-candidate.go` (pool #5, matched byte-for-byte
 against the runner's final selection), `exp-022-deg1-summary.json`,
-`exp-022-deg1-run.log.gz`. corpus-deg regenerates from the sealed
+`exp-022-deg1-run.log.gz`, `exp-022-results-summary.json` (the sweep:
+gates, both arms, paired stats, cap-sensitivity re-scoring).
+corpus-deg regenerates from the sealed
 `simulation/lab/scenarios/corpus-mix/` plus the one-field attribution
 stanza documented in its README.

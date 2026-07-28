@@ -180,3 +180,17 @@ when a file asks for the mechanism), `inbound_fee_charged` and
    blindness rather than their design. Whether to hand-write aware
    variants (as exp-016 did) or to let the evolution arm answer it is a
    budget question for the lead.
+
+## Lead decision on the mainnet nondeterminism (2026-07-28)
+
+Accept and caveat, for now. The map-iteration tie-break in lnd's own
+`pathfind.go` predates every published mainnet number, its aggregate
+effect is exactly the ±0.1-attempt wobble the protocol already
+tolerates (the objective gate at three decimals has held through
+every reproduction, 24/24 cells in the latest sweep), and a sim-only
+deterministic sort would CHANGE route choices, shifting the published
+numbers it exists to protect. So: the wobble now has two identified
+sources on record (wall-clock penalty decay and this tie-break), the
+caveat attaches to mainnet attempt figures at that precision, and a
+deterministic tie-break is deferred to the next full re-baseline,
+where all mainnet numbers regenerate together under one binary.

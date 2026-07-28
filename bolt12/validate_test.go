@@ -1,6 +1,8 @@
 package bolt12
 
 import (
+	"bytes"
+	"encoding/hex"
 	"math"
 	"testing"
 	"time"
@@ -2786,4 +2788,187 @@ func TestValidateInvoiceErrorWrite(t *testing.T) {
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
+}
+
+// TestValidateOfferReadVectors parses and evaluates all test vectors in
+// offers-test.json to verify that every valid vector passes all decoding and
+// validation stages and every invalid vector is rejected at some stage.
+func TestValidateOfferReadVectors(t *testing.T) {
+	t.Parallel()
+
+	vectors := loadOffersVectors(t)
+
+	// Far-future time so expiry checks don't interfere with structural
+	// tests.
+	now := farFutureNow()
+
+	for _, tc := range vectors {
+		t.Run(tc.Description, func(t *testing.T) {
+			t.Parallel()
+
+			_, tlvBytes, bech32Err := Decode(tc.Bolt12)
+			if bech32Err != nil {
+				if tc.Valid {
+					require.NoError(
+						t, bech32Err,
+						"valid offer should pass "+
+							"bech32 decode",
+					)
+				}
+
+				return
+			}
+
+			offer, decodeErr := decodeOffer(tlvBytes)
+			if decodeErr != nil {
+				if tc.Valid {
+					require.NoError(
+						t, decodeErr,
+						"valid offer should pass "+
+							"TLV decode",
+					)
+				}
+
+				return
+			}
+
+			// If the offer specifies a chain, use that for
+			// validation, otherwise default to mainnet. This is
+			// necessary because some test vectors are for different
+			// chains.
+			activeChain := bitcoinMainnetGenesisHash
+			if c := getOfferChains(offer); len(c) > 0 {
+				activeChain = c[0]
+			}
+
+			valErr := ValidateOfferRead(
+				offer, now, activeChain, nil,
+			)
+
+			if tc.Valid {
+				require.NoError(
+					t, valErr,
+					"valid offer should pass",
+				)
+
+				// Verify expected fields are present in decoded
+				// TLV map with matching length and hex
+				// encoding.
+				haveRecords := offer.AllRecords()
+				require.Equal(
+					t, len(tc.Fields), len(haveRecords),
+					"record count mismatch in valid offer",
+				)
+				for _, expectedField := range tc.Fields {
+					rec, found := findRecord(
+						haveRecords, expectedField.Type,
+					)
+					require.True(
+						t, found,
+						"field type %d missing in "+
+							"valid offer",
+						expectedField.Type,
+					)
+
+					var buf bytes.Buffer
+					require.NoError(t, rec.Encode(&buf))
+					gotValBytes := buf.Bytes()
+
+					require.Equal(
+						t, expectedField.Length,
+						uint64(len(gotValBytes)),
+						"field type %d length mismatch",
+						expectedField.Type,
+					)
+					require.Equal(
+						t, expectedField.Hex,
+						hex.EncodeToString(gotValBytes),
+						"field type %d hex mismatch",
+						expectedField.Type,
+					)
+				}
+
+				return
+			}
+
+			require.Error(
+				t, valErr,
+				"invalid offer should fail validation: %s",
+				tc.Description,
+			)
+		})
+	}
+}
+
+// TestOfferVectorsLayerCensus verifies that every invalid vector in
+// offers-test.json is rejected at the expected layer, pinning the distribution
+// of failure modes across bech32 decode, TLV decode, and semantic validation.
+func TestOfferVectorsLayerCensus(t *testing.T) {
+	t.Parallel()
+
+	vectors := loadOffersVectors(t)
+	now := farFutureNow()
+
+	var (
+		bech32Rejections int
+		tlvRejections    int
+		valRejections    int
+		falseAccepts     int
+	)
+
+	for _, tc := range vectors {
+		if tc.Valid {
+			continue
+		}
+
+		_, tlvBytes, bech32Err := Decode(tc.Bolt12)
+		if bech32Err != nil {
+			bech32Rejections++
+			continue
+		}
+
+		offer, decodeErr := decodeOffer(tlvBytes)
+		if decodeErr != nil {
+			tlvRejections++
+			continue
+		}
+
+		valErr := ValidateOfferRead(
+			offer, now, bitcoinMainnetGenesisHash, nil,
+		)
+		if valErr != nil {
+			valRejections++
+			continue
+		}
+
+		t.Errorf(
+			"invalid vector falsely accepted: %s",
+			tc.Description,
+		)
+		falseAccepts++
+	}
+
+	require.Equal(
+		t, 2, bech32Rejections, "bech32 rejections mismatch",
+	)
+	require.Equal(
+		t, 16, tlvRejections, "TLV decode rejections mismatch",
+	)
+	require.Equal(
+		t, 15, valRejections, "validation rejections mismatch",
+	)
+	require.Equal(
+		t, 0, falseAccepts, "false accepts count mismatch",
+	)
+}
+
+// findRecord searches a slice of TLV records for a record with the given type.
+func findRecord(records []tlv.Record, typ uint64) (*tlv.Record, bool) {
+	for i := range records {
+		if uint64(records[i].Type()) == typ {
+			return &records[i], true
+		}
+	}
+
+	return nil, false
 }

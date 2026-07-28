@@ -4,8 +4,8 @@ shortname: routing-evolution
 status: active
 task_ids: []
 created_at: 2026-07-24T20:38:07Z
-updated_at: 2026-07-27T06:48:53Z
-compaction_count: 3
+updated_at: 2026-07-27T20:21:26Z
+compaction_count: 4
 git_branch: gepa
 git_last_commit: 127c34067
 ---

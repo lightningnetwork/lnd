@@ -644,7 +644,9 @@ func TestSweepPendingInputs(t *testing.T) {
 
 	// Mock this set to ask for wallet input.
 	setNeedWallet.On("NeedWalletInput").Return(true).Once()
-	setNeedWallet.On("AddWalletInputs", wallet).Return(nil).Once()
+	setNeedWallet.On(
+		"AddWalletInputs", wallet, s.excludedWalletInputs,
+	).Return(nil).Once()
 
 	// Mock the wallet to require the lock once.
 	wallet.On("WithCoinSelectLock", mock.Anything).Return(nil).Once()

@@ -37,7 +37,8 @@ type InputSet interface {
 	// AddWalletInputs adds wallet inputs to the set until a non-dust
 	// change output can be made. Return an error if there are not enough
 	// wallet inputs.
-	AddWalletInputs(wallet Wallet) error
+	AddWalletInputs(wallet Wallet,
+		excludedInputs fn.Set[wire.OutPoint]) error
 
 	// NeedWalletInput returns true if the input set needs more wallet
 	// inputs.
@@ -347,7 +348,9 @@ func (b *BudgetInputSet) hasNormalInput() bool {
 // set to its initial state by removing any wallet inputs added.
 //
 // NOTE: must be called with the wallet lock held via `WithCoinSelectLock`.
-func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
+func (b *BudgetInputSet) AddWalletInputs(wallet Wallet,
+	excludedInputs fn.Set[wire.OutPoint]) error {
+
 	// Retrieve wallet utxos. Only consider confirmed utxos to prevent
 	// problems around RBF rules for unconfirmed inputs. This currently
 	// ignores the configured coin selection strategy.
@@ -369,6 +372,10 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 
 	// Add wallet inputs to the set until the specified budget is covered.
 	for _, utxo := range utxos {
+		if excludedInputs.Contains(utxo.OutPoint) {
+			continue
+		}
+
 		err := b.addWalletInput(utxo)
 		if err != nil {
 			return err

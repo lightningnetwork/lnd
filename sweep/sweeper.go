@@ -353,6 +353,10 @@ type UtxoSweeper struct {
 	// to sweep.
 	inputs InputsMap
 
+	// excludedWalletInputs contains wallet UTXOs diagnosed as invalid. They
+	// remain excluded from coin selection for the lifetime of the sweeper.
+	excludedWalletInputs fn.Set[wire.OutPoint]
+
 	currentOutputScript fn.Option[lnwallet.AddrWithKey]
 
 	relayFeeRate chainfee.SatPerKWeight
@@ -446,14 +450,15 @@ type sweepInputMessage struct {
 // New returns a new Sweeper instance.
 func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
 	s := &UtxoSweeper{
-		cfg:               cfg,
-		newInputs:         make(chan *sweepInputMessage),
-		spendChan:         make(chan *chainntnfs.SpendDetail),
-		updateReqs:        make(chan *updateReq),
-		pendingSweepsReqs: make(chan *pendingSweepsReq),
-		quit:              make(chan struct{}),
-		inputs:            make(InputsMap),
-		bumpRespChan:      make(chan *bumpResp, 100),
+		cfg:                  cfg,
+		newInputs:            make(chan *sweepInputMessage),
+		spendChan:            make(chan *chainntnfs.SpendDetail),
+		updateReqs:           make(chan *updateReq),
+		pendingSweepsReqs:    make(chan *pendingSweepsReq),
+		quit:                 make(chan struct{}),
+		inputs:               make(InputsMap),
+		excludedWalletInputs: fn.NewSet[wire.OutPoint](),
+		bumpRespChan:         make(chan *bumpResp, 100),
 	}
 
 	// Mount the block consumer.
@@ -1592,7 +1597,9 @@ func (s *UtxoSweeper) sweepPendingInputs(inputs InputsMap) {
 	sweepWithLock := func(set InputSet) error {
 		return s.cfg.Wallet.WithCoinSelectLock(func() error {
 			// Try to add inputs from our wallet.
-			err := set.AddWalletInputs(s.cfg.Wallet)
+			err := set.AddWalletInputs(
+				s.cfg.Wallet, s.excludedWalletInputs,
+			)
 			if err != nil {
 				return err
 			}

@@ -337,6 +337,7 @@ func notifyAndWait(b Blockbeat, c Consumer, timeout time.Duration) error {
 
 	// Record the time it takes the consumer to process this block.
 	start := time.Now()
+	b = withProcessBlockDeadline(b, start.Add(timeout))
 
 	errChan := make(chan error, 1)
 	go func() {

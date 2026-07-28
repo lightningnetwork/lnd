@@ -310,6 +310,17 @@ type SimRunner struct {
 	// path see the same degraded result from the same draw.
 	attribution *simAttribution
 
+	// concurrency is what the last scored batch reported about its own
+	// scheduling, zero until one has run.
+	concurrency SimConcurrencyStats
+
+	// balanceRefresh records whether the routing strategy under test
+	// implements the optional refresh half of the contract, set the first
+	// time a router is built. It is a property of the strategy rather than
+	// of any one payment, and it is reported so that a null cannot be
+	// silent.
+	balanceRefresh bool
+
 	// trafficCarry is the fractional background payment left over from
 	// pro-rating the per-gap volume across attempts. Carrying it keeps the
 	// traffic rate inside a payment equal to the rate between payments
@@ -594,41 +605,69 @@ func (r *SimRunner) AdvanceIdle(seconds float64) {
 	}
 }
 
-// advanceGap moves virtual time forward by the payment gap and lets the
-// background traffic use that window.
-func (r *SimRunner) advanceGap() {
-	if r.virtualClk != nil && r.clockParams.PaymentGapSec > 0 {
-		r.virtualClk.SetTime(r.virtualClk.Now().Add(
-			time.Duration(r.clockParams.PaymentGapSec *
-				float64(time.Second)),
-		))
+// simSchedTime is the scheduler's ordering key: the virtual clock's current
+// reading, or the zero time on a scenario that configures none, where nothing
+// the simulator does moves a clock at all and every event ties.
+func (r *SimRunner) simSchedTime() time.Time {
+	if r.virtualClk == nil {
+		return time.Time{}
 	}
 
-	if r.traffic != nil {
-		r.traffic.run()
-	}
+	return r.virtualClk.Now()
 }
 
-// advanceAttempt moves virtual time forward by one attempt's duration. Under
-// atomic mpp the background traffic engine also runs for that slice of time,
-// so hidden liquidity keeps drifting while a payment's shards are in flight
-// rather than freezing until the payment resolves. That is what makes a
-// serial probe-learn-resize strategy pay for the time it takes.
-func (r *SimRunner) advanceAttempt(atomicMpp bool) {
+// simAdvanceTo moves virtual time forward to the given instant and runs the
+// background traffic that belongs to the interval, through the same prorating
+// path every other advance uses.
+//
+// Advancing to an instant already past does nothing, which is what the
+// scheduler needs: a step can move the clock under it, since an attribution
+// delay ages the network in the middle of an attempt, and the events that were
+// due inside that window are then simply late rather than run backwards.
+//
+// runTraffic is the caller's answer to whether the exogenous process should
+// run for this stretch at all. It exists because the sequential loop this
+// replaces answered it two different ways: the gap between payments always
+// churned, and the time inside a payment only churned under atomic mpp, where
+// shards left in flight are supposed to pay for the time they take.
+func (r *SimRunner) simAdvanceTo(target time.Time, runTraffic bool) {
+	if r.virtualClk == nil {
+		return
+	}
+
+	now := r.virtualClk.Now()
+	if !target.After(now) {
+		return
+	}
+
+	r.virtualClk.SetTime(target)
+
+	if r.traffic == nil || !runTraffic {
+		return
+	}
+
+	r.traffic.runN(r.trafficPaymentsFor(target.Sub(now).Seconds()))
+}
+
+// simAttemptStep is how much virtual time one htlc attempt consumes, and zero
+// on a scenario with no virtual clock, where an attempt has always taken no
+// time at all.
+func (r *SimRunner) simAttemptStep() time.Duration {
 	if r.virtualClk == nil || r.clockParams.AttemptSec <= 0 {
-		return
+		return 0
 	}
 
-	r.virtualClk.SetTime(r.virtualClk.Now().Add(
-		time.Duration(r.clockParams.AttemptSec *
-			float64(time.Second)),
-	))
+	return time.Duration(r.clockParams.AttemptSec * float64(time.Second))
+}
 
-	if !atomicMpp || r.traffic == nil {
-		return
+// simGapStep is how much virtual time passes between one payment finishing and
+// the next starting, and zero on a scenario with no virtual clock.
+func (r *SimRunner) simGapStep() time.Duration {
+	if r.virtualClk == nil || r.clockParams.PaymentGapSec <= 0 {
+		return 0
 	}
 
-	r.traffic.runN(r.trafficPaymentsFor(r.clockParams.AttemptSec))
+	return time.Duration(r.clockParams.PaymentGapSec * float64(time.Second))
 }
 
 // trafficPaymentsFor returns how many background payments belong to the given
@@ -708,258 +747,93 @@ func (r *SimRunner) RunScenario(s *SimScenario) (*SimScenarioResult, error) {
 // gathered: the payment probes real channels and everything it learns lands in
 // the one shared mission control, which stays anchored to the runner's source
 // throughout. Whether that knowledge is worth anything to the runner's source
-// afterwards is exactly the question — pair history is entangled with the
+// afterwards is exactly the question. Pair history is entangled with the
 // vantage that observed it, while a belief about a directed channel's
 // liquidity is a fact about the channel.
+//
+// One payment is a batch of one, run on the same scheduler a concurrent batch
+// runs on, which is what makes the sequential behavior the concurrent path is
+// required to reproduce the behavior it actually reproduces rather than a
+// second implementation of it.
 func (r *SimRunner) RunScenarioFrom(source route.Vertex,
 	s *SimScenario) (*SimScenarioResult, error) {
 
-	if r.graph.Node(source) == nil {
-		return nil, fmt.Errorf("source node %v not in graph", source)
-	}
-
-	result := &SimScenarioResult{Scenario: *s}
-
-	// Let virtual time pass and background traffic move liquidity before
-	// this payment starts, the way a live network keeps churning between
-	// a node's own sends.
-	r.advanceGap()
-
-	target, err := r.graph.ResolveNode(s.Target)
+	results, _, err := r.runBatch(source, []SimScenario{*s}, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	maxParts := s.MaxParts
-	if maxParts == 0 {
-		maxParts = 16
-	}
+	return results[0], nil
+}
 
-	amount := lnwire.MilliSatoshi(s.AmtMsat)
-	spec := &SimPaymentSpec{
-		Target:   target,
-		Amount:   amount,
-		MaxParts: maxParts,
+// RunBatch executes a whole batch of payments from the runner's source, with
+// as many of them live at once as the concurrency section allows. A nil
+// section is the sequential batch: one payment at a time, each starting a
+// payment gap after the last one resolved, which is what every scenario file
+// written before stage D asks for by omission.
+//
+// The concurrency statistics of the batch are recorded on the runner and read
+// back with ConcurrencyStats.
+func (r *SimRunner) RunBatch(scenarios []SimScenario,
+	params *SimConcurrencyParams) ([]*SimScenarioResult, error) {
 
-		// The budget is quoted as a share of the payment's own amount,
-		// so that one number describes a corpus whose amounts run over
-		// four orders of magnitude. With no limit set this is
-		// lnwire.MaxMilliSatoshi, which is the value the lnd arm has
-		// been constructed with for the whole program.
-		FeeLimitMsat: simFeeBudgetMsat(amount, s.FeeLimitPPM),
-	}
-
-	if spec.FeeLimitMsat != lnwire.MaxMilliSatoshi {
-		r.feeLimitStats.Payments++
-	}
-
-	// Build the routing strategy under test for this payment, handing it
-	// the public graph view and the sender's exact local balances. The
-	// view wrapper hides the concrete graph so that a candidate router
-	// cannot reach the hidden balances.
-	router, err := r.routerFactory(
-		&simGossipView{g: r.graph, now: r.clk.Now}, source,
-		r.graph.LocalBalances(source), spec,
-	)
+	results, idx, err := r.runBatch(r.source, scenarios, params)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scenario %d failed: %v", idx, err)
 	}
 
-	// Hand over any served knowledge before the router plans anything,
-	// so that imported beliefs are available to the very first route
-	// request rather than arriving after the payment has committed.
-	if err := r.deliverPendingImport(router); err != nil {
-		return nil, err
+	return results, nil
+}
+
+// runBatch drives the scheduler and reports which scenario a fatal error came
+// from, so that the caller can name it the way the sequential batch always
+// has.
+func (r *SimRunner) runBatch(source route.Vertex, scenarios []SimScenario,
+	params *SimConcurrencyParams) ([]*SimScenarioResult, int, error) {
+
+	scheduler, err := newSimScheduler(r, source, scenarios, params)
+	if err != nil {
+		return nil, 0, err
 	}
 
-	var (
-		nextAttemptID uint64
-		amtRemaining  = spec.Amount
-		inFlightHtlcs uint32
-
-		// holdIDs are the shards that have reached the destination but
-		// are not settled yet, only ever populated under atomic mpp.
-		// Their amount and fees ride along until the whole set either
-		// settles or is released.
-		holdIDs  []uint64
-		heldMsat uint64
-		heldFees uint64
-	)
-
-	// Under atomic mpp a payment that never completes settles nothing:
-	// every shard still held when the loop exits gives its reserved
-	// liquidity back, so a failed mpp leaves the hidden balances exactly
-	// as it found them and charges no fees. The success path settles the
-	// set and clears holdIDs before returning, so this only ever fires on
-	// a failure path, whichever one it is.
-	defer func() {
-		if len(holdIDs) == 0 {
-			return
-		}
-
-		for _, id := range holdIDs {
-			r.graph.ReleaseHold(id)
-		}
-		result.HeldReleasedMsat = heldMsat
-	}()
-
-	for len(result.Attempts) < simMaxAttempts {
-		// Ask the router for the next route to attempt.
-		rt, err := router.RequestRoute(amtRemaining, inFlightHtlcs)
-		if err != nil {
-			result.Error = err.Error()
-			result.GaveUp = true
-			break
-		}
-
-		attemptID := nextAttemptID
-		nextAttemptID++
-
-		// The fee budget is enforced HERE, at the point the runner
-		// would dispatch, and not inside any router. That is the
-		// exp-019 construction: a constraint that lives at the shared
-		// delivery point is the same constraint for the lnd stack and
-		// for an evolved candidate, and neither of them can be given a
-		// gentler version of it by accident.
-		//
-		// What the budget has left is what it started with less the
-		// fees this payment has already committed, which is the fees
-		// of the shards that settled plus the fees riding on the ones
-		// still held. lnd's own lifecycle subtracts exactly that
-		// (calcFeeBudget over FeesPaid), and the lnd arm is handed the
-		// same remainder, so this backstop should never fire for it.
-		committed := lnwire.MilliSatoshi(result.FeeMsat + heldFees)
-		remaining := simRemainingBudget(spec.FeeLimitMsat, committed)
-		if rt.TotalFees() > remaining {
-			// The refusal is a fact about this sender, not about
-			// the network: no forwarding node saw the htlc, so
-			// nothing is recorded in the observation stream, no
-			// virtual time passes, and the result is handed to the
-			// router undegraded. An attribution section damages
-			// what came back over the wire, and nothing came back
-			// over the wire; running this through the degrader
-			// would also consume draws and shift the sequence
-			// every paired exp-019 run depends on.
-			//
-			// It does cost an attempt. A router that keeps
-			// offering routes it cannot afford spends its attempt
-			// budget on them, which is the whole point of putting
-			// the pressure in the environment.
-			refusal := SimHtlcResult{
-				FailureSource: rt.SourcePubKey,
-				Failure:       SimFeeLimitFailure{},
-			}
-
-			result.Attempts = append(
-				result.Attempts, traceAttempt(rt, refusal),
-			)
-			r.feeLimitStats.Failures++
-
-			err = router.ReportAttempt(attemptID, rt, refusal)
-			if err != nil {
-				return nil, err
-			}
-
-			continue
-		}
-
-		// Send the htlc through the simulated network. A malformed
-		// route (unknown channel, disconnected hops) is a router bug:
-		// it terminates this payment with an error rather than
-		// killing the whole batch, so one bad edge case doesn't zero
-		// out an otherwise functional candidate.
-
-		// Each attempt consumes virtual time: htlcs take real seconds
-		// to resolve on a live network.
-		r.advanceAttempt(s.AtomicMpp)
-
-		// An atomic shard is held at the destination rather than
-		// settled there, reserving the liquidity of every hop it
-		// crossed until the payment as a whole resolves.
-		var (
-			htlcResult SimHtlcResult
-			holdID     uint64
-		)
-		if s.AtomicMpp {
-			htlcResult, holdID, err = r.graph.HoldHtlc(rt)
-		} else {
-			htlcResult, err = r.graph.SendHtlc(rt)
-		}
-		if err != nil {
-			result.Error = fmt.Sprintf("malformed route: %v", err)
-			break
-		}
-
-		result.Attempts = append(
-			result.Attempts, traceAttempt(rt, htlcResult),
-		)
-
-		// Record what this attempt revealed about the edges it
-		// crossed, which is the raw material a weight-serving node
-		// would have to offer.
-		r.observations = append(r.observations, observationsFromAttempt(
-			rt, htlcResult, r.clk.Now(),
-		)...)
-
-		// Let the router learn from the outcome. The feedback is the
-		// same either way: what atomic mpp changes is the price of a
-		// serial probe, not the information it returns.
-		//
-		// Everything above this line records what actually happened.
-		// What the router is TOLD may be less than that: with an
-		// attribution section configured the result is aged and its
-		// attribution damaged first, so the trace and the served
-		// observations keep the truth while the router works from the
-		// same imperfect channel a mainnet sender has.
-		err = router.ReportAttempt(
-			attemptID, rt, r.deliverAttempt(rt, htlcResult),
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		if htlcResult.Failure != nil {
-			continue
-		}
-
-		inFlightHtlcs++
-
-		// A settling shard pays its fee right away; a held one only
-		// pays when the whole set settles.
-		if s.AtomicMpp {
-			holdIDs = append(holdIDs, holdID)
-			heldMsat += uint64(rt.ReceiverAmt())
-			heldFees += uint64(rt.TotalFees())
-		} else {
-			result.FeeMsat += uint64(rt.TotalFees())
-		}
-
-		// Guard against a buggy router delivering more than asked:
-		// unsigned underflow here would loop until the attempt cap.
-		recv := rt.ReceiverAmt()
-		if recv > amtRemaining {
-			result.Error = "router over-delivered payment amount"
-			break
-		}
-		amtRemaining -= recv
-
-		if amtRemaining == 0 {
-			// The full amount has arrived, so the held set becomes
-			// real balance movement all at once and the fees it
-			// carried finally come due. Without atomic mpp there
-			// is nothing held and this is a no-op.
-			for _, id := range holdIDs {
-				r.graph.SettleHold(id)
-			}
-			holdIDs = nil
-			result.FeeMsat += heldFees
-
-			result.Success = true
-			break
-		}
+	results, idx, err := scheduler.run()
+	if err != nil {
+		return nil, idx, err
 	}
 
-	return result, nil
+	r.concurrency = scheduler.stats
+
+	return results, 0, nil
+}
+
+// ConcurrencyStats reports what the last batch's scheduling actually did: how
+// many of the sender's payments overlapped, how often one of them took
+// liquidity another one wanted, and how long the batch took in virtual time.
+// None of it enters the objective.
+func (r *SimRunner) ConcurrencyStats() SimConcurrencyStats {
+	return r.concurrency
+}
+
+// noteBalanceRefreshCapability records that the routing strategy under test
+// does or does not take balance refreshes. It is latched on the first router
+// built, since the strategy is fixed for the life of the runner.
+func (r *SimRunner) noteBalanceRefreshCapability(accepts bool) {
+	if accepts {
+		r.balanceRefresh = true
+	}
+}
+
+// RouterAcceptsBalanceRefresh reports whether the routing strategy under test
+// implements the optional refresh half of the contract, so that a sweep can
+// tell an ineffective refresh from an undelivered one.
+//
+// Unlike served observations, there is no second path into a router here: the
+// lnd stack holds the bandwidth hints it was built with and takes no refresh
+// either, so this reads false for every arm shipped with this stage. That is
+// the finding rather than a gap: nothing in the contract had ever asked any
+// of them to be told, and now that something does, the flag says who answered.
+func (r *SimRunner) RouterAcceptsBalanceRefresh() bool {
+	return r.balanceRefresh
 }
 
 // traceAttempt converts a route and its resolution into a trace record.

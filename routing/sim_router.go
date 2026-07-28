@@ -44,6 +44,33 @@ type SimRouter interface {
 		result SimHtlcResult) error
 }
 
+// SimBalanceRefresher is the optional half of the SimRouter contract that a
+// router implements if it wants to be told that its own outbound liquidity
+// changed under it.
+//
+// A router is built once per payment and handed the sender's local balances at
+// that moment. While one payment runs at a time that snapshot stays true for
+// the whole payment. It stops being true the moment the sender runs several of
+// its own payments at once: a sibling's shard takes some of the same outbound
+// liquidity, and the map this router is planning against still shows it.
+//
+// A router that does not implement this keeps the snapshot it was built with,
+// which is what every router in this program does today. That is a legitimate
+// design, not a bug: the balances a sender is handed at plan time are what a
+// real node's path finding runs against too. The interface exists so that a
+// router which wants the update can have it, and so that "the refresh did not
+// help" is distinguishable from "the refresh was never delivered" — exp-016
+// had to hand-write importer variants of two champions after the fact because
+// nothing in the contract had ever asked for the capability.
+type SimBalanceRefresher interface {
+	// RefreshLocalBalances delivers the sender's current outbound
+	// liquidity per channel id, net of what its own in-flight htlcs hold,
+	// before each route request. Implementations must treat it as a
+	// replacement for the map they were built with rather than as
+	// additional evidence: it is the same measurement, taken later.
+	RefreshLocalBalances(balances map[uint64]lnwire.MilliSatoshi)
+}
+
 // SimPaymentSpec describes one payment for a router to complete.
 //
 // Everything here is information a real sender has about its own payment

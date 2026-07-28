@@ -107,6 +107,130 @@ def composite_score(agg: dict, fee_metric: str = FEE_METRIC) -> float:
     )
 
 
+# --- objective L: latency as the cost (exp-023 stage E) ---------------------
+#
+# PRE-REGISTERED, and OFFLINE. The scored objective above is unchanged and
+# stays unchanged: makespan_sec and the payment latencies stay out of it for
+# this whole program, by the lead's decision at spec review, until an
+# experiment earns them a place. What follows re-scores archived runs with no
+# re-execution, which is the same construction the fee_ppm_attempted arm uses.
+#
+# The substitution is the deepest reading of "latency as a cost": REPLACE the
+# attempt term rather than supplement it.
+#
+#   objective L = success_rate
+#                 - w_t * min(mean_payment_latency_sec, cap)
+#                 - FEE_WEIGHT * min(fee_ppm, FEE_PPM_CAP)
+#
+# It matters because the attempt axis has been doing work it should not. Three
+# parallel shards cost one unit of time and three units of attempt penalty. A
+# nine hop route and a two hop route cost the same attempt penalty. exp-019
+# already retired the 8.6x attempt headline as a perfect-channel artifact;
+# this is the question of whether the attempt axis was ever measuring the
+# thing it claimed to.
+#
+# THE 1/N RULE GOVERNS THIS TERM TOO, and check_latency_budget is where it is
+# enforced rather than merely stated. A term whose maximum value reaches 1/N
+# can be paid for by abandoning one payment in the smallest scored file, which
+# is the exp-013 attractor. The attempt term it replaces maxes out at
+# ATTEMPT_WEIGHT * ATTEMPT_CAP = 0.15 against 1/6 = 0.167, and a latency term
+# has to clear the same bar. It is easier to break here than with the fee
+# term, because w_t is calibrated from data rather than chosen: a reference
+# arm with low latencies produces a large weight, and a large weight against a
+# generous cap breaks the rule without anyone typing a number.
+LATENCY_METRIC = "mean_payment_latency_sec"
+
+# The payment count of the smallest scored file, which is what 1/N is measured
+# against: gen_scenarios.py draws randint(6, 10) payments per example.
+MIN_SCORED_PAYMENTS = 6
+
+
+def check_latency_budget(weight: float, cap: float,
+                         payments: int = MIN_SCORED_PAYMENTS) -> None:
+    """Refuse an objective L calibration that could pay for abandonment.
+
+    The maximum penalty is weight * cap, and abandoning one payment in the
+    smallest scored file costs 1/payments of objective. If the first reaches
+    the second, a candidate can buy a better score by giving up, which is
+    exp-013 and is the one failure mode this program has already paid for.
+    """
+    worst = weight * cap
+    limit = 1.0 / payments
+    if worst >= limit:
+        raise ValueError(
+            f"objective L would saturate at {worst:.3f}, at or past the "
+            f"{limit:.3f} an abandoned payment costs in a {payments}-payment "
+            f"file: lower the cap or the weight. The attempt term it "
+            f"replaces saturates at {ATTEMPT_WEIGHT * ATTEMPT_CAP:.3f}."
+        )
+
+
+def payment_latency_sec(agg: dict) -> float:
+    """The latency objective L is charged on, with a legible failure.
+
+    Every run before exp-023 stage E reports no latency at all, and a run of a
+    tier with no latency section reports none either. Neither can be re-scored
+    on time, and silently reading a zero would score them as instantaneous.
+    """
+    if LATENCY_METRIC not in agg:
+        raise KeyError(
+            f"no {LATENCY_METRIC} in this aggregate: objective L can only "
+            f"re-score a run of a tier that carried a latency section, so "
+            f"the tier has to be re-run with one rather than converted"
+        )
+
+    return agg[LATENCY_METRIC]
+
+
+def latency_penalty(agg: dict, weight: float, cap: float) -> float:
+    """The time penalty, saturated the way the attempt penalty is."""
+    return weight * min(payment_latency_sec(agg), cap)
+
+
+def objective_l(agg: dict, weight: float, cap: float,
+                fee_metric: str = FEE_METRIC) -> float:
+    """Objective L: success rate less the LATENCY and fee penalties.
+
+    The attempt term is replaced rather than supplemented, which is the whole
+    question. Callers pass a weight from calibrate_latency_weight and a cap
+    they have checked with check_latency_budget.
+    """
+    return (
+        agg["success_rate"]
+        - latency_penalty(agg, weight, cap)
+        - FEE_WEIGHT * capped_fee_ppm(agg, fee_metric)
+    )
+
+
+def calibrate_latency_weight(aggs: list, cap: float) -> float:
+    """The weight that makes objective L cost a reference arm what attempts do.
+
+    Calibration is against one named arm's runs, per the spec: the weight is
+    chosen so the mean time penalty on the current champion equals the mean
+    attempt penalty it pays today. Everything else is then re-scored with that
+    weight, so a router does better under objective L only by being faster
+    than the champion was, not by the term being cheaper for everybody.
+
+    Returns zero when the reference arm records no time at all, which is a
+    tier with no latency section rather than an instantaneous router.
+    """
+    if not aggs:
+        raise ValueError("calibrate_latency_weight needs at least one run")
+
+    attempts = sum(
+        min(max(agg["attempts_per_scenario"] - 1.0, 0.0), ATTEMPT_CAP)
+        for agg in aggs
+    ) / len(aggs)
+    seconds = sum(
+        min(payment_latency_sec(agg), cap) for agg in aggs
+    ) / len(aggs)
+
+    if seconds <= 0:
+        return 0.0
+
+    return ATTEMPT_WEIGHT * attempts / seconds
+
+
 def run_routesim(params_json: str, scenario_path: str) -> dict:
     """Run one scenario file under the candidate params, returning the
     parsed output."""

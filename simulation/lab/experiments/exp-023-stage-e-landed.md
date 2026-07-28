@@ -489,3 +489,24 @@ sweep's.
    non-trivial stage E result therefore has to come through traffic or
    contention, which means the E-a control's real job in the sweep is to
    prove the other tiers' movements are not artifacts.
+
+## Lead decisions at merge (2026-07-28)
+
+1. First-hop failures keep the implemented cost (one round trip, k =
+   i+1). A protocol-faithful zero would make own-channel probing free
+   in time, recreating the free-probing subsidy the atomic arena was
+   built to remove. If it costs an HTLC add and fail-back, it costs a
+   round trip.
+2. Objective L pins its cap so the latency term saturates at 0.150,
+   matching the attempt term it replaces; the budget checker enforces
+   the 1/N rule on top. The rung ladder stays authored and labelled,
+   anchorable against measured network round trips if the arm ever
+   needs the realism claim.
+3. The E-b power question is a sweep-design matter: that arm runs at
+   n of twenty or carries the underpowered label.
+
+With this the exp-023 build phase is COMPLETE: five mechanisms, five
+flags, every one byte-identical off, all merged. What remains is
+measurement: the econ tier corpus (rungs and calibrations fixed in
+the five landing notes), the five-router sweep, and the first
+evolution run in the full economic world.

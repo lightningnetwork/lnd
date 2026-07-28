@@ -157,13 +157,24 @@ type aggregate struct {
 	AttributionDelayed  int `json:"attribution_delayed,omitempty"`
 
 	// HtlcLimit* describe how binding the network's announced htlc limits
-	// are, and Htlc*Refusals how often they actually turned an htlc away.
-	// The pair is stage A's manipulation check and it needs both halves: a
-	// tier whose ceilings never bind is testing nothing, and a ceiling
-	// violation is returned as a plain temporary channel failure, exactly
-	// what a depleted channel returns, so it is invisible in every trace.
-	// HtlcSourceRefusals counts the first-hop refusals, which only the
-	// uniform enforcement rule can produce.
+	// are: how many directed policies announce a ceiling below their
+	// channel's capacity and how many announce a floor a real shard could
+	// fall under. THIS is stage A's manipulation check. A tier whose
+	// ceilings never bind is testing nothing, and these three counts are
+	// what say whether it does.
+	//
+	// Htlc*Refusals count the htlcs those limits turned away at forwarding
+	// time, and measured over 52 paired runs they are ZERO everywhere.
+	// That is not a bug and it is worth stating plainly: every arm filters
+	// on the announced limits before it sends. lnd's unified edges run
+	// amtInRange, the seed candidate's usable() checks both fields, and
+	// the background traffic engine filters on them too, so an announced
+	// limit removes an edge at PLAN time and never gets the chance to
+	// refuse an htlc on the wire. These counters are therefore an alarm
+	// rather than a measurement: a non-zero reading means some router sent
+	// an htlc its own gossip view told it would be refused, which is a
+	// router bug worth knowing about and the only thing the uniform
+	// first-hop rule can produce (HtlcSourceRefusals).
 	//
 	// The three static counts are reported only when some limit can bind
 	// at all, so a tier carrying the generator's constants emits exactly

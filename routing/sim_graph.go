@@ -139,6 +139,12 @@ type SimGraph struct {
 	// policyStats counts the htlcs the announced min and max htlc limits
 	// refused, over the whole life of the network.
 	policyStats SimPolicyStats
+
+	// enforceSourceLimits makes the sender's own announced htlc limits
+	// bind on the first hop, like every other hop's. It is off unless an
+	// htlc_limits section turned it on, which keeps every scenario file
+	// written before stage A forwarding exactly as it always did.
+	enforceSourceLimits bool
 }
 
 // SimPolicyStats counts the forwarding refusals that announced htlc limits
@@ -625,8 +631,8 @@ func (g *SimGraph) walkHtlc(rt *route.Route,
 		}
 		policy := &sendingEnd.policy
 
-		// The source doesn't check its own policy, but intermediate
-		// nodes enforce theirs before forwarding.
+		// Intermediate nodes enforce their whole announced policy
+		// before forwarding.
 		if i > 0 {
 			failure := checkPolicy(
 				policy, amtIn, amtOut, expiryIn, expiryOut,
@@ -635,6 +641,32 @@ func (g *SimGraph) walkHtlc(rt *route.Route,
 				g.countLimitRefusal(
 					checkHtlcLimits(policy, amtOut), false,
 				)
+				revert()
+				return SimHtlcResult{
+					FailureSource: prevNode,
+					Failure:       failure,
+				}, nil, nil
+			}
+		}
+
+		// The sender stays exempt from its own fee and its own timelock
+		// delta, neither of which it pays or grants to itself, so those
+		// two checks are unsatisfiable at hop zero by construction. Its
+		// announced htlc LIMITS are a different matter: under stage A
+		// they bind on the first hop exactly like every other hop's.
+		// That is the rule lnd's own local edge selection already
+		// applies, since getEdgeLocal runs amtInRange on the source's
+		// policy (checking min and max htlc, and ignoring the disabled
+		// flag) before it will build a route over a local channel.
+		// Enforcing it here removes a special case rather than adding
+		// one, and it keeps the wire from carrying an htlc lnd's
+		// pathfinder refused to plan.
+		if i == 0 && g.enforceSourceLimits {
+			violation := checkHtlcLimits(policy, amtOut)
+
+			failure := limitFailure(violation, amtOut)
+			if failure != nil {
+				g.countLimitRefusal(violation, true)
 				revert()
 				return SimHtlcResult{
 					FailureSource: prevNode,

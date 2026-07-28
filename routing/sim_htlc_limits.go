@@ -275,6 +275,10 @@ func simHtlcLimitsSeed(liquiditySeed int64) int64 {
 // and already read by every arm. What changes is that they finally carry
 // something other than a constant.
 //
+// Applying a section also switches the network onto uniform first-hop
+// enforcement, so the sender's own announced limits bind like every other
+// hop's. See walkHtlc for why that is one rule rather than a new special case.
+//
 // A nil or empty section is a no-op, which is what makes a corpus generated
 // without the section byte identical to every corpus generated before it
 // existed. Applying the section to a graph loaded from a describegraph
@@ -303,6 +307,13 @@ func (g *SimGraph) ApplyHtlcLimits(params *SimHtlcLimitsParams,
 		seed = simHtlcLimitsSeed(defaultSeed)
 	}
 	rng := rand.New(rand.NewSource(seed))
+
+	// Stage A enforces the announced limits uniformly: the sender's own
+	// policy binds on the first hop like everybody else's. The flag rides
+	// with the section rather than standing on its own, because a uniform
+	// rule over limits that are all constants is not a rule anybody could
+	// measure.
+	g.enforceSourceLimits = true
 
 	ids := make([]uint64, 0, len(g.channels))
 	for id := range g.channels {

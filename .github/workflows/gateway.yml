@@ -3,7 +3,7 @@ name: gateway
 # Opt-in code-review bot. Triggered by a `/gateway <command>` comment on a PR
 # (e.g. `/gateway review`); review/approve commands are gated to maintainers.
 # Comment-commands only — no pull_request triggers — so fork PRs (which receive
-# no secrets) never spawn failing runs. v0.5.0 adds the
+# no secrets) never spawn failing runs. v0.5.0 added the
 # pull_request_review_comment trigger: /gateway dismiss, promote, and explain
 # now also work as replies on a finding's inline thread (finding id inferred
 # from the thread when omitted). Also a comment event — same fork-PR safety
@@ -43,12 +43,12 @@ jobs:
     env:
       GATEWAY_REVIEW_MODE: multi
     steps:
-      - uses: lightninglabs/gateway-action@3a31b86adf442852801a04ddb9c6bc0f12d363da # v0.5.0
+      - uses: lightninglabs/gateway-action@334a8455ee316e40668ae3ac85249150c62704ec # v0.6.0
         with:
           # Pin the private runtime to an immutable commit (matches the action
           # SHA-pin above) so runtime upgrades go through an lnd PR, not a moved
-          # tag. Without this, runtime_ref defaults to the v0.5.0 tag.
-          runtime_ref: b7490e68db31b391becfe9534e947b8004fc518b # gateway v0.5.0
+          # tag. Without this, runtime_ref defaults to the v0.6.0 tag.
+          runtime_ref: 75f6e67deac362bdcfc10d10629ddcf69c0e2615 # gateway v0.6.0
           event_name:      ${{ github.event_name }}
           event_action:    ${{ github.event.action }}
           repo:            ${{ github.repository }}

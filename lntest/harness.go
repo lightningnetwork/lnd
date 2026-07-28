@@ -521,6 +521,26 @@ func (h *HarnessTest) NewNode(name string,
 	return node
 }
 
+// NewNodeWithOpts creates a new node, applying the given options to its config
+// before it starts, and is otherwise identical to NewNode.
+//
+// NOTE: The only option today is used by switchrpc builds, to keep a node at
+// the build's default of refusing local payment dispatch.
+func (h *HarnessTest) NewNodeWithOpts(name string, extraArgs []string,
+	opts ...node.Option) *node.HarnessNode {
+
+	node, err := h.manager.newNode(h.T, name, extraArgs, nil, false, opts...)
+	require.NoErrorf(h, err, "unable to create new node for %s", name)
+
+	err = node.Start(h.runCtx)
+	require.NoError(h, err, "failed to start node %s", node.Name())
+
+	bestBlock, _ := h.miner.GetBestBlock()
+	h.WaitForBlockchainSyncTo(node, *bestBlock)
+
+	return node
+}
+
 // NewNodeWithCoins creates a new node and asserts its creation. The node is
 // guaranteed to have finished its initialization and all its subservers are
 // started. In addition, 5 UTXO of 1 BTC each are sent to the node.

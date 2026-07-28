@@ -51,6 +51,12 @@ type Config struct {
 	// AliasMgr is the alias manager instance that is used to handle all the
 	// SCID alias related information for channels.
 	AliasMgr *aliasmgr.Manager
+
+	// EnableLocalPaymentDispatch permits the local payment-sending RPCs.
+	// When it is unset an external router owns the payment lifecycle, and
+	// this sub-server refuses those RPCs so the embedded router cannot
+	// allocate attempt IDs into the store the external router uses.
+	EnableLocalPaymentDispatch bool
 }
 
 // DefaultConfig defines the config defaults.

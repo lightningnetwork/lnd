@@ -100,6 +100,15 @@ const (
 // Option is a function for updating a node's configuration.
 type Option func(*BaseNodeConfig)
 
+// WithRefuseLocalPaymentDispatch leaves the node at the switchrpc build's
+// default of refusing the local payment-sending RPCs, rather than opting in the
+// way every other harness node does.
+func WithRefuseLocalPaymentDispatch() Option {
+	return func(cfg *BaseNodeConfig) {
+		cfg.RefuseLocalPaymentDispatch = true
+	}
+}
+
 // BackendConfig is an interface that abstracts away the specific chain backend
 // node implementation.
 type BackendConfig interface {
@@ -146,9 +155,14 @@ type BaseNodeConfig struct {
 	ReadMacPath    string
 	InvoiceMacPath string
 
-	SkipUnlock        bool
-	Password          []byte
-	WithPeerBootstrap bool
+	SkipUnlock bool
+
+	// RefuseLocalPaymentDispatch leaves the node at the switchrpc build's
+	// default of refusing the local payment-sending RPCs. Every other node
+	// opts in, so the payment suites keep using the embedded router.
+	RefuseLocalPaymentDispatch bool
+	Password                   []byte
+	WithPeerBootstrap          bool
 
 	P2PPort     int
 	RPCPort     int
@@ -291,6 +305,7 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		"--accept-keysend",
 		"--keep-failed-payment-attempts",
 		"--logging.no-commit-hash",
+
 		fmt.Sprintf("--db.batch-commit-interval=%v", commitInterval),
 		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", DefaultCSV),
 		fmt.Sprintf("--rpclisten=%v", cfg.RPCAddr()),
@@ -324,6 +339,13 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 
 	if cfg.Password == nil {
 		args = append(args, "--noseedbackup")
+	}
+
+	// The itest binary carries the 'switchrpc' tag, which refuses local
+	// payment dispatch by default. Opt in so the payment-sending suites
+	// keep using the embedded router.
+	if !cfg.RefuseLocalPaymentDispatch {
+		args = append(args, "--enable-local-payment-dispatch")
 	}
 
 	if !cfg.WithPeerBootstrap {

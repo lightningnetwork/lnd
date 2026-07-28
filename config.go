@@ -481,6 +481,8 @@ type Config struct {
 
 	StoreFinalHtlcResolutions bool `long:"store-final-htlc-resolutions" description:"Persistently store the final resolution of incoming htlcs."`
 
+	EnableLocalPaymentDispatch bool `long:"enable-local-payment-dispatch" description:"Permit the local payment-sending RPCs (SendPaymentV2, SendToRouteV2). Only applies to a binary built with the 'switchrpc' tag, which refuses them by default so an external router dispatching HTLC attempts cannot collide with the embedded router in the shared attempt store. Setting this while an external router is attached reopens that collision. Attempt store cleanup and the external management marker follow the build tag, not this option."`
+
 	DefaultRemoteMaxHtlcs uint16 `long:"default-remote-max-htlcs" description:"The default max_htlc applied when opening or accepting channels. This value limits the number of concurrent HTLCs that the remote party can add to the commitment. The maximum possible value is 483."`
 
 	NumGraphSyncPeers      int           `long:"numgraphsyncpeers" description:"The number of peers that we should receive new graph updates from. This option can be tuned to save bandwidth for light clients or routing nodes."`
@@ -864,6 +866,11 @@ func DefaultConfig() Config {
 		FwdHistoryDeleteBatchSize: defaultFwdHistoryDeleteBatchSize,
 		CoinSelectionStrategy:     defaultCoinSelectionStrategy,
 		KeepFailedPaymentAttempts: defaultKeepFailedPaymentAttempts,
+		// External payment lifecycle defaults to on whenever the binary
+		// was built with the 'switchrpc' tag, since that build exists
+		// specifically to hand the payment lifecycle to an external
+		// router. The itest suite opts back out explicitly.
+		EnableLocalPaymentDispatch: !build.SwitchRPC,
 		RemoteSigner: &lncfg.RemoteSigner{
 			Timeout: lncfg.DefaultRemoteSignerRPCTimeout,
 		},
@@ -999,6 +1006,19 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 	logWarningsForDeprecation(*cleanCfg)
 
 	return cleanCfg, nil
+}
+
+// validateLocalPaymentDispatch returns an error when local payment dispatch is
+// refused without the switchrpc build tag that supplies the alternative. Only
+// that direction is rejected; a switchrpc binary permitting local dispatch is
+// supported.
+func validateLocalPaymentDispatch(enabled, switchRPCBuild bool) error {
+	if !enabled && !switchRPCBuild {
+		return errors.New("refusing local payment dispatch requires " +
+			"a binary built with the 'switchrpc' build tag")
+	}
+
+	return nil
 }
 
 // ValidateConfig check the given configuration to be sane. This makes sure no
@@ -1254,6 +1274,24 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.MaxOutgoingCltvExpiry, cfg.Bitcoin.TimeLockDelta,
 	); err != nil {
 		return nil, mkErr("%v", err)
+	}
+
+	// Without the switchrpc tag there is no dispatch interface to send
+	// through, so a node that also refuses local dispatch could not send at
+	// all.
+	if err := validateLocalPaymentDispatch(
+		cfg.EnableLocalPaymentDispatch, build.SwitchRPC,
+	); err != nil {
+		return nil, mkErr("%v", err)
+	}
+
+	// A switchrpc build always skips attempt store cleanup and always marks
+	// the HTLC attempt database, whatever this flag is set to.
+	if build.SwitchRPC && cfg.EnableLocalPaymentDispatch {
+		ltndLog.Warnf("Local payment dispatch is permitted, but this " +
+			"binary still skips attempt store cleanup and marks " +
+			"the HTLC attempt database as externally managed. " +
+			"Both follow the 'switchrpc' build tag, not this flag.")
 	}
 
 	// Validate the Tor config parameters.

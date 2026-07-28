@@ -2,6 +2,7 @@ package routing
 
 import (
 	"context"
+	"sort"
 	"testing"
 
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -539,4 +540,227 @@ func TestInboundFeeReachesLndPathfinding(t *testing.T) {
 	require.NoError(t, exit.addGraphPolicies(graph))
 	require.Equal(t, models.InboundFee{},
 		exit.edgeUnifiers[source].edges[0].inboundFees)
+}
+
+// inboundPair is one directed policy's announced inbound fee.
+type inboundPair struct {
+	base int32
+	rate int32
+}
+
+// inboundPairs returns every directed policy's inbound fee, in channel id
+// order and node1 end first, which is the order ApplyInboundFees walks.
+func inboundPairs(g *SimGraph) []inboundPair {
+	ids := make([]uint64, 0, len(g.channels))
+	for id := range g.channels {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+	out := make([]inboundPair, 0, 2*len(ids))
+	for _, id := range ids {
+		channel := g.channels[id]
+		for i := range channel.ends {
+			policy := channel.ends[i].policy
+			out = append(out, inboundPair{
+				base: policy.InboundBaseMsat,
+				rate: policy.InboundRatePPM,
+			})
+		}
+	}
+
+	return out
+}
+
+// TestInboundFeesAbsentGolden is stage B's off-state proof at the generator.
+// Every synthetic tier the program has run announces no inbound fee anywhere,
+// and a scenario file that omits the section has to keep it that way whichever
+// of the three shapes it omits it in.
+func TestInboundFeesAbsentGolden(t *testing.T) {
+	t.Parallel()
+
+	golden := make([]inboundPair, 32)
+
+	sections := []*SimInboundFeeParams{
+		nil,
+		{},
+		{Seed: 99},
+	}
+	for _, section := range sections {
+		g := htlcLimitsTestGraph(t)
+		require.Equal(t, golden, inboundPairs(g))
+
+		require.NoError(t, g.ApplyInboundFees(section, 7))
+		require.Equal(t, golden, inboundPairs(g))
+
+		// The mechanism stays off, so nothing is charged at forwarding
+		// time and nothing is shown in gossip.
+		require.False(t, g.inboundFees)
+		require.Equal(t, SimInboundFeeStats{Policies: 32},
+			g.InboundFeeStats())
+	}
+
+	// A section naming a family the simulator does not know leaves the
+	// network entirely alone, mechanism included.
+	g := htlcLimitsTestGraph(t)
+	err := g.ApplyInboundFees(&SimInboundFeeParams{Family: "lognormal"}, 7)
+	require.Error(t, err)
+	require.False(t, g.inboundFees)
+	require.Equal(t, golden, inboundPairs(g))
+}
+
+// TestApplyInboundFeesDeterminism checks that the redraw is a pure function of
+// family and seed, and that it does not depend on map iteration order.
+func TestApplyInboundFeesDeterminism(t *testing.T) {
+	t.Parallel()
+
+	draw := func(family string, seed int64) []inboundPair {
+		g := htlcLimitsTestGraph(t)
+		require.NoError(t, g.ApplyInboundFees(&SimInboundFeeParams{
+			Family: family,
+			Seed:   seed,
+		}, 0))
+
+		return inboundPairs(g)
+	}
+
+	for _, family := range []string{
+		InboundFeeFamilyMainnet, InboundFeeFamilyHeavy,
+	} {
+
+		first := draw(family, 7)
+		require.Equal(t, first, draw(family, 7))
+		require.NotEqual(t, first, draw(family, 8))
+	}
+
+	// An omitted seed derives one from the scenario's liquidity seed, so a
+	// file that pins neither is still reproducible and two files with
+	// different liquidity seeds still differ.
+	derived := func(liquiditySeed int64) []inboundPair {
+		g := htlcLimitsTestGraph(t)
+		require.NoError(t, g.ApplyInboundFees(&SimInboundFeeParams{
+			Family: InboundFeeFamilyMainnet,
+		}, liquiditySeed))
+
+		return inboundPairs(g)
+	}
+	require.Equal(t, derived(3), derived(3))
+	require.NotEqual(t, derived(3), derived(4))
+}
+
+// TestApplyInboundFeesLoaded checks the family the mainnet tier runs: the
+// mechanism comes on and not one announced value moves, because on a loaded
+// snapshot the announced values are the measurement.
+func TestApplyInboundFeesLoaded(t *testing.T) {
+	t.Parallel()
+
+	g := htlcLimitsTestGraph(t)
+
+	// Stand in for a loaded snapshot by pinning a fee the generator would
+	// never produce.
+	g.channels[1].ends[0].policy.InboundBaseMsat = -1_000
+	g.channels[1].ends[0].policy.InboundRatePPM = -1_006
+	before := inboundPairs(g)
+
+	require.NoError(t, g.ApplyInboundFees(&SimInboundFeeParams{
+		Family: InboundFeeFamilyLoaded,
+		Seed:   7,
+	}, 0))
+
+	require.True(t, g.inboundFees)
+	require.Equal(t, before, inboundPairs(g))
+	require.Equal(t, SimInboundFeeStats{
+		Policies:  32,
+		Charging:  1,
+		Discounts: 1,
+	}, g.InboundFeeStats())
+}
+
+// TestInboundFeeFamilyMarginals checks that the empirical family reproduces
+// the shares it was fitted to. The point of drawing from measured marginals
+// rather than an authored shape is that the resulting world is one nobody
+// chose, so the numbers below are the whole claim the family makes.
+func TestInboundFeeFamilyMarginals(t *testing.T) {
+	t.Parallel()
+
+	const numChannels = 20_000
+
+	g := htlcLimitsStarGraph(t, numChannels, 1_000_000)
+	require.NoError(t, g.ApplyInboundFees(&SimInboundFeeParams{
+		Family: InboundFeeFamilyMainnet,
+		Seed:   11,
+	}, 0))
+
+	stats := g.InboundFeeStats()
+	require.Equal(t, 2*numChannels, stats.Policies)
+
+	// 7.6% of the real graph's directed policies carry an inbound fee.
+	share := float64(stats.Charging) / float64(stats.Policies)
+	require.InDelta(t, 0.0762, share, 0.004)
+
+	// 97.4% of those are discounts, the rest surcharges. lnd will not even
+	// set a positive inbound fee without an explicit opt-in, so a family
+	// that got this backwards would be modelling a different network.
+	discounts := float64(stats.Discounts) / float64(stats.Charging)
+	require.InDelta(t, 0.974, discounts, 0.01)
+
+	// The median discount rate is -200 ppm and the 5th percentile is
+	// -2,000, both measured over the policies that announce a rate.
+	var rates []int32
+	for _, channel := range g.channels {
+		for i := range channel.ends {
+			rate := channel.ends[i].policy.InboundRatePPM
+			if rate < 0 {
+				rates = append(rates, rate)
+			}
+		}
+	}
+	sort.Slice(rates, func(i, j int) bool { return rates[i] < rates[j] })
+
+	median := rates[len(rates)/2]
+	require.InDelta(t, -235, median, 60)
+
+	fifth := rates[len(rates)/20]
+	require.InDelta(t, -2000, fifth, 500)
+}
+
+// TestInboundFeeFamilyHeavy checks the authored stress rung on the two dials
+// it turns and on the one it deliberately leaves alone. Every policy carries a
+// fee and every magnitude is multiplied, but the sign split is the measured
+// one, so it stays a world of discounts rather than becoming a world of
+// surcharges no real sender would meet.
+func TestInboundFeeFamilyHeavy(t *testing.T) {
+	t.Parallel()
+
+	const numChannels = 5_000
+
+	g := htlcLimitsStarGraph(t, numChannels, 1_000_000)
+	require.NoError(t, g.ApplyInboundFees(&SimInboundFeeParams{
+		Family: InboundFeeFamilyHeavy,
+		Seed:   11,
+	}, 0))
+
+	stats := g.InboundFeeStats()
+	require.Equal(t, 2*numChannels, stats.Policies)
+	require.Equal(t, stats.Policies, stats.Charging)
+
+	discounts := float64(stats.Discounts) / float64(stats.Charging)
+	require.InDelta(t, 0.974, discounts, 0.01)
+
+	var rates []int32
+	for _, channel := range g.channels {
+		for i := range channel.ends {
+			rate := channel.ends[i].policy.InboundRatePPM
+			if rate < 0 {
+				rates = append(rates, rate)
+			}
+		}
+	}
+	sort.Slice(rates, func(i, j int) bool { return rates[i] < rates[j] })
+
+	// The median discount lands in the range of the simulator's own
+	// synthetic outbound rates, which run 0 to 1000 ppm, so ignoring an
+	// inbound fee costs about what ignoring an outbound one would.
+	median := rates[len(rates)/2]
+	require.InDelta(t, -1175, median, 300)
 }

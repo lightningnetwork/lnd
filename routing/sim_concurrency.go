@@ -108,9 +108,19 @@ const (
 	simPaymentRequest simPaymentState = iota
 
 	// simPaymentResolve is a payment whose route has been chosen and whose
-	// htlc is on the wire. The step that runs here dispatches it and
-	// reports the outcome.
+	// htlc is about to reach the wire. The step that runs here dispatches
+	// it and learns what the network did with it.
 	simPaymentResolve
+
+	// simPaymentReport is a payment whose htlc has resolved out on the
+	// network and whose result is on its way back to the sender. The step
+	// that runs here tells the router.
+	//
+	// A payment only sits here when a latency section is charging for the
+	// return trip. With none, the result is home the instant it resolves and
+	// the two steps run back to back inside one, which is what every
+	// scenario file written before stage E means.
+	simPaymentReport
 
 	// simPaymentDone is a payment that has resolved and released whatever
 	// it still held.
@@ -139,6 +149,10 @@ type simLivePayment struct {
 	state  simPaymentState
 	nextAt time.Time
 
+	// startedAt is when the scheduler admitted this payment, and the start
+	// of the wall time it is reported to have taken.
+	startedAt time.Time
+
 	nextAttemptID uint64
 	amtRemaining  lnwire.MilliSatoshi
 	inFlightHtlcs uint32
@@ -158,6 +172,12 @@ type simLivePayment struct {
 	// will dispatch, with the attempt id it was given.
 	pending   *route.Route
 	pendingID uint64
+
+	// pendingResult is what the network truly did with that route, held
+	// between the instant the htlc resolved out there and the instant the
+	// news reaches the sender. Those are the same instant without a latency
+	// section, and a round trip apart with one.
+	pendingResult SimHtlcResult
 }
 
 // SimConcurrencyStats is what a concurrent batch reports about its own
@@ -244,8 +264,11 @@ type simScheduler struct {
 	// takes it, and gapStep by default.
 	interArrival time.Duration
 
-	// attemptStep is how much virtual time one htlc attempt consumes.
-	attemptStep time.Duration
+	// dispatchStep is how much virtual time passes between a route being
+	// chosen and its htlc reaching the wire. It is the clock's flat attempt
+	// tick with no latency section and the attempt overhead alone with one,
+	// where the rest of an attempt is charged on the hops it crosses.
+	dispatchStep time.Duration
 
 	// inFlight is the window size, one for the sequential batch.
 	inFlight int
@@ -270,7 +293,17 @@ type simScheduler struct {
 	liveIntegral time.Duration
 	busy         time.Duration
 
-	stats SimConcurrencyStats
+	// attemptTime and attempts, paymentTime and payments are the running
+	// sums behind the reported means. Attempts are counted here rather than
+	// read off the results afterwards because a refused route is an attempt
+	// that took no time, and averaging it in is the honest reading.
+	attemptTime time.Duration
+	attempts    int
+	paymentTime time.Duration
+	payments    int
+
+	stats   SimConcurrencyStats
+	latency SimLatencyStats
 }
 
 // newSimScheduler builds the loop for one batch.
@@ -295,10 +328,11 @@ func newSimScheduler(r *SimRunner, source route.Vertex,
 	// index order with nothing ever overlapping, and the scheduling
 	// counters would report a window that never opened. A tier asking for
 	// one gets told rather than measured.
-	if inFlight > 1 && r.simAttemptStep() == 0 {
+	if inFlight > 1 && !r.simAttemptTakesTime() {
 		return nil, fmt.Errorf("concurrency: max_in_flight %d needs a "+
-			"clock section with a positive attempt_sec; with no "+
-			"virtual time payments cannot overlap", inFlight)
+			"clock section with a positive attempt_sec, or a "+
+			"latency section to price the attempts; with no virtual "+
+			"time payments cannot overlap", inFlight)
 	}
 
 	return &simScheduler{
@@ -306,7 +340,7 @@ func newSimScheduler(r *SimRunner, source route.Vertex,
 		source:       source,
 		scenarios:    scenarios,
 		interArrival: interArrival,
-		attemptStep:  r.simAttemptStep(),
+		dispatchStep: r.simDispatchStep(),
 		inFlight:     inFlight,
 	}, nil
 }
@@ -530,6 +564,7 @@ func (s *simScheduler) admit() error {
 		router:       router,
 		state:        simPaymentRequest,
 		nextAt:       now,
+		startedAt:    now,
 		amtRemaining: amount,
 		held:         make(map[simHoldEdge]lnwire.MilliSatoshi),
 	}
@@ -559,9 +594,27 @@ func (s *simScheduler) stepAt(at time.Time, p *simLivePayment) error {
 
 	case simPaymentResolve:
 		return s.stepResolve(p)
+
+	case simPaymentReport:
+		return s.stepReport(p)
 	}
 
 	return nil
+}
+
+// latencySec records a duration on a trace or a result, and records nothing at
+// all when the scenario file did not ask for latency. That is what keeps a file
+// without the section byte identical to every run before stage E, and it is why
+// the field is a pointer rather than a number that would print a misleading
+// zero on every tier the mechanism is off for.
+func (s *simScheduler) latencySec(d time.Duration) *float64 {
+	if s.r.latency == nil {
+		return nil
+	}
+
+	sec := d.Seconds()
+
+	return &sec
 }
 
 // stepRequest asks the router for the next route to try, prices it against the
@@ -621,31 +674,40 @@ func (s *simScheduler) stepRequest(p *simLivePayment) error {
 			Failure:       SimFeeLimitFailure{},
 		}
 
-		p.result.Attempts = append(
-			p.result.Attempts, traceAttempt(rt, refusal),
-		)
+		trace := traceAttempt(rt, refusal)
+		trace.LatencySec = s.latencySec(0)
+		p.result.Attempts = append(p.result.Attempts, trace)
+		s.attempts++
 		s.r.feeLimitStats.Failures++
 
 		return p.router.ReportAttempt(attemptID, rt, refusal)
 	}
 
-	// The htlc is now in the air and resolves one attempt's worth of
-	// virtual time from now, which is the window another of the sender's
-	// payments can run inside.
+	// The htlc is now on its way to the wire, and reaches it a dispatch
+	// step from here: the clock's flat attempt tick with no latency section,
+	// and the sender's own overhead with one.
 	p.pending = rt
 	p.pendingID = attemptID
 	p.state = simPaymentResolve
-	p.nextAt = s.r.simSchedTime().Add(s.attemptStep)
+	p.nextAt = s.r.simSchedTime().Add(s.dispatchStep)
 
 	return nil
 }
 
-// stepResolve sends the pending htlc through the simulated network and reports
-// what came back.
+// stepResolve sends the pending htlc through the simulated network and prices
+// the trip home.
+//
+// What the network did is known here; the SENDER does not know it yet. Under a
+// latency section the result comes back a round trip later, charged on the hops
+// the htlc actually crossed, and that window is the one in which the world
+// keeps moving under an attempt: background traffic churns through it, an
+// atomic shard reserves its liquidity through it, and another of the sender's
+// own payments can run inside it. With no latency section the round trip is
+// zero and the report runs back to back with this step, which is what every
+// scenario file written before stage E means, right down to nothing else being
+// able to slip between the two.
 func (s *simScheduler) stepResolve(p *simLivePayment) error {
 	rt := p.pending
-	p.pending = nil
-	p.state = simPaymentRequest
 
 	// A malformed route (unknown channel, disconnected hops) is a router
 	// bug: it terminates this payment with an error rather than killing the
@@ -666,29 +728,89 @@ func (s *simScheduler) stepResolve(p *simLivePayment) error {
 		htlcResult, err = s.r.graph.SendHtlc(rt)
 	}
 	if err != nil {
+		p.pending = nil
+		p.state = simPaymentRequest
 		p.result.Error = fmt.Sprintf("malformed route: %v", err)
 		s.finish(p)
 
 		return nil
 	}
 
-	p.result.Attempts = append(
-		p.result.Attempts, traceAttempt(rt, htlcResult),
-	)
+	// The trip home is priced off the TRUE result, before anything has had
+	// a chance to damage it. An attribution section may go on to blame a
+	// neighbour of the node that really failed, and the clock is not
+	// something a damaged failure message gets to edit.
+	wait := s.r.simReturnStep(rt, htlcResult)
+
+	trace := traceAttempt(rt, htlcResult)
+	trace.LatencySec = s.latencySec(s.dispatchStep + wait)
+	p.result.Attempts = append(p.result.Attempts, trace)
+
+	s.attemptTime += s.dispatchStep + wait
+	s.attempts++
 
 	s.noteSelfContention(p, rt, htlcResult)
 
 	// Record what this attempt revealed about the edges it crossed, which
-	// is the raw material a weight-serving node would have to offer.
+	// is the raw material a weight-serving node would have to offer. It is
+	// stamped at the instant the htlc crossed them rather than the instant
+	// the sender hears about it, because that is the instant the
+	// observation describes.
 	s.r.observations = append(s.r.observations, observationsFromAttempt(
 		rt, htlcResult, s.r.clk.Now(),
 	)...)
 
-	// Let the router learn from the outcome. Everything above this line
-	// records what actually happened; what the router is TOLD may be less
-	// than that, since an attribution section ages and damages the result
-	// on its way over.
-	err = p.router.ReportAttempt(
+	// Money moves and liquidity is reserved out on the network, when the
+	// htlc arrives, and not when the news gets home. A settling shard has
+	// paid its fee already; a held one reserves every hop it crossed from
+	// this instant, which is what a sibling racing it has to contend with
+	// while the result is still in the air.
+	if htlcResult.Failure == nil {
+		if p.scenario.AtomicMpp {
+			p.holdIDs = append(p.holdIDs, holdID)
+			p.heldMsat += uint64(rt.ReceiverAmt())
+			p.heldFees += uint64(rt.TotalFees())
+
+			for _, res := range s.r.graph.holdReservations(holdID) {
+				p.held[res.edge] += res.amt
+			}
+		} else {
+			p.result.FeeMsat += uint64(rt.TotalFees())
+		}
+	}
+
+	p.pendingResult = htlcResult
+
+	if wait == 0 {
+		return s.stepReport(p)
+	}
+
+	p.state = simPaymentReport
+	p.nextAt = s.r.simSchedTime().Add(wait)
+
+	return nil
+}
+
+// stepReport is the result reaching the sender: the router is told, and the
+// payment's own book keeping catches up with what the network did a round trip
+// ago.
+func (s *simScheduler) stepReport(p *simLivePayment) error {
+	rt := p.pending
+	htlcResult := p.pendingResult
+	p.pending = nil
+	p.pendingResult = SimHtlcResult{}
+	p.state = simPaymentRequest
+
+	// Let the router learn from the outcome. The resolve step recorded what
+	// actually happened; what the router is TOLD may be less than that,
+	// since an attribution section ages and damages the result on its way
+	// over.
+	//
+	// The two time knobs compose here rather than collide. Latency decided
+	// when this step came due, differentially, off the route the htlc took.
+	// The delay knob now ages the network further, uniformly, by whole
+	// attempt-sized slices, exactly as it did before this stage existed.
+	err := p.router.ReportAttempt(
 		p.pendingID, rt, s.r.deliverAttempt(rt, htlcResult),
 	)
 	if err != nil {
@@ -704,20 +826,6 @@ func (s *simScheduler) stepResolve(p *simLivePayment) error {
 	}
 
 	p.inFlightHtlcs++
-
-	// A settling shard pays its fee right away; a held one only pays when
-	// the whole set settles.
-	if p.scenario.AtomicMpp {
-		p.holdIDs = append(p.holdIDs, holdID)
-		p.heldMsat += uint64(rt.ReceiverAmt())
-		p.heldFees += uint64(rt.TotalFees())
-
-		for _, res := range s.r.graph.holdReservations(holdID) {
-			p.held[res.edge] += res.amt
-		}
-	} else {
-		p.result.FeeMsat += uint64(rt.TotalFees())
-	}
 
 	// Guard against a buggy router delivering more than asked: unsigned
 	// underflow here would loop until the attempt cap.
@@ -838,6 +946,15 @@ func (s *simScheduler) finish(p *simLivePayment) {
 	p.held = nil
 	p.state = simPaymentDone
 
+	// What the payment took in wall time, which is every attempt it made
+	// plus the waiting between them. A payment that gave up before it sent
+	// anything took no time at all, and that zero is reported rather than
+	// dropped.
+	took := now.Sub(p.startedAt)
+	p.result.LatencySec = s.latencySec(took)
+	s.paymentTime += took
+	s.payments++
+
 	for i, q := range s.live {
 		if q != p {
 			continue
@@ -878,4 +995,13 @@ func (s *simScheduler) finalize() {
 	}
 	s.stats.MakespanSec = s.lastFinish.Sub(s.start).Seconds()
 	s.stats.RouterAcceptsBalanceRefresh = s.r.RouterAcceptsBalanceRefresh()
+
+	if s.payments > 0 {
+		s.latency.MeanPaymentLatencySec = s.paymentTime.Seconds() /
+			float64(s.payments)
+	}
+	if s.attempts > 0 {
+		s.latency.MeanAttemptLatencySec = s.attemptTime.Seconds() /
+			float64(s.attempts)
+	}
 }

@@ -201,6 +201,18 @@ type SimAttemptTrace struct {
 	Success    bool          `json:"success"`
 	FailureIdx int           `json:"failure_hop,omitempty"`
 	Failure    string        `json:"failure,omitempty"`
+
+	// LatencySec is how much virtual time this attempt took, from the route
+	// being chosen to its result reaching the sender: the attempt overhead
+	// plus a round trip to the hop that resolved it. It is what makes the
+	// differential structure auditable, since a settle and a first-hop
+	// failure on the same route read very different numbers here.
+	//
+	// It is a pointer so that a file with no latency section emits nothing
+	// and stays byte identical to every run before stage E, while a file
+	// that has one emits the zeroes too: a route the fee budget refused
+	// never reached the wire and really did cost no time.
+	LatencySec *float64 `json:"latency_sec,omitempty"`
 }
 
 // SimScenarioResult is the outcome of one scenario.
@@ -231,6 +243,15 @@ type SimScenarioResult struct {
 	// Reporting abandonment separately makes the difference visible
 	// without changing what the optimizer maximizes.
 	GaveUp bool `json:"gave_up,omitempty"`
+
+	// LatencySec is how much virtual time this payment took, from the
+	// scheduler admitting it to the moment it resolved. It is the waiting a
+	// sender actually experiences, attempts and the gaps between them
+	// included, and it is what objective L would be charged on.
+	//
+	// Like the per-attempt figure it is a pointer, so a file with no latency
+	// section emits nothing at all.
+	LatencySec *float64 `json:"latency_sec,omitempty"`
 }
 
 // SimClockParams configures the virtual clock. Without one the simulation
@@ -313,6 +334,15 @@ type SimRunner struct {
 	// concurrency is what the last scored batch reported about its own
 	// scheduling, zero until one has run.
 	concurrency SimConcurrencyStats
+
+	// latency prices an htlc attempt by the route it travelled, nil when a
+	// scenario wants the clock's flat per-attempt tick, which is what every
+	// scenario file written before stage E asks for by omission.
+	latency *simLatency
+
+	// latencyStats is what the last batch reported about the time its
+	// payments took, zero until one has run.
+	latencyStats SimLatencyStats
 
 	// balanceRefresh records whether the routing strategy under test
 	// implements the optional refresh half of the contract, set the first
@@ -481,6 +511,43 @@ func (r *SimRunner) SetAttribution(params *SimAttributionParams,
 	r.attribution = attribution
 
 	return nil
+}
+
+// SetLatency prices an htlc attempt by the route it travelled instead of by
+// the clock's flat per-attempt tick: an attempt costs its overhead plus a round
+// trip to the hop that resolved it, so a failure at the sender's own first hop
+// comes back in one round trip and a failure at hop eight comes back in eight.
+//
+// The time flows into everything else that reads the clock. Background traffic
+// runs through the existing prorating, so a slow attempt watches more of other
+// people's payments; an atomic shard reserves its liquidity for longer; and
+// under a concurrency section the scheduler's ordering key moves, so a slow
+// router's payments overlap more and contend with themselves more.
+func (r *SimRunner) SetLatency(params *SimLatencyParams) error {
+	// Latency is a statement about virtual time, and a scenario with no
+	// clock section has none: nothing the simulator does moves a clock
+	// there, every event ties at the same instant, and the section would be
+	// charged nowhere. A tier asking for one gets told rather than measured,
+	// which is the rule stage D arrived at for the same reason.
+	if r.virtualClk == nil {
+		return fmt.Errorf("latency: needs a clock section; with no " +
+			"virtual time an attempt takes no time at all, so a " +
+			"per-hop price could not be charged anywhere")
+	}
+
+	latency, err := newSimLatency(params)
+	if err != nil {
+		return err
+	}
+	r.latency = latency
+
+	return nil
+}
+
+// LatencyStats reports the virtual time the last batch's payments and attempts
+// took. None of it enters the objective.
+func (r *SimRunner) LatencyStats() SimLatencyStats {
+	return r.latencyStats
 }
 
 // PolicyStats reports how many htlcs the network's announced min and max htlc
@@ -660,6 +727,50 @@ func (r *SimRunner) simAttemptStep() time.Duration {
 	return time.Duration(r.clockParams.AttemptSec * float64(time.Second))
 }
 
+// simDispatchStep is how much virtual time passes between a router choosing a
+// route and that route's htlc reaching the wire. With no latency section it is
+// the clock's flat attempt tick, which is the whole of what an attempt has ever
+// cost; with one it is the attempt overhead alone, and the rest of the attempt
+// is charged on the hops the htlc actually crosses.
+func (r *SimRunner) simDispatchStep() time.Duration {
+	if r.latency == nil {
+		return r.simAttemptStep()
+	}
+
+	return r.latency.overhead
+}
+
+// simReturnStep is how long the sender then waits for the result to come back,
+// which is the round trip to the hop that resolved the htlc. It is zero without
+// a latency section, where a result has always been home the instant it
+// resolved.
+func (r *SimRunner) simReturnStep(rt *route.Route,
+	res SimHtlcResult) time.Duration {
+
+	if r.latency == nil {
+		return 0
+	}
+
+	return r.latency.returnTrip(simLatencyHops(rt, res))
+}
+
+// simAttemptTakesTime reports whether one htlc attempt moves the clock at all,
+// which is what a concurrent batch needs: with no virtual time every scheduler
+// event ties at the same instant and payments cannot overlap.
+func (r *SimRunner) simAttemptTakesTime() bool {
+	if r.virtualClk == nil {
+		return false
+	}
+
+	// A latency section is validated to charge something, and it can only
+	// be set on a runner that already has a clock.
+	if r.latency != nil {
+		return true
+	}
+
+	return r.simAttemptStep() > 0
+}
+
 // simGapStep is how much virtual time passes between one payment finishing and
 // the next starting, and zero on a scenario with no virtual clock.
 func (r *SimRunner) simGapStep() time.Duration {
@@ -809,6 +920,7 @@ func (r *SimRunner) runBatch(source route.Vertex, scenarios []SimScenario,
 	}
 
 	r.concurrency = scheduler.stats
+	r.latencyStats = scheduler.latency
 
 	return results, 0, nil
 }

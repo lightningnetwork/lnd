@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -433,6 +434,77 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 	}
 
 	testHtlcSuccess(t, twoStageResolution, checkpoints)
+}
+
+func TestHtlcSuccessMatchSecondLevelOutput(t *testing.T) {
+	claim := wire.OutPoint{Index: 2}
+	newMatch := func() (*htlcSuccessResolver, *chainntnfs.SpendDetail) {
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: wire.OutPoint{Index: 1}},
+				{PreviousOutPoint: claim},
+			},
+			TxOut: []*wire.TxOut{
+				cloneTxOut(testSignDesc.Output),
+				cloneTxOut(testSignDesc.Output),
+			},
+		}
+
+		return &htlcSuccessResolver{
+			htlcResolution: newSuccessTestResolution(claim),
+		}, newSpendDetail(claim, tx, 1)
+	}
+	resolver, spend := newMatch()
+	check := func(expected bool) {
+		matches, err := resolver.matchSecondLevelOutput(spend)
+		require.NoError(t, err)
+		require.Equal(t, expected, matches)
+	}
+	check(true)
+	spend.SpendingTx.TxOut[1].Value++
+	spend = newSpendDetail(claim, spend.SpendingTx, 1)
+	require.Equal(t, testSignDesc.Output, spend.SpendingTx.TxOut[0])
+	check(false)
+	resolver, spend = newMatch()
+	spend.SpendingTx.TxOut = nil
+	spend = newSpendDetail(claim, spend.SpendingTx, 1)
+	check(false)
+	for _, want := range []string{
+		"missing spend detail", "missing spending tx",
+		"missing spender txid", "missing spent outpoint",
+		"unexpected outpoint", "spender input index",
+		"spender input 0 is nil", "missing expected output",
+		"output 0 is nil", "input", "does not match tx",
+	} {
+		resolver, spend := newMatch()
+		switch want {
+		case "missing spend detail":
+			spend = nil
+		case "missing spending tx":
+			spend.SpendingTx = nil
+		case "missing spender txid":
+			spend.SpenderTxHash = nil
+		case "missing spent outpoint":
+			spend.SpentOutPoint = nil
+		case "unexpected outpoint":
+			spend.SpentOutPoint = &wire.OutPoint{}
+		case "spender input index":
+			spend.SpenderInputIndex = 2
+		case "spender input 0 is nil":
+			spend.SpendingTx.TxIn[0] = nil
+		case "missing expected output":
+			resolver.htlcResolution.SweepSignDesc.Output = nil
+		case "output 0 is nil":
+			spend.SpendingTx.TxOut[0] = nil
+		case "input":
+			spend.SpendingTx.TxIn[1].PreviousOutPoint.Index++
+		case "does not match tx":
+			spend.SpenderTxHash = &chainhash.Hash{}
+		}
+		matches, err := resolver.matchSecondLevelOutput(spend)
+		require.ErrorContains(t, err, want)
+		require.False(t, matches)
+	}
 }
 
 // cloneTxOut returns a copy of a transaction output.

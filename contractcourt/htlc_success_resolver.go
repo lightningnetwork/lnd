@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -168,13 +169,38 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() error {
 		return err
 	}
 
-	// TODO(yy): should also update the `RecoveredBalance` and
-	// `LimboBalance` like other paths?
+	isSuccess, err := h.isRemoteCommitSuccessSpend(sweepTxDetails)
+	if err != nil {
+		return err
+	}
+	if !isSuccess {
+		return h.checkpointForeignSpend(sweepTxDetails)
+	}
 
 	// Checkpoint the resolver, and write the outcome to disk.
 	return h.checkpointClaim(
 		sweepTxDetails.SpenderTxHash, h.htlcResolution.ClaimOutpoint,
 	)
+}
+
+// isRemoteCommitSuccessSpend returns true when a remote commitment HTLC was
+// spent through its success path using the preimage held by this resolver.
+func (h *htlcSuccessResolver) isRemoteCommitSuccessSpend(
+	spend *chainntnfs.SpendDetail) (bool, error) {
+
+	spendingInput, err := h.validateSpend(spend)
+	if err != nil {
+		return false, err
+	}
+
+	if !isPreimageSpend(h.isTaproot(), spend, true) {
+		return false, nil
+	}
+
+	var preimage lntypes.Preimage
+	copy(preimage[:], spendingInput.Witness[localPreimageIndex])
+
+	return preimage.Matches(h.htlc.RHash), nil
 }
 
 // checkpointClaim checkpoints the success resolver with the reports it needs.

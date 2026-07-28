@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -175,65 +176,136 @@ func (i *htlcResolverTestContext) waitForResult() {
 	}
 }
 
-// TestHtlcSuccessSingleStage tests successful sweep of a single stage htlc
-// claim.
+// TestHtlcSuccessSingleStage tests classification of a direct HTLC spend.
 func TestHtlcSuccessSingleStage(t *testing.T) {
-	htlcOutpoint := wire.OutPoint{Index: 3}
-
-	sweepTx := &wire.MsgTx{
-		TxIn:  []*wire.TxIn{{}},
-		TxOut: []*wire.TxOut{{}},
-	}
-
-	// singleStageResolution is a resolution for a htlc on the remote
-	// party's commitment.
-	singleStageResolution := lnwallet.IncomingHtlcResolution{
-		SweepSignDesc: testSignDesc,
-		ClaimOutpoint: htlcOutpoint,
-	}
-
-	sweepTxid := sweepTx.TxHash()
-	claim := &channeldb.ResolverReport{
-		OutPoint:        htlcOutpoint,
-		Amount:          btcutil.Amount(testSignDesc.Output.Value),
-		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
-		ResolverOutcome: channeldb.ResolverOutcomeClaimed,
-		SpendTxID:       &sweepTxid,
-	}
-
-	checkpoints := []checkpoint{
+	taprootPkScript := append(
+		[]byte{txscript.OP_1, txscript.OP_DATA_32}, make([]byte, 32)...,
+	)
+	wrongPreimage := make([]byte, 32)
+	wrongPreimage[0] = 1
+	resolverType := channeldb.ResolverTypeIncomingHtlc
+	testCases := []struct {
+		name    string
+		witness wire.TxWitness
+		success bool
+		taproot bool
+		index   uint32
+	}{
 		{
-			// We send a confirmation for our sweep tx to indicate
-			// that our sweep succeeded.
-			preCheckpoint: func(ctx *htlcResolverTestContext,
-				_ bool) error {
-
-				// The resolver will offer the input to the
-				// sweeper.
-				details := &chainntnfs.SpendDetail{
-					SpendingTx:    sweepTx,
-					SpentOutPoint: &htlcOutpoint,
-					SpenderTxHash: &sweepTxid,
-				}
-				ctx.notifier.SpendChan <- details
-
-				return nil
+			name: "success", success: true, index: 1,
+			witness: wire.TxWitness{
+				dummyBytes, testResPreimage[:], dummyBytes,
 			},
-
-			// After the sweep has confirmed, we expect the
-			// checkpoint to be resolved, and with the above
-			// report.
-			resolved: true,
-			reports: []*channeldb.ResolverReport{
-				claim,
+		},
+		{
+			name: "timeout",
+			witness: wire.TxWitness{
+				nil, dummyBytes, dummyBytes, nil, dummyBytes,
 			},
-			finalHtlcStored: true,
+		},
+		{
+			name: "wrong preimage",
+			witness: wire.TxWitness{
+				dummyBytes, wrongPreimage, dummyBytes,
+			},
+		},
+		{
+			name: "taproot success", success: true, taproot: true,
+			witness: wire.TxWitness{
+				dummyBytes, testResPreimage[:], dummyBytes,
+				dummyBytes,
+			},
+		},
+		{
+			name: "taproot timeout", taproot: true,
+			witness: wire.TxWitness{
+				dummyBytes, dummyBytes, dummyBytes, dummyBytes,
+			},
 		},
 	}
 
-	testHtlcSuccess(
-		t, singleStageResolution, checkpoints,
-	)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			htlcOutpoint := wire.OutPoint{Index: 3}
+			inputs := []*wire.TxIn{{
+				PreviousOutPoint: htlcOutpoint,
+				Witness:          tc.witness,
+			}}
+			if tc.index != 0 {
+				inputs = append([]*wire.TxIn{{
+					PreviousOutPoint: wire.OutPoint{
+						Index: 4,
+					},
+				}}, inputs...)
+			}
+			sweepTx := &wire.MsgTx{
+				TxIn:  inputs,
+				TxOut: []*wire.TxOut{{}},
+			}
+			sweepTxid := sweepTx.TxHash()
+
+			signDesc := testSignDesc
+			if tc.taproot {
+				signDesc.Output = cloneTxOut(
+					testSignDesc.Output,
+				)
+				signDesc.Output.PkScript = taprootPkScript
+			}
+			resolution := lnwallet.IncomingHtlcResolution{
+				Preimage:      testResPreimage,
+				SweepSignDesc: signDesc,
+				ClaimOutpoint: htlcOutpoint,
+			}
+			outcome := channeldb.ResolverOutcomeTimeout
+			amount := testHtlcAmt.ToSatoshis()
+			if tc.success {
+				outcome = channeldb.ResolverOutcomeClaimed
+				amount = btcutil.Amount(
+					testSignDesc.Output.Value,
+				)
+			}
+			report := &channeldb.ResolverReport{
+				OutPoint:        htlcOutpoint,
+				Amount:          amount,
+				ResolverType:    resolverType,
+				ResolverOutcome: outcome,
+				SpendTxID:       &sweepTxid,
+			}
+			checkpoints := []checkpoint{{
+				preCheckpoint: func(
+					ctx *htlcResolverTestContext,
+					_ bool) error {
+
+					spend := newSpendDetail(
+						htlcOutpoint, sweepTx, tc.index,
+					)
+					ctx.notifier.SpendChan <- spend
+
+					return nil
+				},
+				resolved: true,
+				reports: []*channeldb.ResolverReport{
+					report,
+				},
+				finalHtlcStored:  true,
+				finalHtlcSettled: tc.success,
+			}}
+			testHtlcSuccess(t, resolution, checkpoints)
+		})
+	}
+}
+
+func TestHtlcSuccessRemoteSpendValidation(t *testing.T) {
+	resolver := &htlcSuccessResolver{
+		htlcResolution: lnwallet.IncomingHtlcResolution{
+			ClaimOutpoint: wire.OutPoint{Index: 1},
+			SweepSignDesc: testSignDesc,
+		},
+	}
+
+	matches, err := resolver.isRemoteCommitSuccessSpend(nil)
+	require.ErrorContains(t, err, "missing spend detail")
+	require.False(t, matches)
 }
 
 // TestHtlcSuccessSecondStageResolution tests successful sweep of a second
@@ -309,7 +381,8 @@ func TestHtlcSuccessSecondStageResolution(t *testing.T) {
 				secondStage,
 				firstStage,
 			},
-			finalHtlcStored: true,
+			finalHtlcStored:  true,
+			finalHtlcSettled: true,
 		},
 	}
 
@@ -433,7 +506,8 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 				secondStage,
 				firstStage,
 			},
-			finalHtlcStored: true,
+			finalHtlcStored:  true,
+			finalHtlcSettled: true,
 		},
 	}
 
@@ -748,10 +822,11 @@ type checkpoint struct {
 	preCheckpoint func(*htlcResolverTestContext, bool) error
 
 	// data we expect the resolver to be checkpointed with next.
-	incubating      bool
-	resolved        bool
-	reports         []*channeldb.ResolverReport
-	finalHtlcStored bool
+	incubating       bool
+	resolved         bool
+	reports          []*channeldb.ResolverReport
+	finalHtlcStored  bool
+	finalHtlcSettled bool
 }
 
 // testHtlcSuccess tests resolution of a success resolver. It takes a a list of
@@ -864,6 +939,12 @@ func runFromCheckpoint(t *testing.T, ctx *htlcResolverTestContext,
 		if cp.finalHtlcStored != ctx.finalHtlcOutcomeStored {
 			t.Fatal("final htlc store expectation failed")
 		}
+		if cp.finalHtlcStored &&
+			cp.finalHtlcSettled != ctx.finalHtlcSettled {
+
+			t.Fatal("final htlc outcome expectation failed")
+		}
+
 		// Finally encode the resolver, and store it for later use.
 		b := bytes.Buffer{}
 		if err := resolver.Encode(&b); err != nil {

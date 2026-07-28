@@ -757,6 +757,105 @@ func TestCreateRBFCompliantTx(t *testing.T) {
 	}
 }
 
+// createBadInputTestRequest creates a bump request with the given number of
+// inputs and enough budget for subset probes.
+func createBadInputTestRequest(numInputs int) *BumpRequest {
+	inputs := make([]input.Input, 0, numInputs)
+	for i := 0; i < numInputs; i++ {
+		inp := createTestInput(10_000, input.WitnessKeyHash)
+		inputs = append(inputs, &inp)
+	}
+
+	return &BumpRequest{
+		DeliveryAddress: changePkScript,
+		Inputs:          inputs,
+		Budget:          btcutil.Amount(10_000),
+	}
+}
+
+// TestShouldDiagnoseBadInputs checks the eligibility rules for no-broadcast
+// subset diagnosis.
+func TestShouldDiagnoseBadInputs(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		numInputs int
+		withAux   bool
+		withFee   bool
+		err       error
+		diagnose  bool
+	}{
+		{
+			name:      "mempool rejection",
+			numInputs: 2,
+			withFee:   true,
+			err: fmt.Errorf(
+				"%w: %w", errMempoolRejected, errDummy,
+			),
+			diagnose: true,
+		},
+		{
+			name:      "missing fee function",
+			numInputs: 2,
+			err: fmt.Errorf(
+				"%w: %w", errMempoolRejected, errDummy,
+			),
+		},
+		{
+			name:      "construction error",
+			numInputs: 2,
+			withFee:   true,
+			err:       errDummy,
+		},
+		{
+			name:      "singleton",
+			numInputs: 1,
+			withFee:   true,
+			err: fmt.Errorf(
+				"%w: %w", errMempoolRejected, errDummy,
+			),
+		},
+		{
+			name:      "aux sweeper",
+			numInputs: 2,
+			withAux:   true,
+			withFee:   true,
+			err: fmt.Errorf(
+				"%w: %w", errMempoolRejected, errDummy,
+			),
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			var tp *TxPublisher
+			var m *mockers
+			if testCase.withAux {
+				tp, m = createTestPublisher(t)
+			} else {
+				tp, m = createTestPublisherNoAux(t)
+			}
+
+			record := &monitorRecord{
+				requestID: 1,
+				req: createBadInputTestRequest(
+					testCase.numInputs,
+				),
+			}
+			if testCase.withFee {
+				record.feeFunction = m.feeFunc
+			}
+
+			diagnose := tp.shouldDiagnoseBadInputs(
+				record, testCase.err,
+			)
+
+			require.Equal(t, testCase.diagnose, diagnose)
+		})
+	}
+}
+
 // TestTxPublisherBroadcast checks the internal `broadcast` method behaves as
 // expected.
 func TestTxPublisherBroadcast(t *testing.T) {

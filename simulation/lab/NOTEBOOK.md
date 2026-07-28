@@ -950,3 +950,36 @@ third independent confirmation: given a channel that punishes
 reactive learning, the search still could not buy robustness with
 better plans — it bought it with more retries, because retries were
 free. Champions unchanged: hb1 and mx_c3, eight challengers deep.
+
+## 2026-07-28 — exp-023: the build, the sweep, and the sentence the program converged on
+
+The whole economic-realism program ran start to finish in one day:
+five mechanisms specced, five stages implemented by five agent
+rounds, each flag byte-identical off against a pre-change binary,
+each landing note recording what implementation taught the spec, and
+then the 1,920-run measurement sweep with gates that reproduced the
+published table to the last bit.
+
+The verdict is the cleanest sentence this program has produced:
+**the champions' edge is informational, not a pricing edge.** Fee
+budgets, the one mechanism lnd's pathfinding already prices
+carefully, close the champion gap unanimously on mainnet and push
+the lead negative as a point estimate. Heavy inbound fees erase the
+significant lead entirely. And the three mechanisms that are not
+prices — announced limits, contention, latency — move the gap not at
+all, with the latency null landing in its strongest possible form:
+five routers exactly identical when latency is the only thing that
+changed. The interval paradigm keeps winning where knowledge wins
+and starts losing where arithmetic wins, because lnd does the
+arithmetic and the champions never had a reason to.
+
+Which means the lnd integration got its design validated by data
+that did not exist when it was built: the interval-router branch
+pairs the evolved belief system with lnd's own fee-aware machinery,
+exactly the hybrid this sweep says to build. And the next run is the
+one the hypothesis board reserved for it: evolution in the full
+economic world, where budget tracking, inbound-fee pricing and
+contention planning are all machinery no incumbent carries. atomic1
+gets a source audit first — the fee-robust, contention-immune
+champion is the one whose mechanisms the economic world rewards, and
+its stock has risen every time the environment got more real.

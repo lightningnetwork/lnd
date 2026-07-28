@@ -1011,6 +1011,53 @@ func TestMonitorFeeBumpResult(t *testing.T) {
 			shouldExit: true,
 		},
 		{
+			name: "tx fatal",
+			setupResultChan: func() <-chan *BumpResult {
+				resultChan := make(chan *BumpResult, 1)
+				resultChan <- &BumpResult{
+					Tx:    tx,
+					Event: TxFatal,
+					Err:   errDummy,
+				}
+				wallet.On(
+					"CancelRebroadcast", tx.TxHash(),
+				).Once()
+
+				return resultChan
+			},
+			shouldExit: true,
+		},
+		{
+			name: "tx unknown spend",
+			setupResultChan: func() <-chan *BumpResult {
+				resultChan := make(chan *BumpResult, 1)
+				resultChan <- &BumpResult{
+					Tx:    tx,
+					Event: TxUnknownSpend,
+					Err:   ErrUnknownSpent,
+				}
+				wallet.On(
+					"CancelRebroadcast", tx.TxHash(),
+				).Once()
+
+				return resultChan
+			},
+			shouldExit: true,
+		},
+		{
+			name: "tx fatal before creation",
+			setupResultChan: func() <-chan *BumpResult {
+				resultChan := make(chan *BumpResult, 1)
+				resultChan <- &BumpResult{
+					Event: TxFatal,
+					Err:   errDummy,
+				}
+
+				return resultChan
+			},
+			shouldExit: true,
+		},
+		{
 			// When processing non-confirmed events, the monitor
 			// should not exit.
 			name: "no exit on normal event",

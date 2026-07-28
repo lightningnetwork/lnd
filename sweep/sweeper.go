@@ -1668,30 +1668,37 @@ func (s *UtxoSweeper) monitorFeeBumpResult(set InputSet,
 				return
 			}
 
-			// The sweeping tx has been confirmed, we can exit the
-			// monitor now.
+			// Terminal results remove the publisher subscription.
+			// Exit instead of waiting forever.
 			//
 			// TODO(yy): can instead remove the spend subscription
 			// in sweeper and rely solely on this event to mark
 			// inputs as Swept?
-			if r.Event == TxConfirmed || r.Event == TxFailed {
-				// Exit if the tx is failed to be created.
-				if r.Tx == nil {
-					log.Debugf("Received %v for nil tx, "+
-						"exit monitor", r.Event)
+			switch r.Event {
+			case TxConfirmed, TxFailed, TxFatal, TxUnknownSpend:
+			default:
+				continue
+			}
 
-					return
-				}
-
-				log.Debugf("Received %v for sweep tx %v, exit "+
-					"fee bump monitor", r.Event,
-					r.Tx.TxHash())
-
-				// Cancel the rebroadcasting of the failed tx.
-				s.cfg.Wallet.CancelRebroadcast(r.Tx.TxHash())
+			// Exit if the tx failed before it was created.
+			if r.Tx == nil {
+				log.Debugf(
+					"Received %v for nil tx, exit monitor",
+					r.Event,
+				)
 
 				return
 			}
+
+			log.Debugf(
+				"Received %v for sweep tx %v, exit fee bump "+
+					"monitor", r.Event, r.Tx.TxHash(),
+			)
+
+			// The publisher no longer monitors this transaction.
+			s.cfg.Wallet.CancelRebroadcast(r.Tx.TxHash())
+
+			return
 
 		case <-s.quit:
 			log.Debugf("Sweeper shutting down, exit fee " +

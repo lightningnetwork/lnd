@@ -2184,6 +2184,14 @@ func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 		return fn.Some(*bumpResult)
 	}
 
+	// Initial and replacement mempool rejections use the same diagnosis.
+	if errors.Is(err, errMempoolRejected) {
+		bumpResult := t.handleBadInputs(r, err)
+		bumpResult.Tx = oldTx
+
+		return fn.Some(*bumpResult)
+	}
+
 	// Return a failed event to retry the sweep.
 	event := TxFailed
 

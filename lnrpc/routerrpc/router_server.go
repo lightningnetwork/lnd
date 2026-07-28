@@ -341,6 +341,23 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 	return subServer, macPermissions, nil
 }
 
+// checkLocalSendAllowed returns an error when the local router must not
+// originate payments because an external router owns the payment lifecycle and
+// the two would share the switch's attempt-ID space.
+func (s *Server) checkLocalSendAllowed() error {
+	if s.cfg.EnableLocalPaymentDispatch {
+		return nil
+	}
+
+	log.Debugf("Refusing local payment dispatch: an external router " +
+		"owns the payment lifecycle")
+
+	return status.Errorf(codes.FailedPrecondition, "local payment "+
+		"dispatch is disabled: an external router owns the payment "+
+		"lifecycle; payments must be dispatched via the switchrpc "+
+		"interface")
+}
+
 // SendPaymentV2 attempts to route a payment described by the passed
 // PaymentRequest to the final destination. If we are unable to route the
 // payment, or cannot find a route that satisfies the constraints in the
@@ -348,6 +365,10 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 // pre-image, along with the final route will be returned.
 func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 	stream Router_SendPaymentV2Server) error {
+
+	if err := s.checkLocalSendAllowed(); err != nil {
+		return err
+	}
 
 	// Set payment request attempt timeout.
 	if req.TimeoutSeconds == 0 {
@@ -1088,6 +1109,10 @@ func timelockAndFee(p *lnrpc.Payment) (int64, int64, error) {
 // this call contains structured error information.
 func (s *Server) SendToRouteV2(ctx context.Context,
 	req *SendToRouteRequest) (*lnrpc.HTLCAttempt, error) {
+
+	if err := s.checkLocalSendAllowed(); err != nil {
+		return nil, err
+	}
 
 	if req.Route == nil {
 		return nil, fmt.Errorf("unable to send, no routes provided")

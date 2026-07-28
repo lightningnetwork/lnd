@@ -56,6 +56,10 @@ var (
 	// errProbeTxConstruction marks errors encountered before a probe tx can
 	// be submitted for mempool acceptance.
 	errProbeTxConstruction = errors.New("unable to construct probe tx")
+
+	// errBadInputNotFound is returned when bad-input diagnosis finishes
+	// without finding a singleton input that fails mempool acceptance.
+	errBadInputNotFound = errors.New("bad input not found")
 )
 
 var (
@@ -609,10 +613,6 @@ func (t *TxPublisher) createRBFCompliantTx(
 				}
 			}
 
-		// TODO(yy): suppose there's only one bad input, we can do a
-		// binary search to find out which input is causing this error
-		// by recreating a tx using half of the inputs and check its
-		// mempool acceptance.
 		default:
 			log.Debugf("Failed to create RBF-compliant tx: %v", err)
 			return nil, err
@@ -822,6 +822,103 @@ func isInputScriptFailure(err error) bool {
 		errors.Is(err, chain.ErrScriptSigNotPushOnly) ||
 		errors.Is(err, chain.ErrScriptSigSize) ||
 		errors.Is(err, chain.ErrNonStandardInputs)
+}
+
+// findBadInput locates a singleton input that fails a no-broadcast probe.
+func (t *TxPublisher) findBadInput(r *monitorRecord) (wire.OutPoint, error) {
+	return t.findBadInputInSet(r, r.req.Inputs)
+}
+
+// findBadInputInSet searches the given input set for a single input that fails
+// mempool acceptance by itself.
+func (t *TxPublisher) findBadInputInSet(r *monitorRecord,
+	inputs []input.Input) (wire.OutPoint, error) {
+
+	if len(inputs) > 1 {
+		mid := len(inputs) / 2
+		left := inputs[:mid]
+
+		err := t.probeInputSet(r, left)
+		switch {
+		case err == nil:
+			return t.findBadInputInSet(r, inputs[mid:])
+
+		case errors.Is(err, ErrInputMissing):
+			if len(left) == 1 {
+				return left[0].OutPoint(), ErrInputMissing
+			}
+
+			return t.findBadInputInSet(r, left)
+
+		case isInputScriptFailure(err):
+			if len(left) == 1 {
+				return left[0].OutPoint(), nil
+			}
+
+			return t.findBadInputInSet(r, left)
+
+		case errors.Is(err, errProbeTxConstruction):
+			return t.findBadInputBySingleton(r, inputs)
+
+		default:
+			return wire.OutPoint{}, err
+		}
+	}
+
+	if len(inputs) == 0 {
+		return wire.OutPoint{}, errBadInputNotFound
+	}
+
+	err := t.probeInputSet(r, inputs)
+	switch {
+	case err == nil:
+		return wire.OutPoint{}, errBadInputNotFound
+
+	case errors.Is(err, ErrInputMissing):
+		return inputs[0].OutPoint(), ErrInputMissing
+
+	case isInputScriptFailure(err):
+		return inputs[0].OutPoint(), nil
+
+	default:
+		return wire.OutPoint{}, err
+	}
+}
+
+// findBadInputBySingleton scans candidates after a subset cannot be built.
+func (t *TxPublisher) findBadInputBySingleton(r *monitorRecord,
+	inputs []input.Input) (wire.OutPoint, error) {
+
+	var constructionErr error
+	for _, inp := range inputs {
+		err := t.probeInputSet(r, []input.Input{inp})
+		switch {
+		case err == nil:
+			continue
+
+		case errors.Is(err, ErrInputMissing):
+			return inp.OutPoint(), ErrInputMissing
+
+		case isInputScriptFailure(err):
+			return inp.OutPoint(), nil
+
+		case errors.Is(err, errProbeTxConstruction):
+			if constructionErr == nil {
+				constructionErr = err
+			}
+
+			continue
+
+		default:
+			return wire.OutPoint{}, err
+		}
+	}
+
+	if constructionErr != nil {
+		return wire.OutPoint{}, constructionErr
+	}
+
+	return wire.OutPoint{}, errBadInputNotFound
 }
 
 // handleMissingInputs handles the case when the chain backend reports back a

@@ -75,6 +75,17 @@ type scenarioFile struct {
 	// keeps it. Omitting it, like a scenario omitting it, means no limit.
 	FeeLimitPPM uint32 `json:"fee_limit_ppm,omitempty"`
 
+	// Concurrency lets the sender run several of its OWN payments at once,
+	// which is the one kind of contention the simulator has never had.
+	// Omitting the section runs the payments one at a time, each starting a
+	// payment gap after the last one resolved, which is what every scenario
+	// file written before stage D asks for by omission.
+	//
+	// It applies to the scored batch. The warmup phase stays sequential:
+	// what it exists to measure is the value of knowledge a node was handed
+	// rather than the scheduling of the payments that bought it.
+	Concurrency *routing.SimConcurrencyParams `json:"concurrency,omitempty"`
+
 	// Warmup is an optional unscored phase that runs before the scored
 	// batch, standing in for routing knowledge a node was handed instead
 	// of having to probe for it. Omitting the section is a cold start,
@@ -295,6 +306,46 @@ type aggregate struct {
 	// counters are the only things that separate them.
 	FeeLimitPayments int `json:"fee_limit_payments,omitempty"`
 	FeeLimitFailures int `json:"fee_limit_failures,omitempty"`
+
+	// Concurrency reporting, stage D. Every field here is a pointer so that
+	// a file with no concurrency section emits none of them and its output
+	// stays byte identical to every run before this stage, while a file
+	// that HAS one emits all of them including the zeroes. A zero
+	// self_contention_failures is a result and must not vanish.
+	//
+	// MaxConcurrent and MeanConcurrent are the MANIPULATION CHECK, and this
+	// stage is the fourth in a row to need one. If a file's payments never
+	// actually overlap then the tier is testing nothing, and every score it
+	// produces would look perfectly reasonable while measuring the
+	// sequential batch under a new name. MeanConcurrent is time weighted
+	// over the virtual time in which anything was live, so a sequential
+	// batch reads exactly 1.0 and anything above that is real overlap.
+	//
+	// SelfContentionFailures is what the stage exists to produce: attempts
+	// that failed for want of liquidity on an edge where ANOTHER of the
+	// sender's own payments was holding some, and that would have cleared
+	// without it. Read it against MeanConcurrent, always. A tier that does
+	// not overlap cannot contend, so a zero here means either "the payments
+	// did not race" or "racing did not cost anything", and only the mean
+	// separates them. It is also structurally zero without atomic_mpp,
+	// where a shard settles on arrival and reserves nothing at all.
+	//
+	// MakespanSec is the virtual time the batch took to clear. It does NOT
+	// enter the objective: it is a new axis trading against success in an
+	// unmeasured way, and the program's rule is one change at a time.
+	//
+	// RouterAcceptsBalanceRefresh mirrors import_router_accepts, for the
+	// reason exp-016 added that one. A router is handed its local balances
+	// at construction and nothing has ever updated them; the optional
+	// refresh half of the contract now exists, and this says whether the
+	// arm under test asked for it. It reads false for every router shipped
+	// with this stage, the lnd stack included, which is the finding rather
+	// than a gap.
+	MaxConcurrent               *int     `json:"max_concurrent,omitempty"`
+	MeanConcurrent              *float64 `json:"mean_concurrent,omitempty"`
+	SelfContentionFailures      *int     `json:"self_contention_failures,omitempty"`
+	MakespanSec                 *float64 `json:"makespan_sec,omitempty"`
+	RouterAcceptsBalanceRefresh *bool    `json:"router_accepts_balance_refresh,omitempty"`
 
 	// WarmupScenarios and WarmupAttempts report what the unscored warmup
 	// phase cost. They are kept out of every metric above so that a warmed
@@ -620,14 +671,23 @@ func runBatch(runner *routing.SimRunner, scenFile *scenarioFile,
 	// the amounts already printed in the results array.
 	var amtAttemptedMsat uint64
 
+	// The scored batch runs on the scheduler whether or not this file asks
+	// for concurrency: a nil section is a window of one, which is the
+	// sequential batch, and running it through the same loop is what makes
+	// the byte-identity proof mean anything.
+	scenarios := make([]routing.SimScenario, len(scenFile.Scenarios))
 	for i := range scenFile.Scenarios {
-		scenario := scenFile.Scenarios[i]
-		applyFeeLimit(&scenario, scenFile.FeeLimitPPM)
+		scenarios[i] = scenFile.Scenarios[i]
+		applyFeeLimit(&scenarios[i], scenFile.FeeLimitPPM)
+	}
 
-		result, err := runner.RunScenario(&scenario)
-		if err != nil {
-			return nil, fmt.Errorf("scenario %d failed: %v", i, err)
-		}
+	results, err := runner.RunBatch(scenarios, scenFile.Concurrency)
+	if err != nil {
+		return nil, err
+	}
+
+	for i, result := range results {
+		scenario := scenarios[i]
 
 		out.Aggregate.NumScenarios++
 		out.Aggregate.TotalAttempts += len(result.Attempts)
@@ -688,6 +748,22 @@ func runBatch(runner *routing.SimRunner, scenFile *scenarioFile,
 	feeLimits := runner.FeeLimitStats()
 	agg.FeeLimitPayments = feeLimits.Payments
 	agg.FeeLimitFailures = feeLimits.Failures
+
+	// The scheduling report is emitted only when a scenario file asked for
+	// concurrency, and then in full. Every batch runs on the scheduler, so
+	// printing it unconditionally would add five keys to every run whose
+	// output has to stay identical to every run before stage D; and within
+	// a file that DID ask, a zero self-contention count is a result rather
+	// than an absence, so nothing here is dropped for being zero.
+	if scenFile.Concurrency != nil {
+		concurrency := runner.ConcurrencyStats()
+		agg.MaxConcurrent = &concurrency.MaxConcurrent
+		agg.MeanConcurrent = &concurrency.MeanConcurrent
+		agg.SelfContentionFailures = &concurrency.SelfContentionFailures
+		agg.MakespanSec = &concurrency.MakespanSec
+		agg.RouterAcceptsBalanceRefresh =
+			&concurrency.RouterAcceptsBalanceRefresh
+	}
 
 	attribution := runner.AttributionStats()
 	agg.AttributionAttempts = attribution.Attempts

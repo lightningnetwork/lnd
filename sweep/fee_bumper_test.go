@@ -448,6 +448,38 @@ func createTestPublisherNoAux(t *testing.T) (*TxPublisher, *mockers) {
 	return createTestPublisherWithAux(t, fn.None[AuxSweeper]())
 }
 
+// txSpendsInputs returns a matcher that checks that a tx spends the exact input
+// set, regardless of ordering.
+func txSpendsInputs(inputs ...input.Input) func(*wire.MsgTx) bool {
+	want := make(map[wire.OutPoint]struct{}, len(inputs))
+	for _, inp := range inputs {
+		want[inp.OutPoint()] = struct{}{}
+	}
+
+	return func(tx *wire.MsgTx) bool {
+		if tx == nil || len(tx.TxIn) != len(want) {
+			return false
+		}
+
+		for _, txIn := range tx.TxIn {
+			if _, ok := want[txIn.PreviousOutPoint]; !ok {
+				return false
+			}
+		}
+
+		return true
+	}
+}
+
+type requiredOutputTestInput struct {
+	input.Input
+	requiredOutput *wire.TxOut
+}
+
+func (i *requiredOutputTestInput) RequiredTxOut() *wire.TxOut {
+	return i.requiredOutput
+}
+
 // TestCreateAndCheckTx checks `createAndCheckTx` behaves as expected.
 func TestCreateAndCheckTx(t *testing.T) {
 	t.Parallel()
@@ -854,6 +886,134 @@ func TestShouldDiagnoseBadInputs(t *testing.T) {
 			require.Equal(t, testCase.diagnose, diagnose)
 		})
 	}
+}
+
+// TestProbeInputSetScriptFailure checks that probe script failures stay
+// concrete so findBadInput owns bad-input attribution.
+func TestProbeInputSetScriptFailure(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(2)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	inputs := req.Inputs
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000))
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(&input.Script{}, nil).Times(2)
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs...)),
+	).Return(chain.ErrScriptVerifyFlag).Once()
+
+	err := tp.probeInputSet(record, inputs)
+
+	require.ErrorIs(t, err, chain.ErrScriptVerifyFlag)
+	require.NotErrorIs(t, err, errMempoolRejected)
+	m.wallet.AssertNotCalled(t, "PublishTransaction", mock.Anything,
+		mock.Anything)
+}
+
+// TestProbeInputSetPolicyError checks that non-script mempool failures remain
+// concrete errors and are not treated as bad-input probe failures.
+func TestProbeInputSetPolicyError(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(2)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	inputs := req.Inputs
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000))
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(&input.Script{}, nil).Times(2)
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(inputs...)),
+	).Return(chain.ErrInsufficientFee).Once()
+
+	err := tp.probeInputSet(record, inputs)
+
+	require.ErrorIs(t, err, chain.ErrInsufficientFee)
+	require.NotErrorIs(t, err, errMempoolRejected)
+	m.wallet.AssertNotCalled(t, "PublishTransaction", mock.Anything,
+		mock.Anything)
+}
+
+// TestProbeInputSetConstructionError checks that failures before mempool
+// acceptance remain distinguishable from policy rejections.
+func TestProbeInputSetConstructionError(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisherNoAux(t)
+	req := createBadInputTestRequest(1)
+	record := &monitorRecord{
+		requestID:   1,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000))
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(nil, errDummy).Once()
+
+	err := tp.probeInputSet(record, req.Inputs)
+
+	require.ErrorIs(t, err, errProbeTxConstruction)
+	require.ErrorIs(t, err, errDummy)
+	m.wallet.AssertNotCalled(t, "CheckMempoolAcceptance", mock.Anything)
+}
+
+// TestProbeInputSetFundsRequiredOutput checks that a required-output singleton
+// is paired only with an independently accepted normal funding input.
+func TestProbeInputSetFundsRequiredOutput(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisherNoAux(t)
+	requiredBase := createTestInput(10_000, input.WitnessKeyHash)
+	required := &requiredOutputTestInput{
+		Input: &requiredBase,
+		requiredOutput: &wire.TxOut{
+			Value: 10_000,
+		},
+	}
+	companionBase := createTestInput(10_000, input.WitnessKeyHash)
+	companion := input.Input(&companionBase)
+	record := &monitorRecord{
+		requestID: 1,
+		req: &BumpRequest{
+			DeliveryAddress: changePkScript,
+			Inputs:          []input.Input{required, companion},
+		},
+		feeFunction: m.feeFunc,
+	}
+
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000)).Once()
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(&input.Script{}, nil).Times(3)
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(companion)),
+	).Return(nil).Once()
+	m.wallet.On(
+		"CheckMempoolAcceptance",
+		mock.MatchedBy(txSpendsInputs(required, companion)),
+	).Return(chain.ErrMissingInputs).Once()
+
+	err := tp.probeInputSet(record, []input.Input{required})
+
+	require.ErrorIs(t, err, ErrInputMissing)
+	m.wallet.AssertNumberOfCalls(t, "CheckMempoolAcceptance", 2)
+	m.wallet.AssertNotCalled(t, "PublishTransaction", mock.Anything,
+		mock.Anything)
 }
 
 // TestTxPublisherBroadcast checks the internal `broadcast` method behaves as

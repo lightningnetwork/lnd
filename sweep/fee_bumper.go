@@ -52,6 +52,10 @@ var (
 	// checks. It is used internally to avoid probing unrelated construction
 	// or signing errors.
 	errMempoolRejected = errors.New("mempool rejected tx")
+
+	// errProbeTxConstruction marks errors encountered before a probe tx can
+	// be submitted for mempool acceptance.
+	errProbeTxConstruction = errors.New("unable to construct probe tx")
 )
 
 var (
@@ -725,6 +729,88 @@ func (t *TxPublisher) shouldDiagnoseBadInputs(r *monitorRecord,
 	}
 
 	return true
+}
+
+// checkProbeTx tests a probe transaction without publishing, storing, or
+// monitoring it.
+func (t *TxPublisher) checkProbeTx(sweepCtx *sweepTxCtx) error {
+	err := t.cfg.Wallet.CheckMempoolAcceptance(sweepCtx.tx)
+	if err == nil {
+		return nil
+	}
+
+	// Missing-input failures use a dedicated sentinel so callers can run
+	// spend attribution instead of treating them as script failures.
+	if errors.Is(err, chain.ErrMissingInputs) ||
+		errors.Is(err, chain.ErrMempoolConflict) {
+
+		log.Debugf("Probe tx %v missing inputs", sweepCtx.tx.TxHash())
+
+		return ErrInputMissing
+	}
+
+	log.Infof("Probe tx=%v with %v inputs failed mempool check: %v",
+		sweepCtx.tx.TxHash(), len(sweepCtx.tx.TxIn), err)
+
+	return err
+}
+
+// probeInputSet builds and mempool-tests a sweep transaction for the given
+// inputs without publishing, storing, or monitoring it. Inputs that commit to
+// a required output may need an accepted normal input to pay the probe fee.
+func (t *TxPublisher) probeInputSet(r *monitorRecord,
+	inputs []input.Input) error {
+
+	feeRate := r.feeFunction.FeeRate()
+	createProbe := func(probeInputs []input.Input) (*sweepTxCtx, error) {
+		return t.createSweepTx(
+			probeInputs, r.req.DeliveryAddress, feeRate,
+		)
+	}
+
+	sweepCtx, err := createProbe(inputs)
+	if err == nil {
+		return t.checkProbeTx(sweepCtx)
+	}
+
+	needsFunding := fn.Any(inputs, func(inp input.Input) bool {
+		return inp.RequiredTxOut() != nil
+	})
+	if !needsFunding {
+		return fmt.Errorf("%w: %w", errProbeTxConstruction, err)
+	}
+
+	selected := fn.NewSet[wire.OutPoint]()
+	for _, inp := range inputs {
+		selected.Add(inp.OutPoint())
+	}
+
+	probeInputs := append([]input.Input(nil), inputs...)
+	for _, companion := range r.req.Inputs {
+		if companion.RequiredTxOut() != nil ||
+			selected.Contains(companion.OutPoint()) {
+
+			continue
+		}
+
+		// Establish that the companion is independently accepted before
+		// using it to fund a probe. Otherwise its own failure could be
+		// misattributed to the required-output input.
+		companionCtx, companionErr := createProbe(
+			[]input.Input{companion},
+		)
+		if companionErr != nil || t.checkProbeTx(companionCtx) != nil {
+			continue
+		}
+
+		probeInputs = append(probeInputs, companion)
+		sweepCtx, err = createProbe(probeInputs)
+		if err == nil {
+			return t.checkProbeTx(sweepCtx)
+		}
+	}
+
+	return fmt.Errorf("%w: %w", errProbeTxConstruction, err)
 }
 
 // handleMissingInputs handles the case when the chain backend reports back a

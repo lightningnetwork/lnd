@@ -330,3 +330,22 @@ separates those two stories, which is what the spec asked for.
    to buy a bigger fee weight. It is still a better measurement of what
    was spent. The pre-registered arm should therefore be read as a
    measurement question, not as a licence to raise `FEE_WEIGHT`.
+
+## Lead decisions at merge (2026-07-28)
+
+1. The always-emitted accounting keys stay. The 41% fee undercount is
+   a measurement bug, and a measurement bug does not get a flag; the
+   halves-proof (results byte-identical, aggregate identical with the
+   two new keys projected out) is the byte-identity standard for a
+   reporting-only addition from here on.
+2. The objective does NOT migrate. Finding 1 killed the migration's
+   rationale: neither fee metric is abandonment-proof, so the 1/N rule
+   governs both and fee_ppm_on_success keeps its place, with
+   fee_ppm_attempted reported alongside for the offline re-score arm.
+3. Sweep rungs adopt the data-driven ladder: synthetic {5000, 4000,
+   2000} with 4000 as the informative rung and 2000 as stress;
+   mainnet {400, 100, 25}.
+4. No hand-written budget-aware champion variants yet. The stage C
+   sweep measures the champions' fee blindness as-is, which IS the
+   pre-registered H-C1 test; variants come later if the evolution arm
+   fails to produce budget awareness on its own.

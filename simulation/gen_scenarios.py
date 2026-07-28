@@ -23,6 +23,12 @@ from a fixed seed is byte-identical to the one generated before they existed.
 learns from, which is the one part of the simulator that has always been
 kinder than mainnet. It stamps a section onto every emitted file and makes no
 rng draw, so it too leaves the default corpus byte-identical.
+
+--htlc-limits is the exp-023 stage A knob: it redraws the announced min and
+max htlc of every directed policy from the mainnet marginals, which the
+generated tiers have carried as constants for the whole program, and switches
+the simulator onto uniform first-hop enforcement. Like --attribution it stamps
+a section and makes no rng draw.
 """
 
 import argparse
@@ -202,6 +208,83 @@ def parse_attribution(spec: str) -> dict:
         raise ValueError("empty --attribution spec")
 
     return section
+
+
+# --- announced htlc limits (exp-023 stage A) --------------------------------
+
+# The families routing/sim_htlc_limits.go knows how to draw from.
+# mainnet_empirical samples the marginals measured over the 62,798 directed
+# policies of the mainnet snapshot; tight is the authored stress rung and is
+# labelled as authored wherever it is reported.
+HTLC_LIMIT_FAMILIES = ("mainnet_empirical", "tight")
+
+# The knobs of the htlc_limits section, keyed by their short spec name.
+HTLC_LIMIT_KEYS = {
+    "max": ("max_htlc_frac_family", str),
+    "min": ("min_htlc_family", str),
+    "seed": ("seed", int),
+}
+
+
+def parse_htlc_limits(spec: str) -> dict:
+    """Parse an --htlc-limits spec into a scenario section.
+
+    A bare family name is the common case and sets both limits:
+    'mainnet_empirical' is the same as 'max=mainnet_empirical,
+    min=mainnet_empirical'. The long form exists so that a paired tier can
+    move one limit at a time, which the simulator supports by burning the same
+    draws per policy either way.
+
+    Omitting the flag emits no section, which is the flat 1000 msat floor and
+    absent ceiling every corpus before stage A was generated against.
+    """
+    spec = spec.strip()
+    if not spec:
+        raise ValueError("empty --htlc-limits spec")
+
+    if "=" not in spec:
+        if spec not in HTLC_LIMIT_FAMILIES:
+            raise ValueError(
+                f"unknown htlc limit family: {spec!r} "
+                f"(want {'|'.join(HTLC_LIMIT_FAMILIES)})"
+            )
+
+        return {"max_htlc_frac_family": spec, "min_htlc_family": spec}
+
+    section = {}
+    for item in spec.split(","):
+        item = item.strip()
+        if not item:
+            continue
+
+        name, sep, value = item.partition("=")
+        name = name.strip()
+        if not sep or name not in HTLC_LIMIT_KEYS:
+            raise ValueError(
+                f"unknown htlc limit knob: {item!r} "
+                f"(want {'|'.join(HTLC_LIMIT_KEYS)}=value)"
+            )
+
+        key, cast = HTLC_LIMIT_KEYS[name]
+        if cast is str and value not in HTLC_LIMIT_FAMILIES:
+            raise ValueError(
+                f"unknown htlc limit family: {value!r} "
+                f"(want {'|'.join(HTLC_LIMIT_FAMILIES)})"
+            )
+
+        section[key] = cast(value)
+
+    if not section:
+        raise ValueError("empty --htlc-limits spec")
+
+    if not section.get("max_htlc_frac_family") and \
+            not section.get("min_htlc_family"):
+        raise ValueError(
+            "--htlc-limits names no family, so it would draw nothing"
+        )
+
+    return section
+
 
 # --- splitting pressure (exp-010) -------------------------------------------
 #
@@ -468,12 +551,32 @@ def main() -> None:
                         "Absent emits no section, which is the instant, "
                         "truthful, exactly attributed channel every "
                         "earlier corpus used")
+    parser.add_argument("--htlc-limits", default=None,
+                        help="redraw the announced min and max htlc of every "
+                        "directed policy (exp-023 stage A). A bare family "
+                        "name sets both, e.g. 'mainnet_empirical' (the "
+                        "measured mainnet marginals) or 'tight' (the "
+                        "authored stress rung, max htlc uniform on 10-40%% of "
+                        "capacity); 'max=tight,min=mainnet_empirical[,seed=N]' "
+                        "moves them one at a time. The section also switches "
+                        "the simulator onto uniform first-hop enforcement, so "
+                        "the sender's own announced limits bind like every "
+                        "other hop's. Absent emits no section, which is the "
+                        "flat 1000 msat floor and absent ceiling every "
+                        "generated tier has carried")
     args = parser.parse_args()
 
     attribution = None
     if args.attribution is not None:
         try:
             attribution = parse_attribution(args.attribution)
+        except ValueError as err:
+            parser.error(str(err))
+
+    htlc_limits = None
+    if args.htlc_limits is not None:
+        try:
+            htlc_limits = parse_htlc_limits(args.htlc_limits)
         except ValueError as err:
             parser.error(str(err))
 
@@ -508,10 +611,13 @@ def main() -> None:
             if args.atomic:
                 for scenario in example["scenarios"]:
                     scenario["atomic_mpp"] = True
-            # The degradation section is stamped last and makes no draw of
-            # its own, so a corpus generated without the flag is unchanged.
+            # The degradation and htlc limit sections are stamped last and
+            # make no draw of their own, so a corpus generated without the
+            # flags is unchanged.
             if attribution is not None:
                 example["attribution"] = dict(attribution)
+            if htlc_limits is not None:
+                example["htlc_limits"] = dict(htlc_limits)
             path = split_dir / f"example_{i:03d}.json"
             path.write_text(json.dumps(example, indent=2))
         print(f"{split}: {count} examples in {split_dir}")

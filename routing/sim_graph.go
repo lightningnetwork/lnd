@@ -196,6 +196,18 @@ type SimGraph struct {
 	// htlc_limits section turned it on, which keeps every scenario file
 	// written before stage A forwarding exactly as it always did.
 	enforceSourceLimits bool
+
+	// inboundFees switches the whole inbound fee mechanism on: forwarding
+	// nodes charge what they announced for htlcs arriving over a channel,
+	// and the gossip view shows every node's inbound fee. It is off unless
+	// an inbound_fees section turned it on.
+	//
+	// The flag is deliberately separate from the loader's parse. A
+	// describegraph snapshot always carries its real inbound fees now, so
+	// without this gate the mainnet tier would start pricing them the day
+	// the loader learned to read them, and every published mainnet number
+	// would move without a scenario file asking for it.
+	inboundFees bool
 }
 
 // SimPolicyStats counts the forwarding refusals that announced htlc limits
@@ -217,6 +229,29 @@ type SimPolicyStats struct {
 	// own first hop, which can only occur while the source's announced
 	// policy is being enforced.
 	SourceRefusals int `json:"htlc_source_refusals,omitempty"`
+
+	// InboundFeeCharged is how many forwarding hops priced a NON-ZERO
+	// inbound fee, whether or not the htlc then cleared. This is the
+	// running half of stage B's manipulation check and the one counter
+	// here that is not an alarm: it says the mechanism reached the wire.
+	// It cannot say the mechanism changed anything, because a discount
+	// never moves money on its own. A discount changes what a sender is
+	// willing to pay, so its effect is visible in fee_ppm_on_success and
+	// in nothing counted here.
+	InboundFeeCharged int `json:"inbound_fee_charged,omitempty"`
+
+	// InboundFeeRefusals is how many htlcs were refused for insufficient
+	// fee where the inbound fee is the reason: the same htlc would have
+	// cleared had the receiving node announced no inbound fee.
+	//
+	// Read this the way stage A's refusal counters are read. lnd's path
+	// finding prices inbound fees before it sends (pathfind.go's
+	// processEdge adds the inbound fee to the amount every candidate hop
+	// must send), so an lnd arm on an honest tier reports zero here and a
+	// non-zero reading means some sender ignored a fee its own gossip view
+	// showed it. What it is NOT is a measure of how much the inbound fees
+	// of a tier matter; only the static census can say that.
+	InboundFeeRefusals int `json:"inbound_fee_refusals,omitempty"`
 }
 
 // PolicyStats reports the htlc limit refusals the network has handed out.
@@ -298,6 +333,57 @@ func (g *SimGraph) countLimitRefusal(violation simLimitViolation,
 	if atSource {
 		g.policyStats.SourceRefusals++
 	}
+}
+
+// inboundPolicy returns the policy that supplies the inbound fee of the node
+// forwarding at hop i of the given route, or nil if no inbound fee applies.
+//
+// The node forwarding at hop i is the one the previous hop delivered to, and
+// the channel it received over is the previous hop's. Its inbound fee lives on
+// its own end of that channel, since a node announces the fee it charges for
+// arriving flow in the update for its own outgoing direction. Hop zero is the
+// sender, which charges itself nothing.
+func (g *SimGraph) inboundPolicy(rt *route.Route, i int,
+	node route.Vertex) *SimPolicy {
+
+	if !g.inboundFees || i == 0 {
+		return nil
+	}
+
+	channel, ok := g.channels[rt.Hops[i-1].ChannelID]
+	if !ok {
+		return nil
+	}
+
+	end := channel.end(node)
+	if end == nil {
+		return nil
+	}
+
+	return &end.policy
+}
+
+// countInboundRefusal records an htlc that an inbound fee turned away: a fee
+// insufficiency the same htlc would not have hit had the forwarding node
+// announced no inbound fee. Any other failure, and any fee insufficiency the
+// outbound fee alone explains, belongs to somebody else and is not counted.
+func (g *SimGraph) countInboundRefusal(policy, inPolicy *SimPolicy,
+	failure lnwire.FailureMessage, amtIn, amtOut lnwire.MilliSatoshi) {
+
+	if inPolicy == nil || !inPolicy.hasInboundFee() {
+		return
+	}
+
+	if failure.Code() != lnwire.CodeFeeInsufficient {
+		return
+	}
+
+	outFee, _ := nodeFee(policy, nil, amtOut)
+	if amtIn < amtOut+outFee {
+		return
+	}
+
+	g.policyStats.InboundFeeRefusals++
 }
 
 // NewSimGraph instantiates an empty simulated network.
@@ -682,15 +768,31 @@ func (g *SimGraph) walkHtlc(rt *route.Route,
 		}
 		policy := &sendingEnd.policy
 
+		// The forwarding node's inbound fee is announced on its OWN end
+		// of the channel the htlc arrived over, which is the channel of
+		// the previous hop. The sender pays no inbound fee to itself,
+		// and the exit hop is never a forwarding node here, so this
+		// resolves to nil at exactly the two hops lnd's path finding
+		// exempts (pathfind.go passes !isExitHop to the edge unifier,
+		// and the source is never a pivot).
+		inPolicy := g.inboundPolicy(rt, i, prevNode)
+		if inPolicy != nil && inPolicy.hasInboundFee() {
+			g.policyStats.InboundFeeCharged++
+		}
+
 		// Intermediate nodes enforce their whole announced policy
 		// before forwarding.
 		if i > 0 {
 			failure := checkPolicy(
-				policy, amtIn, amtOut, expiryIn, expiryOut,
+				policy, inPolicy, amtIn, amtOut, expiryIn,
+				expiryOut,
 			)
 			if failure != nil {
 				g.countLimitRefusal(
 					checkHtlcLimits(policy, amtOut), false,
+				)
+				g.countInboundRefusal(
+					policy, inPolicy, failure, amtIn, amtOut,
 				)
 				revert()
 				return SimHtlcResult{
@@ -762,11 +864,55 @@ func (g *SimGraph) walkHtlc(rt *route.Route,
 	return SimHtlcResult{}, moves, nil
 }
 
+// nodeFee returns the total fee a forwarding node requires for sending amtOut
+// over the policy it announced on its outgoing channel, given the policy it
+// announced on the channel the htlc ARRIVED over. A nil inPolicy is a node
+// that charges nothing for inbound flow, which is every node while the inbound
+// fee mechanism is off and most nodes while it is on.
+//
+// The two components are computed separately and only then added, which is
+// what htlcswitch/link.go's CheckHtlcForward does and for the reason it
+// documents: rounding an aggregate rate produces a number slightly above the
+// sum of the separately rounded parts, and a sender that computed it the other
+// way would have its forwards refused.
+//
+// The total is floored at zero. lnd's link expresses the same floor as a pair
+// of conditions rather than a clamp, refusing an htlc whose incoming amount is
+// below its outgoing one and separately refusing one that underpays the signed
+// expected fee; the two forms accept exactly the same htlcs. A node that would
+// end up paying to forward simply forwards for free instead.
+//
+// The signed inbound component is returned alongside the total, because the
+// counters want to know whether an inbound fee was priced at all and the total
+// cannot say: a discount that the floor swallowed and an absent fee produce
+// the same number.
+func nodeFee(policy, inPolicy *SimPolicy,
+	amtOut lnwire.MilliSatoshi) (lnwire.MilliSatoshi, int64) {
+
+	outFee := policy.fee(amtOut)
+
+	var inFee int64
+	if inPolicy != nil {
+		inFee = inPolicy.inboundFee(amtOut + outFee)
+	}
+
+	total := int64(outFee) + inFee
+	if total < 0 {
+		total = 0
+	}
+
+	return lnwire.MilliSatoshi(total), inFee
+}
+
 // checkPolicy applies the forwarding policy checks of a node to an htlc that
 // arrives with (amtIn, expiryIn) and is to be forwarded with (amtOut,
-// expiryOut). It returns a failure message if any check fails.
-func checkPolicy(policy *SimPolicy, amtIn, amtOut lnwire.MilliSatoshi,
-	expiryIn, expiryOut uint32) lnwire.FailureMessage {
+// expiryOut). policy is what the node announced for the channel it forwards
+// out over; inPolicy is what it announced for the channel the htlc arrived
+// over, and supplies the node's inbound fee. It returns a failure message if
+// any check fails.
+func checkPolicy(policy, inPolicy *SimPolicy, amtIn,
+	amtOut lnwire.MilliSatoshi, expiryIn,
+	expiryOut uint32) lnwire.FailureMessage {
 
 	var emptyUpdate lnwire.ChannelUpdate1
 
@@ -781,7 +927,8 @@ func checkPolicy(policy *SimPolicy, amtIn, amtOut lnwire.MilliSatoshi,
 		return failure
 	}
 
-	if amtIn < amtOut+policy.fee(amtOut) {
+	fee, _ := nodeFee(policy, inPolicy, amtOut)
+	if amtIn < amtOut+fee {
 		return lnwire.NewFeeInsufficient(amtIn, emptyUpdate)
 	}
 

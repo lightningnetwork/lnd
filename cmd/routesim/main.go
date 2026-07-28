@@ -341,11 +341,12 @@ type aggregate struct {
 	// arm under test asked for it. It reads false for every router shipped
 	// with this stage, the lnd stack included, which is the finding rather
 	// than a gap.
-	MaxConcurrent               *int     `json:"max_concurrent,omitempty"`
-	MeanConcurrent              *float64 `json:"mean_concurrent,omitempty"`
-	SelfContentionFailures      *int     `json:"self_contention_failures,omitempty"`
-	MakespanSec                 *float64 `json:"makespan_sec,omitempty"`
-	RouterAcceptsBalanceRefresh *bool    `json:"router_accepts_balance_refresh,omitempty"`
+	MaxConcurrent  *int     `json:"max_concurrent,omitempty"`
+	MeanConcurrent *float64 `json:"mean_concurrent,omitempty"`
+	SelfContention *int     `json:"self_contention_failures,omitempty"`
+	MakespanSec    *float64 `json:"makespan_sec,omitempty"`
+
+	AcceptsRefresh *bool `json:"router_accepts_balance_refresh,omitempty"`
 
 	// WarmupScenarios and WarmupAttempts report what the unscored warmup
 	// phase cost. They are kept out of every metric above so that a warmed
@@ -759,10 +760,9 @@ func runBatch(runner *routing.SimRunner, scenFile *scenarioFile,
 		concurrency := runner.ConcurrencyStats()
 		agg.MaxConcurrent = &concurrency.MaxConcurrent
 		agg.MeanConcurrent = &concurrency.MeanConcurrent
-		agg.SelfContentionFailures = &concurrency.SelfContentionFailures
+		agg.SelfContention = &concurrency.SelfContentionFailures
 		agg.MakespanSec = &concurrency.MakespanSec
-		agg.RouterAcceptsBalanceRefresh =
-			&concurrency.RouterAcceptsBalanceRefresh
+		agg.AcceptsRefresh = &concurrency.RouterAcceptsBalanceRefresh
 	}
 
 	attribution := runner.AttributionStats()

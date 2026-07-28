@@ -1,6 +1,7 @@
 package bolt12
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/tlv"
@@ -46,4 +47,28 @@ func TestOfferRoundTrip(t *testing.T) {
 	reencoded, err := decoded.Encode()
 	require.NoError(t, err)
 	require.Equal(t, encoded, reencoded)
+}
+
+// TestDecodeOversizedRecord pins the per-record cap by feeding the decoder a
+// TLV declaring a length one byte over tlv.MaxRecordSize.
+func TestDecodeOversizedRecord(t *testing.T) {
+	t.Parallel()
+
+	// Build a synthetic TLV with type=22 (offer_issuer_id, known by the
+	// offer decoder) and declared length one byte over the cap. The value
+	// bytes are present so the framing itself is consistent.
+	const oversize = tlv.MaxRecordSize + 1
+	var (
+		buf [8]byte
+		w   bytes.Buffer
+	)
+	require.NoError(t, tlv.WriteVarInt(&w, 22, &buf))
+	require.NoError(t, tlv.WriteVarInt(&w, oversize, &buf))
+	w.Write(make([]byte, oversize))
+
+	_, err := decodeOffer(w.Bytes())
+	require.ErrorIs(
+		t, err, tlv.ErrRecordTooLarge,
+		"expected an oversize-record rejection, got %v", err,
+	)
 }

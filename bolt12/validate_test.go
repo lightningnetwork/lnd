@@ -600,6 +600,19 @@ func TestValidateOfferRead(t *testing.T) {
 			wantErr:     nil,
 		},
 		{
+			name: "unexpired offer (future expiry)",
+			mutate: func(o *Offer) {
+				expiry := uint64(now.Unix()) + 3600
+				o.OfferAbsoluteExpiry = tlv.SomeRecordT(
+					tlv.NewRecordT[tlv.TlvType14](
+						TUint64(expiry),
+					),
+				)
+			},
+			activeChain: bitcoinMainnetGenesisHash,
+			wantErr:     nil,
+		},
+		{
 			name: "symmetric explicit bitcoin chain list " +
 				"(inverted-default invariant)",
 			mutate: func(o *Offer) {

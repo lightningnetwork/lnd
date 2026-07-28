@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -33,10 +34,12 @@ type htlcResolverTestContext struct {
 		_ ...*channeldb.ResolverReport) error
 
 	notifier           *mock.ChainNotifier
+	htlcNotifier       *mockHTLCNotifier
 	resolverResultChan chan resolveResult
 	resolutionChan     chan ResolutionMsg
 
 	finalHtlcOutcomeStored bool
+	finalHtlcSettled       bool
 
 	t *testing.T
 }
@@ -59,15 +62,15 @@ func newHtlcResolverTestContext(t *testing.T,
 		SpendChan: make(chan *chainntnfs.SpendDetail, 1),
 		ConfChan:  make(chan *chainntnfs.TxConfirmation, 1),
 	}
+	htlcNotifier := &mockHTLCNotifier{}
 
 	testCtx := &htlcResolverTestContext{
 		checkpoint:     nil,
 		notifier:       notifier,
+		htlcNotifier:   htlcNotifier,
 		resolutionChan: make(chan ResolutionMsg, 1),
 		t:              t,
 	}
-
-	htlcNotifier := &mockHTLCNotifier{}
 
 	witnessBeacon := newMockWitnessBeacon()
 	chainCfg := ChannelArbitratorConfig{
@@ -100,6 +103,7 @@ func newHtlcResolverTestContext(t *testing.T,
 				htlcId uint64, settled bool) error {
 
 				testCtx.finalHtlcOutcomeStored = true
+				testCtx.finalHtlcSettled = settled
 
 				return nil
 			},
@@ -504,6 +508,156 @@ func TestHtlcSuccessMatchSecondLevelOutput(t *testing.T) {
 		matches, err := resolver.matchSecondLevelOutput(spend)
 		require.ErrorContains(t, err, want)
 		require.False(t, matches)
+	}
+}
+
+func TestHtlcSuccessForeignSpendCheckpointError(t *testing.T) {
+	t.Parallel()
+
+	commitOutpoint := wire.OutPoint{Index: 4}
+	resolution := newSuccessTestResolution(commitOutpoint)
+	ctx := newHtlcResolverTestContext(t, func(htlc channeldb.HTLC,
+		cfg ResolverConfig) ContractResolver {
+
+		return newSuccessResolver(resolution, 0, htlc, 0, cfg)
+	})
+	resolver := requireSuccessResolver(t, ctx.resolver)
+	resolver.outputIncubating = true
+	resolver.currentReport.RecoveredBalance = 1
+	previousReport := resolver.currentReport
+
+	errCheckpoint := errors.New("checkpoint failed")
+	checkpointCalls := 0
+	ctx.checkpoint = func(_ ContractResolver,
+		reports ...*channeldb.ResolverReport) error {
+
+		checkpointCalls++
+		require.True(t, resolver.IsResolved())
+		require.False(t, resolver.outputIncubating)
+		require.Zero(t, resolver.currentReport.LimboBalance)
+		require.Zero(t, resolver.currentReport.RecoveredBalance)
+		require.Len(t, reports, 1)
+		require.Equal(t, channeldb.ResolverOutcomeTimeout,
+			reports[0].ResolverOutcome)
+		if checkpointCalls == 1 {
+			return errCheckpoint
+		}
+
+		return nil
+	}
+
+	foreignTx := &wire.MsgTx{
+		TxIn:  []*wire.TxIn{{PreviousOutPoint: commitOutpoint}},
+		TxOut: []*wire.TxOut{{PkScript: []byte{0x51}}},
+	}
+	spend := newSpendDetail(commitOutpoint, foreignTx, 0)
+
+	err := resolver.checkpointForeignSpend(spend)
+	require.ErrorIs(t, err, errCheckpoint)
+	require.False(t, resolver.IsResolved())
+	require.True(t, resolver.outputIncubating)
+	require.Equal(t, previousReport, resolver.currentReport)
+	require.Empty(t, ctx.htlcNotifier.finalHtlcEvents)
+
+	require.NoError(t, resolver.checkpointForeignSpend(spend))
+	require.Equal(t, 2, checkpointCalls)
+	require.True(t, resolver.IsResolved())
+	require.False(t, resolver.outputIncubating)
+	require.Zero(t, resolver.currentReport.LimboBalance)
+	require.Zero(t, resolver.currentReport.RecoveredBalance)
+	require.Equal(t, []channeldb.FinalHtlcInfo{{
+		Settled: false,
+	}}, ctx.htlcNotifier.finalHtlcEvents)
+}
+
+func TestHtlcSuccessForeignSpend(t *testing.T) {
+	commitOutpoint := wire.OutPoint{Index: 2}
+	resolution := newSuccessTestResolution(commitOutpoint)
+	foreignTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{{PreviousOutPoint: commitOutpoint}},
+		TxOut: []*wire.TxOut{{
+			Value:    testSignDesc.Output.Value,
+			PkScript: []byte{0x51},
+		}},
+	}
+	foreignSpend := newSpendDetail(commitOutpoint, foreignTx, 0)
+	resolverType := channeldb.ResolverTypeIncomingHtlc
+	resolverOutcome := channeldb.ResolverOutcomeTimeout
+	for _, restart := range []bool{false, true} {
+		t.Run(fmt.Sprintf("restart=%v", restart), func(t *testing.T) {
+			defer timeout()()
+			ctx := newHtlcResolverTestContext(
+				t, func(htlc channeldb.HTLC,
+					cfg ResolverConfig) ContractResolver {
+
+					resolver := newSuccessResolver(
+						resolution, 0, htlc, 0, cfg,
+					)
+					if !restart {
+						return resolver
+					}
+
+					resolver.outputIncubating = true
+					var state bytes.Buffer
+					err := resolver.Encode(&state)
+					require.NoError(t, err)
+					decode := newSuccessResolverFromReader
+					restored, err := decode(&state, cfg)
+					require.NoError(t, err)
+					restored.Supplement(htlc)
+
+					return restored
+				},
+			)
+
+			var reports []*channeldb.ResolverReport
+			ctx.checkpoint = func(_ ContractResolver,
+				r ...*channeldb.ResolverReport) error {
+
+				reports = r
+				return nil
+			}
+
+			ctx.resolve()
+			resolver := requireSuccessResolver(t, ctx.resolver)
+			if !restart {
+				requireSweptOutpoint(
+					t, resolver, commitOutpoint,
+				)
+			}
+			go func() {
+				ctx.notifier.SpendChan <- foreignSpend
+				if restart {
+					ctx.notifier.SpendChan <- foreignSpend
+				}
+			}()
+			ctx.waitForResult()
+
+			require.True(t, resolver.IsResolved())
+			require.False(t, resolver.outputIncubating)
+			require.Zero(t, resolver.currentReport.LimboBalance)
+			require.Zero(t, resolver.currentReport.RecoveredBalance)
+			require.True(t, ctx.finalHtlcOutcomeStored)
+			require.False(t, ctx.finalHtlcSettled)
+			require.Equal(t, []*channeldb.ResolverReport{{
+				OutPoint:        commitOutpoint,
+				Amount:          testHtlcAmt.ToSatoshis(),
+				ResolverType:    resolverType,
+				ResolverOutcome: resolverOutcome,
+				SpendTxID:       foreignSpend.SpenderTxHash,
+			}}, reports)
+			require.Equal(t, []channeldb.FinalHtlcInfo{{
+				Settled: false,
+			}}, ctx.htlcNotifier.finalHtlcEvents)
+
+			sweeper := requireMockSweeper(t, resolver)
+			select {
+			case sweptInput := <-sweeper.sweptInputs:
+				t.Fatalf("unexpected phantom sweep: %v",
+					sweptInput.OutPoint())
+			default:
+			}
+		})
 	}
 }
 

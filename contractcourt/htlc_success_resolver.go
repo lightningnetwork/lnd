@@ -238,6 +238,69 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash,
 	return h.Checkpoint(h, reports...)
 }
 
+// checkpointForeignSpend checkpoints the resolver as failed when its HTLC
+// outpoint was spent outside the expected success path.
+func (h *htlcSuccessResolver) checkpointForeignSpend(
+	commitSpend *chainntnfs.SpendDetail) error {
+
+	spendTxID := commitSpend.SpenderTxHash
+	h.log.Warnf("HTLC outpoint %v was spent by tx %v outside the "+
+		"expected success path", h.outpoint(), spendTxID)
+
+	err := h.ChainArbitratorConfig.PutFinalHtlcOutcome(
+		h.ChannelArbitratorConfig.ShortChanID, h.htlc.HtlcIndex, false,
+	)
+	if err != nil {
+		return err
+	}
+
+	// The final outcome is a separate durable write. If the resolver
+	// checkpoint below fails, only the live resolver state can be restored;
+	// retrying records the same failed outcome again.
+	report := &channeldb.ResolverReport{
+		OutPoint:        h.outpoint(),
+		Amount:          h.htlc.Amt.ToSatoshis(),
+		ResolverType:    channeldb.ResolverTypeIncomingHtlc,
+		ResolverOutcome: channeldb.ResolverOutcomeTimeout,
+		SpendTxID:       spendTxID,
+	}
+
+	h.reportLock.Lock()
+	previousReport := h.currentReport
+	h.currentReport.RecoveredBalance = 0
+	h.currentReport.LimboBalance = 0
+	h.reportLock.Unlock()
+
+	// A foreign spend leaves no second-level success output to sweep.
+	previousIncubating := h.outputIncubating
+	h.outputIncubating = false
+	h.markResolved()
+
+	if err := h.Checkpoint(h, report); err != nil {
+		h.outputIncubating = previousIncubating
+		h.resolved.Store(false)
+
+		h.reportLock.Lock()
+		h.currentReport = previousReport
+		h.reportLock.Unlock()
+
+		return err
+	}
+
+	h.ChainArbitratorConfig.HtlcNotifier.NotifyFinalHtlcEvent(
+		models.CircuitKey{
+			ChanID: h.ShortChanID,
+			HtlcID: h.htlc.HtlcIndex,
+		},
+		channeldb.FinalHtlcInfo{
+			Settled:  false,
+			Offchain: false,
+		},
+	)
+
+	return nil
+}
+
 // Stop signals the resolver to cancel any current resolution processes, and
 // suspend.
 //
@@ -815,6 +878,13 @@ func (h *htlcSuccessResolver) resolveSuccessTx() error {
 	)
 	if err != nil {
 		return err
+	}
+	matches, err := h.matchSecondLevelOutput(commitSpend)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		return h.checkpointForeignSpend(commitSpend)
 	}
 
 	secondLevelOutpoint := wire.OutPoint{

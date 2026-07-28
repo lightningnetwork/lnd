@@ -178,6 +178,17 @@ type lndStackRouter struct {
 	session *paymentSession
 	mc      *MissionControl
 
+	// feeLimit is the payment's whole fee budget, lnwire.MaxMilliSatoshi
+	// when the scenario named none.
+	feeLimit lnwire.MilliSatoshi
+
+	// feesPaid is what the shards that already went through have cost,
+	// which is subtracted from the budget before the next route is
+	// requested. It stands in for the MPPaymentState.FeesPaid that lnd's
+	// own lifecycle reads out of the payment database, and it is
+	// accumulated from the same place: the attempts that did not fail.
+	feesPaid lnwire.MilliSatoshi
+
 	// terminalFailure latches a payment-level failure reported by
 	// mission control (e.g. a failure at the final node), surfaced on
 	// the next RequestRoute call.
@@ -210,13 +221,20 @@ func newLndStackRouter(view SimNetworkView, mc *MissionControl,
 	}
 
 	return &lndStackRouter{
-		session: session,
-		mc:      mc,
+		session:  session,
+		mc:       mc,
+		feeLimit: spec.FeeLimitMsat,
 	}, nil
 }
 
 // RequestRoute delegates to the payment session, which runs the production
 // path finding (Dijkstra + probability estimator + MPP splitting).
+//
+// The fee limit passed down is what the budget has left after the shards that
+// already went through, which is what lnd's own paymentLifecycle passes
+// (calcFeeBudget over the payment's FeesPaid). Path finding prunes any partial
+// path whose accumulated fee exceeds it, so the route that comes back is one
+// the payment can afford and the runner's backstop has nothing to refuse.
 //
 // NOTE: Part of the SimRouter interface.
 func (l *lndStackRouter) RequestRoute(amt lnwire.MilliSatoshi,
@@ -227,7 +245,8 @@ func (l *lndStackRouter) RequestRoute(amt lnwire.MilliSatoshi,
 	}
 
 	return l.session.RequestRoute(
-		amt, lnwire.MaxMilliSatoshi, inFlightHtlcs, 0, nil,
+		amt, simRemainingBudget(l.feeLimit, l.feesPaid), inFlightHtlcs,
+		0, nil,
 	)
 }
 
@@ -238,6 +257,12 @@ func (l *lndStackRouter) ReportAttempt(attemptID uint64, rt *route.Route,
 	result SimHtlcResult) error {
 
 	if result.Failure == nil {
+		// An attempt that did not fail has committed its fee, whether
+		// it settled outright or is being held at the destination
+		// while its siblings arrive. The runner charges the budget for
+		// both, so this side has to as well.
+		l.feesPaid += rt.TotalFees()
+
 		return l.mc.ReportPaymentSuccess(attemptID, rt)
 	}
 
@@ -278,7 +303,7 @@ func newSimLightningPayment(spec *SimPaymentSpec) (*LightningPayment, error) {
 	var paymentAddr [32]byte
 	payment := &LightningPayment{
 		FinalCLTVDelta: 40,
-		FeeLimit:       lnwire.MaxMilliSatoshi,
+		FeeLimit:       spec.FeeLimitMsat,
 		Target:         spec.Target,
 		PaymentAddr:    fn.Some(paymentAddr),
 		DestFeatures: lnwire.NewFeatureVector(

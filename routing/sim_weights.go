@@ -469,6 +469,13 @@ func (r *SimRunner) RouterAcceptsImports() bool {
 			Target:   r.source,
 			Amount:   1,
 			MaxParts: 1,
+
+			// This spec is a probe: it asks the factory for a
+			// router and throws it away without routing anything.
+			// The budget is still spelled out, because the zero
+			// value of the field is a budget of nothing rather
+			// than an absent one.
+			FeeLimitMsat: lnwire.MaxMilliSatoshi,
 		},
 	)
 	if err != nil {

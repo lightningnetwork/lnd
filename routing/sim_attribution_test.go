@@ -232,8 +232,12 @@ func TestSimAttributionUnknownLndPath(t *testing.T) {
 	target, err := graph.ResolveNode("5")
 	require.NoError(t, err)
 
+	// The fee budget has to be spelled out on a hand-built spec: the zero
+	// value of the field is a budget of nothing, which prunes every route
+	// that charges a fee.
 	spec := &SimPaymentSpec{
 		Target: target, Amount: 10_000, MaxParts: 1,
+		FeeLimitMsat: lnwire.MaxMilliSatoshi,
 	}
 	router, err := newLndStackRouter(
 		&simGossipView{g: graph}, runner.mc, runner.params, source,

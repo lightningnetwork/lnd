@@ -159,6 +159,116 @@ func TestSimFeeLimitReachesTheSpec(t *testing.T) {
 	require.Equal(t, []lnwire.MilliSatoshi{300_000}, *seen)
 }
 
+// feeLimitLndBatch is the payment batch the lnd arm runs against a ladder of
+// budgets below. The targets are far enough from the source on the fixture
+// network that the routes carry real fees, which is what makes a budget bind
+// on some of them.
+func feeLimitLndBatch() []SimScenario {
+	return []SimScenario{
+		{Target: "20", AmtMsat: 200_000_000, MaxParts: 4},
+		{Target: "31", AmtMsat: 300_000_000, MaxParts: 4},
+		{Target: "12", AmtMsat: 250_000_000, MaxParts: 4},
+		{Target: "37", AmtMsat: 150_000_000, MaxParts: 4},
+	}
+}
+
+// feeLimitLndRun runs that batch on the stock lnd stack under one budget, and
+// reports what it completed, what it paid and what the backstop saw.
+func feeLimitLndRun(t *testing.T, ppm uint32) (int, lnwire.MilliSatoshi,
+	SimFeeLimitStats) {
+
+	t.Helper()
+
+	graph, err := GenerateSimGraph(&SimTopologySpec{
+		Type:           "smallworld",
+		NumNodes:       40,
+		ChannelSizeSat: 1_000_000,
+		Seed:           11,
+		AvgDegree:      6,
+	})
+	require.NoError(t, err)
+	require.NoError(t, graph.AssignLiquidity(LiquidityBimodal, 5))
+
+	source, err := graph.ResolveNode("1")
+	require.NoError(t, err)
+
+	runner, err := NewSimRunner(
+		graph, DefaultSimParams(), source, t.TempDir(),
+	)
+	require.NoError(t, err)
+	t.Cleanup(runner.Close)
+
+	var (
+		successes int
+		fees      lnwire.MilliSatoshi
+	)
+	for _, scenario := range feeLimitLndBatch() {
+		scenario.FeeLimitPPM = ppm
+
+		result, err := runner.RunScenario(&scenario)
+		require.NoError(t, err)
+
+		if !result.Success {
+			continue
+		}
+		successes++
+		fees += lnwire.MilliSatoshi(result.FeeMsat)
+
+		// Whatever it completed, it completed inside the budget.
+		budget := simFeeBudgetMsat(
+			lnwire.MilliSatoshi(scenario.AmtMsat), ppm,
+		)
+		require.LessOrEqual(
+			t, lnwire.MilliSatoshi(result.FeeMsat), budget,
+			"lnd settled a payment over its budget",
+		)
+	}
+
+	return successes, fees, runner.FeeLimitStats()
+}
+
+// TestSimFeeLimitLndPrunesInsteadOfBeingRefused is the agreement test the
+// design spec asks for, and it is the third confirmation of the same lesson:
+// a constraint the arms can see binds at PLAN time. lnd's path finding prunes
+// on the budget it was handed, so across a ladder of budgets from generous to
+// punishing it never offers the runner a route it cannot afford, and the
+// backstop reads zero everywhere.
+//
+// The last rung is the manipulation check. A ladder on which nothing ever
+// binds would pass the zero assertion for the wrong reason, so the test also
+// requires the tight rung to have cost the arm something real.
+func TestSimFeeLimitLndPrunesInsteadOfBeingRefused(t *testing.T) {
+	t.Parallel()
+
+	baseSuccesses, baseFees, baseStats := feeLimitLndRun(t, 0)
+	require.Equal(t, SimFeeLimitStats{}, baseStats)
+	require.Positive(t, baseSuccesses, "the batch completed nothing")
+
+	var tight int
+	for _, ppm := range []uint32{100_000, 10_000, 2_000, 200} {
+		successes, fees, stats := feeLimitLndRun(t, ppm)
+
+		require.Zero(
+			t, stats.Failures,
+			"the backstop fired on the lnd arm at %d ppm", ppm,
+		)
+		require.Equal(t, len(feeLimitLndBatch()), stats.Payments)
+
+		// A budget can only ever cost the arm: it removes routes, it
+		// never adds one.
+		require.LessOrEqual(t, successes, baseSuccesses)
+		require.LessOrEqual(t, fees, baseFees)
+
+		tight = successes
+	}
+
+	require.Less(
+		t, tight, baseSuccesses,
+		"no rung of the ladder bound, so the zeroes above prove "+
+			"nothing",
+	)
+}
+
 // feeLimitShardFee is what the fixture's middle node charges to forward one
 // shard of feeLimitShard: its announced base fee plus its rate on the amount.
 // Every budget below is quoted against it.

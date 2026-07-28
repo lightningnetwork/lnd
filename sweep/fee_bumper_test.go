@@ -388,8 +388,11 @@ type mockers struct {
 	feeFunc *MockFeeFunction
 }
 
-// createTestPublisher creates a new tx publisher using the provided mockers.
-func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
+// createTestPublisherWithAux creates a new tx publisher using the provided
+// mockers and aux sweeper option.
+func createTestPublisherWithAux(t *testing.T,
+	auxSweeper fn.Option[AuxSweeper]) (*TxPublisher, *mockers) {
+
 	// Create a mock fee estimator.
 	estimator := &chainfee.MockEstimator{}
 
@@ -427,10 +430,22 @@ func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
 		Signer:     m.signer,
 		Wallet:     m.wallet,
 		Notifier:   m.notifier,
-		AuxSweeper: fn.Some[AuxSweeper](&MockAuxSweeper{}),
+		AuxSweeper: auxSweeper,
 	})
 
 	return tp, m
+}
+
+// createTestPublisher creates a new tx publisher using the provided mockers.
+func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
+	return createTestPublisherWithAux(
+		t, fn.Some[AuxSweeper](&MockAuxSweeper{}),
+	)
+}
+
+// createTestPublisherNoAux creates a new tx publisher without an aux sweeper.
+func createTestPublisherNoAux(t *testing.T) (*TxPublisher, *mockers) {
+	return createTestPublisherWithAux(t, fn.None[AuxSweeper]())
 }
 
 // TestCreateAndCheckTx checks `createAndCheckTx` behaves as expected.
@@ -463,9 +478,10 @@ func TestCreateAndCheckTx(t *testing.T) {
 		mock.Anything).Return(script, nil)
 
 	testCases := []struct {
-		name        string
-		req         *BumpRequest
-		expectedErr error
+		name                string
+		req                 *BumpRequest
+		expectedErr         error
+		expectedWrappedErrs []error
 	}{
 		{
 			// When the budget cannot cover the fee, an error
@@ -486,7 +502,8 @@ func TestCreateAndCheckTx(t *testing.T) {
 				Inputs:          []input.Input{&inp},
 				Budget:          btcutil.Amount(1000),
 			},
-			expectedErr: errDummy,
+			expectedErr:         errDummy,
+			expectedWrappedErrs: []error{errMempoolRejected},
 		},
 		{
 			// When the mempool accepts the transaction, no error
@@ -514,8 +531,45 @@ func TestCreateAndCheckTx(t *testing.T) {
 
 			// Check the result is as expected.
 			require.ErrorIs(t, err, tc.expectedErr)
+			for _, expectedErr := range tc.expectedWrappedErrs {
+				require.ErrorIs(t, err, expectedErr)
+			}
 		})
 	}
+}
+
+// TestCreateAndCheckTxMempoolConflict checks that an unconfirmed conflicting
+// spend enters missing-input attribution.
+func TestCreateAndCheckTxMempoolConflict(t *testing.T) {
+	t.Parallel()
+
+	tp, m := createTestPublisherNoAux(t)
+	inputs := make([]input.Input, 0, 2)
+	for i := 0; i < 2; i++ {
+		inp := createTestInput(10_000, input.WitnessKeyHash)
+		inputs = append(inputs, &inp)
+	}
+	record := &monitorRecord{
+		requestID: 1,
+		req: &BumpRequest{
+			DeliveryAddress: changePkScript,
+			Inputs:          inputs,
+			Budget:          btcutil.Amount(10_000),
+		},
+		feeFunction: m.feeFunc,
+	}
+
+	m.feeFunc.On("FeeRate").Return(chainfee.SatPerKWeight(1000))
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(&input.Script{}, nil).Times(2)
+	m.wallet.On("CheckMempoolAcceptance", mock.Anything).Return(
+		chain.ErrMempoolConflict,
+	).Once()
+
+	_, err := tp.createAndCheckTx(record)
+
+	require.ErrorIs(t, err, ErrInputMissing)
+	require.NotNil(t, record.tx)
 }
 
 // createTestBumpRequest creates a new bump request.

@@ -47,6 +47,11 @@ var (
 	// ErrInputMissing is returned when a given input no longer exists,
 	// e.g., spending from an orphan tx.
 	ErrInputMissing = errors.New("input no longer exists")
+
+	// errMempoolRejected marks errors that came from mempool acceptance
+	// checks. It is used internally to avoid probing unrelated construction
+	// or signing errors.
+	errMempoolRejected = errors.New("mempool rejected tx")
 )
 
 var (
@@ -662,8 +667,11 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 	}
 
 	// If the inputs are spent by another tx, we will exit with the latest
-	// sweepCtx and an error.
-	if errors.Is(err, chain.ErrMissingInputs) {
+	// sweepCtx and an error. Btcd reports an unconfirmed spend as a mempool
+	// conflict; both errors need spend attribution.
+	if errors.Is(err, chain.ErrMissingInputs) ||
+		errors.Is(err, chain.ErrMempoolConflict) {
+
 		log.Debugf("Tx %v missing inputs, it's likely the input has "+
 			"been spent by others", sweepCtx.tx.TxHash())
 
@@ -673,8 +681,8 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 		return sweepCtx, ErrInputMissing
 	}
 
-	return sweepCtx, fmt.Errorf("tx=%v failed mempool check: %w",
-		sweepCtx.tx.TxHash(), err)
+	return sweepCtx, fmt.Errorf("%w: tx=%v failed mempool check: %w",
+		errMempoolRejected, sweepCtx.tx.TxHash(), err)
 }
 
 // handleMissingInputs handles the case when the chain backend reports back a

@@ -134,7 +134,15 @@
   codec](https://github.com/lightningnetwork/lnd/pull/10958): add the
   `invoice_error` TLV message to `bolt12/` for onion-message replies.
 
+* [BOLT 12 string codec](https://github.com/lightningnetwork/lnd/pull/11001):
+  add checksumless bech32 encoding/decoding for BOLT 12 `lno`, `lnr`, and `lni`
+  strings with continuation line handling.
+
 ## Testing
+
+* [BOLT 12 spec test vectors](https://github.com/lightningnetwork/lnd/pull/11001):
+  add spec test vectors for offer decoding and format string parsing in
+  `bolt12/test-vectors/`.
 
 ## Database
 

@@ -38,22 +38,39 @@ ROUTESIM = os.environ.get("ROUTESIM_BIN", "routesim")
 #   payment count of the smallest scored file.
 #
 # Doubling FEE_WEIGHT breaks it. Removing the cap breaks it unconditionally.
-# The safe way to make fees matter more is not a bigger weight on this metric,
-# it is a DIFFERENT metric: fee_ppm_attempted keeps the abandoned amount in its
-# denominator, so abandonment cannot improve it and the rule stops binding.
-# That substitution is FEE_METRIC_ATTEMPTED below, and it runs as a
-# pre-registered side-by-side arm scored offline, not as a change to what the
-# optimizer maximizes.
+#
+# AND THE RULE APPLIES TO BOTH FEE METRICS, which corrects the exp-023 design
+# spec. The spec argued that fee_ppm_attempted escapes the rule because the
+# abandoned amount stays in its denominator, so the weight could safely rise
+# once the fee term was charged against it. It does not escape. Fixing the
+# denominator only stops abandonment from SHRINKING it; the numerator still
+# falls, because a payment nobody completes pays no fee. Abandoning a payment
+# that costs f and spends s on partial shards moves the ratio from (F+f)/A to
+# (F+s)/A, which is a weak improvement for EVERY payment that pays a fee.
+# fee_ppm_on_success is at least partly self-limiting by comparison: it only
+# improves when the abandoned payment was dearer than the file's average, and
+# abandoning a cheap payment makes it worse. Measured on the sealed hard tier,
+# switching metric raises the objective of the arm that abandons most by the
+# most (exp-023 stage C landing note).
+#
+# What fee_ppm_attempted is actually for is different and still worth having:
+# it counts money that LEFT THE SENDER, including on payments that then failed,
+# which fee_ppm_on_success cannot see at all. A router that burns fees on
+# partial mpp shards that never complete is invisible to the scored metric and
+# obvious in this one. It runs as a pre-registered side-by-side arm scored
+# offline, not as a change to what the optimizer maximizes, and the 1/N rule
+# above governs it exactly as it governs the scored metric.
 ATTEMPT_WEIGHT = 0.01
 ATTEMPT_CAP = 15
 FEE_WEIGHT = 0.00002
 FEE_PPM_CAP = 5_000
 
 # The aggregate field the fee penalty is charged against. FEE_METRIC is what
-# every published number in this program was scored with. FEE_METRIC_ATTEMPTED
-# is the alternative: fees actually spent, including on payments that failed,
-# over the amount the batch was asked to deliver. Both are reported by every
-# run, so the alternative arm re-scores archived outputs with no re-execution.
+# every published number in this program was scored with: fees on the payments
+# that completed, over the amount they delivered. FEE_METRIC_ATTEMPTED is the
+# alternative: fees actually spent, including on payments that failed, over the
+# amount the batch was asked to deliver. Both are reported by every run, so the
+# alternative arm re-scores archived outputs with no re-execution.
 FEE_METRIC = "fee_ppm_on_success"
 FEE_METRIC_ATTEMPTED = "fee_ppm_attempted"
 

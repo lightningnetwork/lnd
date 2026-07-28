@@ -1,0 +1,65 @@
+{
+  "topology": {
+    "type": "smallworld",
+    "num_nodes": 600,
+    "channel_size_sat": 1000000,
+    "avg_degree": 6,
+    "seed": 401559300
+  },
+  "liquidity_model": "bimodal",
+  "liquidity_seed": 1979820901,
+  "source": "1",
+  "scenarios": [
+    {
+      "target": "413",
+      "amt_msat": 250000000,
+      "max_parts": 1,
+      "atomic_mpp": true
+    },
+    {
+      "target": "185",
+      "amt_msat": 10000000,
+      "max_parts": 1,
+      "atomic_mpp": true
+    },
+    {
+      "target": "415",
+      "amt_msat": 1000000000,
+      "max_parts": 16,
+      "atomic_mpp": true
+    },
+    {
+      "target": "392",
+      "amt_msat": 500000000,
+      "max_parts": 16,
+      "atomic_mpp": true
+    },
+    {
+      "target": "357",
+      "amt_msat": 100000000,
+      "max_parts": 16,
+      "atomic_mpp": true
+    },
+    {
+      "target": "235",
+      "amt_msat": 10000000,
+      "max_parts": 1,
+      "atomic_mpp": true
+    }
+  ],
+  "clock": {
+    "payment_gap_sec": 600,
+    "attempt_sec": 1
+  },
+  "background_traffic": {
+    "payments_per_gap": 95,
+    "min_amt_msat": 1000000,
+    "max_amt_msat": 500000000,
+    "focus_fraction": 0.33,
+    "seed": 93021251
+  },
+  "concurrency": {
+    "max_in_flight": 2,
+    "inter_arrival_sec": 5.0
+  }
+}

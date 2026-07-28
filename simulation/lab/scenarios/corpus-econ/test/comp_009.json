@@ -1,0 +1,101 @@
+{
+  "topology": {
+    "type": "smallworld",
+    "num_nodes": 600,
+    "channel_size_sat": 1000000,
+    "avg_degree": 6,
+    "seed": 2389995
+  },
+  "liquidity_model": "bimodal",
+  "liquidity_seed": 467392023,
+  "source": "1",
+  "scenarios": [
+    {
+      "target": "99",
+      "amt_msat": 250000000,
+      "max_parts": 16,
+      "atomic_mpp": true
+    },
+    {
+      "target": "389",
+      "amt_msat": 250000000,
+      "max_parts": 1,
+      "atomic_mpp": true
+    },
+    {
+      "target": "16",
+      "amt_msat": 1000000000,
+      "max_parts": 16,
+      "atomic_mpp": true
+    },
+    {
+      "target": "207",
+      "amt_msat": 100000000,
+      "max_parts": 1,
+      "atomic_mpp": true
+    },
+    {
+      "target": "44",
+      "amt_msat": 800000000,
+      "max_parts": 4,
+      "atomic_mpp": true
+    },
+    {
+      "target": "236",
+      "amt_msat": 500000000,
+      "max_parts": 4,
+      "atomic_mpp": true
+    },
+    {
+      "target": "297",
+      "amt_msat": 250000000,
+      "max_parts": 1,
+      "atomic_mpp": true
+    },
+    {
+      "target": "369",
+      "amt_msat": 250000000,
+      "max_parts": 4,
+      "atomic_mpp": true
+    },
+    {
+      "target": "81",
+      "amt_msat": 500000000,
+      "max_parts": 4,
+      "atomic_mpp": true
+    },
+    {
+      "target": "83",
+      "amt_msat": 1000000000,
+      "max_parts": 16,
+      "atomic_mpp": true
+    }
+  ],
+  "clock": {
+    "payment_gap_sec": 600,
+    "attempt_sec": 1
+  },
+  "background_traffic": {
+    "payments_per_gap": 100,
+    "min_amt_msat": 1000000,
+    "max_amt_msat": 500000000,
+    "focus_fraction": 0.33,
+    "seed": 426255087
+  },
+  "htlc_limits": {
+    "max_htlc_frac_family": "tight",
+    "min_htlc_family": "tight"
+  },
+  "inbound_fees": {
+    "family": "heavy"
+  },
+  "fee_limit_ppm": 4000,
+  "concurrency": {
+    "max_in_flight": 2,
+    "inter_arrival_sec": 5.0
+  },
+  "latency": {
+    "per_hop_ms": 300.0,
+    "attempt_overhead_ms": 250.0
+  }
+}

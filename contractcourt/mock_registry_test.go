@@ -22,7 +22,10 @@ type mockRegistry struct {
 	notifyChan       chan notifyExitHopData
 	notifyErr        error
 	notifyResolution invoices.HtlcResolution
+	immediateResult  invoices.HtlcResolution
 	notifyCalls      atomic.Int32
+	immediateNotify  []notifyExitHopData
+	notifyHook       func()
 }
 
 func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
@@ -32,9 +35,23 @@ func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
 	payload invoices.Payload) (invoices.HtlcResolution, error) {
 
 	r.notifyCalls.Add(1)
+	notifyHook := r.notifyHook
 
 	// Exit early if the notification channel is nil.
 	if hodlChan == nil {
+		r.immediateNotify = append(r.immediateNotify, notifyExitHopData{
+			payHash:       payHash,
+			paidAmount:    paidAmount,
+			expiry:        expiry,
+			currentHeight: currentHeight,
+		})
+		if notifyHook != nil {
+			notifyHook()
+		}
+		if r.immediateResult != nil {
+			return r.immediateResult, r.notifyErr
+		}
+
 		return r.notifyResolution, r.notifyErr
 	}
 
@@ -44,6 +61,9 @@ func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
 		paidAmount:    paidAmount,
 		expiry:        expiry,
 		currentHeight: currentHeight,
+	}
+	if notifyHook != nil {
+		notifyHook()
 	}
 
 	return r.notifyResolution, r.notifyErr

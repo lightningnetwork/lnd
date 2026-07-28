@@ -86,6 +86,20 @@ type scenarioFile struct {
 	// rather than the scheduling of the payments that bought it.
 	Concurrency *routing.SimConcurrencyParams `json:"concurrency,omitempty"`
 
+	// Latency prices an htlc attempt by the route it travelled instead of
+	// by the clock's flat per-attempt tick: an overhead, plus a round trip
+	// to the hop that resolved it. A failure at the sender's own first hop
+	// therefore comes back in one round trip and a failure at hop eight in
+	// eight, which is the differential structure the uniform delay knob of
+	// exp-019 structurally could not have. Omitting the section keeps the
+	// flat tick, which is what every scenario file written before stage E
+	// asks for by omission.
+	//
+	// It needs a clock section for the same reason a concurrency section
+	// does: with no virtual time nothing the simulator does moves a clock,
+	// so a per-hop price could not be charged anywhere.
+	Latency *routing.SimLatencyParams `json:"latency,omitempty"`
+
 	// Warmup is an optional unscored phase that runs before the scored
 	// batch, standing in for routing knowledge a node was handed instead
 	// of having to probe for it. Omitting the section is a cold start,
@@ -348,6 +362,27 @@ type aggregate struct {
 
 	AcceptsRefresh *bool `json:"router_accepts_balance_refresh,omitempty"`
 
+	// Latency reporting, stage E, pointers for the reason the stage D
+	// fields are: a file with no latency section emits none of them and
+	// stays byte identical to every run before this stage, and a file that
+	// has one emits them all including the zeroes.
+	//
+	// The two are the MANIPULATION CHECK, and stage E is the fifth in a row
+	// to need one. A latency section that never fires and a latency section
+	// that fires and costs nothing score identically, and only the realized
+	// times separate them. Read MeanAttemptLatency against the flat
+	// attempt_sec the clock would otherwise have charged: equal means the
+	// mechanism is inert. The per-attempt latency in the results array is
+	// where the DIFFERENTIAL half is auditable, since a settle and a
+	// first-hop failure over the same route read very different numbers.
+	//
+	// Neither enters the objective, and neither does MakespanSec, which a
+	// latency file emits even without a concurrency section. That is the
+	// lead's decision for this whole program: objective L is an offline
+	// re-scoring of archived runs, not a change to what is maximized.
+	MeanPaymentLatency *float64 `json:"mean_payment_latency_sec,omitempty"`
+	MeanAttemptLatency *float64 `json:"mean_attempt_latency_sec,omitempty"`
+
 	// WarmupScenarios and WarmupAttempts report what the unscored warmup
 	// phase cost. They are kept out of every metric above so that a warmed
 	// run and a cold one are scored on exactly the same payments, while
@@ -499,6 +534,16 @@ func main() {
 
 	if scenFile.Clock != nil {
 		runner.SetVirtualClock(scenFile.Clock)
+	}
+
+	// Price the attempts by the routes they travel, if this file asks for
+	// it. It goes after the clock because it replaces a piece of it: a
+	// latency section takes over the flat attempt tick, and it is refused
+	// outright on a scenario that configures no virtual time at all.
+	if scenFile.Latency != nil {
+		if err := runner.SetLatency(scenFile.Latency); err != nil {
+			fatalf("unable to set latency: %v", err)
+		}
 	}
 	if scenFile.BackgroundTraffic != nil {
 		err := runner.SetBackgroundTraffic(scenFile.BackgroundTraffic)
@@ -763,6 +808,22 @@ func runBatch(runner *routing.SimRunner, scenFile *scenarioFile,
 		agg.SelfContention = &concurrency.SelfContentionFailures
 		agg.MakespanSec = &concurrency.MakespanSec
 		agg.AcceptsRefresh = &concurrency.RouterAcceptsBalanceRefresh
+	}
+
+	// The timing report is emitted only when a scenario file asked for
+	// latency, and then in full. A file that priced its attempts by route
+	// also gets the makespan whether or not it asked for concurrency, since
+	// how long the batch took is the number the stage is about; a file that
+	// asked for neither section gets neither key.
+	if scenFile.Latency != nil {
+		latency := runner.LatencyStats()
+		agg.MeanPaymentLatency = &latency.MeanPaymentLatencySec
+		agg.MeanAttemptLatency = &latency.MeanAttemptLatencySec
+
+		if agg.MakespanSec == nil {
+			makespan := runner.ConcurrencyStats().MakespanSec
+			agg.MakespanSec = &makespan
+		}
 	}
 
 	attribution := runner.AttributionStats()

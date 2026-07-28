@@ -75,9 +75,10 @@ const simFeeLimitFailureName = "FeeLimitExceeded"
 // splits the way stage A's and stage B's counters split, for the third time
 // and for the same structural reason.
 //
-// Payments is the static half: how many scored payments carried a finite
-// budget at all. It says the mechanism was configured, exactly as the inbound
-// fee census says a tier carries inbound fees.
+// Payments is the static half: how many payments carried a finite budget at
+// all, counting warmup payments along with scored ones exactly as the stage A
+// and stage B counters do. It says the mechanism was configured, the way the
+// inbound fee census says a tier carries inbound fees.
 //
 // Failures is the ALARM half. A fee limit binds at PLAN time: lnd's path
 // finding prunes any partial path whose accumulated fee exceeds the budget it
@@ -95,7 +96,7 @@ const simFeeLimitFailureName = "FeeLimitExceeded"
 // way stage B's discounts had to be read off realized fees rather than off any
 // wire counter.
 type SimFeeLimitStats struct {
-	// Payments is how many scored payments carried a finite fee budget.
+	// Payments is how many payments carried a finite fee budget.
 	Payments int `json:"fee_limit_payments,omitempty"`
 
 	// Failures is how many attempts the runner refused to dispatch because

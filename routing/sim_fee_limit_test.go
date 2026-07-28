@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -156,4 +157,193 @@ func TestSimFeeLimitReachesTheSpec(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, []lnwire.MilliSatoshi{300_000}, *seen)
+}
+
+// feeLimitShardFee is what the fixture's middle node charges to forward one
+// shard of feeLimitShard: its announced base fee plus its rate on the amount.
+// Every budget below is quoted against it.
+const (
+	feeLimitShard    = lnwire.MilliSatoshi(100_000_000)
+	feeLimitShardFee = lnwire.MilliSatoshi(11_000)
+)
+
+// runFeeLimitPayment sends one scripted route of feeLimitShard over the
+// two-hop fixture under the given budget, and reports what the network, the
+// router and the counters saw.
+func runFeeLimitPayment(t *testing.T, feeLimitPPM uint32) (*SimScenarioResult,
+	*scriptedRouter, *SimRunner, *SimGraph) {
+
+	t.Helper()
+
+	graph, nodes := atomicTestGraph(t)
+	source, target := nodes[0], nodes[3]
+
+	rt := atomicTestRoute(t, graph, source, []uint64{1, 2}, feeLimitShard)
+	require.Equal(t, feeLimitShardFee, rt.TotalFees())
+
+	router := &scriptedRouter{routes: []*route.Route{rt}}
+	runner := atomicRunner(t, graph, source, router)
+
+	result, err := runner.RunScenario(&SimScenario{
+		Target:      target.String(),
+		AmtMsat:     uint64(feeLimitShard),
+		MaxParts:    1,
+		FeeLimitPPM: feeLimitPPM,
+	})
+	require.NoError(t, err)
+
+	return result, router, runner, graph
+}
+
+// TestSimFeeLimitRefusesOverBudgetRoute is the load-bearing enforcement claim:
+// a route the payment cannot afford is never sent. The htlc does not reach the
+// network, no balance moves, the attempt is recorded and named, and the router
+// is told why in a form it can switch on.
+func TestSimFeeLimitRefusesOverBudgetRoute(t *testing.T) {
+	t.Parallel()
+
+	// A hundred ppm of the shard is 10,000 msat against a route fee of
+	// 11,000: over budget by a thousand.
+	result, router, runner, graph := runFeeLimitPayment(t, 100)
+
+	require.False(t, result.Success)
+	require.Zero(t, result.FeeMsat)
+
+	require.Len(t, result.Attempts, 1)
+	require.False(t, result.Attempts[0].Success)
+	require.Equal(t, simFeeLimitFailureName, result.Attempts[0].Failure)
+	require.Zero(
+		t, result.Attempts[0].FailureIdx,
+		"a refusal is the sender's own, so it is attributed to hop 0",
+	)
+
+	require.Len(t, router.results, 1)
+	require.IsType(t, SimFeeLimitFailure{}, router.results[0].Failure)
+
+	stats := runner.FeeLimitStats()
+	require.Equal(t, 1, stats.Payments)
+	require.Equal(t, 1, stats.Failures)
+
+	// Nothing crossed the wire, so nothing moved and nothing was learned.
+	require.Equal(
+		t, lnwire.NewMSatFromSatoshis(atomicChanCapSat/2),
+		atomicBalance(t, graph, 1, SimNodePubKey(1)),
+	)
+	require.Empty(t, runner.Observations())
+	requireNoHolds(t, graph)
+}
+
+// TestSimFeeLimitAllowsRouteWithinBudget is the control for the refusal above:
+// the same route under a budget that covers it is sent, settles, and trips no
+// counter.
+func TestSimFeeLimitAllowsRouteWithinBudget(t *testing.T) {
+	t.Parallel()
+
+	// Two hundred ppm of the shard is 20,000 msat against a route fee of
+	// 11,000.
+	result, router, runner, graph := runFeeLimitPayment(t, 200)
+
+	require.True(t, result.Success)
+	require.EqualValues(t, feeLimitShardFee, result.FeeMsat)
+
+	require.Len(t, router.results, 1)
+	require.Nil(t, router.results[0].Failure)
+
+	require.Zero(t, runner.FeeLimitStats().Failures)
+	require.Equal(t, 1, runner.FeeLimitStats().Payments)
+	requireNoHolds(t, graph)
+}
+
+// TestSimFeeLimitAbsentSendsEverything is the knob-off claim at the wire: with
+// no budget named, the very route the tight budget refused is dispatched and
+// settles, and no counter reads anything at all.
+func TestSimFeeLimitAbsentSendsEverything(t *testing.T) {
+	t.Parallel()
+
+	result, _, runner, _ := runFeeLimitPayment(t, 0)
+
+	require.True(t, result.Success)
+	require.EqualValues(t, feeLimitShardFee, result.FeeMsat)
+	require.Equal(t, SimFeeLimitStats{}, runner.FeeLimitStats())
+}
+
+// TestSimFeeLimitSpendsAcrossShards asserts that the budget is a budget for
+// the whole PAYMENT and not for each attempt: the fee of a shard that already
+// went through is subtracted before the next shard is priced. It runs both
+// settlement modes because the fees of a held shard are committed in a
+// different place from the fees of a settled one, and a budget that watched
+// only one of them would be twice as generous under atomic mpp.
+func TestSimFeeLimitSpendsAcrossShards(t *testing.T) {
+	t.Parallel()
+
+	// Two shards of half the amount each. The middle node charges its base
+	// fee once per shard, so splitting a payment in two costs strictly more
+	// in fees than sending it whole.
+	const (
+		half   = feeLimitShard / 2
+		perFee = lnwire.MilliSatoshi(6_000)
+	)
+
+	run := func(t *testing.T, atomicMpp bool, ppm uint32) (
+		*SimScenarioResult, *SimRunner) {
+
+		graph, nodes := atomicTestGraph(t)
+		source, target := nodes[0], nodes[3]
+
+		first := atomicTestRoute(
+			t, graph, source, []uint64{1, 2}, half,
+		)
+		second := atomicTestRoute(
+			t, graph, source, []uint64{3, 4}, half,
+		)
+		require.Equal(t, perFee, first.TotalFees())
+		require.Equal(t, perFee, second.TotalFees())
+
+		router := &scriptedRouter{
+			routes: []*route.Route{first, second},
+		}
+		runner := atomicRunner(t, graph, source, router)
+
+		result, err := runner.RunScenario(&SimScenario{
+			Target:      target.String(),
+			AmtMsat:     uint64(feeLimitShard),
+			MaxParts:    2,
+			AtomicMpp:   atomicMpp,
+			FeeLimitPPM: ppm,
+		})
+		require.NoError(t, err)
+		requireNoHolds(t, graph)
+
+		return result, runner
+	}
+
+	for _, atomicMpp := range []bool{false, true} {
+		t.Run(fmt.Sprintf("atomic=%v", atomicMpp), func(t *testing.T) {
+			t.Parallel()
+
+			// 120 ppm of the payment is 12,000 msat, exactly what
+			// the two shards cost together.
+			result, runner := run(t, atomicMpp, 120)
+			require.True(t, result.Success)
+			require.EqualValues(t, 2*perFee, result.FeeMsat)
+			require.Zero(t, runner.FeeLimitStats().Failures)
+
+			// 110 ppm is 11,000: enough for the first shard, one
+			// thousand short of the second. The payment fails
+			// having spent the first shard's fee and nothing more.
+			result, runner = run(t, atomicMpp, 110)
+			require.False(t, result.Success)
+			require.Equal(t, 1, runner.FeeLimitStats().Failures)
+
+			// Under atomic mpp the shard that did go through is
+			// released rather than settled, so a failed payment
+			// pays nothing at all. Without it the shard is spent.
+			spent := lnwire.MilliSatoshi(result.FeeMsat)
+			if atomicMpp {
+				require.Zero(t, spent)
+			} else {
+				require.Equal(t, perFee, spent)
+			}
+		})
+	}
 }

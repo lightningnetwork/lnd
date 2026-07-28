@@ -300,6 +300,10 @@ type SimRunner struct {
 	// traffic is the background traffic engine, nil when disabled.
 	traffic *simTraffic
 
+	// feeLimitStats counts the payments that carried a fee budget and the
+	// routes the budget refused, over the whole life of the runner.
+	feeLimitStats SimFeeLimitStats
+
 	// attribution degrades attempt results on their way to the router,
 	// nil when the failure channel is the perfect one. It sits between the
 	// simulator and the router, so both the candidate path and the lnd
@@ -489,6 +493,13 @@ func (r *SimRunner) HtlcLimitStats() SimHtlcLimitStats {
 // can say whether it carries inbound fees at all.
 func (r *SimRunner) InboundFeeStats() SimInboundFeeStats {
 	return r.graph.InboundFeeStats()
+}
+
+// FeeLimitStats reports how many payments carried a fee budget and how many
+// routes that budget refused. The two are read together and neither is a
+// measure of how much the budget mattered: see SimFeeLimitStats.
+func (r *SimRunner) FeeLimitStats() SimFeeLimitStats {
+	return r.feeLimitStats
 }
 
 // AttributionStats reports what the degradation did, and reports zeroes when
@@ -738,6 +749,10 @@ func (r *SimRunner) RunScenarioFrom(source route.Vertex,
 		FeeLimitMsat: simFeeBudgetMsat(amount, s.FeeLimitPPM),
 	}
 
+	if spec.FeeLimitMsat != lnwire.MaxMilliSatoshi {
+		r.feeLimitStats.Payments++
+	}
+
 	// Build the routing strategy under test for this payment, handing it
 	// the public graph view and the sender's exact local balances. The
 	// view wrapper hides the concrete graph so that a candidate router
@@ -797,13 +812,62 @@ func (r *SimRunner) RunScenarioFrom(source route.Vertex,
 			break
 		}
 
+		attemptID := nextAttemptID
+		nextAttemptID++
+
+		// The fee budget is enforced HERE, at the point the runner
+		// would dispatch, and not inside any router. That is the
+		// exp-019 construction: a constraint that lives at the shared
+		// delivery point is the same constraint for the lnd stack and
+		// for an evolved candidate, and neither of them can be given a
+		// gentler version of it by accident.
+		//
+		// What the budget has left is what it started with less the
+		// fees this payment has already committed, which is the fees
+		// of the shards that settled plus the fees riding on the ones
+		// still held. lnd's own lifecycle subtracts exactly that
+		// (calcFeeBudget over FeesPaid), and the lnd arm is handed the
+		// same remainder, so this backstop should never fire for it.
+		committed := lnwire.MilliSatoshi(result.FeeMsat + heldFees)
+		remaining := simRemainingBudget(spec.FeeLimitMsat, committed)
+		if rt.TotalFees() > remaining {
+			// The refusal is a fact about this sender, not about
+			// the network: no forwarding node saw the htlc, so
+			// nothing is recorded in the observation stream, no
+			// virtual time passes, and the result is handed to the
+			// router undegraded. An attribution section damages
+			// what came back over the wire, and nothing came back
+			// over the wire; running this through the degrader
+			// would also consume draws and shift the sequence
+			// every paired exp-019 run depends on.
+			//
+			// It does cost an attempt. A router that keeps
+			// offering routes it cannot afford spends its attempt
+			// budget on them, which is the whole point of putting
+			// the pressure in the environment.
+			refusal := SimHtlcResult{
+				FailureSource: rt.SourcePubKey,
+				Failure:       SimFeeLimitFailure{},
+			}
+
+			result.Attempts = append(
+				result.Attempts, traceAttempt(rt, refusal),
+			)
+			r.feeLimitStats.Failures++
+
+			err = router.ReportAttempt(attemptID, rt, refusal)
+			if err != nil {
+				return nil, err
+			}
+
+			continue
+		}
+
 		// Send the htlc through the simulated network. A malformed
 		// route (unknown channel, disconnected hops) is a router bug:
 		// it terminates this payment with an error rather than
 		// killing the whole batch, so one bad edge case doesn't zero
 		// out an otherwise functional candidate.
-		attemptID := nextAttemptID
-		nextAttemptID++
 
 		// Each attempt consumes virtual time: htlcs take real seconds
 		// to resolve on a live network.
@@ -915,13 +979,26 @@ func traceAttempt(rt *route.Route, res SimHtlcResult) SimAttemptTrace {
 	}
 
 	if res.Failure != nil {
-		trace.Failure = res.Failure.Code().String()
+		trace.Failure = simFailureName(res.Failure)
 		if idx := getNodeIndexSim(rt, res.FailureSource); idx != nil {
 			trace.FailureIdx = *idx
 		}
 	}
 
 	return trace
+}
+
+// simFailureName is what a trace calls a failure. A failure that came off the
+// wire is named by its code, which is what the traces have always carried. The
+// simulator's own sender-side refusal has no wire code to carry, and naming it
+// off the code alone would print it identically to an onion error the sender
+// could not read, so it gets a name of its own.
+func simFailureName(failure lnwire.FailureMessage) string {
+	if _, refused := failure.(SimFeeLimitFailure); refused {
+		return simFeeLimitFailureName
+	}
+
+	return failure.Code().String()
 }
 
 // getNodeIndexSim returns the zero-based index of the given node in the

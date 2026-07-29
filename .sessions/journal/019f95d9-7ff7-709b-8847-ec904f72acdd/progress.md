@@ -1,7 +1,7 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-07-27T20:29:02Z
+last_updated: 2026-07-29T23:41:24Z
 compaction_count: 4
 progress_pct: 85
 current_step: 4
@@ -58,39 +58,49 @@ exp-018 omni adjudication is LIVE overnight.
        attribution-confidence machinery (suspect bounds, payment-
        local unknown penalties, escalation cap). +0.044 degraded,
        -0.009 clean test. VERDICT OPEN.
-       <- NEXT SESSION: (1) exp-022 pre-registered sweep (corpora
-       from sealed scenarios; ~1h); (2) exp-023 stage A impl (tree
-       FREE, no runs live); (3) dashboard v63 when verdicts land.
-       interval-router branch at 14 commits on roasbeef fork.
-       SAFE-TO-RESTART mailed; scratch fully harvested.
-
-## Key Context
-- exp-018 DONE (was live): pid in scratch, log <scratch>/exp018.log, workdir
-  <scratch>/exp018-work (runs/, outputs/ per engine), venv-omni,
-  corpus-mix, engines gepa,meta_harness,autoresearch, 150 evals each,
-  sequential arms. Check: ps aux | grep run_gepa_omni; eval count:
-  ls <scratch>/exp018-work/outputs/exp018_<engine>/evals | wc -l.
-  Watcher-leak check on meta/autoresearch arms when they start:
-  grep -ci watcher on their run logs should be 0.
-- Tree FREE. Next up per CLAUDE.md: distillation patch (top),
-  offline replay, 10x ceiling arm, upstream gepa fix.
-- HEAD at last checkpoint: d9fbba193, everything pushed. Dashboard
-  v59 live; v60 pending site agent.
-- exp-019 anomaly queued as CLAUDE.md item 3: shift-isolated mainnet
-  arm before publishing any mechanism for shift-helps-lnd.
-- Champions: hb1 + mx_c3 (title defended). Task list: #25 exp-018
-  in_progress; all others completed.
-
-## Current Position
-- Last action: exp-018 launched (gepa arm iterating), site agent
-  spawned for exp-019/v60.
-
-## Open Blockers
-- None.
-
-## Resume Commands
-```bash
-git status && git log --oneline -5
-ps aux | grep "[r]un_gepa_omni"
-tail -20 <scratch>/exp018.log
-```
+       DONE: exp-022 verdict (challenger failure #8, 2096b9737).
+10.[x] 2026-07-28 marathon: exp-023 FULL CYCLE closed. Five stages
+       implemented (worktree ../lnd-econ, branch econ-realism, all
+       merged to gepa), 1920-run sweep, verdict at 1673ab3bd: the
+       edge is INFORMATIONAL, not pricing. Fee budgets close the
+       gap unanimously on mainnet; inbound heavy erases the lead;
+       htlc/concurrency/latency move nothing. atomic1 = fee-robust,
+       contention-immune. Dashboard v63 published. exp-024 ceiling
+       closed. interval-router at 14 commits on fork.
+       DONE: atomic1 audit committed (e9873ae40, fee robustness =
+       units choice; contention = footprint + reservations).
+11.[x] econ arc CLOSED: exp-025 (econ2 = fee-budget specialist,
+       challenger #9, first beat-lnd on live bar, 151733ce7) after
+       econ1 postmortem (59 proposals killed by missing type;
+       fix b1533b5db). exp-026 CLOSED (compose world HOLDS, seed
+       returned, honest defeat, ladder monotone to zero, 3b5b5b690).
+       Dashboard v64 PUBLISHED (445e8fb89). Specialist roster in
+       champions/README (7a2014c8e). exp-023 verdict: edge is
+       INFORMATIONAL (1673ab3bd).
+12.[ ] LIVE NOW (2026-07-29):
+       (a) code_full2: compose world seeded FROM econ2 (--seed-file
+       exp-025-econ2-best-candidate.go, --econ --degraded, 400
+       evals, timeout 1200s for the 1230-line seed). Log
+       SCRATCH/code_full2.log; SLOW start is NORMAL (heavy seed on
+       event-loop files). Watcher armed (watch_full2.sh). TREE
+       LOCKED (routing/, cmd/routesim/) until done. On completion:
+       econ1-style artifact check FIRST, then verdict sweep w/
+       attempt-cap check + exp-013 give-up watch (econ2 seed is
+       attempt-heavy; cheap direction = attempt shedding).
+       (b) interval-router ROUND 3 (same integration agent):
+       budget-aware shard pricing (econ2 design), units audit
+       (atomic1 lesson), suspect quarantine (deg1). Worktree
+       ../lnd-interval @ ab1c123ab+. Verify build/vet/test + itest,
+       push to roasbeef fork after review.
+       (c) interval-sim BENCHMARK agent: new worktree ../lnd-isim,
+       branch interval-sim = gepa + interval-router@ab1c123ab
+       merged, params knob router_impl=interval on the lnd arm,
+       byte-identity gate, then 6-arm battery (classic/degraded/
+       econ) answering: regression vs stock lnd, exp-019
+       robustness, hybrid fee discipline. Results SCRATCH/isim.
+       NEXT after wakes: verdicts + writeups (exp-027 = isim bench?),
+       re-bench round 3, dashboard v65 when verdicts land.
+       Pending user: node access (replay), soft_unknown PR hold,
+       tracked 19MB routesim binary at root, sealed mainnet tier's
+       /tmp graph path. Champions: hb1+mx_c3 (9 challengers);
+       specialists atomic1 + econ2. HEAD 7a2014c8e pushed both.

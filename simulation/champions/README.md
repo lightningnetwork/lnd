@@ -390,3 +390,26 @@ are in each companion document; the short version:
 - `routing/missioncontrol.go`, `routing/probability_apriori.go`,
   `routing/probability_bimodal.go`, `routing/pathfind.go`,
   `routing/payment_session.go` — what these routers were measured against.
+
+## The specialist roster (not champions, and why)
+
+This directory holds title-holders only: champion status changes
+exclusively on a held-out displacement win, and nine challengers have
+failed that bar. Two challengers earned specialist filings instead,
+and their sources live next to their verdicts in
+`simulation/lab/experiments/`:
+
+- **atomic1** (`exp-010b-atomic1-best-candidate.go`) — the
+  flat-liquidity and atomic-arena specialist: attempt record holder,
+  contention-immune (reservation tracking), fee-robust by its choice
+  of cost units (exp-023 audit), and the only router that beats a
+  champion under staleness (exp-012).
+- **econ2** (`exp-025-econ2-best-candidate.go`) — the fee-budget
+  specialist: the only router besides lnd that never violates a fee
+  budget, the first to read `spec.FeeLimitMsat` or price inbound
+  fees, and the first to beat lnd on a corpus where the bar was live.
+  Loses the classic set and drift (its world barely drifted).
+
+The frontier is three regimes deep: hb1/mx_c3 own the clean
+informational worlds, atomic1 the contention niches, econ2 the
+fee-budget regime. No single router owns everything.

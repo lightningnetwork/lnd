@@ -217,6 +217,14 @@ here that were not true in any earlier arena:
   zero. The sender pays none to itself and the destination charges
   none, so a k-hop route has k-1 inbound fees to price. A router that
   scores an edge from one policy per direction misses all of it.
+  THE TYPE, so you do not guess: DirectedChannel.InboundFee is a PLAIN
+  lnwire.Fee struct, not an Option and not an interface. Read
+  ch.InboundFee.BaseFee (signed msat, int32) and ch.InboundFee.FeeRate
+  (signed parts per million, int32) directly; the zero struct means no
+  inbound fee is announced. There is no UnwrapOr, no WhenSome, and
+  NOTHING here needs the reflect package — the sandbox rejects any
+  source that so much as mentions unsafe, reflect, os/exec or net,
+  scoring it zero before it runs. Plain field access only.
 - YOUR OWN SHARDS HOLD LIQUIDITY AND YOUR PAYMENTS RACE EACH OTHER. The
   sender may have several of its own payments in flight at once, each
   with its own router instance planning against its own snapshot of

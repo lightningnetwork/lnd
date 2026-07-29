@@ -983,3 +983,32 @@ contention planning are all machinery no incumbent carries. atomic1
 gets a source audit first — the fee-robust, contention-immune
 champion is the one whose mechanisms the economic world rewards, and
 its stock has risen every time the environment got more real.
+
+## 2026-07-29 — exp-025: the world got prices, and evolution learned to count
+
+The economic-world arm closed overnight, in two acts. Act one is the
+postmortem: the first run's fifty-nine proposals all died on a single
+missing type declaration, fifty-three of them reaching for reflection
+to unwrap an Option that does not exist (the sandbox caught every
+one), six guessing UnwrapOr on a plain struct. Eight prompt lines
+later the relaunch worked, and the lesson goes in the permanent
+collection: describe data without its type and a code-writing model
+invents an API.
+
+Act two is econ2, and it is the most interesting challenger since
+the champions themselves. It is the first candidate ever to read the
+fee budget or price an inbound fee, and it did not re-weight its way
+there — it built a remaining-budget ledger, per-shard allocation,
+fee-cap pruning inside the search, and a Pareto frontier that always
+keeps its cheapest label alive. It cleared the first live beat-lnd
+bar any corpus has posed, with CIs excluding zero, and it restores
+an lnd-beating lead on exactly the mainnet fee rungs where exp-023
+watched the champions go negative. It is also not a champion: it
+loses the clean worlds, and it loses drift to everyone including the
+seed, because the world it grew up in barely drifted. Filed as the
+fee-budget specialist, challenger number nine, and the frontier is
+now three regimes deep — hb1/mx_c3 where information wins, atomic1
+where holds contend, econ2 where money is scarce. Nobody owns
+everything, which is itself the strongest argument yet for the
+hybrid the lnd branch builds: evolved beliefs on top of pricing that
+counts.

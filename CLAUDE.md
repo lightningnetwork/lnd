@@ -191,6 +191,35 @@ next.
   (2026-07-28); no run holds `routing/` or `cmd/routesim/`.
 
 ### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
+- **exp-025** — evolution in the economic world. First run died on an
+  API confusion (59/59 proposals; 53 used reflect around an imagined
+  Option, sandbox caught every one; prompt fix: state the TYPE).
+  Relaunch produced econ2: the FIRST candidate to read
+  spec.FeeLimitMsat or price inbound fees — budget-pruned Dijkstra
+  with a never-evicted min-fee Pareto label, per-shard budget
+  allocation, dual belief ledger (exp-018 idea realized). Verdict:
+  challenger #9, filed as the FEE-BUDGET SPECIALIST — CI-solid over
+  all champions on the fee rungs, cap-robust, zero budget violations
+  (matches lnd exactly; every other evolved router violates), and
+  the program's first beat-lnd-on-a-live-bar (econ world, all fee
+  rungs, restores the lead exactly where champions go negative). But
+  loses the classic set and drift badly (never bred vs staleness).
+  Frontier now three regimes: hb1/mx_c3 (informational), atomic1
+  (atomic/contention), econ2 (fee budgets). One defect on record:
+  inbound fee computed on the wrong base, refusals on surcharges.
+- **exp-023** — economic realism, full cycle in one day. Five
+  flag-gated mechanisms (min/max HTLC, inbound fees, fee budgets,
+  concurrency via deterministic virtual-time event loop, latency),
+  each byte-identical off; 1,920-run sweep, gates bit-exact. Verdict:
+  the champions' edge is INFORMATIONAL, not pricing — fee budgets
+  close the gap unanimously on mainnet, heavy inbound fees erase the
+  lead, htlc/concurrency/latency move nothing (latency-alone: five
+  routers byte-identical). Validates the interval-router hybrid
+  (evolved beliefs + lnd pricing). atomic1 audit: its fee robustness
+  is a UNITS choice (absolute msat pricing = implicit tightening ppm
+  ceiling). Incidentals: mainnet never byte-reproducible (lnd map
+  iteration; accept+caveat), 41% of fees uncounted pre-stage-C,
+  attempt-cap subsidy now measured twice (exp-022, econ_test).
 - **exp-022** — the first breed under a lying channel (corpus-mix +
   exp-019 realistic mix on train/val, --degraded prompt). The winner
   evolved the program's first attribution-confidence machinery

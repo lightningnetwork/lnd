@@ -61,7 +61,7 @@
       <span>method <b>GEPA reflective evolution</b></span>
       <span>reflection LM <b>gpt-5.6-sol</b></span>
       <span>evaluator <b>cmd/routesim</b></span>
-      <span>experiments <b>exp-001 … exp-024</b></span>
+      <span>experiments <b>exp-001 … exp-025</b></span>
       <span>champions <b>hb1 + mx_c3</b>, unchanged since exp-007 · nothing live</span>
     </div>
   </div>
@@ -95,7 +95,7 @@
             out-of-distribution topologies, mainnet snapshot, drifting liquidity,
             splitting pressure, and the atomic arena
           </div>
-          <div class="kf">eight challengers have since failed to displace them</div>
+          <div class="kf">nine challengers have since failed to displace them — though the frontier is now three regimes deep: hb1/mx_c3 where information wins, atomic1 where holds contend, econ2 where money is scarce</div>
         </div>
         <div class="key">
           <span class="kn">0</span>
@@ -397,7 +397,7 @@
     <div class="shell">
       <div class="sec-head">
         <div class="sec-no">04</div>
-        <h2>The last completed run: the engine adjudication (gepa arm)</h2>
+        <h2>Run telemetry (latest completed optimizer run)</h2>
         <p class="sec-sub">
           Telemetry from the optimizer, exported straight out of the GEPA run
           directory. <span class="mono">code_drift1</span> has since finished all 400
@@ -425,6 +425,10 @@
           between, exp-021 turned the findings into a flag-gated diff against lnd's own
           stack, where one mechanism is now PR-ready and the other is a measured null
           (<a class="link" href="findings.html#distillation">the distillation patch</a>).
+          The most recent run of all is <span class="mono">exp-025</span>, the first
+          bred in a world where money is real, and its winner is the first router here
+          ever to read the fee budget it is handed
+          (<a class="link" href="findings.html#econevo">evolution learns to count</a>).
         </p>
       </div>
 
@@ -432,27 +436,35 @@
         <h4>where the program stands</h4>
         <p>
           <strong>No optimizer run is live.</strong> Champions are unchanged at hb1
-          and mx_c3, eight challengers deep, and the arms still open are about
+          and mx_c3, nine challengers deep, and the arms still open are about
           changing the environment rather than changing the search
           (<a class="link" href="findings.html#ceilingarm">§15</a> is why).
         </p>
         <p>
-          <strong>exp-023, economic realism.</strong> The design spec is committed:
-          five mechanisms that put a price on things the arena currently gives away —
-          min and max HTLC pressure, inbound fees, fees as a first-class cost,
-          concurrent payments, latency — landing as five separately flag-gated stages
-          so that the flag-off byte-identity proof stays a sum rather than a product.
-          Stage A is in implementation. Nothing has been measured yet.
+          <strong>exp-023 and exp-025, economic realism, both closed.</strong> All
+          five stages are merged and flag-gated — min and max HTLC pressure, inbound
+          fees, fees as a first-class cost, concurrent payments, latency — each proven
+          byte-identical with its flag off. The 1,920-run sweep says the champions'
+          edge is informational rather than a pricing edge
+          (<a class="link" href="findings.html#econ">the priced world</a>), and the
+          evolution run that followed produced econ2, the fee-budget specialist and
+          challenger number nine
+          (<a class="link" href="findings.html#econevo">evolution learns to count</a>).
+          The compose-world run (all five economic knobs plus the lying channel) is live as code_full1; its five knobs are
+          live at once.
         </p>
         <p>
           <strong>The interval-router branch.</strong> Separately from the simulator,
           the champions' paradigm is being ported into lnd proper: fourteen commits on
-          <span class="mono">interval-router</span> that put a liquidity interval per
-          directed channel behind
+          <span class="mono">interval-router</span>, unchanged through both economic
+          cycles, that put a liquidity interval per directed channel behind
           <span class="mono">routerrpc.router=interval</span>, off by default, with
-          the stock stack untouched when the flag is unset. <strong>It has not been
-          benchmarked in this simulator.</strong> Nothing on this site is a
-          measurement of that branch, and no number here should be read as one.
+          the stock stack untouched when the flag is unset. <strong>It still has not
+          been benchmarked in this simulator.</strong> Nothing on this site is a
+          measurement of that branch, and no number here should be read as one — though
+          the hybrid it builds, evolved beliefs on top of lnd's own fee-aware pricing,
+          is exactly what <a class="link" href="findings.html#econ">§17</a> says to
+          build.
         </p>
       </div>
 
@@ -556,9 +568,12 @@
         what a second optimizer does with ten times the budget
         (<a class="link" href="findings.html#ceilingarm">the ceiling arm</a>), what a
         router bred against a channel that lies buys its robustness with
-        (<a class="link" href="findings.html#lying">the lying channel</a>), the
-        corrections we have had to make to our own record, and the process lessons
-        from twenty-four experiments.
+        (<a class="link" href="findings.html#lying">the lying channel</a>), what
+        happens to all of it once the world has prices
+        (<a class="link" href="findings.html#econ">the priced world</a> and
+        <a class="link" href="findings.html#econevo">evolution learns to count</a>),
+        the corrections we have had to make to our own record, and the process lessons
+        from twenty-five experiments.
       </p>
     </div>
   </div>

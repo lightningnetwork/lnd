@@ -31,11 +31,11 @@
   <!-- ================= MASTHEAD ================= -->
   <div class="shell masthead">
     <div class="eyebrow">
-      Findings<span class="sep">/</span>lnd × GEPA routing evolution<span class="sep">/</span>27 July 2026
+      Findings<span class="sep">/</span>lnd × GEPA routing evolution<span class="sep">/</span>29 July 2026
     </div>
     <h1>What the evolved routers kept, dropped, and <em>invented</em></h1>
     <p class="standfirst">
-      Twenty-four experiments in, the shape of the result is clear. On a real mainnet
+      Twenty-five experiments in, the shape of the result is clear. On a real mainnet
       graph snapshot, LLM-evolved routers match lnd's success rate using
       <strong>8.6× fewer HTLC attempts</strong> on a perfect failure channel — a
       ratio <a class="link" href="#attribution">§12</a> has since retired, because
@@ -46,7 +46,7 @@
     <div class="byline">
       <span>sources <b>simulation/lab/experiments</b></span>
       <span>champions <b>hb1 · mx_c3</b>, title defended (exp-020)</span>
-      <span>status <b>validated · de-circularised · attribution-tested (exp-019) · engine-adjudicated (exp-018, exp-024) · distilled (exp-021)</b></span>
+      <span>status <b>validated · de-circularised · attribution-tested (exp-019) · engine-adjudicated (exp-018, exp-024) · distilled (exp-021) · priced (exp-023, exp-025)</b></span>
     </div>
 
     <ol class="toc">
@@ -67,8 +67,10 @@
       <li><a href="#distillation"><span class="n">14</span><span class="t">The distillation patch: one fix lands, one theory dies</span></a></li>
       <li><a href="#ceilingarm"><span class="n">15</span><span class="t">Ten times the budget, a lower shelf</span></a></li>
       <li><a href="#lying"><span class="n">16</span><span class="t">Breeding under a lying channel</span></a></li>
-      <li><a href="#process"><span class="n">17</span><span class="t">What the process taught us</span></a></li>
-      <li><a href="#timeline"><span class="n">18</span><span class="t">Timeline of experiments</span></a></li>
+      <li><a href="#econ"><span class="n">17</span><span class="t">The world got prices</span></a></li>
+      <li><a href="#econevo"><span class="n">18</span><span class="t">Evolution learns to count</span></a></li>
+      <li><a href="#process"><span class="n">19</span><span class="t">What the process taught us</span></a></li>
+      <li><a href="#timeline"><span class="n">20</span><span class="t">Timeline of experiments</span></a></li>
       <li><a href="drift.html"><span class="n">→</span><span class="t">Drift: the environment strikes back <i>(exp-008, verdict in)</i></span></a></li>
     </ol>
   </div>
@@ -416,7 +418,7 @@
         <p>
           <strong>Exploit-clean.</strong> The simulator seals hidden liquidity behind
           a view interface, and an adversarial audit of that seal
-          (<a class="link" href="#process">§17</a>) found and
+          (<a class="link" href="#process">§19</a>) found and
           closed a real escape. Both champions were validated after the seal, with
           zero uses of any exploit path.
         </p>
@@ -990,7 +992,7 @@
         <p>
           <strong>Opus 5 at default effort, persistent parallel flow plans.</strong>
           The deepest machinery the project has produced, at 1,931 lines — well past
-          the complexity wall of <a class="link" href="#process">§17</a>. A flow plan
+          the complexity wall of <a class="link" href="#process">§19</a>. A flow plan
           survives failure, dropping only the corridors that evidence actually
           contradicts; dispatch is concurrency-first, filling the shard budget with
           the largest believable amounts before it ever ladder-searches; and planning
@@ -3329,7 +3331,8 @@
           more than thirty. Champions of record are unchanged: hb1 and mx_c3, now
           six challengers deep &mdash; eight as of
           <a class="link" href="#ceilingarm">&sect;15</a> and
-          <a class="link" href="#lying">&sect;16</a>, and the eighth reaches omni1's
+          <a class="link" href="#lying">&sect;16</a>, nine as of
+          <a class="link" href="#econevo">&sect;18</a>, and the eighth reaches omni1's
           no-guardrail shape by an entirely different road.
         </p>
 
@@ -3908,7 +3911,10 @@ proposals seen   directional_belief · capacity_penalty · log_bimodal_cost
             adjudications are planned at any budget, which means the remaining escape
             hatches from the band are <em>environment</em> changes rather than
             optimizer changes &mdash; the economic-realism stages, and offline replay
-            on real payment data. The cost ledger also closed inside 3% of exp-018's
+            on real payment data. <em>(The first of those has since run, twice:
+            <a class="link" href="#econ">&sect;17</a> measured the priced world and
+            <a class="link" href="#econevo">&sect;18</a> bred in it.)</em> The cost
+            ledger also closed inside 3% of exp-018's
             estimate: eight swings at about $2 and nineteen proposer minutes each,
             $15.68 and 157 minutes in total, which is what a costed arm is supposed to
             look like when the costing was honest.
@@ -4393,7 +4399,11 @@ proposals seen   directional_belief · capacity_penalty · log_bimodal_cost
           already carries a rule that a fee term must stay below the abandonment price;
           this is its attempt-side sibling, and it generalizes: <em>a capped cost term
           creates a free direction past the cap</em>. Any future objective revision
-          should treat the two symmetrically.
+          should treat the two symmetrically. Two things have happened to this finding
+          since: <a class="link" href="#econ">&sect;17</a> re-scored the archived runs
+          on time instead of attempts and found the axis swap flips no sign anywhere,
+          and <a class="link" href="#econevo">&sect;18</a> made the cap re-scoring a
+          mandatory gate on every margin a new candidate claims.
         </p>
 
         <div class="callout">
@@ -4415,11 +4425,581 @@ proposals seen   directional_belief · capacity_penalty · log_bimodal_cost
     </div>
   </section>
 
-  <!-- ================= 17 · PROCESS ================= -->
-  <section id="process">
+  <!-- ================= 17 · ECONOMIC REALISM ================= -->
+  <section id="econ">
     <div class="shell">
       <div class="sec-head">
         <div class="sec-no">17</div>
+        <h2>The world got prices</h2>
+        <p class="sec-sub">
+          Everything above this line was measured in an arena that gives away most of
+          the economics of a Lightning payment. exp-023 put a price on five of them
+          &mdash; announced HTLC limits, inbound fees, a real fee budget, concurrent
+          payments, latency &mdash; each behind its own flag, each proven
+          byte-identical with the flag off, all five specified, built and swept inside
+          a single day. The 1,920-run sweep answers the question the program had been
+          circling from three directions, and the answer is sharper than the question:
+          <strong>the champions' edge is informational, not a pricing edge.</strong>
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key hi">
+          <span class="kn">2<span class="u">of five mechanisms</span></span>
+          <div class="kl">
+            close the champion gap, and they are exactly the two that are
+            <em>prices</em> &mdash; fee budgets and inbound fees. Announced limits,
+            contention and latency do not move it at all
+          </div>
+          <div class="kf">port the belief system, not the cost model</div>
+        </div>
+        <div class="key">
+          <span class="kn">&minus;0.190<span class="u">gap move, mainnet at 25 ppm</span></span>
+          <div class="kl">
+            how far hb1's lead over lnd narrows on the mainnet tier once payments
+            carry a fee budget &mdash; 10 of 10 files, p = .002, and the same shape at
+            400 and 100 ppm
+          </div>
+          <div class="kf">the largest single effect anywhere in the sweep</div>
+        </div>
+        <div class="key">
+          <span class="kn">0<span class="u">budget refusals, lnd</span></span>
+          <div class="kl">
+            at every one of six fee rungs. lnd's fee-aware pathfinding never sends a
+            route it cannot afford; the evolved routers, which cannot see a fee they
+            never priced, are refused 27 to 311 times a file
+          </div>
+          <div class="kf">each refusal is an attempt spent on a route the sender could have priced itself</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>Five mechanisms, five flags, one day</h3>
+        <p>
+          Stage A gives every channel the min and max HTLC it announces, with an
+          empirical family fitted to all 62,798 directed policies of the mainnet
+          snapshot. Stage B gives nodes inbound fees, including the 4,783 real
+          policies the <span class="mono">describegraph</span> loader used to parse
+          and throw away. Stage C gives a payment a fee budget, tells its sender what
+          that budget is, and refuses a route that would overrun it instead of sending
+          it. Stage D lets the sender run several of its own payments at once, racing
+          itself for its own outbound liquidity, on a deterministic virtual-time event
+          loop that reduces to the sequential batch exactly. Stage E stops pricing an
+          attempt as a flat tick: it costs an overhead plus a round trip to the hop
+          that resolved it, so a failure at hop eight is eight times the wait of a
+          failure at the sender's own first hop.
+        </p>
+        <p>
+          <strong>The objective never changed.</strong> That was the point of the
+          design: the pressure went into the environment rather than into the weight,
+          so that nothing on this page moves for scoring reasons. The gates ran first
+          and they ran the strong way &mdash; every clean sealed tier reproduced
+          <a class="link" href="#lying">&sect;16</a>'s table on 24 of 24 cells to the
+          bit, and every knobbed tier had to show its engagement counters nonzero
+          before its results were allowed to count. 1,920 runs, zero errors.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:1.5em">
+        <table class="data">
+          <caption>exp-023 &middot; does economic realism close the champion-versus-lnd gap? One row per mechanism, each pre-registering what it should select for so that a null is a finding rather than a disappointment. Ten files a tier, twenty on contention; a directional claim needs the bootstrap interval to exclude zero <em>and</em> the sign test to reach p &lt; .05.</caption>
+          <thead>
+            <tr>
+              <th>mechanism</th>
+              <th>gap?</th>
+              <th>what the sweep measured</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>A &middot; announced HTLC limits<span class="sub">tight and mainnet-empirical rungs</span></td>
+              <td>no</td>
+              <td>Gap moves straddle zero on both rungs, and the tight caps hurt <em>lnd</em> most: &minus;0.104, 9 of 10, p = .021. Free public bounds do not substitute for learned ones.</td>
+            </tr>
+            <tr class="best">
+              <td>B &middot; inbound fees<span class="sub">heavy, empirical, and the real policies</span></td>
+              <td>yes, on the authored rung</td>
+              <td>Under heavy inbound fees the champions' significant lead over lnd disappears: hb1 +0.194 &rarr; +0.041, mx_c3 +0.230 &rarr; +0.051, neither significant. On the real mainnet inbound policies, exactly null &mdash; ten ties of ten.</td>
+            </tr>
+            <tr class="best">
+              <td>C &middot; fee budgets<span class="sub">six rungs across two tier families</span></td>
+              <td>yes, and it is the largest</td>
+              <td>The narrowing clears the full bar unanimously on mainnet: hb1 &minus;0.154 / &minus;0.186 / &minus;0.190 at 400 / 100 / 25 ppm, mx_c3 &minus;0.123 / &minus;0.174 / &minus;0.167.</td>
+            </tr>
+            <tr>
+              <td>D &middot; concurrent payments<span class="sub">windows of 1, 2 and 4, churn held constant</span></td>
+              <td>no</td>
+              <td>Window 4 significantly costs every router &mdash; lnd &minus;0.074, hb1 &minus;0.112, mx_c3 &minus;0.077, atomic1 &minus;0.029, all clearing the bar &mdash; but it costs them about equally. Every gap move straddles zero at n = 20: underpowered, reported as such rather than as a null.</td>
+            </tr>
+            <tr>
+              <td>E &middot; latency<span class="sub">sequential and concurrent rungs</span></td>
+              <td>no</td>
+              <td>The null landed in its strongest possible form: with background traffic removed, all five routers are <em>exactly identical</em> under latency alone, lnd included. Objective L never flips a sign.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <h3>The rung where lnd takes the tier back</h3>
+        <p>
+          Fee budgets are the mechanism, and the mainnet ladder is where to read them.
+          On the clean tier the champions lead lnd by +0.097. Switch on a budget and
+          that lead goes negative at every rung as a point estimate, and at 25 ppm lnd
+          finishes ahead of both champions &mdash; the production stack taking a tier
+          back, which happens nowhere else on this page. The reason is not subtle: lnd
+          prunes on the budget inside its own pathfinding, so it never dispatches a
+          route it cannot afford, while the interval routers &mdash; which score a
+          path in probability and have no idea what the sender will tolerate &mdash;
+          walk into refusal after refusal, each one costing an attempt and teaching
+          them nothing.
+        </p>
+        <p>
+          <strong>Stated with its caveat, because the caveat is real.</strong> The
+          <em>narrowing</em> clears the pre-registered bar unanimously. The
+          <em>inversion</em> does not: those negative leads have intervals excluding
+          zero but sign tests of .07 to .29, so what is established is that the gap
+          closes, not that it reverses.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:1.5em">
+        <table class="data">
+          <caption>exp-023 &middot; the mainnet fee ladder. Composite objective, with success, attempts per payment and budget refusals per file underneath; the leader of each rung is bold. The control row is the sealed exp-009 mainnet tier, and it reproduces the published numbers exactly, which is what licenses reading the rest of the column.</caption>
+          <thead>
+            <tr>
+              <th>rung</th>
+              <th class="num">lnd</th>
+              <th class="num">seed</th>
+              <th class="num">hb1</th>
+              <th class="num">mx_c3</th>
+              <th class="num">atomic1</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>no budget <em>control</em><span class="sub">the tier every earlier section used</span></td>
+              <td class="num" data-l="lnd">0.694<span class="sub">0.79 succ &middot; 19.8 att</span></td>
+              <td class="num" data-l="seed">0.762<span class="sub">0.82 succ &middot; 6.1 att</span></td>
+              <td class="num" data-l="hb1">0.790<span class="sub">0.81 succ &middot; 2.3 att</span></td>
+              <td class="num" data-l="mx_c3"><b>0.791</b><span class="sub">0.81 succ &middot; 2.3 att</span></td>
+              <td class="num" data-l="atomic1">0.790<span class="sub">0.80 succ &middot; 1.6 att</span></td>
+            </tr>
+            <tr>
+              <td>400 ppm<span class="sub">authored, generous</span></td>
+              <td class="num" data-l="lnd">0.627<span class="sub">0.72 succ &middot; 24.1 att &middot; 0 refused</span></td>
+              <td class="num" data-l="seed">0.588<span class="sub">0.71 succ &middot; 32.3 att &middot; 277</span></td>
+              <td class="num" data-l="hb1">0.570<span class="sub">0.68 succ &middot; 16.8 att &middot; 152</span></td>
+              <td class="num" data-l="mx_c3">0.600<span class="sub">0.70 succ &middot; 12.1 att &middot; 101</span></td>
+              <td class="num" data-l="atomic1"><b>0.687</b><span class="sub">0.72 succ &middot; 4.2 att &middot; 27</span></td>
+            </tr>
+            <tr>
+              <td>100 ppm<span class="sub">about what a real sender sets</span></td>
+              <td class="num" data-l="lnd">0.576<span class="sub">0.68 succ &middot; 24.3 att &middot; 0 refused</span></td>
+              <td class="num" data-l="seed">0.519<span class="sub">0.64 succ &middot; 54.0 att &middot; 515</span></td>
+              <td class="num" data-l="hb1">0.487<span class="sub">0.61 succ &middot; 27.3 att &middot; 262</span></td>
+              <td class="num" data-l="mx_c3">0.499<span class="sub">0.62 succ &middot; 21.1 att &middot; 198</span></td>
+              <td class="num" data-l="atomic1"><b>0.607</b><span class="sub">0.66 succ &middot; 6.3 att &middot; 50</span></td>
+            </tr>
+            <tr class="bad">
+              <td>25 ppm<span class="sub">authored, punishing &mdash; lnd takes the tier</span></td>
+              <td class="num" data-l="lnd"><b>0.531</b><span class="sub">0.63 succ &middot; 25.4 att &middot; 0 refused</span></td>
+              <td class="num" data-l="seed">0.464<span class="sub">0.60 succ &middot; 65.3 att &middot; 636</span></td>
+              <td class="num" data-l="hb1">0.438<span class="sub">0.57 succ &middot; 32.0 att &middot; 311</span></td>
+              <td class="num" data-l="mx_c3">0.461<span class="sub">0.59 succ &middot; 25.8 att &middot; 247</span></td>
+              <td class="num" data-l="atomic1">0.529<span class="sub">0.60 succ &middot; 8.4 att &middot; 73</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <h3>atomic1 prices in money; the champions price in nats</h3>
+        <p>
+          One router does not follow the others down the ladder. atomic1 holds
+          <strong>+0.061 over lnd at 400 ppm</strong> with the interval excluding
+          zero, and ties at 25 ppm where both champions are well behind. It deserved a
+          source audit before anything was concluded from it, and the audit found the
+          answer in the units.
+        </p>
+        <p>
+          atomic1's path score is denominated in <em>millisatoshis</em>: it buys
+          probability at a flat 420,000 msat per nat of log-probability. Both champions
+          do the exact opposite &mdash; they score in <em>nats</em> and convert fees
+          into probability at a rate proportional to 1/amount, a penalty of
+          k&middot;fee/amount with k of 15 for hb1 and 5 for mx_c3. Their willingness
+          to pay for one nat of reliability is therefore about 7% and 20% of the
+          payment, whatever the payment is, which is a term that never binds. At the
+          mainnet median amount that reads 420 ppm against 66,667 and 200,000:
+          <strong>atomic1 is 159&times; more fee-sensitive than hb1 and 476&times;
+          more than mx_c3</strong>. Its attempted routes cost 130 ppm where the
+          champions' cost 224, and at 400 ppm it is refused 27 times a file against
+          hb1's 152.
+        </p>
+        <p>
+          The denomination has a second consequence aimed straight at a ppm budget.
+          Because atomic1's exchange rate is an absolute amount, its implicit ceiling
+          in ppm terms tightens as the payment grows &mdash; 4,200 ppm on a small
+          payment, 210 ppm on a large one &mdash; so the payments where a ppm budget
+          bites hardest in absolute money automatically get the tighter ceiling. The
+          amount-relative routers are scale-free and structurally cannot do this. The
+          usual caveat applies and is the reason for quoting the constant: 420,000 was
+          fitted in an arena whose amounts run 1e8 to 2e9 msat. <em>The mechanism is
+          portable; the number is not.</em>
+        </p>
+        <p>
+          What the audit did <em>not</em> find is a budget reader. No incumbent, atomic1
+          included, ever looks at the fee limit it is handed, and all three respond to a
+          refusal identically by blocking the first-hop edge for the rest of the
+          payment. The whole difference is how often a router walks into one.
+          Alongside the pricing, atomic1 is also the contention-immune router: a
+          per-edge reservation ledger rebuilt from its own in-flight count leaves it
+          2.85 self-contention failures a file at window 4 against hb1's 40.5 and lnd's
+          88.5, its attempts flat from 6.1 to 7.3 across the window ladder where hb1's
+          triple from 7.1 to 21.6, and its makespan 33.8 seconds against 81.0 and
+          223.9.
+        </p>
+
+        <div class="note">
+          <h4>the attempt axis, re-priced</h4>
+          <p>
+            Stage E carried a pre-registered re-scoring arm rather than an objective
+            change: replace the composite's
+            <span class="mono">0.01&middot;min(extra attempts, 15)</span> with a
+            latency penalty calibrated so that the mean cost to mx_c3 is identical,
+            then re-score the archived runs with no re-execution. The motive is
+            <a class="link" href="#lying">&sect;16</a>'s finding that the attempt cap
+            is a measured objective weakness, and the deeper worry underneath it: three
+            parallel shards cost one unit of time and three units of attempt penalty,
+            and a nine-hop route and a two-hop route cost the same. <strong>Objective L
+            never flips a sign on any tier.</strong> So the two results sit together
+            honestly &mdash; a capped cost term does create a free direction past the
+            cap, and yet nothing published here changes when the axis is replaced by
+            time.
+          </p>
+        </div>
+
+        <h3>A correction the accounting handed us</h3>
+        <p>
+          Stage C was specified as a housekeeping fix and turned out to be a
+          correction. The arena reported fees only for payments that <em>completed</em>,
+          but a partially settled multi-part payment that later fails has genuinely
+          paid its forwarding nodes. Re-totalled from the per-scenario records, the
+          invisible share is 40.8% on the sealed hard tier, 41.5% on OOD and 41.7% on
+          mainnet: <strong>every fee number this program has published is the
+          59%.</strong> Nothing about the orderings moves &mdash; the fee term is worth
+          at most 0.1 of objective and it saturates &mdash; and every archived run can
+          be re-totalled without re-execution, because each scenario carried its own
+          spent fee all along.
+        </p>
+
+        <div class="callout">
+          <p>
+            <strong>Caveats.</strong> Ten files a tier, twenty on contention. The
+            heavy, tight and 25 ppm rungs are <em>authored</em> and labelled as such;
+            the empirical rungs, fitted to the real snapshot, come out close to inert,
+            which is a statement about today's mainnet policy distribution as much as
+            about the routers. The composition tier with all five knobs live is
+            exploratory only &mdash; its fee rung was calibrated on the wrong profile
+            and crushes lnd's fees asymmetrically &mdash; so no verdict is drawn from
+            it. And the byte-identity proof turned up something older than this sweep:
+            <strong>the mainnet tier has never been byte-reproducible</strong>, because
+            lnd's own <span class="mono">pathfind.go</span> breaks ties by Go map
+            iteration order. The effect is the last digit of an attempt count, the
+            objective gates have held at three decimals through every reproduction, and
+            a simulator-only deterministic sort would change route choices and so move
+            the numbers it exists to protect. Accepted and caveated: mainnet attempt
+            figures carry a small run-to-run component no seed controls.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 18 · EVOLUTION IN THE PRICED WORLD ================= -->
+  <section id="econevo">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">18</div>
+        <h2>Evolution learns to count</h2>
+        <p class="sec-sub">
+          <a class="link" href="#econ">&sect;17</a> said the champions' weakness is
+          pricing and left one run to do about it. exp-025 bred a router in the world
+          where money is real. It took two attempts &mdash; the first died on a single
+          missing type declaration &mdash; and the second produced the first candidate
+          in this program ever to read the fee budget it is handed. It is not a
+          champion. It is the fee-budget specialist, challenger number nine, and it
+          carries the first beat-lnd result on a bar that was actually live.
+        </p>
+      </div>
+
+      <div class="keyrow wide">
+        <div class="key hi">
+          <span class="kn">0<span class="u">budget violations, all six budgeted tiers</span></span>
+          <div class="kl">
+            econ2 matches lnd exactly, and it is the first evolved router ever to do
+            so. The seed is refused 22 to 644 times a file, hb1 9.9 to 291, mx_c3 9.9
+            to 220, atomic1 8.6 to 62.5
+          </div>
+          <div class="kf">not a lowered fee weight &mdash; a budget threaded through the search</div>
+        </div>
+        <div class="key">
+          <span class="kn">+0.135<span class="u">over lnd on the econ world</span></span>
+          <div class="kl">
+            interval [0.077, 0.196], 16 files to 3, p = .004 &mdash; on the first
+            corpus this program has built where lnd outscores the hand-written seed,
+            so the bar was live rather than decorative
+          </div>
+          <div class="kf">a program first &mdash; the held-out split agrees, 16 files to 4, with an interval that straddles zero by 0.002</div>
+        </div>
+        <div class="key">
+          <span class="kn">59<span class="u">of 59 proposals scored zero</span></span>
+          <div class="kl">
+            in the first run, all on one API confusion: 53 reached for the
+            <span class="mono">reflect</span> package to duck-type an imagined
+            <span class="mono">Option</span> wrapper, and the sandbox rejected every
+            single one
+          </div>
+          <div class="kf">an accidental live demonstration that the seal works</div>
+        </div>
+      </div>
+
+      <div class="prose">
+        <h3>Fifty-nine proposals, one missing type</h3>
+        <p>
+          The first attempt died an instructive death. The background prompt described
+          the inbound-fee semantics without ever naming the Go type, and a code-writing
+          model handed a described-but-unnamed field does the obvious thing: it invents
+          an API. Fifty-three proposals reached for <span class="mono">reflect</span>
+          to duck-type their way into an <span class="mono">Option</span> wrapper that
+          does not exist &mdash; and every one was rejected by the banned-identifier
+          sandbox from
+          <a class="link" href="#process">&sect;19</a>, which is the cleanest
+          demonstration of that seal the program has had. Six more guessed
+          <span class="mono">UnwrapOr</span> on a plain struct and failed to compile.
+          <strong>Eight prompt lines fixed it:</strong> state the type, show the field
+          reads, name the ban. The lesson generalises to every harness prompt this
+          program will ever write.
+        </p>
+        <p>
+          The relaunch ran 382 evaluations on the same corpus and seeds and accepted
+          nine candidates. The winner, econ2, is 1,230 lines, exploit-grep clean, and
+          byte-matched against the runner's own final selection.
+        </p>
+
+        <h3>What evolution built when money was real</h3>
+        <p>
+          econ2 is the first candidate to touch either economic contract surface: it
+          reads <span class="mono">spec.FeeLimitMsat</span> and it prices inbound fees,
+          both of which every incumbent &mdash; champions included &mdash; ignores
+          entirely. And the machinery is <em>planning</em>, not re-weighting. A
+          remaining-budget ledger net of settled shards. Per-shard budget allocation
+          that decrements as shards commit. Fee-cap pruning inside the Dijkstra rather
+          than as a filter after it. A fee-for-reliability exchange rate derived from
+          the budget itself, so the router gets stingier as the budget runs down. And
+          an eight-label Pareto search over score, fee and amount that
+          <strong>never evicts the minimum-fee label</strong>, so a cheap feasible path
+          stays in the frontier for exactly the case where the budget binds.
+        </p>
+        <p>
+          Around that sits a collection of things this program has been waiting to see
+          re-derived: the dual belief ledger from
+          <a class="link" href="#omni">&sect;13</a>'s idea list, realised as
+          process-global soft beliefs against a payment-local strict upper bound;
+          confidence time-decay, re-invented after both champions dropped it; policy
+          failures deliberately kept out of the liquidity beliefs; and
+          <a class="link" href="#distillation">&sect;14</a>'s
+          <span class="mono">soft_unknown</span> shape for unattributed failures,
+          arrived at independently. One defect, caught by the sweep's own counters and
+          recorded rather than patched: it computes the inbound fee on the incoming
+          amount where the wire charges it on the outgoing amount plus the outbound
+          fee, so it underpays a positive surcharge by a few hundred msat and eats 13
+          refusals a file on the heavy tier where lnd eats zero.
+        </p>
+      </div>
+
+      <div class="tw wide" style="margin-top:1.5em">
+        <table class="data">
+          <caption>exp-025 &middot; econ2 against the field, 1,524 runs over 21 tiers with the classic gates bit-exact against <a class="link" href="#econ">&sect;17</a>. Composite objective, leader of each tier bold. The fee-budget rungs are where it was bred; the classic tiers underneath are the sealed set every champion was decided on.</caption>
+          <thead>
+            <tr>
+              <th>tier</th>
+              <th class="num">lnd</th>
+              <th class="num">seed</th>
+              <th class="num">hb1</th>
+              <th class="num">mx_c3</th>
+              <th class="num">atomic1</th>
+              <th class="num">econ2</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="best">
+              <td>mainnet, 400 ppm<span class="sub">where the champions go negative</span></td>
+              <td class="num" data-l="lnd">0.627</td>
+              <td class="num" data-l="seed">0.588</td>
+              <td class="num" data-l="hb1">0.570</td>
+              <td class="num" data-l="mx_c3">0.600</td>
+              <td class="num" data-l="atomic1">0.687</td>
+              <td class="num" data-l="econ2"><b>0.721</b></td>
+            </tr>
+            <tr class="best">
+              <td>mainnet, 100 ppm<span class="sub">10 of 10 against both champions, p = .002</span></td>
+              <td class="num" data-l="lnd">0.576</td>
+              <td class="num" data-l="seed">0.519</td>
+              <td class="num" data-l="hb1">0.487</td>
+              <td class="num" data-l="mx_c3">0.499</td>
+              <td class="num" data-l="atomic1">0.607</td>
+              <td class="num" data-l="econ2"><b>0.664</b></td>
+            </tr>
+            <tr>
+              <td>hard profile, 4000 ppm</td>
+              <td class="num" data-l="lnd">0.303</td>
+              <td class="num" data-l="seed"><b>0.444</b></td>
+              <td class="num" data-l="hb1">0.298</td>
+              <td class="num" data-l="mx_c3">0.343</td>
+              <td class="num" data-l="atomic1">0.335</td>
+              <td class="num" data-l="econ2">0.434</td>
+            </tr>
+            <tr>
+              <td>hard profile, 2000 ppm<span class="sub">identical at every attempt cap</span></td>
+              <td class="num" data-l="lnd">0.136</td>
+              <td class="num" data-l="seed">0.172</td>
+              <td class="num" data-l="hb1">0.167</td>
+              <td class="num" data-l="mx_c3">0.192</td>
+              <td class="num" data-l="atomic1">0.141</td>
+              <td class="num" data-l="econ2"><b>0.259</b></td>
+            </tr>
+            <tr>
+              <td>econ world, held-out test<span class="sub">margin is 56&ndash;73% cap subsidy</span></td>
+              <td class="num" data-l="lnd">0.246</td>
+              <td class="num" data-l="seed">0.237</td>
+              <td class="num" data-l="hb1">0.185</td>
+              <td class="num" data-l="mx_c3">0.193</td>
+              <td class="num" data-l="atomic1">0.188</td>
+              <td class="num" data-l="econ2"><b>0.294</b></td>
+            </tr>
+            <tr>
+              <td>clean mainnet<span class="sub">the tier the champions own</span></td>
+              <td class="num" data-l="lnd">0.694</td>
+              <td class="num" data-l="seed">0.762</td>
+              <td class="num" data-l="hb1">0.790</td>
+              <td class="num" data-l="mx_c3"><b>0.791</b></td>
+              <td class="num" data-l="atomic1">0.790</td>
+              <td class="num" data-l="econ2">0.777</td>
+            </tr>
+            <tr>
+              <td>hard sealed test</td>
+              <td class="num" data-l="lnd">0.309</td>
+              <td class="num" data-l="seed">0.530</td>
+              <td class="num" data-l="hb1"><b>0.586</b></td>
+              <td class="num" data-l="mx_c3">0.583</td>
+              <td class="num" data-l="atomic1">0.510</td>
+              <td class="num" data-l="econ2">0.541</td>
+            </tr>
+            <tr class="bad">
+              <td>drift test<span class="sub">econ2's worst tier &mdash; below even the seed</span></td>
+              <td class="num" data-l="lnd">0.236</td>
+              <td class="num" data-l="seed">0.414</td>
+              <td class="num" data-l="hb1">0.442</td>
+              <td class="num" data-l="mx_c3"><b>0.454</b></td>
+              <td class="num" data-l="atomic1">0.299</td>
+              <td class="num" data-l="econ2">0.283</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="prose">
+        <h3>Specialist, not champion &mdash; and the honest half of the headline</h3>
+        <p>
+          The displacement answer is no, and it is not close. econ2 loses the classic
+          sealed set to both champions, four tiers to one against hb1 and four to
+          nothing against mx_c3, and it loses two to three of the four economic
+          <em>control</em> tiers as well. Its worst result is drift: &minus;0.16 against
+          hb1, &minus;0.17 against mx_c3, and &minus;0.13 against the hand-written seed.
+          The cause was pre-registered in the corpus README before the run started
+          &mdash; the composition world is low-drift by construction, so econ2 never
+          bred against staleness at all.
+        </p>
+        <p>
+          The specialist filing is a different matter and it is interval-solid. On the
+          fee-budget family econ2 beats hb1 on 4 of 4 tiers, mx_c3 on 3 of 4 and
+          atomic1 on 3 of 4 with intervals excluding zero, unanimously on mainnet at
+          100 ppm &mdash; 10 of 10 against both champions, p = .002. Its budget
+          discipline is the strong form of the hypothesis: zero refusals on every
+          budgeted tier, matching lnd exactly, where every other evolved router
+          violates constantly.
+        </p>
+        <p>
+          <strong>The cap check is mandatory now, and it splits.</strong>
+          <a class="link" href="#lying">&sect;16</a> made the attempt cap a measured
+          weakness rather than a suspicion, so every margin here was re-scored at 30,
+          60 and no cap. The fee-budget leads <em>survive uncapped</em> &mdash; the
+          2000 ppm margin is identical at every cap, and both mainnet rungs grow &mdash;
+          because econ2 spends 5.4 attempts a payment there, nowhere near saturation.
+          The held-out econ_test headline does not: 56% of its margin over hb1, 68%
+          over mx_c3 and 73% over atomic1 is cap subsidy, at 21.4 attempts a payment
+          against the champions' 7 to 12. No sign flips, and econ2 still wins that tier
+          on raw success and on fees &mdash; but the intervals stop excluding zero once
+          attempts are priced in full, and the number is filed with that label attached.
+        </p>
+
+        <h3>The first live bar, cleared</h3>
+        <p>
+          Every beat-lnd result on this page until now came on a corpus where the
+          hand-written seed already beat lnd, which makes the bar decorative. The
+          economic corpus is the first where <em>lnd outscores the seed</em>, and econ2
+          clears it: <strong>+0.135 on validation</strong> with the interval excluding
+          zero and p = .004, and all four fee-budget rungs with intervals excluding
+          zero. The held-out test agrees at +0.048, 16 files of 20, p = .012 &mdash;
+          quoted with the qualifier it earns, because at the published attempt cap its
+          interval straddles zero by 0.002, and only clears once the cap is lifted. The sharpest
+          form of it is the join with <a class="link" href="#econ">&sect;17</a>: the
+          champions' clean-mainnet lead goes negative at every fee rung, and econ2
+          restores an lnd-beating lead in exactly that place, 0.721 against lnd's 0.627
+          at 400 ppm, best of all six routers.
+        </p>
+
+        <div class="note">
+          <h4>the frontier is three regimes deep</h4>
+          <p>
+            One evolution run in the priced world produced a router that keeps the
+            informational machinery &mdash; interval beliefs, soft evidence &mdash;
+            <em>and</em> does the arithmetic, beating lnd where the champions cannot,
+            while giving back ground in the old worlds. That is
+            <a class="link" href="#lying">&sect;16</a>'s trade shape again, milder this
+            time, and with cap-robust wins where it was bred. What it leaves behind is
+            a frontier no single router owns: <strong>hb1 and mx_c3 where information
+            wins, atomic1 in the flat, atomic and contended niches, econ2 where money
+            is scarce.</strong> The hybrid the data keeps pointing at is the same one
+            the lnd branch is building &mdash; evolved beliefs on top of lnd's pricing
+            &mdash; and econ2 adds a concrete suggestion to it: the pricing side wants
+            budget-aware <em>search</em>, not just budget-aware filtering.
+          </p>
+        </div>
+
+        <div class="callout">
+          <p>
+            <strong>Caveats.</strong> Ten files a tier, twenty on contention, as
+            everywhere here. The econ_test cap subsidy is stated above rather than
+            buried. The inbound-fee base defect means the heavy-tier numbers understate
+            what a corrected variant would score, so read them as a floor. And one gate
+            pass was interrupted by the machine's daily
+            <span class="mono">/tmp</span> cleaner removing the mainnet graph mid-run at
+            the date rollover &mdash; errors are never cached, the re-run filled
+            cleanly, and the graph should live somewhere less ephemeral before the next
+            sweep.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 19 · PROCESS ================= -->
+  <section id="process">
+    <div class="shell">
+      <div class="sec-head">
+        <div class="sec-no">19</div>
         <h2>What the process taught us</h2>
         <p class="sec-sub">
           Findings about running this kind of search, which cost as much to learn
@@ -4498,14 +5078,14 @@ proposals seen   directional_belief · capacity_penalty · log_bimodal_cost
     </div>
   </section>
 
-  <!-- ================= 18 · TIMELINE ================= -->
+  <!-- ================= 20 · TIMELINE ================= -->
   <section id="timeline">
     <div class="shell">
       <div class="sec-head">
-        <div class="sec-no">18</div>
+        <div class="sec-no">20</div>
         <h2>Timeline of experiments</h2>
         <p class="sec-sub">
-          Twenty-six writeups, four days of wall-clock time, in numbered order. Full
+          Twenty-seven writeups, six days of wall-clock time, in numbered order. Full
           detail lives in
           <span class="mono">simulation/lab/experiments/</span>.
         </p>
@@ -5065,6 +5645,103 @@ proposals seen   directional_belief · capacity_penalty · log_bimodal_cost
             </div>
           </div>
           <div class="tl-tag">verdict · not starvation</div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-id">exp-023 · build</div>
+          <div class="tl-b">
+            <div class="t">Five mechanisms, five flags, one day</div>
+            <div class="d">
+              The spec became the arena in a single day, one stage at a time, each
+              landing with a note recording what implementation taught the design.
+              Announced min and max HTLC, with an empirical family fitted to all
+              62,798 directed policies of the snapshot; inbound fees, including the
+              4,783 real policies the loader used to throw away; a fee budget the
+              sender is told about and the runner enforces at dispatch; concurrent
+              payments on a deterministic virtual-time event loop that reduces to the
+              sequential batch exactly; and latency priced as an overhead plus a round
+              trip to the hop that resolved the attempt. Every flag proved
+              byte-identical off against a pre-change binary, and the objective was
+              left alone on purpose — the pressure went into the environment, not into
+              the weight.
+            </div>
+          </div>
+          <div class="tl-tag">instrument</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-023</div>
+          <div class="tl-b">
+            <div class="t">The economic-realism verdict: the edge is informational</div>
+            <div class="d">
+              1,920 runs, zero errors, gates reproducing the previous table on 24 of 24
+              cells to the bit, and every knobbed tier made to prove its engagement
+              counters nonzero before its results counted. Economic realism closes the
+              champion gap on exactly the two mechanisms that are <em>prices</em> and on
+              none of the three that are not. Fee budgets are the largest effect in the
+              sweep — hb1's mainnet lead narrows by 0.154, 0.186 and 0.190 at 400, 100
+              and 25 ppm, unanimously, and at 25 ppm lnd takes the tier back outright,
+              the only place in the program where the production stack wins one. Heavy
+              inbound fees erase the champions' significant lead; the real mainnet
+              inbound policies are exactly null, ten ties of ten. Announced limits,
+              contention and latency move the gap not at all, with the latency null in
+              its strongest form: five routers exactly identical when latency is the
+              only thing that changed. The source audit found atomic1's fee robustness
+              is a units choice — it prices paths in millisatoshis where the champions
+              price in nats — and stage C found that two fifths of the fees these tiers
+              pay had never been counted
+              (<a class="link" href="#econ">§17</a>).
+            </div>
+          </div>
+          <div class="tl-tag">verdict · port the beliefs, not the cost model</div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-id">exp-025 · run one</div>
+          <div class="tl-b">
+            <div class="t">Fifty-nine proposals, one missing type</div>
+            <div class="d">
+              The first economic-world run scored zero on all fifty-nine of its
+              proposals, every one of them on the same confusion: the prompt described
+              the inbound-fee semantics without naming the Go type, so fifty-three
+              proposals reached for the <span class="mono">reflect</span> package to
+              duck-type an <span class="mono">Option</span> wrapper that does not exist
+              and six guessed <span class="mono">UnwrapOr</span> on a plain struct. The
+              sandbox rejected the reflective ones without exception, which is the
+              cleanest live demonstration of that seal the program has had. Eight
+              prompt lines fixed it, and the lesson goes in the permanent collection:
+              describe data without its type and a code-writing model invents an API.
+            </div>
+          </div>
+          <div class="tl-tag">postmortem · prompt fix</div>
+        </div>
+
+        <div class="tl-item pivot">
+          <div class="tl-id">exp-025</div>
+          <div class="tl-b">
+            <div class="t">The fee-budget specialist — and the first live bar cleared</div>
+            <div class="d">
+              The relaunch, 382 evaluations, nine accepted candidates, and a 1,230-line
+              winner that is the first router in this program ever to read
+              <span class="mono">spec.FeeLimitMsat</span> or price an inbound fee. It
+              did not get there by re-weighting: a remaining-budget ledger, per-shard
+              allocation that decrements as shards commit, fee-cap pruning inside the
+              Dijkstra, a budget-derived exchange rate, and a Pareto label set that
+              never evicts its cheapest path. The 1,524-run sweep files it as the
+              fee-budget specialist and challenger number nine — CI-solid over both
+              champions on the fee rungs and cap-robust there, zero budget violations
+              on every budgeted tier where every other evolved router violates
+              constantly, but a loser on the classic sealed set and worst of all on
+              drift, below even the seed, because the world it grew up in barely
+              drifted. It also clears the program's first live beat-lnd bar, on the
+              first corpus where lnd outscored the hand-written seed: +0.135 on
+              validation, +0.048 held out, and an lnd-beating lead restored on exactly
+              the mainnet fee rungs where exp-023 watched the champions go negative.
+              Champions unchanged; the frontier is now three regimes deep
+              (<a class="link" href="#econevo">§18</a>).
+            </div>
+          </div>
+          <div class="tl-tag">verdict · specialist number two</div>
         </div>
       </div>
     </div>

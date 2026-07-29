@@ -1,0 +1,11 @@
+{
+  "best_score": 0.8715566569246972,
+  "total_evals": 385,
+  "total_cost": 0.0,
+  "budget": {
+    "exhausted": false,
+    "max_evals": 400,
+    "used": 385,
+    "remaining_evals": 15
+  }
+}

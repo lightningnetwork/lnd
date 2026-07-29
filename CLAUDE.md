@@ -194,6 +194,15 @@ next.
   (2026-07-28); no run holds `routing/` or `cmd/routesim/`.
 
 ### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
+- **exp-026** — the compose world holds. First breed under economics
+  AND the lying channel together: an honest defeat (8 pool accepts,
+  all attempting the full budget+inbound+reservations synthesis,
+  three with suspect bounds; zero broken-proposal artifacts) that
+  returned the SEED after the full budget. The difficulty ladder is
+  now monotone to zero: clean +0.05, degraded +0.044, econ +0.022,
+  compose +0.000 at identical optimizer/budget/seed. Pre-registered
+  escapes: seed from econ2 (watch the exp-013 give-up direction),
+  or 800 evals. No challenger produced; ledger stays at nine.
 - **exp-025** — evolution in the economic world. First run died on an
   API confusion (59/59 proposals; 53 used reflect around an imagined
   Option, sandbox caught every one; prompt fix: state the TYPE).

@@ -3,6 +3,39 @@
 Unordered, mined during work. Promote to experiments when picked up.
 
 ## Simulator fidelity
+- **The foreign balance sheet (READY, graph in hand 2026-07-29):**
+  dijkstrasden's revised model graph at
+  `~/codez/data/realistic_graph.json` — describegraph form, 11,255
+  nodes / 37,203 edges, snapshot ~2026-07-28, plus per-edge `balance`
+  AND `balance_certainty` generated from ln-scores data. First
+  liquidity family NOT authored by us: soft U-shape (16.8% of
+  channels <5% of capacity, 15.9% >95%, ~10% at 40-60%) where our
+  generator is sharp-bimodal with an empty middle. Directly attacks
+  the WHY.md §0 circularity (mainnet tier = our synthetic balances).
+  Needs: loader flag to read `balance` instead of generating
+  (routing/sim_load.go, blocked on tree lock), og→new key mapping for
+  vantages (11/11 sealed-scenario keys map via `pub_key_og`), a
+  decision on `disabled` flags (1,906 both-sides, 7,447 one-side).
+  Extra fields (priv_key, announcement, update1/2) are for HIS
+  simulator; our loader ignores them — file parses as-is today.
+  `balance_certainty` (median 0.50) doubles as a served-confidence
+  signal for exp-016-style import experiments. His simulator itself
+  lands this week: running OUR champions in HIS simulator is the
+  cross-simulator escape from "simulator-shaped."
+- **Fees as a liquidity prior (from dijkstrasden's report,
+  2026-07-29,
+  https://fee-liquidity-correlation.lightning.wiki/):** advertised
+  fee rates predict depletion on mainnet — P(drained) RISES with a
+  direction's own fee and FALLS with the peer's reverse fee
+  (replicated on two snapshots a year apart; lnd-default 1ppm bucket
+  anomaly at 30.6% drained). No router of ours reads this signal: the
+  champions treat fees purely as cost, lnd's apriori likewise. A
+  candidate that seeds its interval prior from the two directional
+  fees gets a free, gossip-only information edge — and the
+  realistic_graph.json balances are generated FROM this model, so
+  that tier is also the one where the signal is guaranteed live.
+  Breed or hand-write; also an upstreamable idea for bimodal's
+  scale/mode weights.
 - Liquidity models from real `lncli querymc` data (dijkstrasden's
   BalanceHints idea) instead of synthetic distributions.
 - Mainnet `describegraph` snapshot corpus entries (loader exists;

@@ -1,7 +1,7 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-07-30T00:22:16Z
+last_updated: 2026-07-30T02:49:58Z
 compaction_count: 5
 progress_pct: 85
 current_step: 4
@@ -97,14 +97,55 @@ exp-018 omni adjudication is LIVE overnight.
        NULL (deg_mn gap widened to -0.044 vs mx_c3 CI-solid),
        non-inferiority PASS w/ ood -0.032 watch item. ilnd 13/14
        CI-solid over lnd. interval-sim@09b643d6f pushed.
-       LIVE: (a) code_full2 (tree lock holds), (b) ROUND 4 in
-       integration agent a1115c4fbee460647: budget-conditional
-       cheapest-label keep in intervalFrontier.insert (restore pure
-       rank eviction when no budget; identical under budget), update
-       both tests, one commit, no push. On wake: verify + push +
-       re-bench ilnd arm via isim agent a7b0df7ce66fc0246.
-       Next: full2 artifact-check + verdict sweep on exit; dashboard
-       v65; realistic-graph loader flag once tree unlocks.
+       ROUND 4 CLOSED as a no-op: keepCheapest gate INERT on
+       unbudgeted tiers (pushed as 991f6401e; kept on merits).
+       Re-bench diagnosis (agent a7b0df7ce66fc0246, round4 block in
+       SCRATCH/isim): (1) round-3 ood -0.032 = IEEE-754
+       NON-EQUIVALENCE of the fee-penalty refactor (5*fee/amt vs
+       fee/(amt/5) differ in last bit on 24.9% of pairs; frontier
+       compares exactly, ulp flips Pareto ties). (2) interval arm NOT
+       run-to-run reproducible (map-iter ties; tier obj range
+       0.0000-0.0144, worst econ_hard_4000; round-3 headline deltas
+       survive 14-29x). (3) budgeted rungs bit-equal r3==r4,
+       hard@4000 holds 0.410.
+       ROUND 5 verified+pushed (b79f535de): intervalFeePenalty
+       helper, verbatim r2 expression both sites (shard score had
+       same reciprocal shape), bit-level pin test (25.3% disagree
+       rate confirms diagnosis), budgeted branch untouched.
+       ROUND-5 re-bench: budgeted rungs bit-equal r3 (19/19),
+       single-shard tiers restored to r2, but multi-shard unbudgeted
+       tiers NOT (ood still 0.538). TRUE ROOT CAUSE (bisect +
+       probe): intervalBudgeted sees REMAINING budget, not the
+       payment's limit — MaxMilliSatoshi-feesPaid != sentinel, so
+       every unbudgeted payment that splits flips to the budgeted
+       branch from shard 2 on. Probe predicate returned 10/11 tiers
+       to r2 exactly (ood 0.5702). isim merge d33ae8a1c committed
+       (not pushed); `final` block written (13/14 CI-solid over lnd,
+       0 losses; 3W/5L vs mx_c3, 4W/1L vs hb1).
+       ROUND 6 verified+pushed (60cce3572): intervalFeeRate
+       {budgeted, price} latched at construction; regression test
+       drives 2 real RequestRoutes. KEY PRODUCTION FINDING (agent):
+       lnrpc.CalculateFeeLimit falls back to
+       DefaultRoutingFeeLimitForAmount (100% <= 1000 sat, else 5% =
+       50000 ppm) — real payments ALWAYS budgeted; unbudgeted branch
+       near-unreachable in production. Open design Qs on record:
+       drop unbudgeted branch? retune intervalMaxFeePrice (420k
+       msat/nat, prod default pins against it on large payments)?
+       ROUND 6 ADJUDICATED + exp-027 CLOSED (f6f0b5fb4): latch
+       lands (ood 0.5703 vs 0.5702 predicted; budgeted rungs
+       bit-equal; 10/11 unbudgeted == r2). FINAL: 14/14 CI-solid
+       over lnd, 0 losses; prod-default battery (fee_limit 5% = real
+       node): margins hold all 6 tiers, clamp costs <=0.0095, zero
+       refusals every arm -> exp-023/025 fee verdicts are
+       tight-budget statements. Open finding filed: deg_hard_mix
+       unknown x shift interaction (5x sum, z=-11.1), quarantine
+       wrong-channel hypothesis, tiers in
+       exp-027-deg-mechanism-split.json. Branches pushed:
+       interval-router@60cce3572, interval-sim@fc7bfb065.
+       LIVE: code_full2 ONLY (tree lock holds). On its exit:
+       econ1-style artifact check, verdict sweep w/ attempt-cap +
+       give-up watch, writeup, then dashboard v65 (exp-027 + full2),
+       then realistic-graph loader flag (tree unlocked).
 12.[x] LIVE NOW (2026-07-29):
        (a) code_full2: compose world seeded FROM econ2 (--seed-file
        exp-025-econ2-best-candidate.go, --econ --degraded, 400

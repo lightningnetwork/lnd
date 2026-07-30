@@ -195,6 +195,20 @@ next.
   LOCKED (`routing/`, `cmd/routesim/`) until it exits.
 
 ### Closed since exp-011 (champions UNCHANGED throughout: hb1 + mx_c3)
+- **exp-029** — the foreign balance sheet. First liquidity family we
+  did NOT author (dijkstrasden's model graph, balances fit to
+  ln-scores data; loader flag 7d10989fd, `from_graph` +
+  `unbalanced_source`). The ordering SURVIVES and the margin is a
+  third WIDER than classic mainnet (+0.127..+0.132 vs +0.097, all
+  10/0 p=.002; lnd 0.596, ilnd 0.722, atomic1 0.728 on top exactly
+  as its flat-liquidity filing predicts on a 32.7%-tails soft
+  U-shape). The family swap A−B is worth ~nothing to every arm
+  (seven CIs straddle zero; fitted mx_c3 gains LEAST, never-fitted
+  seed most) — the WHY.md §0 circularity caveat is now a measured
+  ~zero. ilnd tracks the champions to the third decimal and GAINS
+  under the production-default fee limit (−267 ppm paid). The
+  fee-liquidity signal is present (Spearman −0.149) and exploited by
+  NOBODY — open idea. Residual escape: offline replay (next week).
 - **exp-027** — the integration benchmark. interval-router@ab1c123ab
   merged into the sim tree, `router_impl=interval` knob on the lnd
   arm (mission control still fed; lifecycle seams mirrored), 104/104

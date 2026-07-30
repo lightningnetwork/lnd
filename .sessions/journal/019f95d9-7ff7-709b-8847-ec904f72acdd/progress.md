@@ -1,7 +1,7 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-07-30T19:48:06Z
+last_updated: 2026-07-30T22:47:46Z
 compaction_count: 5
 progress_pct: 85
 current_step: 4
@@ -168,12 +168,23 @@ exp-018 omni adjudication is LIVE overnight.
        gains under prod default. atomic1 top (flat-liquidity filing
        predicted it). Fee signal present (Spearman -0.149), nobody
        exploits it. isim tip ffe5e5537 pushed. Digest mailed.
-       LIVE: code_full3 ONLY (800-eval compose arm, watcher
-       b7htr0zi1). On its exit: artifact check, give-up watch,
-       exp-030 writeup (compose FINAL verdict), dashboard v66
-       (exp-029 + 030). Then: offline replay NEXT WEEK (user);
-       release prep for interval-router branch (ship target: next
-       lnd major).
+       LIVE (3 tracks, 2026-07-30 evening):
+       (a) code_full3 (232/800 evals healthy, watcher b7htr0zi1,
+       tree locked). On exit: artifact check, give-up watch, exp-030
+       writeup = compose FINAL verdict, dashboard v66.
+       (b) integration agent a1115c4fbee460647: RELEASE-READINESS
+       audit on interval-router (rebase drift vs upstream master —
+       audit only unless mechanical, spare branch
+       interval-router-rebased, NEVER force-push; gap fill: postgres
+       test variant, flush-interval knob, blinded-path fallback;
+       quarantine severability report; PR narrative skeleton
+       docs/interval_routing_pr_draft.md). Verify+push on wake.
+       (c) benchmark agent a7b0df7ce66fc0246: deg_hard_mix mechanism
+       (quarantine-off 2x2 diagnosis in lnd-isim throwaway, ground-
+       truth counters for wrong-channel convictions, fix-surface
+       measurement; results SCRATCH/exp030-degmix/, likely exp-031).
+       Then: offline replay NEXT WEEK (user); ship target = interval
+       router in next lnd major.
 12.[x] LIVE NOW (2026-07-29):
        (a) code_full2: compose world seeded FROM econ2 (--seed-file
        exp-025-econ2-best-candidate.go, --econ --degraded, 400

@@ -1057,3 +1057,32 @@ shows a cost signature on ood (−0.032) and the no-budget econ
 control; round 4 is a one-line hypothesis: protect the cheapest label
 only when a budget exists. Thirteen of fourteen tiers now CI-solid
 over stock lnd.
+
+The rounds 4-6 chase closed the same night, and it reads like a
+detective story with three wrong suspects. The frontier rule was
+inert (round 4). The IEEE-754 story was real but only explained the
+single-shard tiers (round 5: restoring the verbatim expression fixed
+split/mainnet/atomic to ±0.0005 and left everything that splits
+untouched). The bug underneath was semantic: intervalBudgeted tested
+the REMAINING fee limit, which lnd's lifecycle recomputes every
+route request — the very property we praised when dropping econ2's
+second ledger — so an unbudgeted payment stopped looking unbudgeted
+the moment it paid its first shard's fees. Latch the classification
+at session construction and the adjudication lands: ood back to
+0.5703 against a 0.5702 prediction, budgeted rungs bit-identical,
+and the branch tip at 14/14 CI-solid over stock lnd with zero
+losses.
+
+The best finding of the round is about production, not the bug:
+real lnd payments always carry a fee budget (the RPC layer defaults
+to 5% of the amount), so the branch every real payment takes is the
+budgeted one — and under exactly that default, the margins hold on
+all six classic tiers, the price clamp costs nothing, and NOBODY
+refuses a route, mx_c3 included. Budget discipline separates
+routers only at budgets far tighter than any default node runs.
+exp-023 and exp-025's fee verdicts are tight-budget statements, and
+the sweep now says so. One genuine mystery filed for later:
+unknown-attribution and shift together cost the integrated router
+five times the sum of their separate costs (z=-11.1), and neither
+alone costs anything — an interaction with the quarantine's
+trust boundary as the working suspect.

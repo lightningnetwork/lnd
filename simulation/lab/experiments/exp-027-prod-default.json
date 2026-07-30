@@ -1,0 +1,292 @@
+{
+  "_meta": {
+    "prod_ppm": 50000,
+    "provenance": "lnrpc.CalculateFeeLimit default -> lnwallet.DefaultRoutingFeeLimitForAmount: amount up to RoutingFee100PercentUpTo (1,000 sat), else DefaultRoutingFeePercentage (5%)",
+    "caveat_checked": "the uniform injection would misstate production for payments under 1,000 sat, which would get 100% there and 5% here. ZERO of the 411 corpus payments are under the cut-off (smallest 20,000 sat), so the caveat is empty and these tiers are exactly production's budget.",
+    "replicates": 12,
+    "arms": [
+      "lnd",
+      "ilnd6",
+      "mx_c3",
+      "ilnd6_unbudgeted"
+    ]
+  },
+  "tiers": {
+    "prod_hard_test": {
+      "n_files": 10,
+      "control": "hard_test",
+      "arms": {
+        "lnd": {
+          "objective": 0.30920938898830314,
+          "obj_range": 0.7764634930555556,
+          "success": 0.4926190476190476,
+          "attempts": 45.458492063492066,
+          "fee_ppm": 2778.0795982038903,
+          "give_up_rate": 0.30785714285714283,
+          "fee_limit_payments": 7.9,
+          "fee_limit_failures": 0
+        },
+        "ilnd6": {
+          "objective": 0.5699968578935122,
+          "obj_range": 0.6829042816045743,
+          "success": 0.7208730158730159,
+          "attempts": 10.830039682539683,
+          "fee_ppm": 3176.0102799275637,
+          "give_up_rate": 0.2791269841269841,
+          "fee_limit_payments": 7.9,
+          "fee_limit_failures": 0
+        },
+        "mx_c3": {
+          "objective": 0.5833374720606656,
+          "obj_range": 0.7922521035468597,
+          "success": 0.731984126984127,
+          "attempts": 10.752460317460317,
+          "fee_ppm": 3479.158622399625,
+          "give_up_rate": 0.268015873015873,
+          "fee_limit_payments": 7.9,
+          "fee_limit_failures": 0
+        },
+        "ilnd6_unbudgeted": {
+          "objective": 0.5714842810526167,
+          "obj_range": 0.7254340398463325,
+          "success": 0.7153174603174604,
+          "attempts": 10.185436507936508,
+          "fee_ppm": 3447.219997441313,
+          "give_up_rate": 0.28468253968253965,
+          "fee_limit_payments": 0,
+          "fee_limit_failures": 0
+        }
+      }
+    },
+    "prod_ood_test": {
+      "n_files": 10,
+      "control": "ood_test",
+      "arms": {
+        "lnd": {
+          "objective": 0.3572535857251524,
+          "obj_range": 0.685298328092869,
+          "success": 0.5253174603174603,
+          "attempts": 58.8125,
+          "fee_ppm": 1750.0012883008408,
+          "give_up_rate": 0.21301587301587302,
+          "fee_limit_payments": 8.1,
+          "fee_limit_failures": 0
+        },
+        "ilnd6": {
+          "objective": 0.5608836247953727,
+          "obj_range": 0.9085077485903814,
+          "success": 0.6808730158730159,
+          "attempts": 9.539920634920636,
+          "fee_ppm": 2245.8734274894377,
+          "give_up_rate": 0.31912698412698415,
+          "fee_limit_payments": 8.1,
+          "fee_limit_failures": 0
+        },
+        "mx_c3": {
+          "objective": 0.5806262510197292,
+          "obj_range": 0.9156471111111111,
+          "success": 0.6950396825396825,
+          "attempts": 8.425873015873016,
+          "fee_ppm": 2436.8063196951434,
+          "give_up_rate": 0.3049603174603175,
+          "fee_limit_payments": 8.1,
+          "fee_limit_failures": 0
+        },
+        "ilnd6_unbudgeted": {
+          "objective": 0.570394471394436,
+          "obj_range": 0.9284248888888887,
+          "success": 0.6850396825396825,
+          "attempts": 8.893373015873015,
+          "fee_ppm": 2551.7429817101633,
+          "give_up_rate": 0.31496031746031744,
+          "fee_limit_payments": 0,
+          "fee_limit_failures": 0
+        }
+      }
+    },
+    "prod_split_test": {
+      "n_files": 8,
+      "control": "split_test",
+      "arms": {
+        "lnd": {
+          "objective": 0.8369457038149175,
+          "obj_range": 0.41427643978901985,
+          "success": 0.9583333333333334,
+          "attempts": 23.375,
+          "fee_ppm": 486.04814258745597,
+          "give_up_rate": 0,
+          "fee_limit_payments": 3,
+          "fee_limit_failures": 0
+        },
+        "ilnd6": {
+          "objective": 0.8773728053708068,
+          "obj_range": 0.4639402011136533,
+          "success": 0.9583333333333334,
+          "attempts": 9.833333333333334,
+          "fee_ppm": 464.69306479299394,
+          "give_up_rate": 0.041666666666666664,
+          "fee_limit_payments": 3,
+          "fee_limit_failures": 0
+        },
+        "mx_c3": {
+          "objective": 0.8764083809173208,
+          "obj_range": 0.4606745479383201,
+          "success": 0.9583333333333334,
+          "attempts": 10.25,
+          "fee_ppm": 492.08095413396006,
+          "give_up_rate": 0.041666666666666664,
+          "fee_limit_payments": 3,
+          "fee_limit_failures": 0
+        },
+        "ilnd6_unbudgeted": {
+          "objective": 0.8743920555446058,
+          "obj_range": 0.46060568318012163,
+          "success": 0.9583333333333334,
+          "attempts": 10.125,
+          "fee_ppm": 488.7305561030426,
+          "give_up_rate": 0.041666666666666664,
+          "fee_limit_payments": 0,
+          "fee_limit_failures": 0
+        }
+      }
+    },
+    "prod_drift_test": {
+      "n_files": 8,
+      "control": "drift_test",
+      "arms": {
+        "lnd": {
+          "objective": 0.23645790944886558,
+          "obj_range": 0.7947123857142857,
+          "success": 0.43561507936507937,
+          "attempts": 35.59399801587301,
+          "fee_ppm": 2668.7959958106885,
+          "give_up_rate": 0.4361111111111111,
+          "fee_limit_payments": 8.875,
+          "fee_limit_failures": 0
+        },
+        "ilnd6": {
+          "objective": 0.4589212831227123,
+          "obj_range": 0.9226562276422763,
+          "success": 0.6416666666666666,
+          "attempts": 13.714744543650793,
+          "fee_ppm": 5406.872797739234,
+          "give_up_rate": 0.35833333333333334,
+          "fee_limit_payments": 8.875,
+          "fee_limit_failures": 0
+        },
+        "mx_c3": {
+          "objective": 0.45392529055933906,
+          "obj_range": 0.8917032764227644,
+          "success": 0.6416666666666666,
+          "attempts": 13.349255952380952,
+          "fee_ppm": 5451.474815524368,
+          "give_up_rate": 0.35833333333333334,
+          "fee_limit_payments": 8.875,
+          "fee_limit_failures": 0
+        },
+        "ilnd6_unbudgeted": {
+          "objective": 0.4406397795807047,
+          "obj_range": 0.8581525528455285,
+          "success": 0.6354166666666666,
+          "attempts": 14.010900297619047,
+          "fee_ppm": 5665.406915911599,
+          "give_up_rate": 0.3645833333333333,
+          "fee_limit_payments": 0,
+          "fee_limit_failures": 0
+        }
+      }
+    },
+    "prod_atomic_test": {
+      "n_files": 8,
+      "control": "atomic_test",
+      "arms": {
+        "lnd": {
+          "objective": 0.31999663396299477,
+          "obj_range": 0.28142084683026936,
+          "success": 0.4821428571428571,
+          "attempts": 108.17857142857143,
+          "fee_ppm": 607.311158993118,
+          "give_up_rate": 0,
+          "fee_limit_payments": 7,
+          "fee_limit_failures": 0
+        },
+        "ilnd6": {
+          "objective": 0.44544027511396656,
+          "obj_range": 0.30367713601735186,
+          "success": 0.5714285714285714,
+          "attempts": 12.415178571428571,
+          "fee_ppm": 591.8255300159555,
+          "give_up_rate": 0.42857142857142855,
+          "fee_limit_payments": 7,
+          "fee_limit_failures": 0
+        },
+        "mx_c3": {
+          "objective": 0.44354223806013177,
+          "obj_range": 0.3348277415221591,
+          "success": 0.5714285714285714,
+          "attempts": 12.892857142857144,
+          "fee_ppm": 608.602382707696,
+          "give_up_rate": 0.42857142857142855,
+          "fee_limit_payments": 7,
+          "fee_limit_failures": 0
+        },
+        "ilnd6_unbudgeted": {
+          "objective": 0.44569725714901254,
+          "obj_range": 0.32653483121871263,
+          "success": 0.5714285714285714,
+          "attempts": 12.699404761904761,
+          "fee_ppm": 606.5061901684196,
+          "give_up_rate": 0.42857142857142855,
+          "fee_limit_payments": 0,
+          "fee_limit_failures": 0
+        }
+      }
+    },
+    "prod_mainnet": {
+      "n_files": 10,
+      "control": "mainnet",
+      "arms": {
+        "lnd": {
+          "objective": 0.6935762596736206,
+          "obj_range": 0.571832098245614,
+          "success": 0.79,
+          "attempts": 19.805833333333332,
+          "fee_ppm": 211.18701631897133,
+          "give_up_rate": 0.13,
+          "fee_limit_payments": 10,
+          "fee_limit_failures": 0
+        },
+        "ilnd6": {
+          "objective": 0.7868607559083223,
+          "obj_range": 0.44104743920145195,
+          "success": 0.81,
+          "attempts": 2.944166666666667,
+          "fee_ppm": 184.87887125055076,
+          "give_up_rate": 0.19,
+          "fee_limit_payments": 10,
+          "fee_limit_failures": 0
+        },
+        "mx_c3": {
+          "objective": 0.7905702540576551,
+          "obj_range": 0.43910969231699937,
+          "success": 0.81,
+          "attempts": 2.2800000000000002,
+          "fee_ppm": 331.48729711724377,
+          "give_up_rate": 0.19,
+          "fee_limit_payments": 10,
+          "fee_limit_failures": 0
+        },
+        "ilnd6_unbudgeted": {
+          "objective": 0.7882134708172942,
+          "obj_range": 0.44310969231699937,
+          "success": 0.81,
+          "attempts": 2.53,
+          "fee_ppm": 324.3264591352914,
+          "give_up_rate": 0.19,
+          "fee_limit_payments": 0,
+          "fee_limit_failures": 0
+        }
+      }
+    }
+  }
+}

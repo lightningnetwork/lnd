@@ -17,7 +17,7 @@ writeups live in `simulation/lab/experiments/` (exp-001…exp-027).
 | hb1 (evolved) | 0.790 | 2.3 | sharp-bimodal specialist; edges over mx_c3 are family-specific only (exp-020) |
 | **mx_c3 (evolved)** | **0.791** | **2.3** | generalist champion — title DEFENDED (exp-020: split_test 8/0 p=.008; hb1 wins nothing on the original set) |
 | atomic1 (evolved) | 0.790 | 1.6 | flat-liquidity specialist (exp-017 ladder rank 4→1), attempt record, beats a champion under staleness |
-| **interval-lnd (integrated)** | **0.788** | **2.5** | the interval-router branch running INSIDE lnd's payment lifecycle (exp-027): champions' margin on all six tiers, best arm in the field on mainnet fee rungs, exp-019 robustness inherited |
+| **interval-lnd (integrated)** | **0.788** | **2.5** | the interval-router branch running INSIDE lnd's payment lifecycle (exp-027, tip 60cce3572): 14/14 tiers CI-solid over stock lnd with zero losses, margins hold under the production default fee limit, best arm in the field on the fee rungs |
 
 - Mainnet = real 12,161-node describegraph snapshot
   (`~/codez/data/mainnet_graph.json`), 100 payments (exp-009). Same
@@ -213,14 +213,31 @@ next.
   champion there, cap-insensitive, zero fee violations everywhere;
   quarantine NULL on its home turf (deg-mainnet gap widened to
   −0.044 vs mx_c3 CI-solid — suspect discounting is measurably not
-  what buys the champions' zero); non-inferiority PASS with one
-  watch item, ood −0.032 from the unconditional cheapest-label keep
-  (round-4 hypothesis: budget-conditional). interval-lnd beats stock
-  lnd CI-solidly on 13/14 tiers. Methodology self-correction:
-  mainnet cells were NEVER
+  what buys the champions' zero). Rounds 4-6 ran the ood −0.032
+  regression to ground through three falsified hypotheses (frontier
+  rule inert; IEEE-754 non-equivalence real but single-shard-only)
+  to the actual bug: intervalBudgeted tested the REMAINING limit,
+  which is never the sentinel after shard one, so every unbudgeted
+  payment that split was misclassified budgeted. Fix latches
+  budgetedness at session construction (60cce3572). FINAL: 14/14
+  tiers CI-solid over stock lnd, ZERO losses (4W/1L vs hb1, 3W/5L vs
+  mx_c3, owns all three fee rungs vs the whole field); hard@4000
+  holds 0.410; ood restored to 0.5703 (prediction 0.5702).
+  PRODUCTION-DEFAULT battery (real nodes always carry a budget —
+  lnrpc falls back to DefaultRoutingFeeLimitForAmount = 5%): margins
+  hold on all six classic tiers CI-solid, the 420k msat/nat clamp
+  costs ≤0.0095, zero refusals for every arm incl. mx_c3 — so the
+  exp-023/025 fee findings are TIGHT-budget statements, not
+  default-node ones. Open finding filed: deg_hard_mix interaction
+  (unknown×shift costs 5x the sum of the parts, z=−11.1; hypothesis:
+  quarantine loses ground when failures name the WRONG channel).
+  Methodology self-corrections: mainnet cells NEVER
   byte-reproducible on any binary (findPath map iteration), so
-  bit-exact mainnet gate cells in exp-023/025 were luck; paired stats
-  carried those verdicts, future gates read mainnet statistically.
+  bit-exact mainnet gate cells in exp-023/025 were luck; the
+  interval arm is not run-to-run reproducible either (same class,
+  more state) — replicate protocol required, noise floors recorded;
+  algebraic identity is NOT float identity when comparisons are
+  exact.
 - **exp-026** — the compose world holds. First breed under economics
   AND the lying channel together: an honest defeat (8 pool accepts,
   all attempting the full budget+inbound+reservations synthesis,

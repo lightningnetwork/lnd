@@ -194,3 +194,78 @@ Round-3 artifacts: `round3` block in
 `exp-027-isim-results-summary.json`, `exp-027-round3-tables.txt.gz`,
 commands appended to `exp-027-isim-commands.md`; merge 09b643d6f on
 `interval-sim`.
+
+## Addendum 2 — rounds 4 through 6: three falsified hypotheses and the bug underneath them
+
+Round 3's ood regression (−0.032) took three rounds to run to ground,
+and the chase is worth recording because every step falsified a
+plausible story with a designed measurement.
+
+**Hypothesis 1, the frontier rule (round 4): falsified.** Gating the
+cheapest-label keep on a budget changed nothing measurable on any of
+the 14 tiers — the gate was inert. The same round established that
+the interval arm is not run-to-run reproducible on any binary (the
+findPath map-iteration class, hit harder because the label search
+holds more state); the replicate protocol that finding forced is what
+made the next two rounds cheap.
+
+**Hypothesis 2, IEEE-754 (round 5): half right.** Round 3 had
+rewritten `5·fee/max(amt,1)` through a reciprocal price — equal in
+exact arithmetic, different doubles on ~25% of realistic pairs, and
+the frontier compares scores exactly. Restoring the verbatim
+expression recovered the single-shard tiers precisely (split,
+mainnet, atomic to ±0.0005) and left every tier that splits
+untouched. The float story was real but could not explain the
+survivors.
+
+**The bug (rounds 5-6): a budget's remainder is not its existence.**
+`intervalBudgeted` tested `feeLimit != MaxMilliSatoshi`, but lnd's
+lifecycle hands the session what the limit has LEFT, recomputed every
+RequestRoute — the very property round 3 leaned on to drop econ2's
+redundant ledger. An unbudgeted payment carries the sentinel only on
+its first request; from shard two onward it carries
+`MaxMilliSatoshi − feesPaid`, is misclassified as budgeted, and gets
+the clamped absolute fee price for a budget that does not exist.
+Single-shard payments never reach a second request, which is exactly
+the restored-vs-stuck split round 5 measured. The fix latches
+budgetedness once at session construction from the payment's own
+limit (`intervalFeeRate{budgeted, price}`: the latched bool picks the
+branch, the live remainder still sets the price). Round 6
+adjudication: 10 of 11 unbudgeted tiers return to round 2 (ood
+0.5703 against a 0.5702 prediction), all three budgeted rungs
+bit-identical to round 3, hard@4000 holds 0.410.
+
+**The shipping configuration is 14/14.** The rebuilt final table at
+branch tip 60cce3572: interval-lnd beats stock lnd CI-solidly on all
+fourteen tiers with zero losses (4W/1L against hb1, 3W/5L against
+mx_c3, owning all three fee rungs against the whole field).
+
+**The production-default measurement.** Tracing the latch seam
+surfaced that production lnd essentially never sends the unbudgeted
+sentinel: `lnrpc.CalculateFeeLimit` falls back to
+`DefaultRoutingFeeLimitForAmount` (100% up to 1,000 sats, then 5%),
+so a real node takes the budgeted branch on every payment — and zero
+of the 411 classic-corpus payments sit under the cut-off, so a
+uniform 50,000 ppm reproduces production exactly. The prod-default
+battery answers the upstream question directly: the margins hold on
+all six classic tiers with CIs excluding zero (hard +0.261, mainnet
++0.093), the 420k msat/nat price ceiling costs at most 0.0095
+anywhere (and gains on drift), and no arm refuses a single route at
+the production default — mx_c3 included, which refused hundreds per
+file on the exp-023 rungs. That last point reframes the exp-023/025
+fee findings as tight-budget statements, not default-node ones.
+
+**One open finding, filed with reproducing tiers.** deg_hard_mix sits
+0.034 below round 2 (z = −11.1 at 32 replicates) while unknown-only,
+shift-only, and unknown-at-0.3 tiers all sit at or above it — the two
+attribution mechanisms together cost five times the sum of their
+parts. The working hypothesis (measured interaction, unproven
+mechanism): the quarantine handles failures that cannot name a
+channel, and loses ground when failures name the WRONG one. Artifacts
+in `exp-027-deg-mechanism-split.json`.
+
+Round 4-6 artifacts: `round4`/`round5`/`round6`/`prod_default` blocks
+and the rebuilt `final` in `exp-027-isim-results-summary.json`,
+`exp-027-round6-tables.txt.gz`, `exp-027-prod-default.json`; branch
+tips interval-router@60cce3572, interval-sim@fc7bfb065, both on the
+roasbeef fork.

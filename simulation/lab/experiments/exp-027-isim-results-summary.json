@@ -38573,5 +38573,2332 @@
       },
       "headline": "Round 3 is a clear win on the fee rungs and a null on the quarantine. interval-lnd now beats stock lnd CI-solidly on 13 of 14 tiers (deg_mn_mix is the exception at +0.034 straddling), and is the best arm in the field on all three mainnet fee rungs. Two open threads: the frontier cheapest-label rule costs ood_test, and degraded mainnet is still the one regime where a champion CI-solidly beats the port."
     }
+  },
+  "round4": {
+    "_meta": {
+      "round4_merge": "interval-router@991f6401e",
+      "change": "intervalKeepCheapest = feeLimit != lnwire.MaxMilliSatoshi, a construction-time field on intervalFrontier gating the cheapest-label keep in insert()",
+      "arm_key": "ilnd4",
+      "replicates": 12,
+      "budgeted_tiers": [
+        "econ_hard_4000",
+        "econ_mn_400",
+        "econ_mn_100"
+      ],
+      "budget_mapping_verified": "simFeeBudgetMsat returns exactly lnwire.MaxMilliSatoshi for ppm == 0, and only 3 of 14 tiers name a fee_limit_ppm (4000/400/100); confirmed by reading every scenario file, not assumed"
+    },
+    "reuse_gate": {
+      "byte_identity": "158/158 cells, 58247223 bytes",
+      "pairs": [
+        "routesim_base vs routesim_r4 on both --router arms",
+        "routesim_mx_c3 vs routesim_mx_c3_r4 on --router=candidate"
+      ],
+      "exceptions": "the same four mainnet lnd cells that lnd's own map iteration in findPath made non-reproducible before any of these rounds; novel_outputs 1 each",
+      "conclusion": "PASS. Round 4 changes nothing outside the interval session, so the five reused arms remain valid."
+    },
+    "finding_interval_arm_not_reproducible": {
+      "what": "The interval arm is not run-to-run reproducible. On many files all 8 samples of a single binary produce a distinct stdout. This was discovered by round 4's byte-identity predictions failing against the REFERENCE binary's own output set, not against the new one.",
+      "cause": "the same class of defect as lnd's findPath: equal-cost ties in the interval path finder are broken by Go map iteration order. It bites far more often here because the label setting search expands many more nodes and holds several labels per node.",
+      "what_it_costs_the_score": {
+        "ood_test": {
+          "tier_objective_range_over_12_replicates": 0.0010999999999999899,
+          "sd": 0.0002860387767736744
+        },
+        "econ_hard_4000": {
+          "tier_objective_range_over_12_replicates": 0.014378014573845188,
+          "sd": 0.005533721482821218
+        },
+        "hard_test": {
+          "tier_objective_range_over_12_replicates": 4.471794872173973e-07,
+          "sd": 1.858297738967659e-07
+        },
+        "mainnet": {
+          "tier_objective_range_over_12_replicates": 0.0,
+          "sd": 0.0
+        },
+        "econ_mn_400": {
+          "tier_objective_range_over_12_replicates": 0.0,
+          "sd": 0.0
+        }
+      },
+      "reading": "cosmetic on most tiers and small everywhere: tier objective range over 12 replicates is 0.0000 on hard_test, mainnet and econ_mn_400, 0.0011 on ood_test, 0.0144 on econ_hard_4000 (the noisiest). Every published single-draw cell sits inside its own replicate range.",
+      "consequence_for_earlier_rounds": "rounds 2 and 3 scored the interval arm from single draws, which was not stated as a caveat and should have been. It does NOT overturn round 3: its two headline deltas are far outside this noise floor (ood_test -0.032 against a 0.0011 range, ~29x sd; econ_hard_4000 +0.079 against 0.0144, ~14x sd). Everything in round 3 tighter than about 0.005 on those two tiers should be read as noise.",
+      "byte_attempt_for_the_record": {
+        "prediction_1_cells_passing": "23/81",
+        "prediction_2_cells_passing": "21/22",
+        "note": "not a meaningful test given the above; kept because it is how the finding surfaced. Predictions were re-tested as equality of scored distributions with 12 replicates per binary per file."
+      }
+    },
+    "prediction_2_budgeted_equals_round3": {
+      "verdict": "PASS, exactly.",
+      "tiers": {
+        "econ_hard_4000": {
+          "ref_round3_mean": 0.40994957849615365,
+          "round4_mean": 0.40994957849615365,
+          "delta": 0.0,
+          "files_within_ref_spread": "10/10"
+        },
+        "econ_mn_400": {
+          "ref_round3_mean": 0.7296483029335947,
+          "round4_mean": 0.7296483029335947,
+          "delta": 0.0,
+          "files_within_ref_spread": "10/10"
+        },
+        "econ_mn_100": {
+          "ref_round3_mean": 0.6725713200815813,
+          "round4_mean": 0.6725713200815813,
+          "delta": 0.0,
+          "files_within_ref_spread": "10/10"
+        }
+      },
+      "reading": "all three rungs agree with round 3 to +0.0000 with 10/10 files inside the reference spread, and the reference's own replicate range is 0.0000-0.0001. econ_hard_4000 holds at 0.4099. The budgeted insert path is unchanged, as claimed."
+    },
+    "prediction_1_unbudgeted_equals_round2": {
+      "verdict": "FAIL. This is the pre-registered finding.",
+      "tiers": {
+        "hard_test": {
+          "ref_round2_mean": 0.5714902343676349,
+          "round4_mean": 0.5868618565512369,
+          "delta_vs_round2": 0.015371622183601996,
+          "round2_replicate_range": 5.149572649409961e-07,
+          "files_within_ref_spread": "2/10"
+        },
+        "ood_test": {
+          "ref_round2_mean": 0.5702528047277693,
+          "round4_mean": 0.5382554817953157,
+          "delta_vs_round2": -0.03199732293245361,
+          "round2_replicate_range": 0.000500000000000056,
+          "files_within_ref_spread": "3/10"
+        },
+        "split_test": {
+          "ref_round2_mean": 0.8743920416025609,
+          "round4_mean": 0.8746698003647033,
+          "delta_vs_round2": 0.00027775876214242157,
+          "round2_replicate_range": 1.6730453800128942e-07,
+          "files_within_ref_spread": "1/8"
+        },
+        "drift_test": {
+          "ref_round2_mean": 0.4425998307518236,
+          "round4_mean": 0.4339062627153137,
+          "delta_vs_round2": -0.008693568036509891,
+          "round2_replicate_range": 0.013265334395127282,
+          "files_within_ref_spread": "3/8"
+        },
+        "atomic_test": {
+          "ref_round2_mean": 0.4457422947896914,
+          "round4_mean": 0.4453147585998189,
+          "delta_vs_round2": -0.00042753618987251274,
+          "round2_replicate_range": 0.0014316554196183162,
+          "files_within_ref_spread": "2/8"
+        },
+        "mainnet": {
+          "ref_round2_mean": 0.7882134708172943,
+          "round4_mean": 0.7883805471105533,
+          "delta_vs_round2": 0.0001670762932589609,
+          "round2_replicate_range": 0.0,
+          "files_within_ref_spread": "7/10"
+        },
+        "deg_hard_mix": {
+          "ref_round2_mean": 0.5001327963981721,
+          "round4_mean": 0.4895623052226964,
+          "delta_vs_round2": -0.010570491175475705,
+          "round2_replicate_range": 0.039007149493643534,
+          "files_within_ref_spread": "4/10"
+        },
+        "deg_hard_unk30": {
+          "ref_round2_mean": 0.5280191630234456,
+          "round4_mean": 0.5301497633727228,
+          "delta_vs_round2": 0.0021306003492771453,
+          "round2_replicate_range": 0.015010691392994047,
+          "files_within_ref_spread": "4/10"
+        },
+        "deg_mn_mix": {
+          "ref_round2_mean": 0.7503971953401005,
+          "round4_mean": 0.7423732680745183,
+          "delta_vs_round2": -0.00802392726558221,
+          "round2_replicate_range": 0.0,
+          "files_within_ref_spread": "6/10"
+        },
+        "econ_hard_ctrl": {
+          "ref_round2_mean": 0.6113792128183532,
+          "round4_mean": 0.596130337959281,
+          "delta_vs_round2": -0.015248874859072115,
+          "round2_replicate_range": 0.01330000000000009,
+          "files_within_ref_spread": "4/10"
+        },
+        "econ_mn_ctrl": {
+          "ref_round2_mean": 0.7882134708172943,
+          "round4_mean": 0.7883888804438866,
+          "delta_vs_round2": 0.0001754096265922378,
+          "round2_replicate_range": 0.0,
+          "files_within_ref_spread": "7/10"
+        }
+      },
+      "biggest_misses": "hard_test +0.0154, econ_hard_ctrl -0.0152, ood_test -0.0320, deg_hard_mix -0.0106, deg_mn_mix -0.0080 - every one far outside round 2's own replicate range on that tier."
+    },
+    "diagnosis": {
+      "test": "replicate the ROUND-3 binary against the ROUND-4 binary on the eleven unbudgeted tiers, 12 replicates each (diag4_r3_vs_r4.json).",
+      "result": {
+        "hard_test": {
+          "delta_r3_to_r4": -9.568627453493406e-06,
+          "r3_replicate_range": 0.00011484997680977216
+        },
+        "ood_test": {
+          "delta_r3_to_r4": -2.4999999999941735e-05,
+          "r3_replicate_range": 0.0007000000000000339
+        },
+        "split_test": {
+          "delta_r3_to_r4": 1.5595954073743812e-06,
+          "r3_replicate_range": 2.074357572445784e-05
+        },
+        "drift_test": {
+          "delta_r3_to_r4": -0.0022569325880759106,
+          "r3_replicate_range": 0.01444449424119243
+        },
+        "atomic_test": {
+          "delta_r3_to_r4": 0.00030986315794406805,
+          "r3_replicate_range": 0.0005357945051346347
+        },
+        "mainnet": {
+          "delta_r3_to_r4": 0.0,
+          "r3_replicate_range": 0.00010000000000010001
+        },
+        "deg_hard_mix": {
+          "delta_r3_to_r4": -0.004083787213659151,
+          "r3_replicate_range": 0.028571428571428525
+        },
+        "deg_hard_unk30": {
+          "delta_r3_to_r4": 0.005762405014465899,
+          "r3_replicate_range": 0.017872223781512653
+        },
+        "deg_mn_mix": {
+          "delta_r3_to_r4": -1.666666666666483e-05,
+          "r3_replicate_range": 9.999999999998899e-05
+        },
+        "econ_hard_ctrl": {
+          "delta_r3_to_r4": -2.5197621766892553e-10,
+          "r3_replicate_range": 2.2990777059916923e-09
+        },
+        "econ_mn_ctrl": {
+          "delta_r3_to_r4": 3.333333333332966e-05,
+          "r3_replicate_range": 0.00010000000000010001
+        }
+      },
+      "conclusion": "On unbudgeted tiers round 4 IS round 3, not round 2: every delta is -0.0000 to +0.0058 and inside round 3's own replicate range wherever that range is non-zero. The keepCheapest gate is therefore INERT on unbudgeted payments - it is not what moved them in round 3.",
+      "actual_cause": {
+        "where": "routing/interval_pathfind.go, intervalFeePricePerNat and its caller, introduced in ee95a0fcc (round 3).",
+        "round2_expression": "feePenalty = intervalFeeWeight * fee / math.Max(float64(p.amt), 1)",
+        "round3_and_4_expression": "feePrice = math.Max(float64(amt)/intervalFeeWeight, 1); feePenalty = fee / feePrice",
+        "why_it_matters": "these are equal in exact arithmetic and NOT equal in IEEE-754. A sweep over realistic (amt, fee) pairs from the corpora - amt 1e6 to 2e8 msat, fee 1 to 5e5 - has the two expressions returning different doubles on 3181 of 12800 pairs, 24.9%, at relative differences around 1e-16. The interval frontier compares scores exactly, for Pareto dominance and for max-label eviction, so a last-bit difference flips a tie, changes which label survives, and changes the route.",
+        "second_smaller_issue": "the clamp moved. Round 2 clamps the denominator amt at 1; round 3 clamps amt/5 at 1. For amt < 5 msat these are algebraically different, not just different in the last bit. No corpus amount is that small, so this is latent rather than active.",
+        "suggested_fix": "the unbudgeted branch has to reuse the ORIGINAL EXPRESSION rather than an algebraically equal reciprocal: branch in the scorer so that a payment with no budget computes intervalFeeWeight * fee / math.Max(amt, 1) verbatim, and only a budgeted payment goes through fee / feePrice. Then prediction 1 becomes testable as bytes on the deterministic cells."
+      }
+    },
+    "prediction_3_best_of_both_rounds": {
+      "verdict": "DOES NOT HOLD.",
+      "expected": "ood back to 0.570, hard@4000 stays 0.410, econ_hard_ctrl back to 0.609",
+      "observed": "ood stays at 0.538 (round 3), hard@4000 stays at 0.410 (round 3, as predicted), econ_hard_ctrl stays at 0.596 (round 3). Round 4 is round 3 on every tier: the half that was supposed to be restored was not.",
+      "net_effect_of_round_4": "no measurable change on any of the 14 tiers. The commit is a no-op in this environment."
+    },
+    "tiers": {
+      "hard_test": {
+        "prediction": 1,
+        "reference": "routesim_base (round2)",
+        "ilnd4_replicate_mean": 0.5868618565512369,
+        "ilnd4_replicate_range": 0.00011496612018546681,
+        "reference_replicate_mean": 0.5714902343676349,
+        "delta": 0.015371622183601996
+      },
+      "ood_test": {
+        "prediction": 1,
+        "reference": "routesim_base (round2)",
+        "ilnd4_replicate_mean": 0.5382554817953157,
+        "ilnd4_replicate_range": 0.0006000000000000449,
+        "reference_replicate_mean": 0.5702528047277693,
+        "delta": -0.03199732293245361
+      },
+      "split_test": {
+        "prediction": 1,
+        "reference": "routesim_base (round2)",
+        "ilnd4_replicate_mean": 0.8746698003647033,
+        "ilnd4_replicate_range": 2.2772006561089242e-05,
+        "reference_replicate_mean": 0.8743920416025609,
+        "delta": 0.00027775876214242157
+      },
+      "drift_test": {
+        "prediction": 1,
+        "reference": "routesim_base (round2)",
+        "ilnd4_replicate_mean": 0.4339062627153137,
+        "ilnd4_replicate_range": 0.01472223594173444,
+        "reference_replicate_mean": 0.4425998307518236,
+        "delta": -0.008693568036509891
+      },
+      "atomic_test": {
+        "prediction": 1,
+        "reference": "routesim_base (round2)",
+        "ilnd4_replicate_mean": 0.4453147585998189,
+        "ilnd4_replicate_range": 0.0005357276556177126,
+        "reference_replicate_mean": 0.4457422947896914,
+        "delta": -0.00042753618987251274
+      },
+      "mainnet": {
+        "prediction": 1,
+        "reference": "routesim_base (round2)",
+        "ilnd4_replicate_mean": 0.7883805471105533,
+        "ilnd4_replicate_range": 0.00010000000000010001,
+        "reference_replicate_mean": 0.7882134708172943,
+        "delta": 0.0001670762932589609
+      },
+      "deg_hard_mix": {
+        "prediction": 1,
+        "reference": "routesim_base (round2)",
+        "ilnd4_replicate_mean": 0.4895623052226964,
+        "ilnd4_replicate_range": 0.062216516404761835,
+        "reference_replicate_mean": 0.5001327963981721,
+        "delta": -0.010570491175475705
+      },
+      "deg_hard_unk30": {
+        "prediction": 1,
+        "reference": "routesim_base (round2)",
+        "ilnd4_replicate_mean": 0.5301497633727228,
+        "ilnd4_replicate_range": 0.0249189211053652,
+        "reference_replicate_mean": 0.5280191630234456,
+        "delta": 0.0021306003492771453
+      },
+      "deg_mn_mix": {
+        "prediction": 1,
+        "reference": "routesim_base (round2)",
+        "ilnd4_replicate_mean": 0.7423732680745183,
+        "ilnd4_replicate_range": 9.999999999998899e-05,
+        "reference_replicate_mean": 0.7503971953401005,
+        "delta": -0.00802392726558221
+      },
+      "econ_hard_ctrl": {
+        "prediction": 1,
+        "reference": "routesim_base (round2)",
+        "ilnd4_replicate_mean": 0.596130337959281,
+        "ilnd4_replicate_range": 1.574440022800161e-09,
+        "reference_replicate_mean": 0.6113792128183532,
+        "delta": -0.015248874859072115
+      },
+      "econ_hard_4000": {
+        "prediction": 2,
+        "reference": "routesim_r3 (round3)",
+        "ilnd4_replicate_mean": 0.40994957849615365,
+        "ilnd4_replicate_range": 4.379529411763228e-05,
+        "reference_replicate_mean": 0.40994957849615365,
+        "delta": 0.0
+      },
+      "econ_mn_ctrl": {
+        "prediction": 1,
+        "reference": "routesim_base (round2)",
+        "ilnd4_replicate_mean": 0.7883888804438866,
+        "ilnd4_replicate_range": 0.00010000000000010001,
+        "reference_replicate_mean": 0.7882134708172943,
+        "delta": 0.0001754096265922378
+      },
+      "econ_mn_400": {
+        "prediction": 2,
+        "reference": "routesim_r3 (round3)",
+        "ilnd4_replicate_mean": 0.7296483029335947,
+        "ilnd4_replicate_range": 0.0,
+        "reference_replicate_mean": 0.7296483029335947,
+        "delta": 0.0
+      },
+      "econ_mn_100": {
+        "prediction": 2,
+        "reference": "routesim_r3 (round3)",
+        "ilnd4_replicate_mean": 0.6725713200815813,
+        "ilnd4_replicate_range": 0.0,
+        "reference_replicate_mean": 0.6725713200815813,
+        "delta": 0.0
+      }
+    },
+    "headline": "Round 4 half-lands. The budgeted half is exactly right: the three fee rungs reproduce round 3 to +0.0000 and hard@4000 holds 0.410. The unbudgeted half does nothing: those tiers stay at round-3 values, because the cheapest-label keep was never what moved them. The round-3 regression on ood_test and econ_hard_ctrl comes from the fee-price refactor being floating-point inequivalent to the expression it replaced, not from the frontier. Gating keepCheapest is still probably correct on its own merits, but it is untested here because it changed nothing measurable; the ood_test fix is a one-line change somewhere else."
+  },
+  "final": {
+    "_meta": {
+      "branch_tip": "fc7bfb065 (merge of interval-router@60cce3572)",
+      "arm": "ilnd-final = routesim_r6 --router=lnd --params {router_impl:interval}",
+      "replicates_per_file": 12,
+      "statistic": "per-file replicate MEAN, because the interval arm is not run-to-run reproducible; per-tier replicate range carried alongside",
+      "baselines": "lnd, mx_c3, hb1 from the round-2 aggregates, byte-identical on this tree per every reuse gate",
+      "objective": "success - 0.01*min(extra_attempts,15) - 0.00002*min(fee_ppm,5000)",
+      "bootstrap": 10000,
+      "bootstrap_seed": 20260729,
+      "prod_default_companion": "the classic tiers in this block carry NO budget. See the prod_default block for the same six tiers at production's own 50,000 ppm, which is the configuration a real node runs."
+    },
+    "tiers": {
+      "hard_test": {
+        "family": "classic",
+        "n_files": 10,
+        "ilnd_final": {
+          "objective": 0.5714903157422788,
+          "objective_noise_range": 3.8777777777720956e-07,
+          "objective_noise_sd": 1.3324983355604649e-07,
+          "success": 0.7153174603174602,
+          "attempts": 10.163809523809523
+        },
+        "baselines": {
+          "lnd": {
+            "objective": 0.30920938898830314,
+            "success": 0.4926190476190476,
+            "attempts": 45.458492063492066
+          },
+          "mx_c3": {
+            "objective": 0.5833374720606656,
+            "success": 0.731984126984127,
+            "attempts": 10.752460317460317
+          },
+          "hb1": {
+            "objective": 0.5859989549512805,
+            "success": 0.731984126984127,
+            "attempts": 9.257936507936508
+          }
+        },
+        "comparisons": {
+          "ilnd_final_minus_lnd": {
+            "delta": 0.26228092675397574,
+            "ci_lo": 0.19025074176181025,
+            "ci_hi": 0.32930391760114935,
+            "ci_excludes_zero": true,
+            "pos": 10,
+            "neg": 0,
+            "sign_p": 0.001953125,
+            "delta_success": 0.22269841269841262,
+            "delta_attempts": -35.29468253968254,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_mx_c3": {
+            "delta": -0.011847156318386594,
+            "ci_lo": -0.05196624061205278,
+            "ci_hi": 0.01691196856070757,
+            "ci_excludes_zero": false,
+            "pos": 3,
+            "neg": 4,
+            "sign_p": 1.0,
+            "delta_success": -0.01666666666666672,
+            "delta_attempts": -0.5886507936507943,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_hb1": {
+            "delta": -0.01450863920900164,
+            "ci_lo": -0.05245898845234851,
+            "ci_hi": 0.011416912705159193,
+            "ci_excludes_zero": false,
+            "pos": 2,
+            "neg": 7,
+            "sign_p": 0.1796875,
+            "delta_success": -0.01666666666666672,
+            "delta_attempts": 0.9058730158730146,
+            "exceeds_noise": true
+          }
+        }
+      },
+      "ood_test": {
+        "family": "classic",
+        "n_files": 10,
+        "ilnd_final": {
+          "objective": 0.5702028047277693,
+          "objective_noise_range": 0.0009000000000000119,
+          "objective_noise_sd": 0.000228963408483197,
+          "success": 0.6850396825396825,
+          "attempts": 8.912539682539682
+        },
+        "baselines": {
+          "lnd": {
+            "objective": 0.3572535857251524,
+            "success": 0.5253174603174603,
+            "attempts": 58.8125
+          },
+          "mx_c3": {
+            "objective": 0.5806262510197293,
+            "success": 0.6950396825396826,
+            "attempts": 8.425873015873016
+          },
+          "hb1": {
+            "objective": 0.5447436399387569,
+            "success": 0.6558730158730159,
+            "attempts": 8.161031746031746
+          }
+        },
+        "comparisons": {
+          "ilnd_final_minus_lnd": {
+            "delta": 0.2129492190026169,
+            "ci_lo": 0.07470275357189896,
+            "ci_hi": 0.36079481255282103,
+            "ci_excludes_zero": true,
+            "pos": 9,
+            "neg": 1,
+            "sign_p": 0.021484375,
+            "delta_success": 0.1597222222222222,
+            "delta_attempts": -49.89996031746032,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_mx_c3": {
+            "delta": -0.010423446291959943,
+            "ci_lo": -0.03283407337529329,
+            "ci_hi": 0.005311885652484511,
+            "ci_excludes_zero": false,
+            "pos": 3,
+            "neg": 6,
+            "sign_p": 0.5078125,
+            "delta_success": -0.01000000000000012,
+            "delta_attempts": 0.48666666666666636,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_hb1": {
+            "delta": 0.025459164789012462,
+            "ci_lo": -0.013284838325756828,
+            "ci_hi": 0.07350847051083052,
+            "ci_excludes_zero": false,
+            "pos": 4,
+            "neg": 5,
+            "sign_p": 1.0,
+            "delta_success": 0.029166666666666563,
+            "delta_attempts": 0.7515079365079362,
+            "exceeds_noise": true
+          }
+        }
+      },
+      "split_test": {
+        "family": "classic",
+        "n_files": 8,
+        "ilnd_final": {
+          "objective": 0.8743920914476493,
+          "objective_noise_range": 2.1541826145110576e-07,
+          "objective_noise_sd": 9.533009216687368e-08,
+          "success": 0.9583333333333334,
+          "attempts": 10.125
+        },
+        "baselines": {
+          "lnd": {
+            "objective": 0.8369457038149175,
+            "success": 0.9583333333333334,
+            "attempts": 23.375
+          },
+          "mx_c3": {
+            "objective": 0.8764083809173208,
+            "success": 0.9583333333333334,
+            "attempts": 10.25
+          },
+          "hb1": {
+            "objective": 0.8141698226448302,
+            "success": 0.9166666666666667,
+            "attempts": 12.125
+          }
+        },
+        "comparisons": {
+          "ilnd_final_minus_lnd": {
+            "delta": 0.037446387632731795,
+            "ci_lo": 0.018772568643011675,
+            "ci_hi": 0.055073736080692354,
+            "ci_excludes_zero": true,
+            "pos": 6,
+            "neg": 2,
+            "sign_p": 0.2890625,
+            "delta_success": 0.0,
+            "delta_attempts": -13.25,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_mx_c3": {
+            "delta": -0.002016289469671445,
+            "ci_lo": -0.004749648348759641,
+            "ci_hi": -4.214755469009179e-06,
+            "ci_excludes_zero": true,
+            "pos": 2,
+            "neg": 5,
+            "sign_p": 0.453125,
+            "delta_success": 0.0,
+            "delta_attempts": -0.125,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_hb1": {
+            "delta": 0.060222268802819126,
+            "ci_lo": 0.011780106959596429,
+            "ci_hi": 0.14073034851626204,
+            "ci_excludes_zero": true,
+            "pos": 8,
+            "neg": 0,
+            "sign_p": 0.0078125,
+            "delta_success": 0.04166666666666663,
+            "delta_attempts": -2.0,
+            "exceeds_noise": true
+          }
+        }
+      },
+      "drift_test": {
+        "family": "classic",
+        "n_files": 8,
+        "ilnd_final": {
+          "objective": 0.44295868460503335,
+          "objective_noise_range": 0.012581998531042138,
+          "objective_noise_sd": 0.005732678274909861,
+          "success": 0.6375,
+          "attempts": 14.083035714285714
+        },
+        "baselines": {
+          "lnd": {
+            "objective": 0.23645790944886558,
+            "success": 0.43561507936507937,
+            "attempts": 35.59399801587301
+          },
+          "mx_c3": {
+            "objective": 0.45392529055933906,
+            "success": 0.6416666666666666,
+            "attempts": 13.349255952380952
+          },
+          "hb1": {
+            "objective": 0.4424367765976402,
+            "success": 0.6291666666666667,
+            "attempts": 12.41235119047619
+          }
+        },
+        "comparisons": {
+          "ilnd_final_minus_lnd": {
+            "delta": 0.20650077515616777,
+            "ci_lo": 0.14215520469926357,
+            "ci_hi": 0.27113229043620024,
+            "ci_excludes_zero": true,
+            "pos": 8,
+            "neg": 0,
+            "sign_p": 0.0078125,
+            "delta_success": 0.20188492063492058,
+            "delta_attempts": -21.5109623015873,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_mx_c3": {
+            "delta": -0.01096660595430568,
+            "ci_lo": -0.021585825287940383,
+            "ci_hi": -0.0025434849770021584,
+            "ci_excludes_zero": true,
+            "pos": 0,
+            "neg": 6,
+            "sign_p": 0.03125,
+            "delta_success": -0.004166666666666652,
+            "delta_attempts": 0.7337797619047617,
+            "exceeds_noise": false
+          },
+          "ilnd_final_minus_hb1": {
+            "delta": 0.0005219080073931822,
+            "ci_lo": -0.021833079755140698,
+            "ci_hi": 0.025635923823051937,
+            "ci_excludes_zero": false,
+            "pos": 3,
+            "neg": 4,
+            "sign_p": 1.0,
+            "delta_success": 0.008333333333333304,
+            "delta_attempts": 1.6706845238095234,
+            "exceeds_noise": false
+          }
+        }
+      },
+      "atomic_test": {
+        "family": "classic",
+        "n_files": 8,
+        "ilnd_final": {
+          "objective": 0.44562302211060356,
+          "objective_noise_range": 0.0014332731779275187,
+          "objective_noise_sd": 0.0006033697248721689,
+          "success": 0.5714285714285714,
+          "attempts": 12.706845238095237
+        },
+        "baselines": {
+          "lnd": {
+            "objective": 0.31999663396299477,
+            "success": 0.4821428571428571,
+            "attempts": 108.17857142857143
+          },
+          "mx_c3": {
+            "objective": 0.44354223806013177,
+            "success": 0.5714285714285714,
+            "attempts": 12.892857142857144
+          },
+          "hb1": {
+            "objective": 0.444823342132827,
+            "success": 0.5535714285714286,
+            "attempts": 10.642857142857142
+          }
+        },
+        "comparisons": {
+          "ilnd_final_minus_lnd": {
+            "delta": 0.12562638814760874,
+            "ci_lo": 0.05813734129672984,
+            "ci_hi": 0.20481228140291036,
+            "ci_excludes_zero": true,
+            "pos": 8,
+            "neg": 0,
+            "sign_p": 0.0078125,
+            "delta_success": 0.0892857142857143,
+            "delta_attempts": -95.47172619047619,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_mx_c3": {
+            "delta": 0.00208078405047174,
+            "ci_lo": -0.004099611164802973,
+            "ci_hi": 0.007897668581396955,
+            "ci_excludes_zero": false,
+            "pos": 5,
+            "neg": 3,
+            "sign_p": 0.7265625,
+            "delta_success": 0.0,
+            "delta_attempts": -0.18601190476190688,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_hb1": {
+            "delta": 0.0007996799777765101,
+            "ci_lo": -0.029417816120993208,
+            "ci_hi": 0.04582923536837236,
+            "ci_excludes_zero": false,
+            "pos": 2,
+            "neg": 6,
+            "sign_p": 0.2890625,
+            "delta_success": 0.017857142857142794,
+            "delta_attempts": 2.063988095238095,
+            "exceeds_noise": false
+          }
+        }
+      },
+      "mainnet": {
+        "family": "classic",
+        "n_files": 10,
+        "ilnd_final": {
+          "objective": 0.7882134708172943,
+          "objective_noise_range": 0.0,
+          "objective_noise_sd": 0.0,
+          "success": 0.8099999999999999,
+          "attempts": 2.53
+        },
+        "baselines": {
+          "lnd": {
+            "objective": 0.6935762596736206,
+            "success": 0.79,
+            "attempts": 19.81
+          },
+          "mx_c3": {
+            "objective": 0.7905702540576551,
+            "success": 0.8099999999999999,
+            "attempts": 2.2800000000000002
+          },
+          "hb1": {
+            "objective": 0.7902646214010425,
+            "success": 0.8099999999999999,
+            "attempts": 2.3
+          }
+        },
+        "comparisons": {
+          "ilnd_final_minus_lnd": {
+            "delta": 0.0946372111436736,
+            "ci_lo": 0.03901303578708624,
+            "ci_hi": 0.15920043898533248,
+            "ci_excludes_zero": true,
+            "pos": 8,
+            "neg": 2,
+            "sign_p": 0.109375,
+            "delta_success": 0.019999999999999907,
+            "delta_attempts": -17.279999999999998,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_mx_c3": {
+            "delta": -0.002356783240360949,
+            "ci_lo": -0.004100000000000004,
+            "ci_hi": -0.0008736004347826065,
+            "ci_excludes_zero": true,
+            "pos": 1,
+            "neg": 7,
+            "sign_p": 0.0703125,
+            "delta_success": 0.0,
+            "delta_attempts": 0.24999999999999956,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_hb1": {
+            "delta": -0.002051150583748285,
+            "ci_lo": -0.005231946204641691,
+            "ci_hi": 0.0019059272470451805,
+            "ci_excludes_zero": false,
+            "pos": 2,
+            "neg": 7,
+            "sign_p": 0.1796875,
+            "delta_success": 0.0,
+            "delta_attempts": 0.22999999999999998,
+            "exceeds_noise": true
+          }
+        }
+      },
+      "deg_hard_mix": {
+        "family": "degraded",
+        "n_files": 10,
+        "ilnd_final": {
+          "objective": 0.46204434191937477,
+          "objective_noise_range": 0.05392255507015209,
+          "objective_noise_sd": 0.01289544652364747,
+          "success": 0.6281746031746032,
+          "attempts": 15.366917989417988
+        },
+        "baselines": {
+          "lnd": {
+            "objective": 0.18841246274938947,
+            "success": 0.23992063492063492,
+            "attempts": 3.0421031746031746
+          },
+          "mx_c3": {
+            "objective": 0.5166067378073823,
+            "success": 0.681031746031746,
+            "attempts": 16.251785714285713
+          },
+          "hb1": {
+            "objective": 0.524892491492173,
+            "success": 0.6986507936507936,
+            "attempts": 17.0109126984127
+          }
+        },
+        "comparisons": {
+          "ilnd_final_minus_lnd": {
+            "delta": 0.2736318791699852,
+            "ci_lo": 0.12970485752750033,
+            "ci_hi": 0.42978801671811573,
+            "ci_excludes_zero": true,
+            "pos": 9,
+            "neg": 1,
+            "sign_p": 0.021484375,
+            "delta_success": 0.38825396825396824,
+            "delta_attempts": 12.324814814814815,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_mx_c3": {
+            "delta": -0.05456239588800753,
+            "ci_lo": -0.12507795819615591,
+            "ci_hi": 0.003023686792651065,
+            "ci_excludes_zero": false,
+            "pos": 3,
+            "neg": 7,
+            "sign_p": 0.34375,
+            "delta_success": -0.052857142857142825,
+            "delta_attempts": -0.8848677248677248,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_hb1": {
+            "delta": -0.06284814957279831,
+            "ci_lo": -0.14107755833701238,
+            "ci_hi": 0.01870044968739156,
+            "ci_excludes_zero": false,
+            "pos": 3,
+            "neg": 7,
+            "sign_p": 0.34375,
+            "delta_success": -0.07047619047619047,
+            "delta_attempts": -1.6439947089947111,
+            "exceeds_noise": true
+          }
+        }
+      },
+      "deg_hard_unk30": {
+        "family": "degraded",
+        "n_files": 10,
+        "ilnd_final": {
+          "objective": 0.528040495334532,
+          "objective_noise_range": 0.04299714041164204,
+          "objective_noise_sd": 0.012472191685424476,
+          "success": 0.6833730158730159,
+          "attempts": 12.486349206349205
+        },
+        "baselines": {
+          "lnd": {
+            "objective": 0.1622701046184371,
+            "success": 0.19325396825396826,
+            "attempts": 2.1643650793650795
+          },
+          "mx_c3": {
+            "objective": 0.5189629797563133,
+            "success": 0.6899206349206348,
+            "attempts": 17.848531746031746
+          },
+          "hb1": {
+            "objective": 0.5567914403563258,
+            "success": 0.721984126984127,
+            "attempts": 17.949325396825397
+          }
+        },
+        "comparisons": {
+          "ilnd_final_minus_lnd": {
+            "delta": 0.36577039071609485,
+            "ci_lo": 0.19048215336393037,
+            "ci_hi": 0.5457690286837873,
+            "ci_excludes_zero": true,
+            "pos": 9,
+            "neg": 1,
+            "sign_p": 0.021484375,
+            "delta_success": 0.4901190476190477,
+            "delta_attempts": 10.321984126984125,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_mx_c3": {
+            "delta": 0.009077515578218651,
+            "ci_lo": -0.05673696683628443,
+            "ci_hi": 0.07328749450085484,
+            "ci_excludes_zero": false,
+            "pos": 8,
+            "neg": 2,
+            "sign_p": 0.109375,
+            "delta_success": -0.006547619047618913,
+            "delta_attempts": -5.362182539682541,
+            "exceeds_noise": false
+          },
+          "ilnd_final_minus_hb1": {
+            "delta": -0.028750945021793834,
+            "ci_lo": -0.08462821966948308,
+            "ci_hi": 0.026535918181175084,
+            "ci_excludes_zero": false,
+            "pos": 5,
+            "neg": 5,
+            "sign_p": 1.0,
+            "delta_success": -0.03861111111111104,
+            "delta_attempts": -5.462976190476192,
+            "exceeds_noise": false
+          }
+        }
+      },
+      "deg_mn_mix": {
+        "family": "degraded",
+        "n_files": 10,
+        "ilnd_final": {
+          "objective": 0.7512175333444866,
+          "objective_noise_range": 0.0,
+          "objective_noise_sd": 0.0,
+          "success": 0.77,
+          "attempts": 2.27
+        },
+        "baselines": {
+          "lnd": {
+            "objective": 0.7087643003346737,
+            "success": 0.7300000000000001,
+            "attempts": 2.83
+          },
+          "mx_c3": {
+            "objective": 0.7861269624447519,
+            "success": 0.8099999999999999,
+            "attempts": 2.73
+          },
+          "hb1": {
+            "objective": 0.788724264997102,
+            "success": 0.8099999999999999,
+            "attempts": 2.4699999999999998
+          }
+        },
+        "comparisons": {
+          "ilnd_final_minus_lnd": {
+            "delta": 0.04245323300981284,
+            "ci_lo": 0.00694843352987623,
+            "ci_hi": 0.08853504603091447,
+            "ci_excludes_zero": true,
+            "pos": 6,
+            "neg": 4,
+            "sign_p": 0.75390625,
+            "delta_success": 0.039999999999999925,
+            "delta_attempts": -0.56,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_mx_c3": {
+            "delta": -0.034909429100265364,
+            "ci_lo": -0.07864709799122001,
+            "ci_hi": -0.0002770624365492247,
+            "ci_excludes_zero": true,
+            "pos": 3,
+            "neg": 6,
+            "sign_p": 0.5078125,
+            "delta_success": -0.039999999999999925,
+            "delta_attempts": -0.45999999999999996,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_hb1": {
+            "delta": -0.03750673165261542,
+            "ci_lo": -0.08156630972177031,
+            "ci_hi": -0.0016096316980578785,
+            "ci_excludes_zero": true,
+            "pos": 2,
+            "neg": 7,
+            "sign_p": 0.1796875,
+            "delta_success": -0.039999999999999925,
+            "delta_attempts": -0.19999999999999973,
+            "exceeds_noise": true
+          }
+        }
+      },
+      "econ_hard_ctrl": {
+        "family": "econ",
+        "n_files": 10,
+        "ilnd_final": {
+          "objective": 0.6097942261939571,
+          "objective_noise_range": 0.016519839492753596,
+          "objective_noise_sd": 0.004510909653448621,
+          "success": 0.762936507936508,
+          "attempts": 9.827222222222222
+        },
+        "baselines": {
+          "lnd": {
+            "objective": 0.329268599703922,
+            "success": 0.49873015873015875,
+            "attempts": 51.84174603174604
+          },
+          "mx_c3": {
+            "objective": 0.5741677133033534,
+            "success": 0.7301587301587301,
+            "attempts": 10.993650793650794
+          },
+          "hb1": {
+            "objective": 0.5665723770326065,
+            "success": 0.7190476190476189,
+            "attempts": 9.877142857142857
+          }
+        },
+        "comparisons": {
+          "ilnd_final_minus_lnd": {
+            "delta": 0.280525626490035,
+            "ci_lo": 0.16295640208858123,
+            "ci_hi": 0.3934077501856402,
+            "ci_excludes_zero": true,
+            "pos": 9,
+            "neg": 0,
+            "sign_p": 0.00390625,
+            "delta_success": 0.2642063492063493,
+            "delta_attempts": -42.01452380952382,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_mx_c3": {
+            "delta": 0.035626512890603666,
+            "ci_lo": -0.0014475724675324432,
+            "ci_hi": 0.07489504269318421,
+            "ci_excludes_zero": false,
+            "pos": 3,
+            "neg": 4,
+            "sign_p": 1.0,
+            "delta_success": 0.032777777777777906,
+            "delta_attempts": -1.1664285714285718,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_hb1": {
+            "delta": 0.0432218491613504,
+            "ci_lo": -0.007789677420634913,
+            "ci_hi": 0.10492222222222222,
+            "ci_excludes_zero": false,
+            "pos": 4,
+            "neg": 5,
+            "sign_p": 1.0,
+            "delta_success": 0.04388888888888909,
+            "delta_attempts": -0.049920634920635365,
+            "exceeds_noise": true
+          }
+        }
+      },
+      "econ_hard_4000": {
+        "family": "econ",
+        "n_files": 10,
+        "ilnd_final": {
+          "objective": 0.40994335712360463,
+          "objective_noise_range": 0.0,
+          "objective_noise_sd": 0.0,
+          "success": 0.5563492063492064,
+          "attempts": 12.384656084656084
+        },
+        "baselines": {
+          "lnd": {
+            "objective": 0.30272046923107604,
+            "success": 0.4644444444444445,
+            "attempts": 50.948095238095235
+          },
+          "mx_c3": {
+            "objective": 0.3433626304473868,
+            "success": 0.453015873015873,
+            "attempts": 8.507142857142856
+          },
+          "hb1": {
+            "objective": 0.2976720043212993,
+            "success": 0.41873015873015873,
+            "attempts": 9.632539682539683
+          }
+        },
+        "comparisons": {
+          "ilnd_final_minus_lnd": {
+            "delta": 0.10722288789252854,
+            "ci_lo": 0.06532789949931664,
+            "ci_hi": 0.15469444903726706,
+            "ci_excludes_zero": true,
+            "pos": 9,
+            "neg": 0,
+            "sign_p": 0.00390625,
+            "delta_success": 0.09190476190476188,
+            "delta_attempts": -38.56343915343915,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_mx_c3": {
+            "delta": 0.06658072667621781,
+            "ci_lo": 0.004679566596217886,
+            "ci_hi": 0.1330443484189176,
+            "ci_excludes_zero": true,
+            "pos": 6,
+            "neg": 3,
+            "sign_p": 0.5078125,
+            "delta_success": 0.10333333333333339,
+            "delta_attempts": 3.8775132275132282,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_hb1": {
+            "delta": 0.1122713528023053,
+            "ci_lo": 0.03385039197853559,
+            "ci_hi": 0.19857064926350115,
+            "ci_excludes_zero": true,
+            "pos": 6,
+            "neg": 3,
+            "sign_p": 0.5078125,
+            "delta_success": 0.13761904761904764,
+            "delta_attempts": 2.7521164021164015,
+            "exceeds_noise": true
+          }
+        }
+      },
+      "econ_mn_ctrl": {
+        "family": "econ",
+        "n_files": 10,
+        "ilnd_final": {
+          "objective": 0.7882134708172943,
+          "objective_noise_range": 0.0,
+          "objective_noise_sd": 0.0,
+          "success": 0.8099999999999999,
+          "attempts": 2.53
+        },
+        "baselines": {
+          "lnd": {
+            "objective": 0.6935762596736206,
+            "success": 0.79,
+            "attempts": 19.8
+          },
+          "mx_c3": {
+            "objective": 0.7905702540576551,
+            "success": 0.8099999999999999,
+            "attempts": 2.2800000000000002
+          },
+          "hb1": {
+            "objective": 0.7902646214010425,
+            "success": 0.8099999999999999,
+            "attempts": 2.3
+          }
+        },
+        "comparisons": {
+          "ilnd_final_minus_lnd": {
+            "delta": 0.0946372111436736,
+            "ci_lo": 0.03901303578708624,
+            "ci_hi": 0.15920043898533248,
+            "ci_excludes_zero": true,
+            "pos": 8,
+            "neg": 2,
+            "sign_p": 0.109375,
+            "delta_success": 0.019999999999999907,
+            "delta_attempts": -17.27,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_mx_c3": {
+            "delta": -0.002356783240360949,
+            "ci_lo": -0.004100000000000004,
+            "ci_hi": -0.0008736004347826065,
+            "ci_excludes_zero": true,
+            "pos": 1,
+            "neg": 7,
+            "sign_p": 0.0703125,
+            "delta_success": 0.0,
+            "delta_attempts": 0.24999999999999956,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_hb1": {
+            "delta": -0.002051150583748285,
+            "ci_lo": -0.005231946204641691,
+            "ci_hi": 0.0019059272470451805,
+            "ci_excludes_zero": false,
+            "pos": 2,
+            "neg": 7,
+            "sign_p": 0.1796875,
+            "delta_success": 0.0,
+            "delta_attempts": 0.22999999999999998,
+            "exceeds_noise": true
+          }
+        }
+      },
+      "econ_mn_400": {
+        "family": "econ",
+        "n_files": 10,
+        "ilnd_final": {
+          "objective": 0.7296483029335947,
+          "objective_noise_range": 0.0,
+          "objective_noise_sd": 0.0,
+          "success": 0.75,
+          "attempts": 2.96
+        },
+        "baselines": {
+          "lnd": {
+            "objective": 0.6267685929352684,
+            "success": 0.72,
+            "attempts": 24.06
+          },
+          "mx_c3": {
+            "objective": 0.6004787433055652,
+            "success": 0.7,
+            "attempts": 12.11
+          },
+          "hb1": {
+            "objective": 0.5699489328737563,
+            "success": 0.6799999999999999,
+            "attempts": 16.82
+          }
+        },
+        "comparisons": {
+          "ilnd_final_minus_lnd": {
+            "delta": 0.10287970999832623,
+            "ci_lo": 0.043184155490863255,
+            "ci_hi": 0.16956086018704322,
+            "ci_excludes_zero": true,
+            "pos": 7,
+            "neg": 3,
+            "sign_p": 0.34375,
+            "delta_success": 0.030000000000000027,
+            "delta_attempts": -21.099999999999998,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_mx_c3": {
+            "delta": 0.1291695596280295,
+            "ci_lo": 0.06369506073847246,
+            "ci_hi": 0.19516304502086892,
+            "ci_excludes_zero": true,
+            "pos": 8,
+            "neg": 2,
+            "sign_p": 0.109375,
+            "delta_success": 0.050000000000000044,
+            "delta_attempts": -9.149999999999999,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_hb1": {
+            "delta": 0.15969937005983842,
+            "ci_lo": 0.09193057803454044,
+            "ci_hi": 0.22657450663094753,
+            "ci_excludes_zero": true,
+            "pos": 9,
+            "neg": 1,
+            "sign_p": 0.021484375,
+            "delta_success": 0.07000000000000006,
+            "delta_attempts": -13.86,
+            "exceeds_noise": true
+          }
+        }
+      },
+      "econ_mn_100": {
+        "family": "econ",
+        "n_files": 10,
+        "ilnd_final": {
+          "objective": 0.6725713200815813,
+          "objective_noise_range": 0.0,
+          "objective_noise_sd": 0.0,
+          "success": 0.6900000000000001,
+          "attempts": 2.7299999999999995
+        },
+        "baselines": {
+          "lnd": {
+            "objective": 0.576348983621189,
+            "success": 0.6799999999999999,
+            "attempts": 24.259999999999998
+          },
+          "mx_c3": {
+            "objective": 0.4989005131596634,
+            "success": 0.62,
+            "attempts": 21.11
+          },
+          "hb1": {
+            "objective": 0.4874903540248713,
+            "success": 0.61,
+            "attempts": 27.259999999999998
+          }
+        },
+        "comparisons": {
+          "ilnd_final_minus_lnd": {
+            "delta": 0.09622233646039213,
+            "ci_lo": 0.053509240612544785,
+            "ci_hi": 0.13824327867755154,
+            "ci_excludes_zero": true,
+            "pos": 9,
+            "neg": 1,
+            "sign_p": 0.021484375,
+            "delta_success": 0.01000000000000012,
+            "delta_attempts": -21.529999999999998,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_mx_c3": {
+            "delta": 0.1736708069219178,
+            "ci_lo": 0.10272145082879613,
+            "ci_hi": 0.25230289118527843,
+            "ci_excludes_zero": true,
+            "pos": 10,
+            "neg": 0,
+            "sign_p": 0.001953125,
+            "delta_success": 0.07000000000000006,
+            "delta_attempts": -18.38,
+            "exceeds_noise": true
+          },
+          "ilnd_final_minus_hb1": {
+            "delta": 0.18508096605670993,
+            "ci_lo": 0.11214827245857659,
+            "ci_hi": 0.2740355340041123,
+            "ci_excludes_zero": true,
+            "pos": 10,
+            "neg": 0,
+            "sign_p": 0.001953125,
+            "delta_success": 0.08000000000000007,
+            "delta_attempts": -24.529999999999998,
+            "exceeds_noise": true
+          }
+        }
+      }
+    },
+    "rollup": {
+      "tiers": 14,
+      "ci_solid_wins": {
+        "lnd": 14,
+        "mx_c3": 3,
+        "hb1": 4
+      },
+      "ci_solid_losses": {
+        "lnd": 0,
+        "mx_c3": 5,
+        "hb1": 1
+      }
+    }
+  },
+  "round5": {
+    "_meta": {
+      "round5_merge": "interval-router@b79f535de",
+      "merge_commit": "d33ae8a1c",
+      "change": "intervalFeePenalty helper; unbudgeted branch is the verbatim round-2 expression (weight * fee / math.Max(amt, 1)) at both the edge score and the shard score; budgeted branch untouched; keepCheapest folded into intervalBudgeted",
+      "protocol": "byte identity on self-deterministic cells, distributional (12 replicates) otherwise"
+    },
+    "prediction_2_budgeted_equals_round3": {
+      "verdict": "PASS, exactly, and bit-wise where the cell allows it.",
+      "byte_identity": "19/19 self-deterministic cells, 1941086 bytes",
+      "tier_means": {
+        "econ_hard_4000": {
+          "round3": 0.40994335712360463,
+          "round5": 0.40994700320203603,
+          "delta": 3.6460784313963046e-06
+        },
+        "econ_mn_400": {
+          "round3": 0.7296483029335947,
+          "round5": 0.7296483029335947,
+          "delta": 0.0
+        },
+        "econ_mn_100": {
+          "round3": 0.6725713200815813,
+          "round5": 0.6725713200815813,
+          "delta": 0.0
+        }
+      },
+      "hard_4000_holds": 0.40994700320203603,
+      "reading": "all three rungs +0.0000 at 12 replicates, hard@4000 holds 0.4099. The budgeted branch is untouched, as claimed."
+    },
+    "prediction_1_unbudgeted_equals_round2": {
+      "verdict": "PARTIAL. Payments that never split are restored; payments that split are not.",
+      "tier_means": {
+        "hard_test": {
+          "round2": 0.5714902801338132,
+          "round5": 0.5868714325172414,
+          "delta": 0.015381152383428187,
+          "round2_noise_range": 2.933333332899579e-07
+        },
+        "ood_test": {
+          "round2": 0.5702861380611026,
+          "round5": 0.5383054817953157,
+          "delta": -0.031980656265786944,
+          "round2_noise_range": 0.0010999999999999899
+        },
+        "split_test": {
+          "round2": 0.8743920416025609,
+          "round5": 0.8746698003647033,
+          "delta": 0.00027775876214242157,
+          "round2_noise_range": 1.6730453800128942e-07
+        },
+        "drift_test": {
+          "round2": 0.4450106967539067,
+          "round5": 0.4335474613377166,
+          "delta": -0.011463235416190098,
+          "round2_noise_range": 0.01492070754870134
+        },
+        "atomic_test": {
+          "round2": 0.44565235320736757,
+          "round5": 0.44518082260066616,
+          "delta": -0.0004715306067014091,
+          "round2_noise_range": 0.0014332731779275187
+        },
+        "mainnet": {
+          "round2": 0.7882134708172943,
+          "round5": 0.7883722137772199,
+          "delta": 0.00015874295992557297,
+          "round2_noise_range": 0.0
+        },
+        "deg_hard_mix": {
+          "round2": 0.5049457549760289,
+          "round5": 0.4891497080058,
+          "delta": -0.015796046970228905,
+          "round2_noise_range": 0.019947390066795967
+        },
+        "deg_hard_unk30": {
+          "round2": 0.5290488113497775,
+          "round5": 0.5278608786120788,
+          "delta": -0.0011879327376987936,
+          "round2_noise_range": 0.015010684496442273
+        },
+        "deg_mn_mix": {
+          "round2": 0.7503971953401005,
+          "round5": 0.7423982680745183,
+          "delta": -0.007998927265582267,
+          "round2_noise_range": 0.0
+        },
+        "econ_hard_ctrl": {
+          "round2": 0.6146797104934739,
+          "round5": 0.596130338131108,
+          "delta": -0.018549372362365868,
+          "round2_noise_range": 0.009800000000000031
+        },
+        "econ_mn_ctrl": {
+          "round2": 0.7882134708172943,
+          "round5": 0.7883805471105533,
+          "delta": 0.0001670762932589609,
+          "round2_noise_range": 0.0
+        }
+      },
+      "restored": "split_test +0.0003, mainnet +0.0002, econ_mn_ctrl +0.0002, atomic_test -0.0005 - all at or inside the round-2 noise range.",
+      "not_restored": "hard_test +0.0154, ood_test -0.0320, econ_hard_ctrl -0.0185, deg_hard_mix -0.0158, deg_mn_mix -0.0080, drift_test -0.0115 - unchanged from round 3/4.",
+      "headline_checks": {
+        "ood_expected_0.570_observed": 0.5383054817953157,
+        "econ_hard_ctrl_expected_0.609_observed": 0.596130338131108
+      }
+    },
+    "diagnosis_the_boundary_predicate": {
+      "bisect": {
+        "method": "two probe binaries built from round 2 plus one round-3 commit's interval files each, to split ee95a0fcc from the quarantine (1bcbb1485).",
+        "ee95a0fcc_alone_vs_round2": {
+          "ood_test": -0.03187232293245357,
+          "econ_hard_ctrl": -0.015237712630811195,
+          "hard_test": 0.015362945415176354
+        },
+        "quarantine_alone_vs_round2": {
+          "deg_hard_mix": 0.004424213287233969,
+          "deg_hard_unk30": 0.0023218935330915347,
+          "deg_mn_mix": 0.0
+        },
+        "conclusion": "ee95a0fcc alone reproduces the entire unbudgeted shift (ood -0.0319, hard +0.0154, econ_hard_ctrl -0.0152); the quarantine is inert on those tiers (-0.0000, -0.0000, +0.0007) and moves the degraded tiers only slightly (+0.0044, +0.0023), which is what it was written to do."
+      },
+      "root_cause": {
+        "what": "the predicate both fixes are gated on, not either fix. intervalBudgeted asks feeLimit != lnwire.MaxMilliSatoshi, but a session is never handed the payment's fee limit; it is handed what the limit has LEFT.",
+        "where": "routing/interval_pathfind.go intervalBudgeted, against routing/sim_router.go lndStackRouter.RequestRoute which passes simRemainingBudget(feeLimit, feesPaid). lnd's own calcFeeBudget does the same subtraction, so this is not a simulator artifact.",
+        "mechanism": "simRemainingBudget(MaxMilliSatoshi, 0) is MaxMilliSatoshi, so the FIRST route request of an unbudgeted payment is correctly classified. Once a shard commits a fee, the request carries MaxMilliSatoshi - feesPaid, which is not the sentinel, so every request after the first is classified as budgeted. The search then prices fees at the clamped budget rate (30k..420k msat/nat) and turns the cheapest-label keep on, for a budget that does not exist.",
+        "why_the_tiers_split_the_way_they_do": "single-shard payments never reach the second request, so mainnet, econ_mn_ctrl and split_test are restored; multi-shard payments are not.",
+        "suggested_fix": "make the predicate robust to the subtraction. Either thread the payment's own FeeLimit to the session instead of the remaining budget, or record 'this payment has a budget' once at session construction from p.FeeLimit rather than deriving it per request from the restriction."
+      },
+      "probe": {
+        "what": "a throwaway binary, never committed, built from the merge commit with intervalBudgeted changed to feeLimit < lnwire.MaxMilliSatoshi/2 and nothing else.",
+        "vs_round2": {
+          "hard_test": {
+            "delta": -5.981994302017846e-06,
+            "round2_noise_range": 2.933333332899579e-07
+          },
+          "ood_test": {
+            "delta": -0.00010833333333337691,
+            "round2_noise_range": 0.00039999999999995595
+          },
+          "split_test": {
+            "delta": -3.189356656552178e-08,
+            "round2_noise_range": 2.1541826145110576e-07
+          },
+          "drift_test": {
+            "delta": -0.001500429735288411,
+            "round2_noise_range": 0.015578319318181821
+          },
+          "atomic_test": {
+            "delta": 0.000283582627468415,
+            "round2_noise_range": 0.0016111360016196619
+          },
+          "mainnet": {
+            "delta": 0.0,
+            "round2_noise_range": 0.0
+          },
+          "deg_hard_mix": {
+            "delta": -0.03761805366885518,
+            "round2_noise_range": 0.030260736263736265
+          },
+          "deg_hard_unk30": {
+            "delta": 0.003441405173227663,
+            "round2_noise_range": 0.01501068837575259
+          },
+          "deg_mn_mix": {
+            "delta": 0.0008203380043860786,
+            "round2_noise_range": 0.0
+          },
+          "econ_hard_ctrl": {
+            "delta": -0.0009495310889694464,
+            "round2_noise_range": 0.017916250120773025
+          },
+          "econ_mn_ctrl": {
+            "delta": 0.0,
+            "round2_noise_range": 0.0
+          }
+        },
+        "result": "10 of 11 unbudgeted tiers return to round 2: hard_test -0.0000, ood_test -0.0001 (0.5702, the 0.570 the prediction asked for), econ_hard_ctrl -0.0009 (0.6130), split_test -0.0000, mainnet +0.0000, econ_mn_ctrl +0.0000, atomic_test +0.0003, drift_test -0.0015, deg_mn_mix +0.0008, deg_hard_unk30 +0.0034.",
+        "residual": "deg_hard_mix is left 0.0325 low at 24 replicates (round 2 0.5032 sd 0.0088, probe 0.4707 sd 0.0156, ranges overlapping). Not the quarantine, which is +0.0044 there on its own. The probe also nearly doubles the variance of that tier, so this is most likely a property of the crude threshold rather than of the real fix, but it is unexplained and recorded as such.",
+        "status": "CONFIRMS THE DIAGNOSIS. It is not a proposed patch: the threshold is arbitrary and the right fix is to stop inferring the budget from a subtracted number."
+      }
+    },
+    "prediction_3_best_of_both": {
+      "verdict": "NOT YET.",
+      "achieved": "round-3 behavior on the budgeted rungs (bit-wise) and round-2 behavior on single-shard unbudgeted payments.",
+      "outstanding": "multi-shard unbudgeted payments still carry round-3 behavior, which costs ood_test 0.032 and econ_hard_ctrl 0.019 against the best measured configuration. One predicate away, and the probe measures what it is worth."
+    },
+    "series_ledger": {
+      "round_2": "the port measured for the first time: beats lnd on all six classic tiers at the champions' margin.",
+      "round_3": "budget-derived price wins the fee rungs (hard@4000 +0.079, CI excluding zero); quarantine null; ood_test -0.032 as an unintended side effect.",
+      "round_4": "keepCheapest gate: no-op in this environment. Found the interval arm is not run-to-run reproducible.",
+      "round_5": "verbatim fee expression restored: correct, and blocked by the budget predicate on every payment that splits. Bisect localizes the whole unbudgeted shift to ee95a0fcc and the probe localizes it to intervalBudgeted."
+    },
+    "headline": "Round 5's fix is right and still masked. The budgeted half is bit-exact against round 3 and hard@4000 holds 0.410. The unbudgeted half lands only on payments that never split, because intervalBudgeted infers 'has a budget' from a number the lifecycle has already subtracted fees from, so any payment past its first shard is treated as budgeted. A one-line probe recovers 10 of 11 unbudgeted tiers, ood_test included, at 0.5702 against the 0.570 predicted."
+  },
+  "round6": {
+    "_meta": {
+      "round6_merge": "interval-router@60cce3572",
+      "merge_commit": "fc7bfb065",
+      "change": "intervalFeeRate{budgeted, price}; budgeted latched at session construction from p.FeeLimit, price still derived from the live remainder",
+      "protocol": "12 replicates per binary per file; the interval arm is not run-to-run reproducible (round-4 finding)"
+    },
+    "reuse_gate": {
+      "byte_identity": "158/159 cells, 58442970 bytes",
+      "exceptions": "the four long-standing flaky mainnet lnd cells only",
+      "conclusion": "PASS; the five reused arms remain valid."
+    },
+    "prediction_a_unbudgeted_equals_round2": {
+      "verdict": "PASS on 10 of 11. The predicate fix lands.",
+      "tiers": {
+        "hard_test": {
+          "round2": 0.5714902776694257,
+          "round6": 0.5714902946382903,
+          "delta": 1.696886453572688e-08,
+          "round2_noise_range": 3.9555555553238975e-07,
+          "within_noise": true
+        },
+        "ood_test": {
+          "round2": 0.5702278047277693,
+          "round6": 0.570319471394436,
+          "delta": 9.166666666660106e-05,
+          "round2_noise_range": 0.0004999999999999449,
+          "within_noise": true
+        },
+        "split_test": {
+          "round2": 0.8743920456120379,
+          "round6": 0.8743920456120379,
+          "delta": 0.0,
+          "round2_noise_range": 2.1541826145110576e-07,
+          "within_noise": true
+        },
+        "drift_test": {
+          "round2": 0.4447051403805036,
+          "round6": 0.44155119247879493,
+          "delta": -0.003153947901708698,
+          "round2_noise_range": 0.012655831808943085,
+          "within_noise": true
+        },
+        "atomic_test": {
+          "round2": 0.44556313137150916,
+          "round6": 0.44574232784306367,
+          "delta": 0.00017919647155451024,
+          "round2_noise_range": 0.0014332731779275187,
+          "within_noise": true
+        },
+        "mainnet": {
+          "round2": 0.7882134708172943,
+          "round6": 0.7882134708172943,
+          "delta": 0.0,
+          "round2_noise_range": 0.0,
+          "within_noise": true
+        },
+        "deg_hard_mix": {
+          "round2": 0.5051592734723659,
+          "round6": 0.4757149671902852,
+          "delta": -0.029444306282080668,
+          "round2_noise_range": 0.027774091758241803,
+          "within_noise": false
+        },
+        "deg_hard_unk30": {
+          "round2": 0.5281647388858111,
+          "round6": 0.5336548592231515,
+          "delta": 0.005490120337340421,
+          "round2_noise_range": 0.01666666752873569,
+          "within_noise": true
+        },
+        "deg_mn_mix": {
+          "round2": 0.7503971953401005,
+          "round6": 0.7512175333444866,
+          "delta": 0.0008203380043860786,
+          "round2_noise_range": 0.0,
+          "within_noise": true
+        },
+        "econ_hard_ctrl": {
+          "round2": 0.6123877489898508,
+          "round6": 0.6133958794850198,
+          "delta": 0.0010081304951690129,
+          "round2_noise_range": 0.0175940278985508,
+          "within_noise": true
+        },
+        "econ_mn_ctrl": {
+          "round2": 0.7882134708172943,
+          "round6": 0.7882134708172943,
+          "delta": 0.0,
+          "round2_noise_range": 0.0,
+          "within_noise": true
+        }
+      },
+      "headline_checks": {
+        "ood_predicted_0.5702_observed": 0.570319471394436,
+        "econ_hard_ctrl_predicted_0.613_observed": 0.6133958794850198,
+        "hard_test_delta_vs_round2": 1.696886453572688e-08,
+        "split_test_files_identical_support": "8/8"
+      }
+    },
+    "prediction_b_budgeted_equals_round3": {
+      "verdict": "PASS, exactly.",
+      "tiers": {
+        "econ_hard_4000": {
+          "round3": 0.40994957849615365,
+          "round6": 0.40994335712360463,
+          "delta": -6.22137254902011e-06
+        },
+        "econ_mn_400": {
+          "round3": 0.7296483029335947,
+          "round6": 0.7296483029335947,
+          "delta": 0.0
+        },
+        "econ_mn_100": {
+          "round3": 0.6725713200815813,
+          "round6": 0.6725713200815813,
+          "delta": 0.0
+        }
+      },
+      "hard_4000": 0.40994335712360463
+    },
+    "finding_deg_hard_mix_is_real": {
+      "status": "FINDING, not probe noise. The round-5 probe left this tier 0.0325 low and the committed fix reproduces it.",
+      "measurement_32_replicates": {
+        "round2_objective": 0.5043,
+        "round2_sd": 0.0056,
+        "round6_objective": 0.47,
+        "round6_sd": 0.0166,
+        "delta": -0.0343,
+        "z": -11.1,
+        "delta_success": -0.0275,
+        "delta_attempts": 1.9,
+        "note": "round 6's spread on this tier is three times round 2's."
+      },
+      "sibling_tier": {
+        "deg_hard_unk30_delta": 0.007,
+        "z": 4.2,
+        "delta_success": 0.014,
+        "reading": "the tier with MORE unreadable failures and no misattribution GAINS."
+      },
+      "mechanism_split": {
+        "method": "two new single-mechanism tiers built from the sealed hard tier with exp-019's inject(), 24 replicates each: deg_hard_unk20 (unknown 0.2 only) and deg_hard_shift10 (shift 0.1 only). deg_hard_mix is both together.",
+        "deg_hard_unk20": {
+          "round2": 0.5721535272481878,
+          "round6": 0.572730550287706,
+          "delta": 0.0005770230395182319,
+          "z": 0.32834261198063935,
+          "d_succ": 0.005833333333333357
+        },
+        "deg_hard_shift10": {
+          "round2": 0.529105965279326,
+          "round6": 0.5231536002152234,
+          "delta": -0.005952365064102572,
+          "z": -2.0950578567612856,
+          "d_succ": -0.005952380952380931
+        },
+        "conclusion": "NEITHER mechanism alone accounts for it. Unreadable failures alone are a null (+0.0006, z 0.3); misattributed failures alone cost 0.0060 (z -2.1); the two together cost 0.0343, five times the sum. It is an interaction, not an additive cost.",
+        "hypothesis": "the quarantine does what it was written for on failures that cannot name a channel, and the round-3 stack loses ground when some failures name the WRONG channel instead. Stated as a hypothesis: the interaction is measured, the mechanism is not.",
+        "reproduce_with": [
+          "deg_hard_mix",
+          "deg_hard_unk20",
+          "deg_hard_shift10",
+          "deg_hard_unk30"
+        ]
+      }
+    },
+    "prediction_c_shipping_configuration": {
+      "verdict": "CONFIRMED. `final` is rebuilt from ilnd6.",
+      "state": "round-2 behavior wherever no budget exists, round-3 behavior wherever one does.",
+      "rollup": {
+        "tiers": 14,
+        "ci_solid_wins": {
+          "lnd": 14,
+          "mx_c3": 3,
+          "hb1": 4
+        },
+        "ci_solid_losses": {
+          "lnd": 0,
+          "mx_c3": 5,
+          "hb1": 1
+        }
+      }
+    },
+    "headline": "The latch lands. Ten of eleven unbudgeted tiers return to round 2 (ood 0.5703 against 0.5702 predicted, econ_hard_ctrl 0.6134, hard_test +0.0000, split_test identical on all eight files), all three budgeted rungs reproduce round 3 exactly with hard@4000 at 0.4099, and the arm now beats lnd on all fourteen tiers with the CI excluding zero and loses none. The eleventh tier, deg_hard_mix, is a real 0.034 regression at z -11 that neither degradation mechanism explains alone."
+  },
+  "prod_default": {
+    "_meta": {
+      "prod_ppm": 50000,
+      "provenance": "lnrpc.CalculateFeeLimit default -> lnwallet.DefaultRoutingFeeLimitForAmount: amount up to RoutingFee100PercentUpTo (1,000 sat), else DefaultRoutingFeePercentage (5%)",
+      "caveat_checked": "the uniform injection would misstate production for payments under 1,000 sat, which would get 100% there and 5% here. ZERO of the 411 corpus payments are under the cut-off (smallest 20,000 sat), so the caveat is empty and these tiers are exactly production's budget.",
+      "replicates": 12,
+      "arms": [
+        "lnd",
+        "ilnd6",
+        "mx_c3",
+        "ilnd6_unbudgeted"
+      ],
+      "merge_commit": "fc7bfb065"
+    },
+    "why_this_is_the_important_arm": "the classic tiers as published carry NO fee budget, and lnrpc.CalculateFeeLimit gives every budget-less caller DefaultRoutingFeeLimitForAmount. A real node running this flag therefore takes the BUDGETED branch on essentially every payment, so the unbudgeted tiers measure a path production nearly never takes.",
+    "tiers": {
+      "prod_hard_test": {
+        "n_files": 10,
+        "control": "hard_test",
+        "arms": {
+          "lnd": {
+            "objective": 0.30920938898830314,
+            "obj_range": 0.7764634930555556,
+            "success": 0.4926190476190476,
+            "attempts": 45.458492063492066,
+            "fee_ppm": 2778.0795982038903,
+            "give_up_rate": 0.30785714285714283,
+            "fee_limit_payments": 7.9,
+            "fee_limit_failures": 0
+          },
+          "ilnd6": {
+            "objective": 0.5699968578935122,
+            "obj_range": 0.6829042816045743,
+            "success": 0.7208730158730159,
+            "attempts": 10.830039682539683,
+            "fee_ppm": 3176.0102799275637,
+            "give_up_rate": 0.2791269841269841,
+            "fee_limit_payments": 7.9,
+            "fee_limit_failures": 0
+          },
+          "mx_c3": {
+            "objective": 0.5833374720606656,
+            "obj_range": 0.7922521035468597,
+            "success": 0.731984126984127,
+            "attempts": 10.752460317460317,
+            "fee_ppm": 3479.158622399625,
+            "give_up_rate": 0.268015873015873,
+            "fee_limit_payments": 7.9,
+            "fee_limit_failures": 0
+          },
+          "ilnd6_unbudgeted": {
+            "objective": 0.5714842810526167,
+            "obj_range": 0.7254340398463325,
+            "success": 0.7153174603174604,
+            "attempts": 10.185436507936508,
+            "fee_ppm": 3447.219997441313,
+            "give_up_rate": 0.28468253968253965,
+            "fee_limit_payments": 0,
+            "fee_limit_failures": 0
+          }
+        },
+        "comparisons": {
+          "ilnd6_minus_lnd": {
+            "delta": 0.2607874689052091,
+            "ci_lo": 0.17538902033641782,
+            "ci_hi": 0.34940526922007226,
+            "ci_excludes_zero": true,
+            "pos": 10,
+            "neg": 0,
+            "sign_p": 0.001953125
+          },
+          "ilnd6_minus_mx_c3": {
+            "delta": -0.013340614167153292,
+            "ci_lo": -0.05466215694302401,
+            "ci_hi": 0.019333005045833563,
+            "ci_excludes_zero": false,
+            "pos": 3,
+            "neg": 7,
+            "sign_p": 0.34375
+          },
+          "prod_minus_unbudgeted": {
+            "delta": -0.0014874231591045118,
+            "ci_lo": -0.05193312202817393,
+            "ci_hi": 0.049743406888854806,
+            "ci_excludes_zero": false,
+            "pos": 4,
+            "neg": 6,
+            "sign_p": 0.75390625
+          }
+        }
+      },
+      "prod_ood_test": {
+        "n_files": 10,
+        "control": "ood_test",
+        "arms": {
+          "lnd": {
+            "objective": 0.3572535857251524,
+            "obj_range": 0.685298328092869,
+            "success": 0.5253174603174603,
+            "attempts": 58.8125,
+            "fee_ppm": 1750.0012883008408,
+            "give_up_rate": 0.21301587301587302,
+            "fee_limit_payments": 8.1,
+            "fee_limit_failures": 0
+          },
+          "ilnd6": {
+            "objective": 0.5608836247953727,
+            "obj_range": 0.9085077485903814,
+            "success": 0.6808730158730159,
+            "attempts": 9.539920634920636,
+            "fee_ppm": 2245.8734274894377,
+            "give_up_rate": 0.31912698412698415,
+            "fee_limit_payments": 8.1,
+            "fee_limit_failures": 0
+          },
+          "mx_c3": {
+            "objective": 0.5806262510197292,
+            "obj_range": 0.9156471111111111,
+            "success": 0.6950396825396825,
+            "attempts": 8.425873015873016,
+            "fee_ppm": 2436.8063196951434,
+            "give_up_rate": 0.3049603174603175,
+            "fee_limit_payments": 8.1,
+            "fee_limit_failures": 0
+          },
+          "ilnd6_unbudgeted": {
+            "objective": 0.570394471394436,
+            "obj_range": 0.9284248888888887,
+            "success": 0.6850396825396825,
+            "attempts": 8.893373015873015,
+            "fee_ppm": 2551.7429817101633,
+            "give_up_rate": 0.31496031746031744,
+            "fee_limit_payments": 0,
+            "fee_limit_failures": 0
+          }
+        },
+        "comparisons": {
+          "ilnd6_minus_lnd": {
+            "delta": 0.2036300390702203,
+            "ci_lo": 0.07092846594883077,
+            "ci_hi": 0.34914168772145365,
+            "ci_excludes_zero": true,
+            "pos": 9,
+            "neg": 1,
+            "sign_p": 0.021484375
+          },
+          "ilnd6_minus_mx_c3": {
+            "delta": -0.019742626224356553,
+            "ci_lo": -0.06610172371846398,
+            "ci_hi": 0.022827802599495538,
+            "ci_excludes_zero": false,
+            "pos": 4,
+            "neg": 6,
+            "sign_p": 0.75390625
+          },
+          "prod_minus_unbudgeted": {
+            "delta": -0.009510846599063278,
+            "ci_lo": -0.052782451886160264,
+            "ci_hi": 0.025295534372030852,
+            "ci_excludes_zero": false,
+            "pos": 4,
+            "neg": 5,
+            "sign_p": 1.0
+          }
+        }
+      },
+      "prod_split_test": {
+        "n_files": 8,
+        "control": "split_test",
+        "arms": {
+          "lnd": {
+            "objective": 0.8369457038149175,
+            "obj_range": 0.41427643978901985,
+            "success": 0.9583333333333334,
+            "attempts": 23.375,
+            "fee_ppm": 486.04814258745597,
+            "give_up_rate": 0,
+            "fee_limit_payments": 3,
+            "fee_limit_failures": 0
+          },
+          "ilnd6": {
+            "objective": 0.8773728053708068,
+            "obj_range": 0.4639402011136533,
+            "success": 0.9583333333333334,
+            "attempts": 9.833333333333334,
+            "fee_ppm": 464.69306479299394,
+            "give_up_rate": 0.041666666666666664,
+            "fee_limit_payments": 3,
+            "fee_limit_failures": 0
+          },
+          "mx_c3": {
+            "objective": 0.8764083809173208,
+            "obj_range": 0.4606745479383201,
+            "success": 0.9583333333333334,
+            "attempts": 10.25,
+            "fee_ppm": 492.08095413396006,
+            "give_up_rate": 0.041666666666666664,
+            "fee_limit_payments": 3,
+            "fee_limit_failures": 0
+          },
+          "ilnd6_unbudgeted": {
+            "objective": 0.8743920555446058,
+            "obj_range": 0.46060568318012163,
+            "success": 0.9583333333333334,
+            "attempts": 10.125,
+            "fee_ppm": 488.7305561030426,
+            "give_up_rate": 0.041666666666666664,
+            "fee_limit_payments": 0,
+            "fee_limit_failures": 0
+          }
+        },
+        "comparisons": {
+          "ilnd6_minus_lnd": {
+            "delta": 0.040427101555889244,
+            "ci_lo": 0.019273518795502625,
+            "ci_hi": 0.06080270724753849,
+            "ci_excludes_zero": true,
+            "pos": 6,
+            "neg": 2,
+            "sign_p": 0.2890625
+          },
+          "ilnd6_minus_mx_c3": {
+            "delta": 0.0009644244534860041,
+            "ci_lo": -0.0034475130390091424,
+            "ci_hi": 0.005502313072095588,
+            "ci_excludes_zero": false,
+            "pos": 3,
+            "neg": 4,
+            "sign_p": 1.0
+          },
+          "prod_minus_unbudgeted": {
+            "delta": 0.0029807498262010013,
+            "ci_lo": -0.00225790583606561,
+            "ci_hi": 0.008409832776612364,
+            "ci_excludes_zero": false,
+            "pos": 4,
+            "neg": 3,
+            "sign_p": 1.0
+          }
+        }
+      },
+      "prod_drift_test": {
+        "n_files": 8,
+        "control": "drift_test",
+        "arms": {
+          "lnd": {
+            "objective": 0.23645790944886558,
+            "obj_range": 0.7947123857142857,
+            "success": 0.43561507936507937,
+            "attempts": 35.59399801587301,
+            "fee_ppm": 2668.7959958106885,
+            "give_up_rate": 0.4361111111111111,
+            "fee_limit_payments": 8.875,
+            "fee_limit_failures": 0
+          },
+          "ilnd6": {
+            "objective": 0.4589212831227123,
+            "obj_range": 0.9226562276422763,
+            "success": 0.6416666666666666,
+            "attempts": 13.714744543650793,
+            "fee_ppm": 5406.872797739234,
+            "give_up_rate": 0.35833333333333334,
+            "fee_limit_payments": 8.875,
+            "fee_limit_failures": 0
+          },
+          "mx_c3": {
+            "objective": 0.45392529055933906,
+            "obj_range": 0.8917032764227644,
+            "success": 0.6416666666666666,
+            "attempts": 13.349255952380952,
+            "fee_ppm": 5451.474815524368,
+            "give_up_rate": 0.35833333333333334,
+            "fee_limit_payments": 8.875,
+            "fee_limit_failures": 0
+          },
+          "ilnd6_unbudgeted": {
+            "objective": 0.4406397795807047,
+            "obj_range": 0.8581525528455285,
+            "success": 0.6354166666666666,
+            "attempts": 14.010900297619047,
+            "fee_ppm": 5665.406915911599,
+            "give_up_rate": 0.3645833333333333,
+            "fee_limit_payments": 0,
+            "fee_limit_failures": 0
+          }
+        },
+        "comparisons": {
+          "ilnd6_minus_lnd": {
+            "delta": 0.22246337367384672,
+            "ci_lo": 0.15426854275812898,
+            "ci_hi": 0.285612677911872,
+            "ci_excludes_zero": true,
+            "pos": 8,
+            "neg": 0,
+            "sign_p": 0.0078125
+          },
+          "ilnd6_minus_mx_c3": {
+            "delta": 0.004995992563373265,
+            "ci_lo": -0.0024973761273448707,
+            "ci_hi": 0.013750939405487744,
+            "ci_excludes_zero": false,
+            "pos": 4,
+            "neg": 2,
+            "sign_p": 0.6875
+          },
+          "prod_minus_unbudgeted": {
+            "delta": 0.0182815035420076,
+            "ci_lo": 0.0030208333333333268,
+            "ci_hi": 0.03605361312872845,
+            "ci_excludes_zero": true,
+            "pos": 5,
+            "neg": 1,
+            "sign_p": 0.21875
+          }
+        }
+      },
+      "prod_atomic_test": {
+        "n_files": 8,
+        "control": "atomic_test",
+        "arms": {
+          "lnd": {
+            "objective": 0.31999663396299477,
+            "obj_range": 0.28142084683026936,
+            "success": 0.4821428571428571,
+            "attempts": 108.17857142857143,
+            "fee_ppm": 607.311158993118,
+            "give_up_rate": 0,
+            "fee_limit_payments": 7,
+            "fee_limit_failures": 0
+          },
+          "ilnd6": {
+            "objective": 0.44544027511396656,
+            "obj_range": 0.30367713601735186,
+            "success": 0.5714285714285714,
+            "attempts": 12.415178571428571,
+            "fee_ppm": 591.8255300159555,
+            "give_up_rate": 0.42857142857142855,
+            "fee_limit_payments": 7,
+            "fee_limit_failures": 0
+          },
+          "mx_c3": {
+            "objective": 0.44354223806013177,
+            "obj_range": 0.3348277415221591,
+            "success": 0.5714285714285714,
+            "attempts": 12.892857142857144,
+            "fee_ppm": 608.602382707696,
+            "give_up_rate": 0.42857142857142855,
+            "fee_limit_payments": 7,
+            "fee_limit_failures": 0
+          },
+          "ilnd6_unbudgeted": {
+            "objective": 0.44569725714901254,
+            "obj_range": 0.32653483121871263,
+            "success": 0.5714285714285714,
+            "attempts": 12.699404761904761,
+            "fee_ppm": 606.5061901684196,
+            "give_up_rate": 0.42857142857142855,
+            "fee_limit_payments": 0,
+            "fee_limit_failures": 0
+          }
+        },
+        "comparisons": {
+          "ilnd6_minus_lnd": {
+            "delta": 0.1254436411509718,
+            "ci_lo": 0.06087898760407599,
+            "ci_hi": 0.1986556579865522,
+            "ci_excludes_zero": true,
+            "pos": 8,
+            "neg": 0,
+            "sign_p": 0.0078125
+          },
+          "ilnd6_minus_mx_c3": {
+            "delta": 0.001898037053834803,
+            "ci_lo": -0.008042123016027726,
+            "ci_hi": 0.011590696277811327,
+            "ci_excludes_zero": false,
+            "pos": 5,
+            "neg": 3,
+            "sign_p": 0.7265625
+          },
+          "prod_minus_unbudgeted": {
+            "delta": -0.0002569820350459828,
+            "ci_lo": -0.01002255921601665,
+            "ci_hi": 0.010053896744896297,
+            "ci_excludes_zero": false,
+            "pos": 3,
+            "neg": 4,
+            "sign_p": 1.0
+          }
+        }
+      },
+      "prod_mainnet": {
+        "n_files": 10,
+        "control": "mainnet",
+        "arms": {
+          "lnd": {
+            "objective": 0.6935762596736206,
+            "obj_range": 0.571832098245614,
+            "success": 0.79,
+            "attempts": 19.805833333333332,
+            "fee_ppm": 211.18701631897133,
+            "give_up_rate": 0.13,
+            "fee_limit_payments": 10,
+            "fee_limit_failures": 0
+          },
+          "ilnd6": {
+            "objective": 0.7868607559083223,
+            "obj_range": 0.44104743920145195,
+            "success": 0.81,
+            "attempts": 2.944166666666667,
+            "fee_ppm": 184.87887125055076,
+            "give_up_rate": 0.19,
+            "fee_limit_payments": 10,
+            "fee_limit_failures": 0
+          },
+          "mx_c3": {
+            "objective": 0.7905702540576551,
+            "obj_range": 0.43910969231699937,
+            "success": 0.81,
+            "attempts": 2.2800000000000002,
+            "fee_ppm": 331.48729711724377,
+            "give_up_rate": 0.19,
+            "fee_limit_payments": 10,
+            "fee_limit_failures": 0
+          },
+          "ilnd6_unbudgeted": {
+            "objective": 0.7882134708172942,
+            "obj_range": 0.44310969231699937,
+            "success": 0.81,
+            "attempts": 2.53,
+            "fee_ppm": 324.3264591352914,
+            "give_up_rate": 0.19,
+            "fee_limit_payments": 0,
+            "fee_limit_failures": 0
+          }
+        },
+        "comparisons": {
+          "ilnd6_minus_lnd": {
+            "delta": 0.09328449623470177,
+            "ci_lo": 0.03511249477236408,
+            "ci_hi": 0.1606462462983193,
+            "ci_excludes_zero": true,
+            "pos": 7,
+            "neg": 3,
+            "sign_p": 0.34375
+          },
+          "ilnd6_minus_mx_c3": {
+            "delta": -0.0037094981493328016,
+            "ci_lo": -0.01034991454561084,
+            "ci_hi": 0.0012881459787704274,
+            "ci_excludes_zero": false,
+            "pos": 5,
+            "neg": 5,
+            "sign_p": 1.0
+          },
+          "prod_minus_unbudgeted": {
+            "delta": -0.0013527149089718527,
+            "ci_lo": -0.007966410452130247,
+            "ci_hi": 0.003289261083753614,
+            "ci_excludes_zero": false,
+            "pos": 6,
+            "neg": 3,
+            "sign_p": 0.5078125
+          }
+        }
+      }
+    },
+    "answers": {
+      "Q1_margins_hold_under_a_production_budget": {
+        "verdict": "YES, on all six tiers, every CI excluding zero.",
+        "per_tier": {
+          "prod_hard_test": {
+            "lnd": 0.30920938898830314,
+            "ilnd6": 0.5699968578935122,
+            "mx_c3": 0.5833374720606656,
+            "ilnd6_minus_lnd": {
+              "delta": 0.2607874689052091,
+              "ci_lo": 0.17538902033641782,
+              "ci_hi": 0.34940526922007226,
+              "ci_excludes_zero": true,
+              "pos": 10,
+              "neg": 0,
+              "sign_p": 0.001953125
+            }
+          },
+          "prod_ood_test": {
+            "lnd": 0.3572535857251524,
+            "ilnd6": 0.5608836247953727,
+            "mx_c3": 0.5806262510197292,
+            "ilnd6_minus_lnd": {
+              "delta": 0.2036300390702203,
+              "ci_lo": 0.07092846594883077,
+              "ci_hi": 0.34914168772145365,
+              "ci_excludes_zero": true,
+              "pos": 9,
+              "neg": 1,
+              "sign_p": 0.021484375
+            }
+          },
+          "prod_split_test": {
+            "lnd": 0.8369457038149175,
+            "ilnd6": 0.8773728053708068,
+            "mx_c3": 0.8764083809173208,
+            "ilnd6_minus_lnd": {
+              "delta": 0.040427101555889244,
+              "ci_lo": 0.019273518795502625,
+              "ci_hi": 0.06080270724753849,
+              "ci_excludes_zero": true,
+              "pos": 6,
+              "neg": 2,
+              "sign_p": 0.2890625
+            }
+          },
+          "prod_drift_test": {
+            "lnd": 0.23645790944886558,
+            "ilnd6": 0.4589212831227123,
+            "mx_c3": 0.45392529055933906,
+            "ilnd6_minus_lnd": {
+              "delta": 0.22246337367384672,
+              "ci_lo": 0.15426854275812898,
+              "ci_hi": 0.285612677911872,
+              "ci_excludes_zero": true,
+              "pos": 8,
+              "neg": 0,
+              "sign_p": 0.0078125
+            }
+          },
+          "prod_atomic_test": {
+            "lnd": 0.31999663396299477,
+            "ilnd6": 0.44544027511396656,
+            "mx_c3": 0.44354223806013177,
+            "ilnd6_minus_lnd": {
+              "delta": 0.1254436411509718,
+              "ci_lo": 0.06087898760407599,
+              "ci_hi": 0.1986556579865522,
+              "ci_excludes_zero": true,
+              "pos": 8,
+              "neg": 0,
+              "sign_p": 0.0078125
+            }
+          },
+          "prod_mainnet": {
+            "lnd": 0.6935762596736206,
+            "ilnd6": 0.7868607559083223,
+            "mx_c3": 0.7905702540576551,
+            "ilnd6_minus_lnd": {
+              "delta": 0.09328449623470177,
+              "ci_lo": 0.03511249477236408,
+              "ci_hi": 0.1606462462983193,
+              "ci_excludes_zero": true,
+              "pos": 7,
+              "neg": 3,
+              "sign_p": 0.34375
+            }
+          }
+        }
+      },
+      "Q2_price_of_the_clamp_ceiling": {
+        "verdict": "NEGLIGIBLE. intervalMaxFeePrice does not need retuning on this evidence.",
+        "prod_minus_unbudgeted_per_tier": {
+          "prod_hard_test": {
+            "delta": -0.0014874231591045118,
+            "ci_lo": -0.05193312202817393,
+            "ci_hi": 0.049743406888854806,
+            "ci_excludes_zero": false,
+            "pos": 4,
+            "neg": 6,
+            "sign_p": 0.75390625
+          },
+          "prod_ood_test": {
+            "delta": -0.009510846599063278,
+            "ci_lo": -0.052782451886160264,
+            "ci_hi": 0.025295534372030852,
+            "ci_excludes_zero": false,
+            "pos": 4,
+            "neg": 5,
+            "sign_p": 1.0
+          },
+          "prod_split_test": {
+            "delta": 0.0029807498262010013,
+            "ci_lo": -0.00225790583606561,
+            "ci_hi": 0.008409832776612364,
+            "ci_excludes_zero": false,
+            "pos": 4,
+            "neg": 3,
+            "sign_p": 1.0
+          },
+          "prod_drift_test": {
+            "delta": 0.0182815035420076,
+            "ci_lo": 0.0030208333333333268,
+            "ci_hi": 0.03605361312872845,
+            "ci_excludes_zero": true,
+            "pos": 5,
+            "neg": 1,
+            "sign_p": 0.21875
+          },
+          "prod_atomic_test": {
+            "delta": -0.0002569820350459828,
+            "ci_lo": -0.01002255921601665,
+            "ci_hi": 0.010053896744896297,
+            "ci_excludes_zero": false,
+            "pos": 3,
+            "neg": 4,
+            "sign_p": 1.0
+          },
+          "prod_mainnet": {
+            "delta": -0.0013527149089718527,
+            "ci_lo": -0.007966410452130247,
+            "ci_hi": 0.003289261083753614,
+            "ci_excludes_zero": false,
+            "pos": 6,
+            "neg": 3,
+            "sign_p": 0.5078125
+          }
+        },
+        "range": [
+          -0.009510846599063278,
+          0.0182815035420076
+        ],
+        "reading": "the budgeted branch costs the interval arm at most 0.009 of objective (prod_ood_test) and GAINS 0.018 on prod_drift_test; four of six tiers move by 0.003 or less. At the production default the absolute clamped rate and the amount-relative rate are close to interchangeable."
+      },
+      "Q3_budget_discipline": {
+        "verdict": "ZERO refusals for ALL THREE arms, mx_c3 included.",
+        "fee_limit_failures_per_file": {
+          "lnd": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ilnd6": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "mx_c3": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "reading": "this is itself a finding. mx_c3 ignores budgets and violated them freely on the tight exp-023 rungs (112 refusals per file at 400 ppm, 220 at 100 ppm), but the production default of 50,000 ppm is loose enough that it never offers a route the runner has to refuse. Budget discipline only separates the routers at budgets far tighter than production's default, which reframes the exp-023 and exp-025 fee findings as statements about tight-budget regimes rather than about default nodes."
+      }
+    }
   }
 }

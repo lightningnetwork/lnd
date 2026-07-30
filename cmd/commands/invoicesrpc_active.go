@@ -198,6 +198,7 @@ var addHoldInvoiceCommand = cli.Command{
 				"private channels in order to assist the " +
 				"payer in reaching you",
 		},
+		invoiceQRFlag,
 	},
 	Action: actionDecorator(addHoldInvoice),
 }
@@ -259,6 +260,7 @@ func addHoldInvoice(ctx *cli.Context) error {
 	}
 
 	printRespJSON(resp)
+	maybePrintInvoiceQR(ctx, resp.PaymentRequest)
 
 	return nil
 }

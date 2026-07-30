@@ -121,8 +121,9 @@ type BatchedQuerier interface {
 // executor. This can be used to do things like retry a transaction due to an
 // error a certain amount of times.
 type txExecutorOptions struct {
-	numRetries int
-	retryDelay time.Duration
+	numRetries  int
+	retryDelay  time.Duration
+	retryBudget time.Duration
 }
 
 // defaultTxExecutorOptions returns the default options for the transaction
@@ -157,6 +158,16 @@ func WithTxRetries(numRetries int) TxExecutorOption {
 func WithTxRetryDelay(delay time.Duration) TxExecutorOption {
 	return func(o *txExecutorOptions) {
 		o.retryDelay = delay
+	}
+}
+
+// WithTxRetryBudget is a functional option that allows us to bound the total
+// amount of wall clock time that may be spent retrying a single transaction. A
+// value of zero, which is the default, means that only the retry count bounds
+// the retry loop.
+func WithTxRetryBudget(budget time.Duration) TxExecutorOption {
+	return func(o *txExecutorOptions) {
+		o.retryBudget = budget
 	}
 }
 
@@ -244,16 +255,97 @@ type RollbackTx func(tx Tx) error
 // the delay before the next retry.
 type OnBackoff func(retry int, delay time.Duration)
 
+// RetryConfig bounds how long the transaction retry loop is willing to keep
+// retrying a transaction that repeatedly fails with a serialization error. Two
+// independent budgets are available, and the loop stops as soon as either of
+// them is exhausted, as soon as the context of the caller is canceled, or as
+// soon as the Quit channel below is closed.
+type RetryConfig struct {
+	// MaxRetries is the maximum number of times a transaction will be
+	// attempted before we give up. A value of zero means that the number of
+	// attempts is unbounded, in which case only MaxElapsed, the context and
+	// Quit bound the loop.
+	MaxRetries int
+
+	// MaxElapsed is the maximum amount of wall clock time that may be spent
+	// across all attempts of a single transaction. A value of zero means
+	// that the elapsed time is unbounded, in which case only MaxRetries, the
+	// context and Quit bound the loop.
+	MaxElapsed time.Duration
+
+	// Quit is an optional channel that aborts the retry loop as soon as it
+	// is closed. Callers that allow a generous time budget should wire this
+	// to their shutdown signal, so that a transaction that keeps conflicting
+	// can never hold up shutdown for the length of the budget.
+	//
+	// NOTE: A nil channel blocks forever in a select, so leaving this unset
+	// simply means that only the budgets and the context bound the loop.
+	Quit <-chan struct{}
+}
+
+// NumRetriesConfig returns a retry budget that is bounded by the given number
+// of attempts only.
+func NumRetriesConfig(numRetries int) RetryConfig {
+	return RetryConfig{
+		MaxRetries: numRetries,
+	}
+}
+
+// exhausted returns true if either of the configured budgets has been used up
+// after the given number of attempts and elapsed wall clock time.
+func (r RetryConfig) exhausted(attempts int, elapsed time.Duration) bool {
+	// If neither budget was set, then we fall back to the default attempt
+	// count. We do this so that a zero value config can never put us into a
+	// truly unbounded loop by accident.
+	if r.MaxRetries <= 0 && r.MaxElapsed <= 0 {
+		return attempts >= DefaultNumTxRetries
+	}
+
+	if r.MaxRetries > 0 && attempts >= r.MaxRetries {
+		return true
+	}
+
+	if r.MaxElapsed > 0 && elapsed >= r.MaxElapsed {
+		return true
+	}
+
+	return false
+}
+
 // ExecuteSQLTransactionWithRetry is a helper function that executes a
 // transaction with retry logic. It will retry the transaction if it fails with
 // a serialization error. The function will return an error if the transaction
 // fails with a non-retryable error, the context is cancelled or the number of
 // retries is exceeded.
+//
+// NOTE: This is retained for backwards compatibility with the callers that
+// predate RetryConfig. New code should call
+// ExecuteSQLTransactionWithRetryConfig directly, which also allows bounding the
+// retries by elapsed time and aborting them on shutdown.
 func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 	rollbackTx RollbackTx, txBody TxBody, onBackoff OnBackoff,
 	numRetries int) error {
 
-	waitBeforeRetry := func(attemptNumber int) bool {
+	return ExecuteSQLTransactionWithRetryConfig(
+		ctx, makeTx, rollbackTx, txBody, onBackoff,
+		NumRetriesConfig(numRetries),
+	)
+}
+
+// ExecuteSQLTransactionWithRetryConfig is a helper function that executes a
+// transaction with retry logic. It will retry the transaction if it fails with
+// a serialization error. The function will return an error if the transaction
+// fails with a non-retryable error, the context is cancelled, the quit channel
+// is closed or the retry budget is exhausted.
+func ExecuteSQLTransactionWithRetryConfig(ctx context.Context, makeTx MakeTx,
+	rollbackTx RollbackTx, txBody TxBody, onBackoff OnBackoff,
+	retryCfg RetryConfig) error {
+
+	// waitBeforeRetry blocks for a randomized, exponentially increasing
+	// backoff before the next attempt is made. It returns a non-nil error
+	// if we should stop retrying, either because the context of the caller
+	// was canceled or because we were asked to quit while we were waiting.
+	waitBeforeRetry := func(attemptNumber int, dbErr error) error {
 		retryDelay := randRetryDelay(
 			DefaultRetryDelay, DefaultMaxRetryDelay, attemptNumber,
 		)
@@ -264,31 +356,37 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 		// Before we try again, we'll wait with a random backoff based
 		// on the retry delay.
 		case <-time.After(retryDelay):
-			return true
+			return nil
 
-		// If the daemon is shutting down, then we'll exit early.
+		// If the daemon is shutting down, then we'll exit early. We
+		// label the error we return here, so that a caller can tell an
+		// interrupted retry loop apart from a transaction that truly
+		// failed. The original database error is still wrapped, so that
+		// both errors.Is and errors.As keep working on the result.
 		case <-ctx.Done():
-			return false
+			return fmt.Errorf("%w: %w", ErrRetryCanceled, dbErr)
+
+		// Same, but for callers whose shutdown signal is a plain
+		// channel rather than a context.
+		case <-retryCfg.Quit:
+			return fmt.Errorf("%w: %w", ErrRetryCanceled, dbErr)
 		}
 	}
 
-	for i := 0; i < numRetries; i++ {
+	// attemptTx runs a single attempt of the transaction. The first return
+	// value is true if the attempt failed with a serialization error and is
+	// therefore worth retrying, in which case the returned error is the
+	// serialization error that caused the retry.
+	attemptTx := func() (bool, error) {
 		tx, err := makeTx()
 		if err != nil {
 			dbErr := MapSQLError(err)
 			log.Tracef("Failed to makeTx: err=%v, dbErr=%v", err,
 				dbErr)
 
-			if IsSerializationError(dbErr) {
-				// Nothing to roll back here, since we haven't
-				// even get a transaction yet. We'll just wait
-				// and try again.
-				if waitBeforeRetry(i) {
-					continue
-				}
-			}
-
-			return dbErr
+			// Nothing to roll back here, since we haven't even got
+			// a transaction yet.
+			return IsSerializationError(dbErr), dbErr
 		}
 
 		// Rollback is safe to call even if the tx is already closed,
@@ -300,50 +398,69 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 		if bodyErr := txBody(tx); bodyErr != nil {
 			log.Tracef("Error in txBody: %v", bodyErr)
 
-			// Roll back the transaction, then attempt a random
-			// backoff and try again if the error was a
-			// serialization error.
+			// Roll back the transaction, then signal a retry if the
+			// error was a serialization error.
 			if err := rollbackTx(tx); err != nil {
-				return MapSQLError(err)
+				return false, MapSQLError(err)
 			}
 
 			dbErr := MapSQLError(bodyErr)
-			if IsSerializationError(dbErr) {
-				if waitBeforeRetry(i) {
-					continue
-				}
-			}
 
-			return dbErr
+			return IsSerializationError(dbErr), dbErr
 		}
 
 		// Commit transaction.
 		if commitErr := tx.Commit(); commitErr != nil {
 			log.Tracef("Failed to commit tx: %v", commitErr)
 
-			// Roll back the transaction, then attempt a random
-			// backoff and try again if the error was a
-			// serialization error.
+			// Roll back the transaction, then signal a retry if the
+			// error was a serialization error.
 			if err := rollbackTx(tx); err != nil {
-				return MapSQLError(err)
+				return false, MapSQLError(err)
 			}
 
 			dbErr := MapSQLError(commitErr)
-			if IsSerializationError(dbErr) {
-				if waitBeforeRetry(i) {
-					continue
-				}
-			}
 
-			return dbErr
+			return IsSerializationError(dbErr), dbErr
 		}
 
-		return nil
+		return false, nil
+	}
+
+	var (
+		startTime = time.Now()
+		attempts  int
+		lastErr   error
+	)
+
+	for {
+		retry, err := attemptTx()
+		if !retry {
+			return err
+		}
+
+		lastErr = err
+		attempts++
+
+		// We check the budget before we back off, so that we never
+		// sleep for an attempt that we're not going to make anyway.
+		if retryCfg.exhausted(attempts, time.Since(startTime)) {
+			break
+		}
+
+		if waitErr := waitBeforeRetry(attempts-1, err); waitErr != nil {
+			return waitErr
+		}
 	}
 
 	// If we get to this point, then we weren't able to successfully commit
-	// a tx given the max number of retries.
-	return ErrRetriesExceeded
+	// a tx within the retry budget. We attach the last error we saw, so
+	// that the actual reason for the failure isn't lost.
+	//
+	// NOTE: lastErr is always non-nil here, since we only ever leave the
+	// loop above after an attempt that asked to be retried.
+	return fmt.Errorf("%w (attempts=%v, elapsed=%v): %w",
+		ErrRetriesExceeded, attempts, time.Since(startTime), lastErr)
 }
 
 // ExecTx is a wrapper for txBody to abstract the creation and commit of a db
@@ -385,9 +502,11 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 		return nil
 	}
 
-	return ExecuteSQLTransactionWithRetry(
-		ctx, makeTx, rollbackTx, execTxBody, onBackoff,
-		t.opts.numRetries,
+	return ExecuteSQLTransactionWithRetryConfig(
+		ctx, makeTx, rollbackTx, execTxBody, onBackoff, RetryConfig{
+			MaxRetries: t.opts.numRetries,
+			MaxElapsed: t.opts.retryBudget,
+		},
 	)
 }
 

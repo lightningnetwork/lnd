@@ -55,6 +55,23 @@
   the reported network statistics such as total network capacity, channel
   count and max out degree.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10996) where a
+  Postgres serialization failure hit while persisting an incoming revocation
+  was reported to the remote peer as an `invalid revocation` protocol error,
+  which prompted the peer to force close the channel. Local database errors now
+  fail the link silently: no error is sent on the wire and no force close is
+  triggered, we simply disconnect and let the channel reestablish flow resync
+  the state. The cooperative close path no longer relays raw internal error text
+  to the peer either.
+
+  The `kvdb` retry loop is also far more patient, bounding retries by a two
+  minute time budget rather than by a fixed count of 50 attempts. This applies
+  to SQLite as well as Postgres, since a busy SQLite database is classified as
+  the same kind of retriable error, so waiting out lock contention can now take
+  up to two minutes instead of roughly 46 seconds. Retries abort immediately
+  once the daemon starts shutting down, so the longer budget never delays
+  shutdown.
+
 # New Features
 
 ## Functional Enhancements

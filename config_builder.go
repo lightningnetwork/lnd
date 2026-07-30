@@ -979,16 +979,24 @@ type DatabaseInstances struct {
 type DefaultDatabaseBuilder struct {
 	cfg    *Config
 	logger btclog.Logger
+
+	// quit is closed once the daemon starts shutting down. The SQL backed
+	// kv stores use it to abort an in-flight transaction retry loop, so
+	// that a transaction which keeps hitting serialization errors can't
+	// delay shutdown for the length of its retry budget.
+	quit <-chan struct{}
 }
 
 // NewDefaultDatabaseBuilder returns a new instance of the default database
-// builder.
-func NewDefaultDatabaseBuilder(cfg *Config,
-	logger btclog.Logger) *DefaultDatabaseBuilder {
+// builder. The passed quit channel should be closed once the daemon starts
+// shutting down, and may be nil in contexts where no such signal exists.
+func NewDefaultDatabaseBuilder(cfg *Config, logger btclog.Logger,
+	quit <-chan struct{}) *DefaultDatabaseBuilder {
 
 	return &DefaultDatabaseBuilder{
 		cfg:    cfg,
 		logger: logger,
+		quit:   quit,
 	}
 }
 
@@ -1011,7 +1019,8 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	startOpenTime := time.Now()
 
 	databaseBackends, err := cfg.DB.GetBackends(
-		ctx, cfg.graphDatabaseDir(), cfg.networkDir, filepath.Join(
+		ctx, d.quit, cfg.graphDatabaseDir(), cfg.networkDir,
+		filepath.Join(
 			cfg.Watchtower.TowerDir, BitcoinChainName,
 			lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 		), cfg.WtClient.Active, cfg.Watchtower.Active, d.logger,

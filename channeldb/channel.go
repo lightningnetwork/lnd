@@ -2450,7 +2450,7 @@ func (c *ChannelStateDB) AdvanceCommitChainTail(channel *OpenChannel,
 		err = chanBucket.Put(remoteUnsignedLocalUpdatesKey, b2.Bytes())
 		if err != nil {
 			return fmt.Errorf("unable to restore remote unsigned "+
-				"local updates: %v", err)
+				"local updates: %w", err)
 		}
 
 		newRemoteCommit = &newCommit.Commitment

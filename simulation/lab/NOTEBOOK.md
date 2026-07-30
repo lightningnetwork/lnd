@@ -1086,3 +1086,18 @@ unknown-attribution and shift together cost the integrated router
 five times the sum of their separate costs (z=-11.1), and neither
 alone costs anything — an interaction with the quarantine's
 trust boundary as the working suspect.
+
+## 2026-07-30 — exp-028: the give-up attractor is a rule now
+
+code_full2 closed overnight: the compose world seeded from econ2
+itself. The machinery transferred (econ2's composed held-out is
+0.2373 to the hand seed's 0.2157 — budget discipline is worth the
+same +0.022 with the lying channel switched on), but evolution on
+top of it went backwards: the best-val candidate loses to its own
+seed by 0.030 on held-out, all of it success, bought with 4 fewer
+attempts per payment. That is exp-013's shape with every variable
+changed — different seed lineage, different world — which promotes
+the give-up attractor from anecdote to rule: continue any seed at
+the attempt frontier and the search becomes an abandonment machine.
+Escape arm 1 is dead; the 800-eval arm now carries the whole
+compose question.

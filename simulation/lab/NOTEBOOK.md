@@ -1101,3 +1101,23 @@ the give-up attractor from anecdote to rule: continue any seed at
 the attempt frontier and the search becomes an abandonment machine.
 Escape arm 1 is dead; the 800-eval arm now carries the whole
 compose question.
+
+## 2026-07-30 — exp-029: the ordering survives on balances nobody fit to
+
+The foreign balance sheet delivered the cleanest de-circularization
+verdict available short of replay. On dijkstrasden's model graph,
+with balances generated from ln-scores data by a process we never
+touched, every evolved router beats lnd 10/0 at p=.002 and the
+margin is a third WIDER than on the tier whose balances we drew
+ourselves. The family swap itself (same files, same topology, our
+bimodal versus his mixture) is worth nothing to anyone: seven arms,
+seven CIs straddling zero, with the fitted champion gaining least
+and the never-fitted seed gaining most, which is the exact opposite
+of what an overfit prior would print. And two predictions came true
+on data they had never seen: atomic1, the exp-017 flat-liquidity
+specialist, tops the field on the flattest realistic family we have
+scored; and the integration branch tracks the champions to the
+third decimal, gaining under the production-default fee limit while
+paying 267 fewer ppm. The WHY.md circularity caveat is now a
+measured quantity, and the quantity is approximately zero. What
+remains is replay, next week, on a real node's history.

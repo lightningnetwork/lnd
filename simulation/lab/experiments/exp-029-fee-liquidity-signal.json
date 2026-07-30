@@ -1,0 +1,9 @@
+{
+  "spearman_fee_vs_own_balance": -0.1491577858654664,
+  "spearman_fee_vs_certainty": 0.018413358806282514,
+  "mean_balance_fee_le_1ppm": 0.5350383453661479,
+  "n_le_1ppm": 24525,
+  "mean_balance_fee_ge_100ppm": 0.45151059876652727,
+  "n_ge_100ppm": 37732,
+  "directed_ends": 74406
+}

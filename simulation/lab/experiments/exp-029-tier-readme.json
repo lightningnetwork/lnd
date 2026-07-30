@@ -1,0 +1,57 @@
+{
+  "graph": {
+    "path": "/Users/roasbeef/codez/data/realistic_graph.json",
+    "nodes": 11255,
+    "edges": 37203,
+    "balance_fraction_quantiles": {
+      "p1": 0.0016,
+      "p10": 0.0228,
+      "p25": 0.1,
+      "p50": 0.4796,
+      "p75": 0.891,
+      "p90": 0.9752,
+      "p99": 0.9985
+    },
+    "pct_channels_in_tails_sub5_or_over95": 32.7,
+    "balance_certainty_median": 0.499
+  },
+  "vantage": {
+    "sealed_exp009_hub_og": "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f",
+    "translated": "02cb18f374e9528ce60c91e786c1e4c65078aad71380a82472c0b184004053a1d1",
+    "degree": 2013,
+    "rank_by_degree": 1,
+    "note": "the sealed exp-009 tier's hub had 2,015 channels; the model's copy has 2013"
+  },
+  "payments": {
+    "files": 10,
+    "per_file": 100,
+    "total": 1000,
+    "max_parts": 8,
+    "amount_model": "uniform over the four values the sealed tier uses",
+    "amount_counts": {
+      "100000000": 272,
+      "500000000": 252,
+      "1000000000": 234,
+      "2000000000": 242
+    },
+    "target_degree_quantiles": {
+      "p10": 3,
+      "p25": 4,
+      "p50": 6,
+      "p75": 12,
+      "p90": 27
+    },
+    "targets_with_degree_1": 0,
+    "target_selection": "mirrors the sealed exp-009 tier's empirical target-degree distribution (min 3, median 6, max 45); a uniform draw would have put 58% of payments at a degree-1 leaf and turned the tier into a reachability floor",
+    "sealed_target_degree_quantiles": {
+      "min": 3,
+      "median": 6,
+      "max": 45
+    }
+  },
+  "variants": {
+    "A_from_graph": "liquidity_model from_graph, the foreign balances",
+    "B_bimodal": "identical scenarios, our bimodal generator, unbalanced_source true so the ONLY difference from A is the balance family",
+    "B_rebal": "B with the sealed tier's convention restored (source channels rebalanced 50/50), so the cost of the rebalance itself stays measurable"
+  }
+}

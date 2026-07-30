@@ -2668,7 +2668,10 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 				htlcBlob = fn.Some(blob)
 			}
 
-			return l.AuxBandwidth(amt, originalScid, htlcBlob, ts)
+			// Check if this link can handle the traffic.
+			return l.AuxBandwidth(
+				amt, l.ShortChanID(), htlcBlob, ts,
+			)
 		},
 	).Unpack()
 	if externalErr != nil {
@@ -3186,8 +3189,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 			continue
 		}
 
-		switch fwdInfo.NextHop {
-		case hop.Exit:
+		switch {
+		case fwdInfo.IsExit():
 			err := l.processExitHop(
 				add, sourceRef, obfuscator, fwdInfo,
 				heightNow, pld,
@@ -3265,7 +3268,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 				updatePacket := &htlcPacket{
 					incomingChanID:       l.ShortChanID(),
 					incomingHTLCID:       add.ID,
-					outgoingChanID:       fwdInfo.NextHop,
+					outgoingChanID:       fwdInfo.NextHopChannel().UnwrapOr(hop.Exit),
+					outgoingHop:          fwdInfo.NextHop,
 					sourceRef:            &sourceRef,
 					incomingAmount:       add.Amount,
 					amount:               outgoingAdd.Amount,
@@ -3342,7 +3346,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 				updatePacket := &htlcPacket{
 					incomingChanID:       l.ShortChanID(),
 					incomingHTLCID:       add.ID,
-					outgoingChanID:       fwdInfo.NextHop,
+					outgoingChanID:       fwdInfo.NextHopChannel().UnwrapOr(hop.Exit),
+					outgoingHop:          fwdInfo.NextHop,
 					sourceRef:            &sourceRef,
 					incomingAmount:       add.Amount,
 					amount:               addMsg.Amount,

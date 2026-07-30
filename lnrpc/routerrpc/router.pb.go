@@ -2827,7 +2827,8 @@ type ForwardHtlcInterceptRequest struct {
 	// The requested outgoing channel id for this forwarded htlc. Because of
 	// non-strict forwarding, this isn't necessarily the channel over which the
 	// packet will be forwarded eventually. A different channel to the same peer
-	// may be selected as well.
+	// may be selected as well. This is set to a sentinel value (all bits set)
+	// if the outgoing_requested_node_id is specified for blinded routes.
 	OutgoingRequestedChanId uint64 `protobuf:"varint,7,opt,name=outgoing_requested_chan_id,json=outgoingRequestedChanId,proto3" json:"outgoing_requested_chan_id,omitempty"`
 	// The outgoing htlc amount.
 	OutgoingAmountMsat uint64 `protobuf:"varint,3,opt,name=outgoing_amount_msat,json=outgoingAmountMsat,proto3" json:"outgoing_amount_msat,omitempty"`
@@ -2843,8 +2844,21 @@ type ForwardHtlcInterceptRequest struct {
 	AutoFailHeight int32 `protobuf:"varint,10,opt,name=auto_fail_height,json=autoFailHeight,proto3" json:"auto_fail_height,omitempty"`
 	// The custom records of the peer's incoming p2p wire message.
 	InWireCustomRecords map[uint64][]byte `protobuf:"bytes,11,rep,name=in_wire_custom_records,json=inWireCustomRecords,proto3" json:"in_wire_custom_records,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// The requested outgoing node for a blinded forward. When non-empty, this
+	// field contains exactly one 33-byte compressed public key and
+	// outgoing_requested_chan_id is set to 18446744073709551615
+	// (0xffffffffffffffff). Clients MUST NOT interpret that value as an actual
+	// channel ID; the presence of this field identifies a node-addressed
+	// forward.
+	//
+	// The possible next-hop representations are:
+	//
+	//	node ID empty, channel ID 0: final receive;
+	//	node ID empty, ordinary channel ID: channel-addressed forward;
+	//	node ID present, channel ID MaxUint64: node-addressed forward.
+	OutgoingRequestedNodeId []byte `protobuf:"bytes,12,opt,name=outgoing_requested_node_id,json=outgoingRequestedNodeId,proto3" json:"outgoing_requested_node_id,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *ForwardHtlcInterceptRequest) Reset() {
@@ -2950,6 +2964,13 @@ func (x *ForwardHtlcInterceptRequest) GetAutoFailHeight() int32 {
 func (x *ForwardHtlcInterceptRequest) GetInWireCustomRecords() map[uint64][]byte {
 	if x != nil {
 		return x.InWireCustomRecords
+	}
+	return nil
+}
+
+func (x *ForwardHtlcInterceptRequest) GetOutgoingRequestedNodeId() []byte {
+	if x != nil {
+		return x.OutgoingRequestedNodeId
 	}
 	return nil
 }
@@ -3792,7 +3813,7 @@ const file_routerrpc_router_proto_rawDesc = "" +
 	"\n" +
 	"CircuitKey\x12\x17\n" +
 	"\achan_id\x18\x01 \x01(\x04R\x06chanId\x12\x17\n" +
-	"\ahtlc_id\x18\x02 \x01(\x04R\x06htlcId\"\xa7\x06\n" +
+	"\ahtlc_id\x18\x02 \x01(\x04R\x06htlcId\"\xe4\x06\n" +
 	"\x1bForwardHtlcInterceptRequest\x12G\n" +
 	"\x14incoming_circuit_key\x18\x01 \x01(\v2\x15.routerrpc.CircuitKeyR\x12incomingCircuitKey\x120\n" +
 	"\x14incoming_amount_msat\x18\x05 \x01(\x04R\x12incomingAmountMsat\x12'\n" +
@@ -3806,7 +3827,8 @@ const file_routerrpc_router_proto_rawDesc = "" +
 	"onion_blob\x18\t \x01(\fR\tonionBlob\x12(\n" +
 	"\x10auto_fail_height\x18\n" +
 	" \x01(\x05R\x0eautoFailHeight\x12t\n" +
-	"\x16in_wire_custom_records\x18\v \x03(\v2?.routerrpc.ForwardHtlcInterceptRequest.InWireCustomRecordsEntryR\x13inWireCustomRecords\x1a@\n" +
+	"\x16in_wire_custom_records\x18\v \x03(\v2?.routerrpc.ForwardHtlcInterceptRequest.InWireCustomRecordsEntryR\x13inWireCustomRecords\x12;\n" +
+	"\x1aoutgoing_requested_node_id\x18\f \x01(\fR\x17outgoingRequestedNodeId\x1a@\n" +
 	"\x12CustomRecordsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\x04R\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\x1aF\n" +

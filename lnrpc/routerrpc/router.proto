@@ -932,7 +932,8 @@ message ForwardHtlcInterceptRequest {
     // The requested outgoing channel id for this forwarded htlc. Because of
     // non-strict forwarding, this isn't necessarily the channel over which the
     // packet will be forwarded eventually. A different channel to the same peer
-    // may be selected as well.
+    // may be selected as well. This is set to a sentinel value (all bits set)
+    // if the outgoing_requested_node_id is specified for blinded routes.
     uint64 outgoing_requested_chan_id = 7;
 
     // The outgoing htlc amount.
@@ -954,6 +955,19 @@ message ForwardHtlcInterceptRequest {
 
     // The custom records of the peer's incoming p2p wire message.
     map<uint64, bytes> in_wire_custom_records = 11;
+
+    // The requested outgoing node for a blinded forward. When non-empty, this
+    // field contains exactly one 33-byte compressed public key and
+    // outgoing_requested_chan_id is set to 18446744073709551615
+    // (0xffffffffffffffff). Clients MUST NOT interpret that value as an actual
+    // channel ID; the presence of this field identifies a node-addressed
+    // forward.
+    //
+    // The possible next-hop representations are:
+    //   node ID empty, channel ID 0: final receive;
+    //   node ID empty, ordinary channel ID: channel-addressed forward;
+    //   node ID present, channel ID MaxUint64: node-addressed forward.
+    bytes outgoing_requested_node_id = 12;
 }
 
 /**

@@ -1,7 +1,7 @@
 ---
 session_id: 019f95d9-7ff7-709b-8847-ec904f72acdd
 shortname: routing-evolution
-last_updated: 2026-07-30T22:47:46Z
+last_updated: 2026-07-30T23:10:10Z
 compaction_count: 5
 progress_pct: 85
 current_step: 4
@@ -172,13 +172,24 @@ exp-018 omni adjudication is LIVE overnight.
        (a) code_full3 (232/800 evals healthy, watcher b7htr0zi1,
        tree locked). On exit: artifact check, give-up watch, exp-030
        writeup = compose FINAL verdict, dashboard v66.
-       (b) integration agent a1115c4fbee460647: RELEASE-READINESS
-       audit on interval-router (rebase drift vs upstream master —
-       audit only unless mechanical, spare branch
-       interval-router-rebased, NEVER force-push; gap fill: postgres
-       test variant, flush-interval knob, blinded-path fallback;
-       quarantine severability report; PR narrative skeleton
-       docs/interval_routing_pr_draft.md). Verify+push on wake.
+       (b) RELEASE-READINESS DONE, verified+pushed: RC tip
+       c5881065d (23 commits) + interval-router-rebased 22161949a
+       (zero-conflict rebase onto upstream master, full battery
+       green) both on roasbeef fork. Postgres tests already wired
+       (verified vs real PG), flush knob added
+       (routerrpc.intervalflushinterval), blinded fallback test
+       strengthened (same-session property), quarantine severable
+       (revert clean OR DisableQuarantine gate),
+       docs/interval_routing_pr_draft.md drafted. GOTCHA: repo has
+       rebase.updateRefs=true — moved interval-router during the
+       spare rebase; agent restored from reflog; use -c
+       rebase.updateRefs=false in these worktrees.
+       PENDING USER DECISIONS for ship: (1) quarantine keep/drop
+       (await deg_hard_mix mechanism, track c); (2) unbudgeted
+       branch: near-unreachable in prod (RPC always sets finite
+       limit) — keep or remove; (3) intervalMaxFeePrice 420k
+       msat/nat as the de facto prod ceiling (exp-029 A_prod says
+       clamp costs ~nothing).
        (c) benchmark agent a7b0df7ce66fc0246: deg_hard_mix mechanism
        (quarantine-off 2x2 diagnosis in lnd-isim throwaway, ground-
        truth counters for wrong-channel convictions, fix-surface

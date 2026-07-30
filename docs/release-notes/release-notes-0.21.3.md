@@ -45,6 +45,14 @@
   associations, causing verification to fail and the migration transaction to
   roll back.
 
+* [Fixed a lock order inversion](https://github.com/lightningnetwork/lnd/pull/11008)
+  between `PsbtFundingVerify` and `handleFundingCancelRequest` in the wallet.
+  With PSBT or batch funding the two could deadlock the wallet's single
+  `requestHandler` goroutine, which permanently disabled all channel funding for
+  the whole node: no new channel could be opened, and channels whose funding
+  transaction confirmed stayed in the `channelReadySent` opening state forever,
+  never added to the graph and never announced. Only a restart recovered.
+
 # New Features
 
 ## Functional Enhancements
@@ -107,5 +115,6 @@
 # Contributors (Alphabetical Order)
 
 * Elle Mouton
+* LNBiG
 * Yong Yu
 * Ziggie
